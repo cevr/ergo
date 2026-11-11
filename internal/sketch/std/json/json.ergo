@@ -1,0 +1,226 @@
+// Package json writes and reads the derived codec's events as JSON text
+// (docs/spec/stdlib.md, json; types.md, Codecs; S-json). Text is a Writer
+// that writes the text, Reader reads a text Open has validated whole, and
+// Codec[T] puts them together: Encode(c, v) is v's text, Decode(c, text)
+// is the T a text writes. Decoding is two phases, as Effect's
+// Schema.parseJson and Go's encoding/json: Open checks the whole text
+// against the limits and the JSON grammar and fails Malformed (phase 1),
+// then decode[T] builds a T and fails only on its shape (phase 2), so no T
+// is built from a text that is not JSON.
+//
+// The form (owner q81): a record is an object whose keys are its field
+// names with the first letter lowered, a union value an object whose
+// "_tag" member names its variant, a Map an object in key order, a slice
+// or tuple an array. An integer is its exact digits. A float is written as
+// encoding/json writes it (JavaScript's form), and NaN and the infinities,
+// which JSON has no numbers for, as the strings "NaN", "Infinity" and
+// "-Infinity", which Float reads back (protobuf's JSON mapping). A string
+// escapes '"', '\', the control bytes and U+2028/U+2029, and writes each
+// byte of invalid UTF-8 as the lone surrogate \udcXX of the byte, which
+// Decode reads back as the byte (Python's surrogateescape), so every string
+// round-trips and a valid UTF-8 string is plain JSON text; no HTML escaping.
+// Decode skips keys it does not know, and of two members with one key the
+// last is the value (encoding/json).
+//
+// The compiler writes a Text faster than its operations do: an encode(v,
+// t) whose t is a Text appends v's bytes to the text directly, by a
+// function made for v's type (lower/wirejson.go), and the law
+// FastAgreesWithWriter holds that it writes what the Writer operations
+// write.
+
+// Malformed is the failure of a text that is not one JSON value, or is
+// longer than MaxBytes, or nests deeper than MaxDepth: Offset is the byte
+// offset where the text breaks the rule, Reason the rule.
+type Malformed { Offset int, Reason string }
+
+// Text is JSON text being written: the prelude's Writer events, and the
+// text they wrote so far.
+// law-exempt: an event's text depends on the events before it (a comma, a key), so a law over Text's own operations restates the writer; the package laws (RoundTrips, FastAgreesWithWriter) hold what it writes through encode and decode.
+type Text {
+	Bool(b bool),
+	Int(n int64),
+	Uint(n uint64),
+	Float(f float64),
+	String(s string),
+	BeginList(n int),
+	EndList(),
+	BeginObject(n int),
+	Tag(name string),
+	Key(k string),
+	EndObject(),
+	// Null writes the null event, including a Nullable's empty state.
+	Null(),
+	// Number writes a number's spelling as it is (json.Value's numbers).
+	Number(text string),
+	// Written is the text written so far.
+	Written() string,
+}
+
+// NewText is a Text with nothing written.
+extern go ergo.local/prototype/runtime/v1.NewJSONText func NewText() Text
+
+// NewHTMLText is a Text with nothing written whose strings also escape <,
+// > and & as \u003c, \u003e and \u0026, as Go's encoding/json does by
+// default, so the text is safe inside HTML.
+extern go ergo.local/prototype/runtime/v1.NewJSONHTMLText func NewHTMLText() Text
+
+// take is an empty Text from a pool; give is its text, and puts it back,
+// so nothing may use it after (Encode only).
+extern go ergo.local/prototype/runtime/v1.JSONTake func take() Text
+extern go ergo.local/prototype/runtime/v1.JSONGive func give(t Text) string
+
+// Cursor reads a validated text for Reader: each read takes the next value
+// of the innermost open list or object; Wrong says when it was not of the
+// kind asked for.
+// law-exempt: only open makes a Cursor, from a text, so a law cannot draw one; the package law RoundTrips holds its reads through Reader and decode.
+type Cursor {
+	TakeNull() bool,
+	// Kind is the next value's kind in WireKind's order (0 null to 6 end).
+	Kind() int,
+	Number() string,
+	Path() string,
+	Bool() bool,
+	Int() int64,
+	Uint() uint64,
+	Float() float64,
+	String() string,
+	BeginList() bool,
+	BeginObject() bool,
+	Tag() string,
+	// Wrong reports that the last read met a value of another kind, or
+	// for Tag an object with no "_tag".
+	Wrong() bool,
+	More() bool,
+	Key() string,
+	Skip(),
+	End(),
+}
+
+// open validates text and gives a Cursor at its start (phase 1).
+extern go ergo.local/prototype/runtime/v1.JSONOpen func open(text string, maxBytes int, maxDepth int) Cursor fails Malformed
+
+// Reader reads a JSON text for decode[T](r).
+type Reader { c Cursor }
+
+// Open validates text whole, as one JSON value, no longer than maxBytes
+// bytes (no limit when maxBytes <= 0) and nested no deeper than maxDepth
+// lists and objects (10000, encoding/json v2's limit, when maxDepth <= 0),
+// and gives a Reader at its start; a text that breaks a rule fails
+// Malformed.
+func Open(text string, maxBytes int, maxDepth int) Reader fails Malformed {
+	Reader{c: try open(text, maxBytes, maxDepth)}
+}
+
+func Path(r Reader) string { r.c.Path() }
+
+func TakeNull(r Reader) bool { r.c.TakeNull() }
+
+func Peek(r Reader) WireKind {
+	let k = r.c.Kind()
+	if k == 0 { return WireNull }
+	if k == 1 { return WireBool }
+	if k == 2 { return WireNumber }
+	if k == 3 { return WireString }
+	if k == 4 { return WireList }
+	if k == 5 { return WireObject }
+	WireEnd
+}
+
+func Number(r Reader) string fails WireWrongKind {
+	let v = r.c.Number()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "a number"}
+	}
+	v
+}
+
+func Bool(r Reader) bool fails WireWrongKind {
+	let v = r.c.Bool()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "a boolean"}
+	}
+	v
+}
+
+func Int(r Reader) int64 fails WireWrongKind {
+	let v = r.c.Int()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "an integer"}
+	}
+	v
+}
+
+func Uint(r Reader) uint64 fails WireWrongKind {
+	let v = r.c.Uint()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "an unsigned integer"}
+	}
+	v
+}
+
+func Float(r Reader) float64 fails WireWrongKind {
+	let v = r.c.Float()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "a number"}
+	}
+	v
+}
+
+func String(r Reader) string fails WireWrongKind {
+	let v = r.c.String()
+	if r.c.Wrong() {
+		return WireWrongKind{Path: r.c.Path(), Want: "a string"}
+	}
+	v
+}
+
+func BeginList(r Reader) fails WireWrongKind {
+	if !r.c.BeginList() {
+		return WireWrongKind{Path: r.c.Path(), Want: "an array"}
+	}
+}
+
+func BeginObject(r Reader) fails WireWrongKind {
+	if !r.c.BeginObject() {
+		return WireWrongKind{Path: r.c.Path(), Want: "an object"}
+	}
+}
+
+// Tag is the "_tag" member of the object just begun, wherever it stands.
+func Tag(r Reader) string fails WireMissingField {
+	let v = r.c.Tag()
+	if r.c.Wrong() {
+		return WireMissingField{Path: r.c.Path(), Field: "_tag"}
+	}
+	v
+}
+
+func More(r Reader) bool { r.c.More() }
+
+func Key(r Reader) string { r.c.Key() }
+
+func Skip(r Reader) { r.c.Skip() }
+
+func End(r Reader) { r.c.End() }
+
+// Codec is the JSON codec of T with Decode's limits: MaxBytes, the
+// longest text Decode reads (no limit when it is not positive), and
+// MaxDepth, the deepest nesting of lists and objects (10000 when it is
+// not positive). Encode has no limit: it writes the value it is given.
+type Codec[T wire] { MaxBytes int, MaxDepth int }
+
+// Encode is v's JSON text.
+// (Its Text is a pooled buffer, take and give, as encoding/json keeps its
+// encodeState: no other code sees it.)
+func Encode[T wire](c Codec[T], v T) string {
+	let t = take()
+	encode(v, t)
+	give(t)
+}
+
+// Decode is the T that text writes: Malformed when the text breaks
+// Open's rules, else the failures of decode[T] on its shape.
+func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] {
+	let r = try Open(text, c.MaxBytes, c.MaxDepth)
+	try decode[T](r)
+}

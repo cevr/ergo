@@ -1,0 +1,247 @@
+// Tree is the fs.Root of tests: a read-only tree of files, directories and
+// symbolic links in memory, below its root. A test builds one with
+// NewTree and binds `context { fs.Root: tree }`, or passes it where an
+// fs.Root is asked for, such as http.Files. Each operation resolves its
+// path as fs.Root states and as fs.HostRoot does on Linux (Go's os.Root):
+// element by element from the root, a link's target spliced in where the
+// link was, ".." removing the element before it, and Escapes for any step
+// past the root or a link whose target is absolute. lower
+// TestFSRootTreeAgreesWithHost holds that on generated trees and paths.
+// Tree differs from HostRoot in these ways only:
+//   - it never fails Denied (it keeps no mode but the two below);
+//   - a file has mode fs.Shared() (0o644) and a directory fs.SharedDir()
+//     (0o755), as the host gives under umask 022;
+//   - the Size of a directory is 0.
+//
+// Nothing is outside a Tree, so a path that would leave it has nothing to
+// find: the agreement property puts a file outside the host's root and
+// checks that no read gives its text.
+
+import filepath
+import fs
+import slices
+import strings
+
+// File is a file of a Tree at Path, relative to the root, holding Text.
+type File { Path string, Text string }
+
+// Dir is a directory of a Tree at Path.
+type Dir { Path string }
+
+// Link is a symbolic link of a Tree at Path whose target is Target, read
+// as the host reads a link: relative to the directory of Path, unless it
+// starts with "/".
+type Link { Path string, Target string }
+
+// Node is one entry of a Tree.
+type Node = File | Dir | Link
+
+// Tree is an fs.Root provider over nodes in memory, keyed by their path
+// below the root; "." is the root. NewTree is its one constructor.
+type Tree { nodes Map[string, Node] }
+
+// maxLinks is the number of links one resolution follows, os.Root's.
+func maxLinks() int { 8 }
+
+// NewTree is the Tree of nodes, each at its Path (names joined by "/",
+// with no "." or ".." element), with every directory above a node made
+// too. A later node at a path replaces an earlier one.
+func NewTree(nodes []Node) Tree {
+	let mut t = Map[string, Node]{}
+	t["."] = Dir{Path: "."}
+	for n in nodes {
+		let p = nodePath(n)
+		let names = strings.Split(p, "/")
+		let mut at = ""
+		for i, name in names {
+			if i == len(names)-1 {
+				break
+			}
+			at = if at == "" { name } else { at + "/" + name }
+			t[at] = Dir{Path: at}
+		}
+		t[p] = n
+	}
+	Tree{nodes: t}
+}
+
+// nodePath is the path of n.
+func nodePath(n Node) string {
+	match n {
+	case File as f:
+		f.Path
+	case Dir as d:
+		d.Path
+	case Link as l:
+		l.Path
+	}
+}
+
+// ReadFile is the text of the file at path below the root.
+func ReadFile(t Tree, path string) string fails fs.NotFound | fs.Denied | fs.Failed | fs.Escapes {
+	match try resolve(t, path) {
+	case File as f:
+		f.Text
+	case Dir, Link:
+		fs.Failed{Path: path, Reason: "is a directory"}
+	}
+}
+
+// ReadDir is the names of the entries of the directory at path below the
+// root, sorted by name.
+func ReadDir(t Tree, path string) []string fails fs.NotFound | fs.Denied | fs.Failed | fs.Escapes {
+	match try resolve(t, path) {
+	case Dir as d:
+		let mut names = []string{}
+		for k, _ in t.nodes {
+			if k != "." && parentOf(k) == d.Path {
+				names = names.Append(lastOf(k))
+			}
+		}
+		slices.Sort(names)
+	case File, Link:
+		fs.Failed{Path: path, Reason: "not a directory"}
+	}
+}
+
+// Stat describes the file at path below the root, after links: its Name
+// is the last element of path as it was given.
+func Stat(t Tree, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed | fs.Escapes {
+	let name = filepath.Base(path)
+	match try resolve(t, path) {
+	case File as f:
+		fs.Info{Name: name, Size: len(f.Text), Dir: false, Perm: fs.Perm(fs.Shared())}
+	case Dir, Link:
+		fs.Info{Name: name, Size: 0, Dir: true, Perm: fs.Perm(fs.SharedDir())}
+	}
+}
+
+// Name is ".": a Tree was opened at no directory of a disk.
+func Name(_ Tree) string { "." }
+
+// parentOf is the key of the directory that holds the node at key k.
+func parentOf(k string) string {
+	let i = strings.LastIndex(k, "/")
+	if i < 0 { "." } else { strings.Slice(k, 0, i) }
+}
+
+// lastOf is the last name of the key k.
+func lastOf(k string) string {
+	let i = strings.LastIndex(k, "/")
+	if i < 0 { k } else { strings.Slice(k, i+1, len(k)) }
+}
+
+// elements is a path split as os.Root splits it: the names between runs
+// of "/", "." dropped except as the last name, and whether the path ends
+// in a "/".
+type elements { Names []string, Slash bool }
+
+// split is the elements of s. joined drops a last "." too, for a link's
+// target that more names follow.
+func split(s string, joined bool) elements {
+	let raw = strings.Split(s, "/")
+	let mut names = []string{}
+	let mut last = -1
+	for i, r in raw {
+		if r != "" {
+			last = i
+		}
+	}
+	for i, r in raw {
+		if r == "" || (r == "." && i != last) {
+			continue
+		}
+		names = names.Append(r)
+	}
+	if joined && len(names) > 0 && names[len(names)-1] == "." {
+		names = slices.Slice(names, 0, len(names)-1)
+	}
+	elements{Names: names, Slash: strings.HasSuffix(s, "/")}
+}
+
+// keyOf is the key of the node the names lead to from the root: the
+// names joined, or "." for none.
+func keyOf(names []string) string {
+	let mut key = ""
+	for n in names {
+		if n == "." {
+			continue
+		}
+		key = if key == "" { n } else { key + "/" + n }
+	}
+	if key == "" { "." } else { key }
+}
+
+// resolve is the file or directory path names below the root (never a
+// Link: a link is followed), walked as os.Root walks it (Go's
+// os/root_openat.go doInRoot): ".." removes itself and the name before
+// it and the walk starts again from the root, Escapes when there is no
+// name before it; a link's target replaces the link's name; a file with
+// a name after it, or a final "/", is Failed "not a directory".
+func resolve(t Tree, path string) Node fails fs.NotFound | fs.Failed | fs.Escapes {
+	if path == "" {
+		return fs.Failed{Path: path, Reason: "empty path"}
+	}
+	if strings.HasPrefix(path, "/") {
+		return fs.Escapes{Path: path}
+	}
+	let first = split(path, false)
+	let mut names = first.Names
+	let mut slash = first.Slash
+	let mut i = 0
+	let mut links = 0
+	for {
+		if names[i] == ".." {
+			let mut end = i + 1
+			for end < len(names) && names[end] == ".." {
+				end = end + 1
+			}
+			let count = end - i
+			if count > i {
+				return fs.Escapes{Path: path}
+			}
+			names = slices.Concat(slices.Slice(names, 0, i-count), slices.Slice(names, end, len(names)))
+			if len(names) == 0 {
+				names = []string{"."}
+			}
+			i = 0
+			continue
+		}
+		let lastName = i == len(names)-1
+		match t.nodes.Get(keyOf(slices.Slice(names, 0, i+1))) {
+		case None:
+			return fs.NotFound{Path: path}
+		case Some[Node] as found:
+			match found.Value {
+			case Link as l:
+				links = links + 1
+				if links > maxLinks() {
+					return fs.Failed{Path: path, Reason: "too many levels of symbolic links"}
+				}
+				if strings.HasPrefix(l.Target, "/") {
+					return fs.Escapes{Path: path}
+				}
+				let rest = slices.Slice(names, i+1, len(names))
+				let target = split(l.Target, len(rest) > 0)
+				names = slices.Concat(slices.Concat(slices.Slice(names, 0, i), target.Names), rest)
+				if lastName && target.Slash {
+					slash = true
+				}
+				if len(names) == 0 {
+					names = []string{"."}
+				}
+				i = 0
+			case File as f:
+				if !lastName || slash {
+					return fs.Failed{Path: path, Reason: "not a directory"}
+				}
+				return f
+			case Dir:
+				if lastName {
+					return Dir{Path: keyOf(names)}
+				}
+				i = i + 1
+			}
+		}
+	}
+}

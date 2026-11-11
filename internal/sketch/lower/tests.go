@@ -689,11 +689,7 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	b.WriteString("func main() {\n")
 	b.WriteString("\t" + seed + " := " + l.helper("Seed") + "()\n")
 	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", nil, func(env string) string {
-		var s string
-		if l.hasInits() {
-			l.entryInits = true
-			s = "\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n"
-		}
+		s := l.initSlot(env)
 		return s + "\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n"
 	}) + ")\n}\n\n")
 	for _, r := range l.runLaws() {

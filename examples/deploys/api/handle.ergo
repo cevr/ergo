@@ -1,4 +1,5 @@
 import deploys/jsontext
+import json
 import deploys/deploys
 import strings
 
@@ -31,8 +32,8 @@ func Handle(r Request) Response needs deploys.Store {
 		let d = draftOf(r) catch {
 		case Unsupported as u:
 			return Problem(415, "the body is "+u.Type+", not application/json", "")
-		case jsontext.Malformed as m:
-			return Problem(400, "the body is not JSON: \(m.Reason) at byte \(m.At)", "")
+		case json.Malformed as m:
+			return Problem(400, "the body is not JSON: \(m.Reason) at byte \(m.Offset)", "")
 		case BadBody as b:
 			return Problem(422, b.Reason, b.Field)
 		}
@@ -63,7 +64,7 @@ type Unsupported { Type string }
 
 // draftOf is the draft r's body describes. A Content-Type header, when
 // there is one, is application/json, with any parameters.
-func draftOf(r Request) deploys.Draft fails Unsupported | jsontext.Malformed | BadBody {
+func draftOf(r Request) deploys.Draft fails Unsupported | json.Malformed | BadBody {
 	match HeaderOf(r.Headers, "Content-Type") {
 	case Some[string] as t:
 		let media = strings.TrimSpace(strings.Split(t.Value, ";")[0])
@@ -72,7 +73,7 @@ func draftOf(r Request) deploys.Draft fails Unsupported | jsontext.Malformed | B
 		}
 	case None:
 	}
-	try DraftOf(try jsontext.Parse(r.Body))
+	try DraftOf(r.Body)
 }
 
 // Respond is a response of status with the JSON body v.

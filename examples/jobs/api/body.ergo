@@ -1,0 +1,85 @@
+// Package api is the job queue over HTTP: the route table, the records a
+// client reads and writes as JSON, and Handle, which answers a request
+// from the Store and the Clock in the context. Handle is a plain function:
+// std http's Serve runs it for each request, and the tests call it with
+// no socket.
+
+import jobs/jobs
+import json
+import time
+
+// Draft is the body of a submit: {"name": "build", "priority": 2}. The
+// priority may be left out, and is 0 then: a key the client need not send
+// is a json.Optional field, so Absent and Present are two values and no
+// zero value stands for "not sent".
+type Draft { Name string, Priority json.Optional[int] }
+
+// View is a job as a client reads it. Ended is when the job ended, and null while
+// it is queued or running: a json.Nullable field, whose key is always
+// there, so a client tells "not ended" from a missing key.
+type View { Id int, Name string, Priority int, State string, Created string, Ended json.Nullable[string] }
+
+// Listing is the body of GET /jobs.
+type Listing { Jobs []View }
+
+// Problem is the body of a refusal.
+type Problem { Error string }
+
+// BadBody is a JSON body of the wrong shape, or one that breaks a rule of
+// a draft: Field names the member.
+type BadBody { Field string, Reason string }
+
+// MaxBody is the longest body the server reads, and the longest text the
+// draft codec reads.
+let MaxBody = 1 << 16
+
+func draftCodec() json.Codec[Draft] { json.Codec[Draft]{MaxBytes: MaxBody, MaxDepth: 4} }
+
+// Stamp is the JSON form of a time: RFC 3339, in UTC.
+func Stamp(t time.Time) string { t.Format(time.RFC3339) }
+
+// ViewOf is the JSON form of j.
+func ViewOf(j jobs.Job) View {
+	let ended json.Nullable[string] = if jobs.Ended(j.State) { json.NonNull{Value: Stamp(j.Since)} } else { json.Null }
+	View{Id: j.Id, Name: j.Name, Priority: j.Priority, State: jobs.Name(j.State), Created: Stamp(j.Created), Ended: ended}
+}
+
+// DraftOf is the draft that text describes. std json checks the text
+// whole first (Malformed), then reads the draft's shape, derived from the
+// type; a draft with an empty name is BadBody.
+func DraftOf(text string) Draft fails json.Malformed | BadBody {
+	let d = json.Decode(draftCodec(), text) catch {
+	case json.Malformed as m:
+		return m
+	case WireMissingField as m:
+		return BadBody{Field: m.Field, Reason: "is missing"}
+	case WireWrongKind as w:
+		return BadBody{Field: if w.Path == "" { "body" } else { w.Path }, Reason: "is not " + w.Want}
+	case WireUnknownTag as u:
+		return BadBody{Field: u.Path, Reason: "has no variant " + u.Tag}
+	}
+	if d.Name == "" {
+		return BadBody{Field: "name", Reason: "is empty"}
+	}
+	d
+}
+
+// DraftText is the JSON text of d, as a client writes it.
+func DraftText(d Draft) string { json.Encode(draftCodec(), d) }
+
+// ViewText, ListingText and ProblemText are the JSON texts of the bodies.
+func ViewText(v View) string { json.Encode(json.Codec[View]{MaxBytes: 0, MaxDepth: 0}, v) }
+
+func ListingText(l Listing) string { json.Encode(json.Codec[Listing]{MaxBytes: 0, MaxDepth: 0}, l) }
+
+func ProblemText(p Problem) string { json.Encode(json.Codec[Problem]{MaxBytes: 0, MaxDepth: 0}, p) }
+
+// PriorityOf is the priority a draft asks for: 0 when it sends none.
+func PriorityOf(d Draft) int {
+	match d.Priority {
+	case json.Absent:
+		0
+	case json.Present[int] as p:
+		p.Value
+	}
+}

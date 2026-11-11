@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // TestExternValuesRun is G1's property (gx-extern-values): an extern used
@@ -20,7 +21,13 @@ import (
 //     the caller's environment that the adapter captures;
 //   - slices.Transform with a std extern value (strings.ToUpper, ToLower,
 //     TrimSpace) and with a user extern value;
-//   - a fallible std extern as a value (strconv.Atoi), caught.
+//   - a fallible std extern as a value (strconv.Atoi), caught;
+//   - import go (wf10 defects D2): Go's strings.Map with a generated
+//     callback literal (the adapter), with a Go function of unicode passed
+//     as Go's own, through a local (the uniform shape, adapted back) or
+//     called through the local; a fallible Go function as a value
+//     (strconv.Atoi of import go); and a `fails go.Error` callback of
+//     flag.FlagSet.Func, whose failure Parse must report.
 //
 // The reference is Go itself: the test evaluates each callback in Go
 // (genRune.eval) and calls the Go functions on the same inputs. A failure
@@ -49,14 +56,16 @@ func TestExternValuesRun(t *testing.T) {
 		g := &externGen{r: rand.New(rand.NewPCG(seed, 0x6731)), seed: seed, n: &names}
 		for i := 0; i < 12; i++ {
 			cases = append(cases, g.mapCase(), g.transformCase(), g.atoiCase(), g.methodCase())
+			cases = append(cases, g.goMapCase(), g.goValueCase(), g.goAtoiCase(), g.goFailsCallbackCase())
 		}
 	}
 	var b strings.Builder
-	b.WriteString("import slices\nimport strings\nimport strconv\n\n")
+	b.WriteString("import slices\nimport strings\nimport strconv\nimport go gostrings strings\nimport go gostrconv strconv\nimport go unicode\nimport go flag\n\n")
 	b.WriteString("extern go strings.Map func Mapper(f func(r rune) rune, s string) string\n")
 	b.WriteString("extern go strings.ToUpper func Upper(s string) string\n\n")
 	b.WriteString("type Shift { Next(r rune) rune }\n\ntype One {}\n\nfunc Next(o One, r rune) rune { r + 1 }\n\n")
-	b.WriteString("func main() needs Console {\n\tlet shift Shift = One\n")
+	b.WriteString("func parsed(fs go.Ref[flag.FlagSet], args []string) string needs go.Foreign {\n\tfs.Parse(args) catch {\n\tcase go.Error:\n\t\treturn \"failed\"\n\t}\n\t\"ok\"\n}\n\n")
+	b.WriteString("func main() needs Console | go.Foreign {\n\tlet shift Shift = One\n")
 	for i, c := range cases {
 		fmt.Fprintf(&b, "\t// case %d (seed %d)\n%s", i, c.seed, c.ergo)
 	}
@@ -213,4 +222,83 @@ func (g *externGen) atoiCase() externCase {
 		n = -1
 	}
 	return externCase{seed: g.seed, ergo: ergo, want: strconv.Itoa(n)}
+}
+
+// goMapCase is mapCase through Go's strings.Map of import go: the
+// generated literal reaches Go through the callback adapter.
+func (g *externGen) goMapCase() externCase {
+	c := g.mapCase()
+	c.ergo = strings.Replace(c.ergo, "Console.Println(Mapper(", "Console.Println(gostrings.Map(", 1)
+	return c
+}
+
+// goValueCase passes a Go function of unicode to Go's strings.Map: as
+// Go's own, through a local bound to it, or called through that local
+// inside a literal.
+func (g *externGen) goValueCase() externCase {
+	fns := []struct {
+		name string
+		goFn func(rune) rune
+	}{
+		{"ToUpper", unicode.ToUpper},
+		{"ToLower", unicode.ToLower},
+		{"ToTitle", unicode.ToTitle},
+	}
+	f := fns[g.r.IntN(len(fns))]
+	s := strconv.Quote(g.text())
+	want := strings.Map(f.goFn, mustUnquote(s))
+	*g.n++
+	v := fmt.Sprintf("rf%d", *g.n)
+	var ergo string
+	switch g.r.IntN(3) {
+	case 0:
+		ergo = fmt.Sprintf("\tConsole.Println(gostrings.Map(unicode.%s, %s))\n", f.name, s)
+	case 1:
+		ergo = fmt.Sprintf("\tlet %s = unicode.%s\n\tConsole.Println(gostrings.Map(%s, %s))\n", v, f.name, v, s)
+	default:
+		ergo = fmt.Sprintf("\tlet %s = unicode.%s\n\tConsole.Println(gostrings.Map(func(r rune) rune { %s(r) }, %s))\n", v, f.name, v, s)
+	}
+	return externCase{seed: g.seed, ergo: ergo, want: want}
+}
+
+func mustUnquote(s string) string {
+	u, err := strconv.Unquote(s)
+	if err != nil {
+		panic(err)
+	}
+	return u
+}
+
+// goAtoiCase is atoiCase with Go's strconv.Atoi of import go as the value.
+func (g *externGen) goAtoiCase() externCase {
+	c := g.atoiCase()
+	c.ergo = strings.Replace(c.ergo, "= strconv.Atoi\n", "= gostrconv.Atoi\n", 1)
+	return c
+}
+
+// goFailsCallbackCase gives flag.FlagSet.Func a `fails go.Error` literal
+// over Go's strconv.Atoi: Parse reports the literal's failure, so the case
+// prints whether the adapter passed it on.
+func (g *externGen) goFailsCallbackCase() externCase {
+	inputs := []string{"0", "42", "x", "", "1e3"}
+	s := inputs[g.r.IntN(len(inputs))]
+	*g.n++
+	n := *g.n
+	ergo := fmt.Sprintf(`	let fs%[1]d = match flag.NewFlagSet("f%[1]d", flag.ContinueOnError) {
+	case Some as s:
+		s.Value
+	case None:
+		return
+	}
+	fs%[1]d.Func("n", "", func(s string) fails go.Error {
+		let k = try gostrconv.Atoi(s)
+		_ = k
+	})
+	Console.Println(parsed(fs%[1]d, []string{"-n", %[2]s}))
+`, n, strconv.Quote(s))
+	want := "ok"
+	if _, err := strconv.Atoi(s); err != nil {
+		want = "failed"
+	}
+	return externCase{seed: g.seed, ergo: ergo, want: want}
 }

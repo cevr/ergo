@@ -1,0 +1,111 @@
+import time
+
+// Stale is a swap or a removal whose old job is not the one the store
+// holds: another request changed it first. Cancel and Remove read again.
+type Stale { Id int }
+
+// Store is the contract of a store of jobs. Package memory keeps them in
+// a map; a server binds it in a context. The store keeps a job as it was
+// last written; Settle moves it on the Clock when it is read. Swap and
+// Remove compare the job they are given with the one they hold, so two
+// requests that change one job at once never lose a change.
+type Store {
+	// Add keeps a new queued job and gives it the next id: 1, 2, 3, ...
+	Add(name string, priority int, at time.Time) Job,
+	// Get is the job of id, as it was last written.
+	Get(id int) Job fails NotFound,
+	// All is every job, by ascending id.
+	All() []Job,
+	// Swap keeps next in place of old, when old is the job the store holds
+	// under old.Id. next keeps old's id.
+	Swap(old Job, next Job) fails NotFound | Stale,
+	// Remove forgets old, when old is the job the store holds.
+	Remove(old Job) fails NotFound | Stale,
+
+	// AddIsQueued: an added job is queued since its time, under a new id,
+	// and Get gives it back.
+	law AddIsQueued(name string, priority int, sec int64) {
+		let at = time.Unix(sec%4000000000, 0)
+		let first = Add("first", 0, at)
+		let j = Add(name, priority, at)
+		j.Id != first.Id && j.Name == name && j.Priority == priority && j.State == Queued && j.Since == at && j.Created == at && (try Get(j.Id)) == j
+	},
+
+	// AllByAscendingId: All lists every job once, by ascending id.
+	law AllByAscendingId(names []string) {
+		for n in names {
+			let _ = Add(n, 0, time.Unix(0, 0))
+		}
+		let all = All()
+		if len(all) != len(names) {
+			return false
+		}
+		for i, j in all {
+			if j.Name != names[i] || (i > 0 && all[i-1].Id >= j.Id) {
+				return false
+			}
+		}
+		true
+	},
+
+	// SwapFromCurrent: a swap from the job the store holds keeps next,
+	// under old's id.
+	law SwapFromCurrent(name string, priority int) {
+		let j = Add(name, 0, time.Unix(0, 0))
+		let next = Job{..j, Id: j.Id + 1, Priority: priority, State: Cancelled}
+		try Swap(j, next)
+		(try Get(j.Id)) == Job{..next, Id: j.Id}
+	},
+
+	// StaleSwapChangesNothing: a swap or a removal from a job the store no
+	// longer holds fails Stale and keeps the job that is there.
+	law StaleSwapChangesNothing(name string) {
+		let j = Add(name, 0, time.Unix(0, 0))
+		let first = Job{..j, State: Running}
+		try Swap(j, first)
+		Swap(j, Job{..j, State: Cancelled}) catch {
+		case Stale as s:
+			if s.Id != j.Id {
+				return false
+			}
+			Remove(j) catch {
+			case Stale:
+				return (try Get(j.Id)) == first
+			case NotFound:
+				return false
+			}
+			return false
+		case NotFound:
+			return false
+		}
+		false
+	},
+
+	// RemoveForgets: a removed job is not found, by Get, Swap or Remove,
+	// and the other jobs stay.
+	law RemoveForgets(name string) {
+		let other = Add("other", 0, time.Unix(0, 0))
+		let j = Add(name, 0, time.Unix(0, 0))
+		try Remove(j)
+		let _ = Get(j.Id) catch {
+		case NotFound as n:
+			if n.Id != j.Id {
+				return false
+			}
+			Swap(j, j) catch {
+			case NotFound:
+				Remove(j) catch {
+				case NotFound:
+					return (try Get(other.Id)) == other && len(All()) == 1
+				case Stale:
+					return false
+				}
+				return false
+			case Stale:
+				return false
+			}
+			return false
+		}
+		false
+	},
+}

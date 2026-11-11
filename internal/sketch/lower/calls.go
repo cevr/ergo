@@ -698,11 +698,22 @@ func (fc *funcCtx) envExpr(site syntax.Node) string {
 // function's come from Go's inference on the closure's typed parameters,
 // so every type-kinded parameter must appear in a parameter type.
 func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst *check.Instance) string {
-	fd := fc.l.useFunc(f, site)
 	sig, ok := t.(*check.Signature)
 	if !ok {
 		ice(site, "the function %s used as a value has no function type", f.Name)
 	}
+	if f.Pkg.Host() {
+		// A Go function of import go (wf10 D2): passed to a Go function
+		// parameter it is Go's own function, as hand Go passes
+		// sha256.New; elsewhere a literal of the uniform shape that calls
+		// it, as a user extern's (check.GoDirectSig admits only a type
+		// whose Go form needs no conversion).
+		if fc.goDirect[site] {
+			return fc.hostTarget(site, f)
+		}
+		return fc.hostValue(f, sig, site)
+	}
+	fd := fc.l.useFunc(f, site)
 	// An extern with no Go function of its own (a user extern's target, a
 	// std body of runtime/v1) is a value through a literal of the uniform
 	// shape that calls it (G1; the checker admits only externs whose call

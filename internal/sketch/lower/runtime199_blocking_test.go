@@ -47,7 +47,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.listedRun":       "a listed law or property case's task, which the case's Capture classifies its unwinding against (MU6b, mu6c)",
 			"lowerer.reachRuns":       "a reachability law's task, which its case's Capture classifies its unwinding against (MU6)",
 			"lowerer.wireFunc":        "a codec function's Writer or Reader calls, through the prelude operation type's Go interface (L11)",
-			"typeCtx.wireEncode":      "an inline codec event on the Writer interface (L11)",
+			"typeCtx.wireEncodeWith":  "an inline codec event on the Writer interface (L11) or a JSON append (S-json)",
 			"typeCtx.wireDecode":      "an inline codec read on the Reader interface (L11)",
 			"typeCtx.wireKind":        "the Reader's Path for a WireWrongKind (L11)",
 		}},
@@ -230,6 +230,8 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// IG6: a callback's failure handed to Go, and the call's error
 		// untunnelled; neither waits nor releases.
 		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
+		// S-json: the fast path appends a string to a json Text; no wait.
+		"JSONAppendTextString": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

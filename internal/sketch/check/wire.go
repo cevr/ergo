@@ -7,7 +7,7 @@ import (
 )
 
 // Codecs (types.md, Codecs; L11 design). A type has a wire form when the
-// predeclared constraint codable admits it (spelled once, SetWire.String(); the owner keeps wire an ordinary identifier, 196w): the checker decides it from the
+// predeclared constraint wire admits it (owner q83; spelled once, SetWire.String(); predeclared as comparable is, so a declaration named wire shadows it and 196w's rule that wire is an ordinary identifier holds): the checker decides it from the
 // type's structure, as comparable, and the predeclared encode and decode
 // (step 2) walk that same structure. One rule, wireReason, owns the
 // decision; the constraint, encode, decode and the lowering read it.
@@ -18,7 +18,7 @@ import (
 // unexported field: a codec never builds such a record field by field,
 // decisions 2026-11-03 (a)), a union whose variants are wire, a slice, a
 // Map with string keys, a tuple of wire types, and a type parameter whose
-// constraint is codable. A function, an operation type, a pointer, a
+// constraint is wire. A function, an operation type, a pointer, a
 // duration, a complex and uintptr are not.
 //
 // Prior art: Rust serde and Roc derive per type over a format's event
@@ -33,9 +33,9 @@ func (c *checker) wireReason(t Type) string {
 		return ""
 	}
 	if path == "" {
-		return fmt.Sprintf("%s is not "+SetWire.String()+": it %s (types.md, Codecs 1)", t, bad.why)
+		return fmt.Sprintf("%s does not satisfy "+SetWire.String()+": it %s (types.md, Codecs 1)", t, bad.why)
 	}
-	return fmt.Sprintf("%s is not "+SetWire.String()+": its part %s%s, of type %s, %s (types.md, Codecs 1)", t, typeBaseName(t), path, bad.typ, bad.why)
+	return fmt.Sprintf("%s does not satisfy "+SetWire.String()+": its part %s%s, of type %s, %s (types.md, Codecs 1)", t, typeBaseName(t), path, bad.typ, bad.why)
 }
 
 // wireFault is the part of a type that has no wire form, and why.
@@ -52,14 +52,14 @@ func (c *checker) wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
 		if typeSet(tp) == SetWire {
 			return "", nil
 		}
-		return "", &wireFault{t, "is a type parameter without the codable constraint"}
+		return "", &wireFault{t, "is a type parameter without the wire constraint"}
 	}
 	if RefinementOf(t) != nil {
 		return "", nil
 	}
 	if p := c.wirePair(t); p != nil {
 		if _, bad := c.wireWalk(p.Base, seen); bad != nil {
-			return "", &wireFault{t, fmt.Sprintf("has the wire form %s, which is not "+SetWire.String(), p.Base)}
+			return "", &wireFault{t, fmt.Sprintf("has the wire form %s, which does not satisfy "+SetWire.String(), p.Base)}
 		}
 		return "", nil
 	}

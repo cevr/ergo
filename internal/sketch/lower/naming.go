@@ -103,6 +103,9 @@ func (l *lowerer) nameAll() {
 			}
 		})
 	}
+	// A std package's lets, which its bodies and the program read (wf10
+	// defects D3): all named, each lowered where a body reaches it (D6).
+	l.eachStdLet(l.nameStdLet)
 	// A std package's named contexts have no source in the program; the
 	// builders of those a with of the program names are std bodies,
 	// named here by package, then context name (lower-gaps G2, batch 11).
@@ -194,7 +197,7 @@ func (l *lowerer) nameAll() {
 		}
 		for _, tn := range l.canon.types(p) {
 			named, ok := tn.Type.(*check.Named)
-			if !ok || !l.errorType(named, l.buildView()) || tn.Decl == nil {
+			if !ok || !l.errorType(named) || tn.Decl == nil {
 				continue
 			}
 			for _, root := range l.textRoots(named) {

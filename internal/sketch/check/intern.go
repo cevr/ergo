@@ -88,7 +88,7 @@ const (
 	vFresh         // a type identical only to itself: a union, a machine
 	vVar           // a row variable (class F)
 	vRowValue      // a row value: its row's set (q47)
-	vWired         // wired[T]: the decode row of a codable type parameter
+	vWired         // wired[T]: the decode row of a wire type parameter
 )
 
 // maxSize saturates node counts: a type that shares subterms can have a

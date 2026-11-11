@@ -244,14 +244,140 @@ func (l *lowerer) sourcedLibs() []*check.Package {
 			todo = append(todo, p)
 		}
 	}
+	l.initPkgs = importOrder(todo)
+	return l.initPkgs
+}
+
+// stdLetPkgs are the reached std packages that declare a top-level let,
+// in initialization order (importOrder). A std package imports no user
+// package, so each initializes before every sourced package (wf10 D3).
+func (l *lowerer) stdLetPkgs() []*check.Package {
+	if l.stdInits != nil {
+		return *l.stdInits
+	}
+	var todo []*check.Package
+	for _, p := range l.libraries() {
+		if !p.Std() || l.isSourced(p) {
+			continue
+		}
+		lets := false
+		for _, f := range p.Files() {
+			for _, d := range f.Decls {
+				if _, ok := d.(*syntax.VarDecl); ok {
+					lets = true
+				}
+			}
+		}
+		if lets {
+			todo = append(todo, p)
+		}
+	}
+	out := importOrder(todo)
+	l.stdInits = &out
+	return out
+}
+
+// stdLet is a top-level let declaration of a std package.
+type stdLet struct {
+	pkg  *check.Package
+	decl *syntax.VarDecl
+}
+
+// eachStdLet runs f on each top-level let of the std packages with lets,
+// in initialization order, each in its package (inStdPkg): the naming
+// pass names them all (wf10 defects D3).
+func (l *lowerer) eachStdLet(f func(stdLet)) {
+	for _, p := range l.stdLetPkgs() {
+		for _, file := range p.Files() {
+			for _, d := range file.Decls {
+				if d, ok := d.(*syntax.VarDecl); ok {
+					l.inStdPkg(p, func() { f(stdLet{p, d}) })
+				}
+			}
+		}
+	}
+}
+
+// inStdPkg runs f guarded, with p's Info and stdLets set.
+func (l *lowerer) inStdPkg(p *check.Package, f func()) {
+	l.guard(func() {
+		saved, savedStd := l.info, l.stdLets
+		l.info, l.stdLets = p.Info, true
+		defer func() { l.info, l.stdLets = saved, savedStd }()
+		f()
+	})
+}
+
+// nameStdLet names the variables of the std let s and records s as theirs.
+func (l *lowerer) nameStdLet(s stdLet) {
+	l.declareName(s.decl)
+	if l.stdLetOf == nil {
+		l.stdLetOf = map[*check.Var]stdLet{}
+	}
+	for _, spec := range s.decl.Specs {
+		for _, id := range spec.Names {
+			if v, ok := l.info.Defs[id].(*check.Var); ok {
+				l.stdLetOf[v] = s
+			}
+		}
+		if spec.Pattern != nil {
+			for _, v := range patternVars(l.info.Patterns[spec.Pattern], nil) {
+				l.stdLetOf[v] = s
+			}
+		}
+	}
+}
+
+// reachStdLet notes that a lowered body reads v. A std let is lowered as
+// a std function is, where a body of the build reaches it, and not with
+// its package (wf10 defects D6): so a let that only std's laws read, such
+// as flag's lawText, is neither declared nor initialized in a program
+// whose build runs no such law. The first read of each std let queues its
+// declaration; initOrder keeps Go's order whatever the order of reads.
+func (l *lowerer) reachStdLet(v *check.Var) {
+	s, ok := l.stdLetOf[v]
+	if !ok || l.stdLetQueued[s.decl] {
+		return
+	}
+	if l.stdLetQueued == nil {
+		l.stdLetQueued = map[*syntax.VarDecl]bool{}
+	}
+	l.stdLetQueued[s.decl] = true
+	l.pending = append(l.pending, func() {
+		l.inStdPkg(s.pkg, func() {
+			l.stdLetInits++
+			l.packageLet(s.decl)
+		})
+	})
+}
+
+// importOrder orders todo for initialization: each package after every
+// package of todo it imports, directly or through other packages, else in
+// path order (Go 1.21).
+func importOrder(todo []*check.Package) []*check.Package {
+	todo = slices.Clone(todo)
 	sort.Slice(todo, func(i, j int) bool { return todo[i].Path < todo[j].Path })
 	deps := map[*check.Package][]*check.Package{}
 	for _, p := range todo {
-		for _, o := range p.Info.Uses {
-			if pn, ok := o.(*check.PkgName); ok && l.isSourced(pn.Pkg) && pn.Pkg != p && !slices.Contains(deps[p], pn.Pkg) {
-				deps[p] = append(deps[p], pn.Pkg)
+		seen := map[*check.Package]bool{p: true}
+		var walk func(q *check.Package)
+		walk = func(q *check.Package) {
+			if q.Info == nil {
+				return // a Go package of import go
+			}
+			for _, o := range q.Info.Uses {
+				pn, ok := o.(*check.PkgName)
+				if !ok || seen[pn.Pkg] {
+					continue
+				}
+				seen[pn.Pkg] = true
+				if slices.Contains(todo, pn.Pkg) {
+					deps[p] = append(deps[p], pn.Pkg)
+				}
+				walk(pn.Pkg)
 			}
 		}
+		walk(p)
 	}
 	done := map[*check.Package]bool{}
 	out := []*check.Package{}
@@ -278,7 +404,6 @@ func (l *lowerer) sourcedLibs() []*check.Package {
 			break // an import cycle, which the checker refuses
 		}
 	}
-	l.initPkgs = out
 	return out
 }
 

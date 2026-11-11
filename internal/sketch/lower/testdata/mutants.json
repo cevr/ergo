@@ -1,6 +1,7 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"b16b-library-init-before-std-reach","origin":"batch-16b D6 + IG11 integration","file":"internal/sketch/lower/module.go","from":"\t\tl.drainPending() // Reach std lets before the Go library's initOnce.","to":"\t\t// mutant: write initOnce before reaching the std lets","rule":"Go-library initOnce is written after queued std bodies have reached their lets, before any exported call runs.","killers":["lower:TestStdPackageLet"]},
     {"name":"po1-lower-binding-unregistered","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, v := range plan.Bindings {","to":"for _, v := range plan.Bindings[:0] {","rule":"A selected arm registers each owned binding before running its body.","killers":["lower:TestDropGlueModel"]},
     {"name":"po1-lower-subject-kept","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, source := range plan.Sources {","to":"for _, source := range plan.Sources[:0] {","rule":"A consuming arm removes its subject's old release entry.","killers":["lower:TestDropGlueModel"]},
     {"name":"po1-match-scope-unreleased","origin":"batch-16a PO1","file":"internal/sketch/lower/body.go","from":"return fc.scoped(s, func() bool { return fc.typeMatchBody(s, d) })","to":"return fc.typeMatchBody(s, d)","rule":"A temporary subject not consumed by the selected arm releases at match end, before the next statement.","killers":["lower:TestDropGlueModel"]},
@@ -32,6 +33,204 @@
       "rule": "Record magnitude after narrowing, so a smaller integer width shrinks by value rather than wrapping.",
       "killers": ["lower:TestIntegerShrinksReachBoundary"],
       "anchor": {"text": "Replace(harnessGo + harnessReachGo)"}
+    },
+    {
+      "name": "http-imports-fstest",
+      "origin": "wf10 G1f r2",
+      "file": "internal/sketch/std/http/laws.ergo",
+      "from": "import sync",
+      "to": "import sync\nimport fstest\nfunc unexpectedTestDependency() fstest.Tree { fstest.NewTree([]fstest.Node{}) }",
+      "rule": "A production http import does not depend on fstest, even through law helpers.",
+      "killers": ["lower:TestHTTPHasNoTestProviderDependency"]
+    },
+    {
+      "name": "root-host-joins",
+      "origin": "wf10 G1f",
+      "file": "runtime/v1/host.go",
+      "from": "data, err := root.ReadFile(path)",
+      "to": "data, err := os.ReadFile(filepath.Join(r.root.Name(), path))",
+      "rule": "HostRoot reads through os.Root, so a link or a .. never leads outside the root.",
+      "killers": ["lower:TestFSRootTreeAgreesWithHost"]
+    },
+    {
+      "name": "root-host-escape-failed",
+      "origin": "wf10 G1f",
+      "file": "runtime/v1/host.go",
+      "from": "if errors.As(err, &pe) && pe.Err.Error() == rootErrEscapes {",
+      "to": "if false && errors.As(err, &pe) && pe.Err.Error() == rootErrEscapes {",
+      "rule": "A step out of the root is fs.Escapes, never Failed.",
+      "killers": ["lower:TestFSRootTreeAgreesWithHost"]
+    },
+    {
+      "name": "root-tree-absolute-target",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/fstest/tree.ergo",
+      "from": "if strings.HasPrefix(l.Target, \"/\") {",
+      "to": "if false {",
+      "rule": "A Tree link with an absolute target escapes, as os.Root's does.",
+      "killers": ["lower:TestFSRootTreeAgreesWithHost"]
+    },
+    {
+      "name": "root-tree-dotdot-past-root",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/fstest/tree.ergo",
+      "from": "if count > i {\n\t\t\t\treturn fs.Escapes{Path: path}",
+      "to": "if count > i {\n\t\t\t\treturn fs.NotFound{Path: path}",
+      "rule": "A .. with no element before it is Escapes in the Tree, as on the host.",
+      "killers": ["lower:TestFSRootTreeAgreesWithHost"]
+    },
+    {
+      "name": "files-dotdot-read",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/http/files.ergo",
+      "from": "\t\t\treturn refused",
+      "to": "\t\t\tcontinue",
+      "rule": "Files refuses a .. element before any read.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "files-prefix-ignored",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/http/files.ergo",
+      "from": "if !strings.HasPrefix(path, prefix) {",
+      "to": "if false {",
+      "rule": "A path without the prefix is not served and reaches no read.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "files-escape-404",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/http/files.ergo",
+      "from": "case fs.Denied, fs.Escapes:\n\t\t\treturn refusal(403)",
+      "to": "case fs.Denied, fs.Escapes:\n\t\t\treturn refusal(404)",
+      "rule": "A name the root refuses is 403, by the one 403/404 rule.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "files-empty-content-type",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/http/files.ergo",
+      "from": "if text == \"\" {",
+      "to": "if false {",
+      "rule": "An empty file has no Content-Type.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "files-extension-case",
+      "origin": "wf10 G1f",
+      "file": "internal/sketch/std/http/files.ergo",
+      "from": "let ext = strings.ToLower(filepath.Ext(name))",
+      "to": "let ext = filepath.Ext(name)",
+      "rule": "ContentType ignores the case of the extension.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "http-serve-row",
+      "origin": "wf10 G1",
+      "file": "internal/sketch/std/http/http.ergo",
+      "from": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R) fails InvalidLimits needs R",
+      "to": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R) fails InvalidLimits",
+      "rule": "The function handler's capability row reaches the serving caller.",
+      "killers": ["lower:TestHTTPHandlerRows"]
+    },
+    {
+      "name": "http-route-parameters",
+      "origin": "wf10 G1",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "params[strings.TrimPrefix(part, \":\")] = got[i]",
+      "to": "params[strings.TrimPrefix(part, \":\")] = \"wrong\"",
+      "rule": "A path built from a route and parameter values recovers those values.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "http-head-fallback",
+      "origin": "wf10 G1",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "if method == \"HEAD\"",
+      "to": "if method == \"NEVER\"",
+      "rule": "HEAD uses a GET route only when no explicit HEAD route matches.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "http-header-case",
+      "origin": "wf10 G1",
+      "file": "internal/sketch/std/http/http.ergo",
+      "from": "strings.EqualFold(f.Name, name)",
+      "to": "strings.Compare(f.Name, name) == 0",
+      "rule": "Header lookup ignores case and preserves absence.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "g3-omit",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "optional := jsonWrapper(ft, \"Optional\")",
+      "to": "optional := false",
+      "rule": "Absent fields write no key and Present writes its bare value.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-null",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "appendConst(w, \"null\")",
+      "to": "appendConst(w, \"false\")",
+      "rule": "Nullable's empty state writes null, not false.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-comma",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "em.key(key, false, task, w)",
+      "to": "em.key(key, true, task, w)",
+      "rule": "Present fields after another field need a comma even when an earlier field was omitted.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-required",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "if jsonWrapper(f.Type, \"Optional\") {",
+      "to": "if jsonWrapper(f.Type, \"Optional\") || jsonWrapper(f.Type, \"Nullable\") {",
+      "rule": "A Nullable field still requires its key; null is not absence.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-generic-witness",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "if !jsonWrapper(t, \"Optional\") {",
+      "to": "if true {",
+      "rule": "A json.Optional argument's witness carries the record-field form, so a field typed by a type parameter omits Absent.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g3-generic-payload",
+      "origin": "G3",
+      "file": "internal/sketch/lower/wirefields.go",
+      "from": "f.wires[tp] = wit + \".Field\"",
+      "to": "f.wires[tp] = wit",
+      "rule": "A present Optional argument in a type-parameter field writes and reads its bare payload, not the tagged union.",
+      "killers": ["lower:TestJSONFieldsAgree"]
+    },
+    {
+      "name": "g4-members",
+      "origin": "G4",
+      "file": "internal/sketch/lower/wirevalue.go",
+      "from": "b.WriteString(out + \" = append(\" + out + \", \"",
+      "to": "b.WriteString(out + \" = append(\" + out + \"[:0], \"",
+      "rule": "json.Value keeps every member of an object in order, a repeated key included; it keeps no last-wins map.",
+      "killers": ["lower:TestJSONValueAgrees"]
+    },
+    {
+      "name": "g4-number",
+      "origin": "G4",
+      "file": "internal/sketch/lower/wirevalue.go",
+      "from": "return w + \".B = append(\" + w + \".B, \" + f + \"...)\\n\"",
+      "to": "return w + \".B = append(\" + w + \".B, \" + f + \"[:1]...)\\n\"",
+      "rule": "A json.Num writes its whole spelling as it was read.",
+      "killers": ["lower:TestJSONValueAgrees"]
     },
     {
       "name": "existing-2-unit-h",
@@ -849,8 +1048,8 @@
       "name": "own-lower-0-drop-continue-naming.go:154",
       "origin": "test-speed plan, own sample (gen.ts 20 11)",
       "file": "internal/sketch/lower/naming.go",
-      "from": "\t\t\tif !ok || !l.errorType(named, l.buildView()) || tn.Decl == nil {\n\t\t\t\tcontinue\n\t\t\t}",
-      "to": "\t\t\tif !ok || !l.errorType(named, l.buildView()) || tn.Decl == nil {\n\t\t\t\t_ = 0\n\t\t\t}",
+      "from": "\t\t\tif !ok || !l.errorType(named) || tn.Decl == nil {\n\t\t\t\tcontinue\n\t\t\t}",
+      "to": "\t\t\tif !ok || !l.errorType(named) || tn.Decl == nil {\n\t\t\t\t_ = 0\n\t\t\t}",
       "rule": "nameAll: nameAll is the naming pass.",
       "killers": [
         "lower:TestLawFactsStayOut"
@@ -1549,11 +1748,11 @@
       "name": "l11-l1",
       "origin": "wf10 v1-lang-B L11",
       "file": "internal/sketch/lower/wire.go",
-      "from": "b.WriteString(\"if !\" + seen[i] + \" {\\nreturn \"",
-      "to": "b.WriteString(\"if false && !\" + seen[i] + \" {\\nreturn \"",
+      "from": "b.WriteString(\"if !\" + seen[i] + \" {\\n\" + missing + \"}\\n\")",
+      "to": "b.WriteString(\"if false && !\" + seen[i] + \" {\\n\" + missing + \"}\\n\")",
       "rule": "types.md, Codecs 3: a field the object lacks fails WireMissingField.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -1564,18 +1763,18 @@
       "to": "b.WriteString(\"}\\nreturn \" + zero + \", \" + tc.wireFailure(check.WireMissingName",
       "rule": "types.md, Codecs 3: a tag no variant has fails WireUnknownTag.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
       "name": "l11-l3",
       "origin": "wf10 v1-lang-B L11",
       "file": "internal/sketch/lower/wire.go",
-      "from": "\t\t\tb.WriteString(w + \".Tag(\" + task + \", \" + strconv.Quote(vn.Obj.Name) + \")\\n\")",
-      "to": "\t\t\t_ = vn",
+      "from": "b.WriteString(em.tag(vn.Obj.Name, task, w))",
+      "to": "_ = vn",
       "rule": "types.md, Codecs 2: a union value writes its variant's Tag first.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -1586,7 +1785,7 @@
       "to": "\tif parse := check.RefinedParse(t); parse != nil {\n\t\traw := scope.alloc(\"raw\")\n\t\tb.WriteString(tc.wireDecode(parse.Sig.Params[0].Type, env, r, raw, zero, scope) + \"return \" + tc.goType(t) + \"(\" + raw + \"), nil\\n\")\n\t\treturn\n\t}\n\tif parse := check.RefinedParse(t); parse != nil {",
       "rule": "types.md, Codecs 1: a refined value decodes through its ParseN.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -1608,18 +1807,18 @@
       "to": "\tif p := l.info.WirePairOf(t); p != nil && false {\n\t\tparsed(p.Base, p.Parse)",
       "rule": "types.md, Codecs 1: a by-name pair decodes through ParseX.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
       "name": "l11b-l1",
       "origin": "wf10 v1-lang-B L11b",
       "file": "internal/sketch/lower/wire.go",
-      "from": "\t\t\t\tif isCodable(tp) && i < len(inst.TypeArgs) {",
-      "to": "\t\t\t\tif false && isCodable(tp) && i < len(inst.TypeArgs) {",
-      "rule": "types.md, Codecs 6: a codable argument's codec functions are named in the naming pass.",
+      "from": "\t\t\t\tif isWireParam(tp) && i < len(inst.TypeArgs) {",
+      "to": "\t\t\t\tif false && isWireParam(tp) && i < len(inst.TypeArgs) {",
+      "rule": "types.md, Codecs 6: a wire argument's codec functions are named in the naming pass.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -1630,7 +1829,7 @@
       "to": "\t\t_ = tp",
       "rule": "types.md, Codecs 6: a generic codec function takes each type parameter's witness.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -1639,9 +1838,210 @@
       "file": "internal/sketch/lower/witness.go",
       "from": "it != nil && (len(it.Methods) > 0 || it.Set == check.SetWire)",
       "to": "it != nil && len(it.Methods) > 0",
-      "rule": "types.md, Codecs 6: a codable type parameter takes its codec as a witness.",
+      "rule": "types.md, Codecs 6: a wire type parameter takes its codec as a witness.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l1",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wirejson.go",
+      "from": "\tif first {\n\t\treturn appendConst(w, quotedKey(name))",
+      "to": "\tif !first {\n\t\treturn appendConst(w, quotedKey(name))",
+      "rule": "stdlib.md, json 4: the fast path writes a record's commas as the Writer path does.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l2",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wirejson.go",
+      "from": "\treturn \"if \" + i + \" > 0 {\\n\" + w + \".B = append(\" + w + \".B, ',')\\n}\\n\"",
+      "to": "\treturn \"\"",
+      "rule": "stdlib.md, json 4: the fast path writes the commas of a list and a Map.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l3",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wirejson.go",
+      "from": "\tif i == 0 {\n\t\treturn \"\"\n\t}",
+      "to": "\tif i >= 0 {\n\t\treturn \"\"\n\t}",
+      "rule": "stdlib.md, json 4: the fast path writes a tuple's commas.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l4",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wirejson.go",
+      "from": "\treturn appendConst(w, quotedKey(\"_tag\")+string(v1.JSONAppendString(nil, name)))",
+      "to": "\treturn appendConst(w, quotedKey(\"tag\")+string(v1.JSONAppendString(nil, name)))",
+      "rule": "stdlib.md, json 1: a union's tag is the member _tag on both paths.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l5",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\t\tfc.line(t + \".JSONValue()\")",
+      "to": "\t\t\t_ = t",
+      "rule": "stdlib.md, json 4: an encode on a Text writes the comma its state asks for.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l6",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\t\t\tfc.line(t + \".Comma = true\")",
+      "to": "\t\t\t_ = t",
+      "rule": "stdlib.md, json 4: an encode on a Text marks its value written.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "sj-l7",
+      "origin": "wf10 v1-lang-B S-json",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\tfast := \"nil\"\n\tif wireFast() {",
+      "to": "\tfast := \"nil\"\n\tif false {",
+      "rule": "stdlib.md, json 4: a codec witness carries the fast function in a fast build.",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "d1-body-reads-root-view",
+      "origin": "wf10 defects D1",
+      "file": "internal/sketch/lower/owners.go",
+      "from": "\tif l.info == l.pkg.Info {\n\t\treturn l.pkg",
+      "to": "\tif true || l.info == l.pkg.Info {\n\t\treturn l.pkg",
+      "rule": "types.md, Error types 1: a return in a library body reads that package's error types, not the root's.",
+      "killers": [
+        "examples:jobs"
+      ]
+    },
+    {
+      "name": "d1-body-reads-every-view",
+      "origin": "wf10 defects D1",
+      "file": "internal/sketch/lower/types.go",
+      "from": "\treturn ok && errorTypeIn(p, n, o)",
+      "to": "\treturn ok && l.errorType(n)",
+      "rule": "types.md, Error types 1: a row of one package does not make another package's tail value a failure (http.Match returns http.NotFound as a value).",
+      "killers": [
+        "examples:jobs"
+      ]
+    },
+    {
+      "name": "d1-shape-reads-root-only",
+      "origin": "wf10 defects D1",
+      "file": "internal/sketch/lower/owners.go",
+      "from": "\tfor _, p := range l.libraries() {\n\t\tif errorTypeIn(p, named, l.viewOf(p)) {",
+      "to": "\tfor _, p := range l.libraries()[:0] {\n\t\tif errorTypeIn(p, named, l.viewOf(p)) {",
+      "rule": "A type that a library's row names gets its Error method: the packages share one Go package.",
+      "killers": [
+        "examples:jobs"
+      ]
+    },
+    {
+      "name": "d1-defined-error-over-root-only",
+      "origin": "wf10 defects D1",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "range append([]*check.Package{l.pkg}, l.libraries()...) {",
+      "to": "range []*check.Package{l.pkg, named.Obj.Pkg} {",
+      "rule": "A record's fields avoid the Error method of an error type that any lowered package defines over it.",
+      "killers": [],
+      "gap": "uncovered: needs a record with a field named Error under a defined error type of another library (wf10 defects D1); no program has one"
+    },
+    {
+      "name": "d2-go-value-not-direct",
+      "origin": "wf10 defects D2",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\tif fc.goDirect[site] {",
+      "to": "\t\tif false && fc.goDirect[site] {",
+      "rule": "interop.md, Lowering 7: a Go function passed to a Go function parameter is Go's own function.",
+      "killers": [
+        "lower:TestExternValuesRun"
+      ]
+    },
+    {
+      "name": "d2-callback-no-adapter",
+      "origin": "wf10 defects D2",
+      "file": "internal/sketch/lower/gocallback.go",
+      "from": "vals[i] = fc.spill(fc.goCallback(fc.bindFunc(vals[i]), fc.argSig(args[i], site), cb.Fallible, site))",
+      "to": "vals[i] = vals[i]",
+      "rule": "interop.md, Lowering 7: an Ergo function value reaches a Go function parameter through the adapter to Go's plain form.",
+      "killers": [
+        "lower:TestExternValuesRun"
+      ]
+    },
+    {
+      "name": "d2-callback-drops-go-error",
+      "origin": "wf10 defects D2",
+      "file": "internal/sketch/lower/gocallback.go",
+      "from": "out = append(out, fc.l.rt()+\".GoCallbackError(\"+e+\")\")",
+      "to": "out = append(out, \"func() error { _ = \"+e+\"; return nil }()\")",
+      "rule": "interop.md, Lowering 7: a fails go.Error callback returns its failure as Go's last error.",
+      "killers": [
+        "lower:TestExternValuesRun"
+      ]
+    },
+    {
+      "name": "d3-std-lets-unnamed",
+      "origin": "wf10 defects D3",
+      "file": "internal/sketch/lower/naming.go",
+      "from": "\tl.eachStdLet(l.nameStdLet)",
+      "to": "\t_ = l.eachStdLet",
+      "rule": "A std package's top-level let has a Go name, so its bodies and the program read it.",
+      "killers": [
+        "lower:TestStdPackageLet"
+      ]
+    },
+    {
+      "name": "d3-std-lets-after-root",
+      "origin": "wf10 defects D3",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\tpkgs := append(slices.Clone(l.stdLetPkgs()), l.sourcedLibs()...)\n\tfor _, p := range append(pkgs, l.pkg) {",
+      "to": "\tpkgs := append(slices.Clone(l.sourcedLibs()), l.pkg)\n\tfor _, p := range append(pkgs, l.stdLetPkgs()...) {",
+      "rule": "A std package's lets initialize before every program let that reads them (Go's initialization order).",
+      "killers": [
+        "lower:TestStdPackageLet"
+      ]
+    },
+    {
+      "name": "d4-root-is-files",
+      "origin": "wf10 defects D4",
+      "file": "internal/sketch/std/fs/fs.ergo",
+      "from": "\tName() string,\n\n\t// LeavingEscapes:",
+      "to": "\n\t// LeavingEscapes:",
+      "rule": "An fs.Files provider is no fs.Root: Root has an operation Files lacks, so a reader that looks outside (fs.Host) never passes as a confined Root, and Root's law never runs on a Files provider.",
+      "anchor": {
+        "tests": ["examples:csvreport", "examples:shards"]
+      },
+      "killers": [
+        "examples:csvreport",
+        "examples:shards"
+      ]
+    },
+    {
+      "name": "d6-std-lets-eager",
+      "origin": "wf10 defects D6",
+      "file": "internal/sketch/lower/naming.go",
+      "from": "\tl.eachStdLet(l.nameStdLet)",
+      "to": "\tl.eachStdLet(func(s stdLet) { l.nameStdLet(s); l.reachStdLet(l.info.Defs[s.decl.Specs[0].Names[0]].(*check.Var)) })",
+      "rule": "A std let is lowered only where a body of the build reaches it, so a let that only std's laws read is not initialized in a program's build.",
+      "killers": [
+        "lower:TestStdPackageLet"
       ]
     },
     {

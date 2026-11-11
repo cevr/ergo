@@ -275,6 +275,72 @@ Std `csv` (std-csv U4) is Go's `encoding/csv` with its defaults, over a text: a 
 
 *Prior art:* Go's `encoding/csv`; Elixir's `NimbleCSV` (a library, RFC 4180, a parser per separator); Gleam has no std CSV (`gsv` is a package); ReScript programs bind a JavaScript library (`papaparse`). Python's `csv` module writes `""` for a lone empty field for the same reason as `Format`.
 
+## json
+
+`Optional[T] = Absent | Present[T]` selects an absent or present record key.
+`Nullable[T] = Null | NonNull[T]` selects null or the bare value. A Nullable
+key is required. `Optional[Nullable[T]]` keeps all three states. `Option`
+is unchanged. These are ordinary closed unions (exhaustive `match`), with
+a codec representation selected in lowering, not a checker exception or
+field annotation. The field's type after instantiation selects the form: a
+field typed `T` in `Box[T]` omits its key when `T` is `json.Optional[int]`,
+also inside a generic function, where the codec witness of `T` carries the
+field form. `Optional` outside a record field keeps its tagged form;
+there is no absent root or array element. Failure rows remain conservative
+structural rows, including the union's possible shape failures.
+
+`Writer.Null` writes a null event. `Reader.TakeNull` consumes null and
+returns true, or leaves the next value and its path unchanged on false.
+Both the JSON reader and codec's event replay support this event.
+
+Effect Schema's intent is to distinguish absent keys from explicit null.
+Ergo does not take schema classes, field annotations or runtime tag checks:
+the field type and exhaustive unions express those states. ReScript uses
+optional record fields and `Nullable.t`; Gleam separates `optional_field`
+from `optional`; Go's `omitempty` and default Elixir maps have only one
+empty-value policy, so a separate wrapper is needed for a third state.
+
+`Value = Null | Boolean | Num | Str | Array | Object` is an untyped JSON
+value (G4): a field the program passes on without reading its shape. It is
+a wire type, alone or as a record field, and a program reads it with an
+exhaustive `match`. `Object` is `[]Member` (`Member { Key, Value }`), so it
+keeps the order of the members. `Num` keeps the spelling of a number;
+`ParseNum` (which fails `Malformed` on a text that is not one JSON number),
+`IntNumber` and `Num.Wire()` are the only ways in and out, so a `Num` is
+always a valid number. The codec writes each kind as the bare JSON value,
+not as a tagged record. The law `ValueRoundTrips`: `Encode(Decode(text))`
+is `text` without insignificant white space, with strings in the encoder's
+escaping. **Rule for a repeated key:** `Value` keeps every member, a
+repeated key included, in order. It does not interpret keys, so it passes
+on what it read; the row `JsonValueRepeatedKey` holds this. `Writer.Number`
+writes a spelling as it is; `Reader.Peek` gives the next value's kind
+(`WireKind`, a prelude union, the end of a list or object included) and
+`Reader.Number` reads a spelling. Codec's `Replay` reads a tag as the member
+`"_tag"` (`Key` leaves it, `String` reads it). Prior art: Go's
+`json.RawMessage` keeps the bytes, unread; ReScript's `JSON.t` and Gleam's
+`Dynamic` are trees that the host's parser builds, and they drop number
+spellings; Elixir Jason keeps member order only with `objects: :ordered_objects`
+and takes the last of a repeated key.
+
+Std `json` (S-json) writes and reads the derived codec's events ([types.md, Codecs](types.md#codecs)) as JSON text (RFC 8259). It is the format Effect's `Schema.parseJson` gives a schema, without a schema value: the codec is the type's own.
+
+| Name | Signature | Go body |
+| --- | --- | --- |
+| `Codec` | `Codec[T wire] { MaxBytes int, MaxDepth int }` | Ergo |
+| `Encode` | `Encode[T wire](c Codec[T], v T) string` | Ergo over `JSONTake`, `JSONGive` |
+| `Decode` | `Decode[T wire](c Codec[T], text string) T fails Malformed \| wired[T]` | Ergo over `Open`, `decode[T]` |
+| `Malformed` | `Malformed { Offset int, Reason string }` | `JSONMalformed` |
+| `Text`, `NewText`, `NewHTMLText` | a sealed `Writer` with `Null()` and `Written() string` | `Text`, `NewJSONText`, `NewJSONHTMLText` |
+| `Open`, `Reader` | `Open(text string, maxBytes int, maxDepth int) Reader fails Malformed`; `Reader` is a `Reader` | Ergo over `JSONOpen` and `Cursor` |
+
+1. **Form** (owner q81). A record is an object whose keys are its field names with the first letter lowered; a union value an object whose `"_tag"` member names its variant (Effect's form), so `Option` is `{"_tag":"Some","value":…}`; a `Map` an object in key order; a slice or tuple an array. An integer is its exact digits (the Effect RPC profile's ±(2^53−1) rule is the R units'). A float is written as `encoding/json` writes it (JavaScript's `Number` form), and NaN and ±Inf, which JSON has no numbers for, as the strings `"NaN"`, `"Infinity"`, `"-Infinity"`, which `Float` reads back (protobuf's JSON mapping), so `Encode` cannot fail.
+2. **Strings.** `"`, `\` and the control bytes are escaped (`\n`, `\r`, `\t`, else `\u00XX`), U+2028 and U+2029 too; no HTML escaping (`encoding/json/v2`'s default), unless the Text is `NewHTMLText`'s (`<`, `>`, `&` as `\u003c`…, `encoding/json`'s default). A byte of invalid UTF-8 is the lone surrogate `\udcXX` of the byte (Python's surrogateescape, PEP 383), which `Decode` reads back as the byte, so every Ergo string, which holds bytes, round-trips; a valid UTF-8 string is plain JSON. Read strings are copied out of the text.
+3. **Two phases.** `Open` checks the whole text: one value with white space around it, at most `MaxBytes` bytes (no limit when not positive) and `MaxDepth` levels of lists and objects (10000, `encoding/json/v2`'s, when not positive), else `Malformed` with the offset and the rule. Then `decode[T]` builds the value and fails only on its shape, with the member's path (`units[0].replicas`). Unknown keys are skipped and of two members with one key the last wins (`encoding/json`).
+4. **Fast path.** An `encode(v, t)` whose `t` is a `Text` appends `v`'s bytes directly: per-type functions with the keys as quoted constants and the commas placed at compile time (`lower/wirejson.go`); a codec witness carries the fast function, so `Encode`, generic over `T`, takes it. The Writer path stays the reference: `-X …/lower.wireLowering=writer` lowers every encode through the `Writer` interface, and an encode whose writer is typed `Writer` takes it in every build.
+5. **Laws.** `RoundTrips`, `FastAgreesWithWriter` (the fast path writes what the Writer path writes, in a `Text` and an HTML `Text`, inside events too), `TruncatedFails` and `DepthLimits`; lower `TestStdJSONLawsRun` runs them, with `JsonFastRefinedPair` for a refined field and a by-name pair, which std cannot declare.
+
+*Prior art:* Go's `encoding/json` (reflection, a cached encoder per type, `checkValid` before decoding) and `encoding/json/v2` (`jsontext` tokens, depth 10000, no HTML escaping, duplicate names refused); serde_json's format-specialised `Serializer` the derive calls; Elixir's `Jason.Encoder` derive with pre-escaped keys; Gleam's `gleam/json` (encoders and decoders written by hand as values); ReScript's `JSON.stringify` and `rescript-schema`.
+
 ## Pure bodies
 
 A std extern whose `runtime/v1` Go body is marked pure is transparent in footprints (wave std-1, unit G5b; [rows.md, Footprints](rows.md#footprints)). A call of it adds no capability, no task start and no opacity, so a function that calls `strings.TrimSpace` has the footprint of one that calls nothing: empty, with no entry poll. Every other extern call stays opaque.
@@ -295,7 +361,102 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
 
 *Prior art:* GHC trusts a foreign import's declared type: an import whose result is not in `IO` is pure on the author's word. Gleam's and ReScript's externals carry no effect fact, and Elixir's compiler sees a remote call as unknown code. Koka infers effects only for code it can see, and its externs state their effect in the declared type. Ergo keeps the claim on the Go body, where a reviewer reads it, and checks its mechanical part: what the file can reach.
 
+## http
+
+G1's buffered HTTP server uses Go `net/http`. Streaming bodies, TLS and
+HTTP/2 configuration are outside this core.
+
+1. `Listen(addr) Listener fails ListenFailed needs Ambient` binds TCP;
+   port zero is valid, and `l.Addr()` reports the bound address. The
+   transport has no HTTP policy. `l.Close()` releases an unused listener.
+2. `Serve[R](l, limits Limits, handle func(Request) Response needs R)`
+   has `fails InvalidLimits needs R`. `Limits{MaxBodyBytes, MaxHeaderBytes}`
+   is required. Both values must be positive; a refusal leaves the listener
+   open. The header budget has Go `http.Server.MaxHeaderBytes` semantics,
+   including its request-line accounting.
+3. `Request{Method, Path, Query, Header, Body}` is buffered. Header and
+   query values are slices of `Field{Name, Value}`, retaining repeated
+   values. `Header(fields, name)` ignores case; `Query` uses exact names.
+   Both return `Option[string]`, keeping a missing and an empty value apart.
+   `Path` is Go's decoded URL path; matching does not clean it.
+4. `Body` is `Buffered{Text} | BodyTooLarge{Limit} | BodyReadFailed{Reason}`.
+   No partial body is passed as a success. The application chooses a status
+   for each refusal. Header parse errors remain Go's HTTP protocol refusals.
+5. `Response{Status, Header, Body}` is buffered. An empty body has no
+   content type. Go suppresses the body of HEAD while preserving the
+   buffered response's headers. Status codes and response header validity
+   have Go `net/http` semantics.
+6. Every handler invocation is a child task of Serve. A client disconnect
+   after a buffered read stops its child. A failed read still reaches the
+   handler, since a peer may have closed only its write half. A serving
+   stop closes the listener and connections,
+   stops all live children and joins their releases and transport workers.
+   A handler defect ends Serve and keeps the defect cause; it is not an
+   undeclared typed failure or an invented application status.
+7. `Match(routes, method, path)` returns `Found{Route, Params}`, `NotFound`
+   or `MethodNotAllowed`. Routes are `Route{Name, Method, Path}`. Literal
+   segments match exactly; `:name` captures one non-empty segment. Order
+   breaks ties. An explicit HEAD route precedes the GET fallback. There
+   is no automatic trailing-slash redirect. `BuiltPathMatches` is the
+   construction law for parameter segments.
+8. `Files(root fs.Root, prefix string, r Request) Response` serves the
+   files of a read-only folder (G1f). The name is `r.Path` after `prefix`,
+   its empty and "." elements dropped; Files' work is lexical, and the
+   confinement is the Root's (fs 20 and 21): `fs.OpenRoot(dir)` on the host,
+   `fstest.NewTree` in a test. A method other than GET and HEAD is 405 with
+   `Allow: GET, HEAD`; HEAD gets GET's headers through Serve (5). One rule
+   parts 403 from 404: 403 when the name is refused, by Files (a ".."
+   element, which reaches no read) or by the root (`Denied`, `Escapes`);
+   404 when nothing servable is there (`NotFound`, `Failed`: a directory, a
+   loop, no element left, a path without the prefix). Files lists no
+   directory. A file is 200 with `ContentType(name)`, the media type of its
+   extension ignoring case (text types with `charset=utf-8`, an unknown one
+   `application/octet-stream`); an empty file has no Content-Type. The law
+   `FilesAsksBeneath` observes, through its private law-only recorder, every
+   path Files passes the root: at most one, relative, with no "", "." or ".."
+   element, and none for a request path with a ".." element or without the
+   prefix. The probe of `TestStdHTTPLawsRun` restates it and checks Files
+   against a reference of the rule over a Tree with links out, in and
+   looping (`FilesAnswersByTheRule`).
+
+Prior art for Files (source inspected, not measured): Wisp's `serve_static`
+(main branch) drops every ".." substring from the decoded path, joins it to
+the directory and reads through `simplifile`, so the guard is lexical and a
+link below the directory is followed out; it adds `charset=utf-8` to text
+types, as `ContentType` does. Go's `http.FileServer` refuses a ".." element
+and serves `http.Dir`, which also follows links; Go 1.24's `os.Root`
+(`root.FS()`) is the resolution `fs.HostRoot` uses. Elixir's Plug.Static
+refuses ".." segments in the request (by its documentation, not inspected
+here) and reads the host path; ReScript binds the host server.
+Ergo keeps Files lexical and puts the confinement in the capability, so a
+test observes both halves (`FilesAsksBeneath`, `TestFSRootTreeAgreesWithHost`).
+
+Files' performance comparison with `http.FileServer(http.FS(root.FS()))`
+is pending in `wf10/g1-http/bench-pending.md`. Both use a held root; the
+comparison must match buffering, empty-file headers and HEAD handling.
+The benchmark harness is not built yet. No Files parity claim is made.
+
+Prior art (source/documentation inspected, not measured): Mist 6.0.3 uses
+`fn(Request) -> Response` and a required size at `read_body`; its buffered
+adapter chooses a failure response. Wisp 2.2.2 exposes body-read helpers and
+[`handle_head`](https://hexdocs.pm/wisp/2.2.2/wisp.html#handle_head).
+Mist's [body API](https://hexdocs.pm/mist/6.0.3/mist.html#read_body)
+reads lazily unless its buffered adapter is selected.
+Plug 1.20.3 [passes a connection through functions](https://hexdocs.pm/plug/1.20.3/Plug.Conn.html)
+and reads
+bodies lazily. These run on BEAM processes; Ergo lowers to net/http and
+owned Go task children. ReScript instead binds the host server through FFI;
+its uncurried callbacks need no effect interpreter, but have no service
+row or owned request task. MoonBit's task groups are the relevant ownership
+comparison, not an HTTP implementation claim. Effect HttpServer supplies
+the scoped-server intent; Ergo takes ordinary functions and checked rows
+instead of runtime tags, Effect instructions and middleware composition.
+
 ## Std laws
+
+HTTP's transport lifetime runs in `runtime/v1.TestHTTPConcurrentRequestsAndStop`
+and `TestHTTPDisconnectAndDefects`; its buffered requests run against a map
+model in `TestHTTPServerMatchesModel`. These are socket tests, not proofs.
 
 The std states its guarantees as laws (owner, 2026-11-06; std-align S1a). The rule:
 
@@ -309,6 +470,8 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 
 | Package | Law | Statement | Runner | State |
 | --- | --- | --- | --- | --- |
+| `http` | `BuiltPathMatches` | `BuiltPathMatches(a string, b string) { if a == "" \|\| b == "" \|\| strings.Contains(a, "/") \|\| strings.Contains(b, "/") { return true } let route = Route{Name: "pair", Method: "GET", Path: "/:a/:b"} match Match([]Route{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `FilesAsksBeneath` | `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot \|\| e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 \|\| (dotdot \|\| !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" \|\| e == "." \|\| e == ".." { return false } } } response.Status == 200 \|\| response.Status == 403 \|\| response.Status == 404 }` | `TestStdHTTPLawsRun` | tested |
 | `actor` | `Actor.ChangesStops` | `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }` | `TestStdActorLawsRun` | tested |
 | `actor` | `Actor.StopIsFinal` | `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }` | `TestStdActorLawsRun` | tested |
 | `actor` | `CanIsTheStep` | `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }` | `TestStdActorLawsRun` | tested |
@@ -368,6 +531,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `fs` | `Writes.MkdirAllIsIdempotent` | `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }` | `TestFSMemoryAgreesWithHost` | tested |
 | `fs` | `Writes.RemoveThenNotFound` | `RemoveThenNotFound(path string) { Remove(path) catch { case NotFound, Denied, Failed: return true } Remove(path) catch { case NotFound: return true case Denied, Failed: return false } false }` | `TestFSMemoryAgreesWithHost` | tested |
 | `fs` | `Writes.RenameMoves` | `RenameMoves(from string, to string, text string) { if from == to { return true } WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Remove(to) catch { case NotFound: case Denied, Failed: return true } Rename(from, to) catch { case NotFound, Denied, Failed: return true } Rename(from, to) catch { case NotFound: return true case Denied, Failed: return false } false }` | `TestFSMemoryAgreesWithHost` | tested |
+| `fs` | `Root.LeavingEscapes` | `LeavingEscapes(path string) { let _ = ReadFile("../" + path) catch { case Escapes: let _ = ReadFile("/" + path) catch { case Escapes: let _ = Stat("../" + path) catch { case Escapes: return true case NotFound, Denied, Failed: return false } return false case NotFound, Denied, Failed: return false } return false case NotFound, Denied, Failed: return false } false }` | `TestFSRootTreeAgreesWithHost` | tested |
 | `fstest` | `AppendConcatenates` | `AppendConcatenates(path string, a string, b string) { let m = NewMemory() m.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } m.WriteFile(path, a) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.AppendFile(path, b) try m.ReadFile(path) == a+b }` | `TestFSMemoryAgreesWithHost` | tested |
 | `fstest` | `CopiesShare` | `CopiesShare(path string, text string) { let m = NewMemory() let copy = m copy.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } copy.WriteFile(path, text) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.ReadFile(path) == text }` | `TestFSMemoryAgreesWithHost` | tested |
 | `fstest` | `ModeIsKept` | `ModeIsKept(path string, text string, more string) { let m = NewMemory() m.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } m.WriteFileMode(path, text, fs.Private()) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.WriteFile(path, more) try m.AppendFile(path, more) let info = try m.Stat(path) info.Perm == fs.Perm(fs.Private()) }` | `TestFSMemoryAgreesWithHost` | tested |
@@ -518,16 +682,30 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `utf8` | `RuneCountAddsRune` | `RuneCountAddsRune(s string) { RuneCount(s+"é") == RuneCount(s)+1 }` | `TestStdTextLaws` | tested |
 | `utf8` | `RuneCountAtMostLen` | `RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }` | `TestStdTextLaws` | tested |
 | `utf8` | `RuneCountOfConcat` | `RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneCount(b) }` | `TestStdTextLaws` | tested |
-| `wire` | `BasicReplay` | `BasicReplay(s string, b bool, i int8, u uint8, f float64) { let e = NewEvents() encode(s, e) encode(b, e) encode(i, e) encode(u, e) encode(f, e) let r = NewReplay(Recorded(e)) let s2 = decode[string](r) catch { case _: return false } let b2 = decode[bool](r) catch { case _: return false } let i2 = decode[int8](r) catch { case _: return false } let u2 = decode[uint8](r) catch { case _: return false } let f2 = decode[float64](r) catch { case _: return false } s2 == s && b2 == b && i2 == i && u2 == u && f2 == f }` | `TestStdWireLawsRun` | tested |
-| `wire` | `EncodeNests` | `EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }` | `TestStdWireLawsRun` | tested |
-| `wire` | `EventsReplay` | `EventsReplay(v fleet) { let back = RoundTrip(v) catch { case _: return false } back == v }` | `TestStdWireLawsRun` | tested |
-| `wire` | `GenericReplay` | `GenericReplay(vs []state) { let (back, first) = many(vs) catch { case _: return false } let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None } back == vs && first == want }` | `TestStdWireLawsRun` | tested |
-| `wire` | `MissingFieldFails` | `MissingFieldFails() { let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent} let _ = decode[up](NewReplay(empty)) catch { case WireMissingField: return true case _: return false } false }` | `TestStdWireLawsRun` | tested |
-| `wire` | `UnknownTagFails` | `UnknownTagFails(name string) { if name == "up" { return true } if name == "down" { return true } let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent} let _ = decode[state](NewReplay(evs)) catch { case WireUnknownTag: return true case _: return false } false }` | `TestStdWireLawsRun` | tested |
+| `codec` | `BasicReplay` | `BasicReplay(s string, b bool, i int8, u uint8, f float64) { let e = NewEvents() encode(s, e) encode(b, e) encode(i, e) encode(u, e) encode(f, e) let r = NewReplay(Recorded(e)) let s2 = decode[string](r) catch { case _: return false } let b2 = decode[bool](r) catch { case _: return false } let i2 = decode[int8](r) catch { case _: return false } let u2 = decode[uint8](r) catch { case _: return false } let f2 = decode[float64](r) catch { case _: return false } s2 == s && b2 == b && i2 == i && u2 == u && f2 == f }` | `TestStdCodecLawsRun` | tested |
+| `codec` | `EncodeNests` | `EncodeNests(v fleet) { let e = NewEvents() encode(v, e) let mut open = 0 let mut ok = true for ev in Recorded(e) { open = open + depth(ev) if open < 0 { ok = false } } ok && open == 0 }` | `TestStdCodecLawsRun` | tested |
+| `codec` | `EventsReplay` | `EventsReplay(v fleet) { let back = RoundTrip(v) catch { case _: return false } back == v }` | `TestStdCodecLawsRun` | tested |
+| `codec` | `GenericReplay` | `GenericReplay(vs []state) { let (back, first) = many(vs) catch { case _: return false } let want Option[state] = if len(vs) > 0 { Some{Value: vs[0]} } else { None } back == vs && first == want }` | `TestStdCodecLawsRun` | tested |
+| `codec` | `MissingFieldFails` | `MissingFieldFails() { let empty = []Event{BeginObjectEvent{N: 0}, EndObjectEvent} let _ = decode[up](NewReplay(empty)) catch { case WireMissingField: return true case _: return false } false }` | `TestStdCodecLawsRun` | tested |
+| `codec` | `UnknownTagFails` | `UnknownTagFails(name string) { if name == "up" { return true } if name == "down" { return true } let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent} let _ = decode[state](NewReplay(evs)) catch { case WireUnknownTag: return true case _: return false } false }` | `TestStdCodecLawsRun` | tested |
+| `json` | `DepthLimits` | `DepthLimits(k int) { let n = if k < 0 { -(k + 1) } else { k } let depth = n % 64 + 1 let _ = Open(nest(depth), 0, depth) catch { case _: return false } let _ = Open(nest(depth + 1), 0, depth) catch { case Malformed: return true } false }` | `TestStdJSONLawsRun` | tested |
+| `json` | `FastAgreesWithWriter` | `FastAgreesWithWriter(v fleet) { let t = NewText() t.BeginList(3) encode(v, t) t.Int(2) encode(v, t) t.EndList() let w = NewText() let r Writer = w r.BeginList(3) encode(v, r) r.Int(2) encode(v, r) r.EndList() let h = NewHTMLText() encode(v, h) let g = NewHTMLText() let gw Writer = g encode(v, gw) t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v) }` | `TestStdJSONLawsRun` | tested |
+| `json` | `RoundTrips` | `RoundTrips(v fleet) { let back = Decode(codec(), Encode(codec(), v)) catch { case _: return false } back == v }` | `TestStdJSONLawsRun` | tested |
+| `json` | `OptionalRoundTrips` | `OptionalRoundTrips(v Option[int]) { optionalRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
+| `json` | `NullableRoundTrips` | `NullableRoundTrips(v Option[int]) { nullableRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
+| `json` | `NestedRoundTrips` | `NestedRoundTrips(v Option[Option[int]]) { nestedRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
+| `json` | `ValueRoundTrips` | `ValueRoundTrips(d doc) { valueRoundTrips(d) }` | `TestJSONValueAgrees` | tested |
+| `json` | `TruncatedFails` | `TruncatedFails(v fleet, cut int) { let text = Encode(codec(), v) let n = if cut < 0 { -(cut + 1) } else { cut } let short = text[:n % len(text)] let _ = Decode(codec(), short) catch { case Malformed: return true case _: return false } false }` | `TestStdJSONLawsRun` | tested |
 
 *Prior art:* Haskell states class laws beside the class and runs them with QuickCheck's `prop_` functions; Elixir's `StreamData` states properties beside `test`; MoonBit ships its core with property tests; Gleam and ReScript state none in source. Ergo states each law in the std source, where a reader of the std sees it, and keeps the Go test that runs it in one ledger until #162.
 
 ## Std strengths over Effect
+
+HTTP takes `HttpServer`'s purpose: serve a function with its service row,
+and close its listener and request tasks at the serving scope's end.
+It does not take middleware builders, runtime service tags, or Effect
+instruction values. Ordinary functions, rows and child tasks state this
+contract directly. No HTTP-specific checker rule is added.
 
 The std takes the behaviour and the guarantees of Effect's modules, not an Effect API shape that exists only because TypeScript has no construct for the job (owner, 2026-11-08; [decision](../decisions.md#owner-direction-2026-11-08)). Each such shape is a **workaround**, with an id:
 
@@ -556,6 +734,7 @@ The table has one row per std package, the prelude included. The Effect module i
 
 | Package | Effect module | Workarounds not copied | Ergo construct | Lowering against hand Go |
 | --- | --- | --- | --- | --- |
+| `http` | `HttpServer` (platform) | W1, W4, W5, W6, W11, W14 | function handlers retain `needs R`; typed body results and pure route matches are closed unions; Serve owns child tasks ([http](#http); [runtime.md, Tasks](runtime.md#tasks)) | pending: `runtime/v1.BenchmarkHTTPServer` alternates the buffered adapter and net/http with request contexts, shutdown cancellation and joined workers; tracing is off. Quiet-host command: `wf10/g1-http/bench-pending.md`. No parity claim yet. |
 | `prelude` | `Option.ts`, `Console.ts`, `Random.ts`, `Fiber.ts` | W4, W10, W14, W18 | prelude unions and operation types bound by `context` ([types.md, Prelude types](types.md#prelude-types); [rows.md, Capability rows](rows.md#capability-rows)) | none: `Append`, `Get` and `Delete` are Go's `append`, map index and `delete`; the box of `Get`'s `Some` waits on union-repr R1 (docs/research/union-repr.md §10, measured there: 0.49 allocations per lookup) |
 | `actor` | effect-machine `Machine.spawn` and its `ActorRef` (outside `packages/effect/src`; no module of the pin has an actor) | W1, W4, W5, W6, W14 | `actor.StartMachine` runs the prelude `Machine[S, E, O, F, R, W]`: `Ask` returns the step's `Decision` matched exhaustively, the step's row `F` and `Stopped` are in `Ask`'s row, the timers sleep on the `Scheduler` the caller binds, and outputs go to a typed `sink` function ([runtime.md, Machines and actors](runtime.md#machines-and-actors) 11) | pending: `runtime/v1.BenchmarkActorAsk` against a hand goroutine with a channel and a `switch` (`runtime/v1.BenchmarkActorAskHandGo`); the command is in `wf10/batch-13/MU3/bench-pending.md` |
 | `base64` | `Encoding.ts` | W3, W5, W6, W14 | the alphabet as the union `Encoding`, matched by `Encode` and `Decode`, where Effect has `encodeBase64` and `encodeBase64Url`; `Malformed` in the row, where Effect's `decodeBase64` returns an `Either` ([Encodings and digests](#encodings-and-digests) 2; [types.md, Unions](types.md#unions); [rows.md, Catch](rows.md#catch)) | `runtime/v1.BenchmarkDigest` (`Base64StdEncode` against Go's `EncodeToString`): pending in `wf10/batch-12/G/bench-pending.md` (expected equal but the string-to-bytes copy) |
@@ -594,7 +773,8 @@ The table has one row per std package, the prelude included. The Effect module i
 | `timeout` | `Effect.ts` | W5, W20 | `timeout.After(d) { … }`, whose row adds `Expired` ([runtime.md, Timeouts](runtime.md#timeouts)) | none: `v1.After` starts one child task for the deadline; S4b arms one `time.Timer` and adds the benchmark |
 | `trace` | `Tracer.ts` | W12 | a context value bound by `with trace.Span(…)` ([runtime.md, G1](runtime.md#g1-context-through-with)) | none: a read is one `runtime/v1` context lookup; no benchmark yet |
 | `utf8` | `String.ts` | W2, W3, W10 | data-first pure functions; Go's two results of `DecodeRuneInString` as the record `Decoded`, where Effect's `String` has no rune decoder and JavaScript's `codePointAt` gives `undefined` past the end ([strings and strconv](#strings-and-strconv) 8; [Pure bodies](#pure-bodies)) | `runtime/v1.BenchmarkText`: `RuneCount` 87.1 ns against Go 87.4 ns (run dir `wf10/batch-10/s1/s1c/bench-summary.txt`); `runtime/v1.BenchmarkUTF8Decode` (a `Decoded` record against Go's two results): pending in `wf10/batch-12/S/bench-pending.md` |
-| `wire` | `Schema.ts` (`encode`, `decode`, `ParseResult` issues) | W5, W6, W7, W9 | no Schema value: the codec is derived from the declared type by the predeclared `encode(v, w)` and `decode[T](r)` over the prelude's `Writer` and `Reader` events ([types.md, Codecs](types.md#codecs)); decode's row is the union of what the type reaches (`WireWrongKind`, `WireMissingField`, `WireUnknownTag`, `Unsatisfied`, each `ParseX`'s row); `Events` and `Replay` record and replay the events, and its laws hold the round trip | pending: the format-specialised path is std json's, measured against Go's encoding/json once S-json lands; the reference Writer path here has no format to measure |
+| `codec` | `Schema.ts` (`encode`, `decode`, `ParseResult` issues) | W5, W6, W7, W9 | no Schema value: the codec is derived from the declared type by the predeclared `encode(v, w)` and `decode[T](r)` over the prelude's `Writer` and `Reader` events ([types.md, Codecs](types.md#codecs)); decode's row is the union of what the type reaches (`WireWrongKind`, `WireMissingField`, `WireUnknownTag`, `Unsatisfied`, each `ParseX`'s row); `Events` and `Replay` record and replay the events, and its laws hold the round trip | none: the events are a test's record; the format-specialised path is std json's (its row) |
+| `json` | `Schema.ts` (`parseJson`, `encode`, `decode`), `JSON.parse`/`JSON.stringify` | W5, W6, W7, W9 | `Codec[T wire]{MaxBytes, MaxDepth}` over the derived codec ([types.md, Codecs](types.md#codecs)) with `Encode` (cannot fail) and `Decode` (`fails Malformed \| wired[T]`: phase 1 checks the whole text, phase 2 is the derived `decode[T]` with each failure's path); `Text` is a `Writer`, `Reader` a `Reader`; the law `FastAgreesWithWriter` holds the compiler's fast path to the Writer path | `internal/sketch/lower.BenchmarkJSON` (a 1 KB deploy record against `encoding/json` and `encoding/json/v2` over hand structs with the same keys): encode writes bytes with no interface call per event (`lower/wirejson.go`), 7 allocations to Go's 8; decode is the Reader interface path, 97 allocations to Go's 30 (an `Env` per adapter call); ratios bench-pending on a quiet host (S-json bench-pending.md) |
 
 *Prior art:* ReScript makes pipe-first `->` a plain call and uncurries by default (W2, W3); Elixir's `|>` is a macro and `with` chains the happy path (W1, W2), and `@derive` generates protocol code (W7, W8); Gleam's `use` replaces callbacks with plain lines and its `Result` replaces exceptions (W1, W5), with no type classes (W16); Roc and MoonBit derive equality, hashing and codecs (W7, W8), and Roc gives each host effect as a platform capability (W4, W18); Elm has no derivation and writes decoders by hand, the shape W7 and W17 avoid; Koka's evidence passing makes a tail-resumptive handler a direct call, as Ergo's environment of capabilities does (W14).
 
@@ -837,6 +1017,9 @@ func main() needs Console | Ambient {
 | `type Info { Name string, Size int, Dir bool, Perm int }` | What `Stat` gives; `Perm` is the permission bits, as `Perm(m)` gives them (17). |
 | std `fstest`: `type Memory { tree sync.Ref[…] }`; `func NewMemory() Memory`; one function of `Memory` per operation of `Files` and `Writes`; laws `CopiesShare`, `AppendConcatenates`, `ModeIsKept` | The memory provider of both, for tests (17 to 19). |
 | `type NotFound { Path string }`; `type Denied { Path string }`; `type Failed { Path string, Reason string }` | The failures. |
+| `type Root { ReadFile(path string) string, ReadDir(path string) []string, Stat(path string) Info, Name() string, law LeavingEscapes(path string) }`, each read `fails NotFound \| Denied \| Failed \| Escapes`; `type Escapes { Path string }` | Confined reads below one directory (20). |
+| `type HostRoot { …the operations of Root…, hostRooted() }`; `extern … func OpenRoot(dir string) HostRoot fails NotFound \| Denied \| Failed needs Ambient` | The host's Root, sealed, and its one constructor (21). |
+| std `fstest`: `type Tree`; `type Node = File{Path, Text} \| Dir{Path} \| Link{Path, Target}`; `func NewTree(nodes []Node) Tree`; `type Recorder`; `func NewRecorder(inner fs.Root) Recorder`; `func Paths(r Recorder) []string` | The memory Root with symbolic links, and a Root that keeps every path it is asked for (22). |
 
 1. `ReadFile` is the whole text of the file at `path`. It returns `string`, not bytes: the language has no conversion from `[]byte` to `string` yet. A path is the host's; a relative path is relative to the working directory.
 2. `ReadDir` is the names of the entries of the directory at `path`, sorted by name (Go's `os.ReadDir` sorts them). `Stat` follows symbolic links, as Go's `os.Stat` does (not `os.Lstat`). A link to a directory has `Dir: true`, and a link whose target is missing is `NotFound`. `Info.Name` is the last element of the path, so for a link it is the link's own name. `Info.Size` is the size in bytes of the target.
@@ -857,6 +1040,10 @@ func main() needs Console | Ambient {
 17. **Memory** (std-fs-memory). `fstest.NewMemory()` is a provider of `Files` and `Writes` over a tree in memory, in the std package `fstest` after Go's `testing/fstest`: it is not in `fs`, so `fs.ReadFile(h, p)` and the other direct calls of an `fs.Host` keep one function of their name each. A test reads and writes no disk: `let m = fstest.NewMemory()` and `with context { fs.Files: m, fs.Writes: m } { run() }`, then `m.ReadFile(p)` to look. It has no `Ambient` in its row: it reaches nothing of the host. Its tree is in a `sync.Ref` (Sync and STM), so every copy of a `Memory` is the same tree (law `fstest.CopiesShare`), and each operation is atomic, so tasks may share one. "." and "/" are its two roots; a path is cleaned (`filepath.Clean`) before it is looked up, so "./a" is "a" and ".." is resolved by its text; the empty path names nothing; a failure names the path as given. `ReadDir` is sorted by name, `Stat` gives the last element, the size (0 for a directory), `Dir` and `Perm`, a missing directory on the way is `NotFound` (`MkdirAll`'s row has none: there it is `Failed` "no such file or directory" for the empty path only, since `MkdirAll` makes each missing parent), and a file on the way is `Failed` "not a directory". A new file has mode `Shared()` and a new directory `SharedDir()`, as the host gives under umask 022; `WriteFile` and `AppendFile` keep the mode of a file that is there (law `fstest.ModeIsKept`), and `AppendFile` adds at the end (law `fstest.AppendConcatenates`). `Rename` moves a directory with everything in it and has the host's failures: an existing directory at `to` is `Failed` "file exists" (Go's `os.Rename` refuses it before the host), a directory onto a file "not a directory", a directory into itself "invalid argument", a root "device or resource busy". `Remove` of a directory with entries is "directory not empty", of a root "invalid argument".
 18. **Memory agrees with Host.** Lower `TestFSMemoryAgreesWithHost` is a model-based differential test: 150 seeded sequences of 60 operations, every operation of both capabilities and the laws of `fs`, over paths of one to three of three names (some written "./p", the empty path and "."), run on `fs.Host` in a new directory under umask 022 and on `fstest.NewMemory()`. On Linux every result agrees: the value, the failure, its path and its reason; the sequences reach each outcome of each operation that the host gives there (a list in the test), and each law and each Writes contract (`WriteThenRead`, `AppendConcatenates`, `ModeIsKept`) holds on both, in at least 20 cases that are not vacuous. On another host only the laws are held, since its reasons and the order of rename's checks are its own. `ERGO_FS_SEED=n` replays one sequence, and a failure prints its operations and both outputs. Mutants it kills: an unsorted `ReadDir`, a `WriteFile` into a missing directory, a `Rename` over a directory, copies that do not share, a `Remove` of a directory with entries, an `AppendFile` that replaces, a `MkdirAllMode` that drops the mode, a `Rename` that leaves a directory's entries, a `Stat` that drops the mode.
 19. **What Memory does not do.** It has no symbolic links. It keeps each mode and never checks one, as Go's `testing/fstest.MapFS` does, so it never fails `Denied`: a test of a refused or failing write wraps it in a provider of its own that fails the operations it chooses and passes on the rest. A path with a doubled separator or a final "/" is cleaned, where Go's `os.MkdirAll` gives "file exists" for some of them. A provider cannot use a capability yet (#37), so a file-backed provider still reads every file when it starts.
+20. **Root** (G1f). `fs.Root` reads one directory tree and nothing outside it: a path is relative to the root, with "/" between its elements. Each operation resolves the path element by element from the root, as Go's `os.Root` does: a link inside the root is followed with its target spliced in where it was, ".." removes the element before it, and any step past the root is `Escapes`, whatever comes after it: an absolute path, a ".." with nothing before it, a link whose target is absolute or leads past the root (also one that comes back in, such as `../root/a`). The empty path is `Failed` "empty path"; more than eight links in one resolution are `Failed` "too many levels of symbolic links". `Stat` follows links, and its `Name` is `filepath.Base` of the path as given. The law `LeavingEscapes` states the part no tree can change: a path that starts with ".." or "/" fails `Escapes` for every operation, so a provider that answers `NotFound` there looked outside. Confinement is not a lexical check: a cleaned path inside the root can name a link that leads out, and only the resolution can refuse it. `Name` is the directory as `OpenRoot` was given it (Go's `os.Root.Name`); `fstest.Tree` is `"."` and a `Recorder` `"recorder"`. `Name` also keeps the type apart from `Files` (wf10 defects D4): without it, the reads of `Files` have Root's form with fewer failures, so by [interface assignability](types.md#interface-assignability) every `Files` provider was a Root. `fs.Host` then passed where a Root is asked for (`http.Files` served a file outside its tree through a link), and the law runner ran `LeavingEscapes` on every program's `Files` test provider and refuted it.
+21. **HostRoot.** `fs.OpenRoot(dir)` opens `dir` once with `os.OpenRoot` and returns the runtime's `*v1.HostRoot`, a sealed std type (`check.SealedStd`), so no program forges one; it needs `Ambient`. The Root holds that handle: renaming or replacing `dir` does not change the opened directory. Each operation resolves below its descriptor (`openat` with no following of links, each link read by Go and spliced in), so a link replaced during resolution cannot lead out: there is no canonicalize-then-read. Acquisition and registration are one masked step. Until local resource ownership (#197), the acquiring function's frame closes the handle on every exit, after children started later have drained; callers must not retain or return it beyond that frame. Go's `errPathEscapes` ("path escapes from parent") is the one `Escapes`; every other failure maps as `fs.Host`'s does. Its Go methods take the caller's task (`runtimeBindings` `{task: true}`), so `*v1.HostRoot` is also the program's lowered `fs.Root` interface with no adapter. Runtime `TestFSRootKeepsOpenedDirectory` checks all operations after a rename and replacement; `TestFSRootClosesAtScopeEnd` checks closure on normal, failure, defect and stop exits.
+22. **Tree and Recorder.** `fstest.NewTree(nodes)` is a read-only Root in memory: files, directories (each directory above a node is made too) and links, which it resolves by the walk of rule 20 written out after Go's `doInRoot`. It never fails `Denied`, a file has mode `Shared()` and a directory `SharedDir()`, and a directory's `Size` is 0. Nothing is outside a Tree. `fstest.NewRecorder(inner)` passes every operation to `inner` and keeps each path it is asked for, in order (`Paths`), so a test sees what a reader of a Root asks. The HTTP property uses it; http's law uses a private recorder in its law-only file, so a production http import has no fstest dependency (`TestHTTPHasNoTestProviderDependency`).
+23. **Tree agrees with HostRoot.** Lower `TestFSRootTreeAgreesWithHost` runs 120 seeded trees (links inside, out by a relative and by an absolute target, past the root and back in, through ".", "..", chains and loops) with 40 operations each on generated paths, on `fs.OpenRoot` over the tree written to disk beside a file outside the root, and on `fstest.NewTree` of the same nodes. On Linux every line agrees (value, failure, its path and its reason); on every host no output holds the outside file's text and `LeavingEscapes` holds on both; the trees reach each outcome of a list in the test, including an `Escapes` of a path with no ".." and no leading "/", which only a link gives. `ERGO_FS_SEED=n` replays one tree. Mutants it kills (lower mutant ledger, `root-*`): a host read of `filepath.Join(dir, path)`, a host `Escapes` mapped to `Failed`, a Tree that follows an absolute target, a Tree whose ".." past the root is `NotFound`.
 
 *Prior art:* Gleam's `simplifile.read(path) -> Result(String, FileError)` gives a closed enum of POSIX reasons (`Enoent`, `Eacces`, …) plus `Unknown`; Effect Platform's `FileSystem` service gives `readFileString` and a `SystemError` whose `reason` is `NotFound`, `PermissionDenied` and others, bound by `NodeContext.layer`; Elixir's `File.read/1` returns `{:ok, binary} | {:error, posix}`; Go's `os.ReadFile` and `os.ReadDir` with `errors.Is(err, fs.ErrNotExist)`; ReScript binds Node's `readFileSync` as an `external` that throws. `NotFound | Denied | Failed` is their common core: the two reasons a program acts on, and one that carries the host's text. Like Effect and Roc, and unlike Gleam, Elixir and ReScript, the file system is a capability in the row, so a test swaps it in a context. Like Roc's platform and unlike Effect's layer, which any module may provide locally, Ergo keeps the disk out of reach of code that neither holds `Ambient` nor was given a provider (rule 6): Pony's `AmbientAuth` and Austral's `RootCapability` are the model.
 

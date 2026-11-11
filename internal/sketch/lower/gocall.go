@@ -139,6 +139,29 @@ func (fc *funcCtx) goSig(c *check.Call, site syntax.Node) (sig *check.Signature,
 	return f.Sig, fc.l.hostPkg(path, site) + "." + goName, path + "." + goName, check.GoVariadic(f)
 }
 
+// hostFuncRef is the Go function of import go that x names, in any
+// parentheses (pkg.F), or nil.
+func (fc *funcCtx) hostFuncRef(x syntax.Expr) *check.Func {
+	sel, ok := unparen(x).(*syntax.SelectorExpr)
+	if !ok {
+		return nil
+	}
+	id, ok := sel.X.(*syntax.Ident)
+	if !ok {
+		return nil
+	}
+	pn, ok := fc.l.info.Uses[id].(*check.PkgName)
+	if !ok || !pn.Pkg.Host() {
+		return nil
+	}
+	for _, o := range pn.Pkg.Exported() {
+		if f, ok := o.(*check.Func); ok && f.Name == sel.Sel.Name {
+			return f
+		}
+	}
+	return nil
+}
+
 // hostNamed is the Go type a host receiver's methods belong to.
 func hostNamed(t check.Type) *check.Named {
 	if e, ok := check.GoRefElem(t); ok {
@@ -155,6 +178,23 @@ func hostNamed(t check.Type) *check.Named {
 func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	sig, head, name, variadic := fc.goSig(c, x)
 	list := x.Args
+	// A function parameter (wf10 D2): a Go function of import go goes as
+	// Go's own; any other function value through an adapter to Go's plain
+	// function form (goCallbacks). check.GoDirectSig restricts only Go
+	// function values; IG6 adapts Ergo callbacks over the wider domain.
+	for i, p := range sig.Params {
+		_, ok := p.Type.(*check.Signature)
+		if !ok || i >= len(list) || (variadic && i == len(sig.Params)-1) {
+			continue
+		}
+		if fc.hostFuncRef(list[i]) != nil {
+			if fc.goDirect == nil {
+				fc.goDirect = map[syntax.Node]bool{}
+			}
+			fc.goDirect[unparen(list[i])] = true
+			continue
+		}
+	}
 	if c.Recv != nil {
 		list = append([]syntax.Expr{c.Recv}, list...)
 	}

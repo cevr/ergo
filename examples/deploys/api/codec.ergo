@@ -1,5 +1,5 @@
 import deploys/jsontext
-import deploys/jsonwire
+import json
 import deploys/deploys
 
 // BadBody is a JSON body of the wrong shape: Field names where, as in
@@ -25,14 +25,21 @@ func DeployJSON(o deploys.Deploy) jsontext.Value {
 	}}
 }
 
-// DraftOf is the draft that the JSON body v describes:
+// draftCodec reads a draft's body. Its limits refuse a body longer than
+// 1 MiB or nested deeper than 32: a draft is two levels deep.
+func draftCodec() json.Codec[deploys.Draft] { json.Codec[deploys.Draft]{MaxBytes: 1 << 20, MaxDepth: 32} }
+
+// DraftOf is the draft that the JSON body text describes:
 // {"service": "…", "units": [{"image": "…", "replicas": n, "mem": n}]}.
-// decode derives the reading from deploys.Draft, so the body's shape
-// cannot drift from the type: a member of another name is ignored, as Go's
-// encoding/json ignores it, and a missing member or a value of another
-// kind fails with its path.
-func DraftOf(v jsontext.Value) deploys.Draft fails BadBody {
-	decode[deploys.Draft](jsonwire.NewReader(v)) catch {
+// std json checks the text (phase 1, Malformed) and decode derives the
+// reading from deploys.Draft, so the body's shape cannot drift from the
+// type: a member of another name is ignored, as Go's encoding/json
+// ignores it, and a missing member or a value of another kind fails with
+// its path.
+func DraftOf(text string) deploys.Draft fails json.Malformed | BadBody {
+	json.Decode(draftCodec(), text) catch {
+	case json.Malformed as m:
+		return m
 	case WireMissingField as m:
 		return BadBody{Field: if m.Path == "" { m.Field } else { m.Path + "." + m.Field }, Reason: "is missing"}
 	case WireWrongKind as w:
@@ -42,8 +49,4 @@ func DraftOf(v jsontext.Value) deploys.Draft fails BadBody {
 
 // DraftText is the JSON text of d, which DraftOf reads back: a client's
 // body, for tests.
-func DraftText(d deploys.Draft) string {
-	let t = jsonwire.NewText()
-	encode(d, t)
-	jsonwire.Written(t)
-}
+func DraftText(d deploys.Draft) string { json.Encode(draftCodec(), d) }

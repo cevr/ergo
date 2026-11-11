@@ -236,9 +236,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"TimeSub":     {},
 	"TimeSubMono": {},
 	// std-csv: pure bodies over encoding/csv on a string.
-	"CSVReadAll": {},
-	"CSVScan":    {},
-	"CSVFormat":  {},
+	"CSVReadAll":     {},
+	"CSVScan":        {},
+	"CSVFormat":      {},
+	"HTTPListen":     {},
+	"Listener.Addr":  {},
+	"Listener.Close": {},
+	"HTTPServe":      {wait: childWait},
 	// std machines (fs2): the defect of a timer that is not positive.
 	"MachineTimerNotPositiveAt": {},
 	// std-duration: pure bodies of duration text and arithmetic.
@@ -343,6 +347,45 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Sha256Sum":       {},
 	"Crc32Checksum":   {},
 	"Crc32Update":     {},
+	// std json (S-json): a Text's Writer events take the caller's task
+	// only so that *v1.Text has the prelude Writer's Go method set; no
+	// body waits or releases.
+	"NewJSONText":        {},
+	"JSONOpen":           {},
+	"JSONTake":           {},
+	"NewJSONHTMLText":    {},
+	"Text.Null":          {task: true},
+	"JSONGive":           {},
+	"Cursor.Wrong":       {},
+	"Cursor.TakeNull":    {},
+	"Cursor.Kind":        {},
+	"Cursor.Number":      {},
+	"Text.Number":        {task: true},
+	"Text.Bool":          {task: true},
+	"Text.Int":           {task: true},
+	"Text.Uint":          {task: true},
+	"Text.Float":         {task: true},
+	"Text.String":        {task: true},
+	"Text.BeginList":     {task: true},
+	"Text.EndList":       {task: true},
+	"Text.BeginObject":   {task: true},
+	"Text.Tag":           {task: true},
+	"Text.Key":           {task: true},
+	"Text.EndObject":     {task: true},
+	"Text.Written":       {},
+	"Cursor.Path":        {},
+	"Cursor.Bool":        {},
+	"Cursor.Int":         {},
+	"Cursor.Uint":        {},
+	"Cursor.Float":       {},
+	"Cursor.String":      {},
+	"Cursor.BeginList":   {},
+	"Cursor.BeginObject": {},
+	"Cursor.Tag":         {},
+	"Cursor.More":        {},
+	"Cursor.Key":         {},
+	"Cursor.Skip":        {},
+	"Cursor.End":         {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},
@@ -362,6 +405,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"FSChmod":         {},
 	"FSRename":        {},
 	"FSRemove":        {},
+	// fs.Root on the host (G1f): reads below a root, which neither wait
+	// nor release.
+	"FSOpenRoot":        {},
+	"HostRoot.ReadFile": {task: true},
+	"HostRoot.ReadDir":  {task: true},
+	"HostRoot.Stat":     {task: true},
+	"HostRoot.Name":     {task: true},
 	// std io (S1b; stdlib.md, io): bodies that write or read a standard
 	// stream of the host process; none releases. A read of standard input
 	// waits on the caller's task (batch-12 C3, decision O15): a stop of that

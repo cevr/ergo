@@ -265,6 +265,61 @@ func main() {
 	use(Mine)
 }
 `,
+	// std json (S-json): NewText's extern returns the Text, open's the
+	// Cursor.
+	"json.Text": `import json
+
+type Mine {}
+
+func Bool(_ Mine, b bool)       {}
+func Int(_ Mine, n int64)       {}
+func Uint(_ Mine, n uint64)     {}
+func Float(_ Mine, f float64)   {}
+func String(_ Mine, s string)   {}
+func BeginList(_ Mine, n int)   {}
+func EndList(_ Mine)            {}
+func BeginObject(_ Mine, n int) {}
+func Tag(_ Mine, name string)   {}
+func Key(_ Mine, k string)      {}
+func EndObject(_ Mine)          {}
+func Null(_ Mine)                {}
+func Number(_ Mine, text string) {}
+func Written(_ Mine) string     { "" }
+
+func use(t json.Text) { t.EndList() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"json.Cursor": `import json
+
+type Mine {}
+
+func Path(_ Mine) string             { "" }
+func TakeNull(_ Mine) bool           { false }
+func Kind(_ Mine) int                { 0 }
+func Number(_ Mine) string           { "" }
+func Bool(_ Mine) bool               { false }
+func Int(_ Mine) int64               { 0 }
+func Uint(_ Mine) uint64             { 0 }
+func Float(_ Mine) float64           { 0.0 }
+func String(_ Mine) string           { "" }
+func BeginList(_ Mine) bool          { false }
+func BeginObject(_ Mine) bool        { false }
+func Tag(_ Mine) string              { "" }
+func Wrong(_ Mine) bool              { false }
+func More(_ Mine) bool               { false }
+func Key(_ Mine) string              { "" }
+func Skip(_ Mine)                    {}
+func End(_ Mine)                     {}
+
+func use(c json.Cursor) { c.End() }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std sync (sync-ref): NewRef's extern returns the Ref.
 	"sync.Ref": `import sync
 
@@ -449,6 +504,8 @@ func pass(m Mine) {
 	// The codec events (L11): a format or a program provides each.
 	"prelude.Writer": `type Mine {}
 
+func Null(_ Mine) {}
+func Number(_ Mine, text string) {}
 func Bool(_ Mine, b bool) {}
 func Int(_ Mine, n int64) {}
 func Uint(_ Mine, n uint64) {}
@@ -469,6 +526,9 @@ func main() {
 `,
 	"prelude.Reader": `type Mine {}
 
+func TakeNull(_ Mine) bool { false }
+func Peek(_ Mine) WireKind { WireEnd }
+func Number(_ Mine) string fails WireWrongKind { "" }
 func Path(_ Mine) string { "" }
 func Bool(_ Mine) bool fails WireWrongKind { true }
 func Int(_ Mine) int64 fails WireWrongKind { 0 }
@@ -638,6 +698,56 @@ func main() {
 	use(Mine)
 }
 `,
+	// std fs Root (G1f): open; fstest.Tree is a program-side provider.
+	"fs.Root": `import fs
+
+type Mine {}
+
+func ReadFile(_ Mine, path string) string fails fs.Escapes { fs.Escapes{Path: path} }
+func ReadDir(_ Mine, path string) []string fails fs.Escapes { fs.Escapes{Path: path} }
+func Stat(_ Mine, path string) fs.Info fails fs.Escapes { fs.Escapes{Path: path} }
+func Name(_ Mine) string { "mine" }
+
+func use(r fs.Root) { _ = r.Name() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std fs HostRoot (G1f): OpenRoot's extern returns it, and its
+	// unexported hostRooted keeps every program value out.
+	"fs.HostRoot": `import fs
+
+type Mine {}
+
+func ReadFile(_ Mine, path string) string fails fs.Escapes { fs.Escapes{Path: path} }
+func ReadDir(_ Mine, path string) []string fails fs.Escapes { fs.Escapes{Path: path} }
+func Stat(_ Mine, path string) fs.Info fails fs.Escapes { fs.Escapes{Path: path} }
+func Name(_ Mine) string { "mine" }
+func hostRooted(_ Mine) {}
+
+func use(r fs.HostRoot) { _ = r.Name() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std http Listener (G1): Listen's extern returns it, and its
+	// unexported bound keeps every program value out.
+	"http.Listener": `import http
+
+type Mine {}
+
+func Addr(_ Mine) string { "" }
+func Close(_ Mine) {}
+func bound(_ Mine) {}
+
+func use(l http.Listener) { l.Close() }
+
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -645,6 +755,8 @@ func main() {
 // text, not by SealedStd's S109.
 var unexportedStd = map[string]string{
 	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
+	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
+	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
 }
 
 // openStd is the std operation types a program provides: no std extern's
@@ -660,6 +772,7 @@ var openStd = map[string]bool{
 	"os.Process":        true,
 	"fs.Files":          true,
 	"fs.Writes":         true,
+	"fs.Root":           true,
 	"io.Stdout":         true,
 	"io.Stderr":         true,
 	"io.Stdin":          true,

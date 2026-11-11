@@ -1,4 +1,4 @@
-// Package wire records and replays the events of a wire form (types.md,
+// Package codec records and replays the events of a wire form (types.md,
 // Codecs; L11). Events is a provider of the prelude's Writer that keeps
 // every event encode(v, w) writes; Replay is a provider of the Reader that
 // gives a list of events back in the order decode[T](r) asks for them. A
@@ -29,9 +29,11 @@ type BeginObjectEvent { N int }
 type TagEvent { Name string }
 type KeyEvent { K string }
 type EndObjectEvent {}
+type NullEvent {}
+type NumberEvent { Text string }
 
 // Event is one event of a wire form.
-type Event = BoolEvent | IntEvent | UintEvent | FloatEvent | StringEvent | BeginListEvent | EndListEvent | BeginObjectEvent | TagEvent | KeyEvent | EndObjectEvent
+type Event = BoolEvent | IntEvent | UintEvent | FloatEvent | StringEvent | BeginListEvent | EndListEvent | BeginObjectEvent | TagEvent | KeyEvent | EndObjectEvent | NullEvent | NumberEvent
 
 // Events records the events written to it.
 type Events { log sync.Ref[[]Event] }
@@ -45,6 +47,8 @@ func Recorded(e Events) []Event { e.log.Get() }
 func record(e Events, ev Event) { e.log.Update(func(xs []Event) []Event { xs.Append(ev) }) }
 
 // The Writer's operations.
+func Null(e Events)              { record(e, NullEvent) }
+func Number(e Events, text string) { record(e, NumberEvent{Text: text}) }
 func Bool(e Events, b bool)       { record(e, BoolEvent{V: b}) }
 func Int(e Events, n int64)       { record(e, IntEvent{V: n}) }
 func Uint(e Events, n uint64)     { record(e, UintEvent{V: n}) }
@@ -59,7 +63,7 @@ func EndObject(e Events)          { record(e, EndObjectEvent) }
 
 // RoundTrip is v through Events and back: decode[T] of a Replay of the
 // events encode(v) wrote. Its row is wired[T], the row of decode[T].
-func RoundTrip[T codable](v T) T fails wired[T] {
+func RoundTrip[T wire](v T) T fails wired[T] {
 	let e = NewEvents()
 	encode(v, e)
 	decode[T](NewReplay(Recorded(e)))
@@ -100,6 +104,49 @@ func depth(e Event) int {
 }
 
 // The Reader's operations.
+func TakeNull(r Replay) bool {
+	match peek(r) {
+	case NullEvent:
+		_ = next(r)
+		true
+	case _:
+		false
+	}
+}
+
+func Peek(r Replay) WireKind {
+	match peek(r) {
+	case NullEvent: WireNull
+	case BoolEvent: WireBool
+	case IntEvent, UintEvent, FloatEvent, NumberEvent: WireNumber
+	case StringEvent, TagEvent: WireString
+	case BeginListEvent: WireList
+	case BeginObjectEvent: WireObject
+	case KeyEvent, EndListEvent, EndObjectEvent: WireEnd
+	}
+}
+
+// Number is a number's spelling: NumberEvent's as written, and a typed
+// number's as strconv formats it. A uint past int64 is formatted through
+// float64 and loses digits.
+func Number(r Replay) string fails WireWrongKind {
+	match next(r) {
+	case NumberEvent as n:
+		n.Text
+	case IntEvent as n:
+		strconv.FormatInt(n.V, 10)
+	case UintEvent as n:
+		if n.V > 9223372036854775807 {
+			return strconv.FormatFloat(float64(n.V), 'f', -1)
+		}
+		strconv.FormatInt(int64(n.V), 10)
+	case FloatEvent as f:
+		strconv.FormatFloat(f.V, 'g', -1)
+	case _:
+		return WireWrongKind{Path: Path(r), Want: "number"}
+	}
+}
+
 func Path(r Replay) string { "event " + strconv.Itoa(r.at.Get()) }
 
 func Bool(r Replay) bool fails WireWrongKind {
@@ -120,6 +167,8 @@ func Int(r Replay) int64 fails WireWrongKind {
 			return WireWrongKind{Path: Path(r), Want: "int"}
 		}
 		int64(n.V)
+	case NumberEvent as n:
+		strconv.ParseInt(n.Text, 10, 64) catch { case _: return WireWrongKind{Path: Path(r), Want: "int"} }
 	case _:
 		return WireWrongKind{Path: Path(r), Want: "int"}
 	}
@@ -134,6 +183,12 @@ func Uint(r Replay) uint64 fails WireWrongKind {
 			return WireWrongKind{Path: Path(r), Want: "uint"}
 		}
 		uint64(n.V)
+	case NumberEvent as n:
+		let v = strconv.ParseInt(n.Text, 10, 64) catch { case _: return WireWrongKind{Path: Path(r), Want: "uint"} }
+		if v < 0 {
+			return WireWrongKind{Path: Path(r), Want: "uint"}
+		}
+		uint64(v)
 	case _:
 		return WireWrongKind{Path: Path(r), Want: "uint"}
 	}
@@ -147,6 +202,8 @@ func Float(r Replay) float64 fails WireWrongKind {
 		float64(n.V)
 	case UintEvent as n:
 		float64(n.V)
+	case NumberEvent as n:
+		strconv.ParseFloat(n.Text) catch { case _: return WireWrongKind{Path: Path(r), Want: "float"} }
 	case _:
 		return WireWrongKind{Path: Path(r), Want: "float"}
 	}
@@ -156,6 +213,8 @@ func String(r Replay) string fails WireWrongKind {
 	match next(r) {
 	case StringEvent as s:
 		s.V
+	case TagEvent as t:
+		t.Name
 	case _:
 		return WireWrongKind{Path: Path(r), Want: "string"}
 	}
@@ -191,11 +250,17 @@ func Tag(r Replay) string fails WireMissingField {
 
 func More(r Replay) bool { depth(peek(r)) >= 0 }
 
+// Key reads a key. A union's tag is the member "_tag", as a format writes
+// it, so Key leaves the tag for String or Skip to read.
 func Key(r Replay) string {
-	match next(r) {
+	match peek(r) {
+	case TagEvent:
+		"_tag"
 	case KeyEvent as k:
+		_ = next(r)
 		k.K
 	case _:
+		_ = next(r)
 		""
 	}
 }

@@ -25,6 +25,9 @@ func (fc *funcCtx) goCallbacks(sig *check.Signature, args []syntax.Expr, vals []
 		if !ok {
 			continue
 		}
+		if fc.goDirect[unparen(args[i])] {
+			continue // D2: already in Go's own calling convention.
+		}
 		tunnels = tunnels || cb.Fallible
 		vals[i] = fc.spill(fc.goCallback(fc.bindFunc(vals[i]), fc.argSig(args[i], site), cb.Fallible, site))
 	}

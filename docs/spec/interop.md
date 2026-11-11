@@ -102,7 +102,7 @@ Each call's row comes from the reviewed tables of `runtime/v1`, never from the G
 5. **Variadic.** The last argument of a `// ergo:variadic` function is spread: `filepath.Join(parts...)`.
 6. **Panics.** A Go panic in an imported call is a defect; the call's `//line` directive names the Ergo call site in the report, and the task's existing recover catches it, with no recover per call.
 7. **Callbacks** are lowered as [Callbacks](#callbacks) says.
-8. **Not yet.** A Go function used as a value is a later unit.
+8. **Go function values** (D2). A non-variadic Go function with a direct type is a value: each parameter and result is a basic type, a non-generic Go type or `go.Error`, or a parameter is a borrow of a Go type; at most one result, no type parameters, and no failure but `go.Error` (`check.GoDirectSig`). At a Go callback argument the function is passed in Go's own calling convention; elsewhere it is wrapped in Ergo's uniform function shape. Other Go functions are call-only (S108). Ergo callback arguments use the wider conversion and row rules of [Callbacks](#callbacks), not this direct-value restriction.
 
 ## Resources
 

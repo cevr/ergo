@@ -118,10 +118,11 @@ type funcCtx struct {
 	// it returns (release.go, holdTaken).
 	held       map[*syntax.Ident]bool
 	frame      *frame
-	acquiring  *acquireFlow     // a native acquisition callback, in this same source frame
-	stmtCall   *syntax.CallExpr // the call callStmt lowers, whose value is dropped (update.go)
-	okSubject  *okSubject       // the Option parameter of a callback's comma-ok variant (update.go)
-	env        string           // the current environment pointer, which every Go function the lowering writes binds
+	acquiring  *acquireFlow         // a native acquisition callback, in this same source frame
+	stmtCall   *syntax.CallExpr     // the call callStmt lowers, whose value is dropped (update.go)
+	okSubject  *okSubject           // the Option parameter of a callback's comma-ok variant (update.go)
+	env        string               // the current environment pointer, which every Go function the lowering writes binds
+	goDirect   map[syntax.Node]bool // Go functions of import go passed as Go's own to a Go function parameter (goCall)
 	directives bool
 	loops      []*loopCtx
 	// tries counts the try expressions being lowered: inside one, every
@@ -529,7 +530,8 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	// Whether the value is a failure is decided by the returning body's
 	// own view (owners.go): a type only a test's row names is a value in
 	// a production body, in the test build too.
-	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), fc.l.pkg.OwnerOf(x)) && !fc.returnsErrorType(x) {
+	p := fc.l.bodyPkg()
+	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), p, p.OwnerOf(x)) && !fc.returnsErrorType(x) {
 		fc.fail(fc.value(x))
 		return
 	}

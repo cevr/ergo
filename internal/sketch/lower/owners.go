@@ -53,20 +53,53 @@ func (l *lowerer) readsFact(p *check.Package, n syntax.Node) bool {
 	return l.viewOf(p).Sees(p.OwnerOf(n))
 }
 
-// errorType reports whether named is an error type in a body of this
-// package of owner o (types.md, Error types 1): a row of this package, or of
-// the package that declares named, that o sees names it. A declaration's
-// shape (an Error method, a text helper) reads the build's view, since the
-// build lowers every body of it; a return reads its own body's owner.
-func (l *lowerer) errorType(named *check.Named, o check.FactOwner) bool {
+// errorTypeIn reports whether named is an error type in a body of package
+// p of owner o (types.md, Error types 1): a row of p, or of the package
+// that declares named, that o sees names it. Each package keeps its own
+// view: a row of the root that names http.NotFound makes it an error type
+// in the root's bodies, never in http's, whose Match returns it as a value
+// (wf10 D1).
+func errorTypeIn(p *check.Package, named *check.Named, o check.FactOwner) bool {
 	if named.Orig != nil {
 		named = named.Orig
 	}
-	if l.pkg.IsErrorType(named, o) {
+	if p.IsErrorType(named, o) {
 		return true
 	}
-	p := named.Obj.Pkg
-	return p != nil && p != l.pkg && p.IsErrorType(named, check.OwnerProduction)
+	d := named.Obj.Pkg
+	return d != nil && d != p && d.IsErrorType(named, check.OwnerProduction)
+}
+
+// errorType reports whether named is an error type in the body of some
+// package the build lowers, each read in the build's view of it (viewOf).
+// It decides a declaration's shape (an Error method, a text helper, no flat
+// form): the program's packages share one Go package, so a type that one
+// package's row names needs its Error method in every one, while a return
+// reads its own body's package and owner (errorTypeIn).
+func (l *lowerer) errorType(named *check.Named) bool {
+	if errorTypeIn(l.pkg, named, l.buildView()) {
+		return true
+	}
+	for _, p := range l.libraries() {
+		if errorTypeIn(p, named, l.viewOf(p)) {
+			return true
+		}
+	}
+	return false
+}
+
+// bodyPkg is the package whose body the lowering is in: the package of the
+// Info it reads (sources.go, decls.go swap it per body).
+func (l *lowerer) bodyPkg() *check.Package {
+	if l.info == l.pkg.Info {
+		return l.pkg
+	}
+	for _, p := range l.libraries() {
+		if p.Info == l.info {
+			return p
+		}
+	}
+	return l.pkg
 }
 
 // errorTypesRead are the error types of package p this build reads.

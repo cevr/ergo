@@ -1,0 +1,144 @@
+import fs
+import http
+import jobs/jobs
+import json
+import strconv
+import strings
+import time
+
+// BadId is a path id that is not a job id: not a whole number above 0.
+type BadId { Text string }
+
+// WrongMethod is a request whose path a route takes with other methods,
+// Allow. http.Match and http.Body give a request no route takes, a body
+// over the limit and one that could not be read as values (http.NotFound,
+// http.BodyTooLarge, http.BodyReadFailed); the api's rows name them, so
+// here they are failures of their own types.
+type WrongMethod { Allow string }
+
+// Handle answers r from the Store and the Clock in the context. answer
+// fails with every refusal by its type; this one catch gives each its
+// status, with no case _, so a new failure stops the build until it has
+// a status here.
+//
+//	400 a body that is not JSON, or that could not be read
+//	404 no such route, or no such job
+//	405 a known path with another method (Allow lists the methods)
+//	409 a cancel or a delete the job's state does not allow
+//	413 a body over MaxBody
+//	422 JSON of the wrong shape, or an empty name
+func Handle(r http.Request) http.Response needs jobs.Store | time.Clock {
+	answer(r) catch {
+	case http.NotFound:
+		Refuse(404, "no route "+r.Method+" "+r.Path)
+	case WrongMethod as w:
+		let p = Refuse(405, r.Method+" is not allowed on "+r.Path)
+		http.Response{..p, Header: p.Header.Append(http.Field{Name: "Allow", Value: w.Allow})}
+	case http.BodyTooLarge as b:
+		Refuse(413, "the body is over \(b.Limit) bytes")
+	case http.BodyReadFailed as f:
+		Refuse(400, "the body could not be read: "+f.Reason)
+	case json.Malformed as m:
+		Refuse(400, "the body is not JSON: \(m.Reason) at byte \(m.Offset)")
+	case BadBody as b:
+		Refuse(422, b.Field+" "+b.Reason)
+	case BadId as b:
+		Refuse(404, "no job "+b.Text)
+	case jobs.NotFound as n:
+		Refuse(404, "no job \(n.Id)")
+	case jobs.Conflict as c:
+		Refuse(409, "job \(c.Id) is \(c.State) and cannot \(c.Asked)")
+	}
+}
+
+// answer is the response to r, or the refusal that stops it.
+func answer(r http.Request) http.Response fails http.NotFound | WrongMethod | http.BodyTooLarge | http.BodyReadFailed | json.Malformed | BadBody | BadId | jobs.NotFound | jobs.Conflict needs jobs.Store | time.Clock {
+	match http.Match(Routes(), r.Method, r.Path) {
+	case http.NotFound as n:
+		return n
+	case http.MethodNotAllowed:
+		return WrongMethod{Allow: Allowed(r.Path)}
+	case http.Found as f:
+		match try endpointOf(f) {
+		case ListJobs:
+			let mut views = []View{}
+			for j in jobs.List() {
+				views = views.Append(ViewOf(j))
+			}
+			Respond(200, ListingText(Listing{Jobs: views}))
+		case SubmitJob:
+			let d = try DraftOf(try textOf(r.Body))
+			let j = jobs.Submit(d.Name, PriorityOf(d))
+			let created = Respond(201, ViewText(ViewOf(j)))
+			http.Response{..created, Header: created.Header.Append(http.Field{Name: "Location", Value: "/jobs/\(j.Id)"})}
+		case ShowJob:
+			Respond(200, ViewText(ViewOf(try jobs.Find(try idOf(f)))))
+		case CancelJob:
+			Respond(200, ViewText(ViewOf(try jobs.CancelJob(try idOf(f)))))
+		case DeleteJob:
+			try jobs.Remove(try idOf(f))
+			http.Response{Status: 204, Header: []http.Field{}, Body: ""}
+		}
+	}
+}
+
+// endpointOf is the endpoint whose route f found. Routes is built from
+// Endpoints, so one always is; a route of no endpoint is no route.
+func endpointOf(f http.Found) Endpoint fails http.NotFound {
+	for e in Endpoints {
+		if RouteOf(e) == f.Route {
+			return e
+		}
+	}
+	http.NotFound
+}
+
+// idOf is the job id of f's path.
+func idOf(f http.Found) int fails BadId {
+	let text = match f.Params.Get("id") {
+	case Some[string] as s:
+		s.Value
+	case None:
+		""
+	}
+	let id = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadId{Text: text}
+	}
+	if id < 1 || strconv.Itoa(id) != text {
+		return BadId{Text: text}
+	}
+	id
+}
+
+// textOf is a buffered body's text; a body over the limit or one that
+// could not be read is its refusal.
+func textOf(b http.Body) string fails http.BodyTooLarge | http.BodyReadFailed {
+	match b {
+	case http.Buffered as t:
+		t.Text
+	case http.BodyTooLarge as l:
+		l
+	case http.BodyReadFailed as f:
+		f
+	}
+}
+
+// Respond is a response of status with the JSON body text.
+func Respond(status int, text string) http.Response {
+	http.Response{Status: status, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: text}
+}
+
+// Refuse is a refusal: status, and {"error": message}.
+func Refuse(status int, message string) http.Response { Respond(status, ProblemText(Problem{Error: message})) }
+
+// WithSite answers a path under /jobs with Handle, and any other path
+// with a file of site: "/" is "/index.html". http.Files reads through the
+// root, so no request path reaches outside it.
+func WithSite(site fs.Root, r http.Request) http.Response needs jobs.Store | time.Clock {
+	if r.Path == "/jobs" || strings.HasPrefix(r.Path, "/jobs/") {
+		return Handle(r)
+	}
+	let page = if r.Path == "/" { http.Request{..r, Path: "/index.html"} } else { r }
+	http.Files(site, "/", page)
+}

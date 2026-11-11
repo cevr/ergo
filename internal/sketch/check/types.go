@@ -141,7 +141,7 @@ type Interface struct {
 // fewer types and more operators: comparable admits == and !=; ordered
 // adds <, <=, >, >= and + over the integer, float, string and duration
 // types and the defined types over them; number adds -, *, / and unary -
-// over the integer and float types and the defined types over them. codable
+// over the integer and float types and the defined types over them. wire
 // (types.md, Codecs 1) stands apart from that chain: it admits the types
 // with a wire form and no operator, and it sorts below comparable, so
 // every `>= SetComparable` test leaves it out.
@@ -150,7 +150,7 @@ type TypeSet uint8
 // The type sets.
 const (
 	SetAll        TypeSet = iota // every type: a method set or no constraint
-	SetWire                      // codable: the types with a wire form
+	SetWire                      // wire: the types with a wire form
 	SetComparable                // comparable
 	SetOrdered                   // ordered
 	SetNumber                    // number
@@ -159,7 +159,7 @@ const (
 func (s TypeSet) String() string {
 	switch s {
 	case SetWire:
-		return "codable"
+		return "wire"
 	case SetComparable:
 		return "comparable"
 	case SetOrdered:
@@ -338,7 +338,7 @@ func (v *RowVar) Solution() *Row {
 // E in Task[T, E] or a row inferred for E or R.
 type RowArg struct{ Row *Row }
 
-// Wired is the row element wired[T] for a codable type parameter T: the
+// Wired is the row element wired[T] for a wire type parameter T: the
 // failures of decode[T], which only T's type argument decides (types.md,
 // Codecs 2; owner q80). Substitution replaces it by the argument's wire
 // row (typeops.go subst), so an instance's row is concrete.

@@ -11,7 +11,7 @@ The program is a module of packages (`ergo.mod`: `module okrakeys`), in the Go l
 | folder | what it holds |
 | --- | --- |
 | `keys/` | The domain. `keys.ergo` (`Keys` in a JavaScript object's order, `Set`, `Remove`, `Lookup`, `Names`, `IsIndex`), `store.ergo` (the contract `Store`, an operation type with the law `LoadSeesSave`; `StoreFailed`; `Mask`), `commands.ergo` (the union `Cmd`, `Parse`, `Usage`), `help.ergo` (effect/cli's help texts), `run.ergo` (`Run`, `EnvVar`, `NotFound`, `InvalidInput`), `laws.ergo`, `tests.ergo`. |
-| `keyfile/` | The file's text. `codec.ergo` (`Decode` as `JSON.parse` reads an object of strings, `Encode` as `JSON.stringify` writes it), `laws.ergo`, `tests.ergo`. Pure. |
+| `keyfile/` | The file's text, over std json's `Open`, `Reader` and `Text`. `codec.ergo` (`Decode` as `JSON.parse` reads an object of strings, its members in order, `Encode` as `JSON.stringify` writes it), `laws.ergo`, `tests.ergo`. Pure. |
 | `files/` | `Home`, the host's `Store`: `.okra/keys.json` under the home directory, through the `fs.Files` and `fs.Writes` it holds. `tests.ergo` drives it over an `fstest.Memory`. |
 | `memory/` | `Vault`, the in-memory `Store` for tests. |
 | `cmd/okra-keys/` | The binary. `main.ergo` binds the host's `os.Process`, the standard streams and a `files.Home`, and is the only place that chooses them; it turns each failure into okra's report. Its tests run the commands over a `memory.Vault` and a process of their own. |
@@ -47,7 +47,7 @@ go run ./scripts/examples okra-keys
 
 Closed in batch 12: G-ex-d-15 (`Save` writes the key file with `WriteFileMode(…, fs.Private())` and its directory with `MkdirAllMode(…, fs.PrivateDir())`: 0600 from the moment it is made, where okra chmods after the write; `TheKeyFileIsTheOwners`), G-ex-d-1 (`utf8.RuneText` for `\u` escapes, hex literals for the surrogate ranges, `strings.PadLeft` for the `\u00XX` form), G-ex-d-5 (`Keys` compares with `==`), G-ex-b-3 (`memory.Vault` holds its keys in a `sync.Ref`; the tests use `fstest.Memory`).
 
-- **G-ex-d-6** No std json: `keyfile` is a hand codec for one shape.
+- **G-ex-d-6** (closed by S-json) `keyfile` reads and writes through std json; its object stays a list of members, not a `Map`, since JSON.parse keeps their order and a `Map`'s derived codec sorts them.
 - **G-ex-d-4** Generated strings hold no quote, backslash or control byte, so the codec's laws `Spice` them.
 - **G-exup-1** (closed in batch 13): `ergo test` runs `Store.LoadSeesSave` where its providers are, and, since fu7a, on both providers: `keys.NewKeys` is `Keys`' constructor, and `Home`'s `fs.Files` and `fs.Writes` hold one `fstest.Memory` per case. The restating tests are gone.
 - Known from other lanes: `try` stands only at the start of an expression, so `a + try f()` needs a `let`.

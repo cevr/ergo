@@ -1,0 +1,32 @@
+import strconv
+
+// Value is an untyped JSON value: a field a program passes on without
+// reading its shape (metadata, the echo of a request). It is a wire type,
+// in a record or alone. A program reads it with an exhaustive match over
+// its six kinds. It keeps what a typed decode would lose: the order of an
+// object's members, every member of a repeated key, and the spelling of a
+// number. Encode(Decode(text)) is text without insignificant white space,
+// with strings in the encoder's escaping (ValueRoundTrips).
+//
+// A repeated key is kept, in order: Value does not interpret keys, so it
+// passes on what it read (Go's json.RawMessage keeps the bytes; Elixir
+// Jason's ordered objects keep the members).
+type Boolean { Value bool }
+type Num { text string }
+type Str { Value string }
+type Array { Items []Value }
+type Member { Key string, Value Value }
+type Object { Members []Member }
+type Value = Null | Boolean | Num | Str | Array | Object
+
+// IntNumber is n's number.
+func IntNumber(n int64) Num { Num{text: strconv.FormatInt(n, 10)} }
+
+// ParseNum is the number text spells; text must be one JSON number. With
+// Wire it is Num's by-name pair, so only a valid spelling makes a Num; the
+// codec writes a Num as the number itself, not as Wire's string.
+func ParseNum(text string) Num fails Malformed {
+	let r = Open(text, 0, 0) catch { case Malformed as m: return m }
+	let s = r.Number() catch { case _: return Malformed{Offset: 0, Reason: "not a number"} }
+	Num{text: s}
+}

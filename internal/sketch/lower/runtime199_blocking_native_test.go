@@ -93,7 +93,9 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // caller, shielded, and joins nothing: runtime/v1/actor_children_test.go
 // TestActorChildrenAgreeWithTree states that its owner entry stops it,
 // last started first, before the next entry and before the owner ends.
-var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineSupervise": true, "MachineChild": true}
+// HTTPServe's stop and drain laws are TestHTTPConcurrentRequestsAndStop
+// and TestHTTPDisconnectAndDefects in runtime/v1/http_test.go.
+var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineSupervise": true, "MachineChild": true, "HTTPServe": true}
 
 // actorWaitLaws are the waiting bindings of std actor (MU3): each waits on
 // the actor's own runner (for room in its inbox, an answer, a state, a

@@ -1,0 +1,14 @@
+// Optional is a record field whose key can be absent. Present writes its
+// value directly, Absent writes no key. Outside a record field Optional
+// keeps its tagged union form: an array slot or root cannot be absent.
+// Option is unchanged and always keeps its tagged form.
+type Absent {}
+type Present[T] { Value T }
+type Optional[T] = Absent | Present[T]
+
+// Nullable writes null or the value directly. A Nullable record field is
+// required: a missing key is WireMissingField, not Null. Optional[Nullable[T]]
+// is the three-state field: Absent, Present{Null}, Present{NonNull{value}}.
+type Null {}
+type NonNull[T] { Value T }
+type Nullable[T] = Null | NonNull[T]

@@ -308,6 +308,23 @@ type lowerer struct {
 	// program's types name (text.go, instancesOf), computed once.
 	instances map[*check.TypeName][]check.Type
 
+	// stdInits are the reached std packages with lets (stdLetPkgs),
+	// computed once; stdLets is set while their lets are named and lowered
+	// (wf10 defects D3).
+	stdInits *[]*check.Package
+	stdLets  bool
+	// stdLetOf is the std let declaration and its package for each
+	// variable of one, from the naming pass; stdLetQueued holds the
+	// declarations a lowered body has reached, which alone are lowered
+	// (reachStdLet, wf10 defects D6); stdLetInits counts the std let
+	// declarations lowered (TestStdPackageLet).
+	stdLetOf     map[*check.Var]stdLet
+	stdLetQueued map[*syntax.VarDecl]bool
+	stdLetInits  int
+	// initEnvArg is the entry's environment variable, which its call of
+	// ergoInit passes (initSlot).
+	initEnvArg string
+
 	// noEntry lowers a package with an empty Go main instead of a call of
 	// its main: the corpus test lowers library-shaped fixtures this way.
 	noEntry bool
@@ -469,10 +486,11 @@ func (l *lowerer) program() ([]byte, error) {
 	l.nameAll()
 	main := l.mainFunc()
 	l.eachDecl(l.pkg, l.decl)
-	// Every initializer of every sourced package is lowered here, before
-	// the entry decides whether it calls ergoInit: a library's lets, and
-	// its machines' initial values (F13). A library's other declarations
-	// are lowered where they are used.
+	// Every initializer of every sourced package is lowered here: a
+	// library's lets, and its machines' initial values (F13). A library's
+	// other declarations are lowered where they are used, and so is a std
+	// package's let (reachStdLet, wf10 defects D6), so the entry leaves a
+	// slot for the call of ergoInit, filled once every body is lowered.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
 			switch d := d.(type) {
@@ -494,6 +512,7 @@ func (l *lowerer) program() ([]byte, error) {
 	case l.tests != nil:
 		l.guard(func() { l.testEntry(&entry) })
 	case l.lib != "":
+		l.drainPending() // Reach std lets before the Go library's initOnce.
 		l.guard(func() { l.exports(&entry) })
 	case l.noEntry:
 		entry.WriteString("func main() {}\n\n")
@@ -504,19 +523,16 @@ func (l *lowerer) program() ([]byte, error) {
 	default:
 		l.guard(func() { l.entry(&entry, main) })
 	}
-	for len(l.pending) > 0 {
-		next := l.pending[0]
-		l.pending = l.pending[1:]
-		l.guard(next)
-	}
+	l.drainPending()
 	if len(l.flatBails) > 0 {
 		return l.lowerAgain()
 	}
 	if l.hasInits() && !l.entryInits && (l.tests != nil || (!l.noEntry && main != nil)) {
-		// An initializer lowered after the entry was written would never
-		// run: a value would start as Go's zero value (F13).
-		l.guard(func() { ice(l.file, "a package initializer was lowered after the entry, which does not call ergoInit") })
+		// An entry with no slot for ergoInit would never run an
+		// initializer: a value would start as Go's zero value (F13).
+		l.guard(func() { ice(l.file, "the entry has no slot for the call of ergoInit") })
 	}
+	entryText := l.fillInitSlot(entry.String())
 	if len(l.refusals) > 0 {
 		return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
 	}
@@ -544,7 +560,7 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	// Entry, environment and library declarations come before the first
 	// //line directive, so their lines stay main.go's.
-	out.WriteString(entry.String())
+	out.WriteString(entryText)
 	l.envType(&out)
 	out.WriteString(l.gen.String())
 	out.WriteString(table)
@@ -556,6 +572,37 @@ func (l *lowerer) program() ([]byte, error) {
 		return []byte(out.String()), fmt.Errorf("lower: the emitted Go does not parse (a compiler defect): %w", err)
 	}
 	return anchorLines(formatted), nil
+}
+
+// drainPending lowers library bodies and any declarations they reach.
+func (l *lowerer) drainPending() {
+	for len(l.pending) > 0 {
+		next := l.pending[0]
+		l.pending = l.pending[1:]
+		l.guard(next)
+	}
+}
+
+// initSlotLine is the line an entry writes where it calls ergoInit, before
+// the bodies that may reach a std let are lowered (reachStdLet).
+const initSlotLine = "\t\t/*ergo:init*/\n"
+
+// initSlot is the entry's slot for the call of ergoInit with the
+// environment env; fillInitSlot fills it once every body is lowered.
+func (l *lowerer) initSlot(env string) string {
+	l.entryInits = true
+	l.initEnvArg = env
+	return initSlotLine
+}
+
+// fillInitSlot is entry with its slot replaced by the call of ergoInit,
+// or by nothing when no initializer was lowered.
+func (l *lowerer) fillInitSlot(entry string) string {
+	call := ""
+	if l.entryInits && l.hasInits() {
+		call = "\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + l.initEnvArg + ")\n"
+	}
+	return strings.Replace(entry, initSlotLine, call, 1)
 }
 
 // anchorLines maps every Go line after a //line directive to that directive.
@@ -668,12 +715,7 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 	// interruption (runtime.md, Exit causes). The environment holds that
 	// task (stage D3b, Rule 1).
 	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", fields, func(env string) string {
-		var s string
-		if l.hasInits() {
-			// The package-level lets run first, in the root task (review m1).
-			l.entryInits = true
-			s = "\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n"
-		}
+		s := l.initSlot(env)
 		if fd.fallible {
 			return s + "\t\treturn " + fd.name + "(" + env + ")\n"
 		}

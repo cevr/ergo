@@ -1,0 +1,77 @@
+// The lifecycle's rules, as laws over Step, Timer, Settle and Apply.
+
+import time
+
+// job is a job submitted at second 0, in state s since ms milliseconds.
+func job(s State, ms int64) Job {
+	let t0 = time.Unix(0, 0)
+	Job{Id: 1, Name: "j", Priority: 0, Created: t0, State: s, Since: t0.Add(duration(ms * 1000000))}
+}
+
+// stateOf is the state a generated number names.
+func stateOf(n int) State {
+	match ((n % 4) + 4) % 4 {
+	case 0:
+		Queued
+	case 1:
+		Running
+	case 2:
+		Done
+	case _:
+		Cancelled
+	}
+}
+
+// ms is a generated number as a time of at most a minute, in ms.
+func ms(n int64) int64 { ((n % 60000) + 60000) % 60000 }
+
+// near is a generated number as a time in ms that is, half the time, at
+// a move of an untaken job or 1ms before one, where an off-by-one shows.
+func near(n int64) int64 {
+	let start = int64(QueueFor) / 1000000
+	let end = start + int64(RunFor)/1000000
+	let edges = []int64{start - 1, start, end - 1, end}
+	let m = ms(n)
+	if m%2 == 0 { edges[int((m/2)%4)] } else { m % (end + 1000) }
+}
+
+// UntakenJobIsDoneOnTime: a job no client cancels is queued before
+// QueueFor, running from QueueFor until QueueFor+RunFor, and done from
+// then on; it ended at exactly QueueFor+RunFor.
+law UntakenJobIsDoneOnTime(n int64) {
+	let j = job(Queued, 0)
+	let at = j.Created.Add(duration(near(n) * 1000000))
+	let s = Settle(j, at)
+	let elapsed = at.Sub(j.Created)
+	if elapsed < QueueFor {
+		return s.State == Queued && s.Since == j.Created
+	}
+	if elapsed < QueueFor+RunFor {
+		return s.State == Running && s.Since == j.Created.Add(QueueFor)
+	}
+	s.State == Done && s.Since == j.Created.Add(QueueFor+RunFor)
+}
+
+// SettleComposes: settling to a and then to a later b is settling to b,
+// so a job read late is the job read on time.
+law SettleComposes(state int, since int64, a int64, b int64) {
+	let j = job(stateOf(state), ms(since))
+	let t0 = j.Created
+	let first = t0.Add(duration(ms(a) * 1000000))
+	let second = first.Add(duration(ms(b) * 1000000))
+	Settle(Settle(j, first), second) == Settle(j, second)
+}
+
+// CancelBeforeTheEnd: a cancel at t succeeds exactly when the job has not
+// ended by t, and the cancelled job ended at t; a job that ended fails
+// Conflict, naming its state, and takes no timer.
+law CancelBeforeTheEnd(state int, since int64, at int64) {
+	let j = job(stateOf(state), ms(since))
+	let t = j.Since.Add(duration(ms(at) * 1000000))
+	let settled = Settle(j, t)
+	let c = Apply(j, Cancel, t) catch {
+	case Conflict as x:
+		return Ended(settled.State) && x.State == Name(settled.State) && x.Asked == "cancel" && Timer(settled.State) == None
+	}
+	!Ended(settled.State) && c.State == Cancelled && c.Since == t
+}
