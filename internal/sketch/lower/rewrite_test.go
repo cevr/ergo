@@ -177,10 +177,14 @@ func agreeProgram(rng *rand.Rand, types []agreeType) (src, anchor string) {
 	return b.String(), anchor
 }
 
-// TestRewriteAgrees: a program lowered with its check run's evidence
-// prints what the reference lowering prints, and at the anchor, a site of
-// constants on a known provider whose join law the check run passed, the
-// Go calls the right side's one Add and no left-side Add pair.
+// TestRewriteAgrees: the build's evidence admits proved laws only, so on
+// these tested runs the anchor keeps its two Adds (owner q115). Then, with
+// the tested runs admitted explicitly (a test-only admission: the engine
+// under test, not the build's rule), a program lowered with its check
+// run's evidence prints what the reference lowering prints, and at the
+// anchor, a site of constants on a known provider whose join law the check
+// run passed, the Go calls the right side's one Add and no left-side Add
+// pair.
 // ERGO_REWRITE_AGREE_SEED replays a seed.
 //
 // It builds Go because the rewritten and the reference programs must run:
@@ -223,8 +227,21 @@ func TestRewriteAgrees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed %d: %v\n%s", seed, err, src)
 	}
+	// The build's evidence admits proved laws only (owner q115), and these
+	// runs are tested: the build keeps the reference form at the anchor.
+	add := types[0].ops["Add"]
 	rewritten := u
 	rewritten.Rewrite = ev
+	built, err := Lower(rewritten)
+	if err != nil {
+		t.Fatalf("seed %d: %v\n%s", seed, err, src)
+	}
+	if got := strings.Count(goFunc(t, (&lowered{files: built}).mainGo(), anchor), add); got != 2 {
+		t.Fatalf("seed %d: the build's anchor calls %s %d times on tested evidence, want 2\ncheck run:\n%s\n%s", seed, add, got, checkOut, replay)
+	}
+	// The property tests the engine: it admits the tested runs explicitly,
+	// which no build does.
+	ev.(*checkedEvidence).admitTested = true
 	fast, err := Lower(rewritten)
 	if err != nil {
 		t.Fatalf("seed %d: %v\n%s", seed, err, src)
@@ -237,7 +254,6 @@ func TestRewriteAgrees(t *testing.T) {
 	}
 	progs := []*lowered{{name: "fast", src: src, file: file, pkg: pkg, files: fast}, {name: "ref", src: src, file: file, pkg: pkg, files: ref}}
 	// The promised form at the anchor: one Add, of the constant 3.
-	add := types[0].ops["Add"]
 	for _, p := range progs {
 		body := goFunc(t, p.mainGo(), anchor)
 		want := 2
@@ -344,6 +360,8 @@ func TestRewriteDeepFalseLaw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Even an engine test's admission of tested runs admits no refuted law.
+	ev.(*checkedEvidence).admitTested = true
 	for _, c := range []struct {
 		ev    RewriteEvidence
 		twice bool

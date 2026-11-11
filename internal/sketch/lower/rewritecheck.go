@@ -12,10 +12,10 @@ import (
 // run). RewriteChecks lowers the run build to learn the laws and the site
 // instances it asks for; lowers the test build of the same unit with
 // those instances as cases of their own (RewriteInstance); and runs each
-// asked law of it alone (--law). A law's run that ends ok, with the
-// instance among its cases, admits the law for that provider at that
-// instance; a refuted or skipped run, or an instance the check did not
-// take, admits nothing.
+// asked law of it alone (--law). A law's run that ends ok and proved, with
+// the instance among its cases, admits the law for that provider at that
+// instance; a tested, refuted or skipped run, or an instance the check
+// did not take, admits nothing (owner q115: proved only).
 //
 // The first lowering admits every law it asks for, so it learns the laws
 // a lawful program uses. A refused law changes what the lowering asks for
@@ -39,7 +39,7 @@ const rewriteCheckRounds = 3
 // a provider's run checks needs no check: its evidence admits nothing,
 // and run is not called.
 func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)) (RewriteEvidence, error) {
-	ev := &checkedEvidence{pkg: u.Package, ok: map[string]bool{}, ran: map[*check.Law]bool{}, insts: map[string]bool{}}
+	ev := &checkedEvidence{pkg: u.Package, ok: map[string]string{}, ran: map[*check.Law]bool{}, insts: map[string]bool{}}
 	if len(newRewriter(u.Package, ev).rules) == 0 {
 		return ev, nil
 	}
@@ -83,8 +83,12 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 		for _, line := range strings.Split(out, "\n") {
 			if rest, ok := strings.CutPrefix(line, "ok law "); ok {
 				title, prov, _ := strings.Cut(rest, " for ")
-				prov, _, _ = strings.Cut(prov, " ")
-				ev.ok[evidenceKey(title, prov)] = true
+				prov, how, _ := strings.Cut(prov, " ")
+				label := "tested"
+				if strings.HasPrefix(how, "(proved") {
+					label = "proved"
+				}
+				ev.ok[evidenceKey(title, prov)] = label
 			}
 		}
 		for _, law := range laws {
@@ -99,19 +103,29 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 }
 
 // checkedEvidence is the verdicts of the check runs: ok by law and
-// provider title, the laws they ran, and insts the site instances they
-// took. It records what a lowering asks for that no run checked (asked,
-// askedInsts), and admits that only while optimistic.
+// provider title, with the run's label (proved or tested), the laws they
+// ran, and insts the site instances they took. It records what a lowering
+// asks for that no run checked (asked, askedInsts), and admits that only
+// while optimistic.
+//
+// Only proved evidence changes code (owner q115, 2026-11-11): a run that
+// held over drawn cases is tested, which ergo test and the check report,
+// and the build never acts on it. admitTested is the one exception, and
+// only a test sets it: the engine's agreement property (TestRewriteAgrees)
+// runs rewrites on tested laws, which no build does.
 type checkedEvidence struct {
-	pkg        *check.Package
-	ok         map[string]bool
-	ran        map[*check.Law]bool
-	insts      map[string]bool
-	optimistic bool
-	asked      []*check.Law
-	askedInsts []RewriteInstance
+	pkg         *check.Package
+	ok          map[string]string
+	ran         map[*check.Law]bool
+	insts       map[string]bool
+	optimistic  bool
+	admitTested bool
+	asked       []*check.Law
+	askedInsts  []RewriteInstance
 }
 
+// Admit admits law for prov at the site in when the law's check run for
+// prov proved it and took the site; see checkedEvidence.
 func (e *checkedEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInstance) (bool, string) {
 	key := evidenceKey(law.Title(e.pkg), provTitle(e.pkg, prov))
 	checked := true
@@ -132,8 +146,10 @@ func (e *checkedEvidence) Admit(law *check.Law, prov *check.Named, in RewriteIns
 		return true, ""
 	case !checked:
 		return false, "no check run of law " + key + " took this site"
-	case !e.ok[key]:
+	case e.ok[key] == "":
 		return false, "the check run of law " + key + " did not pass"
+	case e.ok[key] != "proved" && !e.admitTested:
+		return false, "law " + key + " is tested, not proved: only proved laws change code"
 	}
 	return true, ""
 }

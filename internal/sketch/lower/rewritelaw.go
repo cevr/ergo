@@ -36,9 +36,8 @@ const rewriteSteps = 5
 
 // rewritePrefix bounds a case's drawn prefix, zero to rewritePrefix-1
 // operations, and rewriteCases is the number of drawn cases of a rewrite
-// law's run and of a post law's run in the build's check. A law that
-// drives code is checked from deep states (orchestrator, 2026-11-11, D1
-// split by stakes): the audit's rwdeep law, false only at the state nine
+// law's run and of a post law's run in the build's check. A law that may
+// drive code is checked from deep states: the audit's rwdeep law, false only at the state nine
 // operations of Inc (+1), Twice (+2) and Read reach, is refuted in a case
 // with chance 0.0436 at these bounds (counted exactly: the prefix length
 // uniform in 0..31, each step uniform), so 400 cases miss it with chance
