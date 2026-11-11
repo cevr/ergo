@@ -123,6 +123,8 @@ func TestPatternGrammar(t *testing.T) {
 		{`(?<1x>a)`, 3, "not an identifier"},
 		{`(?<X>a)(?<X>b)`, 10, "named twice"},
 		{`((?<K>a)=(?<V>b);)*`, 18, "name the repeated group"},
+		{`((?<K>a)(?<V>b))+`, 16, "name the repeated group"},
+		{`((?<K>a)(?<V>b)){0,2}`, 16, "name the repeated group"},
 		{`(?<A>a)|b`, 8, "every branch of T is a named capture"},
 		{`(a`, 0, "unclosed group"},
 		{`a)`, 1, "unmatched )"},
@@ -136,6 +138,18 @@ func TestPatternGrammar(t *testing.T) {
 		}
 		if perr == nil || perr.Offset != row.at || !strings.Contains(perr.Msg, row.msg) {
 			t.Errorf("pattern %q: got %v, want byte %d %q", row.text, perr, row.at, row.msg)
+		}
+	}
+	// Capture shapes 4 refuses only a repeat that can run more than once:
+	// `?` and a count whose maximum is one keep two captures of one scope,
+	// and a named repeated group is admitted.
+	for _, text := range []string{`((?<K>a)(?<V>b))?`, `((?<K>a)(?<V>b)){0,1}`, `(?<Pair>(?<K>a)=(?<V>b);)*`} {
+		pt, perr := parsePattern(text)
+		if perr == nil {
+			_, perr = shapeOf("T", pt)
+		}
+		if perr != nil {
+			t.Errorf("pattern %q: refused %v", text, perr)
 		}
 	}
 }

@@ -36,6 +36,15 @@
       "to": "\t\tif hi < 0 || hi > 2 {\n\t\t\thi = 1\n",
       "rule": "A capture under a repeat of more than one is a slice of every occurrence (Capture shapes 2).",
       "killers": ["internal/sketch/derive:TestPatternShapes"]
+    },
+    {
+      "name": "rc4b-repeated-group-refuses-optional",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/derive/shape.go",
+      "from": "\tif n.Kind == regexpplan.Repeat && (n.Max < 0 || n.Max > 1) && len(scopeCaptures(",
+      "to": "\tif n.Kind == regexpplan.Repeat && (n.Max < 0 || n.Max > 0) && len(scopeCaptures(",
+      "rule": "Capture shapes 4 refuses only a repeat that can run more than once; `?` and a count with maximum one keep two captures of one scope.",
+      "killers": ["internal/sketch/derive:TestPatternGrammar"]
     }
   ]
 }
