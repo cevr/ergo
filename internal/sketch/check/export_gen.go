@@ -4089,6 +4089,7 @@ func (e *encoder) encFieldsContextEntry(v *ContextEntry) {
 	e.encPtrContext(v.Embedded)
 	e.encT20(v.Uses)
 	e.encT3(v.seq)
+	e.encT6(v.pkg)
 }
 
 func (e *encoder) encContextEntry(v ContextEntry) { e.encFieldsContextEntry(&v) }
@@ -12632,6 +12633,7 @@ func (d *decoder) decFieldsContextEntry(v *ContextEntry) {
 	v.Embedded = d.decPtrContext()
 	v.Uses = d.decT20()
 	v.seq = d.decT3()
+	v.pkg = d.decT6()
 }
 
 func (d *decoder) decContextEntry() (v ContextEntry) {
