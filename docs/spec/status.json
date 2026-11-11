@@ -52,6 +52,13 @@
       ]
     },
     {
+      "file": "patterns.md",
+      "heading": "Derived types and patterns",
+      "status": "designed",
+      "text": ": no compiler support yet. The parser reads `derive` after a type's name as a type name and refuses the expression after it with S001.",
+      "witnesses": []
+    },
+    {
       "file": "resources.md",
       "heading": "Resources and automatic release",
       "status": "partly implemented",
@@ -585,6 +592,13 @@
       "status": "designed",
       "cell": "Designed, not yet implemented: the parser refuses the clauses and a `where` after a record type with S001",
       "section": "[facts](facts.md)",
+      "witnesses": []
+    },
+    {
+      "construct": "Derived types `type T derive E`: type plans, plan functions and typed byte patterns",
+      "status": "designed",
+      "cell": "Designed, not yet implemented: the parser refuses the expression after `type T derive` with S001",
+      "section": "[patterns](patterns.md)",
       "witnesses": []
     }
   ]
