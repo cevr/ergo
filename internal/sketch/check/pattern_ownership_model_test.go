@@ -252,7 +252,7 @@ func pair() Pair { Pair{R: open(1), S: open(2)} }
 // by a drawn bound; the queue itself bound by a drawn bound, with the
 // type arguments written or inferred, or through the bound of an outer
 // generic's type parameter; a conversion to an operation type in the
-// body (of an element, and of the queue, a sealed std protocol: C28);
+// body (of an element, and of the queue, a sealed std protocol);
 // and a nested generic whose bound with Close binds an inner drawn bound.
 // A bound is drawn from members (ofBound): a plain operation, one that
 // takes a value, one that lends one, one that returns an owned value, a
@@ -261,7 +261,8 @@ func pair() Pair { Pair{R: open(1), S: open(2)} }
 // nothing. The reference: a resource meets a bound only when the bound
 // has a release (a Close; an operation that takes the value keeps it and
 // releases nothing, R1/R13), every use keeps its release (a lend, or a
-// bound with Close), and a sealed queue never converts. Mutants:
+// bound with Close), and a sealed queue converts as any value with its
+// members does, a copy site of its element (R22, R44). Mutants:
 // 16a-r4-*, 16a-r5-*.
 func ofGenericRoutes(t *testing.T, seed uint64) {
 	r := rand.New(rand.NewPCG(seed, 0x16a4))
@@ -380,7 +381,6 @@ func Mark(n Num) int { 3 }
 	const (
 		copies = "copies its"                 // R44: a copy site of the type parameter
 		r22    = "has no Close, so the value" // R22 at the instantiation
-		sealed = "is a sealed std protocol"   // C28
 	)
 	var wantBad bool
 	want := []string{copies}
@@ -405,7 +405,11 @@ func Mark(n Num) int { 3 }
 	case 7:
 		wantBad = true
 	case 8:
-		wantBad, want = true, []string{sealed, copies}
+		// A sealed queue converts to Src[T] as any value with its
+		// members does (the lowering builds it: lower
+		// TestSealedStdConvertsToItsOperationTypes); Src has no Close, so
+		// the conversion is a copy site of T (R22, R44).
+		wantBad = res
 	case 9:
 		wantBad = escapes || !elem.close
 	case 11:
@@ -435,7 +439,7 @@ func Mark(n Num) int { 3 }
 		bad = true
 	}
 	// The route's own rule reports: R22 for a resource under a bound
-	// without Close, C28 for the queue's conversion.
+	// without Close, R44 for the queue's conversion.
 	if bad != wantBad || bad && !first {
 		t.Fatalf("generic route seed %d (ERGO_SEED=%d), route %d use %d %s: bad=%v want %v (first rule reported %v)\n%s\n%v", seed, seed, route, use, inst, bad, wantBad, first, src, ds)
 	}

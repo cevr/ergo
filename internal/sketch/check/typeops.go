@@ -355,20 +355,20 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			// R22: the operation value would never be released.
 			return assignment{}, resourceIntoCrossingText(v, t)
 		}
-		if s := sealedStd(v); s != nil && sealedStd(t) == nil && len(it.Methods) > 0 {
-			// The runtime's own type stands for a sealed std protocol, and
-			// its operations have Go's shapes, not those of an operation
-			// type of the program (lower/std.go runtimeType): no Go
-			// conversion makes the one the other. A constraint can name
-			// it: a generic body calls its operations through a witness.
-			return assignment{}, sealedSourceText(v, t)
-		}
 		if s := sealedStd(t); s != nil && sealedStd(v) == nil {
 			// A program value, or a program operation type's value, never
 			// becomes a sealed std protocol's value (C28).
 			return assignment{sealed: s, from: v}, sealedText(v, s)
 		}
 		if asInterface(v) != nil {
+			if n := sealedStd(v); n != nil && sealedStd(t) == nil && !isHostNamed(t) {
+				// The runtime's own type stands for a sealed std protocol,
+				// with the runtime's Go shapes, not those of the target's
+				// interface: the lowering builds the operations from the
+				// std ones (lower/sealedops.go), for every pair this
+				// member match admits.
+				return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t}}, ""
+			}
 			// An operation type's value is already an interface value.
 			return assignment{clause: assignOperations}, ""
 		}

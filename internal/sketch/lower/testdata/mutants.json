@@ -3222,6 +3222,28 @@
         "file": "internal/sketch/lower/tests.go",
         "text": "Replace(harnessGo + harnessReachGo)"
       }
+    },
+    {
+      "name": "16b-m2-sealed-adapter",
+      "origin": "batch-16b merge of 16a-r5 (orchestrator ruling 2026-11-11)",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "if from, ok := conv.From.(*check.Named); ok && l.runtimeType(from, site) != \"\" {",
+      "to": "if from, ok := conv.From.(*check.Named); false && ok && l.runtimeType(from, site) != \"\" {",
+      "rule": "A sealed std protocol's value converted to another operation type is an adapter whose methods make the std operations' calls (sealedops.go).",
+      "killers": [
+        "lower:TestSealedStdConvertsToItsOperationTypes"
+      ]
+    },
+    {
+      "name": "16b-m2-sealed-func-arg",
+      "origin": "batch-16b merge of 16a-r5 (orchestrator ruling 2026-11-11)",
+      "file": "internal/sketch/lower/sealedops.go",
+      "from": "\t\tvals[i+1] = mc.adaptFunc(vals[i+1], p.Func, sig, site)\n",
+      "to": "\t\t_ = sig\n",
+      "rule": "The adapter of a sealed std value passes a function argument in the runtime's Go shape (adaptFunc), as a call in the program does (sync.Ref's Update).",
+      "killers": [
+        "lower:TestSealedStdConvertsToItsOperationTypes"
+      ]
     }
   ]
 }
