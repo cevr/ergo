@@ -292,6 +292,37 @@ func (e *engine) copyTree(dst string) error {
 			return err
 		}
 	}
+	return commitCopy(dst, e.files)
+}
+
+// commitCopy makes the copy at dst a Git repository whose one commit holds
+// the copied files. The tests that read the repository (internal/residue's
+// rules run git ls-files) then see the checkout's file list in the copy and
+// can kill a mutant; without it they fail on every tree. The commit also
+// keeps go build's VCS stamp working. The user's Git configuration is left
+// out: a signing or hook setting must not reach the copy.
+func commitCopy(dst string, files []treeFile) error {
+	var names bytes.Buffer
+	for _, f := range files {
+		names.WriteString(f.path)
+		names.WriteByte(0)
+	}
+	steps := [][]string{
+		{"init", "-q"},
+		{"add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"},
+		{"-c", "user.name=mutants", "-c", "user.email=mutants@invalid", "commit", "-q", "--no-verify", "-m", "mutants copy"},
+	}
+	for _, args := range steps {
+		cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
+		cmd.Dir = dst
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if args[0] == "add" {
+			cmd.Stdin = bytes.NewReader(names.Bytes())
+		}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git %s in the copy %s: %w\n%s", args[0], dst, err, out)
+		}
+	}
 	return nil
 }
 

@@ -10,6 +10,15 @@
       "to": "case memory != 0 && bytes.Contains(report, []byte(proclimit.OutOfMemory)):\n\t\treturn \"memory\"",
       "rule": "A capped mutant child's span-queue allocation fault has reason memory.",
       "killers": ["scripts/mutants:TestCappedFaultIsMemory"]
+    },
+    {
+      "name": "mutclean-copy-without-git",
+      "origin": "wf10 MUT-clean",
+      "file": "scripts/mutants/runner.go",
+      "from": "\treturn commitCopy(dst, e.files)\n",
+      "to": "\treturn nil\n",
+      "rule": "The runner's copy carries the checkout's Git file list, so a test that reads the repository (git ls-files) can kill a mutant.",
+      "killers": ["scripts/mutants:TestRunnerMatchesModel"]
     }
   ]
 }
