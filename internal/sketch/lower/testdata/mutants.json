@@ -3,7 +3,11 @@
   "mutants": [
     {"name":"inline-loop-blind","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"\t\tcase *syntax.ForStmt, *syntax.RangeStmt:\n\t\t\tok = false","to":"\t\tcase *syntax.ForStmt, *syntax.RangeStmt:\n\t\t\t_ = ok","rule":"Inline cost rule: a body with a loop stays a Go call.","killers":["lower:TestInlineRule"]},
     {"name":"inline-recursion-blind","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"return !frame && !l.inlineRecursive(f)","to":"return !frame","rule":"Inline cost rule: a function that a chain of calls from its body reaches stays a Go call.","killers":["lower:TestInlineRule"]},
-    {"name":"inline-budget-blind","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"if size > inlineBudget {","to":"if size > 100*inlineBudget {","rule":"Inline cost rule: a body over inlineBudget syntax nodes stays a Go call.","killers":["lower:TestInlineRule"]},
+    {"name":"inline-budget-blind","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"if size > inlineBudget || goLeaf(f) {","to":"if size > 100*inlineBudget || goLeaf(f) {","rule":"Inline cost rule: a body over inlineBudget syntax nodes stays a Go call.","killers":["lower:TestInlineRule"]},
+    {"name":"laws-run-build-reads-law-facts","origin":"wf10 OPT4a r2","file":"internal/sketch/lower/owners.go","from":"\tif l.tests != nil {\n\t\treturn check.ViewTestBuild","to":"\tif true {\n\t\treturn check.ViewTestBuild","rule":"types.md Laws 11: a law adds no Go to the run build; an import or a generic instance only a law uses is not in it.","killers":["lower:TestStdLawsAddNoGo"]},
+    {"name":"inline-go-leaf-blind","origin":"wf10 OPT4a r2","file":"internal/sketch/lower/inline.go","from":"if size > inlineBudget || goLeaf(f) {","to":"if size > inlineBudget {","rule":"Inline cost rule: a non-generic leaf is left to Go's inliner.","killers":["lower:TestInlineRule"]},
+    {"name":"inline-go-leaf-generic-blind","origin":"wf10 OPT4a r2","file":"internal/sketch/lower/inline.go","from":"\tif d.TypeParams != nil && len(d.TypeParams.List) > 0 {\n\t\treturn false\n\t}\n\tinfo := f.Pkg.Info\n\tleaf := true","to":"\tinfo := f.Pkg.Info\n\tleaf := true","rule":"Inline cost rule: a generic leaf (a shape body with a dictionary) is inlined.","killers":["lower:TestInlineRule"]},
+    {"name":"inline-go-leaf-call-blind","origin":"wf10 OPT4a r2","file":"internal/sketch/lower/inline.go","from":"c.Func.Decl.Extern == nil:\n\t\t\tleaf = false","to":"c.Func.Decl.Extern == nil:\n\t\t\t_ = leaf","rule":"Inline cost rule: a non-generic body that calls an Ergo body is no leaf; it is inlined.","killers":["lower:TestInlineRule"]},
     {"name":"inline-callback-escape-blind","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"isVar && cbs[v] && !called[n] {\n\t\t\t\tok = false","to":"isVar && cbs[v] && !called[n] {\n\t\t\t\t_ = ok","rule":"Inline cost rule: a callback parameter the body uses other than as a callee keeps the call.","killers":["lower:TestInlineRule"]},
     {"name":"inline-fail-dropped","origin":"wf10 OPT4a","file":"internal/sketch/lower/body.go","from":"fc.line(in.err + \" = \" + err)","to":"fc.line(\"_ = \" + err)","rule":"An inlined body's typed failure reaches its site as the call's error.","killers":["lower:TestInlineAgrees"]},
     {"name":"inline-return-dropped","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"lhs, rhs = append(lhs, in.res), append(rhs, vals[0])","to":"lhs, rhs = append(lhs, \"_\"), append(rhs, vals[0])","rule":"An inlined body's return gives the call its value.","killers":["lower:TestInlineAgrees"]},
@@ -381,9 +385,8 @@
       "from": "if len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 || s.ResultIsTask()",
       "to": "if len(rowElems(s.Errors)) > 0 || s.ResultIsTask()",
       "rule": "pureCandidate: pureCandidate reports whether f meets every rule of a pure function but the last's fixed point, with the Ergo-bodied functions its body calls, of any package; info is f's own package's Info.",
-      "killers": [
-        "lower:TestStdLawsAddNoGo"
-      ]
+      "killers": [],
+      "gap": "Equivalent in behaviour: a function whose needs row its body does not use has an empty footprint (the prelude's NewLiveScheduler, needs Ambient), so as a pure function it takes no Env and its output, failures and defects are the same (measured on the std-laws program, wf10 OPT4a r2). Its only killer was the golden of TestStdLawsAddNoGo, which pinned the Go text; the text is no promise (AGENTS.md Tests)."
     },
     {
       "name": "existing-28-pure-too-wide",
@@ -1125,9 +1128,8 @@
       "from": "\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 || s.ResultIsTask() || info.TaskResults[f] {",
       "to": "\tif len(rowElems(s.Errors)) > 0 || s.ResultIsTask() || info.TaskResults[f] {",
       "rule": "pureCandidate: a function with a capability row is not pure and keeps its environment (spec D5; pure_test.go TestPureFunctionsTakeNoEnv, the needs variant)",
-      "killers": [
-        "lower:TestStdLawsAddNoGo"
-      ]
+      "killers": [],
+      "gap": "Equivalent in behaviour: a function whose needs row its body does not use has an empty footprint (the prelude's NewLiveScheduler, needs Ambient), so as a pure function it takes no Env and its output, failures and defects are the same (measured on the std-laws program, wf10 OPT4a r2). Its only killer was the golden of TestStdLawsAddNoGo, which pinned the Go text; the text is no promise (AGENTS.md Tests)."
     },
     {
       "name": "t5-0-true-false-pure.go:264",

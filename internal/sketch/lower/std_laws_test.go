@@ -1,14 +1,15 @@
 package lower
 
 import (
-	"os"
-	"path/filepath"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // The std laws (docs/spec/stdlib.md, Std laws; std-align S1a) are checked,
@@ -435,9 +436,8 @@ func TestStdLawsRun(t *testing.T) {
 }
 
 // stdLawsZeroCost is a program that calls every std package with a law in
-// this unit. Its Go is pinned in testdata/stdlaws/zero_cost.go.golden,
-// written at the unit's base, before the laws: a law adds no Go to a
-// build that imports its package (types.md, Laws 11).
+// this unit: a law adds no Go to a build that imports its package
+// (types.md, Laws 11).
 const stdLawsZeroCost = `import queue
 import task
 import timeout
@@ -465,54 +465,94 @@ func main() fails queue.Closed | timeout.Expired needs Console | Ambient {
 }
 `
 
-// TestStdLawsAddNoGo: the program above lowers to the Go it lowered to
-// before the std laws were written, byte for byte, and its Go names no law.
-// ERGO_STDLAWS_GOLDEN=write writes the golden file instead (run at the
-// base only).
+// stdLawsTail is declared at the end of both programs below; stdLawsOnly
+// is a law appended to the second, with an import only it uses (hex), a
+// generic instance only it makes (queue.New[string]) and a failure of
+// LawOnly only it raises, so LawOnly is an error type only in a law.
+const stdLawsTail = `
+type LawOnly { n int }
+`
+
+const stdLawsOnly = `
+law OnlyALawUsesThem(s string, n int) {
+	let q = queue.New[string](1)
+	try q.Push(hex.Encode(s))
+	let f = func(k int) int fails LawOnly {
+		if k < 0 {
+			return LawOnly{n: k}
+		}
+		k
+	}
+	let m = f(n) catch {
+	case LawOnly:
+		0
+	}
+	try q.Pop() == hex.Encode(s) && m >= 0
+}
+`
+
+// TestStdLawsAddNoGo: under both call lowerings (inline.go), the program
+// above lowers to Go that type-checks and names no law of the std packages
+// it imports, and a law appended to it, with an import, a generic instance
+// and an error type only the law uses, changes no byte of its Go (types.md,
+// Laws 11; a blank line stands for the import, so the lines agree). It
+// replaces a golden of the Go text: the text is no promise, the absence of
+// every law is.
 func TestStdLawsAddNoGo(t *testing.T) {
-	// The golden is the reference lowering's Go (inline.go): the rule is
-	// that laws add none, whatever the call lowering.
-	saved := inlineLowering
-	inlineLowering = "call"
-	got := mustLower(t, "stdlawszero", stdLawsZeroCost).mainGo()
-	inlineLowering = saved
-	golden := filepath.Join("testdata", "stdlaws", "zero_cost.go.golden")
-	if os.Getenv("ERGO_STDLAWS_GOLDEN") == "write" {
-		if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {
-			t.Fatal(err)
+	names := map[string]bool{"OnlyALawUsesThem": true}
+	for _, p := range []string{"queue", "task", "timeout", "scope", "trace", "log"} {
+		files, ok := std.Package(p)
+		if !ok {
+			t.Fatalf("no std package %s", p)
 		}
-		if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != string(want) {
-		t.Errorf("the Go of a program that imports the std packages with laws changed:\n%s", lineDiff(string(want), got))
-	}
-	for _, law := range []string{"FirstInFirstOut", "EndKeepsValues", "EndIsIdempotent", "PushAfterEndFails", "WaitReturnsTheBlock", "StopIsIdempotent", "QuickBodyWins", "DeadlineFirstExpires", "ActionsRunLastFirst", "InnerSpanShadows", "SpanEndRestores", "InnerAnnotationShadows", "AnnotationEndRestores", "IntNInRange", "Float64InUnit"} {
-		if strings.Contains(got, law) {
-			t.Errorf("the Go names the law %s", law)
+		for _, src := range files {
+			f, err := syntax.Parse(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			syntax.Inspect(f, func(n syntax.Node) bool {
+				if d, ok := n.(*syntax.LawDecl); ok {
+					names[d.Name.Name] = true
+				}
+				return true
+			})
 		}
 	}
+	var programs []*lowered
+	for _, ref := range []bool{false, true} {
+		var texts []string
+		for _, src := range []string{"\n" + stdLawsZeroCost + stdLawsTail, "import hex\n" + stdLawsZeroCost + stdLawsTail + stdLawsOnly} {
+			name := fmt.Sprintf("stdlawszero%d", len(programs))
+			o, _ := lowerInlineMode(t, name, src, ref)
+			programs = append(programs, o)
+			text := o.mainGo()
+			for law := range names {
+				if regexp.MustCompile(`\b` + law + `\b`).MatchString(text) {
+					t.Errorf("%s (reference %v): the Go names the law %s", name, ref, law)
+				}
+			}
+			texts = append(texts, text)
+		}
+		if texts[0] != texts[1] {
+			t.Errorf("reference %v: a law changes the Go:\n%s", ref, firstDiff(texts[0], texts[1]))
+		}
+	}
+	typecheckGo(t, programs)
 }
 
-// lineDiff is the first differing line of want and got, with its number.
-func lineDiff(want, got string) string {
-	w, g := strings.Split(want, "\n"), strings.Split(got, "\n")
-	for i := range max(len(w), len(g)) {
-		var a, b string
-		if i < len(w) {
-			a = w[i]
+// firstDiff is the first differing line of a and b, with its number.
+func firstDiff(a, b string) string {
+	x, y := strings.Split(a, "\n"), strings.Split(b, "\n")
+	for i := range max(len(x), len(y)) {
+		var p, q string
+		if i < len(x) {
+			p = x[i]
 		}
-		if i < len(g) {
-			b = g[i]
+		if i < len(y) {
+			q = y[i]
 		}
-		if a != b {
-			return "line " + strconv.Itoa(i+1) + ":\n-" + a + "\n+" + b
+		if p != q {
+			return "line " + strconv.Itoa(i+1) + ":\n-" + p + "\n+" + q
 		}
 	}
 	return ""
