@@ -52,6 +52,10 @@ type gen struct {
 	used   map[string]bool // the locals read so far
 	// assigned are the mut locals reassigned so far.
 	assigned map[string]bool
+	// retired are the names of locals whose block ended: a later block
+	// may declare the name again, with another type (Ergo refuses only a
+	// name of an enclosing scope).
+	retired []string
 }
 
 func (g *gen) n(k int) int { return g.r.IntN(k) }
@@ -93,6 +97,7 @@ func (g *gen) function(i int) {
 	g.locals = 0
 	g.depth = 1
 	g.used = map[string]bool{}
+	g.retired = nil
 	if f.src {
 		// Outside the subset: an interpolated string.
 		fmt.Fprintf(&g.b, "\tlet note = \"n\\(%s)\"\n", g.expr(tInt, 2))
@@ -122,6 +127,13 @@ func (g *gen) stmt(res gtype, budget int) {
 		t := paramTypes[g.n(len(paramTypes))]
 		mut := g.n(2) == 0
 		v := g.fresh(t, mut)
+		if !mut && len(g.retired) > 0 && g.n(2) == 0 {
+			// A name of an ended sibling block, declared again.
+			j := g.n(len(g.retired))
+			v.name = g.retired[j]
+			g.retired = append(g.retired[:j], g.retired[j+1:]...)
+			g.used[v.name] = false
+		}
 		kw := "let"
 		if mut {
 			// Ergo refuses a mut that is never reassigned: the keyword is
@@ -211,6 +223,9 @@ func (g *gen) block(res gtype, budget int, pre ...gvar) {
 	}
 	g.sink(res, saved)
 	g.depth--
+	for _, v := range g.scope[saved:] {
+		g.retired = append(g.retired, v.name)
+	}
 	g.scope = g.scope[:saved]
 }
 
