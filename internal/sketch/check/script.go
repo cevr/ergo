@@ -15,8 +15,13 @@ import (
 //
 //  1. S is a capability: a named operation type with operations, concrete
 //     (a generic one at written arguments, Script[Store[Job]]). A type
-//     parameter, a sealed std type, an operation that returns a Task or
-//     takes a function is S108 at the type argument (scriptWhy).
+//     parameter, a sealed std type, an operation that returns a Task is
+//     S108 at the type argument (scriptWhy). The record of calls keeps
+//     each argument past the call, so an operation that takes a function,
+//     a borrow (scriptWhy) or a value that holds a resource (scriptKept) is
+//     S108 there too: one rule for every parameter a call only lends (#197
+//     L8 C4; q39). A generic record's Script field names a concrete
+//     capability (Capabilities 7), so an instantiation adds no Script.
 //  2. Fields. The instance's record has one field per operation of S, in
 //     S's order and named like it, of type testing.Op[A, F]: A is the
 //     operation's arguments (the one parameter's type, a tuple of several,
@@ -83,8 +88,28 @@ func scriptWhy(s Type) string {
 			return fmt.Sprintf("its operation %s returns a Task, which a Script cannot answer", m.Name)
 		}
 		for _, p := range m.Sig.Params {
-			if _, fn := p.Type.(*Signature); fn {
+			switch p.Type.(type) {
+			case *Signature:
 				return fmt.Sprintf("its operation %s takes a function, which a Script's record of calls would keep past the call", m.Name)
+			case *Pointer:
+				return fmt.Sprintf("its operation %s takes the borrow %s %s, which a Script's record of calls would keep past the call (types.md, Borrows 1)", m.Name, p.Name, p.Type)
+			}
+		}
+	}
+	return ""
+}
+
+// scriptKept is why the record of calls of a Script of the capability s
+// would keep a resource past the call, or "" (rule 1): an operation's
+// argument that holds a resource is lent for the call, or taken by the
+// answer, so a recorded copy would be a second owner (resources.md,
+// Lending). A type resolves on demand and a Close is a declared function,
+// so a Close declared after the Script is known at the type argument.
+func (c *checker) scriptKept(s Type) string {
+	for _, m := range asInterface(s).Methods {
+		for _, p := range m.Sig.Params {
+			if c.holdsResource(p.Type) {
+				return fmt.Sprintf("its operation %s takes the resource %s %s, which a Script's record of calls would keep past the call (resources.md, Lending)", m.Name, p.Name, p.Type)
 			}
 		}
 	}
@@ -99,6 +124,10 @@ func (c *checker) scriptWritten(inst *Named, at syntax.Node) bool {
 		return true
 	}
 	if why := scriptWhy(s); why != "" {
+		c.errorf(at, CodeType, "testing.Script[%s]: %s (stdlib.md, Testing 7)", s, why)
+		return false
+	}
+	if why := c.scriptKept(s); why != "" {
 		c.errorf(at, CodeType, "testing.Script[%s]: %s (stdlib.md, Testing 7)", s, why)
 		return false
 	}
