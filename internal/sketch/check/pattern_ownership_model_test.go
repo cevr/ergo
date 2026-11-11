@@ -110,7 +110,9 @@ func Body(n int, p PatternHeld) {
 // (resources R39), so a let, a match and a for-in over a queue's Values()
 // (each element owned, Q7) refuse an omitted or wildcard resource part,
 // and a for-in over a slice (lent, R35) admits it. Each binding of an
-// admitted consuming pattern has an owner and a release.
+// admitted consuming pattern has an owner and a release. A queue's
+// Values() stored in a let or passed to a Seq parameter is refused (16a
+// fix r2, M1; mutant 16a-r2-values-seq-kept).
 func ofPatternConsumers(t *testing.T, seed uint64) {
 	r := rand.New(rand.NewPCG(seed, 0x706f32))
 	type shape struct{ typ, value, full, omit, wild string }
@@ -128,9 +130,17 @@ func ofPatternConsumers(t *testing.T, seed uint64) {
 	case 2:
 		pattern, uses = s.wild, "lend(b)"
 	}
-	consumer := r.IntN(4)
-	var body string
+	consumer := r.IntN(6)
+	var body, helper string
 	switch consumer {
+	case 4:
+		// A stored Seq of owned values (16a fix r2, M1): refused.
+		body = "let q = queue.New[" + s.typ + "](1)\nlet s = q.Values()\nfor " + pattern + " in s {\n" + uses + "\n}"
+	case 5:
+		// A Seq of owned values passed on (16a fix r2, M1): refused; the
+		// callee's for-in lends, so its cover is not checked.
+		helper = "func drain(s Seq[" + s.typ + "]) {\nfor " + pattern + " in s {\n" + uses + "\n}\n}\n"
+		body = "let q = queue.New[" + s.typ + "](1)\ndrain(q.Values())"
 	case 0:
 		body = "let " + pattern + " = " + s.value + "\n" + uses
 	case 1:
@@ -143,16 +153,24 @@ func ofPatternConsumers(t *testing.T, seed uint64) {
 	case 3:
 		body = "for " + pattern + " in xs {\n" + uses + "\n}"
 	}
-	wantBad := cover != 0 && consumer != 3
+	// A Seq of a queue's owned values outside the range of a for-in has
+	// no owner (resources R35): consumers 4 and 5 are refused whatever
+	// the cover, by that diagnostic alone.
+	seqOut := consumer >= 4
+	wantBad := seqOut || cover != 0 && consumer != 3
 	src := ofPrelude + `type Pair { R Res, S Res }
 type Nest { P Pair }
 func pair() Pair { Pair{R: open(1), S: open(2)} }
-func Body(n int, xs []` + s.typ + `) {
+` + helper + `func Body(n int, xs []` + s.typ + `) {
 ` + body + "\n}\nfunc main() {}\n"
 	c, ds := checkFor(src)
 	bad := false
 	for _, d := range ds {
-		if d.Code != CodeType || !strings.Contains(d.Message, "pattern") {
+		want := "pattern"
+		if seqOut {
+			want = "q.Values() yields the queue's values"
+		}
+		if d.Code != CodeType || !strings.Contains(d.Message, want) {
 			t.Fatalf("pattern consumer seed %d (ERGO_SEED=%d): unexpected diagnostic %v\n%s", seed, seed, d, src)
 		}
 		bad = true
