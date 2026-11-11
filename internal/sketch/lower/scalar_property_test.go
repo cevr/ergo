@@ -62,7 +62,7 @@ func shrink(s Shape, k int) Shape fails Bad {
 	case Dot:
 		Dot
 	case Seg as g:
-		if g.N > 5 {
+		if g.N > 1 {
 			return deeper(g.N, k)
 		}
 		grow(Dot, g.N)
@@ -77,7 +77,7 @@ func deeper(n int, k int) Shape fails Bad {
 	for i in []int{1, 2} {
 		m = m + i
 	}
-	if m + k > 16 {
+	if m + k > 12 {
 		return Bad{At: m}
 	}
 	Seg{N: m, Tag: "d"}
