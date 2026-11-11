@@ -1,0 +1,15 @@
+{
+  "about": "Grid formatter mutant, guarded by the existing board law.",
+  "mutants": [
+    {
+      "name": "v2-formatter-drops-digits",
+      "origin": "V2 buffered Grid.Line",
+      "file": "examples/sudoku/board/grid.ergo",
+      "from": "out[i] = digits[c : c+1]",
+      "to": "out[i] = digits[0:1]",
+      "rule": "Existing LineRoundTrip detects an incorrect fragment at any filled cell.",
+      "anchor": {"tests": ["board.LineRoundTrip"]},
+      "killers": ["board.LineRoundTrip"]
+    }
+  ]
+}

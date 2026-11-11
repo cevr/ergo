@@ -1,0 +1,45 @@
+{
+  "about": "Sudoku representation and search mutants. Killers name Ergo laws/tests, run with ergo test, not Go packages.",
+  "mutants": [
+    {
+      "name": "v2-highest-digit-first",
+      "origin": "V2 fixed candidates",
+      "file": "examples/sudoku/propagate/solver.ergo",
+      "from": "\tfor d in 1..10 {\n\t\tif s.cand[best]",
+      "to": "\tfor reverse in 1..10 {\n\t\tlet d = 10 - reverse\n\t\tif s.cand[best]",
+      "rule": "FirstChoiceIsLowest observes the search order on generated grids with digits 1 and 9 erased; validity and deterministic repeated solves do not distinguish the order.",
+      "anchor": {"tests": ["propagate.FirstChoiceIsLowest"]},
+      "killers": ["propagate.FirstChoiceIsLowest"]
+    },
+    {
+      "name": "v2-highest-tied-cell-first",
+      "origin": "V2 fixed candidates",
+      "file": "examples/sudoku/propagate/solver.ergo",
+      "from": "n > 1 && n < fewest",
+      "to": "n > 1 && n <= fewest",
+      "rule": "FirstChoiceIsLowest requires the lowest tied cell, not only the lowest candidate digit.",
+      "anchor": {"tests": ["propagate.FirstChoiceIsLowest"]},
+      "killers": ["propagate.FirstChoiceIsLowest"]
+    },
+    {
+      "name": "v2-missing-ninth-bit",
+      "origin": "V2 fixed candidates",
+      "file": "examples/sudoku/propagate/solver.ergo",
+      "from": "uint16(1022)",
+      "to": "uint16(510)",
+      "rule": "Existing SolvesHardPuzzles needs digit 9 and kills a truncated candidate mask.",
+      "anchor": {"tests": ["propagate.SolvesHardPuzzles"]},
+      "killers": ["propagate.SolvesHardPuzzles"]
+    },
+    {
+      "name": "v2-reuse-failed-branch",
+      "origin": "V2 fixed candidates",
+      "file": "examples/sudoku/propagate/solver.ergo",
+      "from": "\tfor d in 1..10 {\n\t\tif s.cand[best]&(uint16(1)<<d) != 0 {\n\t\t\tlet mut t = s",
+      "to": "\tlet mut t = s\n\tfor d in 1..10 {\n\t\tif s.cand[best]&(uint16(1)<<d) != 0 {",
+      "rule": "Existing SolvesHardPuzzles needs a fresh value snapshot on retry after a contradiction.",
+      "anchor": {"tests": ["propagate.SolvesHardPuzzles"]},
+      "killers": ["propagate.SolvesHardPuzzles"]
+    }
+  ]
+}
