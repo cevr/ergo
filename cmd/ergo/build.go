@@ -98,6 +98,7 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	if err != nil {
 		return receipt.Location{}, err
 	}
+	var report build.Report
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),
@@ -105,9 +106,11 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		Cache:     build.Cache{Root: root},
 		Toolchain: toolchain(opts),
 		Stderr:    os.Stderr,
+		Report:    &report,
 	})
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
+		fmt.Fprintf(os.Stderr, "LINK=%s\n", report)
 	}
 	if err != nil {
 		return receipt.Location{}, err

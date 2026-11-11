@@ -238,6 +238,9 @@ type BuildRequest struct {
 	Toolchain build.Toolchain
 	// Stderr receives the go command's output.
 	Stderr io.Writer
+	// Report, when set, receives how the toolchain built the executable
+	// (build.Report: the direct path, or go build and why).
+	Report *build.Report
 }
 
 // compilerIdentity is the compiler's producer identity for the emission
@@ -342,12 +345,11 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
 		return module, err
 	}
-	child := req.Toolchain.Command(module, absolute)
-	child.Stdout, child.Stderr = req.Stderr, req.Stderr
-	if err := child.Run(); err != nil {
-		return module, fmt.Errorf("Go build failed: %w", err)
+	report, err := req.Toolchain.Build(req.Cache, module, absolute, req.Stderr)
+	if req.Report != nil {
+		*req.Report = report
 	}
-	return module, nil
+	return module, err
 }
 
 // stdDependencies summarises the bundled standard library: the prelude and

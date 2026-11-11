@@ -27,12 +27,16 @@ type Toolchain struct {
 	// choose runtime files at link time and are no input of the lowering:
 	// the emitted module is the same with and without them.
 	Tags []string
+	// GoBuild selects go build (Command), the reference path, over the
+	// direct path of Build (direct.go).
+	GoBuild bool
 }
 
 // HostToolchain is the go command on PATH with the target and flags of the
-// process environment, the action an unconfigured go build would run.
+// process environment, the action an unconfigured go build would run. It
+// takes the direct path unless ERGO_GO_BUILD=go selects go build.
 func HostToolchain() Toolchain {
-	return Toolchain{Go: "go", GOOS: os.Getenv("GOOS"), GOARCH: os.Getenv("GOARCH"), GOFLAGS: os.Getenv("GOFLAGS")}
+	return Toolchain{Go: "go", GOOS: os.Getenv("GOOS"), GOARCH: os.Getenv("GOARCH"), GOFLAGS: os.Getenv("GOFLAGS"), GoBuild: os.Getenv(GoBuildVariable) == "go"}
 }
 
 // Command is the Go build action that links the module's root package to
@@ -49,6 +53,14 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	args = append(args, "-o", output, ".")
 	child := exec.Command(t.Go, args...)
 	child.Dir = module.Dir
+	child.Env = t.env()
+	return child
+}
+
+// env is the environment of the go command for this toolchain: the
+// process's, outside any workspace, with cgo off and exactly the
+// toolchain's target and flags.
+func (t Toolchain) env() []string {
 	env := os.Environ()
 	for _, kv := range [][2]string{{"GOWORK", "off"}, {"CGO_ENABLED", "0"}, {"GOOS", t.GOOS}, {"GOARCH", t.GOARCH}, {"GOFLAGS", t.GOFLAGS}} {
 		prefix := kv[0] + "="
@@ -57,6 +69,5 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 			env = append(env, prefix+kv[1])
 		}
 	}
-	child.Env = env
-	return child
+	return env
 }
