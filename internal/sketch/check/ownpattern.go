@@ -234,7 +234,11 @@ func (w *ownWalk) subjectOwner(x syntax.Expr) (int, bool) {
 	}
 	for i := len(w.vars) - 1; i >= 0; i-- {
 		if w.vars[i].temp == unparen(x) {
-			return i, true
+			// A lent if, match, catch or with that lends an enclosing
+			// name on some path (Info.ArmHeld) owns its value on its
+			// other paths only: the bindings are views of it, and its
+			// statement releases it where it holds it (R43, OWGEN FU0).
+			return i, i >= len(w.st.slots) || w.st.slots[i].st != ownMaybe
 		}
 	}
 	return -1, false

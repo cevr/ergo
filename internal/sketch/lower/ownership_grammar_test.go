@@ -116,7 +116,7 @@ var ogFeatures = []string{
 	"stmt:if", "stmt:for", "stmt:break", "stmt:continue", "stmt:fail", "stmt:boom", "stmt:return",
 	"pat:let:tup", "pat:let:pair", "pat:let:box", "pat:let:nested",
 	"loop:values:res", "loop:values:tup", "loop:values:pair",
-	"match:slot", "match:pair", "match:tup", "match:local", "match:temp",
+	"match:slot", "match:pair", "match:tup", "match:local", "match:temp", "match:lent-if",
 	"capture:let", "capture:twice",
 	"helper:lent", "helper:taken", "helper:bad-arg", "helper:bad-ret-if", "helper:ret-temp",
 	"close:guard",
@@ -1128,13 +1128,27 @@ func (g *ogGen) valuesLoop(d int) *ogStmt {
 // parts.
 func (g *ogGen) match(d int) *ogStmt {
 	t := []ogType{oSlot, oPair, oTup}[g.r.IntN(3)]
-	var subj string
+	var subj, pre string
 	local := false
 	if v := g.pickOf(true, oSlot, oPair, oTup); v != nil && g.r.IntN(4) != 0 {
 		t = v.t
 		subj, local = v.name, true
 		v.st = 2 // consumed by a binding arm, or not: unused after
 		g.f("match:local")
+	} else if g.r.IntN(3) == 0 {
+		// A lent if whose arm yields an enclosing local, made just
+		// before: on that path the match binds views of the local (R43,
+		// FU0). The local's arm runs at n = 0, which most runs reach.
+		t = []ogType{oPair, oTup}[g.r.IntN(2)]
+		g.f("match:lent-if")
+		name := g.name("t")
+		init := fmt.Sprintf("(open(%d, false, log), open(%d, false, log))", g.id(), g.id())
+		if t == oPair {
+			init = fmt.Sprintf("Pair{R: open(%d, false, log), S: open(%d, false, log)}", g.id(), g.id())
+		}
+		g.pos = "match"
+		pre = fmt.Sprintf("let %s = %s\n", name, init)
+		subj = fmt.Sprintf("if n > %d { %s } else { %s }", g.cond(), g.expr(t, 0), name)
 	} else {
 		g.pos = "match"
 		subj = g.expr(t, 1)
@@ -1145,7 +1159,7 @@ func (g *ogGen) match(d int) *ogStmt {
 		}
 		g.f("match:temp")
 	}
-	s := &ogStmt{line: "match " + subj}
+	s := &ogStmt{line: pre + "match " + subj}
 	before := g.save()
 	var states []map[*ogVar]uint8
 	arm := func(head string, binds ...string) {

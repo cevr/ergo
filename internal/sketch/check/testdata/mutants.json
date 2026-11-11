@@ -2395,6 +2395,15 @@
       "to": "w.tracked(w.info.Types[x]) {",
       "rule": "resources R43: a tuple of enclosing names yielded by a lent arm is a view that lends them.",
       "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "owgen-match-lent-if-bindings-owned",
+      "origin": "OWGEN round 2 (found by the grammar generator, seed 1215 of the wide run)",
+      "file": "internal/sketch/check/ownpattern.go",
+      "from": "\t\t\treturn i, i >= len(w.st.slots) || w.st.slots[i].st != ownMaybe",
+      "to": "\t\t\treturn i, true",
+      "rule": "resources R43 (the mHold rule): a match of a lent if that lends an enclosing name on some path binds views; the statement releases the value where it holds it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
     }
   ]
 }
