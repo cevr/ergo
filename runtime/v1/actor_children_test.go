@@ -317,7 +317,7 @@ func runChildrenCase(seed int64, r *rand.Rand, n int, seen map[string]bool) (ops
 		}
 		dr.mu.Unlock()
 		for _, a := range all {
-			_ = a.halt()
+			_ = a.halt(task)
 		}
 		for _, w := range waiters {
 			<-w

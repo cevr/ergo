@@ -367,7 +367,7 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Ho
 	if host != nil {
 		cell = host
 	}
-	adopted, hostOK := owner.adopt(cell, func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func() error {
+	adopted, hostOK := owner.adopt(cell, func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func(*rt.Task) error {
 		c = machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
 			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report, nil, 0)
 		return c.halt
@@ -786,7 +786,7 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) <-chan struct{} {
 			a.traceWork(wt, rt.MachineWorkStarted, epoch)
 		}
 		// A work that started children ends after their stop (rule 13).
-		defer owner.waitKids()
+		defer owner.waitKids(wt)
 		if settle != nil {
 			// The runner publishes the entry at the work's first wait, or
 			// at its end, whichever comes first (rule 15); this defer runs
@@ -852,7 +852,7 @@ type childOwner[P any] interface {
 	// (fill) under the same lock, so the entry's end, which closes its
 	// hosts, comes before the check or after the fill; hostOK is false,
 	// with nothing started, when h is not one.
-	adopt(h hostCell, start func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func() error, fill func()) (adopted, hostOK bool)
+	adopt(h hostCell, start func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func(*rt.Task) error, fill func()) (adopted, hostOK bool)
 }
 
 // entryRef is one entry of an actor, as its work's Child calls see it.
@@ -866,10 +866,10 @@ type entryRef[S, E, D any] struct {
 // kid is a child an entry keeps: halt stops it and waits for its end, and
 // gives the defects it has not reported to the parent yet.
 type kid struct {
-	halt func() error
+	halt func(*rt.Task) error
 }
 
-func (r *entryRef[S, E, D]) adopt(h hostCell, start func(func(*rt.Task, error) bool, func(*rt.Task, E)) func() error, fill func()) (bool, bool) {
+func (r *entryRef[S, E, D]) adopt(h hostCell, start func(func(*rt.Task, error) bool, func(*rt.Task, E)) func(*rt.Task) error, fill func()) (bool, bool) {
 	a := r.a
 	a.kidsMu.Lock()
 	defer a.kidsMu.Unlock()
@@ -912,12 +912,32 @@ func (r *entryRef[S, E, D]) report(t *rt.Task, err error) bool {
 	return pushed == nil
 }
 
-// waitKids waits, uninterruptibly, until the entry's children are stopped,
-// when the entry has any. The runner stops them before it stops the work,
-// so the wait ends.
-func (r *entryRef[S, E, D]) waitKids() {
-	if r.adopted.Load() {
-		<-r.done
+// waitKids waits on wt, the work's task, uninterruptibly, until the
+// entry's children are stopped, when the entry has any. The runner stops
+// them before it stops the work, so the wait ends. In a clock's domain wt
+// waits parked on done, and stopKids unparks it before it closes done
+// (runtime.md, Machines and actors 11.16; wf10 MK1): the runner stops the
+// children only on a signal, which a timer may give, so a wait the clock
+// did not see would keep a manual clock's Advance waiting for ever.
+func (r *entryRef[S, E, D]) waitKids(wt *rt.Task) {
+	if !r.adopted.Load() {
+		return
+	}
+	var p rt.Parked
+	if wt.InDomain() {
+		p = rt.Park(wt, r.done, nil, func() bool { return isDone(r.done) })
+	}
+	<-r.done
+	p.Unpark()
+}
+
+// isDone reports whether c is closed; c is only ever closed, never sent on.
+func isDone(c chan struct{}) bool {
+	select {
+	case <-c:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -943,23 +963,31 @@ func (a *Actor[S, E, D]) stopKids() error {
 	a.kidsMu.Unlock()
 	var exit error
 	for i := len(ks) - 1; i >= 0; i-- {
-		if err := ks[i].halt(); err != nil {
+		if err := ks[i].halt(a.task); err != nil {
 			exit = join(exit, err)
 		}
 	}
 	if done != nil {
-		close(done)
+		// The work that waits for done (waitKids) is unparked first. The
+		// entry's work is still a.working: the runner stops it after this.
+		var w *rt.Task
+		if a.working != nil {
+			w = a.working.Task()
+		}
+		rt.Wake(w, done, func() { close(done) })
 	}
 	return exit
 }
 
 // halt stops a child for its owner: Stop's interruption and wait, with
 // none of Stop's results: a typed failure ends only the child, and a
-// defect the child reported is not given again.
-func (a *Actor[S, E, D]) halt() error {
+// defect the child reported is not given again. t, the owner's runner,
+// waits parked in a clock's domain, as Stop's caller does (waitEnd): the
+// child's end may wait on the clock (a release that sleeps).
+func (a *Actor[S, E, D]) halt(t *rt.Task) error {
 	a.task.Interrupt()
 	a.inbox.Close()
-	<-a.done
+	a.waitEnd(t, nil)
 	if a.reported.Load() {
 		return nil
 	}
