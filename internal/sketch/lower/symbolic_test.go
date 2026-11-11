@@ -274,6 +274,8 @@ func plantedSymLaws() []symLaw {
 		// A branch on the symbol: false only at the empty string.
 		{lhs: []symCall{call("Empty")}, want: "unproved", row: "Empty%s branches on t.out at "},
 		{lhs: []symCall{call("Long")}, want: "unproved", row: "Long%s computes with t.out at "},
+		// A constant moved across a symbol: true only when a is empty.
+		{guard: true, params: []string{"string"}, lhs: []symCall{call("Sep"), call("Raw", par(0)), call("Sep")}, rhs: []symCall{call("Sep"), call("Sep"), call("Raw", par(0))}, want: "unproved"},
 		// Without its guard, Sep is no comma.
 		{lhs: []symCall{call("Sep")}, rhs: []symCall{call("Raw", strArg(","))}, want: "unproved"},
 	}

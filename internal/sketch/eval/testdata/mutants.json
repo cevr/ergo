@@ -2,6 +2,61 @@
   "about": "The mutant ledger of internal/sketch/eval, the check-time evaluator (L7). Run it with go run ./scripts/mutants ./internal/sketch/eval; docs/tooling.md, \"Mutant ledger\", says when a change must run it. Seeded by unit EV1 (wf10 l7-eval, 2026-11-10).",
   "mutants": [
     {
+      "name": "ps2-branch-on-term-continues",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tif in.sym != nil && !in.sym.ok[x] && symbolic(v) {",
+      "to": "\tif false && in.sym != nil && !in.sym.ok[x] && symbolic(v) {",
+      "rule": "A symbolic run stops at a term in any position but a binding, an argument, a result, a part or a concatenation: a branch on a symbol proves nothing.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-concat-commutes",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/symbolic.go",
+      "from": "\t\t\tif n := len(parts); n > 0 {\n\t\t\t\tif prev, ok := parts[n-1].(string); ok {\n\t\t\t\t\tparts[n-1] = prev + s\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}",
+      "to": "\t\t\tfor j := range parts {\n\t\t\t\tif prev, ok := parts[j].(string); ok {\n\t\t\t\t\tparts[j] = prev + s\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}",
+      "rule": "The concatenation normal form joins adjacent constants only: concatenation is associative, not commutative.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-extern-args-ignored",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/symbolic.go",
+      "from": "\t\treturn ok && a.fn == bv.fn && symEqualAll(a.args, bv.args)",
+      "to": "\t\treturn ok && a.fn == bv.fn",
+      "rule": "Two uninterpreted calls are one term only when their arguments are.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-read-of-written-field-stale",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "\t\t\treturn c.s, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
+      "to": "\t\t\treturn &slot{v: c.s.v}, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
+      "rule": "A write through a provider's cell is what every later read and the end state see.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-stop-proved",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/symbolic.go",
+      "from": "\t\tlres, lend, why := in.symSide(fr, p, state, law.Rewrite.Lhs, params)\n\t\tif why != \"\" {\n\t\t\treturn no(\"%s\", why)\n\t\t}",
+      "to": "\t\tlres, lend, why := in.symSide(fr, p, state, law.Rewrite.Lhs, params)\n\t\tif why != \"\" {\n\t\t\tcontinue\n\t\t}",
+      "rule": "A case whose run stops is not a case that holds: anything the run cannot decide is not proved.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
       "name": "short-circuit-rhs",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/expr.go",
