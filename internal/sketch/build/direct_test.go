@@ -3,6 +3,7 @@ package build_test
 import (
 	"bytes"
 	"debug/elf"
+	"debug/macho"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -50,6 +51,21 @@ func maskBuildID(t *testing.T, b []byte) []byte {
 			b = bytes.ReplaceAll(b, gnu[16:16+binary.LittleEndian.Uint32(gnu[4:8])], make([]byte, binary.LittleEndian.Uint32(gnu[4:8])))
 		}
 	} else {
+		if f, err := macho.NewFile(bytes.NewReader(b)); err == nil {
+			// The linker derives the LC_UUID from the build ID, and the
+			// ad hoc code signature hashes every page, the build ID's too.
+			b = bytes.Clone(b)
+			for _, l := range f.Loads {
+				raw := l.Raw()
+				switch f.ByteOrder.Uint32(raw[0:4]) {
+				case 0x1b: // LC_UUID: cmd, cmdsize, uuid[16]
+					b = bytes.ReplaceAll(b, raw[8:24], make([]byte, 16))
+				case 0x1d: // LC_CODE_SIGNATURE: cmd, cmdsize, dataoff, datasize
+					off, size := f.ByteOrder.Uint32(raw[8:12]), f.ByteOrder.Uint32(raw[12:16])
+					clear(b[off : off+size])
+				}
+			}
+		}
 		i := bytes.Index(b, []byte(buildIDMarker))
 		if i < 0 {
 			t.Fatal("executable has no build ID")
@@ -129,14 +145,17 @@ func goLine() string {
 }
 
 // fixture writes a module of the generated shape: a main package and a
-// local module it requires through a replace, one standard import.
+// local module it requires through a replace, one standard import. The
+// local module's leaf package imports nothing, so only the target and the
+// tool in its key tell two targets' compiles of it apart.
 func fixture(t *testing.T) string {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
-		"go.mod":         "module example.local/prog\n\ngo " + goLine() + "\n\nrequire example.local/dep v0.0.0\n\nreplace example.local/dep => ./dep\n",
-		"main.go":        "package main\n\nimport (\n\t\"os\"\n\n\t\"example.local/dep/lib\"\n)\n\nfunc main() { os.Stdout.WriteString(lib.Greet(\"x\") + \"\\n\") }\n",
-		"dep/go.mod":     "module example.local/dep\n\ngo " + goLine() + "\n",
-		"dep/lib/lib.go": "package lib\n\nfunc Greet(s string) string { return pad(s) }\n\n//go:noinline\nfunc pad(s string) string { return \"<\" + s + \">\" }\n",
+		"go.mod":           "module example.local/prog\n\ngo " + goLine() + "\n\nrequire example.local/dep v0.0.0\n\nreplace example.local/dep => ./dep\n",
+		"main.go":          "package main\n\nimport (\n\t\"os\"\n\n\t\"example.local/dep/lib\"\n)\n\nfunc main() { os.Stdout.WriteString(lib.Greet(\"x\") + \"\\n\") }\n",
+		"dep/go.mod":       "module example.local/dep\n\ngo " + goLine() + "\n",
+		"dep/lib/lib.go":   "package lib\n\nimport \"example.local/dep/leaf\"\n\nfunc Greet(s string) string { return pad(s) }\n\n//go:noinline\nfunc pad(s string) string { return leaf.Open + s + \">\" }\n",
+		"dep/leaf/leaf.go": "package leaf\n\nconst Open = \"<\"\n\n//go:noinline\nfunc Sum(a, b int) int { return a*3 + b }\n",
 	})
 	return dir
 }
@@ -172,13 +191,13 @@ func TestDirectRebuildsOnEachInput(t *testing.T) {
 	outer := t.TempDir()
 
 	first := both(t, c, tc, dir)
-	if !first.Direct || first.Compiled != 2 || !first.Linked || !first.Planned {
+	if !first.Direct || first.Compiled != 3 || !first.Linked || !first.Planned {
 		t.Fatalf("cold build: %v", first)
 	}
 	type row struct {
 		name  string
 		apply func(t *testing.T) build.Toolchain
-		// compiled is the number of the module's two packages compiled
+		// compiled is the number of the module's three packages compiled
 		// again; linked whether the link runs again; planned whether the
 		// plan is made again.
 		compiled        int
@@ -191,11 +210,11 @@ func TestDirectRebuildsOnEachInput(t *testing.T) {
 			return tc
 		}, 1, true, false},
 		{"dependency body, same export data", func(t *testing.T) build.Toolchain {
-			edit(t, lib, `"<"`, `"["`)
+			edit(t, lib, `s + ">"`, `s + "]"`)
 			return tc
 		}, 1, true, false},
 		{"dependency export data and a new standard import", func(t *testing.T) build.Toolchain {
-			edit(t, lib, "package lib\n", "package lib\n\nimport \"strings\"\n\nfunc Upper(s string) string { return strings.ToUpper(s) }\n")
+			edit(t, lib, "import \"example.local/dep/leaf\"\n", "import \"example.local/dep/leaf\"\n\nimport \"strings\"\n\nfunc Upper(s string) string { return strings.ToUpper(s) }\n")
 			return tc
 		}, 2, true, true},
 		{"file name", func(t *testing.T) build.Toolchain {
@@ -212,11 +231,11 @@ func TestDirectRebuildsOnEachInput(t *testing.T) {
 		{"language version of a dependency", func(t *testing.T) build.Toolchain {
 			edit(t, filepath.Join(dir, "dep", "go.mod"), "go "+goLine(), "go 1.22")
 			return tc
-		}, 1, true, true},
+		}, 2, true, true}, // lib and leaf; their export data stays
 		{"required version (the trimmed path)", func(t *testing.T) build.Toolchain {
 			edit(t, filepath.Join(dir, "go.mod"), "dep v0.0.0", "dep v0.0.1")
 			return tc
-		}, 2, true, true}, // the trimmed path names the export data's positions
+		}, 3, true, true}, // the trimmed path names the export data's positions
 		{"replace directory (the build information only)", func(t *testing.T) build.Toolchain {
 			if err := os.Rename(filepath.Join(dir, "dep"), filepath.Join(dir, "dep2")); err != nil {
 				t.Fatal(err)
@@ -235,7 +254,12 @@ func TestDirectRebuildsOnEachInput(t *testing.T) {
 			other := tc
 			other.GOARCH = map[string]string{"amd64": "arm64", "arm64": "amd64"}[runtime.GOARCH]
 			return other
-		}, 2, true, true},
+		}, 3, true, true},
+		{"target system", func(t *testing.T) build.Toolchain {
+			other := tc
+			other.GOOS = map[string]string{"linux": "darwin", "darwin": "linux"}[runtime.GOOS]
+			return other
+		}, 3, true, true},
 		{"C compiler name (the external linker)", func(t *testing.T) build.Toolchain {
 			t.Setenv("CC", "/nonexistent/loop-probe-x/cc")
 			return tc
@@ -269,13 +293,13 @@ func TestDirectRebuildsOnEachInput(t *testing.T) {
 				}
 			}
 			return tc
-		}, 2, true, false},
+		}, 3, true, false},
 	}
 	if runtime.GOARCH == "amd64" {
 		rows = append(rows, row{"architecture level", func(t *testing.T) build.Toolchain {
 			t.Setenv("GOAMD64", "v3")
 			return tc
-		}, 2, true, true})
+		}, 3, true, true})
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {

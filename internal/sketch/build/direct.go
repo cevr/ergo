@@ -484,6 +484,7 @@ func (d *direct) toolchainKey(k *keyer, tool toolFile) {
 	k.add("GOARCH", d.plan.GOARCH)
 	k.add("level", d.plan.LevelKey+"="+d.plan.LevelValue)
 	k.add("GOEXPERIMENT", d.plan.Experiment)
+	k.add("pie", strconv.FormatBool(d.plan.pie()))
 }
 
 func (d *direct) mainPath() string { return d.plan.mainPath }
@@ -558,6 +559,9 @@ func (d *direct) compile(p *goPackage) error {
 		"-goversion", d.plan.Version}
 	if c := min(4, runtime.GOMAXPROCS(0)); c > 1 {
 		args = append(args, "-c="+strconv.Itoa(c))
+	}
+	if d.plan.pie() {
+		args = append(args, "-shared")
 	}
 	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"), "-pack")
 	args = append(args, p.Files...)
@@ -667,7 +671,11 @@ func (d *direct) link(tg *target) error {
 			return err
 		}
 		out := filepath.Join(d.stage, "a.out")
-		cmd := exec.Command(d.plan.Link.Path, "-o", out, "-importcfg", cfgPath, "-buildmode=exe",
+		mode := "-buildmode=exe"
+		if d.plan.pie() {
+			mode = "-buildmode=pie"
+		}
+		cmd := exec.Command(d.plan.Link.Path, "-o", out, "-importcfg", cfgPath, mode,
 			"-buildid="+buildID(key, 4), "-extld="+d.plan.CC, d.blob(all[tg.main.Module]))
 		cmd.Dir = d.module.Dir
 		cmd.Env = d.toolEnv("")

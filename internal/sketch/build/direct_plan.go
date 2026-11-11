@@ -39,6 +39,12 @@ type planFile struct {
 	mainPath string
 }
 
+// pie reports that an executable for the target is position independent:
+// cmd/go's default build mode on darwin (internal/platform.DefaultPIEBuildMode)
+// compiles with -shared and links with -buildmode=pie, while the build
+// information still says -buildmode=exe.
+func (p planFile) pie() bool { return p.GOOS == "darwin" }
+
 // toolFile is a tool's path, content digest and the status it had when the
 // plan hashed it; a use whose status differs makes the plan again.
 type toolFile struct {
@@ -208,6 +214,8 @@ func (d *direct) makePlan(tg *target, env []string) (planFile, error) {
 		return p, refuse("GOFIPS140 is set")
 	case p.CC == "" || strings.ContainsAny(p.CC, " \t"):
 		return p, refuse("CC %q", p.CC)
+	case p.GOOS != "linux" && p.GOOS != "darwin":
+		return p, refuse("GOOS=%s", p.GOOS)
 	}
 	switch p.GOARCH {
 	case "amd64":
