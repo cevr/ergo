@@ -1404,6 +1404,16 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 			w.produced(x, mode, h)
 			return
 		}
+		if mode == mHold && w.tracked(w.info.Types[x]) && w.builds(x.Elts) {
+			// The value of a lent if, match, catch or with built in its
+			// arm from a new value: a new tuple that moves its parts and is
+			// the statement's temporary, as a record literal is (R14, R43;
+			// OWGEN FU3). A tuple of names only stays a view that lends
+			// them.
+			w.parts(x, hand{at: x, how: "it moves into the tuple"})
+			w.produced(x, mode, h)
+			return
+		}
 		for _, e := range x.Elts {
 			w.lendRoot(e, w.info.Types[x], mode, h)
 		}
@@ -1752,6 +1762,26 @@ func (w *ownWalk) children(x syntax.Expr) {
 		}
 		return false
 	})
+}
+
+// builds reports whether some element of xs that holds a resource is a
+// new value, not a name or a field of one.
+func (w *ownWalk) builds(xs []syntax.Expr) bool {
+	for _, e := range xs {
+		if !w.tracked(w.info.Types[e]) {
+			continue
+		}
+		switch e := unparen(e).(type) {
+		case *syntax.Ident:
+			continue
+		case *syntax.SelectorExpr:
+			if _, ok := unparen(e.X).(*syntax.Ident); ok {
+				continue
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // parts moves the parts of a tuple or composite literal that is handed

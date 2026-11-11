@@ -128,6 +128,25 @@ func ofYieldProjections(t *testing.T, seed uint64) {
 			}
 		}
 	}
+	// A tuple built in a lent arm from new values is the statement's
+	// temporary, as a record literal is; a tuple of enclosing names stays
+	// a view that lends them. Both are admitted (OWGEN FU3: the built one
+	// was refused as rooted in an arm's temporary).
+	for _, arm := range []string{"(open(1), open(2))", "(outer.R, other.R)"} {
+		var x string
+		switch rng.IntN(3) {
+		case 0:
+			x = "if cond(n) {\n" + arm + "\n} else { (open(3), open(4)) }"
+		case 1:
+			x = "match n {\ncase 0:\n" + arm + "\ncase _: (open(3), open(4))\n}"
+		case 2:
+			x = "with context {} {\n" + arm + "\n}"
+		}
+		src := ofPrelude + "type Pair { R Res }\nfunc lendTwo(t (Res, Res)) {}\nfunc body(n int, outer Pair, other Pair) {\n\tlendTwo(" + x + ")\n\tlend(outer.R)\n}\nfunc main() {}\n"
+		if _, ds := checkFor(src); len(ds) > 0 {
+			t.Fatalf("tuple seed %d: diagnostics %v, want none\nReplay: ERGO_SEED=%d go test -run '^TestOwnershipFlowModel$' ./internal/sketch/check\n%s", seed, ds, seed, src)
+		}
+	}
 }
 
 // ofYieldLifetimes executes the release plan, not the abstract lattice's
