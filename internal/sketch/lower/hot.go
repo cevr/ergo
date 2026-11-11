@@ -70,7 +70,7 @@ func (l *lowerer) loopCalled() map[*check.Func]bool {
 					if _, ok := cycle[h]; !ok {
 						cycle[h] = l.inlineRecursive(h)
 					}
-					if (loop || hot[g] || cycle[h]) && !hot[h] {
+					if (loop || cycle[h]) && !hot[h] {
 						hot[h] = true
 						seen[h] = false // walk it again: its callees are hot now
 					}

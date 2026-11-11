@@ -16,7 +16,12 @@ import (
 // inlined body is on the loop path of outer's site; apply1 substitutes
 // its literal, whose body calls widest. step is a machine's step, a boxed
 // leaf larger than goSizeBudget, called through the field of its known
-// record by once (off a loop) and by std's From (in its loop).
+// record by once (off a loop) and by std's From (in its loop). sumTo,
+// deeper, coldTo and down keep their Go functions (a loop or a
+// recursion) and call widest outside any loop of theirs: sumTo is called
+// in main's loop, deeper only by sumTo (declared before it, so it is
+// walked before it is found on a loop path), down is recursive, and
+// coldTo is called once.
 const paysSource = `import machines
 
 type Num { v int }
@@ -108,13 +113,46 @@ func once[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, e E) Decision[S, O
 	d
 }
 
+func deeper(xs []int, n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + i
+	}
+	s + widest(xs, 0, n)
+}
+
+func sumTo(xs []int, n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + i
+	}
+	s + widest(xs, 0, n) + deeper(xs, n)
+}
+
+func coldTo(xs []int, n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + i
+	}
+	s + widest(xs, 0, n)
+}
+
+func down(xs []int, n int) int {
+	if n <= 0 {
+		return 0
+	}
+	widest(xs, 0, n) + down(xs, n - 1)
+}
+
 func main() needs Console {
 	let xs = []int{4, 5, 6}
 	let mut sum = first(xs, 0) + widest(xs, 0, 1) + weight(classify(3)) + weight(tiny(1)) + outer(xs, 2)
 	sum = sum + apply1(func(x int) int { widest(xs, 0, x) }, 1)
+	sum = sum + coldTo(xs, 2) + down(xs, 2)
 	for i in 0..3 {
 		sum = sum + first(xs, i) + widest(xs, 0, i) + weight(classify(i)) + weight(tiny(i)) + outer(xs, i)
 		sum = sum + apply1(func(x int) int { widest(xs, 0, x) }, i)
+		sum = sum + sumTo(xs, i)
 	}
 	match once(M{}, Count{n: 1}, Tick{d: 2}) {
 	case Stay[St]:
@@ -156,8 +194,10 @@ func TestInlinePays(t *testing.T) {
 		// site in outer's inlined body) and in the literal's body once;
 		// classify and tiny stay calls; on the loop path, only tiny does,
 		// since Go inlines it. once's copy calls step; From's inlines it.
-		{"", map[string]int{"first": 0, "widest": 3, "classify": 1, "tiny": 2, "outer": 0, "apply1": 0, "onceM:step": 1, "FromM:step": 0}},
-		{"budget", map[string]int{"first": 0, "widest": 0, "classify": 0, "tiny": 0, "outer": 0, "apply1": 0, "onceM:step": 0, "FromM:step": 0}},
+		// Of the functions with a Go body of their own, only coldTo is
+		// off every loop path.
+		{"", map[string]int{"first": 0, "widest": 3, "classify": 1, "tiny": 2, "outer": 0, "apply1": 0, "onceM:step": 1, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 1}},
+		{"budget", map[string]int{"first": 0, "widest": 0, "classify": 0, "tiny": 0, "outer": 0, "apply1": 0, "onceM:step": 0, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 0}},
 	} {
 		saved := inlineCostLowering
 		inlineCostLowering = mode.rule
