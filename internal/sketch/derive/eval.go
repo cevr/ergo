@@ -336,6 +336,7 @@ func (e *evaluator) callee(f *frame, fun syntax.Expr) (*planFunc, string) {
 		if path, ok := f.pkg.importPath(f.file, id.Name); ok && f.pkg.lookup != nil {
 			if other := f.pkg.lookup(path); other != nil && isExported(fun.Sel.Name) {
 				if pf, ok := other.funcs[fun.Sel.Name]; ok {
+					f.pkg.used[f.file] = append(f.pkg.used[f.file], id.Name)
 					return pf, ""
 				}
 			}

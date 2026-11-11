@@ -744,6 +744,11 @@ type Port int where 1 <= it && it <= 65535
 law DivMod(a int, b int where b != 0) { (a / b) * b + a % b == a }
 func main() {}
 `, nil},
+	{"refinement", "a derived type: a pattern and a refinement plan (patterns.md)", `
+type Date derive Pattern(` + "`(?<Year>[0-9]{4})-(?<Month>[0-9]{2})`" + `)
+type Port derive Refine(Of[int](), 1, 65535)
+func main() {}
+`, nil},
 	{"refinement", "a by-name codec pair and its derived round-trip law", `
 type Host { name string }
 type BadHost { Text string }

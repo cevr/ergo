@@ -144,6 +144,9 @@ func fixedValue(shape *Shape) string {
 }
 
 func recordValue(r *Record, field func(*Field) string) string {
+	if len(r.Fields) == 0 {
+		return r.Type // a record with no fields is a value by its name alone
+	}
 	var fs []string
 	for _, f := range r.Fields {
 		fs = append(fs, f.Name+": "+field(f))

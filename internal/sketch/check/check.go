@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -56,6 +57,7 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 		rank[k] = i
 	}
 	c := newChecker(path, imp, prelude().scope)
+	c.derive = derived
 	pkg := c.run(met)
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
@@ -90,6 +92,7 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
+	derive *derive.Package // the package's derive record (derive.go)
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	pkg      *Package

@@ -101,7 +101,10 @@ var contextPlaceRows = map[string]externPlaceRow{
 	// there is its one S108, as a name in a type position is.
 	"TypeDecl.Where": {guardType, "type T int where @w > 0\n"},
 	"Field.Where":    {guardType, "law L(x int where @w > 0) { true }\n"},
-	"VarSpec.Type":   {guardType, "func main() {\n\t$W\n\tlet v @w\n\t_ = v\n}\n"},
+	// A derive's plan is built from constants (patterns.md, Derivation 2):
+	// a context's name there is its one S108.
+	"TypeDecl.Derive": {guardType, "type T derive @w\n"},
+	"VarSpec.Type":    {guardType, "func main() {\n\t$W\n\tlet v @w\n\t_ = v\n}\n"},
 	// A machine's step names a function: a context's name there is no
 	// function, one diagnostic, not the Design A2 message.
 	"MachineEntry.Value": {guardType, machineGuard("initial: Idle,\n\tstep: @w,")},

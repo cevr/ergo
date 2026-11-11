@@ -120,6 +120,8 @@ var externPlaceRows = map[string]externPlaceRow{
 	// there is its one S108, as a name in a type position is.
 	"TypeDecl.Where": {guardType, "type T int where @Upper > 0\n"},
 	"Field.Where":    {guardType, "law L(x int where @Upper > 0) { true }\n"},
+	// A derive's plan is built from constants (patterns.md, Derivation 2).
+	"TypeDecl.Derive": {guardType, "type T derive @Upper\n"},
 	"VarSpec.Type":   {guardType, "func main() {\n\tlet v @Upper\n\t_ = v\n}\n"},
 	"CatchArm.Types": {guardType, "type Bang {}\nfunc load() int fails Bang { 1 }\nfunc f() int {\n\tload() catch {\n\tcase @Upper: 0\n\t}\n}\n"},
 

@@ -48,6 +48,7 @@ type Package struct {
 	names   map[string]bool
 	imports map[*syntax.File]map[string]string
 	lookup  func(path string) *Package
+	used    map[*syntax.File][]string // the import names a plan call used
 	Natives map[*syntax.FuncDecl]*Native
 	Derived []*Derived
 	Diags   []Diag
@@ -58,6 +59,20 @@ func (p *Package) qualified(name string) string { return path.Base(p.Path) + "."
 func (p *Package) importPath(f *syntax.File, alias string) (string, bool) {
 	path, ok := p.imports[f][alias]
 	return path, ok
+}
+
+// UsesImport reports an import of the file f that a derive's plan called:
+// the import is used, though no checked code names it.
+func (p *Package) UsesImport(f *syntax.File, alias string) bool {
+	if p == nil {
+		return false
+	}
+	for _, a := range p.used[f] {
+		if a == alias {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Package) imported(f *syntax.File, alias string) bool {
@@ -86,7 +101,7 @@ func Expand(pkgPath string, files []*syntax.File, lookup func(path string) *Pack
 			return p
 		}
 	}
-	p := &Package{Path: pkgPath, funcs: map[string]*planFunc{}, names: map[string]bool{}, imports: map[*syntax.File]map[string]string{}, lookup: lookup, Natives: map[*syntax.FuncDecl]*Native{}}
+	p := &Package{Path: pkgPath, funcs: map[string]*planFunc{}, names: map[string]bool{}, imports: map[*syntax.File]map[string]string{}, lookup: lookup, used: map[*syntax.File][]string{}, Natives: map[*syntax.FuncDecl]*Native{}}
 	types := map[string]bool{}
 	for _, f := range files {
 		for _, d := range f.Decls {
@@ -224,9 +239,7 @@ func (p *Package) expand(f *syntax.File, d *syntax.TypeDecl, taken map[string]bo
 		if e != nil {
 			return refuse(e)
 		}
-		if pl.lo > pl.hi {
-			return refuse(&evalError{pl.at, d.Derive.End(), fmt.Sprintf("the span %d..%d of %s is empty", pl.lo, pl.hi, name)})
-		}
+		// An empty span (lo > hi) is the where form's own S108.
 		text = refineBundle(name, base, length, pl.lo, pl.hi)
 	default:
 		var extra strings.Builder

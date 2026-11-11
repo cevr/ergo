@@ -246,6 +246,9 @@ func (d *TypeDecl) Pos() Pos {
 	return d.Type
 }
 func (d *TypeDecl) End() Pos {
+	if d.Derive != nil {
+		return d.Derive.End() // derive.go: the bundle stands at the derive
+	}
 	if d.Where != nil {
 		return d.Where.End()
 	}
