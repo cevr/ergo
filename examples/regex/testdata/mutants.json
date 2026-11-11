@@ -2,6 +2,15 @@
   "about": "R1 search and R2 iterator-workspace mutants, owned by nfa. WorkspaceReusesStorage catches per-line storage setup invisible to Boolean agreement; WorkspaceAgreesWithReferences catches stale frontier/marks, frontier overwrite, lost epsilon branches and wrong acceptance mode. Matcher.LinesAgree and LinesStop cover iterator ordering and consumer stop.",
   "mutants": [
     {
+      "name": "R2-shared-iterator",
+      "file": "examples/regex/nfa/workspace.ergo",
+      "from": "func Lines(c SearchCompiled, lines Seq[string]) Seq[string] {\n\tSeq[string](func(yield func(v string) bool) {\n\t\tlet mut w = NewWorkspace(c.program.Len())",
+      "to": "func Lines(c SearchCompiled, lines Seq[string]) Seq[string] {\n\tlet mut w = NewWorkspace(c.program.Len())\n\tSeq[string](func(yield func(v string) bool) {",
+      "rule": "Scratch belongs inside the iterator invocation. The existing S108 mutable-capture rule rejects this mutant before execution; no new test duplicates that checker guard.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
       "name": "R2-stale-frontier",
       "file": "examples/regex/nfa/workspace.ergo",
       "from": "func reset(w *Workspace) {\n\tw.side = 0\n\tw.count = 0",
