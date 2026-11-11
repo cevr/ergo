@@ -9,7 +9,7 @@
 abi	calls.go:funcCtx.callee	the call table's Callee text (#230): prelude functions are written unqualified in the defect report
 abi	calls.go:lowerer.hostImportNames	the Go import list: std time is imported by the runtime ABI already, so it is not added twice
 abi	decls.go:isPreludeType	the runtime type representation of the prelude's Option, Some and None
-abi	decls.go:lowerer.intrinsic	the prelude collection wrappers Append, Delete and Put bind runtime/v1 bodies
+abi	decls.go:lowerer.intrinsic	the prelude collection wrappers Delete and Put bind runtime/v1 bodies
 abi	getmatch.go:getPattern	the prelude Some's field Value, the comma-ok form of the prelude Get
 abi	getmatch.go:preludeGet	the prelude Map Get extern, whose Go form is the comma-ok map read
 abi	gocall.go:funcCtx.goErrorCall	go.Is and go.As bind v1.GoIs and v1.GoAs (IG5)
@@ -18,7 +18,6 @@ abi	library.go:hostProvides	the host entry's capabilities Console and Ambient (r
 abi	module.go:lowerer.hostFields	the host entry's capabilities Console and Ambient (rows.md, Entry 4)
 abi	std.go:lowerer.runtimeType	the runtime type representation of the prelude Task (*rt.Task)
 abi	types.go:lowerer.foreignOwner	the std package that owns a runtime type representation (prelude types are the program's)
-abi	values.go:preludeAppend	the prelude Append extern's ABI: its argument is clipped before the runtime append
 abi	values.go:preludeMapWrite	the prelude Delete and Put externs' ABI: the map argument is cloned before the runtime write
 debt	machinerun.go:funcCtx.flatReturn	machines Run/From flat execution (the decision literal's Next and Output); OPT6
 debt	machinerun.go:funcCtx.machineRun	machines Run/From flat execution; OPT6: Ergo-side inlining of the ordinary Run body

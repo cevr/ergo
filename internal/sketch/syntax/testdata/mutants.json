@@ -1,6 +1,7 @@
 {
   "about": "The mutant ledger of internal/sketch/syntax: edits of the parser's derived forms that the package's tests must kill. Run it with go run ./scripts/mutants ./internal/sketch/syntax; a unit that cannot afford the coverage pass applies each edit by hand and runs the killer. Seeded by wf10 batch-15 fix-r2 (L11b M1).",
   "mutants": [
+    {"name":"builtin-target-any-name","origin":"wf10 OPT4b","file":"internal/sketch/syntax/parser.go","from":"if (path == \"\" && !goBuiltin[name]) || !isIdentifier(name) {","to":"if !isIdentifier(name) {","rule":"An extern target with no import path names a Go builtin.","killers":["check:TestBuiltinBindingShapes"]},
     {
       "name": "l11b-s1",
       "origin": "wf10 v1-lang-B L11b",

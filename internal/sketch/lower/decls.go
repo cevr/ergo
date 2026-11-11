@@ -797,10 +797,6 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		}
 	case len(s.Params) != 2:
 		return nil
-	case f.Name == "Append" && len(s.TParams) == 1 && isSliceOf(s.Params[0].Type, s.TParams[0]) && s.Params[1].Type == s.TParams[0] && isSliceOf(s.Results[0], s.TParams[0]):
-		return func(_ *funcCtx, params []string) string {
-			return "\treturn " + l.rt() + ".Append(" + params[0] + ", " + params[1] + ")\n"
-		}
 	case f.Name == "Delete" && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && isMapOf(s.Results[0], s.TParams[0], s.TParams[1]):
 		return func(_ *funcCtx, params []string) string {
 			return "\treturn " + l.rt() + ".Delete(" + params[0] + ", " + params[1] + ")\n"
@@ -877,6 +873,8 @@ func isBasic(t check.Type, k check.BasicKind) bool {
 func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 	fd := l.funcDecl(f)
 	switch {
+	case check.GoBuiltin(f) != "":
+		return fd // written at its site, Go's builtin (builtinCall)
 	case userExtern(f):
 		return fd
 	case fd.extern != "" && l.intrinsic(f) == nil:
@@ -919,6 +917,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) { l.emitBody(fd, vari
 func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool) {
 	l.bodies++
 	f := fd.fn
+	l.readsOf(f)
 	b := &l.user
 	directives := l.isSourced(f.Pkg)
 	// A sourced package's body is lowered within its file, reading its
