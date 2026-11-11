@@ -60,20 +60,18 @@ func Put[T](a *Of[T], v T) Ref[T] {
 		a.slots = a.slots.Append(slot[T]{value: stored[T]{Value: v}, gen: 1, next: occupied})
 		return Ref[T]{index: len(a.slots) - 1, gen: 1}
 	}
-	let (next, gen) = reuse(&a.slots[at], v)
-	a.free = next
-	Ref[T]{index: at, gen: gen}
+	a.free = reuse(&a.slots[at], v)
+	Ref[T]{index: at, gen: a.slots[at].gen}
 }
 
-// reuse stores v in the free slot s and returns the slot's free-list link
-// and generation. Put writes the slot through this one borrow, so the
-// lowered Go indexes the store once, as hand-written Go does with a
-// pointer to the slot.
-func reuse[T](s *slot[T], v T) (int, int) {
+// reuse stores v in the free slot s and returns the slot's free-list link.
+// Put writes the slot through this one borrow, so the lowered Go indexes
+// the store once, as hand-written Go does with a pointer to the slot.
+func reuse[T](s *slot[T], v T) int {
 	let next = s.next
 	s.value = stored[T]{Value: v}
 	s.next = occupied
-	(next, s.gen)
+	next
 }
 
 // Has reports whether r names a value of a.
