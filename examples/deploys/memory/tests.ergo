@@ -44,6 +44,6 @@ test ApplyFollowsTheLifecycle {
 		assert moved(o.ID, deploys.Release) == "live"
 		assert moved(o.ID, deploys.Cancel) == "conflict: dep-1 is live, cannot cancel"
 		assert moved("dep-9", deploys.Approve) == "no deploy dep-9"
-		assert deploys.Name((try deploys.Store.Find(o.ID)).Status) == "live"
+		assert deploys.Name(try deploys.Store.Find(o.ID).Status) == "live"
 	}
 }

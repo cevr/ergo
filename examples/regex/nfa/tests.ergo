@@ -11,15 +11,15 @@ func matches(pattern string, text string) bool fails syntax.SyntaxError {
 
 test MatchesWholeTexts {
 	assert try matches("a(b|c)*d", "abcbd")
-	assert !(try matches("a(b|c)*d", "abcb"))
+	assert !try matches("a(b|c)*d", "abcb")
 	assert try matches("[^0-9]+x?", "abx")
-	assert !(try matches("[^0-9]+", "a1"))
+	assert !try matches("[^0-9]+", "a1")
 	assert try matches("", "")
-	assert !(try matches("", "a"))
+	assert !try matches("", "a")
 	assert try matches("(a*)*", "aaa")
 	assert try matches("a.c", "a\nc")
 	assert try matches("[]|x", "x")
-	assert !(try matches("[]", ""))
+	assert !try matches("[]", "")
 }
 
 // A pattern that makes a backtracker take exponential time runs in
@@ -28,7 +28,7 @@ test PathologicalPatternIsLinear {
 	let n = 40
 	let pattern = strings.Repeat("a?", n) + strings.Repeat("a", n)
 	assert try matches(pattern, strings.Repeat("a", n))
-	assert !(try matches(pattern, strings.Repeat("a", n-1)))
+	assert !try matches(pattern, strings.Repeat("a", n-1))
 }
 
 test ProgramsAreSmall {

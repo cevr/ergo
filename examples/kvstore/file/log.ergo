@@ -109,7 +109,7 @@ func add(l Log, r Record) fails kv.Broken {
 
 // Get is the value of key: the last put of it, when no delete follows.
 func Get(l Log, key string) string fails kv.Missing | kv.Broken {
-	match (try l.entries()).Get(key) {
+	match try l.entries().Get(key) {
 	case Some[string] as v:
 		v.Value
 	case None:

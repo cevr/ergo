@@ -20,12 +20,12 @@ test SavesWhereTheOriginalDoes {
 test TheKeyFileIsTheOwners {
 	let d = fstest.NewMemory()
 	let file = try home(d, "/h").Save(keys.Empty().Set("openai", "sk-1"))
-	assert (try d.Stat(file)).Perm == fs.Perm(fs.Private())
-	assert (try d.Stat("/h/.okra")).Perm == fs.Perm(fs.PrivateDir())
+	assert try d.Stat(file).Perm == fs.Perm(fs.Private())
+	assert try d.Stat("/h/.okra").Perm == fs.Perm(fs.PrivateDir())
 	// A file that was there with a wider mode is narrowed.
 	try d.Chmod(file, fs.Shared())
 	let _ = try home(d, "/h").Save(keys.Empty())
-	assert (try d.Stat(file)).Perm == fs.Perm(fs.Private())
+	assert try d.Stat(file).Perm == fs.Perm(fs.Private())
 }
 
 func failure(h Home) string {
@@ -53,6 +53,6 @@ test BadFilesAreEmpty {
 	let d = fstest.NewMemory()
 	try d.MkdirAll("h/.okra")
 	try d.WriteFile("h/.okra/keys.json", "{\"a\":1}")
-	assert len((try home(d, "h").Load()).Entries()) == 0
-	assert len((try home(d, "none").Load()).Entries()) == 0
+	assert len(try home(d, "h").Load().Entries()) == 0
+	assert len(try home(d, "none").Load().Entries()) == 0
 }
