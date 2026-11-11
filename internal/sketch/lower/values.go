@@ -555,10 +555,12 @@ func preludeAppend(f *check.Func) bool {
 	return check.GoBuiltin(f) == "append" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append"
 }
 
-// preludeMapWrite reports the prelude's Delete or Put: a call that writes
-// its Map source when it may (V3), and writes a copy of it otherwise.
+// preludeMapWrite reports the prelude's Delete or Put, or an extern that
+// binds Go's delete (check/builtin.go; the prelude's Delete is one): a call
+// that writes its Map source when it may (V3), and writes a copy of it
+// otherwise.
 func preludeMapWrite(f *check.Func) bool {
-	return f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && (f.Name == "Delete" || f.Name == "Put")
+	return check.GoBuiltin(f) == "delete" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && (f.Name == "Delete" || f.Name == "Put")
 }
 
 func (w *valueWalk) typeOf(x syntax.Expr) check.Type {

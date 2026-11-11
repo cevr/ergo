@@ -399,6 +399,19 @@ func (fc *funcCtx) builtinCall(x *syntax.CallExpr, c *check.Call, args []syntax.
 	if builtinLowering == "call" {
 		return fc.l.builtinHelper(b, x) + "(" + strings.Join(vals, ", ") + ")"
 	}
+	if b == "delete" {
+		// Go's delete is a statement; the binding's value is the Map it
+		// wrote (check/builtin.go). A statement call (the in-place
+		// m = m.Delete(k), mapStore) is the builtin alone; elsewhere the
+		// Map is bound once so it is read after.
+		if fc.stmtCall == x {
+			return "delete(" + vals[0] + ", " + vals[1] + ")"
+		}
+		m := fc.temp("t")
+		fc.line(m + " := " + vals[0])
+		fc.line("delete(" + m + ", " + vals[1] + ")")
+		return m
+	}
 	return b + "(" + strings.Join(vals, ", ") + ")"
 }
 
@@ -418,6 +431,7 @@ var builtinHelpers = map[string]string{
 	"cap":    "[T any](xs []T) int { return cap(xs) }",
 	"copy":   "[T any](dst []T, src []T) int { return copy(dst, src) }",
 	"clear":  "[T any](xs []T) { clear(xs) }",
+	"delete": "[K comparable, V any](m map[K]V, k K) map[K]V { delete(m, k); return m }",
 	"min":    "[T ORD.Ordered](a T, b T) T { return min(a, b) }",
 	"max":    "[T ORD.Ordered](a T, b T) T { return max(a, b) }",
 }

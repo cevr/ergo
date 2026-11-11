@@ -787,7 +787,7 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 	if bridge := l.hostBlockingIntrinsic(f); bridge != nil {
 		return bridge
 	}
-	// The functions on slices and Maps (D-D6): Append, Delete and Put call
+	// The functions on slices and Maps (D-D6): Append and Put call
 	// their runtime/v1 bodies; Get builds the program's Option, which the
 	// lowering emits in each program, so its body is written here.
 	if len(s.Params) < 2 || len(s.Params) > 3 || len(s.Results) != 1 {
@@ -803,10 +803,6 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 	case f.Name == "Append" && len(s.TParams) == 1 && isSliceOf(s.Params[0].Type, s.TParams[0]) && s.Params[1].Type == s.TParams[0] && isSliceOf(s.Results[0], s.TParams[0]):
 		return func(_ *funcCtx, params []string) string {
 			return "\treturn " + l.rt() + ".Append(" + params[0] + ", " + params[1] + ")\n"
-		}
-	case f.Name == "Delete" && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && isMapOf(s.Results[0], s.TParams[0], s.TParams[1]):
-		return func(_ *funcCtx, params []string) string {
-			return "\treturn " + l.rt() + ".Delete(" + params[0] + ", " + params[1] + ")\n"
 		}
 	case preludeGet(f):
 		return func(fc *funcCtx, params []string) string {

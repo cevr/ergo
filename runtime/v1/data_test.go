@@ -36,12 +36,3 @@ func TestGet(t *testing.T) {
 		t.Fatalf("Get(b) = %v, %v; want 0, false", v, ok)
 	}
 }
-
-// TestDelete: Delete removes the key from the Map itself and returns it.
-func TestDelete(t *testing.T) {
-	m := map[string]int{"a": 1, "b": 2}
-	got := Delete(m, "a")
-	if len(got) != 1 || got["b"] != 2 || len(m) != 1 {
-		t.Fatalf("Delete gave %v, left %v; want map[b:2] for both", got, m)
-	}
-}
