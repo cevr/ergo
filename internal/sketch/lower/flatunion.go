@@ -41,9 +41,10 @@ import (
 //  1. The union is declared in a package of the program's own source, it
 //     is not generic, no machine takes it as its state (machinerun.go has
 //     a flat state of its own), and no Go extern's signature names it.
-//  2. Its variants are records that are neither generic nor error types,
-//     and the union is no error type: a row value is a Go error, which
-//     ConvRow and catch test by type.
+//  2. Its variants are records that are neither generic nor error types:
+//     a row value is a Go error, which ConvRow and catch test by type. A
+//     union that is a failure has its variants as failures, so this keeps
+//     it an interface too.
 //  3. Its Go value does not hold itself: a variant field reaches the
 //     union again by value, through records, tuples, arrays, Options or
 //     other flat unions (Go refuses a recursive struct; the interface box
@@ -444,9 +445,6 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 	}
 	u, ok := n.Underlying().(*check.Union)
 	if !ok || len(u.Variants) == 0 || len(u.Variants) > 255 || u.Row != nil {
-		return nil
-	}
-	if l.errorType(n, l.buildView()) {
 		return nil
 	}
 	fu := &flatUnion{tn: n.Obj}
