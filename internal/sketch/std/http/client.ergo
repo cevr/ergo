@@ -4,6 +4,8 @@
 // a closed union and the caller's scope is the only time limit, so there
 // is no service tag, layer, middleware chain or implicit timeout.
 
+import fs
+
 // InvalidClient is an origin that is not scheme://authority (http or
 // https), or a budget that is not positive.
 type InvalidClient { Origin string, Reason string }
@@ -20,14 +22,69 @@ type Malformed { Reason string }
 type Cause = Refused | Transport | TooLarge | Malformed
 type RequestFailed { Cause Cause }
 
-// Net sends one buffered request and returns the whole response. A stop
-// of the caller ends Send with the stop, after the exchange let go.
-// law-exempt: a provider is a peer; the loopback model property and the in-memory Handler hold Send's rules.
-type Net { Send(r Request) Response fails RequestFailed }
+// Accept is the statuses whose body goes to a sink. Success is the
+// default rule of every sink form (DoInto, DoFile, FetchInto, FetchFile):
+// 200 to 299. Statuses accepts exactly its values.
+type Accept = Success{} | Statuses{Values []int}
+
+// Accepts is the one rule: whether a sink takes the body of a response
+// with status.
+func Accepts(a Accept, status int) bool {
+	match a {
+	case Success:
+		status >= 200 && status < 300
+	case Statuses as s:
+		for v in s.Values {
+			if v == status { return true }
+		}
+		false
+	}
+}
+
+// StatusRefused is a final response whose status the caller does not
+// accept: no part of its body reached the sink (and no file was made or
+// replaced). Prefix is the first bytes of the body, at most 1024, for a
+// message.
+type StatusRefused { Status int, Prefix string }
+
+// SinkFailed is a sink that refused a part of a body: the fetch stops
+// there, lets its connection go, and fails with it.
+type SinkFailed { Reason string }
+
+// Net sends one request to its origin. A stop of the caller ends a call
+// with the stop, after the exchange let go.
+// law-exempt: a provider is a peer; the loopback model properties TestHTTPClientMatchesModel and TestHTTPFetchIntoMatchesModel hold Client's rules, and the law InMemorySendIntoIsSend holds Handler's.
+type Net {
+	// Send returns the whole response.
+	Send(r Request) Response fails RequestFailed,
+	// SendInto is Send, but when accept takes the status the body goes
+	// to put while it arrives, a part at a time and in order, and the
+	// returned Response has an empty Body. Any other status fails
+	// StatusRefused and put gets nothing. put is the caller's and is used
+	// only during the call. A failure of put, or a stop, ends the call
+	// after the connection was let go.
+	SendInto(r Request, accept Accept, put func(part string) fails SinkFailed) Response fails RequestFailed | StatusRefused | SinkFailed,
+}
 
 // Do sends r through the bound Net (Gleam httpc's send, Effect
 // HttpClient.execute).
 func Do(r Request) Response fails RequestFailed needs Net { try Net.Send(r) }
+
+// DoInto sends r through the bound Net and gives a 2xx body to put as it
+// arrives; another status fails StatusRefused. For another set of
+// statuses, call Net.SendInto.
+func DoInto(r Request, put func(part string) fails SinkFailed) Response fails RequestFailed | StatusRefused | SinkFailed needs Net {
+	try Net.SendInto(r, Success, put)
+}
+
+// DoFile sends r through the bound Net and writes a 2xx body to the file
+// at path below root, as FetchFile does. For another set of statuses,
+// call IntoFile with Net.SendInto.
+func DoFile(root fs.HostRoot, path string, r Request) Response fails RequestFailed | StatusRefused | SinkFailed | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs Net {
+	try IntoFile(root, path, func(file BodyFile) Response fails RequestFailed | StatusRefused | SinkFailed needs Net {
+		try Net.SendInto(r, Success, func(part string) fails SinkFailed { try file.Put(part) })
+	})
+}
 
 // Client is the host's Net for one origin. Its fields are this
 // package's, so only NewClient makes one.
@@ -58,6 +115,23 @@ func Send(c Client, r Request) Response fails RequestFailed {
 	}
 }
 
+// SendInto is Send with the body streamed to put (Net.SendInto). It
+// shares the streamed exchange of Remote.SendURLInto.
+func SendInto(c Client, r Request, accept Accept, put func(part string) fails SinkFailed) Response fails RequestFailed | StatusRefused | SinkFailed {
+	let text = match r.Body {
+	case Buffered as b:
+		b.Text
+	case BodyTooLarge, BodyReadFailed:
+		return RequestFailed{Cause: Malformed{Reason: "a request sends a Buffered body"}}
+	}
+	try sendInto(c.origin, c.limits, r.Method, r.Path, r.Query, r.Header, text, func(status int) bool { Accepts(accept, status) }, put) catch {
+	case SendFailed as f:
+		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1.HTTPDoInto func sendInto(origin string, limits Limits, method string, path string, query []Field, header []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed) Response fails SendFailed | StatusRefused | SinkFailed
+
 // SendFailed is the host's form of a RequestFailed: one record for the four
 // causes (a Go type cannot be a union variant), which Send turns into the
 // Cause; no other function fails with it. causeOf names: Kind 0 Refused, 1 Transport, 2 TooLarge, 3 Malformed.
@@ -87,4 +161,22 @@ func InMemory(handle escaping func(Request) Response needs Streaming) Handler { 
 
 func Send(h Handler, r Request) Response fails RequestFailed {
 	with context { Streaming: NewRecorder() } { h.handle(r) }
+}
+
+// SendInto answers as Send, then gives an accepted body to put in one
+// part (none when it is empty).
+func SendInto(h Handler, r Request, accept Accept, put func(part string) fails SinkFailed) Response fails RequestFailed | StatusRefused | SinkFailed {
+	let response = with context { Streaming: NewRecorder() } { h.handle(r) }
+	if !Accepts(accept, response.Status) {
+		return StatusRefused{Status: response.Status, Prefix: refusedPrefix(response.Body)}
+	}
+	if response.Body != "" {
+		try put(response.Body)
+	}
+	Response{Status: response.Status, Header: response.Header, Body: ""}
+}
+
+// refusedPrefix is StatusRefused's Prefix of body: its first 1024 bytes.
+func refusedPrefix(body string) string {
+	if len(body) > 1024 { body[0:1024] } else { body }
 }

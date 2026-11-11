@@ -593,6 +593,105 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     Ergo's explicitly marked credentials use the stricter exact origin,
     including the port, not Go's host-only trust rule.
 
+12. **A body that goes to a sink (CU6).** `Network` has a second
+    operation, `SendURLInto(r URLRequest, accept Accept, put func(part string) fails SinkFailed)
+    Response fails RequestFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed`
+    (`accept` and `StatusRefused`: item 13).
+    It applies the policy, credentials and hops of `SendURL`, then gives
+    the final response's body to `put` while it arrives, one part at a
+    time (at most 32 KiB), in order, on the caller's task. The returned
+    `Response` has the status and header and an empty Body. The body of a
+    redirect that is followed is not read. `FetchInto(r, put)` calls the
+    operation through the caller's context. `FetchFile(root fs.HostRoot,
+    path string, r URLRequest)` writes the body to a new file beside `path`
+    below `root` and renames it over `path` only after the whole body
+    arrived: a failure, a body over its budget or a stop removes the new
+    file and leaves `path` as it was. A failed write is `SinkFailed`; a
+    path that leaves the root is `fs.Escapes`.
+
+    The sink is borrowed and the body is consumed inside the call: `put`
+    and `root` stay the caller's, and no part of the exchange outlives the
+    call. On every exit (the end, a failure, a failure of `put`, a stop)
+    the request is cancelled and its reader joined before the call
+    returns, so the connection is let go. A reader goroutine hands the
+    parts over an unbuffered channel, so at most two parts are in memory
+    whatever the size of the body. `Limits.MaxBodyBytes` still bounds the
+    bytes a sink is given: a declared Content-Length over it fails
+    `TooLarge` before any part; a body that grows over it fails `TooLarge`
+    before the part that crosses it. A sink that wants a stop before the
+    end returns `SinkFailed` from `put`.
+
+    A returned `Seq` of parts was not taken: it would hold the connection
+    after the call, which is an owned resource return (#197). When #197
+    lands, a scoped `Seq` form can return a resource that the caller's
+    scope releases; this form stays.
+
+    `TestHTTPFetchIntoMatchesModel` generates body sizes around the part
+    border, the peer's write sizes, declared and undeclared lengths, a
+    redirect with a body of its own, budgets one under, at and over the
+    size, and the two sinks; the sink must hold the bytes sent, each put
+    must leave a prefix, and an over-budget body must fail `TooLarge`,
+    give no part when its length was declared, and leave the directory as
+    it was. `TestHTTPFetchIntoStops` stops a caller mid-body and waits for
+    the peer's hang-up and the call's end; no file is left.
+    `TestHTTPNetworkRuns` runs the source API through all three forms.
+    `examples/download` saves with `--out`.
+
+    Effect `HttpClientResponse.stream` supplies the intent: a body larger
+    than memory, read as it arrives. Its `Stream` needs the response's
+    `Scope` to hold the connection; here the body is consumed inside the
+    call, so no scope or stream value is needed, and the failure of a
+    sink is in the row. Elixir Req's `into:` takes a function, a
+    collectable (`File.stream!`, used only for a 200) or `:self` (an async
+    body that outlives the call); `FetchInto` is the function form and
+    `FetchFile` the collectable form, for an accepted status (item 13), with the new-file
+    rename that a collectable does not give. Gleam httpc is buffered only.
+    Go's control is `io.Copy` from `resp.Body` into the file and a rename,
+    which is what the runtime does on the same transport. No speed claim
+    is made.
+
+13. **The status a sink takes (CU6b).** A body reaches a sink only for a
+    status the caller accepts. `type Accept = Success | Statuses{Values
+    []int}`; `Accepts(a, status)` is the one rule: `Success` is 200 to
+    299 and is the default of every sink form (`FetchInto`, `FetchFile`,
+    `DoInto`, `DoFile`); `Statuses` takes exactly its values. Any other
+    final status fails `StatusRefused{Status, Prefix}`, where `Prefix` is
+    the first bytes of the body, at most 1024, for a message; `put` gets
+    nothing, and no file is made or replaced. The redirect rule comes
+    first: a redirect that `Network` follows is not a final status.
+    `SendURLInto(r, accept, put)` takes the rule, and the fixed-origin
+    `Net` has the same streamed operation, `SendInto(r Request, accept,
+    put) Response fails RequestFailed | StatusRefused | SinkFailed`.
+    `Client` runs it on the same streamed exchange as `Remote` (the
+    runtime's `httpStreamURL`; a redirect is a response there, so its
+    status meets the rule); the in-memory `Handler` answers, then gives an
+    accepted body in one part. For a set other than 2xx, a caller calls
+    the operation, and for a file `IntoFile(root, path, fetch)`, which
+    `FetchFile` and `DoFile` are built on. `IntoFile` makes its new file
+    at the first `Put` (or at the end, for an empty body), so a refused
+    status touches no file; a new file that cannot be made fails with its
+    `fs` failure.
+
+    `TestHTTPFetchIntoMatchesModel` adds generated final statuses, the
+    2xx rule or a generated set, and the fixed-origin client to item 12's
+    property: a refused status fails `StatusRefused` with the status and
+    the body's first bytes, gives no part and leaves the directory as it
+    was; the peer sees no new file when the request arrives; a file below
+    a missing directory fails `fs.NotFound`. The law
+    `InMemorySendIntoIsSend` holds `Handler`'s `SendInto` and `Accepts`.
+    `TestHTTPNetworkRuns` draws a final status and the two fixed-origin
+    sinks, so the std callers of the rule run in a built program.
+
+    Effect's `HttpClient.filterStatusOk` supplies the intent: a status
+    the caller did not expect is a typed failure, not a body. Effect
+    adds it as a client transform, and its `ResponseError` holds the
+    whole response; here the rule is a parameter of the operation, the
+    default is stated once, and the failure holds a bounded prefix, so a
+    refused body never grows memory. Elixir Req writes an `into:`
+    collectable only for a 200 and raises otherwise
+    ([Req docs](https://hexdocs.pm/req/Req.html), read 2026-11-10). Go's
+    control is a `resp.StatusCode` check before `io.Copy`.
+
 Prior art for Files (source inspected, not measured): Wisp's `serve_static`
 (main branch) drops every ".." substring from the decoded path, joins it to
 the directory and reads through `simplifile`, so the guard is lexical and a
@@ -649,6 +748,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `http` | `FilesAsksBeneath` | `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot \|\| e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 \|\| (dotdot \|\| !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" \|\| e == "." \|\| e == ".." { return false } } } response.Status == 200 \|\| response.Status == 403 \|\| response.Status == 404 }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `StreamIsItsWrites` | `StreamIsItsWrites(status int, parts []string) { let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}} let response = with context { Streaming: NewRecorder() } { Stream(status, header, func(w BodyWriter) fails WriteFailed { for p in parts { try w.Write(p) } }) } let mut want = "" for p in parts { want = want + p } response == Response{Status: status, Header: header, Body: want} }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `WriteAfterStreamFails` | `WriteAfterStreamFails(text string) { let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{}) let response = with context { Streaming: NewRecorder() } { Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed { kept.Set([]BodyWriter{w}) }) } for w in kept.Get() { w.Write(text) catch { case WriteFailed: return response.Body == "" } } false }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `InMemorySendIntoIsSend` | `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body+"x", 1100) } else { body } let set = if listed%2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { Success } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken \|\| explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }` | `TestStdHTTPLawsRun` | tested |
 | `actor` | `Actor.ChangesStops` | `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }` | `TestStdActorLawsRun` | tested |
 | `actor` | `Actor.StopIsFinal` | `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }` | `TestStdActorLawsRun` | tested |
 | `actor` | `CanIsTheStep` | `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }` | `TestStdActorLawsRun` | tested |

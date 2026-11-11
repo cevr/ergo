@@ -1,17 +1,19 @@
 import download/domain
 import download/network
 import flag
+import fs
 import http
 import os
 
 let allowed = flag.String("allow", "", "an allowed origin").Repeated().WithAlias("a")
 let anyOrigin = flag.Bool("any", false, "allow any origin")
 let hops = flag.Int("hops", 3, "the maximum redirects to follow")
+let out = flag.OptionalString("out", "save the body to this file below the working directory, as it arrives")
 let urlArg = flag.Arg("url", "the absolute URL to read")
 
 func main() needs Ambient | Console {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
-	let values = flag.Parse(flag.Set{Name: "download", Usage: "fetch a runtime URL under a stated policy", Flags: []flag.Flag{allowed, anyOrigin, hops}, Args: []flag.ArgSpec{urlArg}}, args) catch {
+	let values = flag.Parse(flag.Set{Name: "download", Usage: "fetch a runtime URL under a stated policy", Flags: []flag.Flag{allowed, anyOrigin, hops, out}, Args: []flag.ArgSpec{urlArg}}, args) catch {
 	case err:
 		Console.Println(flag.Describe(err))
 		return
@@ -30,5 +32,19 @@ func main() needs Ambient | Console {
 		Console.Println("invalid network policy: " + c.Reason)
 		return
 	}
-	Console.Println(with context { domain.Downloader: network.New(net) } { domain.Run(url) })
+	// main owns the root: it closes when main ends, after every Save.
+	let root = fs.OpenRoot(".") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		Console.Println("cannot open the working directory")
+		return
+	}
+	let report = with context { domain.Downloader: network.New(net, root) } {
+		match out.Get(values) {
+		case Some as path:
+			domain.Store(url, path.Value)
+		case None:
+			domain.Run(url)
+		}
+	}
+	Console.Println(report)
 }

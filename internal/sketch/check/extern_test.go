@@ -733,12 +733,13 @@ func main() {
 	use(Mine)
 }
 `,
-	// Net (H1) is open: a test binds its own transport.
+	// Net (H1) is open: a test binds its own transport (CU6b adds SendInto).
 	"http.Net": `import http
 
 type Mine {}
 
 func Send(_ Mine, r http.Request) http.Response fails http.RequestFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
+func SendInto(_ Mine, r http.Request, accept http.Accept, put func(part string) fails http.SinkFailed) http.Response fails http.RequestFailed | http.StatusRefused | http.SinkFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
 
 func use(_ http.Net) {}
 
@@ -746,14 +747,30 @@ func main() {
 	use(Mine)
 }
 `,
-	// Network is open: a program may replace its URL transport.
+	// Network (CU5) is open: a test binds its own transport (CU6 adds
+	// SendURLInto).
 	"http.Network": `import http
 
 type Mine {}
 
 func SendURL(_ Mine, r http.URLRequest) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
+func SendURLInto(_ Mine, r http.URLRequest, accept http.Accept, put func(part string) fails http.SinkFailed) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit | http.StatusRefused | http.SinkFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
 
 func use(_ http.Network) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// FetchFile's new file (CU6): only its extern makes one.
+	"http.BodyFile": `import http
+
+type Mine {}
+
+func Put(_ Mine, part string) fails http.SinkFailed {}
+func partOnly(_ Mine) {}
+
+func use(_ http.BodyFile) {}
 
 func main() {
 	use(Mine)
@@ -813,6 +830,7 @@ var unexportedStd = map[string]string{
 	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
 	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
 	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
+	"http.BodyFile":   "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
 }
 
 // openStd is the std operation types a program provides: no std extern's
