@@ -247,9 +247,15 @@ type lowerer struct {
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
 	// Go function took in, inlineSites the inlined calls (inline.go), and
-	// lastDir the last //line directive a body wrote.
-	inlineOK    map[*check.Func]knownState
+	// lastDir the last //line directive a body wrote. inlineCb holds the
+	// functions whose body calls unknown code only through its callback
+	// parameters (inlineRule).
+	inlineOK    map[inlineKey]knownState
+	inlineCb    map[*check.Func]bool
 	inlineGrown map[*namer]int
+	// copyScopes are the Go functions that are copies for a known record
+	// (record.go): they take copyGrowth.
+	copyScopes  map[*namer]bool
 	inlineSites []inlineSite
 	lastDir     string
 
@@ -315,15 +321,21 @@ type lowerer struct {
 	// entryInits records that the entry calls ergoInit; program checks it
 	// against hasInits once every declaration is lowered (F13).
 	entryInits bool
-	// flatRuns are the flat runs of the machines, by machine, made at
-	// their first run (machinerun.go); nil for one whose step takes none.
-	flatRuns map[*check.TypeName]*flatRun
+	// recParams memoizes each function's record parameter, and specs are
+	// the copies for known records made so far (record.go).
+	recParams map[*check.Func]int
+	specs     map[specKey]*specCopy
+	// scalarMemo holds each body's locals in the scalar form (scalar.go).
+	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
 	// flatSet are the program's flat unions (flatunion.go), decided at the
 	// first question; flatOff the unions an earlier lowering of the
 	// program bailed on, and flatBails those this lowering bails on.
 	flatSet   map[*check.TypeName]*flatUnion
 	flatOff   map[*check.TypeName]bool
 	flatBails []*check.TypeName
+	// niche reports that the flat Option of a go.Ref is the Go pointer
+	// itself (flatunion.go, nicheAdmitted), decided with flatSet.
+	niche bool
 	// instances are the concrete instances of each generic type that the
 	// program's types name (text.go, instancesOf), computed once.
 	instances map[*check.TypeName][]check.Type

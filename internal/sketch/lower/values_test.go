@@ -16,6 +16,8 @@ import (
 // benchmark (values.go).
 
 const valueElideSource = `import maps
+import slices
+import sync
 
 type Box { M Map[int, int], S []int }
 
@@ -48,6 +50,14 @@ func build(n int) Map[int, int] {
 		m[i] = i
 	}
 	m
+}
+
+func roomy(n int) []int {
+	let mut out = slices.WithCapacity[int](n)
+	for i in 0..n {
+		out = out.Append(i)
+	}
+	out
 }
 
 func collect(n int) []int {
@@ -98,10 +108,26 @@ func kept(xs []int) int {
 	snap[1] + c[0]
 }
 
+func tally(n int) int {
+	let r = sync.NewRef[Map[int, int]](Map[int, int]{})
+	for i in 0..n {
+		r.Update(func(m Map[int, int]) Map[int, int] {
+			let mut c = m
+			c[i] = i
+			c
+		})
+	}
+	sync.Modify(r, func(m Map[int, int]) (int, Map[int, int]) {
+		let mut c = m
+		c[n] = n
+		(len(c), c)
+	})
+}
+
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4)))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3))")
 }
 `
 
@@ -114,9 +140,9 @@ func main() needs Console {
 // maps.Update(m, k, f) in a loop and b.M = put(b.M, n) call the owned
 // bodies with no copy, as hand Go writes m[k] = f(m[k]) (integration r1
 // F2), and the parameter's copy moves to the wrapper, which only an
-// indirect call reaches. With a named callback the rebinding is written at
-// its site with the callback called directly (update.go), so no Option
-// escapes; with updateLowering "call" it calls the owned body, uncopied.
+// indirect call reaches. With a named pure callback the rebinding is inlined
+// (inline.go) with the callback called through its site adapter; with inlineLowering
+// "call" it calls the owned body, uncopied.
 // It reads the emitted Go only: the copies' meaning
 // is TestValueRuleAgrees', which passes with every copy in place, so only
 // the Go text tells this rule from the one that copies everywhere and from
@@ -125,7 +151,7 @@ func main() needs Console {
 func TestValueRuleElides(t *testing.T) {
 	p := lowerValueMode(t, "velide", valueElideSource, true)
 	code := p.mainGo()
-	for _, fn := range []string{"build", "collect", "drop", "puts", "boxed", "moved", "count", "putOwned"} {
+	for _, fn := range []string{"build", "collect", "roomy", "drop", "puts", "boxed", "moved", "count", "putOwned"} {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") || strings.Contains(body, "Clip(") {
 			t.Errorf("%s copies a fresh value:\n%s", fn, body)
 		}
@@ -133,21 +159,26 @@ func TestValueRuleElides(t *testing.T) {
 	if body := goFunc(t, code, "keptOwned"); strings.Count(body, "slices.Clone(") != 1 {
 		t.Errorf("kept should copy the kept read once:\n%s", body)
 	}
-	if body := goFunc(t, code, "main_1"); strings.Contains(body, "Clone") {
+	// kept is inlined into main, its own copy of a slice with it; build's
+	// Map is not copied.
+	if body := goFunc(t, code, "main_1"); strings.Contains(body, "maps.Clone") {
 		t.Errorf("main copies build's fresh result:\n%s", body)
 	}
-	// m = maps.Update(m, k, bump) is written at its site with bump's
-	// comma-ok variant called directly, no Option built (update.go); with
-	// updateLowering "option" it calls bump with the Option; called
-	// instead, it calls the owned body.
-	if body := goFunc(t, code, "count"); strings.Contains(body, "Update") || !strings.Contains(body, "bumpOk(") || strings.Contains(body, "Some") {
-		t.Errorf("m = maps.Update(m, k, bump) is not written at its site with bump's comma-ok variant:\n%s", body)
+	// A literal given to a Ref's Update or to sync.Modify takes the held
+	// value over: the call is the runtime body's owned form, told that
+	// the literal returns a fresh value (refown.go).
+	if body := goFunc(t, code, "tally"); !strings.Contains(body, "RefUpdateOwned[") || !strings.Contains(body, "RefModifyOwned[") || strings.Count(body, ", true)") != 2 {
+		t.Errorf("tally's Update and Modify do not hand the value over:\n%s", body)
 	}
-	option := lowerValueMode(t, "velideoption", valueElideSource, true, "update-option").mainGo()
-	if body := goFunc(t, option, "count"); strings.Contains(body, "Update") || !strings.Contains(body, "bump(") || strings.Contains(option, "bumpOk") {
-		t.Errorf("updateLowering option does not call bump with the Option:\n%s", body)
+	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):
+	// Update's body takes the Map as it is passed, unshared, and calls
+	// bump through its plain site adapter (plainAdapter), with no copy.
+	// With every call a Go call (inlineLowering "call"), it calls the
+	// owned body.
+	if body := goFunc(t, code, "count"); strings.Contains(body, "Update") || !strings.Contains(body, "{ return bump(") {
+		t.Errorf("m = maps.Update(m, k, bump) is not inlined with bump called directly:\n%s", body)
 	}
-	called := lowerValueMode(t, "velidecall", valueElideSource, true, "update-call").mainGo()
+	called := lowerValueMode(t, "velidecall", valueElideSource, true, "call").mainGo()
 	update := regexp.MustCompile(`(?s)\nfunc UpdateOwned\[.*?\n}\n`).FindString(called)
 	if update == "" || strings.Contains(update, "Clone") || !strings.Contains(goFunc(t, called, "count"), "UpdateOwned[") || strings.Contains(goFunc(t, called, "count"), "Clone") {
 		t.Errorf("m = maps.Update(m, k, f) copies the Map:\n%s\n%s", update, goFunc(t, called, "count"))
@@ -219,7 +250,7 @@ var valueMutants = flag.Bool("value.mutants", false, "run TestValueRuleMutants")
 // to print something else: each rule has a guard that fails without it.
 // The never-elide mutant is the copying lowering "copy", which every
 // run-based check passes; TestValueRuleElides guards it.
-// The never-fuse mutant is updateLowering "call", which every run-based
+// The never-inline mutant is inlineLowering "call", which every run-based
 // check passes; TestValueRuleElides guards it too.
 // It builds eleven sets of programs, so it runs only with -value.mutants:
 // go test -run '^TestValueRuleMutants$' ./internal/sketch/lower -args -value.mutants
@@ -231,7 +262,7 @@ func TestValueRuleMutants(t *testing.T) {
 	if !*valueMutants {
 		t.Skip("run with -value.mutants")
 	}
-	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "in-place", "consume-live", "consume-captured", "own-live", "update-none", "update-no-write", "update-ok-none", "update-ok-swap", "hand-nonliteral", "store-unfresh", "share-blind", "return-blind"} {
+	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "in-place", "consume-live", "consume-captured", "own-live", "hand-nonliteral", "store-unfresh", "share-blind", "return-blind"} {
 		t.Run(m, func(t *testing.T) {
 			saved := valueMutant
 			valueMutant = m
@@ -275,7 +306,7 @@ func TestValueRuleMutants(t *testing.T) {
 // m = maps.Update(m, k, f) over 1e5 new keys (Upsert, f sees None) and
 // over 64 keys again and again (Again, f sees Some) against hand Go's
 // v, ok := m[k]; m[k] = f(v, ok) (owned parameters, V5: no copy; the call
-// written at its site, update.go: no Option escapes, so allocs/op match).
+// inlined, inline.go, its callback called directly).
 // go test -run '^$' -bench '^BenchmarkValueRule$' -benchmem ./internal/sketch/lower
 func BenchmarkValueRule(b *testing.B) {
 	const src = `import maps

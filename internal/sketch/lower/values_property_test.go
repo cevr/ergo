@@ -26,12 +26,11 @@ import (
 //     a rebinding x = upM(x, k), in a loop and on a field, an argument
 //     that stays live, and a rebinding whose callback reads the binding.
 //     It also calls maps.Update with a named callback (rebinding, on a
-//     field, and on a Map that stays live): bumpOpt, which has a comma-ok
-//     variant, and, on a rebinding, bumpVia, which has none. Lowered with
-//     the rule, with the copying lowering "copy" (the rule without owned
-//     parameters), with maps.Update written at its site with its Option
-//     (updateLowering "option") and with it called (updateLowering
-//     "call", update.go), all four print the model's lines. After it, the
+//     field, and on a Map that stays live): bumpOpt, and, on a rebinding,
+//     bumpVia, which passes its Option on. Lowered with the rule, with the
+//     copying lowering "copy" (the rule without owned parameters) and with
+//     every call a Go call (inlineLowering "call"), all three print the
+//     model's lines. After it, the
 //     program makes Refs of Maps (V6) from literals and bindings, and
 //     changes them with literals that write in place, delete, keep a
 //     share (idM), read through a pure call (sizes), call an owned helper
@@ -271,6 +270,7 @@ func (g *valueGen) refStmt() {
 }
 
 const valuePrelude = `import maps
+import slices
 import sync
 import task
 
@@ -299,6 +299,25 @@ func putS(s []int, v int) int {
 		c[0] = v
 	}
 	ds(c)
+}
+
+// viewS writes through std's Slice of s, whose Go body returns a part of
+// s, so the bind copies it (gobody.go: only a body that makes its result
+// gives a fresh one).
+func viewS(s []int, v int) int {
+	let mut c = slices.Slice(s, 0, 1)
+	c[0] = v
+	ds(c)
+}
+
+// roomS builds its result in the slice WithCapacity's Go body makes,
+// which the bind takes with no copy.
+func roomS(s []int, v int) []int {
+	let mut c = slices.WithCapacity[int](len(s) + 1)
+	for x in s {
+		c = c.Append(x)
+	}
+	c.Append(v)
 }
 
 func idM(m Map[int, int]) Map[int, int] { m }
@@ -335,8 +354,8 @@ func upF(m Map[int, int], k int, f func() int) Map[int, int] {
 	c
 }
 
-// bumpOpt is maps.Update's callback, which update.go calls directly, as
-// its comma-ok variant.
+// bumpOpt is maps.Update's callback, which the inlined Update calls
+// directly (inline.go).
 func bumpOpt(old Option[int]) int {
 	match old {
 	case Some[int] as v:
@@ -346,8 +365,7 @@ func bumpOpt(old Option[int]) int {
 	}
 }
 
-// bumpVia passes its Option on, so it has no comma-ok variant: update.go
-// calls it with the Option.
+// bumpVia passes its Option on to bumpOpt.
 func bumpVia(old Option[int]) int { bumpOpt(old) }
 
 // bumpAt passes its parameter to maps.Update: a copy at the call, and the
@@ -653,6 +671,11 @@ func (g *valueGen) stmt() {
 			}
 			g.line(fmt.Sprintf("Console.Println(\"\\(putS(%s, %d))\")", b.name, v))
 			fmt.Fprintf(&g.want, "%d\n", dsModel(c))
+			// A std result that shares its argument, and one its Go
+			// body makes (gobody.go); no new draw, so the seeds keep
+			// their paths.
+			g.line(fmt.Sprintf("Console.Println(\"\\(viewS(%s, %d)) \\(ds(roomS(%s, %d)))\")", b.name, v, b.name, v))
+			fmt.Fprintf(&g.want, "%d %d\n", dsModel([]int{v}), dsModel(append(slices.Clone(b.val.s), v)))
 			g.reached["argument"] = true
 		}
 	case 6:
@@ -925,21 +948,20 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 
 // lowerValueMode lowers src with the value rule or with the reference
 // "alias"; a mode names another lowering: "copy", the rule without owned
-// parameters, "update-call", the rule with maps.Update called, not
-// written at its site, or "update-option", the rule with it written at
-// its site with its Option, no comma-ok variant (update.go).
+// parameters, or "call", the rule with no Ergo inlining (inlineLowering
+// "call").
 func lowerValueMode(t *testing.T, name, src string, rule bool, mode ...string) *lowered {
 	t.Helper()
-	saved, savedUpdate := valueLowering, updateLowering
-	defer func() { valueLowering, updateLowering = saved, savedUpdate }()
-	valueLowering, updateLowering = "", ""
+	saved, savedInline := valueLowering, inlineLowering
+	defer func() {
+		valueLowering, inlineLowering = saved, savedInline
+	}()
+	valueLowering, inlineLowering = "", ""
 	switch {
 	case !rule:
 		valueLowering = "alias"
-	case len(mode) > 0 && mode[0] == "update-call":
-		updateLowering = "call"
-	case len(mode) > 0 && mode[0] == "update-option":
-		updateLowering = "option"
+	case len(mode) > 0 && mode[0] == "call":
+		inlineLowering = "call"
 	case len(mode) > 0:
 		valueLowering = mode[0]
 	}
@@ -974,13 +996,11 @@ func TestValueRuleAgrees(t *testing.T) {
 		// The copying lowering, the reference of owned parameters.
 		programs = append(programs, lowerValueMode(t, name+"copy", src, true, "copy"))
 		runs = append(runs, run{seed, src, want, name + "copy"})
-		// maps.Update called, the reference of its rewrite at the site.
-		programs = append(programs, lowerValueMode(t, name+"call", src, true, "update-call"))
+		// Every call a Go call (inlineLowering "call"): owned bodies
+		// called, the reference of the owned parameters an inlined body
+		// takes (inline.go).
+		programs = append(programs, lowerValueMode(t, name+"call", src, true, "call"))
 		runs = append(runs, run{seed, src, want, name + "call"})
-		// maps.Update at its site with its Option, the reference of the
-		// callback's comma-ok variant.
-		programs = append(programs, lowerValueMode(t, name+"option", src, true, "update-option"))
-		runs = append(runs, run{seed, src, want, name + "option"})
 		usrc, uwant := valueProgram(seed, false, reached)
 		for _, rule := range []bool{true, false} {
 			name := fmt.Sprintf("vr%dunshared%v", seed, rule)

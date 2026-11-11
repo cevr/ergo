@@ -1580,8 +1580,6 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 					return w.fresh(w.recvOf(x))
 				}
 				return !w.l.holdsValue(elemOf(w.typeOf(x)))
-			case c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Path == "slices" && c.Func.Name == "WithCapacity":
-				return true
 			}
 			return w.l.freshResult(c.Func)
 		}
@@ -1679,6 +1677,11 @@ func (l *lowerer) freshResult(f *check.Func) bool {
 	if f != nil && f.Pkg.Host() {
 		// A Go call's Map or slice result is new (freshGoResults) or
 		// copied at the call (goResult).
+		return true
+	}
+	if l.madeResult(f) {
+		// A runtime/v1 body that makes its result (gobody.go).
+		vf.fresh[f] = 2
 		return true
 	}
 	if f == nil || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil {

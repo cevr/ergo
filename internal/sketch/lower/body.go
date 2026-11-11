@@ -42,10 +42,6 @@ type frame struct {
 	// its Go result is bool, and a returned value of a defined type over
 	// bool converts to it.
 	law bool
-	// flat marks the flat step of a machine's flat run (machinerun.go): a
-	// returned decision is given as a value, its kind, the next state flat
-	// and the output.
-	flat *flatRun
 	// plain marks a frame that opens its scope only for its owned values
 	// (release.go): its end is no interruption point (v1.NewOwnerScope).
 	plain bool
@@ -122,8 +118,6 @@ type funcCtx struct {
 	held       map[*syntax.Ident]bool
 	frame      *frame
 	acquiring  *acquireFlow         // a native acquisition callback, in this same source frame
-	stmtCall   *syntax.CallExpr     // the call callStmt lowers, whose value is dropped (update.go)
-	okSubject  *okSubject           // the Option parameter of a callback's comma-ok variant (update.go)
 	env        string               // the current environment pointer, which every Go function the lowering writes binds
 	goDirect   map[syntax.Node]bool // Go functions of import go passed as Go's own to a Go function parameter (goCall)
 	directives bool
@@ -146,11 +140,6 @@ type funcCtx struct {
 	// header counts the statement headers being lowered (header.go): inside
 	// one, a composite literal of the TypeName form is parenthesized.
 	header int
-	// flatParam is the flat state parameter of a machine's flat step, and
-	// flatSubj the Go locals that hold that state put back into its union
-	// (machinerun.go): a type switch on one switches on the tag.
-	flatParam string
-	flatSubj  map[string]bool
 	// rawErr is the Go call whose error a plain catch takes unread
 	// (plainCatch): the call leaves Go's error as it is, since only its
 	// nil test is read (goErrorOf).
@@ -178,6 +167,18 @@ type funcCtx struct {
 	inlDepth int
 	lits     map[*check.Var]*litSub
 	inlined  *operand
+	// recs are the record parameters of a copy for a known record and
+	// the record each stands for (record.go).
+	recs map[*check.Var]*knownRec
+	// scalarSet are the locals of the body being written that take the
+	// scalar form, and scalars those declared so far (scalar.go).
+	scalarSet map[*check.Var]bool
+	scalars   map[*check.Var]*scalarLocal
+	// joinAt is the join local each inlined call writes (scalar.go).
+	joinAt map[*syntax.CallExpr]*scalarLocal
+	// goGeneric reports a Go function with type parameters, where Go
+	// declares no local type.
+	goGeneric bool
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -350,6 +351,10 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			} else {
 				fc.line("var " + name + " " + goType)
 			}
+		} else if sl := fc.scalarOf(v); sl != nil {
+			// A loop-carried union local as its tag and slots (scalar.go).
+			fc.scalarLet(v, sl, spec.Values[0], d.Mut.IsValid())
+			continue
 		} else {
 			val := fc.assigned(spec.Values[0])
 			name := fc.declare(v)
@@ -386,6 +391,10 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 			unreachable(s, ruleParser, "the assignment %s", text)
 		}
 		op = strings.TrimSuffix(text, "=")
+	}
+	if sl := fc.scalarIdent(s.Lhs[0]); sl != nil && op == "" {
+		fc.scatter(sl, fc.assigned(s.Rhs[0])) // scalar.go
+		return
 	}
 	rhsEmits := fc.emits(s.Rhs[0])
 	target := fc.target(s.Lhs[0], rhsEmits)
@@ -587,14 +596,8 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		}
 		return
 	}
-	if f.flat != nil && fc.acquiring == nil {
-		// The flat step (machinerun.go): a decision literal's fields as
-		// they are, else the decision's own Go value, never put into the
-		// Decision union, given to its method.
-		if fc.flatReturn(x) {
-			return
-		}
-		fc.line("return " + f.flat.decideOf(fc.typeOf(x)) + "(" + fc.value(x) + ")")
+	if f.inline != nil && f.inline.join != nil && fc.acquiring == nil && !f.law {
+		fc.joinReturn(f.inline.join, x) // scalar.go
 		return
 	}
 	if id, ok := unparen(x).(*syntax.Ident); ok {
@@ -1018,7 +1021,14 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 		}
 		return fc.patternMatch(s, subjects, s.Clauses, d)
 	}
-	subject := fc.headerValue(s.Subjects[0].X)
+	var subject string
+	if sl := fc.scalarIdent(s.Subjects[0].X); sl != nil {
+		// A scalar local: the switch reads its tag, each case its slot
+		// (scalar.go); a case binds its slot before its body writes.
+		subject = sl.name
+	} else {
+		subject = fc.headerValue(s.Subjects[0].X)
+	}
 	if len(fc.l.info.Releases[s.Subjects[0]]) > 0 {
 		subject = fc.spill(subject)
 		fc.releaseAt(s.Subjects[0])
@@ -1066,8 +1076,6 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 		}
 		arms = append(arms, a)
 	}
-	// In a machine's flat step, a match on the flat state switches on its
-	// tag (machinerun.go, flatTags).
 	var all []string
 	for _, a := range arms {
 		all = append(all, a.types...)
@@ -1075,7 +1083,7 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 	// A match on a flat union switches on its tag too (flatunion.go): the
 	// subject is read once, into a local the cases read again.
 	subjectType := fc.typeOf(s.Subjects[0].X)
-	if fc.l.flatUnionOf(subjectType) != nil && !fc.flatSubj[subject] {
+	if fc.l.flatUnionOf(subjectType) != nil {
 		t := fc.temp("s")
 		fc.line(t + " := " + subject)
 		subject = t

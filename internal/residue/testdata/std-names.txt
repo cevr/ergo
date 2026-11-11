@@ -3,8 +3,9 @@
 # `category<TAB>file:function<TAB>reason`.
 # abi: a backend binding (a runtime type representation, a prelude
 # collection wrapper, a std extern's ABI, a name the report writes).
-# debt: an inherited optimizer; unit OPT6 retires it through a general fact,
-# so the category ends empty. The inventory may only shrink.
+# No other category: no optimizer keys on a std name (OPT6 and OPT6b
+# retired the inherited ones through general facts). The inventory may
+# only shrink.
 
 abi	calls.go:funcCtx.callee	the call table's Callee text (#230): prelude functions are written unqualified in the defect report
 abi	calls.go:lowerer.hostImportNames	the Go import list: std time is imported by the runtime ABI already, so it is not added twice
@@ -20,11 +21,3 @@ abi	std.go:lowerer.runtimeType	the runtime type representation of the prelude Ta
 abi	types.go:lowerer.foreignOwner	the std package that owns a runtime type representation (prelude types are the program's)
 abi	values.go:preludeAppend	the prelude Append extern's ABI: its argument is clipped before the runtime append
 abi	values.go:preludeMapWrite	the prelude Delete and Put externs' ABI: the map argument is cloned before the runtime write
-debt	machinerun.go:funcCtx.flatReturn	machines Run/From flat execution (the decision literal's Next and Output); OPT6
-debt	machinerun.go:funcCtx.machineRun	machines Run/From flat execution; OPT6: Ergo-side inlining of the ordinary Run body
-debt	machinerun.go:lowerer.flatRunOf	machines Run/From flat execution (Finished, Running, Rejected); OPT6
-debt	refown.go:isSyncModify	sync.Modify owned handover; OPT6: ownership facts
-debt	refown.go:isSyncRef	sync.Ref owned handover; OPT6: ownership facts
-debt	refown.go:valueWalk.refCall	sync.Ref Update owned handover; OPT6: ownership facts
-debt	update.go:mapsUpdate	maps.Update fusion; OPT6: Ergo-side inlining of the ordinary Update body
-debt	values.go:valueWalk.fresh	slices.WithCapacity freshness; OPT6: OPT1's result-alias summary

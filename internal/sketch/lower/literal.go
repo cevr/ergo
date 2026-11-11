@@ -288,16 +288,14 @@ func (l *lowerer) litFunc(t check.Type, site syntax.Node) string {
 			body.WriteString("\treturn " + q(l.ergoType(t)) + " + " + strings.Join(parts, " + ") + " + \"}\"\n")
 		case *check.Union:
 			x := scope.alloc("x")
-			if fu := l.flatUnionOf(t); fu != nil && fu.generic {
-				// Option (flatunion.go): the variant its tag names.
-				body.WriteString("\t" + flatHead(v, len(fu.variants)) + "\n")
+			if fu := l.flatUnionOf(t); fu != nil {
+				// A flat union (flatunion.go): the variant its tag names.
+				body.WriteString("\t" + fu.head(tc, v) + "\n")
 				for k, vt := range fu.variants {
 					body.WriteString("\tcase " + strconv.Itoa(k) + ":\n\t\treturn " + l.litExpr(vt, fu.flatNarrow(tc, v, k), site) + "\n")
 				}
 				body.WriteString("\t}\n\tpanic(" + q("a value of "+l.ergoType(t)+" with no variant") + ")\n")
 				break
-			} else if fu != nil {
-				flatBail(site, fu) // a property's argument keeps its interface (flatunion.go)
 			}
 			body.WriteString("\tswitch " + x + " := " + v + ".(type) {\n")
 			for _, vt := range under.Variants {

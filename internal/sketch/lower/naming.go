@@ -56,7 +56,6 @@ func (l *lowerer) nameAll() {
 			if tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
-					l.nameFlatRuns(tn)
 				}
 			}
 		}
@@ -73,6 +72,7 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"env", nil}, "Env")
 	l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
 	l.pkgName(pkgKey{"is", nil}, "ergoIs")
+	l.pkgName(pkgKey{"niche tag", nil}, "ergoNilTag") // flatunion.go
 	l.pkgName(pkgKey{"call", nil}, "ergoCall")
 	l.pkgName(pkgKey{"calls", nil}, "ergoCalls")
 	l.pkgName(pkgKey{"decl", nil}, "ergoDecl")
@@ -91,7 +91,6 @@ func (l *lowerer) nameAll() {
 			if !l.isSourced(p) && tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
-					l.nameFlatRuns(tn)
 				}
 			}
 		}
@@ -99,9 +98,9 @@ func (l *lowerer) nameAll() {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
-	l.reserveOwned(append([]*check.Package{l.pkg}, libs...)) // values.go, V5
-	l.reserveOk(append([]*check.Package{l.pkg}, libs...))    // update.go
-	l.reserveKnown(append([]*check.Package{l.pkg}, libs...)) // known.go
+	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
+	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
+	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.sourcedMachines()) // record.go
 	// A sourced library's lets, which the program lowers, used or not
 	// (sources.go), and the builders of its named contexts, one for each
 	// set of providers a with of the program acquires (196b U4), in its

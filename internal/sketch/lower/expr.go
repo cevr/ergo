@@ -103,6 +103,9 @@ func (fc *funcCtx) emits(x syntax.Expr) bool {
 			if c := fc.l.info.Calls[n]; c == nil || (c.Kind != check.CallConversion && c.Kind != check.CallLen) {
 				found = true
 			}
+		case *syntax.Ident:
+			// A scalar local's read writes its gather (scalar.go).
+			found = fc.scalarIdent(n) != nil
 		case *syntax.SelectorExpr:
 			if _, ok := fc.l.info.Values[n]; ok {
 				return false
@@ -376,6 +379,9 @@ func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
 func (fc *funcCtx) ident(id *syntax.Ident) string {
 	switch o := fc.l.info.Uses[id].(type) {
 	case *check.Var:
+		if sl := fc.scalars[o]; sl != nil {
+			return fc.gather(sl) // scalar.go
+		}
 		if name, ok := fc.locals[o]; ok {
 			return name
 		}

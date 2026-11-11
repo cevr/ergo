@@ -72,9 +72,7 @@ func (fc *funcCtx) patternMatch(s syntax.Stmt, subjects []syntax.Expr, clauses [
 	types := make([]check.Type, len(subjects))
 	for i, x := range subjects {
 		types[i] = fc.typeOf(x)
-		// The flat state of a machine's flat step is an immutable
-		// parameter: the match reads its tag, with no copy (machinerun.go).
-		if !fc.isConst(x) && !fc.flatSubj[vals[i]] {
+		if !fc.isConst(x) {
 			t := fc.temp("s")
 			fc.line(t + " := " + vals[i])
 			fc.line("_ = " + t)
@@ -276,7 +274,7 @@ func (fc *funcCtx) typeTest(want check.Type, val string, t check.Type, tests *[]
 		if k < 0 {
 			flatBail(fc.site, fu)
 		}
-		*tests = append(*tests, flatTest(val, k))
+		*tests = append(*tests, fu.test(val, k))
 		return fu.flatNarrow(&fc.typeCtx, val, k)
 	}
 	if fu := fc.l.flatUnionOf(want); fu != nil && fc.goType(want) != fc.goType(t) {

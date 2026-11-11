@@ -64,19 +64,6 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	if getLowering == "switch" || len(s.Subjects) != 1 {
 		return false, false
 	}
-	if o := fc.okSubject; o != nil && fc.isOkSubject(s) {
-		// The match of a callback's comma-ok variant (update.go): its
-		// subject is the Option parameter, which the variant takes as
-		// the value and ok of its Map read.
-		some, none, ok := fc.getArms(s.Clauses)
-		if !ok {
-			ice(s, "the comma-ok variant of a callback whose match getMatch does not lower")
-		}
-		if valueMutant == "update-ok-swap" {
-			some, none = none, some
-		}
-		return true, fc.getArmsLower(some, none, o.val, o.ok, d)
-	}
 	call, ok := unparen(s.Subjects[0].X).(*syntax.CallExpr)
 	if !ok || call.Trailing != nil {
 		return false, false

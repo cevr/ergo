@@ -187,7 +187,6 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 	classified := map[string]string{
 		"funcCtx.envClosure":       "the closure owner",
 		"lowerer.emitBody":         "a declared function's header: func name(env *Env, ...), and a flat machine step's (MU8)",
-		"flatRun.runText":          "the flat machine run's declared header: func ergoRunX(env *Env, ...) (MU8)",
 		"lowerer.initFunc":         "the package initializer's declared header",
 		"lowerer.initOnce":         "a library's init runner's declared header: func ergoInitRun(env *Env) (IG11)",
 		"lowerer.emitContext":      "a context builder's declared header",

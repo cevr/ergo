@@ -18,6 +18,22 @@ type typeCtx struct {
 	// wires names the codec witness of each wire type parameter in
 	// scope (wire.go), for a codec call or a codec function's body.
 	wires map[*check.TypeParam]string
+	// mono reports that params binds every type parameter to a Go type
+	// (a copy for a known record, record.go), never to a Go type
+	// parameter.
+	mono bool
+	// bound is the checked type each type parameter of a copy stands for
+	// (record.go), where it names no type parameter itself.
+	bound map[*check.TypeParam]check.Type
+}
+
+// boundType is t with a type parameter that bound names replaced by its
+// type; t itself otherwise.
+func (tc *typeCtx) boundType(t check.Type) check.Type {
+	if tp, ok := t.(*check.TypeParam); ok && tc.bound[tp] != nil {
+		return tc.bound[tp]
+	}
+	return t
 }
 
 // goType is t's Go type. Basic types keep their Go names (duration is
@@ -45,6 +61,11 @@ func (tc *typeCtx) goType(t check.Type) string {
 		// (docs/spec/interop.md, Lowering).
 		if elem, ok := check.GoRefElem(t); ok {
 			return "*" + tc.goType(elem)
+		}
+		// An Option of a go.Ref is the pointer itself where the niche
+		// holds (flatunion.go).
+		if ref, ok := tc.l.nicheElem(t); ok {
+			return tc.goType(ref)
 		}
 		if t.Obj.Pkg.Host() {
 			return tc.l.hostPkg(t.Obj.Pkg.Path, tc.site) + "." + t.Obj.Name

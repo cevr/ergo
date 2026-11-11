@@ -130,15 +130,20 @@ func evaluate(src string) (eval.Report, error) {
 // referenceLowerings selects every reference lowering the evalgen forms
 // reach, until restore runs: the value rule without owned parameters, the
 // flat match, Go's capture by reference, the switch catch, the Option's
-// type switch, interface unions and the plain Update call.
+// type switch, interface unions, calls not inlined, Go builtins through
+// helpers, opaque callbacks and records, and union locals kept whole.
+// (The plain Update call went with update.go, OPT6b b21853eb.)
 func referenceLowerings() (restore func()) {
-	saved := []string{valueLowering, matchLowering, captureLowering, getLowering, unionLowering, updateLowering}
+	saved := []string{valueLowering, matchLowering, captureLowering, getLowering, unionLowering,
+		inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering}
 	valueLowering, matchLowering, captureLowering = "copy", "flat", "reference"
-	getLowering, unionLowering, updateLowering = "switch", "interface", "call"
+	getLowering, unionLowering = "switch", "interface"
+	inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering = "call", "call", "opaque", "opaque", "off"
 	catch := SetCatchSwitchForTest(true)
 	return func() {
 		catch()
 		valueLowering, matchLowering, captureLowering = saved[0], saved[1], saved[2]
-		getLowering, unionLowering, updateLowering = saved[3], saved[4], saved[5]
+		getLowering, unionLowering = saved[3], saved[4]
+		inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering = saved[5], saved[6], saved[7], saved[8], saved[9]
 	}
 }

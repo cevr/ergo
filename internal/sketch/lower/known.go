@@ -96,10 +96,26 @@ type knownStats struct {
 	// flat Option, so that it lowered the program again with Option an
 	// interface (lowerAgain).
 	OptionBails int
+	// FlatUnions is the values of the program's own unions the lowering
+	// puts into their flat union by their tag (flatunion.go, flatValue).
+	FlatUnions int
+	// UnionBails is the times a lowering of the program bailed on a flat
+	// union of the program's own, so that it lowered the program again
+	// with that union an interface (lowerAgain).
+	UnionBails int
+	// NicheOptions is the Option values of a go.Ref the lowering spells as
+	// the Go pointer itself (flatunion.go, the pointer niche).
+	NicheOptions int
 	// Inlined is the calls written at their site (inline.go), and
 	// Substituted the literals written where an inlined body calls them.
 	Inlined     int
 	Substituted int
+	// Specialized is the copies for known records made (record.go).
+	Specialized int
+	// Scalars is the locals in the scalar form (scalar.go), Joins those
+	// whose inlined call writes them, and Aliases the parameters of an
+	// inlined call bound to one.
+	Scalars, Joins, Aliases int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of
@@ -485,7 +501,7 @@ func (l *lowerer) knownName(g *check.Func, gd *funcDecl) string {
 		gd.known = l.pkgName(knownKey(g), g.Name+"Known")
 	}
 	l.stats.Variants++
-	l.pending = append(l.pending, func() { l.emitBody(gd, false, nil, true) })
+	l.pending = append(l.pending, func() { l.emitBody(gd, true, nil) })
 	return gd.known
 }
 

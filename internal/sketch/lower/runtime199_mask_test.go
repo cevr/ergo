@@ -812,7 +812,7 @@ func main() {
 	var got any
 	func() {
 		defer func() { got = recover() }()
-		l.emitFuncBody(fd, false)
+		l.emitFuncBody(fd)
 	}()
 	ref, ok := got.(refusal)
 	if !ok || !strings.Contains(ref.msg, "internal compiler error: the checked Close Close has an extern body, which no release route masks") {
