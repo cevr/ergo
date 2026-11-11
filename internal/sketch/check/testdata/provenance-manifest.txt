@@ -40,12 +40,10 @@ import ergo.local/prototype/internal/sketch/std/gostd
 # call it (E2b round 4 review M2). Each site parses a whole file and checks
 # it as a package; a parse elsewhere makes nodes of no checked file. prelude
 # parses inside its preludeOnce.Do closure, prelude$1.
-# stdExternResultSet (extern.go, #206) parses the std sources, checks
-# nothing and returns only type names, so no node it makes reaches a pass.
 # (*hostPkg).load (gobinding.go, #202 IG2) parses one Go binding's whole
 # file and checks it as that binding's package (c.files), like
 # (*stdImporter).load.
-callee Parse CheckSource prelude$1 (*stdImporter).load (*hostPkg).load stdExternResultSet
+callee Parse CheckSource prelude$1 (*stdImporter).load (*hostPkg).load
 
 # The checker's own functions that parse caller text, with the sites that
 # may reference them: none, so a pass cannot reach the parser through the

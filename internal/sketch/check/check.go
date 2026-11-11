@@ -724,12 +724,43 @@ func (s *stdImporter) Import(path string) (*Package, error) {
 	return e.pkg, e.err
 }
 
+// Work counts the std work this process did from source (CHK1): the std
+// package files parsed, by any site of the checker, and the std packages
+// checked. The prelude is not counted. A check's work must grow with the
+// std packages it imports, not with the std (the counted check budget,
+// internal/sketch/check/checkwork); it counts work, never time.
+type Work struct {
+	StdFilesParsed     int64
+	StdPackagesChecked int64
+}
+
+var work struct {
+	mu sync.Mutex
+	Work
+}
+
+// count adds files parsed and packages checked to the process's Work.
+func count(files, packages int64) {
+	work.mu.Lock()
+	work.StdFilesParsed += files
+	work.StdPackagesChecked += packages
+	work.mu.Unlock()
+}
+
+// WorkDone returns the Work of this process so far.
+func WorkDone() Work {
+	work.mu.Lock()
+	defer work.mu.Unlock()
+	return work.Work
+}
+
 // load checks the std package at path.
 func (s *stdImporter) load(path string) (*Package, error) {
 	sources, ok := std.Package(path)
 	if !ok {
 		return nil, fmt.Errorf("no package %q", path)
 	}
+	count(int64(len(sources)), 1)
 	var files []*syntax.File
 	for _, name := range sortedKeys(sources) {
 		f, err := syntax.Parse(sources[name])

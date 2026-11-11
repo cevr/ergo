@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	runtimefiles "ergo.local/prototype/runtime"
 )
@@ -186,7 +187,18 @@ func BodyOf(name string) (Body, error) {
 }
 
 // sourceDecls parses Source once per process.
-var sourceDecls = sync.OnceValues(func() (goDecls, error) { return parseDecls(Source) })
+var sourceDecls = sync.OnceValues(func() (goDecls, error) {
+	sourceParses.Add(1)
+	return parseDecls(Source)
+})
+
+// sourceParses counts the parses of Source in this process (CHK1).
+var sourceParses atomic.Int64
+
+// SourceParses returns how many times this process parsed Source: the work
+// a check must not do (the counted check budget,
+// internal/sketch/check/checkwork). It counts work, never time.
+func SourceParses() int64 { return sourceParses.Load() }
 
 // goDecl is one exported function, method or type of a parsed package,
 // with the local name its file gives runtime/rt, the import paths of its
