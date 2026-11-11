@@ -2,7 +2,10 @@
 // engine.Matcher laws here, against Engine and Compiled.
 
 import regex/syntax
+import regex/engine
 import strings
+
+let Fast = context { engine.Engine: Engine }
 
 // matches reports whether the NFA matches pattern, parsed, on text.
 func matches(pattern string, text string) bool fails syntax.SyntaxError {
@@ -46,4 +49,22 @@ test SamplesMatchSometimes {
 		}
 	}
 	assert yes >= 40 && yes <= 360
+}
+
+// SearchSkipsImpossibleStarts catches R1-literal-machine: Boolean-only
+// agreement cannot see a correct but unaccelerated literal search.
+test SearchSkipsImpossibleStarts {
+	let literal = NewSearchCompiled(syntax.Literal("cat"))
+	let yes = literal.Measure("the cat sat")
+	assert yes.Matched && yes.Starts == 0 && yes.Transitions == 0
+	let no = literal.Measure("the dog sat")
+	assert !no.Matched && no.Starts == 0 && no.Transitions == 0
+	let partial = NewSearchCompiled(try syntax.Parse("cat[sz]"))
+	let absent = partial.Measure("the dog sat")
+	assert !absent.Matched && absent.Starts == 0 && absent.Transitions == 0
+	let found = partial.Measure("cats!")
+	assert found.Matched && found.Starts == 1 && found.Transitions > 0
+	// Whole must not be routed through the literal Inside fast path.
+	assert !(with Fast { engine.Select(syntax.Literal("cat"), engine.Whole) }).Matches("the cat sat")
+	assert (with Fast { engine.Select(syntax.Literal("cat"), engine.Inside) }).Matches("the cat sat")
 }

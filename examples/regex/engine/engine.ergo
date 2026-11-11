@@ -9,6 +9,14 @@ import regex/syntax
 // does; the Matcher then tests each text.
 type Engine {
 	Compile(pattern syntax.Node) Matcher,
+	Search(pattern syntax.Node) Matcher,
+
+	// SearchIsExpansion: Inside has the same meaning as the original
+	// whole-text Search expansion, even when an engine skips starts.
+	law SearchIsExpansion(seed int, text string) {
+		let p = syntax.Sample(seed)
+		Search(p).Matches(text) == Compile(syntax.Search(p)).Matches(text)
+	},
 
 	// LiteralMatchesItself: the literal of a text matches that text.
 	law LiteralMatchesItself(text string) { Compile(syntax.Literal(text)).Matches(text) },
@@ -67,10 +75,20 @@ func Selecting(pattern syntax.Node, m Mode) syntax.Node {
 	}
 }
 
+// Select preserves the original tree and mode until algorithm selection.
+func Select(pattern syntax.Node, m Mode) Matcher needs Engine {
+	match m {
+	case Whole:
+		Engine.Compile(pattern)
+	case Inside:
+		Engine.Search(pattern)
+	}
+}
+
 // Grep is the lines that pattern selects in mode m, in order, compiled
 // once by the Engine in the context.
 func Grep(pattern syntax.Node, m Mode, lines Seq[string]) Seq[string] needs Engine {
-	Engine.Compile(Selecting(pattern, m)).Filter(lines)
+	Select(pattern, m).Filter(lines)
 }
 
 // Filter is the lines that matcher matches, in order. It is a function on

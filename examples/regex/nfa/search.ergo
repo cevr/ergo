@@ -1,0 +1,76 @@
+// Inside matching keeps the original pattern, before Search's .* prefix
+// hides its leading literal. Compiled and Simulation stay the reference.
+
+import regex/engine
+import regex/syntax
+import strings
+
+// Search compiles an Inside matcher; Compile still matches Whole texts.
+func Search(_ Engine, pattern syntax.Node) engine.Matcher { NewSearchCompiled(pattern) }
+
+// SearchCompiled owns only immutable pattern data, never scan scratch.
+type SearchCompiled { prefix syntax.Prefix, program Program }
+
+// NewSearchCompiled selects an algorithm once, not for every input line.
+func NewSearchCompiled(pattern syntax.Node) SearchCompiled {
+	let prefix = syntax.Leading(pattern)
+	let p = if !prefix.Complete && prefix.Text == "" { syntax.Search(pattern) } else { pattern }
+	SearchCompiled{prefix: prefix, program: Build(p)}
+}
+
+// Work counts candidate NFA starts and byte transitions, not elapsed time,
+// hardware instructions or allocations. A complete literal starts no NFA.
+type Work { Matched bool, Starts int, Transitions int }
+
+// Matches reports whether the original pattern occurs anywhere in text.
+func Matches(c SearchCompiled, text string) bool { c.Measure(text).Matched }
+
+// Measure runs the same search with semantic work counters. A failed
+// candidate advances one byte, so overlapping prefixes remain candidates.
+func Measure(c SearchCompiled, text string) Work {
+	if c.prefix.Complete {
+		return Work{Matched: strings.Contains(text, c.prefix.Text), Starts: 0, Transitions: 0}
+	}
+	if c.prefix.Text == "" {
+		return scan(c.program, text, 0, false)
+	}
+	let mut work = Work{Matched: false, Starts: 0, Transitions: 0}
+	let mut from = 0
+	for from <= len(text) {
+		let offset = strings.Index(text[from:], c.prefix.Text)
+		if offset < 0 {
+			return work
+		}
+		let at = from + offset
+		let candidate = scan(c.program, text, at, true)
+		work.Starts += candidate.Starts
+		work.Transitions += candidate.Transitions
+		if candidate.Matched {
+			work.Matched = true
+			return work
+		}
+		from = at + 1
+	}
+	work
+}
+
+// scan uses the reference NFA's closure/advance/accept operations. A
+// prefix candidate accepts immediately; a fallback Search program accepts
+// at End, exactly as Simulation does. No mutable storage escapes a scan.
+func scan(p Program, text string, from int, early bool) Work {
+	let mut at = closure(p, []int{p.start})
+	let mut work = Work{Matched: false, Starts: 1, Transitions: 0}
+	for i in from..len(text) {
+		if early && accepts(p, at) {
+			work.Matched = true
+			return work
+		}
+		at = advance(p, at, text[i])
+		work.Transitions += 1
+		if len(at) == 0 {
+			return work
+		}
+	}
+	work.Matched = accepts(p, at)
+	work
+}

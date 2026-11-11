@@ -1,0 +1,14 @@
+{
+  "about": "R1 example search mutants. SearchSkipsImpossibleStarts observes algorithmic work; SearchAgreesWithReferences covers new search semantics not exercised by the original whole-text laws.",
+  "mutants": [
+    {
+      "name": "R1-literal-machine",
+      "file": "examples/regex/nfa/search.ergo",
+      "from": "if c.prefix.Complete {",
+      "to": "if false {",
+      "rule": "Complete literals need no NFA starts or transitions.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    }
+  ]
+}

@@ -14,6 +14,9 @@ type Engine {}
 // Compile is the Matcher of pattern.
 func Compile(_ Engine, pattern syntax.Node) engine.Matcher { Tree{pattern: pattern} }
 
+// Search deliberately retains the original expansion as the reference.
+func Search(_ Engine, pattern syntax.Node) engine.Matcher { Tree{pattern: syntax.Search(pattern)} }
+
 // Tree is a pattern that backtrack matches by walking it.
 type Tree { pattern syntax.Node }
 
