@@ -1,0 +1,21 @@
+{
+  "about": "The mutant ledger of internal/sketch/std: edits of the std sources (the .ergo declarations and the Go that reads them) that some test, law or example must kill. Run it with go run ./scripts/mutants ./internal/sketch/std; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded by ESC1 (wf10, lang audit B F1).",
+  "mutants": [
+    {
+      "name": "esc1-transform-nonescaping", "origin": "wf10 ESC1",
+      "file": "internal/sketch/std/tasks/tasks.ergo",
+      "from": "f escaping func(x A) B", "to": "f func(x A) B",
+      "rule": "types.md, Function values 2: a callback that runs on other tasks at the same time is escaping, so the capture rule refuses a write to the caller's let mut (lang audit B F1, probe race).",
+      "anchor": {"tests": ["std:TestExternArgumentClauses", "lower:TestStdCallbackClausesRace"]},
+      "killers": ["std:TestExternArgumentClauses", "lower:TestStdCallbackClausesRace"]
+    },
+    {
+      "name": "esc1-feed-nonescaping", "origin": "wf10 ESC1",
+      "file": "internal/sketch/std/actor/actor.ergo",
+      "from": "run escaping func(send func(e E))) fails Stopped", "to": "run func(send func(e E))) fails Stopped",
+      "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
+      "anchor": {"tests": ["std:TestExternArgumentClauses"]},
+      "killers": ["std:TestExternArgumentClauses"]
+    }
+  ]
+}
