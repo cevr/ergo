@@ -2488,6 +2488,10 @@
       "killers": ["check:TestRowArgsAreSets"]
     },
     {"name":"builtin-shape-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/extern.go","from":"\t\t\tif msg := builtinRefusal(f, b); msg != \"\" {","to":"\t\t\tif msg := builtinRefusal(f, b); false && msg != \"\" {","rule":"A Go builtin binding has its builtin's shape (builtin.go).","killers":["check:TestBuiltinBindingShapes"]},
-    {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]}
+    {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]},
+    {"name":"lr1-const-as-passthrough","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\t\t\t\t\t\t\trw.Const[i] = true","to":"\t\t\t\t\t\t\t_ = i","rule":"A parameter a rewrite's right side computes with is constant at a site, so it may pass bare more than once (types.md, Laws 14).","killers":["lower:TestRewriteLawVerdicts"]},
+    {"name":"lr1-linearity-unchecked","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\t\t\tif passed[a.Param] {","to":"\t\t\tif false && passed[a.Param] {","rule":"A pass-through parameter of a rewrite law is a bare right argument at most once (Laws 14).","killers":["check:TestRewriteLawShapes"]},
+    {"name":"lr1-rows-unchecked","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\tif !lhsRow.equal(c.types, rhsRow) {","to":"\tif false && !lhsRow.equal(c.types, rhsRow) {","rule":"A rewrite law's sides fail with the same row (Laws 14).","killers":["check:TestRewriteLawShapes"]},
+    {"name":"lr1-cycle-unchecked","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\t\t\tif cycle {","to":"\t\t\tif false && cycle {","rule":"An unfold law that unfolds into itself is S108 (Laws 14).","killers":["check:TestRewriteLawShapes"]}
   ]
 }

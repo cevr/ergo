@@ -18,9 +18,9 @@ import (
 // P's constructor builds from the case's arguments, so P must be
 // deterministic and need not be copyable. A run draws its cases, so it is
 // tested, never proved: a prefix is a sequence, an unbounded value (Laws
-// 10, one rule). To the drawn cases a run adds one case per site instance
-// (RewriteInstance): the constants at which a module's lowering used the
-// law.
+// 10, one rule). To the drawn cases a run adds rewriteInstanceCases cases
+// at each site instance (RewriteInstance): the constants at which a
+// module's lowering used the law.
 
 // RewriteInstance is a site instance of a rewrite law: Args holds, by the
 // law's parameter index, the constant a site passed for each constant
@@ -33,6 +33,12 @@ type RewriteInstance struct {
 // rewriteSteps bounds a case's drawn prefix and continuation: each is zero
 // to rewriteSteps-1 operations.
 const rewriteSteps = 5
+
+// rewriteInstanceCases is the number of cases a run takes at each site
+// instance, each with its own prefix and continuation: one continuation
+// may erase the difference the instance makes (a Halve after a write to
+// the high bit), so one case would not decide it.
+const rewriteInstanceCases = 40
 
 func (l *lowerer) rewriteSide(law *check.Law, right bool) string {
 	kind, suffix := "rewriteleft", "Left"
@@ -140,7 +146,7 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 	rw := law.Rewrite
 	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
 	insts := l.rewriteInstances(law)
-	total := testCases + len(insts)
+	total := testCases + rewriteInstanceCases*len(insts)
 	inner := newNamer(scope)
 	r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
 	name := strconv.Quote(label) + ", " + at
@@ -193,7 +199,8 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 		w(a + " := " + l.genExpr(v.Type, r, depth, inner, law.Decl))
 		for n, in := range insts {
 			if in.Args != nil && k < len(in.Args) && in.Args[k] != nil {
-				w("if " + i + " == " + strconv.Itoa(testCases+n+1) + " { " + a + " = " + l.constGo(v.Type, in.Args[k], law.Decl) + " }")
+				lo := testCases + rewriteInstanceCases*n
+				w("if " + i + " > " + strconv.Itoa(lo) + " && " + i + " <= " + strconv.Itoa(lo+rewriteInstanceCases) + " { " + a + " = " + l.constGo(v.Type, in.Args[k], law.Decl) + " }")
 			}
 		}
 		args = append(args, a)

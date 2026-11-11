@@ -3888,6 +3888,10 @@
       "killers": [
         "lower:TestMachineStepDefectFrames"
       ]
-    }
+    },
+    {"name":"lr1-continuation-skipped","origin":"wf10 LR1","file":"internal/sketch/lower/rewritelaw.go","from":"\" := range \" + steps[1] + \" { \" + obs + \" = append(\" + obs + \", \" + s + \"(\" + field + \")) }\")","to":"\" := range \" + steps[1] + \" { _ = \" + s + \" }\")","rule":"A rewrite law's sides are compared after a drawn continuation, so a difference that only later operations show refutes it (types.md, Laws 14).","killers":["lower:TestRewriteLawVerdicts"]},
+    {"name":"lr1-prefix-fresh","origin":"wf10 LR1","file":"internal/sketch/lower/rewritelaw.go","from":"\" := range \" + steps[0] + \" { \" + s + \"(\" + field + \") }\")","to":"\" := range \" + steps[0] + \" { _ = \" + s + \" }\")","rule":"A rewrite law's case runs a drawn prefix first, so a law false only in a reached state is refuted (Laws 14).","killers":["lower:TestRewriteLawVerdicts"]},
+    {"name":"lr1-guard-ignored","origin":"wf10 LR1","file":"internal/sketch/lower/rewritelaw.go","from":"\" != nil || !\" + g + \" { return nil, false }\")","to":"\" != nil || false && !\" + g + \" { return nil, false }\")","rule":"A rewrite law's case whose guard is false is not admitted (Laws 14).","killers":["lower:TestRewriteLawVerdicts"]},
+    {"name":"lr1-instances-dropped","origin":"wf10 LR1","file":"internal/sketch/lower/rewritelaw.go","from":"total := testCases + rewriteInstanceCases*len(insts)","to":"total := testCases + 0*len(insts)","rule":"A rewrite law's run takes cases at each site instance (Laws 14).","killers":["lower:TestRewriteLawVerdicts"]}
   ]
 }
