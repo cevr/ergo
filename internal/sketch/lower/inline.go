@@ -73,8 +73,15 @@ const (
 	inlineBudget = 120
 	// inlineDepth is the most inlined sites around an inlined call.
 	inlineDepth = 4
-	// inlineGrowth is the most body nodes one Go function takes in.
-	inlineGrowth = 800
+	// inlineGrowth is the most body nodes one Go function takes in. The
+	// bound is spent in source order: at 800, lru's Put spent it on its
+	// hit path (touch, unlink, pushed) and kept arena Put and pushed as Go
+	// calls on its eviction path, which Go's inliner refuses (cost 98 and
+	// 138 over its budget of 80). At 1600 lru counts 841 instructions per
+	// op against 885 at 800 (hand Go 843; OPT5 round 2), and no other
+	// example with a hot loop moves past its noise. Go's inliner itself
+	// bounds a function only past 5000 nodes (inlineBigFunctionNodes).
+	inlineGrowth = 1600
 )
 
 // inlineRet is where the returns of an inlined body go: its result and
