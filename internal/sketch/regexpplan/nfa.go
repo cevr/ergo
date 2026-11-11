@@ -193,6 +193,9 @@ func (p *Plan) Match(text string) Match {
 			// Prefix-free admission means accepting paths never compete with a
 			// consuming path. Find can accept before EOF; Parse cannot.
 			if edge.accept && (p.mode == Find || pos == len(text)) {
+				if events == nil && len(edge.tags) > 0 {
+					events = make([]Event, 0, 2*len(p.names))
+				}
 				for _, tag := range edge.tags {
 					events = append(events, Event{tag, pos})
 				}
@@ -200,6 +203,9 @@ func (p *Plan) Match(text string) Match {
 			}
 			if edge.to < 0 || pos == len(text) {
 				break
+			}
+			if events == nil && len(edge.tags) > 0 {
+				events = make([]Event, 0, 2*len(p.names))
 			}
 			for _, tag := range edge.tags {
 				events = append(events, Event{tag, pos})

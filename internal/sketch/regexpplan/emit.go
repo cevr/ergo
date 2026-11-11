@@ -113,6 +113,7 @@ func step(q,b int)(int,string,bool) {
 const deterministicMatch = `
 func Match(s string)(int,int,[][2]int,bool) {
  const find = FIND
+ const tagCapacity = TAGCAP
  last := 0
  if find {last=len(s)}
  for start:=0;start<=last;start++ {
@@ -123,6 +124,7 @@ func Match(s string)(int,int,[][2]int,bool) {
    if pos<len(s) {b=int(s[pos])}
    to,tags,accept:=step(q,b)
    if accept && (find || pos==len(s)) {
+    if events==nil && len(tags)>0 {events=make([][2]int,0,tagCapacity)}
     for j:=0;j<len(tags);j+=2 {
      tag:=int(int16(uint16(tags[j])|uint16(tags[j+1])<<8))
      events=append(events,[2]int{tag,pos})
@@ -130,6 +132,7 @@ func Match(s string)(int,int,[][2]int,bool) {
     return start,pos,events,true
    }
    if to<0 || pos==len(s) {break}
+   if events==nil && len(tags)>0 {events=make([][2]int,0,tagCapacity)}
    for j:=0;j<len(tags);j+=2 {
     tag:=int(int16(uint16(tags[j])|uint16(tags[j+1])<<8))
     events=append(events,[2]int{tag,pos})
@@ -211,7 +214,7 @@ func (p *Plan) emit(engine Engine) (string, error) {
 			offsets, data := compactTable(p.ir)
 			src += strings.NewReplacer("OFFSETS", strconv.Quote(offsets), "DATA", strconv.Quote(data)).Replace(tableStep)
 		}
-		src += strings.ReplaceAll(deterministicMatch, "FIND", find)
+		src += strings.NewReplacer("FIND", find, "TAGCAP", strconv.Itoa(2*len(p.names))).Replace(deterministicMatch)
 	case NFA:
 		var program strings.Builder
 		for _, i := range p.code {
@@ -422,7 +425,7 @@ func (p *Plan) ValidateGo(src string) error {
 		return fmt.Errorf("invalid step signature")
 	}
 	driver, ok := file.Decls[1].(*ast.FuncDecl)
-	if !ok || astText(driver) != canonicalDecl(strings.ReplaceAll(deterministicMatch, "FIND", strconv.FormatBool(p.mode == Find))) {
+	if !ok || astText(driver) != canonicalDecl(strings.NewReplacer("FIND", strconv.FormatBool(p.mode == Find), "TAGCAP", strconv.Itoa(2*len(p.names))).Replace(deterministicMatch)) {
 		return fmt.Errorf("driver control-flow mismatch")
 	}
 	offsets, tableErr := stringConstant(step, "offsets")

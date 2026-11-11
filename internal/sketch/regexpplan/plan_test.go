@@ -20,8 +20,11 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/proclimit"
+	"ergo.local/prototype/internal/testinputs"
 	"ergo.local/prototype/internal/testwait"
 )
+
+func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
 
 // TestTaggedConstructionAgrees kills priority inversion and history truncation.
 // Seam: immutable AST -> Plan -> match, checked serialization. The independent
@@ -523,7 +526,9 @@ func oneBinary(t *testing.T, source string) {
 		t.Fatal(err)
 	}
 	bin := filepath.Join(dir, "matchers")
-	bounded(t, exec.Command("go", "build", "-p", "2", "-o", bin, path))
+	build := exec.Command("go", "build", "-buildvcs=false", "-p", "2", "-o", bin, path)
+	build.Dir = dir
+	bounded(t, build)
 	bounded(t, exec.Command(bin))
 }
 
@@ -591,6 +596,26 @@ func TestBudgetsAndIdentity(t *testing.T) {
 			if !sameMatch(p.Match("a"), astMatch(n, p, "a", mode)) {
 				t.Fatal("budget fallback changed captures")
 			}
+			var result Match
+			allocs, controlAllocs := 0.0, 0.0
+			measurePlan := func() { allocs += testing.AllocsPerRun(10, func() { result = p.Match("a") }) }
+			measureControl := func() {
+				controlAllocs += testing.AllocsPerRun(10, func() { result = fixedControl("a", mode) })
+			}
+			for round := 0; round < 5; round++ {
+				if round%2 == 0 {
+					measurePlan()
+					measureControl()
+				} else {
+					measureControl()
+					measurePlan()
+				}
+			}
+			allocs, controlAllocs = allocs/5, controlAllocs/5
+			if !sameMatch(result, p.Match("a")) {
+				t.Fatal("receipt control does not perform equivalent work")
+			}
+			t.Logf("counted mode=%d selection=%s nodes=%d instructions=%d states=%d work=%d Go-bytes=%d table-bytes=%d in-process-allocs/parse=%.0f hand-control-allocs/parse=%.0f", mode, p.info.Engine, p.info.Nodes, p.info.Instructions, p.info.States, p.info.Work, p.info.GoBytes, p.info.TableBytes, allocs, controlAllocs)
 		}
 	}
 	for size := 1; size <= 10; size++ {
@@ -639,4 +664,21 @@ func TestBudgetsAndIdentity(t *testing.T) {
 	if !sameMatch(a.Match("a"), before) || reflect.DeepEqual(names, a.Names()) {
 		t.Fatal("construction input or names alias compiled plan")
 	}
+}
+
+// fixedControl is the optimized Go scanner for the counted X="a" workload,
+// including the same returned capture events (not just a boolean result).
+func fixedControl(text string, mode Mode) Match {
+	start := 0
+	if mode == Parse {
+		if len(text) != 1 || text[0] != 'a' {
+			return Match{}
+		}
+	} else {
+		start = strings.IndexByte(text, 'a')
+		if start < 0 {
+			return Match{}
+		}
+	}
+	return Match{start, start + 1, []Event{{1, start}, {-1, start + 1}}, true}
 }
