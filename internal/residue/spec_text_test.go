@@ -151,7 +151,14 @@ func readSpecAllow(t *testing.T, path string) map[string]string {
 func checkSpecRule(t *testing.T, allowPath, what string, hits func(string) []string) {
 	repo := specRoot(t)
 	allow := readSpecAllow(t, allowPath)
-	files := specFiles(t, repo)
+	for _, p := range specRuleProblems(specFiles(t, repo), allow, allowPath, what, hits) {
+		t.Error(p)
+	}
+}
+
+// specRuleProblems applies one text rule to files against an allowlist.
+func specRuleProblems(files, allow map[string]string, allowPath, what string, hits func(string) []string) []string {
+	var problems []string
 	names := make([]string, 0, len(files))
 	for name := range files {
 		names = append(names, name)
@@ -162,18 +169,19 @@ func checkSpecRule(t *testing.T, allowPath, what string, hits func(string) []str
 		found[name] = hits(files[name])
 		if got := found[name]; len(got) > 0 {
 			if _, listed := allow[name]; !listed {
-				t.Errorf("docs/spec/%s: %s (%d), first %v", name, what, len(got), got[:min(5, len(got))])
+				problems = append(problems, fmt.Sprintf("docs/spec/%s: %s (%d), first %v", name, what, len(got), got[:min(5, len(got))]))
 			}
 		}
 	}
 	for name, owner := range allow {
 		switch _, ok := files[name]; {
 		case !ok:
-			t.Errorf("%s lists %s, which is not a spec file", allowPath, name)
+			problems = append(problems, fmt.Sprintf("%s lists %s, which is not a spec file", allowPath, name))
 		case len(found[name]) == 0:
-			t.Errorf("docs/spec/%s holds the rule now: delete its row from %s (owner %s)", name, allowPath, owner)
+			problems = append(problems, fmt.Sprintf("docs/spec/%s holds the rule now: delete its row from %s (owner %s)", name, allowPath, owner))
 		}
 	}
+	return problems
 }
 
 // TestSpecRulesCarryNoHistory: a normative paragraph of the specification
@@ -230,6 +238,23 @@ func TestSpecTextRules(t *testing.T) {
 		}
 		if got := retiredHits(c.text); len(got) != c.retired {
 			t.Errorf("%s: retired %v, want %d", c.name, got, c.retired)
+		}
+	}
+	// The allowlist is exact over every file: a listed file that holds the
+	// rule, and an unlisted one that breaks it, are both problems.
+	files := map[string]string{"a.md": "A rule (q1).", "b.md": "A rule.", "c.md": "A rule (q2)."}
+	for _, c := range []struct {
+		allow    map[string]string
+		problems int
+		name     string
+	}{
+		{map[string]string{"a.md": "U", "c.md": "U"}, 0, "the breaking files listed"},
+		{map[string]string{"a.md": "U"}, 1, "the last file unlisted"},
+		{map[string]string{"a.md": "U", "b.md": "U", "c.md": "U"}, 1, "a clean file listed"},
+		{map[string]string{"a.md": "U", "c.md": "U", "d.md": "U"}, 1, "no such file"},
+	} {
+		if got := specRuleProblems(files, c.allow, "allow.txt", "history", historyHits); len(got) != c.problems {
+			t.Errorf("%s: %v, want %d problems", c.name, got, c.problems)
 		}
 	}
 }

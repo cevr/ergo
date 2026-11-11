@@ -8,15 +8,15 @@
       "from": "\tfor _, name := range names {\n\t\tfound[name] = hits(files[name])",
       "to": "\tfor _, name := range names[:len(names)-1] {\n\t\tfound[name] = hits(files[name])",
       "rule": "A text rule reads every spec file: an allowlisted file it skipped would pass silently.",
-      "killers": ["internal/residue:TestSpecRulesCarryNoHistory"],
-      "anchor": {"tests": ["internal/residue:TestSpecRulesCarryNoHistory"]}
+      "killers": ["internal/residue:TestSpecTextRules"],
+      "anchor": {"tests": ["internal/residue:TestSpecTextRules"]}
     },
     {
       "name": "spec1a-status-by-hand-passes",
       "origin": "wf10 lang-2 SPEC1a",
       "file": "internal/residue/spec_status_test.go",
       "from": "\t\t\tout = append(out, p.render())",
-      "to": "\t\t\tout = append(out, lines[i:end+1]...)",
+      "to": "\t\t\tout = append(out, lines[i:end+1]...)\n\t\t\t_ = p",
       "rule": "A Status paragraph is the ledger's text: one edited by hand is rewritten, never kept.",
       "killers": ["internal/residue:TestSpecStatusRules"],
       "anchor": {"tests": ["internal/residue:TestSpecStatusRules"]}
