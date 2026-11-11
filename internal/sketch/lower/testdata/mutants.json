@@ -3899,6 +3899,17 @@
       "killers": [
         "lower:TestStdSlicesLawsRun"
       ]
+    },
+    {
+      "name": "rc4b-adapter-wrong-variant",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/derive/bundle.go",
+      "from": "fmt.Fprintf(&b, \"if %s >= 0 { %s }\", open(v.Tag), value)",
+      "to": "fmt.Fprintf(&b, \"if %s < 0 { %s }\", open(v.Tag), value)",
+      "rule": "A derived union's parse gives the variant whose capture took part (patterns.md, Capture shapes 7; The pattern bundle 1).",
+      "killers": [
+        "lower:TestPatternLoweringAgrees"
+      ]
     }
   ]
 }
