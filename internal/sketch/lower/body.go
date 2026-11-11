@@ -47,6 +47,9 @@ type frame struct {
 	// returned decision is given as a value, its kind, the next state flat
 	// and the output.
 	flat *flatRun
+	// inline marks the frame of an inlined body (inline.go): a return
+	// assigns its site's variables and jumps past its block.
+	inline *inlineRet
 }
 
 // newFrame is the only frame constructor. Every frame-opening path uses it,
@@ -148,6 +151,15 @@ type funcCtx struct {
 	// passes to one (known.go).
 	plain     map[*check.Var]bool
 	plainLits map[*syntax.FuncLit]bool
+	// inl is the inline site (plus one) of the code being written, which
+	// its directives name (inline.go, tagPath); inlDepth counts the sites
+	// around it; lits are the literals an inlined body's callback
+	// parameters stand for; inlined is the value of the call callText
+	// just inlined.
+	inl      int
+	inlDepth int
+	lits     map[*check.Var]*litSub
+	inlined  *operand
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -171,7 +183,8 @@ func (fc *funcCtx) line(s string) {
 func (fc *funcCtx) at(n syntax.Node) {
 	fc.site = n
 	if fc.directives && n != nil && n.Pos().IsValid() {
-		fc.out.WriteString(fc.l.directive(n))
+		_, src, line, column := fc.l.at(n, n.Pos())
+		fc.writeDir(Directive(fc.tagPath(src), line, column))
 		fc.lastPos, fc.lastNode = n.Pos(), n
 	}
 }
@@ -187,7 +200,7 @@ func (fc *funcCtx) atSite(n syntax.Node, pos syntax.Pos, val string) string {
 		return val
 	}
 	_, src, line, column := fc.l.at(n, pos)
-	return InlineDirective(src, line, column) + val
+	return InlineDirective(fc.tagPath(src), line, column) + val
 }
 
 func (fc *funcCtx) temp(base string) string { return fc.scope.alloc(base) }
@@ -203,6 +216,8 @@ func (fc *funcCtx) body(list []syntax.Stmt) {
 	switch {
 	case fc.frame.result != nil:
 		fc.line("panic(\"ergo: unreachable: the function's end\")")
+	case fc.frame.inline != nil:
+		// An inlined body falls through to its site's label.
 	case fc.frame.fallible:
 		fc.line(fc.errReturn("nil"))
 	}
@@ -316,8 +331,10 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			}
 		} else {
 			val := fc.assigned(spec.Values[0])
-			name := fc.declare(v)
-			fc.line("var " + name + " " + goType + " = " + val)
+			if !fc.aliasLet(v, val) {
+				name := fc.declare(v)
+				fc.line("var " + name + " " + goType + " = " + val)
+			}
 		}
 		if !fc.l.reads[v] {
 			fc.line("_ = " + fc.locals[v])
@@ -348,6 +365,10 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 			unreachable(s, ruleParser, "the assignment %s", text)
 		}
 		op = strings.TrimSuffix(text, "=")
+	}
+	if fc.mapStore(s) {
+		fc.discard(s.Rhs[0]) // forms.go
+		return
 	}
 	rhsEmits := fc.emits(s.Rhs[0])
 	target := fc.target(s.Lhs[0], rhsEmits)
@@ -573,6 +594,11 @@ func (fc *funcCtx) fail(err string) {
 	f := fc.frame
 	if !f.fallible {
 		fc.line("panic(" + err + ")")
+		return
+	}
+	if in := f.inline; in != nil {
+		fc.line(in.err + " = " + err)
+		fc.line("goto " + in.label)
 		return
 	}
 	if f.result != nil {

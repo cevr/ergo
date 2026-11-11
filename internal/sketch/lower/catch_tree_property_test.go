@@ -47,8 +47,9 @@ import (
 // built once, and both outputs must equal the model's.
 //
 // The foreign probe adds what Ergo cannot write: a Go error that is in no
-// row, as an interruption or a defect is (Catch 6). The test patches each
-// generated raise function in the emitted Go to return it, and calls each
+// row, as an interruption or a defect is (Catch 6). The test patches the
+// gate each generated raise calls first in the emitted Go to return it
+// (through the raise, inlined or not), and calls each
 // catch under recover: a total catch must panic with that very value, a
 // partial catch must return it, and a catch-all arm must take it.
 //
@@ -114,10 +115,16 @@ func (g *treeGen) catchGroup(prefix string) (*gGroup, *gType) {
 	return gr, u
 }
 
-// raiseDecl is the group's raise function.
+// raiseDecl is the group's raise function, and the gate it calls first:
+// a recursive function, so it stays a Go call under every inlining rule,
+// and the foreign probe patches it. A raise is small enough to inline
+// (inline.go), so the foreign error passes through an inlined body to the
+// catch, as one from a Go call in an inlined body does.
 func catchRaiseDecl(gr *gGroup, u *gType) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "func %sraise(e %s, ok bool) string fails %s {\n\tif ok {\n\t\treturn \"ok\"\n\t}\n\tmatch e {\n", gr.prefix, u.ergo(), catchRow(u))
+	row := catchRow(u)
+	fmt.Fprintf(&b, "func %sgate(n int) int fails %s {\n\tif n > 0 {\n\t\treturn try %sgate(n - 1)\n\t}\n\tn\n}\n\n", gr.prefix, row, gr.prefix)
+	fmt.Fprintf(&b, "func %sraise(e %s, ok bool) string fails %s {\n\ttry %sgate(0)\n\tif ok {\n\t\treturn \"ok\"\n\t}\n\tmatch e {\n", gr.prefix, u.ergo(), row, gr.prefix)
 	for _, vr := range u.union.variants {
 		fmt.Fprintf(&b, "\tcase %s as x:\n\t\treturn x\n", vr.name)
 	}
@@ -557,7 +564,7 @@ func catchForeignRun(id string, f func() string) {
 `
 
 // catchForeignPatch adds the foreign probe to the emitted main.go src:
-// each generated raise function fails with catchForeignErr while the probe
+// each generated gate fails with catchForeignErr while the probe
 // runs, and after the Ergo main the probe calls each catch.
 func catchForeignPatch(t *testing.T, src string, catches []*cCatch) string {
 	t.Helper()
@@ -573,11 +580,11 @@ func catchForeignPatch(t *testing.T, src string, catches []*cCatch) string {
 	for _, c := range catches {
 		if !raised[c.group.prefix] {
 			raised[c.group.prefix] = true
-			head := fmt.Sprintf("func %sraise(env *Env, e %s, ok bool) (string, error) {\n", c.group.prefix, c.u.ergo())
+			head := fmt.Sprintf("func %sgate(env *Env, n int) (int, error) {\n", c.group.prefix)
 			if strings.Count(src, head) != 1 {
 				t.Fatalf("the foreign probe finds %q %d times in the emitted Go", head, strings.Count(src, head))
 			}
-			src = strings.Replace(src, head, head+"\tif catchForeignOn {\n\t\treturn \"\", catchForeignErr\n\t}\n", 1)
+			src = strings.Replace(src, head, head+"\tif catchForeignOn {\n\t\treturn 0, catchForeignErr\n\t}\n", 1)
 		}
 		arg := c.u.union.variants[0].name + "{}"
 		if c.partial {

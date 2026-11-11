@@ -627,6 +627,10 @@ func pureStd(f *Func) bool {
 	if pureGo(f) {
 		return true
 	}
+	if GoBuiltin(f) != "" {
+		// A Go builtin calls no Ergo code and no capability (builtin.go).
+		return !(pureCollections == "off" && preludeCollection(f))
+	}
 	if f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil || !f.Pkg.std {
 		return false
 	}

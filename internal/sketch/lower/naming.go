@@ -77,6 +77,7 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"calls", nil}, "ergoCalls")
 	l.pkgName(pkgKey{"decl", nil}, "ergoDecl")
 	l.pkgName(pkgKey{"decls", nil}, "ergoDecls")
+	l.pkgName(pkgKey{"inlines", nil}, "ergoInlines") // inline.go, inlineTable
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")
 	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
 	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
@@ -90,9 +91,10 @@ func (l *lowerer) nameAll() {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
-	l.reserveOwned(append([]*check.Package{l.pkg}, libs...)) // values.go, V5
-	l.reserveOk(append([]*check.Package{l.pkg}, libs...))    // update.go
-	l.reserveKnown(append([]*check.Package{l.pkg}, libs...)) // known.go
+	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))   // values.go, V5
+	l.reserveOk(append([]*check.Package{l.pkg}, libs...))      // update.go
+	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))   // known.go
+	l.reserveDropped(append([]*check.Package{l.pkg}, libs...)) // drop.go
 	// A library's lets (user or embedded std), which the program lowers, used or not
 	// (sources.go), and the builders of its named contexts, one for each
 	// set of providers a with of the program acquires (196b U4), in its

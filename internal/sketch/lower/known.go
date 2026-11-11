@@ -96,6 +96,26 @@ type knownStats struct {
 	// flat Option, so that it lowered the program again with Option an
 	// interface (lowerAgain).
 	OptionBails int
+	// Inlined is the calls written at their site (inline.go), and
+	// Substituted the literals written where an inlined body calls them.
+	Inlined     int
+	Substituted int
+	// Aliased is the lets and catches that name a fresh temporary, and
+	// Renamed the inlined bodies whose tail temporary is the result
+	// (forms.go).
+	Aliased int
+	Renamed int
+	// Consts is the package lets written as Go consts (forms.go).
+	Consts int
+	// MapStores is the in-place Map writes whose store back is dropped
+	// (forms.go).
+	MapStores int
+	// SoleFailures is the catches of a closed one-variant row written as
+	// the error's nil test (forms.go).
+	SoleFailures int
+	// Dropped is the calls whose discarded result goes to the variant
+	// with no result (forms.go).
+	Dropped int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of
@@ -480,7 +500,7 @@ func (l *lowerer) knownName(g *check.Func, gd *funcDecl) string {
 		gd.known = l.pkgName(knownKey(g), g.Name+"Known")
 	}
 	l.stats.Variants++
-	l.pending = append(l.pending, func() { l.emitBody(gd, false, nil, true) })
+	l.pending = append(l.pending, func() { l.emitBody(gd, false, nil, true, false) })
 	return gd.known
 }
 

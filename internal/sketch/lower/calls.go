@@ -60,6 +60,10 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.goExtern(x, c) // gocall.go, Level 2 adapters
 	}
 	text, result, fallible := fc.callText(x, c)
+	if op := fc.inlined; op != nil {
+		fc.inlined = nil
+		return *op // inline.go: its block is written
+	}
 	defer fc.identify(x, c)()
 	if hostCalled(c) {
 		v := ""
@@ -75,6 +79,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 			return operand{val: v, err: e}
 		}
 		fc.line(fc.hostStmt(x, c, v, text))
+		fc.markFresh(v)
 		return operand{val: v}
 	}
 	if result && fc.noValue(x) {
@@ -97,6 +102,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	case result && fallible:
 		v, e := fc.temp("v"), fc.temp("err")
 		fc.line(v + ", " + e + " := " + text)
+		fc.markFresh(v)
 		if !failsHere(c) {
 			fc.line("_ = " + e)
 			return operand{val: v}
@@ -113,6 +119,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	case result:
 		v := fc.temp("v")
 		fc.line(v + " := " + text)
+		fc.markFresh(v)
 		return operand{val: v}
 	}
 	fc.line(text)
@@ -151,6 +158,17 @@ func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 	fc.stmtCall = x // a fused call's value is a name, no statement (update.go)
 	text, _, fallible := fc.callText(x, c)
 	fc.stmtCall = nil
+	if op := fc.inlined; op != nil {
+		// inline.go: its block is written; a statement discards its value.
+		fc.inlined = nil
+		if op.err != "" && failsHere(c) {
+			ice(x, "an untried fallible call in a statement")
+		}
+		if op.val != "" {
+			return "_ = " + op.val
+		}
+		return ""
+	}
 	if fallible && failsHere(c) {
 		ice(x, "an untried fallible call in a statement")
 	}
@@ -185,7 +203,13 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			// (machinerun.go), which returns what std's Run returns.
 			return text, true, true
 		}
+		if fc.inlineAt(x, c) {
+			return "", false, false // the value is fc.inlined
+		}
 		fd := fc.l.useFunc(c.Func, x)
+		if b := check.GoBuiltin(c.Func); b != "" {
+			return fc.builtinCall(x, c, args, b), len(c.Func.Sig.Results) > 0, false
+		}
 		if userExtern(c.Func) {
 			return fc.hostCall(x, c, args), len(c.Func.Sig.Results) > 0, c.Func.Sig.Fallible
 		}
@@ -210,6 +234,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A call whose callbacks are all known goes to the known variant
 		// (known.go), its literals lowered plain.
 		known := fc.knownSite(x, c)
+		// A call whose result its statement discards goes to the variant
+		// with no result (forms.go, droppedSite).
+		dropped := !known && fc.droppedSite(x, c, fd)
 		// An argument for a parameter func(…) T whose T a block with no
 		// value binds needs no adapter: a function value with no result
 		// and the instance's func(…) struct{} are one Go shape (C11).
@@ -225,6 +252,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if known {
 				name = fc.l.knownName(c.Func, fd)
 			}
+			if dropped {
+				name = fc.l.droppedName(c.Func, fd)
+			}
 			head, rest = "("+vals[0]+")."+name, vals[1:]
 		} else {
 			// Info names every type argument of a generic call: written,
@@ -239,6 +269,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if known {
 				name = fc.l.knownName(c.Func, fd)
 			}
+			if dropped {
+				name = fc.l.droppedName(c.Func, fd)
+			}
 			head, rest = name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 		}
 		// A pure function takes no environment (pure.go): no Task result
@@ -248,7 +281,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
 		}
 		rest = append(lead, rest...)
-		return head + "(" + strings.Join(rest, ", ") + ")", len(c.Func.Sig.Results) > 0, fd.fallible
+		return head + "(" + strings.Join(rest, ", ") + ")", len(c.Func.Sig.Results) > 0 && !dropped, fd.fallible
 	case check.CallOp:
 		if c.Recv == nil || c.Op == nil {
 			ice(x, "an operation call with no receiver or operation")
@@ -318,6 +351,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		if !ok {
 			ice(x.Fun, "a called value that is not a function")
 		}
+		if fc.inlineAt(x, c) {
+			return "", false, false // a substituted literal (inline.go)
+		}
 		vals := fc.callArgs(append([]syntax.Expr{x.Fun}, args...), x)
 		if id, ok := unparen(x.Fun).(*syntax.Ident); ok {
 			if v, ok := fc.l.info.Uses[id].(*check.Var); ok && fc.plain[v] {
@@ -340,7 +376,68 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 // result, and with a target in
 // Go's standard library (check/extern.go).
 func userExtern(f *check.Func) bool {
-	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil && !f.Pkg.Std() && !f.Pkg.Host()
+	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil && !f.Pkg.Std() && !f.Pkg.Host() && check.GoBuiltin(f) == ""
+}
+
+// builtinCall is the Go text of the call x of an extern that binds Go's
+// builtin b (check/builtin.go): the builtin itself, with no Go function
+// between, its operands evaluated as a call's are (and its slice operand
+// clipped as the value rule requires, valueSource). A borrow operand,
+// copy's dst and clear's slice, is written through.
+func (fc *funcCtx) builtinCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr, b string) string {
+	list := args
+	if c.Recv != nil {
+		list = append([]syntax.Expr{c.Recv}, args...)
+	}
+	vals := fc.callArgsAddr(list, x, false)
+	vals = fc.valueSource(x, c, vals)
+	for i, p := range c.Func.Sig.Params {
+		if _, ok := p.Type.(*check.Pointer); ok && i < len(vals) {
+			vals[i] = "*(" + vals[i] + ")"
+		}
+	}
+	if builtinLowering == "call" {
+		return fc.l.builtinHelper(b, x) + "(" + strings.Join(vals, ", ") + ")"
+	}
+	return b + "(" + strings.Join(vals, ", ") + ")"
+}
+
+// builtinLowering "call" is the reference of builtinCall: each builtin is
+// called through a Go function of the program that calls it, as the
+// prelude's Append called its runtime/v1 wrapper before OPT4b. It is set by
+// a test, or by a build with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.builtinLowering=call.
+// TestBuiltinsAgree runs generated programs under both.
+var builtinLowering string
+
+// builtinHelpers are the reference's Go functions, by builtin; ORD stands
+// for the import name of Go's cmp.
+var builtinHelpers = map[string]string{
+	"append": "[T any](xs []T, x T) []T { return append(xs, x) }",
+	"len":    "[T any](xs []T) int { return len(xs) }",
+	"cap":    "[T any](xs []T) int { return cap(xs) }",
+	"copy":   "[T any](dst []T, src []T) int { return copy(dst, src) }",
+	"clear":  "[T any](xs []T) { clear(xs) }",
+	"min":    "[T ORD.Ordered](a T, b T) T { return min(a, b) }",
+	"max":    "[T ORD.Ordered](a T, b T) T { return max(a, b) }",
+}
+
+// builtinHelper is the name of the reference's Go function for b, written
+// once.
+func (l *lowerer) builtinHelper(b string, site syntax.Node) string {
+	name := l.pkgName(pkgKey{"builtin", b}, "ergoBuiltin_"+b)
+	if l.builtinDone == nil {
+		l.builtinDone = map[string]bool{}
+	}
+	if !l.builtinDone[b] {
+		l.builtinDone[b] = true
+		text := builtinHelpers[b]
+		if strings.Contains(text, "ORD.") {
+			text = strings.ReplaceAll(text, "ORD.", l.hostPkg("cmp", site)+".")
+		}
+		l.user.WriteString("func " + name + text + "\n\n")
+	}
+	return name
 }
 
 // hostCall is the Go text of the call x of the user extern c.Func: a direct
@@ -597,6 +694,21 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 		if p.Path != "time" && !seen[p.Path] {
 			seen[p.Path] = true
 			paths = append(paths, p.Path)
+		}
+	}
+	if builtinLowering == "call" {
+		// The reference's builtin helpers, and Go's cmp for min and max
+		// (builtinHelper): reserved, written only where a call needs one.
+		var bs []string
+		for b := range builtinHelpers {
+			bs = append(bs, b)
+		}
+		sort.Strings(bs)
+		for _, b := range bs {
+			l.pkgName(pkgKey{"builtin", b}, "ergoBuiltin_"+b)
+		}
+		if !seen["cmp"] {
+			paths = append(paths, "cmp")
 		}
 	}
 	sort.Strings(paths)
@@ -1501,7 +1613,8 @@ func (fc *funcCtx) identify(x *syntax.CallExpr, c *check.Call) func() {
 	fc.at(x)
 	return func() {
 		if prev.IsValid() {
-			fc.out.WriteString(fc.l.directiveAt(prevNode, prev))
+			_, src, line, column := fc.l.at(prevNode, prev)
+			fc.writeDir(Directive(fc.tagPath(src), line, column))
 			fc.lastPos, fc.lastNode = prev, prevNode
 		}
 		fc.site = site
@@ -1640,6 +1753,18 @@ func (l *lowerer) callTable() string {
 		fmt.Fprintf(&b, "\t{Func: %s, Callee: %s, File: %s, Line: %d, Column: %d},\n", strconv.Quote(c.fn), strconv.Quote(c.callee), file(c.src), c.line, c.column)
 	}
 	b.WriteString("}\n\n")
-	b.WriteString("func init() {\n\t" + l.rt() + ".RegisterCalls(" + declTable + "[:], " + table + "[:])\n}\n\n")
+	inlines, register := l.inlineTable(func(src, offset int) int {
+		for i, c := range l.calls {
+			if c.src == src && c.offset == offset {
+				return i
+			}
+		}
+		ice(nil, "an inline site with no call table entry")
+		return -1
+	})
+	b.WriteString(inlines)
+	// One init registers the source map: the call table, then the inline
+	// sites over it.
+	b.WriteString("func init() {\n\t" + l.rt() + ".RegisterCalls(" + declTable + "[:], " + table + "[:])\n" + register + "}\n\n")
 	return b.String()
 }

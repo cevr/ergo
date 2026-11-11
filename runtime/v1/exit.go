@@ -207,6 +207,23 @@ func RegisterCalls(declTable []struct {
 	registered, decls, calls = true, declTable, table
 }
 
+// inlines are the program's inlined calls (RegisterInlines).
+var inlines []struct{ Call, Parent int }
+
+// inlineTag marks a source path of a frame with the inlined call whose
+// body holds the frame's line: path#ergo-inline-N, N an index of inlines.
+const inlineTag = "#ergo-inline-"
+
+// RegisterInlines registers the calls the lowering wrote at their site
+// (OPT4a): each one's index in the call table, and the index of the
+// inlined call whose body holds it, or -1. The lines of an inlined body
+// name their file with inlineTag, so the defect report writes the frames
+// those calls would have had: after a frame in an inlined body, each
+// inlined call around it, innermost first (Exit causes 6).
+func RegisterInlines(table []struct{ Call, Parent int }) {
+	inlines = table
+}
+
 // taskEntry starts the traceback line of guarded, the boundary of every
 // task's body (Go, runMain).
 var taskEntry = reflect.TypeFor[Panic]().PkgPath() + ".guarded["
@@ -236,6 +253,8 @@ func ergoStack(stack []byte) []string {
 		// elided is Go's count of frames it left out here, past its
 		// traceback limit (no file then).
 		elided string
+		// inl is the inlined call (plus one) whose body holds the line.
+		inl int
 	}
 	files := map[string]bool{}
 	for _, d := range decls {
@@ -290,14 +309,23 @@ func ergoStack(stack []byte) []string {
 			loc = loc[:i]
 		}
 		i := strings.LastIndex(loc, ":")
-		if i < 0 || !files[loc[:i]] {
+		if i < 0 {
+			continue
+		}
+		file, inl := loc[:i], 0
+		if j := strings.LastIndex(file, inlineTag); j >= 0 {
+			if k, err := strconv.Atoi(file[j+len(inlineTag):]); err == nil && k >= 0 && k < len(inlines) {
+				file, inl = file[:j], k+1
+			}
+		}
+		if !files[file] {
 			continue
 		}
 		n, err := strconv.Atoi(loc[i+1:])
 		if err != nil {
 			continue
 		}
-		frames = append(frames, site{file: loc[:i], line: n, fn: fn})
+		frames = append(frames, site{file: file, line: n, fn: fn, inl: inl})
 		source = true
 	}
 	owner := func(f site) string {
@@ -330,6 +358,30 @@ func ergoStack(stack []byte) []string {
 		}
 		inner = fn
 	}
+	// chain writes the inlined calls around a frame's line, innermost
+	// first: the frames those calls would have had. They are lines of the
+	// same Go frame, so a function literal around it that calls it at the
+	// outermost one's position is no repeat (add).
+	chain := func(f site) {
+		for s := f.inl; s > 0 && s <= len(inlines); s = inlines[s-1].Parent + 1 {
+			if k := inlines[s-1].Call; k >= 0 && k < len(calls) {
+				c := calls[k]
+				add(fmt.Sprintf("%s calls %s at %s:%d:%d", c.Func, c.Callee, c.File, c.Line, c.Column), f.fn)
+			}
+		}
+	}
+	// callee is the declaration of the Go frame f, as the frame outside
+	// it called it: the function that makes the outermost inlined call
+	// around f's line, else the declaration that holds the line.
+	callee := func(f site) string {
+		name := owner(f)
+		for s := f.inl; s > 0 && s <= len(inlines); s = inlines[s-1].Parent + 1 {
+			if k := inlines[s-1].Call; k >= 0 && k < len(calls) {
+				name = calls[k].Func
+			}
+		}
+		return name
+	}
 	for i, f := range frames {
 		if f.elided != "" {
 			add("..."+f.elided+" frames elided...", "")
@@ -349,6 +401,7 @@ func ergoStack(stack []byte) []string {
 				name += " "
 			}
 			add(fmt.Sprintf("%sat %s:%d", name, f.file, f.line), f.fn)
+			chain(f)
 			continue
 		}
 		if len(here) > 1 && frames[i-1].elided == "" {
@@ -356,7 +409,7 @@ func ergoStack(stack []byte) []string {
 			// the declaration of the frame inside it.
 			var made []int
 			for _, j := range here {
-				if calls[j].Callee == owner(frames[i-1]) {
+				if calls[j].Callee == callee(frames[i-1]) {
 					made = append(made, j)
 				}
 			}
@@ -370,6 +423,7 @@ func ergoStack(stack []byte) []string {
 			callees = append(callees, calls[j].Callee)
 		}
 		add(fmt.Sprintf("%s calls %s at %s:%d:%d", c.Func, strings.Join(callees, " or "), c.File, c.Line, c.Column), f.fn)
+		chain(f)
 	}
 	out := make([]string, len(entries))
 	for i, e := range entries {

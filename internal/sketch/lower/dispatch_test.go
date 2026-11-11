@@ -97,22 +97,28 @@ func asDispatchPackage(src string) (string, error) {
 	return src, nil
 }
 
-// registersCalls reports whether fd's body is the one call X.RegisterCalls(…)
-// that callTable (calls.go) writes.
+// registersCalls reports whether fd's body is the init that callTable
+// (calls.go) writes: the call X.RegisterCalls(…), then X.RegisterInlines(…)
+// when the program inlined a call (inline.go).
 func registersCalls(fd *ast.FuncDecl) bool {
-	if len(fd.Body.List) != 1 {
+	want := []string{"RegisterCalls", "RegisterInlines"}
+	if n := len(fd.Body.List); n == 0 || n > len(want) {
 		return false
 	}
-	es, ok := fd.Body.List[0].(*ast.ExprStmt)
-	if !ok {
-		return false
+	for i, s := range fd.Body.List {
+		es, ok := s.(*ast.ExprStmt)
+		if !ok {
+			return false
+		}
+		call, ok := es.X.(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		if sel, ok := call.Fun.(*ast.SelectorExpr); !ok || sel.Sel.Name != want[i] {
+			return false
+		}
 	}
-	call, ok := es.X.(*ast.CallExpr)
-	if !ok {
-		return false
-	}
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	return ok && sel.Sel.Name == "RegisterCalls"
+	return true
 }
 
 // dispatcherMain is the dispatcher's main package: it runs the entry of

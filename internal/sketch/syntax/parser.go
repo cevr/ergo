@@ -901,6 +901,10 @@ func (p *parser) parseFuncDecl(doc *CommentGroup) *FuncDecl {
 	return d
 }
 
+// goBuiltin are Go's builtins an extern func may bind by name, with no
+// import path (check/builtin.go).
+var goBuiltin = map[string]bool{"append": true, "len": true, "cap": true, "copy": true, "clear": true, "min": true, "max": true}
+
 // parseExternDecl parses `extern go path.F func Name [TypeParams] Sig`, and
 // the binding forms of docs/spec/interop.md: `extern go path.T type T Spec`,
 // `extern go path.C let C Type` and `extern go path.T.M func (r R) M Sig`.
@@ -911,10 +915,14 @@ func (p *parser) parseExternDecl(doc *CommentGroup) Decl {
 		p.errorf("expected the Go target path.Func, found %s", p.found())
 	}
 	x.Target = &BasicLit{ValuePos: p.tok.pos, Kind: PATH, Value: p.tok.lit, ValueEnd: p.tok.end}
-	if path, name := x.Split(); path == "" || !isIdentifier(name) {
-		p.errorf("an extern target is an import path, a dot and a function name, found %s", p.found())
+	path, name := x.Split()
+	if (path == "" && !goBuiltin[name]) || !isIdentifier(name) {
+		p.errorf("an extern target is an import path, a dot and a function name, or a Go builtin (append, len, cap, copy, clear, min, max), found %s", p.found())
 	}
 	p.next()
+	if path == "" && p.tok.tok != FUNC {
+		p.errorf("a Go builtin is bound by a func: extern go %s func …", name)
+	}
 	switch p.tok.tok {
 	case TYPE:
 		d := p.parseTypeDecl(doc)

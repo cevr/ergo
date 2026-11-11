@@ -205,6 +205,10 @@ func (fc *funcCtx) sourceReturn(vals ...string) {
 		fc.line("return nil, nil")
 		return
 	}
+	if fc.frame.inline != nil {
+		fc.inlineReturn(vals)
+		return
+	}
 	if fc.frame.unit {
 		if len(vals) != 1 {
 			ice(nil, "a return of %d results from a function value with no result", len(vals))

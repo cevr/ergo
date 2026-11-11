@@ -238,6 +238,19 @@ type lowerer struct {
 	bodies   int        // function bodies lowered (TestNamingWorkIsLinear)
 	formats  int        // go/format runs
 
+	// inlineOK holds the inline decisions, inlineGrown the body nodes each
+	// Go function took in, inlineSites the inlined calls (inline.go), and
+	// lastDir the last //line directive a body wrote.
+	inlineOK    map[*check.Func]knownState
+	inlineGrown map[*namer]int
+	inlineSites []inlineSite
+	lastDir     string
+	// fresh holds the fresh temporaries (forms.go).
+	fresh map[freshKey]bool
+	// letUses counts each package let's uses and its uses where a Go
+	// constant is safe (forms.go, constLet).
+	letUses map[*check.Var][2]int
+
 	types    map[*check.TypeName]*typeDecl
 	funcs    map[*check.Func]*funcDecl
 	pure     map[*check.Func]bool       // the program's pure functions (pure.go), once computed
@@ -282,6 +295,9 @@ type lowerer struct {
 
 	refusals []Refusal
 	reads    map[*check.Var]bool // locals that some expression reads
+
+	readsDone   map[*check.Func]bool // std functions whose reads are in reads (readsOf)
+	builtinDone map[string]bool      // the reference's builtin helpers written (builtinHelper)
 
 	calls    []callIdent // the call table (calls.go, #230)
 	callSeen map[*syntax.CallExpr]bool
@@ -765,33 +781,13 @@ func (l *lowerer) hostDecl(name string, provided []string, of string) string {
 // binder's own name, an assignment's target, which Go does not count as a
 // use, and a read in a
 // local context's literal, which is written only at a with that builds it
-// (calls.go, with), so a local context no with names reads nothing.
+// (calls.go, with), so a local context no with names reads nothing. A std
+// body is in no source of the program; its function adds its reads when it
+// is first lowered (readsOf).
 func (l *lowerer) readVars() map[*check.Var]bool {
 	unread := map[*syntax.Ident]bool{}
 	for _, s := range l.srcs {
-		info := s.pkg.Info
-		syntax.Inspect(s.file, func(n syntax.Node) bool {
-			switch n := n.(type) {
-			case *syntax.AssignStmt:
-				for _, lhs := range n.Lhs {
-					if id, ok := lhs.(*syntax.Ident); ok {
-						unread[id] = true
-					}
-				}
-			case *syntax.VarSpec:
-				if len(n.Names) == 1 && len(n.Values) == 1 {
-					if w, ok := info.Defs[n.Names[0]].(*check.Context); ok && w.Local {
-						syntax.Inspect(n.Values[0], func(m syntax.Node) bool {
-							if id, ok := m.(*syntax.Ident); ok {
-								unread[id] = true
-							}
-							return true
-						})
-					}
-				}
-			}
-			return true
-		})
+		unreadIn(s.pkg.Info, s.file, unread)
 	}
 	reads := map[*check.Var]bool{}
 	for p := range l.canon.sourced {
@@ -804,4 +800,56 @@ func (l *lowerer) readVars() map[*check.Var]bool {
 		}
 	}
 	return reads
+}
+
+// unreadIn adds to unread the identifiers under n that read nothing: an
+// assignment's target and a local context literal's names (readVars).
+func unreadIn(info *check.Info, n syntax.Node, unread map[*syntax.Ident]bool) {
+	syntax.Inspect(n, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.AssignStmt:
+			for _, lhs := range n.Lhs {
+				if id, ok := lhs.(*syntax.Ident); ok {
+					unread[id] = true
+				}
+			}
+		case *syntax.VarSpec:
+			if len(n.Names) == 1 && len(n.Values) == 1 {
+				if w, ok := info.Defs[n.Names[0]].(*check.Context); ok && w.Local {
+					syntax.Inspect(n.Values[0], func(m syntax.Node) bool {
+						if id, ok := m.(*syntax.Ident); ok {
+							unread[id] = true
+						}
+						return true
+					})
+				}
+			}
+		}
+		return true
+	})
+}
+
+// readsOf adds the reads of f's body to l.reads when f is in no source of
+// the program (a std body), once: its locals and parameters are f's own,
+// so f's declaration holds every read of them. A Go variable that is read
+// needs no `_ =` use (a statement that costs Go's inliner budget).
+func (l *lowerer) readsOf(f *check.Func) {
+	if f == nil || f.Decl == nil || f.Decl.Body == nil || f.Pkg == nil || f.Pkg.Info == nil || l.canon.sourced[f.Pkg] || l.readsDone[f] {
+		return
+	}
+	if l.readsDone == nil {
+		l.readsDone = map[*check.Func]bool{}
+	}
+	l.readsDone[f] = true
+	info := f.Pkg.Info
+	unread := map[*syntax.Ident]bool{}
+	unreadIn(info, f.Decl, unread)
+	syntax.Inspect(f.Decl, func(n syntax.Node) bool {
+		if id, ok := n.(*syntax.Ident); ok {
+			if v, ok := info.Uses[id].(*check.Var); ok && !unread[id] && info.Defs[id] != info.Uses[id] && l.readsFact(f.Pkg, id) {
+				l.reads[v] = true
+			}
+		}
+		return true
+	})
 }
