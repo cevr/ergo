@@ -152,6 +152,10 @@ type funcCtx struct {
 	// (plainCatch): the call leaves Go's error as it is, since only its
 	// nil test is read (goErrorOf).
 	rawErr syntax.Expr
+	// rawConv is the operand whose implicit conversion a fast path skips
+	// (convertAt): json.Text given to encode's Writer, which the wire
+	// fast path writes through the runtime's Text itself (wireCall).
+	rawConv syntax.Expr
 	// returned is the owned local the frame is returning (retExpr): its
 	// hand-off keeps its entry until the frame's exit is known
 	// (release.go, v1.Returned).
