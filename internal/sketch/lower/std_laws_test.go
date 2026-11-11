@@ -470,7 +470,12 @@ func main() fails queue.Closed | timeout.Expired needs Console | Ambient {
 // ERGO_STDLAWS_GOLDEN=write writes the golden file instead (run at the
 // base only).
 func TestStdLawsAddNoGo(t *testing.T) {
+	// The golden is the reference lowering's Go (inline.go): the rule is
+	// that laws add none, whatever the call lowering.
+	saved := inlineLowering
+	inlineLowering = "call"
 	got := mustLower(t, "stdlawszero", stdLawsZeroCost).mainGo()
+	inlineLowering = saved
 	golden := filepath.Join("testdata", "stdlaws", "zero_cost.go.golden")
 	if os.Getenv("ERGO_STDLAWS_GOLDEN") == "write" {
 		if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {

@@ -106,6 +106,10 @@ type knownStats struct {
 	// NicheOptions is the Option values of a go.Ref the lowering spells as
 	// the Go pointer itself (flatunion.go, the pointer niche).
 	NicheOptions int
+	// Inlined is the calls written at their site (inline.go), and
+	// Substituted the literals written where an inlined body calls them.
+	Inlined     int
+	Substituted int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

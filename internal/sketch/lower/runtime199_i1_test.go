@@ -1002,15 +1002,20 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		// The back-edge poll ends the iteration: the body's last statement
 		// is the frame's Check, labelled when a continue jumps to it. Each
 		// path that continues reaches it: no Go continue of this loop
-		// remains, and every goto names its label. It never heads the body,
+		// remains, and every goto names its label or a label inside the
+		// body before its end: the block of an inlined call (inline.go)
+		// jumps past itself, never past the Check. It never heads the body,
 		// where it would separate the delivered element from the statement
 		// that receives it (spec, stage 5a O1).
 		polls, continues := 0, 0
 		var gotos []string
+		inner := map[string]bool{}
 		ast.Inspect(body, func(m ast.Node) bool {
 			switch m := m.(type) {
 			case *ast.FuncLit, *ast.ForStmt, *ast.RangeStmt:
 				return false
+			case *ast.LabeledStmt:
+				inner[m.Label.Name] = true
 			case *ast.ExprStmt:
 				if isCheckOf(m, "") {
 					polls++
@@ -1045,7 +1050,7 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 			t.Errorf("a pure %s frame's loop body labels its end %s\nGo:\n%s", class, label, stripDirectives(code))
 		}
 		for _, g := range gotos {
-			if g != label {
+			if g != label && (!inner[g] || g == "") {
 				t.Errorf("a %s frame's loop body jumps to %s, not to its end-of-iteration Check %q\nGo:\n%s", class, g, label, stripDirectives(code))
 			}
 		}

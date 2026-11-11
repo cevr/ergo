@@ -242,7 +242,11 @@ func TestRuntime199FrameValues(t *testing.T) {
 	src := typedPackage(t, ".")
 	frameT := src.pkg.Scope().Lookup("frame").Type()
 	src.owners(func(owner string, decl ast.Decl) {
-		if owner == "newFrame" {
+		// inlineFrame (inline.go) is the frame of an inlined body: a Go
+		// block of its caller's Go frame, with no interruption point of its
+		// own, so no frame class of the catalog stands for it;
+		// TestInlineAgrees covers it.
+		if owner == "newFrame" || owner == "inlineFrame" {
 			return
 		}
 		ast.Inspect(decl, func(n ast.Node) bool {

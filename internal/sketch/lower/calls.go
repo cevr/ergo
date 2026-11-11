@@ -60,6 +60,10 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.goExtern(x, c) // gocall.go, Level 2 adapters
 	}
 	text, result, fallible := fc.callText(x, c)
+	if op := fc.inlined; op != nil {
+		fc.inlined = nil
+		return *op // inline.go: its block is written
+	}
 	defer fc.identify(x, c)()
 	if hostCalled(c) {
 		v := ""
@@ -151,6 +155,14 @@ func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 	fc.stmtCall = x // a fused call's value is a name, no statement (update.go)
 	text, _, fallible := fc.callText(x, c)
 	fc.stmtCall = nil
+	if op := fc.inlined; op != nil {
+		// inline.go: its block is written, and its variables are used.
+		fc.inlined = nil
+		if op.err != "" && failsHere(c) {
+			ice(x, "an untried fallible call in a statement")
+		}
+		return ""
+	}
 	if fallible && failsHere(c) {
 		ice(x, "an untried fallible call in a statement")
 	}
@@ -184,6 +196,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			// A run of a machine declaration's value: its flat run
 			// (machinerun.go), which returns what std's Run returns.
 			return text, true, true
+		}
+		if fc.inlineAt(x, c) {
+			return "", false, false // the value is fc.inlined
 		}
 		fd := fc.l.useFunc(c.Func, x)
 		if userExtern(c.Func) {
@@ -317,6 +332,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		sig, ok := ft.(*check.Signature)
 		if !ok {
 			ice(x.Fun, "a called value that is not a function")
+		}
+		if fc.inlineAt(x, c) {
+			return "", false, false // a substituted literal (inline.go)
 		}
 		vals := fc.callArgs(append([]syntax.Expr{x.Fun}, args...), x)
 		if id, ok := unparen(x.Fun).(*syntax.Ident); ok {
@@ -1501,7 +1519,8 @@ func (fc *funcCtx) identify(x *syntax.CallExpr, c *check.Call) func() {
 	fc.at(x)
 	return func() {
 		if prev.IsValid() {
-			fc.out.WriteString(fc.l.directiveAt(prevNode, prev))
+			_, src, line, column := fc.l.at(prevNode, prev)
+			fc.writeDir(Directive(fc.tagPath(src), line, column))
 			fc.lastPos, fc.lastNode = prev, prevNode
 		}
 		fc.site = site
@@ -1640,6 +1659,18 @@ func (l *lowerer) callTable() string {
 		fmt.Fprintf(&b, "\t{Func: %s, Callee: %s, File: %s, Line: %d, Column: %d},\n", strconv.Quote(c.fn), strconv.Quote(c.callee), file(c.src), c.line, c.column)
 	}
 	b.WriteString("}\n\n")
-	b.WriteString("func init() {\n\t" + l.rt() + ".RegisterCalls(" + declTable + "[:], " + table + "[:])\n}\n\n")
+	inlines, register := l.inlineTable(func(src, offset int) int {
+		for i, c := range l.calls {
+			if c.src == src && c.offset == offset {
+				return i
+			}
+		}
+		ice(nil, "an inline site with no call table entry")
+		return -1
+	})
+	b.WriteString(inlines)
+	// One init registers the source map: the call table, then the inline
+	// sites over it.
+	b.WriteString("func init() {\n\t" + l.rt() + ".RegisterCalls(" + declTable + "[:], " + table + "[:])\n" + register + "}\n\n")
 	return b.String()
 }
