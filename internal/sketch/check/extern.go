@@ -600,7 +600,8 @@ func sealedStd(t Type) *Named {
 
 // SealedStd reports a sealed std protocol: an operation type of the
 // prelude or a std package that the result of a std extern names, such as
-// the prelude's Task (task.Go) and queue.Queue (queue.New). A std extern
+// the prelude's Task (task.Go) and queue.Queue (queue.New), or that a
+// parameter of a function an extern calls names (http.Exchange). A std extern
 // gives a runtime value whose identity a program must not forge, so only
 // the runtime implements the type: no program value converts into it
 // (S109; #206), and the lowering represents it by its runtime/v1 type
@@ -623,7 +624,8 @@ var stdExternResults = sync.OnceValue(stdExternResultSet)
 
 // stdExternResultSet is the set, as path.Name, of the std types the results
 // of std extern functions name, at any depth of the result and its fails
-// row (not its needs row), read from the std sources with the parser. An
+// row (not its needs row), and the types the parameters of their function
+// parameters name, read from the std sources with the parser. An
 // unqualified name is the declaring package's type when it declares one,
 // else the prelude's. It is a named function, not a closure, so it is a
 // Parse site of its own in the provenance manifest; it returns only names,
@@ -671,10 +673,26 @@ func stdExternResultSet() map[string]bool {
 			}
 			for _, d := range f.Decls {
 				fd, ok := d.(*syntax.FuncDecl)
-				if !ok || fd.Extern == nil || fd.Type == nil || fd.Type.Results == nil {
+				if !ok || fd.Extern == nil || fd.Type == nil {
 					continue
 				}
-				for _, r := range fd.Type.Results.List {
+				// The host gives the program a value through an extern's
+				// result and through the parameters of a function the
+				// extern calls (http's serve hands each handler its
+				// request's Exchange): both are runtime values, so one
+				// rule seals both.
+				var given []*syntax.Field
+				if fd.Type.Results != nil {
+					given = append(given, fd.Type.Results.List...)
+				}
+				if fd.Type.Params != nil {
+					for _, p := range fd.Type.Params.List {
+						if ft, ok := p.Type.(*syntax.FuncType); ok && ft.Params != nil {
+							given = append(given, ft.Params.List...)
+						}
+					}
+				}
+				for _, r := range given {
 					syntax.Inspect(r.Type, func(x syntax.Node) bool {
 						switch x := x.(type) {
 						case *syntax.SelectorExpr:

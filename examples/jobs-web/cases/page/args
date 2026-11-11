@@ -1,0 +1,3 @@
+--preload
+ergo-ts/bun
+ts/main.ts

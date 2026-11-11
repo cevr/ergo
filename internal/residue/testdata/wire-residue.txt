@@ -15,6 +15,15 @@
 !internal/migrate196/oldsyntax/
 
 # network sense: wire formats, wire keys and forms of a codec, codec functions named Wire, bytes on the wire (decision 4)
+cmd/ergo/tsmap.go	*
+internal/tsproj/accept_test.go	*
+internal/tsproj/project.go	*
+internal/tsproj/project_test.go	*
+internal/tsproj/testdata/mutants.json	*
+tools/ts/README.md	*
+tools/ts/bun.mjs	*
+tools/ts/esbuild.mjs	*
+tools/ts/vite.mjs	*
 CHANGELOG.md	done: true }`, `todo.done`), so wire keys such as `"done"` keep working,
 CHANGELOG.md	a derived codec can carry the wire key `"done"`), and a form where
 CHANGELOG.md	`TestHTTPWireVectors` runs the shared wire vectors in `conformance/http/`
@@ -94,6 +103,7 @@ runtime/v1/wire.go	*
 internal/sketch/check/info.go	// WirePairs are the by-name wire forms (types.md, Codecs 1) that this
 internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo	*
 internal/sketch/check/wire.go	*
+internal/sketch/check/wirekeys_test.go	*
 internal/sketch/check/wirecall.go	*
 internal/sketch/lower/calls.go	// A codec call writes its own statements (wire.go).
 internal/sketch/lower/module.go	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
@@ -292,9 +302,9 @@ internal/sketch/std/codec/codec.ergo	*
 internal/sketch/std/codec/laws.ergo	func many[T wire](vs []T) ([]T, Option[T]) fails wired[Option[T]] {
 internal/sketch/std/json/json.ergo	*
 internal/sketch/std/json/laws.ergo	func viaWriter[T wire](v T) string {
-runtime/embed.go	files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "http.go", "json.go", "mailbox.go", "moves.go", "numbers.go", "path.go", "queue.go", "rand.go", "runtime.go", "script.go", "set.go", "shrink.go", "static.go", "sync.go", "task.go", "text.go", "time.go", "timetext.go", "trace.go", "wire.go"},
+runtime/embed.go	files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "http.go", "http_client.go", "http_network.go", "json.go", "mailbox.go", "moves.go", "numbers.go", "path.go", "queue.go", "rand.go", "rpc.go", "runtime.go", "script.go", "set.go", "shrink.go", "static.go", "sync.go", "task.go", "text.go", "time.go", "timetext.go", "trace.go", "wire.go"},
 docs/spec/types.md	1. **wire.** The predeclared constraint `wire` (owner q83; predeclared as `comparable` is, not a keyword, so a declaration named `wire` shadows it) admits the types with a wire form, decided from the type's structure as `comparable` is: `bool`, the integer types but `uintptr`, the float types, `string`, a refined type (its base on the wire, its `ParseN` on decode, [Refinements](#refinements)), a record whose fields are wire and that has no unexported field, a union whose variants are wire, a slice, a Map whose key is `string` or a type over it (not a refined one), a tuple, and a type `X` with a **by-name pair**: its own package declares `ParseX(b B) X fails …` (`parseX` for an unexported `x`, the name rule of a refined type's parse function) and `Wire(x X) B` with no failure, for a wire `B`. A pair is looked up in `X`'s package only (coherence: one wire form per type). A function, an operation type, a pointer, `duration`, a complex type, a record that only its package builds and a type parameter without `wire` are not; S108 names the first part that is not, with its path (`Hook.Run`). `wire` is not a keyword: a let, a parameter or a type named `wire` shadows the constraint (196w).
-docs/spec/types.md	2. **encode and decode.** `encode(v, w)` writes the events of `v`'s wire form on `w`, a value of the prelude's operation type `Writer`; `decode[T](r)` reads a `T` from `r`, a `Reader`. Both are predeclared, as `len` is, and take a wire type, which may hold a type parameter under `wire` (rule 6). The events: a record is `BeginObject(n)`, then `Key` and the field for each field in declaration order, then `EndObject`; a union value is its variant's record with `Tag(name)` first, the variant's name as written (`Some`, `None`); a slice or tuple is `BeginList(n)`, its elements, `EndList`; a Map is an object with its keys in order. A field's key is its name with the first letter lowered (`Port` as `port`, `Some.Value` as `value`, Effect's `Schema.Option` encoded form). An integer is `Int` or `Uint` with its exact value; JSON writes the exact digits.
+docs/spec/types.md	2. **encode and decode.** `encode(v, w)` writes the events of `v`'s wire form on `w`, a value of the prelude's operation type `Writer`; `decode[T](r)` reads a `T` from `r`, a `Reader`. Both are predeclared, as `len` is, and take a wire type, which may hold a type parameter under `wire` (rule 6). The events: a record is `BeginObject(n)`, then `Key` and the field for each field in declaration order, then `EndObject`; a union value is its variant's record with `Tag(name)` first, the variant's name as written (`Some`, `None`); a slice or tuple is `BeginList(n)`, its elements, `EndList`; a Map is an object with its keys in order. A field's key is its name with its leading run of capitals lowered (`Port` as `port`, `Some.Value` as `value`, Effect's `Schema.Option` encoded form; `ID` as `id`, `URL` as `url`, `X` as `x`); a run that a lower-case letter follows keeps its last capital, which starts the next word (`HTTPStatus` as `httpStatus`, `IOError` as `ioError`) (orchestrator, refining owner q81, 2026-11-10). This one function (`check.WireFieldName`) is every key mapper: the codec, the TS projection and `ergo gen rpc`. The map must be injective on each record: a record with two fields of one key (`ID` and `Id`) has no wire form, and the S108 names both fields and the key. `TestWireKeysFollowTheRule` holds the rule against a reference split into words, and the refusal exactly when two keys meet. An integer is `Int` or `Uint` with its exact value; JSON writes the exact digits.
 docs/spec/types.md	3. **Rows.** `decode[T]`'s error row is the union of what `T`'s wire form may fail, computed at the call: `WireWrongKind` always (an event of another kind, or an integer outside its type's range), `WireMissingField` when `T` reaches a record with fields or a union (whose tag may be missing), `WireUnknownTag` when it reaches a union, `Unsatisfied` when it reaches a refined type, and the row of each `ParseX` it reaches, which must be written. `encode` fails nothing.
 docs/spec/types.md	6. **Generic codecs.** `func Decode[T wire](r Reader) T fails Malformed | wired[T]` reads any wire `T`. The predeclared row former `wired[X]` (owner q80) stands in a fails row for the row of `decode[X]` (rule 3); each wire type parameter `T` that `X` reaches stays in the row as `wired[T]`, and an instance replaces it by its argument's row, so the caller of `Decode[Draft]` handles `Draft`'s failures and no others. `decode[Option[T]]` reaches a union, so its row is `wired[Option[T]]`, wider than `wired[T]`. `wired` takes one wire type and stands only in a fails row (S108 otherwise). The lowering passes a wire type parameter's codec as a witness, a struct of its encode and decode functions, so a generic codec is Go generic code with no reflection; the caller builds the witness from the argument's derived functions.
 internal/sketch/check/bindings.go	// constraint wire is not one: a declaration named wire shadows it, so wire
@@ -306,6 +316,7 @@ internal/sketch/lower/json_value_test.go	*
 internal/sketch/lower/wirevalue.go	*
 internal/sketch/std/json/value.ergo	*
 internal/sketch/std/json/num.ergo	*
+examples/jsonv/json/print.ergo	func Spelling(n json.Num) string { json.Wire(n) }
 docs/spec/stdlib.md	`IntNumber` and `Num.Wire()` are the only ways in and out, so a `Num` is
 docs/spec/stdlib.md	a wire type, alone or as a record field, and a program reads it with an
 internal/sketch/lower/testdata/mutants.json	"from": "f.wires[tp] = wit + \".Field\"",
@@ -315,3 +326,38 @@ docs/spec/stdlib.md	| `Codec` | `Codec[T wire] { MaxBytes int, MaxDepth int }` |
 docs/spec/stdlib.md	| `Encode` | `Encode[T wire](c Codec[T], v T) string` | Ergo over `JSONTake`, `JSONGive` |
 docs/spec/stdlib.md	| `Decode` | `Decode[T wire](c Codec[T], text string) T fails Malformed \| wired[T]` | Ergo over `Open`, `decode[T]` |
 docs/spec/stdlib.md	| `json` | `Schema.ts` (`parseJson`, `encode`, `decode`), `JSON.parse`/`JSON.stringify` | W5, W6, W7, W9 | `Codec[T wire]{MaxBytes, MaxDepth}` over the derived codec ([types.md, Codecs](types.md#codecs)) with `Encode` (cannot fail) and `Decode` (`fails Malformed \| wired[T]`: phase 1 checks the whole text, phase 2 is the derived `decode[T]` with each failure's path); `Text` is a `Writer`, `Reader` a `Reader`; the law `FastAgreesWithWriter` holds the compiler's fast path to the Writer path | `internal/sketch/lower.BenchmarkJSON` (a 1 KB deploy record against `encoding/json` and `encoding/json/v2` over hand structs with the same keys): encode writes bytes with no interface call per event (`lower/wirejson.go`), 7 allocations to Go's 8; decode is the Reader interface path, 97 allocations to Go's 30 (an `Env` per adapter call); ratios bench-pending on a quiet host (S-json bench-pending.md) |
+
+# network sense: Effect RPC's HTTP wire and the wire projection to TypeScript (R1)
+cmd/ergo/gen.go	*
+internal/rpcgen/rpcgen.go	*
+internal/rpcgen/loopback_test.go	*
+internal/rpcgen/held_test.go	*
+internal/sketch/std/rpc/rpc.ergo	*
+runtime/v1/rpc.go	*
+runtime/v1/rpc_test.go	*
+docs/spec/rpc.md	*
+docs/decisions.md	- **Effect RPC as a wire projection, not a target
+docs/decisions.md	TypeScript is a peer on the wire
+docs/design.md	Reopened 2026-11-10 as a wire projection, not a target
+docs/interop.md	Reopened 2026-11-10 as a wire projection, not a target
+docs/interop.md	TypeScript calls an Ergo service over Effect RPC's HTTP wire
+docs/interop.md	a TypeScript value reaches Ergo only as wire JSON
+docs/design.md	the projection of its checked operation type that Effect RPC's wire carries
+docs/spec/README.md	9. [rpc.md](rpc.md): std `rpc`, Effect RPC's HTTP wire
+docs/spec/stdlib.md	The package, the wire and the int rule are in [rpc.md](rpc.md).
+PRIOR_ART.md	The HTTP wire Ergo speaks
+PRIOR_ART.md	serves a contract's wire projection to `tsc`
+examples/limiter/limits/limitsrpc/client.ergo	*
+examples/limiter/limits/limitsrpc/server.ergo	*
+examples/limiter/limits/limitsrpc/wire.ergo	*
+examples/limiter/loopback/loopback.ergo	*
+examples/limiter/README.md	is the same limiter through the wire
+examples/limiter/README.md	the laws that hold for the provider hold through the wire.
+examples/jobs-web/jobs/jobsrpc/client.ergo	*
+examples/jobs-web/jobs/jobsrpc/server.ergo	*
+examples/jobs-web/jobs/jobsrpc/wire.ergo	*
+examples/jobs-web/loopback/loopback.ergo	*
+examples/jobs-web/README.md	is the same server through the wire
+examples/jobs-web/README.md	the laws that hold for the provider hold through the wire.
+examples/jobs-web/expected-skips	runs these laws through the wire
+docs/spec/stdlib.md	a contract's laws run through the wire

@@ -1,0 +1,188 @@
+// Package bucket is the token bucket of one key as a machine. Tokens come back one per
+// RefillMs of the limiter's clock, up to Capacity; Since is the time, in
+// milliseconds, already spent toward the next one. The machine is pure:
+// a provider holds one Bucket per key and steps it.
+
+import limiter/limits
+import machines
+
+// Spec is a bucket's shape: how many tokens it holds and how fast one
+// comes back.
+type Spec { Capacity int, RefillMs int }
+
+// Bucket is one key's state.
+type Bucket { Capacity int, RefillMs int, Tokens int, Since int }
+
+// Signal is what a bucket reads: time passing, or a take.
+type Signal = Elapse{Ms int} | Spend{Cost int}
+
+// Told is what a take tells.
+type Told = Granted{Remaining int} | Short{RetryAfterMs int}
+
+// Open is a full bucket of the spec s.
+func Open(s Spec) Bucket { Bucket{Capacity: s.Capacity, RefillMs: s.RefillMs, Tokens: s.Capacity, Since: 0} }
+
+// Step moves a bucket. Time refills it, never past its capacity; a take it
+// can pay is Granted, one it cannot pay yet is Short with the exact wait;
+// a cost outside 1..Capacity is rejected, as no wait would pay it.
+func Step(b Bucket, s Signal) Decision[Bucket, Told] {
+	match s {
+	case Elapse as e:
+		Stay[Bucket]{Next: elapse(b, e.Ms)}
+	case Spend as p:
+		if p.Cost < 1 || p.Cost > b.Capacity {
+			return Reject
+		}
+		if b.Tokens >= p.Cost {
+			let next = Bucket{Capacity: b.Capacity, RefillMs: b.RefillMs, Tokens: b.Tokens - p.Cost, Since: b.Since}
+			return Emit[Bucket, Told]{Next: next, Output: Granted{Remaining: next.Tokens}}
+		}
+		Emit[Bucket, Told]{Next: b, Output: Short{RetryAfterMs: (p.Cost-b.Tokens)*b.RefillMs - b.Since}}
+	}
+}
+
+// elapse adds the tokens ms brings back. A full bucket spends no time
+// toward a token it cannot hold.
+func elapse(b Bucket, ms int) Bucket {
+	if ms <= 0 {
+		return b
+	}
+	let total = b.Since + ms
+	let tokens = b.Tokens + total/b.RefillMs
+	if tokens >= b.Capacity {
+		return Bucket{Capacity: b.Capacity, RefillMs: b.RefillMs, Tokens: b.Capacity, Since: 0}
+	}
+	Bucket{Capacity: b.Capacity, RefillMs: b.RefillMs, Tokens: tokens, Since: total % b.RefillMs}
+}
+
+// LevelOf is the bucket as a client sees it.
+func LevelOf(b Bucket) limits.Level {
+	if b.Tokens >= b.Capacity {
+		return limits.Full
+	}
+	if b.Tokens == 0 {
+		return limits.Empty{RetryAfterMs: b.RefillMs - b.Since}
+	}
+	limits.Partial{Tokens: b.Tokens}
+}
+
+// Tokens is the bucket as a machine: it starts full from its spec.
+type Tokens machine[Bucket, Signal] {
+	initial: Open,
+	step:    Step,
+
+	// NeverOverdraws: from a full bucket, no run of signals leaves a
+	// negative count.
+	law NeverOverdraws(c int, r int, signals []int) {
+		let mut b = Open(spec(c, r))
+		for n in signals {
+			b = machines.Next(b, Step(b, signal(n)))
+			if b.Tokens < 0 {
+				return false
+			}
+		}
+		true
+	},
+
+	// RefillCapsAtCapacity: no wait, however long, holds more than
+	// Capacity, and a full bucket has no time toward a next token.
+	law RefillCapsAtCapacity(c int, r int, spent int, ms int) {
+		let b = drained(spec(c, r), spent)
+		let after = elapse(b, pick(ms, 1000000))
+		after.Tokens <= after.Capacity && (after.Tokens < after.Capacity || after.Since == 0)
+	},
+
+	// RetryAfterIsExact: a Short take waits exactly RetryAfterMs: one
+	// millisecond less is still Short, and then it is Granted.
+	law RetryAfterIsExact(c int, r int, spent int, cost int) {
+		let s = spec(c, r)
+		let b = drained(s, spent)
+		let k = 1 + pick(cost, s.Capacity)
+		match told(Step(b, Spend{Cost: k})) {
+		case Some[Told] as t:
+			match t.Value {
+			case Granted:
+				true
+			case Short as w:
+				let early = elapse(b, w.RetryAfterMs-1)
+				let late = elapse(b, w.RetryAfterMs)
+				isShort(Step(early, Spend{Cost: k})) && !isShort(Step(late, Spend{Cost: k}))
+			}
+		case None:
+			false
+		}
+	},
+
+	// GrantsPlusShortsCountSpends: every take of a cost the bucket can hold
+	// tells exactly one thing, Granted or Short; only a cost outside
+	// 1..Capacity is rejected.
+	law GrantsPlusShortsCountSpends(c int, r int, costs []int) {
+		let mut b = Open(spec(c, r))
+		let mut told = 0
+		let mut fit = 0
+		for n in costs {
+			let k = n % (b.Capacity + 2)
+			if k >= 1 && k <= b.Capacity {
+				fit = fit + 1
+			}
+			let d = Step(b, Spend{Cost: k})
+			match d {
+			case Emit[Bucket, Told]:
+				told = told + 1
+			case Enter[Bucket], Stay[Bucket], Ignore, Reject, Done[Told]:
+			}
+			b = machines.Next(b, d)
+		}
+		told == fit
+	},
+}
+
+// pick is n in 0..m-1, for every n: no draw overflows.
+func pick(n int, m int) int { ((n % m) + m) % m }
+
+// spec is a small spec drawn from two integers.
+func spec(c int, r int) Spec { Spec{Capacity: 1 + pick(c, 8), RefillMs: 1 + pick(r, 500)} }
+
+// signal is a wait or a take drawn from an integer.
+func signal(n int) Signal {
+	if n%2 == 0 {
+		return Elapse{Ms: pick(n, 1500)}
+	}
+	Spend{Cost: pick(n, 10)}
+}
+
+// drained is a full bucket of s after takes of one token, spent of them at
+// most, and some time toward the next.
+func drained(s Spec, spent int) Bucket {
+	let mut b = Open(s)
+	for _ in 0..pick(spent, s.Capacity+1) {
+		b = machines.Next(b, Step(b, Spend{Cost: 1}))
+	}
+	if b.Tokens < b.Capacity {
+		b = elapse(b, pick(spent, s.RefillMs))
+	}
+	b
+}
+
+func told(d Decision[Bucket, Told]) Option[Told] {
+	match d {
+	case Emit[Bucket, Told] as e:
+		Some[Told]{Value: e.Output}
+	case Enter[Bucket], Stay[Bucket], Ignore, Reject, Done[Told]:
+		None
+	}
+}
+
+func isShort(d Decision[Bucket, Told]) bool {
+	match told(d) {
+	case Some[Told] as t:
+		match t.Value {
+		case Short:
+			true
+		case Granted:
+			false
+		}
+	case None:
+		false
+	}
+}

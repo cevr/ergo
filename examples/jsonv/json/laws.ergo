@@ -1,91 +1,104 @@
-// The rules of the codec as laws over its two printers and its parser.
-// Each law takes any Value and first makes it one that Parse can give
-// (Lawful), since a generated Number may hold any text.
+// The rules of the printers and the parser as laws. A law draws a Tree,
+// not a std Value: a Value's number is made only by std's ParseNum or
+// IntNumber, so a generator outside std cannot build one field by field.
+// Lawful builds the Value a Tree spells.
 
+import json
 import strconv
 import strings
 
-// Lawful is v with each number's text made a JSON number and each string
-// made valid UTF-8: the values Parse returns.
-func Lawful(v Value) Value {
-	match v {
-	case Number as n:
-		if IsNumber(n.Text) {
-			return n
-		}
-		// The generator's text is almost never a number; make one of four
-		// shapes from its length, so integers, fractions and exponents
-		// all occur.
-		let k = len(n.Text)
-		let text = match k % 4 {
-		case 0:
-			strconv.Itoa(k)
-		case 1:
-			"-\(k).5"
-		case 2:
-			"\(k)e2"
-		case _:
-			"0.\(k)"
-		}
-		Number{Text: text}
-	case Text as t:
-		Text{V: strings.ToValidUTF8(t.V, "\ufffd")}
-	case Array as a:
-		let mut items = []Value{}
-		for item in a.Items {
-			items = items.Append(Lawful(item))
-		}
-		Array{Items: items}
-	case Object as o:
-		let mut members = []Member{}
-		for m in o.Members {
-			members = members.Append(Member{Key: strings.ToValidUTF8(m.Key, "\ufffd"), V: Lawful(m.V)})
-		}
-		Object{Members: members}
-	case Null:
-		v
-	case Bool:
-		v
+// Tree is the shape of a JSON value as a law draws it. A number is drawn
+// as an int64 or as parts that spell only valid numbers: a lead, a
+// fraction, an exponent and, when Long, more digits than an int64 holds.
+type Tree =
+	| TreeNull{}
+	| TreeBool{V bool}
+	| TreeInt{V int64}
+	| TreeDigits{Lead int, Frac int, Exp int, Long bool}
+	| TreeText{V string}
+	| TreeArray{Items []Tree}
+	| TreeObject{Members []TreeMember}
+
+// TreeMember is one key and its value in a drawn object.
+type TreeMember { Key string, V Tree }
+
+// magnitude is n's digits without a sign; the least int has no positive
+// twin, so the sign is cut from the text, not from the number.
+func magnitude(n int) string { strings.TrimPrefix(strconv.Itoa(n), "-") }
+
+// spelled is the number text the parts of d spell.
+func spelled(d TreeDigits) string {
+	let mut s = strconv.Itoa(d.Lead)
+	if d.Long && d.Lead != 0 {
+		s = s + "12345678901234567890123456789"
 	}
+	if d.Frac != 0 {
+		s = s + ".0" + magnitude(d.Frac)
+	}
+	if d.Exp > 0 {
+		s = s + "e+" + strconv.Itoa(d.Exp)
+	}
+	if d.Exp < 0 {
+		s = s + "E" + strconv.Itoa(d.Exp)
+	}
+	s
 }
 
-// IsNumber reports whether text is exactly one JSON number.
-func IsNumber(text string) bool {
-	let mut s = scanner{text: text, pos: 0, depth: 0}
-	if len(text) == 0 {
-		return false
+// Lawful is the std Value t spells, with each string made valid UTF-8:
+// the printers write invalid UTF-8 as U+FFFD, as jq does, so only a valid
+// string prints back to itself. ParseNum fails only if spelled makes a
+// text that is not a number; the failure then refutes the law that drew t.
+func Lawful(t Tree) json.Value fails json.Malformed {
+	match t {
+	case TreeNull:
+		json.Null
+	case TreeBool as b:
+		json.Boolean{Value: b.V}
+	case TreeInt as n:
+		json.IntNumber(n.V)
+	case TreeDigits as d:
+		try json.ParseNum(spelled(d))
+	case TreeText as s:
+		json.Str{Value: strings.ToValidUTF8(s.V, "\ufffd")}
+	case TreeArray as a:
+		let mut items = []json.Value{}
+		for item in a.Items {
+			items = items.Append(try Lawful(item))
+		}
+		json.Array{Items: items}
+	case TreeObject as o:
+		let mut members = []json.Member{}
+		for m in o.Members {
+			members = members.Append(json.Member{Key: strings.ToValidUTF8(m.Key, "\ufffd"), Value: try Lawful(m.V)})
+		}
+		json.Object{Members: members}
 	}
-	let _ = numeral(&s) catch {
-	case BadNumber:
-		return false
-	}
-	s.pos == len(text)
 }
 
 // CompactRoundTrips: the compact text of a value parses back to it.
-law CompactRoundTrips(v Value) {
-	let w = Lawful(v)
+law CompactRoundTrips(t Tree) {
+	let w = try Lawful(t)
 	try Parse(Compact(w)) == w
 }
 
 // IndentRoundTrips: the indented text parses back to the value, whatever
 // the indent of spaces and tabs.
-law IndentRoundTrips(v Value, tabs bool) {
-	let w = Lawful(v)
+law IndentRoundTrips(t Tree, tabs bool) {
+	let w = try Lawful(t)
 	let indent = if tabs { "\t" } else { "  " }
 	try Parse(Indent(w, indent)) == w
 }
 
 // IndentIsIdempotent: indenting an indented text again changes nothing.
-law IndentIsIdempotent(v Value) {
-	let once = Indent(Lawful(v), "  ")
+law IndentIsIdempotent(t Tree) {
+	let once = Indent(try Lawful(t), "  ")
 	Indent(try Parse(once), "  ") == once
 }
 
 // CompactIgnoresLayout: the compact text does not depend on the layout
 // of the text it was parsed from.
-law CompactIgnoresLayout(v Value) {
-	let w = Lawful(v)
+law CompactIgnoresLayout(t Tree) {
+	let w = try Lawful(t)
 	Compact(try Parse(Indent(w, "  "))) == Compact(w)
 }
 
@@ -93,9 +106,8 @@ law CompactIgnoresLayout(v Value) {
 // offset inside it or at its end.
 law FailuresPointIntoTheText(text string) {
 	let _ = Parse(text) catch {
-	case err:
-		let at = Offset(err)
-		return at >= 0 && at <= len(text)
+	case json.Malformed as m:
+		return m.Offset >= 0 && m.Offset <= len(text)
 	}
 	true
 }

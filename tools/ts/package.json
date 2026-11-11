@@ -1,0 +1,23 @@
+{
+  "name": "ergo-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./bun": "./bun.mjs",
+    "./node": "./node.mjs",
+    "./vite": "./vite.mjs",
+    "./esbuild": "./esbuild.mjs"
+  },
+  "typescript": {
+    "contentMapper": { "exec": ["ergo", "tsmap"], "compilerOptions": [] }
+  },
+  "dependencies": {
+    "effect": "4.1.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "7.1.0-beta",
+    "vite": "7.3.7"
+  }
+}

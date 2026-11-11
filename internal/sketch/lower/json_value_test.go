@@ -15,10 +15,13 @@ import (
 // consumes a tag), judged by hand because the mutant tool maps Go coverage
 // only, have no killer in the earlier json laws: those draw no Value.
 // JsonValueRepeatedKey is the stated rule's one row: a repeated key is
-// kept, in order.
+// kept, in order. JsonValueLeastFraction is the smallest repro of the J2
+// bug: magnitude negated the number, so a fraction drawn as the least int
+// spelled ".0-9223…", an invalid number (mutant json-value-least-frac).
 const jsonValueProbe = `import codec
 import json
 import strconv
+import strings
 
 type docNull {}
 type docBool { V bool }
@@ -33,10 +36,7 @@ type envelope { ID int, Meta json.Value }
 
 func c[T wire]() json.Codec[T] { json.Codec[T]{MaxBytes: 0, MaxDepth: 0} }
 
-func magnitude(n int) string {
-	if n < 0 { return strconv.Itoa(0 - n) }
-	strconv.Itoa(n)
-}
+func magnitude(n int) string { strings.TrimPrefix(strconv.Itoa(n), "-") }
 
 func digits(n docDigits) string {
 	let mut s = strconv.Itoa(n.Lead)
@@ -131,7 +131,7 @@ func kinds(v json.Value) int {
 }
 
 test JsonValueField(d doc, id int) {
-	let text = "{\"iD\":" + strconv.Itoa(id) + ",\"meta\":" + spell(d, "") + "}"
+	let text = "{\"id\":" + strconv.Itoa(id) + ",\"meta\":" + spell(d, "") + "}"
 	let e = json.Decode(c[envelope](), text) catch { case _: assert false; return }
 	assert e.ID == id
 	assert json.Encode(c[envelope](), e) == text
@@ -156,6 +156,10 @@ test JsonValueRepeatedKey {
 	}
 	assert json.Encode(c[json.Value](), v) == "{\"a\":1,\"a\":2}"
 }
+
+test JsonValueLeastFraction {
+	assert valueRoundTrips(docDigits{Lead: 1, Frac: -9223372036854775807 - 1, Exp: 0, Long: false})
+}
 `
 
 // TestJSONValueAgrees runs the json.Value property and its repeated-key row.
@@ -170,7 +174,7 @@ func TestJSONValueAgrees(t *testing.T) {
 	lawledger.Run(t, lawsPassed(t, jsonValueLawStatements, func(key string) string {
 		_, law, _ := strings.Cut(key, " ")
 		return "Json" + law
-	}, jsonValueProbe, out, "JsonValueField", "JsonValueRepeatedKey"))
+	}, jsonValueProbe, out, "JsonValueField", "JsonValueRepeatedKey", "JsonValueLeastFraction"))
 }
 
 var jsonValueLawStatements = map[string]string{

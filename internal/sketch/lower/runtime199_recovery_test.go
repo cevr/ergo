@@ -111,6 +111,8 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		"Actor[S, E, D].startWork -> GoShielded": "guarded",
 		// A source of Feed (MU10), a child of the runner.
 		"Actor[S, E, D].startFeed -> Go": "guarded",
+		// rpc.Answer's task per call (R1, Rm): a defect becomes the call's Die.
+		"rpcRun.start -> Go": "guarded",
 	}
 	isRT := func(f *types.Func) bool {
 		return f.Pkg() != nil && strings.HasSuffix(f.Pkg().Path(), "/runtime/rt")

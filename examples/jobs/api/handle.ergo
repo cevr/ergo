@@ -56,10 +56,10 @@ func answer(r http.Request) http.Response fails http.NotFound | WrongMethod | ht
 	match http.Match(Routes(), r.Method, r.Path) {
 	case http.NotFound as n:
 		return n
-	case http.MethodNotAllowed:
-		return WrongMethod{Allow: Allowed(r.Path)}
+	case http.MethodNotAllowed as m:
+		return WrongMethod{Allow: strings.Join(m.Allow, ", ")}
 	case http.Found as f:
-		match try endpointOf(f) {
+		match f.Route.Value {
 		case ListJobs:
 			let mut views = []View{}
 			for j in jobs.List() {
@@ -82,19 +82,8 @@ func answer(r http.Request) http.Response fails http.NotFound | WrongMethod | ht
 	}
 }
 
-// endpointOf is the endpoint whose route f found. Routes is built from
-// Endpoints, so one always is; a route of no endpoint is no route.
-func endpointOf(f http.Found) Endpoint fails http.NotFound {
-	for e in Endpoints {
-		if RouteOf(e) == f.Route {
-			return e
-		}
-	}
-	http.NotFound
-}
-
 // idOf is the job id of f's path.
-func idOf(f http.Found) int fails BadId {
+func idOf(f http.Found[Endpoint]) int fails BadId {
 	let text = match f.Params.Get("id") {
 	case Some[string] as s:
 		s.Value

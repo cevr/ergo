@@ -1,0 +1,74 @@
+// A Network delegates host authority once, then accepts runtime URLs under
+// its policy. The fixed-origin Net/Client contract remains unchanged.
+type OriginPolicy = AnyOrigin{} | Origins{Values []string}
+type RedirectPolicy = NoRedirects{} | Follow{MaxHops int}
+type OriginRefused { Origin string }
+type RedirectLimit { URL string, Limit int }
+
+// Credential is a header bound to one origin. Only ForOrigin builds it.
+type Credential { origin string, field Field }
+
+func ForOrigin(origin string, field Field) Credential fails InvalidClient {
+	let checked = checkNetwork([]string{origin}, Limits{MaxBodyBytes: 1, MaxHeaderBytes: 1, IdleTimeout: 1s, ReadHeaderTimeout: 1s, ReadBodyTimeout: 1s}) catch {
+	case InvalidLimits:
+		Unreachable("Origin uses positive limits")
+	case InvalidClient as e:
+		return e
+	}
+	Credential{origin: checked[0], field: field}
+}
+
+// URLRequest has one absolute http(s) URL. A marked credential is never a
+// public Header: the transport adds it only at its own origin, at every hop.
+type URLRequest { URL string, Method string, Header []Field, Credentials []Credential, Body string }
+
+// law-exempt: policy, credential confinement and hop limits are checked by the two-peer model TestHTTPNetworkMatchesModel; interruption by TestHTTPNetworkStops.
+type Network { SendURL(r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit }
+
+func Fetch(r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit needs Network {
+	try Network.SendURL(r)
+}
+
+// Remote is a provider of Network. Only NewNet delegates Ambient to it.
+type Remote { origins []string, anyOrigin bool, limits Limits, hops int }
+
+func NewNet(policy OriginPolicy, limits Limits, redirects RedirectPolicy) Remote fails InvalidClient | InvalidLimits needs Ambient {
+	let hops = match redirects {
+	case NoRedirects:
+		-1
+	case Follow as f:
+		if f.MaxHops < 0 { return InvalidClient{Origin: "", Reason: "MaxHops must not be negative"} }
+		f.MaxHops
+	}
+	let origins = match policy {
+	case AnyOrigin:
+		[]string{}
+	case Origins as p:
+		p.Values
+	}
+	let anyOrigin = match policy {
+	case AnyOrigin:
+		true
+	case Origins:
+		false
+	}
+	let checked = try checkNetwork(origins, limits)
+	Remote{origins: checked, anyOrigin: anyOrigin, limits: limits, hops: hops}
+}
+
+extern go ergo.local/prototype/runtime/v1.HTTPCheckNetwork func checkNetwork(origins []string, limits Limits) []string fails InvalidClient | InvalidLimits
+
+func SendURL(n Remote, r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit {
+	let mut owners = []string{}
+	let mut fields = []Field{}
+	for c in r.Credentials {
+		owners = owners.Append(c.origin)
+		fields = fields.Append(c.field)
+	}
+	try fetch(n.origins, n.anyOrigin, n.limits, n.hops, r.Method, r.URL, r.Header, owners, fields, r.Body) catch {
+	case SendFailed as f:
+		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1.HTTPFetch func fetch(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string) Response fails SendFailed | OriginRefused | RedirectLimit

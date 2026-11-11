@@ -20,28 +20,32 @@ let Usage = "usage: jsonv fmt [-indent n | -tab] [file] | jsonv min [file] | jso
 
 let commands = []flag.Command[Cmd, BadIndent]{
 	flag.Command[Cmd, BadIndent]{
-		Name:  "fmt",
-		Usage: "print the document indented, one member or item per line",
-		Set:   flag.Set{Name: "jsonv fmt", Usage: "", Flags: []flag.Flag{indentFlag, tabFlag}, Args: []flag.ArgSpec{docArg}},
-		Build: buildFormat,
+		Name:     "fmt",
+		Commands: []flag.Command[Cmd, BadIndent]{},
+		Usage:    "print the document indented, one member or item per line",
+		Set:      flag.Set{Name: "jsonv fmt", Usage: "", Flags: []flag.Flag{indentFlag, tabFlag}, Args: []flag.ArgSpec{docArg}},
+		Build:    buildFormat,
 	},
 	flag.Command[Cmd, BadIndent]{
-		Name:  "min",
-		Usage: "print the document on one line, with no white space",
-		Set:   flag.Set{Name: "jsonv min", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{docArg}},
-		Build: func(v flag.Values) Cmd { Minify{Doc: docOf(v)} },
+		Name:     "min",
+		Commands: []flag.Command[Cmd, BadIndent]{},
+		Usage:    "print the document on one line, with no white space",
+		Set:      flag.Set{Name: "jsonv min", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{docArg}},
+		Build:    func(v flag.Values) Cmd { Minify{Doc: docOf(v)} },
 	},
 	flag.Command[Cmd, BadIndent]{
-		Name:  "check",
-		Usage: "check the document against the schema and name every violation",
-		Set:   flag.Set{Name: "jsonv check", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{schemaArg, docArg}},
-		Build: buildValidate,
+		Name:     "check",
+		Commands: []flag.Command[Cmd, BadIndent]{},
+		Usage:    "check the document against the schema and name every violation",
+		Set:      flag.Set{Name: "jsonv check", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{schemaArg, docArg}},
+		Build:    buildValidate,
 	},
 	flag.Command[Cmd, BadIndent]{
-		Name:  "infer",
-		Usage: "print the narrowest schema that the document keeps",
-		Set:   flag.Set{Name: "jsonv infer", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{docArg}},
-		Build: func(v flag.Values) Cmd { Infer{Doc: docOf(v)} },
+		Name:     "infer",
+		Commands: []flag.Command[Cmd, BadIndent]{},
+		Usage:    "print the narrowest schema that the document keeps",
+		Set:      flag.Set{Name: "jsonv infer", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{docArg}},
+		Build:    func(v flag.Values) Cmd { Infer{Doc: docOf(v)} },
 	},
 }
 

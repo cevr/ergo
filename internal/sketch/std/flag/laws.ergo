@@ -22,8 +22,8 @@ type lawCommand = lawList{} | lawShow{}
 // Generics 7).
 func lawCommands() []Command[lawCommand] {
 	[]Command[lawCommand]{
-		Command[lawCommand]{Name: "list", Usage: "list", Set: lawSet(), Build: buildList},
-		Command[lawCommand]{Name: "show", Usage: "show", Set: lawSet(), Build: buildShow},
+		Command[lawCommand]{Name: "list", Usage: "list", Set: lawSet(), Build: buildList, Commands: []Command[lawCommand]{}},
+		Command[lawCommand]{Name: "show", Usage: "show", Set: lawSet(), Build: buildShow, Commands: []Command[lawCommand]{}},
 	}
 }
 
@@ -165,7 +165,7 @@ func buildRefuse(v Values) lawCommand fails lawRefused {
 // BuildFailureReaches: a Build's own failure reaches the caller of
 // ParseCommand as it is, with its value.
 law BuildFailureReaches(text string) {
-	let commands = []Command[lawCommand, lawRefused]{Command[lawCommand, lawRefused]{Name: "refuse", Usage: "refuse", Set: lawSet(), Build: buildRefuse}}
+	let commands = []Command[lawCommand, lawRefused]{Command[lawCommand, lawRefused]{Name: "refuse", Usage: "refuse", Set: lawSet(), Build: buildRefuse, Commands: []Command[lawCommand, lawRefused]{}}}
 	ParseCommand("law", "", commands, []string{"refuse", "-s=" + text}) catch {
 	case lawRefused as r:
 		return r.Text == text

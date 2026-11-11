@@ -701,6 +701,7 @@ func (c *checker) checkLaw(law *Law) {
 		}
 	}
 	c.lawBody(d.Body)
+	c.reportGoCopyWrites(d.Body)
 	law.Fails = c.types.resolve(tg.errors).known(c.types)
 	c.reportUnused(fc)
 	c.reportNeverReassigned(fc)

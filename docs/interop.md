@@ -32,7 +32,9 @@ Sources: [go/types](https://pkg.go.dev/go/types), [go/importer module-aware guid
 
 ## TypeScript integration
 
-Superseded 2026-10-26: Go is the only target, so Ergo plans no TypeScript imports, type-query bridge, content-mapper projection or JS host-value representation. The proposal that stood here is kept in Git history; its sources were [TypeScript structural compatibility](https://www.typescriptlang.org/docs/handbook/type-compatibility.html), [content mappers](https://github.com/microsoft/typescript-go/pull/4712) and the [declaration-map follow-up](https://github.com/microsoft/TypeScript/pull/63936).
+Reopened 2026-11-10 as a wire projection, not a target ([decision](decisions.md#owner-direction-2026-11-10)). TypeScript calls an Ergo service over Effect RPC's HTTP wire ([rpc.md](spec/rpc.md)), and the TypeScript types of the contract are a projection of its checked operation type, which a content mapper serves (unit R3'). Ergo still plans no TypeScript imports into Ergo, no type-query bridge and no JS host-value representation: a TypeScript value reaches Ergo only as wire JSON that the contract's codec decodes.
+
+From 2026-10-26 to 2026-11-10 this section read: superseded, Go is the only target, so Ergo plans no TypeScript imports, type-query bridge, content-mapper projection or JS host-value representation. The proposal that stood here is kept in Git history; its sources were [TypeScript structural compatibility](https://www.typescriptlang.org/docs/handbook/type-compatibility.html), [content mappers](https://github.com/microsoft/typescript-go/pull/4712) and the [declaration-map follow-up](https://github.com/microsoft/TypeScript/pull/63936).
 
 ## Behavior contracts without signature duplication
 

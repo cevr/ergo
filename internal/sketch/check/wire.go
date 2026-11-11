@@ -81,6 +81,16 @@ func (c *checker) wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
 				return "", &wireFault{t, fmt.Sprintf("is built only by its package (its field %s is unexported), which declares no %s and Wire pair", f.Name, syntax.ParseName(typeBaseName(t)))}
 			}
 		}
+		// The key map is injective on a record (H3): two fields with one
+		// key would make a decode choose between them.
+		keys := map[string]string{}
+		for _, f := range u.Fields {
+			k := WireFieldName(f.Name)
+			if other, ok := keys[k]; ok {
+				return "", &wireFault{t, fmt.Sprintf("has the fields %s and %s, which share the wire key %q; rename one", other, f.Name, k)}
+			}
+			keys[k] = f.Name
+		}
 		for _, f := range u.Fields {
 			if p, bad := c.wireWalk(f.Type, seen); bad != nil {
 				return "." + f.Name + p, bad

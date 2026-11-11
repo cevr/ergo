@@ -1,62 +1,75 @@
 > POST /jobs {"name":"build","priority":2}
 201
+Content-Length: 99
 Content-Type: application/json
 Location: /jobs/1
 {"id":1,"name":"build","priority":2,"state":"queued","created":"1970-01-01T00:00:00Z","ended":null}
 > POST /jobs {"name":"test"}
 201
+Content-Length: 98
 Content-Type: application/json
 Location: /jobs/2
 {"id":2,"name":"test","priority":0,"state":"queued","created":"1970-01-01T00:00:00Z","ended":null}
 > GET /jobs/1
 200
+Content-Length: 99
 Content-Type: application/json
 {"id":1,"name":"build","priority":2,"state":"queued","created":"1970-01-01T00:00:00Z","ended":null}
 +999
 > GET /jobs/1
 200
+Content-Length: 99
 Content-Type: application/json
 {"id":1,"name":"build","priority":2,"state":"queued","created":"1970-01-01T00:00:00Z","ended":null}
 +1
 > GET /jobs
 200
+Content-Length: 211
 Content-Type: application/json
 {"jobs":[{"id":1,"name":"build","priority":2,"state":"running","created":"1970-01-01T00:00:00Z","ended":null},{"id":2,"name":"test","priority":0,"state":"running","created":"1970-01-01T00:00:00Z","ended":null}]}
 > POST /jobs/2/cancel
 200
+Content-Length: 119
 Content-Type: application/json
 {"id":2,"name":"test","priority":0,"state":"cancelled","created":"1970-01-01T00:00:00Z","ended":"1970-01-01T00:00:01Z"}
 > POST /jobs/2/cancel
 409
+Content-Length: 48
 Content-Type: application/json
 {"error":"job 2 is cancelled and cannot cancel"}
 > DELETE /jobs/1
 409
+Content-Length: 46
 Content-Type: application/json
 {"error":"job 1 is running and cannot delete"}
 +1999
 > GET /jobs/1
 200
+Content-Length: 100
 Content-Type: application/json
 {"id":1,"name":"build","priority":2,"state":"running","created":"1970-01-01T00:00:00Z","ended":null}
 +1
 > GET /jobs/1
 200
+Content-Length: 115
 Content-Type: application/json
 {"id":1,"name":"build","priority":2,"state":"done","created":"1970-01-01T00:00:00Z","ended":"1970-01-01T00:00:03Z"}
 > POST /jobs/1/cancel
 409
+Content-Length: 43
 Content-Type: application/json
 {"error":"job 1 is done and cannot cancel"}
 > DELETE /jobs/1
 204
 > GET /jobs/1
 404
+Content-Length: 20
 Content-Type: application/json
 {"error":"no job 1"}
 > DELETE /jobs/2
 204
 > GET /jobs
 200
+Content-Length: 11
 Content-Type: application/json
 {"jobs":[]}

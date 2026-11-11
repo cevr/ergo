@@ -64,6 +64,15 @@
       "rule": "runtime.md Tests 8: the law receipt has one entry per law run, a machine's searched reachability law included.",
       "killers": ["cmd/ergo:TestTestCommand"]
     },
-    {"name":"c3-api-route-removed","origin":"L8 C3 q70","file":"cmd/ergo/inspect.go","from":"len(args) > 0 && args[0] == \"api\"","to":"len(args) > 0 && args[0] == \"disabled-api\"","rule":"The public inspect api command reaches its checked projection.","killers":["ergo:TestInspectAPIRoute"]}
+    {"name":"c3-api-route-removed","origin":"L8 C3 q70","file":"cmd/ergo/inspect.go","from":"len(args) > 0 && args[0] == \"api\"","to":"len(args) > 0 && args[0] == \"disabled-api\"","rule":"The public inspect api command reaches its checked projection.","killers":["ergo:TestInspectAPIRoute"]},
+    {
+      "name": "r3b-spell",
+      "origin": "wf10 R3b",
+      "file": "cmd/ergo/gen.go",
+      "from": "\tpath, err := importPath(abs)\n",
+      "to": "\tpath, err := importPath(abs)\n\tpath = filepath.ToSlash(dir)\n",
+      "rule": "ergo gen rpc names the contract by its resolved import path, never by how the command spelled the folder; --check from any spelling finds current files current.",
+      "killers": ["ergo:TestGenCheckReadsThePackage"]
+    }
   ]
 }

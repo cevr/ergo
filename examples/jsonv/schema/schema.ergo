@@ -6,6 +6,7 @@
 // of every violation. It is pure.
 
 import jsonv/json
+import stdjson json
 
 // Schema is what a value must be.
 type Schema = Anything{} | IsNull{} | IsBool{} | IsString{Enum []string, MinLength int} | IsNumber{Integer bool, Min Option[float64], Max Option[float64]} | IsArray{Items Schema, MinItems int} | IsObject{Props []Prop, Required []string, Closed bool}
@@ -16,17 +17,17 @@ type Prop { Name string, S Schema }
 // Infer is the narrowest schema of this language that accepts v: its
 // kind, every member of an object required and none other allowed, and
 // the items of an array joined into one schema.
-func Infer(v json.Value) Schema {
+func Infer(v stdjson.Value) Schema {
 	match v {
-	case json.Null:
+	case stdjson.Null:
 		IsNull
-	case json.Bool:
+	case stdjson.Boolean:
 		IsBool
-	case json.Number as n:
-		IsNumber{Integer: isInteger(n.Text), Min: None, Max: None}
-	case json.Text:
+	case stdjson.Num as n:
+		IsNumber{Integer: isInteger(json.Spelling(n)), Min: None, Max: None}
+	case stdjson.Str:
 		IsString{Enum: []string{}, MinLength: 0}
-	case json.Array as a:
+	case stdjson.Array as a:
 		if len(a.Items) == 0 {
 			return IsArray{Items: Anything, MinItems: 0}
 		}
@@ -35,11 +36,11 @@ func Infer(v json.Value) Schema {
 			items = Join(items, Infer(item))
 		}
 		IsArray{Items: items, MinItems: 0}
-	case json.Object as o:
+	case stdjson.Object as o:
 		let mut props = []Prop{}
 		let mut names = []string{}
 		for m in o.Members {
-			let s = Infer(m.V)
+			let s = Infer(m.Value)
 			let at = indexOf(props, m.Key)
 			if at < 0 {
 				props = props.Append(Prop{Name: m.Key, S: s})

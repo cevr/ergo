@@ -100,6 +100,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		jobs = append(jobs, Job{Path: path, Ledger: l, Select: sel})
+		addScope(&cfg, scopeOf(cfg.Root, path))
 	}
 	if cfg.Cover, cfg.Tools, cfg.Suites, err = suitesFor(cfg.Root, jobs); err != nil {
 		fmt.Fprintf(stderr, "mutants: %v\n", err)
@@ -146,6 +147,59 @@ func ledgerPath(root, arg string) string {
 		return filepath.Join(root, "internal", "sketch", arg, "testdata", "mutants.json")
 	}
 	return filepath.Join(arg, "testdata", "mutants.json")
+}
+
+// scope is what judges the mutants of one ledger: the packages whose
+// blocks the coverage pass records, the tools, and the suites it runs.
+type scope struct {
+	cover  []string
+	tools  []Tool
+	suites []Suite
+}
+
+// scopeOf is the scope of the ledger at path. The checker's and the
+// lowering's ledgers take ergoSuites. Any other ledger, at
+// DIR/testdata/mutants.json, is its own package's: the coverage pass
+// records DIR's blocks over DIR's own tests, the suite named DIR (its
+// killers are DIR:Test…). A mutant of such a package's source is in no
+// block of check or lower, so under ergoSuites it was uncovered, after a
+// coverage pass over every check, lower and std test and every example
+// (M1: 21 minutes for runtime/v1's client mutants).
+func scopeOf(root, path string) scope {
+	absRoot, err1 := filepath.Abs(root)
+	dir, err2 := filepath.Abs(filepath.Dir(filepath.Dir(path)))
+	rel, err := filepath.Rel(absRoot, dir)
+	err = errors.Join(err1, err2, err)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		cover, tools, suites := ergoSuites()
+		return scope{cover, tools, suites}
+	}
+	rel = filepath.ToSlash(rel)
+	switch rel {
+	case "internal/sketch/check", "internal/sketch/lower":
+		cover, tools, suites := ergoSuites()
+		return scope{cover, tools, suites}
+	}
+	return scope{cover: []string{"./" + rel}, suites: []Suite{{Name: rel, Package: "./" + rel}}}
+}
+
+// addScope adds s to cfg's packages, tools and suites, once each.
+func addScope(cfg *Config, s scope) {
+	for _, c := range s.cover {
+		if !slices.Contains(cfg.Cover, c) {
+			cfg.Cover = append(cfg.Cover, c)
+		}
+	}
+	for _, t := range s.tools {
+		if !slices.ContainsFunc(cfg.Tools, func(u Tool) bool { return u.Name == t.Name }) {
+			cfg.Tools = append(cfg.Tools, t)
+		}
+	}
+	for _, x := range s.suites {
+		if !slices.ContainsFunc(cfg.Suites, func(u Suite) bool { return u.Name == x.Name }) {
+			cfg.Suites = append(cfg.Suites, x)
+		}
+	}
 }
 
 // ergoSuites are the suites that judge the checker's and the lowering's

@@ -1,0 +1,124 @@
+// Package job is one job's life as a machine. A job is queued, runs its
+// steps one tick at a time, and ends Finished, Failed at its FailAt step,
+// or Cancelled. The machine is pure: a provider holds one Run per job and
+// steps it.
+
+import jobsweb/jobs
+import machines
+
+// Run is one job's spec and where it is.
+type Run { Spec jobs.Spec, State jobs.State }
+
+// Signal is what a job reads: a tick of the worker, or a cancel.
+type Signal = Tick{} | Cancel{}
+
+// Open is a queued job of the spec s.
+func Open(s jobs.Spec) Run { Run{Spec: s, State: jobs.Queued} }
+
+// Step moves a job. A tick starts a queued job and runs a running one a
+// step, ending it at its last step (Finished) or at its FailAt step
+// (Failed); the end is emitted. An ended job ignores a tick. A cancel
+// ends a job that has not ended (Cancelled, emitted) and is rejected
+// once it has: there is nothing left to stop.
+func Step(r Run, s Signal) Decision[Run, jobs.State] {
+	match s {
+	case Tick:
+		match r.State {
+		case jobs.Queued:
+			Stay[Run]{Next: at(r, jobs.Running{Step: 0, Of: r.Spec.Steps})}
+		case jobs.Running as g:
+			let next = g.Step + 1
+			if next == r.Spec.FailAt {
+				return end(r, jobs.Failed{Why: "step \(next) of \(g.Of) failed"})
+			}
+			if next >= g.Of {
+				return end(r, jobs.Finished)
+			}
+			Stay[Run]{Next: at(r, jobs.Running{Step: next, Of: g.Of})}
+		case jobs.Finished, jobs.Failed, jobs.Cancelled:
+			Ignore
+		}
+	case Cancel:
+		if jobs.Terminal(r.State) {
+			return Reject
+		}
+		end(r, jobs.Cancelled)
+	}
+}
+
+func at(r Run, s jobs.State) Run { Run{Spec: r.Spec, State: s} }
+
+func end(r Run, s jobs.State) Decision[Run, jobs.State] {
+	Emit[Run, jobs.State]{Next: at(r, s), Output: s}
+}
+
+// View is the job id as a client sees it.
+func View(id int, r Run) jobs.Job { jobs.Job{ID: id, Name: r.Spec.Name, State: r.State} }
+
+// Lifecycle is a job as a machine: it starts queued from its spec.
+type Lifecycle machine[Run, Signal] {
+	initial: Open,
+	step:    Step,
+
+	// TerminalAbsorbs: once a job has ended, no signal changes its state.
+	law TerminalAbsorbs(steps int, failAt int, signals []int) {
+		let mut r = Open(spec(steps, failAt))
+		let mut ended = false
+		for n in signals {
+			let before = r.State
+			r = machines.Next(r, Step(r, signal(n)))
+			if ended && r.State != before {
+				return false
+			}
+			ended = jobs.Terminal(r.State)
+		}
+		true
+	},
+
+	// ProgressMonotone: no signal moves a job back.
+	law ProgressMonotone(steps int, failAt int, signals []int) {
+		let mut r = Open(spec(steps, failAt))
+		for n in signals {
+			let next = machines.Next(r, Step(r, signal(n)))
+			if jobs.Rank(next.State) < jobs.Rank(r.State) {
+				return false
+			}
+			r = next
+		}
+		true
+	},
+
+	// OneTerminalPerJob: a job emits at most one end, and it emits the
+	// state it ends in.
+	law OneTerminalPerJob(steps int, failAt int, signals []int) {
+		let mut r = Open(spec(steps, failAt))
+		let mut ends = 0
+		for n in signals {
+			let d = Step(r, signal(n))
+			r = machines.Next(r, d)
+			match d {
+			case Emit[Run, jobs.State] as e:
+				ends = ends + 1
+				if e.Output != r.State || !jobs.Terminal(e.Output) {
+					return false
+				}
+			case Enter[Run], Stay[Run], Ignore, Reject, Done[jobs.State]:
+			}
+		}
+		ends <= 1
+	},
+}
+
+// spec is a spec of one to five steps, from any two ints.
+func spec(steps int, failAt int) jobs.Spec {
+	let n = 1 + ((steps%5)+5)%5
+	jobs.Spec{Name: "law", Steps: n, FailAt: ((failAt % (n + 1)) + (n + 1)) % (n + 1)}
+}
+
+// signal is mostly ticks, and a cancel one time in five.
+func signal(n int) Signal {
+	if ((n%5)+5)%5 == 0 {
+		return Cancel
+	}
+	Tick
+}

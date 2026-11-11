@@ -64,14 +64,31 @@ func (c *coverage) test(id string) *covTest {
 
 // covering returns the tests that run a block of file between lines lo and
 // hi, and the extra tests that exist, without the tests that fail on the
-// unmutated tree.
-func (c *coverage) covering(file string, lo, hi int, extra []string) map[string]bool {
+// unmutated tree. A header line (headerLine: a case or an else if) that is
+// in no block takes the tests of the block that ends last before it.
+func (c *coverage) covering(file string, lo, hi int, header bool, extra []string) map[string]bool {
 	out := map[string]bool{}
-	for _, b := range c.Files[file] {
+	var before *covBlock
+	inBlock := false
+	for k, b := range c.Files[file] {
 		if b.Start <= hi && b.End >= lo {
+			inBlock = true
 			for _, i := range b.Tests {
 				out[c.Tests[i].ID] = true
 			}
+		}
+		if b.End < lo && (before == nil || b.End >= before.End) {
+			before = &c.Files[file][k]
+		}
+	}
+	// A line in no block is a header the cover tool counts with no block
+	// of its own (a case of a tagless switch, an else if): the code that
+	// reaches it runs it, so the block that ends last before it stands
+	// for it (M1: runtime/v1's case errors.Is(err, ECONNREFUSED) was
+	// uncovered).
+	if header && !inBlock && before != nil {
+		for _, i := range before.Tests {
+			out[c.Tests[i].ID] = true
 		}
 	}
 	for _, id := range extra {

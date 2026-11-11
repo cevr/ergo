@@ -20,7 +20,9 @@ import (
 //     SetHostCopyAlwaysForTest copies every one, the reference lowering;
 //   - the last argument of a variadic Go function is spread (xs...);
 //   - a result that holds a Map or slice is copied unless the reviewed
-//     table freshGoResults says Go made it new (strings.Split);
+//     table freshGoResults says Go made it new (strings.Split), or another
+//     Go call takes it as an operand (w.Header().Set: goShares), when it
+//     is never an Ergo value and stays Go's, so a write reaches Go;
 //   - a nullable Go result (a pointer, an interface) whose Ergo type is
 //     Option[T] is None when nil; a go.Ref[S] result that is nil with a nil
 //     error is a defect naming the call (v1.GoNilDefect);
@@ -311,7 +313,7 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 		fc.line("\tpanic(&" + fc.l.rt() + ".GoNilDefect{Func: " + strconv.Quote(name) + ", At: " + strconv.Quote(fc.l.siteText(x)) + "})")
 		fc.line("}")
 		return r
-	case fc.l.holdsValue(t) && !freshGoResults[name] && valueRule():
+	case fc.l.holdsValue(t) && !freshGoResults[name] && valueRule() && !fc.goShares(x):
 		return fc.cloneValue(t, r, x)
 	}
 	return r
@@ -535,4 +537,13 @@ func (fc *funcCtx) afterGoContext(x syntax.Node, ctx bool) {
 	if ctx {
 		fc.poll(x)
 	}
+}
+
+// goShares reports a Go call or Go field read whose Map or slice only Go
+// takes, as Go holds it (values.go, goShare): w.Header() in
+// w.Header().Set(k, v), r.Header in r.Header.Set(k, v), or the value of
+// let h = w.Header() when only Go calls use h; a copy would lose the write.
+func (fc *funcCtx) goShares(x syntax.Node) bool {
+	e, ok := x.(syntax.Expr)
+	return ok && fc.l.valueFacts().goShare[e]
 }

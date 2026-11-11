@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -34,7 +35,7 @@ func BenchmarkHTTPServer(b *testing.B) {
 				if mode == "ergo" {
 					s := NewScope(rt.Root("HTTP benchmark"))
 					h := Go(&s, "Serve", func(ct *rt.Task) (struct{}, error) {
-						return struct{}{}, HTTPServe("request", ct, &Listener{ln: ln}, HTTPLimits{4096, 4096}, func(_ *rt.Task, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
+						return struct{}{}, HTTPServe("request", ct, liveSleeper{}, &Listener{ln: ln}, serveLimits(4096, 4096), func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
 							if tooLarge || readError != "" {
 								return HTTPResponse{Status: 400}
 							}
@@ -47,7 +48,7 @@ func BenchmarkHTTPServer(b *testing.B) {
 					var mu sync.Mutex
 					var workers sync.WaitGroup
 					closing := false
-					srv := &http.Server{MaxHeaderBytes: 4096, BaseContext: func(net.Listener) context.Context { return ctx }, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					srv := &http.Server{MaxHeaderBytes: 4096, ReadHeaderTimeout: time.Hour, ReadTimeout: time.Hour, IdleTimeout: time.Hour, BaseContext: func(net.Listener) context.Context { return ctx }, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						mu.Lock()
 						if closing {
 							mu.Unlock()

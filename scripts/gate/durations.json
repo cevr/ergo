@@ -272,6 +272,9 @@
     "TestWallClockRule": 0,
     "TestWallClockStaleRow": 0
   },
+  "ergo.local/prototype/internal/rpcgen": {
+    "TestRpcLoopbackAgrees": 5.05
+  },
   "ergo.local/prototype/internal/sketch/api": {
     "TestOwnershipAPIModel": 0.06
   },
@@ -1300,6 +1303,14 @@
   },
   "ergo.local/prototype/internal/testport": {
     "TestReservedAddressAdmitsOneListenerAtATime": 0
+  },
+  "ergo.local/prototype/internal/tsproj": {
+    "TestMapperFailsClosed": 0,
+    "TestMapperOverlayDiagnostics": 0,
+    "TestProjectionIsTheWire": 0,
+    "TestProjectionRefusesUnsupported": 0,
+    "TestProjectionSourceSpans": 0,
+    "TestTsProjectionAgrees": 0
   },
   "ergo.local/prototype/prototypes/actorlib": {
     "TestAgentCallbackDefectIsADefect": 0,

@@ -1031,6 +1031,7 @@ func (c *checker) checkFuncBody(f *Func) bool {
 	}
 	c.bindRequirements(frame, d.Type)
 	c.functionBody(d.Body, name)
+	c.reportGoCopyWrites(d.Body)
 	c.reportUnused(fc)
 	c.reportNeverReassigned(fc)
 	changed := false

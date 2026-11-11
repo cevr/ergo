@@ -243,6 +243,17 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Listener.Addr":  {},
 	"Listener.Close": {},
 	"HTTPServe":      {wait: childWait},
+	// The client (H1): Do waits on the network and on the caller's stop.
+	"HTTPCheckOrigin":  {},
+	"HTTPDo":           {wait: callerWait},
+	"HTTPCheckNetwork": {},
+	"HTTPFetch":        {wait: callerWait},
+	// A streamed response (Rm): Begin and End take the exchange's lock
+	// for one step; Write checks the caller's stop, then waits on the
+	// network write and its flush, which a hang-up or Serve's stop ends.
+	"Exchange.Begin": {},
+	"Exchange.Write": {wait: callerWait},
+	"Exchange.End":   {},
 	// std machines (fs2): the defect of a timer that is not positive.
 	"MachineTimerNotPositiveAt": {},
 	// std-duration: pure bodies of duration text and arithmetic.
@@ -386,6 +397,23 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Cursor.Key":         {},
 	"Cursor.Skip":        {},
 	"Cursor.End":         {},
+	// std rpc (R1, Rm): Exits and ExitLines start and join a task per
+	// call below the caller (the request task, or a Loopback caller) and
+	// wait on the caller's stop; Call waits on the network and on the
+	// caller's stop; the others compute.
+	"RPCExits":     {wait: childWait},
+	"RPCExitLines": {wait: childWait},
+	"RPCCall":      {wait: callerWait},
+	"RPCParse":     {},
+	"RPCNextID":    {},
+	"RPCRequest":   {},
+	"RPCReadExit":  {},
+	"RPCTagged":    {},
+	"RPCTagOf":     {},
+	"RPCDie":       {},
+	"RPCRefuse":    {},
+	"RPCExact":     {},
+	"RPCExactUint": {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},

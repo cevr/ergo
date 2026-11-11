@@ -34,6 +34,97 @@
       "killers": ["lower:TestIntegerShrinksReachBoundary"],
       "anchor": {"text": "Replace(harnessGo + harnessReachGo)"}
     },
+    {"name":"cu5-credential-owner-lost", "origin":"wf10 CU5", "file":"internal/sketch/std/http/network.ergo", "from":"owners = owners.Append(c.origin)", "to":"owners = owners.Append(r.URL)", "rule":"The std provider passes each credential's declared owner to the runtime, not the request URL.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
+    {"name":"cu5-origin-row-unbound", "origin":"wf10 CU5", "file":"runtime/v1/files.go", "from":"\"http.OriginRefused\":   \"HTTPOriginRefused\",", "to":"", "rule":"The refused runtime origin is the declared std OriginRefused at the call boundary.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
+    {"name":"cu5-hop-row-unbound", "origin":"wf10 CU5", "file":"runtime/v1/files.go", "from":"\"http.RedirectLimit\":   \"HTTPRedirectLimit\",", "to":"", "rule":"The runtime hop refusal is the declared std RedirectLimit at the call boundary.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
+    {
+      "name": "cu1-version-ignored",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/command.ergo",
+      "from": "if len(args) > 0 && args[0] == \"--version\" {",
+      "to": "if false {",
+      "rule": "The root's declared --version yields its stated version.",
+      "killers": ["lower:TestFlagTreesAgree"],
+      "anchor": {"tests": ["lower:TestFlagTreesAgree"]}
+    },
+    {
+      "name": "cu1-repeated-int-ignored",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/cardinality.ergo",
+      "from": "case intValue as n:\n\t\t\tout = out.Append(n.V)",
+      "to": "case intValue as n:\n\t\t\tout = out",
+      "rule": "A repeated integer handle reads every parsed integer, including through its alias.",
+      "killers": ["lower:TestFlagTreesAgree"],
+      "anchor": {"tests": ["lower:TestFlagTreesAgree"]}
+    },
+    {
+      "name": "cu1-alias-ignored",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/flag.ergo",
+      "from": "if nameOf(f) == name || aliasOf(f) != \"\" && aliasOf(f) == name {",
+      "to": "if nameOf(f) == name {",
+      "rule": "A declared short name denotes the same handle as its long name.",
+      "killers": ["lower:TestFlagTreeLaws"],
+      "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
+    },
+    {
+      "name": "cu1-optional-default",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/cardinality.ergo",
+      "from": "func Get(f OptionalStringFlag, v Values) Option[string] {\n\tknown(v, f)\n\tmatch v.flags.Get(f.base.name) {\n\tcase None:\n\t\tNone",
+      "to": "func Get(f OptionalStringFlag, v Values) Option[string] {\n\tknown(v, f)\n\tmatch v.flags.Get(f.base.name) {\n\tcase None:\n\t\tSome[string]{Value: f.base.def}",
+      "rule": "An absent optional string is None, not an explicitly given default.",
+      "killers": ["lower:TestFlagTreeLaws"],
+      "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
+    },
+    {
+      "name": "cu1-repeat-last-only",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/cardinality.ergo",
+      "from": "listValue{V: xs.Append(x)}",
+      "to": "listValue{V: []value{x}}",
+      "rule": "Repeated keeps every occurrence in input order.",
+      "killers": ["lower:TestFlagTreeLaws"],
+      "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
+    },
+    {
+      "name": "cu1-render-loses-items",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/flag.ergo",
+      "from": "for x in stored(f, v) {",
+      "to": "for x in []value{} {",
+      "rule": "Render preserves optional presence and all repeated occurrences.",
+      "killers": ["lower:TestFlagTreeLaws"],
+      "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
+    },
+    {
+      "name": "cu1-help-no-descendants",
+      "origin": "wf10 CU1",
+      "file": "internal/sketch/std/flag/command.ergo",
+      "from": "out = out + commandHelp[C, E](path, c.Commands)",
+      "to": "out = out",
+      "rule": "Command help names every descendant's relative path.",
+      "killers": ["lower:TestFlagTreeLaws"],
+      "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
+    },
+    {
+      "name": "stream-recorder-order",
+      "origin": "wf10 Rm",
+      "file": "internal/sketch/std/http/http.ergo",
+      "from": "r.text.Update(func(s string) string { s + text })",
+      "to": "r.text.Update(func(s string) string { text + s })",
+      "rule": "A streamed body is its parts in the order they were written.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "stream-recorder-late",
+      "origin": "wf10 Rm",
+      "file": "internal/sketch/std/http/http.ergo",
+      "from": "\t\tif r.state.Get() != 1 {",
+      "to": "\t\tif false {",
+      "rule": "A BodyWriter kept past its Stream fails WriteFailed (one rule with Serve's provider).",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
     {
       "name": "http-imports-fstest",
       "origin": "wf10 G1f r2",
@@ -128,8 +219,8 @@
       "name": "http-serve-row",
       "origin": "wf10 G1",
       "file": "internal/sketch/std/http/http.ergo",
-      "from": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R) fails InvalidLimits needs R",
-      "to": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R) fails InvalidLimits",
+      "from": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R | Streaming) fails InvalidLimits needs R | Scheduler",
+      "to": "func Serve[R](l Listener, limits Limits, handle func(Request) Response needs R | Streaming) fails InvalidLimits needs Scheduler",
       "rule": "The function handler's capability row reaches the serving caller.",
       "killers": ["lower:TestHTTPHandlerRows"]
     },
@@ -149,6 +240,78 @@
       "from": "if method == \"HEAD\"",
       "to": "if method == \"NEVER\"",
       "rule": "HEAD uses a GET route only when no explicit HEAD route matches.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "go-share-result",
+      "origin": "wf10 H4",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tvf.goShare[inner] = true\n\t\t\tcontinue\n",
+      "to": "",
+      "rule": "interop.md Lowering 3 (G2): a Go call's Map result that another Go call takes is Go's own, so w.Header().Set reaches Go.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
+      "name": "go-share-clone",
+      "origin": "wf10 H4",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "valueRule() && !fc.goShares(x):",
+      "to": "valueRule():",
+      "rule": "interop.md Lowering 3 (G2): the shared result is not copied where it is bound.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
+      "name": "go-let-operand",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/lower/values.go",
+      "from": "ok && goOnly[w.vars[v]] {\n\t\t\t\tcontinue\n",
+      "to": "ok && goOnly[w.vars[v]] {\n",
+      "rule": "interop.md Lowering 3 (H5): a let that only Go calls use is Go's map where Go takes it, so h.Set reaches Go.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
+      "name": "go-let-bind",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tw.vf.goShare[init] = true\n",
+      "to": "",
+      "rule": "interop.md Lowering 3 (H5): a let that only Go calls use is not copied where it is bound.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
+      "name": "go-let-mixed",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/lower/values.go",
+      "from": "if w.info.Defs[o.id] == nil && !operand[o.id] {",
+      "to": "if o == nil {",
+      "rule": "interop.md Lowering 3 (H5): a let that the program also uses as an Ergo value is copied, so a later Go write does not reach it.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
+      "name": "go-field-ref",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t_, ref := check.GoRefElem(w.typeOf(x.X))\n\t\treturn ref\n",
+      "to": "\t\treturn false\n",
+      "rule": "interop.md Lowering 3 (H5): a Go struct's field read through a go.Ref that only Go calls take is Go's map, so r.Header.Set reaches Go.",
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+    },
+    {
+      "name": "http-allow-head",
+      "origin": "wf10 H2",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "if m == \"GET\" { withHead = withHead.Append(\"HEAD\") }",
+      "to": "if m == \"NEVER\" { withHead = withHead.Append(\"HEAD\") }",
+      "rule": "A 405's Allow names HEAD when a GET route serves it.",
+      "killers": ["lower:TestStdHTTPLawsRun"]
+    },
+    {
+      "name": "http-allow-once",
+      "origin": "wf10 H2",
+      "file": "internal/sketch/std/http/router.ergo",
+      "from": "if !slices.Contains(allow, route.Method) { allow = allow.Append(route.Method) }",
+      "to": "allow = allow.Append(route.Method)",
+      "rule": "A 405's Allow names each method once.",
       "killers": ["lower:TestStdHTTPLawsRun"]
     },
     {
@@ -1792,11 +1955,11 @@
       "name": "l11-l5",
       "origin": "wf10 v1-lang-B L11",
       "file": "internal/sketch/check/wirecall.go",
-      "from": "\treturn string(name[0]-'A'+'a') + name[1:]",
-      "to": "\treturn name",
+      "from": "\treturn string(b)\n}",
+      "to": "\treturn name\n}",
       "rule": "types.md, Codecs 2: a field's key is its name with the first letter lowered (Effect's Schema.Option value).",
       "killers": [
-        "examples:deploys"
+        "check:TestWireKeysFollowTheRule"
       ]
     },
     {
@@ -2830,6 +2993,22 @@
       "to": "false && capture != nil && len(capture.Vars) > 0",
       "rule": "Moving callback admission needs B1 ownership handles, not static value slots.",
       "killers": ["lower:TestTaskOwnershipRunModel"]
+    },
+    {
+      "name": "json-value-least-frac",
+      "origin": "wf10 J2",
+      "file": "internal/sketch/lower/json_value_test.go",
+      "from": "func magnitude(n int) string { strings.TrimPrefix(strconv.Itoa(n), \"-\") }",
+      "to": "func magnitude(n int) string {\n\tif n < 0 { return strconv.Itoa(0 - n) }\n\tstrings.TrimPrefix(strconv.Itoa(n), \"-\")\n}",
+      "rule": "The ValueRoundTrips generator spells only valid numbers: a fraction drawn as the least int is spelled without its sign, not by negating the number (std json value_laws.ergo states the same helper).",
+      "killers": [
+        "lower:TestJSONValueAgrees"
+      ],
+      "anchor": {
+        "tests": [
+          "lower:TestJSONValueAgrees"
+        ]
+      }
     }
   ]
 }

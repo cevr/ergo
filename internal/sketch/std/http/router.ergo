@@ -1,13 +1,20 @@
+import slices
 import strings
 
 // Route matches exact path segments; :name captures one non-empty segment.
 // Routes are considered in slice order. An explicit HEAD route wins over
 // a GET fallback. There is no path cleaning or implicit trailing slash.
-type Route { Name string, Method string, Path string }
-type Found { Route Route, Params Map[string, string] }
+// Value is what the route stands for (an endpoint), so a Found route
+// names its endpoint by a field read, with no lookup that could miss.
+type Route[T] { Value T, Method string, Path string }
+type Found[T] { Route Route[T], Params Map[string, string] }
 type NotFound {}
-type MethodNotAllowed {}
-type MatchResult = Found | NotFound | MethodNotAllowed
+
+// MethodNotAllowed is a path that routes take with other methods: Allow
+// is those methods, each once, in route order, with HEAD after GET when
+// GET serves it, as RFC 9110 asks of a 405's Allow header.
+type MethodNotAllowed { Allow []string }
+type MatchResult[T] = Found[T] | NotFound | MethodNotAllowed
 
 func parameters(pattern string, path string) Option[Map[string, string]] {
 	let want = strings.Split(pattern, "/")
@@ -25,13 +32,13 @@ func parameters(pattern string, path string) Option[Map[string, string]] {
 	Some{params}
 }
 
-func Match(routes []Route, method string, path string) MatchResult {
-	let mut pathFound = false
+func Match[T](routes []Route[T], method string, path string) MatchResult[T] {
+	let mut allow = []string{}
 	for route in routes {
 		match parameters(route.Path, path) {
 		case Some as p:
-			pathFound = true
 			if route.Method == method { return Found{Route: route, Params: p.Value} }
+			if !slices.Contains(allow, route.Method) { allow = allow.Append(route.Method) }
 		case None:
 		}
 	}
@@ -46,18 +53,55 @@ func Match(routes []Route, method string, path string) MatchResult {
 			}
 		}
 	}
-	if pathFound { MethodNotAllowed } else { NotFound }
+	if len(allow) == 0 { return NotFound }
+	if slices.Contains(allow, "HEAD") { return MethodNotAllowed{Allow: allow} }
+	let mut withHead = []string{}
+	for m in allow {
+		withHead = withHead.Append(m)
+		if m == "GET" { withHead = withHead.Append("HEAD") }
+	}
+	MethodNotAllowed{Allow: withHead}
 }
 
 // BuiltPathMatches is the route-construction law for two path segments.
 // Empty strings and strings with a slash are not one path segment.
 law BuiltPathMatches(a string, b string) {
 	if a == "" || b == "" || strings.Contains(a, "/") || strings.Contains(b, "/") { return true }
-	let route = Route{Name: "pair", Method: "GET", Path: "/:a/:b"}
-	match Match([]Route{route}, "GET", "/"+a+"/"+b) {
+	let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b"}
+	match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) {
 	case Found as f:
 		f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b}
 	case NotFound, MethodNotAllowed:
 		false
+	}
+}
+
+// AllowIsWhatMatches: for routes of one path with generated methods, a
+// method is in a 405's Allow exactly when Match finds a route for it, and
+// Allow names each method once.
+law AllowIsWhatMatches(picks []int, asked int) {
+	let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"}
+	let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] }
+	let mut routes = []Route[int]{}
+	for i, p in picks {
+		routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id"})
+	}
+	match Match(routes, pick(asked), "/r/7") {
+	case Found, NotFound:
+		true
+	case MethodNotAllowed as m:
+		for i, a in m.Allow {
+			if slices.Contains(m.Allow[i+1:], a) { return false }
+		}
+		for name in methods {
+			let found = match Match(routes, name, "/r/7") {
+			case Found:
+				true
+			case NotFound, MethodNotAllowed:
+				false
+			}
+			if found != slices.Contains(m.Allow, name) { return false }
+		}
+		true
 	}
 }

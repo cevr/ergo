@@ -1,0 +1,90 @@
+// The client half: one buffered request to one origin. Effect HttpClient's
+// purpose is a request that keeps its failures typed and that a test can
+// replace; here Net is an operation type a context binds, the failure is
+// a closed union and the caller's scope is the only time limit, so there
+// is no service tag, layer, middleware chain or implicit timeout.
+
+// InvalidClient is an origin that is not scheme://authority (http or
+// https), or a budget that is not positive.
+type InvalidClient { Origin string, Reason string }
+
+// The causes of a failed request. Refused: nothing accepted the
+// connection. Transport: the exchange broke after it started, or the
+// response was not HTTP. TooLarge: the response's header or body went
+// over its budget. Malformed: the request cannot be sent (a method or
+// header name that is not a token, a path without "/", a refused body).
+type Refused { Reason string }
+type Transport { Reason string }
+type TooLarge { Limit int }
+type Malformed { Reason string }
+type Cause = Refused | Transport | TooLarge | Malformed
+type RequestFailed { Cause Cause }
+
+// Net sends one buffered request and returns the whole response. A stop
+// of the caller ends Send with the stop, after the exchange let go.
+// law-exempt: a provider is a peer; the loopback model property and the in-memory Handler hold Send's rules.
+type Net { Send(r Request) Response fails RequestFailed }
+
+// Do sends r through the bound Net (Gleam httpc's send, Effect
+// HttpClient.execute).
+func Do(r Request) Response fails RequestFailed needs Net { try Net.Send(r) }
+
+// Client is the host's Net for one origin. Its fields are this
+// package's, so only NewClient makes one.
+type Client { origin string, limits Limits }
+
+// NewClient is a Net to origin (scheme://authority) whose responses have
+// at most limits.MaxHeaderBytes of header and limits.MaxBodyBytes of body.
+// No request is made until a Send.
+func NewClient(origin string, limits Limits) Client fails InvalidClient | InvalidLimits needs Ambient {
+	try checkOrigin(origin, limits)
+	Client{origin: origin, limits: limits}
+}
+
+extern go ergo.local/prototype/runtime/v1.HTTPCheckOrigin func checkOrigin(origin string, limits Limits) fails InvalidClient | InvalidLimits
+
+// Send joins r.Path and r.Query to the origin and sends r. Redirects are
+// responses; there is no retry and no timeout of its own.
+func Send(c Client, r Request) Response fails RequestFailed {
+	let text = match r.Body {
+	case Buffered as b:
+		b.Text
+	case BodyTooLarge, BodyReadFailed:
+		return RequestFailed{Cause: Malformed{Reason: "a request sends a Buffered body"}}
+	}
+	send(c.origin, c.limits, r.Method, r.Path, r.Query, r.Header, text) catch {
+	case SendFailed as f:
+		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
+	}
+}
+
+// SendFailed is the host's form of a RequestFailed: one record for the four
+// causes (a Go type cannot be a union variant), which Send turns into the
+// Cause; no other function fails with it. causeOf names: Kind 0 Refused, 1 Transport, 2 TooLarge, 3 Malformed.
+type SendFailed { Kind int, Reason string, Limit int }
+
+func causeOf(kind int, reason string, limit int) Cause {
+	if kind == 0 {
+		Refused{Reason: reason}
+	} else if kind == 1 {
+		Transport{Reason: reason}
+	} else if kind == 2 {
+		TooLarge{Limit: limit}
+	} else {
+		Malformed{Reason: reason}
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1.HTTPDo func send(origin string, limits Limits, method string, path string, query []Field, header []Field, body string) Response fails SendFailed
+
+// Handler is a Net with no socket: Send calls handle under a Recorder, as
+// Serve would call it, and never fails. A test binds it so a client is
+// checked against its server in memory.
+type Handler { handle escaping func(Request) Response needs Streaming }
+
+// InMemory is a Net that answers with handle.
+func InMemory(handle escaping func(Request) Response needs Streaming) Handler { Handler{handle: handle} }
+
+func Send(h Handler, r Request) Response fails RequestFailed {
+	with context { Streaming: NewRecorder() } { h.handle(r) }
+}

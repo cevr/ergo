@@ -1,0 +1,1 @@
+ts/jobs.ts(20,49): error TS2339: Property 'of' does not exist on type '{ readonly _tag: "Running"; readonly step: number; readonly total: number; }'.

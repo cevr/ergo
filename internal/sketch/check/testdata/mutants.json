@@ -242,6 +242,17 @@
       "killers": ["check:TestOwnershipFlowModel"]
     },
     {
+      "name": "seal-callback-params",
+      "origin": "wf10 Rm",
+      "file": "internal/sketch/check/extern.go",
+      "from": "if ft, ok := p.Type.(*syntax.FuncType); ok && ft.Params != nil {",
+      "to": "if ft, ok := p.Type.(*syntax.FuncType); false && ok && ft.Params != nil {",
+      "rule": "A std operation type the host hands a program through an extern's callback (http.Exchange) is sealed: the runtime's Go type, never a program interface.",
+      "killers": [
+        "lower:TestHTTPHandlerRows"
+      ]
+    },
+    {
       "name": "existing-0-B1 rowText prints commas",
       "origin": "196n/mutants-b.json",
       "file": "internal/sketch/check/typeops.go",
@@ -2310,6 +2321,60 @@
       "to": "if false && blocks {",
       "rule": "A root cannot be taken while its keeper may still run.",
       "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "rpc-c2 wire keys keep their case",
+      "origin": "wf10 r-ts-rpc R1",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\tb[i] += 'a' - 'A'",
+      "to": "\t\t_ = b[i]",
+      "rule": "stdlib.md, json 1 (owner q81; types.md Codecs 2, H3): a record's keys are its field names with the leading capitals lowered, Option's value as value, which Effect's Schemas read.",
+      "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "wire-initialism-last-capital",
+      "origin": "wf10 H3",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\t\tn-- // the run's last capital starts the next word",
+      "to": "",
+      "rule": "types.md Codecs 2: a capital run that a lower-case letter follows keeps its last capital (HTTPStatus as httpStatus).",
+      "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "wire-initialism-whole-run",
+      "origin": "wf10 H3",
+      "file": "internal/sketch/check/wirecall.go",
+      "from": "\tfor i := 0; i < n; i++ {",
+      "to": "\tfor i := 0; i < n && i < 1; i++ {",
+      "rule": "types.md Codecs 2: the whole leading initialism is lowered (ID as id, URL as url).",
+      "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "wire-key-clash",
+      "origin": "wf10 H3",
+      "file": "internal/sketch/check/wire.go",
+      "from": "\t\t\tif other, ok := keys[k]; ok {",
+      "to": "\t\t\tif other, ok := keys[k]; ok && false {",
+      "rule": "types.md Codecs 2: a record whose fields share a wire key has no wire form; the S108 names both fields and the key.",
+      "killers": ["check:TestWireKeysFollowTheRule"]
+    },
+    {
+      "name": "gocopy-ergo-use",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/check/gocopy.go",
+      "from": "held[v] && ergoUse[v] {",
+      "to": "held[v] {",
+      "rule": "interop.md Lowering 3 (H5): only a let that is also an Ergo value is a copy; a Go-only let is Go's map, and its writing method is no error.",
+      "killers": ["check:TestGoCopyWriteIsReported"]
+    },
+    {
+      "name": "gocopy-writes",
+      "origin": "wf10 H5",
+      "file": "internal/sketch/check/gocopy.go",
+      "from": "call.Recv != nil && len(c.goResults(call)) == 0 {",
+      "to": "call.Recv != nil {",
+      "rule": "interop.md Lowering 3 (H5): a Go method with a result reads; only one with no result can only write the copy.",
+      "killers": ["check:TestGoCopyWriteIsReported"]
     }
   ]
 }

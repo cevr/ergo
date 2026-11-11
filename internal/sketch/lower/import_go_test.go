@@ -411,3 +411,71 @@ func main() needs Console | go.Foreign {
 		t.Errorf("nil go.Ref: exit %d, stdout %q, stderr:\n%s", code, stdout, firstLines(stderr, 12))
 	}
 }
+
+// TestImportGoHeaderWriteReachesGo is G2's acceptance (H4, H5): Go's own
+// Map (http.ResponseWriter.Header's result, http.Request's Header field
+// through a go.Ref) that only Go calls take goes on to them with no copy,
+// directly or through a let, so each Set reaches Go; the promised fact of
+// the lowered Go is that no copy wraps it in handle or stamp. A let that
+// the program also reads as an Ergo value (kept) is a copy, which Go's
+// later write does not reach. It builds Go because the subject is what
+// Go's recorder and request hold after the emitted calls; the checker sees
+// only Ergo.
+func TestImportGoHeaderWriteReachesGo(t *testing.T) {
+	needsBuild(t)
+	prog := mustLower(t, "go_header", `import go net/http
+import go net/http/httptest
+import go strings
+
+func handle(w http.ResponseWriter) needs go.Foreign {
+	w.Header().Set("Content-Type", "application/json")
+	let h = w.Header()
+	h.Set("X-Bound", "bound")
+	w.WriteHeader(201)
+}
+
+func stamp(r go.Ref[http.Request]) needs go.Foreign {
+	r.Header.Set("X-Field", "field")
+}
+
+func kept(w http.ResponseWriter) int needs go.Foreign {
+	let h = w.Header()
+	let before = len(h)
+	w.Header().Set("X-Later", "later")
+	len(h) - before
+}
+
+func main() needs Console | go.Foreign {
+	match httptest.NewRecorder() {
+	case Some as rec:
+		handle(rec.Value)
+		let h = rec.Value.Header()
+		Console.Println(h.Get("Content-Type") + " " + h.Get("X-Bound") + " \(kept(rec.Value))")
+	case None:
+	}
+	match strings.NewReader("") {
+	case Some as body:
+		match httptest.NewRequest("GET", "/", body.Value) {
+		case Some as r:
+			stamp(r.Value)
+			Console.Println(r.Value.Header.Get("X-Field"))
+		case None:
+		}
+	case None:
+	}
+}
+`)
+	for _, name := range []string{"handle", "stamp"} {
+		if body := goFunc(t, prog.mainGo(), name); strings.Contains(body, "Clone") {
+			t.Errorf("a copy wraps Go's Header in %s:\n%s", name, body)
+		}
+	}
+	exes := buildAll(t, []*lowered{prog}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExe(t, exes["go_header"])
+	if code != 0 || stdout != "application/json bound 0\nfield\n" {
+		t.Errorf("the recorder's and the request's headers: exit %d, stdout %q, stderr:\n%s", code, stdout, firstLines(stderr, 12))
+	}
+}

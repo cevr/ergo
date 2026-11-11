@@ -1,0 +1,20 @@
+import flag
+import io
+import os
+import routecli/cli
+import routecli/routing
+
+func main() fails os.Exit needs Ambient | Console {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	let command = cli.Parse(args) catch {
+	case flag.Version as v:
+		Console.Println(v.Text)
+		return
+	case flag.Help as h:
+		with context { io.Stdout: io.NewHost() } { io.Stdout.Print(h.Text) }
+		return
+	case err:
+		return os.Exit{Code: 2, Message: flag.Describe(err)}
+	}
+	Console.Println(routing.Describe(command))
+}

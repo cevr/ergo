@@ -4,6 +4,7 @@
   "ergo.local/prototype/internal/gobind": 2.2,
   "ergo.local/prototype/internal/migrate196": 0.6,
   "ergo.local/prototype/internal/residue": 0.6,
+  "ergo.local/prototype/internal/rpcgen": 0.9,
   "ergo.local/prototype/internal/sketch/api": 0.5,
   "ergo.local/prototype/internal/sketch/check": 61.4,
   "ergo.local/prototype/internal/sketch/lower": 93.1,
@@ -12,5 +13,6 @@
   "ergo.local/prototype/internal/sketch/syntax": 2.5,
   "ergo.local/prototype/internal/sketchfront": 3,
   "ergo.local/prototype/internal/testinputs/guard": 0.5,
+  "ergo.local/prototype/internal/tsproj": 0.8,
   "ergo.local/prototype/scripts/examples": 1.9
 }

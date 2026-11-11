@@ -354,7 +354,8 @@ func (v *jsonValidator) value(depth int) bool {
 	case c == '-' || (c >= '0' && c <= '9'):
 		return v.num()
 	}
-	return v.fail("an unexpected byte")
+	_, size := utf8.DecodeRuneInString(v.s[v.i:])
+	return v.fail("an unexpected " + strconv.Quote(v.s[v.i:v.i+size]) + " where a value belongs")
 }
 
 func (v *jsonValidator) container(depth int) bool {

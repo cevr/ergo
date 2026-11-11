@@ -688,6 +688,77 @@ func main() {
 	// The prelude's Ambient (host-authority H1): its one operation is
 	// unexported, so no program type implements it (sealedBy), though no
 	// std extern names it (unexportedStd).
+	// std http (G1, Rm): Listen's extern returns the Listener; Serve's
+	// transport hands each request's Exchange to the handler adapter.
+	"http.Listener": `import http
+
+type Mine {}
+
+func Addr(_ Mine) string { "" }
+func Close(_ Mine) {}
+func bound(_ Mine) {}
+
+func use(l http.Listener) { _ = l.Addr() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"http.Exchange": `import http
+
+type Mine {}
+
+func Begin(_ Mine, status int, header []http.Field) {}
+func Write(_ Mine, text string) fails http.WriteFailed {}
+func End(_ Mine) {}
+
+func use(x http.Exchange) { x.End() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// Streaming is open but its operations are http's own: Serve's live
+	// provider and NewRecorder are its only providers.
+	"http.Streaming": `import http
+
+type Mine {}
+
+func open(_ Mine, status int, header []http.Field) http.BodyWriter { Unreachable("mine") }
+func close(_ Mine) string { "" }
+
+func use(_ http.Streaming) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// Net (H1) is open: a test binds its own transport.
+	"http.Net": `import http
+
+type Mine {}
+
+func Send(_ Mine, r http.Request) http.Response fails http.RequestFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
+
+func use(_ http.Net) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// Network is open: a program may replace its URL transport.
+	"http.Network": `import http
+
+type Mine {}
+
+func SendURL(_ Mine, r http.URLRequest) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
+
+func use(_ http.Network) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Ambient": `type Mine {}
 
 func ambient(_ Mine) {}
@@ -732,22 +803,6 @@ func main() {
 	use(Mine)
 }
 `,
-	// std http Listener (G1): Listen's extern returns it, and its
-	// unexported bound keeps every program value out.
-	"http.Listener": `import http
-
-type Mine {}
-
-func Addr(_ Mine) string { "" }
-func Close(_ Mine) {}
-func bound(_ Mine) {}
-
-func use(l http.Listener) { l.Close() }
-
-func main() {
-	use(Mine)
-}
-`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -755,8 +810,9 @@ func main() {
 // text, not by SealedStd's S109.
 var unexportedStd = map[string]string{
 	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
-	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
 	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
+	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
+	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
 }
 
 // openStd is the std operation types a program provides: no std extern's
@@ -779,6 +835,9 @@ var openStd = map[string]bool{
 	"exec.Runner":       true,
 	"journal.Journal":   true,
 	"journal.Codec":     true,
+	"http.Streaming":    true,
+	"http.Net":          true,
+	"http.Network":      true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

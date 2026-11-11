@@ -69,3 +69,40 @@ law FilesAsksBeneath(steps []int, prefixed bool) {
 	}
 	response.Status == 200 || response.Status == 403 || response.Status == 404
 }
+
+// StreamIsItsWrites: Stream answers with its status and header, and its
+// body is every part write wrote, in order (under a Recorder, which keeps
+// what Serve's provider sends).
+law StreamIsItsWrites(status int, parts []string) {
+	let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}}
+	let response = with context { Streaming: NewRecorder() } {
+		Stream(status, header, func(w BodyWriter) fails WriteFailed {
+			for p in parts {
+				try w.Write(p)
+			}
+		})
+	}
+	let mut want = ""
+	for p in parts {
+		want = want + p
+	}
+	response == Response{Status: status, Header: header, Body: want}
+}
+
+// WriteAfterStreamFails: a BodyWriter kept past the function Stream ran
+// fails WriteFailed, and the answer does not change.
+law WriteAfterStreamFails(text string) {
+	let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{})
+	let response = with context { Streaming: NewRecorder() } {
+		Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed {
+			kept.Set([]BodyWriter{w})
+		})
+	}
+	for w in kept.Get() {
+		w.Write(text) catch {
+		case WriteFailed:
+			return response.Body == ""
+		}
+	}
+	false
+}
