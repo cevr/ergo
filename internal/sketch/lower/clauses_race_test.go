@@ -319,14 +319,18 @@ func clauseProgram(cases []clauseCase) string {
 	return b.String()
 }
 
-// TestStdCallbackClausesRace is the property above. The in-process part
-// (admission) runs in every tier; the run under -race is the full tier's.
-//
-// It builds Go because the race it guards (lang audit B, F1: two tasks
-// writing one Map) is seen only by Go's race detector in a built binary,
-// or as Go's fatal "concurrent map writes"; no in-process check observes
-// which task runs a callback, or when.
-func TestStdCallbackClausesRace(t *testing.T) {
+// TestStdCallbackClausesAdmit is the property's in-process half, in every
+// tier: each template covers its std.ArgClauses entries, a non-escaping
+// entry admits a callback that writes in place, and an escaping entry
+// refuses one by the capture rule.
+func TestStdCallbackClausesAdmit(t *testing.T) {
+	clauseAdmitted(t)
+}
+
+// clauseAdmitted checks the generated cases of the seeds in process and
+// returns the admitted ones, with the seeds.
+func clauseAdmitted(t *testing.T) ([]clauseCase, []uint64) {
+	t.Helper()
 	covered := map[string]bool{}
 	for _, tmpl := range clauseTemplates {
 		for _, k := range tmpl.keys {
@@ -379,7 +383,7 @@ func TestStdCallbackClausesRace(t *testing.T) {
 					other = true
 				}
 			}
-			replay := fmt.Sprintf("replay: go test -run TestStdCallbackClausesRace ./internal/sketch/lower -args -clauses.seeds=%d", seed)
+			replay := fmt.Sprintf("replay: go test -run TestStdCallbackClauses ./internal/sketch/lower -args -clauses.seeds=%d", seed)
 			switch {
 			case other:
 				t.Errorf("%s (seed %d): the template of %s does not check: err %v, diagnostics %v, refused %+v, panic %v\n%s\n%s", c.name, seed, tmpl.keys[0], o.err, o.diags, o.refused, o.panicked, c.src, replay)
@@ -392,10 +396,22 @@ func TestStdCallbackClausesRace(t *testing.T) {
 			}
 		}
 	}
-	if t.Failed() || testing.Short() {
+	return admitted, seeds
+}
+
+// TestStdCallbackClausesRace is the property's run: the admitted cases of
+// every seed, in one program built with -race.
+//
+// It builds Go because the race it guards (lang audit B, F1: two tasks
+// writing one Map) is seen only by Go's race detector in a built binary,
+// or as Go's fatal "concurrent map writes"; no in-process check observes
+// which task runs a callback, or when.
+func TestStdCallbackClausesRace(t *testing.T) {
+	needsBuild(t)
+	admitted, seeds := clauseAdmitted(t)
+	if t.Failed() {
 		return
 	}
-	needsBuild(t)
 	if len(admitted) == 0 {
 		t.Fatal("no generated case was admitted")
 	}
@@ -422,6 +438,8 @@ func allLateZero(out string) bool {
 
 // runRaceProgram builds o with -race and runs it once with four threads,
 // under the test kit's memory limit (runProgram).
+//
+// It builds Go because Go's race detector exists only in a built binary.
 func runRaceProgram(t *testing.T, o *lowered) (string, string, int) {
 	t.Helper()
 	m := newGoModuleDir(t)

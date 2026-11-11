@@ -6,8 +6,8 @@
       "file": "internal/sketch/std/tasks/tasks.ergo",
       "from": "f escaping func(x A) B", "to": "f func(x A) B",
       "rule": "types.md, Function values 2: a callback that runs on other tasks at the same time is escaping, so the capture rule refuses a write to the caller's let mut (lang audit B F1, probe race).",
-      "anchor": {"tests": ["std:TestExternArgumentClauses", "lower:TestStdCallbackClausesRace"]},
-      "killers": ["std:TestExternArgumentClauses", "lower:TestStdCallbackClausesRace"]
+      "anchor": {"tests": ["std:TestExternArgumentClauses", "lower:TestStdCallbackClausesAdmit"]},
+      "killers": ["std:TestExternArgumentClauses", "lower:TestStdCallbackClausesAdmit"]
     },
     {
       "name": "esc1-feed-nonescaping", "origin": "wf10 ESC1",
