@@ -34,8 +34,10 @@ import (
 // checker that admits a wrong program (an omitted part, a lost owner) is
 // caught at run time. The only assertions are the ownership promise
 // itself: every value opened is closed exactly once, never used after its
-// close, no Go file is left open (a run counts the process's files), and the static and the list release lowerings (static.go,
-// releaseLowering "scope") print the same trace and exit alike. The batch
+// close, released at its reassignment (R41), no Go file is left open (a
+// run counts the process's files), and the static and the list release
+// lowerings (static.go, releaseLowering "scope") print the same trace and
+// exit alike. The batch
 // must reach every production of the grammar in an admitted program; one
 // not reached fails by name. A failing seed is shrunk (statements
 // removed while it still fails), and prints the Ergo source, both outputs
@@ -114,7 +116,7 @@ var ogFeatures = []string{
 	"expr:if", "expr:match", "expr:catch", "catch:bad-local", "expr:with", "with:lend-local", "with:bad-local", "catch:go", "catch:go-bad-local", "catch:go-file", "catch:go-file-bad-local", "arm:local", "if:lend-local", "if:lend-local-bad", "if:lend-local-catch", "tup:give2",
 	"conv:lend", "conv:take", "conv:let", "conv:return", "conv:store", "conv:assign",
 	"variant:let", "variant:lend",
-	"stmt:let", "stmt:letmut", "stmt:assign", "stmt:lend-local", "stmt:lend-temp", "stmt:use", "stmt:take", "stmt:close",
+	"stmt:let", "stmt:letmut", "stmt:assign", "assign:release", "stmt:lend-local", "stmt:lend-temp", "stmt:use", "stmt:take", "stmt:close",
 	"stmt:if", "stmt:for", "stmt:break", "stmt:continue", "stmt:fail", "stmt:boom", "stmt:return",
 	"pat:let:tup", "pat:let:pair", "pat:let:box", "pat:let:nested",
 	"loop:values:res", "loop:values:tup", "loop:values:pair",
@@ -905,7 +907,7 @@ func (g *ogGen) stmt(d int) *ogStmt {
 	for {
 		g.pos = ""
 		g.badSince = false
-		switch g.r.IntN(25) {
+		switch g.r.IntN(27) {
 		case 24:
 			// A Go file, in run's frame only (go.Foreign is in its row,
 			// and main provides it): bound and lent, lent as a
@@ -929,6 +931,8 @@ func (g *ogGen) stmt(d int) *ogStmt {
 				// Its reassignment converts (conv:assign), or assigns a
 				// variant to its union.
 				t = []ogType{oCloser, oSlot}[g.r.IntN(2)]
+			} else if mut && g.r.IntN(2) == 0 {
+				t = oRes // its reassignment's release is traced (assign:release)
 			}
 			name := g.name("x")
 			g.pos = "let"
@@ -939,8 +943,12 @@ func (g *ogGen) stmt(d int) *ogStmt {
 				g.f("stmt:letmut")
 			}
 			// The let says mut only when a later statement reassigns it.
-			return &ogStmt{line: fmt.Sprintf("let \x00%s %s = %s", name, ogTypeName[t], e), mutVar: v}
-		case 3, 22:
+			line := fmt.Sprintf("let \x00%s %s = %s", name, ogTypeName[t], e)
+			if mut && t == oRes && g.r.IntN(2) == 0 {
+				line += "; " + g.assign(v)
+			}
+			return &ogStmt{line: line, mutVar: v}
+		case 3, 22, 25, 26:
 			var muts []*ogVar
 			for i, s := range g.scopes {
 				for _, v := range s {
@@ -953,12 +961,12 @@ func (g *ogGen) stmt(d int) *ogStmt {
 				continue
 			}
 			v := muts[g.r.IntN(len(muts))]
-			g.pos = "assign"
-			e := g.expr(v.t, 2)
-			v.st = 0
-			v.assigned = true
-			g.f("stmt:assign")
-			return &ogStmt{line: fmt.Sprintf("%s = %s", v.name, e)}
+			for _, m := range muts {
+				if m.t == oRes && m.st == 0 && g.r.IntN(2) == 0 {
+					v = m // an owned Res: its release is traced
+				}
+			}
+			return &ogStmt{line: g.assign(v)}
 		case 4, 5:
 			return g.patternLet()
 		case 6, 7, 8:
@@ -1151,6 +1159,25 @@ func (g *ogGen) stmt(d int) *ogStmt {
 
 // omit reports that a pattern drawn now leaves a part out (S108 unless
 // the checker has a hole).
+// assign reassigns the local v. The old value of an owned Res is released
+// at the assignment (R41), not at its scope's end: the trace names it
+// before, and the judge wants its close before "assigned".
+func (g *ogGen) assign(v *ogVar) string {
+	g.pos = "assign"
+	owned := v.t == oRes && v.st == 0
+	e := g.expr(v.t, 2)
+	owned = owned && v.st == 0 // e did not move the old value
+	v.st = 0
+	v.assigned = true
+	g.f("stmt:assign")
+	if !owned {
+		return fmt.Sprintf("%s = %s", v.name, e)
+	}
+	g.f("assign:release")
+	o := g.name("o")
+	return fmt.Sprintf("let %s = %s.id; note(log, \"old \\(%s)\"); %s = %s; note(log, \"assigned \\(%s)\")", o, v.name, o, v.name, e, o)
+}
+
 func (g *ogGen) omit() bool { return g.r.IntN(10) == 0 }
 
 // patternLet destructures a value by a let.
@@ -1648,6 +1675,7 @@ const ogSegment = "--- end of run"
 func ogJudgeRun(out string, div map[int]bool) string {
 	live := map[int]int{}
 	closes := map[int]int{}
+	closedAt := map[int]int{} // closes of an id when its local was reassigned
 	var faults []string
 	for _, l := range strings.Split(out, "\n") {
 		f := strings.Fields(l)
@@ -1659,6 +1687,12 @@ func ogJudgeRun(out string, div map[int]bool) string {
 			continue
 		}
 		switch f[0] {
+		case "old":
+			closedAt[id] = closes[id]
+		case "assigned":
+			if closes[id] <= closedAt[id] {
+				faults = append(faults, fmt.Sprintf("%d is not released at its reassignment", id))
+			}
 		case "leak":
 			faults = append(faults, fmt.Sprintf("%d Go files are never closed", id))
 		case "open":

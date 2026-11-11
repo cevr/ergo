@@ -1975,7 +1975,7 @@
       "to": "\tfc.line(target + \" = \" + t)",
       "rule": "resources R41: an assignment releases the old value at once.",
       "killers": [
-        "lower:TestOwnershipRunModel"
+        "lower:TestOwnershipGrammarRun"
       ]
     },
     {
