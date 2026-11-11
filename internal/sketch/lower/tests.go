@@ -708,6 +708,9 @@ func (l *lowerer) testRunner() string {
 	var b strings.Builder
 	b.WriteString("// " + l.helper("Tests") + " runs every test in source order (196l).\n")
 	b.WriteString(l.testRunnerHead(env, seed))
+	// An explored worker runs the tests once per schedule in one process,
+	// so each run starts its receipt empty: it holds each law run once.
+	b.WriteString("\t" + l.helper("Receipt") + ".laws = nil\n")
 	tests := l.runTests()
 	// --law NAME runs only the law of that title (lawTitle), and no test;
 	// --skip-law NAME runs every test and law but that one, and prints its
