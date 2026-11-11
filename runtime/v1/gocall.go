@@ -21,8 +21,12 @@ import (
 // code observes it at its next interruption point, unwinds, and runs its
 // releases, masked (I2); the call then returns ctx.Err(). A ctx that is
 // never done (context.Background) costs nothing: no goroutine and no
-// registration. A registration (context.AfterFunc) is removed before Call
-// returns, so no goroutine is left behind.
+// registration. Any other ctx gets a registration (context.AfterFunc),
+// which Call removes before it returns: a ctx not done during the call
+// starts no goroutine and leaves none. A ctx done during the call
+// interrupts the task from the goroutine context.AfterFunc starts, which
+// ends on its own once t.Interrupt returns (Go gives no way to wait for a
+// goroutine's exit; a count of goroutines just after Call is a race).
 //
 // A typed failure returns as an error whose value is the Ergo failure; a
 // defect returns as the defect error that names the Ergo call sites, as the

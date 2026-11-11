@@ -1752,6 +1752,17 @@
       }
     },
     {
+      "name": "ig11-call-watcher-leaks",
+      "origin": "wf10 batch-16a fix r4 (on base: TestGoCallsErgo counted goroutines still exiting)",
+      "file": "runtime/v1/gocall.go",
+      "from": "stop := context.AfterFunc(ctx, t.Interrupt)\n\t\tdefer stop()",
+      "to": "go func() { <-ctx.Done(); t.Interrupt() }()",
+      "rule": "interop.md Go calls Ergo: a call whose context is not done by its end leaves no goroutine and no registration.",
+      "killers": [
+        "lower:TestGoCallsErgo"
+      ]
+    },
+    {
       "name": "l11-basic-decode-unnamed",
       "origin": "wf10 batch-15 fix-r2 (L11 M1)",
       "file": "internal/sketch/lower/wire.go",
