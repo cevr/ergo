@@ -6,7 +6,7 @@
       "origin": "V2 buffered Grid.Line",
       "file": "examples/sudoku/board/grid.ergo",
       "from": "out[i] = digits[c : c+1]",
-      "to": "out[i] = digits[0:1]",
+      "to": "out[i] = digits[c-c : c-c+1]",
       "rule": "Existing LineRoundTrip detects an incorrect fragment at any filled cell.",
       "anchor": {"tests": ["board.LineRoundTrip"]},
       "killers": ["board.LineRoundTrip"]
