@@ -110,8 +110,11 @@ import (
 //  15. Hosts (mu-host; actor_host.go, the model models/host): NewHost in a
 //     step (on the runner's task) keeps the host for the entry the step's
 //     decision opens (Enter, Emit) or keeps (Stay); any other decision, a
-//     failure or a defect closes it, and a host made anywhere else is
-//     closed when made. MachineChild with a host fills it only when it is
+//     failure or a defect closes it. A host made while a durable start's
+//     recover runs (ActorRecovering, or a supervised restart's fresh) is
+//     unbound: the first entry of the actor it starts binds each one its
+//     first state holds and closes the rest (DH1, actor_recover.go). A
+//     host made anywhere else is closed when made. MachineChild with a host fills it only when it is
 //     open and the actor's (so of the open entry), under kidsMu with the
 //     adoption. stopKids closes the entry's hosts under kidsMu before it
 //     stops the children. An entry with hosts and a work is published once
@@ -233,9 +236,12 @@ type Actor[S, E, D any] struct {
 	// newHosts are the hosts the running step made (rule 15); hostSlot
 	// binds the actor to its runner's task, so NewHost finds it.
 	newHosts []hostCell
-	hostSlot rt.Slot
-	epoch    uint64
-	bound    bool // the runner's task is in owners, as nil (runner)
+	// recovered are the unbound hosts a durable recover made (DH1,
+	// actor_recover.go), for the next incarnation's first entry.
+	recovered []hostCell
+	hostSlot  rt.Slot
+	epoch     uint64
+	bound     bool // the runner's task is in owners, as nil (runner)
 }
 
 // The decisions of the prelude Decision, in the order kind gives them.
@@ -435,6 +441,9 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
 		done: make(chan struct{}), state: initial,
 		report: report, fresh: fresh, limit: limit,
+		// A durable start's recovered hosts (DH1): this actor's first
+		// entry binds or closes them.
+		recovered: handedHosts(t),
 	}
 	a.work = func(s S) (func(*rt.Task, func(E)), bool) {
 		w := workOf(s)
@@ -514,11 +523,24 @@ func (a *Actor[S, E, D]) supervise(at *rt.Task) (struct{}, error) {
 // renew gives a new incarnation its first state, fresh's, never the last
 // one: it is committed and shown to the observers before the loop opens
 // its entry.
+//
+// fresh runs as a durable start's recover does (DH1): each host it makes
+// is unbound, for the incarnation's first entry (openFirst), and all of
+// them close when fresh fails or raises.
 func (a *Actor[S, E, D]) renew(at *rt.Task) {
-	s, err := a.fresh(at)
+	rec := &recovery{}
+	ok := false
+	defer func() {
+		if !ok {
+			closeHosts(rec.take())
+		}
+	}()
+	s, err := recoverWith(at, rec, a.fresh)
 	if err != nil {
 		panic(&ActorFreshDefect{Reason: err.Error()})
 	}
+	a.recovered = rec.take()
+	ok = true
 	a.publish(s)
 }
 
@@ -532,6 +554,7 @@ func (a *Actor[S, E, D]) renew(at *rt.Task) {
 // signal of the ended incarnation's entries can be stepped.
 func (a *Actor[S, E, D]) crash(at *rt.Task) {
 	a.closeNewHosts()
+	a.closeRecovered()
 	_ = a.stopKids()
 	for _, h := range []*rt.Handle[struct{}]{a.timer, a.working} {
 		if h != nil {
@@ -596,8 +619,7 @@ func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
 		a.traceStart(at, s)
 	}
 	a.openKids()
-	a.arm(at, s)
-	a.startWork(at, s)
+	a.openFirst(at, s)
 	if at.Traced() {
 		a.traceArmed(at, s)
 	}
@@ -617,6 +639,19 @@ func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
 			return struct{}{}, err
 		}
 		a.handled.Add(1)
+	}
+}
+
+// openFirst opens an incarnation's first entry, in s: it binds the hosts
+// a durable recover made that s holds and closes the rest (DH1), arms the
+// timer and starts the work. With bound hosts and a work, it returns once
+// the work filled them, reached its first wait or ended, as open does
+// (rule 15), so the first State finds them filled.
+func (a *Actor[S, E, D]) openFirst(at *rt.Task, s S) {
+	a.bindRecovered(s)
+	a.arm(at, s)
+	if settled := a.startWork(at, s); settled != nil {
+		<-settled
 	}
 }
 
@@ -1209,8 +1244,10 @@ func ActorLiveState[S, E, D any](t *rt.Task, a *Actor[S, E, D]) (S, error) {
 // defect joins the exit), and the Changes subscribers end. It waits for nothing a stop can interrupt.
 func (a *Actor[S, E, D]) finish(exit error) {
 	a.inbox.Close()
-	// The hosts a step that raised made (rule 15).
+	// The hosts a step that raised made (rule 15), and those of a durable
+	// recover that no first entry bound (DH1).
 	a.closeNewHosts()
+	a.closeRecovered()
 	// The children first, last started first (rule 13).
 	if err := a.stopKids(); err != nil {
 		exit = join(exit, err)

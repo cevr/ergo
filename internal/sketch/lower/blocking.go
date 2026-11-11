@@ -414,7 +414,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	// MU9: keep runs a durable actor's save on the step's task (its
 	// function value takes the task) and never waits by itself.
 	"ActorKeep": {task: true},
-	"Host.Get":  {wait: callerWait},
+	// DH1: recovering runs a durable start's recover and then its start
+	// on the caller's task (their function values take it), with the
+	// task's host binding set; it never waits by itself.
+	"ActorRecovering": {task: true},
+	"Host.Get":        {wait: callerWait},
 	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
 	// on the caller's task. Its cancel hook is the stop of that task: the
 	// body kills the program's process group and waits for the reap

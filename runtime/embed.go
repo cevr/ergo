@@ -21,7 +21,7 @@ import (
 )
 
 //go:embed rt/cause.go rt/clock.go rt/doc.go rt/gocontext.go rt/handle.go rt/idle.go rt/machine.go rt/regions.go rt/run.go rt/scope.go rt/task.go rt/tasks.go rt/timeout.go rt/trace.go rt/values.go
-//go:embed v1/actor.go v1/actor_host.go v1/actor_trace.go v1/mailbox.go v1/trace.go
+//go:embed v1/actor.go v1/actor_host.go v1/actor_recover.go v1/actor_trace.go v1/mailbox.go v1/trace.go
 //go:embed rt/rttrace/encode.go rt/rttrace/jsonl.go rt/rttrace/rttrace.go
 //go:embed v1/context.go v1/data.go v1/exit.go v1/queue.go v1/runtime.go v1/task.go v1/text.go
 //go:embed v1/host.go
@@ -58,7 +58,7 @@ var packages = map[string]pkg{
 		files: []string{"cause.go", "clock.go", "doc.go", "gocontext.go", "handle.go", "idle.go", "machine.go", "regions.go", "run.go", "scope.go", "task.go", "tasks.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "mailbox.go", "moves.go", "numbers.go", "path.go", "queue.go", "rand.go", "runtime.go", "script.go", "set.go", "shrink.go", "static.go", "sync.go", "task.go", "text.go", "time.go", "timetext.go", "trace.go", "wire.go"},
+		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "collections.go", "context.go", "csv.go", "data.go", "digest.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "mailbox.go", "moves.go", "numbers.go", "path.go", "queue.go", "rand.go", "runtime.go", "script.go", "set.go", "shrink.go", "static.go", "sync.go", "task.go", "text.go", "time.go", "timetext.go", "trace.go", "wire.go"},
 		imports: []string{"runtime/rt", "runtime/rt/rttrace"},
 	},
 	"runtime/rt/rttrace": {

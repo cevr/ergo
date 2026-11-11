@@ -36,9 +36,36 @@
 // in one entry reads what the first reads (Quint keeps a list of 4 with
 // repeats; every set of at most 4 views is reached either way).
 //
+// Recovery (wf10 DH1; Machines and actors 17): the actor crashes between
+// two signals (its entry ends, so the entry's hosts close and its
+// children stop), and a durable recover replays its journal. The replay
+// makes fresh hosts, which are unbound: no entry owns them yet. The
+// recovered state holds some of them, and may hold old hosts too (a
+// snapshot's, which closed with their entry). Then the start opens the
+// recovered first entry: it binds each unbound host the state holds and
+// closes the other unbound ones; an old host stays closed.
+//
+//   - NoLeak: once the start returned, no host is unbound (a recovered
+//     host is bound to the first entry, whose end closes it, or closed).
+//
+// The machine Recovery checks every invariant with a recovery, in a
+// scope of its own: one recovery a run, entries 0 to 3 (RecMaxEntry), the
+// rest as above. Design keeps the scope above with no recovery. Both
+// searches are proved.
+//
+// GetSeesItsEntry covers the old hosts: a journal never brings back a live
+// child, so an old reader's Get of a recovered state's old host fails
+// Stopped and never gives the new entry's child.
+//
 // Mutants, each a machine whose law Breaks must hold (a shortest run that
 // breaks the invariant named; as in the Quint check, each mutant machine
 // checks only the invariant it targets):
+//   - KeepRest: the start leaves the unbound hosts the state does not hold
+//     unbound (NoLeak);
+//   - BindNone: the start binds no unbound host (NoLeak);
+//   - RebindOld: the start binds the recovered state's old hosts again, so
+//     the new work fills them and an old reader's Get gives a child of the
+//     new entry (GetSeesItsEntry).
 //   - PublishEarly: the runner publishes as soon as the entry is committed
 //     (FillBeforePublish);
 //   - FillAfterEnd: ChildIn fills any empty host the state holds, with no
@@ -50,7 +77,9 @@
 // Witnesses, each a machine whose law Reached must hold, so the invariants
 // are not vacuous: a Get gives a child; a Get fails Stopped; an entry is
 // published with an empty host because its work waited first; a state
-// carries a host into a new entry.
+// carries a host into a new entry; a Get gives a child of a recovered
+// first entry from a host the replay made; a start closes an unbound host
+// the recovered state does not hold.
 //
 // Workarounds of today's Ergo: a variant with no fields is written `H0{}`;
 // there is no slice update expression, so setInt and setBool copy a slice.
@@ -74,19 +103,24 @@ type View { H int, Owner int }
 // World is the Quint model's state. Each slice has one element per host.
 // Phase is 0 while the work runs (before its first wait), 1 once it waited
 // and 2 once it ended. HostEntry is the entry a host is bound to, -1 before
-// it is made. InState is the hosts the current state holds.
+// it is made and Unmade while it is unbound. InState is the hosts the
+// current state holds. Recovering is true between a replay and its
+// start; Recovered is the last recovered first entry (-1 for none).
 type World {
-	Epoch     int,
-	Published int,
-	Phase     int,
-	HostEntry []int,
-	Filled    []bool,
-	ChildOf   []int,
-	Closed    []bool,
-	InState   []bool,
-	Views     []View,
-	LateFill  bool,
-	BadGet    bool,
+	Epoch      int,
+	Published  int,
+	Phase      int,
+	HostEntry  []int,
+	Filled     []bool,
+	ChildOf    []int,
+	Closed     []bool,
+	InState    []bool,
+	Unbound    []bool,
+	Recovering bool,
+	Recovered  int,
+	Views      []View,
+	LateFill   bool,
+	BadGet     bool,
 }
 
 // St is the model's state: the world, a broken invariant, or a witness
@@ -94,11 +128,15 @@ type World {
 type St = Live{W World} | Broken{Why string} | Seen{What string}
 
 // Act is the actions of the Quint model.
-type Act = NewEntry{Fresh Fresh, Carry Carry} | Fill{H Host} | Work{To Phase} | Publish{} | Take{H Host} | Read{I Slot}
+type Act = NewEntry{Fresh Fresh, Carry Carry} | Fill{H Host} | Work{To Phase} | Publish{} | Take{H Host} | Read{I Slot} | Replay{Fresh Fresh, Held Fresh, Old Carry} | Start{}
 
 // The scope.
 let Hosts = 4
 let MaxEntry = 4
+
+// RecMaxEntry is the last entry of the recovery machines (DH1): one
+// recovery a run, in entries 0 to 3, keeps their search proved.
+let RecMaxEntry = 3
 let MaxViews = 4
 
 let Running = 0
@@ -110,12 +148,19 @@ let NoMutant = 0
 let PublishEarlyMutant = 1
 let FillAfterEndMutant = 2
 let GetNewerMutant = 3
+let KeepRestMutant = 4
+let BindNoneMutant = 5
+let RebindOldMutant = 6
+
+// Unmade is the HostEntry of a host made by a replay and not bound yet.
+let Unmade = -2
 
 // The invariants, as the argument of broken (Every checks them all).
 let Every = 0
 let FillBeforePublish = 1
 let NoFillAfterEnd = 2
 let GetSeesItsEntry = 3
+let NoLeak = 4
 
 func hostIx(h Host) int {
 	match h {
@@ -207,18 +252,32 @@ func insertView(vs []View, v View) []View {
 // first is the start: entry 0 with no host, published, its work ended.
 func first() St {
 	Live{W: World{
-		Epoch:     0,
-		Published: 0,
-		Phase:     HasEnded,
-		HostEntry: []int{-1, -1, -1, -1},
-		Filled:    []bool{false, false, false, false},
-		ChildOf:   []int{-1, -1, -1, -1},
-		Closed:    []bool{false, false, false, false},
-		InState:   []bool{false, false, false, false},
-		Views:     []View{},
-		LateFill:  false,
-		BadGet:    false,
+		Epoch:      0,
+		Published:  0,
+		Phase:      HasEnded,
+		HostEntry:  []int{-1, -1, -1, -1},
+		Filled:     []bool{false, false, false, false},
+		ChildOf:    []int{-1, -1, -1, -1},
+		Closed:     []bool{false, false, false, false},
+		InState:    []bool{false, false, false, false},
+		Unbound:    []bool{false, false, false, false},
+		Recovering: false,
+		Recovered:  -1,
+		Views:      []View{},
+		LateFill:   false,
+		BadGet:     false,
 	}}
+}
+
+// anyUnbound reports a host that a replay made and no start bound or
+// closed.
+func anyUnbound(w World) bool {
+	for u in w.Unbound {
+		if u {
+			return true
+		}
+	}
+	false
 }
 
 // entryFilled reports whether every host of the current entry that the
@@ -244,18 +303,32 @@ func broken(w World, only int) string {
 	if (only == Every || only == GetSeesItsEntry) && w.BadGet {
 		return "GetSeesItsEntry"
 	}
+	if (only == Every || only == NoLeak) && !w.Recovering && anyUnbound(w) {
+		return "NoLeak"
+	}
 	""
 }
 
 // next is w after the action a under the mutant m (NoMutant is the design),
 // or None when a is not enabled.
-func next(m int, w World, a Act) Option[World] {
+func next(m int, rec bool, w World, a Act) Option[World] {
+	let maxEntry = if rec { RecMaxEntry } else { MaxEntry }
+	// Between a replay and its start no actor runs: only the start and an
+	// old reader's Get are enabled.
+	if w.Recovering {
+		match a {
+		case Start:
+		case Read:
+		case _:
+			return None
+		}
+	}
 	match a {
 	case NewEntry as en:
 		// The step enters a new entry with n new hosts and the carried
 		// ones. The old entry ends: its hosts close. The runner takes no
 		// signal before it published the entry it is in.
-		if w.Published != w.Epoch || w.Epoch >= MaxEntry {
+		if w.Published != w.Epoch || w.Epoch >= maxEntry {
 			return None
 		}
 		let carry = carried(en.Carry)
@@ -366,15 +439,101 @@ func next(m int, w World, a Act) Option[World] {
 			return None
 		}
 		Some[World]{Value: World{..w, BadGet: w.BadGet || w.ChildOf[v.H] != v.Owner}}
+	case Replay as r:
+		// The actor crashes between two signals: its entry ends, so the
+		// entry's hosts close. The recover replays the journal: it makes
+		// n fresh hosts, unbound, and gives a state that holds Held of
+		// them (the first ones: the fresh hosts are equal in every field,
+		// so which ones is a symmetry) and the Old ones of the crashed
+		// state's hosts (a snapshot's).
+		// One recovery a run: the scope (a second recovery is the first
+		// one's case again, from a later entry).
+		if !rec || w.Published != w.Epoch || w.Epoch >= maxEntry || w.Recovered >= 0 {
+			return None
+		}
+		let old = carried(r.Old)
+		let mut fresh = []bool{false, false, false, false}
+		let mut held = []bool{false, false, false, false}
+		let mut want = freshN(r.Fresh)
+		let mut hold = freshN(r.Held)
+		if hold > want {
+			return None
+		}
+		for h in 0..Hosts {
+			if old[h] && !w.InState[h] {
+				return None
+			}
+			if want > 0 && w.HostEntry[h] == -1 {
+				fresh = setBool(fresh, h, true)
+				want = want - 1
+				if hold > 0 {
+					held = setBool(held, h, true)
+					hold = hold - 1
+				}
+			}
+		}
+		if want > 0 {
+			return None
+		}
+		let mut hostEntry = []int{}
+		let mut closed = []bool{}
+		let mut inState = []bool{}
+		let mut unbound = []bool{}
+		for h in 0..Hosts {
+			hostEntry = hostEntry.Append(if fresh[h] { Unmade } else { w.HostEntry[h] })
+			closed = closed.Append(if w.HostEntry[h] == w.Epoch { true } else { w.Closed[h] })
+			inState = inState.Append(held[h] || old[h])
+			unbound = unbound.Append(fresh[h] || w.Unbound[h])
+		}
+		Some[World]{Value: World{..w,
+			Phase:      HasEnded,
+			HostEntry:  hostEntry,
+			Closed:     closed,
+			InState:    inState,
+			Unbound:    unbound,
+			Recovering: true,
+		}}
+	case Start:
+		// The start opens the recovered first entry: it binds each
+		// unbound host the state holds and closes the other unbound ones.
+		// An old host stays closed. KeepRest, BindNone and RebindOld are
+		// the mutants.
+		if !w.Recovering {
+			return None
+		}
+		let e = w.Epoch + 1
+		let mut hostEntry = []int{}
+		let mut closed = []bool{}
+		let mut filled = []bool{}
+		let mut unbound = []bool{}
+		for h in 0..Hosts {
+			let bind = w.Unbound[h] && w.InState[h] && m != BindNoneMutant
+			let close = w.Unbound[h] && !w.InState[h] && m != KeepRestMutant
+			let rebind = m == RebindOldMutant && w.InState[h] && !w.Unbound[h]
+			hostEntry = hostEntry.Append(if bind || rebind { e } else { w.HostEntry[h] })
+			closed = closed.Append(if close { true } else { if rebind { false } else { w.Closed[h] } })
+			filled = filled.Append(if rebind { false } else { w.Filled[h] })
+			unbound = unbound.Append(w.Unbound[h] && !bind && !close)
+		}
+		Some[World]{Value: World{..w,
+			Epoch:      e,
+			Phase:      Running,
+			HostEntry:  hostEntry,
+			Closed:     closed,
+			Filled:     filled,
+			Unbound:    unbound,
+			Recovering: false,
+			Recovered:  e,
+		}}
 	}
 }
 
 // stepWith is the step of the model under the mutant m, which checks the
 // invariants only selects.
-func stepWith(m int, only int, s St, a Act) Decision[St, string] {
+func stepWith(m int, only int, rec bool, s St, a Act) Decision[St, string] {
 	match s {
 	case Live as l:
-		match next(m, l.W, a) {
+		match next(m, rec, l.W, a) {
 		case None:
 			Ignore
 		case Some[World] as n:
@@ -390,15 +549,28 @@ func stepWith(m int, only int, s St, a Act) Decision[St, string] {
 	}
 }
 
-func stepDesign(s St, a Act) Decision[St, string]       { stepWith(NoMutant, Every, s, a) }
-func stepPublishEarly(s St, a Act) Decision[St, string] { stepWith(PublishEarlyMutant, FillBeforePublish, s, a) }
-func stepFillAfterEnd(s St, a Act) Decision[St, string] { stepWith(FillAfterEndMutant, NoFillAfterEnd, s, a) }
-func stepGetNewer(s St, a Act) Decision[St, string]     { stepWith(GetNewerMutant, GetSeesItsEntry, s, a) }
+func stepDesign(s St, a Act) Decision[St, string]       { stepWith(NoMutant, Every, false, s, a) }
+func stepPublishEarly(s St, a Act) Decision[St, string] { stepWith(PublishEarlyMutant, FillBeforePublish, false, s, a) }
+func stepFillAfterEnd(s St, a Act) Decision[St, string] { stepWith(FillAfterEndMutant, NoFillAfterEnd, false, s, a) }
+func stepGetNewer(s St, a Act) Decision[St, string]     { stepWith(GetNewerMutant, GetSeesItsEntry, false, s, a) }
+func stepRecover(s St, a Act) Decision[St, string]      { stepWith(NoMutant, Every, true, s, a) }
+func stepKeepRest(s St, a Act) Decision[St, string]     { stepWith(KeepRestMutant, NoLeak, true, s, a) }
+func stepBindNone(s St, a Act) Decision[St, string]     { stepWith(BindNoneMutant, NoLeak, true, s, a) }
+func stepRebindOld(s St, a Act) Decision[St, string]    { stepWith(RebindOldMutant, GetSeesItsEntry, true, s, a) }
 
 // The design keeps every invariant in the scope.
 type Design machine[St, Act] {
 	initial: first(),
 	step:    stepDesign,
+
+	law Safe never reaches Broken,
+}
+
+// The design with a recovery (DH1): every invariant, NoLeak included, in
+// the recovery scope (RecMaxEntry, one recovery a run).
+type Recovery machine[St, Act] {
+	initial: first(),
+	step:    stepRecover,
 
 	law Safe never reaches Broken,
 }
@@ -424,6 +596,27 @@ type GetNewer machine[St, Act] {
 	law Breaks reaches Broken,
 }
 
+type KeepRest machine[St, Act] {
+	initial: first(),
+	step:    stepKeepRest,
+
+	law Breaks reaches Broken,
+}
+
+type BindNone machine[St, Act] {
+	initial: first(),
+	step:    stepBindNone,
+
+	law Breaks reaches Broken,
+}
+
+type RebindOld machine[St, Act] {
+	initial: first(),
+	step:    stepRebindOld,
+
+	law Breaks reaches Broken,
+}
+
 // The witnesses. Each is the design's step that enters Seen when the
 // witness holds for an action (Quint's counters childGets, stoppedGets,
 // waitPublishes and carried).
@@ -431,6 +624,8 @@ let ChildGetWitness = 1
 let StoppedGetWitness = 2
 let WaitPublishWitness = 3
 let CarryWitness = 4
+let RecoveredGetWitness = 5
+let StartClosesWitness = 6
 
 // witnessed reports whether the witness k holds when the enabled action a
 // is taken in w.
@@ -441,7 +636,20 @@ func witnessed(k int, w World, a Act) bool {
 		if k == ChildGetWitness {
 			return !w.Closed[v.H] && w.Filled[v.H]
 		}
+		if k == RecoveredGetWitness {
+			return !w.Closed[v.H] && w.Filled[v.H] && v.Owner == w.Recovered
+		}
 		k == StoppedGetWitness && w.Closed[v.H]
+	case Start:
+		if k != StartClosesWitness {
+			return false
+		}
+		for h in 0..Hosts {
+			if w.Unbound[h] && !w.InState[h] {
+				return true
+			}
+		}
+		false
 	case Publish:
 		k == WaitPublishWitness && !entryFilled(w)
 	case NewEntry as en:
@@ -451,10 +659,10 @@ func witnessed(k int, w World, a Act) bool {
 	}
 }
 
-func stepWitness(k int, s St, a Act) Decision[St, string] {
+func stepWitness(k int, rec bool, s St, a Act) Decision[St, string] {
 	match s {
 	case Live as l:
-		match next(NoMutant, l.W, a) {
+		match next(NoMutant, rec, l.W, a) {
 		case None:
 			Ignore
 		case Some[World] as n:
@@ -469,10 +677,26 @@ func stepWitness(k int, s St, a Act) Decision[St, string] {
 	}
 }
 
-func stepChildGet(s St, a Act) Decision[St, string]    { stepWitness(ChildGetWitness, s, a) }
-func stepStoppedGet(s St, a Act) Decision[St, string]  { stepWitness(StoppedGetWitness, s, a) }
-func stepWaitPublish(s St, a Act) Decision[St, string] { stepWitness(WaitPublishWitness, s, a) }
-func stepCarry(s St, a Act) Decision[St, string]       { stepWitness(CarryWitness, s, a) }
+func stepChildGet(s St, a Act) Decision[St, string]     { stepWitness(ChildGetWitness, false, s, a) }
+func stepStoppedGet(s St, a Act) Decision[St, string]   { stepWitness(StoppedGetWitness, false, s, a) }
+func stepWaitPublish(s St, a Act) Decision[St, string]  { stepWitness(WaitPublishWitness, false, s, a) }
+func stepCarry(s St, a Act) Decision[St, string]        { stepWitness(CarryWitness, false, s, a) }
+func stepRecoveredGet(s St, a Act) Decision[St, string] { stepWitness(RecoveredGetWitness, true, s, a) }
+func stepStartCloses(s St, a Act) Decision[St, string]  { stepWitness(StartClosesWitness, true, s, a) }
+
+type RecoveredGet machine[St, Act] {
+	initial: first(),
+	step:    stepRecoveredGet,
+
+	law Reached reaches Seen,
+}
+
+type StartCloses machine[St, Act] {
+	initial: first(),
+	step:    stepStartCloses,
+
+	law Reached reaches Seen,
+}
 
 type ChildGet machine[St, Act] {
 	initial: first(),

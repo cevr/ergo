@@ -8,6 +8,7 @@
 # only waits for the waiter to run on
 runtime/v1/actor.go	machineStart	handshake: the caller waits until the new runner armed its first entry's timer and started its work (each a handshake below)
 runtime/v1/actor.go	Actor.open	handshake: the runner waits until the entry's work filled its hosts, reached its first wait (rt.WhenWaiting) or ended
+runtime/v1/actor.go	Actor.openFirst	handshake: the runner waits until the first entry's work filled its recovered hosts, reached its first wait (rt.WhenWaiting) or ended, as Actor.open does
 runtime/v1/actor.go	Actor.arm	handshake: the runner waits until the timer child armed its sleep (rt.WhenWaiting) or ended
 
 # a send that never waits

@@ -148,6 +148,105 @@
       "killers": [
         "runtime/v1:TestManualTreeSettles"
       ]
+    },
+    {
+      "name": "dh1-unbound-closed",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tif r.ended {\n\t\treturn false\n\t}\n",
+      "to": "\tif true {\n\t\treturn false\n\t}\n",
+      "rule": "runtime.md Machines and actors 17: a host a durable recover makes is unbound, not closed, so the recovered actor's first entry can bind it.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-late-host-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tif r.ended {\n\t\treturn false\n\t}\n",
+      "to": "\tif false && r.ended {\n\t\treturn false\n\t}\n",
+      "rule": "runtime.md Machines and actors 17: a host made after the recover returned (by a task it started) is closed at once; no entry will bind it.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-first-entry-binds-none",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.bindRecovered(s)\n\ta.arm(at, s)\n",
+      "to": "\ta.arm(at, s)\n",
+      "rule": "runtime.md Machines and actors 17: the recovered actor's first entry binds each recovered host its first state holds.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-rest-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tcloseHosts(rest)\n\ta.newHosts = append(a.newHosts, held...)\n",
+      "to": "\t_ = rest\n\ta.newHosts = append(a.newHosts, held...)\n",
+      "rule": "runtime.md Machines and actors 17: a recovered host the first state does not hold (only an earlier state of the replay held it) is closed.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-all-held",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\t\tif want[reflect.ValueOf(h).Pointer()] {\n",
+      "to": "\t\tif true || want[reflect.ValueOf(h).Pointer()] {\n",
+      "rule": "runtime.md Machines and actors 17: the first entry binds only the recovered hosts its state holds; the others close.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-renew-unbound",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\ts, err := recoverWith(at, rec, a.fresh)\n",
+      "to": "\ts, err := a.fresh(at)\n",
+      "rule": "runtime.md Machines and actors 17 and 18: a supervised restart's recover makes unbound hosts, as the first start's does.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-recover-hosts-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tdefer func() { closeHosts(hosts) }()\n",
+      "to": "\tdefer func() {}()\n",
+      "rule": "runtime.md Machines and actors 17: every host a failed recover made is closed, and so is every host no entry took when the start returns.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-no-actor-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\thosts = h.take()\n",
+      "to": "\thosts = nil\n",
+      "rule": "runtime.md Machines and actors 17: a recovered host that no entry binds is closed when the start returns.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-first-publish-early",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif settled := a.startWork(at, s); settled != nil {\n\t\t<-settled\n\t}\n}\n\n// handle steps",
+      "to": "\tif settled := a.startWork(at, s); settled != nil {\n\t\t_ = settled\n\t}\n}\n\n// handle steps",
+      "rule": "runtime.md Machines and actors 16.4: the first entry with recovered hosts and a work is shown once the work filled them, waited or ended.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
     }
   ]
 }
