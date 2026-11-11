@@ -162,7 +162,13 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // TermReadKey (std term, CU2) waits for a key through io's shared reader:
 // lower TestTermModesRestore stops a program that waits in it and checks
 // that the terminal is restored.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "TermReadKey": true}
+// ExecStart, Running.Lines, Running.Chunks and Running.Wait (std exec's
+// Start, CU4, CU4c) wait on a host process's output and end:
+// runtime/v1/exec_start_test.go TestRunningMatchesModel states that a
+// stopped caller's Lines, Chunks and Wait end with the stop and leave the
+// program to its owner's release, and TestExecStartStopped that a stopped
+// caller's Start starts nothing.
+var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecStart": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "TermReadKey": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,

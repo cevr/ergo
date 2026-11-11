@@ -18,6 +18,22 @@ import (
 // p3Text is the P3 message (check-v1 spec add-on), quoted exactly.
 const p3Text = "an extern function is called directly; wrap it in a literal: func() { f() }"
 
+// TestExecStopTakes fixes the post-Stop use diagnostic. It kills CU4b's
+// lost-takes signature mutant: the generic ownership property cannot
+// detect a missing contract in a particular standard-library declaration.
+func TestExecStopTakes(t *testing.T) {
+	_, diags := check.CheckSource(`import exec
+func stopped(p exec.Running) int takes p {
+	_ = p.Stop()
+	p.Wait()
+}
+func main() {}
+`)
+	if len(diags) != 1 || diags[0].Code != "S108" || diags[0].Line != 4 || !strings.Contains(diags[0].Message, "Stop takes it") {
+		t.Fatalf("want S108 after Stop takes p at line 4, got %v", diags)
+	}
+}
+
 // p3Named is the P3 message that names the extern and the literal to pass
 // (K4, G-ex-f-3): "Upper is an extern and is not a value; pass
 // func(s string) string { Upper(s) } (grammar.md, Extern)".
@@ -723,7 +739,29 @@ func Run(_ Mine, c exec.Command) exec.Result fails exec.NotFound | exec.Denied |
 	exec.Result{Status: 0, Stdout: "", Stderr: ""}
 }
 
+func Start(_ Mine, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	try exec.Script{Results: Map[string, exec.Result]{}}.Start(c, s)
+}
+
 func use(r exec.Runner) { _ = r.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 0, Stdout: "", Stderr: ""} } }
+
+func main() {
+	use(Mine)
+}
+`,
+	// exec.Running (CU4): the Script's and the Host's Start externs
+	// return it, so it is sealed.
+	"exec.Running": `import exec
+
+type Mine {}
+
+func Lines(_ Mine) Seq[exec.Line] { Seq[exec.Line](func(yield func(v exec.Line) bool) {}) }
+func Chunks(_ Mine) Seq[exec.Chunk] { Seq[exec.Chunk](func(yield func(v exec.Chunk) bool) {}) }
+func Wait(_ Mine) int { 0 }
+func Stop(m Mine) int takes m { Close(m); 0 }
+func Close(_ Mine) {}
+
+func use(r exec.Running) { _ = r.Wait() }
 
 func main() {
 	use(Mine)

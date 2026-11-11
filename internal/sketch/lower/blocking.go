@@ -526,6 +526,18 @@ var runtimeBindings = map[string]runtimeBinding{
 	// body kills the program's process group and waits for the reap
 	// before it raises the interruption.
 	"ExecRun": {wait: callerWait},
+	// Start (CU4) checks the caller's stop and returns once the program has
+	// started; Chunks and Wait wait on the caller's task; Close is the
+	// Running's release, masked on the releasing task, as Task.Close is;
+	// ExecReplay (the Script's Start) starts nothing. Lines (CU4c) reads
+	// the chunks Chunks gives and waits as it does.
+	"ExecStart":      {wait: callerWait},
+	"ExecReplay":     {},
+	"Running.Chunks": {wait: callerWait},
+	"Running.Lines":  {wait: callerWait},
+	"Running.Wait":   {wait: callerWait},
+	"Running.Close":  {release: callerRelease},
+	"Running.Stop":   {release: callerRelease},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.

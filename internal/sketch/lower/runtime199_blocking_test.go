@@ -142,6 +142,12 @@ func TestRuntime199NoWaitBindings(t *testing.T) {
 		return m
 	}()) {
 		b := runtimeBindings[name]
+		if b.release == callerRelease && taskReleaseLaws[name] != "" {
+			// A release that stops running code waits for it, masked
+			// (resources R9): a Task's in rt, a Running's for its program.
+			// The tests that taskReleaseLaws names are its laws.
+			continue
+		}
 		body, err := v1.BodyOf(name)
 		if err != nil {
 			t.Fatal(err)

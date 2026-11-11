@@ -229,8 +229,10 @@ type goDecls map[string]goDecl
 var stdRecords = map[string]string{
 	"base64.Malformed":     "Base64Malformed",
 	"actor.Stopped":        "ActorStopped",
+	"exec.Chunk":           "ExecChunk",
 	"exec.Denied":          "ExecDenied",
 	"exec.Failed":          "ExecFailed",
+	"exec.Line":            "ExecLine",
 	"exec.NotFound":        "ExecNotFound",
 	"exec.Result":          "ExecResult",
 	"filepath.NotRelative": "NotRelative",
