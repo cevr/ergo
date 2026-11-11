@@ -65,6 +65,12 @@ docs/spec/README.md	codec by the names `ParseX` and `Wire`, as Go finds `TestX`.
 docs/spec/stdlib.md	Schema, Arbitrary | `ParseX`/`Wire` by name, `json.Codec` | library
 docs/spec/stdlib.md	`Decode`, `Encode`, `ParseX`/`Wire`;
 docs/spec/stdlib.md	html.Td([]html.Child{html.Int(o.Quantity.Wire())}),
+docs/spec/patterns.md	predeclared in the universe block, as `wire` is
+docs/spec/patterns.md	A derived type has the wire form the [codec rule]
+docs/spec/patterns.md	of strings is wire by its structure
+docs/spec/patterns.md	and a derive adds no `Wire`
+docs/spec/patterns.md	A `Wire(x T) string`
+docs/spec/patterns.md	}: wire by its structure; no ParseUsers
 docs/specs/absence-and-host-boundaries.md	JSON null or explicitly tagged wire data.
 docs/specs/absence-and-host-boundaries.md	## Wire and JavaScript boundaries
 docs/specs/absence-and-host-boundaries.md	JSON null is wire data. A codec may map it to None
