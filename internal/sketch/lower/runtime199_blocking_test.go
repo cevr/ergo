@@ -31,6 +31,8 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.witnessMethod":    "a witness adapter's Env literal for the caller's task",
 			"lowerer.rootTask":         "the root Env literal of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
 			"funcCtx.scriptOperations": "a Script adapter's Env literal for the caller's task, as an operation table's (script.go)",
+			"irBuilder.poll":           "the experimental IR's interruption point (Check), as funcCtx.poll's, as an IR node instead of taskOf's text (wf10 IR1)",
+			"irBuilder.call":           "the experimental IR's capability operation call, the caller's task first, as funcCtx.callText's, as an IR node (wf10 IR1)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
@@ -76,6 +78,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.scriptLit":         "a Script literal's fields (script.go)",
 			"funcCtx.scriptOperations":  "a Script adapter's methods and the fields they call (script.go)",
 			"lowerer.scriptType":        "a Script's struct fields (script.go)",
+			"irBuilder.call":            "the experimental IR's capability operation method, as funcCtx.callText's (wf10 IR1)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)
