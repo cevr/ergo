@@ -83,7 +83,7 @@ func runCommand(args []string) error {
 // first needs the key. A process-scoped identity builds the module
 // privately and never publishes it.
 func buildSource(opts fileOptions, place func(name, output string) string) (receipt.Location, error) {
-	l, err := load(opts.file, opts.target)
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
 	if err != nil {
 		return receipt.Location{}, err
 	}
@@ -130,8 +130,8 @@ func toolchain(opts fileOptions) build.Toolchain {
 // given (spelled), else GOOS and GOARCH of the environment, each one unset
 // or empty meaning the compiler's own (runtime.GOOS, runtime.GOARCH). A
 // platform outside the target list (gobind.Platforms, the platforms every
-// Go binding holds for) is the EF110 refusal: a program that checks against
-// the bindings links on each of them, and on no other.
+// generated Go binding holds for) is the EF110 refusal. A module binding
+// must also state the selected platform before the build can link it.
 func platformOf(spelled string, given bool, goos, goarch string) (gobind.Platform, error) {
 	p := gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 	if goos != "" {

@@ -132,8 +132,7 @@ type fileOptions struct {
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
-	// platform is the GOOS/GOARCH that build, run and test link for
-	// (platformOf); the zero value for the other commands.
+	// platform is the GOOS/GOARCH the command checks for (platformOf).
 	platform gobind.Platform
 }
 
@@ -296,11 +295,9 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 	case len(positional) != 1:
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
 	}
-	if command == "build" || command == "run" || command == "test" {
-		var err error
-		if opts.platform, err = platformOf(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
-			return opts, err
-		}
+	var err error
+	if opts.platform, err = platformOf(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
+		return opts, err
 	}
 	opts.file = positional[0]
 	if opts.search.mode != "" {
@@ -347,8 +344,16 @@ type loaded struct {
 // package: the loader reads it and the local packages it imports
 // (sketchfront.CheckDir), and each diagnostic names its file.
 func load(path, target string) (loaded, error) {
+	platform, err := platformOf("", false, os.Getenv("GOOS"), os.Getenv("GOARCH"))
+	if err != nil {
+		return loaded{}, err
+	}
+	return loadForPlatform(path, target, platform)
+}
+
+func loadForPlatform(path, target string, platform gobind.Platform) (loaded, error) {
 	if isPackageFolder(path) {
-		return loadFolder(path, target)
+		return loadFolder(path, target, platform)
 	}
 	if err := requireSourceExtension(path); err != nil {
 		return loaded{}, err
@@ -382,7 +387,7 @@ func load(path, target string) (loaded, error) {
 
 // loadFolder admits a package folder once and checks its program. The
 // executable is named after the folder, as go build names it.
-func loadFolder(path, target string) (loaded, error) {
+func loadFolder(path, target string, platform gobind.Platform) (loaded, error) {
 	source, err := receipt.LocateSource(path)
 	if err != nil {
 		return loaded{}, err
@@ -391,7 +396,7 @@ func loadFolder(path, target string) (loaded, error) {
 	if err != nil {
 		return loaded{}, err
 	}
-	analysis, err := sketchfront.CheckDir(source.Admitted())
+	analysis, err := sketchfront.CheckDirForPlatform(source.Admitted(), platform)
 	if err != nil {
 		return loaded{}, err
 	}
@@ -438,7 +443,7 @@ func checkCommand(args []string) error {
 }
 
 func checkPackage(opts fileOptions) error {
-	l, err := load(opts.file, opts.target)
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}
@@ -521,7 +526,7 @@ func inspectGoCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	l, err := load(opts.file, opts.target)
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}
@@ -539,7 +544,7 @@ func diagnosticsCommand(args []string) error {
 	if err != nil {
 		return invalidInvocation(err)
 	}
-	l, err := load(opts.file, opts.target)
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}

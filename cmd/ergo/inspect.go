@@ -121,7 +121,7 @@ func inspectMachineCommand(args []string) error {
 	if err != nil {
 		return invalidInvocation(err)
 	}
-	l, err := load(opts.file, opts.target)
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}

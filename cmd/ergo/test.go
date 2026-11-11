@@ -50,7 +50,7 @@ func testCommand(args []string) error {
 }
 
 func testPackage(opts fileOptions) error {
-	l, err := load(opts.file, opts.target)
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}
