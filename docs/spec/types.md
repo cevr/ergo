@@ -550,5 +550,49 @@ Status: **the core is implemented** ([#49](https://github.com/cevr/ergo/issues/4
 5. **Lowering.** One Go function per type and direction walks the structure: no reflection and no `any`; a basic value is one inline event. std `codec`'s `Events` and `Replay` record and replay the events, and its laws hold the round trip on generated values ([stdlib.md, Std laws](stdlib.md#std-laws)).
 6. **Generic codecs.** `func Decode[T wire](r Reader) T fails Malformed | wired[T]` reads any wire `T`. The predeclared row former `wired[X]` (owner q80) stands in a fails row for the row of `decode[X]` (rule 3); each wire type parameter `T` that `X` reaches stays in the row as `wired[T]`, and an instance replaces it by its argument's row, so the caller of `Decode[Draft]` handles `Draft`'s failures and no others. `decode[Option[T]]` reaches a union, so its row is `wired[Option[T]]`, wider than `wired[T]`. `wired` takes one wire type and stands only in a fails row (S108 otherwise). The lowering passes a wire type parameter's codec as a witness, a struct of its encode and decode functions, so a generic codec is Go generic code with no reflection; the caller builds the witness from the argument's derived functions.
 7. **Round-trip law of a pair.** A file that declares both `ParseX(b B) X` (no `needs`) and `Wire(x X) B` (no failure, no `needs`) gets the law the parser derives, `law XRoundTrips(b B) { let x = ParseX(b) catch { case _: return true } try ParseX(x.Wire()) == x }`, which `ergo test` runs as any law. The dot form `x.Wire()` names `X`'s own `Wire` when the package declares several (196m rule 3); a `ParseX` that fails nothing gets the law without `catch` and `try`; a `ParseX` with a `needs` clause derives no law, since the law has no provider for it. A value of `X` is drawn through `ParseX`, as a decode meets it, so the law needs no generator under `X`'s authority, and a `ParseX` that normalises its input satisfies it. When the file declares `X` open (a record of exported fields, or a union of such records of the file), every value is a valid `X`, so the law draws `x` itself and reaches every value: `law XRoundTrips(x X) { try ParseX(x.Wire()) == x }` (confparse's `LevelRoundTrips`, proved over the four levels). `X` must be comparable; the formatter does not print the law. A pair whose halves are in two files derives none.
+8. **Declared wire forms.** A type's own package may declare a rowless
+   `func WireForm(x X) WireOmittable { WireOmittable }`, or its generic
+   counterpart. The result is one of the predeclared protocol markers
+   below. This signature declares representation metadata; a derived codec
+   does not call the function. Its body is ordinary checked source.
+   The declaration takes only its receiver and its receiver's type
+   parameters, with no failure or service row. The rule is open to every
+   package; no std package, type, variant or field name selects a form.
+   A marker with the wrong structural shape is S108 when used as `wire`.
+   A structural form cannot also declare an independent Parse/Wire pair;
+   `WireNumberText` is the exception because its pair supplies its spelling.
+
+   - `WireOmittable`: a union of two record variants, one empty and one
+     with a single wire payload. In a record field the empty variant
+     omits its key; the other writes its bare payload. A missing key
+     decodes to the empty variant. At the root or in a list the union
+     keeps its ordinary tagged representation.
+   - `WireNullable`: the same union shape, but the empty variant writes
+     null and the other writes its payload everywhere. A record key is
+     still required. Nesting an omittable form around a nullable form
+     gives absent, present null and present value.
+   - `WireBare`: a union of records with distinct event kinds. An empty
+     variant is null. A one-field variant writes that field directly.
+     A variant with its own `WireNumberText` or `WireMembers` form uses
+     that form. Decode selects by `Reader.Peek`, not a variant tag.
+     A variant with no single statically known event kind, or two
+     variants of the same kind, is refused.
+   - `WireNumberText`: a record with one string field and a string
+     Parse/Wire pair (rule 1). Its wire string is emitted as a number's
+     spelling, not a quoted string; decode reads `Reader.Number` and
+     calls the parser. The pair's failures remain in `wired[X]`.
+   - `WireMembers`: a record with one slice field. Each element is a
+     two-field record, first a string key and then a wire value. It writes
+     an object in slice order and preserves duplicate keys. Decode
+     reconstructs the entries in that order.
+
+   Construction authority and wire admission still apply to every payload.
+   The record alternatives of an omittable/nullable form, and the slice,
+   entry record and key of a members form, must have no independent
+   Parse/Wire form or refinement that direct field access would bypass.
+   A number-text pair's base is the ordinary `string` type.
+   Generic record fields use their argument's field form through the
+   codec witness, exactly as a concrete field does. std json declares
+   Optional, Nullable, Value, Num and Object through these same rules.
 
 *Prior art:* Rust serde and Roc's `Encoding` derive per type over a format's event interface, monomorphised (rules 2 and 5); ReScript's `@spice` emits plain functions; Elixir's `@derive Jason.Encoder`; Effect Schema gives one declaration, typed issues with a path and a round trip, as runtime values; Go's `encoding/json` walks by reflection with struct tags, and json v2's `jsontext` streams tokens, the model of the events; Swift's `Codable` names the constraint.

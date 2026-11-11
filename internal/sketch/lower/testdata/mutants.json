@@ -1,6 +1,16 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"cf1-field-count-by-name","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirefields.go","from":"if !param && check.WireFormOf(f.Type) != check.WireOmittable {","to":"if !param && (check.WireFormOf(f.Type) != check.WireOmittable || !f.Type.(*check.Named).Obj.Pkg.Std()) {","rule":"Writer.BeginObject's field count omits an absent user field too.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-dynamic-by-name","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirefields.go","from":"dynamic = dynamic || param || check.WireFormOf(f.Type) == check.WireOmittable","to":"dynamic = dynamic || param || (check.WireFormOf(f.Type) == check.WireOmittable && f.Type.(*check.Named).Obj.Pkg.Std())","rule":"A user omittable field requires dynamic commas even without a generic field.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-number-parser-bypassed","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirevalue.go","from":"b.WriteString(l.wireParseReturn(p.Parse, env, tc.site, tc.goType(p.Base)+\"(\"+x+\")\"))","to":"b.WriteString(\"return \" + tc.wrapperValue(t, wireUnder(t).(*check.Struct).Fields[0], tc.goType(p.Base)+\"(\"+x+\")\") + \", nil\\n\")","rule":"A number form decodes through its declared parser and preserves its typed failures.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-parse-fallibility","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wire.go","from":"if !l.useFunc(parse, site).fallible {","to":"if false {","rule":"An infallible Parse function is adapted to a codec's value/error result without an invalid Go return.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-form-by-name","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirefields.go","from":"if check.WireFormOf(t) != check.WireOmittable {","to":"if check.WireFormOf(t) != check.WireOmittable || !t.(*check.Named).Obj.Pkg.Std() {","rule":"A user-owned omittable union receives the same field witness as std, without package identity.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-absent-key-written","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirefields.go","from":"wit + \".Field == nil || !\" + wit + \".Field.Absent(\"","to":"wit + \".Field == nil || true || !\" + wit + \".Field.Absent(\"","rule":"An absent generic field omits its key before encoding a payload.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-missing-key-not-decoded","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wire.go","from":"wit + \".Field.Empty\\n}\\n\"","to":"wit + \".Field.Empty\\n\" + missing + \"}\\n\"","rule":"A missing omittable generic field decodes as its empty alternative, not a required-field failure.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-bare-tagged","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wire.go","from":"if check.WireFormOf(t) == check.WireBare {\n\t\tl.wireValueEncode","to":"if false && check.WireFormOf(t) == check.WireBare {\n\t\tl.wireValueEncode","rule":"A user bare union writes by event kind without a variant tag.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-number-string","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirevalue.go","from":"b.WriteString(numEncode(em, task, w, spelling))","to":"b.WriteString(em.basic(tc, check.Typ[check.String], task, w, spelling))","rule":"A number-text form writes the original numeric spelling, not a quoted string.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-members-key","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirevalue.go","from":"\"string(\"+m+\".\"+td.fieldName[entry.Fields[0].Name]+\")\"","to":"\"\\\"wrong\\\"\"","rule":"Ordered object members retain each entry's own key.","killers":["lower:TestWireFormsAgree"]},
     {"name":"cu2-stale-stdin-callers","origin":"wf10 batch-16b fix-r1","file":"internal/sketch/lower/std_fs_memory_test.go","from":"let input = io.NewStdin()","to":"let input = io.NewHost()","rule":"The fast tier checks every declared full-tier table program against current std contracts.","killers":["lower:TestProgramTablesCheck"],"anchor":{"tests":["lower:TestProgramTablesCheck"]}},
     {"name":"b16b-library-init-before-std-reach","origin":"batch-16b D6 + IG11 integration","file":"internal/sketch/lower/module.go","from":"\t\tl.drainPending() // Reach std lets before the Go library's initOnce.","to":"\t\t// mutant: write initOnce before reaching the std lets","rule":"Go-library initOnce is written after queued std bodies have reached their lets, before any exported call runs.","killers":["lower:TestStdPackageLet"]},
     {"name":"16a-r1-values-binding-unregistered","origin":"batch-16a fix r1 M2","file":"internal/sketch/lower/body.go","from":"\t\tfc.ownVar(b.v, p)","to":"\t\t_ = p","rule":"An owned for-in binding (a queue's Values(), Q7) is registered; a plan that names an unregistered owned value is an internal compiler error.","killers":["lower:TestOwnershipRunModel"]},
@@ -367,7 +377,7 @@
       "name": "g3-omit",
       "origin": "G3",
       "file": "internal/sketch/lower/wirefields.go",
-      "from": "optional := jsonWrapper(ft, \"Optional\")",
+      "from": "optional := check.WireFormOf(ft) == check.WireOmittable",
       "to": "optional := false",
       "rule": "Absent fields write no key and Present writes its bare value.",
       "killers": ["lower:TestJSONFieldsAgree"]
@@ -394,8 +404,8 @@
       "name": "g3-required",
       "origin": "G3",
       "file": "internal/sketch/lower/wire.go",
-      "from": "if jsonWrapper(f.Type, \"Optional\") {",
-      "to": "if jsonWrapper(f.Type, \"Optional\") || jsonWrapper(f.Type, \"Nullable\") {",
+      "from": "if check.WireFormOf(f.Type) == check.WireOmittable {",
+      "to": "if check.WireFormOf(f.Type) == check.WireOmittable || check.WireFormOf(f.Type) == check.WireNullable {",
       "rule": "A Nullable field still requires its key; null is not absence.",
       "killers": ["lower:TestJSONFieldsAgree"]
     },
@@ -403,7 +413,7 @@
       "name": "g3-generic-witness",
       "origin": "G3",
       "file": "internal/sketch/lower/wirefields.go",
-      "from": "if !jsonWrapper(t, \"Optional\") {",
+      "from": "if check.WireFormOf(t) != check.WireOmittable {",
       "to": "if true {",
       "rule": "A json.Optional argument's witness carries the record-field form, so a field typed by a type parameter omits Absent.",
       "killers": ["lower:TestJSONFieldsAgree"]

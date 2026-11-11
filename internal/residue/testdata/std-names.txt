@@ -3,9 +3,10 @@
 # `category<TAB>file:function<TAB>reason`.
 # abi: a backend binding (a runtime type representation, a prelude
 # collection wrapper, a std extern's ABI, a name the report writes).
-# No other category: no optimizer keys on a std name (OPT6 and OPT6b
-# retired the inherited ones through general facts). The inventory may
-# only shrink.
+# No other category. OPT6 and OPT6b retired inherited optimizers through
+# general facts. The one pre-existing q108 json Text path below stays
+# until LR3; CF1 corrects the literal-only scanner's missed inventory row.
+# The corrected inventory may only shrink.
 
 abi	calls.go:funcCtx.callee	the call table's Callee text (#230): prelude functions are written unqualified in the defect report
 abi	calls.go:lowerer.hostImportNames	the Go import list: std time is imported by the runtime ABI already, so it is not added twice
@@ -21,3 +22,4 @@ abi	std.go:lowerer.runtimeType	the runtime type representation of the prelude Ta
 abi	types.go:lowerer.foreignOwner	the std package that owns a runtime type representation (prelude types are the program's)
 abi	values.go:preludeAppend	the prelude Append extern's ABI: its argument is clipped before the runtime append
 abi	values.go:preludeMapWrite	the prelude Delete and Put externs' ABI: the map argument is cloned before the runtime write
+abi	wirejson.go:isJSONText	owner q108 (2026-11): json keeps its keyed path until law rewrites land; removed by law-rewrite LR3

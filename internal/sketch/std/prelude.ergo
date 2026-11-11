@@ -169,6 +169,15 @@ type WireKind = WireNull | WireBool | WireNumber | WireString | WireList | WireO
 type WireMissingField { Path string, Field string }
 type WireUnknownTag { Path string, Tag string }
 
+// WireForm(x X)'s result declares X's representation to the wire protocol.
+// These markers carry no runtime data. The codec checks the structural
+// requirements of the selected form (types.md, Codecs 8).
+type WireOmittable {}
+type WireNullable {}
+type WireBare {}
+type WireNumberText {}
+type WireMembers {}
+
 // The rows of these functions make the shape failures error types of the
 // prelude, as unsatisfied does for Unsatisfied.
 func wireWrongKind(e WireWrongKind) fails WireWrongKind { e }

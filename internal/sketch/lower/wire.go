@@ -58,7 +58,7 @@ func (tc *typeCtx) wireCodecFuncs(self check.Type) string {
 }
 
 // wireFieldType is the Go type of a witness's Field: the record-field form
-// of a json.Optional argument (wirefields.go), nil for every other type.
+// of an omittable argument (wirefields.go), nil for every other type.
 // Its Enc, Dec and JSON write and read Present's bare payload, Absent
 // reports the empty state and Empty is the value of an absent key.
 func (tc *typeCtx) wireFieldType(self check.Type) string {
@@ -505,19 +505,33 @@ func (l *lowerer) wireCallFunc(f *check.Func, env string, site syntax.Node, args
 	return fd.name + "(" + strings.Join(append(lead, args...), ", ") + ")"
 }
 
+// wireParseReturn adapts an ordinary parser to a codec's (value, error)
+// result. An infallible parser returns only its value in Go.
+func (l *lowerer) wireParseReturn(parse *check.Func, env string, site syntax.Node, value string) string {
+	call := l.wireCallFunc(parse, env, site, value)
+	if !l.useFunc(parse, site).fallible {
+		call += ", nil"
+	}
+	return "return " + call + "\n"
+}
+
 // wireEncodeBody writes the statements of t's encode function on the
 // path em: the Writer's events, or JSON appends (wirejson.go).
 func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder, t check.Type, env, task, w, v string, scope *namer) {
-	if jsonWrapper(t, "Nullable") {
+	if check.WireFormOf(t) == check.WireNullable {
 		l.wireNullableEncode(em, tc, b, t, env, task, w, v, scope)
 		return
 	}
-	if jsonWrapper(t, "Value") {
+	if check.WireFormOf(t) == check.WireBare {
 		l.wireValueEncode(em, tc, b, t, env, task, w, v, scope)
 		return
 	}
-	if jsonWrapper(t, "Num") {
-		l.wireNumEncode(em, tc, b, t, task, w, v)
+	if check.WireFormOf(t) == check.WireNumberText {
+		l.wireNumEncode(em, tc, b, t, env, task, w, v)
+		return
+	}
+	if check.WireFormOf(t) == check.WireMembers {
+		l.wireMembersEncode(em, tc, b, t, env, task, w, v, scope)
 		return
 	}
 	if p := l.info.WirePairOf(t); p != nil {
@@ -608,22 +622,26 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 
 // wireDecodeBody writes the statements of t's decode function.
 func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, env, task, r, zero string, scope *namer) {
-	if jsonWrapper(t, "Nullable") {
+	if check.WireFormOf(t) == check.WireNullable {
 		l.wireNullableDecode(tc, b, t, env, task, r, zero, scope)
 		return
 	}
-	if jsonWrapper(t, "Value") {
+	if check.WireFormOf(t) == check.WireBare {
 		l.wireValueDecode(tc, b, t, env, task, r, zero, scope)
 		return
 	}
-	if jsonWrapper(t, "Num") {
-		l.wireNumDecode(tc, b, t, task, r, zero, scope)
+	if check.WireFormOf(t) == check.WireNumberText {
+		l.wireNumDecode(tc, b, t, env, task, r, zero, scope)
+		return
+	}
+	if check.WireFormOf(t) == check.WireMembers {
+		l.wireMembersDecode(tc, b, t, env, task, r, zero, scope)
 		return
 	}
 	parsed := func(base check.Type, parse *check.Func) {
 		raw := scope.alloc("raw")
 		b.WriteString(tc.wireDecode(base, env, r, raw, zero, scope))
-		b.WriteString("return " + l.wireCallFunc(parse, env, tc.site, raw) + "\n")
+		b.WriteString(l.wireParseReturn(parse, env, tc.site, raw))
 	}
 	if p := l.info.WirePairOf(t); p != nil {
 		parsed(p.Base, p.Parse)
@@ -665,11 +683,11 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 				b.WriteString(out + "." + td.fieldName[f.Name] + " = " + fv + "\n" + seen[i] + " = true\n")
 				continue
 			}
-			optional := jsonWrapper(ft, "Optional")
+			optional := check.WireFormOf(ft) == check.WireOmittable
 			var present check.Type
 			var field *check.Field
 			if optional {
-				_, present, field = wrapperParts(ft)
+				_, present, field = tc.wrapperParts(ft)
 				ft = field.Type
 			}
 			b.WriteString(tc.wireDecode(ft, env, r, fv, zero, scope))
@@ -685,8 +703,8 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 				b.WriteString("if !" + seen[i] + " {\nif " + wit + ".Field == nil {\n" + missing + "}\n" + out + "." + td.fieldName[f.Name] + " = " + wit + ".Field.Empty\n}\n")
 				continue
 			}
-			if jsonWrapper(f.Type, "Optional") {
-				empty, _, _ := wrapperParts(f.Type)
+			if check.WireFormOf(f.Type) == check.WireOmittable {
+				empty, _, _ := tc.wrapperParts(f.Type)
 				b.WriteString("if !" + seen[i] + " {\n" + out + "." + td.fieldName[f.Name] + " = " + tc.goType(empty) + "{}\n}\n")
 				continue
 			}
