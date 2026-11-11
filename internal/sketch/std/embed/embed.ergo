@@ -1,0 +1,36 @@
+// Package embed provides build-time assets. embedded[FS]("assets/*") is a
+// predeclared language operation, not a call into this package. Its FS is
+// read-only and implements fs.Files, so consumers use the same capability
+// with an embedded, host or memory provider. Paths use io/fs slash names,
+// rooted at the declaring package; no Ambient authority is needed.
+
+import fs
+
+type FS {
+	ReadFile(path string) string fails fs.NotFound | fs.Denied | fs.Failed,
+	ReadDir(path string) []string fails fs.NotFound | fs.Denied | fs.Failed,
+	Stat(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed,
+
+	law ReadIsRepeatable(path string) {
+		let first = ReadFile(path) catch {
+		case fs.NotFound:
+			return true
+		case fs.Denied, fs.Failed:
+			return false
+		}
+		try ReadFile(path) == first
+	},
+}
+
+// NewEmpty is an empty read-only tree, useful when a program has no assets.
+extern go ergo.local/prototype/runtime/v1.NewEmptyFS func NewEmpty() FS
+
+law EmptyHasNoFiles(path string) {
+	let _ = NewEmpty().ReadFile(path) catch {
+	case fs.NotFound:
+		return true
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	false
+}

@@ -566,6 +566,12 @@ func (p *printer) memberLaw(l *syntax.LawDecl) {
 			p.token(r.Never, "never")
 			p.space()
 		}
+		if r.Pred != nil {
+			p.token(r.Word, r.Invariant)
+			p.space()
+			p.ident(r.Pred)
+			return
+		}
 		if !r.Path {
 			p.token(r.Word, "reaches")
 			p.space()

@@ -1,0 +1,15 @@
+type Light = Red{} | Green{} | Yellow{} | Broken{}
+
+type Tick = Go{} | Stop{}
+
+type Lights machine[Light, Tick] {
+	initial: Red,
+	step:    step,
+
+	law Cycles reaches Yellow,
+	law Safe never reaches Broken,
+	law Starts path [Red, Green, Yellow],
+	law Lit always lit,
+	law Stops sometimes stopped,
+	law NoDone(s Light, t Tick) { !ends(step(s, t)) },
+}

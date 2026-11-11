@@ -122,6 +122,9 @@ type checker struct {
 	// durableCalls are the calls of a durable runner (durable.go), which
 	// checkDurableSteps judges once the footprints are known.
 	durableCalls []durableCall
+	// lawPreds are the invariant laws whose predicate checkLawPreds judges
+	// pure once the footprints are known (machinelaw.go).
+	lawPreds []*Law
 	// withSites are the with sites the reporting pass recorded, inner
 	// before outer, for the context ownership pass (withown.go).
 	withSites []withSite
@@ -593,7 +596,7 @@ func universe() *Scope {
 		s.insert("error", errName)
 		s.insert("true", &Const{Name: "true", Type: Typ[Bool], Val: true})
 		s.insert("false", &Const{Name: "false", Type: Typ[Bool], Val: false})
-		for _, name := range []string{"len", "with", "encode", "decode", WiredName} {
+		for _, name := range []string{"len", "with", "encode", "decode", "embedded", WiredName} {
 			s.insert(name, &Builtin{Name: name})
 		}
 		// go.Foreign (a capability) and go.Error (an error type) are

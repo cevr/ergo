@@ -108,6 +108,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.footprints,
 		// After the footprints: a durable machine's step is pure (MU9).
 		c.checkDurableSteps,
+		// After the footprints: an invariant law's predicate is pure (X2).
+		c.checkLawPreds,
 		// After every body: the first with operand past the with budget,
 		// silent checks included (withbudget.go).
 		c.reportWithBudget,

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/proclimit"
+	"ergo.local/prototype/internal/sketchfront"
 )
 
 func main() {
@@ -358,18 +359,40 @@ func checkCommands(p *program, dir string) []string {
 // the package folders under it, to the program's sources. A package
 // folder holds .ergo files and package folders only.
 func packageSources(p *program, dir, label string) []string {
+	return packageAssetSources(p, dir, label, map[string]bool{})
+}
+
+// packageAssetSources admits only assets the compiler actually selected.
+// A stray text file remains a layout error; asset directories are not
+// mistaken for Ergo packages that the test leg must run.
+func packageAssetSources(p *program, dir, label string, assets map[string]bool) []string {
+	dir, absErr := filepath.Abs(dir)
+	if absErr != nil {
+		return []string{absErr.Error()}
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return []string{err.Error()}
 	}
 	var problems []string
 	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".ergo") {
+			if a, err := sketchfront.CheckDir(dir); err == nil {
+				for _, name := range a.EmbeddedPaths() {
+					assets[name] = true
+				}
+			}
+			break
+		}
+	}
+	for _, entry := range entries {
 		name := entry.Name()
 		switch {
 		case entry.IsDir():
-			problems = append(problems, packageSources(p, filepath.Join(dir, name), label+"/"+name)...)
+			problems = append(problems, packageAssetSources(p, filepath.Join(dir, name), label+"/"+name, assets)...)
 		case strings.HasSuffix(name, ".ergo") && entry.Type().IsRegular():
 			p.sources = append(p.sources, filepath.Join(dir, name))
+		case assets[filepath.Join(dir, name)] && entry.Type().IsRegular():
 		default:
 			problems = append(problems, fmt.Sprintf("unexpected %s/%s; a package folder holds .ergo files and package folders", label, name))
 		}

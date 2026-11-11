@@ -181,6 +181,10 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 ## Constructs, contracts and laws
 
+**Atomic handle** (implemented, S-atomic): A shared `atomic.Int64` counter or `atomic.Bool` flag. Copies name the same cell. Each operation is one sequentially consistent Go atomic operation; a load followed by a store is not one operation. See [stdlib](docs/spec/stdlib.md#atomic-counters-and-flags).
+
+**Embedded asset** (implemented, S-embed): A file selected at build time by `embedded[T](pattern)` in an immutable package declaration. Its bytes are build inputs and Go's `//go:embed` stores them in the executable. It is a string, a byte slice, or a read-only `embed.FS` provider of `fs.Files`. See [stdlib](docs/spec/stdlib.md#build-time-assets).
+
 **Construct admission** (owner rule, 2026-10-07; the 2026-10-12 tests and checks are direction, a recorded synthesis and elaboration of owner direction, not owner words): The rule that a language construct, meaning syntax or a checker rule, exists only to make bad code unrepresentable where a library cannot. Since 2026-10-12 a construct must also pass the guardrail test, the portability test and the composability checks.
 
 **Guardrail test** (direction; recorded synthesis of owner direction, 2026-10-12, not owner words): The first construct admission test. A construct passes when it makes an illegal state unrepresentable that neither a library function nor a general type feature can. Behavior that fails it is a primitive function plus library.
@@ -214,6 +218,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 **Method argument** ([#141](https://github.com/cevr/ergo/issues/141)): The method value the compiler passes for a satisfied constraint in the lowered code. It is the same function value a caller could pass by hand, and Go generics carry it in their dictionaries.
 
 **Law** (designed): A named behavioral obligation that types cannot state, written as `law X(…) { … }`, with a body that ends in a `bool` expression, and checked like a fuzz target. Its placement sets what it is quantified over: at top level, beside `test`, its parameters; in an operation type, its parameters and every provider of the type; in a machine (designed), the step graph. A type with laws and no operations is S108 (law-top). A refuted law refuses the build. Laws are one general construct with many clients: codecs, providers, schedules, machines and composition algebra ([#125](https://github.com/cevr/ergo/issues/125)).
+
+**Invariant law** (implemented, X2): A machine law `law L always p` or `law L sometimes p`, with `p` a pure function from the machine's state to `bool`. `always` holds when every reachable state satisfies `p`, the start included; `sometimes` holds when one does, shown by a shortest witness run. See [types](docs/spec/types.md#laws) Laws 13.
 
 **Provider law** (designed): A law with a `needs` clause. It is checked against every provider bound to that capability.
 

@@ -3106,6 +3106,89 @@
       "rule": "A borrowed pointer variable maps nil to None and a handle to Some, never a Go pointer-to-interface cast.",
       "killers": ["lower:TestHostResourceRun"],
       "anchor": {"tests": ["lower:TestHostResourceRun"]}
+    },
+    {"name":"atomic-finite-law-proof","origin":"wf10 S-atomic r1","file":"internal/sketch/lower/std_laws_test.go","from":"( \\((\\d+ cases|proved: all \\d+ cases)\\))?","to":"( \\(\\d+ cases\\))?","rule":"The law-ledger runner accepts a proved finite-domain success as well as sampled-case and unit successes.","killers":["lower:TestStdLawsRun"]},
+    {
+      "name": "x2-always-not-negated",
+      "origin": "wf10/explorer/x2",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\t\tkind, test = \"never\", \"!\"+test\n",
+      "to": "\t\t\tkind, test = \"never\", test\n",
+      "rule": "types.md Laws 13: always p is a never law whose target is a state where p is false.",
+      "killers": [
+        "lower:TestMachineLawTables"
+      ]
+    },
+    {
+      "name": "x2-sometimes-as-always",
+      "origin": "wf10/explorer/x2",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\t\tkind = \"reaches\"\n",
+      "to": "\t\t\tkind, test = \"never\", \"!\"+test\n",
+      "rule": "types.md Laws 13: sometimes p is a reaches law whose target is a state where p holds.",
+      "killers": [
+        "lower:TestMachineLawTables"
+      ]
+    },
+    {
+      "name": "x2-witness-dropped",
+      "origin": "wf10/explorer/x2",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\t\t\ttext += $Witness(g, name, start, g.starts[start], sigs)\n",
+      "to": "\t\t\t\ttext += \"\"\n",
+      "rule": "types.md Laws 13: a sometimes law's witness prints as an Ergo test after its verdict.",
+      "killers": [
+        "lower:TestMachineLawTables"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
+    },
+    {
+      "name": "x2-counterexample-checks-negation",
+      "origin": "wf10/explorer/x2",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\tcheck = []string{\"assert \" + g.pred + \"(r.State)\"}\n",
+      "to": "\t\tcheck = []string{\"assert !\" + g.pred + \"(r.State)\"}\n",
+      "rule": "types.md Laws 13: an always law's counterexample test asserts the predicate on the run's last state, so it fails by itself.",
+      "killers": [
+        "lower:TestMachineLawTables"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
+    },
+    {
+      "name": "x2-witness-before-step",
+      "origin": "wf10/explorer/x2",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\t\t\t\tfor _, n := range nodes[1 : k+1] {\n\t\t\t\t\t\trun = append(run, n.sig)\n\t\t\t\t\t}\n\t\t\t\t\ttext += $Witness",
+      "to": "\t\t\t\t\tfor _, n := range nodes[1:k] {\n\t\t\t\t\t\trun = append(run, n.sig)\n\t\t\t\t\t}\n\t\t\t\t\ttext += $Witness",
+      "rule": "types.md Laws 13: a generated witness's test runs the whole run, so its predicate is checked on the state after the last step.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
+    },
+    {
+      "name": "x2-not-found-passes",
+      "origin": "wf10/explorer/x2",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\t\t$Refute(at, \"not found: no generated run reaches \"+$Goal(g, kind))\n",
+      "to": "\t\treturn \"100 runs\"\n",
+      "rule": "types.md Laws 13: a sometimes law with no witness in a search the budget stopped is not found, and fails.",
+      "killers": [
+        "lower:TestMachineLawRuns"
+      ],
+      "anchor": {
+        "file": "internal/sketch/lower/tests.go",
+        "text": "Replace(harnessGo + harnessReachGo)"
+      }
     }
   ]
 }

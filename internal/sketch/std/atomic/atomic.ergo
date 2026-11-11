@@ -1,0 +1,60 @@
+// Package atomic provides counters and flags shared by tasks. Operations
+// are sequentially consistent, as Go sync/atomic. Each copy of a handle
+// names the same cell. Use sync.Ref for an arbitrary value or a compound
+// update; an atomic Load followed by Store is not a compound operation.
+// Effect Ref has the same shared-state intent. Ergo uses scalar operations
+// and operation laws, not modify tuples, pipe or dual-call encodings.
+
+import tasks
+
+type Int64 {
+	Load() int64,
+	Store(value int64),
+	Add(delta int64) int64,
+	Swap(value int64) int64,
+	CompareAndSwap(old int64, value int64) bool,
+
+	law StoresAndAdds(a int64, b int64) {
+		Store(a)
+		let sum = Add(b)
+		let seen = Load()
+		let previous = Swap(a)
+		let changed = CompareAndSwap(a, b)
+		let unchanged = !CompareAndSwap(b+1, a)
+		sum == a+b && seen == sum && previous == sum && changed && unchanged && Load() == b
+	},
+}
+
+type Bool {
+	Load() bool,
+	Store(value bool),
+	Swap(value bool) bool,
+	CompareAndSwap(old bool, value bool) bool,
+
+	law Exchanges(a bool, b bool) {
+		Store(a)
+		let previous = Swap(b)
+		let seen = Load()
+		let changed = CompareAndSwap(b, a)
+		let unchanged = !CompareAndSwap(!a, b)
+		previous == a && seen == b && changed && unchanged && Load() == a
+	},
+}
+
+extern go ergo.local/prototype/runtime/v1.NewInt64 func NewInt64(value int64) Int64
+extern go ergo.local/prototype/runtime/v1.NewBool func NewBool(value bool) Bool
+
+law InitialValues(value int64, flag bool) {
+	NewInt64(value).Load() == value && NewBool(flag).Load() == flag
+}
+
+law IncrementsCount(n int) {
+	let k = 1 + (n%8+8)%8
+	let c = NewInt64(0)
+	let s = tasks.NewSet(tasks.FailFast)
+	for _ in 0..k {
+		try tasks.Go(s, func() { _ = c.Add(1) })
+	}
+	s.Wait()
+	c.Load() == int64(k)
+}

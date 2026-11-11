@@ -274,6 +274,40 @@ func Len(_ Mine) int {
 // operation type with no row here fails TestStdProtocolSealed, and so does
 // a row whose type std no longer declares.
 var sealedPrograms = map[string]string{
+	"atomic.Int64": `import atomic
+type Mine {}
+func Load(_ Mine) int64 { 0 }
+func Store(_ Mine, value int64) {}
+func Add(_ Mine, delta int64) int64 { delta }
+func Swap(_ Mine, value int64) int64 { value }
+func CompareAndSwap(_ Mine, old int64, value int64) bool { false }
+func use(c atomic.Int64) { _ = c.Load() }
+func main() {
+	use(Mine)
+}
+`,
+	"atomic.Bool": `import atomic
+type Mine {}
+func Load(_ Mine) bool { false }
+func Store(_ Mine, value bool) {}
+func Swap(_ Mine, value bool) bool { value }
+func CompareAndSwap(_ Mine, old bool, value bool) bool { false }
+func use(f atomic.Bool) { _ = f.Load() }
+func main() {
+	use(Mine)
+}
+`,
+	"embed.FS": `import embed
+import fs
+type Mine {}
+func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
+func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
+func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.Info{Name: path, Size: 0, Dir: false, Perm: 292} }
+func use(f embed.FS) { _ = f.ReadDir(".") catch { case fs.NotFound, fs.Denied, fs.Failed: []string{} } }
+func main() {
+	use(Mine)
+}
+`,
 	"queue.Queue": queueMine + `
 func use(q queue.Queue[int]) { q.End() }
 

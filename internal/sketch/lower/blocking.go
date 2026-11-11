@@ -63,6 +63,8 @@ type runtimeBinding struct {
 	// task marks a binding that takes the invocation's task to know where
 	// it runs and never waits: actor.NewHost asks whether it runs in a
 	// step of an actor (runtime.md, Machines and actors 16).
+	// It also preserves the ordinary operation-type ABI on native values
+	// that implement a source operation type (embed.FS implements fs.Files).
 	task bool
 }
 
@@ -73,9 +75,27 @@ func (b runtimeBinding) takesCaller() bool {
 }
 
 var runtimeBindings = map[string]runtimeBinding{
-	"Sleep":     {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
-	"Task.Wait": {wait: handleWait},
-	"Task.Stop": {wait: drainWait},
+	// Scalar atomic handles preserve the source operation ABI and never wait.
+	"NewInt64":             {},
+	"NewBool":              {},
+	"Int64.Load":           {task: true},
+	"Int64.Store":          {task: true},
+	"Int64.Add":            {task: true},
+	"Int64.Swap":           {task: true},
+	"Int64.CompareAndSwap": {task: true},
+	"Bool.Load":            {task: true},
+	"Bool.Store":           {task: true},
+	"Bool.Swap":            {task: true},
+	"Bool.CompareAndSwap":  {task: true},
+	// Build-time assets are immutable in-memory reads: no waiting task.
+	"EmbeddedFS":  {},
+	"NewEmptyFS":  {},
+	"FS.ReadFile": {task: true},
+	"FS.ReadDir":  {task: true},
+	"FS.Stat":     {task: true},
+	"Sleep":       {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
+	"Task.Wait":   {wait: handleWait},
+	"Task.Stop":   {wait: drainWait},
 	// A Task's and a Set's release (B3t): Stop, masked on the caller.
 	"Task.Close":   {release: callerRelease},
 	"Set.Close":    {release: callerRelease},

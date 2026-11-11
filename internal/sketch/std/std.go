@@ -28,6 +28,8 @@ import (
 //go:embed time/*.ergo
 //go:embed rand/*.ergo
 //go:embed sync/*.ergo
+//go:embed embed/*.ergo
+//go:embed atomic/*.ergo
 //go:embed filepath/*.ergo
 //go:embed exec/*.ergo
 //go:embed math/*.ergo bits/*.ergo

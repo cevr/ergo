@@ -93,6 +93,7 @@ type loadedPackage struct {
 	files   []loadedFile
 	imports []localImport
 	pkg     *check.Package
+	assets  map[string][]byte // build-time embed inputs, by package-relative path
 	// broken is a package with diagnostics, or one that imports such a
 	// package: it is not checked, and nothing it reaches is built.
 	broken bool
@@ -642,10 +643,20 @@ func packageUnit(p *loadedPackage) lower.Unit {
 // packages are summarised.
 func (p *program) dependencies() []build.Dependency {
 	var out []build.Dependency
+	if len(p.root.assets) > 0 {
+		files := map[string]string{}
+		for name, data := range p.root.assets {
+			files[filepath.Join(p.root.dir, filepath.FromSlash(name))] = string(data)
+		}
+		out = append(out, sourceDependency(p.root.path+" assets", files))
+	}
 	for _, q := range p.imports {
 		files := map[string]string{}
 		for _, f := range q.files {
 			files[f.abs] = f.text
+		}
+		for name, data := range q.assets {
+			files[filepath.Join(q.dir, filepath.FromSlash(name))] = string(data)
 		}
 		out = append(out, sourceDependency(q.path, files))
 	}

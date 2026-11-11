@@ -95,7 +95,7 @@ func LowerTests(u Unit) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return moduleFiles(u.Go, code), nil
+	return append(moduleFiles(u.Go, code), l.assetFiles()...), nil
 }
 
 // testHelpers are the harness's package-scope entities: key and preferred
@@ -114,7 +114,8 @@ var testHelpers = []struct{ key, base string }{
 	{"Record", "ergoRecord"}, {"RecordSearch", "ergoRecordSearch"}, {"WriteReceipt", "ergoWriteReceipt"}, {"JSON", "ergoJSON"},
 	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"Explore", "ergoExplore"}, {"Signals", "ergoSignals"}, {"Block", "ergoBlock"},
 	{"ExploreAll", "ergoExploreAll"}, {"ExploreRuns", "ergoExploreRuns"}, {"Trace", "ergoTrace"}, {"Refute", "ergoRefute"},
-	{"States", "ergoStates"}, {"explore", "explore"},
+	{"States", "ergoStates"}, {"explore", "explore"}, {"Verdict", "ergoVerdict"}, {"Program", "ergoProgram"},
+	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"},
 	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
 }
 
