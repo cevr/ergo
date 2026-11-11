@@ -2,36 +2,46 @@ package residue_test
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // TestLedgerEditsApplyOnce checks the public ledger contract against the
-// checkout: each edit of every tracked package ledger applies once, so the
-// mutant runner can judge it. It catches embed-duplicate-ledger-anchor;
-// the runner's own tests use generated ledgers and cannot catch a stale
-// edit in the repository's ledgers. It lives in residue, which reads every
-// tracked file by design, so scripts/mutants' tests keep to their closure.
+// checkout: each edit of every package ledger applies once, so the mutant
+// runner can judge it. It catches embed-duplicate-ledger-anchor; the
+// runner's own tests use generated ledgers and cannot catch a stale edit in
+// the repository's ledgers. It lives in residue, which reads every file by
+// design, so scripts/mutants' tests keep to their closure. It walks the
+// tree rather than asking git, so it runs in the mutant runner's copy too.
 func TestLedgerEditsApplyOnce(t *testing.T) {
-	out, err := exec.Command("git", "--no-optional-locks", "ls-files", "--full-name", "--", ":(top,glob)**/testdata/mutants.json").Output()
+	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
-		t.Fatalf("list the mutant ledgers: %v", err)
+		t.Fatal(err)
 	}
-	root, err := exec.Command("git", "--no-optional-locks", "rev-parse", "--show-toplevel").Output()
-	if err != nil {
-		t.Fatalf("find the checkout: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		t.Fatalf("no module root at %s: %v", root, err)
 	}
-	top := strings.TrimSpace(string(root)) + "/"
-	ledgers := strings.Fields(string(out))
-	if len(ledgers) == 0 {
-		t.Fatal("no tracked */testdata/mutants.json")
-	}
-	for _, path := range ledgers {
-		data, err := os.ReadFile(top + path)
+	ledgers := 0
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatal(err)
+			return err
+		}
+		if d.IsDir() {
+			if path != root && (strings.HasPrefix(d.Name(), ".") || d.Name() == "node_modules" || d.Name() == "tmp") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != "mutants.json" || filepath.Base(filepath.Dir(path)) != "testdata" {
+			return nil
+		}
+		ledgers++
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
 		}
 		var ledger struct {
 			Mutants []struct {
@@ -42,10 +52,10 @@ func TestLedgerEditsApplyOnce(t *testing.T) {
 		}
 		if err := json.Unmarshal(data, &ledger); err != nil {
 			t.Errorf("%s: %v", path, err)
-			continue
+			return nil
 		}
 		for _, m := range ledger.Mutants {
-			src, err := os.ReadFile(top + m.File)
+			src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(m.File)))
 			if err != nil {
 				t.Errorf("%s: %s: %v", path, m.Name, err)
 				continue
@@ -54,5 +64,12 @@ func TestLedgerEditsApplyOnce(t *testing.T) {
 				t.Errorf("%s: %s: from occurs %d times in %s, want exactly once", path, m.Name, n, m.File)
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ledgers == 0 {
+		t.Fatal("no testdata/mutants.json below the module root")
 	}
 }
