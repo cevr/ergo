@@ -904,14 +904,14 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 }
 
 // emitFuncBody writes fd's Go declaration.
-func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, nil, false) }
+func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, nil, false, nil) }
 
 // emitBody writes what emitFuncBody writes, or, with flat, the flat step of
 // a machine's flat run (machinerun.go): fd's body under flat's step name,
 // its state parameter flat and its decision returned as a value; with
 // known, fd's known-callback variant (known.go): its callback parameters
 // plain and no entry poll.
-func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool) {
+func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy) {
 	l.bodies++
 	f := fd.fn
 	b := &l.user
@@ -988,7 +988,7 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool) {
 	// own and keeps f's name for a wrapper that copies them (values.go, V5).
 	bodyName, wrapHead, wrapParams := fd.name, "", ""
 	var typeArgs, args []string
-	owned := !known && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
+	owned := !known && sp == nil && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
 	if owned {
 		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
 	}
@@ -1029,6 +1029,14 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool) {
 		}
 		paramNames[0] = name(0)
 		head.WriteString("func (" + paramNames[0] + " " + recv + ") " + methodName + "(")
+	} else if sp != nil {
+		// A copy for a known record (record.go): one instance, its type
+		// parameters the call's Go types.
+		if fd.method != nil || owned || known || flat != nil {
+			ice(site, "the copy of %s for a known record is not a plain function", f.Name)
+		}
+		fc.params, fc.mono = sp.typeArgs, true
+		head.WriteString("func " + sp.name + "(")
 	} else {
 		list, tps := l.typeParams(own, scope, site)
 		fc.params = tps
@@ -1094,6 +1102,9 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool) {
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
 	wrapParams = strings.Join(parts, ", ") + ")"
+	if sp != nil && params[sp.param] != nil {
+		fc.recs = map[*check.Var]*knownRec{params[sp.param]: sp.rec}
+	}
 	if len(f.Sig.Results) > 1 {
 		unreachable(site, ruleOneResult, "the function %s has %d results", f.Name, len(f.Sig.Results))
 	}
@@ -1172,7 +1183,7 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool) {
 		b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
 		return
 	}
-	if !known {
+	if !known && sp == nil {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
 	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")

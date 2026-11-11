@@ -158,6 +158,9 @@ type funcCtx struct {
 	inlDepth int
 	lits     map[*check.Var]*litSub
 	inlined  *operand
+	// recs are the record parameters of a copy for a known record and
+	// the record each stands for (record.go).
+	recs map[*check.Var]*knownRec
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {

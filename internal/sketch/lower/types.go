@@ -18,6 +18,10 @@ type typeCtx struct {
 	// wires names the codec witness of each codable type parameter in
 	// scope (wire.go), for a codec call or a codec function's body.
 	wires map[*check.TypeParam]string
+	// mono reports that params binds every type parameter to a Go type
+	// (a copy for a known record, record.go), never to a Go type
+	// parameter.
+	mono bool
 }
 
 // goType is t's Go type. Basic types keep their Go names (duration is

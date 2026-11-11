@@ -311,6 +311,10 @@ type lowerer struct {
 	// flatRuns are the flat runs of the machines, by machine, made at
 	// their first run (machinerun.go); nil for one whose step takes none.
 	flatRuns map[*check.TypeName]*flatRun
+	// recParams memoizes each function's record parameter, and specs are
+	// the copies for known records made so far (record.go).
+	recParams map[*check.Func]int
+	specs     map[specKey]*specCopy
 	// flatSet are the program's flat unions (flatunion.go), decided at the
 	// first question; flatOff the unions an earlier lowering of the
 	// program bailed on, and flatBails those this lowering bails on.

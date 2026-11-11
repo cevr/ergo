@@ -110,6 +110,8 @@ type knownStats struct {
 	// Substituted the literals written where an inlined body calls them.
 	Inlined     int
 	Substituted int
+	// Specialized is the copies for known records made (record.go).
+	Specialized int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of
@@ -494,7 +496,7 @@ func (l *lowerer) knownName(g *check.Func, gd *funcDecl) string {
 		gd.known = l.pkgName(knownKey(g), g.Name+"Known")
 	}
 	l.stats.Variants++
-	l.pending = append(l.pending, func() { l.emitBody(gd, nil, true) })
+	l.pending = append(l.pending, func() { l.emitBody(gd, nil, true, nil) })
 	return gd.known
 }
 

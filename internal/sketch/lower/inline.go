@@ -440,7 +440,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		named[i], plainType[i] = fc.l.useFunc(g, x).name, fc.plainFuncType(g.Sig)
 	}
 	vals := fc.inlineArgs(list, x, addr, skip)
-	ic := &funcCtx{typeCtx: typeCtx{l: fc.l, params: map[*check.TypeParam]string{}, site: x}, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, witness: map[*check.TypeParam]string{}, directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1}
+	ic := &funcCtx{typeCtx: typeCtx{l: fc.l, params: map[*check.TypeParam]string{}, site: x, mono: fc.mono}, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, witness: map[*check.TypeParam]string{}, directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1}
 	for i, tp := range f.Sig.TParams {
 		if tp.Kind != check.KindType {
 			continue

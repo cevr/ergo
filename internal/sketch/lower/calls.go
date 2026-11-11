@@ -192,7 +192,8 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			// (machinerun.go), which returns what std's Run returns.
 			return text, true, true
 		}
-		if fc.inlineAt(x, c) {
+		sp := fc.specAt(x, c)
+		if sp == nil && fc.inlineAt(x, c) {
 			return "", false, false // the value is fc.inlined
 		}
 		fd := fc.l.useFunc(c.Func, x)
@@ -250,6 +251,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 				name = fc.l.knownName(c.Func, fd)
 			}
 			head, rest = name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
+			if sp != nil && !known {
+				// The copy for the known record (record.go): one
+				// instance, so no type arguments.
+				head = sp.name
+			}
 		}
 		// A pure function takes no environment (pure.go): no Task result
 		// and no witness either, so its call passes its operands alone.
@@ -330,6 +336,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		}
 		if fc.inlineAt(x, c) {
 			return "", false, false // a substituted literal (inline.go)
+		}
+		if text, hasValue, fallible, ok := fc.recordCallText(x, c, sig); ok {
+			return text, hasValue, fallible // a field of a known record (record.go)
 		}
 		vals := fc.callArgs(append([]syntax.Expr{x.Fun}, args...), x)
 		if id, ok := unparen(x.Fun).(*syntax.Ident); ok {
