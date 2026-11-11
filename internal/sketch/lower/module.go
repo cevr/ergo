@@ -239,8 +239,9 @@ type lowerer struct {
 	formats  int        // go/format runs
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
-	// Go function took in, inlineSites the inlined calls (inline.go), and
-	// lastDir the last //line directive a body wrote.
+	// Go function took in under the reference growth rule (growth.go),
+	// inlineSites the inlined calls (inline.go), and lastDir the last
+	// //line directive a body wrote.
 	inlineOK    map[*check.Func]knownState
 	inlineGrown map[*namer]int
 	inlineSites []inlineSite

@@ -38,9 +38,10 @@ import (
 //     the frame, so the entry poll it would need is not written, as a
 //     known variant writes none;
 //   - the call is not one whose owned arguments pass unshared, and its
-//     site is at most inlineDepth sites deep, and the Go function has
-//     taken at most inlineGrowth nodes of inlined bodies (the growth
-//     bound).
+//     site is at most inlineDepth sites deep;
+//   - the growth rule (growth.go) admits the site: it is not on a cold
+//     path, and its path has taken at most inlineGrowth nodes of inlined
+//     bodies.
 //
 // An inlined call evaluates its operands as the call does, left to right,
 // binds each to a fresh local of the parameter's type (a Go call's copy),
@@ -73,15 +74,6 @@ const (
 	inlineBudget = 120
 	// inlineDepth is the most inlined sites around an inlined call.
 	inlineDepth = 4
-	// inlineGrowth is the most body nodes one Go function takes in. The
-	// bound is spent in source order: at 800, lru's Put spent it on its
-	// hit path (touch, unlink, pushed) and kept arena Put and pushed as Go
-	// calls on its eviction path, which Go's inliner refuses (cost 98 and
-	// 138 over its budget of 80). At 1600 lru counts 841 instructions per
-	// op against 885 at 800 (hand Go 843; OPT5 round 2), and no other
-	// example with a hot loop moves past its noise. Go's inliner itself
-	// bounds a function only past 5000 nodes (inlineBigFunctionNodes).
-	inlineGrowth = 1600
 )
 
 // inlineRet is where the returns of an inlined body go: its result and
@@ -365,14 +357,9 @@ func (fc *funcCtx) inlineAt(x *syntax.CallExpr, c *check.Call) bool {
 	if fp := f.Pkg.Info.Footprints[f.Decl]; !fp.Empty() && !(len(cbs) > 0 && fc.l.knownVariant(f)) && !fc.l.knownClosed(f) {
 		return false
 	}
-	if fc.l.inlineGrown == nil {
-		fc.l.inlineGrown = map[*namer]int{}
-	}
-	size := inlineSize(f.Decl.Body)
-	if fc.l.inlineGrown[fc.scope]+size > inlineGrowth {
+	if !fc.grow(inlineSize(f.Decl.Body)) {
 		return false
 	}
-	fc.l.inlineGrown[fc.scope] += size
 	if token.IsExported(f.Name) {
 		// An exported function keeps its Go function: inlining copies its
 		// body into the caller, and the declaration stays.
@@ -394,7 +381,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		addr = !isPtr
 	}
 	vals := fc.inlineArgs(list, x, addr, lits)
-	ic := &funcCtx{typeCtx: typeCtx{l: fc.l, params: map[*check.TypeParam]string{}, site: x}, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, witness: map[*check.TypeParam]string{}, directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1}
+	ic := &funcCtx{typeCtx: typeCtx{l: fc.l, params: map[*check.TypeParam]string{}, site: x}, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, witness: map[*check.TypeParam]string{}, directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, path: fc.sitePath()}
 	for i, tp := range f.Sig.TParams {
 		if tp.Kind != check.KindType {
 			continue
@@ -581,7 +568,7 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 	if sig == nil {
 		ice(sub.lit, "a function literal with no Literals entry")
 	}
-	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1}
+	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath()}
 	ret := &inlineRet{label: fc.temp("inl")}
 	var result check.Type
 	if len(sig.Results) == 1 {

@@ -160,6 +160,9 @@ type funcCtx struct {
 	inlDepth int
 	lits     map[*check.Var]*litSub
 	inlined  *operand
+	// path is the statement lists around the code being written, each
+	// with the inline growth its path has taken (growth.go).
+	path []*growthAcct
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -236,6 +239,7 @@ func (fc *funcCtx) errReturn(err string) string {
 // stmts writes a statement list and reports whether its Go form ends in a
 // terminating statement (Go spec, Terminating statements).
 func (fc *funcCtx) stmts(list []syntax.Stmt) bool {
+	defer fc.enterList(list)()
 	terminates := false
 	for _, s := range list {
 		terminates = fc.stmt(s)
@@ -525,6 +529,13 @@ func (fc *funcCtx) returnsErrorType(x syntax.Expr) bool {
 	return fc.l.info.ReturnedValues[x]
 }
 
+// failureValue reports a returned x that is a failure, not a value: an
+// error type's value (types.md, Error types 2) that is not the frame's
+// declared result and not an untried fallible value.
+func (fc *funcCtx) failureValue(x syntax.Expr) bool {
+	return !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), fc.l.pkg.OwnerOf(x)) && !fc.returnsErrorType(x)
+}
+
 // retExpr is shared by explicit return and a checked function-body tail.
 // The source expression is retained so calls and directives keep their site.
 func (fc *funcCtx) retExpr(x syntax.Expr) {
@@ -532,7 +543,7 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	// Whether the value is a failure is decided by the returning body's
 	// own view (owners.go): a type only a test's row names is a value in
 	// a production body, in the test build too.
-	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), fc.l.pkg.OwnerOf(x)) && !fc.returnsErrorType(x) {
+	if fc.failureValue(x) {
 		fc.fail(fc.value(x))
 		return
 	}

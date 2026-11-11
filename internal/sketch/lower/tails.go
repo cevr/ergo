@@ -56,6 +56,7 @@ func (fc *funcCtx) yieldList(list []syntax.Stmt, d dest) bool {
 	if d.kind == destStmt || len(list) == 0 {
 		return fc.stmts(list)
 	}
+	defer fc.enterList(list)() // one account with its prefix (growth.go)
 	fc.stmts(list[:len(list)-1])
 	return fc.yieldStmt(list[len(list)-1], d)
 }
