@@ -52,30 +52,15 @@ type Footprint struct {
 	// call of a function value, of an operation of an operation-type value
 	// or of a host function, here or in a known frame it runs.
 	Opaque bool
-	// Hosts reports that the frame makes a host (std actor.NewHost), or
-	// runs a known frame that does (wf10 DH1). NewHost reads its task, so
-	// such a frame is not pure, but it acts on nothing outside: it makes
-	// an empty cell, which an actor's entry binds (runtime.md, Machines
-	// and actors 16 and 17). A durable step may make one (Replayable).
-	Hosts bool
 	// EntryPoll is frame-local placement metadata, not a callee effect.
 	// An impure frame polls at entry if it is recursive or its footprint
 	// is opaque (unknown code may re-enter it). Pure recursion never polls.
 	EntryPoll bool
 }
 
-// Empty reports a pure frame: no capability, no task start, no opaque
-// call and no host made. Only an empty footprint is purity (rows.md,
-// Footprints 2 and 3).
-func (f Footprint) Empty() bool { return f.Replayable() && !f.Hosts }
-
-// Replayable reports a frame that a replay may run again with no effect
-// outside it: no capability, no task start and no opaque call. It may make
-// hosts: a host is entry data, not durable data, and a host made in a
-// replay is unbound until the recovered actor's first entry binds it
-// (runtime.md, Machines and actors 17; wf10 DH1). The durable rule reads
-// it (durable.go).
-func (f Footprint) Replayable() bool { return len(f.Caps) == 0 && !f.Tasks && !f.Opaque }
+// Empty reports a pure frame: no capability, no task start and no opaque
+// call. Only an empty footprint is purity (rows.md, Footprints 2 and 3).
+func (f Footprint) Empty() bool { return len(f.Caps) == 0 && !f.Tasks && !f.Opaque }
 
 // fpNode is one frame, or one context entry's provider, in the footprint graph.
 type fpNode struct {
@@ -83,7 +68,6 @@ type fpNode struct {
 	caps   map[*TypeName]Type
 	tasks  bool
 	opaque bool
-	hosts  bool
 	edges  []*fpNode
 	walked bool // only bodies actually visited may publish a footprint
 
@@ -108,7 +92,6 @@ func (n *fpNode) join(f Footprint) {
 	}
 	n.tasks = n.tasks || f.Tasks
 	n.opaque = n.opaque || f.Opaque
-	n.hosts = n.hosts || f.Hosts
 }
 
 type footprinter struct {
@@ -326,7 +309,6 @@ func (fp *footprinter) foreignEntry(n *fpNode, e *ContextEntry, p *Package) {
 	}
 	n.tasks = n.tasks || m.tasks
 	n.opaque = n.opaque || m.opaque || len(m.edges) > 0
-	n.hosts = n.hosts || m.hosts
 }
 
 // overridden are the entries w's replaces override that w's builder does
@@ -616,9 +598,12 @@ func (fp *footprinter) runs(n *fpNode, f *Func, taskResult bool) {
 	case pureStd(f):
 		n.tasks = n.tasks || taskResult
 	case MakesHost(f):
-		// NewHost reads its task and makes an empty cell: known code, no
-		// capability, no task (Footprint.Hosts).
-		n.hosts = true
+		// NewHost makes an empty cell, which an actor's entry binds: known
+		// code that acts on nothing outside, so it adds nothing and a
+		// durable step may make hosts (runtime.md, Machines and actors 17;
+		// wf10 DH1). Its Go body reads its task, so it is not pureStd: the
+		// lowering's pure-call walk keeps the environment of each frame
+		// that calls it (lower/pure.go).
 	case f.Decl.Extern != nil || f.Decl.Body == nil:
 		n.opaque = true
 		n.tasks = n.tasks || taskResult
@@ -767,14 +752,13 @@ func (fp *footprinter) solve() {
 			}
 			acc.tasks = acc.tasks || w.tasks
 			acc.opaque = acc.opaque || w.opaque
-			acc.hosts = acc.hosts || w.hosts
 			for _, s := range w.edges {
 				if s.comp != v {
 					acc.join(s.final)
 				}
 			}
 		}
-		f := Footprint{Tasks: acc.tasks, Opaque: acc.opaque, Hosts: acc.hosts}
+		f := Footprint{Tasks: acc.tasks, Opaque: acc.opaque}
 		for _, t := range acc.caps {
 			f.Caps = append(f.Caps, t)
 		}

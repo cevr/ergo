@@ -78,6 +78,12 @@ func TestDurableStepIsPure(t *testing.T) {
 			want: "step step calls log, which is not pure at 11:2",
 		},
 		{
+			// Mutant dh1-checker-newhost-refused (impureWhy without its
+			// MakesHost case): the text names NewHost, not the capability.
+			name: "host then capability", step: "needs Console {\n\tlet _ = actor.NewHost[actor.Actor[State, Signal, Decision[State, int]]]()\n\tConsole.Println(\"x\")\n\tIgnore\n}", call: start,
+			want: "step step calls the capability operation Console.Println at 12:2",
+		},
+		{
 			name: "input machine impure", step: "needs Console {\n\tConsole.Println(\"x\")\n\tIgnore\n}",
 			call: "journal.Start(machines.Start(Counted{}, 3), j, 2, 1, func(o int) {})",
 			want: "step step calls the capability operation Console.Println at 11:2",

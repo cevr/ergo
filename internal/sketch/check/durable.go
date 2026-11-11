@@ -16,7 +16,7 @@ import (
 // machines.Start(X{}, input), or a prelude Machine literal whose Step
 // names a package function (a generic one instantiated, step[S, E], too);
 // anything else is S108 too. The step
-// is pure for a replay when its footprint is replayable (rows.md,
+// is pure for a replay when its footprint is empty (rows.md,
 // Footprints 2 and 3): no capability, no task start and no opaque call;
 // it may make hosts with actor.NewHost (MakesHost, wf10 DH1). The diagnostic names the
 // first call in the step's body that makes it impure. Work and timers stay
@@ -77,7 +77,7 @@ func (c *checker) checkDurableSteps() {
 			continue
 		}
 		fp, ok := info.Footprints[step.Decl]
-		if !ok || fp.Replayable() {
+		if !ok || fp.Empty() {
 			continue
 		}
 		c.errorf(arg, CodeType, "%s replays the saved signals with the machine's step, so the step must be pure: %s (runtime.md, Machines and actors 17)", d.name, impureCall(step, fp))
@@ -228,7 +228,7 @@ func impureWhy(info *Info, x *syntax.CallExpr) string {
 			return "the host function " + f.Name
 		}
 		if f.Pkg != nil && f.Pkg.Info != nil {
-			if g, ok := f.Pkg.Info.Footprints[f.Decl]; ok && g.Replayable() {
+			if g, ok := f.Pkg.Info.Footprints[f.Decl]; ok && g.Empty() {
 				return ""
 			}
 		}
