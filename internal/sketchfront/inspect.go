@@ -32,6 +32,7 @@ import (
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/regexpplan"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -60,7 +61,10 @@ type GoDerived struct {
 	Nodes        int    `json:"nodes,omitempty"`
 	Instructions int    `json:"instructions,omitempty"`
 	States       int    `json:"states,omitempty"`
-	// Allocates is true when a capture repeats: the matcher keeps events.
+	// Allocates is true when the parse matcher allocates: a capture repeats
+	// (it keeps events), or the engine is the NFA (its thread lists). A
+	// fixed plan under the direct or table engine allocates nothing
+	// (patterns.md, Lowering 3; TestPatternLoweringAgrees counts it).
 	Allocates bool `json:"allocates,omitempty"`
 }
 
@@ -184,7 +188,7 @@ func InspectGo(pkgs []*check.Package) GoReport {
 				in := d.Parse.Inspect()
 				g.Engine, g.Reason = string(in.Engine), in.Reason
 				g.Nodes, g.Instructions, g.States = in.Nodes, in.Instructions, in.States
-				g.Allocates = !d.Parse.Fixed()
+				g.Allocates = !d.Parse.Fixed() || in.Engine == regexpplan.NFA
 			}
 			r.Derived = append(r.Derived, g)
 		}

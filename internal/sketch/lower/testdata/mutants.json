@@ -3910,6 +3910,50 @@
       "killers": [
         "lower:TestPatternLoweringAgrees"
       ]
+    },
+    {
+      "name": "rc4b-forced-engine-ignored",
+      "origin": "wf10 RC4b round 2",
+      "file": "internal/sketch/lower/pattern.go",
+      "from": "\t\t\tengine = regexpplan.Engine(patternLowering)\n",
+      "to": "\t\t\tengine = regexpplan.Direct\n",
+      "rule": "A forced table lowering emits the table form of every deterministic plan, so the agreement runs each engine (patterns.md, Lowering 6).",
+      "killers": [
+        "lower:TestPatternLoweringAgrees"
+      ]
+    },
+    {
+      "name": "rc4b-nested-scope-not-reset",
+      "origin": "wf10 RC4b round 2",
+      "file": "internal/sketch/derive/bundle.go",
+      "from": "\t\t\t\tfmt.Fprintf(b, \"\\t\\t\\tl%d = []%s{}\\n\", g.Tag, elemType(g))\n",
+      "to": "\t\t\t\tfmt.Fprintf(b, \"\\t\\t\\tl%d = l%d\\n\", g.Tag, g.Tag)\n",
+      "rule": "Each occurrence of a repeated record starts its repeated inner captures again (patterns.md, Capture shapes 2 and 5).",
+      "killers": [
+        "lower:TestPatternLoweringAgrees"
+      ]
+    },
+    {
+      "name": "rc4b-table-wrong-slot",
+      "origin": "wf10 RC4b round 2",
+      "file": "internal/sketch/regexpplan/emit.go",
+      "from": " k := (q*257+b)*4\n",
+      "to": " k := (q*257+(b^1))*4\n",
+      "rule": "The table engine reads the edge of the byte it is at; forced on every deterministic plan, it gives the reference's values (patterns.md, Lowering 1 and 6). Also killed by regexpplan:TestEmittedDriversAgree.",
+      "killers": [
+        "lower:TestPatternLoweringAgrees"
+      ]
+    },
+    {
+      "name": "rc4b-parse-allocates",
+      "origin": "wf10 RC4b round 2",
+      "file": "internal/sketch/regexpplan/slots.go",
+      "from": " q := 0\n for pos := 0; ; pos++ {\n",
+      "to": " q := 0\n for pos := 0; ; pos++ {\n  if len(make([]int, len(s)+64)) == 0 {return r}\n",
+      "rule": "A fixed plan's direct or table parse allocates nothing, counted at run time (patterns.md, Lowering 3). Also killed by the static scan of regexpplan:TestSlotDriverAgrees.",
+      "killers": [
+        "lower:TestPatternLoweringAgrees"
+      ]
     }
   ]
 }

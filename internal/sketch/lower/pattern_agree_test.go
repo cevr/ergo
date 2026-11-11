@@ -15,22 +15,26 @@ var patternSeed = flag.Uint64("pattern.seed", 0, "run TestPatternLoweringAgrees 
 // patternSeeds are the seeds TestPatternLoweringAgrees runs by default.
 var patternSeeds = []uint64{1, 2}
 
-// A generated pattern: a record of items (plain atoms and flat captures,
-// each capture required, optional or repeated), or a union of named
-// captures. Flat captures keep the reference projection small; nested
-// records and their shapes are TestPatternShapes' (internal/sketch/derive).
+// A generated pattern is a record of elements (plain atoms and named
+// captures) or a union of named captures. A capture is required, optional
+// or repeated (Capture shapes 2), and a capture of the record may hold
+// inner captures of its own (a nested record, Capture shapes 5), each
+// required, optional or repeated in its scope, under a parent that is
+// itself required, optional or repeated. No repeat holds two captures of
+// one scope (Capture shapes 4), and every repeated body consumes a byte.
 type patAtom struct{ set, quant string }
 
-type patItem struct {
-	name   string // "" for a plain atom
+type patElem struct {
+	atom   *patAtom // a plain atom; else a capture
+	name   string
 	suffix string // a capture's repeat: "", "?", "*" or "+"
-	atoms  []patAtom
+	body   []patElem
 }
 
 type genPat struct {
 	typ   string
 	union bool
-	items []patItem // the variants, for a union
+	elems []patElem // the variants, for a union
 }
 
 func (a patAtom) text() string {
@@ -40,18 +44,31 @@ func (a patAtom) text() string {
 	return "[" + a.set + "]" + a.quant
 }
 
+func (e patElem) text() string {
+	if e.atom != nil {
+		return e.atom.text()
+	}
+	var b strings.Builder
+	for _, c := range e.body {
+		b.WriteString(c.text())
+	}
+	return "(?<" + e.name + ">" + b.String() + ")" + e.suffix
+}
+
+// nested reports a capture with captures inside it: a record field.
+func (e patElem) nested() bool {
+	for _, c := range e.body {
+		if c.atom == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *genPat) text() string {
 	var parts []string
-	for _, it := range p.items {
-		var body strings.Builder
-		for _, a := range it.atoms {
-			body.WriteString(a.text())
-		}
-		if it.name == "" {
-			parts = append(parts, body.String())
-		} else {
-			parts = append(parts, "(?<"+it.name+">"+body.String()+")"+it.suffix)
-		}
+	for _, e := range p.elems {
+		parts = append(parts, e.text())
 	}
 	if p.union {
 		return strings.Join(parts, "|")
@@ -61,43 +78,96 @@ func (p *genPat) text() string {
 
 var patSets = []string{"a", "b", "0", "ab", "a0", "abc", "01"}
 
-func genAtom(r *rand.Rand, nullable bool) patAtom {
+var captureSuffixes = []string{"", "?", "*", "+"}
+
+// patGen draws a pattern. In separated mode each atom takes the next of
+// patSingles, so adjacent atoms never share a byte and most plans have a
+// deterministic candidate (direct and table); otherwise atoms draw from
+// overlapping sets, and most plans need the NFA.
+type patGen struct {
+	r         *rand.Rand
+	separated bool
+	next      int
+}
+
+var patSingles = []string{"a", "b", "0", "c", "1"}
+
+func (g *patGen) atom(nullable bool) *patAtom {
 	quants := []string{"", "+", "{1,2}"}
 	if nullable {
 		quants = append(quants, "?", "*")
 	}
-	return patAtom{patSets[r.IntN(len(patSets))], quants[r.IntN(len(quants))]}
-}
-
-func genCaptureBody(r *rand.Rand) []patAtom {
-	atoms := []patAtom{genAtom(r, false)}
-	if r.IntN(2) == 0 {
-		atoms = append(atoms, genAtom(r, false))
+	set := patSets[g.r.IntN(len(patSets))]
+	if g.separated {
+		set = patSingles[g.next%len(patSingles)]
+		g.next++
 	}
-	return atoms
+	return &patAtom{set, quants[g.r.IntN(len(quants))]}
 }
 
+// body is a capture's body: a first atom that consumes a byte, then up to
+// two atoms or, when inner is set, inner captures with flat bodies.
+func (g *patGen) body(name string, inner bool) []patElem {
+	body := []patElem{{atom: g.atom(false)}}
+	for k := range g.r.IntN(3) {
+		if inner && g.r.IntN(3) > 0 {
+			body = append(body, patElem{name: fmt.Sprintf("%sk%d", name, k), suffix: captureSuffixes[g.r.IntN(4)], body: g.body("", false)})
+		} else {
+			body = append(body, patElem{atom: g.atom(false)})
+		}
+	}
+	if g.separated && inner {
+		// A byte after the inner captures closes the record at one place.
+		body = append(body, patElem{atom: &patAtom{set: g.atom(false).set}})
+	}
+	return body
+}
+
+// terminal is the byte that ends a separated pattern: an optional or
+// repeated element at the end leaves the construction check two
+// acceptance histories (regexpplan, validate.go), and the plan the NFA.
+func (g *patGen) terminal(p *genPat) {
+	if g.separated {
+		p.elems = append(p.elems, patElem{atom: &patAtom{set: g.atom(false).set}})
+	}
+}
+
+// genPattern draws pattern i. Pattern 1 of each seed is a repeated record
+// with a repeated inner capture, (?<P>a(?<K>b)+)*, whose inner list each
+// occurrence of P starts again (Capture shapes 2 and 5).
 func genPattern(r *rand.Rand, i int) *genPat {
+	g := &patGen{r: r, separated: i%2 == 0 || i == 1}
 	p := &genPat{typ: fmt.Sprintf("P%d", i)}
-	if r.IntN(4) == 0 {
+	if i == 1 {
+		name := "C1n0"
+		first := g.atom(false)
+		inner := patElem{name: name + "k0", suffix: "+", body: g.body("", false)}
+		p.elems = []patElem{{name: name, suffix: "*", body: []patElem{{atom: first}, inner, {atom: &patAtom{set: g.atom(false).set}}}}}
+		g.terminal(p)
+		return p
+	}
+	if r.IntN(5) == 0 {
 		p.union = true
 		for k := range 2 + r.IntN(2) {
-			p.items = append(p.items, patItem{name: fmt.Sprintf("V%dn%d", i, k), atoms: genCaptureBody(r)})
+			p.elems = append(p.elems, patElem{name: fmt.Sprintf("V%dn%d", i, k), body: g.body("", false)})
 		}
 		return p
 	}
 	captures := 0
 	for k := range 1 + r.IntN(4) {
 		if r.IntN(5) < 3 {
-			p.items = append(p.items, patItem{name: fmt.Sprintf("C%dn%d", i, k), suffix: []string{"", "?", "*", "+"}[r.IntN(4)], atoms: genCaptureBody(r)})
+			name := fmt.Sprintf("C%dn%d", i, k)
+			p.elems = append(p.elems, patElem{name: name, suffix: captureSuffixes[r.IntN(4)], body: g.body(name, r.IntN(2) == 0)})
 			captures++
 		} else {
-			p.items = append(p.items, patItem{atoms: []patAtom{genAtom(r, true)}})
+			p.elems = append(p.elems, patElem{atom: g.atom(true)})
 		}
 	}
 	if captures == 0 {
-		p.items = append(p.items, patItem{name: fmt.Sprintf("C%dn9", i), suffix: "?", atoms: genCaptureBody(r)})
+		name := fmt.Sprintf("C%dn9", i)
+		p.elems = append(p.elems, patElem{name: name, suffix: "?", body: g.body(name, true)})
 	}
+	g.terminal(p)
 	return p
 }
 
@@ -115,21 +185,27 @@ func count(r *rand.Rand, quant string) int {
 	return 1
 }
 
+func witnessOf(r *rand.Rand, b *strings.Builder, elems []patElem) {
+	for _, e := range elems {
+		if e.atom != nil {
+			for range count(r, e.atom.quant) {
+				b.WriteByte(e.atom.set[r.IntN(len(e.atom.set))])
+			}
+			continue
+		}
+		for range count(r, e.suffix) {
+			witnessOf(r, b, e.body)
+		}
+	}
+}
+
 // witness is a word of p's language.
 func (p *genPat) witness(r *rand.Rand) string {
 	var b strings.Builder
-	items := p.items
 	if p.union {
-		items = []patItem{items[r.IntN(len(items))]}
-	}
-	for _, it := range items {
-		for range count(r, it.suffix) {
-			for _, a := range it.atoms {
-				for range count(r, a.quant) {
-					b.WriteByte(a.set[r.IntN(len(a.set))])
-				}
-			}
-		}
+		witnessOf(r, &b, p.elems[r.IntN(len(p.elems))].body)
+	} else {
+		witnessOf(r, &b, p.elems)
 	}
 	return b.String()
 }
@@ -142,34 +218,54 @@ func randomText(r *rand.Rand) string {
 	return b.String()
 }
 
+// showFunc writes the Ergo function show<typ> of a record type whose
+// fields are the captures of elems, and those of its nested records.
+func showFunc(b *strings.Builder, typ string, elems []patElem) {
+	var parts []string
+	for _, e := range elems {
+		if e.atom != nil {
+			continue
+		}
+		if e.nested() {
+			rt := typ + e.name
+			showFunc(b, rt, e.body)
+			fmt.Fprintf(b, "func opt%s(o Option[%s]) string {\n\tmatch o {\n\tcase Some as s: \"{\" + show%s(s.Value) + \"}\"\n\tcase None: \"-\"\n\t}\n}\n\n", rt, rt, rt)
+			fmt.Fprintf(b, "func list%s(xs []%s) string {\n\tlet mut out = \"[\"\n\tfor x in xs {\n\t\tout = out + \"{\" + show%s(x) + \"}\"\n\t}\n\tout + \"]\"\n}\n\n", rt, rt, rt)
+			switch e.suffix {
+			case "":
+				parts = append(parts, fmt.Sprintf("\"%s={\" + show%s(v.%s) + \"}\"", e.name, rt, e.name))
+			case "?":
+				parts = append(parts, fmt.Sprintf("\"%s=\" + opt%s(v.%s)", e.name, rt, e.name))
+			default:
+				parts = append(parts, fmt.Sprintf("\"%s=\" + list%s(v.%s)", e.name, rt, e.name))
+			}
+			continue
+		}
+		switch e.suffix {
+		case "":
+			parts = append(parts, fmt.Sprintf("\"%s=<\" + v.%s + \">\"", e.name, e.name))
+		case "?":
+			parts = append(parts, fmt.Sprintf("\"%s=\" + optS(v.%s)", e.name, e.name))
+		default:
+			parts = append(parts, fmt.Sprintf("\"%s=\" + listS(v.%s) + optS(slices.Last(v.%s))", e.name, e.name, e.name))
+		}
+	}
+	fmt.Fprintf(b, "func show%s(v %s) string {\n\t%s\n}\n\n", typ, typ, strings.Join(parts, " + \" \" + "))
+}
+
 // source is p's derive and the functions that print its parse and find.
 func (p *genPat) source() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "type %s derive Pattern(`%s`)\n\n", p.typ, p.text())
-	fmt.Fprintf(&b, "func show%s(v %s) string {\n", p.typ, p.typ)
 	if p.union {
-		b.WriteString("\tmatch v {\n")
-		for _, it := range p.items {
-			fmt.Fprintf(&b, "\tcase %s as x: \"%s=<\" + x.Value + \">\"\n", it.name, it.name)
+		fmt.Fprintf(&b, "func show%s(v %s) string {\n\tmatch v {\n", p.typ, p.typ)
+		for _, e := range p.elems {
+			fmt.Fprintf(&b, "\tcase %s as x: \"%s=<\" + x.Value + \">\"\n", e.name, e.name)
 		}
-		b.WriteString("\t}\n")
+		b.WriteString("\t}\n}\n\n")
 	} else {
-		var parts []string
-		for _, it := range p.items {
-			switch it.suffix {
-			case "":
-				if it.name != "" {
-					parts = append(parts, fmt.Sprintf("\"%s=<\" + v.%s + \">\"", it.name, it.name))
-				}
-			case "?":
-				parts = append(parts, fmt.Sprintf("\"%s=\" + optS(v.%s)", it.name, it.name))
-			default:
-				parts = append(parts, fmt.Sprintf("\"%s=\" + listS(v.%s) + optS(slices.Last(v.%s))", it.name, it.name, it.name))
-			}
-		}
-		b.WriteString("\t" + strings.Join(parts, " + \" \" + ") + "\n")
+		showFunc(&b, p.typ, p.elems)
 	}
-	b.WriteString("}\n\n")
 	fmt.Fprintf(&b, "func parse%s(s string) string fails NoMatch { show%s(try Parse%s(s)) }\n\n", p.typ, p.typ, p.typ)
 	fmt.Fprintf(&b, "func runParse%s(s string) string {\n\tlet r = parse%s(s) catch {\n\tcase NoMatch as m: \"no \\(m.At)\"\n\t}\n\tr\n}\n\n", p.typ, p.typ)
 	fmt.Fprintf(&b, "func runFind%s(s string, from int) string {\n\tmatch Find%s(s, from) {\n\tcase Some as m:\n\t\tlet (v, start, end) = m.Value\n\t\t\"\\(start) \\(end) \" + show%s(v)\n\tcase None: \"none\"\n\t}\n}\n\n", p.typ, p.typ, p.typ)
@@ -195,94 +291,139 @@ func listS(xs []string) string {
 
 `
 
-// occurrences are the spans of each capture tag of events, in input order.
-func occurrences(events []regexpplan.Event, shift int) map[int][][2]int {
-	open := map[int]int{}
-	occ := map[int][][2]int{}
-	for _, e := range events {
-		if e.Tag > 0 {
-			open[e.Tag] = e.Pos + shift
-		} else {
-			occ[-e.Tag] = append(occ[-e.Tag], [2]int{open[-e.Tag], e.Pos + shift})
-		}
-	}
-	return occ
+// occ is one occurrence of a capture in the reference's events, with the
+// occurrences of the captures inside it.
+type occ struct {
+	tag, start, end int
+	kids            []*occ
 }
 
-// expectShow is what show prints for the value the reference events give.
-func (p *genPat) expectShow(s string, names []string, occ map[int][][2]int) string {
-	tag := map[string]int{}
-	for i, n := range names {
-		tag[n] = i + 1
-	}
-	text := func(span [2]int) string { return "<" + s[span[0]:span[1]] + ">" }
-	if p.union {
-		for _, it := range p.items {
-			if spans := occ[tag[it.name]]; len(spans) == 1 {
-				return it.name + "=" + text(spans[0])
-			}
+// occurrenceTree nests the reference events: an open starts an occurrence
+// inside the innermost open one, a close ends it.
+func occurrenceTree(events []regexpplan.Event, shift int) *occ {
+	root := &occ{}
+	stack := []*occ{root}
+	for _, e := range events {
+		if e.Tag > 0 {
+			o := &occ{tag: e.Tag, start: e.Pos + shift}
+			top := stack[len(stack)-1]
+			top.kids = append(top.kids, o)
+			stack = append(stack, o)
+		} else {
+			stack[len(stack)-1].end = e.Pos + shift
+			stack = stack[:len(stack)-1]
 		}
-		return "no variant took part"
 	}
+	return root
+}
+
+// expectRecord is what show prints for the record that elems project from
+// the occurrence at.
+func expectRecord(s string, tag map[string]int, elems []patElem, at *occ) string {
 	var parts []string
-	for _, it := range p.items {
-		if it.name == "" {
+	for _, e := range elems {
+		if e.atom != nil {
 			continue
 		}
-		spans := occ[tag[it.name]]
-		switch it.suffix {
+		var spans []*occ
+		for _, k := range at.kids {
+			if k.tag == tag[e.name] {
+				spans = append(spans, k)
+			}
+		}
+		value := func(o *occ) string {
+			if e.nested() {
+				return "{" + expectRecord(s, tag, e.body, o) + "}"
+			}
+			return "<" + s[o.start:o.end] + ">"
+		}
+		switch e.suffix {
 		case "":
 			if len(spans) != 1 {
-				return fmt.Sprintf("%s took part %d times", it.name, len(spans))
+				return fmt.Sprintf("%s took part %d times", e.name, len(spans))
 			}
-			parts = append(parts, it.name+"="+text(spans[0]))
+			parts = append(parts, e.name+"="+value(spans[0]))
 		case "?":
 			v := "-"
 			if len(spans) == 1 {
-				v = text(spans[0])
+				v = value(spans[0])
 			}
-			parts = append(parts, it.name+"="+v)
+			parts = append(parts, e.name+"="+v)
 		default:
 			var list strings.Builder
 			last := "-"
-			for _, sp := range spans {
-				list.WriteString(text(sp))
-				last = text(sp)
+			for _, o := range spans {
+				list.WriteString(value(o))
+				last = value(o)
 			}
-			parts = append(parts, it.name+"=["+list.String()+"]"+last)
+			if e.nested() {
+				last = ""
+			}
+			parts = append(parts, e.name+"=["+list.String()+"]"+last)
 		}
 	}
 	return strings.Join(parts, " ")
 }
 
+// expectShow is what show prints for the value the reference events give.
+func (p *genPat) expectShow(s string, names []string, events []regexpplan.Event, shift int) string {
+	tag := map[string]int{}
+	for i, n := range names {
+		tag[n] = i + 1
+	}
+	root := occurrenceTree(events, shift)
+	if p.union {
+		for _, e := range p.elems {
+			for _, k := range root.kids {
+				if k.tag == tag[e.name] {
+					return e.name + "=<" + s[k.start:k.end] + ">"
+				}
+			}
+		}
+		return "no variant took part"
+	}
+	return expectRecord(s, tag, p.elems, root)
+}
+
+// patternLowerings are the parse lowerings the agreement compares: the
+// selected engine, the reference NFA, and the direct and table forms
+// forced on every plan with a deterministic candidate.
+var patternLowerings = []string{"", "reference", "direct", "table"}
+
 // TestPatternLoweringAgrees holds the derived bundle of generated patterns
-// (patterns.md, The pattern bundle 1 and 3; Lowering 3 and 6) to the
-// reference: for each generated pattern and input, ParseT and FindT print,
-// under the selected engines and under the reference lowering, the value
-// that the canonical NFA's events project by Capture shapes 2 and 7, and
-// the failure position the plan computes. Patterns are records of flat
-// captures (required, optional and repeated, read in full and by
-// slices.Last) and unions of named captures, so the typed adapters of both
-// result forms (fixed slots and events) and every variant are reached.
+// (patterns.md, Capture shapes 1-5 and 7; The pattern bundle 1 and 3;
+// Lowering 3 and 6) to the reference: for each generated pattern and
+// input, ParseT and FindT print, under each parse lowering, the value that
+// the canonical NFA's events project and the failure position the plan
+// computes. The lowerings are the selected engine, the reference NFA, and
+// the direct and table forms forced on every plan that has a
+// deterministic candidate, so each engine runs on the same patterns.
+// Patterns are records of required, optional and repeated captures, with
+// nested records under required, optional and repeated parents, and
+// unions of named captures, so the typed adapters of both result forms
+// (fixed slots and events) are reached.
+//
+// It also counts, at run time, the allocations of each emitted parse
+// matcher (testing.AllocsPerRun on every input): a fixed plan under the
+// direct or table engine allocates nothing (Lowering 3).
 //
 // It builds Go because the question is what the emitted matchers and the
-// Ergo adapters over them compute at run time: the adapters are lowered
-// Ergo, which no in-process interpreter runs. Both lowerings link into one
-// binary.
+// lowered Ergo adapters over them compute and allocate at run time: no
+// in-process interpreter runs lowered Ergo, and allocations are counted
+// only by running the compiled matcher. All programs link into one binary.
 func TestPatternLoweringAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := patternSeeds
 	if *patternSeed != 0 {
 		seeds = []uint64{*patternSeed}
 	}
-	// Each branch reached over the seeds: the selected direct engine (the
-	// reference lowering is the NFA for every pattern), both result forms,
-	// matches and failures.
-	engines := map[regexpplan.Engine]int{}
-	fixed, events, matched, failed := 0, 0, 0, 0
+	// Each branch reached over the seeds.
+	deterministic, nfaOnly, fixed, events, nested, nestedUnderRepeat := 0, 0, 0, 0, 0, 0
+	matched, failed, zeroChecked := 0, 0, 0
 	defer func() {
-		if !t.Failed() && *patternSeed == 0 && (engines[regexpplan.Direct] == 0 || fixed == 0 || events == 0 || matched == 0 || failed == 0) {
-			t.Errorf("the generator reached engines %v, %d fixed and %d event plans, %d matches and %d failures", engines, fixed, events, matched, failed)
+		t.Logf("reached %d deterministic and %d NFA-only plans, %d fixed and %d event plans, %d nested records (%d repeated with a repeated inner capture), %d matches, %d failures, %d zero-allocation checks", deterministic, nfaOnly, fixed, events, nested, nestedUnderRepeat, matched, failed, zeroChecked)
+		if !t.Failed() && *patternSeed == 0 && (deterministic == 0 || nfaOnly == 0 || fixed == 0 || events == 0 || nested == 0 || nestedUnderRepeat == 0 || matched == 0 || failed == 0 || zeroChecked == 0) {
+			t.Errorf("the generator reached %d deterministic and %d NFA-only plans, %d fixed and %d event plans, %d nested records (%d repeated with a repeated inner capture), %d matches, %d failures and %d zero-allocation checks", deterministic, nfaOnly, fixed, events, nested, nestedUnderRepeat, matched, failed, zeroChecked)
 		}
 	}()
 	for _, seed := range seeds {
@@ -296,6 +437,16 @@ func TestPatternLoweringAgrees(t *testing.T) {
 			p := genPattern(r, i)
 			pats = append(pats, p)
 			src.WriteString(p.source())
+			for _, e := range p.elems {
+				if e.atom == nil && e.nested() {
+					nested++
+					for _, c := range e.body {
+						if (e.suffix == "*" || e.suffix == "+") && (c.suffix == "*" || c.suffix == "+") {
+							nestedUnderRepeat++
+						}
+					}
+				}
+			}
 			var in []string
 			var fr []int
 			for k := range 8 {
@@ -319,15 +470,32 @@ func TestPatternLoweringAgrees(t *testing.T) {
 		src.WriteString("func main() needs Console {\n" + calls.String() + "}\n")
 		program := src.String()
 
+		var programs []*lowered
 		prev := SetPatternLoweringForTest("")
-		selected := mustLower(t, fmt.Sprintf("patternselected%d", seed), program)
-		SetPatternLoweringForTest("reference")
-		reference := mustLower(t, fmt.Sprintf("patternreference%d", seed), program)
+		for _, mode := range patternLowerings {
+			SetPatternLoweringForTest(mode)
+			name := "selected"
+			if mode != "" {
+				name = mode
+			}
+			programs = append(programs, mustLower(t, fmt.Sprintf("pattern%s%d", name, seed), program))
+		}
 		SetPatternLoweringForTest(prev)
+		// The forced forms are in the Go: the table form alone reads a
+		// table (regexpplan, emit.go tableStep).
+		hasTable := func(o *lowered) bool { return strings.Contains(o.mainGo(), "const offsets =") }
+		if !hasTable(programs[3]) || hasTable(programs[2]) || hasTable(programs[1]) {
+			t.Fatalf("seed %d: the forced lowerings do not emit their forms: table form in reference %v, direct %v, table %v", seed, hasTable(programs[1]), hasTable(programs[2]), hasTable(programs[3]))
+		}
 
+		// The allocation harness: each emitted parse matcher under each
+		// engine it can take, counted on every input.
+		var harness, measure strings.Builder
+		harness.WriteString("package main\n\nimport (\n\t\"fmt\"\n\t\"testing\"\n)\n\nvar sink int\n\n")
+		var allocRows []string // the expected fixed, deterministic rows
 		for i, p := range pats {
 			var parse, find *regexpplan.Plan
-			for _, d := range selected.pkg.Derive.Derived {
+			for _, d := range programs[0].pkg.Derive.Derived {
 				if d.Type == p.typ {
 					parse, find = d.Parse, d.Find
 				}
@@ -335,11 +503,31 @@ func TestPatternLoweringAgrees(t *testing.T) {
 			if parse == nil || find == nil {
 				t.Fatalf("seed %d: %s has no derive record\n%s", seed, p.typ, program)
 			}
-			engines[parse.Inspect().Engine]++
+			engines := []regexpplan.Engine{regexpplan.NFA}
+			if parse.Deterministic() {
+				deterministic++
+				engines = append(engines, regexpplan.Direct, regexpplan.Table)
+			} else {
+				nfaOnly++
+			}
 			if parse.Fixed() {
 				fixed++
 			} else {
 				events++
+			}
+			for _, e := range engines {
+				fn := fmt.Sprintf("match%s%s", p.typ, e)
+				code, err := parse.EmitParse(fn, e)
+				if err != nil {
+					t.Fatalf("seed %d: %s %s: %v", seed, p.typ, e, err)
+				}
+				harness.WriteString(code + "\n")
+				for _, s := range inputs[i] {
+					fmt.Fprintf(&measure, "\tfmt.Println(%q, %q, testing.AllocsPerRun(20, func() { sink += %s(%q)[0] }))\n", fn, s, fn, s)
+					if parse.Fixed() && e != regexpplan.NFA {
+						allocRows = append(allocRows, fn+" "+s)
+					}
+				}
 			}
 			names := parse.Names()
 			for k, s := range inputs[i] {
@@ -350,7 +538,7 @@ func TestPatternLoweringAgrees(t *testing.T) {
 				}
 				if ref.OK {
 					matched++
-					want.WriteString(p.expectShow(s, names, occurrences(ref.Events, 0)) + "\n")
+					want.WriteString(p.expectShow(s, names, ref.Events, 0) + "\n")
 				} else {
 					failed++
 					fmt.Fprintf(&want, "no %d\n", res.At)
@@ -358,18 +546,42 @@ func TestPatternLoweringAgrees(t *testing.T) {
 				from := froms[i][k]
 				m := find.Reference(s[from:])
 				if m.OK {
-					fmt.Fprintf(&want, "%d %d %s\n", m.Start+from, m.End+from, p.expectShow(s, find.Names(), occurrences(m.Events, from)))
+					fmt.Fprintf(&want, "%d %d %s\n", m.Start+from, m.End+from, p.expectShow(s, find.Names(), m.Events, from))
 				} else {
 					want.WriteString("none\n")
 				}
 			}
 		}
-		exes := buildAll(t, []*lowered{selected, reference}, true)
-		for _, o := range []*lowered{selected, reference} {
+		harness.WriteString("func main() {\n" + measure.String() + "}\n")
+		allocs := &lowered{name: fmt.Sprintf("patternallocs%d", seed), src: "(the allocation harness; Go only)", files: []File{{Path: "main.go", Data: []byte(harness.String())}}}
+
+		exes := buildAll(t, append(append([]*lowered{}, programs...), allocs), true)
+		for _, o := range programs {
 			out, stderr, code := runExe(t, exes[o.name])
 			if code != 0 || out != want.String() {
 				t.Fatalf("seed %d: %s differs from the reference (exit %d, stderr %s)\nreplay: go test -run TestPatternLoweringAgrees ./internal/sketch/lower -pattern.seed=%d\nsource:\n%s\ngot:\n%s\nwant:\n%s", seed, o.name, code, stderr, seed, program, out, want.String())
 			}
+		}
+		out, stderr, code := runExe(t, exes[allocs.name])
+		if code != 0 {
+			t.Fatalf("seed %d: the allocation harness exited %d: %s", seed, code, stderr)
+		}
+		counted := map[string]string{}
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			// fmt.Println writes the name, the input and the count, by spaces;
+			// inputs hold no space.
+			parts := strings.Split(line, " ")
+			counted[parts[0]+" "+strings.Join(parts[1:len(parts)-1], " ")] = parts[len(parts)-1]
+		}
+		for _, row := range allocRows {
+			n, ok := counted[row]
+			if !ok {
+				t.Fatalf("seed %d: no allocation count for %s\n%s", seed, row, out)
+			}
+			if n != "0" {
+				t.Errorf("seed %d: the fixed parse %s allocated %s times per run (want 0; Lowering 3)\nreplay: go test -run TestPatternLoweringAgrees ./internal/sketch/lower -pattern.seed=%d", seed, row, n, seed)
+			}
+			zeroChecked++
 		}
 	}
 }

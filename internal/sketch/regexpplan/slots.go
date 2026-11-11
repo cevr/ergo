@@ -35,6 +35,11 @@ func (p *Plan) Fixed() bool { return !p.repeated }
 // Slots is the length of a fixed plan's result array.
 func (p *Plan) Slots() int { return 3 + 2*len(p.names) }
 
+// Deterministic reports a plan whose deterministic candidate passed the
+// construction check, so its direct and table forms can be emitted (the
+// selection picks one; a test may force the other, lower/pattern.go).
+func (p *Plan) Deterministic() bool { return p.ir != nil }
+
 // Mode is the match mode the plan was compiled for.
 func (p *Plan) Mode() Mode { return p.mode }
 
@@ -360,14 +365,15 @@ func (p *Plan) fill(template, name, step, program string) string {
 }
 
 // EmitParse is the Go declaration of the parse driver named name for the
-// engine: the selected one, or NFA for the reference lowering. Its step
+// engine: the selected one, NFA for the reference lowering, or a forced
+// direct or table form of a deterministic plan (a test's choice). Its step
 // (direct or table) is RC3's emission, checked by ValidateGo before use.
 func (p *Plan) EmitParse(name string, engine Engine) (string, error) {
 	if p.mode != Parse {
 		return "", fmt.Errorf("EmitParse of a find plan")
 	}
-	if engine != NFA && engine != p.info.Engine {
-		return "", fmt.Errorf("engine %s is not the selected engine %s", engine, p.info.Engine)
+	if engine != NFA && !p.Deterministic() {
+		return "", fmt.Errorf("engine %s needs a deterministic candidate, and this plan has none", engine)
 	}
 	if engine == NFA {
 		src := p.fill(nfaParseDriver, name, "", p.program())

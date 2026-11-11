@@ -18,14 +18,17 @@ import (
 // a name (internal/residue, TestLoweringKeysOnNoStdName).
 
 // patternLowering selects the parse lowering of derived patterns: "" the
-// engine the construction check selected (direct or table), "reference"
-// the canonical NFA always. Find is the linear NFA scan in both. It is a
-// string for -ldflags -X
+// engine the construction check selected (direct, table or NFA),
+// "reference" the canonical NFA always. Find is the linear NFA scan in
+// every mode. It is a string for -ldflags -X
 // (ergo.local/prototype/internal/sketch/lower.patternLowering=reference).
+// Tests may also force "direct" or "table": each plan with a deterministic
+// candidate then emits that form, and any other plan its selected engine.
+// The default is never a forced form.
 var patternLowering = ""
 
-// SetPatternLoweringForTest selects the pattern lowering ("" or
-// "reference") and returns the previous one.
+// SetPatternLoweringForTest selects the pattern lowering ("", "reference",
+// "direct" or "table") and returns the previous one.
 func SetPatternLoweringForTest(mode string) string {
 	prev := patternLowering
 	patternLowering = mode
@@ -48,8 +51,11 @@ func (l *lowerer) emitNative(b *strings.Builder, name string, n *derive.Native, 
 		src, err = n.Plan.EmitFind(name)
 	} else {
 		engine := n.Plan.Inspect().Engine
-		if patternLowering == "reference" {
+		switch {
+		case patternLowering == "reference":
 			engine = regexpplan.NFA
+		case (patternLowering == "direct" || patternLowering == "table") && n.Plan.Deterministic():
+			engine = regexpplan.Engine(patternLowering)
 		}
 		src, err = n.Plan.EmitParse(name, engine)
 	}
