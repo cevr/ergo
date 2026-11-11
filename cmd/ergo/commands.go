@@ -49,7 +49,7 @@ const toolingReason = "semantic tooling returns on the new front end"
 var commands = []cliCommand{
 	{name: "check", usage: "check FILE|DIR|DIR/... [--target go]", run: checkCommand},
 	{name: "diagnostics", usage: "diagnostics FILE|DIR [--strict] [--json] [--target go]", help: diagnosticsHelp, run: diagnosticsCommand},
-	{name: "build", usage: "build FILE|DIR [-o PATH] [-work] [--target go]", run: buildCommand},
+	{name: "build", usage: "build FILE|DIR [-o PATH] [-work] [--platform OS/ARCH] [--target go]", run: buildCommand},
 	{name: "run", usage: "run FILE|DIR [--] [ARGS...]", help: runHelp, run: runCommand},
 	{name: "fmt", usage: "fmt FILE...|DIR/... [--check] [--json] | fmt --stdin", help: fmtHelp, run: formatCommand},
 	{name: "test", usage: "test FILE|DIR|DIR/... [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--receipt FILE] [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]] [--schedule TOKEN] [-work] [--json] [--target go]", run: testCommand},

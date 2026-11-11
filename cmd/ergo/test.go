@@ -64,19 +64,19 @@ func testPackage(opts fileOptions) error {
 	if err != nil {
 		return err
 	}
-	toolchain := build.HostToolchain()
+	tc := toolchain(opts)
 	if opts.explore {
 		// The tag chooses the runtime's controlled scheduler at link
 		// time; the emitted module is the one a plain `ergo test` uses
 		// (runtime.md, Explored schedules).
-		toolchain.Tags = []string{"ergoexplore"}
+		tc.Tags = []string{"ergoexplore"}
 	}
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeTest,
 		Source:    l.source.Admitted(),
 		Output:    binary,
 		Cache:     build.Cache{Root: root},
-		Toolchain: toolchain,
+		Toolchain: tc,
 		Stderr:    os.Stderr,
 	})
 	if opts.work && module.Dir != "" {

@@ -82,6 +82,69 @@
       "to": "\tpath, err := importPath(abs)\n\tpath = filepath.ToSlash(dir)\n",
       "rule": "ergo gen rpc names the contract by its resolved import path, never by how the command spelled the folder; --check from any spelling finds current files current.",
       "killers": ["ergo:TestGenCheckReadsThePackage"]
+    },
+    {
+      "name": "dist1-platform-unchecked",
+      "origin": "wf10 DIST1",
+      "file": "cmd/ergo/build.go",
+      "from": "if slices.Contains(gobind.Platforms, p) {",
+      "to": "if true || slices.Contains(gobind.Platforms, p) {",
+      "rule": "A platform outside the target list is the EF110 refusal, however it was named.",
+      "killers": ["cmd/ergo:TestFileCommandsRefuseOptionsTheyDoNotTake", "cmd/ergo:TestPlatformOfABuild"]
+    },
+    {
+      "name": "dist1-platform-flag-on-run",
+      "origin": "wf10 DIST1",
+      "file": "cmd/ergo/main.go",
+      "from": "case platformed && command != \"build\":",
+      "to": "case platformed && command == \"\":",
+      "rule": "--platform belongs to build: run and test execute what they link, so they link for the host's platform.",
+      "killers": ["cmd/ergo:TestFileCommandsRefuseOptionsTheyDoNotTake"]
+    },
+    {
+      "name": "dist1-environment-ignored",
+      "origin": "wf10 DIST1",
+      "file": "cmd/ergo/build.go",
+      "from": "if goarch != \"\" {",
+      "to": "if false && goarch != \"\" {",
+      "rule": "Without --platform, GOOS and GOARCH of the environment choose the platform, as for go build.",
+      "killers": ["cmd/ergo:TestPlatformOfABuild"]
+    },
+    {
+      "name": "dist1-action-ignores-platform",
+      "origin": "wf10 DIST1",
+      "file": "cmd/ergo/build.go",
+      "from": "tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH",
+      "to": "tc.GOOS, tc.GOARCH = runtime.GOOS, runtime.GOARCH",
+      "rule": "The Go action links for the platform the options name.",
+      "killers": ["cmd/ergo:TestPlatformOfABuild"]
+    },
+    {
+      "name": "dist1-cgo-left-to-the-host",
+      "origin": "wf10 DIST1",
+      "file": "internal/sketch/build/action.go",
+      "from": "{\"CGO_ENABLED\", \"0\"}, ",
+      "to": "",
+      "rule": "Every Ergo link is cgo-free: the bindings are typed with CGO_ENABLED=0, and a cross link has no C toolchain.",
+      "killers": ["cmd/ergo:TestPlatformOfABuild"]
+    },
+    {
+      "name": "dist1-runtime-kqueue-arm64-only",
+      "origin": "wf10 DIST1",
+      "file": "runtime/v1/exec_exit_kqueue.go",
+      "from": "//go:build darwin || dragonfly",
+      "to": "//go:build (darwin && arm64) || dragonfly",
+      "rule": "The runtime links on every platform of the target list (a build-tagged runtime file must cover each).",
+      "killers": ["cmd/ergo:TestBuildCrossCompilesEveryPlatform"]
+    },
+    {
+      "name": "dist1-emission-keyed-on-platform",
+      "origin": "wf10 DIST1",
+      "file": "internal/sketchfront/sketchfront.go",
+      "from": "\t\tMode:         req.Mode,\n",
+      "to": "\t\tMode:         req.Mode,\n\t\tFlags:        []string{req.Toolchain.GOOS + \"/\" + req.Toolchain.GOARCH},\n",
+      "rule": "The emitted module is platform-independent: one module serves every platform's link.",
+      "killers": ["cmd/ergo:TestBuildCrossCompilesEveryPlatform"]
     }
   ]
 }
