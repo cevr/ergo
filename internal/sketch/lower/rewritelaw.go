@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -43,15 +44,15 @@ const rewriteSteps = 5
 // uniform in 0..31, each step uniform), so 400 cases miss it with chance
 // 1.8e-8; with the old bound of 4 operations no case could reach it.
 const (
-	rewritePrefix = 32
-	rewriteCases  = 4 * testCases
+	rewritePrefix = eval.RewritePrefix
+	rewriteCases  = eval.RewriteCases
 )
 
 // rewriteInstanceCases is the number of cases a run takes at each site
 // instance, each with its own prefix and continuation: one continuation
 // may erase the difference the instance makes (a Halve after a write to
 // the high bit), so one case would not decide it.
-const rewriteInstanceCases = 40
+const rewriteInstanceCases = eval.RewriteInstanceCases
 
 func (l *lowerer) rewriteSide(law *check.Law, right bool) string {
 	kind, suffix := "rewriteleft", "Left"

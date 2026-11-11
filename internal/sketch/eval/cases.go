@@ -112,7 +112,7 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 	if law.Unrun != "" {
 		why = law.Unrun
 	} else if law.Decl.Rewrite != nil && why == "" {
-		why = "a rewrite law runs in the test build, which runs both sides on fresh providers"
+		why = RewriteVerdict()
 	}
 	if why != "" {
 		res.Status, res.Reason = Skipped, why

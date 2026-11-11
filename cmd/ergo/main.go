@@ -513,8 +513,9 @@ const inspectHelp = "usage: ergo inspect FILE|DIR [--target go]\n\n" +
 	"binding refuses, with their reasons; for each function, the Go symbols its\n" +
 	"code reaches and the uninterruptible host waits among them; for each Go\n" +
 	"symbol, its Go declaration, Ergo signature, tier (pure or foreign),\n" +
-	"provenance and wait (none, interruptible, uninterruptible). It runs no Go\n" +
-	"tool.\n\n" +
+	"provenance and wait (none, interruptible, uninterruptible); for each\n" +
+	"rewrite law, its evidence label, its run's bounds and whether the build\n" +
+	"applies it (proved laws only). It runs no Go tool.\n\n" +
 	"Exit codes: 0 printed; 1 the source does not check.\n\n" +
 	inspectMachineHelp
 

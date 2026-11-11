@@ -32,14 +32,31 @@ import (
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // GoReport is what ergo inspect prints.
 type GoReport struct {
-	Imports   []GoImport   `json:"imports"`
-	Functions []GoFunction `json:"functions"`
-	Symbols   []GoSymbol   `json:"symbols"`
+	Imports     []GoImport       `json:"imports"`
+	Functions   []GoFunction     `json:"functions"`
+	Symbols     []GoSymbol       `json:"symbols"`
+	RewriteLaws []RewriteLawNote `json:"rewriteLaws"`
+}
+
+// RewriteLawNote is a rewrite law of the program (types.md, Laws 14):
+// its evidence label (tested: a run draws its cases; proved only by a
+// run over every state), its run's bounds, and whether the build applies
+// it (proved laws only, owner q115). The deepest prefix a run reached is
+// ergo test's.
+type RewriteLawNote struct {
+	Package  string `json:"package"`
+	Law      string `json:"law"`
+	Evidence string `json:"evidence"`
+	Cases    int    `json:"cases"`
+	Prefix   int    `json:"maxPrefix"`
+	Applied  bool   `json:"applied"`
+	Reason   string `json:"reason"`
 }
 
 // GoImport is one Go package the program imports.
@@ -110,7 +127,7 @@ type reachWalker struct {
 // root last; std packages are skipped).
 func InspectGo(pkgs []*check.Package) GoReport {
 	w := &reachWalker{nodes: map[*check.Func]*reachNode{}, symbols: map[string]GoSymbol{}}
-	r := GoReport{Imports: []GoImport{}, Functions: []GoFunction{}, Symbols: []GoSymbol{}}
+	r := GoReport{Imports: []GoImport{}, Functions: []GoFunction{}, Symbols: []GoSymbol{}, RewriteLaws: []RewriteLawNote{}}
 	seenImport := map[string]bool{}
 	var order []*check.Func
 	for _, p := range pkgs {
@@ -128,6 +145,16 @@ func InspectGo(pkgs []*check.Package) GoReport {
 			}
 			sort.Slice(imp.Refused, func(i, j int) bool { return imp.Refused[i].Name < imp.Refused[j].Name })
 			r.Imports = append(r.Imports, imp)
+		}
+		for _, l := range p.Laws {
+			if l.Rewrite == nil || l.Decl == nil {
+				continue
+			}
+			name := l.Name
+			if l.Owner != nil {
+				name = l.Owner.Name + "." + l.Name
+			}
+			r.RewriteLaws = append(r.RewriteLaws, RewriteLawNote{Package: p.Path, Law: name, Evidence: "tested", Cases: eval.RewriteCases, Prefix: eval.RewritePrefix - 1, Reason: eval.RewriteVerdict()})
 		}
 		for _, f := range p.Funcs {
 			if ergoBody(f) {
