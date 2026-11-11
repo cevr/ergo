@@ -1769,10 +1769,14 @@ func (w *ownWalk) replaced(x *syntax.CompositeLit) []Replaced {
 		_, ok := named[f.Name]
 		return ok
 	}
-	var rs []Replaced
+	type drop struct {
+		f  *Field
+		at syntax.Pos
+	}
+	var drops []drop
 	add := func(f *Field, at syntax.Pos) {
 		if dropped(f) && w.tracked(f.Type) {
-			rs = append(rs, Replaced{Field: f, Temp: &syntax.Ident{NamePos: at, Name: f.Name}})
+			drops = append(drops, drop{f, at})
 		}
 	}
 	seen := map[*Field]bool{}
@@ -1788,6 +1792,12 @@ func (w *ownWalk) replaced(x *syntax.CompositeLit) []Replaced {
 		if !seen[f] {
 			add(f, x.Base.Pos())
 		}
+	}
+	// Each temporary is a node the checker makes (made, owner.go), from
+	// the update it releases for, so it lies in the update's file.
+	var rs []Replaced
+	for _, d := range drops {
+		rs = append(rs, Replaced{Field: d.f, Temp: made(w.c, &syntax.Ident{NamePos: d.at, Name: d.f.Name}, syntax.Node(x))})
 	}
 	if len(rs) > 0 {
 		w.info.Replaced[x] = rs
