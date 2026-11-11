@@ -169,3 +169,128 @@ law BackoffDoubles(n int) {
 	let k = pick(n, Budget) + 1
 	Backoff(1) == 100ms && Backoff(k+1) == Backoff(k)+Backoff(k)
 }
+
+// The manager's rules, as laws over StepManager. Each law folds generated
+// orders from a new manager: adds, the end of the running file (what its
+// child would send), and drains.
+
+// order is the order of a generated number m, the i-th of a run, while
+// the manager is in s: an add (twice as often as the others), the end of
+// the running file, or a drain.
+func order(m int, i int, s Manager) Order {
+	match pick(m, 4) {
+	case 0:
+		Add{Url: "f\(i)"}
+	case 1:
+		Add{Url: "f\(i)"}
+	case 2:
+		Ended{End: Saved{Url: runningUrl(s), Bytes: i}}
+	case _:
+		Drain
+	}
+}
+
+// runningUrl is the file s runs, "" when it runs none.
+func runningUrl(s Manager) string {
+	match s {
+	case Running as r:
+		r.Url
+	case Idle:
+		""
+	}
+}
+
+// ManagerTrace is a fold of the manager: the adds it took, the adds it
+// took after a drain, the files it started, in order, the ends of running
+// files it was sent, whether a drain came, its last state and its report
+// once it ended.
+type ManagerTrace {
+	Took     []string,
+	LateTook int,
+	Started  []string,
+	Sent     []End,
+	Drained  bool,
+	Last     Manager,
+	Report   Option[Report],
+}
+
+// FoldManager steps a new manager over the orders of moves, until its end.
+func FoldManager(moves []int) ManagerTrace {
+	let mut s Manager = Idle{Ends: []End{}}
+	let mut t = ManagerTrace{Took: []string{}, LateTook: 0, Started: []string{}, Sent: []End{}, Drained: false, Last: s, Report: None}
+	for i, m in moves {
+		let o = order(m, i, s)
+		let d = StepManager(s, o) catch {
+		case Closed:
+			continue
+		}
+		match o {
+		case Add as a:
+			t = ManagerTrace{..t, Took: t.Took.Append(a.Url), LateTook: if t.Drained { t.LateTook + 1 } else { t.LateTook }}
+		case Ended as e:
+			if runningUrl(s) != "" {
+				t = ManagerTrace{..t, Sent: t.Sent.Append(e.End)}
+			}
+		case Drain:
+			t = ManagerTrace{..t, Drained: true}
+		}
+		match d {
+		case Done[Report] as r:
+			return ManagerTrace{..t, Last: s, Report: Some[Report]{Value: r.Output}}
+		case Enter[Manager] as e:
+			s = e.Next
+			let u = runningUrl(s)
+			if u != "" {
+				t = ManagerTrace{..t, Started: t.Started.Append(u)}
+			}
+		case Stay[Manager] as e:
+			s = e.Next
+		case _:
+		}
+	}
+	ManagerTrace{..t, Last: s}
+}
+
+// AddsRunInOrder: the manager starts the files in the order it took them,
+// one at a time, and keeps each end in the order it came.
+law AddsRunInOrder(moves []int) {
+	let t = FoldManager(moves)
+	if len(t.Started) > len(t.Took) {
+		return false
+	}
+	for i, u in t.Started {
+		if t.Took[i] != u {
+			return false
+		}
+	}
+	let ends = match t.Report {
+	case Some[Report] as r:
+		r.Value.Ends
+	case None:
+		EndsOf(t.Last)
+	}
+	if len(ends) != len(t.Sent) {
+		return false
+	}
+	for i, e in ends {
+		if e != t.Sent[i] {
+			return false
+		}
+	}
+	true
+}
+
+// DrainRefusesAdds: after a drain the manager takes no add.
+law DrainRefusesAdds(moves []int) { FoldManager(moves).LateTook == 0 }
+
+// DrainFinishesTheQueue: the manager ends only after a drain, and then
+// exactly when every file it took has ended; its report has them all.
+law DrainFinishesTheQueue(moves []int) {
+	let t = FoldManager(moves)
+	match t.Report {
+	case Some[Report] as r:
+		t.Drained && len(r.Value.Ends) == len(t.Took)
+	case None:
+		!t.Drained || len(t.Sent) < len(t.Took)
+	}
+}

@@ -16,7 +16,7 @@ func play(file int, cancel bool) []string {
 	let url = fetch.Files[pick(file, len(fetch.Files))]
 	let clock = time.NewManual(0)
 	with context { fetch.Source: NewServer(), Scheduler: clock } {
-		script.Play([]script.Get{script.Get{Url: url, Cancel: cancel}}, clock)
+		script.Play([]script.Line{script.Get{Url: url, Cancel: cancel}}, clock)
 	}
 }
 

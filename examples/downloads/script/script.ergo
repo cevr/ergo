@@ -1,6 +1,5 @@
-// Package script plays a list of downloads, one file at a time, each run
-// as an actor on a manual clock, and shows each file's progress and its
-// end.
+// Package script plays a list of downloads against the manager, run as
+// an actor on a manual clock, and shows each file's progress and its end.
 
 import actor
 import downloads/fetch
@@ -11,23 +10,28 @@ import time
 // BadLine is a line the script cannot read.
 type BadLine { Line int, Why string }
 
-// Get is a line of the script: fetch Url, and cancel it at its first
-// wait when Cancel is set.
-type Get { Url string, Cancel bool }
+// Line is a line of the script: Get adds the file Url to the manager, and
+// cancels it at its first wait when Cancel is set; Drain lets the files
+// added so far finish and refuses the adds after it.
+type Line = Get{Url string, Cancel bool} | Drain{}
 
-// Read reads the lines of a script: `get URL` or `get URL cancel` (cancel
-// the file when it first waits for a retry). A blank line or a line that
-// starts with # is skipped.
-func Read(lines []string) []Get fails BadLine {
-	let mut out = []Get{}
+// Read reads the lines of a script: `get URL`, `get URL cancel` (cancel
+// the file when it first waits for a retry) or `drain`. A blank line or a
+// line that starts with # is skipped.
+func Read(lines []string) []Line fails BadLine {
+	let mut out = []Line{}
 	for i, line in lines {
 		let text = strings.TrimSpace(line)
 		let w = strings.Fields(text)
 		if len(w) == 0 || strings.HasPrefix(text, "#") {
 			continue
 		}
+		if len(w) == 1 && w[0] == "drain" {
+			out = out.Append(Drain)
+			continue
+		}
 		if w[0] != "get" || len(w) < 2 || len(w) > 3 || (len(w) == 3 && w[2] != "cancel") {
-			return BadLine{Line: i + 1, Why: "a line is get URL or get URL cancel"}
+			return BadLine{Line: i + 1, Why: "a line is get URL, get URL cancel or drain"}
 		}
 		out = out.Append(Get{Url: w[1], Cancel: len(w) == 3})
 	}
@@ -50,59 +54,175 @@ func ViewOf(s fetch.File) View {
 	}
 }
 
-// Play fetches each file of gets in turn on clock, which only Play
-// moves, and is what it shows: for each file a line per change of its
-// view (actor.Select over Changes: the bytes, or a wait), then its end
-// (actor.ExitOf). When a file waits, Play moves the clock by the wait, so
-// its timer fires; a file to cancel is cancelled at its first wait
-// instead.
-func Play(gets []Get, clock time.Manual) []string needs fetch.Source | Scheduler {
-	let mut lines = []string{}
-	let mut now = 0s
-	for g in gets {
-		lines = lines.Append("> get \(g.Url)\(if g.Cancel { " cancel" } else { "" })")
-		let a = actor.StartMachine(machines.Start(fetch.Download{}, g.Url), 4, func(e fetch.End) {})
-		a.Send(fetch.Begin) catch {
-		case actor.Stopped:
-		}
-		for v in actor.Select(a.Changes(), ViewOf) {
-			if v.Wait == 0s {
-				lines = lines.Append("  @\(ms(now)) \(v.Got) bytes")
+// ManagerActor is the manager's address.
+type ManagerActor = actor.Actor[fetch.Manager, fetch.Order, Decision[fetch.Manager, fetch.Report], fetch.Closed]
+
+// Asked is what the manager answered to a line: the file at position At
+// of its runs, an add it refused, or the drain.
+type Asked = Accepted{Get Get, At int} | Refused{Get Get} | Drained{}
+
+// Play runs the manager as an actor on clock, which only Play moves, and
+// is what it shows. It first gives the manager every line: the adds and
+// the drain (and a drain after the last line when the script has none).
+// Then, for each line in order, it shows the line, and for an added file
+// a line per change of its view (actor.Select over the child's Changes:
+// the bytes, or a wait), then its end, which the manager records. When a
+// file waits, Play moves the clock by the wait, so its timer fires; a
+// file to cancel is cancelled at its first wait instead.
+func Play(lines []Line, clock time.Manual) []string needs fetch.Source | Scheduler {
+	let m = actor.StartMachine(machines.Start(fetch.Downloader{}, []fetch.End{}), 8, func(r fetch.Report) {})
+	let mut asked = []Asked{}
+	let mut runs = 0
+	let mut drained = false
+	for l in lines {
+		match l {
+		case Get as g:
+			let _ = m.Ask(fetch.Add{Url: g.Url}) catch {
+			case fetch.Closed:
+				asked = asked.Append(Refused{Get: g})
+				continue
+			case actor.Stopped:
+				asked = asked.Append(Refused{Get: g})
 				continue
 			}
-			lines = lines.Append("  @\(ms(now)) \(v.Got) bytes, waiting \(ms(v.Wait))ms")
-			// A wait with no timer would never end: Play says so and
-			// cancels the file, instead of waiting for ever.
-			let timed = match fetch.Timer(a.State()) {
-			case Some[Timeout[fetch.Signal]]:
-				true
-			case None:
-				false
+			asked = asked.Append(Accepted{Get: g, At: runs})
+			runs = runs + 1
+		case Drain:
+			if !drained {
+				drain(m)
+				drained = true
 			}
-			if !timed {
-				lines = lines.Append("  ?? the wait has no timer")
-			}
-			if g.Cancel || !timed {
-				a.Send(fetch.Cancel) catch {
-				case actor.Stopped:
-				}
-				continue
-			}
-			clock.Advance(v.Wait)
-			now = now + v.Wait
+			asked = asked.Append(Drained)
 		}
-		lines = lines.Append("  @\(ms(now)) \(ending(actor.ExitOf(a)))")
 	}
-	lines
+	if !drained {
+		drain(m)
+	}
+	let mut out = []string{}
+	let mut now = 0s
+	for a in asked {
+		match a {
+		case Accepted as ac:
+			out = out.Append("> get \(ac.Get.Url)\(if ac.Get.Cancel { " cancel" } else { "" })")
+			let shown = watch(m, ac.At, ac.Get.Cancel, clock, now)
+			for s in shown.Lines {
+				out = out.Append(s)
+			}
+			now = shown.Now
+		case Refused as r:
+			out = out.Append("> get \(r.Get.Url): refused, the manager drains")
+		case Drained:
+			out = out.Append("> drain")
+		}
+	}
+	out
 }
 
-// ending is the word of a file's exit. Its Failed arm stays for a
-// download whose step fails: this one never does.
-func ending[F](e actor.Exit[fetch.File, fetch.End, F]) string {
+// drain asks m to drain. A manager that already ended has nothing to
+// drain.
+func drain(m ManagerActor) {
+	let _ = m.Ask(fetch.Drain) catch {
+	case fetch.Closed:
+		return
+	case actor.Stopped:
+		return
+	}
+}
+
+// Shown is the lines of one file and the clock's time after them.
+type Shown { Lines []string, Now duration }
+
+// watch shows the file at position at of the manager's runs, from time
+// now. The file's child starts Queued and waits for Begin: watch sends it
+// once its loop over the child's Changes has begun, so the loop sees every
+// state of the file (a child that began at once could run ahead of a late
+// observer).
+func watch(m ManagerActor, at int, cancel bool, clock time.Manual, now duration) Shown {
+	let mut lines = []string{}
+	let mut t = now
+	let st = actor.WaitFor(m, func(s fetch.Manager) bool { runs(s, at) }) catch {
+	case actor.Stopped:
+		return Shown{Lines: []string{"  ?? the manager ended before the file ran"}, Now: t}
+	}
+	let f = hostOf(st).Get() catch {
+	case actor.Stopped:
+		return Shown{Lines: []string{"  ?? the file's entry ended"}, Now: t}
+	}
+	let mut begun = false
+	for v in actor.Select(f.Changes(), ViewOf) {
+		if !begun {
+			begun = true
+			f.Send(fetch.Begin) catch {
+			case actor.Stopped:
+			}
+		}
+		if v.Wait == 0s {
+			lines = lines.Append("  @\(ms(t)) \(v.Got) bytes")
+			continue
+		}
+		lines = lines.Append("  @\(ms(t)) \(v.Got) bytes, waiting \(ms(v.Wait))ms")
+		// A wait with no timer would never end: watch says so and
+		// cancels the file, instead of waiting for ever.
+		let timed = match fetch.Timer(f.State()) {
+		case Some[Timeout[fetch.Signal]]:
+			true
+		case None:
+			false
+		}
+		if !timed {
+			lines = lines.Append("  ?? the wait has no timer")
+		}
+		if cancel || !timed {
+			f.Send(fetch.Cancel) catch {
+			case actor.Stopped:
+			}
+			continue
+		}
+		clock.Advance(v.Wait)
+		t = t + v.Wait
+	}
+	lines = lines.Append("  @\(ms(t)) \(endAt(m, at))")
+	Shown{Lines: lines, Now: t}
+}
+
+// runs reports whether s runs the file at position at.
+func runs(s fetch.Manager, at int) bool {
+	match s {
+	case fetch.Running as r:
+		len(r.Ends) == at
+	case fetch.Idle:
+		false
+	}
+}
+
+// hostOf is the host of the running file of s. watch calls it only on a
+// state that runs accepts.
+func hostOf(s fetch.Manager) actor.Host[fetch.FileActor] {
+	match s {
+	case fetch.Running as r:
+		r.File
+	case fetch.Idle:
+		actor.NewHost[fetch.FileActor]()
+	}
+}
+
+// endAt is the line of the end of the file at position at: from the
+// manager's state once it recorded it, or from its report when that end
+// was its last.
+func endAt(m ManagerActor, at int) string {
+	let st = actor.WaitFor(m, func(s fetch.Manager) bool { len(fetch.EndsOf(s)) > at }) catch {
+	case actor.Stopped:
+		return reported(actor.ExitOf(m), at)
+	}
+	fetch.EndText(fetch.EndsOf(st)[at])
+}
+
+// reported is the end at position at of the manager's report.
+func reported[F](e actor.Exit[fetch.Manager, fetch.Report, F], at int) string {
 	match e {
-	case actor.Finished[fetch.File, fetch.End] as f:
-		fetch.EndText(f.Output)
-	case actor.Halted[fetch.File]:
+	case actor.Finished[fetch.Manager, fetch.Report] as f:
+		if at < len(f.Output.Ends) { fetch.EndText(f.Output.Ends[at]) } else { "?? no end" }
+	case actor.Halted[fetch.Manager]:
 		"stopped"
 	case actor.Failed[F]:
 		"failed"

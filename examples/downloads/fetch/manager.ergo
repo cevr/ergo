@@ -1,0 +1,106 @@
+// The manager: one machine that owns a child per file. It runs the files
+// in the order they were added, one at a time: each file is an entry of
+// the manager, and the entry's work starts the file's Download as a child
+// of that entry (MU5). The file's end comes back as a signal of the entry;
+// the entry's end stops the child, so no file outlives its turn.
+
+import actor
+import machines
+
+// FileActor is a file's address, the child an entry's work starts. A
+// union whose only variant is an existing type is that type, an alias.
+type FileActor = actor.Actor[File, Signal, Decision[File, End]]
+
+// Manager is the manager's state:
+//
+//	Idle     no file runs; Ends are the files that ended, in order
+//	Running  the file Url runs as the child in File; Queue waits after
+//	         it; Open is false once Drain came
+//
+// An Idle manager is always open: a Drain while idle ends the manager.
+type Manager =
+	| Idle{Ends []End}
+	| Running{Url string, Queue []string, Ends []End, Open bool, File actor.Host[FileActor]}
+
+// Order is what the manager reads: Add and Drain from its user, Ended
+// from the child of the running entry.
+type Order = Add{Url string} | Drain{} | Ended{End End}
+
+// Closed is an Add that the manager refuses, since it drains.
+type Closed { Url string }
+
+// Report is the manager's end: every file's end, in the order of the adds.
+type Report { Ends []End }
+
+// running is the entry that runs url, with a fresh host for its child.
+func running(url string, queue []string, ends []End, open bool) Running {
+	Running{Url: url, Queue: queue, Ends: ends, Open: open, File: actor.NewHost[FileActor]()}
+}
+
+// StepManager is the manager's transition. Add runs a file at once when
+// none runs, and queues it otherwise; after Drain it is Closed. Drain lets
+// the queue finish and ends the manager after the last file (at once when
+// idle). Ended records the file's end and starts the next one.
+func StepManager(m Manager, o Order) Decision[Manager, Report] fails Closed {
+	match (m, o) {
+	case (Idle as i, Add as a):
+		Enter[Manager]{Next: running(a.Url, []string{}, i.Ends, true)}
+	case (Running as r, Add as a):
+		if !r.Open {
+			return Closed{Url: a.Url}
+		}
+		Stay[Manager]{Next: Running{..r, Queue: r.Queue.Append(a.Url)}}
+	case (Idle as i, Drain):
+		Done[Report]{Output: Report{Ends: i.Ends}}
+	case (Running as r, Drain):
+		Stay[Manager]{Next: Running{..r, Open: false}}
+	case (Running as r, Ended as e):
+		let ends = r.Ends.Append(e.End)
+		if len(r.Queue) > 0 {
+			Enter[Manager]{Next: running(r.Queue[0], r.Queue[1:], ends, r.Open)}
+		} else if r.Open {
+			Enter[Manager]{Next: Idle{Ends: ends}}
+		} else {
+			Done[Report]{Output: Report{Ends: ends}}
+		}
+	case (Idle, Ended):
+		Ignore
+	}
+}
+
+// ended is a file's end as the manager's order.
+func ended(e End) Order { Ended{End: e} }
+
+// hosting is the work of each state: Running starts its file as a child
+// of the entry, in the entry's host. The child needs the Source, and
+// starting it needs the Scheduler, so the work's row is both (MB F8).
+func hosting(m Manager) Option[machines.Work[Order, Source | Scheduler]] {
+	match m {
+	case Running as r:
+		Some{machines.Work{Listen: func(send func(o Order)) needs Source | Scheduler {
+			let _ = actor.ChildIn(send, r.File, machines.Start(Download{}, r.Url), 4, ended)
+		}}}
+	case Idle:
+		None
+	}
+}
+
+func idle(ends []End) Manager { Idle{Ends: ends} }
+
+// Downloader is the manager as a machine: its input is the ends it starts
+// with (none, for a new manager).
+type Downloader machine[Manager, Order] {
+	initial: idle,
+	step:    StepManager,
+	work:    hosting,
+}
+
+// EndsOf is the ends of m so far.
+func EndsOf(m Manager) []End {
+	match m {
+	case Idle as i:
+		i.Ends
+	case Running as r:
+		r.Ends
+	}
+}
