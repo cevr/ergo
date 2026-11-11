@@ -560,13 +560,16 @@ func isExported(name string) bool {
 
 // ---------------------------------------------------------------- universe
 
-var universeOnce struct {
+// universeState is the universe a process builds once (universe).
+type universeState struct {
 	sync.Once
 	scope     *Scope
 	errorName *TypeName
 	goPkg     *Package
 	ref       *Named // go.Ref
 }
+
+var universeOnce universeState
 
 // universe is the predeclared block: the basic types, the constraints
 // comparable, ordered and number, true,
@@ -638,10 +641,13 @@ type preludeResult struct {
 	diags []Diagnostic
 }
 
-var preludeOnce struct {
+// preludeState is the prelude a process checks once (prelude).
+type preludeState struct {
 	sync.Once
 	r preludeResult
 }
+
+var preludeOnce preludeState
 
 // prelude checks the embedded prelude once per process. Its exported
 // declarations form the scope above the universe for every other package.
