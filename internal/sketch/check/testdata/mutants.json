@@ -2453,6 +2453,15 @@
       "killers": [
         "check:TestScriptDiagnostics"
       ]
+    },
+    {
+      "name": "ev4b-machine-law-pkg-nil",
+      "origin": "wf10 L7 EV4b (bug: the checker left Law.Pkg nil for a machine law; check-time evaluation crashed on any machine law)",
+      "file": "internal/sketch/check/laws.go",
+      "from": "Machine: tn, Pkg: c.pkg, file: fi}",
+      "to": "Machine: tn, file: fi}",
+      "rule": "Every law records the package that declares it, a machine's law too.",
+      "killers": ["eval:TestMachineLawsAgreeWithModel"]
     }
   ]
 }

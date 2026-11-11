@@ -1,0 +1,400 @@
+{
+  "about": "The mutant ledger of internal/sketch/eval, the check-time evaluator (L7). Run it with go run ./scripts/mutants ./internal/sketch/eval; docs/tooling.md, \"Mutant ledger\", says when a change must run it. Seeded by unit EV1 (wf10 l7-eval, 2026-11-10).",
+  "mutants": [
+    {
+      "name": "short-circuit-rhs",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\tif truth(a) == (x.Op == syntax.LOR) {",
+      "to": "\t\tif _, ab := in.expr(fr, x.Y); ab != nil {\n\t\t\treturn nil, ab\n\t\t} else if truth(a) == (x.Op == syntax.LOR) {",
+      "rule": "&& and || evaluate their right operand only when the left one does not decide (lower/expr.go binary).",
+      "killers": [
+        "internal/sketch/eval:TestEvalAgreesWithReference"
+      ]
+    },
+    {
+      "name": "int8-constant-widened",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/value.go",
+      "from": "\tcase check.Int8:\n\t\treturn int8(i), true",
+      "to": "\tcase check.Int8:\n\t\treturn i, true",
+      "rule": "An int8 value wraps at 8 bits: non-constant arithmetic wraps at its type's width (types.md, Basic types 2).",
+      "killers": [
+        "internal/sketch/eval:TestEvalAgreesWithReference"
+      ]
+    },
+    {
+      "name": "int8-op-widened",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/ops.go",
+      "from": "\t\treturn intOp(op, a, b.(int8))",
+      "to": "\t\treturn intOp(op, int64(a), int64(b.(int8)))",
+      "rule": "An int8 operation wraps at 8 bits and gives an int8 (types.md, Basic types 2).",
+      "killers": [
+        "internal/sketch/eval:TestEvalAgreesWithReference"
+      ]
+    },
+    {
+      "name": "defect-caught",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tif failed.kind != ctlFail {",
+      "to": "\tif failed.kind != ctlFail && failed.kind != ctlDefect {",
+      "rule": "A catch handles typed failures only; a defect is never caught (rows.md, Catch 6).",
+      "killers": [
+        "internal/sketch/eval:TestEvalAgreesWithReference"
+      ]
+    },
+    {
+      "name": "divide-by-zero-ok",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/ops.go",
+      "from": "\tcase syntax.QUO:\n\t\tif b == 0 {",
+      "to": "\tcase syntax.QUO:\n\t\tif b == 0 && false {",
+      "rule": "An integer division by zero is a defect, as Go panics on it.",
+      "killers": [
+        "internal/sketch/eval:TestRunStopsTheRun"
+      ]
+    },
+    {
+      "name": "negative-shift-ok",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/ops.go",
+      "from": "\t\tif negative {",
+      "to": "\t\tif false && negative {",
+      "rule": "A shift by a negative count is a defect, as Go panics on it.",
+      "killers": [
+        "internal/sketch/eval:TestEvalAgreesWithReference"
+      ]
+    },
+    {
+      "name": "variant-test-true",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "\t\treturn r.t.Obj == tt.Obj && r.key == argsKey(tt, t.env)",
+      "to": "\t\treturn r != nil",
+      "rule": "A type pattern matches a union value only of that variant (rows.md, Totality; a Go type switch).",
+      "killers": [
+        "internal/sketch/eval:TestEvalAgreesWithReference"
+      ]
+    },
+    {
+      "name": "returned-error-is-value",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\tif fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {",
+      "to": "\tif false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x] {",
+      "rule": "Returning a value of an error type is a failure (types.md, Error types 2).",
+      "killers": [
+        "internal/sketch/eval:TestEvalAgreesWithReference"
+      ]
+    },
+    {
+      "name": "absent-fact-pure",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/preflight.go",
+      "from": "\tif !ok {\n\t\tice(\"no footprint",
+      "to": "\tif !ok && false {\n\t\tice(\"no footprint",
+      "rule": "An absent footprint is not an empty one (rows.md, Footprints 2): an internal error, never a pure frame.",
+      "killers": [
+        "internal/sketch/eval:TestRunRefusesAnAbsentFootprint"
+      ]
+    },
+    {
+      "name": "defect-continues",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/eval.go",
+      "from": "\t\t\tstopped = \"a defect stopped the run\"",
+      "to": "\t\t\tstopped = \"\"",
+      "rule": "A defect stops the run (runtime.md, Tests 3).",
+      "killers": [
+        "internal/sketch/eval:TestRunStopsTheRun"
+      ]
+    },
+    {
+      "name": "incomplete-continues",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/eval.go",
+      "from": "\t\t\tstopped = \"the evaluation budget ran out\"",
+      "to": "\t\t\tstopped = \"\"",
+      "rule": "The budget is per request: once it runs out, every later obligation is reported not run (L7 plan, section 5).",
+      "killers": [
+        "internal/sketch/eval:TestRunStopsTheRun"
+      ]
+    },
+    {
+      "name": "fuel-ignored",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\tif n < 0 || in.steps > in.budget.Steps-n {",
+      "to": "\tif n < 0 {",
+      "rule": "Every evaluated node costs steps before its work, so a loop that never ends exhausts the budget (L7 plan, section 5).",
+      "killers": [
+        "internal/sketch/eval:TestRunStopsTheRun"
+      ]
+    },
+    {
+      "name": "skip-as-pass",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\tres.Status, res.Reason = Skipped, why",
+      "to": "\t\tres.Status, res.Reason = Passed, why",
+      "rule": "A skipped law is never a pass (runtime.md, Tests 7; L7 plan, section 5).",
+      "killers": [
+        "internal/sketch/eval:TestCasePlansRun"
+      ]
+    },
+    {
+      "name": "reseed-per-case",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\tr.Start(k + 1)",
+      "to": "\t\tr = testgen.New(in.budget.Seed, res.Name)\n\t\tr.Start(k + 1)",
+      "rule": "Cases advance one binding-local stream; starting a case does not reseed it.",
+      "killers": ["internal/sketch/eval:TestCasePlansRun"]
+    },
+    {
+      "name": "provider-case-reused",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\t\t\tv = mustValue(in.call(cf, nil, ctor, nil, vs))",
+      "to": "\t\t\t\tfixed := testgen.New(in.budget.Seed, res.Name)\n\t\t\t\tfor i, param := range ctor.Sig.Params { vs[i] = in.generate(cf, fixed, param.Type, testplan.Depth, nil) }\n\t\t\t\tv = mustValue(in.call(cf, nil, ctor, nil, vs))",
+      "rule": "A pure provider is rebuilt from this case's arguments, not the first case's provider value.",
+      "killers": ["internal/sketch/eval:TestCasePlansRun"]
+    },
+    {
+      "name": "imported-provider-wrong",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\tfn := op.conv.Table[c.Op.Name]",
+      "to": "\tfn := op.conv.Table[c.Op.Name]\n\tif ps := imports(in.root); len(ps) > 0 { for _, other := range ps[0].Funcs { if other.Name == fn.Name { fn = other; break } } }",
+      "rule": "The binding's checked conversion selects its method; short names from another package cannot replace it.",
+      "killers": ["internal/sketch/eval:TestCaseProviderIdentity"]
+    },
+    {
+      "name": "generator-fuel-ignored",
+      "origin": "wf10/l7-eval/EV3",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\tr.Charge = func(n int64) { mustCharge(in, fr, n) }",
+      "to": "\tr.Charge = func(n int64) {}",
+      "rule": "Every generator draw and sized string allocation consumes work before it happens.",
+      "killers": ["internal/sketch/eval:TestCaseBudgetStopsGeneration"]
+    },
+    {
+      "name": "slice-write-shared",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif tok != nil && s.b.owner == tok {",
+      "to": "\tif true {",
+      "rule": "A write through one binding never changes another binding's slice or array (Bindings 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "map-write-shared",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif tok != nil && m.b.owner == tok {",
+      "to": "\tif true {",
+      "rule": "A Map's index write, Put and Delete change only their root (Bindings 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "append-tip-owned",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\t\t\txs.b.owner = nil",
+      "to": "\t\t\txs.b.owner = own",
+      "rule": "An Append that shares its input must not grant exclusive ownership to its output (Bindings 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "handover-lends-not",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "func (s *slot) lend() { s.tok = nil }",
+      "to": "func (s *slot) lend() {}",
+      "rule": "A read that lets a part escape revokes the slot's exclusive ownership (Bindings 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "record-field-shared",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "\t\tnext := &record{t: c.t, key: c.key, fields: append([]Value(nil), c.fields...)}",
+      "to": "\t\tnext := c",
+      "rule": "A record field write changes that root alone (Bindings 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "range-snapshot-domain",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "\t\t\tif r.root == root && r.view.b == old {",
+      "to": "\t\t\tif false && r.root == root && r.view.b == old {",
+      "rule": "Slice range sees indexed writes through its root (Bindings 3; Loops and len 7); seed-83 bug.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "int8-conversion-dropped",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\tout, ok := convertBasic(v, b.Kind)",
+      "to": "\t\tif b.Kind == check.Int8 { return int8(0), nil }; out, ok := convertBasic(v, b.Kind)",
+      "rule": "Runtime conversion to int8 preserves its low eight bits (Conversions).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "literal-frame-copies",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcallee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn}",
+      "to": "\tvars := map[*check.Var]*slot{}; for k, v := range fr.vars { vars[k] = &slot{v: v.v} }; callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn}",
+      "rule": "An immediately called literal writes its enclosing mutable locals (Function values 2).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "init-order-ignored",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/init.go",
+      "from": "\tfor _, ini := range p.Info.InitOrder {",
+      "to": "\tfor i := len(p.Info.InitOrder)-1; i >= 0; i-- { ini := p.Info.InitOrder[i]",
+      "rule": "Every package initializer runs in the checker's dependency order before obligations.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "string-range-bytes",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "\t\tfor i, r := range dom.(string) {",
+      "to": "\t\tfor i := range len(dom.(string)) { r := rune(dom.(string)[i])",
+      "rule": "String range decodes UTF-8 runes, including invalid bytes, as Go does (Loops and len 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "copy-fuel-ignored",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tif ab := in.build(fr, at, int64(s.n)+1, int64(s.n), 0); ab != nil {",
+      "to": "\tif ab := in.build(fr, at, 0, int64(s.n), 0); ab != nil {",
+      "rule": "Bulk copying consumes element work before allocation (plan section 5).",
+      "killers": ["internal/sketch/eval:TestEvalMetersCollectionsAndCalls"]
+    },
+    {
+      "name": "recursion-depth-ignored",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\tif in.depth >= in.budget.Depth {",
+      "to": "\tif false && in.depth >= in.budget.Depth {",
+      "rule": "The explicit call-depth bound stops recursion with incomplete, never pass.",
+      "killers": ["internal/sketch/eval:TestEvalMetersCollectionsAndCalls"]
+    },
+    {
+      "name": "generic-substitution-unbound",
+      "origin": "wf10/l7-eval/EV2",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\t\t\tcallee.env.m[tp] = fr.rt(targs[i])",
+      "to": "\t\t\t_ = i; callee.env.m[tp] = rtype{t: tp}",
+      "rule": "A generic call's checked arguments bind the callee's type parameters, including nominal patterns (Generics).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
+    },
+    {
+      "name": "machine-done-is-edge",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\tcase \"Done\":\n\t\treturn s, false\n",
+      "to": "\tcase \"Done\":\n\t\treturn s, true\n",
+      "rule": "A step's Done ends the run, so it is no edge of the machine's graph (types.md, Laws 13; lower/machinelaws.go).",
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
+    },
+    {
+      "name": "machine-initial-unchecked",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\t\tfor k := range nodes {\n",
+      "to": "\t\tfor k := 1; k < len(nodes); k++ {\n",
+      "rule": "A generated run's first state meets a law's target too: a run reaches the state it starts in ($ExploreRuns).",
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
+    },
+    {
+      "name": "machine-key-negative-zero",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\t\tcase float64:\n\t\t\tk.Float(x)\n",
+      "to": "\t\tcase float64:\n\t\t\tif x == 0 {\n\t\t\t\tx = 0\n\t\t\t}\n\t\t\tk.Float(x)\n",
+      "rule": "A state key writes a float by its bits: -0 and 0 are two states, since a step can tell them apart (batch-15 X1 M1).",
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
+    },
+    {
+      "name": "machine-fuel-stop-complete",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\t\t\tout.Status, out.Reason, out.Site = statusOf(ab), ab.msg, in.site(ab.pkg, ab.decl, ab.at)\n\t\t\tout.Evidence = \"\"\n",
+      "to": "\t\t\tout.Status, out.Reason, out.Site = statusOf(ab), ab.msg, in.site(ab.pkg, ab.decl, ab.at)\n\t\t\tout.Evidence = \"\"\n\t\t\tif ab.kind == ctlExhausted {\n\t\t\t\tout.Status, out.Evidence = Passed, \"proved\"\n\t\t\t}\n",
+      "rule": "A search the step budget stops is incomplete, never passed or proved (plan section 5).",
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
+    },
+    {
+      "name": "machine-replay-unmetered",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\tg.Step = func(s, e Value) (Value, bool) {\n\t\tms.Steps++\n\t\tmustCharge(in, fr, 1)\n\t\treturn in.machineStep(fr, m, s, e)\n\t}\n",
+      "to": "\tmemo := map[string][2]any{}\n\tg.Step = func(s, e Value) (Value, bool) {\n\t\tkey := describe(s) + \"|\" + describe(e)\n\t\tif c, hit := memo[key]; hit {\n\t\t\treturn c[0], c[1].(bool)\n\t\t}\n\t\tms.Steps++\n\t\tmustCharge(in, fr, 1)\n\t\tv, ok := in.machineStep(fr, m, s, e)\n\t\tmemo[key] = [2]any{v, ok}\n\t\treturn v, ok\n\t}\n",
+      "rule": "Every step call is metered, a replay's too: the explorer rebuilds each state it expands by stepping its run again, so its work exceeds its edges (plan section 5).",
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
+    },
+    {
+      "name": "machine-runs-ignore-walk",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\t\t\t\te = g.Signals[moves[r.Intn(len(moves))]]\n",
+      "to": "\t\t\t\t_ = moves[r.Intn(len(moves))]\n",
+      "rule": "A generated run over a keyed, listed graph steps by the signal its walk picks among those that change the state, as the test build's run does ($ExploreRuns), so both find the same run.",
+      "killers": ["internal/sketch/lower:TestMachineLawRuns"]
+    },
+    {
+      "name": "machine-proof-text-edges",
+      "origin": "wf10/l7-eval/EV4",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "itoa(r.Edges)+\" edges",
+      "to": "itoa(r.States)+\" edges",
+      "rule": "A whole search's report names the states, edges and depth the test build names for the same law ($ExploreAll).",
+      "killers": ["internal/sketch/lower:TestMachineLawTables"]
+    },
+    {
+      "name": "eval-bytes-unmetered",
+      "origin": "wf10/l7-eval/EV5",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "if n < 0 || in.bytes > in.budget.Bytes-n {",
+      "to": "if n < 0 {",
+      "rule": "Every value allocation is charged to the byte budget before it is made; a run that cannot pay is incomplete.",
+      "killers": ["internal/sketchfront:TestCheckEvalRunnerModel"]
+    },
+    {
+      "name": "report-incomplete-as-passed",
+      "origin": "wf10/l7-eval/EV5",
+      "file": "internal/report/report.go",
+      "from": "\"incomplete\": 3, \"not run\": 3,",
+      "to": "\"incomplete\": 1, \"not run\": 1,",
+      "rule": "An evaluation with an incomplete or not-run obligation never sums up as passed.",
+      "killers": ["internal/sketchfront:TestCheckEvalRunnerModel"]
+    },
+    {
+      "name": "eval-stale-source-identity",
+      "origin": "wf10/l7-eval/EV5",
+      "file": "internal/sketchfront/evaluate.go",
+      "from": "Revision:   report.Revision(a.Text()),",
+      "to": "Revision:   report.Revision(a.source),",
+      "rule": "The evaluation names the revision of the text it ran on, a package folder's too.",
+      "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
+    },
+    {
+      "name": "b16d-eval-invariant-searched",
+      "origin": "wf10 batch 16d (EV x X2)",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "\tif law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
+      "to": "\tif false && law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
+      "rule": "Check time leaves an always or sometimes law (X2) to ergo test: it has no target variant to search, so searching it is a defect.",
+      "killers": ["internal/sketch/lower:TestMachineLawTables"]
+    }
+  ]
+}

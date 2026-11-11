@@ -1,0 +1,89 @@
+// The limiter's laws. Each takes drawn integers and maps them onto a valid
+// bucket (bucket), so a law states a rule for every bucket, not a lucky one.
+// A law over integers is sampled: ergo test and ergo check draw the same 100
+// cases for one seed, and the result is "tested". CostsAreOrdered takes only
+// Cost values, which can be listed, so both run every pair and the result is
+// "proved" (docs/spec/types.md, Laws 10).
+
+// pick maps a drawn integer n onto lo..hi.
+func pick(n int, lo int, hi int) int {
+	let span = hi - lo + 1
+	let m = n % span
+	if m < 0 {
+		lo + m + span
+	} else {
+		lo + m
+	}
+}
+
+// bucket is a valid bucket made of three drawn integers: a capacity of 1 to
+// 20, some tokens up to it, and a rate of 1 to 5.
+func bucket(c int, t int, r int) Bucket {
+	let capacity = pick(c, 1, 20)
+	Bucket{Capacity: capacity, Tokens: pick(t, 0, capacity), Rate: pick(r, 1, 5)}
+}
+
+func allowed(v Verdict) bool {
+	match v {
+	case Allowed:
+		true
+	case Delayed:
+		false
+	case Refused:
+		false
+	}
+}
+
+func rank(c Cost) int {
+	match c {
+	case Light:
+		0
+	case Heavy:
+		1
+	case Bulk:
+		2
+	}
+}
+
+// RefillNeverOverfills: time never takes tokens away, and never fills a
+// bucket past its capacity.
+law RefillNeverOverfills(c int, t int, r int, ticks int) {
+	let b = bucket(c, t, r)
+	let after = Refill(b, pick(ticks, 0, 50))
+	after.Tokens <= after.Capacity && after.Tokens >= b.Tokens
+}
+
+// VerdictIsExact: a request is allowed exactly when the bucket holds its
+// tokens, and then leaves the rest; it is refused exactly when it costs
+// more than the capacity; else it is delayed.
+law VerdictIsExact(c int, t int, r int, cost Cost) {
+	let b = bucket(c, t, r)
+	let n = TokensOf(cost)
+	match Decide(b, cost) {
+	case Allowed as a:
+		n <= b.Tokens && a.Left == b.Tokens-n
+	case Delayed:
+		n > b.Tokens && n <= b.Capacity
+	case Refused:
+		n > b.Capacity
+	}
+}
+
+// DelayIsLeast: a delayed request is allowed after its ticks, and not one
+// tick earlier.
+law DelayIsLeast(c int, t int, r int, cost Cost) {
+	let b = bucket(c, t, r)
+	match Decide(b, cost) {
+	case Delayed as d:
+		allowed(Decide(Refill(b, d.Ticks), cost)) && !allowed(Decide(Refill(b, d.Ticks-1), cost))
+	case Allowed:
+		true
+	case Refused:
+		true
+	}
+}
+
+// CostsAreOrdered: a cost of a higher rank takes more tokens.
+law CostsAreOrdered(a Cost, b Cost) {
+	(rank(a) < rank(b)) == (TokensOf(a) < TokensOf(b))
+}

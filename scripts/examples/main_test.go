@@ -762,7 +762,7 @@ func TestTestLegThatCannotStartFails(t *testing.T) {
 	if code != 1 || !strings.Contains(out, "FAIL gone: test: could not start: ") || strings.Contains(out, "ok gone: test") || !oks["gone/basic"] {
 		t.Fatalf("want exit 1, FAIL gone: test: could not start, no ok for the test leg, and ok gone/basic; exit %d\n%s", code, out)
 	}
-	if !strings.Contains(out, "examples: FAILED: gone: test\n") {
+	if !strings.Contains(out, "examples: FAILED: gone: check, gone: test\n") {
 		t.Fatalf("the start failure is not counted\n%s", out)
 	}
 }

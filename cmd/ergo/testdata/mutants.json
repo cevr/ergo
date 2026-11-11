@@ -149,6 +149,24 @@
       "to": "\t\tMode:         req.Mode,\n\t\tFlags:        []string{req.Toolchain.GOOS + \"/\" + req.Toolchain.GOARCH},\n",
       "rule": "The emitted module is platform-independent: one module serves every platform's link.",
       "killers": ["cmd/ergo:TestBuildCrossCompilesEveryPlatform"]
+    },
+    {
+      "name": "check-eval-bypassed",
+      "origin": "wf10/l7-eval/EV5",
+      "file": "cmd/ergo/main.go",
+      "from": "evaluation, err := l.analysis.Evaluation(evalBudget(opts), opts.file)",
+      "to": "evaluation, err := report.Evaluation{}, error(nil)",
+      "rule": "ergo check runs a checked source's pure obligations and reports them (L7); a false example is not checked.",
+      "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
+    },
+    {
+      "name": "check-host-fallback",
+      "origin": "wf10/l7-eval/EV5",
+      "file": "cmd/ergo/main.go",
+      "from": "\treturn evaluationExit(evaluation)\n",
+      "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\treturn evaluationExit(evaluation)\n",
+      "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
+      "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
     }
   ]
 }

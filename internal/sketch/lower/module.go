@@ -46,7 +46,7 @@ type File struct {
 // under v1.Main, whose defect report names Ergo call sites (#230).
 func Runtime() []File {
 	files := []File{{Path: runtimeDir + "/go.mod", Data: []byte("module " + runtimeModule + "\n\ngo " + goVersion + "\n")}}
-	src, err := runtimefiles.Files("runtime/v1", "runtime/explore")
+	src, err := runtimefiles.Files("runtime/v1", "runtime/explore", "runtime/testgen")
 	if err != nil {
 		panic("lower: the runtime source is not embedded: " + err.Error())
 	}

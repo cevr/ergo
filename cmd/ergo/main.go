@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/gobind"
@@ -18,6 +19,7 @@ import (
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketchfront"
 	sourcefile "ergo.local/prototype/internal/source"
 )
@@ -113,6 +115,10 @@ type fileOptions struct {
 	// states is test's --states, the budget of a reachability law's
 	// search, a positive decimal; empty when not given.
 	states string
+	// evalSteps and evalBytes are check's --eval-steps N and --eval-bytes
+	// N, the budgets of check-time evaluation, positive decimals; empty
+	// when not given.
+	evalSteps, evalBytes string
 	// receipt is test's --receipt FILE: the law receipt to write (L10).
 	receipt string
 	// law is test's --law, the one law to run, by its report's title
@@ -143,6 +149,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 	budgeted := false
 	selected := false
 	platform, platformed := "", false
+	stepsGiven, bytesGiven := false, false
 	for i := 0; i < len(args); i++ {
 		if command == "run" && len(positional) == 1 {
 			opts.args = args[i:]
@@ -157,6 +164,14 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		}
 		if value, ok := strings.CutPrefix(args[i], "--states="); ok {
 			opts.states, budgeted = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--eval-steps="); ok {
+			opts.evalSteps, stepsGiven = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--eval-bytes="); ok {
+			opts.evalBytes, bytesGiven = value, true
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "--law="); ok {
@@ -177,11 +192,15 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		switch args[i] {
-		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform":
+		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
 			switch args[i] {
+			case "--eval-steps":
+				opts.evalSteps, stepsGiven = args[i+1], true
+			case "--eval-bytes":
+				opts.evalBytes, bytesGiven = args[i+1], true
 			case "--target":
 				opts.target = args[i+1]
 			case "-o":
@@ -241,14 +260,20 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--explore is only supported by test")
 	case searched && opts.search.mode == "":
 		return opts, fmt.Errorf("--preempt, --schedules and --depth need --explore dfs, pct or random")
-	case seeded && command != "test":
-		return opts, fmt.Errorf("--seed is only supported by test")
+	case seeded && command != "test" && command != "check":
+		return opts, fmt.Errorf("--seed is only supported by check and test")
 	case seeded && !validSeed(opts.seed):
 		return opts, fmt.Errorf("--seed takes a decimal number from 0 to 18446744073709551615, not %q", opts.seed)
 	case budgeted && command != "test":
 		return opts, fmt.Errorf("--states is only supported by test")
 	case budgeted && !validStates(opts.states):
 		return opts, fmt.Errorf("--states takes a positive decimal number of states, not %q", opts.states)
+	case (stepsGiven || bytesGiven) && command != "check":
+		return opts, fmt.Errorf("--eval-steps and --eval-bytes are only supported by check")
+	case stepsGiven && !validCount(opts.evalSteps):
+		return opts, fmt.Errorf("--eval-steps takes a positive decimal number of steps, not %q", opts.evalSteps)
+	case bytesGiven && !validCount(opts.evalBytes):
+		return opts, fmt.Errorf("--eval-bytes takes a positive decimal number of bytes, not %q", opts.evalBytes)
 	case selected && command != "test":
 		return opts, fmt.Errorf("--law and --skip-law are only supported by test")
 	case selected && (!validLaw(opts.law) || !validLaw(opts.skipLaw) || opts.law+opts.skipLaw == ""):
@@ -382,7 +407,10 @@ func refuseUnchecked(l loaded, opts fileOptions) error {
 }
 
 // checkCommand prints the check envelope; exit 1 when the source does not
-// check.
+// check. A source that checks has its pure obligations evaluated
+// (sketchfront.Analysis.Evaluation) under the budget of --eval-steps,
+// --eval-bytes and --seed, and the envelope carries the evaluation; the
+// exit status is then evaluationExit's.
 func checkCommand(args []string) error {
 	opts, err := parseFileOptions("check", args)
 	if err != nil {
@@ -402,13 +430,61 @@ func checkPackage(opts fileOptions) error {
 	if err := l.result.Qualify(producer.Current()); err != nil {
 		return err
 	}
+	if !l.result.Checked {
+		if err := printProjectionJSON(l.result.CheckEnvelope()); err != nil {
+			return err
+		}
+		return fmt.Errorf("check failed")
+	}
+	// Only a source that checks is evaluated (L7): in process, with no Go
+	// build and no child.
+	evaluation, err := l.analysis.Evaluation(evalBudget(opts), opts.file)
+	if err != nil {
+		return err
+	}
+	l.result.SetEvaluation(evaluation)
 	if err := printProjectionJSON(l.result.CheckEnvelope()); err != nil {
 		return err
 	}
-	if !l.result.Checked {
-		return fmt.Errorf("check failed")
+	return evaluationExit(evaluation)
+}
+
+// evalBudget is check's evaluation budget: the editor default
+// (eval.DefaultBudget) with --seed, --eval-steps and --eval-bytes over it.
+// parseFileOptions has validated each.
+func evalBudget(opts fileOptions) eval.Budget {
+	b := eval.DefaultBudget()
+	if opts.seed != "" {
+		b.Seed, _ = strconv.ParseUint(opts.seed, 10, 64)
+	}
+	if opts.evalSteps != "" {
+		b.Steps, _ = strconv.ParseInt(opts.evalSteps, 10, 64)
+	}
+	if opts.evalBytes != "" {
+		b.Bytes, _ = strconv.ParseInt(opts.evalBytes, 10, 64)
+	}
+	return b
+}
+
+// evaluationExit is check's exit status after a checked source's
+// evaluation, as ergo test's runner gives it: 2 when a defect stopped the
+// run, 1 when an obligation was refuted, else 0. A skipped or incomplete
+// obligation is listed in the envelope with its reason and leaves the
+// status 0; the envelope's status never reads "passed" for it.
+func evaluationExit(e report.Evaluation) error {
+	switch e.Status {
+	case "defect":
+		return exitStatusError{code: 2, message: "check: a defect stopped the evaluation"}
+	case "refuted":
+		return exitStatusError{code: 1, message: "check: an obligation was refuted"}
 	}
 	return nil
+}
+
+// validCount reports whether s is a positive decimal int64 with no sign.
+func validCount(s string) bool {
+	n, err := strconv.ParseInt(s, 10, 64)
+	return err == nil && n > 0 && s[0] != '+'
 }
 
 const inspectHelp = "usage: ergo inspect FILE|DIR [--target go]\n\n" +

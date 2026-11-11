@@ -27,6 +27,22 @@ tick() {
   end=$(( $(date +%s) + 10 )); until [ -s "$1" ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done
 }
 case "$1" in
+check)
+  [ $# -eq 2 ] || { echo "fake ergo: want check FILE" >&2; exit 64; }
+  if [ -d "$2" ]; then
+    cat "$2"/*.ergo > "$tools/check-package.ergo" || exit 1
+    set -- "$1" "$tools/check-package.ergo"
+  fi
+  if grep -q '^# CHECKJSON ' "$2"; then
+    sed -n 's/^# CHECKJSON //p' "$2"
+  elif grep -q '^# TESTSIZE ' "$2"; then
+    printf '%s\n' '{"checked":true,"evaluation":{"schemaVersion":1,"status":"none","obligations":[]}}'
+  elif grep -q TESTSKIP "$2"; then
+    printf '%s\n' '{"checked":true,"evaluation":{"schemaVersion":1,"status":"skipped","obligations":[{"name":"law Store.Keeps for Box","status":"skipped","reason":"fixture"}]}}'
+  else
+    printf '%s\n' '{"checked":true,"evaluation":{"schemaVersion":1,"status":"passed","obligations":[{"name":"Fixture","status":"passed","evidence":"evaluated","cases":1}]}}'
+  fi
+  ;;
 test)
   [ $# -eq 2 ] || { echo "fake ergo: want test FILE, got $*" >&2; exit 64; }
   if [ -d "$2" ]; then
@@ -44,6 +60,7 @@ test)
     [ "$2" -eq 0 ] || head -c "$2" /dev/zero >&2
     exit 0
   fi
+  if grep -q '^# NATIVE ' "$2"; then sed -n 's/^# NATIVE //p' "$2"; echo "PASS (1 tests)"; exit 0; fi
   echo "ok Fixture"; echo "PASS (1 tests)"
   ;;
 build)

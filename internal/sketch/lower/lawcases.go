@@ -1,12 +1,12 @@
 package lower
 
 import (
-	"math/big"
 	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketch/testplan"
 )
 
 // Listed laws (MU6b; types.md, Laws 10). One rule decides how every law
@@ -31,98 +31,55 @@ import (
 // enumCap bounds the values of one listed type, and enumCases the cases of
 // a listed run.
 const (
-	enumCap   = 256
-	enumCases = 4096
+	enumCap   = testplan.TypeCap
+	enumCases = testplan.CaseCap
 )
 
 // enumValues is every value of t as a Go expression, when t can be listed
 // with at most enumCap values: bool, a record of such fields, a union of
 // such variants, a type defined over one, and a tuple of such.
 func (l *lowerer) enumValues(t check.Type, site syntax.Node, seen map[*check.Named]bool) ([]string, bool) {
-	tc := &typeCtx{l: l, site: site}
-	product := func(goType string, names []string, types []check.Type) ([]string, bool) {
-		out := []string{""}
-		for i, ft := range types {
-			vs, ok := l.enumValues(ft, site, seen)
-			if !ok || len(out)*len(vs) > enumCap {
-				return nil, false
-			}
-			var next []string
-			for _, prefix := range out {
-				for _, v := range vs {
-					sep := ""
-					if prefix != "" {
-						sep = ", "
-					}
-					next = append(next, prefix+sep+names[i]+": "+v)
-				}
-			}
-			out = next
-		}
-		for i := range out {
-			out[i] = goType + "{" + out[i] + "}"
-		}
-		return out, true
+	vs, ok := testplan.Domain(t)
+	out := make([]string, len(vs))
+	for i, v := range vs {
+		out[i] = l.planValue(v, site)
 	}
-	switch u := t.(type) {
-	case *check.Basic:
-		if u.Kind == check.Bool {
-			return []string{"false", "true"}, true
-		}
+	return out, ok
+}
+
+// planValue is the native adapter of the shared finite value tree.
+func (l *lowerer) planValue(v testplan.Value, site syntax.Node) string {
+	tc := &typeCtx{l: l, site: site}
+	if b, ok := v.Scalar.(bool); ok {
+		return strconv.FormatBool(b)
+	}
+	if n, ok := v.Scalar.(string); ok {
+		return tc.goType(v.Type) + "(" + n + ")"
+	}
+	var names []string
+	switch u := v.Type.(type) {
 	case *check.Tuple:
-		names := make([]string, len(u.Types))
 		for i := range u.Types {
-			names[i] = tupleField(i)
+			names = append(names, tupleField(i))
 		}
-		return product(tc.goType(u), names, u.Types)
 	case *check.Named:
-		if ref := check.RefinementOf(u); ref != nil {
-			// A refined integer type of few values is listed, member by
-			// member (types.md, Refinements 9).
-			if ref.Len || ref.Count().Cmp(big.NewInt(enumCap)) > 0 {
-				return nil, false
-			}
-			var out []string
-			for _, s := range ref.Spans {
-				for v := new(big.Int).Set(s.Lo); v.Cmp(s.Hi) <= 0; v.Add(v, big.NewInt(1)) {
-					out = append(out, tc.goType(u)+"("+v.String()+")")
-				}
-			}
-			return out, true
-		}
-		if seen[u] {
-			return nil, false // a recursive type has no finite list
-		}
-		seen[u] = true
-		defer delete(seen, u)
 		switch under := u.Underlying().(type) {
+		case *check.Union:
+			return l.planValue(v.Children[0], site)
+		case *check.Basic:
+			return tc.goType(u) + "(" + l.planValue(v.Children[0], site) + ")"
 		case *check.Struct:
 			td := l.typeDecl(u.Obj, site)
-			names := make([]string, len(under.Fields))
-			types := make([]check.Type, len(under.Fields))
-			for i, f := range under.Fields {
-				names[i], types[i] = td.fieldName[f.Name], f.Type
+			for _, f := range under.Fields {
+				names = append(names, td.fieldName[f.Name])
 			}
-			return product(tc.goType(u), names, types)
-		case *check.Union:
-			var out []string
-			for _, v := range under.Variants {
-				vs, ok := l.enumValues(v, site, seen)
-				if !ok || len(out)+len(vs) > enumCap {
-					return nil, false
-				}
-				out = append(out, vs...)
-			}
-			return out, true
-		case *check.Basic:
-			vs, ok := l.enumValues(under, site, seen)
-			for i := range vs {
-				vs[i] = tc.goType(u) + "(" + vs[i] + ")"
-			}
-			return vs, ok
 		}
 	}
-	return nil, false
+	parts := make([]string, len(v.Children))
+	for i, child := range v.Children {
+		parts[i] = names[i] + ": " + l.planValue(child, site)
+	}
+	return tc.goType(v.Type) + "{" + strings.Join(parts, ", ") + "}"
 }
 
 // enumRun lists every value of each type of a run, in order, when each
@@ -162,12 +119,13 @@ type listedValue struct {
 // when a value of the run cannot be listed, or a provider is built by its
 // constructor, and the law's run takes generated cases (lawRuns).
 func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, bd []check.LawProvider, scope *namer, env, failed string) bool {
+	plan := testplan.Law(law, bd)
+	if !plan.Listed || plan.Reason != "" {
+		return false
+	}
 	owner := -1
 	bound := map[int]int{} // a parameter's index -> its slot's index
 	for k, s := range law.Slots {
-		if bd[k].Ctor != nil {
-			return false
-		}
 		if s.Param < 0 {
 			owner = k
 		} else {
@@ -179,19 +137,8 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 	// lawRuns calls it (batch-14 integration: one rule for generic laws).
 	generic := lawGenericOwner(law) != nil
 	var vals []listedValue
-	if owner >= 0 {
-		vals = append(vals, listedValue{"provider", bd[owner].Type})
-	}
-	for i, v := range law.Params {
-		if k, ok := bound[i]; ok {
-			vals = append(vals, listedValue{v.Name, bd[k].Type})
-			continue
-		}
-		t := v.Type
-		if generic {
-			t = bd[0].Params[i]
-		}
-		vals = append(vals, listedValue{v.Name, t})
+	for _, v := range plan.Inputs {
+		vals = append(vals, listedValue{v.Name, v.Type})
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
 	return l.listedRun(b, label, law.Decl, vals, true, scope, env, failed, l.replayLine(law, `""`), func(inner *namer, vs []string) string {
@@ -233,11 +180,12 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 // parameters and runs once, and when a parameter cannot be listed, and
 // the property takes generated cases (testRunner).
 func (l *lowerer) listedTest(b *strings.Builder, t *check.Test, scope *namer, env, failed string) bool {
-	if len(t.Params) == 0 {
+	plan := testplan.Test(t)
+	if len(t.Params) == 0 || !plan.Listed {
 		return false
 	}
-	vals := make([]listedValue, len(t.Params))
-	for i, v := range t.Params {
+	vals := make([]listedValue, len(plan.Inputs))
+	for i, v := range plan.Inputs {
 		vals[i] = listedValue{v.Name, v.Type}
 	}
 	return l.listedRun(b, t.Name, t.Decl, vals, false, scope, env, failed, "", func(_ *namer, bound []string) string {

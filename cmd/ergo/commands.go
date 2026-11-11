@@ -47,7 +47,7 @@ const toolingReason = "semantic tooling returns on the new front end"
 // commands is the command table. Dispatch, the general help and the stubs
 // read only this table.
 var commands = []cliCommand{
-	{name: "check", usage: "check FILE|DIR|DIR/... [--target go]", run: checkCommand},
+	{name: "check", usage: "check FILE|DIR|DIR/... [--seed N] [--eval-steps N] [--eval-bytes N] [--target go]", run: checkCommand},
 	{name: "diagnostics", usage: "diagnostics FILE|DIR [--strict] [--json] [--target go]", help: diagnosticsHelp, run: diagnosticsCommand},
 	{name: "build", usage: "build FILE|DIR [-o PATH] [-work] [--platform OS/ARCH] [--target go]", run: buildCommand},
 	{name: "run", usage: "run FILE|DIR [--] [ARGS...]", help: runHelp, run: runCommand},

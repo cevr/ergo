@@ -112,6 +112,39 @@ For `ergo test DIR/... --receipt PATH`, PATH is a directory: each tested package
 
 `ergo run` and `ergo build` contain no Go from a law. The [support table](spec/support.md) lists what each build lowers.
 
+## Check-time evaluation
+
+`ergo check FILE|DIR [--seed N] [--eval-steps N] [--eval-bytes N]` runs the tests and laws of the root package that are pure, in the checker's own process, with no Go build and no child process (L7). It runs only after the source checks: a source with a diagnostic is not evaluated. The result is the `evaluation` object of the check envelope ([tooling](tooling.md#check-envelope)): one record per obligation, in the order `ergo test` runs them (the tests in source order, then the package's law runs), and a summary status.
+
+The rules are the rules of `ergo test`, not a second test language:
+
+- A test with no parameters is an example and runs once (`evaluated`). A property or a law runs by the one rule of [Laws](#laws): every value of a type that can be listed (`proved`), else 100 cases drawn from the seed (`tested`). For one `--seed`, `ergo check` and `ergo test` draw the same cases, so a refuted law names the same first bad case at both.
+- A machine's reachability law is decided by the same explorer as in `ergo test` ([types.md](spec/types.md#laws), Laws 13). A law that a run proves (`reaches`, `path`) may stop at the shortest witness before it has seen the whole graph (`router-model`'s `CanStop` sees 9 of its 16 states); `never reaches` is proved only by a complete search.
+- An imported package supplies definitions only: its own tests do not run. A law runs in the least package that sees the law and its provider, as in `ergo test`.
+- A record that did not pass has `replay`: the `ergo test` command that runs the same cases natively, `ergo test limit --seed 1 --law RefillNeverOverfills`.
+
+**What is skipped.** The evaluator runs only code that it can show has no effect, and it never runs Go code. An obligation that reaches any of these is `skipped`, with the reason, the site and the replay command, and `ergo test` still runs it:
+
+- a capability or a task: a footprint that is not empty, even when a `with` in the test supplies the capability (`it uses the capability Scheduler, which check-time evaluation never runs`);
+- a Go function, even one on the reviewed pure list, an `extern go` function, or a std function with no Ergo body (`a Go function (ToLower), even a pure one`);
+- a call of a function value whose callee the checker did not resolve, a call that passes its `CallSite`, a trailing block, a call that borrows its receiver, and a generic call whose type parameter an operation type constrains;
+- a `for` over a Map (its order is unspecified in Go) or over a Seq, a range over a slice that is reached through a field or a subscript, a pointer, a `context` value, a refined literal, and a conversion to an operation type;
+- a package initializer or a machine's initial value that cannot run: every obligation of the package is skipped, never run with invented values;
+- a machine state that holds a std type, whose key the test build may take from its runtime value;
+- a law with no binding in this package (`no binding of the law runs in this package`), and a parameter with no generator.
+
+A skip is not a pass. A package whose obligations are all skipped is listed in full, and its summary status is `skipped`.
+
+**Budgets.** The work is bounded by counts, never by time. `--eval-steps N` is the number of steps, 1,000,000 by default: each evaluated node, call, loop turn, drawn value, copied element and machine step (with the steps that the explorer replays to rebuild a state) costs a step before it is done. `--eval-bytes N` bounds the bytes of the values the evaluation builds, 64 MiB by default: a conservative count of the allocations, which is never freed, and not a measure of the process's memory. The call depth is at most 1024. `--seed N` selects the drawn cases, 1 by default, as for `ergo test`. Each option takes a positive decimal number (the seed may be 0); another value is an invalid invocation. When a budget runs out, the obligation in progress is `incomplete` and each later one is `not run`, with the budget in the reason. Neither is a pass.
+
+**Statuses and exit.** An obligation is `passed`, `refuted` (a false assert or law body, or an escaping typed failure; the run goes on), `defect` (it stops the run, and the later obligations are `not run`), `skipped`, `incomplete` or `not run`. The summary status is the worst: `defect`, `refuted`, `incomplete`, `skipped`, `passed`, or `none` when the package has no obligation. `ergo check` exits 2 on a defect, 1 on a refutation (or when the source does not check), and 0 otherwise. A skipped or incomplete obligation leaves the exit status 0, but the summary never reads `passed` for it.
+
+**Receipts, not timings.** Each record carries `steps`, and the evaluation its total `steps` and `bytes` of their limits. Steps are a reproducible count of the work, not a time: the same source, seed and compiler give the same steps on any host. No time is measured or claimed. The two example programs [`examples/pure-eval`](../examples/pure-eval/README.md) (a rate limiter: top-level laws, sampled and listed, and a documented skip) and [`examples/router-model`](../examples/router-model/README.md) (a router's server machine: reachability laws, body laws and a top-level law) record their check-time verdicts and steps in their READMEs, with a mutant that both `ergo check` and `ergo test` refute.
+
+The examples runner checks every package at both seams in one run. Each check-time pass must agree with the native verdict, evidence and case count (machine searches compare verdict and evidence). Check-time skips and exhausted budgets remain explicit, with their reasons; the native test still runs. See the [test leg](../examples/README.md#test-leg).
+
+A false law names the expression that returned false, including a chosen nested tail or explicit return, at both seams. Its declaration is related information: `declaration` beside `site` in check JSON, and an indented `law declared at file:line:column` line in the native report. A reachability law names its clause, since it has no false body expression.
+
 ## Example programs
 
 Each program of `examples/` runs its tests and laws in the gate: `go run ./scripts/examples` runs `ergo test <program>/main.ergo` for every program of one folder, and `ergo test <folder>` for every package folder of a program of packages, and fails the program when a test fails ([examples/README.md](../examples/README.md)).

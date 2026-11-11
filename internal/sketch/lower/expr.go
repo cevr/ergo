@@ -966,9 +966,11 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		fc.line("_ = " + o.val)
 	}
 	if !fc.simpleCatch(x) {
+		fc.trackResultSite(x, result)
 		fc.patternCatch(x, m, o, result, partial)
 		return operand{val: result}
 	}
+	fc.trackResultSite(x, result)
 	type arm struct {
 		types []string
 		as    *check.Var
@@ -1049,6 +1051,9 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if result != "" && o.val != "" {
 		fc.line("} else {")
 		fc.line("\t" + result + " = " + o.val)
+		if site := fc.resultNames[result]; site != "" {
+			fc.line("\t" + site + " = " + fc.resultSite(x.X))
+		}
 	}
 	fc.line("}")
 	return operand{val: result}
@@ -1068,7 +1073,7 @@ func (fc *funcCtx) armBody(a *syntax.CatchArm, result string) bool {
 		return false
 	}
 	if result != "" {
-		return fc.yieldList(list, dest{kind: destAssign, name: result})
+		return fc.yieldList(list, dest{kind: destAssign, name: result, site: fc.resultNames[result]})
 	}
 	last, isExpr := list[len(list)-1].(*syntax.ExprStmt)
 	if !isExpr {
@@ -1261,6 +1266,9 @@ func (fc *funcCtx) patternCatch(x *syntax.CatchExpr, m *check.Match, o operand, 
 	if result != "" && o.val != "" {
 		fc.line("} else {")
 		fc.line("\t" + result + " = " + o.val)
+		if site := fc.resultNames[result]; site != "" {
+			fc.line("\t" + site + " = " + fc.resultSite(x.X))
+		}
 	}
 	fc.line("}")
 }

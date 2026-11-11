@@ -1,5 +1,5 @@
 {
-  "about": "scripts/examples mutants of the ts leg (X-rpc1). The example killers run under -tags ts, which needs Bun and a warmed Bun cache: go run ./scripts/examples -tags ts limiter.",
+  "about": "scripts/examples mutants of the ts leg (X-rpc1) and the examples runner's check/native agreement guard (EV6). The ts example killers run under -tags ts, which needs Bun and a warmed Bun cache: go run ./scripts/examples -tags ts limiter.",
   "mutants": [
     {"name":"cu5-domain-origin-lost", "origin":"wf10 CU5", "file":"examples/download/network/download.ergo", "from":"d.net.SendURL(request(url)) catch {\n\tcase http.OriginRefused as o:\n\t\treturn domain.Denied{Origin: o.Origin}", "to":"d.net.SendURL(request(url)) catch {\n\tcase http.OriginRefused as o:\n\t\treturn domain.Denied{Origin: \"\"}", "rule":"The worked provider preserves the refused origin in its domain failure.", "killers":["example:download/denied"]},
     {"name":"cu6-save-origin-lost", "origin":"wf10 CU6", "file":"examples/download/network/download.ergo", "from":"request(url)) } catch {\n\tcase http.OriginRefused as o:\n\t\treturn domain.Denied{Origin: o.Origin}", "to":"request(url)) } catch {\n\tcase http.OriginRefused as o:\n\t\treturn domain.Denied{Origin: \"\"}", "rule":"The worked provider's Save preserves the refused origin in its domain failure.", "killers":["example:download/denied-save"]},
@@ -27,6 +27,15 @@
       "to": "bytes.Contains(o.stderr, []byte(proclimit.OutOfMemory))",
       "rule": "A capped example's span-queue allocation fault is memory, not a crash.",
       "killers": ["scripts/examples:TestCappedFaultIsMemory"]
+    },
+    {
+      "name": "examples-ignore-evaluation",
+      "origin": "wf10 EV6 round 2",
+      "file": "scripts/examples/main.go",
+      "from": "if evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
+      "to": "if false && evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
+      "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
+      "killers": ["examples:TestCheckVerdictsMatchNative"]
     }
   ]
 }

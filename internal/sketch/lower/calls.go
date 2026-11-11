@@ -855,7 +855,7 @@ func (fc *funcCtx) withExpr(x *syntax.CallExpr) operand {
 	// value and passes its failure on.
 	d := dest{kind: destStmt}
 	if res.val != "" || res.err != "" {
-		d = dest{kind: destAssign, name: res.val, err: res.err}
+		d = dest{kind: destAssign, name: res.val, err: res.err, site: fc.trackResultSite(x, res.val)}
 	}
 	fc.with(x, 0, w, d)
 	return res

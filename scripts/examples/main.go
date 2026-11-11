@@ -710,7 +710,11 @@ func (r *runner) testProgram(p *program) {
 }
 
 func (r *runner) testTarget(p *program, target, leg string) {
+	evaluation := r.checkTarget(p, target, strings.Replace(leg, "test", "check", 1))
 	o, err := r.tool(r.cfg.timeout, "test", target)
+	if evaluation != nil && err == nil && o.overCap() == "" && !o.timedOut {
+		r.compareEvaluation(p, strings.Replace(leg, "test", "check", 1), evaluation, o.stdout)
+	}
 	switch {
 	case err != nil:
 		fmt.Fprintf(r.out, "FAIL %s: %s: could not start: %v\n", p.name, leg, err)

@@ -91,6 +91,10 @@ func (fc *funcCtx) plainCatchBody(x *syntax.CatchExpr, m *check.Match, o operand
 	} else if o.val != "" {
 		fc.line("_ = " + o.val)
 	}
+	site := fc.trackResultSite(x, result)
+	if site != "" {
+		fc.line(site + " = " + fc.resultSite(x.X))
+	}
 	fc.line("if " + o.err + " != nil {")
 	fc.depth++
 	if p := catchBinding(fc.l.info, x); p != nil {

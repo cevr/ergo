@@ -33,6 +33,7 @@ type dest struct {
 	block bool
 	name  string
 	err   string
+	site  string // chosen result's position in a law's control expression
 }
 
 // yieldList writes a statement list whose last statement yields to d and
@@ -76,6 +77,9 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 			o := fc.expr(s.X)
 			if d.name != "" && o.val != "" {
 				fc.line(d.name + ", " + d.err + " = " + fc.convertAt(s.X, o.val) + ", " + o.err)
+				if d.site != "" {
+					fc.line(d.site + " = " + fc.resultSite(s.X))
+				}
 				return false
 			}
 			fc.line(d.err + " = " + o.err)
@@ -90,6 +94,9 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 			return false
 		}
 		fc.line(d.name + " = " + fc.assigned(s.X))
+		if d.site != "" {
+			fc.line(d.site + " = " + fc.resultSite(s.X))
+		}
 		return false
 	case *syntax.IfStmt:
 		fc.at(s)
@@ -165,7 +172,8 @@ func (fc *funcCtx) branchExpr(x syntax.Expr) operand {
 		fc.yieldStmt(s, dest{})
 		return res
 	}
-	fc.yieldStmt(s, dest{kind: destAssign, name: res.val, err: res.err})
+	site := fc.trackResultSite(x, res.val)
+	fc.yieldStmt(s, dest{kind: destAssign, name: res.val, err: res.err, site: site})
 	return res
 }
 

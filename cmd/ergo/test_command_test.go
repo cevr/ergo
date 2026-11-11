@@ -110,8 +110,10 @@ func TestTestCommand(t *testing.T) {
 	laws := write("replaylaw.ergo", "law Residue(value int) {\n\tvalue % 7 != 3\n}\n\ntest Other { assert true }\n")
 	stdout, _, code = run("test", laws, "--seed", "7")
 	rerun, _, code2 := run("test", laws, "--law", "Residue", "--seed", "7")
-	refuted, _, _ := strings.Cut(rerun, "\n")
-	want := refuted + "\n\treplay: ergo test " + laws + " --law Residue --seed 7\n"
+	// The refutation is the FAIL line and its positions (EV6: the law's
+	// declaration follows the refuted line), then the replay line.
+	refuted, _, _ := strings.Cut(rerun, "\treplay: ")
+	want := refuted + "\treplay: ergo test " + laws + " --law Residue --seed 7\n"
 	if code != 1 || code2 != 1 || !strings.HasPrefix(refuted, "FAIL law Residue (case ") || !strings.Contains(stdout, "ok Other\n"+want) || rerun != want+"FAIL (1 of 1 tests)\n" {
 		t.Fatalf("a refuted law: exit %d %q; its replay: exit %d %q", code, stdout, code2, rerun)
 	}
@@ -134,8 +136,8 @@ func TestTestCommand(t *testing.T) {
 			t.Fatalf("ergo %v: exit %d stdout %q stderr %q; want exit 2 and %q", c.args, code, stdout, stderr, c.want)
 		}
 	}
-	for _, command := range []string{"build", "run", "check"} {
-		if _, stderr, code := run(command, "--seed", "1", replay); code == 0 || !strings.Contains(stderr, "--seed is only supported by test") {
+	for _, command := range []string{"build", "run"} {
+		if _, stderr, code := run(command, "--seed", "1", replay); code == 0 || !strings.Contains(stderr, "--seed is only supported by check and test") {
 			t.Fatalf("ergo %s --seed: exit %d stderr %q", command, code, stderr)
 		}
 	}

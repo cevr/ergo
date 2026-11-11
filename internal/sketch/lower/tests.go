@@ -10,6 +10,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketch/testplan"
 )
 
 // Test mode (196l; check-v1 spec D-E4, ledger row C20). A test is lowered
@@ -58,12 +59,12 @@ import (
 // shrinks with no shrinker of its own ($Prop, v1.ShrinkTape).
 
 // testCases is the number of cases a property runs.
-const testCases = 100
+const testCases = testplan.Cases
 
 // testDepth is the size a property's arguments start with: each record,
 // tuple, union, slice or Map level lowers it by one, and at zero a slice
 // and a Map are empty and a union takes its smallest variant.
-const testDepth = 4
+const testDepth = testplan.Depth
 
 // testLowering is the test build's state; the run build has none.
 type testLowering struct {
@@ -104,7 +105,7 @@ var testHelpers = []struct{ key, base string }{
 	{"fmt", "fmt"}, {"os", "os"}, {"sort", "sort"}, {"strconv", "strconv"}, {"strings", "strings"},
 	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"}, {"AssertDiff", "ergoAssertDiff"}, {"Refuted", "ergoRefuted"},
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
-	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"}, {"Runes", "ergoRunes"}, {"Edges", "ergoEdges"},
+	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
 	{"GenIn", "ergoGenIn"}, {"GenStrLen", "ergoGenStrLen"}, {"GenSliceLen", "ergoGenSliceLen"},
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
@@ -115,7 +116,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"Explore", "ergoExplore"}, {"Signals", "ergoSignals"}, {"Block", "ergoBlock"},
 	{"ExploreAll", "ergoExploreAll"}, {"ExploreRuns", "ergoExploreRuns"}, {"Trace", "ergoTrace"}, {"Refute", "ergoRefute"},
 	{"States", "ergoStates"}, {"explore", "explore"}, {"Verdict", "ergoVerdict"}, {"Program", "ergoProgram"},
-	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"},
+	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"}, {"testgen", "testgen"},
 	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
 }
 
@@ -158,7 +159,7 @@ func (l *lowerer) nameTests() {
 	for _, r := range l.runLaws() {
 		if law := r.Law; lawLowered(r) && law.Machine != nil && law.Decl.Reach != nil {
 			state := law.Machine.Type.(*check.Named).Underlying().(*check.MachineType).State
-			if l.keyWhy(state, map[string]bool{}) == "" {
+			if l.keyWhy(state) == "" {
 				l.keyTypes(state, map[string]bool{}, func(t check.Type) {
 					key, base, _ := l.keyName(t)
 					l.pkgName(key, base)
@@ -247,6 +248,7 @@ func (l *lowerer) testImports() []string {
 		out = append(out, l.helper(p)+" "+strconv.Quote(p))
 	}
 	out = append(out, l.helper("explore")+" "+strconv.Quote(runtimeModule+"/runtime/explore"))
+	out = append(out, l.helper("testgen")+" "+strconv.Quote(runtimeModule+"/runtime/testgen"))
 	return out
 }
 
@@ -382,7 +384,7 @@ func (l *lowerer) lawDecl(law *check.Law) {
 	// package's Info, as that package's functions are (sources.go); a law
 	// of std, as a std body is: with no line directive (decls.go).
 	defer l.leave(l.enter(d.Name, law.Pkg))
-	sourced := law.Pkg == nil || l.isSourced(law.Pkg)
+	sourced := l.isSourced(law.Pkg)
 	if !sourced {
 		l.info = law.Pkg.Info
 	}
@@ -753,7 +755,7 @@ func (l *lowerer) testRunner() string {
 		// argument as an Ergo literal of its type (literal.go), written
 		// only when it fails.
 		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
-		for k, v := range t.Params {
+		for k, v := range testplan.Test(t).Inputs {
 			base := v.Name
 			if base == "_" {
 				base = "arg"
@@ -820,10 +822,7 @@ func (t *testLowering) lawOwnOf(c *check.Call) string {
 // lawGenericOwner is the operation type of a law of a generic operation
 // type that runs (its first slot), nil for any other law.
 func lawGenericOwner(law *check.Law) *check.Named {
-	if len(law.Slots) == 0 || law.Slots[0].Param >= 0 || len(law.Slots[0].Type.TParams) == 0 {
-		return nil
-	}
-	return law.Slots[0].Type
+	return testplan.GenericOwner(law)
 }
 
 func lawSlotParam(law *check.Law, i int) bool {
@@ -892,6 +891,7 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
 	for _, tg := range targets {
+		plan := testplan.Law(law, tg.b)
 		// One rule for every law (Listed laws): a run whose values can
 		// all be listed takes each once and is proved; else it draws.
 		if l.listedRuns(b, law, tg.label, tg.b, scope, env, failed) {
@@ -942,7 +942,6 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 			sep = ", "
 			return fc.convert(p.Conv, pv, law.Decl)
 		}
-		bound := map[int]check.LawProvider{}
 		args := []string{"&" + e}
 		callee := l.lawFunc(law)
 		generic := lawGenericOwner(law) != nil
@@ -964,25 +963,26 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 				bind = append(bind, e+"."+l.envField(s.Type)+" = "+provide(tg.b[k], "provider", "provider"))
 				continue
 			}
-			bound[s.Param] = tg.b[k]
+		}
+		paramPlans := plan.Inputs
+		if len(paramPlans) > 0 && paramPlans[0].Param < 0 {
+			paramPlans = paramPlans[1:]
 		}
 		for k, v := range law.Params {
-			vt := v.Type
-			if generic {
-				vt = tg.b[0].Params[k]
-			}
+			input := paramPlans[k]
+			vt := input.Type
 			base := v.Name
 			if base == "_" {
 				base = "arg"
 			}
-			if p, ok := bound[k]; ok {
-				args = append(args, provide(p, base, v.Name))
+			if p := input.Provider; p != nil {
+				args = append(args, provide(*p, base, v.Name))
 				continue
 			}
 			a := inner.alloc(base)
 			gen := l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl)
-			if k < len(law.Where) && law.Where[k] != nil {
-				gen = l.genRefined(vt, law.Where[k], r, strconv.Itoa(testDepth), inner, law.Decl)
+			if input.Where != nil {
+				gen = l.genRefined(vt, input.Where, r, strconv.Itoa(testDepth), inner, law.Decl)
 			}
 			b.WriteString("\t\t\t" + a + " := " + gen + "\n")
 			args = append(args, a)
@@ -1064,20 +1064,29 @@ func (l *lowerer) harness() string {
 
 const harnessGo = `// $Assertion is a failed assert, the panic that ends its case (196l).
 // A refuted law is one too: its what is "law refuted", not "assert failed".
-type $Assertion struct{ at, text, what string }
+type $Assertion struct{ at, text, what, declaration string }
 
 func (a $Assertion) String() string {
 	what := a.what
 	if what == "" {
 		what = "assert failed"
 	}
-	return what + " at " + a.at + ": " + a.text
+	text := what + " at " + a.at + ": " + a.text
+	if a.declaration != "" {
+		text += "\n\tlaw declared at " + a.declaration
+	}
+	return text
 }
 
 func $AssertFail(at, text string) { panic($Assertion{at: at, text: text}) }
 
-// $Refuted ends a law's case whose law, declared at at, is false.
-func $Refuted(at string) { panic($Assertion{at: at, text: "the law is false", what: "law refuted"}) }
+// $Refuted ends a false law at its failing expression. declaration, when
+// given, is related information, not the primary failure position.
+func $Refuted(at string, declaration ...string) {
+	a := $Assertion{at: at, text: "the law is false", what: "law refuted"}
+	if len(declaration) > 0 { a.declaration = declaration[0] }
+	panic(a)
+}
 
 // $AssertDiff is the line diff of a failed comparison of two strings, when
 // they differ and either holds more than one line: a line feed, then each line of the
@@ -1181,7 +1190,7 @@ func $Try(t *$Task.Task, at string, body func() error) (msg string, kind int, ex
 // then the drawn one and the replay command. A defect is never shrunk: it
 // stops the run as $Case says.
 func $Prop(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string, func() error)) bool {
-	r.tape, r.replaying = r.tape[:0], false
+	r.stream.Record()
 	r.cases++
 	var args func() string
 	msg, kind, exit := $Try(t, at, func() error {
@@ -1196,9 +1205,9 @@ func $Prop(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string,
 		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
 		$Runtime.Raise(exit)
 	}
-	drawn := append([]uint64(nil), r.tape...)
+	drawn := r.stream.Tape()
 	replay := func(c []uint64) (func() string, string, int) {
-		r.replay, r.pos, r.replaying, r.tape, r.world = c, 0, true, r.tape[:0], nil
+		r.stream.Replay(c)
 		var shown func() string
 		m, k, _ := $Try(t, at, func() error {
 			var body func() error
@@ -1222,7 +1231,7 @@ func $Prop(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string,
 			shown, smsg, steps = args, msg, false
 		}
 	}
-	r.replaying = false
+	r.stream.EndReplay()
 	r.failure = shown()
 	// One line, as an unshrunk FAIL line: the smallest case, the drawn
 	// arguments when they differ, and the replay command when ergo test
@@ -1377,218 +1386,70 @@ func $Where(args func() string) string {
 // failure and cases are the run's report, which $Record reads, and
 // proved, set by a listed run.
 type $Rand struct {
-	s, seed   uint64
-	size      int
-	env       any
-	world     map[string]any
-	tape      []uint64
-	replay    []uint64
-	replaying bool
-	pos       int
-	cases     int
-	failure   string
-	proved    bool
+	stream  *$testgen.Stream
+	seed    uint64
+	size    int // compatibility with the context runner's case boundary
+	env     any
+	cases   int
+	failure string
+	proved  bool
 }
 
 // start begins case i of a run: its size is i/4, and its world is empty,
 // so no case sees another's file system or output.
 func (r *$Rand) start(i int) {
+	r.stream.Start(i)
 	r.size = i / 4
-	r.world = nil
 }
 
 // built is the case's one value of the builder key, which build makes on
 // the case's first use of it.
 func (r *$Rand) built(key string, build func() any) any {
-	if v, ok := r.world[key]; ok {
-		return v
-	}
-	if r.world == nil {
-		r.world = map[string]any{}
-	}
-	v := build()
-	r.world[key] = v
-	return v
+	return r.stream.Built(key, build)
 }
 
 // $NewRand is the generator of the test name under seed: each property
 // draws its own stream, so adding a test changes no other test's cases.
 func $NewRand(seed uint64, name string) *$Rand {
-	r := &$Rand{s: seed, seed: seed}
-	for i := 0; i < len(name); i++ {
-		r.s = r.s*31 + uint64(name[i])
-	}
-	return r
+	return &$Rand{stream: $testgen.New(seed, name), seed: seed}
 }
 
 // next is a draw of any 64 bits; intn records its draw reduced below n, so
 // a shrink lowering a recorded draw lowers the value it gives.
 func (r *$Rand) next() uint64 {
-	z := r.raw()
-	r.tape = append(r.tape, z)
-	return z
+	return r.stream.Next()
 }
 
-func (r *$Rand) raw() uint64 {
-	var z uint64
-	if r.replaying {
-		if r.pos < len(r.replay) {
-			z = r.replay[r.pos]
-		}
-		r.pos++
-	} else {
-		r.s += 0x9e3779b97f4a7c15
-		z = r.s
-		z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
-		z = (z ^ (z >> 27)) * 0x94d049bb133111eb
-		z ^= z >> 31
-	}
-	return z
-}
+func (r *$Rand) intn(n int) int { return r.stream.Intn(n) }
 
-func (r *$Rand) intn(n int) int {
-	z := r.raw() % uint64(n)
-	r.tape = append(r.tape, z)
-	return int(z)
-}
+func (r *$Rand) bool() bool { return r.stream.Bool() }
 
-func (r *$Rand) bool() bool { return r.intn(2) == 1 }
-
-// any64 is any int64: draws 0, 1, 2, 3, … give 0, -1, 1, -2, ….
-func (r *$Rand) any64() int64 {
-	z := r.next()
-	return int64(z>>1) ^ -int64(z&1)
-}
-
-// small is in -n..n: draws 0, 1, 2, 3, 4, … give 0, -1, 1, -2, 2, …, so a
-// smaller draw is a value nearer zero.
-func (r *$Rand) small(n int) int64 {
-	v := r.intn(2*n + 1)
-	if v%2 == 1 {
-		return -int64(v+1) / 2
-	}
-	return int64(v / 2)
-}
-
-// $Edges are the integers where code breaks: zero, one and minus one, and
-// the bounds of each Go integer width. A narrower type wraps an int64, so
-// each width meets its own bounds (127 and -128 for int8, 255 and 256 for
-// uint8, …).
-var $Edges = []int64{0, 1, -1, 127, -128, 128, -129, 255, 256, 32767, -32768, 65535, 65536, 2147483647, -2147483648, 4294967295, 4294967296, 9223372036854775807, -9223372036854775808}
-
-// i64 is biased to small values and edges: 40% in -10..10, 15% an edge
-// ($Edges), 15% in -999999..999999 and 30% any 64 bits; a narrower type
-// wraps it.
+// The stream owns the seed mixer, every primitive distribution and the
+// case's tape.
 func (r *$Rand) i64() int64 {
-	switch k := r.intn(20); {
-	case k < 8:
-		return r.small(10)
-	case k < 11:
-		return $Edges[r.intn(len($Edges))]
-	case k < 14:
-		return r.small(999999)
-	}
-	return r.any64()
+	return r.stream.I64()
 }
 
-// integer records the generated value, after narrowing, as sign and
-// magnitude (an unsigned value has only magnitude). Distribution choices
-// are not replay choices: switching from an edge to a small-value branch
-// must not strand a shrink at 127. For a fixed sign, lowering magnitude
-// moves toward zero monotonically, including MinInt64 and MaxUint64.
+// integer is i64 narrowed to bits (0: int), recorded on the tape as sign
+// and magnitude so a shrink moves toward zero (testgen.Stream.Integer).
 func (r *$Rand) integer(bits uint, signed bool) uint64 {
-	if bits == 0 {
-		bits = $strconv.IntSize
-	}
-	mask := ^uint64(0) >> (64 - bits)
-	if r.replaying {
-		negative := signed && r.bool()
-		magnitude := r.next()
-		limit := mask
-		if signed {
-			limit = mask >> 1
-			if negative {
-				limit++
-			}
-		}
-		// Deleting draws can move a wider integer into this position.
-		// Clamp rather than wrap: shrinking stays monotone in magnitude.
-		if magnitude > limit {
-			magnitude = limit
-		}
-		if negative {
-			return -magnitude
-		}
-		return magnitude
-	}
-	start := len(r.tape)
-	n := uint64(r.i64()) & mask
-	r.tape = r.tape[:start]
-	magnitude := n
-	if signed {
-		sign := uint64(0)
-		if n & (uint64(1) << (bits - 1)) != 0 {
-			sign, magnitude = 1, -n & mask
-		}
-		r.tape = append(r.tape, sign)
-	}
-	r.tape = append(r.tape, magnitude)
-	return n
+	return r.stream.Integer(bits, signed)
 }
 
 // f64 is always finite: a small half-integer half the time.
 func (r *$Rand) f64() float64 {
-	if !r.bool() {
-		return float64(r.small(10)) / 2
-	}
-	return float64(r.any64()) / (1 << 32)
+	return r.stream.F64()
 }
-
-var $Runes = []rune("abz AZ09_-é世\n")
 
 // str is a string biased to short ones: half the time 0..5 units, else
 // 0..size. Each unit is drawn from a class a codec treats apart, so every
-// class appears in a run: half the time a rune of $Runes, else a quote, a
+// class appears in a run: half the time a rune of a fixed set, else a quote, a
 // backslash, a control byte (0x00..0x1F), DEL, a byte that is not UTF-8
 // (a lone continuation byte 0x80..0xBF, or 0xFE or 0xFF), an astral rune
 // (U+10000..U+10FFFF), another BMP rune (no surrogate) or printable ASCII.
 func (r *$Rand) str() string {
-	n := r.intn(6)
-	if r.bool() {
-		n = r.intn(r.size + 1)
-	}
-	b := make([]byte, 0, n*4)
-	for i := 0; i < n; i++ {
-		b = r.unit(b)
-	}
-	return string(b)
-}
-
-// unit appends one unit of str to b.
-func (r *$Rand) unit(b []byte) []byte {
-	switch r.intn(16) {
-	case 8:
-		return append(b, '"')
-	case 9:
-		return append(b, '\\')
-	case 10:
-		return append(b, byte(r.intn(0x20)))
-	case 11:
-		return append(b, 0x7f)
-	case 12:
-		k := r.intn(0x42)
-		if k < 0x40 {
-			return append(b, byte(0x80+k))
-		}
-		return append(b, byte(0xFE+k-0x40))
-	case 13:
-		return append(b, string(rune(0x10000+r.intn(0x100000)))...)
-	case 14:
-		return append(b, string(rune(0x80+r.intn(0xD800-0x80)))...)
-	case 15:
-		return append(b, byte(0x20+r.intn(0x5F)))
-	}
-	return append(b, string($Runes[r.intn(len($Runes))])...)
+	r.stream.SetSize(r.size)
+	return r.stream.Str()
 }
 
 // $GenIn draws an integer of one of the closed spans of a refinement
@@ -1596,28 +1457,13 @@ func (r *$Rand) unit(b []byte) []byte {
 // high end, or any value in it, half the time an end. An unsigned type's
 // spans hold its values' bits.
 func $GenIn(r *$Rand, spans [][2]int64) int64 {
-	s := spans[r.intn(len(spans))]
-	switch r.intn(4) {
-	case 0:
-		return s[0]
-	case 1:
-		return s[1]
-	}
-	w := uint64(s[1]) - uint64(s[0]) + 1
-	if w == 0 {
-		return int64(r.next())
-	}
-	return s[0] + int64(r.next()%w)
+	return r.stream.In(spans)
 }
 
 // $GenStrLen is a string of n bytes, of str's units; a unit that would
 // pass n is cut, as a codec meets a cut rune.
 func $GenStrLen(r *$Rand, n int) string {
-	b := make([]byte, 0, n+4)
-	for len(b) < n {
-		b = r.unit(b)
-	}
-	return string(b[:n])
+	return r.stream.StrLen(n)
 }
 
 // $GenSliceLen is a slice of n elements.
@@ -1633,11 +1479,8 @@ func $GenSliceLen[T any](r *$Rand, d int, n int, elem func(*$Rand, int) T) []T {
 // the top ($Depth), halved at each level below it, so nested collections
 // stay small.
 func (r *$Rand) limit(d int) int {
-	n := r.size
-	for k := d; k < $Depth && n > 0; k++ {
-		n /= 2
-	}
-	return n
+	r.stream.SetSize(r.size)
+	return r.stream.Limit(d)
 }
 
 func $GenSlice[T any](r *$Rand, d int, elem func(*$Rand, int) T) []T {
@@ -1848,10 +1691,7 @@ func (l *lowerer) genNamed(t check.Type, seen map[check.Type]bool, visit func(*c
 // genConstructor is the constructor a generator builds n's values with, or
 // nil when it builds them field by field (check/tests.go rule 3).
 func genConstructor(n *check.Named) *check.Func {
-	if n.Obj == nil || n.Orig != nil {
-		return nil
-	}
-	return n.Obj.Constructor()
+	return testplan.Constructor(n)
 }
 
 func (l *lowerer) genName(n *check.Named) string {
@@ -1973,18 +1813,7 @@ func int64Bits(v *big.Int) string {
 // union t or the members of the row value t: at d <= 0 one of least rank,
 // else any, each equally likely.
 func (l *lowerer) genPick(body *strings.Builder, t check.Type, variants []check.Type, r, d string, scope *namer, site syntax.Node) {
-	ranks := check.NewValueRanks()
-	least := -1
-	var small []check.Type
-	for _, v := range variants {
-		switch k := ranks.Rank(v); {
-		case k < 0:
-		case least < 0 || k < least:
-			least, small = k, []check.Type{v}
-		case k == least:
-			small = append(small, v)
-		}
-	}
+	small := testplan.SmallVariants(variants)
 	if len(small) == 0 {
 		ice(site, "the union %s has no finite value; the checker admits only generatable types", t)
 	}

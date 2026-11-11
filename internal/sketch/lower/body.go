@@ -156,6 +156,11 @@ type funcCtx struct {
 	// hand-off keeps its entry until the frame's exit is known
 	// (release.go, v1.Returned).
 	returned *syntax.Ident
+	// Result positions of control expressions in a law frame. The selected
+	// branch writes its position alongside its value; ordinary subexpressions
+	// do not become the primary site of an enclosing comparison.
+	resultSites map[syntax.Expr]string
+	resultNames map[string]string
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -576,15 +581,52 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	val := fc.assigned(x)
 	fc.returned = nil
 	if f.law {
-		// A law's result is any type over bool (types.md, Laws 8); its Go
-		// function returns bool.
-		val = "bool(" + val + ")"
+		val = fc.lawResult(x, val, "nil")
 	}
 	if f.fallible {
 		fc.sourceReturn(val, "nil")
 	} else {
 		fc.sourceReturn(val)
 	}
+}
+
+// lawResult checks a law's result where it is returned, before the caller
+// loses the chosen tail's position. It evaluates the result once. A typed
+// failure still propagates, rather than refuting its zero bool value.
+func (fc *funcCtx) lawResult(x syntax.Expr, val, err string) string {
+	held := fc.scope.alloc("held")
+	fc.line(held + " := bool(" + val + ")")
+	cond := "!" + held
+	if err != "nil" {
+		cond = err + " == nil && " + cond
+	}
+	fc.line("if " + cond + " { " + fc.l.helper("Refuted") + "(" + fc.resultSite(x) + ", " + strconv.Quote(fc.l.siteText(fc.l.tests.law.Decl)) + ") }")
+	return held
+}
+
+func (fc *funcCtx) resultSite(x syntax.Expr) string {
+	if t, ok := unparen(x).(*syntax.TryExpr); ok {
+		return fc.resultSite(t.X)
+	}
+	if site := fc.resultSites[unparen(x)]; site != "" {
+		return site
+	}
+	return strconv.Quote(fc.l.siteText(unparen(x)))
+}
+
+func (fc *funcCtx) trackResultSite(x syntax.Expr, name string) string {
+	if fc.frame == nil || !fc.frame.law || name == "" {
+		return ""
+	}
+	if fc.resultSites == nil {
+		fc.resultSites = map[syntax.Expr]string{}
+		fc.resultNames = map[string]string{}
+	}
+	site := fc.temp("site")
+	fc.line(site + " := " + strconv.Quote(fc.l.siteText(x)))
+	fc.line("_ = " + site) // a control expression may be only a subexpression
+	fc.resultSites[unparen(x)], fc.resultNames[name] = site, site
+	return site
 }
 
 // fail leaves the current frame with err (rows.md, Escapes): the frame's
