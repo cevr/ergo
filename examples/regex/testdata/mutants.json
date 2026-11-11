@@ -2,6 +2,15 @@
   "about": "R1 search and R2 iterator-workspace mutants, owned by nfa. WorkspaceReusesStorage catches per-line storage setup invisible to Boolean agreement; WorkspaceAgreesWithReferences catches stale frontier/marks, frontier overwrite, lost epsilon branches and wrong acceptance mode. Matcher.LinesAgree and LinesStop cover iterator ordering and consumer stop.",
   "mutants": [
     {
+      "name": "R2-whole-iterator-value",
+      "file": "examples/regex/nfa/workspace.ergo",
+      "from": "w.RunWhole(c.program, line).Matched && !yield(line)",
+      "to": "w.RunWhole(c.program, line).Matched && !yield(\"not-the-line\")",
+      "rule": "Matcher.LinesAgree checks emitted Whole line values, not only counts. The existing Whole CLI case uses count mode, the workspace property checks Whole booleans and Inside line values, and Matches laws cannot observe iterator payloads.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
       "name": "R2-shared-iterator",
       "file": "examples/regex/nfa/workspace.ergo",
       "from": "func Lines(c SearchCompiled, lines Seq[string]) Seq[string] {\n\tSeq[string](func(yield func(v string) bool) {\n\t\tlet mut w = NewWorkspace(c.program.Len())",
