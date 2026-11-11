@@ -1,6 +1,6 @@
 // Package tree is the Go parser's tree as Ergo holds it: an arena of
 // nodes, each a family (the Go type's name) and its fields in order, with
-// the line starts of the source. Decode (wire.ergo) reads it from the wire
+// the line starts of the source. Decode (decode.ergo) reads it from the encoding
 // of the Go adapter hostsyntax; Project writes it back as text, so a Go
 // test can hold it to the parser's own tree. It is pure: no function needs
 // a capability.
@@ -99,5 +99,5 @@ func ProjectFailure(f SyntaxFailure) string {
 }
 
 // Unsupported is a source whose tree holds a node type the adapter does
-// not carry: a parser newer than the wire.
+// not carry: a parser newer than the encoding.
 type Unsupported { Source string, Family string }

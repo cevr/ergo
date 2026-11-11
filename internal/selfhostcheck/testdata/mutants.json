@@ -4,7 +4,7 @@
     {
       "name": "sh-tree-drops-child",
       "origin": "wf10/selfhost/SH0",
-      "file": "internal/selfhostcheck/testdata/selfhost/tree/wire.ergo",
+      "file": "internal/selfhostcheck/testdata/selfhost/tree/decode.ergo",
       "from": "\t\t\titems = items.Append(x)\n",
       "to": "\t\t\tif len(items) + 1 < count {\n\t\t\t\titems = items.Append(x)\n\t\t\t}\n",
       "rule": "Decode keeps every item of a list: a dropped child is a different tree.",
@@ -15,7 +15,7 @@
     {
       "name": "sh-tree-loses-absent-pos",
       "origin": "wf10/selfhost/SH0",
-      "file": "internal/selfhostcheck/testdata/selfhost/tree/wire.ergo",
+      "file": "internal/selfhostcheck/testdata/selfhost/tree/decode.ergo",
       "from": "(Position{At: None}, at + 1)",
       "to": "(Position{At: Some[int]{Value: 0}}, at + 1)",
       "rule": "An absent position (syntax.NoPos) is None, never offset 0.",
@@ -24,12 +24,12 @@
       ]
     },
     {
-      "name": "sh-wire-replaces-invalid-byte",
+      "name": "sh-encoding-replaces-invalid-byte",
       "origin": "wf10/selfhost/SH0",
       "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
       "from": "func str(s string) string  { return",
       "to": "func str(s string) string  { s = strings.ToValidUTF8(s, \"\\uFFFD\"); return",
-      "rule": "The wire carries every string byte for byte, invalid UTF-8 included.",
+      "rule": "The encoding carries every string byte for byte, invalid UTF-8 included.",
       "killers": [
         "selfhostcheck:TestSelfhostBridgeAgrees"
       ]
@@ -46,7 +46,7 @@
       ]
     },
     {
-      "name": "sh-wire-drops-error-location",
+      "name": "sh-encoding-drops-error-location",
       "origin": "wf10/selfhost/SH0",
       "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
       "from": "integer(e.Line)",
@@ -62,7 +62,7 @@
       "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
       "from": "syntax.AssertStmt{}, ",
       "to": "",
-      "rule": "The wire carries every node type of the syntax package; the corpus may not yet write a new one.",
+      "rule": "The encoding carries every node type of the syntax package; the corpus may not yet write a new one.",
       "killers": [
         "selfhost/hostsyntax:TestFamiliesCoverSyntax"
       ]

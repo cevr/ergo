@@ -18,7 +18,7 @@ const seedVariable = "ERGO_SELFHOST_SEED"
 
 // TestSelfhostBridgeAgrees is SH0's acceptance: the Go parser's tree
 // crosses into Ergo and back intact. For every input, the Go adapter
-// (hostsyntax) writes the parser's facts as a wire, the Ergo package tree
+// (hostsyntax) writes the parser's facts as an encoding, the Ergo package tree
 // decodes it into its arena, and the Ergo library formatapi writes the
 // projection of what it decoded; the driver writes the same projection
 // straight from syntax.Parse's tree, by reflection. The two must be equal
@@ -31,8 +31,8 @@ const seedVariable = "ERGO_SELFHOST_SEED"
 // random bytes, and random byte strings.
 //
 // Mutants it alone catches (testdata/mutants.json): sh-tree-drops-child,
-// sh-tree-loses-absent-pos, sh-wire-replaces-invalid-byte,
-// sh-tree-column-off-by-one, sh-wire-drops-error-location.
+// sh-tree-loses-absent-pos, sh-encoding-replaces-invalid-byte,
+// sh-tree-column-off-by-one, sh-encoding-drops-error-location.
 //
 // It builds Go because the property executes the Ergo decoder through its
 // exported Go ABI: only a built library shows what crosses the boundary.

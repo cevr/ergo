@@ -14,10 +14,10 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // needsBuild marks a test that builds or runs a Go program: the fast tier
@@ -89,8 +89,8 @@ func buildDriver(t *testing.T, lib string) string {
 		"replace ergo.local/prototype => "+repoRoot()+"\n\n"+
 		"replace ergo.local/prototype/selfhost => "+pilot()+"\n"))
 	exe := filepath.Join(work, "driver.exe")
-	// The deadline only stops a hung build and names it.
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	// The test's deadline stops a hung build.
+	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	build := exec.CommandContext(ctx, "go", "build", "-o", exe, ".")
 	build.Dir = filepath.Join(work, "driver")

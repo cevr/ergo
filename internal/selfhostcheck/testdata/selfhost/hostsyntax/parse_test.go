@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestFamiliesCoverSyntax holds the wire's family table to the syntax
+// TestFamiliesCoverSyntax holds the encoding's family table to the syntax
 // package: every struct type whose pointer is a syntax.Node is a family,
 // and every family is one. The corpus of TestSelfhostBridgeAgrees reaches
 // only the constructs some source writes, so a node type added to the
@@ -45,7 +45,7 @@ func TestFamiliesCoverSyntax(t *testing.T) {
 	}
 	for name := range want {
 		if !have[name] {
-			t.Errorf("syntax.%s is a node the wire does not carry: add it to families", name)
+			t.Errorf("syntax.%s is a node the encoding does not carry: add it to families", name)
 		}
 	}
 	for name := range have {

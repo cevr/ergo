@@ -3,7 +3,7 @@
 // parser. It reads framed sources on stdin ("<len>:<bytes>" each) and writes,
 // for each, two framed projections on stdout: the one it builds from
 // syntax.Parse's tree with reflection, and the one the Ergo library
-// formatapi builds from the tree it decoded from the adapter's wire. The two
+// formatapi builds from the tree it decoded from the adapter's encoding. The two
 // paths share only the parser.
 package main
 

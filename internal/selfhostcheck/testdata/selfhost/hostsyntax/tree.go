@@ -9,7 +9,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// families are the node types the wire carries: every struct of the
+// families are the node types the encoding carries: every struct of the
 // syntax tree. TestFamiliesCoverSyntax holds the list to the syntax
 // package, so a new node type cannot cross unnoticed; a type missing here
 // is a U document, never a skipped node.
@@ -37,7 +37,7 @@ func init() {
 
 var posType = reflect.TypeFor[syntax.Pos]()
 
-// unknownFamily stops an encoding at a node type the wire does not carry.
+// unknownFamily stops an encoding at a node type the encoding does not carry.
 type unknownFamily struct{ name string }
 
 // encoder writes one document's nodes.
@@ -46,7 +46,7 @@ type encoder struct {
 	nodes []string
 }
 
-func encode(f *syntax.File) (wire string) {
+func encode(f *syntax.File) (encoding string) {
 	e := &encoder{ids: map[uintptr]int{}}
 	defer func() {
 		if r := recover(); r != nil {
@@ -54,7 +54,7 @@ func encode(f *syntax.File) (wire string) {
 			if !ok {
 				panic(r)
 			}
-			wire = Header + "U" + str(f.Src) + str(u.name)
+			encoding = Header + "U" + str(f.Src) + str(u.name)
 		}
 	}()
 	root := e.node(reflect.ValueOf(f))
@@ -159,5 +159,5 @@ func (e *encoder) item(v reflect.Value) string {
 		}
 		return b.String()
 	}
-	panic(fmt.Sprintf("hostsyntax: no wire form for %s", v.Type()))
+	panic(fmt.Sprintf("hostsyntax: no encoding form for %s", v.Type()))
 }

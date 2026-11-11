@@ -1,9 +1,9 @@
 // Package hostsyntax is the self-hosting pilot's Go input boundary: it
-// calls Ergo's Go parser and exports only the parser's facts, as a wire that
+// calls Ergo's Go parser and exports only the parser's facts, as an encoding that
 // Ergo code decodes (selfhost/tree). It makes no layout decision and does
 // not import the formatter.
 //
-// Wire v1: the header "ergotree1\n", then one document. An item is
+// Encoding v1: the header "ergotree1\n", then one document. An item is
 //
 //	i<dec>;     an int
 //	p<dec>;     a source position (a byte offset)
@@ -30,10 +30,10 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Header starts every wire of this version.
+// Header starts every encoding of this version.
 const Header = "ergotree1\n"
 
-// Parse parses src with the Go parser and returns its wire.
+// Parse parses src with the Go parser and returns its encoding.
 func Parse(src string) string {
 	f, err := syntax.Parse(src)
 	if err != nil {
