@@ -104,7 +104,7 @@ func each() needs Console | io.Stdin | fs.Root {
 }
 
 func main() needs Console | Ambient {
-	let input = io.NewHost()
+	let input = io.NewStdin()
 	let mut which = ""
 	let mut nodes = []fstest.Node{}
 	for line in input.Lines() {

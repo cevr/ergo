@@ -108,6 +108,8 @@ A law that cannot run prints a `skip` line with the reason, and the summary coun
 
 `ergo test DIR --receipt FILE` writes the run's law receipt to FILE: a JSON object with the schema version, the source, its revision, the seed, the target and one entry per law run, `proved` (a listed run, every value), `tested` with its case count, `refuted` with its counterexample, or `skipped` with the reason; a machine's reachability law has the search's report in place of a case count ([runtime](spec/runtime.md#tests), Tests 8). A drawn law that holds is tested, not proved. Without `--receipt` nothing is written.
 
+For `ergo test DIR/... --receipt PATH`, PATH is a directory: each tested package writes its canonical receipt to `PATH/<module>/<package>.json`. The directory is created as needed; an existing file at PATH is an error. An earlier package's refutation is never overwritten by a later package. With `--law NAME`, packages that have no law of that report title are checked but not run. If no selected package has that law, the command fails once. Single-package `--law` keeps its missing-law error; `--skip-law` keeps its meaning in every package.
+
 `ergo run` and `ergo build` contain no Go from a law. The [support table](spec/support.md) lists what each build lowers.
 
 ## Example programs

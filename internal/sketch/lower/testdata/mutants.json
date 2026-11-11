@@ -1,6 +1,7 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"cu2-stale-stdin-callers","origin":"wf10 batch-16b fix-r1","file":"internal/sketch/lower/std_fs_memory_test.go","from":"let input = io.NewStdin()","to":"let input = io.NewHost()","rule":"The fast tier checks every declared full-tier table program against current std contracts.","killers":["lower:TestProgramTablesCheck"],"anchor":{"tests":["lower:TestProgramTablesCheck"]}},
     {"name":"b16b-library-init-before-std-reach","origin":"batch-16b D6 + IG11 integration","file":"internal/sketch/lower/module.go","from":"\t\tl.drainPending() // Reach std lets before the Go library's initOnce.","to":"\t\t// mutant: write initOnce before reaching the std lets","rule":"Go-library initOnce is written after queued std bodies have reached their lets, before any exported call runs.","killers":["lower:TestStdPackageLet"]},
     {"name":"16a-r1-values-binding-unregistered","origin":"batch-16a fix r1 M2","file":"internal/sketch/lower/body.go","from":"\t\tfc.ownVar(b.v, p)","to":"\t\t_ = p","rule":"An owned for-in binding (a queue's Values(), Q7) is registered; a plan that names an unregistered owned value is an internal compiler error.","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-part-not-handed","origin":"batch-16a fix r1 M1","file":"internal/sketch/lower/release.go","from":"if x == nil || !fc.l.info.PartHands[x] {","to":"if true {","rule":"A part moves to the value built from it: its statement entry is removed there.","killers":["lower:TestOwnershipRunModel"]},
@@ -3179,7 +3180,7 @@
       "name": "x2-not-found-passes",
       "origin": "wf10/explorer/x2",
       "file": "internal/sketch/lower/machinelaws.go",
-      "from": "\t\t$Refute(at, \"not found: no generated run reaches \"+$Goal(g, kind))\n",
+      "from": "\t\t$Refute(at, \"not found: no generated run reaches \"+$Goal(g, kind)+\"\\n\"+$Replay(g.file, $strings.TrimPrefix(name, \"law \"), replay))\n",
       "to": "\t\treturn \"100 runs\"\n",
       "rule": "types.md Laws 13: a sometimes law with no witness in a search the budget stopped is not found, and fails.",
       "killers": [

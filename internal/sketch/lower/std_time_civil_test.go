@@ -53,7 +53,7 @@ func step(line string) string {
 }
 
 func main() needs Console | Ambient {
-	for line in io.NewHost().Lines() {
+	for line in io.NewStdin().Lines() {
 		Console.Println(step(line))
 	}
 }

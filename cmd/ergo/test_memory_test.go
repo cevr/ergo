@@ -72,30 +72,35 @@ test Collects {
 // dropped independently: one alone can keep the allocation repro below
 // its cap. It also catches applying the bounded policy to an explicit off.
 // The prepared exec.Cmd is the environment actually passed to the child;
-// no process or compiler is needed to observe it.
+// no process or compiler is needed to observe it. Both plain and explored
+// children are checked: x6-worker-inherits-collector escaped the plain path.
 func TestTestProgramEnvironment(t *testing.T) {
-	t.Setenv("GOGC", "400")
+	t.Setenv("GOGC", "off")
 	t.Setenv("GOMEMLIMIT", "6GiB")
 	for _, limit := range []uint64{0, 256 << 20, proclimit.DefaultLimit} {
-		child := testProgramCommand("not-started", nil, limit)
-		env := child.Environ()
-		gc, memory := "", ""
-		for _, entry := range env {
-			if value, ok := strings.CutPrefix(entry, "GOGC="); ok {
-				gc = value
+		for _, child := range []*exec.Cmd{
+			testProgramCommand("not-started", nil, limit),
+			exploreWorkerCommand("not-started", nil, nil, nil, nil, limit),
+		} {
+			env := child.Environ()
+			gc, memory := "", ""
+			for _, entry := range env {
+				if value, ok := strings.CutPrefix(entry, "GOGC="); ok {
+					gc = value
+				}
+				if value, ok := strings.CutPrefix(entry, "GOMEMLIMIT="); ok {
+					memory = value
+				}
 			}
-			if value, ok := strings.CutPrefix(entry, "GOMEMLIMIT="); ok {
-				memory = value
+			wantGC, wantMemory := "100", "1610612736"
+			if limit == 0 {
+				wantGC, wantMemory = "off", "6GiB"
+			} else if limit == 256<<20 {
+				wantMemory = "201326592"
 			}
-		}
-		wantGC, wantMemory := "100", "1610612736"
-		if limit == 0 {
-			wantGC, wantMemory = "400", "6GiB"
-		} else if limit == 256<<20 {
-			wantMemory = "201326592"
-		}
-		if gc != wantGC || memory != wantMemory {
-			t.Errorf("limit %d: GOGC=%q GOMEMLIMIT=%q; want %q %q", limit, gc, memory, wantGC, wantMemory)
+			if gc != wantGC || memory != wantMemory {
+				t.Errorf("limit %d: GOGC=%q GOMEMLIMIT=%q; want %q %q", limit, gc, memory, wantGC, wantMemory)
+			}
 		}
 	}
 }

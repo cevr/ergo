@@ -326,17 +326,7 @@ func bindingUnrun(b []check.LawProvider) string {
 // for a member law, each with its package's name before it when the law
 // is of another package than the one under test.
 func (l *lowerer) lawTitle(law *check.Law) string {
-	title := law.Name
-	switch {
-	case law.Owner != nil:
-		title = law.Owner.Name + "." + law.Name
-	case law.Machine != nil:
-		title = law.Machine.Name + "." + law.Name
-	}
-	if law.Pkg != nil && law.Pkg != l.pkg {
-		title = law.Pkg.Name + "." + title
-	}
-	return title
+	return law.Title(l.pkg)
 }
 
 // providerTitle is the name a report gives a provider: its type's name,

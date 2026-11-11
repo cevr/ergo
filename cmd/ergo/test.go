@@ -41,7 +41,7 @@ func testCommand(args []string) error {
 		return invalidInvocation(err)
 	}
 	if recursivePattern(opts.file) {
-		return recursiveCommand(opts, testPackage)
+		return recursiveTestCommand(opts)
 	}
 	return testPackage(opts)
 }
@@ -54,6 +54,10 @@ func testPackage(opts fileOptions) error {
 	if !l.result.Checked {
 		return refuseUnchecked(l, opts)
 	}
+	return testLoadedPackage(opts, l)
+}
+
+func testLoadedPackage(opts fileOptions, l loaded) error {
 	dir, err := os.MkdirTemp("", "ergo-test-")
 	if err != nil {
 		return err
@@ -140,15 +144,24 @@ func testProgramCommand(binary string, args []string, limit uint64) *exec.Cmd {
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
 	child.Stdin = os.Stdin
+	child.Env = boundedProgramEnv(limit)
+	return child
+}
+
+// boundedProgramEnv is the collector policy of every test-program child,
+// plain or explored. An explicit zero keeps the caller's settings.
+func boundedProgramEnv(limit uint64) []string {
+	env := os.Environ()
 	if limit != 0 {
+		env = nil
 		for _, entry := range os.Environ() {
 			if !strings.HasPrefix(entry, "GOGC=") && !strings.HasPrefix(entry, "GOMEMLIMIT=") {
-				child.Env = append(child.Env, entry)
+				env = append(env, entry)
 			}
 		}
-		child.Env = append(child.Env, "GOGC=100", "GOMEMLIMIT="+strconv.FormatUint(limit/4*3, 10))
+		env = append(env, "GOGC=100", "GOMEMLIMIT="+strconv.FormatUint(limit/4*3, 10))
 	}
-	return child
+	return env
 }
 
 // validSeed reports whether s is a seed the test binary reads: a decimal

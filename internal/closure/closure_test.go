@@ -94,6 +94,9 @@ func (g grant) String() string {
 // subtree only where the test walks the tree and the reads go deeper than
 // one level.
 var declared = map[string][]allowance{
+	"scripts/mutants": {
+		{".", subtree, "TestLedgerEditsApplyOnce walks every package ledger and reads each mutant's source to reject ambiguous or stale edits"},
+	},
 	"internal/residue": {
 		{".", subtree, "the residue checks read every tracked file by design: git grep, git ls-files and Go's reads of each file"},
 	},

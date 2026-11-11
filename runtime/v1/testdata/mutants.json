@@ -321,11 +321,10 @@
       "file": "runtime/v1/actor.go",
       "from": "\tif rt.Exploring {\n\t\trt.Await(nil, func() bool { return !a.adopting.Load() })\n\t}\n",
       "to": "",
-      "rule": "An explored run sees every wait: an entry's exit waits for a child's start in progress through the scheduler, not on kidsMu with the baton held.",
+      "rule": "An explored run sees every wait: an entry's exit waits for a child's start in progress through the scheduler, not on kidsMu with the baton held. Without it the run hangs with the baton held until the test's hung-test deadline.",
       "killers": [
         "v1:TestChildrenLawsExplored"
-      ],
-      "reason": "deadline: the run hangs on kidsMu with the baton held, so the test ends by its -timeout"
+      ]
     },
     {
       "name": "x7-law-drops-child-output",

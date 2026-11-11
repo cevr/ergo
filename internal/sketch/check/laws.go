@@ -8,6 +8,22 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
+// Title is the law's report and selection name in from's test build. Imported
+// laws use their declaring package's name, matching every generated runner.
+func (law *Law) Title(from *Package) string {
+	title := law.Name
+	switch {
+	case law.Owner != nil:
+		title = law.Owner.Name + "." + law.Name
+	case law.Machine != nil:
+		title = law.Machine.Name + "." + law.Name
+	}
+	if law.Pkg != nil && law.Pkg != from {
+		title = law.Pkg.Name + "." + title
+	}
+	return title
+}
+
 // Laws (196l; spec D-E4; law-top; #162 law-run-1). A law is checked here
 // and run by ergo test (rules 7 to 9). Its placement sets what it is
 // quantified over: a top-level

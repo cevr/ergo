@@ -356,6 +356,22 @@ func TestProgramTablesNameTheirTests(t *testing.T) {
 	}
 }
 
+// TestProgramTablesCheck checks every embedded table program without linking
+// Go, including programs whose execution tests need the full tier. It catches
+// cu2-stale-stdin-callers: an API move must not leave those callers ill-typed
+// until a full-tier build. No other fast-tier test visits every table.
+func TestProgramTablesCheck(t *testing.T) {
+	for _, tb := range programTables.all {
+		for _, p := range tb.programs {
+			t.Run(p.name, func(t *testing.T) {
+				if _, err := p.lower(); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
 // tablesSeed replays one seed of TestProgramTablesAgreeWithSeparate.
 var tablesSeed = flag.Uint64("tables.seed", 0, "replay one seed of TestProgramTablesAgreeWithSeparate")
 

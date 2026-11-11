@@ -339,7 +339,7 @@ func each() needs Console | io.Stdin | fs.Files | fs.Writes {
 }
 
 func main() needs Console | Ambient {
-	let input = io.NewHost()
+	let input = io.NewStdin()
 	let mut which = ""
 	for line in input.Lines() {
 		which = line

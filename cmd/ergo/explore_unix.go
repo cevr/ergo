@@ -26,11 +26,7 @@ func startWorker(binary string, args []string, out *os.File, limit uint64) (sche
 		reqW.Close()
 		return nil, err
 	}
-	cmd := exec.Command(binary, args...)
-	cmd.Env = append(os.Environ(), sched.WorkerEnv+"=1")
-	cmd.Stdout, cmd.Stderr = out, out
-	cmd.ExtraFiles = []*os.File{reqR, repW}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd := exploreWorkerCommand(binary, args, out, reqR, repW, limit)
 	err = proclimit.Start(cmd, limit)
 	reqR.Close()
 	repW.Close()
@@ -40,6 +36,17 @@ func startWorker(binary string, args []string, out *os.File, limit uint64) (sche
 		return nil, err
 	}
 	return &workerConn{cmd: cmd, req: reqW, rep: repR}, nil
+}
+
+// exploreWorkerCommand prepares the exact command startWorker launches; it
+// does not open descriptors or start a process.
+func exploreWorkerCommand(binary string, args []string, out, reqR, repW *os.File, limit uint64) *exec.Cmd {
+	cmd := exec.Command(binary, args...)
+	cmd.Env = append(boundedProgramEnv(limit), sched.WorkerEnv+"=1")
+	cmd.Stdout, cmd.Stderr = out, out
+	cmd.ExtraFiles = []*os.File{reqR, repW}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd
 }
 
 // workerConn is a worker process.
