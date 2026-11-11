@@ -293,10 +293,14 @@ func declText(p *check.Package, n syntax.Node) string {
 	return ""
 }
 
-// RewriteSite is a site of a rewrite law the run build met: its law and
-// provider, the site's constants, the ledger entry's verdict and state
+// RewriteSite is a site of a rewrite law the run build met: the source
+// position of its window's first call, its law and provider, the site's
+// constants, the ledger entry's verdict and state
 // (current, stale or missing), and whether it applies.
 type RewriteSite struct {
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Column   int    `json:"column"`
 	Law      string `json:"law"`
 	Provider string `json:"provider"`
 	Instance string `json:"instance"`
@@ -317,6 +321,10 @@ type LedgerEvidence struct {
 	sites   map[string]*RewriteSite
 	order   []string
 	applied int
+	// file, line and col are the position of the window the lowering
+	// asks about (rewriteWindow).
+	file      string
+	line, col int
 	// Ledgers name each ledger read and its sha256, for the producer
 	// record; set by the caller.
 	Ledgers []string
@@ -352,9 +360,13 @@ func (e *LedgerEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInst
 		state = "stale"
 	}
 	ok := state == "current" && entry.Verdict == "proved"
-	site := key + " " + inst
+	file, line, col := e.file, e.line, e.col
+	site := fmt.Sprintf("%s:%d:%d %s %s", file, line, col, key, inst)
 	if s := e.sites[site]; s == nil {
-		e.sites[site] = &RewriteSite{Law: ledgerLaw(law), Provider: ledgerProvider(prov), Instance: inst, Verdict: entry.Verdict, State: state}
+		e.sites[site] = &RewriteSite{
+			File: file, Line: line, Column: col,
+			Law: ledgerLaw(law), Provider: ledgerProvider(prov), Instance: inst, Verdict: entry.Verdict, State: state,
+		}
 		e.order = append(e.order, site)
 	}
 	if ok && law.Rewrite != nil {

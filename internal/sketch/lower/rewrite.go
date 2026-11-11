@@ -321,6 +321,10 @@ func (fc *funcCtx) rewriteWindow(list []syntax.Stmt) int {
 		calls = append(calls, call)
 		window = append(window, wc)
 	}
+	if ev, ok := fc.l.rewrite.ev.(*LedgerEvidence); ok {
+		// The sites the evidence records are this window's (inspect).
+		ev.file, ev.line, ev.col = fc.l.locate(list[0], list[0].Pos())
+	}
 	out, changed := fc.l.rewrite.run(prov, window)
 	if !changed {
 		// The reference lowering of the whole window: a window that

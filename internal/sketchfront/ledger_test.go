@@ -26,7 +26,10 @@ type ledgerProgram struct {
 	addSwap, deepSwap bool
 	lawX              bool
 	sites             [][2]int
-	unrelated, note   int
+	// lawName renames the law (Joins when empty); noLaw deletes it.
+	lawName         string
+	noLaw           bool
+	unrelated, note int
 }
 
 func (p ledgerProgram) source() string {
@@ -35,7 +38,15 @@ func (p ledgerProgram) source() string {
 	if p.lawX {
 		a, c = "x", "y"
 	}
-	fmt.Fprintf(&b, "import sync\n\ntype Counter {\n\tAdd(n int),\n\tRead() int,\n\n\tlaw Joins(%s int, %s int) { Add(%s); Add(%s) } == { Add(%s + %s) },\n}\n\n", a, c, a, c, a, c)
+	name := p.lawName
+	if name == "" {
+		name = "Joins"
+	}
+	law := fmt.Sprintf("\n\tlaw %s(%s int, %s int) { Add(%s); Add(%s) } == { Add(%s + %s) },\n", name, a, c, a, c, a, c)
+	if p.noLaw {
+		law = ""
+	}
+	fmt.Fprintf(&b, "import sync\n\ntype Counter {\n\tAdd(n int),\n\tRead() int,\n%s}\n\n", law)
 	field, init := "", ""
 	if p.mode {
 		extra := ""
@@ -298,6 +309,42 @@ func TestLedgerGatesRewrites(t *testing.T) {
 				fail("edit %s: after ergo test the build still keeps the reference (%q)", e.name, notes)
 			}
 		}
+	}
+}
+
+// TestLedgerPrunes is the row of the writer's pruning (runtime.md, Tests
+// 10): ergo test rewrites the ledger to exactly the current laws' entries,
+// as go mod tidy does, so a renamed law's old entry and a deleted law's
+// entry go, and each removal counts as a change.
+//
+// Mutant it kills (TestLedgerGatesRewrites never renames or deletes a
+// law): ll1-prune-off, the writer keeps entries no law gives.
+func TestLedgerPrunes(t *testing.T) {
+	saved, savedChecks := compilerIdentity, lawChecks
+	compilerIdentity = func() (string, error) { return "test", nil }
+	lawChecks = fakeLawChecks
+	defer func() { compilerIdentity, lawChecks = saved, savedChecks }()
+	path := filepath.Join(t.TempDir(), lower.LedgerFile)
+	write := func(p ledgerProgram) (int, string) {
+		t.Helper()
+		n, err := UpdateLedger(checked(t, p.source()), BuildRequest{Mode: build.ModeBuild, Source: "/ergo-test/ledger.ergo", Ledger: path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		text, _ := os.ReadFile(path)
+		return n, string(text)
+	}
+	p := ledgerProgram{depth: 1, sites: [][2]int{{2, 3}}}
+	if n, text := write(p); n != 1 || !strings.HasPrefix(text, "law main.Counter.Joins for main.Tally ") {
+		t.Fatalf("the first write: %d changed, ledger %q", n, text)
+	}
+	p.lawName = "Sums"
+	if n, text := write(p); n != 2 || strings.Count(text, "\n") != 1 || !strings.HasPrefix(text, "law main.Counter.Sums for main.Tally ") {
+		t.Fatalf("after a rename: %d changed (want 2: one added, one removed), ledger %q", n, text)
+	}
+	p.noLaw = true
+	if n, text := write(p); n != 1 || text != "" {
+		t.Fatalf("after the law is deleted: %d changed (want 1), ledger %q", n, text)
 	}
 }
 

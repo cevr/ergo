@@ -521,7 +521,7 @@ const inspectHelp = "usage: ergo inspect FILE|DIR [--target go]\n\n" +
 	"code reaches and the uninterruptible host waits among them; for each Go\n" +
 	"symbol, its Go declaration, Ergo signature, tier (pure or foreign),\n" +
 	"provenance and wait (none, interruptible, uninterruptible); for each\n" +
-	"rewrite site, its law, provider and constants, its ergo.laws entry's\n" +
+	"rewrite site, its position, law, provider and constants, its ergo.laws entry's\n" +
 	"verdict and state (current, stale or missing) and whether the build\n" +
 	"applies it (a current, proved entry only). It runs no Go tool.\n\n" +
 	"Exit codes: 0 printed; 1 the source does not check.\n\n" +

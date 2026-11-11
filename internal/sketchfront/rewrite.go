@@ -79,11 +79,12 @@ var lawChecks = lawCheckRun
 
 // UpdateLedger is ergo test's writer of the ledger at req.Ledger: it runs
 // the laws and site instances the run build's lowering asks for, and
-// writes their entries over the file's, adding new ones; other entries
-// stay. It returns the count of entries changed, and writes nothing when
-// none did. A program with no rewrite law that a provider's run checks
-// changes nothing. A reachable refutation is a *lower.RefutedRewriteError,
-// and writes nothing.
+// rewrites the file to exactly their entries, as go mod tidy does: an
+// entry of a deleted or renamed law, or of a law no site uses, goes. It
+// returns the count of entries added, changed and removed, and writes
+// nothing when it is 0 (a missing file stays missing). A library (no main)
+// has no run build and writes nothing. A reachable refutation is a
+// *lower.RefutedRewriteError, and writes nothing.
 func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
 		return 0, &BuildError{Diagnostics: a.Diagnostics}
@@ -93,13 +94,17 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		return 0, err
 	}
 	input := func() (build.Input, error) { return unitInput(unit, analysisDependencies(a), req) }
-	if !lower.NewLedgerEvidence(unit.Package, nil).HasRules() || !hasMain(unit.Package) {
+	if !hasMain(unit.Package) {
 		// A library has no run build, so no site of its own.
 		return 0, nil
 	}
-	ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
-	if err != nil {
-		return 0, err
+	var fresh []lower.LedgerEntry
+	if lower.NewLedgerEvidence(unit.Package, nil).HasRules() {
+		ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
+		if err != nil {
+			return 0, err
+		}
+		fresh = lower.LedgerEntries(unit, ev)
 	}
 	text, err := ledgerText(req.Ledger)
 	if err != nil {
@@ -109,17 +114,23 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	next := map[string]lower.LedgerEntry{}
 	changed := 0
-	for _, e := range lower.LedgerEntries(unit, ev) {
+	for _, e := range fresh {
+		next[e.Key()] = e
 		if prev, ok := old[e.Key()]; !ok || prev.Line() != e.Line() {
 			changed++
-			old[e.Key()] = e
+		}
+	}
+	for k := range old {
+		if _, ok := next[k]; !ok {
+			changed++ // pruned
 		}
 	}
 	if changed == 0 {
 		return 0, nil
 	}
-	return changed, writeFileAtomic(req.Ledger, []byte(lower.FormatLedger(old)))
+	return changed, writeFileAtomic(req.Ledger, []byte(lower.FormatLedger(next)))
 }
 
 // StdLedgerHeader is the first line of the std ledger.
