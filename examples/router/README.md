@@ -85,7 +85,7 @@ go run ./scripts/examples router
 Where Ergo could not improve:
 
 - **One machine for the router and its couriers.** The intended form is one machine: `Idle` hosts the couriers and `Applying` checks with the registry, so the router's work is `func work(s Router) Option[machines.Work[Signal, Registry | Scheduler]]`, and a courier's crash restarts the router from its journal. The row now checks (MB F8 is fixed; `search` and `shards` use such rows). What stops it is the next item, so the dispatcher stays a second actor and the script gives it each table.
-- **A host in a durable state.** A host kept in a journaled state is the host of an ended entry after a recovery: the replay folds the step with no actor, and a host made outside an actor's step has no entry, so `ChildIn` on it is a defect (stdlib.md, `actor.NewHost`; inferred from that rule, not measured here). The intended form needs the step to make fresh hosts on the recovered entry, or a recovery that leaves hosts out.
+- **A host in a durable state.** A durable machine's step cannot make a host. The checker refuses it (measured, wf10 MK1, with a neutral repro): "S108 actor.StartDurable replays the saved signals with the machine's step, so the step must be pure: step … calls the host function NewHost". The same machine runs under `actor.StartMachine`. The checker's rule also guards the run: the replay folds the step with no actor, and a host made outside an actor's step has no entry, so `ChildIn` on it would be a defect (stdlib.md, `actor.NewHost`). The intended form needs a rule for hosts in a recovered state (a host made in the replay belongs to the recovered incarnation's first entry); the request of wf10 MK1 proposes one.
 
 ## Benchmark
 
