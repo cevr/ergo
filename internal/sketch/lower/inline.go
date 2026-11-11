@@ -376,6 +376,7 @@ func (fc *funcCtx) inlineAt(x *syntax.CallExpr, c *check.Call) bool {
 // operands, the block of its body and the label its returns jump to.
 func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, list []syntax.Expr, lits map[int]*syntax.FuncLit) operand {
 	f := c.Func
+	fc.l.readsOf(f)
 	addr := false
 	if c.Recv != nil && f.Ptr {
 		_, isPtr := fc.typeOf(c.Recv).(*check.Pointer)
@@ -415,6 +416,20 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 	}
 	ic.frame = inlineFrame(result, fd.fallible, ret)
 	fc.l.stats.Inlined++
+	// An operand that names a variable no write reaches (not a let mut)
+	// stands for its parameter: the Go call's copy is the same value for
+	// the whole body, so the body reads the operand's variable, with no
+	// local of its own (a declaration and a use that cost Go's inliner).
+	same := make([]string, len(vals))
+	for i, a := range list {
+		id, ok := unparen(a).(*syntax.Ident)
+		if !ok || lits[i] != nil || !goIdent(vals[i]) {
+			continue
+		}
+		if v, ok := fc.l.info.Uses[id].(*check.Var); ok && !v.Mut() {
+			same[i] = fc.goType(fc.typeOf(a))
+		}
+	}
 	before := fc.l.lastDir
 	callerInfo := fc.l.info
 	func() {
@@ -439,9 +454,15 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 				ic.line("_ = " + vals[i])
 				continue
 			}
+			if same[i] != "" && same[i] == ic.goType(p.Type) {
+				ic.locals[params[i]] = vals[i]
+				continue
+			}
 			name := ic.declare(params[i])
 			ic.line("var " + name + " " + ic.goType(p.Type) + " = " + vals[i])
-			ic.line("_ = " + name)
+			if !fc.l.reads[params[i]] {
+				ic.line("_ = " + name)
+			}
 		}
 		fc.l.analyzeValues(f.Decl, f.Pkg.Info)
 		ic.body(f.Decl.Body.List)
@@ -515,9 +536,6 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	if strings.Contains(body, jump) {
 		fc.line(ret.label + ":")
 	}
-	if ret.res != "" {
-		fc.line("_ = " + ret.res)
-	}
 	if ret.err != "" {
 		fc.line("_ = " + ret.err)
 	}
@@ -578,7 +596,9 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 			}
 			name := lc.declare(params[i])
 			lc.line("var " + name + " " + lc.goType(p.Type) + " = " + vals[i])
-			lc.line("_ = " + name)
+			if !fc.l.reads[params[i]] {
+				lc.line("_ = " + name)
+			}
 		}
 		lc.body(sub.lit.Body.List)
 	}()

@@ -14,7 +14,8 @@ import (
 // caught in place, a callback update whose literal is substituted
 // (update, bump), nested inlined calls (twice through pick through at),
 // early returns (clampOr), an operand that reads a place a later
-// inlined operand writes (diff, swapIn), a by-value argument read after a later
+// inlined operand writes (diff, swapIn), a let mut read by value and written through
+// a borrow in one call (keep), a by-value argument read after a later
 // write (sumOf), dot calls on a place (b.clampAt) and on a borrow, and a
 // call the rule refuses (a loop, total). The non-generic leaves (clampAt,
 // sign) are left to Go's inliner (goLeaf); the helpers whose inlining a
@@ -38,7 +39,7 @@ var inlineSeed = flag.Uint64("inline.seed", 0, "run TestInlineAgrees on this see
 // inlinePaths are the generator's branches; the fixed seeds reach each.
 var inlinePaths = []string{
 	"pick-ok", "pick-missing", "bump-ok", "bump-missing", "clamp-neg", "clamp-hi", "clamp-in",
-	"twice", "sign", "sumOf", "dot-place", "dot-borrow", "total", "strs", "print", "spill",
+	"twice", "sign", "sumOf", "dot-place", "dot-borrow", "total", "strs", "print", "spill", "keep",
 	"end-normal", "end-fail", "end-unreachable", "end-index", "end-literal", "end-exit",
 }
 
@@ -154,6 +155,22 @@ func swapIn[T](b *Box[T], i int, v T) T {
 
 func diff[T number](x T, y T) T { x - y }
 
+func keep[T](v T, p *T, w T) T {
+	*p = w
+	v
+}
+
+type Probe = Hit{At int} | Lost{At int}
+
+func probeAt[T](p Probe, b *Box[T]) int {
+	match p {
+	case Hit as h:
+		h.At + b.n
+	case Lost:
+		-1
+	}
+}
+
 func guarded(b *Box[int]) {
 	scope.OnExit() {
 		let _ = deep(b, 9, false)
@@ -218,7 +235,7 @@ func (g *inlineGen) digest() int {
 }
 
 func (g *inlineGen) stmt() {
-	switch g.r.IntN(13) {
+	switch g.r.IntN(14) {
 	case 0:
 		i := g.index()
 		g.line(fmt.Sprintf("Console.Println(\"\\(pick(&b, %d))\")", i))
@@ -325,6 +342,21 @@ func (g *inlineGen) stmt() {
 		g.out("0")
 		g.items[0] = v
 		g.reached["spill"] = true
+	case 13:
+		// A let mut read by value and written through a borrow in one
+		// call: the parameter keeps the value it had at the call.
+		c, k, w := g.name("c"), g.r.IntN(20), g.r.IntN(20)+20
+		g.line(fmt.Sprintf("let mut %s = %d", c, k))
+		g.line(fmt.Sprintf("let k%s = keep(%s, &%s, %d)", c, c, c, w))
+		g.line(fmt.Sprintf("Console.Println(\"\\(k%s) \\(%s)\")", c, c))
+		g.out("%d %d", k, w)
+		g.reached["keep"] = true
+		// A variant operand of a union parameter: its Go type is not the
+		// parameter's, so it is converted, not substituted.
+		h := g.name("h")
+		g.line(fmt.Sprintf("let %s = Hit{At: %d}", h, k))
+		g.line(fmt.Sprintf("Console.Println(\"\\(probeAt(%s, &b))\")", h))
+		g.out("%d", k+g.n)
 	case 10:
 		v := g.r.IntN(20)
 		g.line(fmt.Sprintf("b.items = b.items.Append(%d)", v))
