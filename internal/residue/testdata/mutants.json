@@ -1,0 +1,6 @@
+{
+  "about": "Residue rules read from the checked-out source; mutants.md holds the run-artifact mutant, which is not a text edit.",
+  "mutants": [
+    {"name":"embed-duplicate-ledger-anchor","origin":"wf10 batch-16b fix-r1","file":"internal/sketchfront/testdata/mutants.json","from":"l.user.WriteString(\\\"//go:embed \\\" + strings.Join","to":"//go:embed ","rule":"Every ledger edit applies exactly once at HEAD, including literal template edits.","killers":["internal/residue:TestLedgerEditsApplyOnce"],"anchor":{"tests":["internal/residue:TestLedgerEditsApplyOnce"]}}
+  ]
+}

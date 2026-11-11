@@ -94,9 +94,6 @@ func (g grant) String() string {
 // subtree only where the test walks the tree and the reads go deeper than
 // one level.
 var declared = map[string][]allowance{
-	"scripts/mutants": {
-		{".", subtree, "TestLedgerEditsApplyOnce walks every package ledger and reads each mutant's source to reject ambiguous or stale edits"},
-	},
 	"internal/residue": {
 		{".", subtree, "the residue checks read every tracked file by design: git grep, git ls-files and Go's reads of each file"},
 	},
@@ -125,6 +122,7 @@ var declared = map[string][]allowance{
 	"internal/sketch/std": declare(
 		[]allowance{{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"}},
 		glob("internal/sketch/lower/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages) to find each ledger runner and whether it calls lawledger.Run"),
+		glob("internal/rpcgen/*_test.go", "TestStdStrengthsTable checks that the rpc row's benchmark (internal/rpcgen.BenchmarkRpcUnary) is declared in that directory's test files (benchmarkIndex)"),
 	),
 	"runtime/v1": {
 		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},

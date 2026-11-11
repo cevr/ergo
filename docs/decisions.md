@@ -5,7 +5,7 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 ## Decided by principle, 2026-11-11
 
 - **Check the sources of full-tier programs in the fast tier.** `TestProgramTablesCheck` checks and lowers every declared lower-test program in process, without a Go build, even when its execution test needs the full tier. Guard: check `fast-tier checker pass over the Ergo sources that full-tier lower tests embed`. This closes the stale-stdin-caller class that a fast gate missed. Principle: fix root causes and exceptionally fast feedback. It checks declared table sources, not every input a generated runtime property can construct.
-- **A ledger edit applies once.** `TestLedgerEditsApplyOnce` reads every package's mutant ledger and requires each edit's `from` to occur exactly once in its source. Guard: check `scripts/mutants test: every ledger row's from occurs exactly once at HEAD`. A duplicate or stale anchor fails before the mutation runner starts its builds. Principle: derive evidence from the checked-out source, not an ad hoc audit.
+- **A ledger edit applies once.** `TestLedgerEditsApplyOnce` reads every package's mutant ledger and requires each edit's `from` to occur exactly once in its source. Guard: check `scripts/mutants test: every ledger row's from occurs exactly once at HEAD` (since batch 16b's gate fix the test lives in `internal/residue`, which reads every tracked file, so a docs or checker edit does not rerun scripts/mutants' tests). A duplicate or stale anchor fails before the mutation runner starts its builds. Principle: derive evidence from the checked-out source, not an ad hoc audit.
 
 ## Owner direction, 2026-11-10
 
