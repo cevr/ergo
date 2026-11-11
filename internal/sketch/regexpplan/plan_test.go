@@ -120,6 +120,11 @@ func generated(r *rand.Rand, depth int, id *int) *Node {
 		return &Node{Kind: Capture, Name: name, Children: []*Node{generated(r, depth-1, id)}}
 	default:
 		body := Byte(byte('a' + r.Intn(3)))
+		if depth > 1 && r.Intn(2) == 0 {
+			// A mandatory byte makes the body productive, while the tail
+			// reaches nested repeats, absent captures and repeated records.
+			body = &Node{Kind: Concat, Children: []*Node{body, generated(r, depth-2, id)}}
+		}
 		if r.Intn(2) == 0 {
 			*id++
 			body = &Node{Kind: Capture, Name: fmt.Sprintf("G%d", *id), Children: []*Node{body}}
@@ -439,7 +444,7 @@ func TestConstructionRejectsCorruption(t *testing.T) {
 				}
 			}
 			src, _ := p.emit(Direct)
-			bad := strings.Replace(src, "[]int{2, 1}", "[]int{1, 2}", 1)
+			bad := strings.Replace(src, actionLiteral([]int{2, 1}), actionLiteral([]int{1, 2}), 1)
 			if bad == src || p.ValidateGo(bad) == nil {
 				t.Fatal("actual emitted action reorder admitted")
 			}
@@ -591,7 +596,7 @@ func TestBudgetsAndIdentity(t *testing.T) {
 	for size := 1; size <= 10; size++ {
 		limits := DefaultLimits()
 		limits.Nodes = size
-		large := &Node{Kind: Repeat, Min: 0, Max: size + 1, Offset: 17, Children: []*Node{Byte('a')}}
+		large := &Node{Kind: Repeat, Min: 0, Max: size, Offset: 17, Children: []*Node{Byte('a')}}
 		if _, err := Compile(large, Parse, limits); err == nil {
 			t.Fatal("expansion materialized past budget")
 		}

@@ -25,18 +25,16 @@ func (p *Plan) EmitGo() (string, error) {
 }
 
 func actionLiteral(tags []int) string {
-	var b strings.Builder
-	b.WriteString("[]int{")
+	var b []byte
 	for _, tag := range tags {
-		fmt.Fprintf(&b, "%d,", tag)
+		b = binary.LittleEndian.AppendUint16(b, uint16(int16(tag)))
 	}
-	b.WriteByte('}')
-	return b.String()
+	return strconv.Quote(string(b))
 }
 
 func directStep(c *candidate) string {
 	var b strings.Builder
-	b.WriteString("func step(q,b int)(int,[]int,bool){switch q {")
+	b.WriteString("func step(q,b int)(int,string,bool){switch q {")
 	for q, s := range c.states {
 		fmt.Fprintf(&b, "case %d: switch b {", q)
 		// Group equal transitions without changing their action program.
@@ -61,7 +59,7 @@ func directStep(c *candidate) string {
 		}
 		b.WriteString("};")
 	}
-	b.WriteString("};return -1,nil,false}")
+	b.WriteString("};return -1,\"\",false}")
 	return b.String()
 }
 
@@ -101,7 +99,7 @@ func compactTable(c *candidate) (string, string) {
 }
 
 const tableStep = `
-func step(q,b int)(int,[]int,bool) {
+func step(q,b int)(int,string,bool) {
  const offsets = OFFSETS
  const data = DATA
  k := (q*257+b)*4
@@ -109,12 +107,7 @@ func step(q,b int)(int,[]int,bool) {
  to := int(data[o])|int(data[o+1])<<8
  accept := data[o+2] != 0
  n := int(data[o+3])|int(data[o+4])<<8
- var tags []int
- for j:=0;j<n;j++ {
-  k := o+5+j*2
-  tags = append(tags,int(int16(uint16(data[k])|uint16(data[k+1])<<8)))
- }
- return to-1,tags,accept
+ return to-1,data[o+5:o+5+n*2],accept
 }`
 
 const deterministicMatch = `
@@ -130,11 +123,17 @@ func Match(s string)(int,int,[][2]int,bool) {
    if pos<len(s) {b=int(s[pos])}
    to,tags,accept:=step(q,b)
    if accept && (find || pos==len(s)) {
-    for _,tag:=range tags {events=append(events,[2]int{tag,pos})}
+    for j:=0;j<len(tags);j+=2 {
+     tag:=int(int16(uint16(tags[j])|uint16(tags[j+1])<<8))
+     events=append(events,[2]int{tag,pos})
+    }
     return start,pos,events,true
    }
    if to<0 || pos==len(s) {break}
-   for _,tag:=range tags {events=append(events,[2]int{tag,pos})}
+   for j:=0;j<len(tags);j+=2 {
+    tag:=int(int16(uint16(tags[j])|uint16(tags[j+1])<<8))
+    events=append(events,[2]int{tag,pos})
+   }
    q=to
   }
  }
@@ -261,7 +260,7 @@ func readDirect(fn *ast.FuncDecl) (map[int][257]edge, error) {
 		return reject, fmt.Errorf("invalid direct step body")
 	}
 	outer, ok := fn.Body.List[0].(*ast.SwitchStmt)
-	if !ok || astText(outer.Tag) != "q" || outer.Init != nil || astText(fn.Body.List[1]) != "return -1, nil, false" {
+	if !ok || astText(outer.Tag) != "q" || outer.Init != nil || astText(fn.Body.List[1]) != `return -1, "", false` {
 		return reject, fmt.Errorf("invalid direct dispatcher")
 	}
 	result := map[int][257]edge{}
@@ -298,17 +297,13 @@ func readDirect(fn *ast.FuncDecl) (map[int][257]edge, error) {
 			if err != nil {
 				return reject, err
 			}
-			tags, ok := ret.Results[1].(*ast.CompositeLit)
-			if !ok || astText(tags.Type) != "[]int" {
+			tags, err := strconv.Unquote(astText(ret.Results[1]))
+			if err != nil || len(tags)%2 != 0 {
 				return reject, fmt.Errorf("invalid tag program")
 			}
 			e := edge{to: to}
-			for _, expr := range tags.Elts {
-				tag, err := intExpr(expr)
-				if err != nil {
-					return reject, err
-				}
-				e.tags = append(e.tags, tag)
+			for j := 0; j < len(tags); j += 2 {
+				e.tags = append(e.tags, int(int16(binary.LittleEndian.Uint16([]byte(tags[j:j+2])))))
 			}
 			a := astText(ret.Results[2])
 			if a != "true" && a != "false" {
@@ -423,7 +418,7 @@ func (p *Plan) ValidateGo(src string) error {
 		return fmt.Errorf("invalid emission declarations")
 	}
 	step, ok := file.Decls[0].(*ast.FuncDecl)
-	if !ok || step.Recv != nil || astText(step.Type) != "func(q, b int) (int, []int, bool)" || step.Name.Name != "step" {
+	if !ok || step.Recv != nil || astText(step.Type) != "func(q, b int) (int, string, bool)" || step.Name.Name != "step" {
 		return fmt.Errorf("invalid step signature")
 	}
 	driver, ok := file.Decls[1].(*ast.FuncDecl)

@@ -128,8 +128,8 @@ global cache or root for unused plans.
 
 There is currently no performance-parity claim. NFA history links and thread
 scratch allocate; returned event histories allocate in every engine.
-Direct/table serialization also currently returns tag slices. Fixed-capture
-stack-offset adapters and elimination of temporary tag slices remain an
+Direct/table serialization returns immutable tag-program strings with no
+temporary tag-slice allocation. Fixed-capture stack-offset adapters remain an
 integration/performance follow-up; do not call this zero-allocation matching.
 Find restarts by start position, so a failing long prefix can be quadratic.
 These losses must remain visible in RC5 matched receipts, not hidden by

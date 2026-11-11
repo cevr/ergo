@@ -77,8 +77,8 @@
       "name": "rc3-expansion-budget-ignored",
       "origin": "wf10 RC3",
       "file": "internal/sketch/regexpplan/plan.go",
-      "from": "if copies > limits.Nodes || (copies > 0 && body > (limits.Nodes-1)/copies) {",
-      "to": "if false {",
+      "from": "body := size - 1",
+      "to": "body := 0",
       "rule": "Oversized bounded repetition is refused before materialization.",
       "killers": ["internal/sketch/regexpplan:TestBudgetsAndIdentity"]
     },
