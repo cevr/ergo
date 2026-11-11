@@ -48,9 +48,12 @@ law SearchAgreesWithReferences(seed int, text string) {
 			let got = fast.Matches(t)
 			let simulation = original.Matches(t)
 			let tree = reference.Matches(t)
-			if got != simulation || got != tree {
-				Unreachable("SearchAgreesWithReferences seed=\(seed) source=\(syntax.Print(pattern)) text=\(t) prefix=\(got) simulation=\(simulation) backtrack=\(tree); replay: ergo test examples/regex/nfa --run SearchAgreesWithReferences --seed \(seed)")
-			}
+			// String operands print the pattern source, input and both answers;
+			// an assertion refutation keeps shrinking and the runner's replay
+			// seed (which is not this law's generated seed argument).
+			let description = "source=\(syntax.Print(pattern)) text=\(t) matched="
+			assert description+"\(got)" == description+"\(simulation)"
+			assert description+"\(got)" == description+"\(tree)"
 			let _ = fast.Matches("other")
 			if fast.Matches(t) != got {
 				return false
