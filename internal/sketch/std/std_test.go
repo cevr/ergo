@@ -634,7 +634,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 	// built, and only Dial's reaches the host (rpc.Loopback's runs in
 	// process). Dial's authority is TestStdExternCallersHoldAuthority's:
 	// Dial without Ambient fails it (measured, R3b).
-	if want := []string{"exec.Host", "fs.Host", "http.Client", "http.Listener", "http.Remote", "io.Errors", "io.Host", "os.Host", "prelude.LiveScheduler", "rand.Host", "time.Host"}; !slices.Equal(found, want) {
+	if want := []string{"config.Host", "exec.Host", "fs.Host", "http.Client", "http.Listener", "http.Remote", "io.Errors", "io.Host", "io.In", "os.Host", "prelude.LiveScheduler", "rand.Host", "term.Host", "time.Host"}; !slices.Equal(found, want) {
 		t.Errorf("host providers %v, want %v: a new one follows the rule, and this list names it", found, want)
 	}
 	for name, unit := range unguardedHosts {
@@ -1777,9 +1777,21 @@ func hostAuthorityViolationsIn(surface []*check.Package, pkg *check.Package, tn 
 		}
 		return strings.Join(hit, ", ") + " (" + pkg.Name + "." + tn.Name + " or a record it needs)"
 	}
+	// A parameter of another host provider of the surface holds authority
+	// too: that provider is under this rule itself, so its caller made it
+	// under Ambient or was given it (config.Host holds os.Host and fs.Host
+	// and reads through their functions, S-config).
+	holders := slices.Clone(held)
+	for _, p := range surface {
+		for _, h := range hostProviderTypes(p) {
+			if !slices.Contains(holders, h) {
+				holders = append(holders, h)
+			}
+		}
+	}
 	for _, p := range surface {
 		for _, f := range p.Funcs {
-			if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesHeld(f, held) {
+			if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesHeld(f, holders) {
 				continue
 			}
 			if m := mentioned([]check.Type{f.Sig}); m != "" {

@@ -17,7 +17,7 @@ func main() fails os.Exit needs Ambient {
 	let host = io.NewHost()
 	let disk = fs.NewHost()
 	let process = os.NewHost()
-	with context { os.Process: process, io.Stdin: host, io.Stdout: host, io.Stderr: io.NewErrors(), keys.Store: files.New(disk, disk, process.Getenv("HOME")) } {
+	with context { os.Process: process, io.Stdin: io.NewStdin(), io.Stdout: host, io.Stderr: io.NewErrors(), keys.Store: files.New(disk, disk, process.Getenv("HOME")) } {
 		try run(os.Process.Args())
 	}
 }

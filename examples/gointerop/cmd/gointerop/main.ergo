@@ -123,7 +123,7 @@ func StatsOf() fails os.Exit needs Console | io.Stdin {
 // main does what the arguments ask, on the host's arguments, input and
 // files, hashing with gointerop/sha256.
 func main() fails os.Exit needs Console | Ambient {
-	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost(), fs.Files: fs.NewHost(), checksum.Hasher: sha256.Hasher } {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), fs.Files: fs.NewHost(), checksum.Hasher: sha256.Hasher } {
 		match try Parse(os.Process.Args()) {
 		case Sum as s:
 			try SumAll(s.Files)

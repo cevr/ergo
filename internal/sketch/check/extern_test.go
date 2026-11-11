@@ -649,6 +649,7 @@ type Mine {}
 
 func Eprint(_ Mine, text string) {}
 func Eprintln(_ Mine, line string) {}
+func IsTerminal(_ Mine) bool { false }
 
 func use(e io.Stderr) { e.Eprintln("x") }
 
@@ -662,8 +663,51 @@ type Mine {}
 
 func ReadAll(_ Mine) string fails io.ReadFailed { "" }
 func Lines(_ Mine) Seq[string] { io.Input{Text: ""}.Lines() }
+func IsTerminal(_ Mine) bool { false }
 
 func use(i io.Stdin) { _ = i.ReadAll() catch { case io.ReadFailed: "" } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"config.Config": `import config
+
+type Mine {}
+
+func Lookup(_ Mine, name string) Option[string] { None }
+func Environ(_ Mine, prefix string) []config.Variable { []config.Variable{} }
+func ReadFile(_ Mine, path string) Option[string] fails config.Unreadable { None }
+
+func use(_ config.Config) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"config.Redacted": `import config
+
+type Mine {}
+
+func Reveal(_ Mine) string { "value" }
+
+func use(r config.Redacted[string]) { _ = r.Reveal() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"term.Terminal": `import io
+import term
+
+type Mine {}
+
+func SetMode(_ Mine, m term.Mode) fails term.NotTerminal {}
+func Restore(_ Mine) {}
+func ReadKey(_ Mine) term.Key fails io.ReadFailed { term.EndOfInput }
+func Size(_ Mine) term.Window fails term.NotTerminal { term.Window{Cols: 80, Rows: 24} }
+
+func use(_ term.Terminal) {}
 
 func main() {
 	use(Mine)
@@ -856,6 +900,8 @@ var openStd = map[string]bool{
 	"http.Streaming":    true,
 	"http.Net":          true,
 	"http.Network":      true,
+	"config.Config":     true,
+	"term.Terminal":     true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

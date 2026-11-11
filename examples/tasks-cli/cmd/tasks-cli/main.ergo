@@ -33,7 +33,7 @@ func run(path string, args []string, files fs.Files, writes fs.Writes) fails os.
 
 func main() fails os.Exit needs Ambient {
 	let host = fs.NewHost()
-	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		try run(path(), os.Process.Args(), host, host)
 	}
 }

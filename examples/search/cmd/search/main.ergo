@@ -18,7 +18,7 @@ let Live = context { search.Index: memory.Listing }
 func main() fails os.Exit needs Console | Ambient {
 	let clock = time.NewManual(0)
 	let status = with Live {
-		with context { io.Stdin: io.NewHost(), Scheduler: clock } {
+		with context { io.Stdin: io.NewStdin(), Scheduler: clock } {
 			script.Run(clock)
 		}
 	}

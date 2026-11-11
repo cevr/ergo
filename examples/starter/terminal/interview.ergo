@@ -1,0 +1,28 @@
+// Package terminal builds a plan by asking a person at a terminal, with
+// std prompt: a line, a select, a multi-select and a confirm. With no
+// terminal it fails prompt.NotInteractive, and its caller decides.
+
+import io
+import prompt
+import starter/plan
+import term
+
+// Interview asks for each part of a plan. A name left empty is fallback.
+func Interview(fallback string) plan.Plan fails prompt.NotInteractive | prompt.Cancelled | io.ReadFailed needs term.Terminal | io.Stderr {
+	let name = try prompt.Line("Project name", fallback)
+	let mut licenses = []string{}
+	for l in plan.Licenses {
+		licenses = licenses.Append(plan.LicenseName(l))
+	}
+	let license = plan.Licenses[try prompt.Select("License", licenses)]
+	let mut names = []string{}
+	for f in plan.Features {
+		names = names.Append(plan.FeatureName(f))
+	}
+	let mut features = []plan.Feature{}
+	for i in try prompt.MultiSelect("Features (space marks)", names) {
+		features = features.Append(plan.Features[i])
+	}
+	let git = try prompt.Confirm("Start a Git repository?", true)
+	plan.Plan{Name: name, License: license, Features: features, Git: git}
+}

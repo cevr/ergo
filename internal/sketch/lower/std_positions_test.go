@@ -59,8 +59,8 @@ type stdMatchFunc struct {
 	fn  *check.Func
 }
 
-// stdMatchFuncs enumerates every exported function of the typed std
-// packages whose body holds a match: the cases of the property, read from
+// stdMatchFuncs enumerates every externally nameable exported function of
+// the typed std packages whose body holds a match: the cases of the property, read from
 // the checked packages, so a new std function with a match joins it.
 func stdMatchFuncs(t *testing.T) []stdMatchFunc {
 	t.Helper()
@@ -72,6 +72,12 @@ func stdMatchFuncs(t *testing.T) []stdMatchFunc {
 		}
 		for _, fn := range p.Funcs {
 			if fn.Decl == nil || fn.Decl.Body == nil || !isUpper(fn.Name) {
+				continue
+			}
+			// A method of a private provider (config.reader, for example)
+			// cannot be named by this external caller. Its public entry
+			// points still lower it and check its match locations.
+			if !matchSignatureNameable(fn.Sig) {
 				continue
 			}
 			has := false
@@ -88,6 +94,38 @@ func stdMatchFuncs(t *testing.T) []stdMatchFunc {
 }
 
 func isUpper(name string) bool { return name != "" && name[0] >= 'A' && name[0] <= 'Z' }
+
+// matchSignatureNameable checks only written names, not the private fields
+// of a public type: the generated external wrapper must name its signature.
+func matchSignatureNameable(sig *check.Signature) bool {
+	var nameable func(check.Type) bool
+	every := func(ts []check.Type) bool {
+		return !slices.ContainsFunc(ts, func(t check.Type) bool { return !nameable(t) })
+	}
+	nameable = func(t check.Type) bool {
+		switch t := t.(type) {
+		case *check.Named:
+			return isUpper(t.Obj.Name) && every(t.TArgs)
+		case *check.Slice:
+			return nameable(t.Elem)
+		case *check.Map:
+			return nameable(t.Key) && nameable(t.Elem)
+		case *check.Pointer:
+			return nameable(t.Elem)
+		case *check.Tuple:
+			return every(t.Types)
+		case *check.Signature:
+			for _, p := range t.Params {
+				if !nameable(p.Type) {
+					return false
+				}
+			}
+			return every(t.Results) && every(t.Errors.Elems()) && every(t.Uses.Elems())
+		}
+		return true
+	}
+	return nameable(sig)
+}
 
 // useSource is an Ergo function use that takes fn's parameters and calls
 // fn on them, with fn's type parameters, results and rows: the call that
@@ -142,7 +180,15 @@ func useSource(c stdMatchFunc, method bool) string {
 		}
 	}
 	b.WriteString(text[end+1:])
-	call := c.pkg.Name + "." + c.fn.Name + "(" + strings.Join(args, ", ") + ")"
+	name := c.fn.Name
+	if sig.NBracket > 0 {
+		var targs []string
+		for _, tp := range sig.TParams[:sig.NBracket] {
+			targs = append(targs, tp.Name)
+		}
+		name += "[" + strings.Join(targs, ", ") + "]"
+	}
+	call := c.pkg.Name + "." + name + "(" + strings.Join(args, ", ") + ")"
 	if len(args) > 0 && method {
 		call = args[0] + "." + c.fn.Name + "(" + strings.Join(args[1:], ", ") + ")"
 	}
@@ -281,7 +327,7 @@ func checkProgram(t *testing.T, srcs []pkgSource) (Unit, []check.Diagnostic) {
 }
 
 // The property (G1, batch 11): for a program of 1 to 4 files, every
-// exported std function with a match, called from a seeded file of the
+// externally nameable exported std function with a match, called from a seeded file of the
 // program, lowers with no internal error, and every no-case defect of the
 // output names a match where its std file or the program holds one.
 func TestStdMatchBodiesLowerInAnyProgram(t *testing.T) {

@@ -29,7 +29,7 @@ func read(q queue.Queue[string]) fails queue.Closed needs io.Stdin {
 }
 
 func main() fails queue.Closed needs Console | Ambient {
-	with context { io.Stdin: io.NewHost() } {
+	with context { io.Stdin: io.NewStdin() } {
 		let q = queue.New[string](1)
 		let reader = task.Go() { try read(q) }
 		Console.Println("got \(try q.Pop())")

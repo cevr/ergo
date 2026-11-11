@@ -7,7 +7,7 @@ import adventure/game
 import io
 
 func main() needs Console | Ambient {
-	with context { io.Stdin: io.NewHost() } {
+	with context { io.Stdin: io.NewStdin() } {
 		let _ = game.Run()
 	}
 }

@@ -11,7 +11,7 @@ import pairing/pair
 
 func main() needs Console | Ambient {
 	let clock = time.NewManual(0)
-	with context { io.Stdin: io.NewHost(), Scheduler: clock, pair.Devices: memory.Devices } {
+	with context { io.Stdin: io.NewStdin(), Scheduler: clock, pair.Devices: memory.Devices } {
 		screen.Run(clock)
 	}
 }

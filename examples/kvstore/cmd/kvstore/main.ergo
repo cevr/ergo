@@ -73,7 +73,7 @@ func broken(b kv.Broken) os.Exit { os.Exit{Code: 1, Message: "kvstore: the store
 
 func main() fails os.Exit needs Ambient {
 	let host = fs.NewHost()
-	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		try run(os.Process.Args(), host, host)
 	}
 }

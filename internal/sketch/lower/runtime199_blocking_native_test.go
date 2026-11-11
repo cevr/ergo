@@ -159,7 +159,10 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // the stop after the peer saw the hang-up.
 // HTTPDoInto is the same streamed exchange with a fixed origin; the same
 // test holds its wait (httpStreamURL).
-var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true}
+// TermReadKey (std term, CU2) waits for a key through io's shared reader:
+// lower TestTermModesRestore stops a program that waits in it and checks
+// that the terminal is restored.
+var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPDoInto": true, "TermReadKey": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,

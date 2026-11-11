@@ -20,7 +20,7 @@ The standard library is the "Effect for Go" track, [#206](https://github.com/cev
 | Schema and codecs | [#49](https://github.com/cevr/ergo/issues/49) | Schema, Arbitrary | `ParseX`/`Wire` by name, `json.Codec` | library + coherence rule |
 | Sync and STM | [#208](https://github.com/cevr/ergo/issues/208) | Ref, SynchronizedRef, Deferred, Semaphore, Latch, TxRef, TxQueue, TxSemaphore | `sync.Ref`, `sync.Atomically() { }`, `sync.Tx` | kernel + library |
 | Batching, caching and pools | [#68](https://github.com/cevr/ergo/issues/68) | Request, RequestResolver, Cache, ScopedCache, Pool, KeyedPool, RcRef, RcMap, ScopedRef | `batch.Resolve` in `context` | library |
-| Config | [#67](https://github.com/cevr/ergo/issues/67) | Config, ConfigProvider, Redacted | `config`, `Redacted[T]` | library |
+| Config | [#67](https://github.com/cevr/ergo/issues/67) | Config, ConfigProvider, Redacted | [`config`](#config): `Load`, `Redacted[T]` | library |
 | Observability | [#69](https://github.com/cevr/ergo/issues/69) | Tracer, Logger, Metric, LogLevel, References | `with trace.Span(…)`, `log`, `metric` | library on kernel G1/G2 ([#200](https://github.com/cevr/ergo/issues/200)) |
 | Clock, random and testing | [#209](https://github.com/cevr/ergo/issues/209) | Clock, Random, Console, TestClock, TestServices, TestContext, `it.effect` | prelude capabilities, `testing.VirtualClock` in `context` | kernel seams + library |
 | HTTP | [#51](https://github.com/cevr/ergo/issues/51) | HttpClient, HttpServer, HttpRouter, HttpApi | `func(http.Request) http.Response`, total `catch` | library + host |
@@ -725,6 +725,180 @@ comparison, not an HTTP implementation claim. Effect HttpServer supplies
 the scoped-server intent; Ergo takes ordinary functions and checked rows
 instead of runtime tags, Effect instructions and middleware composition.
 
+## toml
+
+`toml.Decode(c json.Codec[T], text string) T fails toml.Malformed | wired[T]`
+reads TOML 1.0 through the same derived codec as `json`. `toml.Open(text,
+maxBytes, maxDepth)` returns a `json.Reader` for `decode[T]`.
+`toml.Encode[T wire](v T) string fails toml.Unrepresentable` writes v as a
+TOML document (S-config): it encodes v with the derived JSON codec, then
+`runtime/v1.TOMLFromJSON` writes that tree as TOML, so one encoder per type
+serves both formats. The top value must be a record; a text or a key that
+is not UTF-8 and a null (TOML has none) fail `Unrepresentable{Key,
+Reason}`. Law `EncodeRoundTrips`: `Decode` reads back what `Encode`
+writes.
+
+1. The whole document is validated before a value is decoded. Syntax and
+   limit failures are `Malformed{Line, Key, Reason}`: a 1-based source line,
+   the dotted key being read, and the failed rule. Derived shape, refinement
+   and `ParseX` failures retain the shared codec's typed rows and paths.
+2. Field naming, unknown-field skipping, maps, slices, unions (an explicit
+   `_tag` key) and refinements are the shared codec's rules. TOML has no
+   null; absence is an omitted `json.Optional` field, not a new null value.
+3. Integers are signed 64-bit; dates and times map to canonical strings
+   (upper-case T/Z, fractions trimmed to nanosecond precision). Floats
+   use float64 and json's `NaN`/`Infinity`/`-Infinity` strings. Input is UTF-8.
+   Tables, arrays of tables, dotted and quoted keys, inline tables, and
+   basic/literal/multiline strings follow TOML 1.0. Duplicate keys and
+   redefinitions fail, not last-wins as JSON does.
+4. MaxBytes bounds the input, and MaxDepth bounds nested values and key
+   paths. Nonpositive limits mean no byte bound and depth 10000. Parsing
+   keeps a tree then writes validated JSON for the existing Reader. This
+   costs an extra tree/text pass; direct Reader events are a follow-up.
+   No speed or parity claim is made.
+
+Intent and prior art: Effect `ConfigProvider` reads external configuration
+into typed values; Ergo uses the declared record and derivation, not Config
+builders, Schema classes, service tags or tagged runtime error trees (W4,
+W5, W6). Go has no standard TOML decoder; BurntSushi/toml parses tables
+then decodes into Go values. Gleam `tom` decodes a TOML value with typed
+decoder functions; Elixir `toml` returns maps and date/time structs;
+ReScript uses host libraries. These are ordinary library calls lowered
+to Erlang/JavaScript or BEAM, not compiler-known TOML operations. Ergo adds
+no checker or lowering branch: its parser is a Go runtime body and its
+decoder is the existing Reader derivation.
+
+Acceptance: `runtime/v1.TestTOMLCorpus` reads the public toml-test 1.0
+selection at `96fd0884`, with upstream license and byte-exact data in
+`runtime/v1/testdata/toml-test`. `TestTOMLDecode` runs the generated-record
+law through the public derived decoder; `TestTOMLFailuresNameLineAndKey`
+checks the diagnostic source location. These are tests, not proofs.
+
+## config
+
+Std `config` (S-config) reads a program's configuration, typed, from
+layered sources, and holds its secrets. The configuration is the
+program's own record, read by its derived codec ([types.md,
+Codecs](types.md#codecs)):
+
+```ergo
+type Settings { Limit int, Tag string, Remote string }
+
+let spec = config.Spec{Prefix: "BOOKMARKS", Flags: config.FromFlags(v),
+	Files: []config.File{config.File{Path: dirs.Config + "/config.toml", Format: config.TOML}},
+	Defaults: config.DefaultsOf(Settings{Limit: 10, Tag: "", Remote: "https://bookmarks.example/api"})}
+let s = try config.Load[Settings](spec)
+```
+
+1. **The capability.** `Config` is an operation type: `Lookup(name)
+   Option[string]`, `Environ(prefix) []Variable` (sorted by name) and
+   `ReadFile(path) Option[string] fails Unreadable` (`None` when nothing is
+   there: a configuration file is optional). `config.NewHost()` (needs
+   `Ambient`) holds an `os.Host` and an `fs.Host` and reads through their
+   functions, so each host body has one Ergo owner; `config.NewMemory(env,
+   files)` is the provider for tests. `Load`, `LoadSecret` and `UserDirs`
+   say `needs Config`, and `main` binds `context { config.Config:
+   config.NewHost() }`. Laws: `Config.EnvironAgreesWithLookup`,
+   `Config.ReadIsRepeatable`.
+2. **Layers.** `Load[T wire](s Spec) T fails Unreadable | Malformed |
+   wired[T] needs Config` reads, highest first: the flags the command line
+   gave (`FromFlags(v)` takes only flags that were typed, never a flag's
+   default: `flag.GivenFlags`), the variables `Prefix_KEY` (none when the
+   prefix is empty), each file of `Files` in order (a missing file is
+   skipped), and `Defaults` (`DefaultsOf(value)`; `NoDefaults()`). The
+   default is stated once, as a value of the record. Two objects merge key
+   by key; any other value of a higher layer replaces the lower one whole,
+   so a list is never concatenated. Law `HigherLayerWins`.
+3. **Names.** A key is the field's wire name; a nested key joins names
+   with ".". `FlagName("server.port")` is `server.port`, `FlagName("apiToken")`
+   `api-token`; `EnvName("NOTES", "apiToken")` is `NOTES_API_TOKEN` and
+   `EnvName("NOTES", "server.port")` `NOTES_SERVER__PORT`. `FlagKey` and
+   `EnvKey` invert them (law `NamesInvert`). A key no field has is skipped,
+   as the codec skips unknown fields, so one prefix serves several records.
+4. **Texts.** A flag and a variable are text, read as the kind the field
+   asks for: an int by `strconv.ParseInt(text, 0, 64)` as std `flag`
+   reads one, a float by `ParseFloat`, a bool by `ParseBool`; a list field
+   splits each text at ","; a union field reads a variant with no field by
+   its name. A file's values are read as TOML or JSON give them (law
+   `RoundTripsThroughFiles`: a record written by `json.Encode` or
+   `toml.Encode` loads back as itself).
+5. **Failures.** A key no layer has fails `WireMissingField`
+   (`MissingKey(m)` is its dotted key; `Looked(spec, key)` lists the
+   sources Load tried, and `Describe(source)` writes one: `flag --api-token`,
+   `env NOTES_API_TOKEN`, `file c.toml`, `default`). A value of the wrong
+   kind fails `WireWrongKind` whose `Path` names the key and the source,
+   `limit (env BOOKMARKS_LIMIT)`, never the value. A file's syntax fails
+   `Malformed{Path, Line, Key, Reason}`; a file that is there and cannot be
+   read fails `Unreadable{Path, Reason}`. No failure holds a configured
+   text, so a secret's failure cannot show the secret.
+6. **Secrets.** `Redacted[T]` is a sealed operation type with one
+   operation, `Reveal() T`; `NewRedacted(v)` is its only maker, and
+   `LoadSecret[T](spec) Redacted[T]` reads a T and holds it. By
+   construction, not at run time:
+   - interpolation of a Redacted is refused (S108: an operation type has
+     no text form);
+   - encoding a value whose type reaches a Redacted, with `json.Encode`,
+     `toml.Encode` or any derived codec, is refused at check time (S108:
+     an operation type has no wire form, [types.md, Codecs](types.md#codecs)
+     1). A program that must send a secret calls `Reveal` where a reader
+     sees it;
+   - a failure report writes the field as `<Redacted>`, the
+     type's name ([types.md, Methods](types.md#methods) 6), and a law's
+     counterexample writes the builder's call `config.NewRedacted[T](…)`;
+   - the Go body (`runtime/v1/redacted.go`) keeps the value **behind a
+     pointer field, never inline in the struct**, so Go's `fmt`, which
+     prints a value it cannot call a method on field by field, can print
+     only an address; its `String`, `GoString`, `Format`, `MarshalJSON`,
+     `MarshalText` and `LogValue` write `<redacted>`. Go code reached by a
+     foreign call writes no byte of the secret.
+   Law `RevealIsTheValue`. A configuration record holds no Redacted (it
+   would have no codec); read the secret with its own record and
+   `LoadSecret`, and never from a flag, which the process list shows.
+7. **Directories.** `UserDirs(app) Dirs fails NoHome needs Config` is the
+   app's `Config`, `Cache` and `State` directories by the XDG Base
+   Directory rules on Linux and macOS alike: `$XDG_CONFIG_HOME/app`, else
+   `$HOME/.config/app`, and so on; a variable that is unset, empty or not
+   absolute is ignored. Go's `os.UserConfigDir` gives `~/Library/Application
+   Support` on macOS; command-line programs there (git, gh, fish) read
+   `~/.config`, and so does this.
+
+**Effect intent.** `Config` and `ConfigProvider` describe the
+configuration a program needs, read it from the environment, files and the
+command line with defaults, and fail with the key and the reason;
+`Redacted` keeps a token out of logs and encoded output. Not taken: the
+`Config.string`/`Config.integer` builder per key, `Config.withDefault` and
+`Config.nested` combinators (W1, W3, W7: the record, its codec and one
+`Spec` say it), `ConfigProvider` as a `Layer` (W4, W13: the `Config`
+capability and `context`), `ConfigError` trees with `_tag` (W5, W6: the
+row and `catch`), and `Redacted`'s run-time `toString`/`toJSON` and its
+module-level `WeakMap` (W19: the type has no text and no wire form, so the
+checker refuses it).
+
+**Prior art.** Go's `flag`, `os.Getenv` and `encoding/json` leave the
+layering to the program; viper and koanf merge maps of `any` and decode
+with `mapstructure` at run time. Rust's `figment` merges providers into one
+`serde` value and names the source of a bad value, as `WireWrongKind`'s
+path does; `secrecy::SecretBox` has no `Display`. Gleam has no std
+configuration (`envoy` reads one variable; `glenvy` loads `.env` files);
+Elixir's `Config` scripts evaluate keyword lists at boot and
+`System.fetch_env!` raises; ReScript reads `process.env` through bindings.
+None of these refuses a secret at compile time: each lowers to an ordinary
+library call on the host. Ergo lowers `Load` to one key tree of the layers
+and the shared Reader derivation, and `Redacted` to a Go pointer type.
+
+**Laws and runners.** lower `TestStdConfigLawsRun` restates the six
+laws of `config` as Ergo property tests (`Config`'s over a generated
+`Memory`) and runs them with `--seed 1`; `TestTOMLDecode` runs
+`toml.EncodeRoundTrips`. lower `TestRedactedRefusedAtCheck` holds, over
+generated types that hold a Redacted behind records, unions and slices,
+that `json.Encode`, `toml.Encode` and interpolation are refused and the
+same type with a string is accepted; lower `TestRedactedNeverPrints`, over
+a generated program, that no failure report holds a secret and each
+counterexample writes the builder; runtime/v1 `TestRedactedNeverRenders`,
+over generated Go values, that no `fmt` verb, `fmt.Errorf` chain,
+`encoding/json` or `log/slog` handler writes any byte of the secret.
+`examples/bookmarks` reads its settings and its token this way.
+
 ## Std laws
 
 HTTP's transport lifetime runs in `runtime/v1.TestHTTPConcurrentRequestsAndStop`
@@ -743,6 +917,8 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 
 | Package | Law | Statement | Runner | State |
 | --- | --- | --- | --- | --- |
+| `toml` | `ReadsGeneratedRecord` | `ReadsGeneratedRecord(name string, count int64, active bool, steps []int64) { if !utf8.ValidString(name) { return true } let sc = json.Codec[string]{MaxBytes: 0, MaxDepth: 0} let nc = json.Codec[int64]{MaxBytes: 0, MaxDepth: 0} let bc = json.Codec[bool]{MaxBytes: 0, MaxDepth: 0} let lc = json.Codec[[]int64]{MaxBytes: 0, MaxDepth: 0} let quoted = strings.ReplaceAll(json.Encode(sc, name), "\x7f", "\\u007f") let text = "name = " + quoted + "\ncount = " + json.Encode(nc, count) + "\nactive = " + json.Encode(bc, active) + "\nsteps = " + json.Encode(lc, steps) + "\n" let back = Decode(json.Codec[sample]{MaxBytes: 0, MaxDepth: 0}, text) catch { case _: return false } back == sample{Name: name, Count: count, Active: active, Steps: steps} }` | `TestTOMLDecode` | tested |
+| `toml` | `EncodeRoundTrips` | `EncodeRoundTrips(v shelf) { let text = Encode(v) catch { case Unrepresentable: return !utf8Texts(v) } let back = Decode(json.Codec[shelf]{MaxBytes: 0, MaxDepth: 0}, text) catch { case _: return false } back == v }` | `TestTOMLDecode` | tested |
 | `http` | `BuiltPathMatches` | `BuiltPathMatches(a string, b string) { if a == "" \|\| b == "" \|\| strings.Contains(a, "/") \|\| strings.Contains(b, "/") { return true } let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b"} match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `AllowIsWhatMatches` | `AllowIsWhatMatches(picks []int, asked int) { let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"} let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] } let mut routes = []Route[int]{} for i, p in picks { routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id"}) } match Match(routes, pick(asked), "/r/7") { case Found, NotFound: true case MethodNotAllowed as m: for i, a in m.Allow { if slices.Contains(m.Allow[i+1:], a) { return false } } for name in methods { let found = match Match(routes, name, "/r/7") { case Found: true case NotFound, MethodNotAllowed: false } if found != slices.Contains(m.Allow, name) { return false } } true } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `FilesAsksBeneath` | `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot \|\| e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 \|\| (dotdot \|\| !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" \|\| e == "." \|\| e == ".." { return false } } } response.Status == 200 \|\| response.Status == 403 \|\| response.Status == 404 }` | `TestStdHTTPLawsRun` | tested |
@@ -772,6 +948,12 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `cmp` | `CompareIsAntisymmetric` | `CompareIsAntisymmetric(a int, b int) { Compare(a, b) == -Compare(b, a) }` | `TestStdSlicesLawsRun` | tested |
 | `cmp` | `CompareIsTransitive` | `CompareIsTransitive(a int, b int, c int) { if Compare(a, b) <= 0 && Compare(b, c) <= 0 { return Compare(a, c) <= 0 } true }` | `TestStdSlicesLawsRun` | tested |
 | `cmp` | `LessIsCompareBelowZero` | `LessIsCompareBelowZero(a string, b string) { Less(a, b) == (Compare(a, b) < 0) }` | `TestStdSlicesLawsRun` | tested |
+| `config` | `HigherLayerWins` | `HigherLayerWins(f Option[int], e Option[int], file Option[int], d Option[int]) { let set = flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{flag.OptionalInt("n", "")}, Args: []flag.ArgSpec{}} let mut args = []string{} let mut env = Map[string, string]{} let mut files = Map[string, string]{} let mut defaults = NoDefaults() let mut want Option[int] = None match d { case Some as x: defaults = DefaultsOf(one{N: x.Value}) want = x case None: } match file { case Some as x: files = Map[string, string]{"c.json": "{\"n\": " + strconv.Itoa(x.Value) + "}"} want = x case None: } match e { case Some as x: env = Map[string, string]{"T_N": strconv.Itoa(x.Value), "TN": "0", "T": "0"} want = x case None: } match f { case Some as x: args = []string{"--n=" + strconv.Itoa(x.Value)} want = x case None: } let v = flag.Parse(set, args) catch { case _: return false } let spec = Spec{Prefix: "T", Flags: FromFlags(v), Files: []File{File{Path: "c.json", Format: JSON}, File{Path: "none.toml", Format: TOML}}, Defaults: defaults} let got = with context { Config: NewMemory(env, files) } { loadOne(spec) } catch { case _: return false } got == want }` | `TestStdConfigLawsRun` | tested |
+| `config` | `RoundTripsThroughFiles` | `RoundTripsThroughFiles(v settings) { let mut texts = utf8.ValidString(v.Name) && utf8.ValidString(v.Server.Host) for t in v.Tags { texts = texts && utf8.ValidString(t) } if !texts { return true } let asJSON = json.Encode(json.Codec[settings]{MaxBytes: 0, MaxDepth: 0}, v) let asTOML = toml.Encode(v) catch { case toml.Unrepresentable: return false } let files = Map[string, string]{"c.json": asJSON, "c.toml": asTOML} with context { Config: NewMemory(Map[string, string]{}, files) } { loadSettings("c.json", JSON) == Some{Value: v} && loadSettings("c.toml", TOML) == Some{Value: v} } }` | `TestStdConfigLawsRun` | tested |
+| `config` | `NamesInvert` | `NamesInvert(picks []int) { let words = []string{"port", "apiToken", "httpStatus", "v2Path", "x", "userID", "logLevel"} let mut parts = []string{} for p in picks { parts = parts.Append(words[if p < 0 { -(p % len(words)) } else { p % len(words) }]) } if len(parts) == 0 { return true } let key = strings.Join(parts, ".") FlagKey(FlagName(key)) == key && EnvKey("P", EnvName("P", key)) == key }` | `TestStdConfigLawsRun` | tested |
+| `config` | `RevealIsTheValue` | `RevealIsTheValue(v string, n int) { NewRedacted(v).Reveal() == v && NewRedacted(n).Reveal() == n }` | `TestStdConfigLawsRun` | tested |
+| `config` | `Config.EnvironAgreesWithLookup` | `EnvironAgreesWithLookup(name string) { let vars = Environ(name) let mut sorted = true for i, v in vars { if !strings.HasPrefix(v.Name, name) \|\| Lookup(v.Name) != (Some{Value: v.Text}) { return false } if i > 0 && strings.Compare(vars[i-1].Name, v.Name) >= 0 { sorted = false } } let listed = len(vars) > 0 && vars[0].Name == name match Lookup(name) { case Some: sorted && listed case None: sorted && !listed } }` | `TestStdConfigLawsRun` | tested |
+| `config` | `Config.ReadIsRepeatable` | `ReadIsRepeatable(path string) { let first = ReadFile(path) catch { case Unreadable as u: let _ = ReadFile(path) catch { case Unreadable as v: return u == v } return false } let second = ReadFile(path) catch { case Unreadable: return false } first == second }` | `TestStdConfigLawsRun` | tested |
 | `crc32` | `UpdateChains` | `UpdateChains(a string, b string) { Update(Checksum(a), b) == Checksum(a + b) }` | `TestStdDigestLaws` | tested |
 | `crc32` | `UpdateFromZero` | `UpdateFromZero(s string) { Update(0, s) == Checksum(s) }` | `TestStdDigestLaws` | tested |
 | `csv` | `FormatIsStable` | `FormatIsStable(rows [][]string) { let text = Format(sample(rows)) let back = ReadAll(text) catch { case ParseError: return false } Format(back) == text }` | `TestStdCSVLawsRun` | tested |
@@ -822,6 +1004,15 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `io` | `InputLinesStops` | `InputLinesStops(s string) { let lines = Input{Text: s}.Lines() let mut n = 0 lines(func(line string) bool { n = n + 1 true }) for k in 1..n+2 { let mut calls = 0 lines(func(line string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }` | `TestIOLaws` | tested |
 | `io` | `LinesSplitInput` | `LinesSplitInput(s string) { let mut joined = "" let mut first = true let input = Input{Text: s} for line in input.Lines() { if !first { joined = joined + "\n" } joined = joined + line first = false } if strings.HasSuffix(s, "\n") { joined = joined + "\n" } joined == s }` | `TestIOLaws` | tested |
 | `io` | `PrintsConcatenate` | `PrintsConcatenate(a string, b string) { let r = NewRecorder() r.Print(a) r.Eprint(b) r.Print(b) r.Text() == a+b+b }` | `TestIOLaws` | tested |
+| `term` | `DecodeNamesControls` | `DecodeNamesControls(token string) { match Decode(token) { case Char as c: c.Text == token && token >= " " && token != "\x7f" case _: token < " " \|\| token == "\x7f" \|\| token == "" } }` | `TestTermLaws` | tested |
+| `term` | `NestedRestoresInOrder` | `NestedRestoresInOrder() { let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24}) let mut seen = "" with context { Terminal: s } { Raw() { try NoEcho() { seen = seen + names(s.Modes()) } seen = seen + "\|" + names(s.Modes()) } catch { case NotTerminal: seen = "not a terminal" } } seen == "raw,noecho\|raw" && len(s.Modes()) == 0 }` | `TestTermLaws` | tested |
+| `term` | `RawRestores` | `RawRestores(fail bool) { let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24}) let mut inside = 0 let got = with context { Terminal: s } { Raw() { inside = len(s.Modes()) try failWhen(fail) } catch { case failed: -1 case NotTerminal: -2 } } inside == 1 && len(s.Modes()) == 0 && got == (if fail { -1 } else { 0 }) }` | `TestTermLaws` | tested |
+| `term` | `ScriptPlaysKeys` | `ScriptPlaysKeys(texts []string) { let mut keys []Key = []Key{} for t in texts { keys = keys.Append(Char{Text: t}) } let s = NewScript(keys, Window{Cols: 1, Rows: 1}) let mut ok = true with context { Terminal: s } { for t in texts { match Terminal.ReadKey() catch { case io.ReadFailed: EndOfInput } { case Char as c: ok = ok && c.Text == t case _: ok = false } } match Terminal.ReadKey() catch { case io.ReadFailed: Return } { case EndOfInput: ok = ok case _: ok = false } } ok }` | `TestTermLaws` | tested |
+| `prompt` | `SelectStaysInRange` | `SelectStaysInRange(n int, codes []int) { let mut options = []string{} for i in 0..(if n < 0 { -(n % 5) } else { n % 5 }) { options = options.Append("o" + strings.Repeat("i", i)) } let mut s = startPicking(Choice{Message: "pick", Options: options}) for code in codes { match PickingStep(s, KeyOf(code)) { case Stay[Picking] as st: s = st.Next case Done[Option[int]] as d: match d.Output { case Some[int] as a: return a.Value >= 0 && a.Value < len(options) case None: return true } case _: s = s } if s.At < 0 \|\| (len(options) == 0 && s.At != 0) \|\| (len(options) > 0 && s.At >= len(options)) { return false } } true }` | `TestPromptLaws` | tested |
+| `prompt` | `SecretFrameHidesText` | `SecretFrameHidesText(secret string, message string) { let ask = Text{Message: message, Default: "", Masked: true} TypingFrame(Typing{Ask: ask, Typed: secret}) == TypingFrame(Typing{Ask: ask, Typed: strings.Repeat("x", utf8.RuneCount(secret))}) }` | `TestPromptLaws` | tested |
+| `prompt` | `SecretFramesHideTyping` | `SecretFramesHideTyping(codes []int) { let ask = Text{Message: "secret", Default: "", Masked: true} let mut s = startTyping(ask) for code in codes { match TypingStep(s, KeyOf(code)) { case Stay[Typing] as st: s = st.Next if TypingFrame(s) != TypingFrame(Typing{Ask: ask, Typed: strings.Repeat("x", utf8.RuneCount(s.Typed))}) { return false } case _: s = s } } true }` | `TestPromptLaws` | tested |
+| `prompt` | `MarkedAnswerIsSorted` | `MarkedAnswerIsSorted(n int, codes []int) { let mut options = []string{} for i in 0..(if n < 0 { -(n % 5) } else { n % 5 }) { options = options.Append("o" + strings.Repeat("i", i)) } let mut s = startMarking(Choice{Message: "mark", Options: options}) for code in codes { match MarkingStep(s, KeyOf(code)) { case Stay[Marking] as st: s = st.Next case Done[Option[[]int]] as d: match d.Output { case Some[[]int] as a: let mut last = -1 for i in a.Value { if i <= last \|\| i >= len(options) { return false } last = i } return true case None: return true } case _: s = s } } true }` | `TestPromptLaws` | tested |
+| `prompt` | `ReturnAnswersTheDefault` | `ReturnAnswersTheDefault(yes bool, fallback string) { let confirmed = match AskingStep(startAsking(Question{Message: "ok", Default: yes}), term.Return) { case Done[Option[bool]] as d: d.Output == Some[bool]{Value: yes} case _: false } let typed = match TypingStep(startTyping(Text{Message: "name", Default: fallback, Masked: false}), term.Return) { case Done[Option[string]] as d: d.Output == Some[string]{Value: fallback} case _: false } confirmed && typed }` | `TestPromptLaws` | tested |
 | `journal` | `Codec.RoundTrips` | `RoundTrips(v T) { let text = Encode(v) let back = Decode(text) catch { case Failed: return false } Encode(back) == text }` | `TestStdJournalLawsRun` | tested |
 | `journal` | `Journal.AppendAddsOne` | `AppendAddsOne(e E) { let before = Load() catch { case Failed: return true } Append(e) catch { case Failed: return true } let after = Load() catch { case Failed: return false } len(after.Signals) == len(before.Signals)+1 && same(after.Snapshot, before.Snapshot) }` | `TestStdJournalLawsRun` | tested |
 | `journal` | `Journal.SnapshotDropsSignals` | `SnapshotDropsSignals(s S) { Snapshot(s) catch { case Failed: return true } let after = Load() catch { case Failed: return false } len(after.Signals) == 0 && same(after.Snapshot, Some[S]{Value: s}) }` | `TestStdJournalLawsRun` | tested |
@@ -1009,7 +1200,7 @@ The std takes the behaviour and the guarantees of Effect's modules, not an Effec
 - **W16** `Order` and `Equivalence` values passed by hand: the `ordered` and `comparable` constraints ([types.md, Generics](types.md#generics)).
 - **W17** a command typed by inference from an object of flag values (`Flag`, `Command.make`): a declared type with a derived parser (S5a; not built).
 - **W18** `Random` and `Clock` as references with a default: prelude and `time` capabilities bound by `context`.
-- **W19** `Redacted` with a runtime `toString`: a record that interpolation refuses (#67; not built).
+- **W19** `Redacted` with a runtime `toString`: `config.Redacted[T]`, a sealed operation type that interpolation and every codec refuse at check time ([config](#config) 6).
 - **W20** `Effect.timeout` that forks a fiber per call: `timeout.After(d) { … }`, an ordinary function whose row adds `Expired` ([runtime.md, Timeouts](runtime.md#timeouts)).
 
 The table has one row per std package, the prelude included. The Effect module is a file of `packages/effect/src` at pin `460272d3`, the pin of `conformance/effect-cases.json`. The last column is the package's lowering against hand-written Go: a benchmark the repository declares, as `<package dir>.Benchmark<Name>`, with its last recorded result and where the result is kept; or `pending:` and the file that holds the command; or `none:` and the reason. A result is a measurement on a shared host unless the cell says otherwise; a speed claim needs a quiet-host run (common rule). `TestStdStrengthsTable` finds the packages from `std.Packages()` and the prelude, never from a written list, and fails for a package with no row, a row for no package, an empty cell, a workaround id outside W1 to W20, an Ergo construct with no spec link, and a benchmark that the named package's tests do not declare. It checks names, not truth: a reviewer reads each row against the package source.
@@ -1022,6 +1213,7 @@ The table has one row per std package, the prelude included. The Effect module i
 | `base64` | `Encoding.ts` | W3, W5, W6, W14 | the alphabet as the union `Encoding`, matched by `Encode` and `Decode`, where Effect has `encodeBase64` and `encodeBase64Url`; `Malformed` in the row, where Effect's `decodeBase64` returns an `Either` ([Encodings and digests](#encodings-and-digests) 2; [types.md, Unions](types.md#unions); [rows.md, Catch](rows.md#catch)) | `runtime/v1.BenchmarkDigest` (`Base64StdEncode` against Go's `EncodeToString`): pending in `wf10/batch-12/G/bench-pending.md` (expected equal but the string-to-bytes copy) |
 | `bits` | `Number.ts` | W3, W14 | pure data-first functions over the unsigned kinds, with laws ([math and bits](#math-and-bits); [Pure bodies](#pure-bodies)) | `runtime/v1.BenchmarkBitsRotate` against Go's `bits.RotateLeft32`: pending in `wf10/batch-12/S/bench-pending.md` (expected equal: the body inlines to Go's call, one instruction) |
 | `cmp` | `Order.ts` | W3, W16 | the `ordered` constraint ([types.md, Generics](types.md#generics)) | none: `Compare` and `Less` restate Go's `cmp.Compare` and `cmp.Less` over `runtime/v1`'s `ordered`; `TestStdCmpMatchesGo` holds the meaning; no benchmark yet |
+| `config` | `Config.ts`, `ConfigProvider.ts`, `Redacted.ts` | W1, W3, W4, W5, W6, W7, W13, W19 | the program's own record read by its derived codec from layers fixed in one `Spec`; the operation type `Config` with laws, bound by `context` (`NewHost`, `NewMemory`); `WireMissingField`, `WireWrongKind`, `Malformed` and `Unreadable` in the row; the sealed operation type `Redacted[T]`, which has no text and no wire form, so the checker refuses it ([config](#config)) | none: a program loads its configuration once at start; `Load` builds a key tree of the layers and decodes it with the shared Reader derivation, one pass more than a hand Go `json.Unmarshal` of one file, and no speed claim is made |
 | `crc32` | none: Effect has no checksum module | W14 | pure functions over byte strings, with the chain laws of `Update` ([Encodings and digests](#encodings-and-digests) 4; [Pure bodies](#pure-bodies)) | `runtime/v1.BenchmarkDigest` (`Crc32Checksum` against Go's `ChecksumIEEE`): pending in `wf10/batch-12/G/bench-pending.md` (expected equal but the string-to-bytes copy) |
 | `csv` | none (Effect has no CSV module) | W5, W6, W14 | `ParseError` in the row of `ReadAll`, and the union `Row` (`Parsed \| Malformed`) for a stream that cannot fail, matched exhaustively ([csv](#csv) 2) | `runtime/v1.BenchmarkCSV` (`ReadAll` and `Format` against Go's reader and writer, and `Scan`, the body of `Rows`, against a `Reader.Read` loop (fs3), 2,000 rows): the bodies are Go's reader and writer, with the same allocations; quiet run pending in `wf10/batch-12/U/bench-pending.md` |
 | `exec` | `process/ChildProcess.ts` | W4, W5, W14 | the operation type `Runner` with laws, `NotFound \| Denied \| Failed` in the row, `context` binds `Host` or `Script` ([rows.md, Capability rows](rows.md#capability-rows); [rows.md, Catch](rows.md#catch)) | `runtime/v1.BenchmarkExecRunTrue`: 566 µs against `exec.CommandContext` 823 µs, ±30 to 40 %, load 18 to 29 (run dir `wf10/batch-10/s3/s3c/bench.log`); quiet rerun pending in `wf10/batch-10/s3/bench-pending.md`; `internal/sketch/lower.BenchmarkExecKey`: `Key` of 10 arguments makes 2 allocations, as Go's `strings.Join` does, where the old loop made 10 (count 1, load 21; timing pending in `wf10/batch-11/ss-a/bench-pending.md`) |
@@ -1030,6 +1222,8 @@ The table has one row per std package, the prelude included. The Effect module i
 | `fs` | `FileSystem.ts` | W4, W5, W6, W14 | the operation types `Files` and `Writes` with laws, `NotFound \| Denied \| Failed` in the row, host authority, and a file mode as the record `Mode` of the union `Access`, not an octal number ([Host packages](#host-packages); [rows.md, Capability rows](rows.md#capability-rows); [types.md, Unions](types.md#unions)) | none: each operation is one call of a `runtime/v1` body over Go's `os`; no benchmark yet |
 | `fstest` | `FileSystem.ts` (`layerNoop` and test layers) | W4, W5, W6, W14 | a provider of the operation types `fs.Files` and `fs.Writes`, bound by `context` as `fs.Host` is, with the same laws; its tree in a `sync.Ref`; the failures of fs's row; the place of a path a union matched exhaustively ([fs](#fs) 17 to 19; [rows.md, Capability rows](rows.md#capability-rows); [types.md, Unions](types.md#unions)) | none: a test provider; each operation is one `sync.Modify` over a `Map`, with no host call |
 | `hex` | `Encoding.ts` | W5, W14 | pure functions over byte strings; `Malformed` with the offset of the first bad byte in the row, where Effect's `decodeHex` returns an `Either` ([Encodings and digests](#encodings-and-digests) 1; [rows.md, Catch](rows.md#catch)) | `runtime/v1.BenchmarkDigest` (`HexEncode` against Go's `EncodeToString`): pending in `wf10/batch-12/G/bench-pending.md` (expected equal but the string-to-bytes copy) |
+| `prompt` | `cli/Prompt.ts` (outside `packages/effect/src` at the pin; `@effect/cli`) | W4, W5, W6, W14 | machine declarations over `term.Key` with laws and pure frames; `NotInteractive \| Cancelled` in the row ([prompt](#prompt)) | none: a key is one step-function call and one write of a frame; no benchmark |
+| `term` | `Terminal.ts` | W4, W6, W11, W14 | the operation type `Terminal`, the union `Key` matched exhaustively, and the block forms `Raw` and `NoEcho`, which restore on every exit through `scope.OnExit` ([term](#term)) | none: a mode change is one ioctl, as x/term's `MakeRaw`; no benchmark |
 | `io` | `Stdio.ts`, `Terminal.ts` | W4, W14 | the operation types `Stdout`, `Stderr` and `Stdin`, with recording providers that carry the laws ([io](#io); [rows.md, Capability rows](rows.md#capability-rows)) | `runtime/v1.BenchmarkIOPrint`: 1.26 ms against `fmt.Fprint` 1.56 ms and a `bufio.Writer` 0.07 ms (run dir `wf10/batch-10/s1/s1b/bench-head.txt`); S4c buffers; `runtime/v1.BenchmarkIOLines`: 0.61 ms against `bufio.Scanner` 0.60 ms, load 20 (run dir `wf10/batch-10/s1/s1b/r2/bench-lines.txt`) |
 | `journal` | effect-machine `lifecycle.recovery`, `durability.save` and the cluster journal (outside `packages/effect/src`; no module of the pin persists a machine) | W4, W5, W7, W14 | the operation types `Journal` and `Codec` with laws, `journal.Start` over a machine whose pure step the checker holds (S108), `Failed \| Diverged` in the row ([runtime.md, Machines and actors](runtime.md#machines-and-actors) 17) | none: `Start` adds one call of the save per commit to `actor.StartMachine`'s step; the save is the provider's; no benchmark yet |
 | `journal/file` | `KeyValueStore.ts` (`layerFileSystem`) | W4, W7 | a `journal.Journal` provider over an `fs.Host` that the entry makes, each write a whole-file replace ([runtime.md, Machines and actors](runtime.md#machines-and-actors) 17) | none: each `Append` rewrites the file (no append in std `fs` yet); snapshots keep it short; no benchmark yet |
@@ -1057,6 +1251,7 @@ The table has one row per std package, the prelude included. The Effect module i
 | `trace` | `Tracer.ts` | W12 | a context value bound by `with trace.Span(…)` ([runtime.md, G1](runtime.md#g1-context-through-with)) | none: a read is one `runtime/v1` context lookup; no benchmark yet |
 | `utf8` | `String.ts` | W2, W3, W10 | data-first pure functions; Go's two results of `DecodeRuneInString` as the record `Decoded`, where Effect's `String` has no rune decoder and JavaScript's `codePointAt` gives `undefined` past the end ([strings and strconv](#strings-and-strconv) 8; [Pure bodies](#pure-bodies)) | `runtime/v1.BenchmarkText`: `RuneCount` 87.1 ns against Go 87.4 ns (run dir `wf10/batch-10/s1/s1c/bench-summary.txt`); `runtime/v1.BenchmarkUTF8Decode` (a `Decoded` record against Go's two results): pending in `wf10/batch-12/S/bench-pending.md` |
 | `codec` | `Schema.ts` (`encode`, `decode`, `ParseResult` issues) | W5, W6, W7, W9 | no Schema value: the codec is derived from the declared type by the predeclared `encode(v, w)` and `decode[T](r)` over the prelude's `Writer` and `Reader` events ([types.md, Codecs](types.md#codecs)); decode's row is the union of what the type reaches (`WireWrongKind`, `WireMissingField`, `WireUnknownTag`, `Unsatisfied`, each `ParseX`'s row); `Events` and `Replay` record and replay the events, and its laws hold the round trip | none: the events are a test's record; the format-specialised path is std json's (its row) |
+| `toml` | `ConfigProvider.ts` (external typed configuration; no TOML parser in Effect core) | W4, W5, W6 | declared records and the shared codec derivation, typed `Malformed` and `wired[T]` rows, not Config/Schema builders ([toml](#toml)) | `runtime/v1.BenchmarkTOMLParse`: parse-only baseline; no measured parity. Hand-Go control: the same parser followed by encoding/json into an equivalent Go config record; generated decoder/control comparison pending in `wf10/cli-units/cu7/bench-pending.md`. Current tree plus JSON transcode costs an extra pass; direct Reader events are the follow-up. |
 | `json` | `Schema.ts` (`parseJson`, `encode`, `decode`), `JSON.parse`/`JSON.stringify` | W5, W6, W7, W9 | `Codec[T wire]{MaxBytes, MaxDepth}` over the derived codec ([types.md, Codecs](types.md#codecs)) with `Encode` (cannot fail) and `Decode` (`fails Malformed \| wired[T]`: phase 1 checks the whole text, phase 2 is the derived `decode[T]` with each failure's path); `Text` is a `Writer`, `Reader` a `Reader`; the law `FastAgreesWithWriter` holds the compiler's fast path to the Writer path | `internal/sketch/lower.BenchmarkJSON` (a 1 KB deploy record against `encoding/json` and `encoding/json/v2` over hand structs with the same keys): encode writes bytes with no interface call per event (`lower/wirejson.go`), 7 allocations to Go's 8; decode is the Reader interface path, 97 allocations to Go's 30 (an `Env` per adapter call); ratios bench-pending on a quiet host (S-json bench-pending.md) |
 
 *Prior art:* ReScript makes pipe-first `->` a plain call and uncurries by default (W2, W3); Elixir's `|>` is a macro and `with` chains the happy path (W1, W2), and `@derive` generates protocol code (W7, W8); Gleam's `use` replaces callbacks with plain lines and its `Result` replaces exceptions (W1, W5), with no type classes (W16); Roc and MoonBit derive equality, hashing and codecs (W7, W8), and Roc gives each host effect as a platform capability (W4, W18); Elm has no derivation and writes decoders by hand, the shape W7 and W17 avoid; Koka's evidence passing makes a tail-resumptive handler a direct call, as Ergo's environment of capabilities does (W14).
@@ -1353,33 +1548,98 @@ func echo() needs io.Stdout | io.Stderr | io.Stdin {
 }
 
 func main() needs Ambient {
-	with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewHost() } { echo() }
+	with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewStdin() } { echo() }
 }
 ```
 
 | Declaration | Meaning |
 | --- | --- |
 | `type Stdout { Print(text string), Println(line string), IsTerminal() bool }` | Standard output. |
-| `type Stderr { Eprint(text string), Eprintln(line string) }` | Standard error. |
-| `type Stdin { ReadAll() string fails ReadFailed, Lines() Seq[string] }` | Standard input. |
+| `type Stderr { Eprint(text string), Eprintln(line string), IsTerminal() bool }` | Standard error. |
+| `type Stdin { ReadAll() string fails ReadFailed, Lines() Seq[string], IsTerminal() bool }` | Standard input. |
 | `type ReadFailed { Reason string }` | The failure of a read. |
-| `type Host { live hostOnly }`; `func NewHost() Host needs Ambient` | The host's `Stdout` and `Stdin` provider. |
+| `type Host { live hostOnly }`; `func NewHost() Host needs Ambient` | The host's `Stdout` provider. |
+| `type In { live hostOnly }`; `func NewStdin() In needs Ambient` | The host's `Stdin` provider. |
 | `type Errors { live hostOnly }`; `func NewErrors() Errors needs Ambient` | The host's `Stderr` provider. |
 | `type Recorder`; `func NewRecorder() Recorder`; `Print`, `Println`, `Eprint`, `Eprintln`, `IsTerminal` (false), `Text() string` | A `Stdout` and `Stderr` provider for tests that keeps what is written to both, in order. |
-| `type Input { Text string }`; `func NewInput(text string) Input`; `ReadAll`, `Lines` | A `Stdin` provider for tests. `NewInput` is `Stdin`'s builder: a generated record that holds a `Stdin` reads an `Input` ([runtime.md](runtime.md), Tests 6, Capabilities). |
+| `type Input { Text string }`; `func NewInput(text string) Input`; `ReadAll`, `Lines`, `IsTerminal` (false) | A `Stdin` provider for tests. `NewInput` is `Stdin`'s builder: a generated record that holds a `Stdin` reads an `Input` ([runtime.md](runtime.md), Tests 6, Capabilities). |
 | `law PrintsConcatenate(a string, b string)`, `law LinesSplitInput(s string)` | The laws of the recording providers ([Std laws](#std-laws)). |
 
 1. `Print` and `Eprint` write their text as it is; `Println` and `Eprintln` write the line and a line feed in one write. Each write is one unbuffered `WriteString`, as `Console.Println` is, so writes of `Console` and of `io.Stdout` appear in program order.
 2. `Lines` gives each line without its line feed. A last line with no line feed is a line, an empty input has no lines, and a carriage return stays in its line, so the lines joined by line feeds, plus the final line feed if any, are the input (`LinesSplitInput`). A line has no length limit. A `Seq` has no failure row, so a read failure inside `Lines` is a defect; `ReadAll` returns it as `ReadFailed`. A `break` stops the read; the rest of the input stays unread. Every `Stdin` operation of `Host` reads through one buffered reader of the process, so the next `Lines` or `ReadAll` starts at the line after the break (`TestIOStdinRest`, `TestIOStdinShared`).
 3. A read of standard input is an interruption point of the reading task (batch 12 C3; [decisions.md](../decisions.md), 2026-11-08, O15). A stop of the task that waits in `Lines` or `ReadAll` of `Host` ends the wait and raises the interruption; no input is lost. One read of the host's input runs at a time, on a goroutine of its own, and the line it lands after the stop stays for the next `Lines` or `ReadAll`. A `ReadAll` that a stop ends puts back what it had read. A masked task's read runs to its end. So rule 2's "the next `Lines` starts at the line after the break" holds after a stop too (`TestIOStdinStopModel`, runtime/v1; lower `TestStdinStopRuns`). The task is the iterating task for `Lines` (Hidden arguments, rule 5), and each body has one `runtimeBindings` row that waits on it. A read of a file is still an uninterruptible host wait.
-4. `IsTerminal` reports whether standard output is a character device (Go's `os.ModeCharDevice`).
-5. The Go bodies are `v1.IOPrint`, `v1.IOEprint`, `v1.IOIsTerminal`, `v1.IOReadAll` and `v1.IOLines` (host.go). `ReadFailed` is the `runtime/v1` struct `v1.ReadFailed` (Types 4); its name is not `Failed` because `v1.Failed` is `fs.Failed`.
+4. `IsTerminal` of each stream reports whether that stream is a terminal: whether its terminal state can be read (`isatty`; the `TCGETS` or `TIOCGETA` ioctl), so `/dev/null`, a character device, is not one. Each host stream has its own provider, so each answers for itself: `prog < file` has a terminal on standard output and a file on standard input. So `Host` is not the `Stdin` provider; `io.Stdin: io.NewStdin()` is a check error at the binding (CU2).
+5. The Go bodies are `v1.IOPrint`, `v1.IOEprint`, `v1.IOIsTerminal`, `v1.IOStdinIsTerminal`, `v1.IOStderrIsTerminal`, `v1.IOReadAll` and `v1.IOLines` (host.go). Every read of standard input, `term`'s keys included, goes through one byte buffer of the process, so a key read after a line read loses no byte. `ReadFailed` is the `runtime/v1` struct `v1.ReadFailed` (Types 4); its name is not `Failed` because `v1.Failed` is `fs.Failed`.
 6. The capabilities are open: a program implements them, and a test binds `io.NewRecorder()` or `io.Input{Text: …}` in the same place as `main` binds the host. `Stdout`, `Stderr` and `Stdin` are exempt from the law rule, each with its reason: the first two have no read, and a read of the host's input takes what it reads.
 7. A `Recorder` keeps its writes in a `sync.Ref[[]string]` ([Sync and STM](#sync-and-stm) 1), so every copy of it keeps the same writes, and tasks may write to one `Recorder` at once: each write is kept whole, in the order the writes took the `Ref` (lower `TestIORecorderBehavesAsBefore`). No std code keeps state through a `Map` or slice that two bindings share.
 8. `Stderr`'s operations are `Eprint` and `Eprintln`, names that `Stdout` does not have, so a `Stdout` provider is not a `Stderr` provider and the reverse: `io.Stderr: io.NewHost()` and `io.Stdout: io.NewErrors()` are check errors at the binding (`TestIOStreamsAreDistinct`). A program binds `Errors` to `io.Stderr`. The names follow Rust's `eprint!` and `eprintln!` and Gleam's `print_error`.
 9. A std package may import another std package: `io` imports `strings` and `sync`. The std importer checks each package once, and the std has no import cycle (`TestStdImportsAreAcyclic`).
 
 *Prior art:* Effect's `Stdio` gives `stdout` and `stderr` sinks and a `stdin` stream in one service, and `Terminal` gives `readLine` and `display`; Go writes `os.Stdout` directly and reads lines with `bufio.Scanner`, which has a 64 KiB line limit; Gleam's `gleam/io` has `print`, `println` and `print_error`, and `stdin` reading is a separate package; Elixir's `IO.puts(:stderr, …)` and `IO.stream(:stdio, :line)` keep the line feed; Roc's basic-cli gives `Stdout`, `Stderr` and `Stdin` as platform effects. Ergo takes Roc's three capabilities and Effect's guarantee that a test replaces each one.
+
+### term
+
+Std `term` is the terminal of standard input (CU2): a mode for the length of a block, one key at a time, and the window's size. It is what a prompt needs (`prompt`). Effect's `Terminal` service has `readInput` (a stream of key events) and `display`; its purpose is to read keys from a person. Ergo takes that purpose: a key is a union, matched exhaustively, and a mode is a resource with a block form, so no program can leave the terminal raw. It does not take the `Terminal` service tag (W4), the `Effect` value per read (W14) or the `Scope` value a raw mode needs in Effect (W11).
+
+```go
+import term
+
+func secret() string fails term.NotTerminal | io.ReadFailed needs term.Terminal {
+	term.Raw() {
+		let mut text = ""
+		for _ in 0..1000 {
+			match try term.Terminal.ReadKey() {
+			case term.Char as c: text = text + c.Text
+			case term.Return: return text
+			case _: text = text
+			}
+		}
+		text
+	}
+}
+```
+
+| Declaration | Meaning |
+| --- | --- |
+| `type Terminal { SetMode(m Mode) fails NotTerminal, Restore(), ReadKey() Key fails io.ReadFailed, Size() Window fails NotTerminal }` | The terminal of standard input. |
+| `func Raw[T, E, R](body func() T fails E needs R) T fails E \| NotTerminal needs R \| Terminal` | `body` with the terminal in `RawMode`; the state before is restored on every exit of `body`. |
+| `func NoEcho[T, E, R](…)` | The same, with `NoEchoMode`. |
+| `type Mode = RawMode{} \| NoEchoMode{}` | A mode. Raw reads each key as it comes, with no echo, no line editing and no signal keys; output processing stays on. NoEcho keeps line editing and hides what is typed. |
+| `type Key = Char{Text string} \| Return{} \| Backspace{} \| Tab{} \| Escape{} \| Up{} \| Down{} \| Left{} \| Right{} \| Interrupt{} \| EndOfInput{} \| Other{Bytes string}` | A key. `Interrupt` is Ctrl-C; `EndOfInput` is Ctrl-D or the end of the input. |
+| `type Window { Cols int, Rows int }`; `type NotTerminal {}` | The size, and the failure when the stream is not a terminal. |
+| `type Host`; `func NewHost() Host needs Ambient` | The host's provider. |
+| `type Script`; `func NewScript(keys []Key, window Window) Script`; `Modes() []Mode` | A provider for tests: it plays `keys`, then `EndOfInput`, and keeps the modes set and not restored. |
+| `func Decode(token string) Key` | The key of the bytes of one key. |
+
+1. **A mode is a resource.** `Raw` and `NoEcho` call `SetMode`, then register `Restore` with `scope.OnExit`, so the restore runs on every exit of the block: a value, a failure, a defect and a stop. The host keeps a stack: each `SetMode` saves the state before it, and `Restore` sets back the latest saved state. A program calls the block forms; `SetMode` and `Restore` are the provider's halves.
+2. **Keys.** `ReadKey` reads through `io`'s one byte buffer of standard input. A key is one byte, one UTF-8 rune, or an escape sequence (ESC `[` or ESC `O`, parameters, a final byte). An ESC with nothing after it in the bytes read is `Escape`, since a terminal writes a sequence in one write. A carriage return and a line feed are `Return`; delete and backspace are `Backspace`. A stop of the reading task ends the wait; the bytes read stay for the next read.
+3. **Laws.** `Terminal` is law-exempt: no law over its operations can read the host's state. `RawRestores`, `NestedRestoresInOrder`, `ScriptPlaysKeys` and `DecodeNamesControls` hold the scope and the decoding over `Script`. Lower `TestTermModesRestore` is the model of the host: a built program on a pseudo-terminal runs generated sequences of raw, no-echo, read, leave and stop; at each read the terminal's state is the model's, and after the program the state is the state before it.
+4. **Go bodies.** `v1.TermEnterRaw`, `v1.TermEnterNoEcho`, `v1.TermLeave`, `v1.TermReadKey` and `v1.TermGetSize` (term.go). The ioctls go through one `unsafe` function, `ioctl` in term_unix.go, with its invariant in its comment: the FFI edge of the 2026-11-02 rule, since Go's standard library has no safe form.
+
+*Prior art:* Go's `golang.org/x/term` (`MakeRaw`, `Restore`, `GetSize`) does the same ioctls and leaves the restore to the caller's `defer`; Elixir's `IO.gets` reads a line, and OTP 26 adds a raw shell mode (`shell:start_interactive({noshell, raw})`) that the caller sets back; Gleam's standard library has no terminal module (`gleam_erlang` neither); Roc basic-cli's `Tty` has `enable_raw_mode!` and `disable_raw_mode!` with no pairing. Each lowers to its host's call with no scope; Ergo's block form lowers to one `OnExit` registration on the frame scope.
+
+### prompt
+
+Std `prompt` asks a person at a terminal for a line of text, a secret, one choice, several choices or a yes (CU3). Effect's cli `Prompt` (`text`, `password`, `select`, `multiSelect`, `confirm`) is the reference for intent: ask a person for a typed answer, and let a program that runs with no person see that it cannot. Ergo takes that purpose. It does not take Effect's `Prompt` values run by a runtime (W14), the `Terminal` service tag (W4) or the tagged `QuitException` (W5). Each prompt is a machine declaration over `term.Key` with a pure frame, and the function that runs it has its failures in its row.
+
+| Declaration | Meaning |
+| --- | --- |
+| `func Line(message string, fallback string) string` | A line of text; Return on an empty line answers `fallback`. |
+| `func Secret(message string) string` | A line of text whose frame shows one `*` per character. |
+| `func Select(message string, options []string) int` | One option's index. |
+| `func MultiSelect(message string, options []string) []int` | The marked options' indexes, ascending; a space marks or unmarks. |
+| `func Confirm(message string, fallback bool) bool` | y or n; Return answers `fallback`. |
+| `type NotInteractive {}`, `type Cancelled {}` | Every function above `fails NotInteractive \| Cancelled \| io.ReadFailed needs term.Terminal \| io.Stderr`. |
+| `type Typer`, `Picker`, `Marker`, `Asker` (machines); `TypingStep`, `PickingStep`, `MarkingStep`, `AskingStep`; `TypingFrame`, `PickingFrame`, `MarkingFrame`, `AskingFrame` | The machines, their steps and their frames. Each machine's input is its question (`Text`, `Choice`, `Question`), and its output is `Option` of the answer: `None` is a cancel. |
+| `func Ask[S, O, F, R, W](m Machine[S, term.Key, Option[O], F, R, W], frame func(s S) string) O` | Runs a prompt machine: raw mode (`term.Raw`), one key at a time, each new state's frame drawn over the last on `io.Stderr` (`Redraw`). |
+| `func KeyOf(code int) term.Key` | A key of a code, for laws and properties over generated keys. |
+
+1. **Not interactive is a failure.** On a standard input that is not a terminal, the host's `term.Raw` fails `term.NotTerminal`, and `Ask` fails `NotInteractive`. A caller decides what a run with no person does. Escape, Ctrl-C and Ctrl-D fail `Cancelled`.
+2. **Frames are pure.** A frame is a function of the state. `Ask` writes the first frame, then for each new state a carriage return, a cursor-up per line of the last frame, an erase to the end of the screen and the new frame. Frames go to standard error, so standard output stays the program's answer.
+3. **Laws and models.** `SelectStaysInRange`, `SecretFrameHidesText`, `SecretFramesHideTyping`, `MarkedAnswerIsSorted` and `ReturnAnswersTheDefault` are in [Std laws](#std-laws). Lower `TestPromptLaws` runs them. It also holds each machine to a reference model of its own over generated keys, and holds `Ask` on a `term.Script`: the mode is restored, a secret's drawn text equals that of as many x's, a terminal that is not one fails `NotInteractive`, and Escape fails `Cancelled`.
+4. A std package may declare a machine: it lowers as a user package's machine does (lower `std.go`, `naming.go`).
+
+*Prior art:* Charm's `huh` (Go) runs each field as a Bubble Tea model, a state machine with a view; Elixir's `Owl.IO` (`select`, `multiselect`, `confirm`) reads a line per answer; Gleam's `survey` reads lines with `erlang:get_line`; ReScript uses host libraries (Node's `readline`). Each lowers to its host's reads. Ergo's prompt lowers to a Go loop over one step function, with no runtime value per key.
 
 ### flag
 

@@ -20,6 +20,8 @@ func ReadAll(d drained) string fails io.ReadFailed {
 
 func Lines(d drained) Seq[string] { (io.Input{Text: d.text}).Lines() }
 
+func IsTerminal(_ drained) bool { false }
+
 // disk is a Disk over a.json, a directory dir and the standard input
 // text.
 func disk(text string) Disk fails fs.NotFound | fs.Denied | fs.Failed {

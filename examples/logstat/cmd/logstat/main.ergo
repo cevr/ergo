@@ -111,7 +111,7 @@ func readAll(files []string) []Batch fails os.Exit needs fs.Files | io.Stderr {
 }
 
 func main() fails os.Exit needs Ambient {
-	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewHost(), fs.Files: fs.NewHost() } {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewStdin(), fs.Files: fs.NewHost() } {
 		try run(os.Process.Args())
 	}
 }

@@ -1,0 +1,123 @@
+import flag
+import json
+import strconv
+import strings
+import toml
+import utf8
+
+type one { N int }
+
+// loadOne is the N that Load reads from spec, or None when no layer has it.
+func loadOne(spec Spec) Option[int] fails Unreadable | Malformed | WireWrongKind needs Config {
+	let v = Load[one](spec) catch {
+	case WireMissingField:
+		return None
+	case Unreadable as u:
+		return u
+	case Malformed as m:
+		return m
+	case WireWrongKind as w:
+		return w
+	}
+	Some{Value: v.N}
+}
+
+// HigherLayerWins: a key that several layers set has the value of the
+// highest: the flag, then the variable, then the file, then the default;
+// a key that no layer sets is missing. Flags and variables are text, the
+// file and the default are typed, and each reads as the field's int.
+law HigherLayerWins(f Option[int], e Option[int], file Option[int], d Option[int]) {
+	let set = flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{flag.OptionalInt("n", "")}, Args: []flag.ArgSpec{}}
+	let mut args = []string{}
+	let mut env = Map[string, string]{}
+	let mut files = Map[string, string]{}
+	let mut defaults = NoDefaults()
+	let mut want Option[int] = None
+	match d {
+	case Some as x:
+		defaults = DefaultsOf(one{N: x.Value})
+		want = x
+	case None:
+	}
+	match file {
+	case Some as x:
+		files = Map[string, string]{"c.json": "{\"n\": " + strconv.Itoa(x.Value) + "}"}
+		want = x
+	case None:
+	}
+	match e {
+	case Some as x:
+		env = Map[string, string]{"T_N": strconv.Itoa(x.Value), "TN": "0", "T": "0"}
+		want = x
+	case None:
+	}
+	match f {
+	case Some as x:
+		args = []string{"--n=" + strconv.Itoa(x.Value)}
+		want = x
+	case None:
+	}
+	let v = flag.Parse(set, args) catch {
+	case _:
+		return false
+	}
+	let spec = Spec{Prefix: "T", Flags: FromFlags(v), Files: []File{File{Path: "c.json", Format: JSON}, File{Path: "none.toml", Format: TOML}}, Defaults: defaults}
+	let got = with context { Config: NewMemory(env, files) } {
+		loadOne(spec)
+	} catch {
+	case _:
+		return false
+	}
+	got == want
+}
+
+type server { Host string, Debug bool }
+type quiet {}
+type loud { Level int }
+type volume = quiet | loud
+type settings { Name string, Port int, Ratio float64, Tags []string, Server server, Volume volume }
+
+// loadSettings is the settings Load reads from the one file at path.
+func loadSettings(path string, format Format) Option[settings] needs Config {
+	let spec = Spec{Prefix: "", Flags: NoFlags(), Files: []File{File{Path: path, Format: format}}, Defaults: NoDefaults()}
+	let v = Load[settings](spec) catch {
+	case _:
+		return None
+	}
+	Some{Value: v}
+}
+
+// RoundTripsThroughFiles: a configuration record written as a JSON file
+// (json.Encode) or a TOML file (toml.Encode) loads back as itself.
+law RoundTripsThroughFiles(v settings) {
+	let mut texts = utf8.ValidString(v.Name) && utf8.ValidString(v.Server.Host)
+	for t in v.Tags {
+		texts = texts && utf8.ValidString(t)
+	}
+	if !texts {
+		return true
+	}
+	let asJSON = json.Encode(json.Codec[settings]{MaxBytes: 0, MaxDepth: 0}, v)
+	let asTOML = toml.Encode(v) catch {
+	case toml.Unrepresentable:
+		return false
+	}
+	let files = Map[string, string]{"c.json": asJSON, "c.toml": asTOML}
+	with context { Config: NewMemory(Map[string, string]{}, files) } {
+		loadSettings("c.json", JSON) == Some{Value: v} && loadSettings("c.toml", TOML) == Some{Value: v}
+	}
+}
+
+// NamesInvert: the flag and the variable of a key name the key again.
+law NamesInvert(picks []int) {
+	let words = []string{"port", "apiToken", "httpStatus", "v2Path", "x", "userID", "logLevel"}
+	let mut parts = []string{}
+	for p in picks {
+		parts = parts.Append(words[if p < 0 { -(p % len(words)) } else { p % len(words) }])
+	}
+	if len(parts) == 0 {
+		return true
+	}
+	let key = strings.Join(parts, ".")
+	FlagKey(FlagName(key)) == key && EnvKey("P", EnvName("P", key)) == key
+}

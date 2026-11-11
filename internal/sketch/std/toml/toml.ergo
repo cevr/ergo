@@ -1,0 +1,61 @@
+// Package toml decodes TOML 1.0 through the same derived Reader contract
+// as json. A config record is declared once; ParseX, refinements, field
+// names and typed failures are those of decode[T], not a second schema.
+// Encode writes json.Encode's value as TOML (S-config). Dates and times decode as canonical strings;
+// inf/nan use json's special-float mapping. Unknown fields are skipped.
+//
+// Effect ConfigProvider's intent is typed configuration from external
+// text. Ergo takes the intent, not its Config/Schema builders, tags or
+// runtime error trees: the record, its derivation and its failure row are
+// the contract. Go has no standard TOML package. The hand-Go control is
+// recursive-descent parsing followed by a typed record decoder. This
+// first version retains a parsed tree and transcodes it to JSON; direct
+// Reader events are a future cost improvement, not a parity claim.
+
+import json
+
+// Malformed names the line (from 1), dotted key and rule that fails.
+// Key is empty if no key has yet been read.
+type Malformed { Line int, Key string, Reason string }
+
+extern go ergo.local/prototype/runtime/v1.TOMLParse func parse(text string, maxBytes int, maxDepth int) string fails Malformed
+
+// Open validates the whole TOML document, within the supplied limits,
+// and returns a Reader for the ordinary derived decoder. Limits count
+// input bytes and value/table nesting; nonpositive limits mean no byte
+// limit and depth 10000, as json.Open does.
+func Open(text string, maxBytes int, maxDepth int) json.Reader fails Malformed {
+	let encoded = try parse(text, maxBytes, maxDepth)
+	// Parsing already checked MaxDepth. A table array has extra JSON
+	// containers, so the Reader must not impose its default depth again.
+	json.Open(encoded, 0, len(encoded)) catch {
+	case json.Malformed:
+		Unreachable("validated TOML produced invalid JSON")
+	}
+}
+
+// Decode reads a record with the same codec used by json. Syntax failures
+// carry TOML's line/key; derived type/ParseX failures keep their paths and
+// their own typed failures in wired[T].
+func Decode[T wire](c json.Codec[T], text string) T fails Malformed | wired[T] {
+	let r = try Open(text, c.MaxBytes, c.MaxDepth)
+	try decode[T](r)
+}
+
+// Unrepresentable is a value TOML has no form for: a null (a
+// json.Nullable's), an integer outside int64, text that is not UTF-8, a
+// repeated key of a json.Value, or a root that is not a record or a Map.
+// Key is the dotted key of the value, "" for the root.
+type Unrepresentable { Key string, Reason string }
+
+extern go ergo.local/prototype/runtime/v1.TOMLFromJSON func fromJSON(text string) string fails Unrepresentable
+
+// Encode is v as a TOML document that Decode reads back to v (law
+// EncodeRoundTrips): the root's values as key = value lines, then each
+// record field under its [table] header; a list is an inline array, and a
+// record inside a list an inline table. It writes what json.Encode writes,
+// as TOML, so the field names, unions ("_tag") and floats (NaN as the
+// string "NaN") are json's, and no second encoder exists per type.
+func Encode[T wire](v T) string fails Unrepresentable {
+	try fromJSON(json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v))
+}

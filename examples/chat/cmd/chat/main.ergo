@@ -77,7 +77,7 @@ func run() fails os.Exit needs io.Stdin | io.Stdout {
 }
 
 func main() fails os.Exit needs Ambient {
-	with context { io.Stdin: io.NewHost(), io.Stdout: io.NewHost() } {
+	with context { io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
 		try run()
 	}
 }

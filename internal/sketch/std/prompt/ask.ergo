@@ -1,0 +1,32 @@
+// The five prompts as functions over Ask.
+
+import io
+import machines
+import term
+
+// Line asks for a line of text; Return on an empty line answers fallback.
+func Line(message string, fallback string) string fails NotInteractive | Cancelled | io.ReadFailed needs term.Terminal | io.Stderr {
+	try Ask(machines.Start(Typer{}, Text{Message: message, Default: fallback, Masked: false}), TypingFrame)
+}
+
+// Secret asks for a line of text that is not shown: the frame has one *
+// per character typed.
+func Secret(message string) string fails NotInteractive | Cancelled | io.ReadFailed needs term.Terminal | io.Stderr {
+	try Ask(machines.Start(Typer{}, Text{Message: message, Default: "", Masked: true}), TypingFrame)
+}
+
+// Select asks for one of options and answers its index.
+func Select(message string, options []string) int fails NotInteractive | Cancelled | io.ReadFailed needs term.Terminal | io.Stderr {
+	try Ask(machines.Start(Picker{}, Choice{Message: message, Options: options}), PickingFrame)
+}
+
+// MultiSelect asks for some of options and answers their indexes, in
+// order.
+func MultiSelect(message string, options []string) []int fails NotInteractive | Cancelled | io.ReadFailed needs term.Terminal | io.Stderr {
+	try Ask(machines.Start(Marker{}, Choice{Message: message, Options: options}), MarkingFrame)
+}
+
+// Confirm asks a yes or no question; Return answers fallback.
+func Confirm(message string, fallback bool) bool fails NotInteractive | Cancelled | io.ReadFailed needs term.Terminal | io.Stderr {
+	try Ask(machines.Start(Asker{}, Question{Message: message, Default: fallback}), AskingFrame)
+}

@@ -1,0 +1,103 @@
+// Package prompt asks a person at a terminal for text, a secret, one
+// choice, several choices or a yes (docs/spec/stdlib.md, prompt). Each
+// prompt is a machine over term keys (Typing, Picking, Marking, Asking)
+// with a pure frame, so a test runs it on a list of keys with
+// machines.Run and reads its frames with no terminal. Ask runs any of
+// them on term.Terminal and draws each frame on io.Stderr.
+//
+// A prompt needs a terminal: on a standard input that is not one, the
+// host's term.Raw fails term.NotTerminal, and a prompt fails
+// NotInteractive. So "this program may prompt" is a failure in the row of
+// the function that prompts, and its caller decides what a run without a
+// person does: a flag, a default, an error. A person's Escape, Ctrl-C or
+// Ctrl-D fails Cancelled.
+//
+// Effect's cli Prompt (text, password, select, multiSelect, confirm) is
+// the reference for intent: ask a person for a typed answer. Ergo takes
+// that, and not its Prompt values run by a runtime (W14), its Terminal
+// service tag (W4) or its tagged QuitException (W5): a prompt is a
+// machine declaration with laws, run by an ordinary function whose
+// failures are in its row. Go: Charm's huh renders fields as Bubble Tea
+// models, a state machine per field; Elixir's Owl and Gleam's survey read
+// a line per answer.
+
+import io
+import machines
+import strings
+import term
+
+// NotInteractive is the failure of a prompt when standard input is not a
+// terminal: no person can answer.
+type NotInteractive {}
+
+// Cancelled is the failure of a prompt that the person cancelled with
+// Escape, Ctrl-C or Ctrl-D.
+type Cancelled {}
+
+// Ask runs the prompt machine m: it draws m's first frame on io.Stderr,
+// then reads keys in term's raw mode and steps m by each, drawing each new
+// state, until m is Done. A Done of None is Cancelled. The terminal's mode
+// is restored however Ask ends (term.Raw).
+func Ask[S, O, F, R, W](m Machine[S, term.Key, Option[O], F, R, W], frame func(s S) string) O fails NotInteractive | Cancelled | io.ReadFailed | F needs term.Terminal | io.Stderr | R {
+	let answer = try term.Raw() { try run(m, frame) } catch {
+	case term.NotTerminal:
+		return NotInteractive
+	}
+	match answer {
+	case Some[O] as a:
+		a.Value
+	case None:
+		return Cancelled
+	}
+}
+
+// run is Ask's loop in raw mode: it ends with Done's output.
+func run[S, O, F, R, W](m Machine[S, term.Key, Option[O], F, R, W], frame func(s S) string) Option[O] fails io.ReadFailed | F needs term.Terminal | io.Stderr | R {
+	let mut now = m.Initial
+	let mut shown = frame(now)
+	io.Stderr.Eprint(shown)
+	for {
+		let d = try m.Step(now, try term.Terminal.ReadKey())
+		match d {
+		case Enter[S], Stay[S], Emit[S, Option[O]]:
+			now = machines.Next(now, d)
+			let next = frame(now)
+			io.Stderr.Eprint(Redraw(shown, next))
+			shown = next
+		case Ignore, Reject:
+		case Done[Option[O]] as e:
+			io.Stderr.Eprint("\r\n")
+			return e.Output
+		}
+	}
+}
+
+// Redraw is the text that replaces the frame before on a terminal with
+// the frame after: a carriage return, a cursor up for each line feed of
+// before, an erase to the end of the screen, then after.
+func Redraw(before string, after string) string {
+	let up = strings.Count(before, "\n")
+	let mut moves = "\r"
+	if up > 0 {
+		moves = moves + "\x1b[" + itoa(up) + "A"
+	}
+	moves + "\x1b[J" + after
+}
+
+// itoa is the decimal text of n >= 0.
+func itoa(n int) string {
+	if n < 10 {
+		return strings.Slice("0123456789", n, n+1)
+	}
+	itoa(n/10) + itoa(n%10)
+}
+
+// cancels reports whether k cancels a prompt: Escape, Ctrl-C, Ctrl-D.
+func cancels(k term.Key) bool {
+	match k {
+	case term.Escape, term.Interrupt, term.EndOfInput:
+		true
+	case _:
+		false
+	}
+}

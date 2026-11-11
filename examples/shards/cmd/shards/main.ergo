@@ -11,7 +11,7 @@ import shards/memory
 
 func main() needs Console | Ambient {
 	let clock = time.NewManual(0)
-	with context { io.Stdin: io.NewHost(), shards.Targets: memory.Targets, Scheduler: clock } {
+	with context { io.Stdin: io.NewStdin(), shards.Targets: memory.Targets, Scheduler: clock } {
 		console.Run(clock)
 	}
 }

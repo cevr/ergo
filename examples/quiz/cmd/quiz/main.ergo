@@ -15,7 +15,7 @@ let Live = context { quiz.Sets: memory.Shelf }
 
 func main() fails os.Exit needs Console | Ambient {
 	let status = with Live {
-		with context { io.Stdin: io.NewHost() } {
+		with context { io.Stdin: io.NewStdin() } {
 			script.Run()
 		}
 	}

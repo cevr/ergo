@@ -262,12 +262,13 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		}
 	}
 	slices.Sort(hosts)
-	want := []string{"exec.hostRun", "fs.OpenRoot", "fs.hostAppendFile", "fs.hostChmod", "fs.hostMkdirAll", "fs.hostMkdirAllMode",
+	want := []string{"config.hostEnviron", "exec.hostRun", "fs.OpenRoot", "fs.hostAppendFile", "fs.hostChmod", "fs.hostMkdirAll", "fs.hostMkdirAllMode",
 		"fs.hostReadDir", "fs.hostReadFile", "fs.hostRemove", "fs.hostRename", "fs.hostStat", "fs.hostWriteFile", "fs.hostWriteFileMode",
 		"http.IntoFile", "http.Listen", "http.fetch", "http.fetchInto", "http.send", "http.sendInto", "http.serve",
-		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostReadAll",
+		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostReadAll", "io.hostStderrIsTerminal", "io.hostStdinIsTerminal",
 		"os.hostArgs", "os.hostGetenv", "os.hostHasEnv", "prelude.Sleep",
-		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rpc.call", "time.hostNow"}
+		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rpc.call",
+		"term.hostEnterNoEcho", "term.hostEnterRaw", "term.hostLeave", "term.hostReadKey", "term.hostSize", "time.hostNow"}
 	if !slices.Equal(hosts, want) {
 		t.Errorf("host externs %v, want %v", hosts, want)
 	}

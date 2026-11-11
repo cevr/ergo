@@ -1,0 +1,43 @@
+// The rules of a plan's files. `ergo test` runs them.
+
+import strings
+
+// EveryFeatureHasAFile: each feature of a plan makes one file, after the
+// README and the license, in the order chosen.
+law EveryFeatureHasAFile(name string, picks []int, git bool) {
+	let mut features = []Feature{}
+	for i in picks {
+		features = features.Append(Features[(if i < 0 { -(i % 3) } else { i % 3 })])
+	}
+	let p = Plan{Name: "p" + name, License: MIT, Features: features, Git: git}
+	let files = Files(p)
+	let mut ok = len(files) == 2+len(features)+(if git { 1 } else { 0 })
+	for i, f in features {
+		ok = ok && strings.HasSuffix(files[2+i], featureFile(f))
+	}
+	ok
+}
+
+// UnlicensedHasNoLicenseFile: only a licensed plan makes a LICENSE.
+law UnlicensedHasNoLicenseFile(n int) {
+	let l = Licenses[(if n < 0 { -(n % 3) } else { n % 3 })]
+	let has = strings.Contains(strings.Join(Files(Plan{Name: "p", License: l, Features: []Feature{}, Git: false}), "\n"), "/LICENSE")
+	match l {
+	case Unlicensed:
+		!has
+	case MIT, Apache:
+		has
+	}
+}
+
+// FeaturesHaveTheirOwnFiles: no two features make the same file.
+law FeaturesHaveTheirOwnFiles() {
+	let files = Files(Plan{Name: "p", License: Unlicensed, Features: Features, Git: false})
+	let mut ok = true
+	for i, a in files {
+		for j, b in files {
+			ok = ok && (i == j || a != b)
+		}
+	}
+	ok
+}

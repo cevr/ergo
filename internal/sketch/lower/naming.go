@@ -84,6 +84,14 @@ func (l *lowerer) nameAll() {
 	for _, p := range libs {
 		for _, tn := range l.canon.types(p) {
 			l.typeName(tn)
+			// A std machine declaration (prompt.Picker, CU3) lowers as a
+			// user package's does; a sourced library's was named above.
+			if !l.isSourced(p) && tn.Decl != nil {
+				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
+					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
+					l.nameFlatRuns(tn)
+				}
+			}
 		}
 		for _, f := range l.canon.funcs(p) {
 			l.pkgName(pkgKey{"func", f}, f.Name)

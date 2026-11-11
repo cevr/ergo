@@ -47,7 +47,7 @@ func run(args []string, host io.Stdin) fails os.Exit needs io.Stdout | io.Stderr
 
 func main() fails os.Exit needs Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
-		try run(os.Process.Args(), io.NewHost())
+		try run(os.Process.Args(), io.NewStdin())
 	}
 }
 

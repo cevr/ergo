@@ -45,7 +45,7 @@ func read(args []string) Option[Options] fails os.Exit needs io.Stdout {
 }
 
 func main() fails os.Exit needs Ambient {
-	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost(), forge.Assayer: memory.Standard() } { try run(os.Process.Args()) }
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin(), forge.Assayer: memory.Standard() } { try run(os.Process.Args()) }
 }
 
 // run is the program after main binds its providers; the tests run it

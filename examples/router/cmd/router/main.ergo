@@ -20,7 +20,7 @@ import router/script
 
 func main() fails os.Exit needs Console | Ambient {
 	let mut lines = []string{}
-	with context { io.Stdin: io.NewHost() } {
+	with context { io.Stdin: io.NewStdin() } {
 		for line in io.Stdin.Lines() {
 			lines = lines.Append(line)
 		}

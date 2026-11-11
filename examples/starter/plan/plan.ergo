@@ -1,0 +1,81 @@
+// Package plan is the domain of a project starter: what a new project is
+// made of, and the files that make it. It knows nothing of flags or of a
+// terminal; flags and an interview both build a Plan.
+
+import strings
+
+// License is the license a project starts with.
+type License = MIT{} | Apache{} | Unlicensed{}
+
+// Feature is an optional part of a project.
+type Feature = Tests{} | Docs{} | Workflow{}
+
+// Plan is a new project: its name, its license, its features in the order
+// chosen, and whether it starts as a Git repository.
+type Plan { Name string, License License, Features []Feature, Git bool }
+
+// Licenses are the licenses, in the order a person is offered them.
+let Licenses = []License{MIT, Apache, Unlicensed}
+
+// Features are the features, in the order a person is offered them.
+let Features = []Feature{Tests, Docs, Workflow}
+
+// LicenseName is a license's name, as a flag spells it.
+func LicenseName(l License) string {
+	match l {
+	case MIT:
+		"mit"
+	case Apache:
+		"apache"
+	case Unlicensed:
+		"none"
+	}
+}
+
+// FeatureName is a feature's name, as a flag spells it.
+func FeatureName(f Feature) string {
+	match f {
+	case Tests:
+		"tests"
+	case Docs:
+		"docs"
+	case Workflow:
+		"workflow"
+	}
+}
+
+// Files is the files the plan makes, in order: a README, the license
+// file (none when Unlicensed), one file per feature, and the Git ignore
+// file when the project is a repository.
+func Files(p Plan) []string {
+	let mut out = []string{p.Name + "/README.md"}
+	match p.License {
+	case MIT, Apache:
+		out = out.Append(p.Name + "/LICENSE")
+	case Unlicensed:
+		out = out
+	}
+	for f in p.Features {
+		out = out.Append(p.Name + "/" + featureFile(f))
+	}
+	if p.Git {
+		out = out.Append(p.Name + "/.gitignore")
+	}
+	out
+}
+
+func featureFile(f Feature) string {
+	match f {
+	case Tests:
+		"tests/main_test.ergo"
+	case Docs:
+		"docs/index.md"
+	case Workflow:
+		"workflow.yml"
+	}
+}
+
+// Describe is the plan as lines: its name and license, then its files.
+func Describe(p Plan) string {
+	"project " + p.Name + " (" + LicenseName(p.License) + ")\n" + strings.Join(Files(p), "\n")
+}

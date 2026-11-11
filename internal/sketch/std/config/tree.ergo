@@ -1,0 +1,232 @@
+import codec
+import flag
+import json
+import strconv
+import strings
+
+// The layers, as trees (docs/spec/stdlib.md, config 3). A file is a tree
+// of JSON values; a flag and a variable are text, which the reader reads
+// as the kind the field asks for; the defaults are the events of a value's
+// encode. Each node keeps the source of the layer it came from, which a
+// failure names.
+type scalar { Value json.Value, From Source }
+type texts { Items []string, From Source }
+type branch { Members []member, From Source }
+type items { Elems []node, From Source }
+type node = scalar | texts | branch | items
+type member { Key string, Value node }
+
+// sourceOf is the source of n.
+func sourceOf(n node) Source {
+	match n {
+	case scalar as s: s.From
+	case texts as t: t.From
+	case branch as b: b.From
+	case items as l: l.From
+	}
+}
+
+// merge is high over low: two branches merge key by key, high's keys
+// first; anything else is high whole, so a list or a value of a higher
+// layer replaces the lower one's.
+func merge(high node, low node) node {
+	match high {
+	case branch as h:
+		match low {
+		case branch as l:
+			let mut out = []member{}
+			for m in h.Members {
+				let mut v = m.Value
+				for o in l.Members {
+					if o.Key == m.Key {
+						v = merge(m.Value, o.Value)
+					}
+				}
+				out = out.Append(member{Key: m.Key, Value: v})
+			}
+			for o in l.Members {
+				let mut seen = false
+				for m in h.Members {
+					seen = seen || m.Key == o.Key
+				}
+				if !seen {
+					out = out.Append(o)
+				}
+			}
+			branch{Members: out, From: h.From}
+		case _:
+			high
+		}
+	case _:
+		high
+	}
+}
+
+// empty is the tree of a layer with nothing in it.
+func empty(from Source) node { branch{Members: []member{}, From: from} }
+
+// put is t with v at the dotted key path, t a branch; an existing value
+// at the path is replaced.
+func put(t node, path []string, v node) node {
+	if len(path) == 0 {
+		return v
+	}
+	match t {
+	case branch as b:
+		let mut out = []member{}
+		let mut done = false
+		for m in b.Members {
+			if m.Key == path[0] {
+				out = out.Append(member{Key: m.Key, Value: put(m.Value, path[1:], v)})
+				done = true
+			} else {
+				out = out.Append(m)
+			}
+		}
+		if !done {
+			out = out.Append(member{Key: path[0], Value: put(empty(b.From), path[1:], v)})
+		}
+		branch{Members: out, From: b.From}
+	case _:
+		put(empty(sourceOf(t)), path, v)
+	}
+}
+
+// fromValue is the tree of a JSON value read from the file at path.
+func fromValue(v json.Value, from Source) node {
+	match v {
+	case json.Object as o:
+		let mut out = []member{}
+		for m in o.Members {
+			out = out.Append(member{Key: m.Key, Value: fromValue(m.Value, from)})
+		}
+		branch{Members: out, From: from}
+	case json.Array as a:
+		let mut out = []node{}
+		for x in a.Items {
+			out = out.Append(fromValue(x, from))
+		}
+		items{Elems: out, From: from}
+	case _:
+		scalar{Value: v, From: from}
+	}
+}
+
+// fromEvents is the tree of the events of one encoded value, from the
+// event at i on, and the index after it.
+func fromEvents(evs []codec.Event, i int, from Source) (node, int) {
+	if i >= len(evs) {
+		return (scalar{Value: json.Null, From: from}, i)
+	}
+	let num = func(text string) node {
+		let n = json.ParseNum(text) catch {
+		case json.Malformed:
+			return scalar{Value: json.Str{Value: text}, From: from}
+		}
+		scalar{Value: n, From: from}
+	}
+	match evs[i] {
+	case codec.NullEvent:
+		(scalar{Value: json.Null, From: from}, i + 1)
+	case codec.BoolEvent as b:
+		(scalar{Value: json.Boolean{Value: b.V}, From: from}, i + 1)
+	case codec.IntEvent as n:
+		(scalar{Value: json.IntNumber(n.V), From: from}, i + 1)
+	case codec.UintEvent as n:
+		if n.V > 9223372036854775807 {
+			return (num(strconv.FormatFloat(float64(n.V), 'f', -1)), i + 1)
+		}
+		(num(strconv.FormatInt(int64(n.V), 10)), i + 1)
+	case codec.FloatEvent as f:
+		(num(floatText(f.V)), i + 1)
+	case codec.NumberEvent as n:
+		(num(n.Text), i + 1)
+	case codec.StringEvent as s:
+		(scalar{Value: json.Str{Value: s.V}, From: from}, i + 1)
+	case codec.BeginListEvent:
+		let mut out = []node{}
+		let mut j = i + 1
+		for _ in 0..len(evs) {
+			if j >= len(evs) {
+				break
+			}
+			match evs[j] {
+			case codec.EndListEvent:
+				return (items{Elems: out, From: from}, j + 1)
+			case _:
+				let (x, next) = fromEvents(evs, j, from)
+				out = out.Append(x)
+				j = next
+			}
+		}
+		(items{Elems: out, From: from}, j)
+	case codec.BeginObjectEvent:
+		let mut out = []member{}
+		let mut j = i + 1
+		for _ in 0..len(evs) {
+			if j >= len(evs) {
+				break
+			}
+			match evs[j] {
+			case codec.EndObjectEvent:
+				return (branch{Members: out, From: from}, j + 1)
+			case codec.TagEvent as t:
+				out = out.Append(member{Key: "_tag", Value: scalar{Value: json.Str{Value: t.Name}, From: from}})
+				j = j + 1
+			case codec.KeyEvent as k:
+				let (x, next) = fromEvents(evs, j + 1, from)
+				out = out.Append(member{Key: k.K, Value: x})
+				j = next
+			case _:
+				Unreachable("config: an object's events are keys and values")
+			}
+		}
+		(branch{Members: out, From: from}, j)
+	case codec.EndListEvent, codec.EndObjectEvent, codec.TagEvent, codec.KeyEvent:
+		Unreachable("config: a value starts with a value event")
+	}
+}
+
+// floatText is f as json writes it: a number, or the strings of NaN and
+// the infinities, which Float reads back.
+func floatText(f float64) string {
+	if f != f {
+		return "NaN"
+	}
+	if f > 1.7976931348623157e308 {
+		return "Infinity"
+	}
+	if f < -1.7976931348623157e308 {
+		return "-Infinity"
+	}
+	strconv.FormatFloat(f, 'g', -1)
+}
+
+// fromFlags is the tree of the given flags: each flag's name is its key
+// (ConfigFlagKey), and its texts are its value.
+func fromFlags(given []flag.Given) node {
+	let mut t = empty(FromFlag{Name: ""})
+	for g in given {
+		let key = flagKey(g.Name)
+		t = put(t, strings.Split(key, "."), texts{Items: g.Texts, From: FromFlag{Name: g.Name}})
+	}
+	t
+}
+
+// fromEnv is the tree of the variables that start with prefix and "_":
+// each name's rest is its key (ConfigEnvKey).
+func fromEnv(vars []Variable, prefix string) node {
+	let mut t = empty(FromEnv{Name: ""})
+	for v in vars {
+		let rest = strings.TrimPrefix(v.Name, prefix + "_")
+		if rest != "" {
+			t = put(t, strings.Split(envKey(rest), "."), texts{Items: []string{v.Text}, From: FromEnv{Name: v.Name}})
+		}
+	}
+	t
+}
+
+extern go ergo.local/prototype/runtime/v1.ConfigFlagName func flagName(key string) string
+extern go ergo.local/prototype/runtime/v1.ConfigEnvName func envName(prefix string, key string) string
+extern go ergo.local/prototype/runtime/v1.ConfigFlagKey func flagKey(name string) string
+extern go ergo.local/prototype/runtime/v1.ConfigEnvKey func envKey(rest string) string

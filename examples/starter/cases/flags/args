@@ -1,0 +1,9 @@
+--name
+demo
+--license
+apache
+-f
+workflow
+-f
+tests
+--git

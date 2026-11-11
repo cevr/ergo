@@ -119,7 +119,7 @@ func AlertLines(samples []series.Sample, threshold float64) []string {
 
 // main does what the arguments ask, on the host's arguments and input.
 func main() fails os.Exit needs Console | Ambient {
-	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost() } {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin() } {
 		let cmd = try Parse(os.Process.Args())
 		let text = io.Stdin.ReadAll() catch {
 		case io.ReadFailed as r:

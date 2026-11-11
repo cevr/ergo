@@ -1,0 +1,148 @@
+// The laws of the prompt machines. Keys are drawn from codes, so a short
+// generated list reaches every key a prompt reads.
+
+import strings
+import term
+import utf8
+
+// SelectStaysInRange: after any keys, a select's cursor is on an option,
+// or at 0 when it has none, and its answer is an option's index.
+law SelectStaysInRange(n int, codes []int) {
+	let mut options = []string{}
+	for i in 0..(if n < 0 { -(n % 5) } else { n % 5 }) {
+		options = options.Append("o" + strings.Repeat("i", i))
+	}
+	let mut s = startPicking(Choice{Message: "pick", Options: options})
+	for code in codes {
+		match PickingStep(s, KeyOf(code)) {
+		case Stay[Picking] as st:
+			s = st.Next
+		case Done[Option[int]] as d:
+			match d.Output {
+			case Some[int] as a:
+				return a.Value >= 0 && a.Value < len(options)
+			case None:
+				return true
+			}
+		case _:
+			s = s
+		}
+		if s.At < 0 || (len(options) == 0 && s.At != 0) || (len(options) > 0 && s.At >= len(options)) {
+			return false
+		}
+	}
+	true
+}
+
+// SecretFrameHidesText: a masked frame is the same for every secret of
+// the same length, so no frame shows a character of the secret.
+law SecretFrameHidesText(secret string, message string) {
+	let ask = Text{Message: message, Default: "", Masked: true}
+	TypingFrame(Typing{Ask: ask, Typed: secret}) == TypingFrame(Typing{Ask: ask, Typed: strings.Repeat("x", utf8.RuneCount(secret))})
+}
+
+// SecretFramesHideTyping: each frame a secret prompt shows while keys are
+// typed is the frame of as many x's.
+law SecretFramesHideTyping(codes []int) {
+	let ask = Text{Message: "secret", Default: "", Masked: true}
+	let mut s = startTyping(ask)
+	for code in codes {
+		match TypingStep(s, KeyOf(code)) {
+		case Stay[Typing] as st:
+			s = st.Next
+			if TypingFrame(s) != TypingFrame(Typing{Ask: ask, Typed: strings.Repeat("x", utf8.RuneCount(s.Typed))}) {
+				return false
+			}
+		case _:
+			s = s
+		}
+	}
+	true
+}
+
+// MarkedAnswerIsSorted: a multi-select answers distinct indexes of its
+// options, in ascending order.
+law MarkedAnswerIsSorted(n int, codes []int) {
+	let mut options = []string{}
+	for i in 0..(if n < 0 { -(n % 5) } else { n % 5 }) {
+		options = options.Append("o" + strings.Repeat("i", i))
+	}
+	let mut s = startMarking(Choice{Message: "mark", Options: options})
+	for code in codes {
+		match MarkingStep(s, KeyOf(code)) {
+		case Stay[Marking] as st:
+			s = st.Next
+		case Done[Option[[]int]] as d:
+			match d.Output {
+			case Some[[]int] as a:
+				let mut last = -1
+				for i in a.Value {
+					if i <= last || i >= len(options) {
+						return false
+					}
+					last = i
+				}
+				return true
+			case None:
+				return true
+			}
+		case _:
+			s = s
+		}
+	}
+	true
+}
+
+// ReturnAnswersTheDefault: Return on a fresh confirm answers its default,
+// and on a fresh text prompt its default.
+law ReturnAnswersTheDefault(yes bool, fallback string) {
+	let confirmed = match AskingStep(startAsking(Question{Message: "ok", Default: yes}), term.Return) {
+	case Done[Option[bool]] as d:
+		d.Output == Some[bool]{Value: yes}
+	case _:
+		false
+	}
+	let typed = match TypingStep(startTyping(Text{Message: "name", Default: fallback, Masked: false}), term.Return) {
+	case Done[Option[string]] as d:
+		d.Output == Some[string]{Value: fallback}
+	case _:
+		false
+	}
+	confirmed && typed
+}
+
+// KeyOf is the key of a code, over the keys the prompts read: a few
+// characters (a space, y and n among them), Return, Backspace, Tab, the
+// arrows and the cancel keys. Cancel keys are rare, so a run of keys
+// usually goes on.
+func KeyOf(code int) term.Key {
+	let c = if code < 0 { -(code % 40) } else { code % 40 }
+	if c < 12 {
+		term.Char{Text: charOf(c)}
+	} else if c < 18 {
+		term.Up
+	} else if c < 24 {
+		term.Down
+	} else if c < 28 {
+		term.Backspace
+	} else if c < 31 {
+		term.Return
+	} else if c < 33 {
+		term.Tab
+	} else if c < 35 {
+		term.Left
+	} else if c == 35 {
+		term.Escape
+	} else if c == 36 {
+		term.Interrupt
+	} else if c == 37 {
+		term.EndOfInput
+	} else {
+		term.Other{Bytes: "\x1b[5~"}
+	}
+}
+
+func charOf(c int) string {
+	let chars = []string{"a", "b", " ", "y", "Y", "n", "N", "é", "界", " ", "x", "z"}
+	chars[c]
+}

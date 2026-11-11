@@ -21,7 +21,7 @@ import (
 //go:embed prelude.ergo timeout/*.ergo task/*.ergo scope/*.ergo slices/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
 //go:embed os/*.ergo
 //go:embed fs/*.ergo fstest/*.ergo
-//go:embed io/*.ergo
+//go:embed io/*.ergo term/*.ergo prompt/*.ergo
 //go:embed utf8/*.ergo
 //go:embed flag/*.ergo
 //go:embed maps/*.ergo cmp/*.ergo
@@ -33,7 +33,7 @@ import (
 //go:embed math/*.ergo bits/*.ergo
 //go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo
 //go:embed machines/*.ergo
-//go:embed csv/*.ergo codec/*.ergo json/*.ergo rpc/*.ergo
+//go:embed csv/*.ergo codec/*.ergo json/*.ergo toml/*.ergo rpc/*.ergo config/*.ergo
 //go:embed testing/*.ergo
 //go:embed tasks/*.ergo
 //go:embed schedule/*.ergo
