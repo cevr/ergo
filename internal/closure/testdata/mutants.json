@@ -26,6 +26,46 @@
       "to": "",
       "rule": "A real cgo linker cwd input belongs to the toolchain inputs; observation and cache hashing must remain enabled.",
       "killers": ["closure:TestEveryPackageRecordsOnlyItsClosure (ERGO_CLOSURE_SWEEP=cmd/ergo, cgo enabled, cold per-package cache)"]
+    },
+    {
+      "name": "g16fix2-alone-shares-a-run",
+      "origin": "wf10 batch-16 16b gate-fix-2",
+      "file": "internal/closure/split_test.go",
+      "from": "if len(solo) == 0 || len(rest) == 0 {",
+      "to": "if true {",
+      "rule": "The code is in a test file, which the cover tool does not instrument. A test of runsAlone (it runs its package again) holds a sweep run of its own.",
+      "killers": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"],
+      "anchor": {"tests": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"]}
+    },
+    {
+      "name": "g16fix2-alone-runs-twice",
+      "origin": "wf10 batch-16 16b gate-fix-2",
+      "file": "internal/closure/split_test.go",
+      "from": "exactNames(append(selected, solo...))",
+      "to": "exactNames(selected)",
+      "rule": "The code is in a test file, which the cover tool does not instrument. The last run of the other tests skips the tests run alone, so each test runs once.",
+      "killers": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"],
+      "anchor": {"tests": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"]}
+    },
+    {
+      "name": "g16fix2-sweep-ignores-alone",
+      "origin": "wf10 batch-16 16b gate-fix-2",
+      "file": "internal/closure/split_test.go",
+      "from": "return planPackage(names, costs, sweepRunBudget, runsAlone[dir]), nil",
+      "to": "return planRuns(names, costs, sweepRunBudget), nil",
+      "rule": "The code is in a test file, which the cover tool does not instrument. The sweep's plan gives each runsAlone test (cmd/ergo's TestPackageNeverWritesUnderHome) a run of its own.",
+      "killers": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"],
+      "anchor": {"tests": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"]}
+    },
+    {
+      "name": "g16fix2-stale-alone-accepted",
+      "origin": "wf10 batch-16 16b gate-fix-2",
+      "file": "internal/closure/split_test.go",
+      "from": "if !slices.Contains(names, name) {\n\t\t\treturn nil, fmt.Errorf(",
+      "to": "if false {\n\t\t\treturn nil, fmt.Errorf(",
+      "rule": "The code is in a test file, which the cover tool does not instrument. A runsAlone name that is not a test of its package fails the sweep.",
+      "killers": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"],
+      "anchor": {"tests": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"]}
     }
   ]
 }
