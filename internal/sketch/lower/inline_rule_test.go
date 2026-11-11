@@ -37,10 +37,7 @@ func rec(n int) int {
 	rec(n - 1) + 1
 }
 
-func asValue(f func(x int) int) int {
-	let g = f
-	g(1)
-}
+func asValue(f func(x int) int) int { apply(f, 1) }
 
 func apply(f func(x int) int, x int) int { f(x) }
 
@@ -65,8 +62,9 @@ func main() needs Console {
 `
 	o := mustLower(t, "inlinerule", src)
 	body := goFunc(t, o.mainGo(), "main_1") // Go's main is the entry; Ergo's main is main_1
+	// A call of a known variant (known.go, nameKnown) is a call too.
 	calls := func(name string) bool {
-		return regexp.MustCompile(`\b` + name + `(_[0-9]+)?\(`).MatchString(body)
+		return regexp.MustCompile(`\b` + name + `(Known)?(_[0-9]+)?\(`).MatchString(body)
 	}
 	for _, row := range []struct {
 		name, why string
@@ -82,6 +80,13 @@ func main() needs Console {
 		if calls(row.name) != row.kept {
 			t.Errorf("%s: main's Go names it %v, want %v\n%s", row.why, calls(row.name), row.kept, body)
 		}
+	}
+	// The depth bound leaves a call of rec in main even when rec is
+	// inlined, so the recursion row reads the count: no site of a
+	// recursive function is inlined.
+	const recSrc = "func rec(n int) int {\n\tif n <= 0 {\n\t\treturn 0\n\t}\n\trec(n - 1) + 1\n}\n\nfunc main() needs Console {\n\tConsole.Println(\"\\(rec(3))\")\n}\n"
+	if _, s := lowerInlineMode(t, "inlinerec", recSrc, false); s.Inlined != 0 {
+		t.Errorf("a recursive function is inlined at %d sites, want 0", s.Inlined)
 	}
 	// apply is inlined with its literal and stays a call with a function
 	// value bound to a let: exactly one call remains.

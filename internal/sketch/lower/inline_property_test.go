@@ -13,7 +13,8 @@ import (
 // call small functions the rule inlines: a fallible generic read (at)
 // caught in place, a callback update whose literal is substituted
 // (update, bump), nested inlined calls (twice through pick through at),
-// early returns (clampAt, sign), a by-value argument read after a later
+// early returns (clampAt, sign), an operand that reads a place a later
+// inlined operand writes (diff, swapIn), a by-value argument read after a later
 // write (sumOf), dot calls on a place (b.clampAt) and on a borrow, and a
 // call the rule refuses (a loop, total). The program ends in one of six
 // ways: normally, with a typed failure of main (try at), with a defect
@@ -35,7 +36,7 @@ var inlineSeed = flag.Uint64("inline.seed", 0, "run TestInlineAgrees on this see
 // inlinePaths are the generator's branches; the fixed seeds reach each.
 var inlinePaths = []string{
 	"pick-ok", "pick-missing", "bump-ok", "bump-missing", "clamp-neg", "clamp-hi", "clamp-in",
-	"twice", "sign", "sumOf", "dot-place", "dot-borrow", "total", "strs", "print",
+	"twice", "sign", "sumOf", "dot-place", "dot-borrow", "total", "strs", "print", "spill",
 	"end-normal", "end-fail", "end-unreachable", "end-index", "end-literal", "end-exit",
 }
 
@@ -143,6 +144,14 @@ func poke(b *Box[int], i int, k int) {
 	}
 }
 
+func swapIn(b *Box[int], i int, v int) int {
+	let old = b.items[i]
+	b.items[i] = v
+	old
+}
+
+func diff(x int, y int) int { x - y }
+
 func guarded(b *Box[int]) {
 	scope.OnExit() {
 		let _ = deep(b, 9, false)
@@ -207,7 +216,7 @@ func (g *inlineGen) digest() int {
 }
 
 func (g *inlineGen) stmt() {
-	switch g.r.IntN(12) {
+	switch g.r.IntN(13) {
 	case 0:
 		i := g.index()
 		g.line(fmt.Sprintf("Console.Println(\"\\(pick(&b, %d))\")", i))
@@ -306,6 +315,14 @@ func (g *inlineGen) stmt() {
 			g.out("none")
 		}
 		g.reached["strs"] = true
+	case 12:
+		// The first operand reads a place the second one, an inlined
+		// call, writes: the operand is evaluated first, as the call's is.
+		v := g.r.IntN(20)
+		g.line(fmt.Sprintf("Console.Println(\"\\(diff(b.items[0], swapIn(&b, 0, %d)))\")", v))
+		g.out("0")
+		g.items[0] = v
+		g.reached["spill"] = true
 	case 10:
 		v := g.r.IntN(20)
 		g.line(fmt.Sprintf("b.items = b.items.Append(%d)", v))
@@ -348,7 +365,7 @@ func inlineProgram(seed uint64, reached map[string]bool) (src, want string) {
 	}
 	g.line("Console.Println(\"\\(digest(&b))\")")
 	g.out("%d", g.digest())
-	switch g.r.IntN(6) {
+	switch seed % 6 { // each ending in any six consecutive seeds
 	case 0:
 		g.reached["end-normal"] = true
 	case 5:

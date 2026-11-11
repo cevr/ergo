@@ -20,10 +20,10 @@ import (
 // name (internal/residue, TestLoweringKeysOnNoStdName). A call of a
 // declared function f is inlined when
 //   - f has an Ergo body: no extern, no Close, not main;
-//   - its effects allow it: an empty needs row, no task start or Task
-//     result, no capability in its footprint, no frame scope (a with that
-//     owns, an exit action), no context value, no witness, no owned
-//     parameter (V5), at most one result;
+//   - its effects allow it: no task start or Task result, no capability
+//     in its footprint (a needs row it does not use changes nothing), no
+//     frame scope (a with that owns, an exit action), no context value,
+//     no witness, no owned parameter (V5), at most one result;
 //   - its body has no loop (a loop amortizes its call) and at most
 //     inlineBudget syntax nodes;
 //   - it is not recursive: no chain of calls from its body reaches it;
@@ -144,7 +144,7 @@ func (l *lowerer) inlineRule(f *check.Func) bool {
 	}
 	info := f.Pkg.Info
 	s := f.Sig
-	if s.ResultIsTask() || info.TaskResults[f] || len(witnessParams(s)) > 0 || len(rowElems(s.Uses)) > 0 || len(s.Results) > 1 {
+	if s.ResultIsTask() || info.TaskResults[f] || len(witnessParams(s)) > 0 || len(s.Results) > 1 {
 		return false
 	}
 	fp, ok := info.Footprints[d]
