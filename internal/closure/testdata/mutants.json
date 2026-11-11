@@ -66,6 +66,96 @@
       "rule": "The code is in a test file, which the cover tool does not instrument. A runsAlone name that is not a test of its package fails the sweep.",
       "killers": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"],
       "anchor": {"tests": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"]}
+    },
+    {
+      "name": "g16fix2-store-unseeded",
+      "origin": "wf10 batch-16 16b gate-fix-2 r3",
+      "file": "internal/closure/closure_test.go",
+      "from": "if std != \"\" {\n\t\tif _, err := seedCache(std, cache); err != nil {",
+      "to": "if false {\n\t\tif _, err := seedCache(std, cache); err != nil {",
+      "rule": "The code is in a test file, which the cover tool does not instrument. Each package's shared cache starts from the std store.",
+      "killers": ["internal/closure:TestSharedCacheKeepsEachPackagesInputs"],
+      "anchor": {"tests": ["internal/closure:TestSharedCacheKeepsEachPackagesInputs"]}
+    },
+    {
+      "name": "g16fix2-seed-skips-entries",
+      "origin": "wf10 batch-16 16b gate-fix-2 r3",
+      "file": "internal/closure/stdcache_test.go",
+      "from": "if !sub.IsDir() || len(sub.Name()) != 2 {",
+      "to": "if !sub.IsDir() || len(sub.Name()) != 3 {",
+      "rule": "The code is in a test file, which the cover tool does not instrument. seedCache places every entry of the store.",
+      "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles", "internal/closure:TestSharedCacheKeepsEachPackagesInputs"],
+      "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles", "internal/closure:TestSharedCacheKeepsEachPackagesInputs"]}
+    },
+    {
+      "name": "g16fix2-store-cgo-on",
+      "origin": "wf10 batch-16 16b gate-fix-2 r3",
+      "file": "internal/closure/stdcache_test.go",
+      "from": "env: []string{\"CGO_ENABLED=0\", \"GOOS=\"",
+      "to": "env: []string{\"GOOS=\"",
+      "rule": "The code is in a test file, which the cover tool does not instrument. The store's builds run no C linker, whose cwd lookups are declared inputs (everyPackage) the store would hide.",
+      "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
+      "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
+    },
+    {
+      "name": "g16fix2-store-goroot-in-checkout",
+      "origin": "wf10 batch-16 16b gate-fix-2 r3",
+      "file": "internal/closure/stdcache_test.go",
+      "from": "err != nil || rel == \".\" || !strings.HasPrefix(rel, \"..\")",
+      "to": "err != nil || rel == \"\"",
+      "rule": "The code is in a test file, which the cover tool does not instrument. A GOROOT inside the checkout is refused: its compiles would hide inputs.",
+      "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
+      "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
+    },
+    {
+      "name": "g16fix2-store-built-in-checkout",
+      "origin": "wf10 batch-16 16b gate-fix-2 r3",
+      "file": "internal/closure/stdcache_test.go",
+      "from": "build.Dir = work",
+      "to": "build.Dir = root",
+      "rule": "The code is in a test file, which the cover tool does not instrument. The store's builds run outside the checkout.",
+      "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
+      "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
+    },
+    {
+      "name": "g16fix2-store-other-toolchain",
+      "origin": "wf10 batch-16 16b gate-fix-2 r3",
+      "file": "internal/closure/stdcache_test.go",
+      "from": "\"GOTOOLCHAIN=\" + settings[\"GOVERSION\"]",
+      "to": "\"GOTOOLCHAIN=local\"",
+      "rule": "The code is in a test file, which the cover tool does not instrument. The store is built by the toolchain the checkout selects.",
+      "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
+      "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
+    },
+    {
+      "name": "g16fix2-store-refilled",
+      "origin": "wf10 batch-16 16b gate-fix-2 r3",
+      "file": "internal/closure/stdcache_test.go",
+      "from": "if _, err := os.Stat(filepath.Join(store, stdStoreComplete)); err == nil {",
+      "to": "if false {",
+      "rule": "The code is in a test file, which the cover tool does not instrument. A complete store is reused, not built again.",
+      "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
+      "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
+    },
+    {
+      "name": "g16fix2-store-writable",
+      "origin": "wf10 batch-16 16b gate-fix-2 r3",
+      "file": "internal/closure/stdcache_test.go",
+      "from": "return os.Chmod(p, 0o444)",
+      "to": "return nil",
+      "rule": "The code is in a test file, which the cover tool does not instrument. The store's files are read-only, so no run changes an entry through its link.",
+      "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
+      "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
+    },
+    {
+      "name": "g16fix2-store-keeps-stale",
+      "origin": "wf10 batch-16 16b gate-fix-2 r3",
+      "file": "internal/closure/stdcache_test.go",
+      "from": "if e.Name() != \"lock\" {",
+      "to": "if false {",
+      "rule": "The code is in a test file, which the cover tool does not instrument. A fill removes the stores of other toolchains, so the store directory does not grow.",
+      "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
+      "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
     }
   ]
 }

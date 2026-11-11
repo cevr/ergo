@@ -678,6 +678,10 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if err := checkSandboxAsATest(protect, root, filepath.Join(work, "sandbox.out")); err != nil {
 		t.Fatalf("the sweep cannot run: %v", err)
 	}
+	std, err := fillStdStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	closures, all := modulePackages(t, root)
 	targets, skipped, errs := sweepTargets(selection, closures, all, unsweepable)
 	for _, err := range errs {
@@ -722,7 +726,7 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			name := strings.ReplaceAll(dir, "/", "_")
-			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], sem)
+			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], std, sem)
 			results[i].took = took
 			if err != nil {
 				results[i].err = err
@@ -956,7 +960,7 @@ func modulePackages(t *testing.T, root string) (map[string]closure, []string) {
 // and stem.out, of a run of a split package to stem.<i>.log and
 // stem.<i>.out. took says how long the build and each run took once it
 // held its slot.
-func runPackage(root, protect string, roots []string, dir, binary, stem string, costs map[string]float64, sem chan struct{}) (entries []entry, took string, err error) {
+func runPackage(root, protect string, roots []string, dir, binary, stem string, costs map[string]float64, std string, sem chan struct{}) (entries []entry, took string, err error) {
 	sem <- struct{}{}
 	start := time.Now()
 	err = buildTestBinary(root, dir, binary)
@@ -974,7 +978,7 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 	if err != nil {
 		return nil, took, err
 	}
-	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, sem, nil)
+	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, std, sem, nil)
 	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(durations, " "))
 	return entries, took, err
 }
@@ -994,13 +998,20 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 // build read: those reads are in the log of the run of this package that
 // made the entry, so the union of the runs, which the closure checks, has
 // them still. A cache that another package's runs filled would hide them
-// (TestSharedCacheKeepsEachPackagesInputs).
-func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, plan []sweepRun, sem chan struct{}, extra []string) ([]entry, []string, error) {
+// (TestSharedCacheKeepsEachPackagesInputs). A std store (std, when not
+// empty; fillStdStore) seeds the cache with the standard library's
+// compiles, which read nothing in the working tree.
+func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, plan []sweepRun, std string, sem chan struct{}, extra []string) ([]entry, []string, error) {
 	cache, err := newSharedCache()
 	if err != nil {
 		return nil, nil, err
 	}
 	defer removeTree(cache)
+	if std != "" {
+		if _, err := seedCache(std, cache); err != nil {
+			return nil, nil, fmt.Errorf("seeding the shared cache from the std store %s: %w", std, err)
+		}
+	}
 	runs := make([][]entry, len(plan))
 	errs := make([]error, len(plan))
 	durations := make([]string, len(plan))
