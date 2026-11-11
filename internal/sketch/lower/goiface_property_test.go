@@ -116,9 +116,9 @@ var cannotUse = regexp.MustCompile(`^cannot use .+ as .+: \S`)
 // each with its reason; a value of a type of the program whose functions
 // provide the operations (a record, a generic record's instance, a named
 // basic type, a borrow of one, an element of a multi-name let), from a
-// pure frame or one that needs go.Foreign, converts through the adapter,
-// whose Go type-checks; and a sealed std protocol's
-// value is refused with its reason or admitted and type-checks. The
+// pure frame or a frame with go.Foreign in its row, converts through the
+// adapter, whose Go type-checks; and a sealed std protocol's value is
+// refused with its reason or admitted and type-checks. The
 // targets are fmt.Stringer, io.Writer, io.Reader, sort.Interface, the
 // error type go.Error and a Go interface of the user's own Go package.
 // No case is an internal compiler error. Replay one case with
