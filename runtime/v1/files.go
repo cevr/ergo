@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -178,12 +179,25 @@ type Param struct {
 // the function Go, "Queue.Push" for the method Push of Queue. It fails when
 // there is no such exported declaration, or when its parameters break the
 // convention: a hidden type after an Ergo parameter, out of order or twice.
+// It reads bodyTable, which TestBodyTableIsCurrent generates from Source
+// with goDecls.body and fails on when it is stale, so it parses nothing
+// (CHK1).
 func BodyOf(name string) (Body, error) {
-	decls, err := sourceDecls()
-	if err != nil {
-		return Body{}, err
+	f, ok := bodyTable[name]
+	if !ok {
+		return Body{}, fmt.Errorf("runtime/v1: no exported Go body %s", name)
 	}
-	return decls.body(name)
+	if f.refusal != "" {
+		return Body{}, errors.New(f.refusal)
+	}
+	return f.body, nil
+}
+
+// bodyFact is one row of bodyTable: a body's shape, or the text of the
+// error goDecls.body refuses it with.
+type bodyFact struct {
+	body    Body
+	refusal string
 }
 
 // sourceDecls parses Source once per process.
