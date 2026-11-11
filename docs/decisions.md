@@ -9,7 +9,7 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 
 ## Owner direction, 2026-11-10
 
-- **HTTP core and explicit JSON presence (2026-11-10, q84-q85).** The owner approved the HTTP server core first (q84), and separate `json.Optional[T]` and `json.Nullable[T]` wrappers (q85). An absent field is not a present null. These are public language and std choices; no application context is part of this record. Rules: [stdlib.md](spec/stdlib.md), HTTP and JSON. Principles: explicit contracts, closed alternatives and one rule for wire presence. This entry records the choices, not a verbatim quotation.
+- **HTTP core and explicit JSON presence (2026-11-10, q84-q85).** The owner approved the HTTP server core first (q84), and separate `json.Optional[T]` and `json.Nullable[T]` wrappers (q85). An absent field is not a present null. These are public language and std choices; no application context is part of this record. Rules: [stdlib.md](spec/stdlib.md), HTTP and JSON. Principles: explicit contracts, closed alternatives and one rule for JSON field presence. This entry records the choices, not a verbatim quotation.
 
 - **Binary retention, tracing and symbols (2026-11-10, q91-q93).** The owner accepted the binary-size plan's recommendations: unreachable package `let` initializers do not run (q91); the trace sink stays available, with no `fmt` or `reflect` dependency (q92); `ergo build` strips symbols by default and `--debug` keeps them (q93). These are the chosen contracts, not a claim that every planned unit has landed. Principles: unused features cost nothing, traceability remains available, and performance claims require matched receipts. This entry records the choices, not a verbatim quotation.
 

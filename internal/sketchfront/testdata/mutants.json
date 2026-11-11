@@ -1,8 +1,8 @@
 {
   "about": "Build-time embedding mutants. The focused unit runner runs the named sketchfront tests; runtime tree-prefix behavior is also exercised by the embedded-assets example.",
   "mutants": [
-    {"name":"embed-missing-directive-tree","file":"internal/sketch/lower/embed.go","from":"l.user.WriteString(\"//go:embed \" + strings.Join","to":"l.user.WriteString(\"//not-embedded \" + strings.Join","killers":["sketchfront:TestEmbeddedAssetsSnapshot"]},
-    {"name":"embed-missing-directive-file","file":"internal/sketch/lower/embed.go","from":"l.user.WriteString(\"//go:embed \" + strconv.Quote","to":"l.user.WriteString(\"//not-embedded \" + strconv.Quote","killers":["sketchfront:TestEmbeddedAssetsSnapshot"]},
+    {"name":"embed-missing-directive-tree","file":"internal/sketch/lower/embed.go","from":"l.user.WriteString(\"//go:embed \" + strings.Join","to":"l.user.WriteString(\"//not-embedded \" + strings.Join","killers":["internal/sketchfront:TestEmbeddedAssetsSnapshot"],"anchor":{"tests":["internal/sketchfront:TestEmbeddedAssetsSnapshot"]}},
+    {"name":"embed-missing-directive-file","file":"internal/sketch/lower/embed.go","from":"l.user.WriteString(\"//go:embed \" + strconv.Quote","to":"l.user.WriteString(\"//not-embedded \" + strconv.Quote","killers":["internal/sketchfront:TestEmbeddedAssetsSnapshot"],"anchor":{"tests":["internal/sketchfront:TestEmbeddedAssetsSnapshot"]}},
     {"name":"embed-payload-not-keyed","file":"internal/sketchfront/embed.go","from":"l.texts[filepath.ToSlash(rel)] = string(data)","to":"_ = rel","killers":["sketchfront:TestEmbeddedAssetsSnapshot"]},
     {"name":"embed-asset-dropped","file":"internal/sketch/lower/embed.go","from":"Data: slices.Clone(byPath[name])","to":"Data: nil","killers":["sketchfront:TestEmbeddedAssetsSnapshot"]},
     {"name":"embed-parent-escape","file":"internal/sketchfront/embed.go","from":"!fs.ValidPath(pattern)","to":"false","killers":["sketchfront:TestEmbeddedDiagnostics"]},
