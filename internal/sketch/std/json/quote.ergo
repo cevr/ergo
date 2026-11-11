@@ -1,0 +1,72 @@
+import hex
+
+// quote is s as a JSON string, the text Key and String write: '"', '\',
+// the control bytes (\n, \r and \t by name) and U+2028/U+2029 escaped,
+// and, when html, <, > and & as \u003c, \u003e and \u0026. A byte of
+// invalid UTF-8 is \udcXX of the byte (hex.Encode, an extern the
+// check-time evaluator does not run, so a key with one is not folded).
+// KeyFolds holds it to the Go writer.
+func quote(s string, html bool) string {
+	let mut out = "\""
+	let mut start = 0
+	let mut at = -1
+	let mut cur = 0
+	for i, r in s {
+		if at >= 0 {
+			let e = escaped(s, at, i, cur, html)
+			if e != "" {
+				out = out + s[start:at] + e
+				start = i
+			}
+		}
+		at = i
+		cur = int(r)
+	}
+	if at >= 0 {
+		let e = escaped(s, at, len(s), cur, html)
+		if e != "" {
+			out = out + s[start:at] + e
+			start = len(s)
+		}
+	}
+	out + s[start:] + "\""
+}
+
+// escaped is the escape of the rune r at s[at:end], or "" when it is
+// written as it is.
+func escaped(s string, at int, end int, r int, html bool) string {
+	if r == 34 {
+		return "\\\""
+	}
+	if r == 92 {
+		return "\\\\"
+	}
+	if r == 10 {
+		return "\\n"
+	}
+	if r == 13 {
+		return "\\r"
+	}
+	if r == 9 {
+		return "\\t"
+	}
+	if r < 32 {
+		return "\\u00" + hexByte(r)
+	}
+	if html && (r == 60 || r == 62 || r == 38) {
+		return "\\u00" + hexByte(r)
+	}
+	if r == 0x2028 || r == 0x2029 {
+		return "\\u20" + hexByte(r % 256)
+	}
+	if r == 0xFFFD && end - at == 1 {
+		return "\\udc" + hex.Encode(s[at:end])
+	}
+	""
+}
+
+// hexByte is the two lower-case hex digits of b, 0 <= b < 256.
+func hexByte(b int) string {
+	let digits = "0123456789abcdef"
+	digits[b / 16:b / 16 + 1] + digits[b % 16:b % 16 + 1]
+}

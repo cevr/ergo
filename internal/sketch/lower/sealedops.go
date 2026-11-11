@@ -120,7 +120,7 @@ func (fc *funcCtx) sealedMethod(tc *typeCtx, recv string, from *check.Named, fro
 	}
 	mc.bindDeferred(std, vals)
 	call := mc.stdResult(std, result, env, site, func(env string) string {
-		return mc.runtimeCall(from.Obj.Name+"."+op.Name, std, "", vals[0], vals[1:], env, nil, nil, site)
+		return mc.runtimeCall(from.Obj.Name+"."+runtimeMember(op.Name), std, "", vals[0], vals[1:], env, nil, nil, site)
 	})
 	goVal, goErr := goValue(std), goFallible(std)
 	v, err := "_", "_"

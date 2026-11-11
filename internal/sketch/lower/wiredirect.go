@@ -102,7 +102,7 @@ func directOps(from, to *check.Named) bool {
 		return false
 	}
 	for _, op := range iface.Methods {
-		if runtimeBindings[from.Obj.Name+"."+op.Name] != (runtimeBinding{task: true}) {
+		if runtimeBindings[from.Obj.Name+"."+runtimeMember(op.Name)] != (runtimeBinding{task: true}) {
 			return false
 		}
 	}

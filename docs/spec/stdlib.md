@@ -339,6 +339,7 @@ Std `json` (S-json) writes and reads the derived codec's events ([types.md, Code
 3. **Two phases.** `Open` checks the whole text: one value with white space around it, at most `MaxBytes` bytes (no limit when not positive) and `MaxDepth` levels of lists and objects (10000, `encoding/json/v2`'s, when not positive), else `Malformed` with the offset and the rule. Then `decode[T]` builds the value and fails only on its shape, with the member's path (`units[0].replicas`). Unknown keys are skipped and of two members with one key the last wins (`encoding/json`).
 4. **Direct writer.** An `encode(v, t)` whose `t` is a `Text` writes through the Text's own methods, with no adapter and no interface call: a sealed std type whose runtime methods are the `Writer`'s Go methods keeps its representation, and the codec functions are made for its Go type (`lower/wiredirect.go`; serde's monomorphisation over the writer). The rule reads checked facts, never json's name (`TestLoweringKeysOnNoStdName`); a codec witness carries the direct function, so `Encode`, generic over `T`, takes it. The Writer path stays the reference: `-X …/lower.wireLowering=writer` lowers every encode through the `Writer` interface, and an encode whose writer is typed `Writer` takes it in every build.
 5. **Laws.** `RoundTrips`, `FastAgreesWithWriter` (the direct path writes what the Writer path writes, in a `Text` and an HTML `Text`, inside events too), `TruncatedFails` and `DepthLimits`; lower `TestStdJSONLawsRun` runs them, with `JsonFastRefinedPair` for a refined field and a by-name pair, which std cannot declare.
+6. **Text's parts** (LR3a). `Text` states each event as its parts, package-private operations (owner q111): `sep` (the comma one is due), `raw` (constant text, state unchanged), `setComma`/`commaDue` (the one state), `html`, and a body per value and for a key (`keyBody`, `stringBody`, `intBody`, …), each without a comma. Its member laws ([types.md](types.md#laws), Laws 14) state the events as parts (`KeyParts`, `IntParts`, …), the state `setComma` leaves (`SetCommaSets`, a post law), the comma's constant form where the state is known (`SepNoneDue`, `SepDue`), a key's constant text (`KeyFolds`, `KeyFoldsHTML`: `quote` is pure Ergo, which the check-time evaluator computes) and the joins of constant text (`RawJoins`, `SetCommaLast`, `SetCommaSinks`). Together they give the keyed form `{"a":1,"b":"x"}` as constant text and value bodies. They are checked, not run (#162: a std operation type has no provider a run can build; the ledger rows say `checked`), and the build applies a rewrite law only when its run is proved (owner q115), so none applies yet. Lower `TestJSONKeyFoldAgrees` holds `quote` to the Go writer, through the fold the engine makes. A part's Go method is its name with the first letter raised (`Raw`), so generated code can call it.
 
 *Prior art:* Go's `encoding/json` (reflection, a cached encoder per type, `checkValid` before decoding) and `encoding/json/v2` (`jsontext` tokens, depth 10000, no HTML escaping, duplicate names refused); serde_json's format-specialised `Serializer` the derive calls; Elixir's `Jason.Encoder` derive with pre-escaped keys; Gleam's `gleam/json` (encoders and decoders written by hand as values); ReScript's `JSON.stringify` and `rescript-schema`.
 
@@ -1278,6 +1279,27 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `json` | `NestedRoundTrips` | `NestedRoundTrips(v Option[Option[int]]) { nestedRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
 | `json` | `ValueRoundTrips` | `ValueRoundTrips(d doc) { valueRoundTrips(d) }` | `TestJSONValueAgrees` | tested |
 | `json` | `TruncatedFails` | `TruncatedFails(v fleet, cut int) { let text = Encode(codec(), v) let n = if cut < 0 { -(cut + 1) } else { cut } let short = text[:n % len(text)] let _ = Decode(codec(), short) catch { case Malformed: return true case _: return false } false }` | `TestStdJSONLawsRun` | tested |
+| `json` | `Text.KeyParts` | `KeyParts(k string) { Key(k) } == { sep(); keyBody(k); setComma(false) }` | `#162` | checked |
+| `json` | `Text.StringParts` | `StringParts(s string) { String(s) } == { sep(); stringBody(s); setComma(true) }` | `#162` | checked |
+| `json` | `Text.IntParts` | `IntParts(n int64) { Int(n) } == { sep(); intBody(n); setComma(true) }` | `#162` | checked |
+| `json` | `Text.UintParts` | `UintParts(n uint64) { Uint(n) } == { sep(); uintBody(n); setComma(true) }` | `#162` | checked |
+| `json` | `Text.BoolParts` | `BoolParts(b bool) { Bool(b) } == { sep(); boolBody(b); setComma(true) }` | `#162` | checked |
+| `json` | `Text.FloatParts` | `FloatParts(f float64) { Float(f) } == { sep(); floatBody(f); setComma(true) }` | `#162` | checked |
+| `json` | `Text.NullParts` | `NullParts() { Null() } == { sep(); raw("null"); setComma(true) }` | `#162` | checked |
+| `json` | `Text.NumberParts` | `NumberParts(text string) { Number(text) } == { sep(); raw(text); setComma(true) }` | `#162` | checked |
+| `json` | `Text.TagParts` | `TagParts(name string) { Tag(name) } == { sep(); raw("\"_tag\":"); stringBody(name); setComma(true) }` | `#162` | checked |
+| `json` | `Text.BeginObjectParts` | `BeginObjectParts(n int) { BeginObject(n) } == { sep(); raw("{"); setComma(false) }` | `#162` | checked |
+| `json` | `Text.EndObjectParts` | `EndObjectParts() { EndObject() } == { raw("}"); setComma(true) }` | `#162` | checked |
+| `json` | `Text.BeginListParts` | `BeginListParts(n int) { BeginList(n) } == { sep(); raw("["); setComma(false) }` | `#162` | checked |
+| `json` | `Text.EndListParts` | `EndListParts() { EndList() } == { raw("]"); setComma(true) }` | `#162` | checked |
+| `json` | `Text.SetCommaSets` | `SetCommaSets(due bool) { setComma(due); commaDue() == due }` | `#162` | checked |
+| `json` | `Text.SepNoneDue` | `SepNoneDue() when commaDue() == false { sep() } == { }` | `#162` | checked |
+| `json` | `Text.SepDue` | `SepDue() when commaDue() == true { sep() } == { raw(",") }` | `#162` | checked |
+| `json` | `Text.KeyFolds` | `KeyFolds(k string) when html() == false { keyBody(k) } == { raw(quote(k, false) + ":") }` | `#162` | checked |
+| `json` | `Text.KeyFoldsHTML` | `KeyFoldsHTML(k string) when html() == true { keyBody(k) } == { raw(quote(k, true) + ":") }` | `#162` | checked |
+| `json` | `Text.RawJoins` | `RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) }` | `#162` | checked |
+| `json` | `Text.SetCommaLast` | `SetCommaLast(p bool, q bool) { setComma(p); setComma(q) } == { setComma(q) }` | `#162` | checked |
+| `json` | `Text.SetCommaSinks` | `SetCommaSinks(p bool, text string) { setComma(p); raw(text) } == { raw(text); setComma(p) }` | `#162` | checked |
 
 *Prior art:* Haskell states class laws beside the class and runs them with QuickCheck's `prop_` functions; Elixir's `StreamData` states properties beside `test`; MoonBit ships its core with property tests; Gleam and ReScript state none in source. Ergo states each law in the std source, where a reader of the std sees it, and keeps the Go test that runs it in one ledger until #162.
 

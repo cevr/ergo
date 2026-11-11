@@ -161,6 +161,48 @@ func (t *Text) Key(task *rt.Task, k string) {
 // Written is the text written so far.
 func (t *Text) Written() string { return string(t.B) }
 
+// The parts of the events, std json's package-private operations of Text
+// (raw, sep, comma, setComma, html, keyBody and the value bodies): the
+// laws of json.Text state each event as its parts and the constant form
+// of a part. A part's Go method is its operation's name with the first
+// letter raised (the lowering's runtime member name).
+
+// Raw appends text as it is; the comma state is unchanged.
+func (t *Text) Raw(task *rt.Task, text string) { t.B = append(t.B, text...) }
+
+// Sep writes the comma a value or a key needs: one when one is due.
+func (t *Text) Sep(task *rt.Task) { t.JSONValue() }
+
+// CommaDue reports that the next value or key needs a comma.
+func (t *Text) CommaDue() bool { return t.Comma }
+
+// SetComma sets whether the next value or key needs a comma.
+func (t *Text) SetComma(task *rt.Task, due bool) { t.Comma = due }
+
+// Html reports that strings escape <, > and &.
+func (t *Text) Html() bool { return t.HTML }
+
+// KeyBody writes k quoted and its colon, with no comma.
+func (t *Text) KeyBody(task *rt.Task, k string) {
+	JSONAppendTextString(t, k)
+	t.B = append(t.B, ':')
+}
+
+// StringBody writes s quoted, with no comma.
+func (t *Text) StringBody(task *rt.Task, s string) { JSONAppendTextString(t, s) }
+
+// IntBody writes n's digits, with no comma.
+func (t *Text) IntBody(task *rt.Task, n int64) { t.B = JSONAppendInt(t.B, n) }
+
+// UintBody writes n's digits, with no comma.
+func (t *Text) UintBody(task *rt.Task, n uint64) { t.B = JSONAppendUint(t.B, n) }
+
+// BoolBody writes true or false, with no comma.
+func (t *Text) BoolBody(task *rt.Task, b bool) { t.B = JSONAppendBool(t.B, b) }
+
+// FloatBody writes f as encoding/json does, with no comma.
+func (t *Text) FloatBody(task *rt.Task, f float64) { t.B = JSONAppendFloat(t.B, f) }
+
 // JSONAppendFloat appends f in the form encoding/json writes (ES6
 // Number.prototype.toString: shortest digits, an exponent below 1e-6 and
 // from 1e21), and NaN and the infinities as the strings "NaN", "Infinity"
