@@ -959,6 +959,9 @@ type Law struct {
 	// Where holds the refinement of each parameter that takes a where
 	// (refine.go), at its index in Params; nil without any.
 	Where []*Refinement
+	// Rewrite is the checked form of a rewrite law (Decl.Rewrite; types.md,
+	// Laws 14), nil for any other law or one whose shape was refused.
+	Rewrite *Rewrite
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }

@@ -593,6 +593,21 @@ func (p *printer) memberLaw(l *syntax.LawDecl) {
 	}
 	p.fieldList(l.Params, "(", ")")
 	p.space()
+	if r := l.Rewrite; r != nil {
+		// The rewrite form (types.md, Laws 14): its Body is synthetic.
+		if r.Guard != nil {
+			p.token(r.When, "when")
+			p.space()
+			p.expr(r.Guard)
+			p.space()
+		}
+		p.lawBody(r.Lhs)
+		p.space()
+		p.token(r.Eq, "==")
+		p.space()
+		p.lawBody(r.Rhs)
+		return
+	}
 	p.lawBody(l.Body)
 }
 

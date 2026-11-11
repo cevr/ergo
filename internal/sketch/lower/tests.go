@@ -82,6 +82,8 @@ type testLowering struct {
 	// lawPkgs are the imported packages whose laws the build lowers
 	// (owners.go, viewOf), set on first use.
 	lawPkgs map[*check.Package]bool
+	// instances are the unit's site instances of rewrite laws.
+	instances []RewriteInstance
 }
 
 // LowerTests lowers the checked unit to the Go module of its test binary:
@@ -91,7 +93,7 @@ func LowerTests(u Unit) ([]File, error) {
 	if err := u.Validate(); err != nil {
 		return nil, err
 	}
-	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
+	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances})
 	code, err := l.program()
 	if err != nil {
 		return nil, err
@@ -153,6 +155,13 @@ func (l *lowerer) nameTests() {
 	}
 	for _, r := range l.runLaws() {
 		l.lawFunc(r.Law)
+		if r.Law.Rewrite != nil {
+			l.rewriteSide(r.Law, false)
+			l.rewriteSide(r.Law, true)
+			if r.Law.Rewrite.Guard != nil {
+				l.rewriteGuard(r.Law)
+			}
+		}
 	}
 	// The key functions of the states of the machines whose reachability
 	// laws run (machinelaws.go, State keys).
@@ -200,6 +209,14 @@ func (l *lowerer) genRoots(f func(check.Type)) {
 		for i, v := range law.Params {
 			if !lawSlotParam(law, i) && !generic {
 				f(v.Type)
+			}
+		}
+		if law.Rewrite != nil {
+			// A rewrite law (rewritelaw.go) draws its steps' arguments.
+			for _, m := range law.Rewrite.Steps {
+				for _, p := range m.Sig.Params {
+					f(p.Type)
+				}
 			}
 		}
 		if law.Decl.Reach != nil {
@@ -377,6 +394,10 @@ func (l *lowerer) lawFunc(law *check.Law) string {
 // error. A member law's bare operation calls read the capability of its
 // operation type from env, which the run binds to the provider under test.
 func (l *lowerer) lawDecl(law *check.Law) {
+	if law.Rewrite != nil {
+		l.rewriteDecl(law)
+		return
+	}
 	d := law.Decl
 	l.tests.law = law
 	defer func() { l.tests.law = nil }()
@@ -930,6 +951,10 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
 	for _, tg := range targets {
+		if law.Rewrite != nil {
+			l.rewriteRuns(b, law, tg.label, tg.b[0], scope, env, seed, failed, at)
+			continue
+		}
 		plan := testplan.Law(law, tg.b)
 		// One rule for every law (Listed laws): a run whose values can
 		// all be listed takes each once and is proved; else it draws.
@@ -1313,6 +1338,13 @@ func $Record(label string, r *$Rand, why string) {
 	default:
 		rec += ", \"status\": \"tested\", \"cases\": " + $strconv.Itoa(r.cases)
 	}
+	if r != nil && r.rewrite {
+		insts := make([]string, len(r.instances))
+		for i, s := range r.instances {
+			insts[i] = $JSON(s)
+		}
+		rec += ", \"rewrite\": true, \"admitted\": " + $strconv.Itoa(r.admitted) + ", \"instances\": [" + $strings.Join(insts, ", ") + "]"
+	}
 	$Receipt.laws = append($Receipt.laws, rec+"}")
 }
 
@@ -1432,6 +1464,12 @@ type $Rand struct {
 	cases   int
 	failure string
 	proved  bool
+	// A rewrite law's run (rewritelaw.go): the cases its guard admitted,
+	// and the site instances among its cases, which its receipt entry
+	// lists.
+	rewrite   bool
+	admitted  int
+	instances []string
 }
 
 // start begins case i of a run: its size is i/4, and its world is empty,

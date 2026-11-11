@@ -48,6 +48,10 @@ type Unit struct {
 	Sources []Source
 	Imports []Unit
 	Go      GoModule
+	// Instances are the site instances of rewrite laws that the test
+	// build runs as cases of their own (rewritelaw.go); the run build
+	// ignores them.
+	Instances []RewriteInstance
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose
