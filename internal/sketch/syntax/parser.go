@@ -500,6 +500,10 @@ func (p *parser) parseTypeDecl(doc *CommentGroup) *TypeDecl {
 	if p.tok.tok == LBRACK && !p.opensCollection(0) {
 		d.TypeParams = p.parseTypeParams()
 	}
+	if p.atDerive() {
+		p.parseDerive(d) // derive.go
+		return d
+	}
 	switch p.tok.tok {
 	case LBRACE:
 		d.Spec = p.parseMembersType()

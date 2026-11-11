@@ -47,6 +47,13 @@ func (p *printer) decl(d syntax.Decl) {
 			p.fieldList(d.TypeParams, "[", "]")
 		}
 		p.space()
+		if d.Derive != nil {
+			// As written: the bundle it derives is not printed.
+			p.token(d.DerivePos, "derive")
+			p.space()
+			p.expr(d.Derive)
+			return
+		}
 		switch t := d.Spec.(type) {
 		case *syntax.InterfaceType:
 			if t.Union != nil {

@@ -157,6 +157,12 @@ type TypeDecl struct {
 	// type's parse function and law from it (refine.go).
 	WherePos Pos
 	Where    Expr
+	// DerivePos and Derive are `derive E` (patterns.md, Derivation;
+	// derive.go), or NoPos and nil. Origin is the derived type a bundle
+	// declaration was derived from, or nil for a written one.
+	DerivePos Pos
+	Derive    Expr
+	Origin    *TypeDecl
 }
 
 // FuncDecl is a function, or with Extern set and Body nil, the Go binding
