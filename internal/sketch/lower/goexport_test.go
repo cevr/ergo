@@ -174,7 +174,9 @@ func main() {
 // lets never run (Hello prints "go"); a slice result not copied (nums 99);
 // the once forgets that the lets failed (the second bad.Get returns 1,
 // nil: batch-15 IG11 M1); Call watches ctx in a goroutine it never stops
-// (leaked 1: mutant ig11-call-watcher-leaks).
+// (leaked 1: mutant ig11-call-watcher-leaks); Call's watcher never ends
+// after a cancel (Call waits for it, so Wait never returns and the
+// deadline names it: mutant 16a-r5-cancel-watcher-stuck).
 //
 // It builds Go because the subject is a Go program calling emitted Go: only
 // go build and a run show the exported functions, the adapter and the
