@@ -20,7 +20,7 @@ Every `ergo` command reads one `.ef` source through one front end, `internal/ske
 
 A command that does not run prints one line to stderr, `ergo NAME: ` and the text in the table, prints nothing to stdout and exits 1, before it reads its arguments: `ergo graph --help` prints the stub too. `ergo --help` lists only the commands that run. An unknown word is `unknown command X; use ergo --help`, exit 1. The [retirement record](receipts/retire-ef.md) lists what [#203](https://github.com/cevr/ergo/issues/203) restores.
 
-Go is the only target. `--target` accepts only `go`, the default; any other value is the EF110 refusal. `--strict` and `--json` belong to `diagnostics`, `-o` and `--platform` to `build`, `-work` to `build` and `test`, `--seed` to `check` and `test`, and `--eval-steps` and `--eval-bytes` to `check`; any other option is unknown: exit 2 for `diagnostics`, `fmt` and `test`, exit 1 for `check`, `build` and `run`.
+Go is the only target. `--target` accepts only `go`, the default; any other value is the EF110 refusal. `--strict` and `--json` belong to `diagnostics`, `-o` and `--platform` to `build`, `-work` to `build` and `test`, `--locked` to `build` and `run` (a stale or missing `ergo.laws` entry refuses the build; [runtime.md](spec/runtime.md#tests), Tests 10), `--seed` to `check` and `test`, and `--eval-steps` and `--eval-bytes` to `check`; any other option is unknown: exit 2 for `diagnostics`, `fmt` and `test`, exit 1 for `check`, `build` and `run`.
 
 ## Platforms
 
