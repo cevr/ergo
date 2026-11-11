@@ -23,6 +23,9 @@ func resetStdCache(t *testing.T) {
 	t.Helper()
 	check.ResetStdForTest()
 	stdCache.once = sync.Once{}
+	stdCache.mu.Lock()
+	stdCache.compiler = ""
+	stdCache.mu.Unlock()
 }
 
 // TestStdCacheWork is the disk-cache acceptance guard. The cold process
@@ -53,6 +56,11 @@ func TestStdCacheWork(t *testing.T) {
 		if stdSnapshotKey(compiler, edited) == key {
 			t.Fatalf("std source %s is not keyed", deps[i].Name)
 		}
+		edited = slices.Clone(deps)
+		edited[i].Name += "edit"
+		if stdSnapshotKey(compiler, edited) == key {
+			t.Fatalf("std package identity %s is not keyed", deps[i].Name)
+		}
 	}
 	root := t.TempDir()
 	UseStdCache(root)
@@ -82,6 +90,15 @@ func TestStdCacheWork(t *testing.T) {
 	// A truncated cache file is not a partially installed universe.
 	if err := os.WriteFile(path, data[:len(data)/2], 0o644); err != nil {
 		t.Fatal(err)
+	}
+	// A second check in this process must not touch the cache again:
+	// std may now hold lazily created instances of the caller's types.
+	if a := Check(source); len(a.Diagnostics) != 0 {
+		t.Fatal(a.Diagnostics)
+	}
+	unchanged, err := os.ReadFile(path)
+	if err != nil || string(unchanged) != string(data[:len(data)/2]) {
+		t.Fatalf("a second check rewrote the cache: %v", err)
 	}
 	run(false)
 	run(true) // fallback repairs the cache

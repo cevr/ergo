@@ -27,9 +27,10 @@ import (
 // the build cache, keyed by the toolchain.
 
 var stdCache struct {
-	mu   sync.Mutex
-	root string
-	once sync.Once
+	mu       sync.Mutex
+	root     string
+	compiler string
+	once     sync.Once
 }
 
 // UseStdCache makes this process read and write the checked std snapshot
@@ -53,7 +54,13 @@ func prepareStd() {
 	}
 	stdCache.once.Do(func() {
 		compiler, err := compilerIdentity()
-		if err != nil || !reusable(compiler) {
+		if err != nil {
+			return
+		}
+		stdCache.mu.Lock()
+		stdCache.compiler = compiler
+		stdCache.mu.Unlock()
+		if !reusable(compiler) {
 			return
 		}
 		path := filepath.Join(root, "std", stdSnapshotKey(compiler, stdDependencies())+".snap")
@@ -66,6 +73,17 @@ func prepareStd() {
 		}
 		writeSnapshot(path, data)
 	})
+}
+
+// preparedCompilerIdentity shares the producer already acquired for the std
+// key with the emission key. With the cache off, Build keeps its lazy acquire.
+func preparedCompilerIdentity() string {
+	stdCache.mu.Lock()
+	defer stdCache.mu.Unlock()
+	if stdCache.root == "" {
+		return ""
+	}
+	return stdCache.compiler
 }
 
 // reusable reports a compiler identity that names the compiler's bytes; a
