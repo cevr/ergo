@@ -7,6 +7,36 @@ import strings
 
 let Fast = context { engine.Engine: Engine }
 
+// R2-reallocate: Boolean matcher laws cannot see per-line scratch setup.
+// These counters count actual storage slots initialized, not allocations.
+test WorkspaceReusesStorage {
+	let c = NewSearchCompiled(try syntax.Parse("(c|m)at|h[aeiou]t"))
+	let mut w = NewWorkspace(c.program.Len())
+	let setup = w.Storage
+	for text in []string{"cat", "none", "hot!", "", "mat", "no", "hat"} {
+		let got = c.RunSearch(&w, text).Matched
+		assert got == NewCompiled(syntax.Search(try syntax.Parse("(c|m)at|h[aeiou]t"))).Matches(text)
+		assert w.Storage == setup
+	}
+	assert setup > 0
+}
+
+// R2-yield-stop: Boolean matching and iterator output equality do not
+// observe pulling the source after the consumer has stopped.
+test LinesStop {
+	let c = NewSearchCompiled(syntax.Literal("cat"))
+	let source = Seq[string](func(yield func(v string) bool) {
+		if !yield("cat") {
+			return
+		}
+		Unreachable("Lines pulled after its consumer stopped")
+	})
+	for line in c.Lines(source) {
+		assert line == "cat"
+		break
+	}
+}
+
 // matches reports whether the NFA matches pattern, parsed, on text.
 func matches(pattern string, text string) bool fails syntax.SyntaxError {
 	Compile(Engine, try syntax.Parse(pattern)).Matches(text)

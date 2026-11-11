@@ -25,6 +25,9 @@ func Matches(t Tree, text string) bool {
 	run(t.pattern, text, 0, func(j int) bool { j == len(text) })
 }
 
+// Lines is the simple per-text reference; the tree keeps no scratch.
+func Lines(t Tree, lines Seq[string]) Seq[string] { engine.Filter(t, lines) }
+
 // run reports whether n matches text from i to some j for which k(j)
 // holds.
 func run(n syntax.Node, text string, i int, k func(j int) bool) bool {

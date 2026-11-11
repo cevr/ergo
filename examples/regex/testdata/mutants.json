@@ -1,11 +1,92 @@
 {
-  "about": "R1 example search mutants, owned by nfa. SearchSkipsImpossibleStarts observes algorithmic work; SearchAgreesWithReferences covers new search semantics not exercised by the original whole-text laws.",
+  "about": "R1 search and R2 iterator-workspace mutants, owned by nfa. WorkspaceReusesStorage catches per-line storage setup invisible to Boolean agreement; WorkspaceAgreesWithReferences catches stale frontier/marks, frontier overwrite, lost epsilon branches and wrong acceptance mode. Matcher.LinesAgree and LinesStop cover iterator ordering and consumer stop.",
   "mutants": [
+    {
+      "name": "R2-stale-frontier",
+      "file": "examples/regex/nfa/workspace.ergo",
+      "from": "func reset(w *Workspace) {\n\tw.side = 0\n\tw.count = 0",
+      "to": "func reset(w *Workspace) {\n\tw.side = 0",
+      "rule": "A line starts with no frontier from the preceding line; WorkspaceAgreesWithReferences reuses storage across generated texts.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "R2-stale-marks",
+      "file": "examples/regex/nfa/workspace.ergo",
+      "from": "w.count = 0\n\tw.nextGeneration()\n}",
+      "to": "w.count = 0\n}",
+      "rule": "Reset advances the closure generation, even after an early accept.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "R2-frontier-alias",
+      "file": "examples/regex/nfa/workspace.ergo",
+      "from": "w.side = 1 - w.side",
+      "to": "w.side = w.side",
+      "rule": "A transition writes the other frontier, not the active frontier being read.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "R2-split-arm",
+      "file": "examples/regex/nfa/workspace.ergo",
+      "from": "w.includeWorkspace(p, s.Y)",
+      "to": "w.includeWorkspace(p, s.X)",
+      "rule": "Epsilon closure reaches both Split arms; the original Simulation and tree model reach both.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "R2-early-accept",
+      "file": "examples/regex/nfa/workspace.ergo",
+      "from": "if w.accepting(c.program) {",
+      "to": "if i == len(text) && w.accepting(c.program) {",
+      "rule": "Inside may accept before End.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "R2-whole",
+      "file": "examples/regex/nfa/workspace.ergo",
+      "from": "for i in 0..len(text) {\n\t\tif w.count == 0 {",
+      "to": "for i in 0..len(text) {\n\t\tif w.accepting(p) { return Work{Matched: true, Starts: 1, Transitions: i} }\n\t\tif w.count == 0 {",
+      "rule": "Whole accepts only at End, not when a prefix accepts.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "R2-reallocate",
+      "file": "examples/regex/nfa/workspace.ergo",
+      "from": "func reset(w *Workspace) {\n\tw.side = 0",
+      "to": "func reset(w *Workspace) {\n\tw.storage()\n\tw.side = 0",
+      "rule": "WorkspaceReusesStorage rejects repeating storage initialization per line even when outputs agree.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "R2-yield-stop",
+      "file": "examples/regex/nfa/workspace.ergo",
+      "from": "if c.RunSearch(&w, line).Matched && !yield(line) {\n\t\t\t\treturn",
+      "to": "if c.RunSearch(&w, line).Matched && !yield(line) {\n\t\t\t\tlet _ = line",
+      "rule": "LinesStop rejects pulling another source line after yield returns false.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "R2-rollover",
+      "file": "examples/regex/nfa/workspace.ergo",
+      "from": "w.marks[i] = 0",
+      "to": "w.marks[i] = w.marks[i]",
+      "rule": "Generation rollover must clear old marks before generation one is reused.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
     {
       "name": "R1-literal-machine",
       "file": "examples/regex/nfa/search.ergo",
-      "from": "if c.prefix.Complete {",
-      "to": "if false {",
+      "from": "func Measure(c SearchCompiled, text string) Work {\n\tif c.prefix.Complete {",
+      "to": "func Measure(c SearchCompiled, text string) Work {\n\tif false {",
       "rule": "Complete literals need no NFA starts or transitions.",
       "anchor": {"tests": ["examples:regex"]},
       "killers": ["examples:regex"]

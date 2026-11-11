@@ -1,0 +1,190 @@
+// A scan owns its mutable workspace. Compiled matchers contain none of it.
+// The two frontier spans share one allocation; switching spans changes an
+// index, never assigns a slice (which would copy an Ergo value).
+
+import slices
+import strings
+
+type Workspace {
+	frontiers  []int,
+	marks      []int,
+	width      int,
+	side       int,
+	count      int,
+	generation int,
+	Storage    int,
+}
+
+// NewWorkspace initializes storage once per iterator. Storage counts the
+// slots actually initialized, not host allocations or compiler copies.
+func NewWorkspace(width int) Workspace {
+	let mut w = Workspace{frontiers: []int{}, marks: []int{}, width: width, side: 0, count: 0, generation: 0, Storage: 0}
+	w.storage()
+	w
+}
+
+func storage(w *Workspace) {
+	w.frontiers = slices.Repeat([]int{0}, 2*w.width)
+	w.marks = slices.Repeat([]int{0}, w.width)
+	w.Storage += 3 * w.width
+}
+
+// nextGeneration clears marks only at rollover, never allocates storage.
+// The bound is representable on every supported Go int width.
+func nextGeneration(w *Workspace) {
+	w.generation += 1
+	if w.generation == 1073741824 {
+		for i in 0..w.width {
+			w.marks[i] = 0
+		}
+		w.generation = 1
+	}
+}
+
+func reset(w *Workspace) {
+	w.side = 0
+	w.count = 0
+	w.nextGeneration()
+}
+
+// includeWorkspace visits Split cycles once, keeping only byte readers
+// and Accept. Every closure has at most width members.
+func includeWorkspace(w *Workspace, p Program, pc int) {
+	if w.marks[pc] == w.generation {
+		return
+	}
+	w.marks[pc] = w.generation
+	match p.insts[pc] {
+	case Split as s:
+		w.includeWorkspace(p, s.X)
+		w.includeWorkspace(p, s.Y)
+	case _:
+		w.frontiers[w.side*w.width+w.count] = pc
+		w.count += 1
+	}
+}
+
+func accepting(w *Workspace, p Program) bool {
+	for i in 0..w.count {
+		match p.insts[w.frontiers[w.side*w.width+i]] {
+		case Accept:
+			return true
+		case _:
+		}
+	}
+	false
+}
+
+func consume(w *Workspace, p Program, c byte) {
+	let from = w.side * w.width
+	let count = w.count
+	w.side = 1 - w.side
+	w.count = 0
+	w.nextGeneration()
+	for i in 0..count {
+		let pc = w.frontiers[from+i]
+		match p.insts[pc] {
+		case Byte as b:
+			if b.C == c {
+				w.includeWorkspace(p, b.Next)
+			}
+		case AnyByte as a:
+			w.includeWorkspace(p, a.Next)
+		case Set as s:
+			if s.Class.Has(c) {
+				w.includeWorkspace(p, s.Next)
+			}
+		case Split, Accept:
+		}
+	}
+}
+
+// RunWhole reuses scratch but keeps the original machine's anchored End
+// acceptance. Simulation remains the independently selectable reference.
+func RunWhole(w *Workspace, p Program, text string) Work {
+	w.reset()
+	w.includeWorkspace(p, p.start)
+	let mut work = Work{Matched: false, Starts: 1, Transitions: 0}
+	for i in 0..len(text) {
+		if w.count == 0 {
+			return work
+		}
+		w.consume(p, text[i])
+		work.Transitions += 1
+	}
+	work.Matched = w.accepting(p)
+	work
+}
+
+// Lines owns scratch inside the iterator invocation, so nested or repeated
+// iterations over the same recipe cannot share mutable frontier storage.
+func Lines(c Compiled, lines Seq[string]) Seq[string] {
+	Seq[string](func(yield func(v string) bool) {
+		let mut w = NewWorkspace(c.program.Len())
+		for line in lines {
+			if w.RunWhole(c.program, line).Matched && !yield(line) {
+				return
+			}
+		}
+	})
+}
+
+func Lines(c SearchCompiled, lines Seq[string]) Seq[string] {
+	Seq[string](func(yield func(v string) bool) {
+		let mut w = NewWorkspace(c.program.Len())
+		for line in lines {
+			if c.RunSearch(&w, line).Matched && !yield(line) {
+				return
+			}
+		}
+	})
+}
+
+// RunSearch is the iterator path. Literal-complete patterns never start
+// an NFA. No-prefix programs retain R1's Search expansion.
+func RunSearch(c SearchCompiled, w *Workspace, text string) Work {
+	w.reset()
+	if c.prefix.Complete {
+		return Work{Matched: strings.Contains(text, c.prefix.Text), Starts: 0, Transitions: 0}
+	}
+	let mut work = Work{Matched: false, Starts: 0, Transitions: 0}
+	let mut next = 0
+	if c.prefix.Text == "" {
+		w.includeWorkspace(c.program, c.program.start)
+		work.Starts = 1
+		next = -1
+	} else {
+		next = strings.Index(text, c.prefix.Text)
+		if next < 0 {
+			return work
+		}
+	}
+	let mut i = if next < 0 { 0 } else { next }
+	for i <= len(text) {
+		if i == next {
+			w.includeWorkspace(c.program, c.program.start)
+			work.Starts += 1
+			let resume = i + 1
+			let offset = strings.Index(text[resume:], c.prefix.Text)
+			next = if offset < 0 { -1 } else { resume + offset }
+		}
+		if w.accepting(c.program) {
+			work.Matched = true
+			return work
+		}
+		if i == len(text) {
+			return work
+		}
+		if w.count == 0 {
+			if next < 0 {
+				return work
+			}
+			i = next
+			continue
+		}
+		w.consume(c.program, text[i])
+		work.Transitions += 1
+		i += 1
+	}
+	work
+}

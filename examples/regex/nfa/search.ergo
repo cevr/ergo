@@ -24,9 +24,15 @@ func NewSearchCompiled(pattern syntax.Node) SearchCompiled {
 type Work { Matched bool, Starts int, Transitions int }
 
 // Matches reports whether the original pattern occurs anywhere in text.
-func Matches(c SearchCompiled, text string) bool { c.Measure(text).Matched }
+func Matches(c SearchCompiled, text string) bool {
+	if c.prefix.Complete {
+		return strings.Contains(text, c.prefix.Text)
+	}
+	let mut w = NewWorkspace(c.program.Len())
+	c.RunSearch(&w, text).Matched
+}
 
-// Measure runs the same search with semantic work counters. A failed
+// Measure retains the R1 search as a selectable reference with work counters. A failed
 // candidate advances one byte, so overlapping prefixes remain candidates.
 func Measure(c SearchCompiled, text string) Work {
 	if c.prefix.Complete {

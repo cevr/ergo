@@ -4,6 +4,7 @@
 // chooses one in its context.
 
 import regex/syntax
+import slices
 
 // Engine compiles a pattern into a Matcher, once, as Go's regexp.Compile
 // does; the Matcher then tests each text.
@@ -52,6 +53,29 @@ type Engine {
 type Matcher {
 	// Matches reports whether the pattern matches the whole text.
 	Matches(text string) bool,
+	Lines(lines Seq[string]) Seq[string],
+
+	// LinesAgree: iterator matching preserves input order and can be
+	// repeated independently. Filter is the simple per-call reference.
+	law LinesAgree(text string, other string) {
+		let input = []string{text, other, "", text}
+		let mut want = []string{}
+		for t in input {
+			if Matches(t) {
+				want = want.Append(t)
+			}
+		}
+		for _ in 0..2 {
+			let mut got = []string{}
+			for t in Lines(slices.Values(input)) {
+				got = got.Append(t)
+			}
+			if got != want {
+				return false
+			}
+		}
+		true
+	},
 
 	// Repeatable: a Matcher keeps no state between texts.
 	law Repeatable(text string, other string) {
@@ -88,7 +112,7 @@ func Select(pattern syntax.Node, m Mode) Matcher needs Engine {
 // Grep is the lines that pattern selects in mode m, in order, compiled
 // once by the Engine in the context.
 func Grep(pattern syntax.Node, m Mode, lines Seq[string]) Seq[string] needs Engine {
-	Select(pattern, m).Filter(lines)
+	Select(pattern, m).Lines(lines)
 }
 
 // Filter is the lines that matcher matches, in order. It is a function on
