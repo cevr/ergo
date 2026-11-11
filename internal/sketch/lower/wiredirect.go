@@ -7,19 +7,19 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Direct writers (JSON-fast; serde's monomorphisation). An encode(v, w)
 // whose w is a sealed std value (check.SealedStd) of a type whose runtime
 // methods are the Writer's Go methods (directOps) keeps that
-// representation: the call skips the operand's operations conversion and
-// calls a codec function made for the writer's Go type, whose events are
-// direct method calls Go can inline, not interface calls through an
-// adapter. The rule reads checked facts only: the operand's static type,
-// its conversion to the Writer (Info.Implicit) and the runtime bodies of
-// its operations (v1.BodyOf, runtimeBindings). No type is named: any
-// sealed type whose operations are a Writer's takes it. std json's Text is
+// representation: its conversion to the Writer is Go's own (no adapter,
+// sealedOperations), and the call is of a codec function made for the
+// writer's Go type, whose events are direct method calls Go can inline,
+// not interface calls. The rule reads checked and declared facts only:
+// the operand's static type, its conversion to the Writer
+// (Info.Implicit) and the runtime bindings of its operations
+// (runtimeBindings). No type is named: any sealed type whose operations
+// are a Writer's takes it. std json's Text is
 // such a type today, so json.Encode writes through *v1.Text's methods.
 //
 // A codec witness carries one function per direct writer type of the
@@ -70,55 +70,40 @@ func (l *lowerer) directWriter(info *check.Info, x syntax.Expr) (int, bool) {
 	return 0, false
 }
 
-// directSource is the sealed std type x converts from, when the
-// conversion's target is the Writer and directOps holds; nil otherwise.
+// directSource is the sealed std type that x, encode's writer operand,
+// converts from to the Writer, when directOps holds; nil otherwise (no
+// conversion: x is a Writer already).
 func (l *lowerer) directSource(info *check.Info, x syntax.Expr) *check.Named {
-	conv, ok := info.Implicit[x]
-	if !ok || conv.Kind != check.ConvOperations {
-		return nil
-	}
+	conv := info.Implicit[x]
 	from, ok := conv.From.(*check.Named)
 	if !ok || !check.SealedStd(from) {
 		return nil
 	}
-	to, ok := conv.To.(*check.Named)
-	if !ok || to.Obj != check.PreludeType(check.WireWriterName).Obj {
-		return nil
-	}
-	if !directOps(from, to) {
+	if to, ok := conv.To.(*check.Named); !ok || !directOps(from, to) {
 		return nil
 	}
 	return from
 }
 
 // directOps reports that every operation of the operation type to is a
-// Go method of from's runtime type with to's Go method signature: a
-// non-generic body whose one hidden parameter is the caller's task, that
-// takes no function, returns nothing and never waits, and whose
-// parameters are basic, with the Go types to's operation lowers them to
-// (the basic's own name). Then a value of from is a value of to's Go
-// interface, and a call of the operation is the method call itself
-// (runtimeCall's form for such a binding). It reads checked types only, so
-// the naming pass may ask it.
+// method of from's runtime type whose binding is the plain task binding
+// (runtimeBinding{task: true}): the runtime's own declaration that the
+// method takes the caller's task, never waits, and keeps the ordinary
+// operation-type ABI on its native value (blocking.go). With the
+// checker's member match, the method is then the target's Go method, so a
+// value of from is a value of to's Go interface, and a call of the
+// operation is the method call itself. Any other binding (a wait, a
+// release, a context read) needs the adapter's call (sealedOperations).
+// TestSealedStdConvertsToItsOperationTypes type-checks every pair it
+// admits. It reads declared facts only, so the naming pass may ask it.
 func directOps(from, to *check.Named) bool {
 	iface, ok := to.Underlying().(*check.Interface)
 	if !ok {
 		return false
 	}
 	for _, op := range iface.Methods {
-		name := from.Obj.Name + "." + op.Name
-		if runtimeBindings[name] != (runtimeBinding{task: true}) {
+		if runtimeBindings[from.Obj.Name+"."+op.Name] != (runtimeBinding{task: true}) {
 			return false
-		}
-		body, err := v1.BodyOf(name)
-		if err != nil || len(body.TypeParams) > 0 || len(body.Results) > 0 || len(body.Hidden) != 1 || body.Hidden[0] != v1.CallerTask || len(body.Params) != len(op.Sig.Params) || len(op.Sig.Results) > 0 || len(rowElems(op.Sig.Errors)) > 0 {
-			return false
-		}
-		for i, p := range body.Params {
-			b, ok := op.Sig.Params[i].Type.(*check.Basic)
-			if !ok || p.Func != nil || p.Funcs != nil || p.Type != b.Name {
-				return false
-			}
 		}
 	}
 	return true

@@ -3158,6 +3158,83 @@
       "killers": [
         "lower:TestSealedStdConvertsToItsOperationTypes"
       ]
+    },
+    {
+      "name": "jf-direct-param",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/wiredirect.go",
+      "from": "\t\tf = directField(e.via)\n",
+      "to": "\t\t_ = e.via\n",
+      "rule": "A type parameter's value on a direct writer is written through its witness's Direct field, not through Enc on the Writer interface (wiredirect.go).",
+      "killers": [
+        "lower:TestEncodeOnADirectWriterCallsItsMethods"
+      ]
+    },
+    {
+      "name": "jf-direct-writer",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/wiredirect.go",
+      "from": "\t\tif l.typeKey(t) == key {\n\t\t\treturn i, true",
+      "to": "\t\tif false && l.typeKey(t) == key {\n\t\t\treturn i, true",
+      "rule": "An encode whose writer is a direct writer calls the codec function made for the writer's Go type (wiredirect.go).",
+      "killers": [
+        "lower:TestEncodeOnADirectWriterCallsItsMethods"
+      ]
+    },
+    {
+      "name": "jf-direct-collect",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/wiredirect.go",
+      "from": "from != nil && !seen[l.typeKey(from)] {",
+      "to": "false && from != nil && !seen[l.typeKey(from)] {",
+      "rule": "Every direct writer type of the program's encodes is collected before the codec functions and witnesses are written (wiredirect.go).",
+      "killers": [
+        "lower:TestEncodeOnADirectWriterCallsItsMethods"
+      ]
+    },
+    {
+      "name": "jf-direct-sealed",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/wiredirect.go",
+      "from": "\tif !ok || !check.SealedStd(from) {\n\t\treturn nil\n\t}\n\tif to, ok",
+      "to": "\tif !ok {\n\t\treturn nil\n\t}\n\tif to, ok",
+      "rule": "Only a sealed std value is a direct writer: a program type that shares a runtime type's name takes the Writer path (wiredirect.go).",
+      "killers": [
+        "lower:TestEncodeOnADirectWriterCallsItsMethods"
+      ]
+    },
+    {
+      "name": "jf-direct-witness",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\tfor i, w := range fc.l.directWriters {\n\t\te, b, x",
+      "to": "\tfor i, w := range fc.l.directWriters[:0] {\n\t\te, b, x",
+      "rule": "A codec witness carries a Direct function for each direct writer, so a codec generic over T writes on a direct writer (wiredirect.go).",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "jf-sealed-direct",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/sealedops.go",
+      "from": "\tif directOps(from, to) {\n",
+      "to": "\tif false && directOps(from, to) {\n",
+      "rule": "A sealed std value whose runtime methods are the target's Go methods converts by Go's own conversion, so a direct writer keeps its representation (sealedops.go, wiredirect.go).",
+      "killers": [
+        "lower:TestEncodeOnADirectWriterCallsItsMethods"
+      ]
+    },
+    {
+      "name": "jf-direct-ops-binding",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/wiredirect.go",
+      "from": "if runtimeBindings[from.Obj.Name+\".\"+op.Name] != (runtimeBinding{task: true}) {",
+      "to": "if false && runtimeBindings[from.Obj.Name+\".\"+op.Name] != (runtimeBinding{task: true}) {",
+      "rule": "directOps admits only operations whose binding is the plain task binding: any other (a wait, a release, a context read) needs the adapter's call.",
+      "killers": [
+        "lower:TestSealedStdConvertsToItsOperationTypes"
+      ]
     }
   ]
 }

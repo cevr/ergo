@@ -306,15 +306,17 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 	if fc.frame.polls {
 		fc.poll(x)
 	}
-	em, keep := referenceEvents, syntax.Expr(nil)
+	em := referenceEvents
 	if c.Kind == check.CallEncode {
 		if i, ok := fc.l.directWriter(fc.l.info, x.Args[1]); ok {
-			// A direct writer keeps its representation: no Writer
-			// adapter (wiredirect.go).
-			em, keep = wireEvents{via: i}, x.Args[1]
+			// A direct writer: its conversion to the Writer is Go's own
+			// (sealedOperations, directOps), so the operand is still the
+			// runtime value, and the events call its methods
+			// (wiredirect.go).
+			em = wireEvents{via: i}
 		}
 	}
-	vals := fc.callArgsKeep(x.Args, x, keep)
+	vals := fc.callArgs(x.Args, x)
 	env := fc.envExpr(x)
 	tc := fc.wireCtx(x)
 	if c.Kind == check.CallEncode {
