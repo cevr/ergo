@@ -162,15 +162,18 @@ func TestWireFormsAgree(t *testing.T) {
 		t.FailNow()
 	}
 	var results []string
+	var codes []int
+	failed := false
 	for _, name := range []string{"wireforms", "wireformswriter"} {
 		out, errout, code := runExeArgs(t, exes[name], "--seed", "119")
 		results = append(results, out+"\n"+errout)
+		codes = append(codes, code)
 		if code != 0 || !strings.Contains(out, "UserFormsAgree") {
-			t.Fatalf("replay: go test ./internal/sketch/lower -run '^TestWireFormsAgree$'\nsource:\n%s\n%s exit %d\noutputs:\n%s",
-				wireFormsProbe, name, code, strings.Join(results, "\n---\n"))
+			failed = true
 		}
 	}
-	if results[0] != results[1] {
-		t.Fatalf("wire lowering outputs differ\nsource:\n%s\n%s", wireFormsProbe, strings.Join(results, "\n---\n"))
+	if failed || results[0] != results[1] {
+		t.Fatalf("replay: go test ./internal/sketch/lower -run '^TestWireFormsAgree$'\nsource:\n%s\nfast/writer exits %v\nfast:\n%s\nwriter:\n%s",
+			wireFormsProbe, codes, results[0], results[1])
 	}
 }
