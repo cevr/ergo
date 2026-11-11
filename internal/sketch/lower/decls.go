@@ -948,6 +948,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	scope := newNamer(l.names)
 	site := syntax.Node(f.Decl.Name)
 	fc := newFuncCtx(l, scope, directives)
+	fc.hot = l.hotFunc(f)
 	fc.owner = f.Name
 	if fd.method != nil {
 		fc.owner = fd.method.tn.Name + "." + f.Name

@@ -47,7 +47,10 @@ import (
 //     none;
 //   - its site is at most inlineDepth sites deep, and the Go function has
 //     taken at most inlineGrowth nodes of inlined bodies (the growth
-//     bound).
+//     bound);
+//   - it pays for its size at its site (pays): a body larger than Go's
+//     own inline budget is written only where the copy removes a call or
+//     a boxed result on a loop path.
 //
 // An inlined call evaluates its operands as the call does, left to right,
 // binds each to a fresh local of the parameter's type (a Go call's copy),
@@ -98,6 +101,66 @@ const (
 	// left out of line boxes the union value it returns.
 	copyGrowth = 1200
 )
+
+// Size (OPT8). An inlined body grows the Go function of its site, and so
+// the binary. Batch 16d measured lowered Go +30% on mdhtml and +33% on
+// calc from inlined bodies that removed no allocation and no call
+// counted per operation (std's flag helpers, run once per program).
+// So a body that costs Go more than Go's own inline budget is a copy Go
+// itself would refuse, and the lowering writes it only where the copy
+// pays per iteration:
+//   - goSizeBudget is Go's budget in Ergo syntax nodes: goInlineBudget
+//     (cmd/compile's inlineMaxBudget, 80) over the measured Go cost of an
+//     Ergo node. The Go inliner's cost (go build -gcflags=-m=2) of every
+//     function of the 52 example binaries lowered with no Ergo inlining,
+//     over its body's inlineSize: median 3.29 per node over 1801 distinct
+//     functions (quartiles 1.54 and 5.73; 3.30 for the 1530 of at most
+//     inlineBudget nodes; Go 1.26, wf10 OPT8). So 80 / 3.3 = 24 nodes.
+//   - A site is on a loop path when it is inside a loop of the Go function
+//     being written, in a function a call inside a loop reaches (hot.go,
+//     hotFunc: lru's cache methods, called from the loop of its Churn), or
+//     inside a body inlined or a literal written at such a site (hot).
+//     Once per iteration, a call there costs a call, and a boxed result
+//     an allocation. A site off every loop path runs no more often than
+//     the program's straight-line code (std's flag helpers: once per
+//     program).
+//   - A body of at most goSizeBudget nodes is inlined anywhere, as Go
+//     would inline it; but a Go leaf (goLeaf, here one with a boxed
+//     result) Go inlines itself at that size, so the lowering leaves it.
+//   - A larger body is inlined only on a loop path: there it removes a
+//     Go call (Go refuses the body) or, for a boxed leaf, the allocation
+//     of the result per iteration (a machine's step in the copy of its
+//     run, TestMachineFlatRunAllocates).
+//
+// The reference is inlineCostLowering "budget": the rule before OPT8,
+// with no size test at the site. TestInlineAgrees runs it as a third
+// lowering; TestInlinePays holds the decisions.
+var inlineCostLowering string
+
+const (
+	// goInlineBudget is cmd/compile's inlineMaxBudget.
+	goInlineBudget = 80
+	// goSizeBudget is goInlineBudget in Ergo syntax nodes, at the
+	// measured 3.3 Go cost units per node (above).
+	goSizeBudget = goInlineBudget * 10 / 33
+)
+
+// pays reports whether inlining f at the site of fc pays for its size
+// (Size, above).
+func (fc *funcCtx) pays(f *check.Func) bool {
+	if inlineCostLowering == "budget" {
+		return true
+	}
+	big := inlineSize(f.Decl.Body) > goSizeBudget
+	if goLeaf(f) {
+		return big && fc.onLoopPath()
+	}
+	return !big || fc.onLoopPath()
+}
+
+// onLoopPath reports whether the site being written runs once per
+// iteration of a loop of its Go function.
+func (fc *funcCtx) onLoopPath() bool { return fc.hot || len(fc.loops) > 0 }
 
 // growthOf is the most body nodes the Go function of scope takes in.
 func (l *lowerer) growthOf(scope *namer) int {
@@ -412,7 +475,7 @@ func (fc *funcCtx) inlineAt(x *syntax.CallExpr, c *check.Call) bool {
 		return false // a result a block with no value binds: struct{}
 	}
 	f := c.Func
-	if !fc.l.inlineBody(f) {
+	if !fc.l.inlineBody(f) || !fc.pays(f) {
 		return false
 	}
 	fd := fc.l.funcDecl(f)
@@ -545,7 +608,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		skip[i] = true
 	}
 	vals := fc.inlineArgs(list, x, addr, skip)
-	ic := &funcCtx{typeCtx: typeCtx{l: fc.l, params: map[*check.TypeParam]string{}, site: x, mono: fc.mono}, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, witness: map[*check.TypeParam]string{}, directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1}
+	ic := &funcCtx{typeCtx: typeCtx{l: fc.l, params: map[*check.TypeParam]string{}, site: x, mono: fc.mono}, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, witness: map[*check.TypeParam]string{}, directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, hot: fc.onLoopPath()}
 	for i, tp := range f.Sig.TParams {
 		if tp.Kind != check.KindType {
 			continue
@@ -777,7 +840,7 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 	if sig == nil {
 		ice(sub.lit, "a function literal with no Literals entry")
 	}
-	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1}
+	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, hot: fc.onLoopPath()}
 	ret := &inlineRet{label: fc.temp("inl")}
 	var result check.Type
 	if len(sig.Results) == 1 {
