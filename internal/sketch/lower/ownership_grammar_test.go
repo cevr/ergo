@@ -895,7 +895,13 @@ func (g *ogGen) stmt(d int) *ogStmt {
 					b = g.expr(t, 1)
 				}
 				g.join(then)
-				arg = fmt.Sprintf("if n > %d { %s } else { %s }", c, g.lentYield(v.name), b)
+				a := g.lentYield(v.name)
+				if g.r.IntN(2) == 0 {
+					// The lending arm first or second: the second runs
+					// at n = 0, which most runs reach.
+					a, b = b, a
+				}
+				arg = fmt.Sprintf("if n > %d { %s } else { %s }", c, a, b)
 			} else {
 				arg = g.expr(t, 2)
 				g.f("stmt:lend-temp")
