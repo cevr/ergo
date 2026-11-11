@@ -314,6 +314,20 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	for _, s := range unit.Sources {
 		input.Sources = append(input.Sources, build.Source{Path: s.Path, Text: []byte(s.Text)})
 	}
+	if req.Mode == build.ModeBuild {
+		// The run build applies the rewrite laws its check run passes
+		// (rewrite.go); the verdicts follow from the sources, which the
+		// module's key holds.
+		// A check that cannot run leaves every site to the reference
+		// lowering, and says why.
+		ev, err := rewriteEvidence(unit, req, input)
+		switch {
+		case err == nil:
+			unit.Rewrite = ev
+		case req.Stderr != nil:
+			fmt.Fprintf(req.Stderr, "ergo: no rewrite law is used: %v\n", err)
+		}
+	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
 		files, err := lowering(unit)
 		var refused *lower.Refused

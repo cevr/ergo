@@ -159,7 +159,6 @@ func agreeProgram(rng *rand.Rand, types []agreeType) (src, anchor string) {
 	return b.String(), anchor
 }
 
-
 // TestRewriteAgrees: a program lowered with its check run's evidence
 // prints what the reference lowering prints, and at the anchor, a site of
 // constants on a known provider whose join law the check run passed, the
