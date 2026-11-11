@@ -31,7 +31,7 @@ import (
 var scalarSeed = flag.Uint64("scalar.seed", 0, "run TestScalarLocalsAgree on this seed alone")
 
 // scalarPaths are the generator's branches; the fixed seeds reach each.
-var scalarPaths = []string{"grow", "join", "join-try", "print", "later", "literal", "arm", "join-call", "closure", "end-fail", "end-normal"}
+var scalarPaths = []string{"grow", "join", "join-try", "print", "later", "literal", "arm", "join-call", "deeper", "closure", "end-fail", "end-normal"}
 
 const scalarPrelude = `type Shape = Dot{} | Seg{N int, Tag string} | Poly{Xs []int, Name string, K int}
 
@@ -146,6 +146,18 @@ func scalarProgram(seed uint64, reached map[string]bool) string {
 	b.WriteString("\tlet mut at Shape = Seg{N: 1, Tag: \"a\"}\n")
 	fmt.Fprintf(&b, "\tfor i, x in %s {\n", list)
 	tried := false
+	if seed%2 == 0 {
+		// A Seg that shrink gives to deeper, which fails for a large x.
+		line("at = Seg{N: x + 2, Tag: \"z\"}")
+		line("let e = try shrink(at, x + i)")
+		line("match e {")
+		line("case Seg as g:")
+		line("\tConsole.Println(\"z \\(g.N)\")")
+		line("case Dot, Poly:")
+		line("\tConsole.Println(\"z\")")
+		line("}")
+		reached["deeper"], tried = true, true
+	}
 	for n := range 4 + r.IntN(4) {
 		switch k := r.IntN(9); k {
 		case 0:
