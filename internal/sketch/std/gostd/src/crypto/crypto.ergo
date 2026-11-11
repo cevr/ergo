@@ -18,8 +18,8 @@ extern go crypto.BLAKE2s_256 let BLAKE2s_256 Hash
 
 // ergo:go type Decapsulator interface
 extern go crypto.Decapsulator type Decapsulator {
-	Decapsulate(ciphertext []byte) []byte fails go.Error needs go.Foreign,
-	Encapsulator() Encapsulator needs go.Foreign,
+	Decapsulate(ciphertext []byte) []byte fails go.Error needs go.Foreign takes,
+	Encapsulator() Encapsulator needs go.Foreign takes,
 }
 
 // ergo:go type Decrypter interface
@@ -30,8 +30,8 @@ extern go crypto.Decapsulator type Decapsulator {
 
 // ergo:go type Encapsulator interface
 extern go crypto.Encapsulator type Encapsulator {
-	Bytes() []byte needs go.Foreign,
-	Encapsulate() ([]byte, []byte) needs go.Foreign,
+	Bytes() []byte needs go.Foreign takes,
+	Encapsulate() ([]byte, []byte) needs go.Foreign takes,
 }
 
 // ergo:go type Hash uint
@@ -66,8 +66,8 @@ extern go crypto.MLDSAMu let MLDSAMu Hash
 
 // ergo:go type MessageSigner interface
 extern go crypto.MessageSigner type MessageSigner {
-	Sign(rand io.Reader, digest []byte, opts SignerOpts) []byte fails go.Error needs go.Foreign,
-	SignMessage(rand io.Reader, msg []byte, opts SignerOpts) []byte fails go.Error needs go.Foreign,
+	Sign(rand io.Reader, digest []byte, opts SignerOpts) []byte fails go.Error needs go.Foreign takes rand, opts,
+	SignMessage(rand io.Reader, msg []byte, opts SignerOpts) []byte fails go.Error needs go.Foreign takes rand, opts,
 }
 
 // ergo:go func (crypto.Signer).Public() crypto.PublicKey
@@ -119,11 +119,11 @@ extern go crypto.SHA512_224 let SHA512_224 Hash
 extern go crypto.SHA512_256 let SHA512_256 Hash
 
 // ergo:go func SignMessage(signer Signer, rand io.Reader, msg []byte, opts SignerOpts) (signature []byte, err error)
-extern go crypto.SignMessage func SignMessage(signer Signer, rand io.Reader, msg []byte, opts SignerOpts) []byte fails go.Error needs go.Foreign
+extern go crypto.SignMessage func SignMessage(signer Signer, rand io.Reader, msg []byte, opts SignerOpts) []byte fails go.Error needs go.Foreign takes signer, rand, opts
 
 // ergo:go type Signer interface
 extern go crypto.Signer type Signer {
-	Sign(rand io.Reader, digest []byte, opts SignerOpts) []byte fails go.Error needs go.Foreign,
+	Sign(rand io.Reader, digest []byte, opts SignerOpts) []byte fails go.Error needs go.Foreign takes rand, opts,
 }
 
 // ergo:go func (crypto.Signer).Public() crypto.PublicKey
@@ -131,5 +131,5 @@ extern go crypto.Signer type Signer {
 
 // ergo:go type SignerOpts interface
 extern go crypto.SignerOpts type SignerOpts {
-	HashFunc() Hash needs go.Foreign,
+	HashFunc() Hash needs go.Foreign takes,
 }

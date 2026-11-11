@@ -10,31 +10,31 @@ import go reflect
 // ergo:refused CallMethodsWithLegacySemantics: result 1: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func Compact(dst *bytes.Buffer, src []byte) error
-extern go encoding/json.Compact func Compact(dst *bytes.Buffer, src []byte) fails go.Error needs go.Foreign
+extern go encoding/json.Compact func Compact(dst *bytes.Buffer, src []byte) fails go.Error needs go.Foreign takes dst
 
 // ergo:go type Decoder struct
 extern go encoding/json.Decoder type Decoder {}
 
 // ergo:go func (*Decoder).Buffered() io.Reader
-extern go encoding/json.Decoder.Buffered func (dec *Decoder) Buffered() io.Reader needs go.Foreign
+extern go encoding/json.Decoder.Buffered func (dec *Decoder) Buffered() io.Reader needs go.Foreign takes dec
 
 // ergo:go func (*Decoder).Decode(v any) error
 // ergo:refused Decoder.Decode: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Decoder).DisallowUnknownFields()
-extern go encoding/json.Decoder.DisallowUnknownFields func (dec *Decoder) DisallowUnknownFields() needs go.Foreign
+extern go encoding/json.Decoder.DisallowUnknownFields func (dec *Decoder) DisallowUnknownFields() needs go.Foreign takes dec
 
 // ergo:go func (*Decoder).InputOffset() int64
-extern go encoding/json.Decoder.InputOffset func (dec *Decoder) InputOffset() int64 needs go.Foreign
+extern go encoding/json.Decoder.InputOffset func (dec *Decoder) InputOffset() int64 needs go.Foreign takes dec
 
 // ergo:go func (*Decoder).More() bool
-extern go encoding/json.Decoder.More func (dec *Decoder) More() bool needs go.Foreign
+extern go encoding/json.Decoder.More func (dec *Decoder) More() bool needs go.Foreign takes dec
 
 // ergo:go func (*Decoder).Token() (Token, error)
 // ergo:refused Decoder.Token: result 1: type Token is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*Decoder).UseNumber()
-extern go encoding/json.Decoder.UseNumber func (dec *Decoder) UseNumber() needs go.Foreign
+extern go encoding/json.Decoder.UseNumber func (dec *Decoder) UseNumber() needs go.Foreign takes dec
 
 // ergo:go func DefaultOptionsV1() Options
 // ergo:refused DefaultOptionsV1: result 1: type Options is refused: it is declared in an internal or vendored package
@@ -52,10 +52,10 @@ extern go encoding/json.Encoder type Encoder {}
 // ergo:refused Encoder.Encode: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Encoder).SetEscapeHTML(on bool)
-extern go encoding/json.Encoder.SetEscapeHTML func (enc *Encoder) SetEscapeHTML(on bool) needs go.Foreign
+extern go encoding/json.Encoder.SetEscapeHTML func (enc *Encoder) SetEscapeHTML(on bool) needs go.Foreign takes enc
 
 // ergo:go func (*Encoder).SetIndent(prefix string, indent string)
-extern go encoding/json.Encoder.SetIndent func (enc *Encoder) SetIndent(prefix string, indent string) needs go.Foreign
+extern go encoding/json.Encoder.SetIndent func (enc *Encoder) SetIndent(prefix string, indent string) needs go.Foreign takes enc
 
 // ergo:go func FormatByteArrayAsArray(v bool) Options
 // ergo:refused FormatByteArrayAsArray: result 1: type Options is refused: it is declared in an internal or vendored package
@@ -67,10 +67,10 @@ extern go encoding/json.Encoder.SetIndent func (enc *Encoder) SetIndent(prefix s
 // ergo:refused FormatDurationAsNano: result 1: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func HTMLEscape(dst *bytes.Buffer, src []byte)
-extern go encoding/json.HTMLEscape func HTMLEscape(dst *bytes.Buffer, src []byte) needs go.Foreign
+extern go encoding/json.HTMLEscape func HTMLEscape(dst *bytes.Buffer, src []byte) needs go.Foreign takes dst
 
 // ergo:go func Indent(dst *bytes.Buffer, src []byte, prefix string, indent string) error
-extern go encoding/json.Indent func Indent(dst *bytes.Buffer, src []byte, prefix string, indent string) fails go.Error needs go.Foreign
+extern go encoding/json.Indent func Indent(dst *bytes.Buffer, src []byte, prefix string, indent string) fails go.Error needs go.Foreign takes dst
 
 // ergo:go type InvalidUTF8Error struct
 extern go encoding/json.InvalidUTF8Error type InvalidUTF8Error {
@@ -78,7 +78,7 @@ extern go encoding/json.InvalidUTF8Error type InvalidUTF8Error {
 }
 
 // ergo:go func (*InvalidUTF8Error).Error() string
-extern go encoding/json.InvalidUTF8Error.Error func (e *InvalidUTF8Error) Error() string needs go.Foreign
+extern go encoding/json.InvalidUTF8Error.Error func (e *InvalidUTF8Error) Error() string needs go.Foreign takes e
 
 // ergo:go type InvalidUnmarshalError struct
 extern go encoding/json.InvalidUnmarshalError type InvalidUnmarshalError {
@@ -86,7 +86,7 @@ extern go encoding/json.InvalidUnmarshalError type InvalidUnmarshalError {
 }
 
 // ergo:go func (*InvalidUnmarshalError).Error() string
-extern go encoding/json.InvalidUnmarshalError.Error func (e *InvalidUnmarshalError) Error() string needs go.Foreign
+extern go encoding/json.InvalidUnmarshalError.Error func (e *InvalidUnmarshalError) Error() string needs go.Foreign takes e
 
 // ergo:go func Marshal(v any) ([]byte, error)
 // ergo:refused Marshal: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -104,10 +104,10 @@ extern go encoding/json.MarshalerError type MarshalerError {
 }
 
 // ergo:go func (*MarshalerError).Error() string
-extern go encoding/json.MarshalerError.Error func (e *MarshalerError) Error() string needs go.Foreign
+extern go encoding/json.MarshalerError.Error func (e *MarshalerError) Error() string needs go.Foreign takes e
 
 // ergo:go func (*MarshalerError).Unwrap() error
-extern go encoding/json.MarshalerError.Unwrap func (e *MarshalerError) Unwrap() fails go.Error needs go.Foreign
+extern go encoding/json.MarshalerError.Unwrap func (e *MarshalerError) Unwrap() fails go.Error needs go.Foreign takes e
 
 // ergo:go func MatchCaseSensitiveDelimiter(v bool) Options
 // ergo:refused MatchCaseSensitiveDelimiter: result 1: type Options is refused: it is declared in an internal or vendored package
@@ -116,10 +116,10 @@ extern go encoding/json.MarshalerError.Unwrap func (e *MarshalerError) Unwrap() 
 // ergo:refused MergeWithLegacySemantics: result 1: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func NewDecoder(r io.Reader) *Decoder
-extern go encoding/json.NewDecoder func NewDecoder(r io.Reader) Option[go.Ref[Decoder]] needs go.Foreign
+extern go encoding/json.NewDecoder func NewDecoder(r io.Reader) Option[go.Ref[Decoder]] needs go.Foreign takes r
 
 // ergo:go func NewEncoder(w io.Writer) *Encoder
-extern go encoding/json.NewEncoder func NewEncoder(w io.Writer) Option[go.Ref[Encoder]] needs go.Foreign
+extern go encoding/json.NewEncoder func NewEncoder(w io.Writer) Option[go.Ref[Encoder]] needs go.Foreign takes w
 
 // ergo:go type Number string
 extern go encoding/json.Number type Number string
@@ -131,13 +131,13 @@ extern go encoding/json.Number.Float64 func (n Number) Float64() float64 fails g
 extern go encoding/json.Number.Int64 func (n Number) Int64() int64 fails go.Error needs go.Foreign
 
 // ergo:go func (Number).MarshalJSONTo(enc *jsontext.Encoder) error
-extern go encoding/json.Number.MarshalJSONTo func (n Number) MarshalJSONTo(enc *jsontext.Encoder) fails go.Error needs go.Foreign
+extern go encoding/json.Number.MarshalJSONTo func (n Number) MarshalJSONTo(enc *jsontext.Encoder) fails go.Error needs go.Foreign takes enc
 
 // ergo:go func (Number).String() string
 extern go encoding/json.Number.String func (n Number) String() string needs go.Foreign
 
 // ergo:go func (*Number).UnmarshalJSONFrom(dec *jsontext.Decoder) error
-extern go encoding/json.Number.UnmarshalJSONFrom func (n *Number) UnmarshalJSONFrom(dec *jsontext.Decoder) fails go.Error needs go.Foreign
+extern go encoding/json.Number.UnmarshalJSONFrom func (n *Number) UnmarshalJSONFrom(dec *jsontext.Decoder) fails go.Error needs go.Foreign takes n, dec
 
 // ergo:go func OmitEmptyWithLegacySemantics(v bool) Options
 // ergo:refused OmitEmptyWithLegacySemantics: result 1: type Options is refused: it is declared in an internal or vendored package
@@ -166,7 +166,7 @@ extern go encoding/json.SyntaxError type SyntaxError {
 }
 
 // ergo:go func (*SyntaxError).Error() string
-extern go encoding/json.SyntaxError.Error func (e *SyntaxError) Error() string needs go.Foreign
+extern go encoding/json.SyntaxError.Error func (e *SyntaxError) Error() string needs go.Foreign takes e
 
 // ergo:go type Token interface
 // ergo:refused Token: Ergo has no any; an empty interface hides the host type
@@ -185,7 +185,7 @@ extern go encoding/json.UnmarshalFieldError type UnmarshalFieldError {
 }
 
 // ergo:go func (*UnmarshalFieldError).Error() string
-extern go encoding/json.UnmarshalFieldError.Error func (e *UnmarshalFieldError) Error() string needs go.Foreign
+extern go encoding/json.UnmarshalFieldError.Error func (e *UnmarshalFieldError) Error() string needs go.Foreign takes e
 
 // ergo:go type UnmarshalTypeError struct
 extern go encoding/json.UnmarshalTypeError type UnmarshalTypeError {
@@ -198,10 +198,10 @@ extern go encoding/json.UnmarshalTypeError type UnmarshalTypeError {
 }
 
 // ergo:go func (*UnmarshalTypeError).Error() string
-extern go encoding/json.UnmarshalTypeError.Error func (e *UnmarshalTypeError) Error() string needs go.Foreign
+extern go encoding/json.UnmarshalTypeError.Error func (e *UnmarshalTypeError) Error() string needs go.Foreign takes e
 
 // ergo:go func (*UnmarshalTypeError).Unwrap() error
-extern go encoding/json.UnmarshalTypeError.Unwrap func (e *UnmarshalTypeError) Unwrap() fails go.Error needs go.Foreign
+extern go encoding/json.UnmarshalTypeError.Unwrap func (e *UnmarshalTypeError) Unwrap() fails go.Error needs go.Foreign takes e
 
 // ergo:go type Unmarshaler = json.Unmarshaler
 // ergo:refused Unmarshaler: a Go alias; the binding names the type it stands for
@@ -212,7 +212,7 @@ extern go encoding/json.UnsupportedTypeError type UnsupportedTypeError {
 }
 
 // ergo:go func (*UnsupportedTypeError).Error() string
-extern go encoding/json.UnsupportedTypeError.Error func (e *UnsupportedTypeError) Error() string needs go.Foreign
+extern go encoding/json.UnsupportedTypeError.Error func (e *UnsupportedTypeError) Error() string needs go.Foreign takes e
 
 // ergo:go type UnsupportedValueError struct
 extern go encoding/json.UnsupportedValueError type UnsupportedValueError {
@@ -221,7 +221,7 @@ extern go encoding/json.UnsupportedValueError type UnsupportedValueError {
 }
 
 // ergo:go func (*UnsupportedValueError).Error() string
-extern go encoding/json.UnsupportedValueError.Error func (e *UnsupportedValueError) Error() string needs go.Foreign
+extern go encoding/json.UnsupportedValueError.Error func (e *UnsupportedValueError) Error() string needs go.Foreign takes e
 
 // ergo:go func Valid(data []byte) bool
 extern go encoding/json.Valid func Valid(data []byte) bool needs go.Foreign

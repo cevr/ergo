@@ -14,19 +14,19 @@ extern go container/ring.Ring type Ring {}
 // ergo:refused Ring.Do: parameter 1: callback parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Ring).Len() int
-extern go container/ring.Ring.Len func (r *Ring) Len() int needs go.Foreign
+extern go container/ring.Ring.Len func (r *Ring) Len() int needs go.Foreign takes r
 
 // ergo:go func (*Ring).Link(s *Ring) *Ring
-extern go container/ring.Ring.Link func (r *Ring) Link(s *Ring) Option[go.Ref[Ring]] needs go.Foreign
+extern go container/ring.Ring.Link func (r *Ring) Link(s *Ring) Option[go.Ref[Ring]] needs go.Foreign takes r, s
 
 // ergo:go func (*Ring).Move(n int) *Ring
-extern go container/ring.Ring.Move func (r *Ring) Move(n int) Option[go.Ref[Ring]] needs go.Foreign
+extern go container/ring.Ring.Move func (r *Ring) Move(n int) Option[go.Ref[Ring]] needs go.Foreign takes r
 
 // ergo:go func (*Ring).Next() *Ring
-extern go container/ring.Ring.Next func (r *Ring) Next() Option[go.Ref[Ring]] needs go.Foreign
+extern go container/ring.Ring.Next func (r *Ring) Next() Option[go.Ref[Ring]] needs go.Foreign takes r
 
 // ergo:go func (*Ring).Prev() *Ring
-extern go container/ring.Ring.Prev func (r *Ring) Prev() Option[go.Ref[Ring]] needs go.Foreign
+extern go container/ring.Ring.Prev func (r *Ring) Prev() Option[go.Ref[Ring]] needs go.Foreign takes r
 
 // ergo:go func (*Ring).Unlink(n int) *Ring
-extern go container/ring.Ring.Unlink func (r *Ring) Unlink(n int) Option[go.Ref[Ring]] needs go.Foreign
+extern go container/ring.Ring.Unlink func (r *Ring) Unlink(n int) Option[go.Ref[Ring]] needs go.Foreign takes r

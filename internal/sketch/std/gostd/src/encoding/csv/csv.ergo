@@ -16,10 +16,10 @@ extern go encoding/csv.ErrQuote let ErrQuote go.Error
 extern go encoding/csv.ErrTrailingComma let ErrTrailingComma go.Error
 
 // ergo:go func NewReader(r io.Reader) *Reader
-extern go encoding/csv.NewReader func NewReader(r io.Reader) Option[go.Ref[Reader]] needs go.Foreign
+extern go encoding/csv.NewReader func NewReader(r io.Reader) Option[go.Ref[Reader]] needs go.Foreign takes r
 
 // ergo:go func NewWriter(w io.Writer) *Writer
-extern go encoding/csv.NewWriter func NewWriter(w io.Writer) Option[go.Ref[Writer]] needs go.Foreign
+extern go encoding/csv.NewWriter func NewWriter(w io.Writer) Option[go.Ref[Writer]] needs go.Foreign takes w
 
 // ergo:go type ParseError struct
 extern go encoding/csv.ParseError type ParseError {
@@ -30,10 +30,10 @@ extern go encoding/csv.ParseError type ParseError {
 }
 
 // ergo:go func (*ParseError).Error() string
-extern go encoding/csv.ParseError.Error func (e *ParseError) Error() string needs go.Foreign
+extern go encoding/csv.ParseError.Error func (e *ParseError) Error() string needs go.Foreign takes e
 
 // ergo:go func (*ParseError).Unwrap() error
-extern go encoding/csv.ParseError.Unwrap func (e *ParseError) Unwrap() fails go.Error needs go.Foreign
+extern go encoding/csv.ParseError.Unwrap func (e *ParseError) Unwrap() fails go.Error needs go.Foreign takes e
 
 // ergo:go type Reader struct
 extern go encoding/csv.Reader type Reader {
@@ -47,16 +47,16 @@ extern go encoding/csv.Reader type Reader {
 }
 
 // ergo:go func (*Reader).FieldPos(field int) (line int, column int)
-extern go encoding/csv.Reader.FieldPos func (r *Reader) FieldPos(field int) (int, int) needs go.Foreign
+extern go encoding/csv.Reader.FieldPos func (r *Reader) FieldPos(field int) (int, int) needs go.Foreign takes r
 
 // ergo:go func (*Reader).InputOffset() int64
-extern go encoding/csv.Reader.InputOffset func (r *Reader) InputOffset() int64 needs go.Foreign
+extern go encoding/csv.Reader.InputOffset func (r *Reader) InputOffset() int64 needs go.Foreign takes r
 
 // ergo:go func (*Reader).Read() (record []string, err error)
-extern go encoding/csv.Reader.Read func (r *Reader) Read() []string fails go.Error needs go.Foreign
+extern go encoding/csv.Reader.Read func (r *Reader) Read() []string fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadAll() (records [][]string, err error)
-extern go encoding/csv.Reader.ReadAll func (r *Reader) ReadAll() [][]string fails go.Error needs go.Foreign
+extern go encoding/csv.Reader.ReadAll func (r *Reader) ReadAll() [][]string fails go.Error needs go.Foreign takes r
 
 // ergo:go type Writer struct
 extern go encoding/csv.Writer type Writer {
@@ -65,13 +65,13 @@ extern go encoding/csv.Writer type Writer {
 }
 
 // ergo:go func (*Writer).Error() error
-extern go encoding/csv.Writer.Error func (w *Writer) Error() fails go.Error needs go.Foreign
+extern go encoding/csv.Writer.Error func (w *Writer) Error() fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Flush()
-extern go encoding/csv.Writer.Flush func (w *Writer) Flush() needs go.Foreign
+extern go encoding/csv.Writer.Flush func (w *Writer) Flush() needs go.Foreign takes w
 
 // ergo:go func (*Writer).Write(record []string) error
-extern go encoding/csv.Writer.Write func (w *Writer) Write(record []string) fails go.Error needs go.Foreign
+extern go encoding/csv.Writer.Write func (w *Writer) Write(record []string) fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).WriteAll(records [][]string) error
-extern go encoding/csv.Writer.WriteAll func (w *Writer) WriteAll(records [][]string) fails go.Error needs go.Foreign
+extern go encoding/csv.Writer.WriteAll func (w *Writer) WriteAll(records [][]string) fails go.Error needs go.Foreign takes w

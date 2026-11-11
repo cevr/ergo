@@ -24,7 +24,7 @@ extern go os.Chtimes func Chtimes(name string, atime time.Time, mtime time.Time)
 extern go os.Clearenv func Clearenv() needs go.Foreign
 
 // ergo:go func CopyFS(dir string, fsys fs.FS) error
-extern go os.CopyFS func CopyFS(dir string, fsys fs.FS) fails go.Error needs go.Foreign
+extern go os.CopyFS func CopyFS(dir string, fsys fs.FS) fails go.Error needs go.Foreign takes fsys
 
 // ergo:go func Create(name string) (*File, error)
 extern go os.Create func Create(name string) go.Ref[File] fails go.Error needs go.Foreign
@@ -87,16 +87,16 @@ extern go os.ExpandEnv func ExpandEnv(s string) string needs go.Foreign
 extern go os.File type File {}
 
 // ergo:go func (*File).Chdir() error
-extern go os.File.Chdir func (f *File) Chdir() fails go.Error needs go.Foreign
+extern go os.File.Chdir func (f *File) Chdir() fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).Chmod(mode FileMode) error
-extern go os.File.Chmod func (f *File) Chmod(mode fs.FileMode) fails go.Error needs go.Foreign
+extern go os.File.Chmod func (f *File) Chmod(mode fs.FileMode) fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).Chown(uid int, gid int) error
-extern go os.File.Chown func (f *File) Chown(uid int, gid int) fails go.Error needs go.Foreign
+extern go os.File.Chown func (f *File) Chown(uid int, gid int) fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).Close() error
-extern go os.File.Close func (f *File) Close() fails go.Error needs go.Foreign
+extern go os.File.Close func (f *File) Close() fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).Fd() uintptr
 // ergo:refused File.Fd: result 1: Ergo has no uintptr
@@ -114,7 +114,7 @@ extern go os.File.ReadAt func (f *File) ReadAt(b []byte, off int64) int fails go
 extern go os.File.ReadDir func (f *File) ReadDir(n int) []fs.DirEntry fails go.Error needs go.Foreign
 
 // ergo:go func (*File).ReadFrom(r io.Reader) (n int64, err error)
-extern go os.File.ReadFrom func (f *File) ReadFrom(r io.Reader) int64 fails go.Error needs go.Foreign
+extern go os.File.ReadFrom func (f *File) ReadFrom(r io.Reader) int64 fails go.Error needs go.Foreign takes f, r
 
 // ergo:go func (*File).Readdir(n int) ([]FileInfo, error)
 extern go os.File.Readdir func (f *File) Readdir(n int) []fs.FileInfo fails go.Error needs go.Foreign
@@ -126,13 +126,13 @@ extern go os.File.Readdirnames func (f *File) Readdirnames(n int) []string fails
 extern go os.File.Seek func (f *File) Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign
 
 // ergo:go func (*File).SetDeadline(t time.Time) error
-extern go os.File.SetDeadline func (f *File) SetDeadline(t time.Time) fails go.Error needs go.Foreign
+extern go os.File.SetDeadline func (f *File) SetDeadline(t time.Time) fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).SetReadDeadline(t time.Time) error
-extern go os.File.SetReadDeadline func (f *File) SetReadDeadline(t time.Time) fails go.Error needs go.Foreign
+extern go os.File.SetReadDeadline func (f *File) SetReadDeadline(t time.Time) fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).SetWriteDeadline(t time.Time) error
-extern go os.File.SetWriteDeadline func (f *File) SetWriteDeadline(t time.Time) fails go.Error needs go.Foreign
+extern go os.File.SetWriteDeadline func (f *File) SetWriteDeadline(t time.Time) fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).Stat() (FileInfo, error)
 extern go os.File.Stat func (f *File) Stat() fs.FileInfo fails go.Error needs go.Foreign
@@ -156,7 +156,7 @@ extern go os.File.WriteAt func (f *File) WriteAt(b []byte, off int64) int fails 
 extern go os.File.WriteString func (f *File) WriteString(s string) int fails go.Error needs go.Foreign
 
 // ergo:go func (*File).WriteTo(w io.Writer) (n int64, err error)
-extern go os.File.WriteTo func (f *File) WriteTo(w io.Writer) int64 fails go.Error needs go.Foreign
+extern go os.File.WriteTo func (f *File) WriteTo(w io.Writer) int64 fails go.Error needs go.Foreign takes f, w
 
 // ergo:go type FileInfo = fs.FileInfo
 // ergo:refused FileInfo: a Go alias; the binding names the type it stands for
@@ -236,10 +236,10 @@ extern go os.LinkError type LinkError {
 }
 
 // ergo:go func (*LinkError).Error() string
-extern go os.LinkError.Error func (e *LinkError) Error() string needs go.Foreign
+extern go os.LinkError.Error func (e *LinkError) Error() string needs go.Foreign takes e
 
 // ergo:go func (*LinkError).Unwrap() error
-extern go os.LinkError.Unwrap func (e *LinkError) Unwrap() fails go.Error needs go.Foreign
+extern go os.LinkError.Unwrap func (e *LinkError) Unwrap() fails go.Error needs go.Foreign takes e
 
 // ergo:go func LookupEnv(key string) (string, bool)
 extern go os.LookupEnv func LookupEnv(key string) (string, bool) needs go.Foreign
@@ -373,16 +373,16 @@ extern go os.Process type Process {
 }
 
 // ergo:go func (*Process).Kill() error
-extern go os.Process.Kill func (p *Process) Kill() fails go.Error needs go.Foreign
+extern go os.Process.Kill func (p *Process) Kill() fails go.Error needs go.Foreign takes p
 
 // ergo:go func (*Process).Release() error
-extern go os.Process.Release func (p *Process) Release() fails go.Error needs go.Foreign
+extern go os.Process.Release func (p *Process) Release() fails go.Error needs go.Foreign takes p
 
 // ergo:go func (*Process).Signal(sig Signal) error
-extern go os.Process.Signal func (p *Process) Signal(sig Signal) fails go.Error needs go.Foreign
+extern go os.Process.Signal func (p *Process) Signal(sig Signal) fails go.Error needs go.Foreign takes p, sig
 
 // ergo:go func (*Process).Wait() (*ProcessState, error)
-extern go os.Process.Wait func (p *Process) Wait() go.Ref[ProcessState] fails go.Error needs go.Foreign
+extern go os.Process.Wait func (p *Process) Wait() go.Ref[ProcessState] fails go.Error needs go.Foreign takes p
 
 // ergo:go func (*Process).WithHandle(f func(handle uintptr)) error
 // ergo:refused Process.WithHandle: parameter 1: callback parameter 1: Ergo has no uintptr
@@ -391,19 +391,19 @@ extern go os.Process.Wait func (p *Process) Wait() go.Ref[ProcessState] fails go
 extern go os.ProcessState type ProcessState {}
 
 // ergo:go func (*ProcessState).ExitCode() int
-extern go os.ProcessState.ExitCode func (p *ProcessState) ExitCode() int needs go.Foreign
+extern go os.ProcessState.ExitCode func (p *ProcessState) ExitCode() int needs go.Foreign takes p
 
 // ergo:go func (*ProcessState).Exited() bool
-extern go os.ProcessState.Exited func (p *ProcessState) Exited() bool needs go.Foreign
+extern go os.ProcessState.Exited func (p *ProcessState) Exited() bool needs go.Foreign takes p
 
 // ergo:go func (*ProcessState).Pid() int
-extern go os.ProcessState.Pid func (p *ProcessState) Pid() int needs go.Foreign
+extern go os.ProcessState.Pid func (p *ProcessState) Pid() int needs go.Foreign takes p
 
 // ergo:go func (*ProcessState).String() string
-extern go os.ProcessState.String func (p *ProcessState) String() string needs go.Foreign
+extern go os.ProcessState.String func (p *ProcessState) String() string needs go.Foreign takes p
 
 // ergo:go func (*ProcessState).Success() bool
-extern go os.ProcessState.Success func (p *ProcessState) Success() bool needs go.Foreign
+extern go os.ProcessState.Success func (p *ProcessState) Success() bool needs go.Foreign takes p
 
 // ergo:go func (*ProcessState).Sys() any
 // ergo:refused ProcessState.Sys: result 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -412,10 +412,10 @@ extern go os.ProcessState.Success func (p *ProcessState) Success() bool needs go
 // ergo:refused ProcessState.SysUsage: result 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*ProcessState).SystemTime() time.Duration
-extern go os.ProcessState.SystemTime func (p *ProcessState) SystemTime() duration needs go.Foreign
+extern go os.ProcessState.SystemTime func (p *ProcessState) SystemTime() duration needs go.Foreign takes p
 
 // ergo:go func (*ProcessState).UserTime() time.Duration
-extern go os.ProcessState.UserTime func (p *ProcessState) UserTime() duration needs go.Foreign
+extern go os.ProcessState.UserTime func (p *ProcessState) UserTime() duration needs go.Foreign takes p
 
 // ergo:go func ReadDir(name string) ([]DirEntry, error)
 extern go os.ReadDir func ReadDir(name string) []fs.DirEntry fails go.Error needs go.Foreign
@@ -439,73 +439,73 @@ extern go os.Rename func Rename(oldpath string, newpath string) fails go.Error n
 extern go os.Root type Root {}
 
 // ergo:go func (*Root).Chmod(name string, mode FileMode) error
-extern go os.Root.Chmod func (r *Root) Chmod(name string, mode fs.FileMode) fails go.Error needs go.Foreign
+extern go os.Root.Chmod func (r *Root) Chmod(name string, mode fs.FileMode) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Chown(name string, uid int, gid int) error
-extern go os.Root.Chown func (r *Root) Chown(name string, uid int, gid int) fails go.Error needs go.Foreign
+extern go os.Root.Chown func (r *Root) Chown(name string, uid int, gid int) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Chtimes(name string, atime time.Time, mtime time.Time) error
-extern go os.Root.Chtimes func (r *Root) Chtimes(name string, atime time.Time, mtime time.Time) fails go.Error needs go.Foreign
+extern go os.Root.Chtimes func (r *Root) Chtimes(name string, atime time.Time, mtime time.Time) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Close() error
-extern go os.Root.Close func (r *Root) Close() fails go.Error needs go.Foreign
+extern go os.Root.Close func (r *Root) Close() fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Create(name string) (*File, error)
-extern go os.Root.Create func (r *Root) Create(name string) go.Ref[File] fails go.Error needs go.Foreign
+extern go os.Root.Create func (r *Root) Create(name string) go.Ref[File] fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).FS() fs.FS
-extern go os.Root.FS func (r *Root) FS() fs.FS needs go.Foreign
+extern go os.Root.FS func (r *Root) FS() fs.FS needs go.Foreign takes r
 
 // ergo:go func (*Root).Lchown(name string, uid int, gid int) error
-extern go os.Root.Lchown func (r *Root) Lchown(name string, uid int, gid int) fails go.Error needs go.Foreign
+extern go os.Root.Lchown func (r *Root) Lchown(name string, uid int, gid int) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Link(oldname string, newname string) error
-extern go os.Root.Link func (r *Root) Link(oldname string, newname string) fails go.Error needs go.Foreign
+extern go os.Root.Link func (r *Root) Link(oldname string, newname string) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Lstat(name string) (FileInfo, error)
-extern go os.Root.Lstat func (r *Root) Lstat(name string) fs.FileInfo fails go.Error needs go.Foreign
+extern go os.Root.Lstat func (r *Root) Lstat(name string) fs.FileInfo fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Mkdir(name string, perm FileMode) error
-extern go os.Root.Mkdir func (r *Root) Mkdir(name string, perm fs.FileMode) fails go.Error needs go.Foreign
+extern go os.Root.Mkdir func (r *Root) Mkdir(name string, perm fs.FileMode) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).MkdirAll(name string, perm FileMode) error
-extern go os.Root.MkdirAll func (r *Root) MkdirAll(name string, perm fs.FileMode) fails go.Error needs go.Foreign
+extern go os.Root.MkdirAll func (r *Root) MkdirAll(name string, perm fs.FileMode) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Name() string
-extern go os.Root.Name func (r *Root) Name() string needs go.Foreign
+extern go os.Root.Name func (r *Root) Name() string needs go.Foreign takes r
 
 // ergo:go func (*Root).Open(name string) (*File, error)
-extern go os.Root.Open func (r *Root) Open(name string) go.Ref[File] fails go.Error needs go.Foreign
+extern go os.Root.Open func (r *Root) Open(name string) go.Ref[File] fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).OpenFile(name string, flag int, perm FileMode) (*File, error)
-extern go os.Root.OpenFile func (r *Root) OpenFile(name string, flag int, perm fs.FileMode) go.Ref[File] fails go.Error needs go.Foreign
+extern go os.Root.OpenFile func (r *Root) OpenFile(name string, flag int, perm fs.FileMode) go.Ref[File] fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).OpenRoot(name string) (*Root, error)
-extern go os.Root.OpenRoot func (r *Root) OpenRoot(name string) go.Ref[Root] fails go.Error needs go.Foreign
+extern go os.Root.OpenRoot func (r *Root) OpenRoot(name string) go.Ref[Root] fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).ReadFile(name string) ([]byte, error)
-extern go os.Root.ReadFile func (r *Root) ReadFile(name string) []byte fails go.Error needs go.Foreign
+extern go os.Root.ReadFile func (r *Root) ReadFile(name string) []byte fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Readlink(name string) (string, error)
-extern go os.Root.Readlink func (r *Root) Readlink(name string) string fails go.Error needs go.Foreign
+extern go os.Root.Readlink func (r *Root) Readlink(name string) string fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Remove(name string) error
-extern go os.Root.Remove func (r *Root) Remove(name string) fails go.Error needs go.Foreign
+extern go os.Root.Remove func (r *Root) Remove(name string) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).RemoveAll(name string) error
-extern go os.Root.RemoveAll func (r *Root) RemoveAll(name string) fails go.Error needs go.Foreign
+extern go os.Root.RemoveAll func (r *Root) RemoveAll(name string) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Rename(oldname string, newname string) error
-extern go os.Root.Rename func (r *Root) Rename(oldname string, newname string) fails go.Error needs go.Foreign
+extern go os.Root.Rename func (r *Root) Rename(oldname string, newname string) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Stat(name string) (FileInfo, error)
-extern go os.Root.Stat func (r *Root) Stat(name string) fs.FileInfo fails go.Error needs go.Foreign
+extern go os.Root.Stat func (r *Root) Stat(name string) fs.FileInfo fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).Symlink(oldname string, newname string) error
-extern go os.Root.Symlink func (r *Root) Symlink(oldname string, newname string) fails go.Error needs go.Foreign
+extern go os.Root.Symlink func (r *Root) Symlink(oldname string, newname string) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Root).WriteFile(name string, data []byte, perm FileMode) error
-extern go os.Root.WriteFile func (r *Root) WriteFile(name string, data []byte, perm fs.FileMode) fails go.Error needs go.Foreign
+extern go os.Root.WriteFile func (r *Root) WriteFile(name string, data []byte, perm fs.FileMode) fails go.Error needs go.Foreign takes r
 
 // ergo:go const SEEK_CUR int
 extern go os.SEEK_CUR let SEEK_CUR int
@@ -517,19 +517,19 @@ extern go os.SEEK_END let SEEK_END int
 extern go os.SEEK_SET let SEEK_SET int
 
 // ergo:go func SameFile(fi1 FileInfo, fi2 FileInfo) bool
-extern go os.SameFile func SameFile(fi1 fs.FileInfo, fi2 fs.FileInfo) bool needs go.Foreign
+extern go os.SameFile func SameFile(fi1 fs.FileInfo, fi2 fs.FileInfo) bool needs go.Foreign takes fi1, fi2
 
 // ergo:go func Setenv(key string, value string) error
 extern go os.Setenv func Setenv(key string, value string) fails go.Error needs go.Foreign
 
 // ergo:go type Signal interface
 extern go os.Signal type Signal {
-	Signal() needs go.Foreign,
-	String() string needs go.Foreign,
+	Signal() needs go.Foreign takes,
+	String() string needs go.Foreign takes,
 }
 
 // ergo:go func StartProcess(name string, argv []string, attr *ProcAttr) (*Process, error)
-extern go os.StartProcess func StartProcess(name string, argv []string, attr *ProcAttr) go.Ref[Process] fails go.Error needs go.Foreign
+extern go os.StartProcess func StartProcess(name string, argv []string, attr *ProcAttr) go.Ref[Process] fails go.Error needs go.Foreign takes attr
 
 // ergo:go func Stat(name string) (FileInfo, error)
 extern go os.Stat func Stat(name string) fs.FileInfo fails go.Error needs go.Foreign
@@ -553,13 +553,13 @@ extern go os.SyscallError type SyscallError {
 }
 
 // ergo:go func (*SyscallError).Error() string
-extern go os.SyscallError.Error func (e *SyscallError) Error() string needs go.Foreign
+extern go os.SyscallError.Error func (e *SyscallError) Error() string needs go.Foreign takes e
 
 // ergo:go func (*SyscallError).Timeout() bool
-extern go os.SyscallError.Timeout func (e *SyscallError) Timeout() bool needs go.Foreign
+extern go os.SyscallError.Timeout func (e *SyscallError) Timeout() bool needs go.Foreign takes e
 
 // ergo:go func (*SyscallError).Unwrap() error
-extern go os.SyscallError.Unwrap func (e *SyscallError) Unwrap() fails go.Error needs go.Foreign
+extern go os.SyscallError.Unwrap func (e *SyscallError) Unwrap() fails go.Error needs go.Foreign takes e
 
 // ergo:go func TempDir() string
 extern go os.TempDir func TempDir() string needs go.Foreign

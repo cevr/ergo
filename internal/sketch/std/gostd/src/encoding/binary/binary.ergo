@@ -8,10 +8,10 @@ import go io
 
 // ergo:go type AppendByteOrder interface
 extern go encoding/binary.AppendByteOrder type AppendByteOrder {
-	AppendUint16(p0 []byte, p1 uint16) []byte needs go.Foreign,
-	AppendUint32(p0 []byte, p1 uint32) []byte needs go.Foreign,
-	AppendUint64(p0 []byte, p1 uint64) []byte needs go.Foreign,
-	String() string needs go.Foreign,
+	AppendUint16(p0 []byte, p1 uint16) []byte needs go.Foreign takes,
+	AppendUint32(p0 []byte, p1 uint32) []byte needs go.Foreign takes,
+	AppendUint64(p0 []byte, p1 uint64) []byte needs go.Foreign takes,
+	String() string needs go.Foreign takes,
 }
 
 // ergo:go func AppendUvarint(buf []byte, x uint64) []byte
@@ -25,13 +25,13 @@ extern go encoding/binary.AppendVarint func AppendVarint(buf []byte, x int64) []
 
 // ergo:go type ByteOrder interface
 extern go encoding/binary.ByteOrder type ByteOrder {
-	PutUint16(p0 []byte, p1 uint16) needs go.Foreign,
-	PutUint32(p0 []byte, p1 uint32) needs go.Foreign,
-	PutUint64(p0 []byte, p1 uint64) needs go.Foreign,
-	String() string needs go.Foreign,
-	Uint16(p0 []byte) uint16 needs go.Foreign,
-	Uint32(p0 []byte) uint32 needs go.Foreign,
-	Uint64(p0 []byte) uint64 needs go.Foreign,
+	PutUint16(p0 []byte, p1 uint16) needs go.Foreign takes,
+	PutUint32(p0 []byte, p1 uint32) needs go.Foreign takes,
+	PutUint64(p0 []byte, p1 uint64) needs go.Foreign takes,
+	String() string needs go.Foreign takes,
+	Uint16(p0 []byte) uint16 needs go.Foreign takes,
+	Uint32(p0 []byte) uint32 needs go.Foreign takes,
+	Uint64(p0 []byte) uint64 needs go.Foreign takes,
 }
 
 // ergo:go func Decode(buf []byte, order ByteOrder, data any) (int, error)
@@ -65,10 +65,10 @@ extern go encoding/binary.PutVarint func PutVarint(buf []byte, x int64) int need
 // ergo:refused Read: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func ReadUvarint(r io.ByteReader) (uint64, error)
-extern go encoding/binary.ReadUvarint func ReadUvarint(r io.ByteReader) uint64 fails go.Error needs go.Foreign
+extern go encoding/binary.ReadUvarint func ReadUvarint(r io.ByteReader) uint64 fails go.Error needs go.Foreign takes r
 
 // ergo:go func ReadVarint(r io.ByteReader) (int64, error)
-extern go encoding/binary.ReadVarint func ReadVarint(r io.ByteReader) int64 fails go.Error needs go.Foreign
+extern go encoding/binary.ReadVarint func ReadVarint(r io.ByteReader) int64 fails go.Error needs go.Foreign takes r
 
 // ergo:go func Size(v any) int
 // ergo:refused Size: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type

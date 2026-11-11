@@ -46,10 +46,10 @@ extern go log.Logger type Logger {}
 // ergo:refused Logger.Fatalln: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Logger).Flags() int
-extern go log.Logger.Flags func (l *Logger) Flags() int needs go.Foreign
+extern go log.Logger.Flags func (l *Logger) Flags() int needs go.Foreign takes l
 
 // ergo:go func (*Logger).Output(calldepth int, s string) error
-extern go log.Logger.Output func (l *Logger) Output(calldepth int, s string) fails go.Error needs go.Foreign
+extern go log.Logger.Output func (l *Logger) Output(calldepth int, s string) fails go.Error needs go.Foreign takes l
 
 // ergo:go func (*Logger).Panic(v ...any)
 // ergo:refused Logger.Panic: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -61,7 +61,7 @@ extern go log.Logger.Output func (l *Logger) Output(calldepth int, s string) fai
 // ergo:refused Logger.Panicln: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Logger).Prefix() string
-extern go log.Logger.Prefix func (l *Logger) Prefix() string needs go.Foreign
+extern go log.Logger.Prefix func (l *Logger) Prefix() string needs go.Foreign takes l
 
 // ergo:go func (*Logger).Print(v ...any)
 // ergo:refused Logger.Print: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -73,16 +73,16 @@ extern go log.Logger.Prefix func (l *Logger) Prefix() string needs go.Foreign
 // ergo:refused Logger.Println: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Logger).SetFlags(flag int)
-extern go log.Logger.SetFlags func (l *Logger) SetFlags(flag int) needs go.Foreign
+extern go log.Logger.SetFlags func (l *Logger) SetFlags(flag int) needs go.Foreign takes l
 
 // ergo:go func (*Logger).SetOutput(w io.Writer)
-extern go log.Logger.SetOutput func (l *Logger) SetOutput(w io.Writer) needs go.Foreign
+extern go log.Logger.SetOutput func (l *Logger) SetOutput(w io.Writer) needs go.Foreign takes l, w
 
 // ergo:go func (*Logger).SetPrefix(prefix string)
-extern go log.Logger.SetPrefix func (l *Logger) SetPrefix(prefix string) needs go.Foreign
+extern go log.Logger.SetPrefix func (l *Logger) SetPrefix(prefix string) needs go.Foreign takes l
 
 // ergo:go func (*Logger).Writer() io.Writer
-extern go log.Logger.Writer func (l *Logger) Writer() io.Writer needs go.Foreign
+extern go log.Logger.Writer func (l *Logger) Writer() io.Writer needs go.Foreign takes l
 
 // ergo:go const Lshortfile untyped int
 extern go log.Lshortfile let Lshortfile int
@@ -94,7 +94,7 @@ extern go log.LstdFlags let LstdFlags int
 extern go log.Ltime let Ltime int
 
 // ergo:go func New(out io.Writer, prefix string, flag int) *Logger
-extern go log.New func New(out io.Writer, prefix string, flag int) Option[go.Ref[Logger]] needs go.Foreign
+extern go log.New func New(out io.Writer, prefix string, flag int) Option[go.Ref[Logger]] needs go.Foreign takes out
 
 // ergo:go func Output(calldepth int, s string) error
 extern go log.Output func Output(calldepth int, s string) fails go.Error needs go.Foreign
@@ -124,7 +124,7 @@ extern go log.Prefix func Prefix() string needs go.Foreign
 extern go log.SetFlags func SetFlags(flag int) needs go.Foreign
 
 // ergo:go func SetOutput(w io.Writer)
-extern go log.SetOutput func SetOutput(w io.Writer) needs go.Foreign
+extern go log.SetOutput func SetOutput(w io.Writer) needs go.Foreign takes w
 
 // ergo:go func SetPrefix(prefix string)
 extern go log.SetPrefix func SetPrefix(prefix string) needs go.Foreign

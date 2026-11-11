@@ -35,16 +35,16 @@
 extern go sync/atomic.Bool type Bool {}
 
 // ergo:go func (*Bool).CompareAndSwap(old bool, new bool) (swapped bool)
-extern go sync/atomic.Bool.CompareAndSwap func (x *Bool) CompareAndSwap(old bool, new bool) bool needs go.Foreign
+extern go sync/atomic.Bool.CompareAndSwap func (x *Bool) CompareAndSwap(old bool, new bool) bool needs go.Foreign takes x
 
 // ergo:go func (*Bool).Load() bool
-extern go sync/atomic.Bool.Load func (x *Bool) Load() bool needs go.Foreign
+extern go sync/atomic.Bool.Load func (x *Bool) Load() bool needs go.Foreign takes x
 
 // ergo:go func (*Bool).Store(val bool)
-extern go sync/atomic.Bool.Store func (x *Bool) Store(val bool) needs go.Foreign
+extern go sync/atomic.Bool.Store func (x *Bool) Store(val bool) needs go.Foreign takes x
 
 // ergo:go func (*Bool).Swap(new bool) (old bool)
-extern go sync/atomic.Bool.Swap func (x *Bool) Swap(new bool) bool needs go.Foreign
+extern go sync/atomic.Bool.Swap func (x *Bool) Swap(new bool) bool needs go.Foreign takes x
 
 // ergo:go func CompareAndSwapInt32(addr *int32, old int32, new int32) (swapped bool)
 // ergo:refused CompareAndSwapInt32: parameter 1: a pointer to an unnamed type int32
@@ -68,49 +68,49 @@ extern go sync/atomic.Bool.Swap func (x *Bool) Swap(new bool) bool needs go.Fore
 extern go sync/atomic.Int32 type Int32 {}
 
 // ergo:go func (*Int32).Add(delta int32) (new int32)
-extern go sync/atomic.Int32.Add func (x *Int32) Add(delta int32) int32 needs go.Foreign
+extern go sync/atomic.Int32.Add func (x *Int32) Add(delta int32) int32 needs go.Foreign takes x
 
 // ergo:go func (*Int32).And(mask int32) (old int32)
-extern go sync/atomic.Int32.And func (x *Int32) And(mask int32) int32 needs go.Foreign
+extern go sync/atomic.Int32.And func (x *Int32) And(mask int32) int32 needs go.Foreign takes x
 
 // ergo:go func (*Int32).CompareAndSwap(old int32, new int32) (swapped bool)
-extern go sync/atomic.Int32.CompareAndSwap func (x *Int32) CompareAndSwap(old int32, new int32) bool needs go.Foreign
+extern go sync/atomic.Int32.CompareAndSwap func (x *Int32) CompareAndSwap(old int32, new int32) bool needs go.Foreign takes x
 
 // ergo:go func (*Int32).Load() int32
-extern go sync/atomic.Int32.Load func (x *Int32) Load() int32 needs go.Foreign
+extern go sync/atomic.Int32.Load func (x *Int32) Load() int32 needs go.Foreign takes x
 
 // ergo:go func (*Int32).Or(mask int32) (old int32)
-extern go sync/atomic.Int32.Or func (x *Int32) Or(mask int32) int32 needs go.Foreign
+extern go sync/atomic.Int32.Or func (x *Int32) Or(mask int32) int32 needs go.Foreign takes x
 
 // ergo:go func (*Int32).Store(val int32)
-extern go sync/atomic.Int32.Store func (x *Int32) Store(val int32) needs go.Foreign
+extern go sync/atomic.Int32.Store func (x *Int32) Store(val int32) needs go.Foreign takes x
 
 // ergo:go func (*Int32).Swap(new int32) (old int32)
-extern go sync/atomic.Int32.Swap func (x *Int32) Swap(new int32) int32 needs go.Foreign
+extern go sync/atomic.Int32.Swap func (x *Int32) Swap(new int32) int32 needs go.Foreign takes x
 
 // ergo:go type Int64 struct
 extern go sync/atomic.Int64 type Int64 {}
 
 // ergo:go func (*Int64).Add(delta int64) (new int64)
-extern go sync/atomic.Int64.Add func (x *Int64) Add(delta int64) int64 needs go.Foreign
+extern go sync/atomic.Int64.Add func (x *Int64) Add(delta int64) int64 needs go.Foreign takes x
 
 // ergo:go func (*Int64).And(mask int64) (old int64)
-extern go sync/atomic.Int64.And func (x *Int64) And(mask int64) int64 needs go.Foreign
+extern go sync/atomic.Int64.And func (x *Int64) And(mask int64) int64 needs go.Foreign takes x
 
 // ergo:go func (*Int64).CompareAndSwap(old int64, new int64) (swapped bool)
-extern go sync/atomic.Int64.CompareAndSwap func (x *Int64) CompareAndSwap(old int64, new int64) bool needs go.Foreign
+extern go sync/atomic.Int64.CompareAndSwap func (x *Int64) CompareAndSwap(old int64, new int64) bool needs go.Foreign takes x
 
 // ergo:go func (*Int64).Load() int64
-extern go sync/atomic.Int64.Load func (x *Int64) Load() int64 needs go.Foreign
+extern go sync/atomic.Int64.Load func (x *Int64) Load() int64 needs go.Foreign takes x
 
 // ergo:go func (*Int64).Or(mask int64) (old int64)
-extern go sync/atomic.Int64.Or func (x *Int64) Or(mask int64) int64 needs go.Foreign
+extern go sync/atomic.Int64.Or func (x *Int64) Or(mask int64) int64 needs go.Foreign takes x
 
 // ergo:go func (*Int64).Store(val int64)
-extern go sync/atomic.Int64.Store func (x *Int64) Store(val int64) needs go.Foreign
+extern go sync/atomic.Int64.Store func (x *Int64) Store(val int64) needs go.Foreign takes x
 
 // ergo:go func (*Int64).Swap(new int64) (old int64)
-extern go sync/atomic.Int64.Swap func (x *Int64) Swap(new int64) int64 needs go.Foreign
+extern go sync/atomic.Int64.Swap func (x *Int64) Swap(new int64) int64 needs go.Foreign takes x
 
 // ergo:go func LoadInt32(addr *int32) (val int32)
 // ergo:refused LoadInt32: parameter 1: a pointer to an unnamed type int32
@@ -188,49 +188,49 @@ extern go sync/atomic.Int64.Swap func (x *Int64) Swap(new int64) int64 needs go.
 extern go sync/atomic.Uint32 type Uint32 {}
 
 // ergo:go func (*Uint32).Add(delta uint32) (new uint32)
-extern go sync/atomic.Uint32.Add func (x *Uint32) Add(delta uint32) uint32 needs go.Foreign
+extern go sync/atomic.Uint32.Add func (x *Uint32) Add(delta uint32) uint32 needs go.Foreign takes x
 
 // ergo:go func (*Uint32).And(mask uint32) (old uint32)
-extern go sync/atomic.Uint32.And func (x *Uint32) And(mask uint32) uint32 needs go.Foreign
+extern go sync/atomic.Uint32.And func (x *Uint32) And(mask uint32) uint32 needs go.Foreign takes x
 
 // ergo:go func (*Uint32).CompareAndSwap(old uint32, new uint32) (swapped bool)
-extern go sync/atomic.Uint32.CompareAndSwap func (x *Uint32) CompareAndSwap(old uint32, new uint32) bool needs go.Foreign
+extern go sync/atomic.Uint32.CompareAndSwap func (x *Uint32) CompareAndSwap(old uint32, new uint32) bool needs go.Foreign takes x
 
 // ergo:go func (*Uint32).Load() uint32
-extern go sync/atomic.Uint32.Load func (x *Uint32) Load() uint32 needs go.Foreign
+extern go sync/atomic.Uint32.Load func (x *Uint32) Load() uint32 needs go.Foreign takes x
 
 // ergo:go func (*Uint32).Or(mask uint32) (old uint32)
-extern go sync/atomic.Uint32.Or func (x *Uint32) Or(mask uint32) uint32 needs go.Foreign
+extern go sync/atomic.Uint32.Or func (x *Uint32) Or(mask uint32) uint32 needs go.Foreign takes x
 
 // ergo:go func (*Uint32).Store(val uint32)
-extern go sync/atomic.Uint32.Store func (x *Uint32) Store(val uint32) needs go.Foreign
+extern go sync/atomic.Uint32.Store func (x *Uint32) Store(val uint32) needs go.Foreign takes x
 
 // ergo:go func (*Uint32).Swap(new uint32) (old uint32)
-extern go sync/atomic.Uint32.Swap func (x *Uint32) Swap(new uint32) uint32 needs go.Foreign
+extern go sync/atomic.Uint32.Swap func (x *Uint32) Swap(new uint32) uint32 needs go.Foreign takes x
 
 // ergo:go type Uint64 struct
 extern go sync/atomic.Uint64 type Uint64 {}
 
 // ergo:go func (*Uint64).Add(delta uint64) (new uint64)
-extern go sync/atomic.Uint64.Add func (x *Uint64) Add(delta uint64) uint64 needs go.Foreign
+extern go sync/atomic.Uint64.Add func (x *Uint64) Add(delta uint64) uint64 needs go.Foreign takes x
 
 // ergo:go func (*Uint64).And(mask uint64) (old uint64)
-extern go sync/atomic.Uint64.And func (x *Uint64) And(mask uint64) uint64 needs go.Foreign
+extern go sync/atomic.Uint64.And func (x *Uint64) And(mask uint64) uint64 needs go.Foreign takes x
 
 // ergo:go func (*Uint64).CompareAndSwap(old uint64, new uint64) (swapped bool)
-extern go sync/atomic.Uint64.CompareAndSwap func (x *Uint64) CompareAndSwap(old uint64, new uint64) bool needs go.Foreign
+extern go sync/atomic.Uint64.CompareAndSwap func (x *Uint64) CompareAndSwap(old uint64, new uint64) bool needs go.Foreign takes x
 
 // ergo:go func (*Uint64).Load() uint64
-extern go sync/atomic.Uint64.Load func (x *Uint64) Load() uint64 needs go.Foreign
+extern go sync/atomic.Uint64.Load func (x *Uint64) Load() uint64 needs go.Foreign takes x
 
 // ergo:go func (*Uint64).Or(mask uint64) (old uint64)
-extern go sync/atomic.Uint64.Or func (x *Uint64) Or(mask uint64) uint64 needs go.Foreign
+extern go sync/atomic.Uint64.Or func (x *Uint64) Or(mask uint64) uint64 needs go.Foreign takes x
 
 // ergo:go func (*Uint64).Store(val uint64)
-extern go sync/atomic.Uint64.Store func (x *Uint64) Store(val uint64) needs go.Foreign
+extern go sync/atomic.Uint64.Store func (x *Uint64) Store(val uint64) needs go.Foreign takes x
 
 // ergo:go func (*Uint64).Swap(new uint64) (old uint64)
-extern go sync/atomic.Uint64.Swap func (x *Uint64) Swap(new uint64) uint64 needs go.Foreign
+extern go sync/atomic.Uint64.Swap func (x *Uint64) Swap(new uint64) uint64 needs go.Foreign takes x
 
 // ergo:go type Uintptr struct
 extern go sync/atomic.Uintptr type Uintptr {}

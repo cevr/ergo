@@ -43,8 +43,8 @@ extern go runtime.Compiler let Compiler string
 
 // ergo:go type Error interface
 extern go runtime.Error type Error {
-	Error() string needs go.Foreign,
-	RuntimeError() needs go.Foreign,
+	Error() string needs go.Foreign takes,
+	RuntimeError() needs go.Foreign takes,
 }
 
 // ergo:go type Frame struct
@@ -65,7 +65,7 @@ extern go runtime.Frame type Frame {
 extern go runtime.Frames type Frames {}
 
 // ergo:go func (*Frames).Next() (frame Frame, more bool)
-extern go runtime.Frames.Next func (ci *Frames) Next() (Frame, bool) needs go.Foreign
+extern go runtime.Frames.Next func (ci *Frames) Next() (Frame, bool) needs go.Foreign takes ci
 
 // ergo:go type Func struct
 extern go runtime.Func type Func {}
@@ -77,7 +77,7 @@ extern go runtime.Func type Func {}
 // ergo:refused Func.FileLine: parameter 1: Ergo has no uintptr
 
 // ergo:go func (*Func).Name() string
-extern go runtime.Func.Name func (f *Func) Name() string needs go.Foreign
+extern go runtime.Func.Name func (f *Func) Name() string needs go.Foreign takes f
 
 // ergo:go func FuncForPC(pc uintptr) *Func
 // ergo:refused FuncForPC: parameter 1: Ergo has no uintptr
@@ -130,10 +130,10 @@ extern go runtime.MemProfileRecord type MemProfileRecord {
 // ergo:refused MemProfileRecord.Stack0: Ergo has no uintptr
 
 // ergo:go func (*MemProfileRecord).InUseBytes() int64
-extern go runtime.MemProfileRecord.InUseBytes func (r *MemProfileRecord) InUseBytes() int64 needs go.Foreign
+extern go runtime.MemProfileRecord.InUseBytes func (r *MemProfileRecord) InUseBytes() int64 needs go.Foreign takes r
 
 // ergo:go func (*MemProfileRecord).InUseObjects() int64
-extern go runtime.MemProfileRecord.InUseObjects func (r *MemProfileRecord) InUseObjects() int64 needs go.Foreign
+extern go runtime.MemProfileRecord.InUseObjects func (r *MemProfileRecord) InUseObjects() int64 needs go.Foreign takes r
 
 // ergo:go func (*MemProfileRecord).Stack() []uintptr
 // ergo:refused MemProfileRecord.Stack: result 1: Ergo has no uintptr
@@ -192,10 +192,10 @@ extern go runtime.NumGoroutine func NumGoroutine() int needs go.Foreign
 extern go runtime.PanicNilError type PanicNilError {}
 
 // ergo:go func (*PanicNilError).Error() string
-extern go runtime.PanicNilError.Error func (r *PanicNilError) Error() string needs go.Foreign
+extern go runtime.PanicNilError.Error func (r *PanicNilError) Error() string needs go.Foreign takes r
 
 // ergo:go func (*PanicNilError).RuntimeError()
-extern go runtime.PanicNilError.RuntimeError func (r *PanicNilError) RuntimeError() needs go.Foreign
+extern go runtime.PanicNilError.RuntimeError func (r *PanicNilError) RuntimeError() needs go.Foreign takes r
 
 // ergo:go type Pinner struct
 extern go runtime.Pinner type Pinner {}
@@ -204,10 +204,10 @@ extern go runtime.Pinner type Pinner {}
 // ergo:refused Pinner.Pin: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Pinner).Unpin()
-extern go runtime.Pinner.Unpin func (p *Pinner) Unpin() needs go.Foreign
+extern go runtime.Pinner.Unpin func (p *Pinner) Unpin() needs go.Foreign takes p
 
 // ergo:go func ReadMemStats(m *MemStats)
-extern go runtime.ReadMemStats func ReadMemStats(m *MemStats) needs go.Foreign
+extern go runtime.ReadMemStats func ReadMemStats(m *MemStats) needs go.Foreign takes m
 
 // ergo:go func ReadTrace() (buf []byte)
 extern go runtime.ReadTrace func ReadTrace() []byte needs go.Foreign
@@ -255,10 +255,10 @@ extern go runtime.ThreadCreateProfile func ThreadCreateProfile(p []StackRecord) 
 extern go runtime.TypeAssertionError type TypeAssertionError {}
 
 // ergo:go func (*TypeAssertionError).Error() string
-extern go runtime.TypeAssertionError.Error func (e *TypeAssertionError) Error() string needs go.Foreign
+extern go runtime.TypeAssertionError.Error func (e *TypeAssertionError) Error() string needs go.Foreign takes e
 
 // ergo:go func (*TypeAssertionError).RuntimeError()
-extern go runtime.TypeAssertionError.RuntimeError func (r *TypeAssertionError) RuntimeError() needs go.Foreign
+extern go runtime.TypeAssertionError.RuntimeError func (r *TypeAssertionError) RuntimeError() needs go.Foreign takes r
 
 // ergo:go func UnlockOSThread()
 extern go runtime.UnlockOSThread func UnlockOSThread() needs go.Foreign

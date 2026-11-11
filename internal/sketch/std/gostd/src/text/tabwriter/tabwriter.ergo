@@ -19,7 +19,7 @@ extern go text/tabwriter.Escape let Escape rune
 extern go text/tabwriter.FilterHTML let FilterHTML uint
 
 // ergo:go func NewWriter(output io.Writer, minwidth int, tabwidth int, padding int, padchar byte, flags uint) *Writer
-extern go text/tabwriter.NewWriter func NewWriter(output io.Writer, minwidth int, tabwidth int, padding int, padchar byte, flags uint) Option[go.Ref[Writer]] needs go.Foreign
+extern go text/tabwriter.NewWriter func NewWriter(output io.Writer, minwidth int, tabwidth int, padding int, padchar byte, flags uint) Option[go.Ref[Writer]] needs go.Foreign takes output
 
 // ergo:go const StripEscape uint
 extern go text/tabwriter.StripEscape let StripEscape uint
@@ -31,10 +31,10 @@ extern go text/tabwriter.TabIndent let TabIndent uint
 extern go text/tabwriter.Writer type Writer {}
 
 // ergo:go func (*Writer).Flush() error
-extern go text/tabwriter.Writer.Flush func (b *Writer) Flush() fails go.Error needs go.Foreign
+extern go text/tabwriter.Writer.Flush func (b *Writer) Flush() fails go.Error needs go.Foreign takes b
 
 // ergo:go func (*Writer).Init(output io.Writer, minwidth int, tabwidth int, padding int, padchar byte, flags uint) *Writer
-extern go text/tabwriter.Writer.Init func (b *Writer) Init(output io.Writer, minwidth int, tabwidth int, padding int, padchar byte, flags uint) Option[go.Ref[Writer]] needs go.Foreign
+extern go text/tabwriter.Writer.Init func (b *Writer) Init(output io.Writer, minwidth int, tabwidth int, padding int, padchar byte, flags uint) Option[go.Ref[Writer]] needs go.Foreign takes b, output
 
 // ergo:go func (*Writer).Write(buf []byte) (n int, err error)
-extern go text/tabwriter.Writer.Write func (b *Writer) Write(buf []byte) int fails go.Error needs go.Foreign
+extern go text/tabwriter.Writer.Write func (b *Writer) Write(buf []byte) int fails go.Error needs go.Foreign takes b

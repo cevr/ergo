@@ -257,7 +257,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 	// A first context.Context parameter is hidden (IG10), except in the
 	// context package itself, whose functions take a context as their
 	// subject (context.Cause(ctx)), not as the call's cancellation.
-	sm := &sigMapper{mapper: m, subst: subst, sync: v1.GoSyncCallbacks[target], method: recv != nil,
+	sm := &sigMapper{mapper: m, subst: subst, sync: v1.GoSyncCallbacks[target] != "", method: recv != nil,
 		outerFails: n > 0 && isError(sig.Results().At(n-1).Type()),
 		ctx:        m.pkg.Path() != "context" && sig.Params().Len() > 0 && isContext(sig.Params().At(0).Type())}
 	params, results, fails, variadic, err := sm.signature(sig, false)
@@ -282,6 +282,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		tparams = append(tparams, row.name)
 	}
 	var b strings.Builder
+	recvName := ""
 	b.WriteString("func ")
 	if recv != nil {
 		r := sig.Recv()
@@ -301,6 +302,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 			}
 		}
 		fmt.Fprintf(&b, "(%s %s) ", name, rt)
+		recvName = name
 	}
 	b.WriteString(f.Name())
 	if len(tparams) > 0 {
@@ -331,7 +333,68 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		}
 	}
 	b.WriteString(needs)
+	// A Go type supplies no lifetime proof. Resource-capable parameters
+	// are kept unless a per-function source review establishes a lend.
+	var takes []string
+	off := 0
+	if recv != nil {
+		off = 1
+		if goResourceParam(sig.Recv().Type()) && !v1.GoArgLent(target, 0) {
+			takes = append(takes, recvName)
+		}
+	}
+	first := 0
+	if sm.ctx {
+		first = 1
+	}
+	for i, p := range params {
+		if goResourceParam(sig.Params().At(i+first).Type()) && !v1.GoArgLent(target, i+off) {
+			takes = append(takes, p.name)
+		}
+	}
+	if len(takes) > 0 {
+		b.WriteString(" takes " + strings.Join(takes, ", "))
+	}
 	return b.String(), variadic, sm.ctx, nil
+}
+
+// goResourceParam is the boundary's resource-capable shape. A non-empty
+// interface can receive a resource even when it has no Close (io.Reader).
+// A concrete host type is a resource only by its Close, not its fields.
+func goResourceParam(t types.Type) bool {
+	t = types.Unalias(t)
+	if isError(t) {
+		return false // the error adapter produces go.Error, which crosses
+	}
+	if _, ok := t.(*types.Pointer); ok {
+		return true // a Go pointer may keep an Ergo borrow
+	}
+	if _, ok := t.(*types.TypeParam); ok {
+		return true
+	}
+	if it, ok := t.Underlying().(*types.Interface); ok {
+		return !it.Empty()
+	}
+	methodType := t
+	if n, ok := t.(*types.Named); ok {
+		methodType = types.NewPointer(n)
+	}
+	ms := types.NewMethodSet(methodType)
+	if m := ms.Lookup(nil, "Close"); m != nil {
+		s := m.Obj().Type().(*types.Signature)
+		if s.Params().Len() == 0 && (s.Results().Len() == 0 || s.Results().Len() == 1 && isError(s.Results().At(0).Type())) {
+			return true
+		}
+	}
+	switch t := t.(type) {
+	case *types.Slice:
+		return goResourceParam(t.Elem())
+	case *types.Array:
+		return goResourceParam(t.Elem())
+	case *types.Map:
+		return goResourceParam(t.Elem())
+	}
+	return false
 }
 
 // The row parameters of a function whose callbacks are synchronous.
@@ -831,6 +894,19 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error)
 				line += " fails go.Error"
 			}
 			line += m.needs("")
+			var takes []string
+			target := m.pkg.Path() + "." + obj.Name() + "." + f.Name()
+			fsig := f.Type().(*types.Signature)
+			for j, p := range params {
+				if goResourceParam(fsig.Params().At(j).Type()) && !v1.GoArgLent(target, j) {
+					takes = append(takes, p.name)
+				}
+			}
+			if len(takes) > 0 {
+				line += " takes " + strings.Join(takes, ", ")
+			} else if !v1.GoArgLent(target, -1) {
+				line += " takes"
+			}
 			lines = append(lines, Line{f.Name(), goText, line, m.refs})
 		}
 		m.refs = nil

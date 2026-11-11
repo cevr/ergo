@@ -8,7 +8,7 @@ import go runtime/debug
 // ergo:refused BuildInfo: a Go alias; the binding names the type it stands for
 
 // ergo:go func Read(r io.ReaderAt) (*BuildInfo, error)
-extern go debug/buildinfo.Read func Read(r io.ReaderAt) go.Ref[debug.BuildInfo] fails go.Error needs go.Foreign
+extern go debug/buildinfo.Read func Read(r io.ReaderAt) go.Ref[debug.BuildInfo] fails go.Error needs go.Foreign takes r
 
 // ergo:go func ReadFile(name string) (info *BuildInfo, err error)
 extern go debug/buildinfo.ReadFile func ReadFile(name string) go.Ref[debug.BuildInfo] fails go.Error needs go.Foreign

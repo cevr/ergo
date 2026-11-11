@@ -12,7 +12,7 @@ extern go go/importer.Default func Default() types.Importer needs go.Foreign
 extern go go/importer.For func For(compiler string, lookup escaping func(string) io.ReadCloser fails go.Error) types.Importer needs go.Foreign
 
 // ergo:go func ForCompiler(fset *token.FileSet, compiler string, lookup Lookup) types.Importer
-extern go go/importer.ForCompiler func ForCompiler(fset *token.FileSet, compiler string, lookup escaping func(string) io.ReadCloser fails go.Error) types.Importer needs go.Foreign
+extern go go/importer.ForCompiler func ForCompiler(fset *token.FileSet, compiler string, lookup escaping func(string) io.ReadCloser fails go.Error) types.Importer needs go.Foreign takes fset
 
 // ergo:go type Lookup func
 // ergo:refused Lookup: a Go function type maps to no Ergo host type in v1

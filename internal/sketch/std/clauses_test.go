@@ -167,7 +167,7 @@ func TestExternArgumentClauses(t *testing.T) {
 		if p.target != "" && !strings.HasPrefix(p.target, v1Path+".") {
 			// A Go standard library binding (gobind): its callback clause
 			// is v1.GoSyncCallbacks'.
-			if p.clause == "non-escaping" && !v1.GoSyncCallbacks[p.target] {
+			if p.clause == "non-escaping" && v1.GoSyncCallbacks[p.target] == "" {
 				t.Errorf("%s: the binding of %s writes a non-escaping callback, but v1.GoSyncCallbacks does not list %s as calling it only during the call; write escaping, or review it into the table", p.key, p.target, p.target)
 			}
 			continue

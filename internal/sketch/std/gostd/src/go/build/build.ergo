@@ -47,16 +47,16 @@ extern go go/build.Context type Context {
 // ergo:refused Context.OpenFile: a Go function as a result, a field or an element
 
 // ergo:go func (*Context).Import(path string, srcDir string, mode ImportMode) (*Package, error)
-extern go go/build.Context.Import func (ctxt *Context) Import(path string, srcDir string, mode ImportMode) go.Ref[Package] fails go.Error needs go.Foreign
+extern go go/build.Context.Import func (ctxt *Context) Import(path string, srcDir string, mode ImportMode) go.Ref[Package] fails go.Error needs go.Foreign takes ctxt
 
 // ergo:go func (*Context).ImportDir(dir string, mode ImportMode) (*Package, error)
-extern go go/build.Context.ImportDir func (ctxt *Context) ImportDir(dir string, mode ImportMode) go.Ref[Package] fails go.Error needs go.Foreign
+extern go go/build.Context.ImportDir func (ctxt *Context) ImportDir(dir string, mode ImportMode) go.Ref[Package] fails go.Error needs go.Foreign takes ctxt
 
 // ergo:go func (*Context).MatchFile(dir string, name string) (match bool, err error)
-extern go go/build.Context.MatchFile func (ctxt *Context) MatchFile(dir string, name string) bool fails go.Error needs go.Foreign
+extern go go/build.Context.MatchFile func (ctxt *Context) MatchFile(dir string, name string) bool fails go.Error needs go.Foreign takes ctxt
 
 // ergo:go func (*Context).SrcDirs() []string
-extern go go/build.Context.SrcDirs func (ctxt *Context) SrcDirs() []string needs go.Foreign
+extern go go/build.Context.SrcDirs func (ctxt *Context) SrcDirs() []string needs go.Foreign takes ctxt
 
 // ergo:go var Default Context
 // ergo:refused Default: a Go variable is host state; call a function
@@ -96,7 +96,7 @@ extern go go/build.MultiplePackageError type MultiplePackageError {
 }
 
 // ergo:go func (*MultiplePackageError).Error() string
-extern go go/build.MultiplePackageError.Error func (e *MultiplePackageError) Error() string needs go.Foreign
+extern go go/build.MultiplePackageError.Error func (e *MultiplePackageError) Error() string needs go.Foreign takes e
 
 // ergo:go type NoGoError struct
 extern go go/build.NoGoError type NoGoError {
@@ -104,7 +104,7 @@ extern go go/build.NoGoError type NoGoError {
 }
 
 // ergo:go func (*NoGoError).Error() string
-extern go go/build.NoGoError.Error func (e *NoGoError) Error() string needs go.Foreign
+extern go go/build.NoGoError.Error func (e *NoGoError) Error() string needs go.Foreign takes e
 
 // ergo:go type Package struct
 extern go go/build.Package type Package {
@@ -163,7 +163,7 @@ extern go go/build.Package type Package {
 }
 
 // ergo:go func (*Package).IsCommand() bool
-extern go go/build.Package.IsCommand func (p *Package) IsCommand() bool needs go.Foreign
+extern go go/build.Package.IsCommand func (p *Package) IsCommand() bool needs go.Foreign takes p
 
 // ergo:go var ToolDir string
 // ergo:refused ToolDir: a Go variable is host state; call a function

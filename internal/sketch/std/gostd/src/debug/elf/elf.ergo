@@ -1336,40 +1336,40 @@ extern go debug/elf.File type File {
 // ergo:refused File.Progs: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*File).Close() error
-extern go debug/elf.File.Close func (f *File) Close() fails go.Error needs go.Foreign
+extern go debug/elf.File.Close func (f *File) Close() fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).DWARF() (*dwarf.Data, error)
-extern go debug/elf.File.DWARF func (f *File) DWARF() go.Ref[dwarf.Data] fails go.Error needs go.Foreign
+extern go debug/elf.File.DWARF func (f *File) DWARF() go.Ref[dwarf.Data] fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).DynString(tag DynTag) ([]string, error)
-extern go debug/elf.File.DynString func (f *File) DynString(tag DynTag) []string fails go.Error needs go.Foreign
+extern go debug/elf.File.DynString func (f *File) DynString(tag DynTag) []string fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).DynValue(tag DynTag) ([]uint64, error)
-extern go debug/elf.File.DynValue func (f *File) DynValue(tag DynTag) []uint64 fails go.Error needs go.Foreign
+extern go debug/elf.File.DynValue func (f *File) DynValue(tag DynTag) []uint64 fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).DynamicSymbols() ([]Symbol, error)
-extern go debug/elf.File.DynamicSymbols func (f *File) DynamicSymbols() []Symbol fails go.Error needs go.Foreign
+extern go debug/elf.File.DynamicSymbols func (f *File) DynamicSymbols() []Symbol fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).DynamicVersionNeeds() ([]DynamicVersionNeed, error)
-extern go debug/elf.File.DynamicVersionNeeds func (f *File) DynamicVersionNeeds() []DynamicVersionNeed fails go.Error needs go.Foreign
+extern go debug/elf.File.DynamicVersionNeeds func (f *File) DynamicVersionNeeds() []DynamicVersionNeed fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).DynamicVersions() ([]DynamicVersion, error)
-extern go debug/elf.File.DynamicVersions func (f *File) DynamicVersions() []DynamicVersion fails go.Error needs go.Foreign
+extern go debug/elf.File.DynamicVersions func (f *File) DynamicVersions() []DynamicVersion fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).ImportedLibraries() ([]string, error)
-extern go debug/elf.File.ImportedLibraries func (f *File) ImportedLibraries() []string fails go.Error needs go.Foreign
+extern go debug/elf.File.ImportedLibraries func (f *File) ImportedLibraries() []string fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).ImportedSymbols() ([]ImportedSymbol, error)
-extern go debug/elf.File.ImportedSymbols func (f *File) ImportedSymbols() []ImportedSymbol fails go.Error needs go.Foreign
+extern go debug/elf.File.ImportedSymbols func (f *File) ImportedSymbols() []ImportedSymbol fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).Section(name string) *Section
-extern go debug/elf.File.Section func (f *File) Section(name string) Option[go.Ref[Section]] needs go.Foreign
+extern go debug/elf.File.Section func (f *File) Section(name string) Option[go.Ref[Section]] needs go.Foreign takes f
 
 // ergo:go func (*File).SectionByType(typ SectionType) *Section
-extern go debug/elf.File.SectionByType func (f *File) SectionByType(typ SectionType) Option[go.Ref[Section]] needs go.Foreign
+extern go debug/elf.File.SectionByType func (f *File) SectionByType(typ SectionType) Option[go.Ref[Section]] needs go.Foreign takes f
 
 // ergo:go func (*File).Symbols() ([]Symbol, error)
-extern go debug/elf.File.Symbols func (f *File) Symbols() []Symbol fails go.Error needs go.Foreign
+extern go debug/elf.File.Symbols func (f *File) Symbols() []Symbol fails go.Error needs go.Foreign takes f
 
 // ergo:go type FileHeader struct
 extern go debug/elf.FileHeader type FileHeader {
@@ -1388,7 +1388,7 @@ extern go debug/elf.FileHeader type FileHeader {
 extern go debug/elf.FormatError type FormatError {}
 
 // ergo:go func (*FormatError).Error() string
-extern go debug/elf.FormatError.Error func (e *FormatError) Error() string needs go.Foreign
+extern go debug/elf.FormatError.Error func (e *FormatError) Error() string needs go.Foreign takes e
 
 // ergo:go type Header32 struct
 extern go debug/elf.Header32 type Header32 {
@@ -1461,7 +1461,7 @@ extern go debug/elf.NType.GoString func (i NType) GoString() string needs go.For
 extern go debug/elf.NType.String func (i NType) String() string needs go.Foreign
 
 // ergo:go func NewFile(r io.ReaderAt) (*File, error)
-extern go debug/elf.NewFile func NewFile(r io.ReaderAt) go.Ref[File] fails go.Error needs go.Foreign
+extern go debug/elf.NewFile func NewFile(r io.ReaderAt) go.Ref[File] fails go.Error needs go.Foreign takes r
 
 // ergo:go type OSABI byte
 extern go debug/elf.OSABI type OSABI byte
@@ -1602,10 +1602,10 @@ extern go debug/elf.Prog type Prog {
 }
 
 // ergo:go func (*Prog).Open() io.ReadSeeker
-extern go debug/elf.Prog.Open func (p *Prog) Open() io.ReadSeeker needs go.Foreign
+extern go debug/elf.Prog.Open func (p *Prog) Open() io.ReadSeeker needs go.Foreign takes p
 
 // ergo:go func (io.ReaderAt).ReadAt(p []byte, off int64) (n int, err error)
-extern go debug/elf.Prog.ReadAt func (r Prog) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign
+extern go debug/elf.Prog.ReadAt func (r Prog) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign takes r
 
 // ergo:go type Prog32 struct
 extern go debug/elf.Prog32 type Prog32 {
@@ -4955,13 +4955,13 @@ extern go debug/elf.Section type Section {
 }
 
 // ergo:go func (*Section).Data() ([]byte, error)
-extern go debug/elf.Section.Data func (s *Section) Data() []byte fails go.Error needs go.Foreign
+extern go debug/elf.Section.Data func (s *Section) Data() []byte fails go.Error needs go.Foreign takes s
 
 // ergo:go func (*Section).Open() io.ReadSeeker
-extern go debug/elf.Section.Open func (s *Section) Open() io.ReadSeeker needs go.Foreign
+extern go debug/elf.Section.Open func (s *Section) Open() io.ReadSeeker needs go.Foreign takes s
 
 // ergo:go func (io.ReaderAt).ReadAt(p []byte, off int64) (n int, err error)
-extern go debug/elf.Section.ReadAt func (r Section) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign
+extern go debug/elf.Section.ReadAt func (r Section) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign takes r
 
 // ergo:go type Section32 struct
 extern go debug/elf.Section32 type Section32 {

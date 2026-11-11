@@ -123,12 +123,14 @@ let payment = try timeout.After(500ms) { Gateway.Authorize(order) }
 **Classification.** `timeout.After` is an ordinary library function in the `timeout` package, not a construct. Under the owner's rules, constructs get keywords, a dot form is library, and kernel primitives are functions (owner, 2026-10-12). Its kernel primitives are task start (`task.Go`), `Task.Stop` and `Task.Wait`, and the `Scheduler` capability. Its designed signature, in the generic spelling of [types.md](types.md#generics):
 
 ```go
-func After[T, E, R](d duration, body func() T fails E needs R) T fails E | Expired needs Scheduler | R {
+func After[T, E, R](d duration, body escaping func() T fails E needs R) T fails E | Expired needs Scheduler | R {
 	// designed: the body runs as a child task raced against the deadline
 }
 ```
 
 The callback type carries `needs R`, so the requirements of the block appear in `After`'s own row. A trailing block is the `body` argument ([grammar.md](grammar.md#expressions)). *Prior art:* Effect's `Effect.timeout` is an ordinary combinator over fibers and the clock; Go's `context.WithTimeout` is a library function.
+
+The callback is escaping because it changes tasks, although the call joins it. It cannot capture a caller-owned resource without an admitted ownership transport. A `tasks.Set` needed inside a timeout is acquired inside its callback, so that child task owns it. This is the general callback rule, not a Set-specific checker rule (ESC1 r2).
 
 1. `timeout.After(d) { block }` needs `import "timeout"`. It takes one `duration` (S108) and a block (S108). The duration is a value position, so a fallible duration is S105.
 2. It charges `Scheduler` and the block's requirements ([rows.md](rows.md#capability-rows)), because its signature says so.

@@ -22,7 +22,7 @@ extern go testing/quick.CheckEqualError type CheckEqualError {
 // ergo:refused CheckEqualError.Out2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*CheckEqualError).Error() string
-extern go testing/quick.CheckEqualError.Error func (s *CheckEqualError) Error() string needs go.Foreign
+extern go testing/quick.CheckEqualError.Error func (s *CheckEqualError) Error() string needs go.Foreign takes s
 
 // ergo:go type CheckError struct
 extern go testing/quick.CheckError type CheckError {
@@ -33,7 +33,7 @@ extern go testing/quick.CheckError type CheckError {
 // ergo:refused CheckError.In: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*CheckError).Error() string
-extern go testing/quick.CheckError.Error func (s *CheckError) Error() string needs go.Foreign
+extern go testing/quick.CheckError.Error func (s *CheckError) Error() string needs go.Foreign takes s
 
 // ergo:go type Config struct
 extern go testing/quick.Config type Config {
@@ -47,7 +47,7 @@ extern go testing/quick.Config type Config {
 
 // ergo:go type Generator interface
 extern go testing/quick.Generator type Generator {
-	Generate(rand *rand.Rand, size int) reflect.Value needs go.Foreign,
+	Generate(rand *rand.Rand, size int) reflect.Value needs go.Foreign takes rand,
 }
 
 // ergo:go type SetupError string
@@ -57,4 +57,4 @@ extern go testing/quick.SetupError type SetupError string
 extern go testing/quick.SetupError.Error func (s SetupError) Error() string needs go.Foreign
 
 // ergo:go func Value(t reflect.Type, rand *rand.Rand) (value reflect.Value, ok bool)
-extern go testing/quick.Value func Value(t reflect.Type, rand *rand.Rand) (reflect.Value, bool) needs go.Foreign
+extern go testing/quick.Value func Value(t reflect.Type, rand *rand.Rand) (reflect.Value, bool) needs go.Foreign takes t, rand

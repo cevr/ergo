@@ -13,28 +13,28 @@ extern go encoding/base32.CorruptInputError.Error func (e CorruptInputError) Err
 extern go encoding/base32.Encoding type Encoding {}
 
 // ergo:go func (*Encoding).AppendDecode(dst []byte, src []byte) ([]byte, error)
-extern go encoding/base32.Encoding.AppendDecode func (enc *Encoding) AppendDecode(dst []byte, src []byte) []byte fails go.Error needs go.Foreign
+extern go encoding/base32.Encoding.AppendDecode func (enc *Encoding) AppendDecode(dst []byte, src []byte) []byte fails go.Error needs go.Foreign takes enc
 
 // ergo:go func (*Encoding).AppendEncode(dst []byte, src []byte) []byte
-extern go encoding/base32.Encoding.AppendEncode func (enc *Encoding) AppendEncode(dst []byte, src []byte) []byte needs go.Foreign
+extern go encoding/base32.Encoding.AppendEncode func (enc *Encoding) AppendEncode(dst []byte, src []byte) []byte needs go.Foreign takes enc
 
 // ergo:go func (*Encoding).Decode(dst []byte, src []byte) (n int, err error)
-extern go encoding/base32.Encoding.Decode func (enc *Encoding) Decode(dst []byte, src []byte) int fails go.Error needs go.Foreign
+extern go encoding/base32.Encoding.Decode func (enc *Encoding) Decode(dst []byte, src []byte) int fails go.Error needs go.Foreign takes enc
 
 // ergo:go func (*Encoding).DecodeString(s string) ([]byte, error)
-extern go encoding/base32.Encoding.DecodeString func (enc *Encoding) DecodeString(s string) []byte fails go.Error needs go.Foreign
+extern go encoding/base32.Encoding.DecodeString func (enc *Encoding) DecodeString(s string) []byte fails go.Error needs go.Foreign takes enc
 
 // ergo:go func (*Encoding).DecodedLen(n int) int
-extern go encoding/base32.Encoding.DecodedLen func (enc *Encoding) DecodedLen(n int) int needs go.Foreign
+extern go encoding/base32.Encoding.DecodedLen func (enc *Encoding) DecodedLen(n int) int needs go.Foreign takes enc
 
 // ergo:go func (*Encoding).Encode(dst []byte, src []byte)
-extern go encoding/base32.Encoding.Encode func (enc *Encoding) Encode(dst []byte, src []byte) needs go.Foreign
+extern go encoding/base32.Encoding.Encode func (enc *Encoding) Encode(dst []byte, src []byte) needs go.Foreign takes enc
 
 // ergo:go func (*Encoding).EncodeToString(src []byte) string
-extern go encoding/base32.Encoding.EncodeToString func (enc *Encoding) EncodeToString(src []byte) string needs go.Foreign
+extern go encoding/base32.Encoding.EncodeToString func (enc *Encoding) EncodeToString(src []byte) string needs go.Foreign takes enc
 
 // ergo:go func (*Encoding).EncodedLen(n int) int
-extern go encoding/base32.Encoding.EncodedLen func (enc *Encoding) EncodedLen(n int) int needs go.Foreign
+extern go encoding/base32.Encoding.EncodedLen func (enc *Encoding) EncodedLen(n int) int needs go.Foreign takes enc
 
 // ergo:go func (Encoding).WithPadding(padding rune) *Encoding
 extern go encoding/base32.Encoding.WithPadding func (enc Encoding) WithPadding(padding rune) Option[go.Ref[Encoding]] needs go.Foreign
@@ -43,10 +43,10 @@ extern go encoding/base32.Encoding.WithPadding func (enc Encoding) WithPadding(p
 // ergo:refused HexEncoding: a Go variable is host state; call a function
 
 // ergo:go func NewDecoder(enc *Encoding, r io.Reader) io.Reader
-extern go encoding/base32.NewDecoder func NewDecoder(enc *Encoding, r io.Reader) io.Reader needs go.Foreign
+extern go encoding/base32.NewDecoder func NewDecoder(enc *Encoding, r io.Reader) io.Reader needs go.Foreign takes enc, r
 
 // ergo:go func NewEncoder(enc *Encoding, w io.Writer) io.WriteCloser
-extern go encoding/base32.NewEncoder func NewEncoder(enc *Encoding, w io.Writer) io.WriteCloser needs go.Foreign
+extern go encoding/base32.NewEncoder func NewEncoder(enc *Encoding, w io.Writer) io.WriteCloser needs go.Foreign takes enc, w
 
 // ergo:go func NewEncoding(encoder string) *Encoding
 extern go encoding/base32.NewEncoding func NewEncoding(encoder string) Option[go.Ref[Encoding]] needs go.Foreign

@@ -17,10 +17,10 @@ package check
 //     (q62): the ownership flow owns a call's result already.
 //   - A Go package variable is borrowed (q62): it is a package let, so a
 //     take of it is S108 "no owner" and nothing releases it.
-//   - A value passed to a Go function is lent for the call: a Go
-//     signature cannot move a value, so a resource converted to a Go
-//     interface parameter (an io.Reader) is a lend there, not R22's
-//     unreleased copy and not R23's move.
+//   - A resource passed to Go is kept (taken), unless a reviewed clause
+//     establishes a lend (hostclauses.go). An interface argument may
+//     receive the resource without preserving its Close; the ownership
+//     pass still moves it on a taking call, or lends it on a reviewed one.
 //   - Generic Go functions copy each type parameter (D-B): they are
 //     bodiless, and the reviewed table (v1.MovesOnly) lists none.
 //
@@ -129,10 +129,9 @@ func isHostPkgName(o Object) bool {
 	return ok && pn.Pkg.Host()
 }
 
-// hostLendArg reports that pt, the parameter of a Go function or method
-// being checked, receives its argument as a lend: a Go signature cannot
-// move a value (Go has no ownership), so a resource passed to it stays
-// with its owner.
+// hostLendArg admits conversion of a resource at a direct Go argument
+// boundary. hostClauses supplies the call's takes policy independently:
+// only a reviewed lend keeps the resource in the caller's owning list.
 func (c *checker) hostLendArg(t Type) bool {
 	return c.hostCall && isHostNamed(t)
 }

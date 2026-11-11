@@ -5,10 +5,10 @@ import go os
 
 // ergo:go func Ignore(sig ...os.Signal)
 // ergo:variadic
-extern go os/signal.Ignore func Ignore(sig []os.Signal) needs go.Foreign
+extern go os/signal.Ignore func Ignore(sig []os.Signal) needs go.Foreign takes sig
 
 // ergo:go func Ignored(sig os.Signal) bool
-extern go os/signal.Ignored func Ignored(sig os.Signal) bool needs go.Foreign
+extern go os/signal.Ignored func Ignored(sig os.Signal) bool needs go.Foreign takes sig
 
 // ergo:go func Notify(c chan<- os.Signal, sig ...os.Signal)
 // ergo:refused Notify: parameter 1: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue
@@ -18,7 +18,7 @@ extern go os/signal.Ignored func Ignored(sig os.Signal) bool needs go.Foreign
 
 // ergo:go func Reset(sig ...os.Signal)
 // ergo:variadic
-extern go os/signal.Reset func Reset(sig []os.Signal) needs go.Foreign
+extern go os/signal.Reset func Reset(sig []os.Signal) needs go.Foreign takes sig
 
 // ergo:go func Stop(c chan<- os.Signal)
 // ergo:refused Stop: parameter 1: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue

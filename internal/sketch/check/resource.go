@@ -311,7 +311,7 @@ type resourceSite struct {
 // takesClause resolves a written takes clause against sig's parameters.
 // method is true in an operation type, where a bare takes names the value
 // the operation is called on.
-func (c *checker) takesClause(u *syntax.TakesClause, sig *Signature, method bool) {
+func (c *checker) takesClause(u *syntax.TakesClause, sig *Signature, method bool, hostRecv string) {
 	if c.takesSeen == nil {
 		c.takesSeen = map[*syntax.TakesClause]bool{}
 	}
@@ -327,6 +327,14 @@ func (c *checker) takesClause(u *syntax.TakesClause, sig *Signature, method bool
 	}
 	seen := map[string]bool{}
 	for _, id := range u.Names {
+		if hostRecv != "" && id.Name == hostRecv {
+			if seen[id.Name] && first {
+				c.errorf(made(c, id, syntax.Node(u)), CodeType, "takes names %s twice", id.Name)
+			}
+			seen[id.Name] = true
+			sig.TakesSelf = true
+			continue
+		}
 		at := -1
 		for i, p := range sig.Params {
 			if p.Name == id.Name && id.Name != "_" {
@@ -384,7 +392,7 @@ func (c *checker) checkResourceTypes() {
 			}
 			continue
 		}
-		if !c.mayHoldResource(s.t) {
+		if !c.mayHoldResource(s.t) && !c.pkg.Host() {
 			c.errorf(s.at, CodeUnused, "takes %s has no effect: %s is not a resource", s.name, s.t)
 		}
 	}

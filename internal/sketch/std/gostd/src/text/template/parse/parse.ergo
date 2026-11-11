@@ -10,13 +10,13 @@ extern go text/template/parse.ActionNode type ActionNode {
 }
 
 // ergo:go func (*ActionNode).Copy() Node
-extern go text/template/parse.ActionNode.Copy func (a *ActionNode) Copy() Node needs go.Foreign
+extern go text/template/parse.ActionNode.Copy func (a *ActionNode) Copy() Node needs go.Foreign takes a
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.ActionNode.Position func (p ActionNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*ActionNode).String() string
-extern go text/template/parse.ActionNode.String func (a *ActionNode) String() string needs go.Foreign
+extern go text/template/parse.ActionNode.String func (a *ActionNode) String() string needs go.Foreign takes a
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.ActionNode.Type func (t ActionNode) Type() NodeType needs go.Foreign
@@ -29,13 +29,13 @@ extern go text/template/parse.BoolNode type BoolNode {
 }
 
 // ergo:go func (*BoolNode).Copy() Node
-extern go text/template/parse.BoolNode.Copy func (b *BoolNode) Copy() Node needs go.Foreign
+extern go text/template/parse.BoolNode.Copy func (b *BoolNode) Copy() Node needs go.Foreign takes b
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.BoolNode.Position func (p BoolNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*BoolNode).String() string
-extern go text/template/parse.BoolNode.String func (b *BoolNode) String() string needs go.Foreign
+extern go text/template/parse.BoolNode.String func (b *BoolNode) String() string needs go.Foreign takes b
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.BoolNode.Type func (t BoolNode) Type() NodeType needs go.Foreign
@@ -51,13 +51,13 @@ extern go text/template/parse.BranchNode type BranchNode {
 }
 
 // ergo:go func (*BranchNode).Copy() Node
-extern go text/template/parse.BranchNode.Copy func (b *BranchNode) Copy() Node needs go.Foreign
+extern go text/template/parse.BranchNode.Copy func (b *BranchNode) Copy() Node needs go.Foreign takes b
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.BranchNode.Position func (p BranchNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*BranchNode).String() string
-extern go text/template/parse.BranchNode.String func (b *BranchNode) String() string needs go.Foreign
+extern go text/template/parse.BranchNode.String func (b *BranchNode) String() string needs go.Foreign takes b
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.BranchNode.Type func (t BranchNode) Type() NodeType needs go.Foreign
@@ -70,13 +70,13 @@ extern go text/template/parse.BreakNode type BreakNode {
 }
 
 // ergo:go func (*BreakNode).Copy() Node
-extern go text/template/parse.BreakNode.Copy func (b *BreakNode) Copy() Node needs go.Foreign
+extern go text/template/parse.BreakNode.Copy func (b *BreakNode) Copy() Node needs go.Foreign takes b
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.BreakNode.Position func (p BreakNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*BreakNode).String() string
-extern go text/template/parse.BreakNode.String func (b *BreakNode) String() string needs go.Foreign
+extern go text/template/parse.BreakNode.String func (b *BreakNode) String() string needs go.Foreign takes b
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.BreakNode.Type func (t BreakNode) Type() NodeType needs go.Foreign
@@ -90,16 +90,16 @@ extern go text/template/parse.ChainNode type ChainNode {
 }
 
 // ergo:go func (*ChainNode).Add(field string)
-extern go text/template/parse.ChainNode.Add func (c *ChainNode) Add(field string) needs go.Foreign
+extern go text/template/parse.ChainNode.Add func (c *ChainNode) Add(field string) needs go.Foreign takes c
 
 // ergo:go func (*ChainNode).Copy() Node
-extern go text/template/parse.ChainNode.Copy func (c *ChainNode) Copy() Node needs go.Foreign
+extern go text/template/parse.ChainNode.Copy func (c *ChainNode) Copy() Node needs go.Foreign takes c
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.ChainNode.Position func (p ChainNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*ChainNode).String() string
-extern go text/template/parse.ChainNode.String func (c *ChainNode) String() string needs go.Foreign
+extern go text/template/parse.ChainNode.String func (c *ChainNode) String() string needs go.Foreign takes c
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.ChainNode.Type func (t ChainNode) Type() NodeType needs go.Foreign
@@ -112,13 +112,13 @@ extern go text/template/parse.CommandNode type CommandNode {
 }
 
 // ergo:go func (*CommandNode).Copy() Node
-extern go text/template/parse.CommandNode.Copy func (c *CommandNode) Copy() Node needs go.Foreign
+extern go text/template/parse.CommandNode.Copy func (c *CommandNode) Copy() Node needs go.Foreign takes c
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.CommandNode.Position func (p CommandNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*CommandNode).String() string
-extern go text/template/parse.CommandNode.String func (c *CommandNode) String() string needs go.Foreign
+extern go text/template/parse.CommandNode.String func (c *CommandNode) String() string needs go.Foreign takes c
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.CommandNode.Type func (t CommandNode) Type() NodeType needs go.Foreign
@@ -131,13 +131,13 @@ extern go text/template/parse.CommentNode type CommentNode {
 }
 
 // ergo:go func (*CommentNode).Copy() Node
-extern go text/template/parse.CommentNode.Copy func (c *CommentNode) Copy() Node needs go.Foreign
+extern go text/template/parse.CommentNode.Copy func (c *CommentNode) Copy() Node needs go.Foreign takes c
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.CommentNode.Position func (p CommentNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*CommentNode).String() string
-extern go text/template/parse.CommentNode.String func (c *CommentNode) String() string needs go.Foreign
+extern go text/template/parse.CommentNode.String func (c *CommentNode) String() string needs go.Foreign takes c
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.CommentNode.Type func (t CommentNode) Type() NodeType needs go.Foreign
@@ -150,13 +150,13 @@ extern go text/template/parse.ContinueNode type ContinueNode {
 }
 
 // ergo:go func (*ContinueNode).Copy() Node
-extern go text/template/parse.ContinueNode.Copy func (c *ContinueNode) Copy() Node needs go.Foreign
+extern go text/template/parse.ContinueNode.Copy func (c *ContinueNode) Copy() Node needs go.Foreign takes c
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.ContinueNode.Position func (p ContinueNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*ContinueNode).String() string
-extern go text/template/parse.ContinueNode.String func (c *ContinueNode) String() string needs go.Foreign
+extern go text/template/parse.ContinueNode.String func (c *ContinueNode) String() string needs go.Foreign takes c
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.ContinueNode.Type func (t ContinueNode) Type() NodeType needs go.Foreign
@@ -168,16 +168,16 @@ extern go text/template/parse.DotNode type DotNode {
 }
 
 // ergo:go func (*DotNode).Copy() Node
-extern go text/template/parse.DotNode.Copy func (d *DotNode) Copy() Node needs go.Foreign
+extern go text/template/parse.DotNode.Copy func (d *DotNode) Copy() Node needs go.Foreign takes d
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.DotNode.Position func (p DotNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*DotNode).String() string
-extern go text/template/parse.DotNode.String func (d *DotNode) String() string needs go.Foreign
+extern go text/template/parse.DotNode.String func (d *DotNode) String() string needs go.Foreign takes d
 
 // ergo:go func (*DotNode).Type() NodeType
-extern go text/template/parse.DotNode.Type func (d *DotNode) Type() NodeType needs go.Foreign
+extern go text/template/parse.DotNode.Type func (d *DotNode) Type() NodeType needs go.Foreign takes d
 
 // ergo:go type FieldNode struct
 extern go text/template/parse.FieldNode type FieldNode {
@@ -187,13 +187,13 @@ extern go text/template/parse.FieldNode type FieldNode {
 }
 
 // ergo:go func (*FieldNode).Copy() Node
-extern go text/template/parse.FieldNode.Copy func (f *FieldNode) Copy() Node needs go.Foreign
+extern go text/template/parse.FieldNode.Copy func (f *FieldNode) Copy() Node needs go.Foreign takes f
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.FieldNode.Position func (p FieldNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*FieldNode).String() string
-extern go text/template/parse.FieldNode.String func (f *FieldNode) String() string needs go.Foreign
+extern go text/template/parse.FieldNode.String func (f *FieldNode) String() string needs go.Foreign takes f
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.FieldNode.Type func (t FieldNode) Type() NodeType needs go.Foreign
@@ -206,19 +206,19 @@ extern go text/template/parse.IdentifierNode type IdentifierNode {
 }
 
 // ergo:go func (*IdentifierNode).Copy() Node
-extern go text/template/parse.IdentifierNode.Copy func (i *IdentifierNode) Copy() Node needs go.Foreign
+extern go text/template/parse.IdentifierNode.Copy func (i *IdentifierNode) Copy() Node needs go.Foreign takes i
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.IdentifierNode.Position func (p IdentifierNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*IdentifierNode).SetPos(pos Pos) *IdentifierNode
-extern go text/template/parse.IdentifierNode.SetPos func (i *IdentifierNode) SetPos(pos Pos) Option[go.Ref[IdentifierNode]] needs go.Foreign
+extern go text/template/parse.IdentifierNode.SetPos func (i *IdentifierNode) SetPos(pos Pos) Option[go.Ref[IdentifierNode]] needs go.Foreign takes i
 
 // ergo:go func (*IdentifierNode).SetTree(t *Tree) *IdentifierNode
-extern go text/template/parse.IdentifierNode.SetTree func (i *IdentifierNode) SetTree(t *Tree) Option[go.Ref[IdentifierNode]] needs go.Foreign
+extern go text/template/parse.IdentifierNode.SetTree func (i *IdentifierNode) SetTree(t *Tree) Option[go.Ref[IdentifierNode]] needs go.Foreign takes i, t
 
 // ergo:go func (*IdentifierNode).String() string
-extern go text/template/parse.IdentifierNode.String func (i *IdentifierNode) String() string needs go.Foreign
+extern go text/template/parse.IdentifierNode.String func (i *IdentifierNode) String() string needs go.Foreign takes i
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.IdentifierNode.Type func (t IdentifierNode) Type() NodeType needs go.Foreign
@@ -229,19 +229,19 @@ extern go text/template/parse.IfNode type IfNode {
 }
 
 // ergo:go func (*IfNode).Copy() Node
-extern go text/template/parse.IfNode.Copy func (i *IfNode) Copy() Node needs go.Foreign
+extern go text/template/parse.IfNode.Copy func (i *IfNode) Copy() Node needs go.Foreign takes i
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.IfNode.Position func (p IfNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*BranchNode).String() string
-extern go text/template/parse.IfNode.String func (b *IfNode) String() string needs go.Foreign
+extern go text/template/parse.IfNode.String func (b *IfNode) String() string needs go.Foreign takes b
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.IfNode.Type func (t IfNode) Type() NodeType needs go.Foreign
 
 // ergo:go func IsEmptyTree(n Node) bool
-extern go text/template/parse.IsEmptyTree func IsEmptyTree(n Node) bool needs go.Foreign
+extern go text/template/parse.IsEmptyTree func IsEmptyTree(n Node) bool needs go.Foreign takes n
 
 // ergo:go type ListNode struct
 extern go text/template/parse.ListNode type ListNode {
@@ -251,16 +251,16 @@ extern go text/template/parse.ListNode type ListNode {
 }
 
 // ergo:go func (*ListNode).Copy() Node
-extern go text/template/parse.ListNode.Copy func (l *ListNode) Copy() Node needs go.Foreign
+extern go text/template/parse.ListNode.Copy func (l *ListNode) Copy() Node needs go.Foreign takes l
 
 // ergo:go func (*ListNode).CopyList() *ListNode
-extern go text/template/parse.ListNode.CopyList func (l *ListNode) CopyList() Option[go.Ref[ListNode]] needs go.Foreign
+extern go text/template/parse.ListNode.CopyList func (l *ListNode) CopyList() Option[go.Ref[ListNode]] needs go.Foreign takes l
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.ListNode.Position func (p ListNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*ListNode).String() string
-extern go text/template/parse.ListNode.String func (l *ListNode) String() string needs go.Foreign
+extern go text/template/parse.ListNode.String func (l *ListNode) String() string needs go.Foreign takes l
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.ListNode.Type func (t ListNode) Type() NodeType needs go.Foreign
@@ -281,23 +281,23 @@ extern go text/template/parse.NilNode type NilNode {
 }
 
 // ergo:go func (*NilNode).Copy() Node
-extern go text/template/parse.NilNode.Copy func (n *NilNode) Copy() Node needs go.Foreign
+extern go text/template/parse.NilNode.Copy func (n *NilNode) Copy() Node needs go.Foreign takes n
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.NilNode.Position func (p NilNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*NilNode).String() string
-extern go text/template/parse.NilNode.String func (n *NilNode) String() string needs go.Foreign
+extern go text/template/parse.NilNode.String func (n *NilNode) String() string needs go.Foreign takes n
 
 // ergo:go func (*NilNode).Type() NodeType
-extern go text/template/parse.NilNode.Type func (n *NilNode) Type() NodeType needs go.Foreign
+extern go text/template/parse.NilNode.Type func (n *NilNode) Type() NodeType needs go.Foreign takes n
 
 // ergo:go type Node interface
 extern go text/template/parse.Node type Node {
-	Copy() Node needs go.Foreign,
-	Position() Pos needs go.Foreign,
-	String() string needs go.Foreign,
-	Type() NodeType needs go.Foreign,
+	Copy() Node needs go.Foreign takes,
+	Position() Pos needs go.Foreign takes,
+	String() string needs go.Foreign takes,
+	Type() NodeType needs go.Foreign takes,
 }
 
 // ergo:go const NodeAction NodeType
@@ -385,13 +385,13 @@ extern go text/template/parse.NumberNode type NumberNode {
 }
 
 // ergo:go func (*NumberNode).Copy() Node
-extern go text/template/parse.NumberNode.Copy func (n *NumberNode) Copy() Node needs go.Foreign
+extern go text/template/parse.NumberNode.Copy func (n *NumberNode) Copy() Node needs go.Foreign takes n
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.NumberNode.Position func (p NumberNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*NumberNode).String() string
-extern go text/template/parse.NumberNode.String func (n *NumberNode) String() string needs go.Foreign
+extern go text/template/parse.NumberNode.String func (n *NumberNode) String() string needs go.Foreign takes n
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.NumberNode.Type func (t NumberNode) Type() NodeType needs go.Foreign
@@ -417,16 +417,16 @@ extern go text/template/parse.PipeNode type PipeNode {
 // ergo:refused PipeNode.Cmds: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*PipeNode).Copy() Node
-extern go text/template/parse.PipeNode.Copy func (p *PipeNode) Copy() Node needs go.Foreign
+extern go text/template/parse.PipeNode.Copy func (p *PipeNode) Copy() Node needs go.Foreign takes p
 
 // ergo:go func (*PipeNode).CopyPipe() *PipeNode
-extern go text/template/parse.PipeNode.CopyPipe func (p *PipeNode) CopyPipe() Option[go.Ref[PipeNode]] needs go.Foreign
+extern go text/template/parse.PipeNode.CopyPipe func (p *PipeNode) CopyPipe() Option[go.Ref[PipeNode]] needs go.Foreign takes p
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.PipeNode.Position func (p PipeNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*PipeNode).String() string
-extern go text/template/parse.PipeNode.String func (p *PipeNode) String() string needs go.Foreign
+extern go text/template/parse.PipeNode.String func (p *PipeNode) String() string needs go.Foreign takes p
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.PipeNode.Type func (t PipeNode) Type() NodeType needs go.Foreign
@@ -443,13 +443,13 @@ extern go text/template/parse.RangeNode type RangeNode {
 }
 
 // ergo:go func (*RangeNode).Copy() Node
-extern go text/template/parse.RangeNode.Copy func (r *RangeNode) Copy() Node needs go.Foreign
+extern go text/template/parse.RangeNode.Copy func (r *RangeNode) Copy() Node needs go.Foreign takes r
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.RangeNode.Position func (p RangeNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*BranchNode).String() string
-extern go text/template/parse.RangeNode.String func (b *RangeNode) String() string needs go.Foreign
+extern go text/template/parse.RangeNode.String func (b *RangeNode) String() string needs go.Foreign takes b
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.RangeNode.Type func (t RangeNode) Type() NodeType needs go.Foreign
@@ -466,13 +466,13 @@ extern go text/template/parse.StringNode type StringNode {
 }
 
 // ergo:go func (*StringNode).Copy() Node
-extern go text/template/parse.StringNode.Copy func (s *StringNode) Copy() Node needs go.Foreign
+extern go text/template/parse.StringNode.Copy func (s *StringNode) Copy() Node needs go.Foreign takes s
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.StringNode.Position func (p StringNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*StringNode).String() string
-extern go text/template/parse.StringNode.String func (s *StringNode) String() string needs go.Foreign
+extern go text/template/parse.StringNode.String func (s *StringNode) String() string needs go.Foreign takes s
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.StringNode.Type func (t StringNode) Type() NodeType needs go.Foreign
@@ -487,13 +487,13 @@ extern go text/template/parse.TemplateNode type TemplateNode {
 }
 
 // ergo:go func (*TemplateNode).Copy() Node
-extern go text/template/parse.TemplateNode.Copy func (t *TemplateNode) Copy() Node needs go.Foreign
+extern go text/template/parse.TemplateNode.Copy func (t *TemplateNode) Copy() Node needs go.Foreign takes t
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.TemplateNode.Position func (p TemplateNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*TemplateNode).String() string
-extern go text/template/parse.TemplateNode.String func (t *TemplateNode) String() string needs go.Foreign
+extern go text/template/parse.TemplateNode.String func (t *TemplateNode) String() string needs go.Foreign takes t
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.TemplateNode.Type func (t TemplateNode) Type() NodeType needs go.Foreign
@@ -506,13 +506,13 @@ extern go text/template/parse.TextNode type TextNode {
 }
 
 // ergo:go func (*TextNode).Copy() Node
-extern go text/template/parse.TextNode.Copy func (t *TextNode) Copy() Node needs go.Foreign
+extern go text/template/parse.TextNode.Copy func (t *TextNode) Copy() Node needs go.Foreign takes t
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.TextNode.Position func (p TextNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*TextNode).String() string
-extern go text/template/parse.TextNode.String func (t *TextNode) String() string needs go.Foreign
+extern go text/template/parse.TextNode.String func (t *TextNode) String() string needs go.Foreign takes t
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.TextNode.Type func (t TextNode) Type() NodeType needs go.Foreign
@@ -526,10 +526,10 @@ extern go text/template/parse.Tree type Tree {
 }
 
 // ergo:go func (*Tree).Copy() *Tree
-extern go text/template/parse.Tree.Copy func (t *Tree) Copy() Option[go.Ref[Tree]] needs go.Foreign
+extern go text/template/parse.Tree.Copy func (t *Tree) Copy() Option[go.Ref[Tree]] needs go.Foreign takes t
 
 // ergo:go func (*Tree).ErrorContext(n Node) (location string, context string)
-extern go text/template/parse.Tree.ErrorContext func (t *Tree) ErrorContext(n Node) (string, string) needs go.Foreign
+extern go text/template/parse.Tree.ErrorContext func (t *Tree) ErrorContext(n Node) (string, string) needs go.Foreign takes t, n
 
 // ergo:go func (*Tree).Parse(text string, leftDelim string, rightDelim string, treeSet map[string]*Tree, funcs ...map[string]any) (tree *Tree, err error)
 // ergo:refused Tree.Parse: parameter 4: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
@@ -542,13 +542,13 @@ extern go text/template/parse.VariableNode type VariableNode {
 }
 
 // ergo:go func (*VariableNode).Copy() Node
-extern go text/template/parse.VariableNode.Copy func (v *VariableNode) Copy() Node needs go.Foreign
+extern go text/template/parse.VariableNode.Copy func (v *VariableNode) Copy() Node needs go.Foreign takes v
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.VariableNode.Position func (p VariableNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*VariableNode).String() string
-extern go text/template/parse.VariableNode.String func (v *VariableNode) String() string needs go.Foreign
+extern go text/template/parse.VariableNode.String func (v *VariableNode) String() string needs go.Foreign takes v
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.VariableNode.Type func (t VariableNode) Type() NodeType needs go.Foreign
@@ -559,13 +559,13 @@ extern go text/template/parse.WithNode type WithNode {
 }
 
 // ergo:go func (*WithNode).Copy() Node
-extern go text/template/parse.WithNode.Copy func (w *WithNode) Copy() Node needs go.Foreign
+extern go text/template/parse.WithNode.Copy func (w *WithNode) Copy() Node needs go.Foreign takes w
 
 // ergo:go func (Pos).Position() Pos
 extern go text/template/parse.WithNode.Position func (p WithNode) Position() Pos needs go.Foreign
 
 // ergo:go func (*BranchNode).String() string
-extern go text/template/parse.WithNode.String func (b *WithNode) String() string needs go.Foreign
+extern go text/template/parse.WithNode.String func (b *WithNode) String() string needs go.Foreign takes b
 
 // ergo:go func (NodeType).Type() NodeType
 extern go text/template/parse.WithNode.Type func (t WithNode) Type() NodeType needs go.Foreign

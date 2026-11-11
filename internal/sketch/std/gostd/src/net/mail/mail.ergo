@@ -12,7 +12,7 @@ extern go net/mail.Address type Address {
 }
 
 // ergo:go func (*Address).String() string
-extern go net/mail.Address.String func (a *Address) String() string needs go.Foreign
+extern go net/mail.Address.String func (a *Address) String() string needs go.Foreign takes a
 
 // ergo:go type AddressParser struct
 extern go net/mail.AddressParser type AddressParser {
@@ -20,7 +20,7 @@ extern go net/mail.AddressParser type AddressParser {
 }
 
 // ergo:go func (*AddressParser).Parse(address string) (*Address, error)
-extern go net/mail.AddressParser.Parse func (p *AddressParser) Parse(address string) go.Ref[Address] fails go.Error needs go.Foreign
+extern go net/mail.AddressParser.Parse func (p *AddressParser) Parse(address string) go.Ref[Address] fails go.Error needs go.Foreign takes p
 
 // ergo:go func (*AddressParser).ParseList(list string) ([]*Address, error)
 // ergo:refused AddressParser.ParseList: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
@@ -56,4 +56,4 @@ extern go net/mail.ParseAddress func ParseAddress(address string) go.Ref[Address
 extern go net/mail.ParseDate func ParseDate(date string) time.Time fails go.Error needs go.Foreign
 
 // ergo:go func ReadMessage(r io.Reader) (msg *Message, err error)
-extern go net/mail.ReadMessage func ReadMessage(r io.Reader) go.Ref[Message] fails go.Error needs go.Foreign
+extern go net/mail.ReadMessage func ReadMessage(r io.Reader) go.Ref[Message] fails go.Error needs go.Foreign takes r

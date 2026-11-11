@@ -5,7 +5,7 @@
 extern go regexp/syntax.ClassNL let ClassNL Flags
 
 // ergo:go func Compile(re *Regexp) (*Prog, error)
-extern go regexp/syntax.Compile func Compile(re *Regexp) go.Ref[Prog] fails go.Error needs go.Foreign
+extern go regexp/syntax.Compile func Compile(re *Regexp) go.Ref[Prog] fails go.Error needs go.Foreign takes re
 
 // ergo:go const DotNL Flags
 extern go regexp/syntax.DotNL let DotNL Flags
@@ -89,7 +89,7 @@ extern go regexp/syntax.Error type Error {
 }
 
 // ergo:go func (*Error).Error() string
-extern go regexp/syntax.Error.Error func (e *Error) Error() string needs go.Foreign
+extern go regexp/syntax.Error.Error func (e *Error) Error() string needs go.Foreign takes e
 
 // ergo:go type ErrorCode string
 extern go regexp/syntax.ErrorCode type ErrorCode string
@@ -112,16 +112,16 @@ extern go regexp/syntax.Inst type Inst {
 }
 
 // ergo:go func (*Inst).MatchEmptyWidth(before rune, after rune) bool
-extern go regexp/syntax.Inst.MatchEmptyWidth func (i *Inst) MatchEmptyWidth(before rune, after rune) bool needs go.Foreign
+extern go regexp/syntax.Inst.MatchEmptyWidth func (i *Inst) MatchEmptyWidth(before rune, after rune) bool needs go.Foreign takes i
 
 // ergo:go func (*Inst).MatchRune(r rune) bool
-extern go regexp/syntax.Inst.MatchRune func (i *Inst) MatchRune(r rune) bool needs go.Foreign
+extern go regexp/syntax.Inst.MatchRune func (i *Inst) MatchRune(r rune) bool needs go.Foreign takes i
 
 // ergo:go func (*Inst).MatchRunePos(r rune) int
-extern go regexp/syntax.Inst.MatchRunePos func (i *Inst) MatchRunePos(r rune) int needs go.Foreign
+extern go regexp/syntax.Inst.MatchRunePos func (i *Inst) MatchRunePos(r rune) int needs go.Foreign takes i
 
 // ergo:go func (*Inst).String() string
-extern go regexp/syntax.Inst.String func (i *Inst) String() string needs go.Foreign
+extern go regexp/syntax.Inst.String func (i *Inst) String() string needs go.Foreign takes i
 
 // ergo:go const InstAlt InstOp
 extern go regexp/syntax.InstAlt let InstAlt InstOp
@@ -260,13 +260,13 @@ extern go regexp/syntax.Prog type Prog {
 }
 
 // ergo:go func (*Prog).Prefix() (prefix string, complete bool)
-extern go regexp/syntax.Prog.Prefix func (p *Prog) Prefix() (string, bool) needs go.Foreign
+extern go regexp/syntax.Prog.Prefix func (p *Prog) Prefix() (string, bool) needs go.Foreign takes p
 
 // ergo:go func (*Prog).StartCond() EmptyOp
-extern go regexp/syntax.Prog.StartCond func (p *Prog) StartCond() EmptyOp needs go.Foreign
+extern go regexp/syntax.Prog.StartCond func (p *Prog) StartCond() EmptyOp needs go.Foreign takes p
 
 // ergo:go func (*Prog).String() string
-extern go regexp/syntax.Prog.String func (p *Prog) String() string needs go.Foreign
+extern go regexp/syntax.Prog.String func (p *Prog) String() string needs go.Foreign takes p
 
 // ergo:go type Regexp struct
 extern go regexp/syntax.Regexp type Regexp {
@@ -287,19 +287,19 @@ extern go regexp/syntax.Regexp type Regexp {
 // ergo:refused Regexp.Sub0: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Regexp).CapNames() []string
-extern go regexp/syntax.Regexp.CapNames func (re *Regexp) CapNames() []string needs go.Foreign
+extern go regexp/syntax.Regexp.CapNames func (re *Regexp) CapNames() []string needs go.Foreign takes re
 
 // ergo:go func (*Regexp).Equal(y *Regexp) bool
-extern go regexp/syntax.Regexp.Equal func (x *Regexp) Equal(y *Regexp) bool needs go.Foreign
+extern go regexp/syntax.Regexp.Equal func (x *Regexp) Equal(y *Regexp) bool needs go.Foreign takes x, y
 
 // ergo:go func (*Regexp).MaxCap() int
-extern go regexp/syntax.Regexp.MaxCap func (re *Regexp) MaxCap() int needs go.Foreign
+extern go regexp/syntax.Regexp.MaxCap func (re *Regexp) MaxCap() int needs go.Foreign takes re
 
 // ergo:go func (*Regexp).Simplify() *Regexp
-extern go regexp/syntax.Regexp.Simplify func (re *Regexp) Simplify() Option[go.Ref[Regexp]] needs go.Foreign
+extern go regexp/syntax.Regexp.Simplify func (re *Regexp) Simplify() Option[go.Ref[Regexp]] needs go.Foreign takes re
 
 // ergo:go func (*Regexp).String() string
-extern go regexp/syntax.Regexp.String func (re *Regexp) String() string needs go.Foreign
+extern go regexp/syntax.Regexp.String func (re *Regexp) String() string needs go.Foreign takes re
 
 // ergo:go const Simple Flags
 extern go regexp/syntax.Simple let Simple Flags

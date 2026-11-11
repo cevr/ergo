@@ -7,7 +7,7 @@ import go hash
 extern go hash/maphash.Bytes func Bytes(seed Seed, b []byte) uint64 needs go.Foreign
 
 // ergo:go func Comparable[T comparable](seed Seed, v T) uint64
-extern go hash/maphash.Comparable func Comparable[T comparable](seed Seed, v T) uint64 needs go.Foreign
+extern go hash/maphash.Comparable func Comparable[T comparable](seed Seed, v T) uint64 needs go.Foreign takes v
 
 // ergo:go type ComparableHasher[…] struct
 // ergo:refused ComparableHasher: a generic Go type maps to no Ergo type in v1
@@ -16,37 +16,37 @@ extern go hash/maphash.Comparable func Comparable[T comparable](seed Seed, v T) 
 extern go hash/maphash.Hash type Hash {}
 
 // ergo:go func (*Hash).BlockSize() int
-extern go hash/maphash.Hash.BlockSize func (h *Hash) BlockSize() int needs go.Foreign
+extern go hash/maphash.Hash.BlockSize func (h *Hash) BlockSize() int needs go.Foreign takes h
 
 // ergo:go func (*Hash).Clone() (hash.Cloner, error)
-extern go hash/maphash.Hash.Clone func (h *Hash) Clone() hash.Cloner fails go.Error needs go.Foreign
+extern go hash/maphash.Hash.Clone func (h *Hash) Clone() hash.Cloner fails go.Error needs go.Foreign takes h
 
 // ergo:go func (*Hash).Reset()
-extern go hash/maphash.Hash.Reset func (h *Hash) Reset() needs go.Foreign
+extern go hash/maphash.Hash.Reset func (h *Hash) Reset() needs go.Foreign takes h
 
 // ergo:go func (*Hash).Seed() Seed
-extern go hash/maphash.Hash.Seed func (h *Hash) Seed() Seed needs go.Foreign
+extern go hash/maphash.Hash.Seed func (h *Hash) Seed() Seed needs go.Foreign takes h
 
 // ergo:go func (*Hash).SetSeed(seed Seed)
-extern go hash/maphash.Hash.SetSeed func (h *Hash) SetSeed(seed Seed) needs go.Foreign
+extern go hash/maphash.Hash.SetSeed func (h *Hash) SetSeed(seed Seed) needs go.Foreign takes h
 
 // ergo:go func (*Hash).Size() int
-extern go hash/maphash.Hash.Size func (h *Hash) Size() int needs go.Foreign
+extern go hash/maphash.Hash.Size func (h *Hash) Size() int needs go.Foreign takes h
 
 // ergo:go func (*Hash).Sum(b []byte) []byte
-extern go hash/maphash.Hash.Sum func (h *Hash) Sum(b []byte) []byte needs go.Foreign
+extern go hash/maphash.Hash.Sum func (h *Hash) Sum(b []byte) []byte needs go.Foreign takes h
 
 // ergo:go func (*Hash).Sum64() uint64
-extern go hash/maphash.Hash.Sum64 func (h *Hash) Sum64() uint64 needs go.Foreign
+extern go hash/maphash.Hash.Sum64 func (h *Hash) Sum64() uint64 needs go.Foreign takes h
 
 // ergo:go func (*Hash).Write(b []byte) (int, error)
-extern go hash/maphash.Hash.Write func (h *Hash) Write(b []byte) int fails go.Error needs go.Foreign
+extern go hash/maphash.Hash.Write func (h *Hash) Write(b []byte) int fails go.Error needs go.Foreign takes h
 
 // ergo:go func (*Hash).WriteByte(b byte) error
-extern go hash/maphash.Hash.WriteByte func (h *Hash) WriteByte(b byte) fails go.Error needs go.Foreign
+extern go hash/maphash.Hash.WriteByte func (h *Hash) WriteByte(b byte) fails go.Error needs go.Foreign takes h
 
 // ergo:go func (*Hash).WriteString(s string) (int, error)
-extern go hash/maphash.Hash.WriteString func (h *Hash) WriteString(s string) int fails go.Error needs go.Foreign
+extern go hash/maphash.Hash.WriteString func (h *Hash) WriteString(s string) int fails go.Error needs go.Foreign takes h
 
 // ergo:go type Hasher[…] interface
 // ergo:refused Hasher: a generic Go type maps to no Ergo type in v1
@@ -61,4 +61,4 @@ extern go hash/maphash.Seed type Seed {}
 extern go hash/maphash.String func String(seed Seed, s string) uint64 needs go.Foreign
 
 // ergo:go func WriteComparable[T comparable](h *Hash, x T)
-extern go hash/maphash.WriteComparable func WriteComparable[T comparable](h *Hash, x T) needs go.Foreign
+extern go hash/maphash.WriteComparable func WriteComparable[T comparable](h *Hash, x T) needs go.Foreign takes h, x

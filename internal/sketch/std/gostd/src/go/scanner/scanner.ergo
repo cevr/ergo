@@ -23,7 +23,7 @@ extern go go/scanner.Error.Error func (e Error) Error() string needs go.Foreign
 extern go go/scanner.Mode type Mode uint
 
 // ergo:go func PrintError(w io.Writer, err error)
-extern go go/scanner.PrintError func PrintError(w io.Writer, err go.Error) needs go.Foreign
+extern go go/scanner.PrintError func PrintError(w io.Writer, err go.Error) needs go.Foreign takes w
 
 // ergo:go const ScanComments Mode
 extern go go/scanner.ScanComments let ScanComments Mode
@@ -34,10 +34,10 @@ extern go go/scanner.Scanner type Scanner {
 }
 
 // ergo:go func (*Scanner).End() token.Pos
-extern go go/scanner.Scanner.End func (s *Scanner) End() token.Pos needs go.Foreign
+extern go go/scanner.Scanner.End func (s *Scanner) End() token.Pos needs go.Foreign takes s
 
 // ergo:go func (*Scanner).Init(file *token.File, src []byte, err ErrorHandler, mode Mode)
-extern go go/scanner.Scanner.Init func (s *Scanner) Init(file *token.File, src []byte, err escaping func(token.Position, string), mode Mode) needs go.Foreign
+extern go go/scanner.Scanner.Init func (s *Scanner) Init(file *token.File, src []byte, err escaping func(token.Position, string), mode Mode) needs go.Foreign takes s, file
 
 // ergo:go func (*Scanner).Scan() (pos token.Pos, tok token.Token, lit string)
-extern go go/scanner.Scanner.Scan func (s *Scanner) Scan() (token.Pos, token.Token, string) needs go.Foreign
+extern go go/scanner.Scanner.Scan func (s *Scanner) Scan() (token.Pos, token.Token, string) needs go.Foreign takes s

@@ -5,22 +5,22 @@
 extern go math/rand/v2.ChaCha8 type ChaCha8 {}
 
 // ergo:go func (*ChaCha8).AppendBinary(b []byte) ([]byte, error)
-extern go math/rand/v2.ChaCha8.AppendBinary func (c *ChaCha8) AppendBinary(b []byte) []byte fails go.Error needs go.Foreign
+extern go math/rand/v2.ChaCha8.AppendBinary func (c *ChaCha8) AppendBinary(b []byte) []byte fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*ChaCha8).MarshalBinary() ([]byte, error)
-extern go math/rand/v2.ChaCha8.MarshalBinary func (c *ChaCha8) MarshalBinary() []byte fails go.Error needs go.Foreign
+extern go math/rand/v2.ChaCha8.MarshalBinary func (c *ChaCha8) MarshalBinary() []byte fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*ChaCha8).Read(p []byte) (n int, err error)
-extern go math/rand/v2.ChaCha8.Read func (c *ChaCha8) Read(p []byte) int fails go.Error needs go.Foreign
+extern go math/rand/v2.ChaCha8.Read func (c *ChaCha8) Read(p []byte) int fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*ChaCha8).Seed(seed [32]byte)
-extern go math/rand/v2.ChaCha8.Seed func (c *ChaCha8) Seed(seed [32]byte) needs go.Foreign
+extern go math/rand/v2.ChaCha8.Seed func (c *ChaCha8) Seed(seed [32]byte) needs go.Foreign takes c
 
 // ergo:go func (*ChaCha8).Uint64() uint64
-extern go math/rand/v2.ChaCha8.Uint64 func (c *ChaCha8) Uint64() uint64 needs go.Foreign
+extern go math/rand/v2.ChaCha8.Uint64 func (c *ChaCha8) Uint64() uint64 needs go.Foreign takes c
 
 // ergo:go func (*ChaCha8).UnmarshalBinary(data []byte) error
-extern go math/rand/v2.ChaCha8.UnmarshalBinary func (c *ChaCha8) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign
+extern go math/rand/v2.ChaCha8.UnmarshalBinary func (c *ChaCha8) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign takes c
 
 // ergo:go func ExpFloat64() float64
 extern go math/rand/v2.ExpFloat64 func ExpFloat64() float64 needs go.Foreign
@@ -53,7 +53,7 @@ extern go math/rand/v2.IntN func IntN(n int) int needs go.Foreign
 // ergo:refused N: type parameter Int has the constraint rand.intType, which has no Ergo form (v1 maps any, comparable, cmp.Ordered, ~[]E and ~map[K]V)
 
 // ergo:go func New(src Source) *Rand
-extern go math/rand/v2.New func New(src Source) Option[go.Ref[Rand]] needs go.Foreign
+extern go math/rand/v2.New func New(src Source) Option[go.Ref[Rand]] needs go.Foreign takes src
 
 // ergo:go func NewChaCha8(seed [32]byte) *ChaCha8
 extern go math/rand/v2.NewChaCha8 func NewChaCha8(seed [32]byte) Option[go.Ref[ChaCha8]] needs go.Foreign
@@ -62,7 +62,7 @@ extern go math/rand/v2.NewChaCha8 func NewChaCha8(seed [32]byte) Option[go.Ref[C
 extern go math/rand/v2.NewPCG func NewPCG(seed1 uint64, seed2 uint64) Option[go.Ref[PCG]] needs go.Foreign
 
 // ergo:go func NewZipf(r *Rand, s float64, v float64, imax uint64) *Zipf
-extern go math/rand/v2.NewZipf func NewZipf(r *Rand, s float64, v float64, imax uint64) Option[go.Ref[Zipf]] needs go.Foreign
+extern go math/rand/v2.NewZipf func NewZipf(r *Rand, s float64, v float64, imax uint64) Option[go.Ref[Zipf]] needs go.Foreign takes r
 
 // ergo:go func NormFloat64() float64
 extern go math/rand/v2.NormFloat64 func NormFloat64() float64 needs go.Foreign
@@ -71,19 +71,19 @@ extern go math/rand/v2.NormFloat64 func NormFloat64() float64 needs go.Foreign
 extern go math/rand/v2.PCG type PCG {}
 
 // ergo:go func (*PCG).AppendBinary(b []byte) ([]byte, error)
-extern go math/rand/v2.PCG.AppendBinary func (p *PCG) AppendBinary(b []byte) []byte fails go.Error needs go.Foreign
+extern go math/rand/v2.PCG.AppendBinary func (p *PCG) AppendBinary(b []byte) []byte fails go.Error needs go.Foreign takes p
 
 // ergo:go func (*PCG).MarshalBinary() ([]byte, error)
-extern go math/rand/v2.PCG.MarshalBinary func (p *PCG) MarshalBinary() []byte fails go.Error needs go.Foreign
+extern go math/rand/v2.PCG.MarshalBinary func (p *PCG) MarshalBinary() []byte fails go.Error needs go.Foreign takes p
 
 // ergo:go func (*PCG).Seed(seed1 uint64, seed2 uint64)
-extern go math/rand/v2.PCG.Seed func (p *PCG) Seed(seed1 uint64, seed2 uint64) needs go.Foreign
+extern go math/rand/v2.PCG.Seed func (p *PCG) Seed(seed1 uint64, seed2 uint64) needs go.Foreign takes p
 
 // ergo:go func (*PCG).Uint64() uint64
-extern go math/rand/v2.PCG.Uint64 func (p *PCG) Uint64() uint64 needs go.Foreign
+extern go math/rand/v2.PCG.Uint64 func (p *PCG) Uint64() uint64 needs go.Foreign takes p
 
 // ergo:go func (*PCG).UnmarshalBinary(data []byte) error
-extern go math/rand/v2.PCG.UnmarshalBinary func (p *PCG) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign
+extern go math/rand/v2.PCG.UnmarshalBinary func (p *PCG) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign takes p
 
 // ergo:go func Perm(n int) []int
 extern go math/rand/v2.Perm func Perm(n int) []int needs go.Foreign
@@ -92,68 +92,68 @@ extern go math/rand/v2.Perm func Perm(n int) []int needs go.Foreign
 extern go math/rand/v2.Rand type Rand {}
 
 // ergo:go func (*Rand).ExpFloat64() float64
-extern go math/rand/v2.Rand.ExpFloat64 func (r *Rand) ExpFloat64() float64 needs go.Foreign
+extern go math/rand/v2.Rand.ExpFloat64 func (r *Rand) ExpFloat64() float64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Float32() float32
-extern go math/rand/v2.Rand.Float32 func (r *Rand) Float32() float32 needs go.Foreign
+extern go math/rand/v2.Rand.Float32 func (r *Rand) Float32() float32 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Float64() float64
-extern go math/rand/v2.Rand.Float64 func (r *Rand) Float64() float64 needs go.Foreign
+extern go math/rand/v2.Rand.Float64 func (r *Rand) Float64() float64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Int() int
-extern go math/rand/v2.Rand.Int func (r *Rand) Int() int needs go.Foreign
+extern go math/rand/v2.Rand.Int func (r *Rand) Int() int needs go.Foreign takes r
 
 // ergo:go func (*Rand).Int32() int32
-extern go math/rand/v2.Rand.Int32 func (r *Rand) Int32() int32 needs go.Foreign
+extern go math/rand/v2.Rand.Int32 func (r *Rand) Int32() int32 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Int32N(n int32) int32
-extern go math/rand/v2.Rand.Int32N func (r *Rand) Int32N(n int32) int32 needs go.Foreign
+extern go math/rand/v2.Rand.Int32N func (r *Rand) Int32N(n int32) int32 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Int64() int64
-extern go math/rand/v2.Rand.Int64 func (r *Rand) Int64() int64 needs go.Foreign
+extern go math/rand/v2.Rand.Int64 func (r *Rand) Int64() int64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Int64N(n int64) int64
-extern go math/rand/v2.Rand.Int64N func (r *Rand) Int64N(n int64) int64 needs go.Foreign
+extern go math/rand/v2.Rand.Int64N func (r *Rand) Int64N(n int64) int64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).IntN(n int) int
-extern go math/rand/v2.Rand.IntN func (r *Rand) IntN(n int) int needs go.Foreign
+extern go math/rand/v2.Rand.IntN func (r *Rand) IntN(n int) int needs go.Foreign takes r
 
 // ergo:go func (*Rand).N[Int intType](n Int) Int
 // ergo:refused Rand.N: type parameter Int has the constraint rand.intType, which has no Ergo form (v1 maps any, comparable, cmp.Ordered, ~[]E and ~map[K]V)
 
 // ergo:go func (*Rand).NormFloat64() float64
-extern go math/rand/v2.Rand.NormFloat64 func (r *Rand) NormFloat64() float64 needs go.Foreign
+extern go math/rand/v2.Rand.NormFloat64 func (r *Rand) NormFloat64() float64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Perm(n int) []int
-extern go math/rand/v2.Rand.Perm func (r *Rand) Perm(n int) []int needs go.Foreign
+extern go math/rand/v2.Rand.Perm func (r *Rand) Perm(n int) []int needs go.Foreign takes r
 
 // ergo:go func (*Rand).Shuffle(n int, swap func(i int, j int))
-extern go math/rand/v2.Rand.Shuffle func (r *Rand) Shuffle(n int, swap func(int, int)) needs go.Foreign
+extern go math/rand/v2.Rand.Shuffle func (r *Rand) Shuffle(n int, swap func(int, int)) needs go.Foreign takes r
 
 // ergo:go func (*Rand).Uint() uint
-extern go math/rand/v2.Rand.Uint func (r *Rand) Uint() uint needs go.Foreign
+extern go math/rand/v2.Rand.Uint func (r *Rand) Uint() uint needs go.Foreign takes r
 
 // ergo:go func (*Rand).Uint32() uint32
-extern go math/rand/v2.Rand.Uint32 func (r *Rand) Uint32() uint32 needs go.Foreign
+extern go math/rand/v2.Rand.Uint32 func (r *Rand) Uint32() uint32 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Uint32N(n uint32) uint32
-extern go math/rand/v2.Rand.Uint32N func (r *Rand) Uint32N(n uint32) uint32 needs go.Foreign
+extern go math/rand/v2.Rand.Uint32N func (r *Rand) Uint32N(n uint32) uint32 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Uint64() uint64
-extern go math/rand/v2.Rand.Uint64 func (r *Rand) Uint64() uint64 needs go.Foreign
+extern go math/rand/v2.Rand.Uint64 func (r *Rand) Uint64() uint64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Uint64N(n uint64) uint64
-extern go math/rand/v2.Rand.Uint64N func (r *Rand) Uint64N(n uint64) uint64 needs go.Foreign
+extern go math/rand/v2.Rand.Uint64N func (r *Rand) Uint64N(n uint64) uint64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).UintN(n uint) uint
-extern go math/rand/v2.Rand.UintN func (r *Rand) UintN(n uint) uint needs go.Foreign
+extern go math/rand/v2.Rand.UintN func (r *Rand) UintN(n uint) uint needs go.Foreign takes r
 
 // ergo:go func Shuffle(n int, swap func(i int, j int))
 extern go math/rand/v2.Shuffle func Shuffle[CR](n int, swap func(int, int) needs CR) needs CR | go.Foreign
 
 // ergo:go type Source interface
 extern go math/rand/v2.Source type Source {
-	Uint64() uint64 needs go.Foreign,
+	Uint64() uint64 needs go.Foreign takes,
 }
 
 // ergo:go func Uint() uint
@@ -178,4 +178,4 @@ extern go math/rand/v2.UintN func UintN(n uint) uint needs go.Foreign
 extern go math/rand/v2.Zipf type Zipf {}
 
 // ergo:go func (*Zipf).Uint64() uint64
-extern go math/rand/v2.Zipf.Uint64 func (z *Zipf) Uint64() uint64 needs go.Foreign
+extern go math/rand/v2.Zipf.Uint64 func (z *Zipf) Uint64() uint64 needs go.Foreign takes z

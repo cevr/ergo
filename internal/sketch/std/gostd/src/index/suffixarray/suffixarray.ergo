@@ -8,19 +8,19 @@ import go regexp
 extern go index/suffixarray.Index type Index {}
 
 // ergo:go func (*Index).Bytes() []byte
-extern go index/suffixarray.Index.Bytes func (x *Index) Bytes() []byte needs go.Foreign
+extern go index/suffixarray.Index.Bytes func (x *Index) Bytes() []byte needs go.Foreign takes x
 
 // ergo:go func (*Index).FindAllIndex(r *regexp.Regexp, n int) (result [][]int)
-extern go index/suffixarray.Index.FindAllIndex func (x *Index) FindAllIndex(r *regexp.Regexp, n int) [][]int needs go.Foreign
+extern go index/suffixarray.Index.FindAllIndex func (x *Index) FindAllIndex(r *regexp.Regexp, n int) [][]int needs go.Foreign takes x, r
 
 // ergo:go func (*Index).Lookup(s []byte, n int) (result []int)
-extern go index/suffixarray.Index.Lookup func (x *Index) Lookup(s []byte, n int) []int needs go.Foreign
+extern go index/suffixarray.Index.Lookup func (x *Index) Lookup(s []byte, n int) []int needs go.Foreign takes x
 
 // ergo:go func (*Index).Read(r io.Reader) error
-extern go index/suffixarray.Index.Read func (x *Index) Read(r io.Reader) fails go.Error needs go.Foreign
+extern go index/suffixarray.Index.Read func (x *Index) Read(r io.Reader) fails go.Error needs go.Foreign takes x, r
 
 // ergo:go func (*Index).Write(w io.Writer) error
-extern go index/suffixarray.Index.Write func (x *Index) Write(w io.Writer) fails go.Error needs go.Foreign
+extern go index/suffixarray.Index.Write func (x *Index) Write(w io.Writer) fails go.Error needs go.Foreign takes x, w
 
 // ergo:go func New(data []byte) *Index
 extern go index/suffixarray.New func New(data []byte) Option[go.Ref[Index]] needs go.Foreign

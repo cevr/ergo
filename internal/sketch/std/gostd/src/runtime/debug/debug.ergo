@@ -16,7 +16,7 @@ extern go runtime/debug.BuildInfo type BuildInfo {
 // ergo:refused BuildInfo.Deps: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*BuildInfo).String() string
-extern go runtime/debug.BuildInfo.String func (bi *BuildInfo) String() string needs go.Foreign
+extern go runtime/debug.BuildInfo.String func (bi *BuildInfo) String() string needs go.Foreign takes bi
 
 // ergo:go type BuildSetting struct
 extern go runtime/debug.BuildSetting type BuildSetting {
@@ -58,10 +58,10 @@ extern go runtime/debug.PrintStack func PrintStack() needs go.Foreign
 extern go runtime/debug.ReadBuildInfo func ReadBuildInfo() (Option[go.Ref[BuildInfo]], bool) needs go.Foreign
 
 // ergo:go func ReadGCStats(stats *GCStats)
-extern go runtime/debug.ReadGCStats func ReadGCStats(stats *GCStats) needs go.Foreign
+extern go runtime/debug.ReadGCStats func ReadGCStats(stats *GCStats) needs go.Foreign takes stats
 
 // ergo:go func SetCrashOutput(f *os.File, opts CrashOptions) error
-extern go runtime/debug.SetCrashOutput func SetCrashOutput(f *os.File, opts CrashOptions) fails go.Error needs go.Foreign
+extern go runtime/debug.SetCrashOutput func SetCrashOutput(f *os.File, opts CrashOptions) fails go.Error needs go.Foreign takes f
 
 // ergo:go func SetGCPercent(percent int) int
 extern go runtime/debug.SetGCPercent func SetGCPercent(percent int) int needs go.Foreign

@@ -14,7 +14,7 @@ extern go encoding/pem.Block type Block {
 extern go encoding/pem.Decode func Decode(data []byte) (Option[go.Ref[Block]], []byte) needs go.Foreign
 
 // ergo:go func Encode(out io.Writer, b *Block) error
-extern go encoding/pem.Encode func Encode(out io.Writer, b *Block) fails go.Error needs go.Foreign
+extern go encoding/pem.Encode func Encode(out io.Writer, b *Block) fails go.Error needs go.Foreign takes out, b
 
 // ergo:go func EncodeToMemory(b *Block) []byte
-extern go encoding/pem.EncodeToMemory func EncodeToMemory(b *Block) []byte needs go.Foreign
+extern go encoding/pem.EncodeToMemory func EncodeToMemory(b *Block) []byte needs go.Foreign takes b

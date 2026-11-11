@@ -16,23 +16,23 @@ extern go net/http/httptest.DefaultRemoteAddr let DefaultRemoteAddr string
 extern go net/http/httptest.NewRecorder func NewRecorder() Option[go.Ref[ResponseRecorder]] needs go.Foreign
 
 // ergo:go func NewRequest(method string, target string, body io.Reader) *http.Request
-extern go net/http/httptest.NewRequest func NewRequest(method string, target string, body io.Reader) Option[go.Ref[http.Request]] needs go.Foreign
+extern go net/http/httptest.NewRequest func NewRequest(method string, target string, body io.Reader) Option[go.Ref[http.Request]] needs go.Foreign takes body
 
 // ergo:go func NewRequestWithContext(ctx context.Context, method string, target string, body io.Reader) *http.Request
 // ergo:context
-extern go net/http/httptest.NewRequestWithContext func NewRequestWithContext(method string, target string, body io.Reader) Option[go.Ref[http.Request]] needs go.Foreign
+extern go net/http/httptest.NewRequestWithContext func NewRequestWithContext(method string, target string, body io.Reader) Option[go.Ref[http.Request]] needs go.Foreign takes body
 
 // ergo:go func NewServer(handler http.Handler) *Server
-extern go net/http/httptest.NewServer func NewServer(handler http.Handler) Option[go.Ref[Server]] needs go.Foreign
+extern go net/http/httptest.NewServer func NewServer(handler http.Handler) Option[go.Ref[Server]] needs go.Foreign takes handler
 
 // ergo:go func NewTLSServer(handler http.Handler) *Server
-extern go net/http/httptest.NewTLSServer func NewTLSServer(handler http.Handler) Option[go.Ref[Server]] needs go.Foreign
+extern go net/http/httptest.NewTLSServer func NewTLSServer(handler http.Handler) Option[go.Ref[Server]] needs go.Foreign takes handler
 
 // ergo:go func NewTestServer(t testing.TB, handler http.Handler) *Server
-extern go net/http/httptest.NewTestServer func NewTestServer(t testing.TB, handler http.Handler) Option[go.Ref[Server]] needs go.Foreign
+extern go net/http/httptest.NewTestServer func NewTestServer(t testing.TB, handler http.Handler) Option[go.Ref[Server]] needs go.Foreign takes t, handler
 
 // ergo:go func NewUnstartedServer(handler http.Handler) *Server
-extern go net/http/httptest.NewUnstartedServer func NewUnstartedServer(handler http.Handler) Option[go.Ref[Server]] needs go.Foreign
+extern go net/http/httptest.NewUnstartedServer func NewUnstartedServer(handler http.Handler) Option[go.Ref[Server]] needs go.Foreign takes handler
 
 // ergo:go type ResponseRecorder struct
 extern go net/http/httptest.ResponseRecorder type ResponseRecorder {
@@ -43,22 +43,22 @@ extern go net/http/httptest.ResponseRecorder type ResponseRecorder {
 }
 
 // ergo:go func (*ResponseRecorder).Flush()
-extern go net/http/httptest.ResponseRecorder.Flush func (rw *ResponseRecorder) Flush() needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.Flush func (rw *ResponseRecorder) Flush() needs go.Foreign takes rw
 
 // ergo:go func (*ResponseRecorder).Header() http.Header
-extern go net/http/httptest.ResponseRecorder.Header func (rw *ResponseRecorder) Header() http.Header needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.Header func (rw *ResponseRecorder) Header() http.Header needs go.Foreign takes rw
 
 // ergo:go func (*ResponseRecorder).Result() *http.Response
-extern go net/http/httptest.ResponseRecorder.Result func (rw *ResponseRecorder) Result() Option[go.Ref[http.Response]] needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.Result func (rw *ResponseRecorder) Result() Option[go.Ref[http.Response]] needs go.Foreign takes rw
 
 // ergo:go func (*ResponseRecorder).Write(buf []byte) (int, error)
-extern go net/http/httptest.ResponseRecorder.Write func (rw *ResponseRecorder) Write(buf []byte) int fails go.Error needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.Write func (rw *ResponseRecorder) Write(buf []byte) int fails go.Error needs go.Foreign takes rw
 
 // ergo:go func (*ResponseRecorder).WriteHeader(code int)
-extern go net/http/httptest.ResponseRecorder.WriteHeader func (rw *ResponseRecorder) WriteHeader(code int) needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.WriteHeader func (rw *ResponseRecorder) WriteHeader(code int) needs go.Foreign takes rw
 
 // ergo:go func (*ResponseRecorder).WriteString(str string) (int, error)
-extern go net/http/httptest.ResponseRecorder.WriteString func (rw *ResponseRecorder) WriteString(str string) int fails go.Error needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.WriteString func (rw *ResponseRecorder) WriteString(str string) int fails go.Error needs go.Foreign takes rw
 
 // ergo:go type Server struct
 extern go net/http/httptest.Server type Server {
@@ -70,19 +70,19 @@ extern go net/http/httptest.Server type Server {
 }
 
 // ergo:go func (*Server).Certificate() *x509.Certificate
-extern go net/http/httptest.Server.Certificate func (s *Server) Certificate() Option[go.Ref[x509.Certificate]] needs go.Foreign
+extern go net/http/httptest.Server.Certificate func (s *Server) Certificate() Option[go.Ref[x509.Certificate]] needs go.Foreign takes s
 
 // ergo:go func (*Server).Client() *http.Client
-extern go net/http/httptest.Server.Client func (s *Server) Client() Option[go.Ref[http.Client]] needs go.Foreign
+extern go net/http/httptest.Server.Client func (s *Server) Client() Option[go.Ref[http.Client]] needs go.Foreign takes s
 
 // ergo:go func (*Server).Close()
-extern go net/http/httptest.Server.Close func (s *Server) Close() needs go.Foreign
+extern go net/http/httptest.Server.Close func (s *Server) Close() needs go.Foreign takes s
 
 // ergo:go func (*Server).CloseClientConnections()
-extern go net/http/httptest.Server.CloseClientConnections func (s *Server) CloseClientConnections() needs go.Foreign
+extern go net/http/httptest.Server.CloseClientConnections func (s *Server) CloseClientConnections() needs go.Foreign takes s
 
 // ergo:go func (*Server).Start()
-extern go net/http/httptest.Server.Start func (s *Server) Start() needs go.Foreign
+extern go net/http/httptest.Server.Start func (s *Server) Start() needs go.Foreign takes s
 
 // ergo:go func (*Server).StartTLS()
-extern go net/http/httptest.Server.StartTLS func (s *Server) StartTLS() needs go.Foreign
+extern go net/http/httptest.Server.StartTLS func (s *Server) StartTLS() needs go.Foreign takes s

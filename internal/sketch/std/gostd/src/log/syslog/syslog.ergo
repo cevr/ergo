@@ -103,31 +103,31 @@ extern go log/syslog.Priority type Priority int
 extern go log/syslog.Writer type Writer {}
 
 // ergo:go func (*Writer).Alert(m string) error
-extern go log/syslog.Writer.Alert func (w *Writer) Alert(m string) fails go.Error needs go.Foreign
+extern go log/syslog.Writer.Alert func (w *Writer) Alert(m string) fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Close() error
-extern go log/syslog.Writer.Close func (w *Writer) Close() fails go.Error needs go.Foreign
+extern go log/syslog.Writer.Close func (w *Writer) Close() fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Crit(m string) error
-extern go log/syslog.Writer.Crit func (w *Writer) Crit(m string) fails go.Error needs go.Foreign
+extern go log/syslog.Writer.Crit func (w *Writer) Crit(m string) fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Debug(m string) error
-extern go log/syslog.Writer.Debug func (w *Writer) Debug(m string) fails go.Error needs go.Foreign
+extern go log/syslog.Writer.Debug func (w *Writer) Debug(m string) fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Emerg(m string) error
-extern go log/syslog.Writer.Emerg func (w *Writer) Emerg(m string) fails go.Error needs go.Foreign
+extern go log/syslog.Writer.Emerg func (w *Writer) Emerg(m string) fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Err(m string) error
-extern go log/syslog.Writer.Err func (w *Writer) Err(m string) fails go.Error needs go.Foreign
+extern go log/syslog.Writer.Err func (w *Writer) Err(m string) fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Info(m string) error
-extern go log/syslog.Writer.Info func (w *Writer) Info(m string) fails go.Error needs go.Foreign
+extern go log/syslog.Writer.Info func (w *Writer) Info(m string) fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Notice(m string) error
-extern go log/syslog.Writer.Notice func (w *Writer) Notice(m string) fails go.Error needs go.Foreign
+extern go log/syslog.Writer.Notice func (w *Writer) Notice(m string) fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Warning(m string) error
-extern go log/syslog.Writer.Warning func (w *Writer) Warning(m string) fails go.Error needs go.Foreign
+extern go log/syslog.Writer.Warning func (w *Writer) Warning(m string) fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Write(b []byte) (int, error)
-extern go log/syslog.Writer.Write func (w *Writer) Write(b []byte) int fails go.Error needs go.Foreign
+extern go log/syslog.Writer.Write func (w *Writer) Write(b []byte) int fails go.Error needs go.Foreign takes w

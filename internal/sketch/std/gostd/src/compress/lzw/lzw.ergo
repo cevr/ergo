@@ -10,10 +10,10 @@ extern go compress/lzw.LSB let LSB Order
 extern go compress/lzw.MSB let MSB Order
 
 // ergo:go func NewReader(r io.Reader, order Order, litWidth int) io.ReadCloser
-extern go compress/lzw.NewReader func NewReader(r io.Reader, order Order, litWidth int) io.ReadCloser needs go.Foreign
+extern go compress/lzw.NewReader func NewReader(r io.Reader, order Order, litWidth int) io.ReadCloser needs go.Foreign takes r
 
 // ergo:go func NewWriter(w io.Writer, order Order, litWidth int) io.WriteCloser
-extern go compress/lzw.NewWriter func NewWriter(w io.Writer, order Order, litWidth int) io.WriteCloser needs go.Foreign
+extern go compress/lzw.NewWriter func NewWriter(w io.Writer, order Order, litWidth int) io.WriteCloser needs go.Foreign takes w
 
 // ergo:go type Order int
 extern go compress/lzw.Order type Order int
@@ -22,22 +22,22 @@ extern go compress/lzw.Order type Order int
 extern go compress/lzw.Reader type Reader {}
 
 // ergo:go func (*Reader).Close() error
-extern go compress/lzw.Reader.Close func (r *Reader) Close() fails go.Error needs go.Foreign
+extern go compress/lzw.Reader.Close func (r *Reader) Close() fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).Read(b []byte) (int, error)
-extern go compress/lzw.Reader.Read func (r *Reader) Read(b []byte) int fails go.Error needs go.Foreign
+extern go compress/lzw.Reader.Read func (r *Reader) Read(b []byte) int fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).Reset(src io.Reader, order Order, litWidth int)
-extern go compress/lzw.Reader.Reset func (r *Reader) Reset(src io.Reader, order Order, litWidth int) needs go.Foreign
+extern go compress/lzw.Reader.Reset func (r *Reader) Reset(src io.Reader, order Order, litWidth int) needs go.Foreign takes r, src
 
 // ergo:go type Writer struct
 extern go compress/lzw.Writer type Writer {}
 
 // ergo:go func (*Writer).Close() error
-extern go compress/lzw.Writer.Close func (w *Writer) Close() fails go.Error needs go.Foreign
+extern go compress/lzw.Writer.Close func (w *Writer) Close() fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Reset(dst io.Writer, order Order, litWidth int)
-extern go compress/lzw.Writer.Reset func (w *Writer) Reset(dst io.Writer, order Order, litWidth int) needs go.Foreign
+extern go compress/lzw.Writer.Reset func (w *Writer) Reset(dst io.Writer, order Order, litWidth int) needs go.Foreign takes w, dst
 
 // ergo:go func (*Writer).Write(p []byte) (n int, err error)
-extern go compress/lzw.Writer.Write func (w *Writer) Write(p []byte) int fails go.Error needs go.Foreign
+extern go compress/lzw.Writer.Write func (w *Writer) Write(p []byte) int fails go.Error needs go.Foreign takes w

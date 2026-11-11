@@ -46,7 +46,7 @@ extern go crypto/mldsa.Options type Options {
 }
 
 // ergo:go func (*Options).HashFunc() crypto.Hash
-extern go crypto/mldsa.Options.HashFunc func (opts *Options) HashFunc() crypto.Hash needs go.Foreign
+extern go crypto/mldsa.Options.HashFunc func (opts *Options) HashFunc() crypto.Hash needs go.Foreign takes opts
 
 // ergo:go type Parameters struct
 extern go crypto/mldsa.Parameters type Parameters {}
@@ -64,7 +64,7 @@ extern go crypto/mldsa.Parameters.String func (params Parameters) String() strin
 extern go crypto/mldsa.PrivateKey type PrivateKey {}
 
 // ergo:go func (*PrivateKey).Bytes() []byte
-extern go crypto/mldsa.PrivateKey.Bytes func (sk *PrivateKey) Bytes() []byte needs go.Foreign
+extern go crypto/mldsa.PrivateKey.Bytes func (sk *PrivateKey) Bytes() []byte needs go.Foreign takes sk
 
 // ergo:go func (*PrivateKey).Equal(x crypto.PrivateKey) bool
 // ergo:refused PrivateKey.Equal: parameter 1: type PrivateKey is refused: Ergo has no any; an empty interface hides the host type
@@ -73,13 +73,13 @@ extern go crypto/mldsa.PrivateKey.Bytes func (sk *PrivateKey) Bytes() []byte nee
 // ergo:refused PrivateKey.Public: result 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*PrivateKey).PublicKey() *PublicKey
-extern go crypto/mldsa.PrivateKey.PublicKey func (sk *PrivateKey) PublicKey() Option[go.Ref[PublicKey]] needs go.Foreign
+extern go crypto/mldsa.PrivateKey.PublicKey func (sk *PrivateKey) PublicKey() Option[go.Ref[PublicKey]] needs go.Foreign takes sk
 
 // ergo:go func (*PrivateKey).Sign(_ io.Reader, message []byte, opts crypto.SignerOpts) (signature []byte, err error)
-extern go crypto/mldsa.PrivateKey.Sign func (sk *PrivateKey) Sign(p0 io.Reader, message []byte, opts crypto.SignerOpts) []byte fails go.Error needs go.Foreign
+extern go crypto/mldsa.PrivateKey.Sign func (sk *PrivateKey) Sign(p0 io.Reader, message []byte, opts crypto.SignerOpts) []byte fails go.Error needs go.Foreign takes sk, p0, opts
 
 // ergo:go func (*PrivateKey).SignDeterministic(message []byte, opts crypto.SignerOpts) (signature []byte, err error)
-extern go crypto/mldsa.PrivateKey.SignDeterministic func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts) []byte fails go.Error needs go.Foreign
+extern go crypto/mldsa.PrivateKey.SignDeterministic func (sk *PrivateKey) SignDeterministic(message []byte, opts crypto.SignerOpts) []byte fails go.Error needs go.Foreign takes sk, opts
 
 // ergo:go const PrivateKeySize untyped int
 extern go crypto/mldsa.PrivateKeySize let PrivateKeySize int
@@ -88,13 +88,13 @@ extern go crypto/mldsa.PrivateKeySize let PrivateKeySize int
 extern go crypto/mldsa.PublicKey type PublicKey {}
 
 // ergo:go func (*PublicKey).Bytes() []byte
-extern go crypto/mldsa.PublicKey.Bytes func (pk *PublicKey) Bytes() []byte needs go.Foreign
+extern go crypto/mldsa.PublicKey.Bytes func (pk *PublicKey) Bytes() []byte needs go.Foreign takes pk
 
 // ergo:go func (*PublicKey).Equal(x crypto.PublicKey) bool
 // ergo:refused PublicKey.Equal: parameter 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*PublicKey).Parameters() Parameters
-extern go crypto/mldsa.PublicKey.Parameters func (pk *PublicKey) Parameters() Parameters needs go.Foreign
+extern go crypto/mldsa.PublicKey.Parameters func (pk *PublicKey) Parameters() Parameters needs go.Foreign takes pk
 
 // ergo:go func Verify(pk *PublicKey, message []byte, signature []byte, opts *Options) error
-extern go crypto/mldsa.Verify func Verify(pk *PublicKey, message []byte, signature []byte, opts *Options) fails go.Error needs go.Foreign
+extern go crypto/mldsa.Verify func Verify(pk *PublicKey, message []byte, signature []byte, opts *Options) fails go.Error needs go.Foreign takes pk, opts

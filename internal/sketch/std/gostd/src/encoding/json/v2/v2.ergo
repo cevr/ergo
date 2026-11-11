@@ -48,12 +48,12 @@ extern go encoding/json/v2.ErrUnknownName let ErrUnknownName go.Error
 
 // ergo:go type Marshaler interface
 extern go encoding/json/v2.Marshaler type Marshaler {
-	MarshalJSON() []byte fails go.Error needs go.Foreign,
+	MarshalJSON() []byte fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type MarshalerTo interface
 extern go encoding/json/v2.MarshalerTo type MarshalerTo {
-	MarshalJSONTo(p0 *jsontext.Encoder) fails go.Error needs go.Foreign,
+	MarshalJSONTo(p0 *jsontext.Encoder) fails go.Error needs go.Foreign takes p0,
 }
 
 // ergo:go type Marshalers = typedMarshalers
@@ -82,10 +82,10 @@ extern go encoding/json/v2.SemanticError type SemanticError {
 }
 
 // ergo:go func (*SemanticError).Error() string
-extern go encoding/json/v2.SemanticError.Error func (e *SemanticError) Error() string needs go.Foreign
+extern go encoding/json/v2.SemanticError.Error func (e *SemanticError) Error() string needs go.Foreign takes e
 
 // ergo:go func (*SemanticError).Unwrap() error
-extern go encoding/json/v2.SemanticError.Unwrap func (e *SemanticError) Unwrap() fails go.Error needs go.Foreign
+extern go encoding/json/v2.SemanticError.Unwrap func (e *SemanticError) Unwrap() fails go.Error needs go.Foreign takes e
 
 // ergo:go func StringifyNumbers(v bool) Options
 // ergo:refused StringifyNumbers: result 1: type Options is refused: it is declared in an internal or vendored package
@@ -107,12 +107,12 @@ extern go encoding/json/v2.SemanticError.Unwrap func (e *SemanticError) Unwrap()
 
 // ergo:go type Unmarshaler interface
 extern go encoding/json/v2.Unmarshaler type Unmarshaler {
-	UnmarshalJSON(p0 []byte) fails go.Error needs go.Foreign,
+	UnmarshalJSON(p0 []byte) fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type UnmarshalerFrom interface
 extern go encoding/json/v2.UnmarshalerFrom type UnmarshalerFrom {
-	UnmarshalJSONFrom(p0 *jsontext.Decoder) fails go.Error needs go.Foreign,
+	UnmarshalJSONFrom(p0 *jsontext.Decoder) fails go.Error needs go.Foreign takes p0,
 }
 
 // ergo:go type Unmarshalers = typedUnmarshalers

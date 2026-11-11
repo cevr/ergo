@@ -56,4 +56,4 @@ extern go os/user.User type User {
 }
 
 // ergo:go func (*User).GroupIds() ([]string, error)
-extern go os/user.User.GroupIds func (u *User) GroupIds() []string fails go.Error needs go.Foreign
+extern go os/user.User.GroupIds func (u *User) GroupIds() []string fails go.Error needs go.Foreign takes u

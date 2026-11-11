@@ -83,7 +83,7 @@ func (c *checker) takesEffect(sig *Signature, recv Type) string {
 	out := *sig
 	out.Takes = nil
 	for _, i := range sig.Takes {
-		if i < len(sig.Params) && c.mayHoldResource(sig.Params[i].Type) {
+		if i < len(sig.Params) && c.hostResourceParam(sig.Params[i].Type) {
 			out.Takes = append(out.Takes, i)
 		}
 	}

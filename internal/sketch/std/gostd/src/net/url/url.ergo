@@ -9,16 +9,16 @@ extern go net/url.Error type Error {
 }
 
 // ergo:go func (*Error).Error() string
-extern go net/url.Error.Error func (e *Error) Error() string needs go.Foreign
+extern go net/url.Error.Error func (e *Error) Error() string needs go.Foreign takes e
 
 // ergo:go func (*Error).Temporary() bool
-extern go net/url.Error.Temporary func (e *Error) Temporary() bool needs go.Foreign
+extern go net/url.Error.Temporary func (e *Error) Temporary() bool needs go.Foreign takes e
 
 // ergo:go func (*Error).Timeout() bool
-extern go net/url.Error.Timeout func (e *Error) Timeout() bool needs go.Foreign
+extern go net/url.Error.Timeout func (e *Error) Timeout() bool needs go.Foreign takes e
 
 // ergo:go func (*Error).Unwrap() error
-extern go net/url.Error.Unwrap func (e *Error) Unwrap() fails go.Error needs go.Foreign
+extern go net/url.Error.Unwrap func (e *Error) Unwrap() fails go.Error needs go.Foreign takes e
 
 // ergo:go type EscapeError string
 extern go net/url.EscapeError type EscapeError string
@@ -73,53 +73,53 @@ extern go net/url.URL type URL {
 }
 
 // ergo:go func (*URL).AppendBinary(b []byte) ([]byte, error)
-extern go net/url.URL.AppendBinary func (u *URL) AppendBinary(b []byte) []byte fails go.Error needs go.Foreign
+extern go net/url.URL.AppendBinary func (u *URL) AppendBinary(b []byte) []byte fails go.Error needs go.Foreign takes u
 
 // ergo:go func (*URL).Clone() *URL
-extern go net/url.URL.Clone func (u *URL) Clone() Option[go.Ref[URL]] needs go.Foreign
+extern go net/url.URL.Clone func (u *URL) Clone() Option[go.Ref[URL]] needs go.Foreign takes u
 
 // ergo:go func (*URL).EscapedFragment() string
-extern go net/url.URL.EscapedFragment func (u *URL) EscapedFragment() string needs go.Foreign
+extern go net/url.URL.EscapedFragment func (u *URL) EscapedFragment() string needs go.Foreign takes u
 
 // ergo:go func (*URL).EscapedPath() string
-extern go net/url.URL.EscapedPath func (u *URL) EscapedPath() string needs go.Foreign
+extern go net/url.URL.EscapedPath func (u *URL) EscapedPath() string needs go.Foreign takes u
 
 // ergo:go func (*URL).Hostname() string
-extern go net/url.URL.Hostname func (u *URL) Hostname() string needs go.Foreign
+extern go net/url.URL.Hostname func (u *URL) Hostname() string needs go.Foreign takes u
 
 // ergo:go func (*URL).IsAbs() bool
-extern go net/url.URL.IsAbs func (u *URL) IsAbs() bool needs go.Foreign
+extern go net/url.URL.IsAbs func (u *URL) IsAbs() bool needs go.Foreign takes u
 
 // ergo:go func (*URL).JoinPath(elem ...string) *URL
 // ergo:variadic
-extern go net/url.URL.JoinPath func (u *URL) JoinPath(elem []string) Option[go.Ref[URL]] needs go.Foreign
+extern go net/url.URL.JoinPath func (u *URL) JoinPath(elem []string) Option[go.Ref[URL]] needs go.Foreign takes u
 
 // ergo:go func (*URL).MarshalBinary() (text []byte, err error)
-extern go net/url.URL.MarshalBinary func (u *URL) MarshalBinary() []byte fails go.Error needs go.Foreign
+extern go net/url.URL.MarshalBinary func (u *URL) MarshalBinary() []byte fails go.Error needs go.Foreign takes u
 
 // ergo:go func (*URL).Parse(ref string) (*URL, error)
-extern go net/url.URL.Parse func (u *URL) Parse(ref string) go.Ref[URL] fails go.Error needs go.Foreign
+extern go net/url.URL.Parse func (u *URL) Parse(ref string) go.Ref[URL] fails go.Error needs go.Foreign takes u
 
 // ergo:go func (*URL).Port() string
-extern go net/url.URL.Port func (u *URL) Port() string needs go.Foreign
+extern go net/url.URL.Port func (u *URL) Port() string needs go.Foreign takes u
 
 // ergo:go func (*URL).Query() Values
-extern go net/url.URL.Query func (u *URL) Query() Values needs go.Foreign
+extern go net/url.URL.Query func (u *URL) Query() Values needs go.Foreign takes u
 
 // ergo:go func (*URL).Redacted() string
-extern go net/url.URL.Redacted func (u *URL) Redacted() string needs go.Foreign
+extern go net/url.URL.Redacted func (u *URL) Redacted() string needs go.Foreign takes u
 
 // ergo:go func (*URL).RequestURI() string
-extern go net/url.URL.RequestURI func (u *URL) RequestURI() string needs go.Foreign
+extern go net/url.URL.RequestURI func (u *URL) RequestURI() string needs go.Foreign takes u
 
 // ergo:go func (*URL).ResolveReference(ref *URL) *URL
-extern go net/url.URL.ResolveReference func (u *URL) ResolveReference(ref *URL) Option[go.Ref[URL]] needs go.Foreign
+extern go net/url.URL.ResolveReference func (u *URL) ResolveReference(ref *URL) Option[go.Ref[URL]] needs go.Foreign takes u, ref
 
 // ergo:go func (*URL).String() string
-extern go net/url.URL.String func (u *URL) String() string needs go.Foreign
+extern go net/url.URL.String func (u *URL) String() string needs go.Foreign takes u
 
 // ergo:go func (*URL).UnmarshalBinary(text []byte) error
-extern go net/url.URL.UnmarshalBinary func (u *URL) UnmarshalBinary(text []byte) fails go.Error needs go.Foreign
+extern go net/url.URL.UnmarshalBinary func (u *URL) UnmarshalBinary(text []byte) fails go.Error needs go.Foreign takes u
 
 // ergo:go func User(username string) *Userinfo
 extern go net/url.User func User(username string) Option[go.Ref[Userinfo]] needs go.Foreign
@@ -131,13 +131,13 @@ extern go net/url.UserPassword func UserPassword(username string, password strin
 extern go net/url.Userinfo type Userinfo {}
 
 // ergo:go func (*Userinfo).Password() (string, bool)
-extern go net/url.Userinfo.Password func (u *Userinfo) Password() (string, bool) needs go.Foreign
+extern go net/url.Userinfo.Password func (u *Userinfo) Password() (string, bool) needs go.Foreign takes u
 
 // ergo:go func (*Userinfo).String() string
-extern go net/url.Userinfo.String func (u *Userinfo) String() string needs go.Foreign
+extern go net/url.Userinfo.String func (u *Userinfo) String() string needs go.Foreign takes u
 
 // ergo:go func (*Userinfo).Username() string
-extern go net/url.Userinfo.Username func (u *Userinfo) Username() string needs go.Foreign
+extern go net/url.Userinfo.Username func (u *Userinfo) Username() string needs go.Foreign takes u
 
 // ergo:go type Values map[string][]string
 extern go net/url.Values type Values Map[string, []string]

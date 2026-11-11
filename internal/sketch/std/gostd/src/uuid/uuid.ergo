@@ -38,4 +38,4 @@ extern go uuid.UUID.MarshalText func (u UUID) MarshalText() []byte fails go.Erro
 extern go uuid.UUID.String func (u UUID) String() string needs go.Foreign
 
 // ergo:go func (*UUID).UnmarshalText(b []byte) error
-extern go uuid.UUID.UnmarshalText func (u *UUID) UnmarshalText(b []byte) fails go.Error needs go.Foreign
+extern go uuid.UUID.UnmarshalText func (u *UUID) UnmarshalText(b []byte) fails go.Error needs go.Foreign takes u

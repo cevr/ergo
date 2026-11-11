@@ -32,10 +32,10 @@ extern go mime.WordDecoder type WordDecoder {}
 // ergo:refused WordDecoder.CharsetReader: a Go function as a result, a field or an element
 
 // ergo:go func (*WordDecoder).Decode(word string) (string, error)
-extern go mime.WordDecoder.Decode func (d *WordDecoder) Decode(word string) string fails go.Error needs go.Foreign
+extern go mime.WordDecoder.Decode func (d *WordDecoder) Decode(word string) string fails go.Error needs go.Foreign takes d
 
 // ergo:go func (*WordDecoder).DecodeHeader(header string) (string, error)
-extern go mime.WordDecoder.DecodeHeader func (d *WordDecoder) DecodeHeader(header string) string fails go.Error needs go.Foreign
+extern go mime.WordDecoder.DecodeHeader func (d *WordDecoder) DecodeHeader(header string) string fails go.Error needs go.Foreign takes d
 
 // ergo:go type WordEncoder byte
 extern go mime.WordEncoder type WordEncoder byte

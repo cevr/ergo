@@ -1,6 +1,7 @@
 {
   "about": "The mutant ledger of internal/sketch/std: edits of the std sources (the .ergo declarations and the Go that reads them) that some test, law or example must kill. Run it with go run ./scripts/mutants ./internal/sketch/std; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded by ESC1 (wf10, lang audit B F1).",
   "mutants": [
+    {"name":"esc1-timeout-nonescaping","origin":"wf10 ESC1 r2","file":"internal/sketch/std/timeout/timeout.ergo","from":"f escaping func() A fails E needs R","to":"f func() A fails E needs R","rule":"A joined child task is not the caller's task: a timeout callback cannot borrow a caller-owned Set.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments","lower:TestStdCallbackClausesAdmit","std:TestExternArgumentClauses"]},
     {
       "name": "esc1-transform-nonescaping", "origin": "wf10 ESC1",
       "file": "internal/sketch/std/tasks/tasks.ergo",

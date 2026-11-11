@@ -33,10 +33,10 @@ extern go crypto/tls.CertificateRequestInfo type CertificateRequestInfo {
 }
 
 // ergo:go func (*CertificateRequestInfo).Context() context.Context
-extern go crypto/tls.CertificateRequestInfo.Context func (c *CertificateRequestInfo) Context() gocontext.Context needs go.Foreign
+extern go crypto/tls.CertificateRequestInfo.Context func (c *CertificateRequestInfo) Context() gocontext.Context needs go.Foreign takes c
 
 // ergo:go func (*CertificateRequestInfo).SupportsCertificate(c *Certificate) error
-extern go crypto/tls.CertificateRequestInfo.SupportsCertificate func (cri *CertificateRequestInfo) SupportsCertificate(c *Certificate) fails go.Error needs go.Foreign
+extern go crypto/tls.CertificateRequestInfo.SupportsCertificate func (cri *CertificateRequestInfo) SupportsCertificate(c *Certificate) fails go.Error needs go.Foreign takes cri, c
 
 // ergo:go type CertificateVerificationError struct
 extern go crypto/tls.CertificateVerificationError type CertificateVerificationError {
@@ -47,10 +47,10 @@ extern go crypto/tls.CertificateVerificationError type CertificateVerificationEr
 // ergo:refused CertificateVerificationError.UnverifiedCertificates: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*CertificateVerificationError).Error() string
-extern go crypto/tls.CertificateVerificationError.Error func (e *CertificateVerificationError) Error() string needs go.Foreign
+extern go crypto/tls.CertificateVerificationError.Error func (e *CertificateVerificationError) Error() string needs go.Foreign takes e
 
 // ergo:go func (*CertificateVerificationError).Unwrap() error
-extern go crypto/tls.CertificateVerificationError.Unwrap func (e *CertificateVerificationError) Unwrap() fails go.Error needs go.Foreign
+extern go crypto/tls.CertificateVerificationError.Unwrap func (e *CertificateVerificationError) Unwrap() fails go.Error needs go.Foreign takes e
 
 // ergo:go type CipherSuite struct
 extern go crypto/tls.CipherSuite type CipherSuite {
@@ -67,7 +67,7 @@ extern go crypto/tls.CipherSuiteName func CipherSuiteName(id uint16) string need
 // ergo:refused CipherSuites: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func Client(conn net.Conn, config *Config) *Conn
-extern go crypto/tls.Client func Client(conn net.Conn, config *Config) Option[go.Ref[Conn]] needs go.Foreign
+extern go crypto/tls.Client func Client(conn net.Conn, config *Config) Option[go.Ref[Conn]] needs go.Foreign takes conn, config
 
 // ergo:go type ClientAuthType int
 extern go crypto/tls.ClientAuthType type ClientAuthType int
@@ -90,22 +90,22 @@ extern go crypto/tls.ClientHelloInfo type ClientHelloInfo {
 }
 
 // ergo:go func (*ClientHelloInfo).Context() context.Context
-extern go crypto/tls.ClientHelloInfo.Context func (c *ClientHelloInfo) Context() gocontext.Context needs go.Foreign
+extern go crypto/tls.ClientHelloInfo.Context func (c *ClientHelloInfo) Context() gocontext.Context needs go.Foreign takes c
 
 // ergo:go func (*ClientHelloInfo).SupportsCertificate(c *Certificate) error
-extern go crypto/tls.ClientHelloInfo.SupportsCertificate func (chi *ClientHelloInfo) SupportsCertificate(c *Certificate) fails go.Error needs go.Foreign
+extern go crypto/tls.ClientHelloInfo.SupportsCertificate func (chi *ClientHelloInfo) SupportsCertificate(c *Certificate) fails go.Error needs go.Foreign takes chi, c
 
 // ergo:go type ClientSessionCache interface
 extern go crypto/tls.ClientSessionCache type ClientSessionCache {
-	Get(sessionKey string) (Option[go.Ref[ClientSessionState]], bool) needs go.Foreign,
-	Put(sessionKey string, cs *ClientSessionState) needs go.Foreign,
+	Get(sessionKey string) (Option[go.Ref[ClientSessionState]], bool) needs go.Foreign takes,
+	Put(sessionKey string, cs *ClientSessionState) needs go.Foreign takes cs,
 }
 
 // ergo:go type ClientSessionState struct
 extern go crypto/tls.ClientSessionState type ClientSessionState {}
 
 // ergo:go func (*ClientSessionState).ResumptionState() (ticket []byte, state *SessionState, err error)
-extern go crypto/tls.ClientSessionState.ResumptionState func (cs *ClientSessionState) ResumptionState() ([]byte, Option[go.Ref[SessionState]]) fails go.Error needs go.Foreign
+extern go crypto/tls.ClientSessionState.ResumptionState func (cs *ClientSessionState) ResumptionState() ([]byte, Option[go.Ref[SessionState]]) fails go.Error needs go.Foreign takes cs
 
 // ergo:go type Config struct
 extern go crypto/tls.Config type Config {
@@ -166,68 +166,68 @@ extern go crypto/tls.Config type Config {
 // ergo:refused Config.GetEncryptedClientHelloKeys: a Go function as a result, a field or an element
 
 // ergo:go func (*Config).BuildNameToCertificate()
-extern go crypto/tls.Config.BuildNameToCertificate func (c *Config) BuildNameToCertificate() needs go.Foreign
+extern go crypto/tls.Config.BuildNameToCertificate func (c *Config) BuildNameToCertificate() needs go.Foreign takes c
 
 // ergo:go func (*Config).Clone() *Config
-extern go crypto/tls.Config.Clone func (c *Config) Clone() Option[go.Ref[Config]] needs go.Foreign
+extern go crypto/tls.Config.Clone func (c *Config) Clone() Option[go.Ref[Config]] needs go.Foreign takes c
 
 // ergo:go func (*Config).DecryptTicket(identity []byte, cs ConnectionState) (*SessionState, error)
-extern go crypto/tls.Config.DecryptTicket func (c *Config) DecryptTicket(identity []byte, cs ConnectionState) go.Ref[SessionState] fails go.Error needs go.Foreign
+extern go crypto/tls.Config.DecryptTicket func (c *Config) DecryptTicket(identity []byte, cs ConnectionState) go.Ref[SessionState] fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Config).EncryptTicket(cs ConnectionState, ss *SessionState) ([]byte, error)
-extern go crypto/tls.Config.EncryptTicket func (c *Config) EncryptTicket(cs ConnectionState, ss *SessionState) []byte fails go.Error needs go.Foreign
+extern go crypto/tls.Config.EncryptTicket func (c *Config) EncryptTicket(cs ConnectionState, ss *SessionState) []byte fails go.Error needs go.Foreign takes c, ss
 
 // ergo:go func (*Config).SetSessionTicketKeys(keys [][32]byte)
-extern go crypto/tls.Config.SetSessionTicketKeys func (c *Config) SetSessionTicketKeys(keys [][32]byte) needs go.Foreign
+extern go crypto/tls.Config.SetSessionTicketKeys func (c *Config) SetSessionTicketKeys(keys [][32]byte) needs go.Foreign takes c
 
 // ergo:go type Conn struct
 extern go crypto/tls.Conn type Conn {}
 
 // ergo:go func (*Conn).Close() error
-extern go crypto/tls.Conn.Close func (c *Conn) Close() fails go.Error needs go.Foreign
+extern go crypto/tls.Conn.Close func (c *Conn) Close() fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Conn).CloseWrite() error
-extern go crypto/tls.Conn.CloseWrite func (c *Conn) CloseWrite() fails go.Error needs go.Foreign
+extern go crypto/tls.Conn.CloseWrite func (c *Conn) CloseWrite() fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Conn).ConnectionState() ConnectionState
-extern go crypto/tls.Conn.ConnectionState func (c *Conn) ConnectionState() ConnectionState needs go.Foreign
+extern go crypto/tls.Conn.ConnectionState func (c *Conn) ConnectionState() ConnectionState needs go.Foreign takes c
 
 // ergo:go func (*Conn).Handshake() error
-extern go crypto/tls.Conn.Handshake func (c *Conn) Handshake() fails go.Error needs go.Foreign
+extern go crypto/tls.Conn.Handshake func (c *Conn) Handshake() fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Conn).HandshakeContext(ctx context.Context) error
 // ergo:context
-extern go crypto/tls.Conn.HandshakeContext func (c *Conn) HandshakeContext() fails go.Error needs go.Foreign
+extern go crypto/tls.Conn.HandshakeContext func (c *Conn) HandshakeContext() fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Conn).LocalAddr() net.Addr
-extern go crypto/tls.Conn.LocalAddr func (c *Conn) LocalAddr() net.Addr needs go.Foreign
+extern go crypto/tls.Conn.LocalAddr func (c *Conn) LocalAddr() net.Addr needs go.Foreign takes c
 
 // ergo:go func (*Conn).NetConn() net.Conn
-extern go crypto/tls.Conn.NetConn func (c *Conn) NetConn() net.Conn needs go.Foreign
+extern go crypto/tls.Conn.NetConn func (c *Conn) NetConn() net.Conn needs go.Foreign takes c
 
 // ergo:go func (*Conn).OCSPResponse() []byte
-extern go crypto/tls.Conn.OCSPResponse func (c *Conn) OCSPResponse() []byte needs go.Foreign
+extern go crypto/tls.Conn.OCSPResponse func (c *Conn) OCSPResponse() []byte needs go.Foreign takes c
 
 // ergo:go func (*Conn).Read(b []byte) (int, error)
-extern go crypto/tls.Conn.Read func (c *Conn) Read(b []byte) int fails go.Error needs go.Foreign
+extern go crypto/tls.Conn.Read func (c *Conn) Read(b []byte) int fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Conn).RemoteAddr() net.Addr
-extern go crypto/tls.Conn.RemoteAddr func (c *Conn) RemoteAddr() net.Addr needs go.Foreign
+extern go crypto/tls.Conn.RemoteAddr func (c *Conn) RemoteAddr() net.Addr needs go.Foreign takes c
 
 // ergo:go func (*Conn).SetDeadline(t time.Time) error
-extern go crypto/tls.Conn.SetDeadline func (c *Conn) SetDeadline(t time.Time) fails go.Error needs go.Foreign
+extern go crypto/tls.Conn.SetDeadline func (c *Conn) SetDeadline(t time.Time) fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Conn).SetReadDeadline(t time.Time) error
-extern go crypto/tls.Conn.SetReadDeadline func (c *Conn) SetReadDeadline(t time.Time) fails go.Error needs go.Foreign
+extern go crypto/tls.Conn.SetReadDeadline func (c *Conn) SetReadDeadline(t time.Time) fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Conn).SetWriteDeadline(t time.Time) error
-extern go crypto/tls.Conn.SetWriteDeadline func (c *Conn) SetWriteDeadline(t time.Time) fails go.Error needs go.Foreign
+extern go crypto/tls.Conn.SetWriteDeadline func (c *Conn) SetWriteDeadline(t time.Time) fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Conn).VerifyHostname(host string) error
-extern go crypto/tls.Conn.VerifyHostname func (c *Conn) VerifyHostname(host string) fails go.Error needs go.Foreign
+extern go crypto/tls.Conn.VerifyHostname func (c *Conn) VerifyHostname(host string) fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Conn).Write(b []byte) (int, error)
-extern go crypto/tls.Conn.Write func (c *Conn) Write(b []byte) int fails go.Error needs go.Foreign
+extern go crypto/tls.Conn.Write func (c *Conn) Write(b []byte) int fails go.Error needs go.Foreign takes c
 
 // ergo:go type ConnectionState struct
 extern go crypto/tls.ConnectionState type ConnectionState {
@@ -254,7 +254,7 @@ extern go crypto/tls.ConnectionState type ConnectionState {
 // ergo:refused ConnectionState.VerifiedChains: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*ConnectionState).ExportKeyingMaterial(label string, context []byte, length int) ([]byte, error)
-extern go crypto/tls.ConnectionState.ExportKeyingMaterial func (cs *ConnectionState) ExportKeyingMaterial(label string, p1 []byte, length int) []byte fails go.Error needs go.Foreign
+extern go crypto/tls.ConnectionState.ExportKeyingMaterial func (cs *ConnectionState) ExportKeyingMaterial(label string, p1 []byte, length int) []byte fails go.Error needs go.Foreign takes cs
 
 // ergo:go type CurveID uint16
 extern go crypto/tls.CurveID type CurveID uint16
@@ -272,10 +272,10 @@ extern go crypto/tls.CurveP384 let CurveP384 CurveID
 extern go crypto/tls.CurveP521 let CurveP521 CurveID
 
 // ergo:go func Dial(network string, addr string, config *Config) (*Conn, error)
-extern go crypto/tls.Dial func Dial(network string, addr string, config *Config) go.Ref[Conn] fails go.Error needs go.Foreign
+extern go crypto/tls.Dial func Dial(network string, addr string, config *Config) go.Ref[Conn] fails go.Error needs go.Foreign takes config
 
 // ergo:go func DialWithDialer(dialer *net.Dialer, network string, addr string, config *Config) (*Conn, error)
-extern go crypto/tls.DialWithDialer func DialWithDialer(dialer *net.Dialer, network string, addr string, config *Config) go.Ref[Conn] fails go.Error needs go.Foreign
+extern go crypto/tls.DialWithDialer func DialWithDialer(dialer *net.Dialer, network string, addr string, config *Config) go.Ref[Conn] fails go.Error needs go.Foreign takes dialer, config
 
 // ergo:go type Dialer struct
 extern go crypto/tls.Dialer type Dialer {
@@ -284,11 +284,11 @@ extern go crypto/tls.Dialer type Dialer {
 }
 
 // ergo:go func (*Dialer).Dial(network string, addr string) (net.Conn, error)
-extern go crypto/tls.Dialer.Dial func (d *Dialer) Dial(network string, addr string) net.Conn fails go.Error needs go.Foreign
+extern go crypto/tls.Dialer.Dial func (d *Dialer) Dial(network string, addr string) net.Conn fails go.Error needs go.Foreign takes d
 
 // ergo:go func (*Dialer).DialContext(ctx context.Context, network string, addr string) (net.Conn, error)
 // ergo:context
-extern go crypto/tls.Dialer.DialContext func (d *Dialer) DialContext(network string, addr string) net.Conn fails go.Error needs go.Foreign
+extern go crypto/tls.Dialer.DialContext func (d *Dialer) DialContext(network string, addr string) net.Conn fails go.Error needs go.Foreign takes d
 
 // ergo:go const ECDSAWithP256AndSHA256 SignatureScheme
 extern go crypto/tls.ECDSAWithP256AndSHA256 let ECDSAWithP256AndSHA256 SignatureScheme
@@ -308,7 +308,7 @@ extern go crypto/tls.ECHRejectionError type ECHRejectionError {
 }
 
 // ergo:go func (*ECHRejectionError).Error() string
-extern go crypto/tls.ECHRejectionError.Error func (e *ECHRejectionError) Error() string needs go.Foreign
+extern go crypto/tls.ECHRejectionError.Error func (e *ECHRejectionError) Error() string needs go.Foreign takes e
 
 // ergo:go const Ed25519 SignatureScheme
 extern go crypto/tls.Ed25519 let Ed25519 SignatureScheme
@@ -324,7 +324,7 @@ extern go crypto/tls.EncryptedClientHelloKey type EncryptedClientHelloKey {
 // ergo:refused InsecureCipherSuites: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func Listen(network string, laddr string, config *Config) (net.Listener, error)
-extern go crypto/tls.Listen func Listen(network string, laddr string, config *Config) net.Listener fails go.Error needs go.Foreign
+extern go crypto/tls.Listen func Listen(network string, laddr string, config *Config) net.Listener fails go.Error needs go.Foreign takes config
 
 // ergo:go func LoadX509KeyPair(certFile string, keyFile string) (Certificate, error)
 extern go crypto/tls.LoadX509KeyPair func LoadX509KeyPair(certFile string, keyFile string) Certificate fails go.Error needs go.Foreign
@@ -345,10 +345,10 @@ extern go crypto/tls.MLKEM1024 let MLKEM1024 CurveID
 extern go crypto/tls.NewLRUClientSessionCache func NewLRUClientSessionCache(capacity int) ClientSessionCache needs go.Foreign
 
 // ergo:go func NewListener(inner net.Listener, config *Config) net.Listener
-extern go crypto/tls.NewListener func NewListener(inner net.Listener, config *Config) net.Listener needs go.Foreign
+extern go crypto/tls.NewListener func NewListener(inner net.Listener, config *Config) net.Listener needs go.Foreign takes inner, config
 
 // ergo:go func NewResumptionState(ticket []byte, state *SessionState) (*ClientSessionState, error)
-extern go crypto/tls.NewResumptionState func NewResumptionState(ticket []byte, state *SessionState) go.Ref[ClientSessionState] fails go.Error needs go.Foreign
+extern go crypto/tls.NewResumptionState func NewResumptionState(ticket []byte, state *SessionState) go.Ref[ClientSessionState] fails go.Error needs go.Foreign takes state
 
 // ergo:go const NoClientCert ClientAuthType
 extern go crypto/tls.NoClientCert let NoClientCert ClientAuthType
@@ -378,7 +378,7 @@ extern go crypto/tls.PSSWithSHA512 let PSSWithSHA512 SignatureScheme
 extern go crypto/tls.ParseSessionState func ParseSessionState(data []byte) go.Ref[SessionState] fails go.Error needs go.Foreign
 
 // ergo:go func QUICClient(config *QUICConfig) *QUICConn
-extern go crypto/tls.QUICClient func QUICClient(config *QUICConfig) Option[go.Ref[QUICConn]] needs go.Foreign
+extern go crypto/tls.QUICClient func QUICClient(config *QUICConfig) Option[go.Ref[QUICConn]] needs go.Foreign takes config
 
 // ergo:go type QUICConfig struct
 extern go crypto/tls.QUICConfig type QUICConfig {
@@ -391,29 +391,29 @@ extern go crypto/tls.QUICConfig type QUICConfig {
 extern go crypto/tls.QUICConn type QUICConn {}
 
 // ergo:go func (*QUICConn).Close() error
-extern go crypto/tls.QUICConn.Close func (q *QUICConn) Close() fails go.Error needs go.Foreign
+extern go crypto/tls.QUICConn.Close func (q *QUICConn) Close() fails go.Error needs go.Foreign takes q
 
 // ergo:go func (*QUICConn).ConnectionState() ConnectionState
-extern go crypto/tls.QUICConn.ConnectionState func (q *QUICConn) ConnectionState() ConnectionState needs go.Foreign
+extern go crypto/tls.QUICConn.ConnectionState func (q *QUICConn) ConnectionState() ConnectionState needs go.Foreign takes q
 
 // ergo:go func (*QUICConn).HandleData(level QUICEncryptionLevel, data []byte) error
-extern go crypto/tls.QUICConn.HandleData func (q *QUICConn) HandleData(level QUICEncryptionLevel, data []byte) fails go.Error needs go.Foreign
+extern go crypto/tls.QUICConn.HandleData func (q *QUICConn) HandleData(level QUICEncryptionLevel, data []byte) fails go.Error needs go.Foreign takes q
 
 // ergo:go func (*QUICConn).NextEvent() QUICEvent
-extern go crypto/tls.QUICConn.NextEvent func (q *QUICConn) NextEvent() QUICEvent needs go.Foreign
+extern go crypto/tls.QUICConn.NextEvent func (q *QUICConn) NextEvent() QUICEvent needs go.Foreign takes q
 
 // ergo:go func (*QUICConn).SendSessionTicket(opts QUICSessionTicketOptions) error
-extern go crypto/tls.QUICConn.SendSessionTicket func (q *QUICConn) SendSessionTicket(opts QUICSessionTicketOptions) fails go.Error needs go.Foreign
+extern go crypto/tls.QUICConn.SendSessionTicket func (q *QUICConn) SendSessionTicket(opts QUICSessionTicketOptions) fails go.Error needs go.Foreign takes q
 
 // ergo:go func (*QUICConn).SetTransportParameters(params []byte)
-extern go crypto/tls.QUICConn.SetTransportParameters func (q *QUICConn) SetTransportParameters(params []byte) needs go.Foreign
+extern go crypto/tls.QUICConn.SetTransportParameters func (q *QUICConn) SetTransportParameters(params []byte) needs go.Foreign takes q
 
 // ergo:go func (*QUICConn).Start(ctx context.Context) error
 // ergo:context
-extern go crypto/tls.QUICConn.Start func (q *QUICConn) Start() fails go.Error needs go.Foreign
+extern go crypto/tls.QUICConn.Start func (q *QUICConn) Start() fails go.Error needs go.Foreign takes q
 
 // ergo:go func (*QUICConn).StoreSession(session *SessionState) error
-extern go crypto/tls.QUICConn.StoreSession func (q *QUICConn) StoreSession(session *SessionState) fails go.Error needs go.Foreign
+extern go crypto/tls.QUICConn.StoreSession func (q *QUICConn) StoreSession(session *SessionState) fails go.Error needs go.Foreign takes q, session
 
 // ergo:go type QUICEncryptionLevel int
 extern go crypto/tls.QUICEncryptionLevel type QUICEncryptionLevel int
@@ -462,7 +462,7 @@ extern go crypto/tls.QUICRejectedEarlyData let QUICRejectedEarlyData QUICEventKi
 extern go crypto/tls.QUICResumeSession let QUICResumeSession QUICEventKind
 
 // ergo:go func QUICServer(config *QUICConfig) *QUICConn
-extern go crypto/tls.QUICServer func QUICServer(config *QUICConfig) Option[go.Ref[QUICConn]] needs go.Foreign
+extern go crypto/tls.QUICServer func QUICServer(config *QUICConfig) Option[go.Ref[QUICConn]] needs go.Foreign takes config
 
 // ergo:go type QUICSessionTicketOptions struct
 extern go crypto/tls.QUICSessionTicketOptions type QUICSessionTicketOptions {
@@ -526,7 +526,7 @@ extern go crypto/tls.SecP256r1MLKEM768 let SecP256r1MLKEM768 CurveID
 extern go crypto/tls.SecP384r1MLKEM1024 let SecP384r1MLKEM1024 CurveID
 
 // ergo:go func Server(conn net.Conn, config *Config) *Conn
-extern go crypto/tls.Server func Server(conn net.Conn, config *Config) Option[go.Ref[Conn]] needs go.Foreign
+extern go crypto/tls.Server func Server(conn net.Conn, config *Config) Option[go.Ref[Conn]] needs go.Foreign takes conn, config
 
 // ergo:go type SessionState struct
 extern go crypto/tls.SessionState type SessionState {
@@ -535,7 +535,7 @@ extern go crypto/tls.SessionState type SessionState {
 }
 
 // ergo:go func (*SessionState).Bytes() ([]byte, error)
-extern go crypto/tls.SessionState.Bytes func (s *SessionState) Bytes() []byte fails go.Error needs go.Foreign
+extern go crypto/tls.SessionState.Bytes func (s *SessionState) Bytes() []byte fails go.Error needs go.Foreign takes s
 
 // ergo:go type SignatureScheme uint16
 extern go crypto/tls.SignatureScheme type SignatureScheme uint16

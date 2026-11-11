@@ -4,7 +4,7 @@
 import go hash
 
 // ergo:go func Checksum(data []byte, tab *Table) uint64
-extern go hash/crc64.Checksum func Checksum(data []byte, tab *Table) uint64 needs go.Foreign
+extern go hash/crc64.Checksum func Checksum(data []byte, tab *Table) uint64 needs go.Foreign takes tab
 
 // ergo:go const ECMA untyped int
 // ergo:refused ECMA: the untyped constant does not fit Go's default type int; Ergo has no untyped constants (196u)
@@ -16,7 +16,7 @@ extern go hash/crc64.Checksum func Checksum(data []byte, tab *Table) uint64 need
 extern go hash/crc64.MakeTable func MakeTable(poly uint64) Option[go.Ref[Table]] needs go.Foreign
 
 // ergo:go func New(tab *Table) hash.Hash64
-extern go hash/crc64.New func New(tab *Table) hash.Hash64 needs go.Foreign
+extern go hash/crc64.New func New(tab *Table) hash.Hash64 needs go.Foreign takes tab
 
 // ergo:go const Size untyped int
 extern go hash/crc64.Size let Size int
@@ -25,4 +25,4 @@ extern go hash/crc64.Size let Size int
 extern go hash/crc64.Table type Table [256]uint64
 
 // ergo:go func Update(crc uint64, tab *Table, p []byte) uint64
-extern go hash/crc64.Update func Update(crc uint64, tab *Table, p []byte) uint64 needs go.Foreign
+extern go hash/crc64.Update func Update(crc uint64, tab *Table, p []byte) uint64 needs go.Foreign takes tab

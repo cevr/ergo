@@ -874,7 +874,7 @@ func (c *checker) resolveNamed(n *Named) {
 		} else if len(spec.Union) > 0 {
 			n.under = c.unionType(n, spec, ctx)
 		} else {
-			it := c.interfaceType(spec, ctx)
+			it := c.interfaceType(spec, ctx, d.Name.Name)
 			it.obj = n.Obj
 			n.under = it
 		}
@@ -962,7 +962,7 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 // interfaceType resolves an operation type. Its laws are not part of the
 // type (Law): collect records them with the declaration that holds them,
 // the only place the decided parser builds an operation type (typExpr).
-func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx) *Interface {
+func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner string) *Interface {
 	it := &Interface{}
 	seen := map[string]bool{}
 	for _, m := range spec.Methods {
@@ -979,6 +979,9 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx) *Inter
 			mctx.params, mctx.decl = ctx.params, ctx.decl
 		}
 		sig := c.signature(ft, mctx)
+		if c.pkg.Host() {
+			c.hostClauses(c.pkg.Path+"."+owner+"."+name.Name, sig, m)
+		}
 		if c.pkg.host == nil {
 			closeOpTakes(name.Name, sig)
 		}
@@ -1092,13 +1095,14 @@ func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) 
 // typeCtx is the context of a type expression: the type parameters in scope
 // and the rules for unbound one-letter names (rows-and-constraints §3).
 type typeCtx struct {
-	params map[string]*TypeParam // bracket and receiver parameters (196g: every parameter is declared)
-	method bool                  // a method or interface method: no type parameters of its own (D6)
-	decl   bool                  // a type declaration: bracket parameters only
-	field  bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
-	param  bool                  // a parameter or receiver: *T allowed
-	scope  *Scope
-	lit    *litParams // a function literal's signature: its untyped parameters (D-E1)
+	params   map[string]*TypeParam // bracket and receiver parameters (196g: every parameter is declared)
+	method   bool                  // a method or interface method: no type parameters of its own (D6)
+	hostRecv string                // a binding method's receiver name, usable in takes
+	decl     bool                  // a type declaration: bracket parameters only
+	field    bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
+	param    bool                  // a parameter or receiver: *T allowed
+	scope    *Scope
+	lit      *litParams // a function literal's signature: its untyped parameters (D-E1)
 }
 
 // litParams carries a function literal's expected function type into its
@@ -1986,7 +1990,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 		sig.Uses = c.rowExpr(ft.Needs.Names, KindUses, &rctx)
 	}
 	if ft.Takes != nil {
-		c.takesClause(ft.Takes, sig, ctx.method)
+		c.takesClause(ft.Takes, sig, ctx.method, ctx.hostRecv)
 	}
 	return sig
 }
@@ -2010,6 +2014,10 @@ func (c *checker) funcSig(f *Func) *Signature {
 	defer func() { c.cur = saved }()
 	d := f.Decl
 	ctx := &typeCtx{params: map[string]*TypeParam{}}
+	if c.pkg.Host() && d.Recv != nil && len(d.Recv.List) > 0 && len(d.Recv.List[0].Names) > 0 {
+		ctx.hostRecv = d.Recv.List[0].Names[0].Name
+		ctx.method = true
+	}
 	var tparams []*TypeParam
 	// The bracket parameters are declared before any constraint resolves,
 	// so the instantiations in the constraints and the signature are
@@ -2062,6 +2070,9 @@ func (c *checker) funcSig(f *Func) *Signature {
 	f.Sig = sig
 	f.state = 2
 	closeTakes(f)
+	if c.pkg.Host() && d.Extern != nil {
+		c.hostClauses(d.Extern.Target.Value, sig, d)
+	}
 	if d.Body == nil {
 		// A bodiless (extern) function's parameters are declared here; a
 		// body's are declared when it is checked.

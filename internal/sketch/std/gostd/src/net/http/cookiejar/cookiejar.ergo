@@ -11,7 +11,7 @@ extern go net/http/cookiejar.Jar type Jar {}
 // ergo:refused Jar.SetCookies: parameter 2: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func New(o *Options) (*Jar, error)
-extern go net/http/cookiejar.New func New(o *Options) go.Ref[Jar] fails go.Error needs go.Foreign
+extern go net/http/cookiejar.New func New(o *Options) go.Ref[Jar] fails go.Error needs go.Foreign takes o
 
 // ergo:go type Options struct
 extern go net/http/cookiejar.Options type Options {
@@ -20,6 +20,6 @@ extern go net/http/cookiejar.Options type Options {
 
 // ergo:go type PublicSuffixList interface
 extern go net/http/cookiejar.PublicSuffixList type PublicSuffixList {
-	PublicSuffix(domain string) string needs go.Foreign,
-	String() string needs go.Foreign,
+	PublicSuffix(domain string) string needs go.Foreign takes,
+	String() string needs go.Foreign takes,
 }

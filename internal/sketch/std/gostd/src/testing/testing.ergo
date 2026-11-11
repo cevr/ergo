@@ -14,22 +14,22 @@ extern go testing.B type B {
 }
 
 // ergo:go func (*common).ArtifactDir() string
-extern go testing.B.ArtifactDir func (c *B) ArtifactDir() string needs go.Foreign
+extern go testing.B.ArtifactDir func (c *B) ArtifactDir() string needs go.Foreign takes c
 
 // ergo:go func (*common).Attr(key string, value string)
-extern go testing.B.Attr func (c *B) Attr(key string, value string) needs go.Foreign
+extern go testing.B.Attr func (c *B) Attr(key string, value string) needs go.Foreign takes c
 
 // ergo:go func (*common).Chdir(dir string)
-extern go testing.B.Chdir func (c *B) Chdir(dir string) needs go.Foreign
+extern go testing.B.Chdir func (c *B) Chdir(dir string) needs go.Foreign takes c
 
 // ergo:go func (*common).Cleanup(f func())
-extern go testing.B.Cleanup func (c *B) Cleanup(f escaping func()) needs go.Foreign
+extern go testing.B.Cleanup func (c *B) Cleanup(f escaping func()) needs go.Foreign takes c
 
 // ergo:go func (*common).Context() context.Context
-extern go testing.B.Context func (c *B) Context() gocontext.Context needs go.Foreign
+extern go testing.B.Context func (c *B) Context() gocontext.Context needs go.Foreign takes c
 
 // ergo:go func (*B).Elapsed() time.Duration
-extern go testing.B.Elapsed func (b *B) Elapsed() duration needs go.Foreign
+extern go testing.B.Elapsed func (b *B) Elapsed() duration needs go.Foreign takes b
 
 // ergo:go func (*common).Error(args ...any)
 // ergo:refused B.Error: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -38,13 +38,13 @@ extern go testing.B.Elapsed func (b *B) Elapsed() duration needs go.Foreign
 // ergo:refused B.Errorf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).Fail()
-extern go testing.B.Fail func (c *B) Fail() needs go.Foreign
+extern go testing.B.Fail func (c *B) Fail() needs go.Foreign takes c
 
 // ergo:go func (*common).FailNow()
-extern go testing.B.FailNow func (c *B) FailNow() needs go.Foreign
+extern go testing.B.FailNow func (c *B) FailNow() needs go.Foreign takes c
 
 // ergo:go func (*common).Failed() bool
-extern go testing.B.Failed func (c *B) Failed() bool needs go.Foreign
+extern go testing.B.Failed func (c *B) Failed() bool needs go.Foreign takes c
 
 // ergo:go func (*common).Fatal(args ...any)
 // ergo:refused B.Fatal: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -53,7 +53,7 @@ extern go testing.B.Failed func (c *B) Failed() bool needs go.Foreign
 // ergo:refused B.Fatalf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).Helper()
-extern go testing.B.Helper func (c *B) Helper() needs go.Foreign
+extern go testing.B.Helper func (c *B) Helper() needs go.Foreign takes c
 
 // ergo:go func (*common).Log(args ...any)
 // ergo:refused B.Log: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -62,58 +62,58 @@ extern go testing.B.Helper func (c *B) Helper() needs go.Foreign
 // ergo:refused B.Logf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*B).Loop() bool
-extern go testing.B.Loop func (b *B) Loop() bool needs go.Foreign
+extern go testing.B.Loop func (b *B) Loop() bool needs go.Foreign takes b
 
 // ergo:go func (*common).Name() string
-extern go testing.B.Name func (c *B) Name() string needs go.Foreign
+extern go testing.B.Name func (c *B) Name() string needs go.Foreign takes c
 
 // ergo:go func (*common).Output() io.Writer
-extern go testing.B.Output func (c *B) Output() io.Writer needs go.Foreign
+extern go testing.B.Output func (c *B) Output() io.Writer needs go.Foreign takes c
 
 // ergo:go func (*B).ReportAllocs()
-extern go testing.B.ReportAllocs func (b *B) ReportAllocs() needs go.Foreign
+extern go testing.B.ReportAllocs func (b *B) ReportAllocs() needs go.Foreign takes b
 
 // ergo:go func (*B).ReportMetric(n float64, unit string)
-extern go testing.B.ReportMetric func (b *B) ReportMetric(n float64, unit string) needs go.Foreign
+extern go testing.B.ReportMetric func (b *B) ReportMetric(n float64, unit string) needs go.Foreign takes b
 
 // ergo:go func (*B).ResetTimer()
-extern go testing.B.ResetTimer func (b *B) ResetTimer() needs go.Foreign
+extern go testing.B.ResetTimer func (b *B) ResetTimer() needs go.Foreign takes b
 
 // ergo:go func (*B).Run(name string, f func(b *B)) bool
-extern go testing.B.Run func (b *B) Run(name string, f escaping func(*B)) bool needs go.Foreign
+extern go testing.B.Run func (b *B) Run(name string, f escaping func(*B)) bool needs go.Foreign takes b
 
 // ergo:go func (*B).RunParallel(body func(*PB))
-extern go testing.B.RunParallel func (b *B) RunParallel(body escaping func(*PB)) needs go.Foreign
+extern go testing.B.RunParallel func (b *B) RunParallel(body escaping func(*PB)) needs go.Foreign takes b
 
 // ergo:go func (*B).SetBytes(n int64)
-extern go testing.B.SetBytes func (b *B) SetBytes(n int64) needs go.Foreign
+extern go testing.B.SetBytes func (b *B) SetBytes(n int64) needs go.Foreign takes b
 
 // ergo:go func (*B).SetParallelism(p int)
-extern go testing.B.SetParallelism func (b *B) SetParallelism(p int) needs go.Foreign
+extern go testing.B.SetParallelism func (b *B) SetParallelism(p int) needs go.Foreign takes b
 
 // ergo:go func (*common).Setenv(key string, value string)
-extern go testing.B.Setenv func (c *B) Setenv(key string, value string) needs go.Foreign
+extern go testing.B.Setenv func (c *B) Setenv(key string, value string) needs go.Foreign takes c
 
 // ergo:go func (*common).Skip(args ...any)
 // ergo:refused B.Skip: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).SkipNow()
-extern go testing.B.SkipNow func (c *B) SkipNow() needs go.Foreign
+extern go testing.B.SkipNow func (c *B) SkipNow() needs go.Foreign takes c
 
 // ergo:go func (*common).Skipf(format string, args ...any)
 // ergo:refused B.Skipf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).Skipped() bool
-extern go testing.B.Skipped func (c *B) Skipped() bool needs go.Foreign
+extern go testing.B.Skipped func (c *B) Skipped() bool needs go.Foreign takes c
 
 // ergo:go func (*B).StartTimer()
-extern go testing.B.StartTimer func (b *B) StartTimer() needs go.Foreign
+extern go testing.B.StartTimer func (b *B) StartTimer() needs go.Foreign takes b
 
 // ergo:go func (*B).StopTimer()
-extern go testing.B.StopTimer func (b *B) StopTimer() needs go.Foreign
+extern go testing.B.StopTimer func (b *B) StopTimer() needs go.Foreign takes b
 
 // ergo:go func (*common).TempDir() string
-extern go testing.B.TempDir func (c *B) TempDir() string needs go.Foreign
+extern go testing.B.TempDir func (c *B) TempDir() string needs go.Foreign takes c
 
 // ergo:go func Benchmark(f func(b *B)) BenchmarkResult
 extern go testing.Benchmark func Benchmark(f escaping func(*B)) BenchmarkResult needs go.Foreign
@@ -173,19 +173,19 @@ extern go testing.F type F {}
 // ergo:refused F.Add: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).ArtifactDir() string
-extern go testing.F.ArtifactDir func (c *F) ArtifactDir() string needs go.Foreign
+extern go testing.F.ArtifactDir func (c *F) ArtifactDir() string needs go.Foreign takes c
 
 // ergo:go func (*common).Attr(key string, value string)
-extern go testing.F.Attr func (c *F) Attr(key string, value string) needs go.Foreign
+extern go testing.F.Attr func (c *F) Attr(key string, value string) needs go.Foreign takes c
 
 // ergo:go func (*common).Chdir(dir string)
-extern go testing.F.Chdir func (c *F) Chdir(dir string) needs go.Foreign
+extern go testing.F.Chdir func (c *F) Chdir(dir string) needs go.Foreign takes c
 
 // ergo:go func (*common).Cleanup(f func())
-extern go testing.F.Cleanup func (c *F) Cleanup(f escaping func()) needs go.Foreign
+extern go testing.F.Cleanup func (c *F) Cleanup(f escaping func()) needs go.Foreign takes c
 
 // ergo:go func (*common).Context() context.Context
-extern go testing.F.Context func (c *F) Context() gocontext.Context needs go.Foreign
+extern go testing.F.Context func (c *F) Context() gocontext.Context needs go.Foreign takes c
 
 // ergo:go func (*common).Error(args ...any)
 // ergo:refused F.Error: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -194,13 +194,13 @@ extern go testing.F.Context func (c *F) Context() gocontext.Context needs go.For
 // ergo:refused F.Errorf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*F).Fail()
-extern go testing.F.Fail func (f *F) Fail() needs go.Foreign
+extern go testing.F.Fail func (f *F) Fail() needs go.Foreign takes f
 
 // ergo:go func (*common).FailNow()
-extern go testing.F.FailNow func (c *F) FailNow() needs go.Foreign
+extern go testing.F.FailNow func (c *F) FailNow() needs go.Foreign takes c
 
 // ergo:go func (*common).Failed() bool
-extern go testing.F.Failed func (c *F) Failed() bool needs go.Foreign
+extern go testing.F.Failed func (c *F) Failed() bool needs go.Foreign takes c
 
 // ergo:go func (*common).Fatal(args ...any)
 // ergo:refused F.Fatal: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -212,7 +212,7 @@ extern go testing.F.Failed func (c *F) Failed() bool needs go.Foreign
 // ergo:refused F.Fuzz: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*F).Helper()
-extern go testing.F.Helper func (f *F) Helper() needs go.Foreign
+extern go testing.F.Helper func (f *F) Helper() needs go.Foreign takes f
 
 // ergo:go func (*common).Log(args ...any)
 // ergo:refused F.Log: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -221,28 +221,28 @@ extern go testing.F.Helper func (f *F) Helper() needs go.Foreign
 // ergo:refused F.Logf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).Name() string
-extern go testing.F.Name func (c *F) Name() string needs go.Foreign
+extern go testing.F.Name func (c *F) Name() string needs go.Foreign takes c
 
 // ergo:go func (*common).Output() io.Writer
-extern go testing.F.Output func (c *F) Output() io.Writer needs go.Foreign
+extern go testing.F.Output func (c *F) Output() io.Writer needs go.Foreign takes c
 
 // ergo:go func (*common).Setenv(key string, value string)
-extern go testing.F.Setenv func (c *F) Setenv(key string, value string) needs go.Foreign
+extern go testing.F.Setenv func (c *F) Setenv(key string, value string) needs go.Foreign takes c
 
 // ergo:go func (*common).Skip(args ...any)
 // ergo:refused F.Skip: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).SkipNow()
-extern go testing.F.SkipNow func (c *F) SkipNow() needs go.Foreign
+extern go testing.F.SkipNow func (c *F) SkipNow() needs go.Foreign takes c
 
 // ergo:go func (*common).Skipf(format string, args ...any)
 // ergo:refused F.Skipf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*F).Skipped() bool
-extern go testing.F.Skipped func (f *F) Skipped() bool needs go.Foreign
+extern go testing.F.Skipped func (f *F) Skipped() bool needs go.Foreign takes f
 
 // ergo:go func (*common).TempDir() string
-extern go testing.F.TempDir func (c *F) TempDir() string needs go.Foreign
+extern go testing.F.TempDir func (c *F) TempDir() string needs go.Foreign takes c
 
 // ergo:go func Init()
 extern go testing.Init func Init() needs go.Foreign
@@ -285,7 +285,7 @@ extern go testing.InternalTest type InternalTest {
 extern go testing.M type M {}
 
 // ergo:go func (*M).Run() (code int)
-extern go testing.M.Run func (m *M) Run() int needs go.Foreign
+extern go testing.M.Run func (m *M) Run() int needs go.Foreign takes m
 
 // ergo:go func Main(matchString func(pat string, str string) (bool, error), tests []InternalTest, benchmarks []InternalBenchmark, examples []InternalExample)
 extern go testing.Main func Main(matchString escaping func(string, string) bool fails go.Error, tests []InternalTest, benchmarks []InternalBenchmark, examples []InternalExample) needs go.Foreign
@@ -297,7 +297,7 @@ extern go testing.Main func Main(matchString escaping func(string, string) bool 
 extern go testing.PB type PB {}
 
 // ergo:go func (*PB).Next() bool
-extern go testing.PB.Next func (pb *PB) Next() bool needs go.Foreign
+extern go testing.PB.Next func (pb *PB) Next() bool needs go.Foreign takes pb
 
 // ergo:go func RegisterCover(c Cover)
 extern go testing.RegisterCover func RegisterCover(c Cover) needs go.Foreign
@@ -318,22 +318,22 @@ extern go testing.Short func Short() bool needs go.Foreign
 extern go testing.T type T {}
 
 // ergo:go func (*common).ArtifactDir() string
-extern go testing.T.ArtifactDir func (c *T) ArtifactDir() string needs go.Foreign
+extern go testing.T.ArtifactDir func (c *T) ArtifactDir() string needs go.Foreign takes c
 
 // ergo:go func (*common).Attr(key string, value string)
-extern go testing.T.Attr func (c *T) Attr(key string, value string) needs go.Foreign
+extern go testing.T.Attr func (c *T) Attr(key string, value string) needs go.Foreign takes c
 
 // ergo:go func (*T).Chdir(dir string)
-extern go testing.T.Chdir func (t *T) Chdir(dir string) needs go.Foreign
+extern go testing.T.Chdir func (t *T) Chdir(dir string) needs go.Foreign takes t
 
 // ergo:go func (*common).Cleanup(f func())
-extern go testing.T.Cleanup func (c *T) Cleanup(f escaping func()) needs go.Foreign
+extern go testing.T.Cleanup func (c *T) Cleanup(f escaping func()) needs go.Foreign takes c
 
 // ergo:go func (*common).Context() context.Context
-extern go testing.T.Context func (c *T) Context() gocontext.Context needs go.Foreign
+extern go testing.T.Context func (c *T) Context() gocontext.Context needs go.Foreign takes c
 
 // ergo:go func (*T).Deadline() (deadline time.Time, ok bool)
-extern go testing.T.Deadline func (t *T) Deadline() (time.Time, bool) needs go.Foreign
+extern go testing.T.Deadline func (t *T) Deadline() (time.Time, bool) needs go.Foreign takes t
 
 // ergo:go func (*common).Error(args ...any)
 // ergo:refused T.Error: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -342,13 +342,13 @@ extern go testing.T.Deadline func (t *T) Deadline() (time.Time, bool) needs go.F
 // ergo:refused T.Errorf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).Fail()
-extern go testing.T.Fail func (c *T) Fail() needs go.Foreign
+extern go testing.T.Fail func (c *T) Fail() needs go.Foreign takes c
 
 // ergo:go func (*common).FailNow()
-extern go testing.T.FailNow func (c *T) FailNow() needs go.Foreign
+extern go testing.T.FailNow func (c *T) FailNow() needs go.Foreign takes c
 
 // ergo:go func (*common).Failed() bool
-extern go testing.T.Failed func (c *T) Failed() bool needs go.Foreign
+extern go testing.T.Failed func (c *T) Failed() bool needs go.Foreign takes c
 
 // ergo:go func (*common).Fatal(args ...any)
 // ergo:refused T.Fatal: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -357,7 +357,7 @@ extern go testing.T.Failed func (c *T) Failed() bool needs go.Foreign
 // ergo:refused T.Fatalf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).Helper()
-extern go testing.T.Helper func (c *T) Helper() needs go.Foreign
+extern go testing.T.Helper func (c *T) Helper() needs go.Foreign takes c
 
 // ergo:go func (*common).Log(args ...any)
 // ergo:refused T.Log: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -366,52 +366,52 @@ extern go testing.T.Helper func (c *T) Helper() needs go.Foreign
 // ergo:refused T.Logf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).Name() string
-extern go testing.T.Name func (c *T) Name() string needs go.Foreign
+extern go testing.T.Name func (c *T) Name() string needs go.Foreign takes c
 
 // ergo:go func (*common).Output() io.Writer
-extern go testing.T.Output func (c *T) Output() io.Writer needs go.Foreign
+extern go testing.T.Output func (c *T) Output() io.Writer needs go.Foreign takes c
 
 // ergo:go func (*T).Parallel()
-extern go testing.T.Parallel func (t *T) Parallel() needs go.Foreign
+extern go testing.T.Parallel func (t *T) Parallel() needs go.Foreign takes t
 
 // ergo:go func (*T).Run(name string, f func(t *T)) bool
-extern go testing.T.Run func (t *T) Run(name string, f escaping func(*T)) bool needs go.Foreign
+extern go testing.T.Run func (t *T) Run(name string, f escaping func(*T)) bool needs go.Foreign takes t
 
 // ergo:go func (*T).Setenv(key string, value string)
-extern go testing.T.Setenv func (t *T) Setenv(key string, value string) needs go.Foreign
+extern go testing.T.Setenv func (t *T) Setenv(key string, value string) needs go.Foreign takes t
 
 // ergo:go func (*common).Skip(args ...any)
 // ergo:refused T.Skip: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).SkipNow()
-extern go testing.T.SkipNow func (c *T) SkipNow() needs go.Foreign
+extern go testing.T.SkipNow func (c *T) SkipNow() needs go.Foreign takes c
 
 // ergo:go func (*common).Skipf(format string, args ...any)
 // ergo:refused T.Skipf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*common).Skipped() bool
-extern go testing.T.Skipped func (c *T) Skipped() bool needs go.Foreign
+extern go testing.T.Skipped func (c *T) Skipped() bool needs go.Foreign takes c
 
 // ergo:go func (*common).TempDir() string
-extern go testing.T.TempDir func (c *T) TempDir() string needs go.Foreign
+extern go testing.T.TempDir func (c *T) TempDir() string needs go.Foreign takes c
 
 // ergo:go type TB interface
 extern go testing.TB type TB {
-	ArtifactDir() string needs go.Foreign,
-	Attr(key string, value string) needs go.Foreign,
-	Chdir(dir string) needs go.Foreign,
-	Cleanup(p0 escaping func()) needs go.Foreign,
-	Context() gocontext.Context needs go.Foreign,
-	Fail() needs go.Foreign,
-	FailNow() needs go.Foreign,
-	Failed() bool needs go.Foreign,
-	Helper() needs go.Foreign,
-	Name() string needs go.Foreign,
-	Output() io.Writer needs go.Foreign,
-	Setenv(key string, value string) needs go.Foreign,
-	SkipNow() needs go.Foreign,
-	Skipped() bool needs go.Foreign,
-	TempDir() string needs go.Foreign,
+	ArtifactDir() string needs go.Foreign takes,
+	Attr(key string, value string) needs go.Foreign takes,
+	Chdir(dir string) needs go.Foreign takes,
+	Cleanup(p0 escaping func()) needs go.Foreign takes,
+	Context() gocontext.Context needs go.Foreign takes,
+	Fail() needs go.Foreign takes,
+	FailNow() needs go.Foreign takes,
+	Failed() bool needs go.Foreign takes,
+	Helper() needs go.Foreign takes,
+	Name() string needs go.Foreign takes,
+	Output() io.Writer needs go.Foreign takes,
+	Setenv(key string, value string) needs go.Foreign takes,
+	SkipNow() needs go.Foreign takes,
+	Skipped() bool needs go.Foreign takes,
+	TempDir() string needs go.Foreign takes,
 }
 
 // ergo:go func (testing.TB).Error(args ...any)

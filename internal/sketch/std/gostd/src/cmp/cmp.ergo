@@ -2,14 +2,14 @@
 // ergo:bind cmp go1.27 darwin/arm64 linux/amd64
 
 // ergo:go func Compare[T Ordered](x T, y T) int
-extern go cmp.Compare func Compare[T ordered](x T, y T) int needs go.Foreign
+extern go cmp.Compare func Compare[T ordered](x T, y T) int needs go.Foreign takes x, y
 
 // ergo:go func Less[T Ordered](x T, y T) bool
-extern go cmp.Less func Less[T ordered](x T, y T) bool needs go.Foreign
+extern go cmp.Less func Less[T ordered](x T, y T) bool needs go.Foreign takes x, y
 
 // ergo:go func Or[T comparable](vals ...T) T
 // ergo:variadic
-extern go cmp.Or func Or[T comparable](vals []T) T needs go.Foreign
+extern go cmp.Or func Or[T comparable](vals []T) T needs go.Foreign takes vals
 
 // ergo:go type Ordered interface
 // ergo:refused Ordered: a constraint interface is no type of a value

@@ -45,7 +45,7 @@ extern go image/color.CMYKToRGB func CMYKToRGB(c uint8, m uint8, y uint8, k uint
 
 // ergo:go type Color interface
 extern go image/color.Color type Color {
-	RGBA() (uint32, uint32, uint32, uint32) needs go.Foreign,
+	RGBA() (uint32, uint32, uint32, uint32) needs go.Foreign takes,
 }
 
 // ergo:go type Gray struct
@@ -72,7 +72,7 @@ extern go image/color.Gray16.RGBA func (c Gray16) RGBA() (uint32, uint32, uint32
 
 // ergo:go type Model interface
 extern go image/color.Model type Model {
-	Convert(c Color) Color needs go.Foreign,
+	Convert(c Color) Color needs go.Foreign takes c,
 }
 
 // ergo:go func ModelFunc(f func(Color) Color) Model
@@ -125,10 +125,10 @@ extern go image/color.NYCbCrA.RGBA func (c NYCbCrA) RGBA() (uint32, uint32, uint
 extern go image/color.Palette type Palette []Color
 
 // ergo:go func (Palette).Convert(c Color) Color
-extern go image/color.Palette.Convert func (p Palette) Convert(c Color) Color needs go.Foreign
+extern go image/color.Palette.Convert func (p Palette) Convert(c Color) Color needs go.Foreign takes c
 
 // ergo:go func (Palette).Index(c Color) int
-extern go image/color.Palette.Index func (p Palette) Index(c Color) int needs go.Foreign
+extern go image/color.Palette.Index func (p Palette) Index(c Color) int needs go.Foreign takes c
 
 // ergo:go type RGBA struct
 extern go image/color.RGBA type RGBA {

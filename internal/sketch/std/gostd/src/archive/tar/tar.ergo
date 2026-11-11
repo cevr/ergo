@@ -21,17 +21,17 @@ extern go archive/tar.ErrWriteAfterClose let ErrWriteAfterClose go.Error
 extern go archive/tar.ErrWriteTooLong let ErrWriteTooLong go.Error
 
 // ergo:go func FileInfoHeader(fi fs.FileInfo, link string) (*Header, error)
-extern go archive/tar.FileInfoHeader func FileInfoHeader(fi fs.FileInfo, link string) go.Ref[Header] fails go.Error needs go.Foreign
+extern go archive/tar.FileInfoHeader func FileInfoHeader(fi fs.FileInfo, link string) go.Ref[Header] fails go.Error needs go.Foreign takes fi
 
 // ergo:go type FileInfoNames interface
 extern go archive/tar.FileInfoNames type FileInfoNames {
-	Gname() string fails go.Error needs go.Foreign,
-	IsDir() bool needs go.Foreign,
-	ModTime() time.Time needs go.Foreign,
-	Mode() fs.FileMode needs go.Foreign,
-	Name() string needs go.Foreign,
-	Size() int64 needs go.Foreign,
-	Uname() string fails go.Error needs go.Foreign,
+	Gname() string fails go.Error needs go.Foreign takes,
+	IsDir() bool needs go.Foreign takes,
+	ModTime() time.Time needs go.Foreign takes,
+	Mode() fs.FileMode needs go.Foreign takes,
+	Name() string needs go.Foreign takes,
+	Size() int64 needs go.Foreign takes,
+	Uname() string fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go func (fs.FileInfo).Sys() any
@@ -77,22 +77,22 @@ extern go archive/tar.Header type Header {
 }
 
 // ergo:go func (*Header).FileInfo() fs.FileInfo
-extern go archive/tar.Header.FileInfo func (h *Header) FileInfo() fs.FileInfo needs go.Foreign
+extern go archive/tar.Header.FileInfo func (h *Header) FileInfo() fs.FileInfo needs go.Foreign takes h
 
 // ergo:go func NewReader(r io.Reader) *Reader
-extern go archive/tar.NewReader func NewReader(r io.Reader) Option[go.Ref[Reader]] needs go.Foreign
+extern go archive/tar.NewReader func NewReader(r io.Reader) Option[go.Ref[Reader]] needs go.Foreign takes r
 
 // ergo:go func NewWriter(w io.Writer) *Writer
-extern go archive/tar.NewWriter func NewWriter(w io.Writer) Option[go.Ref[Writer]] needs go.Foreign
+extern go archive/tar.NewWriter func NewWriter(w io.Writer) Option[go.Ref[Writer]] needs go.Foreign takes w
 
 // ergo:go type Reader struct
 extern go archive/tar.Reader type Reader {}
 
 // ergo:go func (*Reader).Next() (*Header, error)
-extern go archive/tar.Reader.Next func (tr *Reader) Next() go.Ref[Header] fails go.Error needs go.Foreign
+extern go archive/tar.Reader.Next func (tr *Reader) Next() go.Ref[Header] fails go.Error needs go.Foreign takes tr
 
 // ergo:go func (*Reader).Read(b []byte) (int, error)
-extern go archive/tar.Reader.Read func (tr *Reader) Read(b []byte) int fails go.Error needs go.Foreign
+extern go archive/tar.Reader.Read func (tr *Reader) Read(b []byte) int fails go.Error needs go.Foreign takes tr
 
 // ergo:go const TypeBlock untyped rune
 extern go archive/tar.TypeBlock let TypeBlock rune
@@ -140,16 +140,16 @@ extern go archive/tar.TypeXHeader let TypeXHeader rune
 extern go archive/tar.Writer type Writer {}
 
 // ergo:go func (*Writer).AddFS(fsys fs.FS) error
-extern go archive/tar.Writer.AddFS func (tw *Writer) AddFS(fsys fs.FS) fails go.Error needs go.Foreign
+extern go archive/tar.Writer.AddFS func (tw *Writer) AddFS(fsys fs.FS) fails go.Error needs go.Foreign takes tw, fsys
 
 // ergo:go func (*Writer).Close() error
-extern go archive/tar.Writer.Close func (tw *Writer) Close() fails go.Error needs go.Foreign
+extern go archive/tar.Writer.Close func (tw *Writer) Close() fails go.Error needs go.Foreign takes tw
 
 // ergo:go func (*Writer).Flush() error
-extern go archive/tar.Writer.Flush func (tw *Writer) Flush() fails go.Error needs go.Foreign
+extern go archive/tar.Writer.Flush func (tw *Writer) Flush() fails go.Error needs go.Foreign takes tw
 
 // ergo:go func (*Writer).Write(b []byte) (int, error)
-extern go archive/tar.Writer.Write func (tw *Writer) Write(b []byte) int fails go.Error needs go.Foreign
+extern go archive/tar.Writer.Write func (tw *Writer) Write(b []byte) int fails go.Error needs go.Foreign takes tw
 
 // ergo:go func (*Writer).WriteHeader(hdr *Header) error
-extern go archive/tar.Writer.WriteHeader func (tw *Writer) WriteHeader(hdr *Header) fails go.Error needs go.Foreign
+extern go archive/tar.Writer.WriteHeader func (tw *Writer) WriteHeader(hdr *Header) fails go.Error needs go.Foreign takes tw, hdr

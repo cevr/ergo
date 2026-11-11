@@ -13,7 +13,7 @@ type ArgClause struct {
 	Func  string
 	Param string
 	// Clause is the signature's: "non-escaping" (runs only before the call
-	// returns, one run at a time, never while its caller runs; kept by no
+	// returns, on the calling task, one run at a time; kept by no
 	// one), "escaping" (anything else), "lent" (a resource used only
 	// before the call returns, kept by no one) or "takes" (owned by the
 	// callee).
@@ -58,5 +58,5 @@ var ArgClauses = []ArgClause{
 	{"tasks.Transform", "f", "escaping", "TasksTransform calls f on child tasks, up to limit of them at once (lang audit B, F1, probes race and race2); it waits for every call before it returns, but the calls run at the same time"},
 	{"tasks.Go", "set", "lent", "TasksGo adds a member to set under its lock and keeps set only in that member's task, which set's own Wait, Stop or Close drains (v1.DrainsLends) before set is released"},
 	{"tasks.Go", "body", "escaping", "TasksGo runs body as a member of set, on a task of its own, after Go returned"},
-	{"timeout.After", "f", "non-escaping", "After runs f once on a child task and waits for it to end before it returns, on the deadline too (it stops the child and joins it, rt.AfterSpan), so the run is ordered with the caller before and after and is the only run; it keeps nothing"},
+	{"timeout.After", "f", "escaping", "After runs f on a child task (rt.AfterSpan); joining it orders the runs but does not make a caller-owned resource's task-affine operations safe on that child"},
 }

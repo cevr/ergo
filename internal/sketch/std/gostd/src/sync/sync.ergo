@@ -7,25 +7,25 @@ extern go sync.Cond type Cond {
 }
 
 // ergo:go func (*Cond).Broadcast()
-extern go sync.Cond.Broadcast func (c *Cond) Broadcast() needs go.Foreign
+extern go sync.Cond.Broadcast func (c *Cond) Broadcast() needs go.Foreign takes c
 
 // ergo:go func (*Cond).Signal()
-extern go sync.Cond.Signal func (c *Cond) Signal() needs go.Foreign
+extern go sync.Cond.Signal func (c *Cond) Signal() needs go.Foreign takes c
 
 // ergo:go func (*Cond).Wait()
-extern go sync.Cond.Wait func (c *Cond) Wait() needs go.Foreign
+extern go sync.Cond.Wait func (c *Cond) Wait() needs go.Foreign takes c
 
 // ergo:go type Locker interface
 extern go sync.Locker type Locker {
-	Lock() needs go.Foreign,
-	Unlock() needs go.Foreign,
+	Lock() needs go.Foreign takes,
+	Unlock() needs go.Foreign takes,
 }
 
 // ergo:go type Map struct
 extern go sync.Map type Map {}
 
 // ergo:go func (*Map).Clear()
-extern go sync.Map.Clear func (m *Map) Clear() needs go.Foreign
+extern go sync.Map.Clear func (m *Map) Clear() needs go.Foreign takes m
 
 // ergo:go func (*Map).CompareAndDelete(key any, old any) (deleted bool)
 // ergo:refused Map.CompareAndDelete: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -58,22 +58,22 @@ extern go sync.Map.Clear func (m *Map) Clear() needs go.Foreign
 extern go sync.Mutex type Mutex {}
 
 // ergo:go func (*Mutex).Lock()
-extern go sync.Mutex.Lock func (m *Mutex) Lock() needs go.Foreign
+extern go sync.Mutex.Lock func (m *Mutex) Lock() needs go.Foreign takes m
 
 // ergo:go func (*Mutex).TryLock() bool
-extern go sync.Mutex.TryLock func (m *Mutex) TryLock() bool needs go.Foreign
+extern go sync.Mutex.TryLock func (m *Mutex) TryLock() bool needs go.Foreign takes m
 
 // ergo:go func (*Mutex).Unlock()
-extern go sync.Mutex.Unlock func (m *Mutex) Unlock() needs go.Foreign
+extern go sync.Mutex.Unlock func (m *Mutex) Unlock() needs go.Foreign takes m
 
 // ergo:go func NewCond(l Locker) *Cond
-extern go sync.NewCond func NewCond(l Locker) Option[go.Ref[Cond]] needs go.Foreign
+extern go sync.NewCond func NewCond(l Locker) Option[go.Ref[Cond]] needs go.Foreign takes l
 
 // ergo:go type Once struct
 extern go sync.Once type Once {}
 
 // ergo:go func (*Once).Do(f func())
-extern go sync.Once.Do func (o *Once) Do(f func()) needs go.Foreign
+extern go sync.Once.Do func (o *Once) Do(f func()) needs go.Foreign takes o
 
 // ergo:go func OnceFunc(f func()) func()
 // ergo:refused OnceFunc: result 1: a Go function as a result, a field or an element
@@ -100,37 +100,37 @@ extern go sync.Pool type Pool {}
 extern go sync.RWMutex type RWMutex {}
 
 // ergo:go func (*RWMutex).Lock()
-extern go sync.RWMutex.Lock func (rw *RWMutex) Lock() needs go.Foreign
+extern go sync.RWMutex.Lock func (rw *RWMutex) Lock() needs go.Foreign takes rw
 
 // ergo:go func (*RWMutex).RLock()
-extern go sync.RWMutex.RLock func (rw *RWMutex) RLock() needs go.Foreign
+extern go sync.RWMutex.RLock func (rw *RWMutex) RLock() needs go.Foreign takes rw
 
 // ergo:go func (*RWMutex).RLocker() Locker
-extern go sync.RWMutex.RLocker func (rw *RWMutex) RLocker() Locker needs go.Foreign
+extern go sync.RWMutex.RLocker func (rw *RWMutex) RLocker() Locker needs go.Foreign takes rw
 
 // ergo:go func (*RWMutex).RUnlock()
-extern go sync.RWMutex.RUnlock func (rw *RWMutex) RUnlock() needs go.Foreign
+extern go sync.RWMutex.RUnlock func (rw *RWMutex) RUnlock() needs go.Foreign takes rw
 
 // ergo:go func (*RWMutex).TryLock() bool
-extern go sync.RWMutex.TryLock func (rw *RWMutex) TryLock() bool needs go.Foreign
+extern go sync.RWMutex.TryLock func (rw *RWMutex) TryLock() bool needs go.Foreign takes rw
 
 // ergo:go func (*RWMutex).TryRLock() bool
-extern go sync.RWMutex.TryRLock func (rw *RWMutex) TryRLock() bool needs go.Foreign
+extern go sync.RWMutex.TryRLock func (rw *RWMutex) TryRLock() bool needs go.Foreign takes rw
 
 // ergo:go func (*RWMutex).Unlock()
-extern go sync.RWMutex.Unlock func (rw *RWMutex) Unlock() needs go.Foreign
+extern go sync.RWMutex.Unlock func (rw *RWMutex) Unlock() needs go.Foreign takes rw
 
 // ergo:go type WaitGroup struct
 extern go sync.WaitGroup type WaitGroup {}
 
 // ergo:go func (*WaitGroup).Add(delta int)
-extern go sync.WaitGroup.Add func (wg *WaitGroup) Add(delta int) needs go.Foreign
+extern go sync.WaitGroup.Add func (wg *WaitGroup) Add(delta int) needs go.Foreign takes wg
 
 // ergo:go func (*WaitGroup).Done()
-extern go sync.WaitGroup.Done func (wg *WaitGroup) Done() needs go.Foreign
+extern go sync.WaitGroup.Done func (wg *WaitGroup) Done() needs go.Foreign takes wg
 
 // ergo:go func (*WaitGroup).Go(f func())
-extern go sync.WaitGroup.Go func (wg *WaitGroup) Go(f escaping func()) needs go.Foreign
+extern go sync.WaitGroup.Go func (wg *WaitGroup) Go(f escaping func()) needs go.Foreign takes wg
 
 // ergo:go func (*WaitGroup).Wait()
-extern go sync.WaitGroup.Wait func (wg *WaitGroup) Wait() needs go.Foreign
+extern go sync.WaitGroup.Wait func (wg *WaitGroup) Wait() needs go.Foreign takes wg

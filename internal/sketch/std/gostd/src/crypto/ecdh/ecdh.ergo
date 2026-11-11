@@ -5,16 +5,16 @@ import go io
 
 // ergo:go type Curve interface
 extern go crypto/ecdh.Curve type Curve {
-	GenerateKey(rand io.Reader) go.Ref[PrivateKey] fails go.Error needs go.Foreign,
-	NewPrivateKey(key []byte) go.Ref[PrivateKey] fails go.Error needs go.Foreign,
-	NewPublicKey(key []byte) go.Ref[PublicKey] fails go.Error needs go.Foreign,
+	GenerateKey(rand io.Reader) go.Ref[PrivateKey] fails go.Error needs go.Foreign takes rand,
+	NewPrivateKey(key []byte) go.Ref[PrivateKey] fails go.Error needs go.Foreign takes,
+	NewPublicKey(key []byte) go.Ref[PublicKey] fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type KeyExchanger interface
 extern go crypto/ecdh.KeyExchanger type KeyExchanger {
-	Curve() Curve needs go.Foreign,
-	ECDH(p0 *PublicKey) []byte fails go.Error needs go.Foreign,
-	PublicKey() Option[go.Ref[PublicKey]] needs go.Foreign,
+	Curve() Curve needs go.Foreign takes,
+	ECDH(p0 *PublicKey) []byte fails go.Error needs go.Foreign takes p0,
+	PublicKey() Option[go.Ref[PublicKey]] needs go.Foreign takes,
 }
 
 // ergo:go func P256() Curve
@@ -30,13 +30,13 @@ extern go crypto/ecdh.P521 func P521() Curve needs go.Foreign
 extern go crypto/ecdh.PrivateKey type PrivateKey {}
 
 // ergo:go func (*PrivateKey).Bytes() []byte
-extern go crypto/ecdh.PrivateKey.Bytes func (k *PrivateKey) Bytes() []byte needs go.Foreign
+extern go crypto/ecdh.PrivateKey.Bytes func (k *PrivateKey) Bytes() []byte needs go.Foreign takes k
 
 // ergo:go func (*PrivateKey).Curve() Curve
-extern go crypto/ecdh.PrivateKey.Curve func (k *PrivateKey) Curve() Curve needs go.Foreign
+extern go crypto/ecdh.PrivateKey.Curve func (k *PrivateKey) Curve() Curve needs go.Foreign takes k
 
 // ergo:go func (*PrivateKey).ECDH(remote *PublicKey) ([]byte, error)
-extern go crypto/ecdh.PrivateKey.ECDH func (k *PrivateKey) ECDH(remote *PublicKey) []byte fails go.Error needs go.Foreign
+extern go crypto/ecdh.PrivateKey.ECDH func (k *PrivateKey) ECDH(remote *PublicKey) []byte fails go.Error needs go.Foreign takes k, remote
 
 // ergo:go func (*PrivateKey).Equal(x crypto.PrivateKey) bool
 // ergo:refused PrivateKey.Equal: parameter 1: type PrivateKey is refused: Ergo has no any; an empty interface hides the host type
@@ -45,16 +45,16 @@ extern go crypto/ecdh.PrivateKey.ECDH func (k *PrivateKey) ECDH(remote *PublicKe
 // ergo:refused PrivateKey.Public: result 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*PrivateKey).PublicKey() *PublicKey
-extern go crypto/ecdh.PrivateKey.PublicKey func (k *PrivateKey) PublicKey() Option[go.Ref[PublicKey]] needs go.Foreign
+extern go crypto/ecdh.PrivateKey.PublicKey func (k *PrivateKey) PublicKey() Option[go.Ref[PublicKey]] needs go.Foreign takes k
 
 // ergo:go type PublicKey struct
 extern go crypto/ecdh.PublicKey type PublicKey {}
 
 // ergo:go func (*PublicKey).Bytes() []byte
-extern go crypto/ecdh.PublicKey.Bytes func (k *PublicKey) Bytes() []byte needs go.Foreign
+extern go crypto/ecdh.PublicKey.Bytes func (k *PublicKey) Bytes() []byte needs go.Foreign takes k
 
 // ergo:go func (*PublicKey).Curve() Curve
-extern go crypto/ecdh.PublicKey.Curve func (k *PublicKey) Curve() Curve needs go.Foreign
+extern go crypto/ecdh.PublicKey.Curve func (k *PublicKey) Curve() Curve needs go.Foreign takes k
 
 // ergo:go func (*PublicKey).Equal(x crypto.PublicKey) bool
 // ergo:refused PublicKey.Equal: parameter 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type

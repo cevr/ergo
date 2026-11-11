@@ -92,61 +92,61 @@ extern go go/token.FUNC let FUNC Token
 extern go go/token.File type File {}
 
 // ergo:go func (*File).AddLine(offset int)
-extern go go/token.File.AddLine func (f *File) AddLine(offset int) needs go.Foreign
+extern go go/token.File.AddLine func (f *File) AddLine(offset int) needs go.Foreign takes f
 
 // ergo:go func (*File).AddLineColumnInfo(offset int, filename string, line int, column int)
-extern go go/token.File.AddLineColumnInfo func (f *File) AddLineColumnInfo(offset int, filename string, line int, column int) needs go.Foreign
+extern go go/token.File.AddLineColumnInfo func (f *File) AddLineColumnInfo(offset int, filename string, line int, column int) needs go.Foreign takes f
 
 // ergo:go func (*File).AddLineInfo(offset int, filename string, line int)
-extern go go/token.File.AddLineInfo func (f *File) AddLineInfo(offset int, filename string, line int) needs go.Foreign
+extern go go/token.File.AddLineInfo func (f *File) AddLineInfo(offset int, filename string, line int) needs go.Foreign takes f
 
 // ergo:go func (*File).Base() int
-extern go go/token.File.Base func (f *File) Base() int needs go.Foreign
+extern go go/token.File.Base func (f *File) Base() int needs go.Foreign takes f
 
 // ergo:go func (*File).End() Pos
-extern go go/token.File.End func (f *File) End() Pos needs go.Foreign
+extern go go/token.File.End func (f *File) End() Pos needs go.Foreign takes f
 
 // ergo:go func (*File).Line(p Pos) int
-extern go go/token.File.Line func (f *File) Line(p Pos) int needs go.Foreign
+extern go go/token.File.Line func (f *File) Line(p Pos) int needs go.Foreign takes f
 
 // ergo:go func (*File).LineCount() int
-extern go go/token.File.LineCount func (f *File) LineCount() int needs go.Foreign
+extern go go/token.File.LineCount func (f *File) LineCount() int needs go.Foreign takes f
 
 // ergo:go func (*File).LineStart(line int) Pos
-extern go go/token.File.LineStart func (f *File) LineStart(line int) Pos needs go.Foreign
+extern go go/token.File.LineStart func (f *File) LineStart(line int) Pos needs go.Foreign takes f
 
 // ergo:go func (*File).Lines() []int
-extern go go/token.File.Lines func (f *File) Lines() []int needs go.Foreign
+extern go go/token.File.Lines func (f *File) Lines() []int needs go.Foreign takes f
 
 // ergo:go func (*File).MergeLine(line int)
-extern go go/token.File.MergeLine func (f *File) MergeLine(line int) needs go.Foreign
+extern go go/token.File.MergeLine func (f *File) MergeLine(line int) needs go.Foreign takes f
 
 // ergo:go func (*File).Name() string
-extern go go/token.File.Name func (f *File) Name() string needs go.Foreign
+extern go go/token.File.Name func (f *File) Name() string needs go.Foreign takes f
 
 // ergo:go func (*File).Offset(p Pos) int
-extern go go/token.File.Offset func (f *File) Offset(p Pos) int needs go.Foreign
+extern go go/token.File.Offset func (f *File) Offset(p Pos) int needs go.Foreign takes f
 
 // ergo:go func (*File).Pos(offset int) Pos
-extern go go/token.File.Pos func (f *File) Pos(offset int) Pos needs go.Foreign
+extern go go/token.File.Pos func (f *File) Pos(offset int) Pos needs go.Foreign takes f
 
 // ergo:go func (*File).Position(p Pos) (pos Position)
-extern go go/token.File.Position func (f *File) Position(p Pos) Position needs go.Foreign
+extern go go/token.File.Position func (f *File) Position(p Pos) Position needs go.Foreign takes f
 
 // ergo:go func (*File).PositionFor(p Pos, adjusted bool) (pos Position)
-extern go go/token.File.PositionFor func (f *File) PositionFor(p Pos, adjusted bool) Position needs go.Foreign
+extern go go/token.File.PositionFor func (f *File) PositionFor(p Pos, adjusted bool) Position needs go.Foreign takes f
 
 // ergo:go func (*File).SetLines(lines []int) bool
-extern go go/token.File.SetLines func (f *File) SetLines(lines []int) bool needs go.Foreign
+extern go go/token.File.SetLines func (f *File) SetLines(lines []int) bool needs go.Foreign takes f
 
 // ergo:go func (*File).SetLinesForContent(content []byte)
-extern go go/token.File.SetLinesForContent func (f *File) SetLinesForContent(content []byte) needs go.Foreign
+extern go go/token.File.SetLinesForContent func (f *File) SetLinesForContent(content []byte) needs go.Foreign takes f
 
 // ergo:go func (*File).Size() int
-extern go go/token.File.Size func (f *File) Size() int needs go.Foreign
+extern go go/token.File.Size func (f *File) Size() int needs go.Foreign takes f
 
 // ergo:go func (*File).String() string
-extern go go/token.File.String func (f *File) String() string needs go.Foreign
+extern go go/token.File.String func (f *File) String() string needs go.Foreign takes f
 
 // ergo:go type FileSet struct
 extern go go/token.FileSet type FileSet {}
@@ -155,28 +155,28 @@ extern go go/token.FileSet type FileSet {}
 // ergo:refused FileSet.AddExistingFiles: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*FileSet).AddFile(filename string, base int, size int) *File
-extern go go/token.FileSet.AddFile func (s *FileSet) AddFile(filename string, base int, size int) Option[go.Ref[File]] needs go.Foreign
+extern go go/token.FileSet.AddFile func (s *FileSet) AddFile(filename string, base int, size int) Option[go.Ref[File]] needs go.Foreign takes s
 
 // ergo:go func (*FileSet).Base() int
-extern go go/token.FileSet.Base func (s *FileSet) Base() int needs go.Foreign
+extern go go/token.FileSet.Base func (s *FileSet) Base() int needs go.Foreign takes s
 
 // ergo:go func (*FileSet).File(p Pos) (f *File)
-extern go go/token.FileSet.File func (s *FileSet) File(p Pos) Option[go.Ref[File]] needs go.Foreign
+extern go go/token.FileSet.File func (s *FileSet) File(p Pos) Option[go.Ref[File]] needs go.Foreign takes s
 
 // ergo:go func (*FileSet).Iterate(yield func(*File) bool)
-extern go go/token.FileSet.Iterate func (s *FileSet) Iterate(yield escaping func(*File) bool) needs go.Foreign
+extern go go/token.FileSet.Iterate func (s *FileSet) Iterate(yield escaping func(*File) bool) needs go.Foreign takes s
 
 // ergo:go func (*FileSet).Position(p Pos) (pos Position)
-extern go go/token.FileSet.Position func (s *FileSet) Position(p Pos) Position needs go.Foreign
+extern go go/token.FileSet.Position func (s *FileSet) Position(p Pos) Position needs go.Foreign takes s
 
 // ergo:go func (*FileSet).PositionFor(p Pos, adjusted bool) (pos Position)
-extern go go/token.FileSet.PositionFor func (s *FileSet) PositionFor(p Pos, adjusted bool) Position needs go.Foreign
+extern go go/token.FileSet.PositionFor func (s *FileSet) PositionFor(p Pos, adjusted bool) Position needs go.Foreign takes s
 
 // ergo:go func (*FileSet).Read(decode func(any) error) error
 // ergo:refused FileSet.Read: parameter 1: callback parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*FileSet).RemoveFile(file *File)
-extern go go/token.FileSet.RemoveFile func (s *FileSet) RemoveFile(file *File) needs go.Foreign
+extern go go/token.FileSet.RemoveFile func (s *FileSet) RemoveFile(file *File) needs go.Foreign takes s, file
 
 // ergo:go func (*FileSet).Write(encode func(any) error) error
 // ergo:refused FileSet.Write: parameter 1: callback parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -304,7 +304,7 @@ extern go go/token.Position type Position {
 }
 
 // ergo:go func (*Position).IsValid() bool
-extern go go/token.Position.IsValid func (pos *Position) IsValid() bool needs go.Foreign
+extern go go/token.Position.IsValid func (pos *Position) IsValid() bool needs go.Foreign takes pos
 
 // ergo:go func (Position).String() string
 extern go go/token.Position.String func (pos Position) String() string needs go.Foreign

@@ -5,10 +5,10 @@ import go io
 import go math/big
 
 // ergo:go func Int(rand io.Reader, max *big.Int) (n *big.Int, err error)
-extern go crypto/rand.Int func Int(rand io.Reader, max *big.Int) go.Ref[big.Int] fails go.Error needs go.Foreign
+extern go crypto/rand.Int func Int(rand io.Reader, max *big.Int) go.Ref[big.Int] fails go.Error needs go.Foreign takes rand, max
 
 // ergo:go func Prime(r io.Reader, bits int) (*big.Int, error)
-extern go crypto/rand.Prime func Prime(r io.Reader, bits int) go.Ref[big.Int] fails go.Error needs go.Foreign
+extern go crypto/rand.Prime func Prime(r io.Reader, bits int) go.Ref[big.Int] fails go.Error needs go.Foreign takes r
 
 // ergo:go func Read(b []byte) (n int, err error)
 extern go crypto/rand.Read func Read(b []byte) int fails go.Error needs go.Foreign

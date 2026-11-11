@@ -8,13 +8,13 @@ import go net/rpc
 extern go net/rpc/jsonrpc.Dial func Dial(network string, address string) go.Ref[rpc.Client] fails go.Error needs go.Foreign
 
 // ergo:go func NewClient(conn io.ReadWriteCloser) *rpc.Client
-extern go net/rpc/jsonrpc.NewClient func NewClient(conn io.ReadWriteCloser) Option[go.Ref[rpc.Client]] needs go.Foreign
+extern go net/rpc/jsonrpc.NewClient func NewClient(conn io.ReadWriteCloser) Option[go.Ref[rpc.Client]] needs go.Foreign takes conn
 
 // ergo:go func NewClientCodec(conn io.ReadWriteCloser) rpc.ClientCodec
-extern go net/rpc/jsonrpc.NewClientCodec func NewClientCodec(conn io.ReadWriteCloser) rpc.ClientCodec needs go.Foreign
+extern go net/rpc/jsonrpc.NewClientCodec func NewClientCodec(conn io.ReadWriteCloser) rpc.ClientCodec needs go.Foreign takes conn
 
 // ergo:go func NewServerCodec(conn io.ReadWriteCloser) rpc.ServerCodec
-extern go net/rpc/jsonrpc.NewServerCodec func NewServerCodec(conn io.ReadWriteCloser) rpc.ServerCodec needs go.Foreign
+extern go net/rpc/jsonrpc.NewServerCodec func NewServerCodec(conn io.ReadWriteCloser) rpc.ServerCodec needs go.Foreign takes conn
 
 // ergo:go func ServeConn(conn io.ReadWriteCloser)
-extern go net/rpc/jsonrpc.ServeConn func ServeConn(conn io.ReadWriteCloser) needs go.Foreign
+extern go net/rpc/jsonrpc.ServeConn func ServeConn(conn io.ReadWriteCloser) needs go.Foreign takes conn

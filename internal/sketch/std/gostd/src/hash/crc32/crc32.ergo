@@ -7,7 +7,7 @@ import go hash
 extern go hash/crc32.Castagnoli let Castagnoli int
 
 // ergo:go func Checksum(data []byte, tab *Table) uint32
-extern go hash/crc32.Checksum func Checksum(data []byte, tab *Table) uint32
+extern go hash/crc32.Checksum func Checksum(data []byte, tab *Table) uint32 takes tab
 
 // ergo:go func ChecksumIEEE(data []byte) uint32
 extern go hash/crc32.ChecksumIEEE func ChecksumIEEE(data []byte) uint32
@@ -25,7 +25,7 @@ extern go hash/crc32.Koopman let Koopman int
 extern go hash/crc32.MakeTable func MakeTable(poly uint32) Option[go.Ref[Table]]
 
 // ergo:go func New(tab *Table) hash.Hash32
-extern go hash/crc32.New func New(tab *Table) hash.Hash32
+extern go hash/crc32.New func New(tab *Table) hash.Hash32 takes tab
 
 // ergo:go func NewIEEE() hash.Hash32
 extern go hash/crc32.NewIEEE func NewIEEE() hash.Hash32
@@ -37,4 +37,4 @@ extern go hash/crc32.Size let Size int
 extern go hash/crc32.Table type Table [256]uint32
 
 // ergo:go func Update(crc uint32, tab *Table, p []byte) uint32
-extern go hash/crc32.Update func Update(crc uint32, tab *Table, p []byte) uint32
+extern go hash/crc32.Update func Update(crc uint32, tab *Table, p []byte) uint32 takes tab

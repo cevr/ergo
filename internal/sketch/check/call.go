@@ -268,8 +268,11 @@ func (c *checker) callSig(x *syntax.CallExpr, sig *Signature, fun operand) opera
 		fn, _ = fun.obj.(*Func)
 	}
 	savedHost := c.hostCall
-	// A Go function's arguments are lent for the call (IG9, hostres.go).
+	// A Go interface argument follows its boundary clause (hostclauses.go).
 	c.hostCall = fn != nil && fn.Pkg.Host()
+	if k := c.pkg.Info.Calls[x]; k != nil && k.Kind == CallOp && k.Recv != nil && isHostNamed(c.pkg.Info.Types[k.Recv]) {
+		c.hostCall = true
+	}
 	for i, a := range args.exprs {
 		pt := paramType(sig, i)
 		if !c.argument(a, pt, x) {
@@ -304,18 +307,25 @@ func (c *checker) callSig(x *syntax.CallExpr, sig *Signature, fun operand) opera
 // when the argument is a generic function value that the call refused
 // (argValue).
 func (c *checker) argument(a syntax.Expr, pt Type, call *syntax.CallExpr) bool {
+	// A host argument's boundary conversion is not permission for a
+	// nested literal or value expression to erase resource ownership.
+	host := c.hostCall
+	c.hostCall = false
+	defer func() { c.hostCall = host }()
 	if lit, ok := a.(*syntax.FuncLit); ok {
 		ps, _ := under0(pt).(*Signature)
 		op := c.funcLit(lit, ps, nil)
 		op.expr = lit
 		c.record(lit, op) // Info records the literal's type (D1)
 		if !op.invalid() {
+			c.hostCall = host
 			c.assign(&op, pt, "argument")
 		}
 		return true
 	}
 	op, ok := c.argValue(a, pt, call)
 	if ok {
+		c.hostCall = host
 		c.assign(&op, pt, "argument")
 	}
 	return ok

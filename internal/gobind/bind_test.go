@@ -374,6 +374,20 @@ func holdsShared(t *gt) bool {
 	return false
 }
 
+// resourceParam is the reference model of the conservative lifetime
+// policy. This generated package has no review table and no concrete
+// Close method: interfaces and unconstrained type parameters can receive
+// a resource, and containers preserve that possibility.
+func resourceParam(t *gt) bool {
+	switch t.kind {
+	case "I", "reader", "tparam", "ptrS":
+		return true
+	case "slice", "map", "array":
+		return resourceParam(t.elem)
+	}
+	return false
+}
+
 // refResults maps results: a last error is the row fails go.Error; the one
 // result beside it is at errResult; several are a tuple.
 func refResults(rs []*gt, cb bool) (string, bool, bool) {
@@ -464,7 +478,7 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 	want := map[string]verdict{
 		"S": {ergo: "type S { X int, }"},
 		"D": {ergo: "type D int"},
-		"I": {ergo: "type I { M() int needs go.Foreign, }"},
+		"I": {ergo: "type I { M() int needs go.Foreign takes, }"},
 	}
 	g := &gen{r: r}
 	for i := range 14 {
@@ -520,6 +534,10 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 	refused := false
 	var params []string // Go params
 	var ergoParams []string
+	var takes []string
+	if recv == "s *S" {
+		takes = append(takes, "s")
+	}
 	if recv == "" && r.IntN(4) == 0 {
 		switch r.IntN(7) {
 		case 0:
@@ -531,9 +549,11 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		case 3:
 			goTP, ergoTP, g.tparams = []string{"Q ~[]E", "E any"}, []string{"E"}, []string{"E"}
 			params, ergoParams = append(params, "q Q"), append(ergoParams, "q []E")
+			takes = append(takes, "q")
 		case 4:
 			goTP, ergoTP, g.tparams = []string{"M ~map[K]V", "K comparable", "V any"}, []string{"K comparable", "V"}, []string{"K", "V"}
 			params, ergoParams = append(params, "m M"), append(ergoParams, "m Map[K, V]")
+			takes = append(takes, "m")
 		case 5:
 			goTP, g.tparams, refused = []string{"T interface{ ~int | ~string }"}, []string{"T"}, true
 		case 6:
@@ -546,6 +566,9 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		s, ok := ref(t, param, false)
 		refused = refused || !ok
 		ergoParams = append(ergoParams, fmt.Sprintf("a%d %s", i, s))
+		if resourceParam(t) {
+			takes = append(takes, fmt.Sprintf("a%d", i))
+		}
 	}
 	variadic := r.IntN(4) == 0
 	if variadic {
@@ -554,6 +577,9 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		s, ok := ref(t, inner, false)
 		refused = refused || !ok
 		ergoParams = append(ergoParams, "rest []"+s)
+		if resourceParam(t) {
+			takes = append(takes, "rest")
+		}
 	}
 	results := g.results(0)
 	res, fails, ok := refResults(results, false)
@@ -594,5 +620,8 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		e += " fails go.Error"
 	}
 	e += " needs go.Foreign"
+	if len(takes) > 0 {
+		e += " takes " + strings.Join(takes, ", ")
+	}
 	want[key] = verdict{ergo: squash(e), variadic: variadic}
 }

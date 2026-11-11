@@ -9,16 +9,16 @@ extern go debug/dwarf.AddrType type AddrType {
 }
 
 // ergo:go func (*BasicType).Basic() *BasicType
-extern go debug/dwarf.AddrType.Basic func (b *AddrType) Basic() Option[go.Ref[BasicType]] needs go.Foreign
+extern go debug/dwarf.AddrType.Basic func (b *AddrType) Basic() Option[go.Ref[BasicType]] needs go.Foreign takes b
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.AddrType.Common func (c *AddrType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.AddrType.Common func (c *AddrType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.AddrType.Size func (c *AddrType) Size() int64 needs go.Foreign
+extern go debug/dwarf.AddrType.Size func (c *AddrType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*BasicType).String() string
-extern go debug/dwarf.AddrType.String func (t *AddrType) String() string needs go.Foreign
+extern go debug/dwarf.AddrType.String func (t *AddrType) String() string needs go.Foreign takes t
 
 // ergo:go type ArrayType struct
 extern go debug/dwarf.ArrayType type ArrayType {
@@ -29,13 +29,13 @@ extern go debug/dwarf.ArrayType type ArrayType {
 }
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.ArrayType.Common func (c *ArrayType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.ArrayType.Common func (c *ArrayType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*ArrayType).Size() int64
-extern go debug/dwarf.ArrayType.Size func (t *ArrayType) Size() int64 needs go.Foreign
+extern go debug/dwarf.ArrayType.Size func (t *ArrayType) Size() int64 needs go.Foreign takes t
 
 // ergo:go func (*ArrayType).String() string
-extern go debug/dwarf.ArrayType.String func (t *ArrayType) String() string needs go.Foreign
+extern go debug/dwarf.ArrayType.String func (t *ArrayType) String() string needs go.Foreign takes t
 
 // ergo:go type Attr uint32
 extern go debug/dwarf.Attr type Attr uint32
@@ -418,16 +418,16 @@ extern go debug/dwarf.BasicType type BasicType {
 }
 
 // ergo:go func (*BasicType).Basic() *BasicType
-extern go debug/dwarf.BasicType.Basic func (b *BasicType) Basic() Option[go.Ref[BasicType]] needs go.Foreign
+extern go debug/dwarf.BasicType.Basic func (b *BasicType) Basic() Option[go.Ref[BasicType]] needs go.Foreign takes b
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.BasicType.Common func (c *BasicType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.BasicType.Common func (c *BasicType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.BasicType.Size func (c *BasicType) Size() int64 needs go.Foreign
+extern go debug/dwarf.BasicType.Size func (c *BasicType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*BasicType).String() string
-extern go debug/dwarf.BasicType.String func (t *BasicType) String() string needs go.Foreign
+extern go debug/dwarf.BasicType.String func (t *BasicType) String() string needs go.Foreign takes t
 
 // ergo:go type BoolType struct
 extern go debug/dwarf.BoolType type BoolType {
@@ -435,16 +435,16 @@ extern go debug/dwarf.BoolType type BoolType {
 }
 
 // ergo:go func (*BasicType).Basic() *BasicType
-extern go debug/dwarf.BoolType.Basic func (b *BoolType) Basic() Option[go.Ref[BasicType]] needs go.Foreign
+extern go debug/dwarf.BoolType.Basic func (b *BoolType) Basic() Option[go.Ref[BasicType]] needs go.Foreign takes b
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.BoolType.Common func (c *BoolType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.BoolType.Common func (c *BoolType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.BoolType.Size func (c *BoolType) Size() int64 needs go.Foreign
+extern go debug/dwarf.BoolType.Size func (c *BoolType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*BasicType).String() string
-extern go debug/dwarf.BoolType.String func (t *BoolType) String() string needs go.Foreign
+extern go debug/dwarf.BoolType.String func (t *BoolType) String() string needs go.Foreign takes t
 
 // ergo:go type CharType struct
 extern go debug/dwarf.CharType type CharType {
@@ -452,16 +452,16 @@ extern go debug/dwarf.CharType type CharType {
 }
 
 // ergo:go func (*BasicType).Basic() *BasicType
-extern go debug/dwarf.CharType.Basic func (b *CharType) Basic() Option[go.Ref[BasicType]] needs go.Foreign
+extern go debug/dwarf.CharType.Basic func (b *CharType) Basic() Option[go.Ref[BasicType]] needs go.Foreign takes b
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.CharType.Common func (c *CharType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.CharType.Common func (c *CharType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.CharType.Size func (c *CharType) Size() int64 needs go.Foreign
+extern go debug/dwarf.CharType.Size func (c *CharType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*BasicType).String() string
-extern go debug/dwarf.CharType.String func (t *CharType) String() string needs go.Foreign
+extern go debug/dwarf.CharType.String func (t *CharType) String() string needs go.Foreign takes t
 
 // ergo:go type Class int
 extern go debug/dwarf.Class type Class int
@@ -539,10 +539,10 @@ extern go debug/dwarf.CommonType type CommonType {
 }
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.CommonType.Common func (c *CommonType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.CommonType.Common func (c *CommonType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.CommonType.Size func (c *CommonType) Size() int64 needs go.Foreign
+extern go debug/dwarf.CommonType.Size func (c *CommonType) Size() int64 needs go.Foreign takes c
 
 // ergo:go type ComplexType struct
 extern go debug/dwarf.ComplexType type ComplexType {
@@ -550,37 +550,37 @@ extern go debug/dwarf.ComplexType type ComplexType {
 }
 
 // ergo:go func (*BasicType).Basic() *BasicType
-extern go debug/dwarf.ComplexType.Basic func (b *ComplexType) Basic() Option[go.Ref[BasicType]] needs go.Foreign
+extern go debug/dwarf.ComplexType.Basic func (b *ComplexType) Basic() Option[go.Ref[BasicType]] needs go.Foreign takes b
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.ComplexType.Common func (c *ComplexType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.ComplexType.Common func (c *ComplexType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.ComplexType.Size func (c *ComplexType) Size() int64 needs go.Foreign
+extern go debug/dwarf.ComplexType.Size func (c *ComplexType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*BasicType).String() string
-extern go debug/dwarf.ComplexType.String func (t *ComplexType) String() string needs go.Foreign
+extern go debug/dwarf.ComplexType.String func (t *ComplexType) String() string needs go.Foreign takes t
 
 // ergo:go type Data struct
 extern go debug/dwarf.Data type Data {}
 
 // ergo:go func (*Data).AddSection(name string, contents []byte) error
-extern go debug/dwarf.Data.AddSection func (d *Data) AddSection(name string, contents []byte) fails go.Error needs go.Foreign
+extern go debug/dwarf.Data.AddSection func (d *Data) AddSection(name string, contents []byte) fails go.Error needs go.Foreign takes d
 
 // ergo:go func (*Data).AddTypes(name string, types []byte) error
-extern go debug/dwarf.Data.AddTypes func (d *Data) AddTypes(name string, types []byte) fails go.Error needs go.Foreign
+extern go debug/dwarf.Data.AddTypes func (d *Data) AddTypes(name string, types []byte) fails go.Error needs go.Foreign takes d
 
 // ergo:go func (*Data).LineReader(cu *Entry) (*LineReader, error)
-extern go debug/dwarf.Data.LineReader func (d *Data) LineReader(cu *Entry) go.Ref[LineReader] fails go.Error needs go.Foreign
+extern go debug/dwarf.Data.LineReader func (d *Data) LineReader(cu *Entry) go.Ref[LineReader] fails go.Error needs go.Foreign takes d, cu
 
 // ergo:go func (*Data).Ranges(e *Entry) ([][2]uint64, error)
-extern go debug/dwarf.Data.Ranges func (d *Data) Ranges(e *Entry) [][2]uint64 fails go.Error needs go.Foreign
+extern go debug/dwarf.Data.Ranges func (d *Data) Ranges(e *Entry) [][2]uint64 fails go.Error needs go.Foreign takes d, e
 
 // ergo:go func (*Data).Reader() *Reader
-extern go debug/dwarf.Data.Reader func (d *Data) Reader() Option[go.Ref[Reader]] needs go.Foreign
+extern go debug/dwarf.Data.Reader func (d *Data) Reader() Option[go.Ref[Reader]] needs go.Foreign takes d
 
 // ergo:go func (*Data).Type(off Offset) (Type, error)
-extern go debug/dwarf.Data.Type func (d *Data) Type(off Offset) Type fails go.Error needs go.Foreign
+extern go debug/dwarf.Data.Type func (d *Data) Type(off Offset) Type fails go.Error needs go.Foreign takes d
 
 // ergo:go type DecodeError struct
 extern go debug/dwarf.DecodeError type DecodeError {
@@ -598,13 +598,13 @@ extern go debug/dwarf.DotDotDotType type DotDotDotType {
 }
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.DotDotDotType.Common func (c *DotDotDotType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.DotDotDotType.Common func (c *DotDotDotType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.DotDotDotType.Size func (c *DotDotDotType) Size() int64 needs go.Foreign
+extern go debug/dwarf.DotDotDotType.Size func (c *DotDotDotType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*DotDotDotType).String() string
-extern go debug/dwarf.DotDotDotType.String func (t *DotDotDotType) String() string needs go.Foreign
+extern go debug/dwarf.DotDotDotType.String func (t *DotDotDotType) String() string needs go.Foreign takes t
 
 // ergo:go type Entry struct
 extern go debug/dwarf.Entry type Entry {
@@ -615,7 +615,7 @@ extern go debug/dwarf.Entry type Entry {
 }
 
 // ergo:go func (*Entry).AttrField(a Attr) *Field
-extern go debug/dwarf.Entry.AttrField func (e *Entry) AttrField(a Attr) Option[go.Ref[Field]] needs go.Foreign
+extern go debug/dwarf.Entry.AttrField func (e *Entry) AttrField(a Attr) Option[go.Ref[Field]] needs go.Foreign takes e
 
 // ergo:go func (*Entry).Val(a Attr) any
 // ergo:refused Entry.Val: result 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -630,13 +630,13 @@ extern go debug/dwarf.EnumType type EnumType {
 // ergo:refused EnumType.Val: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.EnumType.Common func (c *EnumType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.EnumType.Common func (c *EnumType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.EnumType.Size func (c *EnumType) Size() int64 needs go.Foreign
+extern go debug/dwarf.EnumType.Size func (c *EnumType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*EnumType).String() string
-extern go debug/dwarf.EnumType.String func (t *EnumType) String() string needs go.Foreign
+extern go debug/dwarf.EnumType.String func (t *EnumType) String() string needs go.Foreign takes t
 
 // ergo:go type EnumValue struct
 extern go debug/dwarf.EnumValue type EnumValue {
@@ -662,16 +662,16 @@ extern go debug/dwarf.FloatType type FloatType {
 }
 
 // ergo:go func (*BasicType).Basic() *BasicType
-extern go debug/dwarf.FloatType.Basic func (b *FloatType) Basic() Option[go.Ref[BasicType]] needs go.Foreign
+extern go debug/dwarf.FloatType.Basic func (b *FloatType) Basic() Option[go.Ref[BasicType]] needs go.Foreign takes b
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.FloatType.Common func (c *FloatType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.FloatType.Common func (c *FloatType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.FloatType.Size func (c *FloatType) Size() int64 needs go.Foreign
+extern go debug/dwarf.FloatType.Size func (c *FloatType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*BasicType).String() string
-extern go debug/dwarf.FloatType.String func (t *FloatType) String() string needs go.Foreign
+extern go debug/dwarf.FloatType.String func (t *FloatType) String() string needs go.Foreign takes t
 
 // ergo:go type FuncType struct
 extern go debug/dwarf.FuncType type FuncType {
@@ -681,13 +681,13 @@ extern go debug/dwarf.FuncType type FuncType {
 }
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.FuncType.Common func (c *FuncType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.FuncType.Common func (c *FuncType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.FuncType.Size func (c *FuncType) Size() int64 needs go.Foreign
+extern go debug/dwarf.FuncType.Size func (c *FuncType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*FuncType).String() string
-extern go debug/dwarf.FuncType.String func (t *FuncType) String() string needs go.Foreign
+extern go debug/dwarf.FuncType.String func (t *FuncType) String() string needs go.Foreign takes t
 
 // ergo:go type IntType struct
 extern go debug/dwarf.IntType type IntType {
@@ -695,16 +695,16 @@ extern go debug/dwarf.IntType type IntType {
 }
 
 // ergo:go func (*BasicType).Basic() *BasicType
-extern go debug/dwarf.IntType.Basic func (b *IntType) Basic() Option[go.Ref[BasicType]] needs go.Foreign
+extern go debug/dwarf.IntType.Basic func (b *IntType) Basic() Option[go.Ref[BasicType]] needs go.Foreign takes b
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.IntType.Common func (c *IntType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.IntType.Common func (c *IntType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.IntType.Size func (c *IntType) Size() int64 needs go.Foreign
+extern go debug/dwarf.IntType.Size func (c *IntType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*BasicType).String() string
-extern go debug/dwarf.IntType.String func (t *IntType) String() string needs go.Foreign
+extern go debug/dwarf.IntType.String func (t *IntType) String() string needs go.Foreign takes t
 
 // ergo:go type LineEntry struct
 extern go debug/dwarf.LineEntry type LineEntry {
@@ -736,19 +736,19 @@ extern go debug/dwarf.LineReader type LineReader {}
 // ergo:refused LineReader.Files: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*LineReader).Next(entry *LineEntry) error
-extern go debug/dwarf.LineReader.Next func (r *LineReader) Next(entry *LineEntry) fails go.Error needs go.Foreign
+extern go debug/dwarf.LineReader.Next func (r *LineReader) Next(entry *LineEntry) fails go.Error needs go.Foreign takes r, entry
 
 // ergo:go func (*LineReader).Reset()
-extern go debug/dwarf.LineReader.Reset func (r *LineReader) Reset() needs go.Foreign
+extern go debug/dwarf.LineReader.Reset func (r *LineReader) Reset() needs go.Foreign takes r
 
 // ergo:go func (*LineReader).Seek(pos LineReaderPos)
-extern go debug/dwarf.LineReader.Seek func (r *LineReader) Seek(pos LineReaderPos) needs go.Foreign
+extern go debug/dwarf.LineReader.Seek func (r *LineReader) Seek(pos LineReaderPos) needs go.Foreign takes r
 
 // ergo:go func (*LineReader).SeekPC(pc uint64, entry *LineEntry) error
-extern go debug/dwarf.LineReader.SeekPC func (r *LineReader) SeekPC(pc uint64, entry *LineEntry) fails go.Error needs go.Foreign
+extern go debug/dwarf.LineReader.SeekPC func (r *LineReader) SeekPC(pc uint64, entry *LineEntry) fails go.Error needs go.Foreign takes r, entry
 
 // ergo:go func (*LineReader).Tell() LineReaderPos
-extern go debug/dwarf.LineReader.Tell func (r *LineReader) Tell() LineReaderPos needs go.Foreign
+extern go debug/dwarf.LineReader.Tell func (r *LineReader) Tell() LineReaderPos needs go.Foreign takes r
 
 // ergo:go type LineReaderPos struct
 extern go debug/dwarf.LineReaderPos type LineReaderPos {}
@@ -766,13 +766,13 @@ extern go debug/dwarf.PtrType type PtrType {
 }
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.PtrType.Common func (c *PtrType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.PtrType.Common func (c *PtrType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.PtrType.Size func (c *PtrType) Size() int64 needs go.Foreign
+extern go debug/dwarf.PtrType.Size func (c *PtrType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*PtrType).String() string
-extern go debug/dwarf.PtrType.String func (t *PtrType) String() string needs go.Foreign
+extern go debug/dwarf.PtrType.String func (t *PtrType) String() string needs go.Foreign takes t
 
 // ergo:go type QualType struct
 extern go debug/dwarf.QualType type QualType {
@@ -782,34 +782,34 @@ extern go debug/dwarf.QualType type QualType {
 }
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.QualType.Common func (c *QualType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.QualType.Common func (c *QualType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*QualType).Size() int64
-extern go debug/dwarf.QualType.Size func (t *QualType) Size() int64 needs go.Foreign
+extern go debug/dwarf.QualType.Size func (t *QualType) Size() int64 needs go.Foreign takes t
 
 // ergo:go func (*QualType).String() string
-extern go debug/dwarf.QualType.String func (t *QualType) String() string needs go.Foreign
+extern go debug/dwarf.QualType.String func (t *QualType) String() string needs go.Foreign takes t
 
 // ergo:go type Reader struct
 extern go debug/dwarf.Reader type Reader {}
 
 // ergo:go func (*Reader).AddressSize() int
-extern go debug/dwarf.Reader.AddressSize func (r *Reader) AddressSize() int needs go.Foreign
+extern go debug/dwarf.Reader.AddressSize func (r *Reader) AddressSize() int needs go.Foreign takes r
 
 // ergo:go func (*Reader).ByteOrder() binary.ByteOrder
-extern go debug/dwarf.Reader.ByteOrder func (r *Reader) ByteOrder() binary.ByteOrder needs go.Foreign
+extern go debug/dwarf.Reader.ByteOrder func (r *Reader) ByteOrder() binary.ByteOrder needs go.Foreign takes r
 
 // ergo:go func (*Reader).Next() (*Entry, error)
-extern go debug/dwarf.Reader.Next func (r *Reader) Next() go.Ref[Entry] fails go.Error needs go.Foreign
+extern go debug/dwarf.Reader.Next func (r *Reader) Next() go.Ref[Entry] fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).Seek(off Offset)
-extern go debug/dwarf.Reader.Seek func (r *Reader) Seek(off Offset) needs go.Foreign
+extern go debug/dwarf.Reader.Seek func (r *Reader) Seek(off Offset) needs go.Foreign takes r
 
 // ergo:go func (*Reader).SeekPC(pc uint64) (*Entry, error)
-extern go debug/dwarf.Reader.SeekPC func (r *Reader) SeekPC(pc uint64) go.Ref[Entry] fails go.Error needs go.Foreign
+extern go debug/dwarf.Reader.SeekPC func (r *Reader) SeekPC(pc uint64) go.Ref[Entry] fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).SkipChildren()
-extern go debug/dwarf.Reader.SkipChildren func (r *Reader) SkipChildren() needs go.Foreign
+extern go debug/dwarf.Reader.SkipChildren func (r *Reader) SkipChildren() needs go.Foreign takes r
 
 // ergo:go type StructField struct
 extern go debug/dwarf.StructField type StructField {
@@ -834,16 +834,16 @@ extern go debug/dwarf.StructType type StructType {
 // ergo:refused StructType.Field: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.StructType.Common func (c *StructType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.StructType.Common func (c *StructType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*StructType).Defn() string
-extern go debug/dwarf.StructType.Defn func (t *StructType) Defn() string needs go.Foreign
+extern go debug/dwarf.StructType.Defn func (t *StructType) Defn() string needs go.Foreign takes t
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.StructType.Size func (c *StructType) Size() int64 needs go.Foreign
+extern go debug/dwarf.StructType.Size func (c *StructType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*StructType).String() string
-extern go debug/dwarf.StructType.String func (t *StructType) String() string needs go.Foreign
+extern go debug/dwarf.StructType.String func (t *StructType) String() string needs go.Foreign takes t
 
 // ergo:go type Tag uint32
 extern go debug/dwarf.Tag type Tag uint32
@@ -1063,9 +1063,9 @@ extern go debug/dwarf.TagWithStmt let TagWithStmt Tag
 
 // ergo:go type Type interface
 extern go debug/dwarf.Type type Type {
-	Common() Option[go.Ref[CommonType]] needs go.Foreign,
-	Size() int64 needs go.Foreign,
-	String() string needs go.Foreign,
+	Common() Option[go.Ref[CommonType]] needs go.Foreign takes,
+	Size() int64 needs go.Foreign takes,
+	String() string needs go.Foreign takes,
 }
 
 // ergo:go type TypedefType struct
@@ -1075,13 +1075,13 @@ extern go debug/dwarf.TypedefType type TypedefType {
 }
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.TypedefType.Common func (c *TypedefType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.TypedefType.Common func (c *TypedefType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*TypedefType).Size() int64
-extern go debug/dwarf.TypedefType.Size func (t *TypedefType) Size() int64 needs go.Foreign
+extern go debug/dwarf.TypedefType.Size func (t *TypedefType) Size() int64 needs go.Foreign takes t
 
 // ergo:go func (*TypedefType).String() string
-extern go debug/dwarf.TypedefType.String func (t *TypedefType) String() string needs go.Foreign
+extern go debug/dwarf.TypedefType.String func (t *TypedefType) String() string needs go.Foreign takes t
 
 // ergo:go type UcharType struct
 extern go debug/dwarf.UcharType type UcharType {
@@ -1089,16 +1089,16 @@ extern go debug/dwarf.UcharType type UcharType {
 }
 
 // ergo:go func (*BasicType).Basic() *BasicType
-extern go debug/dwarf.UcharType.Basic func (b *UcharType) Basic() Option[go.Ref[BasicType]] needs go.Foreign
+extern go debug/dwarf.UcharType.Basic func (b *UcharType) Basic() Option[go.Ref[BasicType]] needs go.Foreign takes b
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.UcharType.Common func (c *UcharType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.UcharType.Common func (c *UcharType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.UcharType.Size func (c *UcharType) Size() int64 needs go.Foreign
+extern go debug/dwarf.UcharType.Size func (c *UcharType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*BasicType).String() string
-extern go debug/dwarf.UcharType.String func (t *UcharType) String() string needs go.Foreign
+extern go debug/dwarf.UcharType.String func (t *UcharType) String() string needs go.Foreign takes t
 
 // ergo:go type UintType struct
 extern go debug/dwarf.UintType type UintType {
@@ -1106,16 +1106,16 @@ extern go debug/dwarf.UintType type UintType {
 }
 
 // ergo:go func (*BasicType).Basic() *BasicType
-extern go debug/dwarf.UintType.Basic func (b *UintType) Basic() Option[go.Ref[BasicType]] needs go.Foreign
+extern go debug/dwarf.UintType.Basic func (b *UintType) Basic() Option[go.Ref[BasicType]] needs go.Foreign takes b
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.UintType.Common func (c *UintType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.UintType.Common func (c *UintType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.UintType.Size func (c *UintType) Size() int64 needs go.Foreign
+extern go debug/dwarf.UintType.Size func (c *UintType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*BasicType).String() string
-extern go debug/dwarf.UintType.String func (t *UintType) String() string needs go.Foreign
+extern go debug/dwarf.UintType.String func (t *UintType) String() string needs go.Foreign takes t
 
 // ergo:go type UnspecifiedType struct
 extern go debug/dwarf.UnspecifiedType type UnspecifiedType {
@@ -1123,16 +1123,16 @@ extern go debug/dwarf.UnspecifiedType type UnspecifiedType {
 }
 
 // ergo:go func (*BasicType).Basic() *BasicType
-extern go debug/dwarf.UnspecifiedType.Basic func (b *UnspecifiedType) Basic() Option[go.Ref[BasicType]] needs go.Foreign
+extern go debug/dwarf.UnspecifiedType.Basic func (b *UnspecifiedType) Basic() Option[go.Ref[BasicType]] needs go.Foreign takes b
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.UnspecifiedType.Common func (c *UnspecifiedType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.UnspecifiedType.Common func (c *UnspecifiedType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.UnspecifiedType.Size func (c *UnspecifiedType) Size() int64 needs go.Foreign
+extern go debug/dwarf.UnspecifiedType.Size func (c *UnspecifiedType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*BasicType).String() string
-extern go debug/dwarf.UnspecifiedType.String func (t *UnspecifiedType) String() string needs go.Foreign
+extern go debug/dwarf.UnspecifiedType.String func (t *UnspecifiedType) String() string needs go.Foreign takes t
 
 // ergo:go type UnsupportedType struct
 extern go debug/dwarf.UnsupportedType type UnsupportedType {
@@ -1141,13 +1141,13 @@ extern go debug/dwarf.UnsupportedType type UnsupportedType {
 }
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.UnsupportedType.Common func (c *UnsupportedType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.UnsupportedType.Common func (c *UnsupportedType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.UnsupportedType.Size func (c *UnsupportedType) Size() int64 needs go.Foreign
+extern go debug/dwarf.UnsupportedType.Size func (c *UnsupportedType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*UnsupportedType).String() string
-extern go debug/dwarf.UnsupportedType.String func (t *UnsupportedType) String() string needs go.Foreign
+extern go debug/dwarf.UnsupportedType.String func (t *UnsupportedType) String() string needs go.Foreign takes t
 
 // ergo:go type VoidType struct
 extern go debug/dwarf.VoidType type VoidType {
@@ -1155,10 +1155,10 @@ extern go debug/dwarf.VoidType type VoidType {
 }
 
 // ergo:go func (*CommonType).Common() *CommonType
-extern go debug/dwarf.VoidType.Common func (c *VoidType) Common() Option[go.Ref[CommonType]] needs go.Foreign
+extern go debug/dwarf.VoidType.Common func (c *VoidType) Common() Option[go.Ref[CommonType]] needs go.Foreign takes c
 
 // ergo:go func (*CommonType).Size() int64
-extern go debug/dwarf.VoidType.Size func (c *VoidType) Size() int64 needs go.Foreign
+extern go debug/dwarf.VoidType.Size func (c *VoidType) Size() int64 needs go.Foreign takes c
 
 // ergo:go func (*VoidType).String() string
-extern go debug/dwarf.VoidType.String func (t *VoidType) String() string needs go.Foreign
+extern go debug/dwarf.VoidType.String func (t *VoidType) String() string needs go.Foreign takes t

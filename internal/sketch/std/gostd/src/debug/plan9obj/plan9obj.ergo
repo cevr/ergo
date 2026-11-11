@@ -15,13 +15,13 @@ extern go debug/plan9obj.File type File {
 // ergo:refused File.Sections: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*File).Close() error
-extern go debug/plan9obj.File.Close func (f *File) Close() fails go.Error needs go.Foreign
+extern go debug/plan9obj.File.Close func (f *File) Close() fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).Section(name string) *Section
-extern go debug/plan9obj.File.Section func (f *File) Section(name string) Option[go.Ref[Section]] needs go.Foreign
+extern go debug/plan9obj.File.Section func (f *File) Section(name string) Option[go.Ref[Section]] needs go.Foreign takes f
 
 // ergo:go func (*File).Symbols() ([]Sym, error)
-extern go debug/plan9obj.File.Symbols func (f *File) Symbols() []Sym fails go.Error needs go.Foreign
+extern go debug/plan9obj.File.Symbols func (f *File) Symbols() []Sym fails go.Error needs go.Foreign takes f
 
 // ergo:go type FileHeader struct
 extern go debug/plan9obj.FileHeader type FileHeader {
@@ -46,7 +46,7 @@ extern go debug/plan9obj.MagicAMD64 let MagicAMD64 int
 extern go debug/plan9obj.MagicARM let MagicARM int
 
 // ergo:go func NewFile(r io.ReaderAt) (*File, error)
-extern go debug/plan9obj.NewFile func NewFile(r io.ReaderAt) go.Ref[File] fails go.Error needs go.Foreign
+extern go debug/plan9obj.NewFile func NewFile(r io.ReaderAt) go.Ref[File] fails go.Error needs go.Foreign takes r
 
 // ergo:go func Open(name string) (*File, error)
 extern go debug/plan9obj.Open func Open(name string) go.Ref[File] fails go.Error needs go.Foreign
@@ -58,13 +58,13 @@ extern go debug/plan9obj.Section type Section {
 }
 
 // ergo:go func (*Section).Data() ([]byte, error)
-extern go debug/plan9obj.Section.Data func (s *Section) Data() []byte fails go.Error needs go.Foreign
+extern go debug/plan9obj.Section.Data func (s *Section) Data() []byte fails go.Error needs go.Foreign takes s
 
 // ergo:go func (*Section).Open() io.ReadSeeker
-extern go debug/plan9obj.Section.Open func (s *Section) Open() io.ReadSeeker needs go.Foreign
+extern go debug/plan9obj.Section.Open func (s *Section) Open() io.ReadSeeker needs go.Foreign takes s
 
 // ergo:go func (io.ReaderAt).ReadAt(p []byte, off int64) (n int, err error)
-extern go debug/plan9obj.Section.ReadAt func (r Section) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign
+extern go debug/plan9obj.Section.ReadAt func (r Section) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign takes r
 
 // ergo:go type SectionHeader struct
 extern go debug/plan9obj.SectionHeader type SectionHeader {

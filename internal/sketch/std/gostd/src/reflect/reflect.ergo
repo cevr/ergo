@@ -3,16 +3,16 @@
 
 // ergo:go func Append(s Value, x ...Value) Value
 // ergo:variadic
-extern go reflect.Append func Append(s Value, x []Value) Value needs go.Foreign
+extern go reflect.Append func Append(s Value, x []Value) Value needs go.Foreign takes s, x
 
 // ergo:go func AppendSlice(s Value, t Value) Value
-extern go reflect.AppendSlice func AppendSlice(s Value, t Value) Value needs go.Foreign
+extern go reflect.AppendSlice func AppendSlice(s Value, t Value) Value needs go.Foreign takes s, t
 
 // ergo:go const Array Kind
 extern go reflect.Array let Array Kind
 
 // ergo:go func ArrayOf(length int, elem Type) Type
-extern go reflect.ArrayOf func ArrayOf(length int, elem Type) Type needs go.Foreign
+extern go reflect.ArrayOf func ArrayOf(length int, elem Type) Type needs go.Foreign takes elem
 
 // ergo:go const Bool Kind
 extern go reflect.Bool let Bool Kind
@@ -30,7 +30,7 @@ extern go reflect.ChanDir type ChanDir int
 extern go reflect.ChanDir.String func (d ChanDir) String() string needs go.Foreign
 
 // ergo:go func ChanOf(dir ChanDir, t Type) Type
-extern go reflect.ChanOf func ChanOf(dir ChanDir, t Type) Type needs go.Foreign
+extern go reflect.ChanOf func ChanOf(dir ChanDir, t Type) Type needs go.Foreign takes t
 
 // ergo:go const Complex128 Kind
 extern go reflect.Complex128 let Complex128 Kind
@@ -39,7 +39,7 @@ extern go reflect.Complex128 let Complex128 Kind
 extern go reflect.Complex64 let Complex64 Kind
 
 // ergo:go func Copy(dst Value, src Value) int
-extern go reflect.Copy func Copy(dst Value, src Value) int needs go.Foreign
+extern go reflect.Copy func Copy(dst Value, src Value) int needs go.Foreign takes dst, src
 
 // ergo:go func DeepEqual(x any, y any) bool
 // ergo:refused DeepEqual: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -54,10 +54,10 @@ extern go reflect.Float64 let Float64 Kind
 extern go reflect.Func let Func Kind
 
 // ergo:go func FuncOf(in []Type, out []Type, variadic bool) Type
-extern go reflect.FuncOf func FuncOf(p0 []Type, out []Type, variadic bool) Type needs go.Foreign
+extern go reflect.FuncOf func FuncOf(p0 []Type, out []Type, variadic bool) Type needs go.Foreign takes p0, out
 
 // ergo:go func Indirect(v Value) Value
-extern go reflect.Indirect func Indirect(v Value) Value needs go.Foreign
+extern go reflect.Indirect func Indirect(v Value) Value needs go.Foreign takes v
 
 // ergo:go const Int Kind
 extern go reflect.Int let Int Kind
@@ -87,19 +87,19 @@ extern go reflect.Kind type Kind uint
 extern go reflect.Kind.String func (k Kind) String() string needs go.Foreign
 
 // ergo:go func MakeChan(typ Type, buffer int) Value
-extern go reflect.MakeChan func MakeChan(typ Type, buffer int) Value needs go.Foreign
+extern go reflect.MakeChan func MakeChan(typ Type, buffer int) Value needs go.Foreign takes typ
 
 // ergo:go func MakeFunc(typ Type, fn func(args []Value) (results []Value)) Value
-extern go reflect.MakeFunc func MakeFunc(typ Type, fn escaping func([]Value) []Value) Value needs go.Foreign
+extern go reflect.MakeFunc func MakeFunc(typ Type, fn escaping func([]Value) []Value) Value needs go.Foreign takes typ
 
 // ergo:go func MakeMap(typ Type) Value
-extern go reflect.MakeMap func MakeMap(typ Type) Value needs go.Foreign
+extern go reflect.MakeMap func MakeMap(typ Type) Value needs go.Foreign takes typ
 
 // ergo:go func MakeMapWithSize(typ Type, n int) Value
-extern go reflect.MakeMapWithSize func MakeMapWithSize(typ Type, n int) Value needs go.Foreign
+extern go reflect.MakeMapWithSize func MakeMapWithSize(typ Type, n int) Value needs go.Foreign takes typ
 
 // ergo:go func MakeSlice(typ Type, len int, cap int) Value
-extern go reflect.MakeSlice func MakeSlice(typ Type, p1 int, cap int) Value needs go.Foreign
+extern go reflect.MakeSlice func MakeSlice(typ Type, p1 int, cap int) Value needs go.Foreign takes typ
 
 // ergo:go const Map Kind
 extern go reflect.Map let Map Kind
@@ -108,19 +108,19 @@ extern go reflect.Map let Map Kind
 extern go reflect.MapIter type MapIter {}
 
 // ergo:go func (*MapIter).Key() Value
-extern go reflect.MapIter.Key func (iter *MapIter) Key() Value needs go.Foreign
+extern go reflect.MapIter.Key func (iter *MapIter) Key() Value needs go.Foreign takes iter
 
 // ergo:go func (*MapIter).Next() bool
-extern go reflect.MapIter.Next func (iter *MapIter) Next() bool needs go.Foreign
+extern go reflect.MapIter.Next func (iter *MapIter) Next() bool needs go.Foreign takes iter
 
 // ergo:go func (*MapIter).Reset(v Value)
-extern go reflect.MapIter.Reset func (iter *MapIter) Reset(v Value) needs go.Foreign
+extern go reflect.MapIter.Reset func (iter *MapIter) Reset(v Value) needs go.Foreign takes iter, v
 
 // ergo:go func (*MapIter).Value() Value
-extern go reflect.MapIter.Value func (iter *MapIter) Value() Value needs go.Foreign
+extern go reflect.MapIter.Value func (iter *MapIter) Value() Value needs go.Foreign takes iter
 
 // ergo:go func MapOf(key Type, elem Type) Type
-extern go reflect.MapOf func MapOf(key Type, elem Type) Type needs go.Foreign
+extern go reflect.MapOf func MapOf(key Type, elem Type) Type needs go.Foreign takes key, elem
 
 // ergo:go type Method struct
 extern go reflect.Method type Method {
@@ -135,7 +135,7 @@ extern go reflect.Method type Method {
 extern go reflect.Method.IsExported func (m Method) IsExported() bool needs go.Foreign
 
 // ergo:go func New(typ Type) Value
-extern go reflect.New func New(typ Type) Value needs go.Foreign
+extern go reflect.New func New(typ Type) Value needs go.Foreign takes typ
 
 // ergo:go func NewAt(typ Type, p unsafe.Pointer) Value
 // ergo:refused NewAt: parameter 2: Ergo has no unsafe; unsafe stays at the FFI edge
@@ -144,13 +144,13 @@ extern go reflect.New func New(typ Type) Value needs go.Foreign
 extern go reflect.Pointer let Pointer Kind
 
 // ergo:go func PointerTo(t Type) Type
-extern go reflect.PointerTo func PointerTo(t Type) Type needs go.Foreign
+extern go reflect.PointerTo func PointerTo(t Type) Type needs go.Foreign takes t
 
 // ergo:go const Ptr Kind
 extern go reflect.Ptr let Ptr Kind
 
 // ergo:go func PtrTo(t Type) Type
-extern go reflect.PtrTo func PtrTo(t Type) Type needs go.Foreign
+extern go reflect.PtrTo func PtrTo(t Type) Type needs go.Foreign takes t
 
 // ergo:go const RecvDir ChanDir
 extern go reflect.RecvDir let RecvDir ChanDir
@@ -196,7 +196,7 @@ extern go reflect.SliceHeader type SliceHeader {
 // ergo:refused SliceHeader.Data: Ergo has no uintptr
 
 // ergo:go func SliceOf(t Type) Type
-extern go reflect.SliceOf func SliceOf(t Type) Type needs go.Foreign
+extern go reflect.SliceOf func SliceOf(t Type) Type needs go.Foreign takes t
 
 // ergo:go const String Kind
 extern go reflect.String let String Kind
@@ -245,51 +245,51 @@ extern go reflect.StructTag.Lookup func (tag StructTag) Lookup(key string) (stri
 
 // ergo:go type Type interface
 extern go reflect.Type type Type {
-	Align() int needs go.Foreign,
-	AssignableTo(u Type) bool needs go.Foreign,
-	Bits() int needs go.Foreign,
-	CanSeq() bool needs go.Foreign,
-	CanSeq2() bool needs go.Foreign,
-	ChanDir() ChanDir needs go.Foreign,
-	Comparable() bool needs go.Foreign,
-	ConvertibleTo(u Type) bool needs go.Foreign,
-	Elem() Type needs go.Foreign,
-	Field(i int) StructField needs go.Foreign,
-	FieldAlign() int needs go.Foreign,
-	FieldByIndex(index []int) StructField needs go.Foreign,
-	FieldByName(name string) (StructField, bool) needs go.Foreign,
-	FieldByNameFunc(p0 escaping func(string) bool) (StructField, bool) needs go.Foreign,
-	Fields() Seq[StructField] needs go.Foreign,
-	Implements(u Type) bool needs go.Foreign,
-	In(i int) Type needs go.Foreign,
-	Ins() Seq[Type] needs go.Foreign,
-	IsVariadic() bool needs go.Foreign,
-	Key() Type needs go.Foreign,
-	Kind() Kind needs go.Foreign,
-	Len() int needs go.Foreign,
-	Method(p0 int) Method needs go.Foreign,
-	MethodByName(p0 string) (Method, bool) needs go.Foreign,
-	Methods() Seq[Method] needs go.Foreign,
-	Name() string needs go.Foreign,
-	NumField() int needs go.Foreign,
-	NumIn() int needs go.Foreign,
-	NumMethod() int needs go.Foreign,
-	NumOut() int needs go.Foreign,
-	Out(i int) Type needs go.Foreign,
-	Outs() Seq[Type] needs go.Foreign,
-	OverflowComplex(x complex128) bool needs go.Foreign,
-	OverflowFloat(x float64) bool needs go.Foreign,
-	OverflowInt(x int64) bool needs go.Foreign,
-	OverflowUint(x uint64) bool needs go.Foreign,
-	PkgPath() string needs go.Foreign,
-	String() string needs go.Foreign,
+	Align() int needs go.Foreign takes,
+	AssignableTo(u Type) bool needs go.Foreign takes u,
+	Bits() int needs go.Foreign takes,
+	CanSeq() bool needs go.Foreign takes,
+	CanSeq2() bool needs go.Foreign takes,
+	ChanDir() ChanDir needs go.Foreign takes,
+	Comparable() bool needs go.Foreign takes,
+	ConvertibleTo(u Type) bool needs go.Foreign takes u,
+	Elem() Type needs go.Foreign takes,
+	Field(i int) StructField needs go.Foreign takes,
+	FieldAlign() int needs go.Foreign takes,
+	FieldByIndex(index []int) StructField needs go.Foreign takes,
+	FieldByName(name string) (StructField, bool) needs go.Foreign takes,
+	FieldByNameFunc(p0 escaping func(string) bool) (StructField, bool) needs go.Foreign takes,
+	Fields() Seq[StructField] needs go.Foreign takes,
+	Implements(u Type) bool needs go.Foreign takes u,
+	In(i int) Type needs go.Foreign takes,
+	Ins() Seq[Type] needs go.Foreign takes,
+	IsVariadic() bool needs go.Foreign takes,
+	Key() Type needs go.Foreign takes,
+	Kind() Kind needs go.Foreign takes,
+	Len() int needs go.Foreign takes,
+	Method(p0 int) Method needs go.Foreign takes,
+	MethodByName(p0 string) (Method, bool) needs go.Foreign takes,
+	Methods() Seq[Method] needs go.Foreign takes,
+	Name() string needs go.Foreign takes,
+	NumField() int needs go.Foreign takes,
+	NumIn() int needs go.Foreign takes,
+	NumMethod() int needs go.Foreign takes,
+	NumOut() int needs go.Foreign takes,
+	Out(i int) Type needs go.Foreign takes,
+	Outs() Seq[Type] needs go.Foreign takes,
+	OverflowComplex(x complex128) bool needs go.Foreign takes,
+	OverflowFloat(x float64) bool needs go.Foreign takes,
+	OverflowInt(x int64) bool needs go.Foreign takes,
+	OverflowUint(x uint64) bool needs go.Foreign takes,
+	PkgPath() string needs go.Foreign takes,
+	String() string needs go.Foreign takes,
 }
 
 // ergo:go func (reflect.Type).Size() uintptr
 // ergo:refused Type.Size: result 1: Ergo has no uintptr
 
 // ergo:go func TypeAssert[T any](v Value) (T, bool)
-extern go reflect.TypeAssert func TypeAssert[T](v Value) (T, bool) needs go.Foreign
+extern go reflect.TypeAssert func TypeAssert[T](v Value) (T, bool) needs go.Foreign takes v
 
 // ergo:go func TypeFor[T any]() Type
 extern go reflect.TypeFor func TypeFor[T]() Type needs go.Foreign
@@ -322,97 +322,97 @@ extern go reflect.UnsafePointer let UnsafePointer Kind
 extern go reflect.Value type Value {}
 
 // ergo:go func (Value).Addr() Value
-extern go reflect.Value.Addr func (v Value) Addr() Value needs go.Foreign
+extern go reflect.Value.Addr func (v Value) Addr() Value needs go.Foreign takes v
 
 // ergo:go func (Value).Bool() bool
-extern go reflect.Value.Bool func (v Value) Bool() bool needs go.Foreign
+extern go reflect.Value.Bool func (v Value) Bool() bool needs go.Foreign takes v
 
 // ergo:go func (Value).Bytes() []byte
-extern go reflect.Value.Bytes func (v Value) Bytes() []byte needs go.Foreign
+extern go reflect.Value.Bytes func (v Value) Bytes() []byte needs go.Foreign takes v
 
 // ergo:go func (Value).Call(in []Value) []Value
-extern go reflect.Value.Call func (v Value) Call(p0 []Value) []Value needs go.Foreign
+extern go reflect.Value.Call func (v Value) Call(p0 []Value) []Value needs go.Foreign takes v, p0
 
 // ergo:go func (Value).CallSlice(in []Value) []Value
-extern go reflect.Value.CallSlice func (v Value) CallSlice(p0 []Value) []Value needs go.Foreign
+extern go reflect.Value.CallSlice func (v Value) CallSlice(p0 []Value) []Value needs go.Foreign takes v, p0
 
 // ergo:go func (Value).CanAddr() bool
-extern go reflect.Value.CanAddr func (v Value) CanAddr() bool needs go.Foreign
+extern go reflect.Value.CanAddr func (v Value) CanAddr() bool needs go.Foreign takes v
 
 // ergo:go func (Value).CanComplex() bool
-extern go reflect.Value.CanComplex func (v Value) CanComplex() bool needs go.Foreign
+extern go reflect.Value.CanComplex func (v Value) CanComplex() bool needs go.Foreign takes v
 
 // ergo:go func (Value).CanConvert(t Type) bool
-extern go reflect.Value.CanConvert func (v Value) CanConvert(t Type) bool needs go.Foreign
+extern go reflect.Value.CanConvert func (v Value) CanConvert(t Type) bool needs go.Foreign takes v, t
 
 // ergo:go func (Value).CanFloat() bool
-extern go reflect.Value.CanFloat func (v Value) CanFloat() bool needs go.Foreign
+extern go reflect.Value.CanFloat func (v Value) CanFloat() bool needs go.Foreign takes v
 
 // ergo:go func (Value).CanInt() bool
-extern go reflect.Value.CanInt func (v Value) CanInt() bool needs go.Foreign
+extern go reflect.Value.CanInt func (v Value) CanInt() bool needs go.Foreign takes v
 
 // ergo:go func (Value).CanInterface() bool
-extern go reflect.Value.CanInterface func (v Value) CanInterface() bool needs go.Foreign
+extern go reflect.Value.CanInterface func (v Value) CanInterface() bool needs go.Foreign takes v
 
 // ergo:go func (Value).CanSet() bool
-extern go reflect.Value.CanSet func (v Value) CanSet() bool needs go.Foreign
+extern go reflect.Value.CanSet func (v Value) CanSet() bool needs go.Foreign takes v
 
 // ergo:go func (Value).CanUint() bool
-extern go reflect.Value.CanUint func (v Value) CanUint() bool needs go.Foreign
+extern go reflect.Value.CanUint func (v Value) CanUint() bool needs go.Foreign takes v
 
 // ergo:go func (Value).Cap() int
-extern go reflect.Value.Cap func (v Value) Cap() int needs go.Foreign
+extern go reflect.Value.Cap func (v Value) Cap() int needs go.Foreign takes v
 
 // ergo:go func (Value).Clear()
-extern go reflect.Value.Clear func (v Value) Clear() needs go.Foreign
+extern go reflect.Value.Clear func (v Value) Clear() needs go.Foreign takes v
 
 // ergo:go func (Value).Close()
-extern go reflect.Value.Close func (v Value) Close() needs go.Foreign
+extern go reflect.Value.Close func (v Value) Close() needs go.Foreign takes v
 
 // ergo:go func (Value).Comparable() (#rv1 bool)
-extern go reflect.Value.Comparable func (v Value) Comparable() bool needs go.Foreign
+extern go reflect.Value.Comparable func (v Value) Comparable() bool needs go.Foreign takes v
 
 // ergo:go func (Value).Complex() complex128
-extern go reflect.Value.Complex func (v Value) Complex() complex128 needs go.Foreign
+extern go reflect.Value.Complex func (v Value) Complex() complex128 needs go.Foreign takes v
 
 // ergo:go func (Value).Convert(t Type) Value
-extern go reflect.Value.Convert func (v Value) Convert(t Type) Value needs go.Foreign
+extern go reflect.Value.Convert func (v Value) Convert(t Type) Value needs go.Foreign takes v, t
 
 // ergo:go func (Value).Elem() Value
-extern go reflect.Value.Elem func (v Value) Elem() Value needs go.Foreign
+extern go reflect.Value.Elem func (v Value) Elem() Value needs go.Foreign takes v
 
 // ergo:go func (Value).Equal(u Value) bool
-extern go reflect.Value.Equal func (v Value) Equal(u Value) bool needs go.Foreign
+extern go reflect.Value.Equal func (v Value) Equal(u Value) bool needs go.Foreign takes v, u
 
 // ergo:go func (Value).Field(i int) Value
-extern go reflect.Value.Field func (v Value) Field(i int) Value needs go.Foreign
+extern go reflect.Value.Field func (v Value) Field(i int) Value needs go.Foreign takes v
 
 // ergo:go func (Value).FieldByIndex(index []int) Value
-extern go reflect.Value.FieldByIndex func (v Value) FieldByIndex(index []int) Value needs go.Foreign
+extern go reflect.Value.FieldByIndex func (v Value) FieldByIndex(index []int) Value needs go.Foreign takes v
 
 // ergo:go func (Value).FieldByIndexErr(index []int) (Value, error)
-extern go reflect.Value.FieldByIndexErr func (v Value) FieldByIndexErr(index []int) Value fails go.Error needs go.Foreign
+extern go reflect.Value.FieldByIndexErr func (v Value) FieldByIndexErr(index []int) Value fails go.Error needs go.Foreign takes v
 
 // ergo:go func (Value).FieldByName(name string) Value
-extern go reflect.Value.FieldByName func (v Value) FieldByName(name string) Value needs go.Foreign
+extern go reflect.Value.FieldByName func (v Value) FieldByName(name string) Value needs go.Foreign takes v
 
 // ergo:go func (Value).FieldByNameFunc(match func(string) bool) Value
-extern go reflect.Value.FieldByNameFunc func (v Value) FieldByNameFunc(p0 escaping func(string) bool) Value needs go.Foreign
+extern go reflect.Value.FieldByNameFunc func (v Value) FieldByNameFunc(p0 escaping func(string) bool) Value needs go.Foreign takes v
 
 // ergo:go func (Value).Fields() iter.Seq2[StructField, Value]
 // ergo:refused Value.Fields: result 1: the generic Go type Seq2 maps to no Ergo type in v1
 
 // ergo:go func (Value).Float() float64
-extern go reflect.Value.Float func (v Value) Float() float64 needs go.Foreign
+extern go reflect.Value.Float func (v Value) Float() float64 needs go.Foreign takes v
 
 // ergo:go func (Value).Grow(n int)
-extern go reflect.Value.Grow func (v Value) Grow(n int) needs go.Foreign
+extern go reflect.Value.Grow func (v Value) Grow(n int) needs go.Foreign takes v
 
 // ergo:go func (Value).Index(i int) Value
-extern go reflect.Value.Index func (v Value) Index(i int) Value needs go.Foreign
+extern go reflect.Value.Index func (v Value) Index(i int) Value needs go.Foreign takes v
 
 // ergo:go func (Value).Int() int64
-extern go reflect.Value.Int func (v Value) Int() int64 needs go.Foreign
+extern go reflect.Value.Int func (v Value) Int() int64 needs go.Foreign takes v
 
 // ergo:go func (Value).Interface() (i any)
 // ergo:refused Value.Interface: result 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -421,136 +421,136 @@ extern go reflect.Value.Int func (v Value) Int() int64 needs go.Foreign
 // ergo:refused Value.InterfaceData: result 1: Ergo has no uintptr
 
 // ergo:go func (Value).IsNil() bool
-extern go reflect.Value.IsNil func (v Value) IsNil() bool needs go.Foreign
+extern go reflect.Value.IsNil func (v Value) IsNil() bool needs go.Foreign takes v
 
 // ergo:go func (Value).IsValid() bool
-extern go reflect.Value.IsValid func (v Value) IsValid() bool needs go.Foreign
+extern go reflect.Value.IsValid func (v Value) IsValid() bool needs go.Foreign takes v
 
 // ergo:go func (Value).IsZero() bool
-extern go reflect.Value.IsZero func (v Value) IsZero() bool needs go.Foreign
+extern go reflect.Value.IsZero func (v Value) IsZero() bool needs go.Foreign takes v
 
 // ergo:go func (Value).Kind() Kind
-extern go reflect.Value.Kind func (v Value) Kind() Kind needs go.Foreign
+extern go reflect.Value.Kind func (v Value) Kind() Kind needs go.Foreign takes v
 
 // ergo:go func (Value).Len() int
-extern go reflect.Value.Len func (v Value) Len() int needs go.Foreign
+extern go reflect.Value.Len func (v Value) Len() int needs go.Foreign takes v
 
 // ergo:go func (Value).MapIndex(key Value) Value
-extern go reflect.Value.MapIndex func (v Value) MapIndex(key Value) Value needs go.Foreign
+extern go reflect.Value.MapIndex func (v Value) MapIndex(key Value) Value needs go.Foreign takes v, key
 
 // ergo:go func (Value).MapKeys() []Value
-extern go reflect.Value.MapKeys func (v Value) MapKeys() []Value needs go.Foreign
+extern go reflect.Value.MapKeys func (v Value) MapKeys() []Value needs go.Foreign takes v
 
 // ergo:go func (Value).MapRange() *MapIter
-extern go reflect.Value.MapRange func (v Value) MapRange() Option[go.Ref[MapIter]] needs go.Foreign
+extern go reflect.Value.MapRange func (v Value) MapRange() Option[go.Ref[MapIter]] needs go.Foreign takes v
 
 // ergo:go func (Value).Method(i int) Value
-extern go reflect.Value.Method func (v Value) Method(i int) Value needs go.Foreign
+extern go reflect.Value.Method func (v Value) Method(i int) Value needs go.Foreign takes v
 
 // ergo:go func (Value).MethodByName(name string) Value
-extern go reflect.Value.MethodByName func (v Value) MethodByName(name string) Value needs go.Foreign
+extern go reflect.Value.MethodByName func (v Value) MethodByName(name string) Value needs go.Foreign takes v
 
 // ergo:go func (Value).Methods() iter.Seq2[Method, Value]
 // ergo:refused Value.Methods: result 1: the generic Go type Seq2 maps to no Ergo type in v1
 
 // ergo:go func (Value).NumField() int
-extern go reflect.Value.NumField func (v Value) NumField() int needs go.Foreign
+extern go reflect.Value.NumField func (v Value) NumField() int needs go.Foreign takes v
 
 // ergo:go func (Value).NumMethod() int
-extern go reflect.Value.NumMethod func (v Value) NumMethod() int needs go.Foreign
+extern go reflect.Value.NumMethod func (v Value) NumMethod() int needs go.Foreign takes v
 
 // ergo:go func (Value).OverflowComplex(x complex128) bool
-extern go reflect.Value.OverflowComplex func (v Value) OverflowComplex(x complex128) bool needs go.Foreign
+extern go reflect.Value.OverflowComplex func (v Value) OverflowComplex(x complex128) bool needs go.Foreign takes v
 
 // ergo:go func (Value).OverflowFloat(x float64) bool
-extern go reflect.Value.OverflowFloat func (v Value) OverflowFloat(x float64) bool needs go.Foreign
+extern go reflect.Value.OverflowFloat func (v Value) OverflowFloat(x float64) bool needs go.Foreign takes v
 
 // ergo:go func (Value).OverflowInt(x int64) bool
-extern go reflect.Value.OverflowInt func (v Value) OverflowInt(x int64) bool needs go.Foreign
+extern go reflect.Value.OverflowInt func (v Value) OverflowInt(x int64) bool needs go.Foreign takes v
 
 // ergo:go func (Value).OverflowUint(x uint64) bool
-extern go reflect.Value.OverflowUint func (v Value) OverflowUint(x uint64) bool needs go.Foreign
+extern go reflect.Value.OverflowUint func (v Value) OverflowUint(x uint64) bool needs go.Foreign takes v
 
 // ergo:go func (Value).Pointer() uintptr
 // ergo:refused Value.Pointer: result 1: Ergo has no uintptr
 
 // ergo:go func (Value).Recv() (x Value, ok bool)
-extern go reflect.Value.Recv func (v Value) Recv() (Value, bool) needs go.Foreign
+extern go reflect.Value.Recv func (v Value) Recv() (Value, bool) needs go.Foreign takes v
 
 // ergo:go func (Value).Send(x Value)
-extern go reflect.Value.Send func (v Value) Send(x Value) needs go.Foreign
+extern go reflect.Value.Send func (v Value) Send(x Value) needs go.Foreign takes v, x
 
 // ergo:go func (Value).Seq() iter.Seq[Value]
-extern go reflect.Value.Seq func (v Value) Seq() Seq[Value] needs go.Foreign
+extern go reflect.Value.Seq func (v Value) Seq() Seq[Value] needs go.Foreign takes v
 
 // ergo:go func (Value).Seq2() iter.Seq2[Value, Value]
 // ergo:refused Value.Seq2: result 1: the generic Go type Seq2 maps to no Ergo type in v1
 
 // ergo:go func (Value).Set(x Value)
-extern go reflect.Value.Set func (v Value) Set(x Value) needs go.Foreign
+extern go reflect.Value.Set func (v Value) Set(x Value) needs go.Foreign takes v, x
 
 // ergo:go func (Value).SetBool(x bool)
-extern go reflect.Value.SetBool func (v Value) SetBool(x bool) needs go.Foreign
+extern go reflect.Value.SetBool func (v Value) SetBool(x bool) needs go.Foreign takes v
 
 // ergo:go func (Value).SetBytes(x []byte)
-extern go reflect.Value.SetBytes func (v Value) SetBytes(x []byte) needs go.Foreign
+extern go reflect.Value.SetBytes func (v Value) SetBytes(x []byte) needs go.Foreign takes v
 
 // ergo:go func (Value).SetCap(n int)
-extern go reflect.Value.SetCap func (v Value) SetCap(n int) needs go.Foreign
+extern go reflect.Value.SetCap func (v Value) SetCap(n int) needs go.Foreign takes v
 
 // ergo:go func (Value).SetComplex(x complex128)
-extern go reflect.Value.SetComplex func (v Value) SetComplex(x complex128) needs go.Foreign
+extern go reflect.Value.SetComplex func (v Value) SetComplex(x complex128) needs go.Foreign takes v
 
 // ergo:go func (Value).SetFloat(x float64)
-extern go reflect.Value.SetFloat func (v Value) SetFloat(x float64) needs go.Foreign
+extern go reflect.Value.SetFloat func (v Value) SetFloat(x float64) needs go.Foreign takes v
 
 // ergo:go func (Value).SetInt(x int64)
-extern go reflect.Value.SetInt func (v Value) SetInt(x int64) needs go.Foreign
+extern go reflect.Value.SetInt func (v Value) SetInt(x int64) needs go.Foreign takes v
 
 // ergo:go func (Value).SetIterKey(iter *MapIter)
-extern go reflect.Value.SetIterKey func (v Value) SetIterKey(iter *MapIter) needs go.Foreign
+extern go reflect.Value.SetIterKey func (v Value) SetIterKey(iter *MapIter) needs go.Foreign takes v, iter
 
 // ergo:go func (Value).SetIterValue(iter *MapIter)
-extern go reflect.Value.SetIterValue func (v Value) SetIterValue(iter *MapIter) needs go.Foreign
+extern go reflect.Value.SetIterValue func (v Value) SetIterValue(iter *MapIter) needs go.Foreign takes v, iter
 
 // ergo:go func (Value).SetLen(n int)
-extern go reflect.Value.SetLen func (v Value) SetLen(n int) needs go.Foreign
+extern go reflect.Value.SetLen func (v Value) SetLen(n int) needs go.Foreign takes v
 
 // ergo:go func (Value).SetMapIndex(key Value, elem Value)
-extern go reflect.Value.SetMapIndex func (v Value) SetMapIndex(key Value, elem Value) needs go.Foreign
+extern go reflect.Value.SetMapIndex func (v Value) SetMapIndex(key Value, elem Value) needs go.Foreign takes v, key, elem
 
 // ergo:go func (Value).SetPointer(x unsafe.Pointer)
 // ergo:refused Value.SetPointer: parameter 1: Ergo has no unsafe; unsafe stays at the FFI edge
 
 // ergo:go func (Value).SetString(x string)
-extern go reflect.Value.SetString func (v Value) SetString(x string) needs go.Foreign
+extern go reflect.Value.SetString func (v Value) SetString(x string) needs go.Foreign takes v
 
 // ergo:go func (Value).SetUint(x uint64)
-extern go reflect.Value.SetUint func (v Value) SetUint(x uint64) needs go.Foreign
+extern go reflect.Value.SetUint func (v Value) SetUint(x uint64) needs go.Foreign takes v
 
 // ergo:go func (Value).SetZero()
-extern go reflect.Value.SetZero func (v Value) SetZero() needs go.Foreign
+extern go reflect.Value.SetZero func (v Value) SetZero() needs go.Foreign takes v
 
 // ergo:go func (Value).Slice(i int, j int) Value
-extern go reflect.Value.Slice func (v Value) Slice(i int, j int) Value needs go.Foreign
+extern go reflect.Value.Slice func (v Value) Slice(i int, j int) Value needs go.Foreign takes v
 
 // ergo:go func (Value).Slice3(i int, j int, k int) Value
-extern go reflect.Value.Slice3 func (v Value) Slice3(i int, j int, k int) Value needs go.Foreign
+extern go reflect.Value.Slice3 func (v Value) Slice3(i int, j int, k int) Value needs go.Foreign takes v
 
 // ergo:go func (Value).String() string
-extern go reflect.Value.String func (v Value) String() string needs go.Foreign
+extern go reflect.Value.String func (v Value) String() string needs go.Foreign takes v
 
 // ergo:go func (Value).TryRecv() (x Value, ok bool)
-extern go reflect.Value.TryRecv func (v Value) TryRecv() (Value, bool) needs go.Foreign
+extern go reflect.Value.TryRecv func (v Value) TryRecv() (Value, bool) needs go.Foreign takes v
 
 // ergo:go func (Value).TrySend(x Value) bool
-extern go reflect.Value.TrySend func (v Value) TrySend(x Value) bool needs go.Foreign
+extern go reflect.Value.TrySend func (v Value) TrySend(x Value) bool needs go.Foreign takes v, x
 
 // ergo:go func (Value).Type() Type
-extern go reflect.Value.Type func (v Value) Type() Type needs go.Foreign
+extern go reflect.Value.Type func (v Value) Type() Type needs go.Foreign takes v
 
 // ergo:go func (Value).Uint() uint64
-extern go reflect.Value.Uint func (v Value) Uint() uint64 needs go.Foreign
+extern go reflect.Value.Uint func (v Value) Uint() uint64 needs go.Foreign takes v
 
 // ergo:go func (Value).UnsafeAddr() uintptr
 // ergo:refused Value.UnsafeAddr: result 1: Ergo has no uintptr
@@ -565,13 +565,13 @@ extern go reflect.ValueError type ValueError {
 }
 
 // ergo:go func (*ValueError).Error() string
-extern go reflect.ValueError.Error func (e *ValueError) Error() string needs go.Foreign
+extern go reflect.ValueError.Error func (e *ValueError) Error() string needs go.Foreign takes e
 
 // ergo:go func ValueOf(i any) Value
 // ergo:refused ValueOf: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func VisibleFields(t Type) []StructField
-extern go reflect.VisibleFields func VisibleFields(t Type) []StructField needs go.Foreign
+extern go reflect.VisibleFields func VisibleFields(t Type) []StructField needs go.Foreign takes t
 
 // ergo:go func Zero(typ Type) Value
-extern go reflect.Zero func Zero(typ Type) Value needs go.Foreign
+extern go reflect.Zero func Zero(typ Type) Value needs go.Foreign takes typ

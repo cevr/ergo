@@ -92,10 +92,10 @@ extern go net/netip.Addr.StringExpanded func (ip Addr) StringExpanded() string n
 extern go net/netip.Addr.Unmap func (ip Addr) Unmap() Addr needs go.Foreign
 
 // ergo:go func (*Addr).UnmarshalBinary(b []byte) error
-extern go net/netip.Addr.UnmarshalBinary func (ip *Addr) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
+extern go net/netip.Addr.UnmarshalBinary func (ip *Addr) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign takes ip
 
 // ergo:go func (*Addr).UnmarshalText(text []byte) error
-extern go net/netip.Addr.UnmarshalText func (ip *Addr) UnmarshalText(text []byte) fails go.Error needs go.Foreign
+extern go net/netip.Addr.UnmarshalText func (ip *Addr) UnmarshalText(text []byte) fails go.Error needs go.Foreign takes ip
 
 // ergo:go func (Addr).WithZone(zone string) Addr
 extern go net/netip.Addr.WithZone func (ip Addr) WithZone(zone string) Addr needs go.Foreign
@@ -146,10 +146,10 @@ extern go net/netip.AddrPort.Port func (p AddrPort) Port() uint16 needs go.Forei
 extern go net/netip.AddrPort.String func (p AddrPort) String() string needs go.Foreign
 
 // ergo:go func (*AddrPort).UnmarshalBinary(b []byte) error
-extern go net/netip.AddrPort.UnmarshalBinary func (p *AddrPort) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
+extern go net/netip.AddrPort.UnmarshalBinary func (p *AddrPort) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign takes p
 
 // ergo:go func (*AddrPort).UnmarshalText(text []byte) error
-extern go net/netip.AddrPort.UnmarshalText func (p *AddrPort) UnmarshalText(text []byte) fails go.Error needs go.Foreign
+extern go net/netip.AddrPort.UnmarshalText func (p *AddrPort) UnmarshalText(text []byte) fails go.Error needs go.Foreign takes p
 
 // ergo:go func AddrPortFrom(ip Addr, port uint16) AddrPort
 extern go net/netip.AddrPortFrom func AddrPortFrom(ip Addr, port uint16) AddrPort needs go.Foreign
@@ -233,10 +233,10 @@ extern go net/netip.Prefix.Overlaps func (p Prefix) Overlaps(o Prefix) bool need
 extern go net/netip.Prefix.String func (p Prefix) String() string needs go.Foreign
 
 // ergo:go func (*Prefix).UnmarshalBinary(b []byte) error
-extern go net/netip.Prefix.UnmarshalBinary func (p *Prefix) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
+extern go net/netip.Prefix.UnmarshalBinary func (p *Prefix) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign takes p
 
 // ergo:go func (*Prefix).UnmarshalText(text []byte) error
-extern go net/netip.Prefix.UnmarshalText func (p *Prefix) UnmarshalText(text []byte) fails go.Error needs go.Foreign
+extern go net/netip.Prefix.UnmarshalText func (p *Prefix) UnmarshalText(text []byte) fails go.Error needs go.Foreign takes p
 
 // ergo:go func PrefixFrom(ip Addr, bits int) Prefix
 extern go net/netip.PrefixFrom func PrefixFrom(ip Addr, bits int) Prefix needs go.Foreign

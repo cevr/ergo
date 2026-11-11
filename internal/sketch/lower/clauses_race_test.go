@@ -452,7 +452,7 @@ func runRaceProgram(t *testing.T, o *lowered) (string, string, int) {
 		t.Fatalf("go build -race: %v\n%s", err, firstLines(string(out), 40))
 	}
 	run := exec.Command(exe)
-	run.Env = append(os.Environ(), "GORACE=halt_on_error=1", "GOMAXPROCS=4")
+	run.Env = append(os.Environ(), "GORACE=halt_on_error=1") // inherit the worker's CPU share
 	var stdout, stderr bytes.Buffer
 	run.Stdout, run.Stderr = &stdout, &stderr
 	err := runProgram(t, run)

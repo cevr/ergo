@@ -81,7 +81,7 @@ extern go net/http/httptrace.GotConnInfo type GotConnInfo {
 
 // ergo:go func WithClientTrace(ctx context.Context, trace *ClientTrace) context.Context
 // ergo:context
-extern go net/http/httptrace.WithClientTrace func WithClientTrace(trace *ClientTrace) gocontext.Context needs go.Foreign
+extern go net/http/httptrace.WithClientTrace func WithClientTrace(trace *ClientTrace) gocontext.Context needs go.Foreign takes trace
 
 // ergo:go type WroteRequestInfo struct
 extern go net/http/httptrace.WroteRequestInfo type WroteRequestInfo {
