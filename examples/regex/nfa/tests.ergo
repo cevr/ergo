@@ -55,6 +55,45 @@ test MatchesWholeTexts {
 	assert !(try matches("[]", ""))
 }
 
+// checked is the checked pattern of text.
+func checked(text string) syntax.Pattern fails syntax.SyntaxError | syntax.CaptureError {
+	try syntax.Check(try syntax.Parse(text))
+}
+
+// events is the events of a parse that matched, or none.
+func events(r Option[[]syntax.Event]) []syntax.Event {
+	match r {
+	case Some[[]syntax.Event] as s:
+		s.Value
+	case None:
+		[]syntax.Event{}
+	}
+}
+
+// The owner's Date: a group that is optional takes no part when its text
+// is missing (None), which is not the empty text (Some of an empty span);
+// a repeated group keeps every occurrence, and Last is only the last.
+// RC1-occurrences-last-only, RC1-last-first and RC1-absent-empty-projection:
+// CapturesAgree compares events, never these projections.
+test DateCaptures {
+	let date = NewCapturing(try checked("(?<Year>\\d{4})-(?<Month>\\d{2})(-(?<Day>\\d{2}))?"))
+	let full = events(date.ParseCaptures("2026-11-09"))
+	assert syntax.Occurrences(full, "Year") == []syntax.Occurrence{syntax.Occurrence{Start: 0, End: 4}}
+	assert syntax.Last(full, "Day") == Some{Value: syntax.Occurrence{Start: 8, End: 10}}
+	let short = date.ParseCaptures("2026-11")
+	assert syntax.ShowParse(short) == "match (Year@0 )Year@4 (Month@5 )Month@7"
+	assert syntax.Last(events(short), "Day") == None
+	assert syntax.ShowParse(date.ParseCaptures("2026-1")) == "none"
+	let empty = NewCapturing(try checked("(?<Lead>a*)b"))
+	assert syntax.Last(events(empty.ParseCaptures("b")), "Lead") == Some{Value: syntax.Occurrence{Start: 0, End: 0}}
+	let list = NewCapturing(try checked("((?<Item>[a-z]+),)+"))
+	let items = events(list.ParseCaptures("ab,c,de,"))
+	assert syntax.Occurrences(items, "Item") == []syntax.Occurrence{syntax.Occurrence{Start: 0, End: 2}, syntax.Occurrence{Start: 3, End: 4}, syntax.Occurrence{Start: 5, End: 7}}
+	assert syntax.Last(items, "Item") == Some{Value: syntax.Occurrence{Start: 5, End: 7}}
+	let found = list.FindCaptures("--x,yz,!")
+	assert syntax.ShowFound(found) == "found 2-7 (Item@2 )Item@3 (Item@4 )Item@6"
+}
+
 // A pattern that makes a backtracker take exponential time runs in
 // linear time here: (a?)^n a^n on a^n, with n = 40.
 test PathologicalPatternIsLinear {

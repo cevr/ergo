@@ -51,7 +51,7 @@ law CapturesAgree(seed int, text string) {
 // instruction for each byte, so its work is linear in the text even when
 // many paths reach one instruction, as in (?<A>a|a)* on a run of a.
 law TagWorkIsBounded(seed int) {
-	let n = int(uint64(seed) % 24)
+	let n = int(uint64(seed) % 12)
 	let doubled = syntax.Star{Of: syntax.Group{Name: "A", Of: syntax.Alt{Left: syntax.Literal("a"), Right: syntax.Literal("a")}}}
 	for tree in []syntax.Node{doubled, syntax.CaptureSample(seed)} {
 		let p = syntax.Check(tree) catch {

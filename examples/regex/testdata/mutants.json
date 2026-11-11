@@ -1,6 +1,114 @@
 {
-  "about": "R1 search and R2 iterator-workspace mutants, owned by nfa. WorkspaceReusesStorage catches per-line storage setup invisible to Boolean agreement; WorkspaceAgreesWithReferences catches stale frontier/marks, frontier overwrite, lost epsilon branches and wrong acceptance mode. Matcher.LinesAgree and LinesStop cover iterator ordering and consumer stop.",
+  "about": "R1 search and R2 iterator-workspace mutants, owned by nfa. WorkspaceReusesStorage catches per-line storage setup invisible to Boolean agreement; WorkspaceAgreesWithReferences catches stale frontier/marks, frontier overwrite, lost epsilon branches and wrong acceptance mode. Matcher.LinesAgree and LinesStop cover iterator ordering and consumer stop. RC1 capture mutants: CapturesAgree compares the tagged machine with the reference for Parse and Find event for event; TagWorkIsBounded counts thread steps; DateCaptures guards the Occurrences/Last projections; ParsesCountsAndGroups and CaptureFailuresAreNamed guard grammar and Check rows no law reads.",
   "mutants": [
+    {
+      "name": "RC1-priority-reversed",
+      "file": "examples/regex/nfa/capture.ergo",
+      "from": "\t\tv.add(p, s.X, h, at)\n\t\tv.add(p, s.Y, h, at)",
+      "to": "\t\tv.add(p, s.Y, h, at)\n\t\tv.add(p, s.X, h, at)",
+      "rule": "Threads keep branch priority: X (left, one more copy) before Y. Boolean matching cannot see the order; CapturesAgree compares the chosen history with the reference.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-history-last-only",
+      "file": "examples/regex/nfa/capture.ergo",
+      "from": "v.add(p, s.Next, syntax.Then{Before: h, Event: e}, at)",
+      "to": "v.add(p, s.Next, if s.Open { syntax.Then{Before: syntax.Start, Event: e} } else { syntax.Then{Before: h, Event: e} }, at)",
+      "rule": "Every occurrence stays in the history (q124); an engine that keeps only what follows the last Open loses earlier occurrences. CapturesAgree.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-find-first-accept",
+      "file": "examples/regex/nfa/capture.ergo",
+      "from": "Threads: r.Threads[:i], At: r.At, Best: Some{Value: best}",
+      "to": "Threads: []Thread{}, At: r.At, Best: Some{Value: best}",
+      "rule": "Find keeps the threads of higher priority than the first accepting one: a greedy repeat must go on. CapturesAgree.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-find-keeps-lower",
+      "file": "examples/regex/nfa/capture.ergo",
+      "from": "Threads: r.Threads[:i], At: r.At, Best: Some{Value: best}",
+      "to": "Threads: r.Threads[i+1:], At: r.At, Best: Some{Value: best}",
+      "rule": "Threads after the first accepting one have lower priority and are dropped, else their later match replaces a better one. CapturesAgree.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-closure-dedup",
+      "file": "examples/regex/nfa/capture.ergo",
+      "from": "\tif v.marked[pc] {\n\t\treturn\n\t}",
+      "to": "\tif v.marked[pc] && pc < 0 {\n\t\treturn\n\t}",
+      "rule": "A second thread at one instruction has the same future and lower priority, so the answer is unchanged and only the work grows; TagWorkIsBounded counts the steps.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-reference-optional-required",
+      "file": "examples/regex/backtrack/capture.ergo",
+      "from": "either(trace(q.Of, text, i, h, k), func() Option[ended] { k(i, h) })",
+      "to": "trace(q.Of, text, i, h, k)",
+      "rule": "An enclosing optional is optional in the reference too; CapturesAgree compares both sides, so a broken reference fails it.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-occurrences-last-only",
+      "file": "examples/regex/syntax/capture.ergo",
+      "from": "out = out.Append(Occurrence{Start: opened[len(opened)-1], End: c.At})",
+      "to": "out = []Occurrence{Occurrence{Start: opened[len(opened)-1], End: c.At}}",
+      "rule": "Occurrences is every occurrence; Last is the separate projection (q124). DateCaptures; CapturesAgree compares events only.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-absent-empty-projection",
+      "file": "examples/regex/syntax/capture.ergo",
+      "from": "\tif len(all) == 0 {\n\t\treturn None\n\t}",
+      "to": "\tif len(all) == 0 {\n\t\treturn Some{Value: Occurrence{Start: 0, End: 0}}\n\t}",
+      "rule": "A group that took no part is None, not an empty occurrence. DateCaptures.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-copies-refused",
+      "file": "examples/regex/syntax/capture.ergo",
+      "from": "groups[j].Name == groups[i].Name && groups[j] != groups[i]",
+      "to": "groups[j].Name == groups[i].Name",
+      "rule": "Copies of one group that a counted repeat wrote out are one capture; CaptureSample makes such copies and CapturesAgree needs Check to accept them.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-check-admits-nullable",
+      "file": "examples/regex/syntax/capture.ergo",
+      "from": "\tif Nullable(of) {",
+      "to": "\tif false {",
+      "rule": "Check refuses a repeat whose operand matches the empty text, as RC3 does. CaptureFailuresAreNamed (diagnostic row).",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-digit-literal",
+      "file": "examples/regex/syntax/parse.ergo",
+      "from": "\t\t\treturn digits",
+      "to": "\t\t\treturn Lit{C: 'd'}",
+      "rule": "\\d is the ASCII digits (q125). Print never writes \\d, so RoundTrip cannot see it; ParsesCountsAndGroups.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-count-extra-copy",
+      "file": "examples/regex/syntax/node.ergo",
+      "from": "\tfor _ in 0..min {",
+      "to": "\tfor _ in 0..min+1 {",
+      "rule": "Counted writes exactly min mandatory copies. Print writes the copies out, so RoundTrip cannot see a wrong count; ParsesCountsAndGroups.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
     {
       "name": "R2-whole-iterator-value",
       "file": "examples/regex/nfa/workspace.ergo",
