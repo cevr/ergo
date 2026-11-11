@@ -271,6 +271,7 @@ func (g *valueGen) refStmt() {
 }
 
 const valuePrelude = `import maps
+import slices
 import sync
 import task
 
@@ -299,6 +300,25 @@ func putS(s []int, v int) int {
 		c[0] = v
 	}
 	ds(c)
+}
+
+// viewS writes through std's Slice of s, whose Go body returns a part of
+// s, so the bind copies it (gobody.go: only a body that makes its result
+// gives a fresh one).
+func viewS(s []int, v int) int {
+	let mut c = slices.Slice(s, 0, 1)
+	c[0] = v
+	ds(c)
+}
+
+// roomS builds its result in the slice WithCapacity's Go body makes,
+// which the bind takes with no copy.
+func roomS(s []int, v int) []int {
+	let mut c = slices.WithCapacity[int](len(s) + 1)
+	for x in s {
+		c = c.Append(x)
+	}
+	c.Append(v)
 }
 
 func idM(m Map[int, int]) Map[int, int] { m }
@@ -653,6 +673,11 @@ func (g *valueGen) stmt() {
 			}
 			g.line(fmt.Sprintf("Console.Println(\"\\(putS(%s, %d))\")", b.name, v))
 			fmt.Fprintf(&g.want, "%d\n", dsModel(c))
+			// A std result that shares its argument, and one its Go
+			// body makes (gobody.go); no new draw, so the seeds keep
+			// their paths.
+			g.line(fmt.Sprintf("Console.Println(\"\\(viewS(%s, %d)) \\(ds(roomS(%s, %d)))\")", b.name, v, b.name, v))
+			fmt.Fprintf(&g.want, "%d %d\n", dsModel([]int{v}), dsModel(append(slices.Clone(b.val.s), v)))
 			g.reached["argument"] = true
 		}
 	case 6:
@@ -930,12 +955,14 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 // its site with its Option, no comma-ok variant (update.go).
 func lowerValueMode(t *testing.T, name, src string, rule bool, mode ...string) *lowered {
 	t.Helper()
-	saved, savedUpdate := valueLowering, updateLowering
-	defer func() { valueLowering, updateLowering = saved, savedUpdate }()
-	valueLowering, updateLowering = "", ""
+	saved, savedUpdate, savedFresh := valueLowering, updateLowering, freshLowering
+	defer func() { valueLowering, updateLowering, freshLowering = saved, savedUpdate, savedFresh }()
+	valueLowering, updateLowering, freshLowering = "", "", ""
 	switch {
 	case !rule:
 		valueLowering = "alias"
+	case len(mode) > 0 && mode[0] == "fresh-name":
+		freshLowering = "name"
 	case len(mode) > 0 && mode[0] == "update-call":
 		updateLowering = "call"
 	case len(mode) > 0 && mode[0] == "update-option":
@@ -981,6 +1008,9 @@ func TestValueRuleAgrees(t *testing.T) {
 		// callback's comma-ok variant.
 		programs = append(programs, lowerValueMode(t, name+"option", src, true, "update-option"))
 		runs = append(runs, run{seed, src, want, name + "option"})
+		// WithCapacity fresh by its name (OPT6's reference, gobody.go).
+		programs = append(programs, lowerValueMode(t, name+"freshname", src, true, "fresh-name"))
+		runs = append(runs, run{seed, src, want, name + "freshname"})
 		usrc, uwant := valueProgram(seed, false, reached)
 		for _, rule := range []bool{true, false} {
 			name := fmt.Sprintf("vr%dunshared%v", seed, rule)

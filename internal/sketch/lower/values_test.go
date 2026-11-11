@@ -16,6 +16,7 @@ import (
 // benchmark (values.go).
 
 const valueElideSource = `import maps
+import slices
 
 type Box { M Map[int, int], S []int }
 
@@ -48,6 +49,14 @@ func build(n int) Map[int, int] {
 		m[i] = i
 	}
 	m
+}
+
+func roomy(n int) []int {
+	let mut out = slices.WithCapacity[int](n)
+	for i in 0..n {
+		out = out.Append(i)
+	}
+	out
 }
 
 func collect(n int) []int {
@@ -101,7 +110,7 @@ func kept(xs []int) int {
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4)))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3)))")
 }
 `
 
@@ -125,7 +134,7 @@ func main() needs Console {
 func TestValueRuleElides(t *testing.T) {
 	p := lowerValueMode(t, "velide", valueElideSource, true)
 	code := p.mainGo()
-	for _, fn := range []string{"build", "collect", "drop", "puts", "boxed", "moved", "count", "putOwned"} {
+	for _, fn := range []string{"build", "collect", "roomy", "drop", "puts", "boxed", "moved", "count", "putOwned"} {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") || strings.Contains(body, "Clip(") {
 			t.Errorf("%s copies a fresh value:\n%s", fn, body)
 		}

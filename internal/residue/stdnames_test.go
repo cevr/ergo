@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,14 +167,15 @@ func nameSel(x ast.Expr) bool {
 }
 
 // stdLit reports a string literal that may name a std declaration: any
-// but the blank name and the program entry.
+// but the blank name, the program entry and a name Go predeclares (make,
+// nil: the host language's own, which a fact about a Go body reads).
 func stdLit(x ast.Expr) bool {
 	b, ok := x.(*ast.BasicLit)
 	if !ok || b.Kind != token.STRING {
 		return false
 	}
 	s, err := strconv.Unquote(b.Value)
-	return err == nil && s != "_" && s != "main"
+	return err == nil && s != "_" && s != "main" && types.Universe.Lookup(s) == nil
 }
 
 // stdNamesBaseline is testdata/std-names.txt as the rule landed (OPT4a):

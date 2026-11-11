@@ -2096,6 +2096,28 @@
       ]
     },
     {
+      "name": "made-any",
+      "origin": "wf10 OPT6",
+      "file": "internal/sketch/lower/gobody.go",
+      "from": "\t\treturn ok && id.Name == \"make\"\n\t}\n\treturn false",
+      "to": "\t\treturn ok && id.Name == \"make\"\n\t}\n\treturn true",
+      "rule": "types.md Bindings, Result aliasing: only a Go body that returns make(…) or nil makes its result; slices.Slice returns a part of its argument, which a bind copies.",
+      "killers": [
+        "lower:TestValueRuleAgrees"
+      ]
+    },
+    {
+      "name": "made-never",
+      "origin": "wf10 OPT6",
+      "file": "internal/sketch/lower/gobody.go",
+      "from": "\treturn path == runtimeImport && goBodyMakes(name)",
+      "to": "\t_, _ = path, name\n\treturn false",
+      "rule": "types.md Bindings, Result aliasing: a std extern whose Go body makes its result (slices.WithCapacity) gives a fresh value, which a let mut takes with no copy.",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
       "name": "union-error-flat",
       "origin": "wf10 OPT3",
       "file": "internal/sketch/lower/flatunion.go",
