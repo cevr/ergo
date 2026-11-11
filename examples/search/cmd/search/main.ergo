@@ -23,6 +23,10 @@ func main() fails os.Exit needs Console | Ambient {
 		}
 	}
 	if status != 0 {
-		return os.Exit{Code: status, Message: "search: the script did not run"}
+		let code = os.ParseCode(status) catch {
+		case Unsatisfied:
+			Unreachable("search script returned an invalid failure status")
+		}
+		return os.Exit{Code: code, Message: "search: the script did not run"}
 	}
 }

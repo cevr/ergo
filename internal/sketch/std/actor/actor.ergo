@@ -25,6 +25,7 @@ type Stopped {}
 // step error row F (StartMachine gives D = Decision[S, O]). Its values are
 // copies of one handle: any task may Send, Ask, read State and Stop.
 type Actor[S, E, D, F] {
+	runtimeOnly(),
 	// Send admits e into the inbox, waiting while it is full, and returns
 	// once e is queued, before it is stepped. A sender's signals are
 	// stepped in the order it sent them. It fails Stopped when the actor
@@ -312,6 +313,7 @@ func Child[S, E, O, F, R, W, P](send func(e P), m Machine[S, E, O, F, R, W], cap
 // unless the work waited first.
 // law-exempt: a host's answers depend on its owner entry, which only an actor's runner opens, fills and ends, and a law has no running entry; the runner's property TestActorHostAgreesWithModel holds its rules against the model models/host.
 type Host[A] {
+	runtimeOnly(),
 	// Get is the child once the entry's work filled the host, waiting
 	// while it is empty; it fails Stopped once the entry ended, also after
 	// the fill, so a host never gives a child of another entry.

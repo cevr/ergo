@@ -13,6 +13,7 @@
 // it at once.
 // law-exempt: an Op is only a field of a Script, so the Script laws (ScriptRecordsEachCall, ScriptAnswersByTheLastAnswer) state its contract through the operations it answers.
 type Op[A, F] {
+	runtimeOnly(),
 	// Answer makes f the operation's answer from now on. A call of an
 	// operation with no answer is a defect that names the Script and the
 	// operation, except an operation with no result and no failure, which

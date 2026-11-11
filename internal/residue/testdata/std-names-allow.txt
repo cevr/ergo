@@ -1,0 +1,23 @@
+# path<TAB>comparison<TAB>remaining semantic rule
+internal/sketch/check/authority.go	n.origin().Obj.Pkg.Path == std.PreludePath	Ambient host authority; follow-up declared contracts
+internal/sketch/check/authority.go	obj.Pkg.Path == std.PreludePath	Task ownership; predeclared language type
+internal/sketch/check/builders.go	q.Path == tn.Pkg.Path+"test"	test-package builder lookup, not a std identity
+internal/sketch/check/builders.go	pn.Pkg.Path == base	test-package builder lookup, not a std identity
+internal/sketch/check/call.go	c.pkg.Path == std.PreludePath	prelude generic collection functions; follow-up declared contracts
+internal/sketch/check/call.go	f.Pkg.Path == std.PreludePath	Unreachable; predeclared language function
+internal/sketch/check/contextvalues.go	n.Obj.Pkg.Path != std.PreludePath	Context predeclared row value
+internal/sketch/check/decl.go	c.pkg.Path == std.PreludePath	prelude ownership declarations
+internal/sketch/check/durable.go	f.Pkg.Path == childPath	durable actor contracts; follow-up
+internal/sketch/check/durable.go	f.Pkg.Path == "journal"	durable journal contracts; follow-up
+internal/sketch/check/durable.go	k.Func.Pkg.Path != "machines"	durable machine contracts; follow-up
+internal/sketch/check/embed.go	n.Obj.Pkg.Path == "embed"	embedded assets; predeclared language operation
+internal/sketch/check/extern.go	f.Pkg.Path == std.PreludePath	predeclared function footprint
+internal/sketch/check/footprint.go	f.Pkg.Path != std.PreludePath	predeclared collection functions; follow-up declared contracts
+internal/sketch/check/laws.go	pkg.Path != std.PreludePath	prelude provider selection
+internal/sketch/check/loops.go	tn.Pkg.Path != std.PreludePath	Range predeclared iteration form
+internal/sketch/check/match.go	o.Pkg.Path != std.PreludePath	Decision predeclared machine result
+internal/sketch/check/ownership.go	o.Pkg.Path == "queue"	owned queue elements; follow-up declared contracts
+internal/sketch/check/script.go	n.Obj.Pkg.Path != "testing"	derived Script; follow-up declared contracts
+internal/sketch/check/withown.go	call.Func.Pkg.Path == "scope"	OnExit ownership; follow-up declared contracts
+internal/sketch/check/work.go	tn.Pkg.Path == workPath	work literal shape; STD1b removes this
+internal/sketch/check/work.go	f.Pkg.Path == childPath	child work scope; STD1b or follow-up declared contracts

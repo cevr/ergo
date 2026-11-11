@@ -23,6 +23,7 @@ import (
 // A member law is restated for each kind of provider the std makes: a
 // queue of capacity 0 and one with room, a waiting task.
 const stdLawsProbe = `import queue
+import os
 import atomic
 import tasks
 import embed
@@ -34,6 +35,12 @@ import scope
 import trace
 import log
 import testing
+
+test OsCodeWhere(v os.Code) {
+	let it = int(v)
+	assert 1 <= it && it <= 125
+	assert try os.ParseCode(it) == v
+}
 
 type releaseCount { Seen queue.Queue[int] }
 
@@ -377,6 +384,7 @@ func stdLawsTestName(pkg, law string) string {
 // holds it equal to the ledger, so a law changed in source fails here
 // until its restatement in the probe is changed with it.
 var stdLawsStatements = map[string]string{
+	"os CodeWhere":                         `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }`,
 	"atomic InitialValues":                 `InitialValues(value int64, flag bool) { NewInt64(value).Load() == value && NewBool(flag).Load() == flag }`,
 	"atomic Int64.StoresAndAdds":           `StoresAndAdds(a int64, b int64) { Store(a) let sum = Add(b) let seen = Load() let previous = Swap(a) let changed = CompareAndSwap(a, b) let unchanged = !CompareAndSwap(b+1, a) sum == a+b && seen == sum && previous == sum && changed && unchanged && Load() == b }`,
 	"atomic Bool.Exchanges":                `Exchanges(a bool, b bool) { Store(a) let previous = Swap(b) let seen = Load() let changed = CompareAndSwap(b, a) let unchanged = !CompareAndSwap(!a, b) previous == a && seen == b && changed && unchanged && Load() == a }`,

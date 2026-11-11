@@ -202,6 +202,7 @@ type Policy = FailFast | LogFailures | Restart
 // it, a return moves the Set to the caller, and no block or other task
 // may hold it. Only the task that made it calls its operations.
 type Set[E] {
+	runtimeOnly(),
 	// Wait waits until no member runs. It fails with the failure that
 	// ended the Set, at this Wait and at each later one, and raises the
 	// defects of members that no Wait or Stop raised yet. A stop of the

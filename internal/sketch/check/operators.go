@@ -316,14 +316,10 @@ func (c *checker) matchTypes(x *syntax.BinaryExpr, l, r *operand) bool {
 		// no meaning to lower (AGENTS.md: never an unchecked passthrough).
 		// One operand goes into the other's type by assignability, which
 		// records its conversion at that operand (Info.Implicit).
-		var sealed assignment
 		for _, p := range [2][2]*operand{{l, r}, {r, l}} {
 			from, to := p[0], p[1]
 			a, _ := c.assignability(from.typ, to.typ)
 			if !a.ok() {
-				if a.sealed != nil {
-					sealed = a
-				}
 				continue
 			}
 			if a.conv.Kind == ConvOperations && len(asInterface(to.typ).Methods) > 0 {
@@ -337,11 +333,6 @@ func (c *checker) matchTypes(x *syntax.BinaryExpr, l, r *operand) bool {
 			c.implicit(from.expr, a)
 			from.typ = to.typ
 			return true
-		}
-		// Neither operand goes into the other's type, and one would only
-		// by a conversion into a sealed std protocol (C28).
-		if c.sealedRefused(x, sealed) {
-			return false
 		}
 	}
 	if (x.Op == syntax.MUL || x.Op == syntax.QUO) && isDuration(l.typ) && isInteger(r.typ) {
@@ -506,11 +497,6 @@ func (c *checker) conversion(x *syntax.CallExpr, t Type) operand {
 		return bad(x)
 	}
 	if !c.convertible(op.typ, t) && !constNumeric(op, t) {
-		// A written conversion into a sealed std protocol is that
-		// protocol's refusal (C28), not the assignment form to write.
-		if a, _ := c.assignability(op.typ, t); c.sealedRefused(x.Args[0], a) {
-			return bad(x)
-		}
 		c.errorf(x, CodeType, "%s", c.conversionRefusal(x.Args[0], op.typ, t))
 		return bad(x)
 	}

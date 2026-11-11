@@ -10,6 +10,7 @@ import task
 // Ref is one value of T that tasks share. Each operation is atomic: no
 // other operation of the Ref runs inside it.
 type Ref[T] {
+	runtimeOnly(),
 	// Get is the value the Ref holds.
 	Get() T,
 	// Set stores v.
