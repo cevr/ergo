@@ -2,20 +2,18 @@
 @0 typing "p"
 @100 typing "pe"
 @350 searching "pe"
-@350 showing "pe": Grape.md, Pear.md, Peach.md
-@350 ! shown "pe": 3 hits
+@450 showing "pe": Grape.md, Pear.md, Peach.md
+@450 ! shown "pe": 3 hits
 @1000 showing "pe": Grape.md, Pear.md, Peach.md
 @1000 ! pinned Pear.md
 @1200 ? no hit 9: 3 shown
 @1300 idle
 @1400 typing "a"
 @1650 searching "a"
-@1650 showing "a": Apple.md, Apricot-jam.md, Banana.md, Bread.md, Cabbage.md, Carrot.md, Grape.md, Pear.md, Peach.md, Pineapple.md
-@1650 ! shown "a": 10 hits
 @1700 typing "ap"
 @1950 searching "ap"
-@1950 showing "ap": Apple.md, Apricot-jam.md, Grape.md, Pineapple.md
-@1950 ! shown "ap": 4 hits
+@2050 showing "ap": Apple.md, Apricot-jam.md, Grape.md, Pineapple.md
+@2050 ! shown "ap": 4 hits
 @2500 showing "ap": Apple.md, Apricot-jam.md, Grape.md, Pineapple.md
 @2500 ! pinned Apple.md
 @2700 ! opened: Pear.md, Apple.md

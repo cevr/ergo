@@ -1,8 +1,8 @@
 @0 idle
 @0 typing "ea"
 @250 searching "ea"
-@250 showing "ea": Bread.md, Pear.md, Peach.md, Pineapple.md
-@250 ! shown "ea": 4 hits
+@350 showing "ea": Bread.md, Pear.md, Peach.md, Pineapple.md
+@350 ! shown "ea": 4 hits
 @1000 showing "ea": Bread.md, Pear.md, Peach.md, Pineapple.md
 @1000 ! pinned Bread.md
 @1200 showing "ea": Bread.md, Pear.md, Peach.md, Pineapple.md
@@ -14,6 +14,6 @@
 @1900 idle
 @2000 typing "watermelonpie"
 @2250 searching "watermelonpie"
-@2250 problem: the index is down
+@2350 problem: the index is down
 @2800 showing "watermelonpie": no hits
 @2900 ! opened: Bread.md, Pear.md, Peach.md
