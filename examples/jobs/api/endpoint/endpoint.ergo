@@ -1,0 +1,3 @@
+// Package endpoint names the closed set of requests. It is separate from api
+// so the provider's method names need not share a namespace with constructors.
+type Endpoint = ListJobs{} | SubmitJob{} | ShowJob{} | CancelJob{} | DeleteJob{}

@@ -47,12 +47,12 @@ const toolingReason = "semantic tooling returns on the new front end"
 // commands is the command table. Dispatch, the general help and the stubs
 // read only this table.
 var commands = []cliCommand{
-	{name: "check", usage: "check FILE|DIR [--target go]", run: checkCommand},
+	{name: "check", usage: "check FILE|DIR|DIR/... [--target go]", run: checkCommand},
 	{name: "diagnostics", usage: "diagnostics FILE|DIR [--strict] [--json] [--target go]", help: diagnosticsHelp, run: diagnosticsCommand},
 	{name: "build", usage: "build FILE|DIR [-o PATH] [-work] [--target go]", run: buildCommand},
 	{name: "run", usage: "run FILE|DIR [--] [ARGS...]", help: runHelp, run: runCommand},
-	{name: "fmt", usage: "fmt FILE... [--check] [--json] | fmt --stdin", help: fmtHelp, run: formatCommand},
-	{name: "test", usage: "test FILE|DIR [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--receipt FILE] [-work] [--json] [--target go]", run: testCommand},
+	{name: "fmt", usage: "fmt FILE...|DIR/... [--check] [--json] | fmt --stdin", help: fmtHelp, run: formatCommand},
+	{name: "test", usage: "test FILE|DIR|DIR/... [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--receipt FILE] [-work] [--json] [--target go]", run: testCommand},
 	{name: "bind", usage: "bind go [-o DIR] PACKAGE...", help: bindHelp, run: bindCommand},
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
 	{name: "gen", usage: "gen rpc [--check] DIR.OPTYPE", help: genHelp, run: genCommand},

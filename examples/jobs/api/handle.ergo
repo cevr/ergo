@@ -1,10 +1,10 @@
 import fs
 import http
+import jobs/api/endpoint
 import jobs/jobs
 import json
 import strconv
 import strings
-import time
 
 // BadId is a path id that is not a job id: not a whole number above 0.
 type BadId { Text string }
@@ -16,10 +16,11 @@ type BadId { Text string }
 // here they are failures of their own types.
 type WrongMethod { Allow string }
 
-// Handle answers r from the Store and the Clock in the context. answer
-// fails with every refusal by its type; this one catch gives each its
-// status, with no case _, so a new failure stops the build until it has
-// a status here.
+// Handle answers r from Jobs in the context. answer
+// fails with every refusal by its type. The total catch names transport
+// refusals explicitly; contract failures use Failures, the shared table.
+// A new unhandled failure stops the build; a missing contract status also
+// refutes the example law and is a TypeScript projection diagnostic.
 //
 //	400 a body that is not JSON, or that could not be read
 //	404 no such route, or no such job
@@ -27,7 +28,7 @@ type WrongMethod { Allow string }
 //	409 a cancel or a delete the job's state does not allow
 //	413 a body over MaxBody
 //	422 JSON of the wrong shape, or an empty name
-func Handle(r http.Request) http.Response needs jobs.Store | time.Clock {
+func Handle(r http.Request) http.Response needs Jobs {
 	answer(r) catch {
 	case http.NotFound:
 		Refuse(404, "no route "+r.Method+" "+r.Path)
@@ -41,43 +42,43 @@ func Handle(r http.Request) http.Response needs jobs.Store | time.Clock {
 	case json.Malformed as m:
 		Refuse(400, "the body is not JSON: \(m.Reason) at byte \(m.Offset)")
 	case BadBody as b:
-		Refuse(422, b.Field+" "+b.Reason)
+		Failure(contractFailure{Error: b})
 	case BadId as b:
 		Refuse(404, "no job "+b.Text)
 	case jobs.NotFound as n:
-		Refuse(404, "no job \(n.Id)")
+		Failure(contractFailure{Error: n})
 	case jobs.Conflict as c:
-		Refuse(409, "job \(c.Id) is \(c.State) and cannot \(c.Asked)")
+		Failure(contractFailure{Error: c})
 	}
 }
 
+func Failure(f contractFailure) http.Response {
+	http.Failure(Failures, json.Encode(json.Codec[BadBody | jobs.NotFound | jobs.Conflict]{MaxBytes: 0, MaxDepth: 0}, f.Error))
+}
+
 // answer is the response to r, or the refusal that stops it.
-func answer(r http.Request) http.Response fails http.NotFound | WrongMethod | http.BodyTooLarge | http.BodyReadFailed | json.Malformed | BadBody | BadId | jobs.NotFound | jobs.Conflict needs jobs.Store | time.Clock {
-	match http.Match(Routes(), r.Method, r.Path) {
+func answer(r http.Request) http.Response fails http.NotFound | WrongMethod | http.BodyTooLarge | http.BodyReadFailed | json.Malformed | BadBody | BadId | jobs.NotFound | jobs.Conflict needs Jobs {
+	match http.Match(Routes, r.Method, r.Path) {
 	case http.NotFound as n:
 		return n
 	case http.MethodNotAllowed as m:
 		return WrongMethod{Allow: strings.Join(m.Allow, ", ")}
 	case http.Found as f:
 		match f.Route.Value {
-		case ListJobs:
-			let mut views = []View{}
-			for j in jobs.List() {
-				views = views.Append(ViewOf(j))
-			}
-			Respond(200, ListingText(Listing{Jobs: views}))
-		case SubmitJob:
+		case endpoint.ListJobs:
+			http.Success(f.Route, ListingText(Jobs.ListJobs()))
+		case endpoint.SubmitJob:
 			let d = try DraftOf(try textOf(r.Body))
-			let j = jobs.Submit(d.Name, PriorityOf(d))
-			let created = Respond(201, ViewText(ViewOf(j)))
+			let j = try Jobs.SubmitJob(d)
+			let created = http.Success(f.Route, ViewText(j))
 			http.Response{..created, Header: created.Header.Append(http.Field{Name: "Location", Value: "/jobs/\(j.Id)"})}
-		case ShowJob:
-			Respond(200, ViewText(ViewOf(try jobs.Find(try idOf(f)))))
-		case CancelJob:
-			Respond(200, ViewText(ViewOf(try jobs.CancelJob(try idOf(f)))))
-		case DeleteJob:
-			try jobs.Remove(try idOf(f))
-			http.Response{Status: 204, Header: []http.Field{}, Body: ""}
+		case endpoint.ShowJob:
+			http.Success(f.Route, ViewText(try Jobs.ShowJob(try idOf(f))))
+		case endpoint.CancelJob:
+			http.Success(f.Route, ViewText(try Jobs.CancelJob(try idOf(f))))
+		case endpoint.DeleteJob:
+			try Jobs.DeleteJob(try idOf(f))
+			http.Success(f.Route, "")
 		}
 	}
 }
@@ -124,7 +125,7 @@ func Refuse(status int, message string) http.Response { Respond(status, ProblemT
 // WithSite answers a path under /jobs with Handle, and any other path
 // with a file of site: "/" is "/index.html". http.Files reads through the
 // root, so no request path reaches outside it.
-func WithSite(site fs.Root, r http.Request) http.Response needs jobs.Store | time.Clock {
+func WithSite(site fs.Root, r http.Request) http.Response needs Jobs {
 	if r.Path == "/jobs" || strings.HasPrefix(r.Path, "/jobs/") {
 		return Handle(r)
 	}

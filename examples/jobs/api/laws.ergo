@@ -1,6 +1,6 @@
-// The API's rule as one law against a reference model. Handle needs a
-// jobs.Store, so the law takes the Store as a parameter and binds it in a
-// context, with a time.Manual for the Clock; ergo test runs it once per
+// The API's rule as one law against a reference model. Handle needs Jobs,
+// so the law takes the Store as a parameter and binds a Queue that captures
+// it and a time.Manual for the Clock; ergo test runs it once per
 // provider of Store this package sees (memory.Table, built by NewTable).
 // The model is a map of entries and the time in ms. It knows nothing of
 // the machine: it says what each state is from a job's age, so a wrong
@@ -80,6 +80,10 @@ func plain(status int, body string) Answer { Answer{Status: status, Body: body, 
 
 func refusal(status int, message string) Answer { plain(status, ProblemText(Problem{Error: message})) }
 
+func failed(status int, f contractFailure) Answer {
+	plain(status, json.Encode(json.Codec[BadBody | jobs.NotFound | jobs.Conflict]{MaxBytes: 0, MaxDepth: 0}, f.Error))
+}
+
 // pick is a generated number as an index below n.
 func pick(m int, n int) int { ((m % n) + n) % n }
 
@@ -90,11 +94,11 @@ let bad = []string{"{\"priority\":1}", "{\"name\":\"\"}", "{\"name\":3}", "{"}
 func badAnswer(i int) Answer {
 	match i {
 	case 0:
-		refusal(422, "name is missing")
+		failed(422, contractFailure{Error: BadBody{Field: "name", Reason: "is missing"}})
 	case 1:
-		refusal(422, "name is empty")
+		failed(422, contractFailure{Error: BadBody{Field: "name", Reason: "is empty"}})
 	case 2:
-		refusal(422, "name is not a string")
+		failed(422, contractFailure{Error: BadBody{Field: "name", Reason: "is not a string"}})
 	case _:
 		refusal(400, "the body is not JSON: an object key that is not a string at byte 1")
 	}
@@ -204,13 +208,13 @@ func Expect(model Model, r http.Request) (Answer, Model) {
 	case Some[Entry] as found:
 		found.Value
 	case None:
-		return (refusal(404, "no job \(id)"), model)
+		return (failed(404, contractFailure{Error: jobs.NotFound{Id: id}}), model)
 	}
 	let v = viewOf(id, e, model.Now)
 	let ended = v.State == "done" || v.State == "cancelled"
 	if cancel {
 		if ended {
-			return (refusal(409, "job \(id) is \(v.State) and cannot cancel"), model)
+			return (failed(409, contractFailure{Error: jobs.Conflict{Id: id, State: v.State, Asked: "cancel"}}), model)
 		}
 		let next = Entry{..e, Cancelled: Some{model.Now}}
 		let mut entries = model.Entries
@@ -219,7 +223,7 @@ func Expect(model Model, r http.Request) (Answer, Model) {
 	}
 	if r.Method == "DELETE" {
 		if !ended {
-			return (refusal(409, "job \(id) is \(v.State) and cannot delete"), model)
+			return (failed(409, contractFailure{Error: jobs.Conflict{Id: id, State: v.State, Asked: "delete"}}), model)
 		}
 		return (plain(204, ""), Model{..model, Entries: model.Entries.Delete(id)})
 	}
@@ -233,7 +237,7 @@ func Disagreement(store jobs.Store, moves []int) string {
 	let clock = time.NewManual(0)
 	let mut model = Model{Entries: Map[int, Entry]{}, Last: 0, Now: 0}
 	let mut log = ""
-	with context { jobs.Store: store, time.Clock: clock } {
+	with context { Jobs: Bind(store, clock) } {
 		for m in moves {
 			match AskOf(model, m) {
 			case Wait as w:

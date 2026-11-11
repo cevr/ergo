@@ -1,12 +1,33 @@
 import { Cause, Effect, Exit, Layer, Option, Schema } from "effect"
 import { FetchHttpClient } from "effect/http"
 import { RpcClient, RpcSerialization } from "effect/rpc"
-import { API, Bundle } from "./domain/contract.ergo"
+import { API, Bundle, Draft, Reading, Snapshot, View } from "./domain/contract.ergo"
 import { readFileSync } from "node:fs"
+import { Point, Status, Écho } from "./plain/point.ergo"
+
+Schema.decodeUnknownSync(Point)({ x: 1, y: 2 })
+Schema.decodeUnknownSync(Écho)({ text: "unicode" })
+Schema.decodeUnknownSync(Status)({ _tag: "Waiting" })
+Schema.decodeUnknownSync(Status)({ _tag: "Ready", at: { x: 1, y: 2 } })
 
 const [url, serialization, valuesFile] = process.argv.slice(2)
 const values = JSON.parse(readFileSync(valuesFile, "utf8"))
 const codec = Schema.toCodecJson(Bundle)
+Schema.decodeUnknownSync(Draft)({ name: "a" })
+Schema.decodeUnknownSync(View)({ ended: null })
+let missingNullableRefused = false
+try { Schema.decodeUnknownSync(View)({}) } catch { missingNullableRefused = true }
+if (!missingNullableRefused) throw new Error("Nullable incorrectly made its key optional")
+// json.Value is any JSON value (the generated values below hold every
+// kind); a host value JSON cannot write is refused at decode and at encode.
+const snapshot = Schema.toCodecJson(Snapshot)
+for (const body of [undefined, () => 1, new Date(0), new Map(), NaN, [undefined], { a: Symbol("s") }]) {
+  for (const run of [() => Schema.decodeUnknownSync(Snapshot)({ body }), () => Schema.encodeSync(snapshot)({ body })]) {
+    let refused = false
+    try { run() } catch { refused = true }
+    if (!refused) throw new Error(`json.Value admitted a host value: ${String(body)}`)
+  }
+}
 const canonical = value => JSON.stringify(value, (_key, value) =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
@@ -60,3 +81,11 @@ const layer = RpcClient.layerProtocolHttp({ url }).pipe(
   Layer.provide(FetchHttpClient.layer),
 )
 await Effect.runPromise(program.pipe(Effect.scoped, Effect.provide(layer)))
+// The mapped float schema judges each text as std json did (the Go side
+// prints the same verdicts): a finite number, or the codec's three strings.
+const reading = Schema.toCodecJson(Reading)
+for (const text of JSON.parse(readFileSync("floats.json", "utf8"))) {
+  let verdict = "refused"
+  try { verdict = Schema.encodeSync(reading)(Schema.decodeUnknownSync(reading)(JSON.parse(text))) } catch {}
+  console.log(JSON.stringify(verdict))
+}

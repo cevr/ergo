@@ -220,6 +220,9 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
 	}
 	opts.file = positional[0]
+	if recursivePattern(opts.file) && (command == "check" || command == "test") {
+		return opts, nil
+	}
 	if isPackageFolder(opts.file) {
 		return opts, nil
 	}
@@ -338,6 +341,13 @@ func checkCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	if recursivePattern(opts.file) {
+		return recursiveCommand(opts, checkPackage)
+	}
+	return checkPackage(opts)
+}
+
+func checkPackage(opts fileOptions) error {
 	l, err := load(opts.file, opts.target)
 	if err != nil {
 		return err

@@ -1,6 +1,7 @@
 // Package api is the job queue over HTTP: the route table, the records a
 // client reads and writes as JSON, and Handle, which answers a request
-// from the Store and the Clock in the context. Handle is a plain function:
+// from Jobs in the context. Queue captures the Store and Clock it uses.
+// Handle is a plain function:
 // std http's Serve runs it for each request, and the tests call it with
 // no socket.
 

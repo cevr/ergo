@@ -1,6 +1,15 @@
 {
   "about": "Host context interruption acceptance mutants. Run the named CLI killer; it builds emitted programs because the contract is a live foreign wait and completed cleanup.",
   "mutants": [
+    { "name": "e5-fatal", "origin": "E5", "file": "cmd/ergo/recursive.go", "from": "if code != 1 {", "to": "if code > 2 {", "rule": "A defect keeps status 2 and stops later packages, rather than becoming an ordinary failed law.", "killers": ["ergo:TestModuleCommands"] },
+    { "name": "e5-empty", "origin": "E5", "file": "internal/sketchfront/discover.go", "from": "if len(roots) == 0 {", "to": "if false && len(roots) == 0 {", "rule": "An empty recursive selection is an error, never a green run with nothing tested.", "killers": ["ergo:TestModuleCommands"] },
+    { "name": "e5-pattern", "origin": "E5", "file": "cmd/ergo/main.go", "from": "if recursivePattern(opts.file) && (command == \"check\" || command == \"test\") {", "to": "if false && recursivePattern(opts.file) && (command == \"check\" || command == \"test\") {", "rule": "check and test accept a recursive package pattern.", "killers": ["ergo:TestModuleCommands"] },
+    { "name": "e5-roots", "origin": "E5", "file": "internal/sketchfront/discover.go", "from": "selected[p] = true", "to": "selected[p] = p == roots[0]", "rule": "Every selected package, not just the first root, runs.", "killers": ["ergo:TestModuleCommands"] },
+    { "name": "e5-order", "origin": "E5", "file": "internal/sketchfront/discover.go", "from": "for _, p := range l.order {", "to": "for _, p := range roots {", "rule": "Dependencies run before their dependents, independent of folder name order.", "killers": ["ergo:TestModuleCommands"] },
+    { "name": "e5-status", "origin": "E5", "file": "cmd/ergo/recursive.go", "from": "failed = true", "to": "failed = false", "rule": "One failed law makes the module command exit 1.", "killers": ["ergo:TestModuleCommands"] },
+    { "name": "e5-continue", "origin": "E5", "file": "cmd/ergo/recursive.go", "from": "if code != 1 {", "to": "if code != 0 {", "rule": "A failed law does not hide the tests of later packages.", "killers": ["ergo:TestModuleCommands"] },
+    { "name": "e5-nested", "origin": "E5", "file": "internal/sketchfront/discover.go", "from": "if modErr == nil {", "to": "if false && modErr == nil {", "rule": "A nested module is outside the selected module.", "killers": ["ergo:TestModuleCommands"] },
+    { "name": "e5-fmt", "origin": "E5", "file": "cmd/ergo/format.go", "from": "if recursivePattern(operand) {", "to": "if false && recursivePattern(operand) {", "rule": "fmt accepts the same recursive module pattern without checking types.", "killers": ["ergo:TestModuleCommands"] },
     {
       "name": "b15-r8-test-inherits-collector-policy",
       "origin": "wf10 batch-15 fix-r8, verifier r7 on-base",

@@ -24,6 +24,7 @@ const (
 )
 
 const fmtHelp = "usage: ergo fmt FILE... [--check] [--json]\n" +
+	"       ergo fmt DIR/... [--check] [--json]\n" +
 	"       ergo fmt --stdin\n\n" +
 	"Format .ergo source with the canonical syntax-only formatter.\n\n" +
 	"Options:\n" +
@@ -34,6 +35,8 @@ const fmtHelp = "usage: ergo fmt FILE... [--check] [--json]\n" +
 	"FILE names may follow -- when they begin with an option-like prefix.\n" +
 	"A FILE that names a folder stands for every .ergo file in it and in the folders below it\n" +
 	"(not testdata, nor a folder whose name starts with . or _).\n\n" +
+	"DIR/... selects packages of the nearest ergo.mod module, dependencies first;\n" +
+	"it excludes nested modules and does not follow directory symlinks.\n\n" +
 	"Exit codes:\n" +
 	"  0  formatting succeeded (or --check found no changes)\n" +
 	"  1  --check found differences\n" +
@@ -244,6 +247,25 @@ func formatCommand(args []string) error {
 func expandFormatFolders(opts *fmtOptions) error {
 	var files []string
 	for _, operand := range opts.files {
+		if recursivePattern(operand) {
+			packages, err := sketchfront.DiscoverPackages(filepath.Dir(filepath.Clean(operand)))
+			if err != nil {
+				return err
+			}
+			for _, pkg := range packages {
+				entries, err := os.ReadDir(pkg.Dir)
+				if err != nil {
+					return err
+				}
+				for _, entry := range entries {
+					name := entry.Name()
+					if entry.Type().IsRegular() && filepath.Ext(name) == sourceExtension && !strings.HasPrefix(name, ".") && !strings.HasPrefix(name, "_") {
+						files = append(files, filepath.Join(pkg.Dir, name))
+					}
+				}
+			}
+			continue
+		}
 		if !isPackageFolder(operand) {
 			files = append(files, operand)
 			continue

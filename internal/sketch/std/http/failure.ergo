@@ -1,0 +1,56 @@
+import json
+
+// FailureStatus binds the codec's nominal failure tag to an HTTP status.
+// An exported literal slice is shared by the server and the TS projection.
+// It must give every contract failure exactly one status in 400..599.
+type FailureStatus { Tag string, Status int }
+
+// StatusOf has no default: absent, repeated or invalid entries are None.
+func StatusOf(table []FailureStatus, tag string) Option[int] {
+	let mut result Option[int] = None
+	for entry in table {
+		if entry.Tag == tag {
+			if result != None || entry.Status < 400 || entry.Status > 599 { return None }
+			result = Some{entry.Status}
+		}
+	}
+	result
+}
+
+// Failure answers a tagged JSON failure with the status from table. Encode a
+// closed union of the contract's failures: the ordinary union codec supplies
+// the tag and fields. An invalid body or missing/ambiguous status is a contract
+// defect, never an invented 500 response or an undeclared success.
+func Failure(table []FailureStatus, body string) Response {
+	let r = json.Open(body, 0, 0) catch {
+	case _:
+		Unreachable("HTTP failure body is not JSON")
+	}
+	json.BeginObject(r) catch {
+	case _:
+		Unreachable("HTTP failure body is not an object")
+	}
+	let tag = json.Tag(r) catch {
+	case _:
+		Unreachable("HTTP failure body has no tag")
+	}
+	let status = match StatusOf(table, tag) {
+	case Some as s:
+		s.Value
+	case None:
+		Unreachable("HTTP failure needs exactly one valid status: " + tag)
+	}
+	Response{Status: status, Header: []Field{Field{Name: "Content-Type", Value: "application/json"}}, Body: body}
+}
+
+// FailureUsesTable covers body/header preservation and no default/first-win
+// lookup for absent, repeated and out-of-range entries, over generated tags.
+law FailureUsesTable(pick int, tag string) {
+	let status = 400 + ((pick%200)+200)%200
+	let entry = FailureStatus{Tag: tag, Status: status}
+	let other = FailureStatus{Tag: tag + "!", Status: if status == 400 { 599 } else { 400 }}
+	let table = []FailureStatus{other, entry}
+	let body = "{\"_tag\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, tag) + "}"
+	let response = Failure(table, body)
+	response.Status == status && response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} && StatusOf([]FailureStatus{other}, tag) == None && StatusOf([]FailureStatus{entry, entry}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 200}}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 600}}, tag) == None
+}

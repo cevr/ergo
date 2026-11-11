@@ -73,6 +73,8 @@ import time
 import slices
 import strconv
 import sync
+import json
+import hex
 
 func segment(step int) string {
 	let segments = []string{"..", ".", "", "a.txt", "sub", "out", "in", "%2e%2e", "...", "..a", "b.txt"}
@@ -163,9 +165,30 @@ test FilesAnswersByTheRule(steps []int, prefixed bool, verb int) {
 	}
 }
 
+test HttpFailureUsesTable(pick int, tag string) {
+	let status = 400 + ((pick%200)+200)%200
+	let entry = http.FailureStatus{Tag: tag, Status: status}
+	let other = http.FailureStatus{Tag: tag+"!", Status: if status == 400 { 599 } else { 400 }}
+	let table = []http.FailureStatus{other, entry}
+	let body = "{\"_tag\":"+json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, tag)+"}"
+	let response = http.Failure(table, body)
+	assert response.Status == status && response.Body == body && http.Header(response.Header, "Content-Type") == Some{"application/json"} && http.StatusOf([]http.FailureStatus{other}, tag) == None && http.StatusOf([]http.FailureStatus{entry, entry}, tag) == None && http.StatusOf([]http.FailureStatus{http.FailureStatus{Tag: tag, Status: 200}}, tag) == None && http.StatusOf([]http.FailureStatus{http.FailureStatus{Tag: tag, Status: 600}}, tag) == None
+}
+
+test HttpSuccessUsesRoute(pick int, body string) {
+	let status = 200 + ((pick%100)+100)%100
+	let route = http.Route{Value: "reply", Method: "POST", Path: "/", Status: status}
+	let response = http.Success(route, body)
+	assert response.Status == status && if status == 204 || status == 205 {
+		response.Body == "" && len(response.Header) == 0
+	} else {
+		response.Body == body && http.Header(response.Header, "Content-Type") == Some{"application/json"}
+	}
+}
+
 test HttpBuiltPathMatches(a string, b string) {
 	if a == "" || b == "" || strings.Contains(a, "/") || strings.Contains(b, "/") { return }
-	let route = http.Route{Value: "pair", Method: "GET", Path: "/:a/:b"}
+	let route = http.Route{Value: "pair", Method: "GET", Path: "/:a/:b", Status: 201}
 	match http.Match([]http.Route[string]{route}, "GET", "/" + a + "/" + b) {
 	case http.Found as f:
 		assert f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b}
@@ -193,7 +216,7 @@ test HttpStreamIsItsWrites(status int, parts []string) {
 test HttpInMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) {
 	let text = if long { strings.Repeat(body+"x", 1100) } else { body }
 	let set = if listed%2 == 0 { values } else { values.Append(status) }
-	let accept http.Accept = if explicit { http.Statuses{Values: set} } else { http.Success }
+	let accept http.Accept = if explicit { http.Statuses{Values: set} } else { http.AnySuccess }
 	let mut taken = !explicit && status >= 200 && status < 300
 	for v in set {
 		taken = taken || explicit && v == status
@@ -236,7 +259,7 @@ test HttpAllowIsWhatMatches(picks []int, asked int) {
 	let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] }
 	let mut routes = []http.Route[int]{}
 	for i, p in picks {
-		routes = routes.Append(http.Route{Value: i, Method: pick(p), Path: "/r/:id"})
+		routes = routes.Append(http.Route{Value: i, Method: pick(p), Path: "/r/:id", Status: 200})
 	}
 	match http.Match(routes, pick(asked), "/r/7") {
 	case http.Found, http.NotFound:
@@ -256,7 +279,7 @@ test HttpAllowIsWhatMatches(picks []int, asked int) {
 
 test RouterRefusalsAndHead(id string) {
 	let path = "/jobs/j" + strings.ReplaceAll(id, "/", "_")
-	let routes = []http.Route[string]{http.Route{Value: "get", Method: "GET", Path: "/jobs/:id"}, http.Route{Value: "head", Method: "HEAD", Path: "/jobs/:id"}}
+	let routes = []http.Route[string]{http.Route{Value: "get", Method: "GET", Path: "/jobs/:id", Status: 200}, http.Route{Value: "head", Method: "HEAD", Path: "/jobs/:id", Status: 200}}
 	match http.Match(routes, "HEAD", path) {
 	case http.Found as f: assert f.Route.Value == "head"
 	case http.NotFound, http.MethodNotAllowed: assert false
@@ -290,22 +313,141 @@ test HandlerUnderManual(sec int64, value string) {
 	assert http.Header(fields, "missing") == None
 	assert http.Query(fields, "EMPTY") == None
 }
+
+type queryProbe { Load json.Optional[float64], Name string, Note json.Optional[string], On json.Optional[bool], Page int, Size json.Optional[uint64], Tags []string }
+
+func queryEscape(s string, plain bool, upper bool) string {
+	let mut out = ""
+	for i in 0..len(s) {
+		let c = s[i]
+		let unreserved = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~'
+		if plain && unreserved {
+			out = out + s[i:i+1]
+		} else if plain && c == ' ' {
+			out = out + "+"
+		} else {
+			let h = hex.Encode(s[i : i+1])
+			out = out + "%" + if upper { strings.ToUpper(h) } else { h }
+		}
+	}
+	out
+}
+
+func queryValues(pairs []http.Field, key string) []string {
+	let mut out = []string{}
+	for p in pairs {
+		if p.Name == key {
+			out = out.Append(p.Value)
+		}
+	}
+	out
+}
+
+func queryNumber(v string) int {
+	strconv.Atoi(v) catch {
+	case _:
+		-1
+	}
+}
+
+func queryExpected(pairs []http.Field) (string, queryProbe) {
+	let none = queryProbe{Load: json.Absent, Name: "", Note: json.Absent, On: json.Absent, Page: 0, Size: json.Absent, Tags: []string{}}
+	for key in []string{"load", "name", "note", "on", "page", "size"} {
+		let vs = queryValues(pairs, key)
+		if len(vs) > 1 {
+			return ("repeated " + key, none)
+		}
+		if len(vs) == 1 && key != "name" && key != "note" && strings.HasSuffix(vs[0], "x") {
+			return ("wrong " + key, none)
+		}
+	}
+	let names = queryValues(pairs, "name")
+	let pages = queryValues(pairs, "page")
+	let tags = queryValues(pairs, "tags")
+	if len(names) == 0 {
+		return ("missing name", none)
+	}
+	if len(pages) == 0 {
+		return ("missing page", none)
+	}
+	if len(tags) == 0 {
+		return ("missing tags", none)
+	}
+	let loads = queryValues(pairs, "load")
+	let notes = queryValues(pairs, "note")
+	let ons = queryValues(pairs, "on")
+	let sizes = queryValues(pairs, "size")
+	let load json.Optional[float64] = if len(loads) == 0 { json.Absent } else { json.Present{Value: float64(queryNumber(loads[0]))} }
+	let note json.Optional[string] = if len(notes) == 0 { json.Absent } else { json.Present{Value: notes[0]} }
+	let on json.Optional[bool] = if len(ons) == 0 { json.Absent } else { json.Present{Value: ons[0] == "true"} }
+	let size json.Optional[uint64] = if len(sizes) == 0 { json.Absent } else { json.Present{Value: uint64(queryNumber(sizes[0]))} }
+	("ok", queryProbe{Load: load, Name: names[0], Note: note, On: on, Page: queryNumber(pages[0]), Size: size, Tags: tags})
+}
+
+test HttpQueryDecodesByTheRule(counts []int, numbers []int, texts []string) {
+	let keys = []string{"load", "name", "note", "on", "other key", "page", "size", "tags"}
+	let mut pairs = []http.Field{}
+	let mut raw = ""
+	let mut i = 0
+	for j, key in keys {
+		let k = if j < len(counts) { ((counts[j] % 6) + 6) % 6 } else { 5 }
+		let times = if k == 0 { 0 } else if k == 1 { 2 } else if k == 2 { 3 } else { 1 }
+		for _ in 0..times {
+			let n = if len(numbers) == 0 { i } else { numbers[i%len(numbers)] }
+			let m = if n < 0 { -(n % 1000) } else { n % 1000 }
+			let text = if len(texts) == 0 { "" } else { texts[i%len(texts)] }
+			let typed = key == "load" || key == "on" || key == "page" || key == "size"
+			let value = if !typed { text } else if m%7 == 6 { text + "x" } else if key == "on" { if m%2 == 0 { "true" } else { "false" } } else { strconv.Itoa(1000 + 13*m) }
+			pairs = pairs.Append(http.Field{Name: key, Value: value})
+			let part = queryEscape(key, m%2 == 0, m%3 == 0) + "=" + queryEscape(value, m%5 != 0, m%3 == 1)
+			raw = if i == 0 { part } else { raw + "&" + part }
+			if m%11 == 0 {
+				raw = raw + "&bad=%zz"
+			}
+			i = i + 1
+		}
+	}
+	let (want, record) = queryExpected(pairs)
+	let got = http.DecodeQuery[queryProbe](http.ParseQuery(raw)) catch {
+	case http.QueryRepeated as q:
+		assert want == "repeated "+q.Key
+		return
+	case WireWrongKind as w:
+		assert want == "wrong "+w.Path
+		return
+	case WireMissingField as f:
+		assert want == "missing "+f.Field
+		return
+	case WireUnknownTag:
+		assert false
+		return
+	}
+	assert want == "ok" && got == record
+}
 `
 
-const httpBuiltPathStatement = `BuiltPathMatches(a string, b string) { if a == "" || b == "" || strings.Contains(a, "/") || strings.Contains(b, "/") { return true } let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b"} match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }`
+const httpQueryStatement = `QueryDecodesByTheRule(counts []int, numbers []int, texts []string) { let keys = []string{"load", "name", "note", "on", "other key", "page", "size", "tags"} let mut pairs = []Field{} let mut raw = "" let mut i = 0 for j, key in keys { let k = if j < len(counts) { ((counts[j] % 6) + 6) % 6 } else { 5 } let times = if k == 0 { 0 } else if k == 1 { 2 } else if k == 2 { 3 } else { 1 } for _ in 0..times { let n = if len(numbers) == 0 { i } else { numbers[i%len(numbers)] } let m = if n < 0 { -(n % 1000) } else { n % 1000 } let text = if len(texts) == 0 { "" } else { texts[i%len(texts)] } let typed = key == "load" || key == "on" || key == "page" || key == "size" let value = if !typed { text } else if m%7 == 6 { text + "x" } else if key == "on" { if m%2 == 0 { "true" } else { "false" } } else { strconv.Itoa(1000 + 13*m) } pairs = pairs.Append(Field{Name: key, Value: value}) let part = queryEscape(key, m%2 == 0, m%3 == 0) + "=" + queryEscape(value, m%5 != 0, m%3 == 1) raw = if i == 0 { part } else { raw + "&" + part } if m%11 == 0 { raw = raw + "&bad=%zz" } i = i + 1 } } let (want, record) = queryExpected(pairs) let got = DecodeQuery[queryProbe](ParseQuery(raw)) catch { case QueryRepeated as q: return want == "repeated "+q.Key case WireWrongKind as w: return want == "wrong "+w.Path case WireMissingField as f: return want == "missing "+f.Field case WireUnknownTag: return false } want == "ok" && got == record }`
 
-const httpAllowStatement = `AllowIsWhatMatches(picks []int, asked int) { let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"} let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] } let mut routes = []Route[int]{} for i, p in picks { routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id"}) } match Match(routes, pick(asked), "/r/7") { case Found, NotFound: true case MethodNotAllowed as m: for i, a in m.Allow { if slices.Contains(m.Allow[i+1:], a) { return false } } for name in methods { let found = match Match(routes, name, "/r/7") { case Found: true case NotFound, MethodNotAllowed: false } if found != slices.Contains(m.Allow, name) { return false } } true } }`
+const httpBuiltPathStatement = `BuiltPathMatches(a string, b string) { if a == "" || b == "" || strings.Contains(a, "/") || strings.Contains(b, "/") { return true } let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b", Status: 201} match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }`
+
+const httpAllowStatement = `AllowIsWhatMatches(picks []int, asked int) { let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"} let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] } let mut routes = []Route[int]{} for i, p in picks { routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id", Status: 200}) } match Match(routes, pick(asked), "/r/7") { case Found, NotFound: true case MethodNotAllowed as m: for i, a in m.Allow { if slices.Contains(m.Allow[i+1:], a) { return false } } for name in methods { let found = match Match(routes, name, "/r/7") { case Found: true case NotFound, MethodNotAllowed: false } if found != slices.Contains(m.Allow, name) { return false } } true } }`
+
+const httpSuccessStatement = `SuccessUsesRoute(pick int, body string) { let status = 200 + ((pick%100)+100)%100 let route = Route{Value: "reply", Method: "POST", Path: "/", Status: status} let response = Success(route, body) response.Status == status && if status == 204 || status == 205 { response.Body == "" && len(response.Header) == 0 } else { response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} } }`
+
+const httpFailureStatement = `FailureUsesTable(pick int, tag string) { let status = 400 + ((pick%200)+200)%200 let entry = FailureStatus{Tag: tag, Status: status} let other = FailureStatus{Tag: tag + "!", Status: if status == 400 { 599 } else { 400 }} let table = []FailureStatus{other, entry} let body = "{\"_tag\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, tag) + "}" let response = Failure(table, body) response.Status == status && response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} && StatusOf([]FailureStatus{other}, tag) == None && StatusOf([]FailureStatus{entry, entry}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 200}}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 600}}, tag) == None }`
 
 // TestStdHTTPLawsRun runs the construction law and public pure handler
 // checks. It builds Go because the native property runner executes the
 // std router and bound clock; go/types alone cannot observe their values.
+// E3 adds e3-success-status and e3-success-empty: old laws never construct
+// a response from a route or exercise 205's no-content form.
 func TestStdHTTPLawsRun(t *testing.T) {
 	needsBuild(t)
 	stdout, stderr, code := runExeArgs(t, tableExe(t, "stdhttp"), "--seed", "1")
 	if code != 0 {
 		t.Fatalf("HTTP laws: exit %d\n%s\n%s", code, stdout, stderr)
 	}
-	statements := map[string]string{"http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement}
+	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement}
 	lawLabel := func(key string) string { return "Http" + strings.TrimPrefix(key, "http ") }
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }
@@ -316,4 +458,4 @@ const httpStreamStatement = `StreamIsItsWrites(status int, parts []string) { let
 
 const httpLateWriteStatement = `WriteAfterStreamFails(text string) { let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{}) let response = with context { Streaming: NewRecorder() } { Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed { kept.Set([]BodyWriter{w}) }) } for w in kept.Get() { w.Write(text) catch { case WriteFailed: return response.Body == "" } } false }`
 
-const httpInMemoryIntoStatement = `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body+"x", 1100) } else { body } let set = if listed%2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { Success } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken || explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }`
+const httpInMemoryIntoStatement = `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body+"x", 1100) } else { body } let set = if listed%2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { AnySuccess } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken || explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }`

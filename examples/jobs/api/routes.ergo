@@ -1,34 +1,49 @@
 import http
+import jobs/api/endpoint
+import jobs/jobs
+import json
 
-// Endpoint is what a request asks for. The route table is built from it,
-// so a new endpoint has a route by construction, and a found route
-// carries its endpoint.
-type Endpoint = ListJobs{} | SubmitJob{} | ShowJob{} | CancelJob{} | DeleteJob{}
+// Endpoint carries only a route's identity; Jobs declares what it asks and
+// answers. Handle calls Jobs in its context, so this is the served contract.
+type Endpoint = endpoint.Endpoint
 
-// Endpoints is every endpoint, in route order.
-let Endpoints = []Endpoint{ListJobs, SubmitJob, ShowJob, CancelJob, DeleteJob}
+// Jobs is the job queue's public application contract. Failures declares
+// the HTTP status of each type of its failure rows.
+type Jobs {
+	ListJobs() Listing,
+	SubmitJob(draft Draft) View fails BadBody,
+	ShowJob(id int) View fails jobs.NotFound,
+	CancelJob(id int) View fails jobs.NotFound | jobs.Conflict,
+	DeleteJob(id int) fails jobs.NotFound | jobs.Conflict,
 
-// RouteOf is the route of e.
-func RouteOf(e Endpoint) http.Route[Endpoint] {
-	match e {
-	case ListJobs:
-		http.Route{Value: e, Method: "GET", Path: "/jobs"}
-	case SubmitJob:
-		http.Route{Value: e, Method: "POST", Path: "/jobs"}
-	case ShowJob:
-		http.Route{Value: e, Method: "GET", Path: "/jobs/:id"}
-	case CancelJob:
-		http.Route{Value: e, Method: "POST", Path: "/jobs/:id/cancel"}
-	case DeleteJob:
-		http.Route{Value: e, Method: "DELETE", Path: "/jobs/:id"}
-	}
+	// EmptyNameIsBadBody applies to every provider, not only the HTTP adapter.
+	// DraftOf already refuses an empty name before Handle calls Jobs, so the
+	// HTTP model cannot catch a provider that forgets this validation.
+	law EmptyNameIsBadBody(priority int) {
+		SubmitJob(Draft{Name: "", Priority: json.Present[int]{Value: priority}}) catch {
+		case BadBody as bad:
+			return bad.Field == "name"
+		}
+		false
+	},
 }
 
-// Routes is the route table, for http.Match.
-func Routes() []http.Route[Endpoint] {
-	let mut routes = []http.Route[Endpoint]{}
-	for e in Endpoints {
-		routes = routes.Append(RouteOf(e))
+// Routes is shared by http.Match and the TypeScript content mapper. Every
+// endpoint occurs exactly once, checked by the mapper and RoutesCoverEndpoints.
+let Routes = []http.Route[Endpoint]{
+	http.Route{Value: endpoint.ListJobs, Method: "GET", Path: "/jobs", Status: 200},
+	http.Route{Value: endpoint.SubmitJob, Method: "POST", Path: "/jobs", Status: 201},
+	http.Route{Value: endpoint.ShowJob, Method: "GET", Path: "/jobs/:id", Status: 200},
+	http.Route{Value: endpoint.CancelJob, Method: "POST", Path: "/jobs/:id/cancel", Status: 200},
+	http.Route{Value: endpoint.DeleteJob, Method: "DELETE", Path: "/jobs/:id", Status: 204},
+}
+
+// Endpoints is every endpoint, independent of the route table. A new variant
+// is generated for this law, so a missing or repeated route refutes it.
+law RoutesCoverEndpoints(e Endpoint) {
+	let mut count = 0
+	for route in Routes {
+		if route.Value == e { count = count + 1 }
 	}
-	routes
+	count == 1
 }

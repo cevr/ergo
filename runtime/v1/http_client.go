@@ -168,10 +168,13 @@ func httpDoURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header 
 	t.Check()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), strings.NewReader(body))
+	// The request is made for the origin and then takes u whole, so a
+	// target u carries as Opaque (webURL.requestURL) is sent as it is.
+	req, err := http.NewRequestWithContext(ctx, method, (&url.URL{Scheme: u.Scheme, Host: u.Host}).String(), strings.NewReader(body))
 	if err != nil {
 		return HTTPResponse{}, httpFailed(httpMalformed, err.Error())
 	}
+	req.URL = u
 	if body == "" {
 		req.Body, req.ContentLength = http.NoBody, 0
 	}
@@ -193,7 +196,10 @@ func httpDoURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header 
 
 // httpExchange sends req and reads at most limits.MaxBodyBytes of body.
 func httpExchange(c *http.Client, req *http.Request, limits HTTPLimits) httpDone {
-	resp, err := c.Do(req)
+	// The transport alone: Client.Do parses a 3xx's Location even when it
+	// follows nothing, and fails the exchange on one url.Parse refuses
+	// ("%zz"), where a redirect is a response the caller reads.
+	resp, err := c.Transport.RoundTrip(req)
 	if err != nil {
 		return httpDone{err: httpDoErr(err, limits)}
 	}
@@ -282,11 +288,14 @@ func HTTPDoInto(t *rt.Task, origin string, limits HTTPLimits, method, path strin
 func httpStreamURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header []HTTPField, body string, follow func(HTTPResponse) bool, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
 	t.Check()
 	ctx, cancel := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), strings.NewReader(body))
+	// As httpDoURL: made for the origin, then u whole, so an Opaque target
+	// (webURL.requestURL) is sent as it is.
+	req, err := http.NewRequestWithContext(ctx, method, (&url.URL{Scheme: u.Scheme, Host: u.Host}).String(), strings.NewReader(body))
 	if err != nil {
 		cancel()
 		return HTTPResponse{}, httpFailed(httpMalformed, err.Error())
 	}
+	req.URL = u
 	if body == "" {
 		req.Body, req.ContentLength = http.NoBody, 0
 	}
@@ -369,7 +378,9 @@ func httpStreamRead(ctx context.Context, c *http.Client, req *http.Request, limi
 			return false
 		}
 	}
-	resp, err := c.Do(req)
+	// The transport alone, as httpExchange: a 3xx's Location is the
+	// caller's to read, not Client.Do's to parse.
+	resp, err := c.Transport.RoundTrip(req)
 	if err != nil {
 		send(httpEvent{err: httpDoErr(err, limits)})
 		return

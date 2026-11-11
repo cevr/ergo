@@ -414,6 +414,31 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    values. `Header(fields, name)` ignores case; `Query` uses exact names.
    Both return `Option[string]`, keeping a missing and an empty value apart.
    `Path` is Go's decoded URL path; matching does not clean it.
+   **Typed query** (S-query). `DecodeQuery[T wire](fields) T fails QueryRepeated | wired[T]`
+   reads a record from the query through the derived codec (types.md,
+   Codecs), as `json.Decode` reads one from a text, so a query record
+   follows the codec's one rule: a field's key is its wire name, an
+   unknown key is skipped (as JSON's), a field the query does not name is
+   `WireMissingField` unless its type is `json.Optional` (a list that may
+   be empty is `json.Optional[[]T]`: the codec has no default value), and
+   a value that does not parse is `WireWrongKind` at its key. A scalar
+   field (a string, `true`/`false`, a decimal number, or a refined type
+   over one) takes exactly one value: a key given twice is
+   `QueryRepeated{Key}`, never first- or last-wins. A slice field takes
+   every value of its key in query order. A record or union field has no
+   query form (`WireWrongKind`). `ParseQuery(raw)` is the fields Serve
+   gives `Request.Query` (Go's `url.ParseQuery`; a pair with a malformed
+   escape is dropped, as Go's `URL.Query` drops it); the law
+   `QueryDecodesByTheRule` sends generated query strings, with repeats,
+   an unknown key, upper and lower case escapes, `+` and dropped pairs,
+   through both and compares a hand reference. Effect's
+   `HttpServerRequest.schemaSearchParams` decodes the search params with a
+   Schema whose field is a string or an array, and a repeated key given
+   to a string field is a parse issue; Ergo keeps that purpose without a
+   Schema value: the record's type is the schema and the failure is a
+   typed row. Go's `url.Values.Get` takes the first value; Phoenix's `Plug.Conn.Query` takes the last unless the key ends
+   in `[]`; Gleam's `wisp` gives the list of pairs and leaves the choice
+   to the handler.
 4. `Body` is `Buffered{Text} | BodyTooLarge{Limit} | BodyReadFailed{Reason}`.
    No partial body is passed as a success. The application chooses a status
    for each refusal. Header parse errors remain Go's HTTP protocol refusals.
@@ -429,7 +454,7 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    A handler defect ends Serve and keeps the defect cause; it is not an
    undeclared typed failure or an invented application status.
 7. `Match[T](routes, method, path)` returns `Found[T]{Route, Params}`, `NotFound`
-   or `MethodNotAllowed{Allow}`. Routes are `Route[T]{Value, Method, Path}`:
+   or `MethodNotAllowed{Allow}`. Routes are `Route[T]{Value, Method, Path, Status}`:
    `Value` is what the route stands for (an endpoint value), so a program
    reads the endpoint of a Found route as `f.Route.Value`, with no lookup
    and no impossible fallback (H2). `Allow` is the methods of the routes
@@ -441,6 +466,20 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    breaks ties. An explicit HEAD route precedes the GET fallback. There
    is no automatic trailing-slash redirect. `BuiltPathMatches` is the
    construction law for parameter segments.
+   `Status` is required and has no default. `Success(route, jsonText)` uses
+   that status and `application/json`; 204 and 205 have no body or content
+   type. A handler uses this helper for success and its own total catch for
+   failures. `SuccessUsesRoute` holds this rule. `FailureStatus{Tag, Status}`
+   tables give each nominal contract failure exactly one status (400..599).
+   `StatusOf(table, tag)` is None for missing, repeated or invalid entries.
+   `Failure(table, taggedJson)` preserves the body with application/json and
+   reads the status from that table; invalid JSON, a missing tag or an absent
+   status is a defect, not a default 500. Use the ordinary codec for a closed
+   union or row value so the failure body has its nominal `_tag` and fields.
+   The TypeScript HTTP projection checks exported literal tables against the
+   contract's actual failure rows. `FailureUsesTable` tests lookup and response
+   preservation. `Serve` stays independent
+   of the router: it sends the response the handler returns.
 8. `Files(root fs.Root, prefix string, r Request) Response` serves the
    files of a read-only folder (G1f). The name is `r.Path` after `prefix`,
    its empty and "." elements dropped; Files' work is lexical, and the
@@ -560,6 +599,39 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     an A-B-A chain sends A's fields only to A, and B's only to B. User
     information in a URL is refused, not converted to implicit credentials.
 
+    **The request target** (S-target). The URL is read as the WHATWG URL
+    Standard reads a special (http, https) URL: tabs and newlines are
+    removed, leading and trailing controls and spaces are trimmed, "\" is
+    "/", the dot segments (`.`, `..`, and their `%2e` spellings) are
+    removed, and the path and the query are percent-encoded with the
+    standard's path and special-query sets (a byte of invalid UTF-8 reads
+    as U+FFFD). An escape the URL holds stays as it is, valid or not
+    (`%zz`, `%2F`), and so does every byte outside those sets (`|`, `[`,
+    `'` in a path). The request line carries that path and query as they
+    are; the fragment is not sent. Only the authority (up to the first
+    "/", "\", "?" or "#") goes through Go's `url.Parse` as before, so the
+    origin, its policy, the credentials bound to it and the Host header
+    do not change. A Location is resolved as the standard resolves a
+    relative URL against the request's URL. Two cases are refused as
+    Malformed, never sent changed: a request URL (or a Location of another
+    scheme) whose scheme two slashes do not follow (the standard reads
+    `http:x` as `http://x`; a Location `http:x` under an http URL is
+    relative, as the standard says), and a path that starts
+    with "//" and holds text Go's client cannot write in origin form
+    (Go sends an `Opaque` that starts with "//" in absolute form; Go keeps
+    such a path only through `RawPath`, as valid escaped text). The fixed-
+    origin `Do` keeps its decoded `Path`, which the client escapes. Through
+    an `HTTP_PROXY` for a plain-http URL, Go's client writes the target in
+    origin form; this is a known gap. A 3xx with a `Location` that
+    `url.Parse` refuses is a response, as any redirect is: the exchange
+    uses the transport's `RoundTrip`, not `Client.Do`, which parses
+    Location even when it follows nothing. `TestHTTPFetchSendsTheWebTarget`
+    reads the request line and the Host header at a raw loopback listener
+    for 400 generated URLs and 200 generated redirects, and compares them
+    with targets recorded from a reference parser
+    (`runtime/v1/testdata/webtarget/gen.mjs`: Bun 1.4.4's `URL`, which
+    gives the same text as Node 24's ada).
+
     Follow handles 301, 302, 303, 307 and 308 with a Location, resolving
     relative URLs normally. Each followed redirect consumes one hop; an
     exhausted limit is `RedirectLimit{URL, Limit}`. NoRedirects returns
@@ -651,8 +723,8 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     is made.
 
 13. **The status a sink takes (CU6b).** A body reaches a sink only for a
-    status the caller accepts. `type Accept = Success | Statuses{Values
-    []int}`; `Accepts(a, status)` is the one rule: `Success` is 200 to
+    status the caller accepts. `type Accept = AnySuccess | Statuses{Values
+    []int}`; `Accepts(a, status)` is the one rule: `AnySuccess` is 200 to
     299 and is the default of every sink form (`FetchInto`, `FetchFile`,
     `DoInto`, `DoFile`); `Statuses` takes exactly its values. Any other
     final status fails `StatusRefused{Status, Prefix}`, where `Prefix` is
@@ -919,12 +991,15 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | --- | --- | --- | --- | --- |
 | `toml` | `ReadsGeneratedRecord` | `ReadsGeneratedRecord(name string, count int64, active bool, steps []int64) { if !utf8.ValidString(name) { return true } let sc = json.Codec[string]{MaxBytes: 0, MaxDepth: 0} let nc = json.Codec[int64]{MaxBytes: 0, MaxDepth: 0} let bc = json.Codec[bool]{MaxBytes: 0, MaxDepth: 0} let lc = json.Codec[[]int64]{MaxBytes: 0, MaxDepth: 0} let quoted = strings.ReplaceAll(json.Encode(sc, name), "\x7f", "\\u007f") let text = "name = " + quoted + "\ncount = " + json.Encode(nc, count) + "\nactive = " + json.Encode(bc, active) + "\nsteps = " + json.Encode(lc, steps) + "\n" let back = Decode(json.Codec[sample]{MaxBytes: 0, MaxDepth: 0}, text) catch { case _: return false } back == sample{Name: name, Count: count, Active: active, Steps: steps} }` | `TestTOMLDecode` | tested |
 | `toml` | `EncodeRoundTrips` | `EncodeRoundTrips(v shelf) { let text = Encode(v) catch { case Unrepresentable: return !utf8Texts(v) } let back = Decode(json.Codec[shelf]{MaxBytes: 0, MaxDepth: 0}, text) catch { case _: return false } back == v }` | `TestTOMLDecode` | tested |
-| `http` | `BuiltPathMatches` | `BuiltPathMatches(a string, b string) { if a == "" \|\| b == "" \|\| strings.Contains(a, "/") \|\| strings.Contains(b, "/") { return true } let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b"} match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }` | `TestStdHTTPLawsRun` | tested |
-| `http` | `AllowIsWhatMatches` | `AllowIsWhatMatches(picks []int, asked int) { let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"} let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] } let mut routes = []Route[int]{} for i, p in picks { routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id"}) } match Match(routes, pick(asked), "/r/7") { case Found, NotFound: true case MethodNotAllowed as m: for i, a in m.Allow { if slices.Contains(m.Allow[i+1:], a) { return false } } for name in methods { let found = match Match(routes, name, "/r/7") { case Found: true case NotFound, MethodNotAllowed: false } if found != slices.Contains(m.Allow, name) { return false } } true } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `SuccessUsesRoute` | `SuccessUsesRoute(pick int, body string) { let status = 200 + ((pick%100)+100)%100 let route = Route{Value: "reply", Method: "POST", Path: "/", Status: status} let response = Success(route, body) response.Status == status && if status == 204 \|\| status == 205 { response.Body == "" && len(response.Header) == 0 } else { response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `FailureUsesTable` | `FailureUsesTable(pick int, tag string) { let status = 400 + ((pick%200)+200)%200 let entry = FailureStatus{Tag: tag, Status: status} let other = FailureStatus{Tag: tag + "!", Status: if status == 400 { 599 } else { 400 }} let table = []FailureStatus{other, entry} let body = "{\"_tag\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, tag) + "}" let response = Failure(table, body) response.Status == status && response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} && StatusOf([]FailureStatus{other}, tag) == None && StatusOf([]FailureStatus{entry, entry}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 200}}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 600}}, tag) == None }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `BuiltPathMatches` | `BuiltPathMatches(a string, b string) { if a == "" \|\| b == "" \|\| strings.Contains(a, "/") \|\| strings.Contains(b, "/") { return true } let route = Route{Value: "pair", Method: "GET", Path: "/:a/:b", Status: 201} match Match([]Route[string]{route}, "GET", "/"+a+"/"+b) { case Found as f: f.Route == route && f.Params.Get("a") == Some{a} && f.Params.Get("b") == Some{b} case NotFound, MethodNotAllowed: false } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `AllowIsWhatMatches` | `AllowIsWhatMatches(picks []int, asked int) { let methods = []string{"GET", "HEAD", "POST", "PUT", "DELETE"} let pick = func(i int) string { methods[if i < 0 { -(i % len(methods)) } else { i % len(methods) }] } let mut routes = []Route[int]{} for i, p in picks { routes = routes.Append(Route{Value: i, Method: pick(p), Path: "/r/:id", Status: 200}) } match Match(routes, pick(asked), "/r/7") { case Found, NotFound: true case MethodNotAllowed as m: for i, a in m.Allow { if slices.Contains(m.Allow[i+1:], a) { return false } } for name in methods { let found = match Match(routes, name, "/r/7") { case Found: true case NotFound, MethodNotAllowed: false } if found != slices.Contains(m.Allow, name) { return false } } true } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `FilesAsksBeneath` | `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot \|\| e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 \|\| (dotdot \|\| !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" \|\| e == "." \|\| e == ".." { return false } } } response.Status == 200 \|\| response.Status == 403 \|\| response.Status == 404 }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `StreamIsItsWrites` | `StreamIsItsWrites(status int, parts []string) { let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}} let response = with context { Streaming: NewRecorder() } { Stream(status, header, func(w BodyWriter) fails WriteFailed { for p in parts { try w.Write(p) } }) } let mut want = "" for p in parts { want = want + p } response == Response{Status: status, Header: header, Body: want} }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `WriteAfterStreamFails` | `WriteAfterStreamFails(text string) { let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{}) let response = with context { Streaming: NewRecorder() } { Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed { kept.Set([]BodyWriter{w}) }) } for w in kept.Get() { w.Write(text) catch { case WriteFailed: return response.Body == "" } } false }` | `TestStdHTTPLawsRun` | tested |
-| `http` | `InMemorySendIntoIsSend` | `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body+"x", 1100) } else { body } let set = if listed%2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { Success } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken \|\| explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `InMemorySendIntoIsSend` | `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body+"x", 1100) } else { body } let set = if listed%2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { AnySuccess } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken \|\| explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `QueryDecodesByTheRule` | `QueryDecodesByTheRule(counts []int, numbers []int, texts []string) { let keys = []string{"load", "name", "note", "on", "other key", "page", "size", "tags"} let mut pairs = []Field{} let mut raw = "" let mut i = 0 for j, key in keys { let k = if j < len(counts) { ((counts[j] % 6) + 6) % 6 } else { 5 } let times = if k == 0 { 0 } else if k == 1 { 2 } else if k == 2 { 3 } else { 1 } for _ in 0..times { let n = if len(numbers) == 0 { i } else { numbers[i%len(numbers)] } let m = if n < 0 { -(n % 1000) } else { n % 1000 } let text = if len(texts) == 0 { "" } else { texts[i%len(texts)] } let typed = key == "load" \|\| key == "on" \|\| key == "page" \|\| key == "size" let value = if !typed { text } else if m%7 == 6 { text + "x" } else if key == "on" { if m%2 == 0 { "true" } else { "false" } } else { strconv.Itoa(1000 + 13*m) } pairs = pairs.Append(Field{Name: key, Value: value}) let part = queryEscape(key, m%2 == 0, m%3 == 0) + "=" + queryEscape(value, m%5 != 0, m%3 == 1) raw = if i == 0 { part } else { raw + "&" + part } if m%11 == 0 { raw = raw + "&bad=%zz" } i = i + 1 } } let (want, record) = queryExpected(pairs) let got = DecodeQuery[queryProbe](ParseQuery(raw)) catch { case QueryRepeated as q: return want == "repeated "+q.Key case WireWrongKind as w: return want == "wrong "+w.Path case WireMissingField as f: return want == "missing "+f.Field case WireUnknownTag: return false } want == "ok" && got == record }` | `TestStdHTTPLawsRun` | tested |
 | `actor` | `Actor.ChangesStops` | `ChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = Changes() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }` | `TestStdActorLawsRun` | tested |
 | `actor` | `Actor.StopIsFinal` | `StopIsFinal(e E) { Stop() catch { case _: } Send(e) catch { case Stopped: return true } false }` | `TestStdActorLawsRun` | tested |
 | `actor` | `CanIsTheStep` | `CanIsTheStep(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { can(signals, e) } }` | `TestStdActorLawsRun` | tested |

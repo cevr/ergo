@@ -27,24 +27,24 @@ Content-Type: application/json
 {"error":"the body is not JSON: an object key that is not a string at byte 1"}
 > POST /jobs []
 422
-Content-Length: 33
+Content-Length: 61
 Content-Type: application/json
-{"error":"body is not an object"}
+{"_tag":"BadBody","field":"body","reason":"is not an object"}
 > POST /jobs {"priority":1}
 422
-Content-Length: 27
+Content-Length: 55
 Content-Type: application/json
-{"error":"name is missing"}
+{"_tag":"BadBody","field":"name","reason":"is missing"}
 > POST /jobs {"name":""}
 422
-Content-Length: 25
+Content-Length: 53
 Content-Type: application/json
-{"error":"name is empty"}
+{"_tag":"BadBody","field":"name","reason":"is empty"}
 > POST /jobs {"name":"x","priority":"high"}
 422
-Content-Length: 38
+Content-Length: 66
 Content-Type: application/json
-{"error":"priority is not an integer"}
+{"_tag":"BadBody","field":"priority","reason":"is not an integer"}
 > GET /jobs/0
 404
 Content-Length: 20
@@ -62,19 +62,19 @@ Content-Type: application/json
 {"error":"no job x"}
 > GET /jobs/7
 404
-Content-Length: 20
+Content-Length: 26
 Content-Type: application/json
-{"error":"no job 7"}
+{"_tag":"NotFound","id":7}
 > POST /jobs/7/cancel
 404
-Content-Length: 20
+Content-Length: 26
 Content-Type: application/json
-{"error":"no job 7"}
+{"_tag":"NotFound","id":7}
 > DELETE /jobs/7
 404
-Content-Length: 20
+Content-Length: 26
 Content-Type: application/json
-{"error":"no job 7"}
+{"_tag":"NotFound","id":7}
 > HEAD /jobs
 200
 Content-Length: 11

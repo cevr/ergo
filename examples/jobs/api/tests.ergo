@@ -5,6 +5,11 @@
 // requests so far and both answers.
 
 import jobs/memory
+import time
 
 // Fresh is the store a replay of a refuted case starts from.
 func Fresh() memory.Table { memory.NewTable() }
+
+// NewQueue is the row-free world for each generated provider-law case. It is
+// reached only by tests; the binary chooses its own providers with Bind.
+func NewQueue() Queue { Bind(memory.NewTable(), time.NewManual(0)) }

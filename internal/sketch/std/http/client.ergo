@@ -22,16 +22,16 @@ type Malformed { Reason string }
 type Cause = Refused | Transport | TooLarge | Malformed
 type RequestFailed { Cause Cause }
 
-// Accept is the statuses whose body goes to a sink. Success is the
+// Accept is the statuses whose body goes to a sink. AnySuccess is the
 // default rule of every sink form (DoInto, DoFile, FetchInto, FetchFile):
 // 200 to 299. Statuses accepts exactly its values.
-type Accept = Success{} | Statuses{Values []int}
+type Accept = AnySuccess{} | Statuses{Values []int}
 
 // Accepts is the one rule: whether a sink takes the body of a response
 // with status.
 func Accepts(a Accept, status int) bool {
 	match a {
-	case Success:
+	case AnySuccess:
 		status >= 200 && status < 300
 	case Statuses as s:
 		for v in s.Values {
@@ -74,7 +74,7 @@ func Do(r Request) Response fails RequestFailed needs Net { try Net.Send(r) }
 // arrives; another status fails StatusRefused. For another set of
 // statuses, call Net.SendInto.
 func DoInto(r Request, put func(part string) fails SinkFailed) Response fails RequestFailed | StatusRefused | SinkFailed needs Net {
-	try Net.SendInto(r, Success, put)
+	try Net.SendInto(r, AnySuccess, put)
 }
 
 // DoFile sends r through the bound Net and writes a 2xx body to the file
@@ -82,7 +82,7 @@ func DoInto(r Request, put func(part string) fails SinkFailed) Response fails Re
 // call IntoFile with Net.SendInto.
 func DoFile(root fs.HostRoot, path string, r Request) Response fails RequestFailed | StatusRefused | SinkFailed | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs Net {
 	try IntoFile(root, path, func(file BodyFile) Response fails RequestFailed | StatusRefused | SinkFailed needs Net {
-		try Net.SendInto(r, Success, func(part string) fails SinkFailed { try file.Put(part) })
+		try Net.SendInto(r, AnySuccess, func(part string) fails SinkFailed { try file.Put(part) })
 	})
 }
 

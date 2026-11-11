@@ -254,6 +254,7 @@ go build -o bin/ergo ./cmd/ergo
 
 ./bin/ergo run examples/lookup/cmd/lookup          # prints: 192.0.2.1
 ./bin/ergo test examples/lookup/cmd/lookup         # prints: PASS (4 tests)
+./bin/ergo test examples/lookup/...                # tests each package, dependencies first
 ./bin/ergo run examples/editions/sketch/main.ergo  # prints: hello, Ada / no friend named Bob
 ./bin/ergo fmt --check examples/editions/sketch/main.ergo
 go run ./scripts/examples                          # builds and runs the example programs against their recorded cases

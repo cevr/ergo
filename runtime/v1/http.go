@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -621,7 +622,7 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.workers.Add(1)
 	s.mu.Unlock()
 	defer s.workers.Done()
-	in := httpIncoming{Method: r.Method, Path: r.URL.Path, Header: httpFields(r.Header), Query: httpFields(r.URL.Query())}
+	in := httpIncoming{Method: r.Method, Path: r.URL.Path, Header: httpFields(r.Header), Query: HTTPParseQuery(r.URL.RawQuery)}
 	// The body phase is bounded only while there is a body to read.
 	conn, _ := r.Context().Value(connKey{}).(*httpConn)
 	if r.Body == http.NoBody {
@@ -690,6 +691,14 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if c.response.Body != "" {
 		_, _ = io.WriteString(w, c.response.Body)
 	}
+}
+
+// HTTPParseQuery is std http.ParseQuery and the Query of every request
+// Serve gives a handler: url.ParseQuery's pairs, a pair with a malformed
+// escape dropped as Request.URL.Query drops it.
+func HTTPParseQuery(raw string) []HTTPField {
+	values, _ := url.ParseQuery(raw)
+	return httpFields(values)
 }
 
 // httpFields keeps repeated values in their host order; sorting names

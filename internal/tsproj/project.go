@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
@@ -49,8 +51,8 @@ type emitter struct {
 }
 
 // Project reads the compiler's checked package, never reparsing a signature.
-// Every mapped file exposes its package's operation types and the exported
-// types they reach, under their Ergo names. Reachable imported types are embedded under private schema names,
+// Every mapped file exposes its package's operation types and exported wire
+// records and unions, under their Ergo names. Reachable imported types are embedded under private schema names,
 // so their Ergo import paths need no TypeScript path translation.
 func Project(pkg *check.Package, file *syntax.File, source string, options Options) (Output, error) {
 	if options.Encoding == "" {
@@ -66,6 +68,7 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 		}
 	}
 	var contracts []*check.TypeName
+	var data []*check.Named
 	for _, obj := range pkg.Types {
 		if !public(obj.Name) {
 			continue
@@ -83,6 +86,13 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 		g.names[n] = obj.Name
 		if _, ok := n.Underlying().(*check.Interface); ok {
 			contracts = append(contracts, obj)
+		} else {
+			switch n.Underlying().(type) {
+			case *check.Struct, *check.Union:
+				if check.WireType(n) {
+					data = append(data, n)
+				}
+			}
 		}
 	}
 	// Tags are a property of the wire position, not a TypeScript naming rule.
@@ -98,14 +108,22 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 		}
 	}
 	g.s("import { Schema as $Schema } from \"effect\";\nimport { Rpc as $Rpc, RpcGroup as $RpcGroup } from \"effect/rpc\";\n")
-	// Only the wire is projected: the types the operation types reach.
-	// Other exported types (machines, records no operation carries) are
-	// not part of the wire and stay out of the mapped file.
+	tables, err := httpTables(pkg, file, contracts)
+	if err != nil {
+		return Output{}, err
+	}
+	if len(tables) > 0 {
+		g.s("import { HttpApi as $HttpApi, HttpApiGroup as $HttpApiGroup, HttpApiEndpoint as $HttpApiEndpoint, HttpApiSchema as $HttpApiSchema } from \"effect/http-api\";\n")
+	}
+	// Standalone wire declarations need no synthetic operation type.
+	for _, n := range data {
+		g.schema(n)
+	}
 	for _, c := range contracts {
 		ops, _ := rpcgen.Ops(pkg, c.Name)
 		for _, op := range ops {
 			for _, p := range op.Params {
-				g.schema(p.Type)
+				g.fieldSchema(p.Type)
 			}
 			if op.Result != nil {
 				g.schema(op.Result)
@@ -121,7 +139,7 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 		for _, op := range ops {
 			g.s("$Rpc.make(" + strconv.Quote(op.Name) + ", { payload: { ")
 			for _, p := range op.Params {
-				g.s(strconv.Quote(check.WireFieldName(rpcgen.FieldName(p.Name))) + ": " + g.schema(p.Type) + ", ")
+				g.s(strconv.Quote(check.WireFieldName(rpcgen.FieldName(p.Name))) + ": " + g.fieldSchema(p.Type) + ", ")
 			}
 			g.s("}, success: ")
 			if op.Result == nil {
@@ -141,6 +159,9 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 		}
 		g.s(") {}\n")
 	}
+	for _, table := range tables {
+		g.httpAPI(table)
+	}
 	if g.err != nil {
 		return Output{}, g.err
 	}
@@ -151,7 +172,11 @@ func Project(pkg *check.Package, file *syntax.File, source string, options Optio
 	return Output{Text: g.b.String(), Extension: ext, Mappings: g.maps}, nil
 }
 
-func public(s string) bool    { return s != "" && s[0] >= 'A' && s[0] <= 'Z' }
+func public(s string) bool {
+	r, _ := utf8.DecodeRuneInString(s)
+	return unicode.IsUpper(r)
+}
+
 func (g *emitter) s(s string) { g.b.WriteString(s) }
 func units(s, enc string) int {
 	if enc == "utf-16" {
@@ -194,6 +219,14 @@ func union(xs []string) string {
 	return "$Schema.Union([" + strings.Join(xs, ", ") + "])"
 }
 func (g *emitter) schema(t check.Type) string {
+	if arg := jsonArgument(t, "Nullable"); arg != nil {
+		return "$Schema.NullOr(" + g.schema(arg) + ")"
+	}
+	// std json.Value is written as the JSON value itself, untagged, so its
+	// wire projection is any JSON value, not the six-variant union.
+	if stdJSON(t, "Value", 0) != nil {
+		return "$Schema.Json"
+	}
 	switch u := t.(type) {
 	case *check.Basic:
 		switch u.Kind {
@@ -203,8 +236,12 @@ func (g *emitter) schema(t check.Type) string {
 			return "$Schema.Boolean"
 		case check.Int, check.Int8, check.Int16, check.Int32, check.Int64, check.Uint, check.Uint8, check.Uint16, check.Uint32, check.Uint64, check.Uintptr, check.Duration:
 			return "$Schema.Int"
-		case check.Float32, check.Float64:
-			return g.fail(t, "non-finite JSON float form needs an explicit schema")
+		case check.Float64:
+			// Effect's Number JSON codec is std json's float form: a finite
+			// JSON number, or "NaN", "Infinity" or "-Infinity".
+			return "$Schema.Number"
+		case check.Float32:
+			return g.fail(t, "a float32 rounds when decoded; a JavaScript number has no float32 form")
 		}
 	case *check.Slice:
 		return "$Schema.Array(" + g.schema(u.Elem) + ")"
@@ -271,7 +308,7 @@ func (g *emitter) declare(n *check.Named) {
 	switch u := under.(type) {
 	case *check.Struct:
 		for _, f := range u.Fields {
-			g.schema(f.Type)
+			g.fieldSchema(f.Type)
 		}
 	case *check.Union:
 		for _, v := range u.Variants {
@@ -358,9 +395,34 @@ func (g *emitter) fields(s *check.Struct, local bool) {
 	for _, f := range s.Fields {
 		g.s("\"")
 		g.name(check.WireFieldName(f.Name), f.Name, f.Pos, local)
-		g.s("\": " + g.schema(f.Type) + ", ")
+		g.s("\": " + g.fieldSchema(f.Type) + ", ")
 	}
 	g.s("}")
+}
+
+// JSON's field form depends on the instantiated field type, not its spelling.
+// Optional remains tagged in a slice, a tuple or an operation's result.
+func (g *emitter) fieldSchema(t check.Type) string {
+	if arg := jsonArgument(t, "Optional"); arg != nil {
+		return "$Schema.optionalKey(" + g.schema(arg) + ")"
+	}
+	return g.schema(t)
+}
+
+func jsonArgument(t check.Type, name string) check.Type {
+	if n := stdJSON(t, name, 1); n != nil {
+		return n.TArgs[0]
+	}
+	return nil
+}
+
+// stdJSON is t when it is std json's type name with args type arguments.
+func stdJSON(t check.Type, name string, args int) *check.Named {
+	n, ok := t.(*check.Named)
+	if ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == "json" && n.Obj.Name == name && len(n.TArgs) == args {
+		return n
+	}
+	return nil
 }
 func (g *emitter) doc(obj *check.TypeName) {
 	if !g.local[obj.Decl] || obj.Decl == nil || obj.Decl.Doc == nil {

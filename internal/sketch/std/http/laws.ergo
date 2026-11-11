@@ -97,7 +97,7 @@ law StreamIsItsWrites(status int, parts []string) {
 law InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) {
 	let text = if long { strings.Repeat(body+"x", 1100) } else { body }
 	let set = if listed%2 == 0 { values } else { values.Append(status) }
-	let accept Accept = if explicit { Statuses{Values: set} } else { Success }
+	let accept Accept = if explicit { Statuses{Values: set} } else { AnySuccess }
 	let mut taken = !explicit && status >= 200 && status < 300
 	for v in set {
 		taken = taken || explicit && v == status

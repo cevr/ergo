@@ -25,6 +25,14 @@ import (
 // interface; Go's encoding/json walks the structure by reflection at run
 // time. Ergo walks it once, in the checker.
 
+// WireType reports whether a fully checked type satisfies the wire constraint.
+// Tools use the same admission rule as encode and decode, without issuing a
+// diagnostic or recording an executed codec in the checked package.
+func WireType(t Type) bool {
+	c := newChecker("", Std, prelude().scope)
+	return c.wireReason(t) == ""
+}
+
 // wireReason is "" when t has a wire form, else why not: the first part
 // of t that has none, and the path to it from t (S108's text).
 func (c *checker) wireReason(t Type) string {

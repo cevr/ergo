@@ -49,7 +49,7 @@ func Fetch(r URLRequest) Response fails RequestFailed | OriginRefused | Redirect
 // no part stays to read after it. For another set of statuses, call
 // Network.SendURLInto.
 func FetchInto(r URLRequest, put func(part string) fails SinkFailed) Response fails RequestFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed needs Network {
-	try Network.SendURLInto(r, Success, put)
+	try Network.SendURLInto(r, AnySuccess, put)
 }
 
 // FetchFile sends r through the bound Network and writes a 2xx body to the
@@ -61,7 +61,7 @@ func FetchInto(r URLRequest, put func(part string) fails SinkFailed) Response fa
 // call IntoFile with Network.SendURLInto.
 func FetchFile(root fs.HostRoot, path string, r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs Network {
 	try IntoFile(root, path, func(file BodyFile) Response fails RequestFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed needs Network {
-		try Network.SendURLInto(r, Success, func(part string) fails SinkFailed { try file.Put(part) })
+		try Network.SendURLInto(r, AnySuccess, func(part string) fails SinkFailed { try file.Put(part) })
 	})
 }
 
