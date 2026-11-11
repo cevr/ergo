@@ -20,8 +20,9 @@
 //     code that reaches the value through a foreign call or a defect's
 //     text prints no byte of it (runtime/v1 TestRedactedNeverRenders).
 //
-// Reveal is the one read of the value. It is sealed (check.SealedStd):
-// NewRedacted, an extern, returns it, so no program value implements it.
+// Reveal is the one read of the value. Redacted is sealed by its private
+// operation runtimeOnly (grammar.md, Visibility): NewRedacted, an extern,
+// is its one provider, so no program value implements it.
 //
 // law-exempt: its one operation gives back the value NewRedacted was given; the top-level law RevealIsTheValue states it over NewRedacted, the only provider, and needs a comparable T.
 type Redacted[T] {

@@ -828,8 +828,8 @@
       "name": "t6-17-ne-eq-authority.go:598",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
       "file": "internal/sketch/check/authority.go",
-      "from": "\tif it := asInterface(t); it != nil {",
-      "to": "\tif it := asInterface(t); it == nil {",
+      "from": "\tif it := asInterface(t); it != nil {\n\t\treturn it.method(name)",
+      "to": "\tif it := asInterface(t); it == nil {\n\t\treturn it.method(name)",
       "rule": "operation: operation is the operation name of t's operation set when t is an operation type, a type defined over one, a type parameter (its constraint's) or a pointer to one of them: the method methodOf finds when it returns no function.",
       "killers": [
         "check:TestSealedOperationIdentity"
