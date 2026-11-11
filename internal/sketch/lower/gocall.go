@@ -205,6 +205,7 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 		head, vals = vals[0]+head, vals[1:]
 	}
 	fc.goErrorArgs(sig, vals)
+	fc.goSeqArgs(sig, x.Args, vals, x)
 	tunnels := fc.goCallbacks(sig, x.Args, vals, x)
 	if variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
@@ -248,6 +249,14 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	vs := make([]string, len(goResults))
 	for i, t := range goResults {
+		if isPreludeType(t, "Seq") {
+			// The call's checked type: a generic Go function's result
+			// names its own type parameter (maps.Keys's Seq[K]).
+			t = fc.typeOf(x)
+			if tuple, ok := t.(*check.Tuple); ok && len(goResults) > 1 {
+				t = tuple.Types[i]
+			}
+		}
 		vs[i] = fc.goResult(x, t, names[i], e, name)
 	}
 	if len(goResults) == 0 {
@@ -287,6 +296,60 @@ func (fc *funcCtx) goErrorArgs(sig *check.Signature, vals []string) {
 	}
 }
 
+// goSeqArgs makes each Seq argument of a Go call, vals in sig's parameter
+// order, Go's iter.Seq, which the binding maps to the prelude Seq
+// (gobind): Go's yield is called from the Seq's Ergo yield. The prelude
+// Seq's row is empty, so its error is nil, as in a for-in over a Seq.
+func (fc *funcCtx) goSeqArgs(sig *check.Signature, args []syntax.Expr, vals []string, site syntax.Node) {
+	for i, p := range sig.Params {
+		if i >= len(vals) || i >= len(args) {
+			return
+		}
+		if !isPreludeType(p.Type, "Seq") {
+			continue
+		}
+		// The argument's checked type: a generic Go function's parameter
+		// names its own type parameter (slices.Collect's Seq[E]).
+		n, ok := fc.typeOf(args[i]).(*check.Named)
+		if !ok || !isPreludeType(n, "Seq") || len(n.TArgs) != 1 {
+			ice(args[i], "a Seq argument of a Go call typed %s", fc.typeOf(args[i]))
+		}
+		elemType := fc.goType(n.TArgs[0])
+		yield, v := fc.scope.alloc("yield"), fc.scope.alloc("v")
+		callback := fc.envClosure(callerEnv, "_", site, func(_ string) ([]string, string, string) {
+			return []string{v + " " + elemType}, " (bool, error)", "return " + yield + "(" + v + "), nil\n"
+		})
+		vals[i] = "func(" + yield + " func(" + elemType + ") bool) { _, _ = (" + vals[i] + ")(" + fc.envExpr(site) + ", " + callback + ") }"
+	}
+}
+
+// seqFromGo is the prelude Seq t of r, a Go iter.Seq that a Go call
+// returned (goResult): the Seq ranges over r and calls its Ergo yield with
+// each element, ending when the yield stops or fails, as a std body's
+// deferred Seq does (stdResult).
+func (fc *funcCtx) seqFromGo(t check.Type, r string, site syntax.Node) string {
+	n, ok := t.(*check.Named)
+	if !ok || len(n.TArgs) != 1 {
+		ice(site, "a Go result of the Seq type %s with no element type", t)
+	}
+	return fc.envClosure(callerEnv, "e", site, func(e string) (params []string, results, text string) {
+		yield, v, ok2, err := fc.scope.alloc("yield"), fc.scope.alloc("v"), fc.scope.alloc("ok"), fc.scope.alloc("err")
+		ind := strings.Repeat("\t", fc.depth)
+		yieldType := fc.goType(n.Underlying().(*check.Signature).Params[0].Type)
+		return []string{yield + " " + yieldType}, " (struct{}, error)",
+			ind + "\tfor " + v + " := range " + r + " {\n" +
+				ind + "\t\t" + ok2 + ", " + err + " := " + yield + "(" + e + ", " + v + ")\n" +
+				ind + "\t\tif " + err + " != nil {\n" +
+				ind + "\t\t\treturn struct{}{}, " + err + "\n" +
+				ind + "\t\t}\n" +
+				ind + "\t\tif !" + ok2 + " {\n" +
+				ind + "\t\t\treturn struct{}{}, nil\n" +
+				ind + "\t\t}\n" +
+				ind + "\t}\n" +
+				ind + "\treturn struct{}{}, nil\n"
+	})
+}
+
 // goResult is the Ergo value of the Go result r of type t (the Ergo type
 // the binding gives it), whose call's error is e ("" when it has none).
 func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) string {
@@ -296,6 +359,8 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 		return fc.l.goErrorFrom() + "(" + r + ")"
 	}
 	switch {
+	case isPreludeType(t, "Seq"):
+		return fc.seqFromGo(t, r, x)
 	case isOptionType(t):
 		some, none := optionVariants(t, x)
 		v := fc.temp("v")

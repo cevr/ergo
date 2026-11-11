@@ -23,6 +23,7 @@ var (
 	_ = declarePrograms("TestExecLaws", testBuildProgram("execlaws", execLawsProbe))
 	_ = declarePrograms("TestFlagLaws", testBuildProgram("flaglaws", flagLawTests))
 	_ = declarePrograms("TestIORecorderBehavesAsBefore", testBuildProgram("recorder", recorderProbe))
+	_ = declarePrograms("TestGoSeqCrossesTheBoundary", testBuildProgram("goseq", goSeqProbe))
 	_ = declarePrograms("TestStdAscendingMatchesGo", entryProgram("ascending", ascendingProgram))
 	_ = declarePrograms("TestInputLinesMatchesModel", entryProgram("inputlines", inputLinesProgram))
 	_ = declarePrograms("TestFSWritesRuns", entryProgram("fsWrites", fsWritesProgram))
