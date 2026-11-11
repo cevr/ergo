@@ -1,10 +1,11 @@
 // The checks of Store's laws, one function per law, over the Store in the
 // caller's context. ergo test runs Store's laws against memory.Table, but
 // skips them for file.Log, whose values have no generator and which has no
-// constructor without rows (it holds an fs.Files; expected-skips). A
-// member law cannot call a function that needs its own type (types.md,
-// Laws 7), so each law is written twice: as the law in Store, and here as
-// a function the providers' tests call in a context that binds them.
+// constructor without rows (it holds an fs.Files; expected-skips). So each
+// law is also written here as a function that the providers' tests call in
+// a context that binds them. A member law may call these functions, since
+// Store is not generic (types.md, Laws 7); letting a test run a named law
+// against a bound provider would remove the copies.
 
 import slices
 

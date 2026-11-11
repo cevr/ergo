@@ -463,6 +463,16 @@ func sealedOwner(it *Interface, from *Package) *Package {
 	return nil
 }
 
+// Sealed reports an operation type with an unexported operation. Only
+// types of that operation's package implement it (grammar.md, Visibility).
+// This fact applies to every package, not only the standard library.
+func Sealed(t Type) bool {
+	if it := asInterface(t); it != nil {
+		return sealedOwner(it, nil) != nil
+	}
+	return false
+}
+
 // implementers are the types of owner that may implement it: each a
 // declared type of owner, not an operation type, with a function of owner
 // for every operation of it whose first parameter is the type or a borrow

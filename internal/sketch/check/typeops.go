@@ -255,11 +255,6 @@ const (
 type assignment struct {
 	clause assignClause
 	conv   Conversion
-	// sealed is set on a refusal whose target is a sealed std protocol
-	// (C28, extern.go sealedStd), with from the source type: the admitting
-	// site reports it through sealedRefused.
-	sealed *Named
-	from   Type
 }
 
 func (a assignment) ok() bool { return a.clause != assignRefused }
@@ -276,8 +271,6 @@ func (a assignment) ok() bool { return a.clause != assignRefused }
 //     parameter: no conversion;
 //  3. t's underlying type is an operation type and v implements it:
 //     ConvOperations with its table, none when v is an operation type;
-//     refused (sealed) when t is a sealed std protocol and v is not one
-//     (C28: only the runtime implements those; #206);
 //  4. a variant or a row value into a union: ConvVariant or ConvRow;
 //  5. a function value into a function type whose rows are supersets, at
 //     least one side unnamed: no conversion (every function value has one
@@ -354,11 +347,6 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {
 			// R22: the operation value would never be released.
 			return assignment{}, resourceIntoCrossingText(v, t)
-		}
-		if s := sealedStd(t); s != nil && sealedStd(v) == nil {
-			// A program value, or a program operation type's value, never
-			// becomes a sealed std protocol's value (C28).
-			return assignment{sealed: s, from: v}, sealedText(v, s)
 		}
 		if asInterface(v) != nil {
 			// An operation type's value is already an interface value.

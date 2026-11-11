@@ -271,14 +271,18 @@
     {
       "name": "seal-callback-params",
       "origin": "wf10 Rm",
-      "file": "internal/sketch/check/extern.go",
-      "from": "if ft, ok := p.Type.(*syntax.FuncType); ok && ft.Params != nil {",
-      "to": "if ft, ok := p.Type.(*syntax.FuncType); false && ok && ft.Params != nil {",
-      "rule": "A std operation type the host hands a program through an extern's callback (http.Exchange) is sealed: the runtime's Go type, never a program interface.",
+      "file": "internal/sketch/std/http/http.ergo",
+      "from": "type Exchange {\n\truntimeOnly(),",
+      "to": "type Exchange {",
+      "rule": "A std operation type the host hands a program through an extern's callback (http.Exchange) declares a private operation, so the visibility rule seals it.",
       "killers": [
-        "lower:TestHTTPHandlerRows"
-      ]
+        "check:TestSealingIsTheVisibilityRule"
+      ],
+      "anchor": {"tests":["check:TestSealingIsTheVisibilityRule"]}
     },
+    {"name":"std1a-refined-exit-field","origin":"STD1a","file":"internal/sketch/std/os/os.ergo","from":"type Exit { Code Code, Message string }","to":"type Exit { Code int, Message string }","rule":"Exit's Code field accepts only values of its refined failure-status type.","killers":["check:TestExitCodeIsRefined"],"anchor":{"tests":["check:TestExitCodeIsRefined"]}},
+    {"name":"std1a-seal-task","origin":"STD1a","file":"internal/sketch/std/prelude.ergo","from":"type Task[T, E] {\n\truntimeOnly(),","to":"type Task[T, E] {","rule":"A runtime Task cannot be forged by a program provider.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
+    {"name":"std1a-seal-queue","origin":"STD1a","file":"internal/sketch/std/queue/queue.ergo","from":"type Queue[T] {\n\truntimeOnly(),","to":"type Queue[T] {","rule":"A runtime Queue declares its seal.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
     {
       "name": "existing-0-B1 rowText prints commas",
       "origin": "196n/mutants-b.json",
@@ -839,8 +843,8 @@
       "name": "t6-17-ne-eq-authority.go:598",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
       "file": "internal/sketch/check/authority.go",
-      "from": "\tif it := asInterface(t); it != nil {",
-      "to": "\tif it := asInterface(t); it == nil {",
+      "from": "\tif it := asInterface(t); it != nil {\n\t\treturn it.method(name)",
+      "to": "\tif it := asInterface(t); it == nil {\n\t\treturn it.method(name)",
       "rule": "operation: operation is the operation name of t's operation set when t is an operation type, a type defined over one, a type parameter (its constraint's) or a pointer to one of them: the method methodOf finds when it returns no function.",
       "killers": [
         "check:TestSealedOperationIdentity"
@@ -1046,11 +1050,11 @@
       "name": "t6-36-false-true-operators.go:334",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
       "file": "internal/sketch/check/operators.go",
-      "from": "\t\tif c.sealedRefused(x, sealed) {\n\t\t\treturn false\n\t\t}",
-      "to": "\t\tif c.sealedRefused(x, sealed) {\n\t\t\treturn true\n\t\t}",
+      "from": "if !a.ok() {\n\t\t\t\tcontinue\n\t\t\t}",
+      "to": "if !a.ok() {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "matchTypes: matchTypes reports operands of two types (S108): both operands of a binary operator have one type (196u rule 4), and == and != also compare a value with an interface it is assignable to.",
       "killers": [
-        "check:TestStdProtocolSealed"
+        "check:TestSealingIsTheVisibilityRule"
       ]
     },
     {
