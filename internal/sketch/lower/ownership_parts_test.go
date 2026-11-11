@@ -1,0 +1,501 @@
+package lower
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Partly built values and owned loop elements in TestOwnershipRunModel's
+// generator (genOwnRun), and so in TestStaticReleaseAgrees under both
+// release lowerings (16a fix r1; resources R35, R43, Q7).
+//
+// An orAgg statement builds a value of parts left to right: a tuple (also
+// nested, bound whole or by a pattern), a record bound by a pattern, the
+// arguments of a call that takes both, or a tuple a callee returns. A part
+// is a call that opens a resource, a literal, an owned local moved in, a
+// try of a call that fails when n > cond, or a call that raises a defect
+// when n > cond, at any position. A part made before a later part leaves
+// is released on that edge, and once the value is built it is the value's
+// alone (Info.PartHands). An orQLoop statement iterates a queue's Values()
+// that main filled and ended: each element is the iteration's own, with a
+// continue, a break, a return, a failure and a defect out of its body.
+//
+// Mutants it catches that nothing else does (the check and lower
+// mutants.json, 16a-r1-*): a part left without an owner while a later
+// part runs (a try, a call, a division), in a literal or a call's
+// operands; a part handed to its value with its entry kept; a part
+// registered after a later operand ran; an elided element unregistered;
+// a held std take given a second owner; a Values binding unregistered.
+
+const orPartsPrelude = `type Pair { R Res, S Res }
+
+func openf(id int, bad bool, n int, c int) Res fails Bad needs Console {
+	if n > c {
+		return Bad{n: n}
+	}
+	open(id, bad)
+}
+
+func openb(id int, bad bool, n int, c int) Res needs Console {
+	if n > c {
+		Unreachable("boom")
+	}
+	open(id, bad)
+}
+
+func use2(t (Res, Res)) {}
+
+func keep2(a Res, b Res) needs Console takes a, b {
+	Console.Println("keep2 \(a.id) \(b.id)")
+}
+
+func give2(a int, b int, n int, c int) (Res, Res) fails Bad needs Console {
+	return (open(a, false), try openf(b, false, n, c))
+}
+
+`
+
+const orQueuePrelude = `func fill(q queue.Queue[Res], id int, bad bool) needs Console {
+	q.Push(open(id, bad)) catch {
+	case queue.Closed:
+		Console.Println("closed")
+	}
+}
+
+`
+
+type aggForm uint8
+
+const (
+	aggWhole  aggForm = iota // let tV = (P, P); use2(tV)
+	aggTuple                 // let (rA, (rB, rC)) = (P, (P, P)), nested
+	aggRecord                // let Pair{R: rA, S: rB} = Pair{R: P, S: P}
+	aggCall                  // keep2(P, P): the callee takes both
+	aggGive                  // let (rA, rB) = try give2(…): a returned tuple
+	aggAppend                // let sA = []Res{P}; let sB = sA.Append(P): a held std take
+)
+
+type partKind uint8
+
+const (
+	pOpen  partKind = iota // open(id, bad)
+	pLit                   // Res{id: id, bad: bad}
+	pVar                   // rW, an owned local moved in
+	pTry                   // try openf(id, bad, n, cond): fails when n > cond
+	pBoom                  // openb(id, bad, n, cond): a defect when n > cond
+	pDiv                   // Res{id: id + 0 / (n - cond), …}: a defect, with no call, when n == cond
+	pTuple                 // (P, P)
+)
+
+type orPart struct {
+	kind  partKind
+	id    int
+	bad   bool
+	w     int // pVar: the local moved in
+	v     int // a pattern's binding of this leaf
+	cond  int
+	elems []*orPart
+}
+
+type orAggStmt struct {
+	form  aggForm
+	parts []*orPart
+	t     int    // aggWhole: the tuple's local
+	ids   [2]int // aggGive
+	vs    [2]int // aggGive: the bindings
+	cond  int    // aggGive
+}
+
+// aggregate generates an orAgg statement: its parts, then its bindings.
+func (g *orGen) aggregate() *orAggStmt {
+	a := &orAggStmt{form: aggForm(g.r.IntN(6))}
+	taken := map[int]bool{}
+	flat := func() *orPart {
+		for {
+			switch k := partKind(g.r.IntN(6)); k {
+			case pDiv:
+				return &orPart{kind: pDiv, id: g.id(), bad: g.bad(), cond: 1 + g.r.IntN(4)}
+			case pOpen, pLit:
+				return &orPart{kind: k, id: g.id(), bad: g.bad()}
+			case pVar:
+				var free []int
+				for _, w := range g.owned() {
+					if !taken[w] {
+						free = append(free, w)
+					}
+				}
+				if len(free) == 0 {
+					continue
+				}
+				w := free[g.r.IntN(len(free))]
+				taken[w] = true
+				return &orPart{kind: pVar, w: w}
+			case pTry:
+				return &orPart{kind: pTry, id: g.id(), bad: g.bad(), cond: g.r.IntN(9)} // fails less often than orFail, so later statements run
+			case pBoom:
+				if g.r.IntN(2) == 0 {
+					continue
+				}
+				return &orPart{kind: pBoom, id: g.id(), bad: g.bad(), cond: g.r.IntN(9)}
+			}
+		}
+	}
+	switch a.form {
+	case aggGive:
+		a.ids = [2]int{g.id(), g.id()}
+		a.cond = g.r.IntN(5)
+		a.vs = [2]int{g.declare(false), g.declare(false)}
+		return a
+	case aggTuple:
+		for i := 2 + g.r.IntN(2); i > 0; i-- {
+			if g.r.IntN(3) == 0 {
+				a.parts = append(a.parts, &orPart{kind: pTuple, elems: []*orPart{flat(), flat()}})
+			} else {
+				a.parts = append(a.parts, flat())
+			}
+		}
+	case aggAppend:
+		a.parts = []*orPart{flat(), flat(), flat()}
+	default:
+		a.parts = []*orPart{flat(), flat()}
+	}
+	if g.r.IntN(3) == 0 {
+		// The last part leaves (n is known): every part before it has
+		// been made and is released on that edge.
+		last := &a.parts[len(a.parts)-1]
+		if (*last).kind == pVar {
+			delete(taken, (*last).w)
+		}
+		switch g.r.IntN(3) {
+		case 0:
+			*last = &orPart{kind: pTry, id: g.id(), cond: g.n - 1}
+		case 1:
+			*last = &orPart{kind: pBoom, id: g.id(), cond: g.n - 1}
+		default:
+			*last = &orPart{kind: pDiv, id: g.id(), cond: g.n}
+		}
+	}
+	for w := range taken {
+		g.state[w] = 1
+	}
+	switch a.form {
+	case aggWhole:
+		a.t = g.nextV
+		g.nextV++
+	case aggAppend:
+		a.t = g.nextV
+		g.nextV += 2
+	case aggTuple, aggRecord:
+		var bind func(p *orPart)
+		bind = func(p *orPart) {
+			if p.kind == pTuple {
+				for _, e := range p.elems {
+					bind(e)
+				}
+				return
+			}
+			p.v = g.declare(false)
+		}
+		for _, p := range a.parts {
+			bind(p)
+		}
+	}
+	return a
+}
+
+func (p *orPart) text() string {
+	switch p.kind {
+	case pOpen:
+		return fmt.Sprintf("open(%d, %v)", p.id, p.bad)
+	case pLit:
+		return fmt.Sprintf("Res{id: %d, bad: %v}", p.id, p.bad)
+	case pVar:
+		return fmt.Sprintf("r%d", p.w)
+	case pTry:
+		return fmt.Sprintf("try openf(%d, %v, n, %d)", p.id, p.bad, p.cond)
+	case pBoom:
+		return fmt.Sprintf("openb(%d, %v, n, %d)", p.id, p.bad, p.cond)
+	case pDiv:
+		return fmt.Sprintf("Res{id: %d + 0 / (n - %d), bad: %v}", p.id, p.cond, p.bad)
+	}
+	var xs []string
+	for _, e := range p.elems {
+		xs = append(xs, e.text())
+	}
+	return "(" + strings.Join(xs, ", ") + ")"
+}
+
+// pattern is the tuple pattern that binds p's leaves.
+func (p *orPart) pattern() string {
+	if p.kind != pTuple {
+		return fmt.Sprintf("r%d", p.v)
+	}
+	var xs []string
+	for _, e := range p.elems {
+		xs = append(xs, e.pattern())
+	}
+	return "(" + strings.Join(xs, ", ") + ")"
+}
+
+// leaves are p's bindings in written order.
+func (p *orPart) leaves(into []int) []int {
+	if p.kind != pTuple {
+		return append(into, p.v)
+	}
+	for _, e := range p.elems {
+		into = e.leaves(into)
+	}
+	return into
+}
+
+func (a *orAggStmt) write(b *strings.Builder, ind string) {
+	texts := func() []string {
+		var xs []string
+		for _, p := range a.parts {
+			xs = append(xs, p.text())
+		}
+		return xs
+	}
+	var bound []int
+	switch a.form {
+	case aggWhole:
+		fmt.Fprintf(b, "%slet t%d = (%s)\n%suse2(t%d)\n", ind, a.t, strings.Join(texts(), ", "), ind, a.t)
+	case aggTuple:
+		root := &orPart{kind: pTuple, elems: a.parts}
+		fmt.Fprintf(b, "%slet %s = (%s)\n", ind, root.pattern(), strings.Join(texts(), ", "))
+		bound = root.leaves(nil)
+	case aggRecord:
+		x := texts()
+		fmt.Fprintf(b, "%slet Pair{R: r%d, S: r%d} = Pair{R: %s, S: %s}\n", ind, a.parts[0].v, a.parts[1].v, x[0], x[1])
+		bound = []int{a.parts[0].v, a.parts[1].v}
+	case aggCall:
+		fmt.Fprintf(b, "%skeep2(%s)\n", ind, strings.Join(texts(), ", "))
+	case aggAppend:
+		x := texts()
+		for i, p := range a.parts[:2] {
+			if p.kind == pLit {
+				x[i] = strings.TrimPrefix(x[i], "Res") // an elided literal
+			}
+		}
+		fmt.Fprintf(b, "%slet s%d = []Res{%s, %s}\n%slet s%d = s%d.Append(%s)\n", ind, a.t, x[0], x[1], ind, a.t+1, a.t, x[2])
+	case aggGive:
+		fmt.Fprintf(b, "%slet (r%d, r%d) = try give2(%d, %d, n, %d)\n", ind, a.vs[0], a.vs[1], a.ids[0], a.ids[1], a.cond)
+		bound = a.vs[:]
+	}
+	for _, v := range bound {
+		fmt.Fprintf(b, "%suse(r%d)\n", ind, v) // a pattern's bindings are used (S110)
+	}
+}
+
+// aggregate runs an orAgg statement in scope sc.
+func (m *orModel) aggregate(a *orAggStmt, sc int) orExit {
+	if a.form == aggGive {
+		m.say("open %d", a.ids[0])
+		if m.n > a.cond {
+			// give2's frame releases its operand; the failure leaves run.
+			m.say("close %d", a.ids[0])
+			return exFail
+		}
+		m.say("open %d", a.ids[1])
+		for i, v := range a.vs {
+			m.acquire(v, a.ids[i], false, sc)
+		}
+		for _, id := range a.ids {
+			m.say("use %d", id)
+		}
+		return exNormal
+	}
+	// Each part is the statement's (a temporary on the frame list) until
+	// the value is built.
+	var eval func(p *orPart) (*orEntry, orExit)
+	eval = func(p *orPart) (*orEntry, orExit) {
+		var e *orEntry
+		switch p.kind {
+		case pOpen:
+			m.say("open %d", p.id)
+			e = &orEntry{id: p.id, bad: p.bad, scope: -1}
+		case pLit:
+			e = &orEntry{id: p.id, bad: p.bad, scope: -1}
+		case pVar:
+			old := m.vars[p.w]
+			m.vars[p.w] = nil
+			m.remove(old)
+			e = &orEntry{id: old.id, bad: old.bad, scope: -1, parts: old.parts}
+		case pDiv:
+			if m.n == p.cond {
+				return nil, exDefect // an integer division by zero
+			}
+			e = &orEntry{id: p.id, bad: p.bad, scope: -1}
+		case pTry, pBoom:
+			if m.n > p.cond {
+				if p.kind == pTry {
+					return nil, exFail
+				}
+				return nil, exDefect
+			}
+			m.say("open %d", p.id)
+			e = &orEntry{id: p.id, bad: p.bad, scope: -1}
+		case pTuple:
+			var es []*orEntry
+			for _, x := range p.elems {
+				pe, ex := eval(x)
+				if ex != exNormal {
+					return nil, ex
+				}
+				es = append(es, pe)
+			}
+			for _, pe := range es {
+				m.remove(pe)
+			}
+			e = &orEntry{scope: -1, parts: es}
+		}
+		m.push(e)
+		return e, exNormal
+	}
+	if a.form == aggAppend {
+		// sA owns the first two; Append's entry for sA stays until the
+		// call returns, while its other operand may still leave.
+		var es []*orEntry
+		for _, p := range a.parts[:2] {
+			e, x := eval(p)
+			if x != exNormal {
+				return x
+			}
+			es = append(es, e)
+		}
+		for _, e := range es {
+			m.remove(e)
+		}
+		s1 := &orEntry{scope: sc, parts: es}
+		m.push(s1)
+		e2, x := eval(a.parts[2])
+		if x != exNormal {
+			return x
+		}
+		m.remove(e2)
+		m.remove(s1)
+		m.push(&orEntry{scope: sc, parts: append(es, e2)})
+		return exNormal
+	}
+	var tops []*orEntry
+	for _, p := range a.parts {
+		e, x := eval(p)
+		if x != exNormal {
+			return x
+		}
+		tops = append(tops, e)
+	}
+	for _, e := range tops {
+		m.remove(e) // the value is built: its parts are its own
+	}
+	switch a.form {
+	case aggWhole:
+		m.push(&orEntry{scope: sc, parts: tops})
+	case aggTuple, aggRecord:
+		var leaves []*orEntry
+		var flatten func(e *orEntry)
+		flatten = func(e *orEntry) {
+			if e.parts != nil {
+				for _, x := range e.parts {
+					flatten(x)
+				}
+				return
+			}
+			leaves = append(leaves, e)
+		}
+		var vs []int
+		for i, e := range tops {
+			flatten(e)
+			vs = a.parts[i].leaves(vs)
+		}
+		for i, v := range vs {
+			m.acquire(v, leaves[i].id, leaves[i].bad, sc)
+		}
+		for _, e := range leaves {
+			m.say("use %d", e.id)
+		}
+	case aggCall:
+		m.say("keep2 %d %d", tops[0].id, tops[1].id)
+		// keep2's frame releases what it took, last first.
+		b1 := m.release(tops[1])
+		b0 := m.release(tops[0])
+		if b1 || b0 {
+			return exDefect
+		}
+	}
+	return exNormal
+}
+
+// queueLoop generates an orQLoop: its queue's elements, its continue and
+// break points, and a body that sees only its own element (as orFor's).
+func (g *orGen) queueLoop() orStmt {
+	s := orStmt{kind: orQLoop, breakAt: -1, contAt: -1}
+	for i := 1 + g.r.IntN(3); i > 0; i-- {
+		s.elems = append(s.elems, orEntry{id: g.id(), bad: g.bad()})
+	}
+	if g.r.IntN(2) == 0 {
+		s.breakAt = g.r.IntN(len(s.elems))
+	}
+	if g.r.IntN(2) == 0 {
+		s.contAt = g.r.IntN(len(s.elems))
+	}
+	saved := g.scopes
+	g.scopes = [][]int{nil}
+	g.depth++
+	s.v = g.declare(false)
+	for i := 1 + g.r.IntN(3); i > 0; i-- {
+		s.body = append(s.body, g.stmt())
+	}
+	g.depth--
+	g.scopes = saved
+	s.q = len(g.queues)
+	g.queues = append(g.queues, s)
+	return s
+}
+
+func orWriteQueueLoop(b *strings.Builder, s orStmt, depth int, muts map[int]bool) {
+	ind := strings.Repeat("\t", depth)
+	fmt.Fprintf(b, "%sfor r%d in q%d.Values() {\n", ind, s.v, s.q)
+	fmt.Fprintf(b, "%s\tuse(r%d)\n", ind, s.v)
+	if s.contAt >= 0 {
+		fmt.Fprintf(b, "%s\tif r%d.id == %d {\n%s\t\tcontinue\n%s\t}\n", ind, s.v, s.elems[s.contAt].id, ind, ind)
+	}
+	if s.breakAt >= 0 {
+		fmt.Fprintf(b, "%s\tif r%d.id == %d {\n%s\t\tbreak\n%s\t}\n", ind, s.v, s.elems[s.breakAt].id, ind, ind)
+	}
+	orWrite(b, s.body, depth+1, muts)
+	fmt.Fprintf(b, "%s}\n", ind)
+}
+
+// queueLoop runs an orQLoop: each element popped is the iteration's own,
+// released at the iteration's end, a continue or a break, or by the
+// frame's End when the body leaves it.
+func (m *orModel) queueLoop(s orStmt) orExit {
+	for i := 0; len(m.left[s.q]) > 0; i++ {
+		e := m.left[s.q][0]
+		m.left[s.q] = m.left[s.q][1:]
+		m.nextSc++
+		isc := m.nextSc
+		m.acquire(s.v, e.id, e.bad, isc)
+		m.say("use %d", e.id)
+		if i == s.contAt {
+			if m.endScope(isc) {
+				return exDefect
+			}
+			continue
+		}
+		if i == s.breakAt {
+			if m.endScope(isc) {
+				return exDefect
+			}
+			break
+		}
+		if x := m.stmts(s.body, isc); x != exNormal {
+			return x
+		}
+		if m.endScope(isc) {
+			return exDefect
+		}
+	}
+	return exNormal
+}

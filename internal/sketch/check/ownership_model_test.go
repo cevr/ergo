@@ -59,6 +59,7 @@ func TestOwnershipFlowModel(t *testing.T) {
 	}
 	for _, seed := range seeds {
 		ofPatternOwners(t, seed)
+		ofPatternConsumers(t, seed)
 		ofYieldProjections(t, seed)
 		ofYieldLifetimes(t, seed)
 		g := &ofGen{r: rand.New(rand.NewPCG(seed, 0x197a2))}

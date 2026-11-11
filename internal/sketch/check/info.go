@@ -281,6 +281,13 @@ type Info struct {
 	// (additive).
 	OwnedVars  map[*Var]*Drop
 	OwnedTemps map[syntax.Expr]*Drop
+	// PartHands marks each OwnedTemps operand that is a moved part of a
+	// value still being built (a tuple or composite literal, a call's
+	// arguments): its statement owns it while a later part may still leave
+	// (a failed try, a defect, a stop), and it moves to that value when the
+	// value is built. The lowering removes its entry there (R43). Added in
+	// 16a fix r1 (additive).
+	PartHands map[syntax.Expr]bool
 	// TaskCaptures records the resource captures handed to the root of a
 	// started task (R12). A repeated callback only lends them: the root
 	// owns and releases them once, outside all runs of the callback.
@@ -432,6 +439,7 @@ func newInfo() *Info {
 		Releases:       map[syntax.Node][]Release{},
 		OwnedVars:      map[*Var]*Drop{},
 		OwnedTemps:     map[syntax.Expr]*Drop{},
+		PartHands:      map[syntax.Expr]bool{},
 		TaskCaptures:   map[syntax.Node]*TaskCapture{},
 		ResultDrops:    map[*syntax.CallExpr]*Drop{},
 		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},

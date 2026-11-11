@@ -100,6 +100,9 @@ const (
 	orFail                 // try fail(cond): fails when n > cond
 	orBoom                 // boom(cond): a defect when n > cond
 	orStop                 // the stop point: push to q, wait on hang
+	orAgg                  // a value built of parts, a later one may leave (ownership_parts_test.go)
+	orReturn               // if n > cond { return n }
+	orQLoop                // for rV in qK.Values() { … }: each element owned (Q7)
 )
 
 type orStmt struct {
@@ -113,19 +116,25 @@ type orStmt struct {
 	loops     int
 	breakAt   int // -1 for none
 	contAt    int // -1 for none
+	agg       *orAggStmt
+	q         int       // orQLoop: the queue's parameter number
+	elems     []orEntry // orQLoop: the queue's elements, in push order
 }
 
 // orGen generates an admitted body: it tracks each variable's state as
 // the checker does (owned, moved, maybe) and uses only owned ones.
 type orGen struct {
-	r      *rand.Rand
-	nextV  int
-	nextID int
-	state  map[int]int // 0 owned, 1 moved, 2 maybe
-	mut    map[int]bool
-	scopes [][]int
-	stop   bool // the case has a stop point (top level, once)
-	depth  int
+	r        *rand.Rand
+	nextV    int
+	nextID   int
+	state    map[int]int // 0 owned, 1 moved, 2 maybe
+	mut      map[int]bool
+	scopes   [][]int
+	stop     bool // the case has a stop point (top level, once)
+	depth    int
+	queues   []orStmt // the queue loops, by queue number (no stop case has one)
+	stopCase bool
+	n        int // run's argument
 }
 
 func (g *orGen) owned() []int {
@@ -197,7 +206,19 @@ func (g *orGen) stmt() orStmt {
 		}
 	}
 	for {
-		switch k := orKind(g.r.IntN(12)); k {
+		switch k := orKind(g.r.IntN(15)); k {
+		case orAgg:
+			return orStmt{kind: orAgg, agg: g.aggregate()}
+		case orReturn:
+			if g.r.IntN(3) != 0 {
+				continue
+			}
+			return orStmt{kind: orReturn, cond: g.r.IntN(5)}
+		case orQLoop:
+			if g.stopCase || g.depth > 2 {
+				continue
+			}
+			return g.queueLoop()
 		case orOpen:
 			mut := g.r.IntN(3) == 0
 			s := orStmt{kind: orOpen, id: g.id(), bad: g.bad(), give: g.r.IntN(3) == 0, mut: mut}
@@ -282,18 +303,18 @@ func genOwnRun(seed int) (string, string) {
 	for sub := 0; ; sub++ {
 		r := rand.New(rand.NewPCG(uint64(seed), uint64(sub)))
 		stop := r.IntN(3) == 0
-		g := &orGen{r: r, state: map[int]int{}, mut: map[int]bool{}, stop: stop}
 		n := 1 + r.IntN(4)
+		g := &orGen{r: r, state: map[int]int{}, mut: map[int]bool{}, stop: stop, stopCase: stop, n: n}
 		body := g.block(3 + r.IntN(6))
 		if stop && g.stop {
 			continue // no stop point was placed
 		}
-		m := &orModel{n: n}
+		m := &orModel{n: n, queues: g.queues}
 		want, reached := m.run(body, stop)
 		if stop && !reached {
 			continue // the body ended before its stop point
 		}
-		return orSource(body, n, stop), want
+		return orSource(body, n, stop, g.queues), want
 	}
 }
 
@@ -341,16 +362,27 @@ func boom(n int, c int) {
 
 `
 
-func orSource(body []orStmt, n int, stop bool) string {
+func orSource(body []orStmt, n int, stop bool, queues []orStmt) string {
 	var b strings.Builder
 	if stop {
 		b.WriteString("import queue\nimport task\n\n")
+	} else if len(queues) > 0 {
+		b.WriteString("import queue\n\n")
 	}
 	b.WriteString(orPrelude)
+	b.WriteString(orPartsPrelude)
+	if len(queues) > 0 {
+		b.WriteString(orQueuePrelude)
+	}
+	var qparams, qargs string
+	for k := range queues {
+		qparams += fmt.Sprintf(", q%d queue.Queue[Res]", k)
+		qargs += fmt.Sprintf(", q%d", k)
+	}
 	if stop {
 		b.WriteString("func run(n int, q queue.Queue[int], hang queue.Queue[int]) int fails Bad | queue.Closed needs Console {\n")
 	} else {
-		b.WriteString("func run(n int) int fails Bad needs Console {\n")
+		b.WriteString("func run(n int" + qparams + ") int fails Bad needs Console {\n")
 	}
 	orWrite(&b, body, 1, orAssigned(body, map[int]bool{}))
 	b.WriteString("\tn\n}\n\n")
@@ -368,15 +400,24 @@ func orSource(body []orStmt, n int, stop bool) string {
 }
 `, n)
 	} else {
-		fmt.Fprintf(&b, `func main() needs Console {
-	let v = run(%d) catch {
+		b.WriteString("func main() needs Console {\n")
+		// Each queue loop's queue is main's: filled and ended before run,
+		// lent to run, and what run leaves in it is released at main's end.
+		for k, q := range queues {
+			fmt.Fprintf(&b, "\tlet q%d = queue.New[Res](%d)\n", k, len(q.elems))
+			for _, e := range q.elems {
+				fmt.Fprintf(&b, "\tfill(q%d, %d, %v)\n", k, e.id, e.bad)
+			}
+			fmt.Fprintf(&b, "\tq%d.End()\n", k)
+		}
+		fmt.Fprintf(&b, `	let v = run(%d%s) catch {
 	case Bad:
 		Console.Println("failure")
 		-1
 	}
 	Console.Println("value \(v)")
 }
-`, n)
+`, n, qargs)
 	}
 	return b.String()
 }
@@ -448,6 +489,12 @@ func orWrite(b *strings.Builder, list []orStmt, depth int, muts map[int]bool) {
 			fmt.Fprintf(b, "%sboom(n, %d)\n", ind, s.cond)
 		case orStop:
 			fmt.Fprintf(b, "%stry q.Push(1)\n%slet _ = try hang.Pop()\n", ind, ind)
+		case orAgg:
+			s.agg.write(b, ind)
+		case orReturn:
+			fmt.Fprintf(b, "%sif n > %d {\n%s\treturn n\n%s}\n", ind, s.cond, ind, ind)
+		case orQLoop:
+			orWriteQueueLoop(b, s, depth, muts)
 		}
 	}
 }
@@ -465,12 +512,17 @@ type orModel struct {
 	scope  map[int]int // variable -> its declaring scope
 	nextSc int
 	defect bool
+	queues []orStmt    // the queue loops' queues, by number
+	left   [][]orEntry // what each queue still holds
 }
 
 type orEntry struct {
 	id    int
 	bad   bool
 	scope int
+	// parts is a tuple's or record's parts, released last first by its
+	// generated release (B2), each after an earlier defect (R9).
+	parts []*orEntry
 }
 
 // orExit is how a statement list ends.
@@ -483,12 +535,20 @@ const (
 	exFail   // a typed failure leaves the frame
 	exDefect // a defect leaves the frame
 	exStop   // the stop point: the task is stopped there
+	exReturn // a return leaves the frame with its value
 )
 
 func (m *orModel) say(f string, a ...any) { m.out = append(m.out, fmt.Sprintf(f, a...)) }
 
 // release ends one entry: it reports a defect.
 func (m *orModel) release(e *orEntry) bool {
+	if e.parts != nil {
+		bad := false
+		for i := len(e.parts) - 1; i >= 0; i-- {
+			bad = m.release(e.parts[i]) || bad
+		}
+		return bad
+	}
 	m.say("close %d", e.id)
 	if e.bad {
 		m.defect = true
@@ -535,6 +595,13 @@ func (m *orModel) acquire(v, id int, bad bool, sc int) {
 // stop point was reached.
 func (m *orModel) run(body []orStmt, stop bool) (string, bool) {
 	m.vars, m.scope = map[int]*orEntry{}, map[int]int{}
+	// main fills each queue first.
+	for _, q := range m.queues {
+		for _, e := range q.elems {
+			m.say("open %d", e.id)
+		}
+		m.left = append(m.left, append([]orEntry(nil), q.elems...))
+	}
 	x := m.block(body)
 	reached := x == exStop
 	// The frame's End: every entry left, last first.
@@ -544,7 +611,6 @@ func (m *orModel) run(body []orStmt, stop bool) (string, bool) {
 	m.stack = nil
 	switch {
 	case m.defect || x == exDefect:
-		m.say("defect")
 	case stop:
 		m.say("stopped")
 	case x == exFail:
@@ -552,6 +618,16 @@ func (m *orModel) run(body []orStmt, stop bool) (string, bool) {
 		m.say("value -1")
 	default:
 		m.say("value %d", m.n)
+	}
+	// main's End: each queue, last made first, releases what it still
+	// holds, last entered first.
+	for k := len(m.left) - 1; k >= 0; k-- {
+		for i := len(m.left[k]) - 1; i >= 0; i-- {
+			m.release(&m.left[k][i])
+		}
+	}
+	if m.defect || x == exDefect {
+		m.say("defect")
 	}
 	return strings.Join(m.out, "\n") + "\n", reached
 }
@@ -667,6 +743,14 @@ func (m *orModel) stmt(s orStmt, sc int) orExit {
 		}
 	case orStop:
 		return exStop
+	case orAgg:
+		return m.aggregate(s.agg, sc)
+	case orReturn:
+		if m.n > s.cond {
+			return exReturn
+		}
+	case orQLoop:
+		return m.queueLoop(s)
 	}
 	return exNormal
 }

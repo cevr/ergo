@@ -631,6 +631,7 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 	for i := len(list) - 1; i >= 0; i-- {
 		later[i] = later[i+1] || (list[i] != nil && fc.emits(list[i]))
 	}
+	parts := fc.partsFrom(list)
 	out := make([]string, len(list))
 	for i, x := range list {
 		if x == nil {
@@ -645,10 +646,11 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 		default:
 			out[i] = fc.assigned(x)
 		}
-		if later[i+1] && !fc.isConst(x) {
+		if (later[i+1] || i >= parts) && !fc.isConst(x) {
 			out[i] = fc.spill(out[i])
 		}
 	}
+	fc.handParts(list)
 	if c := fc.l.info.Calls[call]; c != nil && c.Site != nil {
 		out = append(out, fc.siteValue(call, c.Site))
 	}

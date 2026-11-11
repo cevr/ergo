@@ -227,6 +227,8 @@ type lowerer struct {
 	// owned is the Go name of each owned value's entry (release.go, B1):
 	// keyed by its *check.Var or its temporary's syntax.Expr.
 	owned map[any]string
+	// handed is each part a value being built took over (handParts).
+	handed map[syntax.Expr]bool
 	// Root registration callbacks for repeated moving task bodies (R12).
 	captureRoots map[syntax.Node]string
 	libs         []*check.Package // the libraries the program reaches (libraries)
@@ -524,6 +526,16 @@ func (l *lowerer) program() ([]byte, error) {
 		l.guard(func() { l.entry(&entry, main) })
 	}
 	l.drainPending()
+	for x := range l.info.PartHands {
+		// A part registered for its statement and never handed to the
+		// value built from it would be released twice (handParts).
+		if l.owned[x] != "" && !l.handed[x] {
+			l.guard(func() {
+				ice(x, "a part registered for its statement was never handed to the value built from it (handParts)")
+			})
+			break
+		}
+	}
 	if len(l.flatBails) > 0 {
 		return l.lowerAgain()
 	}

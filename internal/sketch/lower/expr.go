@@ -142,6 +142,7 @@ func (fc *funcCtx) operands(list []syntax.Expr, convert bool) []string {
 	for i := len(list) - 1; i >= 0; i-- {
 		later[i] = later[i+1] || fc.emits(list[i])
 	}
+	parts := fc.partsFrom(list)
 	out := make([]string, len(list))
 	for i, x := range list {
 		if convert {
@@ -149,10 +150,11 @@ func (fc *funcCtx) operands(list []syntax.Expr, convert bool) []string {
 		} else {
 			out[i] = fc.value(x)
 		}
-		if later[i+1] && !fc.isConst(x) {
+		if (later[i+1] || i >= parts) && !fc.isConst(x) {
 			out[i] = fc.spill(out[i])
 		}
 	}
+	fc.handParts(list)
 	return out
 }
 
@@ -732,6 +734,7 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 		values = append(values, kv.Value)
 	}
 	vals := fc.operands(values, true)
+	vals = fc.handBase(x.Base, vals)
 	if td.goError && len(vals) == 1 {
 		// go.Error has one field: the update is a new go.Error (IG5).
 		fc.line(u + " = " + fc.l.rt() + ".GoErrorText(" + vals[0] + ")")
@@ -782,6 +785,7 @@ func (fc *funcCtx) spread(x *syntax.CompositeLit, t check.Type, td *typeDecl, co
 		values = append(values, kv.Value)
 	}
 	vals := fc.operands(values, true)
+	vals = fc.handBase(x.Base, vals)
 	for i := range parts {
 		parts[i] += ": " + vals[i]
 	}
@@ -821,17 +825,20 @@ func (fc *funcCtx) elements(list []syntax.Expr, _ check.Type) []string {
 	for i := len(list) - 1; i >= 0; i-- {
 		later[i] = later[i+1] || fc.emits(list[i])
 	}
+	parts := fc.partsFrom(list)
 	out := make([]string, len(list))
 	for i, e := range list {
 		if lit, ok := e.(*syntax.CompositeLit); ok && lit.Type == nil {
-			out[i] = fc.composite(lit, fc.typeOf(lit))
+			// An elided literal is still a value its statement may own.
+			out[i] = fc.ownTemp(lit, operand{val: fc.composite(lit, fc.typeOf(lit))}).val
 		} else {
 			out[i] = fc.assigned(e)
 		}
-		if later[i+1] && !fc.isConst(e) {
+		if (later[i+1] || i >= parts) && !fc.isConst(e) {
 			out[i] = fc.spill(out[i])
 		}
 	}
+	fc.handParts(list)
 	return out
 }
 
