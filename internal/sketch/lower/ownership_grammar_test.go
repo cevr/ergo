@@ -907,9 +907,9 @@ func (g *ogGen) stmt(d int) *ogStmt {
 		g.badSince = false
 		switch g.r.IntN(25) {
 		case 24:
-			// A Go file, in run's frame only (it needs go.Foreign, which
-			// main provides): bound and lent, lent as a temporary, or
-			// taken.
+			// A Go file, in run's frame only (go.Foreign is in its row,
+			// and main provides it): bound and lent, lent as a
+			// temporary, or taken.
 			if !g.inRun || g.noTry {
 				continue
 			}
