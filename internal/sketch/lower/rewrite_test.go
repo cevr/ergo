@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"fmt"
 	"math/rand"
 	"os"
 	"regexp"
@@ -41,7 +42,10 @@ func (a agreeType) rename(s string) string {
 	return agreeOpRe.ReplaceAllStringFunc(s, func(m string) string { return a.ops[m[:len(m)-1]] + "(" })
 }
 
-func (a agreeType) source() string {
+func (a agreeType) source(values bool) string {
+	if values {
+		return a.valueSource()
+	}
 	src := a.rwType.source()
 	head, rest, _ := strings.Cut(src, "}\n\n")
 	for _, p := range a.posts {
@@ -105,11 +109,19 @@ func genAgreeTypes(rng *rand.Rand) []agreeType {
 // agreeProgram writes the program: the types, a site function per
 // provider, an anchor (`Add(1); Add(2)` on the first lawful provider,
 // which J joins) and main, which calls each site with a few arguments.
-func agreeProgram(rng *rand.Rand, types []agreeType) (src, anchor string) {
+func agreeProgram(rng *rand.Rand, types []agreeType, values bool) (src, anchor string) {
 	var b strings.Builder
-	b.WriteString("import sync\n\n")
+	if values {
+		b.WriteString(`type Digit int where 0 <= it && it < 4
+func digit(n int) Digit {
+	match n & 3 { case 0: 0; case 1: 1; case 2: 2; case _: 3 }
+}
+`)
+	} else {
+		b.WriteString("import sync\n\n")
+	}
 	for _, a := range types {
-		b.WriteString(a.source())
+		b.WriteString(a.source(values))
 	}
 	var sites []string
 	for _, a := range types {
@@ -119,7 +131,11 @@ func agreeProgram(rng *rand.Rand, types []agreeType) (src, anchor string) {
 		}
 		for _, p := range provs {
 			bump := rwName(rng, "bump")
-			b.WriteString(a.rename("func " + bump + "(q " + p + ") { q.Inc() }\n\n"))
+			borrow := ""
+			if values {
+				borrow = "*"
+			}
+			b.WriteString(a.rename("func " + bump + "(q " + borrow + p + ") { q.Inc() }\n\n"))
 			for range 3 {
 				name := rwName(rng, "site")
 				sites = append(sites, name)
@@ -127,7 +143,7 @@ func agreeProgram(rng *rand.Rand, types []agreeType) (src, anchor string) {
 				for range 6 + rng.Intn(8) {
 					switch r := rng.Intn(20); {
 					case r < 6:
-						arg := []string{"x", "y", strconv.Itoa(rng.Intn(6))}[rng.Intn(3)]
+						arg := []string{"x", "y", strconv.Itoa(rng.Intn(4))}[rng.Intn(3)]
 						body = append(body, "c.Add("+arg+")")
 					case r < 9:
 						body = append(body, "c.Inc()")
@@ -138,7 +154,11 @@ func agreeProgram(rng *rand.Rand, types []agreeType) (src, anchor string) {
 					case r < 17:
 						body = append(body, "Console.Println(\"read \\(c.Read())\")")
 					case r < 18:
-						body = append(body, bump+"(c)")
+						arg := "c"
+						if values {
+							arg = "&c"
+						}
+						body = append(body, bump+"("+arg+")")
 					default:
 						body = append(body, "if x > y {\n\t\tc.Halve()\n\t}")
 					}
@@ -164,7 +184,7 @@ func agreeProgram(rng *rand.Rand, types []agreeType) (src, anchor string) {
 	b.WriteString("func main() needs Console {\n\t" + anchor + "()\n")
 	for _, s := range sites {
 		for range 3 {
-			b.WriteString("\t" + s + "(" + strconv.Itoa(rng.Intn(5)) + ", " + strconv.Itoa(rng.Intn(5)) + ")\n")
+			b.WriteString("\t" + s + "(" + strconv.Itoa(rng.Intn(4)) + ", " + strconv.Itoa(rng.Intn(4)) + ")\n")
 		}
 	}
 	// Each fixed site at every state Add(x) reaches (C is odd).
@@ -174,7 +194,62 @@ func agreeProgram(rng *rand.Rand, types []agreeType) (src, anchor string) {
 		}
 	}
 	b.WriteString("}\n")
-	return b.String(), anchor
+	text := b.String()
+	if values {
+		text = strings.ReplaceAll(text, "(x int, y int)", "(x Digit, y Digit)")
+		text = strings.ReplaceAll(text, "let c = New", "let mut c = New")
+	}
+	return text, anchor
+}
+
+// valueSource gives the same two-bit reference machine its own value
+// state and listable parameters. Computed Add arguments reduce modulo four,
+// exactly as Add itself does in the handle-backed reference provider.
+func (a agreeType) valueSource() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "type %s { Add(n Digit), Inc(), Halve(), Clear(), Read() int, Even() bool,\n", a.name)
+	for _, law := range a.laws {
+		text := law.text()
+		head := text[:strings.LastIndex(text, " == ")]
+		head = strings.ReplaceAll(head, " int", " Digit")
+		var right []string
+		for _, op := range law.rhs {
+			if op.name != "Add" {
+				right = append(right, op.text())
+				continue
+			}
+			arg := op.arg.text()
+			bare := len(op.arg.params) == 1 && op.arg.add == 0 && op.arg.spot == ""
+			if !bare {
+				for _, p := range op.arg.params {
+					arg = strings.ReplaceAll(arg, p, "int("+p+")")
+				}
+				arg = "digit(" + arg + ")"
+			}
+			right = append(right, "Add("+arg+")")
+		}
+		fmt.Fprintf(&b, "%s == { %s },\n", head, strings.Join(right, "; "))
+	}
+	for _, post := range a.posts {
+		b.WriteString(post + ",\n")
+	}
+	b.WriteString("}\n")
+	for _, provider := range []struct {
+		name  string
+		delta int64
+	}{{a.prov, a.d}, {a.other, a.od}} {
+		if provider.name == "" {
+			continue
+		}
+		p := provider.name
+		fmt.Fprintf(&b, "type %s { s Digit }\nfunc New%s() %s { %s{s: 0} }\n", p, p, p, p)
+		fmt.Fprintf(&b, "func Add(p *%s, n Digit) { p.s = digit(int(p.s) + int(n)*%d) }\n", p, a.c)
+		fmt.Fprintf(&b, "func Inc(p *%s) { p.s = digit(int(p.s) + %d) }\n", p, provider.delta)
+		fmt.Fprintf(&b, "func Halve(p *%s) { p.s = digit(int(p.s)/2) }\n", p)
+		fmt.Fprintf(&b, "func Clear(p *%s) { p.s = digit(int(p.s)&^1) }\n", p)
+		fmt.Fprintf(&b, "func Read(p %s) int { int(p.s)&1 }\nfunc Even(p %s) bool { int(p.s)&1 == 0 }\n", p, p)
+	}
+	return a.rename(b.String())
 }
 
 // TestRewriteAgrees: the build's evidence admits proved laws only, so on
@@ -192,6 +267,15 @@ func agreeProgram(rng *rand.Rand, types []agreeType) (src, anchor string) {
 // evaluation does not run, and the evidence is the built check run.
 func TestRewriteAgrees(t *testing.T) {
 	needsBuild(t)
+	saved := inlineLowering
+	inlineLowering = "call"
+	defer func() { inlineLowering = saved }()
+	for _, values := range []bool{false, true} {
+		t.Run(fmt.Sprintf("value=%v", values), func(t *testing.T) { rewriteAgree(t, values) })
+	}
+}
+
+func rewriteAgree(t *testing.T, values bool) {
 	seed := int64(1)
 	if s := os.Getenv("ERGO_REWRITE_AGREE_SEED"); s != "" {
 		v, err := strconv.ParseInt(s, 10, 64)
@@ -202,7 +286,7 @@ func TestRewriteAgrees(t *testing.T) {
 	}
 	rng := rand.New(rand.NewSource(seed))
 	types := genAgreeTypes(rng)
-	src, anchor := agreeProgram(rng, types)
+	src, anchor := agreeProgram(rng, types, values)
 	replay := "replay: ERGO_REWRITE_AGREE_SEED=" + strconv.FormatInt(seed, 10) + " go test -run TestRewriteAgrees ./internal/sketch/lower"
 	file, err := syntax.Parse(src)
 	if err != nil {
@@ -236,8 +320,12 @@ func TestRewriteAgrees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed %d: %v\n%s", seed, err, src)
 	}
-	if got := strings.Count(goFunc(t, (&lowered{files: built}).mainGo(), anchor), add); got != 2 {
-		t.Fatalf("seed %d: the build's anchor calls %s %d times on tested evidence, want 2\ncheck run:\n%s\n%s", seed, add, got, checkOut, replay)
+	wantDefault := 2
+	if values {
+		wantDefault = 1
+	}
+	if got := strings.Count(goFunc(t, (&lowered{files: built}).mainGo(), anchor), add); got != wantDefault {
+		t.Fatalf("seed %d: the build's anchor calls %s %d times, want %d\ncheck run:\n%s\n%s", seed, add, got, wantDefault, checkOut, replay)
 	}
 	// The property tests the engine: it admits the tested runs explicitly,
 	// which no build does.
@@ -260,7 +348,11 @@ func TestRewriteAgrees(t *testing.T) {
 		if p.name == "fast" {
 			want = 1
 		}
-		if got := strings.Count(body, add); got != want || want == 1 && !strings.Contains(body, "int(3)") {
+		constant := "int(3)"
+		if values {
+			constant = "Digit(3)"
+		}
+		if got := strings.Count(body, add); got != want || want == 1 && !strings.Contains(body, constant) {
 			t.Fatalf("seed %d: the %s anchor calls %s %d times, want %d:\n%s\ncheck run:\n%s\n%s", seed, p.name, add, got, want, body, checkOut, replay)
 		}
 	}

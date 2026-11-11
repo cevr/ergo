@@ -74,6 +74,7 @@ func (l *lowerer) proofLists(params []*check.Var, site syntax.Node) ([][]string,
 
 // proofEach writes the cartesian product in the shared finite-domain order.
 func proofEach(b *strings.Builder, scope *namer, params []*check.Var, lists [][]string, typ func(check.Type) string, body func([]string)) {
+	b.WriteString("{\n")
 	var args []string
 	for i, p := range params {
 		a := scope.alloc("arg")
@@ -84,6 +85,7 @@ func proofEach(b *strings.Builder, scope *namer, params []*check.Var, lists [][]
 	for range params {
 		b.WriteString("}\n")
 	}
+	b.WriteString("}\n")
 }
 
 // valueProof emits exhaustive runs on keyed provider records. Search mode
@@ -173,12 +175,16 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 	complete, cases, admitted, held := ns.alloc("complete"), ns.alloc("cases"), ns.alloc("admitted"), ns.alloc("held")
 	depths, paths := ns.alloc("depths"), ns.alloc("paths")
 	budget := ns.alloc("budget")
+	counterexample := ns.alloc("counterexample")
+	stop := ns.alloc("stop")
 	w("{")
 	w("var " + states + " []" + stateT)
 	w("var " + depths + " []int; var " + paths + " []string")
 	w(seen + " := map[string]bool{}")
 	w(complete + ", " + held + " := true, true")
 	w(cases + ", " + admitted + " := 0, 0")
+	w(counterexample + " := \"\"")
+	w(stop + " := \"\"")
 	w(budget + " := " + l.helper("States") + "()")
 	w(key + " := func(" + v + " " + stateT + ") string { var " + k + " " + l.helper("explore") + ".Key; " + l.keyStmt(p.Type, "&"+k, v, law.Decl) + "; return string(" + k + ".Bytes()) }")
 	d, path := ns.alloc("depth"), ns.alloc("path")
@@ -215,10 +221,10 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 		if law.Rewrite.Guard != nil {
 			g = ns.alloc("guard")
 			w(g + ", " + err + " := " + l.rewriteGuard(law) + "(&" + e + "); if " + err + " != nil { " + held + " = false }")
-			w("if " + key + "(" + a + ") != " + key + "(" + state + ") { " + held + " = false }")
+			w("if " + key + "(" + a + ") != " + key + "(" + state + ") { " + stop + " = \"the guard changes the provider state\"; " + complete + " = false }")
 		}
 		w(cases + "++")
-		w("if " + g + " && " + held + " {")
+		w("if " + g + " && " + held + " && " + complete + " {")
 		w(admitted + "++")
 		callargs := strings.Join(append([]string{"&" + e}, args...), ", ")
 		w(err + " := " + l.rewriteSide(law, false) + "(" + callargs + ")")
@@ -227,6 +233,7 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 		w("if " + l.rewriteSide(law, true) + "(" + callargs + ") != nil { " + held + " = false }")
 		w("if " + key + "(" + a + ") != " + key + "(" + c + ") { " + held + " = false }")
 		w("}")
+		w("if !" + held + " { " + counterexample + " = \"state = \" + " + l.litExpr(p.Type, state, law.Decl) + " + \", path = \" + " + paths + "[" + idx + "] + \"; left = \" + " + l.litExpr(p.Type, a, law.Decl) + " + \"; right = \" + " + l.litExpr(p.Type, c, law.Decl) + " }")
 		w("}")
 	})
 	if search {
@@ -249,14 +256,17 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 	}
 	w("}")
 	fmt, conv := l.helper("fmt"), l.helper("strconv")
-	w("if !" + held + " {")
+	w("if " + stop + " != \"\" {")
+	w(fmt + ".Println(" + strconv.Quote("skip "+label+" (not proved: ") + "+" + stop + "+\")\")")
+	w("} else if !" + held + " {")
 	if search {
-		w(fmt + ".Println(" + strconv.Quote("FAIL "+label+": sides differ at reached state") + "); " + failed + "++")
+		w(fmt + ".Println(" + strconv.Quote("FAIL "+label+": sides differ at reached state: ") + "+" + counterexample + "); " + failed + "++")
+		w(l.replayLine(law, `""`))
 	} else {
-		w(fmt + ".Println(" + strconv.Quote("skip "+label+" (not proved: false at a state which may be unreachable)") + ")")
+		w(fmt + ".Println(" + strconv.Quote("skip "+label+" (not proved: false at a state which may be unreachable): ") + "+" + counterexample + ")")
 	}
 	w("} else if !" + complete + " {")
-	w(fmt + ".Println(" + strconv.Quote("skip "+label+" (not proved: explored ") + "+" + conv + ".Itoa(len(" + states + "))+\")\")")
+	w(fmt + ".Println(" + strconv.Quote("skip "+label+" (not proved: explored ") + "+" + conv + ".Itoa(len(" + states + "))+\" states, depth \"+ " + conv + ".Itoa(" + depths + "[len(" + depths + ")-1])+\")\")")
 	w("} else if " + admitted + " == 0 {")
 	w(fmt + ".Println(" + strconv.Quote("skip "+label+": no case reaches a state its guard admits") + ")")
 	w("} else {")

@@ -335,6 +335,10 @@ func (fc *funcCtx) rewriteWindow(list []syntax.Stmt) int {
 	receiver := fc.value(unparen(fc.l.info.Calls[calls[0]].Recv))
 	_, borrowed := recv.Type.(*check.Pointer)
 	pointer := borrowed
+	for _, rule := range fc.l.rewrite.rules[prov] {
+		_, lends := rule.conv.From.(*check.Pointer)
+		pointer = pointer || lends
+	}
 	for _, c := range window {
 		pointer = pointer || c.fn.Ptr
 	}

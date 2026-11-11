@@ -172,6 +172,7 @@ func (l *lowerer) nameTests() {
 		if r.Law.Rewrite != nil {
 			for _, bd := range r.Bindings {
 				if len(bd) == 1 && bd[0].Value && l.keyWhy(bd[0].Type) == "" {
+					reserveLit(bd[0].Type)
 					l.keyTypes(bd[0].Type, map[string]bool{}, func(t check.Type) {
 						key, base, _ := l.keyName(t)
 						l.pkgName(key, base)
