@@ -17,7 +17,8 @@ import (
 // Option of an Option, a tuple match, constant patterns, Go's == and the
 // structural ==, a failure that holds an Option, wire's codec, a resource
 // payload whose Close the arm calls, a machine state that holds an Option,
-// a machine's after timer, a Go extern's Option, generated and listed law
+// a machine's after timer, a Go extern's Option, a union a Go extern's
+// signature names (Go's zero value tells a flat one apart), generated and listed law
 // arguments, Options of a go.Ref in the pointer niche), and a main that
 // runs each statement path once in the seed's order and more at random,
 // with random arguments, ending normally, in an uncaught failure whose text
@@ -41,7 +42,7 @@ var optionPaths = []string{
 	"find", "find-string", "get-match", "get-bound", "eq-go", "eq-structural", "pair", "nested",
 	"holder", "fails", "catch-yield", "store", "map-value", "map-key", "update", "std", "closure",
 	"cell", "resource", "write", "match-expr", "if-expr", "loop-return", "lost-caught",
-	"go-extern", "timed", "catch-variant", "if-header",
+	"go-extern", "go-extern-union", "timed", "catch-variant", "if-header",
 	"niche", "handle",
 	"u-show", "u-mk", "u-eq", "u-map", "u-slice", "u-wire", "u-fail", "u-tuple", "u-yield", "u-generic",
 	// The ends, one per seed (seed % optionEnds).
@@ -104,6 +105,22 @@ func again(r Option[go.Ref[gostrings.Replacer]], b bool) Option[go.Ref[gostrings
 		repl(false)
 	case _:
 		None
+	}
+}
+
+// A Go extern's signature names Lean, so Lean keeps its Go view: Go's
+// cmp.Or returns its first value that is not Go's zero value, and a flat
+// Slack would be the zero struct.
+type Lean = Slack{} | Taut{ n int }
+
+extern go cmp.Or func firstSet(vals []Lean) Lean needs go.Foreign
+
+func lean(l Lean) string {
+	match l {
+	case Slack:
+		"slack"
+	case Taut as t:
+		"taut \(t.n)"
 	}
 }
 
@@ -618,6 +635,9 @@ func (g *optionGen) stmt(path string) {
 		g.line(fmt.Sprintf("Console.Println(\"\\(%s)\")", v))
 	case "go-extern":
 		g.line(fmt.Sprintf(`Console.Println(env(%q) + " " + replaced(%q))`, []string{"PATH", "ERGO_OPT2_NEVER_SET"}[g.r.IntN(2)], []string{"banana", "xyz"}[g.r.IntN(2)]))
+	case "go-extern-union":
+		first := []string{"Slack", fmt.Sprintf("Taut{n: %d}", g.small())}[g.r.IntN(2)]
+		g.line(fmt.Sprintf("Console.Println(lean(firstSet([]Lean{%s, Taut{n: %d}})))", first, 1+g.small()))
 	case "timed":
 		g.line(fmt.Sprintf("Console.Println(timed(%d))", g.r.IntN(30)))
 	case "if-header":

@@ -2090,8 +2090,7 @@
       "file": "internal/sketch/lower/flatunion.go",
       "from": "\t\t\tif !ok || states[tn] || extern[tn] || l.flatOff[tn] {",
       "to": "\t\t\tif !ok || states[tn] || l.flatOff[tn] {",
-      "rule": "types.md Unions 6: a union a Go extern's signature names keeps its Go view, an interface.",
-      "gap": "equivalent today (OPT3 probe): an extern names an Ergo union only through a generic Go function (slices.Contains over []U), which a flat union and an interface pass alike; the guard (from MU8b) keeps the Go view for a future non-generic binding",
+      "rule": "types.md Unions 6: a union a Go extern's signature names keeps its Go view, an interface (Go's cmp.Or takes a flat first variant for Go's zero value; OPT6).",
       "killers": [
         "lower:TestFlatUnionsAgree"
       ]
