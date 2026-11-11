@@ -3938,8 +3938,8 @@
       "name": "jf-direct-ops-binding",
       "origin": "wf10 JSON-fast",
       "file": "internal/sketch/lower/wiredirect.go",
-      "from": "if runtimeBindings[from.Obj.Name+\".\"+op.Name] != (runtimeBinding{task: true}) {",
-      "to": "if false && runtimeBindings[from.Obj.Name+\".\"+op.Name] != (runtimeBinding{task: true}) {",
+      "from": "if runtimeBindings[from.Obj.Name+\".\"+runtimeMember(op.Name)] != (runtimeBinding{task: true}) {",
+      "to": "if false && runtimeBindings[from.Obj.Name+\".\"+runtimeMember(op.Name)] != (runtimeBinding{task: true}) {",
       "rule": "directOps admits only operations whose binding is the plain task binding: any other (a wait, a release, a context read) needs the adapter's call.",
       "killers": [
         "lower:TestSealedStdConvertsToItsOperationTypes"
