@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"math"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -11,6 +12,11 @@ import (
 )
 
 // The Go runners of std rand (std-align S2c; docs/spec/stdlib.md, rand).
+
+// largeN bounds the large seeded n of the tests below: 2^62 where int is
+// 64 bits, 2^30 where it is 32 (GOARCH=386, where 1<<62 does not fit int
+// and the vet step of the gate would fail to type-check this file).
+const largeN = math.MaxInt/2 + 1
 
 // TestSeededRandModel is the model check of rand.Seeded (the red
 // acceptance check of S2c). For 1,000 seeds, a generated mix of 64 calls
@@ -34,7 +40,7 @@ func TestSeededRandModel(t *testing.T) {
 			case 1:
 				n := 1 + gen.IntN(1000)
 				if gen.IntN(4) == 0 {
-					n = 1 + int(gen.Int64N(1<<62))
+					n = 1 + gen.IntN(largeN)
 				}
 				got, again, want := src.IntN(n), twin.IntN(n), model.IntN(n)
 				if got != want || again != want {
@@ -60,9 +66,9 @@ func TestRandLaws(t *testing.T) {
 		ns = append(ns, n)
 	}
 	for range 1000 {
-		ns = append(ns, 1001+int(gen.Int64N(1<<62)))
+		ns = append(ns, 1001+gen.IntN(largeN))
 	}
-	ns = append(ns, 1<<62, int(^uint(0)>>1))
+	ns = append(ns, largeN, math.MaxInt)
 	src := NewStream(9)
 	intN := `IntNInRange(n int) { if n <= 0 { return true } let x = IntN(n) x >= 0 && x < n }`
 	lawledger.Run(t, map[string]lawledger.Law{
@@ -99,7 +105,7 @@ func TestRandLaws(t *testing.T) {
 // lock free, so the stream goes on.
 func TestRandIntNNotPositiveIsADefect(t *testing.T) {
 	src := NewStream(1)
-	for _, n := range []int{0, -1, -1 << 63} {
+	for _, n := range []int{0, -1, math.MinInt} {
 		for name, draw := range map[string]func(int) int{"Stream": src.IntN, "host": RandHostIntN} {
 			func() {
 				defer func() {

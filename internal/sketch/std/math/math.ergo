@@ -2,7 +2,8 @@
 // bits; std-text-runes). Each extern binds a pure runtime/v1 body
 // (runtime/v1/numbers.go) that calls Go's function of the same name, so a
 // call compiles to Go's own call, an instruction for Floor, Ceil, Trunc,
-// Sqrt and Abs on amd64 and arm64. Go's constants are functions here
+// Sqrt and Abs on amd64 and arm64; the bodies of ToInt … ToUintptr are
+// guarded conversions. Go's constants are functions here
 // (MaxInt64()): a std package let has no Go name in a build yet.
 
 // Abs is the absolute value of f; Abs(±Inf) is +Inf and Abs(NaN) is NaN.
@@ -55,6 +56,50 @@ func MaxInt() int { 9223372036854775807 }
 // MinInt is the smallest int, Go's math.MinInt.
 func MinInt() int { -9223372036854775807 - 1 }
 
+// OutOfRange is the failure of a float that an integer type cannot hold:
+// NaN, an infinity, or a value whose truncation lies outside the type's
+// range. Value is the float.
+type OutOfRange { Value float64 }
+
+// The checked conversions, one per integer type T that a float converts
+// to (docs/spec/types.md, Conversions 4): ToT(f) is f toward zero, as
+// T(f) is, when the result fits T. Where T(f) saturates (an infinity, a
+// value out of range) or gives 0 for NaN, ToT fails OutOfRange, for a
+// caller that must know. byte is ToUint8 and rune is ToInt32.
+
+// ToInt is the checked int(f).
+extern go ergo.local/prototype/runtime/v1.MathToInt func ToInt(f float64) int fails OutOfRange
+
+// ToInt8 is the checked int8(f).
+extern go ergo.local/prototype/runtime/v1.MathToInt8 func ToInt8(f float64) int8 fails OutOfRange
+
+// ToInt16 is the checked int16(f).
+extern go ergo.local/prototype/runtime/v1.MathToInt16 func ToInt16(f float64) int16 fails OutOfRange
+
+// ToInt32 is the checked int32(f).
+extern go ergo.local/prototype/runtime/v1.MathToInt32 func ToInt32(f float64) int32 fails OutOfRange
+
+// ToInt64 is the checked int64(f).
+extern go ergo.local/prototype/runtime/v1.MathToInt64 func ToInt64(f float64) int64 fails OutOfRange
+
+// ToUint is the checked uint(f).
+extern go ergo.local/prototype/runtime/v1.MathToUint func ToUint(f float64) uint fails OutOfRange
+
+// ToUint8 is the checked uint8(f).
+extern go ergo.local/prototype/runtime/v1.MathToUint8 func ToUint8(f float64) uint8 fails OutOfRange
+
+// ToUint16 is the checked uint16(f).
+extern go ergo.local/prototype/runtime/v1.MathToUint16 func ToUint16(f float64) uint16 fails OutOfRange
+
+// ToUint32 is the checked uint32(f).
+extern go ergo.local/prototype/runtime/v1.MathToUint32 func ToUint32(f float64) uint32 fails OutOfRange
+
+// ToUint64 is the checked uint64(f).
+extern go ergo.local/prototype/runtime/v1.MathToUint64 func ToUint64(f float64) uint64 fails OutOfRange
+
+// ToUintptr is the checked uintptr(f).
+extern go ergo.local/prototype/runtime/v1.MathToUintptr func ToUintptr(f float64) uintptr fails OutOfRange
+
 // FloorCeilBracket: a finite f lies between its Floor and its Ceil, which
 // are at most 1 apart.
 law FloorCeilBracket(f float64) {
@@ -74,3 +119,96 @@ law TruncTowardZero(f float64) {
 
 // AbsIsNonNegative: Abs is never below zero.
 law AbsIsNonNegative(f float64) { IsNaN(f) || Abs(f) >= 0.0 }
+
+// ToTFailsOnlyOutside, one law per checked conversion: ToT fails exactly
+// for NaN, for f at or past T's greatest value plus one, and for a
+// truncation below T's least value; otherwise it gives f's truncation,
+// which is T(f).
+
+law ToIntFailsOnlyOutside(f float64) {
+	let n = ToInt(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 9223372036854775808.0 || Trunc(f) < -9223372036854775808.0
+	}
+	float64(n) == Trunc(f) && n == int(f)
+}
+
+law ToInt8FailsOnlyOutside(f float64) {
+	let n = ToInt8(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 128.0 || Trunc(f) < -128.0
+	}
+	float64(n) == Trunc(f) && n == int8(f)
+}
+
+law ToInt16FailsOnlyOutside(f float64) {
+	let n = ToInt16(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 32768.0 || Trunc(f) < -32768.0
+	}
+	float64(n) == Trunc(f) && n == int16(f)
+}
+
+law ToInt32FailsOnlyOutside(f float64) {
+	let n = ToInt32(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 2147483648.0 || Trunc(f) < -2147483648.0
+	}
+	float64(n) == Trunc(f) && n == int32(f)
+}
+
+law ToInt64FailsOnlyOutside(f float64) {
+	let n = ToInt64(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 9223372036854775808.0 || Trunc(f) < -9223372036854775808.0
+	}
+	float64(n) == Trunc(f) && n == int64(f)
+}
+
+law ToUintFailsOnlyOutside(f float64) {
+	let n = ToUint(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0
+	}
+	float64(n) == Trunc(f) && n == uint(f)
+}
+
+law ToUint8FailsOnlyOutside(f float64) {
+	let n = ToUint8(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 256.0 || Trunc(f) < 0.0
+	}
+	float64(n) == Trunc(f) && n == uint8(f)
+}
+
+law ToUint16FailsOnlyOutside(f float64) {
+	let n = ToUint16(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 65536.0 || Trunc(f) < 0.0
+	}
+	float64(n) == Trunc(f) && n == uint16(f)
+}
+
+law ToUint32FailsOnlyOutside(f float64) {
+	let n = ToUint32(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 4294967296.0 || Trunc(f) < 0.0
+	}
+	float64(n) == Trunc(f) && n == uint32(f)
+}
+
+law ToUint64FailsOnlyOutside(f float64) {
+	let n = ToUint64(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0
+	}
+	float64(n) == Trunc(f) && n == uint64(f)
+}
+
+law ToUintptrFailsOnlyOutside(f float64) {
+	let n = ToUintptr(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0
+	}
+	float64(n) == Trunc(f) && n == uintptr(f)
+}

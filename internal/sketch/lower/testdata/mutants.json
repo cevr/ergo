@@ -3299,6 +3299,11 @@
           "lower:TestPropertySeed"
         ]
       }
-    }
+    },
+    {"name": "sconv-lower-go-conversion", "origin": "wf10/S-conv", "file": "internal/sketch/lower/calls.go", "from": "if helper := floatToInteger(from, c.Type); helper != \"\" {", "to": "if helper := floatToInteger(from, c.Type); false && helper != \"\" {", "rule": "types.md Conversions 4: a float converts to an integer through runtime/v1, never Go's conversion, whose result out of range is the host's.", "killers": ["lower:TestFloatConversionIsPortable"]},
+    {"name": "sconv-lower-float32-raw", "origin": "wf10/S-conv", "file": "internal/sketch/lower/floatconv.go", "from": "f.Kind != check.Float32 && f.Kind != check.Float64", "to": "f.Kind != check.Float64", "rule": "types.md Conversions 4: a float32 converts by the same rule as a float64.", "killers": ["lower:TestFloatConversionIsPortable"]},
+    {"name": "sconv-lower-float32-unwidened", "origin": "wf10/S-conv", "file": "internal/sketch/lower/floatconv.go", "from": "\t\treturn \"float64(\" + val + \")\"\n", "to": "\t\treturn val\n", "rule": "types.md Conversions 4: a float32 widens to float64, exactly, before the conversion.", "killers": ["lower:TestFloatConversionIsPortable"]},
+    {"name": "sconv-lower-wrong-width", "origin": "wf10/S-conv", "file": "internal/sketch/lower/floatconv.go", "from": "check.Int16:   \"FloatToInt16\",", "to": "check.Int16:   \"FloatToInt32\",", "rule": "types.md Conversions 4: each integer type saturates at its own bounds.", "killers": ["lower:TestFloatConversionIsPortable"]},
+    {"name": "sconv-runtime-noinline", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func FloatToInt64(f float64) int64 {", "to": "//go:noinline\nfunc FloatToInt64(f float64) int64 {", "rule": "types.md Conversions 4, Lowering: the conversion inlines to Go's conversion and its compares.", "killers": ["lower:TestFloatConversionInlines"], "anchor": {"file": "internal/sketch/lower/floatconv.go", "text": "func floatToInteger(", "tests": ["lower:TestFloatConversionInlines"]}}
   ]
 }

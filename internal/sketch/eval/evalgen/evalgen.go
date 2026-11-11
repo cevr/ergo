@@ -29,6 +29,7 @@ package evalgen
 
 import (
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"sort"
 	"strconv"
@@ -655,8 +656,16 @@ func (g *gen) intExpr(d int) iexpr {
 		return ie("area(sh0)", func(m *model) int64 { return area(m.sh) })
 	case 12:
 		g.kind("conversion")
-		if g.r.IntN(2) == 0 {
+		switch g.r.IntN(3) {
+		case 0:
 			return ie("int(w0)", func(m *model) int64 { return int64(m.w) })
+		case 1:
+			// A float to a narrower integer saturates (types.md,
+			// Conversions 4): truncated toward zero, then clamped.
+			v := g.pick(intVars)
+			return ie("int(int8(float64("+v+") / 3.0))", func(m *model) int64 {
+				return int64(max(-128, min(127, math.Trunc(float64(m.ints[v])/3.0))))
+			})
 		}
 		return ie("int(u0)", func(m *model) int64 { return int64(m.u) })
 	case 13:

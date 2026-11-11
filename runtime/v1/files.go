@@ -261,6 +261,7 @@ var stdRecords = map[string]string{
 	"io.ReadFailed":        "ReadFailed",
 	"term.NotTerminal":     "TermNotTerminal",
 	"term.Window":          "TermWindow",
+	"math.OutOfRange":      "MathOutOfRange",
 	"os.Exit":              "Exit",
 	"os.NoWorkdir":         "NoWorkdir",
 	"queue.Closed":         "Closed",

@@ -395,6 +395,15 @@
       "to": "\tif false && law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
       "rule": "Check time leaves an always or sometimes law (X2) to ergo test: it has no target variant to search, so searching it is a defect.",
       "killers": ["internal/sketch/lower:TestMachineLawTables"]
+    },
+    {
+      "name": "b16d-eval-float-int-wraps",
+      "origin": "wf10 batch 16d (EV x S-conv)",
+      "file": "internal/sketch/eval/value.go",
+      "from": "\t\treturn v1.FloatToInt8(f), true\n",
+      "to": "\t\treturn int8(int64(f)), true\n",
+      "rule": "Check time converts a float to an integer by the lowering's one rule (S-conv: truncate, saturate, NaN to 0), so its verdict agrees with the Go build's.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithModel", "internal/sketch/lower:TestEvalAgreesWithGo"]
     }
   ]
 }

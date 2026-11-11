@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Value is an evaluated Ergo value, in a private tagged form. A basic
@@ -134,11 +135,36 @@ func fromUint64(k check.BasicKind, u uint64) (Value, bool) {
 // out of an integer's range implementation-defined, so the evaluator does
 // not guess (plan section 4).
 func fromFloat(k check.BasicKind, f float64) (Value, bool) {
+	// A float converts to an integer by the one rule the lowering calls
+	// (types.md, Conversions 4; S-conv): runtime/v1's FloatTo* truncate
+	// toward zero, saturate at the bounds and take NaN to 0.
 	switch k {
 	case check.Float32:
 		return float32(f), true
 	case check.Float64:
 		return f, true
+	case check.Int:
+		return int64(v1.FloatToInt(f)), true
+	case check.Int8:
+		return v1.FloatToInt8(f), true
+	case check.Int16:
+		return v1.FloatToInt16(f), true
+	case check.Int32:
+		return v1.FloatToInt32(f), true
+	case check.Int64:
+		return v1.FloatToInt64(f), true
+	case check.Uint:
+		return uint64(v1.FloatToUint(f)), true
+	case check.Uint8:
+		return v1.FloatToUint8(f), true
+	case check.Uint16:
+		return v1.FloatToUint16(f), true
+	case check.Uint32:
+		return v1.FloatToUint32(f), true
+	case check.Uint64:
+		return v1.FloatToUint64(f), true
+	case check.Uintptr:
+		return uint64(v1.FloatToUintptr(f)), true
 	}
 	return nil, false
 }
