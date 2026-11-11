@@ -15,8 +15,10 @@
 //   - it sets the program's oom_score_adj to OOMScore (1000), so a program
 //     that grows is the first victim, whatever its parent inherited;
 //   - it sets the program's RLIMIT_DATA to the limit, so a Go program that
-//     maps more heap gets ENOMEM and stops with "fatal error: runtime: out of
-//     memory" long before it reaches the host's memory.
+//     maps more heap gets ENOMEM and stops long before it reaches the host's
+//     memory: with "fatal error: runtime: out of memory", or, through a Go
+//     1.27 runtime bug (RuntimeIssue), with SIGSEGV in the collector's span
+//     queue. Check reads both as the limit.
 //
 // Both are set before the program's exec, by a helper: the caller's own
 // binary, run again, which sets them on itself (setrlimit, its own
@@ -137,27 +139,40 @@ func Run(cmd *exec.Cmd, limit uint64) error {
 type LimitError struct {
 	Program string
 	Limit   uint64
-	Err     error
+	// Cause is RuntimeReport or QueueFault.
+	Cause Cause
+	Err   error
 }
 
 func (e *LimitError) Error() string {
-	return fmt.Sprintf("program %s exceeded its memory limit of %s (set %s to change it, 0 for none): %v",
-		e.Program, Format(e.Limit), Variable, e.Err)
+	text := fmt.Sprintf("program %s exceeded its memory limit of %s (set %s to change it, 0 for none)",
+		e.Program, Format(e.Limit), Variable)
+	if e.Cause == QueueFault {
+		text += fmt.Sprintf("; the Go runtime stopped it with SIGSEGV in its collector's span queue, not with an out-of-memory report (Go runtime bug %s, %s)",
+			RuntimeIssue, RuntimeIssueURL)
+	}
+	return fmt.Sprintf("%s: %v", text, e.Err)
 }
 
 func (e *LimitError) Unwrap() error { return e.Err }
 
 // OutOfMemory is what the Go runtime prints when the kernel refuses it
 // memory ("fatal error: runtime: out of memory", or "out of memory" from
-// an allocation that cannot grow the heap).
+// an allocation that cannot grow the heap). Go 1.27 does not always print
+// it: see QueueFault.
 const OutOfMemory = "out of memory"
 
-// Check returns a *LimitError when the program ended with an error and its
-// stderr says it ran out of memory under a limit; otherwise it returns err.
+// Check returns a *LimitError when the program ended with an error under a
+// limit and its stderr says the kernel refused it memory (CauseOf);
+// otherwise it returns err.
 func Check(program string, limit uint64, err error, stderr []byte) error {
 	var exit *exec.ExitError
-	if limit == 0 || !errors.As(err, &exit) || !strings.Contains(string(stderr), OutOfMemory) {
+	if limit == 0 || !errors.As(err, &exit) {
 		return err
 	}
-	return &LimitError{Program: program, Limit: limit, Err: err}
+	cause := CauseOf(stderr)
+	if cause == NoCause {
+		return err
+	}
+	return &LimitError{Program: program, Limit: limit, Cause: cause, Err: err}
 }
