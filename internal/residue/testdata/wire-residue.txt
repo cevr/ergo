@@ -101,8 +101,8 @@ internal/sketch/check/types.go	SetWire                      // codable: the type
 internal/sketch/check/wire.go	*
 internal/sketch/check/wirecall.go	*
 internal/sketch/lower/calls.go	// A codec call writes its own statements (wire.go).
+internal/sketch/lower/flat_union_property_test.go	*
 internal/sketch/lower/module.go	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
-internal/sketch/lower/option_flat_property_test.go	*
 internal/sketch/lower/std_wire_test.go	*
 internal/sketch/lower/testdata/mutants.json	      "file": "internal/sketch/lower/wire.go",
 internal/sketch/lower/testdata/mutants.json	      "name": "option-wire-swapped",

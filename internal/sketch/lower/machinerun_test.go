@@ -207,8 +207,8 @@ func flatRunProgram(seed uint64, k int, reached map[string]bool) (name, src stri
 			sigs = append(sigs, fmt.Sprintf("E%d{ v int }", j))
 		}
 	}
-	// An error type that holds a signal: its text needs the union's, so a
-	// flat union bails and is lowered again as an interface (flatunion.go).
+	// An error type that holds a signal: its text switches on the flat
+	// union's tag (flatunion.go).
 	boom, boomLit := "type Boom {}", "Boom"
 	if fallible && g.r.IntN(2) == 0 {
 		boom, boomLit = "type Boom { e Sig }", "Boom{e: e}"
@@ -362,7 +362,7 @@ var flatRunPaths = []string{
 	"literal", "emit", "done", "union call", "bare", "flat reject", "let variant", "let union", "return", "if", "fail",
 	"simple match", "tree match", "wildcard", "needs", "fails",
 	"empty signal", "payload signal", "error holds a signal",
-	"flat signals", "flat signals, no match tree", "tag test", "bailed signals", "signals too large",
+	"flat signals", "flat signals, no match tree", "tag test", "error text of a flat signal", "signals too large",
 }
 
 // lowerMachineMode lowers src with the flat run and flat signal unions;
@@ -439,9 +439,8 @@ func flatRunCases(t *testing.T, seeds []uint64, check bool, report func(format s
 			}
 			// The signal union is flat exactly where flatunion.go's rule
 			// admits it: the struct fits 32 bytes (a tag and 8 bytes per
-			// int variant, or a tag and the one int-and-string variant),
-			// and no error holds a signal. The other two lowerings never
-			// make it flat.
+			// int variant, or a tag and the one int-and-string variant).
+			// The other two lowerings never make it flat.
 			ints, strs := 0, 0
 			for _, line := range lines(src) {
 				if strings.HasPrefix(line, "type Sig = ") {
@@ -449,7 +448,7 @@ func flatRunCases(t *testing.T, seeds []uint64, check bool, report func(format s
 					strs += strings.Count(line, "{ v int, t string }")
 				}
 			}
-			wantFlat := !strings.Contains(src, "type Boom { e Sig }") && (strs == 0 || strs == 1 && ints == 0)
+			wantFlat := strs == 0 || strs == 1 && ints == 0
 			if got := strings.Contains(c.flat.mainGo(), "type Sig struct"); got != wantFlat {
 				report("seed %d, %s: the signal union is flat %v, want %v\n%s", seed, name, got, wantFlat, src)
 			}
@@ -460,12 +459,12 @@ func flatRunCases(t *testing.T, seeds []uint64, check bool, report func(format s
 				reached["tag test"] = true // a match on two subjects with no tree tests the tag (flatTest)
 			}
 			switch {
+			case wantFlat && strings.Contains(src, "type Boom { e Sig }"):
+				reached["error text of a flat signal"] = true
 			case wantFlat && match == "flat":
 				reached["flat signals, no match tree"] = true
 			case wantFlat:
 				reached["flat signals"] = true
-			case strings.Contains(src, "type Boom { e Sig }"):
-				reached["bailed signals"] = true
 			default:
 				reached["signals too large"] = true
 			}
@@ -575,7 +574,7 @@ func TestMachineFlatRunMutants(t *testing.T) {
 		t.Skip("run with -machine.mutants")
 	}
 	mutants := []string{"tag", "payload", "out", "in", "decide", "union", "loop", "tagswitch", "chunk",
-		"sig-tag", "sig-payload", "sig-test", "sig-switch", "sig-bail"}
+		"sig-tag", "sig-payload", "sig-test", "sig-switch"}
 	for _, m := range mutants {
 		t.Run(m, func(t *testing.T) {
 			savedRun, savedUnion := machineMutant, unionMutant
@@ -591,7 +590,7 @@ func TestMachineFlatRunMutants(t *testing.T) {
 			})
 			if len(lowering) > 0 {
 				// The mutant changes what the lowering takes: killed before
-				// anything builds (sig-bail keeps a union flat).
+				// anything builds.
 				t.Logf("mutant %s killed by the lowering's shape: %s", m, firstLines(lowering[0], 1))
 				return
 			}

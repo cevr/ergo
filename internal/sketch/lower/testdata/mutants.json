@@ -1672,8 +1672,8 @@
       "name": "x1-key-variant-tag",
       "origin": "wf10/explorer/x1",
       "file": "internal/sketch/lower/machinelaws.go",
-      "from": "line(\"\\t\" + k + \".Tag(\" + strconv.Itoa(i) + \")\")",
-      "to": "line(\"\\t\" + k + \".Tag(0*\" + strconv.Itoa(i) + \")\")",
+      "from": "line(\"case \" + tc.goType(vt) + \":\")\n\t\t\tline(\"\\t\" + k + \".Tag(\" + strconv.Itoa(i) + \")\")",
+      "to": "line(\"case \" + tc.goType(vt) + \":\")\n\t\t\tline(\"\\t\" + k + \".Tag(0*\" + strconv.Itoa(i) + \")\")",
       "rule": "State keys: a union's key writes its variant.",
       "killers": [
         "lower:TestKeyEqualsEquality"
@@ -1875,11 +1875,11 @@
       "name": "option-never-flat",
       "origin": "wf10 OPT2",
       "file": "internal/sketch/lower/flatunion.go",
-      "from": "\t\tif !signal && !l.optionCycle(opt.Obj) {",
-      "to": "\t\tif false && !signal && !l.optionCycle(opt.Obj) {",
+      "from": "\tif opt != nil && !l.flatOff[opt.Obj] && !states[opt.Obj] && !signals[opt.Obj] && !l.optionCycle(opt.Obj) {",
+      "to": "\tif false && opt != nil && !l.flatOff[opt.Obj] && !states[opt.Obj] && !signals[opt.Obj] && !l.optionCycle(opt.Obj) {",
       "rule": "types.md Unions 6: the prelude's Option is a tag and Some's record, never a box, outside the named exceptions.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
@@ -1894,17 +1894,6 @@
       ]
     },
     {
-      "name": "option-extern-boxes",
-      "origin": "wf10 OPT2",
-      "file": "internal/sketch/lower/flatunion.go",
-      "from": "\t\tif fu := l.flatSet[obj]; fu == nil || !fu.generic {",
-      "to": "\t\tif true {",
-      "rule": "types.md Unions 6: an extern's Option is built by its adapter, so a program with a Go extern keeps Option flat.",
-      "killers": [
-        "lower:TestOptionFlatAgrees"
-      ]
-    },
-    {
       "name": "option-value-bare",
       "origin": "wf10 OPT2",
       "file": "internal/sketch/lower/flatunion.go",
@@ -1912,7 +1901,7 @@
       "to": "\tv := own + \"{}.\" + ofName(k) + \"(\" + val + \")\"",
       "rule": "types.md Unions 6: a flat Option value stands anywhere a Go expression does, an if or a switch header included.",
       "killers": [
-        "lower:TestOptionFlatAgrees",
+        "lower:TestFlatUnionsAgree",
         "lower:TestStdLawsAddNoGo"
       ]
     },
@@ -1920,7 +1909,7 @@
       "name": "option-some-if-always",
       "origin": "wf10 OPT2",
       "file": "internal/sketch/lower/flatunion.go",
-      "from": "\t\treturn w + \" := \" + fu.flatNarrow(&fc.typeCtx, o, k) + \"; \" + flatTest(o, k)",
+      "from": "\t\treturn w + \" := \" + fu.flatNarrow(&fc.typeCtx, o, k) + \"; \" + fu.test(o, k)",
       "to": "\t\treturn w + \" := \" + fu.flatNarrow(&fc.typeCtx, o, k) + \"; true\"",
       "rule": "runtime.md Machines: a machine's after or work that returns None starts no timer and no work, by the flat Option's tag.",
       "killers": [
@@ -1935,29 +1924,29 @@
       "to": "\treturn fc.convertAt(x, val)",
       "rule": "types.md Unions 6: an arm of a match, an if or a catch that yields a variant puts it into the flat Option its arms join to.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
       "name": "option-equal-no-tag",
       "origin": "wf10 OPT2",
       "file": "internal/sketch/lower/equal.go",
-      "from": "\t\t\tconj := []string{\"(\" + a + \".tag == \" + b + \".tag)\"}",
+      "from": "\t\t\tconj := []string{\"(\" + fu.tagExpr(tc, a) + \" == \" + fu.tagExpr(tc, b) + \")\"}",
       "to": "\t\t\tconj := []string{\"true\"}",
       "rule": "types.md Equality: the structural == of two Options compares their variants first, so Some of a zero payload is not None.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
       "name": "option-equal-unnamed-slot",
       "origin": "wf10 OPT2",
       "file": "internal/sketch/lower/equal.go",
-      "from": "\"(\"+a+\".tag != \"+strconv.Itoa(k)+\" || \"",
-      "to": "\"(\"+a+\".tag != \"+strconv.Itoa(k)+\" && false || \"",
+      "from": "\"(\"+fu.tagExpr(tc, a)+\" != \"+strconv.Itoa(k)+\" || \"",
+      "to": "\"(\"+fu.tagExpr(tc, a)+\" != \"+strconv.Itoa(k)+\" && false || \"",
       "rule": "types.md Equality: two Nones of an Option whose payload is a union are equal; the payload the tag does not name is not compared.",
       "killers": [
-        "lower:TestOptionFlatAgrees",
+        "lower:TestFlatUnionsAgree",
         "lower:TestStdWireLawsRun"
       ]
     },
@@ -1969,7 +1958,7 @@
       "to": "s.WriteString(\"\\tcase \" + strconv.Itoa(1-k) + \":\\n\\t\\treturn \" + l.textExpr(",
       "rule": "rows.md Failures: an uncaught failure's text names the variant its Option field holds.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
@@ -1980,7 +1969,7 @@
       "to": "body.WriteString(\"\\tcase \" + strconv.Itoa(1-k) + \":\\n\\t\\treturn \" + l.litExpr(",
       "rule": "types.md Laws: a refuted law prints its Option arguments as the source literals of their variants.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
@@ -1991,7 +1980,7 @@
       "to": "\t\t\treturn fu.flatValue(tc, tc.goType(t), 0, e)",
       "rule": "types.md Laws: a generated Option argument goes into the flat Option by its variant's tag.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
@@ -2002,7 +1991,7 @@
       "to": "b.WriteString(\"case \" + strconv.Itoa(len(u.Variants)-1-k) + \":\\n\" + x + \" := \" + fu.flatNarrow(tc, v, k) + \"\\n\")",
       "rule": "wire: a record's Option field round-trips: the encoder writes the variant the tag names.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
@@ -2013,7 +2002,7 @@
       "to": "\n\t\t\t\t\t_ = vt",
       "rule": "types.md Laws 13: a machine state that holds an Option keys its states by the Option's variant and payload, so a law counts each state once.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
@@ -2024,7 +2013,7 @@
       "to": "\t\t\t\t\t\tvs[i] = fu.flatValue(tc, tc.goType(u), k*0, vs[i])",
       "rule": "types.md Laws: a listed Option argument goes into the flat Option by its variant's tag.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestFlatUnionsAgree"
       ]
     },
     {
@@ -2035,7 +2024,140 @@
       "to": "\t\tindex := fc.value(x.Indices[0])",
       "rule": "types.md Unions 6: a variant written as a Map key goes into the flat Option the key type is.",
       "killers": [
-        "lower:TestOptionFlatAgrees"
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "union-size-unbounded",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\treturn goLayout{size: size, align: align, ssa: ssa && size <= ssaBytes}",
+      "to": "\treturn goLayout{size: size, align: align, ssa: ssa}",
+      "rule": "runtime.md Payload size: a union over 32 bytes keeps its interface.",
+      "killers": [
+        "lower:TestMachineFlatRunAgrees"
+      ]
+    },
+    {
+      "name": "union-fields-unbounded",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\toff, align, ssa := 0, 1, len(fields) <= ssaFields",
+      "to": "\toff, align, ssa := 0, 1, true",
+      "rule": "runtime.md Payload size: a union with more than four fields at one struct level keeps its interface.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "union-cycle-fits",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tif path[obj] {\n\t\t\t\treturn goLayout{}, obj, true",
+      "to": "\t\t\tif path[obj] {\n\t\t\t\treturn goLayout{ssa: true}, nil, true",
+      "rule": "types.md Unions 6: a union that holds itself by value (directly or through an Option) keeps its interface.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "union-state-flat",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tif !ok || states[tn] || extern[tn] || l.flatOff[tn] {",
+      "to": "\t\t\tif !ok || extern[tn] || l.flatOff[tn] {",
+      "rule": "types.md Unions 6: a machine's state union keeps its interface (machinerun.go takes a state apart by its interface).",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "union-extern-flat",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tif !ok || states[tn] || extern[tn] || l.flatOff[tn] {",
+      "to": "\t\t\tif !ok || states[tn] || l.flatOff[tn] {",
+      "rule": "types.md Unions 6: a union a Go extern's signature names keeps its Go view, an interface.",
+      "gap": "equivalent today (OPT3 probe): an extern names an Ergo union only through a generic Go function (slices.Contains over []U), which a flat union and an interface pass alike; the guard (from MU8b) keeps the Go view for a future non-generic binding",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "union-error-flat",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "vn.Obj.Decl == nil || l.errorType(vn, l.buildView()) {",
+      "to": "vn.Obj.Decl == nil || false && l.errorType(vn, l.buildView()) {",
+      "rule": "types.md Unions 6: a union whose variants are error types (a union that is a failure) keeps its interface: catch tests a Go error by type.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "union-key-tag",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "line(\"case \" + strconv.Itoa(i) + \":\")\n\t\t\t\t\tline(\"\\t\" + k + \".Tag(\" + strconv.Itoa(i) + \")\")",
+      "to": "line(\"case \" + strconv.Itoa(i) + \":\")\n\t\t\t\t\tline(\"\\t\" + k + \".Tag(0*\" + strconv.Itoa(i) + \")\")",
+      "rule": "State keys: a flat union's key writes the variant its tag names.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "niche-any-ref",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\t\tcase obj != opt && obj != someObj:\n\t\t\t\t\tok = false",
+      "to": "\t\t\t\tcase obj != opt && obj != someObj:\n\t\t\t\t\tok = ok",
+      "rule": "types.md Unions 6: the pointer niche holds only where no generic code holds a go.Ref inside an Option (a T that may be the niche's nil).",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "niche-append-off",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tif preludeAppend(in.Func) || preludeMapWrite(in.Func) {",
+      "to": "\t\t\tif false {",
+      "rule": "types.md Unions 6: the prelude's Append, Put and Delete hold T only as an element, so they leave the pointer niche on.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "niche-test-swapped",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\treturn \"(\" + val + \" != nil)\"",
+      "to": "\t\t\treturn \"(\" + val + \" == nil)\"",
+      "rule": "types.md Unions 6: a niche Option is Some exactly when its pointer is not nil.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "niche-tag-swapped",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\treturn tc.l.nilTagHelper() + \"(\" + val + \")\"",
+      "to": "\t\treturn \"(1 - \" + tc.l.nilTagHelper() + \"(\" + val + \"))\"",
+      "rule": "types.md Unions 6: a niche Option's tag is 0 (Some) for a pointer, 1 (None) for nil, in a switch, an equality and a key.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "niche-some-nil",
+      "origin": "wf10 OPT3",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tv = \"(\" + val + \").\" + memberName(\"Value\")",
+      "to": "\t\t\tv = \"(\" + own + \")(nil)\"",
+      "rule": "types.md Unions 6: a niche Some is its pointer, never nil.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
       ]
     }
   ]
