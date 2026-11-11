@@ -50,12 +50,22 @@
     {
       "name": "g16fix2-sweep-ignores-alone",
       "origin": "wf10 batch-16 16b gate-fix-2",
-      "file": "internal/closure/closure_test.go",
-      "from": "plan := planPackage(names, costs, sweepRunBudget, runsAlone[dir])",
-      "to": "plan := planRuns(names, costs, sweepRunBudget)",
-      "rule": "The sweep gives cmd/ergo's TestPackageNeverWritesUnderHome a run of its own.",
-      "killers": [],
-      "gap": "a wall-time effect only: the closure sweep of cmd/ergo under the merge tier's load (19m30s run timeout at 9c8f862dd); no test times it (AGENTS.md Tests)"
+      "file": "internal/closure/split_test.go",
+      "from": "return planPackage(names, costs, sweepRunBudget, runsAlone[dir]), nil",
+      "to": "return planRuns(names, costs, sweepRunBudget), nil",
+      "rule": "The code is in a test file, which the cover tool does not instrument. The sweep's plan gives each runsAlone test (cmd/ergo's TestPackageNeverWritesUnderHome) a run of its own.",
+      "killers": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"],
+      "anchor": {"tests": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"]}
+    },
+    {
+      "name": "g16fix2-stale-alone-accepted",
+      "origin": "wf10 batch-16 16b gate-fix-2",
+      "file": "internal/closure/split_test.go",
+      "from": "if !slices.Contains(names, name) {\n\t\t\treturn nil, fmt.Errorf(",
+      "to": "if false {\n\t\t\treturn nil, fmt.Errorf(",
+      "rule": "The code is in a test file, which the cover tool does not instrument. A runsAlone name that is not a test of its package fails the sweep.",
+      "killers": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"],
+      "anchor": {"tests": ["internal/closure:TestPlanRunsKeepsEveryRunUnderBudget"]}
     }
   ]
 }

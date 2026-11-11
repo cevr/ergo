@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -176,6 +177,19 @@ func planRuns(names []string, costs map[string]float64, budget float64) []sweepR
 // run reached its 19m30s test timeout.
 var runsAlone = map[string]map[string]string{
 	"cmd/ergo": {"TestPackageNeverWritesUnderHome": "it runs every other test of the package again with an empty HOME"},
+}
+
+// sweepPlan is the sweep's plan of the package in dir, whose tests are
+// names: planPackage with the package's runsAlone tests, at
+// sweepRunBudget. It fails when runsAlone names a test that is not in
+// names.
+func sweepPlan(dir string, names []string, costs map[string]float64) ([]sweepRun, error) {
+	for name := range runsAlone[dir] {
+		if !slices.Contains(names, name) {
+			return nil, fmt.Errorf("runsAlone names %s, which is not a test of %s", name, dir)
+		}
+	}
+	return planPackage(names, costs, sweepRunBudget, runsAlone[dir]), nil
 }
 
 // planPackage is planRuns with each test of alone that names holds in a
@@ -411,6 +425,44 @@ func TestPlanRunsKeepsEveryRunUnderBudget(t *testing.T) {
 			for _, name := range run.tests {
 				if _, ok := alone[name]; ok && len(run.tests) != 1 && others > 0 {
 					fail("%s of runsAlone shares a run with %v", name, run.tests)
+				}
+			}
+		}
+		// The sweep's own plan (sweepPlan) of each runsAlone package: each
+		// of its tests is the whole test set of exactly one run and is in
+		// no other run; a package missing one of them is refused.
+		for dir, tests := range runsAlone {
+			withAlone := slices.Clone(names)
+			swept := map[string]float64{}
+			for name, c := range costs {
+				swept[name] = c
+			}
+			for name := range tests {
+				withAlone = append(withAlone, name)
+				if rng.IntN(2) == 0 {
+					swept[name] = rng.Float64() * 3 * budget
+				}
+			}
+			if _, err := sweepPlan(dir, names, swept); err == nil {
+				fail("sweepPlan of %s without its runsAlone tests %v gives no error", dir, slices.Sorted(maps.Keys(tests)))
+			}
+			plan, err := sweepPlan(dir, withAlone, swept)
+			if err != nil {
+				fail("sweepPlan of %s: %v", dir, err)
+			}
+			checkRunsOnce(t, plan, withAlone, fail)
+			for name := range tests {
+				own, shared := 0, 0
+				for _, run := range plan {
+					switch {
+					case len(run.tests) == 1 && run.tests[0] == name:
+						own++
+					case slices.Contains(run.tests, name):
+						shared++
+					}
+				}
+				if own != 1 || shared != 0 {
+					fail("sweepPlan of %s: %s is alone in %d runs and shares %d; want 1 and 0", dir, name, own, shared)
 				}
 			}
 		}

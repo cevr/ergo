@@ -970,12 +970,10 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 	if err != nil {
 		return nil, took, err
 	}
-	for name := range runsAlone[dir] {
-		if !slices.Contains(names, name) {
-			return nil, took, fmt.Errorf("runsAlone names %s, which is not a test of %s", name, dir)
-		}
+	plan, err := sweepPlan(dir, names, costs)
+	if err != nil {
+		return nil, took, err
 	}
-	plan := planPackage(names, costs, sweepRunBudget, runsAlone[dir])
 	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, sem, nil)
 	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(durations, " "))
 	return entries, took, err
