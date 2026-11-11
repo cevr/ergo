@@ -16,8 +16,9 @@ import (
 // machines.Start(X{}, input), or a prelude Machine literal whose Step
 // names a package function (a generic one instantiated, step[S, E], too);
 // anything else is S108 too. The step
-// is pure when its footprint is empty (rows.md, Footprints 2 and 3): no
-// capability, no task start and no opaque call. The diagnostic names the
+// is pure for a replay when its footprint is empty (rows.md,
+// Footprints 2 and 3): no capability, no task start and no opaque call;
+// it may make hosts with actor.NewHost (MakesHost, wf10 DH1). The diagnostic names the
 // first call in the step's body that makes it impure. Work and timers stay
 // allowed: their results reach the step as signals, which the save keeps.
 // A call in std is not checked: std forwards a machine its caller gave,
@@ -31,6 +32,17 @@ func TakesDurableMachine(f *Func) bool {
 		return false
 	}
 	return (f.Pkg.Path == childPath && (f.Name == "StartDurable" || f.Name == "SuperviseDurable")) || (f.Pkg.Path == "journal" && f.Name == "Start")
+}
+
+// MakesHost reports std actor.NewHost, the one host function a durable
+// step may call (wf10 DH1; runtime.md, Machines and actors 17): it makes an
+// empty cell and acts on nothing outside. A host is entry data, not durable
+// data: one made in a replay is unbound until the recovered actor's first
+// entry binds it, so a replay that makes it again acts twice on nothing.
+// Every other host function stays S108.
+func MakesHost(f *Func) bool {
+	return f != nil && f.Pkg != nil && f.Pkg.std && f.Pkg.Path == childPath && f.Name == "NewHost" &&
+		f.Decl != nil && f.Decl.Extern != nil
 }
 
 // durableCall is a call of a durable runner, with the runner's name.
@@ -211,6 +223,8 @@ func impureWhy(info *Info, x *syntax.CallExpr) string {
 			if k.StartsTask {
 				return f.Name + ", which starts a task"
 			}
+			return ""
+		case MakesHost(f):
 			return ""
 		case f.Decl.Extern != nil || f.Decl.Body == nil:
 			return "the host function " + f.Name

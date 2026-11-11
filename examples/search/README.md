@@ -11,7 +11,7 @@ Tag: `default`. It is an original program, a neutral re-creation of a common pat
 - `typing` waits for a pause of 250ms with no key (its timer), then `searching` searches the query (its work). The result shows the hits (`! shown`). If the index is down, the state is `problem`.
 - `pin N` pins hit N (`! pinned`). A hit the screen does not show is refused (`? no hit`). The pins hold three entries (`search.Room`): a fourth is a `problem`.
 - `back` goes from `problem` to the hits. `clear` goes to `idle`. `open` ends the run with the pinned entries (`! opened`).
-- At one instant, a timer that is due goes first, then the script's signal (case `tie`). The memory index answers a search at the instant it starts.
+- At one instant, a timer that is due goes first, then the script's signal (case `tie`). A search takes 100ms (`search.Latency`): its work waits on the `Scheduler`, then asks the index. A key during a search stops it, and the stopped search shows nothing (case `browse` at 1700, case `tie`).
 - When an entry ends, the runner drops its timer and interrupts its work, and drops a result of an ended entry by the entry's id, so a result never reaches a later entry (runtime.md, Machines and actors 12; MU4).
 - The memory index holds ten file names. It takes at most 12 letters: a longer query fails `IndexDown`.
 
@@ -23,14 +23,14 @@ The program is a module of packages (`ergo.mod`: `module search`), in the Go lay
 
 | folder | what it holds |
 | --- | --- |
-| `search/` | The domain package. `contracts.ergo`: `Entry`, the typed failure `IndexDown`, and the contract `Index { All, Find fails IndexDown }` with its laws. `machine.ergo`: the state `Search`, `Signal`, `Output`, `NoSuchHit`, `Pause`, `Room`, the work `find`, the timer `Timer`, `Step`, and `type Finder machine[Search, Signal] { initial: Start, step: Step, after: Timer, work: find }`. `laws.ergo`: the step's own law. |
+| `search/` | The domain package. `contracts.ergo`: `Entry`, the typed failure `IndexDown`, and the contract `Index { All, Find fails IndexDown }` with its laws. `machine.ergo`: the state `Search`, `Signal`, `Output`, `NoSuchHit`, `Pause`, `Room`, `Latency`, the work `find`, the timer `Timer`, `Step`, and `type Finder machine[Search, Signal] { initial: Start, step: Step, after: Timer, work: find }`. `laws.ergo`: the step's own law. |
 | `memory/` | `Listing`, a `search.Index`. `laws.ergo` states the search's rules over the live actor, with `Listing` and a fresh manual clock. |
 | `script/` | `Read` (fails `BadLine`), `Play`, which runs the search as an actor and gives its timeline, and `Run`, which needs `Console`, `io.Stdin`, `Scheduler` and `search.Index`. |
 | `cmd/search/` | The binary. `main.ergo` binds `let Live = context { search.Index: memory.Listing }`, a `time.Manual` for `Scheduler`, and the host's standard input. It is the only place that chooses them. |
 
 ## What it shows
 
-- **State-owned work (MU4).** `find` gives `Searching` a `machines.Work` against `Index`. The runner starts it after the entry commits and before an observer sees the entry, and interrupts it when the entry ends. `IndexDown` is a failure of `Index` and also a `Signal`, so the work needs no failure map; the hits need `OnSuccess`, which makes them `Found`.
+- **State-owned work (MU4) with a full row (MB F8).** `find` gives `Searching` a `machines.Work[Signal, Index | Scheduler]`: the work waits `Latency` on the `Scheduler`, then asks the `Index`. The row names both capabilities, and only `main` binds them. The runner starts it after the entry commits and before an observer sees the entry, and interrupts it when the entry ends. `IndexDown` is a failure of `Index` and also a `Signal`, so the work needs no failure map; the hits need `OnSuccess`, which makes them `Found`.
 - **Runner-owned timer (`after`).** The pause is `Typing`'s timer. A key re-enters `Typing` with `Enter`, so the pause starts again: the debounce needs no counter.
 - **Observers (MU12) on a settled clock (fua-b).** A watcher task reads the actor's `Changes`: every state the actor commits, once each, in order, stamped with the clock's time. `time.Advance` returns only when every task of the clock's domain waits again, one instant at a time, so `Play` reads no timer of its own: it moves the clock, asks, settles with `Advance(0s)`, and shows the states and outputs of each instant.
 - **`Emit` (q28).** The result of a search moves to `Showing` and tells `Shown` in one decision. A choice tells `Pinned`.
@@ -42,7 +42,7 @@ The program is a module of packages (`ergo.mod`: `module search`), in the Go lay
 
 | law | where | rule | mutant it kills (measured, `MB2/search/mutants.sh`) |
 | --- | --- | --- | --- |
-| `HitsForLatestQuery` | memory, live | once the keys stop, the screen shows the hits of the whole text typed | the work searches another query |
+| `HitsForLatestQuery` | memory, live | once the keys stop, the screen shows the hits of the whole text typed | the work searches another query; a key during a search is dropped (`Searching` ignores `Key`: measured, it lives when `Latency` is 0ms, since no key then comes while a search runs) |
 | `DebounceCoalesces` | memory, live | the search runs once after the last key and once in each gap of a pause or more | pause of 300ms; the key before the timer at a tie; a key that stays (no new pause; a deadlock) |
 | `PinsHoldRoom` | search | a hit is pinned unless the pins hold `Room` entries | room off by one |
 | `Index.FindIsSubset`, `Index.FindIsStable` | contract | every hit holds the query; hits keep the index's order | — (run against `Listing` in memory) |
@@ -61,9 +61,9 @@ go run ./scripts/examples search
 
 ## Cases
 
-- `browse`: two keys in one pause give one search; a choice; a hit not on the screen; clear; a key after a search types on; open.
+- `browse`: two keys in one pause give one search; a choice; a hit not on the screen; clear; a key during a search stops it and types on; open.
 - `full`: the fourth choice is a problem, and back shows the hits again; a query over 12 letters fails `IndexDown`.
-- `tie`: a key at the very instant the pause ends: the timer goes first.
+- `tie`: a key at the very instant the pause ends: the timer goes first, the search starts, and the key stops it.
 - `badscript`: a hit that is not a number (status 1).
 
 ## effect-machine side by side (`examples/core/src/services-and-tasks.ts`)
@@ -76,14 +76,14 @@ effect-machine writes this search with a `Context.Service` class for the index, 
 | the work of a state | `.task(State.Searching, …)` in the builder chain | `work: find`, one function over the state union: one work per state, the match exhaustive | compiler |
 | result → event | `onSuccess` and `onFailure`, pinned by overloads; a missing one is TS2769 "No overload matches this call" | `IndexDown` is a `Signal`, so no failure map; the hits need `OnSuccess`, and the checker names a missing map | compiler |
 | a result after the state's exit | a plain `self.send` from the task fiber; a result queued before a re-entry can reach the new entry (inferred, em-parity §4.2) | the runner drops it by the entry's id | runner (MU4 model and property) |
-| required services | `R` in the machine's type, provided with `Effect.provideService` | `needs Index` from the work's row; only `main` binds it | compiler (equal) |
+| required services | `R` in the machine's type, provided with `Effect.provideService` | `Work[Signal, Index \| Scheduler]`: the work's row, written as `R` is, a union; only `main` binds it | compiler (equal) |
 | debounce | a `.timeout` or a hand timer with a generation counter | `after: Timer`; `Enter` restarts it | runner + law `DebounceCoalesces` |
 | observing | `actor.subscribe` callbacks on the actor's fiber | `for s in a.Changes()`: a loop, no callback, every committed state once | runner (MU12) |
 
 Where Ergo could not improve:
 
-- **Two services in one work row (MB F8).** `machines.Work[Signal, Index | Pins]` does not parse, so a machine whose works need two contracts cannot be written. The pins were a contract (`Pins { Room, Add fails PinsFull }`) with an `adding` state and a work; it is now the state's data and `Room` a constant. effect-machine's `R` takes a union.
-- **A latency of its own.** A provider of an operation type cannot wait on the `Scheduler` (its methods name no capability), and a work cannot need `Index | Scheduler` (F8), so the memory index answers at once. A search can no longer still run when a key comes, and the old `race` case (a result of an ended entry) moved to the runner's property.
+- **The pins are state data, not a contract.** A provider has no state (M23), so a `Pins { Room, Add fails PinsFull }` contract cannot hold the entries; the pins are the state's data and `Room` a constant.
+- **The latency is the work's, not the index's.** A provider of an operation type cannot wait on the `Scheduler` (its methods name no capability), so the work waits `Latency` before it asks the index; its row is `Index | Scheduler`.
 - **Signatures and type arguments** are written where effect-machine infers (`Some[Timeout[Signal]]{…}`, `Emit[Search, Output]{…}`).
 
 ## Benchmark
@@ -92,7 +92,6 @@ No em-parity §3 scenario is this program's own: an `Ask` per key, a work start 
 
 ## Limits found
 
-- **MB F8** (above): the pins contract and its work had to go.
 - **MB2-G2** `time.Manual.Advance` wakes a timer's sleeper and returns; it does not wait until the actor has stepped the timer's signal. `Play` knows when a timer is due only because it reads the machine's own `Timer` and keeps the time of each entry (and that a `Stay` is no new entry). A driver of a live actor on a manual clock needs a way to wait until the actor is idle (Effect's `TestClock.adjust` runs the woken fibers first).
 - **MB2-G3** An `Emit`'s output reaches the sink after the state is published, so `Play` reads `State` (which waits for the step's end) before it polls the outputs, and shows the outputs after the states.
 - **No `==` on slices (M29).** `Names` turns entries into one text to compare.

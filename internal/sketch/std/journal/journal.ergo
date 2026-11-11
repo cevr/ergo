@@ -126,21 +126,28 @@ type Codec[T] {
 // so a recovery replays fewer signals.
 //
 // The step of m must be pure (the checker's rule, S108): the replay steps
-// the signals again, so a step with an effect would act twice.
+// the signals again, so a step with an effect would act twice. It may make
+// hosts (actor.NewHost): the replay runs as StartDurable's recover, so a
+// host it makes is unbound until the actor's first entry binds it. A
+// snapshot keeps a state's hosts as they were, closed with their entry: a
+// machine whose states hold hosts takes no snapshot (every 0), or its
+// first entry's ChildIn on a snapshot's host is a defect.
 func Start[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], j Journal[S, E], every int, capacity int, sink func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails Failed | Diverged needs R | W | Scheduler {
-	let log = try j.Load()
-	let from = match log.Snapshot {
-	case Some[S] as s:
-		s.Value
-	case None:
-		m.Initial
-	}
-	let state = try replay(m.Step, from, log.Signals)
 	// The save outlives Start, so its count of signals since the last
 	// snapshot is a Ref: a let mut it captured would be a copy (types.md,
-	// Function values 3).
-	let since = sync.NewRef(len(log.Signals))
-	try actor.StartDurable(m, capacity, sink, func() Option[S] { Some[S]{Value: state} }, func(prev S, next S, sig E) fails Failed {
+	// Function values 3). The recover sets it to the journal's count.
+	let since = sync.NewRef(0)
+	try actor.StartDurable(m, capacity, sink, func() Option[S] fails Failed | Diverged {
+		let log = try j.Load()
+		let from = match log.Snapshot {
+		case Some[S] as s:
+			s.Value
+		case None:
+			m.Initial
+		}
+		since.Set(len(log.Signals))
+		Some[S]{Value: try replay(m.Step, from, log.Signals)}
+	}, func(prev S, next S, sig E) fails Failed | Diverged {
 		try j.Append(sig)
 		since.Update(func(n int) int { n + 1 })
 		if every > 0 && since.Get() >= every {

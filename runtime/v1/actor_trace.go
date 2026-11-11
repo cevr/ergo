@@ -257,10 +257,10 @@ func workEnd(err error) rt.MachineWhat {
 // halt, which reports it stopped once it ended.
 //
 //go:noinline
-func (a *Actor[S, E, D]) traceChild(halt func() error, epoch uint64) func() error {
+func (a *Actor[S, E, D]) traceChild(halt func(*rt.Task) error, epoch uint64) func(*rt.Task) error {
 	a.task.TraceMachine(&rt.MachineEvent{What: rt.MachineChildStarted, Epoch: epoch})
-	return func() error {
-		err := halt()
+	return func(t *rt.Task) error {
+		err := halt(t)
 		a.task.TraceMachine(&rt.MachineEvent{What: rt.MachineChildStopped, Epoch: epoch})
 		return err
 	}

@@ -16,7 +16,7 @@ import (
 
 // The states of a host.
 const (
-	hostMade   = iota // made in a step, not bound yet
+	hostMade   = iota // made in a step or a durable recover, not bound yet
 	hostOpen          // bound to an entry, empty
 	hostFilled        // filled by its entry's work
 	hostClosed        // its entry ended, or no entry owns it
@@ -61,7 +61,10 @@ type hostRunner interface {
 // actor (t is its runner's task, in a step), the host is the actor's: the
 // runner binds it to the entry the step enters (an Enter or an Emit), or
 // to the current entry (a Stay), and closes it when the step enters none
-// (Ignore, Reject, Done, a failure). Made anywhere else, no entry owns it,
+// (Ignore, Reject, Done, a failure). Made while a durable start's recover
+// runs (a replay by machines.From), it is unbound: the recovered actor's
+// first entry binds it when its first state holds it, and closes it
+// otherwise (DH1, actor_recover.go). Made anywhere else, no entry owns it,
 // so it is closed at once: Get fails ActorStopped.
 func NewHost[A any](t *rt.Task) *Host[A] {
 	h := &Host[A]{}

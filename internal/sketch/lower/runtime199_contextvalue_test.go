@@ -997,8 +997,14 @@ func TestRuntime199ContextValueOwner(t *testing.T) {
 			})
 		})
 	}
-	if got := sortedKeys(uses); !slices.Equal(got, []string{"v1.Scope.OpenContext"}) {
-		t.Errorf("the runtime binds context values in %v, want only v1.Scope.OpenContext", got)
+	// A durable start's recovery frame (DH1) binds two runtime keys for the
+	// recover's run: hostKey to the recovery that collects the hosts the
+	// recover makes, and handoffKey to the hosts it hands to the recovered
+	// actor. Neither is a contextKey, so a defect's report prints neither
+	// (contextOf).
+	want := []string{"v1.ActorRecovering", "v1.Scope.OpenContext", "v1.recoverWith"}
+	if got := sortedKeys(uses); !slices.Equal(got, want) {
+		t.Errorf("the runtime binds context values in %v, want only %v", got, want)
 	}
 	// Bind is the allocation-free binding of a runtime key: only an
 	// actor's runner binds itself (its hostKey; runtime.md, Machines and

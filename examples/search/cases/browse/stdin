@@ -1,5 +1,5 @@
-# two keys within the pause: one search of "pe", from 350; the memory
-# index answers at once
+# two keys within the pause: one search of "pe", from 350; a search
+# takes 100ms (search.Latency), so the hits show at 450
 @0 key p
 @100 key e
 @1000 pin 2
@@ -7,8 +7,8 @@
 @1200 pin 9
 @1300 clear
 @1400 key a
-# "a" is searched from 1650 and shown; the key at 1700 types on, and
-# "ap" is searched from 1950
+# "a" is searched from 1650; the key at 1700 comes while that search
+# runs, so it stops it and "a" shows nothing; "ap" is searched from 1950
 @1700 key p
 @2500 pin 1
 @2700 open

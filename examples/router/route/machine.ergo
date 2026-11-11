@@ -1,3 +1,4 @@
+import actor
 import machines
 import strings
 
@@ -8,16 +9,20 @@ type Board { Table Table, Queue []Request, Answers []Answered }
 // Router is the router's state. It serves one request at a time,
 // Current:
 //
-//	Idle        no request is served; the queue is empty
+//	Idle        no request is served; the queue is empty. Its lanes
+//	            carry messages: a courier per route of the table, each
+//	            named by a host before it runs (its work), and Log is
+//	            what they carried in this entry
 //	Confirming  the operator is asked about Current (it replaces a route)
 //	Applying    the registry checks Current (its work)
-type Router = Idle{Board Board} | Confirming{Board Board, Current Request} | Applying{Board Board, Current Request}
+type Router = Idle{Board Board, Lanes []Lane, Log []Delivered} | Confirming{Board Board, Current Request} | Applying{Board Board, Current Request}
 
 // Signal is what the router reads. Submit and Abort come from clients,
 // Reply from the operator; Checked and Unknown are the results of
-// Applying's work, which the runner sends only to the entry that started
-// it.
-type Signal = Submit{Request Request} | Reply{Yes bool} | Abort{ID int} | Checked{Table Table} | Unknown
+// Applying's work, and Told is a message a courier of Idle's work
+// carried. The runner sends a work's and a child's signal only to the
+// entry that started it.
+type Signal = Submit{Request Request} | Reply{Yes bool} | Abort{ID int} | Checked{Table Table} | Unknown | Told{Delivered Delivered}
 
 // Output is what the router tells the operator: a question about a
 // request. Answers are not outputs: they are in the state, where a
@@ -25,22 +30,37 @@ type Signal = Submit{Request Request} | Reply{Yes bool} | Abort{ID int} | Checke
 type Output { ID int, Text string }
 
 // Initial is the router with no routes.
-let Initial = Idle{Board: Board{Table: Table{Routes: []Route{}}, Queue: []Request{}, Answers: []Answered{}}}
+let Initial = Idle{Board: Board{Table: Table{Routes: []Route{}}, Queue: []Request{}, Answers: []Answered{}}, Lanes: []Lane{}, Log: []Delivered{}}
 
-// check is the work of each state: Applying checks its request with the
-// registry. The runner interrupts it when the entry ends, so an abort
-// during the check drops its result. Unknown is a failure of Registry
-// and a signal, so the work needs no failure map.
-func check(s Router) Option[machines.Work[Signal, Registry]] {
+// idle is the router idle with the board b: a lane with a new host for
+// each route of b's table, and an empty log. The step that enters it
+// makes the hosts, so the entry owns them; in a recovery, the replay
+// makes them, and the recovered first entry binds them.
+func idle(b Board) Router { Idle{Board: b, Lanes: lanes(b.Table), Log: []Delivered{}} }
+
+// work is the work of each state. Applying checks its request with the
+// registry: the runner interrupts it when the entry ends, so an abort
+// during the check drops its result; Unknown is a failure of Registry
+// and a signal, so the work needs no failure map. Idle starts the
+// courier of each lane in the lane's host, a child of the entry: they
+// stop when the entry ends, and a courier's crash (a defect) ends the
+// router's incarnation.
+func work(s Router) Option[machines.Work[Signal, Registry | Scheduler]] {
 	match s {
 	case Applying as c:
 		Some{machines.Work{Run: func() Table fails Unknown needs Registry { try Registry.Check(c.Board.Table, c.Current.Change) }, OnSuccess: func(o Table) Signal { Checked{Table: o} }}}
-	case Idle:
-		None
+	case Idle as i:
+		Some{machines.Work{Listen: func(send func(e Signal)) needs Scheduler {
+			for l in i.Lanes {
+				let _ = actor.ChildIn(send, l.Courier, machines.Start(Couriers{}, l.Route), 4, told)
+			}
+		}}}
 	case Confirming:
 		None
 	}
 }
+
+func told(d Delivered) Signal { Told{Delivered: d} }
 
 // BoardOf is the book of s.
 func BoardOf(s Router) Board {
@@ -148,7 +168,7 @@ func answered(b Board, id int, a Answer) Board {
 // it, so every arm that ends a request ends in Settle.
 func Settle(b Board) Decision[Router, Output] {
 	if len(b.Queue) == 0 {
-		return Enter[Router]{Next: Idle{Board: b}}
+		return Enter[Router]{Next: idle(b)}
 	}
 	let next = b.Queue[0]
 	let rest = Board{..b, Queue: b.Queue[1:]}
@@ -163,8 +183,8 @@ func Settle(b Board) Decision[Router, Output] {
 // kept is s holding the book b, in the same entry: a Stay.
 func kept(s Router, b Board) Decision[Router, Output] {
 	match s {
-	case Idle:
-		Stay[Router]{Next: Idle{Board: b}}
+	case Idle as i:
+		Stay[Router]{Next: Idle{..i, Board: b}}
 	case Confirming as a:
 		Stay[Router]{Next: Confirming{Board: b, Current: a.Current}}
 	case Applying as c:
@@ -220,7 +240,9 @@ func aborted(s Router, a Abort) Decision[Router, Output] {
 	}
 }
 
-// Step is the router's transition. It is pure: the journal replays it.
+// Step is the router's transition. It is pure but for its hosts
+// (actor.NewHost, which acts on nothing outside), so the journal replays
+// it: a replay makes the hosts again, empty, for the recovered entry.
 func Step(s Router, sig Signal) Decision[Router, Output] {
 	match sig {
 	case Submit as r:
@@ -258,15 +280,27 @@ func Step(s Router, sig Signal) Decision[Router, Output] {
 		case Confirming:
 			Ignore
 		}
+	case Told as t:
+		// A message a courier of this Idle entry carried: kept in the
+		// entry's log. A courier's signal of an ended entry never gets
+		// here (the runner drops it).
+		match s {
+		case Idle as i:
+			Stay[Router]{Next: Idle{..i, Log: i.Log.Append(t.Delivered)}}
+		case Confirming:
+			Ignore
+		case Applying:
+			Ignore
+		}
 	}
 }
 
-// Routing is the router as a machine: no timer, and its work is the
-// registry's check.
+// Routing is the router as a machine: no timer; its work is the
+// registry's check, and the couriers of an Idle entry.
 type Routing machine[Router, Signal] {
 	initial: Initial,
 	step:    Step,
-	work:    check,
+	work:    work,
 }
 
 // Name is the line of a state.

@@ -1,15 +1,15 @@
   idle: no routes
-  dispatcher: no routes
+  couriers: no routes
 > #1 route logs to disk
   checking #1 route logs to disk
   idle: logs -> disk
   = #1 applied: logs -> disk
-  dispatcher: logs -> disk
+  couriers: logs -> disk
 > #2 route metrics to socket
   checking #2 route metrics to socket
   idle: logs -> disk, metrics -> socket
   = #2 applied: logs -> disk, metrics -> socket
-  dispatcher: logs -> disk, metrics -> socket
+  couriers: logs -> disk, metrics -> socket
 > #3 route logs to stdout
   confirming #3
   ! #3: logs goes to disk: send it to stdout?
@@ -28,7 +28,7 @@
   idle: logs -> stdout
   = #3 applied: logs -> stdout, metrics -> socket
   = #5 applied: logs -> stdout
-  dispatcher: logs -> stdout
+  couriers: logs -> stdout
 > #6 route traces to nowhere
   checking #6 route traces to nowhere
   idle: logs -> stdout
@@ -37,7 +37,7 @@
   checking #7 route metrics to disk
   idle: logs -> stdout, metrics -> disk
   = #7 applied: logs -> stdout, metrics -> disk
-  dispatcher: logs -> stdout, metrics -> disk
+  couriers: logs -> stdout, metrics -> disk
 > no
   ? no question is open
 > abort #7
@@ -48,7 +48,7 @@
   checking #8 remove metrics
   idle: logs -> stdout
   = #8 applied: logs -> stdout
-  dispatcher: logs -> stdout
+  couriers: logs -> stdout
 > send logs hello
   logs -> stdout: hello
 > send alerts hello

@@ -272,7 +272,7 @@
       "name": "x7-parent-first",
       "origin": "wf10/explorer/x7 (MU5 parentFirst; models/children ParentFirst)",
       "file": "runtime/v1/actor.go",
-      "from": "\ta.task.Interrupt()\n\ta.inbox.Close()\n\tif rt.Exploring {\n\t\trt.Await(nil, isClosedTest(a.done))\n\t}\n\t<-a.done\n",
+      "from": "\ta.task.Interrupt()\n\ta.inbox.Close()\n\tif rt.Exploring {\n\t\trt.Await(nil, isClosedTest(a.done))\n\t}\n\ta.waitEnd(t, nil)\n",
       "to": "\ta.task.Interrupt()\n\ta.inbox.Close()\n",
       "rule": "ChildrenStopFirst, ChildInsideEntry: an entry's exit waits for each child's end before it stops the next one and before the next entry opens.",
       "killers": [
@@ -473,6 +473,138 @@
           "examples:fetchpool"
         ]
       }
+    },
+    {
+      "name": "mk1-waitkids-unparked",
+      "origin": "wf10/MK1 round 1 (the downloads manager's deadlock, wf10 F8 known gap 1)",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif wt.InDomain() {\n\t\tp = rt.Park(wt, r.done, nil, func() bool { return isDone(r.done) })\n",
+      "to": "\tif false {\n\t\tp = rt.Park(wt, r.done, nil, func() bool { return isDone(r.done) })\n",
+      "rule": "runtime.md 11.16 and 13: a work that started children waits for their stop parked, so a manual clock's Advance fires the timer whose signal stops them.",
+      "killers": [
+        "runtime/v1:TestManualTreeSettles"
+      ]
+    },
+    {
+      "name": "mk1-halt-unparked",
+      "origin": "wf10/MK1 round 1 (inventory of runtime/v1's raw waits)",
+      "file": "runtime/v1/actor.go",
+      "from": "\t\trt.Await(nil, isClosedTest(a.done))\n\t}\n\ta.waitEnd(t, nil)\n\tif a.reported.Load() {\n",
+      "to": "\t\trt.Await(nil, isClosedTest(a.done))\n\t}\n\t<-a.done\n\tif a.reported.Load() {\n",
+      "rule": "runtime.md 11.16 and 13: an entry's stop of a child waits for the child's end parked, so a child whose release sleeps on the clock ends under Advance.",
+      "killers": [
+        "runtime/v1:TestManualTreeSettles"
+      ]
+    },
+    {
+      "name": "mk1-stopkids-wakes-unparked",
+      "origin": "wf10/MK1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\t\trt.Wake(w, done, func() { close(done) })\n",
+      "to": "\t\t_ = w\n\t\tclose(done)\n",
+      "rule": "rt idle.go: a waker clears the parked flag of the wait it ends before the event is visible; a work's waitKids left parked after its children stopped keeps the clock's domain settled while the work runs.",
+      "killers": [
+        "runtime/v1:TestManualTreeSettles"
+      ]
+    },
+    {
+      "name": "dh1-unbound-closed",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tif r.ended {\n\t\treturn false\n\t}\n",
+      "to": "\tif true {\n\t\treturn false\n\t}\n",
+      "rule": "runtime.md Machines and actors 17: a host a durable recover makes is unbound, not closed, so the recovered actor's first entry can bind it.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-late-host-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tif r.ended {\n\t\treturn false\n\t}\n",
+      "to": "\tif false && r.ended {\n\t\treturn false\n\t}\n",
+      "rule": "runtime.md Machines and actors 17: a host made after the recover returned (by a task it started) is closed at once; no entry will bind it.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-first-entry-binds-none",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.bindRecovered(s)\n\ta.arm(at, s)\n",
+      "to": "\ta.arm(at, s)\n",
+      "rule": "runtime.md Machines and actors 17: the recovered actor's first entry binds each recovered host its first state holds.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-rest-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tcloseHosts(rest)\n\ta.newHosts = append(a.newHosts, held...)\n",
+      "to": "\t_ = rest\n\ta.newHosts = append(a.newHosts, held...)\n",
+      "rule": "runtime.md Machines and actors 17: a recovered host the first state does not hold (only an earlier state of the replay held it) is closed.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-all-held",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\t\tif want[reflect.ValueOf(h).Pointer()] {\n",
+      "to": "\t\tif true || want[reflect.ValueOf(h).Pointer()] {\n",
+      "rule": "runtime.md Machines and actors 17: the first entry binds only the recovered hosts its state holds; the others close.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-renew-unbound",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\ts, err := recoverWith(at, rec, a.fresh)\n",
+      "to": "\ts, err := a.fresh(at)\n",
+      "rule": "runtime.md Machines and actors 17 and 18: a supervised restart's recover makes unbound hosts, as the first start's does.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-recover-hosts-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\tdefer func() { closeHosts(hosts) }()\n",
+      "to": "\tdefer func() {}()\n",
+      "rule": "runtime.md Machines and actors 17: every host a failed recover made is closed, and so is every host no entry took when the start returns.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-no-actor-kept",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor_recover.go",
+      "from": "\thosts = h.take()\n",
+      "to": "\thosts = nil\n",
+      "rule": "runtime.md Machines and actors 17: a recovered host that no entry binds is closed when the start returns.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
+    },
+    {
+      "name": "dh1-first-publish-early",
+      "origin": "wf10/DH1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif settled := a.startWork(at, s); settled != nil {\n\t\t<-settled\n\t}\n}\n\n// handle steps",
+      "to": "\tif settled := a.startWork(at, s); settled != nil {\n\t\t_ = settled\n\t}\n}\n\n// handle steps",
+      "rule": "runtime.md Machines and actors 16.4: the first entry with recovered hosts and a work is shown once the work filled them, waited or ended.",
+      "killers": [
+        "runtime/v1:TestDurableHostsRecover"
+      ]
     }
   ]
 }

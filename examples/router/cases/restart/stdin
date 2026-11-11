@@ -4,7 +4,7 @@ route 1 logs disk
 drop
 route 2 metrics socket
 send logs one
-# a courier crashes: its dispatcher restarts and takes the table again
+# a courier crashes: the router restarts from its journal, with new couriers
 send metrics crash
 send metrics two
 route 3 logs stdout

@@ -111,8 +111,8 @@ func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | search.In
 // Play runs the search as an actor on clock, which only Play moves, and
 // is its timeline: each state the actor commits and then each output it
 // tells, at the millisecond of the clock. At one instant the timer that is
-// due goes first, then the script's signal. The search's work answers at
-// the instant it starts: the memory index does not wait.
+// due goes first, then the script's signal. The search's work waits
+// search.Latency on clock, then asks the index.
 //
 // The actor keeps its own timers on clock, and Advance returns only when
 // every task of the clock's domain waits again (time.Advance), so Play

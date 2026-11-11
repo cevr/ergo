@@ -223,10 +223,24 @@ func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink
 // keeps those the step commits. A signal of an ended entry is dropped
 // before the step (runner rule 6), so it is never saved and never
 // replayed.
+//
+// The step may make hosts (NewHost): a host is entry data, not durable
+// data. A host that recover makes (in a replay of the step) is unbound;
+// the actor's first entry binds each one its first state holds, and its
+// work fills them with new children. Every other host recover made is
+// closed when StartDurable returns, so a journal never keeps a live child.
 func StartDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
-	let initial = try recovered(recover, m.Initial)
-	StartMachine(durable(m, initial, save), capacity, sink)
+	try recovering(func() S fails G needs R { try recovered(recover, m.Initial) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+		StartMachine(durable(m, initial, save), capacity, sink)
+	})
 }
+
+// recovering runs recover, so each host it makes is unbound, and then
+// start with its state: the first entry of the actor start opens binds the
+// hosts that state holds; the others close when start returns, and all of
+// them close when recover fails (Go body ActorRecovering; runtime.md,
+// Machines and actors 17).
+extern go ergo.local/prototype/runtime/v1.ActorRecovering func recovering[S, A, G, R, Q](recover func() S fails G needs R, start func(s S) A needs Q) A fails G needs R | Q
 
 // SuperviseDurable is Supervise for a durable machine (StartDurable): the
 // first incarnation starts as StartDurable starts, and each restart runs
@@ -237,8 +251,9 @@ func StartDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int
 // budget counts like any other.
 func SuperviseDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
 	let first = m.Initial
-	let initial = try recovered(recover, first)
-	launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit)
+	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+		launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit)
+	})
 }
 
 // recovered is recover's state, or initial on None.
@@ -320,8 +335,13 @@ type Host[A] {
 
 // NewHost is an empty host. Made in a step of an actor, it belongs to the
 // entry the step enters (an Enter or an Emit; a Stay's is the current
-// entry's) and closes when the step enters no state. Made anywhere else,
-// no entry owns it: Get fails Stopped and ChildIn on it is a defect.
+// entry's) and closes when the step enters no state. Made in the recover
+// of StartDurable or SuperviseDurable (a replay of the step), it is
+// unbound: the recovered actor's first entry owns it when its first state
+// holds it, and it closes otherwise. Made anywhere else, no entry owns it:
+// Get fails Stopped and ChildIn on it is a defect. A durable step may call
+// NewHost (the checker's S108 admits it): it makes an empty cell and acts
+// on nothing outside.
 extern go ergo.local/prototype/runtime/v1.NewHost func NewHost[A]() Host[A]
 
 // noHost is the host Child gives child: none.

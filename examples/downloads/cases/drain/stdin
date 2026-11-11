@@ -1,0 +1,6 @@
+# two files, then a drain: both still finish, and the add after the drain
+# is refused
+get a.txt
+get slow.iso
+drain
+get b.img

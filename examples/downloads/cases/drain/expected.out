@@ -1,0 +1,14 @@
+> get a.txt
+  @0 0 bytes
+  @0 saved 1000 bytes
+> get slow.iso
+  @0 0 bytes
+  @0 1000 bytes
+  @0 1000 bytes, waiting 100ms
+  @100 1000 bytes
+  @100 1000 bytes, waiting 200ms
+  @300 1000 bytes
+  @300 2000 bytes
+  @300 saved 2500 bytes
+> drain
+> get b.img: refused, the manager drains

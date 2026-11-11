@@ -1,23 +1,23 @@
   idle: no routes
-  dispatcher: no routes
+  couriers: no routes
 > #1 route logs to disk
   checking #1 route logs to disk
   idle: logs -> disk
   = #1 applied: logs -> disk
-  dispatcher: logs -> disk
+  couriers: logs -> disk
 > drop
 > #2 route metrics to socket
   checking #2 route metrics to socket
-  restarted (1 of 2) from the journal
+  restarted (1 of 3) from the journal
   checking #2 route metrics to socket
   idle: logs -> disk, metrics -> socket
   = #2 applied: logs -> disk, metrics -> socket
-  dispatcher: logs -> disk, metrics -> socket
+  couriers: logs -> disk, metrics -> socket
 > send logs one
   logs -> disk: one
 > send metrics crash
-  the courier of metrics crashed; the dispatcher restarted (1 of 2)
-  dispatcher: logs -> disk, metrics -> socket
+  the courier of metrics crashed; restarted (2 of 3) from the journal
+  couriers: logs -> disk, metrics -> socket
 > send metrics two
   metrics -> socket: two
 > #3 route logs to stdout
@@ -26,20 +26,21 @@
 > drop
 > yes
   checking #3 route logs to stdout
-  restarted (2 of 2) from the journal
+  restarted (3 of 3) from the journal
   checking #3 route logs to stdout
   idle: logs -> stdout, metrics -> socket
   = #3 applied: logs -> stdout, metrics -> socket
-  dispatcher: logs -> stdout, metrics -> socket
+  couriers: logs -> stdout, metrics -> socket
 > send logs three
   logs -> stdout: three
 > restart
-  replayed 7 signals: idle: logs -> stdout, metrics -> socket
+  replayed 10 signals: idle: logs -> stdout, metrics -> socket
+  couriers: logs -> stdout, metrics -> socket
 > #4 remove metrics
   checking #4 remove metrics
   idle: logs -> stdout
   = #4 applied: logs -> stdout
-  dispatcher: logs -> stdout
+  couriers: logs -> stdout
 > #1 route traces to disk
   ? #1 is taken
 > send logs four

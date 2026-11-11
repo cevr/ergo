@@ -597,6 +597,13 @@ func (fp *footprinter) runs(n *fpNode, f *Func, taskResult bool) {
 		n.opaque = true
 	case pureStd(f):
 		n.tasks = n.tasks || taskResult
+	case MakesHost(f):
+		// NewHost makes an empty cell, which an actor's entry binds: known
+		// code that acts on nothing outside, so it adds nothing and a
+		// durable step may make hosts (runtime.md, Machines and actors 17;
+		// wf10 DH1). Its Go body reads its task, so it is not pureStd: the
+		// lowering's pure-call walk keeps the environment of each frame
+		// that calls it (lower/pure.go).
 	case f.Decl.Extern != nil || f.Decl.Body == nil:
 		n.opaque = true
 		n.tasks = n.tasks || taskResult

@@ -395,6 +395,8 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 
 **Durable actor** (implemented, MU9): A machine actor whose committed transitions a journal keeps before anyone sees them, so a new actor recovers its state by replaying them with the machine's pure step (std `actor.StartDurable`, `journal.Start`). See [runtime](docs/spec/runtime.md#machines-and-actors) 17. A durable entity adds an address and ownership to it.
 
+**Actor host** (implemented, mu-host; DH1): std `actor.Host[A]`, an empty slot for one child, made by `actor.NewHost` in a step and owned by the entry the step enters, whose work fills it once (`actor.ChildIn`); the entry's end closes it. A host is entry data, not durable data: a durable step may make one, and a host made in a durable recover's replay is **unbound** until the recovered actor's first entry binds it (when its first state holds it) or closes it. A journal never brings back a live child. Not a host package's `Host`. See [runtime](docs/spec/runtime.md#machines-and-actors) 16 and 17.
+
 **Journal** (implemented, MU9): The std operation type `journal.Journal[S, E]` that keeps a durable actor's committed signals after the last snapshot of its state, in order. Its providers are `journal/memory` and `journal/file`.
 
 **Durable entity** (proposed): An addressable actor whose provider contract preserves declared domain data and acknowledged progress across process failure, with explicit storage, codec and ownership policies.

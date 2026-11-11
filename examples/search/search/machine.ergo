@@ -29,15 +29,23 @@ let Pause = 250ms
 // Room is how many entries the pins hold.
 let Room = 3
 
+// Latency is how long a search takes: the work waits it on the Scheduler,
+// then asks the Index.
+let Latency = 100ms
+
 // find is the work of each state: Searching searches its query in the
-// Index. The runner starts it when the entry opens and interrupts it
-// when the entry ends, so a key during a search stops it and its result
-// never reaches a later entry. IndexDown is a failure of the Index and
-// also a signal, so the work needs no failure map.
-func find(s Search) Option[machines.Work[Signal, Index]] {
+// Index, which takes Latency. The work's row is both capabilities it
+// needs, Index | Scheduler (MB F8). The runner starts it when the entry
+// opens and interrupts it when the entry ends, so a key during a search
+// stops it and its result never reaches a later entry. IndexDown is a
+// failure of the Index and also a signal, so the work needs no failure map.
+func find(s Search) Option[machines.Work[Signal, Index | Scheduler]] {
 	match s {
 	case Searching as q:
-		Some{machines.Work{Run: func() []Entry fails IndexDown needs Index { try Index.Find(q.Query) }, OnSuccess: func(hits []Entry) Signal { Found{Hits: hits} }}}
+		Some{machines.Work{Run: func() []Entry fails IndexDown needs Index | Scheduler {
+			Scheduler.Sleep(Latency)
+			try Index.Find(q.Query)
+		}, OnSuccess: func(hits []Entry) Signal { Found{Hits: hits} }}}
 	case Idle:
 		None
 	case Typing:
