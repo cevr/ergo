@@ -160,6 +160,7 @@ var declared = map[string][]allowance{
 		{"examples/editions/sketch/main.ergo", file, "TestSketchBuildRunsProgram and the lease test build the 2026 example program"},
 		{"examples/editions/sketch/expected.out", file, "TestSketchBuildRunsProgram compares the run with the expected output"},
 		{"examples", subtree, "TestExamplesOutputIsAFunctionOfInput walks every example package folder (filepath.WalkDir) and checks and lowers each, in this process and in two children"},
+		{"ergo.mod", file, "CheckDir of a one-folder example looks for its module upward and stats the checkout root's ergo.mod (absent); adding one makes the example a package of it"},
 	},
 	"internal/testinputs": declare(
 		[]allowance{
