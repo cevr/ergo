@@ -13,8 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-
-	"ergo.local/prototype/internal/gobind"
 )
 
 // The std store: a Go build cache that holds only the compiled standard
@@ -61,11 +59,20 @@ type stdBuild struct {
 // with cgo builds in the store those six reads were gone).
 func stdBuilds() []stdBuild {
 	var builds []stdBuild
-	for _, p := range gobind.Platforms {
-		builds = append(builds, stdBuild{env: []string{"CGO_ENABLED=0", "GOOS=" + p.GOOS, "GOARCH=" + p.GOARCH}, args: []string{"build", "-trimpath", "std"}})
+	for _, p := range storePlatforms {
+		goos, goarch, _ := strings.Cut(p, "/")
+		builds = append(builds, stdBuild{env: []string{"CGO_ENABLED=0", "GOOS=" + goos, "GOARCH=" + goarch}, args: []string{"build", "-trimpath", "std"}})
 	}
 	return builds
 }
+
+// storePlatforms are the platforms a program links for: gobind.Platforms
+// (internal/gobind), copied here so that this package does not import
+// gobind, which an edit of the checker reaches; the import put this
+// package in the checker edit's fast set (gate16b-fix2 r4).
+// TestStorePlatformsAreGobinds (internal/residue) reads both lists and
+// requires them equal.
+var storePlatforms = []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"}
 
 // goSettings are the go env values that choose the store: the toolchain a
 // test's go command runs in the checkout, and what changes its compiles.
