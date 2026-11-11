@@ -2061,8 +2061,8 @@
       "name": "L8-A4 a Values() element lent instead of owned",
       "origin": "wf10 L8 A4 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t\t\towned = true\n",
-      "to": "\t\t\t\towned = false\n",
+      "from": "owned && lp.Domain == LoopSeq {",
+      "to": "false && owned && lp.Domain == LoopSeq {",
       "rule": "Q7: a for-in over a queue's Values() owns each element.",
       "killers": [
         "check:TestOwnershipFlowModel"
