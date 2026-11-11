@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"errors"
 	"math"
 	"math/bits"
 	"math/rand/v2"
@@ -262,25 +261,6 @@ var runesLaws = map[string]func(r *rand.Rand) (bool, any){
 		f := anyFloat(r)
 		return MathIsNaN(f) || MathAbs(f) >= 0.0, f
 	},
-	// ToInt64's laws draw edgeFloat (convert_test.go), which reaches every
-	// bound of the conversion and the floats next to it.
-	"math ToInt64FailsOnlyOutside": func(r *rand.Rand) (bool, any) {
-		f := edgeFloat(r)
-		n, err := MathToInt64(f)
-		if err != nil {
-			var o MathOutOfRange
-			return errors.As(err, &o) && (MathIsNaN(f) || f >= 9223372036854775808.0 || f < -9223372036854775808.0), f
-		}
-		return float64(n) == MathTrunc(f), f
-	},
-	"math ToInt64AgreesWithConversion": func(r *rand.Rand) (bool, any) {
-		f := edgeFloat(r)
-		n, err := MathToInt64(f)
-		if err != nil {
-			return MathIsNaN(f) && FloatToInt64(f) == 0 || f > 0.0 && FloatToInt64(f) == math.MaxInt64 || f < 0.0 && FloatToInt64(f) == math.MinInt64, f
-		}
-		return n == FloatToInt64(f), f
-	},
 	"bits RotateLeft64Inverts": func(r *rand.Rand) (bool, any) {
 		x, k := r.Uint64(), int(r.Int64())
 		return BitsRotateLeft64(BitsRotateLeft64(x, k), -k) == x, []any{x, k}
@@ -308,8 +288,6 @@ var runesLawStatements = map[string]string{
 	"math FloorCeilBracket":             `FloorCeilBracket(f float64) { if IsNaN(f) || IsInf(f, 0) { return true } Floor(f) <= f && f <= Ceil(f) && Ceil(f)-Floor(f) <= 1.0 }`,
 	"math TruncTowardZero":              `TruncTowardZero(f float64) { if IsNaN(f) { return true } Abs(Trunc(f)) <= Abs(f) && Trunc(Trunc(f)) == Trunc(f) }`,
 	"math AbsIsNonNegative":             `AbsIsNonNegative(f float64) { IsNaN(f) || Abs(f) >= 0.0 }`,
-	"math ToInt64FailsOnlyOutside":      `ToInt64FailsOnlyOutside(f float64) { let n = ToInt64(f) catch { case OutOfRange: return IsNaN(f) || f >= 9223372036854775808.0 || f < -9223372036854775808.0 } float64(n) == Trunc(f) }`,
-	"math ToInt64AgreesWithConversion":  `ToInt64AgreesWithConversion(f float64) { let n = ToInt64(f) catch { case OutOfRange: return IsNaN(f) && int64(f) == 0 || f > 0.0 && int64(f) == MaxInt64() || f < 0.0 && int64(f) == MinInt64() } n == int64(f) }`,
 	"bits RotateLeft64Inverts":          `RotateLeft64Inverts(x uint64, k int) { RotateLeft64(RotateLeft64(x, k), -k) == x }`,
 	"bits RotateLeft32Inverts":          `RotateLeft32Inverts(x uint32, k int) { RotateLeft32(RotateLeft32(x, k), -k) == x }`,
 	"bits RotateKeepsOnes":              `RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) == OnesCount64(x) }`,

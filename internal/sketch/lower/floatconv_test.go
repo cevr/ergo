@@ -138,11 +138,12 @@ func TestFloatConversionIsPortable(t *testing.T) {
 
 // TestFloatConversionInlines is the speed guard of the conversion: the
 // FloatTo… call inlines into the lowered function, so the conversion
-// costs Go's conversion and two compares, and the function that holds it
+// costs Go's conversion, a compare and, for a narrower width (uint8 here),
+// the clamps to its bounds, and the function that holds it
 // stays within Go's inlining budget. It builds Go because the subject is
 // gc's inlining decision (-gcflags=-m), which only gc makes.
 //
-// Mutant (runtime/v1 ledger, sconv-int64-noinline): FloatToInt64 marked
+// Mutant (lower ledger, sconv-runtime-noinline): FloatToInt64 marked
 // //go:noinline.
 func TestFloatConversionInlines(t *testing.T) {
 	needsBuild(t)
