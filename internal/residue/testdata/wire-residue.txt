@@ -29,7 +29,7 @@ CHANGELOG.md	done: true }`, `todo.done`), so wire keys such as `"done"` keep wor
 CHANGELOG.md	a derived codec can carry the wire key `"done"`), and a form where
 CHANGELOG.md	`TestHTTPWireVectors` runs the shared wire vectors in `conformance/http/`
 CHANGELOG.md	`http-transport.ef` and compares the wire transcript.
-GLOSSARY.md	(designed): The pair a type's wire form is found by: `ParseX` decodes
+GLOSSARY.md	**Codec**: The pair a type's wire form is found by: `ParseX` decodes
 GLOSSARY.md	found by: `ParseX` decodes and `x.Wire()` encodes. A derived codec's
 GLOSSARY.md	is a checked witness relating a wire type and a domain type through
 docs/decisions.md	transformations between distinct wire and domain types, including explicit
