@@ -300,6 +300,7 @@ type InputMachine[I, S, E, O, F, R, W] {
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
 type Task[T, E] {
+	runtimeOnly(),
 	// Wait takes the task: its one result moves out once (#197 q54).
 	// Stop lends it, so a law can say what holds after it.
 	Wait() T fails E takes,

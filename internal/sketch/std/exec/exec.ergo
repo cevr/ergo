@@ -157,6 +157,7 @@ type Chunk { Text string, Stderr bool }
 // process (runtime/v1 TestRunningMatchesModel); a real program's streams
 // are TestExecStreams.
 type Running {
+	runtimeOnly(),
 	// Lines gives the lines of the streams whose sink is ToCaller, each
 	// without its line feed, in the order their line feeds come, until both
 	// end; a last line with no line feed comes at its stream's end. It

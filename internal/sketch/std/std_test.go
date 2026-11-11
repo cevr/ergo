@@ -225,6 +225,9 @@ func TestEachExternHasItsGoBody(t *testing.T) {
 				}
 				goType := baseName(body.Results[i])
 				for _, m := range ops.Methods {
+					if !isExportedName(m.Name) {
+						continue // private sealing operations cannot be called by a program
+					}
 					opBody, err := v1.BodyOf(goType + "." + m.Name)
 					if err != nil {
 						t.Errorf("%s's %s: %v", where, m.Name, err)
