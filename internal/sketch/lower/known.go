@@ -96,6 +96,10 @@ type knownStats struct {
 	// flat Option, so that it lowered the program again with Option an
 	// interface (lowerAgain).
 	OptionBails int
+	// Inlined is the calls written at their site (inline.go), and
+	// Substituted the literals written where an inlined body calls them.
+	Inlined     int
+	Substituted int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

@@ -321,14 +321,22 @@ func main() needs Console {
 	Console.Println(use())
 }
 `
-	o := mustLower(t, "e5_in_place", src)
-	code := o.mainGo()
-	body := goFunc(t, code, "use")
-	if n := len(regexp.MustCompile(`\bmade\(`).FindAllString(body, -1)); n != 2 {
-		t.Errorf("use calls made %d times in its Go body, want 2 (once per with):\n%s", n, body)
-	}
-	if strings.Contains(body, "func(") {
-		t.Errorf("use's Go body has a closure; a local context is no value:\n%s", body)
+	// The count reads the provider's evaluations as calls of made, which
+	// only the call lowering keeps as calls (inline.go); TestInlineAgrees
+	// proves that inlining evaluates the same expressions. The closure
+	// fact holds under both lowerings.
+	saved := inlineLowering
+	defer func() { inlineLowering = saved }()
+	for _, mode := range []string{"call", "inline"} {
+		inlineLowering = mode
+		o := mustLower(t, "e5_in_place_"+mode, src)
+		body := goFunc(t, o.mainGo(), "use")
+		if n := len(regexp.MustCompile(`\bmade\(`).FindAllString(body, -1)); mode == "call" && n != 2 {
+			t.Errorf("use calls made %d times in its Go body, want 2 (once per with):\n%s", n, body)
+		}
+		if strings.Contains(body, "func(") {
+			t.Errorf("%s lowering: use's Go body has a closure; a local context is no value:\n%s", mode, body)
+		}
 	}
 }
 

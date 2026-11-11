@@ -238,26 +238,33 @@ type lowerer struct {
 	bodies   int        // function bodies lowered (TestNamingWorkIsLinear)
 	formats  int        // go/format runs
 
-	types    map[*check.TypeName]*typeDecl
-	funcs    map[*check.Func]*funcDecl
-	pure     map[*check.Func]bool       // the program's pure functions (pure.go), once computed
-	known    map[*check.Func]knownState // known-callback variant decisions (known.go)
-	closed   map[*check.Func]knownState // closed-frame decisions (known.go)
-	deps     map[*check.Func][]bool     // result-alias summaries (alias.go)
-	stats    knownStats                 // what known.go and alias.go did (tests only)
-	vars     map[*check.Var]string      // package-level lets
-	contexts map[contextSet]string
-	adapters map[string]string        // operation-table adapters by source and target Go types
-	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
-	texts    map[pkgKey]bool          // generated text functions emitted
-	defaults map[pkgKey]bool          // generated default functions emitted (types.go, Defaults)
-	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
-	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
-	clones   map[pkgKey]bool          // generated copy functions emitted (values.go)
-	vals     *valueFacts              // the value rule's decisions (values.go)
-	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
-	holds    map[*check.Named]holdState
-	typeKeys map[check.Type]string
+	types  map[*check.TypeName]*typeDecl
+	funcs  map[*check.Func]*funcDecl
+	pure   map[*check.Func]bool       // the program's pure functions (pure.go), once computed
+	known  map[*check.Func]knownState // known-callback variant decisions (known.go)
+	closed map[*check.Func]knownState // closed-frame decisions (known.go)
+	deps   map[*check.Func][]bool     // result-alias summaries (alias.go)
+	stats  knownStats                 // what known.go and alias.go did (tests only)
+	// inlineOK holds the inline decisions, inlineGrown the body nodes each
+	// Go function took in, inlineSites the inlined calls (inline.go), and
+	// lastDir the last //line directive a body wrote.
+	inlineOK    map[*check.Func]knownState
+	inlineGrown map[*namer]int
+	inlineSites []inlineSite
+	lastDir     string
+	vars        map[*check.Var]string // package-level lets
+	contexts    map[contextSet]string
+	adapters    map[string]string        // operation-table adapters by source and target Go types
+	scripts     map[string]bool          // Script structs emitted, by instance key (script.go)
+	texts       map[pkgKey]bool          // generated text functions emitted
+	defaults    map[pkgKey]bool          // generated default functions emitted (types.go, Defaults)
+	equals      map[pkgKey]bool          // generated equality functions emitted (equal.go)
+	wires       map[pkgKey]bool          // generated codec functions emitted (wire.go)
+	clones      map[pkgKey]bool          // generated copy functions emitted (values.go)
+	vals        *valueFacts              // the value rule's decisions (values.go)
+	sets        map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
+	holds       map[*check.Named]holdState
+	typeKeys    map[check.Type]string
 	// holdsVisits counts holdsMap calls (TestDefaultWorkIsLinear).
 	holdsVisits int
 	methods     map[*check.Package]map[*check.TypeName][]*check.Func

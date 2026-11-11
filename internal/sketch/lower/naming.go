@@ -77,6 +77,7 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"calls", nil}, "ergoCalls")
 	l.pkgName(pkgKey{"decl", nil}, "ergoDecl")
 	l.pkgName(pkgKey{"decls", nil}, "ergoDecls")
+	l.pkgName(pkgKey{"inlines", nil}, "ergoInlines") // inline.go, inlineTable
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")
 	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
 	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
