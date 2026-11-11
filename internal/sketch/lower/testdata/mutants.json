@@ -3257,6 +3257,50 @@
         "lower:TestJSONFieldsAgree",
         "lower:TestNestedEncodeKeepsTheFastText"
       ]
+    },
+    {
+      "name": "convgo-pure-adapter",
+      "origin": "wf10 CONV-go (16b r4 On base)",
+      "file": "internal/sketch/lower/pure.go",
+      "from": "if x, isExpr := n.(syntax.Expr); isExpr && goAdapterAt(info, x) {",
+      "to": "if x, isExpr := n.(syntax.Expr); isExpr && goAdapterAt(info, x) && false {",
+      "rule": "A frame that converts a value of the program into a Go interface binds an environment: the adapter's callbacks run on its task, so it is never a pure function.",
+      "killers": [
+        "lower:TestValuesIntoGoInterfaces"
+      ]
+    },
+    {
+      "name": "convgo-pure-adapter-elems",
+      "origin": "wf10 CONV-go (16b r4 On base)",
+      "file": "internal/sketch/lower/gointerface.go",
+      "from": "\t\tif goAdapterConv(c) {\n\t\t\treturn true\n",
+      "to": "\t\tif goAdapterConv(c) && false {\n\t\t\treturn true\n",
+      "rule": "An element of a multi-name let converted into a Go interface makes its frame impure too (Info.ImplicitElems).",
+      "killers": [
+        "lower:TestValuesIntoGoInterfaces"
+      ]
+    },
+    {
+      "name": "convgo-generic-provider",
+      "origin": "wf10 CONV-go (generic record into a Go interface)",
+      "file": "internal/sketch/lower/gointerface.go",
+      "from": "\t\tif len(f.Sig.TParams) > 0 {\n\t\t\t// A generic provider",
+      "to": "\t\tif false && len(f.Sig.TParams) > 0 {\n\t\t\t// A generic provider",
+      "rule": "A generic provider of a Go interface's operation is called as its instance, at the converted type's arguments.",
+      "killers": [
+        "lower:TestValuesIntoGoInterfaces"
+      ]
+    },
+    {
+      "name": "convgo-borrow-adapter",
+      "origin": "wf10 CONV-go (a borrow into a Go interface)",
+      "file": "internal/sketch/lower/gointerface.go",
+      "from": "self, arg = p.Elem, \"(*\"+recv+\")\"",
+      "to": "self, arg = p.Elem, recv",
+      "rule": "A borrow of a type whose function takes the value is read through at each call of the adapter.",
+      "killers": [
+        "lower:TestValuesIntoGoInterfaces"
+      ]
     }
   ]
 }

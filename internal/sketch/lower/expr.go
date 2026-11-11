@@ -218,7 +218,7 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 		return v
 	case check.ConvOperations:
 		if n, ok := conv.To.(*check.Named); ok && n.Obj.Pkg.Host() {
-			if hostSourced(conv.From) {
+			if !goAdapterConv(conv) {
 				// A Go value to a Go interface: Go's own implicit conversion.
 				return val
 			}

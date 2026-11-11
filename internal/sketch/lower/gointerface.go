@@ -103,10 +103,52 @@ func (fc *funcCtx) goInterface(conv check.Conversion, to *check.Named, val strin
 		if f == nil {
 			ice(site, "the conversion to the Go interface %s has no function for %s", to, op.Name)
 		}
-		fv := fc.bindFunc(fc.funcValue(f, f.Sig, site, nil))
-		fields = append(fields, "f"+op.Name+": "+fc.goCallback(fv, op.Sig, goFails(op.Sig), site, recv))
+		// A borrow, *R, of a type whose function takes R: each call reads
+		// the value the borrow points to, as Go's method set of *R does.
+		self, arg := conv.From, recv
+		if p, borrow := self.(*check.Pointer); borrow {
+			if _, takesBorrow := f.Sig.Params[0].Type.(*check.Pointer); !takesBorrow {
+				self, arg = p.Elem, "(*"+recv+")"
+			}
+		}
+		sig, inst := f.Sig, conv.Instances[op.Name]
+		if len(f.Sig.TParams) > 0 {
+			// A generic provider, String[E](g G[E]), for an instance G[int]:
+			// its value is the instance's, whose receiver is the converted
+			// type and whose other parameters and results are the Go
+			// method's, which the member match found the same.
+			if inst == nil || inst.Func != f {
+				ice(site, "the conversion to the Go interface %s has no instance for %s", to, op.Name)
+			}
+			sig = &check.Signature{Params: append([]*check.Var{{Name: f.Sig.Params[0].Name, Type: self}}, op.Sig.Params...), Results: op.Sig.Results, Fallible: f.Sig.Fallible, Errors: f.Sig.Errors, Uses: f.Sig.Uses}
+		}
+		fv := fc.bindFunc(fc.funcValue(f, sig, site, inst))
+		fields = append(fields, "f"+op.Name+": "+fc.goCallback(fv, op.Sig, goFails(op.Sig), site, arg))
 	}
 	return name + "{" + strings.Join(fields, ", ") + "}"
+}
+
+// goAdapterConv reports a conversion that goInterface lowers: a value of
+// the program into a Go interface. The adapter's callbacks run on the
+// converting task, so the frame that converts binds an environment: it is
+// never a pure function (pure.go).
+func goAdapterConv(conv check.Conversion) bool {
+	n, ok := conv.To.(*check.Named)
+	return conv.Kind == check.ConvOperations && ok && n.Obj != nil && n.Obj.Pkg.Host() && !hostSourced(conv.From)
+}
+
+// goAdapterAt reports an implicit conversion at x, of x's value or of an
+// element of it, into a Go interface through an adapter (goAdapterConv).
+func goAdapterAt(info *check.Info, x syntax.Expr) bool {
+	if c, ok := info.Implicit[x]; ok && goAdapterConv(c) {
+		return true
+	}
+	for _, c := range info.ImplicitElems[x] {
+		if goAdapterConv(c) {
+			return true
+		}
+	}
+	return false
 }
 
 // goInterfaceKey is the naming key of the adapter of the Go interface to.

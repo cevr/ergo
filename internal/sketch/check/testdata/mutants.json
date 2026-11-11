@@ -2479,11 +2479,45 @@
       "name": "16b-g-ops-into-go-interface",
       "origin": "wf10 batch-16b gate fix (r3 On base)",
       "file": "internal/sketch/check/typeops.go",
-      "from": "if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {",
-      "to": "if false && isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {",
+      "from": "if isHostNamed(t) && len(it.Methods) > 0 && ergoOperations(v) {",
+      "to": "if false && isHostNamed(t) && len(it.Methods) > 0 && ergoOperations(v) {",
       "rule": "An Ergo operation type's value is not a Go interface's value: its operations take Ergo's calling convention, so the checker refuses what Go would refuse.",
       "killers": [
-        "check:TestImportGoUses"
+        "check:TestImportGoUses",
+        "lower:TestValuesIntoGoInterfaces"
+      ]
+    },
+    {
+      "name": "convgo-tparam-ops",
+      "origin": "wf10 CONV-go (16b r4 M1)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "return param || asInterface(v) != nil",
+      "to": "return asInterface(v) != nil || param && false",
+      "rule": "A type parameter's operations are its witness's, Ergo's calling convention: its value does not convert to a Go interface with methods (one rule with the operation type's value).",
+      "killers": [
+        "lower:TestValuesIntoGoInterfaces"
+      ]
+    },
+    {
+      "name": "convgo-borrow-ops",
+      "origin": "wf10 CONV-go (16b r4 M1)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "if p, ok := v.(*Pointer); ok {\n\t\tv = p.Elem\n\t}\n\tif isHostNamed(v) || sealedStd(v) != nil {",
+      "to": "if isHostNamed(v) || sealedStd(v) != nil {",
+      "rule": "A borrow of an operation type's value has its operations: it does not convert to a Go interface with methods either.",
+      "killers": [
+        "lower:TestValuesIntoGoInterfaces"
+      ]
+    },
+    {
+      "name": "convgo-go-error-reason",
+      "origin": "wf10 CONV-go (spec: every refused case names its reason)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "return assignment{}, \"go.Error holds a Go error, which a Go call or go.Error{Text: s} makes\"",
+      "to": "return assignment{}, \"\"",
+      "rule": "A value refused as go.Error (Go's error) is told why: go.Error is an error value, not an interface an Error function provides.",
+      "killers": [
+        "lower:TestValuesIntoGoInterfaces"
       ]
     }
   ]

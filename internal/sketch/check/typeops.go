@@ -360,6 +360,15 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			// becomes a sealed std protocol's value (C28).
 			return assignment{sealed: s, from: v}, sealedText(v, s)
 		}
+		if isHostNamed(t) && len(it.Methods) > 0 && ergoOperations(v) {
+			// The operations of an Ergo operation type, or of a type
+			// parameter (its witness's), take Ergo's calling convention
+			// (the task they run on), not the Go method shapes of a Go
+			// interface, and no function of the program provides them for
+			// an adapter (lower/gointerface.go), so the value does not
+			// convert (batch-16b r3, r4): check and build agree.
+			return assignment{}, fmt.Sprintf("the operations of %s take Ergo's calling convention, not the Go methods of %s", v, t)
+		}
 		if asInterface(v) != nil {
 			if n := sealedStd(v); n != nil && sealedStd(t) == nil && !isHostNamed(t) {
 				// The runtime's own type stands for a sealed std protocol,
@@ -368,13 +377,6 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 				// std ones (lower/sealedops.go), for every pair this
 				// member match admits.
 				return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t}}, ""
-			}
-			if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {
-				// An Ergo operation type's operations take Ergo's calling
-				// convention (the task they run on), not the Go method
-				// shapes of a Go interface, so Go would refuse the
-				// assignment (batch-16b r3): check and build agree.
-				return assignment{}, fmt.Sprintf("the operations of %s take Ergo's calling convention, not the Go methods of %s", v, t)
 			}
 			// An operation type's value is already an interface value.
 			return assignment{clause: assignOperations}, ""
@@ -434,6 +436,11 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	vs, ok := under(v).(*Signature)
 	ts, ok2 := under(t).(*Signature)
 	if !ok || !ok2 {
+		if n, isNamed := t.(*Named); isNamed && IsGoError(n) {
+			// Go's error is go.Error, an error value, not an interface an
+			// Ergo type's Error function would provide: interop.md, go.Error.
+			return assignment{}, "go.Error holds a Go error, which a Go call or go.Error{Text: s} makes"
+		}
 		return assignment{}, ""
 	}
 	if hasName(v) && hasName(t) {
@@ -727,6 +734,22 @@ func fnPkg(fn *Func) *Package {
 // error and capability rows that are subsets (types.md, Interface
 // assignability 1; rows.md, Context 2). Each lookup is a keyed map access, so
 // the check is linear in the method count (#122).
+// ergoOperations reports a value, or a borrow of one, whose operations
+// are an Ergo operation type's: a value of a program or std operation type
+// (a generic one's instance included) or of a type parameter, whose
+// operations its witness gives. A sealed std protocol's value is the
+// runtime's own Go type and a Go value has Go's methods, so neither is.
+func ergoOperations(v Type) bool {
+	if p, ok := v.(*Pointer); ok {
+		v = p.Elem
+	}
+	if isHostNamed(v) || sealedStd(v) != nil {
+		return false
+	}
+	_, param := v.(*TypeParam)
+	return param || asInterface(v) != nil
+}
+
 func (c *checker) implements(v Type, it *Interface) string {
 	// The method set of *T holds the *T-receiver methods too, as in Go
 	// (N1); T's holds only the value-receiver ones.
