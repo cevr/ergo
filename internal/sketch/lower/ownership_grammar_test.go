@@ -1317,7 +1317,9 @@ func ogAdmit(t *testing.T, seed int) *ogCase {
 	return nil
 }
 
-// ogRun builds and runs each case in both forms and judges each.
+// ogRun builds and runs each case in both forms and judges each. It
+// builds Go because the release code on the failure, defect and loop
+// edges must run; go/types cannot run it (TestOwnershipGrammarRun).
 func ogRun(t *testing.T, cases []*ogCase) []ogVerdict {
 	var programs []*lowered
 	for _, c := range cases {
