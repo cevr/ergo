@@ -249,9 +249,9 @@ func (t rwType) verdict(l rwLaw) (string, float64) {
 // the site instance's cases (0.75^40 is under 1e-5).
 func (t rwType) simulate(l rwLaw, rng *rand.Rand) (admit float64, detect bool) {
 	steps := []string{"Add", "Inc", "Halve", "Clear", "Read", "Even"}
-	seq := func() []rwOp {
+	seq := func(bound int) []rwOp {
 		var out []rwOp
-		for range rng.Intn(rewriteSteps) {
+		for range rng.Intn(bound) {
 			o := rwOp{name: steps[rng.Intn(len(steps))]}
 			if o.name == "Add" {
 				o.arg = rwExpr{add: int64(rng.Intn(4))}
@@ -261,7 +261,7 @@ func (t rwType) simulate(l rwLaw, rng *rand.Rand) (admit float64, detect bool) {
 		return out
 	}
 	differs := func(vals map[string]int64) (bool, bool) {
-		pre, cont := seq(), seq()
+		pre, cont := seq(rewritePrefix), seq(rewriteSteps)
 		s := int64(0)
 		for _, o := range pre {
 			s = t.step(s, o, nil)

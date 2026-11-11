@@ -975,14 +975,18 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		inner := newNamer(scope)
 		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
 		name := strconv.Quote(tg.label) + ", " + at
+		cases := testCases
+		if l.postRun(law, tg.b) {
+			cases = rewriteCases // from deep reached states (rewritePrefix)
+		}
 		b.WriteString("\t{\n")
 		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(tg.label) + ")\n")
 		b.WriteString("\t\t" + r + ".env = " + env + "\n")
 		b.WriteString("\t\t" + ok + " := true\n")
-		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
+		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(cases) + "; " + i + "++ {\n")
 		b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
 		b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + taskOf(env) + ", " + name + ", " + r + ", func() (func() string, func() error) {\n")
-		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
+		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(cases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 		sep := ": "
 		var bind []string
 		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
@@ -1076,7 +1080,11 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
 		b.WriteString("\t\t}\n")
-		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, testCases)) + ")\n")
+		okLine := strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, cases))
+		if l.postRun(law, tg.b) {
+			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, prefixes up to ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".deepest) + " + strconv.Quote(" operations)")
+		}
+		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + okLine + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
 		b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n")
 		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(tg.label) + ", " + r + ", \"\")\n\t}\n")
@@ -1362,7 +1370,7 @@ func $Record(label string, r *$Rand, why string) {
 		for i, s := range r.instances {
 			insts[i] = $JSON(s)
 		}
-		rec += ", \"rewrite\": true, \"admitted\": " + $strconv.Itoa(r.admitted) + ", \"instances\": [" + $strings.Join(insts, ", ") + "]"
+		rec += ", \"rewrite\": true, \"admitted\": " + $strconv.Itoa(r.admitted) + ", \"deepest\": " + $strconv.Itoa(r.deepest) + ", \"instances\": [" + $strings.Join(insts, ", ") + "]"
 	}
 	$Receipt.laws = append($Receipt.laws, rec+"}")
 }
@@ -1489,6 +1497,9 @@ type $Rand struct {
 	rewrite   bool
 	admitted  int
 	instances []string
+	// deepest is the longest drawn prefix of a rewrite or post law's
+	// run: the depth of the states its cases reached.
+	deepest int
 }
 
 // start begins case i of a run: its size is i/4, and its world is empty,

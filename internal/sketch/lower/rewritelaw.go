@@ -30,9 +30,23 @@ type RewriteInstance struct {
 	Args []constant.Value
 }
 
-// rewriteSteps bounds a case's drawn prefix and continuation: each is zero
-// to rewriteSteps-1 operations.
+// rewriteSteps bounds a case's drawn continuation: zero to rewriteSteps-1
+// operations.
 const rewriteSteps = 5
+
+// rewritePrefix bounds a case's drawn prefix, zero to rewritePrefix-1
+// operations, and rewriteCases is the number of drawn cases of a rewrite
+// law's run and of a post law's run in the build's check. A law that
+// drives code is checked from deep states (orchestrator, 2026-11-11, D1
+// split by stakes): the audit's rwdeep law, false only at the state nine
+// operations of Inc (+1), Twice (+2) and Read reach, is refuted in a case
+// with chance 0.0436 at these bounds (counted exactly: the prefix length
+// uniform in 0..31, each step uniform), so 400 cases miss it with chance
+// 1.8e-8; with the old bound of 4 operations no case could reach it.
+const (
+	rewritePrefix = 32
+	rewriteCases  = 4 * testCases
+)
 
 // rewriteInstanceCases is the number of cases a run takes at each site
 // instance, each with its own prefix and continuation: one continuation
@@ -146,7 +160,7 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 	rw := law.Rewrite
 	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
 	insts := l.rewriteInstances(law)
-	total := testCases + rewriteInstanceCases*len(insts)
+	total := rewriteCases + rewriteInstanceCases*len(insts)
 	inner := newNamer(scope)
 	r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
 	name := strconv.Quote(label) + ", " + at
@@ -199,7 +213,7 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 		w(a + " := " + l.genExpr(v.Type, r, depth, inner, law.Decl))
 		for n, in := range insts {
 			if in.Args != nil && k < len(in.Args) && in.Args[k] != nil {
-				lo := testCases + rewriteInstanceCases*n
+				lo := rewriteCases + rewriteInstanceCases*n
 				w("if " + i + " > " + strconv.Itoa(lo) + " && " + i + " <= " + strconv.Itoa(lo+rewriteInstanceCases) + " { " + a + " = " + l.constGo(v.Type, in.Args[k], law.Decl) + " }")
 			}
 		}
@@ -218,7 +232,14 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 		w("var " + list + " []" + stepT)
 		w("var " + shownList + " []string")
 		if len(rw.Steps) > 0 {
-			w(n + " := " + r + ".intn(" + strconv.Itoa(rewriteSteps) + ")")
+			bound := rewriteSteps
+			if side == 0 {
+				bound = rewritePrefix
+			}
+			w(n + " := " + r + ".intn(" + strconv.Itoa(bound) + ")")
+			if side == 0 {
+				w("if " + n + " > " + r + ".deepest { " + r + ".deepest = " + n + " }")
+			}
 			w("for " + j + " := 0; " + j + " < " + n + "; " + j + "++ {")
 			w("\tswitch " + r + ".intn(" + strconv.Itoa(len(rw.Steps)) + ") {")
 			for k, m := range rw.Steps {
@@ -285,7 +306,7 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 	b.WriteString("\t\tif " + ok + " && " + r + ".admitted == 0 {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("skip "+label+": "+why) + ")\n")
 	b.WriteString("\t\t\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", nil, " + strconv.Quote(why) + ")\n")
 	b.WriteString("\t\t} else {\n")
-	b.WriteString("\t\t\tif " + ok + " {\n\t\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" (") + " + " + conv + ".Itoa(" + r + ".admitted) + " + strconv.Quote(" cases)") + ")\n")
+	b.WriteString("\t\t\tif " + ok + " {\n\t\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" (") + " + " + conv + ".Itoa(" + r + ".admitted) + " + strconv.Quote(" cases, prefixes up to ") + " + " + conv + ".Itoa(" + r + ".deepest) + " + strconv.Quote(" operations)") + ")\n")
 	b.WriteString("\t\t\t} else {\n\t\t\t\t" + failed + "++\n")
 	b.WriteString("\t\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t\t}\n")
 	b.WriteString("\t\t\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", " + r + ", \"\")\n\t\t}\n\t}\n")
@@ -333,7 +354,7 @@ func (l *lowerer) postRun(law *check.Law, b []check.LawProvider) bool {
 	return false
 }
 
-// drawPrefix writes the draw of a case's prefix, zero to rewriteSteps-1
+// drawPrefix writes the draw of a case's prefix, zero to rewritePrefix-1
 // operations of the law's owner whose parameters are basic, each a
 // closure over its drawn arguments that calls it on a provider of p's
 // slot, adds the prefix to shown, and returns the list's Go name.
@@ -358,7 +379,8 @@ func (l *lowerer) drawPrefix(b *strings.Builder, law *check.Law, p check.LawProv
 	w("var " + list + " []func(" + ops + ") string")
 	w("var " + shownList + " []string")
 	if len(steps) > 0 {
-		w(n + " := " + r + ".intn(" + strconv.Itoa(rewriteSteps) + ")")
+		w(n + " := " + r + ".intn(" + strconv.Itoa(rewritePrefix) + ")")
+		w("if " + n + " > " + r + ".deepest { " + r + ".deepest = " + n + " }")
 		w("for " + j + " := 0; " + j + " < " + n + "; " + j + "++ {")
 		w("\tswitch " + r + ".intn(" + strconv.Itoa(len(steps)) + ") {")
 		for k, m := range steps {

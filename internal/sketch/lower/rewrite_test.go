@@ -265,6 +265,104 @@ type admitAll struct{}
 
 func (admitAll) Admit(*check.Law, *check.Named, RewriteInstance) (bool, string) { return true, "" }
 
+// rwdeepSource is the v1 design audit's probe rwdeep (v1-audit-2 D1) with
+// its site on the provider's own value, so the lowering knows the
+// provider: the law TwoIncsAreTwice is false only at state 9, nine
+// operations from a fresh Box.
+const rwdeepSource = `import sync
+
+type Counter {
+	Inc(),
+	Twice(),
+	Read() int,
+
+	law TwoIncsAreTwice() { Inc(); Inc() } == { Twice() },
+}
+
+type Box { s sync.Ref[int] }
+
+func NewBox() Box { Box{s: sync.NewRef[int](0)} }
+
+func Inc(p Box) { p.s.Set(p.s.Get() + 1) }
+
+func Twice(p Box) {
+	let v = p.s.Get()
+	if v == 9 {
+		p.s.Set(0)
+	} else {
+		p.s.Set(v + 2)
+	}
+}
+
+func Read(p Box) int { p.s.Get() }
+
+func use() int {
+	let b = NewBox()
+	for _ in 0..9 {
+		b.Inc()
+	}
+	b.Inc()
+	b.Inc()
+	b.Read()
+}
+
+func main() needs Console {
+	Console.Println("after 11 increments: \(use())")
+}
+`
+
+// TestRewriteDeepFalseLaw: a rewrite law false only at a state nine
+// operations deep is refuted by the build's check run, and the site keeps
+// its two Incs; with every law admitted, the same site calls Twice, so
+// the window is one the engine would rewrite.
+//
+// It builds Go because the evidence is the built check run: the
+// provider keeps its state in a sync.Ref, a Go body that check-time
+// evaluation does not run.
+func TestRewriteDeepFalseLaw(t *testing.T) {
+	needsBuild(t)
+	file, err := syntax.Parse(rwdeepSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
+	if len(diags) > 0 {
+		t.Fatalf("%v", diags)
+	}
+	u := Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: rwdeepSource}}}
+	var checkOut string
+	ev, err := RewriteChecks(u, func(files []File, laws []string) (string, error) {
+		exes := buildAll(t, []*lowered{{name: "check", src: rwdeepSource, file: file, pkg: pkg, files: files}}, true)
+		var out strings.Builder
+		for _, law := range laws {
+			stdout, _, _ := runExeArgs(t, exes["check"], "--seed", RewriteCheckSeed, "--law", law)
+			out.WriteString(stdout)
+		}
+		checkOut = out.String()
+		return checkOut, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		ev    RewriteEvidence
+		twice bool
+	}{{ev, false}, {admitAll{}, true}} {
+		u.Rewrite = c.ev
+		files, err := Lower(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := goFunc(t, (&lowered{files: files}).mainGo(), "use")
+		if got := strings.Contains(body, "Twice("); got != c.twice {
+			t.Fatalf("calls Twice: %v, want %v:\n%s\ncheck run:\n%s", got, c.twice, body, checkOut)
+		}
+	}
+	if !strings.Contains(checkOut, "FAIL law Counter.TwoIncsAreTwice for Box") {
+		t.Fatalf("the check run did not refute the law:\n%s", checkOut)
+	}
+}
+
 // TestRewriteEmptyWindow is the smallest repro of a fixed bug: a window
 // whose rewrite leaves no call left its receiver's and arguments'
 // temporaries unused, and Go refused the program ("declared and not
