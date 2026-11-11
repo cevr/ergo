@@ -1,0 +1,162 @@
+import strings
+
+// Header starts every wire of version 1 (hostsyntax's doc comment holds
+// the grammar).
+let Header = "ergotree1\n"
+
+// BadWire is a wire this decoder cannot read: what it expected, at which
+// byte.
+type BadWire { Reason string, At int }
+
+// Decode reads a wire: the tree of a source that parsed, or the parser's
+// failure, or the adapter's refusal of a node type.
+func Decode(w string) Tree fails SyntaxFailure | Unsupported | BadWire {
+	if !strings.HasPrefix(w, Header) {
+		return BadWire{Reason: "the header ergotree1", At: 0}
+	}
+	let at = len(Header)
+	if at >= len(w) {
+		return BadWire{Reason: "a document", At: at}
+	}
+	match w[at] {
+	case 'D':
+		let (lines, a1) = try ints(w, at+1)
+		let (count, a2) = try decimal(w, try expect(w, a1, 'l'), ':')
+		let mut nodes = []Node{}
+		let mut next = a2
+		for _ in 0..count {
+			let (n, after) = try node(w, next)
+			nodes = nodes.Append(n)
+			next = after
+		}
+		let (root, a3) = try decimal(w, try expect(w, next, 'c'), ';')
+		try end(w, a3)
+		Tree{Lines: lines, Nodes: nodes, Root: root}
+	case 'X':
+		let (src, a1) = try text(w, at+1)
+		let (code, a2) = try text(w, a1)
+		let (message, a3) = try text(w, a2)
+		let (offset, a4) = try decimal(w, try expect(w, a3, 'i'), ';')
+		let (length, a5) = try decimal(w, try expect(w, a4, 'i'), ';')
+		let (line, a6) = try decimal(w, try expect(w, a5, 'i'), ';')
+		let (column, a7) = try decimal(w, try expect(w, a6, 'i'), ';')
+		try end(w, a7)
+		SyntaxFailure{Source: src, Code: code, Message: message, Offset: offset, Length: length, Line: line, Column: column}
+	case 'U':
+		let (src, a1) = try text(w, at+1)
+		let (family, a2) = try text(w, a1)
+		try end(w, a2)
+		Unsupported{Source: src, Family: family}
+	case _:
+		BadWire{Reason: "D, X or U", At: at}
+	}
+}
+
+// end checks that the wire ends at at.
+func end(w string, at int) fails BadWire {
+	if at != len(w) {
+		return BadWire{Reason: "the end of the wire", At: at}
+	}
+}
+
+// expect is the offset after the byte b at at.
+func expect(w string, at int, b byte) int fails BadWire {
+	if at >= len(w) || w[at] != b {
+		return BadWire{Reason: "the byte \(b)", At: at}
+	}
+	at + 1
+}
+
+// decimal reads the decimal digits at at, which end with the byte stop:
+// their value and the offset after stop.
+func decimal(w string, at int, stop byte) (int, int) fails BadWire {
+	let mut i = at
+	let mut n = 0
+	for i < len(w) && w[i] >= '0' && w[i] <= '9' {
+		n = n*10 + int(w[i]-'0')
+		i += 1
+	}
+	if i == at || i >= len(w) || w[i] != stop {
+		return BadWire{Reason: "a decimal number", At: at}
+	}
+	(n, i + 1)
+}
+
+// text reads a string item: s, its length, a colon and its bytes.
+func text(w string, at int) (string, int) fails BadWire {
+	let (n, start) = try decimal(w, try expect(w, at, 's'), ':')
+	if n > len(w)-start {
+		return BadWire{Reason: "\(n) bytes", At: start}
+	}
+	(strings.Slice(w, start, start+n), start + n)
+}
+
+// ints reads a list of int items.
+func ints(w string, at int) ([]int, int) fails BadWire {
+	let (count, a1) = try decimal(w, try expect(w, at, 'l'), ':')
+	let mut out = []int{}
+	let mut next = a1
+	for _ in 0..count {
+		let (n, after) = try decimal(w, try expect(w, next, 'i'), ';')
+		out = out.Append(n)
+		next = after
+	}
+	(out, next)
+}
+
+// node reads one node: n, its family, its field count, a colon and its
+// fields, each a name and an item.
+func node(w string, at int) (Node, int) fails BadWire {
+	let (family, a1) = try text(w, try expect(w, at, 'n'))
+	let (count, a2) = try decimal(w, a1, ':')
+	let mut fields = []Field{}
+	let mut next = a2
+	for _ in 0..count {
+		let (name, a3) = try text(w, next)
+		let (v, a4) = try item(w, a3)
+		fields = fields.Append(Field{Name: name, Value: v})
+		next = a4
+	}
+	(Node{Family: family, Fields: fields}, next)
+}
+
+// item reads one item.
+func item(w string, at int) (Item, int) fails BadWire {
+	if at >= len(w) {
+		return BadWire{Reason: "an item", At: at}
+	}
+	match w[at] {
+	case 'i':
+		let (n, next) = try decimal(w, at+1, ';')
+		(Number{V: n}, next)
+	case 'p':
+		let (n, next) = try decimal(w, at+1, ';')
+		(Position{At: Some[int]{Value: n}}, next)
+	case 'q':
+		(Position{At: None}, at + 1)
+	case '-':
+		(Missing, at + 1)
+	case 't':
+		(Flag{V: true}, at + 1)
+	case 'f':
+		(Flag{V: false}, at + 1)
+	case 's':
+		let (s, next) = try text(w, at)
+		(Bytes{V: s}, next)
+	case 'c':
+		let (id, next) = try decimal(w, at+1, ';')
+		(Ref{Id: id}, next)
+	case 'l':
+		let (count, a1) = try decimal(w, at+1, ':')
+		let mut items = []Item{}
+		let mut next = a1
+		for _ in 0..count {
+			let (x, after) = try item(w, next)
+			items = items.Append(x)
+			next = after
+		}
+		(List{Items: items}, next)
+	case _:
+		BadWire{Reason: "an item tag", At: at}
+	}
+}
