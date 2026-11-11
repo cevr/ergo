@@ -2079,7 +2079,7 @@
       "file": "internal/sketch/lower/flatunion.go",
       "from": "\t\t\tif !ok || states[tn] || extern[tn] || l.flatOff[tn] {",
       "to": "\t\t\tif !ok || extern[tn] || l.flatOff[tn] {",
-      "rule": "types.md Unions 6: a machine's state union keeps its interface (machinerun.go takes a state apart by its interface).",
+      "rule": "types.md Unions 6: a machine's state union keeps its interface (the form OPT6b's scalar locals were measured with).",
       "killers": [
         "lower:TestFlatUnionsAgree"
       ]
@@ -2259,6 +2259,166 @@
       "killers": [
         "lower:TestFlatUnionsAgree"
       ]
+    },
+    {
+      "name": "scalar-scatter-tag",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/scalar.go",
+      "from": "\" = \" + strconv.Itoa(k) + \", \" + val",
+      "to": "\" = 0, \" + val",
+      "rule": "scalar.go: a write of a union value into a scalar local sets the tag of its variant.",
+      "killers": [
+        "lower:TestScalarLocalsAgree"
+      ]
+    },
+    {
+      "name": "scalar-gather-slot",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/scalar.go",
+      "from": "g + \" = \" + sl.slots[k])",
+      "to": "g + \" = \" + sl.slots[len(sl.slots)-1-k])",
+      "rule": "scalar.go: a read of a scalar local gives the slot of its tag.",
+      "killers": [
+        "lower:TestScalarLocalsAgree"
+      ]
+    },
+    {
+      "name": "scalar-closure-blind",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/scalar.go",
+      "from": "\t\t\t\t\tif v := use(id); v != nil {\n\t\t\t\t\t\tbad[v] = true",
+      "to": "\t\t\t\t\tif v := use(id); v != nil {\n\t\t\t\t\t\t_ = v",
+      "rule": "scalar.go: a local a closure names keeps the union value (the closure reads the Go variable).",
+      "killers": [
+        "lower:TestScalarLocalsAgree"
+      ]
+    },
+    {
+      "name": "scalar-join-err",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/inline.go",
+      "from": "fc.line(\"\\t\" + in.err + \" = \" + vals[1])",
+      "to": "fc.line(\"\\t_ = \" + vals[1])",
+      "rule": "scalar.go, inline.go: a return f() of an inlined body into a join local keeps f's failure.",
+      "killers": [
+        "lower:TestScalarLocalsAgree"
+      ]
+    },
+    {
+      "name": "scalar-join-err-value",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/inline.go",
+      "from": "\t\t\tfc.depth++\n\t\t\tfc.scatter(in.join, vals[0])\n\t\t\tfc.depth--\n",
+      "to": "",
+      "rule": "scalar.go, inline.go: a return f() of an inlined body into a join local keeps f's value when f does not fail.",
+      "killers": [
+        "lower:TestScalarLocalsAgree"
+      ]
+    },
+    {
+      "name": "scalar-alias-later",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/scalar.go",
+      "from": "later = later || fc.emits(list[i])",
+      "to": "later = false",
+      "rule": "scalar.go: an operand binds its parameter to a scalar local only when no later operand writes code (which can assign the local first).",
+      "killers": [
+        "lower:TestScalarLocalsAgree"
+      ]
+    },
+    {
+      "name": "scalar-join-fallback",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/scalar.go",
+      "from": "\t\tif !sl.inline {\n\t\t\tname := fc.declare(v)",
+      "to": "\t\tif false {\n\t\t\tname := fc.declare(v)",
+      "rule": "scalar.go: a join local whose call is not inlined is a plain union local.",
+      "killers": [
+        "lower:TestScalarLocalsAgree"
+      ]
+    },
+    {
+      "name": "scalar-join-literal",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/scalar.go",
+      "from": "\tif k >= 0 {\n\t\tfc.line(fc.scalarWrite(sl, k, val))",
+      "to": "\tif k >= 0 {\n\t\tfc.line(fc.scalarWrite(sl, (k+1)%len(sl.slots), val))",
+      "rule": "scalar.go: a returned variant literal goes into its own variant's slot (case of the known constructor).",
+      "killers": [
+        "lower:TestScalarLocalsAgree"
+      ]
+    },
+    {
+      "name": "scalar-alias-conv",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/scalar.go",
+      "from": "!later && !conv && ",
+      "to": "!later && (!conv || true) && ",
+      "rule": "scalar.go: an operand with an implicit conversion does not bind its parameter to the local.",
+      "killers": [],
+      "gap": "survived: no program passes a scalar local with a conversion (a union local converts to no other union); the guard is defensive (OPT6b, 2026-11-11)"
+    },
+    {
+      "name": "scalar-carried-blind",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/scalar.go",
+      "from": "|| !join[v] && carried[v] {",
+      "to": "|| false && carried[v] {",
+      "rule": "scalar.go: a loop-carried union local takes the scalar form, so a run's state is not boxed per signal (speed only).",
+      "killers": [
+        "lower:TestMachineFlatRunAllocates"
+      ]
+    },
+    {
+      "name": "scalar-join-blind",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/scalar.go",
+      "from": "param[v] || join[v] && matched[v] ||",
+      "to": "param[v] || false && matched[v] ||",
+      "rule": "scalar.go: a matched let of an inlined call is a join local (speed only).",
+      "killers": [],
+      "gap": "survived: changes no output; TestMachineFlatRunAllocates's step never emits, so its decision escapes nowhere; the counted mdhtml receipt (allocs 90 with it, 95 without) covers it (OPT6b, 2026-11-11)"
+    },
+    {
+      "name": "scalar-alias-blind",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/scalar.go",
+      "from": "param[v] || join[v] && matched[v] ||",
+      "to": "false || join[v] && matched[v] ||",
+      "rule": "scalar.go: a parameter of an inlined call may bind to the caller's scalar local (speed only).",
+      "killers": [],
+      "gap": "survived: changes no output and no allocation count of the alloc test (a gather's box stays on the stack there); the counted instruction receipts cover it (OPT6b, 2026-11-11)"
+    },
+    {
+      "name": "copy-growth",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/inline.go",
+      "from": "\tcopyGrowth = 1200\n",
+      "to": "\tcopyGrowth = 1\n",
+      "rule": "inline.go: a copy for a known record takes copyGrowth, so a machine's step and its helpers fit (speed only).",
+      "killers": [
+        "lower:TestMachineFlatRunAllocates"
+      ]
+    },
+    {
+      "name": "record-start-blind",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/record.go",
+      "from": "if step == nil || conv.Table[\"Start\"] != nil {",
+      "to": "if step == nil {",
+      "rule": "record.go: a machine with an input (Start) is no known record.",
+      "killers": [],
+      "gap": "survived: no test runs a machine with an input through a Machine record parameter whose copy would differ; the guard is defensive (OPT6b, 2026-11-11)"
+    },
+    {
+      "name": "inline-generated-dir",
+      "origin": "wf10 OPT6b",
+      "file": "internal/sketch/lower/inline.go",
+      "from": "\tcase !fc.directives:\n\t\tfc.writeDir(generatedDir)\n",
+      "to": "\tcase !fc.directives:\n",
+      "rule": "inline.go: an inlined body with directives in code without directives ends with generatedDir, so a defect after it is not read as the inlined body's.",
+      "killers": [],
+      "gap": "survived: TestMachineStepDefectFrames reports the same frames without it; no test has a defect in std code after an inlined user body (OPT6b, 2026-11-11)"
     }
   ]
 }
