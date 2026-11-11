@@ -118,7 +118,7 @@ var ogFeatures = []string{
 	"loop:values:res", "loop:values:tup", "loop:values:pair",
 	"match:slot", "match:pair", "match:tup", "match:local", "match:temp", "match:lent-if",
 	"capture:let", "capture:twice",
-	"helper:lent", "helper:taken", "helper:bad-arg", "helper:bad-ret-if", "helper:ret-temp",
+	"helper:lent", "helper:taken", "helper:bad-arg", "helper:bad-ret-if", "helper:bad-ret-catch", "helper:ret-temp",
 	"close:guard",
 }
 
@@ -711,7 +711,7 @@ func (g *ogGen) helper(t ogType, d int) string {
 		param = ", a Res"
 	case 2:
 		g.f("helper:taken")
-		if g.r.IntN(3) == 0 {
+		if t == oRes && g.r.IntN(2) == 0 || g.r.IntN(3) == 0 {
 			// A frame that owns a value whose release raises a defect
 			// after its result is made (R10).
 			arg = fmt.Sprintf(", open(%d, true, log)", g.id())
@@ -740,7 +740,12 @@ func (g *ogGen) helper(t ogType, d int) string {
 	fn.body = g.stmts(1+g.r.IntN(3), 1)
 	fn.body = append(fn.body, g.flush()...)
 	g.pos = "return"
-	if badArg && g.r.IntN(2) == 0 {
+	if badArg && t == oRes && g.r.IntN(3) != 0 {
+		// A returned catch: its call's value on success, and its arm's,
+		// are the frame's until its exit (R10).
+		fn.ret = g.catchExpr(2)
+		g.f("helper:bad-ret-catch")
+	} else if badArg && g.r.IntN(2) == 0 {
 		// A returned if: each arm's value is the frame's until its exit.
 		fn.ret = g.ifExpr(t, 2)
 		g.f("helper:bad-ret-if")

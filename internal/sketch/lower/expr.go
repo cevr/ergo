@@ -1042,7 +1042,7 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	fc.depth--
 	if result != "" && o.val != "" {
 		fc.line("} else {")
-		fc.line("\t" + result + " = " + o.val)
+		fc.line("\t" + result + " = " + fc.returnedTemp(check.ReturnedKey(x.X), o.val))
 	}
 	fc.line("}")
 	fc.armValueEnd(x, result)
@@ -1260,7 +1260,7 @@ func (fc *funcCtx) patternCatch(x *syntax.CatchExpr, m *check.Match, o operand, 
 	fc.depth--
 	if result != "" && o.val != "" {
 		fc.line("} else {")
-		fc.line("\t" + result + " = " + o.val)
+		fc.line("\t" + result + " = " + fc.returnedTemp(check.ReturnedKey(x.X), o.val))
 	}
 	fc.line("}")
 }

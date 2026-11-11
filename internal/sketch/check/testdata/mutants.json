@@ -2404,6 +2404,15 @@
       "to": "\t\t\treturn i, true",
       "rule": "resources R43 (the mHold rule): a match of a lent if that lends an enclosing name on some path binds views; the statement releases the value where it holds it.",
       "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-returned-catch-call-unkept",
+      "origin": "OWGEN round 2 (found by the grammar generator, seed 1307 of the wide run; the round 1 known gap)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tcaught.ret = ReturnedKey(x.X)",
+      "to": "\t\t_ = ReturnedKey(x.X)",
+      "rule": "resources R10: the value a returned catch gives on success is kept until the frame's exit, as each arm's is.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
     }
   ]
 }

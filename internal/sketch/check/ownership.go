@@ -2105,6 +2105,12 @@ func (w *ownWalk) catch(x *syntax.CatchExpr, mode ownMode, h hand) {
 	k := &ownCatch{first: first}
 	w.catches = append(w.catches, k)
 	caught := hand{at: h.at, how: h.how, lend: h.lend, yieldRoot: h.yieldRoot, failed: func() { k.fails = append(k.fails, w.copyState(w.st)) }}
+	if mode == mMove && w.tail.frame && w.tail.form == unparen(x) {
+		// A returned catch: on success its call's value is the value
+		// returned, kept until the frame's exit is known, as each arm's
+		// is (R10, Info.ReturnedTemps; OWGEN round 2).
+		caught.ret = ReturnedKey(x.X)
+	}
 	w.expr(x.X, mode, caught)
 	w.catches = w.catches[:len(w.catches)-1]
 	// The caught call fails after its operands are evaluated; a try inside
