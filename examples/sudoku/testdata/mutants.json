@@ -1,5 +1,5 @@
 {
-  "about": "Sudoku representation and search mutants. Killers name Ergo laws/tests, run with ergo test, not Go packages.",
+  "about": "Sudoku representation, search and formatter mutants. Killers name Ergo laws/tests, run with ergo test, not Go packages.",
   "mutants": [
     {
       "name": "v2-highest-digit-first",
@@ -40,6 +40,16 @@
       "rule": "Existing SolvesHardPuzzles needs a fresh value snapshot on retry after a contradiction.",
       "anchor": {"tests": ["propagate.SolvesHardPuzzles"]},
       "killers": ["propagate.SolvesHardPuzzles"]
+    },
+    {
+      "name": "v2-formatter-drops-digits",
+      "origin": "V2 buffered Grid.Line",
+      "file": "examples/sudoku/board/grid.ergo",
+      "from": "out[i] = digits[c : c+1]",
+      "to": "out[i] = digits[c-c : c-c+1]",
+      "rule": "Existing LineRoundTrip detects an incorrect fragment at any filled cell.",
+      "anchor": {"tests": ["board.LineRoundTrip"]},
+      "killers": ["board.LineRoundTrip"]
     }
   ]
 }
