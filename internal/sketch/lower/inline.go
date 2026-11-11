@@ -456,6 +456,10 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 			}
 			if same[i] != "" && same[i] == ic.goType(p.Type) {
 				ic.locals[params[i]] = vals[i]
+				if !fc.l.reads[params[i]] {
+					// The operand may have no other read (a catch binding).
+					ic.line("_ = " + vals[i])
+				}
 				continue
 			}
 			name := ic.declare(params[i])
