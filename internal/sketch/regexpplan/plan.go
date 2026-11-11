@@ -79,6 +79,9 @@ type Plan struct {
 	ir    *candidate
 	info  Inspection
 	key   string
+	// repeated is a capture under a repeat whose maximum is above one
+	// (slots.go): the plan's results are events, not fixed slots.
+	repeated bool
 }
 
 func (p *Plan) Inspect() Inspection { return p.info }
@@ -197,6 +200,7 @@ func Compile(root *Node, mode Mode, limits Limits) (*Plan, error) {
 		return nil, err
 	}
 	p.info.Nodes = nodes
+	p.repeated = repeatedCapture(root, false)
 	builder := compiler{limit: limits.Instructions, ids: ids}
 	accept := builder.add(inst{op: acceptOp})
 	p.start = builder.node(root, accept)
