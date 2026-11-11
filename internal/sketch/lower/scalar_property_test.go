@@ -77,7 +77,7 @@ func deeper(n int, k int) Shape fails Bad {
 	for i in []int{1, 2} {
 		m = m + i
 	}
-	if (m + k) % 5 == 0 {
+	if m + k > 16 {
 		return Bad{At: m}
 	}
 	Seg{N: m, Tag: "d"}
