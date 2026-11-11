@@ -2299,6 +2299,15 @@
       "to": "if false && blocks {",
       "rule": "A root cannot be taken while its keeper may still run.",
       "killers": ["check:TestStructuredLendModel"]
+    },
+    {
+      "name": "F8-row-arg-keeps-named-row-whole",
+      "origin": "wf10 F8 (owner q1: rows stay sets)",
+      "file": "internal/sketch/check/decl.go",
+      "from": "for _, m := range rowMembers(t) {",
+      "to": "for _, m := range []Type{t} {",
+      "rule": "A written row argument means the set of its elements' members, so Box[U | V] is Box[E1 | E2 | E3] when U = E1 | E2 and V = E2 | E3.",
+      "killers": ["check:TestRowArgsAreSets"]
     }
   ]
 }
