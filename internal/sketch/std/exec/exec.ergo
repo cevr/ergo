@@ -12,6 +12,8 @@
 
 import slices
 import strings
+import time
+import timeout
 
 // NotFound is the failure of a program Name that is not on the PATH, or of
 // a path Name with no file at it.
@@ -181,11 +183,47 @@ type Running {
 	Wait() int,
 	// Stop takes ownership, ends the group by the command's Grace rule,
 	// reaps it and returns its actual status, as Wait does. Cleanup is
-	// masked even when the caller has been stopped. Start outside a
-	// timeout, Wait inside it, and Stop in its Expired catch to observe
-	// the status after termination. Close is the scope-release form.
+	// masked even when the caller has been stopped. WaitFor waits with a
+	// deadline; Stop in its Expired catch observes the status after
+	// termination. Close is the scope-release form.
 	Stop() int takes,
 	Close(),
+}
+
+// WaitFor waits at most d for p's end and gives its status, as Wait
+// does, or fails Expired when d passes first. The deadline is the
+// Scheduler's time. Expired leaves p running and its unread bytes for
+// Lines and Chunks: the caller still owns p, and Stop ends it and gives
+// its status. A program that has ended gives its status at once, whatever
+// d is. A program that ends as d passes may give Expired; Stop then gives
+// its status. A stop of the caller ends the wait, as Wait's.
+//
+//	let code = p.WaitFor(5s) catch {
+//	case timeout.Expired:
+//		p.Stop()
+//	}
+func WaitFor(p Running, d duration) int fails timeout.Expired needs Scheduler { try waitFor(p, d) }
+
+extern go ergo.local/prototype/runtime/v1.ExecWaitFor func waitFor(p Running, d duration) int fails timeout.Expired needs Scheduler
+
+// WaitForEndedGivesStatus: a program that has ended gives the status Wait
+// gives, never Expired, whatever the deadline. A Script's Running has
+// ended when Start returns.
+law WaitForEndedGivesStatus(status int, d int64) {
+	let c = New("x", []string{})
+	let mut results = Map[string, Result]{}
+	results[Key(c)] = Result{Status: status, Stdout: "", Stderr: ""}
+	let p = Script{Results: results}.Start(c, Streams{Stdout: Discard, Stderr: Discard}) catch {
+	case NotFound, Denied, Failed:
+		return false
+	}
+	with context { Scheduler: time.NewManual(0) } {
+		let code = p.WaitFor(duration(d)) catch {
+		case timeout.Expired:
+			return false
+		}
+		code == status
+	}
 }
 
 // Runner runs a program to its end, or starts it. A stop of the calling

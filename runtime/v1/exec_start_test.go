@@ -115,6 +115,25 @@ func (s *fakeStream) write(text string) {
 	s.in <- nil
 }
 
+// countSleeper is a Scheduler whose every sleep ends at once: a deadline
+// passes as soon as it is armed. It counts the sleeps.
+type countSleeper struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (s *countSleeper) Sleep(*rt.Task, time.Duration) {
+	s.mu.Lock()
+	s.n++
+	s.mu.Unlock()
+}
+
+func (s *countSleeper) armed() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.n
+}
+
 // lifeCase is one generated case: the sinks, the grace, the program's
 // answer to SIGTERM, the steps before the end, and how the caller ends.
 type lifeCase struct {
@@ -122,7 +141,7 @@ type lifeCase struct {
 	grace                bool
 	ignoreTerm           bool
 	termStatus           int      // a TERM trap may choose any exit status
-	steps                []string // "out TEXT", "err TEXT" ('|' is a line feed), "lines K", "stop-lines K", "chunks", "exit N", "drain lines", "drain chunks"
+	steps                []string // "out TEXT", "err TEXT" ('|' is a line feed), "lines K", "stop-lines K", "chunks", "waitfor", "exit N", "drain lines", "drain chunks"
 	ending               string   // "wait", "close", "stopped wait", "stop", "stopped stop"
 	stoppedRead          bool     // a stopped caller calls Lines before the end
 }
@@ -132,7 +151,7 @@ func genLifeCase(r *rand.Rand) lifeCase {
 	written := 0
 	for range r.IntN(12) {
 		text := strconv.Itoa(written) + []string{"", "|", "|x|", "||"}[r.IntN(4)]
-		switch r.IntN(6) {
+		switch r.IntN(7) {
 		case 0, 1:
 			if c.outCaller {
 				c.steps = append(c.steps, "out o"+text)
@@ -149,12 +168,19 @@ func genLifeCase(r *rand.Rand) lifeCase {
 			c.steps = append(c.steps, "stop-lines "+strconv.Itoa(1+r.IntN(2)))
 		case 5:
 			c.steps = append(c.steps, "chunks")
+		case 6:
+			c.steps = append(c.steps, "waitfor")
 		}
 	}
 	if r.IntN(2) == 0 {
 		c.steps = append(c.steps, "exit "+strconv.Itoa(r.IntN(4)))
 		if r.IntN(2) == 0 {
 			c.steps = append(c.steps, []string{"drain lines", "drain chunks"}[r.IntN(2)])
+		}
+		if r.IntN(3) == 0 {
+			// Last: a WaitFor that gives the status drops the bytes not
+			// read, as Wait does.
+			c.steps = append(c.steps, "waitfor")
 		}
 	}
 	c.ending = []string{"wait", "close", "stopped wait", "stop", "stopped stop"}[r.IntN(5)]
@@ -376,6 +402,25 @@ steps:
 		case "exit":
 			n, _ := strconv.Atoi(arg)
 			p.end(n)
+		case "waitfor":
+			// The deadline passes as soon as it is armed. A program that
+			// runs gives Expired and keeps running, unsignalled, with its
+			// bytes still waiting (the checks below); one that has ended
+			// gives its status and arms no deadline.
+			p.mu.Lock()
+			ended, want := p.ended, p.status
+			p.mu.Unlock()
+			sl := &countSleeper{}
+			code, err := ExecWaitFor("waitfor", task, sl, r, time.Hour)
+			switch {
+			case ended && (err != nil || code != want || sl.armed() != 0):
+				fail(fmt.Sprintf("waitfor after exit %d: %d, %v, %d deadlines armed; want the status, no failure, none armed", want, code, err, sl.armed()))
+			case !ended && err != (Expired{}):
+				fail(fmt.Sprintf("waitfor before exit: %d, %v; want Expired", code, err))
+			}
+			if ended {
+				continue // the status drops the bytes not read, as Wait does
+			}
 		case "drain":
 			if arg == "lines" {
 				lines(task, -1, false)
@@ -524,7 +569,10 @@ steps:
 // is always a prefix of what was written, Chunks finds every byte written
 // so far queued as soon as the reader has read it (no wait for a line feed
 // or the end), and a read to the end gives every byte, the last fragment
-// as written, and one end chunk per stream.
+// as written, and one end chunk per stream. WaitFor (exec_start.go
+// ExecWaitFor), with a deadline that passes at once: a running program
+// gives Expired, gets no signal and keeps every unread byte; an ended one
+// gives its status and arms no deadline.
 func TestRunningMatchesModel(t *testing.T) {
 	r := rand.New(rand.NewPCG(23, 5))
 	seen := map[string]int{}
@@ -534,10 +582,15 @@ func TestRunningMatchesModel(t *testing.T) {
 		signals, status, l, reaps, after, failed := runLife(t, c)
 		where := fmt.Sprintf("seed 23,5 case %d %+v (replay: go test -run '^TestRunningMatchesModel$' ./runtime/v1)", i, c)
 		seen[c.ending+fmt.Sprint(" grace=", c.grace, " ignore=", c.ignoreTerm, " exit=", want.signals[0] == "KILL" && len(want.signals) == 1)]++
+		exited := false
 		for _, s := range c.steps {
 			seen[s[:strings.IndexAny(s+" ", " ")]]++
 			if strings.HasPrefix(s, "drain") {
 				seen[s]++
+			}
+			exited = exited || strings.HasPrefix(s, "exit ")
+			if s == "waitfor" {
+				seen[fmt.Sprint("waitfor exited=", exited)]++
 			}
 		}
 		if strings.Contains(c.ending, "stop") {
@@ -571,7 +624,7 @@ func TestRunningMatchesModel(t *testing.T) {
 			t.Errorf("%s\nLines or Chunks after the end gave %v", where, after)
 		}
 	}
-	for _, k := range []string{"close grace=true ignore=true exit=false", "close grace=true ignore=false exit=false", "close grace=false ignore=false exit=false", "wait grace=false ignore=false exit=true", "lines", "stop-lines", "chunks", "drain lines", "drain chunks"} {
+	for _, k := range []string{"close grace=true ignore=true exit=false", "close grace=true ignore=false exit=false", "close grace=false ignore=false exit=false", "wait grace=false ignore=false exit=true", "lines", "stop-lines", "chunks", "drain lines", "drain chunks", "waitfor exited=false", "waitfor exited=true"} {
 		if seen[k] == 0 {
 			t.Errorf("no case %q: %v", k, seen)
 		}

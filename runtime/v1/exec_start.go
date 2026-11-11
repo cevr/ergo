@@ -329,6 +329,27 @@ func (r *Running) Stop(ct *rt.Task) int {
 	return r.status
 }
 
+// ExecWaitFor is exec.WaitFor(r, d): Wait with a deadline, on the
+// caller's task t. span, t and s are the hidden site, task and scheduler
+// arguments, as After's. A program that has ended gives its status at
+// once and arms no deadline, so the result does not depend on d or on the
+// Scheduler. Otherwise After races Wait, on a child of t, against s's
+// deadline: the end first gives the status; the deadline first stops the
+// child's Wait, which leaves the program, its group and its unread bytes
+// to r's owner, and fails Expired. Wait is safe on any task: it waits on
+// channels and finish runs once, so the child may wait on r while the
+// caller owns it (stdlib.md, exec: WaitFor).
+func ExecWaitFor(span Site, t *rt.Task, s Sleeper, r *Running, d time.Duration) (int, error) {
+	select {
+	case <-r.proc.exited():
+		return r.Wait(t), nil
+	default:
+	}
+	return After(span, t, s, nil, d, func(ct *rt.Task) (int, error) {
+		return r.Wait(ct), nil
+	})
+}
+
 // timer is r.after(d), or a channel that never fires when r has no clock
 // (the Script's replay, whose program has ended and whose lines are read).
 func (r *Running) timer(d time.Duration) <-chan time.Time {
