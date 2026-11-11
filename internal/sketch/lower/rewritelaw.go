@@ -318,3 +318,69 @@ func (l *lowerer) rewriteObserve(m *check.Method, pv, task string, args []string
 	}
 	return call + "; return \"\""
 }
+
+// postRun reports a post law the unit runs from reached states
+// (Unit.Posts): one slot, its owner's, built by a constructor.
+func (l *lowerer) postRun(law *check.Law, b []check.LawProvider) bool {
+	if len(b) != 1 || b[0].Ctor == nil || len(law.Slots) != 1 || law.Slots[0].Param >= 0 || lawGenericOwner(law) != nil {
+		return false
+	}
+	for _, p := range l.tests.posts {
+		if p == law {
+			return true
+		}
+	}
+	return false
+}
+
+// drawPrefix writes the draw of a case's prefix, zero to rewriteSteps-1
+// operations of the law's owner whose parameters are basic, each a
+// closure over its drawn arguments that calls it on a provider of p's
+// slot, adds the prefix to shown, and returns the list's Go name.
+func (l *lowerer) drawPrefix(b *strings.Builder, law *check.Law, p check.LawProvider, r, task string, inner *namer, shown *[]string) string {
+	tc := &typeCtx{l: l, site: law.Decl}
+	ops := tc.goType(p.Slot)
+	w := func(s string) { b.WriteString("\t\t\t" + s + "\n") }
+	var steps []*check.Method
+	for _, m := range p.Slot.Underlying().(*check.Interface).Methods {
+		basic := true
+		for _, prm := range m.Sig.Params {
+			if _, ok := underlying(prm.Type).(*check.Basic); !ok {
+				basic = false
+			}
+		}
+		if basic {
+			steps = append(steps, m)
+		}
+	}
+	list, shownList, n, j := inner.alloc("prefix"), inner.alloc("prefixShown"), inner.alloc("n"), inner.alloc("j")
+	depth := strconv.Itoa(testDepth)
+	w("var " + list + " []func(" + ops + ") string")
+	w("var " + shownList + " []string")
+	if len(steps) > 0 {
+		w(n + " := " + r + ".intn(" + strconv.Itoa(rewriteSteps) + ")")
+		w("for " + j + " := 0; " + j + " < " + n + "; " + j + "++ {")
+		w("\tswitch " + r + ".intn(" + strconv.Itoa(len(steps)) + ") {")
+		for k, m := range steps {
+			w("\tcase " + strconv.Itoa(k) + ":")
+			var margs, mshown []string
+			for _, prm := range m.Sig.Params {
+				a := inner.alloc("a")
+				w("\t\t" + a + " := " + l.genExpr(prm.Type, r, depth, inner, law.Decl))
+				margs = append(margs, a)
+				mshown = append(mshown, l.litExpr(prm.Type, a, law.Decl))
+			}
+			text := strconv.Quote(m.Name + "(")
+			if len(mshown) > 0 {
+				text += " + " + strings.Join(mshown, ` + ", " + `)
+			}
+			w("\t\t" + shownList + " = append(" + shownList + ", " + text + " + \")\")")
+			pv := inner.alloc("p")
+			w("\t\t" + list + " = append(" + list + ", func(" + pv + " " + ops + ") string { " + l.rewriteObserve(m, pv, task, margs, law.Decl) + " })")
+		}
+		w("\t}")
+		w("}")
+	}
+	*shown = append(*shown, strconv.Quote(", prefix = ["), l.helper("strings")+".Join("+shownList+", \", \")", strconv.Quote("]"))
+	return list
+}

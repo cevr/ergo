@@ -83,14 +83,14 @@ func genAgreeTypes(rng *rand.Rand) []agreeType {
 		}
 		for len(a.laws) < 7 {
 			l := randomLaw(rng, rwName(rng, "R"))
-			if v, _ := t.verdict(l); v != "tested" || l.guard == "" && len(l.lhs) == 1 && l.lhs[0].name == "Add" {
-				continue // false, or an unfold of Add, which U's unfolds into
+			if v, _ := t.verdict(l); v != "tested" || l.guard == "" && len(l.lhs) == 1 && (l.lhs[0].name == "Add" || l.lhs[0].name == "Halve") {
+				continue // false, or an unfold of Add (U unfolds into it) or of Halve (a fixed site needs it)
 			}
 			a.laws = append(a.laws, l)
 		}
-		// A true post law, and a false one: Inc does not make every
+		// A true post law, and a false one: Halve does not make every
 		// state even.
-		a.posts = []string{"law " + rwName(rng, "Q") + "() { Clear(); Even() == true }", "law " + rwName(rng, "Q") + "() { Inc(); Even() == true }"}
+		a.posts = []string{"law " + rwName(rng, "Q") + "() { Clear(); Even() == true }", "law " + rwName(rng, "Q") + "() { Halve(); Even() == true }"}
 		if i == 0 {
 			a.other, a.od = rwName(rng, "P"), 2
 			if t.d == 2 {
@@ -147,12 +147,30 @@ func agreeProgram(rng *rand.Rand, types []agreeType) (src, anchor string) {
 			}
 		}
 	}
+	// Two fixed sites per type: a Clear after a Halve, which no passing
+	// post law makes even (the false post law on Halve says it does), and
+	// a Clear after an Add, which no post law speaks of, so the first
+	// Clear's fact is gone.
+	var fixed []string
+	for _, a := range types {
+		for _, mid := range []string{"c.Halve()", "c.Add(1)"} {
+			name := rwName(rng, "fixed")
+			fixed = append(fixed, name)
+			b.WriteString(a.rename("func " + name + "(x int, y int) needs Console {\n\tlet c = New" + a.prov + "()\n\tc.Add(x)\n\tc.Clear()\n\t" + mid + "\n\tc.Clear()\n\tConsole.Println(\"" + name + " \\(c.Read()) \\(c.Even())\")\n}\n\n"))
+		}
+	}
 	anchor = rwName(rng, "anchor")
 	b.WriteString(types[0].rename("func " + anchor + "() needs Console {\n\tlet c = New" + types[0].prov + "()\n\tc.Add(1)\n\tc.Add(2)\n\tConsole.Println(\"anchor \\(c.Read())\")\n}\n\n"))
 	b.WriteString("func main() needs Console {\n\t" + anchor + "()\n")
 	for _, s := range sites {
 		for range 3 {
 			b.WriteString("\t" + s + "(" + strconv.Itoa(rng.Intn(5)) + ", " + strconv.Itoa(rng.Intn(5)) + ")\n")
+		}
+	}
+	// Each fixed site at every state Add(x) reaches (C is odd).
+	for _, s := range fixed {
+		for x := range 4 {
+			b.WriteString("\t" + s + "(" + strconv.Itoa(x) + ", 0)\n")
 		}
 	}
 	b.WriteString("}\n")
@@ -246,6 +264,34 @@ func TestRewriteAgrees(t *testing.T) {
 type admitAll struct{}
 
 func (admitAll) Admit(*check.Law, *check.Named, RewriteInstance) (bool, string) { return true, "" }
+
+// TestRewriteEmptyWindow is the smallest repro of a fixed bug: a window
+// whose rewrite leaves no call left its receiver's and arguments'
+// temporaries unused, and Go refused the program ("declared and not
+// used").
+func TestRewriteEmptyWindow(t *testing.T) {
+	src := "import sync\n\ntype T {\n\tTouch(n int),\n\tRead() int,\n\n\tlaw Idle(n int) { Touch(n) } == { },\n}\n\n" +
+		"type P { s sync.Ref[int] }\n\nfunc NewP() P { P{s: sync.NewRef[int](0)} }\n\n" +
+		"func Touch(p P, n int) { }\n\nfunc Read(p P) int { p.s.Get() }\n\n" +
+		"func site(x int) needs Console {\n\tlet c = NewP()\n\tc.Touch(x)\n\tConsole.Println(\"\\(c.Read())\")\n}\n\nfunc main() needs Console { site(1) }\n"
+	file, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
+	if len(diags) > 0 {
+		t.Fatalf("%v\n%s", diags, src)
+	}
+	files, err := Lower(Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}, Rewrite: admitAll{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &lowered{name: "empty", src: src, file: file, pkg: pkg, files: files}
+	if body := goFunc(t, p.mainGo(), "site"); strings.Contains(body, "Touch(") {
+		t.Fatalf("the window was not rewritten:\n%s", body)
+	}
+	typecheckGo(t, []*lowered{p})
+}
 
 // TestRewriteWorkBound: the engine's work on a window that never settles
 // (two laws that swap commuting calls back and forth) stops one unit past

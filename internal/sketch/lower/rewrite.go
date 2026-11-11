@@ -342,6 +342,8 @@ func (fc *funcCtx) rewriteWindow(list []syntax.Stmt) int {
 		texts[call] = ts
 	}
 	// The engine's pass-through arguments name their window position.
+	used := map[string]bool{}
+	var lines []string
 	for _, c := range out {
 		var vals []string
 		for j, a := range c.args {
@@ -351,9 +353,25 @@ func (fc *funcCtx) rewriteWindow(list []syntax.Stmt) int {
 			default:
 				pos, arg := rwPlace(a.text)
 				vals = append(vals, texts[calls[pos]][arg])
+				used[texts[calls[pos]][arg]] = true
 			}
 		}
-		fc.line(fc.rewriteCall(c.fn, r, vals, calls[0]))
+		used[r] = true
+		lines = append(lines, fc.rewriteCall(c.fn, r, vals, calls[0]))
+	}
+	// A temporary the rewritten calls no longer pass was still read
+	// where the window starts; Go wants it used.
+	temps := []string{r}
+	for _, call := range calls {
+		temps = append(temps, texts[call]...)
+	}
+	for _, t := range temps {
+		if t != "" && !used[t] {
+			fc.line("_ = " + t)
+		}
+	}
+	for _, s := range lines {
+		fc.line(s)
 	}
 	n := len(calls)
 	for _, s := range list[:n] {

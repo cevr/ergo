@@ -58,7 +58,14 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 		}
 		laws, insts = append(laws, ev.asked...), append(insts, ev.askedInsts...)
 		t := u
-		t.Rewrite, t.Instances = nil, insts
+		t.Rewrite, t.Instances, t.Posts = nil, insts, nil
+		for _, law := range laws {
+			if law.Rewrite == nil {
+				// A post law's fact holds after its operation from every
+				// state, so its check starts from a drawn one.
+				t.Posts = append(t.Posts, law)
+			}
+		}
 		files, err := LowerTests(t)
 		if err != nil {
 			return nil, err

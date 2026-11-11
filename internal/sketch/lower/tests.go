@@ -84,6 +84,9 @@ type testLowering struct {
 	lawPkgs map[*check.Package]bool
 	// instances are the unit's site instances of rewrite laws.
 	instances []RewriteInstance
+	// posts are the unit's post laws that run from drawn reached states
+	// (Unit.Posts, postRun).
+	posts []*check.Law
 }
 
 // LowerTests lowers the checked unit to the Go module of its test binary:
@@ -93,7 +96,7 @@ func LowerTests(u Unit) ([]File, error) {
 	if err := u.Validate(); err != nil {
 		return nil, err
 	}
-	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances})
+	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts})
 	code, err := l.program()
 	if err != nil {
 		return nil, err
@@ -1061,7 +1064,15 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
 			sep = ", "
 		}
-		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") +
+		prefix := ""
+		if l.postRun(law, tg.b) {
+			// A post law of the check build runs from a reached state
+			// (Unit.Posts): a drawn prefix on the case's provider first.
+			list := l.drawPrefix(b, law, tg.b[0], r, taskOf(env), inner, &shown)
+			s := inner.alloc("s")
+			prefix = "for _, " + s + " := range " + list + " { " + s + "(" + e + "." + l.envField(tg.b[0].Slot) + ") }; "
+		}
+		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") + prefix +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
 		b.WriteString("\t\t}\n")
