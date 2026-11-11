@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand/v2"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -43,7 +44,7 @@ var formSeed = flag.Uint64("forms.seed", 0, "run TestFormsAgree on this seed alo
 // formPaths are the generator's branches; the fixed seeds reach each.
 var formPaths = []string{
 	"must", "must-write", "orFirst-ok", "orFirst-missing", "viaLet", "bumped", "mixed", "soft-ok",
-	"soft-missing", "later", "consts", "loop", "map", "end-normal", "end-fail", "end-unreachable", "end-zero", "end-gone", "pick2",
+	"soft-missing", "later", "consts", "loop", "map", "end-normal", "end-fail", "end-unreachable", "end-zero", "end-gone", "pick2", "dropped",
 }
 
 const formPrelude = `type Rec { a int, b string, c int, d int, e int }
@@ -152,6 +153,34 @@ func drop(x *Index, k int) {
 
 func show(r Rec) string { "\(r.a) \(r.b) \(r.c) \(r.d) \(r.e)" }
 
+func stash(b *Box[Rec], i int, k int) Rec {
+	let r = must(b, i)
+	for j in 0..k {
+		b.items[i].e = b.items[i].e + j
+	}
+	if r.a > 10 {
+		return Rec{..r, a: 0}
+	}
+	b.items[i]
+}
+
+func noisy(b *Box[Rec], i int) int needs Console {
+	Console.Println("noisy \(i)")
+	for j in 0..2 {
+		b.items[i].d = b.items[i].d + j + 1
+	}
+	i * 2
+}
+
+func tally(xs []int, k int) int {
+	let mut ys = xs
+	ys[0] = ys[0] + k
+	for j in 0..k {
+		ys[0] = ys[0] + j
+	}
+	ys[0]
+}
+
 type Hook { f func() int }
 
 func hooked(b *Box[Rec], h *Hook, i int) Rec {
@@ -200,6 +229,7 @@ type formGen struct {
 	hits    int
 	reached map[string]bool
 	names   int
+	hook    int // what h.f returns
 }
 
 type formRec struct {
@@ -227,7 +257,7 @@ func (g *formGen) index() int { return []int{-1, 0, 1, 2, 7}[g.r.IntN(5)] }
 func (g *formGen) ok(i int) bool { return i >= 0 && i < len(g.items) }
 
 func (g *formGen) stmt() {
-	switch g.r.IntN(12) {
+	switch g.r.IntN(13) {
 	case 0:
 		// A let of a caught read, then a write of its source.
 		i, v := g.valid(), g.name("r")
@@ -318,6 +348,7 @@ func (g *formGen) stmt() {
 		g.line(fmt.Sprintf("%s.a = %s.a + 100", hv, hv))
 		g.line(fmt.Sprintf("Console.Println(\"\\(h.f()) \\(%s.a)\")", hv))
 		g.out("%d %d", g.items[i].a, g.items[i].a+100)
+		g.hook = g.items[i].a
 	case 7:
 		// limit and label are read where no Go fold can fail (Go
 		// consts); zero is a divisor, so it stays a variable, and a
@@ -384,6 +415,25 @@ func (g *formGen) stmt() {
 		g.line("Console.Println(\"\\(len(ix.alt))\")")
 		g.out("2")
 		g.reached["map"] = true
+	case 11:
+		// Discarded results: the variant with no result runs the body's
+		// effects in order (a loop's writes, a capability call); a callee
+		// with an owned parameter keeps its wrapper, which copies the
+		// slice the body writes.
+		i, k := g.valid(), g.r.IntN(4)
+		g.line(fmt.Sprintf("let _ = stash(&b, %d, %d)", i, k))
+		g.items[i].e += k * (k - 1) / 2
+		g.line(fmt.Sprintf("let _ = noisy(&b, %d)", i))
+		g.out("noisy %d", i)
+		g.items[i].d += 3
+		g.line(fmt.Sprintf("Console.Println(show(b.items[%d]))", i))
+		g.out("%s", g.items[i].show())
+		zs := g.name("zs")
+		g.line(fmt.Sprintf("let %s = []int{%d, 1}", zs, k))
+		g.line(fmt.Sprintf("let _ = tally(%s, %d)", zs, k+1))
+		g.line(fmt.Sprintf("Console.Println(\"\\(%s[0])\")", zs))
+		g.out("%d", k)
+		g.reached["dropped"] = true
 	case 9:
 		v := g.r.IntN(30)
 		g.line(fmt.Sprintf("b.items = b.items.Append(Rec{a: %d, b: \"n%d\", c: 1, d: 2, e: 3})", v, v))
@@ -408,16 +458,22 @@ func formProgram(seed uint64, reached map[string]bool) (src, want string) {
 	g.items = []formRec{{3, "x", 1, 4, 1}, {5, "y", 9, 2, 6}}
 	g.line("let mut b = Box[Rec]{items: []Rec{Rec{a: 3, b: \"x\", c: 1, d: 4, e: 1}, Rec{a: 5, b: \"y\", c: 9, d: 2, e: 6}}, n: 0}")
 	g.line("let mut ix = Index{by: Map[int, int]{}, alt: Map[int, int]{}, hits: 0}")
+	g.line("ix.hits = ix.hits + 0")
 	g.ix = map[int]int{}
 	// The tail of a body returned into an interface result (a union):
 	// a let mut of another Go type, and a := of a call's result. Neither
 	// becomes the result variable (renameTail): the body reads its fields.
-	g.line("let mut h = Hook{f: func() int { 0 }}")
+	g.line("let mut h = Hook{f: func() int { 1 }}")
+	g.line("h.f = func() int { 0 }")
 	g.line("Console.Println(width(shapeVar(&b, 3)) + \" \" + width(shapeDef(&b, 5)))")
 	g.out("4 5")
 	for range 24 {
 		g.stmt()
 	}
+	g.line("Console.Println(\"\\(h.f())\")")
+	g.out("%d", g.hook)
+	g.line("Console.Println(\"\\(ix.hits)\")")
+	g.out("%d", g.hits)
 	g.line("Console.Println(digest(&b))")
 	g.out("%s", g.digest())
 	g.line("Console.Println(\"\\(quiet(&b))\")")
@@ -498,6 +554,11 @@ func TestFormsAgree(t *testing.T) {
 			if q := goFunc(t, p.mainGo(), "quiet"); !strings.Contains(q, "switch ") || !strings.Contains(q, "panic(") {
 				t.Errorf("%s: the catch of a callee with a capability lost its switch or default:\n%s", name, q)
 			}
+			// The promised fact of the variant with no result: it
+			// returns nothing, so Go drops the value no one reads.
+			if code := p.mainGo(); strings.Contains(code, "func stashDropped(") && !regexp.MustCompile(`(?m)^func stashDropped\([^)]*\) \{$`).MatchString(code) {
+				t.Errorf("%s: the variant with no result of stash returns a value", name)
+			}
 			st := &newStats
 			if ref {
 				st = &refStats
@@ -507,6 +568,7 @@ func TestFormsAgree(t *testing.T) {
 			st.Consts += s.Consts
 			st.MapStores += s.MapStores
 			st.SoleFailures += s.SoleFailures
+			st.Dropped += s.Dropped
 			programs = append(programs, p)
 		}
 	}
@@ -531,10 +593,10 @@ func TestFormsAgree(t *testing.T) {
 			t.Errorf("the fixed seeds never reach %q: %v", path, reached)
 		}
 	}
-	if newStats.Aliased == 0 || newStats.Renamed == 0 || newStats.Consts == 0 || newStats.MapStores == 0 || newStats.SoleFailures == 0 {
+	if newStats.Aliased == 0 || newStats.Renamed == 0 || newStats.Consts == 0 || newStats.MapStores == 0 || newStats.SoleFailures == 0 || newStats.Dropped == 0 {
 		t.Errorf("the new lowering used no form: %+v", newStats)
 	}
-	if refStats.Aliased != 0 || refStats.Renamed != 0 || refStats.Consts != 0 || refStats.MapStores != 0 || refStats.SoleFailures != 0 {
+	if refStats.Aliased != 0 || refStats.Renamed != 0 || refStats.Consts != 0 || refStats.MapStores != 0 || refStats.SoleFailures != 0 || refStats.Dropped != 0 {
 		t.Errorf("the reference lowering used a form: %+v", refStats)
 	}
 }

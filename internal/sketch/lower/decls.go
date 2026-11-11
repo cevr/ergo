@@ -91,6 +91,9 @@ type funcDecl struct {
 	// known is the Go name of the known-callback variant once it is
 	// queued (known.go, knownName).
 	known string
+	// dropped is the Go name of the variant with no result once it is
+	// queued (forms.go, droppedName).
+	dropped string
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -911,14 +914,16 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 // emitFuncBody writes fd's Go declaration, or, when variant is set, its
 // comma-ok variant fd.ok: the same body with its Option parameter taken as
 // a value and a flag (update.go, okShape).
-func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) { l.emitBody(fd, variant, nil, false) }
+func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
+	l.emitBody(fd, variant, nil, false, false)
+}
 
 // emitBody writes what emitFuncBody writes, or, with flat, the flat step of
 // a machine's flat run (machinerun.go): fd's body under flat's step name,
 // its state parameter flat and its decision returned as a value; with
 // known, fd's known-callback variant (known.go): its callback parameters
 // plain and no entry poll.
-func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool) {
+func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known, drop bool) {
 	l.bodies++
 	f := fd.fn
 	l.readsOf(f)
@@ -996,7 +1001,7 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool
 	// own and keeps f's name for a wrapper that copies them (values.go, V5).
 	bodyName, wrapHead, wrapParams := fd.name, "", ""
 	var typeArgs, args []string
-	owned := !variant && !known && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
+	owned := !variant && !known && !drop && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
 	if owned {
 		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
 	}
@@ -1015,6 +1020,12 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool
 				fc.plain[params[i]] = true
 			}
 		}
+	}
+	if drop {
+		if variant || known || flat != nil || fd.extern != "" || fd.dropped == "" {
+			ice(site, "the variant of %s with no result is not a plain body", f.Name)
+		}
+		bodyName, methodName = fd.dropped, fd.dropped
 	}
 	flatParam := ""
 	if flat != nil {
@@ -1119,7 +1130,9 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool
 	if len(f.Sig.Results) > 1 {
 		unreachable(site, ruleOneResult, "the function %s has %d results", f.Name, len(f.Sig.Results))
 	}
-	if len(f.Sig.Results) == 1 {
+	if len(f.Sig.Results) == 1 && !drop {
+		// The variant with no result (forms.go, droppedName) returns
+		// nothing: each return evaluates its value for its effects alone.
 		fc.frame.result = f.Sig.Results[0]
 	}
 	if fd.extern != "" {
@@ -1194,7 +1207,7 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool
 		b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
 		return
 	}
-	if !variant && !known {
+	if !variant && !known && !drop {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
 	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")

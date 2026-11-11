@@ -234,6 +234,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A call whose callbacks are all known goes to the known variant
 		// (known.go), its literals lowered plain.
 		known := fc.knownSite(x, c)
+		// A call whose result its statement discards goes to the variant
+		// with no result (forms.go, droppedSite).
+		dropped := !known && fc.droppedSite(x, c, fd)
 		// An argument for a parameter func(…) T whose T a block with no
 		// value binds needs no adapter: a function value with no result
 		// and the instance's func(…) struct{} are one Go shape (C11).
@@ -249,6 +252,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if known {
 				name = fc.l.knownName(c.Func, fd)
 			}
+			if dropped {
+				name = fc.l.droppedName(c.Func, fd)
+			}
 			head, rest = "("+vals[0]+")."+name, vals[1:]
 		} else {
 			// Info names every type argument of a generic call: written,
@@ -263,6 +269,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if known {
 				name = fc.l.knownName(c.Func, fd)
 			}
+			if dropped {
+				name = fc.l.droppedName(c.Func, fd)
+			}
 			head, rest = name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 		}
 		// A pure function takes no environment (pure.go): no Task result
@@ -272,7 +281,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
 		}
 		rest = append(lead, rest...)
-		return head + "(" + strings.Join(rest, ", ") + ")", len(c.Func.Sig.Results) > 0, fd.fallible
+		return head + "(" + strings.Join(rest, ", ") + ")", len(c.Func.Sig.Results) > 0 && !dropped, fd.fallible
 	case check.CallOp:
 		if c.Recv == nil || c.Op == nil {
 			ice(x, "an operation call with no receiver or operation")
