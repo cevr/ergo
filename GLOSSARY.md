@@ -119,9 +119,9 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Trailing block** (checked; the build lowers it only for `with` and `timeout.After` until #50): A block written after a call's parentheses. It is notation for a function-literal final argument whose body contains no `return`, `break` or `continue`; an early return needs an explicit `func` literal. It cannot escape the call unless the parameter type says so. The block of `with` is part of that construct instead.
 
-**Non-escaping parameter** (designed): A function-typed parameter that the callee may call, or hand to a task the call consumes, but may not store, return or send.
+**Non-escaping parameter**: A function-typed parameter written without `escaping`. The callee runs it only before the call returns, one run at a time and never while the caller runs, and no one keeps it ([types.md](docs/spec/types.md#function-values) Function values 2). Any other use needs `escaping`.
 
-**Concurrent parameter** (designed): A function parameter that the callee hands to `go`, directly or through another call. The compiler infers the fact and records it in the interface summary. An argument to it may not assign captured locals.
+**Concurrent parameter**: A function parameter that the callee runs on another task while another run or the caller may run. It is written `escaping` (ESC1, 2026-11-11); no separate clause marks it, and an argument to it may not assign captured locals.
 
 **Replayable parameter** (designed): A function parameter that may run more than once, such as a transaction body. It may not assign captured locals, use channels or consume a resource, and its footprint holds only `sync.Tx`.
 

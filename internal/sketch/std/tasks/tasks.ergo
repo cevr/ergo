@@ -165,8 +165,10 @@ law RepeatFollowsDecide(work int, k int, limit int) {
 // Transform fails with that failure. Every task it starts has ended when
 // it returns. A stop of the calling task stops every call. A limit below 1
 // is a defect. The calls share f's providers, which the caller's row
-// binds.
-extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B, E, R](xs []A, limit int, f func(x A) B fails E needs R) []B fails E needs R
+// binds. f is escaping: its calls run on other tasks, at once, so a
+// literal f writes no let mut of its caller (types.md, Function values 2
+// and 3); a result it builds is its own.
+extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B, E, R](xs []A, limit int, f escaping func(x A) B fails E needs R) []B fails E needs R
 
 // Closed is the failure of Go on a Set that admits no more tasks: FailFast
 // ended it, or it was stopped. Like queue.Closed, it is a normal end of

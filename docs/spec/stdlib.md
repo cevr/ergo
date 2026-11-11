@@ -646,7 +646,7 @@ The table has one row per std package, the prelude included. The Effect module i
 
 | Declaration | Meaning | Go body |
 | --- | --- | --- |
-| `func Transform[A, B, E, R](xs []A, limit int, f func(x A) B fails E needs R) []B fails E needs R` | `f` of each element, each call on a task of its own, at most `limit` at once, the results in the order of `xs` (batch 12, C2; built). | `TasksTransform(span Site, t *rt.Task, rel Releaser[[]B], xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error)` (task.go), over `rt.MapSpan` (rt tasks.go) |
+| `func Transform[A, B, E, R](xs []A, limit int, f escaping func(x A) B fails E needs R) []B fails E needs R` | `f` of each element, each call on a task of its own, at most `limit` at once, the results in the order of `xs` (batch 12, C2; built). `f` is escaping: its calls run at the same time ([types.md](types.md#function-values), Function values 2; ESC1). | `TasksTransform(span Site, t *rt.Task, rel Releaser[[]B], xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error)` (task.go), over `rt.MapSpan` (rt tasks.go) |
 | `func Race[T, E, R](blocks []func() T fails E needs R) T fails E needs R` | Each block on a task of its own; the first to end decides, and the rest are stopped and waited for (batch 12, C4; built). | `TasksRace(span Site, t *rt.Task, rel Releaser[T], blocks []func(*rt.Task) (T, error)) (T, error)` (task.go), over `rt.RaceSpan` (rt tasks.go) |
 | `law TransformEqualsLoop(xs []int, k int)`, `law TransformKeepsOrder(xs []int, k int)`, `law LimitHolds(xs []int, k int)`, `law EarliestWins(ds []int)`, `law LosersStopped(n int)` | The laws ([Std laws](#std-laws)). | `TestTasksLaws` (runtime/v1) |
 

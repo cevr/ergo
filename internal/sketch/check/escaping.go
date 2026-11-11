@@ -62,7 +62,7 @@ import (
 // escapeText and captureText are the two S108 messages.
 const (
 	escapeText  = "%s is a non-escaping function value: it may be called or passed to a non-escaping parameter, never stored, returned or passed where it may be kept; write `escaping` on its parameter's type to keep it (types.md, Function values 2)"
-	captureText = "%s is a non-escaping function value, and this function literal or block may outlive the call that received it; capture it only in a block or literal passed to a non-escaping parameter, or write `escaping` on its parameter's type (types.md, Function values 2)"
+	captureText = "%s is a non-escaping function value, and this function literal or block may outlive the call that received it or run on another task; capture it only in a block or literal passed to a non-escaping parameter, or write `escaping` on its parameter's type (types.md, Function values 2)"
 )
 
 // nonEscaping reports whether t is a non-escaping function type.
@@ -417,9 +417,9 @@ func (w *escWalk) allowed(id *syntax.Ident, v *Var) bool {
 // value, which the rule gives Ergo for the escaping frames.
 
 const (
-	captureWriteText  = "%s is a let mut of an enclosing frame, and this function literal or block may outlive the call that made it, so it holds a copy of %s and cannot write it; declare a let mut inside it, or pass it to a non-escaping parameter (types.md, Function values 3)"
-	writeAfterText    = "%s is written here after a function literal or block captured it, and that literal may outlive the call that made it, so it would not see the write; write %s before the literal, or capture a copy that is not written: let %s = %s before it (types.md, Function values 3)"
-	borrowCaptureText = "%s is a borrow (*T), and this function literal or block may outlive the call that lent it; an escaping frame never captures a borrow: copy what it needs into a let before it (types.md, Borrows 1)"
+	captureWriteText  = "%s is a let mut of an enclosing frame, and this function literal or block may outlive the call that made it or run on another task, so it holds a copy of %s and cannot write it; declare a let mut inside it, or pass it to a non-escaping parameter (types.md, Function values 3)"
+	writeAfterText    = "%s is written here after a function literal or block captured it, and that literal may outlive the call that made it or run on another task, so it would not see the write; write %s before the literal, or capture a copy that is not written: let %s = %s before it (types.md, Function values 3)"
+	borrowCaptureText = "%s is a borrow (*T), and this function literal or block may outlive the call that lent it or run on another task; an escaping frame never captures a borrow: copy what it needs into a let before it (types.md, Borrows 1)"
 )
 
 // mutEvent is a use of a let mut local: whether it writes the local, the

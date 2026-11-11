@@ -125,7 +125,7 @@ func Recover(j journal.Journal[route.Router, route.Signal]) route.Router fails j
 // sees it, and after a defect restarts (Budget times) in the state j
 // recovers then, never in the crashed one's memory. sink gets the
 // questions.
-func Open(j journal.Journal[route.Router, route.Signal], sink func(o route.Output)) actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]] fails journal.Failed needs route.Registry | Scheduler {
+func Open(j journal.Journal[route.Router, route.Signal], sink escaping func(o route.Output)) actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]] fails journal.Failed needs route.Registry | Scheduler {
 	try actor.SuperviseDurable(route.Routing{}, 8, sink, tasks.Restart{Limit: Budget}, func() Option[route.Router] fails journal.Failed {
 		Some[route.Router]{Value: try Recover(j)}
 	}, func(prev route.Router, next route.Router, sig route.Signal) fails journal.Failed {

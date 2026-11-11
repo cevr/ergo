@@ -1253,7 +1253,7 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		return &Pointer{Elem: elem}
 	case *syntax.FuncType:
 		// `escaping` marks a function type that may outlive the call it
-		// is passed to (196e). Only a parameter's type is non-escaping
+		// is passed to or run on another task (196e; ESC1). Only a parameter's type is non-escaping
 		// without it (signature); elsewhere it repeats the default.
 		inner := typeCtx{}
 		if ctx != nil {

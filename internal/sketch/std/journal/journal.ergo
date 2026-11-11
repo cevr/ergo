@@ -127,7 +127,7 @@ type Codec[T] {
 //
 // The step of m must be pure (the checker's rule, S108): the replay steps
 // the signals again, so a step with an effect would act twice.
-func Start[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], j Journal[S, E], every int, capacity int, sink func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails Failed | Diverged needs R | W | Scheduler {
+func Start[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], j Journal[S, E], every int, capacity int, sink escaping func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails Failed | Diverged needs R | W | Scheduler {
 	let log = try j.Load()
 	let from = match log.Snapshot {
 	case Some[S] as s:
