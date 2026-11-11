@@ -99,6 +99,14 @@ func TestGoBindingPlatforms(t *testing.T) {
 	if err := os.WriteFile(bindingPath, []byte(old+body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	for _, platform := range []string{"darwin/arm64", "linux/amd64"} {
+		goos, goarch, _ := strings.Cut(platform, "/")
+		t.Setenv("GOOS", goos)
+		t.Setenv("GOARCH", goarch)
+		if err := checkCommand([]string{root}); err != nil {
+			t.Errorf("old binding states %s but was refused: %v", platform, err)
+		}
+	}
 	if err := bindCommand([]string{"go", "example.test/platform/greet"}); err != nil {
 		t.Fatal(err)
 	}

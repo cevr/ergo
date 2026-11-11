@@ -2,6 +2,15 @@
   "about": "Host context interruption acceptance mutants. Run the named CLI killer; it builds emitted programs because the contract is a live foreign wait and completed cleanup.",
   "mutants": [
     {
+      "name": "dist1h-requires-all-platforms",
+      "origin": "wf10 DIST1-h",
+      "file": "internal/sketchfront/gomod.go",
+      "from": "if slices.Contains(platforms, platform.String()) {",
+      "to": "if len(platforms) == len(gobind.Platforms) && slices.Contains(platforms, platform.String()) {",
+      "rule": "An old binding is still admitted on each platform its header states.",
+      "killers": ["cmd/ergo:TestGoBindingPlatforms"]
+    },
+    {
       "name": "dist1h-binding-platform-unchecked",
       "origin": "wf10 DIST1-h",
       "file": "internal/sketchfront/load.go",
