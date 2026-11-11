@@ -72,7 +72,7 @@ type Suite struct {
 	List    func(root string) ([]string, error)
 	Env     []string
 	// Tags are a Go suite's build tags (go test -tags); Only, when set,
-	// are the only tests of the Go suite that the runner runs.
+	// are the only tests of the suite that the runner runs.
 	Tags string
 	Only []string
 }
@@ -646,7 +646,10 @@ func (e *engine) measure(ctx context.Context) (*coverage, error) {
 			}
 		} else {
 			var err error
-			if names, err = s.List(root); err != nil {
+			if s.Only != nil {
+				// The ledger names them: an example need not be a default one.
+				names = slices.Clone(s.Only)
+			} else if names, err = s.List(root); err != nil {
 				return nil, fmt.Errorf("list the tests of %s: %w", s.Name, err)
 			}
 		}

@@ -269,30 +269,70 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			add("./" + filepath.ToSlash(filepath.Dir(m.File)))
 		}
 		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
-		// A killer named DIR[TAGS]:Test… is a test of DIR built with
-		// -tags=TAGS (runtime/v1's ergoexplore tests): its own suite, which
-		// runs only the tests the ledger names. The package's other tests
-		// under those tags expect the tag's own harness (an explored
-		// worker), and fail or hang without it.
+	}
+	// A killer or anchor test in a suite no ledger brought is run too, and
+	// only the tests the ledgers name: its other tests judge nothing here,
+	// and some need a harness of their own (runtime/v1's ergoexplore tests
+	// hang without the explored worker). No row is left to run by hand.
+	for _, j := range jobs {
 		for _, m := range j.Ledger.Mutants {
 			for _, id := range append(slices.Clone(m.Killers), anchorTests(m)...) {
 				name, test := splitID(id)
-				tags, ok := strings.CutPrefix(name, rel+"[")
-				if !ok || !strings.HasSuffix(tags, "]") {
-					continue
-				}
 				i := slices.IndexFunc(suites, func(s Suite) bool { return s.Name == name })
 				if i < 0 {
-					suites = append(suites, Suite{Name: name, Package: "./" + rel, Tags: strings.TrimSuffix(tags, "]")})
+					s, need, ok := namedSuite(absRoot, name)
+					if !ok {
+						continue // no such suite: the runner reports what runs
+					}
+					for _, t := range need {
+						if !slices.ContainsFunc(tools, func(u Tool) bool { return u.Name == t.Name }) {
+							tools = append(tools, t)
+						}
+					}
+					s.Only = []string{}
+					suites = append(suites, s)
 					i = len(suites) - 1
 				}
-				if !slices.Contains(suites[i].Only, test) {
+				if suites[i].Only != nil && !slices.Contains(suites[i].Only, test) {
 					suites[i].Only = append(suites[i].Only, test)
 				}
 			}
 		}
 	}
 	return cover, tools, suites, nil
+}
+
+// namedSuite resolves the suite of a killer id that no ledger's scope
+// brought: a suite of ergoSuites by its name (lower, std, examples …),
+// with the tools it runs; or a package of the module by its directory,
+// DIR or DIR[TAGS] (built with -tags=TAGS).
+func namedSuite(root, name string) (Suite, []Tool, bool) {
+	_, tools, suites := ergoSuites()
+	for _, s := range suites {
+		if s.Name == name {
+			var need []Tool
+			for _, t := range tools {
+				if slices.Contains(toolsOf(&s), t.Name) {
+					need = append(need, t)
+				}
+			}
+			return s, need, true
+		}
+	}
+	dir, tags, tagged := strings.Cut(name, "[")
+	if tagged {
+		if !strings.HasSuffix(tags, "]") {
+			return Suite{}, nil, false
+		}
+		tags = strings.TrimSuffix(tags, "]")
+	}
+	if dir == "" || strings.HasPrefix(dir, ".") || filepath.IsAbs(dir) {
+		return Suite{}, nil, false
+	}
+	if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(dir))); err != nil || !info.IsDir() {
+		return Suite{}, nil, false
+	}
+	return Suite{Name: name, Package: "./" + dir, Tags: tags}, nil, true
 }
 
 // defaultExamples lists the example programs tagged default.

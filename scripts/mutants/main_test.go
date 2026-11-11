@@ -65,26 +65,52 @@ func TestScopeIsTheLedgersPackage(t *testing.T) {
 	}
 }
 
-// TestTaggedKillerIsItsOwnSuite: a killer DIR[TAGS]:Test… names a test
-// that exists only under build tags (runtime/v1's ergoexplore tests), so
-// its suite is DIR built with -tags=TAGS, once, beside DIR's own suite,
-// and it runs only the tests the ledger names (the package's other tests
-// under ergoexplore hang without the explored worker: 4 h of deadlines).
-// Without it the x7 rows of runtime/v1 were judged by the untagged binary,
-// where their killers do not exist (MUT-clean).
-func TestTaggedKillerIsItsOwnSuite(t *testing.T) {
+// TestKillerInAnotherSuiteIsRun: a ledger's killer in a suite its scope
+// does not bring is run, and only the tests the ledger names. DIR[TAGS]
+// is DIR built with -tags=TAGS (runtime/v1's ergoexplore tests, whose
+// other tests hang without the explored worker: 4 h of deadlines); a
+// module directory is that package (eval's row killed by
+// internal/sketchfront, NONDET1); an ergo suite name is that suite, with
+// the tools it runs (lower runs the ergo CLI). A name that is neither is
+// left out. Before, the x7 rows were judged by the untagged binary, where
+// their killers do not exist, and the other rows were run by hand.
+func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	root := t.TempDir()
+	for _, dir := range []string{"runtime/v1", "internal/sketchfront"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	ledger := &Ledger{Mutants: []*Mutant{
-		{Name: "a", Killers: []string{"runtime/v1[ergoexplore]:TestA", "runtime/v1:TestB"}},
-		{Name: "b", Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},
+		{Name: "a", Killers: []string{"runtime/v1[ergoexplore]:TestA", "runtime/v1:TestB", "internal/sketchfront:TestF"}},
+		{Name: "b", Killers: []string{"lower:TestL", "v1:TestNone"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},
 	}}
-	_, _, suites, err := suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "runtime", "v1")), Ledger: ledger}})
+	_, tools, suites, err := suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "runtime", "v1")), Ledger: ledger}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Suite{{Name: "runtime/v1", Package: "./runtime/v1"}, {Name: "runtime/v1[ergoexplore]", Package: "./runtime/v1", Tags: "ergoexplore", Only: []string{"TestA", "TestC"}}}
-	if len(suites) != len(want) || suites[0].Name != want[0].Name || suites[0].Tags != "" || suites[0].Only != nil ||
-		suites[1].Name != want[1].Name || suites[1].Package != want[1].Package || suites[1].Tags != want[1].Tags || !slices.Equal(suites[1].Only, want[1].Only) {
-		t.Errorf("suites %+v, want %+v", suites, want)
+	type got struct {
+		name, pkg, tags string
+		only            []string
+	}
+	var have []got
+	for _, s := range suites {
+		have = append(have, got{s.Name, s.Package, s.Tags, s.Only})
+	}
+	want := []got{
+		{"runtime/v1", "./runtime/v1", "", nil},
+		{"runtime/v1[ergoexplore]", "./runtime/v1", "ergoexplore", []string{"TestA", "TestC"}},
+		{"internal/sketchfront", "./internal/sketchfront", "", []string{"TestF"}},
+		{"lower", "./internal/sketch/lower", "", []string{"TestL"}},
+	}
+	same := len(have) == len(want)
+	for i := 0; same && i < len(want); i++ {
+		same = have[i].name == want[i].name && have[i].pkg == want[i].pkg && have[i].tags == want[i].tags && slices.Equal(have[i].only, want[i].only)
+	}
+	if !same {
+		t.Errorf("suites %+v, want %+v", have, want)
+	}
+	if len(tools) != 1 || tools[0].Name != "ergo" {
+		t.Errorf("tools %+v, want the ergo CLI that lower runs", tools)
 	}
 }
