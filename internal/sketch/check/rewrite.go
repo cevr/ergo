@@ -51,7 +51,7 @@ const (
 // own, so a side's locals do not reach the other; each side's escaping
 // failures are its own row, and the two rows must be equal.
 func (c *checker) rewriteLaw(law *Law, tg *target) {
-	r := law.Decl.Rewrite
+	lhsB, rhsB := law.Decl.RewriteSides()
 	if law.Owner == nil {
 		// The parser reported a top-level rewrite law; a machine's law
 		// is reported here.
@@ -60,18 +60,18 @@ func (c *checker) rewriteLaw(law *Law, tg *target) {
 		}
 		return
 	}
-	if r.Guard != nil {
-		c.condition(r.Guard)
+	if g := law.Decl.RewriteGuard(); g != nil {
+		c.condition(g)
 	}
 	tg.errors = newRow()
-	c.block(r.Lhs)
+	c.block(lhsB)
 	lhsRow := c.types.resolve(tg.errors).known(c.types)
 	tg.errors = newRow()
-	c.block(r.Rhs)
+	c.block(rhsB)
 	rhsRow := c.types.resolve(tg.errors).known(c.types)
 	tg.errors = lhsRow.union(c.types, rhsRow)
 	if !lhsRow.equal(c.types, rhsRow) {
-		c.errorf(r.Rhs, CodeType, "the sides of rewrite law %s fail differently: %s on the left, %s on the right; a rewrite keeps the failures", law.Name, rowText(lhsRow), rowText(rhsRow))
+		c.errorf(rhsB, CodeType, "the sides of rewrite law %s fail differently: %s on the left, %s on the right; a rewrite keeps the failures", law.Name, rowText(lhsRow), rowText(rhsRow))
 	}
 	if rw := c.rewriteShape(law); rw != nil {
 		law.Rewrite = rw
@@ -93,7 +93,7 @@ func (c *checker) rewriteLaw(law *Law, tg *target) {
 //     argument at most once (linear).
 func (c *checker) rewriteShape(law *Law) *Rewrite {
 	d := law.Decl
-	r := d.Rewrite
+	lhsB, rhsB := d.RewriteSides()
 	rw := &Rewrite{Const: make([]bool, len(law.Params))}
 	param := map[*Var]int{}
 	for i, v := range law.Params {
@@ -112,8 +112,8 @@ func (c *checker) rewriteShape(law *Law) *Rewrite {
 		return i, ok
 	}
 	ok := true
-	if r.Guard != nil {
-		b, isEq := unparen(r.Guard).(*syntax.BinaryExpr)
+	if g := d.RewriteGuard(); g != nil {
+		b, isEq := unparen(g).(*syntax.BinaryExpr)
 		var read *Method
 		if isEq && b.Op == syntax.EQL {
 			if call, isCall := unparen(b.X).(*syntax.CallExpr); isCall && len(call.Args) == 0 {
@@ -124,7 +124,7 @@ func (c *checker) rewriteShape(law *Law) *Rewrite {
 		}
 		switch {
 		case read == nil:
-			c.errorf(r.Guard, CodeType, "a rewrite law's guard is R() == C, R an operation of %s with no parameters that reads one value", law.Owner.Name)
+			c.errorf(g, CodeType, "a rewrite law's guard is R() == C, R an operation of %s with no parameters that reads one value", law.Owner.Name)
 			ok = false
 		case !c.closedExpr(b.Y, param):
 			c.errorf(b.Y, CodeType, "a rewrite law's guard compares R() with a constant: no parameter, no call")
@@ -160,13 +160,13 @@ func (c *checker) rewriteShape(law *Law) *Rewrite {
 		}
 		return out, good
 	}
-	lhs, okL := side(r.Lhs, "left", maxRewriteLhs)
-	rhs, okR := side(r.Rhs, "right", maxRewriteRhs)
+	lhs, okL := side(lhsB, "left", maxRewriteLhs)
+	rhs, okR := side(rhsB, "right", maxRewriteRhs)
 	if !okL || !okR || !ok {
 		return nil
 	}
 	if len(lhs) == 0 {
-		c.errorf(r.Lhs, CodeType, "a rewrite law's left side has at least one call")
+		c.errorf(lhsB, CodeType, "a rewrite law's left side has at least one call")
 		return nil
 	}
 	bound := make([]bool, len(law.Params))

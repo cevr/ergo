@@ -109,14 +109,27 @@ func (d *LawDecl) End() Pos {
 func (*LawDecl) declNode() {}
 
 // LawRewrite is the rewrite form of a law (LawDecl.Rewrite). When is the
-// position of `when`, else NoPos, and Guard its `R() == C`; Eq is the
-// position of the == between the blocks (NoPos after a parse error).
+// position of `when`, else NoPos; Eq is the position of the == between
+// the blocks (NoPos after a parse error). The guard and the blocks are
+// statements of the law's Body (RewriteGuard, RewriteSides), so every
+// walk of the law sees them once.
 type LawRewrite struct {
-	When  Pos
-	Guard Expr
-	Lhs   *BlockStmt
-	Eq    Pos
-	Rhs   *BlockStmt
+	When Pos
+	Eq   Pos
+}
+
+// RewriteGuard is the `R() == C` of a rewrite law's `when`, nil without one.
+func (d *LawDecl) RewriteGuard() Expr {
+	if d.Rewrite == nil || d.Rewrite.When == NoPos {
+		return nil
+	}
+	return d.Body.List[0].(*ExprStmt).X
+}
+
+// RewriteSides are the left and right blocks of a rewrite law.
+func (d *LawDecl) RewriteSides() (lhs, rhs *BlockStmt) {
+	n := len(d.Body.List)
+	return d.Body.List[n-2].(*BlockStmt), d.Body.List[n-1].(*BlockStmt)
 }
 
 // LawReach is the graph form of a machine law (MU6). Never is the position

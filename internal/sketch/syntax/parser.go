@@ -1043,6 +1043,7 @@ func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
 	}
 	d.Params = p.parseParameters(paramPlain)
 	r := &LawRewrite{When: NoPos, Eq: NoPos}
+	var guard Expr
 	if p.tok.tok == IDENT && p.tok.lit == "when" {
 		// The guard of a rewrite law: `when` is a word only here, and
 		// the guard parses as a control clause, so `C { … }` is C and
@@ -1051,14 +1052,14 @@ func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
 		p.next()
 		saved := p.exprLev
 		p.exprLev = -1
-		r.Guard = p.parseExpr()
+		guard = p.parseExpr()
 		p.exprLev = saved
 	}
 	d.Body = p.parseBlock()
 	if p.tok.tok != EQL && r.When == NoPos {
 		return d
 	}
-	p.parseLawRewrite(d, r, top)
+	p.parseLawRewrite(d, r, guard, top)
 	return d
 }
 
@@ -1068,26 +1069,27 @@ func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
 // the left block the pattern and the right the replacement. Its Body then
 // holds the guard, lhs and rhs (LawDecl.Rewrite). A top-level rewrite law
 // is S108: a rewrite is of an operation type's own operations.
-func (p *parser) parseLawRewrite(d *LawDecl, r *LawRewrite, top bool) {
-	r.Lhs = d.Body
+func (p *parser) parseLawRewrite(d *LawDecl, r *LawRewrite, guard Expr, top bool) {
+	lhs := d.Body
+	var rhs *BlockStmt
 	if top {
 		p.errorAt(d.Law, 3, "a rewrite law is a member of an operation type; a top-level law has no operations to rewrite")
 	}
 	if p.tok.tok != EQL {
 		p.errorAt(p.tok.pos, 1, "expected == { … } after a guarded law's block; a law with when is a rewrite law, { lhs } == { rhs }")
-		r.Rhs = &BlockStmt{Lbrace: r.Lhs.Rbrace, Rbrace: r.Lhs.Rbrace}
+		rhs = &BlockStmt{Lbrace: lhs.Rbrace, Rbrace: lhs.Rbrace}
 	} else {
 		r.Eq = p.tok.pos
 		p.next()
-		r.Rhs = p.parseBlock()
+		rhs = p.parseBlock()
 	}
 	var list []Stmt
-	if r.Guard != nil {
-		list = append(list, &ExprStmt{X: r.Guard})
+	if guard != nil {
+		list = append(list, &ExprStmt{X: guard})
 	}
-	list = append(list, r.Lhs, r.Rhs)
+	list = append(list, lhs, rhs)
 	d.Rewrite = r
-	d.Body = &BlockStmt{Lbrace: r.Lhs.Lbrace, List: list, Rbrace: r.Rhs.Rbrace}
+	d.Body = &BlockStmt{Lbrace: lhs.Lbrace, List: list, Rbrace: rhs.Rbrace}
 }
 
 // parseLetDecl parses `let [mut] Pattern {, Pattern} [Type] [= e]`. At

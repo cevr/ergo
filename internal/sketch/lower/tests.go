@@ -388,11 +388,19 @@ func (l *lowerer) lawFunc(law *check.Law) string {
 	return l.pkgName(pkgKey{"law", law}, base)
 }
 
+// lawFrame is the frame of a law's Go function, a member law's or a
+// rewrite law's side (rewritelaw.go): fallible, polling as the checker
+// placed the law's polls.
+func lawFrame(info *check.Info, d *syntax.LawDecl, result check.Type) *frame {
+	return newFrame(result, true, framePolls(info, d))
+}
+
 // lawDecl lowers a law that runs to a Go function of its body in the test
 // build (Laws): `func ergoLawName(env *Env, params...) (bool, error)`. Its
 // result is the law's tail, or a returned value; what escapes it is its
 // error. A member law's bare operation calls read the capability of its
 // operation type from env, which the run binds to the provider under test.
+// A rewrite law lowers to its sides instead (rewriteDecl).
 func (l *lowerer) lawDecl(law *check.Law) {
 	if law.Rewrite != nil {
 		l.rewriteDecl(law)
@@ -437,7 +445,7 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		defer func() { l.tests.lawOwn = "" }()
 	}
 	result := check.Type(check.Typ[check.Bool])
-	fc.frame = newFrame(result, true, framePolls(l.info, d))
+	fc.frame = lawFrame(l.info, d, result)
 	fc.frame.law = true
 	for _, v := range law.Params {
 		if v.Name == "_" {

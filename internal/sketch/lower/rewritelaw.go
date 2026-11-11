@@ -58,10 +58,10 @@ func (l *lowerer) rewriteGuard(law *check.Law) string {
 // error)`. A side's bare operation calls call the provider the case binds
 // into env, as a member law's do.
 func (l *lowerer) rewriteDecl(law *check.Law) {
-	r := law.Decl.Rewrite
-	l.rewriteFunc(law, l.rewriteSide(law, false), r.Lhs.List, nil, true)
-	l.rewriteFunc(law, l.rewriteSide(law, true), r.Rhs.List, nil, true)
-	if r.Guard != nil {
+	lhs, rhs := law.Decl.RewriteSides()
+	l.rewriteFunc(law, l.rewriteSide(law, false), lhs.List, nil, true)
+	l.rewriteFunc(law, l.rewriteSide(law, true), rhs.List, nil, true)
+	if law.Decl.RewriteGuard() != nil {
 		l.rewriteFunc(law, l.rewriteGuard(law), law.Decl.Body.List[:1], check.Typ[check.Bool], false)
 	}
 }
@@ -82,7 +82,7 @@ func (l *lowerer) rewriteFunc(law *check.Law, name string, list []syntax.Stmt, r
 	fc.owner = "law " + l.lawTitle(law)
 	fc.env = scope.alloc("env")
 	parts := []string{fc.env + " *" + l.env()}
-	fc.frame = newFrame(result, true, framePolls(l.info, d))
+	fc.frame = lawFrame(l.info, d, result)
 	if params {
 		for _, v := range law.Params {
 			if v.Name == "_" {
