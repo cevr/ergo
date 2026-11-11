@@ -1114,8 +1114,16 @@ func (w *ownWalk) heldTail(x syntax.Expr, t ownTail) {
 	if t.mode != mHold || t.slot < 0 || t.slot >= len(w.vars) || !w.st.reached || t.slot >= len(w.st.slots) {
 		return
 	}
-	if w.st.slots[t.slot].st == ownOwned {
+	switch w.st.slots[t.slot].st {
+	case ownOwned:
 		delete(w.info.LentYields, x)
+		return
+	case ownMaybe:
+		// A nested if, match, catch or with that made the value on
+		// some of its paths and lent a name on others: its own tails
+		// (and a catch's success) set the flag (Info.HeldIn).
+		delete(w.info.LentYields, x)
+		w.info.ArmHeld[w.vars[t.slot].temp] = true
 		return
 	}
 	w.info.LentYields[x] = true
@@ -2024,6 +2032,11 @@ func (w *ownWalk) yieldValue(x syntax.Expr, mode ownMode, h hand, walk func(ownM
 	switch {
 	case mode == mHold:
 		t = saved
+		if t.slot >= 0 && t.slot < len(w.vars) {
+			// Its value is the enclosing lent form's: its tails set
+			// that form's flag (Info.HeldIn, ArmHeld).
+			w.info.HeldIn[unparen(x)] = w.vars[t.slot].temp
+		}
 	case mode == mLend && w.tracked(w.info.Types[x]) && w.st.reached:
 		t.mode = mHold
 		t.slot = w.acquire(ownLocal{temp: x})

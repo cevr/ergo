@@ -296,6 +296,11 @@ type Info struct {
 	// (additive).
 	ArmHeld    map[syntax.Expr]bool
 	LentYields map[syntax.Expr]bool
+	// HeldIn maps an if, match, catch or with that is the tail of an arm
+	// of a lent one to that enclosing form: its value is the enclosing
+	// form's statement temporary, so its tails that lend a name clear
+	// the enclosing form's flag (ArmHeld). Added in OWGEN round 2.
+	HeldIn map[syntax.Expr]syntax.Expr
 	// TaskCaptures records the resource captures handed to the root of a
 	// started task (R12). A repeated callback only lends them: the root
 	// owns and releases them once, outside all runs of the callback.
@@ -469,6 +474,7 @@ func newInfo() *Info {
 		PartHands:      map[syntax.Expr]bool{},
 		ArmHeld:        map[syntax.Expr]bool{},
 		LentYields:     map[syntax.Expr]bool{},
+		HeldIn:         map[syntax.Expr]syntax.Expr{},
 		TaskCaptures:   map[syntax.Node]*TaskCapture{},
 		ResultDrops:    map[*syntax.CallExpr]*Drop{},
 		CloseParts:     map[*Func]*Drop{},

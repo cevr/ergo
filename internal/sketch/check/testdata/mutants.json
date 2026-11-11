@@ -2400,7 +2400,7 @@
       "name": "owgen-match-lent-if-bindings-owned",
       "origin": "OWGEN round 2 (found by the grammar generator, seed 1215 of the wide run)",
       "file": "internal/sketch/check/ownpattern.go",
-      "from": "\t\t\treturn i, i >= len(w.st.slots) || w.st.slots[i].st != ownMaybe",
+      "from": "\t\t\treturn i, i >= len(w.st.slots) || w.st.slots[i].st == ownOwned",
       "to": "\t\t\treturn i, true",
       "rule": "resources R43 (the mHold rule): a match of a lent if that lends an enclosing name on some path binds views; the statement releases the value where it holds it.",
       "killers": ["lower:TestOwnershipGrammarRun"]
@@ -2412,6 +2412,15 @@
       "from": "\t\tcaught.ret = ReturnedKey(x.X)",
       "to": "\t\t_ = ReturnedKey(x.X)",
       "rule": "resources R10: the value a returned catch gives on success is kept until the frame's exit, as each arm's is.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-held-nested-maybe-lent",
+      "origin": "OWGEN round 2 (found by the grammar generator, seeds 2106 and 2227 of the wide run)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tcase ownMaybe:\n\t\t// A nested if, match, catch or with that made the value on",
+      "to": "\tcase ownMaybe + 100:\n\t\t// A nested if, match, catch or with that made the value on",
+      "rule": "resources R43 (the mHold rule): a nested form that made the value on some paths and lent a name on others decides the statement's ownership per path.",
       "killers": ["lower:TestOwnershipGrammarRun"]
     }
   ]

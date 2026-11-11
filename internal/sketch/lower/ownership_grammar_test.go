@@ -109,7 +109,7 @@ const ogSeeds = 64
 // ogFeatures is every production the batch must reach.
 var ogFeatures = []string{
 	"res:open", "res:lit", "res:local", "res:try", "res:boom", "res:div", "res:pass", "res:helper",
-	"expr:if", "expr:match", "expr:catch", "catch:bad-local", "arm:local", "if:lend-local", "if:lend-local-bad", "tup:give2",
+	"expr:if", "expr:match", "expr:catch", "catch:bad-local", "arm:local", "if:lend-local", "if:lend-local-bad", "if:lend-local-catch", "tup:give2",
 	"conv:lend", "conv:take", "conv:let", "conv:return", "conv:store", "conv:assign",
 	"variant:let", "variant:lend",
 	"stmt:let", "stmt:letmut", "stmt:assign", "stmt:lend-local", "stmt:lend-temp", "stmt:use", "stmt:take", "stmt:close",
@@ -883,7 +883,17 @@ func (g *ogGen) stmt(d int) *ogStmt {
 				v.st = 1
 				then := g.save()
 				g.restore(before)
-				b := g.expr(t, 1)
+				b := ""
+				if t == oRes && g.r.IntN(3) == 0 {
+					// The other arm is a catch that makes the value on
+					// success and lends the local when its call fails:
+					// the catch's paths decide whether the statement
+					// owns the value (FU0).
+					g.f("if:lend-local-catch")
+					b = fmt.Sprintf("openf(%d, false, log, n, %d) catch { case Bad: %s }", g.id(), g.r.IntN(2), v.name)
+				} else {
+					b = g.expr(t, 1)
+				}
 				g.join(then)
 				arg = fmt.Sprintf("if n > %d { %s } else { %s }", c, g.lentYield(v.name), b)
 			} else {

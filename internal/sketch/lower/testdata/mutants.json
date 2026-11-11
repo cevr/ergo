@@ -2515,6 +2515,15 @@
       "to": "",
       "rule": "The static release form holds only values whose release is one Close; an arm's owned value counts.",
       "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-held-nested-flag-unshared",
+      "origin": "OWGEN round 2 (found by the grammar generator, seeds 2106 and 2227 of the wide run)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\t\tfc.heldOf[result] = h",
+      "to": "\t\t\t_ = h",
+      "rule": "resources R43 (the mHold rule): a nested form's tail that lends a name clears the enclosing lent form's flag.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
     }
   ]
 }

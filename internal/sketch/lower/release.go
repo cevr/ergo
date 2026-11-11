@@ -629,6 +629,14 @@ func (fc *funcCtx) ownVar(v *check.Var, site syntax.Node) {
 // value only where the flag holds (ownTemp), so a lent name is never
 // owned twice (R43, the mHold rule; OWGEN).
 func (fc *funcCtx) armHeldVar(x syntax.Expr, result string) {
+	if outer := fc.l.info.HeldIn[unparen(x)]; result != "" && outer != nil {
+		// The tail of an arm of a lent form, whose value is that form's:
+		// its own tails that lend a name clear that form's flag.
+		if h := fc.heldExpr[outer]; h != "" {
+			fc.heldOf[result] = h
+		}
+		return
+	}
 	if result == "" || !fc.l.info.ArmHeld[x] || fc.l.info.OwnedTemps[x] == nil {
 		return
 	}
