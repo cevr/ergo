@@ -67,6 +67,9 @@ type File struct {
 	Comments []*CommentGroup
 	EOF      Pos
 	lines    []int
+	// Expansion is the record the checker's derive expansion keeps for the
+	// package of this file (internal/sketch/derive), or nil before it.
+	Expansion any
 }
 
 // Pos is the first declaration or comment, or the end of an empty file: a

@@ -955,6 +955,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	if directives {
 		l.recordDecl(fc.owner, f.Decl)
 	}
+	if n := nativeOf(f); n != nil {
+		l.emitNative(b, fd.name, n, f) // pattern.go
+		return
+	}
 	var head strings.Builder
 	var params []*check.Var
 	if f.Decl.Type != nil && f.Decl.Type.Params != nil {
