@@ -1,0 +1,23 @@
+# The blocking waits in runtime/v1 that TestRuntimeWaitsPark admits
+# unparked. A row is `path<TAB>function<TAB>reason`; a row that admits no
+# unparked wait fails the test. Every other blocking wait parks its task, so
+# a clock's domain sees it (runtime.md, Machines and actors 11.16).
+
+# a handshake: the wait ends when a task that runs reaches its next wait, so
+# neither the clock nor the Advance's caller holds it; a Settle meanwhile
+# only waits for the waiter to run on
+runtime/v1/actor.go	machineStart	handshake: the caller waits until the new runner armed its first entry's timer and started its work (each a handshake below)
+runtime/v1/actor.go	Actor.open	handshake: the runner waits until the entry's work filled its hosts, reached its first wait (rt.WhenWaiting) or ended
+runtime/v1/actor.go	Actor.arm	handshake: the runner waits until the timer child armed its sleep (rt.WhenWaiting) or ended
+
+# a send that never waits
+runtime/v1/actor.go	replySlot.give	no wait: the reply channel has room for its one answer; the asker is unparked first
+runtime/v1/mailbox.go	mailSender.signal	no wait: wake has room for its one token; the sender is unparked first
+
+# the host: the clock cannot see a process or an input (rt idle.go), so a
+# wait on one keeps an Advance waiting until the host answers
+runtime/v1/exec.go	ExecRun	host: the program's exit and output, and a reader's end
+runtime/v1/host.go	lineReader.next	host: a line of standard input
+
+# a wait that parks inside runtime/rt
+runtime/v1/task.go	Task.Wait	parks in rt: rt.Handle.Wait parks the owner on the handle (rt handle.go)

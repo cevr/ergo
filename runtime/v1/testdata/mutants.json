@@ -115,6 +115,39 @@
       "killers": [
         "runtime/v1:TestManualAdvanceSettles"
       ]
+    },
+    {
+      "name": "mk1-waitkids-unparked",
+      "origin": "wf10/MK1 round 1 (the downloads manager's deadlock, wf10 F8 known gap 1)",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif wt.InDomain() {\n\t\tp = rt.Park(wt, r.done, nil, func() bool { return isDone(r.done) })\n",
+      "to": "\tif false {\n\t\tp = rt.Park(wt, r.done, nil, func() bool { return isDone(r.done) })\n",
+      "rule": "runtime.md 11.16 and 13: a work that started children waits for their stop parked, so a manual clock's Advance fires the timer whose signal stops them.",
+      "killers": [
+        "runtime/v1:TestManualTreeSettles"
+      ]
+    },
+    {
+      "name": "mk1-halt-unparked",
+      "origin": "wf10/MK1 round 1 (inventory of runtime/v1's raw waits)",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.inbox.Close()\n\ta.waitEnd(t, nil)\n\tif a.reported.Load() {\n",
+      "to": "\ta.inbox.Close()\n\t<-a.done\n\tif a.reported.Load() {\n",
+      "rule": "runtime.md 11.16 and 13: an entry's stop of a child waits for the child's end parked, so a child whose release sleeps on the clock ends under Advance.",
+      "killers": [
+        "runtime/v1:TestManualTreeSettles"
+      ]
+    },
+    {
+      "name": "mk1-stopkids-wakes-unparked",
+      "origin": "wf10/MK1 round 1",
+      "file": "runtime/v1/actor.go",
+      "from": "\t\trt.Wake(w, done, func() { close(done) })\n",
+      "to": "\t\t_ = w\n\t\tclose(done)\n",
+      "rule": "rt idle.go: a waker clears the parked flag of the wait it ends before the event is visible; a work's waitKids left parked after its children stopped keeps the clock's domain settled while the work runs.",
+      "killers": [
+        "runtime/v1:TestManualTreeSettles"
+      ]
     }
   ]
 }
