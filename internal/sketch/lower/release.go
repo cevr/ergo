@@ -661,6 +661,28 @@ func (fc *funcCtx) handBase(base syntax.Expr, vals []string) []string {
 	return vals
 }
 
+// ownReplaced registers each field of the base of the update or spread x
+// that the value built does not copy (Info.Replaced), read from base, the
+// Go value of the base before an update stores over it, declared by bd:
+// the statement owns each from here and releases it at its end (R43). It
+// registers them in the checker's order of acquisition, the reverse of
+// their release order.
+func (fc *funcCtx) ownReplaced(x *syntax.CompositeLit, base string, bd *typeDecl) {
+	rs := fc.l.info.Replaced[x]
+	for i := len(rs) - 1; i >= 0; i-- {
+		r := rs[i]
+		d := fc.l.info.OwnedTemps[r.Temp]
+		if d == nil {
+			continue // a value of a type parameter (B2)
+		}
+		name, ok := bd.fieldName[r.Field.Name]
+		if !ok {
+			ice(x, "the base of a record update has no Go field for %s", r.Field.Name)
+		}
+		fc.line("_ = " + fc.own(r.Temp, d, r.Field.Type, base+"."+name, r.Temp))
+	}
+}
+
 // partsFrom is the index of the first part of list that handParts hands
 // over, or len(list). That operand and every later one are spilled: each
 // part is registered before the next operand runs, and every operand has
@@ -913,6 +935,9 @@ func (l *lowerer) bodyOwns(list []syntax.Stmt) bool {
 
 // ownsNode reports a binding or temporary with an owner.
 func (l *lowerer) ownsNode(n syntax.Node) bool {
+	if lit, ok := n.(*syntax.CompositeLit); ok && ownsReplaced(l.info, lit) {
+		return true
+	}
 	switch n := n.(type) {
 	case *syntax.Ident:
 		v, ok := l.info.Defs[n].(*check.Var)
@@ -938,10 +963,25 @@ func ownsValues(info *check.Info, d *syntax.FuncDecl) bool {
 			if info.OwnedTemps[n] != nil {
 				found = true
 			}
+			if lit, ok := n.(*syntax.CompositeLit); ok && ownsReplaced(info, lit) {
+				found = true
+			}
 		}
 		return !found
 	})
 	return found
+}
+
+// ownsReplaced reports an update or spread whose statement owns a field
+// of its base that the value does not copy (Info.Replaced): its key is no
+// node of the tree, so a walk of the tree finds it here.
+func ownsReplaced(info *check.Info, x *syntax.CompositeLit) bool {
+	for _, r := range info.Replaced[x] {
+		if info.OwnedTemps[r.Temp] != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // ownsParams reports a signature with a taken parameter that has an owner.
