@@ -15,7 +15,8 @@ import (
 // frames; each seed reaches all policies, including a synthetic unknown
 // module with an old (unannotated) binding. No Go build is needed to
 // observe the checked lifetime. Mutants: omit hostClauses' default take;
-// revert timeout.After.f to non-escaping; ignore a host receiver's take.
+// revert timeout.After.f to non-escaping; ignore a host receiver's take;
+// read a recursive Go interface's provisional underlying while resolving.
 func TestRetainedForeignArguments(t *testing.T) {
 	for _, seedText := range strings.Split(*clauseSeeds, ",") {
 		seed, err := strconv.ParseUint(strings.TrimSpace(seedText), 10, 64)
@@ -39,6 +40,7 @@ func TestRetainedForeignArguments(t *testing.T) {
 			{"receiver-lent", "import go hostres", "f go.Ref[hostres.Handle]", "needs go.Foreign", "f.Hold()", false, true},
 			{"receiver-after-take", "import go hostres", "f go.Ref[hostres.Handle]", "needs go.Foreign takes f", "f.Hold()\nf.Use()", false, true},
 			{"interface-receiver-lent", "import go hostres", "f hostres.Retainer", "needs go.Foreign", "f.Hold()", false, true},
+			{"recursive-interface-lent", "import go hostres", "f hostres.Recursive, g hostres.Recursive", "needs go.Foreign takes f", "f.Chain(g)", false, true},
 			{"unknown-callback-clause", "import go hostres", "", "needs go.Foreign", "hostres.Callback(func() {})", false, true},
 			{"unknown-pointer-borrow", "import go hostres", "f *hostres.Handle", "needs go.Foreign", "hostres.Pointer(f)", false, true},
 			{"unknown-receiver-borrow", "import go hostres", "f *hostres.Handle", "needs go.Foreign", "f.Hold()", false, true},

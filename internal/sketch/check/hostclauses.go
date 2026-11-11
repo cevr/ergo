@@ -14,6 +14,13 @@ func (c *checker) hostResourceParam(t Type) bool {
 	if _, ok := t.(*Pointer); ok {
 		return true // a Go pointer may retain even a non-resource borrow
 	}
+	if n, ok := t.(*Named); ok && isHostNamed(n) && n.Orig == nil && n.state == 1 && n.Obj.Decl != nil {
+		// A recursive interface (Chain(other Recursive)) is still being
+		// resolved: read its declaration, not a provisional underlying.
+		if spec, ok := n.Obj.Decl.Spec.(*syntax.InterfaceType); ok && len(spec.Union) == 0 && aliasTarget(n.Obj.Decl) == nil {
+			return true
+		}
+	}
 	return isHostNamed(t) && asInterface(t) != nil || c.mayHoldResource(t)
 }
 
