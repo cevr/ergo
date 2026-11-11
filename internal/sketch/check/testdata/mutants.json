@@ -1441,7 +1441,7 @@
       "name": "L8-A1 takes on a crossing parameter admitted silently",
       "origin": "wf10 L8 A1 (#197)",
       "file": "internal/sketch/check/resource.go",
-      "from": "\t\tif !c.mayHoldResource(s.t) {",
+      "from": "\t\tif !c.mayHoldResource(s.t) && !c.pkg.Host() {",
       "to": "\t\tif false {",
       "rule": "grammar.md Declarations 13: takes on a parameter whose type crosses is S110.",
       "killers": [
