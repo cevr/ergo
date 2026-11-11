@@ -1,0 +1,121 @@
+// Samples for the capture laws: trees that Check accepts, and texts that
+// a tree matches (witnesses), made from a seed.
+
+// labeler is a source and the number of the next group name, so the
+// groups of one tree have distinct names.
+type labeler { g source, next int }
+
+// CaptureSample is a tree of seed, at most four levels deep, that Check
+// accepts: its groups have distinct names (g0, g1, ...), and an operand
+// of a repeat that could match the empty text is followed by a leaf.
+func CaptureSample(seed int) Node {
+	let mut l = labeler{g: seeded(seed + 104729), next: 0}
+	l.ctree(4)
+}
+
+// ctree is a checked tree of at most depth levels.
+func ctree(l *labeler, depth int) Node {
+	if depth <= 1 {
+		return l.g.leaf()
+	}
+	match l.g.next(12) {
+	case 0, 1:
+		let mut parts = []Node{l.ctree(depth - 1), l.ctree(depth - 1)}
+		if l.g.next(2) == 0 {
+			parts = parts.Append(l.ctree(depth - 1))
+		}
+		Cat{Parts: parts}
+	case 2:
+		Alt{Left: l.ctree(depth - 1), Right: l.ctree(depth - 1)}
+	case 3:
+		Star{Of: l.solid(depth - 1)}
+	case 4:
+		Plus{Of: l.solid(depth - 1)}
+	case 5:
+		Quest{Of: l.solid(depth - 1)}
+	case 6:
+		l.g.counted(l.solid(depth - 1))
+	case 7, 8:
+		let name = "g\(l.next)"
+		l.next += 1
+		Group{Name: name, Of: l.ctree(depth - 1)}
+	case 9:
+		Empty
+	case _:
+		l.g.leaf()
+	}
+}
+
+// solid is a checked tree that does not match the empty text.
+func solid(l *labeler, depth int) Node {
+	let t = l.ctree(depth)
+	if Nullable(t) {
+		return Cat{Parts: []Node{t, l.g.leaf()}}
+	}
+	t
+}
+
+// Witness is a text that n matches, of seed; n has no class that
+// matches no byte. Repeats take zero to two more copies than they must.
+func Witness(n Node, seed int) string {
+	let mut g = seeded(seed + 15485863)
+	g.word(n)
+}
+
+// word is a text that n matches.
+func word(g *source, n Node) string {
+	match n {
+	case Empty:
+		""
+	case Lit as l:
+		ByteText(l.C)
+	case Any:
+		let i = g.next(len(alphabet))
+		alphabet[i : i+1]
+	case Class as k:
+		classMember(g, k)
+	case Cat as c:
+		let mut out = ""
+		for p in c.Parts {
+			out = out + g.word(p)
+		}
+		out
+	case Alt as a:
+		if g.next(2) == 0 { g.word(a.Left) } else { g.word(a.Right) }
+	case Star as s:
+		g.copies(s.Of, g.next(3))
+	case Plus as p:
+		g.copies(p.Of, 1+g.next(3))
+	case Quest as q:
+		g.copies(q.Of, g.next(2))
+	case Group as gr:
+		g.word(gr.Of)
+	}
+}
+
+// copies is k texts that of matches, one after another.
+func copies(g *source, of Node, k int) string {
+	let mut out = ""
+	for _ in 0..k {
+		out = out + g.word(of)
+	}
+	out
+}
+
+// classMember is a byte that k matches, as text: one of the alphabet when
+// k has one, else the first byte it has. k matches some byte.
+func classMember(g *source, k Class) string {
+	let start = g.next(len(alphabet))
+	for d in 0..len(alphabet) {
+		let i = (start + d) % len(alphabet)
+		if k.Has(alphabet[i]) {
+			return alphabet[i : i+1]
+		}
+	}
+	for i in 0..256 {
+		if k.Has(byte(i)) {
+			return ByteText(byte(i))
+		}
+	}
+	Unreachable("Witness of a class that matches no byte")
+}

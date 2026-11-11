@@ -34,6 +34,8 @@ func Print(n Node) string {
 		operand(p.Of) + "+"
 	case Quest as q:
 		operand(q.Of) + "?"
+	case Group as g:
+		"(?<" + g.Name + ">" + Print(g.Of) + ")"
 	}
 }
 
@@ -66,6 +68,8 @@ func operand(n Node) string {
 		Print(n)
 	case Quest:
 		Print(n)
+	case Group:
+		Print(n)
 	case Empty:
 		"()"
 	case Cat:
@@ -76,7 +80,7 @@ func operand(n Node) string {
 }
 
 // metas are the bytes that a literal outside a class escapes.
-let metas = "\\.*+?|()["
+let metas = "\\.*+?|()[{"
 
 // classMetas are the bytes that a class escapes.
 let classMetas = "\\]^-"

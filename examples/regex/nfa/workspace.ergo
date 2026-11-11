@@ -58,6 +58,8 @@ func includeWorkspace(w *Workspace, p Program, pc int) {
 	case Split as s:
 		w.includeWorkspace(p, s.X)
 		w.includeWorkspace(p, s.Y)
+	case Save as s:
+		w.includeWorkspace(p, s.Next)
 	case _:
 		w.frontiers[w.side*w.width+w.count] = pc
 		w.count += 1
@@ -94,7 +96,7 @@ func consume(w *Workspace, p Program, c byte) {
 			if s.Class.Has(c) {
 				w.includeWorkspace(p, s.Next)
 			}
-		case Split, Accept:
+		case Split, Save, Accept:
 		}
 	}
 }

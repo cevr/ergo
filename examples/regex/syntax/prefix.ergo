@@ -15,6 +15,8 @@ func Leading(n Node) Prefix {
 		Prefix{Text: "", Complete: false}
 	case Plus as p:
 		Prefix{Text: Leading(p.Of).Text, Complete: false}
+	case Group as g:
+		Leading(g.Of)
 	case Cat as c:
 		let mut text = ""
 		for part in c.Parts {

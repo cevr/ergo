@@ -38,6 +38,44 @@ test FailuresAreNamed {
 	assert failure("a(b|c)*d") == "ok"
 }
 
+// RC1-digit-literal, RC1-brace-error: no law reads "\d" or a "{" that
+// starts no repeat, since Print writes neither.
+test ParsesCountsAndGroups {
+	let digits = Class{Spans: []Span{Span{Lo: '0', Hi: '9'}}, Negated: false}
+	assert (try Parse("(?<Year>\\d{4})")) == Group{Name: "Year", Of: Cat{Parts: []Node{digits, digits, digits, digits}}}
+	let word = Class{Spans: []Span{Span{Lo: '0', Hi: '9'}, Span{Lo: '_', Hi: '_'}}, Negated: false}
+	assert (try Parse("[\\d_]{2,}")) == Cat{Parts: []Node{word, word, Star{Of: word}}}
+	assert (try Parse("x{1,3}")) == Cat{Parts: []Node{Lit{C: 'x'}, Quest{Of: Cat{Parts: []Node{Lit{C: 'x'}, Quest{Of: Lit{C: 'x'}}}}}}}
+	assert (try Parse("a{,2}")) == Cat{Parts: []Node{Lit{C: 'a'}, Lit{C: '{'}, Lit{C: ','}, Lit{C: '2'}, Lit{C: '}'}}}
+}
+
+test CaptureFailuresAreNamed {
+	assert failure("(?x)") == "bad group at 0: want (?<name>"
+	assert failure("(?<1a>x)") == "bad group at 0: want (?<name>"
+	assert failure("a{3,2}") == "bad repeat {3,2} at 1"
+	assert failure("a{1001}") == "bad repeat {1001} at 1"
+	assert failure("a{1000}{5}") == "bad repeat {5} at 7"
+	assert failure("{2}") == "nothing to repeat before {2} at 0"
+	assert refusal("(a?)*") == "repeat a?* can match the empty text"
+	assert refusal("(?<X>x)(?<X>y)") == "group name X is used twice"
+	assert refusal("x[^\x00-\xff]") == "class [^\x00-\xff] matches no byte"
+	assert refusal("(?<X>a|b?)+c") == "repeat (?<X>a|b?)+ can match the empty text"
+	assert refusal("(?<A>a)+(?<B>b{0,2}c)") == "ok"
+}
+
+// refusal is the message of Check on the tree of text, or "ok".
+func refusal(text string) string {
+	let n = Parse(text) catch {
+	case err:
+		return Describe(err)
+	}
+	let _ = Check(n) catch {
+	case err:
+		return DescribeCapture(err)
+	}
+	"ok"
+}
+
 test PrintsCanonically {
 	assert Print(try Parse("a(b|c)*d")) == "a(b|c)*d"
 	assert Print(try Parse("((a))(b)")) == "ab"

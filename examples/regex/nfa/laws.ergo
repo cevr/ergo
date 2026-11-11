@@ -18,6 +18,58 @@ law AgreesWithBacktrack(seed int, text string) {
 	true
 }
 
+// CapturesAgree: on every sampled checked pattern, the tagged machine and
+// the reference engine give the same captures, for Parse and for Find,
+// event for event: every occurrence, in order, absent groups with none.
+// The texts are words of the pattern (witnesses), so most of them match,
+// sampled and given texts, and witnesses inside other bytes for Find.
+// One compiled Capturing runs every text, and runs the first again last:
+// it keeps nothing from one text to the next.
+law CapturesAgree(seed int, text string) {
+	let tree = syntax.CaptureSample(seed)
+	let p = syntax.Check(tree) catch {
+	case err:
+		assert "refused source=\(syntax.Print(tree))" == syntax.DescribeCapture(err)
+		return false
+	}
+	let c = NewCapturing(p)
+	let w = syntax.Witness(tree, seed)
+	let texts = []string{w, syntax.Witness(tree, seed+1), text, "", syntax.SampleText(seed), "b" + w + "a", w + w, w}
+	for t in texts {
+		let description = "source=\(syntax.Print(tree)) text=\(t) "
+		let got = syntax.ShowParse(c.ParseCaptures(t))
+		let want = syntax.ShowParse(backtrack.ParseCaptures(p, t))
+		assert description+got == description+want
+		let found = syntax.ShowFound(c.FindCaptures(t))
+		let wantFound = syntax.ShowFound(backtrack.FindCaptures(p, t))
+		assert description+found == description+wantFound
+	}
+	true
+}
+
+// TagWorkIsBounded: the tagged machine moves at most one thread per
+// instruction for each byte, so its work is linear in the text even when
+// many paths reach one instruction, as in (?<A>a|a)* on a run of a.
+law TagWorkIsBounded(seed int) {
+	let n = int(uint64(seed) % 24)
+	let doubled = syntax.Star{Of: syntax.Group{Name: "A", Of: syntax.Alt{Left: syntax.Literal("a"), Right: syntax.Literal("a")}}}
+	for tree in []syntax.Node{doubled, syntax.CaptureSample(seed)} {
+		let p = syntax.Check(tree) catch {
+		case _:
+			return false
+		}
+		let c = NewCapturing(p)
+		let size = c.program.Len()
+		for t in []string{strings.Repeat("a", n), syntax.Witness(tree, seed)} {
+			let work = c.MeasureCaptures(t)
+			let description = "source=\(syntax.Print(tree)) text=\(t) size=\(size) "
+			assert description+"steps=\(work.Steps <= len(t)*size)" == description+"steps=true"
+			assert description+"events=\(work.Events <= (len(t)+1)*size)" == description+"events=true"
+		}
+	}
+	true
+}
+
 // ProgramIsLinear: a program has at most one instruction per node of
 // its pattern, and Accept.
 law ProgramIsLinear(seed int) {

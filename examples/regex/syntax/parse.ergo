@@ -2,20 +2,40 @@
 //
 //	alt    = cat { "|" cat }
 //	cat    = { repeat }
-//	repeat = atom { "*" | "+" | "?" }
-//	atom   = "(" alt ")" | "." | "[" ["^"] item { item } "]" | "\" byte | byte
-//	item   = byte [ "-" byte ]
+//	repeat = atom { "*" | "+" | "?" | "{" n "}" | "{" n ",}" | "{" n "," m "}" }
+//	atom   = "(" alt ")" | "(?<" name ">" alt ")" | "." | "[" ["^"] item { item } "]" | "\" byte | byte
+//	item   = "\d" | byte [ "-" byte ]
 //
-// Inside a class and outside it, "\" takes the next byte as it is. A
-// group is not a node: (ab) is the Cat of a and b.
+// Inside a class and outside it, "\d" is the digits 0 to 9 and "\" takes
+// any other next byte as it is. A plain group is not a node: (ab) is the
+// Cat of a and b. A named group (?<name>ab) is a Group, which captures.
+// A name is a letter or "_", then letters, digits and "_". n and m are
+// decimal, at most 1000, and m is not below n. A "{" that does not start
+// such a repeat is a literal byte, as in Go. A counted repeat is not a
+// node: Counted writes it out, so (ab){2} is the tree of (ab)(ab).
 
 // The failures of Parse. Each names the offset of the byte it is about.
 // SyntaxError is their row, and one value of it can be described.
-type SyntaxError = Unclosed | Unopened | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange
+type SyntaxError = Unclosed | Unopened | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange | BadGroup | BadRepeat
 
 // nested is the row of a part of the pattern: all but Unopened, which
 // only the whole pattern can find.
-type nested = Unclosed | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange
+type nested = Unclosed | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange | BadGroup | BadRepeat
+
+// BadGroup is a "(?" that does not start a named group "(?<name>".
+type BadGroup { At int }
+
+// BadRepeat is a counted repeat above 1000, whose m is below its n, or
+// whose copies would hold more than 4096 nodes. Text is the repeat as
+// written.
+type BadRepeat { At int, Text string }
+
+// maxRepeat is the largest count of a counted repeat, Go's limit.
+let maxRepeat = 1000
+
+// maxNodes bounds the nodes of the copies a counted repeat writes out,
+// as RC3 bounds the nodes of its expansion.
+let maxNodes = 4096
 
 // Unclosed is a "(" with no ")".
 type Unclosed { At int }
@@ -85,7 +105,8 @@ func concatenation(p *parser) Node fails nested {
 	Cat{Parts: parts}
 }
 
-// repetition reads an atom and the "*", "+" and "?" after it.
+// repetition reads an atom and the "*", "+", "?" and counted repeats
+// after it.
 func repetition(p *parser) Node fails nested {
 	let mut n = try p.atom()
 	for p.more() {
@@ -96,12 +117,74 @@ func repetition(p *parser) Node fails nested {
 			n = Plus{Of: n}
 		case '?':
 			n = Quest{Of: n}
+		case '{':
+			match p.counted() {
+			case Some[bounds] as s:
+				let b = s.Value
+				let copies = if b.Max == -1 { b.Min + 1 } else { b.Max }
+				if b.Min > maxRepeat || b.Max > maxRepeat || (b.Max >= 0 && b.Max < b.Min) || Size(n)*copies > maxNodes {
+					return BadRepeat{At: p.at, Text: p.src[p.at:b.End]}
+				}
+				n = Counted(n, b.Min, b.Max)
+				p.at = b.End - 1
+			case None:
+				return n
+			}
 		case _:
 			return n
 		}
 		p.at += 1
 	}
 	n
+}
+
+// bounds is a counted repeat as read: its counts, Max -1 for no bound,
+// and the offset after its "}".
+type bounds { Min int, Max int, End int }
+
+// counted reads the counted repeat at p's "{" without moving p, or is
+// None when the "{" does not start one. A count above maxRepeat reads as
+// maxRepeat+1.
+func counted(p *parser) Option[bounds] {
+	let mut at = p.at + 1
+	let lo = digitRun(p.src, at)
+	if lo.End == at {
+		return None
+	}
+	at = lo.End
+	if at < len(p.src) && p.src[at] == '}' {
+		return Some{Value: bounds{Min: lo.Value, Max: lo.Value, End: at + 1}}
+	}
+	if at >= len(p.src) || p.src[at] != ',' {
+		return None
+	}
+	at += 1
+	let hi = digitRun(p.src, at)
+	if hi.End >= len(p.src) || p.src[hi.End] != '}' {
+		return None
+	}
+	if hi.End == at {
+		return Some{Value: bounds{Min: lo.Value, Max: -1, End: hi.End + 1}}
+	}
+	Some{Value: bounds{Min: lo.Value, Max: hi.Value, End: hi.End + 1}}
+}
+
+// decimal is a run of digits read at some offset: its value, capped at
+// maxRepeat+1, and the offset after it.
+type decimal { Value int, End int }
+
+// digitRun reads the digits of src from at.
+func digitRun(src string, at int) decimal {
+	let mut value = 0
+	let mut end = at
+	for end < len(src) && '0' <= src[end] && src[end] <= '9' {
+		value = value*10 + int(src[end]-'0')
+		if value > maxRepeat {
+			value = maxRepeat + 1
+		}
+		end += 1
+	}
+	decimal{Value: value, End: end}
 }
 
 // atom reads one atom. The caller has seen a byte that is not "|" or ")".
@@ -111,18 +194,40 @@ func atom(p *parser) Node fails nested {
 	p.at += 1
 	match c {
 	case '(':
+		let mut name = ""
+		let named = p.more() && p.peek() == '?'
+		if named {
+			name = try p.groupName(start)
+		}
 		let inner = try p.alternation()
 		if !p.more() {
 			return Unclosed{At: start}
 		}
 		p.at += 1
+		if named {
+			return Group{Name: name, Of: inner}
+		}
 		inner
 	case '.':
 		Any
 	case '[':
 		try p.class(start)
 	case '\\':
+		if p.more() && p.peek() == 'd' {
+			p.at += 1
+			return digits
+		}
 		Lit{C: try p.escaped(start)}
+	case '{':
+		p.at = start
+		match p.counted() {
+		case Some[bounds] as s:
+			p.at = s.Value.End
+			NothingToRepeat{At: start, Op: p.src[start:p.at]}
+		case None:
+			p.at = start + 1
+			Lit{C: c}
+		}
 	case '*':
 		NothingToRepeat{At: start, Op: p.src[start:p.at]}
 	case '+':
@@ -132,6 +237,34 @@ func atom(p *parser) Node fails nested {
 	case _:
 		Lit{C: c}
 	}
+}
+
+// digits is the class that "\d" stands for: the ASCII digits.
+let digits = Class{Spans: []Span{Span{Lo: '0', Hi: '9'}}, Negated: false}
+
+// groupName reads "?<name>" after the "(" at start, and is the name.
+func groupName(p *parser, start int) string fails BadGroup {
+	p.at += 1
+	if !p.more() || p.peek() != '<' {
+		return BadGroup{At: start}
+	}
+	p.at += 1
+	let from = p.at
+	for p.more() && nameByte(p.peek(), p.at == from) {
+		p.at += 1
+	}
+	if p.at == from || !p.more() || p.peek() != '>' {
+		return BadGroup{At: start}
+	}
+	let name = p.src[from:p.at]
+	p.at += 1
+	name
+}
+
+// nameByte reports whether c may be a byte of a group name; first says
+// it would be the name's first byte, which is not a digit.
+func nameByte(c byte, first bool) bool {
+	('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '_' || (!first && '0' <= c && c <= '9')
 }
 
 // escaped is the byte after a "\" at start.
@@ -162,17 +295,22 @@ func class(p *parser, start int) Node fails UnclosedClass | TrailingEscape | Bad
 			p.at += 1
 			return Class{Spans: spans, Negated: negated}
 		}
-		let at = p.at
-		let lo = try p.classByte(start)
-		let mut hi = lo
-		if p.at+1 < len(p.src) && p.peek() == '-' && p.src[p.at+1] != ']' {
-			p.at += 1
-			hi = try p.classByte(start)
+		if p.peek() == '\\' && p.at+1 < len(p.src) && p.src[p.at+1] == 'd' {
+			p.at += 2
+			spans = spans.Append(Span{Lo: '0', Hi: '9'})
+		} else {
+			let at = p.at
+			let lo = try p.classByte(start)
+			let mut hi = lo
+			if p.at+1 < len(p.src) && p.peek() == '-' && p.src[p.at+1] != ']' {
+				p.at += 1
+				hi = try p.classByte(start)
+			}
+			if lo > hi {
+				return BadRange{At: at, Text: p.src[at:p.at]}
+			}
+			spans = spans.Append(Span{Lo: lo, Hi: hi})
 		}
-		if lo > hi {
-			return BadRange{At: at, Text: p.src[at:p.at]}
-		}
-		spans = spans.Append(Span{Lo: lo, Hi: hi})
 	}
 }
 
@@ -204,6 +342,10 @@ func Offset(e SyntaxError) int {
 		u.At
 	case BadRange as b:
 		b.At
+	case BadGroup as g:
+		g.At
+	case BadRepeat as r:
+		r.At
 	}
 }
 
@@ -222,5 +364,9 @@ func Describe(e SyntaxError) string {
 		"missing ] for the [ at \(u.At)"
 	case BadRange as b:
 		"bad range \(b.Text) at \(b.At)"
+	case BadGroup as g:
+		"bad group at \(g.At): want (?<name>"
+	case BadRepeat as r:
+		"bad repeat \(r.Text) at \(r.At)"
 	}
 }

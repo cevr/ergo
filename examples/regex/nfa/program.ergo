@@ -6,9 +6,10 @@
 import regex/syntax
 
 // Inst is an instruction of a program. Byte, AnyByte and Set read one
-// byte and go to Next; Split goes to both X and Y without reading;
-// Accept is the end of a match.
-type Inst = Byte{C byte, Next int} | AnyByte{Next int} | Set{Class syntax.Class, Next int} | Split{X int, Y int} | Accept{}
+// byte and go to Next; Split goes to both X and Y without reading, X
+// first; Save records an event of a group at the current offset and goes
+// to Next without reading; Accept is the end of a match.
+type Inst = Byte{C byte, Next int} | AnyByte{Next int} | Set{Class syntax.Class, Next int} | Split{X int, Y int} | Save{Name string, Open bool, Next int} | Accept{}
 
 // Program is the instructions of a pattern and the one to start at.
 type Program { insts []Inst, start int }
@@ -69,5 +70,9 @@ func emit(b *builder, n syntax.Node, next int) int {
 	case syntax.Quest as q:
 		let x = b.emit(q.Of, next)
 		b.add(Split{X: x, Y: next})
+	case syntax.Group as g:
+		let close = b.add(Save{Name: g.Name, Open: false, Next: next})
+		let body = b.emit(g.Of, close)
+		b.add(Save{Name: g.Name, Open: true, Next: body})
 	}
 }

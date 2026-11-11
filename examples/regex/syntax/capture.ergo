@@ -1,0 +1,263 @@
+// Captures: what a match of a pattern with named groups records. The
+// record is the history of the match, every Open and Close of a group in
+// the order the match met them, so every occurrence of a repeated group
+// stays (Occurrences), and the last occurrence is a separate projection
+// (Last). A group that took no part in the match has no events; a group
+// that matched the empty text has an Open and a Close at one offset.
+
+// Event is a group opening or closing at a byte offset of the text.
+type Event = Open{Name string, At int} | Close{Name string, At int}
+
+// History is the events of a match so far, the last first. It is never
+// changed, so two paths of a match share the events they have in common.
+type History = Start{} | Then{Before History, Event Event}
+
+// Events is the events of h, the first first.
+func Events(h History) []Event {
+	let mut back = []Event{}
+	let mut at = h
+	let mut more = true
+	for more {
+		match at {
+		case Start:
+			more = false
+		case Then as t:
+			back = back.Append(t.Event)
+			at = t.Before
+		}
+	}
+	let mut out = []Event{}
+	for i in 0..len(back) {
+		out = out.Append(back[len(back)-1-i])
+	}
+	out
+}
+
+// Found is a match inside a text: the bytes from Start to End, and the
+// events of the match, at offsets of the whole text.
+type Found { Start int, End int, Events []Event }
+
+// ShowEvents is events as text, for messages: (X@1 for an Open of X at 1,
+// )X@3 for a Close.
+func ShowEvents(events []Event) string {
+	let mut out = ""
+	for e in events {
+		match e {
+		case Open as o:
+			out = out + " (\(o.Name)@\(o.At)"
+		case Close as c:
+			out = out + " )\(c.Name)@\(c.At)"
+		}
+	}
+	out
+}
+
+// ShowParse is the result of a parse with captures as text: "none", or
+// "match" and its events.
+func ShowParse(r Option[[]Event]) string {
+	match r {
+	case Some[[]Event] as s:
+		"match" + ShowEvents(s.Value)
+	case None:
+		"none"
+	}
+}
+
+// ShowFound is the result of a find as text: "none", or the span and its
+// events.
+func ShowFound(r Option[Found]) string {
+	match r {
+	case Some[Found] as s:
+		"found \(s.Value.Start)-\(s.Value.End)" + ShowEvents(s.Value.Events)
+	case None:
+		"none"
+	}
+}
+
+// Occurrence is the text from Start to End that a group captured once.
+type Occurrence { Start int, End int }
+
+// Occurrences is every occurrence of the group name in events, in the
+// order they close. A group that took no part has none.
+func Occurrences(events []Event, name string) []Occurrence {
+	let mut opened = []int{}
+	let mut out = []Occurrence{}
+	for e in events {
+		match e {
+		case Open as o:
+			if o.Name == name {
+				opened = opened.Append(o.At)
+			}
+		case Close as c:
+			if c.Name == name {
+				out = out.Append(Occurrence{Start: opened[len(opened)-1], End: c.At})
+				opened = opened[:len(opened)-1]
+			}
+		}
+	}
+	out
+}
+
+// Last is the last occurrence of the group name in events, what Go's
+// regexp reports for a repeated group, or None when the group took no
+// part.
+func Last(events []Event, name string) Option[Occurrence] {
+	let all = Occurrences(events, name)
+	if len(all) == 0 {
+		return None
+	}
+	Some{Value: all[len(all)-1]}
+}
+
+// The failures of Check: a tree whose captures are not defined. Each
+// names the text of the subtree it is about.
+type CaptureError = NullableRepeat | EmptyClass | DuplicateName
+
+// NullableRepeat is a repeat whose operand matches the empty text: how
+// often it captured would be a choice of the engine.
+type NullableRepeat { Text string }
+
+// EmptyClass is a class that matches no byte.
+type EmptyClass { Text string }
+
+// DuplicateName is two different groups of one name.
+type DuplicateName { Name string }
+
+// Pattern is a tree that Check accepted: its groups of one name are
+// copies of one group, no repeat's operand matches the empty text, and
+// every class matches a byte. Only Check makes one.
+type Pattern { tree Node }
+
+// Tree is the tree of p.
+func Tree(p Pattern) Node { p.tree }
+
+// Check is the Pattern of n, or the first reason its captures are not
+// defined. Groups of one name are one capture only when they are equal,
+// copies that a counted repeat wrote out: (?<X>a){2} is (?<X>a)(?<X>a),
+// and (?<X>a)(?<X>b) is refused. RC3's plan compiler, which keeps the
+// counted repeat as a node, refuses the same patterns, except equal
+// groups written twice, which it refuses and Check takes as one capture.
+func Check(n Node) Pattern fails CaptureError {
+	try checkNode(n)
+	let groups = Groups(n)
+	for i in 0..len(groups) {
+		for j in 0..i {
+			if groups[j].Name == groups[i].Name && groups[j] != groups[i] {
+				return DuplicateName{Name: groups[i].Name}
+			}
+		}
+	}
+	Pattern{tree: n}
+}
+
+// plus is a, then b.
+func plus(a []Group, b []Group) []Group {
+	let mut out = []Group{}
+	for g in a {
+		out = out.Append(g)
+	}
+	for g in b {
+		out = out.Append(g)
+	}
+	out
+}
+
+// Groups is the groups of n, in the order they open.
+func Groups(n Node) []Group {
+	match n {
+	case Empty, Lit, Any, Class:
+		[]Group{}
+	case Cat as c:
+		let mut out = []Group{}
+		for p in c.Parts {
+			out = plus(out, Groups(p))
+		}
+		out
+	case Alt as a:
+		plus(Groups(a.Left), Groups(a.Right))
+	case Star as s:
+		Groups(s.Of)
+	case Plus as p:
+		Groups(p.Of)
+	case Quest as q:
+		Groups(q.Of)
+	case Group as g:
+		plus([]Group{g}, Groups(g.Of))
+	}
+}
+
+// checkNode checks the repeats and classes of n.
+func checkNode(n Node) fails CaptureError {
+	match n {
+	case Empty, Lit, Any:
+	case Class as k:
+		let mut some = false
+		for i in 0..256 {
+			if k.Has(byte(i)) {
+				some = true
+			}
+		}
+		if !some {
+			return EmptyClass{Text: Print(k)}
+		}
+	case Cat as c:
+		for p in c.Parts {
+			try checkNode(p)
+		}
+	case Alt as a:
+		try checkNode(a.Left)
+		try checkNode(a.Right)
+	case Star as s:
+		try repeated(n, s.Of)
+	case Plus as p:
+		try repeated(n, p.Of)
+	case Quest as q:
+		try repeated(n, q.Of)
+	case Group as g:
+		try checkNode(g.Of)
+	}
+}
+
+// repeated checks the repeat n of the operand of.
+func repeated(n Node, of Node) fails CaptureError {
+	if Nullable(of) {
+		return NullableRepeat{Text: Print(n)}
+	}
+	try checkNode(of)
+}
+
+// Nullable reports whether n matches the empty text.
+func Nullable(n Node) bool {
+	match n {
+	case Empty:
+		true
+	case Lit, Any, Class:
+		false
+	case Cat as c:
+		let mut all = true
+		for p in c.Parts {
+			all = all && Nullable(p)
+		}
+		all
+	case Alt as a:
+		Nullable(a.Left) || Nullable(a.Right)
+	case Star, Quest:
+		true
+	case Plus as p:
+		Nullable(p.Of)
+	case Group as g:
+		Nullable(g.Of)
+	}
+}
+
+// DescribeCapture is the message of a failure of Check.
+func DescribeCapture(e CaptureError) string {
+	match e {
+	case NullableRepeat as r:
+		"repeat \(r.Text) can match the empty text"
+	case EmptyClass as k:
+		"class \(k.Text) matches no byte"
+	case DuplicateName as d:
+		"group name \(d.Name) is used twice"
+	}
+}

@@ -33,7 +33,11 @@ func tree(g *source, depth int) Node {
 	if depth <= 1 {
 		return g.leaf()
 	}
-	match g.next(10) {
+	match g.next(12) {
+	case 7:
+		g.counted(g.tree(depth - 1))
+	case 8:
+		Group{Name: g.name(), Of: g.tree(depth - 1)}
 	case 0:
 		Cat{Parts: g.parts(depth - 1)}
 	case 1:
@@ -52,6 +56,20 @@ func tree(g *source, depth int) Node {
 		g.leaf()
 	}
 }
+
+// counted is of counted: at least 0 to 2 times, and at most 0 or 1
+// times more, or with no bound.
+func counted(g *source, of Node) Node {
+	let min = g.next(3)
+	let max = if g.next(3) == 0 { -1 } else { min + g.next(2) }
+	Counted(of, min, max)
+}
+
+// name is a group name of three: the laws see names repeat in a tree.
+func name(g *source) string { groupNames[g.next(3)] }
+
+// groupNames are the names that sampled groups take.
+let groupNames = []string{"X", "y", "_z1"}
 
 // parts is two or three trees of at most depth levels.
 func parts(g *source, depth int) []Node {
