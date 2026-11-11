@@ -607,6 +607,11 @@ func (l *lowerer) program() ([]byte, error) {
 	for _, path := range slices.Sorted(maps.Keys(l.hostImports)) {
 		imports = append(imports, l.pkgNames[pkgKey{"import", path}]+" "+strconv.Quote(path))
 	}
+	// A Go package the entry carries for its initialization (time/tzdata;
+	// interop.md, Checking 6): Go's blank import.
+	for _, path := range l.info.Carries {
+		imports = append(imports, "_ "+strconv.Quote(path))
+	}
 	imports = append(imports, l.testImports()...)
 	imports = append(imports, l.libImports...)
 	if len(imports) > 0 {

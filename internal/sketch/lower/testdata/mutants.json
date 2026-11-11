@@ -3888,6 +3888,7 @@
       "killers": [
         "lower:TestMachineStepDefectFrames"
       ]
-    }
+    },
+    {"name":"stz-carry-not-imported","origin":"wf10 S-tz","file":"internal/sketch/lower/module.go","from":"\t\timports = append(imports, \"_ \"+strconv.Quote(path))","to":"\t\t_ = path","rule":"interop.md Lowering 9: a carried Go package is a blank import of the entry's emitted file, so the binary holds the zone data.","killers":["lower:TestZoneDataCarried"]}
   ]
 }

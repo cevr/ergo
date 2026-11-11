@@ -2488,6 +2488,9 @@
       "killers": ["check:TestRowArgsAreSets"]
     },
     {"name":"builtin-shape-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/extern.go","from":"\t\t\tif msg := builtinRefusal(f, b); msg != \"\" {","to":"\t\t\tif msg := builtinRefusal(f, b); false && msg != \"\" {","rule":"A Go builtin binding has its builtin's shape (builtin.go).","killers":["check:TestBuiltinBindingShapes"]},
-    {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]}
+    {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]},
+    {"name":"stz-carried-never","origin":"wf10 S-tz","file":"internal/sketch/check/decl.go","from":"\treturn h.err == \"\" && len(pn.Pkg.Scope.names) == 0 && len(h.refused) == 0","to":"\treturn false","rule":"interop.md Checking 6: an import go of a package whose binding declares nothing is its own use in the package of main.","killers":["check:TestImportGoUses"]},
+    {"name":"stz-carried-any","origin":"wf10 S-tz","file":"internal/sketch/check/decl.go","from":"\treturn h.err == \"\" && len(pn.Pkg.Scope.names) == 0 && len(h.refused) == 0","to":"\treturn h.err == \"\"","rule":"interop.md Checking 6: only a package whose binding declares nothing is carried; an unused import of any other is S110.","killers":["check:TestImportGoKeywordPath"]},
+    {"name":"stz-carried-outside-main","origin":"wf10 S-tz","file":"internal/sketch/check/decl.go","from":"\tif !entry {\n\t\tc.errorf(pn.spec, CodeType, \"Go package %s declares nothing","to":"\tif false {\n\t\tc.errorf(pn.spec, CodeType, \"Go package %s declares nothing","rule":"interop.md Checking 6: a carried import outside the package of main is S108.","killers":["check:TestImportGoUses"]}
   ]
 }
