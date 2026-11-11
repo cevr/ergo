@@ -322,6 +322,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"MathNaN":                {},
 	"MathIsNaN":              {},
 	"MathIsInf":              {},
+	"MathToInt64":            {},
 	"BitsOnesCount":          {},
 	"BitsOnesCount64":        {},
 	"BitsLeadingZeros":       {},

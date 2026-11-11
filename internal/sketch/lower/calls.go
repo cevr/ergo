@@ -36,8 +36,12 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		}
 		arg := fc.value(x.Args[0])
 		target := fc.goType(c.Type)
-		if isString(c.Type) && isInteger(fc.typeOf(x.Args[0])) {
+		from := fc.typeOf(x.Args[0])
+		if isString(c.Type) && isInteger(from) {
 			arg = "rune(" + arg + ")" // Go's string(int) is a rune conversion; vet asks for it spelled out
+		}
+		if helper := floatToInteger(from, c.Type); helper != "" {
+			return operand{val: fc.l.rt() + "." + helper + "(" + float64Of(from, arg) + ")"}
 		}
 		return operand{val: target + "(" + arg + ")"}
 	case check.CallLen:

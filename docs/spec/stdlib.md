@@ -395,6 +395,8 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `maps` | `ValuesStops` | `ValuesStops(m Map[string, int]) { let s = Values(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(v int) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }` | `TestStdSlicesLawsRun` | tested |
 | `math` | `AbsIsNonNegative` | `AbsIsNonNegative(f float64) { IsNaN(f) \|\| Abs(f) >= 0.0 }` | `TestStdRunesLaws` | tested |
 | `math` | `FloorCeilBracket` | `FloorCeilBracket(f float64) { if IsNaN(f) \|\| IsInf(f, 0) { return true } Floor(f) <= f && f <= Ceil(f) && Ceil(f)-Floor(f) <= 1.0 }` | `TestStdRunesLaws` | tested |
+| `math` | `ToInt64AgreesWithConversion` | `ToInt64AgreesWithConversion(f float64) { let n = ToInt64(f) catch { case OutOfRange: return IsNaN(f) && int64(f) == 0 \|\| f > 0.0 && int64(f) == MaxInt64() \|\| f < 0.0 && int64(f) == MinInt64() } n == int64(f) }` | `TestStdRunesLaws` | tested |
+| `math` | `ToInt64FailsOnlyOutside` | `ToInt64FailsOnlyOutside(f float64) { let n = ToInt64(f) catch { case OutOfRange: return IsNaN(f) \|\| f >= 9223372036854775808.0 \|\| f < -9223372036854775808.0 } float64(n) == Trunc(f) }` | `TestStdRunesLaws` | tested |
 | `math` | `TruncTowardZero` | `TruncTowardZero(f float64) { if IsNaN(f) { return true } Abs(Trunc(f)) <= Abs(f) && Trunc(Trunc(f)) == Trunc(f) }` | `TestStdRunesLaws` | tested |
 | `os` | `Process.GetenvIsStable` | `GetenvIsStable(key string) { Getenv(key) == Getenv(key) }` | `TestStdHostLawsHold` | tested |
 | `prelude` | `Random.Float64InUnit` | `Float64InUnit() { let f = Float64() f >= 0.0 && f < 1.0 }` | `TestRandLaws` | tested |

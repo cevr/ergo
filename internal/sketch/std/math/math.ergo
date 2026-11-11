@@ -2,7 +2,8 @@
 // bits; std-text-runes). Each extern binds a pure runtime/v1 body
 // (runtime/v1/numbers.go) that calls Go's function of the same name, so a
 // call compiles to Go's own call, an instruction for Floor, Ceil, Trunc,
-// Sqrt and Abs on amd64 and arm64. Go's constants are functions here
+// Sqrt and Abs on amd64 and arm64; ToInt64's body is the guarded
+// conversion of int64(f). Go's constants are functions here
 // (MaxInt64()): a std package let has no Go name in a build yet.
 
 // Abs is the absolute value of f; Abs(±Inf) is +Inf and Abs(NaN) is NaN.
@@ -55,6 +56,17 @@ func MaxInt() int { 9223372036854775807 }
 // MinInt is the smallest int, Go's math.MinInt.
 func MinInt() int { -9223372036854775807 - 1 }
 
+// OutOfRange is the failure of a float that an integer type cannot hold:
+// NaN, an infinity, or a value whose truncation lies outside the type's
+// range. Value is the float.
+type OutOfRange { Value float64 }
+
+// ToInt64 is f toward zero, as int64(f) is, when the result fits int64.
+// Where int64(f) saturates (an infinity, a value out of range) or gives 0
+// for NaN, ToInt64 fails OutOfRange, for a caller that must know
+// (docs/spec/types.md, Conversions 4).
+extern go ergo.local/prototype/runtime/v1.MathToInt64 func ToInt64(f float64) int64 fails OutOfRange
+
 // FloorCeilBracket: a finite f lies between its Floor and its Ceil, which
 // are at most 1 apart.
 law FloorCeilBracket(f float64) {
@@ -74,3 +86,24 @@ law TruncTowardZero(f float64) {
 
 // AbsIsNonNegative: Abs is never below zero.
 law AbsIsNonNegative(f float64) { IsNaN(f) || Abs(f) >= 0.0 }
+
+// ToInt64FailsOnlyOutside: ToInt64 fails exactly for NaN and for a float
+// outside [-2^63, 2^63), and otherwise gives f's truncation.
+law ToInt64FailsOnlyOutside(f float64) {
+	let n = ToInt64(f) catch {
+	case OutOfRange:
+		return IsNaN(f) || f >= 9223372036854775808.0 || f < -9223372036854775808.0
+	}
+	float64(n) == Trunc(f)
+}
+
+// ToInt64AgreesWithConversion: where ToInt64 succeeds it is int64(f);
+// where it fails, int64(f) saturates to the bound on f's side, or is 0
+// for NaN.
+law ToInt64AgreesWithConversion(f float64) {
+	let n = ToInt64(f) catch {
+	case OutOfRange:
+		return IsNaN(f) && int64(f) == 0 || f > 0.0 && int64(f) == MaxInt64() || f < 0.0 && int64(f) == MinInt64()
+	}
+	n == int64(f)
+}

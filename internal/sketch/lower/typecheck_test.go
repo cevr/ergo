@@ -67,6 +67,13 @@ func typecheckGo(t *testing.T, programs []*lowered) {
 
 // typecheckPrograms returns the type errors of each program that has some.
 func typecheckPrograms(t *testing.T, programs []*lowered) (map[string][]string, error) {
+	return typecheckArch(t, programs, runtime.GOARCH, nil)
+}
+
+// typecheckArch is typecheckPrograms with the sizes of the architecture
+// arch, filling infos[name] (when infos is not nil) with each program's
+// types and uses.
+func typecheckArch(t *testing.T, programs []*lowered, arch string, infos map[string]*types.Info) (map[string][]string, error) {
 	fset := token.NewFileSet()
 	files := map[string]*ast.File{}
 	var imports []string
@@ -96,10 +103,15 @@ func typecheckPrograms(t *testing.T, programs []*lowered) (map[string][]string, 
 		conf := types.Config{
 			Importer:  imp,
 			GoVersion: "go" + goVersion,
-			Sizes:     types.SizesFor("gc", runtime.GOARCH),
+			Sizes:     types.SizesFor("gc", arch),
 			Error:     func(err error) { failed[p.name] = append(failed[p.name], err.Error()) },
 		}
-		_, _ = conf.Check(programModule+"/p/"+p.name, fset, []*ast.File{files[p.name]}, nil)
+		var info *types.Info
+		if infos != nil {
+			info = &types.Info{Types: map[ast.Expr]types.TypeAndValue{}, Uses: map[*ast.Ident]types.Object{}}
+			infos[p.name] = info
+		}
+		_, _ = conf.Check(programModule+"/p/"+p.name, fset, []*ast.File{files[p.name]}, info)
 	}
 	return failed, nil
 }
