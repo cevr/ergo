@@ -1436,8 +1436,8 @@
       "name": "L8-A1 a conversion to a crossing operation type admitted",
       "origin": "wf10 L8 A1 (#197)",
       "file": "internal/sketch/check/typeops.go",
-      "from": "if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {",
-      "to": "if false && !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {",
+      "from": "if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.releasable(t) {",
+      "to": "if false && !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.releasable(t) {",
       "rule": "resources R22: a resource converted to an operation type with no Close is S108.",
       "killers": [
         "check:TestResourceTypeModel"
