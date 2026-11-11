@@ -55,7 +55,7 @@ import (
 // callee's errors that is empty at the call adds no failure. So std's
 // maps.Update(m, k, f), with f a pure function, is written at its site
 // with f called directly and m written in place (OPT6; it replaced a
-// rewrite keyed on Update's name, update.go). A return assigns the result and the
+// rewrite keyed on Update's name). A return assigns the result and the
 // error and jumps past the block (goto); the block's last return falls
 // through. Failures, defects and polls are the body's own: the frame of
 // the block has the callee's result, failure row and footprint.

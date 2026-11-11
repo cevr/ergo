@@ -1497,8 +1497,6 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 					return w.fresh(w.recvOf(x))
 				}
 				return !w.l.holdsValue(elemOf(w.typeOf(x)))
-			case freshLowering == "name" && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Path == "slices" && c.Func.Name == "WithCapacity":
-				return true
 			}
 			return w.l.freshResult(c.Func)
 		}

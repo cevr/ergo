@@ -224,7 +224,7 @@ func (l *lowerer) flatRunOf(tn *check.TypeName, x *syntax.CallExpr, c *check.Cal
 	text := l.localNames(x, p.helpers(tc)+p.runText(tc, outcome, finished, running, rejected))
 	l.pending = append(l.pending, func() {
 		l.gen.WriteString(text)
-		l.emitBody(fd, false, p, false)
+		l.emitBody(fd, p, false)
 	})
 	return p
 }

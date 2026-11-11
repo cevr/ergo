@@ -26,12 +26,11 @@ import (
 //     a rebinding x = upM(x, k), in a loop and on a field, an argument
 //     that stays live, and a rebinding whose callback reads the binding.
 //     It also calls maps.Update with a named callback (rebinding, on a
-//     field, and on a Map that stays live): bumpOpt, which has a comma-ok
-//     variant, and, on a rebinding, bumpVia, which has none. Lowered with
-//     the rule, with the copying lowering "copy" (the rule without owned
-//     parameters), with maps.Update written at its site with its Option
-//     (updateLowering "option") and with it called (updateLowering
-//     "call", update.go), all four print the model's lines. After it, the
+//     field, and on a Map that stays live): bumpOpt, and, on a rebinding,
+//     bumpVia, which passes its Option on. Lowered with the rule, with the
+//     copying lowering "copy" (the rule without owned parameters) and with
+//     every call a Go call (inlineLowering "call"), all three print the
+//     model's lines. After it, the
 //     program makes Refs of Maps (V6) from literals and bindings, and
 //     changes them with literals that write in place, delete, keep a
 //     share (idM), read through a pure call (sizes), call an owned helper
@@ -355,8 +354,8 @@ func upF(m Map[int, int], k int, f func() int) Map[int, int] {
 	c
 }
 
-// bumpOpt is maps.Update's callback, which update.go calls directly, as
-// its comma-ok variant.
+// bumpOpt is maps.Update's callback, which the inlined Update calls
+// directly (inline.go).
 func bumpOpt(old Option[int]) int {
 	match old {
 	case Some[int] as v:
@@ -366,8 +365,7 @@ func bumpOpt(old Option[int]) int {
 	}
 }
 
-// bumpVia passes its Option on, so it has no comma-ok variant: update.go
-// calls it with the Option.
+// bumpVia passes its Option on to bumpOpt.
 func bumpVia(old Option[int]) int { bumpOpt(old) }
 
 // bumpAt passes its parameter to maps.Update: a copy at the call, and the
@@ -950,21 +948,18 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 
 // lowerValueMode lowers src with the value rule or with the reference
 // "alias"; a mode names another lowering: "copy", the rule without owned
-// parameters, "names", the std-name-keyed references (freshLowering,
-// ownLowering, updateLowering "name"), or "call", the rule with no Ergo
-// inlining (inlineLowering "call").
+// parameters, or "call", the rule with no Ergo inlining (inlineLowering
+// "call").
 func lowerValueMode(t *testing.T, name, src string, rule bool, mode ...string) *lowered {
 	t.Helper()
-	saved, savedUpdate, savedFresh, savedOwn, savedInline := valueLowering, updateLowering, freshLowering, ownLowering, inlineLowering
+	saved, savedInline := valueLowering, inlineLowering
 	defer func() {
-		valueLowering, updateLowering, freshLowering, ownLowering, inlineLowering = saved, savedUpdate, savedFresh, savedOwn, savedInline
+		valueLowering, inlineLowering = saved, savedInline
 	}()
-	valueLowering, updateLowering, freshLowering, ownLowering, inlineLowering = "", "", "", "", ""
+	valueLowering, inlineLowering = "", ""
 	switch {
 	case !rule:
 		valueLowering = "alias"
-	case len(mode) > 0 && mode[0] == "names":
-		freshLowering, ownLowering, updateLowering = "name", "name", "name"
 	case len(mode) > 0 && mode[0] == "call":
 		inlineLowering = "call"
 	case len(mode) > 0:
@@ -1006,12 +1001,6 @@ func TestValueRuleAgrees(t *testing.T) {
 		// takes (inline.go).
 		programs = append(programs, lowerValueMode(t, name+"call", src, true, "call"))
 		runs = append(runs, run{seed, src, want, name + "call"})
-		// The name-keyed references OPT6 retires: WithCapacity fresh by
-		// its name (gobody.go), the owned Ref sites by sync's names
-		// (refown.go), maps.Update fused at its site by its name
-		// (update.go).
-		programs = append(programs, lowerValueMode(t, name+"names", src, true, "names"))
-		runs = append(runs, run{seed, src, want, name + "names"})
 		usrc, uwant := valueProgram(seed, false, reached)
 		for _, rule := range []bool{true, false} {
 			name := fmt.Sprintf("vr%dunshared%v", seed, rule)

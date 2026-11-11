@@ -152,9 +152,7 @@ func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 		}
 		return ""
 	}
-	fc.stmtCall = x // a fused call's value is a name, no statement (update.go)
 	text, _, fallible := fc.callText(x, c)
-	fc.stmtCall = nil
 	if op := fc.inlined; op != nil {
 		// inline.go: its block is written, and its variables are used.
 		fc.inlined = nil
@@ -189,9 +187,6 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	}
 	switch c.Kind {
 	case check.CallFunc:
-		if text, ok := fc.updateFused(x, c); ok {
-			return text, true, false
-		}
 		if text, ok := fc.machineRun(x, c); ok {
 			// A run of a machine declaration's value: its flat run
 			// (machinerun.go), which returns what std's Run returns.

@@ -140,9 +140,9 @@ func main() needs Console {
 // maps.Update(m, k, f) in a loop and b.M = put(b.M, n) call the owned
 // bodies with no copy, as hand Go writes m[k] = f(m[k]) (integration r1
 // F2), and the parameter's copy moves to the wrapper, which only an
-// indirect call reaches. With a named callback the rebinding is written at
-// its site with the callback called directly (update.go), so no Option
-// escapes; with updateLowering "call" it calls the owned body, uncopied.
+// indirect call reaches. With a named pure callback the rebinding is inlined
+// (inline.go) with the callback called directly; with inlineLowering
+// "call" it calls the owned body, uncopied.
 // It reads the emitted Go only: the copies' meaning
 // is TestValueRuleAgrees', which passes with every copy in place, so only
 // the Go text tells this rule from the one that copies everywhere and from
@@ -249,7 +249,7 @@ var valueMutants = flag.Bool("value.mutants", false, "run TestValueRuleMutants")
 // to print something else: each rule has a guard that fails without it.
 // The never-elide mutant is the copying lowering "copy", which every
 // run-based check passes; TestValueRuleElides guards it.
-// The never-fuse mutant is updateLowering "call", which every run-based
+// The never-inline mutant is inlineLowering "call", which every run-based
 // check passes; TestValueRuleElides guards it too.
 // It builds eleven sets of programs, so it runs only with -value.mutants:
 // go test -run '^TestValueRuleMutants$' ./internal/sketch/lower -args -value.mutants
@@ -261,7 +261,7 @@ func TestValueRuleMutants(t *testing.T) {
 	if !*valueMutants {
 		t.Skip("run with -value.mutants")
 	}
-	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "in-place", "consume-live", "consume-captured", "own-live", "update-none", "update-no-write", "update-ok-none", "update-ok-swap", "hand-nonliteral", "store-unfresh", "share-blind", "return-blind"} {
+	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "in-place", "consume-live", "consume-captured", "own-live", "hand-nonliteral", "store-unfresh", "share-blind", "return-blind"} {
 		t.Run(m, func(t *testing.T) {
 			saved := valueMutant
 			valueMutant = m
@@ -305,7 +305,7 @@ func TestValueRuleMutants(t *testing.T) {
 // m = maps.Update(m, k, f) over 1e5 new keys (Upsert, f sees None) and
 // over 64 keys again and again (Again, f sees Some) against hand Go's
 // v, ok := m[k]; m[k] = f(v, ok) (owned parameters, V5: no copy; the call
-// written at its site, update.go: no Option escapes, so allocs/op match).
+// inlined, inline.go, its callback called directly).
 // go test -run '^$' -bench '^BenchmarkValueRule$' -benchmem ./internal/sketch/lower
 func BenchmarkValueRule(b *testing.B) {
 	const src = `import maps

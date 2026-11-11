@@ -25,18 +25,11 @@ import (
 // result shared. The fact reads the body's form only, never its name
 // (internal/residue, TestLoweringKeysOnNoStdName).
 //
-// The reference is freshLowering "name": the summary is not read, and the
-// one body the rule replaced, slices.WithCapacity, is fresh by its name,
-// as before OPT6. Set by a test or by a build with
-// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.freshLowering=name.
-//
 // Prior art: Go's own escape analysis summarizes each function's results
 // ("leaking param content", "make(...) escapes to heap" for a new
 // result) and reads the summary at the call; GHC and MLton keep a demand
 // and allocation summary per binding; Gleam, Elixir and ReScript need none,
 // since their lists and maps are immutable.
-var freshLowering string
-
 // goBodies are runtime/v1's top-level functions by name, parsed once.
 var goBodies = sync.OnceValue(func() map[string]*ast.FuncDecl {
 	out := map[string]*ast.FuncDecl{}
@@ -115,7 +108,7 @@ func madeValue(x ast.Expr) bool {
 // (goBodyMakes), so a call's result is fresh. Only std binds runtime/v1
 // (a user extern binds Go's standard library).
 func (l *lowerer) madeResult(f *check.Func) bool {
-	if freshLowering == "name" || f == nil || f.Decl == nil || f.Decl.Extern == nil {
+	if f == nil || f.Decl == nil || f.Decl.Extern == nil {
 		return false
 	}
 	path, name := f.Decl.Extern.Split()

@@ -24,9 +24,10 @@ import (
 //     collection wrapper or a std extern's ABI: the lowering must know
 //     which Go form stands for the declaration, so the name is the binding.
 //   - debt: an inherited optimizer that selects a faster form by a std
-//     name. Unit OPT6 retires each one through a general fact (Ergo-side
-//     inlining of an ordinary body, a result-alias summary, ownership
-//     facts), so this category ends empty.
+//     name. OPT6 retired maps.Update fusion, sync's owned handover and
+//     WithCapacity freshness through general facts (Ergo-side inlining of
+//     an ordinary body, a runtime body's form); the machines Run/From flat
+//     run is the last, assigned to unit OPT6b.
 //
 // A name-keyed decision is a function of a non-test file of the lowering
 // that compares a .Name or .Path selector with a string literal (== or
@@ -178,8 +179,9 @@ func stdLit(x ast.Expr) bool {
 	return err == nil && s != "_" && s != "main" && types.Universe.Lookup(s) == nil
 }
 
-// stdNamesBaseline is testdata/std-names.txt as the rule landed (OPT4a):
-// `category file:function`. A line may leave the inventory; none may join.
+// stdNamesBaseline is testdata/std-names.txt as OPT6 left it (the rule
+// landed with OPT4a): `category file:function`. A line may leave the
+// inventory; none may join.
 var stdNamesBaseline = []string{
 	"abi calls.go:funcCtx.callee",
 	"abi calls.go:lowerer.hostImportNames",
@@ -198,9 +200,4 @@ var stdNamesBaseline = []string{
 	"debt machinerun.go:funcCtx.flatReturn",
 	"debt machinerun.go:funcCtx.machineRun",
 	"debt machinerun.go:lowerer.flatRunOf",
-	"debt refown.go:isSyncModify",
-	"debt refown.go:isSyncRef",
-	"debt refown.go:valueWalk.refCall",
-	"debt update.go:mapsUpdate",
-	"debt values.go:valueWalk.fresh",
 }

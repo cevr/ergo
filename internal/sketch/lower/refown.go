@@ -45,10 +45,6 @@ import (
 // function, the callback, of one parameter, whose type is the handed T.
 // Today runtime/v1 declares two: RefUpdateOwned and RefModifyOwned.
 //
-// The reference is ownLowering "name": a site is found by the std names
-// sync.Ref's Update and sync.Modify, as before OPT6. Set by a test or by a
-// build with -ldflags=-X=ergo.local/prototype/internal/sketch/lower.ownLowering=name.
-//
 // Prior art: Swift's Array and Dictionary copy on write after a uniqueness
 // test of their reference count (isKnownUniquelyReferenced), which the
 // cell's shared flag stands in for, decided by a static proof where Swift
@@ -64,8 +60,6 @@ type refSite struct {
 	fresh bool
 	form  ownedForm
 }
-
-var ownLowering string
 
 // ownedForm is the owned form of a call's runtime body (above): the Go
 // name of the owned function, and the index of the callback among the
@@ -133,10 +127,6 @@ func (w *valueWalk) refCall(call *syntax.CallExpr) {
 	if c == nil {
 		return
 	}
-	if ownLowering == "name" {
-		w.refCallByName(call, c)
-		return
-	}
 	var recv check.Type
 	if c.Recv != nil {
 		recv = w.typeOf(c.Recv)
@@ -176,44 +166,6 @@ func (w *valueWalk) ownedSite(call *syntax.CallExpr, fn syntax.Expr, elem check.
 		w.handOver = map[*syntax.FuncLit]bool{}
 	}
 	w.handOver[lit] = true
-}
-
-// refCallByName is refCall of the reference ownLowering "name": the sites
-// of sync.Ref's Update and sync.Modify, found by their std names.
-func (w *valueWalk) refCallByName(call *syntax.CallExpr, c *check.Call) {
-	var fn syntax.Expr
-	var elem check.Type
-	var form ownedForm
-	switch {
-	case c.Kind == check.CallOp && c.Op != nil && c.Op.Name == "Update" && len(call.Args) == 1:
-		n, ok := w.typeOf(c.Recv).(*check.Named)
-		if !ok || !isSyncRef(n) || len(n.TArgs) != 1 {
-			return
-		}
-		fn, elem, form = call.Args[0], n.TArgs[0], ownedForm{name: "RefUpdateOwned", cb: 1}
-	case c.Kind == check.CallFunc && isSyncModify(c.Func) && c.Recv == nil && len(call.Args) == 2:
-		for i, tp := range c.Func.Sig.TParams {
-			if tp.Name == "T" && i < len(c.TypeArgs) {
-				elem = c.TypeArgs[i]
-			}
-		}
-		fn, form = call.Args[1], ownedForm{name: "RefModifyOwned", cb: 1}
-	default:
-		return
-	}
-	w.ownedSite(call, fn, elem, form)
-}
-
-func isSyncRef(n *check.Named) bool {
-	o := n.Obj
-	if n.Orig != nil {
-		o = n.Orig.Obj
-	}
-	return o != nil && o.Pkg != nil && o.Pkg.Path == "sync" && o.Pkg.Std() && o.Name == "Ref"
-}
-
-func isSyncModify(f *check.Func) bool {
-	return f != nil && f.Pkg != nil && f.Pkg.Path == "sync" && f.Pkg.Std() && f.Name == "Modify" && f.Decl != nil && f.Decl.Extern != nil
 }
 
 // handParams makes the parameters of the owned literal lit, whose frame is

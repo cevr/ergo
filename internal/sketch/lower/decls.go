@@ -85,9 +85,6 @@ type funcDecl struct {
 	// machine plan's Step reads to decide whether it takes one (machine.go).
 	lowered  bool
 	readsEnv bool
-	// ok is the Go name of the comma-ok variant of a maps.Update callback
-	// once it is queued (update.go, okVariant).
-	ok string
 	// known is the Go name of the known-callback variant once it is
 	// queued (known.go, knownName).
 	known string
@@ -892,7 +889,7 @@ func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 	}
 	if fd.library && !fd.emitted {
 		fd.emitted = true
-		l.pending = append(l.pending, func() { l.emitFuncBody(fd, false) })
+		l.pending = append(l.pending, func() { l.emitFuncBody(fd) })
 	}
 	return fd
 }
@@ -903,20 +900,18 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 		return
 	}
 	fd.emitted = true
-	l.emitFuncBody(fd, false)
+	l.emitFuncBody(fd)
 }
 
-// emitFuncBody writes fd's Go declaration, or, when variant is set, its
-// comma-ok variant fd.ok: the same body with its Option parameter taken as
-// a value and a flag (update.go, okShape).
-func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) { l.emitBody(fd, variant, nil, false) }
+// emitFuncBody writes fd's Go declaration.
+func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, nil, false) }
 
 // emitBody writes what emitFuncBody writes, or, with flat, the flat step of
 // a machine's flat run (machinerun.go): fd's body under flat's step name,
 // its state parameter flat and its decision returned as a value; with
 // known, fd's known-callback variant (known.go): its callback parameters
 // plain and no entry poll.
-func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool) {
+func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool) {
 	l.bodies++
 	f := fd.fn
 	b := &l.user
@@ -993,16 +988,13 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool
 	// own and keeps f's name for a wrapper that copies them (values.go, V5).
 	bodyName, wrapHead, wrapParams := fd.name, "", ""
 	var typeArgs, args []string
-	owned := !variant && !known && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
+	owned := !known && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
 	if owned {
 		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
 	}
-	if variant {
-		bodyName = fd.ok
-	}
 	methodName := fd.name
 	if known {
-		if variant || flat != nil || fd.extern != "" {
+		if flat != nil || fd.extern != "" {
 			ice(site, "the known variant of %s is not a plain body", f.Name)
 		}
 		bodyName, methodName = fd.known, fd.known
@@ -1015,7 +1007,7 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool
 	}
 	flatParam := ""
 	if flat != nil {
-		if variant || owned || fd.method != nil || fd.extern != "" || fd.fallible || len(params) != 2 {
+		if owned || fd.method != nil || fd.extern != "" || fd.fallible || len(params) != 2 {
 			ice(site, "the flat step of %s is not a plain function of a state and a signal", f.Name)
 		}
 		bodyName = flat.stepName
@@ -1084,17 +1076,6 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool
 	}
 	for i, p := range f.Sig.Params {
 		if fd.method != nil && i == 0 {
-			continue
-		}
-		if variant {
-			// The Option parameter, which only the match reads, is the
-			// value and the flag of the caller's comma-ok read.
-			opt, _ := p.Type.(*check.Named)
-			if params[i] != l.okShape(f) || opt == nil || len(opt.TArgs) != 1 {
-				ice(site, "the comma-ok variant of %s, which has none", f.Name)
-			}
-			fc.okSubject = &okSubject{v: params[i], val: scope.alloc(params[i].Name), ok: scope.alloc("ok")}
-			parts = append(parts, fc.okSubject.val+" "+fc.goType(opt.TArgs[0]), fc.okSubject.ok+" bool")
 			continue
 		}
 		paramNames[i] = name(i)
@@ -1175,7 +1156,7 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool
 		case known:
 			// A known variant has no entry poll: its callbacks are known
 			// pure literals, which cannot re-enter it (known.go).
-		case flat == nil && !variant && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && l.knownClosed(f):
+		case flat == nil && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && l.knownClosed(f):
 			// Nor has a closed frame: no unknown code runs in it.
 			l.stats.ClosedEntries++
 		default:
@@ -1191,7 +1172,7 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool
 		b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
 		return
 	}
-	if !variant && !known {
+	if !known {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
 	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")

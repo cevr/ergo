@@ -494,7 +494,7 @@ func (l *lowerer) knownName(g *check.Func, gd *funcDecl) string {
 		gd.known = l.pkgName(knownKey(g), g.Name+"Known")
 	}
 	l.stats.Variants++
-	l.pending = append(l.pending, func() { l.emitBody(gd, false, nil, true) })
+	l.pending = append(l.pending, func() { l.emitBody(gd, nil, true) })
 	return gd.known
 }
 
