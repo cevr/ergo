@@ -11,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
@@ -49,9 +51,18 @@ func ledgerText(path string) (string, error) {
 	return string(data), err
 }
 
+// ledgerNames are the module-wide names of a's packages: the root, a
+// binary's main package, is named by its folder's import path.
+func ledgerNames(a Analysis) lower.LedgerNames {
+	if a.program == nil || a.program.root == nil || a.program.root.pkg == nil {
+		return nil
+	}
+	return lower.LedgerNames{a.program.root.pkg: a.program.root.path}
+}
+
 // ledgerEvidence is the run build's evidence from the module ledger's text
-// and the std ledger, with the producer record's digests.
-func ledgerEvidence(unit lower.Unit, text string) (*lower.LedgerEvidence, error) {
+// and the std ledger.
+func ledgerEvidence(a Analysis, unit lower.Unit, text string) (*lower.LedgerEvidence, error) {
 	entries, err := lower.ParseLedger(std.Ledger())
 	if err != nil {
 		return nil, fmt.Errorf("the std law ledger: %w", err)
@@ -63,9 +74,7 @@ func ledgerEvidence(unit lower.Unit, text string) (*lower.LedgerEvidence, error)
 	for k, e := range mod {
 		entries[k] = e
 	}
-	ev := lower.NewLedgerEvidence(unit.Package, entries)
-	ev.Ledgers = []string{lower.LedgerFile + " sha256:" + sha256Hex(text), "std " + lower.LedgerFile + " sha256:" + sha256Hex(std.Ledger())}
-	return ev, nil
+	return lower.NewLedgerEvidence(unit.Package, ledgerNames(a), entries), nil
 }
 
 func sha256Hex(s string) string {
@@ -77,14 +86,18 @@ func sha256Hex(s string) string {
 // laws in them alone (lower.RewriteChecks); a test replaces it.
 var lawChecks = lawCheckRun
 
-// UpdateLedger is ergo test's writer of the ledger at req.Ledger: it runs
-// the laws and site instances the run build's lowering asks for, and
-// rewrites the file to exactly their entries, as go mod tidy does: an
-// entry of a deleted or renamed law, or of a law no site uses, goes. It
-// returns the count of entries added, changed and removed, and writes
-// nothing when it is 0 (a missing file stays missing). A library (no main)
-// has no run build and writes nothing. A reachable refutation is a
-// *lower.RefutedRewriteError, and writes nothing.
+// UpdateLedger is ergo test's writer of the module ledger at req.Ledger,
+// which every binary of the module shares, as go.sum is: it runs the
+// laws and site instances the run build's lowering asks for and adds or
+// replaces their entries. It removes an entry only when the module's
+// sources no longer declare its law, its provider or their package
+// (ledgerSource), never because this run did not take it: another
+// binary's sites may need it. So the file after ergo test of several
+// binaries does not depend on their order. It returns the count of
+// entries added, changed and removed, and writes nothing when it is 0 (a
+// missing file stays missing). A library (no main) has no run build and
+// writes nothing. A reachable refutation is a *lower.RefutedRewriteError,
+// and writes nothing.
 func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
 		return 0, &BuildError{Diagnostics: a.Diagnostics}
@@ -98,13 +111,14 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		// A library has no run build, so no site of its own.
 		return 0, nil
 	}
+	names := ledgerNames(a)
 	var fresh []lower.LedgerEntry
-	if lower.NewLedgerEvidence(unit.Package, nil).HasRules() {
+	if lower.NewLedgerEvidence(unit.Package, names, nil).HasRules() {
 		ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
 		if err != nil {
 			return 0, err
 		}
-		fresh = lower.LedgerEntries(unit, ev)
+		fresh = lower.LedgerEntries(unit, names, ev)
 	}
 	text, err := ledgerText(req.Ledger)
 	if err != nil {
@@ -116,21 +130,103 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	}
 	next := map[string]lower.LedgerEntry{}
 	changed := 0
-	for _, e := range fresh {
-		next[e.Key()] = e
-		if prev, ok := old[e.Key()]; !ok || prev.Line() != e.Line() {
-			changed++
-		}
-	}
-	for k := range old {
-		if _, ok := next[k]; !ok {
+	src := ledgerSource{a: a, names: names, pkgs: map[string]*check.Package{}}
+	for k, e := range old {
+		if src.declares(e) {
+			next[k] = e
+		} else {
 			changed++ // pruned
 		}
+	}
+	for _, e := range fresh {
+		if prev, ok := next[e.Key()]; !ok || prev.Line() != e.Line() {
+			changed++
+		}
+		next[e.Key()] = e
 	}
 	if changed == 0 {
 		return 0, nil
 	}
 	return changed, writeFileAtomic(req.Ledger, []byte(lower.FormatLedger(next)))
+}
+
+// ledgerSource answers whether the module's sources still declare a
+// ledger entry's law, provider and their packages: the writer's pruning
+// rule. A package is found by its module-wide name: the analysed root,
+// std, a package the program imports, or the module's folder of that
+// import path, checked. A folder with no .ergo file declares nothing; a
+// package that does not check, or a name outside the module, is not
+// known, and its entries stay.
+type ledgerSource struct {
+	a     Analysis
+	names lower.LedgerNames
+	pkgs  map[string]*check.Package
+}
+
+func (s ledgerSource) declares(e lower.LedgerEntry) bool {
+	lawPkg, law := e.LawPackage()
+	provPkg, prov := e.ProviderPackage()
+	if p, known := s.pkg(lawPkg); known && (p == nil || !slices.ContainsFunc(p.Laws, func(l *check.Law) bool {
+		return l.Owner != nil && l.Owner.Name+"."+l.Name == law
+	})) {
+		return false
+	}
+	if p, known := s.pkg(provPkg); known && (p == nil || !slices.ContainsFunc(p.Types, func(t *check.TypeName) bool { return t.Name == prov })) {
+		return false
+	}
+	return true
+}
+
+// pkg is the package named name, and whether the module's sources tell;
+// nil when they tell there is none.
+func (s ledgerSource) pkg(name string) (*check.Package, bool) {
+	if p, ok := s.pkgs[name]; ok {
+		return p, true
+	}
+	p, known := s.find(name)
+	if known {
+		s.pkgs[name] = p
+	}
+	return p, known
+}
+
+func (s ledgerSource) find(name string) (*check.Package, bool) {
+	if s.a.pkg != nil && s.names.Of(s.a.pkg) == name {
+		return s.a.pkg, true
+	}
+	if _, ok := std.Package(name); ok {
+		p, err := check.Std.Import(name)
+		return p, err == nil
+	}
+	prog := s.a.program
+	if prog == nil || prog.module == "" {
+		return nil, false
+	}
+	for _, q := range prog.imports {
+		if q.path == name && q.pkg != nil {
+			return q.pkg, true
+		}
+	}
+	rel, ok := strings.CutPrefix(name, prog.module)
+	if !ok || (rel != "" && !strings.HasPrefix(rel, "/")) {
+		return nil, false
+	}
+	dir := filepath.Join(prog.modRoot, filepath.FromSlash(rel))
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, true
+	}
+	if err != nil {
+		return nil, false
+	}
+	if !slices.ContainsFunc(entries, func(d fs.DirEntry) bool { return !d.IsDir() && filepath.Ext(d.Name()) == ".ergo" }) {
+		return nil, true
+	}
+	a, err := CheckDir(dir)
+	if err != nil || a.pkg == nil {
+		return nil, false
+	}
+	return a.pkg, true
 }
 
 // StdLedgerHeader is the first line of the std ledger.
@@ -179,7 +275,7 @@ func FreshStdLedger(req BuildRequest) (string, error) {
 			sources = append(sources, lower.Source{Path: "/ergo-std/" + path + "/" + f.Name, Text: f.Src})
 		}
 		unit := lower.Unit{Package: pkg, Files: files, Sources: sources}
-		if !lower.NewLedgerEvidence(pkg, nil).HasRules() {
+		if !lower.NewLedgerEvidence(pkg, nil, nil).HasRules() {
 			continue
 		}
 		test := req
@@ -189,7 +285,7 @@ func FreshStdLedger(req BuildRequest) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
 		}
-		for _, e := range lower.LedgerEntries(unit, ev) {
+		for _, e := range lower.LedgerEntries(unit, nil, ev) {
 			entries[e.Key()] = e
 		}
 	}

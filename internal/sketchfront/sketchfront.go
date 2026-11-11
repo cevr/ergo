@@ -297,7 +297,7 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	}
 	var lowered []lower.File
 	if req.Mode == build.ModeBuild {
-		ev, files, text, err := lowerWithLedger(a, unit, req)
+		ev, files, err := lowerWithLedger(a, unit, req)
 		var refused *lower.Refused
 		if errors.As(err, &refused) {
 			return build.Module{}, &BuildError{Diagnostics: a.refusals(refused)}
@@ -306,9 +306,9 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 			return build.Module{}, err
 		}
 		if ev != nil {
-			// The ledger's text is an input of the lowering: the key
-			// holds it.
-			input.Dependencies = append(input.Dependencies, sourceDependency(lower.LedgerFile, map[string]string{"module": text, "std": std.Ledger()}))
+			// The entries the lowering read are an input of it: the key
+			// holds them, and no other entry of the module's ledger.
+			input.Dependencies = append(input.Dependencies, sourceDependency(lower.LedgerFile, map[string]string{"read": ev.Read()}))
 			lowered = files
 		}
 	}
@@ -415,33 +415,33 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 // refuses instead (*LedgerError). A package with no rewrite law that a
 // provider's run checks reads no ledger: ev and files are nil, and the
 // caller lowers it as before.
-func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.LedgerEvidence, []lower.File, string, error) {
+func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.LedgerEvidence, []lower.File, error) {
 	text, err := ledgerText(req.Ledger)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
-	ev, err := ledgerEvidence(unit, text)
+	ev, err := ledgerEvidence(a, unit, text)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
 	if !ev.HasRules() {
-		return nil, nil, "", nil
+		return nil, nil, nil
 	}
 	unit.Rewrite = ev
 	files, err := lower.Lower(unit)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
 	notes := ev.Notes()
 	if req.Locked && len(notes) > 0 {
-		return nil, nil, "", &LedgerError{Lines: notes}
+		return nil, nil, &LedgerError{Lines: notes}
 	}
 	if req.Stderr != nil {
 		for _, n := range notes {
 			fmt.Fprintln(req.Stderr, n)
 		}
 	}
-	return ev, files, text, nil
+	return ev, files, nil
 }
 
 // stdDependencies summarises the bundled standard library: the prelude and

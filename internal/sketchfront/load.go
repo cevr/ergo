@@ -113,6 +113,9 @@ type program struct {
 	// bindings the module bindings the check read, by Go import path.
 	goModule lower.GoModule
 	bindings map[string]string
+	// module and modRoot are the module's name and folder; module is ""
+	// with no ergo.mod.
+	module, modRoot string
 }
 
 // loader reads and checks one program.
@@ -239,6 +242,9 @@ func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysi
 		}
 	}
 	p := &program{texts: l.texts, bindings: l.bindings}
+	if found {
+		p.module, p.modRoot = l.module, l.root
+	}
 	if l.goMod != nil {
 		p.goModule = l.goMod.lowerModule(l.root, l.goSum)
 	}
