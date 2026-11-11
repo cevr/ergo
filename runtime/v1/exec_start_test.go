@@ -410,6 +410,18 @@ steps:
 			p.mu.Lock()
 			ended, want := p.ended, p.status
 			p.mu.Unlock()
+			// A stopped caller's WaitFor ends with the stop and leaves the
+			// program, its status and its bytes as they were.
+			stopped := rt.Root("stopped waitfor")
+			stopped.Interrupt()
+			func() {
+				defer func() {
+					if q := recover(); q != rt.Interrupted {
+						fail(fmt.Sprintf("a stopped WaitFor raised %v, want rt.Interrupted", q))
+					}
+				}()
+				ExecWaitFor("waitfor", stopped, &countSleeper{}, r, time.Hour)
+			}()
 			sl := &countSleeper{}
 			code, err := ExecWaitFor("waitfor", task, sl, r, time.Hour)
 			switch {
