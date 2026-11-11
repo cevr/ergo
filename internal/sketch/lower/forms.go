@@ -308,20 +308,10 @@ func (fc *funcCtx) mapStore(s *syntax.AssignStmt) bool {
 	if _, isMap := fc.typeOf(s.Lhs[0]).(*check.Map); !isMap {
 		return false // a slice's header changes: its store back stays
 	}
-	for x := s.Lhs[0]; ; {
-		switch p := x.(type) {
-		case *syntax.Ident:
-			fc.l.stats.MapStores++
-			return true
-		case *syntax.SelectorExpr:
-			x = p.X
-		case *syntax.ParenExpr:
-			x = p.X
-		default:
-			// An element: a Map's element store may add the entry.
-			return false
-		}
-	}
+	// samePlace admits a variable and its fields only, never an element,
+	// whose store into a Map may add its entry.
+	fc.l.stats.MapStores++
+	return true
 }
 
 // constLet reports whether the package let v, whose value is a checked

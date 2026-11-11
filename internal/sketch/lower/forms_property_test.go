@@ -16,7 +16,9 @@ import (
 // temporary as an inlined body's tail (viaLet, bumped: renameTail), and
 // then write the record's source: the let keeps the value it had (value
 // semantics). A let mut tail (mixed), a catch whose arm yields (soft), a
-// literal that captures a let (later), tails that share a name with a key
+// literal that captures a let (later; hooked stores one through a borrow,
+// and a let mut of the call's value is then written), tails returned into
+// an interface result from another Go type (shapeVar, shapeDef), tails that share a name with a key
 // or a field (keyed, counted), package lets of literals read where Go may
 // fold them (limit, label: Go consts) or not (zero as a divisor, big + 1:
 // variables), in-place Map writes stored back to their own place or into
@@ -149,6 +151,43 @@ func drop(x *Index, k int) {
 }
 
 func show(r Rec) string { "\(r.a) \(r.b) \(r.c) \(r.d) \(r.e)" }
+
+type Hook { f func() int }
+
+func hooked(b *Box[Rec], h *Hook, i int) Rec {
+	let r = must(b, i)
+	h.f = func() int { r.a }
+	r
+}
+
+type Sq { a int, w int }
+type Ci { a int }
+type Shape = Sq | Ci
+
+func sq(n int) Sq { Sq{a: n, w: n} }
+
+func shapeVar[T](b *Box[T], n int) Shape {
+	let mut s = Sq{a: n, w: 1}
+	s.w = s.w + n
+	s
+}
+
+func shapeDef[T](b *Box[T], n int) Shape {
+	let s = sq(n)
+	if s.a > 100 {
+		return Ci{a: s.w}
+	}
+	s
+}
+
+func width(x Shape) string {
+	match x {
+	case Sq as q:
+		"\(q.w)"
+	case Ci as c:
+		"c\(c.a)"
+	}
+}
 `
 
 // formGen writes one program and its model.
@@ -271,6 +310,14 @@ func (g *formGen) stmt() {
 		g.out("%d", g.items[i].a+g.items[i].c)
 		g.items[i].a = 0
 		g.reached["later"] = true
+		// A literal stored through a borrow keeps the let it captures
+		// when a let mut of the call's value is written: the body's tail
+		// does not become the result variable (renameTail).
+		hv := g.name("hv")
+		g.line(fmt.Sprintf("let mut %s = hooked(&b, &h, %d)", hv, i))
+		g.line(fmt.Sprintf("%s.a = %s.a + 100", hv, hv))
+		g.line(fmt.Sprintf("Console.Println(\"\\(h.f()) \\(%s.a)\")", hv))
+		g.out("%d %d", g.items[i].a, g.items[i].a+100)
 	case 7:
 		// limit and label are read where no Go fold can fail (Go
 		// consts); zero is a divisor, so it stays a variable, and a
@@ -362,6 +409,12 @@ func formProgram(seed uint64, reached map[string]bool) (src, want string) {
 	g.line("let mut b = Box[Rec]{items: []Rec{Rec{a: 3, b: \"x\", c: 1, d: 4, e: 1}, Rec{a: 5, b: \"y\", c: 9, d: 2, e: 6}}, n: 0}")
 	g.line("let mut ix = Index{by: Map[int, int]{}, alt: Map[int, int]{}, hits: 0}")
 	g.ix = map[int]int{}
+	// The tail of a body returned into an interface result (a union):
+	// a let mut of another Go type, and a := of a call's result. Neither
+	// becomes the result variable (renameTail): the body reads its fields.
+	g.line("let mut h = Hook{f: func() int { 0 }}")
+	g.line("Console.Println(width(shapeVar(&b, 3)) + \" \" + width(shapeDef(&b, 5)))")
+	g.out("4 5")
 	for range 24 {
 		g.stmt()
 	}
