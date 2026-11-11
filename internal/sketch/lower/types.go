@@ -22,6 +22,18 @@ type typeCtx struct {
 	// (a copy for a known record, record.go), never to a Go type
 	// parameter.
 	mono bool
+	// bound is the checked type each type parameter of a copy stands for
+	// (record.go), where it names no type parameter itself.
+	bound map[*check.TypeParam]check.Type
+}
+
+// boundType is t with a type parameter that bound names replaced by its
+// type; t itself otherwise.
+func (tc *typeCtx) boundType(t check.Type) check.Type {
+	if tp, ok := t.(*check.TypeParam); ok && tc.bound[tp] != nil {
+		return tc.bound[tp]
+	}
+	return t
 }
 
 // goType is t's Go type. Basic types keep their Go names (duration is

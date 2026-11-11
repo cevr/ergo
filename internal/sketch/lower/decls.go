@@ -1035,7 +1035,7 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 		if fd.method != nil || owned || known || flat != nil {
 			ice(site, "the copy of %s for a known record is not a plain function", f.Name)
 		}
-		fc.params, fc.mono = sp.typeArgs, true
+		fc.params, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
 		head.WriteString("func " + sp.name + "(")
 	} else {
 		list, tps := l.typeParams(own, scope, site)
@@ -1158,6 +1158,8 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 		entry = fc.flatEntry(flat, flatParam, paramNames[0])
 	}
 	l.analyzeValues(f.Decl, f.Pkg.Info)
+	fc.goGeneric = sp == nil && len(own) > 0
+	fc.scalarSet = l.scalarVars(f.Decl.Body, f.Pkg.Info)
 	fc.closeBody(f, site, func() {
 		if needsFrame {
 			fc.site = site

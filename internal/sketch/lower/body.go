@@ -161,6 +161,13 @@ type funcCtx struct {
 	// recs are the record parameters of a copy for a known record and
 	// the record each stands for (record.go).
 	recs map[*check.Var]*knownRec
+	// scalarSet are the locals of the body being written that take the
+	// scalar form, and scalars those declared so far (scalar.go).
+	scalarSet map[*check.Var]bool
+	scalars   map[*check.Var]*scalarLocal
+	// goGeneric reports a Go function with type parameters, where Go
+	// declares no local type.
+	goGeneric bool
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -330,6 +337,10 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			} else {
 				fc.line("var " + name + " " + goType)
 			}
+		} else if sl := fc.scalarOf(v); sl != nil {
+			// A loop-carried union local as its tag and slots (scalar.go).
+			fc.scalarLet(v, sl, fc.assigned(spec.Values[0]))
+			continue
 		} else {
 			val := fc.assigned(spec.Values[0])
 			name := fc.declare(v)
@@ -364,6 +375,10 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 			unreachable(s, ruleParser, "the assignment %s", text)
 		}
 		op = strings.TrimSuffix(text, "=")
+	}
+	if sl := fc.scalarIdent(s.Lhs[0]); sl != nil && op == "" {
+		fc.scatter(sl, fc.assigned(s.Rhs[0])) // scalar.go
+		return
 	}
 	rhsEmits := fc.emits(s.Rhs[0])
 	target := fc.target(s.Lhs[0], rhsEmits)
@@ -935,7 +950,14 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 		}
 		return fc.patternMatch(s, subjects, s.Clauses, d)
 	}
-	subject := fc.headerValue(s.Subjects[0].X)
+	var subject string
+	if sl := fc.scalarIdent(s.Subjects[0].X); sl != nil {
+		// A scalar local: the switch reads its tag, each case its slot
+		// (scalar.go); a case binds its slot before its body writes.
+		subject = sl.name
+	} else {
+		subject = fc.headerValue(s.Subjects[0].X)
+	}
 	type arm struct {
 		types []string
 		as    *check.Var

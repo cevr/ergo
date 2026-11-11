@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"go/token"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -79,6 +80,9 @@ type specCopy struct {
 	param    int
 	rec      *knownRec
 	typeArgs map[*check.TypeParam]string
+	// bound is each type parameter's type argument, when the call names
+	// one with no type parameter of its own (scalar.go reads it).
+	bound map[*check.TypeParam]check.Type
 }
 
 // recordParam is the index of f's record parameter that its body calls a
@@ -264,6 +268,7 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 		}
 	}
 	args := map[*check.TypeParam]string{}
+	bound := map[*check.TypeParam]check.Type{}
 	j := 0
 	for i, tp := range f.Sig.TParams {
 		if tp.Kind != check.KindType {
@@ -276,6 +281,9 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 			return nil
 		}
 		args[tp] = fc.goType(c.TypeArgs[i])
+		if t := fc.boundType(c.TypeArgs[i]); !mentionsTypeParam(t) {
+			bound[tp] = t
+		}
 		j++
 	}
 	if j != len(own) {
@@ -288,11 +296,47 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	if fc.l.specs == nil {
 		fc.l.specs = map[specKey]*specCopy{}
 	}
-	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, typeArgs: args}
+	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, typeArgs: args, bound: bound}
 	fc.l.specs[key] = sp
 	fc.l.stats.Specialized++
 	fc.l.pending = append(fc.l.pending, func() { fc.l.emitBody(fd, nil, false, sp) })
 	return sp
+}
+
+// inlineField inlines x, a call of the field of a known record whose
+// function is g, when the inline rule (inline.go) allows g with the
+// budget inlineGrowth: a copy is written once for its record, so its
+// field calls cost one body each, as the flat run of a machine lowered
+// its step a second time. g takes no callback (its callbacks would be
+// unknown here). The call's identity stays the field call's, so a defect
+// report names the frame it names without inlining.
+func (fc *funcCtx) inlineField(x *syntax.CallExpr, c *check.Call, g *check.Func, gd *funcDecl) bool {
+	if fc.frame == nil || fc.inlDepth >= inlineDepth || len(callbackParams(g)) > 0 || !fc.l.inlineWithin(g, inlineGrowth) {
+		return false
+	}
+	if len(g.Sig.Results) == 1 && fc.noValue(x) {
+		return false // a result a block with no value binds: struct{}
+	}
+	if !gd.pure && fc.env == "" {
+		return false
+	}
+	if fc.l.inlineGrown == nil {
+		fc.l.inlineGrown = map[*namer]int{}
+	}
+	size := inlineSize(g.Decl.Body)
+	if fc.l.inlineGrown[fc.scope]+size > inlineGrowth {
+		return false
+	}
+	fc.l.inlineGrown[fc.scope] += size
+	if token.IsExported(g.Name) {
+		fc.l.useFunc(g, x)
+	}
+	if fc.directives && x.Pos().IsValid() {
+		fc.l.recordCall(x, fc.owner, fc.callee(x, c))
+	}
+	op := fc.inlineCall(x, &check.Call{Kind: check.CallFunc, Func: g, Fails: c.Fails}, gd, x.Args, nil, nil)
+	fc.inlined = &op
+	return true
 }
 
 // recordCallText is the Go text of x, a call p.F(…) of a field of a known
@@ -328,10 +372,14 @@ func (fc *funcCtx) recordCallText(x *syntax.CallExpr, c *check.Call, sig *check.
 	if len(g.Sig.Params) != len(sig.Params) || len(g.Sig.Results) != len(sig.Results) || sig.ResultIsTask() || c.TaskResult {
 		return "", false, false, false
 	}
-	gd := fc.l.useFunc(g, x)
+	gd := fc.l.funcDecl(g)
 	if gd.method != nil || gd.extern != "" || len(fc.l.ownedParams(g)) > 0 {
 		return "", false, false, false
 	}
+	if fc.inlineField(x, c, g, gd) {
+		return "", false, false, true // the value is fc.inlined
+	}
+	gd = fc.l.useFunc(g, x)
 	vals := fc.callArgs(x.Args, x)
 	if !gd.pure {
 		vals = append([]string{fc.envExpr(x)}, vals...)

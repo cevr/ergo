@@ -1023,6 +1023,9 @@ type tagSwitch struct {
 // or a flat union; nil for a Go type switch. subject must be a Go name or
 // a selector of one: the cases read it again.
 func (fc *funcCtx) tagSwitchOf(subject string, t check.Type, types []string, site syntax.Node) *tagSwitch {
+	if ts := fc.scalarTags(subject, types); ts != nil {
+		return ts // a scalar local (scalar.go)
+	}
 	if tags, ok := fc.flatTags(subject, types); ok {
 		return &tagSwitch{tags: tags, head: fc.flatSwitch(), variant: fc.flatVariant}
 	}

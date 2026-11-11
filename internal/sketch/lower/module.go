@@ -243,7 +243,7 @@ type lowerer struct {
 	// lastDir the last //line directive a body wrote. inlineCb holds the
 	// functions whose body calls unknown code only through its callback
 	// parameters (inlineRule).
-	inlineOK    map[*check.Func]knownState
+	inlineOK    map[inlineKey]knownState
 	inlineCb    map[*check.Func]bool
 	inlineGrown map[*namer]int
 	inlineSites []inlineSite
@@ -315,6 +315,8 @@ type lowerer struct {
 	// the copies for known records made so far (record.go).
 	recParams map[*check.Func]int
 	specs     map[specKey]*specCopy
+	// scalarMemo holds each body's locals in the scalar form (scalar.go).
+	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
 	// flatSet are the program's flat unions (flatunion.go), decided at the
 	// first question; flatOff the unions an earlier lowering of the
 	// program bailed on, and flatBails those this lowering bails on.

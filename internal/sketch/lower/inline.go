@@ -127,30 +127,42 @@ const inlineTag = "#ergo-inline-"
 
 // inlineBody reports whether f's body may be inlined (the rule above, but
 // for the call's own conditions).
-func (l *lowerer) inlineBody(f *check.Func) bool {
+func (l *lowerer) inlineBody(f *check.Func) bool { return l.inlineWithin(f, inlineBudget) }
+
+// inlineWithin is inlineBody with budget as the most syntax nodes: a
+// field call of a known record in a copy (record.go) takes inlineGrowth,
+// since the copy is written once for its record, not at each call.
+func (l *lowerer) inlineWithin(f *check.Func, budget int) bool {
 	if inlineLowering == "call" || f == nil {
 		return false
 	}
 	if l.inlineOK == nil {
-		l.inlineOK = map[*check.Func]knownState{}
+		l.inlineOK = map[inlineKey]knownState{}
 	}
-	switch l.inlineOK[f] {
+	key := inlineKey{f, budget}
+	switch l.inlineOK[key] {
 	case knownYes:
 		return true
 	case knownNo, knownDeciding:
 		return false
 	}
-	l.inlineOK[f] = knownDeciding
-	ok := l.inlineRule(f)
-	l.inlineOK[f] = knownNo
+	l.inlineOK[key] = knownDeciding
+	ok := l.inlineRule(f, budget)
+	l.inlineOK[key] = knownNo
 	if ok {
-		l.inlineOK[f] = knownYes
+		l.inlineOK[key] = knownYes
 	}
 	return ok
 }
 
-// inlineRule is inlineBody's decision for an undecided f.
-func (l *lowerer) inlineRule(f *check.Func) bool {
+// inlineKey is one inline decision: a function and its budget.
+type inlineKey struct {
+	f      *check.Func
+	budget int
+}
+
+// inlineRule is inlineWithin's decision for an undecided f.
+func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
 	d := f.Decl
 	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) {
 		return false
@@ -180,7 +192,7 @@ func (l *lowerer) inlineRule(f *check.Func) bool {
 		return false
 	}
 	size := inlineSize(d.Body)
-	if size > inlineBudget {
+	if size > budget {
 		return false
 	}
 	called := map[*syntax.Ident]bool{}
@@ -449,6 +461,12 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 			ice(x, "an inlined call with %d type arguments for %d parameters", len(c.TypeArgs), len(f.Sig.TParams))
 		}
 		ic.params[tp] = fc.goType(c.TypeArgs[i])
+		if t := fc.boundType(c.TypeArgs[i]); !mentionsTypeParam(t) {
+			if ic.bound == nil {
+				ic.bound = map[*check.TypeParam]check.Type{}
+			}
+			ic.bound[tp] = t
+		}
 	}
 	ic.owner = f.Name
 	if fd.method != nil {
@@ -520,6 +538,8 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 			ic.line("_ = " + name)
 		}
 		fc.l.analyzeValues(f.Decl, f.Pkg.Info)
+		ic.goGeneric = fc.goGeneric
+		ic.scalarSet = fc.l.scalarVars(f.Decl.Body, f.Pkg.Info)
 		ic.body(f.Decl.Body.List)
 	}()
 	fc.closeInline(ic.out.String(), ret, before)
@@ -598,12 +618,23 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	if ret.err != "" {
 		fc.line("_ = " + ret.err)
 	}
-	// Only a body with directives changed the current one; then the code
-	// around it had directives too, and before is its own.
-	if strings.Contains(body, "//line ") && before != "" && fc.l.lastDir != before {
+	// Only a body with directives changed the current one. Code with
+	// directives names its own again; code with none (a std body, a copy
+	// for a known record, record.go) names no Ergo file again, so a
+	// defect report reads none of its lines as the inlined body's.
+	switch {
+	case !strings.Contains(body, "//line "):
+	case !fc.directives:
+		fc.writeDir(generatedDir)
+	case before != "" && fc.l.lastDir != before:
 		fc.writeDir(before)
 	}
 }
+
+// generatedDir is the directive after an inlined body with directives in
+// code that has none: its path is no source of the program, so a defect
+// report skips the lines it names, as it skips the generated code's own.
+const generatedDir = "//line ergo-generated.go:1\n"
 
 // inlineLit writes the substituted literal sub where the inlined body fc
 // calls its parameter (x): the call's operands, bound to the literal's
