@@ -167,7 +167,7 @@ func checked(t *testing.T, src string) Analysis {
 	return a
 }
 
-// TestLedgerGatesRewrites is the ledger's property (runtime.md, Tests 8;
+// TestLedgerGatesRewrites is the ledger's property (runtime.md, Tests 10;
 // plan-2 §3): over generated programs and generated edits, the run build
 // rewrites the law's sites exactly when the reference model says the base
 // ledger's entry is current. With a stale entry, the program is

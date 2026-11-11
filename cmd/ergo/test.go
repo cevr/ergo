@@ -145,7 +145,7 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		// A partial run checks only some laws: it leaves the ledger.
 		return nil
 	}
-	// The passing run writes the law ledger (runtime.md, Tests 8): the
+	// The passing run writes the law ledger (runtime.md, Tests 10): the
 	// laws and site instances the run build uses, checked alone.
 	changed, err := sketchfront.UpdateLedger(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,

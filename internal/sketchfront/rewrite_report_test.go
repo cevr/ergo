@@ -10,7 +10,7 @@ import (
 )
 
 // TestRewriteLawReported is the report row of a rewrite law (types.md,
-// Laws 14; runtime.md, Tests 8): ergo inspect lists each rewrite site with
+// Laws 14; runtime.md, Tests 10): ergo inspect lists each rewrite site with
 // its law, provider and constants, its ledger entry's verdict and state,
 // and whether the build applies it, for a current, a stale and a missing
 // entry; and ergo check's evaluation skips the law with the rewrite

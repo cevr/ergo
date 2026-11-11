@@ -45,7 +45,7 @@ import (
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
 var sources embed.FS
 
-// ledger is the std law ledger (runtime.md, Tests 8): the verdicts of
+// ledger is the std law ledger (runtime.md, Tests 10): the verdicts of
 // std's rewrite laws, written by `go run ./scripts/stdlaws` and read by
 // every build like a module's ergo.laws.
 //

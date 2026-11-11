@@ -20,7 +20,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The law ledger (runtime.md, Tests 8; lower/ledger.go): ergo test writes
+// The law ledger (runtime.md, Tests 10; lower/ledger.go): ergo test writes
 // ergo.laws from the check runs of the laws the run build's sites use
 // (UpdateLedger); ergo build, run and inspect only read it and the std
 // ledger (ledgerEvidence). The run build never runs a law.
@@ -122,7 +122,7 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 }
 
 // StdLedgerHeader is the first line of the std ledger.
-const StdLedgerHeader = "# std law ledger (runtime.md, Tests 8). Written by go run ./scripts/stdlaws; do not edit.\n"
+const StdLedgerHeader = "# std law ledger (runtime.md, Tests 10). Written by go run ./scripts/stdlaws; do not edit.\n"
 
 // FreshStdLedger is the std ledger a fresh run gives: the entries of the
 // check runs of every std package with a rewrite law that a provider's run

@@ -27,7 +27,7 @@ const runHelp = "usage: ergo run [--json] [--locked] [--target go] FILE|DIR [--]
 	"every word after FILE|DIR is the program's (a -- right after it is dropped), so ergo's options come first.\n" +
 	"The program's exit status passes through; SIGINT and SIGTERM are forwarded (130 and 143 when they end it).\n" +
 	"A rewrite law site whose ergo.laws entry is stale or missing keeps the reference lowering and prints one line;\n" +
-	"--locked refuses the build instead (runtime.md, Tests 8).\n"
+	"--locked refuses the build instead (runtime.md, Tests 10).\n"
 
 // buildCommand builds a native executable and prints its path. With -work
 // it also prints WORK=DIR on stderr, DIR being the generated Go module in

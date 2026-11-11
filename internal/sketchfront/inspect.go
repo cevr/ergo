@@ -45,7 +45,7 @@ type GoReport struct {
 }
 
 // InspectRewrites are the rewrite sites of the checked analysis's run
-// build (types.md, Laws 14; runtime.md, Tests 8): each site's law and
+// build (types.md, Laws 14; runtime.md, Tests 10): each site's law and
 // provider, its constants, the verdict of its entry in the ledger at
 // ledger and the std ledger, the entry's state (current, stale or
 // missing), and whether the build applies the rewrite. It lowers the

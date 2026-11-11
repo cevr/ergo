@@ -1,5 +1,5 @@
 // Command stdlaws writes the std law ledger, internal/sketch/std/ergo.laws
-// (runtime.md, Tests 8), from a fresh run of std's rewrite laws
+// (runtime.md, Tests 10), from a fresh run of std's rewrite laws
 // (sketchfront.FreshStdLedger). TestStdLedgerFresh fails while the file
 // and a fresh run differ. Run it from the repository root.
 package main

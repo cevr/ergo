@@ -12,7 +12,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The law ledger (runtime.md, Tests 8; plan-2 §3; owner q116, q122): the
+// The law ledger (runtime.md, Tests 10; plan-2 §3; owner q116, q122): the
 // checked-in file ergo.laws beside ergo.mod, which holds one line per
 // rewrite law and provider whose run ergo test checked:
 //
@@ -422,7 +422,7 @@ func (e *LedgerEvidence) record(l *lowerer, applied int) []byte {
 	}
 	text += fmt.Sprintf("rewrites applied %d", applied)
 	rec, kept := l.names.alloc("ergoLaws"), l.names.alloc("ergoLawsKept")
-	return fmt.Appendf(nil, "package main\n\n// %s is the producer record of the law ledgers this binary was built\n// with (runtime.md, Tests 8).\nvar %s = %q\n\nvar %s string\n\nfunc init() { %s = %s }\n", rec, rec, "ergo producer: "+text, kept, kept, rec)
+	return fmt.Appendf(nil, "package main\n\n// %s is the producer record of the law ledgers this binary was built\n// with (runtime.md, Tests 10).\nvar %s = %q\n\nvar %s string\n\nfunc init() { %s = %s }\n", rec, rec, "ergo producer: "+text, kept, kept, rec)
 }
 
 // LedgerEntries are the ledger's entries from the check runs of ev, the
