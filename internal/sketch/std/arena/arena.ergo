@@ -36,6 +36,10 @@ type stored[T] { Value T }
 
 extern go ergo.local/prototype/runtime/v1.ArenaTake func takeValue[T](s *stored[T]) T
 
+// grow is Go's append (an extern of a Go builtin): Put's call is the builtin
+// itself, with no Go function between.
+extern go append func grow[T](xs []T, x T) []T
+
 let none = -1
 let occupied = -2
 
@@ -57,7 +61,7 @@ func Put[T](a *Of[T], v T) Ref[T] {
 	a.live = a.live + 1
 	let at = a.free
 	if at == -1 {
-		a.slots = a.slots.Append(slot[T]{value: stored[T]{Value: v}, gen: 1, next: occupied})
+		a.slots = grow(a.slots, slot[T]{value: stored[T]{Value: v}, gen: 1, next: occupied})
 		return Ref[T]{index: len(a.slots) - 1, gen: 1}
 	}
 	a.free = reuse(&a.slots[at], v)
