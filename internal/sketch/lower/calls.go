@@ -835,6 +835,7 @@ func (fc *funcCtx) withExpr(x *syntax.CallExpr) operand {
 		res.val = fc.temp("v")
 		fc.line("var " + res.val + " " + fc.goType(fc.typeOf(x)))
 		fc.armHeldVar(x, res.val)
+		fc.armValueVar(x, res.val)
 	}
 	if fc.fallibleExpr(x) {
 		res.err = fc.temp("err")
@@ -848,6 +849,7 @@ func (fc *funcCtx) withExpr(x *syntax.CallExpr) operand {
 		d = dest{kind: destAssign, name: res.val, err: res.err}
 	}
 	fc.with(x, 0, w, d)
+	fc.armValueEnd(x, res.val)
 	return res
 }
 

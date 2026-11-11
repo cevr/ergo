@@ -161,6 +161,11 @@ type funcCtx struct {
 	// heldExpr maps the expression to the same flag (armHeldVar).
 	heldOf   map[string]string
 	heldExpr map[syntax.Expr]string
+	// armOf maps the Go result variable of a value form whose arms own
+	// their value until the form ends (Info.ArmValues) to the form;
+	// armDone holds the forms an arm registered in (armValueVar).
+	armOf   map[string]syntax.Expr
+	armDone map[syntax.Expr]bool
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {

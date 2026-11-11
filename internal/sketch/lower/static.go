@@ -120,6 +120,7 @@ func (l *lowerer) staticPlan(params []*check.Var, body []syntax.Stmt) bool {
 			}
 			if x, isExpr := n.(syntax.Expr); isExpr {
 				add(x, info.OwnedTemps[x])
+				add(armKey{x}, info.ArmValues[x])
 			}
 			return ok
 		})

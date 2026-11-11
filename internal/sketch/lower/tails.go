@@ -78,6 +78,7 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 			o := fc.expr(s.X)
 			if d.name != "" && o.val != "" {
 				fc.line(d.name + ", " + d.err + " = " + fc.returnedTemp(check.ReturnedKey(s.X), fc.convertAt(s.X, o.val)) + ", " + o.err)
+				fc.armYield(d.name, s.X, d.err)
 				return false
 			}
 			fc.line(d.err + " = " + o.err)
@@ -100,6 +101,7 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 		val := fc.assigned(s.X)
 		fc.returned = nil
 		fc.line(d.name + " = " + fc.returnedTemp(key, val))
+		fc.armYield(d.name, s.X, "")
 		return false
 	case *syntax.IfStmt:
 		fc.at(s)
@@ -167,6 +169,7 @@ func (fc *funcCtx) branchExpr(x syntax.Expr) operand {
 		res.val = fc.temp("v")
 		fc.line("var " + res.val + " " + fc.goType(fc.typeOf(x)))
 		fc.armHeldVar(x, res.val)
+		fc.armValueVar(x, res.val)
 	}
 	if fc.tailFallible(s) {
 		res.err = fc.temp("err")
@@ -177,6 +180,7 @@ func (fc *funcCtx) branchExpr(x syntax.Expr) operand {
 		return res
 	}
 	fc.yieldStmt(s, dest{kind: destAssign, name: res.val, err: res.err})
+	fc.armValueEnd(x, res.val)
 	return res
 }
 

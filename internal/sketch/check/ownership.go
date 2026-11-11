@@ -193,9 +193,12 @@ type ownDiag struct {
 }
 
 type ownWalk struct {
-	c     *checker
-	info  *Info
-	st    ownState
+	c    *checker
+	info *Info
+	st   ownState
+	// fresh is the last new value made in a moving position (produced):
+	// a return reads it after its value (retAfter).
+	fresh syntax.Expr
 	vars  []ownLocal
 	slot  map[*Var]int
 	depth int
@@ -644,7 +647,12 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 				}
 			}
 			w.region(s, func() {
+				w.fresh = nil
 				w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed, ret: ret})
+				if t.frame {
+					w.retAfter(s.X, ret)
+				}
+				w.armValue(t)
 			})
 			w.heldTail(s.X, t)
 			return
@@ -655,7 +663,10 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 	case *syntax.ReturnStmt:
 		w.open(s)
 		for _, r := range s.Results {
-			w.expr(r, mMove, hand{at: r, how: "it is returned", ret: w.retFresh(r)})
+			ret := w.retFresh(r)
+			w.fresh = nil
+			w.expr(r, mMove, hand{at: r, how: "it is returned", ret: ret})
+			w.retAfter(r, ret)
 		}
 		w.record(s, w.releases(w.first))
 		w.st = ownState{}
@@ -1109,6 +1120,34 @@ func (w *ownWalk) heldTail(x syntax.Expr, t ownTail) {
 	}
 	w.info.LentYields[x] = true
 	w.info.ArmHeld[w.vars[t.slot].temp] = true
+}
+
+// armValue records, at the tail of an arm of the value form t.form, that
+// the arm still releases a value after the tail made or moved the result:
+// a temporary of the tail's statement, a local of the arm (any live slot
+// past t.first). The result is then owned from its yield until the form
+// ends (Info.ArmValues), so a defect in such a release releases it too
+// (R43; OWGEN FU4). A returned form's arms keep their value already
+// (Info.ReturnedTemps); a tail that lends an enclosing name gives nothing
+// (heldTail; the lowering skips it). The last pass of a loop writes the
+// fact.
+func (w *ownWalk) armValue(t ownTail) {
+	if t.form == nil || t.frame || (t.mode != mMove && t.mode != mHold) || !w.st.reached {
+		return
+	}
+	ft := w.info.Types[t.form]
+	if ft == nil || isInvalid(ft) || !w.c.holdsResource(ft) || w.genericOnly(ft) {
+		return
+	}
+	for i := t.first; i < len(w.st.slots) && i < len(w.vars); i++ {
+		if !w.st.slots[i].live() || w.vars[i].lent || w.vars[i].loanOnly {
+			continue
+		}
+		if d, _ := w.c.dropOf(ft); d != nil {
+			w.info.ArmValues[t.form] = d
+		}
+		return
+	}
 }
 
 // convertedAt raises an internal compiler error when x carries an
@@ -1859,6 +1898,7 @@ func (w *ownWalk) produced(x syntax.Expr, mode ownMode, h hand) {
 			w.st.slots[i] = ownSlot{st: ownOwned}
 		}
 	case mMove:
+		w.fresh = x
 		if h.ret != nil && h.ret == x && !w.genericOnly(t) {
 			// R10: the frame owns the returned value until its exit is
 			// known, so a defect in a later release of the frame releases
@@ -1868,6 +1908,28 @@ func (w *ownWalk) produced(x syntax.Expr, mode ownMode, h hand) {
 			w.info.ReturnedTemps[x] = true
 		}
 	}
+}
+
+// retAfter records, after r was evaluated in a return whose frame owned
+// no live value before it (ret nil, retFresh), a new value r gives while
+// the return's own temporaries are still owned: they are released after
+// it, so it is owned from production and handed off with v1.Returned
+// (Info.ReturnedTemps, R10; OWGEN FU4), as produced does when the frame
+// owns a value already.
+func (w *ownWalk) retAfter(r, ret syntax.Expr) {
+	x := ReturnedKey(r)
+	if ret != nil || !w.st.reached || w.fresh != x || x == nil {
+		return
+	}
+	if t := w.info.Types[x]; !w.tracked(t) || w.genericOnly(t) {
+		return
+	}
+	if w.retFresh(r) == nil {
+		return
+	}
+	i := w.acquire(ownLocal{temp: x})
+	w.st.slots[i].st = ownMoved
+	w.info.ReturnedTemps[x] = true
 }
 
 // retFresh is the value r returns (ReturnedKey) when the frame owns a
@@ -1903,6 +1965,10 @@ type ownTail struct {
 	yieldRoot bool
 	failed    func()
 	frame     bool // the function body's own tail: its value is returned
+	// form is the if, match, catch or with whose value the tail gives (nil
+	// for a body's own tail): the lowering's result variable
+	// (Info.ArmValues).
+	form syntax.Expr
 }
 
 // frameTail is a function body's: its value is returned.
@@ -1938,6 +2004,7 @@ func (w *ownWalk) yieldValue(x syntax.Expr, mode ownMode, h hand, walk func(ownM
 		}
 	}
 	t.failed = h.failed
+	t.form = unparen(x)
 	w.tail = t
 	walk(t.mode)
 	w.resultAfterOperands(x, t.slot)

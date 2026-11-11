@@ -640,6 +640,84 @@ func (fc *funcCtx) armHeldVar(x syntax.Expr, result string) {
 	fc.heldOf[result], fc.heldExpr[x] = h, h
 }
 
+// armKey is the owner key of the value of an if, match, catch or with
+// while its arms run (Info.ArmValues): distinct from the form itself,
+// whose key is its statement's temporary (OwnedTemps).
+type armKey struct{ form syntax.Expr }
+
+// armValueVar opens, for x, a value form whose Go result variable is
+// result, the owner its arms register the result in when an arm still
+// releases a value after its tail (Info.ArmValues, armYield): in the list
+// form a handle of the enclosing scope, made before the arms; in the
+// static form a slot of the frame. armValueEnd hands it off.
+func (fc *funcCtx) armValueVar(x syntax.Expr, result string) {
+	form := unparen(x)
+	if result == "" || fc.l.info.ArmValues[form] == nil {
+		return
+	}
+	if fc.armOf == nil {
+		fc.armOf, fc.armDone = map[string]syntax.Expr{}, map[syntax.Expr]bool{}
+	}
+	fc.armOf[result] = form
+	if fc.staticState() != nil {
+		return
+	}
+	if fc.l.owned == nil {
+		fc.l.owned = map[any]string{}
+	}
+	h := fc.temp("own")
+	fc.l.owned[armKey{form}] = h
+	fc.line(h + " := " + fc.runtimeCall("Scope.Owner", fc.ownBinding("Scope.Owner", x), "", fc.frameScope(x), nil, "", nil, nil, x))
+}
+
+// armYield registers result, which the tail x of an arm just assigned,
+// in its form's owner (armValueVar): on success only, when err is the
+// tail's failure. A tail that lends an enclosing name gives the form
+// nothing to own (Info.LentYields).
+func (fc *funcCtx) armYield(result string, x syntax.Expr, err string) {
+	form := fc.armOf[result]
+	if form == nil || fc.l.info.LentYields[x] {
+		return
+	}
+	d, t := fc.l.info.ArmValues[form], fc.typeOf(form)
+	var reg string
+	if fc.staticState() != nil {
+		reg = fc.staticOwn(armKey{form}, d, t, result, x)
+	} else {
+		reg = fc.owning(fc.l.owned[armKey{form}], result, d, t, x)
+	}
+	if err != "" {
+		fc.line("if " + err + " == nil {")
+		fc.line("\t_ = " + reg)
+		fc.line("}")
+	} else {
+		fc.line("_ = " + reg)
+	}
+	fc.armDone[form] = true
+}
+
+// armValueEnd hands off the value of x, the form armValueVar opened, after
+// its arms' releases: its consumer owns it from here on.
+func (fc *funcCtx) armValueEnd(x syntax.Expr, result string) {
+	form := unparen(x)
+	if result == "" || fc.armOf[result] != form {
+		return
+	}
+	delete(fc.armOf, result)
+	key := armKey{form}
+	if !fc.armDone[form] {
+		if h := fc.l.owned[key]; h != "" && fc.staticState() == nil {
+			fc.line("_ = " + h) // no arm yields a value it made
+		}
+		return
+	}
+	if fc.staticState() != nil {
+		fc.line(result + " = " + fc.staticHand(key, result, false, x))
+		return
+	}
+	fc.line(result + " = " + fc.runtimeCall("Hand", fc.ownBinding("Hand", x), "", "", []string{fc.l.owned[key], result}, "", nil, nil, x))
+}
+
 // lentYield clears the flag of the result name when the tail x yields an
 // enclosing name by lending it (armHeldVar).
 func (fc *funcCtx) lentYield(name string, x syntax.Expr) {

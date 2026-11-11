@@ -952,6 +952,7 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		result = fc.temp("v")
 		fc.line("var " + result + " " + fc.goType(m.Result))
 		fc.armHeldVar(x, result)
+		fc.armValueVar(x, result)
 	} else if o.val != "" {
 		// The catch's value is discarded (D-C1), so the caught value is
 		// too; its failure is not (stage C round 3 review M1).
@@ -959,6 +960,7 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	}
 	if !fc.simpleCatch(x) {
 		fc.patternCatch(x, m, o, result, partial)
+		fc.armValueEnd(x, result)
 		return operand{val: result}
 	}
 	type arm struct {
@@ -1043,6 +1045,7 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		fc.line("\t" + result + " = " + o.val)
 	}
 	fc.line("}")
+	fc.armValueEnd(x, result)
 	return operand{val: result}
 }
 

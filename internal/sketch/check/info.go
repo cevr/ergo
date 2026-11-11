@@ -316,6 +316,14 @@ type Info struct {
 	// local that an arm of a returned if or match yields is recorded too:
 	// its hand-off keeps its entry the same way.
 	ReturnedTemps map[syntax.Expr]bool
+	// ArmValues is, for an if, match, catch or with used as a value, the
+	// release of its value when an arm still releases a value after its
+	// tail made or moved the result (the tail statement's temporaries, the
+	// arm's locals). The lowering registers the result where an arm yields
+	// it and hands it off after the form, so a defect in such a release
+	// releases it too (R43: the obligation starts at production; OWGEN
+	// FU4). Added in OWGEN round 2 (additive).
+	ArmValues map[syntax.Expr]*Drop
 	// FieldTakes is each field taken in place (`b.r.Close()`, R39, Gap
 	// 38): the owned record's local and the field's index. The lowering
 	// marks the field on the record's entry there, and the generated
@@ -465,6 +473,7 @@ func newInfo() *Info {
 		ResultDrops:    map[*syntax.CallExpr]*Drop{},
 		CloseParts:     map[*Func]*Drop{},
 		ReturnedTemps:  map[syntax.Expr]bool{},
+		ArmValues:      map[syntax.Expr]*Drop{},
 		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},
 		Handoffs:       map[*syntax.Ident]*Var{},
 		PatternOwners:  map[*syntax.CaseClause]PatternOwners{},

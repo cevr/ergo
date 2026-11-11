@@ -16,7 +16,8 @@ import (
 // F2, change C2; resources R5-R44). Each seed composes one program from a
 // grammar of the ownership forms, not from a list of shapes: expressions
 // that make a resource (a call, a literal, a moved local, a try that
-// fails, a defect, a division, a pass-through, an if, a generated helper
+// fails, a defect, a division, a pass-through, an if, a match or a catch
+// used as a value (an arm may hold a local of its own), a generated helper
 // whose return converts), consumers at every position (a let, a typed let
 // that converts, a let mut and its reassignment, a lend, a take, a Close,
 // a return, a store into a field, a push, a capture by a function literal
@@ -46,7 +47,8 @@ import (
 // Mutants it catches that nothing else does (internal/sketch/check and
 // lower mutants.json, owgen-*): a conversion at a lending argument with no
 // owner (F2); a lent arm's yielded name owned twice (FU0); a returned new
-// value lost on a later release's defect (FU1); a written Close that
+// value lost on a later release's defect (FU1); the value of an if,
+// match or catch lost on a later release of its arm (FU4); a written Close that
 // skips its fields, or a field taken from under it (FU2); a reassigned
 // variant's temporary of the wrong Go type. It also kills the historical
 // holes found by hand before it: B1 M1, B3q M2, PO1 M3 and PO1 (their
@@ -104,23 +106,10 @@ func TestOwnershipGrammarRun(t *testing.T) {
 // ogSeeds is the batch: one program per seed, each lowered twice.
 const ogSeeds = 64
 
-// The known holes this generator found that are not this unit's to fix
-// (OWGEN state.md, Follow-ups). Each keeps one production out of the
-// grammar until its fix unit lands and sets it false; with it false the
-// test fails on them.
-const (
-	// ogGapArmValue: the value an arm of an if used as a value yields is
-	// not owned while the arm's temporaries are released, so a defect in
-	// one of them loses it (R43: "the release obligation starts at
-	// successful production"). Out: a value whose Close raises a defect,
-	// inside such an arm.
-	ogGapArmValue = true
-)
-
 // ogFeatures is every production the batch must reach.
 var ogFeatures = []string{
 	"res:open", "res:lit", "res:local", "res:try", "res:boom", "res:div", "res:pass", "res:helper",
-	"expr:if", "if:lend-local", "tup:give2",
+	"expr:if", "expr:match", "expr:catch", "arm:local", "if:lend-local", "tup:give2",
 	"conv:lend", "conv:take", "conv:let", "conv:return", "conv:store", "conv:assign",
 	"variant:let", "variant:lend",
 	"stmt:let", "stmt:letmut", "stmt:assign", "stmt:lend-local", "stmt:lend-temp", "stmt:use", "stmt:take", "stmt:close",
@@ -316,7 +305,6 @@ type ogGen struct {
 	floor  int  // scopes below this index are lent here: a loop or a function literal body
 	multi  bool // this code may run more than once
 	noTry  bool // a function literal: no try
-	noBad  bool // an arm of an if value: no value whose Close raises a defect
 	// badSince: a bad value was drawn since the statement began, so the
 	// locals it declares may hold one (ogVar.bad).
 	badSince bool
@@ -331,13 +319,8 @@ func (g *ogGen) f(name string) { g.p.features[name] = true }
 
 func (g *ogGen) id() int { g.nextID++; return g.nextID }
 
-// bad draws a value whose Close raises a defect. Not where noBad holds
-// (ogGapArmValue).
+// bad draws a value whose Close raises a defect.
 func (g *ogGen) bad() bool {
-	if g.noBad {
-		g.r.IntN(9)
-		return false
-	}
 	b := g.r.IntN(9) == 0
 	g.badSince = g.badSince || b
 	return b
@@ -374,7 +357,7 @@ func (g *ogGen) vars(t ogType, take bool) []*ogVar {
 			if v.t != t || v.st != 0 {
 				continue
 			}
-			if take && (v.lent || i < g.floor) || g.noBad && v.bad {
+			if take && (v.lent || i < g.floor) {
 				continue
 			}
 			out = append(out, v)
@@ -491,7 +474,7 @@ func (g *ogGen) expr(t ogType, d int) string {
 				g.pos = pos
 				return "pass(" + e + ")"
 			case 8:
-				return g.ifExpr(t, d)
+				return g.armForm(t, d)
 			case 9:
 				if h := g.helper(t, d); h != "" {
 					g.f("res:helper")
@@ -515,7 +498,7 @@ func (g *ogGen) expr(t ogType, d int) string {
 					return v.name
 				}
 			case 6, 7:
-				return g.ifExpr(t, d)
+				return g.armForm(t, d)
 			default:
 				if h := g.helper(t, d); h != "" {
 					return h
@@ -537,7 +520,7 @@ func (g *ogGen) expr(t ogType, d int) string {
 				if t == oSlot && g.r.IntN(2) == 0 {
 					return "Vacant"
 				}
-				return g.ifExpr(t, d)
+				return g.armForm(t, d)
 			default:
 				if h := g.helper(t, d); h != "" {
 					return h
@@ -574,8 +557,6 @@ func (g *ogGen) literal(t ogType, d int) string {
 func (g *ogGen) ifExpr(t ogType, d int) string {
 	g.f("expr:if")
 	c := g.cond()
-	saved := g.noBad
-	g.noBad = g.noBad || ogGapArmValue
 	before := g.save()
 	a := ""
 	if g.pos == "lend" && g.r.IntN(2) == 0 {
@@ -585,17 +566,104 @@ func (g *ogGen) ifExpr(t ogType, d int) string {
 			v.st = 1
 			a = v.name
 			g.f("if:lend-local")
+			if d > 0 && g.r.IntN(2) == 0 {
+				// The arm releases a local of its own after it yields
+				// the name: the name keeps its owner (FU0, FU4).
+				g.scopes = append(g.scopes, nil)
+				a = g.armLocal(d) + a
+				g.scopes = g.scopes[:len(g.scopes)-1]
+			}
 		}
 	}
 	if a == "" {
-		a = g.expr(t, d-1)
+		a = g.arm(t, d)
 	}
 	then := g.save()
 	g.restore(before)
-	b := g.expr(t, d-1)
+	b := g.arm(t, d)
 	g.join(then)
-	g.noBad = saved
 	return fmt.Sprintf("if n > %d { %s } else { %s }", c, a, b)
+}
+
+// armForm draws a value form whose arms each give a value of t: an if, a
+// match, or (for a resource) a catch.
+func (g *ogGen) armForm(t ogType, d int) string {
+	switch k := g.r.IntN(10); {
+	case k < 2:
+		return g.matchExpr(t, d)
+	case k < 4 && t == oRes:
+		return g.catchExpr(d)
+	}
+	return g.ifExpr(t, d)
+}
+
+// arm is the body of an arm of a value form: its tail, sometimes after a
+// local of the arm, which the arm releases after its tail unless the
+// tail moves it (R43).
+func (g *ogGen) arm(t ogType, d int) string {
+	if d <= 0 || g.r.IntN(3) != 0 {
+		return g.expr(t, d-1)
+	}
+	g.scopes = append(g.scopes, nil)
+	pre := g.armLocal(d)
+	tail := g.expr(t, d-1)
+	g.scopes = g.scopes[:len(g.scopes)-1]
+	return pre + tail
+}
+
+// armLocal declares a local of the arm, in the innermost scope, and lends
+// it: the statements before an arm's tail.
+func (g *ogGen) armLocal(d int) string {
+	g.f("arm:local")
+	pos := g.pos
+	g.pos = "let"
+	init := g.expr(oRes, d-1)
+	g.pos = pos
+	name := g.name("a")
+	g.declare(name, oRes, false, false).read = true
+	return fmt.Sprintf("let %s = %s; lendRes(%s); ", name, init, name)
+}
+
+// matchExpr is a match used as a value over a Slot: an owned local, whose
+// binding the arm may move, or a temporary, whose binding is lent.
+func (g *ogGen) matchExpr(t ogType, d int) string {
+	g.f("expr:match")
+	var subj string
+	lent := true
+	if v := g.pickVar(oSlot, true); v != nil && g.r.IntN(2) == 0 {
+		v.st = 2
+		subj, lent = v.name, false
+	} else {
+		pos := g.pos
+		g.pos = "match"
+		subj = "slotOf(" + g.literal(oSlot, d-1) + ")"
+		g.pos = pos
+	}
+	before := g.save()
+	g.scopes = append(g.scopes, nil)
+	m := g.declare(g.name("m"), oRes, false, lent)
+	a := g.arm(t, d)
+	g.scopes = g.scopes[:len(g.scopes)-1]
+	bind := "_"
+	if m.read {
+		bind = m.name
+	}
+	then := g.save()
+	g.restore(before)
+	b := g.arm(t, d)
+	g.join(then)
+	return fmt.Sprintf("match %s { case Full{R: %s}: %s; case Vacant: %s }", subj, bind, a, b)
+}
+
+// catchExpr is a catch used as a value: its arm gives the resource when
+// the call fails.
+func (g *ogGen) catchExpr(d int) string {
+	g.f("expr:catch")
+	call := fmt.Sprintf("openf(%d, %v, log, n, %d)", g.id(), g.bad(), g.cond())
+	before := g.save()
+	a := g.arm(oRes, d)
+	g.join(before)
+	return fmt.Sprintf("%s catch { case Bad: %s }", call, a)
 }
 
 // helper declares a function that returns a value of t, with a lent or a
@@ -621,7 +689,7 @@ func (g *ogGen) helper(t ogType, d int) string {
 		param = ", a Res"
 	case 2:
 		g.f("helper:taken")
-		if g.r.IntN(3) == 0 && !g.noBad {
+		if g.r.IntN(3) == 0 {
 			// A frame that owns a value whose release raises a defect
 			// after its result is made (R10).
 			arg = fmt.Sprintf(", open(%d, true, log)", g.id())
@@ -638,7 +706,6 @@ func (g *ogGen) helper(t ogType, d int) string {
 	saved := *g
 	g.scopes = [][]*ogVar{nil}
 	g.floor, g.multi, g.inLoop, g.inRun, g.ret = 0, true, false, false, t
-	g.noBad = false
 	g.helpers++
 	if kind != 0 {
 		g.declare("a", oRes, false, kind == 1)
@@ -781,10 +848,7 @@ func (g *ogGen) stmt(d int) *ogStmt {
 				v.st = 1
 				then := g.save()
 				g.restore(before)
-				saved := g.noBad
-				g.noBad = g.noBad || ogGapArmValue
 				b := g.expr(t, 1)
-				g.noBad = saved
 				g.join(then)
 				arg = fmt.Sprintf("if n > %d { %s } else { %s }", c, v.name, b)
 			} else {

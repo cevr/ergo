@@ -89,6 +89,7 @@ func (fc *funcCtx) plainCatchBody(x *syntax.CatchExpr, m *check.Match, o operand
 			fc.line("var " + result + " " + fc.goType(m.Result))
 		}
 		fc.armHeldVar(x, result)
+		fc.armValueVar(x, result)
 	} else if o.val != "" {
 		fc.line("_ = " + o.val)
 	}
@@ -108,6 +109,7 @@ func (fc *funcCtx) plainCatchBody(x *syntax.CatchExpr, m *check.Match, o operand
 		fc.line("\t" + result + " = " + o.val)
 	}
 	fc.line("}")
+	fc.armValueEnd(x, result)
 	return operand{val: result}
 }
 
