@@ -25,7 +25,10 @@ import ergo.local/prototype/internal/sketch/std ergo.local/prototype/internal/sk
 # cannot name, receive or build a syntax node.
 import math/big
 # CHK1b: bytes.Equal and crypto/sha256.Sum256 verify the snapshot before any
-# graph decode. They accept only bytes and cannot construct a syntax node.
+# graph decode. crypto/sha256 (embed.go, package assets) also hashes one
+# embed key's bytes (sha256.Sum256) into a name. Both accept only bytes and
+# import no ergo.local package (go list -deps), so they cannot name, receive
+# or build a syntax node.
 import bytes crypto/sha256
 # runtime/v1 (G5b, the std purity fact): footprint.go calls only
 # v1.BodyOf(name string) and reads Body.Pure; extern.go reads only the
@@ -70,3 +73,8 @@ site (*checker).assignStmt BinaryExpr compoundFixture
 # on the length itself. Its origin is the ArrayType, so it lies in that file.
 # Every [N]T reaches it; TestArrayDiagnostics reports at it.
 site (*checker).arrayType BasicLit arrayFixture
+# replaced (ownership.go, R43) makes the temporary key of each resource
+# field an update or spread drops from its base: an Ident at the field's
+# name (or at the base), made from the composite literal, so it lies in
+# that file. An update that names a resource field reaches it.
+site (*ownWalk).replaced Ident updateDropFixture
