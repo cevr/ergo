@@ -116,7 +116,7 @@ var ogFeatures = []string{
 	"expr:if", "expr:match", "expr:catch", "catch:bad-local", "expr:with", "with:lend-local", "with:bad-local", "catch:go", "catch:go-bad-local", "catch:go-file", "catch:go-file-bad-local", "arm:local", "if:lend-local", "if:lend-local-bad", "if:lend-local-catch", "tup:give2",
 	"conv:lend", "conv:take", "conv:let", "conv:return", "conv:store", "conv:assign",
 	"variant:let", "variant:lend",
-	"stmt:let", "stmt:letmut", "stmt:assign", "assign:release", "stmt:lend-local", "stmt:lend-temp", "stmt:use", "stmt:take", "stmt:close",
+	"stmt:let", "stmt:letmut", "stmt:assign", "assign:release", "update:Pair", "spread:copy", "spread:none", "stmt:lend-local", "stmt:lend-temp", "stmt:use", "stmt:take", "stmt:close",
 	"stmt:if", "stmt:for", "stmt:break", "stmt:continue", "stmt:fail", "stmt:boom", "stmt:return",
 	"pat:let:tup", "pat:let:pair", "pat:let:box", "pat:let:nested",
 	"loop:values:res", "loop:values:tup", "loop:values:pair",
@@ -253,6 +253,17 @@ func keepTup(t (Res, Res)) takes t {}
 func keepGuard(g Guard) takes g {}
 func keepBox(b Box) takes b {}
 func keepSlot(s Slot) takes s {}
+
+type Core { R Res }
+type Wide { ..Core, X Res }
+type Thin { ..Core, n int }
+
+func wideOf(w Wide) Wide takes w {
+	w
+}
+
+func lendThin(t Thin) { t.R.Use() }
+func keepThin(t Thin) takes t {}
 
 `
 
@@ -570,6 +581,18 @@ func (g *ogGen) literal(t ogType, d int) string {
 	pos := g.pos
 	defer func() { g.pos = pos }()
 	g.pos = "store"
+	if (t == oPair || t == oGuard) && d > 0 && g.r.IntN(4) == 0 {
+		// An update: the base moves into the value, and the field it
+		// names is released at the statement's end (R43, Info.Replaced).
+		// A Guard has its own Close, so its update is refused (R39).
+		g.f("update:" + ogTypeKey[t])
+		base := g.expr(t, d-1)
+		field := "R"
+		if t == oPair && g.r.IntN(2) == 0 {
+			field = "S"
+		}
+		return fmt.Sprintf("%s{..%s, %s: %s}", ogTypeName[t], base, field, g.expr(oRes, d-1))
+	}
 	switch t {
 	case oPair:
 		a := g.expr(oRes, d-1)
@@ -907,7 +930,28 @@ func (g *ogGen) stmt(d int) *ogStmt {
 	for {
 		g.pos = ""
 		g.badSince = false
-		switch g.r.IntN(27) {
+		switch g.r.IntN(28) {
+		case 27:
+			// A spread from Wide to Thin: it copies R, or names it and
+			// copies nothing; either way it drops X, which the statement
+			// releases at its end (Info.Replaced).
+			g.pos = "store"
+			e := fmt.Sprintf("Wide{R: %s, X: %s}", g.expr(oRes, 1), g.expr(oRes, 1))
+			if g.r.IntN(2) == 0 {
+				e = "wideOf(" + e + ")"
+			}
+			var s string
+			if g.r.IntN(2) == 0 {
+				g.f("spread:none")
+				s = fmt.Sprintf("Thin{..%s, R: %s, n: 1}", e, g.expr(oRes, 1))
+			} else {
+				g.f("spread:copy")
+				s = fmt.Sprintf("Thin{..%s, n: 1}", e)
+			}
+			if g.r.IntN(2) == 0 {
+				return &ogStmt{line: "lendThin(" + s + ")"}
+			}
+			return &ogStmt{line: "keepThin(" + s + ")"}
 		case 24:
 			// A Go file, in run's frame only (go.Foreign is in its row,
 			// and main provides it): bound and lent, lent as a
