@@ -71,8 +71,10 @@ type Suite struct {
 	Command []string
 	List    func(root string) ([]string, error)
 	Env     []string
-	// Tags are a Go suite's build tags (go test -tags).
+	// Tags are a Go suite's build tags (go test -tags); Only, when set,
+	// are the only tests of the Go suite that the runner runs.
 	Tags string
+	Only []string
 }
 
 // Deadlines of the mutant pass, derived from the coverage pass: a child may
@@ -260,7 +262,7 @@ func (e *engine) load(ledgers []string) error {
 	}
 	fmt.Fprintf(h, "cover %q tools %q", e.cfg.Cover, toolNames(e.cfg.Tools))
 	for _, s := range e.cfg.Suites {
-		fmt.Fprintf(h, " suite %s %s %q %q %q", s.Name, s.Package, s.Command, s.Env, s.Tags)
+		fmt.Fprintf(h, " suite %s %s %q %q %q %q", s.Name, s.Package, s.Command, s.Env, s.Tags, s.Only)
 	}
 	e.key = hex.EncodeToString(h.Sum(nil))[:16]
 	return nil
@@ -638,7 +640,7 @@ func (e *engine) measure(ctx context.Context) (*coverage, error) {
 				return nil, fmt.Errorf("list the tests of %s: %w", s.Name, err)
 			}
 			for _, n := range strings.Fields(string(list)) {
-				if strings.HasPrefix(n, "Test") {
+				if strings.HasPrefix(n, "Test") && (s.Only == nil || slices.Contains(s.Only, n)) {
 					names = append(names, n)
 				}
 			}

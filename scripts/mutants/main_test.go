@@ -67,7 +67,9 @@ func TestScopeIsTheLedgersPackage(t *testing.T) {
 
 // TestTaggedKillerIsItsOwnSuite: a killer DIR[TAGS]:Test… names a test
 // that exists only under build tags (runtime/v1's ergoexplore tests), so
-// its suite is DIR built with -tags=TAGS, once, beside DIR's own suite.
+// its suite is DIR built with -tags=TAGS, once, beside DIR's own suite,
+// and it runs only the tests the ledger names (the package's other tests
+// under ergoexplore hang without the explored worker: 4 h of deadlines).
 // Without it the x7 rows of runtime/v1 were judged by the untagged binary,
 // where their killers do not exist (MUT-clean).
 func TestTaggedKillerIsItsOwnSuite(t *testing.T) {
@@ -80,8 +82,9 @@ func TestTaggedKillerIsItsOwnSuite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Suite{{Name: "runtime/v1", Package: "./runtime/v1"}, {Name: "runtime/v1[ergoexplore]", Package: "./runtime/v1", Tags: "ergoexplore"}}
-	if len(suites) != len(want) || suites[0].Name != want[0].Name || suites[0].Tags != "" || suites[1].Name != want[1].Name || suites[1].Package != want[1].Package || suites[1].Tags != want[1].Tags {
+	want := []Suite{{Name: "runtime/v1", Package: "./runtime/v1"}, {Name: "runtime/v1[ergoexplore]", Package: "./runtime/v1", Tags: "ergoexplore", Only: []string{"TestA", "TestC"}}}
+	if len(suites) != len(want) || suites[0].Name != want[0].Name || suites[0].Tags != "" || suites[0].Only != nil ||
+		suites[1].Name != want[1].Name || suites[1].Package != want[1].Package || suites[1].Tags != want[1].Tags || !slices.Equal(suites[1].Only, want[1].Only) {
 		t.Errorf("suites %+v, want %+v", suites, want)
 	}
 }

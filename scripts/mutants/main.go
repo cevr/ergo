@@ -270,15 +270,25 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 		}
 		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
 		// A killer named DIR[TAGS]:Test… is a test of DIR built with
-		// -tags=TAGS (runtime/v1's ergoexplore tests): its own suite.
+		// -tags=TAGS (runtime/v1's ergoexplore tests): its own suite, which
+		// runs only the tests the ledger names. The package's other tests
+		// under those tags expect the tag's own harness (an explored
+		// worker), and fail or hang without it.
 		for _, m := range j.Ledger.Mutants {
 			for _, id := range append(slices.Clone(m.Killers), anchorTests(m)...) {
-				name, _ := splitID(id)
+				name, test := splitID(id)
 				tags, ok := strings.CutPrefix(name, rel+"[")
-				if !ok || !strings.HasSuffix(tags, "]") || slices.ContainsFunc(suites, func(s Suite) bool { return s.Name == name }) {
+				if !ok || !strings.HasSuffix(tags, "]") {
 					continue
 				}
-				suites = append(suites, Suite{Name: name, Package: "./" + rel, Tags: strings.TrimSuffix(tags, "]")})
+				i := slices.IndexFunc(suites, func(s Suite) bool { return s.Name == name })
+				if i < 0 {
+					suites = append(suites, Suite{Name: name, Package: "./" + rel, Tags: strings.TrimSuffix(tags, "]")})
+					i = len(suites) - 1
+				}
+				if !slices.Contains(suites[i].Only, test) {
+					suites[i].Only = append(suites[i].Only, test)
+				}
 			}
 		}
 	}
