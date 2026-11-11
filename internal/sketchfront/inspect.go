@@ -40,6 +40,28 @@ type GoReport struct {
 	Imports   []GoImport   `json:"imports"`
 	Functions []GoFunction `json:"functions"`
 	Symbols   []GoSymbol   `json:"symbols"`
+	// Derived are the program's derives (patterns.md, Derivation 7).
+	Derived []GoDerived `json:"derived,omitempty"`
+}
+
+// GoDerived is one `type T derive E`: what it produced and, for a pattern,
+// the parse matcher's engine, why that engine, and its counts.
+type GoDerived struct {
+	Package string   `json:"package"`
+	Type    string   `json:"type"`
+	Plan    string   `json:"plan"`
+	Decls   []string `json:"decls"`
+	Steps   int      `json:"steps"`
+	Pattern string   `json:"pattern,omitempty"`
+	// Engine is the parse engine: direct, table or nfa.
+	Engine string `json:"engine,omitempty"`
+	// Reason says why the construction check selected the engine.
+	Reason       string `json:"reason,omitempty"`
+	Nodes        int    `json:"nodes,omitempty"`
+	Instructions int    `json:"instructions,omitempty"`
+	States       int    `json:"states,omitempty"`
+	// Allocates is true when a capture repeats: the matcher keeps events.
+	Allocates bool `json:"allocates,omitempty"`
 }
 
 // GoImport is one Go package the program imports.
@@ -152,6 +174,21 @@ func InspectGo(pkgs []*check.Package) GoReport {
 		r.Symbols = append(r.Symbols, s)
 	}
 	sort.Slice(r.Symbols, func(i, j int) bool { return r.Symbols[i].Target < r.Symbols[j].Target })
+	for _, p := range pkgs {
+		if p == nil || p.Std() || p.Host() || p.Derive == nil {
+			continue
+		}
+		for _, d := range p.Derive.Derived {
+			g := GoDerived{Package: p.Path, Type: d.Type, Plan: d.Plan, Decls: append([]string{}, d.Decls...), Steps: d.Steps, Pattern: d.Pattern}
+			if d.Parse != nil {
+				in := d.Parse.Inspect()
+				g.Engine, g.Reason = string(in.Engine), in.Reason
+				g.Nodes, g.Instructions, g.States = in.Nodes, in.Instructions, in.States
+				g.Allocates = !d.Parse.Fixed()
+			}
+			r.Derived = append(r.Derived, g)
+		}
+	}
 	return r
 }
 
