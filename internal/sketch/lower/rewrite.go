@@ -210,7 +210,7 @@ type rwArg struct {
 }
 
 // rewritable reports a provider function a window may call: a plain Ergo
-// function of no type parameters, on its value (not *P), with no result
+// function of no type parameters, on its value or *P, with no result
 // and no failure, whose other parameters are basic.
 func rewritable(f *check.Func) bool {
 	if f == nil || f.Decl == nil || f.Decl.Extern != nil || f.Sig == nil || len(f.Sig.TParams) > 0 || len(f.Sig.Results) > 0 || f.Sig.Fallible || len(f.Sig.Params) == 0 {

@@ -11,7 +11,7 @@ import (
 )
 
 // A rewrite law (types.md, Laws 14; check.Rewrite) `law L(params) [when
-// R() == C] rewrite { lhs } to { rhs }` holds for a provider P when, from
+// R() == C] { lhs } == { rhs }` holds for a provider P when, from
 // every state a drawn prefix of the owner's operations reaches (and the
 // guard admits), `prefix; lhs; cont` and `prefix; rhs; cont` read the same:
 // every result of a drawn continuation cont, then every read operation (no
@@ -19,7 +19,9 @@ import (
 // P's constructor builds from the case's arguments, so P must be
 // deterministic and need not be copyable. A run draws its cases, so it is
 // tested, never proved: a prefix is a sequence, an unbounded value (Laws
-// 10, one rule). To the drawn cases a run adds rewriteInstanceCases cases
+// 10, one rule). valueProof replaces this reporter for supported keyed
+// records with exhaustive coverage and full-state equality. To the drawn
+// cases a run adds rewriteInstanceCases cases
 // at each site instance (RewriteInstance): the constants at which a
 // module's lowering used the law.
 
@@ -67,7 +69,7 @@ func (l *lowerer) rewriteGuard(law *check.Law) string {
 }
 
 // rewriteDecl lowers a rewrite law's sides to Go functions of the test
-// build, `func ergoLawTLLeft(env *Env, params...) error` and its Right, and
+// build, `func ergoLawTLLeft(env *Env, params...) ([]string, error)` and its Right, and
 // its guard, when it has one, to `func ergoLawTLWhen(env *Env) (bool,
 // error)`. A side's bare operation calls call the provider the case binds
 // into env, as a member law's do.
