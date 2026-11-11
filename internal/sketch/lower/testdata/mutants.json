@@ -1,11 +1,11 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
-    {"name":"16a-r1-values-binding-unregistered","origin":"batch-16a fix r1 M2","file":"internal/sketch/lower/body.go","from":"\t\tfc.ownVar(b.v, p)","to":"\t\t_ = p","rule":"An owned for-in binding (a queue's Values(), Q7) is registered; a plan that names an unregistered owned value is an internal compiler error.","killers":["lower:TestOwnershipRunModel"]},
+    {"name":"16a-r1-values-binding-unregistered","origin":"batch-16a fix r1 M2","file":"internal/sketch/lower/body.go","from":"\t\tfc.ownVar(b.v, p)","to":"\t\t_ = p","rule":"An owned for-in binding (a queue's Values(), Q7) is registered; a plan that names an unregistered owned value is an internal compiler error.","killers":["lower:TestOwnershipRunModel","lower:TestOwnershipGrammarRun"]},
     {"name":"16a-r1-part-not-handed","origin":"batch-16a fix r1 M1","file":"internal/sketch/lower/release.go","from":"if x == nil || !fc.l.info.PartHands[x] {","to":"if true {","rule":"A part moves to the value built from it: its statement entry is removed there.","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-part-unspilled","origin":"batch-16a fix r1 M1","file":"internal/sketch/lower/release.go","from":"if x != nil && fc.l.info.PartHands[x] {","to":"if false && x != nil && fc.l.info.PartHands[x] {","rule":"From the first part with a statement owner on, every operand is spilled: each part is registered before the next operand runs, and every operand runs (a division may panic) before the parts are handed to the value.","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-elided-part-unregistered","origin":"batch-16a fix r1 M1","file":"internal/sketch/lower/expr.go","from":"out[i] = fc.ownTemp(lit, operand{val: fc.composite(lit, fc.typeOf(lit))}).val","to":"out[i] = fc.composite(lit, fc.typeOf(lit))","rule":"An elided literal element is registered when its statement owns it.","killers":["lower:TestOwnershipRunModel"]},
-    {"name":"po1-lower-binding-unregistered","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, v := range plan.Bindings {","to":"for _, v := range plan.Bindings[:0] {","rule":"A selected arm registers each owned binding before running its body.","killers":["lower:TestDropGlueModel"]},
+    {"name":"po1-lower-binding-unregistered","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, v := range plan.Bindings {","to":"for _, v := range plan.Bindings[:0] {","rule":"A selected arm registers each owned binding before running its body.","killers":["lower:TestDropGlueModel","lower:TestOwnershipGrammarRun"]},
     {"name":"po1-lower-subject-kept","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, source := range plan.Sources {","to":"for _, source := range plan.Sources[:0] {","rule":"A consuming arm removes its subject's old release entry.","killers":["lower:TestDropGlueModel"]},
     {"name":"po1-match-scope-unreleased","origin":"batch-16a PO1","file":"internal/sketch/lower/body.go","from":"return fc.scoped(s, func() bool { return fc.typeMatchBody(s, d) })","to":"return fc.typeMatchBody(s, d)","rule":"A temporary subject not consumed by the selected arm releases at match end, before the next statement.","killers":["lower:TestDropGlueModel"]},
     {
@@ -2434,6 +2434,42 @@
       "to": "false && capture != nil && len(capture.Vars) > 0",
       "rule": "Moving callback admission needs B1 ownership handles, not static value slots.",
       "killers": ["lower:TestTaskOwnershipRunModel"]
+    },
+    {
+      "name": "owgen-fu0-lent-yield-registered",
+      "origin": "OWGEN FU0",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\tfc.line(h + \" = false\")",
+      "to": "\t\tfc.line(h + \" = true\")",
+      "rule": "resources R43 (the mHold rule): a lent if or match registers its value only on the paths whose arm made it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu1-returned-released",
+      "origin": "OWGEN FU1",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\tif !fc.l.info.ReturnedTemps[x] {",
+      "to": "\tif true {",
+      "rule": "resources R10: a returned new value the frame owns is kept, not released, when the frame returns it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu2-close-parts-unlowered",
+      "origin": "OWGEN FU2",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\town := f.Pkg.Info.CloseParts[f]",
+      "to": "\town := (*check.Drop)(nil)",
+      "rule": "resources R3: a written Close releases its receiver's parts after its body.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-reassign-variant-temp",
+      "origin": "OWGEN (found by the grammar generator)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tfc.line(\"var \" + t + \" \" + fc.goType(v.Type) + \" = \" + val)",
+      "to": "\tfc.line(t + \" := \" + val)",
+      "rule": "A reassigned owned local's temporary has the local's type: a variant assigned to a local of its union.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
     }
   ]
 }
