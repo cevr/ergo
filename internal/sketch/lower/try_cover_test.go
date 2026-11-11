@@ -267,7 +267,7 @@ func prec(n *tx) int {
 }
 
 // expr is an expression of the given type and depth; an operand of a
-// binary expression is parenthesized where the precedence needs it, so
+// binary expression is parenthesized where its precedence is looser, so
 // the tree is the one the parser builds.
 func (g *tryGen) expr(isBool bool, depth int) *tx {
 	var n *tx
