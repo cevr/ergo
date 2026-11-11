@@ -30,7 +30,10 @@ func IsPredeclared(name string) bool {
 // scope's parent is above: the universe for the prelude itself, the
 // prelude scope for every other package.
 func predeclaredAbove(name string, above *Scope) bool {
-	if name == "_" || notPreludeNames[name] {
+	// The constraint wire is not predeclared: a declaration named wire
+	// shadows it, so wire stays an ordinary identifier (owner q83; 196w),
+	// for the checker and for bindc alike.
+	if name == "_" || notPreludeNames[name] || name == SetWire.String() {
 		return false
 	}
 	if predeclaredNames[name] {

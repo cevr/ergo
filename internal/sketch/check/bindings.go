@@ -28,12 +28,8 @@ import (
 // (predeclared.go): a universe name of D-D3's list, a name of the prelude
 // scope, or one of predeclaredNames. The prelude package itself sees only
 // the universe above it, so its own declarations are not refused. The
-// constraint wire is not one: a declaration named wire shadows it, so wire
-// stays an ordinary identifier (owner q83; 196w).
+// constraint wire is not one (predeclaredAbove).
 func (c *checker) isPreludeName(name string) bool {
-	if name == SetWire.String() {
-		return false
-	}
 	return predeclaredAbove(name, c.pkg.Scope.parent)
 }
 
