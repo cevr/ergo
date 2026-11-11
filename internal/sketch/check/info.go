@@ -301,6 +301,14 @@ type Info struct {
 	// form's statement temporary, so its tails that lend a name clear
 	// the enclosing form's flag (ArmHeld). Added in OWGEN round 2.
 	HeldIn map[syntax.Expr]syntax.Expr
+	// Replaced is, for each record update or spread `T{..base, …}` whose
+	// value does not copy a field of its base that holds a resource (a
+	// field it names, or a field of a spread's base that T lacks), those
+	// fields in release order: each is a temporary of the statement (its
+	// Temp, a key of OwnedTemps that is no node of the tree), owned from
+	// when the value is built and released at the statement's end (R43).
+	// Added in 16a fix r2 (additive).
+	Replaced map[*syntax.CompositeLit][]Replaced
 	// TaskCaptures records the resource captures handed to the root of a
 	// started task (R12). A repeated callback only lends them: the root
 	// owns and releases them once, outside all runs of the callback.
@@ -374,6 +382,14 @@ type CopySite struct {
 // parameter (Var), or a temporary the statement owns (Temp). Flag marks a
 // value owned on some paths only: the release runs when the value was not
 // handed off (a drop flag, resources R21).
+// Replaced is one field of an update's or a spread's base that the value
+// built does not copy (Info.Replaced): the base's field and the key of its
+// release in OwnedTemps.
+type Replaced struct {
+	Field *Field
+	Temp  syntax.Expr
+}
+
 type Release struct {
 	Var  *Var
 	Temp syntax.Expr
@@ -475,6 +491,7 @@ func newInfo() *Info {
 		ArmHeld:        map[syntax.Expr]bool{},
 		LentYields:     map[syntax.Expr]bool{},
 		HeldIn:         map[syntax.Expr]syntax.Expr{},
+		Replaced:       map[*syntax.CompositeLit][]Replaced{},
 		TaskCaptures:   map[syntax.Node]*TaskCapture{},
 		ResultDrops:    map[*syntax.CallExpr]*Drop{},
 		CloseParts:     map[*Func]*Drop{},

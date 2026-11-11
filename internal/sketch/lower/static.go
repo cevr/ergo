@@ -103,6 +103,10 @@ func (l *lowerer) staticPlan(params []*check.Var, body []syntax.Stmt) bool {
 						}
 					}
 				}
+			case *syntax.CompositeLit:
+				for _, r := range info.Replaced[n] {
+					add(r.Temp, info.OwnedTemps[r.Temp]) // no node of the tree
+				}
 			case *syntax.SelectorExpr:
 				if _, taken := info.FieldTakes[n]; taken {
 					ok = false

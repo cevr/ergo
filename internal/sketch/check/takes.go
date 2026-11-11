@@ -267,6 +267,7 @@ func (c *checker) mapKeyCopies() {
 			c.addCopy(f, CopySite{TParam: i, At: s.at, Where: c.sitePos(s.file, s.at), What: "it is a map key", Key: true})
 		})
 	}
+	c.ownershipCopies(owner)
 }
 
 // sitePos is n's position as file:line:col.
@@ -322,11 +323,12 @@ func (c *checker) takesPass(f *Func) bool {
 	return changed
 }
 
-// instance checks a call of a generic function f whose type arguments are
+// instance checks a call of a generic function f, or f as a function
+// value (16a fix r4), whose type arguments are
 // targs: a type argument that holds a resource, bound to a type parameter
 // f copies, is S108 (S112 for a map key); one built from the caller's own
 // type parameter is the caller's copy site.
-func (w *ownWalk) instance(x *syntax.CallExpr, f *Func, targs []Type) {
+func (w *ownWalk) instance(x syntax.Node, f *Func, targs []Type) {
 	for _, s := range copiesOf(f) {
 		if s.TParam >= len(targs) || s.TParam >= len(f.Sig.TParams) {
 			continue
@@ -354,6 +356,15 @@ func (w *ownWalk) instance(x *syntax.CallExpr, f *Func, targs []Type) {
 			}
 			w.copySite(t, x, what, s.Key)
 		}
+	}
+}
+
+// valueInstance checks a generic function named as a value at x (h[Res],
+// or h where the type arguments are inferred): its copy sites bind as a
+// call's do, since the value is called later with the same arguments.
+func (w *ownWalk) valueInstance(x syntax.Expr) {
+	if inst := w.info.Instances[x]; inst != nil && inst.Func != nil {
+		w.instance(x, inst.Func, inst.TypeArgs)
 	}
 }
 

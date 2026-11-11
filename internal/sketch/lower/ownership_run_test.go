@@ -523,6 +523,9 @@ type orEntry struct {
 	// parts is a tuple's or record's parts, released last first by its
 	// generated release (B2), each after an earlier defect (R9).
 	parts []*orEntry
+	// silent marks a value whose release writes no line (a Snk: only its
+	// defect shows).
+	silent bool
 }
 
 // orExit is how a statement list ends.
@@ -549,7 +552,9 @@ func (m *orModel) release(e *orEntry) bool {
 		}
 		return bad
 	}
-	m.say("close %d", e.id)
+	if !e.silent {
+		m.say("close %d", e.id)
+	}
 	if e.bad {
 		m.defect = true
 		return true

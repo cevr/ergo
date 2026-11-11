@@ -351,9 +351,17 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		// Only a value that implements the operation type can reach
 		// the ownership guard. A missing operation is the more specific
 		// failure (cmd/compile assignOp's diagnostic order).
-		if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {
+		if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.releasable(t) {
 			// R22: the operation value would never be released.
 			return assignment{}, resourceIntoCrossingText(v, t)
+		}
+		if s := sealedStd(v); s != nil && sealedStd(t) == nil && len(it.Methods) > 0 {
+			// The runtime's own type stands for a sealed std protocol, and
+			// its operations have Go's shapes, not those of an operation
+			// type of the program (lower/std.go runtimeType): no Go
+			// conversion makes the one the other. A constraint can name
+			// it: a generic body calls its operations through a witness.
+			return assignment{}, sealedSourceText(v, t)
 		}
 		if s := sealedStd(t); s != nil && sealedStd(v) == nil {
 			// A program value, or a program operation type's value, never
