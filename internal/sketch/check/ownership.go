@@ -131,12 +131,18 @@ type ownLocal struct {
 	root     *Var
 	lendEnd  *lendPoint // a binding lent from a subject temporary
 	loanOnly bool
+	// t is the type of a temporary that is no expression of the tree: a
+	// field an update replaces (Info.Replaced).
+	t Type
 }
 
 // typ is the type of the value l holds.
 func (w *ownWalk) typ(l ownLocal) Type {
 	if l.v != nil {
 		return l.v.Type
+	}
+	if l.t != nil {
+		return l.t
 	}
 	return w.info.Types[l.temp]
 }
@@ -227,6 +233,10 @@ type ownWalk struct {
 	borrow    map[*Var]*Var
 	lending   *lendWalk
 	lendFrame syntax.Node
+	// ranged is the range of the for-in being walked, without its
+	// parentheses: the one place a queue's Values() of resources may be
+	// (valuesSeq).
+	ranged syntax.Expr
 }
 
 func (c *checker) newOwnWalk() *ownWalk {
@@ -695,7 +705,12 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 	case *syntax.ForStmt:
 		w.loop(s, s.Cond, s.Body, nil)
 	case *syntax.RangeStmt:
-		w.region(s.X, func() { w.expr(s.X, mLend, hand{}) })
+		w.region(s.X, func() {
+			saved := w.ranged
+			w.ranged = unparen(s.X)
+			w.expr(s.X, mLend, hand{})
+			w.ranged = saved
+		})
 		w.loop(s, nil, s.Body, w.rangeBinds(s))
 	case *syntax.AssertStmt:
 		w.region(s, func() { w.expr(s.X, mLend, hand{}) })
@@ -727,15 +742,7 @@ func (w *ownWalk) rangeBinds(s *syntax.RangeStmt) func() {
 	if lp == nil {
 		return nil
 	}
-	owned := false
-	if call, ok := unparen(s.X).(*syntax.CallExpr); ok && lp.Domain == LoopSeq {
-		if k := w.info.Calls[call]; k != nil && k.Kind == CallOp && k.Op != nil && k.Op.Name == "Values" {
-			if sel, ok := call.Fun.(*syntax.SelectorExpr); ok && isQueue(w.info.Types[sel.X]) {
-				owned = true
-			}
-		}
-	}
-	if owned {
+	if _, owned := w.valuesSeq(s.X); owned && lp.Domain == LoopSeq {
 		var p *Pattern
 		if s.Value != nil {
 			p = w.info.Patterns[s.Value]
@@ -767,6 +774,34 @@ func (w *ownWalk) rangeBinds(s *syntax.RangeStmt) func() {
 			w.acquire(b)
 		}
 	}
+}
+
+// valuesSeq reports x, a call q.Values() of a std queue (Q7), and the
+// queue's element type. Each value that Seq yields was popped from the
+// queue, so it is the iterating code's own: only a for-in that ranges over
+// the call owns and releases it (rangeBinds). A Seq has no owner of its
+// own, and a Seq[T] parameter does not say whether its values are owned
+// or lent, so a queue's Values() of resources anywhere else (a let, an
+// argument, a field, a returned or yielded value) is S108 (call;
+// resources R35).
+func (w *ownWalk) valuesSeq(x syntax.Expr) (Type, bool) {
+	call, ok := unparen(x).(*syntax.CallExpr)
+	if !ok {
+		return nil, false
+	}
+	k := w.info.Calls[call]
+	if k == nil || k.Kind != CallOp || k.Op == nil || k.Op.Name != "Values" {
+		return nil, false
+	}
+	sel, ok := unparen(call.Fun).(*syntax.SelectorExpr)
+	if !ok || !isQueue(w.info.Types[sel.X]) {
+		return nil, false
+	}
+	n := w.info.Types[sel.X].(*Named)
+	if len(n.TArgs) != 1 {
+		return nil, true
+	}
+	return n.TArgs[0], true
 }
 
 // isQueue reports std queue.Queue[T] or an instance of it.
@@ -1671,6 +1706,79 @@ func (w *ownWalk) parts(x syntax.Expr, h hand) {
 		}
 		return moved[i]
 	})
+	if lit, ok := x.(*syntax.CompositeLit); ok && lit.Base != nil && w.st.reached {
+		rs := w.replaced(lit)
+		for i := len(rs) - 1; i >= 0; i-- {
+			w.acquire(ownLocal{temp: rs[i].Temp, t: rs[i].Field.Type})
+		}
+	}
+}
+
+// replaced is the fields of the base of the update or spread x that hold
+// a resource and that its value does not copy: each field x names, in
+// written order, then, in a spread, each field of the base that x's type
+// lacks, in declaration order. The base moved into the value being built,
+// so when the value is built the statement owns each such field, as a
+// temporary released at its end (R43), last acquired first: so parts
+// acquires them in the reverse of this order. Rust drops the fields of a functional record
+// update's base that the value does not take at the end of the base's
+// scope (a temporary's: the statement). Cached in Info.Replaced, so every
+// pass of a loop uses one key per field.
+func (w *ownWalk) replaced(x *syntax.CompositeLit) []Replaced {
+	if rs, ok := w.info.Replaced[x]; ok {
+		return rs
+	}
+	bt := w.info.Types[x.Base]
+	bs := asStruct(bt)
+	if bt == nil || isInvalid(bt) || bs == nil {
+		return nil
+	}
+	copied := map[*Field]bool{}
+	copies, spread := w.info.Spreads[x]
+	for _, c := range copies {
+		copied[c.From] = true
+	}
+	named := map[string]syntax.Pos{}
+	var order []string
+	for _, e := range x.Elts {
+		if kv, ok := e.(*syntax.KeyValueExpr); ok {
+			if id, ok := kv.Key.(*syntax.Ident); ok {
+				named[id.Name] = id.Pos()
+				order = append(order, id.Name)
+			}
+		}
+	}
+	dropped := func(f *Field) bool {
+		if spread {
+			return !copied[f]
+		}
+		_, ok := named[f.Name]
+		return ok
+	}
+	var rs []Replaced
+	add := func(f *Field, at syntax.Pos) {
+		if dropped(f) && w.tracked(f.Type) {
+			rs = append(rs, Replaced{Field: f, Temp: &syntax.Ident{NamePos: at, Name: f.Name}})
+		}
+	}
+	seen := map[*Field]bool{}
+	for _, name := range order {
+		for _, f := range bs.Fields {
+			if f.Name == name && !seen[f] {
+				seen[f] = true
+				add(f, named[name])
+			}
+		}
+	}
+	for _, f := range bs.Fields {
+		if !seen[f] {
+			add(f, x.Base.Pos())
+		}
+	}
+	if len(rs) > 0 {
+		w.info.Replaced[x] = rs
+	}
+	return rs
 }
 
 // sequence evaluates the operands xs of one value that is still being
@@ -1937,6 +2045,14 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			w.expr(a, mLend, hand{})
 		}
 		return false
+	}
+	if elem, ok := w.valuesSeq(x); ok && syntax.Expr(x) != w.ranged && elem != nil && w.tracked(elem) && w.st.reached {
+		text := calleeText(x) + "()"
+		if w.genericOnly(elem) {
+			w.copySite(elem, x, fmt.Sprintf("%s yields owned values of %s outside a for-in", text, elem), false)
+		} else {
+			w.report(x, "%s yields the queue's values of %s, each owned by the code that iterates it, and only a for-in over the call releases them; a Seq has no owner, so it cannot be kept or passed on (resources R35, Q7); write for v in %s { … } here", text, elem, text)
+		}
 	}
 	switch call.Kind {
 	case CallConversion:

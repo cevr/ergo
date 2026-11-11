@@ -742,6 +742,7 @@ func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) st
 	}
 	vals := fc.operands(values, true)
 	vals = fc.handBase(x.Base, vals)
+	fc.ownReplaced(x, u, td)
 	if td.goError && len(vals) == 1 {
 		// go.Error has one field: the update is a new go.Error (IG5).
 		fc.line(u + " = " + fc.l.rt() + ".GoErrorText(" + vals[0] + ")")
@@ -773,8 +774,9 @@ func (fc *funcCtx) spread(x *syntax.CompositeLit, t check.Type, td *typeDecl, co
 	for _, e := range x.Elts {
 		inPlace = inPlace && !fc.emits(e.(*syntax.KeyValueExpr).Value)
 	}
+	replaced := len(fc.l.info.Replaced[x]) > 0
 	switch {
-	case len(copies) == 0:
+	case len(copies) == 0 && !replaced:
 		fc.line("_ = " + base)
 	case !inPlace:
 		b = fc.temp("b")
@@ -796,12 +798,13 @@ func (fc *funcCtx) spread(x *syntax.CompositeLit, t check.Type, td *typeDecl, co
 	for i := range parts {
 		parts[i] += ": " + vals[i]
 	}
-	if len(copies) > 0 {
+	if len(copies) > 0 || replaced {
 		sn, ok := fc.typeOf(x.Base).(*check.Named)
 		if !ok {
 			ice(x.Base, "a spread base of type %s", fc.typeOf(x.Base))
 		}
 		std := fc.l.typeDecl(sn.Obj, x.Base)
+		fc.ownReplaced(x, b, std)
 		for _, c := range copies {
 			parts = append(parts, td.fieldName[c.Field.Name]+": "+b+"."+std.fieldName[c.From.Name])
 		}
