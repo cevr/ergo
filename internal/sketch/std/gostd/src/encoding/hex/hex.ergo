@@ -22,7 +22,7 @@ extern go encoding/hex.DecodedLen func DecodedLen(x int) int
 extern go encoding/hex.Dump func Dump(data []byte) string
 
 // ergo:go func Dumper(w io.Writer) io.WriteCloser
-extern go encoding/hex.Dumper func Dumper(w io.Writer) io.WriteCloser
+extern go encoding/hex.Dumper func Dumper(w io.Writer) io.WriteCloser takes w
 
 // ergo:go func Encode(dst []byte, src []byte) int
 extern go encoding/hex.Encode func Encode(dst []byte, src []byte) int
@@ -43,7 +43,7 @@ extern go encoding/hex.InvalidByteError type InvalidByteError byte
 extern go encoding/hex.InvalidByteError.Error func (e InvalidByteError) Error() string
 
 // ergo:go func NewDecoder(r io.Reader) io.Reader
-extern go encoding/hex.NewDecoder func NewDecoder(r io.Reader) io.Reader
+extern go encoding/hex.NewDecoder func NewDecoder(r io.Reader) io.Reader takes r
 
 // ergo:go func NewEncoder(w io.Writer) io.Writer
-extern go encoding/hex.NewEncoder func NewEncoder(w io.Writer) io.Writer
+extern go encoding/hex.NewEncoder func NewEncoder(w io.Writer) io.Writer takes w

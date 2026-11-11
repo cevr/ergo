@@ -8,13 +8,13 @@ import go io
 import go math/big
 
 // ergo:go func GenerateKey(c elliptic.Curve, r io.Reader) (*PrivateKey, error)
-extern go crypto/ecdsa.GenerateKey func GenerateKey(c elliptic.Curve, r io.Reader) go.Ref[PrivateKey] fails go.Error needs go.Foreign
+extern go crypto/ecdsa.GenerateKey func GenerateKey(c elliptic.Curve, r io.Reader) go.Ref[PrivateKey] fails go.Error needs go.Foreign takes c, r
 
 // ergo:go func ParseRawPrivateKey(curve elliptic.Curve, data []byte) (*PrivateKey, error)
-extern go crypto/ecdsa.ParseRawPrivateKey func ParseRawPrivateKey(curve elliptic.Curve, data []byte) go.Ref[PrivateKey] fails go.Error needs go.Foreign
+extern go crypto/ecdsa.ParseRawPrivateKey func ParseRawPrivateKey(curve elliptic.Curve, data []byte) go.Ref[PrivateKey] fails go.Error needs go.Foreign takes curve
 
 // ergo:go func ParseUncompressedPublicKey(curve elliptic.Curve, data []byte) (*PublicKey, error)
-extern go crypto/ecdsa.ParseUncompressedPublicKey func ParseUncompressedPublicKey(curve elliptic.Curve, data []byte) go.Ref[PublicKey] fails go.Error needs go.Foreign
+extern go crypto/ecdsa.ParseUncompressedPublicKey func ParseUncompressedPublicKey(curve elliptic.Curve, data []byte) go.Ref[PublicKey] fails go.Error needs go.Foreign takes curve
 
 // ergo:go type PrivateKey struct
 extern go crypto/ecdsa.PrivateKey type PrivateKey {
@@ -23,37 +23,37 @@ extern go crypto/ecdsa.PrivateKey type PrivateKey {
 }
 
 // ergo:go func (elliptic.Curve).Add(x1 *big.Int, y1 *big.Int, x2 *big.Int, y2 *big.Int) (x *big.Int, y *big.Int)
-extern go crypto/ecdsa.PrivateKey.Add func (r PrivateKey) Add(x1 *big.Int, y1 *big.Int, x2 *big.Int, y2 *big.Int) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign
+extern go crypto/ecdsa.PrivateKey.Add func (r PrivateKey) Add(x1 *big.Int, y1 *big.Int, x2 *big.Int, y2 *big.Int) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign takes r, x1, y1, x2, y2
 
 // ergo:go func (*PrivateKey).Bytes() ([]byte, error)
-extern go crypto/ecdsa.PrivateKey.Bytes func (priv *PrivateKey) Bytes() []byte fails go.Error needs go.Foreign
+extern go crypto/ecdsa.PrivateKey.Bytes func (priv *PrivateKey) Bytes() []byte fails go.Error needs go.Foreign takes priv
 
 // ergo:go func (elliptic.Curve).Double(x1 *big.Int, y1 *big.Int) (x *big.Int, y *big.Int)
-extern go crypto/ecdsa.PrivateKey.Double func (r PrivateKey) Double(x1 *big.Int, y1 *big.Int) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign
+extern go crypto/ecdsa.PrivateKey.Double func (r PrivateKey) Double(x1 *big.Int, y1 *big.Int) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign takes r, x1, y1
 
 // ergo:go func (*PrivateKey).ECDH() (*ecdh.PrivateKey, error)
-extern go crypto/ecdsa.PrivateKey.ECDH func (priv *PrivateKey) ECDH() go.Ref[ecdh.PrivateKey] fails go.Error needs go.Foreign
+extern go crypto/ecdsa.PrivateKey.ECDH func (priv *PrivateKey) ECDH() go.Ref[ecdh.PrivateKey] fails go.Error needs go.Foreign takes priv
 
 // ergo:go func (*PrivateKey).Equal(x crypto.PrivateKey) bool
 // ergo:refused PrivateKey.Equal: parameter 1: type PrivateKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (elliptic.Curve).IsOnCurve(x *big.Int, y *big.Int) bool
-extern go crypto/ecdsa.PrivateKey.IsOnCurve func (r PrivateKey) IsOnCurve(x *big.Int, y *big.Int) bool needs go.Foreign
+extern go crypto/ecdsa.PrivateKey.IsOnCurve func (r PrivateKey) IsOnCurve(x *big.Int, y *big.Int) bool needs go.Foreign takes r, x, y
 
 // ergo:go func (elliptic.Curve).Params() *elliptic.CurveParams
-extern go crypto/ecdsa.PrivateKey.Params func (r PrivateKey) Params() Option[go.Ref[elliptic.CurveParams]] needs go.Foreign
+extern go crypto/ecdsa.PrivateKey.Params func (r PrivateKey) Params() Option[go.Ref[elliptic.CurveParams]] needs go.Foreign takes r
 
 // ergo:go func (*PrivateKey).Public() crypto.PublicKey
 // ergo:refused PrivateKey.Public: result 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (elliptic.Curve).ScalarBaseMult(k []byte) (x *big.Int, y *big.Int)
-extern go crypto/ecdsa.PrivateKey.ScalarBaseMult func (r PrivateKey) ScalarBaseMult(k []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign
+extern go crypto/ecdsa.PrivateKey.ScalarBaseMult func (r PrivateKey) ScalarBaseMult(k []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign takes r
 
 // ergo:go func (elliptic.Curve).ScalarMult(x1 *big.Int, y1 *big.Int, k []byte) (x *big.Int, y *big.Int)
-extern go crypto/ecdsa.PrivateKey.ScalarMult func (r PrivateKey) ScalarMult(x1 *big.Int, y1 *big.Int, k []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign
+extern go crypto/ecdsa.PrivateKey.ScalarMult func (r PrivateKey) ScalarMult(x1 *big.Int, y1 *big.Int, k []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign takes r, x1, y1
 
 // ergo:go func (*PrivateKey).Sign(random io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error)
-extern go crypto/ecdsa.PrivateKey.Sign func (priv *PrivateKey) Sign(random io.Reader, digest []byte, opts crypto.SignerOpts) []byte fails go.Error needs go.Foreign
+extern go crypto/ecdsa.PrivateKey.Sign func (priv *PrivateKey) Sign(random io.Reader, digest []byte, opts crypto.SignerOpts) []byte fails go.Error needs go.Foreign takes priv, random, opts
 
 // ergo:go type PublicKey struct
 extern go crypto/ecdsa.PublicKey type PublicKey {
@@ -63,40 +63,40 @@ extern go crypto/ecdsa.PublicKey type PublicKey {
 }
 
 // ergo:go func (elliptic.Curve).Add(x1 *big.Int, y1 *big.Int, x2 *big.Int, y2 *big.Int) (x *big.Int, y *big.Int)
-extern go crypto/ecdsa.PublicKey.Add func (r PublicKey) Add(x1 *big.Int, y1 *big.Int, x2 *big.Int, y2 *big.Int) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign
+extern go crypto/ecdsa.PublicKey.Add func (r PublicKey) Add(x1 *big.Int, y1 *big.Int, x2 *big.Int, y2 *big.Int) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign takes r, x1, y1, x2, y2
 
 // ergo:go func (*PublicKey).Bytes() ([]byte, error)
-extern go crypto/ecdsa.PublicKey.Bytes func (pub *PublicKey) Bytes() []byte fails go.Error needs go.Foreign
+extern go crypto/ecdsa.PublicKey.Bytes func (pub *PublicKey) Bytes() []byte fails go.Error needs go.Foreign takes pub
 
 // ergo:go func (elliptic.Curve).Double(x1 *big.Int, y1 *big.Int) (x *big.Int, y *big.Int)
-extern go crypto/ecdsa.PublicKey.Double func (r PublicKey) Double(x1 *big.Int, y1 *big.Int) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign
+extern go crypto/ecdsa.PublicKey.Double func (r PublicKey) Double(x1 *big.Int, y1 *big.Int) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign takes r, x1, y1
 
 // ergo:go func (*PublicKey).ECDH() (*ecdh.PublicKey, error)
-extern go crypto/ecdsa.PublicKey.ECDH func (pub *PublicKey) ECDH() go.Ref[ecdh.PublicKey] fails go.Error needs go.Foreign
+extern go crypto/ecdsa.PublicKey.ECDH func (pub *PublicKey) ECDH() go.Ref[ecdh.PublicKey] fails go.Error needs go.Foreign takes pub
 
 // ergo:go func (*PublicKey).Equal(x crypto.PublicKey) bool
 // ergo:refused PublicKey.Equal: parameter 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (elliptic.Curve).IsOnCurve(x *big.Int, y *big.Int) bool
-extern go crypto/ecdsa.PublicKey.IsOnCurve func (r PublicKey) IsOnCurve(x *big.Int, y *big.Int) bool needs go.Foreign
+extern go crypto/ecdsa.PublicKey.IsOnCurve func (r PublicKey) IsOnCurve(x *big.Int, y *big.Int) bool needs go.Foreign takes r, x, y
 
 // ergo:go func (elliptic.Curve).Params() *elliptic.CurveParams
-extern go crypto/ecdsa.PublicKey.Params func (r PublicKey) Params() Option[go.Ref[elliptic.CurveParams]] needs go.Foreign
+extern go crypto/ecdsa.PublicKey.Params func (r PublicKey) Params() Option[go.Ref[elliptic.CurveParams]] needs go.Foreign takes r
 
 // ergo:go func (elliptic.Curve).ScalarBaseMult(k []byte) (x *big.Int, y *big.Int)
-extern go crypto/ecdsa.PublicKey.ScalarBaseMult func (r PublicKey) ScalarBaseMult(k []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign
+extern go crypto/ecdsa.PublicKey.ScalarBaseMult func (r PublicKey) ScalarBaseMult(k []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign takes r
 
 // ergo:go func (elliptic.Curve).ScalarMult(x1 *big.Int, y1 *big.Int, k []byte) (x *big.Int, y *big.Int)
-extern go crypto/ecdsa.PublicKey.ScalarMult func (r PublicKey) ScalarMult(x1 *big.Int, y1 *big.Int, k []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign
+extern go crypto/ecdsa.PublicKey.ScalarMult func (r PublicKey) ScalarMult(x1 *big.Int, y1 *big.Int, k []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) needs go.Foreign takes r, x1, y1
 
 // ergo:go func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r *big.Int, s *big.Int, err error)
-extern go crypto/ecdsa.Sign func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) fails go.Error needs go.Foreign
+extern go crypto/ecdsa.Sign func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) fails go.Error needs go.Foreign takes rand, priv
 
 // ergo:go func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) ([]byte, error)
-extern go crypto/ecdsa.SignASN1 func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) []byte fails go.Error needs go.Foreign
+extern go crypto/ecdsa.SignASN1 func SignASN1(r io.Reader, priv *PrivateKey, hash []byte) []byte fails go.Error needs go.Foreign takes r, priv
 
 // ergo:go func Verify(pub *PublicKey, hash []byte, r *big.Int, s *big.Int) bool
-extern go crypto/ecdsa.Verify func Verify(pub *PublicKey, hash []byte, r *big.Int, s *big.Int) bool needs go.Foreign
+extern go crypto/ecdsa.Verify func Verify(pub *PublicKey, hash []byte, r *big.Int, s *big.Int) bool needs go.Foreign takes pub, r, s
 
 // ergo:go func VerifyASN1(pub *PublicKey, hash []byte, sig []byte) bool
-extern go crypto/ecdsa.VerifyASN1 func VerifyASN1(pub *PublicKey, hash []byte, sig []byte) bool needs go.Foreign
+extern go crypto/ecdsa.VerifyASN1 func VerifyASN1(pub *PublicKey, hash []byte, sig []byte) bool needs go.Foreign takes pub

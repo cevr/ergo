@@ -6,7 +6,7 @@ Std `rpc` serves and calls an operation type over Effect RPC's HTTP protocol, so
 
 | Name | Signature | Go body |
 | --- | --- | --- |
-| `Answer` | `Answer[R](r http.Request, mount string, handle func(tag string, payload string) string fails Failed needs R) http.Response needs R \| http.Streaming` | Ergo over `RPCParse`, `RPCExits`, `RPCExitLines` |
+| `Answer` | `Answer[R](r http.Request, mount string, handle escaping func(tag string, payload string) string fails Failed needs R) http.Response needs R \| http.Streaming` | Ergo over `RPCParse`, `RPCExits`, `RPCExitLines` |
 | `Serve` | `Serve[R](l http.Listener, limits http.Limits, mount string, handle …) fails http.InvalidLimits needs R \| Scheduler` | Ergo: `http.Serve` with `Answer` |
 | `Dial` | `Dial(url string) Conn needs Ambient` | Ergo |
 | `Loopback` | `Loopback(handle escaping func(tag string, payload string) string fails Failed) Conn`: `handle` served in this process | Ergo: `Answer` under `http.NewRecorder()` |

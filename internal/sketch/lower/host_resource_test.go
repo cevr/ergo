@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/std/gostd"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Go values that are resources (IG9; #196 item 15l, #197 Q9, Q10; the
@@ -31,6 +33,20 @@ import (
 // outside the standard library only after IG7 (go modules), so the test
 // module requires it through a replace of its own (hresFiles).
 const hresPath = "hostres"
+
+// The fixture's Go bodies are available above the boundary, unlike an
+// arbitrary module's. Keep their review in this test binary only: these
+// names grant no trust to a real module in an Ergo compiler.
+func init() {
+	for target, reason := range map[string]string{
+		"hostres.Handle.Use":  "hresGo: checks closed and prints, stores no receiver",
+		"hostres.Handle.Peek": "hresGo: returns a formatted string, stores no receiver",
+		"hostres.Show":        "hresGo: calls Peek synchronously and stores no parameter",
+	} {
+		v1.GoArgClauses[target] = map[int]v1.GoArgClause{0: {Lent: true, Reason: reason}}
+	}
+	v1.GoArgClauses["hostres.Unreasoned"] = map[int]v1.GoArgClause{0: {Lent: true}}
+}
 
 const hresGo = `package hostres
 
@@ -59,7 +75,13 @@ func (h *Handle) Use() {
 	fmt.Println("use", h.id)
 }
 
-func (h *Handle) Peek() string { return fmt.Sprint("peek ", h.id) }
+func (h *Handle) Peek() string {
+	if h.closed { return fmt.Sprint("use after close ", h.id) }
+	return fmt.Sprint("peek ", h.id)
+}
+
+var keptHandle *Handle
+func (h *Handle) Hold() { keptHandle = h }
 
 func (h *Handle) Close() error {
 	if h.closed {
@@ -75,7 +97,32 @@ func (h *Handle) Close() error {
 
 func Show(p Peeker) { fmt.Println(p.Peek()) }
 
+var kept Peeker
+func Unknown(p Peeker) { kept = p }
+
+func UseKept() {
+	fmt.Println(kept.Peek())
+	_ = kept.(*Handle).Close()
+	kept = nil
+}
+
 func Say(s string) { fmt.Println(s) }
+
+type Retainer interface {
+	Close() error
+	Hold()
+}
+
+type Recursive interface {
+	Chain(other Recursive)
+	Close() error
+}
+
+func Unreasoned(p Peeker) { _ = p }
+
+func Pointer(p *Handle) { _ = p }
+
+func Callback(f func()) { f() }
 
 var Shared = &Handle{}
 var Missing *Handle
@@ -95,6 +142,18 @@ func hresFiles() []File {
 type hresImporter struct{ set *check.GoBindings }
 
 func newHresImporter(t *testing.T) hresImporter {
+	t.Helper()
+	return newHresImporterOf(t, false)
+}
+
+// staleClauses matches the clauses ESC1's ergo bind writes (a resource
+// argument's takes, a callback's escaping). Without them the binding is
+// the one an older ergo bind wrote, or an edited one: the checker must
+// hold it to the reviewed Go clauses itself (check/hostclauses.go).
+var staleClauses = regexp.MustCompile(` takes(?: [A-Za-z_][A-Za-z0-9_]*(?:, [A-Za-z_][A-Za-z0-9_]*)*)?|escaping `)
+
+// newHresImporterOf is newHresImporter; stale strips staleClauses.
+func newHresImporterOf(t *testing.T, stale bool) hresImporter {
 	t.Helper()
 	// Use the generator's public seam, not a hand-written binding which
 	// could admit Shared while ergo bind refuses it (BV1). Import-only
@@ -120,6 +179,9 @@ func newHresImporter(t *testing.T) hresImporter {
 	binding, err := gobind.File([]*types.Package{pkg}, []gobind.Platform{{GOOS: "linux", GOARCH: "amd64"}}, "go1.27")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if stale {
+		binding = staleClauses.ReplaceAllString(binding, "")
 	}
 	return hresImporter{check.NewGoBindings(func(path string) (string, bool) {
 		if path == hresPath {
@@ -419,6 +481,25 @@ func TestHostResourceRun(t *testing.T) {
 	}
 	var cases []runCase
 	var programs []*lowered
+	// ESC1 r2: the foreign callee, not the caller's frame, owns this
+	// hand-off. It reads and closes the retained value after give returns.
+	// The binary is needed to observe the absence of a premature release.
+	foreign := `import go hostres
+func give() fails go.Error needs go.Foreign {
+	let h = try hostres.Open(41, false)
+	hostres.Unknown(h)
+}
+func main() needs go.Foreign {
+	give() catch { case go.Error: hostres.Say("failed") }
+	hostres.UseKept()
+}`
+	foreignProgram := lowerSourceWith("foreign_retains", foreign, true, newHresImporter(t))
+	if foreignProgram.err != nil || len(foreignProgram.diags) > 0 || foreignProgram.panicked != nil || len(foreignProgram.refused) > 0 {
+		t.Fatalf("foreign hand-off does not lower: %+v\n%s", foreignProgram, foreign)
+	}
+	foreignProgram.extra = hresFiles()
+	programs = append(programs, foreignProgram)
+	cases = append(cases, runCase{"foreign_retains", foreign, "open 41\npeek 41\nclose 41\n", nil})
 	for seed := first; seed < first+n; seed++ {
 		g := &hrGen{r: rand.New(rand.NewPCG(uint64(seed), 197))}
 		body := g.block(0, nil)

@@ -12,28 +12,28 @@ import go io
 extern go go/types.Alias type Alias {}
 
 // ergo:go func (*Alias).Obj() *TypeName
-extern go go/types.Alias.Obj func (a *Alias) Obj() Option[go.Ref[TypeName]] needs go.Foreign
+extern go go/types.Alias.Obj func (a *Alias) Obj() Option[go.Ref[TypeName]] needs go.Foreign takes a
 
 // ergo:go func (*Alias).Origin() *Alias
-extern go go/types.Alias.Origin func (a *Alias) Origin() Option[go.Ref[Alias]] needs go.Foreign
+extern go go/types.Alias.Origin func (a *Alias) Origin() Option[go.Ref[Alias]] needs go.Foreign takes a
 
 // ergo:go func (*Alias).Rhs() Type
-extern go go/types.Alias.Rhs func (a *Alias) Rhs() Type needs go.Foreign
+extern go go/types.Alias.Rhs func (a *Alias) Rhs() Type needs go.Foreign takes a
 
 // ergo:go func (*Alias).SetTypeParams(tparams []*TypeParam)
 // ergo:refused Alias.SetTypeParams: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Alias).String() string
-extern go go/types.Alias.String func (a *Alias) String() string needs go.Foreign
+extern go go/types.Alias.String func (a *Alias) String() string needs go.Foreign takes a
 
 // ergo:go func (*Alias).TypeArgs() *TypeList
-extern go go/types.Alias.TypeArgs func (a *Alias) TypeArgs() Option[go.Ref[TypeList]] needs go.Foreign
+extern go go/types.Alias.TypeArgs func (a *Alias) TypeArgs() Option[go.Ref[TypeList]] needs go.Foreign takes a
 
 // ergo:go func (*Alias).TypeParams() *TypeParamList
-extern go go/types.Alias.TypeParams func (a *Alias) TypeParams() Option[go.Ref[TypeParamList]] needs go.Foreign
+extern go go/types.Alias.TypeParams func (a *Alias) TypeParams() Option[go.Ref[TypeParamList]] needs go.Foreign takes a
 
 // ergo:go func (*Alias).Underlying() Type
-extern go go/types.Alias.Underlying func (a *Alias) Underlying() Type needs go.Foreign
+extern go go/types.Alias.Underlying func (a *Alias) Underlying() Type needs go.Foreign takes a
 
 // ergo:go type ArgumentError struct
 extern go go/types.ArgumentError type ArgumentError {
@@ -42,49 +42,49 @@ extern go go/types.ArgumentError type ArgumentError {
 }
 
 // ergo:go func (*ArgumentError).Error() string
-extern go go/types.ArgumentError.Error func (e *ArgumentError) Error() string needs go.Foreign
+extern go go/types.ArgumentError.Error func (e *ArgumentError) Error() string needs go.Foreign takes e
 
 // ergo:go func (*ArgumentError).Unwrap() error
-extern go go/types.ArgumentError.Unwrap func (e *ArgumentError) Unwrap() fails go.Error needs go.Foreign
+extern go go/types.ArgumentError.Unwrap func (e *ArgumentError) Unwrap() fails go.Error needs go.Foreign takes e
 
 // ergo:go type Array struct
 extern go go/types.Array type Array {}
 
 // ergo:go func (*Array).Elem() Type
-extern go go/types.Array.Elem func (a *Array) Elem() Type needs go.Foreign
+extern go go/types.Array.Elem func (a *Array) Elem() Type needs go.Foreign takes a
 
 // ergo:go func (*Array).Len() int64
-extern go go/types.Array.Len func (a *Array) Len() int64 needs go.Foreign
+extern go go/types.Array.Len func (a *Array) Len() int64 needs go.Foreign takes a
 
 // ergo:go func (*Array).String() string
-extern go go/types.Array.String func (a *Array) String() string needs go.Foreign
+extern go go/types.Array.String func (a *Array) String() string needs go.Foreign takes a
 
 // ergo:go func (*Array).Underlying() Type
-extern go go/types.Array.Underlying func (a *Array) Underlying() Type needs go.Foreign
+extern go go/types.Array.Underlying func (a *Array) Underlying() Type needs go.Foreign takes a
 
 // ergo:go func AssertableTo(V *Interface, T Type) bool
-extern go go/types.AssertableTo func AssertableTo(V *Interface, T Type) bool needs go.Foreign
+extern go go/types.AssertableTo func AssertableTo(V *Interface, T Type) bool needs go.Foreign takes V, T
 
 // ergo:go func AssignableTo(V Type, T Type) bool
-extern go go/types.AssignableTo func AssignableTo(V Type, T Type) bool needs go.Foreign
+extern go go/types.AssignableTo func AssignableTo(V Type, T Type) bool needs go.Foreign takes V, T
 
 // ergo:go type Basic struct
 extern go go/types.Basic type Basic {}
 
 // ergo:go func (*Basic).Info() BasicInfo
-extern go go/types.Basic.Info func (b *Basic) Info() BasicInfo needs go.Foreign
+extern go go/types.Basic.Info func (b *Basic) Info() BasicInfo needs go.Foreign takes b
 
 // ergo:go func (*Basic).Kind() BasicKind
-extern go go/types.Basic.Kind func (b *Basic) Kind() BasicKind needs go.Foreign
+extern go go/types.Basic.Kind func (b *Basic) Kind() BasicKind needs go.Foreign takes b
 
 // ergo:go func (*Basic).Name() string
-extern go go/types.Basic.Name func (b *Basic) Name() string needs go.Foreign
+extern go go/types.Basic.Name func (b *Basic) Name() string needs go.Foreign takes b
 
 // ergo:go func (*Basic).String() string
-extern go go/types.Basic.String func (b *Basic) String() string needs go.Foreign
+extern go go/types.Basic.String func (b *Basic) String() string needs go.Foreign takes b
 
 // ergo:go func (*Basic).Underlying() Type
-extern go go/types.Basic.Underlying func (b *Basic) Underlying() Type needs go.Foreign
+extern go go/types.Basic.Underlying func (b *Basic) Underlying() Type needs go.Foreign takes b
 
 // ergo:go type BasicInfo int
 extern go go/types.BasicInfo type BasicInfo int
@@ -99,28 +99,28 @@ extern go go/types.Bool let Bool BasicKind
 extern go go/types.Builtin type Builtin {}
 
 // ergo:go func (*object).Exported() bool
-extern go go/types.Builtin.Exported func (obj *Builtin) Exported() bool needs go.Foreign
+extern go go/types.Builtin.Exported func (obj *Builtin) Exported() bool needs go.Foreign takes obj
 
 // ergo:go func (*object).Id() string
-extern go go/types.Builtin.Id func (obj *Builtin) Id() string needs go.Foreign
+extern go go/types.Builtin.Id func (obj *Builtin) Id() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Name() string
-extern go go/types.Builtin.Name func (obj *Builtin) Name() string needs go.Foreign
+extern go go/types.Builtin.Name func (obj *Builtin) Name() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Parent() *Scope
-extern go go/types.Builtin.Parent func (obj *Builtin) Parent() Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.Builtin.Parent func (obj *Builtin) Parent() Option[go.Ref[Scope]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pkg() *Package
-extern go go/types.Builtin.Pkg func (obj *Builtin) Pkg() Option[go.Ref[Package]] needs go.Foreign
+extern go go/types.Builtin.Pkg func (obj *Builtin) Pkg() Option[go.Ref[Package]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pos() token.Pos
-extern go go/types.Builtin.Pos func (obj *Builtin) Pos() token.Pos needs go.Foreign
+extern go go/types.Builtin.Pos func (obj *Builtin) Pos() token.Pos needs go.Foreign takes obj
 
 // ergo:go func (*Builtin).String() string
-extern go go/types.Builtin.String func (obj *Builtin) String() string needs go.Foreign
+extern go go/types.Builtin.String func (obj *Builtin) String() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Type() Type
-extern go go/types.Builtin.Type func (obj *Builtin) Type() Type needs go.Foreign
+extern go go/types.Builtin.Type func (obj *Builtin) Type() Type needs go.Foreign takes obj
 
 // ergo:go const Byte BasicKind
 extern go go/types.Byte let Byte BasicKind
@@ -129,22 +129,22 @@ extern go go/types.Byte let Byte BasicKind
 extern go go/types.Chan type Chan {}
 
 // ergo:go func (*Chan).Dir() ChanDir
-extern go go/types.Chan.Dir func (c *Chan) Dir() ChanDir needs go.Foreign
+extern go go/types.Chan.Dir func (c *Chan) Dir() ChanDir needs go.Foreign takes c
 
 // ergo:go func (*Chan).Elem() Type
-extern go go/types.Chan.Elem func (c *Chan) Elem() Type needs go.Foreign
+extern go go/types.Chan.Elem func (c *Chan) Elem() Type needs go.Foreign takes c
 
 // ergo:go func (*Chan).String() string
-extern go go/types.Chan.String func (c *Chan) String() string needs go.Foreign
+extern go go/types.Chan.String func (c *Chan) String() string needs go.Foreign takes c
 
 // ergo:go func (*Chan).Underlying() Type
-extern go go/types.Chan.Underlying func (c *Chan) Underlying() Type needs go.Foreign
+extern go go/types.Chan.Underlying func (c *Chan) Underlying() Type needs go.Foreign takes c
 
 // ergo:go type ChanDir int
 extern go go/types.ChanDir type ChanDir int
 
 // ergo:go func CheckExpr(fset *token.FileSet, pkg *Package, pos token.Pos, expr ast.Expr, info *Info) (err error)
-extern go go/types.CheckExpr func CheckExpr(fset *token.FileSet, pkg *Package, pos token.Pos, expr ast.Expr, info *Info) fails go.Error needs go.Foreign
+extern go go/types.CheckExpr func CheckExpr(fset *token.FileSet, pkg *Package, pos token.Pos, expr ast.Expr, info *Info) fails go.Error needs go.Foreign takes fset, pkg, expr, info
 
 // ergo:go type Checker struct
 extern go go/types.Checker type Checker {
@@ -155,16 +155,16 @@ extern go go/types.Checker type Checker {
 // ergo:refused Checker.Files: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Info).ObjectOf(id *ast.Ident) Object
-extern go go/types.Checker.ObjectOf func (info Checker) ObjectOf(id *ast.Ident) Object needs go.Foreign
+extern go go/types.Checker.ObjectOf func (info Checker) ObjectOf(id *ast.Ident) Object needs go.Foreign takes info, id
 
 // ergo:go func (*Info).PkgNameOf(imp *ast.ImportSpec) *PkgName
-extern go go/types.Checker.PkgNameOf func (info Checker) PkgNameOf(imp *ast.ImportSpec) Option[go.Ref[PkgName]] needs go.Foreign
+extern go go/types.Checker.PkgNameOf func (info Checker) PkgNameOf(imp *ast.ImportSpec) Option[go.Ref[PkgName]] needs go.Foreign takes info, imp
 
 // ergo:go func (*Info).TypeOf(e ast.Expr) Type
-extern go go/types.Checker.TypeOf func (info Checker) TypeOf(e ast.Expr) Type needs go.Foreign
+extern go go/types.Checker.TypeOf func (info Checker) TypeOf(e ast.Expr) Type needs go.Foreign takes info, e
 
 // ergo:go func Comparable(T Type) bool
-extern go go/types.Comparable func Comparable(T Type) bool needs go.Foreign
+extern go go/types.Comparable func Comparable(T Type) bool needs go.Foreign takes T
 
 // ergo:go const Complex128 BasicKind
 extern go go/types.Complex128 let Complex128 BasicKind
@@ -193,43 +193,43 @@ extern go go/types.Config type Config {
 extern go go/types.Const type Const {}
 
 // ergo:go func (*object).Exported() bool
-extern go go/types.Const.Exported func (obj *Const) Exported() bool needs go.Foreign
+extern go go/types.Const.Exported func (obj *Const) Exported() bool needs go.Foreign takes obj
 
 // ergo:go func (*object).Id() string
-extern go go/types.Const.Id func (obj *Const) Id() string needs go.Foreign
+extern go go/types.Const.Id func (obj *Const) Id() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Name() string
-extern go go/types.Const.Name func (obj *Const) Name() string needs go.Foreign
+extern go go/types.Const.Name func (obj *Const) Name() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Parent() *Scope
-extern go go/types.Const.Parent func (obj *Const) Parent() Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.Const.Parent func (obj *Const) Parent() Option[go.Ref[Scope]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pkg() *Package
-extern go go/types.Const.Pkg func (obj *Const) Pkg() Option[go.Ref[Package]] needs go.Foreign
+extern go go/types.Const.Pkg func (obj *Const) Pkg() Option[go.Ref[Package]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pos() token.Pos
-extern go go/types.Const.Pos func (obj *Const) Pos() token.Pos needs go.Foreign
+extern go go/types.Const.Pos func (obj *Const) Pos() token.Pos needs go.Foreign takes obj
 
 // ergo:go func (*Const).String() string
-extern go go/types.Const.String func (obj *Const) String() string needs go.Foreign
+extern go go/types.Const.String func (obj *Const) String() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Type() Type
-extern go go/types.Const.Type func (obj *Const) Type() Type needs go.Foreign
+extern go go/types.Const.Type func (obj *Const) Type() Type needs go.Foreign takes obj
 
 // ergo:go func (*Const).Val() constant.Value
-extern go go/types.Const.Val func (obj *Const) Val() constant.Value needs go.Foreign
+extern go go/types.Const.Val func (obj *Const) Val() constant.Value needs go.Foreign takes obj
 
 // ergo:go type Context struct
 extern go go/types.Context type Context {}
 
 // ergo:go func ConvertibleTo(V Type, T Type) bool
-extern go go/types.ConvertibleTo func ConvertibleTo(V Type, T Type) bool needs go.Foreign
+extern go go/types.ConvertibleTo func ConvertibleTo(V Type, T Type) bool needs go.Foreign takes V, T
 
 // ergo:go func DefPredeclaredTestFuncs()
 extern go go/types.DefPredeclaredTestFuncs func DefPredeclaredTestFuncs() needs go.Foreign
 
 // ergo:go func Default(t Type) Type
-extern go go/types.Default func Default(t Type) Type needs go.Foreign
+extern go go/types.Default func Default(t Type) Type needs go.Foreign takes t
 
 // ergo:go type Error struct
 extern go go/types.Error type Error {
@@ -243,10 +243,10 @@ extern go go/types.Error type Error {
 extern go go/types.Error.Error func (err Error) Error() string needs go.Foreign
 
 // ergo:go func Eval(fset *token.FileSet, pkg *Package, pos token.Pos, expr string) (_ TypeAndValue, err error)
-extern go go/types.Eval func Eval(fset *token.FileSet, pkg *Package, pos token.Pos, expr string) TypeAndValue fails go.Error needs go.Foreign
+extern go go/types.Eval func Eval(fset *token.FileSet, pkg *Package, pos token.Pos, expr string) TypeAndValue fails go.Error needs go.Foreign takes fset, pkg
 
 // ergo:go func ExprString(x ast.Expr) string
-extern go go/types.ExprString func ExprString(x ast.Expr) string needs go.Foreign
+extern go go/types.ExprString func ExprString(x ast.Expr) string needs go.Foreign takes x
 
 // ergo:go const FieldVal SelectionKind
 extern go go/types.FieldVal let FieldVal SelectionKind
@@ -264,83 +264,83 @@ extern go go/types.Float64 let Float64 BasicKind
 extern go go/types.Func type Func {}
 
 // ergo:go func (*object).Exported() bool
-extern go go/types.Func.Exported func (obj *Func) Exported() bool needs go.Foreign
+extern go go/types.Func.Exported func (obj *Func) Exported() bool needs go.Foreign takes obj
 
 // ergo:go func (*Func).FullName() string
-extern go go/types.Func.FullName func (obj *Func) FullName() string needs go.Foreign
+extern go go/types.Func.FullName func (obj *Func) FullName() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Id() string
-extern go go/types.Func.Id func (obj *Func) Id() string needs go.Foreign
+extern go go/types.Func.Id func (obj *Func) Id() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Name() string
-extern go go/types.Func.Name func (obj *Func) Name() string needs go.Foreign
+extern go go/types.Func.Name func (obj *Func) Name() string needs go.Foreign takes obj
 
 // ergo:go func (*Func).Origin() *Func
-extern go go/types.Func.Origin func (obj *Func) Origin() Option[go.Ref[Func]] needs go.Foreign
+extern go go/types.Func.Origin func (obj *Func) Origin() Option[go.Ref[Func]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Parent() *Scope
-extern go go/types.Func.Parent func (obj *Func) Parent() Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.Func.Parent func (obj *Func) Parent() Option[go.Ref[Scope]] needs go.Foreign takes obj
 
 // ergo:go func (*Func).Pkg() *Package
-extern go go/types.Func.Pkg func (obj *Func) Pkg() Option[go.Ref[Package]] needs go.Foreign
+extern go go/types.Func.Pkg func (obj *Func) Pkg() Option[go.Ref[Package]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pos() token.Pos
-extern go go/types.Func.Pos func (obj *Func) Pos() token.Pos needs go.Foreign
+extern go go/types.Func.Pos func (obj *Func) Pos() token.Pos needs go.Foreign takes obj
 
 // ergo:go func (*Func).Scope() *Scope
-extern go go/types.Func.Scope func (obj *Func) Scope() Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.Func.Scope func (obj *Func) Scope() Option[go.Ref[Scope]] needs go.Foreign takes obj
 
 // ergo:go func (*Func).Signature() *Signature
-extern go go/types.Func.Signature func (obj *Func) Signature() Option[go.Ref[Signature]] needs go.Foreign
+extern go go/types.Func.Signature func (obj *Func) Signature() Option[go.Ref[Signature]] needs go.Foreign takes obj
 
 // ergo:go func (*Func).String() string
-extern go go/types.Func.String func (obj *Func) String() string needs go.Foreign
+extern go go/types.Func.String func (obj *Func) String() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Type() Type
-extern go go/types.Func.Type func (obj *Func) Type() Type needs go.Foreign
+extern go go/types.Func.Type func (obj *Func) Type() Type needs go.Foreign takes obj
 
 // ergo:go type Hasher struct
 extern go go/types.Hasher type Hasher {}
 
 // ergo:go func (Hasher).Equal(x Type, y Type) bool
-extern go go/types.Hasher.Equal func (r Hasher) Equal(x Type, y Type) bool needs go.Foreign
+extern go go/types.Hasher.Equal func (r Hasher) Equal(x Type, y Type) bool needs go.Foreign takes x, y
 
 // ergo:go func (Hasher).Hash(h *maphash.Hash, t Type)
-extern go go/types.Hasher.Hash func (r Hasher) Hash(h *maphash.Hash, t Type) needs go.Foreign
+extern go go/types.Hasher.Hash func (r Hasher) Hash(h *maphash.Hash, t Type) needs go.Foreign takes h, t
 
 // ergo:go type HasherIgnoreTags struct
 extern go go/types.HasherIgnoreTags type HasherIgnoreTags {}
 
 // ergo:go func (HasherIgnoreTags).Equal(x Type, y Type) bool
-extern go go/types.HasherIgnoreTags.Equal func (r HasherIgnoreTags) Equal(x Type, y Type) bool needs go.Foreign
+extern go go/types.HasherIgnoreTags.Equal func (r HasherIgnoreTags) Equal(x Type, y Type) bool needs go.Foreign takes x, y
 
 // ergo:go func (HasherIgnoreTags).Hash(h *maphash.Hash, t Type)
-extern go go/types.HasherIgnoreTags.Hash func (r HasherIgnoreTags) Hash(h *maphash.Hash, t Type) needs go.Foreign
+extern go go/types.HasherIgnoreTags.Hash func (r HasherIgnoreTags) Hash(h *maphash.Hash, t Type) needs go.Foreign takes h, t
 
 // ergo:go func Id(pkg *Package, name string) string
-extern go go/types.Id func Id(pkg *Package, name string) string needs go.Foreign
+extern go go/types.Id func Id(pkg *Package, name string) string needs go.Foreign takes pkg
 
 // ergo:go func Identical(x Type, y Type) bool
-extern go go/types.Identical func Identical(x Type, y Type) bool needs go.Foreign
+extern go go/types.Identical func Identical(x Type, y Type) bool needs go.Foreign takes x, y
 
 // ergo:go func IdenticalIgnoreTags(x Type, y Type) bool
-extern go go/types.IdenticalIgnoreTags func IdenticalIgnoreTags(x Type, y Type) bool needs go.Foreign
+extern go go/types.IdenticalIgnoreTags func IdenticalIgnoreTags(x Type, y Type) bool needs go.Foreign takes x, y
 
 // ergo:go func Implements(V Type, T *Interface) bool
-extern go go/types.Implements func Implements(V Type, T *Interface) bool needs go.Foreign
+extern go go/types.Implements func Implements(V Type, T *Interface) bool needs go.Foreign takes V, T
 
 // ergo:go type ImportMode int
 extern go go/types.ImportMode type ImportMode int
 
 // ergo:go type Importer interface
 extern go go/types.Importer type Importer {
-	Import(path string) go.Ref[Package] fails go.Error needs go.Foreign,
+	Import(path string) go.Ref[Package] fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type ImporterFrom interface
 extern go go/types.ImporterFrom type ImporterFrom {
-	Import(path string) go.Ref[Package] fails go.Error needs go.Foreign,
-	ImportFrom(path string, dir string, mode ImportMode) go.Ref[Package] fails go.Error needs go.Foreign,
+	Import(path string) go.Ref[Package] fails go.Error needs go.Foreign takes,
+	ImportFrom(path string, dir string, mode ImportMode) go.Ref[Package] fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type Info struct
@@ -374,13 +374,13 @@ extern go go/types.Info type Info {}
 // ergo:refused Info.Implicits: the package declares its own Map, which hides Ergo's Map in the binding
 
 // ergo:go func (*Info).ObjectOf(id *ast.Ident) Object
-extern go go/types.Info.ObjectOf func (info *Info) ObjectOf(id *ast.Ident) Object needs go.Foreign
+extern go go/types.Info.ObjectOf func (info *Info) ObjectOf(id *ast.Ident) Object needs go.Foreign takes info, id
 
 // ergo:go func (*Info).PkgNameOf(imp *ast.ImportSpec) *PkgName
-extern go go/types.Info.PkgNameOf func (info *Info) PkgNameOf(imp *ast.ImportSpec) Option[go.Ref[PkgName]] needs go.Foreign
+extern go go/types.Info.PkgNameOf func (info *Info) PkgNameOf(imp *ast.ImportSpec) Option[go.Ref[PkgName]] needs go.Foreign takes info, imp
 
 // ergo:go func (*Info).TypeOf(e ast.Expr) Type
-extern go go/types.Info.TypeOf func (info *Info) TypeOf(e ast.Expr) Type needs go.Foreign
+extern go go/types.Info.TypeOf func (info *Info) TypeOf(e ast.Expr) Type needs go.Foreign takes info, e
 
 // ergo:go type Initializer struct
 extern go go/types.Initializer type Initializer {
@@ -391,7 +391,7 @@ extern go go/types.Initializer type Initializer {
 // ergo:refused Initializer.Lhs: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Initializer).String() string
-extern go go/types.Initializer.String func (init *Initializer) String() string needs go.Foreign
+extern go go/types.Initializer.String func (init *Initializer) String() string needs go.Foreign takes init
 
 // ergo:go type Instance struct
 extern go go/types.Instance type Instance {
@@ -403,7 +403,7 @@ extern go go/types.Instance type Instance {
 extern go go/types.Instance.String func (inst Instance) String() string needs go.Foreign
 
 // ergo:go func Instantiate(ctxt *Context, orig Type, targs []Type, validate bool) (Type, error)
-extern go go/types.Instantiate func Instantiate(ctxt *Context, orig Type, targs []Type, validate bool) Type fails go.Error needs go.Foreign
+extern go go/types.Instantiate func Instantiate(ctxt *Context, orig Type, targs []Type, validate bool) Type fails go.Error needs go.Foreign takes ctxt, orig, targs
 
 // ergo:go const Int BasicKind
 extern go go/types.Int let Int BasicKind
@@ -424,58 +424,58 @@ extern go go/types.Int8 let Int8 BasicKind
 extern go go/types.Interface type Interface {}
 
 // ergo:go func (*Interface).Complete() *Interface
-extern go go/types.Interface.Complete func (t *Interface) Complete() Option[go.Ref[Interface]] needs go.Foreign
+extern go go/types.Interface.Complete func (t *Interface) Complete() Option[go.Ref[Interface]] needs go.Foreign takes t
 
 // ergo:go func (*Interface).Embedded(i int) *Named
-extern go go/types.Interface.Embedded func (t *Interface) Embedded(i int) Option[go.Ref[Named]] needs go.Foreign
+extern go go/types.Interface.Embedded func (t *Interface) Embedded(i int) Option[go.Ref[Named]] needs go.Foreign takes t
 
 // ergo:go func (*Interface).EmbeddedType(i int) Type
-extern go go/types.Interface.EmbeddedType func (t *Interface) EmbeddedType(i int) Type needs go.Foreign
+extern go go/types.Interface.EmbeddedType func (t *Interface) EmbeddedType(i int) Type needs go.Foreign takes t
 
 // ergo:go func (*Interface).EmbeddedTypes() iter.Seq[Type]
-extern go go/types.Interface.EmbeddedTypes func (t *Interface) EmbeddedTypes() Seq[Type] needs go.Foreign
+extern go go/types.Interface.EmbeddedTypes func (t *Interface) EmbeddedTypes() Seq[Type] needs go.Foreign takes t
 
 // ergo:go func (*Interface).Empty() bool
-extern go go/types.Interface.Empty func (t *Interface) Empty() bool needs go.Foreign
+extern go go/types.Interface.Empty func (t *Interface) Empty() bool needs go.Foreign takes t
 
 // ergo:go func (*Interface).ExplicitMethod(i int) *Func
-extern go go/types.Interface.ExplicitMethod func (t *Interface) ExplicitMethod(i int) Option[go.Ref[Func]] needs go.Foreign
+extern go go/types.Interface.ExplicitMethod func (t *Interface) ExplicitMethod(i int) Option[go.Ref[Func]] needs go.Foreign takes t
 
 // ergo:go func (*Interface).ExplicitMethods() iter.Seq[*Func]
 // ergo:refused Interface.ExplicitMethods: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Interface).IsComparable() bool
-extern go go/types.Interface.IsComparable func (t *Interface) IsComparable() bool needs go.Foreign
+extern go go/types.Interface.IsComparable func (t *Interface) IsComparable() bool needs go.Foreign takes t
 
 // ergo:go func (*Interface).IsImplicit() bool
-extern go go/types.Interface.IsImplicit func (t *Interface) IsImplicit() bool needs go.Foreign
+extern go go/types.Interface.IsImplicit func (t *Interface) IsImplicit() bool needs go.Foreign takes t
 
 // ergo:go func (*Interface).IsMethodSet() bool
-extern go go/types.Interface.IsMethodSet func (t *Interface) IsMethodSet() bool needs go.Foreign
+extern go go/types.Interface.IsMethodSet func (t *Interface) IsMethodSet() bool needs go.Foreign takes t
 
 // ergo:go func (*Interface).MarkImplicit()
-extern go go/types.Interface.MarkImplicit func (t *Interface) MarkImplicit() needs go.Foreign
+extern go go/types.Interface.MarkImplicit func (t *Interface) MarkImplicit() needs go.Foreign takes t
 
 // ergo:go func (*Interface).Method(i int) *Func
-extern go go/types.Interface.Method func (t *Interface) Method(i int) Option[go.Ref[Func]] needs go.Foreign
+extern go go/types.Interface.Method func (t *Interface) Method(i int) Option[go.Ref[Func]] needs go.Foreign takes t
 
 // ergo:go func (*Interface).Methods() iter.Seq[*Func]
 // ergo:refused Interface.Methods: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Interface).NumEmbeddeds() int
-extern go go/types.Interface.NumEmbeddeds func (t *Interface) NumEmbeddeds() int needs go.Foreign
+extern go go/types.Interface.NumEmbeddeds func (t *Interface) NumEmbeddeds() int needs go.Foreign takes t
 
 // ergo:go func (*Interface).NumExplicitMethods() int
-extern go go/types.Interface.NumExplicitMethods func (t *Interface) NumExplicitMethods() int needs go.Foreign
+extern go go/types.Interface.NumExplicitMethods func (t *Interface) NumExplicitMethods() int needs go.Foreign takes t
 
 // ergo:go func (*Interface).NumMethods() int
-extern go go/types.Interface.NumMethods func (t *Interface) NumMethods() int needs go.Foreign
+extern go go/types.Interface.NumMethods func (t *Interface) NumMethods() int needs go.Foreign takes t
 
 // ergo:go func (*Interface).String() string
-extern go go/types.Interface.String func (t *Interface) String() string needs go.Foreign
+extern go go/types.Interface.String func (t *Interface) String() string needs go.Foreign takes t
 
 // ergo:go func (*Interface).Underlying() Type
-extern go go/types.Interface.Underlying func (t *Interface) Underlying() Type needs go.Foreign
+extern go go/types.Interface.Underlying func (t *Interface) Underlying() Type needs go.Foreign takes t
 
 // ergo:go const Invalid BasicKind
 extern go go/types.Invalid let Invalid BasicKind
@@ -496,7 +496,7 @@ extern go go/types.IsFloat let IsFloat BasicInfo
 extern go go/types.IsInteger let IsInteger BasicInfo
 
 // ergo:go func IsInterface(t Type) bool
-extern go go/types.IsInterface func IsInterface(t Type) bool needs go.Foreign
+extern go go/types.IsInterface func IsInterface(t Type) bool needs go.Foreign takes t
 
 // ergo:go const IsNumeric BasicInfo
 extern go go/types.IsNumeric let IsNumeric BasicInfo
@@ -517,52 +517,52 @@ extern go go/types.IsUntyped let IsUntyped BasicInfo
 extern go go/types.Label type Label {}
 
 // ergo:go func (*object).Exported() bool
-extern go go/types.Label.Exported func (obj *Label) Exported() bool needs go.Foreign
+extern go go/types.Label.Exported func (obj *Label) Exported() bool needs go.Foreign takes obj
 
 // ergo:go func (*object).Id() string
-extern go go/types.Label.Id func (obj *Label) Id() string needs go.Foreign
+extern go go/types.Label.Id func (obj *Label) Id() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Name() string
-extern go go/types.Label.Name func (obj *Label) Name() string needs go.Foreign
+extern go go/types.Label.Name func (obj *Label) Name() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Parent() *Scope
-extern go go/types.Label.Parent func (obj *Label) Parent() Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.Label.Parent func (obj *Label) Parent() Option[go.Ref[Scope]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pkg() *Package
-extern go go/types.Label.Pkg func (obj *Label) Pkg() Option[go.Ref[Package]] needs go.Foreign
+extern go go/types.Label.Pkg func (obj *Label) Pkg() Option[go.Ref[Package]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pos() token.Pos
-extern go go/types.Label.Pos func (obj *Label) Pos() token.Pos needs go.Foreign
+extern go go/types.Label.Pos func (obj *Label) Pos() token.Pos needs go.Foreign takes obj
 
 // ergo:go func (*Label).String() string
-extern go go/types.Label.String func (obj *Label) String() string needs go.Foreign
+extern go go/types.Label.String func (obj *Label) String() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Type() Type
-extern go go/types.Label.Type func (obj *Label) Type() Type needs go.Foreign
+extern go go/types.Label.Type func (obj *Label) Type() Type needs go.Foreign takes obj
 
 // ergo:go const LocalVar VarKind
 extern go go/types.LocalVar let LocalVar VarKind
 
 // ergo:go func LookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (obj Object, index []int, indirect bool)
-extern go go/types.LookupFieldOrMethod func LookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (Object, []int, bool) needs go.Foreign
+extern go go/types.LookupFieldOrMethod func LookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (Object, []int, bool) needs go.Foreign takes T, pkg
 
 // ergo:go func LookupSelection(T Type, addressable bool, pkg *Package, name string) (Selection, bool)
-extern go go/types.LookupSelection func LookupSelection(T Type, addressable bool, pkg *Package, name string) (Selection, bool) needs go.Foreign
+extern go go/types.LookupSelection func LookupSelection(T Type, addressable bool, pkg *Package, name string) (Selection, bool) needs go.Foreign takes T, pkg
 
 // ergo:go type Map struct
 extern go go/types.Map type Map {}
 
 // ergo:go func (*Map).Elem() Type
-extern go go/types.Map.Elem func (m *Map) Elem() Type needs go.Foreign
+extern go go/types.Map.Elem func (m *Map) Elem() Type needs go.Foreign takes m
 
 // ergo:go func (*Map).Key() Type
-extern go go/types.Map.Key func (m *Map) Key() Type needs go.Foreign
+extern go go/types.Map.Key func (m *Map) Key() Type needs go.Foreign takes m
 
 // ergo:go func (*Map).String() string
-extern go go/types.Map.String func (t *Map) String() string needs go.Foreign
+extern go go/types.Map.String func (t *Map) String() string needs go.Foreign takes t
 
 // ergo:go func (*Map).Underlying() Type
-extern go go/types.Map.Underlying func (t *Map) Underlying() Type needs go.Foreign
+extern go go/types.Map.Underlying func (t *Map) Underlying() Type needs go.Foreign takes t
 
 // ergo:go const MethodExpr SelectionKind
 extern go go/types.MethodExpr let MethodExpr SelectionKind
@@ -571,88 +571,88 @@ extern go go/types.MethodExpr let MethodExpr SelectionKind
 extern go go/types.MethodSet type MethodSet {}
 
 // ergo:go func (*MethodSet).At(i int) *Selection
-extern go go/types.MethodSet.At func (s *MethodSet) At(i int) Option[go.Ref[Selection]] needs go.Foreign
+extern go go/types.MethodSet.At func (s *MethodSet) At(i int) Option[go.Ref[Selection]] needs go.Foreign takes s
 
 // ergo:go func (*MethodSet).Len() int
-extern go go/types.MethodSet.Len func (s *MethodSet) Len() int needs go.Foreign
+extern go go/types.MethodSet.Len func (s *MethodSet) Len() int needs go.Foreign takes s
 
 // ergo:go func (*MethodSet).Lookup(pkg *Package, name string) *Selection
-extern go go/types.MethodSet.Lookup func (s *MethodSet) Lookup(pkg *Package, name string) Option[go.Ref[Selection]] needs go.Foreign
+extern go go/types.MethodSet.Lookup func (s *MethodSet) Lookup(pkg *Package, name string) Option[go.Ref[Selection]] needs go.Foreign takes s, pkg
 
 // ergo:go func (*MethodSet).Methods() iter.Seq[*Selection]
 // ergo:refused MethodSet.Methods: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*MethodSet).String() string
-extern go go/types.MethodSet.String func (s *MethodSet) String() string needs go.Foreign
+extern go go/types.MethodSet.String func (s *MethodSet) String() string needs go.Foreign takes s
 
 // ergo:go const MethodVal SelectionKind
 extern go go/types.MethodVal let MethodVal SelectionKind
 
 // ergo:go func MissingMethod(V Type, T *Interface, static bool) (method *Func, wrongType bool)
-extern go go/types.MissingMethod func MissingMethod(V Type, T *Interface, static bool) (Option[go.Ref[Func]], bool) needs go.Foreign
+extern go go/types.MissingMethod func MissingMethod(V Type, T *Interface, static bool) (Option[go.Ref[Func]], bool) needs go.Foreign takes V, T
 
 // ergo:go type Named struct
 extern go go/types.Named type Named {}
 
 // ergo:go func (*Named).AddMethod(m *Func)
-extern go go/types.Named.AddMethod func (t *Named) AddMethod(m *Func) needs go.Foreign
+extern go go/types.Named.AddMethod func (t *Named) AddMethod(m *Func) needs go.Foreign takes t, m
 
 // ergo:go func (*Named).Method(i int) *Func
-extern go go/types.Named.Method func (t *Named) Method(i int) Option[go.Ref[Func]] needs go.Foreign
+extern go go/types.Named.Method func (t *Named) Method(i int) Option[go.Ref[Func]] needs go.Foreign takes t
 
 // ergo:go func (*Named).Methods() iter.Seq[*Func]
 // ergo:refused Named.Methods: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Named).NumMethods() int
-extern go go/types.Named.NumMethods func (t *Named) NumMethods() int needs go.Foreign
+extern go go/types.Named.NumMethods func (t *Named) NumMethods() int needs go.Foreign takes t
 
 // ergo:go func (*Named).Obj() *TypeName
-extern go go/types.Named.Obj func (t *Named) Obj() Option[go.Ref[TypeName]] needs go.Foreign
+extern go go/types.Named.Obj func (t *Named) Obj() Option[go.Ref[TypeName]] needs go.Foreign takes t
 
 // ergo:go func (*Named).Origin() *Named
-extern go go/types.Named.Origin func (t *Named) Origin() Option[go.Ref[Named]] needs go.Foreign
+extern go go/types.Named.Origin func (t *Named) Origin() Option[go.Ref[Named]] needs go.Foreign takes t
 
 // ergo:go func (*Named).SetTypeParams(tparams []*TypeParam)
 // ergo:refused Named.SetTypeParams: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Named).SetUnderlying(u Type)
-extern go go/types.Named.SetUnderlying func (t *Named) SetUnderlying(u Type) needs go.Foreign
+extern go go/types.Named.SetUnderlying func (t *Named) SetUnderlying(u Type) needs go.Foreign takes t, u
 
 // ergo:go func (*Named).String() string
-extern go go/types.Named.String func (t *Named) String() string needs go.Foreign
+extern go go/types.Named.String func (t *Named) String() string needs go.Foreign takes t
 
 // ergo:go func (*Named).TypeArgs() *TypeList
-extern go go/types.Named.TypeArgs func (t *Named) TypeArgs() Option[go.Ref[TypeList]] needs go.Foreign
+extern go go/types.Named.TypeArgs func (t *Named) TypeArgs() Option[go.Ref[TypeList]] needs go.Foreign takes t
 
 // ergo:go func (*Named).TypeParams() *TypeParamList
-extern go go/types.Named.TypeParams func (t *Named) TypeParams() Option[go.Ref[TypeParamList]] needs go.Foreign
+extern go go/types.Named.TypeParams func (t *Named) TypeParams() Option[go.Ref[TypeParamList]] needs go.Foreign takes t
 
 // ergo:go func (*Named).Underlying() Type
-extern go go/types.Named.Underlying func (n *Named) Underlying() Type needs go.Foreign
+extern go go/types.Named.Underlying func (n *Named) Underlying() Type needs go.Foreign takes n
 
 // ergo:go func NewAlias(obj *TypeName, rhs Type) *Alias
-extern go go/types.NewAlias func NewAlias(obj *TypeName, rhs Type) Option[go.Ref[Alias]] needs go.Foreign
+extern go go/types.NewAlias func NewAlias(obj *TypeName, rhs Type) Option[go.Ref[Alias]] needs go.Foreign takes obj, rhs
 
 // ergo:go func NewArray(elem Type, len int64) *Array
-extern go go/types.NewArray func NewArray(elem Type, p1 int64) Option[go.Ref[Array]] needs go.Foreign
+extern go go/types.NewArray func NewArray(elem Type, p1 int64) Option[go.Ref[Array]] needs go.Foreign takes elem
 
 // ergo:go func NewChan(dir ChanDir, elem Type) *Chan
-extern go go/types.NewChan func NewChan(dir ChanDir, elem Type) Option[go.Ref[Chan]] needs go.Foreign
+extern go go/types.NewChan func NewChan(dir ChanDir, elem Type) Option[go.Ref[Chan]] needs go.Foreign takes elem
 
 // ergo:go func NewChecker(conf *Config, fset *token.FileSet, pkg *Package, info *Info) *Checker
-extern go go/types.NewChecker func NewChecker(conf *Config, fset *token.FileSet, pkg *Package, info *Info) Option[go.Ref[Checker]] needs go.Foreign
+extern go go/types.NewChecker func NewChecker(conf *Config, fset *token.FileSet, pkg *Package, info *Info) Option[go.Ref[Checker]] needs go.Foreign takes conf, fset, pkg, info
 
 // ergo:go func NewConst(pos token.Pos, pkg *Package, name string, typ Type, val constant.Value) *Const
-extern go go/types.NewConst func NewConst(pos token.Pos, pkg *Package, name string, typ Type, val constant.Value) Option[go.Ref[Const]] needs go.Foreign
+extern go go/types.NewConst func NewConst(pos token.Pos, pkg *Package, name string, typ Type, val constant.Value) Option[go.Ref[Const]] needs go.Foreign takes pkg, typ, val
 
 // ergo:go func NewContext() *Context
 extern go go/types.NewContext func NewContext() Option[go.Ref[Context]] needs go.Foreign
 
 // ergo:go func NewField(pos token.Pos, pkg *Package, name string, typ Type, embedded bool) *Var
-extern go go/types.NewField func NewField(pos token.Pos, pkg *Package, name string, typ Type, p4 bool) Option[go.Ref[Var]] needs go.Foreign
+extern go go/types.NewField func NewField(pos token.Pos, pkg *Package, name string, typ Type, p4 bool) Option[go.Ref[Var]] needs go.Foreign takes pkg, typ
 
 // ergo:go func NewFunc(pos token.Pos, pkg *Package, name string, sig *Signature) *Func
-extern go go/types.NewFunc func NewFunc(pos token.Pos, pkg *Package, name string, sig *Signature) Option[go.Ref[Func]] needs go.Foreign
+extern go go/types.NewFunc func NewFunc(pos token.Pos, pkg *Package, name string, sig *Signature) Option[go.Ref[Func]] needs go.Foreign takes pkg, sig
 
 // ergo:go func NewInterface(methods []*Func, embeddeds []*Named) *Interface
 // ergo:refused NewInterface: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
@@ -661,13 +661,13 @@ extern go go/types.NewFunc func NewFunc(pos token.Pos, pkg *Package, name string
 // ergo:refused NewInterfaceType: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func NewLabel(pos token.Pos, pkg *Package, name string) *Label
-extern go go/types.NewLabel func NewLabel(pos token.Pos, pkg *Package, name string) Option[go.Ref[Label]] needs go.Foreign
+extern go go/types.NewLabel func NewLabel(pos token.Pos, pkg *Package, name string) Option[go.Ref[Label]] needs go.Foreign takes pkg
 
 // ergo:go func NewMap(key Type, elem Type) *Map
-extern go go/types.NewMap func NewMap(key Type, elem Type) Option[go.Ref[Map]] needs go.Foreign
+extern go go/types.NewMap func NewMap(key Type, elem Type) Option[go.Ref[Map]] needs go.Foreign takes key, elem
 
 // ergo:go func NewMethodSet(T Type) *MethodSet
-extern go go/types.NewMethodSet func NewMethodSet(T Type) Option[go.Ref[MethodSet]] needs go.Foreign
+extern go go/types.NewMethodSet func NewMethodSet(T Type) Option[go.Ref[MethodSet]] needs go.Foreign takes T
 
 // ergo:go func NewNamed(obj *TypeName, underlying Type, methods []*Func) *Named
 // ergo:refused NewNamed: parameter 3: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
@@ -676,121 +676,121 @@ extern go go/types.NewMethodSet func NewMethodSet(T Type) Option[go.Ref[MethodSe
 extern go go/types.NewPackage func NewPackage(path string, name string) Option[go.Ref[Package]] needs go.Foreign
 
 // ergo:go func NewParam(pos token.Pos, pkg *Package, name string, typ Type) *Var
-extern go go/types.NewParam func NewParam(pos token.Pos, pkg *Package, name string, typ Type) Option[go.Ref[Var]] needs go.Foreign
+extern go go/types.NewParam func NewParam(pos token.Pos, pkg *Package, name string, typ Type) Option[go.Ref[Var]] needs go.Foreign takes pkg, typ
 
 // ergo:go func NewPkgName(pos token.Pos, pkg *Package, name string, imported *Package) *PkgName
-extern go go/types.NewPkgName func NewPkgName(pos token.Pos, pkg *Package, name string, imported *Package) Option[go.Ref[PkgName]] needs go.Foreign
+extern go go/types.NewPkgName func NewPkgName(pos token.Pos, pkg *Package, name string, imported *Package) Option[go.Ref[PkgName]] needs go.Foreign takes pkg, imported
 
 // ergo:go func NewPointer(elem Type) *Pointer
-extern go go/types.NewPointer func NewPointer(elem Type) Option[go.Ref[Pointer]] needs go.Foreign
+extern go go/types.NewPointer func NewPointer(elem Type) Option[go.Ref[Pointer]] needs go.Foreign takes elem
 
 // ergo:go func NewScope(parent *Scope, pos token.Pos, end token.Pos, comment string) *Scope
-extern go go/types.NewScope func NewScope(parent *Scope, pos token.Pos, end token.Pos, comment string) Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.NewScope func NewScope(parent *Scope, pos token.Pos, end token.Pos, comment string) Option[go.Ref[Scope]] needs go.Foreign takes parent
 
 // ergo:go func NewSignature(recv *Var, params *Tuple, results *Tuple, variadic bool) *Signature
-extern go go/types.NewSignature func NewSignature(recv *Var, params *Tuple, results *Tuple, variadic bool) Option[go.Ref[Signature]] needs go.Foreign
+extern go go/types.NewSignature func NewSignature(recv *Var, params *Tuple, results *Tuple, variadic bool) Option[go.Ref[Signature]] needs go.Foreign takes recv, params, results
 
 // ergo:go func NewSignatureType(recv *Var, recvTypeParams []*TypeParam, typeParams []*TypeParam, params *Tuple, results *Tuple, variadic bool) *Signature
 // ergo:refused NewSignatureType: parameter 2: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func NewSlice(elem Type) *Slice
-extern go go/types.NewSlice func NewSlice(elem Type) Option[go.Ref[Slice]] needs go.Foreign
+extern go go/types.NewSlice func NewSlice(elem Type) Option[go.Ref[Slice]] needs go.Foreign takes elem
 
 // ergo:go func NewStruct(fields []*Var, tags []string) *Struct
 // ergo:refused NewStruct: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func NewTerm(tilde bool, typ Type) *Term
-extern go go/types.NewTerm func NewTerm(tilde bool, typ Type) Option[go.Ref[Term]] needs go.Foreign
+extern go go/types.NewTerm func NewTerm(tilde bool, typ Type) Option[go.Ref[Term]] needs go.Foreign takes typ
 
 // ergo:go func NewTuple(x ...*Var) *Tuple
 // ergo:refused NewTuple: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func NewTypeName(pos token.Pos, pkg *Package, name string, typ Type) *TypeName
-extern go go/types.NewTypeName func NewTypeName(pos token.Pos, pkg *Package, name string, typ Type) Option[go.Ref[TypeName]] needs go.Foreign
+extern go go/types.NewTypeName func NewTypeName(pos token.Pos, pkg *Package, name string, typ Type) Option[go.Ref[TypeName]] needs go.Foreign takes pkg, typ
 
 // ergo:go func NewTypeParam(obj *TypeName, constraint Type) *TypeParam
-extern go go/types.NewTypeParam func NewTypeParam(obj *TypeName, constraint Type) Option[go.Ref[TypeParam]] needs go.Foreign
+extern go go/types.NewTypeParam func NewTypeParam(obj *TypeName, constraint Type) Option[go.Ref[TypeParam]] needs go.Foreign takes obj, constraint
 
 // ergo:go func NewUnion(terms []*Term) *Union
 // ergo:refused NewUnion: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func NewVar(pos token.Pos, pkg *Package, name string, typ Type) *Var
-extern go go/types.NewVar func NewVar(pos token.Pos, pkg *Package, name string, typ Type) Option[go.Ref[Var]] needs go.Foreign
+extern go go/types.NewVar func NewVar(pos token.Pos, pkg *Package, name string, typ Type) Option[go.Ref[Var]] needs go.Foreign takes pkg, typ
 
 // ergo:go type Nil struct
 extern go go/types.Nil type Nil {}
 
 // ergo:go func (*object).Exported() bool
-extern go go/types.Nil.Exported func (obj *Nil) Exported() bool needs go.Foreign
+extern go go/types.Nil.Exported func (obj *Nil) Exported() bool needs go.Foreign takes obj
 
 // ergo:go func (*object).Id() string
-extern go go/types.Nil.Id func (obj *Nil) Id() string needs go.Foreign
+extern go go/types.Nil.Id func (obj *Nil) Id() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Name() string
-extern go go/types.Nil.Name func (obj *Nil) Name() string needs go.Foreign
+extern go go/types.Nil.Name func (obj *Nil) Name() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Parent() *Scope
-extern go go/types.Nil.Parent func (obj *Nil) Parent() Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.Nil.Parent func (obj *Nil) Parent() Option[go.Ref[Scope]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pkg() *Package
-extern go go/types.Nil.Pkg func (obj *Nil) Pkg() Option[go.Ref[Package]] needs go.Foreign
+extern go go/types.Nil.Pkg func (obj *Nil) Pkg() Option[go.Ref[Package]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pos() token.Pos
-extern go go/types.Nil.Pos func (obj *Nil) Pos() token.Pos needs go.Foreign
+extern go go/types.Nil.Pos func (obj *Nil) Pos() token.Pos needs go.Foreign takes obj
 
 // ergo:go func (*Nil).String() string
-extern go go/types.Nil.String func (obj *Nil) String() string needs go.Foreign
+extern go go/types.Nil.String func (obj *Nil) String() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Type() Type
-extern go go/types.Nil.Type func (obj *Nil) Type() Type needs go.Foreign
+extern go go/types.Nil.Type func (obj *Nil) Type() Type needs go.Foreign takes obj
 
 // ergo:go type Object interface
 extern go go/types.Object type Object {
-	Exported() bool needs go.Foreign,
-	Id() string needs go.Foreign,
-	Name() string needs go.Foreign,
-	Parent() Option[go.Ref[Scope]] needs go.Foreign,
-	Pkg() Option[go.Ref[Package]] needs go.Foreign,
-	Pos() token.Pos needs go.Foreign,
-	String() string needs go.Foreign,
-	Type() Type needs go.Foreign,
+	Exported() bool needs go.Foreign takes,
+	Id() string needs go.Foreign takes,
+	Name() string needs go.Foreign takes,
+	Parent() Option[go.Ref[Scope]] needs go.Foreign takes,
+	Pkg() Option[go.Ref[Package]] needs go.Foreign takes,
+	Pos() token.Pos needs go.Foreign takes,
+	String() string needs go.Foreign takes,
+	Type() Type needs go.Foreign takes,
 }
 
 // ergo:go func ObjectString(obj Object, qf Qualifier) string
-extern go go/types.ObjectString func ObjectString(obj Object, qf escaping func(*Package) string) string needs go.Foreign
+extern go go/types.ObjectString func ObjectString(obj Object, qf escaping func(*Package) string) string needs go.Foreign takes obj
 
 // ergo:go type Package struct
 extern go go/types.Package type Package {}
 
 // ergo:go func (*Package).Complete() bool
-extern go go/types.Package.Complete func (pkg *Package) Complete() bool needs go.Foreign
+extern go go/types.Package.Complete func (pkg *Package) Complete() bool needs go.Foreign takes pkg
 
 // ergo:go func (*Package).GoVersion() string
-extern go go/types.Package.GoVersion func (pkg *Package) GoVersion() string needs go.Foreign
+extern go go/types.Package.GoVersion func (pkg *Package) GoVersion() string needs go.Foreign takes pkg
 
 // ergo:go func (*Package).Imports() []*Package
 // ergo:refused Package.Imports: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Package).MarkComplete()
-extern go go/types.Package.MarkComplete func (pkg *Package) MarkComplete() needs go.Foreign
+extern go go/types.Package.MarkComplete func (pkg *Package) MarkComplete() needs go.Foreign takes pkg
 
 // ergo:go func (*Package).Name() string
-extern go go/types.Package.Name func (pkg *Package) Name() string needs go.Foreign
+extern go go/types.Package.Name func (pkg *Package) Name() string needs go.Foreign takes pkg
 
 // ergo:go func (*Package).Path() string
-extern go go/types.Package.Path func (pkg *Package) Path() string needs go.Foreign
+extern go go/types.Package.Path func (pkg *Package) Path() string needs go.Foreign takes pkg
 
 // ergo:go func (*Package).Scope() *Scope
-extern go go/types.Package.Scope func (pkg *Package) Scope() Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.Package.Scope func (pkg *Package) Scope() Option[go.Ref[Scope]] needs go.Foreign takes pkg
 
 // ergo:go func (*Package).SetImports(list []*Package)
 // ergo:refused Package.SetImports: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Package).SetName(name string)
-extern go go/types.Package.SetName func (pkg *Package) SetName(name string) needs go.Foreign
+extern go go/types.Package.SetName func (pkg *Package) SetName(name string) needs go.Foreign takes pkg
 
 // ergo:go func (*Package).String() string
-extern go go/types.Package.String func (pkg *Package) String() string needs go.Foreign
+extern go go/types.Package.String func (pkg *Package) String() string needs go.Foreign takes pkg
 
 // ergo:go const PackageVar VarKind
 extern go go/types.PackageVar let PackageVar VarKind
@@ -802,43 +802,43 @@ extern go go/types.ParamVar let ParamVar VarKind
 extern go go/types.PkgName type PkgName {}
 
 // ergo:go func (*object).Exported() bool
-extern go go/types.PkgName.Exported func (obj *PkgName) Exported() bool needs go.Foreign
+extern go go/types.PkgName.Exported func (obj *PkgName) Exported() bool needs go.Foreign takes obj
 
 // ergo:go func (*object).Id() string
-extern go go/types.PkgName.Id func (obj *PkgName) Id() string needs go.Foreign
+extern go go/types.PkgName.Id func (obj *PkgName) Id() string needs go.Foreign takes obj
 
 // ergo:go func (*PkgName).Imported() *Package
-extern go go/types.PkgName.Imported func (obj *PkgName) Imported() Option[go.Ref[Package]] needs go.Foreign
+extern go go/types.PkgName.Imported func (obj *PkgName) Imported() Option[go.Ref[Package]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Name() string
-extern go go/types.PkgName.Name func (obj *PkgName) Name() string needs go.Foreign
+extern go go/types.PkgName.Name func (obj *PkgName) Name() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Parent() *Scope
-extern go go/types.PkgName.Parent func (obj *PkgName) Parent() Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.PkgName.Parent func (obj *PkgName) Parent() Option[go.Ref[Scope]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pkg() *Package
-extern go go/types.PkgName.Pkg func (obj *PkgName) Pkg() Option[go.Ref[Package]] needs go.Foreign
+extern go go/types.PkgName.Pkg func (obj *PkgName) Pkg() Option[go.Ref[Package]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pos() token.Pos
-extern go go/types.PkgName.Pos func (obj *PkgName) Pos() token.Pos needs go.Foreign
+extern go go/types.PkgName.Pos func (obj *PkgName) Pos() token.Pos needs go.Foreign takes obj
 
 // ergo:go func (*PkgName).String() string
-extern go go/types.PkgName.String func (obj *PkgName) String() string needs go.Foreign
+extern go go/types.PkgName.String func (obj *PkgName) String() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Type() Type
-extern go go/types.PkgName.Type func (obj *PkgName) Type() Type needs go.Foreign
+extern go go/types.PkgName.Type func (obj *PkgName) Type() Type needs go.Foreign takes obj
 
 // ergo:go type Pointer struct
 extern go go/types.Pointer type Pointer {}
 
 // ergo:go func (*Pointer).Elem() Type
-extern go go/types.Pointer.Elem func (p *Pointer) Elem() Type needs go.Foreign
+extern go go/types.Pointer.Elem func (p *Pointer) Elem() Type needs go.Foreign takes p
 
 // ergo:go func (*Pointer).String() string
-extern go go/types.Pointer.String func (p *Pointer) String() string needs go.Foreign
+extern go go/types.Pointer.String func (p *Pointer) String() string needs go.Foreign takes p
 
 // ergo:go func (*Pointer).Underlying() Type
-extern go go/types.Pointer.Underlying func (p *Pointer) Underlying() Type needs go.Foreign
+extern go go/types.Pointer.Underlying func (p *Pointer) Underlying() Type needs go.Foreign takes p
 
 // ergo:go type Qualifier func
 // ergo:refused Qualifier: a Go function type maps to no Ergo host type in v1
@@ -859,85 +859,85 @@ extern go go/types.ResultVar let ResultVar VarKind
 extern go go/types.Rune let Rune BasicKind
 
 // ergo:go func Satisfies(V Type, T *Interface) bool
-extern go go/types.Satisfies func Satisfies(V Type, T *Interface) bool needs go.Foreign
+extern go go/types.Satisfies func Satisfies(V Type, T *Interface) bool needs go.Foreign takes V, T
 
 // ergo:go type Scope struct
 extern go go/types.Scope type Scope {}
 
 // ergo:go func (*Scope).Child(i int) *Scope
-extern go go/types.Scope.Child func (s *Scope) Child(i int) Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.Scope.Child func (s *Scope) Child(i int) Option[go.Ref[Scope]] needs go.Foreign takes s
 
 // ergo:go func (*Scope).Children() iter.Seq[*Scope]
 // ergo:refused Scope.Children: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Scope).Contains(pos token.Pos) bool
-extern go go/types.Scope.Contains func (s *Scope) Contains(pos token.Pos) bool needs go.Foreign
+extern go go/types.Scope.Contains func (s *Scope) Contains(pos token.Pos) bool needs go.Foreign takes s
 
 // ergo:go func (*Scope).End() token.Pos
-extern go go/types.Scope.End func (s *Scope) End() token.Pos needs go.Foreign
+extern go go/types.Scope.End func (s *Scope) End() token.Pos needs go.Foreign takes s
 
 // ergo:go func (*Scope).Innermost(pos token.Pos) *Scope
-extern go go/types.Scope.Innermost func (s *Scope) Innermost(pos token.Pos) Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.Scope.Innermost func (s *Scope) Innermost(pos token.Pos) Option[go.Ref[Scope]] needs go.Foreign takes s
 
 // ergo:go func (*Scope).Insert(obj Object) Object
-extern go go/types.Scope.Insert func (s *Scope) Insert(obj Object) Object needs go.Foreign
+extern go go/types.Scope.Insert func (s *Scope) Insert(obj Object) Object needs go.Foreign takes s, obj
 
 // ergo:go func (*Scope).Len() int
-extern go go/types.Scope.Len func (s *Scope) Len() int needs go.Foreign
+extern go go/types.Scope.Len func (s *Scope) Len() int needs go.Foreign takes s
 
 // ergo:go func (*Scope).Lookup(name string) Object
-extern go go/types.Scope.Lookup func (s *Scope) Lookup(name string) Object needs go.Foreign
+extern go go/types.Scope.Lookup func (s *Scope) Lookup(name string) Object needs go.Foreign takes s
 
 // ergo:go func (*Scope).LookupParent(name string, pos token.Pos) (*Scope, Object)
-extern go go/types.Scope.LookupParent func (s *Scope) LookupParent(name string, pos token.Pos) (Option[go.Ref[Scope]], Object) needs go.Foreign
+extern go go/types.Scope.LookupParent func (s *Scope) LookupParent(name string, pos token.Pos) (Option[go.Ref[Scope]], Object) needs go.Foreign takes s
 
 // ergo:go func (*Scope).Names() []string
-extern go go/types.Scope.Names func (s *Scope) Names() []string needs go.Foreign
+extern go go/types.Scope.Names func (s *Scope) Names() []string needs go.Foreign takes s
 
 // ergo:go func (*Scope).NumChildren() int
-extern go go/types.Scope.NumChildren func (s *Scope) NumChildren() int needs go.Foreign
+extern go go/types.Scope.NumChildren func (s *Scope) NumChildren() int needs go.Foreign takes s
 
 // ergo:go func (*Scope).Parent() *Scope
-extern go go/types.Scope.Parent func (s *Scope) Parent() Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.Scope.Parent func (s *Scope) Parent() Option[go.Ref[Scope]] needs go.Foreign takes s
 
 // ergo:go func (*Scope).Pos() token.Pos
-extern go go/types.Scope.Pos func (s *Scope) Pos() token.Pos needs go.Foreign
+extern go go/types.Scope.Pos func (s *Scope) Pos() token.Pos needs go.Foreign takes s
 
 // ergo:go func (*Scope).String() string
-extern go go/types.Scope.String func (s *Scope) String() string needs go.Foreign
+extern go go/types.Scope.String func (s *Scope) String() string needs go.Foreign takes s
 
 // ergo:go func (*Scope).WriteTo(w io.Writer, n int, recurse bool)
-extern go go/types.Scope.WriteTo func (s *Scope) WriteTo(w io.Writer, n int, recurse bool) needs go.Foreign
+extern go go/types.Scope.WriteTo func (s *Scope) WriteTo(w io.Writer, n int, recurse bool) needs go.Foreign takes s, w
 
 // ergo:go type Selection struct
 extern go go/types.Selection type Selection {}
 
 // ergo:go func (*Selection).Index() []int
-extern go go/types.Selection.Index func (s *Selection) Index() []int needs go.Foreign
+extern go go/types.Selection.Index func (s *Selection) Index() []int needs go.Foreign takes s
 
 // ergo:go func (*Selection).Indirect() bool
-extern go go/types.Selection.Indirect func (s *Selection) Indirect() bool needs go.Foreign
+extern go go/types.Selection.Indirect func (s *Selection) Indirect() bool needs go.Foreign takes s
 
 // ergo:go func (*Selection).Kind() SelectionKind
-extern go go/types.Selection.Kind func (s *Selection) Kind() SelectionKind needs go.Foreign
+extern go go/types.Selection.Kind func (s *Selection) Kind() SelectionKind needs go.Foreign takes s
 
 // ergo:go func (*Selection).Obj() Object
-extern go go/types.Selection.Obj func (s *Selection) Obj() Object needs go.Foreign
+extern go go/types.Selection.Obj func (s *Selection) Obj() Object needs go.Foreign takes s
 
 // ergo:go func (*Selection).Recv() Type
-extern go go/types.Selection.Recv func (s *Selection) Recv() Type needs go.Foreign
+extern go go/types.Selection.Recv func (s *Selection) Recv() Type needs go.Foreign takes s
 
 // ergo:go func (*Selection).String() string
-extern go go/types.Selection.String func (s *Selection) String() string needs go.Foreign
+extern go go/types.Selection.String func (s *Selection) String() string needs go.Foreign takes s
 
 // ergo:go func (*Selection).Type() Type
-extern go go/types.Selection.Type func (s *Selection) Type() Type needs go.Foreign
+extern go go/types.Selection.Type func (s *Selection) Type() Type needs go.Foreign takes s
 
 // ergo:go type SelectionKind int
 extern go go/types.SelectionKind type SelectionKind int
 
 // ergo:go func SelectionString(s *Selection, qf Qualifier) string
-extern go go/types.SelectionString func SelectionString(s *Selection, qf escaping func(*Package) string) string needs go.Foreign
+extern go go/types.SelectionString func SelectionString(s *Selection, qf escaping func(*Package) string) string needs go.Foreign takes s
 
 // ergo:go const SendOnly ChanDir
 extern go go/types.SendOnly let SendOnly ChanDir
@@ -949,33 +949,33 @@ extern go go/types.SendRecv let SendRecv ChanDir
 extern go go/types.Signature type Signature {}
 
 // ergo:go func (*Signature).Params() *Tuple
-extern go go/types.Signature.Params func (s *Signature) Params() Option[go.Ref[Tuple]] needs go.Foreign
+extern go go/types.Signature.Params func (s *Signature) Params() Option[go.Ref[Tuple]] needs go.Foreign takes s
 
 // ergo:go func (*Signature).Recv() *Var
-extern go go/types.Signature.Recv func (s *Signature) Recv() Option[go.Ref[Var]] needs go.Foreign
+extern go go/types.Signature.Recv func (s *Signature) Recv() Option[go.Ref[Var]] needs go.Foreign takes s
 
 // ergo:go func (*Signature).RecvTypeParams() *TypeParamList
-extern go go/types.Signature.RecvTypeParams func (s *Signature) RecvTypeParams() Option[go.Ref[TypeParamList]] needs go.Foreign
+extern go go/types.Signature.RecvTypeParams func (s *Signature) RecvTypeParams() Option[go.Ref[TypeParamList]] needs go.Foreign takes s
 
 // ergo:go func (*Signature).Results() *Tuple
-extern go go/types.Signature.Results func (s *Signature) Results() Option[go.Ref[Tuple]] needs go.Foreign
+extern go go/types.Signature.Results func (s *Signature) Results() Option[go.Ref[Tuple]] needs go.Foreign takes s
 
 // ergo:go func (*Signature).String() string
-extern go go/types.Signature.String func (s *Signature) String() string needs go.Foreign
+extern go go/types.Signature.String func (s *Signature) String() string needs go.Foreign takes s
 
 // ergo:go func (*Signature).TypeParams() *TypeParamList
-extern go go/types.Signature.TypeParams func (s *Signature) TypeParams() Option[go.Ref[TypeParamList]] needs go.Foreign
+extern go go/types.Signature.TypeParams func (s *Signature) TypeParams() Option[go.Ref[TypeParamList]] needs go.Foreign takes s
 
 // ergo:go func (*Signature).Underlying() Type
-extern go go/types.Signature.Underlying func (s *Signature) Underlying() Type needs go.Foreign
+extern go go/types.Signature.Underlying func (s *Signature) Underlying() Type needs go.Foreign takes s
 
 // ergo:go func (*Signature).Variadic() bool
-extern go go/types.Signature.Variadic func (s *Signature) Variadic() bool needs go.Foreign
+extern go go/types.Signature.Variadic func (s *Signature) Variadic() bool needs go.Foreign takes s
 
 // ergo:go type Sizes interface
 extern go go/types.Sizes type Sizes {
-	Alignof(T Type) int64 needs go.Foreign,
-	Sizeof(T Type) int64 needs go.Foreign,
+	Alignof(T Type) int64 needs go.Foreign takes T,
+	Sizeof(T Type) int64 needs go.Foreign takes T,
 }
 
 // ergo:go func (types.Sizes).Offsetsof(fields []*types.Var) []int64
@@ -988,13 +988,13 @@ extern go go/types.SizesFor func SizesFor(compiler string, arch string) Sizes ne
 extern go go/types.Slice type Slice {}
 
 // ergo:go func (*Slice).Elem() Type
-extern go go/types.Slice.Elem func (s *Slice) Elem() Type needs go.Foreign
+extern go go/types.Slice.Elem func (s *Slice) Elem() Type needs go.Foreign takes s
 
 // ergo:go func (*Slice).String() string
-extern go go/types.Slice.String func (s *Slice) String() string needs go.Foreign
+extern go go/types.Slice.String func (s *Slice) String() string needs go.Foreign takes s
 
 // ergo:go func (*Slice).Underlying() Type
-extern go go/types.Slice.Underlying func (s *Slice) Underlying() Type needs go.Foreign
+extern go go/types.Slice.Underlying func (s *Slice) Underlying() Type needs go.Foreign takes s
 
 // ergo:go type StdSizes struct
 extern go go/types.StdSizes type StdSizes {
@@ -1003,13 +1003,13 @@ extern go go/types.StdSizes type StdSizes {
 }
 
 // ergo:go func (*StdSizes).Alignof(T Type) (result int64)
-extern go go/types.StdSizes.Alignof func (s *StdSizes) Alignof(T Type) int64 needs go.Foreign
+extern go go/types.StdSizes.Alignof func (s *StdSizes) Alignof(T Type) int64 needs go.Foreign takes s, T
 
 // ergo:go func (*StdSizes).Offsetsof(fields []*Var) []int64
 // ergo:refused StdSizes.Offsetsof: parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*StdSizes).Sizeof(T Type) int64
-extern go go/types.StdSizes.Sizeof func (s *StdSizes) Sizeof(T Type) int64 needs go.Foreign
+extern go go/types.StdSizes.Sizeof func (s *StdSizes) Sizeof(T Type) int64 needs go.Foreign takes s, T
 
 // ergo:go const String BasicKind
 extern go go/types.String let String BasicKind
@@ -1018,49 +1018,49 @@ extern go go/types.String let String BasicKind
 extern go go/types.Struct type Struct {}
 
 // ergo:go func (*Struct).Field(i int) *Var
-extern go go/types.Struct.Field func (s *Struct) Field(i int) Option[go.Ref[Var]] needs go.Foreign
+extern go go/types.Struct.Field func (s *Struct) Field(i int) Option[go.Ref[Var]] needs go.Foreign takes s
 
 // ergo:go func (*Struct).Fields() iter.Seq[*Var]
 // ergo:refused Struct.Fields: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Struct).NumFields() int
-extern go go/types.Struct.NumFields func (s *Struct) NumFields() int needs go.Foreign
+extern go go/types.Struct.NumFields func (s *Struct) NumFields() int needs go.Foreign takes s
 
 // ergo:go func (*Struct).String() string
-extern go go/types.Struct.String func (t *Struct) String() string needs go.Foreign
+extern go go/types.Struct.String func (t *Struct) String() string needs go.Foreign takes t
 
 // ergo:go func (*Struct).Tag(i int) string
-extern go go/types.Struct.Tag func (s *Struct) Tag(i int) string needs go.Foreign
+extern go go/types.Struct.Tag func (s *Struct) Tag(i int) string needs go.Foreign takes s
 
 // ergo:go func (*Struct).Underlying() Type
-extern go go/types.Struct.Underlying func (t *Struct) Underlying() Type needs go.Foreign
+extern go go/types.Struct.Underlying func (t *Struct) Underlying() Type needs go.Foreign takes t
 
 // ergo:go type Term struct
 extern go go/types.Term type Term {}
 
 // ergo:go func (*Term).String() string
-extern go go/types.Term.String func (t *Term) String() string needs go.Foreign
+extern go go/types.Term.String func (t *Term) String() string needs go.Foreign takes t
 
 // ergo:go func (*Term).Tilde() bool
-extern go go/types.Term.Tilde func (t *Term) Tilde() bool needs go.Foreign
+extern go go/types.Term.Tilde func (t *Term) Tilde() bool needs go.Foreign takes t
 
 // ergo:go func (*Term).Type() Type
-extern go go/types.Term.Type func (t *Term) Type() Type needs go.Foreign
+extern go go/types.Term.Type func (t *Term) Type() Type needs go.Foreign takes t
 
 // ergo:go type Tuple struct
 extern go go/types.Tuple type Tuple {}
 
 // ergo:go func (*Tuple).At(i int) *Var
-extern go go/types.Tuple.At func (t *Tuple) At(i int) Option[go.Ref[Var]] needs go.Foreign
+extern go go/types.Tuple.At func (t *Tuple) At(i int) Option[go.Ref[Var]] needs go.Foreign takes t
 
 // ergo:go func (*Tuple).Len() int
-extern go go/types.Tuple.Len func (t *Tuple) Len() int needs go.Foreign
+extern go go/types.Tuple.Len func (t *Tuple) Len() int needs go.Foreign takes t
 
 // ergo:go func (*Tuple).String() string
-extern go go/types.Tuple.String func (t *Tuple) String() string needs go.Foreign
+extern go go/types.Tuple.String func (t *Tuple) String() string needs go.Foreign takes t
 
 // ergo:go func (*Tuple).Underlying() Type
-extern go go/types.Tuple.Underlying func (t *Tuple) Underlying() Type needs go.Foreign
+extern go go/types.Tuple.Underlying func (t *Tuple) Underlying() Type needs go.Foreign takes t
 
 // ergo:go func (*Tuple).Variables() iter.Seq[*Var]
 // ergo:refused Tuple.Variables: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
@@ -1070,8 +1070,8 @@ extern go go/types.Tuple.Underlying func (t *Tuple) Underlying() Type needs go.F
 
 // ergo:go type Type interface
 extern go go/types.Type type Type {
-	String() string needs go.Foreign,
-	Underlying() Type needs go.Foreign,
+	String() string needs go.Foreign takes,
+	Underlying() Type needs go.Foreign takes,
 }
 
 // ergo:go type TypeAndValue struct
@@ -1108,85 +1108,85 @@ extern go go/types.TypeAndValue.IsVoid func (tv TypeAndValue) IsVoid() bool need
 extern go go/types.TypeList type TypeList {}
 
 // ergo:go func (*TypeList).At(i int) Type
-extern go go/types.TypeList.At func (l *TypeList) At(i int) Type needs go.Foreign
+extern go go/types.TypeList.At func (l *TypeList) At(i int) Type needs go.Foreign takes l
 
 // ergo:go func (*TypeList).Len() int
-extern go go/types.TypeList.Len func (l *TypeList) Len() int needs go.Foreign
+extern go go/types.TypeList.Len func (l *TypeList) Len() int needs go.Foreign takes l
 
 // ergo:go func (*TypeList).String() string
-extern go go/types.TypeList.String func (l *TypeList) String() string needs go.Foreign
+extern go go/types.TypeList.String func (l *TypeList) String() string needs go.Foreign takes l
 
 // ergo:go func (*TypeList).Types() iter.Seq[Type]
-extern go go/types.TypeList.Types func (l *TypeList) Types() Seq[Type] needs go.Foreign
+extern go go/types.TypeList.Types func (l *TypeList) Types() Seq[Type] needs go.Foreign takes l
 
 // ergo:go type TypeName struct
 extern go go/types.TypeName type TypeName {}
 
 // ergo:go func (*object).Exported() bool
-extern go go/types.TypeName.Exported func (obj *TypeName) Exported() bool needs go.Foreign
+extern go go/types.TypeName.Exported func (obj *TypeName) Exported() bool needs go.Foreign takes obj
 
 // ergo:go func (*object).Id() string
-extern go go/types.TypeName.Id func (obj *TypeName) Id() string needs go.Foreign
+extern go go/types.TypeName.Id func (obj *TypeName) Id() string needs go.Foreign takes obj
 
 // ergo:go func (*TypeName).IsAlias() bool
-extern go go/types.TypeName.IsAlias func (obj *TypeName) IsAlias() bool needs go.Foreign
+extern go go/types.TypeName.IsAlias func (obj *TypeName) IsAlias() bool needs go.Foreign takes obj
 
 // ergo:go func (*object).Name() string
-extern go go/types.TypeName.Name func (obj *TypeName) Name() string needs go.Foreign
+extern go go/types.TypeName.Name func (obj *TypeName) Name() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Parent() *Scope
-extern go go/types.TypeName.Parent func (obj *TypeName) Parent() Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.TypeName.Parent func (obj *TypeName) Parent() Option[go.Ref[Scope]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pkg() *Package
-extern go go/types.TypeName.Pkg func (obj *TypeName) Pkg() Option[go.Ref[Package]] needs go.Foreign
+extern go go/types.TypeName.Pkg func (obj *TypeName) Pkg() Option[go.Ref[Package]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pos() token.Pos
-extern go go/types.TypeName.Pos func (obj *TypeName) Pos() token.Pos needs go.Foreign
+extern go go/types.TypeName.Pos func (obj *TypeName) Pos() token.Pos needs go.Foreign takes obj
 
 // ergo:go func (*TypeName).String() string
-extern go go/types.TypeName.String func (obj *TypeName) String() string needs go.Foreign
+extern go go/types.TypeName.String func (obj *TypeName) String() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Type() Type
-extern go go/types.TypeName.Type func (obj *TypeName) Type() Type needs go.Foreign
+extern go go/types.TypeName.Type func (obj *TypeName) Type() Type needs go.Foreign takes obj
 
 // ergo:go type TypeParam struct
 extern go go/types.TypeParam type TypeParam {}
 
 // ergo:go func (*TypeParam).Constraint() Type
-extern go go/types.TypeParam.Constraint func (t *TypeParam) Constraint() Type needs go.Foreign
+extern go go/types.TypeParam.Constraint func (t *TypeParam) Constraint() Type needs go.Foreign takes t
 
 // ergo:go func (*TypeParam).Index() int
-extern go go/types.TypeParam.Index func (t *TypeParam) Index() int needs go.Foreign
+extern go go/types.TypeParam.Index func (t *TypeParam) Index() int needs go.Foreign takes t
 
 // ergo:go func (*TypeParam).Obj() *TypeName
-extern go go/types.TypeParam.Obj func (t *TypeParam) Obj() Option[go.Ref[TypeName]] needs go.Foreign
+extern go go/types.TypeParam.Obj func (t *TypeParam) Obj() Option[go.Ref[TypeName]] needs go.Foreign takes t
 
 // ergo:go func (*TypeParam).SetConstraint(bound Type)
-extern go go/types.TypeParam.SetConstraint func (t *TypeParam) SetConstraint(bound Type) needs go.Foreign
+extern go go/types.TypeParam.SetConstraint func (t *TypeParam) SetConstraint(bound Type) needs go.Foreign takes t, bound
 
 // ergo:go func (*TypeParam).String() string
-extern go go/types.TypeParam.String func (t *TypeParam) String() string needs go.Foreign
+extern go go/types.TypeParam.String func (t *TypeParam) String() string needs go.Foreign takes t
 
 // ergo:go func (*TypeParam).Underlying() Type
-extern go go/types.TypeParam.Underlying func (t *TypeParam) Underlying() Type needs go.Foreign
+extern go go/types.TypeParam.Underlying func (t *TypeParam) Underlying() Type needs go.Foreign takes t
 
 // ergo:go type TypeParamList struct
 extern go go/types.TypeParamList type TypeParamList {}
 
 // ergo:go func (*TypeParamList).At(i int) *TypeParam
-extern go go/types.TypeParamList.At func (l *TypeParamList) At(i int) Option[go.Ref[TypeParam]] needs go.Foreign
+extern go go/types.TypeParamList.At func (l *TypeParamList) At(i int) Option[go.Ref[TypeParam]] needs go.Foreign takes l
 
 // ergo:go func (*TypeParamList).Len() int
-extern go go/types.TypeParamList.Len func (l *TypeParamList) Len() int needs go.Foreign
+extern go go/types.TypeParamList.Len func (l *TypeParamList) Len() int needs go.Foreign takes l
 
 // ergo:go func (*TypeParamList).String() string
-extern go go/types.TypeParamList.String func (l *TypeParamList) String() string needs go.Foreign
+extern go go/types.TypeParamList.String func (l *TypeParamList) String() string needs go.Foreign takes l
 
 // ergo:go func (*TypeParamList).TypeParams() iter.Seq[*TypeParam]
 // ergo:refused TypeParamList.TypeParams: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func TypeString(typ Type, qf Qualifier) string
-extern go go/types.TypeString func TypeString(typ Type, qf escaping func(*Package) string) string needs go.Foreign
+extern go go/types.TypeString func TypeString(typ Type, qf escaping func(*Package) string) string needs go.Foreign takes typ
 
 // ergo:go const Uint BasicKind
 extern go go/types.Uint let Uint BasicKind
@@ -1207,25 +1207,25 @@ extern go go/types.Uint8 let Uint8 BasicKind
 extern go go/types.Uintptr let Uintptr BasicKind
 
 // ergo:go func Unalias(t Type) Type
-extern go go/types.Unalias func Unalias(t Type) Type needs go.Foreign
+extern go go/types.Unalias func Unalias(t Type) Type needs go.Foreign takes t
 
 // ergo:go type Union struct
 extern go go/types.Union type Union {}
 
 // ergo:go func (*Union).Len() int
-extern go go/types.Union.Len func (u *Union) Len() int needs go.Foreign
+extern go go/types.Union.Len func (u *Union) Len() int needs go.Foreign takes u
 
 // ergo:go func (*Union).String() string
-extern go go/types.Union.String func (u *Union) String() string needs go.Foreign
+extern go go/types.Union.String func (u *Union) String() string needs go.Foreign takes u
 
 // ergo:go func (*Union).Term(i int) *Term
-extern go go/types.Union.Term func (u *Union) Term(i int) Option[go.Ref[Term]] needs go.Foreign
+extern go go/types.Union.Term func (u *Union) Term(i int) Option[go.Ref[Term]] needs go.Foreign takes u
 
 // ergo:go func (*Union).Terms() iter.Seq[*Term]
 // ergo:refused Union.Terms: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Union).Underlying() Type
-extern go go/types.Union.Underlying func (u *Union) Underlying() Type needs go.Foreign
+extern go go/types.Union.Underlying func (u *Union) Underlying() Type needs go.Foreign takes u
 
 // ergo:go var Universe *Scope
 // ergo:refused Universe: a Go variable is host state; call a function
@@ -1261,46 +1261,46 @@ extern go go/types.UntypedString let UntypedString BasicKind
 extern go go/types.Var type Var {}
 
 // ergo:go func (*Var).Anonymous() bool
-extern go go/types.Var.Anonymous func (obj *Var) Anonymous() bool needs go.Foreign
+extern go go/types.Var.Anonymous func (obj *Var) Anonymous() bool needs go.Foreign takes obj
 
 // ergo:go func (*Var).Embedded() bool
-extern go go/types.Var.Embedded func (obj *Var) Embedded() bool needs go.Foreign
+extern go go/types.Var.Embedded func (obj *Var) Embedded() bool needs go.Foreign takes obj
 
 // ergo:go func (*object).Exported() bool
-extern go go/types.Var.Exported func (obj *Var) Exported() bool needs go.Foreign
+extern go go/types.Var.Exported func (obj *Var) Exported() bool needs go.Foreign takes obj
 
 // ergo:go func (*object).Id() string
-extern go go/types.Var.Id func (obj *Var) Id() string needs go.Foreign
+extern go go/types.Var.Id func (obj *Var) Id() string needs go.Foreign takes obj
 
 // ergo:go func (*Var).IsField() bool
-extern go go/types.Var.IsField func (obj *Var) IsField() bool needs go.Foreign
+extern go go/types.Var.IsField func (obj *Var) IsField() bool needs go.Foreign takes obj
 
 // ergo:go func (*Var).Kind() VarKind
-extern go go/types.Var.Kind func (v *Var) Kind() VarKind needs go.Foreign
+extern go go/types.Var.Kind func (v *Var) Kind() VarKind needs go.Foreign takes v
 
 // ergo:go func (*object).Name() string
-extern go go/types.Var.Name func (obj *Var) Name() string needs go.Foreign
+extern go go/types.Var.Name func (obj *Var) Name() string needs go.Foreign takes obj
 
 // ergo:go func (*Var).Origin() *Var
-extern go go/types.Var.Origin func (obj *Var) Origin() Option[go.Ref[Var]] needs go.Foreign
+extern go go/types.Var.Origin func (obj *Var) Origin() Option[go.Ref[Var]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Parent() *Scope
-extern go go/types.Var.Parent func (obj *Var) Parent() Option[go.Ref[Scope]] needs go.Foreign
+extern go go/types.Var.Parent func (obj *Var) Parent() Option[go.Ref[Scope]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pkg() *Package
-extern go go/types.Var.Pkg func (obj *Var) Pkg() Option[go.Ref[Package]] needs go.Foreign
+extern go go/types.Var.Pkg func (obj *Var) Pkg() Option[go.Ref[Package]] needs go.Foreign takes obj
 
 // ergo:go func (*object).Pos() token.Pos
-extern go go/types.Var.Pos func (obj *Var) Pos() token.Pos needs go.Foreign
+extern go go/types.Var.Pos func (obj *Var) Pos() token.Pos needs go.Foreign takes obj
 
 // ergo:go func (*Var).SetKind(kind VarKind)
-extern go go/types.Var.SetKind func (v *Var) SetKind(kind VarKind) needs go.Foreign
+extern go go/types.Var.SetKind func (v *Var) SetKind(kind VarKind) needs go.Foreign takes v
 
 // ergo:go func (*Var).String() string
-extern go go/types.Var.String func (obj *Var) String() string needs go.Foreign
+extern go go/types.Var.String func (obj *Var) String() string needs go.Foreign takes obj
 
 // ergo:go func (*object).Type() Type
-extern go go/types.Var.Type func (obj *Var) Type() Type needs go.Foreign
+extern go go/types.Var.Type func (obj *Var) Type() Type needs go.Foreign takes obj
 
 // ergo:go type VarKind uint8
 extern go go/types.VarKind type VarKind uint8
@@ -1309,10 +1309,10 @@ extern go go/types.VarKind type VarKind uint8
 extern go go/types.VarKind.String func (kind VarKind) String() string needs go.Foreign
 
 // ergo:go func WriteExpr(buf *bytes.Buffer, x ast.Expr)
-extern go go/types.WriteExpr func WriteExpr(buf *bytes.Buffer, x ast.Expr) needs go.Foreign
+extern go go/types.WriteExpr func WriteExpr(buf *bytes.Buffer, x ast.Expr) needs go.Foreign takes buf, x
 
 // ergo:go func WriteSignature(buf *bytes.Buffer, sig *Signature, qf Qualifier)
-extern go go/types.WriteSignature func WriteSignature(buf *bytes.Buffer, sig *Signature, qf escaping func(*Package) string) needs go.Foreign
+extern go go/types.WriteSignature func WriteSignature(buf *bytes.Buffer, sig *Signature, qf escaping func(*Package) string) needs go.Foreign takes buf, sig
 
 // ergo:go func WriteType(buf *bytes.Buffer, typ Type, qf Qualifier)
-extern go go/types.WriteType func WriteType(buf *bytes.Buffer, typ Type, qf escaping func(*Package) string) needs go.Foreign
+extern go go/types.WriteType func WriteType(buf *bytes.Buffer, typ Type, qf escaping func(*Package) string) needs go.Foreign takes buf, typ

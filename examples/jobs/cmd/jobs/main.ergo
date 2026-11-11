@@ -107,7 +107,7 @@ func listen(addr string) http.Listener fails os.Exit needs Ambient {
 	}
 }
 
-func serve(l http.Listener, handle func(http.Request) http.Response needs api.Jobs) fails os.Exit needs api.Jobs | Scheduler {
+func serve(l http.Listener, handle escaping func(http.Request) http.Response needs api.Jobs) fails os.Exit needs api.Jobs | Scheduler {
 	http.Serve(l, limits, handle) catch {
 	case http.InvalidLimits:
 		return os.Exit{Code: 2, Message: "jobs: the server's limits are not positive"}

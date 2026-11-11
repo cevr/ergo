@@ -78,10 +78,10 @@ extern go strconv.NumError type NumError {
 }
 
 // ergo:go func (*NumError).Error() string
-extern go strconv.NumError.Error func (e *NumError) Error() string
+extern go strconv.NumError.Error func (e *NumError) Error() string takes e
 
 // ergo:go func (*NumError).Unwrap() error
-extern go strconv.NumError.Unwrap func (e *NumError) Unwrap() fails go.Error
+extern go strconv.NumError.Unwrap func (e *NumError) Unwrap() fails go.Error takes e
 
 // ergo:go func ParseBool(str string) (bool, error)
 extern go strconv.ParseBool func ParseBool(str string) bool fails go.Error

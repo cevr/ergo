@@ -345,7 +345,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if it.Set != SetAll {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
 		}
-		if why := c.implements(v, it); why != "" {
+		if why := c.implements(v, it, !c.hostLendArg(t)); why != "" {
 			return assignment{}, why
 		}
 		// Only a value that implements the operation type can reach
@@ -712,7 +712,7 @@ func fnPkg(fn *Func) *Package {
 // error and capability rows that are subsets (types.md, Interface
 // assignability 1; rows.md, Context 2). Each lookup is a keyed map access, so
 // the check is linear in the method count (#122).
-func (c *checker) implements(v Type, it *Interface) string {
+func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 	// The method set of *T holds the *T-receiver methods too, as in Go
 	// (N1); T's holds only the value-receiver ones.
 	ptr := false
@@ -726,7 +726,7 @@ func (c *checker) implements(v Type, it *Interface) string {
 	}
 	if s := ScriptOf(v); s != nil && !ptr {
 		// A Script has the operations of its capability (script.go, rule 4).
-		if why := c.implements(s, it); why != "" {
+		if why := c.implements(s, it, checkReceiver); why != "" {
 			return fmt.Sprintf("%s: %s", v, why)
 		}
 		return ""
@@ -776,7 +776,15 @@ func (c *checker) implements(v Type, it *Interface) string {
 		if got.Fallible != m.Sig.Fallible {
 			return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, m.Name)
 		}
-		if c.takesEffect(got, v) != c.takesEffect(m.Sig, v) {
+		// At a direct Go argument, the enclosing Go function's clause
+		// owns the receiver lifetime (io.ReadAll lends it; bufio keeps
+		// it). The Go interface supplies its method shape there, not a
+		// second receiver hand-off. Explicit parameter takes still match.
+		recv := v
+		if !checkReceiver {
+			recv = nil
+		}
+		if c.takesEffect(got, recv) != c.takesEffect(m.Sig, recv) {
 			return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, m.Name, takesText(got), takesText(m.Sig))
 		}
 	}
@@ -976,7 +984,7 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 		}
 		return ""
 	}
-	return c.implements(t, it)
+	return c.implements(t, it, true)
 }
 
 // letZero checks `let name T` with no value (types.md, Zero values 3): T

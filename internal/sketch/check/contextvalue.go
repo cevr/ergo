@@ -67,7 +67,7 @@ func (c *checker) contextBinding(t Type) (*ContextBinding, string) {
 	if !ok {
 		return nil, fmt.Sprintf("%s is not a named type", t)
 	}
-	if why := c.implements(n, contextProtocol()); why != "" {
+	if why := c.implements(n, contextProtocol(), true); why != "" {
 		return nil, why
 	}
 	_, key := c.methodOf(n, "contextKey")

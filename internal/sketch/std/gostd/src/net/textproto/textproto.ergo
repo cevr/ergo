@@ -15,61 +15,61 @@ extern go net/textproto.Conn type Conn {
 }
 
 // ergo:go func (*Conn).Close() error
-extern go net/textproto.Conn.Close func (c *Conn) Close() fails go.Error needs go.Foreign
+extern go net/textproto.Conn.Close func (c *Conn) Close() fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Conn).Cmd(format string, args ...any) (id uint, err error)
 // ergo:refused Conn.Cmd: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Reader).DotReader() io.Reader
-extern go net/textproto.Conn.DotReader func (r *Conn) DotReader() io.Reader needs go.Foreign
+extern go net/textproto.Conn.DotReader func (r *Conn) DotReader() io.Reader needs go.Foreign takes r
 
 // ergo:go func (*Writer).DotWriter() io.WriteCloser
-extern go net/textproto.Conn.DotWriter func (w *Conn) DotWriter() io.WriteCloser needs go.Foreign
+extern go net/textproto.Conn.DotWriter func (w *Conn) DotWriter() io.WriteCloser needs go.Foreign takes w
 
 // ergo:go func (*Pipeline).EndRequest(id uint)
-extern go net/textproto.Conn.EndRequest func (p *Conn) EndRequest(id uint) needs go.Foreign
+extern go net/textproto.Conn.EndRequest func (p *Conn) EndRequest(id uint) needs go.Foreign takes p
 
 // ergo:go func (*Pipeline).EndResponse(id uint)
-extern go net/textproto.Conn.EndResponse func (p *Conn) EndResponse(id uint) needs go.Foreign
+extern go net/textproto.Conn.EndResponse func (p *Conn) EndResponse(id uint) needs go.Foreign takes p
 
 // ergo:go func (*Pipeline).Next() uint
-extern go net/textproto.Conn.Next func (p *Conn) Next() uint needs go.Foreign
+extern go net/textproto.Conn.Next func (p *Conn) Next() uint needs go.Foreign takes p
 
 // ergo:go func (*Writer).PrintfLine(format string, args ...any) error
 // ergo:refused Conn.PrintfLine: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Reader).ReadCodeLine(expectCode int) (code int, message string, err error)
-extern go net/textproto.Conn.ReadCodeLine func (r *Conn) ReadCodeLine(expectCode int) (int, string) fails go.Error needs go.Foreign
+extern go net/textproto.Conn.ReadCodeLine func (r *Conn) ReadCodeLine(expectCode int) (int, string) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadContinuedLine() (string, error)
-extern go net/textproto.Conn.ReadContinuedLine func (r *Conn) ReadContinuedLine() string fails go.Error needs go.Foreign
+extern go net/textproto.Conn.ReadContinuedLine func (r *Conn) ReadContinuedLine() string fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadContinuedLineBytes() ([]byte, error)
-extern go net/textproto.Conn.ReadContinuedLineBytes func (r *Conn) ReadContinuedLineBytes() []byte fails go.Error needs go.Foreign
+extern go net/textproto.Conn.ReadContinuedLineBytes func (r *Conn) ReadContinuedLineBytes() []byte fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadDotBytes() ([]byte, error)
-extern go net/textproto.Conn.ReadDotBytes func (r *Conn) ReadDotBytes() []byte fails go.Error needs go.Foreign
+extern go net/textproto.Conn.ReadDotBytes func (r *Conn) ReadDotBytes() []byte fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadDotLines() ([]string, error)
-extern go net/textproto.Conn.ReadDotLines func (r *Conn) ReadDotLines() []string fails go.Error needs go.Foreign
+extern go net/textproto.Conn.ReadDotLines func (r *Conn) ReadDotLines() []string fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadLine() (string, error)
-extern go net/textproto.Conn.ReadLine func (r *Conn) ReadLine() string fails go.Error needs go.Foreign
+extern go net/textproto.Conn.ReadLine func (r *Conn) ReadLine() string fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadLineBytes() ([]byte, error)
-extern go net/textproto.Conn.ReadLineBytes func (r *Conn) ReadLineBytes() []byte fails go.Error needs go.Foreign
+extern go net/textproto.Conn.ReadLineBytes func (r *Conn) ReadLineBytes() []byte fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadMIMEHeader() (MIMEHeader, error)
-extern go net/textproto.Conn.ReadMIMEHeader func (r *Conn) ReadMIMEHeader() MIMEHeader fails go.Error needs go.Foreign
+extern go net/textproto.Conn.ReadMIMEHeader func (r *Conn) ReadMIMEHeader() MIMEHeader fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadResponse(expectCode int) (code int, message string, err error)
-extern go net/textproto.Conn.ReadResponse func (r *Conn) ReadResponse(expectCode int) (int, string) fails go.Error needs go.Foreign
+extern go net/textproto.Conn.ReadResponse func (r *Conn) ReadResponse(expectCode int) (int, string) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Pipeline).StartRequest(id uint)
-extern go net/textproto.Conn.StartRequest func (p *Conn) StartRequest(id uint) needs go.Foreign
+extern go net/textproto.Conn.StartRequest func (p *Conn) StartRequest(id uint) needs go.Foreign takes p
 
 // ergo:go func (*Pipeline).StartResponse(id uint)
-extern go net/textproto.Conn.StartResponse func (p *Conn) StartResponse(id uint) needs go.Foreign
+extern go net/textproto.Conn.StartResponse func (p *Conn) StartResponse(id uint) needs go.Foreign takes p
 
 // ergo:go func Dial(network string, addr string) (*Conn, error)
 extern go net/textproto.Dial func Dial(network string, addr string) go.Ref[Conn] fails go.Error needs go.Foreign
@@ -81,7 +81,7 @@ extern go net/textproto.Error type Error {
 }
 
 // ergo:go func (*Error).Error() string
-extern go net/textproto.Error.Error func (e *Error) Error() string needs go.Foreign
+extern go net/textproto.Error.Error func (e *Error) Error() string needs go.Foreign takes e
 
 // ergo:go type MIMEHeader map[string][]string
 extern go net/textproto.MIMEHeader type MIMEHeader Map[string, []string]
@@ -102,31 +102,31 @@ extern go net/textproto.MIMEHeader.Set func (h MIMEHeader) Set(key string, value
 extern go net/textproto.MIMEHeader.Values func (h MIMEHeader) Values(key string) []string needs go.Foreign
 
 // ergo:go func NewConn(conn io.ReadWriteCloser) *Conn
-extern go net/textproto.NewConn func NewConn(conn io.ReadWriteCloser) Option[go.Ref[Conn]] needs go.Foreign
+extern go net/textproto.NewConn func NewConn(conn io.ReadWriteCloser) Option[go.Ref[Conn]] needs go.Foreign takes conn
 
 // ergo:go func NewReader(r *bufio.Reader) *Reader
-extern go net/textproto.NewReader func NewReader(r *bufio.Reader) Option[go.Ref[Reader]] needs go.Foreign
+extern go net/textproto.NewReader func NewReader(r *bufio.Reader) Option[go.Ref[Reader]] needs go.Foreign takes r
 
 // ergo:go func NewWriter(w *bufio.Writer) *Writer
-extern go net/textproto.NewWriter func NewWriter(w *bufio.Writer) Option[go.Ref[Writer]] needs go.Foreign
+extern go net/textproto.NewWriter func NewWriter(w *bufio.Writer) Option[go.Ref[Writer]] needs go.Foreign takes w
 
 // ergo:go type Pipeline struct
 extern go net/textproto.Pipeline type Pipeline {}
 
 // ergo:go func (*Pipeline).EndRequest(id uint)
-extern go net/textproto.Pipeline.EndRequest func (p *Pipeline) EndRequest(id uint) needs go.Foreign
+extern go net/textproto.Pipeline.EndRequest func (p *Pipeline) EndRequest(id uint) needs go.Foreign takes p
 
 // ergo:go func (*Pipeline).EndResponse(id uint)
-extern go net/textproto.Pipeline.EndResponse func (p *Pipeline) EndResponse(id uint) needs go.Foreign
+extern go net/textproto.Pipeline.EndResponse func (p *Pipeline) EndResponse(id uint) needs go.Foreign takes p
 
 // ergo:go func (*Pipeline).Next() uint
-extern go net/textproto.Pipeline.Next func (p *Pipeline) Next() uint needs go.Foreign
+extern go net/textproto.Pipeline.Next func (p *Pipeline) Next() uint needs go.Foreign takes p
 
 // ergo:go func (*Pipeline).StartRequest(id uint)
-extern go net/textproto.Pipeline.StartRequest func (p *Pipeline) StartRequest(id uint) needs go.Foreign
+extern go net/textproto.Pipeline.StartRequest func (p *Pipeline) StartRequest(id uint) needs go.Foreign takes p
 
 // ergo:go func (*Pipeline).StartResponse(id uint)
-extern go net/textproto.Pipeline.StartResponse func (p *Pipeline) StartResponse(id uint) needs go.Foreign
+extern go net/textproto.Pipeline.StartResponse func (p *Pipeline) StartResponse(id uint) needs go.Foreign takes p
 
 // ergo:go type ProtocolError string
 extern go net/textproto.ProtocolError type ProtocolError string
@@ -140,34 +140,34 @@ extern go net/textproto.Reader type Reader {
 }
 
 // ergo:go func (*Reader).DotReader() io.Reader
-extern go net/textproto.Reader.DotReader func (r *Reader) DotReader() io.Reader needs go.Foreign
+extern go net/textproto.Reader.DotReader func (r *Reader) DotReader() io.Reader needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadCodeLine(expectCode int) (code int, message string, err error)
-extern go net/textproto.Reader.ReadCodeLine func (r *Reader) ReadCodeLine(expectCode int) (int, string) fails go.Error needs go.Foreign
+extern go net/textproto.Reader.ReadCodeLine func (r *Reader) ReadCodeLine(expectCode int) (int, string) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadContinuedLine() (string, error)
-extern go net/textproto.Reader.ReadContinuedLine func (r *Reader) ReadContinuedLine() string fails go.Error needs go.Foreign
+extern go net/textproto.Reader.ReadContinuedLine func (r *Reader) ReadContinuedLine() string fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadContinuedLineBytes() ([]byte, error)
-extern go net/textproto.Reader.ReadContinuedLineBytes func (r *Reader) ReadContinuedLineBytes() []byte fails go.Error needs go.Foreign
+extern go net/textproto.Reader.ReadContinuedLineBytes func (r *Reader) ReadContinuedLineBytes() []byte fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadDotBytes() ([]byte, error)
-extern go net/textproto.Reader.ReadDotBytes func (r *Reader) ReadDotBytes() []byte fails go.Error needs go.Foreign
+extern go net/textproto.Reader.ReadDotBytes func (r *Reader) ReadDotBytes() []byte fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadDotLines() ([]string, error)
-extern go net/textproto.Reader.ReadDotLines func (r *Reader) ReadDotLines() []string fails go.Error needs go.Foreign
+extern go net/textproto.Reader.ReadDotLines func (r *Reader) ReadDotLines() []string fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadLine() (string, error)
-extern go net/textproto.Reader.ReadLine func (r *Reader) ReadLine() string fails go.Error needs go.Foreign
+extern go net/textproto.Reader.ReadLine func (r *Reader) ReadLine() string fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadLineBytes() ([]byte, error)
-extern go net/textproto.Reader.ReadLineBytes func (r *Reader) ReadLineBytes() []byte fails go.Error needs go.Foreign
+extern go net/textproto.Reader.ReadLineBytes func (r *Reader) ReadLineBytes() []byte fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadMIMEHeader() (MIMEHeader, error)
-extern go net/textproto.Reader.ReadMIMEHeader func (r *Reader) ReadMIMEHeader() MIMEHeader fails go.Error needs go.Foreign
+extern go net/textproto.Reader.ReadMIMEHeader func (r *Reader) ReadMIMEHeader() MIMEHeader fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Reader).ReadResponse(expectCode int) (code int, message string, err error)
-extern go net/textproto.Reader.ReadResponse func (r *Reader) ReadResponse(expectCode int) (int, string) fails go.Error needs go.Foreign
+extern go net/textproto.Reader.ReadResponse func (r *Reader) ReadResponse(expectCode int) (int, string) fails go.Error needs go.Foreign takes r
 
 // ergo:go func TrimBytes(b []byte) []byte
 extern go net/textproto.TrimBytes func TrimBytes(b []byte) []byte needs go.Foreign
@@ -181,7 +181,7 @@ extern go net/textproto.Writer type Writer {
 }
 
 // ergo:go func (*Writer).DotWriter() io.WriteCloser
-extern go net/textproto.Writer.DotWriter func (w *Writer) DotWriter() io.WriteCloser needs go.Foreign
+extern go net/textproto.Writer.DotWriter func (w *Writer) DotWriter() io.WriteCloser needs go.Foreign takes w
 
 // ergo:go func (*Writer).PrintfLine(format string, args ...any) error
 // ergo:refused Writer.PrintfLine: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type

@@ -48,9 +48,9 @@ extern go sort.IntSlice.Swap func (x IntSlice) Swap(i int, j int)
 
 // ergo:go type Interface interface
 extern go sort.Interface type Interface {
-	Len() int,
-	Less(i int, j int) bool,
-	Swap(i int, j int),
+	Len() int takes,
+	Less(i int, j int) bool takes,
+	Swap(i int, j int) takes,
 }
 
 // ergo:go func Ints(x []int)
@@ -60,10 +60,10 @@ extern go sort.Ints func Ints(x []int)
 extern go sort.IntsAreSorted func IntsAreSorted(x []int) bool
 
 // ergo:go func IsSorted(data Interface) bool
-extern go sort.IsSorted func IsSorted(data Interface) bool
+extern go sort.IsSorted func IsSorted(data Interface) bool takes data
 
 // ergo:go func Reverse(data Interface) Interface
-extern go sort.Reverse func Reverse(data Interface) Interface
+extern go sort.Reverse func Reverse(data Interface) Interface takes data
 
 // ergo:go func Search(n int, f func(int) bool) int
 extern go sort.Search func Search[CR](n int, f func(int) bool needs CR) int needs CR
@@ -87,10 +87,10 @@ extern go sort.SearchStrings func SearchStrings(a []string, x string) int
 // ergo:refused SliceStable: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func Sort(data Interface)
-extern go sort.Sort func Sort(data Interface)
+extern go sort.Sort func Sort(data Interface) takes data
 
 // ergo:go func Stable(data Interface)
-extern go sort.Stable func Stable(data Interface)
+extern go sort.Stable func Stable(data Interface) takes data
 
 // ergo:go type StringSlice []string
 extern go sort.StringSlice type StringSlice []string

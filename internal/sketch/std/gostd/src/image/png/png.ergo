@@ -14,16 +14,16 @@ extern go image/png.BestSpeed let BestSpeed CompressionLevel
 extern go image/png.CompressionLevel type CompressionLevel int
 
 // ergo:go func Decode(r io.Reader) (image.Image, error)
-extern go image/png.Decode func Decode(r io.Reader) image.Image fails go.Error needs go.Foreign
+extern go image/png.Decode func Decode(r io.Reader) image.Image fails go.Error needs go.Foreign takes r
 
 // ergo:go func DecodeConfig(r io.Reader) (image.Config, error)
-extern go image/png.DecodeConfig func DecodeConfig(r io.Reader) image.Config fails go.Error needs go.Foreign
+extern go image/png.DecodeConfig func DecodeConfig(r io.Reader) image.Config fails go.Error needs go.Foreign takes r
 
 // ergo:go const DefaultCompression CompressionLevel
 extern go image/png.DefaultCompression let DefaultCompression CompressionLevel
 
 // ergo:go func Encode(w io.Writer, m image.Image) error
-extern go image/png.Encode func Encode(w io.Writer, m image.Image) fails go.Error needs go.Foreign
+extern go image/png.Encode func Encode(w io.Writer, m image.Image) fails go.Error needs go.Foreign takes w, m
 
 // ergo:go type Encoder struct
 extern go image/png.Encoder type Encoder {
@@ -32,15 +32,15 @@ extern go image/png.Encoder type Encoder {
 }
 
 // ergo:go func (*Encoder).Encode(w io.Writer, m image.Image) error
-extern go image/png.Encoder.Encode func (enc *Encoder) Encode(w io.Writer, m image.Image) fails go.Error needs go.Foreign
+extern go image/png.Encoder.Encode func (enc *Encoder) Encode(w io.Writer, m image.Image) fails go.Error needs go.Foreign takes enc, w, m
 
 // ergo:go type EncoderBuffer struct
 extern go image/png.EncoderBuffer type EncoderBuffer {}
 
 // ergo:go type EncoderBufferPool interface
 extern go image/png.EncoderBufferPool type EncoderBufferPool {
-	Get() Option[go.Ref[EncoderBuffer]] needs go.Foreign,
-	Put(p0 *EncoderBuffer) needs go.Foreign,
+	Get() Option[go.Ref[EncoderBuffer]] needs go.Foreign takes,
+	Put(p0 *EncoderBuffer) needs go.Foreign takes p0,
 }
 
 // ergo:go type FormatError string

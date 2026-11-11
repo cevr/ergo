@@ -254,22 +254,18 @@ func main() needs Console | Ambient {
 	}
 }
 `), stdout: "out a\nout b\nout c\nstatus 3\nerr x\nstatus 0\nnot found ergo-exec-missing-7f3a\ntee [p\nq] [r] ends 2 status 4\ntee [p\nq\n] [] ends 2 status 0\nwrote 0\nwrote 0\nout one\nout two\nout three\nstatus 0\nfollowed one\nfollowed two\nfollowed three\nleft the follower\nready\nended\nfailed stdout /nonexistent/loop-probe-x/out: no such file or directory\nout a\nout b\nerr e\nstatus 1\nnot found git\n", stderr: []string{"term\n"}},
-		// CU4b regression: Start owns the process outside the timeout;
-		// Wait borrows it inside, and the catch consumes it with Stop.
-		// The trap's 37 is not a guessed signal status (137 or 143).
+		// CU4b regression: Stop consumes a running process and returns
+		// its actual status. The trap's 37 is not a guessed signal status
+		// (137 or 143). (ESC1 refuses the old timeout.After { p.Wait() }
+		// borrow; stdlib.md, Stop and status.)
 		{name: "postStopStatus", src: strings.NewReplacer("STOPFIFO", filepath.Join(dir, "stop.fifo")).Replace(`import exec
-import timeout
 
 func stoppedStatus() int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | Scheduler {
 	let p = try exec.Runner.Start(exec.New("/bin/sh", []string{"-c", "mkfifo 'STOPFIFO'; exec 3<> 'STOPFIFO'; trap 'exit 37' TERM; echo ready; read x <&3"}).WithGrace(15s), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard})
 	for line in p.Lines() {
 		if line.Text == "ready" { break }
 	}
-	let code = timeout.After(0ns) { p.Wait() } catch {
-	case timeout.Expired:
-		p.Stop()
-	}
-	code
+	p.Stop()
 }
 
 func main() needs Ambient | Console {

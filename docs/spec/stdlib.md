@@ -371,7 +371,7 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    port zero is valid, and `l.Addr()` reports the bound address. The
    transport has no HTTP policy. `l.Close()` releases an unused listener.
    Every server protocol shares it: `rpc.Serve` takes an `http.Listener`.
-2. `Serve[R](l, limits Limits, handle func(Request) Response needs R | Streaming)`
+2. `Serve[R](l, limits Limits, handle escaping func(Request) Response needs R | Streaming)`
    has `fails InvalidLimits needs R | Scheduler`. Serve binds the request's `Streaming`
    provider around each invocation, so a handler that does not stream is a
    function of a narrower row and passes unchanged. `Limits{MaxBodyBytes,
@@ -1411,7 +1411,7 @@ The table has one row per std package, the prelude included. The Effect module i
 
 | Declaration | Meaning | Go body |
 | --- | --- | --- |
-| `func Transform[A, B, E, R](xs []A, limit int, f func(x A) B fails E needs R) []B fails E needs R` | `f` of each element, each call on a task of its own, at most `limit` at once, the results in the order of `xs` (batch 12, C2; built). | `TasksTransform(span Site, t *rt.Task, rel Releaser[[]B], xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error)` (task.go), over `rt.MapSpan` (rt tasks.go) |
+| `func Transform[A, B, E, R](xs []A, limit int, f escaping func(x A) B fails E needs R) []B fails E needs R` | `f` of each element, each call on a task of its own, at most `limit` at once, the results in the order of `xs` (batch 12, C2; built). `f` is escaping: its calls run at the same time ([types.md](types.md#function-values), Function values 2; ESC1). | `TasksTransform(span Site, t *rt.Task, rel Releaser[[]B], xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error)` (task.go), over `rt.MapSpan` (rt tasks.go) |
 | `func Race[T, E, R](blocks []func() T fails E needs R) T fails E needs R` | Each block on a task of its own; the first to end decides, and the rest are stopped and waited for (batch 12, C4; built). | `TasksRace(span Site, t *rt.Task, rel Releaser[T], blocks []func(*rt.Task) (T, error)) (T, error)` (task.go), over `rt.RaceSpan` (rt tasks.go) |
 | `law TransformEqualsLoop(xs []int, k int)`, `law TransformKeepsOrder(xs []int, k int)`, `law LimitHolds(xs []int, k int)`, `law EarliestWins(ds []int)`, `law LosersStopped(n int)` | The laws ([Std laws](#std-laws)). | `TestTasksLaws` (runtime/v1) |
 
@@ -1889,17 +1889,9 @@ func tee(r exec.Running) string needs io.Stdout {
 
 *Prior art:* Go's `exec.CommandContext` kills only the process it started, by `cmd.Cancel`, and `WaitDelay` bounds the wait for output a grandchild holds; Ergo kills the whole group, as a shell's job control does. Effect's `ChildProcess` spawns in a scope that kills the process when the scope closes, and gives `exitCode` as a value, not a failure. Elixir's `System.cmd/3` returns `{output, status}` with a status that is not 0 as data, and takes `env:` and `cd:` options; Gleam's `shellout.command(run:, with:, in:, opt:)` returns `Result(String, #(Int, String))`, which makes a status that is not 0 an error; ReScript binds Node's `child_process.spawnSync`, whose result holds `status`, `signal`, `stdout` and `stderr`. Ergo returns the status as data, as Elixir and Effect do, and keeps the failures for a program that did not start.
 
-**Stop and status (CU4b).** `Running.Stop() int takes` runs the same masked grace, group shutdown and reap as `Close`, then returns the child's actual status using `Wait`'s status rule. It consumes the handle; a later use is S108. `Close` stays the scope-release form. To record a timeout's final status, start the program outside the timeout, lend it to `Wait` inside, and call `Stop` in the catch:
+**Stop and status (CU4b).** `Running.Stop() int takes` runs the same masked grace, group shutdown and reap as `Close`, then returns the child's actual status using `Wait`'s status rule. It consumes the handle; a later use is S108. `Close` stays the scope-release form. A `timeout.After` body is escaping and runs on a child task (ESC1), so it cannot borrow a `Running` the caller owns: `timeout.After(1h) { r.Wait() }` is S108 (resources R31, R33). Waiting with a deadline and then stopping is not expressible yet (batch 16d follow-up: a `Wait` with a deadline, or a structured lend to the timeout's child).
 
-```go
-let r = try exec.Runner.Start(c.WithGrace(15s), streams)
-let status = timeout.After(1h) { r.Wait() } catch {
-case timeout.Expired:
-	r.Stop()
-}
-```
-
-`TestRunningMatchesModel` also drives Stop before output, mid-stream and after exit, with arbitrary TERM-trap statuses and a stopped caller. `TestExecStartRuns` checks the timeout/catch shape with a real TERM trap that exits 37. The direct Go control is `Close`'s shutdown followed by the stored exit status; Stop adds no process or extra wait. No speed claim is made. Effect's scoped child process solves the same cleanup need; Ergo's consuming operation combines termination and status observation so a caller need not keep an unowned exit-code handle or signal a raw pid.
+`TestRunningMatchesModel` also drives Stop before output, mid-stream and after exit, with arbitrary TERM-trap statuses and a stopped caller. `TestExecStartRuns` checks Stop's status with a real TERM trap that exits 37. The direct Go control is `Close`'s shutdown followed by the stored exit status; Stop adds no process or extra wait. No speed claim is made. Effect's scoped child process solves the same cleanup need; Ergo's consuming operation combines termination and status observation so a caller need not keep an unowned exit-code handle or signal a raw pid.
 
 ## Testing
 

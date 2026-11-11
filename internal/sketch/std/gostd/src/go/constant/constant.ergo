@@ -4,46 +4,46 @@
 import go go/token
 
 // ergo:go func BinaryOp(x_ Value, op token.Token, y_ Value) Value
-extern go go/constant.BinaryOp func BinaryOp(x_ Value, op token.Token, y_ Value) Value needs go.Foreign
+extern go go/constant.BinaryOp func BinaryOp(x_ Value, op token.Token, y_ Value) Value needs go.Foreign takes x_, y_
 
 // ergo:go func BitLen(x Value) int
-extern go go/constant.BitLen func BitLen(x Value) int needs go.Foreign
+extern go go/constant.BitLen func BitLen(x Value) int needs go.Foreign takes x
 
 // ergo:go const Bool Kind
 extern go go/constant.Bool let Bool Kind
 
 // ergo:go func BoolVal(x Value) bool
-extern go go/constant.BoolVal func BoolVal(x Value) bool needs go.Foreign
+extern go go/constant.BoolVal func BoolVal(x Value) bool needs go.Foreign takes x
 
 // ergo:go func Bytes(x Value) []byte
-extern go go/constant.Bytes func Bytes(x Value) []byte needs go.Foreign
+extern go go/constant.Bytes func Bytes(x Value) []byte needs go.Foreign takes x
 
 // ergo:go func Compare(x_ Value, op token.Token, y_ Value) bool
-extern go go/constant.Compare func Compare(x_ Value, op token.Token, y_ Value) bool needs go.Foreign
+extern go go/constant.Compare func Compare(x_ Value, op token.Token, y_ Value) bool needs go.Foreign takes x_, y_
 
 // ergo:go const Complex Kind
 extern go go/constant.Complex let Complex Kind
 
 // ergo:go func Denom(x Value) Value
-extern go go/constant.Denom func Denom(x Value) Value needs go.Foreign
+extern go go/constant.Denom func Denom(x Value) Value needs go.Foreign takes x
 
 // ergo:go const Float Kind
 extern go go/constant.Float let Float Kind
 
 // ergo:go func Float32Val(x Value) (float32, bool)
-extern go go/constant.Float32Val func Float32Val(x Value) (float32, bool) needs go.Foreign
+extern go go/constant.Float32Val func Float32Val(x Value) (float32, bool) needs go.Foreign takes x
 
 // ergo:go func Float64Val(x Value) (float64, bool)
-extern go go/constant.Float64Val func Float64Val(x Value) (float64, bool) needs go.Foreign
+extern go go/constant.Float64Val func Float64Val(x Value) (float64, bool) needs go.Foreign takes x
 
 // ergo:go func Imag(x Value) Value
-extern go go/constant.Imag func Imag(x Value) Value needs go.Foreign
+extern go go/constant.Imag func Imag(x Value) Value needs go.Foreign takes x
 
 // ergo:go const Int Kind
 extern go go/constant.Int let Int Kind
 
 // ergo:go func Int64Val(x Value) (int64, bool)
-extern go go/constant.Int64Val func Int64Val(x Value) (int64, bool) needs go.Foreign
+extern go go/constant.Int64Val func Int64Val(x Value) (int64, bool) needs go.Foreign takes x
 
 // ergo:go type Kind int
 extern go go/constant.Kind type Kind int
@@ -67,7 +67,7 @@ extern go go/constant.MakeFromBytes func MakeFromBytes(bytes []byte) Value needs
 extern go go/constant.MakeFromLiteral func MakeFromLiteral(lit string, tok token.Token, zero uint) Value needs go.Foreign
 
 // ergo:go func MakeImag(x Value) Value
-extern go go/constant.MakeImag func MakeImag(x Value) Value needs go.Foreign
+extern go go/constant.MakeImag func MakeImag(x Value) Value needs go.Foreign takes x
 
 // ergo:go func MakeInt64(x int64) Value
 extern go go/constant.MakeInt64 func MakeInt64(x int64) Value needs go.Foreign
@@ -82,40 +82,40 @@ extern go go/constant.MakeUint64 func MakeUint64(x uint64) Value needs go.Foreig
 extern go go/constant.MakeUnknown func MakeUnknown() Value needs go.Foreign
 
 // ergo:go func Num(x Value) Value
-extern go go/constant.Num func Num(x Value) Value needs go.Foreign
+extern go go/constant.Num func Num(x Value) Value needs go.Foreign takes x
 
 // ergo:go func Real(x Value) Value
-extern go go/constant.Real func Real(x Value) Value needs go.Foreign
+extern go go/constant.Real func Real(x Value) Value needs go.Foreign takes x
 
 // ergo:go func Shift(x Value, op token.Token, s uint) Value
-extern go go/constant.Shift func Shift(x Value, op token.Token, s uint) Value needs go.Foreign
+extern go go/constant.Shift func Shift(x Value, op token.Token, s uint) Value needs go.Foreign takes x
 
 // ergo:go func Sign(x Value) int
-extern go go/constant.Sign func Sign(x Value) int needs go.Foreign
+extern go go/constant.Sign func Sign(x Value) int needs go.Foreign takes x
 
 // ergo:go const String Kind
 extern go go/constant.String let String Kind
 
 // ergo:go func StringLen(x Value) int64
-extern go go/constant.StringLen func StringLen(x Value) int64 needs go.Foreign
+extern go go/constant.StringLen func StringLen(x Value) int64 needs go.Foreign takes x
 
 // ergo:go func StringVal(x Value) string
-extern go go/constant.StringVal func StringVal(x Value) string needs go.Foreign
+extern go go/constant.StringVal func StringVal(x Value) string needs go.Foreign takes x
 
 // ergo:go func ToComplex(x Value) Value
-extern go go/constant.ToComplex func ToComplex(x Value) Value needs go.Foreign
+extern go go/constant.ToComplex func ToComplex(x Value) Value needs go.Foreign takes x
 
 // ergo:go func ToFloat(x Value) Value
-extern go go/constant.ToFloat func ToFloat(x Value) Value needs go.Foreign
+extern go go/constant.ToFloat func ToFloat(x Value) Value needs go.Foreign takes x
 
 // ergo:go func ToInt(x Value) Value
-extern go go/constant.ToInt func ToInt(x Value) Value needs go.Foreign
+extern go go/constant.ToInt func ToInt(x Value) Value needs go.Foreign takes x
 
 // ergo:go func Uint64Val(x Value) (uint64, bool)
-extern go go/constant.Uint64Val func Uint64Val(x Value) (uint64, bool) needs go.Foreign
+extern go go/constant.Uint64Val func Uint64Val(x Value) (uint64, bool) needs go.Foreign takes x
 
 // ergo:go func UnaryOp(op token.Token, y Value, prec uint) Value
-extern go go/constant.UnaryOp func UnaryOp(op token.Token, y Value, prec uint) Value needs go.Foreign
+extern go go/constant.UnaryOp func UnaryOp(op token.Token, y Value, prec uint) Value needs go.Foreign takes y
 
 // ergo:go const Unknown Kind
 extern go go/constant.Unknown let Unknown Kind
@@ -125,7 +125,7 @@ extern go go/constant.Unknown let Unknown Kind
 
 // ergo:go type Value interface
 extern go go/constant.Value type Value {
-	ExactString() string needs go.Foreign,
-	Kind() Kind needs go.Foreign,
-	String() string needs go.Foreign,
+	ExactString() string needs go.Foreign takes,
+	Kind() Kind needs go.Foreign takes,
+	String() string needs go.Foreign takes,
 }

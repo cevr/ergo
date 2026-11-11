@@ -4,19 +4,19 @@
 import go net/http
 
 // ergo:go func Cmdline(w http.ResponseWriter, r *http.Request)
-extern go net/http/pprof.Cmdline func Cmdline(w http.ResponseWriter, r *http.Request) needs go.Foreign
+extern go net/http/pprof.Cmdline func Cmdline(w http.ResponseWriter, r *http.Request) needs go.Foreign takes w, r
 
 // ergo:go func Handler(name string) http.Handler
 extern go net/http/pprof.Handler func Handler(name string) http.Handler needs go.Foreign
 
 // ergo:go func Index(w http.ResponseWriter, r *http.Request)
-extern go net/http/pprof.Index func Index(w http.ResponseWriter, r *http.Request) needs go.Foreign
+extern go net/http/pprof.Index func Index(w http.ResponseWriter, r *http.Request) needs go.Foreign takes w, r
 
 // ergo:go func Profile(w http.ResponseWriter, r *http.Request)
-extern go net/http/pprof.Profile func Profile(w http.ResponseWriter, r *http.Request) needs go.Foreign
+extern go net/http/pprof.Profile func Profile(w http.ResponseWriter, r *http.Request) needs go.Foreign takes w, r
 
 // ergo:go func Symbol(w http.ResponseWriter, r *http.Request)
-extern go net/http/pprof.Symbol func Symbol(w http.ResponseWriter, r *http.Request) needs go.Foreign
+extern go net/http/pprof.Symbol func Symbol(w http.ResponseWriter, r *http.Request) needs go.Foreign takes w, r
 
 // ergo:go func Trace(w http.ResponseWriter, r *http.Request)
-extern go net/http/pprof.Trace func Trace(w http.ResponseWriter, r *http.Request) needs go.Foreign
+extern go net/http/pprof.Trace func Trace(w http.ResponseWriter, r *http.Request) needs go.Foreign takes w, r

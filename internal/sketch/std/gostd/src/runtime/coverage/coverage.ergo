@@ -7,13 +7,13 @@ import go io
 extern go runtime/coverage.ClearCounters func ClearCounters() fails go.Error needs go.Foreign
 
 // ergo:go func WriteCounters(w io.Writer) error
-extern go runtime/coverage.WriteCounters func WriteCounters(w io.Writer) fails go.Error needs go.Foreign
+extern go runtime/coverage.WriteCounters func WriteCounters(w io.Writer) fails go.Error needs go.Foreign takes w
 
 // ergo:go func WriteCountersDir(dir string) error
 extern go runtime/coverage.WriteCountersDir func WriteCountersDir(dir string) fails go.Error needs go.Foreign
 
 // ergo:go func WriteMeta(w io.Writer) error
-extern go runtime/coverage.WriteMeta func WriteMeta(w io.Writer) fails go.Error needs go.Foreign
+extern go runtime/coverage.WriteMeta func WriteMeta(w io.Writer) fails go.Error needs go.Foreign takes w
 
 // ergo:go func WriteMetaDir(dir string) error
 extern go runtime/coverage.WriteMetaDir func WriteMetaDir(dir string) fails go.Error needs go.Foreign

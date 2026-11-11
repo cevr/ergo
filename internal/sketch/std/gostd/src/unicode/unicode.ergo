@@ -281,7 +281,7 @@ extern go unicode.CaseRange type CaseRange {
 // ergo:refused Inscriptional_Parthian: a Go variable is host state; call a function
 
 // ergo:go func Is(rangeTab *RangeTable, r rune) bool
-extern go unicode.Is func Is(rangeTab *RangeTable, r rune) bool
+extern go unicode.Is func Is(rangeTab *RangeTable, r rune) bool takes rangeTab
 
 // ergo:go func IsControl(r rune) bool
 extern go unicode.IsControl func IsControl(r rune) bool

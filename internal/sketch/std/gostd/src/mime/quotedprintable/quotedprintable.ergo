@@ -4,16 +4,16 @@
 import go io
 
 // ergo:go func NewReader(r io.Reader) *Reader
-extern go mime/quotedprintable.NewReader func NewReader(r io.Reader) Option[go.Ref[Reader]] needs go.Foreign
+extern go mime/quotedprintable.NewReader func NewReader(r io.Reader) Option[go.Ref[Reader]] needs go.Foreign takes r
 
 // ergo:go func NewWriter(w io.Writer) *Writer
-extern go mime/quotedprintable.NewWriter func NewWriter(w io.Writer) Option[go.Ref[Writer]] needs go.Foreign
+extern go mime/quotedprintable.NewWriter func NewWriter(w io.Writer) Option[go.Ref[Writer]] needs go.Foreign takes w
 
 // ergo:go type Reader struct
 extern go mime/quotedprintable.Reader type Reader {}
 
 // ergo:go func (*Reader).Read(p []byte) (n int, err error)
-extern go mime/quotedprintable.Reader.Read func (r *Reader) Read(p []byte) int fails go.Error needs go.Foreign
+extern go mime/quotedprintable.Reader.Read func (r *Reader) Read(p []byte) int fails go.Error needs go.Foreign takes r
 
 // ergo:go type Writer struct
 extern go mime/quotedprintable.Writer type Writer {
@@ -21,7 +21,7 @@ extern go mime/quotedprintable.Writer type Writer {
 }
 
 // ergo:go func (*Writer).Close() error
-extern go mime/quotedprintable.Writer.Close func (w *Writer) Close() fails go.Error needs go.Foreign
+extern go mime/quotedprintable.Writer.Close func (w *Writer) Close() fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*Writer).Write(p []byte) (n int, err error)
-extern go mime/quotedprintable.Writer.Write func (w *Writer) Write(p []byte) int fails go.Error needs go.Foreign
+extern go mime/quotedprintable.Writer.Write func (w *Writer) Write(p []byte) int fails go.Error needs go.Foreign takes w

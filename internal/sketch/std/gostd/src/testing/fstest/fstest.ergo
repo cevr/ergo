@@ -19,4 +19,4 @@ extern go testing/fstest.MapFile type MapFile {
 
 // ergo:go func TestFS(fsys fs.FS, expected ...string) error
 // ergo:variadic
-extern go testing/fstest.TestFS func TestFS(fsys fs.FS, expected []string) fails go.Error needs go.Foreign
+extern go testing/fstest.TestFS func TestFS(fsys fs.FS, expected []string) fails go.Error needs go.Foreign takes fsys

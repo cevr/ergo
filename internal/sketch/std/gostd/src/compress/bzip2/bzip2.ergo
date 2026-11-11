@@ -4,7 +4,7 @@
 import go io
 
 // ergo:go func NewReader(r io.Reader) io.Reader
-extern go compress/bzip2.NewReader func NewReader(r io.Reader) io.Reader needs go.Foreign
+extern go compress/bzip2.NewReader func NewReader(r io.Reader) io.Reader needs go.Foreign takes r
 
 // ergo:go type StructuralError string
 extern go compress/bzip2.StructuralError type StructuralError string

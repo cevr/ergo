@@ -10,16 +10,16 @@ extern go expvar.Do func Do[CR](f func(KeyValue) needs CR) needs CR | go.Foreign
 extern go expvar.Float type Float {}
 
 // ergo:go func (*Float).Add(delta float64)
-extern go expvar.Float.Add func (v *Float) Add(delta float64) needs go.Foreign
+extern go expvar.Float.Add func (v *Float) Add(delta float64) needs go.Foreign takes v
 
 // ergo:go func (*Float).Set(value float64)
-extern go expvar.Float.Set func (v *Float) Set(value float64) needs go.Foreign
+extern go expvar.Float.Set func (v *Float) Set(value float64) needs go.Foreign takes v
 
 // ergo:go func (*Float).String() string
-extern go expvar.Float.String func (v *Float) String() string needs go.Foreign
+extern go expvar.Float.String func (v *Float) String() string needs go.Foreign takes v
 
 // ergo:go func (*Float).Value() float64
-extern go expvar.Float.Value func (v *Float) Value() float64 needs go.Foreign
+extern go expvar.Float.Value func (v *Float) Value() float64 needs go.Foreign takes v
 
 // ergo:go type Func func
 // ergo:refused Func: a Go function type maps to no Ergo host type in v1
@@ -34,16 +34,16 @@ extern go expvar.Handler func Handler() http.Handler needs go.Foreign
 extern go expvar.Int type Int {}
 
 // ergo:go func (*Int).Add(delta int64)
-extern go expvar.Int.Add func (v *Int) Add(delta int64) needs go.Foreign
+extern go expvar.Int.Add func (v *Int) Add(delta int64) needs go.Foreign takes v
 
 // ergo:go func (*Int).Set(value int64)
-extern go expvar.Int.Set func (v *Int) Set(value int64) needs go.Foreign
+extern go expvar.Int.Set func (v *Int) Set(value int64) needs go.Foreign takes v
 
 // ergo:go func (*Int).String() string
-extern go expvar.Int.String func (v *Int) String() string needs go.Foreign
+extern go expvar.Int.String func (v *Int) String() string needs go.Foreign takes v
 
 // ergo:go func (*Int).Value() int64
-extern go expvar.Int.Value func (v *Int) Value() int64 needs go.Foreign
+extern go expvar.Int.Value func (v *Int) Value() int64 needs go.Foreign takes v
 
 // ergo:go type KeyValue struct
 extern go expvar.KeyValue type KeyValue {
@@ -55,28 +55,28 @@ extern go expvar.KeyValue type KeyValue {
 extern go expvar.Map type Map {}
 
 // ergo:go func (*Map).Add(key string, delta int64)
-extern go expvar.Map.Add func (v *Map) Add(key string, delta int64) needs go.Foreign
+extern go expvar.Map.Add func (v *Map) Add(key string, delta int64) needs go.Foreign takes v
 
 // ergo:go func (*Map).AddFloat(key string, delta float64)
-extern go expvar.Map.AddFloat func (v *Map) AddFloat(key string, delta float64) needs go.Foreign
+extern go expvar.Map.AddFloat func (v *Map) AddFloat(key string, delta float64) needs go.Foreign takes v
 
 // ergo:go func (*Map).Delete(key string)
-extern go expvar.Map.Delete func (v *Map) Delete(key string) needs go.Foreign
+extern go expvar.Map.Delete func (v *Map) Delete(key string) needs go.Foreign takes v
 
 // ergo:go func (*Map).Do(f func(KeyValue))
-extern go expvar.Map.Do func (v *Map) Do(f escaping func(KeyValue)) needs go.Foreign
+extern go expvar.Map.Do func (v *Map) Do(f escaping func(KeyValue)) needs go.Foreign takes v
 
 // ergo:go func (*Map).Get(key string) Var
-extern go expvar.Map.Get func (v *Map) Get(key string) Var needs go.Foreign
+extern go expvar.Map.Get func (v *Map) Get(key string) Var needs go.Foreign takes v
 
 // ergo:go func (*Map).Init() *Map
-extern go expvar.Map.Init func (v *Map) Init() Option[go.Ref[Map]] needs go.Foreign
+extern go expvar.Map.Init func (v *Map) Init() Option[go.Ref[Map]] needs go.Foreign takes v
 
 // ergo:go func (*Map).Set(key string, av Var)
-extern go expvar.Map.Set func (v *Map) Set(key string, av Var) needs go.Foreign
+extern go expvar.Map.Set func (v *Map) Set(key string, av Var) needs go.Foreign takes v, av
 
 // ergo:go func (*Map).String() string
-extern go expvar.Map.String func (v *Map) String() string needs go.Foreign
+extern go expvar.Map.String func (v *Map) String() string needs go.Foreign takes v
 
 // ergo:go func NewFloat(name string) *Float
 extern go expvar.NewFloat func NewFloat(name string) Option[go.Ref[Float]] needs go.Foreign
@@ -91,21 +91,21 @@ extern go expvar.NewMap func NewMap(name string) Option[go.Ref[Map]] needs go.Fo
 extern go expvar.NewString func NewString(name string) Option[go.Ref[String]] needs go.Foreign
 
 // ergo:go func Publish(name string, v Var)
-extern go expvar.Publish func Publish(name string, v Var) needs go.Foreign
+extern go expvar.Publish func Publish(name string, v Var) needs go.Foreign takes v
 
 // ergo:go type String struct
 extern go expvar.String type String {}
 
 // ergo:go func (*String).Set(value string)
-extern go expvar.String.Set func (v *String) Set(value string) needs go.Foreign
+extern go expvar.String.Set func (v *String) Set(value string) needs go.Foreign takes v
 
 // ergo:go func (*String).String() string
-extern go expvar.String.String func (v *String) String() string needs go.Foreign
+extern go expvar.String.String func (v *String) String() string needs go.Foreign takes v
 
 // ergo:go func (*String).Value() string
-extern go expvar.String.Value func (v *String) Value() string needs go.Foreign
+extern go expvar.String.Value func (v *String) Value() string needs go.Foreign takes v
 
 // ergo:go type Var interface
 extern go expvar.Var type Var {
-	String() string needs go.Foreign,
+	String() string needs go.Foreign takes,
 }

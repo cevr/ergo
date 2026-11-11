@@ -189,8 +189,8 @@ type checker struct {
 	// (providerAssignability): R22 does not apply there.
 	providing bool
 	// hostCall is set while the arguments of a call of a Go function are
-	// checked: each is lent to Go for the call (IG9), so R22 does not
-	// apply to a Go interface parameter.
+	// checked: R22 does not apply to a direct Go interface argument;
+	// hostClauses supplies the independent takes/lent ownership policy.
 	hostCall bool
 	// resourceSites are the map keys and taken parameters A1's late pass
 	// decides (resource.go); the seen sets keep one site per syntax node.

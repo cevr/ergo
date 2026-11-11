@@ -15,7 +15,7 @@ extern go debug/pe.COFFSymbol type COFFSymbol {
 }
 
 // ergo:go func (*COFFSymbol).FullName(st StringTable) (string, error)
-extern go debug/pe.COFFSymbol.FullName func (sym *COFFSymbol) FullName(st StringTable) string fails go.Error needs go.Foreign
+extern go debug/pe.COFFSymbol.FullName func (sym *COFFSymbol) FullName(st StringTable) string fails go.Error needs go.Foreign takes sym
 
 // ergo:go type COFFSymbolAuxFormat5 struct
 extern go debug/pe.COFFSymbolAuxFormat5 type COFFSymbolAuxFormat5 {
@@ -53,22 +53,22 @@ extern go debug/pe.File type File {
 // ergo:refused File.Symbols: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*File).COFFSymbolReadSectionDefAux(idx int) (*COFFSymbolAuxFormat5, error)
-extern go debug/pe.File.COFFSymbolReadSectionDefAux func (f *File) COFFSymbolReadSectionDefAux(idx int) go.Ref[COFFSymbolAuxFormat5] fails go.Error needs go.Foreign
+extern go debug/pe.File.COFFSymbolReadSectionDefAux func (f *File) COFFSymbolReadSectionDefAux(idx int) go.Ref[COFFSymbolAuxFormat5] fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).Close() error
-extern go debug/pe.File.Close func (f *File) Close() fails go.Error needs go.Foreign
+extern go debug/pe.File.Close func (f *File) Close() fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).DWARF() (*dwarf.Data, error)
-extern go debug/pe.File.DWARF func (f *File) DWARF() go.Ref[dwarf.Data] fails go.Error needs go.Foreign
+extern go debug/pe.File.DWARF func (f *File) DWARF() go.Ref[dwarf.Data] fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).ImportedLibraries() ([]string, error)
-extern go debug/pe.File.ImportedLibraries func (f *File) ImportedLibraries() []string fails go.Error needs go.Foreign
+extern go debug/pe.File.ImportedLibraries func (f *File) ImportedLibraries() []string fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).ImportedSymbols() ([]string, error)
-extern go debug/pe.File.ImportedSymbols func (f *File) ImportedSymbols() []string fails go.Error needs go.Foreign
+extern go debug/pe.File.ImportedSymbols func (f *File) ImportedSymbols() []string fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).Section(name string) *Section
-extern go debug/pe.File.Section func (f *File) Section(name string) Option[go.Ref[Section]] needs go.Foreign
+extern go debug/pe.File.Section func (f *File) Section(name string) Option[go.Ref[Section]] needs go.Foreign takes f
 
 // ergo:go type FileHeader struct
 extern go debug/pe.FileHeader type FileHeader {
@@ -85,7 +85,7 @@ extern go debug/pe.FileHeader type FileHeader {
 extern go debug/pe.FormatError type FormatError {}
 
 // ergo:go func (*FormatError).Error() string
-extern go debug/pe.FormatError.Error func (e *FormatError) Error() string needs go.Foreign
+extern go debug/pe.FormatError.Error func (e *FormatError) Error() string needs go.Foreign takes e
 
 // ergo:go const IMAGE_COMDAT_SELECT_ANY untyped int
 extern go debug/pe.IMAGE_COMDAT_SELECT_ANY let IMAGE_COMDAT_SELECT_ANY int
@@ -385,7 +385,7 @@ extern go debug/pe.ImportDirectory type ImportDirectory {
 }
 
 // ergo:go func NewFile(r io.ReaderAt) (*File, error)
-extern go debug/pe.NewFile func NewFile(r io.ReaderAt) go.Ref[File] fails go.Error needs go.Foreign
+extern go debug/pe.NewFile func NewFile(r io.ReaderAt) go.Ref[File] fails go.Error needs go.Foreign takes r
 
 // ergo:go func Open(name string) (*File, error)
 extern go debug/pe.Open func Open(name string) go.Ref[File] fails go.Error needs go.Foreign
@@ -474,13 +474,13 @@ extern go debug/pe.Section type Section {
 }
 
 // ergo:go func (*Section).Data() ([]byte, error)
-extern go debug/pe.Section.Data func (s *Section) Data() []byte fails go.Error needs go.Foreign
+extern go debug/pe.Section.Data func (s *Section) Data() []byte fails go.Error needs go.Foreign takes s
 
 // ergo:go func (*Section).Open() io.ReadSeeker
-extern go debug/pe.Section.Open func (s *Section) Open() io.ReadSeeker needs go.Foreign
+extern go debug/pe.Section.Open func (s *Section) Open() io.ReadSeeker needs go.Foreign takes s
 
 // ergo:go func (io.ReaderAt).ReadAt(p []byte, off int64) (n int, err error)
-extern go debug/pe.Section.ReadAt func (r Section) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign
+extern go debug/pe.Section.ReadAt func (r Section) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign takes r
 
 // ergo:go type SectionHeader struct
 extern go debug/pe.SectionHeader type SectionHeader {

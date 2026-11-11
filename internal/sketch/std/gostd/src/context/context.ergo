@@ -19,12 +19,12 @@ extern go context.Background func Background() Context needs go.Foreign
 extern go context.Canceled let Canceled go.Error
 
 // ergo:go func Cause(c Context) error
-extern go context.Cause func Cause(c Context) fails go.Error needs go.Foreign
+extern go context.Cause func Cause(c Context) fails go.Error needs go.Foreign takes c
 
 // ergo:go type Context interface
 extern go context.Context type Context {
-	Deadline() (time.Time, bool) needs go.Foreign,
-	Err() fails go.Error needs go.Foreign,
+	Deadline() (time.Time, bool) needs go.Foreign takes,
+	Err() fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go func (context.Context).Done() <-chan struct{}
@@ -61,4 +61,4 @@ extern go context.TODO func TODO() Context needs go.Foreign
 // ergo:refused WithValue: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func WithoutCancel(parent Context) Context
-extern go context.WithoutCancel func WithoutCancel(parent Context) Context needs go.Foreign
+extern go context.WithoutCancel func WithoutCancel(parent Context) Context needs go.Foreign takes parent

@@ -11,7 +11,7 @@ extern go net/http/fcgi.ErrConnClosed let ErrConnClosed go.Error
 extern go net/http/fcgi.ErrRequestAborted let ErrRequestAborted go.Error
 
 // ergo:go func ProcessEnv(r *http.Request) map[string]string
-extern go net/http/fcgi.ProcessEnv func ProcessEnv(r *http.Request) Map[string, string] needs go.Foreign
+extern go net/http/fcgi.ProcessEnv func ProcessEnv(r *http.Request) Map[string, string] needs go.Foreign takes r
 
 // ergo:go func Serve(l net.Listener, handler http.Handler) error
-extern go net/http/fcgi.Serve func Serve(l net.Listener, handler http.Handler) fails go.Error needs go.Foreign
+extern go net/http/fcgi.Serve func Serve(l net.Listener, handler http.Handler) fails go.Error needs go.Foreign takes l, handler

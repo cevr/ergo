@@ -3,33 +3,33 @@
 
 // ergo:go type ByteReader interface
 extern go io.ByteReader type ByteReader {
-	ReadByte() byte fails go.Error needs go.Foreign,
+	ReadByte() byte fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type ByteScanner interface
 extern go io.ByteScanner type ByteScanner {
-	ReadByte() byte fails go.Error needs go.Foreign,
-	UnreadByte() fails go.Error needs go.Foreign,
+	ReadByte() byte fails go.Error needs go.Foreign takes,
+	UnreadByte() fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type ByteWriter interface
 extern go io.ByteWriter type ByteWriter {
-	WriteByte(c byte) fails go.Error needs go.Foreign,
+	WriteByte(c byte) fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type Closer interface
 extern go io.Closer type Closer {
-	Close() fails go.Error needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go func Copy(dst Writer, src Reader) (written int64, err error)
-extern go io.Copy func Copy(dst Writer, src Reader) int64 fails go.Error needs go.Foreign
+extern go io.Copy func Copy(dst Writer, src Reader) int64 fails go.Error needs go.Foreign takes dst, src
 
 // ergo:go func CopyBuffer(dst Writer, src Reader, buf []byte) (written int64, err error)
-extern go io.CopyBuffer func CopyBuffer(dst Writer, src Reader, buf []byte) int64 fails go.Error needs go.Foreign
+extern go io.CopyBuffer func CopyBuffer(dst Writer, src Reader, buf []byte) int64 fails go.Error needs go.Foreign takes dst, src
 
 // ergo:go func CopyN(dst Writer, src Reader, n int64) (written int64, err error)
-extern go io.CopyN func CopyN(dst Writer, src Reader, n int64) int64 fails go.Error needs go.Foreign
+extern go io.CopyN func CopyN(dst Writer, src Reader, n int64) int64 fails go.Error needs go.Foreign takes dst, src
 
 // ergo:go var Discard Writer
 // ergo:refused Discard: a Go variable is host state; call a function
@@ -53,7 +53,7 @@ extern go io.ErrShortWrite let ErrShortWrite go.Error
 extern go io.ErrUnexpectedEOF let ErrUnexpectedEOF go.Error
 
 // ergo:go func LimitReader(r Reader, n int64) Reader
-extern go io.LimitReader func LimitReader(r Reader, n int64) Reader needs go.Foreign
+extern go io.LimitReader func LimitReader(r Reader, n int64) Reader needs go.Foreign takes r
 
 // ergo:go type LimitedReader struct
 extern go io.LimitedReader type LimitedReader {
@@ -62,36 +62,36 @@ extern go io.LimitedReader type LimitedReader {
 }
 
 // ergo:go func (*LimitedReader).Read(p []byte) (n int, err error)
-extern go io.LimitedReader.Read func (l *LimitedReader) Read(p []byte) int fails go.Error needs go.Foreign
+extern go io.LimitedReader.Read func (l *LimitedReader) Read(p []byte) int fails go.Error needs go.Foreign takes l
 
 // ergo:go func MultiReader(readers ...Reader) Reader
 // ergo:variadic
-extern go io.MultiReader func MultiReader(readers []Reader) Reader needs go.Foreign
+extern go io.MultiReader func MultiReader(readers []Reader) Reader needs go.Foreign takes readers
 
 // ergo:go func MultiWriter(writers ...Writer) Writer
 // ergo:variadic
-extern go io.MultiWriter func MultiWriter(writers []Writer) Writer needs go.Foreign
+extern go io.MultiWriter func MultiWriter(writers []Writer) Writer needs go.Foreign takes writers
 
 // ergo:go func NewOffsetWriter(w WriterAt, off int64) *OffsetWriter
-extern go io.NewOffsetWriter func NewOffsetWriter(w WriterAt, off int64) Option[go.Ref[OffsetWriter]] needs go.Foreign
+extern go io.NewOffsetWriter func NewOffsetWriter(w WriterAt, off int64) Option[go.Ref[OffsetWriter]] needs go.Foreign takes w
 
 // ergo:go func NewSectionReader(r ReaderAt, off int64, n int64) *SectionReader
-extern go io.NewSectionReader func NewSectionReader(r ReaderAt, off int64, n int64) Option[go.Ref[SectionReader]] needs go.Foreign
+extern go io.NewSectionReader func NewSectionReader(r ReaderAt, off int64, n int64) Option[go.Ref[SectionReader]] needs go.Foreign takes r
 
 // ergo:go func NopCloser(r Reader) ReadCloser
-extern go io.NopCloser func NopCloser(r Reader) ReadCloser needs go.Foreign
+extern go io.NopCloser func NopCloser(r Reader) ReadCloser needs go.Foreign takes r
 
 // ergo:go type OffsetWriter struct
 extern go io.OffsetWriter type OffsetWriter {}
 
 // ergo:go func (*OffsetWriter).Seek(offset int64, whence int) (int64, error)
-extern go io.OffsetWriter.Seek func (o *OffsetWriter) Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign
+extern go io.OffsetWriter.Seek func (o *OffsetWriter) Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign takes o
 
 // ergo:go func (*OffsetWriter).Write(p []byte) (n int, err error)
-extern go io.OffsetWriter.Write func (o *OffsetWriter) Write(p []byte) int fails go.Error needs go.Foreign
+extern go io.OffsetWriter.Write func (o *OffsetWriter) Write(p []byte) int fails go.Error needs go.Foreign takes o
 
 // ergo:go func (*OffsetWriter).WriteAt(p []byte, off int64) (n int, err error)
-extern go io.OffsetWriter.WriteAt func (o *OffsetWriter) WriteAt(p []byte, off int64) int fails go.Error needs go.Foreign
+extern go io.OffsetWriter.WriteAt func (o *OffsetWriter) WriteAt(p []byte, off int64) int fails go.Error needs go.Foreign takes o
 
 // ergo:go func Pipe() (*PipeReader, *PipeWriter)
 extern go io.Pipe func Pipe() (Option[go.Ref[PipeReader]], Option[go.Ref[PipeWriter]]) needs go.Foreign
@@ -100,25 +100,25 @@ extern go io.Pipe func Pipe() (Option[go.Ref[PipeReader]], Option[go.Ref[PipeWri
 extern go io.PipeReader type PipeReader {}
 
 // ergo:go func (*PipeReader).Close() error
-extern go io.PipeReader.Close func (r *PipeReader) Close() fails go.Error needs go.Foreign
+extern go io.PipeReader.Close func (r *PipeReader) Close() fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*PipeReader).CloseWithError(err error) error
-extern go io.PipeReader.CloseWithError func (r *PipeReader) CloseWithError(err go.Error) fails go.Error needs go.Foreign
+extern go io.PipeReader.CloseWithError func (r *PipeReader) CloseWithError(err go.Error) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*PipeReader).Read(data []byte) (n int, err error)
-extern go io.PipeReader.Read func (r *PipeReader) Read(data []byte) int fails go.Error needs go.Foreign
+extern go io.PipeReader.Read func (r *PipeReader) Read(data []byte) int fails go.Error needs go.Foreign takes r
 
 // ergo:go type PipeWriter struct
 extern go io.PipeWriter type PipeWriter {}
 
 // ergo:go func (*PipeWriter).Close() error
-extern go io.PipeWriter.Close func (w *PipeWriter) Close() fails go.Error needs go.Foreign
+extern go io.PipeWriter.Close func (w *PipeWriter) Close() fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*PipeWriter).CloseWithError(err error) error
-extern go io.PipeWriter.CloseWithError func (w *PipeWriter) CloseWithError(err go.Error) fails go.Error needs go.Foreign
+extern go io.PipeWriter.CloseWithError func (w *PipeWriter) CloseWithError(err go.Error) fails go.Error needs go.Foreign takes w
 
 // ergo:go func (*PipeWriter).Write(data []byte) (n int, err error)
-extern go io.PipeWriter.Write func (w *PipeWriter) Write(data []byte) int fails go.Error needs go.Foreign
+extern go io.PipeWriter.Write func (w *PipeWriter) Write(data []byte) int fails go.Error needs go.Foreign takes w
 
 // ergo:go func ReadAll(r Reader) ([]byte, error)
 extern go io.ReadAll func ReadAll(r Reader) []byte fails go.Error needs go.Foreign
@@ -128,8 +128,8 @@ extern go io.ReadAtLeast func ReadAtLeast(r Reader, buf []byte, min int) int fai
 
 // ergo:go type ReadCloser interface
 extern go io.ReadCloser type ReadCloser {
-	Close() fails go.Error needs go.Foreign,
-	Read(p []byte) int fails go.Error needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	Read(p []byte) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go func ReadFull(r Reader, buf []byte) (n int, err error)
@@ -137,80 +137,80 @@ extern go io.ReadFull func ReadFull(r Reader, buf []byte) int fails go.Error nee
 
 // ergo:go type ReadSeekCloser interface
 extern go io.ReadSeekCloser type ReadSeekCloser {
-	Close() fails go.Error needs go.Foreign,
-	Read(p []byte) int fails go.Error needs go.Foreign,
-	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	Read(p []byte) int fails go.Error needs go.Foreign takes,
+	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type ReadSeeker interface
 extern go io.ReadSeeker type ReadSeeker {
-	Read(p []byte) int fails go.Error needs go.Foreign,
-	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign,
+	Read(p []byte) int fails go.Error needs go.Foreign takes,
+	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type ReadWriteCloser interface
 extern go io.ReadWriteCloser type ReadWriteCloser {
-	Close() fails go.Error needs go.Foreign,
-	Read(p []byte) int fails go.Error needs go.Foreign,
-	Write(p []byte) int fails go.Error needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	Read(p []byte) int fails go.Error needs go.Foreign takes,
+	Write(p []byte) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type ReadWriteSeeker interface
 extern go io.ReadWriteSeeker type ReadWriteSeeker {
-	Read(p []byte) int fails go.Error needs go.Foreign,
-	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign,
-	Write(p []byte) int fails go.Error needs go.Foreign,
+	Read(p []byte) int fails go.Error needs go.Foreign takes,
+	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign takes,
+	Write(p []byte) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type ReadWriter interface
 extern go io.ReadWriter type ReadWriter {
-	Read(p []byte) int fails go.Error needs go.Foreign,
-	Write(p []byte) int fails go.Error needs go.Foreign,
+	Read(p []byte) int fails go.Error needs go.Foreign takes,
+	Write(p []byte) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type Reader interface
 extern go io.Reader type Reader {
-	Read(p []byte) int fails go.Error needs go.Foreign,
+	Read(p []byte) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type ReaderAt interface
 extern go io.ReaderAt type ReaderAt {
-	ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign,
+	ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type ReaderFrom interface
 extern go io.ReaderFrom type ReaderFrom {
-	ReadFrom(r Reader) int64 fails go.Error needs go.Foreign,
+	ReadFrom(r Reader) int64 fails go.Error needs go.Foreign takes r,
 }
 
 // ergo:go type RuneReader interface
 extern go io.RuneReader type RuneReader {
-	ReadRune() (rune, int) fails go.Error needs go.Foreign,
+	ReadRune() (rune, int) fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type RuneScanner interface
 extern go io.RuneScanner type RuneScanner {
-	ReadRune() (rune, int) fails go.Error needs go.Foreign,
-	UnreadRune() fails go.Error needs go.Foreign,
+	ReadRune() (rune, int) fails go.Error needs go.Foreign takes,
+	UnreadRune() fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type SectionReader struct
 extern go io.SectionReader type SectionReader {}
 
 // ergo:go func (*SectionReader).Outer() (r ReaderAt, off int64, n int64)
-extern go io.SectionReader.Outer func (s *SectionReader) Outer() (ReaderAt, int64, int64) needs go.Foreign
+extern go io.SectionReader.Outer func (s *SectionReader) Outer() (ReaderAt, int64, int64) needs go.Foreign takes s
 
 // ergo:go func (*SectionReader).Read(p []byte) (n int, err error)
-extern go io.SectionReader.Read func (s *SectionReader) Read(p []byte) int fails go.Error needs go.Foreign
+extern go io.SectionReader.Read func (s *SectionReader) Read(p []byte) int fails go.Error needs go.Foreign takes s
 
 // ergo:go func (*SectionReader).ReadAt(p []byte, off int64) (n int, err error)
-extern go io.SectionReader.ReadAt func (s *SectionReader) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign
+extern go io.SectionReader.ReadAt func (s *SectionReader) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign takes s
 
 // ergo:go func (*SectionReader).Seek(offset int64, whence int) (int64, error)
-extern go io.SectionReader.Seek func (s *SectionReader) Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign
+extern go io.SectionReader.Seek func (s *SectionReader) Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign takes s
 
 // ergo:go func (*SectionReader).Size() int64
-extern go io.SectionReader.Size func (s *SectionReader) Size() int64 needs go.Foreign
+extern go io.SectionReader.Size func (s *SectionReader) Size() int64 needs go.Foreign takes s
 
 // ergo:go const SeekCurrent untyped int
 extern go io.SeekCurrent let SeekCurrent int
@@ -223,27 +223,27 @@ extern go io.SeekStart let SeekStart int
 
 // ergo:go type Seeker interface
 extern go io.Seeker type Seeker {
-	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign,
+	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type StringWriter interface
 extern go io.StringWriter type StringWriter {
-	WriteString(s string) int fails go.Error needs go.Foreign,
+	WriteString(s string) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go func TeeReader(r Reader, w Writer) Reader
-extern go io.TeeReader func TeeReader(r Reader, w Writer) Reader needs go.Foreign
+extern go io.TeeReader func TeeReader(r Reader, w Writer) Reader needs go.Foreign takes r, w
 
 // ergo:go type WriteCloser interface
 extern go io.WriteCloser type WriteCloser {
-	Close() fails go.Error needs go.Foreign,
-	Write(p []byte) int fails go.Error needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	Write(p []byte) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type WriteSeeker interface
 extern go io.WriteSeeker type WriteSeeker {
-	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign,
-	Write(p []byte) int fails go.Error needs go.Foreign,
+	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign takes,
+	Write(p []byte) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go func WriteString(w Writer, s string) (n int, err error)
@@ -251,15 +251,15 @@ extern go io.WriteString func WriteString(w Writer, s string) int fails go.Error
 
 // ergo:go type Writer interface
 extern go io.Writer type Writer {
-	Write(p []byte) int fails go.Error needs go.Foreign,
+	Write(p []byte) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type WriterAt interface
 extern go io.WriterAt type WriterAt {
-	WriteAt(p []byte, off int64) int fails go.Error needs go.Foreign,
+	WriteAt(p []byte, off int64) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type WriterTo interface
 extern go io.WriterTo type WriterTo {
-	WriteTo(w Writer) int64 fails go.Error needs go.Foreign,
+	WriteTo(w Writer) int64 fails go.Error needs go.Foreign takes w,
 }

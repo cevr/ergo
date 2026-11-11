@@ -5,112 +5,112 @@
 // ergo:refused All: result 1: the generic Go type Seq2 maps to no Ergo type in v1
 
 // ergo:go func AppendSeq[Slice ~[]E, E any](s Slice, seq iter.Seq[E]) Slice
-extern go slices.AppendSeq func AppendSeq[E](s []E, seq Seq[E]) []E
+extern go slices.AppendSeq func AppendSeq[E](s []E, seq Seq[E]) []E takes s
 
 // ergo:go func Backward[Slice ~[]E, E any](s Slice) iter.Seq2[int, E]
 // ergo:refused Backward: result 1: the generic Go type Seq2 maps to no Ergo type in v1
 
 // ergo:go func BinarySearch[S ~[]E, E cmp.Ordered](x S, target E) (int, bool)
-extern go slices.BinarySearch func BinarySearch[E ordered](x []E, target E) (int, bool)
+extern go slices.BinarySearch func BinarySearch[E ordered](x []E, target E) (int, bool) takes x, target
 
 // ergo:go func BinarySearchFunc[S ~[]E, E, T any](x S, target T, cmp func(E, T) int) (int, bool)
-extern go slices.BinarySearchFunc func BinarySearchFunc[E, T, CR](x []E, target T, cmp func(E, T) int needs CR) (int, bool) needs CR
+extern go slices.BinarySearchFunc func BinarySearchFunc[E, T, CR](x []E, target T, cmp func(E, T) int needs CR) (int, bool) needs CR takes x, target
 
 // ergo:go func Chunk[Slice ~[]E, E any](s Slice, n int) iter.Seq[Slice]
-extern go slices.Chunk func Chunk[E](s []E, n int) Seq[[]E]
+extern go slices.Chunk func Chunk[E](s []E, n int) Seq[[]E] takes s
 
 // ergo:go func Clip[S ~[]E, E any](s S) S
-extern go slices.Clip func Clip[E](s []E) []E
+extern go slices.Clip func Clip[E](s []E) []E takes s
 
 // ergo:go func Clone[S ~[]E, E any](s S) S
-extern go slices.Clone func Clone[E](s []E) []E
+extern go slices.Clone func Clone[E](s []E) []E takes s
 
 // ergo:go func Collect[E any](seq iter.Seq[E]) []E
 extern go slices.Collect func Collect[E](seq Seq[E]) []E
 
 // ergo:go func Compact[S ~[]E, E comparable](s S) S
-extern go slices.Compact func Compact[E comparable](s []E) []E
+extern go slices.Compact func Compact[E comparable](s []E) []E takes s
 
 // ergo:go func CompactFunc[S ~[]E, E any](s S, eq func(E, E) bool) S
-extern go slices.CompactFunc func CompactFunc[E, CR](s []E, eq func(E, E) bool needs CR) []E needs CR
+extern go slices.CompactFunc func CompactFunc[E, CR](s []E, eq func(E, E) bool needs CR) []E needs CR takes s
 
 // ergo:go func Compare[S ~[]E, E cmp.Ordered](s1 S, s2 S) int
-extern go slices.Compare func Compare[E ordered](s1 []E, s2 []E) int
+extern go slices.Compare func Compare[E ordered](s1 []E, s2 []E) int takes s1, s2
 
 // ergo:go func CompareFunc[S1 ~[]E1, S2 ~[]E2, E1, E2 any](s1 S1, s2 S2, cmp func(E1, E2) int) int
-extern go slices.CompareFunc func CompareFunc[E1, E2, CR](s1 []E1, s2 []E2, cmp func(E1, E2) int needs CR) int needs CR
+extern go slices.CompareFunc func CompareFunc[E1, E2, CR](s1 []E1, s2 []E2, cmp func(E1, E2) int needs CR) int needs CR takes s1, s2
 
 // ergo:go func Concat[S ~[]E, E any](slices ...S) S
 // ergo:variadic
-extern go slices.Concat func Concat[E](slices [][]E) []E
+extern go slices.Concat func Concat[E](slices [][]E) []E takes slices
 
 // ergo:go func Contains[S ~[]E, E comparable](s S, v E) bool
-extern go slices.Contains func Contains[E comparable](s []E, v E) bool
+extern go slices.Contains func Contains[E comparable](s []E, v E) bool takes s, v
 
 // ergo:go func ContainsFunc[S ~[]E, E any](s S, f func(E) bool) bool
-extern go slices.ContainsFunc func ContainsFunc[E, CR](s []E, f func(E) bool needs CR) bool needs CR
+extern go slices.ContainsFunc func ContainsFunc[E, CR](s []E, f func(E) bool needs CR) bool needs CR takes s
 
 // ergo:go func Delete[S ~[]E, E any](s S, i int, j int) S
-extern go slices.Delete func Delete[E](s []E, i int, j int) []E
+extern go slices.Delete func Delete[E](s []E, i int, j int) []E takes s
 
 // ergo:go func DeleteFunc[S ~[]E, E any](s S, del func(E) bool) S
-extern go slices.DeleteFunc func DeleteFunc[E, CR](s []E, del func(E) bool needs CR) []E needs CR
+extern go slices.DeleteFunc func DeleteFunc[E, CR](s []E, del func(E) bool needs CR) []E needs CR takes s
 
 // ergo:go func Equal[S ~[]E, E comparable](s1 S, s2 S) bool
-extern go slices.Equal func Equal[E comparable](s1 []E, s2 []E) bool
+extern go slices.Equal func Equal[E comparable](s1 []E, s2 []E) bool takes s1, s2
 
 // ergo:go func EqualFunc[S1 ~[]E1, S2 ~[]E2, E1, E2 any](s1 S1, s2 S2, eq func(E1, E2) bool) bool
-extern go slices.EqualFunc func EqualFunc[E1, E2, CR](s1 []E1, s2 []E2, eq func(E1, E2) bool needs CR) bool needs CR
+extern go slices.EqualFunc func EqualFunc[E1, E2, CR](s1 []E1, s2 []E2, eq func(E1, E2) bool needs CR) bool needs CR takes s1, s2
 
 // ergo:go func Grow[S ~[]E, E any](s S, n int) S
-extern go slices.Grow func Grow[E](s []E, n int) []E
+extern go slices.Grow func Grow[E](s []E, n int) []E takes s
 
 // ergo:go func Index[S ~[]E, E comparable](s S, v E) int
-extern go slices.Index func Index[E comparable](s []E, v E) int
+extern go slices.Index func Index[E comparable](s []E, v E) int takes s, v
 
 // ergo:go func IndexFunc[S ~[]E, E any](s S, f func(E) bool) int
-extern go slices.IndexFunc func IndexFunc[E, CR](s []E, f func(E) bool needs CR) int needs CR
+extern go slices.IndexFunc func IndexFunc[E, CR](s []E, f func(E) bool needs CR) int needs CR takes s
 
 // ergo:go func Insert[S ~[]E, E any](s S, i int, v ...E) S
 // ergo:variadic
-extern go slices.Insert func Insert[E](s []E, i int, v []E) []E
+extern go slices.Insert func Insert[E](s []E, i int, v []E) []E takes s, v
 
 // ergo:go func IsSorted[S ~[]E, E cmp.Ordered](x S) bool
-extern go slices.IsSorted func IsSorted[E ordered](x []E) bool
+extern go slices.IsSorted func IsSorted[E ordered](x []E) bool takes x
 
 // ergo:go func IsSortedFunc[S ~[]E, E any](x S, cmp func(a E, b E) int) bool
-extern go slices.IsSortedFunc func IsSortedFunc[E, CR](x []E, cmp func(E, E) int needs CR) bool needs CR
+extern go slices.IsSortedFunc func IsSortedFunc[E, CR](x []E, cmp func(E, E) int needs CR) bool needs CR takes x
 
 // ergo:go func Max[S ~[]E, E cmp.Ordered](x S) E
-extern go slices.Max func Max[E ordered](x []E) E
+extern go slices.Max func Max[E ordered](x []E) E takes x
 
 // ergo:go func MaxFunc[S ~[]E, E any](x S, cmp func(a E, b E) int) E
-extern go slices.MaxFunc func MaxFunc[E, CR](x []E, cmp func(E, E) int needs CR) E needs CR
+extern go slices.MaxFunc func MaxFunc[E, CR](x []E, cmp func(E, E) int needs CR) E needs CR takes x
 
 // ergo:go func Min[S ~[]E, E cmp.Ordered](x S) E
-extern go slices.Min func Min[E ordered](x []E) E
+extern go slices.Min func Min[E ordered](x []E) E takes x
 
 // ergo:go func MinFunc[S ~[]E, E any](x S, cmp func(a E, b E) int) E
-extern go slices.MinFunc func MinFunc[E, CR](x []E, cmp func(E, E) int needs CR) E needs CR
+extern go slices.MinFunc func MinFunc[E, CR](x []E, cmp func(E, E) int needs CR) E needs CR takes x
 
 // ergo:go func Repeat[S ~[]E, E any](x S, count int) S
-extern go slices.Repeat func Repeat[E](x []E, count int) []E
+extern go slices.Repeat func Repeat[E](x []E, count int) []E takes x
 
 // ergo:go func Replace[S ~[]E, E any](s S, i int, j int, v ...E) S
 // ergo:variadic
-extern go slices.Replace func Replace[E](s []E, i int, j int, v []E) []E
+extern go slices.Replace func Replace[E](s []E, i int, j int, v []E) []E takes s, v
 
 // ergo:go func Reverse[S ~[]E, E any](s S)
-extern go slices.Reverse func Reverse[E](s []E)
+extern go slices.Reverse func Reverse[E](s []E) takes s
 
 // ergo:go func Sort[S ~[]E, E cmp.Ordered](x S)
-extern go slices.Sort func Sort[E ordered](x []E)
+extern go slices.Sort func Sort[E ordered](x []E) takes x
 
 // ergo:go func SortFunc[S ~[]E, E any](x S, cmp func(a E, b E) int)
-extern go slices.SortFunc func SortFunc[E, CR](x []E, cmp func(E, E) int needs CR) needs CR
+extern go slices.SortFunc func SortFunc[E, CR](x []E, cmp func(E, E) int needs CR) needs CR takes x
 
 // ergo:go func SortStableFunc[S ~[]E, E any](x S, cmp func(a E, b E) int)
-extern go slices.SortStableFunc func SortStableFunc[E, CR](x []E, cmp func(E, E) int needs CR) needs CR
+extern go slices.SortStableFunc func SortStableFunc[E, CR](x []E, cmp func(E, E) int needs CR) needs CR takes x
 
 // ergo:go func Sorted[E cmp.Ordered](seq iter.Seq[E]) []E
 extern go slices.Sorted func Sorted[E ordered](seq Seq[E]) []E
@@ -122,4 +122,4 @@ extern go slices.SortedFunc func SortedFunc[E, CR](seq Seq[E], cmp func(E, E) in
 extern go slices.SortedStableFunc func SortedStableFunc[E, CR](seq Seq[E], cmp func(E, E) int needs CR) []E needs CR
 
 // ergo:go func Values[Slice ~[]E, E any](s Slice) iter.Seq[E]
-extern go slices.Values func Values[E](s []E) Seq[E]
+extern go slices.Values func Values[E](s []E) Seq[E] takes s

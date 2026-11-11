@@ -5,14 +5,14 @@ import go image
 import go image/color
 
 // ergo:go func Draw(dst Image, r image.Rectangle, src image.Image, sp image.Point, op Op)
-extern go image/draw.Draw func Draw(dst Image, r image.Rectangle, src image.Image, sp image.Point, op Op) needs go.Foreign
+extern go image/draw.Draw func Draw(dst Image, r image.Rectangle, src image.Image, sp image.Point, op Op) needs go.Foreign takes dst, src
 
 // ergo:go func DrawMask(dst Image, r image.Rectangle, src image.Image, sp image.Point, mask image.Image, mp image.Point, op Op)
-extern go image/draw.DrawMask func DrawMask(dst Image, r image.Rectangle, src image.Image, sp image.Point, mask image.Image, mp image.Point, op Op) needs go.Foreign
+extern go image/draw.DrawMask func DrawMask(dst Image, r image.Rectangle, src image.Image, sp image.Point, mask image.Image, mp image.Point, op Op) needs go.Foreign takes dst, src, mask
 
 // ergo:go type Drawer interface
 extern go image/draw.Drawer type Drawer {
-	Draw(dst Image, r image.Rectangle, src image.Image, sp image.Point) needs go.Foreign,
+	Draw(dst Image, r image.Rectangle, src image.Image, sp image.Point) needs go.Foreign takes dst, src,
 }
 
 // ergo:go var FloydSteinberg Drawer
@@ -20,34 +20,34 @@ extern go image/draw.Drawer type Drawer {
 
 // ergo:go type Image interface
 extern go image/draw.Image type Image {
-	At(x int, y int) color.Color needs go.Foreign,
-	Bounds() image.Rectangle needs go.Foreign,
-	ColorModel() color.Model needs go.Foreign,
-	Set(x int, y int, c color.Color) needs go.Foreign,
+	At(x int, y int) color.Color needs go.Foreign takes,
+	Bounds() image.Rectangle needs go.Foreign takes,
+	ColorModel() color.Model needs go.Foreign takes,
+	Set(x int, y int, c color.Color) needs go.Foreign takes c,
 }
 
 // ergo:go type Op int
 extern go image/draw.Op type Op int
 
 // ergo:go func (Op).Draw(dst Image, r image.Rectangle, src image.Image, sp image.Point)
-extern go image/draw.Op.Draw func (op Op) Draw(dst Image, r image.Rectangle, src image.Image, sp image.Point) needs go.Foreign
+extern go image/draw.Op.Draw func (op Op) Draw(dst Image, r image.Rectangle, src image.Image, sp image.Point) needs go.Foreign takes dst, src
 
 // ergo:go const Over Op
 extern go image/draw.Over let Over Op
 
 // ergo:go type Quantizer interface
 extern go image/draw.Quantizer type Quantizer {
-	Quantize(p color.Palette, m image.Image) color.Palette needs go.Foreign,
+	Quantize(p color.Palette, m image.Image) color.Palette needs go.Foreign takes m,
 }
 
 // ergo:go type RGBA64Image interface
 extern go image/draw.RGBA64Image type RGBA64Image {
-	At(x int, y int) color.Color needs go.Foreign,
-	Bounds() image.Rectangle needs go.Foreign,
-	ColorModel() color.Model needs go.Foreign,
-	RGBA64At(x int, y int) color.RGBA64 needs go.Foreign,
-	Set(x int, y int, c color.Color) needs go.Foreign,
-	SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign,
+	At(x int, y int) color.Color needs go.Foreign takes,
+	Bounds() image.Rectangle needs go.Foreign takes,
+	ColorModel() color.Model needs go.Foreign takes,
+	RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes,
+	Set(x int, y int, c color.Color) needs go.Foreign takes c,
+	SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign takes,
 }
 
 // ergo:go const Src Op

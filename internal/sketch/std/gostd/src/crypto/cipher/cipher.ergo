@@ -5,58 +5,58 @@ import go io
 
 // ergo:go type AEAD interface
 extern go crypto/cipher.AEAD type AEAD {
-	NonceSize() int needs go.Foreign,
-	Open(dst []byte, nonce []byte, ciphertext []byte, additionalData []byte) []byte fails go.Error needs go.Foreign,
-	Overhead() int needs go.Foreign,
-	Seal(dst []byte, nonce []byte, plaintext []byte, additionalData []byte) []byte needs go.Foreign,
+	NonceSize() int needs go.Foreign takes,
+	Open(dst []byte, nonce []byte, ciphertext []byte, additionalData []byte) []byte fails go.Error needs go.Foreign takes,
+	Overhead() int needs go.Foreign takes,
+	Seal(dst []byte, nonce []byte, plaintext []byte, additionalData []byte) []byte needs go.Foreign takes,
 }
 
 // ergo:go type Block interface
 extern go crypto/cipher.Block type Block {
-	BlockSize() int needs go.Foreign,
-	Decrypt(dst []byte, src []byte) needs go.Foreign,
-	Encrypt(dst []byte, src []byte) needs go.Foreign,
+	BlockSize() int needs go.Foreign takes,
+	Decrypt(dst []byte, src []byte) needs go.Foreign takes,
+	Encrypt(dst []byte, src []byte) needs go.Foreign takes,
 }
 
 // ergo:go type BlockMode interface
 extern go crypto/cipher.BlockMode type BlockMode {
-	BlockSize() int needs go.Foreign,
-	CryptBlocks(dst []byte, src []byte) needs go.Foreign,
+	BlockSize() int needs go.Foreign takes,
+	CryptBlocks(dst []byte, src []byte) needs go.Foreign takes,
 }
 
 // ergo:go func NewCBCDecrypter(b Block, iv []byte) BlockMode
-extern go crypto/cipher.NewCBCDecrypter func NewCBCDecrypter(b Block, iv []byte) BlockMode needs go.Foreign
+extern go crypto/cipher.NewCBCDecrypter func NewCBCDecrypter(b Block, iv []byte) BlockMode needs go.Foreign takes b
 
 // ergo:go func NewCBCEncrypter(b Block, iv []byte) BlockMode
-extern go crypto/cipher.NewCBCEncrypter func NewCBCEncrypter(b Block, iv []byte) BlockMode needs go.Foreign
+extern go crypto/cipher.NewCBCEncrypter func NewCBCEncrypter(b Block, iv []byte) BlockMode needs go.Foreign takes b
 
 // ergo:go func NewCFBDecrypter(block Block, iv []byte) Stream
-extern go crypto/cipher.NewCFBDecrypter func NewCFBDecrypter(block Block, iv []byte) Stream needs go.Foreign
+extern go crypto/cipher.NewCFBDecrypter func NewCFBDecrypter(block Block, iv []byte) Stream needs go.Foreign takes block
 
 // ergo:go func NewCFBEncrypter(block Block, iv []byte) Stream
-extern go crypto/cipher.NewCFBEncrypter func NewCFBEncrypter(block Block, iv []byte) Stream needs go.Foreign
+extern go crypto/cipher.NewCFBEncrypter func NewCFBEncrypter(block Block, iv []byte) Stream needs go.Foreign takes block
 
 // ergo:go func NewCTR(block Block, iv []byte) Stream
-extern go crypto/cipher.NewCTR func NewCTR(block Block, iv []byte) Stream needs go.Foreign
+extern go crypto/cipher.NewCTR func NewCTR(block Block, iv []byte) Stream needs go.Foreign takes block
 
 // ergo:go func NewGCM(cipher Block) (AEAD, error)
-extern go crypto/cipher.NewGCM func NewGCM(cipher Block) AEAD fails go.Error needs go.Foreign
+extern go crypto/cipher.NewGCM func NewGCM(cipher Block) AEAD fails go.Error needs go.Foreign takes cipher
 
 // ergo:go func NewGCMWithNonceSize(cipher Block, size int) (AEAD, error)
-extern go crypto/cipher.NewGCMWithNonceSize func NewGCMWithNonceSize(cipher Block, size int) AEAD fails go.Error needs go.Foreign
+extern go crypto/cipher.NewGCMWithNonceSize func NewGCMWithNonceSize(cipher Block, size int) AEAD fails go.Error needs go.Foreign takes cipher
 
 // ergo:go func NewGCMWithRandomNonce(cipher Block) (AEAD, error)
-extern go crypto/cipher.NewGCMWithRandomNonce func NewGCMWithRandomNonce(cipher Block) AEAD fails go.Error needs go.Foreign
+extern go crypto/cipher.NewGCMWithRandomNonce func NewGCMWithRandomNonce(cipher Block) AEAD fails go.Error needs go.Foreign takes cipher
 
 // ergo:go func NewGCMWithTagSize(cipher Block, tagSize int) (AEAD, error)
-extern go crypto/cipher.NewGCMWithTagSize func NewGCMWithTagSize(cipher Block, tagSize int) AEAD fails go.Error needs go.Foreign
+extern go crypto/cipher.NewGCMWithTagSize func NewGCMWithTagSize(cipher Block, tagSize int) AEAD fails go.Error needs go.Foreign takes cipher
 
 // ergo:go func NewOFB(b Block, iv []byte) Stream
-extern go crypto/cipher.NewOFB func NewOFB(b Block, iv []byte) Stream needs go.Foreign
+extern go crypto/cipher.NewOFB func NewOFB(b Block, iv []byte) Stream needs go.Foreign takes b
 
 // ergo:go type Stream interface
 extern go crypto/cipher.Stream type Stream {
-	XORKeyStream(dst []byte, src []byte) needs go.Foreign,
+	XORKeyStream(dst []byte, src []byte) needs go.Foreign takes,
 }
 
 // ergo:go type StreamReader struct
@@ -76,7 +76,7 @@ extern go crypto/cipher.StreamWriter type StreamWriter {
 }
 
 // ergo:go func (StreamWriter).Close() error
-extern go crypto/cipher.StreamWriter.Close func (w StreamWriter) Close() fails go.Error needs go.Foreign
+extern go crypto/cipher.StreamWriter.Close func (w StreamWriter) Close() fails go.Error needs go.Foreign takes w
 
 // ergo:go func (StreamWriter).Write(src []byte) (n int, err error)
-extern go crypto/cipher.StreamWriter.Write func (w StreamWriter) Write(src []byte) int fails go.Error needs go.Foreign
+extern go crypto/cipher.StreamWriter.Write func (w StreamWriter) Write(src []byte) int fails go.Error needs go.Foreign takes w

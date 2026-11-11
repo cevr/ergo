@@ -9,10 +9,10 @@ import go os
 // ergo:refused Discard: a Go variable is host state; call a function
 
 // ergo:go func NopCloser(r io.Reader) io.ReadCloser
-extern go io/ioutil.NopCloser func NopCloser(r io.Reader) io.ReadCloser needs go.Foreign
+extern go io/ioutil.NopCloser func NopCloser(r io.Reader) io.ReadCloser needs go.Foreign takes r
 
 // ergo:go func ReadAll(r io.Reader) ([]byte, error)
-extern go io/ioutil.ReadAll func ReadAll(r io.Reader) []byte fails go.Error needs go.Foreign
+extern go io/ioutil.ReadAll func ReadAll(r io.Reader) []byte fails go.Error needs go.Foreign takes r
 
 // ergo:go func ReadDir(dirname string) ([]fs.FileInfo, error)
 extern go io/ioutil.ReadDir func ReadDir(dirname string) []fs.FileInfo fails go.Error needs go.Foreign

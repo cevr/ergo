@@ -13,7 +13,7 @@ import go net/url
 import go time
 
 // ergo:go func AllowQuerySemicolons(h Handler) Handler
-extern go net/http.AllowQuerySemicolons func AllowQuerySemicolons(h Handler) Handler needs go.Foreign
+extern go net/http.AllowQuerySemicolons func AllowQuerySemicolons(h Handler) Handler needs go.Foreign takes h
 
 // ergo:go func CanonicalHeaderKey(s string) string
 extern go net/http.CanonicalHeaderKey func CanonicalHeaderKey(s string) string needs go.Foreign
@@ -31,49 +31,49 @@ extern go net/http.Client type Client {
 // ergo:refused Client.Jar: it names the refused type CookieJar
 
 // ergo:go func (*Client).CloseIdleConnections()
-extern go net/http.Client.CloseIdleConnections func (c *Client) CloseIdleConnections() needs go.Foreign
+extern go net/http.Client.CloseIdleConnections func (c *Client) CloseIdleConnections() needs go.Foreign takes c
 
 // ergo:go func (*Client).Do(req *Request) (*Response, error)
-extern go net/http.Client.Do func (c *Client) Do(req *Request) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Client.Do func (c *Client) Do(req *Request) go.Ref[Response] fails go.Error needs go.Foreign takes c, req
 
 // ergo:go func (*Client).Get(url string) (resp *Response, err error)
-extern go net/http.Client.Get func (c *Client) Get(url string) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Client.Get func (c *Client) Get(url string) go.Ref[Response] fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Client).Head(url string) (resp *Response, err error)
-extern go net/http.Client.Head func (c *Client) Head(url string) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Client.Head func (c *Client) Head(url string) go.Ref[Response] fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*Client).Post(url string, contentType string, body io.Reader) (resp *Response, err error)
-extern go net/http.Client.Post func (c *Client) Post(url string, contentType string, body io.Reader) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Client.Post func (c *Client) Post(url string, contentType string, body io.Reader) go.Ref[Response] fails go.Error needs go.Foreign takes c, body
 
 // ergo:go func (*Client).PostForm(url string, data url.Values) (resp *Response, err error)
-extern go net/http.Client.PostForm func (c *Client) PostForm(url string, data url.Values) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Client.PostForm func (c *Client) PostForm(url string, data url.Values) go.Ref[Response] fails go.Error needs go.Foreign takes c
 
 // ergo:go type ClientConn struct
 extern go net/http.ClientConn type ClientConn {}
 
 // ergo:go func (*ClientConn).Available() int
-extern go net/http.ClientConn.Available func (cc *ClientConn) Available() int needs go.Foreign
+extern go net/http.ClientConn.Available func (cc *ClientConn) Available() int needs go.Foreign takes cc
 
 // ergo:go func (*ClientConn).Close() error
-extern go net/http.ClientConn.Close func (cc *ClientConn) Close() fails go.Error needs go.Foreign
+extern go net/http.ClientConn.Close func (cc *ClientConn) Close() fails go.Error needs go.Foreign takes cc
 
 // ergo:go func (*ClientConn).Err() error
-extern go net/http.ClientConn.Err func (cc *ClientConn) Err() fails go.Error needs go.Foreign
+extern go net/http.ClientConn.Err func (cc *ClientConn) Err() fails go.Error needs go.Foreign takes cc
 
 // ergo:go func (*ClientConn).InFlight() int
-extern go net/http.ClientConn.InFlight func (cc *ClientConn) InFlight() int needs go.Foreign
+extern go net/http.ClientConn.InFlight func (cc *ClientConn) InFlight() int needs go.Foreign takes cc
 
 // ergo:go func (*ClientConn).Release()
-extern go net/http.ClientConn.Release func (cc *ClientConn) Release() needs go.Foreign
+extern go net/http.ClientConn.Release func (cc *ClientConn) Release() needs go.Foreign takes cc
 
 // ergo:go func (*ClientConn).Reserve() error
-extern go net/http.ClientConn.Reserve func (cc *ClientConn) Reserve() fails go.Error needs go.Foreign
+extern go net/http.ClientConn.Reserve func (cc *ClientConn) Reserve() fails go.Error needs go.Foreign takes cc
 
 // ergo:go func (*ClientConn).RoundTrip(req *Request) (*Response, error)
-extern go net/http.ClientConn.RoundTrip func (cc *ClientConn) RoundTrip(req *Request) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.ClientConn.RoundTrip func (cc *ClientConn) RoundTrip(req *Request) go.Ref[Response] fails go.Error needs go.Foreign takes cc, req
 
 // ergo:go func (*ClientConn).SetStateHook(f func(*ClientConn))
-extern go net/http.ClientConn.SetStateHook func (cc *ClientConn) SetStateHook(f escaping func(*ClientConn)) needs go.Foreign
+extern go net/http.ClientConn.SetStateHook func (cc *ClientConn) SetStateHook(f escaping func(*ClientConn)) needs go.Foreign takes cc
 
 // ergo:go type CloseNotifier interface
 // ergo:refused CloseNotifier: no method of the interface maps
@@ -103,10 +103,10 @@ extern go net/http.Cookie type Cookie {
 }
 
 // ergo:go func (*Cookie).String() string
-extern go net/http.Cookie.String func (c *Cookie) String() string needs go.Foreign
+extern go net/http.Cookie.String func (c *Cookie) String() string needs go.Foreign takes c
 
 // ergo:go func (*Cookie).Valid() error
-extern go net/http.Cookie.Valid func (c *Cookie) Valid() fails go.Error needs go.Foreign
+extern go net/http.Cookie.Valid func (c *Cookie) Valid() fails go.Error needs go.Foreign takes c
 
 // ergo:go type CookieJar interface
 // ergo:refused CookieJar: no method of the interface maps
@@ -115,19 +115,19 @@ extern go net/http.Cookie.Valid func (c *Cookie) Valid() fails go.Error needs go
 extern go net/http.CrossOriginProtection type CrossOriginProtection {}
 
 // ergo:go func (*CrossOriginProtection).AddInsecureBypassPattern(pattern string)
-extern go net/http.CrossOriginProtection.AddInsecureBypassPattern func (c *CrossOriginProtection) AddInsecureBypassPattern(pattern string) needs go.Foreign
+extern go net/http.CrossOriginProtection.AddInsecureBypassPattern func (c *CrossOriginProtection) AddInsecureBypassPattern(pattern string) needs go.Foreign takes c
 
 // ergo:go func (*CrossOriginProtection).AddTrustedOrigin(origin string) error
-extern go net/http.CrossOriginProtection.AddTrustedOrigin func (c *CrossOriginProtection) AddTrustedOrigin(origin string) fails go.Error needs go.Foreign
+extern go net/http.CrossOriginProtection.AddTrustedOrigin func (c *CrossOriginProtection) AddTrustedOrigin(origin string) fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*CrossOriginProtection).Check(req *Request) error
-extern go net/http.CrossOriginProtection.Check func (c *CrossOriginProtection) Check(req *Request) fails go.Error needs go.Foreign
+extern go net/http.CrossOriginProtection.Check func (c *CrossOriginProtection) Check(req *Request) fails go.Error needs go.Foreign takes c, req
 
 // ergo:go func (*CrossOriginProtection).Handler(h Handler) Handler
-extern go net/http.CrossOriginProtection.Handler func (c *CrossOriginProtection) Handler(h Handler) Handler needs go.Foreign
+extern go net/http.CrossOriginProtection.Handler func (c *CrossOriginProtection) Handler(h Handler) Handler needs go.Foreign takes c, h
 
 // ergo:go func (*CrossOriginProtection).SetDenyHandler(h Handler)
-extern go net/http.CrossOriginProtection.SetDenyHandler func (c *CrossOriginProtection) SetDenyHandler(h Handler) needs go.Foreign
+extern go net/http.CrossOriginProtection.SetDenyHandler func (c *CrossOriginProtection) SetDenyHandler(h Handler) needs go.Foreign takes c, h
 
 // ergo:go var DefaultClient *Client
 // ergo:refused DefaultClient: a Go variable is host state; call a function
@@ -223,34 +223,34 @@ extern go net/http.ErrUseLastResponse let ErrUseLastResponse go.Error
 extern go net/http.ErrWriteAfterFlush let ErrWriteAfterFlush go.Error
 
 // ergo:go func Error(w ResponseWriter, error string, code int)
-extern go net/http.Error func Error(w ResponseWriter, error string, code int) needs go.Foreign
+extern go net/http.Error func Error(w ResponseWriter, error string, code int) needs go.Foreign takes w
 
 // ergo:go func FS(fsys fs.FS) FileSystem
-extern go net/http.FS func FS(fsys fs.FS) FileSystem needs go.Foreign
+extern go net/http.FS func FS(fsys fs.FS) FileSystem needs go.Foreign takes fsys
 
 // ergo:go type File interface
 extern go net/http.File type File {
-	Close() fails go.Error needs go.Foreign,
-	Read(p []byte) int fails go.Error needs go.Foreign,
-	Readdir(count int) []fs.FileInfo fails go.Error needs go.Foreign,
-	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign,
-	Stat() fs.FileInfo fails go.Error needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	Read(p []byte) int fails go.Error needs go.Foreign takes,
+	Readdir(count int) []fs.FileInfo fails go.Error needs go.Foreign takes,
+	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign takes,
+	Stat() fs.FileInfo fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go func FileServer(root FileSystem) Handler
-extern go net/http.FileServer func FileServer(root FileSystem) Handler needs go.Foreign
+extern go net/http.FileServer func FileServer(root FileSystem) Handler needs go.Foreign takes root
 
 // ergo:go func FileServerFS(root fs.FS) Handler
-extern go net/http.FileServerFS func FileServerFS(root fs.FS) Handler needs go.Foreign
+extern go net/http.FileServerFS func FileServerFS(root fs.FS) Handler needs go.Foreign takes root
 
 // ergo:go type FileSystem interface
 extern go net/http.FileSystem type FileSystem {
-	Open(name string) File fails go.Error needs go.Foreign,
+	Open(name string) File fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type Flusher interface
 extern go net/http.Flusher type Flusher {
-	Flush() needs go.Foreign,
+	Flush() needs go.Foreign takes,
 }
 
 // ergo:go func Get(url string) (resp *Response, err error)
@@ -275,14 +275,14 @@ extern go net/http.HTTP2Config type HTTP2Config {
 // ergo:refused HTTP2Config.CountError: a Go function as a result, a field or an element
 
 // ergo:go func Handle(pattern string, handler Handler)
-extern go net/http.Handle func Handle(pattern string, handler Handler) needs go.Foreign
+extern go net/http.Handle func Handle(pattern string, handler Handler) needs go.Foreign takes handler
 
 // ergo:go func HandleFunc(pattern string, handler func(ResponseWriter, *Request))
 extern go net/http.HandleFunc func HandleFunc(pattern string, handler escaping func(ResponseWriter, *Request)) needs go.Foreign
 
 // ergo:go type Handler interface
 extern go net/http.Handler type Handler {
-	ServeHTTP(p0 ResponseWriter, p1 *Request) needs go.Foreign,
+	ServeHTTP(p0 ResponseWriter, p1 *Request) needs go.Foreign takes p0, p1,
 }
 
 // ergo:go type HandlerFunc func
@@ -313,21 +313,21 @@ extern go net/http.Header.Set func (h Header) Set(key string, value string) need
 extern go net/http.Header.Values func (h Header) Values(key string) []string needs go.Foreign
 
 // ergo:go func (Header).Write(w io.Writer) error
-extern go net/http.Header.Write func (h Header) Write(w io.Writer) fails go.Error needs go.Foreign
+extern go net/http.Header.Write func (h Header) Write(w io.Writer) fails go.Error needs go.Foreign takes w
 
 // ergo:go func (Header).WriteSubset(w io.Writer, exclude map[string]bool) error
-extern go net/http.Header.WriteSubset func (h Header) WriteSubset(w io.Writer, exclude Map[string, bool]) fails go.Error needs go.Foreign
+extern go net/http.Header.WriteSubset func (h Header) WriteSubset(w io.Writer, exclude Map[string, bool]) fails go.Error needs go.Foreign takes w
 
 // ergo:go type Hijacker interface
 extern go net/http.Hijacker type Hijacker {
-	Hijack() (net.Conn, Option[go.Ref[bufio.ReadWriter]]) fails go.Error needs go.Foreign,
+	Hijack() (net.Conn, Option[go.Ref[bufio.ReadWriter]]) fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go func ListenAndServe(addr string, handler Handler) error
-extern go net/http.ListenAndServe func ListenAndServe(addr string, handler Handler) fails go.Error needs go.Foreign
+extern go net/http.ListenAndServe func ListenAndServe(addr string, handler Handler) fails go.Error needs go.Foreign takes handler
 
 // ergo:go func ListenAndServeTLS(addr string, certFile string, keyFile string, handler Handler) error
-extern go net/http.ListenAndServeTLS func ListenAndServeTLS(addr string, certFile string, keyFile string, handler Handler) fails go.Error needs go.Foreign
+extern go net/http.ListenAndServeTLS func ListenAndServeTLS(addr string, certFile string, keyFile string, handler Handler) fails go.Error needs go.Foreign takes handler
 
 // ergo:go var LocalAddrContextKey *contextKey
 // ergo:refused LocalAddrContextKey: a Go variable is host state; call a function
@@ -338,13 +338,13 @@ extern go net/http.MaxBytesError type MaxBytesError {
 }
 
 // ergo:go func (*MaxBytesError).Error() string
-extern go net/http.MaxBytesError.Error func (e *MaxBytesError) Error() string needs go.Foreign
+extern go net/http.MaxBytesError.Error func (e *MaxBytesError) Error() string needs go.Foreign takes e
 
 // ergo:go func MaxBytesHandler(h Handler, n int64) Handler
-extern go net/http.MaxBytesHandler func MaxBytesHandler(h Handler, n int64) Handler needs go.Foreign
+extern go net/http.MaxBytesHandler func MaxBytesHandler(h Handler, n int64) Handler needs go.Foreign takes h
 
 // ergo:go func MaxBytesReader(w ResponseWriter, r io.ReadCloser, n int64) io.ReadCloser
-extern go net/http.MaxBytesReader func MaxBytesReader(w ResponseWriter, r io.ReadCloser, n int64) io.ReadCloser needs go.Foreign
+extern go net/http.MaxBytesReader func MaxBytesReader(w ResponseWriter, r io.ReadCloser, n int64) io.ReadCloser needs go.Foreign takes w, r
 
 // ergo:go const MethodConnect untyped string
 extern go net/http.MethodConnect let MethodConnect string
@@ -377,20 +377,20 @@ extern go net/http.MethodTrace let MethodTrace string
 extern go net/http.NewCrossOriginProtection func NewCrossOriginProtection() Option[go.Ref[CrossOriginProtection]] needs go.Foreign
 
 // ergo:go func NewFileTransport(fs FileSystem) RoundTripper
-extern go net/http.NewFileTransport func NewFileTransport(fs FileSystem) RoundTripper needs go.Foreign
+extern go net/http.NewFileTransport func NewFileTransport(fs FileSystem) RoundTripper needs go.Foreign takes fs
 
 // ergo:go func NewFileTransportFS(fsys fs.FS) RoundTripper
-extern go net/http.NewFileTransportFS func NewFileTransportFS(fsys fs.FS) RoundTripper needs go.Foreign
+extern go net/http.NewFileTransportFS func NewFileTransportFS(fsys fs.FS) RoundTripper needs go.Foreign takes fsys
 
 // ergo:go func NewRequest(method string, url string, body io.Reader) (*Request, error)
-extern go net/http.NewRequest func NewRequest(method string, url string, body io.Reader) go.Ref[Request] fails go.Error needs go.Foreign
+extern go net/http.NewRequest func NewRequest(method string, url string, body io.Reader) go.Ref[Request] fails go.Error needs go.Foreign takes body
 
 // ergo:go func NewRequestWithContext(ctx context.Context, method string, url string, body io.Reader) (*Request, error)
 // ergo:context
-extern go net/http.NewRequestWithContext func NewRequestWithContext(method string, url string, body io.Reader) go.Ref[Request] fails go.Error needs go.Foreign
+extern go net/http.NewRequestWithContext func NewRequestWithContext(method string, url string, body io.Reader) go.Ref[Request] fails go.Error needs go.Foreign takes body
 
 // ergo:go func NewResponseController(rw ResponseWriter) *ResponseController
-extern go net/http.NewResponseController func NewResponseController(rw ResponseWriter) Option[go.Ref[ResponseController]] needs go.Foreign
+extern go net/http.NewResponseController func NewResponseController(rw ResponseWriter) Option[go.Ref[ResponseController]] needs go.Foreign takes rw
 
 // ergo:go func NewServeMux() *ServeMux
 extern go net/http.NewServeMux func NewServeMux() Option[go.Ref[ServeMux]] needs go.Foreign
@@ -399,7 +399,7 @@ extern go net/http.NewServeMux func NewServeMux() Option[go.Ref[ServeMux]] needs
 // ergo:refused NoBody: type noBody is refused: unexported
 
 // ergo:go func NotFound(w ResponseWriter, r *Request)
-extern go net/http.NotFound func NotFound(w ResponseWriter, r *Request) needs go.Foreign
+extern go net/http.NotFound func NotFound(w ResponseWriter, r *Request) needs go.Foreign takes w, r
 
 // ergo:go func NotFoundHandler() Handler
 extern go net/http.NotFoundHandler func NotFoundHandler() Handler needs go.Foreign
@@ -417,7 +417,7 @@ extern go net/http.ParseSetCookie func ParseSetCookie(line string) go.Ref[Cookie
 extern go net/http.ParseTime func ParseTime(text string) time.Time fails go.Error needs go.Foreign
 
 // ergo:go func Post(url string, contentType string, body io.Reader) (resp *Response, err error)
-extern go net/http.Post func Post(url string, contentType string, body io.Reader) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Post func Post(url string, contentType string, body io.Reader) go.Ref[Response] fails go.Error needs go.Foreign takes body
 
 // ergo:go func PostForm(url string, data url.Values) (resp *Response, err error)
 extern go net/http.PostForm func PostForm(url string, data url.Values) go.Ref[Response] fails go.Error needs go.Foreign
@@ -428,10 +428,10 @@ extern go net/http.ProtocolError type ProtocolError {
 }
 
 // ergo:go func (*ProtocolError).Error() string
-extern go net/http.ProtocolError.Error func (pe *ProtocolError) Error() string needs go.Foreign
+extern go net/http.ProtocolError.Error func (pe *ProtocolError) Error() string needs go.Foreign takes pe
 
 // ergo:go func (*ProtocolError).Is(err error) bool
-extern go net/http.ProtocolError.Is func (pe *ProtocolError) Is(err go.Error) bool needs go.Foreign
+extern go net/http.ProtocolError.Is func (pe *ProtocolError) Is(err go.Error) bool needs go.Foreign takes pe
 
 // ergo:go type Protocols struct
 extern go net/http.Protocols type Protocols {}
@@ -443,13 +443,13 @@ extern go net/http.Protocols.HTTP1 func (p Protocols) HTTP1() bool needs go.Fore
 extern go net/http.Protocols.HTTP2 func (p Protocols) HTTP2() bool needs go.Foreign
 
 // ergo:go func (*Protocols).SetHTTP1(ok bool)
-extern go net/http.Protocols.SetHTTP1 func (p *Protocols) SetHTTP1(ok bool) needs go.Foreign
+extern go net/http.Protocols.SetHTTP1 func (p *Protocols) SetHTTP1(ok bool) needs go.Foreign takes p
 
 // ergo:go func (*Protocols).SetHTTP2(ok bool)
-extern go net/http.Protocols.SetHTTP2 func (p *Protocols) SetHTTP2(ok bool) needs go.Foreign
+extern go net/http.Protocols.SetHTTP2 func (p *Protocols) SetHTTP2(ok bool) needs go.Foreign takes p
 
 // ergo:go func (*Protocols).SetUnencryptedHTTP2(ok bool)
-extern go net/http.Protocols.SetUnencryptedHTTP2 func (p *Protocols) SetUnencryptedHTTP2(ok bool) needs go.Foreign
+extern go net/http.Protocols.SetUnencryptedHTTP2 func (p *Protocols) SetUnencryptedHTTP2(ok bool) needs go.Foreign takes p
 
 // ergo:go func (Protocols).String() string
 extern go net/http.Protocols.String func (p Protocols) String() string needs go.Foreign
@@ -458,7 +458,7 @@ extern go net/http.Protocols.String func (p Protocols) String() string needs go.
 extern go net/http.Protocols.UnencryptedHTTP2 func (p Protocols) UnencryptedHTTP2() bool needs go.Foreign
 
 // ergo:go func ProxyFromEnvironment(req *Request) (*url.URL, error)
-extern go net/http.ProxyFromEnvironment func ProxyFromEnvironment(req *Request) go.Ref[url.URL] fails go.Error needs go.Foreign
+extern go net/http.ProxyFromEnvironment func ProxyFromEnvironment(req *Request) go.Ref[url.URL] fails go.Error needs go.Foreign takes req
 
 // ergo:go func ProxyURL(fixedURL *url.URL) func(*Request) (*url.URL, error)
 // ergo:refused ProxyURL: result 1: a Go function as a result, a field or an element
@@ -471,17 +471,17 @@ extern go net/http.PushOptions type PushOptions {
 
 // ergo:go type Pusher interface
 extern go net/http.Pusher type Pusher {
-	Push(target string, opts *PushOptions) fails go.Error needs go.Foreign,
+	Push(target string, opts *PushOptions) fails go.Error needs go.Foreign takes opts,
 }
 
 // ergo:go func ReadRequest(b *bufio.Reader) (*Request, error)
-extern go net/http.ReadRequest func ReadRequest(b *bufio.Reader) go.Ref[Request] fails go.Error needs go.Foreign
+extern go net/http.ReadRequest func ReadRequest(b *bufio.Reader) go.Ref[Request] fails go.Error needs go.Foreign takes b
 
 // ergo:go func ReadResponse(r *bufio.Reader, req *Request) (*Response, error)
-extern go net/http.ReadResponse func ReadResponse(r *bufio.Reader, req *Request) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.ReadResponse func ReadResponse(r *bufio.Reader, req *Request) go.Ref[Response] fails go.Error needs go.Foreign takes r, req
 
 // ergo:go func Redirect(w ResponseWriter, r *Request, url string, code int)
-extern go net/http.Redirect func Redirect(w ResponseWriter, r *Request, url string, code int) needs go.Foreign
+extern go net/http.Redirect func Redirect(w ResponseWriter, r *Request, url string, code int) needs go.Foreign takes w, r
 
 // ergo:go func RedirectHandler(url string, code int) Handler
 extern go net/http.RedirectHandler func RedirectHandler(url string, code int) Handler needs go.Foreign
@@ -517,20 +517,20 @@ extern go net/http.Request type Request {
 // ergo:refused Request.Cancel: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue
 
 // ergo:go func (*Request).AddCookie(c *Cookie)
-extern go net/http.Request.AddCookie func (r *Request) AddCookie(c *Cookie) needs go.Foreign
+extern go net/http.Request.AddCookie func (r *Request) AddCookie(c *Cookie) needs go.Foreign takes r, c
 
 // ergo:go func (*Request).BasicAuth() (username string, password string, ok bool)
-extern go net/http.Request.BasicAuth func (r *Request) BasicAuth() (string, string, bool) needs go.Foreign
+extern go net/http.Request.BasicAuth func (r *Request) BasicAuth() (string, string, bool) needs go.Foreign takes r
 
 // ergo:go func (*Request).Clone(ctx context.Context) *Request
 // ergo:context
-extern go net/http.Request.Clone func (r *Request) Clone() Option[go.Ref[Request]] needs go.Foreign
+extern go net/http.Request.Clone func (r *Request) Clone() Option[go.Ref[Request]] needs go.Foreign takes r
 
 // ergo:go func (*Request).Context() context.Context
-extern go net/http.Request.Context func (r *Request) Context() gocontext.Context needs go.Foreign
+extern go net/http.Request.Context func (r *Request) Context() gocontext.Context needs go.Foreign takes r
 
 // ergo:go func (*Request).Cookie(name string) (*Cookie, error)
-extern go net/http.Request.Cookie func (r *Request) Cookie(name string) go.Ref[Cookie] fails go.Error needs go.Foreign
+extern go net/http.Request.Cookie func (r *Request) Cookie(name string) go.Ref[Cookie] fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Request).Cookies() []*Cookie
 // ergo:refused Request.Cookies: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
@@ -539,50 +539,50 @@ extern go net/http.Request.Cookie func (r *Request) Cookie(name string) go.Ref[C
 // ergo:refused Request.CookiesNamed: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Request).FormFile(key string) (multipart.File, *multipart.FileHeader, error)
-extern go net/http.Request.FormFile func (r *Request) FormFile(key string) (multipart.File, Option[go.Ref[multipart.FileHeader]]) fails go.Error needs go.Foreign
+extern go net/http.Request.FormFile func (r *Request) FormFile(key string) (multipart.File, Option[go.Ref[multipart.FileHeader]]) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Request).FormValue(key string) string
-extern go net/http.Request.FormValue func (r *Request) FormValue(key string) string needs go.Foreign
+extern go net/http.Request.FormValue func (r *Request) FormValue(key string) string needs go.Foreign takes r
 
 // ergo:go func (*Request).MultipartReader() (*multipart.Reader, error)
-extern go net/http.Request.MultipartReader func (r *Request) MultipartReader() go.Ref[multipart.Reader] fails go.Error needs go.Foreign
+extern go net/http.Request.MultipartReader func (r *Request) MultipartReader() go.Ref[multipart.Reader] fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Request).ParseForm() error
-extern go net/http.Request.ParseForm func (r *Request) ParseForm() fails go.Error needs go.Foreign
+extern go net/http.Request.ParseForm func (r *Request) ParseForm() fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Request).ParseMultipartForm(maxMemory int64) error
-extern go net/http.Request.ParseMultipartForm func (r *Request) ParseMultipartForm(maxMemory int64) fails go.Error needs go.Foreign
+extern go net/http.Request.ParseMultipartForm func (r *Request) ParseMultipartForm(maxMemory int64) fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Request).PathValue(name string) string
-extern go net/http.Request.PathValue func (r *Request) PathValue(name string) string needs go.Foreign
+extern go net/http.Request.PathValue func (r *Request) PathValue(name string) string needs go.Foreign takes r
 
 // ergo:go func (*Request).PostFormValue(key string) string
-extern go net/http.Request.PostFormValue func (r *Request) PostFormValue(key string) string needs go.Foreign
+extern go net/http.Request.PostFormValue func (r *Request) PostFormValue(key string) string needs go.Foreign takes r
 
 // ergo:go func (*Request).ProtoAtLeast(major int, minor int) bool
-extern go net/http.Request.ProtoAtLeast func (r *Request) ProtoAtLeast(major int, minor int) bool needs go.Foreign
+extern go net/http.Request.ProtoAtLeast func (r *Request) ProtoAtLeast(major int, minor int) bool needs go.Foreign takes r
 
 // ergo:go func (*Request).Referer() string
-extern go net/http.Request.Referer func (r *Request) Referer() string needs go.Foreign
+extern go net/http.Request.Referer func (r *Request) Referer() string needs go.Foreign takes r
 
 // ergo:go func (*Request).SetBasicAuth(username string, password string)
-extern go net/http.Request.SetBasicAuth func (r *Request) SetBasicAuth(username string, password string) needs go.Foreign
+extern go net/http.Request.SetBasicAuth func (r *Request) SetBasicAuth(username string, password string) needs go.Foreign takes r
 
 // ergo:go func (*Request).SetPathValue(name string, value string)
-extern go net/http.Request.SetPathValue func (r *Request) SetPathValue(name string, value string) needs go.Foreign
+extern go net/http.Request.SetPathValue func (r *Request) SetPathValue(name string, value string) needs go.Foreign takes r
 
 // ergo:go func (*Request).UserAgent() string
-extern go net/http.Request.UserAgent func (r *Request) UserAgent() string needs go.Foreign
+extern go net/http.Request.UserAgent func (r *Request) UserAgent() string needs go.Foreign takes r
 
 // ergo:go func (*Request).WithContext(ctx context.Context) *Request
 // ergo:context
-extern go net/http.Request.WithContext func (r *Request) WithContext() Option[go.Ref[Request]] needs go.Foreign
+extern go net/http.Request.WithContext func (r *Request) WithContext() Option[go.Ref[Request]] needs go.Foreign takes r
 
 // ergo:go func (*Request).Write(w io.Writer) error
-extern go net/http.Request.Write func (r *Request) Write(w io.Writer) fails go.Error needs go.Foreign
+extern go net/http.Request.Write func (r *Request) Write(w io.Writer) fails go.Error needs go.Foreign takes r, w
 
 // ergo:go func (*Request).WriteProxy(w io.Writer) error
-extern go net/http.Request.WriteProxy func (r *Request) WriteProxy(w io.Writer) fails go.Error needs go.Foreign
+extern go net/http.Request.WriteProxy func (r *Request) WriteProxy(w io.Writer) fails go.Error needs go.Foreign takes r, w
 
 // ergo:go type Response struct
 extern go net/http.Response type Response {
@@ -606,42 +606,42 @@ extern go net/http.Response type Response {
 // ergo:refused Response.Cookies: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Response).Location() (*url.URL, error)
-extern go net/http.Response.Location func (r *Response) Location() go.Ref[url.URL] fails go.Error needs go.Foreign
+extern go net/http.Response.Location func (r *Response) Location() go.Ref[url.URL] fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Response).ProtoAtLeast(major int, minor int) bool
-extern go net/http.Response.ProtoAtLeast func (r *Response) ProtoAtLeast(major int, minor int) bool needs go.Foreign
+extern go net/http.Response.ProtoAtLeast func (r *Response) ProtoAtLeast(major int, minor int) bool needs go.Foreign takes r
 
 // ergo:go func (*Response).Write(w io.Writer) error
-extern go net/http.Response.Write func (r *Response) Write(w io.Writer) fails go.Error needs go.Foreign
+extern go net/http.Response.Write func (r *Response) Write(w io.Writer) fails go.Error needs go.Foreign takes r, w
 
 // ergo:go type ResponseController struct
 extern go net/http.ResponseController type ResponseController {}
 
 // ergo:go func (*ResponseController).EnableFullDuplex() error
-extern go net/http.ResponseController.EnableFullDuplex func (c *ResponseController) EnableFullDuplex() fails go.Error needs go.Foreign
+extern go net/http.ResponseController.EnableFullDuplex func (c *ResponseController) EnableFullDuplex() fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*ResponseController).Flush() error
-extern go net/http.ResponseController.Flush func (c *ResponseController) Flush() fails go.Error needs go.Foreign
+extern go net/http.ResponseController.Flush func (c *ResponseController) Flush() fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*ResponseController).Hijack() (net.Conn, *bufio.ReadWriter, error)
-extern go net/http.ResponseController.Hijack func (c *ResponseController) Hijack() (net.Conn, Option[go.Ref[bufio.ReadWriter]]) fails go.Error needs go.Foreign
+extern go net/http.ResponseController.Hijack func (c *ResponseController) Hijack() (net.Conn, Option[go.Ref[bufio.ReadWriter]]) fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*ResponseController).SetReadDeadline(deadline time.Time) error
-extern go net/http.ResponseController.SetReadDeadline func (c *ResponseController) SetReadDeadline(deadline time.Time) fails go.Error needs go.Foreign
+extern go net/http.ResponseController.SetReadDeadline func (c *ResponseController) SetReadDeadline(deadline time.Time) fails go.Error needs go.Foreign takes c
 
 // ergo:go func (*ResponseController).SetWriteDeadline(deadline time.Time) error
-extern go net/http.ResponseController.SetWriteDeadline func (c *ResponseController) SetWriteDeadline(deadline time.Time) fails go.Error needs go.Foreign
+extern go net/http.ResponseController.SetWriteDeadline func (c *ResponseController) SetWriteDeadline(deadline time.Time) fails go.Error needs go.Foreign takes c
 
 // ergo:go type ResponseWriter interface
 extern go net/http.ResponseWriter type ResponseWriter {
-	Header() Header needs go.Foreign,
-	Write(p0 []byte) int fails go.Error needs go.Foreign,
-	WriteHeader(statusCode int) needs go.Foreign,
+	Header() Header needs go.Foreign takes,
+	Write(p0 []byte) int fails go.Error needs go.Foreign takes,
+	WriteHeader(statusCode int) needs go.Foreign takes,
 }
 
 // ergo:go type RoundTripper interface
 extern go net/http.RoundTripper type RoundTripper {
-	RoundTrip(p0 *Request) go.Ref[Response] fails go.Error needs go.Foreign,
+	RoundTrip(p0 *Request) go.Ref[Response] fails go.Error needs go.Foreign takes p0,
 }
 
 // ergo:go type SameSite int
@@ -660,34 +660,34 @@ extern go net/http.SameSiteNoneMode let SameSiteNoneMode SameSite
 extern go net/http.SameSiteStrictMode let SameSiteStrictMode SameSite
 
 // ergo:go func Serve(l net.Listener, handler Handler) error
-extern go net/http.Serve func Serve(l net.Listener, handler Handler) fails go.Error needs go.Foreign
+extern go net/http.Serve func Serve(l net.Listener, handler Handler) fails go.Error needs go.Foreign takes l, handler
 
 // ergo:go func ServeContent(w ResponseWriter, req *Request, name string, modtime time.Time, content io.ReadSeeker)
-extern go net/http.ServeContent func ServeContent(w ResponseWriter, req *Request, name string, modtime time.Time, content io.ReadSeeker) needs go.Foreign
+extern go net/http.ServeContent func ServeContent(w ResponseWriter, req *Request, name string, modtime time.Time, content io.ReadSeeker) needs go.Foreign takes w, req, content
 
 // ergo:go func ServeFile(w ResponseWriter, r *Request, name string)
-extern go net/http.ServeFile func ServeFile(w ResponseWriter, r *Request, name string) needs go.Foreign
+extern go net/http.ServeFile func ServeFile(w ResponseWriter, r *Request, name string) needs go.Foreign takes w, r
 
 // ergo:go func ServeFileFS(w ResponseWriter, r *Request, fsys fs.FS, name string)
-extern go net/http.ServeFileFS func ServeFileFS(w ResponseWriter, r *Request, fsys fs.FS, name string) needs go.Foreign
+extern go net/http.ServeFileFS func ServeFileFS(w ResponseWriter, r *Request, fsys fs.FS, name string) needs go.Foreign takes w, r, fsys
 
 // ergo:go type ServeMux struct
 extern go net/http.ServeMux type ServeMux {}
 
 // ergo:go func (*ServeMux).Handle(pattern string, handler Handler)
-extern go net/http.ServeMux.Handle func (mux *ServeMux) Handle(pattern string, handler Handler) needs go.Foreign
+extern go net/http.ServeMux.Handle func (mux *ServeMux) Handle(pattern string, handler Handler) needs go.Foreign takes mux, handler
 
 // ergo:go func (*ServeMux).HandleFunc(pattern string, handler func(ResponseWriter, *Request))
-extern go net/http.ServeMux.HandleFunc func (mux *ServeMux) HandleFunc(pattern string, handler escaping func(ResponseWriter, *Request)) needs go.Foreign
+extern go net/http.ServeMux.HandleFunc func (mux *ServeMux) HandleFunc(pattern string, handler escaping func(ResponseWriter, *Request)) needs go.Foreign takes mux
 
 // ergo:go func (*ServeMux).Handler(r *Request) (h Handler, pattern string)
-extern go net/http.ServeMux.Handler func (mux *ServeMux) Handler(r *Request) (Handler, string) needs go.Foreign
+extern go net/http.ServeMux.Handler func (mux *ServeMux) Handler(r *Request) (Handler, string) needs go.Foreign takes mux, r
 
 // ergo:go func (*ServeMux).ServeHTTP(w ResponseWriter, r *Request)
-extern go net/http.ServeMux.ServeHTTP func (mux *ServeMux) ServeHTTP(w ResponseWriter, r *Request) needs go.Foreign
+extern go net/http.ServeMux.ServeHTTP func (mux *ServeMux) ServeHTTP(w ResponseWriter, r *Request) needs go.Foreign takes mux, w, r
 
 // ergo:go func ServeTLS(l net.Listener, handler Handler, certFile string, keyFile string) error
-extern go net/http.ServeTLS func ServeTLS(l net.Listener, handler Handler, certFile string, keyFile string) fails go.Error needs go.Foreign
+extern go net/http.ServeTLS func ServeTLS(l net.Listener, handler Handler, certFile string, keyFile string) fails go.Error needs go.Foreign takes l, handler
 
 // ergo:go type Server struct
 extern go net/http.Server type Server {
@@ -720,35 +720,35 @@ extern go net/http.Server type Server {
 // ergo:refused Server.ConnContext: a Go function as a result, a field or an element
 
 // ergo:go func (*Server).Close() error
-extern go net/http.Server.Close func (s *Server) Close() fails go.Error needs go.Foreign
+extern go net/http.Server.Close func (s *Server) Close() fails go.Error needs go.Foreign takes s
 
 // ergo:go func (*Server).ListenAndServe() error
-extern go net/http.Server.ListenAndServe func (s *Server) ListenAndServe() fails go.Error needs go.Foreign
+extern go net/http.Server.ListenAndServe func (s *Server) ListenAndServe() fails go.Error needs go.Foreign takes s
 
 // ergo:go func (*Server).ListenAndServeTLS(certFile string, keyFile string) error
-extern go net/http.Server.ListenAndServeTLS func (s *Server) ListenAndServeTLS(certFile string, keyFile string) fails go.Error needs go.Foreign
+extern go net/http.Server.ListenAndServeTLS func (s *Server) ListenAndServeTLS(certFile string, keyFile string) fails go.Error needs go.Foreign takes s
 
 // ergo:go func (*Server).RegisterOnShutdown(f func())
-extern go net/http.Server.RegisterOnShutdown func (s *Server) RegisterOnShutdown(f escaping func()) needs go.Foreign
+extern go net/http.Server.RegisterOnShutdown func (s *Server) RegisterOnShutdown(f escaping func()) needs go.Foreign takes s
 
 // ergo:go func (*Server).Serve(l net.Listener) error
-extern go net/http.Server.Serve func (s *Server) Serve(l net.Listener) fails go.Error needs go.Foreign
+extern go net/http.Server.Serve func (s *Server) Serve(l net.Listener) fails go.Error needs go.Foreign takes s, l
 
 // ergo:go func (*Server).ServeTLS(l net.Listener, certFile string, keyFile string) error
-extern go net/http.Server.ServeTLS func (s *Server) ServeTLS(l net.Listener, certFile string, keyFile string) fails go.Error needs go.Foreign
+extern go net/http.Server.ServeTLS func (s *Server) ServeTLS(l net.Listener, certFile string, keyFile string) fails go.Error needs go.Foreign takes s, l
 
 // ergo:go func (*Server).SetKeepAlivesEnabled(v bool)
-extern go net/http.Server.SetKeepAlivesEnabled func (s *Server) SetKeepAlivesEnabled(v bool) needs go.Foreign
+extern go net/http.Server.SetKeepAlivesEnabled func (s *Server) SetKeepAlivesEnabled(v bool) needs go.Foreign takes s
 
 // ergo:go func (*Server).Shutdown(ctx context.Context) error
 // ergo:context
-extern go net/http.Server.Shutdown func (s *Server) Shutdown() fails go.Error needs go.Foreign
+extern go net/http.Server.Shutdown func (s *Server) Shutdown() fails go.Error needs go.Foreign takes s
 
 // ergo:go var ServerContextKey *contextKey
 // ergo:refused ServerContextKey: a Go variable is host state; call a function
 
 // ergo:go func SetCookie(w ResponseWriter, cookie *Cookie)
-extern go net/http.SetCookie func SetCookie(w ResponseWriter, cookie *Cookie) needs go.Foreign
+extern go net/http.SetCookie func SetCookie(w ResponseWriter, cookie *Cookie) needs go.Foreign takes w, cookie
 
 // ergo:go const StateActive ConnState
 extern go net/http.StateActive let StateActive ConnState
@@ -955,13 +955,13 @@ extern go net/http.StatusUseProxy let StatusUseProxy int
 extern go net/http.StatusVariantAlsoNegotiates let StatusVariantAlsoNegotiates int
 
 // ergo:go func StripPrefix(prefix string, h Handler) Handler
-extern go net/http.StripPrefix func StripPrefix(prefix string, h Handler) Handler needs go.Foreign
+extern go net/http.StripPrefix func StripPrefix(prefix string, h Handler) Handler needs go.Foreign takes h
 
 // ergo:go const TimeFormat untyped string
 extern go net/http.TimeFormat let TimeFormat string
 
 // ergo:go func TimeoutHandler(h Handler, dt time.Duration, msg string) Handler
-extern go net/http.TimeoutHandler func TimeoutHandler(h Handler, dt duration, msg string) Handler needs go.Foreign
+extern go net/http.TimeoutHandler func TimeoutHandler(h Handler, dt duration, msg string) Handler needs go.Foreign takes h
 
 // ergo:go const TrailerPrefix untyped string
 extern go net/http.TrailerPrefix let TrailerPrefix string
@@ -1012,20 +1012,20 @@ extern go net/http.Transport type Transport {
 // ergo:refused Transport.GetProxyConnectHeader: a Go function as a result, a field or an element
 
 // ergo:go func (*Transport).CancelRequest(req *Request)
-extern go net/http.Transport.CancelRequest func (t *Transport) CancelRequest(req *Request) needs go.Foreign
+extern go net/http.Transport.CancelRequest func (t *Transport) CancelRequest(req *Request) needs go.Foreign takes t, req
 
 // ergo:go func (*Transport).Clone() *Transport
-extern go net/http.Transport.Clone func (t *Transport) Clone() Option[go.Ref[Transport]] needs go.Foreign
+extern go net/http.Transport.Clone func (t *Transport) Clone() Option[go.Ref[Transport]] needs go.Foreign takes t
 
 // ergo:go func (*Transport).CloseIdleConnections()
-extern go net/http.Transport.CloseIdleConnections func (t *Transport) CloseIdleConnections() needs go.Foreign
+extern go net/http.Transport.CloseIdleConnections func (t *Transport) CloseIdleConnections() needs go.Foreign takes t
 
 // ergo:go func (*Transport).NewClientConn(ctx context.Context, scheme string, address string) (*ClientConn, error)
 // ergo:context
-extern go net/http.Transport.NewClientConn func (t *Transport) NewClientConn(scheme string, address string) go.Ref[ClientConn] fails go.Error needs go.Foreign
+extern go net/http.Transport.NewClientConn func (t *Transport) NewClientConn(scheme string, address string) go.Ref[ClientConn] fails go.Error needs go.Foreign takes t
 
 // ergo:go func (*Transport).RegisterProtocol(scheme string, rt RoundTripper)
-extern go net/http.Transport.RegisterProtocol func (t *Transport) RegisterProtocol(scheme string, rt RoundTripper) needs go.Foreign
+extern go net/http.Transport.RegisterProtocol func (t *Transport) RegisterProtocol(scheme string, rt RoundTripper) needs go.Foreign takes t, rt
 
 // ergo:go func (*Transport).RoundTrip(req *Request) (*Response, error)
-extern go net/http.Transport.RoundTrip func (t *Transport) RoundTrip(req *Request) go.Ref[Response] fails go.Error needs go.Foreign
+extern go net/http.Transport.RoundTrip func (t *Transport) RoundTrip(req *Request) go.Ref[Response] fails go.Error needs go.Foreign takes t, req

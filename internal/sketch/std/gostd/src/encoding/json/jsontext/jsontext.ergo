@@ -38,67 +38,67 @@ extern go encoding/json/jsontext.Bool func Bool(b bool) Token needs go.Foreign
 extern go encoding/json/jsontext.Decoder type Decoder {}
 
 // ergo:go func (*Decoder).InputOffset() int64
-extern go encoding/json/jsontext.Decoder.InputOffset func (d *Decoder) InputOffset() int64 needs go.Foreign
+extern go encoding/json/jsontext.Decoder.InputOffset func (d *Decoder) InputOffset() int64 needs go.Foreign takes d
 
 // ergo:go func (*Decoder).Options() Options
 // ergo:refused Decoder.Options: result 1: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func (*Decoder).PeekKind() Kind
-extern go encoding/json/jsontext.Decoder.PeekKind func (d *Decoder) PeekKind() Kind needs go.Foreign
+extern go encoding/json/jsontext.Decoder.PeekKind func (d *Decoder) PeekKind() Kind needs go.Foreign takes d
 
 // ergo:go func (*Decoder).ReadToken() (Token, error)
-extern go encoding/json/jsontext.Decoder.ReadToken func (d *Decoder) ReadToken() Token fails go.Error needs go.Foreign
+extern go encoding/json/jsontext.Decoder.ReadToken func (d *Decoder) ReadToken() Token fails go.Error needs go.Foreign takes d
 
 // ergo:go func (*Decoder).ReadValue() (Value, error)
-extern go encoding/json/jsontext.Decoder.ReadValue func (d *Decoder) ReadValue() Value fails go.Error needs go.Foreign
+extern go encoding/json/jsontext.Decoder.ReadValue func (d *Decoder) ReadValue() Value fails go.Error needs go.Foreign takes d
 
 // ergo:go func (*Decoder).Reset(r io.Reader, opts ...Options)
 // ergo:refused Decoder.Reset: parameter 2: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func (*Decoder).SkipValue() error
-extern go encoding/json/jsontext.Decoder.SkipValue func (d *Decoder) SkipValue() fails go.Error needs go.Foreign
+extern go encoding/json/jsontext.Decoder.SkipValue func (d *Decoder) SkipValue() fails go.Error needs go.Foreign takes d
 
 // ergo:go func (*Decoder).StackDepth() int
-extern go encoding/json/jsontext.Decoder.StackDepth func (d *Decoder) StackDepth() int needs go.Foreign
+extern go encoding/json/jsontext.Decoder.StackDepth func (d *Decoder) StackDepth() int needs go.Foreign takes d
 
 // ergo:go func (*Decoder).StackIndex(i int) (Kind, int64)
-extern go encoding/json/jsontext.Decoder.StackIndex func (d *Decoder) StackIndex(i int) (Kind, int64) needs go.Foreign
+extern go encoding/json/jsontext.Decoder.StackIndex func (d *Decoder) StackIndex(i int) (Kind, int64) needs go.Foreign takes d
 
 // ergo:go func (*Decoder).StackPointer() Pointer
-extern go encoding/json/jsontext.Decoder.StackPointer func (d *Decoder) StackPointer() Pointer needs go.Foreign
+extern go encoding/json/jsontext.Decoder.StackPointer func (d *Decoder) StackPointer() Pointer needs go.Foreign takes d
 
 // ergo:go func (*Decoder).UnreadBuffer() []byte
-extern go encoding/json/jsontext.Decoder.UnreadBuffer func (d *Decoder) UnreadBuffer() []byte needs go.Foreign
+extern go encoding/json/jsontext.Decoder.UnreadBuffer func (d *Decoder) UnreadBuffer() []byte needs go.Foreign takes d
 
 // ergo:go type Encoder struct
 extern go encoding/json/jsontext.Encoder type Encoder {}
 
 // ergo:go func (*Encoder).AvailableBuffer() []byte
-extern go encoding/json/jsontext.Encoder.AvailableBuffer func (e *Encoder) AvailableBuffer() []byte needs go.Foreign
+extern go encoding/json/jsontext.Encoder.AvailableBuffer func (e *Encoder) AvailableBuffer() []byte needs go.Foreign takes e
 
 // ergo:go func (*Encoder).Options() Options
 // ergo:refused Encoder.Options: result 1: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func (*Encoder).OutputOffset() int64
-extern go encoding/json/jsontext.Encoder.OutputOffset func (e *Encoder) OutputOffset() int64 needs go.Foreign
+extern go encoding/json/jsontext.Encoder.OutputOffset func (e *Encoder) OutputOffset() int64 needs go.Foreign takes e
 
 // ergo:go func (*Encoder).Reset(w io.Writer, opts ...Options)
 // ergo:refused Encoder.Reset: parameter 2: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func (*Encoder).StackDepth() int
-extern go encoding/json/jsontext.Encoder.StackDepth func (e *Encoder) StackDepth() int needs go.Foreign
+extern go encoding/json/jsontext.Encoder.StackDepth func (e *Encoder) StackDepth() int needs go.Foreign takes e
 
 // ergo:go func (*Encoder).StackIndex(i int) (Kind, int64)
-extern go encoding/json/jsontext.Encoder.StackIndex func (e *Encoder) StackIndex(i int) (Kind, int64) needs go.Foreign
+extern go encoding/json/jsontext.Encoder.StackIndex func (e *Encoder) StackIndex(i int) (Kind, int64) needs go.Foreign takes e
 
 // ergo:go func (*Encoder).StackPointer() Pointer
-extern go encoding/json/jsontext.Encoder.StackPointer func (e *Encoder) StackPointer() Pointer needs go.Foreign
+extern go encoding/json/jsontext.Encoder.StackPointer func (e *Encoder) StackPointer() Pointer needs go.Foreign takes e
 
 // ergo:go func (*Encoder).WriteToken(t Token) error
-extern go encoding/json/jsontext.Encoder.WriteToken func (e *Encoder) WriteToken(t Token) fails go.Error needs go.Foreign
+extern go encoding/json/jsontext.Encoder.WriteToken func (e *Encoder) WriteToken(t Token) fails go.Error needs go.Foreign takes e
 
 // ergo:go func (*Encoder).WriteValue(v Value) error
-extern go encoding/json/jsontext.Encoder.WriteValue func (e *Encoder) WriteValue(v Value) fails go.Error needs go.Foreign
+extern go encoding/json/jsontext.Encoder.WriteValue func (e *Encoder) WriteValue(v Value) fails go.Error needs go.Foreign takes e
 
 // ergo:go var EndArray Token
 // ergo:refused EndArray: a Go variable is host state; call a function
@@ -228,10 +228,10 @@ extern go encoding/json/jsontext.SyntacticError type SyntacticError {
 }
 
 // ergo:go func (*SyntacticError).Error() string
-extern go encoding/json/jsontext.SyntacticError.Error func (e *SyntacticError) Error() string needs go.Foreign
+extern go encoding/json/jsontext.SyntacticError.Error func (e *SyntacticError) Error() string needs go.Foreign takes e
 
 // ergo:go func (*SyntacticError).Unwrap() error
-extern go encoding/json/jsontext.SyntacticError.Unwrap func (e *SyntacticError) Unwrap() fails go.Error needs go.Foreign
+extern go encoding/json/jsontext.SyntacticError.Unwrap func (e *SyntacticError) Unwrap() fails go.Error needs go.Foreign takes e
 
 // ergo:go type Token struct
 extern go encoding/json/jsontext.Token type Token {}
@@ -297,7 +297,7 @@ extern go encoding/json/jsontext.Value.MarshalJSON func (v Value) MarshalJSON() 
 extern go encoding/json/jsontext.Value.String func (v Value) String() string needs go.Foreign
 
 // ergo:go func (*Value).UnmarshalJSON(b []byte) error
-extern go encoding/json/jsontext.Value.UnmarshalJSON func (v *Value) UnmarshalJSON(b []byte) fails go.Error needs go.Foreign
+extern go encoding/json/jsontext.Value.UnmarshalJSON func (v *Value) UnmarshalJSON(b []byte) fails go.Error needs go.Foreign takes v
 
 // ergo:go func WithIndent(indent string) Options
 // ergo:refused WithIndent: result 1: type Options is refused: it is declared in an internal or vendored package

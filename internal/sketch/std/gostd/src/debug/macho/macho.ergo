@@ -161,22 +161,22 @@ extern go debug/macho.FatArch type FatArch {
 }
 
 // ergo:go func (*File).Close() error
-extern go debug/macho.FatArch.Close func (f FatArch) Close() fails go.Error needs go.Foreign
+extern go debug/macho.FatArch.Close func (f FatArch) Close() fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).DWARF() (*dwarf.Data, error)
-extern go debug/macho.FatArch.DWARF func (f FatArch) DWARF() go.Ref[dwarf.Data] fails go.Error needs go.Foreign
+extern go debug/macho.FatArch.DWARF func (f FatArch) DWARF() go.Ref[dwarf.Data] fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).ImportedLibraries() ([]string, error)
-extern go debug/macho.FatArch.ImportedLibraries func (f FatArch) ImportedLibraries() []string fails go.Error needs go.Foreign
+extern go debug/macho.FatArch.ImportedLibraries func (f FatArch) ImportedLibraries() []string fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).ImportedSymbols() ([]string, error)
-extern go debug/macho.FatArch.ImportedSymbols func (f FatArch) ImportedSymbols() []string fails go.Error needs go.Foreign
+extern go debug/macho.FatArch.ImportedSymbols func (f FatArch) ImportedSymbols() []string fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).Section(name string) *Section
-extern go debug/macho.FatArch.Section func (f FatArch) Section(name string) Option[go.Ref[Section]] needs go.Foreign
+extern go debug/macho.FatArch.Section func (f FatArch) Section(name string) Option[go.Ref[Section]] needs go.Foreign takes f
 
 // ergo:go func (*File).Segment(name string) *Segment
-extern go debug/macho.FatArch.Segment func (f FatArch) Segment(name string) Option[go.Ref[Segment]] needs go.Foreign
+extern go debug/macho.FatArch.Segment func (f FatArch) Segment(name string) Option[go.Ref[Segment]] needs go.Foreign takes f
 
 // ergo:go type FatArchHeader struct
 extern go debug/macho.FatArchHeader type FatArchHeader {
@@ -194,7 +194,7 @@ extern go debug/macho.FatFile type FatFile {
 }
 
 // ergo:go func (*FatFile).Close() error
-extern go debug/macho.FatFile.Close func (ff *FatFile) Close() fails go.Error needs go.Foreign
+extern go debug/macho.FatFile.Close func (ff *FatFile) Close() fails go.Error needs go.Foreign takes ff
 
 // ergo:go type File struct
 extern go debug/macho.File type File {
@@ -209,22 +209,22 @@ extern go debug/macho.File type File {
 // ergo:refused File.Sections: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*File).Close() error
-extern go debug/macho.File.Close func (f *File) Close() fails go.Error needs go.Foreign
+extern go debug/macho.File.Close func (f *File) Close() fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).DWARF() (*dwarf.Data, error)
-extern go debug/macho.File.DWARF func (f *File) DWARF() go.Ref[dwarf.Data] fails go.Error needs go.Foreign
+extern go debug/macho.File.DWARF func (f *File) DWARF() go.Ref[dwarf.Data] fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).ImportedLibraries() ([]string, error)
-extern go debug/macho.File.ImportedLibraries func (f *File) ImportedLibraries() []string fails go.Error needs go.Foreign
+extern go debug/macho.File.ImportedLibraries func (f *File) ImportedLibraries() []string fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).ImportedSymbols() ([]string, error)
-extern go debug/macho.File.ImportedSymbols func (f *File) ImportedSymbols() []string fails go.Error needs go.Foreign
+extern go debug/macho.File.ImportedSymbols func (f *File) ImportedSymbols() []string fails go.Error needs go.Foreign takes f
 
 // ergo:go func (*File).Section(name string) *Section
-extern go debug/macho.File.Section func (f *File) Section(name string) Option[go.Ref[Section]] needs go.Foreign
+extern go debug/macho.File.Section func (f *File) Section(name string) Option[go.Ref[Section]] needs go.Foreign takes f
 
 // ergo:go func (*File).Segment(name string) *Segment
-extern go debug/macho.File.Segment func (f *File) Segment(name string) Option[go.Ref[Segment]] needs go.Foreign
+extern go debug/macho.File.Segment func (f *File) Segment(name string) Option[go.Ref[Segment]] needs go.Foreign takes f
 
 // ergo:go type FileHeader struct
 extern go debug/macho.FileHeader type FileHeader {
@@ -319,7 +319,7 @@ extern go debug/macho.FlagWeakDefines let FlagWeakDefines uint32
 extern go debug/macho.FormatError type FormatError {}
 
 // ergo:go func (*FormatError).Error() string
-extern go debug/macho.FormatError.Error func (e *FormatError) Error() string needs go.Foreign
+extern go debug/macho.FormatError.Error func (e *FormatError) Error() string needs go.Foreign takes e
 
 // ergo:go const GENERIC_RELOC_LOCAL_SECTDIFF RelocTypeGeneric
 extern go debug/macho.GENERIC_RELOC_LOCAL_SECTDIFF let GENERIC_RELOC_LOCAL_SECTDIFF RelocTypeGeneric
@@ -341,7 +341,7 @@ extern go debug/macho.GENERIC_RELOC_VANILLA let GENERIC_RELOC_VANILLA RelocTypeG
 
 // ergo:go type Load interface
 extern go debug/macho.Load type Load {
-	Raw() []byte needs go.Foreign,
+	Raw() []byte needs go.Foreign takes,
 }
 
 // ergo:go type LoadBytes []byte
@@ -396,10 +396,10 @@ extern go debug/macho.Magic64 let Magic64 uint32
 extern go debug/macho.MagicFat let MagicFat uint32
 
 // ergo:go func NewFatFile(r io.ReaderAt) (*FatFile, error)
-extern go debug/macho.NewFatFile func NewFatFile(r io.ReaderAt) go.Ref[FatFile] fails go.Error needs go.Foreign
+extern go debug/macho.NewFatFile func NewFatFile(r io.ReaderAt) go.Ref[FatFile] fails go.Error needs go.Foreign takes r
 
 // ergo:go func NewFile(r io.ReaderAt) (*File, error)
-extern go debug/macho.NewFile func NewFile(r io.ReaderAt) go.Ref[File] fails go.Error needs go.Foreign
+extern go debug/macho.NewFile func NewFile(r io.ReaderAt) go.Ref[File] fails go.Error needs go.Foreign takes r
 
 // ergo:go type Nlist32 struct
 extern go debug/macho.Nlist32 type Nlist32 {
@@ -541,13 +541,13 @@ extern go debug/macho.Section type Section {
 }
 
 // ergo:go func (*Section).Data() ([]byte, error)
-extern go debug/macho.Section.Data func (s *Section) Data() []byte fails go.Error needs go.Foreign
+extern go debug/macho.Section.Data func (s *Section) Data() []byte fails go.Error needs go.Foreign takes s
 
 // ergo:go func (*Section).Open() io.ReadSeeker
-extern go debug/macho.Section.Open func (s *Section) Open() io.ReadSeeker needs go.Foreign
+extern go debug/macho.Section.Open func (s *Section) Open() io.ReadSeeker needs go.Foreign takes s
 
 // ergo:go func (io.ReaderAt).ReadAt(p []byte, off int64) (n int, err error)
-extern go debug/macho.Section.ReadAt func (r Section) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign
+extern go debug/macho.Section.ReadAt func (r Section) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign takes r
 
 // ergo:go type Section32 struct
 extern go debug/macho.Section32 type Section32 {
@@ -601,16 +601,16 @@ extern go debug/macho.Segment type Segment {
 }
 
 // ergo:go func (*Segment).Data() ([]byte, error)
-extern go debug/macho.Segment.Data func (s *Segment) Data() []byte fails go.Error needs go.Foreign
+extern go debug/macho.Segment.Data func (s *Segment) Data() []byte fails go.Error needs go.Foreign takes s
 
 // ergo:go func (*Segment).Open() io.ReadSeeker
-extern go debug/macho.Segment.Open func (s *Segment) Open() io.ReadSeeker needs go.Foreign
+extern go debug/macho.Segment.Open func (s *Segment) Open() io.ReadSeeker needs go.Foreign takes s
 
 // ergo:go func (LoadBytes).Raw() []byte
 extern go debug/macho.Segment.Raw func (b Segment) Raw() []byte needs go.Foreign
 
 // ergo:go func (io.ReaderAt).ReadAt(p []byte, off int64) (n int, err error)
-extern go debug/macho.Segment.ReadAt func (r Segment) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign
+extern go debug/macho.Segment.ReadAt func (r Segment) ReadAt(p []byte, off int64) int fails go.Error needs go.Foreign takes r
 
 // ergo:go type Segment32 struct
 extern go debug/macho.Segment32 type Segment32 {

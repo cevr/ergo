@@ -4,7 +4,7 @@
 import go io
 
 // ergo:go func DataErrReader(r io.Reader) io.Reader
-extern go testing/iotest.DataErrReader func DataErrReader(r io.Reader) io.Reader needs go.Foreign
+extern go testing/iotest.DataErrReader func DataErrReader(r io.Reader) io.Reader needs go.Foreign takes r
 
 // ergo:go func ErrReader(err error) io.Reader
 extern go testing/iotest.ErrReader func ErrReader(err go.Error) io.Reader needs go.Foreign
@@ -13,22 +13,22 @@ extern go testing/iotest.ErrReader func ErrReader(err go.Error) io.Reader needs 
 extern go testing/iotest.ErrTimeout let ErrTimeout go.Error
 
 // ergo:go func HalfReader(r io.Reader) io.Reader
-extern go testing/iotest.HalfReader func HalfReader(r io.Reader) io.Reader needs go.Foreign
+extern go testing/iotest.HalfReader func HalfReader(r io.Reader) io.Reader needs go.Foreign takes r
 
 // ergo:go func NewReadLogger(prefix string, r io.Reader) io.Reader
-extern go testing/iotest.NewReadLogger func NewReadLogger(prefix string, r io.Reader) io.Reader needs go.Foreign
+extern go testing/iotest.NewReadLogger func NewReadLogger(prefix string, r io.Reader) io.Reader needs go.Foreign takes r
 
 // ergo:go func NewWriteLogger(prefix string, w io.Writer) io.Writer
-extern go testing/iotest.NewWriteLogger func NewWriteLogger(prefix string, w io.Writer) io.Writer needs go.Foreign
+extern go testing/iotest.NewWriteLogger func NewWriteLogger(prefix string, w io.Writer) io.Writer needs go.Foreign takes w
 
 // ergo:go func OneByteReader(r io.Reader) io.Reader
-extern go testing/iotest.OneByteReader func OneByteReader(r io.Reader) io.Reader needs go.Foreign
+extern go testing/iotest.OneByteReader func OneByteReader(r io.Reader) io.Reader needs go.Foreign takes r
 
 // ergo:go func TestReader(r io.Reader, content []byte) error
-extern go testing/iotest.TestReader func TestReader(r io.Reader, content []byte) fails go.Error needs go.Foreign
+extern go testing/iotest.TestReader func TestReader(r io.Reader, content []byte) fails go.Error needs go.Foreign takes r
 
 // ergo:go func TimeoutReader(r io.Reader) io.Reader
-extern go testing/iotest.TimeoutReader func TimeoutReader(r io.Reader) io.Reader needs go.Foreign
+extern go testing/iotest.TimeoutReader func TimeoutReader(r io.Reader) io.Reader needs go.Foreign takes r
 
 // ergo:go func TruncateWriter(w io.Writer, n int64) io.Writer
-extern go testing/iotest.TruncateWriter func TruncateWriter(w io.Writer, n int64) io.Writer needs go.Foreign
+extern go testing/iotest.TruncateWriter func TruncateWriter(w io.Writer, n int64) io.Writer needs go.Foreign takes w

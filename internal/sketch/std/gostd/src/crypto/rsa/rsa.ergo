@@ -14,22 +14,22 @@ extern go crypto/rsa.CRTValue type CRTValue {
 }
 
 // ergo:go func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext []byte, label []byte) ([]byte, error)
-extern go crypto/rsa.DecryptOAEP func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext []byte, label []byte) []byte fails go.Error needs go.Foreign
+extern go crypto/rsa.DecryptOAEP func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext []byte, label []byte) []byte fails go.Error needs go.Foreign takes hash, random, priv
 
 // ergo:go func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]byte, error)
-extern go crypto/rsa.DecryptPKCS1v15 func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) []byte fails go.Error needs go.Foreign
+extern go crypto/rsa.DecryptPKCS1v15 func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) []byte fails go.Error needs go.Foreign takes random, priv
 
 // ergo:go func DecryptPKCS1v15SessionKey(random io.Reader, priv *PrivateKey, ciphertext []byte, key []byte) error
-extern go crypto/rsa.DecryptPKCS1v15SessionKey func DecryptPKCS1v15SessionKey(random io.Reader, priv *PrivateKey, ciphertext []byte, key []byte) fails go.Error needs go.Foreign
+extern go crypto/rsa.DecryptPKCS1v15SessionKey func DecryptPKCS1v15SessionKey(random io.Reader, priv *PrivateKey, ciphertext []byte, key []byte) fails go.Error needs go.Foreign takes random, priv
 
 // ergo:go func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, label []byte) ([]byte, error)
-extern go crypto/rsa.EncryptOAEP func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, label []byte) []byte fails go.Error needs go.Foreign
+extern go crypto/rsa.EncryptOAEP func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, label []byte) []byte fails go.Error needs go.Foreign takes hash, random, pub
 
 // ergo:go func EncryptOAEPWithOptions(random io.Reader, pub *PublicKey, msg []byte, opts *OAEPOptions) ([]byte, error)
-extern go crypto/rsa.EncryptOAEPWithOptions func EncryptOAEPWithOptions(random io.Reader, pub *PublicKey, msg []byte, opts *OAEPOptions) []byte fails go.Error needs go.Foreign
+extern go crypto/rsa.EncryptOAEPWithOptions func EncryptOAEPWithOptions(random io.Reader, pub *PublicKey, msg []byte, opts *OAEPOptions) []byte fails go.Error needs go.Foreign takes random, pub, opts
 
 // ergo:go func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, error)
-extern go crypto/rsa.EncryptPKCS1v15 func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) []byte fails go.Error needs go.Foreign
+extern go crypto/rsa.EncryptPKCS1v15 func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) []byte fails go.Error needs go.Foreign takes random, pub
 
 // ergo:go var ErrDecryption error
 extern go crypto/rsa.ErrDecryption let ErrDecryption go.Error
@@ -41,10 +41,10 @@ extern go crypto/rsa.ErrMessageTooLong let ErrMessageTooLong go.Error
 extern go crypto/rsa.ErrVerification let ErrVerification go.Error
 
 // ergo:go func GenerateKey(random io.Reader, bits int) (*PrivateKey, error)
-extern go crypto/rsa.GenerateKey func GenerateKey(random io.Reader, bits int) go.Ref[PrivateKey] fails go.Error needs go.Foreign
+extern go crypto/rsa.GenerateKey func GenerateKey(random io.Reader, bits int) go.Ref[PrivateKey] fails go.Error needs go.Foreign takes random
 
 // ergo:go func GenerateMultiPrimeKey(random io.Reader, nprimes int, bits int) (*PrivateKey, error)
-extern go crypto/rsa.GenerateMultiPrimeKey func GenerateMultiPrimeKey(random io.Reader, nprimes int, bits int) go.Ref[PrivateKey] fails go.Error needs go.Foreign
+extern go crypto/rsa.GenerateMultiPrimeKey func GenerateMultiPrimeKey(random io.Reader, nprimes int, bits int) go.Ref[PrivateKey] fails go.Error needs go.Foreign takes random
 
 // ergo:go type OAEPOptions struct
 extern go crypto/rsa.OAEPOptions type OAEPOptions {
@@ -65,7 +65,7 @@ extern go crypto/rsa.PSSOptions type PSSOptions {
 }
 
 // ergo:go func (*PSSOptions).HashFunc() crypto.Hash
-extern go crypto/rsa.PSSOptions.HashFunc func (opts *PSSOptions) HashFunc() crypto.Hash needs go.Foreign
+extern go crypto/rsa.PSSOptions.HashFunc func (opts *PSSOptions) HashFunc() crypto.Hash needs go.Foreign takes opts
 
 // ergo:go const PSSSaltLengthAuto untyped int
 extern go crypto/rsa.PSSSaltLengthAuto let PSSSaltLengthAuto int
@@ -98,19 +98,19 @@ extern go crypto/rsa.PrivateKey type PrivateKey {
 // ergo:refused PrivateKey.Equal: parameter 1: type PrivateKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*PrivateKey).Precompute()
-extern go crypto/rsa.PrivateKey.Precompute func (priv *PrivateKey) Precompute() needs go.Foreign
+extern go crypto/rsa.PrivateKey.Precompute func (priv *PrivateKey) Precompute() needs go.Foreign takes priv
 
 // ergo:go func (*PrivateKey).Public() crypto.PublicKey
 // ergo:refused PrivateKey.Public: result 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*PrivateKey).Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error)
-extern go crypto/rsa.PrivateKey.Sign func (priv *PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) []byte fails go.Error needs go.Foreign
+extern go crypto/rsa.PrivateKey.Sign func (priv *PrivateKey) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) []byte fails go.Error needs go.Foreign takes priv, rand, opts
 
 // ergo:go func (*PublicKey).Size() int
-extern go crypto/rsa.PrivateKey.Size func (pub *PrivateKey) Size() int needs go.Foreign
+extern go crypto/rsa.PrivateKey.Size func (pub *PrivateKey) Size() int needs go.Foreign takes pub
 
 // ergo:go func (*PrivateKey).Validate() error
-extern go crypto/rsa.PrivateKey.Validate func (priv *PrivateKey) Validate() fails go.Error needs go.Foreign
+extern go crypto/rsa.PrivateKey.Validate func (priv *PrivateKey) Validate() fails go.Error needs go.Foreign takes priv
 
 // ergo:go type PublicKey struct
 extern go crypto/rsa.PublicKey type PublicKey {
@@ -122,16 +122,16 @@ extern go crypto/rsa.PublicKey type PublicKey {
 // ergo:refused PublicKey.Equal: parameter 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*PublicKey).Size() int
-extern go crypto/rsa.PublicKey.Size func (pub *PublicKey) Size() int needs go.Foreign
+extern go crypto/rsa.PublicKey.Size func (pub *PublicKey) Size() int needs go.Foreign takes pub
 
 // ergo:go func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed []byte) ([]byte, error)
-extern go crypto/rsa.SignPKCS1v15 func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed []byte) []byte fails go.Error needs go.Foreign
+extern go crypto/rsa.SignPKCS1v15 func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed []byte) []byte fails go.Error needs go.Foreign takes random, priv
 
 // ergo:go func SignPSS(random io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte, opts *PSSOptions) ([]byte, error)
-extern go crypto/rsa.SignPSS func SignPSS(random io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte, opts *PSSOptions) []byte fails go.Error needs go.Foreign
+extern go crypto/rsa.SignPSS func SignPSS(random io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte, opts *PSSOptions) []byte fails go.Error needs go.Foreign takes random, priv, opts
 
 // ergo:go func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte) error
-extern go crypto/rsa.VerifyPKCS1v15 func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte) fails go.Error needs go.Foreign
+extern go crypto/rsa.VerifyPKCS1v15 func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte) fails go.Error needs go.Foreign takes pub
 
 // ergo:go func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts *PSSOptions) error
-extern go crypto/rsa.VerifyPSS func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts *PSSOptions) fails go.Error needs go.Foreign
+extern go crypto/rsa.VerifyPSS func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts *PSSOptions) fails go.Error needs go.Foreign takes pub, opts

@@ -5,10 +5,10 @@
 extern go crypto/rc4.Cipher type Cipher {}
 
 // ergo:go func (*Cipher).Reset()
-extern go crypto/rc4.Cipher.Reset func (c *Cipher) Reset() needs go.Foreign
+extern go crypto/rc4.Cipher.Reset func (c *Cipher) Reset() needs go.Foreign takes c
 
 // ergo:go func (*Cipher).XORKeyStream(dst []byte, src []byte)
-extern go crypto/rc4.Cipher.XORKeyStream func (c *Cipher) XORKeyStream(dst []byte, src []byte) needs go.Foreign
+extern go crypto/rc4.Cipher.XORKeyStream func (c *Cipher) XORKeyStream(dst []byte, src []byte) needs go.Foreign takes c
 
 // ergo:go type KeySizeError int
 extern go crypto/rc4.KeySizeError type KeySizeError int

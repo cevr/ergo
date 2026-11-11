@@ -12,37 +12,37 @@ extern go image.Alpha type Alpha {
 }
 
 // ergo:go func (*Alpha).AlphaAt(x int, y int) color.Alpha
-extern go image.Alpha.AlphaAt func (p *Alpha) AlphaAt(x int, y int) color.Alpha needs go.Foreign
+extern go image.Alpha.AlphaAt func (p *Alpha) AlphaAt(x int, y int) color.Alpha needs go.Foreign takes p
 
 // ergo:go func (*Alpha).At(x int, y int) color.Color
-extern go image.Alpha.At func (p *Alpha) At(x int, y int) color.Color needs go.Foreign
+extern go image.Alpha.At func (p *Alpha) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*Alpha).Bounds() Rectangle
-extern go image.Alpha.Bounds func (p *Alpha) Bounds() Rectangle needs go.Foreign
+extern go image.Alpha.Bounds func (p *Alpha) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*Alpha).ColorModel() color.Model
-extern go image.Alpha.ColorModel func (p *Alpha) ColorModel() color.Model needs go.Foreign
+extern go image.Alpha.ColorModel func (p *Alpha) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*Alpha).Opaque() bool
-extern go image.Alpha.Opaque func (p *Alpha) Opaque() bool needs go.Foreign
+extern go image.Alpha.Opaque func (p *Alpha) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*Alpha).PixOffset(x int, y int) int
-extern go image.Alpha.PixOffset func (p *Alpha) PixOffset(x int, y int) int needs go.Foreign
+extern go image.Alpha.PixOffset func (p *Alpha) PixOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*Alpha).RGBA64At(x int, y int) color.RGBA64
-extern go image.Alpha.RGBA64At func (p *Alpha) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.Alpha.RGBA64At func (p *Alpha) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*Alpha).Set(x int, y int, c color.Color)
-extern go image.Alpha.Set func (p *Alpha) Set(x int, y int, c color.Color) needs go.Foreign
+extern go image.Alpha.Set func (p *Alpha) Set(x int, y int, c color.Color) needs go.Foreign takes p, c
 
 // ergo:go func (*Alpha).SetAlpha(x int, y int, c color.Alpha)
-extern go image.Alpha.SetAlpha func (p *Alpha) SetAlpha(x int, y int, c color.Alpha) needs go.Foreign
+extern go image.Alpha.SetAlpha func (p *Alpha) SetAlpha(x int, y int, c color.Alpha) needs go.Foreign takes p
 
 // ergo:go func (*Alpha).SetRGBA64(x int, y int, c color.RGBA64)
-extern go image.Alpha.SetRGBA64 func (p *Alpha) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign
+extern go image.Alpha.SetRGBA64 func (p *Alpha) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign takes p
 
 // ergo:go func (*Alpha).SubImage(r Rectangle) Image
-extern go image.Alpha.SubImage func (p *Alpha) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.Alpha.SubImage func (p *Alpha) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go type Alpha16 struct
 extern go image.Alpha16 type Alpha16 {
@@ -52,37 +52,37 @@ extern go image.Alpha16 type Alpha16 {
 }
 
 // ergo:go func (*Alpha16).Alpha16At(x int, y int) color.Alpha16
-extern go image.Alpha16.Alpha16At func (p *Alpha16) Alpha16At(x int, y int) color.Alpha16 needs go.Foreign
+extern go image.Alpha16.Alpha16At func (p *Alpha16) Alpha16At(x int, y int) color.Alpha16 needs go.Foreign takes p
 
 // ergo:go func (*Alpha16).At(x int, y int) color.Color
-extern go image.Alpha16.At func (p *Alpha16) At(x int, y int) color.Color needs go.Foreign
+extern go image.Alpha16.At func (p *Alpha16) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*Alpha16).Bounds() Rectangle
-extern go image.Alpha16.Bounds func (p *Alpha16) Bounds() Rectangle needs go.Foreign
+extern go image.Alpha16.Bounds func (p *Alpha16) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*Alpha16).ColorModel() color.Model
-extern go image.Alpha16.ColorModel func (p *Alpha16) ColorModel() color.Model needs go.Foreign
+extern go image.Alpha16.ColorModel func (p *Alpha16) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*Alpha16).Opaque() bool
-extern go image.Alpha16.Opaque func (p *Alpha16) Opaque() bool needs go.Foreign
+extern go image.Alpha16.Opaque func (p *Alpha16) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*Alpha16).PixOffset(x int, y int) int
-extern go image.Alpha16.PixOffset func (p *Alpha16) PixOffset(x int, y int) int needs go.Foreign
+extern go image.Alpha16.PixOffset func (p *Alpha16) PixOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*Alpha16).RGBA64At(x int, y int) color.RGBA64
-extern go image.Alpha16.RGBA64At func (p *Alpha16) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.Alpha16.RGBA64At func (p *Alpha16) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*Alpha16).Set(x int, y int, c color.Color)
-extern go image.Alpha16.Set func (p *Alpha16) Set(x int, y int, c color.Color) needs go.Foreign
+extern go image.Alpha16.Set func (p *Alpha16) Set(x int, y int, c color.Color) needs go.Foreign takes p, c
 
 // ergo:go func (*Alpha16).SetAlpha16(x int, y int, c color.Alpha16)
-extern go image.Alpha16.SetAlpha16 func (p *Alpha16) SetAlpha16(x int, y int, c color.Alpha16) needs go.Foreign
+extern go image.Alpha16.SetAlpha16 func (p *Alpha16) SetAlpha16(x int, y int, c color.Alpha16) needs go.Foreign takes p
 
 // ergo:go func (*Alpha16).SetRGBA64(x int, y int, c color.RGBA64)
-extern go image.Alpha16.SetRGBA64 func (p *Alpha16) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign
+extern go image.Alpha16.SetRGBA64 func (p *Alpha16) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign takes p
 
 // ergo:go func (*Alpha16).SubImage(r Rectangle) Image
-extern go image.Alpha16.SubImage func (p *Alpha16) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.Alpha16.SubImage func (p *Alpha16) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go var Black *Uniform
 // ergo:refused Black: a Go variable is host state; call a function
@@ -95,37 +95,37 @@ extern go image.CMYK type CMYK {
 }
 
 // ergo:go func (*CMYK).At(x int, y int) color.Color
-extern go image.CMYK.At func (p *CMYK) At(x int, y int) color.Color needs go.Foreign
+extern go image.CMYK.At func (p *CMYK) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*CMYK).Bounds() Rectangle
-extern go image.CMYK.Bounds func (p *CMYK) Bounds() Rectangle needs go.Foreign
+extern go image.CMYK.Bounds func (p *CMYK) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*CMYK).CMYKAt(x int, y int) color.CMYK
-extern go image.CMYK.CMYKAt func (p *CMYK) CMYKAt(x int, y int) color.CMYK needs go.Foreign
+extern go image.CMYK.CMYKAt func (p *CMYK) CMYKAt(x int, y int) color.CMYK needs go.Foreign takes p
 
 // ergo:go func (*CMYK).ColorModel() color.Model
-extern go image.CMYK.ColorModel func (p *CMYK) ColorModel() color.Model needs go.Foreign
+extern go image.CMYK.ColorModel func (p *CMYK) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*CMYK).Opaque() bool
-extern go image.CMYK.Opaque func (p *CMYK) Opaque() bool needs go.Foreign
+extern go image.CMYK.Opaque func (p *CMYK) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*CMYK).PixOffset(x int, y int) int
-extern go image.CMYK.PixOffset func (p *CMYK) PixOffset(x int, y int) int needs go.Foreign
+extern go image.CMYK.PixOffset func (p *CMYK) PixOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*CMYK).RGBA64At(x int, y int) color.RGBA64
-extern go image.CMYK.RGBA64At func (p *CMYK) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.CMYK.RGBA64At func (p *CMYK) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*CMYK).Set(x int, y int, c color.Color)
-extern go image.CMYK.Set func (p *CMYK) Set(x int, y int, c color.Color) needs go.Foreign
+extern go image.CMYK.Set func (p *CMYK) Set(x int, y int, c color.Color) needs go.Foreign takes p, c
 
 // ergo:go func (*CMYK).SetCMYK(x int, y int, c color.CMYK)
-extern go image.CMYK.SetCMYK func (p *CMYK) SetCMYK(x int, y int, c color.CMYK) needs go.Foreign
+extern go image.CMYK.SetCMYK func (p *CMYK) SetCMYK(x int, y int, c color.CMYK) needs go.Foreign takes p
 
 // ergo:go func (*CMYK).SetRGBA64(x int, y int, c color.RGBA64)
-extern go image.CMYK.SetRGBA64 func (p *CMYK) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign
+extern go image.CMYK.SetRGBA64 func (p *CMYK) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign takes p
 
 // ergo:go func (*CMYK).SubImage(r Rectangle) Image
-extern go image.CMYK.SubImage func (p *CMYK) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.CMYK.SubImage func (p *CMYK) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go type Config struct
 extern go image.Config type Config {
@@ -135,10 +135,10 @@ extern go image.Config type Config {
 }
 
 // ergo:go func Decode(r io.Reader) (Image, string, error)
-extern go image.Decode func Decode(r io.Reader) (Image, string) fails go.Error needs go.Foreign
+extern go image.Decode func Decode(r io.Reader) (Image, string) fails go.Error needs go.Foreign takes r
 
 // ergo:go func DecodeConfig(r io.Reader) (Config, string, error)
-extern go image.DecodeConfig func DecodeConfig(r io.Reader) (Config, string) fails go.Error needs go.Foreign
+extern go image.DecodeConfig func DecodeConfig(r io.Reader) (Config, string) fails go.Error needs go.Foreign takes r
 
 // ergo:go var ErrFormat error
 extern go image.ErrFormat let ErrFormat go.Error
@@ -151,37 +151,37 @@ extern go image.Gray type Gray {
 }
 
 // ergo:go func (*Gray).At(x int, y int) color.Color
-extern go image.Gray.At func (p *Gray) At(x int, y int) color.Color needs go.Foreign
+extern go image.Gray.At func (p *Gray) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*Gray).Bounds() Rectangle
-extern go image.Gray.Bounds func (p *Gray) Bounds() Rectangle needs go.Foreign
+extern go image.Gray.Bounds func (p *Gray) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*Gray).ColorModel() color.Model
-extern go image.Gray.ColorModel func (p *Gray) ColorModel() color.Model needs go.Foreign
+extern go image.Gray.ColorModel func (p *Gray) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*Gray).GrayAt(x int, y int) color.Gray
-extern go image.Gray.GrayAt func (p *Gray) GrayAt(x int, y int) color.Gray needs go.Foreign
+extern go image.Gray.GrayAt func (p *Gray) GrayAt(x int, y int) color.Gray needs go.Foreign takes p
 
 // ergo:go func (*Gray).Opaque() bool
-extern go image.Gray.Opaque func (p *Gray) Opaque() bool needs go.Foreign
+extern go image.Gray.Opaque func (p *Gray) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*Gray).PixOffset(x int, y int) int
-extern go image.Gray.PixOffset func (p *Gray) PixOffset(x int, y int) int needs go.Foreign
+extern go image.Gray.PixOffset func (p *Gray) PixOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*Gray).RGBA64At(x int, y int) color.RGBA64
-extern go image.Gray.RGBA64At func (p *Gray) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.Gray.RGBA64At func (p *Gray) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*Gray).Set(x int, y int, c color.Color)
-extern go image.Gray.Set func (p *Gray) Set(x int, y int, c color.Color) needs go.Foreign
+extern go image.Gray.Set func (p *Gray) Set(x int, y int, c color.Color) needs go.Foreign takes p, c
 
 // ergo:go func (*Gray).SetGray(x int, y int, c color.Gray)
-extern go image.Gray.SetGray func (p *Gray) SetGray(x int, y int, c color.Gray) needs go.Foreign
+extern go image.Gray.SetGray func (p *Gray) SetGray(x int, y int, c color.Gray) needs go.Foreign takes p
 
 // ergo:go func (*Gray).SetRGBA64(x int, y int, c color.RGBA64)
-extern go image.Gray.SetRGBA64 func (p *Gray) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign
+extern go image.Gray.SetRGBA64 func (p *Gray) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign takes p
 
 // ergo:go func (*Gray).SubImage(r Rectangle) Image
-extern go image.Gray.SubImage func (p *Gray) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.Gray.SubImage func (p *Gray) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go type Gray16 struct
 extern go image.Gray16 type Gray16 {
@@ -191,43 +191,43 @@ extern go image.Gray16 type Gray16 {
 }
 
 // ergo:go func (*Gray16).At(x int, y int) color.Color
-extern go image.Gray16.At func (p *Gray16) At(x int, y int) color.Color needs go.Foreign
+extern go image.Gray16.At func (p *Gray16) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*Gray16).Bounds() Rectangle
-extern go image.Gray16.Bounds func (p *Gray16) Bounds() Rectangle needs go.Foreign
+extern go image.Gray16.Bounds func (p *Gray16) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*Gray16).ColorModel() color.Model
-extern go image.Gray16.ColorModel func (p *Gray16) ColorModel() color.Model needs go.Foreign
+extern go image.Gray16.ColorModel func (p *Gray16) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*Gray16).Gray16At(x int, y int) color.Gray16
-extern go image.Gray16.Gray16At func (p *Gray16) Gray16At(x int, y int) color.Gray16 needs go.Foreign
+extern go image.Gray16.Gray16At func (p *Gray16) Gray16At(x int, y int) color.Gray16 needs go.Foreign takes p
 
 // ergo:go func (*Gray16).Opaque() bool
-extern go image.Gray16.Opaque func (p *Gray16) Opaque() bool needs go.Foreign
+extern go image.Gray16.Opaque func (p *Gray16) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*Gray16).PixOffset(x int, y int) int
-extern go image.Gray16.PixOffset func (p *Gray16) PixOffset(x int, y int) int needs go.Foreign
+extern go image.Gray16.PixOffset func (p *Gray16) PixOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*Gray16).RGBA64At(x int, y int) color.RGBA64
-extern go image.Gray16.RGBA64At func (p *Gray16) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.Gray16.RGBA64At func (p *Gray16) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*Gray16).Set(x int, y int, c color.Color)
-extern go image.Gray16.Set func (p *Gray16) Set(x int, y int, c color.Color) needs go.Foreign
+extern go image.Gray16.Set func (p *Gray16) Set(x int, y int, c color.Color) needs go.Foreign takes p, c
 
 // ergo:go func (*Gray16).SetGray16(x int, y int, c color.Gray16)
-extern go image.Gray16.SetGray16 func (p *Gray16) SetGray16(x int, y int, c color.Gray16) needs go.Foreign
+extern go image.Gray16.SetGray16 func (p *Gray16) SetGray16(x int, y int, c color.Gray16) needs go.Foreign takes p
 
 // ergo:go func (*Gray16).SetRGBA64(x int, y int, c color.RGBA64)
-extern go image.Gray16.SetRGBA64 func (p *Gray16) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign
+extern go image.Gray16.SetRGBA64 func (p *Gray16) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign takes p
 
 // ergo:go func (*Gray16).SubImage(r Rectangle) Image
-extern go image.Gray16.SubImage func (p *Gray16) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.Gray16.SubImage func (p *Gray16) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go type Image interface
 extern go image.Image type Image {
-	At(x int, y int) color.Color needs go.Foreign,
-	Bounds() Rectangle needs go.Foreign,
-	ColorModel() color.Model needs go.Foreign,
+	At(x int, y int) color.Color needs go.Foreign takes,
+	Bounds() Rectangle needs go.Foreign takes,
+	ColorModel() color.Model needs go.Foreign takes,
 }
 
 // ergo:go type NRGBA struct
@@ -238,37 +238,37 @@ extern go image.NRGBA type NRGBA {
 }
 
 // ergo:go func (*NRGBA).At(x int, y int) color.Color
-extern go image.NRGBA.At func (p *NRGBA) At(x int, y int) color.Color needs go.Foreign
+extern go image.NRGBA.At func (p *NRGBA) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*NRGBA).Bounds() Rectangle
-extern go image.NRGBA.Bounds func (p *NRGBA) Bounds() Rectangle needs go.Foreign
+extern go image.NRGBA.Bounds func (p *NRGBA) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*NRGBA).ColorModel() color.Model
-extern go image.NRGBA.ColorModel func (p *NRGBA) ColorModel() color.Model needs go.Foreign
+extern go image.NRGBA.ColorModel func (p *NRGBA) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*NRGBA).NRGBAAt(x int, y int) color.NRGBA
-extern go image.NRGBA.NRGBAAt func (p *NRGBA) NRGBAAt(x int, y int) color.NRGBA needs go.Foreign
+extern go image.NRGBA.NRGBAAt func (p *NRGBA) NRGBAAt(x int, y int) color.NRGBA needs go.Foreign takes p
 
 // ergo:go func (*NRGBA).Opaque() bool
-extern go image.NRGBA.Opaque func (p *NRGBA) Opaque() bool needs go.Foreign
+extern go image.NRGBA.Opaque func (p *NRGBA) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*NRGBA).PixOffset(x int, y int) int
-extern go image.NRGBA.PixOffset func (p *NRGBA) PixOffset(x int, y int) int needs go.Foreign
+extern go image.NRGBA.PixOffset func (p *NRGBA) PixOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*NRGBA).RGBA64At(x int, y int) color.RGBA64
-extern go image.NRGBA.RGBA64At func (p *NRGBA) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.NRGBA.RGBA64At func (p *NRGBA) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*NRGBA).Set(x int, y int, c color.Color)
-extern go image.NRGBA.Set func (p *NRGBA) Set(x int, y int, c color.Color) needs go.Foreign
+extern go image.NRGBA.Set func (p *NRGBA) Set(x int, y int, c color.Color) needs go.Foreign takes p, c
 
 // ergo:go func (*NRGBA).SetNRGBA(x int, y int, c color.NRGBA)
-extern go image.NRGBA.SetNRGBA func (p *NRGBA) SetNRGBA(x int, y int, c color.NRGBA) needs go.Foreign
+extern go image.NRGBA.SetNRGBA func (p *NRGBA) SetNRGBA(x int, y int, c color.NRGBA) needs go.Foreign takes p
 
 // ergo:go func (*NRGBA).SetRGBA64(x int, y int, c color.RGBA64)
-extern go image.NRGBA.SetRGBA64 func (p *NRGBA) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign
+extern go image.NRGBA.SetRGBA64 func (p *NRGBA) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign takes p
 
 // ergo:go func (*NRGBA).SubImage(r Rectangle) Image
-extern go image.NRGBA.SubImage func (p *NRGBA) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.NRGBA.SubImage func (p *NRGBA) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go type NRGBA64 struct
 extern go image.NRGBA64 type NRGBA64 {
@@ -278,37 +278,37 @@ extern go image.NRGBA64 type NRGBA64 {
 }
 
 // ergo:go func (*NRGBA64).At(x int, y int) color.Color
-extern go image.NRGBA64.At func (p *NRGBA64) At(x int, y int) color.Color needs go.Foreign
+extern go image.NRGBA64.At func (p *NRGBA64) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*NRGBA64).Bounds() Rectangle
-extern go image.NRGBA64.Bounds func (p *NRGBA64) Bounds() Rectangle needs go.Foreign
+extern go image.NRGBA64.Bounds func (p *NRGBA64) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*NRGBA64).ColorModel() color.Model
-extern go image.NRGBA64.ColorModel func (p *NRGBA64) ColorModel() color.Model needs go.Foreign
+extern go image.NRGBA64.ColorModel func (p *NRGBA64) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*NRGBA64).NRGBA64At(x int, y int) color.NRGBA64
-extern go image.NRGBA64.NRGBA64At func (p *NRGBA64) NRGBA64At(x int, y int) color.NRGBA64 needs go.Foreign
+extern go image.NRGBA64.NRGBA64At func (p *NRGBA64) NRGBA64At(x int, y int) color.NRGBA64 needs go.Foreign takes p
 
 // ergo:go func (*NRGBA64).Opaque() bool
-extern go image.NRGBA64.Opaque func (p *NRGBA64) Opaque() bool needs go.Foreign
+extern go image.NRGBA64.Opaque func (p *NRGBA64) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*NRGBA64).PixOffset(x int, y int) int
-extern go image.NRGBA64.PixOffset func (p *NRGBA64) PixOffset(x int, y int) int needs go.Foreign
+extern go image.NRGBA64.PixOffset func (p *NRGBA64) PixOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*NRGBA64).RGBA64At(x int, y int) color.RGBA64
-extern go image.NRGBA64.RGBA64At func (p *NRGBA64) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.NRGBA64.RGBA64At func (p *NRGBA64) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*NRGBA64).Set(x int, y int, c color.Color)
-extern go image.NRGBA64.Set func (p *NRGBA64) Set(x int, y int, c color.Color) needs go.Foreign
+extern go image.NRGBA64.Set func (p *NRGBA64) Set(x int, y int, c color.Color) needs go.Foreign takes p, c
 
 // ergo:go func (*NRGBA64).SetNRGBA64(x int, y int, c color.NRGBA64)
-extern go image.NRGBA64.SetNRGBA64 func (p *NRGBA64) SetNRGBA64(x int, y int, c color.NRGBA64) needs go.Foreign
+extern go image.NRGBA64.SetNRGBA64 func (p *NRGBA64) SetNRGBA64(x int, y int, c color.NRGBA64) needs go.Foreign takes p
 
 // ergo:go func (*NRGBA64).SetRGBA64(x int, y int, c color.RGBA64)
-extern go image.NRGBA64.SetRGBA64 func (p *NRGBA64) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign
+extern go image.NRGBA64.SetRGBA64 func (p *NRGBA64) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign takes p
 
 // ergo:go func (*NRGBA64).SubImage(r Rectangle) Image
-extern go image.NRGBA64.SubImage func (p *NRGBA64) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.NRGBA64.SubImage func (p *NRGBA64) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go type NYCbCrA struct
 extern go image.NYCbCrA type NYCbCrA {
@@ -318,37 +318,37 @@ extern go image.NYCbCrA type NYCbCrA {
 }
 
 // ergo:go func (*NYCbCrA).AOffset(x int, y int) int
-extern go image.NYCbCrA.AOffset func (p *NYCbCrA) AOffset(x int, y int) int needs go.Foreign
+extern go image.NYCbCrA.AOffset func (p *NYCbCrA) AOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*NYCbCrA).At(x int, y int) color.Color
-extern go image.NYCbCrA.At func (p *NYCbCrA) At(x int, y int) color.Color needs go.Foreign
+extern go image.NYCbCrA.At func (p *NYCbCrA) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).Bounds() Rectangle
-extern go image.NYCbCrA.Bounds func (p *NYCbCrA) Bounds() Rectangle needs go.Foreign
+extern go image.NYCbCrA.Bounds func (p *NYCbCrA) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).COffset(x int, y int) int
-extern go image.NYCbCrA.COffset func (p *NYCbCrA) COffset(x int, y int) int needs go.Foreign
+extern go image.NYCbCrA.COffset func (p *NYCbCrA) COffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*NYCbCrA).ColorModel() color.Model
-extern go image.NYCbCrA.ColorModel func (p *NYCbCrA) ColorModel() color.Model needs go.Foreign
+extern go image.NYCbCrA.ColorModel func (p *NYCbCrA) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*NYCbCrA).NYCbCrAAt(x int, y int) color.NYCbCrA
-extern go image.NYCbCrA.NYCbCrAAt func (p *NYCbCrA) NYCbCrAAt(x int, y int) color.NYCbCrA needs go.Foreign
+extern go image.NYCbCrA.NYCbCrAAt func (p *NYCbCrA) NYCbCrAAt(x int, y int) color.NYCbCrA needs go.Foreign takes p
 
 // ergo:go func (*NYCbCrA).Opaque() bool
-extern go image.NYCbCrA.Opaque func (p *NYCbCrA) Opaque() bool needs go.Foreign
+extern go image.NYCbCrA.Opaque func (p *NYCbCrA) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*NYCbCrA).RGBA64At(x int, y int) color.RGBA64
-extern go image.NYCbCrA.RGBA64At func (p *NYCbCrA) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.NYCbCrA.RGBA64At func (p *NYCbCrA) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*NYCbCrA).SubImage(r Rectangle) Image
-extern go image.NYCbCrA.SubImage func (p *NYCbCrA) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.NYCbCrA.SubImage func (p *NYCbCrA) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).YCbCrAt(x int, y int) color.YCbCr
-extern go image.NYCbCrA.YCbCrAt func (p *NYCbCrA) YCbCrAt(x int, y int) color.YCbCr needs go.Foreign
+extern go image.NYCbCrA.YCbCrAt func (p *NYCbCrA) YCbCrAt(x int, y int) color.YCbCr needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).YOffset(x int, y int) int
-extern go image.NYCbCrA.YOffset func (p *NYCbCrA) YOffset(x int, y int) int needs go.Foreign
+extern go image.NYCbCrA.YOffset func (p *NYCbCrA) YOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func NewAlpha(r Rectangle) *Alpha
 extern go image.NewAlpha func NewAlpha(r Rectangle) Option[go.Ref[Alpha]] needs go.Foreign
@@ -384,7 +384,7 @@ extern go image.NewRGBA func NewRGBA(r Rectangle) Option[go.Ref[RGBA]] needs go.
 extern go image.NewRGBA64 func NewRGBA64(r Rectangle) Option[go.Ref[RGBA64]] needs go.Foreign
 
 // ergo:go func NewUniform(c color.Color) *Uniform
-extern go image.NewUniform func NewUniform(c color.Color) Option[go.Ref[Uniform]] needs go.Foreign
+extern go image.NewUniform func NewUniform(c color.Color) Option[go.Ref[Uniform]] needs go.Foreign takes c
 
 // ergo:go func NewYCbCr(r Rectangle, subsampleRatio YCbCrSubsampleRatio) *YCbCr
 extern go image.NewYCbCr func NewYCbCr(r Rectangle, subsampleRatio YCbCrSubsampleRatio) Option[go.Ref[YCbCr]] needs go.Foreign
@@ -401,44 +401,44 @@ extern go image.Paletted type Paletted {
 }
 
 // ergo:go func (*Paletted).At(x int, y int) color.Color
-extern go image.Paletted.At func (p *Paletted) At(x int, y int) color.Color needs go.Foreign
+extern go image.Paletted.At func (p *Paletted) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*Paletted).Bounds() Rectangle
-extern go image.Paletted.Bounds func (p *Paletted) Bounds() Rectangle needs go.Foreign
+extern go image.Paletted.Bounds func (p *Paletted) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*Paletted).ColorIndexAt(x int, y int) uint8
-extern go image.Paletted.ColorIndexAt func (p *Paletted) ColorIndexAt(x int, y int) uint8 needs go.Foreign
+extern go image.Paletted.ColorIndexAt func (p *Paletted) ColorIndexAt(x int, y int) uint8 needs go.Foreign takes p
 
 // ergo:go func (*Paletted).ColorModel() color.Model
-extern go image.Paletted.ColorModel func (p *Paletted) ColorModel() color.Model needs go.Foreign
+extern go image.Paletted.ColorModel func (p *Paletted) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*Paletted).Opaque() bool
-extern go image.Paletted.Opaque func (p *Paletted) Opaque() bool needs go.Foreign
+extern go image.Paletted.Opaque func (p *Paletted) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*Paletted).PixOffset(x int, y int) int
-extern go image.Paletted.PixOffset func (p *Paletted) PixOffset(x int, y int) int needs go.Foreign
+extern go image.Paletted.PixOffset func (p *Paletted) PixOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*Paletted).RGBA64At(x int, y int) color.RGBA64
-extern go image.Paletted.RGBA64At func (p *Paletted) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.Paletted.RGBA64At func (p *Paletted) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*Paletted).Set(x int, y int, c color.Color)
-extern go image.Paletted.Set func (p *Paletted) Set(x int, y int, c color.Color) needs go.Foreign
+extern go image.Paletted.Set func (p *Paletted) Set(x int, y int, c color.Color) needs go.Foreign takes p, c
 
 // ergo:go func (*Paletted).SetColorIndex(x int, y int, index uint8)
-extern go image.Paletted.SetColorIndex func (p *Paletted) SetColorIndex(x int, y int, index uint8) needs go.Foreign
+extern go image.Paletted.SetColorIndex func (p *Paletted) SetColorIndex(x int, y int, index uint8) needs go.Foreign takes p
 
 // ergo:go func (*Paletted).SetRGBA64(x int, y int, c color.RGBA64)
-extern go image.Paletted.SetRGBA64 func (p *Paletted) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign
+extern go image.Paletted.SetRGBA64 func (p *Paletted) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign takes p
 
 // ergo:go func (*Paletted).SubImage(r Rectangle) Image
-extern go image.Paletted.SubImage func (p *Paletted) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.Paletted.SubImage func (p *Paletted) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go type PalettedImage interface
 extern go image.PalettedImage type PalettedImage {
-	At(x int, y int) color.Color needs go.Foreign,
-	Bounds() Rectangle needs go.Foreign,
-	ColorIndexAt(x int, y int) uint8 needs go.Foreign,
-	ColorModel() color.Model needs go.Foreign,
+	At(x int, y int) color.Color needs go.Foreign takes,
+	Bounds() Rectangle needs go.Foreign takes,
+	ColorIndexAt(x int, y int) uint8 needs go.Foreign takes,
+	ColorModel() color.Model needs go.Foreign takes,
 }
 
 // ergo:go type Point struct
@@ -482,37 +482,37 @@ extern go image.RGBA type RGBA {
 }
 
 // ergo:go func (*RGBA).At(x int, y int) color.Color
-extern go image.RGBA.At func (p *RGBA) At(x int, y int) color.Color needs go.Foreign
+extern go image.RGBA.At func (p *RGBA) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*RGBA).Bounds() Rectangle
-extern go image.RGBA.Bounds func (p *RGBA) Bounds() Rectangle needs go.Foreign
+extern go image.RGBA.Bounds func (p *RGBA) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*RGBA).ColorModel() color.Model
-extern go image.RGBA.ColorModel func (p *RGBA) ColorModel() color.Model needs go.Foreign
+extern go image.RGBA.ColorModel func (p *RGBA) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*RGBA).Opaque() bool
-extern go image.RGBA.Opaque func (p *RGBA) Opaque() bool needs go.Foreign
+extern go image.RGBA.Opaque func (p *RGBA) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*RGBA).PixOffset(x int, y int) int
-extern go image.RGBA.PixOffset func (p *RGBA) PixOffset(x int, y int) int needs go.Foreign
+extern go image.RGBA.PixOffset func (p *RGBA) PixOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*RGBA).RGBA64At(x int, y int) color.RGBA64
-extern go image.RGBA.RGBA64At func (p *RGBA) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.RGBA.RGBA64At func (p *RGBA) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*RGBA).RGBAAt(x int, y int) color.RGBA
-extern go image.RGBA.RGBAAt func (p *RGBA) RGBAAt(x int, y int) color.RGBA needs go.Foreign
+extern go image.RGBA.RGBAAt func (p *RGBA) RGBAAt(x int, y int) color.RGBA needs go.Foreign takes p
 
 // ergo:go func (*RGBA).Set(x int, y int, c color.Color)
-extern go image.RGBA.Set func (p *RGBA) Set(x int, y int, c color.Color) needs go.Foreign
+extern go image.RGBA.Set func (p *RGBA) Set(x int, y int, c color.Color) needs go.Foreign takes p, c
 
 // ergo:go func (*RGBA).SetRGBA(x int, y int, c color.RGBA)
-extern go image.RGBA.SetRGBA func (p *RGBA) SetRGBA(x int, y int, c color.RGBA) needs go.Foreign
+extern go image.RGBA.SetRGBA func (p *RGBA) SetRGBA(x int, y int, c color.RGBA) needs go.Foreign takes p
 
 // ergo:go func (*RGBA).SetRGBA64(x int, y int, c color.RGBA64)
-extern go image.RGBA.SetRGBA64 func (p *RGBA) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign
+extern go image.RGBA.SetRGBA64 func (p *RGBA) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign takes p
 
 // ergo:go func (*RGBA).SubImage(r Rectangle) Image
-extern go image.RGBA.SubImage func (p *RGBA) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.RGBA.SubImage func (p *RGBA) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go type RGBA64 struct
 extern go image.RGBA64 type RGBA64 {
@@ -522,38 +522,38 @@ extern go image.RGBA64 type RGBA64 {
 }
 
 // ergo:go func (*RGBA64).At(x int, y int) color.Color
-extern go image.RGBA64.At func (p *RGBA64) At(x int, y int) color.Color needs go.Foreign
+extern go image.RGBA64.At func (p *RGBA64) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*RGBA64).Bounds() Rectangle
-extern go image.RGBA64.Bounds func (p *RGBA64) Bounds() Rectangle needs go.Foreign
+extern go image.RGBA64.Bounds func (p *RGBA64) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*RGBA64).ColorModel() color.Model
-extern go image.RGBA64.ColorModel func (p *RGBA64) ColorModel() color.Model needs go.Foreign
+extern go image.RGBA64.ColorModel func (p *RGBA64) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*RGBA64).Opaque() bool
-extern go image.RGBA64.Opaque func (p *RGBA64) Opaque() bool needs go.Foreign
+extern go image.RGBA64.Opaque func (p *RGBA64) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*RGBA64).PixOffset(x int, y int) int
-extern go image.RGBA64.PixOffset func (p *RGBA64) PixOffset(x int, y int) int needs go.Foreign
+extern go image.RGBA64.PixOffset func (p *RGBA64) PixOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*RGBA64).RGBA64At(x int, y int) color.RGBA64
-extern go image.RGBA64.RGBA64At func (p *RGBA64) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.RGBA64.RGBA64At func (p *RGBA64) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*RGBA64).Set(x int, y int, c color.Color)
-extern go image.RGBA64.Set func (p *RGBA64) Set(x int, y int, c color.Color) needs go.Foreign
+extern go image.RGBA64.Set func (p *RGBA64) Set(x int, y int, c color.Color) needs go.Foreign takes p, c
 
 // ergo:go func (*RGBA64).SetRGBA64(x int, y int, c color.RGBA64)
-extern go image.RGBA64.SetRGBA64 func (p *RGBA64) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign
+extern go image.RGBA64.SetRGBA64 func (p *RGBA64) SetRGBA64(x int, y int, c color.RGBA64) needs go.Foreign takes p
 
 // ergo:go func (*RGBA64).SubImage(r Rectangle) Image
-extern go image.RGBA64.SubImage func (p *RGBA64) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.RGBA64.SubImage func (p *RGBA64) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go type RGBA64Image interface
 extern go image.RGBA64Image type RGBA64Image {
-	At(x int, y int) color.Color needs go.Foreign,
-	Bounds() Rectangle needs go.Foreign,
-	ColorModel() color.Model needs go.Foreign,
-	RGBA64At(x int, y int) color.RGBA64 needs go.Foreign,
+	At(x int, y int) color.Color needs go.Foreign takes,
+	Bounds() Rectangle needs go.Foreign takes,
+	ColorModel() color.Model needs go.Foreign takes,
+	RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes,
 }
 
 // ergo:go func Rect(x0 int, y0 int, x1 int, y1 int) Rectangle
@@ -631,25 +631,25 @@ extern go image.Uniform type Uniform {
 }
 
 // ergo:go func (*Uniform).At(x int, y int) color.Color
-extern go image.Uniform.At func (c *Uniform) At(x int, y int) color.Color needs go.Foreign
+extern go image.Uniform.At func (c *Uniform) At(x int, y int) color.Color needs go.Foreign takes c
 
 // ergo:go func (*Uniform).Bounds() Rectangle
-extern go image.Uniform.Bounds func (c *Uniform) Bounds() Rectangle needs go.Foreign
+extern go image.Uniform.Bounds func (c *Uniform) Bounds() Rectangle needs go.Foreign takes c
 
 // ergo:go func (*Uniform).ColorModel() color.Model
-extern go image.Uniform.ColorModel func (c *Uniform) ColorModel() color.Model needs go.Foreign
+extern go image.Uniform.ColorModel func (c *Uniform) ColorModel() color.Model needs go.Foreign takes c
 
 // ergo:go func (*Uniform).Convert(color.Color) color.Color
-extern go image.Uniform.Convert func (c *Uniform) Convert(p0 color.Color) color.Color needs go.Foreign
+extern go image.Uniform.Convert func (c *Uniform) Convert(p0 color.Color) color.Color needs go.Foreign takes c, p0
 
 // ergo:go func (*Uniform).Opaque() bool
-extern go image.Uniform.Opaque func (c *Uniform) Opaque() bool needs go.Foreign
+extern go image.Uniform.Opaque func (c *Uniform) Opaque() bool needs go.Foreign takes c
 
 // ergo:go func (*Uniform).RGBA() (r uint32, g uint32, b uint32, a uint32)
-extern go image.Uniform.RGBA func (c *Uniform) RGBA() (uint32, uint32, uint32, uint32) needs go.Foreign
+extern go image.Uniform.RGBA func (c *Uniform) RGBA() (uint32, uint32, uint32, uint32) needs go.Foreign takes c
 
 // ergo:go func (*Uniform).RGBA64At(x int, y int) color.RGBA64
-extern go image.Uniform.RGBA64At func (c *Uniform) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.Uniform.RGBA64At func (c *Uniform) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes c
 
 // ergo:go var White *Uniform
 // ergo:refused White: a Go variable is host state; call a function
@@ -666,31 +666,31 @@ extern go image.YCbCr type YCbCr {
 }
 
 // ergo:go func (*YCbCr).At(x int, y int) color.Color
-extern go image.YCbCr.At func (p *YCbCr) At(x int, y int) color.Color needs go.Foreign
+extern go image.YCbCr.At func (p *YCbCr) At(x int, y int) color.Color needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).Bounds() Rectangle
-extern go image.YCbCr.Bounds func (p *YCbCr) Bounds() Rectangle needs go.Foreign
+extern go image.YCbCr.Bounds func (p *YCbCr) Bounds() Rectangle needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).COffset(x int, y int) int
-extern go image.YCbCr.COffset func (p *YCbCr) COffset(x int, y int) int needs go.Foreign
+extern go image.YCbCr.COffset func (p *YCbCr) COffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).ColorModel() color.Model
-extern go image.YCbCr.ColorModel func (p *YCbCr) ColorModel() color.Model needs go.Foreign
+extern go image.YCbCr.ColorModel func (p *YCbCr) ColorModel() color.Model needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).Opaque() bool
-extern go image.YCbCr.Opaque func (p *YCbCr) Opaque() bool needs go.Foreign
+extern go image.YCbCr.Opaque func (p *YCbCr) Opaque() bool needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).RGBA64At(x int, y int) color.RGBA64
-extern go image.YCbCr.RGBA64At func (p *YCbCr) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign
+extern go image.YCbCr.RGBA64At func (p *YCbCr) RGBA64At(x int, y int) color.RGBA64 needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).SubImage(r Rectangle) Image
-extern go image.YCbCr.SubImage func (p *YCbCr) SubImage(r Rectangle) Image needs go.Foreign
+extern go image.YCbCr.SubImage func (p *YCbCr) SubImage(r Rectangle) Image needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).YCbCrAt(x int, y int) color.YCbCr
-extern go image.YCbCr.YCbCrAt func (p *YCbCr) YCbCrAt(x int, y int) color.YCbCr needs go.Foreign
+extern go image.YCbCr.YCbCrAt func (p *YCbCr) YCbCrAt(x int, y int) color.YCbCr needs go.Foreign takes p
 
 // ergo:go func (*YCbCr).YOffset(x int, y int) int
-extern go image.YCbCr.YOffset func (p *YCbCr) YOffset(x int, y int) int needs go.Foreign
+extern go image.YCbCr.YOffset func (p *YCbCr) YOffset(x int, y int) int needs go.Foreign takes p
 
 // ergo:go type YCbCrSubsampleRatio int
 extern go image.YCbCrSubsampleRatio type YCbCrSubsampleRatio int

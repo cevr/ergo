@@ -32,7 +32,7 @@ extern go go/doc/comment.DocLink type DocLink {
 // ergo:refused DocLink.Text: type Text is refused: an interface with no exported method
 
 // ergo:go func (*DocLink).DefaultURL(baseURL string) string
-extern go go/doc/comment.DocLink.DefaultURL func (l *DocLink) DefaultURL(baseURL string) string needs go.Foreign
+extern go go/doc/comment.DocLink.DefaultURL func (l *DocLink) DefaultURL(baseURL string) string needs go.Foreign takes l
 
 // ergo:go type Heading struct
 extern go go/doc/comment.Heading type Heading {}
@@ -41,7 +41,7 @@ extern go go/doc/comment.Heading type Heading {}
 // ergo:refused Heading.Text: type Text is refused: an interface with no exported method
 
 // ergo:go func (*Heading).DefaultID() string
-extern go go/doc/comment.Heading.DefaultID func (h *Heading) DefaultID() string needs go.Foreign
+extern go go/doc/comment.Heading.DefaultID func (h *Heading) DefaultID() string needs go.Foreign takes h
 
 // ergo:go type Italic string
 extern go go/doc/comment.Italic type Italic string
@@ -72,10 +72,10 @@ extern go go/doc/comment.List type List {
 // ergo:refused List.Items: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*List).BlankBefore() bool
-extern go go/doc/comment.List.BlankBefore func (l *List) BlankBefore() bool needs go.Foreign
+extern go go/doc/comment.List.BlankBefore func (l *List) BlankBefore() bool needs go.Foreign takes l
 
 // ergo:go func (*List).BlankBetween() bool
-extern go go/doc/comment.List.BlankBetween func (l *List) BlankBetween() bool needs go.Foreign
+extern go go/doc/comment.List.BlankBetween func (l *List) BlankBetween() bool needs go.Foreign takes l
 
 // ergo:go type ListItem struct
 extern go go/doc/comment.ListItem type ListItem {
@@ -103,7 +103,7 @@ extern go go/doc/comment.Parser type Parser {
 // ergo:refused Parser.LookupSym: a Go function as a result, a field or an element
 
 // ergo:go func (*Parser).Parse(text string) *Doc
-extern go go/doc/comment.Parser.Parse func (p *Parser) Parse(text string) Option[go.Ref[Doc]] needs go.Foreign
+extern go go/doc/comment.Parser.Parse func (p *Parser) Parse(text string) Option[go.Ref[Doc]] needs go.Foreign takes p
 
 // ergo:go type Plain string
 extern go go/doc/comment.Plain type Plain string
@@ -124,16 +124,16 @@ extern go go/doc/comment.Printer type Printer {
 // ergo:refused Printer.DocLinkURL: a Go function as a result, a field or an element
 
 // ergo:go func (*Printer).Comment(d *Doc) []byte
-extern go go/doc/comment.Printer.Comment func (p *Printer) Comment(d *Doc) []byte needs go.Foreign
+extern go go/doc/comment.Printer.Comment func (p *Printer) Comment(d *Doc) []byte needs go.Foreign takes p, d
 
 // ergo:go func (*Printer).HTML(d *Doc) []byte
-extern go go/doc/comment.Printer.HTML func (p *Printer) HTML(d *Doc) []byte needs go.Foreign
+extern go go/doc/comment.Printer.HTML func (p *Printer) HTML(d *Doc) []byte needs go.Foreign takes p, d
 
 // ergo:go func (*Printer).Markdown(d *Doc) []byte
-extern go go/doc/comment.Printer.Markdown func (p *Printer) Markdown(d *Doc) []byte needs go.Foreign
+extern go go/doc/comment.Printer.Markdown func (p *Printer) Markdown(d *Doc) []byte needs go.Foreign takes p, d
 
 // ergo:go func (*Printer).Text(d *Doc) []byte
-extern go go/doc/comment.Printer.Text func (p *Printer) Text(d *Doc) []byte needs go.Foreign
+extern go go/doc/comment.Printer.Text func (p *Printer) Text(d *Doc) []byte needs go.Foreign takes p, d
 
 // ergo:go type Text interface
 // ergo:refused Text: an interface with no exported method

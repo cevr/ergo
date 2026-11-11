@@ -35,142 +35,142 @@ extern go math/big.Exact let Exact Accuracy
 extern go math/big.Float type Float {}
 
 // ergo:go func (*Float).Abs(x *Float) *Float
-extern go math/big.Float.Abs func (z *Float) Abs(x *Float) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.Abs func (z *Float) Abs(x *Float) Option[go.Ref[Float]] needs go.Foreign takes z, x
 
 // ergo:go func (*Float).Acc() Accuracy
-extern go math/big.Float.Acc func (x *Float) Acc() Accuracy needs go.Foreign
+extern go math/big.Float.Acc func (x *Float) Acc() Accuracy needs go.Foreign takes x
 
 // ergo:go func (*Float).Add(x *Float, y *Float) *Float
-extern go math/big.Float.Add func (z *Float) Add(x *Float, y *Float) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.Add func (z *Float) Add(x *Float, y *Float) Option[go.Ref[Float]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Float).Append(buf []byte, fmt byte, prec int) []byte
-extern go math/big.Float.Append func (x *Float) Append(buf []byte, fmt byte, prec int) []byte needs go.Foreign
+extern go math/big.Float.Append func (x *Float) Append(buf []byte, fmt byte, prec int) []byte needs go.Foreign takes x
 
 // ergo:go func (*Float).AppendText(b []byte) ([]byte, error)
-extern go math/big.Float.AppendText func (x *Float) AppendText(b []byte) []byte fails go.Error needs go.Foreign
+extern go math/big.Float.AppendText func (x *Float) AppendText(b []byte) []byte fails go.Error needs go.Foreign takes x
 
 // ergo:go func (*Float).Cmp(y *Float) int
-extern go math/big.Float.Cmp func (x *Float) Cmp(y *Float) int needs go.Foreign
+extern go math/big.Float.Cmp func (x *Float) Cmp(y *Float) int needs go.Foreign takes x, y
 
 // ergo:go func (*Float).Copy(x *Float) *Float
-extern go math/big.Float.Copy func (z *Float) Copy(x *Float) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.Copy func (z *Float) Copy(x *Float) Option[go.Ref[Float]] needs go.Foreign takes z, x
 
 // ergo:go func (*Float).Float32() (float32, Accuracy)
-extern go math/big.Float.Float32 func (x *Float) Float32() (float32, Accuracy) needs go.Foreign
+extern go math/big.Float.Float32 func (x *Float) Float32() (float32, Accuracy) needs go.Foreign takes x
 
 // ergo:go func (*Float).Float64() (float64, Accuracy)
-extern go math/big.Float.Float64 func (x *Float) Float64() (float64, Accuracy) needs go.Foreign
+extern go math/big.Float.Float64 func (x *Float) Float64() (float64, Accuracy) needs go.Foreign takes x
 
 // ergo:go func (*Float).Format(s fmt.State, format rune)
-extern go math/big.Float.Format func (x *Float) Format(s fmt.State, format rune) needs go.Foreign
+extern go math/big.Float.Format func (x *Float) Format(s fmt.State, format rune) needs go.Foreign takes x, s
 
 // ergo:go func (*Float).GobDecode(buf []byte) error
-extern go math/big.Float.GobDecode func (z *Float) GobDecode(buf []byte) fails go.Error needs go.Foreign
+extern go math/big.Float.GobDecode func (z *Float) GobDecode(buf []byte) fails go.Error needs go.Foreign takes z
 
 // ergo:go func (*Float).GobEncode() ([]byte, error)
-extern go math/big.Float.GobEncode func (x *Float) GobEncode() []byte fails go.Error needs go.Foreign
+extern go math/big.Float.GobEncode func (x *Float) GobEncode() []byte fails go.Error needs go.Foreign takes x
 
 // ergo:go func (*Float).Int(z *Int) (*Int, Accuracy)
-extern go math/big.Float.Int func (x *Float) Int(z *Int) (Option[go.Ref[Int]], Accuracy) needs go.Foreign
+extern go math/big.Float.Int func (x *Float) Int(z *Int) (Option[go.Ref[Int]], Accuracy) needs go.Foreign takes x, z
 
 // ergo:go func (*Float).Int64() (int64, Accuracy)
-extern go math/big.Float.Int64 func (x *Float) Int64() (int64, Accuracy) needs go.Foreign
+extern go math/big.Float.Int64 func (x *Float) Int64() (int64, Accuracy) needs go.Foreign takes x
 
 // ergo:go func (*Float).IsInf() bool
-extern go math/big.Float.IsInf func (x *Float) IsInf() bool needs go.Foreign
+extern go math/big.Float.IsInf func (x *Float) IsInf() bool needs go.Foreign takes x
 
 // ergo:go func (*Float).IsInt() bool
-extern go math/big.Float.IsInt func (x *Float) IsInt() bool needs go.Foreign
+extern go math/big.Float.IsInt func (x *Float) IsInt() bool needs go.Foreign takes x
 
 // ergo:go func (*Float).MantExp(mant *Float) (exp int)
-extern go math/big.Float.MantExp func (x *Float) MantExp(mant *Float) int needs go.Foreign
+extern go math/big.Float.MantExp func (x *Float) MantExp(mant *Float) int needs go.Foreign takes x, mant
 
 // ergo:go func (*Float).MarshalText() (text []byte, err error)
-extern go math/big.Float.MarshalText func (x *Float) MarshalText() []byte fails go.Error needs go.Foreign
+extern go math/big.Float.MarshalText func (x *Float) MarshalText() []byte fails go.Error needs go.Foreign takes x
 
 // ergo:go func (*Float).MinPrec() uint
-extern go math/big.Float.MinPrec func (x *Float) MinPrec() uint needs go.Foreign
+extern go math/big.Float.MinPrec func (x *Float) MinPrec() uint needs go.Foreign takes x
 
 // ergo:go func (*Float).Mode() RoundingMode
-extern go math/big.Float.Mode func (x *Float) Mode() RoundingMode needs go.Foreign
+extern go math/big.Float.Mode func (x *Float) Mode() RoundingMode needs go.Foreign takes x
 
 // ergo:go func (*Float).Mul(x *Float, y *Float) *Float
-extern go math/big.Float.Mul func (z *Float) Mul(x *Float, y *Float) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.Mul func (z *Float) Mul(x *Float, y *Float) Option[go.Ref[Float]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Float).Neg(x *Float) *Float
-extern go math/big.Float.Neg func (z *Float) Neg(x *Float) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.Neg func (z *Float) Neg(x *Float) Option[go.Ref[Float]] needs go.Foreign takes z, x
 
 // ergo:go func (*Float).Parse(s string, base int) (f *Float, b int, err error)
-extern go math/big.Float.Parse func (z *Float) Parse(s string, base int) (Option[go.Ref[Float]], int) fails go.Error needs go.Foreign
+extern go math/big.Float.Parse func (z *Float) Parse(s string, base int) (Option[go.Ref[Float]], int) fails go.Error needs go.Foreign takes z
 
 // ergo:go func (*Float).Prec() uint
-extern go math/big.Float.Prec func (x *Float) Prec() uint needs go.Foreign
+extern go math/big.Float.Prec func (x *Float) Prec() uint needs go.Foreign takes x
 
 // ergo:go func (*Float).Quo(x *Float, y *Float) *Float
-extern go math/big.Float.Quo func (z *Float) Quo(x *Float, y *Float) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.Quo func (z *Float) Quo(x *Float, y *Float) Option[go.Ref[Float]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Float).Rat(z *Rat) (*Rat, Accuracy)
-extern go math/big.Float.Rat func (x *Float) Rat(z *Rat) (Option[go.Ref[Rat]], Accuracy) needs go.Foreign
+extern go math/big.Float.Rat func (x *Float) Rat(z *Rat) (Option[go.Ref[Rat]], Accuracy) needs go.Foreign takes x, z
 
 // ergo:go func (*Float).Scan(s fmt.ScanState, ch rune) error
-extern go math/big.Float.Scan func (z *Float) Scan(s fmt.ScanState, ch rune) fails go.Error needs go.Foreign
+extern go math/big.Float.Scan func (z *Float) Scan(s fmt.ScanState, ch rune) fails go.Error needs go.Foreign takes z, s
 
 // ergo:go func (*Float).Set(x *Float) *Float
-extern go math/big.Float.Set func (z *Float) Set(x *Float) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.Set func (z *Float) Set(x *Float) Option[go.Ref[Float]] needs go.Foreign takes z, x
 
 // ergo:go func (*Float).SetFloat64(x float64) *Float
-extern go math/big.Float.SetFloat64 func (z *Float) SetFloat64(x float64) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.SetFloat64 func (z *Float) SetFloat64(x float64) Option[go.Ref[Float]] needs go.Foreign takes z
 
 // ergo:go func (*Float).SetInf(signbit bool) *Float
-extern go math/big.Float.SetInf func (z *Float) SetInf(signbit bool) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.SetInf func (z *Float) SetInf(signbit bool) Option[go.Ref[Float]] needs go.Foreign takes z
 
 // ergo:go func (*Float).SetInt(x *Int) *Float
-extern go math/big.Float.SetInt func (z *Float) SetInt(x *Int) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.SetInt func (z *Float) SetInt(x *Int) Option[go.Ref[Float]] needs go.Foreign takes z, x
 
 // ergo:go func (*Float).SetInt64(x int64) *Float
-extern go math/big.Float.SetInt64 func (z *Float) SetInt64(x int64) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.SetInt64 func (z *Float) SetInt64(x int64) Option[go.Ref[Float]] needs go.Foreign takes z
 
 // ergo:go func (*Float).SetMantExp(mant *Float, exp int) *Float
-extern go math/big.Float.SetMantExp func (z *Float) SetMantExp(mant *Float, exp int) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.SetMantExp func (z *Float) SetMantExp(mant *Float, exp int) Option[go.Ref[Float]] needs go.Foreign takes z, mant
 
 // ergo:go func (*Float).SetMode(mode RoundingMode) *Float
-extern go math/big.Float.SetMode func (z *Float) SetMode(mode RoundingMode) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.SetMode func (z *Float) SetMode(mode RoundingMode) Option[go.Ref[Float]] needs go.Foreign takes z
 
 // ergo:go func (*Float).SetPrec(prec uint) *Float
-extern go math/big.Float.SetPrec func (z *Float) SetPrec(prec uint) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.SetPrec func (z *Float) SetPrec(prec uint) Option[go.Ref[Float]] needs go.Foreign takes z
 
 // ergo:go func (*Float).SetRat(x *Rat) *Float
-extern go math/big.Float.SetRat func (z *Float) SetRat(x *Rat) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.SetRat func (z *Float) SetRat(x *Rat) Option[go.Ref[Float]] needs go.Foreign takes z, x
 
 // ergo:go func (*Float).SetString(s string) (*Float, bool)
-extern go math/big.Float.SetString func (z *Float) SetString(s string) (Option[go.Ref[Float]], bool) needs go.Foreign
+extern go math/big.Float.SetString func (z *Float) SetString(s string) (Option[go.Ref[Float]], bool) needs go.Foreign takes z
 
 // ergo:go func (*Float).SetUint64(x uint64) *Float
-extern go math/big.Float.SetUint64 func (z *Float) SetUint64(x uint64) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.SetUint64 func (z *Float) SetUint64(x uint64) Option[go.Ref[Float]] needs go.Foreign takes z
 
 // ergo:go func (*Float).Sign() int
-extern go math/big.Float.Sign func (x *Float) Sign() int needs go.Foreign
+extern go math/big.Float.Sign func (x *Float) Sign() int needs go.Foreign takes x
 
 // ergo:go func (*Float).Signbit() bool
-extern go math/big.Float.Signbit func (x *Float) Signbit() bool needs go.Foreign
+extern go math/big.Float.Signbit func (x *Float) Signbit() bool needs go.Foreign takes x
 
 // ergo:go func (*Float).Sqrt(x *Float) *Float
-extern go math/big.Float.Sqrt func (z *Float) Sqrt(x *Float) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.Sqrt func (z *Float) Sqrt(x *Float) Option[go.Ref[Float]] needs go.Foreign takes z, x
 
 // ergo:go func (*Float).String() string
-extern go math/big.Float.String func (x *Float) String() string needs go.Foreign
+extern go math/big.Float.String func (x *Float) String() string needs go.Foreign takes x
 
 // ergo:go func (*Float).Sub(x *Float, y *Float) *Float
-extern go math/big.Float.Sub func (z *Float) Sub(x *Float, y *Float) Option[go.Ref[Float]] needs go.Foreign
+extern go math/big.Float.Sub func (z *Float) Sub(x *Float, y *Float) Option[go.Ref[Float]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Float).Text(format byte, prec int) string
-extern go math/big.Float.Text func (x *Float) Text(format byte, prec int) string needs go.Foreign
+extern go math/big.Float.Text func (x *Float) Text(format byte, prec int) string needs go.Foreign takes x
 
 // ergo:go func (*Float).Uint64() (uint64, Accuracy)
-extern go math/big.Float.Uint64 func (x *Float) Uint64() (uint64, Accuracy) needs go.Foreign
+extern go math/big.Float.Uint64 func (x *Float) Uint64() (uint64, Accuracy) needs go.Foreign takes x
 
 // ergo:go func (*Float).UnmarshalText(text []byte) error
-extern go math/big.Float.UnmarshalText func (z *Float) UnmarshalText(text []byte) fails go.Error needs go.Foreign
+extern go math/big.Float.UnmarshalText func (z *Float) UnmarshalText(text []byte) fails go.Error needs go.Foreign takes z
 
 // ergo:go const Floor RoundingMode
 extern go math/big.Floor let Floor RoundingMode
@@ -179,190 +179,190 @@ extern go math/big.Floor let Floor RoundingMode
 extern go math/big.Int type Int {}
 
 // ergo:go func (*Int).Abs(x *Int) *Int
-extern go math/big.Int.Abs func (z *Int) Abs(x *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Abs func (z *Int) Abs(x *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x
 
 // ergo:go func (*Int).Add(x *Int, y *Int) *Int
-extern go math/big.Int.Add func (z *Int) Add(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Add func (z *Int) Add(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Int).And(x *Int, y *Int) *Int
-extern go math/big.Int.And func (z *Int) And(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.And func (z *Int) And(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Int).AndNot(x *Int, y *Int) *Int
-extern go math/big.Int.AndNot func (z *Int) AndNot(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.AndNot func (z *Int) AndNot(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Int).Append(buf []byte, base int) []byte
-extern go math/big.Int.Append func (x *Int) Append(buf []byte, base int) []byte needs go.Foreign
+extern go math/big.Int.Append func (x *Int) Append(buf []byte, base int) []byte needs go.Foreign takes x
 
 // ergo:go func (*Int).AppendText(b []byte) (text []byte, err error)
-extern go math/big.Int.AppendText func (x *Int) AppendText(b []byte) []byte fails go.Error needs go.Foreign
+extern go math/big.Int.AppendText func (x *Int) AppendText(b []byte) []byte fails go.Error needs go.Foreign takes x
 
 // ergo:go func (*Int).Binomial(n int64, k int64) *Int
-extern go math/big.Int.Binomial func (z *Int) Binomial(n int64, k int64) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Binomial func (z *Int) Binomial(n int64, k int64) Option[go.Ref[Int]] needs go.Foreign takes z
 
 // ergo:go func (*Int).Bit(i int) uint
-extern go math/big.Int.Bit func (x *Int) Bit(i int) uint needs go.Foreign
+extern go math/big.Int.Bit func (x *Int) Bit(i int) uint needs go.Foreign takes x
 
 // ergo:go func (*Int).BitLen() int
-extern go math/big.Int.BitLen func (x *Int) BitLen() int needs go.Foreign
+extern go math/big.Int.BitLen func (x *Int) BitLen() int needs go.Foreign takes x
 
 // ergo:go func (*Int).Bits() []Word
-extern go math/big.Int.Bits func (x *Int) Bits() []Word needs go.Foreign
+extern go math/big.Int.Bits func (x *Int) Bits() []Word needs go.Foreign takes x
 
 // ergo:go func (*Int).Bytes() []byte
-extern go math/big.Int.Bytes func (x *Int) Bytes() []byte needs go.Foreign
+extern go math/big.Int.Bytes func (x *Int) Bytes() []byte needs go.Foreign takes x
 
 // ergo:go func (*Int).Cmp(y *Int) (r int)
-extern go math/big.Int.Cmp func (x *Int) Cmp(y *Int) int needs go.Foreign
+extern go math/big.Int.Cmp func (x *Int) Cmp(y *Int) int needs go.Foreign takes x, y
 
 // ergo:go func (*Int).CmpAbs(y *Int) int
-extern go math/big.Int.CmpAbs func (x *Int) CmpAbs(y *Int) int needs go.Foreign
+extern go math/big.Int.CmpAbs func (x *Int) CmpAbs(y *Int) int needs go.Foreign takes x, y
 
 // ergo:go func (*Int).Div(x *Int, y *Int) *Int
-extern go math/big.Int.Div func (z *Int) Div(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Div func (z *Int) Div(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Int).DivMod(x *Int, y *Int, m *Int) (*Int, *Int)
-extern go math/big.Int.DivMod func (z *Int) DivMod(x *Int, y *Int, m *Int) (Option[go.Ref[Int]], Option[go.Ref[Int]]) needs go.Foreign
+extern go math/big.Int.DivMod func (z *Int) DivMod(x *Int, y *Int, m *Int) (Option[go.Ref[Int]], Option[go.Ref[Int]]) needs go.Foreign takes z, x, y, m
 
 // ergo:go func (*Int).Divide(x *Int, y *Int, r *Int, mode RoundingMode) (*Int, *Int)
-extern go math/big.Int.Divide func (z *Int) Divide(x *Int, y *Int, r *Int, mode RoundingMode) (Option[go.Ref[Int]], Option[go.Ref[Int]]) needs go.Foreign
+extern go math/big.Int.Divide func (z *Int) Divide(x *Int, y *Int, r *Int, mode RoundingMode) (Option[go.Ref[Int]], Option[go.Ref[Int]]) needs go.Foreign takes z, x, y, r
 
 // ergo:go func (*Int).Exp(x *Int, y *Int, m *Int) *Int
-extern go math/big.Int.Exp func (z *Int) Exp(x *Int, y *Int, m *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Exp func (z *Int) Exp(x *Int, y *Int, m *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y, m
 
 // ergo:go func (*Int).FillBytes(buf []byte) []byte
-extern go math/big.Int.FillBytes func (x *Int) FillBytes(buf []byte) []byte needs go.Foreign
+extern go math/big.Int.FillBytes func (x *Int) FillBytes(buf []byte) []byte needs go.Foreign takes x
 
 // ergo:go func (*Int).Float64() (float64, Accuracy)
-extern go math/big.Int.Float64 func (x *Int) Float64() (float64, Accuracy) needs go.Foreign
+extern go math/big.Int.Float64 func (x *Int) Float64() (float64, Accuracy) needs go.Foreign takes x
 
 // ergo:go func (*Int).Format(s fmt.State, ch rune)
-extern go math/big.Int.Format func (x *Int) Format(s fmt.State, ch rune) needs go.Foreign
+extern go math/big.Int.Format func (x *Int) Format(s fmt.State, ch rune) needs go.Foreign takes x, s
 
 // ergo:go func (*Int).GCD(x *Int, y *Int, a *Int, b *Int) *Int
-extern go math/big.Int.GCD func (z *Int) GCD(x *Int, y *Int, a *Int, b *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.GCD func (z *Int) GCD(x *Int, y *Int, a *Int, b *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y, a, b
 
 // ergo:go func (*Int).GobDecode(buf []byte) error
-extern go math/big.Int.GobDecode func (z *Int) GobDecode(buf []byte) fails go.Error needs go.Foreign
+extern go math/big.Int.GobDecode func (z *Int) GobDecode(buf []byte) fails go.Error needs go.Foreign takes z
 
 // ergo:go func (*Int).GobEncode() ([]byte, error)
-extern go math/big.Int.GobEncode func (x *Int) GobEncode() []byte fails go.Error needs go.Foreign
+extern go math/big.Int.GobEncode func (x *Int) GobEncode() []byte fails go.Error needs go.Foreign takes x
 
 // ergo:go func (*Int).Int64() int64
-extern go math/big.Int.Int64 func (x *Int) Int64() int64 needs go.Foreign
+extern go math/big.Int.Int64 func (x *Int) Int64() int64 needs go.Foreign takes x
 
 // ergo:go func (*Int).IsInt64() bool
-extern go math/big.Int.IsInt64 func (x *Int) IsInt64() bool needs go.Foreign
+extern go math/big.Int.IsInt64 func (x *Int) IsInt64() bool needs go.Foreign takes x
 
 // ergo:go func (*Int).IsUint64() bool
-extern go math/big.Int.IsUint64 func (x *Int) IsUint64() bool needs go.Foreign
+extern go math/big.Int.IsUint64 func (x *Int) IsUint64() bool needs go.Foreign takes x
 
 // ergo:go func (*Int).Lsh(x *Int, n uint) *Int
-extern go math/big.Int.Lsh func (z *Int) Lsh(x *Int, n uint) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Lsh func (z *Int) Lsh(x *Int, n uint) Option[go.Ref[Int]] needs go.Foreign takes z, x
 
 // ergo:go func (*Int).MarshalJSON() ([]byte, error)
-extern go math/big.Int.MarshalJSON func (x *Int) MarshalJSON() []byte fails go.Error needs go.Foreign
+extern go math/big.Int.MarshalJSON func (x *Int) MarshalJSON() []byte fails go.Error needs go.Foreign takes x
 
 // ergo:go func (*Int).MarshalText() (text []byte, err error)
-extern go math/big.Int.MarshalText func (x *Int) MarshalText() []byte fails go.Error needs go.Foreign
+extern go math/big.Int.MarshalText func (x *Int) MarshalText() []byte fails go.Error needs go.Foreign takes x
 
 // ergo:go func (*Int).Mod(x *Int, y *Int) *Int
-extern go math/big.Int.Mod func (z *Int) Mod(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Mod func (z *Int) Mod(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Int).ModInverse(g *Int, n *Int) *Int
-extern go math/big.Int.ModInverse func (z *Int) ModInverse(g *Int, n *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.ModInverse func (z *Int) ModInverse(g *Int, n *Int) Option[go.Ref[Int]] needs go.Foreign takes z, g, n
 
 // ergo:go func (*Int).ModSqrt(x *Int, p *Int) *Int
-extern go math/big.Int.ModSqrt func (z *Int) ModSqrt(x *Int, p *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.ModSqrt func (z *Int) ModSqrt(x *Int, p *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, p
 
 // ergo:go func (*Int).Mul(x *Int, y *Int) *Int
-extern go math/big.Int.Mul func (z *Int) Mul(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Mul func (z *Int) Mul(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Int).MulRange(a int64, b int64) *Int
-extern go math/big.Int.MulRange func (z *Int) MulRange(a int64, b int64) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.MulRange func (z *Int) MulRange(a int64, b int64) Option[go.Ref[Int]] needs go.Foreign takes z
 
 // ergo:go func (*Int).Neg(x *Int) *Int
-extern go math/big.Int.Neg func (z *Int) Neg(x *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Neg func (z *Int) Neg(x *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x
 
 // ergo:go func (*Int).Not(x *Int) *Int
-extern go math/big.Int.Not func (z *Int) Not(x *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Not func (z *Int) Not(x *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x
 
 // ergo:go func (*Int).Or(x *Int, y *Int) *Int
-extern go math/big.Int.Or func (z *Int) Or(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Or func (z *Int) Or(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Int).ProbablyPrime(n int) bool
-extern go math/big.Int.ProbablyPrime func (x *Int) ProbablyPrime(n int) bool needs go.Foreign
+extern go math/big.Int.ProbablyPrime func (x *Int) ProbablyPrime(n int) bool needs go.Foreign takes x
 
 // ergo:go func (*Int).Quo(x *Int, y *Int) *Int
-extern go math/big.Int.Quo func (z *Int) Quo(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Quo func (z *Int) Quo(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Int).QuoRem(x *Int, y *Int, r *Int) (*Int, *Int)
-extern go math/big.Int.QuoRem func (z *Int) QuoRem(x *Int, y *Int, r *Int) (Option[go.Ref[Int]], Option[go.Ref[Int]]) needs go.Foreign
+extern go math/big.Int.QuoRem func (z *Int) QuoRem(x *Int, y *Int, r *Int) (Option[go.Ref[Int]], Option[go.Ref[Int]]) needs go.Foreign takes z, x, y, r
 
 // ergo:go func (*Int).Rand(rnd *rand.Rand, n *Int) *Int
-extern go math/big.Int.Rand func (z *Int) Rand(rnd *rand.Rand, n *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Rand func (z *Int) Rand(rnd *rand.Rand, n *Int) Option[go.Ref[Int]] needs go.Foreign takes z, rnd, n
 
 // ergo:go func (*Int).Rem(x *Int, y *Int) *Int
-extern go math/big.Int.Rem func (z *Int) Rem(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Rem func (z *Int) Rem(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Int).Rsh(x *Int, n uint) *Int
-extern go math/big.Int.Rsh func (z *Int) Rsh(x *Int, n uint) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Rsh func (z *Int) Rsh(x *Int, n uint) Option[go.Ref[Int]] needs go.Foreign takes z, x
 
 // ergo:go func (*Int).Scan(s fmt.ScanState, ch rune) error
-extern go math/big.Int.Scan func (z *Int) Scan(s fmt.ScanState, ch rune) fails go.Error needs go.Foreign
+extern go math/big.Int.Scan func (z *Int) Scan(s fmt.ScanState, ch rune) fails go.Error needs go.Foreign takes z, s
 
 // ergo:go func (*Int).Set(x *Int) *Int
-extern go math/big.Int.Set func (z *Int) Set(x *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Set func (z *Int) Set(x *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x
 
 // ergo:go func (*Int).SetBit(x *Int, i int, b uint) *Int
-extern go math/big.Int.SetBit func (z *Int) SetBit(x *Int, i int, b uint) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.SetBit func (z *Int) SetBit(x *Int, i int, b uint) Option[go.Ref[Int]] needs go.Foreign takes z, x
 
 // ergo:go func (*Int).SetBits(abs []Word) *Int
-extern go math/big.Int.SetBits func (z *Int) SetBits(abs []Word) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.SetBits func (z *Int) SetBits(abs []Word) Option[go.Ref[Int]] needs go.Foreign takes z
 
 // ergo:go func (*Int).SetBytes(buf []byte) *Int
-extern go math/big.Int.SetBytes func (z *Int) SetBytes(buf []byte) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.SetBytes func (z *Int) SetBytes(buf []byte) Option[go.Ref[Int]] needs go.Foreign takes z
 
 // ergo:go func (*Int).SetInt64(x int64) *Int
-extern go math/big.Int.SetInt64 func (z *Int) SetInt64(x int64) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.SetInt64 func (z *Int) SetInt64(x int64) Option[go.Ref[Int]] needs go.Foreign takes z
 
 // ergo:go func (*Int).SetString(s string, base int) (*Int, bool)
-extern go math/big.Int.SetString func (z *Int) SetString(s string, base int) (Option[go.Ref[Int]], bool) needs go.Foreign
+extern go math/big.Int.SetString func (z *Int) SetString(s string, base int) (Option[go.Ref[Int]], bool) needs go.Foreign takes z
 
 // ergo:go func (*Int).SetUint64(x uint64) *Int
-extern go math/big.Int.SetUint64 func (z *Int) SetUint64(x uint64) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.SetUint64 func (z *Int) SetUint64(x uint64) Option[go.Ref[Int]] needs go.Foreign takes z
 
 // ergo:go func (*Int).Sign() int
-extern go math/big.Int.Sign func (x *Int) Sign() int needs go.Foreign
+extern go math/big.Int.Sign func (x *Int) Sign() int needs go.Foreign takes x
 
 // ergo:go func (*Int).Sqrt(x *Int) *Int
-extern go math/big.Int.Sqrt func (z *Int) Sqrt(x *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Sqrt func (z *Int) Sqrt(x *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x
 
 // ergo:go func (*Int).String() string
-extern go math/big.Int.String func (x *Int) String() string needs go.Foreign
+extern go math/big.Int.String func (x *Int) String() string needs go.Foreign takes x
 
 // ergo:go func (*Int).Sub(x *Int, y *Int) *Int
-extern go math/big.Int.Sub func (z *Int) Sub(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Sub func (z *Int) Sub(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Int).Text(base int) string
-extern go math/big.Int.Text func (x *Int) Text(base int) string needs go.Foreign
+extern go math/big.Int.Text func (x *Int) Text(base int) string needs go.Foreign takes x
 
 // ergo:go func (*Int).TrailingZeroBits() uint
-extern go math/big.Int.TrailingZeroBits func (x *Int) TrailingZeroBits() uint needs go.Foreign
+extern go math/big.Int.TrailingZeroBits func (x *Int) TrailingZeroBits() uint needs go.Foreign takes x
 
 // ergo:go func (*Int).Uint64() uint64
-extern go math/big.Int.Uint64 func (x *Int) Uint64() uint64 needs go.Foreign
+extern go math/big.Int.Uint64 func (x *Int) Uint64() uint64 needs go.Foreign takes x
 
 // ergo:go func (*Int).UnmarshalJSON(text []byte) error
-extern go math/big.Int.UnmarshalJSON func (z *Int) UnmarshalJSON(text []byte) fails go.Error needs go.Foreign
+extern go math/big.Int.UnmarshalJSON func (z *Int) UnmarshalJSON(text []byte) fails go.Error needs go.Foreign takes z
 
 // ergo:go func (*Int).UnmarshalText(text []byte) error
-extern go math/big.Int.UnmarshalText func (z *Int) UnmarshalText(text []byte) fails go.Error needs go.Foreign
+extern go math/big.Int.UnmarshalText func (z *Int) UnmarshalText(text []byte) fails go.Error needs go.Foreign takes z
 
 // ergo:go func (*Int).Xor(x *Int, y *Int) *Int
-extern go math/big.Int.Xor func (z *Int) Xor(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Int.Xor func (z *Int) Xor(x *Int, y *Int) Option[go.Ref[Int]] needs go.Foreign takes z, x, y
 
 // ergo:go func Jacobi(x *Int, y *Int) int
-extern go math/big.Jacobi func Jacobi(x *Int, y *Int) int needs go.Foreign
+extern go math/big.Jacobi func Jacobi(x *Int, y *Int) int needs go.Foreign takes x, y
 
 // ergo:go const MaxBase untyped rune
 extern go math/big.MaxBase let MaxBase rune
@@ -392,100 +392,100 @@ extern go math/big.ParseFloat func ParseFloat(s string, base int, prec uint, mod
 extern go math/big.Rat type Rat {}
 
 // ergo:go func (*Rat).Abs(x *Rat) *Rat
-extern go math/big.Rat.Abs func (z *Rat) Abs(x *Rat) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.Abs func (z *Rat) Abs(x *Rat) Option[go.Ref[Rat]] needs go.Foreign takes z, x
 
 // ergo:go func (*Rat).Add(x *Rat, y *Rat) *Rat
-extern go math/big.Rat.Add func (z *Rat) Add(x *Rat, y *Rat) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.Add func (z *Rat) Add(x *Rat, y *Rat) Option[go.Ref[Rat]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Rat).AppendText(b []byte) ([]byte, error)
-extern go math/big.Rat.AppendText func (x *Rat) AppendText(b []byte) []byte fails go.Error needs go.Foreign
+extern go math/big.Rat.AppendText func (x *Rat) AppendText(b []byte) []byte fails go.Error needs go.Foreign takes x
 
 // ergo:go func (*Rat).Cmp(y *Rat) int
-extern go math/big.Rat.Cmp func (x *Rat) Cmp(y *Rat) int needs go.Foreign
+extern go math/big.Rat.Cmp func (x *Rat) Cmp(y *Rat) int needs go.Foreign takes x, y
 
 // ergo:go func (*Rat).Denom() *Int
-extern go math/big.Rat.Denom func (x *Rat) Denom() Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Rat.Denom func (x *Rat) Denom() Option[go.Ref[Int]] needs go.Foreign takes x
 
 // ergo:go func (*Rat).Float32() (f float32, exact bool)
-extern go math/big.Rat.Float32 func (x *Rat) Float32() (float32, bool) needs go.Foreign
+extern go math/big.Rat.Float32 func (x *Rat) Float32() (float32, bool) needs go.Foreign takes x
 
 // ergo:go func (*Rat).Float64() (f float64, exact bool)
-extern go math/big.Rat.Float64 func (x *Rat) Float64() (float64, bool) needs go.Foreign
+extern go math/big.Rat.Float64 func (x *Rat) Float64() (float64, bool) needs go.Foreign takes x
 
 // ergo:go func (*Rat).FloatPrec() (n int, exact bool)
-extern go math/big.Rat.FloatPrec func (x *Rat) FloatPrec() (int, bool) needs go.Foreign
+extern go math/big.Rat.FloatPrec func (x *Rat) FloatPrec() (int, bool) needs go.Foreign takes x
 
 // ergo:go func (*Rat).FloatString(prec int) string
-extern go math/big.Rat.FloatString func (x *Rat) FloatString(prec int) string needs go.Foreign
+extern go math/big.Rat.FloatString func (x *Rat) FloatString(prec int) string needs go.Foreign takes x
 
 // ergo:go func (*Rat).GobDecode(buf []byte) error
-extern go math/big.Rat.GobDecode func (z *Rat) GobDecode(buf []byte) fails go.Error needs go.Foreign
+extern go math/big.Rat.GobDecode func (z *Rat) GobDecode(buf []byte) fails go.Error needs go.Foreign takes z
 
 // ergo:go func (*Rat).GobEncode() ([]byte, error)
-extern go math/big.Rat.GobEncode func (x *Rat) GobEncode() []byte fails go.Error needs go.Foreign
+extern go math/big.Rat.GobEncode func (x *Rat) GobEncode() []byte fails go.Error needs go.Foreign takes x
 
 // ergo:go func (*Rat).Inv(x *Rat) *Rat
-extern go math/big.Rat.Inv func (z *Rat) Inv(x *Rat) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.Inv func (z *Rat) Inv(x *Rat) Option[go.Ref[Rat]] needs go.Foreign takes z, x
 
 // ergo:go func (*Rat).IsInt() bool
-extern go math/big.Rat.IsInt func (x *Rat) IsInt() bool needs go.Foreign
+extern go math/big.Rat.IsInt func (x *Rat) IsInt() bool needs go.Foreign takes x
 
 // ergo:go func (*Rat).MarshalText() (text []byte, err error)
-extern go math/big.Rat.MarshalText func (x *Rat) MarshalText() []byte fails go.Error needs go.Foreign
+extern go math/big.Rat.MarshalText func (x *Rat) MarshalText() []byte fails go.Error needs go.Foreign takes x
 
 // ergo:go func (*Rat).Mul(x *Rat, y *Rat) *Rat
-extern go math/big.Rat.Mul func (z *Rat) Mul(x *Rat, y *Rat) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.Mul func (z *Rat) Mul(x *Rat, y *Rat) Option[go.Ref[Rat]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Rat).Neg(x *Rat) *Rat
-extern go math/big.Rat.Neg func (z *Rat) Neg(x *Rat) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.Neg func (z *Rat) Neg(x *Rat) Option[go.Ref[Rat]] needs go.Foreign takes z, x
 
 // ergo:go func (*Rat).Num() *Int
-extern go math/big.Rat.Num func (x *Rat) Num() Option[go.Ref[Int]] needs go.Foreign
+extern go math/big.Rat.Num func (x *Rat) Num() Option[go.Ref[Int]] needs go.Foreign takes x
 
 // ergo:go func (*Rat).Quo(x *Rat, y *Rat) *Rat
-extern go math/big.Rat.Quo func (z *Rat) Quo(x *Rat, y *Rat) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.Quo func (z *Rat) Quo(x *Rat, y *Rat) Option[go.Ref[Rat]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Rat).RatString() string
-extern go math/big.Rat.RatString func (x *Rat) RatString() string needs go.Foreign
+extern go math/big.Rat.RatString func (x *Rat) RatString() string needs go.Foreign takes x
 
 // ergo:go func (*Rat).Scan(s fmt.ScanState, ch rune) error
-extern go math/big.Rat.Scan func (z *Rat) Scan(s fmt.ScanState, ch rune) fails go.Error needs go.Foreign
+extern go math/big.Rat.Scan func (z *Rat) Scan(s fmt.ScanState, ch rune) fails go.Error needs go.Foreign takes z, s
 
 // ergo:go func (*Rat).Set(x *Rat) *Rat
-extern go math/big.Rat.Set func (z *Rat) Set(x *Rat) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.Set func (z *Rat) Set(x *Rat) Option[go.Ref[Rat]] needs go.Foreign takes z, x
 
 // ergo:go func (*Rat).SetFloat64(f float64) *Rat
-extern go math/big.Rat.SetFloat64 func (z *Rat) SetFloat64(f float64) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.SetFloat64 func (z *Rat) SetFloat64(f float64) Option[go.Ref[Rat]] needs go.Foreign takes z
 
 // ergo:go func (*Rat).SetFrac(a *Int, b *Int) *Rat
-extern go math/big.Rat.SetFrac func (z *Rat) SetFrac(a *Int, b *Int) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.SetFrac func (z *Rat) SetFrac(a *Int, b *Int) Option[go.Ref[Rat]] needs go.Foreign takes z, a, b
 
 // ergo:go func (*Rat).SetFrac64(a int64, b int64) *Rat
-extern go math/big.Rat.SetFrac64 func (z *Rat) SetFrac64(a int64, b int64) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.SetFrac64 func (z *Rat) SetFrac64(a int64, b int64) Option[go.Ref[Rat]] needs go.Foreign takes z
 
 // ergo:go func (*Rat).SetInt(x *Int) *Rat
-extern go math/big.Rat.SetInt func (z *Rat) SetInt(x *Int) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.SetInt func (z *Rat) SetInt(x *Int) Option[go.Ref[Rat]] needs go.Foreign takes z, x
 
 // ergo:go func (*Rat).SetInt64(x int64) *Rat
-extern go math/big.Rat.SetInt64 func (z *Rat) SetInt64(x int64) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.SetInt64 func (z *Rat) SetInt64(x int64) Option[go.Ref[Rat]] needs go.Foreign takes z
 
 // ergo:go func (*Rat).SetString(s string) (*Rat, bool)
-extern go math/big.Rat.SetString func (z *Rat) SetString(s string) (Option[go.Ref[Rat]], bool) needs go.Foreign
+extern go math/big.Rat.SetString func (z *Rat) SetString(s string) (Option[go.Ref[Rat]], bool) needs go.Foreign takes z
 
 // ergo:go func (*Rat).SetUint64(x uint64) *Rat
-extern go math/big.Rat.SetUint64 func (z *Rat) SetUint64(x uint64) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.SetUint64 func (z *Rat) SetUint64(x uint64) Option[go.Ref[Rat]] needs go.Foreign takes z
 
 // ergo:go func (*Rat).Sign() int
-extern go math/big.Rat.Sign func (x *Rat) Sign() int needs go.Foreign
+extern go math/big.Rat.Sign func (x *Rat) Sign() int needs go.Foreign takes x
 
 // ergo:go func (*Rat).String() string
-extern go math/big.Rat.String func (x *Rat) String() string needs go.Foreign
+extern go math/big.Rat.String func (x *Rat) String() string needs go.Foreign takes x
 
 // ergo:go func (*Rat).Sub(x *Rat, y *Rat) *Rat
-extern go math/big.Rat.Sub func (z *Rat) Sub(x *Rat, y *Rat) Option[go.Ref[Rat]] needs go.Foreign
+extern go math/big.Rat.Sub func (z *Rat) Sub(x *Rat, y *Rat) Option[go.Ref[Rat]] needs go.Foreign takes z, x, y
 
 // ergo:go func (*Rat).UnmarshalText(text []byte) error
-extern go math/big.Rat.UnmarshalText func (z *Rat) UnmarshalText(text []byte) fails go.Error needs go.Foreign
+extern go math/big.Rat.UnmarshalText func (z *Rat) UnmarshalText(text []byte) fails go.Error needs go.Foreign takes z
 
 // ergo:go const Round RoundingMode
 extern go math/big.Round let Round RoundingMode

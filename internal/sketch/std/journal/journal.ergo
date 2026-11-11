@@ -132,7 +132,7 @@ type Codec[T] {
 // snapshot keeps a state's hosts as they were, closed with their entry: a
 // machine whose states hold hosts takes no snapshot (every 0), or its
 // first entry's ChildIn on a snapshot's host is a defect.
-func Start[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], j Journal[S, E], every int, capacity int, sink func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails Failed | Diverged needs R | W | Scheduler {
+func Start[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], j Journal[S, E], every int, capacity int, sink escaping func(o O) needs R) actor.Actor[S, E, Decision[S, O], F] fails Failed | Diverged needs R | W | Scheduler {
 	// The save outlives Start, so its count of signals since the last
 	// snapshot is a Ref: a let mut it captured would be a copy (types.md,
 	// Function values 3). The recover sets it to the journal's count.

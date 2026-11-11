@@ -29,13 +29,13 @@ extern go math/rand.Int63n func Int63n(n int64) int64 needs go.Foreign
 extern go math/rand.Intn func Intn(n int) int needs go.Foreign
 
 // ergo:go func New(src Source) *Rand
-extern go math/rand.New func New(src Source) Option[go.Ref[Rand]] needs go.Foreign
+extern go math/rand.New func New(src Source) Option[go.Ref[Rand]] needs go.Foreign takes src
 
 // ergo:go func NewSource(seed int64) Source
 extern go math/rand.NewSource func NewSource(seed int64) Source needs go.Foreign
 
 // ergo:go func NewZipf(r *Rand, s float64, v float64, imax uint64) *Zipf
-extern go math/rand.NewZipf func NewZipf(r *Rand, s float64, v float64, imax uint64) Option[go.Ref[Zipf]] needs go.Foreign
+extern go math/rand.NewZipf func NewZipf(r *Rand, s float64, v float64, imax uint64) Option[go.Ref[Zipf]] needs go.Foreign takes r
 
 // ergo:go func NormFloat64() float64
 extern go math/rand.NormFloat64 func NormFloat64() float64 needs go.Foreign
@@ -47,52 +47,52 @@ extern go math/rand.Perm func Perm(n int) []int needs go.Foreign
 extern go math/rand.Rand type Rand {}
 
 // ergo:go func (*Rand).ExpFloat64() float64
-extern go math/rand.Rand.ExpFloat64 func (r *Rand) ExpFloat64() float64 needs go.Foreign
+extern go math/rand.Rand.ExpFloat64 func (r *Rand) ExpFloat64() float64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Float32() float32
-extern go math/rand.Rand.Float32 func (r *Rand) Float32() float32 needs go.Foreign
+extern go math/rand.Rand.Float32 func (r *Rand) Float32() float32 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Float64() float64
-extern go math/rand.Rand.Float64 func (r *Rand) Float64() float64 needs go.Foreign
+extern go math/rand.Rand.Float64 func (r *Rand) Float64() float64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Int() int
-extern go math/rand.Rand.Int func (r *Rand) Int() int needs go.Foreign
+extern go math/rand.Rand.Int func (r *Rand) Int() int needs go.Foreign takes r
 
 // ergo:go func (*Rand).Int31() int32
-extern go math/rand.Rand.Int31 func (r *Rand) Int31() int32 needs go.Foreign
+extern go math/rand.Rand.Int31 func (r *Rand) Int31() int32 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Int31n(n int32) int32
-extern go math/rand.Rand.Int31n func (r *Rand) Int31n(n int32) int32 needs go.Foreign
+extern go math/rand.Rand.Int31n func (r *Rand) Int31n(n int32) int32 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Int63() int64
-extern go math/rand.Rand.Int63 func (r *Rand) Int63() int64 needs go.Foreign
+extern go math/rand.Rand.Int63 func (r *Rand) Int63() int64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Int63n(n int64) int64
-extern go math/rand.Rand.Int63n func (r *Rand) Int63n(n int64) int64 needs go.Foreign
+extern go math/rand.Rand.Int63n func (r *Rand) Int63n(n int64) int64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Intn(n int) int
-extern go math/rand.Rand.Intn func (r *Rand) Intn(n int) int needs go.Foreign
+extern go math/rand.Rand.Intn func (r *Rand) Intn(n int) int needs go.Foreign takes r
 
 // ergo:go func (*Rand).NormFloat64() float64
-extern go math/rand.Rand.NormFloat64 func (r *Rand) NormFloat64() float64 needs go.Foreign
+extern go math/rand.Rand.NormFloat64 func (r *Rand) NormFloat64() float64 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Perm(n int) []int
-extern go math/rand.Rand.Perm func (r *Rand) Perm(n int) []int needs go.Foreign
+extern go math/rand.Rand.Perm func (r *Rand) Perm(n int) []int needs go.Foreign takes r
 
 // ergo:go func (*Rand).Read(p []byte) (n int, err error)
-extern go math/rand.Rand.Read func (r *Rand) Read(p []byte) int fails go.Error needs go.Foreign
+extern go math/rand.Rand.Read func (r *Rand) Read(p []byte) int fails go.Error needs go.Foreign takes r
 
 // ergo:go func (*Rand).Seed(seed int64)
-extern go math/rand.Rand.Seed func (r *Rand) Seed(seed int64) needs go.Foreign
+extern go math/rand.Rand.Seed func (r *Rand) Seed(seed int64) needs go.Foreign takes r
 
 // ergo:go func (*Rand).Shuffle(n int, swap func(i int, j int))
-extern go math/rand.Rand.Shuffle func (r *Rand) Shuffle(n int, swap func(int, int)) needs go.Foreign
+extern go math/rand.Rand.Shuffle func (r *Rand) Shuffle(n int, swap func(int, int)) needs go.Foreign takes r
 
 // ergo:go func (*Rand).Uint32() uint32
-extern go math/rand.Rand.Uint32 func (r *Rand) Uint32() uint32 needs go.Foreign
+extern go math/rand.Rand.Uint32 func (r *Rand) Uint32() uint32 needs go.Foreign takes r
 
 // ergo:go func (*Rand).Uint64() uint64
-extern go math/rand.Rand.Uint64 func (r *Rand) Uint64() uint64 needs go.Foreign
+extern go math/rand.Rand.Uint64 func (r *Rand) Uint64() uint64 needs go.Foreign takes r
 
 // ergo:go func Read(p []byte) (n int, err error)
 extern go math/rand.Read func Read(p []byte) int fails go.Error needs go.Foreign
@@ -105,15 +105,15 @@ extern go math/rand.Shuffle func Shuffle[CR](n int, swap func(int, int) needs CR
 
 // ergo:go type Source interface
 extern go math/rand.Source type Source {
-	Int63() int64 needs go.Foreign,
-	Seed(seed int64) needs go.Foreign,
+	Int63() int64 needs go.Foreign takes,
+	Seed(seed int64) needs go.Foreign takes,
 }
 
 // ergo:go type Source64 interface
 extern go math/rand.Source64 type Source64 {
-	Int63() int64 needs go.Foreign,
-	Seed(seed int64) needs go.Foreign,
-	Uint64() uint64 needs go.Foreign,
+	Int63() int64 needs go.Foreign takes,
+	Seed(seed int64) needs go.Foreign takes,
+	Uint64() uint64 needs go.Foreign takes,
 }
 
 // ergo:go func Uint32() uint32
@@ -126,4 +126,4 @@ extern go math/rand.Uint64 func Uint64() uint64 needs go.Foreign
 extern go math/rand.Zipf type Zipf {}
 
 // ergo:go func (*Zipf).Uint64() uint64
-extern go math/rand.Zipf.Uint64 func (z *Zipf) Uint64() uint64 needs go.Foreign
+extern go math/rand.Zipf.Uint64 func (z *Zipf) Uint64() uint64 needs go.Foreign takes z

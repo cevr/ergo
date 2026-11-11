@@ -2112,10 +2112,21 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	}
 	closes := w.info.Closes[x] != nil || w.info.Closes[x.Fun] != nil
 	drains := w.drainsLends(call)
-	// A Go function's arguments are lent for the call: a Go signature
-	// cannot move a value (IG9, hostres.go), so converting a resource to
-	// its Go interface parameter is no move (R23).
-	hostCallee := call.Kind == CallFunc && call.Func != nil && call.Func.Pkg.Host()
+	// A direct Go argument conversion follows the reviewed argument
+	// clause, not R23's unconditional move. Unknown arguments are taken
+	// by hostClauses; only a reviewed lend keeps the caller's ownership.
+	hostFunc := call.Kind == CallFunc && call.Func != nil && call.Func.Pkg.Host()
+	hostCallee := hostFunc || call.Kind == CallOp && call.Recv != nil && isHostNamed(w.info.Types[call.Recv])
+	hostMethod := hostFunc && call.Func.Decl != nil && call.Func.Decl.Recv != nil
+	if hostMethod {
+		// A binding signature lists no receiver parameter. Its named
+		// receiver's takes is TakesSelf; explicit parameters start at 1
+		// in this evaluation list, as for every other dot call.
+		taken = map[int]bool{0: selfTaken}
+		for _, i := range takes {
+			taken[i+1] = true
+		}
+	}
 	if closes {
 		selfTaken = true
 		if call.Kind == CallFunc {
@@ -2144,6 +2155,11 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 				w.move(i, id, hand{at: a, how: how})
 				return false
 			}
+			if hostCallee && holdsBorrow(w.info.Types[a]) {
+				w.reportCode(a, CodeType, "%s is a borrow, and %s may keep it; pass an owned Go reference or use a reviewed lent argument", exprText(a), name)
+				w.expr(a, mLend, hand{})
+				return false
+			}
 			if recv && w.fieldTake(a, hand{at: a, how: how}) {
 				return false // a field taken in place (R39, Gap 38)
 			}
@@ -2169,13 +2185,19 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		return false
 	}
 	pname := func(i int) string {
-		if sig != nil && i < len(sig.Params) {
+		if hostMethod {
+			i--
+		}
+		if sig != nil && i >= 0 && i < len(sig.Params) {
 			return sig.Params[i].Name
 		}
 		return ""
 	}
 	ptype := func(i int) Type {
-		if sig != nil && i < len(sig.Params) {
+		if hostMethod {
+			i--
+		}
+		if sig != nil && i >= 0 && i < len(sig.Params) {
 			return sig.Params[i].Type
 		}
 		return nil

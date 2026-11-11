@@ -4,7 +4,7 @@
 import go crypto/mlkem
 
 // ergo:go func Encapsulate1024(ek *mlkem.EncapsulationKey1024, random []byte) (sharedKey []byte, ciphertext []byte, err error)
-extern go crypto/mlkem/mlkemtest.Encapsulate1024 func Encapsulate1024(ek *mlkem.EncapsulationKey1024, random []byte) ([]byte, []byte) fails go.Error needs go.Foreign
+extern go crypto/mlkem/mlkemtest.Encapsulate1024 func Encapsulate1024(ek *mlkem.EncapsulationKey1024, random []byte) ([]byte, []byte) fails go.Error needs go.Foreign takes ek
 
 // ergo:go func Encapsulate768(ek *mlkem.EncapsulationKey768, random []byte) (sharedKey []byte, ciphertext []byte, err error)
-extern go crypto/mlkem/mlkemtest.Encapsulate768 func Encapsulate768(ek *mlkem.EncapsulationKey768, random []byte) ([]byte, []byte) fails go.Error needs go.Foreign
+extern go crypto/mlkem/mlkemtest.Encapsulate768 func Encapsulate768(ek *mlkem.EncapsulationKey768, random []byte) ([]byte, []byte) fails go.Error needs go.Foreign takes ek

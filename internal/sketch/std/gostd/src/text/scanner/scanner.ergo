@@ -36,7 +36,7 @@ extern go text/scanner.Position type Position {
 }
 
 // ergo:go func (*Position).IsValid() bool
-extern go text/scanner.Position.IsValid func (pos *Position) IsValid() bool needs go.Foreign
+extern go text/scanner.Position.IsValid func (pos *Position) IsValid() bool needs go.Foreign takes pos
 
 // ergo:go func (Position).String() string
 extern go text/scanner.Position.String func (pos Position) String() string needs go.Foreign
@@ -80,28 +80,28 @@ extern go text/scanner.Scanner type Scanner {
 // ergo:refused Scanner.IsIdentRune: a Go function as a result, a field or an element
 
 // ergo:go func (*Scanner).Init(src io.Reader) *Scanner
-extern go text/scanner.Scanner.Init func (s *Scanner) Init(src io.Reader) Option[go.Ref[Scanner]] needs go.Foreign
+extern go text/scanner.Scanner.Init func (s *Scanner) Init(src io.Reader) Option[go.Ref[Scanner]] needs go.Foreign takes s, src
 
 // ergo:go func (*Position).IsValid() bool
-extern go text/scanner.Scanner.IsValid func (pos *Scanner) IsValid() bool needs go.Foreign
+extern go text/scanner.Scanner.IsValid func (pos *Scanner) IsValid() bool needs go.Foreign takes pos
 
 // ergo:go func (*Scanner).Next() rune
-extern go text/scanner.Scanner.Next func (s *Scanner) Next() rune needs go.Foreign
+extern go text/scanner.Scanner.Next func (s *Scanner) Next() rune needs go.Foreign takes s
 
 // ergo:go func (*Scanner).Peek() rune
-extern go text/scanner.Scanner.Peek func (s *Scanner) Peek() rune needs go.Foreign
+extern go text/scanner.Scanner.Peek func (s *Scanner) Peek() rune needs go.Foreign takes s
 
 // ergo:go func (*Scanner).Pos() (pos Position)
-extern go text/scanner.Scanner.Pos func (s *Scanner) Pos() Position needs go.Foreign
+extern go text/scanner.Scanner.Pos func (s *Scanner) Pos() Position needs go.Foreign takes s
 
 // ergo:go func (*Scanner).Scan() rune
-extern go text/scanner.Scanner.Scan func (s *Scanner) Scan() rune needs go.Foreign
+extern go text/scanner.Scanner.Scan func (s *Scanner) Scan() rune needs go.Foreign takes s
 
 // ergo:go func (Position).String() string
 extern go text/scanner.Scanner.String func (pos Scanner) String() string needs go.Foreign
 
 // ergo:go func (*Scanner).TokenText() string
-extern go text/scanner.Scanner.TokenText func (s *Scanner) TokenText() string needs go.Foreign
+extern go text/scanner.Scanner.TokenText func (s *Scanner) TokenText() string needs go.Foreign takes s
 
 // ergo:go const SkipComments untyped int
 extern go text/scanner.SkipComments let SkipComments int

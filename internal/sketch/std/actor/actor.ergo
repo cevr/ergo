@@ -99,7 +99,7 @@ type Actor[S, E, D, F] {
 // one, and work runs it with the entry's send), the decision's kind
 // (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4, Done 5), the state after
 // a decision, the output of a decision, and the inbox's capacity.
-extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh func() S fails G needs R, limit int, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh escaping func() S fails G needs R, limit int, step escaping func(s S, e E) D fails F needs R, fire escaping func(at S, s S) D fails F needs R, delay escaping func(s S) duration, workOf escaping func(s S) W, hasWork escaping func(w W) bool, work escaping func(w W, send func(e E)) needs R, kind escaping func(d D) int, next escaping func(s S, d D) S, out escaping func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
 // noTimer is the delay start reads as "no timer" for a state whose After
 // is None.
@@ -117,8 +117,11 @@ extern go ergo.local/prototype/runtime/v1.ActorNoTimer func noTimer() duration
 // and a state whose timer re-enters it would never let time pass. sink gets each Emit's output and Done's output, in order, on
 // the actor's task, before any observer sees the decision or its state
 // (runtime.md, Machines and actors 11.15); Done then ends the actor. A machine with an input
-// starts as machines.Start(m, input).
-func StartMachine[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+// starts as machines.Start(m, input). sink is escaping: the actor's task
+// calls it after StartMachine returned, while the caller runs on, so a
+// literal sink writes no let mut of its caller (types.md, Function values
+// 2 and 3).
+func StartMachine[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	let first = m.Initial
 	launch(m, capacity, sink, func() S { first }, 0)
 }
@@ -135,7 +138,7 @@ func StartMachine[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, s
 // typed failure that ends the actor are final: no restart follows them.
 // The defect that finds the budget spent ends the actor, and Stop raises
 // it. Restarts counts the restarts. A negative Limit is a defect.
-func Supervise[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R, policy tasks.Restart) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func Supervise[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, policy tasks.Restart) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	let first = m.Initial
 	launch(m, capacity, sink, func() S { first }, policy.Limit)
 }
@@ -146,7 +149,7 @@ extern go ergo.local/prototype/runtime/v1.ActorRestarts func Restarts[S, E, D, F
 
 // launch is the body of StartMachine and Supervise: m as an actor whose
 // restarts (limit of them) start in fresh's state.
-func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R, fresh func() S fails G needs R, limit int) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, fresh escaping func() S fails G needs R, limit int) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	start(m.Initial, fresh, limit, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
 		match m.After(at) {
 		case Some[Timeout[E]] as t:
@@ -229,7 +232,7 @@ func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink
 // the actor's first entry binds each one its first state holds, and its
 // work fills them with new children. Every other host recover made is
 // closed when StartDurable returns, so a journal never keeps a live child.
-func StartDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+func StartDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
 	try recovering(func() S fails G needs R { try recovered(recover, m.Initial) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 		StartMachine(durable(m, initial, save), capacity, sink)
 	})
@@ -249,7 +252,7 @@ extern go ergo.local/prototype/runtime/v1.ActorRecovering func recovering[S, A, 
 // A failure of recover at the start fails SuperviseDurable; at a restart
 // it is a defect of the new incarnation (ActorFreshDefect), which the
 // budget counts like any other.
-func SuperviseDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+func SuperviseDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
 	let first = m.Initial
 	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 		launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit)
@@ -295,7 +298,7 @@ extern go ergo.local/prototype/runtime/v1.ActorKeep func keep[S, E, G, R](save f
 // gets each decision with deliver, which gives a child output to the
 // parent as a signal of the entry that owns the child. host is the host
 // the child fills (ChildIn), or noHost() (Child).
-extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](host Host[Actor[S, E, D, F]], initial S, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](host Host[Actor[S, E, D, F]], initial S, step escaping func(s S, e E) D fails F needs R, fire escaping func(at S, s S) D fails F needs R, delay escaping func(s S) duration, workOf escaping func(s S) W, hasWork escaping func(w W) bool, work escaping func(w W, send func(e E)) needs R, kind escaping func(d D) int, next escaping func(s S, d D) S, out escaping func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
 // Child runs m as an actor that the entry of the calling work owns
 // (runtime.md, Machines and actors 14), with an inbox of capacity
@@ -312,7 +315,7 @@ extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F,
 // parent. send names the entry's signal type, so toParent gives the
 // parent's signals; the checker accepts a Child only with the send of the
 // Listen work that encloses the call (S108 elsewhere).
-func Child[S, E, O, F, R, W, P](send func(e P), m Machine[S, E, O, F, R, W], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func Child[S, E, O, F, R, W, P](send func(e P), m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	childOf(noHost[Actor[S, E, Decision[S, O], F]](), m, capacity, toParent)
 }
 
@@ -352,12 +355,12 @@ extern go ergo.local/prototype/runtime/v1.ActorNoHost func noHost[A]() Host[A]
 // work owns and that is empty. Any other host is a defect, with no child
 // started: a host of an ended entry (a state that carried it into a new
 // entry), a filled host, or one that no entry owns.
-func ChildIn[S, E, O, F, R, W, P](send func(e P), host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func ChildIn[S, E, O, F, R, W, P](send func(e P), host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	childOf(host, m, capacity, toParent)
 }
 
 // childOf is the body of Child and ChildIn.
-func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	child(host, m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
 		match m.After(at) {
 		case Some[Timeout[E]] as t:
@@ -418,7 +421,7 @@ func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, Decision[S, O], F]], m M
 
 // feed is Feed's Go body (ActorFeed): it admits run, which the actor's
 // runner starts on a task of its own with a send of the actor's signals.
-extern go ergo.local/prototype/runtime/v1.ActorFeed func feed[S, E, D, F](a Actor[S, E, D, F], run func(send func(e E))) fails Stopped
+extern go ergo.local/prototype/runtime/v1.ActorFeed func feed[S, E, D, F](a Actor[S, E, D, F], run escaping func(send func(e E))) fails Stopped
 
 // Feed gives a the values of source as signals, in source's order, for as
 // long as a runs, and returns once the source is admitted. The source runs

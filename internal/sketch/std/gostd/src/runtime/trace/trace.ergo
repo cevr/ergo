@@ -8,16 +8,16 @@ import go io
 extern go runtime/trace.FlightRecorder type FlightRecorder {}
 
 // ergo:go func (*FlightRecorder).Enabled() bool
-extern go runtime/trace.FlightRecorder.Enabled func (fr *FlightRecorder) Enabled() bool needs go.Foreign
+extern go runtime/trace.FlightRecorder.Enabled func (fr *FlightRecorder) Enabled() bool needs go.Foreign takes fr
 
 // ergo:go func (*FlightRecorder).Start() error
-extern go runtime/trace.FlightRecorder.Start func (fr *FlightRecorder) Start() fails go.Error needs go.Foreign
+extern go runtime/trace.FlightRecorder.Start func (fr *FlightRecorder) Start() fails go.Error needs go.Foreign takes fr
 
 // ergo:go func (*FlightRecorder).Stop()
-extern go runtime/trace.FlightRecorder.Stop func (fr *FlightRecorder) Stop() needs go.Foreign
+extern go runtime/trace.FlightRecorder.Stop func (fr *FlightRecorder) Stop() needs go.Foreign takes fr
 
 // ergo:go func (*FlightRecorder).WriteTo(w io.Writer) (n int64, err error)
-extern go runtime/trace.FlightRecorder.WriteTo func (fr *FlightRecorder) WriteTo(w io.Writer) int64 fails go.Error needs go.Foreign
+extern go runtime/trace.FlightRecorder.WriteTo func (fr *FlightRecorder) WriteTo(w io.Writer) int64 fails go.Error needs go.Foreign takes fr, w
 
 // ergo:go type FlightRecorderConfig struct
 extern go runtime/trace.FlightRecorderConfig type FlightRecorderConfig {
@@ -46,10 +46,10 @@ extern go runtime/trace.NewTask func NewTask(taskType string) (gocontext.Context
 extern go runtime/trace.Region type Region {}
 
 // ergo:go func (*Region).End()
-extern go runtime/trace.Region.End func (r *Region) End() needs go.Foreign
+extern go runtime/trace.Region.End func (r *Region) End() needs go.Foreign takes r
 
 // ergo:go func Start(w io.Writer) error
-extern go runtime/trace.Start func Start(w io.Writer) fails go.Error needs go.Foreign
+extern go runtime/trace.Start func Start(w io.Writer) fails go.Error needs go.Foreign takes w
 
 // ergo:go func StartRegion(ctx context.Context, regionType string) *Region
 // ergo:context
@@ -62,7 +62,7 @@ extern go runtime/trace.Stop func Stop() needs go.Foreign
 extern go runtime/trace.Task type Task {}
 
 // ergo:go func (*Task).End()
-extern go runtime/trace.Task.End func (t *Task) End() needs go.Foreign
+extern go runtime/trace.Task.End func (t *Task) End() needs go.Foreign takes t
 
 // ergo:go func WithRegion(ctx context.Context, regionType string, fn func())
 // ergo:context

@@ -12,25 +12,25 @@ import go reflect
 
 // ergo:go type Conn interface
 extern go database/sql/driver.Conn type Conn {
-	Begin() Tx fails go.Error needs go.Foreign,
-	Close() fails go.Error needs go.Foreign,
-	Prepare(query string) Stmt fails go.Error needs go.Foreign,
+	Begin() Tx fails go.Error needs go.Foreign takes,
+	Close() fails go.Error needs go.Foreign takes,
+	Prepare(query string) Stmt fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type ConnBeginTx interface
 extern go database/sql/driver.ConnBeginTx type ConnBeginTx {
-	BeginTx(ctx gocontext.Context, opts TxOptions) Tx fails go.Error needs go.Foreign,
+	BeginTx(ctx gocontext.Context, opts TxOptions) Tx fails go.Error needs go.Foreign takes ctx,
 }
 
 // ergo:go type ConnPrepareContext interface
 extern go database/sql/driver.ConnPrepareContext type ConnPrepareContext {
-	PrepareContext(ctx gocontext.Context, query string) Stmt fails go.Error needs go.Foreign,
+	PrepareContext(ctx gocontext.Context, query string) Stmt fails go.Error needs go.Foreign takes ctx,
 }
 
 // ergo:go type Connector interface
 extern go database/sql/driver.Connector type Connector {
-	Connect(p0 gocontext.Context) Conn fails go.Error needs go.Foreign,
-	Driver() Driver needs go.Foreign,
+	Connect(p0 gocontext.Context) Conn fails go.Error needs go.Foreign takes p0,
+	Driver() Driver needs go.Foreign takes,
 }
 
 // ergo:go var DefaultParameterConverter defaultConverter
@@ -38,12 +38,12 @@ extern go database/sql/driver.Connector type Connector {
 
 // ergo:go type Driver interface
 extern go database/sql/driver.Driver type Driver {
-	Open(name string) Conn fails go.Error needs go.Foreign,
+	Open(name string) Conn fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type DriverContext interface
 extern go database/sql/driver.DriverContext type DriverContext {
-	OpenConnector(name string) Connector fails go.Error needs go.Foreign,
+	OpenConnector(name string) Connector fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go var ErrBadConn error
@@ -60,7 +60,7 @@ extern go database/sql/driver.ErrSkip let ErrSkip go.Error
 
 // ergo:go type ExecerContext interface
 extern go database/sql/driver.ExecerContext type ExecerContext {
-	ExecContext(ctx gocontext.Context, query string, args []NamedValue) Result fails go.Error needs go.Foreign,
+	ExecContext(ctx gocontext.Context, query string, args []NamedValue) Result fails go.Error needs go.Foreign takes ctx,
 }
 
 // ergo:go var Int32 int32Type
@@ -86,7 +86,7 @@ extern go database/sql/driver.NamedValue type NamedValue {
 
 // ergo:go type NamedValueChecker interface
 extern go database/sql/driver.NamedValueChecker type NamedValueChecker {
-	CheckNamedValue(p0 *NamedValue) fails go.Error needs go.Foreign,
+	CheckNamedValue(p0 *NamedValue) fails go.Error needs go.Foreign takes p0,
 }
 
 // ergo:go type NotNull struct
@@ -109,7 +109,7 @@ extern go database/sql/driver.Null type Null {}
 
 // ergo:go type Pinger interface
 extern go database/sql/driver.Pinger type Pinger {
-	Ping(ctx gocontext.Context) fails go.Error needs go.Foreign,
+	Ping(ctx gocontext.Context) fails go.Error needs go.Foreign takes ctx,
 }
 
 // ergo:go type Queryer interface
@@ -117,13 +117,13 @@ extern go database/sql/driver.Pinger type Pinger {
 
 // ergo:go type QueryerContext interface
 extern go database/sql/driver.QueryerContext type QueryerContext {
-	QueryContext(ctx gocontext.Context, query string, args []NamedValue) Rows fails go.Error needs go.Foreign,
+	QueryContext(ctx gocontext.Context, query string, args []NamedValue) Rows fails go.Error needs go.Foreign takes ctx,
 }
 
 // ergo:go type Result interface
 extern go database/sql/driver.Result type Result {
-	LastInsertId() int64 fails go.Error needs go.Foreign,
-	RowsAffected() int64 fails go.Error needs go.Foreign,
+	LastInsertId() int64 fails go.Error needs go.Foreign takes,
+	RowsAffected() int64 fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go var ResultNoRows noRows
@@ -131,8 +131,8 @@ extern go database/sql/driver.Result type Result {
 
 // ergo:go type Rows interface
 extern go database/sql/driver.Rows type Rows {
-	Close() fails go.Error needs go.Foreign,
-	Columns() []string needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	Columns() []string needs go.Foreign takes,
 }
 
 // ergo:go func (driver.Rows).Next(dest []driver.Value) error
@@ -149,9 +149,9 @@ extern go database/sql/driver.RowsAffected.RowsAffected func (v RowsAffected) Ro
 
 // ergo:go type RowsColumnScanner interface
 extern go database/sql/driver.RowsColumnScanner type RowsColumnScanner {
-	Close() fails go.Error needs go.Foreign,
-	Columns() []string needs go.Foreign,
-	NextRow() fails go.Error needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	Columns() []string needs go.Foreign takes,
+	NextRow() fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go func (driver.Rows).Next(dest []driver.Value) error
@@ -162,9 +162,9 @@ extern go database/sql/driver.RowsColumnScanner type RowsColumnScanner {
 
 // ergo:go type RowsColumnTypeDatabaseTypeName interface
 extern go database/sql/driver.RowsColumnTypeDatabaseTypeName type RowsColumnTypeDatabaseTypeName {
-	Close() fails go.Error needs go.Foreign,
-	ColumnTypeDatabaseTypeName(index int) string needs go.Foreign,
-	Columns() []string needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	ColumnTypeDatabaseTypeName(index int) string needs go.Foreign takes,
+	Columns() []string needs go.Foreign takes,
 }
 
 // ergo:go func (driver.Rows).Next(dest []driver.Value) error
@@ -172,9 +172,9 @@ extern go database/sql/driver.RowsColumnTypeDatabaseTypeName type RowsColumnType
 
 // ergo:go type RowsColumnTypeLength interface
 extern go database/sql/driver.RowsColumnTypeLength type RowsColumnTypeLength {
-	Close() fails go.Error needs go.Foreign,
-	ColumnTypeLength(index int) (int64, bool) needs go.Foreign,
-	Columns() []string needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	ColumnTypeLength(index int) (int64, bool) needs go.Foreign takes,
+	Columns() []string needs go.Foreign takes,
 }
 
 // ergo:go func (driver.Rows).Next(dest []driver.Value) error
@@ -182,9 +182,9 @@ extern go database/sql/driver.RowsColumnTypeLength type RowsColumnTypeLength {
 
 // ergo:go type RowsColumnTypeNullable interface
 extern go database/sql/driver.RowsColumnTypeNullable type RowsColumnTypeNullable {
-	Close() fails go.Error needs go.Foreign,
-	ColumnTypeNullable(index int) (bool, bool) needs go.Foreign,
-	Columns() []string needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	ColumnTypeNullable(index int) (bool, bool) needs go.Foreign takes,
+	Columns() []string needs go.Foreign takes,
 }
 
 // ergo:go func (driver.Rows).Next(dest []driver.Value) error
@@ -192,9 +192,9 @@ extern go database/sql/driver.RowsColumnTypeNullable type RowsColumnTypeNullable
 
 // ergo:go type RowsColumnTypePrecisionScale interface
 extern go database/sql/driver.RowsColumnTypePrecisionScale type RowsColumnTypePrecisionScale {
-	Close() fails go.Error needs go.Foreign,
-	ColumnTypePrecisionScale(index int) (int64, int64, bool) needs go.Foreign,
-	Columns() []string needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	ColumnTypePrecisionScale(index int) (int64, int64, bool) needs go.Foreign takes,
+	Columns() []string needs go.Foreign takes,
 }
 
 // ergo:go func (driver.Rows).Next(dest []driver.Value) error
@@ -202,9 +202,9 @@ extern go database/sql/driver.RowsColumnTypePrecisionScale type RowsColumnTypePr
 
 // ergo:go type RowsColumnTypeScanType interface
 extern go database/sql/driver.RowsColumnTypeScanType type RowsColumnTypeScanType {
-	Close() fails go.Error needs go.Foreign,
-	ColumnTypeScanType(index int) reflect.Type needs go.Foreign,
-	Columns() []string needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	ColumnTypeScanType(index int) reflect.Type needs go.Foreign takes,
+	Columns() []string needs go.Foreign takes,
 }
 
 // ergo:go func (driver.Rows).Next(dest []driver.Value) error
@@ -212,10 +212,10 @@ extern go database/sql/driver.RowsColumnTypeScanType type RowsColumnTypeScanType
 
 // ergo:go type RowsNextResultSet interface
 extern go database/sql/driver.RowsNextResultSet type RowsNextResultSet {
-	Close() fails go.Error needs go.Foreign,
-	Columns() []string needs go.Foreign,
-	HasNextResultSet() bool needs go.Foreign,
-	NextResultSet() fails go.Error needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	Columns() []string needs go.Foreign takes,
+	HasNextResultSet() bool needs go.Foreign takes,
+	NextResultSet() fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go func (driver.Rows).Next(dest []driver.Value) error
@@ -226,13 +226,13 @@ extern go database/sql/driver.ScanContext type ScanContext {}
 
 // ergo:go type SessionResetter interface
 extern go database/sql/driver.SessionResetter type SessionResetter {
-	ResetSession(ctx gocontext.Context) fails go.Error needs go.Foreign,
+	ResetSession(ctx gocontext.Context) fails go.Error needs go.Foreign takes ctx,
 }
 
 // ergo:go type Stmt interface
 extern go database/sql/driver.Stmt type Stmt {
-	Close() fails go.Error needs go.Foreign,
-	NumInput() int needs go.Foreign,
+	Close() fails go.Error needs go.Foreign takes,
+	NumInput() int needs go.Foreign takes,
 }
 
 // ergo:go func (driver.Stmt).Exec(args []driver.Value) (driver.Result, error)
@@ -243,12 +243,12 @@ extern go database/sql/driver.Stmt type Stmt {
 
 // ergo:go type StmtExecContext interface
 extern go database/sql/driver.StmtExecContext type StmtExecContext {
-	ExecContext(ctx gocontext.Context, args []NamedValue) Result fails go.Error needs go.Foreign,
+	ExecContext(ctx gocontext.Context, args []NamedValue) Result fails go.Error needs go.Foreign takes ctx,
 }
 
 // ergo:go type StmtQueryContext interface
 extern go database/sql/driver.StmtQueryContext type StmtQueryContext {
-	QueryContext(ctx gocontext.Context, args []NamedValue) Rows fails go.Error needs go.Foreign,
+	QueryContext(ctx gocontext.Context, args []NamedValue) Rows fails go.Error needs go.Foreign takes ctx,
 }
 
 // ergo:go var String stringType
@@ -256,8 +256,8 @@ extern go database/sql/driver.StmtQueryContext type StmtQueryContext {
 
 // ergo:go type Tx interface
 extern go database/sql/driver.Tx type Tx {
-	Commit() fails go.Error needs go.Foreign,
-	Rollback() fails go.Error needs go.Foreign,
+	Commit() fails go.Error needs go.Foreign takes,
+	Rollback() fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type TxOptions struct
@@ -268,7 +268,7 @@ extern go database/sql/driver.TxOptions type TxOptions {
 
 // ergo:go type Validator interface
 extern go database/sql/driver.Validator type Validator {
-	IsValid() bool needs go.Foreign,
+	IsValid() bool needs go.Foreign takes,
 }
 
 // ergo:go type Value interface

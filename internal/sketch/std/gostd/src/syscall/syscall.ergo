@@ -1279,7 +1279,7 @@ extern go syscall.Flock func Flock(fd int, how int) fails go.Error needs go.Fore
 // ergo:refused FlushBpf: platform-specific: Go does not declare it on linux/amd64, linux/arm64
 
 // ergo:go func ForkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err error)
-extern go syscall.ForkExec func ForkExec(argv0 string, argv []string, attr *ProcAttr) int fails go.Error needs go.Foreign
+extern go syscall.ForkExec func ForkExec(argv0 string, argv []string, attr *ProcAttr) int fails go.Error needs go.Foreign takes attr
 
 // ergo:go var ForkLock sync.RWMutex
 // ergo:refused ForkLock: a Go variable is host state; call a function
@@ -1357,7 +1357,7 @@ extern go syscall.Getpriority func Getpriority(which int, who int) int fails go.
 // ergo:refused Getrlimit: platform-specific: its Go declaration differs on linux/amd64, linux/arm64
 
 // ergo:go func Getrusage(who int, rusage *Rusage) (err error)
-extern go syscall.Getrusage func Getrusage(who int, rusage *Rusage) fails go.Error needs go.Foreign
+extern go syscall.Getrusage func Getrusage(who int, rusage *Rusage) fails go.Error needs go.Foreign takes rusage
 
 // ergo:go func Getsid(pid int) (sid int, err error)
 // ergo:refused Getsid: platform-specific: Go does not declare it on linux/amd64, linux/arm64
@@ -2495,7 +2495,7 @@ extern go syscall.Iovec type Iovec {
 // ergo:refused Iovec.Base: a pointer to an unnamed type byte
 
 // ergo:go func (*Iovec).SetLen(length int)
-extern go syscall.Iovec.SetLen func (iov *Iovec) SetLen(length int) needs go.Foreign
+extern go syscall.Iovec.SetLen func (iov *Iovec) SetLen(length int) needs go.Foreign takes iov
 
 // ergo:go func Issetugid() (tainted bool)
 // ergo:refused Issetugid: platform-specific: Go does not declare it on linux/amd64, linux/arm64
@@ -3071,7 +3071,7 @@ extern go syscall.ParseDirent func ParseDirent(buf []byte, max int, names []stri
 extern go syscall.ParseSocketControlMessage func ParseSocketControlMessage(b []byte) []SocketControlMessage fails go.Error needs go.Foreign
 
 // ergo:go func ParseUnixRights(m *SocketControlMessage) ([]int, error)
-extern go syscall.ParseUnixRights func ParseUnixRights(m *SocketControlMessage) []int fails go.Error needs go.Foreign
+extern go syscall.ParseUnixRights func ParseUnixRights(m *SocketControlMessage) []int fails go.Error needs go.Foreign takes m
 
 // ergo:go func Pathconf(path string, name int) (val int, err error)
 // ergo:refused Pathconf: platform-specific: Go does not declare it on linux/amd64, linux/arm64
@@ -5147,7 +5147,7 @@ extern go syscall.Setregid func Setregid(rgid int, egid int) fails go.Error need
 extern go syscall.Setreuid func Setreuid(ruid int, euid int) fails go.Error needs go.Foreign
 
 // ergo:go func Setrlimit(resource int, rlim *Rlimit) error
-extern go syscall.Setrlimit func Setrlimit(resource int, rlim *Rlimit) fails go.Error needs go.Foreign
+extern go syscall.Setrlimit func Setrlimit(resource int, rlim *Rlimit) fails go.Error needs go.Foreign takes rlim
 
 // ergo:go func Setsid() (pid int, err error)
 extern go syscall.Setsid func Setsid() int fails go.Error needs go.Foreign
@@ -5159,10 +5159,10 @@ extern go syscall.SetsockoptByte func SetsockoptByte(fd int, level int, opt int,
 // ergo:refused SetsockoptICMPv6Filter: it names the refused type ICMPv6Filter
 
 // ergo:go func SetsockoptIPMreq(fd int, level int, opt int, mreq *IPMreq) (err error)
-extern go syscall.SetsockoptIPMreq func SetsockoptIPMreq(fd int, level int, opt int, mreq *IPMreq) fails go.Error needs go.Foreign
+extern go syscall.SetsockoptIPMreq func SetsockoptIPMreq(fd int, level int, opt int, mreq *IPMreq) fails go.Error needs go.Foreign takes mreq
 
 // ergo:go func SetsockoptIPv6Mreq(fd int, level int, opt int, mreq *IPv6Mreq) (err error)
-extern go syscall.SetsockoptIPv6Mreq func SetsockoptIPv6Mreq(fd int, level int, opt int, mreq *IPv6Mreq) fails go.Error needs go.Foreign
+extern go syscall.SetsockoptIPv6Mreq func SetsockoptIPv6Mreq(fd int, level int, opt int, mreq *IPv6Mreq) fails go.Error needs go.Foreign takes mreq
 
 // ergo:go func SetsockoptInet4Addr(fd int, level int, opt int, value [4]byte) (err error)
 extern go syscall.SetsockoptInet4Addr func SetsockoptInet4Addr(fd int, level int, opt int, value [4]byte) fails go.Error needs go.Foreign
@@ -5171,7 +5171,7 @@ extern go syscall.SetsockoptInet4Addr func SetsockoptInet4Addr(fd int, level int
 extern go syscall.SetsockoptInt func SetsockoptInt(fd int, level int, opt int, value int) fails go.Error needs go.Foreign
 
 // ergo:go func SetsockoptLinger(fd int, level int, opt int, l *Linger) (err error)
-extern go syscall.SetsockoptLinger func SetsockoptLinger(fd int, level int, opt int, l *Linger) fails go.Error needs go.Foreign
+extern go syscall.SetsockoptLinger func SetsockoptLinger(fd int, level int, opt int, l *Linger) fails go.Error needs go.Foreign takes l
 
 // ergo:go func SetsockoptString(fd int, level int, opt int, s string) (err error)
 extern go syscall.SetsockoptString func SetsockoptString(fd int, level int, opt int, s string) fails go.Error needs go.Foreign
@@ -5656,10 +5656,10 @@ extern go syscall.Timespec type Timespec {
 }
 
 // ergo:go func (*Timespec).Nano() int64
-extern go syscall.Timespec.Nano func (ts *Timespec) Nano() int64 needs go.Foreign
+extern go syscall.Timespec.Nano func (ts *Timespec) Nano() int64 needs go.Foreign takes ts
 
 // ergo:go func (*Timespec).Unix() (sec int64, nsec int64)
-extern go syscall.Timespec.Unix func (ts *Timespec) Unix() (int64, int64) needs go.Foreign
+extern go syscall.Timespec.Unix func (ts *Timespec) Unix() (int64, int64) needs go.Foreign takes ts
 
 // ergo:go func TimespecToNsec(ts Timespec) int64
 extern go syscall.TimespecToNsec func TimespecToNsec(ts Timespec) int64 needs go.Foreign
@@ -5795,7 +5795,7 @@ extern go syscall.WSTOPPED let WSTOPPED int
 extern go syscall.WUNTRACED let WUNTRACED int
 
 // ergo:go func Wait4(pid int, wstatus *WaitStatus, options int, rusage *Rusage) (wpid int, err error)
-extern go syscall.Wait4 func Wait4(pid int, wstatus *WaitStatus, options int, rusage *Rusage) int fails go.Error needs go.Foreign
+extern go syscall.Wait4 func Wait4(pid int, wstatus *WaitStatus, options int, rusage *Rusage) int fails go.Error needs go.Foreign takes wstatus, rusage
 
 // ergo:go type WaitStatus uint32
 extern go syscall.WaitStatus type WaitStatus uint32

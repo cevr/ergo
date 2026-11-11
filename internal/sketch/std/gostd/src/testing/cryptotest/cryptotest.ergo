@@ -4,4 +4,4 @@
 import go testing
 
 // ergo:go func SetGlobalRandom(t *testing.T, seed uint64)
-extern go testing/cryptotest.SetGlobalRandom func SetGlobalRandom(t *testing.T, seed uint64) needs go.Foreign
+extern go testing/cryptotest.SetGlobalRandom func SetGlobalRandom(t *testing.T, seed uint64) needs go.Foreign takes t

@@ -5,7 +5,7 @@ import go crypto
 import go io
 
 // ergo:go func GenerateKey(random io.Reader) (PublicKey, PrivateKey, error)
-extern go crypto/ed25519.GenerateKey func GenerateKey(random io.Reader) (PublicKey, PrivateKey) fails go.Error needs go.Foreign
+extern go crypto/ed25519.GenerateKey func GenerateKey(random io.Reader) (PublicKey, PrivateKey) fails go.Error needs go.Foreign takes random
 
 // ergo:go func NewKeyFromSeed(seed []byte) PrivateKey
 extern go crypto/ed25519.NewKeyFromSeed func NewKeyFromSeed(seed []byte) PrivateKey needs go.Foreign
@@ -17,7 +17,7 @@ extern go crypto/ed25519.Options type Options {
 }
 
 // ergo:go func (*Options).HashFunc() crypto.Hash
-extern go crypto/ed25519.Options.HashFunc func (o *Options) HashFunc() crypto.Hash needs go.Foreign
+extern go crypto/ed25519.Options.HashFunc func (o *Options) HashFunc() crypto.Hash needs go.Foreign takes o
 
 // ergo:go type PrivateKey []byte
 extern go crypto/ed25519.PrivateKey type PrivateKey []byte
@@ -32,7 +32,7 @@ extern go crypto/ed25519.PrivateKey type PrivateKey []byte
 extern go crypto/ed25519.PrivateKey.Seed func (priv PrivateKey) Seed() []byte needs go.Foreign
 
 // ergo:go func (PrivateKey).Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) (signature []byte, err error)
-extern go crypto/ed25519.PrivateKey.Sign func (priv PrivateKey) Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) []byte fails go.Error needs go.Foreign
+extern go crypto/ed25519.PrivateKey.Sign func (priv PrivateKey) Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) []byte fails go.Error needs go.Foreign takes rand, opts
 
 // ergo:go const PrivateKeySize untyped int
 extern go crypto/ed25519.PrivateKeySize let PrivateKeySize int
@@ -59,4 +59,4 @@ extern go crypto/ed25519.SignatureSize let SignatureSize int
 extern go crypto/ed25519.Verify func Verify(publicKey PublicKey, message []byte, sig []byte) bool needs go.Foreign
 
 // ergo:go func VerifyWithOptions(publicKey PublicKey, message []byte, sig []byte, opts *Options) error
-extern go crypto/ed25519.VerifyWithOptions func VerifyWithOptions(publicKey PublicKey, message []byte, sig []byte, opts *Options) fails go.Error needs go.Foreign
+extern go crypto/ed25519.VerifyWithOptions func VerifyWithOptions(publicKey PublicKey, message []byte, sig []byte, opts *Options) fails go.Error needs go.Foreign takes opts

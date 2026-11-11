@@ -19,7 +19,7 @@ extern go encoding/ascii85.Encode func Encode(dst []byte, src []byte) int needs 
 extern go encoding/ascii85.MaxEncodedLen func MaxEncodedLen(n int) int needs go.Foreign
 
 // ergo:go func NewDecoder(r io.Reader) io.Reader
-extern go encoding/ascii85.NewDecoder func NewDecoder(r io.Reader) io.Reader needs go.Foreign
+extern go encoding/ascii85.NewDecoder func NewDecoder(r io.Reader) io.Reader needs go.Foreign takes r
 
 // ergo:go func NewEncoder(w io.Writer) io.WriteCloser
-extern go encoding/ascii85.NewEncoder func NewEncoder(w io.Writer) io.WriteCloser needs go.Foreign
+extern go encoding/ascii85.NewEncoder func NewEncoder(w io.Writer) io.WriteCloser needs go.Foreign takes w

@@ -2,16 +2,16 @@
 // ergo:bind container/heap go1.27 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
 // ergo:go func Fix(h Interface, i int)
-extern go container/heap.Fix func Fix(h Interface, i int) needs go.Foreign
+extern go container/heap.Fix func Fix(h Interface, i int) needs go.Foreign takes h
 
 // ergo:go func Init(h Interface)
-extern go container/heap.Init func Init(h Interface) needs go.Foreign
+extern go container/heap.Init func Init(h Interface) needs go.Foreign takes h
 
 // ergo:go type Interface interface
 extern go container/heap.Interface type Interface {
-	Len() int needs go.Foreign,
-	Less(i int, j int) bool needs go.Foreign,
-	Swap(i int, j int) needs go.Foreign,
+	Len() int needs go.Foreign takes,
+	Less(i int, j int) bool needs go.Foreign takes,
+	Swap(i int, j int) needs go.Foreign takes,
 }
 
 // ergo:go func (heap.Interface).Pop() any

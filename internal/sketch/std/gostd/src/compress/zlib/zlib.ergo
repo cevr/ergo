@@ -25,39 +25,39 @@ extern go compress/zlib.ErrHeader let ErrHeader go.Error
 extern go compress/zlib.HuffmanOnly let HuffmanOnly int
 
 // ergo:go func NewReader(r io.Reader) (io.ReadCloser, error)
-extern go compress/zlib.NewReader func NewReader(r io.Reader) io.ReadCloser fails go.Error needs go.Foreign
+extern go compress/zlib.NewReader func NewReader(r io.Reader) io.ReadCloser fails go.Error needs go.Foreign takes r
 
 // ergo:go func NewReaderDict(r io.Reader, dict []byte) (io.ReadCloser, error)
-extern go compress/zlib.NewReaderDict func NewReaderDict(r io.Reader, dict []byte) io.ReadCloser fails go.Error needs go.Foreign
+extern go compress/zlib.NewReaderDict func NewReaderDict(r io.Reader, dict []byte) io.ReadCloser fails go.Error needs go.Foreign takes r
 
 // ergo:go func NewWriter(w io.Writer) *Writer
-extern go compress/zlib.NewWriter func NewWriter(w io.Writer) Option[go.Ref[Writer]] needs go.Foreign
+extern go compress/zlib.NewWriter func NewWriter(w io.Writer) Option[go.Ref[Writer]] needs go.Foreign takes w
 
 // ergo:go func NewWriterLevel(w io.Writer, level int) (*Writer, error)
-extern go compress/zlib.NewWriterLevel func NewWriterLevel(w io.Writer, level int) go.Ref[Writer] fails go.Error needs go.Foreign
+extern go compress/zlib.NewWriterLevel func NewWriterLevel(w io.Writer, level int) go.Ref[Writer] fails go.Error needs go.Foreign takes w
 
 // ergo:go func NewWriterLevelDict(w io.Writer, level int, dict []byte) (*Writer, error)
-extern go compress/zlib.NewWriterLevelDict func NewWriterLevelDict(w io.Writer, level int, dict []byte) go.Ref[Writer] fails go.Error needs go.Foreign
+extern go compress/zlib.NewWriterLevelDict func NewWriterLevelDict(w io.Writer, level int, dict []byte) go.Ref[Writer] fails go.Error needs go.Foreign takes w
 
 // ergo:go const NoCompression untyped int
 extern go compress/zlib.NoCompression let NoCompression int
 
 // ergo:go type Resetter interface
 extern go compress/zlib.Resetter type Resetter {
-	Reset(r io.Reader, dict []byte) fails go.Error needs go.Foreign,
+	Reset(r io.Reader, dict []byte) fails go.Error needs go.Foreign takes r,
 }
 
 // ergo:go type Writer struct
 extern go compress/zlib.Writer type Writer {}
 
 // ergo:go func (*Writer).Close() error
-extern go compress/zlib.Writer.Close func (z *Writer) Close() fails go.Error needs go.Foreign
+extern go compress/zlib.Writer.Close func (z *Writer) Close() fails go.Error needs go.Foreign takes z
 
 // ergo:go func (*Writer).Flush() error
-extern go compress/zlib.Writer.Flush func (z *Writer) Flush() fails go.Error needs go.Foreign
+extern go compress/zlib.Writer.Flush func (z *Writer) Flush() fails go.Error needs go.Foreign takes z
 
 // ergo:go func (*Writer).Reset(w io.Writer)
-extern go compress/zlib.Writer.Reset func (z *Writer) Reset(w io.Writer) needs go.Foreign
+extern go compress/zlib.Writer.Reset func (z *Writer) Reset(w io.Writer) needs go.Foreign takes z, w
 
 // ergo:go func (*Writer).Write(p []byte) (n int, err error)
-extern go compress/zlib.Writer.Write func (z *Writer) Write(p []byte) int fails go.Error needs go.Foreign
+extern go compress/zlib.Writer.Write func (z *Writer) Write(p []byte) int fails go.Error needs go.Foreign takes z

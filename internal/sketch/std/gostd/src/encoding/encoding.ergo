@@ -3,30 +3,30 @@
 
 // ergo:go type BinaryAppender interface
 extern go encoding.BinaryAppender type BinaryAppender {
-	AppendBinary(b []byte) []byte fails go.Error needs go.Foreign,
+	AppendBinary(b []byte) []byte fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type BinaryMarshaler interface
 extern go encoding.BinaryMarshaler type BinaryMarshaler {
-	MarshalBinary() []byte fails go.Error needs go.Foreign,
+	MarshalBinary() []byte fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type BinaryUnmarshaler interface
 extern go encoding.BinaryUnmarshaler type BinaryUnmarshaler {
-	UnmarshalBinary(data []byte) fails go.Error needs go.Foreign,
+	UnmarshalBinary(data []byte) fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type TextAppender interface
 extern go encoding.TextAppender type TextAppender {
-	AppendText(b []byte) []byte fails go.Error needs go.Foreign,
+	AppendText(b []byte) []byte fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type TextMarshaler interface
 extern go encoding.TextMarshaler type TextMarshaler {
-	MarshalText() []byte fails go.Error needs go.Foreign,
+	MarshalText() []byte fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type TextUnmarshaler interface
 extern go encoding.TextUnmarshaler type TextUnmarshaler {
-	UnmarshalText(text []byte) fails go.Error needs go.Foreign,
+	UnmarshalText(text []byte) fails go.Error needs go.Foreign takes,
 }

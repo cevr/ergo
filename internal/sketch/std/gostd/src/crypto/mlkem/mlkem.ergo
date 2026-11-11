@@ -13,49 +13,49 @@ extern go crypto/mlkem.CiphertextSize768 let CiphertextSize768 int
 extern go crypto/mlkem.DecapsulationKey1024 type DecapsulationKey1024 {}
 
 // ergo:go func (*DecapsulationKey1024).Bytes() []byte
-extern go crypto/mlkem.DecapsulationKey1024.Bytes func (dk *DecapsulationKey1024) Bytes() []byte needs go.Foreign
+extern go crypto/mlkem.DecapsulationKey1024.Bytes func (dk *DecapsulationKey1024) Bytes() []byte needs go.Foreign takes dk
 
 // ergo:go func (*DecapsulationKey1024).Decapsulate(ciphertext []byte) (sharedKey []byte, err error)
-extern go crypto/mlkem.DecapsulationKey1024.Decapsulate func (dk *DecapsulationKey1024) Decapsulate(ciphertext []byte) []byte fails go.Error needs go.Foreign
+extern go crypto/mlkem.DecapsulationKey1024.Decapsulate func (dk *DecapsulationKey1024) Decapsulate(ciphertext []byte) []byte fails go.Error needs go.Foreign takes dk
 
 // ergo:go func (*DecapsulationKey1024).EncapsulationKey() *EncapsulationKey1024
-extern go crypto/mlkem.DecapsulationKey1024.EncapsulationKey func (dk *DecapsulationKey1024) EncapsulationKey() Option[go.Ref[EncapsulationKey1024]] needs go.Foreign
+extern go crypto/mlkem.DecapsulationKey1024.EncapsulationKey func (dk *DecapsulationKey1024) EncapsulationKey() Option[go.Ref[EncapsulationKey1024]] needs go.Foreign takes dk
 
 // ergo:go func (*DecapsulationKey1024).Encapsulator() crypto.Encapsulator
-extern go crypto/mlkem.DecapsulationKey1024.Encapsulator func (dk *DecapsulationKey1024) Encapsulator() crypto.Encapsulator needs go.Foreign
+extern go crypto/mlkem.DecapsulationKey1024.Encapsulator func (dk *DecapsulationKey1024) Encapsulator() crypto.Encapsulator needs go.Foreign takes dk
 
 // ergo:go type DecapsulationKey768 struct
 extern go crypto/mlkem.DecapsulationKey768 type DecapsulationKey768 {}
 
 // ergo:go func (*DecapsulationKey768).Bytes() []byte
-extern go crypto/mlkem.DecapsulationKey768.Bytes func (dk *DecapsulationKey768) Bytes() []byte needs go.Foreign
+extern go crypto/mlkem.DecapsulationKey768.Bytes func (dk *DecapsulationKey768) Bytes() []byte needs go.Foreign takes dk
 
 // ergo:go func (*DecapsulationKey768).Decapsulate(ciphertext []byte) (sharedKey []byte, err error)
-extern go crypto/mlkem.DecapsulationKey768.Decapsulate func (dk *DecapsulationKey768) Decapsulate(ciphertext []byte) []byte fails go.Error needs go.Foreign
+extern go crypto/mlkem.DecapsulationKey768.Decapsulate func (dk *DecapsulationKey768) Decapsulate(ciphertext []byte) []byte fails go.Error needs go.Foreign takes dk
 
 // ergo:go func (*DecapsulationKey768).EncapsulationKey() *EncapsulationKey768
-extern go crypto/mlkem.DecapsulationKey768.EncapsulationKey func (dk *DecapsulationKey768) EncapsulationKey() Option[go.Ref[EncapsulationKey768]] needs go.Foreign
+extern go crypto/mlkem.DecapsulationKey768.EncapsulationKey func (dk *DecapsulationKey768) EncapsulationKey() Option[go.Ref[EncapsulationKey768]] needs go.Foreign takes dk
 
 // ergo:go func (*DecapsulationKey768).Encapsulator() crypto.Encapsulator
-extern go crypto/mlkem.DecapsulationKey768.Encapsulator func (dk *DecapsulationKey768) Encapsulator() crypto.Encapsulator needs go.Foreign
+extern go crypto/mlkem.DecapsulationKey768.Encapsulator func (dk *DecapsulationKey768) Encapsulator() crypto.Encapsulator needs go.Foreign takes dk
 
 // ergo:go type EncapsulationKey1024 struct
 extern go crypto/mlkem.EncapsulationKey1024 type EncapsulationKey1024 {}
 
 // ergo:go func (*EncapsulationKey1024).Bytes() []byte
-extern go crypto/mlkem.EncapsulationKey1024.Bytes func (ek *EncapsulationKey1024) Bytes() []byte needs go.Foreign
+extern go crypto/mlkem.EncapsulationKey1024.Bytes func (ek *EncapsulationKey1024) Bytes() []byte needs go.Foreign takes ek
 
 // ergo:go func (*EncapsulationKey1024).Encapsulate() (sharedKey []byte, ciphertext []byte)
-extern go crypto/mlkem.EncapsulationKey1024.Encapsulate func (ek *EncapsulationKey1024) Encapsulate() ([]byte, []byte) needs go.Foreign
+extern go crypto/mlkem.EncapsulationKey1024.Encapsulate func (ek *EncapsulationKey1024) Encapsulate() ([]byte, []byte) needs go.Foreign takes ek
 
 // ergo:go type EncapsulationKey768 struct
 extern go crypto/mlkem.EncapsulationKey768 type EncapsulationKey768 {}
 
 // ergo:go func (*EncapsulationKey768).Bytes() []byte
-extern go crypto/mlkem.EncapsulationKey768.Bytes func (ek *EncapsulationKey768) Bytes() []byte needs go.Foreign
+extern go crypto/mlkem.EncapsulationKey768.Bytes func (ek *EncapsulationKey768) Bytes() []byte needs go.Foreign takes ek
 
 // ergo:go func (*EncapsulationKey768).Encapsulate() (sharedKey []byte, ciphertext []byte)
-extern go crypto/mlkem.EncapsulationKey768.Encapsulate func (ek *EncapsulationKey768) Encapsulate() ([]byte, []byte) needs go.Foreign
+extern go crypto/mlkem.EncapsulationKey768.Encapsulate func (ek *EncapsulationKey768) Encapsulate() ([]byte, []byte) needs go.Foreign takes ek
 
 // ergo:go const EncapsulationKeySize1024 untyped int
 extern go crypto/mlkem.EncapsulationKeySize1024 let EncapsulationKeySize1024 int

@@ -8,10 +8,10 @@ import go math/big
 extern go crypto/dsa.ErrInvalidPublicKey let ErrInvalidPublicKey go.Error
 
 // ergo:go func GenerateKey(priv *PrivateKey, rand io.Reader) error
-extern go crypto/dsa.GenerateKey func GenerateKey(priv *PrivateKey, rand io.Reader) fails go.Error needs go.Foreign
+extern go crypto/dsa.GenerateKey func GenerateKey(priv *PrivateKey, rand io.Reader) fails go.Error needs go.Foreign takes priv, rand
 
 // ergo:go func GenerateParameters(params *Parameters, rand io.Reader, sizes ParameterSizes) error
-extern go crypto/dsa.GenerateParameters func GenerateParameters(params *Parameters, rand io.Reader, sizes ParameterSizes) fails go.Error needs go.Foreign
+extern go crypto/dsa.GenerateParameters func GenerateParameters(params *Parameters, rand io.Reader, sizes ParameterSizes) fails go.Error needs go.Foreign takes params, rand
 
 // ergo:go const L1024N160 ParameterSizes
 extern go crypto/dsa.L1024N160 let L1024N160 ParameterSizes
@@ -48,7 +48,7 @@ extern go crypto/dsa.PublicKey type PublicKey {
 }
 
 // ergo:go func Sign(random io.Reader, priv *PrivateKey, hash []byte) (r *big.Int, s *big.Int, err error)
-extern go crypto/dsa.Sign func Sign(random io.Reader, priv *PrivateKey, hash []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) fails go.Error needs go.Foreign
+extern go crypto/dsa.Sign func Sign(random io.Reader, priv *PrivateKey, hash []byte) (Option[go.Ref[big.Int]], Option[go.Ref[big.Int]]) fails go.Error needs go.Foreign takes random, priv
 
 // ergo:go func Verify(pub *PublicKey, hash []byte, r *big.Int, s *big.Int) bool
-extern go crypto/dsa.Verify func Verify(pub *PublicKey, hash []byte, r *big.Int, s *big.Int) bool needs go.Foreign
+extern go crypto/dsa.Verify func Verify(pub *PublicKey, hash []byte, r *big.Int, s *big.Int) bool needs go.Foreign takes pub, r, s

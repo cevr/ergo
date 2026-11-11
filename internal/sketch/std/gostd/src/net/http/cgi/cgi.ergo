@@ -19,7 +19,7 @@ extern go net/http/cgi.Handler type Handler {
 }
 
 // ergo:go func (*Handler).ServeHTTP(rw http.ResponseWriter, req *http.Request)
-extern go net/http/cgi.Handler.ServeHTTP func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request) needs go.Foreign
+extern go net/http/cgi.Handler.ServeHTTP func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request) needs go.Foreign takes h, rw, req
 
 // ergo:go func Request() (*http.Request, error)
 extern go net/http/cgi.Request func Request() go.Ref[http.Request] fails go.Error needs go.Foreign
@@ -28,4 +28,4 @@ extern go net/http/cgi.Request func Request() go.Ref[http.Request] fails go.Erro
 extern go net/http/cgi.RequestFromMap func RequestFromMap(params Map[string, string]) go.Ref[http.Request] fails go.Error needs go.Foreign
 
 // ergo:go func Serve(handler http.Handler) error
-extern go net/http/cgi.Serve func Serve(handler http.Handler) fails go.Error needs go.Foreign
+extern go net/http/cgi.Serve func Serve(handler http.Handler) fails go.Error needs go.Foreign takes handler

@@ -6,13 +6,13 @@ import go image/draw
 import go io
 
 // ergo:go func Decode(r io.Reader) (image.Image, error)
-extern go image/gif.Decode func Decode(r io.Reader) image.Image fails go.Error needs go.Foreign
+extern go image/gif.Decode func Decode(r io.Reader) image.Image fails go.Error needs go.Foreign takes r
 
 // ergo:go func DecodeAll(r io.Reader) (*GIF, error)
-extern go image/gif.DecodeAll func DecodeAll(r io.Reader) go.Ref[GIF] fails go.Error needs go.Foreign
+extern go image/gif.DecodeAll func DecodeAll(r io.Reader) go.Ref[GIF] fails go.Error needs go.Foreign takes r
 
 // ergo:go func DecodeConfig(r io.Reader) (image.Config, error)
-extern go image/gif.DecodeConfig func DecodeConfig(r io.Reader) image.Config fails go.Error needs go.Foreign
+extern go image/gif.DecodeConfig func DecodeConfig(r io.Reader) image.Config fails go.Error needs go.Foreign takes r
 
 // ergo:go const DisposalBackground untyped int
 extern go image/gif.DisposalBackground let DisposalBackground int
@@ -24,10 +24,10 @@ extern go image/gif.DisposalNone let DisposalNone int
 extern go image/gif.DisposalPrevious let DisposalPrevious int
 
 // ergo:go func Encode(w io.Writer, m image.Image, o *Options) error
-extern go image/gif.Encode func Encode(w io.Writer, m image.Image, o *Options) fails go.Error needs go.Foreign
+extern go image/gif.Encode func Encode(w io.Writer, m image.Image, o *Options) fails go.Error needs go.Foreign takes w, m, o
 
 // ergo:go func EncodeAll(w io.Writer, g *GIF) error
-extern go image/gif.EncodeAll func EncodeAll(w io.Writer, g *GIF) fails go.Error needs go.Foreign
+extern go image/gif.EncodeAll func EncodeAll(w io.Writer, g *GIF) fails go.Error needs go.Foreign takes w, g
 
 // ergo:go type GIF struct
 extern go image/gif.GIF type GIF {

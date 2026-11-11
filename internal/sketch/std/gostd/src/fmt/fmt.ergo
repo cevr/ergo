@@ -14,11 +14,11 @@
 // ergo:refused Errorf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func FormatString(state State, verb rune) string
-extern go fmt.FormatString func FormatString(state State, verb rune) string needs go.Foreign
+extern go fmt.FormatString func FormatString(state State, verb rune) string needs go.Foreign takes state
 
 // ergo:go type Formatter interface
 extern go fmt.Formatter type Formatter {
-	Format(f State, verb rune) needs go.Foreign,
+	Format(f State, verb rune) needs go.Foreign takes f,
 }
 
 // ergo:go func Fprint(w io.Writer, a ...any) (n int, err error)
@@ -41,7 +41,7 @@ extern go fmt.Formatter type Formatter {
 
 // ergo:go type GoStringer interface
 extern go fmt.GoStringer type GoStringer {
-	GoString() string needs go.Foreign,
+	GoString() string needs go.Foreign takes,
 }
 
 // ergo:go func Print(a ...any) (n int, err error)
@@ -58,12 +58,12 @@ extern go fmt.GoStringer type GoStringer {
 
 // ergo:go type ScanState interface
 extern go fmt.ScanState type ScanState {
-	Read(buf []byte) int fails go.Error needs go.Foreign,
-	ReadRune() (rune, int) fails go.Error needs go.Foreign,
-	SkipSpace() needs go.Foreign,
-	Token(skipSpace bool, f escaping func(rune) bool) []byte fails go.Error needs go.Foreign,
-	UnreadRune() fails go.Error needs go.Foreign,
-	Width() (int, bool) needs go.Foreign,
+	Read(buf []byte) int fails go.Error needs go.Foreign takes,
+	ReadRune() (rune, int) fails go.Error needs go.Foreign takes,
+	SkipSpace() needs go.Foreign takes,
+	Token(skipSpace bool, f escaping func(rune) bool) []byte fails go.Error needs go.Foreign takes,
+	UnreadRune() fails go.Error needs go.Foreign takes,
+	Width() (int, bool) needs go.Foreign takes,
 }
 
 // ergo:go func Scanf(format string, a ...any) (n int, err error)
@@ -74,7 +74,7 @@ extern go fmt.ScanState type ScanState {
 
 // ergo:go type Scanner interface
 extern go fmt.Scanner type Scanner {
-	Scan(state ScanState, verb rune) fails go.Error needs go.Foreign,
+	Scan(state ScanState, verb rune) fails go.Error needs go.Foreign takes state,
 }
 
 // ergo:go func Sprint(a ...any) string
@@ -97,13 +97,13 @@ extern go fmt.Scanner type Scanner {
 
 // ergo:go type State interface
 extern go fmt.State type State {
-	Flag(c int) bool needs go.Foreign,
-	Precision() (int, bool) needs go.Foreign,
-	Width() (int, bool) needs go.Foreign,
-	Write(b []byte) int fails go.Error needs go.Foreign,
+	Flag(c int) bool needs go.Foreign takes,
+	Precision() (int, bool) needs go.Foreign takes,
+	Width() (int, bool) needs go.Foreign takes,
+	Write(b []byte) int fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type Stringer interface
 extern go fmt.Stringer type Stringer {
-	String() string needs go.Foreign,
+	String() string needs go.Foreign takes,
 }

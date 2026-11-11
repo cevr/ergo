@@ -19,7 +19,7 @@ extern go encoding/gob.Decoder type Decoder {}
 // ergo:refused Decoder.Decode: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Decoder).DecodeValue(v reflect.Value) error
-extern go encoding/gob.Decoder.DecodeValue func (dec *Decoder) DecodeValue(v reflect.Value) fails go.Error needs go.Foreign
+extern go encoding/gob.Decoder.DecodeValue func (dec *Decoder) DecodeValue(v reflect.Value) fails go.Error needs go.Foreign takes dec, v
 
 // ergo:go type Encoder struct
 extern go encoding/gob.Encoder type Encoder {}
@@ -28,23 +28,23 @@ extern go encoding/gob.Encoder type Encoder {}
 // ergo:refused Encoder.Encode: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Encoder).EncodeValue(value reflect.Value) error
-extern go encoding/gob.Encoder.EncodeValue func (enc *Encoder) EncodeValue(value reflect.Value) fails go.Error needs go.Foreign
+extern go encoding/gob.Encoder.EncodeValue func (enc *Encoder) EncodeValue(value reflect.Value) fails go.Error needs go.Foreign takes enc, value
 
 // ergo:go type GobDecoder interface
 extern go encoding/gob.GobDecoder type GobDecoder {
-	GobDecode(p0 []byte) fails go.Error needs go.Foreign,
+	GobDecode(p0 []byte) fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go type GobEncoder interface
 extern go encoding/gob.GobEncoder type GobEncoder {
-	GobEncode() []byte fails go.Error needs go.Foreign,
+	GobEncode() []byte fails go.Error needs go.Foreign takes,
 }
 
 // ergo:go func NewDecoder(r io.Reader) *Decoder
-extern go encoding/gob.NewDecoder func NewDecoder(r io.Reader) Option[go.Ref[Decoder]] needs go.Foreign
+extern go encoding/gob.NewDecoder func NewDecoder(r io.Reader) Option[go.Ref[Decoder]] needs go.Foreign takes r
 
 // ergo:go func NewEncoder(w io.Writer) *Encoder
-extern go encoding/gob.NewEncoder func NewEncoder(w io.Writer) Option[go.Ref[Encoder]] needs go.Foreign
+extern go encoding/gob.NewEncoder func NewEncoder(w io.Writer) Option[go.Ref[Encoder]] needs go.Foreign takes w
 
 // ergo:go func Register(value any)
 // ergo:refused Register: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
