@@ -632,7 +632,7 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 
 // callArgsRaw is callArgs, except that the operand raw (nil for none) is
 // lowered without its implicit conversion: a fast path that reads the
-// operand's own representation (encode's json fast path, wire.go).
+// operand's own representation (encode's json fast path).
 func (fc *funcCtx) callArgsRaw(list []syntax.Expr, call *syntax.CallExpr, raw syntax.Expr) []string {
 	return fc.callArgsOf(list, call, false, raw)
 }
