@@ -179,7 +179,7 @@ type Context[R] { install func() needs R }
 // Append is xs with x added at the end. xs is unchanged: a slice is a
 // value (owner q26; types.md, Bindings), and the lowering appends in place
 // only for xs = xs.Append(x) or a dead xs.
-extern go append func Append[T](xs []T, x T) []T
+extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs []T, x T) []T
 
 // Get is the value of k in m, Some{v}, or None when m has no key k: a Map
 // read may miss, so it returns an Option.
