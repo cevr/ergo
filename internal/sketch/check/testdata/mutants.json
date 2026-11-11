@@ -278,13 +278,14 @@
     {
       "name": "seal-callback-params",
       "origin": "wf10 Rm",
-      "file": "internal/sketch/check/extern.go",
+      "file": "internal/sketch/check/stdsealed_test.go",
       "from": "if ft, ok := p.Type.(*syntax.FuncType); ok && ft.Params != nil {",
       "to": "if ft, ok := p.Type.(*syntax.FuncType); false && ok && ft.Params != nil {",
-      "rule": "A std operation type the host hands a program through an extern's callback (http.Exchange) is sealed: the runtime's Go type, never a program interface.",
+      "rule": "A std operation type the host hands a program through an extern's callback (http.Exchange) is sealed: the runtime's Go type, never a program interface. Since CHK1 the rule is the reference that derives the generated sealed table (stdsealed_gen.go).",
       "killers": [
-        "lower:TestHTTPHandlerRows"
-      ]
+        "check:TestStdSealedTableIsCurrent"
+      ],
+      "anchor": { "tests": ["check:TestStdSealedTableIsCurrent"] }
     },
     {
       "name": "existing-0-B1 rowText prints commas",
