@@ -279,6 +279,8 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 
 **Signed-64 wrap** (specified): The portable `i64` arithmetic rule: each admitted `+`, `-`, `*`, `/` and unary `-` result is reduced to its two's-complement signed 64-bit residue, so `MIN / -1` is `MIN`. Division and remainder truncate toward zero.
 
+**Saturating float conversion** (implemented): The portable rule of `T(x)` for a float `x` and an integer type `T`: `x` truncates toward zero, a result past `T`'s bounds is the bound on its side (the infinities included), and NaN is 0, on every host. The checked form, `math.ToInt64`, fails `OutOfRange` where the conversion saturates. Counterpart: Signed-64 wrap, the rule of integer arithmetic ([types.md](docs/spec/types.md#conversions) Conversions 4).
+
 **Divisor proof** (specified): Checked evidence that an `i64` divisor is not zero: a nonzero integer literal, or a local binding inside an `if` branch whose comparison of that binding with an integer literal excludes zero. `/` and `%` are admitted only with one, so division by zero is not representable in checked source.
 
 **Failure payload**: The declared data carried by a named failure, separate from an ordinary success value.
