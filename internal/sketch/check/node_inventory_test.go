@@ -174,8 +174,8 @@ var nodeTable = map[string]nodeEntry{
 // (D10) deleted every such field, so the map is empty; a field added
 // later that no row sets fails TestDecidedNodeInventory by name.
 var notBuiltFields = map[string]string{
-	"File.Name": "set by a caller that loads files from a directory, not by the parser; check.Check orders a package's files by it (pkg-lower round 9)",
-	"File.Expansion": "set by the checker's derive expansion (derive.go), not by the parser",
+	"File.Name":       "set by a caller that loads files from a directory, not by the parser; check.Check orders a package's files by it (pkg-lower round 9)",
+	"File.Expansion":  "set by the checker's derive expansion (derive.go), not by the parser",
 	"TypeDecl.Origin": "set on a bundle's declarations by the derive expansion (derive.go), not by the parser",
 }
 
