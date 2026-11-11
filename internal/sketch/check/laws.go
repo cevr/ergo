@@ -341,7 +341,7 @@ func (c *checker) planLaws() {
 		// A rewrite law runs each side on a fresh provider (Laws 14): its
 		// constructor builds one per side from the case's arguments.
 		for _, b := range r.Bindings {
-			if b[0].Ctor == nil && b[0].Unrun == "" {
+			if b[0].Ctor == nil && b[0].Unrun == "" && !b[0].Value {
 				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func New" + b[0].Type.Obj.Name + "(…) " + b[0].Type.Obj.Name + " builds one"
 			}
 		}
@@ -611,10 +611,17 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		slot = c.instantiate(own, targs)
 	}
 	a, _ := c.providerAssignability(p, slot)
+	value := false
+	if _, record := p.Underlying().(*Struct); record {
+		// A law owns a fresh record and may lend it to *P operations.
+		// This is not a value-to-operation-type conversion (PS3).
+		a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)
+		value = a.ok()
+	}
 	if !a.ok() || a.conv.Kind != ConvOperations {
 		return LawProvider{}, false
 	}
-	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot}
+	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Value: value}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {

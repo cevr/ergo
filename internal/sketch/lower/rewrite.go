@@ -213,7 +213,7 @@ type rwArg struct {
 // function of no type parameters, on its value (not *P), with no result
 // and no failure, whose other parameters are basic.
 func rewritable(f *check.Func) bool {
-	if f == nil || f.Decl == nil || f.Decl.Extern != nil || f.Ptr || f.Sig == nil || len(f.Sig.TParams) > 0 || len(f.Sig.Results) > 0 || f.Sig.Fallible || len(f.Sig.Params) == 0 {
+	if f == nil || f.Decl == nil || f.Decl.Extern != nil || f.Sig == nil || len(f.Sig.TParams) > 0 || len(f.Sig.Results) > 0 || f.Sig.Fallible || len(f.Sig.Params) == 0 {
 		return false
 	}
 	if f.Sig.Errors != nil && len(rowElems(f.Sig.Errors)) > 0 {
@@ -253,7 +253,11 @@ func (fc *funcCtx) windowCall(s syntax.Stmt) (*check.Var, *check.Named, *check.F
 	if _, local := fc.locals[v]; !local {
 		return nil, nil, nil, nil
 	}
-	prov, ok := v.Type.(*check.Named)
+	typ := v.Type
+	if ptr, ok := typ.(*check.Pointer); ok {
+		typ = ptr.Elem
+	}
+	prov, ok := typ.(*check.Named)
 	if !ok {
 		return nil, nil, nil, nil
 	}
@@ -328,7 +332,16 @@ func (fc *funcCtx) rewriteWindow(list []syntax.Stmt) int {
 	// The receiver and every non-constant argument, in source order.
 	fc.at(list[0])
 	r := fc.temp("recv")
-	fc.line(r + " := " + fc.value(unparen(fc.l.info.Calls[calls[0]].Recv)))
+	receiver := fc.value(unparen(fc.l.info.Calls[calls[0]].Recv))
+	_, borrowed := recv.Type.(*check.Pointer)
+	pointer := borrowed
+	for _, c := range window {
+		pointer = pointer || c.fn.Ptr
+	}
+	if pointer && !borrowed {
+		receiver = "&" + receiver
+	}
+	fc.line(r + " := " + receiver)
 	texts := map[*syntax.CallExpr][]string{}
 	for _, call := range calls {
 		ts := make([]string, len(call.Args))
@@ -357,7 +370,11 @@ func (fc *funcCtx) rewriteWindow(list []syntax.Stmt) int {
 			}
 		}
 		used[r] = true
-		lines = append(lines, fc.rewriteCall(c.fn, r, vals, calls[0]))
+		self := r
+		if pointer && !c.fn.Ptr {
+			self = "(*" + r + ")"
+		}
+		lines = append(lines, fc.rewriteCall(c.fn, self, vals, calls[0]))
 	}
 	// A temporary the rewritten calls no longer pass was still read
 	// where the window starts; Go wants it used.
@@ -391,7 +408,10 @@ func (fc *funcCtx) rewriteCall(f *check.Func, recv string, args []string, site s
 	if fd.method != nil {
 		return "(" + recv + ")." + fd.name + "(" + strings.Join(append(lead, args...), ", ") + ")"
 	}
-	return fd.name + "(" + strings.Join(append(append(lead, recv), args...), ", ") + ")"
+	if recv != "" {
+		lead = append(lead, recv)
+	}
+	return fd.name + "(" + strings.Join(append(lead, args...), ", ") + ")"
 }
 
 // rwPlace reads a pass-through argument's place, "k.j": the window's

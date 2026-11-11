@@ -169,6 +169,16 @@ func (l *lowerer) nameTests() {
 	// The key functions of the states of the machines whose reachability
 	// laws run (machinelaws.go, State keys).
 	for _, r := range l.runLaws() {
+		if r.Law.Rewrite != nil {
+			for _, bd := range r.Bindings {
+				if len(bd) == 1 && bd[0].Value && l.keyWhy(bd[0].Type) == "" {
+					l.keyTypes(bd[0].Type, map[string]bool{}, func(t check.Type) {
+						key, base, _ := l.keyName(t)
+						l.pkgName(key, base)
+					})
+				}
+			}
+		}
 		if law := r.Law; lawLowered(r) && law.Machine != nil && law.Decl.Reach != nil {
 			state := law.Machine.Type.(*check.Named).Underlying().(*check.MachineType).State
 			if l.keyWhy(state) == "" {
@@ -1019,7 +1029,7 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 				shown = append(shown, strconv.Quote(sep+name+" = "), l.litExpr(p.Type, pv, law.Decl))
 			}
 			sep = ", "
-			return fc.convert(p.Conv, pv, law.Decl)
+			return fc.lawProvider(p, pv, law.Decl)
 		}
 		args := []string{"&" + e}
 		callee := l.lawFunc(law)

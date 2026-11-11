@@ -1001,6 +1001,9 @@ type LawRun struct {
 // one per parameter, for the owner's provider of such a law; nil
 // otherwise.
 type LawProvider struct {
+	// Value lends the runner's fresh provider record to pointer operations.
+	// It grants no implicit conversion to a user operation-type value.
+	Value  bool
 	Type   *Named
 	Conv   Conversion
 	Ctor   *Func

@@ -157,6 +157,9 @@ func (l *lowerer) constGo(t check.Type, v constant.Value, site syntax.Node) stri
 // providers says the provider is not deterministic. A run no case of which
 // the guard admits is a skip, never a pass.
 func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, p check.LawProvider, scope *namer, env, seed, failed, at string) {
+	if l.valueProof(b, law, label, p, scope, env, failed, at) {
+		return
+	}
 	rw := law.Rewrite
 	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
 	insts := l.rewriteInstances(law)
@@ -272,7 +275,7 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 	w(side + " := func(" + right + " bool) (" + obs + " []string, " + admitted + " bool) {")
 	w("\t" + e + " := *" + env)
 	w("\t" + pv + ", _ := " + fc.funcValue(ctor, ctor.Sig, law.Decl, nil) + "(" + strings.Join(append([]string{env}, cargs...), ", ") + ")")
-	w("\t" + field + " = " + fc.convert(p.Conv, pv, law.Decl))
+	w("\t" + field + " = " + fc.lawProvider(p, pv, law.Decl))
 	s := inner.alloc("s")
 	w("\tfor _, " + s + " := range " + steps[0] + " { " + s + "(" + field + ") }")
 	if rw.Guard != nil {
