@@ -153,7 +153,6 @@ var MalformedTable = []Malformed{
 	{Name: "func-literal-parenthesised-needs", Src: "let f = func() needs (A, B) {\n\twork()\n}\n", Lines: []int{1}},
 	{Name: "interpolation-line-comment", Src: "let s = \"x \\(a // c\n)\"\n", Lines: []int{1}},
 	{Name: "interpolation-multi-line-comment", Src: "let s = \"x \\(a /* c\nd */)\"\n", Lines: []int{1}},
-	{Name: "try-operand", Src: "func f(a int64) int64 fails E {\n\ta + try g()\n}\n", Lines: []int{2}},
 	{Name: "func-type-value", Src: "let x = func(int) int\n", Lines: []int{1}},
 	{Name: "func-type-argument", Src: "func main() {\n\trun(func() int)\n}\n", Lines: []int{2}},
 	{Name: "escaping-func-type-value", Src: "let x = escaping func()\n", Lines: []int{1}},

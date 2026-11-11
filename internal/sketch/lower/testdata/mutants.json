@@ -3194,6 +3194,9 @@
         "file": "internal/sketch/lower/tests.go",
         "text": "Replace(harnessGo + harnessReachGo)"
       }
-    }
+    },
+    {"name":"try1-covered-failure-dropped","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"\t\tfc.propagate(o.err)\n\t\to.err = \"\"","to":"\t\tfc.line(\"_ = \" + o.err)\n\t\to.err = \"\"","rule":"rows.md Error rows 7: a failure of a covered right operand leaves the frame.","killers":["lower:TestTryCoversToTheRightBuilt"]},
+    {"name":"try1-and-right-hoisted","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"if (op == \"&&\" || op == \"||\") && fc.emits(x.Y) {","to":"if false && (op == \"&&\" || op == \"||\") && fc.emits(x.Y) {","rule":"types.md Operators: the right operand of && and || runs only when the left one does not decide, a covered one too.","killers":["lower:TestTryCoversToTheRightBuilt"]},
+    {"name":"try1-right-before-left","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"\treturn fc.binaryOf(x, fc.operands([]syntax.Expr{x.X, x.Y}, false))","to":"\treturn fc.binaryOf(x, func(p []string) []string { return []string{p[1], p[0]} }(fc.operands([]syntax.Expr{x.Y, x.X}, false)))","rule":"spec D4: operands evaluate left to right; a covered call is hoisted after the left operand.","killers":["lower:TestTryCoversToTheRightBuilt"]}
   ]
 }

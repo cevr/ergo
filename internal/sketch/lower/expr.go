@@ -253,6 +253,27 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 // expr lowers x; in a statement header, a composite literal value is
 // parenthesized (header.go).
 func (fc *funcCtx) expr(x syntax.Expr) operand {
+	if fc.l.info.TryCovers[x] != nil {
+		return fc.covered(x)
+	}
+	return fc.expr1(x)
+}
+
+// covered lowers x, the right operand that a try in operand position on
+// its left covers (check.Info.TryCovers, q105): as under the try, every
+// failure evaluated in it leaves the frame, after the left operand.
+func (fc *funcCtx) covered(x syntax.Expr) operand {
+	fc.tries++
+	o := fc.expr1(x)
+	fc.tries--
+	if o.err != "" {
+		fc.propagate(o.err)
+		o.err = ""
+	}
+	return o
+}
+
+func (fc *funcCtx) expr1(x syntax.Expr) operand {
 	o := fc.exprOf(x)
 	if fc.l.vals != nil && fc.l.vals.clone[x] {
 		// The value rule's copy (values.go).

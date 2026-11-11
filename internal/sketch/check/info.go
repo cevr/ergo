@@ -261,6 +261,12 @@ type Info struct {
 	// decides it by type identity; the lowering reads it and never
 	// compares types again (batch-12 M1: two packages named errs).
 	ReturnedValues map[syntax.Expr]bool
+	// TryCovers is each right operand that a try in operand position
+	// covers (q105; grammar.md, Expressions 1): the operand Y of a binary
+	// expression whose left operand holds the try on its operator spine,
+	// mapped to the leftmost such try. Every fallible value evaluated in
+	// Y propagates, as under the try itself (cover.go).
+	TryCovers map[syntax.Expr]*syntax.TryExpr
 	// Releases is the release plan of the ownership pass (#197 L8 A2;
 	// resources R5, R10, R21, R41, R43; ownership.go): what is still owned,
 	// in release order (last acquired first), where control leaves a place.
@@ -452,6 +458,7 @@ func newInfo() *Info {
 		Instances:     map[syntax.Expr]*Instance{},
 
 		ReturnedValues: map[syntax.Expr]bool{},
+		TryCovers:      map[syntax.Expr]*syntax.TryExpr{},
 		Releases:       map[syntax.Node][]Release{},
 		OwnedVars:      map[*Var]*Drop{},
 		OwnedTemps:     map[syntax.Expr]*Drop{},

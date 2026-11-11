@@ -82,6 +82,7 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 type checker struct {
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
+	cover    tryCover // tries in operand position (cover.go)
 	pkg      *Package
 	imp      Importer
 	ownGo    *GoBindings // the Go packages of an importer that is no GoImporter

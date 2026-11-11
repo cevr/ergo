@@ -84,7 +84,12 @@ func (c *checker) record(x syntax.Expr, op operand) {
 // sites that pass one). The result may be fallible, a type or a package;
 // positions decide what they accept.
 func (c *checker) expr(x syntax.Expr, hint Type) operand {
-	op := c.expr0(x, hint)
+	var op operand
+	if top := c.spineTop(x); top || c.covering() && c.cover.roots[x] != nil {
+		op = c.coveredExpr(x, hint, top) // a try in operand position (cover.go)
+	} else {
+		op = c.expr0(x, hint)
+	}
 	op.expr = x
 	c.record(x, op)
 	return op
@@ -104,13 +109,17 @@ func (c *checker) handled(op *operand) {
 	if op.invalid() || !op.fallible() {
 		return
 	}
-	if c.fn != nil && c.fn.t != nil && c.fn.t.tries > 0 {
-		// Under try, the failure escapes as try's own does; an unknown
-		// row escapes with its invalid element.
-		c.escape(op.expr, op.errs)
-		op.errs = nil
-		c.fn.t.tried = true
-		return
+	if c.fn != nil && c.fn.t != nil {
+		root := c.covering() && c.coveredRoot(op.expr)
+		if root || c.fn.t.tries > 0 {
+			// Under try, the failure escapes as try's own does; an
+			// unknown row escapes with its invalid element. A covered
+			// right operand's own failure is its try's (cover.go).
+			c.escape(op.expr, op.errs)
+			op.errs = nil
+			c.fn.t.tried = c.fn.t.tried || !root
+			return
+		}
 	}
 	// Only the known part is evidence of a failure; an unknown row also
 	// makes the target's inferred row unknown, so nothing cascades from
