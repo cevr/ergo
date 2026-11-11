@@ -35,7 +35,7 @@ lru bench 1000000                             # 1e6 cache operations, prints a c
 
 New gaps (`gaps-ex-f.md`):
 
-- G-ex-f-1: no slice of a slice (`xs[i:j]`), so a free stack of indexes cannot pop; the free list is linked through the slots instead.
+- G-ex-f-1 (closed): a slice of a slice, `xs[i:j]`, checks and runs now (examples `chat` and `downloads` use it). The free list stays linked through the slots.
 - G-ex-f-2: a generic operation type cannot be a capability (`needs Source[K, V]`), so the memo takes its loader as a function and the law that makes memoizing sound (`Registry.Stable`) lives in the domain, not in the memo.
 - G-ex-f-3: a std extern (`strings.ToUpper`) is not a function value, and the message says it is "called directly".
 - G-ex-f-4: a type parameter has no zero value, so a removed entry's value cannot be cleared for the garbage collector.

@@ -40,7 +40,7 @@ go run ./scripts/examples snake
 
 ## Limits found
 
-- **A task that reads standard input cannot be stopped** (G-ex-g-3). When the game ends, `Live` stops its reader task, and the stop waits until the next line or the end of the input. A real terminal game ends only after one more Enter.
+- **Closed: a task that reads standard input can be stopped** (G-ex-g-3). A stop ends a read of standard input ([decisions](../../docs/decisions.md), O15), so when the game ends, `Live` stops its reader task at once; no extra Enter is needed.
 - **No raw terminal: no key read, no raw mode** (G-ex-c-15, also hit by snake). `-live` reads keys a line at a time, so a turn takes effect after Enter; the game is playable only as a line-at-a-time game.
 - **A machine's initial state cannot use a capability** (G-ex-c-16, also hit by snake). The first food needs `Random`, so the machine starts at a `Title` mode and `Begin` places the food.
 - **A generated slice is short** (G-ex-d-9, still open after T4). Each law draws its 300 signals from a seeded `Random`.
