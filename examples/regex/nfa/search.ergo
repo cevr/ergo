@@ -4,6 +4,7 @@
 import regex/engine
 import regex/syntax
 import strings
+import machines
 
 // Search compiles an Inside matcher; Compile still matches Whole texts.
 func Search(_ Engine, pattern syntax.Node) engine.Matcher { NewSearchCompiled(pattern) }
@@ -32,45 +33,68 @@ func Measure(c SearchCompiled, text string) Work {
 		return Work{Matched: strings.Contains(text, c.prefix.Text), Starts: 0, Transitions: 0}
 	}
 	if c.prefix.Text == "" {
-		return scan(c.program, text, 0, false)
+		return scan(c.program, text)
 	}
 	let mut work = Work{Matched: false, Starts: 0, Transitions: 0}
-	let mut from = 0
-	for from <= len(text) {
-		let offset = strings.Index(text[from:], c.prefix.Text)
-		if offset < 0 {
-			return work
+	let mut next = strings.Index(text, c.prefix.Text)
+	if next < 0 {
+		return work
+	}
+	let mut i = next
+	let mut at = []int{}
+	for i <= len(text) {
+		if i == next {
+			// Union this candidate with earlier live configurations. Resetting
+			// here loses earlier matches; rescanning each suffix is quadratic.
+			at = closure(c.program, at.Append(c.program.start))
+			work.Starts += 1
+			let resume = i + 1
+			let offset = strings.Index(text[resume:], c.prefix.Text)
+			next = if offset < 0 { -1 } else { resume + offset }
 		}
-		let at = from + offset
-		let candidate = scan(c.program, text, at, true)
-		work.Starts += candidate.Starts
-		work.Transitions += candidate.Transitions
-		if candidate.Matched {
+		if accepts(c.program, at) {
 			work.Matched = true
 			return work
 		}
-		from = at + 1
+		if i == len(text) {
+			return work
+		}
+		if len(at) == 0 {
+			if next < 0 {
+				return work
+			}
+			i = next
+			continue
+		}
+		at = advance(c.program, at, text[i])
+		work.Transitions += 1
+		i += 1
 	}
 	work
 }
 
-// scan uses the reference NFA's closure/advance/accept operations. A
-// prefix candidate accepts immediately; a fallback Search program accepts
-// at End, exactly as Simulation does. No mutable storage escapes a scan.
-func scan(p Program, text string, from int, early bool) Work {
-	let mut at = closure(p, []int{p.start})
+// scan counts the original Simulation's byte/End operations for a
+// no-prefix fallback Search program. No mutable storage escapes a scan.
+func scan(p Program, text string) Work {
+	let m = machines.Start(Simulation{}, p)
+	let mut state = machines.Initial(m)
 	let mut work = Work{Matched: false, Starts: 1, Transitions: 0}
-	for i in from..len(text) {
-		if early && accepts(p, at) {
-			work.Matched = true
-			return work
-		}
-		at = advance(p, at, text[i])
+	for i in 0..len(text) {
+		let d = m.Step(state, Read{C: text[i]})
 		work.Transitions += 1
-		if len(at) == 0 {
+		match d {
+		case Done[bool] as out:
+			work.Matched = out.Output
 			return work
+		case Enter[Scan], Stay[Scan], Emit[Scan, bool], Ignore, Reject:
 		}
+		state = machines.Next(state, d)
 	}
-	work.Matched = accepts(p, at)
+	match m.Step(state, End) {
+	case Done[bool] as out:
+		work.Matched = out.Output
+	case Enter[Scan], Stay[Scan], Emit[Scan, bool], Ignore, Reject:
+		Unreachable("Simulation is Done at End")
+	}
 	work
 }

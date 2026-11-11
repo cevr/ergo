@@ -2,6 +2,7 @@
 
 import regex/backtrack
 import regex/syntax
+import strings
 
 // AgreesWithBacktrack: on every sampled pattern and text, the NFA and
 // the backtracking engine give the same answer. The texts are text, the
@@ -21,4 +22,49 @@ law AgreesWithBacktrack(seed int, text string) {
 law ProgramIsLinear(seed int) {
 	let p = syntax.Sample(seed)
 	Build(p).Len() <= syntax.Size(p)+1
+}
+
+// SearchAgreesWithReferences compares the prefix path with the original
+// Simulation (epsilon closure, byte transition, End) and the independent
+// bounded AST backtracker. Steering gives generated trees required common
+// prefixes, nullable heads, and shared/overlapping candidate positions.
+// Reuse the matcher after another text; it must hold no scan workspace.
+law SearchAgreesWithReferences(seed int, text string) {
+	let p = syntax.Sample(seed)
+	let literal = syntax.Literal(syntax.SampleText(seed))
+	let head = syntax.Literal("aa")
+	for pattern in []syntax.Node{
+		p, literal,
+		syntax.Cat{Parts: []syntax.Node{head, p}},
+		syntax.Alt{Left: syntax.Cat{Parts: []syntax.Node{head, p}}, Right: syntax.Cat{Parts: []syntax.Node{syntax.Literal("ab"), p}}},
+		syntax.Quest{Of: literal},
+		syntax.Plus{Of: literal},
+		syntax.Cat{Parts: []syntax.Node{syntax.Quest{Of: head}, p}},
+	} {
+		let fast = NewSearchCompiled(pattern)
+		let original = NewCompiled(syntax.Search(pattern))
+		let reference = backtrack.Search(backtrack.Engine, pattern)
+		for t in []string{text, "", syntax.SampleText(seed), "aa" + syntax.SampleText(seed) + "ab", "ab" + text} {
+			let got = fast.Matches(t)
+			let simulation = original.Matches(t)
+			let tree = reference.Matches(t)
+			if got != simulation || got != tree {
+				Unreachable("SearchAgreesWithReferences seed=\(seed) source=\(syntax.Print(pattern)) text=\(t) prefix=\(got) simulation=\(simulation) backtrack=\(tree); replay: ergo test examples/regex/nfa --run SearchAgreesWithReferences --seed \(seed)")
+			}
+			let _ = fast.Matches("other")
+			if fast.Matches(t) != got {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// SearchTransitionsAreLinear catches repeated whole-candidate scans:
+// overlapping starts of a+b must share their live NFA configurations.
+law SearchTransitionsAreLinear(seed int) {
+	let n = 1 + int(uint64(seed)%40)
+	let p = syntax.Cat{Parts: []syntax.Node{syntax.Plus{Of: syntax.Literal("a")}, syntax.Literal("b")}}
+	let work = NewSearchCompiled(p).Measure(strings.Repeat("a", n))
+	!work.Matched && work.Starts > 0 && work.Transitions <= n
 }

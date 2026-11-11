@@ -68,3 +68,20 @@ test SearchSkipsImpossibleStarts {
 	assert !(with Fast { engine.Select(syntax.Literal("cat"), engine.Whole) }).Matches("the cat sat")
 	assert (with Fast { engine.Select(syntax.Literal("cat"), engine.Inside) }).Matches("the cat sat")
 }
+
+// Minimal repros of the R1 candidate-selection bugs. The old tests only
+// exercise Whole or an already-expanded Search, never the new entry point.
+test SearchKeepsNullableAndOverlappingCandidates {
+	// R1-alt-prefix: neither alternative's entire prefix is required.
+	assert Search(Engine, try syntax.Parse("ab|ac")).Matches("ac")
+	// R1-nullable-prefix: an optional head is not a required prefix.
+	assert Search(Engine, try syntax.Parse("a?b")).Matches("b")
+	// R1-overlap: the failed aa.c at byte 0 must not skip byte 1.
+	assert Search(Engine, try syntax.Parse("aa.c")).Matches("aaaac")
+	// R1-live-candidate: a later start must not discard byte 0's state.
+	assert Search(Engine, try syntax.Parse("a.ab")).Matches("aaab")
+	// R1-early-accept: the text need not end at the pattern's Accept.
+	assert Search(Engine, try syntax.Parse("a[bc]")).Matches("xab!")
+	// R1-plus-complete: a repeated operand cannot join a fixed Cat prefix.
+	assert Search(Engine, try syntax.Parse("xa+b")).Matches("xaab")
+}
