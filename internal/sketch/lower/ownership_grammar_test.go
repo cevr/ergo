@@ -16,8 +16,9 @@ import (
 // F2, change C2; resources R5-R44). Each seed composes one program from a
 // grammar of the ownership forms, not from a list of shapes: expressions
 // that make a resource (a call, a literal, a moved local, a try that
-// fails, a defect, a division, a pass-through, an if, a match or a catch
-// used as a value (an arm may hold a local of its own), a generated helper
+// fails, a defect, a division, a pass-through, an if, a match, a with or
+// a catch used as a value (an arm may hold a local of its own), a catch
+// of a direct Go call (its value an id, or a Go file), a generated helper
 // whose return converts), consumers at every position (a let, a typed let
 // that converts, a let mut and its reassignment, a lend, a take, a Close,
 // a return, a store into a field, a push, a capture by a function literal
@@ -33,7 +34,7 @@ import (
 // checker that admits a wrong program (an omitted part, a lost owner) is
 // caught at run time. The only assertions are the ownership promise
 // itself: every value opened is closed exactly once, never used after its
-// close, and the static and the list release lowerings (static.go,
+// close, no Go file is left open (a run counts the process's files), and the static and the list release lowerings (static.go,
 // releaseLowering "scope") print the same trace and exit alike. The batch
 // must reach every production of the grammar in an admitted program; one
 // not reached fails by name. A failing seed is shrunk (statements
@@ -48,7 +49,8 @@ import (
 // lower mutants.json, owgen-*): a conversion at a lending argument with no
 // owner (F2); a lent arm's yielded name owned twice (FU0); a returned new
 // value lost on a later release's defect (FU1); the value of an if,
-// match or catch lost on a later release of its arm (FU4); a written Close that
+// match, with, catch or Go-call catch lost on a later release of its arm
+// (FU4); a written Close that
 // skips its fields, or a field taken from under it (FU2); a reassigned
 // variant's temporary of the wrong Go type. It also kills the historical
 // holes found by hand before it: B1 M1, B3q M2, PO1 M3 and PO1 (their
@@ -109,7 +111,7 @@ const ogSeeds = 64
 // ogFeatures is every production the batch must reach.
 var ogFeatures = []string{
 	"res:open", "res:lit", "res:local", "res:try", "res:boom", "res:div", "res:pass", "res:helper",
-	"expr:if", "expr:match", "expr:catch", "catch:bad-local", "arm:local", "if:lend-local", "if:lend-local-bad", "if:lend-local-catch", "tup:give2",
+	"expr:if", "expr:match", "expr:catch", "catch:bad-local", "expr:with", "with:lend-local", "with:bad-local", "catch:go", "catch:go-bad-local", "catch:go-file", "catch:go-file-bad-local", "arm:local", "if:lend-local", "if:lend-local-bad", "if:lend-local-catch", "tup:give2",
 	"conv:lend", "conv:take", "conv:let", "conv:return", "conv:store", "conv:assign",
 	"variant:let", "variant:lend",
 	"stmt:let", "stmt:letmut", "stmt:assign", "stmt:lend-local", "stmt:lend-temp", "stmt:use", "stmt:take", "stmt:close",
@@ -251,6 +253,32 @@ func keepBox(b Box) takes b {}
 func keepSlot(s Slot) takes s {}
 
 `
+
+// ogFilePrelude declares the Go file consumers and fdCount, the number
+// of the process's open files (Linux's /proc; 0 where it has none), for
+// a program that opens Go files (goFile).
+const ogFilePrelude = `func lendFile(f go.Ref[os.File]) {
+	_ = f.Name()
+}
+
+func keepFile(f go.Ref[os.File]) takes f {}
+
+func fdCount() int needs go.Foreign {
+	let mut n = 0
+	for i in 0..1024 {
+		os.Readlink("/proc/self/fd/\(i)") catch {
+		case go.Error:
+			n = n - 1
+		}
+		n = n + 1
+	}
+	n
+}
+
+`
+
+// ogDevNull opens a Go file that always opens.
+const ogDevNull = `os.Open("/dev/null") catch { case go.Error: Unreachable("/dev/null") }`
 
 // ogStmt is a generated statement: a line (it may hold several lines),
 // or a compound whose line is its header and whose arms hold blocks.
@@ -444,10 +472,10 @@ func (g *ogGen) expr(t ogType, d int) string {
 			switch k {
 			case 0:
 				g.f("res:open")
-				return fmt.Sprintf("open(%d, %v, log)", g.id(), g.bad())
+				return fmt.Sprintf("open(%s, %v, log)", g.idExpr(), g.bad())
 			case 1:
 				g.f("res:lit")
-				return fmt.Sprintf("Res{id: made(log, %d), bad: %v, log: log}", g.id(), g.bad())
+				return fmt.Sprintf("Res{id: made(log, %s), bad: %v, log: log}", g.idExpr(), g.bad())
 			case 2, 3:
 				if v := g.pickVar(oRes, true); v != nil {
 					v.st = 1
@@ -598,15 +626,78 @@ func (g *ogGen) lentYield(name string) string {
 }
 
 // armForm draws a value form whose arms each give a value of t: an if, a
-// match, or (for a resource) a catch.
+// match, a with, or (for a resource) a catch.
 func (g *ogGen) armForm(t ogType, d int) string {
 	switch k := g.r.IntN(10); {
 	case k < 2:
 		return g.matchExpr(t, d)
 	case k < 4 && t == oRes:
 		return g.catchExpr(d)
+	case k >= 4 && k < 6:
+		return g.withExpr(t, d)
 	}
 	return g.ifExpr(t, d)
+}
+
+// withExpr is a with used as a value: its block gives the value, after
+// a local of the block whose release may raise a defect (FU4), or, lent,
+// yields an enclosing local (FU0).
+func (g *ogGen) withExpr(t ogType, d int) string {
+	g.f("expr:with")
+	body := ""
+	if g.pos == "lend" && g.r.IntN(2) == 0 {
+		if v := g.pickVar(t, true); v != nil {
+			v.st = 1
+			body = g.lentYield(v.name)
+			g.f("with:lend-local")
+		}
+	}
+	if body == "" && g.r.IntN(3) == 0 {
+		l := g.name("a")
+		g.badSince = true
+		g.f("with:bad-local")
+		body = fmt.Sprintf("let %s = open(%d, true, log); lendRes(%s); %s", l, g.id(), l, g.expr(t, d-1))
+	}
+	if body == "" {
+		body = g.arm(t, d)
+	}
+	return "with context {} { " + body + " }"
+}
+
+// idExpr is the id of a new resource: a literal, or a catch of a direct
+// Go call (the plain catch, catch_plain.go) that fails when n > c, whose
+// arm may release a local of its own that raises a defect while the
+// statement's earlier temporaries are live.
+func (g *ogGen) idExpr() string {
+	id := g.id()
+	if g.r.IntN(6) != 0 {
+		return fmt.Sprint(id)
+	}
+	g.f("catch:go")
+	arm := fmt.Sprint(id)
+	if g.r.IntN(2) == 0 {
+		g.f("catch:go-bad-local")
+		l := g.name("a")
+		g.badSince = true
+		arm = fmt.Sprintf("let %s = open(%d, true, log); lendRes(%s); %d", l, g.id(), l, id)
+	}
+	return fmt.Sprintf("strconv.Atoi(if n > %d { \"x\" } else { \"%d\" }) catch { case go.Error: %s }", g.cond(), id, arm)
+}
+
+// goFile is a Go resource (interop.md, Resources) made by a plain catch:
+// the call's file when it opens, else the arm's, which the arm makes
+// before it releases a local of its own that may raise a defect (FU4 at
+// a direct Go call).
+func (g *ogGen) goFile() string {
+	g.f("catch:go-file")
+	arm := ogDevNull
+	if g.r.IntN(2) == 0 {
+		g.f("catch:go-file-bad-local")
+		l := g.name("a")
+		g.badSince = true
+		arm = fmt.Sprintf("let %s = open(%d, true, log); lendRes(%s); %s", l, g.id(), l, arm)
+	}
+	return fmt.Sprintf("os.Open(if n > %d { \"/nonexistent/loop-probe-x\" } else { \"/dev/null\" }) catch { case go.Error: %s }", g.cond(), arm)
 }
 
 // arm is the body of an arm of a value form: its tail, sometimes after a
@@ -814,7 +905,23 @@ func (g *ogGen) stmt(d int) *ogStmt {
 	for {
 		g.pos = ""
 		g.badSince = false
-		switch g.r.IntN(24) {
+		switch g.r.IntN(25) {
+		case 24:
+			// A Go file, in run's frame only (it needs go.Foreign, which
+			// main provides): bound and lent, lent as a temporary, or
+			// taken.
+			if !g.inRun || g.noTry {
+				continue
+			}
+			e := g.goFile()
+			switch g.r.IntN(3) {
+			case 0:
+				name := g.name("f")
+				return &ogStmt{line: fmt.Sprintf("let %s = %s; lendFile(%s)", name, e, name)}
+			case 1:
+				return &ogStmt{line: "lendFile(" + e + ")"}
+			}
+			return &ogStmt{line: "keepFile(" + e + ")"}
 		case 0, 1, 2:
 			t := g.anyType()
 			mut := g.r.IntN(3) == 0
@@ -875,6 +982,15 @@ func (g *ogGen) stmt(d int) *ogStmt {
 				// A lent if whose arm yields an enclosing local, which
 				// keeps its owner (R43, the mHold rule).
 				t = v.t
+				if g.r.IntN(4) == 0 {
+					// A lent with whose block yields the local.
+					v.st = 1
+					g.f("expr:with")
+					g.f("with:lend-local")
+					g.f("stmt:lend-temp")
+					arg = "with context {} { " + g.lentYield(v.name) + " }"
+					return &ogStmt{line: fmt.Sprintf("lend%s(%s)", ogTypeKey[t], arg)}
+				}
 				g.f("expr:if")
 				g.f("if:lend-local")
 				g.f("stmt:lend-temp")
@@ -1261,7 +1377,21 @@ func (p *ogProg) source() string {
 	if strings.Contains(p.text(), "queue.") {
 		b.WriteString("import queue\n")
 	}
+	if strings.Contains(p.text(), "strconv.") {
+		b.WriteString("import go strconv\n")
+	}
+	files := strings.Contains(p.text(), "os.Open")
+	if files {
+		b.WriteString("import go os\n")
+	}
 	b.WriteString(ogPrelude)
+	needs, fd0, leak := "", "", ""
+	if files {
+		b.WriteString(ogFilePrelude)
+		needs = " needs go.Foreign"
+		fd0 = "\t\tlet fd0 = fdCount()\n"
+		leak = "\t\tlet leaked = fdCount() - fd0\n\t\tif leaked != 0 {\n\t\t\tnote(log, \"leak \\(leaked)\")\n\t\t}\n"
+	}
 	for _, h := range p.helpers {
 		b.WriteString(h.sig + " {\n")
 		ogWrite(&b, h.body, 1)
@@ -1271,16 +1401,25 @@ func (p *ogProg) source() string {
 			fmt.Fprintf(&b, "\treturn %s\n}\n\n", h.ret)
 		}
 	}
-	b.WriteString("func run(n int, log sync.Ref[string]) int fails Bad {\n")
+	b.WriteString("func run(n int, log sync.Ref[string]) int fails Bad" + needs + " {\n")
 	ogWrite(&b, p.body, 1)
 	b.WriteString("\tn\n}\n\n")
 	// Each n of 0..9 takes every branch `n > c` (c in 0..8) one way or
 	// the other, so each production a program reaches also runs; each
-	// run's trace is judged alone (ogSegment).
-	b.WriteString(`func main() needs Console {
-	for k in 0..10 {
-		let log = sync.NewRef[string]("")
-		let set = tasks.NewSet[Bad](tasks.LogFailures)
+	// run's trace is judged alone (ogSegment). With Go files, each run
+	// also counts the process's open files before and after it: a Go
+	// file never closed is a "leak" line (ogJudgeRun). The first open
+	// comes first, as Go's poller keeps files of its own from it on.
+	warm := ""
+	if files {
+		needs = " | go.Foreign"
+		warm = "\tlendFile(" + ogDevNull + ")\n"
+	}
+	b.WriteString(`func main() needs Console` + needs + ` {
+` + warm + `	for k in 0..10 {
+` + fd0 + `		let log = sync.NewRef[string]("")
+		let set = tasks.NewSet[Bad](tasks.LogFailures)`)
+	b.WriteString(`
 		tasks.Go(set, func() {
 			let v = run(k, log) catch {
 			case Bad:
@@ -1294,7 +1433,7 @@ func (p *ogProg) source() string {
 		set.Wait() catch {
 		case Bad:
 		}
-		Console.Println(log.Get() + "` + ogSegment + `")
+` + leak + `		Console.Println(log.Get() + "` + ogSegment + `")
 	}
 }
 `)
@@ -1520,6 +1659,8 @@ func ogJudgeRun(out string, div map[int]bool) string {
 			continue
 		}
 		switch f[0] {
+		case "leak":
+			faults = append(faults, fmt.Sprintf("%d Go files are never closed", id))
 		case "open":
 			live[id]++
 		case "use":
