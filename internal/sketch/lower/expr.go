@@ -31,6 +31,20 @@ func unparen(x syntax.Expr) syntax.Expr {
 	}
 }
 
+// tried is the operand of the try that starts x (through parentheses),
+// or x itself when no try starts it. A lowering that looks for a shape
+// that cannot fail itself (an assert's comparison, a matched Get) looks
+// through the try, so that try a.b(c) == d and (try a).b(c) == d lower
+// alike (q105: parentheses carry no meaning), and lowers the shape's
+// operands under fc.tries, as fc.try would. A try on a catch (fc.try's
+// partial catch) has no such shape.
+func tried(x syntax.Expr) syntax.Expr {
+	if t, ok := unparen(x).(*syntax.TryExpr); ok {
+		return unparen(t.X)
+	}
+	return x
+}
+
 // typeOf is x's checked type.
 func (fc *funcCtx) typeOf(x syntax.Expr) check.Type {
 	t, ok := fc.typed(x)

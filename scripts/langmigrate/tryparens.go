@@ -132,19 +132,37 @@ func rewriteTryParens(text string, lowered func(string) (string, bool)) (string,
 // match the columns of the call-site tables and of position texts
 // (file.ergo:line:column), which move with an edit before them on their
 // line. A removal on one line keeps every line number, which stays
-// compared.
+// compared. assertText matches the source text an assert's report
+// quotes (lower: assert), the one place where the spelling of the source,
+// not its meaning, reaches the Go; the rest of the report (the operands
+// it shows) stays compared.
 var (
 	lineDirective = regexp.MustCompile(`(?m)^//line .*\n|/\*line [^*]*\*/`)
 	column        = regexp.MustCompile(`Column: \d+`)
 	columnText    = regexp.MustCompile(`(\.ergo:\d+):\d+`)
+	assertText    = regexp.MustCompile(`(ergoAssertFail\("[^"]*", )"(?:[^"\\]|\\.)*"`)
 )
 
 // positionless is lowered Go without what an edit of a line's columns
-// moves.
+// moves, and without the source text an assert quotes. The call-site
+// table (lower: callTable) lists the calls in source order, by offset,
+// so a removal that moves a call's start past another's on its line
+// reorders two rows; each run of rows is compared as a set.
 func positionless(goText string) string {
 	goText = lineDirective.ReplaceAllString(goText, "")
 	goText = column.ReplaceAllString(goText, "Column: _")
-	return columnText.ReplaceAllString(goText, "$1:_")
+	goText = assertText.ReplaceAllString(goText, `$1"_"`)
+	goText = columnText.ReplaceAllString(goText, "$1:_")
+	lines := strings.Split(goText, "\n")
+	for i := 0; i < len(lines); {
+		j := i
+		for j < len(lines) && strings.HasPrefix(lines[j], "\t{Func: ") {
+			j++
+		}
+		slices.Sort(lines[i:j])
+		i = max(j, i+1)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // loweredText is the lowered Go of a checked program, as Lower and
