@@ -3888,6 +3888,17 @@
       "killers": [
         "lower:TestMachineStepDefectFrames"
       ]
+    },
+    {
+      "name": "rc4b-last-returns-first",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "Some[T]{Value: xs[len(xs)-1]}",
+      "to": "Some[T]{Value: xs[0]}",
+      "rule": "slices.Last is the final element (law LastIsFinalElement).",
+      "killers": [
+        "lower:TestStdSlicesLawsRun"
+      ]
     }
   ]
 }
