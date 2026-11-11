@@ -3194,6 +3194,83 @@
         "file": "internal/sketch/lower/tests.go",
         "text": "Replace(harnessGo + harnessReachGo)"
       }
+    },
+    {
+      "name": "fureaddir-host-pkg-named-only",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/naming.go",
+      "from": "for _, h := range hostPkgsIn(t, nil) {",
+      "to": "for _, h := range hostPkgsIn(func() check.Type { if n, ok := t.(*check.Named); ok { return n }; return nil }(), nil) {",
+      "rule": "The naming pass names the import of every Go package a read expression type mentions at any depth ([]fs.DirEntry of os.ReadDir), not only a Named expression type's.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-host-type-scope-name",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\tif tn.Pkg.Host() {\n\t\t// A Go type of import go is Go's own declaration",
+      "to": "\tif false {\n\t\t// A Go type of import go is Go's own declaration",
+      "rule": "A Go type of import go takes no package-scope name: its typeDecl (read by a copy or a field selection after the naming pass) is named through its package's import.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-result-unadapted",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "return fc.seqFromGo(t, r, x)",
+      "to": "return r",
+      "rule": "A Go iter.Seq result, which the binding maps to the prelude Seq, becomes an Ergo Seq at the import go boundary.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-arg-unadapted",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "\tfc.goSeqArgs(sig, x.Args, vals, x)\n",
+      "to": "\t// mutant: no Seq argument adapter\n",
+      "rule": "An Ergo Seq argument of a Go call whose parameter is iter.Seq becomes Go's iter.Seq.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-ignores-stop",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "ind + \"\\t\\tif !\" + ok2 + \" {\\n\" +",
+      "to": "ind + \"\\t\\tif false && !\" + ok2 + \" {\\n\" +",
+      "rule": "A Seq made from a Go iter.Seq stops ranging when its Ergo yield returns false (a break in a for-in over it).",
+      "killers": [
+        "lower:TestGoSeqCrossesTheBoundary"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-result-generic",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "\t\t\tt = fc.typeOf(x)\n",
+      "to": "\t\t\t_ = fc.typeOf(x)\n",
+      "rule": "A Seq result of a generic Go function (maps.Keys) takes the call's checked type, not the function's type parameter.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-arg-generic",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "n, ok := fc.typeOf(args[i]).(*check.Named)",
+      "to": "n, ok := p.Type.(*check.Named)",
+      "rule": "A Seq argument of a generic Go function (slices.Collect) takes the argument's checked type, not the function's type parameter.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
     }
   ]
 }
