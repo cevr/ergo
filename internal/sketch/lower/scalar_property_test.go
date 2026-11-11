@@ -19,8 +19,9 @@ import (
 // gather), by an inlined call whose later operand assigns it (keep: the
 // operand is read first), and in a return inside a loop (final). One
 // seed in four makes a closure name the local, which keeps it a union
-// value; one in four passes it to measure, whose parameter is an
-// operation type (the operand converts, so the parameter is no alias).
+// value; one in four passes it to pick, an inlined call whose parameter
+// is an operation type (the operand converts, so the parameter is no
+// alias).
 //
 // The program runs under the new lowering and under the reference
 // (scalarLowering "off"); stdout, standard error and the exit code must
@@ -118,10 +119,11 @@ type Sized { Area() int }
 
 func Area(s Shape) int { score(s) + 100 }
 
-// measure's operand converts a Shape to the operation type Sized.
-func measure(z Sized) int { area(z) }
+// pick is inlined; its operand converts a Shape to the operation type
+// Sized, so its parameter is no alias of the caller's local.
+func pick(z Sized) Sized { return z }
 
-func area(z Sized) int { z.Area() }
+func measure(z Sized) int { z.Area() }
 
 func final(xs []int) Shape {
 	let mut at Shape = Dot
@@ -222,7 +224,7 @@ func scalarProgram(seed uint64, reached map[string]bool) string {
 	}
 	line("Console.Println(\"\\(i) \\(score(at))\")")
 	if seed%4 == 1 {
-		line("Console.Println(\"\\(measure(at))\")")
+		line("Console.Println(\"\\(measure(pick(at)))\")")
 		reached["conv"] = true
 	}
 	if seed%4 == 3 {

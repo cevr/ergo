@@ -2354,9 +2354,10 @@
       "file": "internal/sketch/lower/scalar.go",
       "from": "!later && !conv && ",
       "to": "!later && (!conv || true) && ",
-      "rule": "scalar.go: an operand with an implicit conversion does not bind its parameter to the local.",
-      "killers": [],
-      "gap": "survived: no program passes a scalar local with a conversion (a union local converts to no other union); the guard is defensive (OPT6b, 2026-11-11)"
+      "rule": "scalar.go: an operand with an implicit conversion (a union local into an operation type) does not bind its parameter to the local.",
+      "killers": [
+        "lower:TestScalarLocalsAgree"
+      ]
     },
     {
       "name": "scalar-carried-blind",
@@ -2375,9 +2376,10 @@
       "file": "internal/sketch/lower/scalar.go",
       "from": "param[v] || join[v] && matched[v] ||",
       "to": "param[v] || false && matched[v] ||",
-      "rule": "scalar.go: a matched let of an inlined call is a join local (speed only).",
-      "killers": [],
-      "gap": "survived: changes no output; TestMachineFlatRunAllocates's step never emits, so its decision escapes nowhere; the counted mdhtml receipt (allocs 90 with it, 95 without) covers it (OPT6b, 2026-11-11)"
+      "rule": "scalar.go: a matched let of an inlined call is a join local (speed only; the lowering's Joins counter).",
+      "killers": [
+        "lower:TestScalarLocalsAgree"
+      ]
     },
     {
       "name": "scalar-alias-blind",
@@ -2385,9 +2387,10 @@
       "file": "internal/sketch/lower/scalar.go",
       "from": "param[v] || join[v] && matched[v] ||",
       "to": "false || join[v] && matched[v] ||",
-      "rule": "scalar.go: a parameter of an inlined call may bind to the caller's scalar local (speed only).",
-      "killers": [],
-      "gap": "survived: changes no output and no allocation count of the alloc test (a gather's box stays on the stack there); the counted instruction receipts cover it (OPT6b, 2026-11-11)"
+      "rule": "scalar.go: a parameter of an inlined call may bind to the caller's scalar local (speed only; the lowering's Aliases counter).",
+      "killers": [
+        "lower:TestScalarLocalsAgree"
+      ]
     },
     {
       "name": "copy-growth",
@@ -2401,24 +2404,15 @@
       ]
     },
     {
-      "name": "record-start-blind",
-      "origin": "wf10 OPT6b",
-      "file": "internal/sketch/lower/record.go",
-      "from": "if step == nil || conv.Table[\"Start\"] != nil {",
-      "to": "if step == nil {",
-      "rule": "record.go: a machine with an input (Start) is no known record.",
-      "killers": [],
-      "gap": "survived: no test runs a machine with an input through a Machine record parameter whose copy would differ; the guard is defensive (OPT6b, 2026-11-11)"
-    },
-    {
       "name": "inline-generated-dir",
       "origin": "wf10 OPT6b",
       "file": "internal/sketch/lower/inline.go",
       "from": "\tcase !fc.directives:\n\t\tfc.writeDir(generatedDir)\n",
       "to": "\tcase !fc.directives:\n",
       "rule": "inline.go: an inlined body with directives in code without directives ends with generatedDir, so a defect after it is not read as the inlined body's.",
-      "killers": [],
-      "gap": "survived: TestMachineStepDefectFrames reports the same frames without it; no test has a defect in std code after an inlined user body (OPT6b, 2026-11-11)"
+      "killers": [
+        "lower:TestMachineStepDefectFrames"
+      ]
     }
   ]
 }

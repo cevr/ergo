@@ -833,7 +833,7 @@ func TestMachineStepDefectFrames(t *testing.T) {
 // does. It builds the emitted code with a Go test beside it, because
 // allocation is a fact of Go's escape analysis of the lowered code, which
 // no in-process check sees. It kills the mutants that change no output
-// but box the state again (scalar-carried-blind, scalar-join-blind in the
+// but box the state again (scalar-carried-blind, copy-growth in the
 // ledger).
 func TestMachineFlatRunAllocates(t *testing.T) {
 	needsBuild(t)
