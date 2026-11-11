@@ -54,9 +54,15 @@
     {
       "file": "patterns.md",
       "heading": "Derived types and patterns",
-      "status": "designed",
-      "text": ": no compiler support yet. The parser reads `derive` after a type's name as a type name and refuses the expression after it with S001.",
-      "witnesses": []
+      "status": "partly implemented",
+      "text": ": the parser reads `type T derive E`, the checker evaluates the plan at check time within its budgets and derives the bundle, and the build emits each pattern's matcher from its compiled plan; `ergo inspect` shows each derive with its engine and counts. The derived laws `TMatches` and `TAccepts`, the witness generator and the related information of [Diagnostics](#diagnostics) 2 are designed.",
+      "witnesses": [
+        "internal/sketch/derive:TestPatternGrammar",
+        "internal/sketch/derive:TestPatternShapes",
+        "internal/sketch/check:TestDeriveModel",
+        "internal/sketch/check:TestPatternDiagnostics",
+        "internal/sketch/lower:TestPatternLoweringAgrees"
+      ]
     },
     {
       "file": "resources.md",
@@ -596,10 +602,13 @@
     },
     {
       "construct": "Derived types `type T derive E`: type plans, plan functions and typed byte patterns",
-      "status": "designed",
-      "cell": "Designed, not yet implemented: the parser refuses the expression after `type T derive` with S001",
+      "status": "partly implemented",
+      "cell": "Parsed, checked and lowered: `Pattern` and `Refine` plans, plan functions of any package, typed captures and their matchers; the derived laws are designed",
       "section": "[patterns](patterns.md)",
-      "witnesses": []
+      "witnesses": [
+        "internal/sketch/check:TestDeriveModel",
+        "internal/sketch/lower:TestPatternLoweringAgrees"
+      ]
     }
   ]
 }

@@ -1,10 +1,10 @@
 # Derived types and patterns
 
-Status: **designed**: no compiler support yet. The parser reads `derive` after a type's name as a type name and refuses the expression after it with S001.
+Status: **partly implemented**: the parser reads `type T derive E`, the checker evaluates the plan at check time within its budgets and derives the bundle, and the build emits each pattern's matcher from its compiled plan; `ergo inspect` shows each derive with its engine and counts. The derived laws `TMatches` and `TAccepts`, the witness generator and the related information of [Diagnostics](#diagnostics) 2 are designed.
 
 A declaration `type T derive E` evaluates `E`, a closed [type plan](../../GLOSSARY.md#constructs-contracts-and-laws), at check time and derives a bundle of ordinary declarations that `T` owns: the type `T`, the types it needs, a parse function, its failure, and laws. A plan is built by predeclared constructors and by ordinary functions of any package, the user's included. One plan is a byte pattern with named captures: an optional capture gives an `Option`, a repeated capture gives a slice of every occurrence, and an alternation of named captures gives a union that `match` covers exhaustively. The compiler checks the pattern at check time and lowers it to a matcher that it builds and checks at compile time; no pattern is parsed or compiled when the program runs. The owner put pattern declarations, this one derivation rule and its byte grammar in v1 ([decisions](../decisions.md#owner-direction-2026-11-11)).
 
-Each rule below names the test that holds it. These tests do not exist yet; the [status ledger](status.json) lists none until they do. The examples are fenced as `ergo`, not `go`, because the parser does not accept `derive` yet, and every `go` fence of the specification must parse; the parser's change turns them to `go`.
+Each rule below names the test that holds it; the [status ledger](status.json) lists those that exist. The examples are fenced as `ergo`, not `go`, because each shows several packages in one block, and every `go` fence of the specification must parse as one file.
 
 ```ergo
 // package formats: a plan function, ordinary code of a user package
