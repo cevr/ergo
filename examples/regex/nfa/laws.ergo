@@ -44,7 +44,24 @@ law CapturesAgree(seed int, text string) {
 		let wantFound = syntax.ShowFound(backtrack.FindCaptures(p, t))
 		assert description+found == description+wantFound
 	}
+	// A second group of a name, after the sample or in an Alt beside it,
+	// has no capture of its own: Check refuses it, naming the name.
+	let clash = syntax.Clash(seed)
+	let clashDescription = "source=\(syntax.Print(clash.Tree)) refused="
+	assert clashDescription+duplicateOf(clash.Tree) == clashDescription+clash.Name
 	true
+}
+
+// duplicateOf is the name that Check refuses n for as a duplicate, or
+// what else Check says of n.
+func duplicateOf(n syntax.Node) string {
+	let _ = syntax.Check(n) catch {
+	case syntax.DuplicateName as d:
+		return d.Name
+	case err:
+		return "other: " + syntax.DescribeCapture(err)
+	}
+	"accepted"
 }
 
 // TagWorkIsBounded: the tagged machine moves at most one thread per

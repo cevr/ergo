@@ -1,8 +1,9 @@
 // The printer: a tree to a pattern's text that parses back to it.
 
 // Print is the text of n. Parse(Print(n)) is n for every n whose Cat
-// nodes have two parts or more, which is every tree that Parse returns
-// (law RoundTrip). A part of a Cat that is a Cat, an Alt or Empty, the
+// nodes have two parts or more and whose Count nodes have counts that
+// Parse accepts and As = Counted(Of, Min, Max), which is every tree that
+// Parse returns (law RoundTrip). A Count prints its Of and counts only. A part of a Cat that is a Cat, an Alt or Empty, the
 // right side of an Alt that is an Alt, and the operand of a repeat that
 // is a Cat, an Alt or Empty is put in parentheses.
 func Print(n Node) string {
@@ -34,8 +35,21 @@ func Print(n Node) string {
 		operand(p.Of) + "+"
 	case Quest as q:
 		operand(q.Of) + "?"
+	case Count as c:
+		operand(c.Of) + countText(c)
 	case Group as g:
 		"(?<" + g.Name + ">" + Print(g.Of) + ")"
+	}
+}
+
+// countText is the text of c's counts: {n}, {n,} or {n,m}.
+func countText(c Count) string {
+	if c.Max == -1 {
+		"{\(c.Min),}"
+	} else if c.Max == c.Min {
+		"{\(c.Min)}"
+	} else {
+		"{\(c.Min),\(c.Max)}"
 	}
 }
 
@@ -69,6 +83,8 @@ func operand(n Node) string {
 	case Quest:
 		Print(n)
 	case Group:
+		Print(n)
+	case Count:
 		Print(n)
 	case Empty:
 		"()"

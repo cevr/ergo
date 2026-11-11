@@ -11,8 +11,8 @@
 // Cat of a and b. A named group (?<name>ab) is a Group, which captures.
 // A name is a letter or "_", then letters, digits and "_". n and m are
 // decimal, at most 1000, and m is not below n. A "{" that does not start
-// such a repeat is a literal byte, as in Go. A counted repeat is not a
-// node: Counted writes it out, so (ab){2} is the tree of (ab)(ab).
+// such a repeat is a literal byte, as in Go. A counted repeat is a
+// Count, whose As Counted writes out: (ab){2} matches as (ab)(ab).
 
 // The failures of Parse. Each names the offset of the byte it is about.
 // SyntaxError is their row, and one value of it can be described.
@@ -125,7 +125,7 @@ func repetition(p *parser) Node fails nested {
 				if b.Min > maxRepeat || b.Max > maxRepeat || (b.Max >= 0 && b.Max < b.Min) || Size(n)*copies > maxNodes {
 					return BadRepeat{At: p.at, Text: p.src[p.at:b.End]}
 				}
-				n = Counted(n, b.Min, b.Max)
+				n = Count{Of: n, Min: b.Min, Max: b.Max, As: Counted(n, b.Min, b.Max)}
 				p.at = b.End - 1
 			case None:
 				return n

@@ -74,11 +74,29 @@
       "killers": ["examples:regex"]
     },
     {
-      "name": "RC1-copies-refused",
+      "name": "RC1-duplicate-equal-admitted",
       "file": "examples/regex/syntax/capture.ergo",
-      "from": "groups[j].Name == groups[i].Name && groups[j] != groups[i]",
-      "to": "groups[j].Name == groups[i].Name",
-      "rule": "Copies of one group that a counted repeat wrote out are one capture; CaptureSample makes such copies and CapturesAgree needs Check to accept them.",
+      "from": "if groups[j].Name == groups[i].Name {",
+      "to": "if groups[j].Name == groups[i].Name && groups[j] != groups[i] {",
+      "rule": "Any two written groups of one name are refused, equal ones and ones across an Alt too (patterns.md Diagnostics 1, RC3). CapturesAgree draws Clash trees, whose second group is often equal to the first, and expects the refusal.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-groups-read-copies",
+      "file": "examples/regex/syntax/capture.ergo",
+      "from": "\t\tGroups(c.Of)",
+      "to": "\t\tGroups(c.As)",
+      "rule": "The copies of a counted repeat are not written groups: (?<X>a){2} has one group. CaptureSample counts groups and CapturesAgree needs Check to accept them.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-count-as-unchecked",
+      "file": "examples/regex/syntax/capture.ergo",
+      "from": " || c.As != Counted(c.Of, c.Min, c.Max) {",
+      "to": " {",
+      "rule": "Matching reads a Count's As and Groups reads its Of, so Check refuses a Count whose As is not Counted(Of, Min, Max). CaptureFailuresAreNamed (diagnostic row).",
       "anchor": {"tests": ["examples:regex"]},
       "killers": ["examples:regex"]
     },
@@ -105,7 +123,7 @@
       "file": "examples/regex/syntax/node.ergo",
       "from": "\tfor _ in 0..min {",
       "to": "\tfor _ in 0..min+1 {",
-      "rule": "Counted writes exactly min mandatory copies. Print writes the copies out, so RoundTrip cannot see a wrong count; ParsesCountsAndGroups.",
+      "rule": "Counted writes exactly min mandatory copies into As. Print writes only Of and the counts, and Parse rebuilds As with the same Counted, so RoundTrip cannot see a wrong count; ParsesCountsAndGroups.",
       "anchor": {"tests": ["examples:regex"]},
       "killers": ["examples:regex"]
     },

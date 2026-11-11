@@ -13,6 +13,31 @@ func CaptureSample(seed int) Node {
 	l.ctree(4)
 }
 
+// Clashing is a tree with two groups of Name.
+type Clashing { Tree Node, Name string }
+
+// Clash is CaptureSample(seed) with one more group whose name an earlier
+// group has, and that name: put after the sample or in an Alt beside it,
+// or a pair of groups of one name when the sample has none. Check must
+// refuse it at the second group of the name.
+func Clash(seed int) Clashing {
+	let base = CaptureSample(seed)
+	let mut g = seeded(seed + 7)
+	let groups = Groups(base)
+	if len(groups) == 0 {
+		let pair = Alt{Left: Group{Name: "d", Of: g.leaf()}, Right: Group{Name: "d", Of: g.leaf()}}
+		return Clashing{Tree: Cat{Parts: []Node{base, pair}}, Name: "d"}
+	}
+	let name = groups[g.next(len(groups))].Name
+	let again = Group{Name: name, Of: g.leaf()}
+	match g.next(2) {
+	case 0:
+		Clashing{Tree: Cat{Parts: []Node{base, again}}, Name: name}
+	case _:
+		Clashing{Tree: Alt{Left: base, Right: again}, Name: name}
+	}
+}
+
 // ctree is a checked tree of at most depth levels.
 func ctree(l *labeler, depth int) Node {
 	if depth <= 1 {
@@ -88,6 +113,8 @@ func word(g *source, n Node) string {
 		g.copies(p.Of, 1+g.next(3))
 	case Quest as q:
 		g.copies(q.Of, g.next(2))
+	case Count as c:
+		g.word(c.As)
 	case Group as gr:
 		g.word(gr.Of)
 	}

@@ -111,7 +111,7 @@ func Last(events []Event, name string) Option[Occurrence] {
 
 // The failures of Check: a tree whose captures are not defined. Each
 // names the text of the subtree it is about.
-type CaptureError = NullableRepeat | EmptyClass | DuplicateName
+type CaptureError = NullableRepeat | EmptyClass | DuplicateName | BadCount
 
 // NullableRepeat is a repeat whose operand matches the empty text: how
 // often it captured would be a choice of the engine.
@@ -120,30 +120,38 @@ type NullableRepeat { Text string }
 // EmptyClass is a class that matches no byte.
 type EmptyClass { Text string }
 
-// DuplicateName is two different groups of one name.
-type DuplicateName { Name string }
+// DuplicateName is a second group of a name that an earlier group has.
+// Second is the second group's place among the groups in the order they
+// open, from 1, and Text is its text.
+type DuplicateName { Name string, Second int, Text string }
 
-// Pattern is a tree that Check accepted: its groups of one name are
-// copies of one group, no repeat's operand matches the empty text, and
-// every class matches a byte. Only Check makes one.
+// BadCount is a Count that Parse does not make: counts outside 0 to
+// 1000, a Max below its Min, copies of more than 4096 nodes, or an As
+// that is not its Counted.
+type BadCount { Text string }
+
+// Pattern is a tree that Check accepted: each of its group names is
+// written once, no repeat's operand matches the empty text, every class
+// matches a byte, and every Count is one Parse makes. Only Check makes
+// one.
 type Pattern { tree Node }
 
 // Tree is the tree of p.
 func Tree(p Pattern) Node { p.tree }
 
 // Check is the Pattern of n, or the first reason its captures are not
-// defined. Groups of one name are one capture only when they are equal,
-// copies that a counted repeat wrote out: (?<X>a){2} is (?<X>a)(?<X>a),
-// and (?<X>a)(?<X>b) is refused. RC3's plan compiler, which keeps the
-// counted repeat as a node, refuses the same patterns, except equal
-// groups written twice, which it refuses and Check takes as one capture.
+// defined. Two groups of one name are refused anywhere, across an Alt
+// too: (?<X>a)|(?<X>a) is refused at its second group, as patterns.md
+// (Diagnostics 1) and RC3's plan compiler refuse it. The copies of a
+// counted repeat are not written groups: Groups reads a Count's Of, so
+// (?<X>a){2} has one group, which captures once per copy.
 func Check(n Node) Pattern fails CaptureError {
 	try checkNode(n)
 	let groups = Groups(n)
 	for i in 0..len(groups) {
 		for j in 0..i {
-			if groups[j].Name == groups[i].Name && groups[j] != groups[i] {
-				return DuplicateName{Name: groups[i].Name}
+			if groups[j].Name == groups[i].Name {
+				return DuplicateName{Name: groups[i].Name, Second: i + 1, Text: Print(groups[i])}
 			}
 		}
 	}
@@ -181,6 +189,8 @@ func Groups(n Node) []Group {
 		Groups(p.Of)
 	case Quest as q:
 		Groups(q.Of)
+	case Count as c:
+		Groups(c.Of)
 	case Group as g:
 		plus([]Group{g}, Groups(g.Of))
 	}
@@ -213,6 +223,13 @@ func checkNode(n Node) fails CaptureError {
 		try repeated(n, p.Of)
 	case Quest as q:
 		try repeated(n, q.Of)
+	case Count as c:
+		let copies = if c.Max == -1 { c.Min + 1 } else { c.Max }
+		let counts = 0 <= c.Min && c.Min <= maxRepeat && (c.Max == -1 || (c.Min <= c.Max && c.Max <= maxRepeat))
+		if !counts || Size(c.Of)*copies > maxNodes || c.As != Counted(c.Of, c.Min, c.Max) {
+			return BadCount{Text: Print(n)}
+		}
+		try repeated(n, c.Of)
 	case Group as g:
 		try checkNode(g.Of)
 	}
@@ -245,6 +262,8 @@ func Nullable(n Node) bool {
 		true
 	case Plus as p:
 		Nullable(p.Of)
+	case Count as c:
+		Nullable(c.As)
 	case Group as g:
 		Nullable(g.Of)
 	}
@@ -258,6 +277,8 @@ func DescribeCapture(e CaptureError) string {
 	case EmptyClass as k:
 		"class \(k.Text) matches no byte"
 	case DuplicateName as d:
-		"group name \(d.Name) is used twice"
+		"group name \(d.Name) is used twice: group \(d.Second), \(d.Text), repeats it"
+	case BadCount as b:
+		"repeat \(b.Text) is not a counted repeat that Parse makes"
 	}
 }

@@ -62,7 +62,7 @@ func tree(g *source, depth int) Node {
 func counted(g *source, of Node) Node {
 	let min = g.next(3)
 	let max = if g.next(3) == 0 { -1 } else { min + g.next(2) }
-	Counted(of, min, max)
+	Count{Of: of, Min: min, Max: max, As: Counted(of, min, max)}
 }
 
 // name is a group name of three: the laws see names repeat in a tree.

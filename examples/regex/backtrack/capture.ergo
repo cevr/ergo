@@ -73,6 +73,8 @@ func trace(n syntax.Node, text string, i int, h syntax.History, k func(j int, h 
 		trace(p.Of, text, i, h, func(j int, after syntax.History) Option[ended] { traceStar(p.Of, text, j, after, k) })
 	case syntax.Quest as q:
 		either(trace(q.Of, text, i, h, k), func() Option[ended] { k(i, h) })
+	case syntax.Count as c:
+		trace(c.As, text, i, h, k)
 	case syntax.Group as g:
 		let opened = syntax.Then{Before: h, Event: syntax.Open{Name: g.Name, At: i}}
 		trace(g.Of, text, i, opened, func(j int, inside syntax.History) Option[ended] {

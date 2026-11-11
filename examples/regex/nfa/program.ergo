@@ -70,6 +70,8 @@ func emit(b *builder, n syntax.Node, next int) int {
 	case syntax.Quest as q:
 		let x = b.emit(q.Of, next)
 		b.add(Split{X: x, Y: next})
+	case syntax.Count as c:
+		b.emit(c.As, next)
 	case syntax.Group as g:
 		let close = b.add(Save{Name: g.Name, Open: false, Next: next})
 		let body = b.emit(g.Of, close)
