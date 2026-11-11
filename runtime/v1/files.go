@@ -200,19 +200,25 @@ type bodyFact struct {
 	refusal string
 }
 
-// sourceDecls parses Source once per process.
-var sourceDecls = sync.OnceValues(func() (goDecls, error) {
-	sourceParses.Add(1)
-	return parseDecls(Source)
-})
+// sourceDecls returns Source parsed, once per process, and counts the
+// read (SourceReads).
+func sourceDecls() (goDecls, error) {
+	sourceReads.Add(1)
+	return parsedSource()
+}
 
-// sourceParses counts the parses of Source in this process (CHK1).
-var sourceParses atomic.Int64
+// parsedSource parses Source once per process.
+var parsedSource = sync.OnceValues(func() (goDecls, error) { return parseDecls(Source) })
 
-// SourceParses returns how many times this process parsed Source: the work
-// a check must not do (the counted check budget,
-// internal/sketch/check/checkwork). It counts work, never time.
-func SourceParses() int64 { return sourceParses.Load() }
+// sourceReads counts the reads of the parsed Source in this process.
+var sourceReads atomic.Int64
+
+// SourceReads returns how many times this process read Source's parsed
+// declarations, the first of which parses every runtime/v1 Go file (CHK1).
+// A check reads none: the body facts it needs are a generated table
+// (bodyTable), so TestCheckWorkGrowsWithImports holds the count still
+// across a check. It counts work, never time.
+func SourceReads() int64 { return sourceReads.Load() }
 
 // goDecl is one exported function, method or type of a parsed package,
 // with the local name its file gives runtime/rt, the import paths of its
