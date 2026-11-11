@@ -282,6 +282,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	// calling task the first member of the clock's domain and returns; its
 	// Wait is Timeline.Wait's.
 	"NewVirtualTimeline": {wait: memberTask},
+	// std explore (stdlib.md, Testing): Replay arms the schedule the
+	// next points of an explored run follow; it never waits.
+	"ExploreReplay": {},
 	// std rand (std-align S2c; stdlib.md, rand): each draw takes the
 	// source's lock for one step of the PCG, or reads Go's global
 	// generator, and none waits on a task.

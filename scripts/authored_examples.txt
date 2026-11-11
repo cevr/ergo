@@ -1,4 +1,5 @@
 examples/editions/sketch/main.ergo
+models/baton/baton.ergo
 docs/research/ef-migrate/checkout.ergo
 docs/research/ef-migrate/data.ergo
 docs/research/ef-migrate/lifecycle.ergo

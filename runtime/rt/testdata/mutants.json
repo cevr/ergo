@@ -36,6 +36,105 @@
       "to": "_ = c.Err()",
       "rule": "R9: a result-release defect joins the failed exit",
       "killers": ["rt:TestScopedResultReleaseModel"]
+    },
+    {
+      "name": "X5-new-task-runs-unpicked",
+      "origin": "X5",
+      "file": "runtime/rt/sched_explore.go",
+      "from": "\te.v.mu.Unlock()\n\t<-x.baton\n}\n\n// schedEnd",
+      "to": "\te.v.mu.Unlock()\n\t_ = x\n}\n\n// schedEnd",
+      "rule": "Explored schedules: a new task does not run until the strategy picks it",
+      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+    },
+    {
+      "name": "X5-wake-does-not-enable",
+      "origin": "X5",
+      "file": "runtime/rt/sched_explore.go",
+      "from": "m != nil && m.parked {\n\t\treturn false",
+      "to": "m != nil && (m.parked || x.blocked) {\n\t\treturn false",
+      "rule": "Explored schedules: a waker enables the task it wakes",
+      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+    },
+    {
+      "name": "X5-two-batons",
+      "origin": "X5",
+      "file": "runtime/rt/sched_explore.go",
+      "from": "x.next = op\n\tnext := e.handoff(x)\n\te.v.mu.Unlock()\n\tif next != x {",
+      "to": "x.next = op\n\tnext := e.handoff(x)\n\te.v.mu.Unlock()\n\tif false && next != x {",
+      "rule": "Explored schedules: one task holds the baton",
+      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+    },
+    {
+      "name": "X5-stop-without-point",
+      "origin": "X5",
+      "file": "runtime/rt/handle.go",
+      "from": "\tPoint(owner, Op{OpStop, &h.task})\n",
+      "to": "",
+      "rule": "Explored schedules: a stop is a scheduling point",
+      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+    },
+    {
+      "name": "X5-clock-moves-while-enabled",
+      "origin": "X5",
+      "file": "runtime/rt/idle.go",
+      "from": "v.parked < v.live ||",
+      "to": "v.parked < v.live-1 ||",
+      "rule": "Explored schedules: the clock moves only when no task is enabled",
+      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+    },
+    {
+      "name": "X5-spawn-path-by-goroutine",
+      "origin": "X5",
+      "file": "runtime/rt/sched_explore.go",
+      "from": "e.add(child, px.path+\".\"+strconv.Itoa(px.kids))",
+      "to": "e.add(child, px.path+\".\"+strconv.FormatUint(child.id, 10))",
+      "rule": "Explored schedules: a task's name is its spawn path, the same in every run of a schedule",
+      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+    },
+    {
+      "name": "X5-deadlock-as-pass",
+      "origin": "X5",
+      "file": "runtime/rt/sched_explore.go",
+      "from": "e.res.Deadlock = left",
+      "to": "e.res.Deadlock = nil",
+      "rule": "Explored schedules: no enabled task while tasks remain is a deadlock",
+      "killers": ["rt-explore:TestSchedulerFollowsModel"]
+    },
+    {
+      "name": "X5-live-hook-body",
+      "origin": "X5",
+      "file": "runtime/rt/sched_live.go",
+      "from": "func Block(t *Task) {}",
+      "to": "func Block(t *Task) { t.Done() }",
+      "rule": "Explored schedules 7: without the tag a hook costs nothing",
+      "killers": ["runtime:TestSchedHooksCostNothingLive"]
+    },
+    {
+      "name": "X5-hook-argument-calls",
+      "origin": "X5",
+      "file": "runtime/rt/clock.go",
+      "from": "Point(t, Op{OpSleep, s})",
+      "to": "Point(t, Op{OpSleep, s.NewTimer(0)})",
+      "rule": "Explored schedules 7: a hook's arguments are plain values",
+      "killers": ["runtime:TestSchedHooksCostNothingLive"]
+    },
+    {
+      "name": "X5-hook-closure-unguarded",
+      "origin": "X5",
+      "file": "runtime/v1/actor.go",
+      "from": "\t\tif rt.Exploring {\n\t\t\trt.Await(at, isClosedTest(settled))\n\t\t}\n",
+      "to": "\t\trt.Await(at, isClosedTest(settled))\n",
+      "rule": "Explored schedules 7: a hook call that builds a closure sits inside if rt.Exploring",
+      "killers": ["runtime:TestSchedHooksCostNothingLive"]
+    },
+    {
+      "name": "X5-tags-not-linked",
+      "origin": "X5",
+      "file": "internal/sketch/build/action.go",
+      "from": "if len(t.Tags) > 0 {",
+      "to": "if false && len(t.Tags) > 0 {",
+      "rule": "Explored schedules: --explore links the tagged runtime",
+      "killers": ["build:TestCacheInputs"]
     }
   ]
 }

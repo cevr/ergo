@@ -34,7 +34,7 @@ import (
 //go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo
 //go:embed machines/*.ergo
 //go:embed csv/*.ergo codec/*.ergo json/*.ergo toml/*.ergo rpc/*.ergo config/*.ergo
-//go:embed testing/*.ergo
+//go:embed testing/*.ergo explore/*.ergo
 //go:embed tasks/*.ergo
 //go:embed schedule/*.ergo
 //go:embed http/*.ergo

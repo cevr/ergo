@@ -1390,6 +1390,12 @@
   "ergo.local/prototype/runtime/explore": {
     "TestSearchAgreesWithReference": 0.04
   },
+  "ergo.local/prototype/runtime/explore/sched": {
+    "TestDPORFindsEveryOutcome": 8.12,
+    "TestDependencyTableTotal": 0,
+    "TestPCTMatchesReference": 0.02,
+    "TestPoolReplacesAbandonedWorkers": 2.01
+  },
   "ergo.local/prototype/runtime/rt": {
     "TestAcquireHasNoInterruptionWindow": 0,
     "TestAcquireInsideProtectedCleanup": 0,

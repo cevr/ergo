@@ -279,6 +279,13 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
+	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeout, "./runtime/rt"}, Weight: packageSeconds(durations[modulePath(root)+"/runtime/rt"]), Class: classHeavy})
+	// The explored build's worker and children laws (runtime/v1
+	// explore_on.go, explore_laws.go): their tests alone, since the rest
+	// of runtime/v1 runs untagged. The tagged tests have no row of their
+	// own, so the step weighs runtime/v1's record, an upper bound that
+	// starts it early.
+	add(&Step{Name: "explored worker", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeout, "-run", "^(TestWorkerRetainsNoTask|TestChildrenLawsExplored|TestChildLawsReadEvents)$", "./runtime/v1"}, Weight: packageSeconds(durations[modulePath(root)+"/runtime/v1"]), Class: classHeavy})
 	var unsharded, hermetic []string
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
@@ -381,6 +388,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		return nil, err
 	}
 	add(examplesRun)
+	add(&Step{Name: "model baton", Needs: []string{buildCLIStep}, Argv: []string{"./bin/ergo", "test", "models/baton"}, Class: classHeavy})
 
 	examples, err := authoredExamples(root)
 	if err != nil {

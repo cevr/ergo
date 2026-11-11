@@ -14,10 +14,17 @@ import (
 )
 
 // testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
-// [--law NAME] [--skip-law NAME] [--receipt FILE] [-work] [--target go]`. --states is the
+// [--law NAME] [--skip-law NAME] [--receipt FILE]
+// [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]]
+// [--schedule TOKEN] [-work] [--target go]`. --states is the
 // budget of states of each reachability law's search (machine laws;
 // 1,000,000 by default). --law runs only the law NAME and no test;
-// --skip-law runs all but that law, with a skip line. It is a transport over sketchfront's test build
+// --skip-law runs all but that law, with a skip line. --explore links the same test
+// module with the ergoexplore tag, so its tasks run on one baton under the
+// cooperative schedule, and a deadlock is a defect that names the tasks
+// (runtime.md, Explored schedules). With a mode, the tests run under many
+// schedules in worker processes of the one binary, and a failure prints
+// its schedule (explore.go); --schedule replays one. It is a transport over sketchfront's test build
 // (build.ModeTest, lower.LowerTests): it checks the source, builds the test
 // binary into a private temporary directory, never the working directory,
 // dist/ or the module, and runs it as a child with --seed, through the
@@ -57,12 +64,19 @@ func testPackage(opts fileOptions) error {
 	if err != nil {
 		return err
 	}
+	toolchain := build.HostToolchain()
+	if opts.explore {
+		// The tag chooses the runtime's controlled scheduler at link
+		// time; the emitted module is the one a plain `ergo test` uses
+		// (runtime.md, Explored schedules).
+		toolchain.Tags = []string{"ergoexplore"}
+	}
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeTest,
 		Source:    l.source.Admitted(),
 		Output:    binary,
 		Cache:     build.Cache{Root: root},
-		Toolchain: build.HostToolchain(),
+		Toolchain: toolchain,
 		Stderr:    os.Stderr,
 	})
 	if opts.work && module.Dir != "" {
@@ -101,6 +115,15 @@ func testPackage(opts fileOptions) error {
 	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
 	if err != nil {
 		return err
+	}
+	if opts.search.mode != "" {
+		// A search runs each schedule in a worker of the binary, each
+		// under the same limit (explore.go).
+		seed := uint64(1)
+		if opts.seed != "" {
+			seed, _ = strconv.ParseUint(opts.seed, 10, 64)
+		}
+		return exploreSearch(os.Stdout, l, binary, childArgs, opts.search, seed, limit)
 	}
 	child := testProgramCommand(binary, childArgs, limit)
 	return runEntryProcess(child, limit, proclimit.Watch(child))

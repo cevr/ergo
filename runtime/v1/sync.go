@@ -1,6 +1,10 @@
 package v1
 
-import "sync"
+import (
+	"sync"
+
+	"ergo.local/prototype/runtime/rt"
+)
 
 // Ref is sync.Ref[T], the body of the std package sync (docs/spec/stdlib.md,
 // Sync and STM 1): one value of T that several tasks may read and change.
@@ -76,6 +80,7 @@ func NewRef[T any](v T) *Ref[T] { return &Ref[T]{v: v, shared: true} }
 // shared: the next owned Update or Modify copies it first. A copy of a T
 // cannot panic, so the unlock needs no defer.
 func (r *Ref[T]) Get() T {
+	rt.PointRunning(rt.Op{Kind: rt.OpRead, On: r})
 	r.mu.Lock()
 	if r.poison {
 		r.mu.Unlock()
@@ -90,6 +95,7 @@ func (r *Ref[T]) Get() T {
 // Set stores v in r. v may be reached from outside the cell, so it is
 // shared. A store cannot panic, so the unlock needs no defer.
 func (r *Ref[T]) Set(v T) {
+	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
 	if r.poison {
 		r.mu.Unlock()
@@ -105,6 +111,7 @@ func (r *Ref[T]) Set(v T) {
 // is shared. The unlock is deferred: f is the program's code, and a defect
 // in it poisons r and must not leave r locked.
 func (r *Ref[T]) Update(f func(v T) T) {
+	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
 	done := false
 	defer r.end(&done)
@@ -122,6 +129,7 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T
 }) R {
+	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
 	done := false
 	defer r.end(&done)
@@ -138,6 +146,7 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 // lowering's proof that f's result is unshared too; without it the stored
 // value is shared.
 func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bool) {
+	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
 	done := false
 	defer r.end(&done)
@@ -158,6 +167,7 @@ func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T
 }, clone func(v T) T, fresh bool) R {
+	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
 	done := false
 	defer r.end(&done)

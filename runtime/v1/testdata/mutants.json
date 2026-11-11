@@ -249,6 +249,154 @@
     {"name":"cu4-start-ignores-stop", "origin":"wf10 CU4", "file":"runtime/v1/exec_start.go", "from":"errAppend bool) (*Running, error) {\n\tt.Check()", "to":"errAppend bool) (*Running, error) {", "rule":"A stopped caller's Start starts nothing and makes no file sink.", "killers":["runtime/v1:TestExecStartStopped"]},
     {"name":"cu4-run-grace-ignored", "origin":"wf10 CU4", "file":"runtime/v1/exec.go", "from":"\t\tif grace > 0 {\n", "to":"\t\tif false {\n", "rule":"Run's stop follows the command's grace: SIGTERM first.", "killers":["runtime/v1:TestExecRunGrace"]},
     {"name":"gapos-getwd-raw-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\t\treturn \"\", NoWorkdir{Message: err.Error()}","to":"\t\treturn \"\", err","rule":"Every failure of the host's Getwd is os.NoWorkdir, so the Ergo row holds it whole.","killers":["std:TestStdHostLawsHold"],"gap":"uncovered by runtime/v1's own tests: std TestStdHostLawsHold (os Process.GetwdIsStable, removed directory) kills it, run by hand (wf10 gap-os)"},
-    {"name":"gapos-getwd-ignores-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\tdir, err := os.Getwd()\n\tif err != nil {","to":"\tdir, err := os.Getwd()\n\tif false {","rule":"The host's Getwd fails when the working directory was removed; it never gives an empty path.","killers":["std:TestStdHostLawsHold"],"gap":"uncovered by runtime/v1's own tests: std TestStdHostLawsHold (os Process.GetwdIsStable, removed directory) kills it, run by hand (wf10 gap-os)"}
+    {"name":"gapos-getwd-ignores-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\tdir, err := os.Getwd()\n\tif err != nil {","to":"\tdir, err := os.Getwd()\n\tif false {","rule":"The host's Getwd fails when the working directory was removed; it never gives an empty path.","killers":["std:TestStdHostLawsHold"],"gap":"uncovered by runtime/v1's own tests: std TestStdHostLawsHold (os Process.GetwdIsStable, removed directory) kills it, run by hand (wf10 gap-os)"},
+    {
+      "name": "x7-late-output",
+      "origin": "wf10/explorer/x7 (MU5 lateOutput; models/children LateOutput)",
+      "file": "runtime/v1/actor.go",
+      "from": "\ttagged := env.kind == timerSignal || env.kind == workSignal || env.kind == childSignal\n",
+      "to": "\ttagged := env.kind == timerSignal || env.kind == workSignal\n",
+      "rule": "NoLateChildOutput: a child output of an ended entry is dropped, never stepped.",
+      "killers": [
+        "v1:TestChildrenLawsExplored",
+        "v1:TestActorChildrenAgreeWithTree"
+      ]
+    },
+    {
+      "name": "x7-parent-first",
+      "origin": "wf10/explorer/x7 (MU5 parentFirst; models/children ParentFirst)",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.task.Interrupt()\n\ta.inbox.Close()\n\tif rt.Exploring {\n\t\trt.Await(nil, isClosedTest(a.done))\n\t}\n\t<-a.done\n",
+      "to": "\ta.task.Interrupt()\n\ta.inbox.Close()\n",
+      "rule": "ChildrenStopFirst, ChildInsideEntry: an entry's exit waits for each child's end before it stops the next one and before the next entry opens.",
+      "killers": [
+        "v1:TestChildrenLawsExplored",
+        "v1:TestActorChildrenAgreeWithTree"
+      ]
+    },
+    {
+      "name": "x7-by-kind",
+      "origin": "wf10/explorer/x7 (MU5 byKind; models/children ByKind)",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.kids = append(a.kids, &kid{halt: halt})",
+      "to": "\tif len(a.kids) > 0 {\n\t\ta.kids = a.kids[:len(a.kids)-1]\n\t}\n\ta.kids = append(a.kids, &kid{halt: halt})",
+      "rule": "ChildInsideEntry: an entry keeps every child it started, so its exit stops them all.",
+      "killers": [
+        "v1:TestChildrenLawsExplored",
+        "v1:TestActorChildrenAgreeWithTree"
+      ]
+    },
+    {
+      "name": "x7-unshielded-work",
+      "origin": "wf10/explorer/x7 (MU5 unshieldedWork)",
+      "file": "runtime/v1/actor.go",
+      "from": "\ta.working = rt.GoShielded(&holder,",
+      "to": "\ta.working = rt.Go(&holder,",
+      "rule": "ChildInsideEntry: a Stop reaches an entry's work only after the entry's children ended.",
+      "killers": [
+        "v1:TestChildrenLawsExplored",
+        "v1:TestActorChildrenAgreeWithTree"
+      ]
+    },
+    {
+      "name": "x7-epoch-wraps",
+      "origin": "wf10/explorer/x7 (models/children EpochWraps)",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif tagged && env.epoch != a.epoch {\n",
+      "to": "\tif tagged && env.epoch%4 != a.epoch%4 {\n",
+      "rule": "NoLateChildOutput: entries are compared whole; a counter that wraps at 4 steps an output four entries late.",
+      "killers": [
+        "v1:TestChildrenLawsExplored"
+      ]
+    },
+    {
+      "name": "x7-adopt-unseen",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/actor.go",
+      "from": "\tif rt.Exploring {\n\t\trt.Await(nil, func() bool { return !a.adopting.Load() })\n\t}\n",
+      "to": "",
+      "rule": "An explored run sees every wait: an entry's exit waits for a child's start in progress through the scheduler, not on kidsMu with the baton held.",
+      "killers": [
+        "v1:TestChildrenLawsExplored"
+      ],
+      "reason": "deadline: the run hangs on kidsMu with the baton held, so the test ends by its -timeout"
+    },
+    {
+      "name": "x7-law-drops-child-output",
+      "origin": "wf10/explorer/x7 (the plan's harness mutant)",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\tif m.Source == \"child\" {\n",
+      "to": "\t\tif m.Source == \"stale\" {\n",
+      "rule": "The reader counts every child output the parent steps; one that drops them never sees NoLateChildOutput break.",
+      "killers": [
+        "v1:TestChildLawsReadEvents"
+      ]
+    },
+    {
+      "name": "x7-law-open-unchecked",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\t\tl.breaks(\"ChildInsideEntry\", \"%s opened entry %d while %s lives\", a.name, epoch, k.name)\n",
+      "to": "\t\t\t_ = k\n",
+      "rule": "ChildInsideEntry: the next entry opens only after the old entry's children ended.",
+      "killers": [
+        "v1:TestChildLawsReadEvents"
+      ]
+    },
+    {
+      "name": "x7-law-work-unchecked",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\t\tif k := l.liveKid(en); k != nil {\n\t\t\t\tl.breaks(\"ChildInsideEntry\", \"the work",
+      "to": "\t\t\tif k := l.liveKid(en); false && k != nil {\n\t\t\t\tl.breaks(\"ChildInsideEntry\", \"the work",
+      "rule": "ChildInsideEntry: an entry's work is stopped only after the entry's children ended.",
+      "killers": [
+        "v1:TestChildLawsReadEvents"
+      ]
+    },
+    {
+      "name": "x7-law-start-unchecked",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\tif !p.live || p.open != en.epoch {\n",
+      "to": "\t\tif !p.live {\n",
+      "rule": "ChildInsideEntry: a child starts only while the entry that starts it is open.",
+      "killers": [
+        "v1:TestChildLawsReadEvents"
+      ]
+    },
+    {
+      "name": "x7-law-sibling-unchecked",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\t\t\tif k := l.actors[s]; k.live {\n",
+      "to": "\t\t\t\tif k := l.actors[s]; false && k.live {\n",
+      "rule": "ChildrenStopFirst: the last started child stops first.",
+      "killers": [
+        "v1:TestChildLawsReadEvents"
+      ]
+    },
+    {
+      "name": "x7-law-orphan-unchecked",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\t\tl.breaks(\"ChildrenStopFirst\", \"%s ended while %s lives\", a.name, k.name)\n",
+      "to": "\t\t\t_ = k\n",
+      "rule": "ChildrenStopFirst: no child lives after its parent ended.",
+      "killers": [
+        "v1:TestChildLawsReadEvents"
+      ]
+    },
+    {
+      "name": "x7-law-owner-lost",
+      "origin": "wf10/explorer/x7",
+      "file": "runtime/v1/explore_laws.go",
+      "from": "\t\ten, ok := l.works[x]\n\t\tif !ok {\n",
+      "to": "\t\ten, ok := l.works[x]\n\t\tif !ok || true {\n",
+      "rule": "A child is found from the task tree: the nearest ancestor that is a work names its entry.",
+      "killers": [
+        "v1:TestChildLawsReadEvents"
+      ]
+    }
   ]
 }

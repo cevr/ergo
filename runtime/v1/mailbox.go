@@ -98,6 +98,7 @@ func (m *mailbox[T]) Push(t *rt.Task, v T) error {
 	if m.ref != nil {
 		return m.ref.Push(t, v)
 	}
+	rt.Point(t, rt.Op{Kind: rt.OpPush, On: m})
 	t.Check()
 	m.mu.Lock()
 	if m.closed {
@@ -130,12 +131,14 @@ func (m *mailbox[T]) pushWait(t *rt.Task, v T) error {
 			p = rt.Park(t, s, stop, nil)
 		}
 		m.mu.Unlock()
+		rt.Block(t)
 		woke := true
 		select {
 		case <-s.wake:
 		case <-stop:
 			woke = false
 		}
+		rt.Unblock(t)
 		m.mu.Lock()
 		p.Unpark()
 		m.parked--
@@ -163,6 +166,7 @@ func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 	if m.ref != nil {
 		return m.refPopInto(t, dst)
 	}
+	rt.Point(t, rt.Op{Kind: rt.OpPop, On: m})
 	if t.Stopped() {
 		*dst = *new(T)
 		return rt.Interrupted
@@ -193,15 +197,19 @@ func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 		if t == m.taker {
 			// The taker's stop puts a token in wake (bindTaker), so one
 			// plain receive waits for a value, a close and a stop.
+			rt.Block(t)
 			<-m.wake
+			rt.Unblock(t)
 			woke = !t.Stopped()
 		} else {
 			stop := t.Done()
+			rt.Block(t)
 			select {
 			case <-m.wake:
 			case <-stop:
 				woke = false
 			}
+			rt.Unblock(t)
 		}
 		m.mu.Lock()
 		p.Unpark()
@@ -257,6 +265,7 @@ func (m *mailbox[T]) Poll() (T, bool) {
 	if m.ref != nil {
 		return m.ref.Poll()
 	}
+	rt.PointRunning(rt.Op{Kind: rt.OpPop, On: m})
 	var v T
 	m.mu.Lock()
 	ok := m.frontInto(&v)
@@ -281,6 +290,7 @@ func (m *mailbox[T]) Close() {
 		m.ref.End()
 		return
 	}
+	rt.PointRunning(rt.Op{Kind: rt.OpClose, On: m})
 	m.mu.Lock()
 	if !m.closed {
 		m.closed = true

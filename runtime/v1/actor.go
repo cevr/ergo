@@ -191,7 +191,11 @@ type Actor[S, E, D any] struct {
 	// still does, and a channel closed once they are stopped. kidsMu is
 	// held while a child starts, so the stop of an entry's children waits
 	// for a start in progress and then sees it.
-	kidsMu    sync.Mutex
+	kidsMu sync.Mutex
+	// adopting is set, in an explored run only, while adopt holds kidsMu
+	// across a child's start, whose handshake is a scheduling point:
+	// stopKids waits for it where the scheduler sees the wait (X7).
+	adopting  atomic.Bool
 	kids      []*kid
 	kidsEpoch uint64
 	kidsOpen  bool
@@ -457,8 +461,23 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 			return a.endRunner(guarded(at, a.runner))
 		})
 	}
+	if rt.Exploring {
+		rt.Await(t, a.isReady.Load)
+	}
 	a.ready.Wait()
 	return a
+}
+
+// isClosedTest is a test of ch for rt.Await: whether it is closed.
+func isClosedTest(ch <-chan struct{}) func() bool {
+	return func() bool {
+		select {
+		case <-ch:
+			return true
+		default:
+			return false
+		}
+	}
 }
 
 // started tells machineStart that the first entry's children run, once.
@@ -736,6 +755,9 @@ func (a *Actor[S, E, D]) open(at *rt.Task, s S) {
 	if settled := a.startWork(at, s); settled != nil {
 		// The entry has hosts and a work (rule 15): it is published once
 		// the work filled them, reached its first wait, or ended.
+		if rt.Exploring {
+			rt.Await(at, isClosedTest(settled))
+		}
 		<-settled
 	}
 	opened = true
@@ -873,6 +895,10 @@ func (r *entryRef[S, E, D]) adopt(h hostCell, start func(func(*rt.Task, error) b
 	a := r.a
 	a.kidsMu.Lock()
 	defer a.kidsMu.Unlock()
+	if rt.Exploring {
+		a.adopting.Store(true)
+		defer a.adopting.Store(false)
+	}
 	if !a.kidsOpen || a.kidsEpoch != r.epoch {
 		return false, true
 	}
@@ -917,6 +943,9 @@ func (r *entryRef[S, E, D]) report(t *rt.Task, err error) bool {
 // so the wait ends.
 func (r *entryRef[S, E, D]) waitKids() {
 	if r.adopted.Load() {
+		if rt.Exploring {
+			rt.Await(nil, isClosedTest(r.done))
+		}
 		<-r.done
 	}
 }
@@ -934,6 +963,9 @@ func (a *Actor[S, E, D]) openKids() {
 // and waits for its end, last started first. It gives the defects of the
 // children that they did not report.
 func (a *Actor[S, E, D]) stopKids() error {
+	if rt.Exploring {
+		rt.Await(nil, func() bool { return !a.adopting.Load() })
+	}
 	a.kidsMu.Lock()
 	ks, done := a.kids, a.kidsDone
 	a.kids, a.kidsOpen, a.kidsDone = nil, false, nil
@@ -959,6 +991,9 @@ func (a *Actor[S, E, D]) stopKids() error {
 func (a *Actor[S, E, D]) halt() error {
 	a.task.Interrupt()
 	a.inbox.Close()
+	if rt.Exploring {
+		rt.Await(nil, isClosedTest(a.done))
+	}
 	<-a.done
 	if a.reported.Load() {
 		return nil
@@ -1017,6 +1052,9 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 			return struct{}{}, nil
 		})
 	})
+	if rt.Exploring {
+		rt.Await(at, isClosedTest(armed))
+	}
 	<-armed
 }
 
@@ -1340,11 +1378,14 @@ func (a *Actor[S, E, D]) await(t *rt.Task, reply *replySlot[S, D]) answer[S, D] 
 	if t.InDomain() {
 		p = rt.Park(t, reply, t.Done(), func() bool { return len(reply.ch) > 0 })
 	}
+	rt.Block(t)
 	select {
 	case r := <-reply.ch:
+		rt.Unblock(t)
 		p.Unpark()
 		return r
 	case <-t.Done():
+		rt.Unblock(t)
 		p.Unpark()
 		panic(rt.Interrupted)
 	}
@@ -1369,12 +1410,15 @@ func (a *Actor[S, E, D]) waitEnd(t *rt.Task, stop <-chan struct{}) {
 		}
 		a.mu.Unlock()
 	}
+	rt.Block(t)
 	select {
 	case <-a.done:
 	case <-stop:
+		rt.Unblock(t)
 		a.dropDoneWait(t, p)
 		panic(rt.Interrupted)
 	}
+	rt.Unblock(t)
 	a.dropDoneWait(t, p)
 }
 
@@ -1407,6 +1451,7 @@ func (a *Actor[S, E, D]) Stop(t *rt.Task) error {
 	// raises at its check, so no envelope is taken after the request, also
 	// one queued before it. A Send admitted between the two is queued
 	// before the close and released (dropped) by finish.
+	rt.Point(t, rt.Op{Kind: rt.OpStop, On: a})
 	if a.task.Traced() {
 		a.traceStop("stop")
 	}
@@ -1425,6 +1470,7 @@ func (a *Actor[S, E, D]) Stop(t *rt.Task) error {
 // raised. A Stop during a Drain overtakes it: the rest is dropped. t, the
 // caller's task, waits parked in a clock's domain (waitEnd).
 func (a *Actor[S, E, D]) Drain(t *rt.Task) error {
+	rt.Point(t, rt.Op{Kind: rt.OpClose, On: a})
 	if a.task.Traced() {
 		a.traceStop("drain")
 	}
@@ -1628,12 +1674,15 @@ func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, bool) {
 			p = rt.Park(t, c, t.Done(), nil)
 		}
 		a.mu.Unlock()
+		rt.Block(t)
 		select {
 		case <-ch:
 		case <-t.Done():
+			rt.Unblock(t)
 			p.Unpark()
 			panic(rt.Interrupted)
 		}
+		rt.Unblock(t)
 		a.mu.Lock()
 		p.Unpark()
 		c.task = nil

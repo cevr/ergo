@@ -109,3 +109,16 @@ The full tables are in `docs/research/traceability.md` (Measured overhead). Roun
 - Measured: tracing off allocates 0, 3 and 0 objects per op, as base. Off/base ratios are 0.97 / 0.98 (poll), 0.97 / 1.08 (spawn+wait) and 1.05 / 1.03 (acquire+release), by min / median; the focused spawn+wait run measured 0.96 / 1.01.
 - Measured: spawn+wait on is 1,248 / 1,390 ns (round 3: 1,358 / 1,447), and 1,192 ns by minimum against the round-2 head's 1,205 ns in one interleaved run, so the traced exit stays on the first stack. Acquire+release on is 108.4 ns, the call pair 160.8 ns.
 - Stack budget: the traced body-exit path is 512 bytes deep, the guard allows 576, and the measured cliff is between 624 and 640 bytes. `Event` is 128 bytes, and one more word costs 16 bytes of the 64-byte margin (`TestTraceExitStaysOnTheFirstStack`).
+
+## Scheduler seam: live-build erasure (X5)
+
+Measured on go1.27.0 linux/amd64: `go build -gcflags=-m ./runtime/rt`
+reports every hook in `sched_live.go` as inlineable, and reports 22 inlined
+hook call sites. `TestSchedHooksCostNothingLive` checks the embedded runtime
+in process: each live hook is empty, `Exploring` is constant false, and each
+call either has plain arguments or is inside `if Exploring`. Calls that
+construct a closure are guarded, so the live build removes that work too.
+
+This is a structural erasure receipt, not a timing claim. Matched base/head
+benchmarks are pending the orchestrator's quiet window (X5 `bench-pending.md`).
+The baton protocol and its safety mutants are in `models/baton/baton.ergo`.

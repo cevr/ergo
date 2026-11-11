@@ -1,0 +1,133 @@
+// The scheduler's baton protocol. Scope: three tasks, started once each.
+// Status: 0 new, 1 ready, 2 running, 3 parked, 4 sleeping, 5 done.
+// A boolean records whether time moved: its absolute value has no bearing
+// on these safety properties. Pick and Target enumerate every task.
+// The mutations are laws in this same scope, not a second test harness.
+type TaskIndex = Root{} | First{} | Second{}
+func index(t TaskIndex) int {
+	match t {
+	case Root:
+		return 0
+	case First:
+		return 1
+	case Second:
+		return 2
+	}
+}
+type Action = Point{} | Spawn{} | Park{} | Sleep{} | Wake{} | End{} | EarlyTick{}
+type Signal = Choose{Action Action, Pick TaskIndex, Target TaskIndex} | Idle{}
+type World {
+	Status        []int,
+	Holder        int,
+	Started       int,
+	Over          bool,
+	Deadlock      bool,
+	Ticked        bool,
+	TickedEnabled bool,
+	LostWake      bool,
+}
+type State = Live{W World} | Broken{Why string} | Deadlocked{} | Finished{} | Ticked{}
+func initial() State {
+	return Live{W: World{Status: []int{2, 0, 0}, Holder: 0, Started: 1,
+		Over: false, Deadlock: false, Ticked: false, TickedEnabled: false, LostWake: false}}
+}
+func enabled(w World) bool {
+	for s in w.Status { if s == 1 || s == 2 { return true } }
+	return false
+}
+func sleeping(w World) bool {
+	for s in w.Status { if s == 4 { return true } }
+	return false
+}
+func allDone(w World) bool {
+	for s in w.Status { if s != 0 && s != 5 { return false } }
+	return true
+}
+func safe(w World) bool {
+	for i, s in w.Status { if s == 2 && i != w.Holder { return false } }
+	if w.Holder >= 0 && w.Status[w.Holder] != 2 { return false }
+	return !w.TickedEnabled && !(w.Deadlock && w.LostWake)
+}
+// A disabled choice is Ignore. All enabled handoffs are signals, so the
+// explorer checks all of them, rather than drawing one at random.
+func step(s State, event Signal, mutant int, witness int) Decision[State, string] {
+	let sig = match event {
+	case Choose as chosen:
+		chosen
+	case Idle:
+		return Ignore
+	}
+	match s {
+	case Live as live:
+		let mut w = live.W
+		if w.Over { return Ignore }
+		let p = index(sig.Pick)
+		let j = index(sig.Target)
+		let mut handoff = false
+		match sig.Action {
+		case Spawn:
+			if w.Started >= 3 { return Ignore }
+			w.Status[w.Started] = 1
+			w.Started = w.Started + 1
+		case Wake:
+			if w.Status[j] != 3 { return Ignore }
+			if mutant == 3 { w.LostWake = true } else { w.Status[j] = 1 }
+		case EarlyTick:
+			if mutant != 2 || w.Status[j] != 4 { return Ignore }
+			w.TickedEnabled = w.TickedEnabled || enabled(w)
+			w.Status[j] = 1
+			w.Ticked = true
+		case Point:
+			handoff = true
+		case Park:
+			w.Status[w.Holder] = 3
+			handoff = true
+		case Sleep:
+			w.Status[w.Holder] = 4
+			handoff = true
+		case End:
+			w.Status[w.Holder] = 5
+			handoff = true
+		}
+		if handoff {
+			if enabled(w) {
+				if w.Status[p] != 1 && w.Status[p] != 2 { return Ignore }
+				for i, status in w.Status {
+					if status == 2 && mutant != 1 { w.Status[i] = 1 }
+				}
+				w.Status[p] = 2
+				w.Holder = p
+			} else if sleeping(w) {
+				if w.Status[p] != 4 { return Ignore }
+				w.Status[p] = 2
+				w.Holder = p
+				w.Ticked = true
+			} else {
+				w.Holder = -1
+				w.Over = true
+				w.Deadlock = !allDone(w)
+			}
+		}
+		if !safe(w) { return Enter{Broken{Why: "baton invariant"}} }
+		if witness == 1 && w.Deadlock { return Enter{Deadlocked} }
+		if witness == 2 && w.Over && !w.Deadlock { return Enter{Finished} }
+		if witness == 3 && w.Ticked { return Enter{Ticked} }
+		return Enter{Live{W: w}}
+	case _:
+		return Ignore
+	}
+}
+func design(s State, sig Signal) Decision[State, string]    { return step(s, sig, 0, 0) }
+func twoBatons(s State, sig Signal) Decision[State, string] { return step(s, sig, 1, 0) }
+func earlyTick(s State, sig Signal) Decision[State, string] { return step(s, sig, 2, 0) }
+func lostWake(s State, sig Signal) Decision[State, string]  { return step(s, sig, 3, 0) }
+func deadlock(s State, sig Signal) Decision[State, string]  { return step(s, sig, 0, 1) }
+func finish(s State, sig Signal) Decision[State, string]    { return step(s, sig, 0, 2) }
+func tick(s State, sig Signal) Decision[State, string]      { return step(s, sig, 0, 3) }
+type Design machine[State, Signal] { initial: initial(), step: design, law Safe never reaches Broken }
+type TwoBatons machine[State, Signal] { initial: initial(), step: twoBatons, law Breaks reaches Broken }
+type EarlyClock machine[State, Signal] { initial: initial(), step: earlyTick, law Breaks reaches Broken }
+type LostWake machine[State, Signal] { initial: initial(), step: lostWake, law Breaks reaches Broken }
+type DeadlockWitness machine[State, Signal] { initial: initial(), step: deadlock, law Exists reaches Deadlocked }
+type EndWitness machine[State, Signal] { initial: initial(), step: finish, law Exists reaches Finished }
+type TickWitness machine[State, Signal] { initial: initial(), step: tick, law Exists reaches Ticked }

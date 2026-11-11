@@ -1,0 +1,149 @@
+{
+  "about": "The mutant ledger of runtime/explore/sched (wf10 X6): edits the package's properties, the worker guard in runtime/v1 (tag ergoexplore) or cmd/ergo's TestReplayTestChecks must kill. scripts/mutants judges only check and lower today; a unit that changes these files applies each edit by hand and runs its killers (the X6 runner: /tmp/opencode/x6/mut.ts, recorded in the round request).",
+  "mutants": [
+    {
+      "name": "x6-push-push-independent",
+      "origin": "wf10/explorer/x6",
+      "file": "runtime/explore/sched/sched.go",
+      "from": "\treturn ka == change || kb == change\n",
+      "to": "\treturn (ka == change || kb == change) && !(a.Kind == \"push\" && b.Kind == \"push\")\n",
+      "rule": "Two pushes to one queue are dependent: their order shows in the pops.",
+      "killers": [
+        "sched:TestDPORFindsEveryOutcome"
+      ]
+    },
+    {
+      "name": "x6-sleep-across-dependent",
+      "origin": "wf10/explorer/x6",
+      "file": "runtime/explore/sched/dfs.go",
+      "from": "if !Dependent(s, taken) && enabled(c, s) {",
+      "to": "if (!Dependent(s, taken) || true) && enabled(c, s) {",
+      "rule": "A sleeping task wakes when the step taken is dependent with its step.",
+      "killers": [
+        "sched:TestDPORFindsEveryOutcome"
+      ]
+    },
+    {
+      "name": "x6-preempts-not-reset",
+      "origin": "wf10/explorer/x6",
+      "file": "runtime/explore/sched/dfs.go",
+      "from": "\td.n, d.preempts, d.drained, d.blocked, d.diverged = 0, 0, false, false, \"\"\n",
+      "to": "\td.n, d.drained, d.blocked, d.diverged = 0, false, false, \"\"\n",
+      "rule": "The preemption count starts at 0 for each schedule.",
+      "killers": [
+        "sched:TestDPORFindsEveryOutcome"
+      ]
+    },
+    {
+      "name": "x6-sleep-under-bound",
+      "origin": "wf10/explorer/x6",
+      "file": "runtime/explore/sched/dfs.go",
+      "from": "\tif i > 0 && d.o.Preempt < 0 {\n",
+      "to": "\tif i > 0 {\n",
+      "rule": "A bounded search keeps no sleep sets: the orders that put a task to sleep may lie past the bound.",
+      "killers": [
+        "sched:TestDPORFindsEveryOutcome"
+      ]
+    },
+    {
+      "name": "x6-pct-change-unapplied",
+      "origin": "wf10/explorer/x6",
+      "file": "runtime/explore/sched/pct.go",
+      "from": "\t\tp.prio[c.Enabled[c.Current].Task] = p.d - i\n",
+      "to": "\t\t_ = i\n",
+      "rule": "At a change point the task at the point drops to priority d-i.",
+      "killers": [
+        "sched:TestPCTMatchesReference"
+      ]
+    },
+    {
+      "name": "x6-replay-goes-on",
+      "origin": "wf10/explorer/x6",
+      "file": "runtime/explore/sched/pct.go",
+      "from": "\treturn 0, fmt.Errorf(\"the run left the schedule at step %d: task %s is not enabled; enabled: %s\", c.Step, want, names(c))\n",
+      "to": "\treturn 0, nil\n",
+      "rule": "A replay that leaves its schedule stops the run.",
+      "killers": [
+        "sched:TestDPORFindsEveryOutcome"
+      ]
+    },
+    {
+      "name": "x6-schedule-by-order",
+      "origin": "wf10/explorer/x6",
+      "file": "runtime/explore/sched/dfs.go",
+      "from": "\t\tout[i] = r.Choices[i].Enabled[k].Task\n",
+      "to": "\t\tout[i] = r.Choices[i].Enabled[k*0].Task\n",
+      "rule": "A printed schedule names each picked task by its spawn path, not by its place among the enabled tasks.",
+      "killers": [
+        "sched:TestDPORFindsEveryOutcome"
+      ]
+    },
+    {
+      "name": "x6-table-row-missing",
+      "origin": "wf10/explorer/x6",
+      "file": "runtime/explore/sched/sched.go",
+      "from": "\t\"read\": read,\n",
+      "to": "",
+      "rule": "The dependency table has a row for every rt.OpKind.",
+      "killers": [
+        "sched:TestDependencyTableTotal"
+      ]
+    },
+    {
+      "name": "x6-pool-keeps-abandoned",
+      "origin": "wf10/explorer/x6",
+      "file": "runtime/explore/sched/worker.go",
+      "from": "\t\tp.Abandoned++\n\t\tp.Close()\n",
+      "to": "\t\tp.Abandoned++\n",
+      "rule": "A run that left a task ends its worker.",
+      "killers": [
+        "sched:TestPoolReplacesAbandonedWorkers"
+      ]
+    },
+    {
+      "name": "x6-pool-worker-per-run",
+      "origin": "wf10/explorer/x6",
+      "file": "runtime/explore/sched/worker.go",
+      "from": "\t\tp.Abandoned++\n\t\tp.Close()\n\t}\n",
+      "to": "\t\tp.Abandoned++\n\t}\n\tp.Close()\n",
+      "rule": "A worker whose runs ended clean is reused: at most one worker more than the abandoned runs.",
+      "killers": [
+        "sched:TestPoolReplacesAbandonedWorkers",
+        "v1:TestWorkerRetainsNoTask"
+      ]
+    },
+    {
+      "name": "x6-worker-deadlock-kept",
+      "origin": "wf10/explorer/x6",
+      "file": "runtime/v1/explore_on.go",
+      "from": "\to.Abandoned = res.Escape != \"\" || res.Stopped != nil || res.Deadlock != nil\n",
+      "to": "\to.Abandoned = res.Escape != \"\" || res.Stopped != nil\n",
+      "rule": "A deadlocked run leaves its tasks parked: its worker serves no more runs.",
+      "killers": [
+        "v1:TestWorkerRetainsNoTask"
+      ]
+    },
+    {
+      "name": "x6-replay-test-unquoted",
+      "origin": "wf10/explorer/x6",
+      "file": "cmd/ergo/explore.go",
+      "from": "\t\trel = append(rel, strconv.Quote(q))\n",
+      "to": "\t\trel = append(rel, q)\n",
+      "rule": "The printed test's schedule is an Ergo []string literal.",
+      "killers": [
+        "main:TestReplayTestChecks"
+      ]
+    },
+    {
+      "name": "x6-replay-test-offset",
+      "origin": "wf10/explorer/x6",
+      "file": "cmd/ergo/explore.go",
+      "from": "\toff := sched.Offset(seen, \"0\")\n",
+      "to": "\toff := 0\n",
+      "rule": "The printed schedule is relative to the failing test: the root's children of earlier tests do not count.",
+      "killers": [
+        "main:TestReplayTestChecks"
+      ]
+    }
+  ]
+}

@@ -246,6 +246,41 @@ func TestCacheInputs(t *testing.T) {
 				t.Fatalf("wrapped toolchain's executable prints %q, want %q", got, want)
 			}
 		})
+		t.Run("Tags", func(t *testing.T) {
+			// `ergo test --explore` (runtime.md, Explored schedules): the
+			// tag is the action's alone. One emitted module, never emitted
+			// again, links its live runtime without the tag and its
+			// explored runtime with it.
+			covered["Toolchain.Tags"] = true
+			in := baseInput()
+			in.Runtime = []File{
+				{Path: "rt/live.go", Data: []byte("//go:build !ergoexplore\n\npackage rt\n\nconst Name = \"live\"\n")},
+				{Path: "rt/explore.go", Data: []byte("//go:build ergoexplore\n\npackage rt\n\nconst Name = \"explored\"\n")},
+			}
+			var emitted atomic.Int32
+			module, err := Cache{Root: root}.Module(in, emitFor(in, &emitted))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc := hostToolchain()
+			tc.Tags = []string{"ergoexplore"}
+			for _, c := range []struct {
+				tc   Toolchain
+				name string
+			}{{hostToolchain(), "live"}, {tc, "explored"}} {
+				again, err := Cache{Root: root}.Module(in, emitFor(in, &emitted))
+				if err != nil || again.Dir != module.Dir || emitted.Load() != 1 {
+					t.Fatalf("the tag changed the emission: dir %s (want %s), %d emissions, %v", again.Dir, module.Dir, emitted.Load(), err)
+				}
+				binary, err := link(t, c.tc, again)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got, want := runProgram(t, binary), expectedOutput(t, in, c.name, "unset"); got != want {
+					t.Fatalf("tags %v: the executable prints %q, want %q", c.tc.Tags, got, want)
+				}
+			}
+		})
 		t.Run("module", func(t *testing.T) {
 			// The action links whatever module it is given: another input's
 			// module is another action.
