@@ -32,31 +32,46 @@ import (
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/eval"
+	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // GoReport is what ergo inspect prints.
 type GoReport struct {
-	Imports     []GoImport       `json:"imports"`
-	Functions   []GoFunction     `json:"functions"`
-	Symbols     []GoSymbol       `json:"symbols"`
-	RewriteLaws []RewriteLawNote `json:"rewriteLaws"`
+	Imports      []GoImport          `json:"imports"`
+	Functions    []GoFunction        `json:"functions"`
+	Symbols      []GoSymbol          `json:"symbols"`
+	RewriteSites []lower.RewriteSite `json:"rewriteSites"`
 }
 
-// RewriteLawNote is a rewrite law of the program (types.md, Laws 14):
-// its evidence label (tested: a run draws its cases; proved only by a
-// run over every state), its run's bounds, and whether the build applies
-// it (proved laws only, owner q115). The deepest prefix a run reached is
-// ergo test's.
-type RewriteLawNote struct {
-	Package  string `json:"package"`
-	Law      string `json:"law"`
-	Evidence string `json:"evidence"`
-	Cases    int    `json:"cases"`
-	Prefix   int    `json:"maxPrefix"`
-	Applied  bool   `json:"applied"`
-	Reason   string `json:"reason"`
+// InspectRewrites are the rewrite sites of the checked analysis's run
+// build (types.md, Laws 14; runtime.md, Tests 8): each site's law and
+// provider, its constants, the verdict of its entry in the ledger at
+// ledger and the std ledger, the entry's state (current, stale or
+// missing), and whether the build applies the rewrite. It lowers the
+// program in process and runs no Go tool; source anchors a program of
+// one source text.
+func InspectRewrites(a Analysis, source, ledger string) ([]lower.RewriteSite, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return nil, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	unit, err := analysisUnit(a, source)
+	if err != nil {
+		return nil, err
+	}
+	text, err := ledgerText(ledger)
+	if err != nil {
+		return nil, err
+	}
+	ev, err := ledgerEvidence(unit, text)
+	if err != nil || !ev.HasRules() {
+		return []lower.RewriteSite{}, err
+	}
+	unit.Rewrite = ev
+	// A form the lowering refuses ends the list there; ergo build
+	// names the refusal.
+	_, _ = lower.Lower(unit)
+	return ev.Sites(), nil
 }
 
 // GoImport is one Go package the program imports.
@@ -127,7 +142,7 @@ type reachWalker struct {
 // root last; std packages are skipped).
 func InspectGo(pkgs []*check.Package) GoReport {
 	w := &reachWalker{nodes: map[*check.Func]*reachNode{}, symbols: map[string]GoSymbol{}}
-	r := GoReport{Imports: []GoImport{}, Functions: []GoFunction{}, Symbols: []GoSymbol{}, RewriteLaws: []RewriteLawNote{}}
+	r := GoReport{Imports: []GoImport{}, Functions: []GoFunction{}, Symbols: []GoSymbol{}, RewriteSites: []lower.RewriteSite{}}
 	seenImport := map[string]bool{}
 	var order []*check.Func
 	for _, p := range pkgs {
@@ -145,16 +160,6 @@ func InspectGo(pkgs []*check.Package) GoReport {
 			}
 			sort.Slice(imp.Refused, func(i, j int) bool { return imp.Refused[i].Name < imp.Refused[j].Name })
 			r.Imports = append(r.Imports, imp)
-		}
-		for _, l := range p.Laws {
-			if l.Rewrite == nil || l.Decl == nil {
-				continue
-			}
-			name := l.Name
-			if l.Owner != nil {
-				name = l.Owner.Name + "." + l.Name
-			}
-			r.RewriteLaws = append(r.RewriteLaws, RewriteLawNote{Package: p.Path, Law: name, Evidence: "tested", Cases: eval.RewriteCases, Prefix: eval.RewritePrefix - 1, Reason: eval.RewriteVerdict()})
 		}
 		for _, f := range p.Funcs {
 			if ergoBody(f) {

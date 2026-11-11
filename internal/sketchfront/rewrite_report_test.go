@@ -1,39 +1,55 @@
 package sketchfront
 
 import (
+	"path/filepath"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/eval"
-	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketch/lower"
 )
 
 // TestRewriteLawReported is the report row of a rewrite law (types.md,
-// Laws 14; owner q115): ergo inspect lists it, member name and package,
-// as tested and not applied, with its run's bounds, and ergo check's
-// evaluation skips it with the same verdict text, never as passed.
+// Laws 14; runtime.md, Tests 8): ergo inspect lists each rewrite site with
+// its law, provider and constants, its ledger entry's verdict and state,
+// and whether the build applies it, for a current, a stale and a missing
+// entry; and ergo check's evaluation skips the law with the rewrite
+// verdict text, never as passed.
 //
 // Mutants it kills (no other test reads these reports): inspect lists no
-// rewrite law; inspect says applied or proved; check's evaluation passes
-// a rewrite law or skips it with another reason.
+// site; inspect says applied for an entry that is not current; check's
+// evaluation passes a rewrite law or skips it with another reason.
 func TestRewriteLawReported(t *testing.T) {
-	src := "import sync\n\ntype Counter {\n\tAdd(n int),\n\tRead() int,\n\n\tlaw Joins(a int, b int) { Add(a); Add(b) } == { Add(a + b) },\n}\n\n" +
-		"type Tally { s sync.Ref[int] }\n\nfunc NewTally() Tally { Tally{s: sync.NewRef[int](0)} }\n\n" +
-		"func Add(t Tally, n int) { t.s.Set(t.s.Get() + n) }\n\nfunc Read(t Tally) int { t.s.Get() }\n\nfunc main() {}\n"
-	file, err := syntax.Parse(src)
-	if err != nil {
+	saved, savedChecks := compilerIdentity, lawChecks
+	compilerIdentity = func() (string, error) { return "test", nil }
+	lawChecks = fakeLawChecks
+	defer func() { compilerIdentity, lawChecks = saved, savedChecks }()
+	p := ledgerProgram{depth: 1, sites: [][2]int{{2, 3}}}
+	base := checked(t, p.source())
+	path := filepath.Join(t.TempDir(), lower.LedgerFile)
+	if _, err := UpdateLedger(base, BuildRequest{Mode: build.ModeBuild, Source: "/ergo-test/ledger.ergo", Ledger: path}); err != nil {
 		t.Fatal(err)
 	}
-	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
-	if len(diags) > 0 {
-		t.Fatal(diags)
+	p.addSwap = true
+	edited := checked(t, p.source())
+	for _, c := range []struct {
+		a      Analysis
+		ledger string
+		want   lower.RewriteSite
+	}{
+		{base, path, lower.RewriteSite{Law: "main.Counter.Joins", Provider: "main.Tally", Instance: "(2, 3)", Verdict: "proved", State: "current", Applied: true}},
+		{edited, path, lower.RewriteSite{Law: "main.Counter.Joins", Provider: "main.Tally", Instance: "(2, 3)", Verdict: "proved", State: "stale"}},
+		{base, "", lower.RewriteSite{Law: "main.Counter.Joins", Provider: "main.Tally", Instance: "(2, 3)", State: "missing"}},
+	} {
+		got, err := InspectRewrites(c.a, "/ergo-test/ledger.ergo", c.ledger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0] != c.want {
+			t.Errorf("inspect's rewrite sites are %+v, want [%+v]", got, c.want)
+		}
 	}
-	got := InspectGo([]*check.Package{pkg}).RewriteLaws
-	want := RewriteLawNote{Package: "main", Law: "Counter.Joins", Evidence: "tested", Cases: eval.RewriteCases, Prefix: eval.RewritePrefix - 1, Applied: false, Reason: eval.RewriteVerdict()}
-	if len(got) != 1 || got[0] != want {
-		t.Fatalf("inspect's rewrite laws are %+v, want [%+v]", got, want)
-	}
-	rep, err := eval.Run(pkg, eval.DefaultBudget())
+	rep, err := eval.Run(base.pkg, eval.DefaultBudget())
 	if err != nil {
 		t.Fatal(err)
 	}

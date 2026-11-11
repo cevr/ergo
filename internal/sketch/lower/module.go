@@ -169,7 +169,13 @@ func Lower(u Unit) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(moduleFiles(u.Go, code), l.assetFiles()...), nil
+	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
+	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && ev.HasRules() {
+		// The producer record names the ledgers and the rewrites applied
+		// (ledger.go).
+		files = append(files, File{Path: "ergo_laws.go", Data: ev.record(l, l.rewrite.applied)})
+	}
+	return files, nil
 }
 
 // lowerPackage lowers the unit's package once: program runs the naming

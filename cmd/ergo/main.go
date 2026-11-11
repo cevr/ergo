@@ -104,6 +104,9 @@ type fileOptions struct {
 	command            string
 	target, output     string
 	strict, json, work bool
+	// locked is build's and run's --locked: a stale or missing law
+	// ledger entry refuses the build (owner q122).
+	locked bool
 	// explore is test's --explore: the tests run under the controlled
 	// scheduler (runtime.md, Explored schedules). search is its mode
 	// (dfs, pct, random, or replay with --schedule) and bounds; with no
@@ -235,6 +238,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			opts.json = true
 		case "-work":
 			opts.work = true
+		case "--locked":
+			opts.locked = true
 		case "--explore":
 			opts.explore = true
 			if i+1 < len(args) && slices.Contains(exploreModes, args[i+1]) {
@@ -264,6 +269,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--platform is only supported by build")
 	case opts.work && command != "build" && command != "test":
 		return opts, fmt.Errorf("-work is only supported by build and test")
+	case opts.locked && command != "build" && command != "run":
+		return opts, fmt.Errorf("--locked is only supported by build and run")
 	case opts.receipt != "" && command != "test":
 		return opts, fmt.Errorf("--receipt is only supported by test")
 	case (opts.explore || searched) && command != "test":
@@ -514,8 +521,9 @@ const inspectHelp = "usage: ergo inspect FILE|DIR [--target go]\n\n" +
 	"code reaches and the uninterruptible host waits among them; for each Go\n" +
 	"symbol, its Go declaration, Ergo signature, tier (pure or foreign),\n" +
 	"provenance and wait (none, interruptible, uninterruptible); for each\n" +
-	"rewrite law, its evidence label, its run's bounds and whether the build\n" +
-	"applies it (proved laws only). It runs no Go tool.\n\n" +
+	"rewrite site, its law, provider and constants, its ergo.laws entry's\n" +
+	"verdict and state (current, stale or missing) and whether the build\n" +
+	"applies it (a current, proved entry only). It runs no Go tool.\n\n" +
 	"Exit codes: 0 printed; 1 the source does not check.\n\n" +
 	inspectMachineHelp
 
@@ -535,7 +543,13 @@ func inspectGoCommand(args []string) error {
 	if !l.result.Checked || pkgs == nil {
 		return refuseUnchecked(l, opts)
 	}
-	return printJSON(sketchfront.InspectGo(pkgs))
+	report := sketchfront.InspectGo(pkgs)
+	sites, err := sketchfront.InspectRewrites(l.analysis, l.source.Admitted(), ledgerPath(opts.file))
+	if err != nil {
+		return err
+	}
+	report.RewriteSites = sites
+	return printJSON(report)
 }
 
 // diagnosticsCommand prints the diagnostic report as text or JSON; exit 1

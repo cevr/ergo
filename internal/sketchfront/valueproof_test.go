@@ -3,16 +3,18 @@ package sketchfront
 import (
 	"bytes"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
-// TestBuildRefusesReachableRewrite builds Go because the admission boundary
-// consumes a native proof receipt and must not turn refutation into the
-// "optimization unavailable" fallback. Lowering alone cannot observe that.
-func TestBuildRefusesReachableRewrite(t *testing.T) {
+// TestLedgerRefusesReachableRewrite builds Go because ergo test's ledger
+// writer consumes a native proof run and must not turn a refutation into
+// an entry or a silent "no rewrite": it fails, and writes nothing.
+// Lowering alone cannot observe that.
+func TestLedgerRefusesReachableRewrite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("native proof admission")
 	}
@@ -38,9 +40,14 @@ func main() {
 	}
 	dir := t.TempDir()
 	var stderr bytes.Buffer
-	_, err := Build(analysis, buildRequest(filepath.Join(dir, "cache"), "/ergo-test/refuted.ergo", filepath.Join(dir, "out"), &stderr))
+	req := buildRequest(filepath.Join(dir, "cache"), "/ergo-test/refuted.ergo", filepath.Join(dir, "out"), &stderr)
+	req.Ledger = filepath.Join(dir, lower.LedgerFile)
+	_, err := UpdateLedger(analysis, req)
 	var refuted *lower.RefutedRewriteError
 	if !errors.As(err, &refuted) {
 		t.Fatalf("reachable false law: %v\n%s", err, stderr.String())
+	}
+	if _, statErr := os.Stat(req.Ledger); statErr == nil {
+		t.Fatal("a refuted law wrote the ledger")
 	}
 }

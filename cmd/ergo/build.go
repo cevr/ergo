@@ -20,12 +20,14 @@ import (
 	"ergo.local/prototype/internal/sketchfront"
 )
 
-const runHelp = "usage: ergo run [--json] [--target go] FILE|DIR [--] [ARGS...]\n" +
+const runHelp = "usage: ergo run [--json] [--locked] [--target go] FILE|DIR [--] [ARGS...]\n" +
 	"A source that does not check prints one file:line:col: error CODE: message line per finding on stderr\n" +
 	"(the check envelope on stdout with --json), builds nothing and exits 1.\n" +
 	"Builds the program into a private temporary directory and runs it with ARGS, as go run does:\n" +
 	"every word after FILE|DIR is the program's (a -- right after it is dropped), so ergo's options come first.\n" +
-	"The program's exit status passes through; SIGINT and SIGTERM are forwarded (130 and 143 when they end it).\n"
+	"The program's exit status passes through; SIGINT and SIGTERM are forwarded (130 and 143 when they end it).\n" +
+	"A rewrite law site whose ergo.laws entry is stale or missing keeps the reference lowering and prints one line;\n" +
+	"--locked refuses the build instead (runtime.md, Tests 8).\n"
 
 // buildCommand builds a native executable and prints its path. With -work
 // it also prints WORK=DIR on stderr, DIR being the generated Go module in
@@ -105,6 +107,8 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		Cache:     build.Cache{Root: root},
 		Toolchain: toolchain(opts),
 		Stderr:    os.Stderr,
+		Ledger:    ledgerPath(opts.file),
+		Locked:    opts.locked,
 	})
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)

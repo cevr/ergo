@@ -82,6 +82,8 @@ type rwRule struct {
 	law  *check.Law
 	conv check.Conversion
 	post *postLaw
+	// ctor is the provider's constructor, when its run calls one.
+	ctor *check.Func
 }
 
 // postLaw is `{ Op(params); R() == X }`: args are Op's arguments as the
@@ -114,7 +116,7 @@ func newRewriter(pkg *check.Package, ev RewriteEvidence) *rewriter {
 			if len(b) != 1 || b[0].Unrun != "" || b[0].Type == nil || b[0].Conv.Kind != check.ConvOperations || b[0].Slot != law.Owner.Type {
 				continue
 			}
-			rw.rules[b[0].Type] = append(rw.rules[b[0].Type], rwRule{law: law, conv: b[0].Conv, post: post})
+			rw.rules[b[0].Type] = append(rw.rules[b[0].Type], rwRule{law: law, conv: b[0].Conv, post: post, ctor: b[0].Ctor})
 		}
 	}
 	return rw
