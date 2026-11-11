@@ -212,7 +212,7 @@ func (fc *funcCtx) knownRecord(x syntax.Expr) *knownRec {
 		}
 	}
 	conv, ok := fc.l.info.Implicit[x]
-	if !ok || conv.Kind != check.ConvMachine || (conv.Table["Start"] != nil) {
+	if !ok || conv.Kind != check.ConvMachine {
 		return nil
 	}
 	named, ok := conv.From.(*check.Named)
@@ -289,15 +289,14 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, typeArgs: args, bound: bound}
 	fc.l.specs[key] = sp
 	fc.l.stats.Specialized++
-	fc.l.pending = append(fc.l.pending, func() { fc.l.emitBody(fd, nil, false, sp) })
+	fc.l.pending = append(fc.l.pending, func() { fc.l.emitBody(fd, false, sp) })
 	return sp
 }
 
 // inlineField inlines x, a call of the field of a known record whose
 // function is g, when the inline rule (inline.go) allows g with the
-// budget inlineGrowth: a copy is written once for its record, so its
-// field calls cost one body each, as the flat run of a machine lowered
-// its step a second time. g takes no callback (its callbacks would be
+// budget copyGrowth: a copy is written once for its record, so its field
+// calls cost one body each. g takes no callback (its callbacks would be
 // unknown here). The call's identity stays the field call's, so a defect
 // report names the frame it names without inlining.
 func (fc *funcCtx) inlineField(x *syntax.CallExpr, c *check.Call, g *check.Func, gd *funcDecl) bool {

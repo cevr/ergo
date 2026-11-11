@@ -726,10 +726,8 @@ func (e *treeEmit) node(n *mnode) {
 	case n.fail:
 		ice(e.s, "a match tree fails outside a default branch")
 	}
-	// In a machine's flat step, a type switch on the flat state switches on
-	// its tag (machinerun.go, flatTags): each case binds the variant's
-	// field.
-	// A flat union's switch reads its tag too (flatunion.go).
+	// A flat union's switch, or a scalar local's, reads its tag
+	// (flatunion.go, scalar.go): each case binds the variant's slot.
 	var ts *tagSwitch
 	if n.typeSwitch {
 		labels := make([]string, len(n.cases))

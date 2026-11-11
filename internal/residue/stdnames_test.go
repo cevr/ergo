@@ -17,17 +17,16 @@ import (
 
 // The identity-blind rule of the lowering (OPT4a; orchestrator ruling
 // 2026-11-11): no lowering decision keys on a std package or function
-// name, except the entries of testdata/std-names.txt. The inventory has two
-// categories:
-//
-//   - abi: a backend binding. A runtime type representation, a prelude
-//     collection wrapper or a std extern's ABI: the lowering must know
-//     which Go form stands for the declaration, so the name is the binding.
-//   - debt: an inherited optimizer that selects a faster form by a std
-//     name. OPT6 retired maps.Update fusion, sync's owned handover and
-//     WithCapacity freshness through general facts (Ergo-side inlining of
-//     an ordinary body, a runtime body's form); the machines Run/From flat
-//     run is the last, assigned to unit OPT6b.
+// name, except the entries of testdata/std-names.txt. The inventory has one
+// category, abi: a backend binding. A runtime type representation, a
+// prelude collection wrapper or a std extern's ABI: the lowering must know
+// which Go form stands for the declaration, so the name is the binding.
+// No optimizer selects a faster form by a std name: OPT6 retired
+// maps.Update fusion, sync's owned handover and WithCapacity freshness,
+// and OPT6b the machines Run/From flat run, through general facts
+// (Ergo-side inlining of an ordinary body, a runtime body's form, copies
+// for a known record and scalar locals). A line of another category
+// fails.
 //
 // A name-keyed decision is a function of a non-test file of the lowering
 // that compares a .Name or .Path selector with a string literal (== or
@@ -96,8 +95,8 @@ func readStdNames(t *testing.T) map[string]string {
 			continue
 		}
 		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) != 3 || (parts[0] != "abi" && parts[0] != "debt") || strings.TrimSpace(parts[2]) == "" {
-			t.Errorf("testdata/std-names.txt: %q is not `abi|debt<TAB>file:function<TAB>reason`", line)
+		if len(parts) != 3 || parts[0] != "abi" || strings.TrimSpace(parts[2]) == "" {
+			t.Errorf("testdata/std-names.txt: %q is not `abi<TAB>file:function<TAB>reason`: the only category is a backend binding (OPT6b retired the last inherited optimizer, the machines flat run)", line)
 			continue
 		}
 		out[parts[1]] = parts[0]
@@ -197,7 +196,4 @@ var stdNamesBaseline = []string{
 	"abi types.go:lowerer.foreignOwner",
 	"abi values.go:preludeAppend",
 	"abi values.go:preludeMapWrite",
-	"debt machinerun.go:funcCtx.flatReturn",
-	"debt machinerun.go:funcCtx.machineRun",
-	"debt machinerun.go:lowerer.flatRunOf",
 }

@@ -187,11 +187,6 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	}
 	switch c.Kind {
 	case check.CallFunc:
-		if text, ok := fc.machineRun(x, c); ok {
-			// A run of a machine declaration's value: its flat run
-			// (machinerun.go), which returns what std's Run returns.
-			return text, true, true
-		}
 		sp := fc.specAt(x, c)
 		if sp == nil && fc.inlineAt(x, c) {
 			return "", false, false // the value is fc.inlined

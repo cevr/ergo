@@ -31,7 +31,7 @@ import (
 var scalarSeed = flag.Uint64("scalar.seed", 0, "run TestScalarLocalsAgree on this seed alone")
 
 // scalarPaths are the generator's branches; the fixed seeds reach each.
-var scalarPaths = []string{"grow", "join", "join-try", "print", "later", "literal", "arm", "closure", "end-fail", "end-normal"}
+var scalarPaths = []string{"grow", "join", "join-try", "print", "later", "literal", "arm", "join-call", "closure", "end-fail", "end-normal"}
 
 const scalarPrelude = `type Shape = Dot{} | Seg{N int, Tag string} | Poly{Xs []int, Name string, K int}
 
@@ -62,10 +62,25 @@ func shrink(s Shape, k int) Shape fails Bad {
 	case Dot:
 		Dot
 	case Seg as g:
+		if g.N > 5 {
+			return deeper(g.N, k)
+		}
 		grow(Dot, g.N)
 	case Poly as p:
 		Seg{N: len(p.Xs) + p.K, Tag: p.Name}
 	}
+}
+
+// deeper is no inlined body (a loop): shrink returns its value and failure.
+func deeper(n int, k int) Shape fails Bad {
+	let mut m = n
+	for i in []int{1, 2} {
+		m = m + i
+	}
+	if m + k == 21 {
+		return Bad{At: m}
+	}
+	Seg{N: m, Tag: "d"}
 }
 
 func score(s Shape) int {
@@ -132,7 +147,7 @@ func scalarProgram(seed uint64, reached map[string]bool) string {
 	fmt.Fprintf(&b, "\tfor i, x in %s {\n", list)
 	tried := false
 	for n := range 4 + r.IntN(4) {
-		switch k := r.IntN(8); k {
+		switch k := r.IntN(9); k {
 		case 0:
 			line("at = grow(at, x)")
 			reached["grow"] = true
@@ -167,6 +182,17 @@ func scalarProgram(seed uint64, reached map[string]bool) string {
 		case 5:
 			line("at = Poly{Xs: []int{x, i}, Name: \"l\", K: x}")
 			reached["literal"] = true
+		case 6:
+			line("let f%d = final([]int{x, i})", n)
+			line("match f%d {", n)
+			line("case Dot:")
+			line("\tConsole.Println(\"f dot\")")
+			line("case Seg as g:")
+			line("\tConsole.Println(\"f seg \\(g.N)\")")
+			line("case Poly as p:")
+			line("\tConsole.Println(\"f poly \\(p.K)\")")
+			line("}")
+			reached["join-call"] = true
 		default:
 			line("Console.Println(show(at))")
 			reached["print"] = true

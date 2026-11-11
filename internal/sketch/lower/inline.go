@@ -735,9 +735,16 @@ func (fc *funcCtx) inlineReturn(vals []string) {
 	in := fc.frame.inline
 	if in.join != nil && len(vals) > 0 {
 		// A join local (scalar.go): a failure writes only the error,
-		// a value is taken apart into the local.
+		// a value is taken apart into the local. A fallible call's
+		// value and error (return f()) are tested at run time.
 		if len(vals) > 1 && vals[1] != "nil" {
-			fc.line(in.err + " = " + vals[1])
+			fc.line("if " + vals[1] + " != nil {")
+			fc.line("\t" + in.err + " = " + vals[1])
+			fc.line("} else {")
+			fc.depth++
+			fc.scatter(in.join, vals[0])
+			fc.depth--
+			fc.line("}")
 		} else {
 			fc.scatter(in.join, vals[0])
 		}

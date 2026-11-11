@@ -43,10 +43,6 @@ type frame struct {
 	// its Go result is bool, and a returned value of a defined type over
 	// bool converts to it.
 	law bool
-	// flat marks the flat step of a machine's flat run (machinerun.go): a
-	// returned decision is given as a value, its kind, the next state flat
-	// and the output.
-	flat *flatRun
 	// inline marks the frame of an inlined body (inline.go): a return
 	// assigns its site's variables and jumps past its block.
 	inline *inlineRet
@@ -135,11 +131,6 @@ type funcCtx struct {
 	// header counts the statement headers being lowered (header.go): inside
 	// one, a composite literal of the TypeName form is parenthesized.
 	header int
-	// flatParam is the flat state parameter of a machine's flat step, and
-	// flatSubj the Go locals that hold that state put back into its union
-	// (machinerun.go): a type switch on one switches on the tag.
-	flatParam string
-	flatSubj  map[string]bool
 	// rawErr is the Go call whose error a plain catch takes unread
 	// (plainCatch): the call leaves Go's error as it is, since only its
 	// nil test is read (goErrorOf).
@@ -573,16 +564,6 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		}
 		return
 	}
-	if f.flat != nil && fc.acquiring == nil {
-		// The flat step (machinerun.go): a decision literal's fields as
-		// they are, else the decision's own Go value, never put into the
-		// Decision union, given to its method.
-		if fc.flatReturn(x) {
-			return
-		}
-		fc.line("return " + f.flat.decideOf(fc.typeOf(x)) + "(" + fc.value(x) + ")")
-		return
-	}
 	if f.inline != nil && f.inline.join != nil && fc.acquiring == nil && !f.law {
 		fc.joinReturn(f.inline.join, x) // scalar.go
 		return
@@ -1006,8 +987,6 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 		}
 		arms = append(arms, a)
 	}
-	// In a machine's flat step, a match on the flat state switches on its
-	// tag (machinerun.go, flatTags).
 	var all []string
 	for _, a := range arms {
 		all = append(all, a.types...)
@@ -1015,7 +994,7 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 	// A match on a flat union switches on its tag too (flatunion.go): the
 	// subject is read once, into a local the cases read again.
 	subjectType := fc.typeOf(s.Subjects[0].X)
-	if fc.l.flatUnionOf(subjectType) != nil && !fc.flatSubj[subject] {
+	if fc.l.flatUnionOf(subjectType) != nil {
 		t := fc.temp("s")
 		fc.line(t + " := " + subject)
 		subject = t

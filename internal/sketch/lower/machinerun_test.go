@@ -8,29 +8,31 @@ import (
 	"testing"
 )
 
-// The flat run's seeded property (MU8; machinerun.go; common.md, lowering
-// rule). Each seed writes machines whose runs the flat lowering takes:
+// The seeded property of a run of a declared machine (MU8, OPT6b; record.go,
+// scalar.go; common.md, lowering rule). Each seed writes machines whose
+// runs take the copy of From for the machine, its step inlined:
 // a state union of one to three record variants (an int field, and in
 // some variants a string or a slice); signals of one
-// to three variants; and a step that reaches every way the flat step
+// to three variants; and a step that reaches every way the inlined step
 // returns and matches:
 //
 //   - a decision literal whose Next is a variant literal, the state s, a
-//     bound variant, or a call that returns the union (flatReturn, flatOf);
+//     bound variant, or a call that returns the union (joinReturn);
 //   - a decision that is a call of a function returning the union, a let
 //     of a variant's type or of the union, a bare Ignore or Reject, an
-//     explicit return, and an if (decideOf);
+//     explicit return, and an if;
 //   - a match on the state alone (a Go type switch) or on the pair (s, e)
-//     (a match tree), with a final wildcard in some programs (flatTags);
+//     (a match tree), with a final wildcard in some programs (scalarTags);
 //   - a step with a capability row (it takes the environment) and a step
-//     with an error row (it keeps std's loop).
+//     with an error row (an inlined fallible body).
 //
 // main prints, for each generated signal list, the run over every prefix
 // beside machines.RunTimed over the same prefix at time 0 (std's loop, the
 // reference: the line holds both), and machines.From from a generated
-// state over the whole list. Each program is lowered flat and with the
-// reference lowering (machineLowering "interface"): every pair agrees, and
-// the two programs print the same lines.
+// state over the whole list. Each program is lowered with the copies,
+// with interface signals, and with the reference (recordLowering
+// "opaque", scalarLowering "off"): every pair agrees, and the programs
+// print the same lines.
 //
 // A failure prints the seed, the Ergo source and both outputs.
 // Replay: go test -run '^TestMachineFlatRunAgrees$' ./internal/sketch/lower -args -flatrun.seed=N
@@ -169,7 +171,7 @@ func (g *flatGen) armBody(v int, ind string, fallible bool) string {
 
 // flatRunProgram is the program of seed and k, its name and whether its
 // runs take the flat lowering.
-func flatRunProgram(seed uint64, k int, reached map[string]bool) (name, src string, flat bool) {
+func flatRunProgram(seed uint64, k int, reached map[string]bool) (name, src string) {
 	g := &flatGen{r: rand.New(rand.NewPCG(seed, uint64(k))), reached: reached}
 	g.signals = g.r.IntN(3) + 1
 	fallible, needs := g.r.IntN(3) == 0, g.r.IntN(4) == 0
@@ -353,7 +355,7 @@ func told(o machines.Outcome[St, int]) string {
 		}
 	}
 	b.WriteString("\t}\n}\n")
-	return fmt.Sprintf("flatrun%d_%02d", seed, k), b.String(), !fallible
+	return fmt.Sprintf("flatrun%d_%02d", seed, k), b.String()
 }
 
 // flatRunPaths are the paths the fixed seeds must reach.
@@ -365,25 +367,26 @@ var flatRunPaths = []string{
 	"flat signals", "flat signals, no match tree", "tag test", "error text of a flat signal", "signals too large",
 }
 
-// lowerMachineMode lowers src with the flat run and flat signal unions;
-// with interface signals when ref is "old" (unionLowering "interface",
-// MU8's lowering); with std's loop and interface signals when ref is
-// "ref" (the reference). match "flat" lowers every match without its tree
+// lowerMachineMode lowers src with the copies for a known record, their
+// inlined step and scalar locals, and flat signal unions; with interface
+// signals when ref is "old" (unionLowering "interface"); with std's loop
+// called through the record, no scalar local and interface signals when
+// ref is "ref" (the reference: recordLowering "opaque", scalarLowering
+// "off"). match "flat" lowers every match without its tree
 // (matchLowering), so a flat union's tag tests are reached as well as its
-// switches. The signal run of a pure step checks for a stop every 3
-// signals, so short lists cross the chunks (flatRunChunk).
+// switches.
 func lowerMachineMode(t *testing.T, name, src, ref, match string) *lowered {
 	t.Helper()
-	savedRun, savedUnion, savedMatch, savedChunk := machineLowering, unionLowering, matchLowering, flatRunChunk
+	savedRec, savedScalar, savedUnion, savedMatch := recordLowering, scalarLowering, unionLowering, matchLowering
 	defer func() {
-		machineLowering, unionLowering, matchLowering, flatRunChunk = savedRun, savedUnion, savedMatch, savedChunk
+		recordLowering, scalarLowering, unionLowering, matchLowering = savedRec, savedScalar, savedUnion, savedMatch
 	}()
-	machineLowering, unionLowering, matchLowering, flatRunChunk = "", "", match, 3
+	recordLowering, scalarLowering, unionLowering, matchLowering = "", "", "", match
 	switch ref {
 	case "old":
 		unionLowering = "interface"
 	case "ref":
-		machineLowering, unionLowering = "interface", "interface"
+		recordLowering, scalarLowering, unionLowering = "opaque", "off", "interface"
 	}
 	return mustLower(t, name, src)
 }
@@ -420,7 +423,7 @@ func flatRunCases(t *testing.T, seeds []uint64, check bool, report func(format s
 	var cases []flatRunCase
 	for _, seed := range seeds {
 		for k := 0; k < 8 || check && missing() != "" && k < 32; k++ {
-			name, src, flat := flatRunProgram(seed, k, reached)
+			name, src := flatRunProgram(seed, k, reached)
 			match := ""
 			if k%3 == 2 {
 				match = "flat"
@@ -429,13 +432,13 @@ func flatRunCases(t *testing.T, seeds []uint64, check bool, report func(format s
 				flat: lowerMachineMode(t, name, src, "", match),
 				old:  lowerMachineMode(t, name+"old", src, "old", match),
 				ref:  lowerMachineMode(t, name+"ref", src, "ref", match)}
-			// The flat run is taken exactly where the step has no error
-			// row, and the reference lowering never takes it.
-			if got := strings.Contains(c.flat.mainGo(), "stepFlatM("); got != flat {
-				report("seed %d, %s: the flat run is taken %v, want %v\n%s", seed, name, got, flat, src)
+			// Every run takes the copy of From for M, whose step is inlined
+			// (record.go), and the reference lowering never does.
+			if !strings.Contains(c.flat.mainGo(), "func FromM(") {
+				report("seed %d, %s: no copy of From for M\n%s", seed, name, src)
 			}
-			if strings.Contains(c.ref.mainGo(), "stepFlat") {
-				report("seed %d, %s: the reference lowering takes the flat run\n%s", seed, name, src)
+			if strings.Contains(c.ref.mainGo(), "func FromM(") {
+				report("seed %d, %s: the reference lowering writes a copy\n%s", seed, name, src)
 			}
 			// The signal union is flat exactly where flatunion.go's rule
 			// admits it: the struct fits 32 bytes (a tag and 8 bytes per
@@ -548,7 +551,7 @@ func TestMachineFlatRunAgrees(t *testing.T) {
 		if why := flatRunDiffers(flat, old, ref); why != "" {
 			t.Errorf("seed %d, %s: %s\nReplay: go test -run '^TestMachineFlatRunAgrees$' ./internal/sketch/lower -args -flatrun.seed=%d\n%s\n--- flat\n%s%s\n--- interface signals\n%s%s\n--- reference\n%s%s", c.seed, c.name, why, c.seed, c.src, flat.out, firstLines(flat.err, 8), old.out, firstLines(old.err, 8), ref.out, firstLines(ref.err, 8))
 		}
-		if strings.Contains(c.flat.mainGo(), "stepFlatM(") && strings.Contains(flat.out, "rejected ") {
+		if strings.Contains(flat.out, "rejected ") {
 			rejected = true
 		}
 	}
@@ -562,35 +565,26 @@ func TestMachineFlatRunAgrees(t *testing.T) {
 
 var machineMutants = flag.Bool("machine.mutants", false, "run TestMachineFlatRunMutants")
 
-// TestMachineFlatRunMutants breaks each helper of the flat run and of the
-// flat union in turn (machineMutant, unionMutant) and requires the
-// property's programs to show it: each helper has a guard that fails
-// without it. It builds Go because each mutant is a lowering whose built
-// program must show it; it builds a set of programs per mutant, so it runs only with
+// TestMachineFlatRunMutants breaks each helper of the flat signal union in
+// turn (unionMutant) and requires the property's programs to show it. It
+// builds Go because each mutant is a lowering whose built program must
+// show it; it builds a set of programs per mutant, so it runs only with
 // -machine.mutants:
 // go test -run '^TestMachineFlatRunMutants$' ./internal/sketch/lower -args -machine.mutants
 func TestMachineFlatRunMutants(t *testing.T) {
 	if !*machineMutants {
 		t.Skip("run with -machine.mutants")
 	}
-	mutants := []string{"tag", "payload", "out", "in", "decide", "union", "loop", "tagswitch", "chunk",
-		"sig-tag", "sig-payload", "sig-test", "sig-switch"}
-	for _, m := range mutants {
+	for _, m := range []string{"sig-tag", "sig-payload", "sig-test", "sig-switch"} {
 		t.Run(m, func(t *testing.T) {
-			savedRun, savedUnion := machineMutant, unionMutant
-			if strings.HasPrefix(m, "sig-") {
-				unionMutant = m
-			} else {
-				machineMutant = m
-			}
-			defer func() { machineMutant, unionMutant = savedRun, savedUnion }()
+			saved := unionMutant
+			unionMutant = m
+			defer func() { unionMutant = saved }()
 			var lowering []string
 			cases := flatRunCases(t, []uint64{1, 2}, true, func(format string, args ...any) {
 				lowering = append(lowering, fmt.Sprintf(format, args...))
 			})
 			if len(lowering) > 0 {
-				// The mutant changes what the lowering takes: killed before
-				// anything builds.
 				t.Logf("mutant %s killed by the lowering's shape: %s", m, firstLines(lowering[0], 1))
 				return
 			}
@@ -612,14 +606,6 @@ func TestMachineFlatRunMutants(t *testing.T) {
 			t.Logf("mutant %s killed by %d of %d programs", m, len(killed), len(cases))
 		})
 	}
-	t.Run("carry-union", func(t *testing.T) {
-		saved := machineMutant
-		machineMutant = "carry-union"
-		defer func() { machineMutant = saved }()
-		if short, long := flatRunAllocs(t); short == long {
-			t.Errorf("mutant carry-union survives: a run of 10 signals allocates %v, of 1000 %v", short, long)
-		}
-	})
 }
 
 // flatAllocSource is a machine of two fieldful variants with no slice and
@@ -655,22 +641,26 @@ type M machine[St, Sig] {
 	step:    step,
 }
 
-func main() needs Console {
-	let o = machines.Run(M{}, []Sig{Tick{v: 1}, Stop}) catch {
+func Runs(sigs []Sig) int {
+	let o = machines.Run(M{}, sigs) catch {
 	case machines.Rejected:
-		return
+		return -1
 	}
 	match o {
 	case machines.Running[St, int]:
-		Console.Println("running")
+		1
 	case machines.Finished[St, int]:
-		Console.Println("finished")
+		2
 	}
+}
+
+func main() needs Console {
+	Console.Println("\(Runs([]Sig{Tick{v: 1}, Stop}))")
 }
 `
 
-// flatAllocDriver runs the flat run of flatAllocSource over 10 and over
-// 1000 signals and logs the allocations of each run.
+// flatAllocDriver runs flatAllocSource's machine over 10 and over 1000
+// signals and logs the allocations of each run.
 const flatAllocDriver = `package main
 
 import (
@@ -695,14 +685,14 @@ func TestFlatRunAllocs(t *testing.T) {
 		return xs
 	}
 	short, long := sigs(10), sigs(1000)
-	a := testing.AllocsPerRun(50, func() { _, _ = ergoRunM(env, M{}.Initial(), short) })
-	b := testing.AllocsPerRun(50, func() { _, _ = ergoRunM(env, M{}.Initial(), long) })
+	a := testing.AllocsPerRun(50, func() { _ = Runs(env, short) })
+	b := testing.AllocsPerRun(50, func() { _ = Runs(env, long) })
 	t.Logf("ALLOCS %v %v", a, b)
 }
 `
 
-// flatRunAllocs is the allocations of a flat run of 10 and of 1000
-// signals of flatAllocSource.
+// flatRunAllocs is the allocations of a run of 10 and of 1000 signals of
+// flatAllocSource.
 func flatRunAllocs(t *testing.T) (short, long float64) {
 	t.Helper()
 	out := goTestEmittedVerbose(t, lowerMachineMode(t, "flatallocs", flatAllocSource, "", ""), flatAllocDriver)
@@ -716,17 +706,20 @@ func flatRunAllocs(t *testing.T) (short, long float64) {
 	return short, long
 }
 
-// TestMachineFlatRunAllocates: a flat run's state lives in the loop as a
-// Go value, so a step of fieldful variants with no slice allocates
-// nothing: a run of 1000 signals allocates what a run of 10 does. It
-// builds the emitted code with a Go test beside it, because allocation is
-// a fact of Go's escape analysis of the lowered code, which no in-process
-// check sees. Mutant: carry-union (TestMachineFlatRunMutants), which the
-// property cannot see, since it changes no output.
+// TestMachineFlatRunAllocates: a run's state lives in the copy of From as
+// a scalar local, its step inlined and its decision a join local
+// (record.go, scalar.go), so a step of fieldful variants with no slice
+// allocates nothing: a run of 1000 signals allocates what a run of 10
+// does. It builds the emitted code with a Go test beside it, because
+// allocation is a fact of Go's escape analysis of the lowered code, which
+// no in-process check sees. It kills the mutants that change no output
+// but box the state again (scalar-carried-blind, scalar-join-blind in the
+// ledger).
 func TestMachineFlatRunAllocates(t *testing.T) {
+	needsBuild(t)
 	short, long := flatRunAllocs(t)
 	if short != long {
-		t.Errorf("a flat run of 10 signals allocates %v times, of 1000 %v times: the step allocates", short, long)
+		t.Errorf("a run of 10 signals allocates %v times, of 1000 %v times: the step allocates", short, long)
 	}
 	t.Logf("allocations per run: %v (10 signals), %v (1000 signals)", short, long)
 }

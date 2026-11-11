@@ -311,9 +311,6 @@ type lowerer struct {
 	// entryInits records that the entry calls ergoInit; program checks it
 	// against hasInits once every declaration is lowered (F13).
 	entryInits bool
-	// flatRuns are the flat runs of the machines, by machine, made at
-	// their first run (machinerun.go); nil for one whose step takes none.
-	flatRuns map[*check.TypeName]*flatRun
 	// recParams memoizes each function's record parameter, and specs are
 	// the copies for known records made so far (record.go).
 	recParams map[*check.Func]int

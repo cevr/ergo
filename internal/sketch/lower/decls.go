@@ -904,14 +904,12 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 }
 
 // emitFuncBody writes fd's Go declaration.
-func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, nil, false, nil) }
+func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil) }
 
-// emitBody writes what emitFuncBody writes, or, with flat, the flat step of
-// a machine's flat run (machinerun.go): fd's body under flat's step name,
-// its state parameter flat and its decision returned as a value; with
-// known, fd's known-callback variant (known.go): its callback parameters
-// plain and no entry poll.
-func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy) {
+// emitBody writes what emitFuncBody writes, or, with known, fd's
+// known-callback variant (known.go): its callback parameters plain and no
+// entry poll; with sp, fd's copy for a known record (record.go).
+func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	l.bodies++
 	f := fd.fn
 	b := &l.user
@@ -994,7 +992,7 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 	}
 	methodName := fd.name
 	if known {
-		if flat != nil || fd.extern != "" {
+		if fd.extern != "" {
 			ice(site, "the known variant of %s is not a plain body", f.Name)
 		}
 		bodyName, methodName = fd.known, fd.known
@@ -1004,13 +1002,6 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 				fc.plain[params[i]] = true
 			}
 		}
-	}
-	flatParam := ""
-	if flat != nil {
-		if owned || fd.method != nil || fd.extern != "" || fd.fallible || len(params) != 2 {
-			ice(site, "the flat step of %s is not a plain function of a state and a signal", f.Name)
-		}
-		bodyName = flat.stepName
 	}
 	if fd.method != nil {
 		tps := map[*check.TypeParam]string{}
@@ -1032,7 +1023,7 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 	} else if sp != nil {
 		// A copy for a known record (record.go): one instance, its type
 		// parameters the call's Go types.
-		if fd.method != nil || owned || known || flat != nil {
+		if fd.method != nil || owned || known {
 			ice(site, "the copy of %s for a known record is not a plain function", f.Name)
 		}
 		fc.params, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
@@ -1087,12 +1078,6 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 			continue
 		}
 		paramNames[i] = name(i)
-		if flat != nil && i == 0 {
-			// The state arrives flat; flatEntry puts it into paramNames[0].
-			flatParam = scope.alloc("flat")
-			parts = append(parts, flatParam+" "+flat.flat)
-			continue
-		}
 		if s, ok := p.Type.(*check.Signature); ok && known {
 			parts = append(parts, paramNames[i]+" "+fc.plainFuncType(s))
 		} else {
@@ -1137,12 +1122,6 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 	case needsFrame && fd.fallible:
 		frameErr = scope.alloc("err")
 		results = fc.namedResults(fc.frame.result, frameErr)
-	case flat != nil:
-		if needsFrame {
-			ice(site, "the flat step of %s opens a frame scope", f.Name)
-		}
-		results = " (uint8, " + flat.flat + ", " + fc.goType(flat.out) + ")"
-		fc.frame.flat = flat
 	default:
 		results = fc.resultList(fc.frame.result, fd.fallible)
 	}
@@ -1157,10 +1136,6 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 		directive = l.directive(f.Decl)
 	}
 	fc.depth = 1
-	entry := ""
-	if flat != nil {
-		entry = fc.flatEntry(flat, flatParam, paramNames[0])
-	}
 	l.analyzeValues(f.Decl, f.Pkg.Info)
 	fc.goGeneric = sp == nil && len(own) > 0
 	fc.scalarSet = l.scalarVars(f)
@@ -1173,7 +1148,7 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 		case known:
 			// A known variant has no entry poll: its callbacks are known
 			// pure literals, which cannot re-enter it (known.go).
-		case flat == nil && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && l.knownClosed(f):
+		case frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && l.knownClosed(f):
 			// Nor has a closed frame: no unknown code runs in it.
 			l.stats.ClosedEntries++
 		default:
@@ -1181,14 +1156,6 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 		}
 		fc.body(f.Decl.Body.List)
 	})
-	if flat != nil {
-		body := fc.out.String()
-		if namesIdent(body, paramNames[0]) {
-			body = entry + body
-		}
-		b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
-		return
-	}
 	if !known && sp == nil {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}

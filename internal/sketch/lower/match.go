@@ -72,9 +72,7 @@ func (fc *funcCtx) patternMatch(s syntax.Stmt, subjects []syntax.Expr, clauses [
 	types := make([]check.Type, len(subjects))
 	for i, x := range subjects {
 		types[i] = fc.typeOf(x)
-		// The flat state of a machine's flat step is an immutable
-		// parameter: the match reads its tag, with no copy (machinerun.go).
-		if !fc.isConst(x) && !fc.flatSubj[vals[i]] {
+		if !fc.isConst(x) {
 			t := fc.temp("s")
 			fc.line(t + " := " + vals[i])
 			fc.line("_ = " + t)

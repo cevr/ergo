@@ -39,8 +39,10 @@ import (
 // G, steps 1, 2 and 6):
 //
 //  1. The union is declared in a package of the program's own source, it
-//     is not generic, no machine takes it as its state (machinerun.go has
-//     a flat state of its own), and no Go extern's signature names it.
+//     is not generic, no machine takes it as its state (a run of a machine
+//     keeps its state as a scalar local, scalar.go, measured by OPT6b
+//     with the state an interface), and no Go extern's signature names
+//     it.
 //  2. Its variants are records that are neither generic nor error types:
 //     a row value is a Go error, which ConvRow and catch test by type. A
 //     union that is a failure has its variants as failures, so this keeps
@@ -88,7 +90,8 @@ import (
 // by a test or by a build with
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.unionLowering=interface.
 // TestMachineFlatRunAgrees runs each generated machine with flat signals,
-// with interface signals and through std's loop; TestFlatUnionsAgree runs
+// with interface signals and through std's loop called through the
+// record; TestFlatUnionsAgree runs
 // generated programs of Options and of generated user unions under both
 // lowerings; each requires one output.
 //
@@ -230,8 +233,8 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 		}
 	}
 	// The prelude's Option, unless a machine takes it as its state or its
-	// signal, whose lowerings (machinerun.go) take a state or a signal
-	// union apart by its interface.
+	// signal (rule 1: a machine's run keeps the interface form it was
+	// measured with).
 	opt := check.PreludeType("Option")
 	if opt != nil && !l.flatOff[opt.Obj] && !states[opt.Obj] && !signals[opt.Obj] && !l.optionCycle(opt.Obj) {
 		l.flatSet[opt.Obj] = optionShape(opt)
@@ -1019,15 +1022,11 @@ type tagSwitch struct {
 }
 
 // tagSwitchOf is the tag switch on subject, of the checked type t, over the
-// Go types types: the flat state of a machine's flat step (machinerun.go)
-// or a flat union; nil for a Go type switch. subject must be a Go name or
+// Go types types: a scalar local (scalar.go) or a flat union; nil for a Go type switch. subject must be a Go name or
 // a selector of one: the cases read it again.
 func (fc *funcCtx) tagSwitchOf(subject string, t check.Type, types []string, site syntax.Node) *tagSwitch {
 	if ts := fc.scalarTags(subject, types); ts != nil {
 		return ts // a scalar local (scalar.go)
-	}
-	if tags, ok := fc.flatTags(subject, types); ok {
-		return &tagSwitch{tags: tags, head: fc.flatSwitch(), variant: fc.flatVariant}
 	}
 	fu := fc.l.flatUnionOf(t)
 	if fu == nil {

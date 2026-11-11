@@ -236,7 +236,7 @@ func scalarCandidates(body *syntax.BlockStmt, info *check.Info, params []*check.
 			if v == nil {
 				return true
 			}
-			if n.Tok != syntax.ASSIGN || param[v] {
+			if n.Tok != syntax.ASSIGN {
 				bad[v] = true
 				return true
 			}
