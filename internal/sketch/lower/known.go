@@ -112,6 +112,10 @@ type knownStats struct {
 	Substituted int
 	// Specialized is the copies for known records made (record.go).
 	Specialized int
+	// Scalars is the locals in the scalar form (scalar.go), Joins those
+	// whose inlined call writes them, and Aliases the parameters of an
+	// inlined call bound to one.
+	Scalars, Joins, Aliases int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

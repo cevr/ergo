@@ -51,13 +51,6 @@ import (
 // closures through the host's indirect call.
 var recordLowering string
 
-// recordMutant breaks one guard of the known records, for the mutant
-// ledger only: "any-machine" (a machine with an input is known),
-// "no-forward" (a forwarded record is not known in the callee) and
-// "field-name" (a field call takes the known function of another field).
-// Empty in every build.
-var recordMutant string
-
 // knownRec is a record value the lowering knows at a call: the machine
 // whose conversion built it, and the functions its fields name.
 type knownRec struct {
@@ -215,14 +208,11 @@ func (fc *funcCtx) knownRecord(x syntax.Expr) *knownRec {
 	}
 	if id, ok := unparen(x).(*syntax.Ident); ok && fc.recs != nil {
 		if v, ok := fc.l.info.Uses[id].(*check.Var); ok && fc.recs[v] != nil {
-			if recordMutant == "no-forward" {
-				return nil
-			}
 			return fc.recs[v]
 		}
 	}
 	conv, ok := fc.l.info.Implicit[x]
-	if !ok || conv.Kind != check.ConvMachine || (conv.Table["Start"] != nil && recordMutant != "any-machine") {
+	if !ok || conv.Kind != check.ConvMachine || (conv.Table["Start"] != nil) {
 		return nil
 	}
 	named, ok := conv.From.(*check.Named)
@@ -360,11 +350,6 @@ func (fc *funcCtx) recordCallText(x *syntax.CallExpr, c *check.Call, sig *check.
 		return "", false, false, false
 	}
 	field := sel.Sel.Name
-	if recordMutant == "field-name" {
-		for name := range fc.recs[v].fields {
-			field = name
-		}
-	}
 	g := fc.recs[v].fields[field]
 	if g == nil || len(g.Sig.TParams) > 0 || len(witnessParams(g.Sig)) > 0 || g.Pkg == nil || g.Pkg.Info == nil || g.Pkg.Info.TaskResults[g] {
 		return "", false, false, false

@@ -63,15 +63,6 @@ import (
 // JavaScript object) and rely on the host's allocator or escape analysis.
 var scalarLowering string
 
-// scalarMutant breaks one guard or helper of the scalar locals, for the
-// mutant ledger only: "scatter-tag" (a write puts every variant at tag 0),
-// "gather-slot" (a read gives the first variant's slot), "closure-blind"
-// (a local a closure names takes the form), "carried-blind" (a local no
-// loop carries takes the form) and "join-err" (a failing return of an
-// inlined body into a join local writes no failure). Empty in every
-// build.
-var scalarMutant string
-
 // scalarLocal is a local in the scalar form: the Go names of its tag and
 // slots, the union's Go type and its variants' Go types, by tag.
 type scalarLocal struct {
@@ -224,7 +215,7 @@ func scalarCandidates(body *syntax.BlockStmt, info *check.Info, params []*check.
 		case *syntax.FuncLit:
 			syntax.Inspect(n, func(m syntax.Node) bool {
 				if id, ok := m.(*syntax.Ident); ok {
-					if v := use(id); v != nil && scalarMutant != "closure-blind" {
+					if v := use(id); v != nil {
 						bad[v] = true
 					}
 				}
@@ -250,7 +241,7 @@ func scalarCandidates(body *syntax.BlockStmt, info *check.Info, params []*check.
 				return true
 			}
 			for _, loop := range loops {
-				if within(n, loop) && (!within(decls[v], loop) || scalarMutant == "carried-blind") {
+				if within(n, loop) && !within(decls[v], loop) {
 					carried[v] = true
 				}
 			}
@@ -368,11 +359,7 @@ func (fc *funcCtx) scatter(sl *scalarLocal, val string) {
 // scalarWrite is the Go statement that puts val, a value of variant k,
 // into the scalar local sl.
 func (fc *funcCtx) scalarWrite(sl *scalarLocal, k int, val string) string {
-	tag := strconv.Itoa(k)
-	if scalarMutant == "scatter-tag" {
-		tag = "0"
-	}
-	return sl.name + ", " + sl.slots[k] + " = " + tag + ", " + val
+	return sl.name + ", " + sl.slots[k] + " = " + strconv.Itoa(k) + ", " + val
 }
 
 // gather is the union value of the scalar local sl, in a Go local of its
@@ -382,12 +369,8 @@ func (fc *funcCtx) gather(sl *scalarLocal) string {
 	fc.line("var " + g + " " + sl.union)
 	fc.line("switch " + sl.name + " {")
 	for k := range sl.variants {
-		slot := k
-		if scalarMutant == "gather-slot" {
-			slot = 0
-		}
 		fc.line("case " + strconv.Itoa(k) + ":")
-		fc.line("\t" + g + " = " + sl.slots[slot])
+		fc.line("\t" + g + " = " + sl.slots[k])
 	}
 	fc.line("}")
 	return g
@@ -399,6 +382,7 @@ func (fc *funcCtx) joinSite(x *syntax.CallExpr) *scalarLocal {
 	sl := fc.joinAt[x]
 	if sl != nil && !sl.inline {
 		sl.inline = true
+		fc.l.stats.Joins++
 		fc.scalarDeclare(sl, sl.name)
 	}
 	return sl
@@ -406,6 +390,7 @@ func (fc *funcCtx) joinSite(x *syntax.CallExpr) *scalarLocal {
 
 // scalarDeclare declares the tag and slots of sl, named after name.
 func (fc *funcCtx) scalarDeclare(sl *scalarLocal, name string) {
+	fc.l.stats.Scalars++
 	sl.name = fc.temp(name)
 	fc.line("var " + sl.name + " uint8")
 	fc.line("_ = " + sl.name)
@@ -459,7 +444,7 @@ func (fc *funcCtx) scalarArgs(f *check.Func, list []syntax.Expr, skip map[int]bo
 			out[i] = sl
 			continue
 		}
-		later = later || fc.emits(list[i]) && scalarMutant != "alias-later"
+		later = later || fc.emits(list[i])
 	}
 	return out
 }

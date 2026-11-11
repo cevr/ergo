@@ -557,6 +557,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 					ic.scalars = map[*check.Var]*scalarLocal{}
 				}
 				ic.scalars[params[i]] = sl
+				fc.l.stats.Aliases++
 				ic.locals[params[i]] = sl.name
 				continue
 			}
@@ -735,7 +736,7 @@ func (fc *funcCtx) inlineReturn(vals []string) {
 	if in.join != nil && len(vals) > 0 {
 		// A join local (scalar.go): a failure writes only the error,
 		// a value is taken apart into the local.
-		if len(vals) > 1 && vals[1] != "nil" && scalarMutant != "join-err" {
+		if len(vals) > 1 && vals[1] != "nil" {
 			fc.line(in.err + " = " + vals[1])
 		} else {
 			fc.scatter(in.join, vals[0])
