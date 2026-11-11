@@ -36,11 +36,11 @@ func decideCommand(l todo.List, c Command) []Event fails todo.NoSuchItem {
 	case Add as a:
 		[]Event{Added{At: l.Count() + 1, Text: a.Text}}
 	case Complete as d:
-		[]Event{Completed{At: d.At, Text: (try l.At(d.At)).Text}}
+		[]Event{Completed{At: d.At, Text: try l.At(d.At).Text}}
 	case Reopen as r:
-		[]Event{Reopened{At: r.At, Text: (try l.At(r.At)).Text}}
+		[]Event{Reopened{At: r.At, Text: try l.At(r.At).Text}}
 	case Drop as d:
-		[]Event{Dropped{At: d.At, Text: (try l.At(d.At)).Text}}
+		[]Event{Dropped{At: d.At, Text: try l.At(d.At).Text}}
 	case Show:
 		[]Event{Shown}
 	case Note as n:

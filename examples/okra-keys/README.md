@@ -50,4 +50,3 @@ Closed in batch 12: G-ex-d-15 (`Save` writes the key file with `WriteFileMode(â€
 - **G-ex-d-6** (closed by S-json) `keyfile` reads and writes through std json; its object stays a list of members, not a `Map`, since JSON.parse keeps their order and a `Map`'s derived codec sorts them.
 - **G-ex-d-4** Generated strings hold no quote, backslash or control byte, so the codec's laws `Spice` them.
 - **G-exup-1** (closed in batch 13): `ergo test` runs `Store.LoadSeesSave` where its providers are, and, since fu7a, on both providers: `keys.NewKeys` is `Keys`' constructor, and `Home`'s `fs.Files` and `fs.Writes` hold one `fstest.Memory` per case. The restating tests are gone.
-- Known from other lanes: `try` stands only at the start of an expression, so `a + try f()` needs a `let`.
