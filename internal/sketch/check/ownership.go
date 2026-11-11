@@ -637,6 +637,11 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 			var ret syntax.Expr
 			if t.frame {
 				ret = w.retFresh(s.X)
+				if id, ok := ret.(*syntax.Ident); ok {
+					// An owned local an arm of a returned if or match
+					// yields: kept until the frame's exit (v1.Returned).
+					w.info.ReturnedTemps[id] = true
+				}
 			}
 			w.region(s, func() {
 				w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed, ret: ret})

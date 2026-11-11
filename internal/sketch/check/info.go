@@ -312,7 +312,9 @@ type Info struct {
 	// ReturnedTemps is each new value a return gives while its frame owns
 	// a value its exit releases: the value is an owned temporary
 	// (OwnedTemps) that the return hands off with v1.Returned, so a defect
-	// in a later release of the frame releases it too (R10).
+	// in a later release of the frame releases it too (R10). An owned
+	// local that an arm of a returned if or match yields is recorded too:
+	// its hand-off keeps its entry the same way.
 	ReturnedTemps map[syntax.Expr]bool
 	// FieldTakes is each field taken in place (`b.r.Close()`, R39, Gap
 	// 38): the owned record's local and the field's index. The lowering

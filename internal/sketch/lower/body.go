@@ -599,6 +599,9 @@ func (fc *funcCtx) returnedTemp(x syntax.Expr, val string) string {
 	if !fc.l.info.ReturnedTemps[x] {
 		return val
 	}
+	if _, ok := x.(*syntax.Ident); ok {
+		return val // a returned local: its hand-off kept it (fc.returned)
+	}
 	if st := fc.staticState(); st != nil {
 		if _, ok := st.bit[x]; ok {
 			return fc.staticHand(x, val, true, x)

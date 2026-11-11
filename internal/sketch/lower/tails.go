@@ -93,7 +93,13 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 		}
 		// An arm of a returned if or match: its value is kept until the
 		// frame's exit is known (R10, returnedTemp).
-		fc.line(d.name + " = " + fc.returnedTemp(check.ReturnedKey(s.X), fc.assigned(s.X)))
+		key := check.ReturnedKey(s.X)
+		if id, ok := key.(*syntax.Ident); ok && fc.l.info.ReturnedTemps[id] {
+			fc.returned = id
+		}
+		val := fc.assigned(s.X)
+		fc.returned = nil
+		fc.line(d.name + " = " + fc.returnedTemp(key, val))
 		return false
 	case *syntax.IfStmt:
 		fc.at(s)
