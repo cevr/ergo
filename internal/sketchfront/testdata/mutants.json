@@ -1,7 +1,6 @@
 {
   "about": "Build-time embedding mutants. The focused unit runner runs the named sketchfront tests; runtime tree-prefix behavior is also exercised by the embedded-assets example.",
   "mutants": [
-    {"name":"chk1b-export-subst-row-lost","origin":"wf10 CHK1b","file":"internal/sketch/check/export.go","from":"c.types.substRow = c.substRow","to":"// omit the row substitution callback","rule":"Decoded generic std instances retain their checker's row substitution.","killers":["internal/sketchfront:TestStdCacheAgreesWithSource"]},
     {"name":"chk1b-cache-install-skipped","origin":"wf10 CHK1b","file":"internal/sketchfront/stdcache.go","from":"err == nil && check.InstallStd(data) == nil","to":"false && err == nil && check.InstallStd(data) == nil","rule":"A warm process installs the checked std instead of checking it again.","killers":["internal/sketchfront:TestStdCacheWork"]},
     {"name":"chk1b-cache-compiler-not-keyed","origin":"wf10 CHK1b","file":"internal/sketchfront/stdcache.go","from":"len(compiler), compiler)","to":"0, \"\")","rule":"Snapshots are keyed by the compiler bytes.","killers":["internal/sketchfront:TestStdCacheWork"]},
     {"name":"chk1b-cache-source-not-keyed","origin":"wf10 CHK1b","file":"internal/sketchfront/stdcache.go","from":"len(d.Implementation), d.Implementation)","to":"0, \"\")","rule":"A std body edit invalidates the snapshot.","killers":["internal/sketchfront:TestStdCacheWork"]},

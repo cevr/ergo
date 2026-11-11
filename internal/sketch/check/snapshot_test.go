@@ -49,3 +49,36 @@ func TestStdSnapshotInstall(t *testing.T) {
 		t.Fatal("late install replaced live identities")
 	}
 }
+
+// TestStdSnapshotRestoresDeferredRows is the smallest round-trip repro of
+// the deferred-row reconstruction defect (export-subst-row-lost). A generic
+// inferred row is exported before its concrete use is first resolved.
+// Existing std examples read already memoized rows, and do not catch a
+// decoder that forgets the callback. The format carries the whole checker
+// graph, not just the currently forced part of std.
+func TestStdSnapshotRestoresDeferredRows(t *testing.T) {
+	c, ds := checkFor(`type Failed {}
+func apply[E](f func() fails E) { try f() }
+`)
+	if len(ds) != 0 {
+		t.Fatal(ds)
+	}
+	f := c.pkg.Funcs[0]
+	failed := c.pkg.Types[0].Type
+	bound := &RowArg{Row: newRow().with(c.types, failed)}
+	view := c.subst(f.errVar, map[*TypeParam]Type{f.Sig.TParams[0]: bound}).(*RowVar)
+	// ref is a graph root; under holds the deferred row and ctx reaches
+	// its owning checker. Do not force Solution before encoding it.
+	data, err := encodeSnapshot(&stdSnapshot{ref: &Named{under: view}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeSnapshot(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := view.Solution().String()
+	if got := decoded.ref.under.(*RowVar).Solution().String(); got != want {
+		t.Fatalf("deferred row after round trip: %s; from source: %s", got, want)
+	}
+}

@@ -118,8 +118,8 @@ type stdCacheCase struct {
 // entry plus seeded evalgen/casegen programs. The reference checks all std
 // first, in the same package order as ExportStd. Both passes then check the
 // same callers in the same order. Nothing sorts or normalizes an output.
-// Mutant export-subst-row-lost removes the callback that decoded instances
-// need; ordinary source-only agreement tests never exercise that graph.
+// The warm-work mutant exercises this path too; ordinary source-only
+// agreement tests never exercise an installed graph.
 func TestStdCacheAgreesWithSource(t *testing.T) {
 	UseStdCache("")
 	t.Cleanup(func() { resetStdCache(t) })
@@ -163,6 +163,9 @@ func TestStdCacheAgreesWithSource(t *testing.T) {
 	reference := make([]map[string]string, len(cases))
 	for i, c := range cases {
 		reference[i] = stdCacheOutcome(t, c)
+		if c.source != "" && c.name != "diagnostic" && reference[i]["diagnostics"] != "null" {
+			t.Fatalf("%s does not check:\n%s\n%s", c.name, c.source, reference[i]["diagnostics"])
+		}
 	}
 	resetStdCache(t)
 	if err := check.InstallStd(data); err != nil {
