@@ -207,6 +207,7 @@ func checkDir(fsys FS, dir string) (Analysis, error) {
 }
 
 func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysis, error) {
+	prepareStd()
 	if !filepath.IsAbs(dir) {
 		return Analysis{}, fmt.Errorf("sketchfront: the package folder %s is not absolute", dir)
 	}
