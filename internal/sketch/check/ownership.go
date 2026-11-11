@@ -1311,6 +1311,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		if id, ok := unparen(x.X).(*syntax.Ident); ok {
 			if _, fn := w.info.Uses[id].(*Func); fn {
 				w.funcValue(id, w.info.Types[x]) // f[T] as a value
+				w.valueInstance(x)
 				lend(x.Indices...)
 				return
 			}
@@ -1377,6 +1378,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		if v == nil || !ok {
 			w.pkgLetMove(x, v, mode, h)
 			w.funcValue(x, w.info.Types[x])
+			w.valueInstance(x)
 			return
 		}
 		if mode == mHold && w.tail.slot >= 0 && i >= w.tail.first && !h.yieldRoot {

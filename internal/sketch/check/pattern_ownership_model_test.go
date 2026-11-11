@@ -240,3 +240,154 @@ func pair() Pair { Pair{R: open(1), S: open(2)} }
 		return true
 	})
 }
+
+// ofGenericRoutes crosses the route by which a queue of values reaches a
+// generic body, the body's use of the queue, and the type argument, a
+// resource or plain data (16a fix r4, M1 class): R22
+// decides every route at the instantiation (resources R22, R44). A route
+// is a type parameter bound by nothing, reached directly, through a
+// nested generic, as a method of a generic type and as a generic function
+// value; an element type parameter bound by an operation type without
+// and with Close; the queue itself bound by an operation type; and a
+// conversion to an operation type in the body (of an element, and of the
+// queue, a sealed std protocol: C28); and a nested generic whose bound
+// with Close binds an inner bound with or without Close. A use is one of
+// the six escapes of
+// a queue's Values() Seq (ofPatternConsumers) or a lend that keeps
+// nothing. The reference: a resource reaches the body only if every use
+// keeps its release (a lend, or a constraint with Close), and a sealed
+// queue never converts. Mutants: 16a-r4-*.
+func ofGenericRoutes(t *testing.T, seed uint64) {
+	r := rand.New(rand.NewPCG(seed, 0x16a4))
+	// The seed walks every route × use × argument bit: 400 seeds reach
+	// each of the 140 at least twice; the shape is drawn.
+	k := int(seed % 140)
+	route, use, res := k/14, k/2%7, k%2 == 0
+	shapes := []string{"(Res, Res)", "Pair", "Nest"}
+	inst := shapes[r.IntN(len(shapes))]
+	if !res {
+		inst = "int"
+	}
+	tp, q, extra := "[T]", "queue.Queue[T]", ""
+	closeBound := false // route 9: the inner body's bound has Close
+	switch route {
+	case 4:
+		tp, inst = "[T Tag]", "Tagged"
+		if !res {
+			inst = "Num"
+		}
+	case 5, 7:
+		tp, inst, res = "[T TagC]", "TaggedC", true
+	case 6:
+		tp, q = "[T any, Q Src[T]]", "Q"
+	case 9:
+		// A nested generic whose own type parameter, bound with Close,
+		// binds the inner body's: a bound without Close is the outer
+		// body's copy site.
+		tp, inst, closeBound = "[T Tag]", "TaggedC", !res
+		if closeBound {
+			tp = "[T TagC]"
+		}
+		res = true
+	}
+	var helper, esc string
+	forIn := func(seq string) string { return "for v in " + seq + " {\nlet _ = v\n}" }
+	switch use {
+	case 0:
+		esc = "let s = q.Values()\n" + forIn("s")
+	case 1:
+		helper = "func drain[T](s Seq[T]) {\n" + forIn("s") + "\n}\n"
+		esc = "drain(q.Values())"
+	case 2:
+		esc = "let f = q.Values\n" + forIn("f()")
+	case 3:
+		helper = "type SeqBox[T] { S Seq[T] }\n"
+		esc = "let sb = SeqBox{S: q.Values()}\n" + forIn("sb.S")
+	case 4:
+		helper = "func vals" + tp + "(q " + q + ") Seq[T] { q.Values() }\n"
+		esc = forIn("vals(q)")
+		if route == 6 {
+			esc = forIn("vals[T, Q](q)")
+		}
+	case 5:
+		esc = "let g = func() Seq[T] { q.Values() }\n" + forIn("g()")
+	case 6:
+		esc = "let _ = 0" // the queue is only lent
+	}
+	params, call := "q "+q, "h(q)"
+	switch route {
+	case 1:
+		helper += "func outer[U](q queue.Queue[U]) {\nh(q)\n}\n"
+		call = "outer(q)"
+	case 2:
+		helper += "type Run[T] { xs []T }\n"
+		params, call = "r Run[T], q "+q, "Run["+inst+"]{xs: []"+inst+"{}}.h(q)"
+	case 3:
+		call = "let hv = h[" + inst + "]\nhv(q)"
+	case 6:
+		call = "h[" + inst + ", queue.Queue[" + inst + "]](q)"
+	case 7:
+		params, call = "q "+q+", x T", "h(q, TaggedC{R: open(3)})"
+		extra = "let tg Tag = x\nlet _ = tg.Mark()\n"
+	case 8:
+		extra = "let src Src[T] = q\nlet _ = src\n"
+	case 9:
+		helper += "func outer[U TagC](q queue.Queue[U]) {\nh(q)\n}\n"
+		call = "outer(q)"
+	}
+	src := ofPrelude + `type Pair { R Res, S Res }
+type Nest { P Pair }
+type Tag { Mark() int }
+type TagC { Mark() int, Close() }
+type Src[E] { Values() Seq[E] }
+type Tagged { R Res }
+func Mark(t Tagged) int { 1 }
+type TaggedC { R Res }
+func Mark(t TaggedC) int { 2 }
+func Close(t TaggedC) {}
+type Num { n int }
+func Mark(n Num) int { 3 }
+` + helper + "func h" + tp + "(" + params + ") {\n" + extra + esc + "\n}\nfunc Body() {\nlet q = queue.New[" + inst + "](1)\n" + call + "\n}\nfunc main() {}\n"
+	// The reference.
+	const (
+		copies = "copies its"                 // R44: a copy site of the type parameter
+		r22    = "has no Close, so the value" // R22 at the instantiation
+		sealed = "is a sealed std protocol"   // C28
+	)
+	escapes := use < 6
+	var wantBad bool
+	want := []string{copies}
+	switch route {
+	case 0, 1, 2, 3:
+		wantBad = res && escapes
+	case 4, 6:
+		wantBad, want = res, []string{r22, copies}
+	case 5:
+		wantBad = escapes
+	case 7:
+		wantBad = true
+	case 8:
+		wantBad, want = true, []string{sealed, copies}
+	case 9:
+		wantBad = escapes || !closeBound
+	}
+	_, ds := checkFor(src)
+	bad, first := false, false
+	for _, d := range ds {
+		ok := false
+		for i, w := range want {
+			if strings.Contains(d.Message, w) {
+				ok, first = true, first || i == 0
+			}
+		}
+		if d.Code != CodeType || !ok {
+			t.Fatalf("generic route seed %d (ERGO_SEED=%d), route %d use %d %s: unexpected diagnostic %v\n%s", seed, seed, route, use, inst, d, src)
+		}
+		bad = true
+	}
+	// The route's own rule reports: R22 for a resource under a bound
+	// without Close, C28 for the queue's conversion.
+	if bad != wantBad || bad && !first {
+		t.Fatalf("generic route seed %d (ERGO_SEED=%d), route %d use %d %s: bad=%v want %v (first rule reported %v)\n%s\n%v", seed, seed, route, use, inst, bad, wantBad, first, src, ds)
+	}
+}
