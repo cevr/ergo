@@ -164,7 +164,7 @@ func (l *lowerer) wireFields(em wireEvents, tc *typeCtx, b *strings.Builder, td 
 	}
 	for i, f := range s.Fields {
 		ft, fv := f.Type, rec+"."+td.fieldName[f.Name]
-		key := check.WireFieldName(f.Name)
+		key := check.WireFieldName(f)
 		if wit, ftc, ok := tc.paramField(ft); ok {
 			// The argument decides at run time: its witness's Field is
 			// set only for json.Optional.

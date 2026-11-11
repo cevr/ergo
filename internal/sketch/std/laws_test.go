@@ -427,7 +427,9 @@ func callsLedgerRun(fn *ast.FuncDecl) bool {
 // their host provider, through the Go bodies that the provider's Ergo
 // functions call (os.Host's Getenv is hostHasEnv then hostGetenv; fs.Host
 // calls FSReadFile, FSMkdirAll, FSWriteFile, FSRemove and FSRename), over
-// seeded cases. It is the ledger's runner for os.Process.GetenvIsStable;
+// seeded cases. It is the ledger's runner for os.Process.GetenvIsStable,
+// GetwdIsStable (in a directory, and in one removed under the process)
+// and GetwdIsAbsolute;
 // it runs fs.Files.ReadIsRepeatable, fs.Writes.MkdirAllIsIdempotent,
 // fs.Writes.RemoveThenNotFound and fs.Writes.RenameMoves on the host's
 // edge cases as plain subtests.
@@ -468,6 +470,39 @@ func TestStdHostLawsHold(t *testing.T) {
 				if v != w || ok != ok2 {
 					t.Errorf("GetenvIsStable(%q): %q,%v then %q,%v", key, v, ok, w, ok2)
 				}
+			}
+		}},
+		// In the test's directory and in one that is removed while the
+		// process is in it: two reads agree, in value and in failure, and
+		// the failure is NoWorkdir.
+		"os Process.GetwdIsStable": {Statement: `GetwdIsStable() { let first = Getwd() catch { case NoWorkdir: let _ = Getwd() catch { case NoWorkdir: return true } return false } let second = Getwd() catch { case NoWorkdir: return false } first == second }`, Check: func(t *testing.T) {
+			for _, gone := range []bool{false, true} {
+				if gone {
+					sub := filepath.Join(dir, "cwd-gone")
+					if err := os.Mkdir(sub, 0o755); err != nil {
+						t.Fatal(err)
+					}
+					t.Chdir(sub)
+					if err := os.Remove(sub); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					t.Chdir(dir)
+				}
+				a, errA := v1.OSGetwd()
+				b, errB := v1.OSGetwd()
+				_, isNoWorkdir := errA.(v1.NoWorkdir)
+				if a != b || (errA == nil) != (errB == nil) || errA != nil && !isNoWorkdir || gone != (errA != nil) {
+					t.Errorf("GetwdIsStable (removed %v): %q, %v then %q, %v", gone, a, errA, b, errB)
+				}
+			}
+		}},
+		// The test's directory is absolute in the host's Getwd.
+		"os Process.GetwdIsAbsolute": {Statement: `GetwdIsAbsolute() { let dir = Getwd() catch { case NoWorkdir: return true } filepath.IsAbs(dir) }`, Check: func(t *testing.T) {
+			t.Chdir(dir)
+			got, err := v1.OSGetwd()
+			if err != nil || !filepath.IsAbs(got) {
+				t.Errorf("GetwdIsAbsolute: %q, %v", got, err)
 			}
 		}},
 		// With no writer, two reads agree in value and in failure.

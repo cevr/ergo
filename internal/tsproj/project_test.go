@@ -87,16 +87,22 @@ func TestProjectionIsTheWire(t *testing.T) {
 }
 
 // TestProjectionRefusesUnsupported catches r3-refusal (discard a projection
-// error and publish incomplete schemas). No Go codec test checks admission
-// to the narrower TypeScript wire profile. This row pins the diagnostic text.
+// error and publish incomplete schemas) and gw-rpc-tag (let a failure field
+// overwrite the RPC discriminator). No Go codec test checks admission to
+// the narrower TypeScript wire profile. These rows pin diagnostic text.
 func TestProjectionRefusesUnsupported(t *testing.T) {
-	const src = "type Value { F float32 }\ntype API { Read() Value }\n"
-	a := sketchfront.Check(src)
-	if len(a.Diagnostics) != 0 {
-		t.Fatal(a.Diagnostics)
-	}
-	_, err := Project(a.Root().Package, a.Root().Files[0].Syntax, src, Options{})
-	if err == nil || !strings.Contains(err.Error(), "a JavaScript number has no float32 form") {
-		t.Fatalf("projection error: %v", err)
+	for _, row := range []struct{ src, text string }{
+		{"type Value { F float32 }\ntype API { Read() Value }\n", "a JavaScript number has no float32 form"},
+		{`type Bad { Tag string "_tag" }; type API { Read() fails Bad }`, `wire key "_tag", reserved for a union tag`},
+		{`type Value { ID int, Id int }; type API { Read() Value }`, `fields ID and Id, which share the wire key "id"`},
+	} {
+		a := sketchfront.Check(row.src)
+		if len(a.Diagnostics) != 0 {
+			t.Fatal(a.Diagnostics)
+		}
+		_, err := Project(a.Root().Package, a.Root().Files[0].Syntax, row.src, Options{})
+		if err == nil || !strings.Contains(err.Error(), row.text) {
+			t.Fatalf("%s: projection error: %v", row.src, err)
+		}
 	}
 }

@@ -1,0 +1,5 @@
+import wireconfig/config
+
+func main() needs Console {
+	Console.Println(config.Encode(config.Config{NodeID: 7, Port: 8080}))
+}

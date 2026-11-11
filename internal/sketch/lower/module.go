@@ -539,9 +539,11 @@ func (l *lowerer) program() ([]byte, error) {
 	if len(l.flatBails) > 0 {
 		return l.lowerAgain()
 	}
-	if l.hasInits() && !l.entryInits && (l.tests != nil || (!l.noEntry && main != nil)) {
+	if len(l.refusals) == 0 && l.hasInits() && !l.entryInits && (l.tests != nil || (!l.noEntry && main != nil)) {
 		// An entry with no slot for ergoInit would never run an
 		// initializer: a value would start as Go's zero value (F13).
+		// A refused entry emits no program, so it promises no init call;
+		// keep its diagnostic instead of adding a follow-on internal error.
 		l.guard(func() { ice(l.file, "the entry has no slot for the call of ergoInit") })
 	}
 	entryText := l.fillInitSlot(entry.String())

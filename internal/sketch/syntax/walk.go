@@ -95,7 +95,7 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Value)
 	case *Field:
 		idents(n.Names)
-		walk(n.Type, n.Where)
+		walk(n.Type, n.Key, n.Where)
 	case *FieldList:
 		fields(n)
 	case *TakesClause:

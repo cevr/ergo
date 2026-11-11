@@ -430,6 +430,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"OSHasEnv":  {},
 	"OSGetenv":  {},
 	"OSEnviron": {},
+	"OSGetwd":   {},
 	// std config (S-config; stdlib.md, config): a secret's constructor
 	// and its one read, and the pure names of a key, none of which waits
 	// or releases.

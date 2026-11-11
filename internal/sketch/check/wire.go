@@ -91,13 +91,8 @@ func (c *checker) wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
 		}
 		// The key map is injective on a record (H3): two fields with one
 		// key would make a decode choose between them.
-		keys := map[string]string{}
-		for _, f := range u.Fields {
-			k := WireFieldName(f.Name)
-			if other, ok := keys[k]; ok {
-				return "", &wireFault{t, fmt.Sprintf("has the fields %s and %s, which share the wire key %q; rename one", other, f.Name, k)}
-			}
-			keys[k] = f.Name
+		if why := WireRecordKeyReason(u, false); why != "" {
+			return "", &wireFault{t, why}
 		}
 		for _, f := range u.Fields {
 			if p, bad := c.wireWalk(f.Type, seen); bad != nil {
@@ -107,6 +102,11 @@ func (c *checker) wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
 		return "", nil
 	case *Union:
 		for _, v := range u.Variants {
+			if s, ok := under(v).(*Struct); ok {
+				if why := WireRecordKeyReason(s, true); why != "" {
+					return "", &wireFault{v, why}
+				}
+			}
 			if p, bad := c.wireWalk(v, seen); bad != nil {
 				return fmt.Sprintf(".(%s)", v) + p, bad
 			}
@@ -139,6 +139,24 @@ func (c *checker) wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
 		return "", &wireFault{t, "is a pointer"}
 	}
 	return "", &wireFault{t, "has no wire form"}
+}
+
+// WireRecordKeyReason is empty when the record's keys are distinct. tagged
+// reserves the discriminator, for a union variant or an RPC failure record.
+// Profiles that add a tag use the same check as the core codec.
+func WireRecordKeyReason(s *Struct, tagged bool) string {
+	keys := map[string]string{}
+	for _, f := range s.Fields {
+		k := WireFieldName(f)
+		if tagged && k == "_tag" {
+			return fmt.Sprintf("has the field %s with the wire key %q, reserved for a union tag", f.Name, "_tag")
+		}
+		if other, ok := keys[k]; ok {
+			return fmt.Sprintf("has the fields %s and %s, which share the wire key %q; rename one", other, f.Name, k)
+		}
+		keys[k] = f.Name
+	}
+	return ""
 }
 
 // typeBaseName is the declared name of a named type, its text otherwise.

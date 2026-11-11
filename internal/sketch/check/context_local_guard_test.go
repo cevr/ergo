@@ -120,6 +120,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"ContextDecl.Name":         {guardBinder, "let @w = context { Greeter: Plain }\n"},
 	"ExternSpec.Target":        {guardBinder, "extern go strings.@w func Upper(s string) string\n"},
 	"Field.Names":              {guardBinder, "func f(@w int) int { w }\n"},
+	"Field.Key":                {guardBinder, "type R { Field string \"@w\" }\nfunc main() {\n\t$W\n}\n"},
 	"FuncDecl.Name":            {guardBinder, "func @w() {}\n"},
 	"ImportSpec.Name":          {guardBinder, "import go @w strings\n"},
 	"TakesClause.Names":        {guardBinder, "func f(w int) takes @w {}\n"},

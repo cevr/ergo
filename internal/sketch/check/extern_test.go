@@ -598,6 +598,7 @@ type Mine {}
 
 func Args(_ Mine) []string { []string{} }
 func Getenv(_ Mine, key string) Option[string] { None }
+func Getwd(_ Mine) string fails os.NoWorkdir { "/work" }
 
 func use(p os.Process) { _ = p.Args() }
 
@@ -1151,6 +1152,8 @@ type FakeEnv { Argv []string }
 func Args(e FakeEnv) []string { e.Argv }
 
 func Getenv(_ FakeEnv, key string) Option[string] { None }
+
+func Getwd(_ FakeEnv) string fails os.NoWorkdir { "/work" }
 `
 	cases := map[string]string{
 		"process-context": fake + `

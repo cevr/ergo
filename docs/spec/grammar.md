@@ -116,7 +116,7 @@ TypeParams     = "[" TypeParam { "," TypeParam } "]" .
 TypeParam      = identifier { "," identifier } [ TypeName ] .
 Members        = "{" [ Member { "," Member } [ "," ] ] "}" .
 Member         = FieldDecl | ".." TypeName [ TypeArgs ] | identifier Signature | LawDecl .
-FieldDecl      = identifier { "," identifier } Type .
+FieldDecl      = identifier { "," identifier } Type [ string_lit ] .
 LawDecl        = "law" identifier Params Block .
 UnionType      = [ "|" ] Variant { "|" Variant } .
 Variant        = TypeName [ TypeArgs ] [ Members ] .
@@ -276,6 +276,7 @@ Status: **implemented** in `internal/sketch/syntax`. `syntax.Parse` returns one 
 10. **Tuples have two or more elements.** `(x,)` is S001 in expressions, types and patterns alike, so `(x)` and `(x,)` never denote different trees.
 11. **`Name (` in a type body is an operation.** `A (int64, string)` and `A(int64, string)` are the same tokens, so layout cannot make one a field and the other an operation: both are the operation `A` with two unnamed parameters. A record with one field of tuple type names the tuple: `type Pair (int64, string)`, then `A Pair`. A field group before a tuple type, `X, Y (int64, int64)`, stays a field group (FieldDecl).
 12. **Capability names take type arguments** (L4, #196 item 10). `needs`, `provides` and context entry keys take a `TypeName` with optional `TypeArgs`: `needs Store[Job]`, `with context { Store[Job]: jobs }`. A comma inside the brackets separates type arguments, so rule 9 reads `{ A, Store[Job]: p }` as one entry with two keys. The checker decides which instances are capabilities ([types.md](types.md#capabilities) rule 7). A function literal's `needs` row ends at its `{` as before: `func() needs A | B[T] { … }` is a literal whose row names `B[T]`.
+13. **A field may declare its encoded key.** `NodeID int "node_id"` declares the key on that field. A key on a group of names (`A, B string "x"`) is S001: split the group. The literal is not interpolated. The formatter keeps it after the type. Its meaning is [Codecs 2](types.md#codecs).
 
 ## Old spellings
 

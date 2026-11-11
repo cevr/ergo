@@ -181,7 +181,7 @@ func f() { with A, B { Log.Write("x") } }
 func main() {}
 `, nil},
 	{"record type", "a record and an empty record", `
-type P { X int, Y int }
+type P { X int "x_coord", Y int }
 type E {}
 func f() P { _ = E; return P{X: 1, Y: 2} }
 func main() {}

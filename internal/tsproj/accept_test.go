@@ -100,7 +100,7 @@ func TestTsProjectionAgrees(t *testing.T) {
 	contract, provider, main, floatTexts := tsProgram(seed)
 	put(t, dir, "ergo.mod", "module bridge\n")
 	put(t, dir, "domain/contract.ergo", contract)
-	put(t, dir, "shared/types.ergo", "type Label { Text string }\n")
+	put(t, dir, "shared/types.ergo", "type Label { Text string \"label_text\" }\n")
 	put(t, dir, "plain/point.ergo", "type Point { X int, Y int }\ntype Écho { Text string }\ntype NotWire { Hook func() }\ntype Private { secret int }\n")
 	put(t, dir, "plain/status.ergo", "type Status = Waiting{} | Ready{At Point}\n")
 	put(t, dir, "memory/memory.ergo", provider)
@@ -112,6 +112,16 @@ func TestTsProjectionAgrees(t *testing.T) {
 		}
 	})
 	runCheck(t, command(cli, "gen", "rpc", "domain.API"))
+	runCheck(t, command(cli, "gen", "rpc", "--check", "domain.API"))
+	// A string field has no int walker, so only the contract digest can
+	// make --check notice this key-only edit (gw-rpc-digest).
+	key := strconv.Quote(fmt.Sprintf("wire_%d_0 🧭\"\\\a\U000e0001", seed))
+	put(t, dir, "domain/contract.ergo", strings.Replace(contract, key, `"other_key"`, 1))
+	staleOutput, stale := runResult(t, command(cli, "gen", "rpc", "--check", "domain.API"))
+	put(t, dir, "domain/contract.ergo", contract)
+	if stale != 1 || !bytes.Contains(staleOutput, []byte("is stale")) {
+		t.Fatalf("RPC --check ignored a field's changed encoded key: exit %d\n%s", stale, staleOutput)
+	}
 	exe := filepath.Join(dir, "bridge")
 	runCheck(t, command(cli, "build", "cmd/bridge", "-o", exe))
 	codec := runCheck(t, command(exe, "codec"))
@@ -297,17 +307,17 @@ func tsProgram(seed uint64) (string, string, string, string) {
 	r := rand.New(rand.NewPCG(seed, seed^0x5453))
 	var fields, extras strings.Builder
 	for i := 0; i < 1+r.IntN(4); i++ {
-		fmt.Fprintf(&fields, ", Extra%d string", i)
+		fmt.Fprintf(&fields, ", Extra%d string %s", i, strconv.Quote(fmt.Sprintf("wire_%d_%d 🧭\"\\\a\U000e0001", seed, i)))
 		fmt.Fprintf(&extras, ", Extra%d: \"seed-%d-%d\"", i, seed, i)
 	}
 	contract := `// café 🧭: a checked wire contract, not TypeScript source.
 import bridge/shared
 import json
-type Reply { Remaining int }
-type Limited { RetryAfterMs int }
+type Reply { Remaining int "left" }
+type Limited { RetryAfterMs int "retry_after_ms" }
 type Unknown { Key string }
-type Level = Full{} | Partial{Tokens int} | Empty{RetryAfterMs int}
-type Bundle { Count int, Name string, Ready bool, Maybe Option[Level], Levels []Level, Labels Map[string, string], Label shared.Label` + fields.String() + ` }
+type Level = Full{} | Partial{Tokens int "token_count"} | Empty{RetryAfterMs int}
+type Bundle { Count int, Name string, Ready bool, Maybe Option[Level], Levels []Level, Labels Map[string, string], Label shared.Label, ID int "first_id", Id int "second_id"` + fields.String() + ` }
 type API {
  Take(key string, cost int) Reply fails Limited | Unknown,
  Peek(key string) Option[Level],
@@ -374,7 +384,7 @@ func Echo(_ Memory, value domain.Bundle) domain.Bundle { value }
 		if i%3 == 2 {
 			nested = fmt.Sprintf("json.Present[json.Nullable[int]]{Value: json.NonNull[int]{Value: %d}}", r.IntN(100))
 		}
-		fmt.Fprintf(&vals, "domain.Bundle{Count: %d, Name: \"café 🧭 \\xff\", Ready: %t, Maybe: %s, Levels: []domain.Level{domain.Full, domain.Partial{Tokens: %d}, domain.Empty{RetryAfterMs: 17}}, Labels: labels, Draft: domain.Draft{Name: \"a\", Priority: %s}, View: domain.View{Ended: %s}, Nested: %s, Raw: []json.Optional[int]{json.Absent, json.Present[int]{Value: 7}}, Box: domain.Box[json.Optional[int]]{Value: %s}, Snap: domain.Snapshot{Body: %s}, Reading: domain.Reading{Value: fl(%q)}, Samples: %s, Label: shared.Label{Text: \"tag\"}%s},\n", int64(r.Uint64()%100000)-50000, i%2 == 0, maybe, r.IntN(100), priority, ended, nested, priority, body, strconv.FormatFloat(math.Ldexp(r.Float64()*2-1, r.IntN(200)-100), 'g', -1, 64), samples, extras.String())
+		fmt.Fprintf(&vals, "domain.Bundle{Count: %d, Name: \"café 🧭 \\xff\", Ready: %t, Maybe: %s, Levels: []domain.Level{domain.Full, domain.Partial{Tokens: %d}, domain.Empty{RetryAfterMs: 17}}, Labels: labels, Draft: domain.Draft{Name: \"a\", Priority: %s}, View: domain.View{Ended: %s}, Nested: %s, Raw: []json.Optional[int]{json.Absent, json.Present[int]{Value: 7}}, Box: domain.Box[json.Optional[int]]{Value: %s}, Snap: domain.Snapshot{Body: %s}, Reading: domain.Reading{Value: fl(%q)}, Samples: %s, Label: shared.Label{Text: \"tag\"}, ID: 1, Id: 2%s},\n", int64(r.Uint64()%100000)-50000, i%2 == 0, maybe, r.IntN(100), priority, ended, nested, priority, body, strconv.FormatFloat(math.Ldexp(r.Float64()*2-1, r.IntN(200)-100), 'g', -1, 64), samples, extras.String())
 	}
 	main := `import bridge/domain
 import bridge/domain/domainrpc

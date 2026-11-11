@@ -715,7 +715,7 @@ func (p *parser) bracketsThenParen() bool {
 	}
 }
 
-// parseFieldDecl parses `name {, name} Type`. Names group up to the type,
+// parseFieldDecl parses `name {, name} Type [string_lit]`. Names group up to the type,
 // as Go's struct fields do; a member that is a bare name (Go embedding) is
 // S001.
 func (p *parser) parseFieldDecl() *Field {
@@ -730,6 +730,12 @@ func (p *parser) parseFieldDecl() *Field {
 		p.errorAt(last.Pos(), len(last.Name), "a member names its type: write `%s Type`; Ergo has no embedding", last.Name)
 	}
 	f.Type = p.parseType(ctxMember)
+	if p.tok.tok == STRING {
+		f.Key = p.basicLit()
+		if len(f.Names) != 1 {
+			p.errorAt(f.Key.Pos(), int(f.Key.End()-f.Key.Pos()), "a wire key names one field; split the field group")
+		}
+	}
 	return f
 }
 

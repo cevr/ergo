@@ -28,9 +28,12 @@ func set() flag.Set {
 }
 ` + flagTreeLawBody
 
+// flagTree is a node of a generated command tree. A node named "" is its
+// level's own leaf (gap-group); a bare leaf takes no positional argument.
 type flagTree struct {
 	name     string
 	children []flagTree
+	bare     bool
 }
 
 func generateFlagTree(r *rand.Rand, depth int) []flagTree {
@@ -41,6 +44,12 @@ func generateFlagTree(r *rand.Rand, depth int) []flagTree {
 			out[i].children = generateFlagTree(r, depth-1)
 		}
 	}
+	if r.IntN(2) == 0 {
+		// The level's own leaf, at a drawn place among the named ones.
+		at := r.IntN(len(out) + 1)
+		own := flagTree{bare: r.IntN(2) == 0}
+		out = append(out[:at], append([]flagTree{own}, out[at:]...)...)
+	}
 	return out
 }
 
@@ -48,9 +57,12 @@ func flagTreeSource(nodes []flagTree, prefix string) string {
 	var parts []string
 	for _, node := range nodes {
 		path := strings.TrimSpace(prefix + " " + node.name)
-		if len(node.children) != 0 {
+		switch {
+		case len(node.children) != 0:
 			parts = append(parts, fmt.Sprintf("flag.Group[Parsed, Refused](%q, %q, %s)", node.name, "a group", flagTreeSource(node.children, path)))
-		} else {
+		case node.bare:
+			parts = append(parts, fmt.Sprintf("bare(%q, %q)", node.name, path))
+		default:
 			parts = append(parts, fmt.Sprintf("leaf(%q, %q)", node.name, path))
 		}
 	}
@@ -61,6 +73,9 @@ func flagLeafPaths(nodes []flagTree, prefix []string) [][]string {
 	var paths [][]string
 	for _, node := range nodes {
 		p := append(append([]string{}, prefix...), node.name)
+		if node.name == "" {
+			p = append([]string{}, prefix...)
+		}
 		if len(node.children) == 0 {
 			paths = append(paths, p)
 		} else {
@@ -95,6 +110,10 @@ func leaf(name string, path string) flag.Command[Parsed, Refused] {
 		Parsed{Path: path, V: v}
 	}}
 }
+func bare(name string, path string) flag.Command[Parsed, Refused] {
+	let c = leaf(name, path)
+	flag.Command[Parsed, Refused]{..c, Set: flag.Set{..set(), Args: []flag.ArgSpec{}}}
+}
 func text(x Option[string]) string {
 	match x { case None: "none"; case Some as s: "some:" + strconv.Quote(s.Value) }
 }
@@ -105,7 +124,7 @@ func outcome(root flag.Root[Parsed, Refused], args []string) string {
 	let p = flag.ParseRoot(root, args) catch {
 	case flag.Version as v: return "version " + v.Text
 	case flag.Help as h: return "help " + strings.Split(h.Text, "\n")[0]
-	case flag.UnknownCommand as u: return "command " + strconv.Quote(u.Name)
+	case flag.UnknownCommand as u: return "command " + strconv.Quote(u.Name) + " in [" + strings.Join(u.Group, " ") + "] of [" + strings.Join(u.Known, " ") + "]"
 	case flag.Unknown as u: return "unknown " + strconv.Quote(u.Name)
 	case flag.NeedsValue as n: return "needs " + strconv.Quote(n.Name)
 	case flag.Invalid as i: return "invalid " + strconv.Quote(i.Name)
@@ -168,35 +187,59 @@ func flagTreeModel(nodes []flagTree, args []string) string {
 		return "version v1"
 	}
 	path := []string{"tool"}
+	groups := []string{}
+	var leaf *flagTree
 	for {
 		first := ""
 		if len(args) > 0 {
 			first = args[0]
 		}
-		var node *flagTree
+		var node, own *flagTree
+		var known []string
 		for i := range nodes {
-			if nodes[i].name == first {
+			if nodes[i].name == "" {
+				if own == nil {
+					own = &nodes[i]
+				}
+				continue
+			}
+			known = append(known, nodes[i].name)
+			if node == nil && len(args) > 0 && nodes[i].name == first {
 				node = &nodes[i]
-				break
 			}
 		}
 		if node == nil {
-			// A group has no flags, so no token consumes a following value.
-			for _, a := range args {
-				if a == "--" {
-					break
-				}
-				name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-"), "=")
-				if strings.HasPrefix(a, "-") && (name == "h" || name == "help") {
+			if own != nil {
+				// The level's own leaf: help as its flags read it, else
+				// it parses every argument unless a word that names no
+				// child comes first and it takes no positional argument.
+				if treeHelpAsked(args) {
 					return "help Usage of " + strings.Join(path, " ") + ":"
 				}
+				if len(args) == 0 || strings.HasPrefix(first, "-") || !own.bare {
+					leaf = own
+					break
+				}
+			} else {
+				// A group has no flags, so no token consumes a following value.
+				for _, a := range args {
+					if a == "--" {
+						break
+					}
+					name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-"), "=")
+					if strings.HasPrefix(a, "-") && (name == "h" || name == "help") {
+						return "help Usage of " + strings.Join(path, " ") + ":"
+					}
+				}
 			}
-			return "command " + strconv.Quote(first)
+			return "command " + strconv.Quote(first) + " in [" + strings.Join(groups, " ") + "] of [" + strings.Join(known, " ") + "]"
 		}
 		path, args = append(path, node.name), args[1:]
 		if len(node.children) == 0 {
+			leaf = node
 			break
 		}
+		groups = append(groups, node.name)
 		nodes = node.children
 	}
 	if treeHelpAsked(args) {
@@ -265,6 +308,9 @@ func flagTreeModel(nodes []flagTree, args []string) string {
 			values[canonical] = append(values[canonical], value)
 		}
 	}
+	if leaf.bare && len(rest) > 0 {
+		return "extra " + strconv.Quote(rest[0])
+	}
 	leafPath := strings.Join(path[1:], " ")
 	if v := values["text"]; len(v) != 0 && v[0] == "refuse" {
 		return "refused " + strconv.Quote(leafPath)
@@ -296,7 +342,9 @@ func flagTreeModel(nodes []flagTree, args []string) string {
 
 // TestFlagTreesAgree kills cu1-repeated-int-ignored and cu1-version-ignored,
 // which no existing law sees: the laws use repeated strings and have no
-// root built-in. It also compares every repeated scalar handle
+// root built-in, and the gap-group mutants of a level's own leaf (with and
+// without positional arguments) and UnknownCommand's Group and Known.
+// It also compares every repeated scalar handle
 // with Go's readers on generated trees of depth 1 through 3.
 // It builds Go because the observed parses and typed Build failures must
 // execute; go/types cannot compare them with an independent parser.
@@ -374,14 +422,25 @@ func TestFlagTreesAgree(t *testing.T) {
 const flagTreeLawBody = `func build(v flag.Values) flag.Values { v }
 func commands(depth int) []flag.Command[flag.Values] {
 	let leaf = flag.Command[flag.Values]{Name: "read", Usage: "read", Set: set(), Build: build, Commands: []flag.Command[flag.Values]{}}
+	let own = flag.Command[flag.Values]{Name: "", Usage: "the level's own", Set: set(), Build: build, Commands: []flag.Command[flag.Values]{}}
+	if depth == 0 { return []flag.Command[flag.Values]{leaf, own} }
+	[]flag.Command[flag.Values]{leaf, own, flag.Group("group", "a group", commands(depth - 1))}
+}
+func groupsOnly(depth int) []flag.Command[flag.Values] {
+	let leaf = flag.Command[flag.Values]{Name: "read", Usage: "read", Set: set(), Build: build, Commands: []flag.Command[flag.Values]{}}
 	if depth == 0 { return []flag.Command[flag.Values]{leaf} }
-	[]flag.Command[flag.Values]{leaf, flag.Group("group", "a group", commands(depth - 1))}
+	[]flag.Command[flag.Values]{leaf, flag.Group("group", "a group", groupsOnly(depth - 1))}
 }
 func depth(n int) int { let r = n % 3; if r < 0 { -r } else { r } }
-func path(d int) []string {
+func ownOf(n int) bool { (n / 3) % 2 != 0 }
+func groupPath(d int) []string {
 	let mut out = []string{}
 	for _ in 0..d { out = out.Append("group") }
-	out.Append("read")
+	out
+}
+func path(d int, own bool) []string {
+	if own { return groupPath(d) }
+	groupPath(d).Append("read")
 }
 func same(a []string, b []string) bool {
 	if len(a) != len(b) { return false }
@@ -391,7 +450,7 @@ func same(a []string, b []string) bool {
 test RenderParseTreeRoundTrip(n int, text string, num int, items []string, rest []string) {
 	let d = depth(n)
 	let cs = commands(d)
-	let p = path(d)
+	let p = path(d, ownOf(n))
 	let mut args = p.Append("--text=" + text).Append("--number=" + strconv.Itoa(num))
 	for item in items { args = args.Append("--item=" + item) }
 	args = args.Append("--")
@@ -415,21 +474,41 @@ test RepeatedKeepsOrder(items []string) {
 test HelpNamesEveryCommand(n int) {
 	let d = depth(n)
 	let help = flag.CommandUsage("tree", "", commands(d))
+	let own = "\n    \tthe level's own\n"
+	assert strings.Contains(help, "\n  tree" + own)
 	let mut prefix = ""
 	for _ in 0..d {
 		assert strings.Contains(help, "\n  " + prefix + "read\n")
-		prefix = prefix + "group "
+		prefix = prefix + "group"
+		assert strings.Contains(help, "\n  " + prefix + own)
+		prefix = prefix + " "
 	}
 	assert strings.Contains(help, "\n  " + prefix + "read\n")
+}
+test UnknownCommandNamesItsGroup(n int, word string) {
+	let d = depth(n)
+	let groups = groupPath(d)
+	let name = if word == "read" || word == "group" || strings.HasPrefix(word, "-") { "" } else { word }
+	let args = if name == "" { groups } else { groups.Append(name) }
+	let _ = flag.ParseCommand("tree", "", groupsOnly(d), args) catch {
+	case flag.UnknownCommand as u:
+		assert u.Name == name && same(u.Group, groups)
+		return
+	case flag.Help, flag.Unknown, flag.NeedsValue, flag.Invalid, flag.Missing, flag.Extra:
+		assert false
+		return
+	}
+	assert false
 }
 `
 
 var flagTreeStatements = map[string]string{
-	"flag RenderParseTreeRoundTrip":  `RenderParseTreeRoundTrip(n int, text string, num int, items []string, rest []string) { let depth = treeDepth(n) let commands = treeCommands(depth) let path = treePath(depth) let mut args = path args = args.Append("--text=" + text).Append("--number=" + strconv.Itoa(num)) for item in items { args = args.Append("--item=" + item) } args = args.Append("--") for r in rest { args = args.Append(r) } let v = try ParseCommand("tree", "", commands, args) let again = try ParseCommand("tree", "", commands, RenderCommand(path, v)) Equal(v, again) && treeText.Get(again) == Some[string]{Value: text} && treeNumber.Get(again) == Some[int]{Value: num} && sameStrings(treeItems.Get(again), items) && sameStrings(Rest(again), rest) }`,
-	"flag DeclaredShortAndLongAgree": `DeclaredShortAndLongAgree(text string) { Equal(try Parse(treeSet(), []string{"-t=" + text}), try Parse(treeSet(), []string{"--text=" + text})) }`,
-	"flag AbsentIsNone":              `AbsentIsNone() { let v = try Parse(treeSet(), []string{}) treeText.Get(v) == None && treeNumber.Get(v) == None }`,
-	"flag RepeatedKeepsOrder":        `RepeatedKeepsOrder(items []string) { let mut args = []string{} for item in items { args = args.Append("-i=" + item) } sameStrings(treeItems.Get(try Parse(treeSet(), args)), items) }`,
-	"flag HelpNamesEveryCommand":     `HelpNamesEveryCommand(n int) { let depth = treeDepth(n) let help = CommandUsage("tree", "", treeCommands(depth)) let mut prefix = "" for _ in 0..depth { if !strings.Contains(help, "\n  "+prefix+"read\n") { return false } prefix = prefix + "group " } strings.Contains(help, "\n  "+prefix+"read\n") }`,
+	"flag RenderParseTreeRoundTrip":    `RenderParseTreeRoundTrip(n int, text string, num int, items []string, rest []string) { let depth = treeDepth(n) let commands = treeCommands(depth) let path = treePath(depth, treeOwn(n)) let mut args = path args = args.Append("--text=" + text).Append("--number=" + strconv.Itoa(num)) for item in items { args = args.Append("--item=" + item) } args = args.Append("--") for r in rest { args = args.Append(r) } let v = try ParseCommand("tree", "", commands, args) let again = try ParseCommand("tree", "", commands, RenderCommand(path, v)) Equal(v, again) && treeText.Get(again) == Some[string]{Value: text} && treeNumber.Get(again) == Some[int]{Value: num} && sameStrings(treeItems.Get(again), items) && sameStrings(Rest(again), rest) }`,
+	"flag DeclaredShortAndLongAgree":   `DeclaredShortAndLongAgree(text string) { Equal(try Parse(treeSet(), []string{"-t=" + text}), try Parse(treeSet(), []string{"--text=" + text})) }`,
+	"flag AbsentIsNone":                `AbsentIsNone() { let v = try Parse(treeSet(), []string{}) treeText.Get(v) == None && treeNumber.Get(v) == None }`,
+	"flag RepeatedKeepsOrder":          `RepeatedKeepsOrder(items []string) { let mut args = []string{} for item in items { args = args.Append("-i=" + item) } sameStrings(treeItems.Get(try Parse(treeSet(), args)), items) }`,
+	"flag HelpNamesEveryCommand":       `HelpNamesEveryCommand(n int) { let depth = treeDepth(n) let help = CommandUsage("tree", "", treeCommands(depth)) let own = "\n    \tthe level's own\n" if !strings.Contains(help, "\n  tree"+own) { return false } let mut prefix = "" for _ in 0..depth { if !strings.Contains(help, "\n  "+prefix+"read\n") { return false } prefix = prefix + "group" if !strings.Contains(help, "\n  "+prefix+own) { return false } prefix = prefix + " " } strings.Contains(help, "\n  "+prefix+"read\n") }`,
+	"flag UnknownCommandNamesItsGroup": `UnknownCommandNamesItsGroup(n int, word string) { let depth = treeDepth(n) let groups = treeGroupPath(depth) let name = if word == "read" || word == "group" || strings.HasPrefix(word, "-") { "" } else { word } let args = if name == "" { groups } else { groups.Append(name) } let _ = ParseCommand("tree", "", treeGroups(depth), args) catch { case UnknownCommand as u: return u.Name == name && sameStrings(u.Group, groups) case Help, Unknown, NeedsValue, Invalid, Missing, Extra: return false } false }`,
 }
 
 // TestFlagTreeLaws kills CU1's dropped-cardinality render, optional-default,

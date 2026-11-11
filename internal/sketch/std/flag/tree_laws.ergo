@@ -12,11 +12,21 @@ func treeSet() Set {
 func treeBuild(v Values) Values { v }
 
 // treeCommands generates both branching and nesting. Depth is bounded by
-// the law's input normalization, not by the parser.
+// the law's input normalization, not by the parser. Each level has its
+// own leaf, the child named "" (gap-group), beside a leaf "read" and,
+// below the last level, a group.
 func treeCommands(depth int) []Command[Values] {
 	let leaf = Command[Values]{Name: "read", Usage: "read", Set: treeSet(), Build: treeBuild, Commands: []Command[Values]{}}
+	let own = Command[Values]{Name: "", Usage: "the level's own", Set: treeSet(), Build: treeBuild, Commands: []Command[Values]{}}
+	if depth == 0 { return []Command[Values]{leaf, own} }
+	[]Command[Values]{leaf, own, Group("group", "a group", treeCommands(depth-1))}
+}
+
+// treeGroups is treeCommands with no level's own leaf.
+func treeGroups(depth int) []Command[Values] {
+	let leaf = Command[Values]{Name: "read", Usage: "read", Set: treeSet(), Build: treeBuild, Commands: []Command[Values]{}}
 	if depth == 0 { return []Command[Values]{leaf} }
-	[]Command[Values]{leaf, Group("group", "a group", treeCommands(depth-1))}
+	[]Command[Values]{leaf, Group("group", "a group", treeGroups(depth-1))}
 }
 
 func treeDepth(n int) int {
@@ -24,18 +34,27 @@ func treeDepth(n int) int {
 	if r < 0 { -r } else { r }
 }
 
-func treePath(depth int) []string {
+// treeOwn draws, from n, whether the law's path ends at a level's own leaf.
+func treeOwn(n int) bool { (n / 3) % 2 != 0 }
+
+func treeGroupPath(depth int) []string {
 	let mut path = []string{}
 	for _ in 0..depth { path = path.Append("group") }
-	path.Append("read")
+	path
 }
 
-// RenderParseTreeRoundTrip includes the path and all cardinalities. Each
-// generated line parses, so the law does not discard invalid test inputs.
+func treePath(depth int, own bool) []string {
+	if own { return treeGroupPath(depth) }
+	treeGroupPath(depth).Append("read")
+}
+
+// RenderParseTreeRoundTrip includes the path and all cardinalities, to a
+// named leaf or to a level's own leaf. Each generated line parses, so the
+// law does not discard invalid test inputs.
 law RenderParseTreeRoundTrip(n int, text string, num int, items []string, rest []string) {
 	let depth = treeDepth(n)
 	let commands = treeCommands(depth)
-	let path = treePath(depth)
+	let path = treePath(depth, treeOwn(n))
 	let mut args = path
 	args = args.Append("--text=" + text).Append("--number=" + strconv.Itoa(num))
 	for item in items { args = args.Append("--item=" + item) }
@@ -61,13 +80,36 @@ law RepeatedKeepsOrder(items []string) {
 	sameStrings(treeItems.Get(try Parse(treeSet(), args)), items)
 }
 
+// HelpNamesEveryCommand: a level's help lists every descendant path, each
+// level's own leaf at the level's path among them.
 law HelpNamesEveryCommand(n int) {
 	let depth = treeDepth(n)
 	let help = CommandUsage("tree", "", treeCommands(depth))
+	let own = "\n    \tthe level's own\n"
+	if !strings.Contains(help, "\n  tree"+own) { return false }
 	let mut prefix = ""
 	for _ in 0..depth {
 		if !strings.Contains(help, "\n  "+prefix+"read\n") { return false }
-		prefix = prefix + "group "
+		prefix = prefix + "group"
+		if !strings.Contains(help, "\n  "+prefix+own) { return false }
+		prefix = prefix + " "
 	}
 	strings.Contains(help, "\n  "+prefix+"read\n")
+}
+
+// UnknownCommandNamesItsGroup: a word that names no child of a level with
+// no own leaf, or no word, fails UnknownCommand with the word and the
+// path of group names to that level.
+law UnknownCommandNamesItsGroup(n int, word string) {
+	let depth = treeDepth(n)
+	let groups = treeGroupPath(depth)
+	let name = if word == "read" || word == "group" || strings.HasPrefix(word, "-") { "" } else { word }
+	let args = if name == "" { groups } else { groups.Append(name) }
+	let _ = ParseCommand("tree", "", treeGroups(depth), args) catch {
+	case UnknownCommand as u:
+		return u.Name == name && sameStrings(u.Group, groups)
+	case Help, Unknown, NeedsValue, Invalid, Missing, Extra:
+		return false
+	}
+	false
 }

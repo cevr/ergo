@@ -18,7 +18,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"TypeParam", "type Table[K comparable, V] { Rows Map[K, V] }\n\ntype Both[A, B ordered] { X A, Y B }\n\ntype Index[E any, K comparable] { Keys []K, Items []E }\n"},
 	{"Members", "type Card {\n\tNumber string,\n\tExpiry Date,\n}\n\ntype Empty {}\n"},
 	{"Member", "type Store {\n\tFind(id string) Order fails NotFound,\n\n\tlaw Found(id string) { try Find(id) == Find(id) },\n}\n"},
-	{"FieldDecl", "type Point { X, Y int64 }\n"},
+	{"FieldDecl", "type Point { X, Y int64, NodeID int \"node_id\" }\n"},
 	{"LawDecl", "// AddCommutes states that add does not depend on the order of its operands.\nlaw AddCommutes(a int64, b int64) {\n\tadd(a, b) == add(b, a)\n}\n\ntype Codec[T] {\n\tEncode(v T) []byte,\n\tDecode(b []byte) T fails Malformed,\n\n\tlaw RoundTrip(v T) { try Decode(Encode(v)) == v },\n}\n"},
 	{"UnionType", "type Reason =\n\t| Fraud{Rule string}\n\t| Expired{}\n\ntype Short = A | B\n"},
 	{"Variant", "type Option[T] = Some{Value T} | None{}\n\ntype ChargeError = Declined | timeout.Expired\n"},

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -945,13 +946,21 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 			}
 			continue
 		}
+		key := ""
+		if field.Key != nil {
+			var err error
+			key, err = strconv.Unquote(field.Key.Value)
+			if err != nil || key == "" || !utf8.ValidString(key) {
+				c.errorf(field.Key, CodeType, "a wire key must be non-empty valid UTF-8 (types.md, Codecs 2)")
+			}
+		}
 		for _, name := range field.Names {
 			if seen[name.Name] && name.Name != "_" {
 				c.errorf(name, CodeType, "field %s is declared twice", name.Name)
 				continue
 			}
 			seen[name.Name] = true
-			f := &Field{Name: name.Name, Type: t, Pos: name.Pos()}
+			f := &Field{Name: name.Name, Type: t, Pos: name.Pos(), WireKey: key}
 			s.Fields = append(s.Fields, f)
 			c.def(name, f)
 		}

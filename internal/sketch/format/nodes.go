@@ -419,6 +419,10 @@ func (p *printer) fieldMember(f *syntax.Field) member {
 			p.space()
 		}
 		p.typ(f.Type)
+		if f.Key != nil {
+			p.space()
+			p.token(f.Key.Pos(), f.Key.Value)
+		}
 	}}
 }
 
