@@ -416,6 +416,13 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 						if n, ok := o.Type.(*check.Named); ok && check.IsGoError(n) {
 							return fc.l.goErrorFrom() + "(" + goName + ")"
 						}
+						if isOptionType(o.Type) {
+							// A borrowed pointer variable may be nil. Snapshot
+							// it once and use the ordinary Go boundary mapping.
+							r := fc.temp("borrowed")
+							fc.line(r + " := " + goName)
+							return fc.goResult(x, o.Type, r, "", pn.Pkg.Path+"."+o.Name)
+						}
 						// Typed as the binding says: Go's untyped constant
 						// would take its default type (math.MaxInt64 as int).
 						return "(" + fc.goType(o.Type) + ")(" + goName + ")"

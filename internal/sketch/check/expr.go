@@ -1436,6 +1436,11 @@ func (c *checker) qualified(x *syntax.SelectorExpr, pn *PkgName) operand {
 		}
 		return operand{mode: modeValue, typ: o.Sig, fn: o}
 	case *Var:
+		if pn.Pkg.Host() && c.holdsResource(o.Type) {
+			// A borrowed resource variable observes Go's mutable state.
+			// Reading it needs authority even without calling a method.
+			c.charge(x, goForeign())
+		}
 		return operand{mode: modeValue, typ: o.Type}
 	case *Builtin:
 		return operand{mode: modeBuiltin, obj: o, typ: invalid} // go.Is, go.As
