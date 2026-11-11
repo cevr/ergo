@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -137,14 +138,26 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 			}
 		}
 	}
-	params, listable := l.proofLists(law.Params, law.Decl)
-	if !listable {
-		return skip("a law parameter cannot be listed")
-	}
 	for _, r := range law.Where {
 		if r != nil {
 			return skip("a law parameter has a where restriction")
 		}
+	}
+	// A case the native run cannot list, or a body it cannot run, goes to
+	// the check-time evaluator's symbolic run (eval.ProveSymbolic), whose
+	// verdict is fixed here.
+	symbolic := func() bool {
+		pr := eval.ProveSymbolic(law, p)
+		if !pr.Proved {
+			return skip(pr.Why)
+		}
+		b.WriteString(l.helper("fmt") + ".Println(" + strconv.Quote("ok "+label+" (proved: "+pr.How()+")") + ")\n")
+		b.WriteString(l.helper("Record") + "(" + strconv.Quote(label) + ", &" + l.helper("Rand") + "{cases: " + strconv.Itoa(pr.Cases) + ", proved: true, rewrite: true, admitted: " + strconv.Itoa(pr.Cases) + "}, \"\")\n")
+		return true
+	}
+	params, listable := l.proofLists(law.Params, law.Decl)
+	if !listable {
+		return symbolic()
 	}
 	it := p.Slot.Underlying().(*check.Interface)
 	search := p.Ctor != nil
@@ -154,7 +167,7 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 		opLists[i], ok = l.proofLists(op.Sig.Params, law.Decl)
 		search = search && ok
 		if why := proofBodyWhy(p.Conv.Table[op.Name], map[*check.Func]bool{}); why != "" {
-			return skip(why)
+			return symbolic()
 		}
 	}
 	var ctorLists [][]string
@@ -164,7 +177,7 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 		if !ok {
 			search = false
 		} else if why := proofBodyWhy(p.Ctor, map[*check.Func]bool{}); why != "" {
-			return skip(why)
+			return symbolic()
 		}
 	}
 	// Helpers in computed RHS arguments and the guard are proof inputs too.
@@ -178,7 +191,7 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 		return why == ""
 	})
 	if why != "" {
-		return skip(why)
+		return symbolic()
 	}
 	var fieldVars []*check.Var
 	var fieldLists [][]string
@@ -189,7 +202,7 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 		var ok bool
 		fieldLists, ok = l.proofLists(fieldVars, law.Decl)
 		if !ok {
-			return skip("provider fields cannot all be listed")
+			return symbolic()
 		}
 	}
 	fc := newFuncCtx(l, newNamer(scope), false)
