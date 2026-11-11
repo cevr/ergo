@@ -35,6 +35,16 @@ func main() {
 		err = tool(os.Args[2:])
 	case "attr":
 		err = attr(os.Args[2:])
+	case "table":
+		err = table(os.Args[2:])
+	case "gen":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike gen SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.Generate(seed))
+		}
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}
@@ -60,11 +70,21 @@ func emit(path, work string) (irspike.Report, error) {
 	return irspike.Report{IR: rep}, err
 }
 
+// front checks and lowers PATH by one path into DIR: the Ergo stage alone,
+// in its own process so the meter counts it.
 func front(args []string) error {
-	if len(args) != 2 {
-		return fmt.Errorf("usage: irspike front PATH WORK")
+	if len(args) != 3 || (args[0] != "source" && args[0] != "ir") {
+		return fmt.Errorf("usage: irspike front source|ir PATH DIR")
 	}
-	rep, err := emit(args[0], args[1])
+	p := irspike.Source
+	if args[0] == "ir" {
+		p = irspike.IR
+	}
+	u, err := irspike.Load(args[1])
+	if err != nil {
+		return err
+	}
+	rep, err := irspike.Emit(u, p, args[2])
 	if err != nil {
 		return err
 	}

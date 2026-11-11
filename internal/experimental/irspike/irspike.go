@@ -133,6 +133,25 @@ func compileID(goroot string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 
+// stableIR is a copy of the IR file named by its content hash, beside the
+// build cache: the -ergoir flag, which the go command keys the compile
+// on, then names the IR's content, wherever the module was written.
+func stableIR(cache, file string) (string, error) {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	name := filepath.Join(cache+"-ir", hex.EncodeToString(sum[:])+".json")
+	if _, err := os.Stat(name); err == nil {
+		return name, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		return "", err
+	}
+	return name, os.WriteFile(name, data, 0o644)
+}
+
 // BuildOptions are the extra flags of one build.
 type BuildOptions struct {
 	// Toolexec runs each tool through this command (a meter).
@@ -157,7 +176,11 @@ func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, 
 			return nil, err
 		}
 		cache += "-" + id
-		args = append(args, "-gcflags=ergo.local/program=-ergoir="+filepath.Join(dir, lower.IRFileName))
+		irFile, err := stableIR(cache, filepath.Join(dir, lower.IRFileName))
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, "-gcflags=ergo.local/program=-ergoir="+irFile)
 	}
 	if o.Toolexec != "" {
 		args = append(args, "-toolexec="+o.Toolexec)

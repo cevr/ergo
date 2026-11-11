@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"ergo.local/prototype/internal/proclimit"
 )
 
 // perfEventAttr is the prefix of struct perf_event_attr this file sets
@@ -55,7 +57,11 @@ type Cost struct {
 // opened on this process with inherit set and enabled just before the
 // start: it also counts this process's own threads while they wait, a
 // bounded overhead that is the same for every command measured.
-func Measure(cmd *exec.Cmd) (Cost, error) {
+func Measure(cmd *exec.Cmd) (Cost, error) { return MeasureBounded(cmd, 0) }
+
+// MeasureBounded is Measure with the program under proclimit's memory
+// limit (0: none), which the kernel enforces.
+func MeasureBounded(cmd *exec.Cmd, limit uint64) (Cost, error) {
 	// A per-thread counter: the child inherits it only from the thread that
 	// forks it, so the goroutine stays on the thread that opened it.
 	runtime.LockOSThread()
@@ -68,7 +74,10 @@ func Measure(cmd *exec.Cmd) (Cost, error) {
 		defer syscall.Close(int(fd))
 		syscall.Syscall(syscall.SYS_IOCTL, fd, perfIOCEnable, 0)
 	}
-	err := cmd.Run()
+	err := proclimit.Start(cmd, limit)
+	if err == nil {
+		err = cmd.Wait()
+	}
 	c := Cost{Instructions: -1}
 	if counted {
 		syscall.Syscall(syscall.SYS_IOCTL, fd, perfIOCDisable, 0)

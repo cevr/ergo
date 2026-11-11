@@ -102,6 +102,10 @@ type irStmt struct {
 	Else  []*irStmt `json:"else,omitempty"`
 	Body  []*irStmt `json:"body,omitempty"`
 	End   irPos     `json:"end"`
+	// ElsePos and ElseEnd bound an if's else block (DWARF scopes must
+	// increase).
+	ElsePos irPos `json:"epos"`
+	ElseEnd irPos `json:"eend"`
 }
 
 type irExpr struct {
@@ -152,6 +156,8 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var) (ok bool
 		}
 	}()
 	switch {
+	case !fc.directives:
+		irNo("library body")
 	case fd.fallible:
 		irNo("fallible function")
 	case fd.ptr:
@@ -206,6 +212,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var) (ok bool
 
 // pos is n's position as the IR spells it.
 func (b *irBuilder) pos(n syntax.Node, p syntax.Pos) irPos {
+	if _, ok := b.l.sourceOf(n); !ok {
+		irNo("node outside the program's sources")
+	}
 	_, path, line, col := b.l.at(n, p)
 	i, ok := b.st.files[path]
 	if !ok {
@@ -325,8 +334,26 @@ func (b *irBuilder) ifStmt(s *syntax.IfStmt, ret bool) *irStmt {
 	switch e := s.Else.(type) {
 	case nil:
 	case *syntax.BlockStmt:
+		st.ElsePos, st.ElseEnd = b.pos(e, e.Lbrace), b.pos(e, e.Rbrace)
 		st.Else = b.tail(e.List, ret)
 	case *syntax.IfStmt:
+		// The else block of an else-if wraps the chain to its last brace.
+		last := syntax.Stmt(e)
+		for {
+			n, ok := last.(*syntax.IfStmt)
+			if !ok || n.Else == nil {
+				break
+			}
+			last = n.Else
+		}
+		end := e.Body.Rbrace
+		switch l := last.(type) {
+		case *syntax.BlockStmt:
+			end = l.Rbrace
+		case *syntax.IfStmt:
+			end = l.Body.Rbrace
+		}
+		st.ElsePos, st.ElseEnd = b.pos(e, e.Pos()), b.pos(e, end)
 		st.Else = []*irStmt{b.ifStmt(e, ret)}
 	default:
 		irNo("else %T", e)
@@ -597,7 +624,13 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		if len(x.Args) != 1 {
 			irNo("len form")
 		}
-		if _, ok := b.l.info.Types[x.Args[0]].(*check.Slice); !ok {
+		switch t := b.l.info.Types[x.Args[0]].(type) {
+		case *check.Slice:
+		case *check.Basic:
+			if t.Kind != check.String {
+				irNo("len of a non-slice")
+			}
+		default:
 			irNo("len of a non-slice")
 		}
 		return nil, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}
