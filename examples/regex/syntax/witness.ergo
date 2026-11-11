@@ -71,14 +71,66 @@ func ctree(l *labeler, depth int) Node {
 	}
 }
 
-// solid is a checked tree that does not match the empty text.
+// solid is a checked tree that does not match the empty text and holds
+// at most one group that no other of its groups holds, so it can be the
+// operand of any repeat: two such groups go inside a new one, as in
+// (?<g4>(?<g2>a)(?<g3>b))*.
 func solid(l *labeler, depth int) Node {
-	let t = l.ctree(depth)
+	let mut t = l.ctree(depth)
 	if Nullable(t) {
-		return Cat{Parts: []Node{t, l.g.leaf()}}
+		t = Cat{Parts: []Node{t, l.g.leaf()}}
+	}
+	if len(Outer(t)) >= 2 {
+		let name = "g\(l.next)"
+		l.next += 1
+		t = Group{Name: name, Of: t}
 	}
 	t
 }
+
+// Parallel is CaptureSample(seed) followed by a repeat that may run more
+// than once (Star, Plus or a Count to 2 or more) of two or three groups
+// side by side, and the names of those groups, in order. Check must refuse
+// it at that repeat, naming them. Wrapped is the same tree with the
+// repeat's operand inside one more group, entry, which Check accepts.
+func Parallel(seed int) Sided {
+	let mut l = labeler{g: seeded(seed + 31), next: 0}
+	let base = CaptureSample(seed)
+	let mut parts = []Node{}
+	let mut names = []string{}
+	for i in 0..2+l.g.next(2) {
+		let name = "p\(i)"
+		names = names.Append(name)
+		parts = parts.Append(Group{Name: name, Of: l.g.leaf()})
+		if l.g.next(2) == 0 {
+			parts = parts.Append(l.g.leaf())
+		}
+	}
+	let body = Cat{Parts: parts}
+	let kind = l.g.next(3)
+	let min = l.g.next(2)
+	let max = if l.g.next(2) == 0 { -1 } else { 2 + l.g.next(2) }
+	let tree = Cat{Parts: []Node{base, repeatOf(kind, body, min, max)}}
+	let wrapped = Cat{Parts: []Node{base, repeatOf(kind, Group{Name: "entry", Of: body}, min, max)}}
+	Sided{Tree: tree, Names: names, Wrapped: wrapped}
+}
+
+// repeatOf is of under a Star (kind 0), a Plus (kind 1), or else a Count
+// from min to max.
+func repeatOf(kind int, of Node, min int, max int) Node {
+	match kind {
+	case 0:
+		Star{Of: of}
+	case 1:
+		Plus{Of: of}
+	case _:
+		Count{Of: of, Min: min, Max: max, As: Counted(of, min, max)}
+	}
+}
+
+// Sided is a tree with a repeat of the groups Names side by side, and
+// the same tree with those groups inside one group.
+type Sided { Tree Node, Names []string, Wrapped Node }
 
 // Witness is a text that n matches, of seed; n has no class that
 // matches no byte. Repeats take zero to two more copies than they must.

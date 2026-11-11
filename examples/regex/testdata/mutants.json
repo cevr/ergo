@@ -92,6 +92,33 @@
       "killers": ["examples:regex"]
     },
     {
+      "name": "RC1-parallel-admitted",
+      "file": "examples/regex/syntax/capture.ergo",
+      "from": "if many && len(top) >= 2 {",
+      "to": "if many && len(top) >= 99 {",
+      "rule": "A repeat that may run more than once refuses two or more groups side by side in its operand (patterns.md Shapes 4). CapturesAgree draws Parallel trees and expects the refusal naming those groups.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-outer-descends",
+      "file": "examples/regex/syntax/capture.ergo",
+      "from": "\t\t[]Group{g}\n",
+      "to": "\t\tplus([]Group{g}, Groups(g.Of))\n",
+      "rule": "Groups held by a group of the operand are that occurrence's record, not side by side: (?<Pair>(?<K>a)=(?<V>b);)* is admitted. CaptureSample wraps such operands in a group and CapturesAgree needs Check to accept them.",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
+      "name": "RC1-quest-many",
+      "file": "examples/regex/syntax/capture.ergo",
+      "from": "try repeated(n, q.Of, false)",
+      "to": "try repeated(n, q.Of, true)",
+      "rule": "A Quest runs its operand at most once, so its groups give options, not slices, and side-by-side groups are admitted. CaptureFailuresAreNamed (diagnostic row).",
+      "anchor": {"tests": ["examples:regex"]},
+      "killers": ["examples:regex"]
+    },
+    {
       "name": "RC1-count-as-unchecked",
       "file": "examples/regex/syntax/capture.ergo",
       "from": " || c.As != Counted(c.Of, c.Min, c.Max) {",

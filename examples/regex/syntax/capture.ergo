@@ -5,6 +5,8 @@
 // (Last). A group that took no part in the match has no events; a group
 // that matched the empty text has an Open and a Close at one offset.
 
+import strings
+
 // Event is a group opening or closing at a byte offset of the text.
 type Event = Open{Name string, At int} | Close{Name string, At int}
 
@@ -111,7 +113,7 @@ func Last(events []Event, name string) Option[Occurrence] {
 
 // The failures of Check: a tree whose captures are not defined. Each
 // names the text of the subtree it is about.
-type CaptureError = NullableRepeat | EmptyClass | DuplicateName | BadCount
+type CaptureError = NullableRepeat | EmptyClass | DuplicateName | BadCount | ParallelGroups
 
 // NullableRepeat is a repeat whose operand matches the empty text: how
 // often it captured would be a choice of the engine.
@@ -130,9 +132,16 @@ type DuplicateName { Name string, Second int, Text string }
 // that is not its Counted.
 type BadCount { Text string }
 
+// ParallelGroups is a repeat whose operand holds two or more groups that
+// no group of the operand holds (patterns.md, Shapes 4): each occurrence
+// would split into parallel slices that lose which values went together.
+// Text is the repeat's text, Names the groups' names.
+type ParallelGroups { Text string, Names []string }
+
 // Pattern is a tree that Check accepted: each of its group names is
 // written once, no repeat's operand matches the empty text, every class
-// matches a byte, and every Count is one Parse makes. Only Check makes
+// matches a byte, every Count is one Parse makes, and no repeat that may
+// run more than once holds two groups side by side. Only Check makes
 // one.
 type Pattern { tree Node }
 
@@ -218,29 +227,66 @@ func checkNode(n Node) fails CaptureError {
 		try checkNode(a.Left)
 		try checkNode(a.Right)
 	case Star as s:
-		try repeated(n, s.Of)
+		try repeated(n, s.Of, true)
 	case Plus as p:
-		try repeated(n, p.Of)
+		try repeated(n, p.Of, true)
 	case Quest as q:
-		try repeated(n, q.Of)
+		try repeated(n, q.Of, false)
 	case Count as c:
 		let copies = if c.Max == -1 { c.Min + 1 } else { c.Max }
 		let counts = 0 <= c.Min && c.Min <= maxRepeat && (c.Max == -1 || (c.Min <= c.Max && c.Max <= maxRepeat))
 		if !counts || Size(c.Of)*copies > maxNodes || c.As != Counted(c.Of, c.Min, c.Max) {
 			return BadCount{Text: Print(n)}
 		}
-		try repeated(n, c.Of)
+		try repeated(n, c.Of, c.Max == -1 || c.Max > 1)
 	case Group as g:
 		try checkNode(g.Of)
 	}
 }
 
-// repeated checks the repeat n of the operand of.
-func repeated(n Node, of Node) fails CaptureError {
+// repeated checks the repeat n of the operand of; many says n may
+// repeat of more than once (Star, Plus, a Count whose Max is above 1 or
+// unbounded), so that of's groups give slices.
+func repeated(n Node, of Node, many bool) fails CaptureError {
 	if Nullable(of) {
 		return NullableRepeat{Text: Print(n)}
 	}
+	let top = Outer(of)
+	if many && len(top) >= 2 {
+		let mut names = []string{}
+		for g in top {
+			names = names.Append(g.Name)
+		}
+		return ParallelGroups{Text: Print(n), Names: names}
+	}
 	try checkNode(of)
+}
+
+// Outer is the groups of n that no other group of n holds, in the order
+// they open.
+func Outer(n Node) []Group {
+	match n {
+	case Empty, Lit, Any, Class:
+		[]Group{}
+	case Cat as c:
+		let mut out = []Group{}
+		for p in c.Parts {
+			out = plus(out, Outer(p))
+		}
+		out
+	case Alt as a:
+		plus(Outer(a.Left), Outer(a.Right))
+	case Star as s:
+		Outer(s.Of)
+	case Plus as p:
+		Outer(p.Of)
+	case Quest as q:
+		Outer(q.Of)
+	case Count as c:
+		Outer(c.Of)
+	case Group as g:
+		[]Group{g}
+	}
 }
 
 // Nullable reports whether n matches the empty text.
@@ -280,5 +326,7 @@ func DescribeCapture(e CaptureError) string {
 		"group name \(d.Name) is used twice: group \(d.Second), \(d.Text), repeats it"
 	case BadCount as b:
 		"repeat \(b.Text) is not a counted repeat that Parse makes"
+	case ParallelGroups as p:
+		"repeat \(p.Text) holds groups \(strings.Join(p.Names, ", ")) side by side: name the repeated group, (?<Entry>…)*, so each occurrence is one record"
 	}
 }

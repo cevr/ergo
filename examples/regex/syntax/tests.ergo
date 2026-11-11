@@ -61,6 +61,9 @@ test CaptureFailuresAreNamed {
 	assert refusal("(?<X>x)(?<X>y)") == "group name X is used twice: group 2, (?<X>y), repeats it"
 	assert refusal("(?<A>(?<X>a)|(?<X>a))") == "group name X is used twice: group 3, (?<X>a), repeats it"
 	assert refusal("(?<X>a){2}") == "ok"
+	assert refusal("((?<K>a)=(?<V>b);)*") == "repeat ((?<K>a)=(?<V>b);)* holds groups K, V side by side: name the repeated group, (?<Entry>…)*, so each occurrence is one record"
+	assert refusal("(?<Pair>(?<K>a)=(?<V>b);)*") == "ok"
+	assert refusal("((?<K>a)(?<V>b))?(x(?<K2>a)(?<V2>b)){0,1}") == "ok"
 	let fake = Count{Of: Lit{C: 'a'}, Min: 2, Max: 2, As: Lit{C: 'a'}}
 	assert refusalOf(fake) == "repeat a{2} is not a counted repeat that Parse makes"
 	assert refusal("x[^\x00-\xff]") == "class [^\x00-\xff] matches no byte"

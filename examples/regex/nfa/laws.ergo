@@ -49,7 +49,28 @@ law CapturesAgree(seed int, text string) {
 	let clash = syntax.Clash(seed)
 	let clashDescription = "source=\(syntax.Print(clash.Tree)) refused="
 	assert clashDescription+duplicateOf(clash.Tree) == clashDescription+clash.Name
+	// A repeat of two groups side by side would give parallel slices:
+	// Check refuses it at the repeat, naming the groups (patterns.md,
+	// Shapes 4).
+	let sided = syntax.Parallel(seed)
+	let sidedDescription = "source=\(syntax.Print(sided.Tree)) refused="
+	assert sidedDescription+sideBySide(sided.Tree) == sidedDescription+strings.Join(sided.Names, ",")
+	// The same groups inside one group are that occurrence's record.
+	let wrappedDescription = "source=\(syntax.Print(sided.Wrapped)) refused="
+	assert wrappedDescription+sideBySide(sided.Wrapped) == wrappedDescription+"accepted"
 	true
+}
+
+// sideBySide is the names of the groups that Check refuses n for as side
+// by side under a repeat, or what else Check says of n.
+func sideBySide(n syntax.Node) string {
+	let _ = syntax.Check(n) catch {
+	case syntax.ParallelGroups as p:
+		return strings.Join(p.Names, ",")
+	case err:
+		return "other: " + syntax.DescribeCapture(err)
+	}
+	"accepted"
 }
 
 // duplicateOf is the name that Check refuses n for as a duplicate, or
