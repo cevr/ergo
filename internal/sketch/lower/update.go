@@ -94,7 +94,7 @@ func (fc *funcCtx) isOkSubject(s *syntax.TypeSwitchStmt) bool {
 // whose body is one match on the parameter, used nowhere else, that
 // getMatch lowers. Else nil.
 func (l *lowerer) okShape(g *check.Func) *check.Var {
-	if updateLowering != "" || getLowering == "switch" || !valueOwned() || valueMutant == "update-ok-never" {
+	if updateLowering != "name" || getLowering == "switch" || !valueOwned() || valueMutant == "update-ok-never" {
 		return nil
 	}
 	if g == nil || g.Decl == nil || g.Decl.Body == nil || g.Decl.Extern != nil || g.Pkg == nil || g.Pkg.Info == nil || g.Sig == nil {
@@ -214,7 +214,7 @@ func (fc *funcCtx) updateCallback(arg syntax.Expr) *check.Func {
 // updateFused lowers the call x of maps.Update as above and reports
 // whether it did; the text is the call's value.
 func (fc *funcCtx) updateFused(x *syntax.CallExpr, c *check.Call) (string, bool) {
-	if updateLowering == "call" || fc.stmtCall == x || !mapsUpdate(c.Func) || fc.l.vals == nil || !fc.l.vals.ownCall[x] || failsHere(c) || x.Trailing != nil {
+	if updateLowering != "name" || fc.stmtCall == x || !mapsUpdate(c.Func) || fc.l.vals == nil || !fc.l.vals.ownCall[x] || failsHere(c) || x.Trailing != nil {
 		return "", false
 	}
 	if len(c.TypeArgs) < 2 || len(freeTypeParams(c.TypeArgs[0])) > 0 || len(freeTypeParams(c.TypeArgs[1])) > 0 {

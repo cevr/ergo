@@ -2129,6 +2129,50 @@
       ]
     },
     {
+      "name": "inl-named-impure",
+      "origin": "wf10 OPT6",
+      "file": "internal/sketch/lower/inline.go",
+      "from": "\tif gd.method != nil || gd.fallible || !gd.pure {",
+      "to": "\tif gd.method != nil || gd.fallible {",
+      "rule": "inline.go: an inlined body calls a named callback directly only when it is pure (no environment).",
+      "killers": [
+        "lower:TestInlineAgrees"
+      ]
+    },
+    {
+      "name": "inl-named-never",
+      "origin": "wf10 OPT6",
+      "file": "internal/sketch/lower/inline.go",
+      "from": "\t\treturn nil\n\t}\n\treturn g\n}",
+      "to": "\t\treturn nil\n\t}\n\treturn nil\n}",
+      "rule": "inline.go: m = maps.Update(m, k, f) with f a named pure function is inlined, f called directly (the general fact that replaced update.go's name-keyed fusion).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "inl-fallible-decl",
+      "origin": "wf10 OPT6",
+      "file": "internal/sketch/lower/inline.go",
+      "from": "\tfallible := fd.fallible && failsHere(c)",
+      "to": "\tfallible := fd.fallible",
+      "rule": "inline.go: an inlined block fails only where its call can: a row parameter empty at the call adds no failure.",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "inl-cb-only",
+      "origin": "wf10 OPT6",
+      "file": "internal/sketch/lower/inline.go",
+      "from": "\t\tl.inlineCb[f] = only",
+      "to": "\t\tl.inlineCb[f] = true",
+      "rule": "inline.go: a body whose footprint is opaque other than through its callbacks keeps its entry poll (runtime.md I1 2), so it is not inlined.",
+      "killers": [
+        "lower:TestInlineRule"
+      ]
+    },
+    {
       "name": "made-never",
       "origin": "wf10 OPT6",
       "file": "internal/sketch/lower/gobody.go",

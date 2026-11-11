@@ -240,8 +240,11 @@ type lowerer struct {
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
 	// Go function took in, inlineSites the inlined calls (inline.go), and
-	// lastDir the last //line directive a body wrote.
+	// lastDir the last //line directive a body wrote. inlineCb holds the
+	// functions whose body calls unknown code only through its callback
+	// parameters (inlineRule).
 	inlineOK    map[*check.Func]knownState
+	inlineCb    map[*check.Func]bool
 	inlineGrown map[*namer]int
 	inlineSites []inlineSite
 	lastDir     string

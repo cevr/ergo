@@ -43,6 +43,10 @@ func apply(f func(x int) int, x int) int { f(x) }
 
 func say(s string) needs Console { Console.Println(s) }
 
+type Ops { h func(x int) int }
+
+func mixed(o Ops, f func(x int) int, x int) int { o.h(f(x)) }
+
 func big(b *Box) int {
 	let a = b.items[0] + b.items[1] + b.items[2] + b.items[0] * b.items[1] * b.items[2]
 	let c = a + b.items[0] - b.items[1] + b.items[2] - a * a + b.items[0] * a - b.items[1] * a
@@ -58,6 +62,7 @@ func main() needs Console {
 	Console.Println("\(small(&b, 1)) \(looped(&b)) \(rec(3)) \(asValue(func(x int) int { x * 2 }))")
 	Console.Println("\(apply(func(x int) int { x * 3 }, 2)) \(apply(f, 2)) \(big(&b))")
 	say("x")
+	Console.Println("\(mixed(Ops{h: func(x int) int { x - 1 }}, func(x int) int { x + 5 }, 1))")
 }
 `
 	o := mustLower(t, "inlinerule", src)
@@ -76,6 +81,7 @@ func main() needs Console {
 		{"asValue", "a callback parameter used other than as a callee stays a call", true},
 		{"say", "a body with a capability (a needs row) stays a call", true},
 		{"big", "a body over inlineBudget nodes stays a call", true},
+		{"mixed", "a body that calls a function value other than its callbacks keeps its entry poll: it stays a call", true},
 	} {
 		if calls(row.name) != row.kept {
 			t.Errorf("%s: main's Go names it %v, want %v\n%s", row.why, calls(row.name), row.kept, body)

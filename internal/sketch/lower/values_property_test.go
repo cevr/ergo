@@ -950,25 +950,23 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 
 // lowerValueMode lowers src with the value rule or with the reference
 // "alias"; a mode names another lowering: "copy", the rule without owned
-// parameters, "update-call", the rule with maps.Update called, not
-// written at its site, or "update-option", the rule with it written at
-// its site with its Option, no comma-ok variant (update.go).
+// parameters, "names", the std-name-keyed references (freshLowering,
+// ownLowering, updateLowering "name"), or "call", the rule with no Ergo
+// inlining (inlineLowering "call").
 func lowerValueMode(t *testing.T, name, src string, rule bool, mode ...string) *lowered {
 	t.Helper()
-	saved, savedUpdate, savedFresh, savedOwn := valueLowering, updateLowering, freshLowering, ownLowering
+	saved, savedUpdate, savedFresh, savedOwn, savedInline := valueLowering, updateLowering, freshLowering, ownLowering, inlineLowering
 	defer func() {
-		valueLowering, updateLowering, freshLowering, ownLowering = saved, savedUpdate, savedFresh, savedOwn
+		valueLowering, updateLowering, freshLowering, ownLowering, inlineLowering = saved, savedUpdate, savedFresh, savedOwn, savedInline
 	}()
-	valueLowering, updateLowering, freshLowering, ownLowering = "", "", "", ""
+	valueLowering, updateLowering, freshLowering, ownLowering, inlineLowering = "", "", "", "", ""
 	switch {
 	case !rule:
 		valueLowering = "alias"
 	case len(mode) > 0 && mode[0] == "names":
-		freshLowering, ownLowering = "name", "name"
-	case len(mode) > 0 && mode[0] == "update-call":
-		updateLowering = "call"
-	case len(mode) > 0 && mode[0] == "update-option":
-		updateLowering = "option"
+		freshLowering, ownLowering, updateLowering = "name", "name", "name"
+	case len(mode) > 0 && mode[0] == "call":
+		inlineLowering = "call"
 	case len(mode) > 0:
 		valueLowering = mode[0]
 	}
@@ -1003,16 +1001,15 @@ func TestValueRuleAgrees(t *testing.T) {
 		// The copying lowering, the reference of owned parameters.
 		programs = append(programs, lowerValueMode(t, name+"copy", src, true, "copy"))
 		runs = append(runs, run{seed, src, want, name + "copy"})
-		// maps.Update called, the reference of its rewrite at the site.
-		programs = append(programs, lowerValueMode(t, name+"call", src, true, "update-call"))
+		// Every call a Go call (inlineLowering "call"): owned bodies
+		// called, the reference of the owned parameters an inlined body
+		// takes (inline.go).
+		programs = append(programs, lowerValueMode(t, name+"call", src, true, "call"))
 		runs = append(runs, run{seed, src, want, name + "call"})
-		// maps.Update at its site with its Option, the reference of the
-		// callback's comma-ok variant.
-		programs = append(programs, lowerValueMode(t, name+"option", src, true, "update-option"))
-		runs = append(runs, run{seed, src, want, name + "option"})
 		// The name-keyed references OPT6 retires: WithCapacity fresh by
 		// its name (gobody.go), the owned Ref sites by sync's names
-		// (refown.go).
+		// (refown.go), maps.Update fused at its site by its name
+		// (update.go).
 		programs = append(programs, lowerValueMode(t, name+"names", src, true, "names"))
 		runs = append(runs, run{seed, src, want, name + "names"})
 		usrc, uwant := valueProgram(seed, false, reached)

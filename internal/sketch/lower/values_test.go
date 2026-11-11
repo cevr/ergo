@@ -159,7 +159,9 @@ func TestValueRuleElides(t *testing.T) {
 	if body := goFunc(t, code, "keptOwned"); strings.Count(body, "slices.Clone(") != 1 {
 		t.Errorf("kept should copy the kept read once:\n%s", body)
 	}
-	if body := goFunc(t, code, "main_1"); strings.Contains(body, "Clone") {
+	// kept is inlined into main, its own copy of a slice with it; build's
+	// Map is not copied.
+	if body := goFunc(t, code, "main_1"); strings.Contains(body, "maps.Clone") {
 		t.Errorf("main copies build's fresh result:\n%s", body)
 	}
 	// A literal given to a Ref's Update or to sync.Modify takes the held
@@ -168,18 +170,14 @@ func TestValueRuleElides(t *testing.T) {
 	if body := goFunc(t, code, "tally"); !strings.Contains(body, "RefUpdateOwned[") || !strings.Contains(body, "RefModifyOwned[") || strings.Count(body, ", true)") != 2 {
 		t.Errorf("tally's Update and Modify do not hand the value over:\n%s", body)
 	}
-	// m = maps.Update(m, k, bump) is written at its site with bump's
-	// comma-ok variant called directly, no Option built (update.go); with
-	// updateLowering "option" it calls bump with the Option; called
-	// instead, it calls the owned body.
-	if body := goFunc(t, code, "count"); strings.Contains(body, "Update") || !strings.Contains(body, "bumpOk(") || strings.Contains(body, "Some") {
-		t.Errorf("m = maps.Update(m, k, bump) is not written at its site with bump's comma-ok variant:\n%s", body)
+	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):
+	// Update's body takes the Map as it is passed, unshared, and calls
+	// bump directly, with no copy. With every call a Go call
+	// (inlineLowering "call"), it calls the owned body.
+	if body := goFunc(t, code, "count"); strings.Contains(body, "Update") || !strings.Contains(body, " = bump\n") {
+		t.Errorf("m = maps.Update(m, k, bump) is not inlined with bump called directly:\n%s", body)
 	}
-	option := lowerValueMode(t, "velideoption", valueElideSource, true, "update-option").mainGo()
-	if body := goFunc(t, option, "count"); strings.Contains(body, "Update") || !strings.Contains(body, "bump(") || strings.Contains(option, "bumpOk") {
-		t.Errorf("updateLowering option does not call bump with the Option:\n%s", body)
-	}
-	called := lowerValueMode(t, "velidecall", valueElideSource, true, "update-call").mainGo()
+	called := lowerValueMode(t, "velidecall", valueElideSource, true, "call").mainGo()
 	update := regexp.MustCompile(`(?s)\nfunc UpdateOwned\[.*?\n}\n`).FindString(called)
 	if update == "" || strings.Contains(update, "Clone") || !strings.Contains(goFunc(t, called, "count"), "UpdateOwned[") || strings.Contains(goFunc(t, called, "count"), "Clone") {
 		t.Errorf("m = maps.Update(m, k, f) copies the Map:\n%s\n%s", update, goFunc(t, called, "count"))
