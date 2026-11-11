@@ -637,6 +637,7 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 			w.region(s, func() {
 				w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed})
 			})
+			w.heldTail(s.X, t)
 			return
 		}
 		w.region(s, func() { w.expr(s.X, mDiscard, hand{}) })
@@ -1078,18 +1079,39 @@ type hand struct {
 	hostLend bool
 }
 
+// heldTail records whether the tail x of a lent if, match, catch or with
+// (mHold) gave its statement's result slot a value to own: a value it
+// made, or a local of the arm moved out. A tail that yields an enclosing
+// name lends it, and its owner stays the name's (the mHold rule), so the
+// result is the statement's temporary on the other paths only
+// (Info.LentYields, Info.ArmHeld; the lowering registers it where an arm
+// made it). The last pass of a loop writes the fact.
+func (w *ownWalk) heldTail(x syntax.Expr, t ownTail) {
+	if t.mode != mHold || t.slot < 0 || t.slot >= len(w.vars) || !w.st.reached || t.slot >= len(w.st.slots) {
+		return
+	}
+	if w.st.slots[t.slot].st == ownOwned {
+		delete(w.info.LentYields, x)
+		return
+	}
+	w.info.LentYields[x] = true
+	w.info.ArmHeld[w.vars[t.slot].temp] = true
+}
+
 // convertedAt raises an internal compiler error when x carries an
 // implicit conversion of a resource to an operation type (Info.Implicit,
 // R23) and is evaluated in a mode with no ownership rule for it. A
 // conversion moves the resource into the interface value: x is moved
-// (a let, a return, a field, a taken argument) or lent by a call that
+// (a let, a return, a field, a taken argument), held as the value of a
+// lent if or match (mHold: a value made in the arm is owned by the
+// statement's slot, and an enclosing name stays its owner's), or lent by a call that
 // owns the interface value as its statement's temporary (call), or lent
 // to a Go function (hostLend). Any other mode would lose the release
 // (lang-audit F2: a lending argument once moved it into a value no one
 // owned), so a new position is an error until it has a rule, never a
 // silent skip (resources R23, R43; the totality rule of expr).
 func (w *ownWalk) convertedAt(x syntax.Expr, mode ownMode, h hand) {
-	if mode == mMove || h.hostLend {
+	if mode == mMove || mode == mHold || h.hostLend {
 		return
 	}
 	conv, ok := w.info.Implicit[x]
@@ -1966,18 +1988,16 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	}
 	switch call.Kind {
 	case CallConversion:
-		moved := false
 		for _, a := range x.Args {
 			if mode != mMove && w.converts(a, w.info.Types[x]) {
 				// R23: the interface value owns it; the statement owns
-				// the interface value (R43), as produced does.
+				// the interface value (R43).
 				w.expr(a, mMove, hand{at: a, how: fmt.Sprintf("converting it to %s moves it", w.info.Types[x])})
-				moved = true
 				continue
 			}
 			w.expr(a, mode, h)
 		}
-		return !moved
+		return true
 	case CallWith:
 		w.yieldValue(x, mode, h, func(ownMode) {
 			for _, a := range x.Args {

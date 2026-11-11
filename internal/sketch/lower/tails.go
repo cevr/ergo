@@ -72,6 +72,7 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 			fc.discard(s.X)
 			return false
 		}
+		fc.lentYield(d.name, s.X)
 		if d.err != "" && fc.fallibleExpr(s.X) {
 			o := fc.expr(s.X)
 			if d.name != "" && o.val != "" {
@@ -156,6 +157,7 @@ func (fc *funcCtx) branchExpr(x syntax.Expr) operand {
 	if !fc.noValue(x) {
 		res.val = fc.temp("v")
 		fc.line("var " + res.val + " " + fc.goType(fc.typeOf(x)))
+		fc.armHeldVar(x, res.val)
 	}
 	if fc.tailFallible(s) {
 		res.err = fc.temp("err")

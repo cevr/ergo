@@ -288,6 +288,14 @@ type Info struct {
 	// value is built. The lowering removes its entry there (R43). Added in
 	// 16a fix r1 (additive).
 	PartHands map[syntax.Expr]bool
+	// ArmHeld marks a lent if, match, catch or with (an OwnedTemps
+	// result) that some tail yields by lending an enclosing name, and
+	// LentYields marks each such tail. Its statement owns the result only
+	// on the paths of the other tails, so the lowering registers it where
+	// one of them yielded (R43, the mHold rule; OWGEN). Added in OWGEN
+	// (additive).
+	ArmHeld    map[syntax.Expr]bool
+	LentYields map[syntax.Expr]bool
 	// TaskCaptures records the resource captures handed to the root of a
 	// started task (R12). A repeated callback only lends them: the root
 	// owns and releases them once, outside all runs of the callback.
@@ -440,6 +448,8 @@ func newInfo() *Info {
 		OwnedVars:      map[*Var]*Drop{},
 		OwnedTemps:     map[syntax.Expr]*Drop{},
 		PartHands:      map[syntax.Expr]bool{},
+		ArmHeld:        map[syntax.Expr]bool{},
+		LentYields:     map[syntax.Expr]bool{},
 		TaskCaptures:   map[syntax.Node]*TaskCapture{},
 		ResultDrops:    map[*syntax.CallExpr]*Drop{},
 		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},

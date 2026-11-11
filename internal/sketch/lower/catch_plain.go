@@ -88,6 +88,7 @@ func (fc *funcCtx) plainCatchBody(x *syntax.CatchExpr, m *check.Match, o operand
 			result = fc.temp("v")
 			fc.line("var " + result + " " + fc.goType(m.Result))
 		}
+		fc.armHeldVar(x, result)
 	} else if o.val != "" {
 		fc.line("_ = " + o.val)
 	}

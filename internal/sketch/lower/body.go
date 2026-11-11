@@ -155,6 +155,12 @@ type funcCtx struct {
 	// hand-off keeps its entry until the frame's exit is known
 	// (release.go, v1.Returned).
 	returned *syntax.Ident
+	// heldOf maps the Go result variable of a lent if, match, catch or
+	// with whose statement owns its value on some paths only
+	// (Info.ArmHeld) to the Go flag that says this path made it;
+	// heldExpr maps the expression to the same flag (armHeldVar).
+	heldOf   map[string]string
+	heldExpr map[syntax.Expr]string
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {

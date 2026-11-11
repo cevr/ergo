@@ -834,6 +834,7 @@ func (fc *funcCtx) withExpr(x *syntax.CallExpr) operand {
 	if !fc.noValue(x) {
 		res.val = fc.temp("v")
 		fc.line("var " + res.val + " " + fc.goType(fc.typeOf(x)))
+		fc.armHeldVar(x, res.val)
 	}
 	if fc.fallibleExpr(x) {
 		res.err = fc.temp("err")

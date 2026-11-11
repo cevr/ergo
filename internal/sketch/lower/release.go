@@ -598,11 +598,48 @@ func (fc *funcCtx) ownVar(v *check.Var, site syntax.Node) {
 	fc.line(fc.own(v, d, v.Type, fc.locals[v], site))
 }
 
+// armHeldVar declares, for x, a lent if, match, catch or with whose Go
+// result variable is result, the flag that its path made the value
+// (Info.ArmHeld): true, and false where a tail yields an enclosing name
+// by lending it (Info.LentYields, yieldStmt). Its statement registers the
+// value only where the flag holds (ownTemp), so a lent name is never
+// owned twice (R43, the mHold rule; OWGEN).
+func (fc *funcCtx) armHeldVar(x syntax.Expr, result string) {
+	if result == "" || !fc.l.info.ArmHeld[x] || fc.l.info.OwnedTemps[x] == nil {
+		return
+	}
+	if fc.heldOf == nil {
+		fc.heldOf, fc.heldExpr = map[string]string{}, map[syntax.Expr]string{}
+	}
+	h := fc.temp("held")
+	fc.line(h + " := true")
+	fc.heldOf[result], fc.heldExpr[x] = h, h
+}
+
+// lentYield clears the flag of the result name when the tail x yields an
+// enclosing name by lending it (armHeldVar).
+func (fc *funcCtx) lentYield(name string, x syntax.Expr) {
+	if h := fc.heldOf[name]; h != "" && fc.l.info.LentYields[x] {
+		fc.line(h + " = false")
+	}
+}
+
 // ownTemp registers the value of x, a temporary its statement owns (R43),
 // in the operand o: on success only, when x may fail.
 func (fc *funcCtx) ownTemp(x syntax.Expr, o operand) operand {
 	d := fc.l.info.OwnedTemps[x]
 	if d == nil || o.val == "" {
+		return o
+	}
+	if h := fc.heldExpr[x]; h != "" {
+		cond := h
+		if o.err != "" {
+			cond += " && " + o.err + " == nil"
+		}
+		reg := fc.own(x, d, fc.typeOf(x), o.val, x)
+		fc.line("if " + cond + " {")
+		fc.line("\t_ = " + reg)
+		fc.line("}")
 		return o
 	}
 	if o.err == "" {
@@ -831,8 +868,12 @@ func (fc *funcCtx) reassignOwned(lhs syntax.Expr, target, val string) bool {
 	if cl == nil || h == "" {
 		return false
 	}
+	// The temporary has the local's type: a variant assigned to a local of
+	// its union would give it the variant's Go type (Go assigns a struct
+	// to the sealed interface), and the release registered for it is the
+	// union's.
 	t := fc.temp("t")
-	fc.line(t + " := " + val)
+	fc.line("var " + t + " " + fc.goType(v.Type) + " = " + val)
 	next := fc.temp("own")
 	fc.line(next + " := " + fc.runtimeCall("Scope.Owner", fc.ownBinding("Scope.Owner", id), "", fc.frameScope(id), nil, "", nil, nil, id))
 	fc.line(fc.owning(next, t, cl, v.Type, id))
