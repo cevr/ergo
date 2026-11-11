@@ -2488,6 +2488,7 @@
       "killers": ["check:TestRowArgsAreSets"]
     },
     {"name":"builtin-shape-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/extern.go","from":"\t\t\tif msg := builtinRefusal(f, b); msg != \"\" {","to":"\t\t\tif msg := builtinRefusal(f, b); false && msg != \"\" {","rule":"A Go builtin binding has its builtin's shape (builtin.go).","killers":["check:TestBuiltinBindingShapes"]},
-    {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]}
+    {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]},
+    {"name":"nondet1-entry-order","origin":"wf10 NONDET1","file":"internal/sketch/check/info.go","from":"\tif a.pkg != b.pkg {","to":"\tif false && a.pkg != b.pkg {","rule":"A with's acquisitions, so its builder's installs and adapters, come in one order defined by the source: two packages' entries never tie.","killers":["lower:TestLoweringIsAFunctionOfInput"]}
   ]
 }
