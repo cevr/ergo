@@ -160,6 +160,8 @@ type BuildOptions struct {
 	Strip bool
 	// Race builds with the race detector (it needs cgo).
 	Race bool
+	// GCFlags are extra compiler flags of the program's root package.
+	GCFlags []string
 	// Stderr receives the go command's output.
 	Stderr io.Writer
 }
@@ -170,6 +172,7 @@ type BuildOptions struct {
 func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, error) {
 	cache := tc.GOCACHE
 	args := append([]string{"build"}, receipt.GoBuildFlags...)
+	gcflags := o.GCFlags
 	if p == IR {
 		id, err := compileID(tc.GOROOT)
 		if err != nil {
@@ -180,7 +183,10 @@ func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, 
 		if err != nil {
 			return nil, err
 		}
-		args = append(args, "-gcflags=ergo.local/program=-ergoir="+irFile)
+		gcflags = append([]string{"-ergoir=" + irFile}, gcflags...)
+	}
+	if len(gcflags) > 0 {
+		args = append(args, "-gcflags=ergo.local/program="+strings.Join(gcflags, " "))
 	}
 	if o.Toolexec != "" {
 		args = append(args, "-toolexec="+o.Toolexec)
