@@ -187,7 +187,7 @@ func (fc *funcCtx) assigned(x syntax.Expr) string {
 // when its functions are the type's Go methods, else an adapter.
 func (fc *funcCtx) convertAt(x syntax.Expr, val string) string {
 	conv, ok := fc.l.info.Implicit[x]
-	if !ok || x == fc.rawConv {
+	if !ok {
 		return val
 	}
 	return fc.convert(conv, val, x)

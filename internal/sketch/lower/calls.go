@@ -627,6 +627,18 @@ func (fc *funcCtx) callArgs(list []syntax.Expr, call *syntax.CallExpr) []string 
 // callArgsAddr is callArgs; with addr, the first operand is a receiver
 // place whose address is the operand.
 func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr bool) []string {
+	return fc.callArgsWith(list, call, addr, nil)
+}
+
+// callArgsKeep is callArgs, except that the operand keep keeps its
+// representation: its implicit conversion is not applied (a direct
+// writer, wiredirect.go). keep is a parameter, not state, so an operand
+// lowered inside another call's arguments cannot change it.
+func (fc *funcCtx) callArgsKeep(list []syntax.Expr, call *syntax.CallExpr, keep syntax.Expr) []string {
+	return fc.callArgsWith(list, call, false, keep)
+}
+
+func (fc *funcCtx) callArgsWith(list []syntax.Expr, call *syntax.CallExpr, addr bool, keep syntax.Expr) []string {
 	later := make([]bool, len(list)+1)
 	for i := len(list) - 1; i >= 0; i-- {
 		later[i] = later[i+1] || (list[i] != nil && fc.emits(list[i]))
@@ -641,7 +653,7 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 		switch {
 		case i == 0 && addr:
 			out[i] = fc.place(x, later[1])
-		case i == 0 && x == call.Fun:
+		case i == 0 && x == call.Fun, keep != nil && x == keep:
 			out[i] = fc.value(x)
 		default:
 			out[i] = fc.assigned(x)

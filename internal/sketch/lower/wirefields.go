@@ -8,6 +8,10 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
+// jsonPackage is std json's path: its wrapper unions have a wire form of
+// their own (jsonWrapper).
+const jsonPackage = "json"
+
 // jsonWrapper selects the JSON representation of ordinary std unions.
 // Admission, matching, generators and failure rows stay structural: there
 // is no checker exception for either library type (owner q85).
@@ -55,14 +59,10 @@ func (fc *funcCtx) wireFieldWitness(tc *typeCtx, t check.Type, site syntax.Node)
 		params := []string{r + " " + tc.goType(decSig.Params[0].Type)}
 		return params, tc.valueResults(t), tc.wireDecode(field.Type, e, r, x, "*new("+gt+")", fc.scope) + "return " + tc.wrapperValue(present, field, x) + ", nil\n"
 	})
-	fast := "nil"
-	if wireFast() {
-		e, b, v := fc.scope.alloc("e"), fc.scope.alloc("b"), fc.scope.alloc("v")
-		fast = "func(" + e + " *" + fc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + b + " *" + fc.l.rt() + ".Text, " + v + " " + gt + ") {\n" + tc.wireEncodeWith(jsonEvents{}, field.Type, e, b, payload(v)) + "\n}"
-	}
+	direct := fc.wireDirectFuncs(tc, t, field.Type, payload)
 	v := fc.scope.alloc("v")
 	absent := "func(" + v + " " + gt + ") bool { _, ok := " + v + ".(" + tc.goType(empty) + "); return ok }"
-	return "&" + tc.wireFieldType(t) + "{Enc: " + enc + ", Dec: " + dec + ", JSON: " + fast + ", Absent: " + absent + ", Empty: " + tc.goType(empty) + "{}}"
+	return "&" + tc.wireFieldType(t) + "{Enc: " + enc + ", Dec: " + dec + direct + ", Absent: " + absent + ", Empty: " + tc.goType(empty) + "{}}"
 }
 
 // paramField is a record field typed by the wire type parameter tp: its
@@ -93,11 +93,7 @@ func (l *lowerer) wireNullableEncode(em wireEvents, tc *typeCtx, b *strings.Buil
 	x := scope.alloc("value")
 	td := l.typeDecl(present.(*check.Named).Obj, tc.site)
 	b.WriteString("switch " + x + " := " + v + ".(type) {\ncase " + tc.goType(empty) + ":\n")
-	if em.dir() == "json" {
-		b.WriteString(appendConst(w, "null"))
-	} else {
-		b.WriteString(w + ".Null(" + task + ")\n")
-	}
+	b.WriteString(w + ".Null(" + task + ")\n")
 	b.WriteString("case " + tc.goType(present) + ":\n" + tc.wireEncodeWith(em, field.Type, env, w, x+"."+td.fieldName[field.Name]) + "\n}\n")
 }
 
@@ -109,13 +105,9 @@ func (l *lowerer) wireNullableDecode(tc *typeCtx, b *strings.Builder, t check.Ty
 	b.WriteString("return " + tc.wrapperValue(present, field, x) + ", nil\n")
 }
 
-// wireFieldCount supplies the actual number of fields to a Writer. The
-// byte-appending path does not read this hint and needs no counting pass.
-func (l *lowerer) wireFieldCount(em wireEvents, tc *typeCtx, b *strings.Builder, td *typeDecl, s *check.Struct, rec string, scope *namer) string {
+// wireFieldCount supplies the actual number of fields to a Writer.
+func (l *lowerer) wireFieldCount(tc *typeCtx, b *strings.Builder, td *typeDecl, s *check.Struct, rec string, scope *namer) string {
 	n := strconv.Itoa(len(s.Fields))
-	if em.dir() == "json" {
-		return n
-	}
 	count := ""
 	for _, f := range s.Fields {
 		wit, _, param := tc.paramField(f.Type)
@@ -141,37 +133,19 @@ func (l *lowerer) wireFieldCount(em wireEvents, tc *typeCtx, b *strings.Builder,
 }
 
 // wireFields writes the fields, omitting Absent before writing its key.
-// Only records with Optional fields need a dynamic comma. The normal
-// fixed-field path keeps its compile-time commas.
-func (l *lowerer) wireFields(em wireEvents, tc *typeCtx, b *strings.Builder, td *typeDecl, s *check.Struct, rec string, tagged bool, env, task, w string, scope *namer) {
-	dynamic := false
+// The Writer places the commas between members, so an omitted member
+// needs no count of the members written.
+func (l *lowerer) wireFields(em wireEvents, tc *typeCtx, b *strings.Builder, td *typeDecl, s *check.Struct, rec string, env, task, w string, scope *namer) {
 	for _, f := range s.Fields {
-		_, _, param := tc.paramField(f.Type)
-		dynamic = dynamic || param || jsonWrapper(f.Type, "Optional")
-	}
-	count := ""
-	if dynamic {
-		count = scope.alloc("members")
-		initial := "0"
-		if tagged {
-			initial = "1"
-		}
-		b.WriteString(count + " := " + initial + "\n")
-	}
-	// dynamicKey writes the key with a comma when a member came before.
-	dynamicKey := func(key string) string {
-		return "if " + count + " == 0 {\n" + em.key(key, true, task, w) + "} else {\n" + em.key(key, false, task, w) + "}\n"
-	}
-	for i, f := range s.Fields {
 		ft, fv := f.Type, rec+"."+td.fieldName[f.Name]
 		key := check.WireFieldName(f)
 		if wit, ftc, ok := tc.paramField(ft); ok {
 			// The argument decides at run time: its witness's Field is
 			// set only for json.Optional.
 			b.WriteString("if " + wit + ".Field == nil || !" + wit + ".Field.Absent(" + fv + ") {\n")
-			b.WriteString(dynamicKey(key))
+			b.WriteString(em.key(key, task, w))
 			b.WriteString("if " + wit + ".Field != nil {\n" + ftc.wireEncodeWith(em, ft, env, w, fv) + "\n} else {\n" + tc.wireEncodeWith(em, ft, env, w, fv) + "\n}\n")
-			b.WriteString(count + "++\n}\n")
+			b.WriteString("}\n")
 			continue
 		}
 		optional := jsonWrapper(ft, "Optional")
@@ -182,15 +156,8 @@ func (l *lowerer) wireFields(em wireEvents, tc *typeCtx, b *strings.Builder, td 
 			fv = x + "." + l.typeDecl(present.(*check.Named).Obj, tc.site).fieldName[field.Name]
 			ft = field.Type
 		}
-		if dynamic {
-			b.WriteString(dynamicKey(key))
-		} else {
-			b.WriteString(em.key(key, i == 0 && !tagged, task, w))
-		}
+		b.WriteString(em.key(key, task, w))
 		b.WriteString(tc.wireEncodeWith(em, ft, env, w, fv) + "\n")
-		if dynamic {
-			b.WriteString(count + "++\n")
-		}
 		if optional {
 			b.WriteString("}\n")
 		}
