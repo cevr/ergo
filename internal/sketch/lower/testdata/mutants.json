@@ -2385,8 +2385,8 @@
       "name": "x1b-law-ignored",
       "origin": "wf10/explorer/x1b",
       "file": "internal/sketch/lower/tests.go",
-      "from": "\t\tb.WriteString(\"\\tif !\" + picked + \" || \" + pick + \" == \" + title + \" {\\n\")",
-      "to": "\t\tb.WriteString(\"\\tif true {\\n\")",
+      "from": "\t\tb.WriteString(\"\\tif (!\" + picked + \" || \" + pick + \" == \" + title + \") && \"",
+      "to": "\t\tb.WriteString(\"\\tif true && \"",
       "rule": "testRunner: --law NAME runs only the law of that title.",
       "killers": [
         "lower:TestMachineLawRuns"
@@ -3217,6 +3217,94 @@
       "rule": "The check-time evaluator agrees with native Go on runtime conversions. EV2 also runs the paired eval-model-shared-drift manually because a ledger edit changes only one file.",
       "killers": ["lower:TestEvalAgreesWithGo"],
       "anchor": {"tests": ["lower:TestEvalAgreesWithGo"]}
+    },
+    {
+      "name": "x8-want-ignores-run",
+      "origin": "wf10/explorer/x8",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "func $Want(name string) bool { return $Only == \"\" || $Only == name }",
+      "to": "func $Want(name string) bool { return true }",
+      "rule": "--run NAME runs that test or law alone; the explore leg fails when another verdict line appears.",
+      "killers": [
+        "examples:fetchpool",
+        "examples:jobq"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:fetchpool",
+          "examples:jobq"
+        ]
+      }
+    },
+    {
+      "name": "x8-want-runs-none",
+      "origin": "wf10/explorer/x8",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "func $Want(name string) bool { return $Only == \"\" || $Only == name }",
+      "to": "func $Want(name string) bool { return $Only == \"\" }",
+      "rule": "--run NAME runs NAME; the explore leg fails when the run printed no verdict of it.",
+      "killers": [
+        "examples:fetchpool",
+        "examples:jobq"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:fetchpool",
+          "examples:jobq"
+        ]
+      }
+    },
+    {
+      "name": "x8-seed-drops-run",
+      "origin": "wf10/explorer/x8",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t$Only, _ = $Flag(\"run\")\n",
+      "to": "\t_, _ = $Flag(\"run\")\n",
+      "rule": "The test binary reads --run NAME with --seed, in one parser.",
+      "killers": [
+        "examples:fetchpool",
+        "examples:jobq"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:fetchpool",
+          "examples:jobq"
+        ]
+      }
+    },
+    {
+      "name": "x8-cli-drops-run",
+      "origin": "wf10/explorer/x8",
+      "file": "cmd/ergo/test.go",
+      "from": "\t\tchildArgs = append(childArgs, \"--run\", opts.run)\n",
+      "to": "\t\t_ = opts.run\n",
+      "rule": "ergo test passes --run NAME to the test binary, plain or explored.",
+      "killers": [
+        "examples:fetchpool",
+        "examples:jobq"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:fetchpool",
+          "examples:jobq"
+        ]
+      }
+    },
+    {
+      "name": "x8-run-unknown-passes",
+      "origin": "wf10/explorer/x8",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tb.WriteString(\"\\t\\t\" + l.helper(\"os\") + \".Exit(2)\\n\\t}\\n\")",
+      "to": "\tb.WriteString(\"\\t}\\n\")",
+      "rule": "--run of a name the build has no test or law of is a usage error (exit 2) that runs nothing.",
+      "killers": [
+        "lower:TestPropertySeed"
+      ],
+      "anchor": {
+        "tests": [
+          "lower:TestPropertySeed"
+        ]
+      }
     }
   ]
 }

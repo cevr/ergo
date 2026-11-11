@@ -1,0 +1,13 @@
+{
+  "about": "jobq's application mutants; each is judged by the example's tests, laws and explore leg (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "x8-jobq-len-then-pop", "origin": "wf10/explorer/x8 (explored schedules)",
+      "file": "examples/jobq/pool/pool.ergo",
+      "from": "\tfor j in js.Values() {\n",
+      "to": "\tfor {\n\t\tif js.Len() == 0 {\n\t\t\treturn\n\t\t}\n\t\tlet j = try js.Pop()\n",
+      "rule": "A worker takes the next job in one step: a check of Len and a later Pop race with the other worker, which may take the last job between them.",
+      "anchor": {"tests": ["examples:jobq"]}, "killers": ["examples:jobq"]
+    }
+  ]
+}

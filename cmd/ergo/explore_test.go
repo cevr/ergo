@@ -57,9 +57,28 @@ test Second {
 		run.Outcome = sched.Outcome{Failure: "1 of 2 tests failed", Value: out}
 
 		l := loaded{snapshot: report.SourceSnapshot{Text: src}}
-		text, ok := replayTest(l, run)
+		text, ok := replayTest(l, run, "")
 		if !ok {
 			t.Fatalf("offset %d: no test printed", off)
+		}
+		// Under --run Second the binary runs Second alone: a run that
+		// stopped before any verdict line is Second's, not the first
+		// test's of the file.
+		stopped := run
+		stopped.Outcome = sched.Outcome{Stopped: "deadlock"}
+		stopped.Choices = slices.Clone(run.Choices)
+		for i := range stopped.Choices {
+			stopped.Choices[i].Out = 0
+		}
+		if alone, ok := replayTest(l, stopped, "Second"); !ok || !strings.Contains(alone, "test SecondSchedule") {
+			t.Fatalf("offset %d: under --run Second a stopped run prints %q", off, alone)
+		}
+		// Its replay command selects Second too, and quotes the token,
+		// whose stars a shell would expand.
+		var report strings.Builder
+		exploreFailure(&report, l, stopped, "dfs", "Second", "")
+		if want := " --run Second --schedule '" + sched.Token(stopped.Schedule()) + "'\n"; !strings.Contains(report.String(), want) {
+			t.Fatalf("offset %d: the replay command lacks %q:\n%s", off, want, report.String())
 		}
 		a := sketchfront.Check("import explore\n" + src + text)
 		for _, d := range a.Diagnostics {

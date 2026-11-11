@@ -14,12 +14,15 @@ import (
 )
 
 // testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
-// [--law NAME] [--skip-law NAME] [--receipt FILE]
+// [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE]
 // [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]]
 // [--schedule TOKEN] [-work] [--target go]`. --states is the
 // budget of states of each reachability law's search (machine laws;
 // 1,000,000 by default). --law runs only the law NAME and no test;
-// --skip-law runs all but that law, with a skip line. --explore links the same test
+// --skip-law runs all but that law, with a skip line. --run runs the one
+// test or law of that name (a law by the title its report prints), plain,
+// explored or replayed; a name the package does not have is a usage error
+// of the test binary (exit 2). --explore links the same test
 // module with the ergoexplore tag, so its tasks run on one baton under the
 // cooperative schedule, and a deadlock is a defect that names the tasks
 // (runtime.md, Explored schedules). With a mode, the tests run under many
@@ -112,6 +115,11 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 	if opts.skipLaw != "" {
 		childArgs = append(childArgs, "--skip-law", opts.skipLaw)
 	}
+	if opts.run != "" {
+		// The test binary selects the one test or law (lower's $Seed and
+		// $Want), plain or explored: one name, one reading of it.
+		childArgs = append(childArgs, "--run", opts.run)
+	}
 	// The test binary runs under a memory limit, 2 GiB unless
 	// ERGO_PROGRAM_MEMORY sets another, and its stderr passes through a
 	// watcher, so a test that grows without bound stops early and `ergo`
@@ -127,7 +135,7 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		if opts.seed != "" {
 			seed, _ = strconv.ParseUint(opts.seed, 10, 64)
 		}
-		return exploreSearch(os.Stdout, l, binary, childArgs, opts.search, seed, limit)
+		return exploreSearch(os.Stdout, l, binary, childArgs, opts.search, opts.run, seed, limit)
 	}
 	child := testProgramCommand(binary, childArgs, limit)
 	return runEntryProcess(child, limit, proclimit.Watch(child))

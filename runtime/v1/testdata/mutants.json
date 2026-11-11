@@ -402,6 +402,77 @@
       "killers": [
         "v1:TestChildLawsReadEvents"
       ]
+    },
+    {
+      "name": "x8-name-unregistered",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/queue.go",
+      "from": "\t\tnameHandle([]string{\"queue.New\"}, \"\", q)\n",
+      "to": "\t\t_ = q\n",
+      "rule": "queue.New names its queue in an explored run.",
+      "killers": [
+        "v1:TestHandlesNamedBySource"
+      ]
+    },
+    {
+      "name": "x8-name-any-frame",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/explore_on.go",
+      "from": "\t\tif files[f.File] {\n",
+      "to": "\t\tif true {\n",
+      "rule": "A handle's name is the nearest frame at a position of the program's source, not a runtime frame.",
+      "killers": [
+        "v1:TestHandlesNamedBySource"
+      ]
+    },
+    {
+      "name": "x8-name-first-call",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/explore_on.go",
+      "from": "if wanted(calls[i].Callee) || len(on) == 1 {",
+      "to": "if true {",
+      "rule": "Among the calls on the frame's line, the name is the constructor's call, with its column.",
+      "killers": [
+        "v1:TestHandlesNamedBySource"
+      ]
+    },
+    {
+      "name": "x8-name-base-only",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/explore_on.go",
+      "from": "\t\t\t\tfile = filepath.ToSlash(rel)\n",
+      "to": "\t\t\t\t_ = rel\n",
+      "rule": "The file is named relative to the folder of the program's files (its package path), not by its base name.",
+      "killers": [
+        "v1:TestHandlesNamedBySource"
+      ]
+    },
+    {
+      "name": "x8-names-not-sent",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/explore_on.go",
+      "from": "Failure: exploreDefect(res), Handles: res.Handles}",
+      "to": "Failure: exploreDefect(res)}",
+      "rule": "A worker's outcome carries the run's handle names to the search.",
+      "killers": [
+        "v1:TestHandlesNamedBySource"
+      ]
+    },
+    {
+      "name": "x8-set-spawning-unseen",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/v1/set.go",
+      "from": "\t\trt.Await(nil, func() bool { return !set.spawning.Load() })\n",
+      "to": "\t\t_ = set.spawning.Load()\n",
+      "rule": "In an explored run a Set member's end waits for the owner's spawn through the scheduler, not on the Set's lock with the baton held (else the run hangs).",
+      "killers": [
+        "examples:fetchpool"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:fetchpool"
+        ]
+      }
     }
   ]
 }

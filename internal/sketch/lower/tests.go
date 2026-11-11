@@ -110,7 +110,7 @@ var testHelpers = []struct{ key, base string }{
 	{"GenIn", "ergoGenIn"}, {"GenStrLen", "ergoGenStrLen"}, {"GenSliceLen", "ergoGenSliceLen"},
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
-	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
+	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"}, {"Only", "ergoOnly"}, {"Want", "ergoWant"},
 	{"Try", "ergoTry"}, {"Prop", "ergoProp"}, {"Receipt", "ergoReceipt"},
 	{"Record", "ergoRecord"}, {"RecordSearch", "ergoRecordSearch"}, {"WriteReceipt", "ergoWriteReceipt"}, {"JSON", "ergoJSON"},
 	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"Explore", "ergoExplore"}, {"Signals", "ergoSignals"}, {"Block", "ergoBlock"},
@@ -702,15 +702,43 @@ func (l *lowerer) testRunnerHead(env, seed string) string {
 	return "func " + l.helper("Tests") + "(" + env + " *" + l.env() + ", " + seed + " uint64) error {\n"
 }
 
-// testRunner is the Go function that runs every test in source order.
+// testRunner is the Go function that runs every test in source order, or
+// the one test or law that --run names ($Seed reads it, $Want selects): a
+// test by its name, a law by the title its report prints (Name, Type.Name,
+// with another package's name before it), every run of that law. A name
+// that no test or law of the build has is a usage error (exit 2) that runs
+// nothing. The summary counts the runs that ran.
 func (l *lowerer) testRunner() string {
 	scope := newNamer(l.names)
 	env, seed, failed, total := scope.alloc("env"), scope.alloc("seed"), scope.alloc("failed"), scope.alloc("total")
-	fmtPkg, run := l.helper("fmt"), l.helper("Case")
+	fmtPkg, want := l.helper("fmt"), l.helper("Want")
 	var b strings.Builder
 	b.WriteString("// " + l.helper("Tests") + " runs every test in source order (196l).\n")
 	b.WriteString(l.testRunnerHead(env, seed))
 	tests := l.runTests()
+	// --run NAME (X8) selects one test or law by name ($Want); a name that
+	// no test or law of the build has is a usage error that runs nothing.
+	var names []string
+	named := map[string]bool{}
+	for _, t := range tests {
+		if !named[t.Name] {
+			named[t.Name] = true
+			names = append(names, t.Name)
+		}
+	}
+	for _, r := range l.runLaws() {
+		if title := l.lawTitle(r.Law); !named[title] {
+			named[title] = true
+			names = append(names, title)
+		}
+	}
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = strconv.Quote(n)
+	}
+	b.WriteString("\tswitch " + l.helper("Only") + " {\n\tcase " + strings.Join(append([]string{`""`}, quoted...), ", ") + ":\n\tdefault:\n")
+	b.WriteString("\t\t" + fmtPkg + ".Fprintln(" + l.helper("os") + ".Stderr, " + strconv.Quote("usage: --run NAME: no test or law is named ") + " + " + l.helper("strconv") + ".Quote(" + l.helper("Only") + ") + " + strconv.Quote("; the names: "+strings.Join(names, ", ")) + ")\n")
+	b.WriteString("\t\t" + l.helper("os") + ".Exit(2)\n\t}\n")
 	// --law NAME runs only the law of that title (lawTitle), and no test;
 	// --skip-law NAME runs every test and law but that one, and prints its
 	// skip line. The total and the skips count what runs.
@@ -721,8 +749,50 @@ func (l *lowerer) testRunner() string {
 	b.WriteString("\t" + failed + ", " + total + ", " + skips + ", " + matched + " := 0, 0, 0, false\n")
 	b.WriteString("\t_ = " + skip + "\n")
 	b.WriteString("\tif !" + picked + " {\n")
-	b.WriteString("\t" + total + " += " + strconv.Itoa(len(tests)) + "\n")
 	for _, t := range tests {
+		b.WriteString("\tif " + want + "(" + strconv.Quote(t.Name) + ") {\n\t" + total + "++\n")
+		l.testRun(&b, t, scope, env, seed, failed)
+		b.WriteString("\t}\n")
+	}
+	b.WriteString("\t}\n")
+	for _, law := range l.runLaws() {
+		title := strconv.Quote(l.lawTitle(law.Law))
+		runs, skipped := lawCounts(law)
+		b.WriteString("\tif (!" + picked + " || " + pick + " == " + title + ") && " + want + "(" + title + ") {\n")
+		b.WriteString("\t" + matched + " = true\n")
+		b.WriteString("\tif " + skip + " == " + title + " {\n")
+		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+l.lawTitle(law.Law)+": --skip-law") + ")\n")
+		b.WriteString("\t" + skips + "++\n")
+		b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote("law "+l.lawTitle(law.Law)) + ", nil, \"--skip-law\")\n")
+		b.WriteString("\t} else {\n")
+		b.WriteString("\t" + total + ", " + skips + " = " + total + " + " + strconv.Itoa(runs) + ", " + skips + " + " + strconv.Itoa(skipped) + "\n")
+		l.lawRuns(&b, law, scope, env, seed, failed)
+		b.WriteString("\t}\n\t}\n")
+	}
+	werr := scope.alloc("err")
+	b.WriteString("\tif " + werr + " := " + l.helper("WriteReceipt") + "(" + seed + "); " + werr + " != nil {\n\t\treturn " + werr + "\n\t}\n")
+	// A skip is never silent (fs4): each prints its skip line, and the
+	// summary counts them.
+	conv, shown := l.helper("strconv"), scope.alloc("shown")
+	b.WriteString("\tif " + picked + " && !" + matched + " {\n")
+	b.WriteString("\t\t" + fmtPkg + ".Println(\"FAIL no law \" + " + pick + " + \" in this package (--law)\")\n")
+	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"no law %s\", " + pick + ")\n\t}\n")
+	b.WriteString("\t" + shown + " := \"\"\n")
+	b.WriteString("\tif " + skips + " > 0 {\n\t\t" + shown + " = \", \" + " + conv + ".Itoa(" + skips + ") + \" skipped\"\n\t}\n")
+	b.WriteString("\tif " + failed + " > 0 {\n")
+	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %d tests%s)\\n\", " + failed + ", " + total + ", " + shown + ")\n")
+	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"%d of %d tests failed\", " + failed + ", " + total + ")\n\t}\n")
+	b.WriteString("\t" + fmtPkg + ".Printf(\"PASS (%d tests%s)\\n\", " + total + ", " + shown + ")\n")
+	b.WriteString("\treturn nil\n}\n\n")
+	return b.String()
+}
+
+// testRun writes the run of one test into the runner b: an example test
+// once, a property over every listed value or over testCases generated
+// cases.
+func (l *lowerer) testRun(b *strings.Builder, t *check.Test, scope *namer, env, seed, failed string) {
+	fmtPkg, run := l.helper("fmt"), l.helper("Case")
+	{
 		// The case runner takes the test's name, and its declaration's
 		// site, which a typed failure that escapes the body names.
 		name := strconv.Quote(t.Name) + ", " + strconv.Quote(l.siteText(t.Decl))
@@ -730,13 +800,13 @@ func (l *lowerer) testRunner() string {
 			b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + name + ", nil, func() error { return " + l.testFunc(t) + "(" + env + ") }) {\n")
 			b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+t.Name) + ")\n")
 			b.WriteString("\t} else {\n\t\t" + failed + "++\n\t}\n")
-			continue
+			return
 		}
 		// A property follows the rule of laws (Listed laws): when its
 		// parameters can all be listed, it takes each value once and is
 		// proved; else it draws testCases generated cases.
-		if l.listedTest(&b, t, scope, env, failed) {
-			continue
+		if l.listedTest(b, t, scope, env, failed) {
+			return
 		}
 		inner := newNamer(scope)
 		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
@@ -774,37 +844,6 @@ func (l *lowerer) testRunner() string {
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", t.Name, testCases)) + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
 	}
-	b.WriteString("\t}\n")
-	for _, law := range l.runLaws() {
-		title := strconv.Quote(l.lawTitle(law.Law))
-		runs, skipped := lawCounts(law)
-		b.WriteString("\tif !" + picked + " || " + pick + " == " + title + " {\n")
-		b.WriteString("\t" + matched + " = true\n")
-		b.WriteString("\tif " + skip + " == " + title + " {\n")
-		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+l.lawTitle(law.Law)+": --skip-law") + ")\n")
-		b.WriteString("\t" + skips + "++\n")
-		b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote("law "+l.lawTitle(law.Law)) + ", nil, \"--skip-law\")\n")
-		b.WriteString("\t} else {\n")
-		b.WriteString("\t" + total + ", " + skips + " = " + total + " + " + strconv.Itoa(runs) + ", " + skips + " + " + strconv.Itoa(skipped) + "\n")
-		l.lawRuns(&b, law, scope, env, seed, failed)
-		b.WriteString("\t}\n\t}\n")
-	}
-	werr := scope.alloc("err")
-	b.WriteString("\tif " + werr + " := " + l.helper("WriteReceipt") + "(" + seed + "); " + werr + " != nil {\n\t\treturn " + werr + "\n\t}\n")
-	// A skip is never silent (fs4): each prints its skip line, and the
-	// summary counts them.
-	conv, shown := l.helper("strconv"), scope.alloc("shown")
-	b.WriteString("\tif " + picked + " && !" + matched + " {\n")
-	b.WriteString("\t\t" + fmtPkg + ".Println(\"FAIL no law \" + " + pick + " + \" in this package (--law)\")\n")
-	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"no law %s\", " + pick + ")\n\t}\n")
-	b.WriteString("\t" + shown + " := \"\"\n")
-	b.WriteString("\tif " + skips + " > 0 {\n\t\t" + shown + " = \", \" + " + conv + ".Itoa(" + skips + ") + \" skipped\"\n\t}\n")
-	b.WriteString("\tif " + failed + " > 0 {\n")
-	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %d tests%s)\\n\", " + failed + ", " + total + ", " + shown + ")\n")
-	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"%d of %d tests failed\", " + failed + ", " + total + ")\n\t}\n")
-	b.WriteString("\t" + fmtPkg + ".Printf(\"PASS (%d tests%s)\\n\", " + total + ", " + shown + ")\n")
-	b.WriteString("\treturn nil\n}\n\n")
-	return b.String()
 }
 
 // lawSlotParam reports whether the law's parameter i is a slot, an
@@ -1556,20 +1595,27 @@ func $LitEntries[K comparable, V any](typ string, m map[K]V, key func(K) string,
 	return typ + "{" + $strings.Join(parts, ", ") + "}"
 }
 
+// $Only is the one test or law that --run NAME selects; "" runs every one.
+var $Only string
+
+// $Want reports whether the test or law name runs: every one runs when
+// --run names none.
+func $Want(name string) bool { return $Only == "" || $Only == name }
+
 // $Flag is the value of the test binary's flag --name, given as --name V
 // or --name=V, and whether it is given; given twice, the last value
-// counts. The flags are --seed, --states, --law, --skip-law, --source,
-// --receipt and --revision; any other argument, or a flag with no value,
-// is a usage error (exit 2).
+// counts. The flags are --seed, --states, --law, --skip-law, --run,
+// --source, --receipt and --revision; any other argument, or a flag with
+// no value, is a usage error (exit 2).
 func $Flag(name string) (string, bool) {
 	value, given := "", false
 	args := $os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		key, v, joined := $strings.Cut(args[i], "=")
 		switch key {
-		case "--seed", "--states", "--law", "--skip-law", "--source", "--receipt", "--revision":
+		case "--seed", "--states", "--law", "--skip-law", "--run", "--source", "--receipt", "--revision":
 		default:
-			$fmt.Fprintln($os.Stderr, "usage: [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--source PATH] [--receipt FILE] [--revision R], not "+args[i])
+			$fmt.Fprintln($os.Stderr, "usage: [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--source PATH] [--receipt FILE] [--revision R], not "+args[i])
 			$os.Exit(2)
 		}
 		if !joined {
@@ -1589,8 +1635,9 @@ func $Flag(name string) (string, bool) {
 
 // $Seed reads --seed N, N a decimal uint64, the seed of every property;
 // 1 by default. --receipt FILE, --source PATH and --revision R fill
-// $Receipt (L10).
+// $Receipt (L10); --run NAME fills $Only (X8).
 func $Seed() uint64 {
+	$Only, _ = $Flag("run")
 	$Receipt.path, _ = $Flag("receipt")
 	$Receipt.source, _ = $Flag("source")
 	$Receipt.revision, _ = $Flag("revision")

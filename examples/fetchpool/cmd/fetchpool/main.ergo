@@ -29,6 +29,22 @@ func main() needs Console {
 	}
 }
 
+// Two workers share an admission budget of two. In every order of their
+// steps the limiter admits exactly two downloads, the unread tail is
+// released, and every connection closes once. The explored file has the
+// explore leg search this test's schedules, so a race between the two
+// workers' admissions is a failing schedule, not a rare flake.
+test TwoWorkersShareTheBudget {
+	let log = sync.NewRef[[]string]([]string{})
+	let out = try execute([]int{0, 1, 3}, 2, 2, log)
+	assert len(out) == 2
+	assert domain.Render(out[0]) == "done 0: data-0"
+	assert domain.Render(out[1]) == "done 1: data-1"
+	let lines = log.Get()
+	assert len(lines) == 4
+	assert lines[3] == "limit closed"
+}
+
 // The generated domain is deliberately small, so every connection is
 // observed after all tasks and the queue have ended, without a clock.
 test EveryConnectionClosesOnce(seed int) {

@@ -22,6 +22,7 @@ A program folder holds:
 - `cases/`: one folder per case, at least one.
 - `origin` and `record.sh`, both or neither: a port names its original program in `origin`, and `record.sh` runs that original (see "Record leg").
 - `expected-skips`, optional: the `skip law …` lines that the program's `ergo test` may print, one per line exactly as printed, with `#` lines for the reason. The test leg fails on any other skip line (fs4).
+- `explored`, optional: the tests and laws whose schedules the explore leg searches, one per line, `PACKAGE NAME --explore dfs|pct|random [FLAG...]` (`PACKAGE` is the package folder relative to the program, `.` for a program of one folder), with `#` lines for the reason. The leg runs `ergo test PACKAGE --run NAME --explore …` ([stdlib](../docs/spec/stdlib.md#explored-schedules)); it fails when the search finds a failing schedule or when the run did not run NAME alone, and then it runs the replay command the failure printed and says whether the schedule replays to the same failure. A race an ordinary run meets only rarely is a failing schedule here.
 - `testdata/`, if the program reads fixture files.
 
 A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in place of `main.ergo`:
@@ -30,7 +31,7 @@ A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in p
 - `cmd/<program>/main.ergo`: the binary's package, named after the program folder. `cmd/` holds nothing else. The runner builds it with `ergo build <dir>/cmd/<program> -o <temp>/<program>`.
 - package folders: any other folder except `cases/` and `testdata/`. A package folder holds `.ergo` files and package folders only.
 - top-level `.ergo` files, if any: the module root's package.
-- `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh`, `expected-skips` and `testdata/`, as above.
+- `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh`, `expected-skips`, `explored` and `testdata/`, as above.
 
 `ergo fmt --check` checks every `.ergo` file of its packages, and the test leg runs `ergo test <package folder>` for every package folder, printing `ok <program>: test <folder>`. A package's test build runs the laws of every operation type it sees against every provider it sees, wherever each is declared, in the least package that sees them all (law-xpkg): the laws `kv.Store` declares run in package `memory` against `memory.Table`, and the std `fs.Writes` laws run there against `memory.Full`. A provider is built by its `New<P>` constructor when its package declares one, else generated.
 

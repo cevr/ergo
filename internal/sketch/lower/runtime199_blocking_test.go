@@ -42,7 +42,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"flatRun.runText":         "the flat machine run's task, read once for its per-signal interruption point (Check; MU8)",
 			"funcCtx.envClosure":      "a task callback's Env copy",
 			"funcCtx.goContext":       "rt.GoContext, the task as the hidden context.Context of a Go call; it neither waits nor releases (IG10)",
-			"lowerer.testRunner":      "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
+			"lowerer.testRun":         "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 			"lowerer.lawRuns":         "a law case's task, which the case's Capture classifies its unwinding against (#162)",
 			"lowerer.listedRun":       "a listed law or property case's task, which the case's Capture classifies its unwinding against (MU6b, mu6c)",
 			"lowerer.reachRuns":       "a reachability law's task, which its case's Capture classifies its unwinding against (MU6)",

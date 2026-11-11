@@ -31,10 +31,20 @@ type Step struct {
 }
 
 // String is the step in words: "task 0.1: push on #2".
-func (s Step) String() string {
+func (s Step) String() string { return s.Named(nil) }
+
+// Named is the step in words with the handle's name from names when it
+// has one: "task 0.1: push on queue.New at main.ergo:12:10".
+func (s Step) Named(names map[int]string) string {
 	out := "task " + s.Task + ": " + s.Kind
 	if s.Handle != 0 {
-		out += " on #" + strconv.Itoa(s.Handle)
+		if name, ok := names[s.Handle]; ok {
+			if name != "task "+s.Task { // a task's own start, spawn or end
+				out += " on " + name
+			}
+		} else {
+			out += " on #" + strconv.Itoa(s.Handle)
+		}
 	}
 	return out
 }
@@ -75,6 +85,10 @@ type Outcome struct {
 	// Abandoned reports a run that left a task that had not ended (a
 	// stop, a deadlock, an escape): its worker is not reused.
 	Abandoned bool `json:"abandoned,omitempty"`
+	// Handles names the run's handle numbers as the program calls them
+	// (a task's spawn path, the Ergo call that made a queue, a Ref or an
+	// actor, at its source position); Words prints a name for a number.
+	Handles map[int]string `json:"handles,omitempty"`
 }
 
 // Executor runs one schedule, asking p at each scheduling point.

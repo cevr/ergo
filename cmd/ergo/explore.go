@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -87,8 +88,10 @@ func parseExploreFlag(o *exploreOptions, args []string, i int) (int, error) {
 // exploreSearch runs the search of opts over the explored test binary and
 // writes its report on w: the output of the first schedule, then one
 // verdict line; on a failure, the schedule in words, the failing test as
-// an Ergo test that replays it, and the command that replays it.
-func exploreSearch(w io.Writer, l loaded, binary string, childArgs []string, opts exploreOptions, seed uint64, limit uint64) error {
+// an Ergo test that replays it, and the command that replays it. run is
+// --run's name: the binary runs that test or law alone, and the replay
+// command names it too.
+func exploreSearch(w io.Writer, l loaded, binary string, childArgs []string, opts exploreOptions, run string, seed uint64, limit uint64) error {
 	dir := filepath.Dir(binary)
 	out, err := os.OpenFile(filepath.Join(dir, "explore.out"), os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
 	if err != nil {
@@ -155,7 +158,7 @@ func exploreSearch(w io.Writer, l loaded, binary string, childArgs []string, opt
 		fmt.Fprintf(w, "ok explore %s: %s (%s)\n", opts.mode, verdict, counters)
 		return nil
 	}
-	exploreFailure(w, l, *rep.Failure, opts.mode, counters)
+	exploreFailure(w, l, *rep.Failure, opts.mode, run, counters)
 	return exitStatusError{code: 1, handled: true}
 }
 
@@ -181,7 +184,7 @@ func (x *outputExec) Run(p sched.Picker) sched.Outcome {
 // exploreFailure writes a failing run: its verdict, its steps in words,
 // the failing test as an Ergo test that replays it when one can be found,
 // and the command that replays it.
-func exploreFailure(w io.Writer, l loaded, r sched.Run, mode, counters string) {
+func exploreFailure(w io.Writer, l loaded, r sched.Run, mode, run, counters string) {
 	why := r.Outcome.Failure
 	if r.Diverged != "" {
 		why = "the test is not deterministic under the scheduler: " + r.Diverged
@@ -198,34 +201,87 @@ func exploreFailure(w io.Writer, l loaded, r sched.Run, mode, counters string) {
 			fmt.Fprintln(w, "\t\t"+line)
 		}
 	}
-	if text, ok := replayTest(l, r); ok {
+	if text, ok := replayTest(l, r, run); ok {
 		fmt.Fprintln(w)
 		fmt.Fprint(w, text)
 		fmt.Fprintln(w)
 	}
-	fmt.Fprintf(w, "replay: ergo test %s --schedule %s\n", l.source.String(), sched.Token(r.Schedule()))
+	selected := ""
+	if run != "" {
+		selected = " --run " + run
+	}
+	// The token is quoted: its stars are glob characters to a shell.
+	fmt.Fprintf(w, "replay: ergo test %s%s --schedule '%s'\n", l.source.String(), selected, sched.Token(r.Schedule()))
+}
+
+// testSource is a test declaration and the source text it is in.
+type testSource struct {
+	decl *syntax.TestDecl
+	text string
+}
+
+// sourceTests are the test declarations of l's package: of its one file,
+// or of each file of its folder (not of the packages it imports), in the
+// order of their paths.
+func sourceTests(l loaded) []testSource {
+	texts := []string{l.snapshot.Text}
+	if l.snapshot.Text == "" {
+		// A folder's files are named relative to the module root: the
+		// package's are those whose folder ends the admitted path, or
+		// lie at the root when the admitted folder is the root.
+		dir := mustAbs(l.source.Admitted())
+		_, err := os.Stat(filepath.Join(dir, "ergo.mod"))
+		atRoot := err == nil
+		var paths []string
+		for p := range l.snapshot.Files {
+			if !strings.HasSuffix(p, sourceExtension) {
+				continue
+			}
+			sub := filepath.Dir(filepath.FromSlash(p))
+			if (sub == "." && atRoot) || (sub != "." && strings.HasSuffix(dir, string(filepath.Separator)+sub)) {
+				paths = append(paths, p)
+			}
+		}
+		slices.Sort(paths)
+		texts = nil
+		for _, p := range paths {
+			texts = append(texts, l.snapshot.Files[p])
+		}
+	}
+	var out []testSource
+	for _, text := range texts {
+		file, err := syntax.Parse(text)
+		if err != nil {
+			continue
+		}
+		for _, d := range file.Decls {
+			if t, ok := d.(*syntax.TestDecl); ok {
+				out = append(out, testSource{t, text})
+			}
+		}
+	}
+	return out
+}
+
+// mustAbs is path made absolute, or path when it cannot be.
+func mustAbs(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
 }
 
 // replayTest is the failing test of r as an Ergo test that starts with
 // explore.Replay and its window of the schedule. The failing test is the
-// one whose verdict line is the run's first FAIL line, or the one that was
-// running when the run stopped; its window is the picks after the verdict
-// line before it. A law, a property or a test of a package folder has no
-// such text.
-func replayTest(l loaded, r sched.Run) (string, bool) {
-	text := l.snapshot.Text
-	if text == "" {
-		return "", false
-	}
-	file, err := syntax.Parse(text)
-	if err != nil {
-		return "", false
-	}
-	var tests []*syntax.TestDecl
-	for _, d := range file.Decls {
-		if t, ok := d.(*syntax.TestDecl); ok {
-			tests = append(tests, t)
-		}
+// one --run names (run), else the one whose verdict line is the run's
+// first FAIL line, or the one that was running when the run stopped; its
+// window is the picks after the verdict line before it. A law or a
+// property has no such text.
+func replayTest(l loaded, r sched.Run, run string) (string, bool) {
+	sources := sourceTests(l)
+	tests := make([]*syntax.TestDecl, len(sources))
+	for i, s := range sources {
+		tests[i] = s.decl
 	}
 	out := r.Outcome.Value
 	start, end, index := int64(0), int64(len(out)), 0
@@ -246,19 +302,24 @@ func replayTest(l loaded, r sched.Run) (string, bool) {
 		}
 		at = next
 	}
-	var decl *syntax.TestDecl
+	if run != "" {
+		failing = run
+	}
+	k := -1
 	if failing != "" {
-		for _, t := range tests {
+		for i, t := range tests {
 			if t.Name.Name == failing {
-				decl = t
+				k = i
 			}
 		}
-	} else if index < len(tests) {
-		decl = tests[index]
+	} else if index < len(tests) && len(l.snapshot.Files) == 0 {
+		// Only one file's source order is the runner's order.
+		k = index
 	}
-	if decl == nil || (decl.Params != nil && len(decl.Params.List) > 0) {
+	if k < 0 || (tests[k].Params != nil && len(tests[k].Params.List) > 0) {
 		return "", false
 	}
+	decl, text := tests[k], sources[k].text
 	var seen, window []string
 	for i, c := range r.Choices {
 		switch {

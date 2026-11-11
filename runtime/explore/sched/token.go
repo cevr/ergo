@@ -68,17 +68,18 @@ func validPath(p string) bool {
 	return true
 }
 
-// Words is the run in words, one line per pick: "step 3: task 0.1: push
-// on #2", then the run's end.
+// Words is the run in words, one line per pick, each handle by its name
+// when the run gave it one (Outcome.Handles): "step 3: task 0.1: push on
+// queue.New at main.ergo:12:10", then the run's end.
 func Words(r Run) []string {
 	var out []string
 	for i, s := range r.Steps() {
-		out = append(out, fmt.Sprintf("step %d: %s", i, s))
+		out = append(out, fmt.Sprintf("step %d: %s", i, s.Named(r.Outcome.Handles)))
 	}
 	if len(r.Outcome.Deadlock) > 0 {
 		var w []string
 		for _, s := range r.Outcome.Deadlock {
-			w = append(w, s.String())
+			w = append(w, s.Named(r.Outcome.Handles))
 		}
 		out = append(out, "then no task can run: "+strings.Join(w, "; "))
 	}

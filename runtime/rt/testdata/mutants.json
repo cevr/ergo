@@ -135,6 +135,17 @@
       "to": "if false && len(t.Tags) > 0 {",
       "rule": "Explored schedules: --explore links the tagged runtime",
       "killers": ["build:TestCacheInputs"]
+    },
+    {
+      "name": "x8-name-no-count",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/rt/sched_explore.go",
+      "from": "\t\tname += \" (\" + strconv.Itoa(k) + \")\"\n",
+      "to": "\t\t_ = k\n",
+      "rule": "The k-th handle of one name in a run is named \"name (k)\".",
+      "killers": [
+        "v1:TestHandlesNamedBySource"
+      ]
     }
   ]
 }

@@ -74,7 +74,13 @@ const refPoisoned = "sync.Ref is poisoned: a defect in an earlier Update or Modi
 
 // NewRef is sync.NewRef: a new cell that holds v. v may be reached from
 // outside the cell, so it is shared.
-func NewRef[T any](v T) *Ref[T] { return &Ref[T]{v: v, shared: true} }
+func NewRef[T any](v T) *Ref[T] {
+	r := &Ref[T]{v: v, shared: true}
+	if rt.Exploring {
+		nameHandle([]string{"sync.NewRef"}, "", r)
+	}
+	return r
+}
 
 // Get is the value r holds. The caller keeps it, so the cell marks it
 // shared: the next owned Update or Modify copies it first. A copy of a T

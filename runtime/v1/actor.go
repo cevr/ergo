@@ -449,6 +449,10 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 	}
 	holder := rt.NewScope(t)
 	a.inbox.init(capacity, actorReference)
+	if rt.Exploring {
+		nameHandle([]string{"actor.", "machines."}, "", a)
+		nameHandle([]string{"actor.", "machines."}, "the inbox of ", &a.inbox)
+	}
 	a.ready.Add(1)
 	if report != nil {
 		// A child: t's interruption does not reach it; its owner entry

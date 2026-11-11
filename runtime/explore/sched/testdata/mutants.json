@@ -144,6 +144,50 @@
       "killers": [
         "main:TestReplayTestChecks"
       ]
+    },
+    {
+      "name": "x8-replay-drops-run",
+      "origin": "wf10/explorer/x8",
+      "file": "cmd/ergo/explore.go",
+      "from": "\t\tselected = \" --run \" + run\n",
+      "to": "\t\tselected = \"\"\n",
+      "rule": "The replay command of a failure under --run NAME keeps --run NAME.",
+      "killers": [
+        "main:TestReplayTestChecks"
+      ]
+    },
+    {
+      "name": "x8-replay-token-unquoted",
+      "origin": "wf10/explorer/x8",
+      "file": "cmd/ergo/explore.go",
+      "from": "--schedule '%s'\\n\"",
+      "to": "--schedule %s\\n\"",
+      "rule": "The replay command quotes the schedule token: its stars are glob characters to a shell.",
+      "killers": [
+        "main:TestReplayTestChecks"
+      ]
+    },
+    {
+      "name": "x8-replay-test-ignores-run",
+      "origin": "wf10/explorer/x8",
+      "file": "cmd/ergo/explore.go",
+      "from": "\tif run != \"\" {\n\t\tfailing = run\n\t}\n",
+      "to": "\n",
+      "rule": "Under --run NAME the printed failing test is NAME, even when the run stopped before any verdict line.",
+      "killers": [
+        "main:TestReplayTestChecks"
+      ]
+    },
+    {
+      "name": "x8-words-ignore-names",
+      "origin": "wf10/explorer/x8",
+      "file": "runtime/explore/sched/sched.go",
+      "from": "\t\tif name, ok := names[s.Handle]; ok {\n",
+      "to": "\t\tif name, ok := names[s.Handle]; ok && false {\n",
+      "rule": "Words print a handle by the name the run gave it.",
+      "killers": [
+        "v1:TestHandlesNamedBySource"
+      ]
     }
   ]
 }

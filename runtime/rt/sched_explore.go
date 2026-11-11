@@ -87,6 +87,12 @@ type Result struct {
 	// ran without the baton, or a wait that ended with no wake the clock
 	// saw. A run with an escape does not replay.
 	Escape string
+	// Handles names each handle number the run met by what the program
+	// calls it: a task by its spawn path ("task 0.1"), a queue, a Ref or
+	// an actor by the Ergo call that made it and its source position
+	// (NameHandle). A number with no name is a handle the runtime made
+	// for itself (a scope, a wake's source).
+	Handles map[int]string
 }
 
 // Schedule is the list of picked tasks, the replay's input.
@@ -124,6 +130,8 @@ type explorer struct {
 	order    []*xtask // in the order they were started
 	running  *xtask
 	handles  map[any]int
+	names    map[any]string // NameHandle's names
+	sites    map[string]int // how many handles each name was given to
 	res      Result
 	free     bool // the run is over or stopped: every hook passes
 	over     chan struct{}
@@ -179,8 +187,50 @@ func ExploreTraced(start time.Time, s Strategy, tr Tracer, body func(*Task) erro
 	active.CompareAndSwap(e, nil)
 	v.mu.Lock()
 	res := e.res
+	res.Handles = e.handleNames()
 	v.mu.Unlock()
 	return res
+}
+
+// handleNames is Result.Handles. v.mu is held.
+func (e *explorer) handleNames() map[int]string {
+	out := map[int]string{}
+	for on, n := range e.handles {
+		if name, ok := e.names[on]; ok {
+			out[n] = name
+		} else if t, ok := on.(*Task); ok && e.tasks[t] != nil {
+			out[n] = "task " + e.tasks[t].path
+		}
+	}
+	return out
+}
+
+// NameHandle gives on, a handle the program just made, its name in the
+// report of the active explored run: name is the Ergo call that made it
+// at its source position. The k-th handle (k > 1) of a run given one name,
+// as in a loop, is named "name (k)". Outside an explored run it does
+// nothing; a handle keeps its first name.
+func NameHandle(on any, name string) {
+	e := active.Load()
+	if e == nil || name == "" {
+		return
+	}
+	e.v.mu.Lock()
+	defer e.v.mu.Unlock()
+	if e.free {
+		return
+	}
+	if _, ok := e.names[on]; ok {
+		return
+	}
+	if e.names == nil {
+		e.names, e.sites = map[any]string{}, map[string]int{}
+	}
+	e.sites[name]++
+	if k := e.sites[name]; k > 1 {
+		name += " (" + strconv.Itoa(k) + ")"
+	}
+	e.names[on] = name
 }
 
 // add registers t under path. v.mu is held, or t is the root.
