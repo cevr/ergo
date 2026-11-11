@@ -56,7 +56,7 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 		ev.asked, ev.askedInsts = nil, nil
 		probe := u
 		probe.Rewrite = ev
-		if _, err := Lower(probe); err != nil {
+		if _, err := probeLower(probe); err != nil {
 			return nil, err
 		}
 		if len(ev.asked)+len(ev.askedInsts) == 0 {
@@ -125,6 +125,19 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 	}
 	ev.optimistic, ev.asked, ev.askedInsts = false, nil, nil
 	return ev, nil
+}
+
+// probeLower lowers the run build of u to learn what it asks for. A
+// library (a std package) has no main, so its bodies are lowered with no
+// entry.
+func probeLower(u Unit) ([]byte, error) {
+	for _, f := range u.Package.Funcs {
+		if f.Name == "main" {
+			_, err := Lower(u)
+			return nil, err
+		}
+	}
+	return lowerPackage(u, true)
 }
 
 // checkedEvidence is the verdicts of the check runs: ok by law and

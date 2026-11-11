@@ -93,7 +93,8 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		return 0, err
 	}
 	input := func() (build.Input, error) { return unitInput(unit, analysisDependencies(a), req) }
-	if !lower.NewLedgerEvidence(unit.Package, nil).HasRules() {
+	if !lower.NewLedgerEvidence(unit.Package, nil).HasRules() || !hasMain(unit.Package) {
+		// A library has no run build, so no site of its own.
 		return 0, nil
 	}
 	ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
@@ -182,6 +183,16 @@ func FreshStdLedger(req BuildRequest) (string, error) {
 		}
 	}
 	return StdLedgerHeader + lower.FormatLedger(entries), nil
+}
+
+// hasMain reports whether pkg declares main, the run build's entry.
+func hasMain(pkg *check.Package) bool {
+	for _, f := range pkg.Funcs {
+		if f.Name == "main" {
+			return true
+		}
+	}
+	return false
 }
 
 // writeFileAtomic writes data to path by a rename, so a reader sees the
