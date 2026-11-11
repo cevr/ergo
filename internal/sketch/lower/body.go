@@ -118,6 +118,7 @@ type funcCtx struct {
 	held       map[*syntax.Ident]bool
 	frame      *frame
 	acquiring  *acquireFlow         // a native acquisition callback, in this same source frame
+	stmtCall   *syntax.CallExpr     // the call callStmt lowers, whose value is dropped (drop.go, builtin delete)
 	env        string               // the current environment pointer, which every Go function the lowering writes binds
 	goDirect   map[syntax.Node]bool // Go functions of import go passed as Go's own to a Go function parameter (goCall)
 	directives bool
@@ -179,6 +180,9 @@ type funcCtx struct {
 	// goGeneric reports a Go function with type parameters, where Go
 	// declares no local type.
 	goGeneric bool
+	// path is the statement lists around the code being written, each
+	// with the inline growth its path has taken (growth.go).
+	path []*growthAcct
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -255,6 +259,7 @@ func (fc *funcCtx) errReturn(err string) string {
 // stmts writes a statement list and reports whether its Go form ends in a
 // terminating statement (Go spec, Terminating statements).
 func (fc *funcCtx) stmts(list []syntax.Stmt) bool {
+	defer fc.enterList(list)()
 	terminates := false
 	for _, s := range list {
 		terminates = fc.stmt(s)
@@ -357,8 +362,10 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			continue
 		} else {
 			val := fc.assigned(spec.Values[0])
-			name := fc.declare(v)
-			fc.line("var " + name + " " + goType + " = " + val)
+			if !fc.aliasLet(v, val) {
+				name := fc.declare(v)
+				fc.line("var " + name + " " + goType + " = " + val)
+			}
 		}
 		if !fc.l.reads[v] {
 			fc.line("_ = " + fc.locals[v])
@@ -394,6 +401,10 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 	}
 	if sl := fc.scalarIdent(s.Lhs[0]); sl != nil && op == "" {
 		fc.scatter(sl, fc.assigned(s.Rhs[0])) // scalar.go
+		return
+	}
+	if fc.mapStore(s) {
+		fc.discard(s.Rhs[0]) // forms.go
 		return
 	}
 	rhsEmits := fc.emits(s.Rhs[0])
@@ -559,6 +570,14 @@ func (fc *funcCtx) returnsErrorType(x syntax.Expr) bool {
 	return fc.l.info.ReturnedValues[x]
 }
 
+// failureValue reports a returned x that is a failure, not a value: an
+// error type's value (types.md, Error types 2) that is not the frame's
+// declared result and not an untried fallible value.
+func (fc *funcCtx) failureValue(x syntax.Expr) bool {
+	p := fc.l.bodyPkg()
+	return !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), p, p.OwnerOf(x)) && !fc.returnsErrorType(x)
+}
+
 // retExpr is shared by explicit return and a checked function-body tail.
 // The source expression is retained so calls and directives keep their site.
 func (fc *funcCtx) retExpr(x syntax.Expr) {
@@ -566,8 +585,7 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	// Whether the value is a failure is decided by the returning body's
 	// own view (owners.go): a type only a test's row names is a value in
 	// a production body, in the test build too.
-	p := fc.l.bodyPkg()
-	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), p, p.OwnerOf(x)) && !fc.returnsErrorType(x) {
+	if fc.failureValue(x) {
 		fc.fail(fc.value(x))
 		return
 	}

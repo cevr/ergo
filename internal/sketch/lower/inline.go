@@ -45,9 +45,10 @@ import (
 //     known variant may make): pure code cannot re-enter the frame, so the
 //     entry poll it would need is not written, as a known variant writes
 //     none;
-//   - its site is at most inlineDepth sites deep, and the Go function has
-//     taken at most inlineGrowth nodes of inlined bodies (the growth
-//     bound).
+//   - its site is at most inlineDepth sites deep;
+//   - the growth rule (growth.go) admits the site: it is not on a cold
+//     path, and its path has taken at most inlineGrowth nodes of inlined
+//     bodies (copyGrowth in a copy for a known record).
 //
 // An inlined call evaluates its operands as the call does, left to right,
 // binds each to a fresh local of the parameter's type (a Go call's copy),
@@ -88,18 +89,22 @@ const (
 	inlineBudget = 120
 	// inlineDepth is the most inlined sites around an inlined call.
 	inlineDepth = 4
-	// inlineGrowth is the most body nodes one Go function takes in.
-	inlineGrowth = 800
-	// copyGrowth is inlineGrowth for a copy for a known record (record.go):
-	// the copy is written once per record, in place of a call of an
-	// unknown field function each step, and its known field's body is the
-	// one hot path it has; with inlineGrowth a machine's step and the
-	// helpers it calls do not fit (mdhtml's Step, measured), and a helper
-	// left out of line boxes the union value it returns.
+	// copyGrowth is inlineGrowth for a path of a copy for a known record
+	// (record.go): the copy is written once per record, in place of a call
+	// of an unknown field function each step, and its known field's body
+	// is the one hot path it has; with the plain allowance a machine's
+	// step and the helpers it calls do not fit (mdhtml's Step, measured
+	// when growth was one account per Go function), and a helper left out
+	// of line boxes the union value it returns.
 	copyGrowth = 1200
+	// fieldBudget is the most nodes a known record's field function has to
+	// be inlined in a copy (inlineField): the per-function growth (800) it
+	// had before OPT7 made growth per path.
+	fieldBudget = 800
 )
 
-// growthOf is the most body nodes the Go function of scope takes in.
+// growthOf is the most body nodes one path of the Go function of scope
+// takes in under the growth rule (growth.go).
 func (l *lowerer) growthOf(scope *namer) int {
 	if l.copyScopes[scope] {
 		return copyGrowth
@@ -114,6 +119,10 @@ type inlineRet struct {
 	gotos           int
 	// join is the join local the returns write instead of res (scalar.go).
 	join *scalarLocal
+	// resType is the Go type of res, and iface whether it is an interface
+	// (renameTail, forms.go).
+	resType string
+	iface   bool
 }
 
 // inlineSite is one inlined call: its call table key and the site around
@@ -447,14 +456,9 @@ func (fc *funcCtx) inlineAt(x *syntax.CallExpr, c *check.Call) bool {
 	if fp := f.Pkg.Info.Footprints[f.Decl]; !fp.Empty() && !(len(cbs) > 0 && (fc.l.knownVariant(f) || fc.l.inlineCb[f])) && !fc.l.knownClosed(f) {
 		return false
 	}
-	if fc.l.inlineGrown == nil {
-		fc.l.inlineGrown = map[*namer]int{}
-	}
-	size := inlineSize(f.Decl.Body)
-	if fc.l.inlineGrown[fc.scope]+size > fc.l.growthOf(fc.scope) {
+	if !fc.grow(inlineSize(f.Decl.Body)) {
 		return false
 	}
-	fc.l.inlineGrown[fc.scope] += size
 	if token.IsExported(f.Name) {
 		// An exported function keeps its Go function: inlining copies its
 		// body into the caller, and the declaration stays.
@@ -545,7 +549,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		skip[i] = true
 	}
 	vals := fc.inlineArgs(list, x, addr, skip)
-	ic := &funcCtx{typeCtx: typeCtx{l: fc.l, params: map[*check.TypeParam]string{}, site: x, mono: fc.mono}, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, witness: map[*check.TypeParam]string{}, directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1}
+	ic := &funcCtx{typeCtx: typeCtx{l: fc.l, params: map[*check.TypeParam]string{}, site: x, mono: fc.mono}, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, witness: map[*check.TypeParam]string{}, directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, path: fc.sitePath()}
 	for i, tp := range f.Sig.TParams {
 		if tp.Kind != check.KindType {
 			continue
@@ -577,7 +581,8 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 	if result != nil {
 		if ret.join = fc.joinSite(x); ret.join == nil {
 			ret.res = fc.temp("v")
-			fc.line("var " + ret.res + " " + ic.goType(result))
+			ret.resType, ret.iface = ic.goType(result), ic.isInterface(result)
+			fc.line("var " + ret.res + " " + ret.resType)
 		}
 	}
 	// The block fails where the call can: a row parameter of f's errors
@@ -675,6 +680,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 	if ret.join != nil {
 		return operand{val: ret.join.name, err: ret.err}
 	}
+	fc.markFresh(ret.res)
 	return operand{val: ret.res, err: ret.err}
 }
 
@@ -728,6 +734,12 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	if strings.HasSuffix(body, "\t"+jump) && !strings.HasSuffix(body, "\t\t"+jump) {
 		body = strings.TrimSuffix(body, "\t"+jump)
 	}
+	if ret.res != "" && formsOn() {
+		if b, ok := renameTail(body, ret.res, ret.resType, ret.iface); ok {
+			body = b
+			fc.l.stats.Renamed++
+		}
+	}
 	fc.line("{")
 	ind := strings.Repeat("\t", fc.depth)
 	for _, ln := range strings.SplitAfter(body, "\n") {
@@ -777,7 +789,7 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 	if sig == nil {
 		ice(sub.lit, "a function literal with no Literals entry")
 	}
-	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1}
+	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath()}
 	ret := &inlineRet{label: fc.temp("inl")}
 	var result check.Type
 	if len(sig.Results) == 1 {
@@ -785,7 +797,8 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 	}
 	if result != nil {
 		ret.res = fc.temp("v")
-		fc.line("var " + ret.res + " " + lc.goType(result))
+		ret.resType, ret.iface = lc.goType(result), lc.isInterface(result)
+		fc.line("var " + ret.res + " " + ret.resType)
 	}
 	lc.frame = inlineFrame(result, false, ret)
 	fc.l.stats.Substituted++
@@ -822,6 +835,7 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 		lc.body(sub.lit.Body.List)
 	}()
 	fc.closeInline(lc.out.String(), ret, before)
+	fc.markFresh(ret.res)
 	return operand{val: ret.res}
 }
 

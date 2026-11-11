@@ -100,6 +100,7 @@ func (l *lowerer) nameAll() {
 	}
 	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
 	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
+	l.reserveDropped(append([]*check.Package{l.pkg}, libs...))                    // drop.go
 	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.sourcedMachines()) // record.go
 	// A sourced library's lets, which the program lowers, used or not
 	// (sources.go), and the builders of its named contexts, one for each

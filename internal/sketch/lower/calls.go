@@ -97,6 +97,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 			return operand{val: v, err: e}
 		}
 		fc.line(fc.hostStmt(x, c, v, text))
+		fc.markFresh(v)
 		return operand{val: v}
 	}
 	if result && fc.noValue(x) {
@@ -119,6 +120,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	case result && fallible:
 		v, e := fc.temp("v"), fc.temp("err")
 		fc.line(v + ", " + e + " := " + text)
+		fc.markFresh(v)
 		if !failsHere(c) {
 			fc.line("_ = " + e)
 			return operand{val: v}
@@ -135,6 +137,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	case result:
 		v := fc.temp("v")
 		fc.line(v + " := " + text)
+		fc.markFresh(v)
 		return operand{val: v}
 	}
 	fc.line(text)
@@ -170,7 +173,9 @@ func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 		}
 		return ""
 	}
+	fc.stmtCall = x // its value is dropped (drop.go, builtin delete)
 	text, _, fallible := fc.callText(x, c)
+	fc.stmtCall = nil
 	if op := fc.inlined; op != nil {
 		// inline.go: its block is written; a statement discards its value.
 		fc.inlined = nil
@@ -240,6 +245,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A call whose callbacks are all known goes to the known variant
 		// (known.go), its literals lowered plain.
 		known := fc.knownSite(x, c)
+		// A call whose result its statement discards goes to the variant
+		// with no result (forms.go, droppedSite).
+		dropped := !known && fc.droppedSite(x, c, fd)
 		// An argument for a parameter func(…) T whose T a block with no
 		// value binds needs no adapter: a function value with no result
 		// and the instance's func(…) struct{} are one Go shape (C11).
@@ -255,6 +263,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if known {
 				name = fc.l.knownName(c.Func, fd)
 			}
+			if dropped {
+				name = fc.l.droppedName(c.Func, fd)
+			}
 			head, rest = "("+vals[0]+")."+name, vals[1:]
 		} else {
 			// Info names every type argument of a generic call: written,
@@ -268,6 +279,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			}
 			if known {
 				name = fc.l.knownName(c.Func, fd)
+			}
+			if dropped {
+				name = fc.l.droppedName(c.Func, fd)
 			}
 			head, rest = name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 			if sp != nil && !known {
@@ -283,7 +297,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
 		}
 		rest = append(lead, rest...)
-		return head + "(" + strings.Join(rest, ", ") + ")", len(c.Func.Sig.Results) > 0, fd.fallible
+		return head + "(" + strings.Join(rest, ", ") + ")", len(c.Func.Sig.Results) > 0 && !dropped, fd.fallible
 	case check.CallOp:
 		if c.Recv == nil || c.Op == nil {
 			ice(x, "an operation call with no receiver or operation")
@@ -400,6 +414,19 @@ func (fc *funcCtx) builtinCall(x *syntax.CallExpr, c *check.Call, args []syntax.
 	if builtinLowering == "call" {
 		return fc.l.builtinHelper(b, x) + "(" + strings.Join(vals, ", ") + ")"
 	}
+	if b == "delete" {
+		// Go's delete is a statement; the binding's value is the Map it
+		// wrote (check/builtin.go). A statement call (the in-place
+		// m = m.Delete(k), mapStore) is the builtin alone; elsewhere the
+		// Map is bound once so it is read after.
+		if fc.stmtCall == x {
+			return "delete(" + vals[0] + ", " + vals[1] + ")"
+		}
+		m := fc.temp("t")
+		fc.line(m + " := " + vals[0])
+		fc.line("delete(" + m + ", " + vals[1] + ")")
+		return m
+	}
 	return b + "(" + strings.Join(vals, ", ") + ")"
 }
 
@@ -419,6 +446,7 @@ var builtinHelpers = map[string]string{
 	"cap":    "[T any](xs []T) int { return cap(xs) }",
 	"copy":   "[T any](dst []T, src []T) int { return copy(dst, src) }",
 	"clear":  "[T any](xs []T) { clear(xs) }",
+	"delete": "[K comparable, V any](m map[K]V, k K) map[K]V { delete(m, k); return m }",
 	"min":    "[T ORD.Ordered](a T, b T) T { return min(a, b) }",
 	"max":    "[T ORD.Ordered](a T, b T) T { return max(a, b) }",
 }

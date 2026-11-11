@@ -969,7 +969,10 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		return fc.plainCatchBody(x, m, o)
 	}
 	result := ""
-	if m.Result != nil {
+	alias := fc.simpleCatch(x) && fc.catchAlias(x, m, o)
+	if alias {
+		// The catch's value is its operand's (forms.go): no arm yields.
+	} else if m.Result != nil {
 		result = fc.temp("v")
 		fc.line("var " + result + " " + fc.goType(m.Result))
 	} else if o.val != "" {
@@ -1021,6 +1024,24 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		}
 		arms = append(arms, ar)
 	}
+	if !bind && len(arms) == 1 && len(arms[0].types) == 1 && fc.soleFailure(x) {
+		// The row is the arm's one variant (forms.go): a non-nil error is
+		// it, so the arm runs with no type switch and no defect arm.
+		fc.line("if " + o.err + " != nil {")
+		fc.depth++
+		fc.arm(x.Arms[0], result, m.Result)
+		fc.depth--
+		if result != "" && o.val != "" {
+			fc.line("} else {")
+			fc.line("\t" + result + " = " + fc.caughtValue(x, m, o.val))
+		}
+		fc.line("}")
+		if alias {
+			return operand{val: o.val}
+		}
+		fc.markFresh(result)
+		return operand{val: result}
+	}
 	fc.line("if " + o.err + " != nil {")
 	fc.depth++
 	narrowed := ""
@@ -1068,6 +1089,10 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		}
 	}
 	fc.line("}")
+	if alias {
+		return operand{val: o.val}
+	}
+	fc.markFresh(result)
 	return operand{val: result}
 }
 

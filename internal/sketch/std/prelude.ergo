@@ -211,8 +211,9 @@ extern go ergo.local/prototype/runtime/v1.Get func Get[K comparable, V](m Map[K,
 
 // Delete is m without the key k. m is unchanged: a Map is a value (owner
 // q26), and the lowering deletes in place only for m = m.Delete(k) or a
-// dead m.
-extern go ergo.local/prototype/runtime/v1.Delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V]
+// dead m. It binds Go's builtin delete (OPT7): the call is the builtin
+// itself, with no Go function between.
+extern go delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V]
 
 // Put is m with k set to v: the entry is added, or its value replaced. m
 // is unchanged, as Delete leaves it (owner q26), and the lowering writes

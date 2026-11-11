@@ -289,18 +289,19 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, typeArgs: args, bound: bound}
 	fc.l.specs[key] = sp
 	fc.l.stats.Specialized++
-	fc.l.pending = append(fc.l.pending, func() { fc.l.emitBody(fd, false, sp) })
+	fc.l.pending = append(fc.l.pending, func() { fc.l.emitBody(fd, false, sp, false) })
 	return sp
 }
 
 // inlineField inlines x, a call of the field of a known record whose
 // function is g, when the inline rule (inline.go) allows g with the
-// budget copyGrowth: a copy is written once for its record, so its field
+// budget fieldBudget and the growth rule admits it (a copy's paths take
+// copyGrowth): a copy is written once for its record, so its field
 // calls cost one body each. g takes no callback (its callbacks would be
 // unknown here). The call's identity stays the field call's, so a defect
 // report names the frame it names without inlining.
 func (fc *funcCtx) inlineField(x *syntax.CallExpr, c *check.Call, g *check.Func, gd *funcDecl) bool {
-	if fc.frame == nil || fc.inlDepth >= inlineDepth || len(callbackParams(g)) > 0 || !fc.l.inlineWithin(g, inlineGrowth) {
+	if fc.frame == nil || fc.inlDepth >= inlineDepth || len(callbackParams(g)) > 0 || !fc.l.inlineWithin(g, fieldBudget) {
 		return false
 	}
 	if len(g.Sig.Results) == 1 && fc.noValue(x) {
@@ -309,14 +310,9 @@ func (fc *funcCtx) inlineField(x *syntax.CallExpr, c *check.Call, g *check.Func,
 	if !gd.pure && fc.env == "" {
 		return false
 	}
-	if fc.l.inlineGrown == nil {
-		fc.l.inlineGrown = map[*namer]int{}
-	}
-	size := inlineSize(g.Decl.Body)
-	if fc.l.inlineGrown[fc.scope]+size > fc.l.growthOf(fc.scope) {
+	if !fc.grow(inlineSize(g.Decl.Body)) {
 		return false
 	}
-	fc.l.inlineGrown[fc.scope] += size
 	if token.IsExported(g.Name) {
 		fc.l.useFunc(g, x)
 	}

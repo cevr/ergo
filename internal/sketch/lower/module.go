@@ -246,7 +246,8 @@ type lowerer struct {
 	formats  int        // go/format runs
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
-	// Go function took in, inlineSites the inlined calls (inline.go), and
+	// Go function took in under the reference growth rule (growth.go),
+	// inlineSites the inlined calls (inline.go), and
 	// lastDir the last //line directive a body wrote. inlineCb holds the
 	// functions whose body calls unknown code only through its callback
 	// parameters (inlineRule).
@@ -258,6 +259,11 @@ type lowerer struct {
 	copyScopes  map[*namer]bool
 	inlineSites []inlineSite
 	lastDir     string
+	// fresh holds the fresh temporaries (forms.go).
+	fresh map[freshKey]bool
+	// letUses counts each package let's uses and its uses where a Go
+	// constant is safe (forms.go, constLet).
+	letUses map[*check.Var][2]int
 
 	types    map[*check.TypeName]*typeDecl
 	funcs    map[*check.Func]*funcDecl

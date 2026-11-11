@@ -88,6 +88,9 @@ type funcDecl struct {
 	// known is the Go name of the known-callback variant once it is
 	// queued (known.go, knownName).
 	known string
+	// dropped is the Go name of the variant with no result once it is
+	// queued (forms.go, droppedName).
+	dropped string
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -779,7 +782,7 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 	if bridge := l.hostBlockingIntrinsic(f); bridge != nil {
 		return bridge
 	}
-	// The functions on slices and Maps (D-D6): Append, Delete and Put call
+	// The functions on slices and Maps (D-D6): Append and Put call
 	// their runtime/v1 bodies; Get builds the program's Option, which the
 	// lowering emits in each program, so its body is written here.
 	if len(s.Params) < 2 || len(s.Params) > 3 || len(s.Results) != 1 {
@@ -795,10 +798,6 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 	case f.Name == "Append" && len(s.TParams) == 1 && isSliceOf(s.Params[0].Type, s.TParams[0]) && s.Params[1].Type == s.TParams[0] && isSliceOf(s.Results[0], s.TParams[0]):
 		return func(_ *funcCtx, params []string) string {
 			return "\treturn " + l.rt() + ".Append(" + params[0] + ", " + params[1] + ")\n"
-		}
-	case f.Name == "Delete" && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && isMapOf(s.Results[0], s.TParams[0], s.TParams[1]):
-		return func(_ *funcCtx, params []string) string {
-			return "\treturn " + l.rt() + ".Delete(" + params[0] + ", " + params[1] + ")\n"
 		}
 	case preludeGet(f):
 		return func(fc *funcCtx, params []string) string {
@@ -918,12 +917,14 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 }
 
 // emitFuncBody writes fd's Go declaration.
-func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil) }
+func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil, false) }
 
 // emitBody writes what emitFuncBody writes, or, with known, fd's
 // known-callback variant (known.go): its callback parameters plain and no
-// entry poll; with sp, fd's copy for a known record (record.go).
-func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
+// entry poll; with sp, fd's copy for a known record (record.go); with
+// drop, fd's variant with no result (drop.go): each return evaluates its
+// value for its effects and returns nothing.
+func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	l.bodies++
 	f := fd.fn
 	l.readsOf(f)
@@ -1001,7 +1002,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	// own and keeps f's name for a wrapper that copies them (values.go, V5).
 	bodyName, wrapHead, wrapParams := fd.name, "", ""
 	var typeArgs, args []string
-	owned := !known && sp == nil && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
+	owned := !known && sp == nil && !drop && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
 	if owned {
 		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
 	}
@@ -1018,6 +1019,13 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 			}
 		}
 	}
+	if drop {
+		if known || sp != nil || fd.extern != "" || fd.dropped == "" {
+			ice(site, "the variant of %s with no result is not a plain body", f.Name)
+		}
+		bodyName, methodName = fd.dropped, fd.dropped
+	}
+
 	if fd.method != nil {
 		tps := map[*check.TypeParam]string{}
 		var args []string
@@ -1100,7 +1108,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	if len(f.Sig.Results) > 1 {
 		unreachable(site, ruleOneResult, "the function %s has %d results", f.Name, len(f.Sig.Results))
 	}
-	if len(f.Sig.Results) == 1 {
+	if len(f.Sig.Results) == 1 && !drop {
+		// The variant with no result (forms.go, droppedName) returns
+		// nothing: each return evaluates its value for its effects alone.
 		fc.frame.result = f.Sig.Results[0]
 	}
 	if fd.extern != "" {
@@ -1171,7 +1181,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 		fc.out.Reset()
 		fc.out.WriteString(body)
 	}
-	if !known && sp == nil {
+	if !known && sp == nil && !drop {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
 	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")
@@ -1363,7 +1373,12 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
-		l.letDecl(id, "var "+name+" "+goType+" = "+val+"\n\n")
+		kw := "var "
+		if l.constLet(v) {
+			kw = "const " // forms.go
+			l.stats.Consts++
+		}
+		l.letDecl(id, kw+name+" "+goType+" = "+val+"\n\n")
 		return
 	}
 	if name != "_" {
