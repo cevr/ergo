@@ -842,6 +842,10 @@ func (fc *funcCtx) loopBind(p syntax.Expr, val string, t check.Type) {
 		if !fc.l.reads[b.v] {
 			fc.line("_ = " + name)
 		}
+		// An owned element (a queue's Values(), Q7, R35) is the
+		// iteration's own: registered as a let's, released at the
+		// iteration's end, a break, a return or a failure.
+		fc.ownVar(b.v, p)
 	}
 }
 

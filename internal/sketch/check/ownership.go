@@ -717,10 +717,12 @@ func (w *ownWalk) clauses(cs []*syntax.CaseClause) {
 	w.st = out
 }
 
-// rangeBinds is a for-in's bindings that hold a resource: an element of a
-// queue's Values() is the body's own (Q7); any other is lent from the
-// container (R35).
-func (w *ownWalk) rangeBinds(s *syntax.RangeStmt) []ownLocal {
+// rangeBinds acquires a for-in's bindings that hold a resource, at each
+// iteration's start. An element of a queue's Values() is the body's own
+// (Q7): its binding consumes it, so a pattern there partitions it as a
+// let's does (Pattern owners, R39: an omitted resource part is S108); any
+// other is lent from the container (R35).
+func (w *ownWalk) rangeBinds(s *syntax.RangeStmt) func() {
 	lp := w.info.Loops[s]
 	if lp == nil {
 		return nil
@@ -733,19 +735,38 @@ func (w *ownWalk) rangeBinds(s *syntax.RangeStmt) []ownLocal {
 			}
 		}
 	}
+	if owned {
+		var p *Pattern
+		if s.Value != nil {
+			p = w.info.Patterns[s.Value]
+		}
+		if p == nil {
+			return func() {
+				for _, v := range lp.Bindings {
+					if v != nil && w.tracked(v.Type) {
+						w.acquire(ownLocal{v: v})
+					}
+				}
+			}
+		}
+		w.patternCover(p, lp.Elem, s.Value)
+		parts := w.patternParts(p, lp.Elem, nil)
+		loans := w.patternTypeLoans(lp.Elem, parts)
+		return func() { w.acquireParts(parts, ownLocal{}, loans, s.Value) }
+	}
 	var out []ownLocal
 	for _, v := range lp.Bindings {
 		if v == nil || !w.tracked(v.Type) {
 			continue
 		}
-		if owned {
-			out = append(out, ownLocal{v: v})
-		} else {
-			root, _, _ := w.placeRoot(s.X)
-			out = append(out, ownLocal{v: v, lent: true, from: exprText(s.X), root: root})
+		root, _, _ := w.placeRoot(s.X)
+		out = append(out, ownLocal{v: v, lent: true, from: exprText(s.X), root: root})
+	}
+	return func() {
+		for _, b := range out {
+			w.acquire(b)
 		}
 	}
-	return out
 }
 
 // isQueue reports std queue.Queue[T] or an instance of it.
@@ -786,7 +807,7 @@ func sameExact(as, bs ownState) bool {
 // loop runs a loop body to its fixpoint. A for-in's body runs zero or
 // more times, as a for with a condition does; a bare for ends only by
 // break.
-func (w *ownWalk) loop(n syntax.Node, cond syntax.Expr, body *syntax.BlockStmt, binds []ownLocal) {
+func (w *ownWalk) loop(n syntax.Node, cond syntax.Expr, body *syntax.BlockStmt, binds func()) {
 	first := len(w.vars)
 	entry := w.st
 	if m := w.loopMemo[n]; m != nil && entry.reached {
@@ -813,8 +834,8 @@ func (w *ownWalk) loop(n syntax.Node, cond syntax.Expr, body *syntax.BlockStmt, 
 			exits = w.copyState(w.st)
 		}
 		w.open(body)
-		for _, b := range binds {
-			w.acquire(b) // each iteration's binding (R35, Q7)
+		if binds != nil {
+			binds() // each iteration's bindings (R35, Q7)
 		}
 		w.stmts(body.List, false)
 		w.close()
@@ -1621,23 +1642,119 @@ func (w *ownWalk) children(x syntax.Expr) {
 // off: a field's or element's value (not a field name or a map key, which
 // is plain, R40), and a `..base`.
 func (w *ownWalk) parts(x syntax.Expr, h hand) {
-	var elts []syntax.Expr
+	// The operands in evaluation order; moved marks a part's value.
+	var src, xs []syntax.Expr
+	var moved []bool
 	switch x := x.(type) {
 	case *syntax.TupleExpr:
-		elts = x.Elts
+		src = x.Elts
 	case *syntax.CompositeLit:
-		w.expr(x.Base, mMove, h)
-		elts = x.Elts
+		if x.Base != nil {
+			src = append(src, x.Base)
+		}
+		src = append(src, x.Elts...)
 	}
-	for _, e := range elts {
+	for _, e := range src {
 		if kv, ok := e.(*syntax.KeyValueExpr); ok {
 			if _, field := kv.Key.(*syntax.Ident); !field {
-				w.expr(kv.Key, mLend, hand{})
+				xs, moved = append(xs, kv.Key), append(moved, false)
 			}
 			e = kv.Value
 		}
-		w.expr(e, mMove, h)
+		xs, moved = append(xs, e), append(moved, true)
 	}
+	w.sequence(xs, func(i int) bool {
+		if moved[i] {
+			w.expr(xs[i], mMove, h)
+		} else {
+			w.expr(xs[i], mLend, hand{})
+		}
+		return moved[i]
+	})
+}
+
+// sequence evaluates the operands xs of one value that is still being
+// built (a tuple or composite literal, a call's receiver and arguments),
+// left to right, through eval, which reports whether it moved operand i.
+// A moved operand that holds a resource is no one's while a later operand
+// still runs, and a later operand may leave the statement: a try's
+// failure, a defect, a stop. So until the value is built, the statement
+// owns it (Info.OwnedTemps, R43), and then it moves into the value
+// (Info.PartHands). An operand followed only by inert ones needs no such
+// owner. Prior art: Rust's drop elaboration owns each operand of an
+// aggregate or a call already evaluated, and drops it on unwind or on `?`.
+func (w *ownWalk) sequence(xs []syntax.Expr, eval func(i int) bool) {
+	inert := make([]bool, len(xs)+1)
+	inert[len(xs)] = true
+	for i := len(xs) - 1; i >= 0; i-- {
+		inert[i] = inert[i+1] && w.inert(xs[i])
+	}
+	var held []int
+	for i, x := range xs {
+		if !eval(i) || inert[i+1] || !w.st.reached {
+			continue
+		}
+		if t := w.info.Types[x]; t != nil && !isInvalid(t) && w.c.holdsResource(t) {
+			held = append(held, w.acquire(ownLocal{temp: x}))
+		}
+	}
+	for _, k := range held {
+		x := w.vars[k].temp
+		if w.info.OwnedTemps[x] != nil {
+			w.info.PartHands[x] = true
+		}
+		if w.st.reached && k < len(w.st.slots) {
+			w.st.slots[k] = ownSlot{st: ownMoved, at: x, how: "it moves into the value it is a part of"}
+		}
+	}
+}
+
+// inert reports an operand whose evaluation cannot leave its statement:
+// it calls nothing, tries nothing and cannot panic, so a part made before
+// it needs no owner of its own while it runs (sequence).
+func (w *ownWalk) inert(x syntax.Expr) bool {
+	if x == nil {
+		return true
+	}
+	if _, ok := w.info.Values[x]; ok {
+		return true
+	}
+	switch x := x.(type) {
+	case *syntax.BasicLit, *syntax.Ident, *syntax.FuncLit:
+		return true
+	case *syntax.ParenExpr:
+		return w.inert(x.X)
+	case *syntax.KeyValueExpr:
+		return w.inert(x.Key) && w.inert(x.Value)
+	case *syntax.SelectorExpr:
+		return w.qualifiedLet(x) != nil || w.fieldIndex(x) >= 0 && w.inert(x.X)
+	case *syntax.UnaryExpr:
+		return w.inert(x.X)
+	case *syntax.BinaryExpr:
+		switch x.Op {
+		case syntax.QUO, syntax.REM, syntax.SHL, syntax.SHR:
+			return false // a division by zero or a negative shift panics
+		}
+		return w.inert(x.X) && w.inert(x.Y)
+	case *syntax.TupleExpr:
+		for _, e := range x.Elts {
+			if !w.inert(e) {
+				return false
+			}
+		}
+		return true
+	case *syntax.CompositeLit:
+		if x.Base != nil {
+			return false
+		}
+		for _, e := range x.Elts {
+			if !w.inert(e) {
+				return false
+			}
+		}
+		return true
+	}
+	return false // a call, a try, a catch, an index or a block may leave
 }
 
 // produced owns or refuses a new value x of a resource type: a call's
@@ -1895,7 +2012,11 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			loan.active = false
 		}
 	}()
-	operand := func(a syntax.Expr, take, recv bool, pname string, pt Type) {
+	// A bodiless std call that takes a local keeps its entry until the
+	// call returns (the lowering's holdTaken): that entry owns it meanwhile.
+	held := w.holdsTaken(call)
+	// operand evaluates one operand; it reports a moved value (sequence).
+	operand := func(a syntax.Expr, take, recv bool, pname string, pt Type) bool {
 		if take {
 			how := fmt.Sprintf("%s takes %s", name, pname)
 			if pname == "" || closes {
@@ -1905,19 +2026,20 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 				// A Close through a borrow of an owned local, `(&h).Close()`
 				// or `let p = &h; p.Close()`, takes that local.
 				w.move(i, id, hand{at: a, how: how})
-				return
+				return false
 			}
 			if recv && w.fieldTake(a, hand{at: a, how: how}) {
-				return // a field taken in place (R39, Gap 38)
+				return false // a field taken in place (R39, Gap 38)
 			}
 			w.expr(a, mMove, hand{at: a, how: how, endLoans: drains})
-			return
+			_, local := unparen(a).(*syntax.Ident)
+			return !(held && local)
 		}
 		if w.converts(a, pt) && !hostCallee {
 			// R23: a resource converted to an operation type with Close
 			// moves into the interface value.
 			w.expr(a, mMove, hand{at: a, how: fmt.Sprintf("converting it to %s moves it", pt)})
-			return
+			return true
 		}
 		w.expr(a, mLend, hand{lend: func(i int, id *syntax.Ident) {
 			if loan == nil {
@@ -1928,6 +2050,7 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		if len(w.valueLoans(a)) > 0 && !nonEscaping(pt) {
 			w.checkLoanValue(a)
 		}
+		return false
 	}
 	pname := func(i int) string {
 		if sig != nil && i < len(sig.Params) {
@@ -1941,13 +2064,18 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		}
 		return nil
 	}
+	// The receiver and the arguments, in evaluation order, for sequence.
+	var xs []syntax.Expr
+	var evals []func() bool
 	off := 0
 	switch {
 	case call.Recv != nil && call.Kind == CallFunc:
-		operand(call.Recv, taken[0], true, pname(0), nil)
+		xs = append(xs, call.Recv)
+		evals = append(evals, func() bool { return operand(call.Recv, taken[0], true, pname(0), nil) })
 		off = 1
 	case call.Recv != nil:
-		operand(call.Recv, selfTaken, true, "", nil)
+		xs = append(xs, call.Recv)
+		evals = append(evals, func() bool { return operand(call.Recv, selfTaken, true, "", nil) })
 	case call.Kind == CallFunc:
 		// The callee is a function's name: no value of its own.
 	default:
@@ -1960,22 +2088,27 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		w.expr(x.Fun, mLend, hand{})
 	}
 	for i, a := range x.Args {
+		xs = append(xs, a)
 		if p, repeated, moving := movingBody(call); moving && i+off == p {
 			if lit, ok := unparen(a).(*syntax.FuncLit); ok {
-				var params *syntax.FieldList
-				if lit.Type != nil {
-					params = lit.Type.Params
-				}
-				var takes []int
-				if s := w.info.Literals[lit]; s != nil {
-					takes = s.Takes
-				}
-				w.taskFrame(lit, lit.Body, w.paramVars(params), takes, repeated)
+				evals = append(evals, func() bool {
+					var params *syntax.FieldList
+					if lit.Type != nil {
+						params = lit.Type.Params
+					}
+					var takes []int
+					if s := w.info.Literals[lit]; s != nil {
+						takes = s.Takes
+					}
+					w.taskFrame(lit, lit.Body, w.paramVars(params), takes, repeated)
+					return false
+				})
 				continue
 			}
 		}
-		operand(a, taken[i+off], closes, pname(i+off), ptype(i+off))
+		evals = append(evals, func() bool { return operand(a, taken[i+off], closes, pname(i+off), ptype(i+off)) })
 	}
+	w.sequence(xs, func(i int) bool { return evals[i]() })
 
 	if x.Trailing != nil {
 		var takes []int
@@ -2024,6 +2157,20 @@ func (w *ownWalk) withProviders(x *syntax.CallExpr) {
 			}
 		}
 	}
+}
+
+// holdsTaken reports a call of a bodiless std operation or function that
+// takes a value: the lowering keeps a taken local's entry on its frame
+// until the call returns (lower.holdTaken, Q7, D-C).
+func (w *ownWalk) holdsTaken(call *Call) bool {
+	switch {
+	case call.Kind == CallOp && call.Op != nil && call.Op.Sig != nil && call.Recv != nil:
+		n, ok := w.info.Types[call.Recv].(*Named)
+		return ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.std && len(call.Op.Sig.Takes) > 0
+	case call.Kind == CallFunc && call.Func != nil && call.Func.Pkg != nil && call.Func.Pkg.std && call.Func.Decl != nil && call.Func.Decl.Extern != nil:
+		return len(call.Func.Sig.Takes) > 0
+	}
+	return false
 }
 
 // converts reports whether a, a value that holds a resource and is no

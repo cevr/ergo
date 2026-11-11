@@ -619,6 +619,61 @@ func (fc *funcCtx) ownTemp(x syntax.Expr, o operand) operand {
 	return o
 }
 
+// handParts ends the statement's ownership of the parts in list that the
+// value being built now holds (Info.PartHands): each was registered when
+// it was evaluated (ownTemp), so a later operand that left the statement
+// released it; the value built from list owns it from here on (R43). Each
+// such operand was spilled, so nothing runs between this and the value.
+func (fc *funcCtx) handParts(list []syntax.Expr) {
+	for _, x := range list {
+		if x == nil || !fc.l.info.PartHands[x] {
+			continue
+		}
+		h := fc.l.owned[x]
+		if h == "" {
+			ice(x, "a part handed to the value being built was never registered (ownTemp)")
+		}
+		if fc.l.handed == nil {
+			fc.l.handed = map[syntax.Expr]bool{}
+		}
+		fc.l.handed[x] = true
+		if st := fc.staticState(); st != nil {
+			if _, ok := st.bit[x]; ok {
+				fc.line("_ = " + fc.staticHand(x, "0", false, x))
+				continue
+			}
+		}
+		fc.line("_ = " + fc.runtimeCall("Hand", fc.ownBinding("Hand", x), "", "", []string{h, "0"}, "", nil, nil, x))
+	}
+}
+
+// handBase hands over the base of a record update or spread when it is a
+// part (handParts), after its field values vals have run: each is spilled
+// first, so none runs after the base is given up.
+func (fc *funcCtx) handBase(base syntax.Expr, vals []string) []string {
+	if !fc.l.info.PartHands[base] {
+		return vals
+	}
+	for i := range vals {
+		vals[i] = fc.spill(vals[i])
+	}
+	fc.handParts([]syntax.Expr{base})
+	return vals
+}
+
+// partsFrom is the index of the first part of list that handParts hands
+// over, or len(list). That operand and every later one are spilled: each
+// part is registered before the next operand runs, and every operand has
+// run (a division may still panic) before handParts gives the parts up.
+func (fc *funcCtx) partsFrom(list []syntax.Expr) int {
+	for i, x := range list {
+		if x != nil && fc.l.info.PartHands[x] {
+			return i
+		}
+	}
+	return len(list)
+}
+
 // holdTaken finds the owned locals that x, a call of a bodiless std
 // operation that takes them (queue Push, D-C), hands off: their entries
 // stay on the frame until the call returns (handoff skips them), so a
@@ -731,6 +786,11 @@ func (fc *funcCtx) releaseAt(key syntax.Node) {
 			h = fc.l.owned[r.Temp]
 		}
 		if h == "" {
+			if r.Var != nil && fc.l.info.OwnedVars[r.Var] != nil || r.Var == nil && fc.l.info.OwnedTemps[r.Temp] != nil {
+				// The plan releases a value the checker gave an owner, and
+				// no binder registered it: it would never be released.
+				ice(key, "the release plan names %s, which has an owner and was never registered (ownVar, ownTemp)", releaseName(r))
+			}
 			continue // a value of a type parameter (B2)
 		}
 		if st := fc.staticState(); st != nil {
@@ -745,6 +805,14 @@ func (fc *funcCtx) releaseAt(key syntax.Node) {
 		}
 		fc.line(fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", key), "", h, nil, "", nil, nil, key))
 	}
+}
+
+// releaseName names a planned release for an internal compiler error.
+func releaseName(r check.Release) string {
+	if r.Var != nil {
+		return r.Var.Name
+	}
+	return "a temporary"
 }
 
 // reassignOwned writes x = val, x an owned local (R41): the new value is
