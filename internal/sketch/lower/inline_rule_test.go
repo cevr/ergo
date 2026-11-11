@@ -13,17 +13,26 @@ import (
 // (testdata/mutants.json, inline-*); TestInlineAgrees holds that an
 // inlined call behaves as the call.
 func TestInlineRule(t *testing.T) {
-	const src = `type Box { items []int }
+	const src = `type Box[T] { items []T }
 
-func small(b *Box, i int) int {
+func small[T](b *Box[T], i int, d T) T {
 	if i < 0 {
-		return 0
+		return d
 	}
 	b.items[i]
 }
 
-func looped(b *Box) int {
-	let mut s = 0
+func leaf(x int) int {
+	if x < 0 {
+		return 0
+	}
+	x
+}
+
+func near(b *Box[int]) int { small(b, 0, 0) + 1 }
+
+func looped[T number](b *Box[T]) T {
+	let mut s = b.items[0]
 	for x in b.items {
 		s = s + x
 	}
@@ -43,7 +52,7 @@ func apply(f func(x int) int, x int) int { f(x) }
 
 func say(s string) needs Console { Console.Println(s) }
 
-func big(b *Box) int {
+func big[T number](b *Box[T]) T {
 	let a = b.items[0] + b.items[1] + b.items[2] + b.items[0] * b.items[1] * b.items[2]
 	let c = a + b.items[0] - b.items[1] + b.items[2] - a * a + b.items[0] * a - b.items[1] * a
 	let d = c + a * b.items[0] - c * b.items[1] + a * c * b.items[2] - a - c + b.items[0]
@@ -52,10 +61,10 @@ func big(b *Box) int {
 }
 
 func main() needs Console {
-	let mut b = Box{items: []int{1, 2, 3}}
+	let mut b = Box[int]{items: []int{1, 2, 3}}
 	b.items[0] = 4
 	let f = func(x int) int { x + 1 }
-	Console.Println("\(small(&b, 1)) \(looped(&b)) \(rec(3)) \(asValue(func(x int) int { x * 2 }))")
+	Console.Println("\(small(&b, 1, 0)) \(leaf(-2)) \(near(&b)) \(looped(&b)) \(rec(3)) \(asValue(func(x int) int { x * 2 }))")
 	Console.Println("\(apply(func(x int) int { x * 3 }, 2)) \(apply(f, 2)) \(big(&b))")
 	say("x")
 }
@@ -64,13 +73,15 @@ func main() needs Console {
 	body := goFunc(t, o.mainGo(), "main_1") // Go's main is the entry; Ergo's main is main_1
 	// A call of a known variant (known.go, nameKnown) is a call too.
 	calls := func(name string) bool {
-		return regexp.MustCompile(`\b` + name + `(Known)?(_[0-9]+)?\(`).MatchString(body)
+		return regexp.MustCompile(`\b` + name + `(Known)?(_[0-9]+)?(\[[^\]]*\])?\(`).MatchString(body)
 	}
 	for _, row := range []struct {
 		name, why string
 		kept      bool
 	}{
-		{"small", "a small body with early returns and a defect site is inlined", false},
+		{"small", "a small generic body with early returns and a defect site is inlined", false},
+		{"leaf", "a non-generic leaf is left to Go's inliner", true},
+		{"near", "a non-generic body that calls an Ergo body is inlined", false},
 		{"looped", "a body with a loop stays a call", true},
 		{"rec", "a recursive function stays a call", true},
 		{"asValue", "a callback parameter used other than as a callee stays a call", true},

@@ -26,6 +26,8 @@ import (
 //     no witness, no owned parameter (V5), at most one result;
 //   - its body has no loop (a loop amortizes its call) and at most
 //     inlineBudget syntax nodes;
+//   - it is not a leaf Go inlines itself (goLeaf): a non-generic body that
+//     calls no Ergo body and no function value;
 //   - it is not recursive: no chain of calls from its body reaches it;
 //   - each callback parameter is non-escaping with a plain signature, the
 //     body only calls it, and the call passes a known pure literal for it
@@ -170,7 +172,7 @@ func (l *lowerer) inlineRule(f *check.Func) bool {
 		return false
 	}
 	size := inlineSize(d.Body)
-	if size > inlineBudget {
+	if size > inlineBudget || goLeaf(f) {
 		return false
 	}
 	called := map[*syntax.Ident]bool{}
@@ -224,6 +226,35 @@ func (l *lowerer) inlineRule(f *check.Func) bool {
 	frame := l.bodyNeedsFrame(d.Body.List)
 	l.info = saved
 	return !frame && !l.inlineRecursive(f)
+}
+
+// goLeaf reports whether f is a leaf Go's own inliner takes: f has no type
+// parameter (its Go function is not a shape body that pays for a
+// dictionary) and its body calls no Ergo body and no function value. Go
+// inlines such a body when its own cost model allows, as it does for hand
+// Go; an Ergo-side copy of it gains no call and changes the caller's
+// layout (stackvm's jumpTo: +0.98% instructions, OPT4a round 1).
+func goLeaf(f *check.Func) bool {
+	d := f.Decl
+	if d.TypeParams != nil && len(d.TypeParams.List) > 0 {
+		return false
+	}
+	info := f.Pkg.Info
+	leaf := true
+	syntax.Inspect(d.Body, func(n syntax.Node) bool {
+		x, ok := n.(*syntax.CallExpr)
+		if !ok || !leaf {
+			return leaf
+		}
+		switch c := info.Calls[x]; {
+		case c == nil, c.Kind == check.CallFuncValue:
+			leaf = false
+		case c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil:
+			leaf = false
+		}
+		return leaf
+	})
+	return leaf
 }
 
 // inlineSize is the cost of a body: its syntax nodes.

@@ -13,10 +13,12 @@ import (
 // call small functions the rule inlines: a fallible generic read (at)
 // caught in place, a callback update whose literal is substituted
 // (update, bump), nested inlined calls (twice through pick through at),
-// early returns (clampAt, sign), an operand that reads a place a later
+// early returns (clampOr), an operand that reads a place a later
 // inlined operand writes (diff, swapIn), a by-value argument read after a later
 // write (sumOf), dot calls on a place (b.clampAt) and on a borrow, and a
-// call the rule refuses (a loop, total). The program ends in one of six
+// call the rule refuses (a loop, total). The non-generic leaves (clampAt,
+// sign) are left to Go's inliner (goLeaf); the helpers whose inlining a
+// path checks (raw, swapIn, diff) are generic, so they stay inlined. The program ends in one of six
 // ways: normally, with a typed failure of main (try at), with a defect
 // raised by an Unreachable three inlined calls deep (deep, mustAt), with
 // an index defect in an inlined body inside an exit action (guarded), or
@@ -127,7 +129,7 @@ func mustAt(b *Box[int], i int) int {
 	}
 }
 
-func raw(b *Box[int], i int) int { b.items[i] }
+func raw[T](b *Box[T], i int) T { b.items[i] }
 
 func deep(b *Box[int], i int, unreachable bool) int {
 	if unreachable {
@@ -144,13 +146,13 @@ func poke(b *Box[int], i int, k int) {
 	}
 }
 
-func swapIn(b *Box[int], i int, v int) int {
+func swapIn[T](b *Box[T], i int, v T) T {
 	let old = b.items[i]
 	b.items[i] = v
 	old
 }
 
-func diff(x int, y int) int { x - y }
+func diff[T number](x T, y T) T { x - y }
 
 func guarded(b *Box[int]) {
 	scope.OnExit() {
