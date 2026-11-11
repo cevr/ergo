@@ -179,10 +179,10 @@ func (l *lowerer) equalFunc(t check.Type, site syntax.Node) (string, []*check.Ty
 			// A flat union (flatunion.go): the tags, then the slot the
 			// tag names. A slot the tag does not name is zero, which the
 			// equality of its type need not accept (a nil union).
-			conj := []string{"(" + a + ".tag == " + b + ".tag)"}
+			conj := []string{"(" + fu.tagExpr(tc, a) + " == " + fu.tagExpr(tc, b) + ")"}
 			for k, v := range fu.variants {
 				if fu.slot[k] {
-					conj = append(conj, "("+a+".tag != "+strconv.Itoa(k)+" || "+tc.equalCall(v, fu.flatNarrow(tc, a, k), fu.flatNarrow(tc, b, k), site)+")")
+					conj = append(conj, "("+fu.tagExpr(tc, a)+" != "+strconv.Itoa(k)+" || "+tc.equalCall(v, fu.flatNarrow(tc, a, k), fu.flatNarrow(tc, b, k), site)+")")
 				}
 			}
 			body.WriteString("\treturn " + strings.Join(conj, " && ") + "\n")

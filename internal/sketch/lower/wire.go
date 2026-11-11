@@ -417,11 +417,6 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 		return name
 	}
 	l.wires[key] = true
-	if n, ok := t.(*check.Named); ok {
-		if fu := l.flatUnionSet()[n.Obj]; fu != nil && n.Orig == nil {
-			flatBail(site, fu)
-		}
-	}
 	scope := newNamer(l.names)
 	// A type that holds type parameters has a generic function, which
 	// takes each parameter's codec witness after the environment.
@@ -514,11 +509,11 @@ func (l *lowerer) wireEncodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		b.WriteString(w + ".EndObject(" + task + ")\n")
 	case *check.Union:
 		x := scope.alloc("x")
-		// Option is flat (flatunion.go): a switch on its tag, each case
+		// A flat union (flatunion.go): a switch on its tag, each case
 		// binding the variant's slot.
 		fu := l.flatUnionOf(t)
 		if fu != nil {
-			b.WriteString(flatHead(v, len(fu.variants)) + "\n")
+			b.WriteString(fu.head(tc, v) + "\n")
 		} else {
 			b.WriteString("switch " + x + " := " + v + ".(type) {\n")
 		}
@@ -652,7 +647,7 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 			b.WriteString("case " + strconv.Quote(vn.Obj.Name) + ":\nvar " + out + " " + tc.goType(vt) + "\n")
 			record(td, vs, out)
 			if fu != nil {
-				// Option is flat (flatunion.go): the variant goes in by
+				// A flat union (flatunion.go): the variant goes in by
 				// its tag.
 				b.WriteString("return " + fu.flatValue(tc, goType, k, out) + ", nil\n")
 				continue

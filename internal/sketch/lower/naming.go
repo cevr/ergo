@@ -73,6 +73,7 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"env", nil}, "Env")
 	l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
 	l.pkgName(pkgKey{"is", nil}, "ergoIs")
+	l.pkgName(pkgKey{"niche tag", nil}, "ergoNilTag") // flatunion.go
 	l.pkgName(pkgKey{"call", nil}, "ergoCall")
 	l.pkgName(pkgKey{"calls", nil}, "ergoCalls")
 	l.pkgName(pkgKey{"decl", nil}, "ergoDecl")

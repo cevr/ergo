@@ -1644,8 +1644,9 @@ func (l *lowerer) genPick(body *strings.Builder, t check.Type, variants []check.
 	}
 	gen := func(v check.Type, depth string) string {
 		e := l.genExpr(v, r, depth, scope, site)
-		if fu := l.flatUnionOf(t); fu != nil && fu.generic {
-			// Option (flatunion.go): the variant goes in by its tag.
+		if fu := l.flatUnionOf(t); fu != nil {
+			// A flat union (flatunion.go): the variant goes in by its
+			// tag.
 			tc := &typeCtx{l: l, site: site}
 			return fu.flatValue(tc, tc.goType(t), fu.tagOf(v), e)
 		}
@@ -1736,9 +1737,6 @@ func (l *lowerer) genFunc(n *check.Named, site syntax.Node) string {
 		}
 		body.WriteString("\treturn " + goType + "{" + strings.Join(parts, ", ") + "}\n")
 	case *check.Union:
-		if fu := l.flatUnionOf(n); fu != nil && !fu.generic {
-			flatBail(site, fu) // a property's argument keeps its interface (flatunion.go)
-		}
 		l.genPick(&body, n, under.Variants, r, d, scope, site)
 	default:
 		body.WriteString("\treturn " + goType + "(" + l.genExpr(under, r, d, scope, site) + ")\n")

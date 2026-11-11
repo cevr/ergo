@@ -276,7 +276,7 @@ func (fc *funcCtx) typeTest(want check.Type, val string, t check.Type, tests *[]
 		if k < 0 {
 			flatBail(fc.site, fu)
 		}
-		*tests = append(*tests, flatTest(val, k))
+		*tests = append(*tests, fu.test(val, k))
 		return fu.flatNarrow(&fc.typeCtx, val, k)
 	}
 	if fu := fc.l.flatUnionOf(want); fu != nil && fc.goType(want) != fc.goType(t) {

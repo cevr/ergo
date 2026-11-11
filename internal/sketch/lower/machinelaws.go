@@ -511,9 +511,9 @@ func (l *lowerer) keyFunc(t check.Type, site syntax.Node) string {
 				line(l.keyStmt(f.Type, k, v+"."+field, site))
 			}
 		case *check.Union:
-			if fu := l.flatUnionOf(t); fu != nil && fu.generic {
-				// Option (flatunion.go): the variant its tag names.
-				line(flatHead(v, len(fu.variants)))
+			if fu := l.flatUnionOf(t); fu != nil {
+				// A flat union (flatunion.go): the variant its tag names.
+				line(fu.head(tc, v))
 				for i, vt := range fu.variants {
 					line("case " + strconv.Itoa(i) + ":")
 					line("\t" + k + ".Tag(" + strconv.Itoa(i) + ")")
@@ -523,8 +523,6 @@ func (l *lowerer) keyFunc(t check.Type, site syntax.Node) string {
 				line("\tpanic(" + strconv.Quote("a value of "+l.ergoType(t)+" with no variant") + ")")
 				line("}")
 				break
-			} else if fu != nil {
-				flatBail(site, fu) // a state keeps its interface (flatunion.go), as its literal does
 			}
 			variants(under.Variants)
 		default:

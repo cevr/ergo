@@ -96,6 +96,16 @@ type knownStats struct {
 	// flat Option, so that it lowered the program again with Option an
 	// interface (lowerAgain).
 	OptionBails int
+	// FlatUnions is the values of the program's own unions the lowering
+	// puts into their flat union by their tag (flatunion.go, flatValue).
+	FlatUnions int
+	// UnionBails is the times a lowering of the program bailed on a flat
+	// union of the program's own, so that it lowered the program again
+	// with that union an interface (lowerAgain).
+	UnionBails int
+	// NicheOptions is the Option values of a go.Ref the lowering spells as
+	// the Go pointer itself (flatunion.go, the pointer niche).
+	NicheOptions int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

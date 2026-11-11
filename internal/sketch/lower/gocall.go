@@ -255,6 +255,11 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 	}
 	switch {
 	case isOptionType(t):
+		if fu := fc.l.flatUnionOf(t); fu != nil && fu.niche {
+			// Go's pointer is the Option: nil is None (flatunion.go).
+			fc.l.stats.NicheOptions++
+			return r
+		}
 		v := fc.temp("v")
 		fc.line("var " + v + " " + fc.goType(t) + " = " + fc.optionNone(t, x))
 		fc.line("if " + r + " != nil {")

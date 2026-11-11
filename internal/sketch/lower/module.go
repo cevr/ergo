@@ -306,6 +306,9 @@ type lowerer struct {
 	flatSet   map[*check.TypeName]*flatUnion
 	flatOff   map[*check.TypeName]bool
 	flatBails []*check.TypeName
+	// niche reports that the flat Option of a go.Ref is the Go pointer
+	// itself (flatunion.go, nicheAdmitted), decided with flatSet.
+	niche bool
 	// instances are the concrete instances of each generic type that the
 	// program's types name (text.go, instancesOf), computed once.
 	instances map[*check.TypeName][]check.Type

@@ -46,6 +46,11 @@ func (tc *typeCtx) goType(t check.Type) string {
 		if elem, ok := check.GoRefElem(t); ok {
 			return "*" + tc.goType(elem)
 		}
+		// An Option of a go.Ref is the pointer itself where the niche
+		// holds (flatunion.go).
+		if ref, ok := tc.l.nicheElem(t); ok {
+			return tc.goType(ref)
+		}
 		if t.Obj.Pkg.Host() {
 			return tc.l.hostPkg(t.Obj.Pkg.Path, tc.site) + "." + t.Obj.Name
 		}
