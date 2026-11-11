@@ -2355,6 +2355,34 @@
       }
     },
     {
+      "name": "ig11-call-watcher-leaks",
+      "origin": "wf10 batch-16a fix r4 (on base: TestGoCallsErgo counted goroutines still exiting)",
+      "file": "runtime/v1/gocall.go",
+      "from": "stop := context.AfterFunc(ctx, func() {",
+      "to": "go func() { <-ctx.Done(); t.Interrupt() }()\n\t\tstop := context.AfterFunc(ctx, func() {",
+      "rule": "interop.md Go calls Ergo: a call whose context is not done by its end leaves no goroutine and no registration.",
+      "killers": [
+        "lower:TestGoCallsErgo"
+      ],
+      "anchor": {
+        "tests": ["lower:TestGoCallsErgo"]
+      }
+    },
+    {
+      "name": "16a-r5-cancel-watcher-stuck",
+      "origin": "wf10 batch-16a fix r5 (verifier r5 T1: v5-cancel-watcher-stuck)",
+      "file": "runtime/v1/gocall.go",
+      "from": "\t\t\tdefer close(watched)\n\t\t\tt.Interrupt()\n",
+      "to": "\t\t\tdefer close(watched)\n\t\t\tt.Interrupt()\n\t\t\tselect {}\n",
+      "rule": "interop.md Go calls Ergo 4: Call returns only after the watcher a cancel started has ended.",
+      "killers": [
+        "lower:TestGoCallsErgo"
+      ],
+      "anchor": {
+        "tests": ["lower:TestGoCallsErgo"]
+      }
+    },
+    {
       "name": "l11-basic-decode-unnamed",
       "origin": "wf10 batch-15 fix-r2 (L11 M1)",
       "file": "internal/sketch/lower/wire.go",

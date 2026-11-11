@@ -723,6 +723,13 @@ func sealedText(v, t Type) string {
 	return fmt.Sprintf("a value of %s does not convert to %s: it is a sealed std protocol; a program value implements it in #206", v, t)
 }
 
+// sealedSourceText is the refusal of a sealed std protocol's value put
+// into another operation type (C28): the runtime's type has its own
+// operations' shapes.
+func sealedSourceText(v, t Type) string {
+	return fmt.Sprintf("%s is a sealed std protocol that the runtime's own type implements, so its value does not convert to %s (C28); take it as a type parameter whose constraint is %s instead", v, t, t)
+}
+
 // sealedRefused reports at x a refused assignment a whose target is a
 // sealed std protocol, and whether it did: every site that admits by
 // assignability reports that refusal with this one diagnostic (S109),
