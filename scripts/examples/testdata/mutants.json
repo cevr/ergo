@@ -36,6 +36,24 @@
       "to": "if false && evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
       "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
       "killers": ["examples:TestCheckVerdictsMatchNative"]
+    },
+    {
+      "name": "gateex-programs-serial",
+      "origin": "wf10 GATE-ex",
+      "file": "scripts/examples/main.go",
+      "from": "for range min(r.cfg.jobs, len(selected)) {",
+      "to": "for range 1 {",
+      "rule": "The runner runs -jobs programs at once, not one at a time.",
+      "killers": ["scripts/examples:TestProgramsRunAtOnceAndPrintInOrder"]
+    },
+    {
+      "name": "gateex-output-by-completion",
+      "origin": "wf10 GATE-ex",
+      "file": "scripts/examples/main.go",
+      "from": "one := &runner{cfg: r.cfg, out: &pr.out,",
+      "to": "one := &runner{cfg: r.cfg, out: r.out,",
+      "rule": "Each program's lines print in selection order, whatever order the programs end in.",
+      "killers": ["scripts/examples:TestProgramsRunAtOnceAndPrintInOrder"]
     }
   ]
 }

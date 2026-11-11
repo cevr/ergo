@@ -36,6 +36,24 @@
       "to": "p.free--",
       "rule": "An immediate memory-heavy reservation also takes all requested slots.",
       "killers": ["scripts/gate:TestSlotPoolReservesMemoryHeavySteps"]
+    },
+    {
+      "name": "gateex-examples-step-uncounted",
+      "origin": "wf10 GATE-ex",
+      "file": "scripts/gate/tier.go",
+      "from": "var fastCPUSteps = []string{examplesStepName}",
+      "to": "var fastCPUSteps = []string{}",
+      "rule": "The fast-tier CPU budget counts the examples step.",
+      "killers": ["scripts/gate:TestFastTierReachOfAnEdit"]
+    },
+    {
+      "name": "gateex-step-recorded-as-package",
+      "origin": "wf10 GATE-ex",
+      "file": "scripts/gate/tier.go",
+      "from": "if slices.Contains(fastCPUSteps, pkg) {",
+      "to": "if false {",
+      "rule": "-record-durations -fast records a budgeted step under its step name.",
+      "killers": ["scripts/gate:TestRecordFastCPURecordsAStepByName"]
     }
   ]
 }
