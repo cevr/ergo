@@ -256,7 +256,14 @@ func (fc *funcCtx) errReturn(err string) string {
 // terminating statement (Go spec, Terminating statements).
 func (fc *funcCtx) stmts(list []syntax.Stmt) bool {
 	terminates := false
-	for _, s := range list {
+	for i := 0; i < len(list); i++ {
+		if n := fc.rewriteWindow(list[i:]); n > 0 {
+			// A rewritten window of provider calls (rewrite.go).
+			i += n - 1
+			terminates = false
+			continue
+		}
+		s := list[i]
 		terminates = fc.stmt(s)
 		if !terminates {
 			fc.releaseAt(s) // the statement's temporaries (R43)

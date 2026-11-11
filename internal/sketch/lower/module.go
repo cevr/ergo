@@ -214,6 +214,9 @@ type lowerer struct {
 	// canon is the checked unit in canonical form (canon.go): the only
 	// place the lowering reads the unit's and the checker's lists from.
 	canon *canonical
+	// rewrite applies evidenced rewrite laws in the run build (rewrite.go);
+	// nil applies none.
+	rewrite *rewriter
 	// goModule is the root unit's Go requirements (hostPkg).
 	goModule GoModule
 	pkg      *check.Package
@@ -400,7 +403,11 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // newBuildLowerer is the lowerer of u for the run build (tests nil) or the
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
-	return lowererOf(canonicalize(u), u.Package, u.Go, tests)
+	l := lowererOf(canonicalize(u), u.Package, u.Go, tests)
+	if tests == nil && u.Rewrite != nil {
+		l.rewrite = newRewriter(u.Package, u.Rewrite)
+	}
+	return l
 }
 
 // lowererOf is the lowerer of the canonical unit c of the package pkg, whose

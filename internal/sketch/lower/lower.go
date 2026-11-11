@@ -52,6 +52,9 @@ type Unit struct {
 	// build runs as cases of their own (rewritelaw.go); the run build
 	// ignores them.
 	Instances []RewriteInstance
+	// Rewrite is the evidence of the law runs the run build may rewrite
+	// with (rewrite.go); nil rewrites nothing. The test build ignores it.
+	Rewrite RewriteEvidence
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose
