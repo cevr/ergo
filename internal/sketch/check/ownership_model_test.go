@@ -666,7 +666,7 @@ const (
 	ofHeldNew    // let hN Held = Y
 	ofMatchHeld  // match H { case Res as vN: keep(vN) or lend(vN); case Empty: }
 	ofWithMove   // with context { Store: Y } { … }: Y moves into the with (R11)
-	ofConvert    // lendCloser(Y): a conversion to Closer moves (R23)
+	ofConvert    // lendCloser(Y): a conversion to Closer moves (R23); the statement owns the lent interface value (R43)
 	ofLitLend    // lendBox(Box{r: Y, n: 0}): a lent literal moves its parts
 	ofWithShared // with context { Store: shared } { … }: a package let has no owner (R11)
 	ofQueueNew   // let uN = newQueue()
@@ -1673,8 +1673,13 @@ func (r *rfRun) stmt(s *ofStmt) {
 	case ofBoxNew, ofListNew, ofHeldNew:
 		r.move(s.y, s.line, s.col)
 		r.acquire(s.x)
-	case ofWithMove, ofConvert, ofBoxKeep:
+	case ofWithMove, ofBoxKeep:
 		r.move(s.y, s.line, s.col)
+	case ofConvert:
+		// The parameter lends the interface value the conversion made:
+		// the statement owns it (lang-audit F2).
+		r.move(s.y, s.line, s.col)
+		r.record(fmt.Sprintf("stmt@%d", s.line), "tmp")
 	case ofWithShared:
 		r.diag(s.line, s.col) // withown.go: the package let has no owner
 	case ofLitLend:

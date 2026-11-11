@@ -1072,6 +1072,31 @@ type hand struct {
 	// record's other fields (R39).
 	root     bool
 	endLoans bool
+	// hostLend marks an argument lent to a Go function's interface
+	// parameter: a Go signature cannot move a value (IG9), so its
+	// conversion (Info.Implicit) moves nothing (convertedAt).
+	hostLend bool
+}
+
+// convertedAt raises an internal compiler error when x carries an
+// implicit conversion of a resource to an operation type (Info.Implicit,
+// R23) and is evaluated in a mode with no ownership rule for it. A
+// conversion moves the resource into the interface value: x is moved
+// (a let, a return, a field, a taken argument) or lent by a call that
+// owns the interface value as its statement's temporary (call), or lent
+// to a Go function (hostLend). Any other mode would lose the release
+// (lang-audit F2: a lending argument once moved it into a value no one
+// owned), so a new position is an error until it has a rule, never a
+// silent skip (resources R23, R43; the totality rule of expr).
+func (w *ownWalk) convertedAt(x syntax.Expr, mode ownMode, h hand) {
+	if mode == mMove || h.hostLend {
+		return
+	}
+	conv, ok := w.info.Implicit[x]
+	if !ok || !w.converts(x, conv.To) {
+		return
+	}
+	panic(fmt.Sprintf("check: internal compiler error: %s converts a resource to %s in a position with no ownership rule (ownWalk.convertedAt, resources R23)", exprText(x), conv.To))
 }
 
 func (w *ownWalk) nestedText() string {
@@ -1210,6 +1235,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		return
 	}
 	w.step(1)
+	w.convertedAt(x, mode, h)
 	lend := func(xs ...syntax.Expr) {
 		for _, e := range xs {
 			w.expr(e, mLend, hand{})
@@ -1940,16 +1966,18 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	}
 	switch call.Kind {
 	case CallConversion:
+		moved := false
 		for _, a := range x.Args {
 			if mode != mMove && w.converts(a, w.info.Types[x]) {
 				// R23: the interface value owns it; the statement owns
-				// the interface value (R43).
+				// the interface value (R43), as produced does.
 				w.expr(a, mMove, hand{at: a, how: fmt.Sprintf("converting it to %s moves it", w.info.Types[x])})
+				moved = true
 				continue
 			}
 			w.expr(a, mode, h)
 		}
-		return true
+		return !moved
 	case CallWith:
 		w.yieldValue(x, mode, h, func(ownMode) {
 			for _, a := range x.Args {
@@ -2037,11 +2065,16 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		}
 		if w.converts(a, pt) && !hostCallee {
 			// R23: a resource converted to an operation type with Close
-			// moves into the interface value.
+			// moves into the interface value. The parameter only lends
+			// that value, so its statement owns it (R43), as it owns any
+			// value made to be lent: the conversion is a temporary.
 			w.expr(a, mMove, hand{at: a, how: fmt.Sprintf("converting it to %s moves it", pt)})
-			return true
+			if w.st.reached {
+				w.acquire(ownLocal{temp: a})
+			}
+			return false
 		}
-		w.expr(a, mLend, hand{lend: func(i int, id *syntax.Ident) {
+		w.expr(a, mLend, hand{hostLend: hostCallee, lend: func(i int, id *syntax.Ident) {
 			if loan == nil {
 				loan = &ownLoanCall{name: name, active: true}
 			}
