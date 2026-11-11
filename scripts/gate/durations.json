@@ -1847,7 +1847,7 @@
     "TestWholeGateModel": 4.48
   },
   "ergo.local/prototype/scripts/langmigrate": {
-    "TestTryParensIsIdempotent": 4.71
+    "TestTryParensIsIdempotent": 9.42
   },
   "ergo.local/prototype/scripts/migrate196": {
     "TestWriteKeepsRowComments": 0
