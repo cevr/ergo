@@ -324,7 +324,7 @@ func (fc *funcCtx) inlineField(x *syntax.CallExpr, c *check.Call, g *check.Func,
 		fc.l.inlineGrown = map[*namer]int{}
 	}
 	size := inlineSize(g.Decl.Body)
-	if fc.l.inlineGrown[fc.scope]+size > inlineGrowth {
+	if fc.l.inlineGrown[fc.scope]+size > fc.l.growthOf(fc.scope) {
 		return false
 	}
 	fc.l.inlineGrown[fc.scope] += size

@@ -1104,6 +1104,10 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 	wrapParams = strings.Join(parts, ", ") + ")"
 	if sp != nil && params[sp.param] != nil {
 		fc.recs = map[*check.Var]*knownRec{params[sp.param]: sp.rec}
+		if l.copyScopes == nil {
+			l.copyScopes = map[*namer]bool{}
+		}
+		l.copyScopes[fc.scope] = true
 	}
 	if len(f.Sig.Results) > 1 {
 		unreachable(site, ruleOneResult, "the function %s has %d results", f.Name, len(f.Sig.Results))
@@ -1159,7 +1163,7 @@ func (l *lowerer) emitBody(fd *funcDecl, flat *flatRun, known bool, sp *specCopy
 	}
 	l.analyzeValues(f.Decl, f.Pkg.Info)
 	fc.goGeneric = sp == nil && len(own) > 0
-	fc.scalarSet = l.scalarVars(f.Decl.Body, f.Pkg.Info)
+	fc.scalarSet = l.scalarVars(f)
 	fc.closeBody(f, site, func() {
 		if needsFrame {
 			fc.site = site

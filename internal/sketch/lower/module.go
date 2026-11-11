@@ -246,6 +246,9 @@ type lowerer struct {
 	inlineOK    map[inlineKey]knownState
 	inlineCb    map[*check.Func]bool
 	inlineGrown map[*namer]int
+	// copyScopes are the Go functions that are copies for a known record
+	// (record.go): they take copyGrowth.
+	copyScopes  map[*namer]bool
 	inlineSites []inlineSite
 	lastDir     string
 

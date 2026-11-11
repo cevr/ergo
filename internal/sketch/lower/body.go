@@ -165,6 +165,8 @@ type funcCtx struct {
 	// scalar form, and scalars those declared so far (scalar.go).
 	scalarSet map[*check.Var]bool
 	scalars   map[*check.Var]*scalarLocal
+	// joinAt is the join local each inlined call writes (scalar.go).
+	joinAt map[*syntax.CallExpr]*scalarLocal
 	// goGeneric reports a Go function with type parameters, where Go
 	// declares no local type.
 	goGeneric bool
@@ -339,7 +341,7 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			}
 		} else if sl := fc.scalarOf(v); sl != nil {
 			// A loop-carried union local as its tag and slots (scalar.go).
-			fc.scalarLet(v, sl, fc.assigned(spec.Values[0]))
+			fc.scalarLet(v, sl, spec.Values[0], d.Mut.IsValid())
 			continue
 		} else {
 			val := fc.assigned(spec.Values[0])
@@ -579,6 +581,10 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 			return
 		}
 		fc.line("return " + f.flat.decideOf(fc.typeOf(x)) + "(" + fc.value(x) + ")")
+		return
+	}
+	if f.inline != nil && f.inline.join != nil && fc.acquiring == nil && !f.law {
+		fc.joinReturn(f.inline.join, x) // scalar.go
 		return
 	}
 	val := fc.moved(fc.assigned(x))

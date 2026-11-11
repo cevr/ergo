@@ -86,13 +86,30 @@ const (
 	inlineDepth = 4
 	// inlineGrowth is the most body nodes one Go function takes in.
 	inlineGrowth = 800
+	// copyGrowth is inlineGrowth for a copy for a known record (record.go):
+	// the copy is written once per record, in place of a call of an
+	// unknown field function each step, and its known field's body is the
+	// one hot path it has; with inlineGrowth a machine's step and the
+	// helpers it calls do not fit (mdhtml's Step, measured), and a helper
+	// left out of line boxes the union value it returns.
+	copyGrowth = 1200
 )
+
+// growthOf is the most body nodes the Go function of scope takes in.
+func (l *lowerer) growthOf(scope *namer) int {
+	if l.copyScopes[scope] {
+		return copyGrowth
+	}
+	return inlineGrowth
+}
 
 // inlineRet is where the returns of an inlined body go: its result and
 // error variables, and the label after its block.
 type inlineRet struct {
 	res, err, label string
 	gotos           int
+	// join is the join local the returns write instead of res (scalar.go).
+	join *scalarLocal
 }
 
 // inlineSite is one inlined call: its call table key and the site around
@@ -384,7 +401,7 @@ func (fc *funcCtx) inlineAt(x *syntax.CallExpr, c *check.Call) bool {
 		fc.l.inlineGrown = map[*namer]int{}
 	}
 	size := inlineSize(f.Decl.Body)
-	if fc.l.inlineGrown[fc.scope]+size > inlineGrowth {
+	if fc.l.inlineGrown[fc.scope]+size > fc.l.growthOf(fc.scope) {
 		return false
 	}
 	fc.l.inlineGrown[fc.scope] += size
@@ -451,6 +468,10 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		skip[i] = true
 		named[i], plainType[i] = fc.l.useFunc(g, x).name, fc.plainFuncType(g.Sig)
 	}
+	alias := fc.scalarArgs(f, list, skip, addr) // scalar.go
+	for i := range alias {
+		skip[i] = true
+	}
 	vals := fc.inlineArgs(list, x, addr, skip)
 	ic := &funcCtx{typeCtx: typeCtx{l: fc.l, params: map[*check.TypeParam]string{}, site: x, mono: fc.mono}, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, witness: map[*check.TypeParam]string{}, directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1}
 	for i, tp := range f.Sig.TParams {
@@ -482,8 +503,10 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		result = f.Sig.Results[0]
 	}
 	if result != nil {
-		ret.res = fc.temp("v")
-		fc.line("var " + ret.res + " " + ic.goType(result))
+		if ret.join = fc.joinSite(x); ret.join == nil {
+			ret.res = fc.temp("v")
+			fc.line("var " + ret.res + " " + ic.goType(result))
+		}
 	}
 	// The block fails where the call can: a row parameter of f's errors
 	// that is empty at this instance gives no failure (failsHere).
@@ -529,6 +552,14 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 				ic.line("_ = " + name)
 				continue
 			}
+			if sl := alias[i]; sl != nil {
+				if ic.scalars == nil {
+					ic.scalars = map[*check.Var]*scalarLocal{}
+				}
+				ic.scalars[params[i]] = sl
+				ic.locals[params[i]] = sl.name
+				continue
+			}
 			if params[i] == nil {
 				ic.line("_ = " + vals[i])
 				continue
@@ -539,10 +570,13 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		}
 		fc.l.analyzeValues(f.Decl, f.Pkg.Info)
 		ic.goGeneric = fc.goGeneric
-		ic.scalarSet = fc.l.scalarVars(f.Decl.Body, f.Pkg.Info)
+		ic.scalarSet = fc.l.scalarVars(f)
 		ic.body(f.Decl.Body.List)
 	}()
 	fc.closeInline(ic.out.String(), ret, before)
+	if ret.join != nil {
+		return operand{val: ret.join.name, err: ret.err}
+	}
 	return operand{val: ret.res, err: ret.err}
 }
 
@@ -698,6 +732,17 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 // site's variables, then the jump past its block.
 func (fc *funcCtx) inlineReturn(vals []string) {
 	in := fc.frame.inline
+	if in.join != nil && len(vals) > 0 {
+		// A join local (scalar.go): a failure writes only the error,
+		// a value is taken apart into the local.
+		if len(vals) > 1 && vals[1] != "nil" && scalarMutant != "join-err" {
+			fc.line(in.err + " = " + vals[1])
+		} else {
+			fc.scatter(in.join, vals[0])
+		}
+		fc.line("goto " + in.label)
+		return
+	}
 	var lhs, rhs []string
 	i := 0
 	if in.res != "" && len(vals) > 0 {

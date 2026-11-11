@@ -142,11 +142,13 @@ func From[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, signals []E) Outco
 			return Rejected{At: i}
 		case Emit[S, O] as em:
 			out = out.Append(em.Output)
-		case Enter[S]:
-		case Stay[S]:
+			at = em.Next
+		case Enter[S] as en:
+			at = en.Next
+		case Stay[S] as st:
+			at = st.Next
 		case Ignore:
 		}
-		at = Next(at, d)
 	}
 	Running[S, O]{State: at, Emitted: out}
 }
