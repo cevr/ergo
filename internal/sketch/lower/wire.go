@@ -574,8 +574,15 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 		b.WriteString(em.close(false, task, w))
 	case *check.Union:
 		x := scope.alloc("x")
-		b.WriteString("switch " + x + " := " + v + ".(type) {\n")
-		for _, vt := range u.Variants {
+		// Option is flat (flatunion.go): a switch on its tag, each case
+		// binding the variant's slot.
+		fu := l.flatUnionOf(t)
+		if fu != nil {
+			b.WriteString(flatHead(v, len(fu.variants)) + "\n")
+		} else {
+			b.WriteString("switch " + x + " := " + v + ".(type) {\n")
+		}
+		for k, vt := range u.Variants {
 			vn, ok := vt.(*check.Named)
 			if !ok {
 				ice(tc.site, "the variant %s of %s has no name", vt, t)
@@ -585,7 +592,11 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 				ice(tc.site, "the variant %s of %s is not a record", vt, t)
 			}
 			td := l.typeDecl(vn.Obj, tc.site)
-			b.WriteString("case " + tc.goType(vt) + ":\n")
+			if fu != nil {
+				b.WriteString("case " + strconv.Itoa(k) + ":\n" + x + " := " + fu.flatNarrow(tc, v, k) + "\n")
+			} else {
+				b.WriteString("case " + tc.goType(vt) + ":\n")
+			}
 			if len(vs.Fields) == 0 {
 				b.WriteString("_ = " + x + "\n")
 			}
@@ -733,13 +744,20 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		tag, err := scope.alloc("tag"), scope.alloc("err")
 		b.WriteString(tag + ", " + err + " := " + r + ".Tag(" + task + ")\nif " + err + " != nil {\nreturn " + zero + ", " + err + "\n}\n")
 		b.WriteString("switch " + tag + " {\n")
-		for _, vt := range u.Variants {
+		fu := l.flatUnionOf(t)
+		for k, vt := range u.Variants {
 			vn := vt.(*check.Named)
 			vs := vn.Underlying().(*check.Struct)
 			td := l.typeDecl(vn.Obj, tc.site)
 			out := scope.alloc("out")
 			b.WriteString("case " + strconv.Quote(vn.Obj.Name) + ":\nvar " + out + " " + tc.goType(vt) + "\n")
 			record(td, vs, out)
+			if fu != nil {
+				// Option is flat (flatunion.go): the variant goes in by
+				// its tag.
+				b.WriteString("return " + fu.flatValue(tc, goType, k, out) + ", nil\n")
+				continue
+			}
 			b.WriteString("return " + out + ", nil\n")
 		}
 		b.WriteString("}\nreturn " + zero + ", " + tc.wireFailure(check.WireTagName, r+".Path("+task+")", tag) + "\n")

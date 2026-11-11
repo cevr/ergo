@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -40,8 +41,23 @@ import (
 // variants are records that are neither generic nor error types and whose
 // fields are all basic types, at most three variants have fields, and the
 // struct fits the 32 bytes and 4 fields Go keeps in registers
-// (union-repr.md §5). A union that a Go extern's signature names keeps
-// its interface, the Go view a Go caller expects. Any other union keeps
+// (union-repr.md §5). The prelude's Option is flat too (OPT2, the form C
+// of union-repr.md §10 by the same struct): one generic Go struct for
+// every instance,
+//
+//	type Option[T any] struct {
+//		tag uint8   // 0 Some, 1 None
+//		v0  Some[T] // Some's value; zero unless tag is 0
+//	}
+//
+// so an Option that a function returns, a record holds or a slice keeps
+// is a value, never a box: a Some of a value that does not fit an
+// interface word allocates in form A when it leaves its function. Go
+// spells one generic type for every instance, so the rule has no size
+// bound for Option; the instances of a large T pay a copy where form A
+// pays a box (union-repr.md §10, round 2). A union that a Go extern's
+// signature names keeps its interface, the Go view a Go caller expects.
+// Any other union keeps
 // the sealed interface (form A). A lowering path that meets a flat union
 // it does not lower calls flatBail: the whole program is lowered again
 // with that union an interface, so a form this file does not cover costs
@@ -70,11 +86,27 @@ var unionLowering string
 // flat union it holds). Empty in every build.
 var unionMutant string
 
-// flatUnion is the flat form of one union.
+// flatUnion is the flat form of one union. For a generic union (Option),
+// the set holds the form of the declaration, and flatUnionOf gives each
+// instance its own copy: inst is the instance and variants are its
+// variants, so every Go type the helpers spell is the instance's.
 type flatUnion struct {
 	tn       *check.TypeName
 	variants []*check.Named // by tag
 	slot     []bool         // whether variant k has fields, and so a slot
+	generic  bool           // the declaration takes type parameters
+	inst     *check.Named   // the instance, for a generic union's copy
+}
+
+// instance is fu's copy for n, an instance of its generic declaration.
+func (fu *flatUnion) instance(n *check.Named) *flatUnion {
+	c := *fu
+	c.inst = n
+	c.variants = make([]*check.Named, len(fu.variants))
+	for k, v := range n.Underlying().(*check.Union).Variants {
+		c.variants[k] = v.(*check.Named)
+	}
+	return &c
 }
 
 // flatBail stops the lowering at n, which meets the flat union fu in a form
@@ -109,12 +141,21 @@ func (l *lowerer) lowerAgain() ([]byte, error) {
 		next.flatOff[tn] = true
 	}
 	for _, tn := range l.flatBails {
-		if next.flatOff[tn] {
+		if l.flatOff[tn] {
 			return nil, fmt.Errorf("lower: the union %s bailed while it was an interface (a compiler defect)", tn.Name)
 		}
 		next.flatOff[tn] = true
 	}
-	return next.program()
+	out, err := next.program()
+	// The counts are the lowering that wrote the program, and the bails
+	// before it.
+	l.stats = next.stats
+	for _, tn := range l.flatBails {
+		if opt := check.PreludeType("Option"); opt != nil && tn == opt.Obj {
+			l.stats.OptionBails++
+		}
+	}
+	return out, err
 }
 
 // flatUnionSet decides, once, which unions of the program are flat.
@@ -160,6 +201,18 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 			l.flatSet[e.Obj] = fu
 		}
 	}
+	// The prelude's Option, unless a machine takes it as its state or its
+	// signal, whose lowerings (machinerun.go) take a state or a signal
+	// union apart by its interface.
+	if opt := check.PreludeType("Option"); opt != nil && !l.flatOff[opt.Obj] && !states[opt.Obj] {
+		signal := false
+		for _, e := range signals {
+			signal = signal || e.Obj == opt.Obj
+		}
+		if !signal && !l.optionCycle(opt.Obj) {
+			l.flatSet[opt.Obj] = optionShape(opt)
+		}
+	}
 	// A union a Go extern's signature names keeps its Go view.
 	for _, p := range l.sourcedPkgs() {
 		for _, f := range l.canon.funcs(p) {
@@ -177,6 +230,103 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	return l.flatSet
 }
 
+// optionCycle reports whether a record of the program holds itself by
+// value through an Option (`type Node { Next Option[Node] }`). The
+// interface Option breaks the cycle with its box; the flat one would make
+// the record an invalid recursive Go type, so the program keeps Option an
+// interface.
+func (l *lowerer) optionCycle(opt *check.TypeName) bool {
+	for _, p := range l.sourcedPkgs() {
+		for _, tn := range l.canon.types(p) {
+			n, ok := tn.Type.(*check.Named)
+			if !ok {
+				continue
+			}
+			if _, ok := n.Underlying().(*check.Struct); !ok && n.Defined() == nil {
+				continue
+			}
+			if optionLoop(n, opt, map[*check.TypeName]int{}, 0) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// optionLoop reports whether t's Go value, with Option flat, holds itself:
+// a record or a defined type of the program on the path (with the number
+// of Options entered when it was entered) met again inside an Option
+// entered since. It walks records, defined types, tuples, arrays and
+// Options by value, never a slice, a Map, a borrow, a function or another
+// union's box. A generic record met again with other type arguments
+// counts too (`B[T] { x Option[B[[]T]] }` is Go's instantiation cycle), so
+// a rare finite nesting keeps Option an interface: slower, never wrong.
+func optionLoop(t check.Type, opt *check.TypeName, path map[*check.TypeName]int, opts int) bool {
+	switch u := t.(type) {
+	case *check.Named:
+		obj := u.Obj
+		if u.Orig != nil {
+			obj = u.Orig.Obj
+		}
+		if obj == opt {
+			opts++
+		} else if !isOptionVariant(obj, opt) { // Some and None are no loop's record
+			at, ok := path[obj]
+			switch {
+			case ok && opts > at:
+				return true
+			case !ok:
+				// A record met again with no Option between is a
+				// nesting of a generic one (Pair[Pair[int]]): an
+				// infinite one is the checker's error.
+				path[obj] = opts
+				defer delete(path, obj)
+			}
+		}
+		if d := u.Defined(); d != nil {
+			return optionLoop(d, opt, path, opts)
+		}
+		switch under := u.Underlying().(type) {
+		case *check.Struct:
+			for _, f := range under.Fields {
+				if optionLoop(f.Type, opt, path, opts) {
+					return true
+				}
+			}
+		case *check.Union:
+			if obj != opt {
+				return false
+			}
+			for _, v := range under.Variants {
+				if optionLoop(v, opt, path, opts) {
+					return true
+				}
+			}
+		}
+	case *check.Tuple:
+		for _, e := range u.Types {
+			if optionLoop(e, opt, path, opts) {
+				return true
+			}
+		}
+	case *check.Array:
+		return optionLoop(u.Elem, opt, path, opts)
+	}
+	return false
+}
+
+// isOptionVariant reports whether obj is Some or None, a variant of the
+// Option opt.
+func isOptionVariant(obj, opt *check.TypeName) bool {
+	for _, v := range opt.Type.(*check.Named).Underlying().(*check.Union).Variants {
+		n := v.(*check.Named)
+		if n.Obj == obj || n.Orig != nil && n.Orig.Obj == obj {
+			return true
+		}
+	}
+	return false
+}
+
 // dropMentioned removes from the flat set every union that t names.
 func (l *lowerer) dropMentioned(t check.Type, seen map[check.Type]bool) {
 	if t == nil || seen[t] {
@@ -185,9 +335,17 @@ func (l *lowerer) dropMentioned(t check.Type, seen map[check.Type]bool) {
 	seen[t] = true
 	switch u := t.(type) {
 	case *check.Named:
-		delete(l.flatSet, u.Obj)
+		// Option stays flat: no Go function takes or returns the
+		// program's Option, since every extern that names one is an
+		// adapter whose Option the lowering builds from Go's (v, ok), a
+		// nil or an error (gocall.go: someWhen, goResult).
+		obj := u.Obj
 		if u.Orig != nil {
-			delete(l.flatSet, u.Orig.Obj)
+			obj = u.Orig.Obj
+		}
+		if fu := l.flatSet[obj]; fu == nil || !fu.generic {
+			delete(l.flatSet, u.Obj)
+			delete(l.flatSet, obj)
 		}
 		for _, a := range u.TArgs {
 			l.dropMentioned(a, seen)
@@ -275,6 +433,18 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 	return fu
 }
 
+// optionShape is the flat form of the prelude's Option, opt: Some, whose
+// slot is its record Some[T], then None, with no slot.
+func optionShape(opt *check.Named) *flatUnion {
+	fu := &flatUnion{tn: opt.Obj, generic: true}
+	for _, v := range opt.Underlying().(*check.Union).Variants {
+		vn := v.(*check.Named)
+		fu.variants = append(fu.variants, vn)
+		fu.slot = append(fu.slot, len(vn.Underlying().(*check.Struct).Fields) > 0)
+	}
+	return fu
+}
+
 // basicSize is the size and alignment of a basic type's Go form on a
 // 64-bit target.
 func basicSize(k check.BasicKind) (size, align int) {
@@ -304,8 +474,13 @@ func (l *lowerer) flatUnionOf(t check.Type) *flatUnion {
 		if !ok {
 			return nil
 		}
-		if fu := l.flatUnionSet()[n.Obj]; fu != nil && n.Orig == nil {
-			return fu
+		if fu := l.flatUnionSet()[n.Obj]; fu != nil {
+			switch {
+			case n.Orig == nil:
+				return fu
+			case fu.generic:
+				return fu.instance(n)
+			}
 		}
 		d := n.Defined()
 		if d == nil {
@@ -352,9 +527,18 @@ func slotName(k int) string { return "v" + strconv.Itoa(k) }
 // ofName is the Go method that puts variant k into the union.
 func ofName(k int) string { return "of" + strconv.Itoa(k) }
 
-// flatDecl writes the union's Go type and its of methods.
-func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *typeDecl, fu *flatUnion, tc *typeCtx) {
-	b.WriteString("type " + td.name + " struct {\n\ttag uint8\n")
+// flatDecl writes the union's Go type and its of methods; tparams is the
+// Go type parameter list of a generic union, "" otherwise.
+func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *typeDecl, fu *flatUnion, tc *typeCtx, tparams string) {
+	b.WriteString("type " + td.name + tparams + " struct {\n\ttag uint8\n")
+	self := td.name
+	if len(td.tparams) > 0 {
+		names := make([]string, len(td.tparams))
+		for i, tp := range td.tparams {
+			names[i] = tc.params[tp]
+		}
+		self += "[" + strings.Join(names, ", ") + "]"
+	}
 	for k, v := range fu.variants {
 		if fu.slot[k] {
 			b.WriteString("\t" + slotName(k) + " " + tc.goType(v) + "\n")
@@ -370,7 +554,7 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 		if fu.slot[k] {
 			param, slot = "v", ", "+slotName(k)+": v"
 		}
-		b.WriteString("func (" + td.name + ") " + ofName(k) + "(" + param + " " + tc.goType(v) + ") " + td.name + " { return " + td.name + "{tag: " + strconv.Itoa(tag) + slot + "} }\n")
+		b.WriteString("func (" + self + ") " + ofName(k) + "(" + param + " " + tc.goType(v) + ") " + self + " { return " + self + "{tag: " + strconv.Itoa(tag) + slot + "} }\n")
 	}
 	b.WriteString("\n")
 }
@@ -378,8 +562,16 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 // flatValue is val, a value of variant k, put into the flat union fu whose
 // Go type, or a type defined over it, is goType.
 func (fu *flatUnion) flatValue(tc *typeCtx, goType string, k int, val string) string {
-	own := tc.goType(fu.tn.Type)
-	v := own + "{}." + ofName(k) + "(" + val + ")"
+	var own string
+	if fu.inst != nil {
+		own = tc.goType(fu.inst)
+		tc.l.stats.FlatOptions++
+	} else {
+		own = tc.goType(fu.tn.Type)
+	}
+	// The literal is parenthesized: the value may stand in an if or a
+	// switch header, where Go parses a bare T{} as the block.
+	v := "(" + own + "{})." + ofName(k) + "(" + val + ")"
 	if goType != own {
 		v = goType + "(" + v + ")"
 	}
@@ -459,4 +651,40 @@ func (fc *funcCtx) flatVariantValue(from, to check.Type, val string, site syntax
 		flatBail(site, fu)
 	}
 	return fu.flatValue(tc, tc.goType(to), k, val), true
+}
+
+// The Options the lowering builds from Go values (a Map read, a std or Go
+// comma-ok, a nil Go result, a machine's After and Work) are spelled by
+// these three helpers, in either form of Option.
+
+// optionSome is the Go value of the Option instance t that holds val, a
+// value of its T.
+func (fc *funcCtx) optionSome(t check.Type, val string, site syntax.Node) string {
+	some, _ := optionVariants(t, site)
+	v := fc.goType(some) + "{" + memberName("Value") + ": " + val + "}"
+	if fu := fc.l.flatUnionOf(t); fu != nil {
+		return fu.flatValue(&fc.typeCtx, fc.goType(t), fu.tagOf(some), v)
+	}
+	return v
+}
+
+// optionNone is the Go value None of the Option instance t.
+func (fc *funcCtx) optionNone(t check.Type, site syntax.Node) string {
+	_, none := optionVariants(t, site)
+	v := fc.goType(none) + "{}"
+	if fu := fc.l.flatUnionOf(t); fu != nil {
+		return fu.flatValue(&fc.typeCtx, fc.goType(t), fu.tagOf(none), v)
+	}
+	return v
+}
+
+// optionSomeIf is the init and condition of a Go if that holds when o, of
+// the Option instance t, is a Some, and binds w to that Some record.
+func (fc *funcCtx) optionSomeIf(t check.Type, o, w string, site syntax.Node) string {
+	some, _ := optionVariants(t, site)
+	if fu := fc.l.flatUnionOf(t); fu != nil {
+		k := fu.tagOf(some)
+		return w + " := " + fu.flatNarrow(&fc.typeCtx, o, k) + "; " + flatTest(o, k)
+	}
+	return w + ", ok := " + o + ".(" + fc.goType(some) + "); ok"
 }

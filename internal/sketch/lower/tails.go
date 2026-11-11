@@ -3,6 +3,7 @@ package lower
 import (
 	"strconv"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -33,7 +34,21 @@ type dest struct {
 	block bool
 	name  string
 	err   string
-	site  string // chosen result's position in a law's control expression
+	site  string     // chosen result's position in a law's control expression
+	typ   check.Type // the type of name's value, for destAssign
+}
+
+// assignedTo is x's value put into a Go variable of the checked type to: x
+// with the implicit conversion Info records at x, else, when to is a flat
+// union and x one of its variants (an arm of a match or catch whose value
+// joins its arms' types), that variant put into it (flatunion.go). A
+// sealed interface takes a variant as Go assigns it.
+func (fc *funcCtx) assignedTo(x syntax.Expr, val string, to check.Type) string {
+	if _, ok := fc.l.info.Implicit[x]; ok || to == nil {
+		return fc.convertAt(x, val)
+	}
+	v, _ := fc.flatVariantValue(fc.typeOf(x), to, val, x)
+	return v
 }
 
 // yieldList writes a statement list whose last statement yields to d and
@@ -76,7 +91,7 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 		if d.err != "" && fc.fallibleExpr(s.X) {
 			o := fc.expr(s.X)
 			if d.name != "" && o.val != "" {
-				fc.line(d.name + ", " + d.err + " = " + fc.convertAt(s.X, o.val) + ", " + o.err)
+				fc.line(d.name + ", " + d.err + " = " + fc.assignedTo(s.X, o.val, d.typ) + ", " + o.err)
 				if d.site != "" {
 					fc.line(d.site + " = " + fc.resultSite(s.X))
 				}
@@ -93,7 +108,7 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 			fc.discard(s.X)
 			return false
 		}
-		fc.line(d.name + " = " + fc.assigned(s.X))
+		fc.line(d.name + " = " + fc.assignedTo(s.X, fc.value(s.X), d.typ))
 		if d.site != "" {
 			fc.line(d.site + " = " + fc.resultSite(s.X))
 		}
@@ -173,7 +188,7 @@ func (fc *funcCtx) branchExpr(x syntax.Expr) operand {
 		return res
 	}
 	site := fc.trackResultSite(x, res.val)
-	fc.yieldStmt(s, dest{kind: destAssign, name: res.val, err: res.err, site: site})
+	fc.yieldStmt(s, dest{kind: destAssign, name: res.val, err: res.err, site: site, typ: fc.typeOf(x)})
 	return res
 }
 

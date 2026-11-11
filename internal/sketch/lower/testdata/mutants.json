@@ -50,6 +50,8 @@
     {"name":"cu7-decode-discards-text", "origin":"wf10 CU7", "file":"internal/sketch/std/toml/toml.ergo", "from":"let r = try Open(text, c.MaxBytes, c.MaxDepth)", "to":"let r = try Open(\"\", c.MaxBytes, c.MaxDepth)", "rule":"TOML Decode passes the parsed document to the shared derived decoder.", "killers":["lower:TestTOMLDecode"], "anchor":{"tests":["lower:TestTOMLDecode"]}},
     {"name":"cu4c-chunk-record-unbound", "origin":"wf10 CU4c", "file":"runtime/v1/files.go", "from":"\t\"exec.Chunk\":           \"ExecChunk\",\n", "to":"", "rule":"exec.Chunk is the runtime's ExecChunk, so a program's Chunks loop compiles and runs.", "killers":["lower:TestExecStartRuns"],"anchor":{"tests":["lower:TestExecStartRuns"]}},
     {"name":"cu4b-stop-loses-takes", "origin":"wf10 CU4b", "file":"internal/sketch/std/exec/exec.ergo", "from":"\tStop() int takes,", "to":"\tStop() int,", "rule":"Stop consumes the Running; no later Wait may use it.", "killers":["check:TestExecStopTakes"], "anchor":{"tests":["check:TestExecStopTakes"]}},
+    {"name":"b16d-flat-release-skips-variant", "origin":"batch-16d OPT4b merge (B1 release glue meets OPT2's flat Option)", "file":"internal/sketch/lower/release.go", "from":"b.WriteString(\"case \" + strconv.Itoa(k) + \": \" + g.release(v, fu.flatNarrow(tc, x, k)))", "to":"b.WriteString(\"case \" + strconv.Itoa(k) + \": \" + g.release(v, fu.flatNarrow(tc, x, k))[:0])", "rule":"An owned flat union's release releases its active variant's resources, as the interface form does.", "killers":["lower:TestOptionFlatAgrees"]},
+    {"name":"b16d-map-take-option-none", "origin":"batch-16d OPT4b merge (Map.Take meets OPT2's flat Option)", "file":"internal/sketch/lower/decls.go", "from":"\" = \" + fc.optionSome(tuple.Types[0], v, fc.site) + \" }\\n\"", "to":"\" = \" + fc.optionNone(tuple.Types[0], fc.site) + \" }\\n\"", "rule":"Map.Take's Option is Some of the taken value when the key was present, in either Go form of Option.", "killers":["lower:TestTaskOwnershipRunModel"]},
     {"name":"cu4-sink-kinds-swapped", "origin":"wf10 CU4", "file":"internal/sketch/std/exec/exec.ergo", "from":"\tcase Inherit:\n\t\t0\n\tcase Discard:\n\t\t1", "to":"\tcase Inherit:\n\t\t1\n\tcase Discard:\n\t\t0", "rule":"Inherit writes to this process's stream and Discard to the null device.", "killers":["lower:TestExecStartRuns"], "anchor":{"tests":["lower:TestExecStartRuns"]}},
     {"name":"cu4-append-ignored", "origin":"wf10 CU4", "file":"internal/sketch/std/exec/exec.ergo", "from":"\tcase ToFile as f:\n\t\tf.Append", "to":"\tcase ToFile as f:\n\t\tfalse", "rule":"ToFile with Append adds to the file; without it the file is emptied first.", "killers":["lower:TestExecStartRuns"], "anchor":{"tests":["lower:TestExecStartRuns"]}},
     {"name":"cu4-script-drops-caller", "origin":"wf10 CU4", "file":"internal/sketch/std/exec/exec.ergo", "from":"\tcase ToCaller:\n\t\ttrue", "to":"\tcase ToCaller:\n\t\tfalse", "rule":"Script.Start replays the recorded lines of each ToCaller stream.", "killers":["lower:TestExecStartRuns", "lower:TestExecLaws"], "anchor":{"tests":["lower:TestExecStartRuns", "lower:TestExecLaws"]}},
@@ -766,9 +768,8 @@
       "from": "s := f.Sig\n\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
       "to": "s := f.Sig\n\tif len(rowElems(s.Errors)) > 0 {",
       "rule": "pureCandidate: pureCandidate reports whether f meets every rule of a pure function but the last's fixed point, with the Ergo-bodied functions its body calls, of any package; info is f's own package's Info.",
-      "killers": [
-        "lower:TestStdLawsAddNoGo"
-      ]
+      "killers": [],
+      "gap": "Equivalent in behaviour: a function whose needs row its body does not use has an empty footprint (the prelude's NewLiveScheduler, needs Ambient), so as a pure function it takes no Env and its output, failures and defects are the same (measured on the std-laws program, wf10 OPT4a r2; survived in the 16d merge, m7b.log). Its only killer was the golden of TestStdLawsAddNoGo, which pinned the Go text; the text is no promise (AGENTS.md Tests)."
     },
     {
       "name": "existing-28-pure-too-wide",
@@ -1497,9 +1498,8 @@
       "from": "\tif len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {",
       "to": "\tif len(rowElems(s.Errors)) > 0 {",
       "rule": "pureCandidate: a function with a capability row is not pure and keeps its environment (spec D5; pure_test.go TestPureFunctionsTakeNoEnv, the needs variant)",
-      "killers": [
-        "lower:TestStdLawsAddNoGo"
-      ]
+      "killers": [],
+      "gap": "Equivalent in behaviour: a function whose needs row its body does not use has an empty footprint (the prelude's NewLiveScheduler, needs Ambient), so as a pure function it takes no Env and its output, failures and defects are the same (measured on the std-laws program, wf10 OPT4a r2; survived in the 16d merge, m7b.log). Its only killer was the golden of TestStdLawsAddNoGo, which pinned the Go text; the text is no promise (AGENTS.md Tests)."
     },
     {
       "name": "t5-0-true-false-pure.go:264",
@@ -2258,8 +2258,8 @@
       "name": "x1-key-variant-tag",
       "origin": "wf10/explorer/x1",
       "file": "internal/sketch/lower/machinelaws.go",
-      "from": "line(\"\\t\" + k + \".Tag(\" + strconv.Itoa(i) + \")\")",
-      "to": "line(\"\\t\" + k + \".Tag(0*\" + strconv.Itoa(i) + \")\")",
+      "from": "line(\"case \" + tc.goType(vt) + \":\")\n\t\t\tline(\"\\t\" + k + \".Tag(\" + strconv.Itoa(i) + \")\")",
+      "to": "line(\"case \" + tc.goType(vt) + \":\")\n\t\t\tline(\"\\t\" + k + \".Tag(0*\" + strconv.Itoa(i) + \")\")",
       "rule": "State keys: a union's key writes its variant.",
       "killers": [
         "lower:TestKeyEqualsEquality"
@@ -3304,6 +3304,225 @@
     {"name": "sconv-lower-float32-raw", "origin": "wf10/S-conv", "file": "internal/sketch/lower/floatconv.go", "from": "f.Kind != check.Float32 && f.Kind != check.Float64", "to": "f.Kind != check.Float64", "rule": "types.md Conversions 4: a float32 converts by the same rule as a float64.", "killers": ["lower:TestFloatConversionIsPortable"]},
     {"name": "sconv-lower-float32-unwidened", "origin": "wf10/S-conv", "file": "internal/sketch/lower/floatconv.go", "from": "\t\treturn \"float64(\" + val + \")\"\n", "to": "\t\treturn val\n", "rule": "types.md Conversions 4: a float32 widens to float64, exactly, before the conversion.", "killers": ["lower:TestFloatConversionIsPortable"]},
     {"name": "sconv-lower-wrong-width", "origin": "wf10/S-conv", "file": "internal/sketch/lower/floatconv.go", "from": "check.Int16:   \"FloatToInt16\",", "to": "check.Int16:   \"FloatToInt32\",", "rule": "types.md Conversions 4: each integer type saturates at its own bounds.", "killers": ["lower:TestFloatConversionIsPortable"]},
-    {"name": "sconv-runtime-noinline", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func FloatToInt64(f float64) int64 {", "to": "//go:noinline\nfunc FloatToInt64(f float64) int64 {", "rule": "types.md Conversions 4, Lowering: the conversion inlines to Go's conversion and its compares.", "killers": ["lower:TestFloatConversionInlines"], "anchor": {"file": "internal/sketch/lower/floatconv.go", "text": "func floatToInteger(", "tests": ["lower:TestFloatConversionInlines"]}}
+    {"name": "sconv-runtime-noinline", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func FloatToInt64(f float64) int64 {", "to": "//go:noinline\nfunc FloatToInt64(f float64) int64 {", "rule": "types.md Conversions 4, Lowering: the conversion inlines to Go's conversion and its compares.", "killers": ["lower:TestFloatConversionInlines"], "anchor": {"file": "internal/sketch/lower/floatconv.go", "text": "func floatToInteger(", "tests": ["lower:TestFloatConversionInlines"]}},
+    {"name":"inline-loop-blind","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"\t\tcase *syntax.ForStmt, *syntax.RangeStmt:\n\t\t\tok = false","to":"\t\tcase *syntax.ForStmt, *syntax.RangeStmt:\n\t\t\t_ = ok","rule":"Inline cost rule: a body with a loop stays a Go call.","killers":["lower:TestInlineRule"]},
+    {"name":"inline-recursion-blind","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"return !frame && !l.inlineRecursive(f)","to":"return !frame","rule":"Inline cost rule: a function that a chain of calls from its body reaches stays a Go call.","killers":["lower:TestInlineRule"]},
+    {"name":"inline-budget-blind","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"if size > inlineBudget || goLeaf(f) {","to":"if size > 100*inlineBudget || goLeaf(f) {","rule":"Inline cost rule: a body over inlineBudget syntax nodes stays a Go call.","killers":["lower:TestInlineRule"]},
+    {"name":"laws-run-build-reads-law-facts","origin":"wf10 OPT4a r2","file":"internal/sketch/lower/owners.go","from":"\tif l.tests != nil {\n\t\treturn check.ViewTestBuild","to":"\tif true {\n\t\treturn check.ViewTestBuild","rule":"types.md Laws 11: a law adds no Go to the run build; an import or a generic instance only a law uses is not in it.","killers":["lower:TestStdLawsAddNoGo"]},
+    {"name":"inline-subst-mut","origin":"wf10 OPT4b","file":"internal/sketch/lower/inline.go","from":"if v, ok := fc.l.info.Uses[id].(*check.Var); ok && !v.Mut() {","to":"if v, ok := fc.l.info.Uses[id].(*check.Var); ok && (v.Mut() || true) {","rule":"An inlined call's operand stands for its parameter only when no write reaches its variable: a let mut read by value keeps its value at the call.","killers":["lower:TestInlineAgrees"]},
+    {"name":"inline-subst-unread","origin":"wf10 OPT4b","file":"internal/sketch/lower/inline.go","from":"\t\t\t\t\tic.line(\"_ = \" + vals[i])\n\t\t\t\t}\n\t\t\t\tcontinue","to":"\t\t\t\t}\n\t\t\t\tcontinue","rule":"A substituted operand of a parameter the body does not read is still used once, so its Go variable is used.","killers":["lower:TestCheckIsCanonical","lower:TestCheckCorpusBuildsPart8","lower:TestRuntime199DefectProperty"]},
+    {"name":"inline-subst-type","origin":"wf10 OPT4b","file":"internal/sketch/lower/inline.go","from":"if same[i] != \"\" && same[i] == ic.goType(p.Type) {","to":"if same[i] != \"\" {","rule":"An inlined call's operand stands for its parameter only when its Go type is the parameter's.","killers":["lower:TestInlineAgrees"]},
+    {"name":"builtin-append-unclipped","origin":"wf10 OPT4b","file":"internal/sketch/lower/values.go","from":"\treturn check.GoBuiltin(f) == \"append\" || f != nil","to":"\treturn false && f != nil","rule":"types.md Bindings 1: an append binding's source that is read again is clipped, so a later append to it is not seen through the new slice.","killers":["lower:TestBuiltinsAgree"]},
+    {"name":"builtin-borrow-unwritten","origin":"wf10 OPT4b","file":"internal/sketch/lower/calls.go","from":"\t\t\tvals[i] = \"*(\" + vals[i] + \")\"","to":"\t\t\tvals[i] = \"(*(\" + vals[i] + \"))[:0:0]\"","rule":"A builtin's borrow operand (copy's dst, clear's slice) is written through.","killers":["lower:TestBuiltinsAgree"]},
+    {"name":"builtin-reference-direct","origin":"wf10 OPT4b","file":"internal/sketch/lower/calls.go","from":"\tif builtinLowering == \"call\" {\n\t\treturn fc.l.builtinHelper(b, x)","to":"\tif false {\n\t\treturn fc.l.builtinHelper(b, x)","rule":"The reference lowering calls each builtin through a Go function of the program (builtinLowering call).","killers":["lower:TestBuiltinsAgree"]},
+    {"name":"inline-go-leaf-blind","origin":"wf10 OPT4a r2","file":"internal/sketch/lower/inline.go","from":"if size > inlineBudget || goLeaf(f) {","to":"if size > inlineBudget {","rule":"Inline cost rule: a non-generic leaf is left to Go's inliner.","killers":["lower:TestInlineRule"]},
+    {"name":"inline-go-leaf-generic-blind","origin":"wf10 OPT4a r2","file":"internal/sketch/lower/inline.go","from":"\tif d.TypeParams != nil && len(d.TypeParams.List) > 0 {\n\t\treturn false\n\t}\n\tinfo := f.Pkg.Info\n\tleaf := true","to":"\tinfo := f.Pkg.Info\n\tleaf := true","rule":"Inline cost rule: a generic leaf (a shape body with a dictionary) is inlined.","killers":["lower:TestInlineRule"]},
+    {"name":"inline-go-leaf-call-blind","origin":"wf10 OPT4a r2","file":"internal/sketch/lower/inline.go","from":"c.Func.Decl.Extern == nil:\n\t\t\tleaf = false","to":"c.Func.Decl.Extern == nil:\n\t\t\t_ = leaf","rule":"Inline cost rule: a non-generic body that calls an Ergo body is no leaf; it is inlined.","killers":["lower:TestInlineRule"]},
+    {"name":"inline-callback-escape-blind","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"isVar && cbs[v] && !called[n] {\n\t\t\t\tok = false","to":"isVar && cbs[v] && !called[n] {\n\t\t\t\t_ = ok","rule":"Inline cost rule: a callback parameter the body uses other than as a callee keeps the call.","killers":["lower:TestInlineRule"]},
+    {"name":"inline-fail-dropped","origin":"wf10 OPT4a","file":"internal/sketch/lower/body.go","from":"fc.line(in.err + \" = \" + err)","to":"fc.line(\"_ = \" + err)","rule":"An inlined body's typed failure reaches its site as the call's error.","killers":["lower:TestInlineAgrees"]},
+    {"name":"inline-return-dropped","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"lhs, rhs = append(lhs, in.res), append(rhs, vals[0])","to":"lhs, rhs = append(lhs, \"_\"), append(rhs, vals[0])","rule":"An inlined body's return gives the call its value.","killers":["lower:TestInlineAgrees"]},
+    {"name":"inline-args-unspilled","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"\t\tif later[i+1] && !fc.isConst(x) {\n\t\t\tout[i] = fc.spill(out[i])","to":"\t\tif later[i+1] && !fc.isConst(x) {\n\t\t\t_ = out[i]","rule":"An inlined call evaluates its operands left to right, as the call does.","killers":["lower:TestInlineAgrees"]},
+    {"name":"inline-dir-unrestored","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"\t\tfc.writeDir(before)","to":"\t\t_ = before","rule":"runtime.md Exit causes 6: the code after an inlined block names its own line again.","killers":["lower:TestInlineAgrees"]},
+    {"name":"inline-exported-dropped","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"\t\tfc.l.useFunc(f, x)\n\t}\n\top := fc.inlineCall","to":"\t\t_ = x\n\t}\n\top := fc.inlineCall","rule":"An exported function keeps its Go function when its calls are inlined.","killers":["lower:TestPurityAcrossPackages"]},
+    {"name":"inline-literal-no-site","origin":"wf10 OPT4a","file":"internal/sketch/lower/inline.go","from":"inl: fc.site0(x, c), inlDepth","to":"inl: fc.inl, inlDepth","rule":"runtime.md Exit causes 6: the call of a substituted literal keeps its frame in the defect report.","killers":["lower:TestInlineAgrees"]},
+    {"name":"inline-sites-unregistered","origin":"wf10 OPT4a","file":"internal/sketch/lower/calls.go","from":"\"[:])\\n\" + register + \"}\\n\\n\"","to":"\"[:])\\n\" + register[:0] + \"}\\n\\n\"","rule":"runtime.md Exit causes 6: the program registers its inline sites, so the report writes the inlined frames.","killers":["lower:TestInlineAgrees"]},
+    {"name":"inline-chain-off","origin":"wf10 OPT4a","file":"runtime/v1/exit.go","from":"\t\t\t\tadd(fmt.Sprintf(\"%s calls %s at %s:%d:%d\", c.Func, c.Callee, c.File, c.Line, c.Column), f.fn)","to":"\t\t\t\t_ = c","rule":"runtime.md Exit causes 6: after a frame in an inlined body the report writes each inlined call around it.","killers":["lower:TestInlineAgrees"],"anchor":{"tests":["lower:TestInlineAgrees"]}},
+    {"name":"inline-chain-closure-repeat","origin":"wf10 OPT4a","file":"runtime/v1/exit.go","from":"c.Func, c.Callee, c.File, c.Line, c.Column), f.fn)","to":"c.Func, c.Callee, c.File, c.Line, c.Column), \"\")","rule":"runtime.md Exit causes 6: the closure around an exit action that calls it at the inlined call's position is no repeated frame.","killers":["lower:TestInlineAgrees"],"anchor":{"tests":["lower:TestInlineAgrees"]}},
+    {"name":"alias-deps-never","origin":"wf10 OPT1","file":"internal/sketch/lower/alias.go","from":"\t\tif v != nil {\n\t\t\tout[i] = fl.reachesResult(v)\n\t\t}","to":"\t\t_, _, _ = i, v, fl","rule":"types.md Bindings, Result aliasing: a pure call's result that depends on an argument read from a let mut root is copied when a write through the root follows.","killers":["lower:TestKnownCallbacksAgree"]},
+    {"name":"alias-let-blind","origin":"wf10 OPT1","file":"internal/sketch/lower/alias.go","from":"\t\t\t\t\t\treturn []*check.Var{v}, false","to":"\t\t\t\t\t\treturn []*check.Var{v}[:0], false","rule":"types.md Bindings, Result aliasing: a value bound by a let carries its parameter's dependency to the result.","killers":["lower:TestKnownCallbacksAgree"]},
+    {"name":"alias-assign-blind","origin":"wf10 OPT1","file":"internal/sketch/lower/alias.go","from":"\t\t\t\t\ttaints = append(taints, v)","to":"\t\t\t\t\t_ = v","rule":"types.md Bindings, Result aliasing: an assignment taints the root of its place.","killers":["lower:TestKnownCallbacksAgree"]},
+    {"name":"alias-call-blind","origin":"wf10 OPT1","file":"internal/sketch/lower/alias.go","from":"\t\tif j >= len(deps) || deps[j] {\n\t\t\treturn x, false, false\n\t\t}\n\t\treturn nil, true, false","to":"\t\t_ = deps\n\t\treturn nil, true, false","rule":"types.md Bindings, Result aliasing: a call passes the dependency on at a parameter its callee's summary marks.","killers":["lower:TestKnownCallbacksAgree"]},
+    {"name":"alias-carries-blind","origin":"wf10 OPT1","file":"internal/sketch/lower/alias.go","from":"\treturn fl.l.reaches(t, set, map[check.Type]bool{}) || len(set) > 0","to":"\t_ = set\n\treturn false","rule":"types.md Bindings, Result aliasing: a type parameter may hold a slice or Map, so a value of it carries the dependency.","killers":["lower:TestKnownCallbacksAgree"]},
+    {"name":"alias-borrow-blind","origin":"wf10 OPT1","file":"internal/sketch/lower/alias.go","from":"\t\tif _, ptr := w.typeOf(a).(*check.Pointer); ptr {\n\t\t\treturn true\n\t\t}\n\t\tif u, ok := unparen(a).(*syntax.UnaryExpr); ok && u.Op == syntax.AND {\n\t\t\treturn true\n\t\t}","to":"\t\t_ = a","rule":"types.md Bindings: a generic result through a borrow whose instance holds a slice or Map is copied by the caller.","killers":["lower:TestKnownCallbacksAgree"]},
+    {"name":"values-in-flight-blind","origin":"wf10 OPT1","file":"internal/sketch/lower/values.go","from":"\t\tif wr.pre > o.pre && wr.pre < end {","to":"\t\tif false && wr.pre > o.pre && wr.pre < end {","rule":"types.md Bindings: a read that keeps nothing is copied when a later operand of the same call writes its root.","killers":["lower:TestKnownCallbacksAgree"]},
+    {"name":"values-result-copy-skipped","origin":"wf10 OPT1","file":"internal/sketch/lower/values.go","from":"\t\t\t\t\t\tvf.clone[o.call] = true\n","to":"","rule":"types.md Bindings, Result aliasing: the result of a pure call is copied instead of its argument.","killers":["lower:TestKnownCallbacksAgree"]},
+    {"name":"known-variant-drops-loop-poll","origin":"wf10 OPT1","file":"internal/sketch/lower/decls.go","from":"\t\tfc.frame.polls = framePolls(f.Pkg.Info, f.Decl)","to":"\t\tfc.frame.polls = framePolls(f.Pkg.Info, f.Decl) && !known","rule":"runtime.md I1, Known callbacks: a known variant keeps its loop's back-edge point, so a loop through a known callback stops.","killers":["lower:TestKnownCallbacksAgree"]},
+    {"name":"known-literal-uniform","origin":"wf10 OPT1","file":"internal/sketch/lower/known.go","from":"\tfor _, lit := range lits {\n\t\tfc.plainLits[lit] = true\n\t}","to":"","rule":"runtime.md I1, Known callbacks: a known site's literal is lowered plain, the variant's parameter type.","killers":["lower:TestKnownCallbacksAgree"]},
+    {"name":"known-literal-purity-blind","origin":"wf10 OPT1","file":"internal/sketch/lower/known.go","from":"\tif !ok || !fp.Empty() || fp.EntryPoll || lit.Body == nil","to":"\tif !ok || fp.EntryPoll || lit.Body == nil","rule":"runtime.md I1, Known callbacks: a literal with an opaque footprint keeps the uniform ABI and its callee's entry poll.","killers":[],"gap":"Equivalent in every program the property writes: a literal that calls a function value runs the same code under either ABI, and the dropped entry poll is observable only as the moment a pending stop is seen. A literal with a capability, a failure or a task start is refused by plainSig and bodyNeedsFrame before purity is asked."},
+    {"name":"arena-free-slot-readable-by-foreign-ref","origin":"wf10 S-arena r2 F4","file":"internal/sketch/std/arena/arena.ergo","from":" && slots[r.index].next == occupied","to":"","rule":"A free slot cannot expose cleared host storage, including through a Ref minted by another store with that generation.","killers":["lower:TestStdArenaReleasesStorage"],"anchor":{"tests":["lower:TestStdArenaReleasesStorage"]}},
+    {"name":"arena-storage-forgets-generic-arity","origin":"wf10 S-arena r2 F4","file":"runtime/v1/files.go","from":"g.typ.TypeParams.NumFields() != arity","to":"g.typ.TypeParams != nil || arity != 0","rule":"A generic std storage record can bind a Go record with the same type-parameter arity.","killers":["lower:TestStdArenaReleasesStorage"],"anchor":{"tests":["lower:TestStdArenaReleasesStorage"]}},
+    {"name":"arena-free-retains-pointerful-value","origin":"wf10 S-arena r2 F4","file":"runtime/v1/data.go","from":"\ts.Value = zero\n","to":"\t_ = zero\n","rule":"Free clears removed storage without exposing a zero T to checked source.","killers":["lower:TestStdArenaReleasesStorage"],"anchor":{"tests":["lower:TestStdArenaReleasesStorage"]}},
+    {"name":"arena-free-skips-take","origin":"wf10 S-arena r2 F4","file":"internal/sketch/std/arena/arena.ergo","from":"let v = takeValue(&s.value)","to":"let v = s.value.Value","rule":"Free removes the value through the private clearing storage boundary.","killers":["lower:TestStdArenaReleasesStorage"],"anchor":{"tests":["lower:TestStdArenaReleasesStorage"]}},
+    {"name":"arena-free-keeps-generation","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"vacate(&a.slots[r.index], r.gen+1, free)","to":"vacate(&a.slots[r.index], r.gen, free)","rule":"Free advances the slot's generation, so a Ref kept after Free is stale.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-has-ignores-generation","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"r.index < len(slots) && slots[r.index].gen == r.gen","to":"r.index < len(slots)","rule":"A Ref names a value only when its generation is its slot's.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-has-no-lower-bound","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"r.index >= 0 && r.index < len(slots)","to":"r.index < len(slots)","rule":"Null (index -1) names no value: Has is false and the operations fail with Stale, never a defect.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-put-never-reuses","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"\tif at == -1 {\n","to":"\tif true {\n","rule":"Put reuses a freed slot before it grows the store (Cap does not grow).","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-free-drops-free-list","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"\ta.free = r.index\n","to":"","rule":"Free puts the slot on the free list.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-put-keeps-free-head","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"\ta.free = reuse(&a.slots[at], v)\n","to":"\tlet _ = reuse(&a.slots[at], v)\n","rule":"Put takes the reused slot off the free list, so two Puts never share a slot.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-reuse-old-generation","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"Ref[T]{index: at, gen: a.slots[at].gen}","to":"Ref[T]{index: at, gen: a.slots[at].gen - 1}","rule":"A reused slot's Ref has the new generation, never one an earlier Ref has.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-free-keeps-live","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"\ta.live = a.live - 1\n","to":"","rule":"Len counts the values: Free takes one away.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-free-returns-new","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"let v = vacate(&a.slots[r.index],","to":"let v = vacate(&a.slots[0],","rule":"Free returns the value it removes.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-set-skips-check","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"func Set[T](a *Of[T], r Ref[T], v T) fails Stale {\n\tif !live(a.slots, r) {\n\t\treturn Stale\n\t}\n","to":"func Set[T](a *Of[T], r Ref[T], v T) fails Stale {\n\tif r.index < 0 {\n\t\treturn Stale\n\t}\n","rule":"Set on a stale Ref fails with Stale and writes nothing, also into a reused slot.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-update-skips-check","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"func Update[T](a *Of[T], r Ref[T], f func(v *T)) fails Stale {\n\tif !live(a.slots, r) {\n\t\treturn Stale\n\t}\n","to":"func Update[T](a *Of[T], r Ref[T], f func(v *T)) fails Stale {\n\tif r.index < 0 {\n\t\treturn Stale\n\t}\n","rule":"Update on a stale Ref fails with Stale and does not call its function.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-update-copies","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"\tf(&a.slots[r.index].value.Value)\n","to":"\tlet mut v = a.slots[r.index].value.Value\n\tf(&v)\n","rule":"Update changes the stored value in place.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-get-skips-check","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"func Get[T](a *Of[T], r Ref[T]) T fails Stale {\n\tif !live(a.slots, r) {\n\t\treturn Stale\n\t}\n","to":"func Get[T](a *Of[T], r Ref[T]) T fails Stale {\n\tif r.index < 0 {\n\t\treturn Stale\n\t}\n","rule":"Get on a stale Ref fails with Stale, also after the slot is reused.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {"name":"arena-free-skips-check","origin":"wf10 S-arena r1","file":"internal/sketch/std/arena/arena.ergo","from":"func Free[T](a *Of[T], r Ref[T]) T fails Stale {\n\tif !live(a.slots, r) {\n\t\treturn Stale\n\t}\n","to":"func Free[T](a *Of[T], r Ref[T]) T fails Stale {\n\tif r.index < 0 {\n\t\treturn Stale\n\t}\n","rule":"Free of a stale Ref fails with Stale and changes nothing: a double Free never frees a reused slot.","killers":["lower:TestStdArenaLawsRun"],"anchor":{"tests":["lower:TestStdArenaLawsRun"]}},
+    {
+      "name": "option-never-flat",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\tif !signal && !l.optionCycle(opt.Obj) {",
+      "to": "\t\tif false && !signal && !l.optionCycle(opt.Obj) {",
+      "rule": "types.md Unions 6: the prelude's Option is a tag and Some's record, never a box, outside the named exceptions.",
+      "killers": [
+        "lower:TestOptionFlatAgrees"
+      ]
+    },
+    {
+      "name": "option-cycle-never",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tif optionLoop(n, opt, map[*check.TypeName]int{}, 0) {",
+      "to": "\t\t\tif false && optionLoop(n, opt, map[*check.TypeName]int{}, 0) {",
+      "rule": "types.md Unions 6: a record that holds itself through an Option keeps Option an interface (a flat one is an invalid recursive Go type).",
+      "killers": [
+        "lower:TestCheckCorpusBuildsPart0"
+      ]
+    },
+    {
+      "name": "option-extern-boxes",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\tif fu := l.flatSet[obj]; fu == nil || !fu.generic {",
+      "to": "\t\tif true {",
+      "rule": "types.md Unions 6: an extern's Option is built by its adapter, so a program with a Go extern keeps Option flat.",
+      "killers": [
+        "lower:TestOptionFlatAgrees"
+      ]
+    },
+    {
+      "name": "option-value-bare",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\tv := \"(\" + own + \"{}).\" + ofName(k) + \"(\" + val + \")\"",
+      "to": "\tv := own + \"{}.\" + ofName(k) + \"(\" + val + \")\"",
+      "rule": "types.md Unions 6: a flat Option value stands anywhere a Go expression does, an if or a switch header included.",
+      "killers": [
+        "lower:TestOptionFlatAgrees",
+        "lower:TestStdLawsAddNoGo"
+      ]
+    },
+    {
+      "name": "option-some-if-always",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\treturn w + \" := \" + fu.flatNarrow(&fc.typeCtx, o, k) + \"; \" + flatTest(o, k)",
+      "to": "\t\treturn w + \" := \" + fu.flatNarrow(&fc.typeCtx, o, k) + \"; true\"",
+      "rule": "runtime.md Machines: a machine's after or work that returns None starts no timer and no work, by the flat Option's tag.",
+      "killers": [
+        "lower:TestMachineRunAgreesWithFold"
+      ]
+    },
+    {
+      "name": "option-arm-unconverted",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/tails.go",
+      "from": "\tv, _ := fc.flatVariantValue(fc.typeOf(x), to, val, x)\n\treturn v",
+      "to": "\treturn fc.convertAt(x, val)",
+      "rule": "types.md Unions 6: an arm of a match, an if or a catch that yields a variant puts it into the flat Option its arms join to.",
+      "killers": [
+        "lower:TestOptionFlatAgrees"
+      ]
+    },
+    {
+      "name": "option-equal-no-tag",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/equal.go",
+      "from": "\t\t\tconj := []string{\"(\" + a + \".tag == \" + b + \".tag)\"}",
+      "to": "\t\t\tconj := []string{\"true\"}",
+      "rule": "types.md Equality: the structural == of two Options compares their variants first, so Some of a zero payload is not None.",
+      "killers": [
+        "lower:TestOptionFlatAgrees"
+      ]
+    },
+    {
+      "name": "option-equal-unnamed-slot",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/equal.go",
+      "from": "\"(\"+a+\".tag != \"+strconv.Itoa(k)+\" || \"",
+      "to": "\"(\"+a+\".tag != \"+strconv.Itoa(k)+\" && false || \"",
+      "rule": "types.md Equality: two Nones of an Option whose payload is a union are equal; the payload the tag does not name is not compared.",
+      "killers": [
+        "lower:TestOptionFlatAgrees",
+        "lower:TestStdWireLawsRun"
+      ]
+    },
+    {
+      "name": "option-text-swapped",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/text.go",
+      "from": "s.WriteString(\"\\tcase \" + strconv.Itoa(k) + \":\\n\\t\\treturn \" + l.textExpr(",
+      "to": "s.WriteString(\"\\tcase \" + strconv.Itoa(1-k) + \":\\n\\t\\treturn \" + l.textExpr(",
+      "rule": "rows.md Failures: an uncaught failure's text names the variant its Option field holds.",
+      "killers": [
+        "lower:TestOptionFlatAgrees"
+      ]
+    },
+    {
+      "name": "option-literal-swapped",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/literal.go",
+      "from": "body.WriteString(\"\\tcase \" + strconv.Itoa(k) + \":\\n\\t\\treturn \" + l.litExpr(",
+      "to": "body.WriteString(\"\\tcase \" + strconv.Itoa(1-k) + \":\\n\\t\\treturn \" + l.litExpr(",
+      "rule": "types.md Laws: a refuted law prints its Option arguments as the source literals of their variants.",
+      "killers": [
+        "lower:TestOptionFlatAgrees"
+      ]
+    },
+    {
+      "name": "option-gen-first-tag",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\t\t\treturn fu.flatValue(tc, tc.goType(t), fu.tagOf(v), e)",
+      "to": "\t\t\treturn fu.flatValue(tc, tc.goType(t), 0, e)",
+      "rule": "types.md Laws: a generated Option argument goes into the flat Option by its variant's tag.",
+      "killers": [
+        "lower:TestOptionFlatAgrees"
+      ]
+    },
+    {
+      "name": "option-wire-swapped",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "b.WriteString(\"case \" + strconv.Itoa(k) + \":\\n\" + x + \" := \" + fu.flatNarrow(tc, v, k) + \"\\n\")",
+      "to": "b.WriteString(\"case \" + strconv.Itoa(len(u.Variants)-1-k) + \":\\n\" + x + \" := \" + fu.flatNarrow(tc, v, k) + \"\\n\")",
+      "rule": "wire: a record's Option field round-trips: the encoder writes the variant the tag names.",
+      "killers": [
+        "lower:TestOptionFlatAgrees"
+      ]
+    },
+    {
+      "name": "option-state-key-payload",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/machinelaws.go",
+      "from": "\n\t\t\t\t\tline(\"\\t\" + l.keyStmt(vt, k, fu.flatNarrow(tc, v, i), site))",
+      "to": "\n\t\t\t\t\t_ = vt",
+      "rule": "types.md Laws 13: a machine state that holds an Option keys its states by the Option's variant and payload, so a law counts each state once.",
+      "killers": [
+        "lower:TestOptionFlatAgrees"
+      ]
+    },
+    {
+      "name": "option-listed-unflat",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/lawcases.go",
+      "from": "\t\t\t\t\t\treturn fu.flatValue(tc, tc.goType(u), k, child)",
+      "to": "\t\t\t\t\t\treturn fu.flatValue(tc, tc.goType(u), k*0, child)",
+      "rule": "types.md Laws: a listed Option argument goes into the flat Option by its variant's tag.",
+      "killers": [
+        "lower:TestOptionFlatAgrees"
+      ]
+    },
+    {
+      "name": "option-map-key-unconverted",
+      "origin": "wf10 OPT2",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\t\tindex := fc.assigned(x.Indices[0])",
+      "to": "\t\tindex := fc.value(x.Indices[0])",
+      "rule": "types.md Unions 6: a variant written as a Map key goes into the flat Option the key type is.",
+      "killers": [
+        "lower:TestOptionFlatAgrees"
+      ]
+    }
   ]
 }

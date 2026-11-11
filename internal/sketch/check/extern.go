@@ -89,7 +89,7 @@ func isExtern(f *Func) bool {
 // type parameter, and does not return a deferred Seq. A generic extern and
 // a prelude intrinsic stay call-only (externCallOnlyText).
 func externValue(f *Func) bool {
-	if !isExtern(f) || f.Sig == nil || len(f.Sig.TParams) > 0 {
+	if !isExtern(f) || f.Sig == nil || len(f.Sig.TParams) > 0 || GoBuiltin(f) != "" {
 		return false
 	}
 	if f.Pkg.Host() {
@@ -147,11 +147,19 @@ const unsafeText = "Ergo has no unsafe; unsafe stays at the FFI edge"
 // not in this rule.
 func (c *checker) checkExterns() {
 	c.checkExternParams()
+	for _, f := range c.funcs {
+		if b := GoBuiltin(f); b != "" && f.Sig != nil {
+			c.cur = f.file
+			if msg := builtinRefusal(f, b); msg != "" {
+				c.errorf(f.Decl, CodeType, "%s", msg)
+			}
+		}
+	}
 	if c.pkg.std {
 		return
 	}
 	for _, f := range c.funcs {
-		if !isExtern(f) || f.Sig == nil {
+		if !isExtern(f) || f.Sig == nil || GoBuiltin(f) != "" {
 			continue
 		}
 		c.cur = f.file
@@ -230,8 +238,10 @@ func PureGoPackages() []string {
 // allowlist. The match is exact: a subpackage ("strings/x"), a longer name
 // ("stringsx"), a vendored path ("vendor/strings") or a module path
 // ("example.com/strings") is not in it.
+// The empty path is Go's universe: an extern of a Go builtin (builtin.go),
+// which calls no Ergo code and no host.
 func PureGoPackage(path string) bool {
-	return slices.Contains(v1.PureImports, path)
+	return path == "" || slices.Contains(v1.PureImports, path)
 }
 
 // ---------------------------------------------------------------- Level 2 adapters (IG4)

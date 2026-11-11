@@ -104,11 +104,11 @@ func (fc *funcCtx) plainCatchBody(x *syntax.CatchExpr, m *check.Match, o operand
 			fc.line("_ = " + name)
 		}
 	}
-	fc.arm(x.Arms[0], result)
+	fc.arm(x.Arms[0], result, m.Result)
 	fc.depth--
 	if result != "" && !reuse && o.val != "" {
 		fc.line("} else {")
-		fc.line("\t" + result + " = " + o.val)
+		fc.line("\t" + result + " = " + fc.caughtValue(x, m, o.val))
 	}
 	fc.line("}")
 	return operand{val: result}

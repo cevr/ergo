@@ -229,6 +229,10 @@ func (fc *funcCtx) sourceReturn(vals ...string) {
 		fc.line("return nil, nil")
 		return
 	}
+	if fc.frame.inline != nil {
+		fc.inlineReturn(vals)
+		return
+	}
 	if fc.frame.unit {
 		if len(vals) != 1 {
 			ice(nil, "a return of %d results from a function value with no result", len(vals))
@@ -501,7 +505,19 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 	}
 	if len(d.Variants) > 0 {
 		if fu := g.fc.l.flatUnionOf(d.Type); fu != nil {
-			flatBail(g.site, fu)
+			// A flat union (flatunion.go): its tag names the active
+			// variant, and the variant's slot holds its value.
+			tc := &g.fc.typeCtx
+			b.WriteString(flatHead(x, len(fu.variants)) + " ")
+			for _, v := range d.Variants {
+				k := fu.tagOf(v.Type)
+				if k < 0 {
+					flatBail(g.site, fu)
+				}
+				b.WriteString("case " + strconv.Itoa(k) + ": " + g.release(v, fu.flatNarrow(tc, x, k)))
+			}
+			b.WriteString("}; ")
+			return b.String()
 		}
 		y := g.fc.temp("v")
 		b.WriteString("switch " + y + " := any(" + x + ").(type) { ")

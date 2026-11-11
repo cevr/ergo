@@ -64,11 +64,8 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.emitType":          "a declared type's fields and methods",
 			"lowerer.envField":          "a capability's Env field",
 			"lowerer.funcDecl":          "a declared function's Go name",
-			"funcCtx.optionReturn":      "the Value field of Some, for Get and a std body's comma-ok (S3d)",
-			"funcCtx.goResult":          "the Value field of Some, for a non-nil Go pointer or interface of import go (IG3)",
-			"funcCtx.someWhen":          "the Value field of Some, built from Go's (v, ok) or error by a Level 2 adapter (IG4)",
+			"funcCtx.optionSome":        "the Value field of Some, for Get, a std body's comma-ok (S3d), a Go result (IG3, IG4) and maps.Update's read (vr-elide-2)",
 			"funcCtx.getArmsLower":      "the Value field of Some, bound in a comma-ok match on Get (lw-get-commaok) or in a callback's comma-ok variant (fs7)",
-			"funcCtx.updateFused":       "the Value field of Some, built from a comma-ok read in maps.Update at its call (vr-elide-2)",
 			"lowerer.methodReceiver":    "a declared method's receiver",
 			"lowerer.meetsHostProtocol": "a pure method's Go name against the host protocols (Q-S5-6)",
 			"lowerer.protocolFreeName":  "the Go names already taken on a pure method's type (Q-S5-6)",
@@ -213,7 +210,7 @@ func originOf(obj types.Object) types.Object {
 func TestRuntime199BlockingOwner(t *testing.T) {
 	helpers := map[string]bool{
 		"Append": true, "Delete": true, "Put": true, "NewScope": true, "NewOwnerScope": true, "Site": true,
-		"RegisterCalls": true, "TextBool": true, "TextDuration": true,
+		"RegisterCalls": true, "RegisterInlines": true, "TextBool": true, "TextDuration": true,
 		"TextInt": true, "TextUint": true, "TextFloat": true, "TextList": true,
 		"Main": true, "Println": true, "End": true,
 		// IG11: an exported function's root task, as Main is main's; Go's

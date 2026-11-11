@@ -1864,16 +1864,25 @@ func (l *lowerer) genPick(body *strings.Builder, t check.Type, variants []check.
 	if len(small) == 0 {
 		ice(site, "the union %s has no finite value; the checker admits only generatable types", t)
 	}
+	gen := func(v check.Type, depth string) string {
+		e := l.genExpr(v, r, depth, scope, site)
+		if fu := l.flatUnionOf(t); fu != nil && fu.generic {
+			// Option (flatunion.go): the variant goes in by its tag.
+			tc := &typeCtx{l: l, site: site}
+			return fu.flatValue(tc, tc.goType(t), fu.tagOf(v), e)
+		}
+		return e
+	}
 	pick := func(vs []check.Type, depth string) {
 		if len(vs) == 1 {
-			body.WriteString("\t\treturn " + l.genExpr(vs[0], r, depth, scope, site) + "\n")
+			body.WriteString("\t\treturn " + gen(vs[0], depth) + "\n")
 			return
 		}
 		body.WriteString("\t\tswitch " + r + ".intn(" + strconv.Itoa(len(vs)) + ") {\n")
 		for i, v := range vs[:len(vs)-1] {
-			body.WriteString("\t\tcase " + strconv.Itoa(i) + ":\n\t\t\treturn " + l.genExpr(v, r, depth, scope, site) + "\n")
+			body.WriteString("\t\tcase " + strconv.Itoa(i) + ":\n\t\t\treturn " + gen(v, depth) + "\n")
 		}
-		body.WriteString("\t\t}\n\t\treturn " + l.genExpr(vs[len(vs)-1], r, depth, scope, site) + "\n")
+		body.WriteString("\t\t}\n\t\treturn " + gen(vs[len(vs)-1], depth) + "\n")
 	}
 	body.WriteString("\tif " + d + " <= 0 {\n")
 	pick(small, d+"-1")
@@ -1949,7 +1958,7 @@ func (l *lowerer) genFunc(n *check.Named, site syntax.Node) string {
 		}
 		body.WriteString("\treturn " + goType + "{" + strings.Join(parts, ", ") + "}\n")
 	case *check.Union:
-		if fu := l.flatUnionOf(n); fu != nil {
+		if fu := l.flatUnionOf(n); fu != nil && !fu.generic {
 			flatBail(site, fu) // a property's argument keeps its interface (flatunion.go)
 		}
 		l.genPick(&body, n, under.Variants, r, d, scope, site)

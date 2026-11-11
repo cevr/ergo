@@ -71,6 +71,7 @@ const (
 	callerEnv   envBinding = iota // the uniform function parameter
 	childEnv                      // a host callback's task, in a copy of the current env
 	capturedEnv                   // a host callback with no hidden task
+	plainEnv                      // a known pure literal: the caller's environment, if any (known.go)
 )
 
 // envClosure owns closure environment binding. The body builder receives the
@@ -101,6 +102,10 @@ func (fc *funcCtx) envClosure(binding envBinding, name string, site syntax.Node,
 	case capturedEnv:
 		env = fc.envExpr(site)
 		bound = env
+	case plainEnv:
+		// A known pure literal is its own frame, called only while the
+		// call that takes it runs, on the caller's task.
+		env, bound = fc.env, fc.env
 	default:
 		ice(site, "an unknown closure environment binding %d", binding)
 	}

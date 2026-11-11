@@ -108,7 +108,10 @@ internal/sketch/check/wirekeys_test.go	*
 internal/sketch/check/wirecall.go	*
 internal/sketch/lower/calls.go	// A codec call writes its own statements (wire.go).
 internal/sketch/lower/module.go	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
+internal/sketch/lower/option_flat_property_test.go	*
 internal/sketch/lower/testdata/mutants.json	      "file": "internal/sketch/lower/wire.go",
+internal/sketch/lower/testdata/mutants.json	      "name": "option-wire-swapped",
+internal/sketch/lower/testdata/mutants.json	      "rule": "wire: a record's Option field round-trips
 internal/sketch/lower/testdata/mutants.json	"killers": ["examples:wire-config"]
 internal/sketch/lower/testdata/mutants.json	"file": "internal/sketch/lower/wire.go",
 internal/tsproj/testdata/runtime.mjs	// seed-selected wire names are independent of the projection and Go codec.

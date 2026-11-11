@@ -297,11 +297,10 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 	}
 	switch {
 	case isOptionType(t):
-		some, none := optionVariants(t, x)
 		v := fc.temp("v")
-		fc.line("var " + v + " " + fc.goType(t) + " = " + fc.goType(none) + "{}")
+		fc.line("var " + v + " " + fc.goType(t) + " = " + fc.optionNone(t, x))
 		fc.line("if " + r + " != nil {")
-		fc.line("\t" + v + " = " + fc.goType(some) + "{" + memberName("Value") + ": " + r + "}")
+		fc.line("\t" + v + " = " + fc.optionSome(t, r, x))
 		fc.line("}")
 		return v
 	case isGoRef(t):
@@ -491,11 +490,10 @@ func (l *lowerer) goErrorFrom() string {
 // someWhen is a new variable of the Option type t: Some(v) when cond holds,
 // else None.
 func (fc *funcCtx) someWhen(x syntax.Node, t check.Type, cond, v string) string {
-	some, none := optionVariants(t, x)
 	o := fc.temp("o")
-	fc.line("var " + o + " " + fc.goType(t) + " = " + fc.goType(none) + "{}")
+	fc.line("var " + o + " " + fc.goType(t) + " = " + fc.optionNone(t, x))
 	fc.line("if " + cond + " {")
-	fc.line("\t" + o + " = " + fc.goType(some) + "{" + memberName("Value") + ": " + v + "}")
+	fc.line("\t" + o + " = " + fc.optionSome(t, v, x))
 	fc.line("}")
 	return o
 }

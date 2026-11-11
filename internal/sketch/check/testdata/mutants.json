@@ -2486,6 +2486,8 @@
       "to": "for _, m := range []Type{t} {",
       "rule": "A written row argument means the set of its elements' members, so Box[U | V] is Box[E1 | E2 | E3] when U = E1 | E2 and V = E2 | E3.",
       "killers": ["check:TestRowArgsAreSets"]
-    }
+    },
+    {"name":"builtin-shape-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/extern.go","from":"\t\t\tif msg := builtinRefusal(f, b); msg != \"\" {","to":"\t\t\tif msg := builtinRefusal(f, b); false && msg != \"\" {","rule":"A Go builtin binding has its builtin's shape (builtin.go).","killers":["check:TestBuiltinBindingShapes"]},
+    {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]}
   ]
 }

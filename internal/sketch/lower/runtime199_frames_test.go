@@ -16,6 +16,9 @@ import (
 // One catalog drives both the ordinary frame axis and the nesting axis.
 // sites names the lowering functions that allocate the frame; shared
 // paths (methods/declarations and the three closure forms) share a site.
+// A pure trailing literal passed to a non-escaping callback is a known
+// callback (known.go): plainLit opens its frame, reached by the trailing
+// class with the pure effect.
 // A context/initializer has only an expression body, so its nested statements
 // run in an immediately called literal. The outer frame is tested too.
 type i1FrameKind struct {
@@ -41,7 +44,7 @@ var i1FrameKinds = []i1FrameKind{
 	}, wrap: func(d int, body string) string {
 		return "let t" + i1Depth(d) + " = task.Go() {\n" + body + "}\nt" + i1Depth(d) + ".Wait()\n"
 	}},
-	{name: "trailing", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1}, program: func(ps, row, attempt string, body string) string {
+	{name: "trailing", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1, "plainLit": 1}, program: func(ps, row, attempt string, body string) string {
 		return "func run(f func() int" + row + ") int" + row + " { " + attempt + "f() }\nfunc subject(" + ps + ") int" + row + " {\n" + attempt + "run() {\n" + body + "}\n}\n"
 	}, wrap: func(_ int, body string) string { return "run() {\n" + body + "}\n" }},
 	{name: "provider", goClass: "decl", sites: map[string]int{"emitBody": 1}, program: func(_, _, _ string, body string) string {

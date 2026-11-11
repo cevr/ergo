@@ -239,7 +239,6 @@ func (fc *funcCtx) updateFused(x *syntax.CallExpr, c *check.Call) (string, bool)
 	if !isPreludeType(opt, "Option") {
 		return "", false
 	}
-	some, none := optionVariants(opt, x)
 	vals := fc.callArgs(list[:2], x)
 	m, k := fc.temp("m"), fc.temp("k")
 	fc.line(m + ", " + k + " := " + vals[0] + ", " + vals[1])
@@ -266,12 +265,12 @@ func (fc *funcCtx) updateFused(x *syntax.CallExpr, c *check.Call) (string, bool)
 	o, v, ok := fc.temp("o"), fc.temp("v"), fc.temp("ok")
 	fc.line("var " + o + " " + fc.goType(opt))
 	if valueMutant == "update-none" {
-		fc.line(o + " = " + fc.goType(none) + "{}")
+		fc.line(o + " = " + fc.optionNone(opt, x))
 	} else {
 		fc.line("if " + v + ", " + ok + " := " + m + "[" + k + "]; " + ok + " {")
-		fc.line("\t" + o + " = " + fc.goType(some) + "{" + memberName("Value") + ": " + v + "}")
+		fc.line("\t" + o + " = " + fc.optionSome(opt, v, x))
 		fc.line("} else {")
-		fc.line("\t" + o + " = " + fc.goType(none) + "{}")
+		fc.line("\t" + o + " = " + fc.optionNone(opt, x))
 		fc.line("}")
 	}
 	args := []string{o}

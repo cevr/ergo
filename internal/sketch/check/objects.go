@@ -122,6 +122,11 @@ type Var struct {
 	refused bool
 }
 
+// Mut reports a `let mut` name, the only kind an assignment or a borrow
+// `&x` may write (D-D1): any other variable keeps its value for its
+// lifetime.
+func (o *Var) Mut() bool { return o.mut }
+
 // Const is a predeclared constant (true, false).
 type Const struct {
 	Name string

@@ -308,6 +308,9 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	case *syntax.CatchExpr:
 		return fc.catch(x, false)
 	case *syntax.FuncLit:
+		if fc.plainLits[x] {
+			return operand{val: fc.plainLit(x)} // known.go
+		}
 		return operand{val: fc.funcLit(x.Type, x.Body.List, x)}
 	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		return fc.branchExpr(x)
@@ -542,9 +545,6 @@ func (fc *funcCtx) binary(x *syntax.BinaryExpr) string {
 // of an equatable but not comparable type lower to structural equality
 // (equal.go).
 func (fc *funcCtx) binaryOf(x *syntax.BinaryExpr, parts []string) string {
-	if (x.Op == syntax.EQL || x.Op == syntax.NEQ) && needsEqual(fc.equalType(x)) {
-		return fc.equalOp(x, parts) // structural equality (equal.go)
-	}
 	if x.Op == syntax.EQL || x.Op == syntax.NEQ {
 		// A variant compared with a flat union goes into it first
 		// (flatunion.go), as Go converts it to an interface.
@@ -553,6 +553,9 @@ func (fc *funcCtx) binaryOf(x *syntax.BinaryExpr, parts []string) string {
 			parts = []string{parts[0], v}
 		} else if v, ok := fc.flatVariantValue(lt, rt, parts[0], x); ok {
 			parts = []string{v, parts[1]}
+		}
+		if needsEqual(fc.equalType(x)) {
+			return fc.equalOp(x, parts) // structural equality (equal.go)
 		}
 	}
 	return "(" + parts[0] + " " + x.Op.String() + " " + parts[1] + ")"
@@ -1034,7 +1037,7 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		} else if bind {
 			fc.line("_ = " + narrowed)
 		}
-		fc.arm(x.Arms[i], result)
+		fc.arm(x.Arms[i], result, m.Result)
 		fc.depth--
 	}
 	fc.line("default:")
@@ -1053,7 +1056,7 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	fc.depth--
 	if result != "" && o.val != "" {
 		fc.line("} else {")
-		fc.line("\t" + result + " = " + o.val)
+		fc.line("\t" + result + " = " + fc.caughtValue(x, m, o.val))
 		if site := fc.resultNames[result]; site != "" {
 			fc.line("\t" + site + " = " + fc.resultSite(x.X))
 		}
@@ -1062,21 +1065,29 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	return operand{val: result}
 }
 
+// caughtValue is val, the value of the catch x's operand when it does not
+// fail, as the catch's value: a variant goes into the flat union its arms'
+// types join to (flatunion.go).
+func (fc *funcCtx) caughtValue(x *syntax.CatchExpr, m *check.Match, val string) string {
+	v, _ := fc.flatVariantValue(fc.typeOf(x.X), m.Result, val, x)
+	return v
+}
+
 // arm writes a catch arm's statements; its last expression is the catch's
-// value when the catch has one. It reports whether the arm's Go form
-// terminates (the match tree, M1b, reads it).
-func (fc *funcCtx) arm(a *syntax.CatchArm, result string) bool {
-	return fc.scoped(a, func() bool { return fc.armBody(a, result) })
+// value, of the type rt, when the catch has one. It reports whether the
+// arm's Go form terminates (the match tree, M1b, reads it).
+func (fc *funcCtx) arm(a *syntax.CatchArm, result string, rt check.Type) bool {
+	return fc.scoped(a, func() bool { return fc.armBody(a, result, rt) })
 }
 
 // armBody writes a catch arm's statements; arm ends its scope.
-func (fc *funcCtx) armBody(a *syntax.CatchArm, result string) bool {
+func (fc *funcCtx) armBody(a *syntax.CatchArm, result string, rt check.Type) bool {
 	list := a.Body
 	if len(list) == 0 {
 		return false
 	}
 	if result != "" {
-		return fc.yieldList(list, dest{kind: destAssign, name: result, site: fc.resultNames[result]})
+		return fc.yieldList(list, dest{kind: destAssign, name: result, site: fc.resultNames[result], typ: rt})
 	}
 	last, isExpr := list[len(list)-1].(*syntax.ExprStmt)
 	if !isExpr {
@@ -1250,7 +1261,7 @@ func (fc *funcCtx) patternCatch(x *syntax.CatchExpr, m *check.Match, o operand, 
 			}
 			arms[k].alts = append(arms[k].alts, p)
 		}
-		arms[k].body = func() bool { return fc.arm(a, result) }
+		arms[k].body = func() bool { return fc.arm(a, result, m.Result) }
 	}
 	if tree := fc.matchTree(x, []string{o.err}, []check.Type{row}, arms); tree != nil {
 		exit := treeExit{
@@ -1263,12 +1274,12 @@ func (fc *funcCtx) patternCatch(x *syntax.CatchExpr, m *check.Match, o operand, 
 		}
 		fc.emitMatchTree(x, tree, arms, exit)
 	} else {
-		fc.flatPatternCatch(x, o.err, row, result, rest)
+		fc.flatPatternCatch(x, o.err, row, result, m.Result, rest)
 	}
 	fc.depth--
 	if result != "" && o.val != "" {
 		fc.line("} else {")
-		fc.line("\t" + result + " = " + o.val)
+		fc.line("\t" + result + " = " + fc.caughtValue(x, m, o.val))
 		if site := fc.resultNames[result]; site != "" {
 			fc.line("\t" + site + " = " + fc.resultSite(x.X))
 		}
@@ -1280,7 +1291,7 @@ func (fc *funcCtx) patternCatch(x *syntax.CatchExpr, m *check.Match, o operand, 
 // over the error err of the row type row, each arm's condition its
 // patterns' tests; rest writes what no arm handles. It is the reference of
 // the catch's tree (M1b).
-func (fc *funcCtx) flatPatternCatch(x *syntax.CatchExpr, err string, row check.Type, result string, rest func()) {
+func (fc *funcCtx) flatPatternCatch(x *syntax.CatchExpr, err string, row check.Type, result string, rt check.Type, rest func()) {
 	fc.line("switch {")
 	fc.enterSwitch()
 	hasDefault := false
@@ -1318,7 +1329,7 @@ func (fc *funcCtx) flatPatternCatch(x *syntax.CatchExpr, err string, row check.T
 		}
 		fc.depth++
 		fc.bindArm(conds, binds)
-		fc.arm(a, result)
+		fc.arm(a, result, rt)
 		fc.depth--
 	}
 	if !hasDefault {

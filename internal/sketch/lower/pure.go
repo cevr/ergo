@@ -54,7 +54,7 @@ import (
 // every undecided function its body calls, at any depth and in any
 // package: a function of the program's package, of an imported user
 // package or of a std package with an Ergo body (strings.Cut). Each is
-// read with its own package's Info (Footprints, Calls and TaskResults are
+// read with its own package's Info (Footprints and Calls are
 // keyed by its package's nodes), so a callee of another package is pure
 // only when its own body is. The set is the greatest fixed point over that
 // call graph: a function stays a candidate until a callee of it is known

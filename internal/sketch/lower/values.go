@@ -240,6 +240,13 @@ type vocc struct {
 	loops []syntax.Node
 	pre   int
 	at    int // for a write, when it happens: after its statement or call
+	// call is the pure call this use is an operand of, when a rule of the
+	// call decided its kind (a pure call keeps nothing of it, or keeps it
+	// only in its result); result marks the second: the call's result is
+	// copied instead of the operand (alias.go).
+	call   *syntax.CallExpr
+	result bool
+	deps   bool // the summary, not the types, decided it
 }
 
 type owning struct {
@@ -543,8 +550,11 @@ func pathRoot(x syntax.Expr) *syntax.Ident {
 	}
 }
 
+// preludeAppend reports the prelude's Append or an extern that binds Go's
+// append (check/builtin.go): a call that may write past its source's length,
+// so its source is clipped where it is not new or dead (V3).
 func preludeAppend(f *check.Func) bool {
-	return f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append"
+	return check.GoBuiltin(f) == "append" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append"
 }
 
 // preludeMapWrite reports the prelude's Delete or Put: a call that writes
@@ -676,11 +686,39 @@ func (w *valueWalk) decide() {
 				continue
 			}
 			for _, o := range vv.occs {
-				if o.kind == occEscape || o.kind == occReturn {
-					if w.needsCopy(vv, o) {
+				switch {
+				case o.kind == occRead && o.call != nil && valueMutant != "in-flight-blind" && w.inFlight(vv, o):
+					// The callee would see a write a later operand makes.
+					if w.l.holdsValue(w.typeOf(o.path)) {
 						vf.clone[o.path] = true
 					}
+				case o.kind == occRead && o.deps:
+					if w.needsCopy(vv, o) {
+						w.l.stats.ArgsShared++
+					}
+				case o.kind == occEscape || o.kind == occReturn:
+					if !w.needsCopy(vv, o) {
+						break
+					}
+					if o.result && !w.inFlight(vv, o) {
+						// A pure call's result, not its argument, is
+						// copied (alias.go).
+						vf.clone[o.call] = true
+						w.l.stats.ArgsShared++
+						w.l.stats.ResultCopies++
+						break
+					}
+					vf.clone[o.path] = true
 				}
+			}
+		}
+	}
+	// A generic result through a borrow (alias.go, borrowResult).
+	if valueMutant != "never-copy" && valueMutant != "borrow-blind" {
+		for _, call := range w.ergo {
+			if w.borrowResult(call) {
+				vf.clone[call] = true
+				w.l.stats.BorrowCopies++
 			}
 		}
 	}
@@ -1252,12 +1290,24 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 				o.kind = occRead
 			}
 		case c.Kind == check.CallFunc && c.Func != nil && basicResult(w.typeOf(p)) && w.l.isPure(c.Func):
-			o.kind = occRead
+			o.kind, o.call = occRead, p
 		case c.Kind == check.CallFunc && c.Func != nil && (w.l.isPure(c.Func) || pureStdBody(c.Func)) && (valueMutant == "share-blind" || !w.l.mayShare(w.typeOf(p), t)):
 			// A pure call keeps nothing of its argument past its result,
 			// and a result that reaches no Map or slice type the argument
 			// reaches shares none of it (V6: find(t, path) is a place).
-			o.kind = occRead
+			o.kind, o.call = occRead, p
+		case aliasLowering != "type" && c.Kind == check.CallFunc && c.Func != nil && w.l.isPure(c.Func):
+			// The result-alias summary (alias.go): a result that does not
+			// depend on the argument keeps nothing of it; one that does
+			// keeps it only in the result, which is copied instead.
+			if j := operandIndex(p, c, child); j >= 0 && !w.l.ownedAt(c.Func, j) {
+				o.call, o.deps = p, true
+				if w.l.resultDeps(c.Func)[j] && valueMutant != "deps-blind" {
+					o.result = true
+				} else {
+					o.kind = occRead
+				}
+			}
 		}
 	}
 }
@@ -1325,6 +1375,43 @@ func (w *valueWalk) frameOfTail(x syntax.Expr) *vframe {
 		return f
 	}
 	return nil
+}
+
+// inFlight reports whether a write to vv runs between the use o, an
+// operand of the call o.call, and the call itself: the write's place lies
+// in a later operand of the call (f(c, bump(&c)), or a literal there that
+// writes c). A read of c that keeps nothing past the call still must not
+// share c with the callee then: the callee would see the write.
+func (w *valueWalk) inFlight(vv *vvar, o *vocc) bool {
+	end := w.post[o.call]
+	for _, wr := range vv.writes {
+		if wr.pre > o.pre && wr.pre < end {
+			return true
+		}
+	}
+	return false
+}
+
+// operandIndex is the index of the operand child of the call x among its
+// parameters, a dot call's receiver first, or -1.
+func operandIndex(x *syntax.CallExpr, c *check.Call, child syntax.Node) int {
+	for i, a := range callOperands(x, c) {
+		if syntax.Node(a) == child {
+			return i
+		}
+	}
+	return -1
+}
+
+// ownedAt reports whether parameter i of f is owned (V5): its argument is
+// copied by the caller whatever the call keeps.
+func (l *lowerer) ownedAt(f *check.Func, i int) bool {
+	for _, p := range l.ownedParams(f) {
+		if p.index == i {
+			return true
+		}
+	}
+	return false
 }
 
 // later reports whether the write wr can run after the use o of vv.

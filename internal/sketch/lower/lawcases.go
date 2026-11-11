@@ -65,7 +65,17 @@ func (l *lowerer) planValue(v testplan.Value, site syntax.Node) string {
 	case *check.Named:
 		switch under := u.Underlying().(type) {
 		case *check.Union:
-			return l.planValue(v.Children[0], site)
+			child := l.planValue(v.Children[0], site)
+			if fu := l.flatUnionOf(u); fu != nil {
+				// A flat union's variant goes in by its tag
+				// (flatunion.go; OPT6 through 16d).
+				for k, variant := range under.Variants {
+					if variant == v.Children[0].Type {
+						return fu.flatValue(tc, tc.goType(u), k, child)
+					}
+				}
+			}
+			return child
 		case *check.Basic:
 			return tc.goType(u) + "(" + l.planValue(v.Children[0], site) + ")"
 		case *check.Struct:

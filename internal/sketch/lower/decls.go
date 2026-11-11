@@ -88,6 +88,9 @@ type funcDecl struct {
 	// ok is the Go name of the comma-ok variant of a maps.Update callback
 	// once it is queued (update.go, okVariant).
 	ok string
+	// known is the Go name of the known-callback variant once it is
+	// queued (known.go, knownName).
+	known string
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -582,7 +585,7 @@ func (l *lowerer) emitType(td *typeDecl) {
 			for _, v := range td.variants {
 				l.emitType(l.useType(l.typeDecl(v, site)))
 			}
-			l.flatDecl(b, td, fu, tc)
+			l.flatDecl(b, td, fu, tc, tparams)
 			break
 		}
 		l.unionMarker(td)
@@ -811,11 +814,11 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		}
 		return func(fc *funcCtx, params []string) string {
 			v, found, rest, option := fc.temp("value"), fc.temp("found"), fc.temp("rest"), fc.temp("option")
-			some, none := optionVariants(tuple.Types[0], fc.site)
 			call := fc.runtimeCall("MapTake", fc.ownBinding("MapTake", fc.site), "", "", params, "", nil, nil, fc.site)
+			// optionNone and optionSome: the Option's Go form (flat or not).
 			return "\t" + v + ", " + found + ", " + rest + " := " + call + "\n" +
-				"\tvar " + option + " " + fc.goType(tuple.Types[0]) + " = " + fc.goType(none) + "{}\n" +
-				"\tif " + found + " { " + option + " = " + fc.goType(some) + "{" + v + "} }\n" +
+				"\tvar " + option + " " + fc.goType(tuple.Types[0]) + " = " + fc.optionNone(tuple.Types[0], fc.site) + "\n" +
+				"\tif " + found + " { " + option + " = " + fc.optionSome(tuple.Types[0], v, fc.site) + " }\n" +
 				"\treturn " + fc.goType(tuple) + "{" + option + ", " + rest + "}\n"
 		}
 	}
@@ -829,12 +832,11 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 // program's Option, for the prelude's Get and for std operations (stdResult),
 // so a change of Option's Go form (plan X1) changes both.
 func (fc *funcCtx) optionReturn(t check.Type, ind, commaOk string, site syntax.Node) string {
-	some, none := optionVariants(t, site)
 	v, ok := fc.scope.alloc("v"), fc.scope.alloc("ok")
 	return ind + "if " + v + ", " + ok + " := " + commaOk + "; " + ok + " {\n" +
-		ind + "\treturn " + fc.goType(some) + "{" + memberName("Value") + ": " + v + "}\n" +
+		ind + "\treturn " + fc.optionSome(t, v, site) + "\n" +
 		ind + "}\n" +
-		ind + "return " + fc.goType(none) + "{}\n"
+		ind + "return " + fc.optionNone(t, site) + "\n"
 }
 
 // optionVariants are the Some and None variants of an Option instance.
@@ -887,6 +889,8 @@ func isBasic(t check.Type, k check.BasicKind) bool {
 func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 	fd := l.funcDecl(f)
 	switch {
+	case check.GoBuiltin(f) != "":
+		return fd // written at its site, Go's builtin (builtinCall)
 	case userExtern(f):
 		return fd
 	case fd.extern != "" && l.intrinsic(f) == nil:
@@ -919,14 +923,17 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 // emitFuncBody writes fd's Go declaration, or, when variant is set, its
 // comma-ok variant fd.ok: the same body with its Option parameter taken as
 // a value and a flag (update.go, okShape).
-func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) { l.emitBody(fd, variant, nil) }
+func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) { l.emitBody(fd, variant, nil, false) }
 
 // emitBody writes what emitFuncBody writes, or, with flat, the flat step of
 // a machine's flat run (machinerun.go): fd's body under flat's step name,
-// its state parameter flat and its decision returned as a value.
-func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
+// its state parameter flat and its decision returned as a value; with
+// known, fd's known-callback variant (known.go): its callback parameters
+// plain and no entry poll.
+func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun, known bool) {
 	l.bodies++
 	f := fd.fn
+	l.readsOf(f)
 	b := &l.user
 	directives := l.isSourced(f.Pkg)
 	// A sourced package's body is lowered within its file, reading its
@@ -1001,12 +1008,25 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 	// own and keeps f's name for a wrapper that copies them (values.go, V5).
 	bodyName, wrapHead, wrapParams := fd.name, "", ""
 	var typeArgs, args []string
-	owned := !variant && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
+	owned := !variant && !known && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
 	if owned {
 		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
 	}
 	if variant {
 		bodyName = fd.ok
+	}
+	methodName := fd.name
+	if known {
+		if variant || flat != nil || fd.extern != "" {
+			ice(site, "the known variant of %s is not a plain body", f.Name)
+		}
+		bodyName, methodName = fd.known, fd.known
+		fc.plain = map[*check.Var]bool{}
+		for _, i := range callbackParams(f) {
+			if params[i] != nil {
+				fc.plain[params[i]] = true
+			}
+		}
 	}
 	flatParam := ""
 	if flat != nil {
@@ -1031,7 +1051,7 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 			recv = "*" + recv
 		}
 		paramNames[0] = name(0)
-		head.WriteString("func (" + paramNames[0] + " " + recv + ") " + fd.name + "(")
+		head.WriteString("func (" + paramNames[0] + " " + recv + ") " + methodName + "(")
 	} else {
 		list, tps := l.typeParams(own, scope, site)
 		fc.params = tps
@@ -1087,7 +1107,11 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 			parts = append(parts, flatParam+" "+flat.flat)
 			continue
 		}
-		parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
+		if s, ok := p.Type.(*check.Signature); ok && known {
+			parts = append(parts, paramNames[i]+" "+fc.plainFuncType(s))
+		} else {
+			parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
+		}
 		args = append(args, paramNames[i])
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
@@ -1157,7 +1181,16 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 				fc.ownVar(v, site) // a taken parameter, before the entry poll (R8)
 			}
 		}
-		fc.entryPoll(f.Pkg.Info, f.Decl)
+		switch {
+		case known:
+			// A known variant has no entry poll: its callbacks are known
+			// pure literals, which cannot re-enter it (known.go).
+		case flat == nil && !variant && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && l.knownClosed(f):
+			// Nor has a closed frame: no unknown code runs in it.
+			l.stats.ClosedEntries++
+		default:
+			fc.entryPoll(f.Pkg.Info, f.Decl)
+		}
 		fc.body(f.Decl.Body.List)
 	})
 	if fc.frame.static != nil {
@@ -1173,7 +1206,7 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 		b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
 		return
 	}
-	if !variant {
+	if !variant && !known {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
 	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")
