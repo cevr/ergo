@@ -112,6 +112,37 @@
         "text": "src += strings.NewReplacer(\"FIND\", find, \"INITIAL\", strconv.Itoa(p.start), \"PROGRAM\", program.String()).Replace(nfaMatch)",
         "tests": ["internal/sketch/regexpplan:TestEmittedDriversAgree"]
       }
+    },
+    {
+      "name": "rc4b-find-no-dedup",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/regexpplan/slots.go",
+      "from": "\t\t\tif seen[t.pc] == pos+1 {\n",
+      "to": "\t\t\tif false && seen[t.pc] == pos+1 {\n",
+      "rule": "A find runs every start in one pass: a thread that reaches a visited instruction is dropped, so work per byte is bounded (Lowering 4).",
+      "killers": ["internal/sketch/regexpplan:TestFindIsLinear"]
+    },
+    {
+      "name": "rc4b-parse-at-off-by-one",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/regexpplan/slots.go",
+      "from": "\t\tif len(ready) > 0 {\n\t\t\tat = pos\n",
+      "to": "\t\tif len(ready) > 0 {\n\t\t\tat = pos + 1\n",
+      "rule": "NoMatch.At is the longest prefix that is a prefix of a word, for every engine (The pattern bundle 2).",
+      "killers": ["internal/sketch/regexpplan:TestSlotDriverAgrees"]
+    },
+    {
+      "name": "rc4b-slot-close-swapped",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/regexpplan/slots.go",
+      "from": "{r[2-2*tag]=pos}",
+      "to": "{r[1-2*tag]=pos}",
+      "rule": "The emitted typed result keeps each capture's open and close in its own slot (Lowering 3).",
+      "killers": ["internal/sketch/regexpplan:TestEmittedSlotDriversAgree"],
+      "anchor": {
+        "text": "return strings.NewReplacer(\"NAME\", name,",
+        "tests": ["internal/sketch/regexpplan:TestEmittedSlotDriversAgree"]
+      }
     }
   ]
 }

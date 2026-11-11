@@ -1,0 +1,41 @@
+{
+  "about": "RC4b derive: the byte pattern grammar, capture shapes, plan evaluation and the bundle. A new package; no previous law, property, example or test reads it.",
+  "mutants": [
+    {
+      "name": "rc4b-class-complement-drops-byte",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/derive/pattern.go",
+      "from": "return byteSet{^s[0], ^s[1], ^s[2], ^s[3]}",
+      "to": "return byteSet{^s[0], ^s[1], ^s[2], s[3]}",
+      "rule": "A complemented class is over all 256 bytes, as Go's regexp is on the same bytes (Pattern grammar 2).",
+      "killers": ["internal/sketch/derive:TestPatternGrammar"]
+    },
+    {
+      "name": "rc4b-repeat-bound-off-by-one",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/derive/pattern.go",
+      "from": "\t\tif v, ok := number(); ok {\n\t\t\tmax = v\n",
+      "to": "\t\tif v, ok := number(); ok {\n\t\t\tmax = v + 1\n",
+      "rule": "{n,m} repeats n to m times (Pattern grammar 3).",
+      "killers": ["internal/sketch/derive:TestPatternGrammar"]
+    },
+    {
+      "name": "rc4b-optional-as-required",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/derive/shape.go",
+      "from": "case s.min == 1:",
+      "to": "case s.min <= 1:",
+      "rule": "A capture that may not take part is an Option (Capture shapes 2).",
+      "killers": ["internal/sketch/derive:TestPatternShapes"]
+    },
+    {
+      "name": "rc4b-repeat-in-option-not-slice",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/derive/shape.go",
+      "from": "\t\tif hi < 0 || hi > 2 {\n\t\t\thi = 2\n",
+      "to": "\t\tif hi < 0 || hi > 2 {\n\t\t\thi = 1\n",
+      "rule": "A capture under a repeat of more than one is a slice of every occurrence (Capture shapes 2).",
+      "killers": ["internal/sketch/derive:TestPatternShapes"]
+    }
+  ]
+}
