@@ -153,7 +153,7 @@ type funcCtx struct {
 	// nil test is read (goErrorOf).
 	rawErr syntax.Expr
 	// rawConv is the operand whose implicit conversion a fast path skips
-	// (convertAt): json.Text given to encode's Writer, which the wire
+	// (convertAt): json.Text given to encode's Writer, which the json
 	// fast path writes through the runtime's Text itself (wireCall).
 	rawConv syntax.Expr
 	// returned is the owned local the frame is returning (retExpr): its

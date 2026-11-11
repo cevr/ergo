@@ -3246,7 +3246,7 @@
       ]
     },
     {
-      "name": "16b-m2-wire-text-raw",
+      "name": "16b-m2-json-text-raw",
       "origin": "batch-16b merge of 16a-r5 (orchestrator ruling 2026-11-11)",
       "file": "internal/sketch/lower/wire.go",
       "from": "\t\tfc.rawConv = x.Args[1]\n",
