@@ -225,6 +225,18 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Provider law** (designed): A law with a `needs` clause. It is checked against every provider bound to that capability.
 
+**Derived type**: A type declared `type T derive E`. The checker evaluates the type plan `E` at check time, and the plan's value gives `T`, the types `T` needs, and the parse function, failure and laws that `T` owns, as ordinary declarations of `T`'s package. See [patterns](docs/spec/patterns.md).
+
+**Type plan**: A value of the predeclared, closed type `TypePlan`, built only by the predeclared constructors (`Of`, `Refine`, `Record`, `Union`, `Optional`, `List`, `Pattern`, with `Field`) and by plan functions, and read only by a derive. Each node fixes the shape it derives and the input it parses. See [patterns](docs/spec/patterns.md#type-plans).
+
+**Plan function**: An ordinary rowless function whose result is a `TypePlan` or `FieldPlan`. It runs only at check time, within a budget, with no Go call or I/O, and a user package may export one for other packages to derive from. See [patterns](docs/spec/patterns.md#plan-functions).
+
+**Pattern**: The type plan `Pattern(text)`: a byte regular expression with named captures, matched against a whole `string` by the derived `ParseT`, or leftmost by `FindT`. See [patterns](docs/spec/patterns.md#pattern-grammar).
+
+**Capture shape**: The type a named capture gives its field, from how often it takes part in a match of its scope: once gives the value, at most once gives `Option`, more than once gives a slice of every occurrence. A capture with captures inside it gives a record, and an alternation of named captures gives a union. See [patterns](docs/spec/patterns.md#capture-shapes).
+
+**Construction check** (patterns): The compiler's check that a deterministic matcher follows the canonical tagged NFA of a pattern on every reachable state, every byte and the end of input, with the same ordered capture events. Only this check selects a faster matcher; a law never does. See [patterns](docs/spec/patterns.md#lowering).
+
 **Contract** ([#170](https://github.com/cevr/ergo/issues/170)): An interface used as a constraint together with the laws stated over its methods. A type satisfies the contract when it has the methods and its laws hold.
 
 **Provider protocol** ([#170](https://github.com/cevr/ergo/issues/170)): A capability together with its provider laws. A provider is admitted for the capability by passing them, whatever its implementation.
