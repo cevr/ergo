@@ -219,21 +219,27 @@ func TestPatternDiagnostics(t *testing.T) {
 		for range r.Intn(4) {
 			after.WriteString(tokens[r.Intn(len(tokens))])
 		}
+		// In an interpreted string the error byte is spelled by an escape
+		// in half the trials: it is reported at the escape's backslash.
+		caret := "^"
+		if form > 0 && trial/4%2 == 1 {
+			caret = `\x5e`
+		}
 		var lit string
 		switch form {
 		case 0:
-			lit = "`" + before.String() + "^" + after.String() + "`"
+			lit = "`" + before.String() + caret + after.String() + "`"
 		case 1, 3:
-			lit = `"` + before.String() + "^" + after.String() + `"`
+			lit = `"` + before.String() + caret + after.String() + `"`
 		case 2:
-			lit = `"` + before.String() + `" + "^` + after.String() + `"`
+			lit = `"` + before.String() + `" + "` + caret + after.String() + `"`
 		}
 		head := "type T derive Pattern("
 		if form == 3 {
 			head = "func P(s string) TypePlan {\n\tPattern(s)\n}\n\ntype T derive P("
 		}
 		src := head + lit + ")\nfunc main() {}\n"
-		want := strings.Index(src, "^")
+		want := strings.Index(src, caret)
 		_, diags, _ := checkDerive(t, nil, "main", src)
 		if len(diags) != 1 || diags[0].Offset != want || !strings.Contains(diags[0].Message, "drop ^") {
 			t.Fatalf("seed 4242 trial %d: want one diagnostic at %d\n%s\ngot %v", trial, want, src, diags)

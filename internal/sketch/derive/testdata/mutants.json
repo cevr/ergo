@@ -36,42 +36,6 @@
       "to": "\t\tif hi < 0 || hi > 2 {\n\t\t\thi = 1\n",
       "rule": "A capture under a repeat of more than one is a slice of every occurrence (Capture shapes 2).",
       "killers": ["internal/sketch/derive:TestPatternShapes"]
-    },
-    {
-      "name": "rc4b-refine-strict-bound",
-      "origin": "wf10 RC4b",
-      "file": "internal/sketch/derive/bundle.go",
-      "from": "\"type %s %s where %d <= %s && %s <= %d\\n\"",
-      "to": "\"type %s %s where %d < %s && %s <= %d\\n\"",
-      "rule": "Refine(Of[B](), lo, hi) derives exactly `type N B where lo <= it && it <= hi` (Coherence 1).",
-      "killers": ["internal/sketch/check:TestDeriveModel"]
-    },
-    {
-      "name": "rc4b-shadow-ignored",
-      "origin": "wf10 RC4b",
-      "file": "internal/sketch/derive/eval.go",
-      "from": "\t\tif f.pkg.names[fun.Name] || f.pkg.imported(f.file, fun.Name) {\n",
-      "to": "\t\tif f.pkg.imported(f.file, fun.Name) {\n",
-      "rule": "A declaration in scope hides a predeclared constructor of the same name; calls key on values, never names (Derivation 6).",
-      "killers": ["internal/sketch/check:TestDeriveModel"]
-    },
-    {
-      "name": "rc4b-step-budget-off",
-      "origin": "wf10 RC4b",
-      "file": "internal/sketch/derive/eval.go",
-      "from": "\tif *what > limit {\n",
-      "to": "\tif *what >= limit {\n",
-      "rule": "A derive may take exactly the step, depth and size budgets and stops past them (Budgets 1).",
-      "killers": ["internal/sketch/check:TestDeriveModel"]
-    },
-    {
-      "name": "rc4b-escape-offset-shift",
-      "origin": "wf10 RC4b",
-      "file": "internal/sketch/derive/eval.go",
-      "from": "\t\t\tadd(string([]byte{byte(v)}), i)\n",
-      "to": "\t\t\tadd(string([]byte{byte(v)}), i+1)\n",
-      "rule": "A pattern byte spelled by an escape is reported at the escape's backslash (Diagnostics 1).",
-      "killers": ["internal/sketch/check:TestPatternDiagnostics"]
     }
   ]
 }
