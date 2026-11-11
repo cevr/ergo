@@ -92,8 +92,8 @@ func (l *lowerer) nameAll() {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
-	l.reserveOwned(append([]*check.Package{l.pkg}, libs...)) // values.go, V5
-	l.reserveKnown(append([]*check.Package{l.pkg}, libs...)) // known.go
+	l.reserveOwned(append([]*check.Package{l.pkg}, libs...))                      // values.go, V5
+	l.reserveKnown(append([]*check.Package{l.pkg}, libs...))                      // known.go
 	l.reserveSpecs(append([]*check.Package{l.pkg}, libs...), l.sourcedMachines()) // record.go
 	// A library's lets (user or embedded std), which the program lowers, used or not
 	// (sources.go), and the builders of its named contexts, one for each
