@@ -369,6 +369,13 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 				// member match admits.
 				return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t}}, ""
 			}
+			if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {
+				// An Ergo operation type's operations take Ergo's calling
+				// convention (the task they run on), not the Go method
+				// shapes of a Go interface, so Go would refuse the
+				// assignment (batch-16b r3): check and build agree.
+				return assignment{}, fmt.Sprintf("the operations of %s take Ergo's calling convention, not the Go methods of %s", v, t)
+			}
 			// An operation type's value is already an interface value.
 			return assignment{clause: assignOperations}, ""
 		}

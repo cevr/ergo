@@ -2474,6 +2474,17 @@
       "killers": [
         "check:TestScriptDiagnostics"
       ]
+    },
+    {
+      "name": "16b-g-ops-into-go-interface",
+      "origin": "wf10 batch-16b gate fix (r3 On base)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {",
+      "to": "if false && isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {",
+      "rule": "An Ergo operation type's value is not a Go interface's value: its operations take Ergo's calling convention, so the checker refuses what Go would refuse.",
+      "killers": [
+        "check:TestImportGoUses"
+      ]
     }
   ]
 }
