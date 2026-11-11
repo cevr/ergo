@@ -227,8 +227,10 @@ func ExploreReplay(schedule []string) {
 // call, else the line alone. A handle made at no source position
 // keeps its number.
 func nameHandle(callees []string, prefix string, on any) {
-	if name := sourceName(callees); name != "" {
-		rt.NameHandle(on, prefix+name)
+	if rt.Exploring {
+		if name := sourceName(callees); name != "" {
+			rt.NameHandle(on, prefix+name)
+		}
 	}
 }
 

@@ -32,7 +32,7 @@ import (
 //go:embed v1/time.go v1/timetext.go v1/wire.go v1/json.go v1/toml.go v1/rpc.go
 //go:embed v1/rand.go
 //go:embed v1/sync.go v1/set.go v1/script.go v1/shrink.go
-//go:embed v1/path.go v1/numbers.go v1/digest.go v1/goerror.go v1/gocall.go v1/gocallback.go v1/csv.go
+//go:embed v1/path.go v1/numbers.go v1/digest.go v1/goerror.go v1/goarg.go v1/gocall.go v1/gocallback.go v1/csv.go
 //go:embed v1/exec.go v1/exec_exit_kqueue.go v1/exec_exit_linux.go v1/exec_start.go
 //go:embed explore/explore.go
 //go:embed testgen/stream.go
@@ -65,7 +65,7 @@ var packages = map[string]pkg{
 		files: []string{"cause.go", "clock.go", "doc.go", "gocontext.go", "handle.go", "idle.go", "machine.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "task.go", "tasks.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "atomic.go", "collections.go", "config_names.go", "context.go", "csv.go", "data.go", "digest.go", "embed.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exec_start.go", "exit.go", "explore_laws.go", "explore_off.go", "explore_on.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "http.go", "http_client.go", "http_network.go", "json.go", "mailbox.go", "moves.go", "numbers.go", "path.go", "queue.go", "rand.go", "redacted.go", "redacted_text.go", "rpc.go", "runtime.go", "script.go", "set.go", "shrink.go", "static.go", "sync.go", "task.go", "term.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "wire.go"},
+		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "atomic.go", "collections.go", "config_names.go", "context.go", "csv.go", "data.go", "digest.go", "embed.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exec_start.go", "exit.go", "explore_laws.go", "explore_off.go", "explore_on.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "http.go", "http_client.go", "http_network.go", "json.go", "mailbox.go", "moves.go", "numbers.go", "path.go", "queue.go", "rand.go", "redacted.go", "redacted_text.go", "rpc.go", "runtime.go", "script.go", "set.go", "shrink.go", "static.go", "sync.go", "task.go", "term.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "wire.go"},
 		imports: []string{"runtime/explore/sched", "runtime/rt", "runtime/rt/rttrace"},
 	},
 	// The schedule explorer's strategies and worker transport: the
