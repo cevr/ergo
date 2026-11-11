@@ -6,9 +6,9 @@ import counter/wheel
 // Passing a value provider as a Counter value waits for provider cells (PS3).
 type Wheel { inner wheel.Wheel }
 
-func NewWheel() Wheel { Wheel{inner: wheel.NewWheel()} }
+func NewWheel() Wheel               { Wheel{inner: wheel.NewWheel()} }
 func Add(w *Wheel, n counter.Digit) { w.inner.Add(n) }
-func Total(w Wheel) counter.Digit { w.inner.Total() }
+func Total(w Wheel) counter.Digit   { w.inner.Total() }
 
 func main() needs Console {
 	let mut w = NewWheel()
