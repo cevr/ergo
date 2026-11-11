@@ -1,8 +1,8 @@
 // Package script plays a script of clients, the operator, messages and
 // faults against the router, and shows what it does, line by line. The
-// router (the route table) runs as a supervised durable actor over a
-// journal; the dispatcher, which carries messages by the table with a
-// courier child per route, runs as a supervised actor of its own.
+// router runs as one supervised durable actor over a journal: it keeps
+// the route table, and while it is idle it carries messages by the table
+// with a courier child per route, each in a host of its state.
 
 import actor
 import journal
@@ -22,8 +22,9 @@ type BadLine { Line int, Why string }
 // a new one from the journal, as a new process would.
 type Command = Send{Signal route.Signal} | Post{Topic string, Body string} | Drop{} | Restart{}
 
-// Budget is how many restarts each supervisor makes after a defect.
-let Budget = 2
+// Budget is how many restarts the supervisor makes after a defect: a
+// dropped check's or a crashed courier's.
+let Budget = 3
 
 // Read reads the lines of a script. Each line is one of
 //
@@ -133,11 +134,12 @@ func Open(j journal.Journal[route.Router, route.Signal], sink func(o route.Outpu
 	})
 }
 
-// Play runs the commands against a router over j and a dispatcher, and is
-// what it shows: each command; each state the router commits after it
-// until one that runs no work; the questions it tells (!), the answers it
-// gives (=) and what it refuses (?); each table the dispatcher takes, and
-// each message a courier carries (->). drop runs the registry's arm.
+// Play runs the commands against a router over j, and is what it shows:
+// each command; each state the router commits after it until one that
+// checks nothing; the questions it tells (!), the answers it gives (=)
+// and what it refuses (?); the table of each idle entry once its
+// couriers run, and each message a courier carries (->). drop runs the
+// registry's arm.
 func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop func()) []string fails journal.Failed needs route.Registry | Scheduler {
 	let said = queue.New[route.Output](8)
 	let sink = func(o route.Output) {
@@ -146,43 +148,35 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 		}
 	}
 	let mut a = try Open(j, sink)
-	let d = actor.Supervise(route.Dispatcher{}, 8, func(o route.Delivered) {}, tasks.Restart{Limit: Budget})
 	let mut lines = []string{"  \(route.Name(a.State()))"}
 	let mut told = 0
 	let mut restarts = 0
 	let mut used = "?"
-	// use gives the dispatcher the router's table when it changed since
-	// the last one it took, and waits until each route's courier runs.
+	// use shows the table of an idle router whose table changed since the
+	// last one shown, once each route's courier runs: the router shows an
+	// entry only after its work filled the entry's hosts, so each Get
+	// gives a running courier.
 	let use = func() {
-		let t = route.BoardOf(a.State()).Table
+		let s = a.State()
+		let lanes = match s {
+		case route.Idle as i:
+			i.Lanes
+		case _:
+			return
+		}
+		let t = route.BoardOf(s).Table
 		if route.TableText(t) == used {
 			return
 		}
 		used = route.TableText(t)
-		let took = d.Ask(route.Use{Table: t}) catch {
-		case actor.Stopped:
-			lines = lines.Append("  ?? the dispatcher is stopped")
-			return
-		}
-		// Only a new entry starts couriers: a Use that opens none would
-		// leave its hosts empty, and Get would wait for ever.
-		match took {
-		case Enter[route.Dispatch]:
-		case _:
-			lines = lines.Append("  ?? the dispatcher opened no entry for the table")
-			return
-		}
-		match d.State() {
-		case route.Carrying as c:
-			for l in c.Lanes {
-				let _ = l.Courier.Get() catch {
-				case actor.Stopped:
-					continue
-				}
+		for l in lanes {
+			let _ = l.Courier.Get() catch {
+			case actor.Stopped:
+				lines = lines.Append("  ?? the courier of \(l.Route.Topic) is stopped")
+				return
 			}
-		case route.Waiting:
 		}
-		lines = lines.Append("  dispatcher: \(used)")
+		lines = lines.Append("  couriers: \(used)")
 	}
 	// follow runs act, which says whether a state commits, and shows each
 	// state the router commits after it until one that runs no work, then
@@ -227,11 +221,12 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 		use()
 	}
 	// post carries body on the courier of topic, which the client names
-	// by its lane's host, and waits until the dispatcher's log has it. A
-	// courier's crash ends the dispatcher's incarnation: the supervisor
-	// restarts it Waiting, and it takes the table again.
+	// by its lane's host, and waits until the router's log has it. A
+	// courier's crash ends the router's incarnation: the supervisor
+	// restarts it from the journal, and the recovered idle entry starts
+	// new couriers in the hosts the replay made.
 	let post = func(topic string, body string) {
-		let lane = match route.LaneOf(d.State(), topic) {
+		let lane = match route.LaneOf(a.State(), topic) {
 		case Some[route.Lane] as l:
 			l.Value
 		case None:
@@ -243,23 +238,24 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 			lines = lines.Append("  ? the courier of \(topic) is stopped")
 			return
 		}
-		let before = actor.Restarts(d)
-		let n = len(route.LogOf(d.State()))
+		let before = actor.Restarts(a)
+		let n = len(route.LogOf(a.State()))
 		courier.Ask(route.Message{Body: body}) catch {
 		case actor.Stopped:
-			let _ = actor.WaitFor(d, func(s route.Dispatch) bool { actor.Restarts(d) > before }) catch {
+			let _ = actor.WaitFor(a, func(s route.Router) bool { actor.Restarts(a) > before }) catch {
 			case actor.Stopped:
-				lines = lines.Append("  ?? the dispatcher is stopped")
+				lines = lines.Append("  ?? the router is stopped")
 				return
 			}
-			lines = lines.Append("  the courier of \(topic) crashed; the dispatcher restarted (\(actor.Restarts(d)) of \(Budget))")
+			restarts = actor.Restarts(a)
+			lines = lines.Append("  the courier of \(topic) crashed; restarted (\(restarts) of \(Budget)) from the journal")
 			used = "?"
 			use()
 			return
 		}
-		let s = actor.WaitFor(d, func(s route.Dispatch) bool { len(route.LogOf(s)) > n }) catch {
+		let s = actor.WaitFor(a, func(s route.Router) bool { len(route.LogOf(s)) > n }) catch {
 		case actor.Stopped:
-			lines = lines.Append("  ?? the dispatcher is stopped")
+			lines = lines.Append("  ?? the router is stopped")
 			return
 		}
 		let m = route.LogOf(s)[n]
@@ -304,11 +300,14 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 			if after != before {
 				lines = lines.Append("  ?? the replay is not the router that stopped: \(before)")
 			}
+			// The replay made the idle entry's hosts again, empty; the
+			// recovered entry's work started new couriers in them.
+			used = "?"
+			use()
 		}
 	}
 	lines = lines.Append("end: \(route.TableText(route.BoardOf(a.State()).Table)), \(told) answers")
 	a.Stop()
-	d.Stop()
 	said.End()
 	lines
 }
@@ -326,6 +325,8 @@ func SignalText(s route.Signal) string {
 		"checked"
 	case route.Unknown:
 		"unknown"
+	case route.Told:
+		"told"
 	}
 }
 
@@ -342,5 +343,7 @@ func Refusal(s route.Signal) string {
 		"no check runs"
 	case route.Unknown:
 		"no check runs"
+	case route.Told:
+		"no courier runs"
 	}
 }

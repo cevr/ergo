@@ -1,6 +1,6 @@
 // router is a message router. Its route table changes one request at a
-// time, under a supervisor, over a journal; a dispatcher carries messages
-// by the table, with a courier child per route. It reads a script of
+// time, under a supervisor, over a journal; while it is idle it carries
+// messages by the table, with a courier child per route. It reads a script of
 // clients, the operator's answers, messages and faults from stdin and
 // shows what the router does. Package route is the machines and the
 // registry contract; package memory holds the registry; package script

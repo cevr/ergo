@@ -52,7 +52,7 @@ func play(cmds []script.Command, dir Directory) []string {
 }
 
 // ReplayEqualsLive: a router opened from the journal is the router that
-// stopped, and the dispatcher takes each table (Play says "??"
+// stopped, and each idle entry's couriers run (Play says "??"
 // otherwise).
 law ReplayEqualsLive(moves []int) {
 	let lines = play(commands(moves).Append(script.Restart), NewDirectory())
@@ -125,30 +125,35 @@ func ended(l route.Lane) bool {
 	false
 }
 
-// opened is whether the dispatcher d took t in a new entry, which starts
-// its couriers: a host of no new entry is never filled, so a law that
-// waits on it would never end.
-func opened(d actor.Actor[route.Dispatch, route.DispatchSignal, Decision[route.Dispatch, route.Delivered]], t route.Table) bool {
-	let took = d.Ask(route.Use{Table: t}) catch {
+// Router is the router as an actor.
+type Router = actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]]
+
+// applied is whether the router r applied the request id, a route of
+// logs to disk, and is idle again: a new idle entry, with new couriers.
+func applied(r Router, id int) bool {
+	let _ = r.Ask(route.Submit{Request: route.Request{ID: id, Change: route.Add{Topic: "logs", Dest: "disk"}}}) catch {
 	case actor.Stopped:
 		return false
 	}
-	match took {
-	case Enter[route.Dispatch]:
+	let s = actor.WaitFor(r, func(s route.Router) bool { route.AnswerOf(s, id) != None && !route.Busy(s) }) catch {
+	case actor.Stopped:
+		return false
+	}
+	match route.LaneOf(s, "logs") {
+	case Some[route.Lane]:
 		true
-	case _:
+	case None:
 		false
 	}
 }
 
 // HostSeesItsEntry: a courier named through a lane's host is the courier
-// of that entry only: after the next Use, the old host fails Stopped, and
-// the new lane's host gives a running courier.
+// of that idle entry only: after the next request, the old host fails
+// Stopped, and the new lane's host gives a running courier.
 law HostSeesItsEntry(n int) {
-	let routes = route.Table{Routes: []route.Route{route.Route{Topic: "logs", Dest: "disk"}}}
-	with context { Scheduler: time.NewManual(0) } {
-		let d = actor.StartMachine(route.Dispatcher{}, 4, func(o route.Delivered) {})
-		if !opened(d, routes) {
+	with context { route.Registry: NewDirectory(), Scheduler: time.NewManual(0) } {
+		let d = actor.StartMachine(route.Routing{}, 4, func(o route.Output) {})
+		if !applied(d, 1) {
 			return false
 		}
 		let old = match route.LaneOf(d.State(), "logs") {
@@ -161,8 +166,8 @@ law HostSeesItsEntry(n int) {
 		case actor.Stopped:
 			return false
 		}
-		for _ in 0..pick(n, 3)+1 {
-			if !opened(d, routes) {
+		for i in 0..pick(n, 3)+1 {
+			if !applied(d, i+2) {
 				return false
 			}
 		}
@@ -185,11 +190,29 @@ law HostSeesItsEntry(n int) {
 		case actor.Stopped:
 			return false
 		}
-		let s = actor.WaitFor(d, func(s route.Dispatch) bool { len(route.LogOf(s)) == 1 }) catch {
+		let s = actor.WaitFor(d, func(s route.Router) bool { len(route.LogOf(s)) == 1 }) catch {
 		case actor.Stopped:
 			return false
 		}
 		d.Stop()
 		len(route.LogOf(s)) == 1
 	}
+}
+
+// RecoveredCouriersCarry: a router opened from the journal carries each
+// routed topic at once. Its replay made the idle entry's hosts again,
+// empty; the recovered first entry binds them and its work starts new
+// couriers in them, so no courier Get fails Stopped (wf10 DH1).
+law RecoveredCouriersCarry(moves []int) {
+	let mut cmds = commands(moves).Append(script.Restart)
+	for t in []string{"logs", "metrics", "alerts"} {
+		cmds = cmds.Append(script.Post{Topic: t, Body: "x"})
+	}
+	let lines = play(cmds, NewDirectory())
+	for l in lines {
+		if strings.HasPrefix(l, "  ?? ") || strings.HasPrefix(l, "? ") || strings.HasPrefix(l, "  ? the courier of ") {
+			return false
+		}
+	}
+	true
 }
