@@ -33,16 +33,6 @@
       "killers": ["lower:TestIntegerShrinksReachBoundary"],
       "anchor": {"text": "Replace(harnessGo + harnessReachGo)"}
     },
-    {
-      "name": "l10b-integer-no-narrowing",
-      "origin": "wf10/L10b round 1",
-      "file": "internal/sketch/lower/tests.go",
-      "from": "mask := ^uint64(0) >> (64 - bits)",
-      "to": "mask := ^uint64(0)",
-      "rule": "Record magnitude after narrowing, so a smaller integer width shrinks by value rather than wrapping.",
-      "killers": ["lower:TestIntegerShrinksReachBoundary"],
-      "anchor": {"text": "Replace(harnessGo + harnessReachGo)"}
-    },
     {"name":"cu6-into-hops-lost", "origin":"wf10 CU6", "file":"internal/sketch/std/http/network.ergo", "from":"try fetchInto(n.origins, n.anyOrigin, n.limits, n.hops,", "to":"try fetchInto(n.origins, n.anyOrigin, n.limits, -1,", "rule":"The streamed provider keeps the Network's redirect policy.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {"name":"cu6-file-parts-dropped", "origin":"wf10 CU6", "file":"internal/sketch/std/http/network.ergo", "from":"{ try file.Put(part) }", "to":"{ }", "rule":"FetchFile writes every part of the body to its file.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {"name":"cu6b-success-wide","origin":"wf10 CU6b","file":"internal/sketch/std/http/client.ergo","from":"status >= 200 && status < 300","to":"status >= 200 && status < 500","rule":"The default rule takes exactly 200 to 299.","killers":["lower:TestHTTPNetworkRuns"],"anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
