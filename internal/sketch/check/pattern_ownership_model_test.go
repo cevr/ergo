@@ -2,6 +2,7 @@ package check
 
 import (
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 
@@ -242,53 +243,68 @@ func pair() Pair { Pair{R: open(1), S: open(2)} }
 }
 
 // ofGenericRoutes crosses the route by which a queue of values reaches a
-// generic body, the body's use of the queue, and the type argument, a
-// resource or plain data (16a fix r4, M1 class): R22
-// decides every route at the instantiation (resources R22, R44). A route
-// is a type parameter bound by nothing, reached directly, through a
-// nested generic, as a method of a generic type and as a generic function
-// value; an element type parameter bound by an operation type without
-// and with Close; the queue itself bound by an operation type; and a
-// conversion to an operation type in the body (of an element, and of the
-// queue, a sealed std protocol: C28); and a nested generic whose bound
-// with Close binds an inner bound with or without Close. A use is one of
-// the six escapes of
-// a queue's Values() Seq (ofPatternConsumers) or a lend that keeps
-// nothing. The reference: a resource reaches the body only if every use
-// keeps its release (a lend, or a constraint with Close), and a sealed
-// queue never converts. Mutants: 16a-r4-*.
+// generic body, the operation-type bound it meets there, the body's use
+// of the queue, and the type argument, a resource or plain data (16a fix
+// r4 and r5, M1 class): R22 decides every route at the instantiation
+// (resources R22, R44). A route is a type parameter bound by nothing,
+// reached directly, through a nested generic, as a method of a generic
+// type and as a generic function value; an element type parameter bound
+// by a drawn bound; the queue itself bound by a drawn bound, with the
+// type arguments written or inferred, or through the bound of an outer
+// generic's type parameter; a conversion to an operation type in the
+// body (of an element, and of the queue, a sealed std protocol: C28);
+// and a nested generic whose bound with Close binds an inner drawn bound.
+// A bound is drawn from members (ofBound): a plain operation, one that
+// takes a value, one that lends one, one that returns an owned value, a
+// Values() Seq, and Close or none. A use is one of the six escapes of a
+// queue's Values() Seq (ofPatternConsumers) or a lend that keeps
+// nothing. The reference: a resource meets a bound only when the bound
+// has a release (a Close; an operation that takes the value keeps it and
+// releases nothing, R1/R13), every use keeps its release (a lend, or a
+// bound with Close), and a sealed queue never converts. Mutants:
+// 16a-r4-*, 16a-r5-*.
 func ofGenericRoutes(t *testing.T, seed uint64) {
 	r := rand.New(rand.NewPCG(seed, 0x16a4))
 	// The seed walks every route × use × argument bit: 400 seeds reach
-	// each of the 140 at least twice; the shape is drawn.
-	k := int(seed % 140)
+	// each of the 168 at least twice; the shape and the bound are drawn.
+	const routes = 12
+	k := int(seed % (routes * 14))
 	route, use, res := k/14, k/2%7, k%2 == 0
 	shapes := []string{"(Res, Res)", "Pair", "Nest"}
 	inst := shapes[r.IntN(len(shapes))]
 	if !res {
 		inst = "int"
 	}
-	tp, q, extra := "[T]", "queue.Queue[T]", ""
-	closeBound := false // route 9: the inner body's bound has Close
+	escapes := use < 6
+	tp, q, et, extra := "[T]", "queue.Queue[T]", "T", ""
+	var elem, queueB ofBound
 	switch route {
-	case 4:
-		tp, inst = "[T Tag]", "Tagged"
-		if !res {
-			inst = "Num"
+	case 4, 11:
+		// An element bound; Close only for an argument with its own.
+		// Route 11 converts such a value to the bound outside a generic.
+		inst = "Num"
+		if res {
+			inst = []string{"Tagged", "TaggedC"}[r.IntN(2)]
 		}
-	case 5, 7:
-		tp, inst, res = "[T TagC]", "TaggedC", true
-	case 6:
-		tp, q = "[T any, Q Src[T]]", "Q"
+		elem = ofElemBound(r, inst == "TaggedC" && r.IntN(2) == 0)
+		if route == 4 {
+			tp = "[T B]"
+		}
+	case 5, 6, 10:
+		queueB = ofQueueBound(r, escapes)
+		tp, q = "[T any, Q QB[T]]", "Q"
+		if route == 6 {
+			tp, et = "[Q QB["+inst+"]]", inst
+		}
+	case 7:
+		elem = ofElemBound(r, true)
+		tp, inst, res = "[T B]", "TaggedC", true
 	case 9:
 		// A nested generic whose own type parameter, bound with Close,
-		// binds the inner body's: a bound without Close is the outer
-		// body's copy site.
-		tp, inst, closeBound = "[T Tag]", "TaggedC", !res
-		if closeBound {
-			tp = "[T TagC]"
-		}
-		res = true
+		// binds the inner body's drawn bound: one without Close is the
+		// outer body's copy site.
+		elem = ofElemBound(r, !res)
+		tp, inst, res = "[T B]", "TaggedC", true
 	}
 	var helper, esc string
 	forIn := func(seq string) string { return "for v in " + seq + " {\nlet _ = v\n}" }
@@ -304,13 +320,13 @@ func ofGenericRoutes(t *testing.T, seed uint64) {
 		helper = "type SeqBox[T] { S Seq[T] }\n"
 		esc = "let sb = SeqBox{S: q.Values()}\n" + forIn("sb.S")
 	case 4:
-		helper = "func vals" + tp + "(q " + q + ") Seq[T] { q.Values() }\n"
+		helper = "func vals" + tp + "(q " + q + ") Seq[" + et + "] { q.Values() }\n"
 		esc = forIn("vals(q)")
-		if route == 6 {
+		if route == 5 || route == 10 {
 			esc = forIn("vals[T, Q](q)")
 		}
 	case 5:
-		esc = "let g = func() Seq[T] { q.Values() }\n" + forIn("g()")
+		esc = "let g = func() Seq[" + et + "] { q.Values() }\n" + forIn("g()")
 	case 6:
 		esc = "let _ = 0" // the queue is only lent
 	}
@@ -324,7 +340,7 @@ func ofGenericRoutes(t *testing.T, seed uint64) {
 		params, call = "r Run[T], q "+q, "Run["+inst+"]{xs: []"+inst+"{}}.h(q)"
 	case 3:
 		call = "let hv = h[" + inst + "]\nhv(q)"
-	case 6:
+	case 5:
 		call = "h[" + inst + ", queue.Queue[" + inst + "]](q)"
 	case 7:
 		params, call = "q "+q+", x T", "h(q, TaggedC{R: open(3)})"
@@ -332,8 +348,20 @@ func ofGenericRoutes(t *testing.T, seed uint64) {
 	case 8:
 		extra = "let src Src[T] = q\nlet _ = src\n"
 	case 9:
-		helper += "func outer[U TagC](q queue.Queue[U]) {\nh(q)\n}\n"
+		// outer's bound: the inner one's operations and Close.
+		outerB := ofBound{members: elem.members}
+		if !elem.close {
+			outerB.members = append(slices.Clone(elem.members), "Close()")
+		}
+		helper += outerB.decl("BC") + "func outer[U BC](q queue.Queue[U]) {\nh(q)\n}\n"
 		call = "outer(q)"
+	case 10:
+		// The bound reaches h through outer's own type parameter P.
+		helper += "func outer[U any, P QB[U]](q P) {\nh[U, P](q)\n}\n"
+		call = "outer[" + inst + ", queue.Queue[" + inst + "]](q)"
+	case 11:
+		lit := map[string]string{"Tagged": "Tagged{R: open(3)}", "TaggedC": "TaggedC{R: open(4)}", "Num": "Num{n: 1}"}[inst]
+		call += "\nlet b B = " + lit + "\nlet _ = b.Mark()"
 	}
 	src := ofPrelude + `type Pair { R Res, S Res }
 type Nest { P Pair }
@@ -347,29 +375,50 @@ func Mark(t TaggedC) int { 2 }
 func Close(t TaggedC) {}
 type Num { n int }
 func Mark(n Num) int { 3 }
-` + helper + "func h" + tp + "(" + params + ") {\n" + extra + esc + "\n}\nfunc Body() {\nlet q = queue.New[" + inst + "](1)\n" + call + "\n}\nfunc main() {}\n"
+` + elem.decl("B") + queueB.decl("QB[E]") + helper + "func h" + tp + "(" + params + ") {\n" + extra + esc + "\n}\nfunc Body() {\nlet q = queue.New[" + inst + "](1)\n" + call + "\n}\nfunc main() {}\n"
 	// The reference.
 	const (
 		copies = "copies its"                 // R44: a copy site of the type parameter
 		r22    = "has no Close, so the value" // R22 at the instantiation
 		sealed = "is a sealed std protocol"   // C28
 	)
-	escapes := use < 6
 	var wantBad bool
 	want := []string{copies}
 	switch route {
 	case 0, 1, 2, 3:
 		wantBad = res && escapes
-	case 4, 6:
+	case 4:
+		// A bound without a release refuses the resource (R22); one with
+		// Close admits it, and the queue's escapes are the copy sites.
+		wantBad = res && (!elem.close || escapes)
+		if res && !elem.close {
+			want = []string{r22, copies}
+		}
+	case 5, 6, 10:
+		// A queue bound has no Close (the queue has none): never a release.
 		wantBad, want = res, []string{r22, copies}
-	case 5:
-		wantBad = escapes
+		if route == 6 {
+			// The body names the element itself: a Seq boxed in a
+			// record of it is R1/R13's own refusal too.
+			want = append(want, "has no release")
+		}
 	case 7:
 		wantBad = true
 	case 8:
 		wantBad, want = true, []string{sealed, copies}
 	case 9:
-		wantBad = escapes || !closeBound
+		wantBad = escapes || !elem.close
+	case 11:
+		// The conversion: R22 refuses a resource into a bound without a
+		// release, and a value of a bound that keeps what it takes and
+		// has no Close is R1/R13's refusal, whatever converts to it.
+		wantBad = res && (escapes || !elem.close) || elem.takes && !elem.close
+		want = []string{copies, "has no release"}
+		if res && !elem.close {
+			want = []string{r22, copies, "has no release"}
+		} else if !res {
+			want = []string{"has no release"}
+		}
 	}
 	_, ds := checkFor(src)
 	bad, first := false, false
@@ -390,4 +439,64 @@ func Mark(n Num) int { 3 }
 	if bad != wantBad || bad && !first {
 		t.Fatalf("generic route seed %d (ERGO_SEED=%d), route %d use %d %s: bad=%v want %v (first rule reported %v)\n%s\n%v", seed, seed, route, use, inst, bad, wantBad, first, src, ds)
 	}
+}
+
+// ofBound is a drawn operation-type bound: its members, the functions
+// that give Tagged, TaggedC and Num the element bound's operations, and
+// whether it has Close (its one release, R1/R13).
+type ofBound struct {
+	members, funcs []string
+	close, takes   bool
+}
+
+func (b ofBound) decl(name string) string {
+	if len(b.members) == 0 {
+		return ""
+	}
+	return "type " + name + " { " + strings.Join(b.members, ", ") + " }\n" + strings.Join(b.funcs, "")
+}
+
+// ofElemBound draws a bound of an element type parameter: Mark() always
+// (route 7 converts to Tag), then each of an operation that takes a
+// value, one that lends one, one that returns an owned value, and Close
+// when close.
+func ofElemBound(r *rand.Rand, close bool) ofBound {
+	b := ofBound{members: []string{"Mark() int"}, close: close}
+	for _, m := range []struct{ decl, fn string }{
+		{"Keep(o Res) takes o", "func Keep(t %s, o Res) takes o { keep(o) }\n"},
+		{"See(o Res) bool", "func See(t %s, o Res) bool { held(o) }\n"},
+		{"Make() Res", "func Make(t %s) Res { open(1) }\n"},
+	} {
+		if r.IntN(2) == 0 {
+			b.takes = b.takes || strings.Contains(m.decl, "takes")
+			b.members = append(b.members, m.decl)
+			for _, typ := range []string{"Tagged", "TaggedC", "Num"} {
+				b.funcs = append(b.funcs, strings.ReplaceAll(m.fn, "%s", typ))
+			}
+		}
+	}
+	if close {
+		b.members = append(b.members, "Close()")
+	}
+	return b
+}
+
+// ofQueueBound draws a bound over E that queue.Queue[E] satisfies: Values
+// when the body reads it, and each of Push (takes the value), Pop and
+// Poll (return an owned one), Len and End (plain). The queue has no
+// Close, so no queue bound has a release.
+func ofQueueBound(r *rand.Rand, values bool) ofBound {
+	var b ofBound
+	if values || r.IntN(2) == 0 {
+		b.members = append(b.members, "Values() Seq[E]")
+	}
+	for _, m := range []string{"Push(v E) fails queue.Closed takes v", "Pop() E fails queue.Closed", "Poll() Option[E]", "Len() int", "End()"} {
+		if r.IntN(2) == 0 {
+			b.members = append(b.members, m)
+		}
+	}
+	if len(b.members) == 0 {
+		b.members = []string{"Len() int"}
+	}
+	return b
 }

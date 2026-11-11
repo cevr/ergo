@@ -43,7 +43,8 @@ import (
 // mode, linear in the type graph (resSteps counts its visits).
 //
 // Rules that read it in A1: a resource map key is S112 (R40); a resource
-// converted to an operation type that crosses is S108 (R22, typeops.go);
+// converted to an operation type with no release (releasable) is S108
+// (R22, typeops.go);
 // a type whose zero value would be a resource is not defaultable
 // (typeops.go, letZero); a written `takes` on a crossing parameter is
 // S110.
@@ -66,6 +67,19 @@ func (c *checker) mayHoldResource(t Type) bool {
 	w := resWalk{c: c, generic: true}
 	h, _ := w.visit(t)
 	return h
+}
+
+// releasable reports whether t has a release (resources R1, R13): it
+// holds a resource and dropOf derives its release. The one definition of
+// "has a release": an operation type that only keeps the values it takes
+// holds a resource but has none. R22 reads it at a conversion and at an
+// instantiation; the ownership pass reports its absence on an owned value.
+func (c *checker) releasable(t Type) bool {
+	if !c.holdsResource(t) {
+		return false
+	}
+	d, _ := c.dropOf(t)
+	return d != nil
 }
 
 // crosses reports whether ownership means nothing for a value of type t.
@@ -413,9 +427,10 @@ func resourceIntoCrossingText(v, t Type) string {
 // constraint is an operation type is the conversion R22 decides, made
 // once for the whole generic body: the body uses its values through that
 // operation type only. So a type argument that holds a resource is
-// admitted only for a constraint that holds one too (a Close() operation,
-// or an operation that takes the value): any other constraint would let
-// the body use the value, and the values it yields, as plain data that is
+// admitted only for a constraint that has a release (releasable, R1/R13:
+// a Close() operation; an operation that only takes the value keeps it
+// and releases nothing, 16a fix r5): any other constraint would let the
+// body use the value, and the values it yields, as plain data that is
 // never released. One rule at every instantiation: a call (written or
 // inferred type arguments), a generic type, a generic function value and
 // a method of a generic type all record the site where they check the
@@ -494,13 +509,13 @@ func (c *checker) addOwnershipSite(s ownershipSite) {
 }
 
 // checkOwnershipSites refuses a type argument that is a resource for a
-// constraint that is not one (S108, R22).
+// constraint that has no release (S108, R22).
 func (c *checker) checkOwnershipSites() {
 	for _, s := range c.ownershipSites {
 		if s.tp == nil || containsInvalid(s.from) || containsInvalid(s.to) {
 			continue
 		}
-		if c.holdsResource(s.from) && !c.holdsResource(s.to) {
+		if c.holdsResource(s.from) && !c.releasable(s.to) {
 			c.cur = s.file
 			c.errorf(s.at, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", s.from, s.to, s.tp.Name, resourceIntoCrossingText(s.from, s.to))
 		}
@@ -512,7 +527,7 @@ func (c *checker) checkOwnershipSites() {
 // cannot hold one: the instantiation decides it (R44).
 func (c *checker) ownershipCopies(owner map[*TypeParam]*Func) {
 	for _, s := range c.ownershipSites {
-		if containsInvalid(s.from) || containsInvalid(s.to) || c.holdsResource(s.from) || !c.mayHoldResource(s.from) || c.mayHoldResource(s.to) {
+		if containsInvalid(s.from) || containsInvalid(s.to) || c.holdsResource(s.from) || !c.mayHoldResource(s.from) || c.releasable(s.to) {
 			continue
 		}
 		what := fmt.Sprintf("%s is converted to %s, which has no Close (resources R22)", s.from, s.to)
