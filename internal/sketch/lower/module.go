@@ -240,8 +240,12 @@ type lowerer struct {
 
 	types    map[*check.TypeName]*typeDecl
 	funcs    map[*check.Func]*funcDecl
-	pure     map[*check.Func]bool  // the program's pure functions (pure.go), once computed
-	vars     map[*check.Var]string // package-level lets
+	pure     map[*check.Func]bool       // the program's pure functions (pure.go), once computed
+	known    map[*check.Func]knownState // known-callback variant decisions (known.go)
+	closed   map[*check.Func]knownState // closed-frame decisions (known.go)
+	deps     map[*check.Func][]bool     // result-alias summaries (alias.go)
+	stats    knownStats                 // what known.go and alias.go did (tests only)
+	vars     map[*check.Var]string      // package-level lets
 	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types
 	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
@@ -463,6 +467,9 @@ func (l *lowerer) guard(f func()) {
 func (l *lowerer) program() ([]byte, error) {
 	if err := l.missingImport(); err != nil {
 		return nil, err
+	}
+	if statsHook != nil {
+		defer func() { statsHook(l.stats) }()
 	}
 	l.nameAll()
 	main := l.mainFunc()

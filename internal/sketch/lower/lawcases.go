@@ -106,10 +106,18 @@ func (l *lowerer) enumValues(t check.Type, site syntax.Node, seen map[*check.Nam
 			return product(tc.goType(u), names, types)
 		case *check.Union:
 			var out []string
-			for _, v := range under.Variants {
+			fu := l.flatUnionOf(u)
+			for k, v := range under.Variants {
 				vs, ok := l.enumValues(v, site, seen)
 				if !ok || len(out)+len(vs) > enumCap {
 					return nil, false
+				}
+				if fu != nil {
+					// A flat union's variant goes in by its tag
+					// (flatunion.go).
+					for i := range vs {
+						vs[i] = fu.flatValue(tc, tc.goType(u), k, vs[i])
+					}
 				}
 				out = append(out, vs...)
 			}

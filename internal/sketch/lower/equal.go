@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -52,7 +53,7 @@ func (fc *funcCtx) equalOp(x *syntax.BinaryExpr, parts []string) string {
 // left one.
 func (fc *funcCtx) equalType(x *syntax.BinaryExpr) check.Type {
 	l, r := fc.typeOf(x.X), fc.typeOf(x.Y)
-	if fc.isInterface(r) && !fc.isInterface(l) {
+	if fc.isSum(r) && !fc.isSum(l) {
 		return r
 	}
 	return l
@@ -174,6 +175,19 @@ func (l *lowerer) equalFunc(t check.Type, site syntax.Node) (string, []*check.Ty
 		}
 		fields(ns, ts)
 	case *check.Union:
+		if fu := l.flatUnionOf(t); fu != nil {
+			// A flat union (flatunion.go): the tags, then the slot the
+			// tag names. A slot the tag does not name is zero, which the
+			// equality of its type need not accept (a nil union).
+			conj := []string{"(" + a + ".tag == " + b + ".tag)"}
+			for k, v := range fu.variants {
+				if fu.slot[k] {
+					conj = append(conj, "("+a+".tag != "+strconv.Itoa(k)+" || "+tc.equalCall(v, fu.flatNarrow(tc, a, k), fu.flatNarrow(tc, b, k), site)+")")
+				}
+			}
+			body.WriteString("\treturn " + strings.Join(conj, " && ") + "\n")
+			break
+		}
 		av, bv, ok := scope.alloc("av"), scope.alloc("bv"), scope.alloc("ok")
 		body.WriteString("\tswitch " + av + " := " + a + ".(type) {\n")
 		for _, v := range u.Variants {

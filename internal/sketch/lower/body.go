@@ -143,6 +143,11 @@ type funcCtx struct {
 	// (plainCatch): the call leaves Go's error as it is, since only its
 	// nil test is read (goErrorOf).
 	rawErr syntax.Expr
+	// plain marks the callback parameters of a known variant, whose Go
+	// type is the plain func(…) R, and plainLits the pure literals a call
+	// passes to one (known.go).
+	plain     map[*check.Var]bool
+	plainLits map[*syntax.FuncLit]bool
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -411,7 +416,9 @@ func (fc *funcCtx) target(x syntax.Expr, later bool) string {
 		default:
 			base = fc.target(x.X, later || indexEmits)
 		}
-		index := fc.value(x.Indices[0])
+		// A Map key takes its implicit conversion (a variant into a flat
+		// union's key, flatunion.go).
+		index := fc.assigned(x.Indices[0])
 		if later && !fc.isConst(x.Indices[0]) {
 			index = fc.spill(index)
 		}
