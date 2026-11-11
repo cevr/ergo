@@ -31,10 +31,22 @@ type Env struct {
 }
 
 // opsLiveSchedulerAsScheduler provides Scheduler through the functions of LiveScheduler (an operations conversion).
-type opsLiveSchedulerAsScheduler struct{ v LiveScheduler }
+type opsLiveSchedulerAsScheduler struct {
+	v   LiveScheduler
+	env *Env
+}
 
 func (a *opsLiveSchedulerAsScheduler) Sleep(t *rt.Task, p time.Duration) {
-	(a.v).Sleep(&Env{task: t}, p)
+	e := a.env
+	if e == nil || e.task != t {
+		c := Env{task: t}
+		if e != nil {
+			c = *e
+			c.task = t
+		}
+		e = &c
+	}
+	(a.v).Sleep(e, p)
 }
 
 type Console interface {
@@ -292,7 +304,7 @@ func main_1(env *Env) error {
 		/*line /ergo-test/main.ergo:24:2*/_ = env_1
 //line /ergo-test/main.ergo:24:28
 		v := NewLiveScheduler(env)
-		/*line /ergo-test/main.ergo:24:28*/(&env_1).Scheduler = &opsLiveSchedulerAsScheduler{v: v}
+		/*line /ergo-test/main.ergo:24:28*/(&env_1).Scheduler = &opsLiveSchedulerAsScheduler{v: v, env: env}
 //line /ergo-test/main.ergo:24:51
 //line /ergo-test/main.ergo:24:55
 		err := run((&env_1))
