@@ -739,25 +739,90 @@ func main() needs Console {
 }
 `
 
+// afterDefectSource is a timed machine whose step enters Busy, whose
+// timer has no positive In: the defect is raised in std's arm, which the
+// copy of RunTimed calls after the step's inlined body (a defect in std
+// code after an inlined user body).
+const afterDefectSource = `import machines
+import testing
+import time
+
+type Idle { n int }
+type Busy {}
+type St = Idle | Busy
+type Tick {}
+type Sig = Tick
+
+func step(s St, e Sig) Decision[St, int] {
+	match s {
+	case Idle as a:
+		Emit[St, int]{Next: Busy, Output: a.n}
+	case Busy:
+		Ignore
+	}
+}
+
+func timer(s St) Option[Timeout[Sig]] {
+	match s {
+	case Idle:
+		Some[Timeout[Sig]]{Value: Timeout[Sig]{In: duration(int64(5)), Signal: Tick}}
+	case Busy:
+		Some[Timeout[Sig]]{Value: Timeout[Sig]{In: duration(int64(0)), Signal: Tick}}
+	}
+}
+
+type Loop machine[St, Sig] {
+	initial: Idle{n: 0},
+	step:    step,
+	after:   timer,
+}
+
+func main() needs Console {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } {
+		let o = machines.RunTimed(Loop{}, []machines.Timed[Sig]{}, duration(int64(100))) catch {
+		case machines.Rejected:
+			return
+		}
+		match o {
+		case machines.Finished[St, int]:
+			Console.Println("finished")
+		case machines.Running[St, int] as r:
+			Console.Println("running \(len(r.Emitted))")
+		}
+	}
+}
+`
+
 // TestMachineStepDefectFrames is the smallest repro of an OPT6b bug: a
 // defect in a step inlined into the copy of From reported the std lines
 // after the inlined body as the step's, since the copy has no //line
 // directive to name its own lines again (closeInline now writes
-// generatedDir). The report must equal the reference's, where std's loop
-// calls the step. It builds Go because the report reads Go's traceback of
-// the built program.
+// generatedDir). The second program raises its defect in std code after
+// the step's inlined body (afterDefectSource). Each report must equal the
+// reference's, where std's loop calls the step. It builds Go because the
+// report reads Go's traceback of the built program.
 func TestMachineStepDefectFrames(t *testing.T) {
 	needsBuild(t)
-	copied := lowerMachineMode(t, "stepdefect", stepDefectSource, "", "")
-	ref := lowerMachineMode(t, "stepdefectref", stepDefectSource, "ref", "")
-	if !strings.Contains(copied.mainGo(), "func RunM(") {
-		t.Fatalf("no copy of Run for M:\n%s", copied.mainGo())
+	cases := []struct{ name, src, copy string }{
+		{"stepdefect", stepDefectSource, "func RunM("},
+		{"afterdefect", afterDefectSource, "func RunTimedLoop("},
 	}
-	exes := buildAll(t, []*lowered{copied, ref}, true)
-	out, stderr, code := runExe(t, exes["stepdefect"])
-	refOut, refErr, refCode := runExe(t, exes["stepdefectref"])
-	if code == 0 || out != refOut || stderr != refErr || code != refCode {
-		t.Errorf("the copy's defect report differs from the reference's\n--- copy (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s", code, out, stderr, refCode, refOut, refErr)
+	var programs []*lowered
+	for _, c := range cases {
+		copied := lowerMachineMode(t, c.name, c.src, "", "")
+		if !strings.Contains(copied.mainGo(), c.copy) {
+			t.Fatalf("%s: no copy %q:\n%s", c.name, c.copy, copied.mainGo())
+		}
+		programs = append(programs, copied, lowerMachineMode(t, c.name+"ref", c.src, "ref", ""))
+	}
+	exes := buildAll(t, programs, true)
+	for _, c := range cases {
+		out, stderr, code := runExe(t, exes[c.name])
+		refOut, refErr, refCode := runExe(t, exes[c.name+"ref"])
+		if code == 0 || out != refOut || stderr != refErr || code != refCode {
+			t.Errorf("%s: the copy's defect report differs from the reference's\n--- copy (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s", c.name, code, out, stderr, refCode, refOut, refErr)
+		}
 	}
 }
 

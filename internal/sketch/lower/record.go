@@ -28,9 +28,9 @@ import (
 // own Go frame: its polls, failures and defects are the function's own.
 //
 // A record is known when it is a machine declaration's value put into the
-// prelude Machine (ConvMachine, expr.go): its Step is the declaration's
-// step function. A machine with an input (a Start) is not: its conversion
-// builds the record from an input. A function has copies when it has an
+// prelude Machine or InputMachine (ConvMachine, expr.go): its Step is the
+// declaration's step function. An InputMachine's Start, like every field
+// but Step, is read from the record. A function has copies when it has an
 // Ergo body, is no method, no extern, no Close and not main, has no
 // witness, no owned parameter and no Task result, and its body calls a
 // field of a record parameter or passes the parameter on.
@@ -220,7 +220,7 @@ func (fc *funcCtx) knownRecord(x syntax.Expr) *knownRec {
 		return nil
 	}
 	step := conv.Table["Step"]
-	if step == nil || conv.Table["Start"] != nil {
+	if step == nil {
 		return nil
 	}
 	return &knownRec{tn: named.Obj, fields: map[string]*check.Func{"Step": step}}
