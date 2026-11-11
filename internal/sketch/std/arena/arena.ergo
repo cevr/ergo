@@ -60,15 +60,32 @@ func Put[T](a *Of[T], v T) Ref[T] {
 		a.slots = a.slots.Append(slot[T]{value: stored[T]{Value: v}, gen: 1, next: occupied})
 		return Ref[T]{index: len(a.slots) - 1, gen: 1}
 	}
-	a.free = a.slots[at].next
-	a.slots[at].value = stored[T]{Value: v}
-	a.slots[at].next = occupied
-	Ref[T]{index: at, gen: a.slots[at].gen}
+	let (next, gen) = reuse(&a.slots[at], v)
+	a.free = next
+	Ref[T]{index: at, gen: gen}
+}
+
+// reuse stores v in the free slot s and returns the slot's free-list link
+// and generation. Put writes the slot through this one borrow, so the
+// lowered Go indexes the store once, as hand-written Go does with a
+// pointer to the slot.
+func reuse[T](s *slot[T], v T) (int, int) {
+	let next = s.next
+	s.value = stored[T]{Value: v}
+	s.next = occupied
+	(next, s.gen)
 }
 
 // Has reports whether r names a value of a.
-func Has[T](a Of[T], r Ref[T]) bool {
-	r.index >= 0 && r.index < len(a.slots) && a.slots[r.index].gen == r.gen && a.slots[r.index].next == occupied
+func Has[T](a Of[T], r Ref[T]) bool { live(a.slots, r) }
+
+// live is Has on the store's slots. The operations call it with a.slots
+// of their borrow, not Has(*a, r), which copies the store's header: the
+// lowered Go then checks the very slice it indexes after the check, and
+// proves that index in range (no bounds check left). The result holds no
+// slice, so the argument is not copied (types.md, Result aliasing).
+func live[T](slots []slot[T], r Ref[T]) bool {
+	r.index >= 0 && r.index < len(slots) && slots[r.index].gen == r.gen && slots[r.index].next == occupied
 }
 
 // Get is the value r names. It fails with Stale when r's value was freed.
@@ -76,7 +93,7 @@ func Has[T](a Of[T], r Ref[T]) bool {
 // root is copied whole when T may hold a slice or Map (the value rule,
 // types.md, Bindings 2), which would make a Get cost the store.
 func Get[T](a *Of[T], r Ref[T]) T fails Stale {
-	if !Has(*a, r) {
+	if !live(a.slots, r) {
 		return Stale
 	}
 	a.slots[r.index].value.Value
@@ -85,7 +102,7 @@ func Get[T](a *Of[T], r Ref[T]) T fails Stale {
 // Set replaces the value r names. It fails with Stale when r's value was
 // freed, and then changes nothing.
 func Set[T](a *Of[T], r Ref[T], v T) fails Stale {
-	if !Has(*a, r) {
+	if !live(a.slots, r) {
 		return Stale
 	}
 	a.slots[r.index].value.Value = v
@@ -95,7 +112,7 @@ func Set[T](a *Of[T], r Ref[T], v T) fails Stale {
 // fails with Stale when r's value was freed, and then does not call f.
 // A write of one field is Go's write of that field, with no copy of T.
 func Update[T](a *Of[T], r Ref[T], f func(v *T)) fails Stale {
-	if !Has(*a, r) {
+	if !live(a.slots, r) {
 		return Stale
 	}
 	f(&a.slots[r.index].value.Value)
@@ -106,14 +123,23 @@ func Update[T](a *Of[T], r Ref[T], f func(v *T)) fails Stale {
 // then changes nothing. The private host cell clears the removed storage,
 // so a freed pointerful value is no longer kept alive by the arena.
 func Free[T](a *Of[T], r Ref[T]) T fails Stale {
-	if !Has(*a, r) {
+	if !live(a.slots, r) {
 		return Stale
 	}
-	let v = takeValue(&a.slots[r.index].value)
-	a.slots[r.index].gen = r.gen + 1
-	a.slots[r.index].next = a.free
+	let free = a.free
+	let v = vacate(&a.slots[r.index], r.gen+1, free)
 	a.free = r.index
 	a.live = a.live - 1
+	v
+}
+
+// vacate takes the value out of the live slot s, gives s the generation
+// gen and links it to the free slot next. Free writes the slot through
+// this one borrow (see reuse).
+func vacate[T](s *slot[T], gen int, next int) T {
+	let v = takeValue(&s.value)
+	s.gen = gen
+	s.next = next
 	v
 }
 
