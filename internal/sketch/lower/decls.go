@@ -1144,7 +1144,11 @@ func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 		entry = fc.flatEntry(flat, flatParam, paramNames[0])
 	}
 	l.analyzeValues(f.Decl, f.Pkg.Info)
-	fc.closeBody(f, site, func() {
+	recvName := ""
+	if len(paramNames) > 0 {
+		recvName = paramNames[0]
+	}
+	fc.closeBody(f, recvName, site, func() {
 		if needsFrame {
 			fc.site = site
 			fc.openFrame(frameErr)

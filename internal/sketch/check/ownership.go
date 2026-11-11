@@ -634,8 +634,12 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 	case *syntax.ExprStmt:
 		if _, tail := w.info.Tails[s]; tail {
 			t := w.tail
+			var ret syntax.Expr
+			if t.frame {
+				ret = w.retFresh(s.X)
+			}
 			w.region(s, func() {
-				w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed})
+				w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed, ret: ret})
 			})
 			w.heldTail(s.X, t)
 			return
@@ -646,7 +650,7 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 	case *syntax.ReturnStmt:
 		w.open(s)
 		for _, r := range s.Results {
-			w.expr(r, mMove, hand{at: r, how: "it is returned"})
+			w.expr(r, mMove, hand{at: r, how: "it is returned", ret: w.retFresh(r)})
 		}
 		w.record(s, w.releases(w.first))
 		w.st = ownState{}
@@ -1077,6 +1081,10 @@ type hand struct {
 	// parameter: a Go signature cannot move a value (IG9), so its
 	// conversion (Info.Implicit) moves nothing (convertedAt).
 	hostLend bool
+	// ret is the expression a return gives, when the frame still owns a
+	// value its exit releases: a new value there is owned by the frame
+	// until its exit is known (R10, Info.ReturnedTemps).
+	ret syntax.Expr
 }
 
 // heldTail records whether the tail x of a lent if, match, catch or with
@@ -1346,8 +1354,10 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		return
 	case *syntax.TupleExpr:
 		if mode == mMove {
-			// R14: a value built to be handed off moves its parts.
+			// R14: a value built to be handed off moves its parts; a
+			// returned one is owned by its frame until its exit (R10).
 			w.parts(x, h)
+			w.produced(x, mode, h)
 			return
 		}
 		for _, e := range x.Elts {
@@ -1360,8 +1370,10 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 	case *syntax.CompositeLit:
 		switch {
 		case mode == mMove:
-			// R14: a value built to be handed off moves its parts.
+			// R14: a value built to be handed off moves its parts; a
+			// returned one is owned by its frame until its exit (R10).
 			w.parts(x, h)
+			w.produced(x, mode, h)
 			return
 		case w.tracked(w.info.Types[x]):
 			// R14: a literal moves its parts, also one lent where it is
@@ -1657,6 +1669,8 @@ func (w *ownWalk) fieldTake(x syntax.Expr, h hand) bool {
 		w.report(sel, "%s has more than 64 fields, so its field %s cannot be taken in place; take %s whole", id.Name, sel.Sel.Name, id.Name)
 	case (s.fields|s.maybe)&(1<<k) != 0:
 		w.refuse(i, sel.Sel, fmt.Sprintf("%s is taken twice", exprText(sel)), "%s was taken in place (on this path or another) and cannot be taken again (resources R39, R20)", exprText(sel))
+	case w.writtenClose(w.info.Types[sel.X]):
+		w.refuse(i, sel.Sel, fmt.Sprintf("%s has its own Close and its field is taken", id.Name), "%s has its own Close, which runs before its fields are released and may read %s, so the field cannot be taken in place (resources R3, R39); release %s whole", id.Name, exprText(sel), id.Name)
 	case l.depth != w.depth:
 		w.refuse(i, sel, fmt.Sprintf("%s takes %s, which may run more than once", w.nestedText(), exprText(sel)), "%s cannot take %s (%s): %s belongs to the enclosing function, which releases it, and the block may run at another time or more than once (resources R4, R30)", w.nestedText(), exprText(sel), h.how, id.Name)
 	case l.lent && w.infer && l.param > 0 && w.c.infersTakes(w.fn):
@@ -1671,6 +1685,16 @@ func (w *ownWalk) fieldTake(x syntax.Expr, h hand) bool {
 		}
 	}
 	return true
+}
+
+// writtenClose reports whether t (or the type t points to) has a written
+// Close, whose function releases the fields after its body (R3).
+func (w *ownWalk) writtenClose(t Type) bool {
+	if p, ok := t.(*Pointer); ok {
+		t = p.Elem
+	}
+	n, ok := t.(*Named)
+	return ok && w.c.closeMethod(n) != nil
 }
 
 // children lends each operand of x.
@@ -1829,7 +1853,37 @@ func (w *ownWalk) produced(x syntax.Expr, mode ownMode, h hand) {
 		if i := w.tail.slot; i >= 0 && i < len(w.st.slots) {
 			w.st.slots[i] = ownSlot{st: ownOwned}
 		}
+	case mMove:
+		if h.ret != nil && h.ret == x && !w.genericOnly(t) {
+			// R10: the frame owns the returned value until its exit is
+			// known, so a defect in a later release of the frame releases
+			// it too; the return hands it off (v1.Returned).
+			i := w.acquire(ownLocal{temp: x})
+			w.st.slots[i].st = ownMoved
+			w.info.ReturnedTemps[x] = true
+		}
 	}
+}
+
+// retFresh is the value r returns (ReturnedKey) when the frame owns a
+// live value that its exit releases after r is made; nil otherwise.
+func (w *ownWalk) retFresh(r syntax.Expr) syntax.Expr {
+	for i, s := range w.st.slots {
+		if s.live() && i < len(w.vars) && !w.vars[i].lent && !w.vars[i].loanOnly {
+			return ReturnedKey(r)
+		}
+	}
+	return nil
+}
+
+// ReturnedKey is the expression whose value a return of r gives, the key
+// of Info.ReturnedTemps: r unparenthesized, or the operand of a try.
+func ReturnedKey(r syntax.Expr) syntax.Expr {
+	r = unparen(r)
+	if t, ok := r.(*syntax.TryExpr); ok {
+		return unparen(t.X)
+	}
+	return r
 }
 
 // ownTail is where a block's value goes: the mode its tail expression is
@@ -1843,10 +1897,11 @@ type ownTail struct {
 	lend      func(int, *syntax.Ident)
 	yieldRoot bool
 	failed    func()
+	frame     bool // the function body's own tail: its value is returned
 }
 
 // frameTail is a function body's: its value is returned.
-var frameTail = ownTail{mode: mMove, how: "it is the block's value", slot: -1}
+var frameTail = ownTail{mode: mMove, how: "it is the block's value", slot: -1, frame: true}
 
 // branchValue walks the structured paths of an if or match as a value.
 func (w *ownWalk) branchValue(x syntax.Expr, mode ownMode, h hand) {
@@ -1863,6 +1918,8 @@ func (w *ownWalk) branchValue(x syntax.Expr, mode ownMode, h hand) {
 func (w *ownWalk) yieldValue(x syntax.Expr, mode ownMode, h hand, walk func(ownMode)) {
 	saved := w.tail
 	t := ownTail{mode: mode, how: h.how, slot: -1, first: len(w.vars), lend: h.lend, yieldRoot: h.yieldRoot}
+	// A returned if or match: each arm's value is returned (R10).
+	t.frame = mode == mMove && h.ret != nil && h.ret == unparen(x)
 	switch {
 	case mode == mHold:
 		t = saved

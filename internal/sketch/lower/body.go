@@ -579,6 +579,7 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	}
 	val := fc.assigned(x)
 	fc.returned = nil
+	val = fc.returnedTemp(check.ReturnedKey(x), val)
 	if f.law {
 		// A law's result is any type over bool (types.md, Laws 8); its Go
 		// function returns bool.
@@ -589,6 +590,25 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	} else {
 		fc.sourceReturn(val)
 	}
+}
+
+// returnedTemp hands off val, the new value x a return gives, which its
+// frame owns until its exit is known (Info.ReturnedTemps, R10): kept, so
+// a defect in a later release of the frame releases it too.
+func (fc *funcCtx) returnedTemp(x syntax.Expr, val string) string {
+	if !fc.l.info.ReturnedTemps[x] {
+		return val
+	}
+	if st := fc.staticState(); st != nil {
+		if _, ok := st.bit[x]; ok {
+			return fc.staticHand(x, val, true, x)
+		}
+	}
+	h := fc.l.owned[x]
+	if h == "" {
+		ice(x, "a returned value the frame owns was never registered (ownTemp)")
+	}
+	return fc.runtimeCall("Returned", fc.ownBinding("Returned", x), "", "", []string{h, val}, "", nil, nil, x)
 }
 
 // fail leaves the current frame with err (rows.md, Escapes): the frame's

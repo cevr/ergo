@@ -323,7 +323,7 @@ func (fc *funcCtx) entersRelease(x *syntax.CallExpr) bool {
 // inside the release of a checked Close: frame scope, entry poll and
 // source body, so no checkpoint precedes the mask. Any other function's
 // body is written as it is.
-func (fc *funcCtx) closeBody(f *check.Func, site syntax.Node, emit func()) {
+func (fc *funcCtx) closeBody(f *check.Func, recv string, site syntax.Node, emit func()) {
 	if !isClose(f) {
 		emit()
 		return
@@ -346,7 +346,22 @@ func (fc *funcCtx) closeBody(f *check.Func, site syntax.Node, emit func()) {
 	inner := fc.out.String()
 	fc.out, fc.depth = outer, depth
 	block := "func() {\n" + inner + strings.Repeat("\t", depth) + "}"
-	fc.line(fc.runtimeCall(name, body, "", "", []string{block}, fc.envExpr(site), nil, nil, site))
+	env := fc.envExpr(site)
+	call := fc.runtimeCall(name, body, "", "", []string{block}, env, nil, nil, site)
+	own := f.Pkg.Info.CloseParts[f]
+	if own == nil {
+		fc.line(call)
+		return
+	}
+	// R3: the written body first, then the receiver's parts, each after an
+	// earlier defect (R9), so every caller of the Close releases the whole
+	// value.
+	x := recv
+	if _, ok := f.Sig.Params[0].Type.(*check.Pointer); ok {
+		x = "(*" + recv + ")"
+	}
+	drop := fc.runtimeCall("NewDrop", fc.ownBinding("NewDrop", site), "", "", nil, env, nil, nil, site)
+	fc.line(fc.glueWith(own, x, "", env, drop, "func() { "+call+" }", site))
 }
 
 // Owned values (#197 L8 B1; resources R5-R10, R21, R41, R43). The checker
@@ -402,6 +417,12 @@ func (fc *funcCtx) glue(d *check.Drop, v, taken, env string, site syntax.Node) s
 // glueOn is glue with the Go text of its v1.Drop, for a release outside a
 // frame (resultRelease).
 func (fc *funcCtx) glueOn(d *check.Drop, v, taken, env, dropText string, site syntax.Node) string {
+	return fc.glueWith(d, v, taken, env, dropText, "", site)
+}
+
+// glueWith is glueOn with first, when not "", a Go func() run as the
+// first part: a written Close's body before its receiver's parts (R3).
+func (fc *funcCtx) glueWith(d *check.Drop, v, taken, env, dropText, first string, site syntax.Node) string {
 	g := &glueGen{fc: fc, site: site, env: env, names: map[*check.Drop]string{}}
 	g.drop = fc.temp("drop")
 	top := g.parts(d, v, taken)
@@ -412,6 +433,9 @@ func (fc *funcCtx) glueOn(d *check.Drop, v, taken, env, dropText string, site sy
 	}
 	for _, n := range g.order {
 		b.WriteString(g.defs[n])
+	}
+	if first != "" {
+		b.WriteString(fc.runtimeCall("Drop.Part", fc.ownBinding("Drop.Part", site), "", g.drop, []string{first}, "", nil, nil, site) + "; ")
 	}
 	b.WriteString(top)
 	b.WriteString(fc.runtimeCall("Drop.End", fc.ownBinding("Drop.End", site), "", g.drop, nil, "", nil, nil, site))

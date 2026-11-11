@@ -305,6 +305,15 @@ type Info struct {
 	// drops a successful result releases it (Gap 47, L8 B4). A call whose
 	// result holds no resource has none; the lowering passes nil.
 	ResultDrops map[*syntax.CallExpr]*Drop
+	// CloseParts is, for a written Close whose receiver type holds
+	// resources in its parts, the release of those parts that the Close's
+	// function runs after its body (Drop.Own, R3).
+	CloseParts map[*Func]*Drop
+	// ReturnedTemps is each new value a return gives while its frame owns
+	// a value its exit releases: the value is an owned temporary
+	// (OwnedTemps) that the return hands off with v1.Returned, so a defect
+	// in a later release of the frame releases it too (R10).
+	ReturnedTemps map[syntax.Expr]bool
 	// FieldTakes is each field taken in place (`b.r.Close()`, R39, Gap
 	// 38): the owned record's local and the field's index. The lowering
 	// marks the field on the record's entry there, and the generated
@@ -452,6 +461,8 @@ func newInfo() *Info {
 		LentYields:     map[syntax.Expr]bool{},
 		TaskCaptures:   map[syntax.Node]*TaskCapture{},
 		ResultDrops:    map[*syntax.CallExpr]*Drop{},
+		CloseParts:     map[*Func]*Drop{},
+		ReturnedTemps:  map[syntax.Expr]bool{},
 		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},
 		Handoffs:       map[*syntax.Ident]*Var{},
 		PatternOwners:  map[*syntax.CaseClause]PatternOwners{},

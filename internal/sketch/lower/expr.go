@@ -1180,7 +1180,7 @@ func (fc *funcCtx) retTail(x syntax.Expr) {
 		fc.line(fc.errReturn("nil"))
 		return
 	}
-	fc.line("return " + fc.assigned(x) + ", nil")
+	fc.line("return " + fc.returnedTemp(check.ReturnedKey(x), fc.assigned(x)) + ", nil")
 }
 
 // simpleCatch reports a catch a Go type switch on the error lowers: arms of

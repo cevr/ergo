@@ -3,6 +3,7 @@ package lower
 import (
 	"strconv"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -76,7 +77,7 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 		if d.err != "" && fc.fallibleExpr(s.X) {
 			o := fc.expr(s.X)
 			if d.name != "" && o.val != "" {
-				fc.line(d.name + ", " + d.err + " = " + fc.convertAt(s.X, o.val) + ", " + o.err)
+				fc.line(d.name + ", " + d.err + " = " + fc.returnedTemp(check.ReturnedKey(s.X), fc.convertAt(s.X, o.val)) + ", " + o.err)
 				return false
 			}
 			fc.line(d.err + " = " + o.err)
@@ -90,7 +91,9 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 			fc.discard(s.X)
 			return false
 		}
-		fc.line(d.name + " = " + fc.assigned(s.X))
+		// An arm of a returned if or match: its value is kept until the
+		// frame's exit is known (R10, returnedTemp).
+		fc.line(d.name + " = " + fc.returnedTemp(check.ReturnedKey(s.X), fc.assigned(s.X)))
 		return false
 	case *syntax.IfStmt:
 		fc.at(s)
