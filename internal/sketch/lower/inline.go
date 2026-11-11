@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"go/token"
 	"strconv"
 	"strings"
 
@@ -281,7 +282,7 @@ func (fc *funcCtx) inlineAt(x *syntax.CallExpr, c *check.Call) bool {
 		if !ok || fc.lits[v] == nil {
 			return false
 		}
-		op := fc.inlineLit(x, fc.lits[v])
+		op := fc.inlineLit(x, c, fc.lits[v])
 		fc.inlined = &op
 		return true
 	}
@@ -330,6 +331,11 @@ func (fc *funcCtx) inlineAt(x *syntax.CallExpr, c *check.Call) bool {
 		return false
 	}
 	fc.l.inlineGrown[fc.scope] += size
+	if token.IsExported(f.Name) {
+		// An exported function keeps its Go function: inlining copies its
+		// body into the caller, and the declaration stays.
+		fc.l.useFunc(f, x)
+	}
 	op := fc.inlineCall(x, c, fd, list, lits)
 	fc.inlined = &op
 	return true
@@ -493,15 +499,17 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 
 // inlineLit writes the substituted literal sub where the inlined body fc
 // calls its parameter (x): the call's operands, bound to the literal's
-// parameters, then its body as a block, as inlineCall writes a body.
-func (fc *funcCtx) inlineLit(x *syntax.CallExpr, sub *litSub) operand {
+// parameters, then its body as a block, as inlineCall writes a body. The
+// call of the parameter is an inline site: the defect report writes the
+// frame the call of the literal would have had.
+func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) operand {
 	vals := fc.callArgs(x.Args, x)
 	o := sub.origin
 	sig := sub.info.Literals[sub.lit]
 	if sig == nil {
 		ice(sub.lit, "a function literal with no Literals entry")
 	}
-	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.inl, inlDepth: fc.inlDepth + 1}
+	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1}
 	ret := &inlineRet{label: fc.temp("inl")}
 	var result check.Type
 	if len(sig.Results) == 1 {
@@ -581,13 +589,13 @@ func (fc *funcCtx) tagPath(path string) string {
 }
 
 // inlineTable is the Go declaration of the program's inline sites and the
-// init function that registers them (v1.RegisterInlines), after the call
-// table is in source order: each site's call table entry and the site
-// around it. Empty when no call was inlined, so a program with none
-// registers nothing.
-func (l *lowerer) inlineTable(entryOf func(src, offset int) int) string {
+// statement of the source map's init that registers them
+// (v1.RegisterInlines), after the call table is in source order: each
+// site's call table entry and the site around it. Both are empty when no
+// call was inlined, so a program with none registers nothing.
+func (l *lowerer) inlineTable(entryOf func(src, offset int) int) (decl, register string) {
 	if len(l.inlineSites) == 0 {
-		return ""
+		return "", ""
 	}
 	name := l.pkgName(pkgKey{"inlines", nil}, "ergoInlines")
 	var b strings.Builder
@@ -597,6 +605,5 @@ func (l *lowerer) inlineTable(entryOf func(src, offset int) int) string {
 		b.WriteString("\t{Call: " + strconv.Itoa(entryOf(s.src, s.offset)) + ", Parent: " + strconv.Itoa(s.parent-1) + "},\n")
 	}
 	b.WriteString("}\n\n")
-	b.WriteString("func init() {\n\t" + l.rt() + ".RegisterInlines(" + name + "[:])\n}\n\n")
-	return b.String()
+	return b.String(), "\t" + l.rt() + ".RegisterInlines(" + name + "[:])\n"
 }

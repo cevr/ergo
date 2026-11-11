@@ -1659,8 +1659,7 @@ func (l *lowerer) callTable() string {
 		fmt.Fprintf(&b, "\t{Func: %s, Callee: %s, File: %s, Line: %d, Column: %d},\n", strconv.Quote(c.fn), strconv.Quote(c.callee), file(c.src), c.line, c.column)
 	}
 	b.WriteString("}\n\n")
-	b.WriteString("func init() {\n\t" + l.rt() + ".RegisterCalls(" + declTable + "[:], " + table + "[:])\n}\n\n")
-	b.WriteString(l.inlineTable(func(src, offset int) int {
+	inlines, register := l.inlineTable(func(src, offset int) int {
 		for i, c := range l.calls {
 			if c.src == src && c.offset == offset {
 				return i
@@ -1668,6 +1667,10 @@ func (l *lowerer) callTable() string {
 		}
 		ice(nil, "an inline site with no call table entry")
 		return -1
-	}))
+	})
+	b.WriteString(inlines)
+	// One init registers the source map: the call table, then the inline
+	// sites over it.
+	b.WriteString("func init() {\n\t" + l.rt() + ".RegisterCalls(" + declTable + "[:], " + table + "[:])\n" + register + "}\n\n")
 	return b.String()
 }

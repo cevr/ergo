@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -66,8 +67,30 @@ func main() fails Fault needs Console {
 // run after the body, last registered first (Rule 2).
 func TestTaskGoAndTaskResults(t *testing.T) {
 	needsBuild(t)
-	o := mustLower(t, "tasks", taskProgram)
+	saved := inlineLowering
+	defer func() { inlineLowering = saved }()
+	for _, mode := range []string{"call", "inline"} {
+		inlineLowering = mode
+		taskGoLowers(t, mustLower(t, "tasks_"+mode, taskProgram))
+	}
+	inlineLowering = saved
+	wantRun(t, taskProgram, "waited\nbody\nexit 2\nexit 1\n")
+}
+
+// literalMoves is the literal's Task return: the call of start takes the
+// literal's own scope, and the return moves the Task to the literal's
+// destination. The names are the lowering's (an inlined call before it
+// takes some).
+var literalMoves = regexp.MustCompile(`(v_\d+) := start\(env_\d+, &fs_\d+, n(?:_\d+)?\)\n\t\treturn (v_\d+)\.Move\(dest_\d+\), nil\n`)
+
+// taskGoLowers checks the Go of TestTaskGoAndTaskResults under one call
+// lowering (inline.go).
+func taskGoLowers(t *testing.T, o *lowered) {
+	t.Helper()
 	goSrc := stripDirectives(o.mainGo())
+	if m := literalMoves.FindStringSubmatch(goSrc); m == nil || m[1] != m[2] {
+		t.Errorf("%s: the literal's Task return does not move start's Task to its destination:\n%s", o.name, goSrc)
+	}
 	for _, want := range []string{
 		"func start(env *Env, dest *ergo.Scope, n int64) *ergo.Task[int64] {\n\tfs := ergo.NewScope(env.task)\n\tdefer fs.End(nil)\n",
 		"return v_1.Move(dest)\n",
@@ -77,15 +100,13 @@ func TestTaskGoAndTaskResults(t *testing.T) {
 		"ergo.OnExit(&fs, func() {\n",
 		"dest *ergo.Scope, p int64) (*ergo.Task[int64], error) {\n\t\treturn start(env_4, dest, p), nil\n",
 		"v_3, err_3 := s(env, &fs, int64(4))\n",
-		"v_5 := start(env_5, &fs_1, n)\n\t\treturn v_5.Move(dest_1), nil\n",
 		"v_6, err_6 := lit(env, &fs, int64(5))\n",
 		"v_8, err_8 := startChecked(env, &fs, int64(6))\n",
 	} {
 		if !strings.Contains(goSrc, want) {
-			t.Errorf("the lowered Go lacks %q:\n%s", want, goSrc)
+			t.Errorf("%s: the lowered Go lacks %q:\n%s", o.name, want, goSrc)
 		}
 	}
-	wantRun(t, taskProgram, "waited\nbody\nexit 2\nexit 1\n")
 }
 
 // stripDirectives is Go source without its //line and /*line*/ directives.

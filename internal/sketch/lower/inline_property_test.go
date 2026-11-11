@@ -15,9 +15,10 @@ import (
 // (update, bump), nested inlined calls (twice through pick through at),
 // early returns (clampAt, sign), a by-value argument read after a later
 // write (sumOf), dot calls on a place (b.clampAt) and on a borrow, and a
-// call the rule refuses (a loop, total). The program ends in one of four
+// call the rule refuses (a loop, total). The program ends in one of six
 // ways: normally, with a typed failure of main (try at), with a defect
-// raised by an Unreachable three inlined calls deep (deep, mustAt), or
+// raised by an Unreachable three inlined calls deep (deep, mustAt), with
+// an index defect in an inlined body inside an exit action (guarded), or
 // with an index defect in an inlined body (deep, raw).
 //
 // The program runs under the new lowering and under the reference
@@ -35,10 +36,12 @@ var inlineSeed = flag.Uint64("inline.seed", 0, "run TestInlineAgrees on this see
 var inlinePaths = []string{
 	"pick-ok", "pick-missing", "bump-ok", "bump-missing", "clamp-neg", "clamp-hi", "clamp-in",
 	"twice", "sign", "sumOf", "dot-place", "dot-borrow", "total", "strs", "print",
-	"end-normal", "end-fail", "end-unreachable", "end-index", "end-literal",
+	"end-normal", "end-fail", "end-unreachable", "end-index", "end-literal", "end-exit",
 }
 
-const inlinePrelude = `type Box[T] { items []T, n int }
+const inlinePrelude = `import scope
+
+type Box[T] { items []T, n int }
 
 type Missing { At int }
 
@@ -137,6 +140,12 @@ func poke(b *Box[int], i int, k int) {
 		*v = 100 / k
 	}) catch {
 	case Missing:
+	}
+}
+
+func guarded(b *Box[int]) {
+	scope.OnExit() {
+		let _ = deep(b, 9, false)
 	}
 }
 
@@ -339,9 +348,15 @@ func inlineProgram(seed uint64, reached map[string]bool) (src, want string) {
 	}
 	g.line("Console.Println(\"\\(digest(&b))\")")
 	g.out("%d", g.digest())
-	switch g.r.IntN(5) {
+	switch g.r.IntN(6) {
 	case 0:
 		g.reached["end-normal"] = true
+	case 5:
+		// An index defect in an inlined body inside an exit action: the
+		// Go closure around the action calls it at the position of the
+		// inlined call, which the report writes once.
+		g.line("guarded(&b)")
+		g.reached["end-exit"] = true
 	case 4:
 		// A division by zero in a literal substituted into an inlined
 		// body, itself inlined.
