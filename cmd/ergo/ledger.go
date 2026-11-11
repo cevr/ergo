@@ -8,7 +8,7 @@ import (
 )
 
 // ledgerPath is the law ledger of the program at path (runtime.md, Tests
-// 8): ergo.laws beside the nearest ergo.mod at or above the program's
+// 10): the module-wide ergo.laws beside the nearest ergo.mod at or above the program's
 // folder (the file's folder for a file), else in that folder.
 func ledgerPath(path string) string {
 	dir := path
