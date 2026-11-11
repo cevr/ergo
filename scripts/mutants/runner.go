@@ -71,6 +71,8 @@ type Suite struct {
 	Command []string
 	List    func(root string) ([]string, error)
 	Env     []string
+	// Tags are a Go suite's build tags (go test -tags).
+	Tags string
 }
 
 // Deadlines of the mutant pass, derived from the coverage pass: a child may
@@ -258,7 +260,7 @@ func (e *engine) load(ledgers []string) error {
 	}
 	fmt.Fprintf(h, "cover %q tools %q", e.cfg.Cover, toolNames(e.cfg.Tools))
 	for _, s := range e.cfg.Suites {
-		fmt.Fprintf(h, " suite %s %s %q %q", s.Name, s.Package, s.Command, s.Env)
+		fmt.Fprintf(h, " suite %s %s %q %q %q", s.Name, s.Package, s.Command, s.Env, s.Tags)
 	}
 	e.key = hex.EncodeToString(h.Sum(nil))[:16]
 	return nil
@@ -541,6 +543,9 @@ func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cov
 	argv := []string{"go", "test", "-c"}
 	if cover {
 		argv = append(argv, "-cover", "-covermode=set", "-coverpkg="+strings.Join(e.cfg.Cover, ","))
+	}
+	if s.Tags != "" {
+		argv = append(argv, "-tags="+s.Tags)
 	}
 	argv = append(argv, "-o", filepath.Join(bin, s.Name+".test"), s.Package)
 	return e.exec(ctx, root, argv, e.env(), deadline)

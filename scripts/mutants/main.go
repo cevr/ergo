@@ -269,6 +269,18 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			add("./" + filepath.ToSlash(filepath.Dir(m.File)))
 		}
 		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
+		// A killer named DIR[TAGS]:Test… is a test of DIR built with
+		// -tags=TAGS (runtime/v1's ergoexplore tests): its own suite.
+		for _, m := range j.Ledger.Mutants {
+			for _, id := range append(slices.Clone(m.Killers), anchorTests(m)...) {
+				name, _ := splitID(id)
+				tags, ok := strings.CutPrefix(name, rel+"[")
+				if !ok || !strings.HasSuffix(tags, "]") || slices.ContainsFunc(suites, func(s Suite) bool { return s.Name == name }) {
+					continue
+				}
+				suites = append(suites, Suite{Name: name, Package: "./" + rel, Tags: strings.TrimSuffix(tags, "]")})
+			}
+		}
 	}
 	return cover, tools, suites, nil
 }
