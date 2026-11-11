@@ -1342,13 +1342,13 @@ func (g *ogGen) valuesLoop(d int) *ogStmt {
 	case oTup:
 		g.f("loop:values:tup")
 		pat, binds = fmt.Sprintf("(%s, %s)", a, b), []string{a, b}
-		if g.omit() {
+		if g.r.IntN(4) == 0 { // an omitted part: refused (R39), drawn again
 			pat, binds = fmt.Sprintf("(%s, _)", a), []string{a}
 		}
 	case oPair:
 		g.f("loop:values:pair")
 		pat, binds = fmt.Sprintf("Pair{R: %s, S: %s}", a, b), []string{a, b}
-		if g.omit() {
+		if g.r.IntN(4) == 0 { // an omitted part: refused (R39), drawn again
 			pat, binds = fmt.Sprintf("Pair{S: %s}", b), []string{b}
 		}
 	}
