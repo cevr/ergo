@@ -163,6 +163,8 @@ func TestProvedRunsModel(t *testing.T) {
 // provedModel draws the state bounds and constructor state, then uses an
 // independent transition table to close reachable states and decide equality.
 // Read hides all state, so an observation-only implementation cannot pass.
+// It builds Go because the concrete proof must execute the actual lowered
+// operation bodies, including their mutation and result keys.
 func provedModel(t *testing.T) {
 	t.Helper()
 	seed := int64(1)
@@ -177,6 +179,7 @@ func provedModel(t *testing.T) {
 	type model struct {
 		n, initial                                  int
 		bounded, ctor, handle, unlisted, bad, guard bool
+		resultBad, foreign                          bool
 		want                                        string
 	}
 	ms := []model{
@@ -190,9 +193,11 @@ func provedModel(t *testing.T) {
 		{bounded: true, ctor: true, unlisted: true},
 		{},
 		{bounded: true, ctor: true, bad: true, guard: true},
+		{bounded: true, ctor: true, resultBad: true},
+		{bounded: true, ctor: true, foreign: true},
 	}
 	var program strings.Builder
-	program.WriteString("import sync\n")
+	program.WriteString("import sync\nimport strconv\n")
 	for i := range ms {
 		var src strings.Builder
 		m := &ms[i]
@@ -232,8 +237,10 @@ func provedModel(t *testing.T) {
 			same = same && (s+2)%m.n == q
 		}
 		switch {
-		case m.handle, !m.bounded && !m.ctor:
+		case m.handle, m.foreign, !m.bounded && !m.ctor:
 			m.want = "unproved"
+		case m.resultBad:
+			m.want = "FAIL"
 		case same:
 			m.want = "proved"
 		case m.ctor && !m.unlisted:
@@ -265,7 +272,14 @@ func provedModel(t *testing.T) {
 			}
 			src.WriteString("} }\n")
 		}
-		fmt.Fprintf(&src, "func Inc(p *%s) { p.s = state%s(int(p.s)+1) }\n", p, suffix)
+		fmt.Fprintf(&src, "func Inc(p *%s) { ", p)
+		if m.foreign {
+			fmt.Fprintf(&src, "foreign%s(int(p.s)); ", suffix)
+		}
+		fmt.Fprintf(&src, "p.s = state%s(int(p.s)+1) }\n", suffix)
+		if m.foreign {
+			fmt.Fprintf(&src, "func foreign%s(n int) { let _ = strconv.Itoa(n) }\n", suffix)
+		}
 		fmt.Fprintf(&src, "func Twice(p *%s) { ", p)
 		if m.bad {
 			fmt.Fprintf(&src, "if int(p.s) == %d { p.s = 0 } else { ", m.n-1)
@@ -278,6 +292,9 @@ func provedModel(t *testing.T) {
 		fmt.Fprintf(&src, "func Read(_ %s) int { 0 }\n", p)
 		fmt.Fprintf(&src, "func Ready(p %s) bool { int(p.s) != %d }\n", p, m.n-1)
 		fmt.Fprintf(&src, "type %s { Inc(), Twice(), Read() int, Ready() bool,\n", typ)
+		if m.resultBad {
+			src.WriteString("Other() int,\n")
+		}
 		if m.unlisted {
 			src.WriteString("Touch(n int),\n")
 		}
@@ -285,16 +302,22 @@ func provedModel(t *testing.T) {
 		if m.guard {
 			src.WriteString(" when Ready() == true")
 		}
-		src.WriteString(" { Inc(); Inc() } == { Twice() }, }\n")
+		if m.resultBad {
+			src.WriteString(" { Read() } == { Other() }, }\n")
+			fmt.Fprintf(&src, "func Other(_ %s) int { 1 }\n", p)
+		} else {
+			src.WriteString(" { Inc(); Inc() } == { Twice() }, }\n")
+		}
 		if m.unlisted {
 			fmt.Fprintf(&src, "func Touch(_ *%s, _ int) { }\n", p)
 		}
 		block := src.String()
-		for _, name := range []string{"Inc", "Twice", "Read", "Ready", "Touch"} {
+		for _, name := range []string{"Inc", "Twice", "Read", "Ready", "Touch", "Other"} {
 			block = strings.ReplaceAll(block, name+"(", name+suffix+"(")
 		}
 		program.WriteString(block)
 	}
+	program.WriteString("func main() { let mut p = NewP1(); p.Inc1(); p.Inc1(); let _ = p.Read1() }\n")
 	text := program.String()
 	u := checkPackage(t, "main", []pkgSource{{testSourcePath, text}}, nil)
 	p := mustLowerUnit(t, "model", u, true)
@@ -307,9 +330,23 @@ func provedModel(t *testing.T) {
 		if proved != (m.want == "proved") || refuted != (m.want == "FAIL") || (code != 0) != (m.want == "FAIL") {
 			t.Fatalf("seed %d: %s want %s, code %d:\n%s\n%s\n%s\nreplay: ERGO_PROVED_RUNS_SEED=%d go test -run TestProvedRunsModel ./internal/sketch/lower", seed, title, m.want, code, out, stderr, text, seed)
 		}
+		if m.want == "FAIL" && !strings.Contains(out, fmt.Sprintf("state = P%d{s:", i)) {
+			t.Fatalf("seed %d: the counterexample hides its reached state:\n%s", seed, out)
+		}
 	}
 	out, stderr, code := runExeArgs(t, exes["model"], "--law", "Ops0.Same", "--states", "1")
 	if code != 0 || strings.Contains(out, "(proved:") || !strings.Contains(out, "not proved: explored") {
 		t.Fatalf("seed %d: a truncated search proved:\n%s\n%s", seed, out, stderr)
+	}
+	_, err := RewriteChecks(u, func(_ []File, laws []string) (string, error) {
+		var out strings.Builder
+		for _, law := range laws {
+			stdout, _, _ := runExeArgs(t, exes["model"], "--law", law)
+			out.WriteString(stdout)
+		}
+		return out.String(), nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "rewrite law refuted: FAIL law Ops1.Same") {
+		t.Fatalf("seed %d: a reachable false law did not refuse the build: %v\n%s", seed, err, text)
 	}
 }

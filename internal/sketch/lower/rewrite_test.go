@@ -275,6 +275,8 @@ func TestRewriteAgrees(t *testing.T) {
 	}
 }
 
+// rewriteAgree builds Go because agreement includes native pointer updates,
+// handle-backed providers and the compiled evidence runner.
 func rewriteAgree(t *testing.T, values bool) {
 	seed := int64(1)
 	if s := os.Getenv("ERGO_REWRITE_AGREE_SEED"); s != "" {
@@ -306,7 +308,17 @@ func rewriteAgree(t *testing.T, values bool) {
 			out.WriteString(stdout)
 		}
 		checkOut = out.String()
-		return checkOut, nil
+		// This is an engine property with deliberately false obligations:
+		// real builds refuse a reachable counterexample. Feed the engine
+		// the remaining verdicts so it can test provider-specific refusal
+		// and alternate matching rules on the same generated windows.
+		var verdicts strings.Builder
+		for _, line := range strings.Split(checkOut, "\n") {
+			if !strings.HasPrefix(line, "FAIL law ") {
+				verdicts.WriteString(line + "\n")
+			}
+		}
+		return verdicts.String(), nil
 	})
 	if err != nil {
 		t.Fatalf("seed %d: %v\n%s", seed, err, src)
@@ -452,8 +464,20 @@ func TestRewriteDeepFalseLaw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Even an engine test's admission of tested runs admits no refuted law.
-	ev.(*checkedEvidence).admitTested = true
+	// A missed false state is still only tested evidence. Simulate that
+	// reporting miss without changing admission: the real build must keep
+	// both Inc calls even when the sampled reporter says ok.
+	evidence := ev.(*checkedEvidence)
+	for key := range evidence.ok {
+		evidence.ok[key] = "tested"
+	}
+	for _, r := range pkg.LawRuns {
+		if r.Law.Name == "TwoIncsAreTwice" {
+			for _, bd := range r.Bindings {
+				evidence.ok[evidenceKey(r.Law.Title(pkg), provTitle(pkg, bd[0].Type))] = "tested"
+			}
+		}
+	}
 	for _, c := range []struct {
 		ev    RewriteEvidence
 		twice bool

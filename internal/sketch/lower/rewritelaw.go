@@ -96,6 +96,9 @@ func (l *lowerer) rewriteFunc(law *check.Law, name string, list []syntax.Stmt, r
 	fc.owner = "law " + l.lawTitle(law)
 	fc.env = scope.alloc("env")
 	parts := []string{fc.env + " *" + l.env()}
+	if params {
+		result = &check.Slice{Elem: check.Typ[check.String]}
+	}
 	fc.frame = lawFrame(l.info, d, result)
 	if params {
 		for _, v := range law.Params {
@@ -111,7 +114,36 @@ func (l *lowerer) rewriteFunc(law *check.Law, name string, list []syntax.Stmt, r
 	head := "func " + name + "(" + strings.Join(parts, ", ") + ")" + fc.resultList(result, true)
 	fc.depth = 1
 	fc.entryPoll(l.info, d)
-	fc.body(list)
+	if !params {
+		fc.body(list)
+	} else {
+		reads := scope.alloc("reads")
+		fc.line("var " + reads + " []string")
+		for _, s := range list {
+			call, _ := sideCall(s)
+			op := law.Pkg.Info.Calls[call].Op
+			if len(op.Sig.Results) == 0 {
+				fc.stmt(s)
+				continue
+			}
+			v := fc.temp("read")
+			fc.line(v + " := " + fc.value(s.(*syntax.ExprStmt).X))
+			t := op.Sig.Results[0]
+			text := strconv.Quote("<opaque result>")
+			if l.keyWhy(t) == "" {
+				k := fc.temp("key")
+				fc.line("var " + k + " " + l.helper("explore") + ".Key")
+				fc.line(l.keyStmt(t, "(&"+k+")", v, law.Decl))
+				text = "string(" + k + ".Bytes())"
+			} else if l.printable(t, map[*check.Named]bool{}) {
+				text = l.litExpr(t, v, law.Decl)
+			} else {
+				fc.line("_ = " + v)
+			}
+			fc.line(reads + " = append(" + reads + ", " + text + ")")
+		}
+		fc.line("return " + reads + ", nil")
+	}
 	if sourced {
 		l.user.WriteString(l.directive(d))
 	}
@@ -284,7 +316,7 @@ func (l *lowerer) rewriteRuns(b *strings.Builder, law *check.Law, label string, 
 	}
 	callArgs := strings.Join(append([]string{"&" + e}, args...), ", ")
 	w("\tvar " + err + " error")
-	w("\tif " + right + " { " + err + " = " + l.rewriteSide(law, true) + "(" + callArgs + ") } else { " + err + " = " + l.rewriteSide(law, false) + "(" + callArgs + ") }")
+	w("\tif " + right + " { " + obs + ", " + err + " = " + l.rewriteSide(law, true) + "(" + callArgs + ") } else { " + obs + ", " + err + " = " + l.rewriteSide(law, false) + "(" + callArgs + ") }")
 	w("\tif " + err + " != nil { return []string{\"fails \" + " + err + ".Error()}, true }")
 	w("\tfor _, " + s + " := range " + steps[1] + " { " + obs + " = append(" + obs + ", " + s + "(" + field + ")) }")
 	it := law.Owner.Type.(*check.Named).Underlying().(*check.Interface)

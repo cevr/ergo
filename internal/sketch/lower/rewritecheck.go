@@ -33,6 +33,12 @@ const RewriteCheckSeed = "1"
 // rewriteCheckRounds bounds the check runs of one build.
 const rewriteCheckRounds = 3
 
+// RefutedRewriteError is a reachable counterexample, not an unavailable
+// optimization check. A build must preserve this refusal across its fallback.
+type RefutedRewriteError struct{ Line string }
+
+func (e *RefutedRewriteError) Error() string { return "rewrite law refuted: " + e.Line }
+
 // RewriteChecks returns the evidence for u's run build. run builds the
 // test files, runs each law title of laws with --seed RewriteCheckSeed
 // --law TITLE, and returns their output. A unit with no rewrite law that
@@ -81,6 +87,9 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 		}
 		ev.optimistic = false
 		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(line, "FAIL law ") && strings.Contains(line, "(reachable state)") {
+				return nil, &RefutedRewriteError{Line: line}
+			}
 			if rest, ok := strings.CutPrefix(line, "ok law "); ok {
 				title, prov, _ := strings.Cut(rest, " for ")
 				prov, how, _ := strings.Cut(prov, " ")

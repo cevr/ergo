@@ -27,6 +27,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Provider** (checked for provider values): A value whose type implements a capability's methods, bound to that capability by a `context`. A provider may fail less than its capability, never more.
 
+**Value provider** (PS1): A named record whose own value is its state, with operation functions on `P` or `*P`. A law run owns a fresh record and lends it to pointer operations; this does not grant an implicit conversion of `P` to an operation-type value. A rewrite proof compares the entire keyed state after both sides, not a separately written model or only the provider's public reads. See [types, Laws 14](docs/spec/types.md#laws).
+
 **Constructor** (designed): An ordinary function named as a `context` entry, such as `Orders = OpenPostgres`. Its requirements are satisfied from the same context, and its failures become startup failures of the `with` that builds it.
 
 **Captured provider** (designed): A provider that holds the capabilities its constructor used. Its methods use them without a `needs` clause of their own.

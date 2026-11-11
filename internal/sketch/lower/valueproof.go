@@ -17,6 +17,26 @@ func (fc *funcCtx) lawProvider(p check.LawProvider, val string, site syntax.Node
 	return fc.convert(p.Conv, val, site)
 }
 
+// proofStateText must not print a constructor instead of the reached
+// record: NewP() describes only its initial state and hides a counterexample.
+func (l *lowerer) proofStateText(t check.Type, val string, site syntax.Node) string {
+	if n, ok := t.(*check.Named); ok {
+		if record, ok := n.Underlying().(*check.Struct); ok {
+			td := l.typeDecl(n.Obj, site)
+			parts := []string{strconv.Quote(l.ergoType(n) + "{")}
+			for i, f := range record.Fields {
+				sep := ""
+				if i != 0 {
+					sep = ", "
+				}
+				parts = append(parts, strconv.Quote(sep+f.Name+": "), l.proofStateText(f.Type, val+"."+td.fieldName[f.Name], site))
+			}
+			return strings.Join(append(parts, strconv.Quote("}")), " + ")
+		}
+	}
+	return l.litExpr(t, val, site)
+}
+
 // proofBodyWhy rejects foreign or open behavior transitively, including in
 // helpers and guards. A completed native proof runs these exact bodies.
 func proofBodyWhy(fn *check.Func, seen map[*check.Func]bool) string {
@@ -107,6 +127,15 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 			return skip(why)
 		}
 		return false
+	}
+	for _, side := range [][]check.RewriteCall{law.Rewrite.Lhs, law.Rewrite.Rhs} {
+		for _, call := range side {
+			for _, result := range call.Op.Sig.Results {
+				if why := l.keyWhy(result); why != "" {
+					return skip("side result has no key: " + why)
+				}
+			}
+		}
 	}
 	params, listable := l.proofLists(law.Params, law.Decl)
 	if !listable {
@@ -227,13 +256,18 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 		w("if " + g + " && " + held + " && " + complete + " {")
 		w(admitted + "++")
 		callargs := strings.Join(append([]string{"&" + e}, args...), ", ")
-		w(err + " := " + l.rewriteSide(law, false) + "(" + callargs + ")")
+		leftResults, rightResults, rightError := ns.alloc("leftResults"), ns.alloc("rightResults"), ns.alloc("rightError")
+		w(leftResults + ", " + err + " := " + l.rewriteSide(law, false) + "(" + callargs + ")")
 		w(field + " = " + fc.lawProvider(p, c, law.Decl))
 		w("if " + err + " != nil { " + held + " = false }")
-		w("if " + l.rewriteSide(law, true) + "(" + callargs + ") != nil { " + held + " = false }")
+		w(rightResults + ", " + rightError + " := " + l.rewriteSide(law, true) + "(" + callargs + ")")
+		w("if " + rightError + " != nil { " + held + " = false }")
+		w("if len(" + leftResults + ") != len(" + rightResults + ") { " + held + " = false }")
+		j := ns.alloc("result")
+		w("for " + j + " := range " + leftResults + " { if " + j + " >= len(" + rightResults + ") || " + leftResults + "[" + j + "] != " + rightResults + "[" + j + "] { " + held + " = false } }")
 		w("if " + key + "(" + a + ") != " + key + "(" + c + ") { " + held + " = false }")
 		w("}")
-		w("if !" + held + " { " + counterexample + " = \"state = \" + " + l.litExpr(p.Type, state, law.Decl) + " + \", path = \" + " + paths + "[" + idx + "] + \"; left = \" + " + l.litExpr(p.Type, a, law.Decl) + " + \"; right = \" + " + l.litExpr(p.Type, c, law.Decl) + " }")
+		w("if !" + held + " { " + counterexample + " = \"state = \" + " + l.proofStateText(p.Type, state, law.Decl) + " + \", path = \" + " + paths + "[" + idx + "] + \"; left = \" + " + l.proofStateText(p.Type, a, law.Decl) + " + \"; right = \" + " + l.proofStateText(p.Type, c, law.Decl) + " }")
 		w("}")
 	})
 	if search {
@@ -260,7 +294,7 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 	w(fmt + ".Println(" + strconv.Quote("skip "+label+" (not proved: ") + "+" + stop + "+\")\")")
 	w("} else if !" + held + " {")
 	if search {
-		w(fmt + ".Println(" + strconv.Quote("FAIL "+label+": sides differ at reached state: ") + "+" + counterexample + "); " + failed + "++")
+		w(fmt + ".Println(" + strconv.Quote("FAIL "+label+" (reachable state): sides differ: ") + "+" + counterexample + "); " + failed + "++")
 		w(l.replayLine(law, `""`))
 	} else {
 		w(fmt + ".Println(" + strconv.Quote("skip "+label+" (not proved: false at a state which may be unreachable): ") + "+" + counterexample + ")")

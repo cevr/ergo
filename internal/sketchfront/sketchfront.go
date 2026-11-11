@@ -321,9 +321,12 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		// A check that cannot run leaves every site to the reference
 		// lowering, and says why.
 		ev, err := rewriteEvidence(unit, req, input)
+		var refuted *lower.RefutedRewriteError
 		switch {
 		case err == nil:
 			unit.Rewrite = ev
+		case errors.As(err, &refuted):
+			return build.Module{}, err
 		case req.Stderr != nil:
 			fmt.Fprintf(req.Stderr, "ergo: no rewrite law is used: %v\n", err)
 		}

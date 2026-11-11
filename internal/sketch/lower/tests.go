@@ -161,6 +161,20 @@ func (l *lowerer) nameTests() {
 		if r.Law.Rewrite != nil {
 			l.rewriteSide(r.Law, false)
 			l.rewriteSide(r.Law, true)
+			for _, side := range [][]check.RewriteCall{r.Law.Rewrite.Lhs, r.Law.Rewrite.Rhs} {
+				for _, call := range side {
+					for _, t := range call.Op.Sig.Results {
+						if l.keyWhy(t) == "" {
+							l.keyTypes(t, map[string]bool{}, func(t check.Type) {
+								key, base, _ := l.keyName(t)
+								l.pkgName(key, base)
+							})
+						} else {
+							reserveLit(t)
+						}
+					}
+				}
+			}
 			if r.Law.Rewrite.Guard != nil {
 				l.rewriteGuard(r.Law)
 			}
@@ -174,6 +188,7 @@ func (l *lowerer) nameTests() {
 				if len(bd) == 1 && bd[0].Value && l.keyWhy(bd[0].Type) == "" {
 					reserveLit(bd[0].Type)
 					l.keyTypes(bd[0].Type, map[string]bool{}, func(t check.Type) {
+						reserveLit(t)
 						key, base, _ := l.keyName(t)
 						l.pkgName(key, base)
 					})
