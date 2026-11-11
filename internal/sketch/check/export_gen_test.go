@@ -28,7 +28,7 @@ func TestExportCodecsAreCurrent(t *testing.T) {
 	}
 	files := map[string][]byte{
 		filepath.Join(root, "internal/sketch/syntax/codec_gen.go"): syntaxSrc,
-		filepath.Join(root, "internal/sketch/check/export_gen.go"):  checkSrc,
+		filepath.Join(root, "internal/sketch/check/export_gen.go"): checkSrc,
 	}
 	for path, want := range files {
 		if *updateExport {

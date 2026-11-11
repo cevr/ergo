@@ -1,6 +1,8 @@
 package check
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"go/constant"
@@ -77,9 +79,15 @@ func encodeSnapshot(s *stdSnapshot) (out []byte, err error) {
 	e.encPtrstdSnapshot(s)
 	nodes := e.nodes.Bytes()
 	buf := []byte(snapshotMagic)
+	// Verify the complete payload before decoding sizes or graph edges.
+	// Corrupt cache bytes must be a miss, not a changed checked model.
+	buf = append(buf, make([]byte, sha256.Size)...)
 	buf = binary.AppendUvarint(buf, uint64(len(nodes)))
 	buf = append(buf, nodes...)
-	return append(buf, e.buf...), nil
+	buf = append(buf, e.buf...)
+	sum := sha256.Sum256(buf[len(snapshotMagic)+sha256.Size:])
+	copy(buf[len(snapshotMagic):], sum[:])
+	return buf, nil
 }
 
 // ErrInstalled refuses a snapshot after this process has built its
@@ -126,6 +134,14 @@ func decodeSnapshot(data []byte) (s *stdSnapshot, err error) {
 		return nil, fmt.Errorf("check: not a std snapshot")
 	}
 	data = data[len(snapshotMagic):]
+	if len(data) < sha256.Size {
+		return nil, fmt.Errorf("check: short std snapshot checksum")
+	}
+	sum := sha256.Sum256(data[sha256.Size:])
+	if !bytes.Equal(data[:sha256.Size], sum[:]) {
+		return nil, fmt.Errorf("check: std snapshot checksum mismatch")
+	}
+	data = data[sha256.Size:]
 	n, k := binary.Uvarint(data)
 	if k <= 0 || n > uint64(len(data)-k) {
 		return nil, fmt.Errorf("check: malformed std snapshot")

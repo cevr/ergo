@@ -24,6 +24,9 @@ import ergo.local/prototype/internal/sketch/std ergo.local/prototype/internal/sk
 # no host I/O; it imports no ergo.local package (go list -deps), so it
 # cannot name, receive or build a syntax node.
 import math/big
+# CHK1b: bytes.Equal and crypto/sha256.Sum256 verify the snapshot before any
+# graph decode. They accept only bytes and cannot construct a syntax node.
+import bytes crypto/sha256
 # runtime/v1 (G5b, the std purity fact): footprint.go calls only
 # v1.BodyOf(name string) and reads Body.Pure; extern.go reads only the
 # []string v1.PureImports (G9, the user extern allowlist). runtime/v1 depends on no
