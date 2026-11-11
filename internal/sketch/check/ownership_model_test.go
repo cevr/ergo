@@ -264,7 +264,7 @@ func ofYieldLifetimes(t *testing.T, seed uint64) {
 		}
 		release := func(n syntax.Node) {
 			last := len(tokens) + 1
-			for _, r := range c.pkg.Info.Releases[n] {
+			for _, r := range planAt(c.pkg.Info, n) {
 				v := vars[r.Var]
 				if r.Var != nil && r.Flag && v == nil {
 					continue
@@ -1811,6 +1811,35 @@ func ofNumbered(src string) string {
 	return b.String()
 }
 
+// planEntry is one entry of the release plan: a place and what it releases;
+// failure marks a try's failure edge (Info.TryReleases).
+type planEntry struct {
+	at      syntax.Node
+	rs      []Release
+	failure bool
+}
+
+// allPlans is every entry of info's release plan.
+func allPlans(info *Info) []planEntry {
+	var out []planEntry
+	for n, rs := range info.Releases {
+		out = append(out, planEntry{at: n, rs: rs})
+	}
+	for t, rs := range info.TryReleases {
+		out = append(out, planEntry{at: t, rs: rs, failure: true})
+	}
+	return out
+}
+
+// planAt is what the run model releases at n: a try's failure edge when n
+// is a try (the model never releases a header), else n's entry.
+func planAt(info *Info, n syntax.Node) []Release {
+	if t, ok := n.(*syntax.TryExpr); ok {
+		return info.TryReleases[t]
+	}
+	return info.Releases[n]
+}
+
 // ofReleases renders the checker's release plan of body's lines.
 func ofReleases(c *checker, first int) []string {
 	f := c.pkg.Files()[0]
@@ -1821,13 +1850,19 @@ func ofReleases(c *checker, first int) []string {
 			bodyBlock = fd.Body
 		}
 	}
-	for n, rs := range c.pkg.Info.Releases {
+	for _, p := range allPlans(c.pkg.Info) {
+		n, rs := p.at, p.rs
 		line := f.Line(n.Pos())
 		if line < first {
 			continue
 		}
 		kind := ""
 		switch n.(type) {
+		case *syntax.TryExpr:
+			kind = "header"
+			if p.failure {
+				kind = "try"
+			}
 		case *syntax.BlockStmt:
 			kind = "block"
 		case *syntax.CaseClause:
@@ -1836,8 +1871,6 @@ func ofReleases(c *checker, first int) []string {
 			kind = "return"
 		case *syntax.BranchStmt:
 			kind = "branch"
-		case *syntax.TryExpr:
-			kind = "try"
 		case *syntax.Ident:
 			kind = "assign"
 		case *syntax.ExprStmt:
