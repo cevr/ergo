@@ -111,8 +111,10 @@ func Body(n int, p PatternHeld) {
 // (each element owned, Q7) refuse an omitted or wildcard resource part,
 // and a for-in over a slice (lent, R35) admits it. Each binding of an
 // admitted consuming pattern has an owner and a release. A queue's
-// Values() stored in a let or passed to a Seq parameter is refused (16a
-// fix r2, M1; mutant 16a-r2-values-seq-kept).
+// Values() Seq that escapes the range of a for-in is refused, in a
+// generic body as a copy site (16a fix r2 and r3, M1; mutants
+// 16a-r2-values-seq-kept, 16a-r3-generic-method-value,
+// 16a-r3-values-copysite-dropped).
 func ofPatternConsumers(t *testing.T, seed uint64) {
 	r := rand.New(rand.NewPCG(seed, 0x706f32))
 	type shape struct{ typ, value, full, omit, wild string }
@@ -130,17 +132,53 @@ func ofPatternConsumers(t *testing.T, seed uint64) {
 	case 2:
 		pattern, uses = s.wild, "lend(b)"
 	}
-	consumer := r.IntN(6)
+	consumer := r.IntN(5)
 	var body, helper string
+	// An escape: a queue's Seq of owned values that reaches a for-in some
+	// other way than as its range (16a fix r2 M1, fix r3 M1). Drawn from
+	// every way a Seq or a function that makes one leaves the call: a let,
+	// an argument, a method value (f = q.Values; f()), a record field, a
+	// returned value and a closure's captured call. In a generic body over
+	// Queue[T] (generic) each is a copy site of T (R44): instantiated with
+	// the shape it is refused, with int it is admitted (plain).
+	escape, generic, plain := r.IntN(6), consumer == 4 && r.IntN(2) == 1, false
+	if consumer == 4 {
+		e, p, u, tp := s.typ, pattern, uses, ""
+		if generic {
+			e, p, u, tp = "T", "v", "let _ = v", "[T]"
+		}
+		forIn := func(seq string) string { return "for " + p + " in " + seq + " {\n" + u + "\n}" }
+		var esc string
+		switch escape {
+		case 0:
+			esc = "let s = q.Values()\n" + forIn("s")
+		case 1:
+			// The callee's for-in lends, so its cover is not checked.
+			helper = "func drain" + tp + "(s Seq[" + e + "]) {\n" + forIn("s") + "\n}\n"
+			esc = "drain(q.Values())"
+		case 2:
+			esc = "let f = q.Values\n" + forIn("f()")
+		case 3:
+			helper = "type SeqBox" + tp + " { S Seq[" + e + "] }\n"
+			esc = "let sb = SeqBox{S: q.Values()}\n" + forIn("sb.S")
+		case 4:
+			helper = "func vals" + tp + "(q queue.Queue[" + e + "]) Seq[" + e + "] { q.Values() }\n"
+			esc = forIn("vals(q)")
+		case 5:
+			esc = "let g = func() Seq[" + e + "] { q.Values() }\n" + forIn("g()")
+		}
+		if generic {
+			inst := s.typ
+			if r.IntN(2) == 0 {
+				inst, plain = "int", true
+			}
+			helper += "func h[T](q queue.Queue[T]) {\n" + esc + "\n}\n"
+			body = "let q = queue.New[" + inst + "](1)\nh(q)"
+		} else {
+			body = "let q = queue.New[" + s.typ + "](1)\n" + esc
+		}
+	}
 	switch consumer {
-	case 4:
-		// A stored Seq of owned values (16a fix r2, M1): refused.
-		body = "let q = queue.New[" + s.typ + "](1)\nlet s = q.Values()\nfor " + pattern + " in s {\n" + uses + "\n}"
-	case 5:
-		// A Seq of owned values passed on (16a fix r2, M1): refused; the
-		// callee's for-in lends, so its cover is not checked.
-		helper = "func drain(s Seq[" + s.typ + "]) {\nfor " + pattern + " in s {\n" + uses + "\n}\n}\n"
-		body = "let q = queue.New[" + s.typ + "](1)\ndrain(q.Values())"
 	case 0:
 		body = "let " + pattern + " = " + s.value + "\n" + uses
 	case 1:
@@ -154,10 +192,11 @@ func ofPatternConsumers(t *testing.T, seed uint64) {
 		body = "for " + pattern + " in xs {\n" + uses + "\n}"
 	}
 	// A Seq of a queue's owned values outside the range of a for-in has
-	// no owner (resources R35): consumers 4 and 5 are refused whatever
-	// the cover, by that diagnostic alone.
-	seqOut := consumer >= 4
-	wantBad := seqOut || cover != 0 && consumer != 3
+	// no owner (resources R35): an escape is refused whatever the cover,
+	// by that diagnostic alone (a method value by R19's), unless it is
+	// generic and instantiated with plain data.
+	seqOut := consumer == 4
+	wantBad := seqOut && !plain || !seqOut && cover != 0 && consumer != 3
 	src := ofPrelude + `type Pair { R Res, S Res }
 type Nest { P Pair }
 func pair() Pair { Pair{R: open(1), S: open(2)} }
@@ -167,7 +206,12 @@ func pair() Pair { Pair{R: open(1), S: open(2)} }
 	bad := false
 	for _, d := range ds {
 		want := "pattern"
-		if seqOut {
+		switch {
+		case generic:
+			want = "h cannot take a " + s.typ + ": h copies its T"
+		case seqOut && escape == 2:
+			want = "q.Values is a method value of Values on q, a resource"
+		case seqOut:
 			want = "q.Values() yields the queue's values"
 		}
 		if d.Code != CodeType || !strings.Contains(d.Message, want) {
@@ -176,7 +220,7 @@ func pair() Pair { Pair{R: open(1), S: open(2)} }
 		bad = true
 	}
 	if bad != wantBad {
-		t.Fatalf("pattern consumer seed %d (ERGO_SEED=%d), cover %d consumer %d: bad=%v want %v\n%s\n%v", seed, seed, cover, consumer, bad, wantBad, src, ds)
+		t.Fatalf("pattern consumer seed %d (ERGO_SEED=%d), cover %d consumer %d escape %d generic %v: bad=%v want %v\n%s\n%v", seed, seed, cover, consumer, escape, generic, bad, wantBad, src, ds)
 	}
 	if bad || consumer == 3 {
 		return
