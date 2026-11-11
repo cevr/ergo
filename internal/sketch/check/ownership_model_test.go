@@ -588,6 +588,16 @@ func TestOwnershipMessages(t *testing.T) {
 	if want := "p is lent to Give, so it cannot hand p off (it is returned)"; len(diags) != 1 || !strings.Contains(diags[0].Message, want) {
 		t.Errorf("return p: got %v, want one S108 containing %q", diags, want)
 	}
+	// An update or a spread of a record with its own Close would split it
+	// (R39, one rule with a field taken in place; Rust E0509): its Close
+	// never ran (OWGEN r3 (b), 16a r3 On base).
+	const w = "type Core { R Res }\n\ntype W { ..Core, n int }\n\ntype V { ..Core }\n\nfunc Close(w W) {}\n\nfunc lendW(w W) {}\n\nfunc lendV(v V) {}\n\n"
+	for _, body := range []string{"lendW(W{..W{R: open(1), n: 1}, R: open(2)})", "lendV(V{..W{R: open(1), n: 1}})"} {
+		_, diags := checkFor(ofPrelude + w + "func body() {\n\t" + body + "\n}\n\nfunc main() {}\n")
+		if want := "W has its own Close, which runs on the whole value, so an update or a spread cannot take it apart (resources R3, R39); build the new value from its fields"; len(diags) != 1 || !strings.Contains(diags[0].Message, want) {
+			t.Errorf("%s: got %v, want one S108 containing %q", body, diags, want)
+		}
+	}
 }
 
 const ofPrelude = `import queue

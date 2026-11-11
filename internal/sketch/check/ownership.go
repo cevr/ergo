@@ -1853,6 +1853,13 @@ func (w *ownWalk) parts(x syntax.Expr, h hand) {
 		src = x.Elts
 	case *syntax.CompositeLit:
 		if x.Base != nil {
+			// A record with its own Close is released whole: its Close
+			// runs before its fields' releases (R3), so an update or a
+			// spread, which takes its fields apart, is refused, as a
+			// field taken in place is (R39; Rust E0509).
+			if bt := w.info.Types[x.Base]; bt != nil && w.writtenClose(bt) {
+				w.report(x.Base, "%s has its own Close, which runs on the whole value, so an update or a spread cannot take it apart (resources R3, R39); build the new value from its fields", w.c.localTypeText(bt))
+			}
 			src = append(src, x.Base)
 		}
 		src = append(src, x.Elts...)
