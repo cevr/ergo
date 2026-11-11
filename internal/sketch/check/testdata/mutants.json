@@ -2460,6 +2460,28 @@
       "killers": [
         "check:TestScriptDiagnostics"
       ]
+    },
+    {
+      "name": "fureaddir-go-method-value-admitted",
+      "origin": "wf10 FU-readdir r2",
+      "file": "internal/sketch/check/gobinding.go",
+      "from": "\t\tif !called {\n\t\t\t// A Go method is an extern",
+      "to": "\t\tif false {\n\t\t\t// A Go method is an extern",
+      "rule": "A Go method (a struct's or an interface's) is a call-only extern: its method value is S108 with the literal to pass (grammar.md, Extern), never Go's method value in place of Ergo's function shape.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-go-iface-method-value-admitted",
+      "origin": "wf10 FU-readdir r2",
+      "file": "internal/sketch/check/gobinding.go",
+      "from": "\t\tif !called {\n\t\t\t// A Go method is an extern",
+      "to": "\t\tif !called && fn != nil {\n\t\t\t// A Go method is an extern",
+      "rule": "An operation of a Go interface type (io/fs.DirEntry's Name) is a Go method too: its method value is S108 as a struct method's is.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
     }
   ]
 }

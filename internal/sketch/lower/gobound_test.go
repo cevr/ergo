@@ -30,10 +30,16 @@ import (
 // drops out: only an internal error or Go that does not type-check fails.
 // os.ReadDir must keep its full form, so a broken generator cannot drop
 // every use unseen.
+//
+// A method (an extern with a receiver, or an operation of a Go interface
+// type) has a second use, its method value called: `let f = recv.M`. A Go
+// method is a call-only extern (grammar.md, Extern), so that form is S108
+// and steps down to the literal the diagnostic names, which must lower;
+// os.File.ReadDir's must reach it.
 func TestEveryGoBoundFunctionLowers(t *testing.T) {
 	var programs []*lowered
 	kept, plain, dropped := 0, 0, 0
-	sawReadDir := false
+	sawReadDir, sawMethodValue := false, false
 	// One set of Go bindings for every program: each binding is parsed
 	// once, not once per program (they import only Go packages).
 	imp := hresImporter{check.NewGoBindings(nil)}
@@ -51,11 +57,19 @@ func TestEveryGoBoundFunctionLowers(t *testing.T) {
 			if path == "os" && strings.Contains(o.src, "\tlet r = if c { try os.ReadDir(") && !strings.Contains(o.src, "import go io/fs") {
 				sawReadDir = true
 			}
+			if path == "os" && strings.Contains(o.src, "\tlet f = func(p0 int) []fs.DirEntry fails go.Error needs go.Foreign { try recv.ReadDir(p0) }\n\tlet r = if c { try f(") {
+				sawMethodValue = true
+			}
 		}
 	}
 	t.Logf("Go-bound functions: %d in full form, %d plain, %d the checker or lowering refuses", kept, plain, dropped)
 	if !sawReadDir {
 		t.Errorf("the os program lost its full-form os.ReadDir use: the generator no longer reaches the case the property guards")
+	}
+	if !sawMethodValue {
+		// A Go method is an extern: its method value is S108, and the
+		// literal that diagnostic names lowers (grammar.md, Extern).
+		t.Errorf("the method value recv.ReadDir of os.File did not step down to the literal the extern rule names")
 	}
 	typecheckGo(t, programs)
 }
@@ -117,6 +131,9 @@ type goBoundUse struct {
 	full    string
 	short   string
 	imports []string // the import lines of the packages the use names
+	// plainImports, when set, are the plain form's import lines: a method
+	// value's literal writes the result type.
+	plainImports []string
 }
 
 var (
@@ -172,20 +189,19 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 	}
 	text := func(n syntax.Node) string { return src[n.Pos():n.End()] }
 	var out []goBoundUse
-	for _, d := range f.Decls {
-		fd, ok := d.(*syntax.FuncDecl)
-		if !ok || fd.Extern == nil {
-			continue
-		}
+	// add adds the uses of the function or method named fn, of the
+	// signature ft whose text ends at end: its call, and for a method
+	// (recv, its receiver type's text) its method value.
+	add := func(target, fn, recv string, tps *syntax.FieldList, ft *syntax.FuncType, end syntax.Pos) {
 		tparams := map[string]bool{}
 		tpText := ""
-		if fd.TypeParams != nil {
-			for _, fl := range fd.TypeParams.List {
+		if tps != nil {
+			for _, fl := range tps.List {
 				for _, n := range fl.Names {
 					tparams[n.Name] = true
 				}
 			}
-			tpText = src[fd.TypeParams.Opening : fd.TypeParams.Closing+1]
+			tpText = src[tps.Opening : tps.Closing+1]
 		}
 		qualify := func(s string) string {
 			return goBoundIdent.ReplaceAllStringFunc(s, func(m string) string {
@@ -196,47 +212,53 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 				return m
 			})
 		}
-		var params, args []string
+		// The literal of a method value takes its own parameters, p0…,
+		// since a name of the function's own is not rebound (196v).
+		var params, litParams, litArgs, args []string
 		params = append(params, "c bool")
-		callee := name + "." + fd.Name.Name
-		if fd.Recv != nil {
-			params = append(params, "recv "+qualify(text(fd.Recv.List[0].Type)))
-			callee = "recv." + fd.Name.Name
+		callee := name + "." + fn
+		if recv != "" {
+			params = append(params, "recv "+qualify(recv))
+			callee = "recv." + fn
 		}
-		for _, fl := range fd.Type.Params.List {
-			n := max(1, len(fl.Names))
-			for range n {
-				a := fmt.Sprintf("a%d", len(args))
-				args = append(args, a)
-				params = append(params, a+" "+qualify(text(fl.Type)))
+		if ft.Params != nil {
+			for _, fl := range ft.Params.List {
+				n := max(1, len(fl.Names))
+				for range n {
+					a := fmt.Sprintf("a%d", len(args))
+					p := fmt.Sprintf("p%d", len(args))
+					args, litArgs = append(args, a), append(litArgs, p)
+					params = append(params, a+" "+qualify(text(fl.Type)))
+					litParams = append(litParams, p+" "+qualify(text(fl.Type)))
+				}
 			}
 		}
 		results := 0
-		end := fd.Type.Params.End()
-		if r := fd.Type.Results; r != nil {
+		resEnd := ft.Params.End()
+		if r := ft.Results; r != nil {
 			// The result type, then the error row as a field of its own.
 			if res := r.List[0].Type; !isErrorRow(res) {
-				end = res.End()
+				resEnd = res.End()
 				results = 1
 				if tup, ok := res.(*syntax.TupleExpr); ok {
 					results = len(tup.Elts)
 				}
 			}
 		}
-		rows := strings.TrimSpace(qualify(src[end:fd.End()]))
+		rows := strings.TrimSpace(qualify(src[resEnd:end]))
 		sig := qualify(tpText) + "(" + strings.Join(params, ", ") + ") " + rows
-		call := callee + "(" + strings.Join(args, ", ") + ")"
+		try := ""
 		if strings.Contains(rows, "fails") {
-			call = "try " + call
+			try = "try "
 		}
-		var full, short string
-		switch results {
-		case 0:
-			full, short = call, call
-		case 1:
-			full = "let r = if c { " + call + " } else { " + call + " }\n\tlet _ = r"
-			short = "let _ = " + call
-		default:
+		forms := func(callee string) (full, short string) {
+			call := try + callee + "(" + strings.Join(args, ", ") + ")"
+			switch results {
+			case 0:
+				return call, call
+			case 1:
+				return "let r = if c { " + call + " } else { " + call + " }\n\tlet _ = r", "let _ = " + call
+			}
 			names := make([]string, results)
 			blanks := make([]string, results)
 			for i := range names {
@@ -246,7 +268,7 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 			for _, n := range names {
 				full += "\n\tlet _ = " + n
 			}
-			short = "let (" + strings.Join(blanks, ", ") + ") = " + call
+			return full, "let (" + strings.Join(blanks, ", ") + ") = " + call
 		}
 		var paths []string
 		for _, m := range goBoundQualifier.FindAllStringSubmatch(sig, -1) {
@@ -258,12 +280,66 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 			paths = append(paths, own)
 		}
 		sort.Strings(paths)
+		full, short := forms(callee)
 		out = append(out, goBoundUse{
-			target:  fd.Extern.Target.Value,
+			target:  target,
 			full:    sig + " {\n\t" + full + "\n}\n",
 			short:   sig + " {\n\t" + short + "\n}\n",
 			imports: paths,
 		})
+		if recv == "" {
+			return
+		}
+		// The method value: in full form recv.M itself, called; in plain
+		// form the literal a program passes where the method value is
+		// refused (grammar.md, Extern), called.
+		// The literal writes the result type, so it imports what that
+		// names.
+		lit := "func(" + strings.Join(litParams, ", ") + ") " + strings.TrimSpace(qualify(src[ft.Params.End():end])) + " { " + try + callee + "(" + strings.Join(litArgs, ", ") + ") }"
+		litPaths := slices.Clone(paths)
+		for _, m := range goBoundQualifier.FindAllStringSubmatch(lit, -1) {
+			if p, ok := imports[m[1]]; ok && !slices.Contains(litPaths, p) {
+				litPaths = append(litPaths, p)
+			}
+		}
+		sort.Strings(litPaths)
+		fullV, _ := forms("f")
+		out = append(out, goBoundUse{
+			target:       target + " (method value)",
+			full:         sig + " {\n\tlet f = " + callee + "\n\t" + fullV + "\n}\n",
+			short:        sig + " {\n\tlet f = " + lit + "\n\t" + fullV + "\n}\n",
+			imports:      paths,
+			plainImports: litPaths,
+		})
+	}
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *syntax.FuncDecl:
+			if d.Extern == nil {
+				continue
+			}
+			recv := ""
+			if d.Recv != nil {
+				recv = text(d.Recv.List[0].Type)
+			}
+			add(d.Extern.Target.Value, d.Name.Name, recv, d.TypeParams, d.Type, d.End())
+		case *syntax.TypeDecl:
+			// The operations of a Go interface type (io/fs.DirEntry's
+			// Name), each a method of a value of the type.
+			it, ok := d.Spec.(*syntax.InterfaceType)
+			if !ok || d.Extern == nil || d.TypeParams != nil {
+				continue
+			}
+			for _, m := range it.Methods {
+				ft, ok := m.Type.(*syntax.FuncType)
+				if !ok {
+					continue
+				}
+				for _, n := range m.Names {
+					add(d.Extern.Target.Value+"."+n.Name, n.Name, d.Name.Name, nil, ft, m.Type.End())
+				}
+			}
+		}
 	}
 	return out
 }
@@ -401,7 +477,11 @@ func goBoundProgram(uses []goBoundUse, forms []goBoundForm) (string, []int) {
 	var imports []string
 	for i, u := range uses {
 		if forms[i] != goBoundDropped {
-			for _, p := range u.imports {
+			lines := u.imports
+			if forms[i] == goBoundPlain && u.plainImports != nil {
+				lines = u.plainImports
+			}
+			for _, p := range lines {
 				if !slices.Contains(imports, p) {
 					imports = append(imports, p)
 				}
