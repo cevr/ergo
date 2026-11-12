@@ -2,8 +2,8 @@
 // (CHK1b): internal/sketch/syntax/codec_gen.go, the codec of syntax trees,
 // and internal/sketch/check/export_gen.go, the codec of everything else a
 // checked std package holds. It reads the two packages with go/types and
-// writes, for every type reachable from the snapshot's root
-// (check.stdSnapshot), an encoder and a decoder: field by field, in
+// writes, for every type reachable from the snapshot's segment roots
+// (check.stdBase and *check.Package), an encoder and a decoder: field by field, in
 // declaration order, so no reflect or unsafe is needed and the generated
 // code reads unexported fields as any code of the package does.
 //
@@ -99,11 +99,14 @@ func Generate(root string) (syntaxSrc, checkSrc []byte, err error) {
 		return nil, nil, err
 	}
 	cg := g.newEmitter(checkPkg)
-	root0 := checkPkg.Scope().Lookup("stdSnapshot")
-	if root0 == nil {
-		return nil, nil, fmt.Errorf("exportgen: check has no stdSnapshot")
+	// The roots: a snapshot's base segment and each package segment.
+	for _, name := range []string{"stdBase", "Package"} {
+		root := checkPkg.Scope().Lookup(name)
+		if root == nil {
+			return nil, nil, fmt.Errorf("exportgen: check has no %s", name)
+		}
+		cg.require(types.NewPointer(root.Type()))
 	}
-	cg.require(types.NewPointer(root0.Type()))
 	if checkSrc, err = cg.output(); err != nil {
 		return nil, nil, err
 	}
@@ -134,7 +137,7 @@ func parseDir(fset *token.FileSet, dir string) ([]*ast.File, error) {
 	// export_gen.go is skipped above: the generated codec must not change
 	// what it is generated from. A stub gives check's export.go the names it
 	// calls, so the package type-checks without the generated file.
-	stub, err := parser.ParseFile(fset, "export_stub.go", "package check\n\nfunc (e *encoder) encPtrstdSnapshot(v *stdSnapshot) {}\n\nfunc (d *decoder) decPtrstdSnapshot() *stdSnapshot { return nil }\n", 0)
+	stub, err := parser.ParseFile(fset, "export_stub.go", "package check\n\nfunc (e *encoder) encPtrstdBase(v *stdBase) {}\n\nfunc (d *decoder) decPtrstdBase() *stdBase { return nil }\n\nfunc (e *encoder) encPtrPackage(v *Package) {}\n\nfunc (d *decoder) decPtrPackage() *Package { return nil }\n", 0)
 	if err != nil {
 		return nil, err
 	}

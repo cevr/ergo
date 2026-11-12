@@ -73,7 +73,7 @@ func TestStdCacheWork(t *testing.T) {
 			t.Fatal(a.Diagnostics)
 		}
 		got := check.WorkDone()
-		if warm && got != (check.Work{}) {
+		if warm && sourceWork(got) {
 			t.Fatalf("warm cache did %+v; want zero std source work", got)
 		}
 		if !warm && got.StdPackagesChecked == 0 {
@@ -121,7 +121,7 @@ func TestStdCacheWork(t *testing.T) {
 	resetStdCache(t)
 	dir := writeTree(t, map[string]string{"main.ergo": source})
 	a, err := CheckDir(dir)
-	if err != nil || len(a.Diagnostics) != 0 || check.WorkDone() != (check.Work{}) {
+	if err != nil || len(a.Diagnostics) != 0 || sourceWork(check.WorkDone()) {
 		t.Fatalf("warm CheckDir: %v, %v, work %+v", err, a.Diagnostics, check.WorkDone())
 	}
 }
@@ -197,10 +197,14 @@ func TestStdCacheAgreesWithSource(t *testing.T) {
 			}
 		}
 	}
-	if got := check.WorkDone(); got != (check.Work{}) {
+	if got := check.WorkDone(); sourceWork(got) {
 		t.Fatalf("cached property checked std from source: %+v", got)
 	}
 }
+
+// sourceWork reports std work done from source; decoding an installed
+// snapshot is not.
+func sourceWork(w check.Work) bool { return w.StdFilesParsed != 0 || w.StdPackagesChecked != 0 }
 
 func stdCacheOutcome(t *testing.T, c stdCacheCase) map[string]string {
 	t.Helper()

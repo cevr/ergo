@@ -741,10 +741,18 @@ func PreludeDiagnostics() []Diagnostic { return prelude().diags }
 // so the lock guards only the table: each package is checked inside its own
 // sync.Once, which a nested import of another path does not hold. The std
 // has no import cycle (a cycle would wait on its own Once; TestStdImportsAreAcyclic).
+//
+// With an installed snapshot (InstallStd), a package's first import decodes
+// it from the snapshot instead (export.go).
 type stdImporter struct {
 	mu      sync.Mutex
 	entries map[string]*stdEntry
 	work    Work // guarded by mu
+	snap    *snapshot
+	// order lists the std packages in the order they became available
+	// (checked or decoded), so each follows its imports (ExportStd).
+	order []string
+	ready map[string]bool
 }
 
 // stdEntry is one std package, checked once.
@@ -757,7 +765,9 @@ type stdEntry struct {
 // Std is the importer of the embedded standard library (internal/sketch/std).
 var Std Importer = newStdImporter()
 
-func newStdImporter() *stdImporter { return &stdImporter{entries: map[string]*stdEntry{}} }
+func newStdImporter() *stdImporter {
+	return &stdImporter{entries: map[string]*stdEntry{}, ready: map[string]bool{}}
+}
 
 func (s *stdImporter) Import(path string) (*Package, error) {
 	s.mu.Lock()
@@ -766,19 +776,50 @@ func (s *stdImporter) Import(path string) (*Package, error) {
 		e = &stdEntry{}
 		s.entries[path] = e
 	}
+	snap := s.snap
 	s.mu.Unlock()
-	e.once.Do(func() { e.pkg, e.err = s.load(path) })
+	e.once.Do(func() {
+		if snap != nil {
+			if pkg, ok := snap.load(path, s.decoded); ok {
+				e.pkg = pkg
+				return
+			}
+		}
+		e.pkg, e.err = s.load(path)
+		s.available(path)
+	})
 	return e.pkg, e.err
 }
 
-// Work counts the std work an importer did from source (CHK1): the std
-// package files it parsed and the std packages it checked. The prelude is
-// not counted. A check's work must grow with the std packages it imports,
-// not with the std (the counted check budget, TestCheckWorkGrowsWithImports);
+// available records that the package at path is checked or decoded.
+func (s *stdImporter) available(path string) {
+	s.mu.Lock()
+	if !s.ready[path] {
+		s.ready[path] = true
+		s.order = append(s.order, path)
+	}
+	s.mu.Unlock()
+}
+
+// decoded counts a package segment decoded from the snapshot; snapshot.load
+// calls it under the snapshot's lock, for each segment in import order.
+func (s *stdImporter) decoded(path string) {
+	s.mu.Lock()
+	s.work.StdPackagesDecoded++
+	s.mu.Unlock()
+	s.available(path)
+}
+
+// Work counts the std work an importer did (CHK1, CHK1b): the std package
+// files it parsed and the std packages it checked from source, and the std
+// packages it decoded from an installed snapshot. The prelude is not
+// counted. A check's work must grow with the std packages it imports, not
+// with the std (the counted check budget, TestCheckWorkGrowsWithImports);
 // it counts work, never time.
 type Work struct {
 	StdFilesParsed     int64
 	StdPackagesChecked int64
+	StdPackagesDecoded int64
 }
 
 // WorkDone returns the Work of the Std importer in this process so far.
