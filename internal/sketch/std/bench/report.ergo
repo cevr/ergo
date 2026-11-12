@@ -1,0 +1,356 @@
+// The report (BN5; docs/specs/bench.md, The receipt): the text table of a
+// run, its bench.v1 receipt as JSON (the derived codec), the Markdown
+// block that holds both between two marker lines with the SHA-256 digest
+// of what lies between them, the edit of a document that replaces one
+// block, and the SVG card. Every writer matches the verdict union
+// exhaustively, a refusal prints no value, a nonzero number never prints
+// as zero, and nothing published names a home path (Scrubbed).
+
+import hex
+import json
+import math
+import sha256
+import strconv
+import strings
+
+// Receipt is one run, as bench.v1 publishes it: Schema is "bench.v1", Id
+// the block's id, Experiment which run of the local ledger it is (1 for
+// the first), the host and the builds of both sides, and the cases.
+type Receipt {
+	Schema     string,
+	Id         string,
+	Experiment int,
+	Host       Host,
+	Builds     Builds,
+	Cases      []Case,
+}
+
+// Host is the host a run ran on: its system, its CPUs, its load average
+// and the priority both sides ran at.
+type Host { Os string, Cpus int, Load float64, Priority int }
+
+// Builds names the build of each side (a commit, a compiler, a lowering
+// or a command).
+type Builds { Base string, Head string }
+
+// Case is one bench case of a run: its name, its bench unit (one lookup,
+// one row), its plan and its result.
+type Case { Name string, Unit string, Plan Plan, Result Result }
+
+// NoBlock: the document has no block of this id.
+type NoBlock { Id string }
+
+// Edited: the block's text is not the text its digest names; a hand edit
+// broke it, and no tool replaces it.
+type Edited { Id string }
+
+// Unreadable: the block's digest holds but its receipt is not bench.v1.
+type Unreadable { Id string }
+
+// Encode is r's bench.v1 JSON text, scrubbed.
+func Encode(r Receipt) string { json.Encode(codec(), Scrubbed(r)) }
+
+// Decode is the receipt of a bench.v1 text.
+func Decode(text string) Receipt fails Unreadable {
+	let r = json.Decode(codec(), text) catch {
+	case _:
+		return Unreadable{Id: ""}
+	}
+	if r.Schema != "bench.v1" {
+		return Unreadable{Id: r.Id}
+	}
+	r
+}
+
+func codec() json.Codec[Receipt] { json.Codec[Receipt]{MaxBytes: 1 << 24, MaxDepth: 64} }
+
+// Scrubbed is r with every home path (/home/NAME, /Users/NAME) in its
+// text replaced by ~, so a published receipt names no user.
+func Scrubbed(r Receipt) Receipt {
+	let mut cases = []Case{}
+	for c in r.Cases {
+		let p = c.Plan
+		let mut rest = []Series{}
+		for s in p.Secondaries {
+			rest = rest.Append(Series{..s, Name: scrub(s.Name)})
+		}
+		let plan = Plan{..p, Primary: Series{..p.Primary, Name: scrub(p.Primary.Name)}, Secondaries: rest}
+		cases = cases.Append(Case{..c, Name: scrub(c.Name), Unit: scrub(c.Unit), Plan: plan})
+	}
+	Receipt{
+		..r,
+		Id:     scrub(r.Id),
+		Host:   Host{..r.Host, Os: scrub(r.Host.Os)},
+		Builds: Builds{Base: scrub(r.Builds.Base), Head: scrub(r.Builds.Head)},
+		Cases:  cases,
+	}
+}
+
+// scrub replaces each /home/NAME and /Users/NAME of s by ~.
+func scrub(s string) string {
+	let mut out = s
+	for prefix in []string{"/home/", "/Users/"} {
+		let mut at = strings.Index(out, prefix)
+		for at >= 0 {
+			let mut end = at + len(prefix)
+			for end < len(out) && !strings.Contains("/ \"\n\t", out[end:end+1]) {
+				end = end + 1
+			}
+			out = out[:at] + "~" + out[end:]
+			at = strings.Index(out, prefix)
+		}
+	}
+	out
+}
+
+// Table is r's text table: a heading line, then one line per series of
+// each case, the primary first.
+func Table(r Receipt) string {
+	let s = Scrubbed(r)
+	let mut out = "bench " + s.Id + ", experiment " + strconv.Itoa(s.Experiment) + ": base " + s.Builds.Base + ", head " + s.Builds.Head + "\n"
+	for c in s.Cases {
+		out = out + c.Name + " " + c.Plan.Primary.Name + ": " + said(c.Result.Primary, c.Unit) + "\n"
+		for i, w in c.Result.Secondaries {
+			let name = if i < len(c.Plan.Secondaries) { c.Plan.Secondaries[i].Name } else { "?" }
+			let text = match w {
+			case Some[Verdict] as v:
+				said(v.Value, c.Unit)
+			case None:
+				"no word: the run ended before the primary's"
+			}
+			out = out + c.Name + " " + name + ": " + text + "\n"
+		}
+	}
+	out
+}
+
+// said is a verdict as the table prints it: the word, the difference per
+// bench unit, and its proof (the interval with its coverage, or exact,
+// and the pairs); a refusal prints its reason and no value.
+func said(v Verdict, unit string) string {
+	match v {
+	case Better as x:
+		"better, " + amount(x.Of, unit)
+	case Worse as x:
+		"worse, " + amount(x.Of, unit)
+	case Same as x:
+		"same, " + amount(x.Of, unit)
+	case NoWorse as x:
+		"no worse, " + amount(x.Of, unit)
+	case Unclear as x:
+		let need = match x.Needed {
+		case Some[int] as n:
+			", needs " + strconv.Itoa(n.Value) + " pairs"
+		case None:
+			""
+		}
+		"unclear, " + amount(x.Of, unit) + need
+	case Underpowered as x:
+		"underpowered, " + amount(x.Of, unit) + ", needs " + strconv.Itoa(x.Needed) + " pairs"
+	case Refused as x:
+		"refused: " + reason(x.Why)
+	}
+}
+
+// amount is a difference per bench unit with its proof: on the log scale
+// the change in percent, else the difference in the counter's units.
+func amount(d Difference, unit string) string {
+	let width = if d.Log { 100.0 * (math.Exp(d.High) - math.Exp(d.Low)) } else { d.High - d.Low }
+	let shown = func(x float64) string {
+		figure(if d.Log { 100.0 * (math.Exp(x) - 1.0) } else { x }, width) + if d.Log { "%" } else { "" }
+	}
+	let proof = if d.Exact {
+		"exact"
+	} else {
+		"[" + shown(d.Low) + ", " + shown(d.High) + "] at " + plain(100.0*d.Coverage, 0.1) + "%"
+	}
+	shown(d.Estimate) + " per " + unit + " (" + proof + ", " + strconv.Itoa(d.Pairs) + " pairs)"
+}
+
+// figure is x with the decimals its interval's width asks for (two
+// significant digits of the width, at least one decimal), or three
+// significant digits when a nonzero x would print as zero there: a
+// nonzero value never reads 0. A positive x has its plus sign.
+func figure(x float64, width float64) string {
+	if x > 0.0 { "+" + plain(x, width) } else { plain(x, width) }
+}
+
+// plain is figure with no plus sign.
+func plain(x float64, width float64) string {
+	let mut d = 1
+	if width > 0.0 && width < 1.0 {
+		d = 1 - int(math.Floor(math.Log(width)/math.Log(10.0)))
+	}
+	if d > 9 {
+		d = 9
+	}
+	let s = strconv.FormatFloat(x, 'f', d)
+	if x != 0.0 && !nonzero(s) {
+		return strconv.FormatFloat(x, 'g', 3)
+	}
+	s
+}
+
+// nonzero reports whether s has a digit other than 0.
+func nonzero(s string) bool {
+	for i in 0..len(s) {
+		let c = s[i : i+1]
+		if c >= "1" && c <= "9" {
+			return true
+		}
+	}
+	false
+}
+
+// reason is a refusal's name, with its count where it has one.
+func reason(r Refusal) string {
+	match r {
+	case NoCounter:
+		"NoCounter"
+	case Multiplexed:
+		"Multiplexed"
+	case RunIncomplete:
+		"RunIncomplete"
+	case NotEquivalent:
+		"NotEquivalent"
+	case CounterUnstable:
+		"CounterUnstable"
+	case NoMetric:
+		"NoMetric"
+	case FewPairs as f:
+		"FewPairs (" + strconv.Itoa(f.Pairs) + ")"
+	case TooManyPairs as f:
+		"TooManyPairs (" + strconv.Itoa(f.Pairs) + ")"
+	case NotFinite as f:
+		"NotFinite (pair " + strconv.Itoa(f.Pair) + ")"
+	case SharedRunner:
+		"SharedRunner"
+	}
+}
+
+// Markdown is r's Markdown block: a begin line with the SHA-256 digest
+// of the body, the body (the table and the receipt), and an end line.
+func Markdown(r Receipt) string {
+	let id = scrub(r.Id)
+	let body = blockBody(r)
+	begin(id) + digest(body) + " -->\n" + body + end(id) + "\n"
+}
+
+func blockBody(r Receipt) string { "```text\n" + Table(r) + "```\n\n```json\n" + Encode(r) + "\n```\n" }
+
+func begin(id string) string { "<!-- ergo:bench " + id + " v1 begin sha256:" }
+
+func end(id string) string { "<!-- ergo:bench " + id + " v1 end -->" }
+
+func digest(s string) string { hex.Encode(sha256.Sum(s)) }
+
+// span is where the block of id lies in doc: the start of its begin line,
+// the start and end of its body, and the end of its end line; or NoBlock.
+type span { from int, body int, upto int, to int, sum string }
+
+func find(doc string, id string) span fails NoBlock {
+	let b = begin(id)
+	let at = strings.Index(doc, b)
+	if at < 0 {
+		return NoBlock{Id: id}
+	}
+	let rest = doc[at+len(b):]
+	let close = strings.Index(rest, " -->\n")
+	if close < 0 {
+		return NoBlock{Id: id}
+	}
+	let body = at + len(b) + close + 5
+	let e = strings.Index(doc[body:], end(id))
+	if e < 0 {
+		return NoBlock{Id: id}
+	}
+	let mut to = body + e + len(end(id))
+	if to < len(doc) && doc[to:to+1] == "\n" {
+		to = to + 1
+	}
+	span{from: at, body: body, upto: body + e, to: to, sum: rest[:close]}
+}
+
+// ReadBlock is the receipt of the block of id in doc. It fails Edited
+// when the body is not the text its digest names.
+func ReadBlock(doc string, id string) Receipt fails NoBlock | Edited | Unreadable {
+	let s = try find(doc, id)
+	let body = doc[s.body:s.upto]
+	if digest(body) != s.sum {
+		return Edited{Id: id}
+	}
+	let open = strings.Index(body, "```json\n")
+	let close = strings.LastIndex(body, "\n```\n")
+	if open < 0 || close < open+8 {
+		return Unreadable{Id: id}
+	}
+	Decode(body[open+8 : close])
+}
+
+// Update is doc with r's block in place of the block of its id, or
+// after doc when it has none. It refuses a block a hand edit broke.
+func Update(doc string, r Receipt) string fails Edited | Unreadable {
+	let id = scrub(r.Id)
+	let s = find(doc, id) catch {
+	case NoBlock:
+		return doc + (if doc == "" || strings.HasSuffix(doc, "\n") { "" } else { "\n" }) + Markdown(r)
+	}
+	if digest(doc[s.body:s.upto]) != s.sum {
+		return Edited{Id: id}
+	}
+	doc[:s.from] + Markdown(r) + doc[s.to:]
+}
+
+// Card is the SVG card of case c of r: a headline from its primary's
+// verdict, the proof line, and the block it comes from (id and digest),
+// so a card is never without its block.
+func Card(r Receipt, c int) string {
+	let s = Scrubbed(r)
+	let k = s.Cases[c]
+	let head = headline(k.Result.Primary, k.Plan.Primary.Name, k.Unit)
+	let proof = said(k.Result.Primary, k.Unit)
+	let source = "ergo:bench " + s.Id + " v1 sha256:" + digest(blockBody(r))
+		"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"720\" height=\"120\" role=\"img\" aria-label=\"" + escape(head) + "\">\n" +
+		"<rect x=\"0.5\" y=\"0.5\" width=\"719\" height=\"119\" fill=\"#ffffff\" stroke=\"#888888\"/>\n" +
+		"<text x=\"16\" y=\"40\" font-family=\"monospace\" font-size=\"18\">" + escape(head) + "</text>\n" +
+		"<text x=\"16\" y=\"72\" font-family=\"monospace\" font-size=\"12\">" + escape(k.Name+": "+proof) + "</text>\n" +
+		"<text x=\"16\" y=\"102\" font-family=\"monospace\" font-size=\"10\">" + escape(source) + "</text>\n" +
+		"</svg>\n"
+}
+
+// headline is the card's one line: how much fewer or more of the counter
+// per bench unit, or the verdict's word.
+func headline(v Verdict, counter string, unit string) string {
+	let by = func(d Difference, more string) string {
+		if !d.Log {
+			return plain(math.Abs(d.Estimate), d.High-d.Low) + " " + more + " " + counter + " per " + unit
+		}
+		plain(math.Abs(100.0*(math.Exp(d.Estimate)-1.0)), 100.0*(math.Exp(d.High)-math.Exp(d.Low))) + "% " + more + " " + counter + " per " + unit
+	}
+	match v {
+	case Better as x:
+		by(x.Of, "fewer") + ": better"
+	case Worse as x:
+		by(x.Of, "more") + ": worse"
+	case Same:
+		"same " + counter + " per " + unit
+	case NoWorse:
+		"no worse " + counter + " per " + unit
+	case Unclear:
+		"unclear: " + counter + " per " + unit
+	case Underpowered:
+		"underpowered: " + counter + " per " + unit
+	case Refused as x:
+		"refused: " + counter + " (" + reason(x.Why) + ")"
+	}
+}
+
+// escape is s as XML text.
+func escape(s string) string {
+	let mut out = ""
+	for i in 0..len(s) {
+		let c = s[i : i+1]
+		out = out + if c == "&" { "&amp;" } else if c == "<" { "&lt;" } else if c == ">" { "&gt;" } else if c == "\"" { "&quot;" } else { c }
+	}
+	out
+}

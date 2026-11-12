@@ -1,0 +1,152 @@
+// The laws of the report (BN5), over receipts of real referee runs on a
+// Scripted meter.
+
+import math
+import strings
+
+// BlockRoundTrips: the receipt read back from a document that holds its
+// block is the receipt; a block of another schema is Unreadable.
+law BlockRoundTrips(seed uint64, size int, pick int) {
+	let r = receiptOf(seed, size, pick)
+	let back = ReadBlock("# Receipts\n\n"+Markdown(r)+"\nmore text\n", r.Id) catch {
+	case NoBlock, Edited, Unreadable:
+		return false
+	}
+	let mut other = false
+	let _ = ReadBlock(Markdown(Receipt{..r, Schema: "bench.v2"}), r.Id) catch {
+	case Unreadable:
+		other = true
+		r
+	case NoBlock, Edited:
+		r
+	}
+	back == r && other
+}
+
+// EditIsRefused: an edit of any one character of a block's digest or
+// body (k picks among the 64 digits and the body) makes ReadBlock fail
+// Edited, and Update refuse to replace it.
+law EditIsRefused(seed uint64, size int, pick int, at int) {
+	let r = receiptOf(seed, size, pick)
+	let doc = Markdown(r)
+	let sum = strings.Index(doc, "sha256:") + 7
+	let body = strings.Index(doc, " -->\n") + 5
+	let stop = strings.Index(doc, end(r.Id))
+	let k = within(at, 0, 64+(stop-body)-1)
+	let pos = if k < 64 { sum + k } else { body + k - 64 }
+	let was = doc[pos : pos+1]
+	let edited = doc[:pos] + (if was == "x" { "y" } else { "x" }) + doc[pos+1:]
+	let mut refused = 0
+	let _ = ReadBlock(edited, r.Id) catch {
+	case Edited:
+		refused = refused + 1
+		r
+	case NoBlock, Unreadable:
+		r
+	}
+	let _ = Update(edited, r) catch {
+	case Edited:
+		refused = refused + 1
+		""
+	case Unreadable:
+		""
+	}
+	refused == 2
+}
+
+// UpdateReplacesItsBlock: Update puts the new block where the old one was
+// and keeps the text around it; with no block of the id it appends one.
+law UpdateReplacesItsBlock(seed uint64, size int, pick int) {
+	let r = receiptOf(seed, size, pick)
+	let next = Receipt{..receiptOf(seed+1, size, pick+1), Id: r.Id}
+	let doc = "before\n" + Markdown(r) + "after\n"
+	let replaced = Update(doc, next) catch {
+	case Edited, Unreadable:
+		return false
+	}
+	let appended = Update("before", next) catch {
+	case Edited, Unreadable:
+		return false
+	}
+	replaced == "before\n"+Markdown(next)+"after\n" && appended == "before\n"+Markdown(next)
+}
+
+// NumberHasItsProof: every line of the table that gives a value gives its
+// bench unit, its pairs, and its interval with its coverage or exact.
+law NumberHasItsProof(seed uint64, size int, pick int) {
+	let r = receiptOf(seed, size, pick)
+	for line in strings.Split(Table(r), "\n")[1:] {
+		if line == "" || strings.Contains(line, ": refused: ") || strings.Contains(line, ": no word: ") {
+			continue
+		}
+		if !strings.Contains(line, " per op (") || !strings.Contains(line, " pairs)") {
+			return false
+		}
+		if !strings.Contains(line, "(exact, ") && !strings.Contains(line, "] at ") {
+			return false
+		}
+	}
+	true
+}
+
+// RefusedHasNoValue: a refused series prints its reason and no value: no
+// percent, no amount per bench unit.
+law RefusedHasNoValue(seed uint64, size int, pick int) {
+	let r = receiptOf(seed, size, pick)
+	for line in strings.Split(Table(r), "\n") {
+		if strings.Contains(line, ": refused: ") && (strings.Contains(line, "%") || strings.Contains(line, " per ")) {
+			return false
+		}
+	}
+	true
+}
+
+// NonzeroNeverPrintsZero: a nonzero value prints a nonzero digit, with its
+// sign, whatever the width of its interval.
+law NonzeroNeverPrintsZero(m int, e int, w int) {
+	let digits = within(m, -999, 999)
+	let x = float64(if digits == 0 { 7 } else { digits }) * math.Pow(10.0, float64(within(e, -16, 6)))
+	let width = if within(w, 0, 10) == 0 { 0.0 } else { math.Pow(10.0, float64(within(w, -8, 3))) }
+	let s = figure(x, width)
+	nonzero(s) && (x > 0.0) == strings.HasPrefix(s, "+") && (x < 0.0) == strings.HasPrefix(s, "-")
+}
+
+// NoHomePath: a receipt whose text names home paths publishes none, and
+// not the user's name: not in its block, not in its card.
+law NoHomePath(seed uint64, size int, pick int, n int) {
+	let r = receiptOf(seed, size, pick)
+	let user = "zqx\(within(n, 0, 9999))"
+	let named = Receipt{..r, Builds: Builds{Base: "/home/" + user + "/src/ergo", Head: "/Users/" + user}, Host: Host{..r.Host, Os: "linux /home/" + user}}
+	let text = Markdown(named) + Card(named, 0)
+	!strings.Contains(text, "/home/") && !strings.Contains(text, "/Users/") && !strings.Contains(text, user)
+}
+
+// CardNamesItsBlock: a card carries the id and the digest of the block it
+// comes from.
+law CardNamesItsBlock(seed uint64, size int, pick int) {
+	let r = receiptOf(seed, size, pick)
+	let doc = Markdown(r)
+	let sum = doc[strings.Index(doc, "sha256:")+7 : strings.Index(doc, " -->\n")]
+	strings.Contains(Card(r, 0), "ergo:bench "+r.Id+" v1 sha256:"+sum)
+}
+
+// receiptOf is a receipt of one or two cases, each a referee run of a
+// drawn plan on a drawn Scripted meter.
+func receiptOf(seed uint64, size int, pick int) Receipt {
+	let mut cases = []Case{}
+	for c in 0..(1 + draw(seed, 100, 2)) {
+		let s = mix(seed + uint64(c))
+		let p = planOf(s, pick+c)
+		let m = scriptOf(s, size, p)
+		let r = with context { Meter: m } { Judge(p) }
+		cases = cases.Append(Case{Name: "case\(c)", Unit: "op", Plan: p, Result: r})
+	}
+	Receipt{
+		Schema:     "bench.v1",
+		Id:         "run-\(draw(seed, 101, 1000))",
+		Experiment: 1 + draw(seed, 102, 5),
+		Host:       Host{Os: "linux", Cpus: 16, Load: float64(draw(seed, 103, 400)) / 10.0, Priority: 19},
+		Builds:     Builds{Base: "base", Head: "head"},
+		Cases:      cases,
+	}
+}
