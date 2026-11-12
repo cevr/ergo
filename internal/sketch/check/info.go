@@ -79,6 +79,9 @@ type Package struct {
 	// Derive is the package's derive record (derive.go): its plan
 	// functions, for importers, and the matchers its bundles lower.
 	Derive *derive.Package
+	// cellConvs is, by cell type of this package, a cell conversion into
+	// it that the package makes (CellProvider).
+	cellConvs map[*Named]Conversion
 	// Contexts is the context namespace: contexts are named only by with and by
 	// context embedding, so they do not collide with types (fixture with-name).
 	Contexts map[string]*Context

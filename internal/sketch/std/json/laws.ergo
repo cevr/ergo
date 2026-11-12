@@ -24,39 +24,62 @@ law RoundTrips(v fleet) {
 }
 
 // viaWriter is v's text written through the Writer operations of a Text:
-// the reference path, since its encode's writer is a Writer, not a Text.
+// the reference path, since NewText's result is a Text whose provider the
+// compiler does not know where encode is called, so its encode calls the
+// Writer interface.
 func viaWriter[T wire](v T) string {
 	let t = NewText()
-	let w Writer = t
-	encode(v, w)
+	encode(v, t)
 	t.Written()
 }
 
-// FastAgreesWithWriter: the text an encode on a Text writes (the
-// compiler's direct path on the Text's own methods, lower/wiredirect.go)
-// is the text the Writer operations write, in a Text and in an HTML Text,
-// inside events too: a value first in a list and one after another value,
-// so the comma before a value and the one after it are right.
+// FastAgreesWithWriter: the text an encode on a Text a let binds by a cell
+// of text writes (the compiler's direct path on text's own functions,
+// rewritten by the proved laws, lower/wiredirect.go) is the text the
+// Writer operations write, in a Text and in an HTML Text, inside events
+// too: a value first in a list and one after another value, so the comma
+// before a value and the one after it are right.
 law FastAgreesWithWriter(v fleet) {
-	let t = NewText()
+	let t Text = text{comma: false, html: false, out: []byte{}}
 	t.BeginList(3)
 	encode(v, t)
 	t.Int(2)
 	encode(v, t)
 	t.EndList()
 	let w = NewText()
-	let r Writer = w
-	r.BeginList(3)
-	encode(v, r)
-	r.Int(2)
-	encode(v, r)
-	r.EndList()
-	let h = NewHTMLText()
+	w.BeginList(3)
+	encode(v, w)
+	w.Int(2)
+	encode(v, w)
+	w.EndList()
+	let h Text = text{comma: false, html: true, out: []byte{}}
 	encode(v, h)
 	let g = NewHTMLText()
-	let gw Writer = g
-	encode(v, gw)
+	encode(v, g)
 	t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v)
+}
+
+// LineSeparatorsEscaped: a string's U+2028 and U+2029 are written as
+// \u2028 and \u2029, as encoding/json writes them, so the text is also a
+// JavaScript string.
+law LineSeparatorsEscaped() {
+	Encode(Codec[string]{MaxBytes: 0, MaxDepth: 0}, "a\u2028b\u2029") == "\"a\\u2028b\\u2029\""
+}
+
+// HTMLEscaped: an HTML Text writes <, > and & as \u003c, \u003e and
+// \u0026, as encoding/json's default does; a Text writes them as they are.
+law HTMLEscaped() {
+	let h = NewHTMLText()
+	h.String("<&>")
+	let t = NewText()
+	t.String("<&>")
+	h.Written() == "\"\\u003c\\u0026\\u003e\"" && t.Written() == "\"<&>\""
+}
+
+// InvalidBytesEscaped: a byte of invalid UTF-8 is written as the lone
+// surrogate \udcXX of the byte, which a Cursor reads back as the byte.
+law InvalidBytesEscaped() {
+	Encode(Codec[string]{MaxBytes: 0, MaxDepth: 0}, "a\xffb") == "\"a\\udcffb\""
 }
 
 // TruncatedFails: no text shorter than an encoding, cut from its end, is

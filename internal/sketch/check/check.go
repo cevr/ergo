@@ -220,6 +220,13 @@ type checker struct {
 	cellTypes map[*Named]bool
 	cellHolds map[int32]*Named
 	cellSites []cellSite
+	// encodeLend is set while encode's writer operand is converted to
+	// the Writer: encode keeps no writer, so a value that holds a cell
+	// may cross to the Writer there (types.md, Interface assignability 6).
+	encodeLend bool
+	// typeNamedFuncs are the functions that share a type's name: members
+	// of their first parameter's type once it is known (Methods 3).
+	typeNamedFuncs []*Func
 	// hostCall is set while the arguments of a call of a Go function are
 	// checked: R22 does not apply to a direct Go interface argument;
 	// hostClauses supplies the independent takes/lent ownership policy.

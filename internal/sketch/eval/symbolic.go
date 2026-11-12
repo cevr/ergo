@@ -403,7 +403,27 @@ func exprText(x syntax.Expr, v Value) string {
 
 // rowless reports whether fn has no needs and no fails row.
 func rowless(fn *check.Func) bool {
-	return fn.Sig.Uses.Empty() && fn.Sig.Errors.Empty() && !fn.Sig.Fallible
+	return solvedEmpty(fn.Sig.Uses) && solvedEmpty(fn.Sig.Errors) && !fn.Sig.Fallible
+}
+
+// solvedEmpty reports a row with no element once each inferred row
+// variable (an unexported function's row) is replaced by its solution; a
+// final variable with no solution is empty, an unsolved one is not.
+func solvedEmpty(r *check.Row) bool {
+	for _, e := range r.Elems() {
+		v, ok := e.(*check.RowVar)
+		if !ok {
+			return false
+		}
+		sol := v.Solution()
+		if sol == nil && v.Final() {
+			continue
+		}
+		if sol == nil || !solvedEmpty(sol) {
+			return false
+		}
+	}
+	return true
 }
 
 // externTerm is the call of fn when it is an extern go function a

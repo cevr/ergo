@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"strings"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -60,19 +62,42 @@ func (w *valueWalk) cellCopy(x syntax.Expr) {
 }
 
 // noteCell records the immutable local v when its let's value x moves
-// into a cell of a provider of no type arguments.
-func (fc *funcCtx) noteCell(v *check.Var, x syntax.Expr) {
+// into a cell of a provider of no type arguments; val is the Go text of
+// the let's value. It reports whether the local is declared by the
+// adapter's own Go type (cellConcrete).
+//
+// Such a local, when val is the adapter's &T{…} and the local is not
+// owned, keeps the adapter's Go type *T, not the operation type's
+// interface: an operation on it is a static call, and encode's direct
+// writer path takes &t.v (wiretext.go), so a local that never converts to
+// the interface stays on the stack, as Go's escape analysis keeps any
+// &T{…} that never escapes. Where it is used as the operation type, Go
+// converts *T to the interface. An owned cell goes to the runtime's
+// ownership helpers, which infer their type argument from it, so it keeps
+// the interface.
+func (fc *funcCtx) noteCell(v *check.Var, x syntax.Expr, val string) bool {
 	conv, ok := fc.l.info.Implicit[x]
 	if !ok || !conv.Cell {
-		return
+		return false
 	}
 	if from, ok := conv.From.(*check.Named); !ok || len(from.TArgs) > 0 {
-		return
+		return false
 	}
 	if fc.cells == nil {
 		fc.cells = map[*check.Var]check.Conversion{}
+		fc.cellConcrete = map[*check.Var]bool{}
 	}
 	fc.cells[v] = conv
+	key, _, ok := fc.l.adapterName(conv)
+	if !ok || fc.l.info.OwnedVars[v] != nil {
+		return false
+	}
+	name, ok := fc.l.adapters[key]
+	if !ok || !strings.HasPrefix(val, "&"+name+"{") {
+		return false
+	}
+	fc.cellConcrete[v] = true
+	return true
 }
 
 // cellWindow is the cell conversion that bound the local v and the Go
@@ -82,6 +107,9 @@ func (fc *funcCtx) cellWindow(v *check.Var) (conv check.Conversion, recv string,
 	c, ok := fc.cells[v]
 	if !ok {
 		return check.Conversion{}, "", false
+	}
+	if fc.cellConcrete[v] {
+		return c, "&" + fc.locals[v] + ".v", true // the adapter itself
 	}
 	key, _, ok := fc.l.adapterName(c)
 	if !ok {

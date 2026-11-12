@@ -482,29 +482,64 @@ func (rw *rewriter) run(prov *check.Named, window []rwCall) ([]rwCall, bool) {
 			phases[2] = append(phases[2], r)
 		}
 	}
+	// back is how far a scan steps back after a change at i: a match that
+	// starts before i-back cannot reach the change, and the facts before
+	// a call are those of the call before it.
+	back := 1
+	for _, r := range rw.rules[prov] {
+		if r.post == nil && len(r.law.Rewrite.Lhs) > back {
+			back = len(r.law.Rewrite.Lhs)
+		}
+	}
 	bound := rewriteWorkPerCall * len(window)
+	unfolds, maxUnfolds := 0, rewriteUnfoldPerCall*len(window)
 	work, changed := 0, false
+	spend := func() bool {
+		work++
+		rw.work++
+		if work > bound {
+			rw.refused++
+			return false
+		}
+		return true
+	}
 	for progressed := true; progressed; {
 		progressed = false
-		for _, rules := range phases {
-			for applied := true; applied; {
-				applied = false
-				facts := rw.facts(prov, calls)
-			scan:
-				for i := range calls {
-					for _, r := range rules {
-						work++
-						rw.work++
-						if work > bound {
-							rw.refused++
-							return nil, false
-						}
-						if next, ok := rw.try(prov, r, calls, i, facts[i]); ok {
-							calls, applied, progressed, changed = next, true, true, true
-							break scan
-						}
+		for phase, rules := range phases {
+			// One scan to the phase's fixpoint: after a change at i it
+			// goes on from i-back, so every match the change makes is
+			// tried, and none before it is tried again.
+			for i := 0; i < len(calls); {
+				if phase == 0 && unfolds < maxUnfolds {
+					if !spend() {
+						return nil, false
+					}
+					if body, ok := unfoldDef(calls[i]); ok {
+						calls = append(append(append([]rwCall(nil), calls[:i]...), body...), calls[i+1:]...)
+						unfolds++
+						// An unfolded call's line gets its own share of work.
+						bound += rewriteWorkPerCall * max(len(body)-1, 0)
+						progressed, changed = true, true
+						i = max(i-back, 0)
+						continue
 					}
 				}
+				facts := rw.factsAt(prov, calls, i)
+				applied := false
+				for _, r := range rules {
+					if !spend() {
+						return nil, false
+					}
+					if next, ok := rw.try(prov, r, calls, i, facts); ok {
+						calls, applied, progressed, changed = next, true, true, true
+						break
+					}
+				}
+				if applied {
+					i = max(i-back, 0)
+					continue
+				}
+				i++
 			}
 		}
 	}
@@ -521,38 +556,38 @@ type rwFact struct {
 	value constant.Value
 }
 
-// facts are the facts before each call of calls: none at the window's
+// factsAt are the facts before call i of calls: none at the window's
 // start; after a call, those its post laws give, and no other.
-func (rw *rewriter) facts(prov *check.Named, calls []rwCall) [][]rwFact {
-	out := make([][]rwFact, len(calls)+1)
-	for k, c := range calls {
-		var next []rwFact
-		for _, r := range rw.rules[prov] {
-			p := r.post
-			if p == nil || r.conv.Table[p.op.Name] != c.fn || len(p.args) != len(c.args) {
-				continue
-			}
-			v := p.value
-			if v == nil {
-				// X is a parameter: the argument the call binds to it,
-				// when that is a constant.
-				for j, i := range p.args {
-					if i == p.param {
-						v = c.args[j].c
-					}
+func (rw *rewriter) factsAt(prov *check.Named, calls []rwCall, i int) []rwFact {
+	if i == 0 {
+		return nil
+	}
+	c := calls[i-1]
+	var next []rwFact
+	for _, r := range rw.rules[prov] {
+		p := r.post
+		if p == nil || r.conv.Table[p.op.Name] != c.fn || len(p.args) != len(c.args) {
+			continue
+		}
+		v := p.value
+		if v == nil {
+			// X is a parameter: the argument the call binds to it, when
+			// that is a constant.
+			for j, k := range p.args {
+				if k == p.param {
+					v = c.args[j].c
 				}
 			}
-			if v == nil {
-				continue
-			}
-			if ok, _ := rw.ev.Admit(r.law, prov, RewriteInstance{Law: r.law}); !ok {
-				continue
-			}
-			next = append(next, rwFact{read: r.conv.Table[p.read.Name], value: v})
 		}
-		out[k+1] = next
+		if v == nil {
+			continue
+		}
+		if ok, _ := rw.ev.Admit(r.law, prov, RewriteInstance{Law: r.law}); !ok {
+			continue
+		}
+		next = append(next, rwFact{read: r.conv.Table[p.read.Name], value: v})
 	}
-	return out
+	return next
 }
 
 // try applies the rule r at position i of calls, whose facts before i are

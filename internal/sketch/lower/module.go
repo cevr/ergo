@@ -247,6 +247,12 @@ type lowerer struct {
 	// directWriters are the sealed std types whose values encode writes
 	// on directly (wiredirect.go), in typeKey order.
 	directWriters []check.Type
+	// cellRewrites are the rewriters of std cell writers' laws, by
+	// package (wiretext.go).
+	cellRewrites map[*check.Package]*rewriter
+	// cellFuncs are the cell writers' codec functions, by Go name, with
+	// their entry-state variants (wiretext.go, cellVariant).
+	cellFuncs map[string]*cellFunc
 	// holdsVisits counts holdsMap calls (TestDefaultWorkIsLinear).
 	holdsVisits int
 	methods     map[*check.Package]map[*check.TypeName][]*check.Func

@@ -173,6 +173,11 @@ func unparen(x syntax.Expr) syntax.Expr {
 // callee's failure.
 func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []check.Type, args []Value) (Value, *abrupt) {
 	switch {
+	case check.AppendsString(fn):
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return appendString(fn, args[0], args[1]), nil
 	case fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host():
 		if in.sym != nil {
 			v, why := externTerm(fn, args)

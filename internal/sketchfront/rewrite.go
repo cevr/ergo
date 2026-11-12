@@ -274,7 +274,7 @@ func FreshStdLedger(req BuildRequest) (string, error) {
 		for _, f := range files {
 			sources = append(sources, lower.Source{Path: "/ergo-std/" + path + "/" + f.Name, Text: f.Src})
 		}
-		unit := lower.Unit{Package: pkg, Files: files, Sources: sources}
+		unit := lower.Unit{Package: pkg, Files: files, Sources: sources, AllLaws: true}
 		if !lower.NewLedgerEvidence(pkg, nil, nil).HasRules() {
 			continue
 		}

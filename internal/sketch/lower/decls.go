@@ -225,6 +225,11 @@ func (l *lowerer) decl(d syntax.Decl) {
 		if !ok {
 			ice(d.Name, "the type %s has no Defs entry", d.Name.Name)
 		}
+		if n, ok := tn.Type.(*check.Named); ok && l.runtimeType(n, d.Name) != "" {
+			// A std type the runtime declares (std's own ledger build,
+			// whose root is a std package): no declaration of the program.
+			return
+		}
 		l.emitType(l.typeDecl(tn, d.Name))
 	case *syntax.FuncDecl:
 		f, ok := l.info.Defs[d.Name].(*check.Func)

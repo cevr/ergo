@@ -215,6 +215,7 @@ func main() needs Console {
 // of the Go text decides.
 func TestProviderCellsAgree(t *testing.T) {
 	needsBuild(t)
+	defaultLoweringOnly(t) // it checks that a cell's window is rewritten
 	seeds := []int64{}
 	if s := os.Getenv("ERGO_CELL_SEED"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)

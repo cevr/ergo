@@ -116,6 +116,9 @@ type funcCtx struct {
 	// cells are the immutable locals a let binds by a provider cell
 	// conversion, with it (cells.go).
 	cells map[*check.Var]check.Conversion
+	// cellConcrete marks the cell locals declared by their adapter's Go
+	// type (noteCell).
+	cellConcrete map[*check.Var]bool
 	// held are the owned locals a bodiless taking call hands off only once
 	// it returns (release.go, holdTaken).
 	held       map[*syntax.Ident]bool
@@ -379,9 +382,11 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 		} else {
 			val := fc.assigned(spec.Values[0])
 			name := fc.declare(v)
-			fc.line("var " + name + " " + goType + " = " + val)
-			if !d.Mut.IsValid() {
-				fc.noteCell(v, spec.Values[0]) // cells.go
+			if !d.Mut.IsValid() && fc.noteCell(v, spec.Values[0], val) { // cells.go
+				// The cell's adapter, by its own Go type (cellLocal).
+				fc.line(name + " := " + val)
+			} else {
+				fc.line("var " + name + " " + goType + " = " + val)
 			}
 		}
 		if !fc.l.reads[v] {
@@ -423,11 +428,12 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 	rhsEmits := fc.emits(s.Rhs[0])
 	target := fc.target(s.Lhs[0], rhsEmits)
 	if op == "" {
+		mark := fc.out.Len()
 		val := fc.assigned(s.Rhs[0])
 		if fc.reassignOwned(s.Lhs[0], target, val) {
 			return
 		}
-		fc.line(target + " = " + val)
+		fc.line(target + " = " + fc.joinResult(mark, val))
 		return
 	}
 	if rhsEmits {
@@ -467,7 +473,7 @@ func (fc *funcCtx) target(x syntax.Expr, later bool) string {
 	case *syntax.SelectorExpr:
 		if _, isPtr := fc.typeOf(x.X).(*check.Pointer); isPtr {
 			base := fc.value(x.X)
-			if later {
+			if later && !fc.fixedName(x.X) {
 				base = fc.spill(base)
 			}
 			return base + "." + fc.fieldName(x)
@@ -500,6 +506,41 @@ func (fc *funcCtx) target(x syntax.Expr, later bool) string {
 	}
 	unreachable(x, ruleAccepted, "an assignment target of the kind %T", x)
 	return ""
+}
+
+// joinResult is val, the Go text of an assignment's value, as the call
+// itself when the value's only statement, written since mark, binds val to
+// that call: `v := f(x)` then `p.f = v` becomes `p.f = f(x)`. Only in a
+// body with no //line directives (a std body), where the call needs no
+// line of its own; the value is the same, and the body small enough for
+// Go to inline (an appender on a provider's buffer).
+func (fc *funcCtx) joinResult(mark int, val string) string {
+	if fc.directives || !strings.HasPrefix(val, "v") {
+		return val
+	}
+	all := fc.out.String()
+	emitted := all[mark:]
+	prefix := strings.Repeat("\t", fc.depth) + val + " := "
+	call, ok := strings.CutPrefix(emitted, prefix)
+	if !ok || !strings.HasSuffix(call, "\n") || strings.Count(call, "\n") != 1 {
+		return val
+	}
+	fc.out.Reset()
+	fc.out.WriteString(all[:mark])
+	return strings.TrimSuffix(call, "\n")
+}
+
+// fixedName reports a name no assignment can change (a parameter or a
+// plain let), so a later operand cannot move a place it picks and it needs
+// no temporary: `t.out = f(t.out)` on a borrowed t stays one statement,
+// which keeps a provider's appender small enough for Go to inline.
+func (fc *funcCtx) fixedName(x syntax.Expr) bool {
+	id, ok := unparen(x).(*syntax.Ident)
+	if !ok {
+		return false
+	}
+	v, ok := fc.l.info.Uses[id].(*check.Var)
+	return ok && !v.Mut()
 }
 
 // isPlace reports whether x is a place target can lower: an addressable

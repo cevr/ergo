@@ -3531,8 +3531,8 @@
       "name": "made-any",
       "origin": "wf10 OPT6",
       "file": "internal/sketch/lower/gobody.go",
-      "from": "\t\treturn ok && id.Name == \"make\"\n\t}\n\treturn false",
-      "to": "\t\treturn ok && id.Name == \"make\"\n\t}\n\treturn true",
+      "from": "\t\tif x.Low != nil || x.Max != nil || !ok || lit.Value != \"0\" {\n\t\t\treturn false",
+      "to": "\t\tif x.Low != nil || x.Max != nil || !ok || lit.Value != \"0\" {\n\t\t\treturn true",
       "rule": "types.md Bindings, Result aliasing: only a Go body that returns make(…) or nil makes its result; slices.Slice returns a part of its argument, which a bind copies.",
       "killers": [
         "lower:TestValueRuleAgrees"
@@ -3853,9 +3853,9 @@
     {"name":"lr2-evidence-ignored","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\tif ok, _ := rw.ev.Admit(law, prov, in); !ok {","to":"\tif ok, _ := rw.ev.Admit(law, prov, in); false && !ok {","rule":"A rewrite law applies at a site only when the build's check run admits it for the provider at the site's constants (types.md, Laws 14, Evidence).","killers":["lower:TestRewriteAgrees"]},
     {"name":"lr2-evidence-per-type","origin":"wf10 LR2","file":"internal/sketch/lower/rewritecheck.go","from":"func evidenceKey(law, prov string) string { return law + \" for \" + prov }","to":"func evidenceKey(law, prov string) string { return law }","rule":"Evidence is per provider: a law that passed for one provider of T never applies on another (Laws 14).","killers":["lower:TestRewriteAgrees"]},
     {"name":"lr2-window-past-opaque","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\t\tif v != recv || p != prov {\n\t\t\tbreak\n\t\t}","to":"\t\tif v != recv || p != prov {\n\t\t\tcontinue\n\t\t}","rule":"Any statement other than a provider call on the window's receiver ends the window (Laws 14, Windows).","killers":["lower:TestRewriteAgrees"]},
-    {"name":"lr2-facts-kept","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\t\tout[k+1] = next\n","to":"\t\tout[k+1] = append(next, out[k]...)\n","rule":"A call that no post law covers forgets every fact (Laws 14, Post laws).","killers":["lower:TestRewriteAgrees"]},
+    {"name":"lr2-facts-kept","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\tc := calls[i-1]\n\tvar next []rwFact\n","to":"\tc := calls[i-1]\n\tnext := rw.factsAt(prov, calls, i-1)\n","rule":"A call that no post law covers forgets every fact (Laws 14, Post laws).","killers":["lower:TestRewriteAgrees"]},
     {"name":"lr2-post-evidence-ignored","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"if ok, _ := rw.ev.Admit(r.law, prov, RewriteInstance{Law: r.law}); !ok {","to":"if ok, _ := rw.ev.Admit(r.law, prov, RewriteInstance{Law: r.law}); false && !ok {","rule":"A post law gives a fact only when its run in the build's check passed (Laws 14, Post laws).","killers":["lower:TestRewriteAgrees"]},
-    {"name":"lr2-work-bound-off-by-one","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\t\t\t\t\t\tif work > bound {","to":"\t\t\t\t\t\tif work >= bound {","rule":"A window whose engine work passes 64 units per call keeps the reference lowering (Laws 14, Windows).","killers":["lower:TestRewriteWorkBound"]},
+    {"name":"lr2-work-bound-off-by-one","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\t\tif work > bound {","to":"\t\tif work >= bound {","rule":"A window whose engine work passes 64 units per call keeps the reference lowering (Laws 14, Windows).","killers":["lower:TestRewriteWorkBound"]},
     {"name":"lr2-guard-ignored","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\t\tif !held {","to":"\t\tif false && !held {","rule":"A guarded rewrite law applies only where a post-law fact says its guard holds (Laws 14).","killers":["lower:TestRewriteAgrees"]},
     {"name":"lr2-post-from-fresh","origin":"wf10 LR2","file":"internal/sketch/lower/tests.go","from":"\t\tif l.postRun(law, tg.b) {\n\t\t\t// A post law of the check build","to":"\t\tif false && l.postRun(law, tg.b) {\n\t\t\t// A post law of the check build","rule":"A post law's check run starts from drawn reached states, since its fact is used after the operation from every state (Laws 14, Post laws).","killers":["lower:TestRewriteAgrees"]},
     {"name":"lr2-unused-temps","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\t\tif t != \"\" && !used[t] {","to":"\t\tif false && t != \"\" && !used[t] {","rule":"A window rewritten to fewer calls still reads every argument once, and its Go temporaries stay used (Laws 14, Windows).","killers":["lower:TestRewriteEmptyWindow"]},
@@ -3912,17 +3912,6 @@
       "from": "from != nil && !seen[l.typeKey(from)] {",
       "to": "false && from != nil && !seen[l.typeKey(from)] {",
       "rule": "Every direct writer type of the program's encodes is collected before the codec functions and witnesses are written (wiredirect.go).",
-      "killers": [
-        "lower:TestEncodeOnADirectWriterCallsItsMethods"
-      ]
-    },
-    {
-      "name": "jf-direct-sealed",
-      "origin": "wf10 JSON-fast",
-      "file": "internal/sketch/lower/wiredirect.go",
-      "from": "\tif !ok || !l.isRuntimeType(from, x) {\n\t\treturn nil\n\t}\n\tif to, ok",
-      "to": "\tif !ok {\n\t\treturn nil\n\t}\n\tif to, ok",
-      "rule": "Only a sealed std value is a direct writer: a program type that shares a runtime type's name takes the Writer path (wiredirect.go).",
       "killers": [
         "lower:TestEncodeOnADirectWriterCallsItsMethods"
       ]
@@ -4151,6 +4140,14 @@
     {"name":"lrs-open-address","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\t\t\tif n.Op == syntax.AND && writes(n.X) {","to":"\t\t\t\t\tif false && writes(n.X) {","rule":"A borrow of a provider's field outside its operations opens its construction.","killers":["lower:TestConstructionModel"]},
     {"name":"lrs-open-borrow-arg","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\t\t\t\tif borrow && writes(a) {","to":"\t\t\t\t\t\tif false && writes(a) {","rule":"A provider's field passed to a borrow parameter, or as a dot call's borrowed receiver, opens its construction.","killers":["lower:TestConstructionModel"]},
     {"name":"lrs-open-borrow-all-args","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\t\t\t\tif borrow && writes(a) {","to":"\t\t\t\t\t\tif writes(a) {","rule":"A field read passed by value (a conversion, a value parameter) does not open the construction.","killers":["lower:TestConstructionModel"]},
-    {"name":"lrs-open-conversion","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\t\t\tif c.Kind == check.CallConversion && isProv(c.Type)","to":"\t\t\t\t\tif false && isProv(c.Type)","rule":"A conversion to the provider from a type defined over it builds a value outside its constructor.","killers":["lower:TestConstructionModel"]}
+    {"name":"lrs-open-conversion","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\t\t\tif c.Kind == check.CallConversion && isProv(c.Type)","to":"\t\t\t\t\tif false && isProv(c.Type)","rule":"A conversion to the provider from a type defined over it builds a value outside its constructor.","killers":["lower:TestConstructionModel"]},
+    {"name":"lr3-sepdue-no-comma","origin":"wf10 LR3","file":"internal/sketch/std/json/json.ergo","from":"\tif t.comma {\n\t\tt.raw(\",\")\n\t}","to":"\tif t.comma {\n\t}","rule":"A value after another in a list or object is written after a comma; a law of Text that no longer holds is not proved, so the build keeps the reference.","killers":["lower:TestStdJSONLawsRun"],"anchor":{"tests":["lower:TestStdJSONLawsRun"]}},
+    {"name":"lr3-raw-reads-st","origin":"wf10 LR3","file":"internal/sketch/std/json/json.ergo","from":"func raw(t *text, s string) { t.out = appendString(t.out, s) }","to":"func raw(t *text, s string) { t.out = appendString(t.out, if t.comma { s } else { s }) }","rule":"Only a proved, current law of the std ledger rewrites a run: a raw that reads the comma state leaves SetCommaSinks unproved, and the record's brace and first key stay two appends.","killers":["lower:TestEncodeOnADirectWriterCallsItsMethods"],"anchor":{"tests":["lower:TestEncodeOnADirectWriterCallsItsMethods"]}},
+    {"name":"lr3-at-appends","origin":"wf10 LR3","file":"internal/sketch/std/json/json.ergo","from":"func setComma(t *text, due bool) { t.comma = due }","to":"func setComma(t *text, due bool) {\n\tt.comma = due\n\tt.out = appendString(t.out, \",\")\n}","rule":"Setting whether a comma is due writes no text.","killers":["lower:TestStdJSONLawsRun"],"anchor":{"tests":["lower:TestStdJSONLawsRun"]}},
+    {"name":"lr3-quote-no-2028","origin":"wf10 LR3","file":"runtime/v1/json_append.go","from":"\t\tif r == '\\u2028' || r == '\\u2029' {","to":"\t\tif false {","rule":"A string's U+2028 and U+2029 are written escaped, as encoding/json writes them (law LineSeparatorsEscaped).","killers":["lower:TestStdJSONLawsRun"]},
+    {"name":"lr3-quote-html","origin":"wf10 LR3 (from LR3a lr3a-quote-html)","file":"runtime/v1/json_append.go","from":"\tif html {\n\t\tsafe = plainHTML\n\t}","to":"\tif false {\n\t\tsafe = plainHTML\n\t}","rule":"An HTML Text escapes <, > and & as encoding/json's default does.","killers":["lower:TestStdJSONLawsRun"]},
+    {"name":"lr3-quote-invalid-byte","origin":"wf10 LR3 (from LR3a lr3a-quote-invalid-byte)","file":"runtime/v1/json_append.go","from":"\t\tif r == utf8.RuneError && size == 1 {","to":"\t\tif false {","rule":"A byte of invalid UTF-8 is written as the lone surrogate \\udcXX, which a Cursor reads back as the byte.","killers":["lower:TestStdJSONLawsRun"]},
+    {"name":"lr3-intbody-sep","origin":"wf10 LR3","file":"internal/sketch/std/json/json.ergo","from":"func intBody(t *text, n int64) { t.out = appendInt(t.out, n) }","to":"func intBody(t *text, n int64) {\n\tt.sep()\n\tt.out = appendInt(t.out, n)\n}","rule":"A value's body writes no separator: Int writes one comma before its number.","killers":["lower:TestStdJSONLawsRun"],"anchor":{"tests":["lower:TestStdJSONLawsRun"]}},
+    {"name":"ps2-unfold-of-extern","origin":"wf10 LR3 (from PS2)","file":"internal/sketch/lower/unfold.go","from":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\treturn false\n\t\t\t}","to":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\tcontinue\n\t\t\t}","rule":"Unfold by definition replaces a call by its body only when every statement is a provider call on the receiver; a body with any other call (an extern, a function off the provider) stays a call.","killers":["lower:TestRewriteAgrees"]}
   ]
 }

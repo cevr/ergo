@@ -1,9 +1,6 @@
 {
   "about": "The mutant ledger of internal/sketch/std: edits of the std sources (the .ergo declarations and the Go that reads them) that some test, law or example must kill. Run it with go run ./scripts/mutants ./internal/sketch/std; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded by ESC1 (wf10, lang audit B F1).",
   "mutants": [
-    {"name":"lr3a-quote-2028","origin":"wf10 LR3a","file":"internal/sketch/std/json/quote.ergo","from":"\tif r == 0x2028 || r == 0x2029 {","to":"\tif false {","rule":"json's quote escapes U+2028 and U+2029 as the Go writer does, so KeyFolds folds a key to the text Key writes.","killers":["lower:TestJSONKeyFoldAgrees"]},
-    {"name":"lr3a-quote-html","origin":"wf10 LR3a","file":"internal/sketch/std/json/quote.ergo","from":"\tif html && (r == 60 || r == 62 || r == 38) {","to":"\tif false && html && (r == 60 || r == 62 || r == 38) {","rule":"json's quote escapes <, > and & for an HTML Text, so KeyFoldsHTML folds a key to the text its Key writes.","killers":["lower:TestJSONKeyFoldAgrees"]},
-    {"name":"lr3a-quote-invalid-byte","origin":"wf10 LR3a","file":"internal/sketch/std/json/quote.ergo","from":"\tif r == 0xFFFD && end - at == 1 {","to":"\tif false {","rule":"A byte of invalid UTF-8 is never folded to other text than the writer's \\udcXX (the fold must fail or agree).","killers":["lower:TestJSONKeyFoldAgrees"]},
     {"name":"esc1-timeout-nonescaping","origin":"wf10 ESC1 r2","file":"internal/sketch/std/timeout/timeout.ergo","from":"f escaping func() A fails E needs R","to":"f func() A fails E needs R","rule":"A joined child task is not the caller's task: a timeout callback cannot borrow a caller-owned Set.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments","lower:TestStdCallbackClausesAdmit","std:TestExternArgumentClauses"]},
     {
       "name": "esc1-transform-nonescaping", "origin": "wf10 ESC1",

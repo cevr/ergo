@@ -390,8 +390,8 @@ func (g *stdGap) lower(t *testing.T) *lowered {
 // TestStdGapRealStd drives the same two shapes over the real std: every
 // exported std function whose body converts a record into its operation
 // type result, and every exported std named context, gets a program that
-// calls it or uses it in a with, which must lower, vet and run. None
-// exists today (lowering-parse-gap.md); one that this generator cannot
+// calls it or uses it in a with, which must lower, vet and run: json's
+// NewText and NewHTMLText since LR3 (lowering-parse-gap.md); one that this generator cannot
 // drive (a function with parameters or needs, a context with needs) fails
 // here, so the generator is extended with it.
 //
@@ -399,6 +399,7 @@ func (g *stdGap) lower(t *testing.T) *lowered {
 // exits; no in-process check observes that, and Ergo has no reference
 // interpreter yet (test-speed T8).
 func TestStdGapRealStd(t *testing.T) {
+	needsBuild(t)
 	var programs []*lowered
 	want := map[string]string{}
 	add := func(name, src, out string) {
@@ -424,7 +425,13 @@ func TestStdGapRealStd(t *testing.T) {
 				continue
 			}
 			name := "realfn_" + strings.ReplaceAll(path, "/", "_") + "_" + f.Name
-			add(name, fmt.Sprintf("import %s\n\nfunc keep[T](_ T) {}\n\nfunc main() needs Console {\n\tkeep(%s.%s())\n\tConsole.Println(\"made\")\n}\n", path, path, f.Name), "made\n")
+			use := "keep(%s.%s())"
+			if _, cell := check.CellProvider(f.Sig.Results[0]); cell {
+				// A provider cell stays on its task: no type argument
+				// may carry it (types.md, Interface assignability 6).
+				use = "let _ = %s.%s()"
+			}
+			add(name, fmt.Sprintf("import %s\n\nfunc keep[T](_ T) {}\n\nfunc main() needs Console {\n\t"+use+"\n\tConsole.Println(\"made\")\n}\n", path, path, f.Name), "made\n")
 		}
 		for _, cname := range slices.Sorted(func(yield func(string) bool) {
 			for n := range p.Contexts {

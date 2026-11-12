@@ -29,8 +29,7 @@ func fast(d Deploy) string { json.Encode(codec(), d) }
 
 func viaWriter(d Deploy) string {
 	let t = json.NewText()
-	let w Writer = t
-	encode(d, w)
+	encode(d, t)
 	t.Written()
 }
 

@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -52,18 +53,16 @@ func nested(c bool) string {
 	t.Written() + " " + t2.Written()
 }
 
-func viaWriter(p Port) string {
-	let t = json.NewText()
-	let w Writer = t
+func viaWriter(p Port, w Writer) {
 	encode(p, w)
-	t.Written()
 }
 
 func main() needs Console {
 	let t = json.NewText()
 	encode(Port{Host: "a", Port: 1, Tags: []string{"x"}}, t)
 	mine(Port{Host: "d", Port: 4, Tags: []string{}})
-	Console.Println(t.Written() + show(Port{Host: "b", Port: 2, Tags: []string{}}) + nested(true) + viaWriter(Port{Host: "c", Port: 3, Tags: []string{}}))
+	viaWriter(Port{Host: "c", Port: 3, Tags: []string{}}, Text{n: 0})
+	Console.Println(t.Written() + show(Port{Host: "b", Port: 2, Tags: []string{}}) + nested(true))
 }
 `
 
@@ -76,7 +75,12 @@ func main() needs Console {
 // takes the Writer path. Under the reference lowering (wireLowering
 // "writer") every encode takes the Writer path. Both lowerings type-check
 // in process (typecheckGo); a program type named Text takes the Writer
-// path. Mutants: jf-direct-param, jf-direct-writer, jf-direct-sealed.
+// path. The second promised fact is the rewrite's: on the direct path a
+// record's opening brace and first key are one constant append (the
+// proved laws of std json's Text joined the run), so a law of Text that
+// is no longer proved and current in the std ledger leaves the run as it
+// is. Mutants: jf-direct-param, jf-direct-writer, lr3-sepdue-no-comma, lr3-raw-reads-st, lr3-at-appends, lr3-intbody-sep,
+// ps2-unfold-of-extern.
 func TestEncodeOnADirectWriterCallsItsMethods(t *testing.T) {
 	codecCalls := func(t *testing.T, o *lowered) map[string][]string {
 		t.Helper()
@@ -146,10 +150,15 @@ func TestEncodeOnADirectWriterCallsItsMethods(t *testing.T) {
 
 	fast := lowerSource("direct", directWriterSource, true)
 	calls := codecCalls(t, fast)
+	// A build of the reference (-X wireLowering=writer) has no direct
+	// path: the second half checks its form.
 	for _, fn := range []string{"show", "main"} {
-		if !direct(calls[fn]) {
+		if wireLowering != "writer" && !direct(calls[fn]) {
 			t.Errorf("direct lowering: %s's encode on a json.Text calls %v, want only codec functions over the Text's Go type", fn, calls[fn])
 		}
+	}
+	if wireLowering != "writer" && rewriteLowering != "reference" && !joinsFirstKey(t, fast) {
+		t.Errorf("direct lowering: no codec function of Port writes its opening brace and first key as one constant raw:\n%s", fast.mainGo())
 	}
 	for _, fn := range []string{"viaWriter", "mine"} {
 		if !reference(calls[fn]) {
@@ -168,4 +177,41 @@ func TestEncodeOnADirectWriterCallsItsMethods(t *testing.T) {
 		}
 	}
 	typecheckGo(t, []*lowered{fast, ref})
+}
+
+// joinsFirstKey reports a codec function of Port on the direct path that
+// calls raw with one constant: an opening brace and a key, `{"Host":`.
+func joinsFirstKey(t *testing.T, o *lowered) bool {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), "main.go", o.mainGo(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range f.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || !strings.HasPrefix(fd.Name.Name, "ergoWritePort") {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) != 1 {
+				return true
+			}
+			if sel, ok := call.Fun.(*ast.SelectorExpr); !ok || sel.Sel.Name != "raw" {
+				return true
+			}
+			arg := call.Args[0]
+			if conv, ok := arg.(*ast.CallExpr); ok && len(conv.Args) == 1 {
+				arg = conv.Args[0] // string("…")
+			}
+			if lit, ok := arg.(*ast.BasicLit); ok {
+				if s, err := strconv.Unquote(lit.Value); err == nil && strings.HasPrefix(s, `{"`) && strings.HasSuffix(s, `":`) {
+					found = true
+				}
+			}
+			return true
+		})
+	}
+	return found
 }
