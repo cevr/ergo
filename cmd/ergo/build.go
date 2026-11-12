@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -195,17 +194,7 @@ func patchedCompile(selected toolchain.Toolchain) (toolchain.Patched, error) {
 	if err != nil {
 		return toolchain.Patched{}, err
 	}
-	var goMod []byte
-	for _, f := range lower.Runtime() {
-		if path.Base(f.Path) == "go.mod" {
-			goMod = f.Data // its go line is every generated module's
-		}
-	}
-	source, err := toolchain.SourceOf(selected, root, goMod)
-	if err != nil {
-		return toolchain.Patched{}, err
-	}
-	return toolchain.Patch(toolchain.PatchConfig{Cache: root, Source: source, Log: os.Stderr})
+	return sketchfront.PatchedRelease(selected, root, os.Stderr)
 }
 
 // goCommand is the go command every build and `ergo bind go` run

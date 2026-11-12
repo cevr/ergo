@@ -22,8 +22,10 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/receipt"
+	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // Path is the way a program reaches the Go compiler.
@@ -65,6 +67,38 @@ func Toolchains() (src, ir Toolchain, ok bool) {
 		return Toolchain{}, Toolchain{}, false
 	}
 	return Toolchain{GOROOT: s, GOCACHE: filepath.Join(c, "source")}, Toolchain{GOROOT: i, GOCACHE: filepath.Join(c, "ir")}, true
+}
+
+// ErgoToolchains are the two installations of ergo's own build when
+// Toolchains is not configured: the release ERGO_GO selects, the stock
+// compile of the reference, with Go's own build cache; and the same
+// release with ergo's patched compile from ergo's cache
+// (sketchfront.PatchedRelease), its build cache beside it. So the IR tests
+// need no variable, and a gate step runs them.
+func ErgoToolchains() (src, ir Toolchain, err error) {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return src, ir, err
+	}
+	selected, err := toolchain.Select(os.Getenv, root, os.Stderr)
+	if err != nil {
+		return src, ir, err
+	}
+	patched, err := sketchfront.PatchedRelease(selected, root, os.Stderr)
+	if err != nil {
+		return src, ir, err
+	}
+	source, err := filepath.EvalSymlinks(filepath.Join(patched.Root, "VERSION"))
+	if err != nil {
+		return src, ir, err
+	}
+	source = filepath.Dir(source)
+	out, err := exec.Command(filepath.Join(source, "bin", "go"), "env", "GOCACHE").Output()
+	if err != nil {
+		return src, ir, fmt.Errorf("go env GOCACHE: %w", err)
+	}
+	return Toolchain{GOROOT: source, GOCACHE: strings.TrimSpace(string(out))},
+		Toolchain{GOROOT: patched.Root, GOCACHE: filepath.Join(filepath.Dir(patched.Root), "gocache")}, nil
 }
 
 // Load checks the program at path (a .ergo file or a package folder) and

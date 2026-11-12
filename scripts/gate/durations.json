@@ -201,6 +201,18 @@
     "TestWalkReachesWhatTheKernelReaches": 0.07,
     "TestWritableAliasesFailTheSweep": 0.19
   },
+  "ergo.local/prototype/internal/experimental/irspike": {
+    "TestIRAgreesOnExamples": 558.17,
+    "TestIRBodyThatDoesNotCheck": 0.79,
+    "TestIRCacheKeysOnIR": 2.92,
+    "TestIRCensusFindsEveryReason": 2.15,
+    "TestIRCoverage": 29.29,
+    "TestIRFailuresMatchSource": 28.03,
+    "TestIRMatchesSource": 34.91,
+    "TestIRRuntimeChecks": 13.79,
+    "TestIRTestsRunInTheFullTier": 0.01,
+    "TestIRTextChecks": 1175.06
+  },
   "ergo.local/prototype/internal/gobind": {
     "TestBindMappingProperty": 0.18,
     "TestGoStdBindingsMatchToolchain": 0.92
