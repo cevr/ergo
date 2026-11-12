@@ -759,6 +759,42 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
+      "name": "oracle-o10-done-goes-on",
+      "origin": "wf10 ORACLE O10",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\treturn s, k == decDone, nil\n",
+      "to": "\treturn s, false, nil\n",
+      "rule": "An actor's Done gives its output and ends the actor: a later Ask fails Stopped (std actor, Stopped and StartMachine; runtime.md, Machines and actors 11).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o10-work-success-unmapped",
+      "origin": "wf10 ORACLE O10",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\t\t\te = r\n\t\t\tif onSuccess != nil {\n",
+      "to": "\t\t\te = r\n\t\t\tif false {\n",
+      "rule": "A Work literal's Run result becomes a signal through OnSuccess (std machines Work; runtime.md, Machines and actors 12).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
+      "name": "oracle-o10-func-key-keeps-rows",
+      "origin": "wf10 ORACLE O10",
+      "file": "internal/sketch/eval/types.go",
+      "from": "\tcase *check.Signature:\n",
+      "to": "\tcase *check.Signature:\n\t\tb.WriteString(t.String())\n\t\treturn\n",
+      "rule": "A match on Some[func(…) needs W] tests the Go type: a function type's key is its parameters and results read in the frame, with no row (std actor's work; types.md, Matching).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
+      "name": "oracle-o10-sink-skipped",
+      "origin": "wf10 ORACLE O10",
+      "file": "internal/sketch/eval/runner.go",
+      "from": "\tif k == decEmit || k == decDone {\n\t\tif _, ab := a.call(in, fr, a.out, d); ab != nil {\n",
+      "to": "\tif false {\n\t\tif _, ab := a.call(in, fr, a.out, d); ab != nil {\n",
+      "rule": "An actor's sink gets each Emit's and Done's output, before the decision's answer (std actor StartMachine; runtime.md, Machines and actors 11.15).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
       "name": "oracle-o4-harness-drops-stderr",
       "origin": "wf10 ORACLE O4",
       "file": "internal/sketch/eval/examples_test.go",

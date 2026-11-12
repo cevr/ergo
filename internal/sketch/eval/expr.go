@@ -485,8 +485,8 @@ func (in *interp) unary(fr *frame, x *syntax.UnaryExpr) (Value, *abrupt) {
 // from a record of another type, or a slice, array or Map literal. A field
 // the literal leaves out takes its default value.
 func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) {
-	if fr.info.Works[x] != nil {
-		return nil, fr.unsupported(x, "a Work literal")
+	if lit := fr.info.Works[x]; lit != nil {
+		return in.workLit(fr, x, lit) // runner.go
 	}
 	t := fr.rtypeOf(x)
 	if check.RefinementOf(t.t) != nil {

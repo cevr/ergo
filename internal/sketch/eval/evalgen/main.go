@@ -29,9 +29,10 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor"}
 
-const mainPrelude = `import io
+const mainPrelude = `import actor
+import io
 import machines
 import os
 import queue
@@ -139,6 +140,28 @@ func ctrAfter(c Ctr) Option[Timeout[Sig]] {
 
 type Counter machine[Ctr, Sig] { initial: ctrStart, step: ctrStep, after: ctrAfter }
 
+type Tally machine[Ctr, Sig] { initial: ctrStart, step: ctrStep }
+
+func told(d Decision[Ctr, int]) string {
+	match d {
+	case Enter[Ctr]:
+		"enter"
+	case Stay[Ctr]:
+		"stay"
+	case Emit[Ctr, int] as e:
+		"emit \(e.Output)"
+	case Ignore:
+		"ignore"
+	case Reject:
+		"reject"
+	case Done[int] as x:
+		if x.Output < 0 {
+			return "stopped"
+		}
+		"done \(x.Output)"
+	}
+}
+
 func Close(r Res) { note("close " + r.name) }
 
 func use(r Res) { note("use " + r.name) }
@@ -158,6 +181,7 @@ func imports() needs Scheduler | time.Clock {
 	Scheduler.Sleep(0s)
 	let _ = time.Clock.Now()
 	let _ = machines.Initial(machines.Start(Counter{}, 1))
+	let _ = actor.StartMachine(machines.Start(Tally{}, 1), 0, func(o int) {})
 }
 
 // recorder uses io and os too.
@@ -197,7 +221,9 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(12) {
+		switch g.r.IntN(13) {
+		case 12:
+			g.actor(k)
 		case 11:
 			g.seq(k)
 		case 10:
@@ -566,6 +592,103 @@ func (g *mainGen) machineTail(k, n int) {
 		fmt.Fprintf(&g.out, "s%d no timer\n", k)
 	}
 	fmt.Fprintf(&g.out, "s%d no work\n", k)
+}
+
+// actor: the Tally machine run as an actor (std actor) with a seeded
+// inbox capacity: one Send, then an Ask of each seeded signal (an Ask
+// after Done fails Stopped), the sink printing each output before the
+// answer; then State, Stop and ExitOf.
+func (g *mainGen) actor(k int) {
+	g.kinds["actor"]++
+	limit, capacity := 3+g.r.IntN(6), g.r.IntN(3)
+	type sig struct {
+		tick bool
+		k    int
+		lit  string
+	}
+	pick := func() sig {
+		if g.r.IntN(3) == 0 {
+			return sig{tick: true, lit: "Tick"}
+		}
+		v := g.r.IntN(4)
+		return sig{k: v, lit: fmt.Sprintf("Add{k: %d}", v)}
+	}
+	first := pick()
+	asks := make([]sig, 1+g.r.IntN(6))
+	for i := range asks {
+		asks[i] = pick()
+	}
+	g.line("")
+	g.line("func s%d() needs Console | Ambient {", k)
+	g.line("\twith context { Scheduler: NewLiveScheduler() } {")
+	g.line("\t\tactor%d()", k)
+	g.line("\t}")
+	g.line("}")
+	g.line("")
+	g.line("func actor%d() needs Console | Scheduler {", k)
+	g.line("\tlet a = actor.StartMachine(machines.Start(Tally{}, %d), %d, func(o int) { note(\"s%d out \\(o)\") })", limit, capacity, k)
+	g.line("\ta.Send(%s) catch {", first.lit)
+	g.line("\tcase actor.Stopped:")
+	g.line("\t\tConsole.Println(\"s%d send stopped\")", k)
+	g.line("\t}")
+	for i, s := range asks {
+		g.line("\tlet d%d = a.Ask(%s) catch {", i, s.lit)
+		g.line("\tcase actor.Stopped:")
+		g.line("\t\tDone[int]{Output: -1}")
+		g.line("\t}")
+		g.line("\tflush()")
+		g.line("\tConsole.Println(\"s%d \\(told(d%d))\")", k, i)
+	}
+	g.line("\tConsole.Println(\"s%d state \\(a.State().n)\")", k)
+	g.line("\ta.Stop()")
+	g.line("\tmatch actor.ExitOf(a) {")
+	g.line("\tcase actor.Finished[Ctr, int] as f:")
+	g.line("\t\tConsole.Println(\"s%d finished \\(f.State.n) \\(f.Output)\")", k)
+	g.line("\tcase actor.Halted[Ctr] as h:")
+	g.line("\t\tConsole.Println(\"s%d halted \\(h.State.n)\")", k)
+	g.line("\tcase _:")
+	g.line("\t\tConsole.Println(\"s%d other\")", k)
+	g.line("\t}")
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
+	n, ended := 0, false
+	// apply steps s; quiet drops the decision's line (a Send's).
+	apply := func(s sig, quiet bool) {
+		say := func(f string, args ...any) {
+			if !quiet {
+				fmt.Fprintf(&g.out, "s%d "+f+"\n", append([]any{k}, args...)...)
+			}
+		}
+		switch {
+		case ended:
+			say("stopped")
+		case s.tick && n >= limit:
+			fmt.Fprintf(&g.out, "s%d out %d\n", k, n)
+			say("done %d", n)
+			ended = true
+		case s.tick:
+			n++
+			say("stay")
+		case n+s.k > limit:
+			say("reject")
+		case s.k == 0:
+			say("ignore")
+		default:
+			n += s.k
+			fmt.Fprintf(&g.out, "s%d out %d\n", k, n)
+			say("emit %d", n)
+		}
+	}
+	apply(first, true)
+	for _, s := range asks {
+		apply(s, false)
+	}
+	fmt.Fprintf(&g.out, "s%d state %d\n", k, n)
+	if ended {
+		fmt.Fprintf(&g.out, "s%d finished %d %d\n", k, n, n)
+	} else {
+		fmt.Fprintf(&g.out, "s%d halted %d\n", k, n)
+	}
 }
 
 // seq: a for over a Seq that a function literal makes, Seq[int](f), with

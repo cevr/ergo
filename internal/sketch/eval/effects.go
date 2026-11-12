@@ -348,6 +348,21 @@ func (in *interp) callValue(fr *frame, at syntax.Node, f Value, args []Value) (V
 		return in.callResolved(fr, call, f.fn, f.targs, args)
 	case *nativeFunc:
 		return f.call(in, fr, at, args)
+	case seqSource:
+		// A Seq a native made, called with its yield (seq.go).
+		for {
+			v, more, ab := f.next(in, fr, at)
+			if ab != nil || !more {
+				return unit{}, ab
+			}
+			goOn, ab := in.callValue(fr, at, args[0], []Value{v})
+			if ab != nil {
+				return nil, ab
+			}
+			if goOn != true {
+				return unit{}, nil
+			}
+		}
 	}
 	return nil, fr.unsupported(at, "a call of %s as a function", describe(f))
 }
