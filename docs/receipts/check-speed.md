@@ -40,9 +40,50 @@ they do not normalize outputs. A warm disk-cache check's counted std
 work is zero. A key mismatch, invalid snapshot or failed write falls back
 to source checking.
 
-The full cache CPU/RSS receipt is pending a quiet-host window. The run's
-`chk1/b/bench-pending.md` names the exact command. No measured speed claim
-for the committed cache head is made here before that receipt.
+The snapshot is segmented: a base (universe and prelude), then one
+segment per std package, each after the packages it imports. A process
+decodes the base at install and a package's segment, with the segments it
+names, on the package's first import. So a check decodes the std its
+imports reach and no other (TestStdDecodeGrowsWithImports counts it:
+packages decoded equal the import closure). Round 1 decoded all of std at
+install, which set a floor of about 280 M instructions on every check,
+also on a program with no std import (wf10 audit 3, F3).
+
+### Instructions, round 2 (measured, 2026-11-12)
+
+`ergo check`, warm caches, user-space instructions of the process tree
+(perf_event_open), three interleaved rounds, median per target,
+GOMAXPROCS=1. Instruction counts do not depend on host load; load was
+35.8 / 42.0 / 46.6 at the end. `gogc` is d869f385b (tables + GOGC 400, no
+std cache), `r1` is the round-1 head e206dfeec (eager decode), `r2` is the
+round-2 lazy decode. All 126 runs exited 0.
+
+| Target | gogc M | r1 M | r2 M | r2 / gogc | RSS MB gogc / r1 / r2 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| editions/sketch (no std import) | 13.5 | 290.5 | 12.6 | 0.93 | 13.8 / 38.5 / 21.1 |
+| hello, Console only | 12.2 | 280.1 | 10.9 | 0.89 | 13.6 / 38.0 / 20.8 |
+| lookup | 55.2 | 305.3 | 27.4 | 0.50 | 16.9 / 39.2 / 22.3 |
+| deps | 567.3 | 441.9 | 285.2 | 0.50 | 41.4 / 49.3 / 35.1 |
+| router | 544.3 | 416.8 | 269.2 | 0.49 | 42.6 / 47.1 / 34.7 |
+| sudoku | 315.8 | 532.0 | 253.8 | 0.80 | 24.3 / 42.3 / 27.3 |
+| regex | 292.4 | 381.6 | 161.6 | 0.55 | 32.2 / 44.4 / 31.4 |
+| lru | 241.6 | 365.3 | 136.8 | 0.57 | 30.2 / 44.2 / 30.5 |
+| stackvm | 182.3 | 345.4 | 112.5 | 0.62 | 26.2 / 43.5 / 28.7 |
+| jsonv | 543.1 | 428.1 | 275.4 | 0.51 | 39.6 / 48.8 / 35.0 |
+| calc | 434.8 | 429.3 | 231.8 | 0.53 | 32.5 / 47.9 / 32.6 |
+| bookmarks | 615.6 | 370.7 | 246.9 | 0.40 | 44.6 / 42.3 / 35.0 |
+| tidewalk-replay | 131.7 | 338.9 | 71.3 | 0.54 | 22.9 / 41.3 / 25.5 |
+| csvreport | 433.8 | 359.3 | 168.8 | 0.39 | 33.3 / 42.8 / 31.9 |
+| sum | 4,384 | 5,285 | 2,264 | 0.52 | |
+
+The program without std imports keeps 7 MB more peak RSS than the no-cache
+control (measured); the whole snapshot file (2.9 MB) is read into memory
+and the binary is 2 MB larger (inferred causes, not profiled). Raw samples:
+the wf10 run's `chk1/b/instr-2.log`; the command is `chk1/instr.sh`.
+
+The CPU-time receipt over all 54 targets for the final head stays pending
+a quiet-host window (`chk1/b/bench-pending.md`); CPU time depends on load,
+instruction counts do not.
 
 The source-only lowering has a separately captured ordering defect
 (`chk1/b/nondet.md`, two source files and both lowered outputs). The cache

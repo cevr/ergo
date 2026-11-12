@@ -14,7 +14,8 @@ import (
 
 // The checked std cache (CHK1b): a process installs the snapshot of the
 // checked prelude and std (check.ExportStd, check.InstallStd) before its
-// first check, so it checks no std package from source. The snapshot is a
+// first check, so it checks no std package from source; it decodes a std
+// package only on the package's first import (check/export.go). The snapshot is a
 // file under the cache root, named by the key of the std sources and the
 // compiler's identity; a miss checks every std package from source once,
 // writes the snapshot and goes on with that state, which is the snapshot's.
