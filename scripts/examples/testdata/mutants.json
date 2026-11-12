@@ -36,6 +36,24 @@
       "to": "if false && evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
       "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
       "killers": ["examples:TestCheckVerdictsMatchNative"]
+    },
+    {
+      "name": "examples-workload-unexpected",
+      "origin": "wf10 STROBE OPC",
+      "file": "scripts/examples/main.go",
+      "from": "case file == opcount.WorkloadFile:",
+      "to": "case file == \"no \"+opcount.WorkloadFile:",
+      "rule": "A program of packages may hold a workload file (scripts/opcount).",
+      "killers": ["scripts/examples:TestModuleProgramWorkload"]
+    },
+    {
+      "name": "examples-workload-unchecked",
+      "origin": "wf10 STROBE OPC",
+      "file": "scripts/examples/main.go",
+      "from": "problem(\"%s: %s\", file, w)",
+      "to": "_ = w",
+      "rule": "A workload file that does not read is a layout error naming its line.",
+      "killers": ["scripts/examples:TestModuleProgramWorkload"]
     }
   ]
 }
