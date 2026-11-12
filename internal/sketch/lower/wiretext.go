@@ -259,6 +259,9 @@ func (l *lowerer) cellEventsFrom(cw cellWriter, env, w, text string, start *rwCa
 				if !top.bare || !sameCall(tail, top.entry) {
 					tail = nil
 				}
+			case !mentions && oneLineBlock(trimmed):
+				// A whole block on one line that never names the
+				// writer (an optional field's count) leaves the state.
 			case strings.ContainsAny(trimmed, "{}") || strings.HasPrefix(trimmed, "case ") || trimmed == "default:" || strings.HasPrefix(trimmed, "else"):
 				stopped, tail = true, nil
 			case mentions:
@@ -285,6 +288,12 @@ func (l *lowerer) cellEventsFrom(cw cellWriter, env, w, text string, start *rwCa
 	}
 	flush()
 	return strings.Join(out, "\n")
+}
+
+// oneLineBlock reports an `if` whose block opens and closes on its line,
+// `if _, absent := v.F.(Absent); absent { fields-- }`.
+func oneLineBlock(line string) bool {
+	return strings.HasPrefix(line, "if ") && strings.HasSuffix(line, "}") && strings.Count(line, "{") == strings.Count(line, "}")
 }
 
 // cellFunc is a cell writer's codec function: key names its one variant,
