@@ -2,6 +2,7 @@
 law json.Text.PlainIsRaw for json.text at ("value") proved h1:RNRrjpQ++wl4DUmxkt4v/LMPPup/E2jnchgpgurXlPY=
 law json.Text.PlainIsRaw for json.text proved h1:Nvb0YMV+jdljZNS4+5kw7dV6ccn8ei6i5TAiW/CxkRw=
 law json.Text.RawJoins for json.text at ("", "[") proved h1:dIBBEkkXHOrlnoM/uIgaSXRsHsY4xKEKv4iEMpIlo+o=
+law json.Text.RawJoins for json.text at ("", "\"value\"") proved h1:fURa8AMBDWU+hBRkVQtCAV0PgdGHEYcq7/O8QFwLEpI=
 law json.Text.RawJoins for json.text at ("", "null") proved h1:ksqUwiq+Cja4zp7m9D9pXPbXWFLCUTjJBOVAg/WFd64=
 law json.Text.RawJoins for json.text at ("", "{") proved h1:zwDXS6t9PyHQhUfSjfuTxJy3DQHZJGw6RU6bqGLdejs=
 law json.Text.RawJoins for json.text at ("\"value\"", ":") proved h1:BN6rA+ogjkGBdlclkGuiOyjlxDW88VfpvnoIldB7KhU=
