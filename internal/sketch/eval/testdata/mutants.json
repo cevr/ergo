@@ -804,6 +804,33 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
+      "name": "oracle-o13-parse-message-lost",
+      "origin": "wf10 ORACLE O13",
+      "file": "internal/sketch/eval/nativestime.go",
+      "from": "\"Value\": value, \"Message\": err.Error()}",
+      "to": "\"Value\": value, \"Message\": \"\"}",
+      "rule": "std time.Parse fails ParseError with Go's message (std time Parse; runtime/v1 TimeParse).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o13-parse-keeps-nanos-off",
+      "origin": "wf10 ORACLE O13",
+      "file": "internal/sketch/eval/nativestime.go",
+      "from": "\"Nsec\": int64(t.Nanosecond()),",
+      "to": "\"Nsec\": int64(0),",
+      "rule": "std time.Parse reads the fraction of a second the layout writes: the Reading's Nsec (std time Parse).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o13-format-ignores-layout",
+      "origin": "wf10 ORACLE O13",
+      "file": "internal/sketch/eval/nativestime.go",
+      "from": ".UTC().Format(args[2].(string))",
+      "to": ".UTC().Format(time.RFC3339)",
+      "rule": "std time.Format writes the instant in UTC by its layout, as Go's t.UTC().Format(layout).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
       "name": "oracle-o12-ones-count-is-len",
       "origin": "wf10 ORACLE O12",
       "file": "internal/sketch/eval/nativesbits.go",

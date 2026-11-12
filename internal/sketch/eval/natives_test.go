@@ -192,7 +192,18 @@ func nativeCases(g nativeGen) []nativeCase {
 		sj = int64(g.r.IntN(len(ints)+4) - 3)
 	}
 	si := int64(g.r.IntN(3) - 1)
+	// time text: a seeded instant in a seeded layout, read back in that
+	// layout or another, sometimes cut short.
+	layouts := []string{time.RFC3339, time.RFC3339Nano, time.DateTime, time.DateOnly, time.Kitchen, time.RFC1123Z, time.RFC1123, "Jan 2 15:04", "02/01/2006 15:04:05.000"}
+	lay := layouts[g.r.IntN(len(layouts))]
+	sec, nsec := g.r.Int64N(1<<34)-(1<<33), g.r.Int64N(1e9)
+	text := time.Unix(sec, nsec).UTC().Format(layouts[g.r.IntN(len(layouts))])
+	if g.r.IntN(4) == 0 {
+		text = text[:g.r.IntN(len(text)+1)]
+	}
 	return []nativeCase{
+		{name: "time.format", args: []Value{sec, nsec, lay}, v1: func() any { return v1.TimeFormat(sec, nsec, lay) }},
+		{name: "time.parse", args: []Value{lay, text}, v1: func() any { return result(v1.TimeParse(lay, text)) }},
 		{name: "strings.Compare", args: []Value{s, u}, v1: func() any { return int64(v1.StringsCompare(s, u)) }},
 		{name: "strings.PadLeft", args: []Value{s, int64(i), rn}, v1: func() any { return v1.StringsPadLeft(s, i, rn) }},
 		{name: "strings.PadRight", args: []Value{s, int64(j), rn}, v1: func() any { return v1.StringsPadRight(s, j, rn) }},
@@ -356,6 +367,8 @@ func toValue(fn *check.Func, v any) Value {
 		return int64(v)
 	case time.Duration:
 		return int64(v)
+	case v1.Reading:
+		return stdRecord(fn, "Reading", map[string]Value{"Sec": v.Sec, "Nsec": v.Nsec, "Mono": v.Mono})
 	case v1.Decoded:
 		return stdRecord(fn, "Decoded", map[string]Value{"Rune": v.Rune, "Size": int64(v.Size)})
 	}
