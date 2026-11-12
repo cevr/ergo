@@ -264,7 +264,7 @@ func (g *fgen) stmt(in string, budget int) {
 			break
 		}
 		// try covers the whole expression: the callee's failure leaves.
-		g.let(in, fmt.Sprintf("try pick(%s, %s)", g.indexed(), g.args(cs[g.n(len(cs))])))
+		g.let(in, fmt.Sprintf("try pick(%s, %s)", g.indexed(6), g.args(cs[g.n(len(cs))])))
 		return
 	case k == 12:
 		// Divides by zero when the two locals are equal: the defect.
@@ -280,7 +280,7 @@ func (g *fgen) stmt(in string, budget int) {
 		if g.n(2) == 0 {
 			// Inside an expression: IR keeps the emitter's order by
 			// leaving this body to the source path.
-			g.let(in, fmt.Sprintf("%s + %s", g.indexed(), g.args(c)))
+			g.let(in, fmt.Sprintf("%s + %s", g.indexed(2), g.args(c)))
 			return
 		}
 		g.let(in, g.args(c))
@@ -289,11 +289,12 @@ func (g *fgen) stmt(in string, budget int) {
 	g.let(in, g.expr(2))
 }
 
-// indexed reads a two-element slice: in range, or rarely past its end
-// (the defect must come before a later operand's effects on both paths).
-func (g *fgen) indexed() string {
+// indexed reads a two-element slice: in range, or one time in out past
+// its end (the defect; both paths must order it the same against a later
+// operand's effects).
+func (g *fgen) indexed(out int) string {
 	idx := fmt.Sprintf("(%s %% 2 + 2) %% 2", g.local())
-	if g.n(6) == 0 {
+	if g.n(out) == 0 {
 		idx = "2 + " + g.local() + "*" + g.local()
 	}
 	return fmt.Sprintf("([]int{%d, %d})[%s]", g.n(9), g.n(9), idx)
