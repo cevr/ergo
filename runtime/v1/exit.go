@@ -444,8 +444,18 @@ func ergoStack(stack []byte) []string {
 //
 //ergo:host
 func Main(body func(*rt.Task) error) {
-	rt.Pace()
-	os.Exit(report(os.Stderr, runMain(body)))
+	os.Exit(mainStatus(body))
+}
+
+// startPace starts the heap pacing of a program (rt.Pace); a test replaces
+// it, so the test process keeps its own collector settings.
+var startPace = rt.Pace
+
+// mainStatus paces the heap, runs body as Main does and returns the exit
+// status Main exits with.
+func mainStatus(body func(*rt.Task) error) int {
+	startPace()
+	return report(os.Stderr, runMain(body))
 }
 
 // runMain runs body as the root task and returns its canonical exit.

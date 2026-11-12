@@ -223,11 +223,10 @@
       "name": "pace-not-started",
       "origin": "wf10/ir-guarantees/PACE1",
       "file": "runtime/v1/exit.go",
-      "from": "\trt.Pace()\n\tos.Exit(",
-      "to": "\tos.Exit(",
+      "from": "\tstartPace()\n\treturn report(",
+      "to": "\treturn report(",
       "rule": "Emitted main paces the program's heap",
-      "killers": [],
-      "gap": "Only a built Ergo program runs v1.Main, which exits the process; no in-process test can call it. The receipt in runtime/rt/MEASURED.md, Heap pacing (GC cycles per workload with and without GOGC set), is its evidence."
+      "killers": ["runtime/v1:TestMainPacesTheHeap"]
     }
   ]
 }
