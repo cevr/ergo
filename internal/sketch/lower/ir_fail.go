@@ -402,6 +402,18 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 	return pre, vals
 }
 
+// hoist binds an effectful call's value to a temporary, so it runs here,
+// in order, as the emitter's call does (v := f(…)).
+func (b *irBuilder) hoist(pre []*irStmt, x *irExpr, call *syntax.CallExpr) ([]*irStmt, *irExpr) {
+	t := b.l.info.Types[call]
+	if t == nil || isNoValue(t) {
+		return pre, x
+	}
+	p := x.Pos
+	v := b.temp("v", b.goType(t, call), p)
+	return append(pre, &irStmt{K: "def", Pos: p, Local: v, X: x}), &irExpr{K: "local", Pos: p, I: v}
+}
+
 // loopPoll is the back-edge poll that ends each iteration of a loop in a
 // polling frame (the emitter's loopBody). A continue would skip it.
 func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
