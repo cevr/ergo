@@ -123,3 +123,85 @@ construct a closure are guarded, so the live build removes that work too.
 This is a structural erasure receipt, not a timing claim. Matched base/head
 benchmarks are pending the orchestrator's quiet window (X5 `bench-pending.md`).
 The baton protocol and its safety mutants are in `models/baton/baton.ergo`.
+
+## Heap pacing (IR-G PACE1)
+
+`Pace` (pace.go), which emitted main calls through runtime/v1's `Main`, gives
+an Ergo program a heap floor, `PaceFloor` (64 MiB): while Go's own heap goal
+is under the floor, the collector waits until the heap reaches the floor;
+above it, Go's `GOGC=100` pace holds. It uses only `runtime/debug`
+(`SetGCPercent`, `SetMemoryLimit(-1)` to read the limit) and
+`runtime/metrics`, and recomputes the percent after each cycle from a
+cleanup (`runtime.AddCleanup`) on a sentinel object. No Go patch and no
+runtime fork.
+
+- **The bound.** The heap goal is at most max(floor, live + (live + roots))
+  plus one percent of the larger of live + roots and Go's 4 MiB minimum,
+  where live is the heap the last cycle marked and roots the stacks and
+  globals it scanned (Go 1.27's goal at `GOGC=100` is live + (live +
+  roots)). `pacePercent` returns the smallest percent whose goal reaches the
+  floor; Go scales its 4 MiB minimum with the percent, so the percent is at
+  most floor × 100 / 4 MiB (1,600 at 64 MiB). `TestPaceKeepsItsBound` checks
+  the bound, the floor and "never slower than Go" over 20,000 generated
+  cases against Go 1.27's goal formula (`mgcpacer.go`, `commit`).
+  `TestPaceFollowsTheCycles` runs the loop on the test's own collector and
+  checks the goal Go reports.
+- **The user wins.** `GOGC` in the environment turns the pacing off. A
+  percent the program sets itself stops it at the next cycle (the pacer's
+  `SetGCPercent` swap returns a percent it did not set; it puts that back).
+  A memory limit lowers the floor to a quarter of the limit: `GOMEMLIMIT`
+  and the cgroup v2 `memory.max` of the process's cgroup and every cgroup
+  above it. Go's own memory limit stays in force.
+- **Gaps.** cgroup v1 limits and `RLIMIT_DATA` are not read. A program that
+  calls `debug.SetGCPercent` in the instant between the pacer's two calls
+  is not seen. Go's memory above the heap (stacks, the sweeper's lag, large
+  objects allocated while a cycle marks) is Go's as without the floor.
+
+**Receipt** (measured 2026-11-12, at 0b9eb6d11 with the floor set in a
+scratch copy of the generated module; go1.27.0, GOMAXPROCS=2, 1-minute load
+32 to 45 on 16 CPUs). User instructions of the whole process (perf counter)
+and peak RSS (wait4), median of 3 interleaved rounds; GC cycles from one
+`gctrace` run. The `go` column is the 64 MiB build with `GOGC=100` set, which
+turns the pacing off: Go's default. Large inputs of the IR-G measurement:
+jsonv 12,000 objects, router-model 120,000 lines, mdhtml 12,000 blocks,
+router 12,000 messages, ssg 1,200 pages, lru 1,200,000 operations.
+Scripts: run dir `ir-guarantees/PACE1/measure`.
+
+| workload | column | instructions (G) | vs go | spread | peak RSS (MiB) | vs go | GC cycles |
+|---|---|---|---|---|---|---|---|
+| jsonv | go (GOGC=100) | 1.358 |  | 23.2% | 65.4 |  | 8 |
+| jsonv | floor 32 MiB | 1.258 | -7.4% | 11.3% | 74.7 | +14.2% | 3 |
+| jsonv | floor 64 MiB | 0.750 | -44.8% | 1.9% | 75.4 | +15.3% | 1 |
+| jsonv | floor 128 MiB | 0.374 | -72.5% | 0.0% | 90.7 | +38.7% | 0 |
+| router-model | go (GOGC=100) | 0.670 |  | 8.8% | 22.7 |  | 7 |
+| router-model | floor 32 MiB | 0.431 | -35.6% | 0.5% | 37.9 | +66.9% | 1 |
+| router-model | floor 64 MiB | 0.363 | -45.8% | 0.2% | 37.7 | +65.8% | 0 |
+| router-model | floor 128 MiB | 0.363 | -45.8% | 0.1% | 37.7 | +66.0% | 0 |
+| mdhtml | go (GOGC=100) | 139.360 |  | 0.3% | 43.0 |  | 1841 |
+| mdhtml | floor 32 MiB | 88.482 | -36.5% | 1.4% | 75.8 | +76.2% | 912 |
+| mdhtml | floor 64 MiB | 47.115 | -66.2% | 6.2% | 167.2 | +289.0% | 401 |
+| mdhtml | floor 128 MiB | 21.542 | -84.5% | 10.6% | 147.3 | +242.7% | 170 |
+| router | go (GOGC=100) | 42.110 |  | 2.0% | 27.5 |  | 1506 |
+| router | floor 32 MiB | 11.322 | -73.1% | 13.5% | 55.6 | +102.0% | 239 |
+| router | floor 64 MiB | 5.183 | -87.7% | 6.1% | 75.0 | +172.4% | 105 |
+| router | floor 128 MiB | 2.991 | -92.9% | 16.5% | 142.5 | +417.4% | 48 |
+| ssg | go (GOGC=100) | 7.303 |  | 3.0% | 136.3 |  | 47 |
+| ssg | floor 32 MiB | 7.154 | -2.1% | 1.0% | 135.0 | -1.0% | 26 |
+| ssg | floor 64 MiB | 7.072 | -3.2% | 2.5% | 147.0 | +7.8% | 17 |
+| ssg | floor 128 MiB | 6.977 | -4.5% | 0.9% | 153.5 | +12.6% | 9 |
+| lru | go (GOGC=100) | 1.089 |  | 1.1% | 5.7 |  | 0 |
+| lru | floor 32 MiB | 1.097 | +0.8% | 1.6% | 5.7 | -0.8% | 0 |
+| lru | floor 64 MiB | 1.103 | +1.4% | 2.6% | 5.8 | +1.2% | 0 |
+| lru | floor 128 MiB | 1.096 | +0.7% | 0.2% | 5.7 | -0.8% | 0 |
+
+Reading (inferred from the table): lru, which does not collect, does not
+move (each change is inside its spread). router-model has a small live heap
+and stops collecting at 64 MiB: -46% instructions for +15 MiB of peak RSS.
+jsonv's one remaining cycle at 64 MiB costs about 0.38 G instructions, much
+of it the idle mark worker on the second processor. mdhtml and router are
+measured before IR-G's OWN1, with quadratic garbage (18.8 GB and 6.0 GB
+allocated). Their peak RSS goes above the floor (mdhtml 167 MiB at the
+64 MiB floor, more than at 128 MiB; router 75 MiB): the heap grows past its
+goal while a cycle marks, and these programs allocate growing slices of
+megabytes at a high rate. Their receipt is to be taken again after OWN1. ssg's live heap is above
+the floor, so the floor changes little there, as IR-G's plan expected.
