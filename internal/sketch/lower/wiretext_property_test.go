@@ -308,8 +308,8 @@ func TestCellWriterAgrees(t *testing.T) {
 	savedRewrite, savedWire := rewriteLowering, wireLowering
 	defer func() { rewriteLowering, wireLowering = savedRewrite, savedWire }()
 	var progs []*lowered
-	for _, mode := range []struct{ name, rewrite, wire string }{{"fast", savedRewrite, savedWire}, {"reference", "reference", savedWire}, {"writer", savedRewrite, "writer"}} {
-		rewriteLowering, wireLowering = mode.rewrite, mode.wire
+	for _, mode := range []struct{ name, rewrite, encode string }{{"fast", savedRewrite, savedWire}, {"reference", "reference", savedWire}, {"writer", savedRewrite, "writer"}} {
+		rewriteLowering, wireLowering = mode.rewrite, mode.encode
 		files, err := Lower(u)
 		if err != nil {
 			t.Fatalf("seed %d: %s lowering: %v\n%s\n%s", seed, mode.name, err, src, replay)
