@@ -65,8 +65,8 @@ func TestModuleProgramJudgesEachPackage(t *testing.T) {
 	f.write(dir+"/README.md", "# walker\n")
 	f.write(dir+"/tags", "default\n")
 	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
-	f.write(dir+"/walk/walk.ergo", "# CHECKJSON {\"checked\":true,\"evaluation\":{\"schemaVersion\":1,\"status\":\"passed\",\"obligations\":[{\"name\":\"Fixture\",\"status\":\"passed\",\"evidence\":\"evaluated\",\"cases\":1}]}}\n# NATIVE ok Different\n")
-	f.write(dir+"/keep/keep.ergo", "TESTSKIP\n")
+	f.write(dir+"/walk/walk.ergo", "// CHECKJSON {\"checked\":true,\"evaluation\":{\"schemaVersion\":1,\"status\":\"passed\",\"obligations\":[{\"name\":\"Fixture\",\"status\":\"passed\",\"evidence\":\"evaluated\",\"cases\":1}]}}\n// NATIVE ok Different\nfunc w() {}\n")
+	f.write(dir+"/keep/keep.ergo", "// TESTSKIP\nfunc k() {}\n")
 	f.write(dir+"/cases/basic/expected.out", "hi\n")
 	code, out := f.run()
 	for _, want := range []string{"FAIL walker: check walk: Fixture: ", "FAIL walker: test keep: 1 unexpected skips"} {
