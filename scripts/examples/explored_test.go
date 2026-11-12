@@ -1,9 +1,26 @@
 package main
 
 import (
+	"io"
 	"strings"
 	"testing"
 )
+
+// A case, like a test leg, ends by itself and takes the host's load: by
+// default the runner stops it only when it hangs, never at a bound that a
+// healthy case under load can pass (AGENTS.md, Tests). -timeout's default
+// is the test legs' safety net, not a time limit of its own.
+//
+// Mutant: -timeout defaults to 30 s again (main.go parseFlags).
+func TestCaseStopsOnlyAHang(t *testing.T) {
+	cfg, err := parseFlags(nil, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.timeout < cfg.testTimeout {
+		t.Errorf("-timeout defaults to %s, under the test legs' safety net %s: a slow case fails as hung", cfg.timeout, cfg.testTimeout)
+	}
+}
 
 // The explore leg builds a test binary and searches its schedules, so its
 // time follows the host's load: only -test-timeout, the safety net for a
@@ -12,7 +29,7 @@ import (
 // the case bound here is a millisecond.
 //
 // Mutant: the explore leg runs under -timeout (explored.go), so the
-// search fails "timed out after 1ms".
+// search fails "hung: no end after 1ms".
 func TestExploreLegOutlastsTheCaseTimeout(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)

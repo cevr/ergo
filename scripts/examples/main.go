@@ -163,6 +163,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return r.finish()
 }
 
+// hangNet is the default of -timeout and -test-timeout: a case and a test
+// leg end by themselves, and their time follows the host's load, so the
+// runner stops one only when it hangs and names the hang; no bound fails a
+// slow one that still runs (AGENTS.md, Tests: a deadline only stops a hung
+// test and names it). A case that must be fast says so with -budget.
+const hangNet = 15 * time.Minute
+
 func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags := flag.NewFlagSet("examples", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -171,8 +178,8 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.StringVar(&cfg.root, "root", ".", "repository root; programs are the folders `DIR`/examples/*")
 	flags.StringVar(&cfg.ergo, "ergo", "bin/ergo", "the compiler; a relative `PATH` is relative to -root")
 	flags.StringVar(&tags, "tags", "default", "comma-separated tags; selects the programs whose tags hold any of them")
-	flags.DurationVar(&cfg.timeout, "timeout", 30*time.Second, "per case; on expiry the case fails and its process group is stopped")
-	flags.DurationVar(&cfg.testTimeout, "test-timeout", 15*time.Minute, "per ergo check, ergo test, explore search and replay: a safety net that stops a hung one, never a time limit")
+	flags.DurationVar(&cfg.timeout, "timeout", hangNet, "per case: a safety net that stops a hung case and its process group and names the hang, never a time limit")
+	flags.DurationVar(&cfg.testTimeout, "test-timeout", hangNet, "per ergo check, ergo test, explore search and replay: a safety net that stops a hung one, never a time limit")
 	flags.DurationVar(&cfg.budget, "budget", 5*time.Second, "a case of a default program that runs longer fails; tag the program slow")
 	flags.BoolVar(&cfg.record, "record", false, "run each selected port's record.sh in place of the built program and write its goldens")
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
@@ -1034,7 +1041,7 @@ func (o outcome) statusText() string {
 func (o outcome) why(timeout time.Duration) string {
 	switch {
 	case o.timedOut:
-		return fmt.Sprintf(" timed out after %s", timeout)
+		return fmt.Sprintf(" hung: no end after %s, stopped", timeout)
 	case o.status < 0:
 		return " ended by signal " + o.signal
 	}

@@ -220,7 +220,7 @@ func ergoSuites() ([]string, []Tool, []Suite) {
 		{Name: "api", Package: "./internal/sketch/api"},
 		{Name: "ergo", Package: "./cmd/ergo"},
 		// The case budget is off: a slow case under the runner's load is not
-		// a kill. The per-case timeout stays: a mutant that loops is one.
+		// a kill. A mutant that loops is one: the runner's deadline stops it.
 		{Name: "examples", Command: []string{"{bin:examples}", "-root", "{root}", "-ergo", "{bin:ergo}", "-budget", "1h", "{test}"}, List: defaultExamples},
 	}
 	return cover, tools, suites

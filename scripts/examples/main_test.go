@@ -315,7 +315,7 @@ func grows(t *testing.T, file string) bool {
 	return size() != before
 }
 
-// A case past -timeout fails "timed out", and the runner stops its process
+// A case past -timeout fails "hung", and the runner stops its process
 // group: its background children too. A case that exits while its child
 // still holds stdout does not hold the runner, and the child is stopped.
 func TestCaseProcessGroupIsStopped(t *testing.T) {
@@ -334,8 +334,8 @@ func TestCaseProcessGroupIsStopped(t *testing.T) {
 		t.Fatalf("a 1s timeout took %s: the case ended by itself", took)
 	}
 	_, fails := verdicts(out)
-	if code != 1 || !strings.Contains(fails["sleeper/slow"], "timed out after 1s") {
-		t.Fatalf("want FAIL sleeper/slow: timed out; exit %d\n%s", code, out)
+	if code != 1 || !strings.Contains(fails["sleeper/slow"], "hung: no end after 1s") {
+		t.Fatalf("want FAIL sleeper/slow: hung; exit %d\n%s", code, out)
 	}
 	if grows(t, filepath.Join(ticks, "slow")) {
 		t.Fatal("the timed-out case's background child still runs")
