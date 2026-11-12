@@ -94,9 +94,6 @@ func (g grant) String() string {
 // subtree only where the test walks the tree and the reads go deeper than
 // one level.
 var declared = map[string][]allowance{
-	"scripts/mutants": {
-		{".", subtree, "TestLedgerEditsApplyOnce walks every package ledger and reads each mutant's source to reject ambiguous or stale edits"},
-	},
 	"internal/residue": {
 		{".", subtree, "the residue checks read every tracked file by design: git grep, git ls-files and Go's reads of each file"},
 	},
@@ -125,6 +122,7 @@ var declared = map[string][]allowance{
 	"internal/sketch/std": declare(
 		[]allowance{{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"}},
 		glob("internal/sketch/lower/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages) to find each ledger runner and whether it calls lawledger.Run"),
+		glob("internal/rpcgen/*_test.go", "TestStdStrengthsTable checks that the rpc row's benchmark (internal/rpcgen.BenchmarkRpcUnary) is declared in that directory's test files (benchmarkIndex)"),
 	),
 	"runtime/v1": {
 		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},
@@ -662,6 +660,10 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cpuCosts, err := readCPUCosts(root, module)
+	if err != nil {
+		t.Fatal(err)
+	}
 	roots := []string{root}
 	protect, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -680,6 +682,10 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if err := checkSandboxAsATest(protect, root, filepath.Join(work, "sandbox.out")); err != nil {
 		t.Fatalf("the sweep cannot run: %v", err)
 	}
+	std, err := fillStdStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	closures, all := modulePackages(t, root)
 	targets, skipped, errs := sweepTargets(selection, closures, all, unsweepable)
 	for _, err := range errs {
@@ -696,6 +702,11 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	for dir := range declared {
 		if _, ok := closures[dir]; !ok {
 			t.Errorf("declared package %s is not a test package of the module", dir)
+		}
+	}
+	for dir := range runsAlone {
+		if _, ok := closures[dir]; !ok {
+			t.Errorf("the package %s of runsAlone is not a test package of the module", dir)
 		}
 	}
 	for dir := range declaredKernelWrites {
@@ -719,7 +730,7 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			name := strings.ReplaceAll(dir, "/", "_")
-			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], sem)
+			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], cpuCosts[dir], std, sem)
 			results[i].took = took
 			if err != nil {
 				results[i].err = err
@@ -953,7 +964,7 @@ func modulePackages(t *testing.T, root string) (map[string]closure, []string) {
 // and stem.out, of a run of a split package to stem.<i>.log and
 // stem.<i>.out. took says how long the build and each run took once it
 // held its slot.
-func runPackage(root, protect string, roots []string, dir, binary, stem string, costs map[string]float64, sem chan struct{}) (entries []entry, took string, err error) {
+func runPackage(root, protect string, roots []string, dir, binary, stem string, costs, cpu map[string]float64, std string, sem chan struct{}) (entries []entry, took string, err error) {
 	sem <- struct{}{}
 	start := time.Now()
 	err = buildTestBinary(root, dir, binary)
@@ -967,8 +978,12 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 	if err != nil {
 		return nil, took, err
 	}
-	plan := planRuns(names, costs, sweepRunBudget)
-	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, sem, nil)
+	plan, err := sweepPlan(dir, names, costs)
+	if err != nil {
+		return nil, took, err
+	}
+	plan = withDeadlineCosts(plan, cpu)
+	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, std, sem, nil)
 	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(durations, " "))
 	return entries, took, err
 }
@@ -988,13 +1003,20 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 // build read: those reads are in the log of the run of this package that
 // made the entry, so the union of the runs, which the closure checks, has
 // them still. A cache that another package's runs filled would hide them
-// (TestSharedCacheKeepsEachPackagesInputs).
-func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, plan []sweepRun, sem chan struct{}, extra []string) ([]entry, []string, error) {
+// (TestSharedCacheKeepsEachPackagesInputs). A std store (std, when not
+// empty; fillStdStore) seeds the cache with the standard library's
+// compiles, which read nothing in the working tree.
+func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, plan []sweepRun, std string, sem chan struct{}, extra []string) ([]entry, []string, error) {
 	cache, err := newSharedCache()
 	if err != nil {
 		return nil, nil, err
 	}
 	defer removeTree(cache)
+	if std != "" {
+		if _, err := seedCache(std, cache); err != nil {
+			return nil, nil, fmt.Errorf("seeding the shared cache from the std store %s: %w", std, err)
+		}
+	}
 	runs := make([][]entry, len(plan))
 	errs := make([]error, len(plan))
 	durations := make([]string, len(plan))
@@ -1011,7 +1033,7 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 				runStem = fmt.Sprintf("%s.%d", stem, i+1)
 			}
 			start := time.Now()
-			runs[i], errs[i] = runTestsWith(protect, roots, dir, pkgDir, runStem, cache, extra, binary, run.args...)
+			runs[i], errs[i] = runTestsWith(protect, roots, dir, pkgDir, runStem, cache, run.deadlineCost, extra, binary, run.args...)
 			durations[i] = time.Since(start).Round(100 * time.Millisecond).String()
 			errs[i] = runFailure(i, len(plan), run, errs[i])
 		})
@@ -1032,7 +1054,7 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 // has a run's bound (runDeadline), so a build that does not end fails with
 // its package named.
 func buildTestBinary(root, dir, binary string) error {
-	bound, err := runDeadline()
+	bound, err := runDeadline(0)
 	if err != nil {
 		return err
 	}
@@ -1068,19 +1090,20 @@ func sweepEnvironment() []string { return testenv.Environment(os.Environ()) }
 // removal, such a path would name an absent place in scratch, which is no
 // input, and the read would be classified by nothing.
 func runTests(protect string, roots []string, pkg, pkgDir, stem string, extra []string, binary string, args ...string) ([]entry, error) {
-	return runTestsWith(protect, roots, pkg, pkgDir, stem, "", extra, binary, args...)
+	return runTestsWith(protect, roots, pkg, pkgDir, stem, "", 0, extra, binary, args...)
 }
 
 // runTestsWith is runTests with cache, when not empty, as the run's
 // GOCACHE: a directory the runs of one package share (runPlan), writable in
-// the run's sandbox as its scratch directories are.
-func runTestsWith(protect string, roots []string, pkg, pkgDir, stem, cache string, extra []string, binary string, args ...string) ([]entry, error) {
+// the run's sandbox as its scratch directories are; and with cost, the
+// run's recorded seconds, which set its deadline (runDeadline).
+func runTestsWith(protect string, roots []string, pkg, pkgDir, stem, cache string, cost float64, extra []string, binary string, args ...string) ([]entry, error) {
 	var entries []entry
 	classify := func(run observedRun) (err error) {
 		entries, err = run.entries(roots)
 		return err
 	}
-	if _, err := runObserved(protect, pkg, pkgDir, stem, cache, extra, classify, binary, args...); err != nil {
+	if _, err := runObserved(protect, pkg, pkgDir, stem, cache, cost, extra, classify, binary, args...); err != nil {
 		return nil, err
 	}
 	return entries, nil
@@ -1105,7 +1128,7 @@ func (o observedRun) entries(roots []string) ([]entry, error) {
 
 // runObserved is runTestsWith up to the classification. classify, if not
 // nil, runs while the run's scratch directories still exist.
-func runObserved(protect, pkg, pkgDir, stem, cache string, extra []string, classify func(observedRun) error, binary string, args ...string) (observedRun, error) {
+func runObserved(protect, pkg, pkgDir, stem, cache string, cost float64, extra []string, classify func(observedRun) error, binary string, args ...string) (observedRun, error) {
 	fail := func(err error) (observedRun, error) { return observedRun{}, err }
 	s, err := newScratch()
 	if err != nil {
@@ -1115,7 +1138,7 @@ func runObserved(protect, pkg, pkgDir, stem, cache string, extra []string, class
 	log := filepath.Join(s.log, "test.log")
 	identityFile := filepath.Join(s.log, "identity.json")
 	// The binary's own deadline ends inside the run's (runTestTimeout).
-	deadline, err := runDeadline()
+	deadline, err := runDeadline(cost)
 	if err != nil {
 		return fail(err)
 	}

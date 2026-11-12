@@ -351,7 +351,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		// Only a value that implements the operation type can reach
 		// the ownership guard. A missing operation is the more specific
 		// failure (cmd/compile assignOp's diagnostic order).
-		if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {
+		if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.releasable(t) {
 			// R22: the operation value would never be released.
 			return assignment{}, resourceIntoCrossingText(v, t)
 		}
@@ -361,6 +361,21 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			return assignment{sealed: s, from: v}, sealedText(v, s)
 		}
 		if asInterface(v) != nil {
+			if n := sealedStd(v); n != nil && sealedStd(t) == nil && !isHostNamed(t) {
+				// The runtime's own type stands for a sealed std protocol,
+				// with the runtime's Go shapes, not those of the target's
+				// interface: the lowering builds the operations from the
+				// std ones (lower/sealedops.go), for every pair this
+				// member match admits.
+				return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t}}, ""
+			}
+			if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {
+				// An Ergo operation type's operations take Ergo's calling
+				// convention (the task they run on), not the Go method
+				// shapes of a Go interface, so Go would refuse the
+				// assignment (batch-16b r3): check and build agree.
+				return assignment{}, fmt.Sprintf("the operations of %s take Ergo's calling convention, not the Go methods of %s", v, t)
+			}
 			// An operation type's value is already an interface value.
 			return assignment{clause: assignOperations}, ""
 		}

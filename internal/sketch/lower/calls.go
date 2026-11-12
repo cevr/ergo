@@ -747,6 +747,17 @@ func (fc *funcCtx) callArgs(list []syntax.Expr, call *syntax.CallExpr) []string 
 // callArgsAddr is callArgs; with addr, the first operand is a receiver
 // place whose address is the operand.
 func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr bool) []string {
+	return fc.callArgsOf(list, call, addr, nil)
+}
+
+// callArgsRaw is callArgs, except that the operand raw (nil for none) is
+// lowered without its implicit conversion: a fast path that reads the
+// operand's own representation (encode's json fast path).
+func (fc *funcCtx) callArgsRaw(list []syntax.Expr, call *syntax.CallExpr, raw syntax.Expr) []string {
+	return fc.callArgsOf(list, call, false, raw)
+}
+
+func (fc *funcCtx) callArgsOf(list []syntax.Expr, call *syntax.CallExpr, addr bool, raw syntax.Expr) []string {
 	later := make([]bool, len(list)+1)
 	for i := len(list) - 1; i >= 0; i-- {
 		later[i] = later[i+1] || (list[i] != nil && fc.emits(list[i]))
@@ -762,6 +773,8 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 		case i == 0 && addr:
 			out[i] = fc.place(x, later[1])
 		case i == 0 && x == call.Fun:
+			out[i] = fc.value(x)
+		case x == raw:
 			out[i] = fc.value(x)
 		default:
 			out[i] = fc.assigned(x)
@@ -1347,6 +1360,9 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	}
 	// A *T source (types.md, Methods 5) holds the pointer: a table function
 	// on T reads *v, one on *T takes v (stage C round 4 review T1).
+	if from, ok := conv.From.(*check.Named); ok && l.runtimeType(from, site) != "" {
+		return fc.sealedOperations(conv, from, val, site) // a sealed std value (sealedops.go)
+	}
 	key, base, ok := l.adapterName(conv)
 	if !ok {
 		unreachable(site, ruleAccepted, "an operations conversion from %s to %s with no adapter (adapterName)", conv.From, conv.To)

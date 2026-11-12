@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -42,7 +43,9 @@ const costFile = "scripts/gate/durations.json"
 // CPU-s with a cache per run and 1521 with the shared one, gl-sweep-cache,
 // measured under load), so a run of 45 s takes
 // about 3 CPU-minutes, and at the batch-10 gate's share (0.45 CPU per run)
-// about 7 minutes: well under the 20 minute run deadline (runDeadline).
+// about 7 minutes; under the batch-16b merge tier's load two runs took
+// over 19 minutes, so a run's deadline follows its recorded cost
+// (runDeadline, at least 30 minutes).
 const sweepRunBudget = 45.0
 
 // readCosts reads costFile under root: each package's recorded seconds per
@@ -104,6 +107,54 @@ type sweepRun struct {
 	cost       float64
 	unmeasured []string // tests of the run with no recorded time
 	weights    map[string]float64
+	// deadlineCost is the run's recorded cost that sets its deadline
+	// (runDeadline): withDeadlineCosts.
+	deadlineCost float64
+}
+
+// cpuCostFile records each test's CPU seconds for the packages the gate
+// shards (scripts/gate testCPUFile, `-record-durations -cpu`). Wall time
+// (costFile) plans the runs; a run's deadline reads CPU where the package
+// has rows, since a test that builds Go spends several CPUs per second of
+// wall: the runs of internal/sketch/lower took far more than their
+// recorded wall under load (gate16b-fix3).
+const cpuCostFile = "scripts/gate/test-cpu.json"
+
+// readCPUCosts reads cpuCostFile under root by package directory, as
+// readCosts reads costFile; no file is no table.
+func readCPUCosts(root, module string) (map[string]map[string]float64, error) {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(cpuCostFile)))
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]map[string]float64{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var byPath map[string]map[string]float64
+	if err := json.Unmarshal(data, &byPath); err != nil {
+		return nil, fmt.Errorf("%s: %w", cpuCostFile, err)
+	}
+	costs := map[string]map[string]float64{}
+	for importPath, tests := range byPath {
+		if dir, ok := strings.CutPrefix(importPath, module+"/"); ok {
+			costs[dir] = tests
+		}
+	}
+	return costs, nil
+}
+
+// withDeadlineCosts sets each run's deadlineCost: the CPU seconds cpu
+// records for its tests, or its recorded wall (cost) when that is more,
+// as when the package has no CPU rows.
+func withDeadlineCosts(plan []sweepRun, cpu map[string]float64) []sweepRun {
+	for i := range plan {
+		sum := 0.0
+		for _, name := range plan[i].tests {
+			sum += cpu[name]
+		}
+		plan[i].deadlineCost = max(sum, plan[i].cost)
+	}
+	return plan
 }
 
 // planRuns splits the tests names of one package into runs over costs, the
@@ -161,6 +212,68 @@ func planRuns(names []string, costs map[string]float64, budget float64) []sweepR
 		}
 	}
 	return runs
+}
+
+// runsAlone are the tests, by package directory, that run their package's
+// tests again in a child process, each with the reason. Its recorded time
+// is a warm pass of the package, but swept with the package's empty
+// GOCACHE (runPlan) and the observer on every child it is a cold pass
+// again, so the sweep gives each its own run and plans the other tests of the package as usual (planPackage). A name that
+// is not a test of its package fails the sweep (runPackage).
+//
+// Measured on 9c8f862dd at load 25-27, swept alone (gate16b-fix2):
+// cmd/ergo in one run took 10m29s; with this test in a run of its own,
+// 6m47s and 7m43s at once. Under the batch-16 merge tier's load the one
+// run reached its 19m30s test timeout.
+var runsAlone = map[string]map[string]string{
+	"cmd/ergo": {"TestPackageNeverWritesUnderHome": "it runs every other test of the package again with an empty HOME"},
+}
+
+// sweepPlan is the sweep's plan of the package in dir, whose tests are
+// names: planPackage with the package's runsAlone tests, at
+// sweepRunBudget. It fails when runsAlone names a test that is not in
+// names.
+func sweepPlan(dir string, names []string, costs map[string]float64) ([]sweepRun, error) {
+	for name := range runsAlone[dir] {
+		if !slices.Contains(names, name) {
+			return nil, fmt.Errorf("runsAlone names %s, which is not a test of %s", name, dir)
+		}
+	}
+	return planPackage(names, costs, sweepRunBudget, runsAlone[dir]), nil
+}
+
+// planPackage is planRuns with each test of alone that names holds in a
+// run of its own, ahead of the runs of the other tests; the last of those
+// runs skips the tests run alone too. With none of alone in names it is
+// planRuns.
+func planPackage(names []string, costs map[string]float64, budget float64, alone map[string]string) []sweepRun {
+	var solo, rest []string
+	for _, name := range names {
+		if _, ok := alone[name]; ok {
+			solo = append(solo, name)
+		} else {
+			rest = append(rest, name)
+		}
+	}
+	if len(solo) == 0 || len(rest) == 0 {
+		return planRuns(names, costs, budget)
+	}
+	others := planRuns(rest, costs, budget)
+	var selected []string
+	for _, run := range others[:len(others)-1] {
+		selected = append(selected, run.tests...)
+	}
+	last := &others[len(others)-1]
+	last.args = []string{"-test.skip=" + exactNames(append(selected, solo...))}
+	plan := make([]sweepRun, 0, len(solo)+len(others))
+	for _, name := range solo {
+		run := sweepRun{args: []string{"-test.run=" + exactNames([]string{name})}, tests: []string{name}, cost: costs[name], weights: map[string]float64{name: costs[name]}}
+		if _, ok := costs[name]; !ok {
+			run.unmeasured = []string{name}
+		}
+		plan = append(plan, run)
+	}
+	return append(plan, others...)
 }
 
 // deal deals names, longest first, each to the group with the least load
@@ -301,8 +414,10 @@ const splitSeed = "ERGO_CLOSURE_SPLIT_SEED"
 // The sweep's plan, over generated cost tables (seeded, replayable): every
 // test runs in exactly one run, a test the name scan missed in the last;
 // each run holds at most the budget or one test; the count of runs is the
-// least, from the total over the budget up, at which the dealing fits; and
-// a package with no recorded test runs whole.
+// least, from the total over the budget up, at which the dealing fits; a
+// package with no recorded test runs whole; and planned with runsAlone
+// tests (planPackage), each of them holds a run of its own while every test
+// still runs once.
 func TestPlanRunsKeepsEveryRunUnderBudget(t *testing.T) {
 	seed := uint64(time.Now().UnixNano())
 	if v := os.Getenv(splitSeed); v != "" {
@@ -341,6 +456,66 @@ func TestPlanRunsKeepsEveryRunUnderBudget(t *testing.T) {
 			t.Fatalf("seed %d, case %d (%d tests, %d recorded, budget %.1fs): %s", seed, iteration, len(names), len(costs), budget, fmt.Sprintf(format, args...))
 		}
 		checkRunsOnce(t, plan, names, fail)
+		// A test of runsAlone holds a run of its own, and still every test
+		// runs once (planPackage).
+		// When every test is one of them, the package runs as planRuns
+		// plans it.
+		alone := map[string]string{"TestNotInThePackage": "a stale name changes nothing"}
+		others := 0
+		for _, name := range names {
+			if rng.IntN(20) == 0 {
+				alone[name] = "runs the package again"
+			} else {
+				others++
+			}
+		}
+		apart := planPackage(names, costs, budget, alone)
+		checkRunsOnce(t, apart, names, fail)
+		for _, run := range apart {
+			for _, name := range run.tests {
+				if _, ok := alone[name]; ok && len(run.tests) != 1 && others > 0 {
+					fail("%s of runsAlone shares a run with %v", name, run.tests)
+				}
+			}
+		}
+		// The sweep's own plan (sweepPlan) of each runsAlone package: each
+		// of its tests is the whole test set of exactly one run and is in
+		// no other run; a package missing one of them is refused.
+		for dir, tests := range runsAlone {
+			withAlone := slices.Clone(names)
+			swept := map[string]float64{}
+			for name, c := range costs {
+				swept[name] = c
+			}
+			for name := range tests {
+				withAlone = append(withAlone, name)
+				if rng.IntN(2) == 0 {
+					swept[name] = rng.Float64() * 3 * budget
+				}
+			}
+			if _, err := sweepPlan(dir, names, swept); err == nil {
+				fail("sweepPlan of %s without its runsAlone tests %v gives no error", dir, slices.Sorted(maps.Keys(tests)))
+			}
+			plan, err := sweepPlan(dir, withAlone, swept)
+			if err != nil {
+				fail("sweepPlan of %s: %v", dir, err)
+			}
+			checkRunsOnce(t, plan, withAlone, fail)
+			for name := range tests {
+				own, shared := 0, 0
+				for _, run := range plan {
+					switch {
+					case len(run.tests) == 1 && run.tests[0] == name:
+						own++
+					case slices.Contains(run.tests, name):
+						shared++
+					}
+				}
+				if own != 1 || shared != 0 {
+					fail("sweepPlan of %s: %s is alone in %d runs and shares %d; want 1 and 0", dir, name, own, shared)
+				}
+			}
+		}
 		if len(costs) == 0 || len(names) < 2 {
 			if len(plan) != 1 || plan[0].args != nil {
 				fail("an unmeasured package runs in %d runs, want one run whole", len(plan))

@@ -221,7 +221,7 @@ func TestRunTestDeadlineFitsTheRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := runDeadline()
+	run, err := runDeadline(0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -111,9 +111,12 @@ type probe struct{}
 
 func (probe) String() string { return goid() }
 
-type ready chan struct{}
+// canceller cancels the call's context when the Ergo body says it is
+// about to sleep: the Wait call runs on main, with no goroutine of the
+// host's own.
+type canceller context.CancelFunc
 
-func (r ready) String() string { close(r); return "" }
+func (c canceller) String() string { c(); return "" }
 
 func main() {
 	ctx := context.Background()
@@ -132,16 +135,17 @@ func main() {
 	fmt.Println(c, err)
 	id, err := greet.Probe(ctx, probe{})
 	fmt.Println("same goroutine", id == goid(), err)
+	// A context that can be cancelled and is not during the call: no
+	// goroutine starts or ends around the call, so the count waits for
+	// nothing; a watcher that Call left behind would still be blocked.
+	lctx, lcancel := context.WithCancel(ctx)
 	before := runtime.NumGoroutine()
-	cctx, cancel := context.WithCancel(ctx)
-	r := make(ready)
-	done := make(chan error)
-	go func() { done <- greet.Wait(cctx, r) }()
-	<-r
-	cancel()
-	err = <-done
-	fmt.Println(errors.Is(err, context.Canceled))
+	_, _ = greet.Hello(lctx, "go")
 	fmt.Println("leaked", runtime.NumGoroutine()-before)
+	lcancel()
+	cctx, cancel := context.WithCancel(ctx)
+	err = greet.Wait(cctx, canceller(cancel))
+	fmt.Println(errors.Is(err, context.Canceled))
 	for range 2 {
 		v, err := bad.Get(ctx)
 		fmt.Println("bad", v, err != nil && strings.Contains(err.Error(), "divide by zero"))
@@ -158,8 +162,10 @@ func main() {
 // a Go interface back on the goroutine of the Go call (main-thread
 // affinity: the host locked its OS thread, and the body runs on it), and
 // one blocked in Scheduler.Sleep that the Go caller cancels: its release
-// runs, the call returns context.Canceled, and no goroutine is left. A
-// function over an Ergo record is not exported, with its reason.
+// runs and the call returns context.Canceled; a call with a context that
+// is not cancelled leaves no goroutine, counted where none starts or ends
+// (no timing: batch-16a r4 on base). A function over an Ergo record is
+// not exported, with its reason.
 //
 // Mutants it alone catches: Call ignores ctx (Wait never returns: the
 // test's deadline names it); Call returns the interruption instead of
@@ -167,7 +173,10 @@ func main() {
 // the adapter passes the Ergo value as is (go build fails); the package
 // lets never run (Hello prints "go"); a slice result not copied (nums 99);
 // the once forgets that the lets failed (the second bad.Get returns 1,
-// nil: batch-15 IG11 M1).
+// nil: batch-15 IG11 M1); Call watches ctx in a goroutine it never stops
+// (leaked 1: mutant ig11-call-watcher-leaks); Call's watcher never ends
+// after a cancel (Call waits for it, so Wait never returns and the
+// deadline names it: mutant 16a-r5-cancel-watcher-stuck).
 //
 // It builds Go because the subject is a Go program calling emitted Go: only
 // go build and a run show the exported functions, the adapter and the
@@ -229,7 +238,7 @@ func TestGoCallsErgo(t *testing.T) {
 	if err := runProgram(t, cmd); err != nil {
 		t.Fatalf("host: %v\n%s%s", err, stdout.String(), stderr.String())
 	}
-	want := "hello go <nil>\n6 <nil>\ntrue\nnums 1\n5 <nil>\nsame goroutine true <nil>\nreleased\ntrue\nleaked 0\nbad 0 true\nbad 0 true\n"
+	want := "hello go <nil>\n6 <nil>\ntrue\nnums 1\n5 <nil>\nsame goroutine true <nil>\nleaked 0\nreleased\ntrue\nbad 0 true\nbad 0 true\n"
 	if got := stdout.String(); got != want {
 		t.Errorf("host output:\n%s\nwant:\n%s\nstderr:\n%s", got, want, stderr.String())
 	}

@@ -35,6 +35,12 @@ import ergo.local/prototype/runtime/v1
 # of one binding. gostd imports embed and no ergo.local package (go list
 # -deps), so it cannot name, receive or build a syntax node.
 import ergo.local/prototype/internal/sketch/std/gostd
+# crypto/sha256 (S-embed, embed.go): checkEmbed hashes the text
+# "<package>/<file>:<pos>" with sha256.Sum256 to name the asset prefix of
+# one embed call. It reads only those bytes and returns a [32]byte; it
+# imports no ergo.local package, so it cannot name, receive or build a
+# syntax node.
+import crypto/sha256
 
 # The syntax callees that yield a node, each with the only sites that may
 # call it (E2b round 4 review M2). Each site parses a whole file and checks
@@ -69,3 +75,8 @@ site (*checker).assignStmt BinaryExpr compoundFixture
 # on the length itself. Its origin is the ArrayType, so it lies in that file.
 # Every [N]T reaches it; TestArrayDiagnostics reports at it.
 site (*checker).arrayType BasicLit arrayFixture
+# (*ownWalk).replaced (ownership.go, R44) makes one Ident per owned field a
+# struct update drops: the temporary that holds the dropped value until the
+# statement releases it. Its origin is the update's CompositeLit, so it
+# lies in that file. Every update that replaces a resource field reaches it.
+site (*ownWalk).replaced Ident replacedFieldFixture
