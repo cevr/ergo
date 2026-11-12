@@ -69,8 +69,7 @@ func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
 		pre, e := b.rawCall(call)
 		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
 	}
-	pkg := b.l.bodyPkg()
-	if t := b.l.info.Types[x]; t != nil && b.l.isErrorValue(t, pkg, pkg.OwnerOf(x)) && !b.l.info.ReturnedValues[x] {
+	if b.isFailure(x) {
 		pre, e := b.value(x)
 		k := "panic"
 		if b.fc.frame.fallible {
@@ -85,18 +84,66 @@ func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
 	return append(pre, &irStmt{K: "ret", Pos: p, X: e})
 }
 
-// bodyStmts is a function body: a fallible body with no value may end in
-// an untried fallible call, which returns its error.
+// isFailure reports a value x of an error type that the frame does not
+// return as its success value: returned, it fails the frame (retExpr).
+func (b *irBuilder) isFailure(x syntax.Expr) bool {
+	pkg := b.l.bodyPkg()
+	t := b.l.info.Types[x]
+	return t != nil && b.fallibleCall(x) == nil && b.l.isErrorValue(t, pkg, pkg.OwnerOf(x)) && !b.l.info.ReturnedValues[x]
+}
+
+// bodyStmts is a function body. Every body's last statement is its tail
+// (the emitter's yieldList with destReturn), with or without a value: in
+// a body with no value, a tail that is an untried fallible call returns
+// its error, and a tail of an error value fails the frame (or panics in
+// one that cannot fail).
 func (b *irBuilder) bodyStmts(list []syntax.Stmt) []*irStmt {
 	n := len(list)
-	if b.result == nil && b.fc.frame.fallible && n > 0 {
-		if es, ok := list[n-1].(*syntax.ExprStmt); ok && b.fallibleCall(es.X) != nil {
-			out := b.tail(list[:n-1], false)
-			b.part(func() { out = append(out, b.ret(es.X, b.pos(es.X, es.X.Pos()))...) })
-			return out
+	if b.result != nil || n == 0 {
+		return b.tail(list, b.result != nil)
+	}
+	out := b.tail(list[:n-1], false)
+	b.part(func() {
+		if es, ok := list[n-1].(*syntax.ExprStmt); ok && (b.fallibleCall(es.X) != nil || b.isFailure(es.X)) {
+			out = append(out, b.ret(es.X, b.pos(es.X, es.X.Pos()))...)
+			return
+		}
+		if b.failureTail(list[n-1], false) {
+			irNo("failure in a branch tail of a body with no value")
+		}
+		out = append(out, b.stmt(list[n-1])...)
+	})
+	return out
+}
+
+// failureTail reports a branch of s whose tail is an error value: in a
+// body with no value it fails the frame (the emitter's ifYield), which
+// the builder does not spell yet. nested is s inside a branch.
+func (b *irBuilder) failureTail(s syntax.Stmt, nested bool) bool {
+	last := func(list []syntax.Stmt) bool {
+		return len(list) > 0 && b.failureTail(list[len(list)-1], true)
+	}
+	switch s := s.(type) {
+	case *syntax.ExprStmt:
+		return nested && b.isFailure(s.X)
+	case *syntax.BlockStmt:
+		return last(s.List)
+	case *syntax.IfStmt:
+		return last(s.Body.List) || (s.Else != nil && b.failureTail(s.Else, true))
+	case *syntax.SwitchStmt:
+		for _, c := range s.Clauses {
+			if last(c.Body) {
+				return true
+			}
+		}
+	case *syntax.TypeSwitchStmt:
+		for _, c := range s.Clauses {
+			if last(c.Body) {
+				return true
+			}
 		}
 	}
-	return b.tail(list, b.result != nil)
+	return false
 }
 
 // failValue is a try or a catch in value position.

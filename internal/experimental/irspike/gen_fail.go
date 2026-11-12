@@ -333,6 +333,14 @@ func (g *fgen) tail() {
 	f := g.cur
 	if f.unit {
 		g.sinkFrom("\t", 0)
+		if g.n(3) == 0 {
+			// A tail of an error value: the body fails with it.
+			if f.fails("E1") {
+				fmt.Fprintf(&g.b, "\tE1{Code: %s}\n", g.expr(1))
+			} else {
+				fmt.Fprintf(&g.b, "\tE2{Why: \"t%d\"}\n", g.n(9))
+			}
+		}
 		return
 	}
 	g.sinkFrom("\t", f.params)
