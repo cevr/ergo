@@ -352,9 +352,10 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 			ok = false
 		}
 	}()
-	if !fc.directives {
-		b.gate("library body")
-	}
+	// A library body (a std body the program reaches, written with no
+	// //line directive) takes an IR body as a sourced one does: its
+	// positions name its std file (pos), so its lines and its defects'
+	// locations are its .ergo source's (G5).
 	for _, g := range gates {
 		b.gate(g)
 	}
@@ -435,16 +436,16 @@ func (st *irState) intrinsic(f *check.Func) {
 	st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: f.Name, Std: f.Pkg.Std(), Reasons: []string{"intrinsic body"}})
 }
 
-// pos is n's position as the IR spells it. A census also walks bodies
-// outside the program's sources (std); their positions are not needed.
+// pos is n's position as the IR spells it: its file in the program's
+// sources, or, in a std body, its embedded std file (std/<pkg>/<file>,
+// the path a std body's defect names; locate).
 func (b *irBuilder) pos(n syntax.Node, p syntax.Pos) irPos {
 	if _, ok := b.l.sourceOf(n); !ok {
-		if b.st.census != nil {
-			return irPos{}
+		if _, ok := b.l.stdFileOf(n); !ok {
+			irNo("node outside the program's and std's sources")
 		}
-		irNo("node outside the program's sources")
 	}
-	_, path, line, col := b.l.at(n, p)
+	path, line, col := b.l.locate(n, p)
 	i, ok := b.st.files[path]
 	if !ok {
 		i = len(b.st.out.Files)
