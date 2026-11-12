@@ -18,6 +18,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -35,9 +37,11 @@ type IRReport struct {
 	Hash     string         `json:"hash"`
 }
 
-// LowerIR is Lower with the experimental IR bodies. main.go ends with the
-// IR file's hash, so Go's build cache keys the main package's compile on
-// the IR as well as on the Go text.
+// LowerIR is Lower with the experimental IR bodies. The report's Hash
+// names the IR file's content. The build keys the main package's compile
+// on the IR through one key only: the -ergoir flag names a copy of the IR
+// file named by its content (irspike's stableIR), so main.go carries no
+// hash of its own (batch-18 verify M2: a second key was redundant).
 func LowerIR(u Unit) ([]File, IRReport, error) { return lowerIR(u, nil) }
 
 // LowerIRTests is LowerTests with the IR bodies: the test build's IR
@@ -97,6 +101,7 @@ func censusIR(u Unit, tests bool, reach []*check.Func) (IRCensus, error) {
 // reachAll queues a census's extra bodies (CensusStd); program calls it
 // once the package's own declarations are lowered.
 func (st *irState) reachAll(l *lowerer) {
+	st.reached = append(st.reached, st.reach...)
 	for _, f := range st.reach {
 		func() {
 			defer func() {
@@ -128,7 +133,9 @@ func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
 	}
 	sum := sha256.Sum256(data)
 	l.ir.report.Hash = hex.EncodeToString(sum[:])
-	code = append(code, []byte("\n// ergoir sha256:"+l.ir.report.Hash+"\n")...)
+	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
+		code = append(code, []byte("\n"+decl+" // an import an IR body names\n")...)
+	}
 	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
 	files = append(files, File{Path: IRFileName, Data: data})
 	sort.Strings(l.ir.report.IR)
@@ -144,6 +151,29 @@ type irState struct {
 	// then no body gets IR.
 	census *IRCensus
 	reach  []*check.Func
+	// keep are declarations that keep the imports IR bodies name used
+	// (keepImport).
+	keep map[string]bool
+	// reached are the census bodies reachAll has queued: a restart
+	// queues them again.
+	reached []*check.Func
+}
+
+// restart empties st for a lowering that runs again from the start
+// (lowerAgain, after a flat union bailed): the bodies the abandoned run
+// built, and their reasons, are dropped, since every function is lowered
+// again.
+func (st *irState) restart() *irState {
+	if st == nil {
+		return nil
+	}
+	reach := append(st.reached, st.reach...)
+	census := st.census
+	if census != nil {
+		census = &IRCensus{}
+	}
+	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach}
+	return st
 }
 
 // The IR format; the derivative's noder/ergoir.go reads the same shape.
@@ -184,6 +214,8 @@ type irStmt struct {
 	// increase).
 	ElsePos irPos `json:"epos"`
 	ElseEnd irPos `json:"eend"`
+	// Op is an op-assignment's operator (set: x op= X).
+	Op string `json:"op,omitempty"`
 	// Cases are a "tswitch"'s clauses (ir_fail.go); Else is its default.
 	Cases []*irCase `json:"cases,omitempty"`
 }
@@ -220,11 +252,20 @@ type irBuilder struct {
 	result check.Type
 	// reasons are a census's reasons for this body, distinct, in order.
 	reasons []string
+	// loops is the depth of loops around the statement being built.
+	loops int
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
 	// names allocates the temporaries' names (ir_fail.go, tempNames).
 	names *namer
+	// admitted are the unions admitted so far (ir_union.go): one that
+	// holds itself is admitted once.
+	admitted map[*check.TypeName]bool
+	// switches is the depth of Go switches (a match's, a catch's) inside
+	// the innermost loop: a break there would leave the switch, not the
+	// loop (ir_match.go).
+	switches int
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -316,7 +357,16 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	// Go parameter order: receiver, environment, parameters (emitBody).
 	for i, v := range params {
 		if v == nil {
-			b.gate("unnamed parameter")
+			// An unnamed parameter (`_ T`) has its slot; no body reads it.
+			if i == 0 && !fd.pure && fd.method == nil {
+				b.env = b.next
+				b.next++
+			}
+			b.next++
+			if i == 0 && fd.method != nil && !fd.pure {
+				b.env = b.next
+				b.next++
+			}
 			continue
 		}
 		if i == 0 && fd.method != nil {
@@ -349,6 +399,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
+	b.fn.Body = append(b.fn.Body, b.bodyEnd(f.Decl.Body.List, b.fn.End)...)
 	if st.census != nil {
 		return false
 	}

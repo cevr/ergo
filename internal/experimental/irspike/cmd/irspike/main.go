@@ -5,8 +5,10 @@
 //	irspike tool LOG TOOL [ARGS...]       a -toolexec meter: run TOOL, append its cost to LOG
 //	irspike attr WORK PROGRAM             stage attribution of PROGRAM (cold, warm, edits)
 //	irspike cost WORK FUNCS REPS SEED...  decode cost per node: JSON IR vs Go text (generated programs of FUNCS functions)
+//	irspike decl -body E WORK MODULE PROG  the declaration file's share of an edit build (q134)
 //	irspike census ROOT                   every reason each body of examples, std and corpus is not lowered yet
 //	irspike genfail SEED                  the failure program of SEED (TestIRFailuresMatchSource)
+//	irspike genunion SEED                 the union program of SEED (TestIRUnionsMatchSource)
 //
 // The toolchains come from ERGO_IRSPIKE_GOROOT_SOURCE, ERGO_IRSPIKE_GOROOT_IR
 // and ERGO_IRSPIKE_CACHE.
@@ -16,6 +18,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,13 +45,19 @@ func main() {
 		err = table(os.Args[2:])
 	case "cost":
 		err = cost(os.Args[2:])
+	case "decl":
+		err = decl(os.Args[2:])
 	case "census":
-		if len(os.Args) != 3 {
-			fail(fmt.Errorf("usage: irspike census ROOT"))
+		if len(os.Args) < 3 || len(os.Args) > 4 {
+			fail(fmt.Errorf("usage: irspike census ROOT [FUNCS.json]"))
 		}
 		var c *irspike.Census
-		if c, err = irspike.TakeCensus(os.Args[2], os.Stderr); err == nil {
+		if c, err = irspike.TakeCensus(os.Args[2], io.Discard); err == nil {
 			c.WriteTable(os.Stdout)
+			if len(os.Args) == 4 {
+				data, _ := json.Marshal(c.Funcs)
+				err = os.WriteFile(os.Args[3], data, 0o644)
+			}
 		}
 	case "gen":
 		var seed uint64
@@ -65,6 +74,14 @@ func main() {
 		}
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.GenerateFail(seed))
+		}
+	case "genunion":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike genunion SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateUnion(seed))
 		}
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])

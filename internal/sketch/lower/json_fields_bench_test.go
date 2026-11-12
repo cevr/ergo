@@ -47,8 +47,7 @@ func fast(p Page) string { json.Encode(codec(), p) }
 
 func viaWriter(p Page) string {
 	let t = json.NewText()
-	let w Writer = t
-	encode(p, w)
+	encode(p, t)
 	t.Written()
 }
 

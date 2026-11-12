@@ -23,6 +23,10 @@ func main() fails os.Exit needs Console | Ambient {
 		return os.Exit{Code: 1, Message: "quiz: the set did not open"}
 	}
 	if status != 0 {
-		return os.Exit{Code: status, Message: "quiz: nothing was picked"}
+		let code = os.ParseCode(status) catch {
+		case Unsatisfied:
+			Unreachable("quiz script returned an invalid failure status")
+		}
+		return os.Exit{Code: code, Message: "quiz: nothing was picked"}
 	}
 }

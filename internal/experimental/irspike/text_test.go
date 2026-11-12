@@ -62,7 +62,7 @@ func TestIRTextChecks(t *testing.T) {
 			return
 		}
 		vet := exec.Command(filepath.Join(src.GOROOT, "bin", "go"), "vet", "-mod=readonly", ".")
-		vet.Dir, vet.Env = text, goEnv(src.GOROOT, src.GOCACHE, false)
+		vet.Dir, vet.Env = text, goEnv(src.GOROOT, src.GOCACHE)
 		var out strings.Builder
 		vet.Stdout, vet.Stderr = &out, &out
 		if _, err := Measure(vet); err != nil {

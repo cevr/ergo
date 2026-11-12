@@ -633,9 +633,6 @@ func (c *checker) returnTuple(x syntax.Expr, op operand, results []Type) {
 	as := make([]assignment, len(results))
 	for i := range results {
 		a, why := c.assignability(tup.Types[i], results[i])
-		if c.sealedRefused(x, a) {
-			return
-		}
 		if !a.ok() {
 			c.errorf(x, CodeType, "cannot return %s as %s: %s", tup.Types[i], results[i], why)
 			return
@@ -659,9 +656,6 @@ func (c *checker) assignElems(x syntax.Expr, types []Type, declared Type) {
 			continue
 		}
 		a, why := c.assignability(t, declared)
-		if c.sealedRefused(x, a) {
-			return
-		}
 		if !a.ok() {
 			if why != "" {
 				why = ": " + why

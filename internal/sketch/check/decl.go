@@ -16,7 +16,25 @@ import (
 // run checks the package: collect declarations, resolve types lazily, check
 // signatures, check bodies one strongly connected component at a time, then
 // the package-level rules that need every body (Go types2's phase order).
+// When an owned value's release needs a capability, the package is checked
+// a second time, which charges that need where the value is acquired
+// (releaseneeds.go); the second check's result is the package's.
 func (c *checker) run(files []*syntax.File) *Package {
+	pkg := c.runOnce(files)
+	seeds, edges := c.releaseSeeds(), c.needEdges()
+	if len(seeds) == 0 && len(edges) == 0 {
+		return pkg
+	}
+	n := newChecker(c.pkg.Path, c.imp, c.universe)
+	n.pkg.std = c.pkg.std
+	n.relSeeds, n.relHit = seeds, map[syntax.Node]bool{}
+	n.wireEdges = edges
+	pkg = n.runOnce(files)
+	*c = *n
+	return pkg
+}
+
+func (c *checker) runOnce(files []*syntax.File) *Package {
 	for i, f := range files {
 		c.files = append(c.files, &fileInfo{syntax: f, index: i, scope: newScope(nil)})
 	}
@@ -92,6 +110,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.checkContextCycles,
 		c.checkErrorMethods,
 		c.checkUnusedImports,
+		// After every body, test and law: the inferred rows are final.
+		c.checkWireNeeds,
 		c.finishInfo,
 		c.closeFacts,
 		// After closeFacts: every Close and failure row is final.
@@ -105,6 +125,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.planLawContexts,
 		c.checkFrames,
 		c.checkEscapes,
+		// After every body: the cell types are declarations (cells.go).
+		c.checkCells,
 		c.footprints,
 		// After the footprints: a durable machine's step is pure (MU9).
 		c.checkDurableSteps,
@@ -275,6 +297,14 @@ func (c *checker) collect() {
 			case *syntax.TypeDecl:
 				tn := &TypeName{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi, id: newID()}
 				tn.Type = &Named{Obj: tn}
+				if prev, ok := c.pkg.Scope.names[d.Name.Name].(*Func); ok && len(prev.same) == 0 && memberShaped(prev.Decl) {
+					// A function declared first that may be a member of
+					// its first parameter's type gives the name to the
+					// type (typeNamedFuncs).
+					delete(c.pkg.Scope.names, d.Name.Name)
+					c.pkg.Funcs = slices.DeleteFunc(c.pkg.Funcs, func(f *Func) bool { return f == prev })
+					c.typeNamedFuncs = append(c.typeNamedFuncs, prev)
+				}
 				declared := c.declare(d.Name, tn)
 				if declared {
 					c.pkg.Types = append(c.pkg.Types, tn)
@@ -315,6 +345,13 @@ func (c *checker) collect() {
 				if prev, ok := c.pkg.Scope.names[d.Name.Name].(*Func); ok && d.Name.Name != "_" {
 					c.preludeName(d.Name) // D-D3, at each declaration
 					prev.same = append(prev.same, fn)
+					continue
+				}
+				if _, ok := c.pkg.Scope.names[d.Name.Name].(*TypeName); ok && memberShaped(d) {
+					// A member of its first parameter's type may share
+					// the name of a type, as a Go method does: it is
+					// called with a dot only (types.md, Methods 3).
+					c.typeNamedFuncs = append(c.typeNamedFuncs, fn)
 					continue
 				}
 				if !c.contextNamed(d.Name) && c.declare(d.Name, fn) {
@@ -801,7 +838,7 @@ func (c *checker) checkUnusedImports() {
 	for _, fi := range c.files {
 		c.cur = fi
 		for _, pn := range fi.imports {
-			if !pn.used {
+			if !pn.used && !c.derive.UsesImport(fi.syntax, pn.Name) { // derive.go
 				c.errorf(pn.spec, CodeUnused, "package %s is imported and not used", pn.Name)
 			}
 		}
@@ -2185,6 +2222,22 @@ func (c *checker) collectSelfFuncs() {
 			}
 		}
 	}
+	// A function that shares a type's name is a member of its first
+	// parameter's type, or the redeclaration it was before (types.md,
+	// Methods 3).
+	typeOwners := map[*Named]bool{}
+	for _, f := range c.typeNamedFuncs {
+		c.cur = f.file
+		if n := f.owner; n != nil && !typeOwners[n] {
+			typeOwners[n] = true
+			f.overloaded = true
+			c.def(f.Decl.Name, f)
+			c.pkg.Funcs = append(c.pkg.Funcs, f)
+			continue
+		}
+		c.errorf(f.Decl.Name, CodeType, "%s is already declared as a type in this package", f.Name)
+		f.owner, f.opOwner, f.selfArgs, f.Ptr = nil, nil, nil, false
+	}
 	for _, f := range c.pkg.Funcs {
 		if len(f.same) == 0 {
 			continue
@@ -2301,6 +2354,14 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 // f's first parameter, written T, *T or, for a generic T, T[A, B] whose
 // arguments are distinct type parameters of f, which a call on an instance
 // binds.
+// memberShaped reports a function whose first parameter names a type, so
+// it may be a member of that type (selfOwner decides once the types are
+// declared).
+func memberShaped(d *syntax.FuncDecl) bool {
+	name, _, _ := selfOwnerName(d)
+	return name != "" && d.Name.Name != "main"
+}
+
 func (c *checker) selfOwner(f *Func) (*Named, []syntax.Expr, bool) {
 	d := f.Decl
 	name, args, ptr := selfOwnerName(d)

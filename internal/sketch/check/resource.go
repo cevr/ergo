@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"slices"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -42,7 +43,8 @@ import (
 // mode, linear in the type graph (resSteps counts its visits).
 //
 // Rules that read it in A1: a resource map key is S112 (R40); a resource
-// converted to an operation type that crosses is S108 (R22, typeops.go);
+// converted to an operation type with no release (releasable) is S108
+// (R22, typeops.go);
 // a type whose zero value would be a resource is not defaultable
 // (typeops.go, letZero); a written `takes` on a crossing parameter is
 // S110.
@@ -65,6 +67,19 @@ func (c *checker) mayHoldResource(t Type) bool {
 	w := resWalk{c: c, generic: true}
 	h, _ := w.visit(t)
 	return h
+}
+
+// releasable reports whether t has a release (resources R1, R13): it
+// holds a resource and dropOf derives its release. The one definition of
+// "has a release": an operation type that only keeps the values it takes
+// holds a resource but has none. R22 reads it at a conversion and at an
+// instantiation; the ownership pass reports its absence on an owned value.
+func (c *checker) releasable(t Type) bool {
+	if !c.holdsResource(t) {
+		return false
+	}
+	d, _ := c.dropOf(t)
+	return d != nil
 }
 
 // crosses reports whether ownership means nothing for a value of type t.
@@ -396,6 +411,7 @@ func (c *checker) checkResourceTypes() {
 			c.errorf(s.at, CodeUnused, "takes %s has no effect: %s is not a resource", s.name, s.t)
 		}
 	}
+	c.checkOwnershipSites()
 }
 
 // providerAssignability is assignability for a provider that implements a
@@ -413,4 +429,123 @@ func (c *checker) providerAssignability(v, t Type) (assignment, string) {
 // operation type that crosses would never be released.
 func resourceIntoCrossingText(v, t Type) string {
 	return fmt.Sprintf("%s is a resource and %s has no Close, so the value would never be released (resources R22); give %s a Close() operation", v, t, t)
+}
+
+// R22 at an instantiation (16a fix r4). A type parameter whose
+// constraint is an operation type is the conversion R22 decides, made
+// once for the whole generic body: the body uses its values through that
+// operation type only. So a type argument that holds a resource is
+// admitted only for a constraint that has a release (releasable, R1/R13:
+// a Close() operation; an operation that only takes the value keeps it
+// and releases nothing, 16a fix r5): any other constraint would let the
+// body use the value, and the values it yields, as plain data that is
+// never released. One rule at every instantiation: a call (written or
+// inferred type arguments), a generic type, a generic function value and
+// a method of a generic type all record the site where they check the
+// constraint (recordOwnership). A type argument that is a resource only
+// through the enclosing function's type parameter, and a conversion to an
+// operation type in a generic body, are copy sites of that parameter
+// (ownershipCopies): the instantiation of the enclosing function decides
+// them (R44).
+
+// ownershipSite is a type, from, that meets an operation type without a
+// Close, to: a type argument (tp is its type parameter of the generic
+// declaration name) or a conversion in a generic body (tp nil).
+type ownershipSite struct {
+	file     *fileInfo
+	at       syntax.Node
+	name     string
+	tp       *TypeParam
+	from, to Type
+}
+
+type ownershipKey struct {
+	at syntax.Node
+	tp *TypeParam
+}
+
+// recordOwnership records the type arguments of an instantiation of name
+// at at whose constraint is an operation type; the late pass decides them
+// once every Close is known.
+func (c *checker) recordOwnership(name string, tparams []*TypeParam, targs []Type, at syntax.Node) {
+	if c.silent > 0 || at == nil {
+		return
+	}
+	m := paramMap(tparams, targs)
+	for i, tp := range tparams {
+		if i >= len(targs) || tp.Kind != KindType || tp.Constraint == nil || targs[i] == nil {
+			continue
+		}
+		cons := c.subst(tp.Constraint, m)
+		if it := asInterface(cons); it == nil || it.Set != SetAll || len(it.Methods) == 0 {
+			continue
+		}
+		c.addOwnershipSite(ownershipSite{file: c.cur, at: at, name: name, tp: tp, from: targs[i], to: cons})
+	}
+}
+
+// recordConversion records a value of type v that assignability put into
+// the operation type t, when v is a resource only through a type
+// parameter: the conversion is a copy site of that parameter.
+func (c *checker) recordConversion(x syntax.Expr, v, t Type) {
+	if c.silent > 0 || x == nil || c.providing || c.hostLendArg(t) || !namesTypeParam(v) {
+		return
+	}
+	if it := asInterface(t); it == nil || it.Set != SetAll || len(it.Methods) == 0 {
+		return
+	}
+	c.addOwnershipSite(ownershipSite{file: c.cur, at: x, from: v, to: t})
+}
+
+// namesTypeParam reports whether t is built from a type parameter.
+func namesTypeParam(t Type) bool {
+	found := false
+	eachTypeParam(t, func(*TypeParam) { found = true })
+	return found
+}
+
+func (c *checker) addOwnershipSite(s ownershipSite) {
+	k := ownershipKey{s.at, s.tp}
+	if c.ownershipSeen[k] {
+		return
+	}
+	if c.ownershipSeen == nil {
+		c.ownershipSeen = map[ownershipKey]bool{}
+	}
+	c.ownershipSeen[k] = true
+	c.ownershipSites = append(c.ownershipSites, s)
+}
+
+// checkOwnershipSites refuses a type argument that is a resource for a
+// constraint that has no release (S108, R22).
+func (c *checker) checkOwnershipSites() {
+	for _, s := range c.ownershipSites {
+		if s.tp == nil || containsInvalid(s.from) || containsInvalid(s.to) {
+			continue
+		}
+		if c.holdsResource(s.from) && !c.releasable(s.to) {
+			c.cur = s.file
+			c.errorf(s.at, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", s.from, s.to, s.tp.Name, resourceIntoCrossingText(s.from, s.to))
+		}
+	}
+}
+
+// ownershipCopies records, for a generic function, each type parameter
+// that makes a site's type a resource when the operation type it meets
+// cannot hold one: the instantiation decides it (R44).
+func (c *checker) ownershipCopies(owner map[*TypeParam]*Func) {
+	for _, s := range c.ownershipSites {
+		if containsInvalid(s.from) || containsInvalid(s.to) || c.holdsResource(s.from) || !c.mayHoldResource(s.from) || c.releasable(s.to) {
+			continue
+		}
+		what := fmt.Sprintf("%s is converted to %s, which has no Close (resources R22)", s.from, s.to)
+		if s.tp != nil {
+			what = fmt.Sprintf("it binds %s of %s to %s, and its constraint %s has no Close (resources R22)", s.tp.Name, s.name, s.from, s.to)
+		}
+		eachTypeParam(s.from, func(tp *TypeParam) {
+			if f := owner[tp]; f != nil {
+				c.addCopy(f, CopySite{TParam: slices.Index(f.Sig.TParams, tp), At: s.at, Where: c.sitePos(s.file, s.at), What: what})
+			}
+		})
+	}
 }

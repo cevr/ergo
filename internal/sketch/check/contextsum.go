@@ -445,7 +445,7 @@ func (p *contextPass) own(contexts []*Context) {
 			}
 			// The entry's Info record, made here once, so the summary's
 			// nodes carry it (checkContexts fills it in).
-			entry := &ContextEntry{Provider: e.Value, Replace: e.Replace.IsValid(), seq: len(c.contextEntries)}
+			entry := &ContextEntry{Provider: e.Value, Replace: e.Replace.IsValid(), seq: len(c.contextEntries), pkg: c.pkg.Path}
 			c.contextEntries[e] = entry
 			if !eachKey(e, func(k syntax.Expr) bool {
 				op(m, "key read", singlePass, 1)
@@ -782,7 +782,7 @@ func (c *checker) prepareBody(s *bodySum, body *syntax.ContextBody, self *Contex
 // A named context's replace also records what it overrides (s.overrides,
 // Context.Overrides), from the same lookups: the entry the embeddings' union
 // binds for its capability and each colliding embedded entry, ordered by
-// the context pass's entry order (ContextEntry.seq) and each once (a diamond
+// the context pass's entry order (entryBefore) and each once (a diamond
 // brings one entry twice). Sorting them is repeatable and charged; an
 // inline or a local context records none (its replace is resolved in its
 // summary, which the lowering reads), so its allowance is unchanged.
@@ -813,7 +813,7 @@ func (c *checker) finishBody(s *bodySum, body *syntax.ContextBody, m *contextMet
 		if by == nil {
 			// Inline summaries keep the very same entry subsequently filled
 			// by contextBody and read by With.Acquired.
-			by = &ContextEntry{Provider: e.Value, Replace: e.Replace.IsValid(), seq: len(c.contextEntries)}
+			by = &ContextEntry{Provider: e.Value, Replace: e.Replace.IsValid(), seq: len(c.contextEntries), pkg: c.pkg.Path}
 			c.contextEntries[e] = by
 		}
 		at := 0
@@ -896,7 +896,7 @@ func (c *checker) finishBody(s *bodySum, body *syntax.ContextBody, m *contextMet
 		}
 	}
 	for _, o := range overrides {
-		if !sortContexts(m, o.cands, func(a, b *ContextEntry) bool { return a.seq < b.seq }) {
+		if !sortContexts(m, o.cands, entryBefore) {
 			return false
 		}
 		for i, e := range o.cands {

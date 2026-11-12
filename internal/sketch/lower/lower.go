@@ -48,6 +48,22 @@ type Unit struct {
 	Sources []Source
 	Imports []Unit
 	Go      GoModule
+	// Instances are the site instances of rewrite laws that the test
+	// build runs as cases of their own (rewritelaw.go); the run build
+	// ignores them.
+	Instances []RewriteInstance
+	// Posts are post laws (rewrite.go) that the test build runs from
+	// reached states: each case draws a prefix of the owner's operations
+	// before the law, so a fact holds after its operation from every
+	// state, as the lowering uses it. The run build ignores them.
+	Posts []*check.Law
+	// Rewrite is the evidence of the law runs the run build may rewrite
+	// with (rewrite.go); nil rewrites nothing. The test build ignores it.
+	Rewrite RewriteEvidence
+	// AllLaws asks RewriteChecks for every rewrite and post law of the
+	// unit, not only those its run build's sites use: std's ledger
+	// (FreshStdLedger) holds each law proved once, for every program.
+	AllLaws bool
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose

@@ -20,18 +20,22 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/toolchain"
 )
 
-const runHelp = "usage: ergo run [--json] [--target go] FILE|DIR [--] [ARGS...]\n" +
+const runHelp = "usage: ergo run [--json] [--locked] [--target go] FILE|DIR [--] [ARGS...]\n" +
 	"A source that does not check prints one file:line:col: error CODE: message line per finding on stderr\n" +
 	"(the check envelope on stdout with --json), builds nothing and exits 1.\n" +
 	"Builds the program into a private temporary directory and runs it with ARGS, as go run does:\n" +
 	"every word after FILE|DIR is the program's (a -- right after it is dropped), so ergo's options come first.\n" +
-	"The program's exit status passes through; SIGINT and SIGTERM are forwarded (130 and 143 when they end it).\n"
+	"The program's exit status passes through; SIGINT and SIGTERM are forwarded (130 and 143 when they end it).\n" +
+	"A rewrite law site whose ergo.laws entry is stale or missing keeps the reference lowering and prints one line;\n" +
+	"--locked refuses the build instead (runtime.md, Tests 10).\n"
 
 // buildCommand builds a native executable and prints its path. With -work
 // it also prints WORK=DIR on stderr, DIR being the generated Go module in
-// the emission cache that the executable was linked from.
+// the emission cache that the executable was linked from, and LINK= how it
+// was linked (build.Report: the direct path's counts, or go build and why).
 func buildCommand(args []string) error {
 	opts, err := parseFileOptions("build", args)
 	if err != nil {
@@ -103,16 +107,25 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	if err != nil {
 		return receipt.Location{}, err
 	}
+	var report build.Report
+	tc, err := buildAction(opts)
+	if err != nil {
+		return receipt.Location{}, err
+	}
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),
 		Output:    output.Path(),
 		Cache:     build.Cache{Root: root},
-		Toolchain: toolchain(opts),
+		Toolchain: tc,
 		Stderr:    os.Stderr,
+		Ledger:    ledgerPath(opts.file),
+		Locked:    opts.locked,
+		Report:    &report,
 	})
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
+		fmt.Fprintf(os.Stderr, "LINK=%s\n", report)
 	}
 	if err != nil {
 		return receipt.Location{}, err
@@ -148,15 +161,32 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 	return irspike.GoText(files, tc, output.Path(), dir, os.Stderr)
 }
 
-// toolchain is the Go build action of opts' command: the go command on
-// PATH with the user's GOFLAGS, linking for opts.platform, always stated,
-// so the go env file's GOOS and GOARCH never choose it. The emitted module
-// is the same for every platform; Go's action cache keys the link on the
-// platform.
-func toolchain(opts fileOptions) build.Toolchain {
+// buildAction is the Go build action of opts' command: the go command
+// ERGO_GO selects (goCommand) with the user's GOFLAGS, linking for
+// opts.platform, always stated, so the go env file's GOOS and GOARCH never
+// choose it. The emitted module is the same for every platform; Go's
+// action cache keys the link on the platform.
+func buildAction(opts fileOptions) (build.Toolchain, error) {
 	tc := build.HostToolchain()
+	selected, err := goCommand()
+	if err != nil {
+		return build.Toolchain{}, err
+	}
+	tc.Go, tc.Root = selected.Go, selected.Root
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
-	return tc
+	return tc, nil
+}
+
+// goCommand is the go command every build and `ergo bind go` run
+// (internal/toolchain): by default the pinned release, installed under
+// ergo's cache directory on first use; ERGO_GO=system or a path chooses
+// another.
+func goCommand() (toolchain.Toolchain, error) {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return toolchain.Toolchain{}, err
+	}
+	return toolchain.Select(os.Getenv, root, os.Stderr)
 }
 
 // platformOf is the platform a build links for: --platform OS/ARCH when

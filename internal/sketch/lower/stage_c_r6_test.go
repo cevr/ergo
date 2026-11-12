@@ -7,7 +7,8 @@ import "testing"
 // pointer, an instantiated generic record of one and of two type
 // parameters and pointers to those, to a plain operation type and to
 // instances of a one- and a two-parameter one. The reviewer's two
-// witnesses come first.
+// witnesses come first. A pointer source is a borrow, which converts only
+// at a let (types.md, Borrows 6), so its value is called there.
 func TestErgoRunOperationsConversionDomain(t *testing.T) {
 	needsBuild(t)
 	t.Run("reviewer-generic-source", func(t *testing.T) {
@@ -24,10 +25,10 @@ func main() needs Console {
 		wantRun(t, `type G[T] { V T }
 type A[T] { M() T }
 func M[T](g G[T]) T { g.V }
-func use(a A[int]) int { a.M() }
 func main() needs Console {
 	let mut g = G[int]{V: 9}
-	if use(&g) == 9 { Console.Println("generic pointer source") }
+	let a A[int] = &g
+	if a.M() == 9 { Console.Println("generic pointer source") }
 }
 `, "generic pointer source\n")
 	})
@@ -65,19 +66,28 @@ func main() needs Console {
 	if useJ(s) == 1 && useA(s) == 1 && useB(s) == "k" {
 		Console.Println("concrete source")
 	}
-	if useJ(&p) == 2 && useA(&p) == 2 && useB(&p) == "k" {
+	let pj J = &p
+	let pa A[int] = &p
+	let pb B[int, string] = &p
+	if pj.M() == 2 && pa.M() == 2 && pb.K("k") == "k" {
 		Console.Println("pointer source")
 	}
 	if useJ(g) == 3 && useA(g) == 3 && useB(g) == "k" {
 		Console.Println("generic source")
 	}
-	if useJ(&g) == 3 && useA(&g) == 3 && useB(&g) == "k" {
+	let gj J = &g
+	let ga A[int] = &g
+	let gb B[int, string] = &g
+	if gj.M() == 3 && ga.M() == 3 && gb.K("k") == "k" {
 		Console.Println("generic pointer source")
 	}
 	if useJ(h) == 4 && useA(h) == 4 && useB(h) == "w" {
 		Console.Println("two-parameter source")
 	}
-	if useJ(&h) == 4 && useA(&h) == 4 && useB(&h) == "w" {
+	let hj J = &h
+	let ha A[int] = &h
+	let hb B[int, string] = &h
+	if hj.M() == 4 && ha.M() == 4 && hb.K("w") == "w" {
 		Console.Println("two-parameter pointer source")
 	}
 }

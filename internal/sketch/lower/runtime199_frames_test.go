@@ -62,7 +62,7 @@ var i1FrameKinds = []i1FrameKind{
 	}},
 	// A law body is a frame of the test build only (#162 law-run-1): the
 	// test build runs it, the run build emits none.
-	{name: "top-law", goClass: "decl", testBuild: true, sites: map[string]int{"lawDecl": 1}, program: func(_, _, _ string, body string) string {
+	{name: "top-law", goClass: "decl", testBuild: true, sites: map[string]int{"lawFrame": 1}, program: func(_, _, _ string, body string) string {
 		return "law Subject() {\n" + i1Discard(body) + "true\n}\n"
 	}},
 	{name: "initializer", goClass: "lit", sites: map[string]int{"packageVar": 2, "packagePattern": 1}, program: func(_, _, _ string, body string) string {

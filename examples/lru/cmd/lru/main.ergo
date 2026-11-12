@@ -133,7 +133,7 @@ test ParseReadsEachCommand {
 func exitOf(args []string) int {
 	let _ = Parse(args) catch {
 	case os.Exit as e:
-		return e.Code
+		return int(e.Code)
 	}
 	0
 }
