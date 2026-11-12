@@ -804,6 +804,33 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
+      "name": "oracle-o15-bytes-as-text",
+      "origin": "wf10 ORACLE O15",
+      "file": "internal/sketch/eval/nativesembed.go",
+      "from": "\t\t\treturn bytesValue(data), nil",
+      "to": "\t\t\treturn newSlice([]Value{byte(0)}), nil",
+      "rule": "embedded[[]byte](p) is the file's bytes, as Go's //go:embed of a []byte (stdlib.md, embed).",
+      "killers": ["internal/sketch/eval:TestEmbedAgreesWithModel"]
+    },
+    {
+      "name": "oracle-o15-file-mode",
+      "origin": "wf10 ORACLE O15",
+      "file": "internal/sketch/eval/nativesembed.go",
+      "from": "Mode: 0o444}",
+      "to": "Mode: 0o644}",
+      "rule": "An embed.FS file's mode is 0444, as Go's embed.FS gives it (stdlib.md, embed).",
+      "killers": ["internal/sketch/eval:TestEmbedAgreesWithModel"]
+    },
+    {
+      "name": "oracle-o15-dir-read-as-file",
+      "origin": "wf10 ORACLE O15",
+      "file": "internal/sketch/eval/nativesembed.go",
+      "from": "\t\tdata, err := fs.ReadFile(f.files, p)\n\t\tif err != nil {",
+      "to": "\t\tdata, err := fs.ReadFile(f.files, p)\n\t\tif st, serr := fs.Stat(f.files, p); serr == nil && st.IsDir() {\n\t\t\treturn \"\", nil\n\t\t}\n\t\tif err != nil {",
+      "rule": "An embed.FS ReadFile of a directory fails fs.NotFound, as the runtime maps Go's embed.FS error (stdlib.md, embed).",
+      "killers": ["internal/sketch/eval:TestEmbedAgreesWithModel"]
+    },
+    {
       "name": "oracle-o14-one-order",
       "origin": "wf10 ORACLE O14",
       "file": "internal/sketch/eval/process.go",

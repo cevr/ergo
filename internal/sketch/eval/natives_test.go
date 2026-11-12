@@ -294,14 +294,6 @@ func result[T any](v T, err error) any {
 	return v
 }
 
-func bytesValue(s string) Value {
-	vs := make([]Value, len(s))
-	for k := 0; k < len(s); k++ {
-		vs[k] = s[k]
-	}
-	return newSlice(vs)
-}
-
 // outcome is a native's result as text: its value, its failure or its
 // defect, or a skip.
 func outcome(f func() (Value, *abrupt)) string {

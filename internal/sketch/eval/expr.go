@@ -815,6 +815,8 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 		return in.providerCall(fr, x, c)
 	case check.CallOp, check.CallLawOp:
 		return in.operationCall(fr, x, c)
+	case check.CallEmbed:
+		return in.embedValue(fr, x, c) // nativesembed.go
 	}
 	return nil, fr.unsupported(x, "this call (kind %d)", c.Kind)
 }
