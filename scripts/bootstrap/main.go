@@ -1,14 +1,15 @@
 // Command bootstrap builds ergo from a pinned seed, the only way to an ergo
 // once the compiler is written in Ergo (v1 capstone, "Ergo builds Ergo").
 //
-//	go run ./scripts/bootstrap [-o DIR] [-stages N]
+//	go run ./scripts/bootstrap [-o DIR] [-stages N] [-from-source]
 //	go run ./scripts/bootstrap verify-seed [-work DIR] [-fresh-cache=false]
-//	go run ./scripts/bootstrap seed-lock [-seed NAME] [-source COMMIT] [-go RELEASE] [-platforms LIST] [-work DIR]
+//	go run ./scripts/bootstrap seed-lock [-seed NAME] [-source COMMIT] [-go RELEASE] [-platforms LIST] [-url TEMPLATE] [-work DIR]
 //	go run ./scripts/bootstrap capstone
 //
 // The default command takes the seed that toolchain/seed.lock names (stage 0)
-// from ergo's cache, or rebuilds it from its source commit and refuses it
-// unless its sha256 is the lock's. Then it builds stage 1 to stage N (default
+// from ergo's cache, else downloads it from the lock's url (a GitHub release
+// asset), else (no release yet, offline, or -from-source) rebuilds it from its
+// source commit; it refuses a seed whose sha256 is not the lock's. Then it builds stage 1 to stage N (default
 // 2) from the tree, each with the stage before it as its compiler, into
 // DIR/stage<i>/ergo (default <repo>/.bootstrap), and requires the last two
 // stages to be byte-identical.
@@ -55,6 +56,10 @@ func main() {
 
 type usageError struct{ error }
 
+// releaseURL is where seeds are published: assets of the GitHub release
+// named after the seed (owner, 2026-11-12, q1: "GitHub releases").
+const releaseURL = "https://github.com/cevr/ergo/releases/download/{seed}/ergo-{goos}-{goarch}"
+
 func run(args []string) error {
 	cmd := "build"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -76,7 +81,7 @@ func run(args []string) error {
 	l, err := readLock(filepath.Join(repo, lockFile))
 	if errors.Is(err, iofs.ErrNotExist) && cmd == "seed-lock" {
 		// The first lock: name everything on the command line.
-		l, err = seedLock{Seed: "seed-0", Package: "./cmd/ergo", Platforms: []string{"linux/amd64", "darwin/arm64"}}, nil
+		l, err = seedLock{Seed: "seed-0", Package: "./cmd/ergo", URL: releaseURL, Platforms: []string{"linux/amd64", "darwin/arm64"}}, nil
 	}
 	if err != nil {
 		return err
@@ -94,6 +99,8 @@ func run(args []string) error {
 	source := fs.String("source", "", "seed-lock: the commit the new seed is built from (default: the lock's)")
 	goRelease := fs.String("go", l.Go, "seed-lock: the Go release that builds it")
 	platforms := fs.String("platforms", strings.Join(l.Platforms, ","), "seed-lock: the platforms, comma-separated")
+	url := fs.String("url", l.URL, "seed-lock: the download template of the seed ({seed}, {goos}, {goarch}); empty for none")
+	fromSource := fs.Bool("from-source", false, "never download the seed; rebuild it from its source commit")
 	if err := fs.Parse(args); err != nil {
 		return usageError{err}
 	}
@@ -101,7 +108,7 @@ func run(args []string) error {
 		return usageError{fmt.Errorf("unexpected arguments %q", fs.Args())}
 	}
 	if cmd == "seed-lock" {
-		l.Seed, l.Go = *seed, *goRelease
+		l.Seed, l.Go, l.URL = *seed, *goRelease, *url
 		if *source != "" {
 			if l.Source, err = git(repo, "rev-parse", "--verify", *source+"^{commit}"); err != nil {
 				return err
@@ -116,7 +123,7 @@ func run(args []string) error {
 	if err != nil {
 		return usageError{err}
 	}
-	d := driver{repo: repo, environ: os.Environ(), tool: tool, cacheRoot: cacheRoot}
+	d := driver{repo: repo, environ: os.Environ(), tool: tool, cacheRoot: cacheRoot, fromSource: *fromSource}
 	switch cmd {
 	case "build":
 		_, err := d.stages(l, *out, *n)

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,10 +12,12 @@ import (
 
 // driver is what every command of the bootstrap shares.
 type driver struct {
-	repo      string   // the repository root: the tree, and the git history of the seed's source
-	environ   []string // the caller's environment
-	tool      goTool
-	cacheRoot string // ergo's cache root; seeds live in <cacheRoot>/seed
+	repo       string   // the repository root: the tree, and the git history of the seed's source
+	environ    []string // the caller's environment
+	tool       goTool
+	cacheRoot  string       // ergo's cache root; seeds live in <cacheRoot>/seed
+	client     *http.Client // seed downloads; nil is a client with a hang timeout
+	fromSource bool         // never download a seed; rebuild it from its source
 }
 
 func hostPlatform() string { return runtime.GOOS + "/" + runtime.GOARCH }
@@ -62,8 +66,12 @@ func (d driver) seedPath(l seedLock, platform string) string {
 }
 
 // ensureSeed returns the cached seed for platform when its sha256 is the
-// lock's. Otherwise it rebuilds the seed from its source commit (no seed is
-// downloaded yet), refuses it unless its sha256 is the lock's, and caches it.
+// lock's. Otherwise it downloads the seed from the lock's url (a GitHub
+// release asset) and keeps it only with the lock's sha256; a download whose
+// digest differs is refused. When the lock has no url, the release is not
+// published, the host cannot be reached or fromSource is set, it rebuilds the
+// seed from its source commit, refuses it unless its sha256 is the lock's,
+// and caches it.
 func (d driver) ensureSeed(l seedLock, platform string) (string, error) {
 	want, ok := l.Sums[platform]
 	if !ok {
@@ -82,6 +90,22 @@ func (d driver) ensureSeed(l seedLock, platform string) (string, error) {
 	}
 	defer os.RemoveAll(work)
 	built := filepath.Join(work, "ergo")
+	if l.URL != "" && !d.fromSource {
+		err := d.download(l, platform, want, built)
+		if err == nil {
+			if err := os.Rename(built, path); err != nil {
+				return "", err
+			}
+			return path, nil
+		}
+		if !errors.Is(err, errNoRelease) {
+			return "", err
+		}
+		fmt.Fprintf(os.Stderr, "bootstrap: %v; rebuilding %s from %s\n", err, l.Seed, l.Source)
+		if err := os.Remove(built); err != nil && !os.IsNotExist(err) {
+			return "", err
+		}
+	}
 	sum, err := d.buildSeed(l, platform, filepath.Join(work, "src"), built, "")
 	if err != nil {
 		return "", err

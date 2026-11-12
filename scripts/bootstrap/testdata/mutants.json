@@ -92,6 +92,51 @@
       "killers": ["scripts/bootstrap:TestSeedIsReproducedNotTrusted"]
     },
     {
+      "name": "s0-download-unchecked",
+      "origin": "wf10 capstone S0 (q1: GitHub releases)",
+      "file": "scripts/bootstrap/download.go",
+      "from": "if got := hex.EncodeToString(h.Sum(nil)); got != want {",
+      "to": "if got := hex.EncodeToString(h.Sum(nil)); got != want && false {",
+      "rule": "A downloaded seed is kept only with the lock's digest.",
+      "killers": ["scripts/bootstrap:TestSeedDownloadIsCheckedAgainstTheLock"]
+    },
+    {
+      "name": "s0-download-status-unchecked",
+      "origin": "wf10 capstone S0 (q1: GitHub releases)",
+      "file": "scripts/bootstrap/download.go",
+      "from": "if resp.StatusCode != http.StatusOK {",
+      "to": "if false {",
+      "rule": "A release that is not published (404) is no release: the seed is rebuilt from source.",
+      "killers": ["scripts/bootstrap:TestSeedDownloadIsCheckedAgainstTheLock"]
+    },
+    {
+      "name": "s0-bad-download-rebuilt",
+      "origin": "wf10 capstone S0 (q1: GitHub releases)",
+      "file": "scripts/bootstrap/seed.go",
+      "from": "if !errors.Is(err, errNoRelease) {",
+      "to": "if false {",
+      "rule": "A download with another digest is refused, not hidden behind a rebuild.",
+      "killers": ["scripts/bootstrap:TestSeedDownloadIsCheckedAgainstTheLock"]
+    },
+    {
+      "name": "s0-url-template-wrong",
+      "origin": "wf10 capstone S0 (q1: GitHub releases)",
+      "file": "scripts/bootstrap/download.go",
+      "from": "\"{goarch}\", goarch)",
+      "to": "\"{goarch}\", goos)",
+      "rule": "The lock's url names the asset of the platform.",
+      "killers": ["scripts/bootstrap:TestSeedDownloadIsCheckedAgainstTheLock"]
+    },
+    {
+      "name": "s0-from-source-ignored",
+      "origin": "wf10 capstone S0 (q1: GitHub releases)",
+      "file": "scripts/bootstrap/seed.go",
+      "from": "if l.URL != \"\" && !d.fromSource {",
+      "to": "if l.URL != \"\" {",
+      "rule": "-from-source never downloads.",
+      "killers": ["scripts/bootstrap:TestSeedDownloadIsCheckedAgainstTheLock"]
+    },
+    {
       "name": "s0-compiler-packages-ignored",
       "origin": "wf10 capstone S0",
       "file": "scripts/bootstrap/stages.go",

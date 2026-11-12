@@ -17,6 +17,9 @@ const lockFile = "toolchain/seed.lock"
 //	source <40 hex digits>         the commit the seed is built from
 //	go go1.27.4                    the Go release that builds it
 //	package ./cmd/ergo             the main package, relative to the source root
+//	url https://…/{seed}/ergo-{goos}-{goarch}
+//	                               optional: where the seed is downloaded (a
+//	                               GitHub release asset); https only
 //	sha256 linux/amd64 <64 hex>    the seed's digest, one line per platform
 //
 // Blank lines and lines that start with # are comments. Every key but
@@ -26,6 +29,7 @@ type seedLock struct {
 	Source    string
 	Go        string
 	Package   string
+	URL       string            // "" when the seed is only rebuilt from source
 	Platforms []string          // in file order
 	Sums      map[string]string // platform -> sha256, lowercase hex
 }
@@ -91,6 +95,11 @@ func parseLock(text string) (seedLock, error) {
 				return seedLock{}, bad("go is not a Go release name")
 			}
 			l.Go = v
+		case "url":
+			if !strings.HasPrefix(v, "https://") || !strings.Contains(v, "{goos}") || !strings.Contains(v, "{goarch}") {
+				return seedLock{}, bad("url is not an https template with {goos} and {goarch}")
+			}
+			l.URL = v
 		case "package":
 			if !strings.HasPrefix(v, "./") {
 				return seedLock{}, bad("package is not ./ relative")
@@ -118,6 +127,9 @@ func (l seedLock) format() string {
 	b.WriteString("# The seed ergo that builds stage 1 (docs/tooling.md, Bootstrap and release).\n")
 	b.WriteString("# Reproduce: go run ./scripts/bootstrap verify-seed\n")
 	fmt.Fprintf(&b, "seed %s\nsource %s\ngo %s\npackage %s\n", l.Seed, l.Source, l.Go, l.Package)
+	if l.URL != "" {
+		fmt.Fprintf(&b, "url %s\n", l.URL)
+	}
 	for _, p := range l.Platforms {
 		fmt.Fprintf(&b, "sha256 %s %s\n", p, l.Sums[p])
 	}

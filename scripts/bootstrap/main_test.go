@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"math/rand/v2"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -135,6 +137,91 @@ func TestSeedIsReproducedNotTrusted(t *testing.T) {
 	clearCache(t, d, l, host)
 	if _, err := d.ensureSeed(l, host); err == nil || !strings.Contains(err.Error(), "tag") {
 		t.Errorf("a tag %s that names another commit than the lock's source was not refused: %v", l.Seed, err)
+	}
+}
+
+// TestSeedDownloadIsCheckedAgainstTheLock: a seed downloaded from the lock's
+// url is kept only with the lock's digest, and other bytes are refused, not
+// used and not replaced by a rebuild. A release that is not published falls
+// back to the rebuild from source, as -from-source always does. The server
+// is in process (httptest over TLS).
+func TestSeedDownloadIsCheckedAgainstTheLock(t *testing.T) {
+	needsBuild(t)
+	environ := baseEnviron(t)
+	repo := filepath.Join(t.TempDir(), "repo")
+	writeModule(t, filepath.Join(repo, "cmd", "ergo"), "released")
+	writeFile(t, filepath.Join(repo, "go.mod"), "module example.local/releaserepo\n\ngo 1.27\n")
+	gitRun(t, repo, "init", "-q")
+	source := commitAll(t, repo, "released")
+	host := hostPlatform()
+	goos, goarch, _ := strings.Cut(host, "/")
+	local := goTool{cmd: "go", toolchain: "local"}
+	l := seedLock{Seed: "seed-t", Source: source, Go: localGoVersion(t, environ), Package: "./cmd/ergo", Platforms: []string{host}}
+	built := driver{repo: repo, environ: environ, tool: local, cacheRoot: t.TempDir()}
+	sums, err := built.reproduce(l, l.Platforms, t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Sums = sums
+	seed, err := built.ensureSeed(l, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := os.ReadFile(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var body []byte
+	asset := "/releases/download/seed-t/ergo-" + goos + "-" + goarch
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != asset || body == nil {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+	l.URL = srv.URL + "/releases/download/{seed}/ergo-{goos}-{goarch}"
+	// No go command: a seed this driver returns came from the download.
+	offline := driver{repo: repo, environ: environ, tool: goTool{cmd: "/nonexistent/go", toolchain: "local"}, client: srv.Client()}
+
+	body = release
+	offline.cacheRoot = t.TempDir()
+	path, err := offline.ensureSeed(l, host)
+	if err != nil {
+		t.Fatalf("the published seed was not downloaded: %v", err)
+	}
+	if got, _ := fileSum(path); got != sums[host] {
+		t.Fatalf("the downloaded seed has sha256 %s, the lock %s", got, sums[host])
+	}
+
+	body = append(append([]byte(nil), release...), "tampered"...)
+	offline.cacheRoot = t.TempDir()
+	if _, err := offline.ensureSeed(l, host); err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Errorf("a download whose digest is not the lock's was not refused: %v", err)
+	}
+	withGo := offline
+	withGo.tool = local
+	withGo.cacheRoot = t.TempDir()
+	if _, err := withGo.ensureSeed(l, host); err == nil {
+		t.Error("a download whose digest is not the lock's was replaced by a rebuild instead of refused")
+	}
+
+	body = nil
+	withGo.cacheRoot = t.TempDir()
+	if path, err := withGo.ensureSeed(l, host); err != nil {
+		t.Errorf("an unpublished release did not fall back to the rebuild from source: %v", err)
+	} else if got, _ := fileSum(path); got != sums[host] {
+		t.Errorf("the rebuilt seed has sha256 %s, the lock %s", got, sums[host])
+	}
+
+	body = release
+	fromSource := offline
+	fromSource.fromSource = true
+	fromSource.cacheRoot = t.TempDir()
+	if _, err := fromSource.ensureSeed(l, host); err == nil {
+		t.Error("-from-source downloaded the seed instead of rebuilding it")
 	}
 }
 
