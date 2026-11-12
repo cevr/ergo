@@ -1,6 +1,8 @@
 package check
 
 import (
+	"slices"
+
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -19,6 +21,9 @@ import (
 //	     local then holds the borrow;
 //	  2. as a provider of a context literal that is the operand of a with,
 //	     which installs it for the with's block only;
+//	  3. as an argument of a call into Go, where the Go argument rule
+//	     (ownership.go) admits a reviewed lent argument and refuses any
+//	     other, so a Go interface takes a borrow as an operation type does;
 //	and every use of a local that holds one is
 //	  1. the receiver of an operation call, c.Op(…);
 //	  2. the value of a local let that binds one name (or _), whose local
@@ -97,6 +102,9 @@ func (w *escWalk) checkBorrowConv(n syntax.Node) {
 		if _, entry := parent.(*syntax.ContextEntry); entry {
 			return // the entry's own rule
 		}
+		if w.goArgument(x) {
+			return // the Go argument rule (ownership.go): lent or refused
+		}
 		if !w.bindsBorrow(x, to) {
 			w.c.errorf(b, CodeType, borrowConvText, borrowText(b), to)
 		}
@@ -162,6 +170,25 @@ func (w *escWalk) callsOperation(id *syntax.Ident) bool {
 		return k != nil && k.Kind == CallOp
 	}
 	return false
+}
+
+// goArgument reports whether x, the node being visited, is an argument of
+// a call into Go: a Go function or a method of a Go value. The Go argument
+// rule judges a borrow there (ownership.go): a reviewed lent argument
+// takes it for the call only, and any other is refused.
+func (w *escWalk) goArgument(x syntax.Expr) bool {
+	parent, child := w.parentOf(x)
+	call, ok := parent.(*syntax.CallExpr)
+	if !ok || call.Fun == child {
+		return false
+	}
+	k := w.info.Calls[call]
+	if k == nil {
+		return false
+	}
+	host := k.Kind == CallFunc && k.Func != nil && k.Func.Pkg.Host() ||
+		k.Kind == CallOp && k.Recv != nil && isHostNamed(w.info.Types[k.Recv])
+	return host && slices.Contains(call.Args, child.(syntax.Expr))
 }
 
 // providesInWith reports whether x, the node being visited, is the

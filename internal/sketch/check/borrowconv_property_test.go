@@ -17,6 +17,10 @@ import (
 // assignment, an if arm, a tuple a multi-name let takes apart), and, after a let, pass the local through zero to
 // two more lets and then one escape route (an operation call, the same
 // sites, a capture by an escaping or a non-escaping literal, by task.Go).
+// A fourth of the functions take a borrow b *strings.Builder to the Go
+// interface io.Writer instead (bcGoCase), where a reviewed lent argument
+// of a Go call admits the borrow itself and a kept one refuses it by the
+// Go argument rule (ownership.go).
 // The lifetime model: a value from an owned source goes anywhere; a value
 // from a borrow stands only as a one-name let's value, a with's context
 // entry, or (as a local) an operation call's receiver or a capture by a
@@ -30,6 +34,9 @@ import (
 var borrowConvSeed = flag.Uint64("borrowconv.seed", 0, "run TestBorrowConvModel on this seed alone")
 
 const borrowConvPrelude = `import task
+import go bufio
+import go io
+import go strings
 
 // law-exempt: the property's operation type.
 type Counter {
@@ -60,6 +67,8 @@ func run(f escaping func() int) int { f() }
 func each(f func() int) int { f() }
 
 func waited() int { task.Go() { 1 }.Wait() }
+
+func goUses() int { bufio.MaxScanTokenSize + io.SeekEnd + len(strings.Repeat("", 0)) }
 `
 
 // A bcSite is a place a value stands: the function's result type, the
@@ -100,10 +109,72 @@ var bcLocalSites = []bcSite{
 	{name: "task", result: "int", at: "task.Go() { %s.Bump() }.Wait()", ok: false},
 }
 
+// bcGoSites are the places a borrow of a Go value converted to a Go
+// interface may stand: a reviewed lent argument of a Go call (the Go
+// argument rule admits it), a kept one (that rule refuses it: "kept"), a
+// tail. bcGoLocalSites are the places only its local may stand: an
+// operation call. A local that holds the borrow is no Go argument at all.
+var bcGoSites = []bcSite{
+	{name: "go-lent", result: "int", at: "let n = io.WriteString(%s, \"x\") catch {", after: []string{"case go.Error:", "\treturn 0", "}", "n"}, ok: true},
+	{name: "go-kept", result: "int", at: "bufio.NewWriter(%s)", after: []string{"0"}, ok: false},
+	{name: "go-tail", result: "io.Writer", at: "%s", ok: false},
+}
+
+var bcGoLocalSites = []bcSite{
+	{name: "go-call", result: "int", at: "let n = %s.Write([]byte{120}) catch {", after: []string{"case go.Error:", "\treturn 0", "}", "n"}, ok: true},
+}
+
+// bcGoCase is bcCase over a borrow b *strings.Builder converted to
+// io.Writer.
+func bcGoCase(r *rand.Rand, name string) ([]string, int, string, string) {
+	lines := []string{""}
+	body := func(s string) int {
+		lines = append(lines, "\t"+s)
+		return len(lines) - 1
+	}
+	finish := func(site bcSite, value string) int {
+		lines[0] = fmt.Sprintf("func %s(b *strings.Builder) %s needs go.Foreign {", name, site.result)
+		at := body(fmt.Sprintf(site.at, value))
+		for _, s := range site.after {
+			body(s)
+		}
+		lines = append(lines, "}")
+		return at
+	}
+	if r.IntN(3) == 0 {
+		site := bcGoSites[r.IntN(len(bcGoSites))]
+		at, named := finish(site, "b"), "b"
+		if site.ok {
+			at = 0
+		}
+		if site.name == "go-kept" {
+			named = "kept"
+		}
+		return lines, at, named, "go direct b " + site.name
+	}
+	body("let w io.Writer = b")
+	local := "w"
+	for k := range r.IntN(3) {
+		next := fmt.Sprintf("d%d", k)
+		body(fmt.Sprintf("let %s = %s", next, local))
+		local = next
+	}
+	all := append(append([]bcSite{}, bcGoSites...), bcGoLocalSites...)
+	site := all[r.IntN(len(all))]
+	at := finish(site, local)
+	if site.name == "go-call" {
+		at = 0
+	}
+	return lines, at, local, "go local b " + site.name
+}
+
 // bcCase writes one function and returns its lines, the model's refused
 // line (0 for none), counted from the function's first line, the value the
 // refusal names, and the case's name.
 func bcCase(r *rand.Rand, name string) ([]string, int, string, string) {
+	if r.IntN(4) == 0 {
+		return bcGoCase(r, name)
+	}
 	sources := []string{"t", "&x", "Fixed"}
 	source := sources[r.IntN(len(sources))]
 	borrow := source != "Fixed"
@@ -202,9 +273,12 @@ func TestBorrowConvModel(t *testing.T) {
 			if !ok {
 				named, _, ok = strings.Cut(d.Message, " holds a borrow (*T)")
 			}
-			if d.Code == "S108" && ok && strings.Contains(d.Message, "Borrows 6") {
+			switch {
+			case d.Code == "S108" && ok && strings.Contains(d.Message, "Borrows 6"):
 				got[d.Line] = named
-			} else {
+			case d.Code == "S108" && strings.Contains(d.Message, "may keep it; pass an owned Go reference"):
+				got[d.Line] = "kept"
+			default:
 				got[d.Line] = d.String()
 			}
 		}
@@ -232,6 +306,20 @@ func TestBorrowConvModel(t *testing.T) {
 				}
 			}
 		}
+	}
+	for _, s := range bcGoSites {
+		ok := "refused"
+		if s.ok {
+			ok = "accepted"
+		}
+		for _, k := range []string{"go direct b " + s.name + " " + ok, "go local b " + s.name + " refused"} {
+			if !reached[k] {
+				t.Errorf("no seed reaches %q", k)
+			}
+		}
+	}
+	if !reached["go local b go-call accepted"] {
+		t.Errorf("no seed reaches %q", "go local b go-call accepted")
 	}
 	for _, s := range bcLocalSites {
 		for _, src := range []string{"t", "&x", "Fixed"} {
