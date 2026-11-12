@@ -69,6 +69,32 @@ func outer(xs []int, k int) int { widest(xs, 0, k) + 1 }
 
 func apply1(f func(x int) int, x int) int { f(x) }
 
+type Pick {
+	At(xs []int, k int) int,
+}
+
+type Picker { base int }
+
+func At(p Picker, xs []int, k int) int { widest(xs, 0, k) + p.base }
+
+func pickAt(xs []int, k int) int { widest(xs, 0, k) }
+
+func viaFn(f func(xs []int, k int) int, xs []int, n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + f(xs, i)
+	}
+	s
+}
+
+func viaOp(xs []int, n int) int needs Pick {
+	let mut s = 0
+	for i in 0..n {
+		s = s + Pick.At(xs, i)
+	}
+	s
+}
+
 func weight(t Tok) int {
 	match t {
 	case Num as n:
@@ -149,6 +175,10 @@ func main() needs Console {
 	let mut sum = first(xs, 0) + widest(xs, 0, 1) + weight(classify(3)) + weight(tiny(1)) + outer(xs, 2)
 	sum = sum + apply1(func(x int) int { widest(xs, 0, x) }, 1)
 	sum = sum + coldTo(xs, 2) + down(xs, 2)
+	sum = sum + viaFn(pickAt, xs, 3)
+	with context { Pick: Picker{base: 1} } {
+		sum = sum + viaOp(xs, 3)
+	}
 	for i in 0..3 {
 		sum = sum + first(xs, i) + widest(xs, 0, i) + weight(classify(i)) + weight(tiny(i)) + outer(xs, i)
 		sum = sum + apply1(func(x int) int { widest(xs, 0, x) }, i)
@@ -186,30 +216,45 @@ func TestInlinePays(t *testing.T) {
 	calls := func(code, name string) int {
 		return len(regexp.MustCompile(`\b`+name+`(Known)?(_[0-9]+)?(\[[^\]]*\])?\(`).FindAllString(code, -1))
 	}
+	// pickAt and Picker.At run in a loop only through a function value
+	// (viaFn) and an operation (viaOp): the loop-path mark reaches them
+	// (OPT9, hot.go); its reference ("direct", hotLowering) does not.
 	for _, mode := range []struct {
 		rule string
 		want map[string]int
 	}{
+		{"direct", map[string]int{"pickAt:widest": 1, "Picker.At:widest": 1, "sumTo:widest": 0, "coldTo:widest": 1}},
 		// Off the loop: widest stays a call twice (main's site, and its
 		// site in outer's inlined body) and in the literal's body once;
 		// classify and tiny stay calls; on the loop path, only tiny does,
 		// since Go inlines it. once's copy calls step; From's inlines it.
 		// Of the functions with a Go body of their own, only coldTo is
 		// off every loop path.
-		{"", map[string]int{"first": 0, "widest": 3, "classify": 1, "tiny": 2, "outer": 0, "apply1": 0, "onceM:step": 1, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 1}},
-		{"budget", map[string]int{"first": 0, "widest": 0, "classify": 0, "tiny": 0, "outer": 0, "apply1": 0, "onceM:step": 0, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 0}},
+		{"", map[string]int{"first": 0, "widest": 3, "classify": 1, "tiny": 2, "outer": 0, "apply1": 0, "onceM:step": 1, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 1, "pickAt:widest": 0, "Picker.At:widest": 0}},
+		{"budget", map[string]int{"first": 0, "widest": 0, "classify": 0, "tiny": 0, "outer": 0, "apply1": 0, "onceM:step": 0, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 0, "pickAt:widest": 0, "Picker.At:widest": 0}},
 	} {
-		saved := inlineCostLowering
-		inlineCostLowering = mode.rule
+		saved, savedHot := inlineCostLowering, hotLowering
+		if mode.rule == "direct" {
+			hotLowering = "direct"
+		} else {
+			inlineCostLowering = mode.rule
+		}
 		o := mustLower(t, "inlinepays"+mode.rule, paysSource)
-		inlineCostLowering = saved
+		inlineCostLowering, hotLowering = saved, savedHot
 		code := o.mainGo()
 		for key, want := range mode.want {
 			fn, name, ok := strings.Cut(key, ":")
 			if !ok {
 				fn, name = "main_1", key // Go's main is the entry; Ergo's main is main_1
 			}
-			body := goFunc(t, code, fn)
+			var body string
+			if recv, method, isMethod := strings.Cut(fn, "."); isMethod {
+				// A function whose first parameter is a local type is a Go
+				// method (196m); the operations adapter has its name too.
+				body = goMethod(t, code, recv, method)
+			} else {
+				body = goFunc(t, code, fn)
+			}
 			if got := calls(body, name); got != want {
 				t.Errorf("rule %q: %s calls %s %d times, want %d\n%s", mode.rule, fn, name, got, want, body)
 			}
@@ -231,4 +276,20 @@ func inlineSizeOf(t *testing.T, name string) int {
 	}
 	t.Fatalf("no function %s", name)
 	return 0
+}
+
+// goMethod is the Go text of the lowered method name of the value
+// receiver type recv (func (x recv) name(…)), not an adapter's.
+func goMethod(t *testing.T, code, recv, name string) string {
+	t.Helper()
+	re := regexp.MustCompile(`(?m)^func \([a-z_0-9]+ ` + regexp.QuoteMeta(recv) + `\) ` + regexp.QuoteMeta(name) + `\(`)
+	loc := re.FindStringIndex(code)
+	if loc == nil {
+		t.Fatalf("no Go method %s.%s", recv, name)
+	}
+	end := regexp.MustCompile(`(?m)^(/\*line [^*]*\*/)?}$`).FindStringIndex(code[loc[0]:])
+	if end == nil {
+		t.Fatalf("Go method %s.%s has no end", recv, name)
+	}
+	return code[loc[0] : loc[0]+end[1]]
 }
