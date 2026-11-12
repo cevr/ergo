@@ -1,0 +1,18 @@
+// The events of connections, as a log writes them: each is a JSON object
+// whose "_tag" names its kind (the codec's union form), so a log is read
+// with the derived codec and handled by an exhaustive match.
+
+// Event is one thing that happened to a connection.
+type Event = Opened | Sent | Closed | Failed
+
+// Opened: connection ID opened at time At.
+type Opened { ID int, At int }
+
+// Sent: connection ID sent Bytes bytes.
+type Sent { ID int, Bytes int }
+
+// Closed: connection ID closed.
+type Closed { ID int }
+
+// Failed: connection ID ended with an error.
+type Failed { ID int, Reason string }

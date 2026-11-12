@@ -89,12 +89,27 @@ type scan {
 	failure  io.ReadFailed,
 	frames   []frame,
 	wrong    bool,
+	seq      bool,
+	peak     int,
 }
 
 // NewStream reads src by Open's rules: no more than maxBytes bytes (no
 // limit when maxBytes <= 0) and nesting no deeper than maxDepth lists and
 // objects (10000 when maxDepth <= 0). It reads nothing until a read asks.
-func NewStream(src io.Source, maxBytes int, maxDepth int) Stream {
+func NewStream(src io.Source, maxBytes int, maxDepth int) Stream { newStream(src, maxBytes, maxDepth, false) }
+
+// NewSequenceStream reads src as a sequence of JSON values, each by
+// Open's rules, separated by white space (newline-delimited JSON is one):
+// no value, or one after another, where Open allows one. maxBytes limits
+// the whole text and maxDepth each value. Read its values with
+// NewElements.
+func NewSequenceStream(src io.Source, maxBytes int, maxDepth int) Stream { newStream(src, maxBytes, maxDepth, true) }
+
+// Window is the most bytes r has held at once: a chunk with the part of
+// a token cut by its edge, never the text (ElementsHoldOneWindow).
+func Window(r Stream) int { r.st.Get().peak }
+
+func newStream(src io.Source, maxBytes int, maxDepth int, seq bool) Stream {
 	let depth = if maxDepth > 0 { maxDepth } else { 10000 }
 	Stream{st: sync.NewRef[scan](scan{
 		src:      src,
@@ -116,6 +131,8 @@ func NewStream(src io.Source, maxBytes int, maxDepth int) Stream {
 		failure:  io.ReadFailed{Reason: ""},
 		frames:   []frame{},
 		wrong:    false,
+		seq:      seq,
+		peak:     0,
 	})}
 }
 
@@ -233,6 +250,9 @@ func fill(s *scan) bool {
 		s.buf = s.buf[s.i:] + c.Value
 		s.base = s.base + s.i
 		s.i = 0
+		if len(s.buf) > s.peak {
+			s.peak = len(s.buf)
+		}
 		if s.maxBytes > 0 && s.total > s.maxBytes {
 			fail(s, s.maxBytes, tooLong(s.maxBytes))
 			return false
@@ -280,6 +300,14 @@ func produce(s *scan) tok {
 		return tok{kind: kDone, text: "", raw: false}
 	}
 	ws(s)
+	if s.seq && len(s.ctx) == 0 && (s.state == sRoot || s.state == sValue) {
+		// A sequence: another value, or the end, after any white space.
+		if need(s, 1) {
+			s.state = sValue
+			return value(s)
+		}
+		s.state = sRoot
+	}
 	if s.state == sRoot {
 		if need(s, 1) {
 			fail(s, pos(s), "text after the value")

@@ -1,0 +1,11 @@
+# scripts/opcount: tally N generated events read one at a time from
+# standard input (json.Elements); the cost of one event is the slope
+# between the two sizes. The control is the hand Go program that reads the
+# same array with encoding/json's Decoder (Token, More, Decode). The
+# json.Decode reference is the same workload with `args whole`, for the
+# program and the control (stdlib.md json 8).
+unit event
+sizes 20000 220000
+input self gen {n}
+args stream
+control examples/events/testdata/control

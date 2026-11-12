@@ -331,6 +331,10 @@ internal/sketch/lower/types.go	// wires names the codec witness of each wire typ
 internal/sketch/lower/witness.go	// isWireParam reports a type parameter under wire, whose witness is its
 internal/sketch/std/codec/codec.ergo	*
 internal/sketch/std/codec/laws.ergo	func many[T wire](vs []T) ([]T, Option[T]) fails wired[Option[T]] {
+internal/sketch/std/json/elements.ergo	type Elements[T wire] { r Stream, at sync.Ref[int] }
+internal/sketch/std/json/elements.ergo	func NewElements[T wire](r Stream) Elements[T] { Elements[T]{r: r, at: sync.NewRef[int](eStart)} }
+internal/sketch/std/json/elements.ergo	func Next[T wire](e Elements[T]) Option[T] fails Malformed | io.ReadFailed | WireWrongKind | wired[T] {
+internal/sketch/std/json/elements.ergo	func finish[T wire](e Elements[T], close bool) Option[T] fails Malformed | io.ReadFailed {
 internal/sketch/std/json/json.ergo	*
 internal/sketch/std/json/stream.ergo	func DecodeStream[T wire](c Codec[T], src io.Source) T fails Malformed | io.ReadFailed | wired[T] {
 internal/sketch/std/http/query.ergo	// record follows the codec's rules: a field's key is its wire name, an

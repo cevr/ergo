@@ -1,0 +1,89 @@
+// Elements reads a stream's values one at a time (docs/spec/stdlib.md,
+// json 8; corpus-wave SJ2): each element of a top-level array, or each
+// value of a sequence stream (NewSequenceStream, newline-delimited JSON
+// among them), decoded with T's derived codec. It holds one element at a
+// time: an element is built when Next reads it and is the caller's after,
+// and the Stream holds one window (Window), so reading n elements takes
+// memory for one element, not for n.
+//
+// It is a pull value: Next gives the next element, or None after the
+// last, and fails with the text's break, a failed read or the element's
+// shape failure. A failure of an element settles the text first, as
+// DecodeStream does, so a break of the text is told before the shape
+// failure it caused; after the last element Next settles the rest, so
+// Next's last answer is Decode's verdict on the whole text
+// (ElementsEqualWholeDecode). Each element Next gives was read from text
+// that keeps Open's rules up to the element's end; the text after it may
+// still break them, so a consumer that acts on an element may act on part
+// of a text that is not JSON: the weaker guarantee of a Stream (json 7).
+
+import io
+import sync
+
+// Elements is the values of r as T, read one at a time.
+type Elements[T wire] { r Stream, at sync.Ref[int] }
+
+// The places of an Elements: before the first value, among the values,
+// past the end.
+let eStart = 0
+let eIn = 1
+let eDone = 2
+
+// NewElements reads r's values as T: the elements of the array r's text
+// holds, or each value of a sequence stream.
+func NewElements[T wire](r Stream) Elements[T] { Elements[T]{r: r, at: sync.NewRef[int](eStart)} }
+
+// Next is the next element, or None after the last, once the rest of
+// the text is settled.
+func Next[T wire](e Elements[T]) Option[T] fails Malformed | io.ReadFailed | WireWrongKind | wired[T] {
+	let r = e.r
+	let at = e.at.Get()
+	if at == eDone {
+		return None
+	}
+	if at == eStart {
+		if !r.st.Get().seq {
+			r.BeginList() catch {
+			case WireWrongKind as w:
+				try Settle(r)
+				return w
+			}
+		}
+		e.at.Set(eIn)
+	}
+	let seq = r.st.Get().seq
+	if !another(r, seq) {
+		return try e.finish(!seq)
+	}
+	let v = decode[T](r) catch {
+	case err:
+		try Settle(r)
+		return err
+	}
+	if r.st.Get().bad {
+		// The element's own text broke (a list or object the text ends
+		// in): a decode reads on past a break, so Settle tells it.
+		try Settle(r)
+	}
+	Some[T]{Value: v}
+}
+
+// another reports a value left: in a sequence, the text has another
+// value; in an array, the list has another element.
+func another(r Stream, seq bool) bool {
+	if seq {
+		return r.Peek() != WireEnd
+	}
+	r.More()
+}
+
+// finish closes the array when close, settles the text and gives None.
+func finish[T wire](e Elements[T], close bool) Option[T] fails Malformed | io.ReadFailed {
+	let r = e.r
+	if close {
+		r.End()
+	}
+	e.at.Set(eDone)
+	try Settle(r)
+	None
+}

@@ -293,6 +293,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Stream** (`json.Stream`): A JSON `Reader` over a Source that checks the text as it reads it, so a value read from it before it is settled may come from a text that is not JSON; settling reads the rest and reports the first break as `Open` would. Not Effect's `Stream`, a sequence of values over time. See [stdlib, json 7](docs/spec/stdlib.md#json).
 
+**Elements** (`json.Elements`): The values of a JSON Stream read one at a time with a type's derived codec, the elements of a top-level array or the values of a sequence stream (newline-delimited JSON), by a pull call `Next` that gives the next value or none after the last. Only the value being read is held, never the text. See [stdlib, json 8](docs/spec/stdlib.md#json).
+
 **Exit accumulator**: The runtime record that combines a body's outcome with release defects and interruption into one exit cause, so a release never hides a failure.
 
 **Definition ID**: The stable name of one checked definition, derived by the checker from the declaration: `<package>.<Name>`, `<package>.<Type>.<Method>`, or `<enclosing ID>/<construct>#<n>` for a block such as a timeout. It is meaningful only with the source revision it was computed from. Runtime traces, defect chains and `ergo inspect` share this ID space ([traceability](docs/research/traceability.md)).
