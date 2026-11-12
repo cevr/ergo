@@ -393,9 +393,9 @@
       "file": "internal/sketch/eval/machine.go",
       "from": "\tif law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
       "to": "\tif false && law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
-      "rule": "Check time leaves an always or sometimes law (X2) to ergo test: it has no target variant to search, so searching it is a defect. Its killer is the lowering's suite (it runs ergo check through the CLI the runner builds, which the coverage pass does not instrument): judge it with `go run ./scripts/mutants -run '^b16d-eval-invariant-searched$' ./internal/sketch/eval lower`.",
-      "killers": ["lower:TestMachineLawTables"],
-      "anchor": {"tests": ["lower:TestMachineLawTables"]}
+      "rule": "Check time leaves an always or sometimes law (X2) to ergo test: it has no target variant to search, so searching it is a defect. Its killer is in the lowering's suite, which the runner judges it with: TestMachineLawRuns runs the law through ergo check, a built CLI the coverage pass does not instrument, so the anchor names it as covering.",
+      "killers": ["internal/sketch/lower:TestMachineLawRuns"],
+      "anchor": {"tests": ["internal/sketch/lower:TestMachineLawRuns"]}
     },
     {
       "name": "b16d-eval-float-int-wraps",
