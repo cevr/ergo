@@ -4,6 +4,8 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"strings"
+
+	"ergo.local/prototype/internal/sketch/sketchtest"
 )
 
 // generate is one seeded source of the formatter's input domain: a
@@ -25,6 +27,53 @@ func generate(r *rand.Rand) string {
 	}
 	g.b.WriteString(g.pick("\n", "", "\n\n", " // end\n", "\n/* end */"))
 	return g.b.String()
+}
+
+// alignInputs are aligned columns whose cell widths taper, as the Go
+// formatter's TestAlignmentIsLinear builds them: each width passes the
+// geometric-mean test against its section while the section's widest and
+// narrowest cells part by the ratio, so the section ends early. Each taper
+// is followed by a run of short cells, in every column the formatter aligns.
+func alignInputs() []sketchtest.Input {
+	kinds := []struct {
+		name, open, close string
+		row               func(i, size int) string
+	}{
+		{"record names", "type T {\n", "}\n", func(i, size int) string { return cell("f", i, size) + " int,\n" }},
+		{"record types", "type T {\n", "}\n", func(i, size int) string { return "f" + strconv.Itoa(i) + " " + cell("T", i, size) + ",\n" }},
+		{"record types before comments", "type T {\n", "}\n", func(i, size int) string { return "f" + strconv.Itoa(i) + " " + cell("T", i, size) + ", // c\n" }},
+		{"let values before comments", "", "", func(i, size int) string { return "let v" + strconv.Itoa(i) + " = " + cell("x", i, size) + " // c\n" }},
+		{"map keys", "let m = Map[string, int]{\n", "}\n", func(i, size int) string { return strconv.Quote(cell("k", i, max(1, size-2))) + ": 1,\n" }},
+		{"context entry keys", "let W = context {\n", "}\n", func(i, size int) string { return cell("K", i, size) + ": T{},\n" }},
+	}
+	tapers := map[string][]int{
+		"factor 0.7":  {96, 67, 47, 32, 23, 16, 11},
+		"factor 0.45": {96, 43, 19, 8},
+		"rising":      {11, 16, 23, 32, 47, 67, 96},
+		"steps":       {20, 45, 50, 60, 12},
+	}
+	var out []sketchtest.Input
+	for _, kind := range kinds {
+		for name, widths := range tapers {
+			var b strings.Builder
+			b.WriteString(kind.open)
+			for i, w := range widths {
+				b.WriteString(kind.row(i, w))
+			}
+			for i := range 8 {
+				b.WriteString(kind.row(len(widths)+i, 4))
+			}
+			b.WriteString(kind.close)
+			out = append(out, sketchtest.Input{Name: "align/" + kind.name + "/" + name, Src: b.String()})
+		}
+	}
+	return out
+}
+
+// cell is a unique name of at least size characters.
+func cell(prefix string, i, size int) string {
+	name := prefix + strconv.Itoa(i)
+	return name + strings.Repeat("a", max(0, size-len(name)))
 }
 
 type gen struct {
@@ -225,6 +274,12 @@ func (g *gen) expr() {
 		g.w(") { ")
 		g.expr()
 		g.w(" }")
+	case 17:
+		// A selector on a number literal keeps its blank: `0 .A`.
+		g.w(g.pick("0", "7", "2.5", "1e9"), " .", g.name())
+	case 18:
+		// A slice whose one present index is binary has no blanks.
+		g.w(g.name(), "[", g.pick("a+1:", ":b*2", "a+b:c", "a:b-1", "x:", "a+b:c:d"), "]")
 	default:
 		g.literal()
 	}
@@ -252,8 +307,13 @@ func (g *gen) list(item func()) {
 	}
 }
 
+// simple is a statement that prints on one line.
+func (g *gen) simple() string {
+	return g.pick(g.name(), g.name()+"(y)", g.name()+" = 1", "return")
+}
+
 func (g *gen) stmt() {
-	switch g.r.IntN(12) {
+	switch g.r.IntN(15) {
 	case 0:
 		g.w("let ", g.pick("", "mut "), g.name())
 		if g.r.IntN(3) == 0 {
@@ -315,6 +375,15 @@ func (g *gen) stmt() {
 	case 8:
 		g.w("assert ")
 		g.expr()
+	case 9:
+		// A one-line body with two statements breaks.
+		g.w(g.pick("if x", "for", "for x in xs"), " { ", g.simple(), "; ", g.simple(), " }")
+	case 10:
+		// An if whose else spans lines is not on one line.
+		g.w("if x { ", g.simple(), " } else ", g.pick("{\n", "if y { b } else {\n"), g.simple(), "\n}")
+	case 11:
+		// A catch in a one-line body breaks it.
+		g.w("if x { ", g.name(), "(y) catch { case A: 1 } }")
 	default:
 		g.expr()
 	}
@@ -356,7 +425,7 @@ func (g *gen) fields(sep string) {
 }
 
 func (g *gen) decl() {
-	switch g.r.IntN(14) {
+	switch g.r.IntN(15) {
 	case 0:
 		g.w("import ", g.pick("strings", "go strconv", "s strings", "go net/http", "\"a/b\"", "selfhost/tree"))
 	case 1:
@@ -390,6 +459,10 @@ func (g *gen) decl() {
 		g.block()
 	case 10:
 		g.w("type Port int where 1 <= it && it <= ", strconv.Itoa(g.r.IntN(70000)))
+	case 11:
+		// Variants on one line, one of whose fields span lines: the union
+		// prints one variant per line.
+		g.w("type ", g.name(), " = ", g.name(), " | ", g.name(), "{X int,\n\tY ", g.typeName(), "}", g.pick("", " | Z", " | W{}"))
 	default:
 		g.w("func ", g.pick("", "(p *Point) "), g.name(), g.pick("", "[T any, U comparable]"), "(")
 		g.list(func() { g.w(g.name(), " ", g.typeName()) })

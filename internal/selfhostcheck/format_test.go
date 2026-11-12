@@ -30,7 +30,8 @@ import (
 // comment order kept, and the limit refused exactly above the size.
 //
 // Inputs: every examples/**/*.ergo and pilot .ergo file, the positive and
-// superseded corpus, the formatter's fuzz seeds, seeded generated grammar
+// superseded corpus, the formatter's fuzz seeds, the string literals of the
+// formatter's own tests, tapered aligned columns, seeded generated grammar
 // inputs (generate_test.go), a whitespace perturbation of each and seeded
 // edits (invalid UTF-8, truncation, a random byte), and random bytes.
 // Limits: 0 and a negative one for every input, and the size less one,
@@ -144,6 +145,8 @@ func formatInputs(t *testing.T, seed uint64) []sketchtest.Input {
 	}
 	inputs = append(inputs, superseded...)
 	inputs = append(inputs, fuzzSeeds(t)...)
+	inputs = append(inputs, formatterRows(t)...)
+	inputs = append(inputs, alignInputs()...)
 	r := rand.New(rand.NewPCG(seed, 0x6f72))
 	for i := range generatedInputs {
 		src := generate(r)
@@ -183,6 +186,43 @@ func fuzzSeeds(t *testing.T) []sketchtest.Input {
 				out = append(out, sketchtest.Input{Name: "fuzz/" + e.Name(), Src: s})
 			}
 		}
+	}
+	return out
+}
+
+// formatterRows are the string literals of the Go formatter's own tests:
+// its regression rows reach layout branches (a space before a comma, a
+// comment between clauses, a one-line body) that well-formatted programs
+// never take.
+func formatterRows(t *testing.T) []sketchtest.Input {
+	t.Helper()
+	dir := filepath.Join(repoRoot(), "internal", "sketch", "format")
+	files, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []sketchtest.Input
+	fset := token.NewFileSet()
+	for _, file := range files {
+		f, err := parser.ParseFile(fset, file, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			s, err := strconv.Unquote(lit.Value)
+			if err != nil || s == "" {
+				return true
+			}
+			out = append(out, sketchtest.Input{Name: "rows/" + filepath.Base(file) + ":" + strconv.Itoa(fset.Position(lit.Pos()).Line), Src: s})
+			return true
+		})
+	}
+	if len(out) == 0 {
+		t.Fatalf("no string literals in %s", dir)
 	}
 	return out
 }
