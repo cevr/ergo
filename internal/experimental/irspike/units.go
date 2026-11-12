@@ -24,8 +24,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// Statement kinds of other units first: the first match wins.
 	{"expression statement *syntax.TryExpr", "G2"},
 	{"expression statement *syntax.CatchExpr", "G2"},
-	{"expression statement *syntax.SwitchStmt", "G3"},
-	{"expression statement *syntax.TypeSwitchStmt", "G3"},
 	{"expression statement *syntax.FuncLit", "G6"},
 	{"expression statement *", "G1"},
 	{"expression *syntax.IfStmt", "G1"},
@@ -109,12 +107,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// G3: unions, match, machines; the lowering's representation decides.
 	{"named type that is not a record", "G3"},
 	{"record without a struct", "G3"},
-	{"result statement *syntax.TypeSwitchStmt", "G3"},
-	{"statement *syntax.TypeSwitchStmt", "G3"},
-	{"expression *syntax.TypeSwitchStmt", "G3"},
-	{"result statement *syntax.SwitchStmt", "G3"},
-	{"statement *syntax.SwitchStmt", "G3"},
-	{"expression *syntax.SwitchStmt", "G3"},
+	// A match inside an operand: hoisting it would move it before the
+	// operands to its left (as an if expression's, G1).
+	{"expression *syntax.TypeSwitchStmt", "G3b"},
+	{"expression *syntax.SwitchStmt", "G3b"},
 	{"implicit conversion", "G3b"}, // of a fallible call's result (ret)
 	{"constant of type *", "G3"},
 	// G3b (IRG3's follow-up): the match tree, scalar-form locals, machines.
