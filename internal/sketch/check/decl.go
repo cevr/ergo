@@ -872,7 +872,7 @@ func (c *checker) resolveNamed(n *Named) {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -2083,7 +2083,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
 				c.def(name, tp)
 				switch {
 				case cons != nil:

@@ -528,7 +528,8 @@ func isAny(x Expr) bool {
 	return ok && id.Name == "any"
 }
 
-// parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]` or
+// parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]`,
+// `[T lent Counter]` or
 // `[E any, K comparable]` with Go's grouping: names before a constraint
 // share it, names at the end without one have none, and `any` gives a group
 // none where a constrained group follows it.
@@ -538,7 +539,14 @@ func (p *parser) parseTypeParams() *FieldList {
 	for {
 		pending = append(pending, p.parseIdent())
 		if p.tok.tok != COMMA && p.tok.tok != RBRACK {
-			l.List = append(l.List, &Field{Names: pending, Type: p.parseTypeName("a constraint")})
+			f := &Field{Names: pending, Type: p.parseTypeName("a constraint")}
+			// `lent` before a constraint marks the parameter lent and
+			// keeps the constraint: `[T lent Counter]` (types.md, Borrows
+			// 7). `lent` alone is the predeclared constraint.
+			if id, ok := f.Type.(*Ident); ok && id.Name == "lent" && p.tok.tok != COMMA && p.tok.tok != RBRACK {
+				f.Lent, f.Type = id.Pos(), p.parseTypeName("a constraint")
+			}
+			l.List = append(l.List, f)
 			pending = nil
 		}
 		if !p.got(COMMA) || p.tok.tok == RBRACK {

@@ -338,11 +338,14 @@ func (e *ContextEntry) End() Pos {
 // (types.md, Structs 7) has Include set, Dots at its `..`, no Names, and R
 // as its Type.
 type Field struct {
-	Doc     *CommentGroup
-	Names   []*Ident
-	Type    Expr
-	Key     *BasicLit // optional record field key, independent of the codec format
-	Any     Pos
+	Doc   *CommentGroup
+	Names []*Ident
+	Type  Expr
+	Key   *BasicLit // optional record field key, independent of the codec format
+	Any   Pos
+	// Lent is the position of a type parameter's `lent` written before
+	// its constraint, `[T lent Counter]` (types.md, Borrows 7), or NoPos.
+	Lent    Pos
 	Include bool
 	Dots    Pos
 	// WherePos and Where are a law parameter's `where P` (types.md,

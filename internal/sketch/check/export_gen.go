@@ -1599,6 +1599,7 @@ func (e *encoder) encFieldsTypeParam(v *TypeParam) {
 	e.encKind(v.Kind)
 	e.encType(v.Constraint)
 	e.encSyntax_Pos(v.Pos)
+	e.encT12(v.Lent)
 	e.encT12(v.conflict)
 	e.encT1(v.id)
 }
@@ -10570,6 +10571,7 @@ func (d *decoder) decFieldsTypeParam(v *TypeParam) {
 	v.Kind = d.decKind()
 	v.Constraint = d.decType()
 	v.Pos = d.decSyntax_Pos()
+	v.Lent = d.decT12()
 	v.conflict = d.decT12()
 	v.id = d.decT1()
 }

@@ -120,6 +120,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"Name":       {why: "a name"},
 		"Kind":       {why: "a kind"},
 		"Pos":        {why: "a position"},
+		"Lent":       {why: "a flag: the bracket writes lent"},
 		"conflict":   {why: "a diagnostic mark"},
 		"id":         {why: "an identity"},
 	},

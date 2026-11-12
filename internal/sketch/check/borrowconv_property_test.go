@@ -74,11 +74,13 @@ func hold[T](x T, use escaping func(v T) int) func() int { func() int { use(x) }
 
 func later[T](x T) func() T { func() T { x } }
 
-func viaOp[T Counter](x T) int { x.Bump() }
+func viaOp[T lent Counter](x T) int { x.Bump() }
+
+func opPlain[T Counter](x T) int { x.Bump() }
 
 func fwd[T](x T) T { id(x) }
 
-func fwdOp[T Counter](x T) int { viaOp(x) }
+func fwdOp[T lent Counter](x T) int { viaOp(x) }
 
 func ret[T](x T) T { return x }
 
@@ -210,9 +212,11 @@ func bcGoCase(r *rand.Rand, name string) ([]string, int, string, string) {
 // value of it: it binds it to its own locals (local), passes it on to
 // such a body (fwdLocal), passes it to a function value's parameter
 // (apply), writes it through a borrow parameter into the caller's local
-// (put), and keeps only a function value (relay). A method-constrained T
-// cannot also be lent, so viaOp and fwdOp refuse a borrow though their
-// bodies keep none (a gap of the lent constraint). One that keeps it
+// (put), and keeps only a function value (relay); a method-constrained T
+// writes lent before its constraint, [T lent Counter], and calls an
+// operation on it (viaOp) or passes it on (fwdOp). opPlain, whose body
+// keeps none but whose signature does not write lent, refuses a borrow,
+// as every unmarked T does. One that keeps it
 // refuses a borrow: it returns it, as its tail (id), by return (ret), as
 // an if's value (arm) or through a body that does (fwd; INS-3); it
 // captures it in an escaping closure (hold, later),
@@ -227,8 +231,9 @@ var bcGenericSites = []bcSite{
 	{name: "targ-arm", result: "int", at: "let u = arm(%[1]s)", after: []string{"u.Bump()"}},
 	{name: "targ-fwd", result: "int", at: "let u = fwd(%[1]s)", after: []string{"u.Bump()"}},
 	{name: "targ-local", result: "int", at: "local(%[1]s)", ok: true},
-	{name: "targ-op", result: "int", at: "viaOp(%[1]s)"},
-	{name: "targ-fwdop", result: "int", at: "fwdOp(%[1]s)"},
+	{name: "targ-op", result: "int", at: "viaOp(%[1]s)", ok: true},
+	{name: "targ-fwdop", result: "int", at: "fwdOp(%[1]s)", ok: true},
+	{name: "targ-opplain", result: "int", at: "opPlain(%[1]s)"},
 	{name: "targ-fwdlocal", result: "int", at: "fwdLocal(%[1]s)", ok: true},
 	{name: "targ-put", result: "int", before: []string{"let mut q = %[1]s"}, at: "put(&q, %[1]s)", after: []string{"q.Bump()"}, ok: true},
 	{name: "targ-apply", result: "int", at: "apply(%[1]s, func(v %[2]s) int { v.Bump() })", ok: true},
@@ -268,7 +273,7 @@ func bcGenericCase(r *rand.Rand, name string) ([]string, int, string, string) {
 		body(a)
 	}
 	lines = append(lines, "}")
-	named := map[string]string{"targ-id": "typearg id", "targ-ret": "typearg ret", "targ-arm": "typearg arm", "targ-fwd": "typearg fwd", "targ-hold": "typearg hold", "targ-box": "typearg Box[*Tally]", "targ-later": "typearg later", "targ-via": "typearg via", "targ-task": "typearg spawn", "targ-op": "typearg viaOp", "targ-fwdop": "typearg fwdOp"}[site.name]
+	named := map[string]string{"targ-id": "typearg id", "targ-ret": "typearg ret", "targ-arm": "typearg arm", "targ-fwd": "typearg fwd", "targ-hold": "typearg hold", "targ-box": "typearg Box[*Tally]", "targ-later": "typearg later", "targ-via": "typearg via", "targ-task": "typearg spawn", "targ-opplain": "typearg opPlain"}[site.name]
 	if source == "Fixed" || site.ok {
 		at = 0
 	}
@@ -491,6 +496,7 @@ var bcLentSites = map[string]string{
 	"later": "targ-later", "via": "targ-via", "spawn": "targ-task", "hold": "targ-hold",
 	"local": "targ-local", "fwdLocal": "targ-fwdlocal", "put": "targ-put",
 	"apply": "targ-apply", "relay": "targ-relay",
+	"viaOp": "targ-op", "fwdOp": "targ-fwdop", "opPlain": "targ-op",
 }
 
 // TestLentMarkModel is the declaration half of the property (types.md,
@@ -522,6 +528,7 @@ func TestLentMarkModel(t *testing.T) {
 			t.Fatalf("%s: no declaration in the prelude", name)
 		}
 		src = strings.Replace(src, "func "+name+"[T](", "func "+name+"[T lent](", 1)
+		src = strings.Replace(src, "func "+name+"[T Counter](", "func "+name+"[T lent Counter](", 1)
 		src += "\nfunc main() {}\n"
 		_, diags := CheckSource(src)
 		var got []string
@@ -542,7 +549,9 @@ func TestLentMarkModel(t *testing.T) {
 // TestLentDeclarations pins the text and position of the declaration
 // check of the lent mark (types.md, Borrows 7; q137, EX3): a lent type
 // parameter whose body keeps a value of it, whose value goes to a type
-// parameter not marked lent, of an extern, and of a type declaration.
+// parameter not marked lent, of an extern, and of a type declaration;
+// and the call's refusal names the mark to write, the constraint kept
+// ([T lent Counter]).
 // TestBorrowConvModel covers the call (a borrow binds only a lent T); it
 // writes no body that breaks its mark.
 //
@@ -562,6 +571,17 @@ func plain[T lent](x T) int { 1 }
 extern go slices.Clone func cloned[T lent](xs []T) []T
 
 type Box[T lent] { V T }
+
+// law-exempt: the test's operation type.
+type Counter { Bump() int }
+
+type Tally { n int }
+
+func Bump(t *Tally) int { t.n }
+
+func opPlain[T Counter](x T) int { x.Bump() }
+
+func useOp(t *Tally) int { opPlain(t) }
 `
 	_, diags := CheckSource(src)
 	var got []string
@@ -574,6 +594,7 @@ type Box[T lent] { V T }
 		"10:1: S108 the extern cloned has the type parameter T; a user extern writes the types it calls its Go target at, and Go infers the type arguments",
 		"10:36: S108 T cannot be lent: an extern's body is Go code, which Ergo does not read (types.md, Borrows 7)",
 		"12:10: S108 T cannot be lent: a value of a generic type holds its type argument, and a record or a collection never holds a borrow (types.md, Borrows 7)",
+		"23:28: S108 opPlain cannot take a borrow as its T (*Tally): its signature does not write [T lent Counter], so its body may keep a value of T; a borrow instantiates only a type parameter whose signature writes lent (types.md, Borrows 7)",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

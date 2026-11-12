@@ -10,8 +10,8 @@ import (
 // the body may keep it: capture it in a frame that may outlive the call,
 // store it in a field, an element or a payload, or pass it where it may be
 // kept. A borrow instantiates T only as a lend, when the signature marks
-// T lent, `[T lent]` (q137, EX3: the signature decides, and a call reads
-// no body). The declaration's body is checked against the mark
+// T lent, `[T lent]`, or writes lent before T's constraint, `[T lent C]`
+// (q137, EX3: the signature decides, and a call reads no body). The declaration's body is checked against the mark
 // (checkLentParams). The rule is the allow-list of the borrow rules
 // again, over every expression of the body whose type mentions T:
 //
@@ -61,10 +61,24 @@ func typeMentions(t Type, tp *TypeParam) bool {
 // the body is checked against the mark at the declaration
 // (checkLentParams), never read at a call.
 func (w *escWalk) keepsTParam(f *Func, tp *TypeParam) string {
-	if typeSet(tp) == SetLent {
+	if isLent(tp) {
 		return ""
 	}
-	return "its signature does not write [" + tp.Name + " lent]"
+	return "its signature does not write " + lentMark(tp)
+}
+
+// isLent reports whether tp is lent: its constraint is lent, [T lent], or
+// its bracket writes lent before a constraint, [T lent Counter].
+func isLent(tp *TypeParam) bool {
+	return tp.Lent || typeSet(tp) == SetLent
+}
+
+// lentMark is the bracket that marks tp lent, its constraint kept.
+func lentMark(tp *TypeParam) string {
+	if tp.Constraint == nil || typeSet(tp) == SetLent {
+		return "[" + tp.Name + " lent]"
+	}
+	return "[" + tp.Name + " lent " + tp.Constraint.String() + "]"
 }
 
 // checkLentParams checks the declaration d against each type parameter
@@ -93,7 +107,7 @@ func (w *escWalk) checkLentParams(d syntax.Decl) {
 	for _, field := range list.List {
 		for _, id := range field.Names {
 			p, ok := w.info.Defs[id].(*TypeParam)
-			if !ok || typeSet(p) != SetLent {
+			if !ok || !isLent(p) {
 				continue
 			}
 			if what != "" {

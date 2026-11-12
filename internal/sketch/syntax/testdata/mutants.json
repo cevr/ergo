@@ -45,6 +45,8 @@
       "killers": [
         "internal/sketch/format:TestFormatIdempotent"
       ]
-    }
+    },
+    {"name":"ex3-lent-modifier-unparsed","origin":"wf10 EXPLICIT EX3 r2","file":"internal/sketch/syntax/parser.go","from":"if id, ok := f.Type.(*Ident); ok && id.Name == \"lent\" && p.tok.tok != COMMA && p.tok.tok != RBRACK {","to":"if id, ok := f.Type.(*Ident); false && ok && id.Name == \"lent\" && p.tok.tok != COMMA && p.tok.tok != RBRACK {","rule":"`lent` before a constraint marks the parameter lent: [T lent Counter] (types.md, Borrows 7).","killers":["internal/sketch/syntax:TestDecidedFixtures"]},
+    {"name":"ex3-lent-modifier-unprinted","origin":"wf10 EXPLICIT EX3 r2","file":"internal/sketch/format/nodes.go","from":"\t\t\tp.token(f.Lent, \"lent\")","to":"\t\t\t_ = f.Lent","rule":"The formatter keeps the lent mark before a constraint.","killers":["internal/sketch/syntax:TestDecidedFixtures"]}
   ]
 }

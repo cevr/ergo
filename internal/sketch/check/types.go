@@ -295,8 +295,11 @@ type TypeParam struct {
 	Kind       Kind
 	Constraint Type // nil for none: every type, no operation but assignment
 	Pos        syntax.Pos
-	conflict   bool // a kind conflict, already reported: resolves to nothing
-	id         int
+	// Lent: the bracket writes lent before the constraint, `[T lent C]`
+	// (types.md, Borrows 7); `[T lent]` is the constraint lent itself.
+	Lent     bool
+	conflict bool // a kind conflict, already reported: resolves to nothing
+	id       int
 }
 
 // RowVar is the inferred row of a function that writes no row (class F):

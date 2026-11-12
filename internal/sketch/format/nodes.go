@@ -311,6 +311,10 @@ func (p *printer) fieldList(l *syntax.FieldList, open, close string) {
 			p.space()
 			p.token(f.Any, "any")
 		}
+		if f.Lent > 0 {
+			p.space()
+			p.token(f.Lent, "lent")
+		}
 		if f.Type != nil {
 			if len(f.Names) > 0 {
 				p.space()
