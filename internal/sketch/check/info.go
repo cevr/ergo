@@ -714,6 +714,10 @@ type Conversion struct {
 	Kind     ConversionKind
 	From, To Type
 	Table    map[string]*Func
+	// Cell marks an operations conversion of a value provider whose
+	// functions take *From: the value moves into a cell, a new place the
+	// operations write (types.md, Interface assignability 6; cells.go).
+	Cell bool
 	// Instances carries each generic Table function's complete instance,
 	// including the witnesses required by its constraints. The lowering
 	// consumes this fact rather than resolving the receiver again.

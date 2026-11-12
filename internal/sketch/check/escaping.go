@@ -164,6 +164,8 @@ func (w *escWalk) visit(n syntax.Node) {
 			if holdsBorrow(v.Type) {
 				w.borrowUse(id, v)
 			}
+			// A provider cell stays on its task (cells.go).
+			w.cellCapture(id, v)
 			w.aliasUse(id, v)
 		}
 		return

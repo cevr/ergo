@@ -345,8 +345,22 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if it.Set != SetAll {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
 		}
+		cell := false
 		if why := c.implements(v, it, !c.hostLendArg(t)); why != "" {
-			return assignment{}, why
+			// A value provider whose functions take *v moves into a cell
+			// (cells.go): *v implements t where v does not.
+			n, named := v.(*Named)
+			if !named || ScriptOf(v) != nil || n.Obj == nil || n.Obj.Pkg.Host() || c.implements(&Pointer{Elem: v}, it, !c.hostLendArg(t)) != "" {
+				return assignment{}, why
+			}
+			if refusal := c.cellRefusal(v, t, it); refusal != "" {
+				return assignment{}, why + "; " + refusal
+			}
+			cell = true
+		}
+		if h := c.holdsCell(v); h != nil && !c.cellType(t) {
+			// A cell stays where its confinement rules see it.
+			return assignment{}, fmt.Sprintf(cellHideText, v, h, t)
 		}
 		// Only a value that implements the operation type can reach
 		// the ownership guard. A missing operation is the more specific
@@ -386,7 +400,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 				}
 			}
 		}
-		return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t, Table: table, Instances: instances}}, ""
+		return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t, Table: table, Instances: instances, Cell: cell}}, ""
 	}
 	if rt, ok := t.(*Union); ok && rt.Row != nil {
 		// Clause 7 (q47): into a row value goes a value of one of its

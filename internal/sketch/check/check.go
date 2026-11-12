@@ -188,6 +188,12 @@ type checker struct {
 	// providing is set while a provider is checked against its capability
 	// (providerAssignability): R22 does not apply there.
 	providing bool
+	// cellTypes memoizes cellType by origin; cellHolds memoizes holdsCell's
+	// final answers; cellSites are the type arguments checkCells decides
+	// (cells.go).
+	cellTypes map[*Named]bool
+	cellHolds map[int32]*Named
+	cellSites []cellSite
 	// hostCall is set while the arguments of a call of a Go function are
 	// checked: R22 does not apply to a direct Go interface argument;
 	// hostClauses supplies the independent takes/lent ownership policy.
