@@ -287,10 +287,22 @@ type item {
 	frozen     bool,
 }
 
+// push puts it on the stack of items, t.items[:t.top], reusing the slots
+// of items popped before: the slice keeps its length, so a pop is t.top
+// moving down and never a reslice, which would copy the slice.
+func push(t *Tree, it item) {
+	if t.top < len(t.items) {
+		t.items[t.top] = it
+	} else {
+		t.items = t.items.Append(it)
+	}
+	t.top = t.top + 1
+}
+
 // flexLayout lays out node i's children in flow in a content box cw×ch
 // (inf when unknown) and is the size they take. With commit it gives them
 // their boxes, relative to i, and lays each out in turn. Its items sit on
-// t.items above those of the boxes laying out around it.
+// the stack of items (push) above those of the boxes laying out around it.
 func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, float32) needs Measure {
 	let row = isRow(t, i)
 	let mut mainSize = ch
@@ -301,7 +313,7 @@ func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, f
 	}
 	let gap = t.nodes[i].style.Gap
 	let align = t.nodes[i].style.Items
-	let first = len(t.items)
+	let first = t.top
 	let mut c = t.nodes[i].first
 	for c != none {
 		if flows(t, c) {
@@ -358,11 +370,11 @@ func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, f
 			it.maxMain = fmax(it.maxMain, pad)
 			it.hyp = fmax(it.minMain, fmin(it.base, it.maxMain))
 			// After the child's measures, which lay out boxes in it.
-			t.items = t.items.Append(it)
+			push(t, it)
 		}
 		c = t.nodes[c].next
 	}
-	let end = len(t.items)
+	let end = t.top
 	let count = end - first
 
 	// One line: no wrapping.
@@ -435,7 +447,7 @@ func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, f
 	let usedMain = if count > 0 { fmax(0, lineMain) } else { float32(0) }
 	let usedCross = lineCross
 	if !commit {
-		t.items = t.items[:first]
+		t.top = first
 		if row {
 			return (usedMain, usedCross)
 		}
@@ -478,7 +490,7 @@ func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, f
 		}
 		pos = pos + startM + it.main + endM + gap + between
 	}
-	t.items = t.items[:first]
+	t.top = first
 	if row {
 		return (usedMain, usedCross)
 	}

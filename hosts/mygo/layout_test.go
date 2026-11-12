@@ -169,6 +169,21 @@ var aligns = map[string]ui.Align{"s": ui.Start, "c": ui.Center, "e": ui.End, "t"
 // myGoBoxes lays t out with MyGo's flexbox under ui.Tester and reads each
 // box by its label.
 func myGoBoxes(t tree) ([][4]float32, error) {
+	tt := myGoTester(t)
+	out := make([][4]float32, len(t.styles))
+	for i := range out {
+		r, ok := tt.Find("n" + strconv.Itoa(i))
+		if !ok {
+			return nil, fmt.Errorf("MyGo shows no box labeled n%d", i)
+		}
+		out[i] = [4]float32{r.X, r.Y, r.W, r.H}
+	}
+	return out, nil
+}
+
+// myGoTester builds t as MyGo elements, each labeled n<i>, in a Tester,
+// which lays it out.
+func myGoTester(t tree) *ui.Tester {
 	var build func(c *ui.Context, parent int)
 	build = func(c *ui.Context, parent int) {
 		for i, p := range t.parent {
@@ -215,16 +230,7 @@ func myGoBoxes(t tree) ([][4]float32, error) {
 			e.Children(func() { build(c, i) })
 		}
 	}
-	tt := ui.NewTester(func(c *ui.Context) { build(c, -1) }, int(t.w), int(t.h))
-	out := make([][4]float32, len(t.styles))
-	for i := range out {
-		r, ok := tt.Find("n" + strconv.Itoa(i))
-		if !ok {
-			return nil, fmt.Errorf("MyGo shows no box labeled n%d", i)
-		}
-		out[i] = [4]float32{r.X, r.Y, r.W, r.H}
-	}
-	return out, nil
+	return ui.NewTester(func(c *ui.Context) { build(c, -1) }, int(t.w), int(t.h))
 }
 
 // layout is what the oracle printed for one layout command.
