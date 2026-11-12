@@ -31,6 +31,17 @@ type ledgerProgram struct {
 	lawName         string
 	noLaw           bool
 	unrelated, note int
+	// base is the package let the deepest helper reads through the let
+	// bias, two digits; open adds a literal of Tally to main, outside its
+	// constructor (construction.go).
+	base int
+	open bool
+	// The edits that change no token of a reached declaration: reflow
+	// adds spaces and line breaks, comments adds comments in and above
+	// them, moved reverses the declarations' order, and pad declares a
+	// function of padLen digits above the provider.
+	reflow, comments, moved, pad bool
+	padLen                       int
 }
 
 func (p ledgerProgram) source() string {
@@ -57,6 +68,9 @@ func (p ledgerProgram) source() string {
 		fmt.Fprintf(&b, "type Mode = Fast{} | Slow{}%s\n\n", extra)
 		field, init = ", m Mode", ", m: Fast"
 	}
+	if p.pad {
+		fmt.Fprintf(&b, "func pad() string { \"%s\" }\n\n", strings.Repeat("x", p.padLen))
+	}
 	fmt.Fprintf(&b, "type Tally { s sync.Ref[int]%s }\n\nfunc NewTally() Tally { Tally{s: sync.NewRef[int](0)%s} }\n\n", field, init)
 	if p.addSwap {
 		b.WriteString("func Add(t Tally, n int) { t.s.Set(h1(n, t.s.Get())) }\n\n")
@@ -67,23 +81,57 @@ func (p ledgerProgram) source() string {
 		fmt.Fprintf(&b, "func h%d(a int, b int) int { h%d(a, b) }\n\n", i, i+1)
 	}
 	if p.deepSwap {
-		fmt.Fprintf(&b, "func h%d(a int, b int) int { b + a }\n\n", p.depth)
+		fmt.Fprintf(&b, "func h%d(a int, b int) int { b + a + bias }\n\n", p.depth)
 	} else {
-		fmt.Fprintf(&b, "func h%d(a int, b int) int { a + b }\n\n", p.depth)
+		fmt.Fprintf(&b, "func h%d(a int, b int) int { a + b + bias }\n\n", p.depth)
 	}
+	fmt.Fprintf(&b, "let bias = base\n\nlet base = %d\n\n", p.base)
 	fmt.Fprintf(&b, "func Read(t Tally) int { t.s.Get() }\n\nfunc unrelated() int { %d }\n\nfunc main() {\n\tlet t = NewTally()\n", p.unrelated)
+	if p.open {
+		fmt.Fprintf(&b, "\tlet _ = Tally{s: sync.NewRef[int](1)%s}\n", init)
+	}
 	for _, s := range p.sites {
 		fmt.Fprintf(&b, "\tt.Add(%d)\n\tt.Add(%d)\n\tlet _ = t.Read()\n", s[0], s[1])
 	}
 	fmt.Fprintf(&b, "\tlet _ = t.Read() + %d\n}\n", p.note)
-	return b.String()
+	src := b.String()
+	if p.moved {
+		// A declaration is a block that starts at the margin; the law's
+		// blank line inside Counter is not a break.
+		var blocks []string
+		for _, s := range strings.Split(strings.TrimSuffix(src, "\n"), "\n\n") {
+			if strings.HasPrefix(s, "\t") {
+				blocks[len(blocks)-1] += "\n\n" + s
+				continue
+			}
+			blocks = append(blocks, s)
+		}
+		slices.Reverse(blocks[1:]) // the import stays first
+		src = strings.Join(blocks, "\n\n") + "\n"
+	}
+	var out []string
+	for _, line := range strings.Split(src, "\n") {
+		if strings.HasPrefix(line, "func ") && !strings.HasPrefix(line, "func main") {
+			if p.comments {
+				out = append(out, "// a note on the next declaration")
+				line = strings.Replace(line, "{ ", "{ /* a note */ ", 1)
+			}
+			if p.reflow {
+				head, body, _ := strings.Cut(line, "{ ")
+				line = head + "{\n\t\t" + strings.TrimSuffix(body, " }") + "\n\n}"
+				line = strings.ReplaceAll(line, ", ", ",  ")
+			}
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 // genLedgerProgram is the program of seed: its shape (the helper depth,
 // a listed type or none, one site or two) cycles with the seed, so 12
 // seeds reach every shape; its constants are drawn.
 func genLedgerProgram(seed uint64, r *rand.Rand) ledgerProgram {
-	p := ledgerProgram{depth: 1 + int(seed%3), mode: seed/3%2 == 0, unrelated: r.IntN(100), note: r.IntN(100)}
+	p := ledgerProgram{depth: 1 + int(seed%3), mode: seed/3%2 == 0, unrelated: r.IntN(100), note: r.IntN(100), base: 10 + r.IntN(90), padLen: 1 + r.IntN(30)}
 	for range 1 + int(seed/6%2) {
 		p.sites = append(p.sites, [2]int{r.IntN(50), r.IntN(50)})
 	}
@@ -94,8 +142,13 @@ func genLedgerProgram(seed uint64, r *rand.Rand) ledgerProgram {
 // the base ledger's entry is still current after it. The model is the
 // plan's staleness rule (plan-2 §3), read from what the edit touches, not
 // from LawDigest: an edit of a function the law's provider reaches, at any
-// depth, of the law, of a type the provider lists, or a site constant the
-// entry does not list, makes the entry stale; an edit elsewhere does not.
+// depth, of a package let one reads (through another let too), of the
+// law, of a type the provider lists, of whether a place outside the
+// provider's constructor builds one, or a site constant the entry does
+// not list, makes the entry stale; an edit elsewhere does not, nor an edit
+// that changes no token of a reached declaration: spaces, line breaks,
+// comments, the declarations' order, a declaration above them (v1 audit
+// 3, G2).
 type ledgerEdit struct {
 	name    string
 	current bool
@@ -117,6 +170,20 @@ func ledgerEdits(p ledgerProgram) []ledgerEdit {
 		{name: "a new site constant listed by hand", siteOnly: true, handEdit: true, apply: func(q *ledgerProgram) { q.sites = append([][2]int(nil), q.sites...); q.sites[0][0] += 50 }},
 		{name: "an unrelated function", current: true, apply: func(q *ledgerProgram) { q.unrelated++ }},
 		{name: "main away from the sites", current: true, apply: func(q *ledgerProgram) { q.note++ }},
+		// G2 (v1 audit 3): a package let the provider reads, edited to a
+		// value of the same length, and the construction a proof's state
+		// set rests on.
+		{name: "a package let the helper reads, same length", apply: func(q *ledgerProgram) { q.base = 10 + (q.base-10+1+q.padLen%88)%90 }},
+		{name: "a literal of the provider outside its constructor", apply: func(q *ledgerProgram) { q.open = true }},
+		{name: "spaces and line breaks in reached declarations", current: true, apply: func(q *ledgerProgram) { q.reflow = true }},
+		{name: "comments in and above reached declarations", current: true, apply: func(q *ledgerProgram) { q.comments = true }},
+		{name: "every declaration moved", current: true, apply: func(q *ledgerProgram) { q.moved = true }},
+		{name: fmt.Sprintf("a declaration of %d bytes above the provider", 23+p.padLen), current: true, apply: func(q *ledgerProgram) { q.pad = true }},
+		{name: "every edit that changes no token", current: true, apply: func(q *ledgerProgram) { q.reflow, q.comments, q.moved, q.pad = true, true, true, true }},
+		{name: "a package let among moved, reflowed declarations", apply: func(q *ledgerProgram) {
+			q.base = 10 + (q.base-10+1+q.padLen%88)%90
+			q.reflow, q.moved = true, true
+		}},
 	}
 	if p.mode {
 		edits = append(edits, ledgerEdit{name: "a listed type", apply: func(q *ledgerProgram) { q.extraMode = true }})
@@ -406,7 +473,7 @@ func moduleBinary(swap bool, sites [][2]int) string {
 	if swap {
 		sum = "n + t.s.Get()"
 	}
-	fmt.Fprintf(&b, "import sync\nimport m/count\n\ntype Tally { s sync.Ref[int] }\n\nfunc NewTally() Tally { Tally{s: sync.NewRef[int](0)} }\n\nfunc Add(t Tally, n int) { t.s.Set(%s) }\n\nfunc Read(t Tally) int { t.s.Get() }\n\nfunc main() {\n\tlet t = NewTally()\n", sum)
+	fmt.Fprintf(&b, "import sync\nimport m/count\n\ntype Tally { s sync.Ref[int] }\n\nfunc NewTally() Tally { Tally{s: sync.NewRef[int](0)} }\n\nfunc Add(t Tally, n int) { t.s.Set(%s + count.Base) }\n\nfunc Read(t Tally) int { t.s.Get() }\n\nfunc main() {\n\tlet t = NewTally()\n", sum)
 	for _, s := range sites {
 		fmt.Fprintf(&b, "\tt.Add(%d)\n\tt.Add(%d)\n\tlet _ = t.Read()\n", s[0], s[1])
 	}
@@ -461,7 +528,7 @@ func TestLedgerModuleOrder(t *testing.T) {
 		}
 		files := map[string]string{
 			"ergo.mod":         "module m\n",
-			"count/count.ergo": "type Counter {\n\tAdd(n int),\n\tRead() int,\n\tlaw Joins(a int, b int) { Add(a); Add(b) } == { Add(a + b) },\n}\n\nfunc Zero() int { 0 }\n",
+			"count/count.ergo": countSource(seed),
 			"cmd/a/main.ergo":  moduleBinary(false, draw()),
 			"cmd/b/main.ergo":  moduleBinary(true, draw()),
 		}
@@ -524,7 +591,32 @@ func TestLedgerModuleOrder(t *testing.T) {
 				fail("order %v writes another ledger:\n%s\n----\n%s", order, text, first)
 			}
 		}
+		// G2 (v1 audit 3): a let of the imported package that each Add
+		// reads, edited to a value of the same length, makes every
+		// binary's entries stale.
+		path := filepath.Join(t.TempDir(), lower.LedgerFile)
+		if err := os.WriteFile(path, []byte(first), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "count", "count.ergo"), []byte(countSource(seed+1)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"a", "b"} {
+			a, err := CheckDir(filepath.Join(dir, "cmd", name))
+			if err != nil || len(a.Diagnostics) > 0 {
+				t.Fatalf("cmd/%s: %v %v", name, err, a.Diagnostics)
+			}
+			if _, _, printed, err := lowered(t, a, path, false); err != nil || len(printed) == 0 || !strings.Contains(printed[0], " is stale;") {
+				fail("after an edit of count.Base, cmd/%s builds with %v and prints %q, want its entries stale", name, err, printed)
+			}
+		}
 	}
+}
+
+// countSource is the module's package count: the law Joins, and the let
+// Base, which every binary's Add reads; seed draws its one digit.
+func countSource(seed uint64) string {
+	return fmt.Sprintf("type Counter {\n\tAdd(n int),\n\tRead() int,\n\tlaw Joins(a int, b int) { Add(a); Add(b) } == { Add(a + b) },\n}\n\nlet Base = %d\n\nfunc Zero() int { 0 }\n", seed%10)
 }
 
 // TestStdLedgerFresh: the embedded std ledger is the one a fresh run
