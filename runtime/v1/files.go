@@ -96,7 +96,7 @@ type Body struct {
 	// "//ergo:owned Name" in its doc comment: a body of the same shape
 	// that takes its first argument over, so it may keep that argument's
 	// storage in its result with no copy (an unsafe one is listed in
-	// internal/residue/unsafe.txt). The lowering calls it only where the
+	// internal/residue/testdata/unsafe.txt). The lowering calls it only where the
 	// first argument is consumed: no binding reads that storage after the
 	// call (docs/spec/types.md, Bindings 2, consumed arguments).
 	Owned string

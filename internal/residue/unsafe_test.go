@@ -59,7 +59,7 @@ func TestUnsafeBodiesListed(t *testing.T) {
 			found[name+" "+fn] = true
 		}
 	}
-	data, err := os.ReadFile("unsafe.txt")
+	data, err := os.ReadFile("testdata/unsafe.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestUnsafeBodiesListed(t *testing.T) {
 	}
 	for use := range found {
 		if !listed[use] {
-			t.Errorf("%s uses package unsafe and is not in internal/residue/unsafe.txt (owner q112: a reviewed body, its invariant and its review)", use)
+			t.Errorf("%s uses package unsafe and is not in internal/residue/testdata/unsafe.txt (owner q112: a reviewed body, its invariant and its review)", use)
 		}
 	}
 }

@@ -115,7 +115,9 @@ var valueLowering string
 // "share-blind" (every pure call keeps nothing) and "return-blind" (two
 // parts of one returned value count as two returns), and for hand-over
 // (V7) "hand-shared" (an Ergo body's result is taken as sharing only the
-// handed parameter). Empty in every build.
+// handed parameter), and for consumed arguments "consume-blind" (no
+// parameter is consumed) and "consume-any" (every first operand of an
+// owned form is consumed, live or not). Empty in every build.
 var valueMutant string
 
 // valueRule reports whether the value rule lowers this build.
@@ -968,8 +970,9 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 // function and no package:
 //
 //   - the call is the whole right side of a plain assignment to one place
-//     p, rooted at a let mut local or a borrow, and one argument is that
-//     same place;
+//     p, rooted at a let mut local or a borrow, and one operand is that
+//     same place: an argument, or a dot call's receiver that f takes by
+//     value (p = p.m(…));
 //   - the statement names p's root nowhere else, nor does a frame other
 //     than the statement's, so p's old value is dead from the call to the
 //     store-back: nothing reads it but f;
@@ -996,8 +999,18 @@ func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
 		return nil
 	}
 	c := w.info.Calls[call]
-	if c == nil || c.Recv != nil || c.Func == nil || c.Func.Sig == nil || len(rowElems(c.Func.Sig.Errors)) > 0 {
+	if c == nil || c.Func == nil || c.Func.Sig == nil || len(rowElems(c.Func.Sig.Errors)) > 0 || call.Trailing != nil {
 		return nil
+	}
+	if c.Recv != nil {
+		// A dot call p = p.m(…): the receiver is the first operand, unless
+		// m takes it by borrow.
+		if len(c.Func.Sig.Params) == 0 {
+			return nil
+		}
+		if _, ptr := c.Func.Sig.Params[0].Type.(*check.Pointer); ptr {
+			return nil
+		}
 	}
 	ergo := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
 	if ergo && (w.vf.ownCall[call] || !w.l.isPure(c.Func)) {
@@ -1022,7 +1035,8 @@ func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
 	}
 	var arg syntax.Expr
 	at := -1
-	for i, a := range call.Args {
+	ops := callOperands(call, c)
+	for i, a := range ops {
 		if aid := pathRoot(a); aid != nil && w.info.Uses[aid] == check.Object(v) {
 			if arg != nil || !samePlace(s.Lhs[0], a) {
 				return nil
@@ -1035,7 +1049,7 @@ func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
 	if arg == nil {
 		return nil
 	}
-	if ergo && valueMutant != "hand-shared" && !w.l.freshFrom(c.Func, at, len(call.Args)) {
+	if ergo && valueMutant != "hand-shared" && !w.l.freshFrom(c.Func, at, len(ops)) {
 		return nil
 	}
 	aid := pathRoot(arg)

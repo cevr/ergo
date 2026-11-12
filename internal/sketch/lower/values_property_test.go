@@ -157,6 +157,7 @@ type valueGen struct {
 	refs    []*vref
 	h       *rand.Rand // the draws of the hand-over statements (values_hand_test.go)
 	hands   []handFn
+	boxes   []boxFn
 }
 
 // vref is a sync.Ref[Map[int, int]] of main and the model of its value.
@@ -628,6 +629,7 @@ func (g *valueGen) stmt() {
 	case 3, 4:
 		g.write()
 		g.hand()
+		g.sortStmt()
 	case 5:
 		b := g.pick(func(b *vbind) bool { return true })
 		if b == nil {
@@ -940,6 +942,7 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 		}
 		// No rebinding wrote the package let base (V7).
 		g.print("base", kSlice, dsModel(handBase))
+		g.print("bbase", kBox, handBoxBase.digest(kBox))
 	}
 	g.line("Console.Println(\"\\(len(calls))\")")
 	g.want.WriteString("0\n")
@@ -1058,5 +1061,5 @@ var valuePaths = []string{
 	"ref new literal", "ref new binding", "ref own write", "ref own delete", "ref get", "ref set", "ref modify both",
 	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref plain update", "ref plain modify",
 	"ref store outside", "ref print",
-	"hand rebind", "hand field", "hand loop", "hand second",
+	"hand rebind", "hand field", "hand loop", "hand second", "sort live", "sort dead", "hand dot", "hand dot loop",
 }

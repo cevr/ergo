@@ -3904,8 +3904,8 @@
       "name": "v7-hand-shared",
       "origin": "wf10 STD-sh r2",
       "file": "internal/sketch/lower/values.go",
-      "from": "\tif ergo && valueMutant != \"hand-shared\" && !w.l.freshFrom(c.Func, at, len(call.Args)) {\n",
-      "to": "\tif false && ergo && valueMutant != \"hand-shared\" && !w.l.freshFrom(c.Func, at, len(call.Args)) {\n",
+      "from": "\tif ergo && valueMutant != \"hand-shared\" && !w.l.freshFrom(c.Func, at, len(ops)) {\n",
+      "to": "\tif false && ergo && valueMutant != \"hand-shared\" && !w.l.freshFrom(c.Func, at, len(ops)) {\n",
       "rule": "types.md, Bindings 2 (V7): an Ergo body hands p over only when its results share no storage but p's (freshFrom); one that returns another argument or a package let copies.",
       "killers": [
         "lower:TestValueRuleAgrees"
@@ -3995,6 +3995,28 @@
       "from": "\t\t\trecv = fc.cloneValue(f.Sig.Params[0].Type, recv, site)\n",
       "to": "\t\t\t_ = site\n",
       "rule": "values.go, V5: the method a method value or a host protocol reaches copies its owned receiver before the owned body takes it.",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "consumes-live",
+      "origin": "wf10 STD-sh r3",
+      "file": "internal/sketch/lower/values.go",
+      "from": "len(ops) > 0 && (valueMutant == \"consume-any\" || w.fresh(ops[0])) {\n",
+      "to": "len(ops) > 0 {\n",
+      "rule": "types.md, Bindings 2 (consumed arguments): an owned form takes its first operand over only when that operand is fresh; a binding read after the call is copied, so slices.Sort of a live slice leaves it unsorted.",
+      "killers": [
+        "lower:TestValueRuleAgrees"
+      ]
+    },
+    {
+      "name": "v7-dot-call",
+      "origin": "wf10 STD-sh r3",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t// A dot call p = p.m(…): the receiver is the first operand, unless\n",
+      "to": "\t\treturn nil\n",
+      "rule": "types.md, Bindings 2 (hand-over): a dot rebinding p = p.m(…) hands its by-value receiver over like any operand (speed only).",
       "killers": [
         "lower:TestValueRuleElides"
       ]

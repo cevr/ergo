@@ -6,7 +6,7 @@ import "unsafe"
 // The lowering calls one only where that argument is consumed, so no Ergo
 // binding reads its storage after the call (docs/spec/types.md, Bindings
 // 2, consumed arguments). Each body that uses unsafe is listed, with its
-// invariant and review, in internal/residue/unsafe.txt (owner q112:
+// invariant and review, in internal/residue/testdata/unsafe.txt (owner q112:
 // reviewed unsafe bodies in runtime/v1 only).
 
 // StringsBuilderTextOwned is StringsBuilderText with no copy: the text

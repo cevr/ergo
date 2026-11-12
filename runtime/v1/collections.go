@@ -28,18 +28,22 @@ type ordered interface {
 }
 
 // SlicesSort is slices.Sort[T](xs): a sorted copy of xs, in ascending
-// order. A float NaN sorts first, as in Go.
+// order. A float NaN sorts first, as in Go. Where xs is consumed (no
+// binding reads it after the call), the lowering calls its owned form
+// SlicesSortOwned, which sorts xs in place.
 //
 //ergo:pure
+//ergo:owned SlicesSortOwned
 func SlicesSort[T ordered](xs []T) []T {
 	out := slices.Clone(xs)
 	slices.Sort(out)
 	return out
 }
 
-// SlicesSortOwned sorts xs in place and returns it. Only slices.Sorted
-// calls it, on the slice it has just collected, which nothing else holds.
-// It writes its argument, so it is not marked pure.
+// SlicesSortOwned sorts xs in place and returns it: SlicesSort's owned
+// form, called on a consumed slice, and slices.Sorted's, on the slice it
+// has just collected, which nothing else holds. It writes its argument,
+// so it is not marked pure.
 func SlicesSortOwned[T ordered](xs []T) []T {
 	slices.Sort(xs)
 	return xs

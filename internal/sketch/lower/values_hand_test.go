@@ -59,22 +59,117 @@ var handShapes = []handShape{
 	{"let c = s\n\tc.Append(k)", func(s, t []int, k int) []int { return append(slices.Clone(s), k) }},
 }
 
+// boxShape is a body of a generated function of (b Box, k int) Box, which
+// a program calls with a dot (p = p.bN(k)), and its model. Its receiver is
+// the first operand the rebinding hands over (types.md, Bindings 2).
+type boxShape struct {
+	body  string
+	model func(b mval, k int) mval
+}
+
+var handBoxBase = mval{m: map[int]int{1: 2}, s: []int{5, 6}}
+
+var boxShapes = []boxShape{
+	{"b", func(b mval, k int) mval { return b }},
+	{"bbase", func(b mval, k int) mval { return handBoxBase }},
+	{"if k > 4 {\n\t\treturn bbase\n\t}\n\tb", func(b mval, k int) mval {
+		if k > 4 {
+			return handBoxBase
+		}
+		return b
+	}},
+	{"Box{..b, S: b.S.Append(k)}", func(b mval, k int) mval {
+		return mval{m: b.m, s: append(slices.Clone(b.s), k)}
+	}},
+	{"Box{M: bbase.M, S: b.S}", func(b mval, k int) mval { return mval{m: handBoxBase.m, s: b.s} }},
+}
+
 // handFn is a generated function.
 type handFn struct {
 	name  string
 	shape handShape
 }
 
+// boxFn is a generated function of a Box.
+type boxFn struct {
+	name  string
+	shape boxShape
+}
+
 // handFuncs draws the program's functions and writes their source.
 func (g *valueGen) handFuncs() string {
 	var b strings.Builder
-	b.WriteString("let base = []int{5, 6}\n\n")
+	b.WriteString("let base = []int{5, 6}\n\nlet bbase = Box{M: Map[int, int]{1: 2}, S: []int{5, 6}}\n\n")
 	for i := range 4 {
 		f := handFn{name: fmt.Sprintf("h%d", i+1), shape: handShapes[g.h.IntN(len(handShapes))]}
 		g.hands = append(g.hands, f)
 		fmt.Fprintf(&b, "func %s(s []int, t []int, k int) []int {\n\t%s\n}\n\n", f.name, f.shape.body)
 	}
+	for i := range 2 {
+		f := boxFn{name: fmt.Sprintf("b%d", i+1), shape: boxShapes[g.h.IntN(len(boxShapes))]}
+		g.boxes = append(g.boxes, f)
+		fmt.Fprintf(&b, "func %s(b Box, k int) Box {\n\t%s\n}\n\n", f.name, f.shape.body)
+	}
 	return b.String()
+}
+
+// handDot writes a dot rebinding p = p.bN(k) of a let mut Box p, once or
+// in a loop, then writes p's slice and Map, so a result that shares bbase
+// shows it when the program prints bbase at its end.
+func (g *valueGen) handDot(b *vbind) {
+	f := g.boxes[g.h.IntN(len(g.boxes))]
+	k := g.h.IntN(9)
+	if g.h.IntN(3) == 0 {
+		g.line(fmt.Sprintf("for i in 0..3 {\n\t\t%s = %s.%s(i + %d)\n\t}", b.name, b.name, f.name, k))
+		for i := range 3 {
+			b.val = f.shape.model(b.val, i+k).copy()
+		}
+		g.reached["hand dot loop"] = true
+	} else {
+		g.line(fmt.Sprintf("%s = %s.%s(%d)", b.name, b.name, f.name, k))
+		b.val = f.shape.model(b.val, k).copy()
+		g.reached["hand dot"] = true
+	}
+	b.written = true
+	g.line(fmt.Sprintf("if len(%s.S) > 0 {\n\t\t%s.S[0] = 77\n\t}\n\t%s.M[1] = 77", b.name, b.name, b.name))
+	if len(b.val.s) > 0 {
+		b.val.s[0] = 77
+	}
+	if b.val.m == nil {
+		b.val.m = map[int]int{}
+	}
+	b.val.m[1] = 77
+	g.print(b.name, b.kind, b.val.digest(b.kind))
+}
+
+// sortStmt writes, at most once, a call of slices.Sort, whose runtime/v1
+// body has an owned form that sorts in place (v1.Body.Owned): on a slice
+// binding the program reads again (it prints every binding at its end),
+// whose call must copy, or on a fresh slice, which it may take over
+// (types.md, Bindings 2, consumed arguments). A consumed live operand
+// would print the binding sorted.
+func (g *valueGen) sortStmt() {
+	if !g.shared || g.h.IntN(3) > 0 {
+		return
+	}
+	var live []*vbind
+	for _, b := range g.binds {
+		if b.kind == kSlice {
+			live = append(live, b)
+		}
+	}
+	if len(live) > 0 && g.h.IntN(2) == 0 {
+		b := live[g.h.IntN(len(live))]
+		g.line(fmt.Sprintf("Console.Println(\"\\(ds(slices.Sort(%s)))\")", b.name))
+		fmt.Fprintf(&g.want, "%d\n", dsModel(slices.Sorted(slices.Values(b.val.s))))
+		g.print(b.name, b.kind, b.val.digest(b.kind))
+		g.reached["sort live"] = true
+		return
+	}
+	xs := []int{g.h.IntN(9), g.h.IntN(9), g.h.IntN(9)}
+	g.line(fmt.Sprintf("Console.Println(\"\\(ds(slices.Sort([]int{%d, %d, %d})))\")", xs[0], xs[1], xs[2]))
+	fmt.Fprintf(&g.want, "%d\n", dsModel(slices.Sorted(slices.Values(xs))))
+	g.reached["sort dead"] = true
 }
 
 // hand writes, at most once, a rebinding through a generated function and
@@ -93,6 +188,10 @@ func (g *valueGen) hand() {
 		return
 	}
 	b := roots[g.h.IntN(len(roots))]
+	if b.kind == kBox && len(g.boxes) > 0 && g.h.IntN(2) == 0 {
+		g.handDot(b)
+		return
+	}
 	place, val := b.name, &b.val.s
 	if b.kind == kBox {
 		place = b.name + ".S"
