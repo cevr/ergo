@@ -12,10 +12,10 @@ index c8f1b2d..028a9cf 100644
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..08682bc
+index 0000000..1d19378
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,219 @@
+@@ -0,0 +1,223 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -73,7 +73,7 @@ index 0000000..08682bc
 +type ergoPos [3]int
 +
 +type ergoStmt struct {
-+	K     string      `json:"k"` // def set ret if range while expr
++	K     string      `json:"k"` // def set ret if range while expr var discard break continue panic
 +	Pos   ergoPos     `json:"pos"`
 +	Local int         `json:"local,omitempty"`
 +	Key   *int        `json:"key,omitempty"`
@@ -86,10 +86,12 @@ index 0000000..08682bc
 +	// ElsePos and ElseEnd bound an if's else block.
 +	ElsePos ergoPos `json:"epos"`
 +	ElseEnd ergoPos `json:"eend"`
++	// Op is an op-assignment's operator (set: x op= X).
++	Op string `json:"op,omitempty"`
 +}
 +
 +type ergoExpr struct {
-+	K     string      `json:"k"` // local const bin un call mcall field index lit len
++	K     string      `json:"k"` // local const bin un call mcall field index lit len pcall conv global
 +	Pos   ergoPos     `json:"pos"`
 +	I     int         `json:"i,omitempty"`
 +	T     string      `json:"t,omitempty"`
@@ -107,6 +109,7 @@ index 0000000..08682bc
 +	"+": syntax.Add, "-": syntax.Sub, "*": syntax.Mul, "/": syntax.Div, "%": syntax.Rem,
 +	"==": syntax.Eql, "!=": syntax.Neq, "<": syntax.Lss, "<=": syntax.Leq, ">": syntax.Gtr, ">=": syntax.Geq,
 +	"&&": syntax.AndAnd, "||": syntax.OrOr,
++	"&": syntax.And, "|": syntax.Or, "^": syntax.Xor, "&^": syntax.AndNot, "<<": syntax.Shl, ">>": syntax.Shr,
 +}
 +
 +type ergoChecker struct {
@@ -117,6 +120,7 @@ index 0000000..08682bc
 +	sig    *types2.Signature
 +	locals []*types2.Var
 +	nerr   int
++	loops  []*syntax.ForStmt // the loops around the statement being decoded
 +}
 +
 +// ergoAttach gives every function the IR file names its checked body.
@@ -281,10 +285,10 @@ index 0000000..d07e0b7
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..734e31c
+index 0000000..7451c71
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,328 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -294,9 +298,6 @@ index 0000000..734e31c
 +package noder
 +
 +import (
-+	"go/constant"
-+	"strconv"
-+
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
 +)
@@ -321,21 +322,9 @@ index 0000000..734e31c
 +		if t == nil {
 +			return nil, nil
 +		}
-+		var v constant.Value
-+		switch {
-+		case ergoIsInteger(t):
-+			n, err := strconv.ParseInt(x.V, 10, 64)
-+			if err != nil {
-+				c.errorf(x.Pos, "ergoir: integer constant %q", x.V)
-+				return nil, nil
-+			}
-+			v = constant.MakeInt64(n)
-+		case ergoIsBool(t):
-+			v = constant.MakeBool(x.V == "true")
-+		case ergoIsString(t):
-+			v = constant.MakeString(x.V)
-+		default:
-+			c.errorf(x.Pos, "ergoir: constant of type %v", t)
++		v := ergoConstant(t, x.V)
++		if v == nil {
++			c.errorf(x.Pos, "ergoir: constant %q of type %v", x.V, t)
 +			return nil, nil
 +		}
 +		lit := &syntax.BasicLit{Value: x.V}
@@ -350,41 +339,12 @@ index 0000000..734e31c
 +		}
 +		l, lt := c.expr(x.X)
 +		r, rt := c.expr(x.Y)
-+		if l == nil || r == nil || !c.assignable(x.Pos, x.Op, rt, lt) {
++		if l == nil || r == nil {
 +			return nil, nil
 +		}
-+		var t types2.Type
-+		switch op {
-+		case syntax.Add:
-+			if !ergoIsInteger(lt) && !ergoIsString(lt) {
-+				c.errorf(x.Pos, "ergoir: + on %v", lt)
-+				return nil, nil
-+			}
-+			t = lt
-+		case syntax.Sub, syntax.Mul, syntax.Div, syntax.Rem:
-+			if !ergoIsInteger(lt) {
-+				c.errorf(x.Pos, "ergoir: %s on %v", x.Op, lt)
-+				return nil, nil
-+			}
-+			t = lt
-+		case syntax.Eql, syntax.Neq:
-+			if !types2.Comparable(lt) {
-+				c.errorf(x.Pos, "ergoir: %s on %v", x.Op, lt)
-+				return nil, nil
-+			}
-+			t = types2.Typ[types2.Bool]
-+		case syntax.Lss, syntax.Leq, syntax.Gtr, syntax.Geq:
-+			if !ergoIsInteger(lt) && !ergoIsString(lt) {
-+				c.errorf(x.Pos, "ergoir: %s on %v", x.Op, lt)
-+				return nil, nil
-+			}
-+			t = types2.Typ[types2.Bool]
-+		case syntax.AndAnd, syntax.OrOr:
-+			if !ergoIsBool(lt) {
-+				c.errorf(x.Pos, "ergoir: %s on %v", x.Op, lt)
-+				return nil, nil
-+			}
-+			t = lt
++		t := c.binType(x.Pos, op, x.Op, lt, rt)
++		if t == nil {
++			return nil, nil
 +		}
 +		e := &syntax.Operation{Op: op, X: l, Y: r}
 +		e.SetPos(pos)
@@ -399,8 +359,12 @@ index 0000000..734e31c
 +		switch {
 +		case x.Op == "!" && ergoIsBool(t):
 +			op = syntax.Not
-+		case x.Op == "-" && ergoIsInteger(t):
++		case x.Op == "-" && ergoIsNumeric(t):
 +			op = syntax.Sub
++		case x.Op == "+" && ergoIsNumeric(t):
++			op = syntax.Add
++		case x.Op == "^" && ergoIsInteger(t):
++			op = syntax.Xor
 +		default:
 +			c.errorf(x.Pos, "ergoir: unary %s on %v", x.Op, t)
 +			return nil, nil
@@ -448,6 +412,55 @@ index 0000000..734e31c
 +		sig := sel.Type().(*types2.Signature)
 +		ergoValue(se, sig, nil)
 +		return c.call(x, se, sig)
++	case "pcall":
++		// PATH.NAME(args): an exported function of an imported package.
++		pkg := c.imported(x.Pos, x.T)
++		if pkg == nil {
++			return nil, nil
++		}
++		fn, ok := pkg.Scope().Lookup(x.Name).(*types2.Func)
++		if !ok || !fn.Exported() {
++			c.errorf(x.Pos, "ergoir: %s is not a function of %q", x.Name, x.T)
++			return nil, nil
++		}
++		sig := fn.Type().(*types2.Signature)
++		if sig.TypeParams().Len() > 0 {
++			c.errorf(x.Pos, "ergoir: %s.%s is generic", x.T, x.Name)
++			return nil, nil
++		}
++		sel := syntax.NewName(pos, x.Name)
++		c.info.Uses[sel] = fn
++		tv := syntax.TypeAndValue{Type: sig}
++		tv.SetIsValue()
++		sel.SetTypeInfo(tv)
++		return c.call(x, c.qualified(x.Pos, pkg, sel, tv), sig)
++	case "conv":
++		// T(x) between basic types: numeric to numeric, string to
++		// string, bool to bool.
++		t := c.typ(x.Pos, x.T)
++		e0, et := c.expr(x.X)
++		if t == nil || e0 == nil {
++			return nil, nil
++		}
++		if !(ergoIsNumeric(t) && ergoIsNumeric(et) || ergoIsString(t) && ergoIsString(et) || ergoIsBool(t) && ergoIsBool(et)) {
++			c.errorf(x.Pos, "ergoir: conversion of %v to %v", et, t)
++			return nil, nil
++		}
++		fun := c.typeExpr(x.Pos, t)
++		if fun == nil {
++			return nil, nil
++		}
++		call := &syntax.CallExpr{Fun: fun, ArgList: []syntax.Expr{e0}}
++		call.SetPos(pos)
++		ergoValue(call, t, nil)
++		return call, t
++	case "global":
++		v, ok := c.pkg.Scope().Lookup(x.Name).(*types2.Var)
++		if !ok {
++			c.errorf(x.Pos, "ergoir: %s is not a variable of the package", x.Name)
++			return nil, nil
++		}
++		return c.name(x.Pos, v, false), v.Type()
 +	case "field":
 +		recv, rt := c.expr(x.X)
 +		if recv == nil {
@@ -552,12 +565,64 @@ index 0000000..734e31c
 +	c.errorf(x.Pos, "ergoir: unknown expression %q", x.K)
 +	return nil, nil
 +}
++
++// binType is the type of lt op rt (spelled name), or nil (an error): Go's
++// rules for the basic types. Both operands have one type, except a
++// shift's count, which is any integer.
++func (c *ergoChecker) binType(p ergoPos, op syntax.Operator, name string, lt, rt types2.Type) types2.Type {
++	bad := func() types2.Type {
++		c.errorf(p, "ergoir: %s on %v and %v", name, lt, rt)
++		return nil
++	}
++	if op == syntax.Shl || op == syntax.Shr {
++		if !ergoIsInteger(lt) || !ergoIsInteger(rt) {
++			return bad()
++		}
++		return lt
++	}
++	if !c.assignable(p, name, rt, lt) {
++		return nil
++	}
++	switch op {
++	case syntax.Add:
++		if !ergoIsNumeric(lt) && !ergoIsString(lt) {
++			return bad()
++		}
++		return lt
++	case syntax.Sub, syntax.Mul, syntax.Div:
++		if !ergoIsNumeric(lt) {
++			return bad()
++		}
++		return lt
++	case syntax.Rem, syntax.And, syntax.Or, syntax.Xor, syntax.AndNot:
++		if !ergoIsInteger(lt) {
++			return bad()
++		}
++		return lt
++	case syntax.Eql, syntax.Neq:
++		if !types2.Comparable(lt) {
++			return bad()
++		}
++		return types2.Typ[types2.Bool]
++	case syntax.Lss, syntax.Leq, syntax.Gtr, syntax.Geq:
++		if !ergoIsNumeric(lt) && !ergoIsString(lt) {
++			return bad()
++		}
++		return types2.Typ[types2.Bool]
++	case syntax.AndAnd, syntax.OrOr:
++		if !ergoIsBool(lt) {
++			return bad()
++		}
++		return lt
++	}
++	return bad()
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..b49b3a8
+index 0000000..2b85377
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,247 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -572,7 +637,8 @@ index 0000000..b49b3a8
 +)
 +
 +// ergoTerminates is the Go spec's terminating statement for the IR's
-+// statement forms: a return, or an if whose both branches terminate.
++// statement forms: a return, a call of panic, or an if whose both
++// branches terminate.
 +func ergoTerminates(s syntax.Stmt) bool {
 +	switch s := s.(type) {
 +	case *syntax.ReturnStmt:
@@ -582,6 +648,13 @@ index 0000000..b49b3a8
 +		return last != nil && ergoTerminates(last)
 +	case *syntax.IfStmt:
 +		return s.Else != nil && ergoTerminates(s.Then) && ergoTerminates(s.Else)
++	case *syntax.ExprStmt:
++		call, ok := s.X.(*syntax.CallExpr)
++		if !ok {
++			return false
++		}
++		name, ok := call.Fun.(*syntax.Name)
++		return ok && name.Value == "panic"
 +	}
 +	return false
 +}
@@ -602,6 +675,13 @@ index 0000000..b49b3a8
 +	return b
 +}
 +
++// loopBlock is a loop's body, where break and continue name loop.
++func (c *ergoChecker) loopBlock(loop *syntax.ForStmt, p, end ergoPos, list []*ergoStmt) *syntax.BlockStmt {
++	c.loops = append(c.loops, loop)
++	defer func() { c.loops = c.loops[:len(c.loops)-1] }()
++	return c.block(p, end, list)
++}
++
 +func (c *ergoChecker) stmt(s *ergoStmt) syntax.Stmt {
 +	if s == nil {
 +		c.errorf(ergoPos{-1}, "ergoir: missing statement")
@@ -612,13 +692,48 @@ index 0000000..b49b3a8
 +	case "def", "set":
 +		v := c.local(s.Pos, s.Local)
 +		x, t := c.expr(s.X)
-+		if v == nil || x == nil || !c.assignable(s.Pos, s.K, t, v.Type()) {
++		if v == nil || x == nil {
 +			return nil
 +		}
 +		a := &syntax.AssignStmt{Lhs: c.name(s.Pos, v, s.K == "def"), Rhs: x}
-+		if s.K == "def" {
++		switch {
++		case s.Op != "":
++			// x op= y: the operator's rule, its result x's type.
++			op, ok := ergoBinOps[s.Op]
++			if !ok || s.K != "set" || op == syntax.AndAnd || op == syntax.OrOr {
++				c.errorf(s.Pos, "ergoir: assignment operator %q", s.Op)
++				return nil
++			}
++			if rt := c.binType(s.Pos, op, s.Op, v.Type(), t); rt == nil || !c.assignable(s.Pos, s.Op+"=", rt, v.Type()) {
++				return nil
++			}
++			a.Op = op
++		case !c.assignable(s.Pos, s.K, t, v.Type()):
++			return nil
++		case s.K == "def":
 +			a.Op = syntax.Def
 +		}
++		a.SetPos(pos)
++		return a
++	case "var":
++		// var x T: the local's zero value.
++		v := c.local(s.Pos, s.Local)
++		if v == nil {
++			return nil
++		}
++		d := &syntax.VarDecl{NameList: []*syntax.Name{c.name(s.Pos, v, true)}}
++		d.SetPos(pos)
++		st := &syntax.DeclStmt{DeclList: []syntax.Decl{d}}
++		st.SetPos(pos)
++		return st
++	case "discard":
++		// _ = x: x evaluated, its value dropped.
++		x, t := c.expr(s.X)
++		if x == nil || t == nil {
++			c.errorf(s.Pos, "ergoir: discard of no value")
++			return nil
++		}
++		a := &syntax.AssignStmt{Lhs: syntax.NewName(pos, "_"), Rhs: x}
 +		a.SetPos(pos)
 +		return a
 +	case "ret":
@@ -650,11 +765,48 @@ index 0000000..b49b3a8
 +		}
 +		return st
 +	case "while":
-+		cond := c.cond(s.X)
-+		if cond == nil {
++		// for cond { body }, or for { body } with no condition.
++		st := &syntax.ForStmt{}
++		st.SetPos(pos)
++		if s.X != nil {
++			if st.Cond = c.cond(s.X); st.Cond == nil {
++				return nil
++			}
++		}
++		st.Body = c.loopBlock(st, s.Pos, s.End, s.Body)
++		return st
++	case "break", "continue":
++		if len(c.loops) == 0 {
++			c.errorf(s.Pos, "ergoir: %s outside a loop", s.K)
 +			return nil
 +		}
-+		st := &syntax.ForStmt{Cond: cond, Body: c.block(s.Pos, s.End, s.Body)}
++		st := &syntax.BranchStmt{Tok: syntax.Break, Target: c.loops[len(c.loops)-1]}
++		if s.K == "continue" {
++			st.Tok = syntax.Continue
++		}
++		st.SetPos(pos)
++		return st
++	case "panic":
++		// panic(x), x a string: a path a checked program never takes.
++		x, t := c.expr(s.X)
++		if x == nil || !ergoIsString(t) {
++			c.errorf(s.Pos, "ergoir: panic of %v", t)
++			return nil
++		}
++		obj := types2.Universe.Lookup("panic")
++		fun := syntax.NewName(pos, "panic")
++		c.info.Uses[fun] = obj
++		any := types2.Universe.Lookup("any").Type()
++		tv := syntax.TypeAndValue{Type: types2.NewSignatureType(nil, nil, nil,
++			types2.NewTuple(types2.NewParam(pos, nil, "", any)), nil, false)}
++		tv.SetIsBuiltin()
++		fun.SetTypeInfo(tv)
++		call := &syntax.CallExpr{Fun: fun, ArgList: []syntax.Expr{x}}
++		call.SetPos(pos)
++		void := syntax.TypeAndValue{}
++		void.SetIsVoid()
++		call.SetTypeInfo(void)
++		st := &syntax.ExprStmt{X: call}
 +		st.SetPos(pos)
 +		return st
 +	case "range":
@@ -686,11 +838,12 @@ index 0000000..b49b3a8
 +		}
 +		rc := &syntax.RangeClause{Lhs: lhs, Def: true, X: x}
 +		rc.SetPos(pos)
-+		st := &syntax.ForStmt{Init: rc, Body: c.block(s.Pos, s.End, s.Body)}
++		st := &syntax.ForStmt{Init: rc}
 +		st.SetPos(pos)
++		st.Body = c.loopBlock(st, s.Pos, s.End, s.Body)
 +		return st
 +	case "expr":
-+		if s.X == nil || (s.X.K != "call" && s.X.K != "mcall") {
++		if s.X == nil || (s.X.K != "call" && s.X.K != "mcall" && s.X.K != "pcall") {
 +			c.errorf(s.Pos, "ergoir: an expression statement is a call")
 +			return nil
 +		}
@@ -719,27 +872,31 @@ index 0000000..b49b3a8
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
 new file mode 100644
-index 0000000..c437af7
+index 0000000..0ad692c
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_types.go
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,204 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+// Ergo IR decoder: types, locals and names. See ergoir.go.
++// Ergo IR decoder: types, locals, names and constants. See ergoir.go.
 +
 +package noder
 +
 +import (
 +	"go/constant"
++	"go/token"
++	"internal/buildcfg"
++	"strconv"
 +	"strings"
 +
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
 +)
 +
-+// typ resolves a type spelling: NAME (package scope or universe), []T, *T.
++// typ resolves a type spelling: NAME (package scope or universe),
++// PATH.NAME (an exported type of the imported package PATH), []T, *T.
 +func (c *ergoChecker) typ(p ergoPos, s string) types2.Type {
 +	switch {
 +	case strings.HasPrefix(s, "[]"):
@@ -753,9 +910,19 @@ index 0000000..c437af7
 +		}
 +		return nil
 +	}
-+	obj := c.pkg.Scope().Lookup(s)
-+	if obj == nil {
-+		obj = types2.Universe.Lookup(s)
++	var obj types2.Object
++	if i := strings.LastIndex(s, "."); i >= 0 {
++		if pkg := c.imported(p, s[:i]); pkg != nil {
++			obj = pkg.Scope().Lookup(s[i+1:])
++			if obj != nil && !obj.Exported() {
++				obj = nil
++			}
++		}
++	} else {
++		obj = c.pkg.Scope().Lookup(s)
++		if obj == nil {
++			obj = types2.Universe.Lookup(s)
++		}
 +	}
 +	tn, ok := obj.(*types2.TypeName)
 +	if !ok {
@@ -763,6 +930,56 @@ index 0000000..c437af7
 +		return nil
 +	}
 +	return tn.Type()
++}
++
++// imported is the package of import path the package imports, or nil
++// (an error).
++func (c *ergoChecker) imported(p ergoPos, path string) *types2.Package {
++	for _, pkg := range c.pkg.Imports() {
++		if pkg.Path() == path {
++			return pkg
++		}
++	}
++	c.errorf(p, "ergoir: the package does not import %q", path)
++	return nil
++}
++
++// typeExpr is a type expression of t, for a conversion's function: a name
++// of the universe or of the package, or a qualified name.
++func (c *ergoChecker) typeExpr(p ergoPos, t types2.Type) syntax.Expr {
++	pos := c.pos(p)
++	var obj *types2.TypeName
++	switch t := t.(type) {
++	case *types2.Basic:
++		obj, _ = types2.Universe.Lookup(t.Name()).(*types2.TypeName)
++	case *types2.Named:
++		obj = t.Obj()
++	}
++	if obj == nil {
++		c.errorf(p, "ergoir: conversion to %v", t)
++		return nil
++	}
++	tv := syntax.TypeAndValue{Type: t}
++	tv.SetIsType()
++	name := syntax.NewName(pos, obj.Name())
++	c.info.Uses[name] = obj
++	name.SetTypeInfo(tv)
++	if obj.Pkg() == nil || obj.Pkg() == c.pkg {
++		return name
++	}
++	return c.qualified(p, obj.Pkg(), name, tv)
++}
++
++// qualified is pkg.sel, sel the name of an object of the imported pkg,
++// with its type record tv.
++func (c *ergoChecker) qualified(p ergoPos, pkg *types2.Package, sel *syntax.Name, tv syntax.TypeAndValue) syntax.Expr {
++	pos := c.pos(p)
++	q := syntax.NewName(pos, pkg.Name())
++	c.info.Uses[q] = types2.NewPkgName(pos, c.pkg, pkg.Name(), pkg)
++	se := &syntax.SelectorExpr{X: q, Sel: sel}
++	se.SetPos(pos)
++	se.SetTypeInfo(tv)
++	return se
 +}
 +
 +func (c *ergoChecker) local(p ergoPos, i int) *types2.Var {
@@ -797,19 +1014,64 @@ index 0000000..c437af7
 +	return true
 +}
 +
-+func ergoIsBool(t types2.Type) bool {
-+	b, ok := types2.CoreType(t).(*types2.Basic)
-+	return ok && b.Info()&types2.IsBoolean != 0
++func ergoBasicInfo(t types2.Type) types2.BasicInfo {
++	if b, ok := types2.CoreType(t).(*types2.Basic); ok {
++		return b.Info()
++	}
++	return 0
 +}
 +
-+func ergoIsInteger(t types2.Type) bool {
-+	b, ok := types2.CoreType(t).(*types2.Basic)
-+	return ok && b.Info()&types2.IsInteger != 0
-+}
++func ergoIsBool(t types2.Type) bool     { return ergoBasicInfo(t)&types2.IsBoolean != 0 }
++func ergoIsInteger(t types2.Type) bool  { return ergoBasicInfo(t)&types2.IsInteger != 0 }
++func ergoIsUnsigned(t types2.Type) bool { return ergoBasicInfo(t)&types2.IsUnsigned != 0 }
++func ergoIsFloat(t types2.Type) bool    { return ergoBasicInfo(t)&types2.IsFloat != 0 }
++func ergoIsNumeric(t types2.Type) bool  { return ergoIsInteger(t) || ergoIsFloat(t) }
++func ergoIsString(t types2.Type) bool   { return ergoBasicInfo(t)&types2.IsString != 0 }
 +
-+func ergoIsString(t types2.Type) bool {
-+	b, ok := types2.CoreType(t).(*types2.Basic)
-+	return ok && b.Info()&types2.IsString != 0
++// ergoConstant is the constant of type t that the IR spells v, or nil when
++// v does not spell one or t cannot hold it: an integer in decimal (an
++// optional minus sign), a float as strconv.FormatFloat writes it, true or
++// false, any string.
++func ergoConstant(t types2.Type, v string) constant.Value {
++	switch {
++	case ergoIsInteger(t):
++		digits, neg := strings.CutPrefix(v, "-")
++		if digits == "" || strings.TrimLeft(digits, "0123456789") != "" {
++			return nil
++		}
++		x := constant.MakeFromLiteral(digits, token.INT, 0)
++		if neg {
++			x = constant.UnaryOp(token.SUB, x, 0)
++		}
++		bits := uint(8 * types2.SizesFor("gc", buildcfg.GOARCH).Sizeof(t))
++		lo, hi := constant.MakeInt64(0), constant.Shift(constant.MakeInt64(1), token.SHL, bits)
++		if !ergoIsUnsigned(t) {
++			hi = constant.Shift(constant.MakeInt64(1), token.SHL, bits-1)
++			lo = constant.UnaryOp(token.SUB, hi, 0)
++		}
++		if constant.Compare(x, token.LSS, lo) || constant.Compare(x, token.GEQ, hi) {
++			return nil
++		}
++		return x
++	case ergoIsFloat(t):
++		bits := 64
++		if types2.SizesFor("gc", buildcfg.GOARCH).Sizeof(t) == 4 {
++			bits = 32
++		}
++		f, err := strconv.ParseFloat(v, bits)
++		if err != nil || strconv.FormatFloat(f, 'g', -1, bits) != v {
++			return nil
++		}
++		return constant.MakeFloat64(f)
++	case ergoIsBool(t):
++		if v != "true" && v != "false" {
++			return nil
++		}
++		return constant.MakeBool(v == "true")
++	case ergoIsString(t):
++		return constant.MakeString(v)
++	}
++	return nil
 +}
 +
 +// value records t (and v, a constant) as x's type.
