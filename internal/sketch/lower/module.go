@@ -56,53 +56,6 @@ func Runtime() []File {
 	return files
 }
 
-// GoModule is what the emitted module needs from the go.mod and go.sum
-// beside ergo.mod (IG7, owner q37; docs/spec/interop.md, Go modules): the
-// Go modules a program's import go packages come from.
-type GoModule struct {
-	// Require are go.mod's require lines, "path version", in its order.
-	Require []string
-	// Replace are its replace lines, "old [version] => new [version]",
-	// a local directory made absolute, since the emitted module lives
-	// elsewhere.
-	Replace []string
-	// Sum is go.sum's text, copied as it is.
-	Sum string
-	// Modules are the module paths a Go import of the program may name
-	// outside Go's standard library: each required module, and the module
-	// of go.mod itself, which Require and Replace then hold.
-	Modules []string
-}
-
-// covers reports whether a Go import path is a package of one of m's
-// modules.
-func (m GoModule) covers(path string) bool {
-	for _, mod := range m.Modules {
-		if path == mod || strings.HasPrefix(path, mod+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-// goModFile is the emitted module's go.mod: the runtime's requirement and
-// replacement (the ergo directory), then the program's Go requirements.
-func goModFile(m GoModule) []byte { return goModFileAt(programModule, m) }
-
-// goModFileAt is goModFile for the module path module.
-func goModFileAt(module string, m GoModule) []byte {
-	var b strings.Builder
-	b.WriteString("module " + module + "\n\ngo " + goVersion + "\n\nrequire " + runtimeModule + " v0.0.0\n")
-	for _, r := range m.Require {
-		b.WriteString("\nrequire " + r + "\n")
-	}
-	b.WriteString("\nreplace " + runtimeModule + " => ./" + runtimeDir + "\n")
-	for _, r := range m.Replace {
-		b.WriteString("\nreplace " + r + "\n")
-	}
-	return []byte(b.String())
-}
-
 // goMod is the go.mod of a program with no Go requirements.
 var goMod = string(goModFile(GoModule{}))
 
