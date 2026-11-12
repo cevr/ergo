@@ -1160,6 +1160,8 @@
     "TestTimeoutDeadlineIsTheProgramScheduler": 0.58,
     "TestTopLevelLawNamesAbsent": 0.03,
     "TestTopLevelLawsLeaveNoGo": 4.53,
+    "TestTryCoversToTheRight": 1.38,
+    "TestTryCoversToTheRightBuilt": 3.01,
     "TestUnitValidate": 0,
     "TestUnreachableRulesRefuse": 0.01,
     "TestUntypedLetIsRefusedBeforeLowering": 0,
@@ -1248,6 +1250,7 @@
     "TestRoundTwoForms": 0,
     "TestSemicolonInsertion": 0,
     "TestSupersededCorpus": 0.01,
+    "TestTryAddsNoGrouping": 0.02,
     "TestUsesIsAnIdentifier": 0
   },
   "ergo.local/prototype/internal/sketchfront": {
@@ -1847,6 +1850,9 @@
     "TestParseDeclaredRefusesUnknownForms": 0,
     "TestRecentChangesAreNotRecorded": 0,
     "TestWholeGateModel": 4.48
+  },
+  "ergo.local/prototype/scripts/langmigrate": {
+    "TestTryParensIsIdempotent": 9.42
   },
   "ergo.local/prototype/scripts/migrate196": {
     "TestWriteKeepsRowComments": 0

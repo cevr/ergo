@@ -56,13 +56,13 @@ func In(e ast.Expr, env Env) Value fails DivByZero | Stuck | Unset {
 	case ast.Var as v:
 		try lookup(env, v.Name)
 	case ast.Neg as n:
-		IntV{N: -(try intIn(n.X, env))}
+		IntV{N: -try intIn(n.X, env)}
 	case ast.Not as n:
-		BoolV{B: !(try boolIn(n.X, env))}
+		BoolV{B: !try boolIn(n.X, env)}
 	case ast.Bin as b:
 		match b.Op {
 		case ast.And:
-			if !(try boolIn(b.L, env)) {
+			if !try boolIn(b.L, env) {
 				return BoolV{B: false}
 			}
 			BoolV{B: try boolIn(b.R, env)}

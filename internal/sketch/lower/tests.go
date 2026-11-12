@@ -522,7 +522,16 @@ func (fc *funcCtx) assert(s *syntax.AssertStmt) {
 	text := strconv.Quote(fc.l.srcs[i].text[s.X.Pos():s.X.End()])
 	var cond string
 	if x, lt, rt, ok := fc.l.assertShown(s.X); ok {
+		// A try that starts the assert covers the whole comparison: its
+		// operands are lowered under it, as (try a) == b lowers a (q105).
+		inTry := tried(s.X) != s.X
+		if inTry {
+			fc.tries++
+		}
 		cond, text = fc.assertCompare(x, lt, rt, text)
+		if inTry {
+			fc.tries--
+		}
 	} else {
 		cond = fc.value(s.X)
 	}
@@ -566,9 +575,10 @@ func isStringLike(t check.Type) bool {
 // a comparison (==, !=, <, <=, >, >=), not of two constants, whose operand
 // types both have an argument literal (printable). It returns the
 // comparison and the operand types. The naming pass (nameTests) and the
-// lowering (assert) ask it the same question.
+// lowering (assert) ask it the same question. A try that starts x is
+// looked through (tried): try a == b shows a and b as (try a) == b does.
 func (l *lowerer) assertShown(x syntax.Expr) (*syntax.BinaryExpr, check.Type, check.Type, bool) {
-	b, ok := unparen(x).(*syntax.BinaryExpr)
+	b, ok := unparen(tried(x)).(*syntax.BinaryExpr)
 	if !ok {
 		return nil, nil, nil, false
 	}

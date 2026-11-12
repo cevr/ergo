@@ -23,7 +23,7 @@ test HangupIsFinalHolds(lines []string) {
 	end.Peer().Hangup()
 	// The lines sent before the hang-up are read first.
 	for l in lines {
-		assert (try end.Read()) == l
+		assert try end.Read() == l
 	}
 	let mut hangups = 0
 	for _ in 0..2 {

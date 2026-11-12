@@ -10,7 +10,7 @@ import strings
 law RoundTrip(key string, value string) {
 	let set = Set{Key: key, Value: value}
 	let unset = Unset{Key: key}
-	(try Decode(1, Encode(set))) == set && (try Decode(2, Encode(unset))) == unset
+	try Decode(1, Encode(set)) == set && try Decode(2, Encode(unset)) == unset
 }
 
 // OneLine: a record's line holds no line feed, so the log is one record
@@ -35,7 +35,7 @@ law FailedWriteKeepsTheStore(puts []string, key string, value string) {
 		try kv.Snapshot()
 	}
 	with context { kv.Store: try Open("db", disk, memory.FullOf(disk)) } {
-		failure(key, value) == "db/kv.log: no space left on device" && (try kv.Snapshot()) == before
+		failure(key, value) == "db/kv.log: no space left on device" && try kv.Snapshot() == before
 	}
 }
 

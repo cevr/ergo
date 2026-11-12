@@ -1,5 +1,0 @@
-// want: S001 3 -
-func f(a int64) int64 fails E {
-	let x = a + try g()
-	x
-}

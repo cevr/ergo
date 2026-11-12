@@ -20,8 +20,8 @@ import (
 // parameters, its owned locals and temporaries, outside function
 // literals, at most 64) has the release of its type's own Close (no
 // generated release of parts, B2), when no release point carries a drop
-// flag or a field mask (Info.Releases), no owned local is reassigned
-// (R41's two entries), and no bodiless std call holds a taken value
+// flag or a field mask (Info.Releases, Info.TryReleases), no owned local
+// is reassigned (R41's two entries), and no bodiless std call holds a taken value
 // (holdTaken, D-C). A value returned whole (v1.Returned) moves to a kept
 // bit: released only when the frame's exit fails.
 //
@@ -131,15 +131,26 @@ func (l *lowerer) staticPlan(params []*check.Var, body []syntax.Stmt) bool {
 	if !ok || len(keys) == 0 || len(keys) > 64 {
 		return false
 	}
-	for _, rs := range info.Releases {
+	flagged := func(rs []check.Release) bool {
 		for _, r := range rs {
 			var key any = r.Temp
 			if r.Var != nil {
 				key = r.Var
 			}
 			if keys[key] && (r.Flag || r.Fields != 0 || r.MaybeFields != 0) {
-				return false
+				return true
 			}
+		}
+		return false
+	}
+	for _, rs := range info.Releases {
+		if flagged(rs) {
+			return false
+		}
+	}
+	for _, rs := range info.TryReleases {
+		if flagged(rs) {
+			return false
 		}
 	}
 	return true

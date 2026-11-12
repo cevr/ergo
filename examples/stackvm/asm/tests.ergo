@@ -8,7 +8,7 @@ let Countdown = "        push 3   ; the counter\nloop:   dup\n        print\n   
 test AssemblesLabels {
 	let p = try Assemble(Countdown)
 	assert p == []vm.Instr{vm.Push{N: 3}, vm.Dup, vm.Print, vm.Push{N: 1}, vm.Sub, vm.Dup, vm.JumpIf{To: 1}, vm.Pop}
-	assert (try vm.Run(p, 100)).Printed == []int{3, 2, 1}
+	assert try vm.Run(p, 100).Printed == []int{3, 2, 1}
 }
 
 test LabelMayStandAlone {
