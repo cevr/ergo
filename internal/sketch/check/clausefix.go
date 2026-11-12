@@ -51,8 +51,8 @@ type ClauseFix struct {
 }
 
 // pendingClause is one site where a function's body exceeds a written
-// clause under Explicit: reported when the body ends, with the whole
-// clause (clauseReport).
+// clause: reported when the body ends, with the whole clause
+// (clauseReport).
 type pendingClause struct {
 	n     syntax.Node
 	kind  Kind
@@ -60,9 +60,9 @@ type pendingClause struct {
 }
 
 // pend records that the body of the function declaration being checked
-// exceeds its clause of kind at n, when Explicit holds. It reports false
-// when the target is not a declaration's under Explicit, so the caller
-// reports as before.
+// exceeds its clause of kind at n. It reports false when the target is
+// not a declaration's or Options.Infer holds, so the caller reports as
+// before.
 func (c *checker) pend(t *target, n syntax.Node, kind Kind, extra *Row) bool {
 	if c.opts.Infer || t.decl == nil {
 		return false

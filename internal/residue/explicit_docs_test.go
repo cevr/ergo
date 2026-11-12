@@ -12,16 +12,12 @@ import (
 // rowInference matches a spec sentence that states row inference.
 var rowInference = regexp.MustCompile(`(?i)inferred (error |capability )?rows?|infers each unwritten row|row inference|rows are inferred|is inferred for an unexported|inferred and unbounded`)
 
-// explicitMark is the status every such spec line carries until the unit
-// that deletes inference rewrites it.
-const explicitMark = "Row inference is superseded by [explicit local signatures]"
-
 // TestExplicitSignatureDocs holds the docs to the explicit-signature
 // decision (owner, 2026-11-12): NORTH_STAR.md carries the tiebreak and no
 // pass-through elision, docs/decisions.md the decision, GLOSSARY.md the
-// retired inferred row, and every line of docs/spec that states row
-// inference carries the status mark. Mutant: a spec line that promises
-// inference with no mark, or the elision text put back.
+// retired inferred row, and no line of docs/spec states row inference: the
+// checker infers no row since EXPLICIT EX2. Mutant: a spec line that
+// promises inference, or the elision text put back.
 func TestExplicitSignatureDocs(t *testing.T) {
 	root, err := exec.Command("git", "--no-optional-locks", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
@@ -58,9 +54,9 @@ func TestExplicitSignatureDocs(t *testing.T) {
 			t.Fatal(err)
 		}
 		for i, line := range strings.Split(string(data), "\n") {
-			if rowInference.MatchString(line) && !strings.Contains(line, explicitMark) {
+			if rowInference.MatchString(line) {
 				rel, _ := filepath.Rel(repo, path)
-				t.Errorf("%s:%d states row inference without the status mark %q", rel, i+1, explicitMark)
+				t.Errorf("%s:%d states row inference, which EXPLICIT EX2 removed (q137)", rel, i+1)
 			}
 		}
 	}

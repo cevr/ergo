@@ -16,7 +16,7 @@ Entries in this section and in the [2026-11-11](#owner-direction-2026-11-11) sec
 
   - q139 (answered as assumed): the rule covers declarations. A function literal or a block takes its rows from the parameter type it is passed to, or from its body where that parameter is a row parameter; the enclosing function writes everything that leaves it.
   - q140 (answered as assumed): pass-through elision is dropped. The tiebreak **Go-simple signatures** no longer says "Elide only pass-through rows"; an unwritten clause is the empty clause, and `inspect` and the docs print the written signature. Types.md Generics 3 is deleted. It supersedes the "Elision may apply to pass-through rows only" sentence of the 2026-10-12 readability entry (below).
-  - Built so far: the checker option `Explicit` (off by default) and `ergo fix`; the option becomes the only mode in the unit that deletes inference.
+  - Built: `ergo fix` (EXPLICIT EX1), and explicit `fails` and `needs` as the checker's only mode (EX2): every body is checked once against its own signature, and the row solver runs only as `ergo fix`'s clause writer (`check.Options.Infer`). `takes`, `given`, `gives` and `keeps` follow in EX3.
 
   Prior art: Rust writes every `fn` signature in full, private or not, and inference stops at the body, so a body change never changes a contract. Gleam and ReScript infer inside a module; Elixir has no checked signatures. Koka infers effect rows, and its authors recommend writing them on exported functions. Effect infers `E` and `R` through TypeScript. MoonBit requires annotations on top-level functions.
 
@@ -358,7 +358,7 @@ The owner may override a Go spelling decision by decision; explicit `pub` replac
 
 From the owner rule on the language name in NORTH_STAR.md, which keeps the rule:
 
-The `.ef` extension stays until [#205](https://github.com/cevr/ergo/issues/205) decides `.ergo` ([preview](previews/2026-10-27-ergo.md)).
+The `.ef` extension stayed until [#205](https://github.com/cevr/ergo/issues/205) decided `.ergo` ([preview](previews/2026-10-27-ergo.md)). **Closed:** `.ergo` is the source format (NORTH_STAR.md); the `.ef` files left under `docs/research` are records of that time.
 
 ## Go is the only target (owner, 2026-10-26)
 
