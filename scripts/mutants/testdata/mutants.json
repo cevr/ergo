@@ -55,6 +55,8 @@
       "to": "\treturn dir, func() {}, nil\n",
       "rule": "The default -work is removed at the end of its run.",
       "killers": ["scripts/mutants:TestDefaultWorkIsPrivate"]
-    }
+    },
+    {"name":"ex2-data-coverage-filter","origin":"wf10 EX2 r2","file":"scripts/mutants/runner.go","from":"\tif strings.HasSuffix(m.File, \".go\") {","to":"\tif true {","rule":"A mutant of a file the cover tool cannot see (std's .ergo) is judged by the tests its row names, not left uncovered.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
+    {"name":"ex2-data-failing-killer","origin":"wf10 EX2 r2","file":"scripts/mutants/coverage.go","from":"\t\tif t := c.test(id); t != nil && !t.Failed {","to":"\t\tif t := c.test(id); t != nil {","rule":"A named test that fails on the unmutated tree judges no data-file mutant.","killers":["scripts/mutants:TestRunnerMatchesModel"]}
   ]
 }

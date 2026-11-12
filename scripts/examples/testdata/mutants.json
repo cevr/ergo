@@ -72,6 +72,7 @@
       "to": "if err := error(nil); err != nil {",
       "rule": "The runner puts a checked-in ergo.laws back as it was: a run leaves the tree unchanged.",
       "killers": ["scripts/examples:TestTestLegFailsAStaleLedger"]
-    }
+    },
+    { "name": "ex2-no-fix-leg", "origin": "wf10 EX2 r2", "file": "scripts/examples/main.go", "from": "\t\t\tr.toolFailed(p, \"fix\", o, err)\n\t\t\treturn\n", "to": "", "rule": "A program a clause ergo fix would write fails the examples step (q137).", "killers": ["scripts/examples:TestFmtOrBuildFailureFailsOnlyThatProgram"] }
   ]
 }

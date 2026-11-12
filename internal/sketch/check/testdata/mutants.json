@@ -695,8 +695,7 @@
       "from": "\t\tif f == nil || !f.inferErrors && !f.inferUses {",
       "to": "\t\tif f == nil || !f.inferErrors || !f.inferUses {",
       "rule": "refuseRows: refuseRows reports the functions of a component whose inferred rows did not reach a fixpoint within the bound (S108: soundness by refusal).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestConvergeRefusalNamesItsFile"]
     },
     {
       "name": "t6-3-negate-if-extern.go:64",
@@ -721,24 +720,13 @@
       ]
     },
     {
-      "name": "t6-5-false-true-rows.go:806",
-      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
-      "file": "internal/sketch/check/rows.go",
-      "from": "\t\t\treturn false",
-      "to": "\t\t\treturn true",
-      "rule": "converge: converge joins the inferred rows of a cyclic component to their fixpoint, silently, with the worklist settling shares (worklist.go: callees first on demand, the smallest body first among the roots; round 8 review M1 and O1): a body is checked again only when a body it references grew.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
-    },
-    {
       "name": "t6-6-and-or-decl.go:1909",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
       "file": "internal/sketch/check/decl.go",
       "from": "\t\t\t\t\t\tif tp := ctx.params[id.Name]; tp != nil && free[tp] {",
       "to": "\t\t\t\t\t\tif tp := ctx.params[id.Name]; tp != nil || free[tp] {",
       "rule": "kindBracketParams: kindBracketParams gives each unconstrained bracket parameter of a function the kind of its positions in the signature: after fails an error row, after needs a capability row, elsewhere a type (grammar.md, Declarations 3; 196g as amended).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestConflictedSlotKinds"]
     },
     {
       "name": "t6-7-negate-if-variantindex.go:155",
@@ -775,16 +763,6 @@
       ]
     },
     {
-      "name": "t6-10-drop-continue-tests.go:191",
-      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 3)",
-      "file": "internal/sketch/check/tests.go",
-      "from": "\t\t\t\tif id.Name == \"_\" {\n\t\t\t\t\tcontinue\n\t\t\t\t}",
-      "to": "\t\t\t\tif id.Name == \"_\" {\n\t\t\t\t\t_ = 0\n\t\t\t\t}",
-      "rule": "checkTest: ",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
-    },
-    {
       "name": "t6-11-negate-if-variantindex.go:151",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 2)",
       "file": "internal/sketch/check/variantindex.go",
@@ -813,8 +791,7 @@
       "from": "\t\t\tm.rows.addRow(solverRow{})\n\t\t\tif len(m.rows.rows) > before {\n\t\t\t\tm.origin = append(m.origin, it.te)",
       "to": "\t\t\tm.rows.addRow(solverRow{})\n\t\t\tif !(len(m.rows.rows) > before) {\n\t\t\t\tm.origin = append(m.origin, it.te)",
       "rule": "judgeUnion: judgeUnion judges a type test of a union U that names a row (rows.md, Catch 9): it handles each variant of U that the caught row holds, as a test of that variant would.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestNamedRowCatch"]
     },
     {
       "name": "t6-14-drop-continue-decl.go:688",
@@ -828,24 +805,13 @@
       ]
     },
     {
-      "name": "t6-15-lt-le-context.go:615",
-      "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
-      "file": "internal/sketch/check/context.go",
-      "from": "\t\t\treturn contexts[i].file.index < contexts[j].file.index",
-      "to": "\t\t\treturn contexts[i].file.index <= contexts[j].file.index",
-      "rule": "checkContexts: checkContexts checks the named contexts: their entries, in a closed build context (README Gap 6: a named context requires nothing from the with site and lets no failure escape).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
-    },
-    {
       "name": "t6-16-false-true-unify.go:356",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
       "file": "internal/sketch/check/unify.go",
       "from": "\t\t\tif !in.nify(x.Results[i], y.Results[i], mode, depth) {\n\t\t\t\treturn false\n\t\t\t}",
       "to": "\t\t\tif !in.nify(x.Results[i], y.Results[i], mode, depth) {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "nifySig: nifySig unifies two signatures: parameters and results in mode, and rows by the row rule.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestInferVariantThenUnion"]
     },
     {
       "name": "t6-17-ne-eq-authority.go:598",
@@ -920,8 +886,7 @@
       "from": "\t\t}\n\t\treturn false\n\t}",
       "to": "\t\t}\n\t\treturn true\n\t}",
       "rule": "kindBracketParams: kindBracketParams gives each unconstrained bracket parameter of a function the kind of its positions in the signature: after fails an error row, after needs a capability row, elsewhere a type (grammar.md, Declarations 3; 196g as amended).",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestConflictedSlotKinds"]
     },
     {
       "name": "t6-24-negate-if-match.go:479",
@@ -1051,8 +1016,7 @@
       "from": "\t\tc.errorf(it.te, CodeType, \"%s is caught twice: the arms before it handle each of its variants in the row (rows.md, Catch 2)\", it.t)\n\t}\n\treturn false\n}\n",
       "to": "\t\tc.errorf(it.te, CodeType, \"%s is caught twice: the arms before it handle each of its variants in the row (rows.md, Catch 2)\", it.t)\n\t}\n\treturn true\n}\n",
       "rule": "judgeUnion: judgeUnion judges a type test of a union U that names a row (rows.md, Catch 9): it handles each variant of U that the caught row holds, as a test of that variant would.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestNamedRowCatch"]
     },
     {
       "name": "t6-36-false-true-operators.go:334",
@@ -1072,8 +1036,7 @@
       "from": "\t\t\tif c.identical(v, want) || isOrigin(v, want) {",
       "to": "\t\t\tif !(c.identical(v, want) || isOrigin(v, want)) {",
       "rule": "updateBaseText: updateBaseText is the diagnostic for a base of type got in an update of the type want.",
-      "killers": [],
-      "gap": "survives at the T6 base too (a77b17a6): no kept or deleted test kills it (T6 base.log); a gap of the suite, not a loss of the cut"
+      "killers": ["check:TestRecordUpdateRules"]
     },
     {
       "name": "t6-38-negate-if-variantindex.go:246",

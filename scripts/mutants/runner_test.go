@@ -26,9 +26,11 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // unmutated tree. Its ledger holds one value mutant per function (known
 // killers drawn at random, some wrong), a mutant that does not build, one
 // that no longer applies, a string-literal mutant with an anchor and one
-// without, and on Linux one that allocates past the memory limit. TestGreet
-// also reads the repository with git ls-files, as internal/residue's rules
-// do: in a copy with no Git index it would fail on the unmutated tree.
+// without, mutants of a data file that only the tests their rows name
+// judge (one/word.txt, as std's .ergo sources), and on Linux one that
+// allocates past the memory limit. TestGreet also reads the repository with
+// git ls-files, as internal/residue's rules do: in a copy with no Git index
+// it would fail on the unmutated tree.
 //
 // It checks that the runner reports exactly the model's status for each
 // mutant, that a killer is a test that asserts the mutated function (with
@@ -68,6 +70,7 @@ type fakeTest struct {
 	calls       []string
 	asserts     []string
 	broken      bool
+	reads       bool // asserts the data file one/word.txt
 }
 
 func (f fakeTest) id() string { return f.suite + ":" + f.name }
@@ -113,6 +116,7 @@ func generate(r *rand.Rand) fakeModule {
 		fakeTest{suite: "one", name: "TestGreet", calls: []string{"one.Greet"}, asserts: []string{"one.Greet"}},
 		fakeTest{suite: "one", name: "TestBroken", calls: []string{m.funcs[0]}, asserts: []string{m.funcs[0]}, broken: true},
 		fakeTest{suite: "two", name: "TestGrow", calls: []string{"two.Grow"}, asserts: []string{"two.Grow"}},
+		fakeTest{suite: "one", name: "TestWord", reads: true},
 	)
 	return m
 }
@@ -136,7 +140,7 @@ func (m fakeModule) source(pkg string) string {
 
 func (m fakeModule) testSource(pkg string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "package %s_test\n\nimport (\n\t\"os/exec\"\n\t\"testing\"\n\n\t\"fake.test/m/internal/fakelog\"\n\t\"fake.test/m/one\"\n\t\"fake.test/m/two\"\n)\n\nvar _, _, _ = one.Greet, two.Grow, exec.Command\n\n", pkg)
+	fmt.Fprintf(&b, "package %s_test\n\nimport (\n\t\"os\"\n\t\"os/exec\"\n\t\"testing\"\n\n\t\"fake.test/m/internal/fakelog\"\n\t\"fake.test/m/one\"\n\t\"fake.test/m/two\"\n)\n\nvar _, _, _, _ = one.Greet, two.Grow, exec.Command, os.ReadFile\n\n", pkg)
 	for _, ft := range m.tests {
 		if ft.suite != pkg {
 			continue
@@ -160,6 +164,9 @@ func (m fakeModule) testSource(pkg string) string {
 			} else {
 				fmt.Fprintf(&b, "\t_ = %s\n", got)
 			}
+		}
+		if ft.reads {
+			b.WriteString("\tif b, _ := os.ReadFile(\"word.txt\"); string(b) != \"hi\\n\" {\n\t\tt.Fatal(\"word.txt\")\n\t}\n")
 		}
 		if ft.broken {
 			b.WriteString("\tt.Fatal(\"fails on the unmutated tree\")\n")
@@ -236,6 +243,7 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		"two/f.go":                    m.source("two"),
 		"one/f_test.go":               m.testSource("one"),
 		"two/f_test.go":               m.testSource("two"),
+		"one/word.txt":                "hi\n",
 	}
 	for name, text := range files {
 		writeFile(t, filepath.Join(repo, name), text)
@@ -268,6 +276,16 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		{&Mutant{Name: "no-longer-applies", File: "one/f.go", From: "return 9999 }", To: "return 1 }"}, expect{status: Stale}},
 		{&Mutant{Name: "literal-anchored", File: "one/f.go", From: `"hello"`, To: `"hullo"`, Anchor: &Anchor{Text: "return greeting + farewell"}}, m.model("one.Greet", false)},
 		{&Mutant{Name: "literal-bare", File: "one/f.go", From: `"bye"`, To: `"by"`}, expect{status: Uncovered}},
+		// A mutant of a file that is not Go (std's .ergo sources) is in no
+		// block: the tests its row names judge it, those that pass on the
+		// unmutated tree, and no other.
+		{&Mutant{Name: "data-named", File: "one/word.txt", From: "hi", To: "ho", Killers: []string{"one:TestWord"}},
+			expect{status: Killed, killers: []string{"one:TestWord"}, covering: []string{"one:TestWord"}}},
+		{&Mutant{Name: "data-wrong-killer", File: "one/word.txt", From: "hi", To: "ho", Killers: []string{"one:TestGreet"}},
+			expect{status: Survived, covering: []string{"one:TestGreet"}}},
+		{&Mutant{Name: "data-broken-killer", File: "one/word.txt", From: "hi", To: "ho", Killers: []string{"one:TestBroken", "one:TestWord"}},
+			expect{status: Killed, killers: []string{"one:TestWord"}, covering: []string{"one:TestWord"}}},
+		{&Mutant{Name: "data-unnamed", File: "one/word.txt", From: "hi", To: "ho"}, expect{status: Uncovered}},
 	}
 	memoryLimit := uint64(0)
 	if runtime.GOOS == "linux" {

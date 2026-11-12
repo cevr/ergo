@@ -215,9 +215,9 @@ func (c *checker) settleWaiting(nodes []*bodyNode, byFunc map[*Func]*bodyNode, b
 	budget := func() int { return 2 * (len(needed) + edges) * (len(seen) + 1) }
 	checks := 0
 	c.silent++
-	w.run(func(n *bodyNode) bool {
+	w.run(func(n *bodyNode) {
 		if checks >= budget() {
-			return false
+			return
 		}
 		checks++
 		changed := c.checkNode(n)
@@ -238,7 +238,6 @@ func (c *checker) settleWaiting(nodes []*bodyNode, byFunc map[*Func]*bodyNode, b
 				w.push(p)
 			}
 		}
-		return true
 	})
 	c.silent--
 	c.selfChecks += checks

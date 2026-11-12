@@ -1,7 +1,8 @@
 package check
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -615,11 +616,8 @@ func (c *checker) checkContexts() {
 	for _, w := range c.pkg.Contexts {
 		contexts = append(contexts, w)
 	}
-	sort.Slice(contexts, func(i, j int) bool {
-		if contexts[i].file.index != contexts[j].file.index {
-			return contexts[i].file.index < contexts[j].file.index
-		}
-		return contexts[i].Pos < contexts[j].Pos
+	slices.SortFunc(contexts, func(a, b *Context) int {
+		return cmp.Or(cmp.Compare(a.file.index, b.file.index), cmp.Compare(a.Pos, b.Pos))
 	})
 	for _, w := range contexts {
 		c.cur = w.file
