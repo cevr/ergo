@@ -27,7 +27,9 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Provider** (checked for provider values): A value whose type implements a capability's methods, bound to that capability by a `context`. A provider may fail less than its capability, never more.
 
-**Value provider** (PS1): A named record whose own value is its state, with operation functions on `P` or `*P`. A law run owns a fresh record and lends it to pointer operations; this does not grant an implicit conversion of `P` to an operation-type value. A rewrite proof compares the entire keyed state after both sides, not a separately written model or only the provider's public reads. See [types, Laws 14](docs/spec/types.md#laws).
+**Value provider** (PS1): A named record whose own value is its state, with operation functions on `P` or `*P`. A law run owns a fresh record and lends it to pointer operations; a conversion of `P` to an operation-type value moves it into a provider cell. A rewrite proof compares the entire keyed state after both sides, not a separately written model or only the provider's public reads. See [types, Laws 14](docs/spec/types.md#laws).
+
+**Provider cell** (PS3): The place a value provider's value moves to when it converts to its operation type: the operations on `*P` write it, and nothing else sees it. Only an operation type sealed in the provider's package (an unexported operation) takes a cell, and only in that package. A cell is confined to the task that made it: an escaping frame never captures it, and no type argument, package `let` or other operation type holds it. See [types, Interface assignability 6](docs/spec/types.md#interface-assignability).
 
 **Constructor** (designed): An ordinary function named as a `context` entry, such as `Orders = OpenPostgres`. Its requirements are satisfied from the same context, and its failures become startup failures of the `with` that builds it.
 
