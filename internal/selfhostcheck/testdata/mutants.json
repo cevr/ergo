@@ -297,6 +297,40 @@
       "killers": [
         "selfhostcheck:TestSelfhostLayoutModel"
       ]
+    },
+    {
+      "name": "b18-adapter-drops-law-rewrite",
+      "origin": "batch-18 integration (SH0 x LR1)",
+      "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
+      "from": "\t\tsyntax.LawRewrite{},\n",
+      "to": "",
+      "rule": "A struct a family's field points to (LawDecl.Rewrite) is a family: else the encoding is a U document while the Go projection prints it.",
+      "killers": [
+        "selfhost/hostsyntax:TestFamiliesCoverSyntax",
+        "selfhostcheck:TestSelfhostBridgeAgrees"
+      ]
+    },
+    {
+      "name": "b18-format-law-rewrite-as-body",
+      "origin": "batch-18 integration (SH1 x LR1)",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": "\tif p.hasK(l, \"Rewrite\") {\n",
+      "to": "\tif false && p.hasK(l, \"Rewrite\") {\n",
+      "rule": "A rewrite law prints as `{ lhs } == { rhs }`, as the Go formatter's memberLaw does, not its synthetic Body.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "b18-format-law-rewrite-drops-guard",
+      "origin": "batch-18 integration (SH1 x LR1)",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": "\t\tif p.at(r, \"When\") != NoPos {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A rewrite law's `when R() == C` guard is printed (types.md Laws 14's SepAfterValue fence).",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
     }
   ]
 }

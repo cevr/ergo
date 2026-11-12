@@ -594,6 +594,25 @@ func memberLaw(p *Printer, l int) {
 	}
 	p.fieldList(p.k(l, "Params"), "(", ")")
 	p.space()
+	if p.hasK(l, "Rewrite") {
+		// The rewrite form (types.md, Laws 14): its Body is synthetic, the
+		// guard (when written) then the left and right blocks.
+		let r = p.k(l, "Rewrite")
+		let stmts = p.ks(p.k(l, "Body"), "List")
+		let n = len(stmts)
+		if p.at(r, "When") != NoPos {
+			p.token(p.at(r, "When"), "when")
+			p.space()
+			p.expr(p.k(stmts[0], "X"))
+			p.space()
+		}
+		p.lawBody(stmts[n-2])
+		p.space()
+		p.token(p.at(r, "Eq"), "==")
+		p.space()
+		p.lawBody(stmts[n-1])
+		return
+	}
 	p.lawBody(p.k(l, "Body"))
 }
 
