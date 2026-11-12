@@ -103,8 +103,7 @@ func heldTypes(pkgs []*check.Package, outside *check.Package) []*check.TypeName 
 // body names an extern that host reports, or a function of its package
 // that reaches; a fixed point. A function that holds the authority (its
 // written row lists Ambient, or a parameter's type is held) does not
-// reach: its caller supplies the provider. An inferred row is no
-// authority. A closure is judged in the function around it, unless the
+// reach: its caller supplies the provider. A closure is judged in the function around it, unless the
 // closure holds the authority itself. Each reaching function with a body
 // is a violation, and so is an exported reaching extern, which another
 // package calls directly. In source order per package.
@@ -332,14 +331,6 @@ func Peek(path string) string fails Gone { try peek(path) }
 	func() string fails Gone needs Ambient { try hostRead(path) }
 }
 `, nil},
-		{"a closure whose inferred row holds Ambient", `func peek(path string) string fails Gone {
-	let g = func() string fails Gone {
-		touch(NewHost())
-		try hostRead(path)
-	}
-	try g()
-}
-`, reaches("peek")},
 		{"a function value", `func Peek(path string) string fails Gone {
 	let f = peek
 	try f(path)
@@ -357,11 +348,6 @@ func Peek(path string) string fails Gone needs Ambient { try peek(NewHost(), pat
 `, nil},
 		{"control: a written Ambient", `func Peek(path string) string fails Gone needs Ambient { try hostRead(path) }
 `, nil},
-		{"an inferred Ambient is no authority", `func peek(path string) string fails Gone {
-	touch(NewHost())
-	try hostRead(path)
-}
-`, reaches("peek")},
 		{"a borrow of the provider is no authority", `func Peek(_ *Host, path string) string fails Gone { try hostRead(path) }
 `, reaches("Peek")},
 		{"an exported host extern", `extern go ergo.local/prototype/runtime/v1.FSStat func HostStat(path string) string fails Gone
@@ -404,12 +390,12 @@ func checkFixture(t *testing.T, name string, f *syntax.File, src string) *check.
 var chainLinks = []string{"direct", "closure", "closure-held", "closure-ambient", "value"}
 
 // A chain authority is what f_i holds: nothing, a written Ambient, a
-// parameter of the provider, or an inferred Ambient (which is nothing).
-var chainAuths = []string{"none", "written", "held", "inferred"}
+// parameter of the provider. Every row is written (q137): a function that
+// needs Ambient writes it.
+var chainAuths = []string{"none", "written", "held"}
 
 type chainFunc struct {
 	name, auth, link string
-	needs            bool // it needs Ambient through an inferred row
 }
 
 // chainPackage is the fixture of one seed: a chain f_1 → … → f_d →
@@ -432,28 +418,20 @@ func chainPackage(seed uint64) (string, []string, map[string]int) {
 			auth: chainAuths[r.IntN(len(chainAuths))],
 			link: links[r.IntN(len(links))],
 		}
-		// An exported function with an inferred Ambient is S102, so an
-		// inferred one stays unexported.
-		if fs[i].auth != "inferred" && r.IntN(2) == 0 {
+		if r.IntN(2) == 0 {
 			fs[i].name = "F" + strconv.Itoa(i+1)
 		}
 	}
-	// A function that needs Ambient and does not write it infers it, so
-	// it is unexported (an exported one would be S102). It needs Ambient
-	// when it makes a Host (it has no Host parameter and its callee or
-	// its closure takes one), when it calls a function that needs Ambient,
-	// or when its authority is the inferred one. From the extern up, since
-	// a caller's need follows its callee's final row.
+	// A function writes Ambient when it needs it: when it makes a Host (it
+	// has no Host parameter and its callee or its closure takes one), or
+	// when it calls a function or closure that needs Ambient. From the
+	// extern up, since a caller's need follows its callee's row.
 	for i := d - 1; i >= 0; i-- {
 		f := &fs[i]
 		makesHost := f.auth != "held" && (f.link == "closure-held" || i+1 < d && fs[i+1].auth == "held")
-		calleeNeeds := i+1 < d && (fs[i+1].auth == "written" || fs[i+1].auth == "inferred" || fs[i+1].needs)
-		f.needs = f.auth != "written" && (makesHost || calleeNeeds || f.auth == "inferred" || f.link == "closure-ambient")
-		if f.needs {
-			if f.auth == "none" {
-				f.auth = "inferred"
-			}
-			f.name = strings.ToLower(f.name)
+		calleeNeeds := i+1 < d && fs[i+1].auth == "written"
+		if f.auth != "written" && (makesHost || calleeNeeds || f.link == "closure-ambient") {
+			f.auth = "written"
 		}
 	}
 	for _, f := range fs {
@@ -489,8 +467,7 @@ func Read(_ Host) string fails Gone { try hostRead("x") }
 
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string fails Gone
 `)
-	// A Host for a call: the parameter, or a new one under Ambient (a
-	// written row, or an unexported function's inferred one).
+	// A Host for a call: the parameter, or a new one under a written Ambient.
 	for i, f := range fs {
 		params, row := "path string", ""
 		host := "NewHost()"
@@ -520,9 +497,6 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 			body = "\tlet g = func() string fails Gone needs Ambient { try " + call(host) + " }\n\ttry g()\n"
 		case "value":
 			body = "\tlet g = " + callee + "\n\ttry g(" + strings.ReplaceAll(args, "H", host) + ")\n"
-		}
-		if f.auth == "inferred" {
-			body = "\ttouch(NewHost())\n" + body
 		}
 		b.WriteString("\nfunc " + f.name + "(" + params + ") string fails Gone" + row + " {\n" + body + "}\n")
 	}

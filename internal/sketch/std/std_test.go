@@ -928,11 +928,10 @@ func Next(_ mint) Tok { Tok{v: 1} }
 let Minter = mint
 `, wrapped},
 		{"record passed by borrow to a function the caller supplies", tokBase + "func Give(f func(p *Tok)) {}\n", wrapped},
-		// The inferred failure row of an unexported function, handed out
-		// as a value.
-		{"record in the inferred failure row of a function value", tokBase + `func raise() int fails Tok { return Tok{v: 1} }
+		// The failure row of an unexported function, handed out as a value.
+		{"record in the failure row of a function value", tokBase + `func raise() int fails Tok { return Tok{v: 1} }
 
-func mk() int { try raise() }
+func mk() int fails Tok { try raise() }
 
 let Mk = mk
 `, wrapped},
@@ -977,11 +976,11 @@ func Next(_ mint) Host { Host{root: "/"} }
 let Minter = mint
 `, []string{mentions("Next", "fixture.Host"), builds("Next", "fixture.Host (a literal)")}},
 		{"Host passed by borrow to a function the caller supplies", hostBase + "func Give(f func(p *Host)) {}\n", give},
-		{"Host in the inferred failure row of a function value", hostBase + `type Oops { H Host }
+		{"Host in the failure row of a function value", hostBase + `type Oops { H Host }
 
 func raise() int fails Oops { try raise() }
 
-func mk() int { try raise() }
+func mk() int fails Oops { try raise() }
 
 let Mk = mk
 `, []string{letMentions("Mk", "fixture.Host")}},
@@ -1042,11 +1041,6 @@ func Give() M { Give() }
 		{"P1 Host as an open operation type, function result", readerBase + "func Open() Reader { Host{root: \"/\"} }\n", []string{builds("Open", "fixture.Host (a literal)")}},
 		{"P1 control: lists Ambient", readerBase + "func Open() Reader needs Ambient { Host{root: \"/\"} }\n", nil},
 		{"P2 Host as an open operation type, named context", readerBase + "let Disk = context { Reader: Host{root: \"/\"} }\n", []string{placeBuilds("Disk", "fixture.Host (a literal)", "a named context")}},
-		// An inferred row is not a written one: the mint rule, as the
-		// mention rule, reads only what the source writes (decided by
-		// "simpler, reversible"; std writes Ambient where it builds).
-		{"build under an inferred Ambient", readerBase + "func mk() Host {\n\tlet h = NewHost()\n\tHost{..h, root: \"x\"}\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
-		{"build in a closure under an inferred Ambient", readerBase + "func mk() string fails Gone {\n\tlet f = func() Host {\n\t\tlet h = NewHost()\n\t\tHost{..h, root: \"x\"}\n\t}\n\ttry Read(f())\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
 		{"generated test parameter that holds a Host", readerBase + "type Box { H Host }\n\ntest T(b Box) {\n\tassert true\n}\n", []string{placeBuilds("T", "fixture.Host (a generated parameter)", "a test")}},
 		{"build in a trailing block", readerBase + "func run(f func() string fails Gone) string fails Gone { try f() }\n\nfunc F() string fails Gone {\n\ttry run() {\n\t\ttry Read(Host{root: \"/\"})\n\t}\n}\n", []string{builds("F", "fixture.Host (a literal)")}},
 		// fu-ambient-ctor r7 (batch-10 r6 Unproven E1, E3): an extern has
