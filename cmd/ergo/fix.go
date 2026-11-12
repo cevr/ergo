@@ -51,7 +51,10 @@ func fixCommand(args []string) error {
 		case "--lint":
 			withLint = true
 		default:
-			if path != "" || len(a) > 1 && a[0] == '-' {
+			if len(a) > 1 && a[0] == '-' {
+				return unknownOption("", a)
+			}
+			if path != "" {
 				return usageError{message: fixUsage}
 			}
 			path = a

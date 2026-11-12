@@ -225,6 +225,9 @@ func lintRulesCommand(args []string) error {
 	if err != nil {
 		return invalidInvocation(err)
 	}
+	if len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
+		return unknownOption("", rest[0])
+	}
 	if len(rest) > 0 {
 		return invalidInvocation(fmt.Errorf("unexpected argument %q", rest[0]))
 	}
@@ -253,7 +256,7 @@ func lintTestCommand(args []string) error {
 		case a == "--update":
 			update = true
 		case strings.HasPrefix(a, "-"):
-			return invalidInvocation(fmt.Errorf("unknown option %s", a))
+			return unknownOption("", a)
 		default:
 			paths = append(paths, a)
 		}

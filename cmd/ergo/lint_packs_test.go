@@ -137,13 +137,13 @@ func TestLintRulesStartsNoPack(t *testing.T) {
 	if out, code := commandInProcess(t, "lint", filepath.Join(dir, "testdata", "forbidden_failure.ergo")); code != 2 {
 		t.Fatalf("a module document selecting a pack: exit %d, want 2\n%s", code, out)
 	}
-	// build and run refuse a selection as an unknown option.
+	// build and run refuse a selection as an unknown option (usage, exit 2).
 	for _, run := range [][]string{
 		{"build", "--rules", filepath.Join(dir, "policy.json"), filepath.Join(dir, "testdata", "forbidden_failure.ergo")},
 		{"run", "--lint-config", filepath.Join(dir, "failure.lint.json"), filepath.Join(dir, "testdata", "forbidden_failure.ergo")},
 	} {
-		if out, code := commandInProcess(t, run...); code == 0 {
-			t.Fatalf("ergo %s: exit 0\n%s", strings.Join(run, " "), out)
+		if out, code := commandInProcess(t, run...); code != 2 {
+			t.Fatalf("ergo %s: exit %d, want 2\n%s", strings.Join(run, " "), code, out)
 		}
 	}
 }

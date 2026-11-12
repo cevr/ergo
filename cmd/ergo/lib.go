@@ -29,7 +29,7 @@ func libCommand(args []string) error {
 			out = args[i+1]
 			i++
 		case len(args[i]) > 0 && args[i][0] == '-':
-			return invalidInvocation(fmt.Errorf("unknown option %s", args[i]))
+			return unknownOption("", args[i])
 		case source == "":
 			source = args[i]
 		default:

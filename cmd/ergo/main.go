@@ -31,24 +31,41 @@ func main() {
 		producer.Remember(root)
 	}
 	if err := command(os.Args[1:]); err != nil {
-		if exit, ok := err.(exitStatusError); ok {
-			if !exit.handled && exit.message != "" {
-				fmt.Fprintln(os.Stderr, exit.message)
-			}
-			os.Exit(exit.code)
+		if exit, ok := err.(exitStatusError); !ok || !exit.handled && exit.message != "" {
+			fmt.Fprintln(os.Stderr, err)
 		}
-		fmt.Fprintln(os.Stderr, err)
-		if _, usage := err.(usageError); usage {
-			os.Exit(2)
-		}
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
+}
+
+// exitCode is the process exit code of a command's error: an
+// exitStatusError's code, 2 for an invalid invocation (usageError), and 1
+// for every other failure.
+func exitCode(err error) int {
+	switch e := err.(type) {
+	case nil:
+		return 0
+	case exitStatusError:
+		return e.code
+	case usageError:
+		return 2
+	}
+	return 1
 }
 
 // usageError is an invalid invocation: exit 2.
 type usageError struct{ message string }
 
 func (e usageError) Error() string { return e.message }
+
+// unknownOption is the one refusal of an option a command does not take:
+// an invalid invocation, so every command exits 2 on it.
+func unknownOption(command, option string) error {
+	if command == "" {
+		return usageError{message: "unknown option " + option}
+	}
+	return usageError{message: command + ": unknown option " + option}
+}
 
 // exitStatusError exits with code, printing message unless the command
 // already reported the failure (handled).
@@ -244,7 +261,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			}
 		default:
 			if strings.HasPrefix(args[i], "-") {
-				return opts, fmt.Errorf("unknown option %s", args[i])
+				return opts, unknownOption("", args[i])
 			}
 			positional = append(positional, args[i])
 		}

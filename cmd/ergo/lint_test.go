@@ -32,15 +32,7 @@ func commandInProcess(t *testing.T, args ...string) ([]byte, int) {
 	w.Close()
 	out := <-done
 	r.Close()
-	switch e := runErr.(type) {
-	case nil:
-		return out, 0
-	case exitStatusError:
-		return out, e.code
-	case usageError:
-		return out, 2
-	}
-	return out, 1
+	return out, exitCode(runErr)
 }
 
 const lintFixture = `type Bad { Reason string }
