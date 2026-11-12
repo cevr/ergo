@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/lint"
 	sdk "ergo.local/prototype/lint"
 )
@@ -117,7 +118,18 @@ func (c packCase) packs(src string) map[string]*sdk.Pack {
 					}
 					for _, line := range c.findings[id] {
 						at := int(lineStart(src, line))
-						pass.Report(sdk.Finding{Message: "finding of " + id, Span: sdk.Span{File: pass.Snapshot.Sources[0].File, Offset: at, Line: line, Column: 1}})
+						span := sdk.Span{File: pass.Snapshot.Sources[0].File, Offset: at, Line: line, Column: 1}
+						finding := sdk.Finding{Message: "finding of " + id, Span: span}
+						// Some findings carry a related place or a suggestion,
+						// which the diagnostic report must carry as the
+						// fixture expectation does.
+						if (line+len(id))%2 == 0 {
+							finding.Related = []sdk.Related{{Message: "related to " + id, Span: span}}
+						}
+						if line%3 == 0 {
+							finding.Suggestions = []sdk.Suggestion{{Message: "suggested for " + id, Edits: []sdk.Edit{{Span: span, NewText: "// " + id + "\n"}}}}
+						}
+						pass.Report(finding)
 					}
 					return nil
 				},
@@ -278,6 +290,9 @@ func crashed(conf *sdk.Configuration, pack *sdk.Pack) sdk.Report {
 // only the go target. Mutants: lint3-runner-crash-not-l000,
 // lint3-runner-off-rule-pack-failed, lint3-runner-unselected-diagnosed,
 // lint3-runner-pack-rule-failed-unused, lint3-runner-pack-severity-default.
+// It also holds the diagnostic report's pack findings, their related places
+// and suggestions included, equal to the fixture expectation's. Mutants:
+// lint3-report-drops-related, lint3-advice-drops-suggestions.
 func TestPackSuppressionAgreesWithModel(t *testing.T) {
 	registry, err := lint.NewRegistry(nil, []lint.Preset{{Name: "base"}}, "base")
 	if err != nil {
@@ -316,7 +331,8 @@ func TestPackSuppressionAgreesWithModel(t *testing.T) {
 		if in.Checked != c.checked {
 			t.Fatalf("seed %d: the generated source checked=%v, want %v:\n%s", seed, in.Checked, c.checked, src)
 		}
-		got := outcome(conf.Run(in), c.strict)
+		run := conf.Run(in)
+		got := outcome(run, c.strict)
 		slices.Sort(got.Rules)
 		if want := c.model(); !reflect.DeepEqual(got, want) {
 			gj, _ := json.MarshalIndent(got, "", "  ")
@@ -324,5 +340,48 @@ func TestPackSuppressionAgreesWithModel(t *testing.T) {
 			t.Fatalf("seed %d: runner and model differ\nsource:\n%s\nconfig %s outcomes %v fails %v findings %v strict %v\nrunner: %s\nmodel: %s\nreplay: go test ./internal/sketch/lint -run TestPackSuppressionAgreesWithModel -lint.seed=%d",
 				seed, src, c.config(), c.outcome, c.fails, c.findings, c.strict, gj, wj, seed)
 		}
+		if reported, expected := reportedPackFindings(run, src, c.strict), expectedPackFindings(run); !slices.Equal(reported, expected) {
+			t.Fatalf("seed %d: the diagnostic report and the fixture expectation differ on pack findings\nsource:\n%s\nreport:   %q\nexpected: %q\nreplay: go test ./internal/sketch/lint -run TestPackSuppressionAgreesWithModel -lint.seed=%d",
+				seed, src, reported, expected, seed)
+		}
 	}
+}
+
+// packFindingKey is a pack finding as both projections hold it: code,
+// line, message, and its related places and suggestions as JSON.
+func packFindingKey(code string, line int, message string, related []sdk.Related, suggestions []sdk.Suggestion) string {
+	r, _ := json.Marshal(related)
+	s, _ := json.Marshal(suggestions)
+	return fmt.Sprintf("%s %d %s related=%s suggestions=%s", code, line, message, r, s)
+}
+
+// reportedPackFindings are the pack findings of the diagnostic report
+// (ergo lint --json, ergo diagnostics --json), sorted.
+func reportedPackFindings(run lint.Result, src string, strict bool) []string {
+	rep := report.NewResult(src, report.Target, nil).ReportWithLint(report.SourceSnapshot{Text: src}, strict, run.Advice())
+	var out []string
+	for _, f := range rep.Diagnostics {
+		if strings.Contains(f.Rule, "/") {
+			out = append(out, packFindingKey(f.Code, f.Span.Line, f.Message, f.Related, f.Suggestions))
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// expectedPackFindings are the pack findings of the fixture expectation
+// (ergo lint test), sorted.
+func expectedPackFindings(run lint.Result) []string {
+	var out []string
+	for _, f := range lint.ExpectationOf(run).Findings {
+		if strings.Contains(f.Code, "/") {
+			line := 0
+			if f.Span != nil {
+				line = f.Span.Line
+			}
+			out = append(out, packFindingKey(f.Code, line, f.Message, f.Related, f.Suggestions))
+		}
+	}
+	slices.Sort(out)
+	return out
 }
