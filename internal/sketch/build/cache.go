@@ -148,17 +148,18 @@ var testHookEntryOpened func(dir string)
 // until the caller calls Release on the module, after its link; on failure
 // Module holds nothing when it returns. A trim never moves a directory a
 // build holds. Module starts the cache's trim when one is due, after it has
-// decided its own module and while it holds it.
+// decided its own module and while it holds it, and the cap pass when it
+// published an entry past the cap (trim.go, trimAfter).
 //
 // When in.Compiler is process-scoped, the same steps run in the process's
 // private root instead, and the module is never published: a key that only
 // one process can trust never names a shared entry. The build also holds
 // the root's lease until Release.
-func (c Cache) Module(in Input, emit Emitter) (Module, error) {
+func (c Cache) Module(in Input, emit Emitter) (built Module, err error) {
 	if !filepath.IsAbs(c.Root) {
 		return Module{}, fmt.Errorf("build: cache root %q is not absolute", c.Root)
 	}
-	defer func() { c.maybeTrim(time.Now()) }()
+	defer func() { c.trimAfter(time.Now(), err == nil && !built.Reused && !built.Private) }()
 	if !processScoped(in.Compiler) {
 		return c.module(in, emit)
 	}

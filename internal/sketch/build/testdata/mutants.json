@@ -1,0 +1,60 @@
+{
+  "about": "The emission cache's bounds (wf10 CACHE-bound): the root that ERGO_CACHE names, and the entry cap with its least-recently-used pass, which never removes an entry a build holds. Judged by this package's own tests: go run ./scripts/mutants internal/sketch/build.",
+  "mutants": [
+    {
+      "name": "cache-bound-root-variable-ignored",
+      "origin": "wf10 CACHE-bound",
+      "file": "internal/sketch/build/cache.go",
+      "from": "if own := os.Getenv(RootVariable); own != \"\" {",
+      "to": "if own := os.Getenv(RootVariable); false && own != \"\" {",
+      "rule": "An absolute ERGO_CACHE names the emission cache root before XDG_CACHE_HOME and the user's cache directory; the tests' private cache rests on it.",
+      "killers": ["internal/sketch/build:TestDefaultRoot"]
+    },
+    {
+      "name": "cache-bound-cap-not-counted",
+      "origin": "wf10 CACHE-bound",
+      "file": "internal/sketch/build/trim.go",
+      "from": "over := leasesSupported && published && c.overCap()",
+      "to": "over := false",
+      "rule": "A build that published an entry past the cap runs the cap pass, due or not, so publication cannot grow the cache past entryCap.",
+      "killers": ["internal/sketch/build:TestEntryCapHoldsAfterBuilds"]
+    },
+    {
+      "name": "cache-bound-cap-evicts-newest",
+      "origin": "wf10 CACHE-bound",
+      "file": "internal/sketch/build/trim.go",
+      "from": "return a.mark.Compare(b.mark)",
+      "to": "return b.mark.Compare(a.mark)",
+      "rule": "The cap pass removes the least recently used entries first.",
+      "killers": ["internal/sketch/build:TestEntryCapHoldsAfterBuilds"]
+    },
+    {
+      "name": "cache-bound-cap-removes-all",
+      "origin": "wf10 CACHE-bound",
+      "file": "internal/sketch/build/trim.go",
+      "from": "excess := min(len(all)-entryCap, sweepRemovals)",
+      "to": "excess := len(all)",
+      "rule": "The cap pass removes no more than the entries past the cap: the entryCap most recently used stay.",
+      "killers": ["internal/sketch/build:TestEntryCapHoldsAfterBuilds"]
+    },
+    {
+      "name": "cache-bound-cap-ignores-holds",
+      "origin": "wf10 CACHE-bound",
+      "file": "internal/sketch/build/trim.go",
+      "from": "if c.takeAside(e.path, func(mark time.Time) bool { return !mark.After(e.mark) }) {",
+      "to": "if os.RemoveAll(e.path) == nil {",
+      "rule": "The cap pass removes an entry only under its exclusive lock, so never one a build holds, in this process or another.",
+      "killers": ["internal/sketch/build:TestCapNeverRemovesAHeldEntry"]
+    },
+    {
+      "name": "cache-bound-cap-stale-recheck",
+      "origin": "wf10 CACHE-bound",
+      "file": "internal/sketch/build/trim.go",
+      "from": "return !mark.After(e.mark)",
+      "to": "return true",
+      "rule": "The cap pass passes over an entry a build marked used after the pass read its mark.",
+      "killers": [],
+      "gap": "Only an ordering rule: a mark needs a build that reused the entry an hour or more after its last mark between the pass's stat and its lock, and the removed entry is unheld, so a later build rebuilds it. No safety rests on it; a test would need a hook between the stat and the lock."
+    }
+  ]
+}

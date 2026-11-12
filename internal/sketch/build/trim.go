@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,10 @@ import (
 // trim at most once per trimInterval. The trim removes the published
 // entries that no build used for unusedLimit, the staging directories older
 // than stagingLifetime (a crashed builder's, a discard's aside, a trim's own
-// aside that a crash left), and the private roots of lease.go.
+// aside that a crash left), and the private roots of lease.go. A count
+// bounds the published entries too: past entryCap, the cap pass removes the
+// least recently used (capEntries), after each build that published one
+// and after each due trim.
 //
 // Ages decide what to remove, never whether a removal is safe. Safety rests
 // on directory locks:
@@ -110,10 +114,20 @@ func trimDue(locks bool, s stamp, now time.Time) bool {
 // holds the claim. A recent stamp costs one file read and no directory
 // scan. The stamp records a trim as complete only after a pass that reached
 // the end of every directory without hitting a bound.
-func (c Cache) maybeTrim(now time.Time) {
+func (c Cache) maybeTrim(now time.Time) { c.trimAfter(now, false) }
+
+// trimAfter is maybeTrim after a build; published reports that the build
+// published a new entry. Then it also counts the entries of Root/modules,
+// at most entryCap+1 names, and when there are more than entryCap it runs
+// the cap pass (capEntries) under the claim, due or not. A due trim runs
+// the cap pass too, after its own pass. So a cache that only grows by
+// publication stays within entryCap after each build that the claim lets
+// trim, and a build that only reuses still reads only the stamp.
+func (c Cache) trimAfter(now time.Time, published bool) {
 	path := filepath.Join(c.Root, trimStampName)
 	data, _ := os.ReadFile(path)
-	if !trimDue(leasesSupported, readStamp(data), now) {
+	over := leasesSupported && published && c.overCap()
+	if !over && !trimDue(leasesSupported, readStamp(data), now) {
 		return
 	}
 	began := time.Now()
@@ -129,10 +143,16 @@ func (c Cache) maybeTrim(now time.Time) {
 		return
 	}
 	s := readStamp(data)
-	if !trimDue(leasesSupported, s, now) {
+	due := trimDue(leasesSupported, s, now)
+	if !due && !over {
 		return // a trim completed since the first read
 	}
+	if !due {
+		c.capEntries()
+		return
+	}
 	p := c.trim(now, s.cursor)
+	c.capEntries()
 	if p.complete {
 		s = stamp{completed: now.Add(time.Since(began)).Unix()}
 	} else {
@@ -141,6 +161,72 @@ func (c Cache) maybeTrim(now time.Time) {
 	if f.Truncate(0) == nil {
 		_, _ = f.WriteAt(s.bytes(), 0)
 	}
+}
+
+// entryCap is the most published entries Root/modules keeps (type
+// variable: tests set it small). An entry of an example program is about
+// 1.1 MB, its runtime copy included (measured 2026-11-12), so the cap
+// bounds the published entries near 2.3 GB. Go's build cache trims by age
+// alone; the cap is Cargo's size limit of its automatic clean, counted in
+// entries, which a build counts cheaply.
+var entryCap = 2048
+
+// overCap reports whether Root/modules holds more than entryCap names. It
+// reads at most entryCap+1 names and stats none.
+func (c Cache) overCap() bool {
+	dir, err := os.Open(filepath.Join(c.Root, "modules"))
+	if err != nil {
+		return false
+	}
+	defer dir.Close()
+	seen := 0
+	for seen <= entryCap {
+		names, err := dir.Readdirnames(sweepChunk)
+		seen += len(names)
+		if err != nil || len(names) == 0 {
+			break
+		}
+	}
+	return seen > entryCap
+}
+
+// capEntries is the cap pass: when Root/modules holds more than entryCap
+// entries, it removes the least recently used ones (the oldest use marks),
+// at most sweepRemovals and no more than the excess, and returns how many
+// it removed. It removes an entry as the age pass does (takeAside): only
+// under the entry's exclusive lock, taken without waiting, so never one a
+// build holds, and only when the entry was not marked used since the pass
+// read its mark. A held entry is passed over for the next oldest. The pass
+// stats each entry once; it runs under the trim's claim.
+func (c Cache) capEntries() int {
+	dir := filepath.Join(c.Root, "modules")
+	listing, err := os.ReadDir(dir)
+	if err != nil || len(listing) <= entryCap {
+		return 0
+	}
+	type used struct {
+		path string
+		mark time.Time
+	}
+	var all []used
+	for _, entry := range listing {
+		path := filepath.Join(dir, entry.Name())
+		if info, err := os.Lstat(path); err == nil && info.IsDir() {
+			all = append(all, used{path, info.ModTime()})
+		}
+	}
+	slices.SortStableFunc(all, func(a, b used) int { return a.mark.Compare(b.mark) })
+	excess := min(len(all)-entryCap, sweepRemovals)
+	removed := 0
+	for _, e := range all {
+		if removed >= excess {
+			break
+		}
+		if c.takeAside(e.path, func(mark time.Time) bool { return !mark.After(e.mark) }) {
+			removed++
+		}
+	}
+	return removed
 }
 
 // stamp is the content of trim.txt: the Unix time, in seconds, at which
@@ -247,24 +333,30 @@ func (c Cache) trim(now time.Time, cursor int) pass {
 // trimEntry removes the published entry at path when no build used it for
 // unusedLimit and no build holds it, and reports whether it did.
 func (c Cache) trimEntry(now time.Time, path string) bool {
-	return c.takeAside(now, path, unusedLimit)
+	return c.takeAside(path, olderThan(now, unusedLimit))
 }
 
 // trimStaging removes the staging directory at path when it is older than
 // stagingLifetime and no builder holds it, and reports whether it did.
 func (c Cache) trimStaging(now time.Time, path string) bool {
-	return c.takeAside(now, path, stagingLifetime)
+	return c.takeAside(path, olderThan(now, stagingLifetime))
 }
 
-// takeAside removes the directory at path when it is older than limit and
-// the trim takes its lock exclusively without waiting. Under the lock it
-// checks that path still names the locked directory and, through the
-// descriptor, its age again; then it renames the directory aside into
-// Root/staging, releases the lock and removes the aside. It reports whether
-// the directory left path.
-func (c Cache) takeAside(now time.Time, path string, limit time.Duration) bool {
+// olderThan is the age test of the age pass: a modification time more
+// than limit before now.
+func olderThan(now time.Time, limit time.Duration) func(time.Time) bool {
+	return func(mark time.Time) bool { return now.Sub(mark) > limit }
+}
+
+// takeAside removes the directory at path when stale holds for its
+// modification time and the trim takes its lock exclusively without
+// waiting. Under the lock it checks that path still names the locked
+// directory and, through the descriptor, stale again; then it renames the
+// directory aside into Root/staging, releases the lock and removes the
+// aside. It reports whether the directory left path.
+func (c Cache) takeAside(path string, stale func(time.Time) bool) bool {
 	info, err := os.Lstat(path)
-	if err != nil || !info.IsDir() || now.Sub(info.ModTime()) <= limit {
+	if err != nil || !info.IsDir() || !stale(info.ModTime()) {
 		return false
 	}
 	f, err := os.Open(path)
@@ -279,7 +371,7 @@ func (c Cache) takeAside(now time.Time, path string, limit time.Duration) bool {
 		testHookTrimLocked(path)
 	}
 	locked, same := sameFile(f, path)
-	if !same || now.Sub(locked.ModTime()) <= limit {
+	if !same || !stale(locked.ModTime()) {
 		f.Close()
 		return false // moved, or used, since the trim read it
 	}

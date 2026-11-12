@@ -56,6 +56,9 @@ func helperMain(mode string) int {
 	if mode == "trim-crash" {
 		return trimCrashHelper()
 	}
+	if mode == "cap-churn" {
+		return capChurnHelper()
+	}
 	if mode == "identity" {
 		identity, err := CompilerIdentity()
 		if err != nil {
