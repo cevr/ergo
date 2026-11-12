@@ -1276,6 +1276,7 @@ func (e *encoder) encFieldsClauseFix(v *ClauseFix) {
 	e.encT1(v.Open)
 	e.encT87(v.Imports)
 	e.encT2(v.Signature)
+	e.encT87(v.hidden)
 }
 
 func (e *encoder) encClauseFix(v ClauseFix) { e.encFieldsClauseFix(&v) }
@@ -7089,6 +7090,7 @@ func (e *encoder) encFieldsspeller(v *speller) {
 	e.encPtrchecker(v.c)
 	e.encPtrfileInfo(v.fi)
 	e.encT87(v.imps)
+	e.encT87(v.hidden)
 	e.encT12(v.ok)
 }
 
@@ -10165,6 +10167,7 @@ func (d *decoder) decFieldsClauseFix(v *ClauseFix) {
 	v.Open = d.decT1()
 	v.Imports = d.decT87()
 	v.Signature = d.decT2()
+	v.hidden = d.decT87()
 }
 
 func (d *decoder) decClauseFix() (v ClauseFix) {
@@ -17840,6 +17843,7 @@ func (d *decoder) decFieldsspeller(v *speller) {
 	v.c = d.decPtrchecker()
 	v.fi = d.decPtrfileInfo()
 	v.imps = d.decT87()
+	v.hidden = d.decT87()
 	v.ok = d.decT12()
 }
 

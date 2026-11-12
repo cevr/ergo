@@ -48,6 +48,9 @@ type ClauseFix struct {
 	// Signature is the function's header with the clause written, as the
 	// formatter prints it (the diagnostic's "write:" text).
 	Signature string
+	// hidden are the prelude type names a type of the package hides that
+	// the clause must name (spell): it cannot be written there.
+	hidden []string
 }
 
 // pendingClause is one site where a function's body exceeds a written
@@ -105,6 +108,15 @@ func (c *checker) clauseReport(t *target) {
 		for _, path := range fix.Imports {
 			write += fmt.Sprintf(" (import %s to write it)", path)
 		}
+		attach := true
+		if len(fix.hidden) > 0 {
+			// No clause the package can write names it (spell): the
+			// checker asks for the rename instead, and ergo fix writes
+			// nothing.
+			slices.Sort(fix.hidden)
+			write = fmt.Sprintf("the clause cannot be written here, since this package's type %s hides the prelude's (types.md, Scope 2); rename the package's type", strings.Join(fix.hidden, ", "))
+			attach = false
+		}
 		var msg, code string
 		if p.kind == KindErrors {
 			code = CodeUndeclared
@@ -120,7 +132,7 @@ func (c *checker) clauseReport(t *target) {
 		}
 		before := len(c.diags)
 		c.errorf(p.n, code, "%s", msg)
-		if len(c.diags) > before {
+		if attach && len(c.diags) > before {
 			copied := *fix
 			c.diags[len(c.diags)-1].Fix = &copied
 		}
@@ -160,9 +172,14 @@ func (c *checker) clauseFix(f *Func, kind Kind, missing *Row) *ClauseFix {
 	var add []string
 	spellable := true
 	for _, e := range missing.Elems() {
-		text, imps, ok := c.spell(f.file, e)
+		text, imps, hidden, ok := c.spell(f.file, e)
 		if !ok {
 			spellable = false
+		}
+		for _, h := range hidden {
+			if !containsString(fix.hidden, h) {
+				fix.hidden = append(fix.hidden, h)
+			}
 		}
 		add = append(add, text)
 		for _, imp := range imps {
@@ -270,18 +287,36 @@ func signatureText(src string, d *syntax.FuncDecl, fix *ClauseFix) string {
 // a map, a tuple, a function type with its rows and takes clause, and an
 // error row argument. A record, an operation type or a union is written
 // only as a declaration, so it is a named type here.
-func (c *checker) spell(fi *fileInfo, t Type) (text string, imps []string, ok bool) {
+//
+// A prelude or universe type that a type of the package hides (types.md,
+// Scope 2; L6, owner q30) has no spelling in the package: its name means
+// the package's type there. hidden lists those names, and the clause is
+// then not written (clauseReport says to rename the package's type).
+func (c *checker) spell(fi *fileInfo, t Type) (text string, imps, hidden []string, ok bool) {
 	s := &speller{c: c, fi: fi, ok: true}
 	text = s.typ(t)
-	return text, s.imps, s.ok
+	return text, s.imps, s.hidden, s.ok
 }
 
-// speller spells types for spell, gathering the imports they need.
+// speller spells types for spell, gathering the imports they need and the
+// prelude names the package hides.
 type speller struct {
-	c    *checker
-	fi   *fileInfo
-	imps []string
-	ok   bool
+	c      *checker
+	fi     *fileInfo
+	imps   []string
+	hidden []string
+	ok     bool
+}
+
+// hide marks name, a prelude or universe type's, as hidden when a type of
+// the package takes it.
+func (s *speller) hide(name string) {
+	if _, ok := s.c.pkg.Scope.names[name].(*TypeName); ok {
+		s.ok = false
+		if !containsString(s.hidden, name) {
+			s.hidden = append(s.hidden, name)
+		}
+	}
 }
 
 func (s *speller) typ(t Type) string {
@@ -289,6 +324,9 @@ func (s *speller) typ(t Type) string {
 	case *TypeParam:
 		return t.Name
 	case *Named:
+		if p := t.Obj.Pkg; p == nil || p != s.c.pkg && !p.qualify {
+			s.hide(t.Obj.Name)
+		}
 		name, imp, ok := s.c.spellName(s.fi, t.Obj)
 		s.ok = s.ok && ok
 		if imp != "" && !containsString(s.imps, imp) {
@@ -299,12 +337,14 @@ func (s *speller) typ(t Type) string {
 		}
 		return name
 	case *Basic:
+		s.hide(t.String())
 		return t.String()
 	case *Slice:
 		return "[]" + s.typ(t.Elem)
 	case *Array:
 		return fmt.Sprintf("[%d]%s", t.Len, s.typ(t.Elem))
 	case *Map:
+		s.hide("Map") // the syntax's Map[K, V] (grammar.md, Parser 8)
 		return "Map[" + s.typ(t.Key) + ", " + s.typ(t.Elem) + "]"
 	case *Pointer:
 		return "*" + s.typ(t.Elem) // a borrow, as a function type's parameter
