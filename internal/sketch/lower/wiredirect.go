@@ -10,18 +10,13 @@ import (
 )
 
 // Direct writers (JSON-fast; serde's monomorphisation). An encode(v, w)
-// whose w is a sealed std value (check.SealedStd) of a type whose runtime
-// methods are the Writer's Go methods (directOps) keeps that
-// representation: its conversion to the Writer is Go's own (no adapter,
-// sealedOperations), and the call is of a codec function made for the
-// writer's Go type, whose events are direct method calls Go can inline,
-// not interface calls. The rule reads checked and declared facts only:
-// the operand's static type, its conversion to the Writer
-// (Info.Implicit) and the runtime bindings of its operations
-// (runtimeBindings). No type is named: any sealed type whose operations
-// are a Writer's takes it. No std type is such a type since LR3: std
-// json's Text is a value provider in a cell, whose encode is a cell
-// writer (wiretext.go) on the same direct path.
+// whose w is a cell of a sealed std operation type whose provider gives
+// every Writer operation (std json's Text, provider text) is a cell
+// writer (wiretext.go): the call is of a codec function made for the
+// provider's value, whose events are calls of the provider's functions Go
+// can inline, not interface calls. The rule reads checked facts only: the
+// operand's static type and its provider cell (check.CellProvider). No
+// type is named.
 //
 // A codec witness carries one function per direct writer type of the
 // program (Direct0, Direct1, ... in l.directWriters order) beside Enc and
@@ -71,31 +66,22 @@ func (l *lowerer) directWriter(info *check.Info, x syntax.Expr) (int, bool) {
 	return 0, false
 }
 
-// directSource is the sealed std type that x, encode's writer operand,
-// converts from to the Writer, when directOps holds; nil otherwise (no
-// conversion: x is a Writer already).
+// directSource is the cell type of x, encode's writer operand, when it is
+// a cell writer (wiretext.go); nil otherwise (x is a Writer already). An
+// operation type's value converts to the Writer by Go's own interface
+// assignment, so no conversion is recorded: its static type decides. The
+// path of a sealed std runtime type whose methods are the Writer's
+// (directOps) is gone since LR3: json.Text, its one user, is a cell
+// provider, and no other std type has runtime Writer methods.
 func (l *lowerer) directSource(info *check.Info, x syntax.Expr) *check.Named {
-	if t, ok := info.Types[x].(*check.Named); ok {
-		// An operation type's value converts to the Writer by Go's own
-		// interface assignment, so no conversion is recorded: its static
-		// type decides a cell writer (wiretext.go).
-		if _, ok := cellWriterOf(t, check.PreludeType(check.WireWriterName)); ok {
-			return t
-		}
-	}
-	conv := info.Implicit[x]
-	from, ok := conv.From.(*check.Named)
+	t, ok := info.Types[x].(*check.Named)
 	if !ok {
 		return nil
 	}
-	to, ok := conv.To.(*check.Named)
-	if !ok {
+	if _, ok := cellWriterOf(t, check.PreludeType(check.WireWriterName)); !ok {
 		return nil
 	}
-	if !check.SealedStd(from) || !directOps(from, to) {
-		return nil
-	}
-	return from
+	return t
 }
 
 // directOps reports that every operation of the operation type to is a

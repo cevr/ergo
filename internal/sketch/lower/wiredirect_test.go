@@ -79,8 +79,7 @@ func main() needs Console {
 // record's opening brace and first key are one constant append (the
 // proved laws of std json's Text joined the run), so a law of Text that
 // is no longer proved and current in the std ledger leaves the run as it
-// is. Mutants: jf-direct-param, jf-direct-writer, jf-direct-sealed,
-// lr3-sepdue-no-comma, lr3-raw-reads-st, lr3-at-appends, lr3-intbody-sep,
+// is. Mutants: jf-direct-param, jf-direct-writer, lr3-sepdue-no-comma, lr3-raw-reads-st, lr3-at-appends, lr3-intbody-sep,
 // ps2-unfold-of-extern.
 func TestEncodeOnADirectWriterCallsItsMethods(t *testing.T) {
 	codecCalls := func(t *testing.T, o *lowered) map[string][]string {

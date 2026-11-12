@@ -287,6 +287,7 @@ func (a agreeType) valueSource() string {
 // evaluation does not run, and the evidence is the built check run.
 func TestRewriteAgrees(t *testing.T) {
 	needsBuild(t)
+	defaultLoweringOnly(t) // its anchor checks the rewritten form
 	saved := inlineLowering
 	inlineLowering = "call"
 	defer func() { inlineLowering = saved }()
@@ -550,6 +551,7 @@ func TestRewriteEmptyWindow(t *testing.T) {
 // rewriteWorkPerCall per call, and the window keeps the reference
 // lowering.
 func TestRewriteWorkBound(t *testing.T) {
+	defaultLoweringOnly(t) // it counts the engine's work
 	for n := 2; n <= 4; n++ {
 		calls := []string{"c.Inc()"}
 		for range n - 1 {

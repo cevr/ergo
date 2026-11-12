@@ -3916,16 +3916,6 @@
       ]
     },
     {
-      "name": "jf-direct-sealed",
-      "origin": "wf10 JSON-fast",
-      "file": "internal/sketch/lower/wiredirect.go",
-      "from": "\tif !check.SealedStd(from) || !directOps(from, to) {",
-      "to": "\tif !directOps(from, to) {",
-      "rule": "Only a sealed std value is a direct writer: a program type that shares a runtime type's name takes the Writer path (wiredirect.go).",
-      "killers": [],
-      "gap": "Since LR3 no sealed std type has runtime methods that are the Writer's (json.Text is a cell provider), so no program reaches this branch; a new such type brings its test."
-    },
-    {
       "name": "jf-direct-witness",
       "origin": "wf10 JSON-fast",
       "file": "internal/sketch/lower/wire.go",
