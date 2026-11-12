@@ -1,0 +1,50 @@
+// Package workload writes the twig program that the receipts run: n
+// rounds of recursive calls, a closure, a step of a small n-body system
+// over records in a list, and a string built from a list. The seed draws
+// the constants, so two seeds give two programs of the same shape.
+
+import rand
+import strings
+
+// Program is the workload of n rounds for seed.
+func Program(seed int, n int) string {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		write(seed, n)
+	}
+}
+
+// coord is a float literal of twig drawn from Random: an int over 1000.
+func coord() string needs Random { "float(\(Random.IntN(4001) - 2000)) / 1000.0" }
+
+func write(seed int, n int) string needs Random {
+	let mut b = strings.NewBuilder()
+	b.WriteString("// twig workload: seed \(seed), \(n) rounds\n")
+	b.WriteString("fn fib(n) {\n\tif n < 2 {\n\t\treturn n\n\t}\n\treturn fib(n - 1) + fib(n - 2)\n}\n\n")
+	b.WriteString("fn counter() {\n\tlet c = 0\n\treturn fn() {\n\t\tc = c + 1\n\t\treturn c\n\t}\n}\n\n")
+	b.WriteString("fn step(bodies, dt) {\n")
+	b.WriteString("\tfor a in bodies {\n\t\tfor b in bodies {\n\t\t\tif a != b {\n")
+	b.WriteString("\t\t\t\tlet dx = b.x - a.x\n\t\t\t\tlet dy = b.y - a.y\n")
+	b.WriteString("\t\t\t\tlet d2 = dx * dx + dy * dy + 0.01\n\t\t\t\tlet f = b.m / (d2 * sqrt(d2))\n")
+	b.WriteString("\t\t\t\ta.vx = a.vx + dx * f * dt\n\t\t\t\ta.vy = a.vy + dy * f * dt\n\t\t\t}\n\t\t}\n\t}\n")
+	b.WriteString("\tfor a in bodies {\n\t\ta.x = a.x + a.vx * dt\n\t\ta.y = a.y + a.vy * dt\n\t}\n}\n\n")
+	b.WriteString("let tick = counter()\nlet bodies = []\n")
+	for _ in 0..3 {
+		b.WriteString("push(bodies, {x: " + coord() + ", y: " + coord() + ", vx: 0.0, vy: 0.0, m: " + coord() + " + 3.0})\n")
+	}
+	b.WriteString("let words = [")
+	let count = 3 + Random.IntN(4)
+	for i in 0..count {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString("\"w\(Random.IntN(100))\"")
+	}
+	b.WriteString("]\n")
+	let depth = 8 + Random.IntN(4)
+	b.WriteString("let total = 0\nlet round = 0\nwhile round < \(n) {\n")
+	b.WriteString("\ttotal = total + fib(\(depth))\n\tstep(bodies, 0.01)\n")
+	b.WriteString("\tlet s = \"\"\n\tfor w in words {\n\t\ts = s + w\n\t}\n")
+	b.WriteString("\ttotal = total + len(s) + tick()\n\tround = round + 1\n}\n")
+	b.WriteString("print(total)\nprint(bodies[0].x)\nprint(bodies[1].vy)\n")
+	b.String()
+}

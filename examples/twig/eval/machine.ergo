@@ -1,0 +1,103 @@
+import slices
+import strings
+import twig/resolve
+
+// Pos is a place in the source.
+type Pos = resolve.Pos
+
+// RunError is a run-time error: what went wrong and where.
+type RunError { At Pos, Msg string }
+
+// Returned is a return on its way to the call that owns it.
+type Returned { V Value }
+
+// Broke is a break on its way to its loop.
+type Broke {}
+
+// Continued is a continue on its way to its loop.
+type Continued {}
+
+// Flow is how a statement can end other than by running to its end.
+type Flow = RunError | Returned | Broke | Continued
+
+// MaxDepth is how deep calls may nest: one more is a RunError, not a
+// stack overflow of the host.
+let MaxDepth = 2000
+
+// Frame is the variables of one call, and the frame of the function that
+// made the callee.
+type Frame { Slots []Value, Parent int }
+
+// Record is a record: its field numbers and their values, in the order
+// of its literal.
+type Record { Keys []int, Vals []Value }
+
+// Machine is the state of a run: the frames, the frames free for reuse,
+// the lists and records, what print wrote, and two counters: the nodes
+// evaluated (each expression and each statement) and the calls.
+type Machine {
+	frames []Frame,
+	free   []int,
+	lists  [][]Value,
+	recs   []Record,
+	out    strings.Builder,
+	depth  int,
+	nodes  int,
+	calls  int,
+}
+
+// End is how a run ended.
+type End = Finished | Crashed{At Pos, Msg string}
+
+type Finished {}
+
+// Report is a run: what it printed, how it ended, and its counters.
+type Report { Out string, End End, Nodes int, Calls int }
+
+// Run runs the program p.
+func Run(p resolve.Program) Report {
+	let main = p.Funcs[resolve.Main]
+	let mut m = Machine{
+		frames: []Frame{Frame{Slots: slices.Repeat([]Value{Nil}, main.Slots), Parent: -1}},
+		free:   []int{},
+		lists:  [][]Value{},
+		recs:   []Record{},
+		out:    strings.NewBuilder(),
+		depth:  0,
+		nodes:  0,
+		calls:  0,
+	}
+	let mut end End = Finished
+	exec(&m, p, main.Body, 0) catch {
+	case RunError as e:
+		end = Crashed{At: e.At, Msg: e.Msg}
+	case Returned, Broke, Continued:
+		end = Crashed{At: main.At, Msg: "a jump left the program"}
+	}
+	Report{Out: m.out.String(), End: end, Nodes: m.nodes, Calls: m.calls}
+}
+
+// enter is a frame of size slots whose parent is env: a free one when
+// there is one, else a new one.
+func enter(m *Machine, slots int, env int) int {
+	if len(m.free) == 0 {
+		m.frames = m.frames.Append(Frame{Slots: slices.Repeat([]Value{Nil}, slots), Parent: env})
+		return len(m.frames) - 1
+	}
+	let id = m.free[len(m.free)-1]
+	m.free = m.free[0 : len(m.free)-1]
+	if len(m.frames[id].Slots) < slots {
+		m.frames[id].Slots = slices.Repeat([]Value{Nil}, slots)
+	}
+	m.frames[id].Parent = env
+	id
+}
+
+// frameOf is the frame hops parents up from env.
+func frameOf(m *Machine, env int, hops int) int {
+	let mut f = env
+	for _ in 0..hops {
+		f = m.frames[f].Parent
+	}
+	f
+}

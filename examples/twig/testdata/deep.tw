@@ -1,0 +1,7 @@
+// A recursion with no end is a run-time error, not a crash of the host.
+fn down(n) {
+	return down(n + 1)
+}
+
+print("start")
+down(0)

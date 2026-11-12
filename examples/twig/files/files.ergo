@@ -1,0 +1,23 @@
+// Package files is the host's Sources provider: a file of the host's
+// disk, read whole.
+
+import fs
+import twig/script
+
+// Disk reads the host's files. Only New makes one.
+type Disk { host fs.Host }
+
+// New is the provider over the host's files.
+func New(host fs.Host) Disk { Disk{host: host} }
+
+// Read is the whole text of the file at path.
+func Read(d Disk, path string) string fails script.Unreadable {
+	d.host.ReadFile(path) catch {
+	case fs.NotFound:
+		return script.Unreadable{Path: path, Reason: "no such file"}
+	case fs.Denied:
+		return script.Unreadable{Path: path, Reason: "permission denied"}
+	case fs.Failed as e:
+		return script.Unreadable{Path: path, Reason: e.Reason}
+	}
+}

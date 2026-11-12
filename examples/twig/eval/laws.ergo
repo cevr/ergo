@@ -1,0 +1,104 @@
+// The interpreter's arithmetic as a law against a model: a fold of the
+// tree in Ergo's own ints, which wrap as twig's do.
+
+import rand
+import twig/resolve
+import twig/syntax
+
+let nowhere = syntax.Pos{Line: 0, Col: 0}
+
+// genInt is an expression of ints of depth at most depth: literals near
+// 0, 1 and the extremes, negations and the arithmetic operators.
+func genInt(depth int) syntax.Expr needs Random {
+	if depth <= 0 || Random.IntN(4) == 0 {
+		let n = match Random.IntN(6) {
+		case 0:
+			0
+		case 1:
+			1
+		case 2:
+			9223372036854775807
+		case _:
+			Random.IntN(41)
+		}
+		return syntax.IntLit{N: n, At: nowhere}
+	}
+	if Random.IntN(5) == 0 {
+		return syntax.Unary{Op: syntax.Neg, X: genInt(depth - 1), At: nowhere}
+	}
+	let ops = []syntax.BinOp{syntax.Add, syntax.Sub, syntax.Mul, syntax.Div, syntax.Mod}
+	syntax.Binary{Op: ops[Random.IntN(len(ops))], L: genInt(depth - 1), R: genInt(depth - 1), At: nowhere}
+}
+
+// Model is the outcome of an int expression: its value, or a division
+// by zero.
+type Model = Folded{N int} | ByZero{}
+
+// model is the value of e, an expression genInt makes.
+func model(e syntax.Expr) Model {
+	match e {
+	case syntax.IntLit as x:
+		Folded{N: x.N}
+	case syntax.Unary as x:
+		match model(x.X) {
+		case Folded as v:
+			Folded{N: -v.N}
+		case ByZero:
+			ByZero
+		}
+	case syntax.Binary as x:
+		match (model(x.L), model(x.R)) {
+		case (Folded as a, Folded as b):
+			match x.Op {
+			case syntax.Add:
+				Folded{N: a.N + b.N}
+			case syntax.Sub:
+				Folded{N: a.N - b.N}
+			case syntax.Mul:
+				Folded{N: a.N * b.N}
+			case syntax.Div:
+				if b.N == 0 { ByZero } else { Folded{N: a.N / b.N} }
+			case syntax.Mod:
+				if b.N == 0 { ByZero } else { Folded{N: a.N % b.N} }
+			case _:
+				ByZero
+			}
+		case (_, _):
+			ByZero
+		}
+	case _:
+		ByZero
+	}
+}
+
+// ArithmeticAgreesWithModel: twig prints what the model computes for an
+// int expression, and fails with a division by zero where the model
+// divides by zero.
+law ArithmeticAgreesWithModel(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		for _ in 0..20 {
+			let e = genInt(5)
+			let call = syntax.ExprStmt{X: syntax.Call{Fn: syntax.Name{Id: "print", At: nowhere}, Args: []syntax.Expr{e}, At: nowhere}, At: nowhere}
+			let p = resolve.Resolve([]syntax.Stmt{call}) catch {
+			case resolve.ResolveError:
+				return false
+			}
+			let r = Run(p)
+			let ok = match model(e) {
+			case Folded as v:
+				r.Out == "\(v.N)\n" && r.End == Finished
+			case ByZero:
+				match r.End {
+				case Crashed as c:
+					c.Msg == "division by zero" && r.Out == ""
+				case Finished:
+					false
+				}
+			}
+			if !ok {
+				return false
+			}
+		}
+		true
+	}
+}

@@ -1,0 +1,137 @@
+// Package eval runs a resolved twig program by walking its tree. Lists,
+// records and frames live in the Machine and are named by number, so a
+// list that two variables hold is one list, and a function keeps the
+// frame it was made in. A run-time error is a typed failure that names
+// its place in the source; so are return, break and continue, which the
+// call and the loop that own them catch.
+
+import strconv
+import strings
+import twig/resolve
+
+// Value is a twig value.
+type Value =
+	| Nil{}
+	| Bool{B bool}
+	| Int{N int}
+	| Float{F float64}
+	| Str{S string}
+	| List{Id int}
+	| Rec{Id int}
+	| Fn{Code int, Env int}
+	| Builtin{Op resolve.Builtin}
+
+// KindOf is the name of v's kind, as a failure names it.
+func KindOf(v Value) string {
+	match v {
+	case Nil:
+		"nil"
+	case Bool:
+		"bool"
+	case Int:
+		"int"
+	case Float:
+		"float"
+	case Str:
+		"string"
+	case List:
+		"list"
+	case Rec:
+		"record"
+	case Fn, Builtin:
+		"function"
+	}
+}
+
+// ShowDepth is how deep Show goes into lists and records: a list that
+// holds itself shows as ... at this depth.
+let ShowDepth = 8
+
+// Show is the text print writes for v. A string is its bytes; inside a
+// list or a record it is quoted.
+func Show(m *Machine, fns []resolve.Func, fields []string, v Value) string {
+	let mut b = strings.NewBuilder()
+	write(m, fns, fields, &b, v, 0)
+	b.String()
+}
+
+// write adds the text of v at depth d to b.
+func write(m *Machine, fns []resolve.Func, fields []string, b *strings.Builder, v Value, d int) {
+	match v {
+	case Nil:
+		b.WriteString("nil")
+	case Bool as x:
+		b.WriteString(if x.B { "true" } else { "false" })
+	case Int as x:
+		b.WriteString(strconv.Itoa(x.N))
+	case Float as x:
+		b.WriteString(strconv.FormatFloat(x.F, 'g', -1))
+	case Str as x:
+		if d == 0 {
+			b.WriteString(x.S)
+		} else {
+			b.WriteString(strconv.Quote(x.S))
+		}
+	case List as x:
+		if d >= ShowDepth {
+			b.WriteString("[...]")
+			return
+		}
+		b.WriteByte('[')
+		for i, item in m.lists[x.Id] {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			write(m, fns, fields, b, item, d+1)
+		}
+		b.WriteByte(']')
+	case Rec as x:
+		if d >= ShowDepth {
+			b.WriteString("{...}")
+			return
+		}
+		b.WriteByte('{')
+		let r = m.recs[x.Id]
+		for i, k in r.Keys {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(fields[k])
+			b.WriteString(": ")
+			write(m, fns, fields, b, r.Vals[i], d+1)
+		}
+		b.WriteByte('}')
+	case Fn as x:
+		b.WriteString("<fn " + fns[x.Code].Name + ">")
+	case Builtin as x:
+		b.WriteString("<fn " + resolve.BuiltinName(x.Op) + ">")
+	}
+}
+
+// Same reports whether a and b are equal: the same kind and the same
+// value. Two lists, two records or two functions are equal only when
+// they are one.
+func Same(a Value, b Value) bool {
+	match (a, b) {
+	case (Nil, Nil):
+		true
+	case (Bool as x, Bool as y):
+		x.B == y.B
+	case (Int as x, Int as y):
+		x.N == y.N
+	case (Float as x, Float as y):
+		x.F == y.F
+	case (Str as x, Str as y):
+		x.S == y.S
+	case (List as x, List as y):
+		x.Id == y.Id
+	case (Rec as x, Rec as y):
+		x.Id == y.Id
+	case (Fn as x, Fn as y):
+		x.Code == y.Code && x.Env == y.Env
+	case (Builtin as x, Builtin as y):
+		x.Op == y.Op
+	case (_, _):
+		false
+	}
+}

@@ -1,0 +1,121 @@
+import strconv
+import strings
+
+// LexError is a text that is no token.
+type LexError { At Pos, Msg string }
+
+// Puncts are the punctuation tokens, the two-byte ones first, so that <=
+// is one token and not < and =.
+let Puncts = []string{"<=", ">=", "==", "!=", "(", ")", "{", "}", "[", "]", ",", ":", ".", "+", "-", "*", "/", "%", "<", ">", "="}
+
+// Lex is the tokens of src, ended by an End token. Spaces, tabs, returns
+// and newlines separate tokens; // starts a comment that runs to the end
+// of the line. A number is a run of digits, with a fraction when a dot
+// and a digit follow it.
+func Lex(src string) []Token fails LexError {
+	let mut toks = []Token{}
+	let mut i = 0
+	let mut line = 1
+	let mut lineStart = 0
+	let mut fresh = true
+	for i < len(src) {
+		let c = src[i]
+		if c == '\n' {
+			i += 1
+			line += 1
+			lineStart = i
+			fresh = true
+			continue
+		}
+		if c == ' ' || c == '\t' || c == '\r' {
+			i += 1
+			continue
+		}
+		if c == '/' && i+1 < len(src) && src[i+1] == '/' {
+			for i < len(src) && src[i] != '\n' {
+				i += 1
+			}
+			continue
+		}
+		let at = Pos{Line: line, Col: i - lineStart + 1}
+		let start = i
+		if IsLetter(c) {
+			for i < len(src) && (IsLetter(src[i]) || IsDigit(src[i])) {
+				i += 1
+			}
+			let w = strings.Slice(src, start, i)
+			let kind Kind = if IsKeyword(w) { Keyword } else { Ident }
+			toks = toks.Append(Token{Kind: kind, Text: w, At: at, Fresh: fresh})
+		} else if IsDigit(c) {
+			for i < len(src) && IsDigit(src[i]) {
+				i += 1
+			}
+			let fraction = i+1 < len(src) && src[i] == '.' && IsDigit(src[i+1])
+			if fraction {
+				i += 1
+				for i < len(src) && IsDigit(src[i]) {
+					i += 1
+				}
+			}
+			let kind Kind = if fraction { FloatTok } else { IntTok }
+			toks = toks.Append(Token{Kind: kind, Text: strings.Slice(src, start, i), At: at, Fresh: fresh})
+		} else if c == '"' {
+			let (text, end) = try quoted(src, i+1, at)
+			i = end
+			toks = toks.Append(Token{Kind: StrTok, Text: text, At: at, Fresh: fresh})
+		} else {
+			let p = punctAt(src, i)
+			if p == "" {
+				return LexError{At: at, Msg: "unexpected character " + strconv.Quote(strings.Slice(src, i, i+1))}
+			}
+			i += len(p)
+			toks = toks.Append(Token{Kind: Punct, Text: p, At: at, Fresh: fresh})
+		}
+		fresh = false
+	}
+	toks.Append(Token{Kind: End, Text: "", At: Pos{Line: line, Col: len(src) - lineStart + 1}, Fresh: fresh})
+}
+
+// quoted reads a string literal whose body starts at byte from of src,
+// with the machine Quoting: it is the literal's value and the byte after
+// its closing quote.
+func quoted(src string, from int, at Pos) (string, int) fails LexError {
+	let mut value = strings.NewBuilder()
+	let mut q Quote = Body
+	let mut i = from
+	for i < len(src) {
+		let d = QuoteStep(q, MarkOf(src[i]))
+		i += 1
+		match d {
+		case Emit[Quote, Piece] as e:
+			q = e.Next
+			match e.Output {
+			case Char as ch:
+				value.WriteByte(ch.C)
+			case Closed, Broken:
+			}
+		case Enter[Quote] as e:
+			q = e.Next
+		case Done[Piece] as e:
+			match e.Output {
+			case Closed:
+				return (value.String(), i)
+			case Broken as b:
+				return LexError{At: at, Msg: b.Why}
+			case Char:
+			}
+		case Stay[Quote], Ignore, Reject:
+		}
+	}
+	LexError{At: at, Msg: "a string has no closing quote"}
+}
+
+// punctAt is the punctuation token that starts at byte i of src, or "".
+func punctAt(src string, i int) string {
+	for p in Puncts {
+		if i+len(p) <= len(src) && strings.Slice(src, i, i+len(p)) == p {
+			return p
+		}
+	}
+	""
+}

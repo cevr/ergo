@@ -1,0 +1,6 @@
+fn f() {
+	return later
+}
+
+let later = 1
+print(f())

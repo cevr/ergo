@@ -1,0 +1,6 @@
+# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
+# files.Disk holds an fs.Host, which only fs.NewHost builds (with the
+# Ambient capability), so no generator builds one: Repeatable runs on
+# memory.Texts, and the host's files are read by the cases and by
+# cmd/ergo TestTwigAgreesWithControl.
+skip law script.Sources.Repeatable for Disk: its values have no generator: fs.Host has an unexported field, so only package fs builds it; use fs.NewHost; a func NewDisk() Disk with no rows would build one for each case
