@@ -101,6 +101,15 @@
       "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
     },
     {
+      "name": "xpkg-example-ledger-own-suite",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\tif goFiles(absRoot, rel, true) {\n",
+      "to": "\t\tif true {\n",
+      "rule": "A ledger whose directory has no Go tests (an example's, editing .ergo files) brings no suite of its own, which would not build; its named killers judge it.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
       "name": "xpkg-stale-killer-accepted",
       "origin": "wf10 fu-mutants-xpkg",
       "file": "scripts/mutants/runner.go",

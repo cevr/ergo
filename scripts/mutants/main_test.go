@@ -111,10 +111,22 @@ func TestScopeIsTheLedgersPackage(t *testing.T) {
 // killers do not exist, and the other rows were run by hand.
 func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	root := t.TempDir()
-	for _, dir := range []string{"runtime/v1", "internal/sketchfront"} {
+	for _, dir := range []string{"runtime/v1", "internal/sketchfront", "examples/demo/memory"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	for _, f := range []string{"runtime/v1/v1.go", "runtime/v1/v1_test.go", "examples/demo/memory/demo.ergo"} {
+		if err := os.WriteFile(filepath.Join(root, f), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// An example's ledger edits .ergo files: it is no Go package and no
+	// suite, and is judged by the killer it names alone.
+	demo := &Ledger{Mutants: []*Mutant{{Name: "e", File: "examples/demo/memory/demo.ergo", Killers: []string{"examples:demo"}}}}
+	cover, _, suites, err := suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "examples", "demo")), Ledger: demo}})
+	if err != nil || len(cover) != 0 || len(suites) != 1 || suites[0].Name != "examples" || !slices.Equal(suites[0].Named, []string{"demo"}) {
+		t.Errorf("an example's ledger: cover %q, suites %+v, err %v; want only examples running demo", cover, suites, err)
 	}
 	ledger := &Ledger{Mutants: []*Mutant{
 		{Name: "a", Killers: []string{"runtime/v1[ergoexplore]:TestA", "runtime/v1:TestB", "internal/sketchfront:TestF"}},

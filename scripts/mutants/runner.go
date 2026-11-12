@@ -547,7 +547,7 @@ func (e *engine) buildTool(ctx context.Context, root, bin, name string, cover bo
 
 func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cover bool, deadline time.Duration) outcome {
 	argv := []string{"go", "test", "-c"}
-	if cover {
+	if cover && len(e.cfg.Cover) > 0 {
 		argv = append(argv, "-cover", "-covermode=set", "-coverpkg="+strings.Join(e.cfg.Cover, ","))
 	}
 	if s.Tags != "" {

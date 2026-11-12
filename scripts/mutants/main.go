@@ -286,11 +286,20 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			}
 			continue
 		}
-		add("./" + rel)
-		for _, m := range j.Ledger.Mutants {
-			add("./" + filepath.ToSlash(filepath.Dir(m.File)))
+		// Only a Go package is covered, and only a package with tests is a
+		// suite: an example's ledger (examples/fetchpool) edits .ergo
+		// files and is judged by the killers it names alone.
+		if goFiles(absRoot, rel, false) {
+			add("./" + rel)
 		}
-		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
+		for _, m := range j.Ledger.Mutants {
+			if dir := filepath.ToSlash(filepath.Dir(m.File)); goFiles(absRoot, dir, false) {
+				add("./" + dir)
+			}
+		}
+		if goFiles(absRoot, rel, true) {
+			suites = append(suites, Suite{Name: rel, Package: "./" + rel})
+		}
 	}
 	// A killer or anchor test in a suite no ledger brought is run too, and
 	// only the tests the ledgers name: its other tests judge nothing here,
@@ -336,6 +345,13 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 		return nil, nil, nil, fmt.Errorf("killers that name no suite (want DIR:Test or DIR[TAGS]:Test with DIR a module directory, check, lower, std, api or ergo:Test, or examples:PROGRAM):\n  %s", strings.Join(unresolved, "\n  "))
 	}
 	return cover, tools, suites, nil
+}
+
+// goFiles says whether the module directory dir holds a Go file: a test
+// file with tests, a non-test one without.
+func goFiles(root, dir string, tests bool) bool {
+	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.go"))
+	return slices.ContainsFunc(files, func(f string) bool { return strings.HasSuffix(f, "_test.go") == tests })
 }
 
 // namedSuite resolves the suite of a killer id that no ledger's scope
