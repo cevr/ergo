@@ -748,6 +748,7 @@
       "to": "\t\t\t\tif !(rs == nil) {",
       "rule": "widenUnknown: widenUnknown returns dst, the type an inferred receiver holds (the first branch of a join, the binding of a type parameter), with the known part of src's rows joined into each of dst's unknown rows, in dst and in its results.",
       "killers": [
+        "check:TestWidenUnknownNestedResult",
         "lower:TestCheckCorpusBuildsPart4"
       ]
     },
