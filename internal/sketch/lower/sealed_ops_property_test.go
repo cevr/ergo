@@ -173,8 +173,10 @@ func sealedSource(s stdOpType, imports []string, decl, target string) string {
 // prelude and the std packages crossed with (1) a generated operation type
 // of the program with all its exported members, (2) one with each member
 // alone, and (3) every other operation type the prelude and std declare,
-// instantiated with the source's type parameters where it is generic.
-// Replay one case with ERGO_SEALED_CASE=<name>; a failure prints the
+// instantiated with the source's type parameters where it is generic;
+// and a sealed operation type the program declares, crossed with (1) and
+// (2): it has no runtime Go type, so it converts as a plain interface
+// (check.sealedStd names std types only). Replay one case with ERGO_SEALED_CASE=<name>; a failure prints the
 // case's Ergo source and Go.
 func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 	all := stdOpTypes(t)
@@ -240,6 +242,19 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 	}
 	if sealedSeen < 10 {
 		t.Fatalf("the property found %d sealed std protocols; the enumeration lost them", sealedSeen)
+	}
+	// A sealed operation type the program declares (Sealed: an unexported
+	// operation) has no runtime Go type: sealing is the visibility rule, so
+	// its value converts as a plain interface would (check.sealedStd's Std
+	// term; batch-17 round 2 TS-1).
+	user := []string{"Next() int", "Add(n int) int", "Name() string"}
+	userDecl := "type Counter {\n" + strings.Join(user, ",\n") + ",\nreset(),\n}\n\ntype C { n int }\n\nfunc Next(c C) int {\n\treturn c.n + 1\n}\n\nfunc Add(c C, n int) int {\n\treturn c.n + n\n}\n\nfunc Name(c C) string {\n\treturn \"c\"\n}\n\nfunc reset(c C) {\n}\n\nfunc Make(n int) Counter {\n\tC{n: n}\n}\n"
+	for i, members := range append([][]string{user}, [][]string{{user[0]}, {user[1]}, {user[2]}}...) {
+		name := "main.Counter/all"
+		if i > 0 {
+			name = "main.Counter/" + members[0][:strings.Index(members[0], "(")]
+		}
+		cases = append(cases, sealedCase{name: name, src: "\n" + userDecl + "\ntype Op {\n" + strings.Join(members, ",\n") + ",\n}\n\nfunc Conv(s Counter) Op { s }\n", must: true})
 	}
 	var programs []*lowered
 	admitted := map[string]bool{}

@@ -2561,6 +2561,17 @@
       "killers": [
         "check:TestImportGoUses"
       ]
+    },
+    {
+      "name": "fixts-sealed-user-as-std",
+      "origin": "wf10 batch-17 round 2 TS-1",
+      "file": "internal/sketch/check/authority.go",
+      "from": "if !ok || n.Obj == nil || !n.Obj.Pkg.Std() || !Sealed(n) {",
+      "to": "if !ok || n.Obj == nil || !Sealed(n) {",
+      "rule": "Sealing is the visibility rule: a sealed operation type the program declares has no runtime Go type, so its value converts to another operation type as a plain interface; only a std sealed type takes the runtime adapter (sealedStd).",
+      "killers": [
+        "lower:TestSealedStdConvertsToItsOperationTypes"
+      ]
     }
   ]
 }
