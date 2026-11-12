@@ -1,0 +1,579 @@
+// Package bench is the referee of `ergo bench` (docs/specs/bench.md): the
+// statistics that judge two sides of a benchmark from paired blocks. This
+// file is the statistics (BN1): the Wilcoxon signed-rank test with the
+// exact null distribution of tied ranks, the Hodges-Lehmann estimate with
+// its distribution-free interval of Walsh averages, the levels of the
+// planned looks, Holm's step-down for secondaries, the pairs a verdict
+// still needs, and Decide, which turns the pairs of one series into a
+// Verdict. Every function is pure: no clock, no process, no host.
+//
+// The method is strobe's (docs/specs/bench.md, Method; SPEC 9.3 of strobe
+// 0.32.0), with three changes: the equivalence bound is symmetric in log
+// space, so swapping the sides mirrors every verdict (law Mirror); there
+// is no normal approximation, since a series is at most MaxPairs pairs and
+// the exact distribution is cheap there; and an exact counter that moves
+// is refused, not compared like a timed one.
+
+import math
+import slices
+import cmp
+
+// MaxPairs is the most pairs one series may hold. Decide refuses more
+// (TooManyPairs): up to it the exact null distribution is cheap, so no
+// code path uses a normal approximation.
+func MaxPairs() int { 400 }
+
+// MinPairs is the fewest pairs at which any series gets a verdict: below
+// it Decide refuses (FewPairs). At 6 pairs the signed-rank interval can
+// reach 95%; below, its [min, max] covers at most 1 - 2^(1-n).
+func MinPairs() int { 6 }
+
+// Pair is one pair of blocks: the value of the counter on the base side
+// and on the head side.
+type Pair { Base float64, Head float64 }
+
+// Kind is the kind of a counter (docs/specs/bench.md, Counters). An Exact
+// counter holds one value on each side and is compared exactly; a Counted
+// one (instructions, branches) and a Timed one (CPU, wall, peak memory)
+// are judged over pairs.
+type Kind = Exact | Counted | Timed
+
+// Exact is the kind of a counter that holds one value per side.
+type Exact {}
+
+// Counted is the kind of a hardware count, tight but not exact.
+type Counted {}
+
+// Timed is the kind of a time or a memory peak.
+type Timed {}
+
+// Claim is the question a series answers. Every counter is better lower:
+// a count of work, a time, a size.
+type Claim = Change | NoWorseThan
+
+// Change asks whether head differs from base. Bound is the equivalence
+// bound as a fraction (0.02 for 2%): Same when the interval lies inside
+// it. On the log scale the bound is ±ln(1 + Bound), the same both ways.
+// A Bound below 0 is 0.
+type Change { Bound float64 }
+
+// NoWorseThan asks whether head is at most Margin worse than base, as a
+// fraction (0 for "no worse at all"). A Margin below 0 is 0.
+type NoWorseThan { Margin float64 }
+
+// Design is the plan of a series' looks: Planned, strobe's five Pocock
+// looks, or Fixed, one look after Pairs pairs.
+type Design = Planned | Fixed
+
+// Planned looks at 8, 12, 18, 26 and 40 pairs, each at PocockLevel, so
+// the chance of any false verdict over the five looks is 5%.
+type Planned {}
+
+// Fixed looks once, after Pairs pairs, at 95%.
+type Fixed { Pairs int }
+
+// Level is the confidence of an interval at a look of d: 98.42% for each
+// planned look (Pocock's constant 2.413 for five looks at 5%), 95% for one
+// fixed look.
+func Level(d Design) float64 {
+	match d {
+	case Planned:
+		0.9842
+	case Fixed:
+		0.95
+	}
+}
+
+// Looks are the pairs after which d judges, in order.
+func Looks(d Design) []int {
+	match d {
+	case Planned:
+		[]int{8, 12, 18, 26, 40}
+	case Fixed as f:
+		[]int{f.Pairs}
+	}
+}
+
+// IsLook reports whether d judges after n pairs.
+func IsLook(d Design, n int) bool { slices.Contains(Looks(d), n) }
+
+// Difference is what a judged series measured, in the scale of its
+// differences: ln(head) - ln(base) per pair when every value is above 0
+// (Log), else head - base. Estimate is the Hodges-Lehmann estimate, Low
+// and High its interval, Coverage the confidence the interval reaches
+// (at least the level asked, or the verdict is Unclear), and P the
+// two-sided signed-rank p-value (of the differences less the margin for
+// a NoWorseThan claim). An Exact difference holds one value: Low and High
+// are the Estimate, Coverage is 1 and P is 0 when it moved, 1 when not.
+type Difference {
+	Pairs    int,
+	Log      bool,
+	Estimate float64,
+	Low      float64,
+	High     float64,
+	Coverage float64,
+	P        float64,
+	Exact    bool,
+}
+
+// Verdict is what the referee says of one series. Every variant but
+// Refused carries its Difference; a Refused one carries no number at all.
+type Verdict = Better | Worse | Same | NoWorse | Unclear | Underpowered | Refused
+
+// Better: head is lower than base (its interval lies below 0).
+type Better { Of Difference }
+
+// Worse: head is higher than base (its interval lies above 0), or above
+// the margin of a NoWorseThan claim.
+type Worse { Of Difference }
+
+// Same: the interval lies inside the equivalence bound.
+type Same { Of Difference }
+
+// NoWorse: the interval lies below the margin of a NoWorseThan claim.
+type NoWorse { Of Difference }
+
+// Unclear: the pairs decide nothing yet. Needed is the pairs projected
+// for an 80% chance to decide, when a projection exists.
+type Unclear { Of Difference, Needed Option[int] }
+
+// Underpowered: the series stopped undecided because it would need more
+// pairs than its design has (the referee's futility stop, BN2).
+type Underpowered { Of Difference, Needed int }
+
+// Refused: the series has no valid value. Why names the validator.
+type Refused { Why Refusal }
+
+// Refusal is why a series has no value (docs/specs/bench.md, Refusals).
+type Refusal = NoCounter | Multiplexed | RunIncomplete | NotEquivalent | CounterUnstable | NoMetric | FewPairs | TooManyPairs | NotFinite | SharedRunner
+
+// NoCounter: the host has no counter of this kind.
+type NoCounter {}
+
+// Multiplexed: the kernel counted the event for part of the run only.
+type Multiplexed {}
+
+// RunIncomplete: a block exited nonzero or left a process running.
+type RunIncomplete {}
+
+// NotEquivalent: the sides printed different sums, so they did not do the
+// same work.
+type NotEquivalent {}
+
+// CounterUnstable: an exact counter took more than one value on a side.
+type CounterUnstable {}
+
+// NoMetric: a declared counter that a block did not report. A run that
+// printed none is not 0.
+type NoMetric {}
+
+// FewPairs: fewer than MinPairs pairs, which no interval can judge.
+type FewPairs { Pairs int }
+
+// TooManyPairs: more than MaxPairs pairs in one series.
+type TooManyPairs { Pairs int }
+
+// NotFinite: the pair at index Pair holds a NaN or an infinity.
+type NotFinite { Pair int }
+
+// SharedRunner: a timed counter in a shared CI virtual machine.
+type SharedRunner {}
+
+// Decide judges the pairs of one series of a counter of kind k on claim c
+// at confidence level (Level of the design at this look). It refuses more
+// than MaxPairs pairs, a value that is not finite, and fewer than MinPairs
+// pairs. An Exact counter that holds one value on each side is compared
+// exactly; one that moved is CounterUnstable. Any other counter is judged
+// by its interval: Better or Worse when it lies wholly on one side of 0,
+// Same when it lies inside the bound, NoWorse or Worse when it lies below
+// or above the margin; else Unclear. An interval that does not reach the
+// level decides nothing.
+func Decide(pairs []Pair, k Kind, c Claim, level float64) Verdict {
+	let n = len(pairs)
+	if n > MaxPairs() {
+		return Refused{Why: TooManyPairs{Pairs: n}}
+	}
+	for i, p in pairs {
+		if !finite(p.Base) || !finite(p.Head) {
+			return Refused{Why: NotFinite{Pair: i}}
+		}
+	}
+	if n < MinPairs() {
+		return Refused{Why: FewPairs{Pairs: n}}
+	}
+	let log = positive(pairs)
+	let d = differences(pairs, log)
+	let shift = threshold(pairs, log, c)
+	match k {
+	case Exact:
+		exactly(pairs, d, log, c, shift)
+	case Counted, Timed:
+		judge(d, log, c, shift, level)
+	}
+}
+
+// exactly compares an exact counter: its difference is the answer when
+// each side held one value.
+func exactly(pairs []Pair, d []float64, log bool, c Claim, shift float64) Verdict {
+	for p in pairs {
+		if p.Base != pairs[0].Base || p.Head != pairs[0].Head {
+			return Refused{Why: CounterUnstable}
+		}
+	}
+	let e = d[0]
+	let of = Difference{Pairs: len(d), Log: log, Estimate: e, Low: e, High: e, Coverage: 1.0, P: if e == 0.0 { 1.0 } else { 0.0 }, Exact: true}
+	match c {
+	case Change:
+		if e < 0.0 {
+			return Better{Of: of}
+		}
+		if e > 0.0 {
+			return Worse{Of: of}
+		}
+		Same{Of: of}
+	case NoWorseThan:
+		if e <= shift {
+			return NoWorse{Of: of}
+		}
+		Worse{Of: of}
+	}
+}
+
+// judge reads the interval of d at level against claim c, whose bound or
+// margin is shift in d's scale.
+func judge(d []float64, log bool, c Claim, shift float64, level float64) Verdict {
+	let hl = HodgesLehmann(d, level)
+	let covered = hl.Coverage+1e-9 >= level
+	match c {
+	case Change:
+		let of = Difference{Pairs: len(d), Log: log, Estimate: hl.Center, Low: hl.Low, High: hl.High, Coverage: hl.Coverage, P: SignedRankP(d), Exact: false}
+		if !covered {
+			return Unclear{Of: of, Needed: Needed(d, shift, level, 0.8)}
+		}
+		if hl.High < 0.0 {
+			return Better{Of: of}
+		}
+		if hl.Low > 0.0 {
+			return Worse{Of: of}
+		}
+		if (hl.Low > -shift && hl.High < shift) || (hl.Low == 0.0 && hl.High == 0.0) {
+			return Same{Of: of}
+		}
+		Unclear{Of: of, Needed: Needed(d, shift, level, 0.8)}
+	case NoWorseThan:
+		let mut moved = []float64{}
+		for x in d {
+			moved = moved.Append(x - shift)
+		}
+		let of = Difference{Pairs: len(d), Log: log, Estimate: hl.Center, Low: hl.Low, High: hl.High, Coverage: hl.Coverage, P: SignedRankP(moved), Exact: false}
+		if !covered {
+			return Unclear{Of: of, Needed: neededBeside(d, shift, level, 0.8)}
+		}
+		if hl.High < shift {
+			return NoWorse{Of: of}
+		}
+		if hl.Low > shift {
+			return Worse{Of: of}
+		}
+		Unclear{Of: of, Needed: neededBeside(d, shift, level, 0.8)}
+	}
+}
+
+// threshold is c's bound or margin in the scale of the differences:
+// ln(1 + x) on the log scale; else x times the larger of the two sides'
+// medians, so that swapping the sides keeps it.
+func threshold(pairs []Pair, log bool, c Claim) float64 {
+	let x = match c {
+	case Change as ch:
+		ch.Bound
+	case NoWorseThan as nw:
+		nw.Margin
+	}
+	let f = if x > 0.0 { x } else { 0.0 }
+	if log {
+		return math.Log(1.0 + f)
+	}
+	let mut bs = []float64{}
+	let mut hs = []float64{}
+	for p in pairs {
+		bs = bs.Append(p.Base)
+		hs = hs.Append(p.Head)
+	}
+	let b = math.Abs(Median(bs))
+	let h = math.Abs(Median(hs))
+	f * if b >= h { b } else { h }
+}
+
+// differences are the per-pair differences: ln(head) - ln(base) on the
+// log scale (a subtraction, so swapping the sides negates each exactly),
+// else head - base.
+func differences(pairs []Pair, log bool) []float64 {
+	let mut d = []float64{}
+	for p in pairs {
+		d = d.Append(if log { math.Log(p.Head) - math.Log(p.Base) } else { p.Head - p.Base })
+	}
+	d
+}
+
+// positive reports whether every value of pairs is above 0.
+func positive(pairs []Pair) bool {
+	for p in pairs {
+		if !(p.Base > 0.0) || !(p.Head > 0.0) {
+			return false
+		}
+	}
+	true
+}
+
+func finite(x float64) bool { !math.IsNaN(x) && !math.IsInf(x, 0) }
+
+// signed is one nonzero difference: its size and whether it is above 0.
+type signed { size float64, up bool }
+
+// SignedRankP is the two-sided p-value of the Wilcoxon signed-rank test
+// of d. Zeros are dropped; tied sizes share their mid-rank, and the null
+// distribution is that of those ranks over every sign assignment, built
+// exactly (nullOf the doubled ranks), never the untied distribution or a
+// normal tail. With no nonzero difference it is 1.
+func SignedRankP(d []float64) float64 {
+	let mut s = []signed{}
+	for x in d {
+		if x != 0.0 {
+			s = s.Append(signed{size: math.Abs(x), up: x > 0.0})
+		}
+	}
+	let n = len(s)
+	if n == 0 {
+		return 1.0
+	}
+	let sorted = slices.SortFunc(s, func(a signed, b signed) int { cmp.Compare(a.size, b.size) })
+	// Doubled mid-ranks: a tie at sorted positions i to j (0-based) has
+	// rank (i + j + 2) / 2 each, so i + j + 2 doubled, a whole number.
+	let mut ranks = []int{}
+	let mut t2 = 0
+	let mut i = 0
+	for i < n {
+		let mut j = i
+		for j+1 < n && sorted[j+1].size == sorted[i].size {
+			j = j + 1
+		}
+		for k in i..j+1 {
+			let r = i + j + 2
+			ranks = ranks.Append(r)
+			if sorted[k].up {
+				t2 = t2 + r
+			}
+		}
+		i = j + 1
+	}
+	let null = nullOf(ranks)
+	let top = len(null) - 1
+	// The distribution is symmetric, so the smaller tail is the lower tail
+	// at the nearer end; summing that one side keeps p the same, bit for
+	// bit, when the sides swap.
+	let t = if t2 <= top-t2 { t2 } else { top - t2 }
+	let mut tail = 0.0
+	for k in 0..t+1 {
+		tail = tail + null[k]
+	}
+	let p = 2.0 * tail
+	if p < 1.0 { p } else { 1.0 }
+}
+
+// nullOf is the null distribution of the signed-rank statistic for ranks:
+// nullOf(ranks)[s] is the chance that the ranks given a plus sign sum to s
+// when each sign is a fair coin. Each rank halves the chances it adds to,
+// so no value outgrows a float64 and the sum is 1.
+func nullOf(ranks []int) []float64 {
+	let mut top = 0
+	for r in ranks {
+		top = top + r
+	}
+	let mut c = []float64{}
+	for _ in 0..top+1 {
+		c = c.Append(0.0)
+	}
+	c[0] = 1.0
+	let mut reach = 0
+	for r in ranks {
+		reach = reach + r
+		let mut s = reach
+		for s >= 0 {
+			let below = if s >= r { c[s-r] } else { 0.0 }
+			c[s] = 0.5 * (c[s] + below)
+			s = s - 1
+		}
+	}
+	c
+}
+
+// Estimate is a Hodges-Lehmann estimate: Center, its interval from Low to
+// High, and the Coverage that interval reaches.
+type Estimate { Center float64, Low float64, High float64, Coverage float64 }
+
+// HodgesLehmann is the Hodges-Lehmann estimate of d, the median of its
+// Walsh averages (d[i] + d[j]) / 2 for i <= j, and its distribution-free
+// interval at level: [W(c), W(m-1-c)] of the m sorted averages (0-based),
+// with c the largest value where P(T <= c) <= (1 - level) / 2 for the
+// signed-rank statistic T of len(d) untied ranks. It covers
+// 1 - 2 P(T <= c). When even c = 0 is too likely (too few pairs for the
+// level), the interval is [min, max], which covers 1 - 2 P(T = 0). With
+// no differences every field is 0.
+func HodgesLehmann(d []float64, level float64) Estimate {
+	let n = len(d)
+	if n == 0 {
+		return Estimate{Center: 0.0, Low: 0.0, High: 0.0, Coverage: 0.0}
+	}
+	let mut walsh = []float64{}
+	for i in 0..n {
+		for j in i..n {
+			walsh = walsh.Append((d[i] + d[j]) / 2.0)
+		}
+	}
+	let w = slices.Sort(walsh)
+	let m = len(w)
+	let center = if m%2 == 1 { w[m/2] } else { (w[m/2-1] + w[m/2]) / 2.0 }
+	let mut ranks = []int{}
+	for k in 1..n+1 {
+		ranks = ranks.Append(k)
+	}
+	let null = nullOf(ranks)
+	let half = (1.0 - level) / 2.0
+	let mut acc = 0.0
+	let mut c = -1
+	let mut k = 0
+	for k < len(null) && acc+null[k] <= half {
+		acc = acc + null[k]
+		c = k
+		k = k + 1
+	}
+	if c < 0 {
+		return Estimate{Center: center, Low: w[0], High: w[m-1], Coverage: 1.0 - 2.0*null[0]}
+	}
+	Estimate{Center: center, Low: w[c], High: w[m-1-c], Coverage: 1.0 - 2.0*acc}
+}
+
+// Median is the median of xs: the middle value, or the mean of the two
+// middle values. Of no values it is 0.
+func Median(xs []float64) float64 {
+	let n = len(xs)
+	if n == 0 {
+		return 0.0
+	}
+	let s = slices.Sort(xs)
+	if n%2 == 1 { s[n/2] } else { (s[n/2-1] + s[n/2]) / 2.0 }
+}
+
+// Spread is a robust standard deviation of xs: 1.4826 times the median
+// absolute deviation from the median. When over half the values are one
+// value (a count, a quantized time), that is 0, so it is then the mean
+// absolute deviation from the median times sqrt(pi / 2), the normal's
+// sigma.
+func Spread(xs []float64) float64 {
+	let med = Median(xs)
+	let mut dev = []float64{}
+	for x in xs {
+		dev = dev.Append(math.Abs(x - med))
+	}
+	let r = 1.4826 * Median(dev)
+	if r > 0.0 || len(xs) == 0 {
+		return r
+	}
+	let mut sum = 0.0
+	for x in dev {
+		sum = sum + x
+	}
+	1.2533 * sum / float64(len(xs))
+}
+
+// Needed is the pairs projected for a power chance that an interval at
+// level clears a bound shift away (in d's scale): the distance from d's
+// median to 0 or to the bound, whichever is farther, over the spread, with
+// the Hodges-Lehmann efficiency 0.955, and never fewer than the pairs the
+// level needs. None when nothing projects: fewer than 2 differences, or a
+// median on the boundary.
+func Needed(d []float64, shift float64, level float64, power float64) Option[int] {
+	if len(d) < 2 {
+		return None
+	}
+	let med = math.Abs(Median(d))
+	let far = shift - med
+	project(Spread(d), if med >= far { med } else { far }, level, power)
+}
+
+// neededBeside is Needed for a NoWorseThan claim: the distance that
+// decides is the one from d's median to the margin, either way.
+func neededBeside(d []float64, shift float64, level float64, power float64) Option[int] {
+	if len(d) < 2 {
+		return None
+	}
+	project(Spread(d), math.Abs(Median(d)-shift), level, power)
+}
+
+// project is ((z(level) + z(power)) sigma / dist)^2 / 0.955 pairs, at
+// least the pairs whose interval can reach level; None for dist 0 or a
+// count too large to run.
+func project(sigma float64, dist float64, level float64, power float64) Option[int] {
+	if !(dist > 0.0) || !finite(sigma) {
+		return None
+	}
+	let z = Quantile(1.0-(1.0-level)/2.0) + Quantile(power)
+	let x = z * sigma / dist
+	let pairs = math.Ceil(x * x / 0.955)
+	if !(pairs < 1e9) {
+		return None
+	}
+	let least = PairsFor(level)
+	Some[int]{Value: if int(pairs) >= least { int(pairs) } else { least }}
+}
+
+// PairsFor is the fewest pairs whose signed-rank interval can reach
+// level: the least n with 1 - 2^(1-n) >= level (6 at 95%, 7 at 98.42%).
+func PairsFor(level float64) int {
+	let mut n = 1
+	let mut tail = 1.0
+	for n < 64 && 1.0-tail < level {
+		n = n + 1
+		tail = tail / 2.0
+	}
+	n
+}
+
+// Quantile is the standard normal quantile of p in (0, 1), by Acklam's
+// rational approximation (relative error below 1.2e-9).
+func Quantile(p float64) float64 {
+	let low = 0.02425
+	if p < low {
+		let q = math.Sqrt(-2.0 * math.Log(p))
+		return (((((-0.007784894002430293*q-0.3223964580411365)*q-2.400758277161838)*q-2.549732539343734)*q+4.374664141464968)*q + 2.938163982698783) / ((((0.007784695709041462*q+0.3224671290700398)*q+2.445134137142996)*q+3.754408661907416)*q + 1.0)
+	}
+	if p > 1.0-low {
+		return -Quantile(1.0 - p)
+	}
+	let q = p - 0.5
+	let r = q * q
+	(((((-39.69683028665376*r+220.9460984245205)*r-275.9285104469687)*r+138.357751867269)*r-30.66479806614716)*r + 2.506628277459239) * q / (((((-54.47609879822406*r+161.5858368580409)*r-155.6989798598866)*r+66.80131188771972)*r-13.28068155288572)*r + 1.0)
+}
+
+// Holm is Holm's step-down at alpha: which of the p-values ps are
+// rejected, in their order. The k-th smallest (from 0) is rejected when it
+// and every smaller one is at most alpha / (len(ps) - k).
+func Holm(ps []float64, alpha float64) []bool {
+	let n = len(ps)
+	let mut order = []int{}
+	for i in 0..n {
+		order = order.Append(i)
+	}
+	let sorted = slices.SortStableFunc(order, func(a int, b int) int { cmp.Compare(ps[a], ps[b]) })
+	let mut out = []bool{}
+	for _ in 0..n {
+		out = out.Append(false)
+	}
+	for rank, i in sorted {
+		if !(ps[i] <= alpha/float64(n-rank)) {
+			return out
+		}
+		out[i] = true
+	}
+	out
+}

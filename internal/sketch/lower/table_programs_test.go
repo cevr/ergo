@@ -34,5 +34,6 @@ var (
 	_ = declarePrograms("TestHostAuthorityRuns", entryProgram("hostAuthority", hostAuthorityProgram))
 	_ = declarePrograms("TestStdActorLawsRun", testBuildProgram("stdactor", actorLawsProbe))
 	_ = declarePrograms("TestStdScheduleLawsRun", testBuildProgram("stdschedule", stdScheduleLawsProbe))
+	_ = declarePrograms("TestStdBenchLawsRun", testBuildProgram("stdbench", stdBenchProgram))
 	_ = declarePrograms("TestOSProcessRuns", entryProgram("osHost", osProgram), entryProgram("osFake", fakeProgram), entryProgram("osParam", paramProgram))
 )
