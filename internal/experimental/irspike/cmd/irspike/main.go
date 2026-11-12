@@ -6,6 +6,7 @@
 //	irspike attr WORK PROGRAM             stage attribution of PROGRAM (cold, warm, edits)
 //	irspike cost WORK FUNCS REPS SEED...  decode cost per node: JSON IR vs Go text (generated programs of FUNCS functions)
 //	irspike census ROOT                   every reason each body of examples, std and corpus is not lowered yet
+//	irspike genfail SEED                  the failure program of SEED (TestIRFailuresMatchSource)
 //
 // The toolchains come from ERGO_IRSPIKE_GOROOT_SOURCE, ERGO_IRSPIKE_GOROOT_IR
 // and ERGO_IRSPIKE_CACHE.
@@ -56,6 +57,14 @@ func main() {
 		}
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.Generate(seed))
+		}
+	case "genfail":
+		var seed uint64
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike genfail SEED"))
+		}
+		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
+			fmt.Print(irspike.GenerateFail(seed))
 		}
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])

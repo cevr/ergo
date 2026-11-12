@@ -74,6 +74,19 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"operation call in a condition", "G2"},
 	{"operation call inside an expression", "G2"},
 	{"body that needs a frame", "G2"},
+	{"untried fallible call", "G2"},
+	{"fallible call with an empty row at its site", "G2"},
+	{"call of an impure function from a pure one", "G2"},
+	{"try without a value", "G2"},
+	{"try of a non-call", "G2"},
+	{"catch without its Matches entry", "G2"},
+	{"catch of a non-call", "G2"},
+	{"catch arm without a pattern", "G2"},
+	{"catch arm form", "G2"},
+	{"continue in a polling loop", "G2"},
+	{"return of a value from a function with none", "G2"},
+	{"catch with patterns", "G3"},         // record patterns, case err, case _: the match tree's
+	{"catch value of another type", "G3"}, // a flat union the arms join to
 	// G3: unions, match, machines; the lowering's representation decides.
 	{"named type that is not a record", "G3"},
 	{"record without a struct", "G3"},
