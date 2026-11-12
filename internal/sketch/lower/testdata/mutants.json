@@ -1508,8 +1508,8 @@
       "name": "t0-names-local-ignores-package-scope",
       "origin": "wf10 T0 ts-mutant-ledger (rule of lower names_test.go TestLateNamesNeverCaptureLocals)",
       "file": "internal/sketch/lower/names.go",
-      "from": "\tfor s := n; s != nil; s = s.parent {\n\t\tif s.used[name] {",
-      "to": "\tfor s := n; s != nil && s.parent != nil; s = s.parent {\n\t\tif s.used[name] {",
+      "from": "\tfor s := n; s != nil; s = s.parent {\n\t\tif s.used[name] || s.isMonoName(name) {",
+      "to": "\tfor s := n; s != nil && s.parent != nil; s = s.parent {\n\t\tif s.used[name] || s.isMonoName(name) {",
       "rule": "names.go: a local's Go name is free in every enclosing scope, the package scope included, so no local captures a package entity (naming pass; names_test.go TestLateNamesNeverCaptureLocals)",
       "killers": [
         "lower:TestErgoRunE1ConversionWitness"
