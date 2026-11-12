@@ -264,8 +264,10 @@ type Handled[E] { Signal Option[E], Changed bool }
 // Handle applies a host event to f: a press sends a Pressable's or a
 // Check's signal, flips a Toggle and empties a Submit's draft; a text
 // sends an Input's signal or becomes a Field's draft; a fetch's result
-// sends its signal while its load is live (Arrive). An event on a node f
-// no longer holds (it raced a commit) does nothing.
+// sends its signal while its load is live (Arrive); a pointer event
+// sends its Area's signal, and a key press the first OnKey's. A Tick
+// sends nothing here: a Session sends the signal of each Animate. An event
+// on a node f no longer holds (it raced a commit) does nothing.
 func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	let mut out = Handled[E]{Signal: None, Changed: false}
 	match event {
@@ -311,6 +313,11 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		if Arrive(f, a.Epoch) {
 			out.Signal = Some{Value: a.Signal}
 		}
+	case Point[E] as p:
+		out.Signal = pointed(f, p.Id, p.Pointer)
+	case KeyDown as k:
+		out.Signal = keyed(f, k.Press)
+	case Tick:
 	}
 	out
 }

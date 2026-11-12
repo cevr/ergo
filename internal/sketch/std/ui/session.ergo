@@ -60,11 +60,22 @@ func finish[S, E, D, F](s *Session[S, E, D, F], epoch int) {
 // Step applies one event: a press or a text is handled (Handle), and a
 // fetch's result is taken while its load is live (Arrive). A signal goes to
 // the actor; after a signal or a changed cell the view renders again and
-// the result is that pass's patch, else no op.
+// the result is that pass's patch, else no op. A Tick sends the signal of
+// each Animate of the last pass, in pass order, and renders once after
+// them; a Tick while the last pass made no Animate does nothing.
 func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
 	match ev {
 	case Arrived[E] as x:
 		finish(s, x.Epoch)
+	case Tick as t:
+		let signals = ticked(&s.frame, t.At)
+		if len(signals) == 0 {
+			return []Op[E]{}
+		}
+		for e in signals {
+			try s.actor.Send(e)
+		}
+		return runPass(s)
 	case _:
 	}
 	let done = Handle(&s.frame, ev)

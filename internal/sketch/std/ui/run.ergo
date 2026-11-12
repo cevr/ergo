@@ -1,9 +1,11 @@
 import actor
 
 // Event is what reaches the loop: a press of a node, a text typed into an
-// Input node, or the result of a load's fetch (Arrived), which a fetch's
-// task posts with the epoch it was started for.
-type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E}
+// Input node, the result of a load's fetch (Arrived), which a fetch's task
+// posts with the epoch it was started for, a pointer event on an Area
+// (Point), a key press (KeyDown), or a frame at a time since the host
+// started (Tick), which a host sends only while the view animates.
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent} | KeyDown{Press KeyPress} | Tick{At duration}
 
 // Closed is the failure of Next when the host has closed (its window, its
 // terminal, its script ended).
@@ -23,6 +25,9 @@ type Host[E] {
 	// a result reaches the loop on the loop's own thread, as input does.
 	// It never waits for the loop.
 	Post(ev Event[E]),
+	// Frames asks for a Tick per frame (on) or for none (off). Run asks
+	// after each pass, while the pass made an Animate.
+	Frames(on bool),
 }
 
 // Run shows view of a's state on h until h closes. Each event is a Step of
@@ -34,11 +39,17 @@ func Run[E comparable, S, D, F](h Host[E], a actor.Actor[S, E, D, F], view escap
 	let (s, first) = Start(a, view, func(ev Event[E]) { h.Post(ev) })
 	let mut session = s
 	h.Show(first)
+	let mut frames = Animating(&session.frame)
+	h.Frames(frames)
 	for {
 		let ev = try h.Next()
 		let ops = try Step(&session, ev)
 		if len(ops) > 0 {
 			h.Show(ops)
+		}
+		if Animating(&session.frame) != frames {
+			frames = !frames
+			h.Frames(frames)
 		}
 	}
 }

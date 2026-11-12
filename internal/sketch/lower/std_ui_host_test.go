@@ -450,12 +450,239 @@ func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 	s.ready == valueOf(s.key) && ui.Fetching(&h) == 0 && ui.SameShapes(ui.Screen(&h), freshShape(view, s))
 }
 
+type spin { left int, at int }
+
+func spinStep(s spin, e int) Decision[spin, int] {
+	if e >= 0 {
+		return Enter[spin]{Next: spin{left: e, at: s.at}}
+	}
+	Enter[spin]{Next: spin{left: s.left - 1, at: -1 - e}}
+}
+
+func spinTimer(s spin) Option[Timeout[int]] { None }
+
+func spinWork(s spin) Option[func(send func(e int))] { None }
+
+func spinMachine() Machine[spin, int, int] {
+	Machine[spin, int, int]{Initial: spin{left: 0, at: -1}, Step: spinStep, After: spinTimer, Work: spinWork}
+}
+
+func spinView(f *ui.Frame[int], s spin) {
+	ui.Text(f, "left \(s.left) at \(s.at)")
+	for n in 0..4 {
+		ui.Pressable(f, "go\(n)", n) {
+			ui.Text(f, "go")
+		}
+	}
+	if s.left > 0 {
+		ui.Animate(f, func(at duration) int { -1 - int(int64(at)) })
+	}
+}
+
+type frameModel { since duration, owed duration, frames int, app spin }
+
+func advanced(m frameModel, d duration, p duration) frameModel {
+	let mut x = m
+	let mut left = d
+	for x.app.left > 0 && left >= p-x.owed {
+		let due = p - x.owed
+		x.since = x.since + due
+		left = left - due
+		x.owed = 0ns
+		x.frames = x.frames + 1
+		x.app = spin{left: x.app.left - 1, at: int(int64(x.since))}
+	}
+	x.since = x.since + left
+	if x.app.left > 0 {
+		x.owed = x.owed + left
+	} else {
+		x.owed = 0ns
+	}
+	x
+}
+
+func lawNoTickWhenSettled(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		ticksFollow(seed, steps, m)
+	}
+}
+
+func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, spinView, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let p = 16ms
+	let start = ui.Now(&h)
+	let mut model = frameModel{since: 0ns, owed: 0ns, frames: 0, app: spin{left: 0, at: -1}}
+	let moves = []duration{0ns, 5ms, 11ms, 16ms, 40ms, 100ms}
+	for _ in 0..(steps%24+24)%24+1 {
+		let mut act ui.Act = ui.SettleAll
+		if draw(&r, 2) == 0 {
+			let n = draw(&r, 4)
+			act = ui.TapOn{Label: "go\(n)"}
+			model.app = machines.Next(model.app, spinStep(model.app, n))
+		} else {
+			let d = moves[draw(&r, len(moves))]
+			act = ui.AdvanceBy{By: d}
+			model = advanced(model, d, p)
+		}
+		ui.Play(&h, []ui.Act{act}) catch {
+		case _:
+			return false
+		}
+		let s = ui.StateOf(&h)
+		if s != model.app || ui.Frames(&h) != model.frames || ui.Now(&h).Sub(start) != model.since || ui.WantsFrames(&h) != (model.app.left > 0) || !ui.SameShapes(ui.Screen(&h), freshShape(spinView, s)) {
+			return false
+		}
+	}
+	true
+}
+
+type pad { open bool, last int, n int }
+
+func padStep(s pad, e int) Decision[pad, int] {
+	if e == 1 {
+		return Enter[pad]{Next: pad{open: false, last: s.last, n: s.n}}
+	}
+	if e == 2 {
+		return Enter[pad]{Next: pad{open: true, last: s.last, n: s.n}}
+	}
+	Enter[pad]{Next: pad{open: s.open, last: e, n: s.n + 1}}
+}
+
+func padTimer(s pad) Option[Timeout[int]] { None }
+
+func padWork(s pad) Option[func(send func(e int))] { None }
+
+func padMachine() Machine[pad, int, int] {
+	Machine[pad, int, int]{Initial: pad{open: false, last: 0, n: 0}, Step: padStep, After: padTimer, Work: padWork}
+}
+
+func onPad(s pad, p ui.PointerEvent) Option[int] {
+	match p.Phase {
+	case ui.Down:
+		Some{Value: 1000 + int(p.X) + 100*(s.n%3)}
+	case ui.Up:
+		Some{Value: 2000 + int(p.Y)}
+	case ui.Wheel as w:
+		Some{Value: 3000 + int(w.DY)}
+	case ui.Moved:
+		None
+	}
+}
+
+func padView(f *ui.Frame[int], s pad) {
+	ui.Text(f, "last \(s.last) of \(s.n)")
+	if s.open {
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+			if k.Name == "Escape" {
+				return Some{Value: 1}
+			}
+			None
+		})
+	}
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+		if k.Mods.Ctrl {
+			return Some{Value: 2}
+		}
+		if k.Name == "Enter" {
+			return Some{Value: 4005}
+		}
+		None
+	})
+	ui.Area(f, "pad", ui.Plain(), func(p ui.PointerEvent) Option[int] { onPad(s, p) }) {
+		ui.Text(f, "pad")
+	}
+}
+
+func keySignal(s pad, k ui.KeyPress) Option[int] {
+	if s.open && k.Name == "Escape" {
+		return Some{Value: 1}
+	}
+	if k.Mods.Ctrl {
+		return Some{Value: 2}
+	}
+	if k.Name == "Enter" {
+		return Some{Value: 4005}
+	}
+	None
+}
+
+func lawInputGivesSignal(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		inputFollows(seed, steps, m)
+	}
+}
+
+func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(padMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, padView, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut model = pad{open: false, last: 0, n: 0}
+	let names = []string{"a", "Enter", "Escape"}
+	for _ in 0..(steps%24+24)%24+1 {
+		let mut act ui.Act = ui.SettleAll
+		let mut sent Option[int] = None
+		if draw(&r, 2) == 0 {
+			let k = ui.KeyPress{Name: names[draw(&r, len(names))], Mods: ui.Mods{Shift: false, Ctrl: draw(&r, 2) == 0, Alt: false, Meta: false}}
+			act = ui.KeyIn{Press: k}
+			sent = keySignal(model, k)
+		} else {
+			let x = float64(draw(&r, 100)) + 0.5
+			let y = float64(draw(&r, 100)) + 0.25
+			let mut phase ui.Phase = ui.Moved
+			match draw(&r, 4) {
+			case 0:
+				phase = ui.Down
+			case 1:
+				phase = ui.Up
+			case 2:
+				phase = ui.Wheel{DX: 0.0, DY: float64(draw(&r, 9))}
+			case _:
+			}
+			let ev = ui.PointerEvent{Phase: phase, X: x, Y: y}
+			act = ui.PointOn{Label: "pad", Pointer: ev}
+			sent = onPad(model, ev)
+		}
+		match sent {
+		case Some[int] as e:
+			model = machines.Next(model, padStep(model, e.Value))
+		case None:
+		}
+		ui.Play(&h, []ui.Act{act}) catch {
+		case _:
+			return false
+		}
+		let s = ui.StateOf(&h)
+		if s != model || !ui.SameShapes(ui.Screen(&h), freshShape(padView, s)) {
+			return false
+		}
+	}
+	true
+}
+
 test UiScriptShowsTheView(seed int, steps int) {
 	assert lawScriptShowsTheView(seed, steps)
 }
 
 test UiCancelledFetchStops(steps int) {
 	assert lawCancelledFetchStops(steps)
+}
+
+test UiNoTickWhenSettled(seed int, steps int) {
+	assert lawNoTickWhenSettled(seed, steps)
+}
+
+test UiInputGivesSignal(seed int, steps int) {
+	assert lawInputGivesSignal(seed, steps)
 }
 `
 
@@ -464,6 +691,8 @@ test UiCancelledFetchStops(steps int) {
 var stdUIHostStatements = map[string]string{
 	"ui ScriptShowsTheView":  `ScriptShowsTheView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { scriptShows(seed, steps, m) } }`,
 	"ui CancelledFetchStops": `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
+	"ui NoTickWhenSettled":   `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,
+	"ui InputGivesSignal":    `InputGivesSignal(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { inputFollows(seed, steps, m) } }`,
 }
 
 // TestUIHostModel runs the probe's tests with --seed 1; lawledger.Run holds that

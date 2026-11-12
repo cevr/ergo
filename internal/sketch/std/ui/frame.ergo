@@ -18,6 +18,8 @@ type Frame[E] {
 	epoch  int,
 	ops    []Op[E],
 	jobs   []Job[E],
+	keys   []func(k KeyPress) Option[E],
+	anims  []func(at duration) E,
 }
 
 // Id names one node of a Frame's tree, from the pass that made it until
@@ -45,6 +47,7 @@ type node[E] {
 	id     ident,
 	kids   []arena.Ref[node[E]],
 	onText Option[func(t string) E],
+	onPoint Option[func(p PointerEvent) Option[E]],
 	binds  Option[bound[E]],
 	cells  Map[ident, Cell],
 	loads  Map[ident, slot],
@@ -64,6 +67,7 @@ type spec[E] {
 	prev   arena.Ref[node[E]],
 	ref    arena.Ref[node[E]],
 	onText Option[func(t string) E],
+	onPoint Option[func(p PointerEvent) Option[E]],
 	binds  Option[cellAt],
 }
 
@@ -76,12 +80,12 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 // NewFrame is a composer whose tree has only its root.
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
-	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[int, Map[ident, arena.Ref[node[E]]]]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}}
+	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None))
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[int, Map[ident, arena.Ref[node[E]]]]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}}
 }
 
-func fresh[E](n Node[E], id ident, onText Option[func(t string) E]) node[E] {
-	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, onText: onText, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}}
+func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]]) node[E] {
+	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, onText: onText, onPoint: onPoint, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}}
 }
 
 // Render writes view(s) as one pass of f and commits it: f's tree then
@@ -102,6 +106,8 @@ func begin[E](f *Frame[E]) {
 	f.parent = -1
 	f.each = nowhere
 	f.key = NoKey
+	f.keys = []func(k KeyPress) Option[E]{}
+	f.anims = []func(at duration) E{}
 }
 
 // identify is the identity of the next entry at site under the current
@@ -164,7 +170,7 @@ func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Optio
 	if arena.Has(f.nodes, prev) && kindOf(nodeAt(f, prev).node) != kindOf(n) {
 		prev = arena.Null[node[E]]()
 	}
-	f.specs = f.specs.Append(spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, binds: binds})
+	f.specs = f.specs.Append(spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds})
 	len(f.specs) - 1
 }
 
@@ -313,7 +319,7 @@ func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node
 		if src[j] >= 0 {
 			refs = refs.Append(old[src[j]])
 		} else {
-			refs = refs.Append(f.nodes.Put(fresh(sp.node, sp.id, sp.onText)))
+			refs = refs.Append(f.nodes.Put(fresh(sp.node, sp.id, sp.onText, sp.onPoint)))
 		}
 		f.specs[s].ref = refs[j]
 	}
@@ -336,6 +342,7 @@ func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node
 			change(f, refs[j], func(n *node[E]) {
 				n.node = sp.node
 				n.onText = sp.onText
+				n.onPoint = sp.onPoint
 			})
 			if !keep[j] {
 				emit(f, Move{Id: id, Parent: parent, Before: before})
@@ -427,6 +434,8 @@ func kindOf[E](n Node[E]) int {
 		7
 	case ToggleNode:
 		8
+	case AreaNode:
+		9
 	}
 }
 

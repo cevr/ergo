@@ -7,12 +7,17 @@ import time
 // steps, so what it shows is what a window would show for the same
 // events. What it shows is a Mirror built only from the patches; it finds
 // nodes by their label, presses and types into them, and settles the
-// loads. Time moves only when Advance moves it.
+// loads. Time moves only when Advance moves it, and while the view
+// animates, Advance sends a Tick at each frame period of the clock's time.
 //
 // It lays nothing out: a tap names a node, not a point. Hit testing by
 // boxes comes with the layout kernel (ui/layout).
 type TestHost[S, E, D, F] {
 	clock   time.Manual,
+	start   time.Time,
+	period  duration,
+	owed    duration,
+	frames  int,
 	posted  queue.Queue[Event[E]],
 	mirror  Mirror[E],
 	session Session[S, E, D, F],
@@ -36,7 +41,7 @@ func NewTestHost[E comparable, S, D, F](a actor.Actor[S, E, D, F], view escaping
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)
-	TestHost[S, E, D, F]{clock: clock, posted: posted, mirror: m, session: session}
+	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session}
 }
 
 // apply steps one event and shows its patch.
@@ -83,10 +88,55 @@ func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped 
 	try Pump(h)
 }
 
-// Advance moves the clock by d. It takes no result: a fetch it wakes posts
+// Advance moves the clock by d. While the view animates, it moves it a
+// frame period at a time and steps a Tick at the end of each period, with
+// the clock's time since the host started; time short of a period is owed
+// to the next Advance while the view still animates. A pass that stops
+// animating stops the frames: the rest of d passes with no Tick, and
+// nothing is owed. Advance takes no fetch result: a fetch it wakes posts
 // on its own task, and Settle or Pump takes it.
-func Advance[S, E, D, F](h *TestHost[S, E, D, F], d duration) {
-	h.clock.Advance(d)
+func Advance[E comparable, S, D, F](h *TestHost[S, E, D, F], d duration) fails actor.Stopped | BadPatch {
+	let mut left = d
+	for Animating(&h.session.frame) && left >= h.period-h.owed {
+		let due = h.period - h.owed
+		h.clock.Advance(due)
+		left = left - due
+		h.owed = duration(int64(0))
+		h.frames = h.frames + 1
+		try apply(h, Tick{At: h.clock.Now().Sub(h.start)})
+	}
+	h.clock.Advance(left)
+	if Animating(&h.session.frame) {
+		h.owed = h.owed + left
+	} else {
+		h.owed = duration(int64(0))
+	}
+}
+
+// FrameEvery sets the frame period of Advance (16ms when made); a period
+// under 1ns leaves it as it is.
+func FrameEvery[S, E, D, F](h *TestHost[S, E, D, F], period duration) {
+	if period >= 1ns {
+		h.period = period
+	}
+}
+
+// WantsFrames is whether the view asks for frames: whether its last pass
+// made an Animate (what Run tells a window through Host.Frames).
+func WantsFrames[S, E, D, F](h *TestHost[S, E, D, F]) bool { Animating(&h.session.frame) }
+
+// Frames is the number of Ticks the host has sent.
+func Frames[S, E, D, F](h *TestHost[S, E, D, F]) int { h.frames }
+
+// PointAt sends a pointer event to the node id (the host's hit test, which
+// a test does by naming the node).
+func PointAt[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], p PointerEvent) fails actor.Stopped | BadPatch {
+	try apply(h, Point[E]{Id: id, Pointer: p})
+}
+
+// PressKey sends a key press.
+func PressKey[E comparable, S, D, F](h *TestHost[S, E, D, F], k KeyPress) fails actor.Stopped | BadPatch {
+	try apply(h, KeyDown{Press: k})
 }
 
 // Now is the clock's time.
@@ -140,6 +190,8 @@ func labelOf[E](n Node[E]) Option[string] {
 		Some{Value: x.Label}
 	case ToggleNode as x:
 		Some{Value: x.Label}
+	case AreaNode as x:
+		Some{Value: x.Label}
 	case TextNode as x:
 		Some{Value: x.Value}
 	case InputNode as x:
@@ -150,7 +202,7 @@ func labelOf[E](n Node[E]) Option[string] {
 }
 
 // Act is one step of a scene script, by label.
-type Act = TapOn{Label string} | TypeInto{Label string, Text string} | SettleAll | AdvanceBy{By duration}
+type Act = TapOn{Label string} | TypeInto{Label string, Text string} | SettleAll | AdvanceBy{By duration} | KeyIn{Press KeyPress} | PointOn{Label string, Pointer PointerEvent}
 
 // SettleAll settles the loads.
 type SettleAll {}
@@ -167,7 +219,11 @@ func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails No
 		case SettleAll:
 			try Settle(h)
 		case AdvanceBy as x:
-			Advance(h, x.By)
+			try Advance(h, x.By)
+		case KeyIn as x:
+			try PressKey(h, x.Press)
+		case PointOn as x:
+			try PointAt(h, try found(h, x.Label), x.Pointer)
 		}
 	}
 }
@@ -212,6 +268,8 @@ func nodeText[E](n Node[E]) string {
 		"column"
 	case ScrollNode:
 		"scroll"
+	case AreaNode as x:
+		"area \"\(x.Label)\""
 	case TextNode as x:
 		"text \"\(x.Value)\""
 	case PressableNode[E] as x:
