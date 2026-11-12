@@ -160,7 +160,15 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 		return symbolic()
 	}
 	it := p.Slot.Underlying().(*check.Interface)
-	search := p.Ctor != nil
+	// Search runs from the constructor only when every value of the type
+	// is one it and the operations reach (construction.go).
+	open := constructionWhy(p.Type, p.Ctor, p.Conv, func(o *openConstruction) string {
+		if o.node == nil {
+			return ""
+		}
+		return l.siteText(o.node)
+	})
+	search := p.Ctor != nil && open == ""
 	opLists := make([][][]string, len(it.Methods))
 	for i, op := range it.Methods {
 		var ok bool
@@ -310,7 +318,11 @@ func (l *lowerer) valueProof(b *strings.Builder, law *check.Law, label string, p
 		w(fmt + ".Println(" + strconv.Quote("FAIL "+label+" (reachable state): sides differ: ") + "+" + counterexample + "); " + failed + "++")
 		w(l.replayLine(law, `""`))
 	} else {
-		w(fmt + ".Println(" + strconv.Quote("skip "+label+" (not proved: false at a state which may be unreachable): ") + "+" + counterexample + ")")
+		why := "false at a state which may be unreachable"
+		if open != "" {
+			why += "; " + open
+		}
+		w(fmt + ".Println(" + strconv.Quote("skip "+label+" (not proved: "+why+"): ") + "+" + counterexample + ")")
 	}
 	w("} else if !" + complete + " {")
 	w(fmt + ".Println(" + strconv.Quote("skip "+label+" (not proved: explored ") + "+" + conv + ".Itoa(len(" + states + "))+\" states, depth \"+ " + conv + ".Itoa(" + depths + "[len(" + depths + ")-1])+\")\")")
