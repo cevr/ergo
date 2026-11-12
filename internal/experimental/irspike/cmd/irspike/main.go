@@ -4,6 +4,7 @@
 //	irspike front PATH WORK               check and lower PATH (source and IR) into WORK/source, WORK/ir
 //	irspike tool LOG TOOL [ARGS...]       a -toolexec meter: run TOOL, append its cost to LOG
 //	irspike attr WORK PROGRAM             stage attribution of PROGRAM (cold, warm, edits)
+//	irspike census ROOT                   every reason each body of examples, std and corpus is not lowered yet
 //
 // The toolchains come from ERGO_IRSPIKE_GOROOT_SOURCE, ERGO_IRSPIKE_GOROOT_IR
 // and ERGO_IRSPIKE_CACHE.
@@ -37,6 +38,14 @@ func main() {
 		err = attr(os.Args[2:])
 	case "table":
 		err = table(os.Args[2:])
+	case "census":
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike census ROOT"))
+		}
+		var c *irspike.Census
+		if c, err = irspike.TakeCensus(os.Args[2], os.Stderr); err == nil {
+			c.WriteTable(os.Stdout)
+		}
 	case "gen":
 		var seed uint64
 		if len(os.Args) != 3 {

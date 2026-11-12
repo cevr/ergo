@@ -24,11 +24,13 @@ func (b *irBuilder) tail(list []syntax.Stmt, ret bool) []*irStmt {
 	var out []*irStmt
 	for i, s := range list {
 		last := i == len(list)-1
-		if last && ret {
-			out = append(out, b.yield(s)...)
-			continue
-		}
-		out = append(out, b.stmt(s)...)
+		b.part(func() {
+			if last && ret {
+				out = append(out, b.yield(s)...)
+				return
+			}
+			out = append(out, b.stmt(s)...)
+		})
 	}
 	if ret && len(list) == 0 {
 		irNo("empty body with a result")
@@ -54,11 +56,20 @@ func (b *irBuilder) yield(s syntax.Stmt) []*irStmt {
 	return nil
 }
 
+// cond is a loop's or an if's condition, which runs no operation call.
+func (b *irBuilder) cond(x syntax.Expr) (cond *irExpr) {
+	b.part(func() {
+		pre, c := b.value(x)
+		if len(pre) > 0 {
+			irNo("operation call in a condition")
+		}
+		cond = c
+	})
+	return cond
+}
+
 func (b *irBuilder) ifStmt(s *syntax.IfStmt, ret bool) *irStmt {
-	pre, cond := b.value(s.Cond)
-	if len(pre) > 0 {
-		irNo("operation call in a condition")
-	}
+	cond := b.cond(s.Cond)
 	st := &irStmt{K: "if", Pos: b.pos(s, s.Pos()), X: cond, End: b.pos(s.Body, s.Body.Rbrace)}
 	st.Then = b.tail(s.Body.List, ret)
 	switch e := s.Else.(type) {
@@ -110,7 +121,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			if b.fc.scalarSet[v] {
 				irNo("scalar-form local")
 			}
-			pre, x := b.value(spec.Values[0])
+			var pre []*irStmt
+			var x *irExpr
+			b.part(func() { pre, x = b.value(spec.Values[0]) })
 			out = append(out, pre...)
 			out = append(out, &irStmt{K: "def", Pos: b.pos(s.Decl, s.Decl.Pos()), Local: b.local(v, id), X: x})
 		}
@@ -157,25 +170,26 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			irNo("for without a condition")
 		}
 		if b.env >= 0 {
-			irNo("loop in an impure frame")
+			b.gate("loop in an impure frame")
 		}
-		pre, cond := b.value(s.Cond)
-		if len(pre) > 0 {
-			irNo("operation call in a condition")
-		}
+		cond := b.cond(s.Cond)
 		return []*irStmt{{K: "while", Pos: b.pos(s, s.Pos()), X: cond, Body: b.tail(s.Body.List, false), End: b.pos(s.Body, s.Body.Rbrace)}}
 	case *syntax.RangeStmt:
 		if b.env >= 0 {
-			irNo("loop in an impure frame")
+			b.gate("loop in an impure frame")
 		}
 		lp := b.l.info.Loops[s]
 		if lp == nil || lp.Domain != check.LoopSlice {
-			irNo("for-in over a non-slice")
+			b.gate("for-in over a non-slice")
 		}
-		pre, x := b.value(s.X)
-		if len(pre) > 0 {
-			irNo("operation call in a range")
-		}
+		var x *irExpr
+		b.part(func() {
+			var pre []*irStmt
+			pre, x = b.value(s.X)
+			if len(pre) > 0 {
+				irNo("operation call in a range")
+			}
+		})
 		st := &irStmt{K: "range", Pos: b.pos(s, s.Pos()), X: x, End: b.pos(s.Body, s.Body.Rbrace)}
 		bind := func(e syntax.Expr) *int {
 			if !bound(e) {
@@ -192,8 +206,8 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			i := b.local(v, id)
 			return &i
 		}
-		st.Key = bind(s.Key)
-		st.Val = bind(s.Value)
+		b.part(func() { st.Key = bind(s.Key) })
+		b.part(func() { st.Val = bind(s.Value) })
 		st.Body = b.tail(s.Body.List, false)
 		return []*irStmt{st}
 	}

@@ -14,9 +14,26 @@ import (
 // construction; an index is in range unless the seed draws a raw one (the
 // out-of-range negative control: both paths must fail the same way).
 func Generate(seed uint64) string {
-	g := &gen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))}
-	return g.program()
+	text, _ := GeneratePlanted(seed)
+	return text
 }
+
+// GeneratePlanted is Generate's program and, for each function outside
+// the subset, the census reasons of the constructs planted in it: the
+// reference a census of the program must contain.
+func GeneratePlanted(seed uint64) (string, map[string][]string) {
+	g := &gen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), planted: map[string][]string{}}
+	return g.program(), g.planted
+}
+
+// The planted constructs and the census reason of each.
+const (
+	reasonInterp  = "expression *syntax.InterpolatedString"
+	reasonIfExpr  = "expression *syntax.IfStmt"
+	reasonDiscard = "let without a variable"
+)
+
+var plants = []struct{ reason string }{{reasonInterp}, {reasonIfExpr}, {reasonDiscard}}
 
 type gtype string
 
@@ -56,6 +73,9 @@ type gen struct {
 	// may declare the name again, with another type (Ergo refuses only a
 	// name of an enclosing scope).
 	retired []string
+	// planted are the census reasons planted in each function outside the
+	// subset.
+	planted map[string][]string
 }
 
 func (g *gen) n(k int) int { return g.r.IntN(k) }
@@ -99,9 +119,29 @@ func (g *gen) function(i int) {
 	g.used = map[string]bool{}
 	g.retired = nil
 	if f.src {
-		// Outside the subset: an interpolated string.
-		fmt.Fprintf(&g.b, "\tlet note = \"n\\(%s)\"\n", g.expr(tInt, 2))
-		g.scope = append(g.scope, gvar{name: "note", t: tStr})
+		// Outside the subset: one to three planted constructs, each its
+		// own statement, so a census must name every one (Planted).
+		for {
+			for _, p := range plants {
+				if g.n(2) == 0 {
+					continue
+				}
+				switch p.reason {
+				case reasonInterp:
+					fmt.Fprintf(&g.b, "\tlet note = \"n\\(%s)\"\n", g.expr(tInt, 2))
+					g.scope = append(g.scope, gvar{name: "note", t: tStr})
+				case reasonIfExpr:
+					fmt.Fprintf(&g.b, "\tlet pick = if %s { %s } else { %s }\n", g.expr(tBool, 1), g.expr(tInt, 1), g.expr(tInt, 1))
+					g.scope = append(g.scope, gvar{name: "pick", t: tInt})
+				case reasonDiscard:
+					fmt.Fprintf(&g.b, "\tlet _ = %s\n", g.expr(tInt, 1))
+				}
+				g.planted[f.name] = append(g.planted[f.name], p.reason)
+			}
+			if len(g.planted[f.name]) > 0 {
+				break
+			}
+		}
 	}
 	ns := g.n(5)
 	for j := 0; j < ns; j++ {
@@ -372,8 +412,8 @@ func (g *gen) expr(t gtype, d int) string {
 	panic("gen: type " + string(t))
 }
 
-// index reads a slice element: in range by construction, or (rarely) a raw
-// index, the out-of-range negative control.
+// index reads a slice element: in range by construction, or (rarely) past
+// its end, the out-of-range negative control.
 func (g *gen) index(d int) string {
 	var xs string
 	if v, ok := g.pick(tInts); ok {
@@ -383,7 +423,9 @@ func (g *gen) index(d int) string {
 	}
 	i := g.expr(tInt, d-1)
 	if g.n(25) == 0 {
-		return xs + "[" + i + "]"
+		// Past the end, never a constant (the checker refuses a constant
+		// negative index).
+		return xs + "[len(" + xs + ") + (" + i + ") * (" + i + ")]"
 	}
 	// ((i % n) + n) % n, with n >= 1: the generated slices are never empty.
 	return xs + "[((" + i + " % len(" + xs + ")) + len(" + xs + ")) % len(" + xs + ")]"
