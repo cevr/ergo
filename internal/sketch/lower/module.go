@@ -215,7 +215,7 @@ type lowerer struct {
 	// place the lowering reads the unit's and the checker's lists from.
 	canon *canonical
 	// ir collects the experimental IR bodies of LowerIR
-	// (irspike_experimental.go); nil in every other lowering.
+	// (ir.go); nil in every other lowering.
 	ir *irState
 	// goModule is the root unit's Go requirements (hostPkg).
 	goModule GoModule

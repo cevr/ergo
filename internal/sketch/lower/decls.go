@@ -1147,7 +1147,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	fc.goGeneric = sp == nil && len(own) > 0
 	fc.scalarSet = l.scalarVars(f)
 	if l.ir != nil && !known && sp == nil && !owned && !needsFrame && len(own) == 0 {
-		// LowerIR only (irspike_experimental.go): a body in the spike's
+		// LowerIR only (ir.go): a body in the spike's
 		// subset leaves its Go declaration without a body.
 		if l.ir.body(fc, fd, params) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
