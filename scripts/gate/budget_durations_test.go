@@ -86,6 +86,35 @@ func TestRecordFastCPUWritesOnlyTheFastCPUTable(t *testing.T) {
 	}
 }
 
+// `-record-durations -fast 'examples (default)'` records the examples
+// step, which is no package's, under its step name (fastCPUSteps), after
+// the bin/ergo build it needs. It runs the step's `go run`, because the
+// row is the CPU of that process tree, which no in-process check gives.
+// Mutant it catches, which no other test does: writeFastCPU taking a
+// budgeted step's name for a package directory (the record fails, and the
+// row TestFastTierReachOfAnEdit asks for cannot be written).
+func TestRecordFastCPURecordsAStepByName(t *testing.T) {
+	t.Setenv(mechanismVariable, "rss")
+	t.Setenv("ERGO_GATE_CACHE", t.TempDir())
+	root := t.TempDir()
+	write(t, root, "go.mod", "module example.test/step\n\ngo 1.24\n")
+	write(t, root, "cmd/ergo/main.go", "package main\n\nfunc main() {}\n")
+	write(t, root, "scripts/examples/main.go", "package main\n\nfunc main() {}\n")
+	write(t, root, "scripts/authored_examples.txt", "go.mod\n")
+	write(t, root, fastCPUFile, "{\n  \"example.test/step/q\": 7\n}\n")
+	var out strings.Builder
+	if err := (&gate{root: root}).recordDurations(&out, []string{examplesStepName}, true); err != nil {
+		t.Fatalf("%v; output %q", err, out.String())
+	}
+	table, err := readFastCPU(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cpu, ok := table[examplesStepName]; !ok || cpu <= 0 || table["example.test/step/q"] != 7 || len(table) != 2 {
+		t.Errorf("fast CPU table %v; want a positive row %q and q's row kept", table, examplesStepName)
+	}
+}
+
 // `-record-durations -fast` of a package whose tests run the CLI
 // (cliTestPackages) builds bin/ergo from this checkout before it measures
 // them, as the fast tier does (buildCLIStep): the recorded CPU is never the

@@ -367,6 +367,14 @@ func fastSteps(root string) ([]*Step, error) {
 // over n, so this sum predicts the wall where serial test times do not.
 const fastCPUFile = "scripts/gate/fast-cpu.json"
 
+// fastCPUSteps are the fast-tier steps that are no package's and that the
+// CPU budget counts beside the package steps: their rows in fastCPUFile
+// are keyed by the step's name (`-record-durations -fast 'examples
+// (default)'`). The examples step runs every default example program,
+// and it runs again after every edit of the compiler (its bin/ergo) or of
+// the runner's closure.
+var fastCPUSteps = []string{examplesStepName}
+
 func readFastCPU(root string) (map[string]float64, error) {
 	content, err := os.ReadFile(filepath.Join(root, fastCPUFile))
 	if os.IsNotExist(err) {
@@ -432,36 +440,59 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 		}
 		return nil
 	}
+	// measure runs one step after what it needs and returns its CPU.
+	measure := func(step *Step) (float64, error) {
+		for _, need := range step.Needs {
+			if err := prepare(need); err != nil {
+				return 0, err
+			}
+		}
+		// Every package step is a go test (fastSteps), and every budgeted
+		// step a go command (fastCPUSteps).
+		if step.Argv[0] != "go" {
+			return 0, fmt.Errorf("%s: not a go command: %q", step.Name, step.Argv)
+		}
+		command := exec.Command("go", step.Argv[1:]...)
+		command.Env = append(stepEnvironment(), step.Env...)
+		command.Dir = root
+		command.Stdout = io.Discard
+		command.Stderr = os.Stderr
+		used, err := runBudgeted(limit, step.Name, command)
+		if used.verdict != "" {
+			return 0, fmt.Errorf("%s: %s", step.Name, used.verdict)
+		}
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", step.Name, err)
+		}
+		state := command.ProcessState
+		return (state.UserTime() + state.SystemTime()).Seconds(), nil
+	}
 	for _, pkg := range packages {
+		// A budgeted step that is no package's (fastCPUSteps) is named
+		// by its step name, and its row is that name.
+		if slices.Contains(fastCPUSteps, pkg) {
+			i := slices.IndexFunc(steps, func(s *Step) bool { return s.Name == pkg })
+			if i < 0 {
+				return fmt.Errorf("no fast-tier step %q", pkg)
+			}
+			cpu, err := measure(steps[i])
+			if err != nil {
+				return err
+			}
+			table[pkg] = math.Round(cpu*10) / 10
+			continue
+		}
 		dir := strings.TrimPrefix(path.Clean(pkg), "./")
 		cpu, ran := 0.0, 0
 		for _, step := range steps {
 			if step.Package == nil || step.Package.Dir != dir {
 				continue
 			}
-			for _, need := range step.Needs {
-				if err := prepare(need); err != nil {
-					return err
-				}
-			}
-			// Every package step is a go test (fastSteps).
-			if step.Argv[0] != "go" {
-				return fmt.Errorf("%s: not a go command: %q", step.Name, step.Argv)
-			}
-			command := exec.Command("go", step.Argv[1:]...)
-			command.Env = append(stepEnvironment(), step.Env...)
-			command.Dir = root
-			command.Stdout = io.Discard
-			command.Stderr = os.Stderr
-			used, err := runBudgeted(limit, step.Name, command)
-			if used.verdict != "" {
-				return fmt.Errorf("%s: %s", step.Name, used.verdict)
-			}
+			used, err := measure(step)
 			if err != nil {
-				return fmt.Errorf("%s: %w", step.Name, err)
+				return err
 			}
-			state := command.ProcessState
-			cpu += (state.UserTime() + state.SystemTime()).Seconds()
+			cpu += used
 			ran++
 		}
 		if ran == 0 {

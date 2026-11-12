@@ -9,6 +9,8 @@ go run ./scripts/examples PROGRAM              # one program folder, whatever it
 go run ./scripts/examples -tags slow,net       # the programs with either tag
 ```
 
+The runner runs `-jobs` programs at once. The default is `GOMAXPROCS` when the environment sets it (the gate sets each step's `GOMAXPROCS` to its CPU budget, `ERGO_GATE_CPUS`), else half the usable CPUs: never every CPU of the host. Each program's lines stay together and print in name order, whatever order the programs end in (`TestProgramsRunAtOnceAndPrintInOrder`), and each FAIL line names its program. Each built program still runs under its own memory limit (`ERGO_PROGRAM_MEMORY`, 2 GiB by default; docs/tooling.md, "Test memory"), which the kernel enforces.
+
 One folder is not a program: `editions` (edition fixtures that Go tests pin). Any other folder that is not a program is an error. Go interop is shown by `gointerop`, an `import go` program.
 
 ## Layout
