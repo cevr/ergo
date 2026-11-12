@@ -1,0 +1,45 @@
+{
+  "about": "H3f mutants of hosts/mygo and its drawing module. scripts/mutants measures the Ergo module only; each edit here is applied to a scratch copy of hosts/mygo, then drawgen runs in drawing/ unless regenerate is false (as go generate would after the edit), then the killers run. A killer is module:Test, where module is drawing or mygo.",
+  "mutants": [
+    {
+      "name": "H3f-consts-dropped",
+      "origin": "H3f",
+      "file": "hosts/mygo/drawing/internal/drawgen/main.go",
+      "from": "if len(names) == 0 {",
+      "to": "if true {",
+      "rule": "every exported constant of a drawing-layer package is mirrored",
+      "regenerate": true,
+      "killers": ["drawing:TestMirrorsInternal"]
+    },
+    {
+      "name": "H3f-args-reordered",
+      "origin": "H3f",
+      "file": "hosts/mygo/drawing/internal/drawgen/main.go",
+      "from": "args = append(args, name)",
+      "to": "args = append([]string{name}, args...)",
+      "rule": "a wrapper calls the internal function with its parameters in order",
+      "regenerate": true,
+      "killers": ["drawing:TestMirrorsInternal"]
+    },
+    {
+      "name": "H3f-layer-dropped",
+      "origin": "H3f",
+      "file": "hosts/mygo/drawing/internal/drawgen/main.go",
+      "from": "\"raster\",   // the CPU renderer",
+      "to": "",
+      "rule": "the export reaches every layer a host draws with",
+      "regenerate": true,
+      "killers": ["mygo:TestContentOutsideMyGo"]
+    },
+    {
+      "name": "H3f-hand-edit",
+      "origin": "H3f",
+      "file": "hosts/mygo/drawing/scene/scene.go",
+      "from": "type Rect = impl.Rect",
+      "to": "type Rect = impl.Color",
+      "rule": "the drawing packages are what drawgen writes from the pinned MyGo",
+      "regenerate": false,
+      "killers": ["drawing:TestFilesCurrent", "drawing:TestMirrorsInternal"]
+    }
+  ]
+}
