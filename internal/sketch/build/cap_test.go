@@ -59,6 +59,66 @@ func TestEntryCapHoldsAfterBuilds(t *testing.T) {
 	}
 }
 
+// plantUsed makes n entries in root/modules, each a directory with one
+// file, the first used longest ago, a minute apart, and returns their
+// names, oldest first.
+func plantUsed(t *testing.T, root string, n int) []string {
+	t.Helper()
+	var names []string
+	for i := range n {
+		name := fmt.Sprintf("planted-%04d", i)
+		dir := filepath.Join(root, "modules", name)
+		mustWrite(t, filepath.Join(dir, "main.go"), "package main\n")
+		ageBy(t, dir, time.Duration(n-i)*time.Minute)
+		names = append(names, name)
+	}
+	return names
+}
+
+// TestCapConvergesInOnePass: a cache far past the cap, as one from before
+// the cap is (18,357 entries on 2026-11-12), is within the cap after one
+// build's trim, which keeps the newest; the age pass's bound of
+// sweepRemovals a pass does not hold the cap pass back. Mutant: the cap
+// pass bounded per pass (cache-bound-cap-bounded-per-pass).
+func TestCapConvergesInOnePass(t *testing.T) {
+	needLocks(t)
+	defer func(old int) { entryCap = old }(entryCap)
+	entryCap = 3
+	root := t.TempDir()
+	planted := plantUsed(t, root, 3*sweepRemovals)
+	writeTrimStamp(t, root, 0) // the age trim is not due: only the cap removes
+	Cache{Root: root}.trimAfter(time.Now(), true)
+	if kept, want := entries(t, root, "modules"), planted[len(planted)-entryCap:]; !slices.Equal(kept, want) {
+		t.Fatalf("after one trim of %d entries with entryCap %d: %d kept (%q), want the %d newest %q", len(planted), entryCap, len(kept), kept[:min(len(kept), 5)], entryCap, want)
+	}
+}
+
+// TestCapPassesOverAReMarkedEntry: an entry that a build marked used after
+// the cap pass read its mark, and before the pass locked it, is now the
+// most recently used, so the pass keeps it and removes the next oldest
+// instead. Mutant: the recheck under the lock dropped
+// (cache-bound-cap-stale-recheck).
+func TestCapPassesOverAReMarkedEntry(t *testing.T) {
+	needLocks(t)
+	defer func(old int) { entryCap = old }(entryCap)
+	entryCap = 2
+	root := t.TempDir()
+	planted := plantUsed(t, root, 3)
+	oldest := filepath.Join(root, "modules", planted[0])
+	testHookTrimLocked = once(func(path string) {
+		if path == oldest {
+			ageBy(t, oldest, 0) // a build's use mark, now
+		}
+	})
+	defer func() { testHookTrimLocked = nil }()
+	if removed := (Cache{Root: root}).capEntries(); removed != 1 {
+		t.Fatalf("the cap pass removed %d entries, want 1", removed)
+	}
+	if kept, want := entries(t, root, "modules"), []string{planted[0], planted[2]}; !slices.Equal(kept, want) {
+		t.Fatalf("kept %q, want %q: the entry marked during the pass and the newest", kept, want)
+	}
+}
+
 // Variables of the cap-churn helper: its seed, its rounds and its cap.
 const (
 	seedVariable   = "ERGO_BUILD_TEST_SEED"

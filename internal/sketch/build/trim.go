@@ -192,8 +192,11 @@ func (c Cache) overCap() bool {
 
 // capEntries is the cap pass: when Root/modules holds more than entryCap
 // entries, it removes the least recently used ones (the oldest use marks),
-// at most sweepRemovals and no more than the excess, and returns how many
-// it removed. It removes an entry as the age pass does (takeAside): only
+// the whole excess in one pass, and returns how many it removed. It has no
+// per-pass bound, unlike the age pass: a cache far past the cap (one from
+// before the cap, which reached 18,357 entries) converges in one pass
+// instead of lingering at 64 removals a pass; a cache within the cap costs
+// one listing and pays per removal only past it. It removes an entry as the age pass does (takeAside): only
 // under the entry's exclusive lock, taken without waiting, so never one a
 // build holds, and only when the entry was not marked used since the pass
 // read its mark. A held entry is passed over for the next oldest. The pass
@@ -216,7 +219,7 @@ func (c Cache) capEntries() int {
 		}
 	}
 	slices.SortStableFunc(all, func(a, b used) int { return a.mark.Compare(b.mark) })
-	excess := min(len(all)-entryCap, sweepRemovals)
+	excess := len(all) - entryCap
 	removed := 0
 	for _, e := range all {
 		if removed >= excess {

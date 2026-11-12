@@ -43,14 +43,35 @@ const RootVariable = "ERGO_CACHE"
 // and to be ignored, so on the systems where os.UserCacheDir reads
 // XDG_CACHE_HOME a relative value falls back to $HOME/.cache, which
 // os.UserCacheDir would refuse instead.
+//
+// A Go test never builds in the user's cache (docs/tooling.md, Emission
+// cache bound). So DefaultRoot refuses a root that the environment of a Go
+// test binary, this process or an ancestor, resolves to without
+// ERGO_CACHE: the cache of the user who ran the test. It reads that
+// environment as the test binary was started (testRoots), so no
+// environment a test builds for its programs, whatever it forgets, and no
+// variable a test changes, can hide the user's cache from the rule.
 func DefaultRoot() (string, error) {
-	if own := os.Getenv(RootVariable); own != "" {
-		if !filepath.IsAbs(own) {
-			return "", fmt.Errorf("no cache directory for generated Go: %s=%q is not absolute", RootVariable, own)
-		}
-		return filepath.Clean(own), nil
+	root, err := resolveRoot(os.Getenv, true)
+	if err != nil {
+		return "", err
 	}
-	xdg := os.Getenv("XDG_CACHE_HOME")
+	if test, ok := testRoots(root); ok {
+		return "", fmt.Errorf("no cache directory for generated Go: %s resolves to the user's cache under the Go test %s; a test builds in a cache of its own: set %s (internal/testinputs sets it for each test process)", root, test, RootVariable)
+	}
+	return root, nil
+}
+
+// resolveRoot is DefaultRoot's resolution in the environment getenv reads,
+// without the test rule; own selects whether ERGO_CACHE counts.
+func resolveRoot(getenv func(string) string, own bool) (string, error) {
+	if dir := getenv(RootVariable); own && dir != "" {
+		if !filepath.IsAbs(dir) {
+			return "", fmt.Errorf("no cache directory for generated Go: %s=%q is not absolute", RootVariable, dir)
+		}
+		return filepath.Clean(dir), nil
+	}
+	xdg := getenv("XDG_CACHE_HOME")
 	if xdg != "" && filepath.IsAbs(xdg) {
 		return filepath.Join(xdg, "ergo"), nil
 	}
@@ -60,9 +81,11 @@ func DefaultRoot() (string, error) {
 	case "windows", "darwin", "ios", "plan9":
 		dir, err = os.UserCacheDir()
 	default:
-		var home string
-		if home, err = os.UserHomeDir(); err == nil {
+		// os.UserHomeDir is $HOME on these systems.
+		if home := getenv("HOME"); home != "" {
 			dir = filepath.Join(home, ".cache")
+		} else {
+			err = errors.New("$HOME is not defined")
 		}
 	}
 	if err != nil {

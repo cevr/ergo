@@ -59,6 +59,9 @@ func helperMain(mode string) int {
 	if mode == "cap-churn" {
 		return capChurnHelper()
 	}
+	if handled, code := rootHelpers(mode); handled {
+		return code
+	}
 	if mode == "identity" {
 		identity, err := CompilerIdentity()
 		if err != nil {

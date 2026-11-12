@@ -25,4 +25,5 @@ Judged by hand: the edit applied, `go test -count=1 -run TestTestsUseAPrivateErg
 | Mutant | Killer | Evidence |
 | --- | --- | --- |
 | `cache-bound-tests-share-user-cache`: `run = withPrivateCache(run)` removed from `testinputs.MainFunc` | TestTestsUseAPrivateErgoCache | Fails: "the test process resolves the emission cache to /home/exedev/.cache/ergo". |
+| `cache-bound-forgotten-not-refused` (in `internal/sketch/build`'s ledger): `DefaultRoot` skips the test rule | TestTestsUseAPrivateErgoCache, and TestForgottenCacheIsRefused there | Fails: "with ERGO_CACHE cleared a test process resolves "/home/exedev/.cache/ergo" (<nil>)" (round 2). |
 | `cache-bound-root-variable-ignored` (in `internal/sketch/build`'s ledger): `DefaultRoot` ignores `ERGO_CACHE` | TestTestsUseAPrivateErgoCache, and TestDefaultRoot there | The private directory is set but never resolved, so the process resolves the user's. |
