@@ -1,0 +1,626 @@
+// The laws of the test host: a scene script on TestHost shows what the
+// view means at the actor's state, reached by the signals the script's
+// presses send; a fetch whose load ends is stopped, and Settle waits for
+// the live one. They run their actors on a time.Manual (a law cannot hold
+// Ambient, so it binds no host Scheduler).
+
+import actor
+import machines
+import queue
+import scope
+import strings
+import time
+
+// shelf is the state of the list app: its rows, by key, and the next key.
+type shelf { rows []int, next int }
+
+// shelfStep: signal 0 adds a row with the next key; signal k removes the
+// row k.
+func shelfStep(s shelf, e int) Decision[shelf, int] {
+	if e == 0 {
+		return Enter[shelf]{Next: shelf{rows: s.rows.Append(s.next), next: s.next + 1}}
+	}
+	let mut rows = []int{}
+	for k in s.rows {
+		if k != e {
+			rows = rows.Append(k)
+		}
+	}
+	Enter[shelf]{Next: shelf{rows: rows, next: s.next}}
+}
+
+func shelfTimer(s shelf) Option[Timeout[int]] { None }
+
+func shelfWork(s shelf) Option[func(send func(e int))] { None }
+
+func shelfMachine() Machine[shelf, int, int] {
+	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: shelfTimer, Work: shelfWork}
+}
+
+// shelfView shows the count, an add button, and each row with a delete
+// button: every row's button has the label "del", so a press by label
+// takes the first row on the screen.
+func shelfView(f *Frame[int], s shelf) {
+	Column(f, Plain()) {
+		Text(f, "\(len(s.rows)) rows")
+		Pressable(f, "add", 0) {
+			Text(f, "+")
+		}
+		Each(f, s.rows, func(k int) Key { ByInt(k) }) func(k int) {
+			Row(f, Plain()) {
+				Text(f, "row \(k)")
+				Pressable(f, "del", k) {
+					Text(f, "x")
+				}
+			}
+		}
+	}
+}
+
+// freshShape is what view means at s: one pass of a new frame.
+func freshShape[S](view func(f *Frame[int], s S), s S) []Shape[int] {
+	let mut g = NewFrame[int]()
+	let _ = Render(&g, view, s)
+	FrameShape(&g)
+}
+
+// ScriptShowsTheView: after each step of a drawn script of presses by
+// label ("add", or "del", the first row's), the test host's screen is the
+// view of the actor's state, and that state is the model's: a press of
+// "del" removes the first row on the screen. The clock never moves.
+law ScriptShowsTheView(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		scriptShows(seed, steps, m)
+	}
+}
+
+func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, shelfView, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let start = Now(&h)
+	let mut model = shelf{rows: []int{}, next: 1}
+	for _ in 0..(steps%16+16)%16+1 {
+		let mut label = "add"
+		if len(model.rows) > 0 && draw(&r, 2) == 0 {
+			label = "del"
+			model = machines.Next(model, shelfStep(model, model.rows[0]))
+		} else {
+			model = machines.Next(model, shelfStep(model, 0))
+		}
+		Play(&h, []Act{TapOn{Label: label}}) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		if s != model || !SameShapes(Screen(&h), freshShape(shelfView, s)) || Now(&h) != start {
+			return false
+		}
+	}
+	true
+}
+
+// chosen is the state of the load app: the key its view loads, and the
+// result the program holds (-1 for none yet).
+type chosen { key int, ready int }
+
+// chosenStep: a signal of 0 or more is a new key, and the result goes back to
+// none; a negative signal is a fetch's result.
+func chosenStep(s chosen, e int) Decision[chosen, int] {
+	if e >= 0 {
+		return Enter[chosen]{Next: chosen{key: e, ready: -1}}
+	}
+	Enter[chosen]{Next: chosen{key: s.key, ready: -1 - e}}
+}
+
+func chosenTimer(s chosen) Option[Timeout[int]] { None }
+
+func chosenWork(s chosen) Option[func(send func(e int))] { None }
+
+func chosenMachine() Machine[chosen, int, int] {
+	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: chosenTimer, Work: chosenWork}
+}
+
+// valueOf is what the fetch of key k gives.
+func valueOf(k int) int { k*10 + 7 }
+
+// CancelledFetchStops: the load app's fetch says when it starts and when
+// it ends, and sleeps an hour on the clock. A press of "next" changes the
+// key: when the press returns, the fetch of the old key has ended (its task
+// was stopped, not left asleep), one fetch is in flight, and the program
+// holds no result. After the clock moves an hour, Settle returns with the
+// live key's result shown and no fetch in flight (settledShowsLatest).
+law CancelledFetchStops(steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		cancelStops(steps, m)
+	}
+}
+
+func cancelStops(steps int, m time.Manual) bool needs Scheduler {
+	let started = queue.New[int](64)
+	let ended = queue.New[int](64)
+	let view = func(f *Frame[int], s chosen) {
+		let k = s.key
+		Text(f, "key \(k) ready \(s.ready)")
+		Pressable(f, "next", k+1+k%3) {
+			Text(f, "next")
+		}
+		Load(f, ByInt(k), func() int {
+			started.Push(k) catch {
+			case queue.Closed:
+			}
+			scope.OnExit() {
+				ended.Push(k) catch {
+				case queue.Closed:
+				}
+			}
+			time.Sleep(m, 1h)
+			-1 - valueOf(k)
+		})
+	}
+	let a = actor.StartMachine(chosenMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let first = started.Pop() catch {
+	case queue.Closed:
+		return false
+	}
+	if first != 0 {
+		return false
+	}
+	for _ in 0..(steps%8+8)%8+1 {
+		let old = StateOf(&h).key
+		Play(&h, []Act{TapOn{Label: "next"}}) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		if ended.Poll() != (Some{Value: old}) || Fetching(&h) != 1 || s.ready != -1 {
+			return false
+		}
+		let now = started.Pop() catch {
+		case queue.Closed:
+			return false
+		}
+		if now != s.key {
+			return false
+		}
+	}
+	Play(&h, []Act{AdvanceBy{By: 1h}, SettleAll}) catch {
+	case _:
+		return false
+	}
+	let s = StateOf(&h)
+	s.ready == valueOf(s.key) && Fetching(&h) == 0 && SameShapes(Screen(&h), freshShape(view, s))
+}
+
+// spin is the state of the animation app: the frames it still wants, and
+// the time of the last frame it took (in nanoseconds since the host
+// started, -1 for none).
+type spin { left int, at int }
+
+// spinStep: a signal of 0 or more asks for that many frames; a negative
+// signal is a frame at -1-e nanoseconds.
+func spinStep(s spin, e int) Decision[spin, int] {
+	if e >= 0 {
+		return Enter[spin]{Next: spin{left: e, at: s.at}}
+	}
+	Enter[spin]{Next: spin{left: s.left - 1, at: -1 - e}}
+}
+
+func spinTimer(s spin) Option[Timeout[int]] { None }
+
+func spinWork(s spin) Option[func(send func(e int))] { None }
+
+func spinMachine() Machine[spin, int, int] {
+	Machine[spin, int, int]{Initial: spin{left: 0, at: -1}, Step: spinStep, After: spinTimer, Work: spinWork}
+}
+
+// spinView animates while frames are left; "go0" to "go3" ask for that
+// many.
+func spinView(f *Frame[int], s spin) {
+	Text(f, "left \(s.left) at \(s.at)")
+	for n in 0..4 {
+		Pressable(f, "go\(n)", n) {
+			Text(f, "go")
+		}
+	}
+	if s.left > 0 {
+		Animate(f, func(at duration) int { -1 - int(int64(at)) })
+	}
+}
+
+// frameModel is the host's frames written without a frame: the time
+// since the host started, the time owed to the next frame, and the ticks
+// sent.
+type frameModel { since duration, owed duration, frames int, app spin }
+
+// advanced is the model after the clock moves d at frame period p.
+func advanced(m frameModel, d duration, p duration) frameModel {
+	let mut x = m
+	let mut left = d
+	for x.app.left > 0 && left >= p-x.owed {
+		let due = p - x.owed
+		x.since = x.since + due
+		left = left - due
+		x.owed = 0ns
+		x.frames = x.frames + 1
+		x.app = spin{left: x.app.left - 1, at: int(int64(x.since))}
+	}
+	x.since = x.since + left
+	if x.app.left > 0 {
+		x.owed = x.owed + left
+	} else {
+		x.owed = 0ns
+	}
+	x
+}
+
+// NoTickWhenSettled: over a drawn script of presses (asking for 0 to 3
+// frames) and clock moves, the test host sends a Tick exactly at each
+// frame period the view animates through, with the clock's time since it
+// started, and none while the last pass made no Animate: it wants frames
+// only while the model has frames left, and the screen is the view of the
+// model's state.
+law NoTickWhenSettled(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		ticksFollow(seed, steps, m)
+	}
+}
+
+func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(spinMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, spinView, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let p = 16ms
+	let start = Now(&h)
+	let mut model = frameModel{since: 0ns, owed: 0ns, frames: 0, app: spin{left: 0, at: -1}}
+	let moves = []duration{0ns, 5ms, 11ms, 16ms, 40ms, 100ms}
+	for _ in 0..(steps%24+24)%24+1 {
+		let mut act Act = SettleAll
+		if draw(&r, 2) == 0 {
+			let n = draw(&r, 4)
+			act = TapOn{Label: "go\(n)"}
+			model.app = machines.Next(model.app, spinStep(model.app, n))
+		} else {
+			let d = moves[draw(&r, len(moves))]
+			act = AdvanceBy{By: d}
+			model = advanced(model, d, p)
+		}
+		Play(&h, []Act{act}) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		if s != model.app || Frames(&h) != model.frames || Now(&h).Sub(start) != model.since || WantsFrames(&h) != (model.app.left > 0) || !SameShapes(Screen(&h), freshShape(spinView, s)) {
+			return false
+		}
+	}
+	true
+}
+
+// pad is the state of the input app: whether its dialog is open, the
+// last signal the pad gave, and how many it gave.
+type pad { open bool, last int, n int }
+
+// padStep: 1 closes the dialog, 2 opens it, anything else is a pad's
+// signal.
+func padStep(s pad, e int) Decision[pad, int] {
+	if e == 1 {
+		return Enter[pad]{Next: pad{open: false, last: s.last, n: s.n}}
+	}
+	if e == 2 {
+		return Enter[pad]{Next: pad{open: true, last: s.last, n: s.n}}
+	}
+	Enter[pad]{Next: pad{open: s.open, last: e, n: s.n + 1}}
+}
+
+func padTimer(s pad) Option[Timeout[int]] { None }
+
+func padWork(s pad) Option[func(send func(e int))] { None }
+
+func padMachine() Machine[pad, int, int] {
+	Machine[pad, int, int]{Initial: pad{open: false, last: 0, n: 0}, Step: padStep, After: padTimer, Work: padWork}
+}
+
+// onPad is the pad's function at s: a press gives 1000 plus its x plus
+// 100 for each signal the pad gave (mod 3), so the function a pass makes
+// reads the state; a release gives 2000 plus its y, a wheel 3000 plus its
+// dy, and a move nothing.
+func onPad(s pad, p PointerEvent) Option[int] {
+	match p.Phase {
+	case Down:
+		Some{Value: 1000 + int(p.X) + 100*(s.n%3)}
+	case Up:
+		Some{Value: 2000 + int(p.Y)}
+	case Wheel as w:
+		Some{Value: 3000 + int(w.DY)}
+	case Moved:
+		None
+	}
+}
+
+// padView: while the dialog is open, its OnKey comes first and takes
+// Escape (closing it); the page's OnKey takes any key with Ctrl (opening
+// the dialog) and gives the pad a 4000 plus the name's length for Enter.
+func padView(f *Frame[int], s pad) {
+	Text(f, "last \(s.last) of \(s.n)")
+	if s.open {
+		OnKey(f, func(k KeyPress) Option[int] {
+			if k.Name == "Escape" {
+				return Some{Value: 1}
+			}
+			None
+		})
+	}
+	OnKey(f, func(k KeyPress) Option[int] {
+		if k.Mods.Ctrl {
+			return Some{Value: 2}
+		}
+		if k.Name == "Enter" {
+			return Some{Value: 4005}
+		}
+		None
+	})
+	Area(f, "pad", Plain(), func(p PointerEvent) Option[int] { onPad(s, p) }) {
+		Text(f, "pad")
+	}
+}
+
+// keySignal is the signal a key press gives padView at s, written without
+// a frame.
+func keySignal(s pad, k KeyPress) Option[int] {
+	if s.open && k.Name == "Escape" {
+		return Some{Value: 1}
+	}
+	if k.Mods.Ctrl {
+		return Some{Value: 2}
+	}
+	if k.Name == "Enter" {
+		return Some{Value: 4005}
+	}
+	None
+}
+
+// InputGivesSignal: over a drawn script of pointer events on the pad and
+// key presses (with and without Ctrl), the actor's state is the model's
+// fold of the signals the pad's function and the first OnKey that takes
+// a key give, and the screen is the view of that state. Escape with Ctrl
+// while the dialog is open closes it: the dialog's OnKey, made first,
+// takes it.
+law InputGivesSignal(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		inputFollows(seed, steps, m)
+	}
+}
+
+func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(padMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, padView, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut model = pad{open: false, last: 0, n: 0}
+	let names = []string{"a", "Enter", "Escape"}
+	for _ in 0..(steps%24+24)%24+1 {
+		let mut act Act = SettleAll
+		let mut sent Option[int] = None
+		if draw(&r, 2) == 0 {
+			let k = KeyPress{Name: names[draw(&r, len(names))], Mods: Mods{Shift: false, Ctrl: draw(&r, 2) == 0, Alt: false, Meta: false}}
+			act = KeyIn{Press: k}
+			sent = keySignal(model, k)
+		} else {
+			let x = float64(draw(&r, 100)) + 0.5
+			let y = float64(draw(&r, 100)) + 0.25
+			let mut phase Phase = Moved
+			match draw(&r, 4) {
+			case 0:
+				phase = Down
+			case 1:
+				phase = Up
+			case 2:
+				phase = Wheel{DX: 0.0, DY: float64(draw(&r, 9))}
+			case _:
+			}
+			let ev = PointerEvent{Phase: phase, X: x, Y: y}
+			act = PointOn{Label: "pad", Pointer: ev}
+			sent = onPad(model, ev)
+		}
+		match sent {
+		case Some[int] as e:
+			model = machines.Next(model, padStep(model, e.Value))
+		case None:
+		}
+		Play(&h, []Act{act}) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		if s != model || !SameShapes(Screen(&h), freshShape(padView, s)) {
+			return false
+		}
+	}
+	true
+}
+
+// pp is a generated paint program: fills and strokes of paths, and
+// transforms and clips around programs of their own. Every number it
+// paints reads the state, so a new state repaints.
+type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
+
+func genPaint(r *rng, depth int) []pp {
+	let mut out = []pp{}
+	for _ in 0..draw(r, 4) {
+		let k = draw(r, 50)
+		let kind = draw(r, 5)
+		if depth == 0 || kind < 3 {
+			match kind % 3 {
+			case 0:
+				out = out.Append(ppFill{k: k})
+			case 1:
+				out = out.Append(ppStroke{k: k})
+			case _:
+				out = out.Append(ppRect{k: k})
+			}
+		} else if kind == 3 {
+			out = out.Append(ppMove{k: k, kids: genPaint(r, depth-1)})
+		} else {
+			out = out.Append(ppClip{k: k, kids: genPaint(r, depth-1)})
+		}
+	}
+	out
+}
+
+// num is the i-th number of op k at state s.
+func num(s int, k int, i int) float64 { float64((s*7+k*13+i*5)%60) + 0.5 }
+
+func tone(s int, k int) Color { Color{R: uint8((s + k) % 256), G: uint8(k % 256), B: uint8((s * 3) % 256), A: 255} }
+
+// tri is the path of op k at state s: a move, a line, a quad, a cubic and
+// a close.
+func tri(s int, k int) Path {
+	Path{Segs: []Seg{MoveTo{X: num(s, k, 0), Y: num(s, k, 1)}, LineTo{X: num(s, k, 2), Y: num(s, k, 3)}, QuadTo{CX: num(s, k, 4), CY: num(s, k, 5), X: num(s, k, 6), Y: num(s, k, 7)}, CubicTo{C1X: num(s, k, 8), C1Y: num(s, k, 9), C2X: num(s, k, 10), C2Y: num(s, k, 11), X: num(s, k, 12), Y: num(s, k, 13)}, ClosePath}}
+}
+
+// paintProg paints prog at s through the package's painting functions.
+func paintProg(p *Paint, prog []pp, s int) {
+	for op in prog {
+		match op {
+		case ppFill as x:
+			Fill(p, tri(s, x.k), tone(s, x.k))
+		case ppStroke as x:
+			Stroke(p, tri(s, x.k), tone(s, x.k), num(s, x.k, 14))
+		case ppRect as x:
+			Fill(p, RectPath(num(s, x.k, 0), num(s, x.k, 1), num(s, x.k, 2), num(s, x.k, 3)), tone(s, x.k))
+		case ppMove as x:
+			Transformed(p, Affine{A: num(s, x.k, 0), B: 0.0, C: 0.0, D: num(s, x.k, 1), E: num(s, x.k, 2), F: num(s, x.k, 3)}) {
+				paintProg(p, x.kids, s)
+			}
+		case ppClip as x:
+			Clipped(p, num(s, x.k, 0), num(s, x.k, 1), num(s, x.k, 2), num(s, x.k, 3)) {
+				paintProg(p, x.kids, s)
+			}
+		}
+	}
+}
+
+// paintModel is the list prog means at s, written without a Paint: a
+// rectangle is its four corners closed, and a transform or a clip is its
+// push, its program's list and a pop.
+func paintModel(prog []pp, s int) []PaintOp {
+	let mut out = []PaintOp{}
+	for op in prog {
+		match op {
+		case ppFill as x:
+			out = out.Append(FillOp{Path: tri(s, x.k), Color: tone(s, x.k)})
+		case ppStroke as x:
+			out = out.Append(StrokeOp{Path: tri(s, x.k), Color: tone(s, x.k), Width: num(s, x.k, 14)})
+		case ppRect as x:
+			let rx = num(s, x.k, 0)
+			let ry = num(s, x.k, 1)
+			let rw = num(s, x.k, 2)
+			let rh = num(s, x.k, 3)
+			let corners = Path{Segs: []Seg{MoveTo{X: rx, Y: ry}, LineTo{X: rx + rw, Y: ry}, LineTo{X: rx + rw, Y: ry + rh}, LineTo{X: rx, Y: ry + rh}, ClosePath}}
+			out = out.Append(FillOp{Path: corners, Color: tone(s, x.k)})
+		case ppMove as x:
+			out = out.Append(PushTransform{M: Affine{A: num(s, x.k, 0), B: 0.0, C: 0.0, D: num(s, x.k, 1), E: num(s, x.k, 2), F: num(s, x.k, 3)}})
+			for o in paintModel(x.kids, s) {
+				out = out.Append(o)
+			}
+			out = out.Append(PopPaint)
+		case ppClip as x:
+			out = out.Append(PushClip{X: num(s, x.k, 0), Y: num(s, x.k, 1), W: num(s, x.k, 2), H: num(s, x.k, 3)})
+			for o in paintModel(x.kids, s) {
+				out = out.Append(o)
+			}
+			out = out.Append(PopPaint)
+		}
+	}
+	out
+}
+
+func dialStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func dialTimer(s int) Option[Timeout[int]] { None }
+
+func dialWork(s int) Option[func(send func(e int))] { None }
+
+func dialMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: dialStep, After: dialTimer, Work: dialWork}
+}
+
+// canvasOf is the paint list of the first canvas among shapes, and
+// whether there is one.
+func canvasOf(shapes []Shape[int]) ([]PaintOp, bool) {
+	for x in shapes {
+		match x.Node {
+		case CanvasNode as c:
+			return (c.Paint, true)
+		case _:
+		}
+	}
+	([]PaintOp{}, false)
+}
+
+// PaintMatchesList: a drawn paint program on a canvas, over states a
+// press moves to: after each press the test host's canvas shows exactly
+// the list the program means at the actor's state, written without a
+// Paint, its screenshot has a line for each node and each paint op, and
+// the canvas is findable by its label. A second pass at the
+// same state is an empty patch: an unchanged list repaints nothing.
+law PaintMatchesList(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		paintFollows(seed, steps, m)
+	}
+}
+
+func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let prog = genPaint(&r, 2)
+	let view = func(f *Frame[int], s int) {
+		Text(f, "at \(s)")
+		Pressable(f, "next", (s*5+3)%11) {
+			Text(f, "next")
+		}
+		Canvas(f, "board", 120, 80) func(p *Paint) {
+			paintProg(p, prog, s)
+		}
+	}
+	let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	for _ in 0..(steps%12+12)%12+1 {
+		Play(&h, []Act{TapOn{Label: "next"}}) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		let (shown, ok) = canvasOf(Screen(&h))
+		let want = paintModel(prog, s)
+		if !ok || shown != want || Find(&h, "board") == None || strings.Count(Screenshot(&h), "\n") != 4+len(want) {
+			return false
+		}
+		let mut g = NewFrame[int]()
+		let _ = Render(&g, view, s)
+		if len(Render(&g, view, s)) != 0 {
+			return false
+		}
+	}
+	true
+}

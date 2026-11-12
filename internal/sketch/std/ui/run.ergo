@@ -1,0 +1,55 @@
+import actor
+
+// Event is what reaches the loop: a press of a node, a text typed into an
+// Input node, the result of a load's fetch (Arrived), which a fetch's task
+// posts with the epoch it was started for, a pointer event on an Area
+// (Point), a key press (KeyDown), or a frame at a time since the host
+// started (Tick), which a host sends only while the view animates.
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent} | KeyDown{Press KeyPress} | Tick{At duration}
+
+// Closed is the failure of Next when the host has closed (its window, its
+// terminal, its script ended).
+type Closed {}
+
+// Host shows patches and reports events. Providers: the desktop host, the
+// terminal host; cmd/<name>/main.ergo chooses one. TestHost drives the
+// same Session in process instead.
+// law-exempt: a host's laws (the mirror of its patches is what it shows, a tap at a node's box sends that node's event) need a running host and its screen; they run against each provider, not here.
+type Host[E] {
+	// Show applies one pass's changes.
+	Show(ops []Op[E]),
+	// Next waits for the next event, input or posted, in the order they
+	// came; it fails Closed when the host closed.
+	Next() Event[E] fails Closed,
+	// Post queues ev for Next. A fetch's task calls it with its result, so
+	// a result reaches the loop on the loop's own thread, as input does.
+	// It never waits for the loop.
+	Post(ev Event[E]),
+	// Frames asks for a Tick per frame (on) or for none (off). Run asks
+	// after each pass, while the pass made an Animate.
+	Frames(on bool),
+}
+
+// Run shows view of a's state on h until h closes. Each event is a Step of
+// one Session: its signal goes to a, and the pass after it is shown. A
+// load's fetch runs as a task of Run's caller and posts its result to h;
+// a fetch whose load ended is stopped. Run fails with h's Closed, or with
+// Stopped when a has ended.
+func Run[E comparable, S, D, F](h Host[E], a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S)) fails Closed | actor.Stopped {
+	let (s, first) = Start(a, view, func(ev Event[E]) { h.Post(ev) })
+	let mut session = s
+	h.Show(first)
+	let mut frames = Animating(&session.frame)
+	h.Frames(frames)
+	for {
+		let ev = try h.Next()
+		let ops = try Step(&session, ev)
+		if len(ops) > 0 {
+			h.Show(ops)
+		}
+		if Animating(&session.frame) != frames {
+			frames = !frames
+			h.Frames(frames)
+		}
+	}
+}
