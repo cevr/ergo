@@ -313,7 +313,7 @@ func checkSeed(t *testing.T, seed int64, g *program) (reached []string) {
 		fail("mid after fix:\n%s\nwant:\n%s", res.Texts[midKey], full[midKey])
 	}
 	// 1. fix then check: the other diagnostics of the full program.
-	want, err := chk(full, check.Options{Explicit: true})
+	want, err := chk(full, check.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

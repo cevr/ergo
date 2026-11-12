@@ -167,7 +167,7 @@ func Lit() fs.Host { fs.Host{} } // want S114
 			"a literal of fs.Host builds a new value: " + fsAuthority,
 		}},
 		{"N11 an unexported helper reaches a main without Ambient", `
-func open() fs.Host { fs.NewHost() }
+func open() fs.Host needs Ambient { fs.NewHost() }
 
 func main() needs Console {
 	Console.Println(readWith(open())) // want S102
@@ -180,7 +180,7 @@ func FnValue() string {
 }
 `, []string{needsAmbient("function FnValue")}},
 		{"N13 mutual recursion carries Ambient", `
-func ping(n int) string {
+func ping(n int) string needs Ambient {
 	if n > 0 {
 		pong(n - 1)
 	} else {
@@ -188,7 +188,7 @@ func ping(n int) string {
 	}
 }
 
-func pong(n int) string { ping(n) }
+func pong(n int) string needs Ambient { ping(n) }
 
 func Exp() string { pong(1) } // want S102
 `, []string{needsAmbient("function Exp")}},
@@ -219,7 +219,7 @@ func main() needs Console {
 }
 `, []string{liveAuthority}},
 		{"N17 NewLiveScheduler reaches a main without Ambient", `
-func nap() {
+func nap() needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } { Scheduler.Sleep(1ms) }
 }
 
@@ -339,8 +339,9 @@ func main() needs Console | Ambient { Console.Println(readWith(Open())) }
 				t.Fatalf("want %d messages, got\n\t%s", len(c.texts), describe(sorted))
 			}
 			for i, d := range sorted {
-				if d.Message != c.texts[i] {
-					t.Errorf("line %d: message\n\t%q\nwant\n\t%q", d.Line, d.Message, c.texts[i])
+				// The clause to write is TestExplicitClauseText's.
+				if msg, _, _ := strings.Cut(d.Message, "; write: "); msg != c.texts[i] {
+					t.Errorf("line %d: message\n\t%q\nwant\n\t%q", d.Line, msg, c.texts[i])
 				}
 			}
 		})
@@ -448,8 +449,6 @@ type hostSite struct {
 var hostSites = []hostSite{
 	{name: "exported-empty", head: "func Site() {", mainSrc: "func main() {}"},
 	{name: "exported-ambient", head: "func Site() needs Ambient {", ambient: true, mainSrc: "func main() {}"},
-	{name: "helper-main-ambient", head: "func site() {", helper: true, caller: "func main() needs Ambient {", ambient: true},
-	{name: "helper-main-empty", head: "func site() {", helper: true, caller: "func main() {"},
 	{name: "main-ambient", head: "func main() needs Ambient {", ambient: true},
 	{name: "main-empty", head: "func main() {"},
 	{name: "test", head: "test Site {", mainSrc: "func main() {}"},
@@ -460,13 +459,12 @@ var hostSites = []hostSite{
 // name, T{}, zero let, record update, function value, NewHost()} × use
 // {direct call, inline context, local context, argument} × site
 // {exported function with an empty row, exported function with Ambient,
-// unexported helper called from a main with and without Ambient, main
-// with and without Ambient, test}, plus the package-level uses {let,
+// main with and without Ambient, test} (every row is written, q137, so
+// an unexported helper is a site like any other), plus the package-level uses {let,
 // named context}, which have no site. The oracle: any form but NewHost
 // is S114 at the form (a record update adds the S104 of its hidden
 // field); a NewHost call is S102 at the call unless the row of its site
-// holds Ambient; an unexported helper's row is inferred, so its caller in
-// main is judged instead; a local context's provider charges its with,
+// holds Ambient; a local context's provider charges its with,
 // and that need never widens an inferred row (rows.md, Composition laws
 // 9); a package-level use is always S102. Code and line of every
 // diagnostic are compared.
@@ -488,8 +486,8 @@ func TestHostAuthorityDomain(t *testing.T) {
 			}
 		}
 	}
-	if want := len(hostProviders) * len(hostMakings) * (len(hostUses)*len(hostSites) + len(hostPkgUses)); n != want || n < 300 {
-		t.Fatalf("%d programs, want %d (at least 300)", n, want)
+	if want := len(hostProviders) * len(hostMakings) * (len(hostUses)*len(hostSites) + len(hostPkgUses)); n != want || n < 250 {
+		t.Fatalf("%d programs, want %d (at least 250)", n, want)
 	}
 }
 

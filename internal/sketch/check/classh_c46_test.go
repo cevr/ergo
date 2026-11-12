@@ -28,7 +28,7 @@ func TestClassHC46Family(t *testing.T) {
 			for _, d := range c46Diagnoses {
 				src := c46Program(m, p, d)
 				name := m.name + "/" + p.name + "/" + d.name
-				_, diags := check.CheckSource(src)
+				_, diags := checkSourceInfer(src)
 				if !hasGroupRefusal(diags, m.refused) {
 					t.Errorf("%s: no class G S108 for %s: %v\n%s", name, m.refused, diags, src)
 					continue

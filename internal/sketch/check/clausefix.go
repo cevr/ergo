@@ -2,24 +2,25 @@ package check
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Options select checker modes that are off by default.
+// Options select checker modes that are off by default. Every check,
+// build and test path checks with none: each function declaration is
+// checked against its written signature (q137), an unwritten fails or
+// needs clause is the empty clause, and a body that exceeds a clause is
+// S101 or S102 with the clause to write and a ClauseFix. Literals and
+// blocks take their rows from context.
 type Options struct {
-	// Explicit checks every function declaration against its written
-	// signature (q137): an unwritten fails or needs clause is the empty
-	// clause, never inferred. A body that exceeds a clause is S101 or S102
-	// with the clause to write and a ClauseFix. Literals and blocks keep
-	// their rows from context.
-	Explicit bool
-	// Clauses records, after a check with inference, the inferred rows of
-	// each function as the clauses that write them (Package.Clauses): the
-	// inference engine is ergo fix's clause writer (EXPLICIT F9).
-	Clauses bool
+	// Infer is ergo fix's clause writer (EXPLICIT F9): the checker infers
+	// the unwritten rows of unexported functions with a body, as before
+	// q137, and records them as the clauses that write them
+	// (Package.Clauses). No check, build or test path sets it.
+	Infer bool
 }
 
 // CheckOptions checks like Check, in the modes opts selects.
@@ -59,7 +60,7 @@ type pendingClause struct {
 // when the target is not a declaration's under Explicit, so the caller
 // reports as before.
 func (c *checker) pend(t *target, n syntax.Node, kind Kind, extra *Row) bool {
-	if !c.opts.Explicit || t.decl == nil {
+	if c.opts.Infer || t.decl == nil {
 		return false
 	}
 	if c.silent > 0 {
@@ -100,14 +101,11 @@ func (c *checker) clauseReport(t *target) {
 		var msg, code string
 		if p.kind == KindErrors {
 			code = CodeUndeclared
-			if t.declErrors.Empty() {
-				msg = fmt.Sprintf("%s escapes %s, whose signature has no fails clause; %s", rowText(p.extra), t.name, write)
-			} else {
-				msg = fmt.Sprintf("%s escapes %s, whose fails clause %s does not list it; %s", rowText(p.extra), t.name, strings.Join(writtenRow(f.file.syntax.Src, f.Decl, KindErrors), " | "), write)
-			}
+			// The text before "; write:" is the message every S101 has.
+			msg = fmt.Sprintf("%s escapes %s, whose error row %s does not list it; %s", rowText(p.extra), t.name, rowText(t.declErrors), write)
 		} else {
 			code = CodeMissingCap
-			msg = fmt.Sprintf("%s requires %s, which is not in the needs clause of %s and no with provides it; %s", describeCharge(p.n), p.extra.String(), t.name, write)
+			msg = fmt.Sprintf("%s requires %s, which is not in the capability row of %s and no with provides it; %s", describeCharge(p.n), p.extra.String(), t.name, write)
 		}
 		before := len(c.diags)
 		c.errorf(p.n, code, "%s", msg)
@@ -160,6 +158,10 @@ func (c *checker) clauseFix(f *Func, kind Kind, missing *Row) *ClauseFix {
 			fix.Imports = append(fix.Imports, imp)
 		}
 	}
+	// By spelling: the identity order of a row follows the declarations, and
+	// the text must not depend on their order (FuzzCheck).
+	slices.Sort(add)
+	slices.Sort(fix.Imports)
 	fix.Row = append(append([]string(nil), written...), add...)
 	joined := strings.Join(add, " | ")
 	switch {
@@ -271,6 +273,9 @@ func (c *checker) spellName(fi *fileInfo, o *TypeName) (string, string, bool) {
 	p := o.Pkg
 	if p == nil || p == c.pkg || !p.qualify {
 		return o.Name, "", true
+	}
+	if p.Path == "go" {
+		return "go." + o.Name, "", true // go.Foreign: the universe's go package
 	}
 	for _, pn := range fi.imports {
 		if pn.Pkg == p && !pn.broken {

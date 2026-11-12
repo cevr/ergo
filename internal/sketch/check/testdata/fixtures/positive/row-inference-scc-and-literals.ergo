@@ -6,7 +6,7 @@ func Get(_ Mem) string { return "m" }
 
 func fail() fails Fault { return Fault }
 
-func even(n int64) string {
+func even(n int64) string fails Fault needs Store {
 	if n == 0 {
 		try fail()
 		return Store.Get()
@@ -14,7 +14,7 @@ func even(n int64) string {
 	return odd(n - 1)
 }
 
-func odd(n int64) string {
+func odd(n int64) string fails Fault needs Store {
 	if n == 0 {
 		return "odd"
 	}

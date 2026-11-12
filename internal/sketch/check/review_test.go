@@ -380,12 +380,14 @@ func TestReviewCases(t *testing.T) {
 	for _, c := range reviewCases {
 		t.Run(c.finding+"/"+c.name, func(t *testing.T) {
 			src := c.src
+			checkSrc := check.CheckSource
 			if src == "" {
 				src = largeSCC(100, true)
+				checkSrc = checkSourceInfer // class G is the inference engine's
 			} else {
 				src = src + "\n"
 			}
-			_, diags := check.CheckSource(src)
+			_, diags := checkSrc(src)
 			got := codesOf(diags)
 			if got != c.want {
 				t.Errorf("want %q, got %q\n\t%s", c.want, got, describe(diags))
@@ -421,7 +423,7 @@ func largeSCC(n int, values bool) string {
 // whatever the cycle's length (M1).
 func TestInferenceConverges(t *testing.T) {
 	for _, n := range []int{10, 100, 400} {
-		pkg, diags := check.CheckSource(largeSCC(n, false))
+		pkg, diags := checkSourceInfer(largeSCC(n, false))
 		if codesOf(diags) != "S102" {
 			t.Fatalf("n=%d: want one S102, got %s", n, describe(diags))
 		}

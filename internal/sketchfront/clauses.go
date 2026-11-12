@@ -16,7 +16,7 @@ func CheckDirOptions(dir string, contents map[string]string, opts check.Options)
 	return checkDirWith(overlayFS{contents: contents}, dir, gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}, opts)
 }
 
-// Clause is an inferred clause of a checked function (check.Options.Clauses):
+// Clause is an inferred clause of a checked function (check.Options.Infer):
 // the edit that writes it into File, the path relative to the module root
 // for a program read from a folder, empty for one source text.
 type Clause struct {
@@ -25,7 +25,7 @@ type Clause struct {
 }
 
 // Clauses lists the inferred clauses of every checked package of the
-// analysis, in dependency order, under check.Options.Clauses.
+// analysis, in dependency order, under check.Options.Infer.
 func (a Analysis) Clauses() []Clause {
 	var out []Clause
 	if a.program == nil {

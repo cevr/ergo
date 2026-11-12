@@ -3,7 +3,7 @@ package check
 import (
 	"os"
 	"path/filepath"
-	"slices"
+	"reflect"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -68,7 +68,7 @@ func TestWithBudgetRefuses(t *testing.T) {
 			t.Errorf("%s n=%d: the S102 at %d:%d is not at an operand of a with", shape, n, diags[0].Line, diags[0].Column)
 		}
 		again, _ := checkWithBudget(t, src, nil)
-		if !slices.Equal(again, diags) {
+		if !reflect.DeepEqual(again, diags) {
 			t.Errorf("%s n=%d: a second check gives %v, the first %v", shape, n, again, diags)
 		}
 		t.Logf("%s n=%d: refused at %d:%d after %d of %d steps", shape, n, diags[0].Line, diags[0].Column, c.withs.used, c.withs.limit)
@@ -138,7 +138,7 @@ func g() string needs Store | Log {
 				t.Fatalf("%s limit %d: %d steps charged", name, limit, c.withs.used)
 			}
 			if limit >= work {
-				if !slices.Equal(diags, full) {
+				if !reflect.DeepEqual(diags, full) { // by value: a Diagnostic holds its *ClauseFix
 					t.Fatalf("%s limit %d: %v, the full check %v", name, limit, diags, full)
 				}
 				continue

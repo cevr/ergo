@@ -40,7 +40,7 @@ func Get(_ Mem) string {
 	"ok"
 }
 
-func read() string {
+func read() string needs Store {
 	Store.Get()
 }
 
@@ -374,7 +374,7 @@ func Get(_ Mem) string {
 	"ok"
 }
 
-func read() string {
+func read() string needs Store {
 	Store.Get()
 }
 

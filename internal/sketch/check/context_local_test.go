@@ -301,7 +301,17 @@ func (cc chargeCase) source() (src string, letLine int, withLines []int) {
 	if len(terms) == 0 {
 		terms = []string{"0"}
 	}
-	b.WriteString("func f() int {\n")
+	// f writes the rows its calls of the literals bring (q137): the
+	// reference's, so a row the checker charges beyond them is a diagnostic.
+	ref := cc.reference()
+	header := "func f() int"
+	if ref.fFails != "" {
+		header += " fails " + strings.ReplaceAll(ref.fFails, "main.", "")
+	}
+	if ref.fNeeds != "" {
+		header += " needs " + strings.ReplaceAll(ref.fNeeds, "main.", "")
+	}
+	b.WriteString(header + " {\n")
 	pad := "\t"
 	if len(cc.aroundLet) > 0 {
 		fmt.Fprintf(&b, "\twith context { %s } {\n", capEntries(cc.aroundLet))
@@ -528,12 +538,10 @@ func numbered(src string) string {
 	return b.String()
 }
 
-// TestLocalContextLawNine (rows.md, Composition law 9 and its exception;
-// E5 round 1 M2): the provider make() needs Console. In a function that
-// writes its capability row, `with w` and the inline literal at the same
-// with give one row and one set of codes. In a function whose row is
-// inferred, the literal's need widens the row and the local's is S102 at
-// its operand.
+// TestLocalContextLawNine (rows.md, Composition law 9; E5 round 1 M2):
+// the provider make() needs Console. Every row is written (q137), so
+// `with w` and the inline literal at the same with give one row and one
+// set of codes, the empty row included.
 func TestLocalContextLawNine(t *testing.T) {
 	const prelude = `type Greeter {
 	Greet(name string) string,
@@ -571,19 +579,11 @@ func make() Plain needs Console {
 		t.Fatalf("no f in\n%s", numbered(src))
 		return "", nil, ""
 	}
-	for _, sig := range []string{" needs Console", " needs Console | Greeter", " needs Greeter"} {
+	for _, sig := range []string{"", " needs Console", " needs Console | Greeter", " needs Greeter"} {
 		inRow, inCodes, _ := check1(sig, bodies[0])
 		locRow, locCodes, src := check1(sig, bodies[1])
 		if inRow != locRow || strings.Join(inCodes, " ") != strings.Join(locCodes, " ") {
 			t.Errorf("written row%s: the inline literal gives %q %v, the local %q %v\n%s", sig, inRow, inCodes, locRow, locCodes, numbered(src))
 		}
-	}
-	inRow, inCodes, src := check1("", bodies[0])
-	if inRow != "Console" || len(inCodes) != 0 {
-		t.Errorf("inferred row: the inline literal gives %q %v, want Console and no diagnostic\n%s", inRow, inCodes, numbered(src))
-	}
-	_, diags := check.CheckSource(prelude + "func f() string {\n" + bodies[1] + "}\n")
-	if have := strings.Join(got(diags), " "); have != "S102@18" || diags[0].Column != 7 {
-		t.Errorf("inferred row: the local gives %v, want S102@18 at the operand w\n\t%s", have, describe(diags))
 	}
 }

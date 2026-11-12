@@ -23,6 +23,7 @@ func oscillate(t *testing.T, srcs ...string) (*checker, []Diagnostic) {
 		files = append(files, file)
 	}
 	c := newChecker("main", Std, prelude().scope)
+	c.opts.Infer = true
 	c.nodeCheck = func(n *bodyNode) bool {
 		if n.fn == nil || n.fn.errVar == nil {
 			return true

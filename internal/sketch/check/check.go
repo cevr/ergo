@@ -28,7 +28,7 @@ type Diagnostic struct {
 	Length  int
 	Line    int
 	Column  int
-	// Fix is the clause edit of an S101 or S102 under Options.Explicit
+	// Fix is the clause edit of an S101 or S102 (clausefix.go)
 	// (clausefix.go), or nil.
 	Fix *ClauseFix
 }
@@ -62,7 +62,7 @@ func check(path string, files []*syntax.File, imp Importer, opts Options) (*Pack
 	c := newChecker(path, imp, prelude().scope)
 	c.opts = opts
 	pkg := c.run(met)
-	if opts.Clauses {
+	if opts.Infer {
 		pkg.Clauses = c.inferredClauses()
 		for i := range pkg.Clauses {
 			pkg.Clauses[i].File = order[pkg.Clauses[i].File]

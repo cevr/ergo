@@ -102,7 +102,7 @@ type Package struct {
 	// that sees the owner. IsErrorType reads them.
 	ErrorTypes map[FactOwner]map[*Named]bool
 	// Clauses are the inferred rows of the package's functions as the
-	// clauses that write them, under Options.Clauses (clausefix.go).
+	// clauses that write them, under Options.Infer (clausefix.go).
 	Clauses []ClauseFix
 
 	qualify bool // print its types with the package name

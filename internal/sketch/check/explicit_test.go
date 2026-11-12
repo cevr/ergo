@@ -8,7 +8,7 @@ import (
 )
 
 // TestExplicitClauseText pins the text and position of the clause
-// diagnostics under Options.Explicit (q137; diagnostics.md S101, S102):
+// diagnostics by default (q137; diagnostics.md S101, S102):
 // each names the whole clause to write, and every site of one clause
 // prints the same text. Mutants: write the site's row instead of the
 // whole clause (the two-site row); print the clause without the written
@@ -40,16 +40,16 @@ func main() needs Console {
 }
 `
 	want := []string{
-		`9:2: S101 {Bad} escapes function helper, whose signature has no fails clause; write: func helper(n int) int fails Bad`,
-		`13:2: S102 this call requires Console, which is not in the needs clause of function say and no with provides it; write: func say(s string) needs Console`,
-		`17:10: S101 {Bad} escapes function load, whose fails clause Busy does not list it; write: func load(k string) int fails Busy | Bad | NotFound`,
-		`18:10: S101 {NotFound} escapes function load, whose fails clause Busy does not list it; write: func load(k string) int fails Busy | Bad | NotFound`,
+		`9:2: S101 {Bad} escapes function helper, whose error row {} does not list it; write: func helper(n int) int fails Bad`,
+		`13:2: S102 this call requires Console, which is not in the capability row of function say and no with provides it; write: func say(s string) needs Console`,
+		`17:10: S101 {Bad} escapes function load, whose error row {Busy} does not list it; write: func load(k string) int fails Busy | Bad | NotFound`,
+		`18:10: S101 {NotFound} escapes function load, whose error row {Busy} does not list it; write: func load(k string) int fails Busy | Bad | NotFound`,
 	}
 	f, err := syntax.Parse(src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, ds := CheckOptions("main", []*syntax.File{f}, nil, Options{Explicit: true})
+	_, ds := Check("main", []*syntax.File{f}, nil)
 	var got []string
 	for _, d := range ds {
 		got = append(got, d.String())
@@ -60,7 +60,7 @@ func main() needs Console {
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	if _, ds := CheckOptions("main", []*syntax.File{f}, nil, Options{}); len(ds) != 2 {
-		t.Errorf("without Explicit: %v, want only say's and load's", ds)
+	if _, ds := CheckOptions("main", []*syntax.File{f}, nil, Options{Infer: true}); len(ds) != 2 {
+		t.Errorf("with Infer: %v, want only say's and load's", ds)
 	}
 }

@@ -120,8 +120,8 @@ func literal(t string) string {
 // genRows writes a chain of functions f0…fn; each calls host functions and
 // earlier functions, propagating a failure with try or handling it with a
 // catch. The model: a function needs go.Foreign iff a callee does, and
-// fails go.Error iff a callee fails and the call is a try. An exported
-// function writes the model's row exactly; drop removes one part of
+// fails go.Error iff a callee fails and the call is a try. Every
+// function writes the model's row exactly (q137); drop removes one part of
 // function drop's written row (-1 for none).
 func genRows(r *rand.Rand, fns []hostFn, dropFn int, dropForeign bool) rowsProgram {
 	n := 2 + r.IntN(5)
@@ -175,21 +175,19 @@ func genRows(r *rand.Rand, fns []hostFn, dropFn int, dropForeign bool) rowsProgr
 	}
 	for i := range n {
 		row := ""
-		if p.export[i] {
-			fails, foreign := p.fails[i], p.foreign[i]
-			if i == dropFn {
-				if dropForeign {
-					foreign = false
-				} else {
-					fails = false
-				}
+		fails, foreign := p.fails[i], p.foreign[i]
+		if i == dropFn {
+			if dropForeign {
+				foreign = false
+			} else {
+				fails = false
 			}
-			if fails {
-				row += " fails go.Error"
-			}
-			if foreign {
-				row += " needs go.Foreign"
-			}
+		}
+		if fails {
+			row += " fails go.Error"
+		}
+		if foreign {
+			row += " needs go.Foreign"
 		}
 		fmt.Fprintf(&b, "\nfunc %s() int%s {\n%s\t0\n}\n", p.names[i], row, bodies[i])
 	}
@@ -254,10 +252,10 @@ func TestImportGoRowsModel(t *testing.T) {
 		}
 		var cands [][2]int // function, 1 drops go.Foreign, 0 go.Error
 		for i := range p.names {
-			if p.export[i] && p.foreign[i] {
+			if p.foreign[i] {
 				cands = append(cands, [2]int{i, 1})
 			}
-			if p.export[i] && p.fails[i] {
+			if p.fails[i] {
 				cands = append(cands, [2]int{i, 0})
 			}
 		}

@@ -19,13 +19,19 @@ import (
 // test's deadline (testwait): a check that does not end is a failure.
 func checkWithin(t *testing.T, src string) (*check.Package, []check.Diagnostic) {
 	t.Helper()
+	return checkWithinBy(t, src, check.CheckSource)
+}
+
+// checkWithinBy is checkWithin with the checker run.
+func checkWithinBy(t *testing.T, src string, run func(string) (*check.Package, []check.Diagnostic)) (*check.Package, []check.Diagnostic) {
+	t.Helper()
 	type result struct {
 		pkg   *check.Package
 		diags []check.Diagnostic
 	}
 	done := make(chan result, 1)
 	go func() {
-		pkg, diags := check.CheckSource(src)
+		pkg, diags := run(src)
 		done <- result{pkg, diags}
 	}()
 	select {
@@ -39,7 +45,8 @@ func checkWithin(t *testing.T, src string) (*check.Package, []check.Diagnostic) 
 
 // ---------------------------------------------------------------- D7 rows
 
-// TestRowGraphDomain: random reference graphs over four kinds of body:
+// TestRowGraphDomain (the inference engine, ergo fix's clause writer;
+// Options.Infer): random reference graphs over four kinds of body:
 // functions and package vars holding function literals (inferred rows),
 // self functions (196m: two names over many first-parameter types, called
 // as R{}.m(), MkR().m() or through a local bound to MkR(), which each reach
@@ -316,7 +323,7 @@ func TestRowGraphDomain(t *testing.T) {
 			groups++
 		}
 
-		pkg, diags := checkWithin(t, src)
+		pkg, diags := checkWithinBy(t, src, checkSourceInfer) // the inference engine (Options.Infer)
 		gotS108, gotS102, gotG := 0, 0, 0
 		for _, d := range diags {
 			switch {
@@ -415,7 +422,7 @@ var expandingCases = []struct{ name, src string }{
 	{"self-slice", `func f[T](x T) { f([]T{x}) }`},
 	{"self-row", `type Fault[T] { Value T }
 func Mark() fails Fault[int] { return Fault[int]{1} }
-func f[T](x T) {
+func f[T](x T) fails Fault[T] {
 	try f([]T{x})
 	return Fault[T]{x}
 }`},
@@ -426,11 +433,11 @@ func f[T](x T) fails Fault[T] {
 }`},
 	{"mutual", `type Fault[T] { Value T }
 func Mark() fails Fault[int] { return Fault[int]{1} }
-func f[T](x T) {
+func f[T](x T) fails Fault[T] {
 	try g([]T{x})
 	return Fault[T]{x}
 }
-func g[T](x T) { try f([]T{x}) }`},
+func g[T](x T) fails Fault[[]T] { try f([]T{x}) }`},
 	{"three", `func f[T](x T) { g(x) }
 func g[T](x T) { h([]T{x}) }
 func h[T](x T) { f(x) }`},
@@ -450,7 +457,18 @@ func TestExpandingInstantiation(t *testing.T) {
 	for _, c := range expandingCases {
 		t.Run(c.name, func(t *testing.T) {
 			_, diags := checkWithin(t, ""+c.src+"\n")
-			if len(diags) != 1 || diags[0].Code != "S108" || !strings.Contains(diags[0].Message, "instantiation cycle") {
+			// A row case also has the S101 of the growing instance its written
+			// row cannot list (q137); the cycle is the one S108.
+			cycles, other := 0, 0
+			for _, d := range diags {
+				switch {
+				case d.Code == "S108" && strings.Contains(d.Message, "instantiation cycle"):
+					cycles++
+				case d.Code != "S101":
+					other++
+				}
+			}
+			if cycles != 1 || other != 0 {
 				t.Fatalf("want one instantiation-cycle S108, got %s", describe(diags))
 			}
 		})

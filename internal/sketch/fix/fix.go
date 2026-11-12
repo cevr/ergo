@@ -3,7 +3,7 @@
 //
 // The inference engine is the clause writer (EXPLICIT F9): one check with
 // inference writes the inferred rows of the unexported functions. Then
-// the loop checks under check.Options.Explicit, applies the fix of every
+// the loop checks under the default checker mode, applies the fix of every
 // clause diagnostic, and checks again until no clause diagnostic is left:
 // writing a callee's clause can make its callers exceed theirs. Rows only
 // grow and are finite, so the loop ends; Bound stops it past (functions +
@@ -32,7 +32,7 @@ type Diagnostic struct {
 }
 
 // Outcome is one check of the program: its diagnostics and, under
-// check.Options.Clauses, the inferred clauses.
+// check.Options.Infer, the inferred clauses.
 type Outcome struct {
 	Diagnostics []Diagnostic
 	Clauses     []Diagnostic // Fix set, Code and Message empty
@@ -79,7 +79,7 @@ func run(texts map[string]string, chk Checker, loop bool) (Result, error) {
 		cur[k] = v
 	}
 	changes := map[[3]string]Change{}
-	out, err := chk(cur, check.Options{Clauses: true})
+	out, err := chk(cur, check.Options{Infer: true})
 	if err != nil {
 		return Result{}, err
 	}
@@ -95,7 +95,7 @@ func run(texts map[string]string, chk Checker, loop bool) (Result, error) {
 	res := Result{}
 	for {
 		res.Rounds++
-		out, err := chk(cur, check.Options{Explicit: true})
+		out, err := chk(cur, check.Options{})
 		if err != nil {
 			return Result{}, err
 		}

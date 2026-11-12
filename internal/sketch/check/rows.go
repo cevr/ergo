@@ -42,7 +42,7 @@ type target struct {
 	tries int
 	tried bool
 	// decl is the function declaration whose body this is, under
-	// Options.Explicit; pending, missErrors and missUses collect the sites
+	// the default mode (not Options.Infer); pending, missErrors and missUses collect the sites
 	// that exceed its clauses (clausefix.go).
 	decl                 *Func
 	pending              []pendingClause
@@ -1015,7 +1015,7 @@ func (c *checker) checkFuncBody(f *Func) bool {
 	d := f.Decl
 	name := "function " + f.Name
 	t := &target{name: name, results: sig.Results, resultKnown: true, isFunc: true, main: f.Name == "main"}
-	if c.opts.Explicit {
+	if !c.opts.Infer {
 		t.decl = f
 	}
 	if f.inferErrors {

@@ -162,12 +162,12 @@ func local() string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		b, err := syntax.Parse("import lib\nfunc b() { with context { lib.W } {\n\tlet _ = lib.Store.Get()\n\tConsole.Println(\"x\")\n} }\n")
+		b, err := syntax.Parse("import lib\nfunc b() needs Console { with context { lib.W } {\n\tlet _ = lib.Store.Get()\n\tConsole.Println(\"x\")\n} }\n")
 		if err != nil {
 			t.Fatal(err)
 		}
 		_, ds := check.Check("main", []*syntax.File{a, b}, imp)
-		// b's inferred row keeps Console, so main's call of b is the S102.
+		// b's written row needs Console, so main's call of b is the S102.
 		if len(ds) != 1 || ds[0].Code != "S102" || ds[0].File != 0 || !strings.Contains(ds[0].Message, "Console") {
 			t.Errorf("second file: diagnostics %v, want one S102 for Console at main's call of b", ds)
 		}

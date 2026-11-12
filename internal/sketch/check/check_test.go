@@ -48,8 +48,6 @@ var negativeSpans = map[string][2]string{
 	"export-guard-machine-step":          {"S101", "try probe()"},
 	"fallible-function-value":            {"S108", "boom"},
 	"generic-row-parameter-instantiated": {"S101", "apply(fail)"},
-	"inferred-error-reaches-exported":    {"S101", "helper()"},
-	"inferred-needs-reaches-exported":    {"S102", "read()"},
 	"interface-method-needs":             {"S108", "needs Other"},
 	"interface-missing-method":           {"S108", "Mem"},
 	"interface-wider-row":                {"S108", "Mem"},
