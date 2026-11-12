@@ -37,6 +37,13 @@ func TimeHostNow() Reading {
 	return Reading{Sec: n.Unix(), Nsec: int64(n.Nanosecond()), Mono: int64(n.Sub(hostStart))}
 }
 
+// TimeHostMono is the Mono of a read of the host clock, read from the
+// monotonic clock alone: Go's time.Since of a time with a monotonic
+// reading reads no wall clock (std-speed-1; time.Host's Since).
+//
+//ergo:host
+func TimeHostMono() int64 { return int64(time.Since(hostStart)) }
+
 // Timeline is the state of a time.Manual clock: a virtual time that moves
 // only by Advance, and the sleepers waiting on it. Sleepers wake in
 // deadline order, ties in the order they slept (rt.Virtual). It is a

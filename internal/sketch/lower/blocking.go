@@ -205,6 +205,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StringsToLower":    {},
 	"StringsToUpper":    {},
 	"StringsIndex":      {},
+	"StringsIndexByte":  {},
 	"StringsContains":   {},
 	"StringsSlice":      {},
 	"StrconvItoa":       {},
@@ -247,15 +248,16 @@ var runtimeBindings = map[string]runtimeBinding{
 	"SlicesEqual":          {},
 	"CmpCompare":           {},
 	"CmpLess":              {},
-	// std time (std-align S2b; stdlib.md, time): TimeHostNow reads the
-	// host clock and the others compute, so none waits; Timeline.Wait
-	// waits on the caller's task (rt.Sleep on the manual timeline), and
-	// Advance wakes sleepers without waiting.
-	"TimeHostNow": {},
-	"TimeFormat":  {},
-	"TimeParse":   {},
-	"TimeSub":     {},
-	"TimeSubMono": {},
+	// std time (std-align S2b; stdlib.md, time): TimeHostNow and
+	// TimeHostMono read the host clock and the others compute, so none
+	// waits; Timeline.Wait waits on the caller's task (rt.Sleep on the
+	// manual timeline), and Advance wakes sleepers without waiting.
+	"TimeHostNow":  {},
+	"TimeHostMono": {},
+	"TimeFormat":   {},
+	"TimeParse":    {},
+	"TimeSub":      {},
+	"TimeSubMono":  {},
 	// std-csv: pure bodies over encoding/csv on a string.
 	"CSVReadAll":     {},
 	"CSVScan":        {},

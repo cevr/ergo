@@ -90,6 +90,10 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 			sub = s[i : i+r.IntN(len(s)-i+1)]
 		}
 		i, j := StringsIndex(s, sub), StringsLastIndex(s, sub)
+		// StringsIndexByte, Lines' line-feed scan, is Index of one byte.
+		if len(sub) > 0 && StringsIndexByte(s, sub[0]) != StringsIndex(s, sub[:1]) {
+			return false, []string{s, sub}
+		}
 		if i < 0 {
 			return j < 0 && !StringsContains(s, sub), []string{s, sub}
 		}
@@ -234,6 +238,7 @@ func textBenches() []textBench {
 		{"ToLower", "StringsToLower", func() { textSink = StringsToLower("ALPHA,Beta") }, func() { textSink = strings.ToLower("ALPHA,Beta") }},
 		{"ToUpper", "StringsToUpper", func() { textSink = StringsToUpper(s) }, func() { textSink = strings.ToUpper(s) }},
 		{"Index", "StringsIndex", func() { textSink = StringsIndex(s, "gamma alpha") }, func() { textSink = strings.Index(s, "gamma alpha") }},
+		{"IndexByte", "StringsIndexByte", func() { textSink = StringsIndexByte(s, '\n') }, func() { textSink = strings.IndexByte(s, '\n') }},
 		{"Contains", "StringsContains", func() { textSink = StringsContains(s, "delta") }, func() { textSink = strings.Contains(s, "delta") }},
 		{"Slice", "StringsSlice", func() { textSink = StringsSlice(s, 6, 10) }, func() { textSink = s[6:10] }},
 		{"ReplaceAll", "StringsReplaceAll", func() { textSink = StringsReplaceAll(s, ",", ";") }, func() { textSink = strings.ReplaceAll(s, ",", ";") }},

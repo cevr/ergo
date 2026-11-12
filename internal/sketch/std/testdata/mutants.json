@@ -17,6 +17,9 @@
       "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
       "anchor": {"tests": ["std:TestExternArgumentClauses"]},
       "killers": ["std:TestExternArgumentClauses"]
-    }
+    },
+    {"name":"ss1-host-elapsed-mono","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"subMono(hostMono(), t.mono)","to":"subMono(t.mono, hostMono())","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with a monotonic reading is the monotonic read less t's.","killers":["lower:TestTimeRuns"],"gap":"Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at std-speed-1, 2026-11-13."},
+    {"name":"ss1-host-elapsed-wall","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"\t\th.Now().Sub(t)","to":"\t\tt.Sub(h.Now())","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with no monotonic reading is Now().Sub(t) by the wall.","killers":["lower:TestTimeRuns"],"gap":"Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at std-speed-1, 2026-11-13."},
+    {"name":"ss1-input-lines-feed","origin":"wf10 std-speed-1","file":"internal/sketch/std/io/io.ergo","from":"strings.IndexByte(rest, '\\n')","to":"strings.IndexByte(rest, ' ')","rule":"stdlib.md io: Input's Lines splits at each line feed.","killers":["lower:TestInputLinesMatchesModel"],"gap":"Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at std-speed-1, 2026-11-13."}
   ]
 }

@@ -76,6 +76,13 @@ func StringsToUpper(s string) string { return strings.ToUpper(s) }
 //ergo:pure
 func StringsIndex(s, sub string) int { return strings.Index(s, sub) }
 
+// StringsIndexByte is strings.IndexByte. It inlines, so the Lines of std
+// strings and io find each line feed with no call into strings.Index's
+// switch on the length of sub (std-speed-1).
+//
+//ergo:pure
+func StringsIndexByte(s string, c byte) int { return strings.IndexByte(s, c) }
+
 // StringsContains is strings.Contains.
 //
 //ergo:pure

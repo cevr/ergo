@@ -40,6 +40,10 @@ extern go ergo.local/prototype/runtime/v1.StringsToUpper func ToUpper(s string) 
 // Index is the byte index of the first sub in s, or -1.
 extern go ergo.local/prototype/runtime/v1.StringsIndex func Index(s string, sub string) int
 
+// IndexByte is the byte index of the first c in s, or -1: Index of a
+// one-byte sub, without Index's switch on its length (std-speed-1).
+extern go ergo.local/prototype/runtime/v1.StringsIndexByte func IndexByte(s string, c byte) int
+
 // Contains reports whether sub is in s.
 extern go ergo.local/prototype/runtime/v1.StringsContains func Contains(s string, sub string) bool
 
@@ -100,7 +104,7 @@ func Lines(s string) Seq[string] {
 			if rest == "" {
 				return
 			}
-			let i = Index(rest, "\n")
+			let i = IndexByte(rest, '\n')
 			if i < 0 {
 				yield(rest)
 				return

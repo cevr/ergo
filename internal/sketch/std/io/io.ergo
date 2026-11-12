@@ -175,7 +175,7 @@ func IsTerminal(_ Input) bool { false }
 func ReadAll(input Input) string fails ReadFailed { input.Text }
 
 // Lines is the lines of input.Text, each without its line feed. It finds
-// each line feed with one strings.Index on the rest of the text, as
+// each line feed with one strings.IndexByte on the rest of the text, as
 // strings.Lines does: one scan per line, not a compare per byte.
 func Lines(input Input) Seq[string] {
 	let text = input.Text
@@ -185,7 +185,7 @@ func Lines(input Input) Seq[string] {
 			if rest == "" {
 				return
 			}
-			let i = strings.Index(rest, "\n")
+			let i = strings.IndexByte(rest, '\n')
 			if i < 0 {
 				yield(rest)
 				return

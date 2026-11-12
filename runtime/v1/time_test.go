@@ -207,6 +207,21 @@ func TestTimeLaws(t *testing.T) {
 	// NowNeverFalls: host readings, compared by Mono as Before does; it
 	// is the one ledger row whose runner this test is (fu-ledger-runner).
 	lawledger.Run(t, map[string]lawledger.Law{
+		// ElapsedIsNowSub: the host's Elapsed of a time with a monotonic
+		// reading is TimeSubMono(TimeHostMono(), t.Mono), between the Sub
+		// of a read before it and of a read after it. Kills a TimeHostMono
+		// whose origin is not hostStart, which the law sees as a jump.
+		"time Clock.ElapsedIsNowSub": {Statement: `ElapsedIsNowSub() { let start = Now() let before = Now().Sub(start) let d = Elapsed(start) let after = Now().Sub(start) before <= d && d <= after }`, Check: func(t *testing.T) {
+			start := TimeHostNow()
+			for range 10_000 {
+				before := TimeSubMono(TimeHostNow().Mono, start.Mono)
+				d := TimeSubMono(TimeHostMono(), start.Mono)
+				after := TimeSubMono(TimeHostNow().Mono, start.Mono)
+				if before > d || d > after {
+					t.Fatalf("ElapsedIsNowSub: before %v, Elapsed %v, after %v", before, d, after)
+				}
+			}
+		}},
 		"time Clock.NowNeverFalls": {Statement: `NowNeverFalls() { let first = Now() let second = Now() !second.Before(first) }`, Check: func(t *testing.T) {
 			prev := TimeHostNow()
 			for range 10_000 {

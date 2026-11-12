@@ -605,6 +605,7 @@ func main() {
 type Mine {}
 
 func Now(_ Mine) time.Time { time.Unix(0, 0) }
+func Elapsed(_ Mine, t time.Time) duration { 0s }
 
 func use(c time.Clock) { _ = c.Now() }
 
