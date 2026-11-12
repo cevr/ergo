@@ -163,7 +163,22 @@ func digit(n int) Digit {
 						body = append(body, "if x > y {\n\t\tc.Halve()\n\t}")
 					}
 				}
-				b.WriteString(a.rename("func " + name + "(x int, y int) needs Console {\n\tlet c = New" + p + "()\n\t" + strings.Join(body, "\n\t") + "\n\tConsole.Println(\"" + name + " \\(c.Read()) \\(c.Even())\")\n}\n\n"))
+				build := "let c = New" + p + "()"
+				if values && p == types[len(types)-1].prov {
+					// v1 audit 3, G1: the last type's provider is built
+					// outside its constructor too, so its construction is
+					// open and a law proved only from New's states must
+					// not rewrite these sites.
+					switch rng.Intn(3) {
+					case 0:
+						build = "let mut c = " + p + "{s: x, k: y}"
+					case 1:
+						build = "let mut c = " + p + "{..New" + p + "(), k: y}"
+					default:
+						build = "let mut c = New" + p + "()\n\tc.k = y"
+					}
+				}
+				b.WriteString(a.rename("func " + name + "(x int, y int) needs Console {\n\t" + build + "\n\t" + strings.Join(body, "\n\t") + "\n\tConsole.Println(\"" + name + " \\(c.Read()) \\(c.Even())\")\n}\n\n"))
 			}
 		}
 	}
@@ -242,8 +257,10 @@ func (a agreeType) valueSource() string {
 			continue
 		}
 		p := provider.name
-		fmt.Fprintf(&b, "type %s { s Digit }\nfunc New%s() %s { %s{s: 0} }\n", p, p, p, p)
-		fmt.Fprintf(&b, "func Add(p *%s, n Digit) { p.s = digit(int(p.s) + int(n)*%d) }\n", p, a.c)
+		// k is 0 in every state New and the operations reach; a value
+		// built outside them (agreeProgram's open sites) may hold another.
+		fmt.Fprintf(&b, "type %s { s Digit, k Digit }\nfunc New%s() %s { %s{s: 0, k: 0} }\n", p, p, p, p)
+		fmt.Fprintf(&b, "func Add(p *%s, n Digit) { p.s = digit(int(p.s) + int(n)*%d + int(p.k)) }\n", p, a.c)
 		fmt.Fprintf(&b, "func Inc(p *%s) { p.s = digit(int(p.s) + %d) }\n", p, provider.delta)
 		fmt.Fprintf(&b, "func Halve(p *%s) { p.s = digit(int(p.s)/2) }\n", p)
 		fmt.Fprintf(&b, "func Clear(p *%s) { p.s = digit(int(p.s)&^1) }\n", p)
@@ -259,7 +276,10 @@ func (a agreeType) valueSource() string {
 // run's evidence prints what the reference lowering prints, and at the
 // anchor, a site of constants on a known provider whose join law the check
 // run passed, the Go calls the right side's one Add and no left-side Add
-// pair.
+// pair. In the value run, the last type's sites build its provider by a
+// literal, a record update or a field write as well (v1 audit 3, G1): a
+// law the constructor's states satisfy and other values do not must keep
+// those sites as the reference writes them.
 // ERGO_REWRITE_AGREE_SEED replays a seed.
 //
 // It builds Go because the rewritten and the reference programs must run:
