@@ -1,0 +1,36 @@
+// A frame as text: what a window over the editor shows, written so a
+// headless script can compare it byte for byte. The first line is the
+// status; then the caret's line and the two lines on each side, each with
+// its number, the caret's line marked with >.
+
+import editor/piece
+
+// Frame is the lines of s's window.
+func Frame(s State) []string {
+	let d = DocOf(s)
+	let lines = piece.Lines(d.Buf)
+	let at = LineOf(d, d.Caret)
+	let mut out = []string{Status(s)}
+	let first = if at > 2 { at - 2 } else { 1 }
+	let last = if at+2 < lines { at + 2 } else { lines }
+	for n in first..last+1 {
+		let mark = if n == at { ">" } else { " " }
+		out = out.Append(mark + "\(n)|" + piece.Slice(d.Buf, piece.LineStart(d.Buf, n), piece.LineEnd(d.Buf, n)))
+	}
+	out
+}
+
+// Status is the first line of a frame.
+func Status(s State) string {
+	let d = DocOf(s)
+	let dirty = if d.Dirty { "yes" } else { "no" }
+	let base = "line=\(LineOf(d, d.Caret)) col=\(Column(d, d.Caret)) caret=\(d.Caret) len=\(piece.Len(d.Buf)) undo=\(len(d.Undo)) redo=\(len(d.Redo)) dirty=" + dirty
+	match s {
+	case Editing:
+		"editing " + base
+	case Selecting as l:
+		"selecting " + base + " anchor=\(l.Anchor)"
+	case Searching as f:
+		"searching " + base + " find=\"" + f.Query + "\" matches=\(len(Matches(Text(d), f.Query)))"
+	}
+}

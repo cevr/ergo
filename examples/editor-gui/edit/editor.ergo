@@ -1,0 +1,288 @@
+// The Editor machine. Editing types, erases, moves, undoes and redoes;
+// Selecting holds an anchor, and the next letter, erase or line break
+// replaces the text from the anchor to the caret; Searching holds a query
+// that moves the caret to its matches as it is typed, and replaces every
+// match at once. Save is the machine's output: the driver writes the text
+// to the Store and tells the machine with Saved, so the step stays pure.
+
+import editor/piece
+import strings
+import utf8
+
+// State is the editor in one of its modes. Searching keeps the caret it
+// started from, which Escape goes back to.
+type State = Editing{D Doc} | Selecting{D Doc, Anchor int} | Searching{D Doc, Query string, Origin int}
+
+// Signal is what a script or a window gives the editor. Counts move by
+// runes or lines; a count of 0 moves nothing.
+type Signal =
+	| Type{Text string}
+	| Back{}
+	| Del{}
+	| Left{N int}
+	| Right{N int}
+	| Up{N int}
+	| Down{N int}
+	| Home{}
+	| End{}
+	| Top{}
+	| Bottom{}
+	| Select{}
+	| Find{}
+	| Next{}
+	| Replace{With string}
+	| UndoIt{}
+	| RedoIt{}
+	| Escape{}
+	| Save{}
+	| Saved{}
+
+// Output is what the editor asks of its driver: the text to write.
+type Output = Write{Text string}
+
+// Open is the editor on the text, editing, with the caret at the start.
+func Open(text string) State { Editing{D: Load(text)} }
+
+// DocOf is the document of any mode.
+func DocOf(s State) Doc {
+	match s {
+	case Editing as e:
+		e.D
+	case Selecting as l:
+		l.D
+	case Searching as f:
+		f.D
+	}
+}
+
+// Step is the editor's transition. A signal a mode has no use for is
+// rejected and changes nothing.
+func Step(s State, sig Signal) Decision[State, Output] {
+	match s {
+	case Editing as e:
+		editing(e.D, sig)
+	case Selecting as l:
+		selecting(l, sig)
+	case Searching as f:
+		searching(f, sig)
+	}
+}
+
+func editing(d Doc, sig Signal) Decision[State, Output] {
+	match sig {
+	case Type as t:
+		if t.Text == "" {
+			return Reject
+		}
+		Stay[State]{Next: Editing{D: Insert(d, t.Text)}}
+	case Back:
+		let n = RuneBefore(d, d.Caret)
+		if n == 0 {
+			return Reject
+		}
+		Stay[State]{Next: Editing{D: Erase(d, d.Caret-n, d.Caret)}}
+	case Del:
+		let n = RuneAfter(d, d.Caret)
+		if n == 0 {
+			return Reject
+		}
+		Stay[State]{Next: Editing{D: Erase(d, d.Caret, d.Caret+n)}}
+	case Left, Right, Up, Down, Home, End, Top, Bottom:
+		Stay[State]{Next: Editing{D: Doc{..d, Caret: Move(d, sig)}}}
+	case Select:
+		Enter[State]{Next: Selecting{D: d, Anchor: d.Caret}}
+	case Find:
+		Enter[State]{Next: Searching{D: d, Query: "", Origin: d.Caret}}
+	case UndoIt:
+		if len(d.Undo) == 0 {
+			return Reject
+		}
+		Stay[State]{Next: Editing{D: Undo(d)}}
+	case RedoIt:
+		if len(d.Redo) == 0 {
+			return Reject
+		}
+		Stay[State]{Next: Editing{D: Redo(d)}}
+	case Save:
+		Emit[State, Output]{Next: Editing{D: d}, Output: Write{Text: Text(d)}}
+	case Saved:
+		Stay[State]{Next: Editing{D: Doc{..d, Dirty: false}}}
+	case Next, Replace, Escape:
+		Reject
+	}
+}
+
+func selecting(l Selecting, sig Signal) Decision[State, Output] {
+	let d = l.D
+	let lo = if l.Anchor < d.Caret { l.Anchor } else { d.Caret }
+	let hi = if l.Anchor < d.Caret { d.Caret } else { l.Anchor }
+	match sig {
+	case Type as t:
+		if t.Text == "" {
+			return Reject
+		}
+		let mut edits = []Edit{}
+		if lo < hi {
+			edits = edits.Append(Deleted{At: lo, Text: piece.Slice(d.Buf, lo, hi)})
+		}
+		edits = edits.Append(Inserted{At: lo, Text: t.Text})
+		Enter[State]{Next: Editing{D: Make(d, edits, lo+len(t.Text))}}
+	case Back, Del:
+		Enter[State]{Next: Editing{D: Erase(d, lo, hi)}}
+	case Left, Right, Up, Down, Home, End, Top, Bottom:
+		Stay[State]{Next: Selecting{D: Doc{..d, Caret: Move(d, sig)}, Anchor: l.Anchor}}
+	case Escape:
+		Enter[State]{Next: Editing{D: d}}
+	case Saved:
+		Stay[State]{Next: Selecting{D: Doc{..d, Dirty: false}, Anchor: l.Anchor}}
+	case Select, Find, Next, Replace, UndoIt, RedoIt, Save:
+		Reject
+	}
+}
+
+func searching(f Searching, sig Signal) Decision[State, Output] {
+	let d = f.D
+	match sig {
+	case Type as t:
+		let q = f.Query + t.Text
+		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(Text(d), q, f.Origin)}, Query: q, Origin: f.Origin}}
+	case Back:
+		if f.Query == "" {
+			return Reject
+		}
+		let q = strings.Slice(f.Query, 0, len(f.Query)-lastRune(f.Query))
+		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(Text(d), q, f.Origin)}, Query: q, Origin: f.Origin}}
+	case Next:
+		if f.Query == "" || !strings.Contains(Text(d), f.Query) {
+			return Reject
+		}
+		Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(Text(d), f.Query, d.Caret+1)}, Query: f.Query, Origin: f.Origin}}
+	case Replace as r:
+		let at = Matches(Text(d), f.Query)
+		if len(at) == 0 {
+			return Reject
+		}
+		let mut edits = []Edit{}
+		let mut i = len(at) - 1
+		for i >= 0 {
+			edits = edits.Append(Deleted{At: at[i], Text: f.Query})
+			edits = edits.Append(Inserted{At: at[i], Text: r.With})
+			i = i - 1
+		}
+		Enter[State]{Next: Editing{D: Make(d, edits, at[0])}}
+	case Escape:
+		Enter[State]{Next: Editing{D: Doc{..d, Caret: f.Origin}}}
+	case Saved:
+		Stay[State]{Next: Searching{D: Doc{..d, Dirty: false}, Query: f.Query, Origin: f.Origin}}
+	case Find:
+		Enter[State]{Next: Editing{D: d}}
+	case Del, Left, Right, Up, Down, Home, End, Top, Bottom, Select, UndoIt, RedoIt, Save:
+		Reject
+	}
+}
+
+// Move is the caret after a move.
+func Move(d Doc, sig Signal) int {
+	match sig {
+	case Left as l:
+		let mut at = d.Caret
+		for _ in 0..l.N {
+			let s = RuneBefore(d, at)
+			if s == 0 {
+				break
+			}
+			at = at - s
+		}
+		at
+	case Right as r:
+		let mut at = d.Caret
+		for _ in 0..r.N {
+			let s = RuneAfter(d, at)
+			if s == 0 {
+				break
+			}
+			at = at + s
+		}
+		at
+	case Up as u:
+		ToLine(d, LineOf(d, d.Caret)-clampTo(u.N, 0, piece.Lines(d.Buf)))
+	case Down as w:
+		ToLine(d, LineOf(d, d.Caret)+clampTo(w.N, 0, piece.Lines(d.Buf)))
+	case Home:
+		LineStart(d, d.Caret)
+	case End:
+		LineEnd(d, d.Caret)
+	case Top:
+		0
+	case Bottom:
+		piece.Len(d.Buf)
+	case _:
+		d.Caret
+	}
+}
+
+// ToLine is the caret on line n (clamped to the text's lines), at the
+// caret's column or the line's end when the line is shorter.
+func ToLine(d Doc, n int) int {
+	let line = clampTo(n, 1, piece.Lines(d.Buf))
+	let start = piece.LineStart(d.Buf, line)
+	Forward(d, start, Column(d, d.Caret), piece.LineEnd(d.Buf, line))
+}
+
+func clampTo(v int, lo int, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	v
+}
+
+// FirstFrom is the offset of the first match of query at or after from,
+// else the first match in the text, else from. The empty query matches
+// nothing.
+func FirstFrom(text string, query string, from int) int {
+	if query == "" {
+		return from
+	}
+	let at = if from > len(text) { len(text) } else { from }
+	let i = strings.Index(strings.Slice(text, at, len(text)), query)
+	if i >= 0 {
+		return at + i
+	}
+	let j = strings.Index(text, query)
+	if j >= 0 { j } else { from }
+}
+
+// Matches is the offsets of the matches of query in text, left to right,
+// none overlapping, as strings.ReplaceAll finds them.
+func Matches(text string, query string) []int {
+	let mut out = []int{}
+	if query == "" {
+		return out
+	}
+	let mut at = 0
+	for {
+		let i = strings.Index(strings.Slice(text, at, len(text)), query)
+		if i < 0 {
+			break
+		}
+		out = out.Append(at + i)
+		at = at + i + len(query)
+	}
+	out
+}
+
+// lastRune is the size of text's last rune, or 1.
+func lastRune(text string) int {
+	for s in 1..5 {
+		if s <= len(text) {
+			let part = strings.Slice(text, len(text)-s, len(text))
+			if utf8.ValidString(part) && utf8.DecodeRuneInString(part).Size == s {
+				return s
+			}
+		}
+	}
+	1
+}

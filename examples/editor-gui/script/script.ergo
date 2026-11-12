@@ -1,0 +1,252 @@
+// Package script is the headless driver of the editor: a script is lines
+// of commands, each a signal of the Editor machine or "show", which
+// writes the frame a window would show. The driver performs the machine's
+// output, the save, on the Store in its context.
+
+import editor/edit
+import io
+import strconv
+import strings
+
+// Command is one line of a script.
+type Command = Show{} | Send{Signal edit.Signal}
+
+// BadLine is a line that is no command, with what was wanted.
+type BadLine { Text string, Want string }
+
+// Parse reads one line of a script:
+//
+//	show                          write the frame
+//	type TEXT                     type TEXT (the rest of the line)
+//	enter                         type a line break
+//	back, del                     erase the rune before or after the caret
+//	left N, right N, up N, down N move by runes or lines
+//	home, end, top, bottom        to the line's or the text's ends
+//	select                        anchor a selection at the caret
+//	find, next, replace TEXT      search, the next match, replace every match
+//	undo, redo, escape, save
+func Parse(line string) Command fails BadLine {
+	let word, rest = split(line)
+	match word {
+	case "type":
+		Send{Signal: edit.Type{Text: rest}}
+	case "replace":
+		Send{Signal: edit.Replace{With: rest}}
+	case "left":
+		Send{Signal: edit.Left{N: try count(line, rest)}}
+	case "right":
+		Send{Signal: edit.Right{N: try count(line, rest)}}
+	case "up":
+		Send{Signal: edit.Up{N: try count(line, rest)}}
+	case "down":
+		Send{Signal: edit.Down{N: try count(line, rest)}}
+	case _:
+		if rest != "" && isBare(word) {
+			return BadLine{Text: line, Want: "no argument"}
+		}
+		match word {
+		case "show":
+			Show
+		case "enter":
+			Send{Signal: edit.Type{Text: "\n"}}
+		case "back":
+			Send{Signal: edit.Back}
+		case "del":
+			Send{Signal: edit.Del}
+		case "home":
+			Send{Signal: edit.Home}
+		case "end":
+			Send{Signal: edit.End}
+		case "top":
+			Send{Signal: edit.Top}
+		case "bottom":
+			Send{Signal: edit.Bottom}
+		case "select":
+			Send{Signal: edit.Select}
+		case "find":
+			Send{Signal: edit.Find}
+		case "next":
+			Send{Signal: edit.Next}
+		case "undo":
+			Send{Signal: edit.UndoIt}
+		case "redo":
+			Send{Signal: edit.RedoIt}
+		case "escape":
+			Send{Signal: edit.Escape}
+		case "save":
+			Send{Signal: edit.Save}
+		case _:
+			BadLine{Text: line, Want: "a command: " + strings.Join(bare(), " ") + " type replace left right up down"}
+		}
+	}
+}
+
+// bare is the commands that take no argument.
+func bare() []string {
+	[]string{"show", "enter", "back", "del", "home", "end", "top", "bottom", "select", "find", "next", "undo", "redo", "escape", "save"}
+}
+
+func isBare(word string) bool {
+	for w in bare() {
+		if w == word {
+			return true
+		}
+	}
+	false
+}
+
+// split is the first word of line and the rest after one space.
+func split(line string) (string, string) {
+	match strings.Cut(line, " ") {
+	case Some[strings.Halves] as h:
+		(h.Value.Before, h.Value.After)
+	case None:
+		(line, "")
+	}
+}
+
+func count(line string, rest string) int fails BadLine {
+	let n = strconv.Atoi(rest) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadLine{Text: line, Want: "a count"}
+	}
+	if n < 0 || n > 1000000 {
+		return BadLine{Text: line, Want: "a count"}
+	}
+	n
+}
+
+// Play runs the script's lines on s and writes what each line shows: a
+// frame for show, the end of each save, and a note for a line that is no
+// command. A blank line and a line that starts with # do nothing. It is
+// the state after the last line.
+func Play(s edit.State, name string, lines Seq[string]) edit.State needs edit.Store | io.Stdout {
+	let mut at = s
+	for line in lines {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let c = Parse(line) catch {
+		case BadLine as b:
+			io.Stdout.Println("? \"" + b.Text + "\": want " + b.Want)
+			continue
+		}
+		match c {
+		case Show:
+			for l in edit.Frame(at) {
+				io.Stdout.Println(l)
+			}
+		case Send as m:
+			at = step(at, name, m.Signal)
+		}
+	}
+	at
+}
+
+// step is the state after sig, with its save performed.
+func step(s edit.State, name string, sig edit.Signal) edit.State needs edit.Store | io.Stdout {
+	match edit.Step(s, sig) {
+	case Enter[edit.State] as e:
+		e.Next
+	case Stay[edit.State] as t:
+		t.Next
+	case Emit[edit.State, edit.Output] as m:
+		match m.Output {
+		case edit.Write as w:
+			edit.Store.Save(name, w.Text) catch {
+			case edit.Unwritable as u:
+				io.Stdout.Println("cannot save " + u.Name + ": " + u.Reason)
+				return m.Next
+			}
+			io.Stdout.Println("saved " + name + " (\(len(w.Text)) bytes)")
+			edit.After(m.Next, edit.Saved)
+		}
+	case Ignore, Reject, Done[edit.Output]:
+		s
+	}
+}
+
+// LineParsesBack: a command's line reads back as the command.
+law LineParsesBack(c Command) {
+	let line = Line(c)
+	if strings.Contains(line, "\n") {
+		return true
+	}
+	match c {
+	case Send as s:
+		match s.Signal {
+		case edit.Left as l:
+			if l.N < 0 || l.N > 1000000 {
+				return true
+			}
+		case edit.Right as r:
+			if r.N < 0 || r.N > 1000000 {
+				return true
+			}
+		case edit.Up as u:
+			if u.N < 0 || u.N > 1000000 {
+				return true
+			}
+		case edit.Down as w:
+			if w.N < 0 || w.N > 1000000 {
+				return true
+			}
+		case edit.Saved:
+			return true
+		case _:
+		}
+	case Show:
+	}
+	(try Parse(line)) == c
+}
+
+// Line is the script line of c.
+func Line(c Command) string {
+	match c {
+	case Show:
+		"show"
+	case Send as s:
+		match s.Signal {
+		case edit.Type as t:
+			"type " + t.Text
+		case edit.Back:
+			"back"
+		case edit.Del:
+			"del"
+		case edit.Left as l:
+			"left \(l.N)"
+		case edit.Right as r:
+			"right \(r.N)"
+		case edit.Up as u:
+			"up \(u.N)"
+		case edit.Down as w:
+			"down \(w.N)"
+		case edit.Home:
+			"home"
+		case edit.End:
+			"end"
+		case edit.Top:
+			"top"
+		case edit.Bottom:
+			"bottom"
+		case edit.Select:
+			"select"
+		case edit.Find:
+			"find"
+		case edit.Next:
+			"next"
+		case edit.Replace as r:
+			"replace " + r.With
+		case edit.UndoIt:
+			"undo"
+		case edit.RedoIt:
+			"redo"
+		case edit.Escape:
+			"escape"
+		case edit.Save:
+			"save"
+		case edit.Saved:
+			"saved"
+		}
+	}
+}

@@ -1,0 +1,33 @@
+editing line=1 col=0 caret=0 len=0 undo=0 redo=0 dirty=no
+>1|
+editing line=2 col=11 caret=24 len=24 undo=3 redo=0 dirty=yes
+ 1|hello wörld
+>2|second line
+editing line=1 col=11 caret=12 len=24 undo=3 redo=0 dirty=yes
+>1|hello wörld
+ 2|second line
+editing line=1 col=10 caret=11 len=23 undo=4 redo=0 dirty=yes
+>1|hello wöLD
+ 2|second line
+editing line=1 col=8 caret=9 len=24 undo=3 redo=1 dirty=yes
+>1|hello wörld
+ 2|second line
+searching line=2 col=3 caret=15 len=23 undo=4 redo=0 dirty=yes find="o" matches=2
+ 1|hello wöLD
+>2|second line
+searching line=1 col=4 caret=4 len=23 undo=4 redo=0 dirty=yes find="o" matches=2
+>1|hello wöLD
+ 2|second line
+editing line=1 col=4 caret=4 len=23 undo=5 redo=0 dirty=yes
+>1|hell0 wöLD
+ 2|sec0nd line
+editing line=1 col=4 caret=4 len=23 undo=4 redo=1 dirty=yes
+>1|hello wöLD
+ 2|second line
+saved doc.txt (23 bytes)
+editing line=1 col=4 caret=4 len=23 undo=4 redo=1 dirty=no
+>1|hello wöLD
+ 2|second line
+? "bogus": want a command: show enter back del home end top bottom select find next undo redo escape save type replace left right up down
+? "left x": want a count
+? "home extra": want no argument

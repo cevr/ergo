@@ -1,0 +1,173 @@
+{
+  "about": "editor-gui's application mutants (wf10 corpus wave GP2a): edits of the example, each with the law or the test that kills it. A killer examples/editor-gui/PKG:law L is `ergo test examples/editor-gui/PKG --law L`; cmd/ergo:TestEditorGuiAgreesWithControl is the seeded agreement property against the plain reference model and the hand Go control, which kills the mutants no law sees.",
+  "mutants": [
+    {
+      "name": "editor-piece-grows-any-added-piece", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/piece/piece.ergo",
+      "from": "if pos == end && isAdded(p) && p.Start+p.Size == start {",
+      "to": "if pos == end && isAdded(p) {",
+      "rule": "Typing grows a piece only when the piece ends where the added buffer ends.",
+      "killers": ["examples/editor-gui/piece:law BufferEqualsModel"]
+    },
+    {
+      "name": "editor-piece-delete-keeps-the-wrong-tail", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/piece/piece.ergo",
+      "from": "Start: p.Start + (hi - offset), Size: end - hi",
+      "to": "Start: p.Start + (hi - lo), Size: end - hi",
+      "rule": "A delete keeps the bytes of a piece after the cut.",
+      "killers": ["examples/editor-gui/piece:law BufferEqualsModel", "examples/editor-gui/piece:law InsertThenDeleteRestores"]
+    },
+    {
+      "name": "editor-added-breaks-lose-their-base", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/piece/piece.ergo",
+      "from": "out = out.Append(base + at + i)",
+      "to": "out = out.Append(at + i)",
+      "rule": "The line index holds a break's offset in its buffer.",
+      "killers": ["examples/editor-gui/piece:law LinesEqualModel"]
+    },
+    {
+      "name": "editor-below-counts-the-equal", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/piece/piece.ergo",
+      "from": "if offsets[mid] < v {",
+      "to": "if offsets[mid] <= v {",
+      "rule": "A piece's breaks start at its first byte, not after it.",
+      "killers": ["examples/editor-gui/piece:law LinesEqualModel"]
+    },
+    {
+      "name": "editor-undo-of-insert-inserts", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/doc.ergo",
+      "from": "\t\tDeleted{At: i.At, Text: i.Text}",
+      "to": "\t\tInserted{At: i.At, Text: i.Text}",
+      "rule": "The inverse of an insert deletes the inserted text.",
+      "killers": ["examples/editor-gui/edit:law Editor.UndoRedoRoundTrips"]
+    },
+    {
+      "name": "editor-matches-overlap", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "at = at + i + len(query)",
+      "to": "at = at + i + 1",
+      "rule": "Replace replaces the matches strings.ReplaceAll finds, none overlapping.",
+      "killers": ["examples/editor-gui/edit:law Editor.ReplaceIsReplaceAll"]
+    },
+    {
+      "name": "editor-search-escape-keeps-the-match", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "Enter[State]{Next: Editing{D: Doc{..d, Caret: f.Origin}}}",
+      "to": "Enter[State]{Next: Editing{D: d}}",
+      "rule": "Escape from a search puts the caret back where the search started.",
+      "killers": ["examples/editor-gui/edit:law Editor.SearchAndBack"]
+    },
+    {
+      "name": "editor-selection-escape-stays", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "\t\tEnter[State]{Next: Editing{D: d}}\n\tcase Saved:\n\t\tStay[State]{Next: Selecting",
+      "to": "\t\tStay[State]{Next: Selecting{D: d, Anchor: l.Anchor}}\n\tcase Saved:\n\t\tStay[State]{Next: Selecting",
+      "rule": "Escape ends a selection.",
+      "killers": ["examples/editor-gui/edit:law Editor.SelectAndBack"]
+    },
+    {
+      "name": "editor-next-steps-past-no-match", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "if f.Query == \"\" || !strings.Contains(Text(d), f.Query) {",
+      "to": "if f.Query == \"\" {",
+      "rule": "Next with no match anywhere leaves the caret where it is.",
+      "killers": ["examples/editor-gui/edit:law Editor.NextFindsAMatch"]
+    },
+    {
+      "name": "editor-bottom-past-the-end", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "\tcase Bottom:\n\t\tpiece.Len(d.Buf)\n",
+      "to": "\tcase Bottom:\n\t\tpiece.Len(d.Buf) + 1\n",
+      "rule": "The caret stays inside the text.",
+      "killers": ["examples/editor-gui/edit:law Editor.CaretWithinText"]
+    },
+    {
+      "name": "editor-down-writes-up", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/script/script.ergo",
+      "from": "\"down \\(w.N)\"",
+      "to": "\"up \\(w.N)\"",
+      "rule": "A command's line reads back as the command.",
+      "killers": ["examples/editor-gui/script:law LineParsesBack"]
+    },
+    {
+      "name": "editor-shelf-saves-another-text", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/memory/memory.ergo",
+      "from": "m.Put(name, text)",
+      "to": "m.Put(name, text + \"\\n\")",
+      "rule": "A saved text is the text that loads.",
+      "killers": ["examples/editor-gui/memory:law edit.Store.SaveThenLoad"]
+    },
+    {
+      "name": "editor-undo-puts-the-caret-after", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/doc.ergo",
+      "from": "Doc{Buf: b, Caret: c.Before,",
+      "to": "Doc{Buf: b, Caret: c.After,",
+      "rule": "Undo puts the caret where it was before the change.",
+      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-edit-keeps-redo", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/doc.ergo",
+      "from": "Undo: d.Undo.Append(c), Redo: []Change{}, Dirty: true}",
+      "to": "Undo: d.Undo.Append(c), Redo: d.Redo, Dirty: true}",
+      "rule": "A new change clears what redo would make again.",
+      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-replace-puts-the-caret-back", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "Make(d, edits, at[0])",
+      "to": "Make(d, edits, d.Caret)",
+      "rule": "After a replace the caret is at the first replaced match.",
+      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-selection-type-lands-at-the-end", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "Make(d, edits, lo+len(t.Text))",
+      "to": "Make(d, edits, hi+len(t.Text))",
+      "rule": "Typing over a selection leaves the caret after the typed text.",
+      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-back-misses-four-byte-runes", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/doc.ergo",
+      "from": "for s in 1..len(tail)+1 {",
+      "to": "for s in 1..len(tail) {",
+      "rule": "Back erases a whole rune, four bytes long too.",
+      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-line-move-drifts-a-column", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "Forward(d, start, Column(d, d.Caret), piece.LineEnd(d.Buf, line))",
+      "to": "Forward(d, start, Column(d, d.Caret)+1, piece.LineEnd(d.Buf, line))",
+      "rule": "Up and down keep the caret's column.",
+      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-frame-shows-one-line-below", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/frame.ergo",
+      "from": "let last = if at+2 < lines { at + 2 } else { lines }",
+      "to": "let last = if at+1 < lines { at + 1 } else { lines }",
+      "rule": "A frame shows two lines below the caret's line.",
+      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-saved-stays-dirty", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/editor.ergo",
+      "from": "Stay[State]{Next: Editing{D: Doc{..d, Dirty: false}}}",
+      "to": "Stay[State]{Next: Editing{D: d}}",
+      "rule": "A saved document is not dirty.",
+      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+    },
+    {
+      "name": "editor-invalid-offset-of-two-bytes", "origin": "wf10 GP2a",
+      "file": "examples/editor-gui/edit/store.ergo",
+      "from": "if r.Rune == '\\uFFFD' && r.Size == 1 {",
+      "to": "if r.Rune == '\\uFFFD' && r.Size == 2 {",
+      "rule": "A text that is not UTF-8 is refused with its first invalid byte.",
+      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+    }
+  ]
+}

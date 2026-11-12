@@ -1,0 +1,132 @@
+// The Editor as a machine, and its laws.
+
+import editor/piece
+import strings
+
+// Editor is the editor as a machine, started on a text.
+type Editor machine[State, Signal] {
+	initial: Open,
+	step:    Step,
+
+	// SelectAndBack: from editing, a selection that is started and
+	// escaped leaves the editor as it was.
+	law SelectAndBack(text string, signals []Signal) {
+		let s = Run(Open(text), signals)
+		match s {
+		case Editing:
+			After(After(s, Select), Escape) == s
+		case Selecting, Searching:
+			true
+		}
+	},
+
+	// SearchAndBack: from editing, a search that is typed and escaped
+	// leaves the editor as it was, the caret where the search started.
+	law SearchAndBack(text string, signals []Signal, query string) {
+		let s = Run(Open(text), signals)
+		match s {
+		case Editing:
+			After(After(After(s, Find), Type{Text: query}), Escape) == s
+		case Selecting, Searching:
+			true
+		}
+	},
+
+	// CaretWithinText: after every signal, the caret is inside the text.
+	law CaretWithinText(text string, signals []Signal) {
+		let mut s = Open(text)
+		for sig in signals {
+			s = After(s, sig)
+			let d = DocOf(s)
+			if d.Caret < 0 || d.Caret > piece.Len(d.Buf) {
+				return false
+			}
+		}
+		true
+	},
+
+	// NextFindsAMatch: after a search for a query and any number of Next,
+	// the caret is on a match, or where the search started when the text
+	// holds none.
+	law NextFindsAMatch(text string, query string, n int) {
+		let mut s = After(After(Open(text), Find), Type{Text: query})
+		for _ in 0..(n % 8) {
+			s = After(s, Next)
+		}
+		let d = DocOf(s)
+		if query == "" || !strings.Contains(text, query) {
+			return d.Caret == 0
+		}
+		strings.HasPrefix(strings.Slice(text, d.Caret, len(text)), query)
+	},
+
+	// UndoRedoRoundTrips: after any signals and every change redone,
+	// undoing every change gives the loaded text back, and redoing every
+	// change gives the same text again, the caret where the last change
+	// left it.
+	law UndoRedoRoundTrips(text string, signals []Signal) {
+		let mut done = DocOf(Run(Open(text), signals))
+		for len(done.Redo) > 0 {
+			done = Redo(done)
+		}
+		let mut d = done
+		for len(d.Undo) > 0 {
+			d = Undo(d)
+		}
+		if Text(d) != text || len(d.Redo) != len(done.Undo) {
+			return false
+		}
+		for len(d.Redo) > 0 {
+			d = Redo(d)
+		}
+		let caret = if len(done.Undo) > 0 { done.Undo[len(done.Undo)-1].After } else { d.Caret }
+		Text(d) == Text(done) && d.Caret == caret && len(d.Undo) == len(done.Undo)
+	},
+
+	// ReplaceIsReplaceAll: replacing a query's matches gives the text
+	// strings.ReplaceAll gives, as one change. The text is drawn around the
+	// query, a unit repeated, and ends in the unit and the query, so the
+	// query's matches could overlap.
+	law ReplaceIsReplaceAll(parts []string, unit string, n int, by string) {
+		let mut query = unit
+		for _ in 0..(n % 3) {
+			query = query + unit
+		}
+		if query == "" {
+			return true
+		}
+		let text = strings.Join(parts, query) + unit + query
+		let s = After(After(Open(text), Find), Type{Text: query})
+		let r = Step(s, Replace{With: by})
+		match r {
+		case Enter[State] as e:
+			let d = DocOf(e.Next)
+			Text(d) == strings.ReplaceAll(text, query, by) && len(d.Undo) == 1
+		case Stay[State], Emit[State, Output], Ignore, Reject, Done[Output]:
+			!strings.Contains(text, query)
+		}
+	},
+}
+
+// Run is the state after the signals, from s.
+func Run(s State, signals []Signal) State {
+	let mut at = s
+	for sig in signals {
+		at = After(at, sig)
+	}
+	at
+}
+
+// After is the state after sig: a rejected signal leaves it as it was.
+func After(s State, sig Signal) State {
+	match Step(s, sig) {
+	case Enter[State] as e:
+		e.Next
+	case Stay[State] as t:
+		t.Next
+	case Emit[State, Output] as m:
+		m.Next
+	case Ignore, Reject, Done[Output]:
+		s
+	}
+}

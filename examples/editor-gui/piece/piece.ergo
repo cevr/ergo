@@ -1,0 +1,356 @@
+// Package piece is a piece table: a text kept as the original text, an
+// append-only buffer of added text, and a list of pieces that each name a
+// run of one of the two. An insert appends to the added buffer and splits
+// one piece; a delete cuts pieces; no edit copies the text. Positions and
+// lengths are bytes, as len of a string is.
+//
+// The line index is the offsets of the line breaks of each buffer, in
+// order: the original's are found once, the added buffer's are appended
+// as it grows. A piece's breaks are a range of its buffer's offsets, found
+// by binary search, so finding a line walks the pieces and reads no text.
+
+import strings
+
+// Origin is the buffer a piece reads from.
+type Origin = Original{} | Added{}
+
+// Piece is Size bytes of an origin, from Start.
+type Piece { Origin Origin, Start int, Size int }
+
+// Buffer is a text as pieces. Only New and the edits make one.
+type Buffer {
+	original       string,
+	added          string,
+	pieces         []Piece,
+	size           int,
+	originalBreaks []int,
+	addedBreaks    []int,
+}
+
+// New is the buffer of text.
+func New(text string) Buffer {
+	let pieces = if text == "" { []Piece{} } else { []Piece{Piece{Origin: Original, Start: 0, Size: len(text)}} }
+	Buffer{original: text, added: "", pieces: pieces, size: len(text), originalBreaks: breaks([]int{}, text, 0), addedBreaks: []int{}}
+}
+
+// breaks is into with the offsets of text's line breaks appended, each
+// plus base.
+func breaks(into []int, text string, base int) []int {
+	let mut out = into
+	let mut at = 0
+	for {
+		let i = strings.Index(strings.Slice(text, at, len(text)), "\n")
+		if i < 0 {
+			break
+		}
+		out = out.Append(base + at + i)
+		at = at + i + 1
+	}
+	out
+}
+
+// below is how many of the ascending offsets are below v.
+func below(offsets []int, v int) int {
+	let mut lo = 0
+	let mut hi = len(offsets)
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if offsets[mid] < v {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	lo
+}
+
+func breaksOf(b Buffer, p Piece) []int {
+	match p.Origin {
+	case Original:
+		b.originalBreaks
+	case Added:
+		b.addedBreaks
+	}
+}
+
+// LineOf is the number of the line that holds byte at, from 1: one more
+// than the line breaks before it.
+func LineOf(b Buffer, at int) int {
+	let mut n = 1
+	let mut offset = 0
+	for p in b.pieces {
+		if offset >= at {
+			break
+		}
+		let nl = breaksOf(b, p)
+		let end = if at-offset < p.Size { p.Start + (at - offset) } else { p.Start + p.Size }
+		n = n + below(nl, end) - below(nl, p.Start)
+		offset = offset + p.Size
+	}
+	n
+}
+
+// LineStart is the offset where line n starts, from 1: 0 for the first
+// line, the text's length for a line past the last.
+func LineStart(b Buffer, n int) int {
+	if n <= 1 {
+		return 0
+	}
+	let mut seen = 0
+	let mut offset = 0
+	for p in b.pieces {
+		let nl = breaksOf(b, p)
+		let first = below(nl, p.Start)
+		let count = below(nl, p.Start+p.Size) - first
+		if seen+count >= n-1 {
+			return offset + (nl[first+(n-1-seen)-1] - p.Start) + 1
+		}
+		seen = seen + count
+		offset = offset + p.Size
+	}
+	b.size
+}
+
+// LineEnd is the offset of the line break that ends line n, or the
+// text's length for the last line.
+func LineEnd(b Buffer, n int) int {
+	if n >= Lines(b) {
+		return b.size
+	}
+	let line = if n < 1 { 1 } else { n }
+	LineStart(b, line+1) - 1
+}
+
+// Lines is how many lines the text has: one more than its line breaks.
+func Lines(b Buffer) int { LineOf(b, b.size) }
+
+// Len is the length of the text in bytes.
+func Len(b Buffer) int { b.size }
+
+// Pieces is how many pieces hold the text.
+func Pieces(b Buffer) int { len(b.pieces) }
+
+// AddedLen is the length of the added buffer, which only grows.
+func AddedLen(b Buffer) int { len(b.added) }
+
+func source(b Buffer, p Piece) string {
+	match p.Origin {
+	case Original:
+		b.original
+	case Added:
+		b.added
+	}
+}
+
+// Text is the whole text.
+func Text(b Buffer) string { Slice(b, 0, b.size) }
+
+// Slice is the bytes from to to of the text, both clamped to it.
+func Slice(b Buffer, from int, to int) string {
+	let lo = if from < 0 { 0 } else { from }
+	let hi = if to > b.size { b.size } else { to }
+	if lo >= hi {
+		return ""
+	}
+	let mut out = strings.NewBuilder()
+	out.Grow(hi - lo)
+	let mut at = 0
+	for p in b.pieces {
+		let end = at + p.Size
+		if end > lo && at < hi {
+			let s = if lo > at { lo - at } else { 0 }
+			let e = if hi < end { hi - at } else { p.Size }
+			out.WriteString(strings.Slice(source(b, p), p.Start+s, p.Start+e))
+		}
+		if end >= hi {
+			break
+		}
+		at = end
+	}
+	out.String()
+}
+
+// Insert is b with text put at at (clamped to the text). Typing at the end
+// of the last added run grows that piece, so a run of typed letters is
+// one piece.
+func Insert(b Buffer, at int, text string) Buffer {
+	if text == "" {
+		return b
+	}
+	let pos = clampTo(at, 0, b.size)
+	let start = len(b.added)
+	let added = b.added + text
+	let mut out = []Piece{}
+	let mut done = false
+	let mut offset = 0
+	for p in b.pieces {
+		if done {
+			out = out.Append(p)
+			continue
+		}
+		let end = offset + p.Size
+		if pos == end && isAdded(p) && p.Start+p.Size == start {
+			out = out.Append(Piece{..p, Size: p.Size + len(text)})
+			done = true
+		} else if pos >= offset && pos < end {
+			let left = pos - offset
+			if left > 0 {
+				out = out.Append(Piece{..p, Size: left})
+			}
+			out = out.Append(Piece{Origin: Added, Start: start, Size: len(text)})
+			out = out.Append(Piece{..p, Start: p.Start + left, Size: p.Size - left})
+			done = true
+		} else {
+			out = out.Append(p)
+		}
+		offset = end
+	}
+	if !done {
+		out = out.Append(Piece{Origin: Added, Start: start, Size: len(text)})
+	}
+	Buffer{..b, added: added, pieces: out, size: b.size + len(text), addedBreaks: breaks(b.addedBreaks, text, start)}
+}
+
+// Delete is b without the n bytes from at (both clamped to the text).
+func Delete(b Buffer, at int, n int) Buffer {
+	let lo = clampTo(at, 0, b.size)
+	let hi = clampTo(at+clampTo(n, 0, b.size), lo, b.size)
+	if lo == hi {
+		return b
+	}
+	let mut out = []Piece{}
+	let mut offset = 0
+	for p in b.pieces {
+		let end = offset + p.Size
+		if end <= lo || offset >= hi {
+			out = out.Append(p)
+		} else {
+			if offset < lo {
+				out = out.Append(Piece{..p, Size: lo - offset})
+			}
+			if end > hi {
+				out = out.Append(Piece{..p, Start: p.Start + (hi - offset), Size: end - hi})
+			}
+		}
+		offset = end
+	}
+	Buffer{..b, pieces: out, size: b.size - (hi - lo)}
+}
+
+func isAdded(p Piece) bool {
+	match p.Origin {
+	case Added:
+		true
+	case Original:
+		false
+	}
+}
+
+func clampTo(v int, lo int, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	v
+}
+
+// Op is one edit of the model laws: an insert of Text at At, or a delete
+// of N bytes from At. Positions are taken modulo the text's length.
+type Op = Put{At int, Text string} | Cut{At int, N int}
+
+// model is op applied to a plain string, the reference of a Buffer.
+func model(text string, op Op) string {
+	match op {
+	case Put as p:
+		let at = mod(p.At, len(text)+1)
+		strings.Slice(text, 0, at) + p.Text + strings.Slice(text, at, len(text))
+	case Cut as c:
+		let at = mod(c.At, len(text)+1)
+		let end = clampTo(at+clampTo(c.N, 0, len(text)), at, len(text))
+		strings.Slice(text, 0, at) + strings.Slice(text, end, len(text))
+	}
+}
+
+// edit is op applied to a buffer.
+func edit(b Buffer, op Op) Buffer {
+	match op {
+	case Put as p:
+		Insert(b, mod(p.At, b.size+1), p.Text)
+	case Cut as c:
+		Delete(b, mod(c.At, b.size+1), c.N)
+	}
+}
+
+func mod(v int, n int) int { ((v % n) + n) % n }
+
+// BufferEqualsModel: after any edits, the buffer's text, its length and
+// every slice of it are the plain string's.
+law BufferEqualsModel(base string, ops []Op, from int, to int) {
+	let mut b = New(base)
+	let mut text = base
+	for op in ops {
+		b = edit(b, op)
+		text = model(text, op)
+		if Text(b) != text || Len(b) != len(text) {
+			return false
+		}
+	}
+	let lo = mod(from, len(text)+1)
+	let hi = mod(to, len(text)+1)
+	let want = if lo < hi { strings.Slice(text, lo, hi) } else { "" }
+	Slice(b, lo, hi) == want
+}
+
+// LinesEqualModel: after any edits, the line index finds the lines that
+// splitting the plain string at its line breaks finds: the line of a
+// byte, and where each line starts and ends.
+law LinesEqualModel(base string, ops []Op, at int) {
+	let mut b = New(base)
+	let mut text = base
+	for op in ops {
+		b = edit(b, op)
+		text = model(text, op)
+	}
+	let lines = strings.Split(text, "\n")
+	if Lines(b) != len(lines) {
+		return false
+	}
+	let mut start = 0
+	for i in 0..len(lines) {
+		let end = start + len(lines[i])
+		if LineStart(b, i+1) != start || LineEnd(b, i+1) != end {
+			return false
+		}
+		start = end + 1
+	}
+	let pos = mod(at, len(text)+1)
+	LineOf(b, pos) == strings.Count(strings.Slice(text, 0, pos), "\n")+1
+}
+
+// InsertThenDeleteRestores: deleting what was just inserted gives the
+// text back.
+law InsertThenDeleteRestores(base string, ops []Op, at int, text string) {
+	let mut b = New(base)
+	for op in ops {
+		b = edit(b, op)
+	}
+	let before = Text(b)
+	let pos = mod(at, Len(b)+1)
+	Text(Delete(Insert(b, pos, text), pos, len(text))) == before
+}
+
+// AddedOnlyGrows: no edit writes the added buffer below its end, so a
+// piece's bytes never change.
+law AddedOnlyGrows(base string, ops []Op) {
+	let mut b = New(base)
+	for op in ops {
+		let had = b.added
+		b = edit(b, op)
+		if !strings.HasPrefix(b.added, had) {
+			return false
+		}
+	}
+	true
+}

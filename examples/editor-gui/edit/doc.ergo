@@ -1,0 +1,157 @@
+// Package edit is the model of a text editor: a document over a piece
+// table, a caret, an undo log of inverse edits, find and replace, and the
+// Editor machine that a script or a window drives. The file a document is
+// loaded from and saved to is the Store contract (store.ergo), whose
+// providers live in packages named after their dependency.
+
+import editor/piece
+import slices
+import strings
+import utf8
+
+// Edit is one change of the text: Text put at At, or Text taken from At.
+type Edit = Inserted{At int, Text string} | Deleted{At int, Text string}
+
+// Change is what one undo takes back: its edits, in the order they were
+// made, and the caret before and after them.
+type Change { Edits []Edit, Before int, After int }
+
+// Doc is a document: its text, the caret (a byte offset), the changes
+// undo takes back and the ones redo makes again, and whether it differs
+// from the file it was loaded from or last saved to.
+type Doc { Buf piece.Buffer, Caret int, Undo []Change, Redo []Change, Dirty bool }
+
+// Load is the document of text, with the caret at its start.
+func Load(text string) Doc {
+	Doc{Buf: piece.New(text), Caret: 0, Undo: []Change{}, Redo: []Change{}, Dirty: false}
+}
+
+// Text is the document's text.
+func Text(d Doc) string { piece.Text(d.Buf) }
+
+// apply is b with e made.
+func apply(b piece.Buffer, e Edit) piece.Buffer {
+	match e {
+	case Inserted as i:
+		piece.Insert(b, i.At, i.Text)
+	case Deleted as d:
+		piece.Delete(b, d.At, len(d.Text))
+	}
+}
+
+// inverse is the edit that takes e back.
+func inverse(e Edit) Edit {
+	match e {
+	case Inserted as i:
+		Deleted{At: i.At, Text: i.Text}
+	case Deleted as d:
+		Inserted{At: d.At, Text: d.Text}
+	}
+}
+
+// Make is d after the edits, as one change that undo takes back, with
+// the caret at after. It clears redo.
+func Make(d Doc, edits []Edit, after int) Doc {
+	if len(edits) == 0 {
+		return d
+	}
+	let mut b = d.Buf
+	for e in edits {
+		b = apply(b, e)
+	}
+	let c = Change{Edits: edits, Before: d.Caret, After: after}
+	Doc{Buf: b, Caret: after, Undo: d.Undo.Append(c), Redo: []Change{}, Dirty: true}
+}
+
+// Undo takes back the last change; it is d when there is none.
+func Undo(d Doc) Doc {
+	if len(d.Undo) == 0 {
+		return d
+	}
+	let c = d.Undo[len(d.Undo)-1]
+	let mut b = d.Buf
+	let mut i = len(c.Edits) - 1
+	for i >= 0 {
+		b = apply(b, inverse(c.Edits[i]))
+		i = i - 1
+	}
+	Doc{Buf: b, Caret: c.Before, Undo: drop(d.Undo), Redo: d.Redo.Append(c), Dirty: true}
+}
+
+// Redo makes the last undone change again; it is d when there is none.
+func Redo(d Doc) Doc {
+	if len(d.Redo) == 0 {
+		return d
+	}
+	let c = d.Redo[len(d.Redo)-1]
+	let mut b = d.Buf
+	for e in c.Edits {
+		b = apply(b, e)
+	}
+	Doc{Buf: b, Caret: c.After, Undo: d.Undo.Append(c), Redo: drop(d.Redo), Dirty: true}
+}
+
+func drop(cs []Change) []Change { slices.Slice(cs, 0, len(cs)-1) }
+
+// Insert is d with text typed at the caret.
+func Insert(d Doc, text string) Doc {
+	Make(d, []Edit{Inserted{At: d.Caret, Text: text}}, d.Caret+len(text))
+}
+
+// Erase is d without the bytes from to to.
+func Erase(d Doc, from int, to int) Doc {
+	if from >= to {
+		return d
+	}
+	Make(d, []Edit{Deleted{At: from, Text: piece.Slice(d.Buf, from, to)}}, from)
+}
+
+// RuneBefore is the size of the rune that ends at at: 1 for a byte that
+// ends no valid rune, 0 at the start.
+func RuneBefore(d Doc, at int) int {
+	if at <= 0 {
+		return 0
+	}
+	let tail = piece.Slice(d.Buf, at-4, at)
+	for s in 1..len(tail)+1 {
+		let part = strings.Slice(tail, len(tail)-s, len(tail))
+		if utf8.ValidString(part) && utf8.DecodeRuneInString(part).Size == s {
+			return s
+		}
+	}
+	1
+}
+
+// RuneAfter is the size of the rune that starts at at: 0 at the end.
+func RuneAfter(d Doc, at int) int {
+	if at >= piece.Len(d.Buf) {
+		return 0
+	}
+	utf8.DecodeRuneInString(piece.Slice(d.Buf, at, at+4)).Size
+}
+
+// LineStart is the offset of the start of the line that holds at.
+func LineStart(d Doc, at int) int { piece.LineStart(d.Buf, piece.LineOf(d.Buf, at)) }
+
+// LineEnd is the offset of the line break that ends the line that holds
+// at, or the text's length.
+func LineEnd(d Doc, at int) int { piece.LineEnd(d.Buf, piece.LineOf(d.Buf, at)) }
+
+// Column is how many runes the caret is after its line's start.
+func Column(d Doc, at int) int { utf8.RuneCount(piece.Slice(d.Buf, LineStart(d, at), at)) }
+
+// Forward is the offset col runes after from, but not past limit.
+func Forward(d Doc, from int, col int, limit int) int {
+	let line = piece.Slice(d.Buf, from, limit)
+	let mut at = 0
+	for _ in 0..col {
+		if at >= len(line) {
+			break
+		}
+		at = at + utf8.DecodeRuneInString(strings.Slice(line, at, len(line))).Size
+	}
+	from + at
+}
+
+// LineOf is the line number of at, from 1.
+func LineOf(d Doc, at int) int { piece.LineOf(d.Buf, at) }

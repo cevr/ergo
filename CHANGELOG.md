@@ -138,6 +138,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Language and compiler
 
+- `examples/editor-gui` (corpus wave GP2a): the model of a text editor, a piece table with a line index under value semantics, undo and redo as a log of edits, an `Editor` machine with `Editing | Selecting | Searching` modes whose save is its output, laws that hold the buffer and its lines to a plain string, a `Store` contract with a file and a memory provider, and a hand Go control that `TestEditorGuiAgreesWithControl` holds to a reference model.
 - `examples/stars-gui` (corpus wave GP1a): the model of a 100,000-row star table, a `Table` machine with `Browsing | Filtering | Editing` modes, laws that justify sorting the shown ids and narrowing them as a filter is typed, refused edits as a typed failure, a headless script driver, and a hand Go control that `TestStarsGuiAgreesWithControl` holds to a reference model.
 - A test package (import path `P` with `test` after it) gets its role from the loader, so it checks the same as the program's root and as an import: `ergo check celltest` now finds the builders its `New<X>` functions give `cell`'s operation types, as a package that imports it always did (FU-audit; [builders](internal/sketch/check/builders.go) rule 2).
 - The check-time evaluator's step counts no longer change from run to run: describing a Map argument and comparing two Maps walk the keys in one fixed order, not Go's map order (FU-audit; `ergo check examples/ssg/memory` printed different `steps`).

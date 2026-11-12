@@ -1,0 +1,73 @@
+// Where a document lives: the Store contract, and what a text must be to
+// be edited.
+
+import strconv
+import strings
+import utf8
+
+// Store keeps documents by name. Save replaces the whole document, so a
+// reader sees the old text or the new one.
+type Store {
+	Load(name string) string fails Missing | Unreadable,
+	Save(name string, text string) fails Unwritable,
+
+	// SaveThenLoad: a saved text is the text that loads.
+	law SaveThenLoad(name string, text string) {
+		Save(name, text) catch {
+		case Unwritable:
+			return true
+		}
+		let back = Load(name) catch {
+		case Missing, Unreadable:
+			return false
+		}
+		back == text
+	},
+}
+
+// Missing is a document that does not exist yet.
+type Missing { Name string }
+
+// Unreadable is a document that cannot be read, with the reason.
+type Unreadable { Name string, Reason string }
+
+// Unwritable is a document that cannot be written, with the reason.
+type Unwritable { Name string, Reason string }
+
+// NotText is a document that is not UTF-8: the offset of its first byte
+// that starts no valid rune.
+type NotText { Offset int }
+
+// OpenDoc reads the document name for editing: its text, the empty text
+// for a document that does not exist yet, or the failure that says why it
+// cannot be edited.
+func OpenDoc(name string) string fails Unreadable | NotText needs Store {
+	let text = try Store.Load(name) catch {
+	case Missing:
+		return ""
+	}
+	let bad = FirstInvalid(text)
+	if bad >= 0 {
+		return NotText{Offset: bad}
+	}
+	text
+}
+
+// FirstInvalid is the offset of the first byte of text that starts no
+// valid rune, or -1 when the text is UTF-8.
+func FirstInvalid(text string) int {
+	let mut at = 0
+	for at < len(text) {
+		let r = utf8.DecodeRuneInString(strings.Slice(text, at, len(text)))
+		if r.Rune == '\uFFFD' && r.Size == 1 {
+			return at
+		}
+		at = at + r.Size
+	}
+	-1
+}
+
+// DescribeNotText is the text of a document that is not UTF-8.
+func DescribeNotText(name string, n NotText) string {
+	name + ": not UTF-8 text: an invalid byte at offset " + strconv.Itoa(n.Offset)
+}

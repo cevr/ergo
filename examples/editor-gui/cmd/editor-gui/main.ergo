@@ -1,0 +1,81 @@
+// editor-gui is a text editor with undo: a piece table, a caret, a
+// selection, find and replace, and an undo log of inverse edits. This
+// stage is its model and its headless driver: a script of commands on
+// standard input, and the frames a window would show, as text.
+//
+//	editor-gui gen [-seed S] [-n N]   write a text of N lines
+//	editor-gui edit FILE              play the script on standard input
+//
+// A FILE that does not exist is a new, empty document; save writes it.
+// This binary is the only place that chooses the providers: the host's
+// files for the documents, a seeded generator for gen.
+
+import editor/edit
+import editor/files
+import editor/script
+import flag
+import fs
+import io
+import os
+import rand
+import slices
+
+// Usage is the text of a usage failure.
+let Usage = "usage: editor-gui gen [-seed S] [-n N] | editor-gui edit FILE"
+
+let seedFlag = flag.Int("seed", 1, "the seed of the text")
+let countFlag = flag.Int("n", 1000, "how many lines")
+let fileArg = flag.Arg("file", "the document")
+
+let genSet = flag.Set{Name: "editor-gui gen", Usage: "", Flags: []flag.Flag{seedFlag, countFlag}, Args: []flag.ArgSpec{}}
+let editSet = flag.Set{Name: "editor-gui edit", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{fileArg}}
+
+// run is editor-gui on args.
+func run(args []string) fails os.Exit needs edit.Store | io.Stdout | io.Stdin {
+	if len(args) == 0 {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	let rest = slices.Slice(args, 1, len(args))
+	match args[0] {
+	case "gen":
+		let v = flag.Parse(genSet, rest) catch {
+		case err:
+			try flag.Exit(err, Usage)
+			return
+		}
+		let n = countFlag.Get(v)
+		if n < 0 {
+			return os.Exit{Code: 2, Message: "editor-gui: -n must not be negative\n" + Usage}
+		}
+		with context { Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
+			io.Stdout.Print(edit.Generate(n))
+		}
+	case "edit":
+		let v = flag.Parse(editSet, rest) catch {
+		case err:
+			try flag.Exit(err, Usage)
+			return
+		}
+		let name = match fileArg.Get(v) {
+		case Some[string] as a:
+			a.Value
+		case None:
+			return os.Exit{Code: 2, Message: Usage}
+		}
+		let text = edit.OpenDoc(name) catch {
+		case edit.Unreadable as u:
+			return os.Exit{Code: 1, Message: "editor-gui: \(u.Name): \(u.Reason)"}
+		case edit.NotText as n:
+			return os.Exit{Code: 1, Message: "editor-gui: " + edit.DescribeNotText(name, n)}
+		}
+		let _ = script.Play(edit.Open(text), name, io.Stdin.Lines())
+	case _:
+		return os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { edit.Store: files.New(fs.NewHost()), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
+		try run(os.NewHost().Args())
+	}
+}

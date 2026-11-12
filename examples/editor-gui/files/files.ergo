@@ -1,0 +1,36 @@
+// Package files is the host's Store provider: a document is a file of the
+// host's disk. A save writes a new file beside the old one and renames it
+// over it (fs.WriteFile), so a reader sees the old text or the new text.
+
+import editor/edit
+import fs
+
+// Disk keeps documents in the host's files. Only New makes one.
+type Disk { host fs.Host }
+
+// New is the provider over the host's files.
+func New(host fs.Host) Disk { Disk{host: host} }
+
+// Load is the whole text of the file at name.
+func Load(d Disk, name string) string fails edit.Missing | edit.Unreadable {
+	fs.ReadFile(d.host, name) catch {
+	case fs.NotFound:
+		return edit.Missing{Name: name}
+	case fs.Denied:
+		return edit.Unreadable{Name: name, Reason: "permission denied"}
+	case fs.Failed as e:
+		return edit.Unreadable{Name: name, Reason: e.Reason}
+	}
+}
+
+// Save makes the file at name hold text.
+func Save(d Disk, name string, text string) fails edit.Unwritable {
+	fs.WriteFile(d.host, name, text) catch {
+	case fs.NotFound:
+		return edit.Unwritable{Name: name, Reason: "no such directory"}
+	case fs.Denied:
+		return edit.Unwritable{Name: name, Reason: "permission denied"}
+	case fs.Failed as e:
+		return edit.Unwritable{Name: name, Reason: e.Reason}
+	}
+}
