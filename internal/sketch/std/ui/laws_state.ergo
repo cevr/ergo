@@ -1,0 +1,300 @@
+// The laws of view-local state and loads, at int signals. Each runs a
+// generated sequence of passes and host events against a reference model
+// written without a Frame: the model says what each cell holds and which
+// fetch each load wants, and the law checks the screen, the jobs and the
+// results against it.
+
+// row is the model of one keyed row of cellRows: its draft a, its draft b
+// and its flag.
+type row { a string, b string, on bool }
+
+// cellRows writes, for each key, a Field over a draft a with a Text that
+// shows it, a Row holding a Field over a draft b, a Toggle over a flag and
+// a Submit that sends the key and empties a. Draft a and the flag are read
+// directly under the Each, so their cells are keyed by the row's key; draft
+// b is read inside the Row, so its cell lives in that row's node.
+func cellRows(f *Frame[int], keys []int) {
+	Column(f, Plain()) {
+		Each(f, keys, func(k int) Key { ByInt(k) }) func(k int) {
+			let a = NewDraft(f, "")
+			Field(f, a, "a")
+			Text(f, a.Value)
+			Row(f, Plain()) {
+				let b = NewDraft(f, "b\(k)")
+				Field(f, b, "b")
+			}
+			let on = NewFlag(f, false)
+			Toggle(f, on, "t")
+			Submit(f, a, "send", k) {
+				Text(f, "send")
+			}
+		}
+	}
+}
+
+// cellShape is what cellRows means for the model rows of keys.
+func cellShape(keys []int, rows Map[int, row]) []Shape[int] {
+	let mut kids = []Shape[int]{}
+	for k in keys {
+		let r = rowOf(rows, k)
+		kids = kids.Append(leaf(InputNode{Value: r.a, Placeholder: "a"}))
+		kids = kids.Append(leaf(TextNode{Value: r.a, Style: Plain()}))
+		kids = kids.Append(Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{leaf(InputNode{Value: r.b, Placeholder: "b"})}})
+		kids = kids.Append(leaf(ToggleNode{Label: "t", On: r.on}))
+		kids = kids.Append(Shape[int]{Node: PressableNode{Label: "send", On: k, Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "send", Style: Plain()})}})
+	}
+	[]Shape[int]{Shape[int]{Node: ColumnNode{Style: Plain()}, Kids: kids}}
+}
+
+// rowOf is the model row of k: a fresh row (each cell at init) when k has
+// none.
+func rowOf(rows Map[int, row], k int) row {
+	match rows.Get(k) {
+	case Some[row] as r:
+		r.Value
+	case None:
+		row{a: "", b: "b\(k)", on: false}
+	}
+}
+
+// part is the node at position i (0 to 4) of the row at position at, and
+// for i == 2 the Field inside its Row.
+func part(f *Frame[int], at int, i int) Id[int] {
+	let col = Kids(f, Root(f))[0]
+	let id = Kids(f, col)[5*at+i]
+	if i == 2 {
+		return Kids(f, id)[0]
+	}
+	id
+}
+
+// pick is a subset of the keys 0 to 5 in a drawn order; all of them when
+// keepAll.
+func pick(r *rng, keepAll bool) []int {
+	let mut keys = []int{}
+	for k in 0..6 {
+		if keepAll || draw(r, 3) != 0 {
+			keys = keys.Append(k)
+		}
+	}
+	shuffled(keys, r)
+}
+
+// cellsFollowModel runs steps drawn passes and events: a pass with a drawn
+// order of keys (a drawn subset of them when unmount), a text into a
+// row's draft a or b, a press of a row's Toggle or Submit. After each, the
+// screen is what the model rows mean, an event says it changed state
+// exactly when the model changed, and a Submit sends its key. A row the
+// pass leaves out loses its cells: the model drops it.
+func cellsFollowModel(seed int, steps int, unmount bool) bool {
+	let mut r = seeded(seed)
+	let mut f = NewFrame[int]()
+	let mut keys = pick(&r, true)
+	let mut rows = Map[int, row]{}
+	let _ = Render(&f, cellRows, keys)
+	for i in 0..(steps%24+24)%24+1 {
+		let what = draw(&r, 5)
+		if what == 0 || len(keys) == 0 {
+			keys = pick(&r, !unmount)
+			let mut kept = Map[int, row]{}
+			for k in keys {
+				match rows.Get(k) {
+				case Some[row] as x:
+					kept[k] = x.Value
+				case None:
+				}
+			}
+			rows = kept
+		} else {
+			let at = draw(&r, len(keys))
+			let k = keys[at]
+			let old = rowOf(rows, k)
+			let mut now = old
+			let mut done = Handled[int]{Signal: None, Changed: false}
+			match what {
+			case 1:
+				now.a = "s\(i % 3)"
+				done = Handle(&f, Type[int]{Id: part(&f, at, 0), Text: now.a})
+			case 2:
+				now.b = "u\(i % 3)"
+				done = Handle(&f, Type[int]{Id: part(&f, at, 2), Text: now.b})
+			case 3:
+				now.on = !old.on
+				done = Handle(&f, Press[int]{Id: part(&f, at, 3)})
+			case _:
+				now.a = ""
+				done = Handle(&f, Press[int]{Id: part(&f, at, 4)})
+				if sent(done.Signal) != k {
+					return false
+				}
+			}
+			if what != 4 && sent(done.Signal) != -1 {
+				return false
+			}
+			if done.Changed != (now != old) {
+				return false
+			}
+			rows[k] = now
+		}
+		let _ = Render(&f, cellRows, keys)
+		if !SameShapes(FrameShape(&f), cellShape(keys, rows)) || !SameShapes(TreeShape(&f), cellShape(keys, rows)) {
+			return false
+		}
+	}
+	true
+}
+
+// StateKeeps: across passes that reorder keyed rows, each cell holds the
+// last value an event wrote to it, wherever its row moves.
+law StateKeeps(seed int, steps int) {
+	cellsFollowModel(seed, steps, false)
+}
+
+// FreshMountInits: a row a pass leaves out loses its cells; when its key
+// returns, each cell starts from init.
+law FreshMountInits(seed int, steps int) {
+	cellsFollowModel(seed, steps, true)
+}
+
+// place is where loadView writes its Load: nowhere, at the top, or inside
+// a Box.
+type place = Nowhere | Top | Boxed
+
+// Nowhere writes no Load.
+type Nowhere {}
+
+// Top writes the Load directly under the root.
+type Top {}
+
+// Boxed writes the Load inside a Box, so leaving it out removes the Box.
+type Boxed {}
+
+// want is the state loadView shows: where its Load is and its key.
+type want { at place, key int }
+
+// loadView writes a Load of key w.key whose fetch sends the key.
+func loadView(f *Frame[int], w want) {
+	let k = w.key
+	match w.at {
+	case Nowhere:
+		Text(f, "none")
+	case Top:
+		Load(f, ByInt(k), func() int { k })
+	case Boxed:
+		Box(f, Plain()) {
+			Load(f, ByInt(k), func() int { k })
+		}
+	}
+}
+
+// loaded is the model's live load: where it is, its key and its epoch.
+type loaded { at place, key int, epoch int }
+
+// fetching is a fetch a commit gave and the host has not finished.
+type fetching { epoch int, run func() int }
+
+// LoadFollowsModel (ui_loop.qnt, H2b): over drawn passes and drawn
+// finishes of the fetches in flight, in any order, each commit gives
+// exactly the jobs the model wants: a new load, or a load with a new key or
+// a new place, is one Fetch with an epoch no fetch had, and the load it
+// replaces, or a load the pass leaves out, is one Cancel of its epoch.
+// Arrive, and Handle of the Arrived event a fetch posts, take a result
+// exactly when its epoch is the live load's
+// (noStaleReady), and once every fetch has finished, the result the
+// program holds is the live load's key (settledShowsLatest).
+law LoadFollowsModel(seed int, steps int) {
+	let mut r = seeded(seed)
+	let mut f = NewFrame[int]()
+	let mut cur Option[loaded] = None
+	let mut flight = []fetching{}
+	let mut used = Map[int, bool]{}
+	let mut ready = -1
+	for _ in 0..(steps%24+24)%24+2 {
+		if draw(&r, 2) == 0 || len(flight) == 0 {
+			let mut w = want{at: Nowhere, key: draw(&r, 3)}
+			match draw(&r, 3) {
+			case 0:
+			case 1:
+				w.at = Top
+			case _:
+				w.at = Boxed
+			}
+			let _ = Render(&f, loadView, w)
+			let mut fetches = []Fetch[int]{}
+			let mut cancels = []int{}
+			for j in Jobs(&f) {
+				match j {
+				case Fetch[int] as x:
+					fetches = fetches.Append(x)
+				case Cancel as c:
+					cancels = cancels.Append(c.Epoch)
+				}
+			}
+			let mut wantCancel = -1
+			let mut wantFetch = false
+			match cur {
+			case Some[loaded] as c:
+				if c.Value.at != w.at || c.Value.key != w.key {
+					wantCancel = c.Value.epoch
+					wantFetch = w.at != Nowhere
+				}
+			case None:
+				wantFetch = w.at != Nowhere
+			}
+			if wantCancel >= 0 {
+				if len(cancels) != 1 || cancels[0] != wantCancel {
+					return false
+				}
+				cur = None
+				ready = -1
+			} else if len(cancels) != 0 {
+				return false
+			}
+			if wantFetch {
+				if len(fetches) != 1 || used.Get(fetches[0].Epoch) != None {
+					return false
+				}
+				used[fetches[0].Epoch] = true
+				cur = Some{Value: loaded{at: w.at, key: w.key, epoch: fetches[0].Epoch}}
+				flight = flight.Append(fetching{epoch: fetches[0].Epoch, run: fetches[0].Run})
+			} else if len(fetches) != 0 {
+				return false
+			}
+		} else {
+			let i = draw(&r, len(flight))
+			let x = flight[i]
+			let mut rest = []fetching{}
+			for j, y in flight {
+				if j != i {
+					rest = rest.Append(y)
+				}
+			}
+			flight = rest
+			let mut wanted = false
+			match cur {
+			case Some[loaded] as c:
+				wanted = c.Value.epoch == x.epoch
+			case None:
+			}
+			let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal)
+			if Arrive(&f, x.epoch) != wanted || (got != -1) != wanted {
+				return false
+			}
+			if wanted {
+				ready = got
+			}
+		}
+	}
+	for x in flight {
+		let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal)
+		if got != -1 {
+			ready = got
+		}
+	}
+	match cur {
+	case Some[loaded] as c:
+		ready == c.Value.key
+	case None:
+		ready == -1
+	}
+}
