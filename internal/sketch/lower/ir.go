@@ -18,6 +18,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -128,6 +130,9 @@ func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
 	}
 	sum := sha256.Sum256(data)
 	l.ir.report.Hash = hex.EncodeToString(sum[:])
+	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
+		code = append(code, []byte("\n"+decl+" // an import an IR body names\n")...)
+	}
 	code = append(code, []byte("\n// ergoir sha256:"+l.ir.report.Hash+"\n")...)
 	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
 	files = append(files, File{Path: IRFileName, Data: data})
@@ -144,6 +149,9 @@ type irState struct {
 	// then no body gets IR.
 	census *IRCensus
 	reach  []*check.Func
+	// keep are declarations that keep the imports IR bodies name used
+	// (keepImport).
+	keep map[string]bool
 }
 
 // The IR format; the derivative's noder/ergoir.go reads the same shape.
@@ -184,6 +192,8 @@ type irStmt struct {
 	// increase).
 	ElsePos irPos `json:"epos"`
 	ElseEnd irPos `json:"eend"`
+	// Op is an op-assignment's operator (set: x op= X).
+	Op string `json:"op,omitempty"`
 }
 
 type irExpr struct {
@@ -218,6 +228,8 @@ type irBuilder struct {
 	result check.Type
 	// reasons are a census's reasons for this body, distinct, in order.
 	reasons []string
+	// loops is the depth of loops around the statement being built.
+	loops int
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -312,7 +324,16 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	// Go parameter order: receiver, environment, parameters (emitBody).
 	for i, v := range params {
 		if v == nil {
-			b.gate("unnamed parameter")
+			// An unnamed parameter (`_ T`) has its slot; no body reads it.
+			if i == 0 && !fd.pure && fd.method == nil {
+				b.env = b.next
+				b.next++
+			}
+			b.next++
+			if i == 0 && fd.method != nil && !fd.pure {
+				b.env = b.next
+				b.next++
+			}
 			continue
 		}
 		if i == 0 && fd.method != nil {
@@ -344,6 +365,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}
 	b.fn.Body = append(b.fn.Body, b.tail(f.Decl.Body.List, b.result != nil)...)
+	b.fn.Body = append(b.fn.Body, b.bodyEnd(f.Decl.Body.List, b.fn.End)...)
 	if st.census != nil {
 		return false
 	}
