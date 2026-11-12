@@ -451,6 +451,31 @@ func parked[T any](t *testing.T, q *Queue[T], n int) {
 	}
 }
 
+// pushWaitsOn waits on task t until a Push waits in q: its value is still
+// in the line of senders and it is parked. A Push that a Pop has accepted
+// but that has not run since still counts in q.parked, so the count alone
+// may name a wait that already ended. Under the ergoexplore tag t may hold
+// the baton of an explored run, where a poll never lets the other tasks
+// run: it first waits through the scheduler (rt.Await). A run in which no
+// Push comes to wait is then a deadlock that ends the run, not a hang that
+// keeps the explorer's lock. ready reads q without q.mu, as Await
+// requires: only the task that holds the baton changes q, and Await's
+// ready runs under the clock's lock, after that task gave the baton away.
+// Outside an explored run Await does nothing. The deadline only fails the
+// setup.
+func pushWaitsOn[T any](tb *testing.T, t *rt.Task, q *Queue[T]) {
+	tb.Helper()
+	waits := func() bool { return len(q.senders) > 0 && q.parked > 0 }
+	rt.Await(t, waits)
+	if !testwait.Until(tb, func() bool {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		return waits()
+	}) {
+		tb.Fatal("setup: no Push waits in the queue at the test's deadline")
+	}
+}
+
 // result receives an operation's result; the deadline fails a wait that
 // nothing woke.
 func result(t *testing.T, done <-chan error) error {

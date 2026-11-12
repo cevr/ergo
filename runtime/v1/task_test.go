@@ -72,9 +72,30 @@ func explode() int {
 // sleepUntilStopped waits on t until a stop reaches it, then raises the
 // interruption, as a lowered Sleep does.
 func sleepUntilStopped(t *rt.Task) {
-	if err := rt.Sleep(t, rt.Live{}, time.Hour); err != nil {
+	if err := untilStopped(t); err != nil {
 		raise(err)
 	}
+}
+
+// The waits of a test's tasks go through the scheduler. Under the
+// ergoexplore tag runMain is an explored run, where only the task that
+// holds the baton runs: a raw channel receive, a poll or a live timer's
+// wait keeps it, so the task that would wake it never runs. Each helper
+// first gives the baton away until its event came (rt.Await, whose ready
+// takes no lock), then waits as a live run does; outside an explored run
+// Await does nothing.
+
+// untilStopped is rt.Sleep(t, rt.Live{}, time.Hour): it returns the
+// interruption once a stop of t is requested.
+func untilStopped(t *rt.Task) error {
+	rt.Await(t, t.StopRequested)
+	return rt.Sleep(t, rt.Live{}, time.Hour)
+}
+
+// awaitClosed waits on task t until ch is closed.
+func awaitClosed(t *rt.Task, ch <-chan struct{}) {
+	rt.Await(t, isClosedTest(ch))
+	<-ch
 }
 
 // recorder is a trace that several goroutines append to.
@@ -174,7 +195,7 @@ func TestWaitRaisesDefect(t *testing.T) {
 	if !strings.Contains(string(p.Stack), "v1.explode") || !strings.Contains(string(p.Stack), "task_test.go") {
 		t.Errorf("stack does not name the panicking frame:\n%s", p.Stack)
 	}
-	if len(rs[0].Chain) != 2 || rs[0].Chain[0].Span != "child at x.ergo:3:2" || rs[0].Chain[1].Span != "main" {
+	if len(rs[0].Chain) != 2 || rs[0].Chain[0].Span != "child at x.ergo:3:2" || rs[0].Chain[1].Span != rootSpan() {
 		t.Errorf("chain %+v; want the child, then main", rs[0].Chain)
 	}
 }
@@ -202,8 +223,8 @@ func TestDefectChainAcrossTasks(t *testing.T) {
 	for _, f := range rs[0].Chain {
 		spans = append(spans, f.Span)
 	}
-	if got := strings.Join(spans, " "); got != "grandchild child main" {
-		t.Errorf("chain %q; want grandchild child main", got)
+	if got, want := strings.Join(spans, " "), "grandchild child "+rootSpan(); got != want {
+		t.Errorf("chain %q; want %q", got, want)
 	}
 	if p, ok := rs[0].Value.(*Panic); !ok || !strings.Contains(string(p.Stack), "v1.explode") {
 		t.Errorf("defect value %#v does not hold the grandchild's stack", rs[0].Value)
@@ -268,20 +289,20 @@ func TestStop(t *testing.T) {
 						cleaned.Store(true)
 					})
 					close(started)
-					if err := rt.Sleep(ct, rt.Live{}, time.Hour); err != nil {
+					if err := untilStopped(ct); err != nil {
 						return 0, bad{"abandoned"}
 					}
 					return 1, nil
 				})
 			})
-			<-started
+			awaitClosed(root, started)
 			c.Stop()
 			if !cleaned.Load() {
 				t.Error("Stop returned before the task's exit action ended")
 			}
 			c.Stop() // a second Stop does nothing
 			d := ownedGo(s, "defect", func(dt *rt.Task) (int, error) {
-				_ = rt.Sleep(dt, rt.Live{}, time.Hour)
+				_ = untilStopped(dt)
 				return explode(), nil
 			})
 			p := recovered(d.Stop)
@@ -322,7 +343,7 @@ func TestFrameReleaseOrder(t *testing.T) {
 				OnExit(s, func() { r.add(fmt.Sprint(i)) })
 			}
 			OnExit(s, func() { r.add("B") })
-			<-started
+			awaitClosed(root, started)
 			return nil
 		})
 		r.add("returned")
@@ -620,12 +641,12 @@ func TestGoInExitAction(t *testing.T) {
 						close(started)
 						// Inside an exit action the child is shielded from
 						// the ambient stop, but its owner's drain stops it.
-						if err := rt.Sleep(ct, rt.Live{}, time.Hour); err != nil {
+						if err := untilStopped(ct); err != nil {
 							return 0, nil
 						}
 						return 0, nil
 					})
-					<-started
+					awaitClosed(root, started)
 				})
 				return nil
 			})
@@ -695,10 +716,10 @@ func TestGoInExitAction(t *testing.T) {
 						ownedGo(s, "inner", func(ct *rt.Task) (int, error) {
 							defer r.add("inner-child-ended")
 							close(started)
-							_ = rt.Sleep(ct, rt.Live{}, time.Hour)
+							_ = untilStopped(ct)
 							return 0, nil
 						})
-						<-started
+						awaitClosed(root, started)
 						r.add("inner")
 					})
 					r.add("outer")
