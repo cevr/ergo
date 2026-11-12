@@ -1,6 +1,7 @@
 package check
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"testing"
 
@@ -65,7 +66,8 @@ func TestStdDecodeGrowsWithImports(t *testing.T) {
 // second install without changing its live identities. A corrupt header
 // installs nothing; a corrupt package segment is checked from source,
 // never decoded into a changed model. It kills install-rechecks-std,
-// lazy-deps-skipped, export-corruption-accepted and install-overwrites-live;
+// lazy-deps-skipped, export-corruption-accepted, header-corruption-accepted
+// and install-overwrites-live;
 // source-only checker tests never install bytes.
 func TestStdSnapshotInstall(t *testing.T) {
 	ResetStdForTest()
@@ -79,9 +81,12 @@ func TestStdSnapshotInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A flipped header byte is refused before the universe is built.
+	// A flipped header byte that still parses (a letter of the first
+	// package's path) is refused before the universe is built.
 	header := append([]byte(nil), data...)
-	header[len(snapshotMagic)+sha256.Size+2] ^= 1
+	at := len(snapshotMagic) + sha256.Size
+	at += bytes.Index(header[at:], []byte(snap.segs[1].path))
+	header[at] ^= 1
 	if err := InstallStd(header); err == nil {
 		t.Fatal("snapshot with a corrupt header installed")
 	}
