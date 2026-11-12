@@ -15,12 +15,21 @@ func (in *interp) expr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	if ab := in.charge(fr, x, 1); ab != nil {
 		return nil, ab
 	}
+	covered := fr.info.TryCovers[x] != nil
+	if covered {
+		fr.tries++
+	}
 	v, ab := in.exprOf(fr, x)
+	if covered {
+		fr.tries--
+	}
 	if ab != nil {
-		if ab.kind == ctlFail && fr.info.TryCovers[x] != nil {
+		if ab.kind == ctlFail && (covered || fr.tries > 0 && unparen(x) != fr.caught) {
 			// A right operand that a try on its left covers (q105,
-			// check.Info.TryCovers): its failure leaves the frame, as
-			// under the try itself.
+			// check.Info.TryCovers), or an expression under a try but
+			// the caught expression itself: its failure leaves the frame,
+			// as under the try itself, so a catch it is inside of takes
+			// only its caught expression's own failure (rows.md, Catch 5).
 			out := *ab
 			out.kind = ctlEscape
 			return nil, &out
@@ -557,6 +566,8 @@ func (in *interp) zero(fr *frame, at syntax.Node, t rtype) (Value, *abrupt) {
 // try passes a failure of x out of the frame; on a catch it makes the
 // catch partial.
 func (in *interp) try(fr *frame, x *syntax.TryExpr) (Value, *abrupt) {
+	fr.tries++
+	defer func() { fr.tries-- }()
 	if c, ok := unparen(x.X).(*syntax.CatchExpr); ok {
 		return in.catch(fr, c, true)
 	}
@@ -578,7 +589,12 @@ func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *a
 	if m == nil {
 		ice("a catch with no Matches entry")
 	}
+	// Under a try, only x.X's own failure is caught (rows.md, Catch 5):
+	// every failure inside it leaves the frame (expr).
+	outer := fr.caught
+	fr.caught = unparen(x.X)
 	v, failed := in.expr(fr, x.X)
+	fr.caught = outer
 	if failed == nil {
 		return v, nil
 	}

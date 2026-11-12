@@ -44,6 +44,13 @@ type frame struct {
 	// resultPos is the expression returned by this frame, including the
 	// chosen nested tail. The enclosing law uses it for a false result.
 	resultPos syntax.Pos
+	// tries counts the trys whose operand is being evaluated, a covered
+	// root's included (Info.TryCovers); caught is the caught expression
+	// of the innermost catch being evaluated. Under a try, a failure of
+	// any expression but caught leaves the frame (rows.md, Catch 5), as
+	// the lowering's fc.tries propagates it.
+	tries  int
+	caught syntax.Expr
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {

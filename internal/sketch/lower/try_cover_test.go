@@ -44,6 +44,9 @@ func TestTryCoversToTheRight(t *testing.T) {
 	}
 	typecheckGo(t, programs)
 	t.Logf("verdicts: %v", tryVerdicts)
+	if os.Getenv("ERGO_TRY_SEED") == "" && tryVerdicts["eval, a caught argument only a try covers"] == 0 {
+		t.Errorf("the generator reached no caught argument that only a try covers (tryEvalCaught)")
+	}
 }
 
 // tryVerdicts counts the model's verdicts, logged so a change of the
@@ -140,6 +143,9 @@ func tryCoverSeed(t *testing.T, seed int64) *tryProgram {
 		default:
 			tryVerdicts["accepted"]++
 		}
+		if m.s105 && len(m.redundant) == 0 {
+			pure.WriteString(tryEvalCaught(t, seed, k, root, text))
+		}
 		if m.s105 || len(m.redundant) > 0 {
 			continue
 		}
@@ -174,10 +180,12 @@ func tryCoverSeed(t *testing.T, seed int64) *tryProgram {
 		fmt.Fprintf(&main, "\tlet r%d = case%d(xs) catch {\n\tcase Bad as e:\n\t\tConsole.Println(\"failed at \" + e.At)\n\t\t%s\n\t}\n", k, k, root.failText())
 		fmt.Fprintf(&main, "\tConsole.Println(\"\\(r%d)\")\n", k)
 	}
+	if pure.Len() > len(tryPurePrelude) {
+		tryEvaluates(t, seed, pure.String())
+	}
 	if accepted == 0 {
 		return nil
 	}
-	tryEvaluates(t, seed, pure.String())
 	main.WriteString("}\n")
 	src.WriteString(main.String())
 	name := fmt.Sprintf("trycover%d", seed)
@@ -218,6 +226,56 @@ func tryEvalCase(k int, root *tx, fn, text, shown string) string {
 	b.WriteString(fn)
 	fmt.Fprintf(&b, "\nfunc caught%d(xs []int) %s fails Bad {\n\tlet r = %s(%s) catch {\n\tcase Bad:\n\t\t%s\n\t}\n\treturn r\n}\n", k, result, pass, text, sentinel)
 	for _, name := range []string{"case", "caught"} {
+		fmt.Fprintf(&b, "\nfunc show%s%d(xs []int) string {\n\tlet r = %s%d(xs) catch {\n\tcase Bad as e:\n\t\treturn \"failed at \" + e.At\n\t}\n\treturn \"\\(r)\"\n}\n", name, k, name, k)
+		fmt.Fprintf(&b, "\ntest %s%d {\n\tassert show%s%d([]int{10, 20, 30}) == %q\n}\n", strings.ToUpper(name[:1])+name[1:], k, name, k, shown)
+	}
+	return b.String()
+}
+
+// tryEvalCaught is case k of the evaluator's leg for a case the model
+// refuses only for an uncovered failure (S105): its text is the argument
+// of a caught call that a try covers, in the start form, try pass(e)
+// catch, and in the operand form, a + try f() + (pass(e) catch). The try
+// covers e, so a failure in e leaves the frame past the catch, which takes
+// pass's own failure only (rows.md, Catch 5; the lowering's fc.tries). The
+// checker accepts both forms; the shown value is the model's. It kills
+// eval's fixtry-caught-takes-covered, which lets the catch take the
+// failure of a call in its caught call's arguments.
+func tryEvalCaught(t *testing.T, seed int64, k int, root *tx, text string) string {
+	t.Helper()
+	in := &interp{}
+	shown := func() (r string) {
+		defer func() {
+			if p := recover(); p != nil {
+				if _, ok := p.(errFailed); !ok {
+					panic(p)
+				}
+				r = "failed at " + in.failed
+			}
+		}()
+		return root.text(root.eval(in))
+	}()
+	result, pass, sentinel, head := "int", "pass", "-1", `t("a", 0) + try f("b", 0, false) + `
+	if root.isBool {
+		result, pass, sentinel, head = "bool", "passb", "false", `tb("a", true) && try fb("b", true, false) && `
+	}
+	arms := " catch {\n\tcase Bad:\n\t\t" + sentinel + "\n\t}"
+	forms := map[string]string{
+		"start":   "try " + pass + "(" + text + ")" + arms,
+		"operand": head + "(" + pass + "(" + text + ")" + arms + ")",
+	}
+	var b strings.Builder
+	for _, name := range []string{"start", "operand"} {
+		fn := fmt.Sprintf("\nfunc %s%d(xs []int) %s fails Bad {\n\tlet r = %s\n\treturn r\n}\n", name, k, result, forms[name])
+		file, err := syntax.Parse(tryPurePrelude + fn)
+		if err != nil {
+			t.Fatalf("seed %d case %d: %v\n%s", seed, k, err, fn)
+		}
+		if _, diags := check.Check("main", []*syntax.File{file}, nil); len(diags) > 0 {
+			t.Fatalf("seed %d case %d: the checker refuses the %s form: %v\n%s\nreplay: ERGO_TRY_SEED=%d go test -run 'TestTryCoversToTheRight$' ./internal/sketch/lower", seed, k, name, diags, fn, seed)
+		}
+		tryVerdicts["eval, a caught argument only a try covers"]++
+		b.WriteString(fn)
 		fmt.Fprintf(&b, "\nfunc show%s%d(xs []int) string {\n\tlet r = %s%d(xs) catch {\n\tcase Bad as e:\n\t\treturn \"failed at \" + e.At\n\t}\n\treturn \"\\(r)\"\n}\n", name, k, name, k)
 		fmt.Fprintf(&b, "\ntest %s%d {\n\tassert show%s%d([]int{10, 20, 30}) == %q\n}\n", strings.ToUpper(name[:1])+name[1:], k, name, k, shown)
 	}
