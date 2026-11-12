@@ -22,7 +22,8 @@ import (
 // that names its Effect module, the Effect workarounds it does not copy
 // (W1 to W20), the Ergo construct it uses with a spec link, and its
 // lowering against hand Go: a benchmark the repository declares, or a
-// "pending:" or "none:" line with its reason.
+// "pending:" or "none:" line with its reason, or a "counted:" line that
+// links the std count receipt (std-better SB0, scripts/stdcount).
 
 const strengthsHeading = "## Std strengths over Effect"
 
@@ -58,9 +59,40 @@ func TestStdStrengthsTable(t *testing.T) {
 		t.Fatalf("the walk found %d std packages; want 20 or more", len(disk))
 	}
 	doc := readStdlibDoc(t)
-	for _, problem := range strengthsProblems(t, ".", doc) {
+	counts, err := os.ReadFile(filepath.Join(moduleRootDir(t), filepath.FromSlash(countReceipt)))
+	if err != nil {
+		t.Fatalf("the std count receipt (go run ./scripts/stdcount writes it): %v", err)
+	}
+	for _, problem := range strengthsProblems(t, ".", doc, string(counts)) {
 		t.Error(problem)
 	}
+}
+
+// countReceipt is the std count receipt (std-better SB0): the per-function
+// instructions and allocations of each measured package's Ergo form
+// against Go's, written by scripts/stdcount.
+const countReceipt = "docs/receipts/std-count.md"
+
+// countedLink is the link a counted cell carries, relative to docs/spec.
+const countedLink = "(../receipts/std-count.md)"
+
+// countedPackages are the packages of the receipt's Counts table.
+func countedPackages(receipt string) []string {
+	var out []string
+	in := false
+	for _, line := range strings.Split(receipt, "\n") {
+		if strings.HasPrefix(line, "## ") {
+			in = line == "## Counts"
+			continue
+		}
+		if !in || !strings.HasPrefix(line, "| `") {
+			continue
+		}
+		if pkg := strings.Trim(splitCells(line)[0], "`"); !slices.Contains(out, pkg) {
+			out = append(out, pkg)
+		}
+	}
+	return out
 }
 
 // TestStdStrengthsFixtures: the guard judges a fixture std tree and table,
@@ -68,7 +100,7 @@ func TestStdStrengthsTable(t *testing.T) {
 // named.
 func TestStdStrengthsFixtures(t *testing.T) {
 	root := t.TempDir()
-	for _, f := range []string{"prelude.ergo", "alpha/a.ergo", "beta/b.ergo", "fresh/f.ergo", "notes/readme.md"} {
+	for _, f := range []string{"prelude.ergo", "alpha/a.ergo", "beta/b.ergo", "fresh/f.ergo", "gamma/g.ergo", "delta/d.ergo", "notes/readme.md"} {
 		p := filepath.Join(root, filepath.FromSlash(f))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -85,8 +117,13 @@ func TestStdStrengthsFixtures(t *testing.T) {
 		"| `beta` | `String.ts` | W3 | plain functions | `runtime/v1.BenchmarkNoSuchThing`: 1 ns; `BenchmarkText` |\n" +
 		"| `beta` | `String.ts` | none |  | pending: |\n" +
 		"| `gone` | `Queue.ts` | W5 | rows ([rows.md, Catch](rows.md#catch)) | none: no body |\n" +
+		"| `gamma` | `Hash.ts` | none | functions ([x](x.md)) | counted: [std-count](../receipts/std-count.md): Sum 1.00x |\n" +
+		"| `delta` | `Array.ts` | none | functions ([x](x.md)) | counted: Join 1.00x |\n" +
 		"\n## Next\n"
-	got := strengthsProblems(t, root, doc)
+	// The receipt counts delta and the prelude; gamma is only in a later
+	// section, which is not the Counts table.
+	const receipt = "# r\n\n## Counts\n\n| Package | Case |\n| --- | --- |\n| `delta` | Join |\n| `prelude` | Get |\n\n## Weighted\n\n| `gamma` | Sum |\n"
+	got := strengthsProblems(t, root, doc, receipt)
 	want := []string{
 		"stdlib.md:10: alpha: workaround id W21 is outside W1 to W20",
 		"stdlib.md:11: beta: name each benchmark with its package dir (dir.BenchmarkName)",
@@ -94,9 +131,12 @@ func TestStdStrengthsFixtures(t *testing.T) {
 		"stdlib.md:11: beta: the Ergo construct cell has no spec link",
 		"stdlib.md:12: beta: a second row",
 		"stdlib.md:12: beta: the Ergo construct cell is empty",
-		"stdlib.md:12: beta: the Lowering cell names no benchmark and gives no reason after \"none:\" or \"pending:\"",
+		"stdlib.md:12: beta: the Lowering cell names no benchmark and gives no reason after \"none:\", \"pending:\" or \"counted:\"",
 		"stdlib.md:13: gone: the row names no std package",
+		"stdlib.md:14: gamma: the cell says counted:, and " + countReceipt + " does not count the package",
+		"stdlib.md:15: delta: a counted: cell links no " + countReceipt,
 		"fresh: std package with no row in " + strengthsHeading,
+		"prelude: " + countReceipt + " counts it, and its Lowering cell does not start counted:",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("the problems are\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -215,7 +255,10 @@ func splitCells(line string) []string {
 // strengthsProblems judges the table of doc against the std tree at root.
 // Benchmarks are looked up in the module's test files of the named
 // package directory.
-func strengthsProblems(t *testing.T, root, doc string) []string {
+// A Lowering cell that starts "counted:" links the count receipt, which
+// counts the package; every package the receipt counts has such a cell.
+// It checks names, never a count.
+func strengthsProblems(t *testing.T, root, doc, receipt string) []string {
 	t.Helper()
 	pkgs, err := stdPackageDirs(root)
 	if err != nil {
@@ -226,6 +269,7 @@ func strengthsProblems(t *testing.T, root, doc string) []string {
 		return []string{err.Error()}
 	}
 	benches := benchmarkIndex{root: moduleRootDir(t), dirs: map[string]map[string]bool{}}
+	counted := countedPackages(receipt)
 	var out []string
 	seen := map[string]bool{}
 	for _, r := range rows {
@@ -255,6 +299,19 @@ func strengthsProblems(t *testing.T, root, doc string) []string {
 			out = append(out, at+"the Ergo construct cell has no spec link")
 		}
 		out = append(out, lowerProblems(at, r.lowering, &benches)...)
+		if strings.HasPrefix(r.lowering, "counted:") {
+			if !strings.Contains(r.lowering, countedLink) {
+				out = append(out, at+"a counted: cell links no "+countReceipt)
+			}
+			if !slices.Contains(counted, r.pkg) {
+				out = append(out, at+"the cell says counted:, and "+countReceipt+" does not count the package")
+			}
+		}
+	}
+	for _, p := range counted {
+		if !slices.ContainsFunc(rows, func(r strengthRow) bool { return r.pkg == p && strings.HasPrefix(r.lowering, "counted:") }) {
+			out = append(out, p+": "+countReceipt+" counts it, and its Lowering cell does not start counted:")
+		}
 	}
 	for _, p := range pkgs {
 		if !seen[p] {
@@ -284,7 +341,7 @@ func problemLine(p string) int {
 
 // lowerProblems judges a Lowering cell: each benchmark it names, as
 // dir.BenchmarkName, is declared; a cell with no benchmark gives a reason
-// after "none:" or "pending:".
+// after "none:", "pending:" or "counted:".
 func lowerProblems(at, cell string, benches *benchmarkIndex) []string {
 	if cell == "" {
 		return nil
@@ -304,12 +361,15 @@ func lowerProblems(at, cell string, benches *benchmarkIndex) []string {
 		out = append(out, at+"name each benchmark with its package dir (dir.BenchmarkName)")
 	}
 	if len(qualified) == 0 {
-		reason, ok := strings.CutPrefix(cell, "none:")
-		if !ok {
-			reason, ok = strings.CutPrefix(cell, "pending:")
+		var reason string
+		ok := false
+		for _, prefix := range []string{"none:", "pending:", "counted:"} {
+			if rest, found := strings.CutPrefix(cell, prefix); found {
+				reason, ok = rest, true
+			}
 		}
 		if !ok || strings.TrimSpace(reason) == "" {
-			out = append(out, at+"the Lowering cell names no benchmark and gives no reason after \"none:\" or \"pending:\"")
+			out = append(out, at+"the Lowering cell names no benchmark and gives no reason after \"none:\", \"pending:\" or \"counted:\"")
 		}
 	}
 	return out

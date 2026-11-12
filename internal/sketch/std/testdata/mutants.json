@@ -17,6 +17,22 @@
       "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
       "anchor": {"tests": ["std:TestExternArgumentClauses"]},
       "killers": ["std:TestExternArgumentClauses"]
+    },
+    {
+      "name": "sb0-receipt-counts-nothing", "origin": "wf10 SB0",
+      "file": "docs/receipts/std-count.md",
+      "from": "## Counts\n", "to": "## Count\n",
+      "rule": "docs/spec/stdlib.md, Std strengths over Effect: a counted: cell's package is counted by the receipt that scripts/stdcount writes.",
+      "anchor": {"tests": ["std:TestStdStrengthsTable"]},
+      "killers": ["std:TestStdStrengthsTable"]
+    },
+    {
+      "name": "sb0-counted-package-cell-not-counted", "origin": "wf10 SB0",
+      "file": "docs/spec/stdlib.md",
+      "from": "| counted: [std-count](../receipts/std-count.md), instructions and allocations per operation of the Ergo form against Go's function: `Floor` equal", "to": "| none: `Floor` equal",
+      "rule": "docs/spec/stdlib.md, Std strengths over Effect: every package the count receipt counts has a counted: cell.",
+      "anchor": {"tests": ["std:TestStdStrengthsTable"]},
+      "killers": ["std:TestStdStrengthsTable"]
     }
   ]
 }
