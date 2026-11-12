@@ -750,8 +750,12 @@ func packageSeconds(measured map[string]float64) float64 {
 // wf10, section 1.1, measured). Their shards are processes, so they need no
 // t.Parallel audit; each shard is a step with its own TMPDIR (stepTempDir).
 // The shard count is the measured work over shardTargetSeconds, at most the
-// CPU budget.
-var slowPackages = []string{"./cmd/ergo", "./internal/sketch/check", "./internal/sketch/lower"}
+// CPU budget. The IR tests (internal/experimental/irspike) run in the full
+// tier with ergo's patched compile since IRT0b; their agreement and text
+// checks are split by example target (1046 s and 1261 s whole at
+// GOMAXPROCS=1), so the shards spread them and no step's timeout holds
+// them all.
+var slowPackages = []string{"./cmd/ergo", "./internal/experimental/irspike", "./internal/sketch/check", "./internal/sketch/lower"}
 
 // testedPackages are the module's packages that have tests, as "./dir".
 func testedPackages(root string) ([]string, error) {

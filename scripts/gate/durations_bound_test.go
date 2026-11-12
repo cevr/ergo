@@ -16,7 +16,53 @@ var overShardTarget = map[string]string{
 	// cmd/ergo is outside lane gate-speed's files (check-split-2, batch
 	// 9); recorded 18.04 s.
 	"cmd/ergo TestPackageNeverWritesUnderHome": "follow-up: split TestPackageNeverWritesUnderHome (cmd/ergo)",
+	// The IR tests run in the full tier since IRT0b and are sharded since
+	// its round 2, which split the agreement and text checks into one or
+	// two example targets a part. Their rows were measured at the lane's
+	// share (GOMAXPROCS=1, nice 19) on a host at load 26 to 37, not at the
+	// gate's budget; a part's time is about one target's.
+	"internal/experimental/irspike TestIRCoverage":                "follow-up: split TestIRCoverage (irspike); recorded 41.93 s",
+	"internal/experimental/irspike TestIRFailuresMatchSource":     "follow-up: split TestIRFailuresMatchSource by seed (irspike); recorded 356.86 s",
+	"internal/experimental/irspike TestIRMatchesSource":           "follow-up: split TestIRMatchesSource by seed (irspike); recorded 41.52 s",
+	"internal/experimental/irspike TestIRAgreesOnExamplesPart7":   irspikeLaneShare,
+	"internal/experimental/irspike TestIRAgreesOnExamplesPart10":  irspikeLaneShare,
+	"internal/experimental/irspike TestIRAgreesOnExamplesPart11":  irspikeLaneShare,
+	"internal/experimental/irspike TestIRAgreesOnExamplesPart12":  irspikeLaneShare,
+	"internal/experimental/irspike TestIRAgreesOnExamplesPart15":  irspikeLaneShare,
+	"internal/experimental/irspike TestIRAgreesOnExamplesPart18":  irspikeLaneShare,
+	"internal/experimental/irspike TestIRAgreesOnExamplesPart19":  irspikeLaneShare,
+	"internal/experimental/irspike TestIRAgreesOnExamplesPart21":  irspikeLaneShare,
+	"internal/experimental/irspike TestIRAgreesOnExamplesPart233": irspikeLaneShare,
+	"internal/experimental/irspike TestIRAgreesOnExamplesPart234": irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart0":         irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart4":         irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart5":         irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart10":        irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart11":        irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart13":        irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart15":        irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart23":        irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart24":        irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart25":        irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart28":        irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart32":        irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart40":        irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart43":        irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart107":       irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart143":       irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart144":       irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart145":       irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart148":       irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart223":       irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart224":       irspikeLaneShare,
+	"internal/experimental/irspike TestIRTextChecksPart249":       irspikeLaneShare,
 }
+
+// irspikeLaneShare is the follow-up of an IR test part recorded over the
+// target at the lane's share (12.04 s to 24.54 s, one or two example
+// targets; IRT0b r2): re-record the package at the gate's budget
+// (-record-durations), and remove each part it brings under the target.
+const irspikeLaneShare = "follow-up: re-record internal/experimental/irspike at the gate's budget (-record-durations)"
 
 // No test of a sharded package (slowPackages) is recorded over a shard's
 // target (shardTargetSeconds; check-split-2, batch 9): shard deals whole
