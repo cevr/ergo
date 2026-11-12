@@ -39,7 +39,7 @@ func GenerateN(seed uint64, n int) string {
 // The planted constructs and the census reason of each: constructs the IR
 // builder does not lower yet.
 const (
-	reasonIfExpr  = "expression *syntax.IfStmt" // an if expression inside an operand
+	reasonIfExpr  = "expression *syntax.IfStmt" // an if expression below an operand of the value's top operator
 	reasonFuncLit = "expression *syntax.FuncLit"
 	reasonRange   = "operator .."
 )
@@ -176,7 +176,9 @@ func (g *gen) function(i int) {
 				}
 				switch p.reason {
 				case reasonIfExpr:
-					fmt.Fprintf(&g.b, "\tlet pick = 1 + (if %s { %s } else { %s })\n", g.expr(tBool, 1), g.expr(tInt, 1), g.expr(tInt, 1))
+					// Below the value's top operator (an operand of the
+					// top one is IRG3b's, through operands).
+					fmt.Fprintf(&g.b, "\tlet pick = 1 + 2 * (if %s { %s } else { %s })\n", g.expr(tBool, 1), g.expr(tInt, 1), g.expr(tInt, 1))
 					g.scope = append(g.scope, gvar{name: "pick", t: tInt})
 				case reasonFuncLit:
 					fmt.Fprintf(&g.b, "\tlet fl = func(x int) int { x + %d }\n\tlet flv = fl(%s)\n", g.n(5), g.expr(tInt, 1))
