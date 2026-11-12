@@ -1165,6 +1165,24 @@
       "to": "\t\tvar ab *abrupt",
       "rule": "runtime.md Machines and actors 17.1: save runs for each step that commits, before the actor commits the state.",
       "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
+      "name": "oracle-o20-round-to-even",
+      "origin": "wf10 ORACLE O20",
+      "file": "internal/sketch/eval/nativesgo.go",
+      "from": "\"Round\": math.Round,",
+      "to": "\"Round\": math.RoundToEven,",
+      "rule": "std math Round is the nearest integer, half away from zero.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o20-go-float-is-exp",
+      "origin": "wf10 ORACLE O20",
+      "file": "internal/sketch/eval/nativesgo.go",
+      "from": "\t\treturn f(args[0].(float64)), nil",
+      "to": "\t\treturn math.Exp(args[0].(float64)), nil",
+      "rule": "A float extern runs its own Go function (std math's, a program's extern go math.Log).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     }
   ]
 }

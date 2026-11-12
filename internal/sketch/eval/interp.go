@@ -235,6 +235,13 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 			}
 			return nat(in, fr, site, fn, args)
 		}
+		if nat := goNativeOf(fn); nat != nil {
+			var site syntax.Node = fr.decl
+			if at != nil {
+				site = at
+			}
+			return nat(in, fr, site, fn, args)
+		}
 		return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
 	case fn.Pkg.Info == nil:
 		ice("the package of %s has no Info", fn.Name)

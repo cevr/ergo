@@ -165,6 +165,7 @@ func nativeCases(g nativeGen) []nativeCase {
 		fa, fb = f2[0], f2[1]
 	}
 	x := int64(g.r.IntN(5) - 2)
+	half := []float64{0.5, 2.5, -2.5, -0.5, 3, 4.75, 0, math.Copysign(0, -1), math.Inf(1)}[g.r.IntN(9)]
 	key := []string{"apiToken", "server.port", "HTTPStatus", "v2Path", "aÉb", "a\xffB", "", "a..B"}[g.r.IntN(8)] + g.text()
 	dur := []string{"1h2m3.5s", "-1.5ms", "0", "", "1", "3µs", "9223372036854775807ns", "9223372036854775808ns", "1e3s", "1.h", ".5s", "+2us", "1d", "-0"}[g.r.IntN(14)]
 	ls := func(ss []string) Value {
@@ -219,6 +220,11 @@ func nativeCases(g nativeGen) []nativeCase {
 	return []nativeCase{
 		{name: "time.format", args: []Value{sec, nsec, lay}, v1: func() any { return v1.TimeFormat(sec, nsec, lay) }},
 		{name: "time.parse", args: []Value{lay, text}, v1: func() any { return result(v1.TimeParse(lay, text)) }},
+		{name: "math.Round", args: []Value{half}, v1: func() any { return v1.MathRound(half) }},
+		{name: "math.Sqrt", args: []Value{half}, v1: func() any { return v1.MathSqrt(half) }},
+		{name: "math.Pow", args: []Value{half, f}, v1: func() any { return v1.MathPow(half, f) }},
+		{name: "math.Mod", args: []Value{f, half}, v1: func() any { return v1.MathMod(f, half) }},
+		{name: "math.IsInf", args: []Value{f, x}, v1: func() any { return v1.MathIsInf(f, int(x)) }},
 		{name: "config.flagName", args: []Value{key}, v1: func() any { return v1.ConfigFlagName(key) }},
 		{name: "config.envName", args: []Value{w, key}, v1: func() any { return v1.ConfigEnvName(w, key) }},
 		{name: "config.flagKey", args: []Value{s}, v1: func() any { return v1.ConfigFlagKey(s) }},
