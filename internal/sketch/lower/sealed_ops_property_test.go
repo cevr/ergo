@@ -203,8 +203,19 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 		if len(s.tpnames) > 0 {
 			opRef += "[" + strings.Join(s.tpnames, ", ") + "]"
 		}
+		// A member whose result is a mapped text is no program's to
+		// declare (types.md, Borrows 8: fs.Text is written only as a
+		// parameter's type), so its operation type may be refused.
+		writable := func(members []string) bool {
+			for _, m := range members {
+				if _, result, ok := strings.Cut(m, ")"); ok && strings.Contains(result, "fs.Text") {
+					return false
+				}
+			}
+			return true
+		}
 		if len(s.members) > 0 {
-			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/all", src: sealedSource(s, nil, gen(s.members), opRef), must: true})
+			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/all", src: sealedSource(s, nil, gen(s.members), opRef), must: writable(s.members)})
 		}
 		// A resource (R1: it has Close) converts only to an operation type
 		// with a release (R22, releasable): each member goes with Close.
@@ -218,7 +229,7 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 			if len(s.members) == 1 || len(release) > 0 && m == release[0] {
 				continue
 			}
-			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/" + m[:strings.IndexAny(m, "([")], src: sealedSource(s, nil, gen(append([]string{m}, release...)), opRef), must: true})
+			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/" + m[:strings.IndexAny(m, "([")], src: sealedSource(s, nil, gen(append([]string{m}, release...)), opRef), must: writable([]string{m})})
 		}
 		for _, o := range all {
 			if o.path == s.path && o.name == s.name {
