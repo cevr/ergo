@@ -1,0 +1,76 @@
+// jsonparse reads JSON (RFC 8259) with a parser written in Ergo and
+// prints it again, or a part of it.
+//
+//	jsonparse fmt FILE            FILE in jq's layout
+//	jsonparse min FILE            FILE on one line
+//	jsonparse get POINTER FILE    the value at POINTER (RFC 6901), in jq's layout
+//	jsonparse check FILE          how many values FILE holds and how deep they nest
+//	jsonparse gen -seed S -n N    write the workload of N records for seed S
+//
+// A text that is not JSON fails with its line and column. This binary is
+// the only place that chooses the providers: the host's files.
+
+import fs
+import io
+import jsonparse/app
+import jsonparse/files
+import jsonparse/workload
+import os
+import strconv
+
+// Usage is the text of a usage failure.
+let Usage = "usage: jsonparse fmt FILE | min FILE | get POINTER FILE | check FILE | gen -seed S -n N"
+
+func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
+
+// amount is the count that text spells.
+func amount(text string) int fails os.Exit {
+	let n = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return usage()
+	}
+	if n < 0 {
+		return usage()
+	}
+	n
+}
+
+// finish writes o and ends with its status.
+func finish(o app.Outcome) fails os.Exit needs io.Stdout {
+	io.Stdout.Print(o.Out)
+	if o.Status != 0 {
+		return os.Exit{Code: 1, Message: o.Err}
+	}
+}
+
+// run is jsonparse on args.
+func run(args []string) fails os.Exit needs io.Stdout | app.Documents {
+	if len(args) == 0 {
+		return usage()
+	}
+	match (args[0], len(args)) {
+	case ("fmt", 2):
+		try finish(app.Fmt(args[1]))
+	case ("min", 2):
+		try finish(app.Min(args[1]))
+	case ("get", 3):
+		try finish(app.Get(args[1], args[2]))
+	case ("check", 2):
+		try finish(app.Check(args[1]))
+	case ("gen", 5):
+		if args[1] != "-seed" || args[3] != "-n" {
+			return usage()
+		}
+		let seed = try amount(args[2])
+		io.Stdout.Print(workload.Document(seed, try amount(args[4])))
+	case _:
+		return usage()
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = os.NewHost()
+	with context { io.Stdout: io.NewHost(), app.Documents: files.New(fs.NewHost()) } {
+		try run(host.Args())
+	}
+}

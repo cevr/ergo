@@ -1,0 +1,86 @@
+// The generator builds values from Random, for the laws: every kind,
+// keys that repeat, strings with every escape and with text outside
+// ASCII, and numbers in each of their forms. Samples binds Random to
+// rand.Seeded(seed), so a law that takes a seed replays from it.
+
+import rand
+
+// Texts are the strings the generator draws keys and strings from.
+let Texts = []string{"", "a", "b", "a/b", "m~n", "q\"\\", "line\n\ttab\r", "\b\f\u0001\u001f\u007f", "é", "☃ snow", "😀", "0", "10", "-"}
+
+// Numerals are the numbers the generator draws, one of each form.
+let Numerals = []string{"0", "-0", "7", "-12", "1234567890123456789012", "0.5", "-3.25", "1e5", "1E+2", "2.5e-3", "-0.0E-0"}
+
+func draw(xs []string) string needs Random { xs[Random.IntN(len(xs))] }
+
+// GenValue is a value of depth at most depth.
+func GenValue(depth int) Value needs Random {
+	let n = if depth <= 0 { Random.IntN(5) } else { Random.IntN(8) }
+	match n {
+	case 0:
+		Null
+	case 1:
+		Bool{B: Random.IntN(2) == 0}
+	case 2:
+		Number{Text: draw(Numerals)}
+	case 3, 4:
+		Str{S: draw(Texts)}
+	case 5:
+		let mut items = []Value{}
+		for _ in 0..Random.IntN(4) {
+			items = items.Append(GenValue(depth - 1))
+		}
+		Array{Items: items}
+	case _:
+		let mut members = []Member{}
+		for _ in 0..Random.IntN(4) {
+			members = members.Append(Member{Key: draw(Texts), Val: GenValue(depth - 1)})
+		}
+		Object{Members: members}
+	}
+}
+
+// Samples is ten values of depth at most 4 from seed.
+func Samples(seed int) []Value {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut out = []Value{}
+		for _ in 0..10 {
+			out = out.Append(GenValue(4))
+		}
+		out
+	}
+}
+
+// Place is a value inside a document and the pointer that names it.
+type Place { Pointer string, At Value }
+
+// Places is every value of v a pointer reaches, with its pointer, v
+// itself first. A member whose key a later member repeats is not reached.
+func Places(v Value) []Place {
+	let mut out = []Place{}
+	places(&out, "", v)
+	out
+}
+
+func places(out *[]Place, ptr string, v Value) {
+	*out = (*out).Append(Place{Pointer: ptr, At: v})
+	match v {
+	case Array as a:
+		for i, x in a.Items {
+			places(out, ptr+"/\(i)", x)
+		}
+	case Object as o:
+		for i, m in o.Members {
+			let mut later = false
+			for k in i+1..len(o.Members) {
+				if o.Members[k].Key == m.Key {
+					later = true
+				}
+			}
+			if !later {
+				places(out, ptr+"/"+Escaped(m.Key), m.Val)
+			}
+		}
+	case Null, Bool, Number, Str:
+	}
+}

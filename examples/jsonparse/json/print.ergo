@@ -1,0 +1,143 @@
+import strings
+
+// Compact is the text of v on one line, with no space: the form `min`
+// prints.
+func Compact(v Value) string {
+	let mut b = strings.NewBuilder()
+	compact(&b, v)
+	b.String()
+}
+
+// Indent is the text of v with each element on a line of its own, two
+// spaces deeper than its container, and a space after each colon: jq's
+// layout, the form `fmt` prints. An empty array or object is [] or {}.
+func Indent(v Value) string {
+	let mut b = strings.NewBuilder()
+	indent(&b, v, 0)
+	b.String()
+}
+
+// Quoted is s as a JSON string: a quote and a backslash escaped, a
+// control byte and DEL as \b, \f, \n, \r, \t or \u00XX, every other byte
+// as it is.
+func Quoted(s string) string {
+	let mut b = strings.NewBuilder()
+	quote(&b, s)
+	b.String()
+}
+
+let hexDigits = "0123456789abcdef"
+
+func quote(b *strings.Builder, s string) {
+	b.WriteByte('"')
+	let mut from = 0
+	for i in 0..len(s) {
+		let c = s[i]
+		if c >= 0x20 && c != '"' && c != '\\' && c != 0x7f {
+			continue
+		}
+		b.WriteString(strings.Slice(s, from, i))
+		from = i + 1
+		match c {
+		case '"':
+			b.WriteString("\\\"")
+		case '\\':
+			b.WriteString("\\\\")
+		case '\n':
+			b.WriteString("\\n")
+		case '\t':
+			b.WriteString("\\t")
+		case '\r':
+			b.WriteString("\\r")
+		case 0x08:
+			b.WriteString("\\b")
+		case 0x0c:
+			b.WriteString("\\f")
+		case _:
+			b.WriteString("\\u00")
+			b.WriteByte(hexDigits[int(c>>4)])
+			b.WriteByte(hexDigits[int(c&15)])
+		}
+	}
+	b.WriteString(strings.Slice(s, from, len(s)))
+	b.WriteByte('"')
+}
+
+func compact(b *strings.Builder, v Value) {
+	match v {
+	case Null:
+		b.WriteString("null")
+	case Bool as x:
+		b.WriteString(if x.B { "true" } else { "false" })
+	case Number as n:
+		b.WriteString(n.Text)
+	case Str as s:
+		quote(b, s.S)
+	case Array as a:
+		b.WriteByte('[')
+		for i, x in a.Items {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			compact(b, x)
+		}
+		b.WriteByte(']')
+	case Object as o:
+		b.WriteByte('{')
+		for i, m in o.Members {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			quote(b, m.Key)
+			b.WriteByte(':')
+			compact(b, m.Val)
+		}
+		b.WriteByte('}')
+	}
+}
+
+func newline(b *strings.Builder, depth int) {
+	b.WriteByte('\n')
+	for _ in 0..depth {
+		b.WriteString("  ")
+	}
+}
+
+func indent(b *strings.Builder, v Value, depth int) {
+	match v {
+	case Array as a:
+		if len(a.Items) == 0 {
+			b.WriteString("[]")
+			return
+		}
+		b.WriteByte('[')
+		for i, x in a.Items {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			newline(b, depth+1)
+			indent(b, x, depth+1)
+		}
+		newline(b, depth)
+		b.WriteByte(']')
+	case Object as o:
+		if len(o.Members) == 0 {
+			b.WriteString("{}")
+			return
+		}
+		b.WriteByte('{')
+		for i, m in o.Members {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			newline(b, depth+1)
+			quote(b, m.Key)
+			b.WriteString(": ")
+			indent(b, m.Val, depth+1)
+		}
+		newline(b, depth)
+		b.WriteByte('}')
+	case Null, Bool, Number, Str:
+		compact(b, v)
+	}
+}

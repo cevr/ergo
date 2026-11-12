@@ -1,0 +1,112 @@
+// A pointer names a value inside a document (RFC 6901): "" is the
+// document, and each "/token" steps into a member of an object, by its
+// key, or an element of an array, by its index. In a token, ~1 stands for
+// / and ~0 for ~.
+
+import strings
+
+// BadPointer is a pointer that is not RFC 6901's: one that does not start
+// with "/", or a ~ not followed by 0 or 1.
+type BadPointer { Pointer string, Why string }
+
+// NoValue is a pointer that names nothing in the document: At is the
+// pointer up to the token that names nothing, that token included.
+type NoValue { At string }
+
+// Tokens is the tokens of ptr, unescaped.
+func Tokens(ptr string) []string fails BadPointer {
+	if ptr == "" {
+		return []string{}
+	}
+	if ptr[0] != '/' {
+		return BadPointer{Pointer: ptr, Why: "a pointer starts with '/'"}
+	}
+	let mut out = []string{}
+	for raw in strings.Split(strings.Slice(ptr, 1, len(ptr)), "/") {
+		out = out.Append(try unescape(ptr, raw))
+	}
+	out
+}
+
+func unescape(ptr string, raw string) string fails BadPointer {
+	if !strings.Contains(raw, "~") {
+		return raw
+	}
+	let mut b = strings.NewBuilder()
+	let mut i = 0
+	for i < len(raw) {
+		let c = raw[i]
+		if c != '~' {
+			b.WriteByte(c)
+			i += 1
+			continue
+		}
+		let next = if i+1 < len(raw) { raw[i+1] } else { 0 }
+		match next {
+		case '0':
+			b.WriteByte('~')
+		case '1':
+			b.WriteByte('/')
+		case _:
+			return BadPointer{Pointer: ptr, Why: "a '~' is followed by 0 or 1"}
+		}
+		i += 2
+	}
+	b.String()
+}
+
+// Escaped is the token t as a pointer writes it.
+func Escaped(t string) string { strings.ReplaceAll(strings.ReplaceAll(t, "~", "~0"), "/", "~1") }
+
+// Get is the value at ptr in v. Where an object names a key twice, the
+// last member is the one a pointer reaches, as a reader that keeps one
+// value per key keeps it.
+func Get(v Value, ptr string) Value fails BadPointer | NoValue {
+	let tokens = try Tokens(ptr)
+	let mut at = v
+	let mut prefix = ""
+	for t in tokens {
+		prefix = prefix + "/" + Escaped(t)
+		at = try step(at, t, prefix)
+	}
+	at
+}
+
+func step(v Value, t string, prefix string) Value fails NoValue {
+	match v {
+	case Object as o:
+		let mut k = len(o.Members) - 1
+		for k >= 0 {
+			if o.Members[k].Key == t {
+				return o.Members[k].Val
+			}
+			k -= 1
+		}
+		NoValue{At: prefix}
+	case Array as a:
+		let i = index(t)
+		if i < 0 || i >= len(a.Items) {
+			return NoValue{At: prefix}
+		}
+		a.Items[i]
+	case Null, Bool, Number, Str:
+		NoValue{At: prefix}
+	}
+}
+
+// index is the array index t spells: digits with no leading zero (but
+// "0"), or -1.
+func index(t string) int {
+	if len(t) == 0 || len(t) > 9 || (t[0] == '0' && len(t) > 1) {
+		return -1
+	}
+	let mut n = 0
+	for i in 0..len(t) {
+		let c = t[i]
+		if c < '0' || c > '9' {
+			return -1
+		}
+		n = n*10 + int(c-'0')
+	}
+	n
+}

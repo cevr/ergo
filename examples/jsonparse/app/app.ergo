@@ -1,0 +1,91 @@
+// Package app is jsonparse's commands: each reads a document through
+// Documents, parses it, and gives what the user reads, with each failure
+// as the line jsonparse: FILE:LINE:COL: reason.
+
+import jsonparse/json
+
+// Unreadable is a document that cannot be read.
+type Unreadable { Path string, Reason string }
+
+// Documents is where the text of a document comes from. The binary
+// chooses the provider: the host's files, or texts in memory.
+type Documents {
+	Read(path string) string fails Unreadable,
+
+	// Repeatable: two reads of one document give one text.
+	law Repeatable(path string) {
+		let a = Read(path) catch {
+		case Unreadable:
+			return true
+		}
+		let b = Read(path) catch {
+		case Unreadable:
+			return false
+		}
+		a == b
+	},
+}
+
+// Outcome is what a command gives the user: standard output, the line of
+// its failure (empty when it has none) and the exit status.
+type Outcome { Out string, Err string, Status int }
+
+// Failed is a failure that ends a command, with the line that says why.
+type Failed { Line string }
+
+func failed(line string) Outcome { Outcome{Out: "", Err: "jsonparse: " + line, Status: 1} }
+
+// Load is the value of the document at path.
+func Load(path string) json.Value fails Failed needs Documents {
+	let src = Documents.Read(path) catch {
+	case Unreadable as u:
+		return Failed{Line: u.Path + ": " + u.Reason}
+	}
+	json.Parse(src) catch {
+	case json.Malformed as m:
+		return Failed{Line: path + ":\(m.Line):\(m.Col): " + m.Reason}
+	}
+}
+
+// Fmt is the document at path in jq's layout.
+func Fmt(path string) Outcome needs Documents {
+	let v = Load(path) catch {
+	case Failed as f:
+		return failed(f.Line)
+	}
+	Outcome{Out: json.Indent(v) + "\n", Err: "", Status: 0}
+}
+
+// Min is the document at path on one line.
+func Min(path string) Outcome needs Documents {
+	let v = Load(path) catch {
+	case Failed as f:
+		return failed(f.Line)
+	}
+	Outcome{Out: json.Compact(v) + "\n", Err: "", Status: 0}
+}
+
+// Get is the value at ptr in the document at path, in jq's layout.
+func Get(ptr string, path string) Outcome needs Documents {
+	let v = Load(path) catch {
+	case Failed as f:
+		return failed(f.Line)
+	}
+	let at = json.Get(v, ptr) catch {
+	case json.BadPointer as b:
+		return failed(b.Pointer + ": " + b.Why)
+	case json.NoValue as n:
+		return failed(path + ": no value at " + n.At)
+	}
+	Outcome{Out: json.Indent(at) + "\n", Err: "", Status: 0}
+}
+
+// Check is how many values the document at path holds and how deep they
+// nest.
+func Check(path string) Outcome needs Documents {
+	let v = Load(path) catch {
+	case Failed as f:
+		return failed(f.Line)
+	}
+	Outcome{Out: "values \(json.Count(v))\ndepth \(json.Depth(v))\n", Err: "", Status: 0}
+}

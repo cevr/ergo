@@ -1,0 +1,15 @@
+// Disk over an fstest.Memory, so that ergo test runs the law
+// app.Documents.Repeatable on Disk: NewDisk builds the value of each
+// case.
+
+import fs
+import fstest
+
+// NewDisk is a Disk over a memory file system that holds a.json.
+func NewDisk() Disk {
+	let files = fstest.NewMemory()
+	files.WriteFile("a.json", "[1, {\"a\": null}]\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+	New(files)
+}
