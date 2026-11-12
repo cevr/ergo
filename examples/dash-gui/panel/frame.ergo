@@ -1,0 +1,59 @@
+// A panel as the text a window would show for it at a frame.
+
+import strings
+
+// Columns is how many columns a chart or a spark line is drawn in.
+let Columns = 8
+
+// Mode is the name of s's mode.
+func Mode(s State) string {
+	match s {
+	case Live:
+		"live"
+	case Paused:
+		"paused"
+	case Stale:
+		"stale"
+	}
+}
+
+// Describe is panel i in state s at frame f, on one line.
+func Describe(i int, s State, f int) string {
+	let p = PanelOf(s)
+	let head = "\(i) " + Mode(s) + " got=\(p.Got) seen=\(p.Seen) "
+	match p.View {
+	case ChartView as c:
+		head + "chart n=\(Len(c.Samples)) " + spans(Downsample(Items(c.Samples), Columns))
+	case SparkView as k:
+		head + "spark " + spans(Downsample(Items(k.Samples), Columns))
+	case GaugeView as g:
+		head + "gauge at=\(Shown(g, f)) to=\(g.To)"
+	case StripView as h:
+		head + "strip " + counts(Heat(Items(h.Samples), 0, Top))
+	case LogView as l:
+		let mut words = []string{}
+		for e in Items(l.Entries) {
+			words = words.Append("\(e.Frame):\(e.Value)")
+		}
+		head + "log [" + strings.Join(words, " ") + "]"
+	}
+}
+
+// Top is the greatest sample a source reads.
+let Top = 999
+
+func spans(xs []Span) string {
+	let mut words = []string{}
+	for s in xs {
+		words = words.Append("\(s.Lo)-\(s.Hi)")
+	}
+	"[" + strings.Join(words, " ") + "]"
+}
+
+func counts(xs []int) string {
+	let mut words = []string{}
+	for x in xs {
+		words = words.Append("\(x)")
+	}
+	"[" + strings.Join(words, " ") + "]"
+}

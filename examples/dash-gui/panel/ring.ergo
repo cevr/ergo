@@ -1,0 +1,57 @@
+// Package panel is the model of a dashboard's panels: rings of samples,
+// the downsampling a chart draws, the easing a gauge moves by, and the
+// Feed machine each panel runs (Live, Paused, Stale). Time is frames of
+// a virtual clock at 120 frames a second, so a run replays exactly.
+
+import slices
+
+// Ring is the last Cap values pushed, oldest first when read. Only
+// NewRing and Push make one.
+type Ring[T] { items []T, head int, cap int }
+
+// NewRing is an empty ring that keeps the last cap values (at least 1).
+func NewRing[T](cap int) Ring[T] {
+	Ring[T]{items: slices.WithCapacity[T](if cap < 1 { 1 } else { cap }), head: 0, cap: if cap < 1 { 1 } else { cap }}
+}
+
+// Push is r with v as its newest value; past Cap the oldest is dropped.
+func Push[T](r Ring[T], v T) Ring[T] {
+	if len(r.items) < r.cap {
+		return Ring[T]{items: r.items.Append(v), head: r.head, cap: r.cap}
+	}
+	let mut items = r.items
+	items[r.head] = v
+	Ring[T]{items: items, head: (r.head + 1) % r.cap, cap: r.cap}
+}
+
+// Len is how many values r holds.
+func Len[T](r Ring[T]) int { len(r.items) }
+
+// Items is r's values, oldest first.
+func Items[T](r Ring[T]) []T {
+	let mut out = slices.WithCapacity[T](len(r.items))
+	for i in 0..len(r.items) {
+		out = out.Append(r.items[(r.head+i)%len(r.items)])
+	}
+	out
+}
+
+// Last is r's newest n values (all of them when it holds fewer), oldest
+// first.
+func Last[T](r Ring[T], n int) []T {
+	let all = Items(r)
+	let from = if n < len(all) { len(all) - n } else { 0 }
+	slices.Slice(all, from, len(all))
+}
+
+// RingKeepsLastN: a ring of capacity n holds the last n values pushed,
+// oldest first.
+law RingKeepsLastN(cap int, xs []int) {
+	let n = 1 + ((cap%16)+16)%16
+	let mut r = NewRing[int](n)
+	for x in xs {
+		r = Push(r, x)
+	}
+	let from = if len(xs) > n { len(xs) - n } else { 0 }
+	Items(r) == slices.Slice(xs, from, len(xs))
+}

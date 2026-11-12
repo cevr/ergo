@@ -1,0 +1,123 @@
+// What a panel draws: a chart's columns, a gauge's eased value, a heat
+// strip's bins.
+
+import slices
+
+// Span is the least and the greatest sample of one chart column.
+type Span { Lo int, Hi int }
+
+// Downsample is xs drawn in width columns: each column the least and the
+// greatest of its run of samples, the runs as even as integer division
+// makes them. With fewer samples than columns, each sample is a column.
+func Downsample(xs []int, width int) []Span {
+	let w = if width < 1 { 1 } else { width }
+	let cols = if len(xs) < w { len(xs) } else { w }
+	let mut out = slices.WithCapacity[Span](cols)
+	for c in 0..cols {
+		let from = c * len(xs) / cols
+		let to = (c + 1) * len(xs) / cols
+		let mut lo = xs[from]
+		let mut hi = xs[from]
+		for i in from+1..to {
+			if xs[i] < lo {
+				lo = xs[i]
+			}
+			if xs[i] > hi {
+				hi = xs[i]
+			}
+		}
+		out = out.Append(Span{Lo: lo, Hi: hi})
+	}
+	out
+}
+
+// DownsampleKeepsMinMax: the columns keep the samples' least and greatest
+// value, and there are as many columns as asked, or one a sample.
+law DownsampleKeepsMinMax(xs []int, width int) {
+	let w = 1 + ((width%64)+64)%64
+	let cols = Downsample(xs, w)
+	if len(xs) == 0 {
+		return len(cols) == 0
+	}
+	let mut lo = xs[0]
+	let mut hi = xs[0]
+	for x in xs {
+		lo = if x < lo { x } else { lo }
+		hi = if x > hi { x } else { hi }
+	}
+	let mut clo = cols[0].Lo
+	let mut chi = cols[0].Hi
+	for c in cols {
+		clo = if c.Lo < clo { c.Lo } else { clo }
+		chi = if c.Hi > chi { c.Hi } else { chi }
+	}
+	clo == lo && chi == hi && len(cols) == (if len(xs) < w { len(xs) } else { w })
+}
+
+// EaseFrames is how many frames a gauge takes to reach a new target.
+let EaseFrames = 30
+
+// Ease is the value k frames into an ease-out from from to to that lasts
+// d frames: from + (to-from) * (1 - (1 - k/d)^3), in integers. Past d it
+// is to.
+func Ease(from int, to int, k int, d int) int {
+	if d <= 0 || k >= d {
+		return to
+	}
+	if k <= 0 {
+		return from
+	}
+	let rest = d - k
+	from + (to-from)*(d*d*d-rest*rest*rest)/(d*d*d)
+}
+
+// EasingEndsAtTarget: an ease starts at from, ends at to, and never
+// leaves the range between them.
+law EasingEndsAtTarget(from int, to int, d int) {
+	let a = from % 1000000
+	let b = to % 1000000
+	let n = 1 + ((d%120)+120)%120
+	if Ease(a, b, 0, n) != a || Ease(a, b, n, n) != b {
+		return false
+	}
+	let lo = if a < b { a } else { b }
+	let hi = if a < b { b } else { a }
+	let mut last = a
+	for k in 0..n+1 {
+		let v = Ease(a, b, k, n)
+		if v < lo || v > hi || (a <= b && v < last) || (a > b && v > last) {
+			return false
+		}
+		last = v
+	}
+	true
+}
+
+// Bins is how many bins a heat strip has.
+let Bins = 8
+
+// Heat is how many of xs fall in each of Bins even bins from lo to hi.
+func Heat(xs []int, lo int, hi int) []int {
+	let mut out = []int{}
+	for _ in 0..Bins {
+		out = out.Append(0)
+	}
+	let span = if hi > lo { hi - lo + 1 } else { 1 }
+	for x in xs {
+		let c = if x < lo { lo } else if x > hi { hi } else { x }
+		let b = (c - lo) * Bins / span
+		out[b] = out[b] + 1
+	}
+	out
+}
+
+// HeatCountsEverySample: a heat strip's bins add up to its samples.
+law HeatCountsEverySample(xs []int, lo int, span int) {
+	let l = lo % 100000
+	let h = l + ((span%100000)+100000)%100000
+	let mut total = 0
+	for c in Heat(xs, l, h) {
+		total = total + c
+	}
+	total == len(xs)
+}

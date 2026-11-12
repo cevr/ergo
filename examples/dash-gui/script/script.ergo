@@ -1,0 +1,202 @@
+// Package script is the dashboard's headless driver: a script is lines of
+// commands that run the virtual clock, pause and resume panels and set
+// their queues' drop policy, and the driver writes the panels' notes and
+// the frames a window would show. The sources run as tasks for the whole
+// script and stop when it ends.
+
+import dash/feed
+import dash/panel
+import io
+import queue
+import strconv
+import strings
+import tasks
+
+// Command is one line of a script.
+type Command =
+	| Run{Frames int}
+	| Pause{Panel int}
+	| Resume{Panel int}
+	| SetPolicy{Panel int, Policy feed.Policy}
+	| Show{}
+	| Drops{}
+
+// BadLine is a line that is no command, with what was wanted.
+type BadLine { Text string, Want string }
+
+// Parse reads one line of a script:
+//
+//	run N                    advance the clock N frames
+//	pause P, resume P        pause or resume panel P
+//	policy P oldest|newest   what source P's full queue drops
+//	show                     every panel's line
+//	drops                    how many samples each queue dropped
+func Parse(line string) Command fails BadLine {
+	let words = strings.Split(line, " ")
+	let args = len(words) - 1
+	match words[0] {
+	case "show", "drops":
+		if args != 0 {
+			return BadLine{Text: line, Want: "no argument"}
+		}
+		if words[0] == "show" { Show } else { Drops }
+	case "run", "pause", "resume":
+		if args != 1 {
+			return BadLine{Text: line, Want: "one number"}
+		}
+		let n = try count(line, words[1])
+		match words[0] {
+		case "run":
+			Run{Frames: n}
+		case "pause":
+			Pause{Panel: n}
+		case _:
+			Resume{Panel: n}
+		}
+	case "policy":
+		if args != 2 {
+			return BadLine{Text: line, Want: "a panel and oldest or newest"}
+		}
+		let n = try count(line, words[1])
+		match words[2] {
+		case "oldest":
+			SetPolicy{Panel: n, Policy: feed.DropOldest}
+		case "newest":
+			SetPolicy{Panel: n, Policy: feed.DropNewest}
+		case _:
+			return BadLine{Text: line, Want: "oldest or newest"}
+		}
+	case _:
+		return BadLine{Text: line, Want: "run, pause, resume, policy, show or drops"}
+	}
+}
+
+// count is a word that is a number from 0, or a BadLine.
+func count(line string, word string) int fails BadLine {
+	let n = strconv.Atoi(word) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadLine{Text: line, Want: "a number from 0"}
+	}
+	if n < 0 || strings.HasPrefix(word, "+") {
+		return BadLine{Text: line, Want: "a number from 0"}
+	}
+	n
+}
+
+// Line is c as a script line.
+func Line(c Command) string {
+	match c {
+	case Run as r:
+		"run \(r.Frames)"
+	case Pause as p:
+		"pause \(p.Panel)"
+	case Resume as r:
+		"resume \(r.Panel)"
+	case SetPolicy as s:
+		match s.Policy {
+		case feed.DropOldest:
+			"policy \(s.Panel) oldest"
+		case feed.DropNewest:
+			"policy \(s.Panel) newest"
+		}
+	case Show:
+		"show"
+	case Drops:
+		"drops"
+	}
+}
+
+// LineParsesBack: a command's line reads back as the command, when its
+// numbers are from 0.
+law LineParsesBack(c Command) {
+	let back = Parse(Line(c)) catch {
+	case BadLine:
+		return !fits(c)
+	}
+	back == c
+}
+
+func fits(c Command) bool {
+	match c {
+	case Run as r:
+		r.Frames >= 0
+	case Pause as p:
+		p.Panel >= 0
+	case Resume as r:
+		r.Panel >= 0
+	case SetPolicy as s:
+		s.Panel >= 0
+	case Show, Drops:
+		true
+	}
+}
+
+// Play runs the script lines on a new board, with a source task for each
+// panel, and ends the tasks when the script ends.
+func Play(lines Seq[string]) fails queue.Closed | tasks.Closed needs feed.Sensors | io.Stdout {
+	let crew = tasks.NewSet[queue.Closed](tasks.FailFast)
+	let w = try feed.Start(len(feed.Kinds()), crew)
+	let mut b = feed.NewBoard()
+	for line in lines {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let c = Parse(line) catch {
+		case BadLine as e:
+			io.Stdout.Println("? \"" + e.Text + "\": want " + e.Want)
+			continue
+		}
+		match c {
+		case Run as r:
+			for _ in 0..r.Frames {
+				let s = try feed.Advance(b, w)
+				b = s.Board
+				for n in s.Notes {
+					io.Stdout.Println(note(n))
+				}
+			}
+		case Pause as p:
+			b = sent(b, p.Panel, panel.Pause, line)
+		case Resume as r:
+			b = sent(b, r.Panel, panel.Resume, line)
+		case SetPolicy as s:
+			if s.Panel >= len(b.Panels) {
+				io.Stdout.Println("? \"" + line + "\": no panel \(s.Panel)")
+				continue
+			}
+			b = feed.SetPolicy(b, s.Panel, s.Policy)
+		case Show:
+			io.Stdout.Println("frame \(b.Frame)")
+			for i in 0..len(b.Panels) {
+				io.Stdout.Println(panel.Describe(i, b.Panels[i], b.Frame))
+			}
+		case Drops:
+			let mut words = []string{}
+			for d in b.Dropped {
+				words = words.Append("\(d)")
+			}
+			io.Stdout.Println("dropped " + strings.Join(words, " "))
+		}
+	}
+	feed.Stop(w)
+	try crew.Wait()
+}
+
+// sent is b with e given to panel i, writing a refusal.
+func sent(b feed.Board, i int, e panel.Event, line string) feed.Board needs io.Stdout {
+	let s = feed.Send(b, i, e)
+	if !s.Ok {
+		io.Stdout.Println("? \"" + line + "\": refused")
+	}
+	s.Board
+}
+
+// note is a panel's note as a line.
+func note(n feed.Notice) string {
+	match n.Note {
+	case panel.WentStale as s:
+		"\(s.Frame): \(n.Panel) stale"
+	case panel.CameBack as c:
+		"\(c.Frame): \(n.Panel) live"
+	}
+}

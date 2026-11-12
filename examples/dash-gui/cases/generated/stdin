@@ -1,0 +1,32 @@
+resume 6
+run 25
+show
+run 72
+run 120
+policy 3 oldest
+run 68
+run 87
+run 33
+run 92
+show
+policy 5 newest
+show
+show
+run 19
+run 24
+resume 6
+run 43
+show
+run 37
+policy 0 newest
+policy 2 oldest
+run 114
+run 73
+run 65
+run 84
+policy 4 oldest
+show
+policy 5 oldest
+run 48
+show
+drops

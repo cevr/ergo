@@ -1,0 +1,149 @@
+// The board: twelve panels, a source task for each, and the frame loop.
+
+import dash/panel
+import queue
+import slices
+import tasks
+
+// Kinds is the board's panels, in order: four charts, three spark lines,
+// two gauges, two heat strips and an event log.
+func Kinds() []panel.Kind {
+	[]panel.Kind{panel.Chart, panel.Chart, panel.Chart, panel.Chart, panel.Spark, panel.Spark, panel.Spark, panel.Gauge, panel.Gauge, panel.Strip, panel.Strip, panel.Log}
+}
+
+// Alarm is the level above which the log panel writes a sample.
+let Alarm = 900
+
+// Board is the panels at a frame, each source's drop policy, and how many
+// samples each source's queue dropped.
+type Board { Frame int, Panels []panel.State, Policies []Policy, Dropped []int }
+
+// NewBoard is the board at frame 0: every panel live and empty, every
+// queue dropping its oldest sample.
+func NewBoard() Board {
+	let mut panels = []panel.State{}
+	let mut policies = []Policy{}
+	let mut dropped = []int{}
+	for k in Kinds() {
+		panels = panels.Append(panel.Open(k, Alarm))
+		policies = policies.Append(DropOldest)
+		dropped = dropped.Append(0)
+	}
+	Board{Frame: 0, Panels: panels, Policies: policies, Dropped: dropped}
+}
+
+// Notice is a panel's note at a frame.
+type Notice { Panel int, Note panel.Note }
+
+// Wires is the queues between the board and its sources: an order queue
+// and a data queue for each source, and one report queue for all.
+type Wires { Orders []queue.Queue[Order], Data []queue.Queue[int], Done queue.Queue[Report] }
+
+// Start is the wires of n sources, and a task for each source in crew.
+func Start(n int, crew tasks.Set[queue.Closed]) Wires fails tasks.Closed needs Sensors {
+	let mut orders = []queue.Queue[Order]{}
+	let mut data = []queue.Queue[int]{}
+	for _ in 0..n {
+		orders = orders.Append(queue.New[Order](1))
+		data = data.Append(queue.New[int](Capacity))
+	}
+	let w = Wires{Orders: orders, Data: data, Done: queue.New[Report](n)}
+	for i in 0..n {
+		try tasks.Go(crew) { try Serve(i, w.Orders[i], w.Data[i], w.Done) }
+	}
+	w
+}
+
+// Stop ends the order queues, so each source's task returns.
+func Stop(w Wires) {
+	for o in w.Orders {
+		o.End()
+	}
+}
+
+// Advance is b one frame later, and its panels' notes. Every source is
+// given its order and fills its queue; when every source has reported,
+// the board drains the queues in panel order and gives each panel its
+// samples and the clock.
+func Advance(b Board, w Wires) Step fails queue.Closed needs Sensors {
+	let f = b.Frame + 1
+	for i in 0..len(b.Panels) {
+		try w.Orders[i].Push(Order{Frame: f, Count: Sensors.Count(i, f), Policy: b.Policies[i]})
+	}
+	let mut dropped = slices.Clone(b.Dropped)
+	for _ in 0..len(b.Panels) {
+		let r = try w.Done.Pop()
+		dropped[r.Source] = dropped[r.Source] + r.Dropped
+	}
+	let mut panels = []panel.State{}
+	let mut notes = []Notice{}
+	for i in 0..len(b.Panels) {
+		let mut values = []int{}
+		for {
+			match w.Data[i].Poll() {
+			case Some[int] as v:
+				values = values.Append(v.Value)
+			case None:
+				break
+			}
+		}
+		let mut s = b.Panels[i]
+		for e in []panel.Event{panel.Samples{Frame: f, Values: values}, panel.Tick{Frame: f}} {
+			match panel.Step(s, e) {
+			case Enter[panel.State] as n:
+				s = n.Next
+			case Stay[panel.State] as t:
+				s = t.Next
+			case Emit[panel.State, panel.Note] as m:
+				s = m.Next
+				notes = notes.Append(Notice{Panel: i, Note: m.Output})
+			case Ignore, Reject, Done[panel.Note]:
+			}
+		}
+		panels = panels.Append(s)
+	}
+	Step{Board: Board{..b, Frame: f, Panels: panels, Dropped: dropped}, Notes: notes}
+}
+
+// Step is a board after a frame and the notes of that frame.
+type Step { Board Board, Notes []Notice }
+
+// Send is b with event e given to panel i (a pause or a resume); a
+// panel that rejects it is left as it was. Ok is false for a rejected
+// event or a panel that does not exist.
+func Send(b Board, i int, e panel.Event) Sent {
+	if i < 0 || i >= len(b.Panels) {
+		return Sent{Board: b, Ok: false}
+	}
+	match panel.Step(b.Panels[i], e) {
+	case Enter[panel.State] as n:
+		Sent{Board: Board{..b, Panels: replace(b.Panels, i, n.Next)}, Ok: true}
+	case Stay[panel.State] as t:
+		Sent{Board: Board{..b, Panels: replace(b.Panels, i, t.Next)}, Ok: true}
+	case Emit[panel.State, panel.Note] as m:
+		Sent{Board: Board{..b, Panels: replace(b.Panels, i, m.Next)}, Ok: true}
+	case Ignore:
+		Sent{Board: b, Ok: true}
+	case Reject, Done[panel.Note]:
+		Sent{Board: b, Ok: false}
+	}
+}
+
+func replace(xs []panel.State, i int, v panel.State) []panel.State {
+	let mut out = slices.Clone(xs)
+	out[i] = v
+	out
+}
+
+// Sent is the board after Send, and whether the panel took the event.
+type Sent { Board Board, Ok bool }
+
+// SetPolicy is b with source i's queue dropping by p.
+func SetPolicy(b Board, i int, p Policy) Board {
+	if i < 0 || i >= len(b.Policies) {
+		return b
+	}
+	let mut policies = slices.Clone(b.Policies)
+	policies[i] = p
+	Board{..b, Policies: policies}
+}

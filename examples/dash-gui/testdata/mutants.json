@@ -1,0 +1,149 @@
+{
+  "about": "dash-gui's application mutants (wf10 corpus wave GP4a): edits of the example, each with the law or the test that kills it. A killer examples/dash-gui/PKG:law L is `ergo test examples/dash-gui/PKG --law L`; cmd/ergo:TestDashGuiAgreesWithControl is the seeded agreement property against the one-loop reference model and the hand Go control, which kills the mutants no law sees.",
+  "mutants": [
+    {
+      "name": "dash-ring-overwrites-one-slot", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/panel/ring.ergo",
+      "from": "head: (r.head + 1) % r.cap",
+      "to": "head: r.head",
+      "rule": "A ring holds the last N values pushed, oldest first.",
+      "killers": ["examples/dash-gui/panel:law RingKeepsLastN"]
+    },
+    {
+      "name": "dash-column-skips-its-last-sample", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/panel/draw.ergo",
+      "from": "for i in from+1..to {",
+      "to": "for i in from+1..to-1 {",
+      "rule": "A chart's columns keep the samples' least and greatest value.",
+      "killers": ["examples/dash-gui/panel:law DownsampleKeepsMinMax"]
+    },
+    {
+      "name": "dash-ease-runs-backwards", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/panel/draw.ergo",
+      "from": "from + (to-from)*(d*d*d-rest*rest*rest)",
+      "to": "to - (to-from)*(d*d*d-rest*rest*rest)",
+      "rule": "An ease moves from its origin toward its target and never back.",
+      "killers": ["examples/dash-gui/panel:law EasingEndsAtTarget"]
+    },
+    {
+      "name": "dash-stale-one-frame-early", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/panel/feed.ergo",
+      "from": "if t.Frame-l.P.Seen > StaleAfter {",
+      "to": "if t.Frame-l.P.Seen >= StaleAfter {",
+      "rule": "A live panel is live up to StaleAfter frames after its last sample and stale at the next.",
+      "killers": ["examples/dash-gui/panel:law Feed.StaleAfterSilence"]
+    },
+    {
+      "name": "dash-resume-leaves-it-paused", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/panel/feed.ergo",
+      "from": "Enter[State]{Next: Live{P: p.P}}",
+      "to": "Stay[State]{Next: Paused{P: p.P}}",
+      "rule": "A resume ends a pause.",
+      "killers": ["examples/dash-gui/panel:law Feed.PauseAndBack"]
+    },
+    {
+      "name": "dash-drop-newest-uncounted", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/feed/source.ergo",
+      "from": "\tcase DropNewest:\n\t\ttrue\n",
+      "to": "\tcase DropNewest:\n\t\tfalse\n",
+      "rule": "A sample a full queue drops is counted as dropped.",
+      "killers": ["examples/dash-gui/feed:law DropNewestKeepsTheFirst"]
+    },
+    {
+      "name": "dash-queue-one-short", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/feed/source.ergo",
+      "from": "if q.Len() < cap {",
+      "to": "if q.Len() < cap-1 {",
+      "rule": "A queue holds cap samples before it drops.",
+      "killers": ["examples/dash-gui/feed:law DropOldestKeepsTheLast"]
+    },
+    {
+      "name": "dash-sample-out-of-range", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/synth/synth.ergo",
+      "from": "% 400)",
+      "to": "% 1400)",
+      "rule": "A sample is from 0 to panel.Top.",
+      "killers": ["examples/dash-gui/synth:law feed.Sensors.ReadIsRepeatable"]
+    },
+    {
+      "name": "dash-newest-writes-oldest", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/script/script.ergo",
+      "from": "\"policy \\(s.Panel) newest\"",
+      "to": "\"policy \\(s.Panel) oldest\"",
+      "rule": "A command's line reads back as the command.",
+      "killers": ["examples/dash-gui/script:law LineParsesBack"]
+    },
+    {
+      "name": "dash-takes-a-plus-sign", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/script/script.ergo",
+      "from": "if n < 0 || strings.HasPrefix(word, \"+\") {",
+      "to": "if n < 0 {",
+      "rule": "A number in a script is digits only.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-gauge-jumps", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/panel/feed.ergo",
+      "from": "GaugeView{From: Shown(g, m.Frame),",
+      "to": "GaugeView{From: g.To,",
+      "rule": "A gauge eases from where it is shown, not from its last target.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-log-takes-the-alarm-level", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/panel/feed.ergo",
+      "from": "if x > p.Alarm {",
+      "to": "if x >= p.Alarm {",
+      "rule": "The log writes the samples above the alarm level.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-clock-before-samples", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/feed/board.ergo",
+      "from": "[]panel.Event{panel.Samples{Frame: f, Values: values}, panel.Tick{Frame: f}}",
+      "to": "[]panel.Event{panel.Tick{Frame: f}, panel.Samples{Frame: f, Values: values}}",
+      "rule": "A panel takes a frame's samples before the frame's tick, so samples that come on the stale bound keep it live.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-stale-cannot-pause", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/panel/feed.ergo",
+      "from": "Enter[State]{Next: Paused{P: t.P}}",
+      "to": "Reject",
+      "rule": "A stale panel can be paused.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-gauge-shows-its-origin", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/panel/frame.ergo",
+      "from": "gauge at=\\(Shown(g, f))",
+      "to": "gauge at=\\(g.From)",
+      "rule": "A gauge shows its eased value at the frame.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-heat-loses-the-top-bin", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/panel/draw.ergo",
+      "from": "let b = (c - lo) * Bins / span",
+      "to": "let b = (c - lo) * (Bins - 1) / span",
+      "rule": "A heat strip's bins are even.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-policy-ignored", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/feed/board.ergo",
+      "from": "\tpolicies[i] = p\n",
+      "to": "\tpolicies[i] = DropOldest\n",
+      "rule": "A policy command sets what the source's queue drops.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-drops-uncounted", "origin": "wf10 GP4a",
+      "file": "examples/dash-gui/feed/board.ergo",
+      "from": "dropped[r.Source] + r.Dropped",
+      "to": "dropped[r.Source] + 0",
+      "rule": "The board counts every sample a queue dropped.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    }
+  ]
+}

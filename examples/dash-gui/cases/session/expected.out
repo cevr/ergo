@@ -1,0 +1,60 @@
+61: 0 stale
+61: 1 stale
+61: 6 stale
+61: 10 stale
+61: 11 stale
+frame 70
+0 stale got=0 seen=0 chart n=0 []
+1 stale got=0 seen=0 chart n=0 []
+2 live got=128 seen=70 chart n=128 [469-864 520-901 579-970 605-965 592-961 524-915 507-819 379-731]
+3 live got=109 seen=69 chart n=109 [522-909 536-828 406-750 347-729 280-662 233-606 146-528 177-543]
+4 live got=60 seen=70 spark [260-576 232-570 215-577 227-490 146-485 162-410 26-360 129-506]
+5 live got=73 seen=70 spark [110-400 65-239 295-537 182-550 261-663 287-682 356-507 319-670]
+6 stale got=0 seen=0 spark []
+7 live got=110 seen=70 gauge at=697 to=593
+8 live got=112 seen=70 gauge at=441 to=232
+9 live got=103 seen=70 strip [4 17 25 22 23 11 1 0]
+10 stale got=0 seen=0 strip [0 0 0 0 0 0 0 0]
+11 stale got=0 seen=0 log []
+? "pause 3": refused
+? "resume 4": refused
+? "pause 12": refused
+? "policy 12 oldest": no panel 12
+? "policy 5 middle": want oldest or newest
+? "policy +1 newest": want a number from 0
+180: 6 live
+180: 10 live
+180: 11 live
+183: 1 live
+360: 0 live
+420: 2 stale
+420: 6 stale
+420: 11 stale
+dropped 16 56 64 80 72 120 0 128 72 80 56 24
+? "run -1": want a number from 0
+? "run +2": want a number from 0
+? "run  2": want one number
+? "run x": want a number from 0
+? "fly": want run, pause, resume, policy, show or drops
+? "show me": want no argument
+? "drops 1": want no argument
+540: 2 live
+541: 6 live
+598: 8 stale
+599: 4 stale
+600: 3 stale
+672: 11 stale
+frame 672
+0 live got=376 seen=671 chart n=376 [94-565 21-489 149-776 490-999 266-836 139-539 38-559 346-769]
+1 live got=656 seen=672 chart n=656 [145-807 329-961 52-689 116-683 376-983 140-740 27-628 387-971]
+2 live got=674 seen=672 chart n=674 [469-970 281-915 53-695 362-967 131-858 43-568 225-945 356-945]
+3 stale got=670 seen=539 chart n=670 [233-909 73-543 156-794 235-942 66-656 371-966 197-711 31-613]
+4 stale got=708 seen=538 spark [350-708 384-700 440-777 437-763 595-822 469-829 540-798 579-893]
+5 live got=931 seen=672 spark [118-447 125-347 172-455 103-468 213-400 200-423 303-630 425-666]
+6 live got=367 seen=672 spark [272-604 272-606 327-715 399-679 432-799 453-781 529-882 591-950]
+7 live got=924 seen=672 gauge at=657 to=689
+8 stale got=655 seen=537 gauge at=402 to=402
+9 live got=834 seen=672 strip [11 27 50 50 44 47 17 10]
+10 live got=651 seen=672 strip [17 32 38 50 45 34 31 9]
+11 stale got=226 seen=359 log [288:902 295:906 300:942 301:911 304:912]
+dropped 32 88 88 80 88 136 24 152 72 88 80 40

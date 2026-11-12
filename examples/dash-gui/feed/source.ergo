@@ -1,0 +1,117 @@
+// Package feed is the dashboard's plumbing: the sensors a source reads
+// (the Sensors contract), the bounded queue each source fills under its
+// drop policy, a task a source, and the board that runs them a frame at
+// a time. Each frame has two phases: every source is given its order and
+// fills its queue, then the board drains the queues in panel order. So
+// what a queue drops never depends on how the tasks are scheduled, and a
+// seed replays the run exactly.
+
+import dash/panel
+import queue
+import slices
+
+// Sensors is where samples come from: how many samples source has at
+// frame, and the k-th of them, from 0 to panel.Top. Both are pure
+// functions of their arguments, so a run replays.
+type Sensors {
+	Count(source int, frame int) int,
+	Read(source int, frame int, k int) int,
+
+	// ReadIsRepeatable: a sample read again is the same sample, and in
+	// range.
+	law ReadIsRepeatable(source int, frame int, k int) {
+		let v = Read(source, frame, k)
+		v == Read(source, frame, k) && 0 <= v && v <= panel.Top
+	},
+
+	// CountIsRepeatable: a frame's count read again is the same count,
+	// and never negative.
+	law CountIsRepeatable(source int, frame int) {
+		let n = Count(source, frame)
+		n == Count(source, frame) && n >= 0
+	},
+}
+
+// Policy is what a full queue does with one more sample: drop the oldest
+// sample it holds, or drop the new one.
+type Policy = DropOldest{} | DropNewest{}
+
+// Offer puts v in q, which holds at most cap samples and which nothing
+// takes from while it is offered to: a full queue drops by policy. It
+// reports whether a sample was dropped.
+func Offer(q queue.Queue[int], cap int, policy Policy, v int) bool fails queue.Closed {
+	if q.Len() < cap {
+		try q.Push(v)
+		return false
+	}
+	match policy {
+	case DropNewest:
+		true
+	case DropOldest:
+		let _ = q.Poll()
+		try q.Push(v)
+		true
+	}
+}
+
+// DropNewestKeepsTheFirst: a queue that drops new samples keeps the first
+// cap offered, and counts the rest as dropped.
+law DropNewestKeepsTheFirst(xs []int, cap int) {
+	let n = 1 + ((cap%8)+8)%8
+	let q = queue.New[int](n)
+	let mut dropped = 0
+	for x in xs {
+		if try Offer(q, n, DropNewest, x) {
+			dropped = dropped + 1
+		}
+	}
+	q.End()
+	let kept = slices.Collect(q.Values())
+	let keep = if len(xs) < n { len(xs) } else { n }
+	kept == slices.Slice(xs, 0, keep) && dropped == len(xs)-keep
+}
+
+// DropOldestKeepsTheLast: a queue that drops old samples keeps the last
+// cap offered, and counts the rest as dropped.
+law DropOldestKeepsTheLast(xs []int, cap int) {
+	let n = 1 + ((cap%8)+8)%8
+	let q = queue.New[int](n)
+	let mut dropped = 0
+	for x in xs {
+		if try Offer(q, n, DropOldest, x) {
+			dropped = dropped + 1
+		}
+	}
+	q.End()
+	let kept = slices.Collect(q.Values())
+	let from = if len(xs) > n { len(xs) - n } else { 0 }
+	kept == slices.Slice(xs, from, len(xs)) && dropped == from
+}
+
+// Order is what the board gives a source for one frame: how many samples
+// to read, and the policy its queue drops by.
+type Order { Frame int, Count int, Policy Policy }
+
+// Report is what a source tells the board when its frame is in its queue.
+type Report { Source int, Offered int, Dropped int }
+
+// Capacity is how many samples a source's queue holds.
+let Capacity = 16
+
+// Serve is source's task: for each order, read the frame's samples, offer
+// them to data, and report. It ends when orders is ended.
+func Serve(source int, orders queue.Queue[Order], data queue.Queue[int], done queue.Queue[Report]) fails queue.Closed needs Sensors {
+	for {
+		let o = orders.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		let mut dropped = 0
+		for k in 0..o.Count {
+			if try Offer(data, Capacity, o.Policy, Sensors.Read(source, o.Frame, k)) {
+				dropped = dropped + 1
+			}
+		}
+		try done.Push(Report{Source: source, Offered: o.Count, Dropped: dropped})
+	}
+}
