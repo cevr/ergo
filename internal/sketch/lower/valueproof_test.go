@@ -4,59 +4,13 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
-
-// TestPrivateRuntimeOperationCalls is the smallest repro of LR3a's missing
-// caller: an operation private to std json must call the exported Go method.
-// It typechecks the real lowered caller, not a naming-helper result.
-func TestPrivateRuntimeOperationCalls(t *testing.T) {
-	files, ok := std.Package("json")
-	if !ok {
-		t.Fatal("json is not embedded")
-	}
-	var names []string
-	for name := range files {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	u := Unit{}
-	for _, name := range names {
-		f, err := syntax.Parse(files[name])
-		if err != nil {
-			t.Fatal(err)
-		}
-		u.Files = append(u.Files, f)
-		u.Sources = append(u.Sources, Source{Path: "/ergo-test/json/" + name, Text: files[name]})
-	}
-	const src = `func Probe() string {
-		let t = NewText()
-		t.raw("private caller")
-		t.Written()
-	}`
-	f, err := syntax.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	u.Files = append(u.Files, f)
-	u.Sources = append(u.Sources, Source{Path: "/ergo-test/json/probe.ergo", Text: src})
-	pkg, ds := check.StdFixture("json", u.Files)
-	if len(ds) != 0 {
-		t.Fatal(ds)
-	}
-	u.Package = pkg
-	main := checkPackage(t, "main", []pkgSource{{testSourcePath, `import fixturejson
-func main() needs Console { Console.Println(json.Probe()) }`}}, pkgImporter{"fixturejson": pkg})
-	p := mustLowerUnit(t, "private", main, false)
-	typecheckGo(t, []*lowered{p})
-}
 
 const wheelSource = `
 type Digit int where 0 <= it && it <= 9

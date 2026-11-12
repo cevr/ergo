@@ -323,7 +323,7 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 // opBody is the runtime/v1 method of the operation name of the std type n,
 // which takes params Ergo arguments.
 func opBody(n *check.Named, name string, params int, site syntax.Node) v1.Body {
-	body, err := v1.BodyOf(n.Obj.Name + "." + runtimeMember(name))
+	body, err := v1.BodyOf(n.Obj.Name + "." + name)
 	if err != nil {
 		ice(site, "the std operation %s.%s has no runtime/v1 method: %v", n.Obj.Name, name, err)
 	}
@@ -455,7 +455,7 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 			}
 		}
 		text := fc.stdResult(body, result, env, site, func(env string) string {
-			return fc.runtimeCall(n.Obj.Name+"."+runtimeMember(op.Name), body, "", vals[0], vals[1:], env, x, c, site)
+			return fc.runtimeCall(n.Obj.Name+"."+op.Name, body, "", vals[0], vals[1:], env, x, c, site)
 		})
 		// The Go form decides: Wait on a Task[T] whose T is no value returns
 		// struct{}, which the caller discards (goValue).

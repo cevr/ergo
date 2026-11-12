@@ -341,10 +341,9 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 	em := referenceEvents
 	if c.Kind == check.CallEncode {
 		if i, ok := fc.l.directWriter(fc.l.info, x.Args[1]); ok {
-			// A direct writer: its conversion to the Writer is Go's own
-			// (sealedOperations, directOps), so the operand is still the
-			// runtime value, and the events call its methods
-			// (wiredirect.go).
+			// A direct writer: a cell writer (directSource), so the
+			// events call its provider's functions (wiredirect.go,
+			// wiretext.go).
 			em = wireEvents{via: i}
 		}
 	}

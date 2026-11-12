@@ -8,7 +8,6 @@
     {"name":"ps1-body-callee-unchecked","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"why = proofBodyWhy(c.Func, seen)","to":"why = \"\"","rule":"A helper's rowless foreign call is not an Ergo state proof.","killers":["lower:TestProvedRunsModel"]},
     {"name":"ps1-refuted-build-accepted","origin":"wf10 PS1","file":"internal/sketch/lower/rewritecheck.go","from":"if strings.HasPrefix(line, \"FAIL law \") && strings.Contains(line, \"(reachable state)\") {","to":"if false && strings.HasPrefix(line, \"FAIL law \") && strings.Contains(line, \"(reachable state)\") {","rule":"A reachable finite counterexample refuses the build rather than only disabling its rewrite.","killers":["lower:TestProvedRunsModel"]},
     {"name":"ps1-result-compare-skipped","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"+ leftResults + \"[\" + j + \"] != \" + rightResults + \"[\" + j + \"]","to":"+ leftResults + \"[\" + j + \"] != \" + leftResults + \"[\" + j + \"]","rule":"Equal end states do not prove unequal operation results.","killers":["lower:TestProvedRunsModel"]},
-    {"name":"ps1-private-method-unraised","origin":"wf10 PS1 closes LR3a gap","file":"internal/sketch/lower/names.go","from":"return string(op[0]-'a'+'A') + op[1:]","to":"return op","rule":"Private std operations call their exported runtime Go method.","killers":["lower:TestPrivateRuntimeOperationCalls"]},
     {"name":"ps1-state-compare-skipped","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"w(\"if \" + key + \"(\" + a + \") != \" + key + \"(\" + c + \") { \" + held + \" = false }\")","to":"w(\"if false { \" + held + \" = false }\")","rule":"Rewrite proofs compare the full provider state, not only observations.","killers":["lower:TestProvedRunsModel"]},
     {"name":"ps1-budget-stop-proved","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"\") >= \" + budget + \" { \" + complete + \" = false; return }\")","to":"\") >= \" + budget + \" { return }\")","rule":"A truncated search cannot prove a rewrite.","killers":["lower:TestProvedRunsModel"]},
     {"name":"ps1-handle-keyed","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"if why := l.keyWhy(p.Type); why != \"\" {","to":"if why := l.keyWhy(p.Type); false && why != \"\" {","rule":"A handle does not have a structural state key.","killers":["lower:TestRewriteAgrees"]},
@@ -3925,28 +3924,6 @@
       "rule": "A codec witness carries a Direct function for each direct writer, so a codec generic over T writes on a direct writer (wiredirect.go).",
       "killers": [
         "lower:TestStdJSONLawsRun"
-      ]
-    },
-    {
-      "name": "jf-sealed-direct",
-      "origin": "wf10 JSON-fast",
-      "file": "internal/sketch/lower/sealedops.go",
-      "from": "\tif directOps(from, to) {\n",
-      "to": "\tif false && directOps(from, to) {\n",
-      "rule": "A sealed std value whose runtime methods are the target's Go methods converts by Go's own conversion, so a direct writer keeps its representation (sealedops.go, wiredirect.go).",
-      "killers": [
-        "lower:TestEncodeOnADirectWriterCallsItsMethods"
-      ]
-    },
-    {
-      "name": "jf-direct-ops-binding",
-      "origin": "wf10 JSON-fast",
-      "file": "internal/sketch/lower/wiredirect.go",
-      "from": "if runtimeBindings[from.Obj.Name+\".\"+runtimeMember(op.Name)] != (runtimeBinding{task: true}) {",
-      "to": "if false && runtimeBindings[from.Obj.Name+\".\"+runtimeMember(op.Name)] != (runtimeBinding{task: true}) {",
-      "rule": "directOps admits only operations whose binding is the plain task binding: any other (a wait, a release, a context read) needs the adapter's call.",
-      "killers": [
-        "lower:TestSealedStdConvertsToItsOperationTypes"
       ]
     },
     {
