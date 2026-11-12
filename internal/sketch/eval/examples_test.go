@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,7 +20,8 @@ import (
 // holds its standard output, standard error and exit status to the case's
 // recorded files, which the built program matches (scripts/examples). A
 // case with a setup.sh (it writes files the simulated process does not
-// see) and a run that reaches a form the evaluator does not run are listed
+// see), a ts program's case (Bun runs it, and drives the built program),
+// and a run that reaches a form the evaluator does not run are listed
 // and counted, never passed; any other difference fails. The log's last
 // lines are the census: how many cases agreed, were skipped and why.
 //
@@ -45,6 +47,14 @@ func TestEvalAgreesOnExamples(t *testing.T) {
 		cases, err := os.ReadDir(filepath.Join(dir, "cases"))
 		if err != nil {
 			continue // no cases: nothing to run
+		}
+		if tags, err := os.ReadFile(filepath.Join(dir, "tags")); err == nil && slices.Contains(strings.Fields(string(tags)), "ts") {
+			// A ts program's case runs Bun, which drives the built
+			// program (scripts/examples, ts.go): the args are Bun's.
+			for _, c := range cases {
+				skips["a ts case, which Bun runs"] = append(skips["a ts case, which Bun runs"], prog.Name()+"/"+c.Name())
+			}
+			continue
 		}
 		mainDir, ok := mainPackage(dir)
 		if !ok {
