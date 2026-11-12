@@ -278,11 +278,15 @@ func provedModel(t *testing.T) {
 		}
 		fmt.Fprintf(&src, "func Inc(p *%s) { ", p)
 		if m.foreign {
-			fmt.Fprintf(&src, "foreign%s(int(p.s)); ", suffix)
+			fmt.Fprintf(&src, "let _ = foreign%s(int(p.s)); ", suffix)
 		}
 		fmt.Fprintf(&src, "p.s = state%s(int(p.s)+1) }\n", suffix)
 		if m.foreign {
-			fmt.Fprintf(&src, "func foreign%s(n int) { let _ = strconv.Itoa(n) }\n", suffix)
+			// The native closure refuses the helper's extern call, and the
+			// symbolic run stops on the comparison of its uninterpreted
+			// term, so no proof path may prove it (a discarded rowless
+			// extern call alone is a term the symbolic run proves through).
+			fmt.Fprintf(&src, "func foreign%s(n int) bool { strconv.Itoa(n) == \"\" }\n", suffix)
 		}
 		fmt.Fprintf(&src, "func Twice(p *%s) { ", p)
 		if m.bad {
