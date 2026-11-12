@@ -226,7 +226,7 @@ func instanceText(in RewriteInstance) string {
 // changes no token of one, moves one, or touches a declaration the law
 // does not reach leaves it as it was.
 func LawDigest(law *check.Law, prov *check.Named, conv check.Conversion, ctor *check.Func, inst string) string {
-	d := &digester{seen: map[any]bool{}, decls: map[string]bool{}, lets: map[*check.Var]letDecl{}, indexed: map[*check.Package]bool{}}
+	d := &digester{seen: map[any]bool{}, decls: map[string]bool{}, lets: map[*check.Var]letDecl{}, named: map[*check.Package]map[string]*check.Var{}, indexed: map[*check.Package]bool{}}
 	d.typ(law.Owner)
 	d.typ(prov.Obj)
 	roots := tableFuncs(conv)
@@ -278,6 +278,7 @@ type digester struct {
 	// lets are the package lets of the packages indexed, by their
 	// variable, each with its declaration.
 	lets    map[*check.Var]letDecl
+	named   map[*check.Package]map[string]*check.Var
 	indexed map[*check.Package]bool
 }
 
@@ -344,6 +345,10 @@ func (d *digester) index(p *check.Package) {
 				if id, ok := n.(*syntax.Ident); ok {
 					if v, ok := p.Info.Defs[id].(*check.Var); ok {
 						d.lets[v] = letDecl{pkg: p, decl: vd}
+						if d.named[p] == nil {
+							d.named[p] = map[string]*check.Var{}
+						}
+						d.named[p][v.Name] = v
 					}
 				}
 				return true
@@ -353,7 +358,7 @@ func (d *digester) index(p *check.Package) {
 }
 
 // walk follows every function, type and package let that n names or
-// calls. A qualified name's package is indexed before its name is read.
+// calls, qualified names included.
 func (d *digester) walk(p *check.Package, n syntax.Node) {
 	if p.Info == nil {
 		return
@@ -373,12 +378,39 @@ func (d *digester) walk(p *check.Package, n syntax.Node) {
 				d.typ(obj)
 			case *check.Var:
 				d.let(obj)
-			case *check.PkgName:
-				d.index(obj.Pkg)
+			}
+		case *syntax.SelectorExpr:
+			// The checker records no use of a qualified name's member.
+			if id, ok := n.X.(*syntax.Ident); ok {
+				if pn, ok := p.Info.Uses[id].(*check.PkgName); ok {
+					d.member(pn.Pkg, n.Sel.Name)
+				}
 			}
 		}
 		return true
 	})
+}
+
+// member adds the package let, the type or the functions named name in
+// q, which a qualified name reads.
+func (d *digester) member(q *check.Package, name string) {
+	if q == nil {
+		return
+	}
+	d.index(q)
+	if v := d.named[q][name]; v != nil {
+		d.let(v)
+	}
+	for _, t := range q.Types {
+		if t.Name == name {
+			d.typ(t)
+		}
+	}
+	for _, f := range q.Funcs {
+		if f.Name == name {
+			d.fn(f)
+		}
+	}
 }
 
 // declText is the source text of the declaration n of p.
