@@ -18,6 +18,15 @@ import (
 // for the operation, not a Writer interface call. std json's Text is such
 // a type: its provider is the Ergo record text.
 //
+// cellFuncs: a cell writer's codec function takes P's value and gives it
+// back, func(env, w P, v T) P, as Go's append passes a slice, and works on
+// &w inside; a call of another codec function, or of a codec witness's
+// field, is `*w = f(env, *w, x)`. So no pointer to the cell reaches a
+// function value, and Go keeps the caller's cell on its stack: the encode
+// makes no allocation for its writer. (Measured: a *P parameter instead
+// costs more instructions per encode, since each append then goes
+// through memory the callee may alias.)
+//
 // The events of one straight run (consecutive event lines of a codec
 // function: no loop, branch or other call between them) are then a window
 // of the rewrite engine (rewrite.go) with P's proved laws: each event
@@ -80,18 +89,26 @@ func (l *lowerer) cellOf(em wireEvents) (cellWriter, bool) {
 	return cellWriterOf(l.directWriters[em.via], check.PreludeType(check.WireWriterName))
 }
 
-// directGoType is the Go type of direct writer w's codec functions: *P
-// for a cell writer, the runtime type otherwise.
+// directGoType is the Go type of direct writer w's codec functions: P for
+// a cell writer (its state passes by value, cellFuncs), the runtime type
+// otherwise.
 func (tc *typeCtx) directGoType(w check.Type) string {
 	if cw, ok := cellWriterOf(w, check.PreludeType(check.WireWriterName)); ok {
-		return "*" + tc.goType(cw.prov)
+		return tc.goType(cw.prov)
 	}
 	return tc.goType(w)
 }
 
-// cellOperand is the Go value of P behind the cell writer operand val: the
-// cell's own value in its adapter (cells.go).
-func (fc *funcCtx) cellOperand(cw cellWriter, val string) string {
+// cellOperand is the Go value of P behind the cell writer operand x, whose
+// Go text is val: the cell's own value in its adapter (cells.go).
+func (fc *funcCtx) cellOperand(cw cellWriter, x syntax.Expr, val string) string {
+	if id, ok := unparen(x).(*syntax.Ident); ok {
+		if v, ok := fc.l.info.Uses[id].(*check.Var); ok {
+			if _, recv, ok := fc.cellWindow(v); ok {
+				return recv
+			}
+		}
+	}
 	key, base, ok := fc.l.adapterName(cw.conv)
 	if !ok {
 		ice(nil, "the cell conversion into %s has no adapter", cw.conv.To)
@@ -116,6 +133,9 @@ func (l *lowerer) cellEvents(cw cellWriter, env, w, text string, site syntax.Nod
 		run, texts = nil, nil
 	}
 	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue // no statement: the run goes on
+		}
 		op, arg, ok := eventLine(strings.TrimSpace(line), w, task)
 		if !ok {
 			flush()

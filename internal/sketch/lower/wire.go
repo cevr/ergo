@@ -74,7 +74,11 @@ func (tc *typeCtx) wireFieldType(self check.Type) string {
 // wireDirectType is the Go type of a codec witness's Direct field for the
 // direct writer w: self's codec function on w's runtime type.
 func (tc *typeCtx) wireDirectType(w, self check.Type) string {
-	return "func(*" + tc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + tc.directGoType(w) + ", " + tc.goType(self) + ")"
+	s := "func(*" + tc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + tc.directGoType(w) + ", " + tc.goType(self) + ")"
+	if _, ok := cellWriterOf(w, check.PreludeType(check.WireWriterName)); ok {
+		s += " " + tc.directGoType(w) // the state after (cellFuncs)
+	}
+	return s
 }
 
 // wireDirectFuncs are the Direct fields of a witness literal: for each
@@ -84,7 +88,23 @@ func (fc *funcCtx) wireDirectFuncs(tc *typeCtx, self, t check.Type, v func(strin
 	s := ""
 	for i, w := range fc.l.directWriters {
 		e, b, x := fc.scope.alloc("e"), fc.scope.alloc("b"), fc.scope.alloc("v")
-		s += ", " + directField(i) + ": func(" + e + " *" + fc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + b + " " + tc.directGoType(w) + ", " + x + " " + tc.goType(self) + ") {\n" + tc.wireEncodeWith(wireEvents{via: i}, t, e, b, v(x)) + "\n}"
+		em := wireEvents{via: i}
+		param, result := b, ""
+		if _, ok := fc.l.cellOf(em); ok {
+			// The state passes by value (cellFuncs).
+			param, result = fc.scope.alloc("bv"), " "+tc.directGoType(w)
+		}
+		body := tc.wireEncodeWith(em, t, e, b, v(x))
+		if cw, ok := fc.l.cellOf(em); ok {
+			_, isParam := t.(*check.TypeParam)
+			if !fc.l.wireInline(t) && !isParam {
+				// One codec function: it takes and gives the state.
+				body = "return " + fc.l.wireFunc(em.dir(), t, tc.site) + "(" + e + tc.wireWits(t) + ", " + param + ", " + v(x) + ")"
+			} else {
+				body = b + " := &" + param + "\n" + fc.l.cellEvents(cw, e, b, body, tc.site) + "\nreturn " + param
+			}
+		}
+		s += ", " + directField(i) + ": func(" + e + " *" + fc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + param + " " + tc.directGoType(w) + ", " + x + " " + tc.goType(self) + ")" + result + " {\n" + body + "\n}"
 	}
 	return s
 }
@@ -323,15 +343,20 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 		w := vals[1]
 		if cw, ok := fc.l.cellOf(em); ok {
 			// The cell's own value: P's functions write the events.
-			w = fc.cellOperand(cw, vals[1])
+			w = fc.cellOperand(cw, x.Args[1], vals[1])
 		}
 		if fc.l.wireInline(c.Type) {
 			// The inline event is a method call on w: a variable, so a
 			// Writer adapter's pointer methods are in its method set.
+			operand := w
 			w = fc.temp("w")
-			fc.line(w + " := " + vals[1])
+			fc.line(w + " := " + operand)
 		}
-		fc.line(tc.wireEncodeWith(em, c.Type, env, w, vals[0]))
+		s := tc.wireEncodeWith(em, c.Type, env, w, vals[0])
+		if cw, ok := fc.l.cellOf(em); ok {
+			s = fc.l.cellEvents(cw, env, w, s, x)
+		}
+		fc.line(s)
 		return operand{}
 	}
 	call := ""
@@ -360,11 +385,16 @@ func (tc *typeCtx) wireEncode(t check.Type, env, w, v string) string {
 func (tc *typeCtx) wireEncodeWith(em wireEvents, t check.Type, env, w, v string) string {
 	l := tc.l
 	if l.wireInline(t) {
-		s := em.basic(tc, wireUnder(t).(*check.Basic), taskOf(env), w, v)
-		if cw, ok := l.cellOf(em); ok {
-			s = l.cellEvents(cw, env, w, s, tc.site)
+		// On a cell writer the event is Writer text still: the caller's
+		// run makes it the provider's calls (cellEvents).
+		return em.basic(tc, wireUnder(t).(*check.Basic), taskOf(env), w, v)
+	}
+	if _, ok := l.cellOf(em); ok {
+		// A cell writer's state passes by value (cellFuncs).
+		if tp, ok := t.(*check.TypeParam); ok {
+			return "*" + w + " = " + em.param(tc, tp, env, "*"+w, v)
 		}
-		return s
+		return "*" + w + " = " + l.wireFunc(em.dir(), t, tc.site) + "(" + env + tc.wireWits(t) + ", *" + w + ", " + v + ")"
 	}
 	if tp, ok := t.(*check.TypeParam); ok {
 		return em.param(tc, tp, env, w, v)
@@ -501,11 +531,13 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 			writer = tc.directGoType(l.directWriters[via])
 		}
 		l.wireEncodeBody(em, tc, &body, t, env, task, w, v, scope)
-		text := body.String()
+		text, param, result := body.String(), w, ""
 		if cw, ok := l.cellOf(em); ok {
-			text = l.cellEvents(cw, env, w, text, site)
+			// The state passes by value and comes back (cellFuncs).
+			param, result = scope.alloc("wv"), " "+writer
+			text = w + " := &" + param + "\n" + l.cellEvents(cw, env, w, text, site) + "\nreturn " + param + "\n"
 		}
-		l.gen.WriteString("func " + name + tlist + "(" + lead + ", " + w + " " + writer + ", " + v + " " + goType + ") {\n" + text + "}\n\n")
+		l.gen.WriteString("func " + name + tlist + "(" + lead + ", " + param + " " + writer + ", " + v + " " + goType + ")" + result + " {\n" + text + "}\n\n")
 		return name
 	}
 	r := scope.alloc("r")

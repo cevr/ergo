@@ -52,17 +52,16 @@ func nested(c bool) string {
 	t.Written() + " " + t2.Written()
 }
 
-func viaWriter(p Port) string {
-	let t = json.NewText()
-	encode(p, t)
-	t.Written()
+func viaWriter(p Port, w Writer) {
+	encode(p, w)
 }
 
 func main() needs Console {
 	let t = json.NewText()
 	encode(Port{Host: "a", Port: 1, Tags: []string{"x"}}, t)
 	mine(Port{Host: "d", Port: 4, Tags: []string{}})
-	Console.Println(t.Written() + show(Port{Host: "b", Port: 2, Tags: []string{}}) + nested(true) + viaWriter(Port{Host: "c", Port: 3, Tags: []string{}}))
+	viaWriter(Port{Host: "c", Port: 3, Tags: []string{}}, Text{n: 0})
+	Console.Println(t.Written() + show(Port{Host: "b", Port: 2, Tags: []string{}}) + nested(true))
 }
 `
 
