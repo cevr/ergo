@@ -4,7 +4,7 @@
     {
       "name": "onebrc-fast-path-accepts-bad-temperature", "origin": "wf10 1BRC",
       "file": "examples/onebrc/weather/table.ergo",
-      "from": "fast = (bad | t.Bad) == 0 && uint(n-1) < uint(MaxName)",
+      "from": "fast = (bad|t.Bad) == 0 && uint(n-1) < uint(MaxName)",
       "to": "fast = bad == 0 && uint(n-1) < uint(MaxName)",
       "rule": "The fast path takes a line only when its temperature has the form -?d?d.d; any other line goes to the byte parser, which reports it.",
       "killers": ["cmd/ergo:TestOneBRCAgrees"]

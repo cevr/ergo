@@ -78,7 +78,7 @@ func Scan(text string, from int, end int) Part {
 			let t = ReadTemp(Word(text, p+n+1))
 			v = t.Tenths
 			next = p + n + t.Width + 2
-			fast = (bad | t.Bad) == 0 && uint(n-1) < uint(MaxName)
+			fast = (bad|t.Bad) == 0 && uint(n-1) < uint(MaxName)
 		}
 		if !fast {
 			let r = ParseLine(text, p) catch {
