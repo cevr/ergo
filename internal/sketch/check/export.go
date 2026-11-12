@@ -234,6 +234,8 @@ func InstallStd(r io.ReaderAt, size int64) error {
 // (CHK1c, measured on a check with no std import: 192 fewer pages of the
 // binary resident, docs/receipts/check-speed.md). The frame stays below the
 // compiler's limit for a stack variable, so pad is on the stack.
+// TestInstallGrowsTheStackOnce holds it: after the install, the first
+// check, with its lazy decodes, moves the stack no more.
 //
 //go:noinline
 func growStack(i int) byte {

@@ -3,7 +3,9 @@ package check
 import (
 	"bytes"
 	"crypto/sha256"
+	"runtime/debug"
 	"testing"
+	"unsafe"
 
 	"ergo.local/prototype/internal/sketch/std"
 )
@@ -78,6 +80,54 @@ func TestStdDecodeGrowsWithImports(t *testing.T) {
 		if got, want := WorkDone(), want(closure); got != want {
 			t.Errorf("importing %s did %+v; want %+v, its std closure %v alone", path, got, want, closure)
 		}
+	}
+}
+
+// TestInstallGrowsTheStackOnce counts the stack moves of the first check
+// after an install: zero (CHK1c r2). InstallStd grows its goroutine's
+// stack once, while few frames are on it (growStack). A stack that grew
+// later, inside the decoder's or the checker's recursion, would be copied
+// with all those frames on it, and each copy reads their stack maps:
+// pages of the binary the process then holds (the receipt in
+// docs/receipts/check-speed.md). The goroutine reads where its own frame
+// lies after the install and after a check of the budget program, whose
+// import of time decodes segments lazily; a move in between shows as two
+// places. It runs on a fresh goroutine, whose stack starts small, with
+// the collector off, so no stack shrink moves it. It kills
+// stack-not-grown and stack-pad-small: each checks the same model and
+// passes every other test.
+func TestInstallGrowsTheStackOnce(t *testing.T) {
+	ResetStdForTest()
+	defer ResetStdForTest()
+	data, err := ExportStd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ResetStdForTest()
+	defer debug.SetGCPercent(debug.SetGCPercent(-1))
+	type result struct {
+		err                   error
+		ds                    []Diagnostic
+		installed, afterCheck uintptr
+	}
+	done := make(chan result)
+	go func() {
+		var frame byte
+		var r result
+		r.err = InstallStd(bytes.NewReader(data), int64(len(data)))
+		r.installed = uintptr(unsafe.Pointer(&frame))
+		if r.err == nil {
+			_, r.ds = CheckSource(budgetProgram)
+		}
+		r.afterCheck = uintptr(unsafe.Pointer(&frame))
+		done <- r
+	}()
+	r := <-done
+	if r.err != nil || len(r.ds) != 0 {
+		t.Fatal(r.err, r.ds)
+	}
+	if r.installed != r.afterCheck {
+		t.Errorf("the check after the install moved the stack (a frame at %#x after the install, at %#x after the check): it grew inside the recursion", r.installed, r.afterCheck)
 	}
 }
 

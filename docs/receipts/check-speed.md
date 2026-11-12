@@ -102,7 +102,8 @@ with no std import:
   growth inside the decoder's recursion: each copy of a growing stack reads
   the stack maps of every frame on it. `InstallStd` now grows the stack once,
   while few frames are on it (`growStack`): 192 fewer resident pages of the
-  binary (3922 to 3730).
+  binary (3922 to 3730). TestInstallGrowsTheStackOnce counts the stack
+  moves of a first check after the install: zero.
 
 Method: as above, seven interleaved rounds, median per target, peak RSS is
 the child's `ru_maxrss`. `nocache` is 0142c37cb with the std cache off
