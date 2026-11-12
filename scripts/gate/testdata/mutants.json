@@ -36,6 +36,15 @@
       "to": "p.free--",
       "rule": "An immediate memory-heavy reservation also takes all requested slots.",
       "killers": ["scripts/gate:TestSlotPoolReservesMemoryHeavySteps"]
+    },
+    {
+      "name": "tc-gate-managed-go",
+      "origin": "wf10/toolchain r1",
+      "file": "scripts/gate/main.go",
+      "from": "\tif _, set := os.LookupEnv(ergoGo); !set {",
+      "to": "\tif _, set := os.LookupEnv(ergoGo); false && !set {",
+      "rule": "A gate step's ergo builds with the system go and never downloads Go, unless the caller sets ERGO_GO.",
+      "killers": ["scripts/gate:TestStepsBuildWithTheSystemGo"]
     }
   ]
 }
