@@ -17,6 +17,15 @@
       "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
       "anchor": {"tests": ["std:TestExternArgumentClauses"]},
       "killers": ["std:TestExternArgumentClauses"]
+    },
+    {
+      "name": "strengths-bench-dir-undeclared", "origin": "wf10 fu-std-closure",
+      "file": "internal/sketch/std/strengths_test.go",
+      "from": "\t\tif !slices.Contains(benchmarkPackages, dir) {\n",
+      "to": "\t\tif false {\n",
+      "rule": "The strengths table's benchmark reads stay in the declared closure: a Lowering cell that names a benchmark outside benchmarkPackages is refused by the test, not found later by the closure sweep.",
+      "anchor": {"tests": ["internal/sketch/std:TestStdStrengthsFixtures"]},
+      "killers": ["internal/sketch/std:TestStdStrengthsFixtures"]
     }
   ]
 }
