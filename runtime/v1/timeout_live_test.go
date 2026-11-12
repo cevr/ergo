@@ -127,6 +127,10 @@ func TestAfterDefects(t *testing.T) {
 	})
 }
 
+// abortExplored is rt.AbortExplore of the explored build
+// (timeout_explored_test.go): the live build has no explored run to stop.
+func abortExplored(error) bool { return false }
+
 // panicSleeper is a Scheduler whose Sleep panics.
 type panicSleeper struct{}
 

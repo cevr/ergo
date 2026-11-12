@@ -190,6 +190,20 @@
       "killers": [
         "runtime/rt:TestTypeStringMatchesReflect"
       ]
+    },
+    {
+      "name": "ert-abort-ignored",
+      "origin": "wf10 EXPLORE-rt r2",
+      "file": "runtime/rt/sched_explore.go",
+      "from": "\te.res.Stopped = why\n\te.release()\n\treturn true\n",
+      "to": "\te.res.Stopped = why\n\treturn true\n",
+      "rule": "AbortExplore ends the active explored run and frees the explorer, even when a task waits where the scheduler cannot see.",
+      "killers": [
+        "runtime/rt+ergoexplore:TestExploreAbortReleasesTheRun"
+      ],
+      "tags": [
+        "ergoexplore"
+      ]
     }
   ]
 }

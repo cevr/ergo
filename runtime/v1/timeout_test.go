@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -35,9 +36,12 @@ func newVirtualSleeper() *virtualSleeper {
 	return &virtualSleeper{v: rt.NewVirtual(time.Unix(0, 0))}
 }
 
-// within fails the test when f does not end in 10 seconds of wall time: a
+// within fails the test when f does not end by the test's deadline: a
 // watchdog only, so a body that waits for a deadline that never comes fails
-// instead of hanging the package.
+// instead of hanging the package. Under the ergoexplore tag f's runMain is
+// an explored run: the watchdog aborts it (rt.AbortExplore) and waits for
+// f, so the run frees the explorer and the next test does not meet
+// ErrExploreBusy.
 func within(t *testing.T, what string, f func()) {
 	t.Helper()
 	done := make(chan struct{})
@@ -48,6 +52,9 @@ func within(t *testing.T, what string, f func()) {
 	select {
 	case <-done:
 	case <-testwait.After(t):
+		if abortExplored(errors.New(what + " did not end by the test's deadline")) {
+			<-done
+		}
 		t.Fatalf("%s did not end: After waits for its body and ignores the Scheduler's deadline", what)
 	}
 }

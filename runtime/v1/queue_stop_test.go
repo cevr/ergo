@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"errors"
 	"runtime"
 	"testing"
 	"time"
@@ -238,6 +239,11 @@ func TestPollerEnds(t *testing.T) {
 			t.Fatalf("Run ended with %#v; want FlushFailed", err)
 		}
 	case <-testwait.After(t):
+		// An explored Run that hangs outside the scheduler is aborted, so
+		// it frees the explorer for the next test (within).
+		if abortExplored(errors.New("Run did not end by the test's deadline")) {
+			<-done
+		}
 		t.Fatal("Run did not end by the test's deadline: the producer waiting in Push never saw the stop")
 	}
 	q.mu.Lock()
