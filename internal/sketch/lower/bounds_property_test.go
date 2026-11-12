@@ -685,8 +685,10 @@ func boundsReplay(seed uint64) string {
 
 // TestBoundsFactsSound is the in-process half of the property (above): no
 // state reaches an unchecked site out of range, and every covered site is
-// unchecked. It catches the mutants bounds-wrap-taken and
-// bounds-index-margin-widened of the ledger.
+// unchecked. It catches the ledger's mutants bounds-wrap-taken,
+// bounds-index-margin-widened, bounds-slice-order-unchecked,
+// bounds-write-keeps-fact, bounds-loop-keeps-fact, bounds-branch-fact-leaks
+// and bounds-unchecked-never.
 func TestBoundsFactsSound(t *testing.T) {
 	if factLowering == "checked" {
 		t.Skip("the reference lowering writes no unchecked site")
@@ -740,11 +742,12 @@ func TestBoundsFactsSound(t *testing.T) {
 	typecheckGo(t, programs)
 }
 
-// TestBoundsFactsAgree is the run half of the property (above). It builds
-// Go because the unchecked helpers' results (the bytes and lengths they
-// read) and Go's bounds failure under a wrong guard are only seen when the
-// program runs. It catches the mutant unchecked-string-length of
-// runtime/v1's ledger.
+// TestBoundsFactsAgree is the run half of the property (above).
+// It builds Go because the unchecked helpers' results (the bytes and
+// lengths they read) and Go's bounds failure under a wrong guard are only
+// seen when the program runs. It catches the mutants
+// unchecked-string-length and unchecked-byte-offset of runtime/v1's ledger
+// and bounds-cut-length-off of lower's.
 func TestBoundsFactsAgree(t *testing.T) {
 	needsBuild(t)
 	type run struct {

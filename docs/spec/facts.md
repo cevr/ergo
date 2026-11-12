@@ -1,6 +1,6 @@
 # Value-tied facts
 
-Status: **designed**: no compiler support yet, except the compare facts that [Lowering](#lowering) 3 consumes in the run build (BCE1, below). The parser refuses the clauses `given`, `gives` and `keeps`, and a `where` after a record type, with S001.
+Status: **designed**: no compiler support yet. The parser refuses the clauses `given`, `gives` and `keeps`, and a `where` after a record type, with S001.
 
 A [fact](../../GLOSSARY.md#constructs-contracts-and-laws) ties a checked condition to the values it names, so a later call can rely on it with no second check. A function asks for a fact with `given`, a function that makes one says so with `gives`, and a function that writes a value and leaves a fact true says so with `keeps`. A record type states a fact about every one of its values with `where` ([record invariants](#record-invariants)). Each fact that is not checked in the body is a law that `ergo test` runs, the test build checks every fact where it is used, and the run build emits no code for a fact. The owner put value-tied facts in v1 ([decisions](../decisions.md#owner-direction-2026-11-11)).
 
