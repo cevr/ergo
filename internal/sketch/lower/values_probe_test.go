@@ -136,6 +136,20 @@ func main() needs Console {
 	Console.Println("\(kept[0]) \(xs[0]) \(len(ys[0])) \(len(ys[2])) \(len(m))")
 }
 `, "1 9 0 2 3\n"},
+	// Ploop: a let of fresh value read in a loop it was not declared in
+	// runs once per turn, so each turn's read must copy (ledger mutant
+	// t5-25: freshIdent ignoring the use's loops shares a with every b).
+	{"Ploop", `func main() needs Console {
+	let a = []int{1, 2}
+	let mut keep = [][]int{}
+	for i in 0..2 {
+		let mut b = a
+		b[0] = i + 10
+		keep = keep.Append(b)
+	}
+	Console.Println("\(a[0]) \(keep[0][0]) \(keep[1][0])")
+}
+`, "1 10 11\n"},
 	{"Pborrow", `type Box { M Map[int, int] }
 
 func add(b *Box, k int) {
