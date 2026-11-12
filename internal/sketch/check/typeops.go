@@ -785,6 +785,9 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
 			return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17 stays with #37)", v, m.Name, rowText(gu.minus(c.types, m.Sig.Uses)))
 		}
+		if why := c.releaseWider(v, m); why != "" {
+			return why
+		}
 		if got.Fallible != m.Sig.Fallible {
 			return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, m.Name)
 		}
@@ -986,6 +989,9 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 		}
 		if p := c.firstInferredParse(t); p != nil {
 			return fmt.Sprintf("%s reaches %s, whose fails row is inferred: write it (types.md, Codecs 2)", t, p.Name)
+		}
+		if r := c.wireInstanceNeeds(t); r != "" {
+			return r
 		}
 		c.recordWire(t)
 		return ""

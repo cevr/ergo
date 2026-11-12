@@ -105,6 +105,19 @@ type checker struct {
 	silent   int
 	shallow  int       // an alias's target is read with the Named types it names, bodies unread (aliasOf)
 	tests    testState // tests and assert (tests.go)
+	// relSeeds are the nodes whose owned value's release needs a
+	// capability, found by a first check of the package; the second check
+	// charges each where its frame is typed (releaseneeds.go). relHit
+	// records the charged ones.
+	relSeeds map[syntax.Node]relSeed
+	relHit   map[syntax.Node]bool
+	// wireNeeds are the codec functions reached whose needs row is
+	// inferred, checked once the rows are final (wirecall.go).
+	wireNeeds []wireNeed
+	// lateEdges are, per function, the ParseX of this package with an
+	// inferred needs row that its decodes reach; a second check orders
+	// the bodies by them (wireEdges; wirecall.go).
+	lateEdges, wireEdges map[*syntax.FuncDecl][]*syntax.FuncDecl
 	// refusedBinders holds the binders the reporting pass has already
 	// refused by name (a pattern name that names a package object, a
 	// prelude name), so the binder rules add no second diagnostic (D3).

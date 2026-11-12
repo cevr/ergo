@@ -100,21 +100,24 @@ func main() needs Console {
 // TestConvertedReleaseRuns is the smallest repro of two bugs batch 16a's
 // r6 verifier found: through a value converted to an operation type
 // (R23), Held.Close released its Res field, and Held.Keep the Holder it
-// took, in an environment of the task alone, so Res.Close, which needs
-// Console, dereferenced a nil Console. The adapter runs its functions in
-// the environment of the frame that converted the value. It builds Go
-// because the failure is a nil dereference in the emitted adapter's
-// release, which go/types cannot see.
+// took, in an environment of the task alone, which the release then
+// dereferenced. The adapter runs its functions in the environment of the
+// frame that converted the value, on the calling task. Since REL-needs
+// (resources R5, Release needs; G7) a converted value's release needs no
+// capability, so the releases log to a sync.Ref, as the ownership grammar
+// does. It builds Go because the failure is a nil dereference in the
+// emitted adapter's release, which go/types cannot see.
 func TestConvertedReleaseRuns(t *testing.T) {
 	needsBuild(t)
-	wantRun(t, `import tasks
+	wantRun(t, `import sync
+import tasks
 
-type Res { id int }
+type Res { id int, log sync.Ref[string] }
 
 type Bad {}
 
-func Close(r Res) needs Console {
-	Console.Println("close \(r.id)")
+func Close(r Res) {
+	r.log.Update(func(s string) string { s + "close \(r.id)\n" })
 }
 
 type Holder { r Res }
@@ -127,18 +130,18 @@ func Mark(h Held) int { 1 }
 func Keep(h Held, x Holder) takes x { let _ = x }
 func Close(h Held) {}
 
-func main() needs Console {
-	let t TagC = Held{r: Res{id: 1}}
-	Console.Println("mark \(t.Mark())")
-	let k KeeperC = Held{r: Res{id: 3}}
-	k.Keep(Holder{r: Res{id: 5}})
-	Console.Println("kept")
+func run(log sync.Ref[string]) {
+	let t TagC = Held{r: Res{id: 1, log: log}}
+	log.Update(func(s string) string { s + "mark \(t.Mark())\n" })
+	let k KeeperC = Held{r: Res{id: 3, log: log}}
+	k.Keep(Holder{r: Res{id: 5, log: log}})
+	log.Update(func(s string) string { s + "kept\n" })
 	// On another task: the adapter runs with that task.
-	let o KeeperC = Held{r: Res{id: 6}}
+	let o KeeperC = Held{r: Res{id: 6, log: log}}
 	let set = tasks.NewSet[Bad](tasks.LogFailures)
 	tasks.Go(set, func() {
-		o.Keep(Holder{r: Res{id: 7}})
-		Console.Println("kept in a task")
+		o.Keep(Holder{r: Res{id: 7, log: log}})
+		log.Update(func(s string) string { s + "kept in a task\n" })
 	}) catch {
 	case tasks.Closed:
 	}
@@ -146,5 +149,11 @@ func main() needs Console {
 	case Bad:
 	}
 }
-`, "mark 1\nclose 5\nkept\nclose 7\nkept in a task\nclose 6\nclose 3\nclose 1\n")
+
+func main() needs Console {
+	let log = sync.NewRef[string]("")
+	run(log)
+	Console.Println(log.Get())
+}
+`, "mark 1\nclose 5\nkept\nclose 7\nkept in a task\nclose 6\nclose 3\nclose 1\n\n")
 }
