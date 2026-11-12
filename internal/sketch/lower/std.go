@@ -32,7 +32,7 @@ var stdRecord = v1.StdRecord
 // types, and a std record with no row in the binding table, such as
 // strings.Halves). A std record with a row is the runtime struct the row
 // names, keyed by the record's package and name (v1.StdRecord), never by
-// its name alone; a sealed std operation type (check.SealedStd) is a
+// its name alone; a runtime-backed std operation type is a
 // pointer to the runtime's type of the same name, whose methods are its
 // operations, and an open one is a declaration of the program.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
@@ -50,6 +50,11 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 		}
 		return ""
 	}
+	// Code is checked as an ordinary refinement. At the runtime record
+	// boundary its representation is the existing Go int field of Exit.
+	if obj.Pkg.Path == "os" && obj.Name == "Code" {
+		return "int"
+	}
 	switch spec := obj.Decl.Spec.(type) {
 	case *syntax.StructType:
 		goName, ok := stdRecord(obj.Pkg.Path, obj.Name)
@@ -66,8 +71,11 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 		return l.rt() + "." + goName
 	case *syntax.InterfaceType:
 		if len(spec.Union) == 0 {
-			if !check.SealedStd(n) {
+			if !runtimeProtocols[obj.Pkg.Path+"."+obj.Name] {
 				return "" // an open std protocol, such as os.Process: a program value implements it
+			}
+			if !check.Sealed(n) {
+				ice(site, "the runtime-backed protocol %s must declare an unexported operation", n)
 			}
 			return "*" + l.rt() + "." + obj.Name
 		}
@@ -83,10 +91,24 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 		// is ordinary code (std.go), so its machines lower by the same
 		// rule.
 		return ""
+	case *syntax.Ident, *syntax.SelectorExpr, *syntax.ArrayType, *syntax.MapType:
+		return "" // an ordinary defined type, including refinements
 	}
 	// Every other std type is a record, a union or an operation type.
 	ice(site, "the std type %s.%s is neither a record nor an operation type", obj.Pkg.Path, obj.Name)
 	return ""
+}
+
+// runtimeProtocols selects Go representations, never source admission.
+// A sealed type implemented in Ergo (http.Streaming) is not necessarily
+// a runtime struct. Every type here declares its own private operation.
+var runtimeProtocols = map[string]bool{
+	"atomic.Int64": true, "atomic.Bool": true, "embed.FS": true,
+	"queue.Queue": true, "sync.Ref": true, "json.Text": true, "json.Cursor": true,
+	"actor.Actor": true, "actor.Host": true, "tasks.Set": true, "testing.Op": true,
+	"time.Timeline": true, "rand.Stream": true, "config.Redacted": true,
+	"exec.Running": true, "http.Exchange": true, "http.Listener": true,
+	"http.BodyFile": true, "fs.HostRoot": true,
 }
 
 // isRuntimeType reports a std type the runtime's Go type stands for.
@@ -451,9 +473,9 @@ func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, 
 	// The checker refuses every other way to reach a sealed std operation:
 	// a type defined over a std operation type (S108 at the definition)
 	// and a pointer to one (S108 at the call, stage D3b Rule 5). An open
-	// one (check.SealedStd), such as os.Process, is an interface of the
+	// one, such as os.Process, is an interface of the
 	// program, so its operation is the Go method below.
-	if n := fc.l.foreignOwner(t); n != nil && check.SealedStd(n) {
+	if n := fc.l.foreignOwner(t); n != nil && fc.l.runtimeType(n, site) != "" {
 		ice(site, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, op.Name, t)
 	}
 	rest := append([]string{taskOf(env)}, vals[1:]...)

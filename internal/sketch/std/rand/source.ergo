@@ -5,6 +5,7 @@
 // source, behind a lock, so tasks that share one provider draw from one
 // stream. Only Seeded makes one.
 type Stream {
+	runtimeOnly(),
 	// Uint64 is 64 random bits.
 	Uint64() uint64,
 	// IntN is in 0..n-1. An n of zero or less is a defect.

@@ -9,6 +9,7 @@ type Closed {}
 
 // Queue is a queue of T with a fixed capacity.
 type Queue[T] {
+	runtimeOnly(),
 	// Push adds v at the back, waiting while the queue is full. It fails
 	// with Closed when the queue is closed, or closes while it waits. It
 	// takes v: a resource moves into the queue (resources R13).

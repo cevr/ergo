@@ -1,6 +1,6 @@
 # North star
 
-Ergo is becoming a general application language, for servers and front-ends, that preserves Go-like simplicity and fast native builds, makes Effect-style contracts and owned lifetimes explicit, and adds algebraic data types and useful abstractions in the spirit of Borgo. Straightforward host interop and compiler-backed inspection serve both humans and agents. `.ef` is its source format; `ergo` is its command.
+Ergo is becoming a general application language, for servers and front-ends, that preserves Go-like simplicity and fast native builds, makes Effect-style contracts and owned lifetimes explicit, and adds algebraic data types and useful abstractions in the spirit of Borgo. Straightforward host interop and compiler-backed inspection serve both humans and agents. `.ergo` is its source format; `ergo` is its command.
 
 The owner reaffirmed this balance on 2026-10-06. Simplicity means a small set of regular concepts, readable local control flow and predictable costs; it does not mean removing abstractions and making every application repeat their implementation. Effect-grade guarantees require executable evidence for typed failures, dependencies, cancellation and completed cleanup, with unsupported and foreign behavior clearly distinguished.
 
@@ -78,7 +78,7 @@ Score every construct and spike against all seven pillars. Observability and age
 - Preserve unrelated work and use isolated Rifts. Implementers never push. The orchestrator integrates accepted, reviewed and gated heads into local `main` and may fast-forward `origin/main` to them (owner, 2026-10-07: "as these things come in we can push straight to main"). Other publishing still requires an explicit owner request (owner AGENTS.md, 2026-10-05).
 - Run the fast repository gate (`./scripts/gate.sh`) between logical units and before handoff. The full gate (`--full`), the merge tier (`--merge`) and the macOS check run on every batch head before main moves (owner, 2026-11-06, gate-fast D1). Performance claims require measured evidence (repository AGENTS.md).
 - Keep Wayfinder's HITL decisions open until owner feedback; artifact completion is not decision closure (repository AGENTS.md).
-- Keep `.ef` text authoritative and CLI/MCP on the compiler's semantic model (repository AGENTS.md; architecture direction, drafted 2026-10-05).
+- Keep `.ergo` text authoritative and CLI/MCP on the compiler's semantic model (repository AGENTS.md; architecture direction, drafted 2026-10-05).
 - Local fixtures and scratch artifacts are the default for live checks. Paid services, deployment, and production data are outside routine checks (drafted 2026-10-05).
 - Continue the authorized Wayfinder and loop work autonomously, extending finite implementation specs with evidence-backed ergonomic, guarantee and performance improvements (owner, 2026-10-06). Follow the standing principles before a genuine question; reversible implementation choices do not require a checkpoint.
 - Use Effect's behavior, recorded with upstream provenance in `conformance/effect-cases.json`, plus real usage, to guide the bundled library (owner, 2026-10-06). Public examples and application-pattern notes stay generic. Agent roles, models and independent review are set only in [AGENTS.md](AGENTS.md).

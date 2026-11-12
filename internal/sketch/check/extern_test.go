@@ -271,7 +271,7 @@ func Len(_ Mine) int {
 // sealedPrograms holds, for each operation type of std and the prelude, a
 // program whose value of type Mine satisfies it and is passed to a
 // parameter of that type at the one line that starts "\tuse(". A std
-// operation type with no row here fails TestStdProtocolSealed, and so does
+// operation type with no row here fails TestSealingIsTheVisibilityRule, and so does
 // a row whose type std no longer declares.
 var sealedPrograms = map[string]string{
 	"atomic.Int64": `import atomic
@@ -941,7 +941,7 @@ func main() {
 
 // unexportedStd is the std operation types sealed by an unexported
 // operation: a program value is refused at the use line by the sealedBy
-// text, not by SealedStd's S109.
+// text. The other runtime protocols declare runtimeOnly for the same rule.
 var unexportedStd = map[string]string{
 	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
 	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
@@ -950,9 +950,9 @@ var unexportedStd = map[string]string{
 	"http.BodyFile":   "partOnly is an unexported operation of http.BodyFile, so only a type of package http implements it",
 }
 
-// openStd is the std operation types a program provides: no std extern's
-// result names them (check.SealedStd; stdlib.md, Types 3). Every other
-// std operation type is sealed.
+// openStd records the operation types that did not use the old implicit
+// std seal at the migration base. Some already have private operations,
+// listed in unexportedStd. Every other entry now declares its seal.
 var openStd = map[string]bool{
 	"prelude.Console":   true,
 	"prelude.Scheduler": true,
@@ -1013,14 +1013,12 @@ func stdOperationTypes(t *testing.T) []string {
 	return out
 }
 
-// TestStdProtocolSealed is C28 of check-v1 stage E4 (A6): a value converted
-// to a sealed std protocol (the prelude's Task, or an operation type of a
-// std package other than the prelude, the types lower/std.go runtimeType
-// represents by a runtime/v1 type) is S109 naming #206, at every site that
-// converts by assignability. The prelude's capabilities stay open: a
-// program provides them (the over-seal control).
-func TestStdProtocolSealed(t *testing.T) {
-	sealed := []string{"sealed std protocol", "#206"}
+// TestSealingIsTheVisibilityRule covers every std operation type and the
+// assignment sites that used to require a std-only refusal. Removing a
+// private operation from a runtime protocol must make this property red;
+// the old extern-result seal must not hide it. Open capabilities remain
+// implementable. User-package seals use the same rule (TestFieldVisibility).
+func TestSealingIsTheVisibilityRule(t *testing.T) {
 	cases := map[string]string{
 		// probe convstd, verbatim.
 		"convstd": queueMine + `
@@ -1127,7 +1125,7 @@ func main() {
 `,
 	}
 	for name, src := range cases {
-		t.Run(name, func(t *testing.T) { judgeOutside(t, src, sealed...) })
+		t.Run(name, func(t *testing.T) { judgeSealSites(t, src) })
 	}
 	types := stdOperationTypes(t)
 	for _, key := range types {
@@ -1136,6 +1134,7 @@ func main() {
 			if !ok {
 				t.Fatalf("the std operation type %s has no row in sealedPrograms", key)
 			}
+			src = withForgedSeal(src)
 			// The oracle, written by hand: the operation types a std
 			// extern's result names (task.Go, queue.New) are sealed.
 			isSealed := !openStd[key]
@@ -1161,8 +1160,8 @@ func main() {
 				}
 				return
 			}
-			if len(diags) != 1 || diags[0].Code != "S109" || diags[0].Line != at || !strings.Contains(diags[0].Message, "#206") {
-				t.Fatalf("want one S109 naming #206 at line %d, got\n\t%s", at, describe(diags))
+			if len(diags) != 1 || diags[0].Code != "S108" || diags[0].Line != at || !strings.Contains(diags[0].Message, "unexported operation") {
+				t.Fatalf("want the visibility refusal at line %d, got\n\t%s", at, describe(diags))
 			}
 		})
 	}
@@ -1171,13 +1170,31 @@ func main() {
 			t.Errorf("sealedPrograms row %s: std declares no such operation type", key)
 		}
 	}
+	ds := outside(t, checkedLib(t), "type Mine {}\nfunc inner(_ Mine) int { 1 }\nfunc Outer(_ Mine) int { 2 }\nfunc f() lib.Ops { Mine }\n")
+	if len(ds) != 1 || !strings.Contains(ds[0].Message, "inner is an unexported operation of lib.Ops, so only a type of package lib implements it") {
+		t.Fatalf("user package visibility: %s", describe(ds))
+	}
 }
 
-// TestStdProtocolOpen is the sealed rule of G2 part 2 (stdlib.md, Types 3;
-// check.SealedStd): os.Process, which no std extern's result names, takes
-// a program provider at each site that converts by assignability, while
-// queue.Queue, which queue.New returns, still refuses the same program
-// value at the same sites with S109.
+// withForgedSeal attempts to spoof the private operation by spelling it
+// in the importing package too. Its package is part of its identity.
+func withForgedSeal(src string) string {
+	src = strings.Replace(src, "type Mine {}", "type Mine {}\nfunc runtimeOnly(_ Mine) {}", 1)
+	return strings.Replace(src, "type Mine {\n", "type Mine {\n\truntimeOnly(),\n", 1)
+}
+
+func judgeSealSites(t *testing.T, src string) {
+	t.Helper()
+	src = withForgedSeal(strings.ReplaceAll(src, "want S109", "want S108"))
+	_, ds := check.CheckSource(src)
+	if want, have := expected(src), got(ds); strings.Join(want, " ") != strings.Join(have, " ") {
+		t.Fatalf("want %v, got %v: %s", want, have, describe(ds))
+	}
+}
+
+// TestStdProtocolOpen checks that os.Process takes program providers at
+// the same assignment sites where queue.Queue's private operation refuses
+// them by the ordinary visibility rule.
 func TestStdProtocolOpen(t *testing.T) {
 	const fake = `import os
 
@@ -1226,7 +1243,7 @@ func main() {
 `,
 	}
 	for name, src := range cases {
-		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "sealed std protocol", "#206") })
+		t.Run(name, func(t *testing.T) { judgeSealSites(t, src) })
 	}
 }
 

@@ -79,6 +79,6 @@ em-parity §3 lists "child fan-out" as pending for MU5. This program's split wri
 
 ## Limits found
 
-- **F13** A machine whose `initial:` is a value (`initial: Open()`) starts with no state when another package starts it: the value is set by the package's initializer, which an importing program never runs, so the first `match` on the state is a defect. Measured. `Open` takes the starting parts instead.
+- **F13 (closed in becf5fb4)** A machine whose `initial:` is a value (`initial: Open()`) started with no state when another package started it. An imported package's machine initials now run at start, in init order. `Open` still takes the starting parts.
 - **F4** (pairing) The `Targets` laws are not run against `memory.Targets`; `memory/tests.ergo` restates them.
 - **F7** (pairing) The examples runner does not run the laws of `shards/` (a package with laws and no `test`).

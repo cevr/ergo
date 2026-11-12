@@ -1,0 +1,577 @@
+{
+  "paragraphs": [
+    {
+      "file": "diagnostics.md",
+      "heading": "Diagnostics",
+      "status": "implemented",
+      "text": ": S001 by the parser `internal/sketch/syntax` ([#195](https://github.com/cevr/ergo/issues/195)), and the other codes by the checker `internal/sketch/check` ([#196](https://github.com/cevr/ergo/issues/196)), which `ergo check` and `ergo diagnostics` run. The checker's code table (`internal/sketch/check/codes.go`) mirrors this page; a test keeps the table, the emitted codes and the rows below in step. `ergo build` and `ergo run` run the checker first, then lower the checked program from the checker's output (`internal/sketch/lower`, check-v1); a form the lowering does not lower yet is refused at build with S109 naming the ticket or stage that owns it, at its position, and nothing is written (`internal/sketchfront`). The checker's fixtures are in `internal/sketch/check/testdata/fixtures`; the prototype's fixtures (first line `// want CODE`) keep their outcome except the changes [the parity table](../../internal/sketch/check/testdata/parity.overrides) lists. The main compiler maps each rule to a code in its EF registry ([#79](https://github.com/cevr/ergo/issues/79); README Gap 18).",
+      "witnesses": [
+        "cmd/ergo:TestCheckAndDiagnosticsReportLocatedSketchCodes",
+        "internal/sketch/check:TestFixtures"
+      ]
+    },
+    {
+      "file": "grammar.md",
+      "heading": "Grammar",
+      "status": "implemented",
+      "text": ": the parser `internal/sketch/syntax` and the formatter `internal/sketch/format` implement the decided grammar of [#196](https://github.com/cevr/ergo/issues/196), and nothing else. The source is the appendix \"Decided Go-shaped sketch\" of the [2026-10-28 preview](../previews/2026-10-28-without-go-syntax.md) (62 productions), its decisions table and its seventh, eighth and ninth rounds. Where the sketch is silent, the rules below decide; each says why. A syntax error is S001 ([diagnostics](diagnostics.md)), with one exception, S108 for a type that mixes fields and operations ([Declarations](#declarations) rule 5).",
+      "witnesses": [
+        "internal/sketch/syntax:TestGrammarFixtures",
+        "internal/sketch/syntax:TestGrammarStatesTheSketch",
+        "cmd/ergo:TestFmtUsesTheOneFormatter"
+      ]
+    },
+    {
+      "file": "inspect.md",
+      "heading": "Public API inspection",
+      "status": "implemented",
+      "text": ". The text output is also the docs view until a separate doc generator exists. Inspection checks source; it does not run the program or lower it to Go.",
+      "witnesses": [
+        "cmd/ergo:TestInspectAPIRoute",
+        "internal/sketchfront:TestInspectGoReach"
+      ]
+    },
+    {
+      "file": "interop.md",
+      "heading": "Go interop: `import go`, bindings and adapters",
+      "status": "implemented",
+      "text": " per section: **Binding files** and **Type mapping** are implemented by `ergo bind go` (`internal/gobind`, IG1), and the bindings of Go's standard library are embedded (`internal/sketch/std/gostd`). **Checking** is implemented (IG2): the checker reads the bindings, and a binding declaration in user source stays S109 (only a binding declares one). **Lowering** is implemented (IG3): Level 1 calls are direct Go calls. **Level 2 adapters** are implemented (IG4): a user extern names a binding's function and is checked against it. **Go modules** are implemented (IG7): go.mod and go.sum beside ergo.mod, stamped bindings under ergo.bind/. **Host calls** are implemented (IG10): a hidden `context.Context` that interruption cancels. **Go calls Ergo** is implemented (IG11): `ergo lib` exports a library's functions to Go, and an Ergo value converts to a Go interface.",
+      "witnesses": [
+        "internal/gobind:TestBindMappingProperty",
+        "internal/sketch/lower:TestImportGoRuns",
+        "internal/sketch/lower:TestGoCallsErgo",
+        "cmd/ergo:TestGoModuleImports",
+        "internal/sketch/lower:TestHostResourceRun"
+      ]
+    },
+    {
+      "file": "resources.md",
+      "heading": "Resources and automatic release",
+      "status": "partly implemented",
+      "text": ": every rule below is checked, and the build releases what the rules release: resource types, the ownership flow of locals, parameters and temporaries, aggregates, containers and unions, tasks, structured lends and the providers a `with` builds. The [Visibility](#visibility) of releases in tools is designed.",
+      "witnesses": [
+        "internal/sketch/check:TestResourceTypeModel",
+        "internal/sketch/check:TestOwnershipFlowModel",
+        "internal/sketch/lower:TestOwnershipRunModel",
+        "internal/sketch/lower:TestDropGlueModel"
+      ]
+    },
+    {
+      "file": "runtime.md",
+      "heading": "Runtime rules",
+      "status": "implemented",
+      "text": ": `runtime/rt` implements the task tree, stop propagation, masks, scopes, the context store and defect propagation. `runtime/v1` adapts them to lowered frames and holds the Go bodies of the std packages `task`, `scope`, `queue` and `timeout` ([Tasks](#tasks), [Exit actions](#exit-actions), [Queues](#queues), [Timeouts](#timeouts)); their Ergo signatures check ([stdlib.md](stdlib.md#v1-packages-task-scope-queue-and-slice)), and `ergo build` lowers their calls (check-v1 stage D3b). Each section's status says what is lowered.",
+      "witnesses": [
+        "runtime/rt:TestStopPropagatesToDescendants",
+        "runtime/rt:TestScopeReleasesReverseOnEveryExit",
+        "internal/sketch/lower:TestTaskGoAndTaskResults"
+      ]
+    },
+    {
+      "file": "stdlib.md",
+      "heading": "Standard library outline",
+      "status": "partly implemented",
+      "text": " per family: each package under `internal/sketch/std` is Ergo source that the checker checks like user code and `ergo build` lowers, with Go bodies in `runtime/v1` where a family needs the host; each family below states its own status, and a family with no package is designed. The prelude's `Console` (`Println`) and the `Sleep` of its live scheduler lower ([runtime.md](runtime.md#host-and-lowering-notes)). `ergo build` lowers `timeout.After` to its `runtime/v1` body, which takes its deadline from the program's `Scheduler` ([runtime.md](runtime.md#timeouts); `TestTimeoutAfterLowers`, `TestTimeoutDeadlineIsTheProgramScheduler`). The four v1 packages `task`, `scope`, `queue` and `slices` (named `slice` until std-align S2a) have Ergo signatures, which the checker checks like user code, bound to Go bodies in `runtime/v1` ([v1 packages](#v1-packages-task-scope-queue-and-slice)); `ergo build` lowers their calls (check-v1 stage D3b; `TestTaskGoAndTaskResults`, `TestErgoRunQueueOperations`, `TestErgoRunSliceWithCapacity`). The context packages `trace` and `log` lower too (#199 stage 4a; [Context values](#v1-packages-task-scope-queue-and-slice)).",
+      "witnesses": [
+        "internal/sketch/lower:TestStdLawsRun",
+        "internal/sketch/lower:TestTimeoutAfterLowers",
+        "internal/sketch/lower:TestTaskGoAndTaskResults",
+        "internal/sketch/lower:TestErgoRunQueueOperations"
+      ]
+    }
+  ],
+  "constructs": [
+    {
+      "construct": "Parsing every production of grammar.md and Go's productions where it is silent; S001",
+      "status": "implemented",
+      "cell": "Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/syntax`); a parsed form that the checker does not check yet is S109 naming its owner",
+      "section": "[grammar](grammar.md#parser)",
+      "witnesses": [
+        "internal/sketch/syntax:TestGrammarFixtures",
+        "internal/sketch/syntax:TestRefusedFixtures"
+      ]
+    },
+    {
+      "construct": "Formatting, `ergo-2026/formatter-2`",
+      "status": "implemented",
+      "cell": "Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/format`)",
+      "section": "[formatting](../specs/formatting.md#2026-edition)",
+      "witnesses": [
+        "cmd/ergo:TestFmtUsesTheOneFormatter"
+      ]
+    },
+    {
+      "construct": "Name resolution, Go's types where the spec is silent, S101 to S113",
+      "status": "implemented",
+      "cell": "Implemented ([#196](https://github.com/cevr/ergo/issues/196), `internal/sketch/check`) for one package; packages and imports of module packages follow in #196's second part",
+      "section": "[types](types.md), [rows](rows.md), [diagnostics](diagnostics.md)",
+      "witnesses": [
+        "internal/sketch/check:TestFixtures"
+      ]
+    },
+    {
+      "construct": "One `import` path per line; the directory names the package; an alias only for a name clash",
+      "status": "implemented",
+      "cell": "Checked; runs (the standard-library package `timeout`; the alias rule, check-v1 stage D3a, D-D7)",
+      "section": "[grammar](grammar.md#declarations)",
+      "witnesses": [
+        "internal/sketch/check:TestFixtures",
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Identifiers by decoded code point (round-7 rule)",
+      "status": "implemented",
+      "cell": "Checked; runs",
+      "section": "[grammar](grammar.md#identifiers)",
+      "witnesses": [
+        "internal/sketch/syntax:TestIdentifierRunesMatchGo"
+      ]
+    },
+    {
+      "construct": "Integer, floating-point, rune, duration and string literals",
+      "status": "implemented",
+      "cell": "Checked; runs",
+      "section": "[grammar](grammar.md#literals)",
+      "witnesses": [
+        "internal/sketch/check:TestLiteralRules",
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Every Go numeric type, with Go's typing",
+      "status": "implemented",
+      "cell": "Checked; runs, with Go's arithmetic ([#81](https://github.com/cevr/ergo/issues/81) keeps the overflow policy)",
+      "section": "[types](types.md#basic-types)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "`duration` as a type name in signatures and fields",
+      "status": "implemented",
+      "cell": "Checked; runs (Gap 25)",
+      "section": "[types](types.md#basic-types)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Record types `type T { … }`, keyed and positional literals",
+      "status": "implemented",
+      "cell": "Checked; runs. The text of an error type with a field that has no text form (a map, a tuple, a pointer): checked; build refused (S109 naming [#49](https://github.com/cevr/ergo/issues/49))",
+      "section": "[types](types.md#structs), [error types](types.md#error-types)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies",
+        "internal/sketch/lower:TestRefusedFamiliesHaveWitnesses"
+      ]
+    },
+    {
+      "construct": "Slice and map literals",
+      "status": "implemented",
+      "cell": "Checked; runs. An indexed slice literal such as `[]int{2: 5}`: checked; build refused (S109 naming [#196](https://github.com/cevr/ergo/issues/196))",
+      "section": "[types](types.md#prelude-types)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies",
+        "internal/sketch/lower:TestRefusedFamiliesHaveWitnesses"
+      ]
+    },
+    {
+      "construct": "Unions `type T = A \\| B`",
+      "status": "implemented",
+      "cell": "Checked; runs",
+      "section": "[types](types.md#unions)",
+      "witnesses": [
+        "internal/sketch/check:TestUnionJoinTable",
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Capability types (operation types)",
+      "status": "implemented",
+      "cell": "Checked; runs",
+      "section": "[types](types.md#capabilities)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Capability types as parameter and result types",
+      "status": "implemented",
+      "cell": "Checked, with operation calls on such a value (Gap 29); runs",
+      "section": "[types](types.md#capabilities)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Functions whose first parameter is a local record (no receivers, 196m)",
+      "status": "implemented",
+      "cell": "Checked as ordinary functions",
+      "section": "[types](types.md#methods)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Single-subject `match` on a union",
+      "status": "implemented",
+      "cell": "Checked, total or with `case _` (S103; Gap 3); runs",
+      "section": "[rows](rows.md#totality)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Multi-subject `match (a, b)`",
+      "status": "implemented",
+      "cell": "Checked, total by a usefulness check (Gap 12); runs",
+      "section": "[rows](rows.md#totality)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "`if`/`else`, `else if`; `if` and `match` as expressions, function tails (196r)",
+      "status": "implemented",
+      "cell": "Checked; runs (check-v1 stage C, D-C1, D-C2)",
+      "section": "[grammar](grammar.md#statements)",
+      "witnesses": [
+        "internal/sketch/check:TestIfAndMatchAreExpressions",
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "`let` definitions; `let mut` and assignment roots, no shadowing, prelude names not redeclared (196v), except by a package type named like a prelude type (L6)",
+      "status": "implemented",
+      "cell": "Checked; runs (check-v1 stage D1, D-D1..D-D3)",
+      "section": "[grammar](grammar.md#statements)",
+      "witnesses": [
+        "internal/sketch/check:TestLetMutReassignment",
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Operators `==` (on `string`, `int64`, `bool`) and `+`",
+      "status": "implemented",
+      "cell": "Checked; runs",
+      "section": "[types](types.md#operators)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Other operators, `&&`, `\\|\\|`, `==` on `duration`",
+      "status": "implemented",
+      "cell": "Checked with Go's operand rules (Gaps 10, 26); runs",
+      "section": "[types](types.md#operators)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "`fails` rows and `try`",
+      "status": "implemented",
+      "cell": "Checked; runs",
+      "section": "[rows](rows.md#error-rows)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "`catch` without `try` (total) and `try … catch` (partial)",
+      "status": "implemented",
+      "cell": "Checked; runs",
+      "section": "[rows](rows.md#catch)",
+      "witnesses": [
+        "internal/sketch/lower:TestErgoRunOneCatch"
+      ]
+    },
+    {
+      "construct": "`case E as e:` bindings, statements in arms",
+      "status": "implemented",
+      "cell": "Statements in arms and `as` bindings checked (Gap 11; check-v1 stage B); `case err:`, `case _`, record patterns and a whole-expression `try` checked and lowered (check-v1 stage C, 196r, D-C3)",
+      "section": "[rows](rows.md#catch)",
+      "witnesses": [
+        "internal/sketch/lower:TestErgoRunOneCatch"
+      ]
+    },
+    {
+      "construct": "`needs` rows",
+      "status": "implemented",
+      "cell": "Checked, inferred for unexported functions and literals; runs",
+      "section": "[rows](rows.md#capability-rows)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Footprints and purity",
+      "status": "implemented",
+      "cell": "Checked: the checker records each frame's footprint (`Info.Footprints`). The build places interruption points from it, and a pure function takes no hidden argument ([runtime](runtime.md#host-and-lowering-notes)). Showing footprints in a tool is [#203](https://github.com/cevr/ergo/issues/203)",
+      "section": "[rows](rows.md#footprints)",
+      "witnesses": [
+        "internal/sketch/check:TestFootprintsPureStd"
+      ]
+    },
+    {
+      "construct": "Named contexts `let W = context { … }` with provider literals",
+      "status": "implemented",
+      "cell": "Checked: closed contexts (Gap 6), S111 for a repeated entry (Gap 28); runs",
+      "section": "[rows](rows.md#context)",
+      "witnesses": [
+        "internal/sketch/check:TestContextInfo",
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Inline `context { … }`",
+      "status": "implemented",
+      "cell": "Checked; runs",
+      "section": "[rows](rows.md#context)",
+      "witnesses": [
+        "internal/sketch/check:TestContextInfo",
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Context embedding, `replace`, one provider for several capabilities",
+      "status": "implemented",
+      "cell": "Checked (Gap 34); runs. A `with` or an embedding of an imported context: checked and lowered (196b U4; `TestRunImportedContext`)",
+      "section": "[rows](rows.md#context)",
+      "witnesses": [
+        "internal/sketch/check:TestContextInfo",
+        "internal/sketch/lower:TestRunImportedContext"
+      ]
+    },
+    {
+      "construct": "Context constructors",
+      "status": "designed",
+      "cell": "Designed, not yet implemented; S109 naming [#37](https://github.com/cevr/ergo/issues/37)",
+      "section": "[rows](rows.md#context)",
+      "witnesses": []
+    },
+    {
+      "construct": "Context header `provides A needs B`",
+      "status": "partly implemented",
+      "cell": "Parsed and formatted; S109 naming #196 stage b (Gap 33)",
+      "section": "[rows](rows.md#context)",
+      "witnesses": [
+        "internal/sketch/lower:TestRefusedFamiliesHaveWitnesses"
+      ]
+    },
+    {
+      "construct": "`with W { block }`",
+      "status": "implemented",
+      "cell": "Checked; runs",
+      "section": "[rows](rows.md#with)",
+      "witnesses": [
+        "internal/sketch/check:TestContextInfo",
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "`with` context values (G1)",
+      "status": "partly implemented",
+      "cell": "Checked; runs for string values ([#199](https://github.com/cevr/ergo/issues/199)); typed payloads are designed",
+      "section": "[runtime](runtime.md#g1-context-through-with)",
+      "witnesses": [
+        "internal/sketch/check:TestContextValueDiagnostics"
+      ]
+    },
+    {
+      "construct": "`timeout.After(d) { block }`",
+      "status": "implemented",
+      "cell": "Checked as an ordinary library function of the package `timeout` (Gap 31); `ergo build` lowers its call to its `runtime/v1` body, `v1.After`",
+      "section": "[runtime](runtime.md#timeouts)",
+      "witnesses": [
+        "internal/sketch/lower:TestTimeoutAfterLowers"
+      ]
+    },
+    {
+      "construct": "Trailing block as a function-literal argument",
+      "status": "implemented",
+      "cell": "Checked; runs",
+      "section": "[grammar](grammar.md#expressions)",
+      "witnesses": [
+        "internal/sketch/format:TestTrailingFuncAgrees",
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Function literals and function types",
+      "status": "implemented",
+      "cell": "Checked, with rows from the expected type or inferred; runs",
+      "section": "[types](types.md#generics)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Resources and automatic release",
+      "status": "partly implemented",
+      "cell": "Checked and runs: resource types, the ownership flow, and the release of locals, parameters, temporaries, aggregates, containers and unions at their owner's end ([#197](https://github.com/cevr/ergo/issues/197)); their [visibility](resources.md#visibility) in tools is designed",
+      "section": "[resources](resources.md)",
+      "witnesses": [
+        "internal/sketch/check:TestResourceTypeModel",
+        "internal/sketch/check:TestOwnershipFlowModel",
+        "internal/sketch/lower:TestOwnershipRunModel",
+        "internal/sketch/lower:TestDropGlueModel"
+      ]
+    },
+    {
+      "construct": "`task.Go`, `Task`, `Wait`, `Stop`",
+      "status": "implemented",
+      "cell": "Checked and runs (#197 L8 B3t): a `Task` is a resource with `Close()`, moved by a return, a field, a container, a queue or a capture, taken by `Wait`, and released at its owner's end (stopped, drained, its unread value released)",
+      "section": "[runtime](runtime.md#tasks)",
+      "witnesses": [
+        "internal/sketch/lower:TestTaskOwnershipRunModel",
+        "internal/sketch/lower:TestTaskGoAndTaskResults"
+      ]
+    },
+    {
+      "construct": "Task tree, stop propagation, defect propagation",
+      "status": "implemented",
+      "cell": "Implemented (the task runtime `runtime/rt`); every built program runs on it",
+      "section": "[runtime](runtime.md#tasks)",
+      "witnesses": [
+        "runtime/rt:TestStopPropagatesToDescendants"
+      ]
+    },
+    {
+      "construct": "I1 checks before capability calls",
+      "status": "implemented",
+      "cell": "Implemented ([#199](https://github.com/cevr/ergo/issues/199))",
+      "section": "[runtime](runtime.md#i1-interruption-points)",
+      "witnesses": [
+        "internal/sketch/lower:TestRuntime199BlockingProperty"
+      ]
+    },
+    {
+      "construct": "I1 at loop back-edges and task-aware blocking waits; I2 masks",
+      "status": "implemented",
+      "cell": "Implemented ([#199](https://github.com/cevr/ergo/issues/199); runtime.md, #199 contract status). Channels are not in the language: `chan` is reserved",
+      "section": "[runtime](runtime.md#i2-automatic-masks)",
+      "witnesses": [
+        "internal/sketch/lower:TestRuntime199MaskProperty",
+        "runtime/v1:TestQueueWaitsEndOnAStop"
+      ]
+    },
+    {
+      "construct": "G1 to G4",
+      "status": "partly implemented",
+      "cell": "G1, G2 and G4 implemented ([#199](https://github.com/cevr/ergo/issues/199), [#207](https://github.com/cevr/ergo/issues/207)); actor supervision runs on G4's restart rule; G3 designed, not yet implemented",
+      "section": "[runtime](runtime.md#observability-and-supervision)",
+      "witnesses": [
+        "internal/sketch/check:TestContextValueDiagnostics",
+        "runtime/rt:TestStopPropagatesToDescendants"
+      ]
+    },
+    {
+      "construct": "`for … in`, `break`, `continue`",
+      "status": "implemented",
+      "cell": "Checked with Go's rules for the range forms they desugar to; runs",
+      "section": "[grammar](grammar.md#statements)",
+      "witnesses": [
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "`scope.OnExit`, queues",
+      "status": "implemented",
+      "cell": "Checked; runs (check-v1 stage D3b: `Push`, `Pop` and `Values` take the caller's task, so a stop ends their wait); Go's `range`, `select`, `defer`, `chan` and `var` are reserved words whose use names the Ergo form",
+      "section": "[grammar](grammar.md#reserved-words)",
+      "witnesses": [
+        "runtime/rt:TestScopeReleasesReverseOnEveryExit",
+        "internal/sketch/lower:TestErgoRunQueueOperations"
+      ]
+    },
+    {
+      "construct": "Borrows `*T`",
+      "status": "implemented",
+      "cell": "Checked: only as a parameter type; runs. Escape and exclusivity are [#197](https://github.com/cevr/ergo/issues/197)'s",
+      "section": "[types](types.md#borrows)",
+      "witnesses": [
+        "internal/sketch/check:TestBorrowOverlapModel"
+      ]
+    },
+    {
+      "construct": "Generics",
+      "status": "implemented",
+      "cell": "Checked in the bracket spelling of [types.md](types.md#generics), with constraints, row parameters and inference by unification; runs",
+      "section": "[types](types.md#generics)",
+      "witnesses": [
+        "internal/sketch/lower:TestGenericCapabilitiesAgree",
+        "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
+      ]
+    },
+    {
+      "construct": "Tests `test Name { … }`, `test Name(x T) { … }` and `assert`",
+      "status": "implemented",
+      "cell": "Implemented (check-v1 stage E3a, 196l): checked, `assert` only in a test or law body (S108); the test build lowers every test and a runner; the run build of `ergo build` and `ergo run` contains none; `ergo test` builds and runs the test binary (lower-v1 stage 4)",
+      "section": "[grammar](grammar.md#declarations)",
+      "witnesses": [
+        "internal/sketch/check:TestAssertPlacement",
+        "cmd/ergo:TestTestCommand"
+      ]
+    },
+    {
+      "construct": "Laws `law Name(…) { … }`",
+      "status": "implemented",
+      "cell": "Checked (check-v1 stage E3b, 196l) and run by `ergo test`: top-level laws, member laws (a generic operation type's at each provider's instance, L4) and machine laws (MU6), proved when every value can be listed, else 100 cases (MU6b). A law of an imported operation type runs against this package's providers in the least package that sees the binding",
+      "section": "[types](types.md#laws)",
+      "witnesses": [
+        "internal/sketch/lower:TestStdLawsRun",
+        "internal/sketch/lower:TestLawRunLeastPackage"
+      ]
+    },
+    {
+      "construct": "`machine` types; the `actor` library package (#101: library, no compiler rule)",
+      "status": "implemented",
+      "cell": "Checked and lowered: a machine is a plan value with `Initial`, `Step`, `After` and `Work`; std `machines` runs it purely and `actor.StartMachine` runs it live (runtime.md, Machines and actors 8 to 11)",
+      "section": "[runtime](runtime.md#machines-and-actors)",
+      "witnesses": [
+        "internal/sketch/lower:TestMachineRunAgreesWithFold"
+      ]
+    },
+    {
+      "construct": "Actors",
+      "status": "partly implemented",
+      "cell": "The live machine runner `actor.StartMachine` and its supervision are implemented (Machines and actors 11 and 18); `actor.Start`, `actor.StartAgent` and `actor.Address` are designed, not yet implemented ([#57](https://github.com/cevr/ergo/issues/57))",
+      "section": "[runtime](runtime.md#machines-and-actors)",
+      "witnesses": [
+        "runtime/v1:TestActorHostAgreesWithModel",
+        "internal/sketch/lower:TestStdActorLawsRun"
+      ]
+    },
+    {
+      "construct": "Go imports",
+      "status": "implemented",
+      "cell": "Implemented ([#202](https://github.com/cevr/ergo/issues/202)): `import go` reads the embedded bindings of Go's standard library and a module's `ergo.bind/` bindings, which `ergo bind go` writes; calls lower to direct Go calls; user externs are checked as adapters of a binding (IG1 to IG7, IG10)",
+      "section": "[grammar](grammar.md#declarations)",
+      "witnesses": [
+        "internal/gobind:TestBindMappingProperty",
+        "internal/sketch/lower:TestImportGoRuns"
+      ]
+    },
+    {
+      "construct": "Packages and visibility by capitalisation",
+      "status": "implemented",
+      "cell": "Implemented: module packages and their imports (`ergo.mod`), and visibility on fields, operations and construction (196b Q6 and Q7)",
+      "section": "[grammar](grammar.md#visibility)",
+      "witnesses": [
+        "internal/sketch/check:TestFieldVisibility",
+        "internal/sketch/check:TestSealingIsTheVisibilityRule"
+      ]
+    },
+    {
+      "construct": "Standard library",
+      "status": "implemented",
+      "cell": "The prelude and the std packages under `internal/sketch/std` (among them `actor`, `fs`, `machines`, `maps`, `queue`, `schedule`, `slices`, `strings`, `sync`, `task`, `time`, `timeout`) are Ergo source, checked and lowered; [stdlib.md](stdlib.md) states each family's status ([#206](https://github.com/cevr/ergo/issues/206))",
+      "section": "[stdlib](stdlib.md)",
+      "witnesses": [
+        "internal/sketch/lower:TestStdLawsRun"
+      ]
+    }
+  ]
+}
