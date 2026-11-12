@@ -350,23 +350,30 @@ func TestCaseProcessGroupIsStopped(t *testing.T) {
 	}
 }
 
-// A case of a default program over -budget fails naming the budget; a slow
+// A case of a default program whose CPU time passes -budget fails naming
+// the budget; one that only waits as long passes, since the budget charges
+// work and never wall time, which the host's load stretches. A slow
 // program runs only when selected by tag or by name.
+//
+// Mutant: the budget compares the case's wall time (runCase).
 func TestBudgetAndSelection(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	slow := map[string]map[string]string{"basic": {"expected.out": "done\n"}}
-	f.program("slowpoke", "#!/bin/sh\nsleep 1\necho done\n", "default\n", slow, nil)
+	// slowpoke burns CPU (a shell loop; at least 10 ms on any host); dozer
+	// sleeps a second and does almost nothing.
+	f.program("slowpoke", "#!/bin/sh\ni=0\nwhile [ $i -lt 200000 ]; do i=$((i+1)); done\necho done\n", "default\n", slow, nil)
+	f.program("dozer", "#!/bin/sh\nsleep 1\necho done\n", "default\n", slow, nil)
 	f.program("lazy", "#!/bin/sh\nsleep 1\necho done\n", "slow net\n", slow, nil)
-	code, out := f.run("-budget", "300ms")
-	_, fails := verdicts(out)
-	if code != 1 || !strings.Contains(fails["slowpoke/basic"], "budget") || strings.Contains(out, "lazy") {
-		t.Fatalf("default selection: want FAIL slowpoke/basic budget and no lazy; exit %d\n%s", code, out)
+	code, out := f.run("-budget", "10ms")
+	oks, fails := verdicts(out)
+	if code != 1 || !strings.Contains(fails["slowpoke/basic"], "budget") || !oks["dozer/basic"] || strings.Contains(out, "lazy") {
+		t.Fatalf("default selection: want FAIL slowpoke/basic budget, ok dozer/basic and no lazy; exit %d\n%s", code, out)
 	}
-	for _, args := range [][]string{{"-tags", "slow", "-budget", "300ms"}, {"-tags", "cc,net"}, {"lazy"}} {
+	for _, args := range [][]string{{"-tags", "slow", "-budget", "10ms"}, {"-tags", "cc,net"}, {"lazy"}} {
 		code, out = f.run(args...)
 		oks, _ := verdicts(out)
-		if code != 0 || !oks["lazy/basic"] || strings.Contains(out, "slowpoke") {
+		if code != 0 || !oks["lazy/basic"] || strings.Contains(out, "slowpoke") || strings.Contains(out, "dozer") {
 			t.Fatalf("%q: want only ok lazy/basic; exit %d\n%s", args, code, out)
 		}
 	}

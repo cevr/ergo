@@ -180,7 +180,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.StringVar(&tags, "tags", "default", "comma-separated tags; selects the programs whose tags hold any of them")
 	flags.DurationVar(&cfg.timeout, "timeout", hangNet, "per case: a safety net that stops a hung case and its process group and names the hang, never a time limit")
 	flags.DurationVar(&cfg.testTimeout, "test-timeout", hangNet, "per ergo check, ergo test, explore search and replay: a safety net that stops a hung one, never a time limit")
-	flags.DurationVar(&cfg.budget, "budget", 5*time.Second, "a case of a default program that runs longer fails; tag the program slow")
+	flags.DurationVar(&cfg.budget, "budget", 5*time.Second, "CPU time (user and system, never wall time) past which a case of a default program fails; tag the program slow")
 	flags.BoolVar(&cfg.record, "record", false, "run each selected port's record.sh in place of the built program and write its goldens")
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
@@ -960,8 +960,11 @@ func (r *runner) runCase(p *program, c *testCase, command []string, budgeted boo
 	if o.status != c.status {
 		what = append(what, fmt.Sprintf("status differs: got %s, want %d", o.statusText(), c.status))
 	}
-	if budgeted && p.tagged("default") && r.cfg.budget > 0 && o.elapsed > r.cfg.budget {
-		what = append(what, fmt.Sprintf("over the default budget %s (ran %s); tag the program slow", r.cfg.budget, seconds(o.elapsed)))
+	// The budget charges CPU time, never wall time: a healthy case under
+	// the host's load takes longer but does no more work (AGENTS.md, Tests:
+	// no wall-clock bounds; owner, 2026-11-12).
+	if budgeted && p.tagged("default") && r.cfg.budget > 0 && o.cpu > r.cfg.budget {
+		what = append(what, fmt.Sprintf("over the default budget %s of CPU time (used %s); tag the program slow", r.cfg.budget, seconds(o.cpu)))
 	}
 	if len(what) == 0 {
 		fmt.Fprintf(r.out, "ok %s (%s)\n", label, seconds(o.elapsed))
@@ -1021,6 +1024,10 @@ type outcome struct {
 	signal   string
 	timedOut bool
 	elapsed  time.Duration
+	// cpu is the user and system time of the process and of the children
+	// it waited for (the kernel's wait4 count): the work the case did,
+	// which the host's load does not stretch as it stretches elapsed.
+	cpu time.Duration
 	// limited is a command that failed under a memory limit and whose stderr
 	// holds a memory cause read by proclimit.CauseOf.
 	limited bool
@@ -1155,6 +1162,7 @@ wait:
 	o.stdout, o.stdoutOver = stdout.data, stdout.over
 	o.stderr, o.stderrOver = stderr.data, stderr.over
 	o.status = command.ProcessState.ExitCode()
+	o.cpu = command.ProcessState.UserTime() + command.ProcessState.SystemTime()
 	if o.status < 0 {
 		o.signal = signalName(command.ProcessState)
 	}
