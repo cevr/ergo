@@ -1,0 +1,273 @@
+package check
+
+import (
+	"flag"
+	"fmt"
+	"math/rand/v2"
+	"strings"
+	"testing"
+)
+
+// The borrow-conversion rule's seeded property (types.md, Borrows 6;
+// borrowconv.go). Each seed writes functions that each take a value from a
+// source (a borrow parameter t, a borrow &x of a let mut, or an owned
+// Fixed), convert it to the operation type Counter at a site (a let, a
+// with's context, a context value, a return, an argument, a field, an
+// element, an Option or union payload, a generic instantiation, an
+// assignment, an if arm, a tuple a multi-name let takes apart), and, after a let, pass the local through zero to
+// two more lets and then one escape route (an operation call, the same
+// sites, a capture by an escaping or a non-escaping literal, by task.Go).
+// The lifetime model: a value from an owned source goes anywhere; a value
+// from a borrow stands only as a one-name let's value, a with's context
+// entry, or (as a local) an operation call's receiver or a capture by a
+// frame that cannot outlive the call; every other place is refused at the
+// value's line, naming the borrow or the local that holds it. The
+// checker's Borrows 6 lines and names must be the model's, and no other
+// diagnostic may appear.
+//
+// Replay: go test -run '^TestBorrowConvModel$' ./internal/sketch/check -args -borrowconv.seed=N
+
+var borrowConvSeed = flag.Uint64("borrowconv.seed", 0, "run TestBorrowConvModel on this seed alone")
+
+const borrowConvPrelude = `import task
+
+// law-exempt: the property's operation type.
+type Counter {
+	Bump() int,
+}
+
+type Tally { n int }
+
+func Bump(t *Tally) int {
+	t.n = t.n + 1
+	t.n
+}
+
+type Fixed {}
+
+func Bump(f Fixed) int { 1 }
+
+type Holder { c Counter }
+
+type Wrap = Has{c Counter} | Empty{}
+
+func id[T](x T) T { x }
+
+func use(c Counter) int { c.Bump() }
+
+func run(f escaping func() int) int { f() }
+
+func each(f func() int) int { f() }
+
+func waited() int { task.Go() { 1 }.Wait() }
+`
+
+// A bcSite is a place a value stands: the function's result type, the
+// statements before and after the value, and the line that holds it (%s).
+type bcSite struct {
+	name          string
+	result        string
+	before, after []string
+	at            string
+	// ok: a borrow may stand here.
+	ok bool
+}
+
+// bcSites are the places a converted value or its local may stand. A
+// site's "%s" is the value.
+var bcSites = []bcSite{
+	{name: "with", result: "int", at: "with context { Counter: %s } { Counter.Bump() }", ok: true},
+	{name: "ctxval", result: "Context[Counter]", at: "let w Context[Counter] = context { Counter: %s }", after: []string{"w"}, ok: false},
+	{name: "tail", result: "Counter", at: "%s", ok: false},
+	{name: "return", result: "Counter", at: "return %s", ok: false},
+	{name: "arg", result: "int", at: "use(%s)", ok: false},
+	{name: "field", result: "Holder", at: "Holder{c: %s}", ok: false},
+	{name: "elem", result: "[]Counter", at: "[]Counter{%s}", ok: false},
+	{name: "option", result: "Option[Counter]", at: "Some[Counter]{Value: %s}", ok: false},
+	{name: "union", result: "Wrap", at: "Has{c: %s}", ok: false},
+	{name: "generic", result: "Counter", at: "id[Counter](%s)", ok: false},
+	{name: "assign", result: "int", before: []string{"let mut m Counter = Fixed"}, at: "m = %s", after: []string{"m.Bump()"}, ok: false},
+	{name: "pair", result: "int", at: "let a, b Counter = (%s, Fixed)", after: []string{"a.Bump() + b.Bump()"}, ok: false},
+	{name: "arm", result: "Counter", at: "if len(\"a\") > 0 { %s } else { Fixed }", ok: false},
+}
+
+// bcLocalSites are the places only a local may stand.
+var bcLocalSites = []bcSite{
+	{name: "call", result: "int", at: "%s.Bump()", ok: true},
+	{name: "inferred", result: "Counter", at: "id(%s)", ok: false},
+	{name: "local-capture", result: "int", at: "each(func() int { %s.Bump() })", ok: true},
+	{name: "escaping-capture", result: "int", at: "run(func() int { %s.Bump() })", ok: false},
+	{name: "task", result: "int", at: "task.Go() { %s.Bump() }.Wait()", ok: false},
+}
+
+// bcCase writes one function and returns its lines, the model's refused
+// line (0 for none), counted from the function's first line, the value the
+// refusal names, and the case's name.
+func bcCase(r *rand.Rand, name string) ([]string, int, string, string) {
+	sources := []string{"t", "&x", "Fixed"}
+	source := sources[r.IntN(len(sources))]
+	borrow := source != "Fixed"
+	lines := []string{""}
+	body := func(s string) int {
+		lines = append(lines, "\t"+s)
+		return len(lines) - 1
+	}
+	finish := func(site bcSite, value string) (int, string) {
+		lines[0] = fmt.Sprintf("func %s(t *Tally) %s {", name, site.result)
+		for _, s := range site.before {
+			body(s)
+		}
+		at := body(fmt.Sprintf(site.at, value))
+		for _, s := range site.after {
+			body(s)
+		}
+		lines = append(lines, "}")
+		return at, site.name
+	}
+	if source == "&x" {
+		body("let mut x = Tally{n: 0}")
+	}
+	if r.IntN(3) == 0 {
+		// The value converts at the site itself.
+		site := bcSites[r.IntN(len(bcSites))]
+		at, what := finish(site, source)
+		if !borrow || site.ok {
+			at = 0
+		}
+		return lines, at, source, "direct " + source + " " + what
+	}
+	body(fmt.Sprintf("let c Counter = %s", source))
+	local := "c"
+	for k := range r.IntN(3) {
+		next := fmt.Sprintf("d%d", k)
+		body(fmt.Sprintf("let %s = %s", next, local))
+		local = next
+	}
+	all := append(append([]bcSite{}, bcSites...), bcLocalSites...)
+	site := all[r.IntN(len(all))]
+	at, what := finish(site, local)
+	if !borrow || site.ok {
+		at = 0
+	}
+	return lines, at, local, "local " + source + " " + what
+}
+
+// borrowConvProgram is seed's source, the model's refused lines, and the
+// names of the cases it reaches.
+func borrowConvProgram(seed uint64) (string, map[int]string, []string) {
+	r := rand.New(rand.NewPCG(seed, 0xb0c0))
+	var b strings.Builder
+	b.WriteString(borrowConvPrelude)
+	line := strings.Count(borrowConvPrelude, "\n")
+	want := map[int]string{}
+	var reached []string
+	for i := range 2 + r.IntN(4) {
+		lines, at, named, what := bcCase(r, fmt.Sprintf("f%d", i))
+		b.WriteString("\n")
+		line++
+		if at != 0 {
+			want[line+1+at] = named
+		}
+		for _, l := range lines {
+			b.WriteString(l + "\n")
+		}
+		line += len(lines)
+		ok := "accepted"
+		if at != 0 {
+			ok = "refused"
+		}
+		reached = append(reached, what+" "+ok)
+	}
+	b.WriteString("\nfunc main() {}\n")
+	return b.String(), want, reached
+}
+
+// TestBorrowConvModel is the property (see above).
+func TestBorrowConvModel(t *testing.T) {
+	seeds := []uint64{}
+	for s := range uint64(300) {
+		seeds = append(seeds, s+1)
+	}
+	if *borrowConvSeed != 0 {
+		seeds = []uint64{*borrowConvSeed}
+	}
+	reached := map[string]bool{}
+	for _, seed := range seeds {
+		src, want, cases := borrowConvProgram(seed)
+		_, diags := CheckSource(src)
+		got := map[int]string{}
+		for _, d := range diags {
+			// A refusal names the borrow or the local that holds it.
+			named, _, ok := strings.Cut(d.Message, " is a borrow (*T)")
+			if !ok {
+				named, _, ok = strings.Cut(d.Message, " holds a borrow (*T)")
+			}
+			if d.Code == "S108" && ok && strings.Contains(d.Message, "Borrows 6") {
+				got[d.Line] = named
+			} else {
+				got[d.Line] = d.String()
+			}
+		}
+		if !mapsEqual(got, want) {
+			t.Errorf("seed %d: the checker says %v, the model %v\nReplay: go test -run '^TestBorrowConvModel$' ./internal/sketch/check -args -borrowconv.seed=%d\n%s", seed, got, want, seed, src)
+		}
+		for _, c := range cases {
+			reached[c] = true
+		}
+	}
+	if *borrowConvSeed != 0 {
+		return
+	}
+	// Every site and route is reached from a borrow and from the owned
+	// source.
+	for _, s := range bcSites {
+		for _, src := range []string{"t", "&x", "Fixed"} {
+			for _, form := range []string{"direct", "local"} {
+				ok := "refused"
+				if src == "Fixed" || s.ok {
+					ok = "accepted"
+				}
+				if k := form + " " + src + " " + s.name + " " + ok; !reached[k] {
+					t.Errorf("no seed reaches %q", k)
+				}
+			}
+		}
+	}
+	for _, s := range bcLocalSites {
+		for _, src := range []string{"t", "&x", "Fixed"} {
+			ok := "refused"
+			if src == "Fixed" || s.ok {
+				ok = "accepted"
+			}
+			if k := "local " + src + " " + s.name + " " + ok; !reached[k] {
+				t.Errorf("no seed reaches %q", k)
+			}
+		}
+	}
+}
+
+// TestBorrowConvRepro is the smallest repro of the fixed bug (PS3
+// follow-up): a borrow converted to an operation type by a let was
+// returned, and the program built and ran. It pins the diagnostic's text
+// and position.
+func TestBorrowConvRepro(t *testing.T) {
+	src := `// law-exempt: the repro's operation type.
+type Counter {
+	Bump() int,
+}
+
+type Tally { n int }
+
+func Bump(t *Tally) int { t.n }
+
+func keep(t *Tally) Counter {
+	let c Counter = t
+	c
+}
+`
+	_, diags := CheckSource(src)
+	want := "12:2: S108 c holds a borrow (*T) as Counter, which lives only as long as the call that lent it: call its operations or bind it with a let, never return, store or pass it or convert it again (types.md, Borrows 6)"
+	if len(diags) != 1 || diags[0].String() != want {
+		t.Fatalf("got %v, want [%s]", diags, want)
+	}
+}
