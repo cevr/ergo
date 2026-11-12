@@ -78,7 +78,7 @@
       "origin": "wf10 batch-18 fix-tool (verify B1)",
       "file": "scripts/gate/tier.go",
       "from": "\t\t} else if only {\n\t\t\tcontinue\n\t\t}\n\t\t// A hermetic package",
-      "to": "\t\t}\n\t\t// A hermetic package",
+      "to": "\t\t} else if only && false {\n\t\t\tcontinue\n\t\t}\n\t\t// A hermetic package",
       "rule": "The fast tier declares no step for a full-tier-only package (fullTierOnly).",
       "killers": ["scripts/gate:TestFastStepsKeyEveryTestPackage"]
     }
