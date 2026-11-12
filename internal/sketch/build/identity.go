@@ -37,6 +37,11 @@ const processScope = "process:"
 // the tools an action runs.
 func CompilerIdentity() (string, error) { return compilerIdentity(producer.Current()) }
 
+// IdentityOf is CompilerIdentity of the producer identity id, for a
+// command that acquired id for its own facts (ergo check keys its law
+// verdicts with it, lawcache) and so acquires none for the cache.
+func IdentityOf(id producer.Identity) (string, error) { return compilerIdentity(id) }
+
 // compilerIdentity maps a producer identity to the emission key's compiler
 // field: its digest when it is a content identity of the executing
 // artifact, its process qualifier when it is process-scoped, and an error

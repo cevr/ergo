@@ -123,6 +123,7 @@ var testHelpers = []struct{ key, base string }{
 	{"States", "ergoStates"}, {"explore", "explore"}, {"Verdict", "ergoVerdict"}, {"Program", "ergoProgram"},
 	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"}, {"testgen", "testgen"},
 	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
+	{"Cached", "ergoCached"}, {"CachedRun", "ergoCachedRun"},
 }
 
 // helper is the Go name of the harness entity key.
@@ -381,29 +382,13 @@ func (l *lowerer) lawTitle(law *check.Law) string {
 // with its package's name before it when it is of another package than
 // the one under test.
 func (l *lowerer) providerTitle(p check.LawProvider) string {
-	if pkg := p.Type.Obj.Pkg; pkg != nil && pkg != l.pkg {
-		return pkg.Name + "." + p.Type.Obj.Name
-	}
-	return p.Type.Obj.Name
+	return providerTitleIn(l.pkg, p)
 }
 
-// bindingLabel is the report's name of a run of law with the binding b:
-// `law T.L for P` for a member law's owner, then `with x = P` for each
-// parameter of an operation type.
+// bindingLabel is the report's name of a run of law with the binding b
+// (BindingLabel).
 func (l *lowerer) bindingLabel(law *check.Law, b []check.LawProvider) string {
-	label := "law " + l.lawTitle(law)
-	var with []string
-	for k, s := range law.Slots {
-		if s.Param < 0 {
-			label += " for " + l.providerTitle(b[k])
-			continue
-		}
-		with = append(with, law.Params[s.Param].Name+" = "+l.providerTitle(b[k]))
-	}
-	if len(with) > 0 {
-		label += " with " + strings.Join(with, ", ")
-	}
-	return label
+	return BindingLabel(l.pkg, law, b)
 }
 
 func (l *lowerer) lawFunc(law *check.Law) string {
@@ -946,7 +931,7 @@ func lawSlotParam(law *check.Law, i int) bool {
 // assert fails it as a test's case does.
 func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, seed, failed string) {
 	law := lr.Law
-	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
+	fmtPkg := l.helper("fmt")
 	title := l.lawTitle(law)
 	if law.Unrun != "" {
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
@@ -988,15 +973,31 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
 	for _, tg := range targets {
+		// A run whose verdict ergo test found in its store (--cached;
+		// lawcache) prints that verdict, marked, and does not run.
+		b.WriteString("\tif !" + l.helper("CachedRun") + "(" + strconv.Quote(tg.label) + ") {\n")
+		l.lawTarget(b, law, tg.label, tg.b, scope, env, seed, failed, at)
+		b.WriteString("\t}\n")
+	}
+}
+
+// lawTarget writes the run of law with the binding bd, reported as label.
+func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd []check.LawProvider, scope *namer, env, seed, failed, at string) {
+	fmtPkg, conv := l.helper("fmt"), l.helper("strconv")
+	tg := struct {
+		label string
+		b     []check.LawProvider
+	}{label, bd}
+	{
 		if law.Rewrite != nil {
 			l.rewriteRuns(b, law, tg.label, tg.b[0], scope, env, seed, failed, at)
-			continue
+			return
 		}
 		plan := testplan.Law(law, tg.b)
 		// One rule for every law (Listed laws): a run whose values can
 		// all be listed takes each once and is proved; else it draws.
 		if l.listedRuns(b, law, tg.label, tg.b, scope, env, failed) {
-			continue
+			return
 		}
 		inner := newNamer(scope)
 		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
@@ -1699,17 +1700,17 @@ func $Want(name string) bool { return $Only == "" || $Only == name }
 // $Flag is the value of the test binary's flag --name, given as --name V
 // or --name=V, and whether it is given; given twice, the last value
 // counts. The flags are --seed, --states, --law, --skip-law, --run,
-// --source, --receipt and --revision; any other argument, or a flag with
-// no value, is a usage error (exit 2).
+// --source, --receipt, --revision and --cached; any other argument, or a
+// flag with no value, is a usage error (exit 2).
 func $Flag(name string) (string, bool) {
 	value, given := "", false
 	args := $os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		key, v, joined := $strings.Cut(args[i], "=")
 		switch key {
-		case "--seed", "--states", "--law", "--skip-law", "--run", "--source", "--receipt", "--revision":
+		case "--seed", "--states", "--law", "--skip-law", "--run", "--source", "--receipt", "--revision", "--cached":
 		default:
-			$fmt.Fprintln($os.Stderr, "usage: [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--source PATH] [--receipt FILE] [--revision R], not "+args[i])
+			$fmt.Fprintln($os.Stderr, "usage: [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--source PATH] [--receipt FILE] [--revision R] [--cached FILE], not "+args[i])
 			$os.Exit(2)
 		}
 		if !joined {
@@ -1735,6 +1736,21 @@ func $Seed() uint64 {
 	$Receipt.path, _ = $Flag("receipt")
 	$Receipt.source, _ = $Flag("source")
 	$Receipt.revision, _ = $Flag("revision")
+	if path, given := $Flag("cached"); given && $Receipt.path == "" {
+		// A receipt lists what ran, so a run that writes one takes no
+		// cached verdict.
+		data, err := $os.ReadFile(path)
+		if err != nil {
+			$fmt.Fprintln($os.Stderr, "usage: --cached FILE: "+err.Error())
+			$os.Exit(2)
+		}
+		$Cached = map[string]string{}
+		for _, line := range $strings.Split(string(data), "\n") {
+			if label, text, ok := $strings.Cut(line, "\t"); ok {
+				$Cached[label] = text
+			}
+		}
+	}
 	v, given := $Flag("seed")
 	if !given {
 		return 1
@@ -1745,6 +1761,21 @@ func $Seed() uint64 {
 		$os.Exit(2)
 	}
 	return n
+}
+
+// $Cached holds the verdicts ergo test found in its store for this run's
+// seed and budget (--cached FILE, one "LABEL\tTEXT" line each; lawcache):
+// the law run LABEL held, with the ok line's TEXT.
+var $Cached map[string]string
+
+// $CachedRun prints the cached verdict of the run label, marked, and
+// reports whether there is one: then the run does not run.
+func $CachedRun(label string) bool {
+	text, ok := $Cached[label]
+	if ok {
+		$fmt.Println("ok " + label + " (" + text + ") (cached)")
+	}
+	return ok
 }
 
 // $Source is the source as ergo test was given it (--source), the file or

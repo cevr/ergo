@@ -53,6 +53,7 @@ func (a Analysis) Evaluation(b eval.Budget, source string) (report.Evaluation, e
 			TotalCases: res.TotalCases,
 			Evidence:   res.Evidence,
 			Seed:       res.Seed,
+			Cached:     res.Cached,
 		}
 		for _, arg := range res.Arguments {
 			o.Arguments = append(o.Arguments, report.Argument{Name: arg.Name, Value: arg.Value})

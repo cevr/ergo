@@ -126,6 +126,7 @@ type Evaluation struct {
 // runs the same cases (ergo test draws the same ones for the same seed).
 type Obligation struct {
 	Arguments   []Argument     `json:"arguments,omitempty"`
+	Cached      bool           `json:"cached,omitempty"`
 	Case        int            `json:"case,omitempty"`
 	Cases       int            `json:"cases"`
 	Evidence    string         `json:"evidence,omitempty"`

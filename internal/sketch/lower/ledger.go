@@ -226,7 +226,7 @@ func instanceText(in RewriteInstance) string {
 // changes no token of one, moves one, or touches a declaration the law
 // does not reach leaves it as it was.
 func LawDigest(law *check.Law, prov *check.Named, conv check.Conversion, ctor *check.Func, inst string) string {
-	d := &digester{seen: map[any]bool{}, decls: map[string]bool{}, lets: map[*check.Var]letDecl{}, named: map[*check.Package]map[string]*check.Var{}, indexed: map[*check.Package]bool{}}
+	d := newDigester()
 	d.typ(law.Owner)
 	d.typ(prov.Obj)
 	roots := tableFuncs(conv)
@@ -253,6 +253,154 @@ func LawDigest(law *check.Law, prov *check.Named, conv check.Conversion, ctor *c
 	fmt.Fprintf(h, "c%d:%s", len(closed), closed)
 	fmt.Fprintf(h, "i%d:%s", len(inst), inst)
 	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+func newDigester() *digester {
+	return &digester{seen: map[any]bool{}, decls: map[string]bool{}, lets: map[*check.Var]letDecl{}, named: map[*check.Package]map[string]*check.Var{}, indexed: map[*check.Package]bool{}}
+}
+
+// TargetDigest is the digest of every input of the verdict of the run of
+// law with binding in the test build of pkg (lawcache; v1 audit 3, F7),
+// LawDigest's rule over every slot: the law's declaration (its owner's,
+// or its own at top level), each slot's provider, its type and the
+// functions its conversion and constructor reach, whether its
+// construction is closed, and, so that an edit of how a case is drawn
+// makes it stale too, the generator of every type the walk reached: its
+// constructor and, for an operation type, its builder in pkg (check's
+// builders.go), which no name in the law reaches.
+func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) string {
+	d := newDigester()
+	switch {
+	case law.Owner != nil:
+		d.typ(law.Owner)
+	case law.Machine != nil:
+		d.typ(law.Machine)
+	case law.Pkg != nil && law.Decl != nil:
+		d.decl("law "+law.Pkg.Path+"."+law.Name, law.Pkg, law.Decl)
+	}
+	var slots []string
+	for k, p := range binding {
+		if p.Type == nil {
+			continue
+		}
+		d.typ(p.Type.Obj)
+		roots := tableFuncs(p.Conv)
+		if p.Ctor != nil {
+			roots = append(roots, p.Ctor)
+		}
+		for _, f := range roots {
+			d.fn(f)
+		}
+		closed := "closed"
+		if constructionOpen(p.Type, p.Ctor, p.Conv) != nil {
+			closed = "open"
+		}
+		slots = append(slots, fmt.Sprintf("%d %s %s %t", k, p.Type, closed, p.Value))
+	}
+	d.generators(pkg)
+	keys := make([]string, 0, len(d.decls))
+	for k := range d.decls {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	fmt.Fprintf(h, "%d:%s", len(LawRunVersion), LawRunVersion)
+	for _, k := range keys {
+		fmt.Fprintf(h, "%d:%s", len(k), k)
+	}
+	for _, s := range slots {
+		fmt.Fprintf(h, "s%d:%s", len(s), s)
+	}
+	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+// generators adds the generator of each type the walk reached, until it
+// reaches no new one: the type's constructor, and an operation type's
+// builder in pkg.
+func (d *digester) generators(pkg *check.Package) {
+	done := map[*check.TypeName]bool{}
+	for {
+		var next []*check.TypeName
+		for k := range d.seen {
+			if t, ok := k.(*check.TypeName); ok && !done[t] {
+				next = append(next, t)
+			}
+		}
+		if len(next) == 0 {
+			return
+		}
+		for _, t := range next {
+			done[t] = true
+			d.fn(t.Constructor())
+			if n, ok := t.Type.(*check.Named); ok && pkg != nil {
+				if _, ops := n.Underlying().(*check.Interface); ops {
+					if b := pkg.Builder(n); b != nil {
+						d.fn(b.Func)
+					}
+				}
+			}
+		}
+	}
+}
+
+// RunTarget is a run of a law the test build of a package reports under
+// Label, which the verdict store keys (lawcache): a binding of a law that
+// runs, whose providers all run. A machine's law and a run under a
+// context are not targets: they run every time.
+type RunTarget struct {
+	Law     *check.Law
+	Binding []check.LawProvider
+	Label   string
+}
+
+// RunTargets are the targets of pkg's law runs, in run order. Two runs
+// with one label are no target: a line names one run.
+func RunTargets(pkg *check.Package) []RunTarget {
+	var out []RunTarget
+	count := map[string]int{}
+	for _, r := range pkg.LawRuns {
+		if r.Law.Unrun != "" || r.Law.Machine != nil {
+			continue
+		}
+		for _, b := range r.Bindings {
+			if bindingUnrun(b) != "" {
+				continue
+			}
+			label := BindingLabel(pkg, r.Law, b)
+			count[label]++
+			out = append(out, RunTarget{Law: r.Law, Binding: b, Label: label})
+		}
+	}
+	return slices.DeleteFunc(out, func(t RunTarget) bool { return count[t.Label] > 1 })
+}
+
+// BindingLabel is the report's name of a run of law with the binding b
+// in the test build of pkg: `law T.L for P` for a member law's owner,
+// then `with x = P` for each parameter of an operation type.
+func BindingLabel(pkg *check.Package, law *check.Law, b []check.LawProvider) string {
+	label := "law " + law.Title(pkg)
+	var with []string
+	for k, s := range law.Slots {
+		if s.Param < 0 {
+			label += " for " + providerTitleIn(pkg, b[k])
+			continue
+		}
+		with = append(with, law.Params[s.Param].Name+" = "+providerTitleIn(pkg, b[k]))
+	}
+	if len(with) > 0 {
+		label += " with " + strings.Join(with, ", ")
+	}
+	return label
+}
+
+// providerTitleIn is the name a report of pkg's test build gives a
+// provider: its type's name, with its package's name before it when it
+// is of another package.
+func providerTitleIn(pkg *check.Package, p check.LawProvider) string {
+	if q := p.Type.Obj.Pkg; q != nil && q != pkg {
+		return q.Name + "." + p.Type.Obj.Name
+	}
+	return p.Type.Obj.Name
 }
 
 // tableFuncs are the conversion's functions, in operation order.

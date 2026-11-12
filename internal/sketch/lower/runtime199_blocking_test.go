@@ -44,6 +44,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.goContext":       "rt.GoContext, the task as the hidden context.Context of a Go call; it neither waits nor releases (IG10)",
 			"lowerer.testRun":         "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 			"lowerer.lawRuns":         "a law case's task, which the case's Capture classifies its unwinding against (#162)",
+			"lowerer.lawTarget":       "a law case's task of one binding's run, which the case's Capture classifies its unwinding against (#162)",
 			"lowerer.listedRun":       "a listed law or property case's task, which the case's Capture classifies its unwinding against (MU6b, mu6c)",
 			"lowerer.reachRuns":       "a reachability law's task, which its case's Capture classifies its unwinding against (MU6)",
 			"lowerer.rewriteRuns":     "a rewrite law case's task, which its Capture classifies its unwinding against and its drawn operation calls take (Laws 14)",

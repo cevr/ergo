@@ -1,10 +1,13 @@
 package lower
 
 import (
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/lawcache"
 )
 
 // The build's evidence for rewrite laws (types.md, Laws 14; owner LR q1:
@@ -45,6 +48,16 @@ func (e *RefutedRewriteError) Error() string { return "rewrite law refuted: " + 
 // a provider's run checks needs no check: its evidence admits nothing,
 // and run is not called.
 func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)) (RewriteEvidence, error) {
+	return RewriteChecksCached(u, run, nil)
+}
+
+// RewriteChecksCached is RewriteChecks with the verdict store (lawcache;
+// v1 audit 3, F7): a law whose check run's output at its key the store
+// holds is not run again, and when no law is left to run, neither the
+// check build nor run is. The key (checkRunKey) covers every input of the
+// law's run in the check build; a run that printed a FAIL line is never
+// stored. A nil store runs every law.
+func RewriteChecksCached(u Unit, run func(files []File, laws []string) (string, error), store *lawcache.Store) (RewriteEvidence, error) {
 	ev := &checkedEvidence{pkg: u.Package, ok: map[string]string{}, verdict: map[string]string{}, how: map[string]string{}, ran: map[*check.Law]bool{}, insts: map[string]bool{}}
 	if len(newRewriter(u.Package, ev).rules) == 0 {
 		return ev, nil
@@ -88,18 +101,36 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 				t.Posts = append(t.Posts, law)
 			}
 		}
-		files, err := LowerTests(t)
-		if err != nil {
-			return nil, err
-		}
 		var titles []string
+		keys := map[string]string{}
+		var out string
 		for _, law := range laws {
-			titles = append(titles, law.Title(u.Package))
+			title := law.Title(u.Package)
+			if key, ok := checkRunKey(u.Package, law, insts, slices.Contains(t.Posts, law)); ok {
+				if text, hit := store.Get(key); hit {
+					out += text
+					continue
+				}
+				keys[title] = key
+			}
+			titles = append(titles, title)
 		}
 		sort.Strings(titles)
-		out, err := run(files, titles)
-		if err != nil {
-			return nil, err
+		if len(titles) > 0 {
+			files, err := LowerTests(t)
+			if err != nil {
+				return nil, err
+			}
+			ran, err := run(files, titles)
+			if err != nil {
+				return nil, err
+			}
+			for title, text := range outputByLaw(ran, titles) {
+				if key, ok := keys[title]; ok {
+					store.Put(key, text)
+				}
+			}
+			out += ran
 		}
 		ev.optimistic = false
 		for _, line := range strings.Split(out, "\n") {
@@ -141,6 +172,60 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 	}
 	ev.optimistic, ev.asked, ev.askedInsts = false, nil, nil
 	return ev, nil
+}
+
+// checkRunKey is the store's key of the check run of law in the check
+// build of pkg (lawcache): the law's title, each binding's label and
+// TargetDigest, in order, the site instances of the law the build takes,
+// in order, whether it runs as a post law, and the seed. A law that runs
+// under a context has none: a context's declarations are not in the
+// digest, so it runs every time.
+func checkRunKey(pkg *check.Package, law *check.Law, insts []RewriteInstance, post bool) (string, bool) {
+	parts := []string{"check run", law.Title(pkg), RewriteCheckSeed, strconv.FormatBool(post)}
+	found := false
+	for _, r := range pkg.LawRuns {
+		if r.Law != law {
+			continue
+		}
+		if len(r.Contexts) > 0 || found {
+			return "", false
+		}
+		found = true
+		for _, b := range r.Bindings {
+			parts = append(parts, "binding", BindingLabel(pkg, law, b), bindingUnrun(b), TargetDigest(pkg, law, b))
+		}
+	}
+	if !found {
+		return "", false
+	}
+	for _, in := range insts {
+		if in.Law == law {
+			parts = append(parts, "instance", instanceKey(in))
+		}
+	}
+	return lawcache.Key(parts...), true
+}
+
+// outputByLaw splits the output of the check runs of titles by law: the
+// lines `ok law T …`, `skip law T…` and `FAIL law T …` are T's. Any other
+// line (a summary, a replay) is no law's.
+func outputByLaw(out string, titles []string) map[string]string {
+	by := map[string]string{}
+	for _, line := range strings.SplitAfter(out, "\n") {
+		trimmed := strings.TrimSuffix(line, "\n")
+		for _, title := range titles {
+			for _, head := range []string{"ok law ", "skip law ", "FAIL law "} {
+				rest, ok := strings.CutPrefix(trimmed, head+title)
+				if ok && (strings.HasPrefix(rest, " ") || strings.HasPrefix(rest, ":")) {
+					if !strings.HasSuffix(line, "\n") {
+						line += "\n"
+					}
+					by[title] += line
+				}
+			}
+		}
+	}
+	return by
 }
 
 // probeLower lowers the run build of u to learn what it asks for. A

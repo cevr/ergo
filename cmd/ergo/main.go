@@ -20,6 +20,7 @@ import (
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/eval"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketchfront"
 	sourcefile "ergo.local/prototype/internal/source"
 )
@@ -454,7 +455,8 @@ func checkPackage(opts fileOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := l.result.Qualify(producer.Current()); err != nil {
+	id := producer.Current()
+	if err := l.result.Qualify(id); err != nil {
 		return err
 	}
 	if !l.result.Checked {
@@ -465,7 +467,17 @@ func checkPackage(opts fileOptions) error {
 	}
 	// Only a source that checks is evaluated (L7): in process, with no Go
 	// build and no child.
-	evaluation, err := l.analysis.Evaluation(evalBudget(opts), opts.file)
+	budget := evalBudget(opts)
+	// A law run whose verdict the store holds is reported cached, and a
+	// run that held is stored (lawcache), so ergo test does not run it
+	// again. The store is keyed by the identity check acquired for its
+	// envelope: check acquires none for the cache.
+	var store *lawcache.Store
+	if compiler, err := build.IdentityOf(id); err == nil {
+		store = lawStoreOf(compiler)
+	}
+	budget.Verdicts = l.analysis.EvalVerdicts(store, budget.Seed, budget.States)
+	evaluation, err := l.analysis.Evaluation(budget, opts.file)
 	if err != nil {
 		return err
 	}

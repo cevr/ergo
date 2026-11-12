@@ -51,6 +51,20 @@ type Budget struct {
 	// and valueBytes per collection slot it builds, never freed. It is
 	// not a measure of the process's memory.
 	Bytes int64
+	// Verdicts, when set, is the store of law verdicts (lawcache): a law
+	// run whose verdict it holds is not run, and a run that held is
+	// stored in it.
+	Verdicts Verdicts
+}
+
+// Verdicts is a store of the verdicts of law runs that held, keyed by
+// every input of the run (lawcache; v1 audit 3, F7): the law, its
+// binding, the seed and the budget of states. Cached gives the evidence
+// (proved or tested) and the cases of a held run; Held stores one. A run
+// the store does not key gives none and stores nothing.
+type Verdicts interface {
+	Cached(law *check.Law, binding []check.LawProvider) (evidence string, cases int, ok bool)
+	Held(law *check.Law, binding []check.LawProvider, evidence string, cases int)
 }
 
 // DefaultBudget is the editor budget the plan proposes (section 5): one
@@ -125,6 +139,10 @@ type Result struct {
 	Arguments   []Argument
 	// Machine is a reachability law's search (machine.go), else nil.
 	Machine *MachineSearch
+	// Cached marks a law run that did not run: Budget.Verdicts held its
+	// verdict, from an earlier evaluation or test build of the same
+	// inputs.
+	Cached bool
 }
 
 type Argument struct{ Name, Value string }
@@ -225,7 +243,21 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 				add(res)
 				continue
 			}
-			add(in.runLawTarget(run.Law, target, res))
+			// A target with no why is a binding of the run (lawTargets).
+			keyed := b.Verdicts != nil && target.why == ""
+			if keyed {
+				if evidence, cases, ok := b.Verdicts.Cached(run.Law, target.binding); ok {
+					res.Status, res.Evidence, res.Seed, res.Cached = Passed, evidence, b.Seed, true
+					res.Cases, res.TotalCases = cases, cases
+					add(res)
+					continue
+				}
+			}
+			out := in.runLawTarget(run.Law, target, res)
+			if keyed && out.Status == Passed && (out.Evidence == "proved" || out.Evidence == "tested") {
+				b.Verdicts.Held(run.Law, target.binding, out.Evidence, out.Cases)
+			}
+			add(out)
 		}
 	}
 	rep.Steps, rep.Bytes = in.steps, in.bytes
