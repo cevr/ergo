@@ -1,0 +1,71 @@
+{
+  "about": "The mutant ledger of internal/selfhostcheck and the self-hosting pilot it tests (testdata/selfhost): edits of the Go adapter and of the Ergo tree decoder that TestSelfhostBridgeAgrees, or the adapter's TestFamiliesCoverSyntax, must kill. scripts/mutants judges only check and lower today, and the pilot is a nested Go module; until it has a suite, a unit that changes these files applies each edit by hand and runs the killer (wf10 SH0).",
+  "mutants": [
+    {
+      "name": "sh-tree-drops-child",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/tree/decode.ergo",
+      "from": "\t\t\titems = items.Append(x)\n",
+      "to": "\t\t\tif len(items) + 1 < count {\n\t\t\t\titems = items.Append(x)\n\t\t\t}\n",
+      "rule": "Decode keeps every item of a list: a dropped child is a different tree.",
+      "killers": [
+        "selfhostcheck:TestSelfhostBridgeAgrees"
+      ]
+    },
+    {
+      "name": "sh-tree-loses-absent-pos",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/tree/decode.ergo",
+      "from": "(Position{At: None}, at + 1)",
+      "to": "(Position{At: Some[int]{Value: 0}}, at + 1)",
+      "rule": "An absent position (syntax.NoPos) is None, never offset 0.",
+      "killers": [
+        "selfhostcheck:TestSelfhostBridgeAgrees"
+      ]
+    },
+    {
+      "name": "sh-encoding-replaces-invalid-byte",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
+      "from": "func str(s string) string  { return",
+      "to": "func str(s string) string  { s = strings.ToValidUTF8(s, \"\\uFFFD\"); return",
+      "rule": "The encoding carries every string byte for byte, invalid UTF-8 included.",
+      "killers": [
+        "selfhostcheck:TestSelfhostBridgeAgrees"
+      ]
+    },
+    {
+      "name": "sh-tree-column-off-by-one",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/tree/tree.ergo",
+      "from": "Column: offset - t.Lines[line] + 1}",
+      "to": "Column: offset - t.Lines[line]}",
+      "rule": "Locate counts the line and the byte column from 1, as syntax.File.Position does.",
+      "killers": [
+        "selfhostcheck:TestSelfhostBridgeAgrees"
+      ]
+    },
+    {
+      "name": "sh-encoding-drops-error-location",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
+      "from": "integer(e.Line)",
+      "to": "integer(0)",
+      "rule": "A syntax failure crosses with its code, message, offset, length, line and column.",
+      "killers": [
+        "selfhostcheck:TestSelfhostBridgeAgrees"
+      ]
+    },
+    {
+      "name": "sh-family-table-misses-node",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
+      "from": "syntax.AssertStmt{}, ",
+      "to": "",
+      "rule": "The encoding carries every node type of the syntax package; the corpus may not yet write a new one.",
+      "killers": [
+        "selfhost/hostsyntax:TestFamiliesCoverSyntax"
+      ]
+    }
+  ]
+}

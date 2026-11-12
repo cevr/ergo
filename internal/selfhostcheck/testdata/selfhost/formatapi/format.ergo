@@ -1,0 +1,24 @@
+// Package formatapi is the self-hosting pilot's library root: `ergo lib`
+// exports its functions to Go. SH0 exports Project, the tracer of the
+// parser boundary; SH1 adds the formatter's entries.
+
+import go ergo.local/prototype/selfhost/hostsyntax
+import selfhost/tree
+
+// Project parses src with the Go parser, decodes the adapter's encoding into
+// the Ergo tree and returns the tree's projection (tree.Project), or the
+// parser's failure (tree.ProjectFailure). An encoding Ergo cannot read is the
+// text "badencoding" with its reason, and a node type the adapter does not
+// carry "unsupported" with its name: the Go side never projects either,
+// so a comparison names them.
+func Project(src string) string needs go.Foreign {
+	let t = tree.Decode(hostsyntax.Parse(src)) catch {
+	case tree.SyntaxFailure as f:
+		return tree.ProjectFailure(f)
+	case tree.Unsupported as u:
+		return "unsupported \(u.Family)\n"
+	case tree.BadEncoding as b:
+		return "badencoding \(b.Reason) at \(b.At)\n"
+	}
+	tree.Project(t)
+}
