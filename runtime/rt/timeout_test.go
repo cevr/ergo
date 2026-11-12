@@ -21,11 +21,11 @@ func TestVirtualClockDrivesTimeout(t *testing.T) {
 		})
 	})
 	v.AwaitTimers(2) // the deadline and the body's sleep
-	v.Advance(time.Hour - time.Nanosecond)
+	v.Advance(Span(time.Hour - time.Nanosecond))
 	if v.Pending() != 2 {
 		t.Fatal("a timer fired before its deadline")
 	}
-	v.Advance(time.Nanosecond)
+	v.Advance(Span(time.Nanosecond))
 	_, err := h.Wait()
 	if f, ok := Failure(err); !ok || f != (Expired{}) {
 		t.Fatalf("exit %v, want a lone Expired", err)
@@ -33,7 +33,7 @@ func TestVirtualClockDrivesTimeout(t *testing.T) {
 	if v.Pending() != 0 {
 		t.Fatalf("%d timers stayed armed after the child drained", v.Pending())
 	}
-	if got := v.Now(); !got.Equal(epoch.Add(time.Hour)) {
+	if got := v.Now(); got != Instant(epoch.Add(time.Hour).UnixNano()) {
 		t.Fatalf("virtual now %v, want epoch+1h", got)
 	}
 	if elapsed := time.Since(start); elapsed > time.Minute {
@@ -44,16 +44,17 @@ func TestVirtualClockDrivesTimeout(t *testing.T) {
 
 func TestVirtualFiresInDeadlineOrder(t *testing.T) {
 	v := NewVirtual(epoch)
-	late := v.NewTimer(3 * time.Second)
-	first := v.NewTimer(time.Second)
-	tie := v.NewTimer(time.Second)
-	stopped := v.NewTimer(2 * time.Second)
+	late := v.NewTimer(Span(3 * time.Second))
+	first := v.NewTimer(Span(time.Second))
+	tie := v.NewTimer(Span(time.Second))
+	stopped := v.NewTimer(Span(2 * time.Second))
 	if !stopped.Stop() {
 		t.Fatal("Stop on an armed timer returned false")
 	}
-	v.Advance(5 * time.Second)
-	got := []time.Time{<-first.C(), <-tie.C(), <-late.C()}
-	want := []time.Time{epoch.Add(time.Second), epoch.Add(time.Second), epoch.Add(3 * time.Second)}
+	v.Advance(Span(5 * time.Second))
+	at := func(d time.Duration) Instant { return Instant(epoch.Add(d).UnixNano()) }
+	got := []Instant{<-first.C(), <-tie.C(), <-late.C()}
+	want := []Instant{at(time.Second), at(time.Second), at(3 * time.Second)}
 	if !slices.Equal(got, want) {
 		t.Fatalf("fired at %v, want %v", got, want)
 	}
@@ -104,7 +105,7 @@ func TestAfterStopsAndDrainsChild(t *testing.T) {
 			})
 		})
 		v.AwaitTimers(1)
-		v.Advance(time.Hour)
+		v.Advance(Span(time.Hour))
 		_, err := h.Wait()
 		record("After returned")
 		if err != (Expired{}) {
@@ -123,7 +124,7 @@ func TestAfterStopsAndDrainsChild(t *testing.T) {
 			panic("cleanup defect")
 		})
 		v.AwaitTimers(1)
-		v.Advance(time.Hour)
+		v.Advance(Span(time.Hour))
 		_, err := h.Wait()
 		c, ok := err.(*Cause)
 		if !ok || len(c.Reasons) != 2 || c.Reasons[0].Value != "cleanup defect" || c.Reasons[1].Err != (Expired{}) {

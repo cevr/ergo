@@ -1,4 +1,4 @@
-package v1
+package exec
 
 import (
 	"bytes"
@@ -101,7 +101,11 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			reason := "not a directory"
 			if err != nil {
-				reason = fsReason(err)
+				reason = err.Error()
+				var pe *fs.PathError
+				if errors.As(err, &pe) {
+					reason = pe.Err.Error() // the cause, without the operation and the path
+				}
 			}
 			return ExecResult{}, ExecFailed{Name: name, Reason: "dir " + dir + ": " + reason}
 		}

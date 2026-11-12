@@ -200,6 +200,24 @@ func TestCacheInputs(t *testing.T) {
 				t.Fatalf("GOARCH=%s linked machine %v", tc.GOARCH, file.Machine)
 			}
 		})
+		t.Run("Strip", func(t *testing.T) {
+			// The stripped link reuses the module (bs4-cache-key: the flag
+			// is the action's, not the emission's) and drops the symbols.
+			covered["Toolchain.Strip"] = true
+			tc := hostToolchain()
+			tc.Strip = true
+			data := reuse(t, tc)
+			binary := filepath.Join(t.TempDir(), "stripped")
+			if err := os.WriteFile(binary, data, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if len(data) >= len(baseBytes) {
+				t.Fatalf("the stripped executable has %d bytes, the base %d", len(data), len(baseBytes))
+			}
+			if got, want := runProgram(t, binary), expectedOutput(t, base, "r1", "unset"); got != want {
+				t.Fatalf("stripped executable prints %q, want %q", got, want)
+			}
+		})
 		t.Run("GOOS", func(t *testing.T) {
 			covered["Toolchain.GOOS"] = true
 			tc := hostToolchain()

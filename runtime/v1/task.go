@@ -1,7 +1,7 @@
 package v1
 
 import (
-	"fmt"
+	"strconv"
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
@@ -561,7 +561,7 @@ func releaseLeft[T any](t *rt.Task, rel Releaser[T], v T, err error) error {
 // Effect's Effect.forEach with { concurrency }.
 func TasksTransform[A, B any](span Site, t *rt.Task, rel Releaser[[]B], xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error) {
 	if limit < 1 {
-		panic(fmt.Sprintf("tasks.Transform: limit %d is less than 1", limit))
+		panic("tasks.Transform: limit " + strconv.Itoa(limit) + " is less than 1")
 	}
 	var out []B
 	var err error
@@ -688,9 +688,9 @@ type deadlines struct {
 // NewTimer starts the deadline child. Its timer fires when s.Sleep(d) ends
 // while the child is not stopped: a stop of the child (Stop below, or a
 // stop of t that cascades to it) never fires it.
-func (ds deadlines) NewTimer(d time.Duration) rt.Timer {
+func (ds deadlines) NewTimer(d rt.Span) rt.Timer {
 	holder := rt.NewScope(ds.t)
-	dl := &deadline{fired: make(chan time.Time)}
+	dl := &deadline{fired: make(chan rt.Instant)}
 	dl.h = rt.Go(&holder, ds.span, func(ct *rt.Task) (struct{}, error) {
 		return guarded(ct, func(ct *rt.Task) (struct{}, error) {
 			defer func() {
@@ -702,7 +702,7 @@ func (ds deadlines) NewTimer(d time.Duration) rt.Timer {
 					w.Done()
 				}
 			}()
-			ds.s.Sleep(ct, d)
+			ds.s.Sleep(ct, time.Duration(d))
 			return struct{}{}, nil
 		})
 	})
@@ -713,11 +713,11 @@ func (ds deadlines) NewTimer(d time.Duration) rt.Timer {
 // closes when the deadline passes.
 type deadline struct {
 	h     *rt.Handle[struct{}]
-	fired chan time.Time
+	fired chan rt.Instant
 }
 
 // C delivers when the deadline passes: it closes.
-func (dl *deadline) C() <-chan time.Time { return dl.fired }
+func (dl *deadline) C() <-chan rt.Instant { return dl.fired }
 
 // WakesItsWaiter marks a deadline as an rt.WakeSource: its fire wakes the
 // race's caller through rt.Waking, so the caller may park on it.

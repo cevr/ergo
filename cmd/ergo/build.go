@@ -117,12 +117,15 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 
 // toolchain is the Go build action of opts' command: the go command on
 // PATH with the user's GOFLAGS, linking for opts.platform, always stated,
-// so the go env file's GOOS and GOARCH never choose it. The emitted module
-// is the same for every platform; Go's action cache keys the link on the
-// platform.
+// so the go env file's GOOS and GOARCH never choose it. `ergo build`
+// strips the symbol table and DWARF unless --debug is given; `ergo run`
+// keeps them, as its binary is not shipped. The emitted module is the
+// same for every platform and either way; Go's action cache keys the link
+// on the platform and the flags.
 func toolchain(opts fileOptions) build.Toolchain {
 	tc := build.HostToolchain()
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
+	tc.Strip = opts.command == "build" && !opts.debug
 	return tc
 }
 

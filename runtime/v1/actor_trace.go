@@ -1,8 +1,9 @@
 package v1
 
 import (
-	"reflect"
+	"strings"
 	"sync"
+	"unsafe"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -25,10 +26,10 @@ import (
 // The arm is not observed: Go cannot tell which return of the step gave
 // its decision. It is read from the machine's graph, the step's arms by
 // state and signal variant, which the compiler derives from the step's
-// match (internal/sketch/machinegraph) and registers with the program, as
-// it registers the source map (RegisterCalls). An arm of a timer step is
-// found with the signal variant the graph gives the timer of the state the
-// entry opened in.
+// match (internal/sketch/machinegraph) and hands the runner as the hidden
+// graph argument of its start (GraphOf; binsize BS7): no registry, and no
+// work before main. An arm of a timer step is found with the signal
+// variant the graph gives the timer of the state the entry opened in.
 
 // MachineArm is one arm of a machine's step, as the compiler read it: its
 // .ergo position (file:line) and the state and signal variants it takes,
@@ -41,55 +42,101 @@ type MachineArm struct {
 	Partial bool
 }
 
+// MachineTimer is the signal variant of the timer of a state variant.
+type MachineTimer struct {
+	State, Signal string
+}
+
 // MachineGraph is what the traced runner reads of a machine's graph: its
 // step's arms, in match order (the first arm that takes a pair is the one
-// that steps it), and the signal variant of each state's timer, by state
-// variant. Variant names a state's or a signal's variant; nil names it by
-// its Go type (VariantOf).
+// that steps it), and the signal variant of each state's timer. Its lists
+// are slices, not a map, so a program holds a graph as static data that
+// the Go linker lays out and no initializer builds. Variant names a
+// state's or a signal's variant; nil names it by its Go type, as VariantOf
+// does.
 type MachineGraph struct {
 	Arms    []MachineArm
-	Timers  map[string]string
+	Timers  []MachineTimer
 	Variant func(v any) string
 }
 
-// graphKey is a machine's state and signal types: the key a runner finds
-// its machine's graph by.
-type graphKey struct{ state, signal reflect.Type }
+// GraphOf is the hidden graph argument of a machine's start
+// (docs/spec/stdlib.md, Hidden arguments): it gives the graph of the
+// machine whose states and signals are the start's S and E, nil when the
+// program has none for them. The runner calls it only when it traces.
+type GraphOf func() *MachineGraph
+
+// graphOf is a's graph, nil when it has none.
+func (a *Actor[S, E, D]) graphOf() *MachineGraph {
+	if a.graph == nil {
+		return nil
+	}
+	return a.graph()
+}
+
+// The reference registry (lower's graphLowering "registry"): the
+// lowering before BS7, kept selectable so a property holds the static
+// graphs equal to it. A program lowered by default never names it, so the
+// Go linker keeps none of it.
+
+// graphKey is a machine's state and signal types: the key a registered
+// graph is found by.
+type graphKey struct{ state, signal unsafe.Pointer }
 
 // graphs holds each registered graph by its key; a key that two machines
 // share holds nil, since the runner could not tell their arms apart.
 var graphs sync.Map // graphKey -> *MachineGraph
 
 // RegisterMachine registers g as the graph of the machine whose states
-// are S and signals E. Emitted code calls it once per machine before main
-// runs. A second machine with the same S and E makes both arm-less.
+// are S and signals E. The reference lowering calls it once per machine
+// before main runs. A second machine with the same S and E makes both
+// arm-less.
 func RegisterMachine[S, E any](g MachineGraph) {
-	k := graphKey{reflect.TypeFor[S](), reflect.TypeFor[E]()}
+	k := graphKey{typeID[S](), typeID[E]()}
 	if _, loaded := graphs.LoadOrStore(k, &g); loaded {
 		graphs.Store(k, (*MachineGraph)(nil))
 	}
 }
 
-// VariantOf is the variant name of a value of the Go type T, as a runner
-// names one it holds: the type's name.
-func VariantOf[T any]() string { return reflect.TypeFor[T]().Name() }
-
-// graphOf is the registered graph of a, nil when none is.
-func (a *Actor[S, E, D]) graphOf() *MachineGraph {
-	g, _ := graphs.Load(graphKey{reflect.TypeFor[S](), reflect.TypeFor[E]()})
+// RegisteredGraph is the registered graph of the machine whose states are
+// S and signals E, nil when none or two are: the reference lowering's
+// hidden graph argument.
+func RegisteredGraph[S, E any]() *MachineGraph {
+	g, _ := graphs.Load(graphKey{typeID[S](), typeID[E]()})
 	gr, _ := g.(*MachineGraph)
 	return gr
 }
 
-// variant is the variant name of v: g's Variant, else its Go type's name.
+// VariantOf is the variant name of a value of the Go type T, as a runner
+// names one it holds: the type's name. The reference lowering names a
+// graph's variants with it; the default lowering writes the same names as
+// constants.
+func VariantOf[T any]() string {
+	var p *T
+	return rt.TypeName(strings.TrimPrefix(rt.TypeString(p), "*"))
+}
+
+// typeID is the identity of the Go type T without reflect (binsize BS2):
+// the type word of a nil *T, which the Go runtime keeps once per type.
+func typeID[T any]() unsafe.Pointer {
+	var p any = (*T)(nil)
+	return (*[2]unsafe.Pointer)(unsafe.Pointer(&p))[0]
+}
+
+// variant is the variant name of v: g's Variant, else the name v gives
+// itself (a flat union's, whose Go type is the union's), else its Go
+// type's name.
 func variant(g *MachineGraph, v any) string {
 	if g != nil && g.Variant != nil {
 		return g.Variant(v)
 	}
-	if t := reflect.TypeOf(v); t != nil {
-		return t.Name()
+	if n, ok := v.(interface{ ErgoVariant() string }); ok {
+		return n.ErgoVariant()
 	}
-	return ""
+	if v == nil {
+		return ""
+	}
+	return rt.TypeName(rt.TypeString(v))
 }
 
 // arm is the site of g's first arm that takes the pair (state, signal),
@@ -99,13 +146,18 @@ func (g *MachineGraph) arm(state, signal string) string {
 	if g == nil {
 		return ""
 	}
-	site := ""
+	site, last := "", ""
 	for _, a := range g.Arms {
 		if takes(a.States, state) && takes(a.Signals, signal) {
-			if site != "" {
-				site += " or "
+			// The patterns of one case are arms at one site: the site
+			// is named once.
+			if a.Site != last {
+				if site != "" {
+					site += " or "
+				}
+				site += a.Site
+				last = a.Site
 			}
-			site += a.Site
 			if !a.Partial {
 				break
 			}
@@ -187,7 +239,13 @@ func (a *Actor[S, E, D]) timerSignal(g *MachineGraph, at S) string {
 	if g == nil {
 		return ""
 	}
-	return g.Timers[variant(g, at)]
+	s := variant(g, at)
+	for _, tm := range g.Timers {
+		if tm.State == s {
+			return tm.Signal
+		}
+	}
+	return ""
 }
 
 // traceStep reports the step of the envelope in a step (a.cur) in s: its
@@ -228,7 +286,7 @@ func (a *Actor[S, E, D]) traceArmed(at *rt.Task, s S) {
 	}
 	g := a.graphOf()
 	at.TraceMachine(&rt.MachineEvent{What: rt.MachineTimerArmed, Epoch: a.epoch, State: variant(g, s),
-		Signal: a.timerSignal(g, s), In: d})
+		Signal: a.timerSignal(g, s), In: rt.Span(d)})
 }
 
 // traceWork reports what happened to the work of the entry epoch, on the

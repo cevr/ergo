@@ -224,6 +224,19 @@ const corpusGcPackage = "internal/sketch/lower"
 
 var corpusGcEnvironment = []string{"ERGO_TEST_CORPUS_GC=1"}
 
+// sizesStep is the full tier's size receipt (binsize plan, BS0): the
+// command internal/sizes/cmd/sizes builds the fixtures as `ergo build` does,
+// default and stripped, with a Go hello control, prints one JSON receipt per
+// fixture, and fails a fixture over its budget (internal/sizes/budgets.json).
+// It is a command and not a test, so a checker edit reaches no extra test
+// package in the fast tier. Its Weight is its measured seconds with an
+// empty Go build cache (71.1 s at GOMAXPROCS=1 with its own compile, 2026-11-10).
+const (
+	sizesStep    = "sizes"
+	sizesCommand = "./internal/sizes/cmd/sizes"
+	sizesWeight  = 71.1
+)
+
 // gofmtDirectories are the Go trees the gate requires to be gofmt-clean.
 var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "tools/provenance"}
 
@@ -337,6 +350,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		others += packageSeconds(durations[pkg])
 	}
 	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools, Weight: others, Class: classHeavy})
+	add(&Step{Name: sizesStep, Needs: []string{"go test build"}, Argv: []string{"go", "run", sizesCommand}, Weight: sizesWeight, Class: classHeavy})
 	// The full tier sweeps every package's closure on every run (gate-tier
 	// round 1 and plan G2: "always in the full tier"; owner question 3 of
 	// batch 9, on its default), one package per step, as the fast tier

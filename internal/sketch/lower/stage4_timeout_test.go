@@ -216,11 +216,11 @@ func TestStdExternsHaveBodies(t *testing.T) {
 				continue // written at its call, Go's builtin (builtinCall)
 			}
 			target, name := f.Decl.Extern.Split()
-			if target != runtimeImport {
+			if !v1.Owns(target) {
 				t.Errorf("%s.%s binds %s.%s, not a runtime/v1 body", path, f.Name, target, name)
 				continue
 			}
-			body, err := v1.BodyOf(name)
+			body, err := v1.BodyIn(target, name)
 			if err != nil {
 				t.Errorf("%s.%s: %v", path, f.Name, err)
 				continue

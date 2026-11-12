@@ -68,7 +68,7 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 		if _, err := v1.StructFieldsOf(goName, len(origin.TParams)); err != nil {
 			ice(site, "the std record %s.%s binds v1.%s: %v", obj.Pkg.Path, obj.Name, goName, err)
 		}
-		return l.rt() + "." + goName
+		return l.rtRef(goName)
 	case *syntax.InterfaceType:
 		if len(spec.Union) == 0 {
 			if !runtimeProtocols[obj.Pkg.Path+"."+obj.Name] {
@@ -77,7 +77,7 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			if !check.Sealed(n) {
 				ice(site, "the runtime-backed protocol %s must declare an unexported operation", n)
 			}
-			return "*" + l.rt() + "." + obj.Name
+			return "*" + l.rtRef(obj.Name)
 		}
 		// A closed union of std records, such as flag.Failure (std-align
 		// S1d) or time.Layout (S2b): a declaration of the program, as the
@@ -129,11 +129,11 @@ func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
 		return v1.Body{}, "", false
 	}
 	i := strings.LastIndex(fd.extern, ".")
-	if i < 0 || fd.extern[:i] != runtimeImport {
+	if i < 0 || !v1.Owns(fd.extern[:i]) {
 		return v1.Body{}, "", false
 	}
 	name := fd.extern[i+1:]
-	body, err := v1.BodyOf(name)
+	body, err := v1.BodyIn(fd.extern[:i], name)
 	if err != nil {
 		ice(fd.fn.Decl, "the std function %s binds %s, which has no readable runtime/v1 body: %v", fd.fn.Name, fd.extern, err)
 	}
@@ -610,6 +610,8 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 			// field for the prelude's Scheduler, which the called
 			// signature needs, so the checker has bound it at the call.
 			out = append(out, env+"."+fc.l.envField(schedulerCap(c, site)))
+		case v1.Graph:
+			out = append(out, fc.graphArg(c, site))
 		case v1.ReadingPackage:
 			if c == nil || c.Func == nil || c.Func.Pkg == nil {
 				ice(site, "a context read without its declaring package")
@@ -622,6 +624,30 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 		}
 	}
 	return out
+}
+
+// graphArg is the hidden graph argument of the call c of an actor's start
+// (machine.go, graphArg): the graph of the machine whose states and
+// signals are the call's type arguments for S and E.
+func (fc *funcCtx) graphArg(c *check.Call, site syntax.Node) string {
+	var state, signal string
+	if c != nil && c.Func != nil {
+		for i, tp := range c.Func.Sig.TParams {
+			if i >= len(c.TypeArgs) {
+				break
+			}
+			switch tp.Name {
+			case "S":
+				state = fc.goType(c.TypeArgs[i])
+			case "E":
+				signal = fc.goType(c.TypeArgs[i])
+			}
+		}
+	}
+	if state == "" || signal == "" {
+		ice(site, "a std body takes a machine's graph, and the called function has no type arguments S and E")
+	}
+	return fc.l.graphArg(state, signal)
 }
 
 // schedulerCap is the prelude's Scheduler in the needs row of the std

@@ -24,8 +24,8 @@ import (
 // packages 7).
 func hostExtern(f *check.Func) bool {
 	target, name := f.Decl.Extern.Split()
-	if target == v1Path {
-		body, err := v1.BodyOf(name)
+	if v1.Owns(target) {
+		body, err := v1.BodyIn(target, name)
 		return err != nil || body.Host
 	}
 	return !check.PureGoPackage(target)
@@ -35,8 +35,8 @@ func hostExtern(f *check.Func) bool {
 // body not marked pure, or a Go package outside the pure allowlist.
 func impureExtern(f *check.Func) bool {
 	target, name := f.Decl.Extern.Split()
-	if target == v1Path {
-		body, err := v1.BodyOf(name)
+	if v1.Owns(target) {
+		body, err := v1.BodyIn(target, name)
 		return err != nil || !body.Pure
 	}
 	return !check.PureGoPackage(target)
@@ -245,8 +245,8 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		reached = append(reached, providerExterns(p)...)
 	}
 	for name, f := range externs {
-		if target, body := f.Decl.Extern.Split(); target == v1Path {
-			if _, err := v1.BodyOf(body); err != nil {
+		if target, body := f.Decl.Extern.Split(); v1.Owns(target) {
+			if _, err := v1.BodyIn(target, body); err != nil {
 				t.Errorf("%s: %v", name, err)
 			}
 		}

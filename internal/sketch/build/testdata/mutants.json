@@ -1,0 +1,16 @@
+{
+  "about": "The mutant ledger of internal/sketch/build: edits of the emission cache and the Go build action that some internal/sketch/build test must kill. Run it with go run ./scripts/mutants ./internal/sketch/build (docs/tooling.md, \"Mutant ledger\"). Seeded by binsize BS4.",
+  "mutants": [
+    {
+      "name": "bs4-strip-ignored",
+      "origin": "wf10 binsize BS4",
+      "file": "internal/sketch/build/action.go",
+      "from": "if t.Strip {",
+      "to": "if false && t.Strip {",
+      "rule": "binsize plan 3 (e): a stripped build is another Go build action over the same emitted module (the flag is the action's, not the emission key's).",
+      "killers": [
+        "internal/sketch/build:TestCacheInputs"
+      ]
+    }
+  ]
+}

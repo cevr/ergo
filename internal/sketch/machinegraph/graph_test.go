@@ -22,12 +22,27 @@ import (
 // pairs Reachable lists with their arms. ERGO_GRAPH_SEED replays a seed; a
 // failure prints the source.
 
-// garm is one generated arm: its state and signal (-1 for any), and its
-// edges as the model expects them, with lines filled in when written.
+// garm is one generated arm: its state and signal (-1 for any), the
+// further tuple patterns of its case, and its edges as the model expects
+// them, with lines filled in when written.
 type garm struct {
 	state, sig int
+	more       [][2]int
 	edges      []Edge
 	line       int
+}
+
+// pats is a's tuple patterns, (state, signal) each.
+func (a garm) pats() [][2]int { return append([][2]int{{a.state, a.sig}}, a.more...) }
+
+// takes reports whether a pattern of a takes the pair (i, j).
+func (a garm) takes(i, j int) bool {
+	for _, p := range a.pats() {
+		if (p[0] < 0 || p[0] == i) && (p[1] < 0 || p[1] == j) {
+			return true
+		}
+	}
+	return false
 }
 
 type gmachine struct {
@@ -75,7 +90,7 @@ func gen(r *rand.Rand) *gmachine {
 		var out [][2]int
 		for i := range m.ns {
 			for j := range m.ne {
-				if (a.state < 0 || a.state == i) && (a.sig < 0 || a.sig == j) {
+				if a.takes(i, j) {
 					out = append(out, [2]int{i, j})
 				}
 			}
@@ -150,21 +165,35 @@ func gen(r *rand.Rand) *gmachine {
 		if nested {
 			break
 		}
-		a := garm{state: r.Intn(m.ns+1) - 1, sig: r.Intn(m.ne+1) - 1}
-		fresh := false
-		for _, p := range takes(a) {
-			if !covered[p] {
-				fresh = true
+		// fresh takes the pattern p into the case when one of its pairs
+		// is not covered yet (the checker refuses a pattern that is).
+		fresh := func(p [2]int) bool {
+			one := takes(garm{state: p[0], sig: p[1]})
+			for _, c := range one {
+				if !covered[c] {
+					for _, c := range one {
+						covered[c] = true
+					}
+					return true
+				}
 			}
+			return false
 		}
-		if !fresh {
+		a := garm{state: r.Intn(m.ns+1) - 1, sig: r.Intn(m.ne+1) - 1}
+		if !fresh([2]int{a.state, a.sig}) {
 			continue
 		}
-		for _, p := range takes(a) {
-			covered[p] = true
+		// A case of two tuple patterns takes the pairs of each, not the
+		// product of their states and signals.
+		if p := [2]int{r.Intn(m.ns+1) - 1, r.Intn(m.ne+1) - 1}; r.Intn(3) == 0 && fresh(p) {
+			a.more = append(a.more, p)
 		}
 		a.line = line
-		w("\tcase (%s, %s):\n", pat(a.state, sv), pat(a.sig, ev))
+		var pats []string
+		for _, p := range a.pats() {
+			pats = append(pats, "("+pat(p[0], sv)+", "+pat(p[1], ev)+")")
+		}
+		w("\tcase %s:\n", strings.Join(pats, ", "))
 		if r.Intn(4) == 0 {
 			w("\t\tif flip() {\n")
 			a.edges = append(a.edges, value("\t\t\t")...)
@@ -215,11 +244,28 @@ func (m *gmachine) want() *Graph {
 	}
 	for _, a := range m.arms {
 		arm := Arm{Site: Site{"gen.ergo", a.line}, Edges: dedupe(a.edges)}
-		if a.state >= 0 {
-			arm.States = []string{sv(a.state)}
+		// The arm's States and Signals are its patterns' together (nil
+		// when one takes any); Alts lists each pattern of a case of two.
+		anyState, anySig := false, false
+		for _, p := range a.pats() {
+			alt := Alt{}
+			if p[0] >= 0 {
+				alt.States = []string{sv(p[0])}
+			}
+			if p[1] >= 0 {
+				alt.Signals = []string{ev(p[1])}
+			}
+			anyState, anySig = anyState || alt.States == nil, anySig || alt.Signals == nil
+			arm.States, arm.Signals = append(arm.States, alt.States...), append(arm.Signals, alt.Signals...)
+			if len(a.more) > 0 {
+				arm.Alts = append(arm.Alts, alt)
+			}
 		}
-		if a.sig >= 0 {
-			arm.Signals = []string{ev(a.sig)}
+		if anyState {
+			arm.States = nil
+		}
+		if anySig {
+			arm.Signals = nil
 		}
 		g.Arms = append(g.Arms, arm)
 	}
@@ -235,7 +281,7 @@ func (m *gmachine) reachable() []Pair {
 	queue := []int{0}
 	armOf := func(i, j int) int {
 		for k, a := range m.arms {
-			if (a.state < 0 || a.state == i) && (a.sig < 0 || a.sig == j) {
+			if a.takes(i, j) {
 				return k
 			}
 		}
@@ -323,12 +369,13 @@ func TestGraphMatchesTheModel(t *testing.T) {
 		}
 		seen["nested match"] = seen["nested match"] || strings.Contains(m.src, "match e {")
 		for _, a := range g.Arms {
+			seen["two patterns"] = seen["two patterns"] || a.Alts != nil
 			for _, e := range a.Edges {
 				seen[e.Decision+" "+fmt.Sprint(e.To == Any)] = true
 			}
 		}
 	}
-	for _, k := range []string{"Enter false", "Stay false", "Stay true", "Emit false", "Ignore false", "Reject false", "Done false", "nested match"} {
+	for _, k := range []string{"Enter false", "Stay false", "Stay true", "Emit false", "Ignore false", "Reject false", "Done false", "nested match", "two patterns"} {
 		if !seen[k] {
 			t.Errorf("seed %d: no case reached %q", seed, k)
 		}
@@ -356,6 +403,11 @@ func compare(g, want *Graph) string {
 		a, b := g.Arms[i], want.Arms[i]
 		if a.Site != b.Site || !slices.Equal(a.States, b.States) || !slices.Equal(a.Signals, b.Signals) || a.Partial || !slices.Equal(a.Edges, b.Edges) {
 			return fmt.Sprintf("arm %d", i)
+		}
+		if !slices.EqualFunc(a.Alts, b.Alts, func(x, y Alt) bool {
+			return slices.Equal(x.States, y.States) && slices.Equal(x.Signals, y.Signals) && x.Partial == y.Partial
+		}) {
+			return fmt.Sprintf("arm %d: patterns %v, want %v", i, a.Alts, b.Alts)
 		}
 	}
 	if len(g.Timers) != len(want.Timers) || len(g.Unsure) > 0 {

@@ -112,20 +112,27 @@ func TestRuntime199TaskReaders(t *testing.T) {
 // fails here until the catalog states its waiting policy. Waits inside rt
 // (a drain's join) are the drain owner's (drainWait), outside this scan.
 func TestRuntime199NoWaitBindings(t *testing.T) {
-	src := typedPackage(t, "../../../runtime/v1")
+	// The bodies are in runtime/v1 and in its leaves (v1.Leaves): each
+	// body's package (v1.Body.Package) is scanned, within that package.
+	srcs := map[string]*typedSource{runtimeImport: typedPackage(t, "../../../runtime/v1")}
+	for _, leaf := range v1.Leaves {
+		srcs[runtimeImport+"/"+leaf] = typedPackage(t, "../../../runtime/v1/"+leaf)
+	}
 	decls := map[types.Object]*ast.FuncDecl{}
-	src.owners(func(_ string, decl ast.Decl) {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
-			decls[src.info.Defs[fn.Name]] = fn
-		}
-	})
-	lookup := func(name string) types.Object {
+	for _, src := range srcs {
+		src.owners(func(_ string, decl ast.Decl) {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
+				decls[src.info.Defs[fn.Name]] = fn
+			}
+		})
+	}
+	lookup := func(src *typedSource, name string) types.Object {
 		if recv, method, ok := strings.Cut(name, "."); ok {
 			return src.method(t, recv, method)
 		}
 		obj := src.pkg.Scope().Lookup(name)
 		if obj == nil {
-			t.Fatalf("runtime/v1 has no function %s", name)
+			t.Fatalf("%s has no function %s", src.pkg.Path(), name)
 		}
 		return obj
 	}
@@ -150,6 +157,7 @@ func TestRuntime199NoWaitBindings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		src := srcs[body.Package]
 		if hasHidden(body.Hidden, v1.CallerTask) && b.release != callerRelease && !b.reads && !b.task {
 			t.Errorf("%s takes a hidden task and declares no wait", name)
 		}
@@ -188,7 +196,7 @@ func TestRuntime199NoWaitBindings(t *testing.T) {
 				return true
 			})
 		}
-		visit(lookup(name), name)
+		visit(lookup(src, name), name)
 		checked++
 	}
 	if checked == 0 {
@@ -211,7 +219,7 @@ func originOf(obj types.Object) types.Object {
 func TestRuntime199BlockingOwner(t *testing.T) {
 	helpers := map[string]bool{
 		"Append": true, "Delete": true, "Put": true, "NewScope": true, "NewOwnerScope": true, "Site": true,
-		"RegisterCalls": true, "RegisterInlines": true, "TextBool": true, "TextDuration": true,
+		"RegisterCalls": true, "RegisterInlines": true, "RegisterCompactCalls": true, "TextBool": true, "TextDuration": true,
 		"TextInt": true, "TextUint": true, "TextFloat": true, "TextList": true,
 		"Main": true, "Println": true, "End": true,
 		// IG11: an exported function's root task, as Main is main's; Go's

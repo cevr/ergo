@@ -373,7 +373,7 @@ func Run(_ Host, c Command) Result fails NotFound | Denied | Failed {
 	try hostRun(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace)
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string, grace duration) Result fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1/exec.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string, grace duration) Result fails NotFound | Denied | Failed
 
 // Start starts c on the host, in a process group of its own, with its
 // standard output and standard error going to s's sinks. A file sink that
@@ -382,7 +382,7 @@ func Start(_ Host, c Command, s Streams) Running fails NotFound | Denied | Faile
 	try hostStart(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
 }
 
-// sinkKind is the runtime's number of a sink (runtime/v1 exec_start.go).
+// sinkKind is the runtime's number of a sink (runtime/v1/exec exec_start.go).
 func sinkKind(s Sink) int {
 	match s {
 	case Inherit:
@@ -414,4 +414,4 @@ func sinkAppends(s Sink) bool {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecStart func hostStart(name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1/exec.ExecStart func hostStart(name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed

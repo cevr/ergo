@@ -339,7 +339,7 @@ func TestStdLawLedger(t *testing.T) {
 // tree: a runner in another package is "no func Test… of the runner
 // packages" until its directory is added here and to the sweep's grants
 // (internal/closure declared; batch-10 gate 1).
-var runnerPackages = []string{"internal/sketch/lower", "internal/sketch/std", "runtime/v1"}
+var runnerPackages = []string{"internal/sketch/lower", "internal/sketch/std", "runtime/v1", "runtime/v1/digest", "runtime/v1/exec", "runtime/v1/rand"}
 
 // repoTests are the names of the top-level func Test… declarations of the
 // _test.go files of runnerPackages, each with whether its body calls

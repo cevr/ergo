@@ -653,6 +653,144 @@
     {"name":"stz-waitfor-arms-ended","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\tselect {\n\tcase <-r.proc.exited():\n\t\treturn r.Wait(t), nil\n\tdefault:\n\t}\n\treturn After(span","to":"\treturn After(span","rule":"stdlib.md exec, WaitFor: a program that has ended gives its status at once and arms no deadline.","killers":["runtime/v1:TestRunningMatchesModel"]},
     {"name":"stz-waitfor-ended-status","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\tcase <-r.proc.exited():\n\t\treturn r.Wait(t), nil","to":"\tcase <-r.proc.exited():\n\t\treturn 0, nil","rule":"stdlib.md exec, WaitFor: an ended program gives Wait's status.","killers":["runtime/v1:TestRunningMatchesModel"]},
     {"name":"stz-waitfor-ends-the-program","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\t\treturn r.Wait(ct), nil\n\t})","to":"\t\tr.Close(ct)\n\t\treturn r.status, nil\n\t})","rule":"stdlib.md exec, WaitFor: the deadline first fails Expired and leaves the program running, unsignalled, with its unread bytes.","killers":["runtime/v1:TestRunningMatchesModel"]},
-    {"name":"stz-waitfor-ignores-stop","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\treturn After(span, t, s, nil, d,","to":"\treturn After(span, rt.Root(\"detached\"), s, nil, d,","rule":"stdlib.md exec, WaitFor: a stop of the caller ends the wait, as Wait's.","killers":["runtime/v1:TestRunningMatchesModel"]}
+    {"name":"stz-waitfor-ignores-stop","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\treturn After(span, t, s, nil, d,","to":"\treturn After(span, rt.Root(\"detached\"), s, nil, d,","rule":"stdlib.md exec, WaitFor: a stop of the caller ends the wait, as Wait's.","killers":["runtime/v1:TestRunningMatchesModel"]},
+    {
+      "name": "bs2-status-line",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/v1/exit.go",
+      "from": "\"error: os.Exit code \"+strconv.Itoa(x.Code)+\" is outside 1..125\\n\"",
+      "to": "\"error: os.Exit code is outside 1..125\\n\"",
+      "rule": "runtime.md Exit causes, os.Exit rule 2: the line of a code outside 1..125 names the code.",
+      "killers": [
+        "runtime/v1:TestReportMatchesFmt"
+      ]
+    },
+    {
+      "name": "bs2-report-failure-text",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/v1/exit.go",
+      "from": "io.WriteString(w, \"error: \"+rt.Text(r.Err)+\"\\n\")",
+      "to": "io.WriteString(w, \"error: \"+r.Err.Error()+\"\\n\")",
+      "rule": "runtime.md Exit causes (binsize BS2): a failure's line is fmt's %v of it, so a nil error or one whose Error panics is written, not raised.",
+      "killers": [
+        "runtime/v1:TestReportMatchesFmt"
+      ]
+    },
+    {
+      "name": "bs2-host-text-user-missing",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/v1/files.go",
+      "from": "\"MachineChild\", \"MachineStart\", ",
+      "to": "\"MachineChild\", ",
+      "rule": "stdlib.md Types 4 (binsize BS2): a program that names a body reaching rt.TypedText imports the gofmt leaf.",
+      "killers": [
+        "runtime/v1:TestHostTextUsersAreListed"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/v1:TestHostTextUsersAreListed"
+        ]
+      }
+    },
+    {
+      "name": "bs3-instant-unit",
+      "origin": "wf10 binsize BS3",
+      "file": "runtime/v1/time.go",
+      "from": "n := time.Unix(0, int64(l.v.Now()))",
+      "to": "n := time.Unix(0, int64(l.v.Now())/1000)",
+      "rule": "stdlib.md Types 4 (binsize BS3): a manual or virtual clock's rt.Instant is nanoseconds since the Unix epoch; time.Manual reads it as that time.",
+      "killers": [
+        "runtime/v1:TestManualAdvanceOneAtATime",
+        "runtime/v1:TestTestingLaws",
+        "runtime/v1:TestTransformModel",
+        "runtime/v1:TestTimeLaws",
+        "runtime/v1:TestRaceModel",
+        "runtime/v1:TestVirtualClockModel",
+        "runtime/v1:TestSetModel",
+        "runtime/v1:TestTasksLaws",
+        "runtime/v1:TestManualClockModel"
+      ]
+    },
+    {
+      "name": "bs6-trim-off",
+      "origin": "wf10 binsize BS6",
+      "file": "runtime/v1/exit.go",
+      "from": "loc = strings.TrimPrefix(loc, ProgramModule+\"/\")",
+      "to": "loc = strings.TrimPrefix(loc, \"not-the-program/\")",
+      "rule": "binsize BS6: trimmed Go frames match module-relative source names.",
+      "killers": ["runtime/v1:TestDefectReportReadsTrimmedFrames"]
+    },
+    {
+      "name": "bs6-site-wide",
+      "origin": "wf10 binsize BS6",
+      "file": "runtime/v1/exit.go",
+      "from": "Func, Callee, File uint32\n\tLine, Column       uint32",
+      "to": "Func, Callee, File uint32\n\tLine, Column       uint32\n\tunused [8]byte",
+      "rule": "binsize BS6: a call site uses at most 24 bytes.",
+      "killers": ["runtime/v1:TestCompactCallsAgree"]
+    },
+    {
+      "name": "bs6-decode-file",
+      "origin": "wf10 binsize BS6",
+      "file": "runtime/v1/exit.go",
+      "from": "\" at \"+callNames[c.File]",
+      "to": "\" at \"+callNames[c.Func]",
+      "rule": "binsize BS6: the report decodes each compact site's file index, not its function index.",
+      "killers": ["runtime/v1:TestCompactCallsAgree"]
+    },
+    {
+      "name": "bs6-wide-file",
+      "origin": "wf10 binsize BS6",
+      "file": "runtime/v1/exit.go",
+      "from": "File: intern(c.File)",
+      "to": "File: intern(c.Func)",
+      "rule": "binsize BS6: registering the selectable wide reference preserves its file names when normalizing the source map.",
+      "killers": ["runtime/v1:TestCompactCallsAgree"]
+    },
+    {
+      "name": "bs7-graph-ignored",
+      "origin": "wf10 binsize BS7",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "\treturn a.graph()\n",
+      "to": "\treturn nil\n",
+      "rule": "binsize BS7: a traced actor names its arms from the graph its start received.",
+      "killers": ["runtime/v1:TestActorModelAgreesWithTimedFold"]
+    },
+    {
+      "name": "bs7-timer-lookup",
+      "origin": "wf10 binsize BS7",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "if tm.State == s {",
+      "to": "if tm.Signal == s {",
+      "rule": "binsize BS7: a timer's signal is the one the graph gives the state its entry opened in.",
+      "killers": ["runtime/v1:TestActorModelAgreesWithTimedFold"]
+    },
+    {
+      "name": "bs7-hidden-graph",
+      "origin": "wf10 binsize BS7",
+      "file": "runtime/v1/files.go",
+      "from": "if x.Name == \"GraphOf\" {",
+      "to": "if x.Name == \"GraphOfX\" {",
+      "rule": "binsize BS7: GraphOf is a hidden parameter that the lowering supplies.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7b-variant-self",
+      "origin": "wf10 binsize BS7b",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "if n, ok := v.(interface{ ErgoVariant() string }); ok {",
+      "to": "if n, ok := v.(interface{ ErgoVariant() string }); ok && false {",
+      "rule": "binsize BS7b: a value that names its own variant (a flat union) is traced by that name.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7b-arm-once",
+      "origin": "wf10 binsize BS7b",
+      "file": "runtime/v1/actor_trace.go",
+      "from": "if a.Site != last {",
+      "to": "if a.Site != last || true {",
+      "rule": "binsize BS7b: the patterns of one case are one arm, so a decision names its site once.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    }
   ]
 }

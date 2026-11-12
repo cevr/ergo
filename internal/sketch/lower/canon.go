@@ -169,16 +169,17 @@ func canonicalize(u Unit) *canonical {
 // what the program is, so it decides no part of the output (196b); it
 // stays only in each file's unit index, which Refusal.Source reports.
 func sources(u Unit) []srcFile {
+	root := u.Root
 	var srcs []srcFile
 	next := 0
 	add := func(u *Unit) {
 		start := len(srcs)
 		for i, f := range u.Files {
-			srcs = append(srcs, srcFile{file: f, path: u.Sources[i].Path, text: u.Sources[i].Text, pkg: u.Package, unit: next})
+			srcs = append(srcs, srcFile{file: f, admitted: u.Sources[i].Path, path: emitName(root, u.Sources[i].Path), text: u.Sources[i].Text, pkg: u.Package, unit: next})
 			next++
 		}
 		own := srcs[start:]
-		sort.SliceStable(own, func(i, j int) bool { return own[i].path < own[j].path })
+		sort.SliceStable(own, func(i, j int) bool { return own[i].admitted < own[j].admitted })
 	}
 	add(&u)
 	imports := make([]*Unit, len(u.Imports))

@@ -1,6 +1,6 @@
 //go:build darwin || dragonfly || freebsd || netbsd || openbsd
 
-package v1
+package exec
 
 import "syscall"
 

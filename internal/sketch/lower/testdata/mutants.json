@@ -4019,6 +4019,311 @@
     },
     {"name":"try1-covered-failure-dropped","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"\t\tfc.propagate(o.err)\n\t\to.err = \"\"","to":"\t\tfc.line(\"_ = \" + o.err)\n\t\to.err = \"\"","rule":"rows.md Error rows 7: a failure of a covered right operand leaves the frame.","killers":["lower:TestTryCoversToTheRightBuilt"]},
     {"name":"try1-and-right-hoisted","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"if (op == \"&&\" || op == \"||\") && fc.emits(x.Y) {","to":"if false && (op == \"&&\" || op == \"||\") && fc.emits(x.Y) {","rule":"types.md Operators: the right operand of && and || runs only when the left one does not decide, a covered one too.","killers":["lower:TestTryCoversToTheRightBuilt"]},
-    {"name":"try1-right-before-left","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"\treturn fc.binaryOf(x, fc.operands([]syntax.Expr{x.X, x.Y}, false))","to":"\treturn fc.binaryOf(x, func(p []string) []string { return []string{p[1], p[0]} }(fc.operands([]syntax.Expr{x.Y, x.X}, false)))","rule":"spec D4: operands evaluate left to right; a covered call is hoisted after the left operand.","killers":["lower:TestTryCoversToTheRightBuilt"]}
+    {"name":"try1-right-before-left","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"\treturn fc.binaryOf(x, fc.operands([]syntax.Expr{x.X, x.Y}, false))","to":"\treturn fc.binaryOf(x, func(p []string) []string { return []string{p[1], p[0]} }(fc.operands([]syntax.Expr{x.Y, x.X}, false)))","rule":"spec D4: operands evaluate left to right; a covered call is hoisted after the left operand.","killers":["lower:TestTryCoversToTheRightBuilt"]},
+    {
+      "name": "bs1-leaf-in-core",
+      "origin": "wf10 binsize BS1",
+      "file": "internal/sketch/lower/module.go",
+      "from": "if pkg == \"\" || pkg == runtimeImport {",
+      "to": "if true || pkg == \"\" || pkg == runtimeImport {",
+      "rule": "stdlib.md Types 4 (binsize BS1): a declaration of a leaf of runtime/v1 is named through the import of that leaf.",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
+    },
+    {
+      "name": "bs1-import-all-leaves",
+      "origin": "wf10 binsize BS1",
+      "file": "internal/sketch/lower/module.go",
+      "from": "\tfor _, leaf := range slices.Sorted(maps.Keys(l.rtLeaves)) {\n\t\timports = append(imports, l.pkgNames[pkgKey{\"import\", leaf}]+\" \"+strconv.Quote(leaf))",
+      "to": "\tfor _, leaf := range v1.Leaves {\n\t\timports = append(imports, \"_ \"+strconv.Quote(runtimeImport+\"/\"+leaf))",
+      "rule": "stdlib.md Types 4 (binsize BS1): a program imports a leaf of runtime/v1 only when it names one of its declarations.",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
+    },
+    {
+      "name": "bs2-hook-always",
+      "origin": "wf10 binsize BS2",
+      "file": "internal/sketch/lower/module.go",
+      "from": "\tif l.hostText {\n",
+      "to": "\tif true {\n",
+      "rule": "stdlib.md Types 4 (binsize BS2): a program imports the gofmt leaf only when it imports go or names a body of v1.NeedsHostText.",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
+    },
+    {
+      "name": "bs2-hook-never",
+      "origin": "wf10 binsize BS2",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\tl.hostText = true // a Go package's panic value may need fmt's text\n",
+      "to": "",
+      "rule": "stdlib.md Types 4 (binsize BS2): a program that imports go imports the gofmt leaf, so a Go value of any type is written as fmt writes it.",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
+    },
+    {
+      "name": "bs5-edge-uses",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "r.object(info.Uses[n])",
+      "to": "_ = info.Uses[n]",
+      "rule": "binsize plan 3 (a): a name a reached declaration uses is reached.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-edge-selector",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "if objectName(o) == n.Sel.Name {",
+      "to": "if false && objectName(o) == n.Sel.Name {",
+      "rule": "binsize plan 3 (a): pkg.Name in a reached declaration reaches the imported package's declaration (an imported let is lowered).",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-edge-withs",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "r.object(ctx)",
+      "to": "_ = ctx",
+      "rule": "binsize plan 3 (a): a context bound by a reached with is reached, with its providers.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-edge-firsts",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "for _, f := range r.firstsOf(tn.Pkg)[tn] {",
+      "to": "for _, f := range r.firstsOf(tn.Pkg)[nil] {",
+      "rule": "binsize plan 3 (a): a reached type reaches its dot calls, Go methods and the operations it provides.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-firsts-pointer",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "if ptr, ok := t.(*check.Pointer); ok {",
+      "to": "if ptr, ok := t.(*check.Pointer); ok && false {",
+      "rule": "binsize plan 3 (a): a function whose first parameter is *T is reached with T.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-main-root",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "r.object(main)",
+      "to": "_ = main",
+      "rule": "binsize plan 3 (a): main is the entry of the run build.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-root-all",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/module.go",
+      "from": "if l.declReached(d) {",
+      "to": "if true || l.declReached(d) {",
+      "rule": "binsize plan 3 (a): a root declaration that main does not reach is not lowered.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-lib-lets-all",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/module.go",
+      "from": "if !l.declReached(d) {",
+      "to": "if false && !l.declReached(d) {",
+      "rule": "binsize plan 3 (a), owner question 1: an imported package's let that nothing reached reads is not lowered and does not run.",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs5-edge-types",
+      "origin": "wf10 binsize BS5",
+      "file": "internal/sketch/lower/reach.go",
+      "from": "r.typ(t)",
+      "to": "_ = t",
+      "rule": "binsize plan 3 (a): the type of an expression in a reached declaration is reached (a package type that shadows a prelude name).",
+      "killers": [
+        "lower:TestReachLowersNoUnreachableDeclaration"
+      ]
+    },
+    {
+      "name": "bs6-abs-path",
+      "origin": "wf10 binsize BS6",
+      "file": "internal/sketch/lower/lower.go",
+      "from": "return filepath.ToSlash(rel)",
+      "to": "return path",
+      "rule": "binsize BS6: emitted modules do not depend on the checkout directory.",
+      "killers": ["lower:TestLoweringIsTheSameInAnyDirectory"]
+    },
+    {
+      "name": "bs6-file-index",
+      "origin": "wf10 binsize BS6",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "intern(l.srcs[c.src].path)",
+      "to": "intern(l.srcs[0].path)",
+      "rule": "binsize BS6: a compact call site names its own source file in a multi-file program.",
+      "killers": ["lower:TestDefectReportNamesErgoCallSites"]
+    },
+    {
+      "name": "bs6-site-column",
+      "origin": "wf10 binsize BS6",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "intern(l.srcs[c.src].path), c.line, c.column)",
+      "to": "intern(l.srcs[c.src].path), c.line, 0)",
+      "rule": "binsize BS6: compact call sites preserve the source column.",
+      "killers": ["lower:TestDefectReportNamesErgoCallSites"]
+    },
+    {
+      "name": "bs7-graph-nil",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/std.go",
+      "from": "out = append(out, fc.graphArg(c, site))",
+      "to": "out = append(out, \"nil\")",
+      "rule": "binsize BS7: an actor's start receives its machine's graph as the hidden graph argument.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-main-qualifier",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return \"main.\" + x.Name, true",
+      "to": "return x.Name, true",
+      "rule": "binsize BS7: a static variant name spells a type argument of package main as Go's runtime does (main.T).",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-arg-comma",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "strings.Join(args, \",\")",
+      "to": "strings.Join(args, \", \")",
+      "rule": "binsize BS7: Go's runtime separates type arguments by a bare comma.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-import-path",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return paths[pkg.Name] + \".\" + x.Sel.Name, true",
+      "to": "return pkg.Name + \".\" + x.Sel.Name, true",
+      "rule": "binsize BS7: Go's runtime names another package's type argument by its import path.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-array-len",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return elem(\"[\"+n.Value+\"]\", x.Elt)",
+      "to": "return elem(\"[]\", x.Elt)",
+      "rule": "binsize BS7: a fixed array keeps its length in a static variant name.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-star",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return elem(\"*\", x.X)",
+      "to": "return elem(\"\", x.X)",
+      "rule": "binsize BS7: a pointer type keeps its star in a static variant name.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-map",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "v, ok2 := elem(\"]\", x.Value)",
+      "to": "v, ok2 := elem(\"] \", x.Value)",
+      "rule": "binsize BS7: a Map spells as Go's runtime spells map[K]V.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-func-results",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "results = \" (\" + results + \")\"",
+      "to": "results = \" \" + results",
+      "rule": "binsize BS7: a function type's results are parenthesised when there are several.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-struct-fields",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return \"struct { \" + fields + \" }\", ok",
+      "to": "return \"struct {\" + fields + \"}\", ok",
+      "rule": "binsize BS7: a tuple's struct spells as Go's runtime spells it.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-struct-empty",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "return \"struct {}\", ok",
+      "to": "return \"struct{}\", ok",
+      "rule": "binsize BS7: the empty struct of a function value with no result spells as Go's runtime spells it.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-shared-case",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "if pairs[[2]string{g.state, g.signal}] != 1 {",
+      "to": "if false {",
+      "rule": "binsize BS7: a pair of state and signal types that two machines share has no graph (the runtime cannot tell their arms apart).",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-no-case",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "\"]:\\n\\t\\treturn &\" + g.name",
+      "to": "\"]:\\n\\t\\treturn nil // \" + g.name",
+      "rule": "binsize BS7: the accessor gives each machine's static graph.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7-names-apart",
+      "origin": "wf10 binsize BS7",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "stateOf, signalOf := names(g.States), names(g.Signals)",
+      "to": "stateOf, signalOf := names(append(append([]machinegraph.Variant{}, g.States...), g.Signals...)), names(g.Signals)",
+      "rule": "binsize BS7: a state and a signal variant of one Ergo name keep their own Go names in the graph.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7b-flat-name",
+      "origin": "wf10 binsize BS7b",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\") ErgoVariant() string { return [...]string{\"",
+      "to": "\") ergoVariant() string { return [...]string{\"",
+      "rule": "binsize BS7b: a traced flat signal union is named by its variant, not by its union.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7b-alts-lowered",
+      "origin": "wf10 binsize BS7b",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "alts := a.Alts",
+      "to": "alts := []machinegraph.Alt(nil)",
+      "rule": "binsize BS7b: a case of several tuple patterns is one runtime arm per pattern, not the product of their variants.",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    }
   ]
 }

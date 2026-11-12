@@ -1,4 +1,4 @@
-package v1
+package rand
 
 import (
 	"math/rand/v2"
@@ -73,3 +73,6 @@ func BenchmarkRandIntN(b *testing.B) {
 		}
 	})
 }
+
+// benchEnv stands for a lowered program's environment in the benchmarks.
+type benchEnv struct{ task *rt.Task }

@@ -118,7 +118,12 @@ func registersCalls(fd *ast.FuncDecl) bool {
 			return false
 		}
 	}
-	return true
+	call, ok := es.X.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && (sel.Sel.Name == "RegisterCalls" || sel.Sel.Name == "RegisterCompactCalls")
 }
 
 // dispatcherMain is the dispatcher's main package: it runs the entry of
