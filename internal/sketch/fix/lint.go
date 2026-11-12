@@ -200,13 +200,7 @@ func LintOf(path string, conf *lint.Configuration) (Linter, error) {
 		return nil, err
 	}
 	if !info.IsDir() {
-		return func(texts map[string]string) ([]Diagnostic, error) {
-			text, ok := texts[abs]
-			if !ok {
-				return nil, fmt.Errorf("fix: no text for %s", abs)
-			}
-			return fixable(conf, sketchfront.Check(text), func(string) string { return abs }), nil
-		}, nil
+		return LintSource(abs, conf), nil
 	}
 	return func(texts map[string]string) ([]Diagnostic, error) {
 		a, err := sketchfront.CheckDirOptions(abs, texts, check.Options{})
@@ -221,6 +215,18 @@ func LintOf(path string, conf *lint.Configuration) (Linter, error) {
 			return rel
 		}), nil
 	}, nil
+}
+
+// LintSource is the Linter of a program of one source text, keyed by key
+// (Source's).
+func LintSource(key string, conf *lint.Configuration) Linter {
+	return func(texts map[string]string) ([]Diagnostic, error) {
+		text, ok := texts[key]
+		if !ok {
+			return nil, fmt.Errorf("fix: no text for %s", key)
+		}
+		return fixable(conf, sketchfront.Check(text), func(string) string { return key }), nil
+	}
 }
 
 // fixable lints the analysis and keeps the findings the run applies.

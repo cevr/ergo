@@ -38,6 +38,11 @@ func checkDeprecated(p *Pass) {
 				doc, owner := check.DocOf(o)
 				report(n, doc, owner)
 			}
+		case *syntax.SelectorExpr:
+			if o := check.QualifiedMember(p.Info, n); o != nil {
+				doc, owner := check.DocOf(o)
+				report(n.Sel, doc, owner)
+			}
 		case *syntax.CallExpr:
 			doc, owner := check.OpDoc(p.Info, n)
 			if sel, ok := n.Fun.(*syntax.SelectorExpr); ok {

@@ -13,6 +13,8 @@ const (
 // builtinRules are every built-in rule.
 var builtinRules = []*Rule{
 	silentCatch, foreignErrorPublic, foreignWhereStd, deprecated, unboundedCollect, raceForTimeout,
+	cognitiveComplexity, cyclomaticComplexity, halsteadDifficulty, knownValueWidening, bannedWords,
+	withAtEntry, conceptFileNames,
 }
 
 // builtinPresets are the built-in presets over builtinRules.
@@ -29,6 +31,16 @@ func builtinPresets() []Preset {
 			Name:  Recommended,
 			Doc:   "The justifier rules: legal code that must say why.",
 			Rules: on(silentCatch, foreignErrorPublic, foreignWhereStd, deprecated, unboundedCollect, raceForTimeout),
+		},
+		{
+			Name:  Strict,
+			Doc:   "Complexity caps (cognitive and cyclomatic 21, Halstead difficulty 79) and style: known-value widening and banned words.",
+			Rules: on(cognitiveComplexity, cyclomaticComplexity, halsteadDifficulty, knownValueWidening, bannedWords),
+		},
+		{
+			Name:  Layout,
+			Doc:   "The Go layout of AGENTS.md: implementations chosen only at the entry, files named by concept.",
+			Rules: on(withAtEntry, conceptFileNames),
 		},
 	}
 }

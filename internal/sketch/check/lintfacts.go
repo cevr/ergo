@@ -26,6 +26,38 @@ func (f *Func) Exported() bool { return isExported(f.Name) }
 // declaration, not inferred from its body (rows.md, Error rows 6).
 func (f *Func) WritesErrors() bool { return !f.inferErrors }
 
+// ImplementationTypes are the types of the providers the with converts
+// into the capabilities it discharges (Entries), its later operands
+// included: a provider whose type is the capability itself (a capability
+// value passed down) converts nothing and is not listed.
+func (w *With) ImplementationTypes() []Type {
+	var out []Type
+	for ; w != nil; w = w.Next {
+		for _, e := range w.Entries {
+			for _, conv := range e.Conversions {
+				if conv.Kind != 0 && conv.From != nil {
+					out = append(out, conv.From)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// ProgramType reports a type declared in a program package: not std's,
+// not a host binding's, not predeclared.
+func ProgramType(t Type) bool {
+	if p, ok := t.(*Pointer); ok {
+		t = p.Elem
+	}
+	n, ok := t.(*Named)
+	if !ok || n.origin().Obj == nil || n.origin().Obj.Pkg == nil {
+		return false
+	}
+	pkg := n.origin().Obj.Pkg
+	return !pkg.Std() && !pkg.Host() && pkg != universeOnce.goPkg
+}
+
 // Import is one import of a file: its spec, the name the file binds, and
 // the package it resolved to (a std, program or host package).
 type Import struct {
@@ -89,6 +121,21 @@ func DocOf(o Object) (*syntax.CommentGroup, *Package) {
 		}
 	}
 	return nil, nil
+}
+
+// QualifiedMember is the package member a qualified name pkg.Name names,
+// which Info.Uses does not hold; nil when x is not one.
+func QualifiedMember(info *Info, x *syntax.SelectorExpr) Object {
+	id, ok := x.X.(*syntax.Ident)
+	if !ok {
+		return nil
+	}
+	pn, ok := info.Uses[id].(*PkgName)
+	if !ok || pn.Pkg == nil {
+		return nil
+	}
+	o, _ := pn.Pkg.member(x.Sel.Name)
+	return o
 }
 
 // OpDoc is the doc comment of the operation an operation call x calls

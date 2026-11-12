@@ -163,7 +163,9 @@ type libDecl struct {
 
 var libDecls = []libDecl{
 	{"func-old", true,
-		func(i int) string { return fmt.Sprintf("// F%d is old.\n//\n// Deprecated: use G%d.\nfunc F%d() int {\n\t%d\n}", i, i, i, i) },
+		func(i int) string {
+			return fmt.Sprintf("// F%d is old.\n//\n// Deprecated: use G%d.\nfunc F%d() int {\n\t%d\n}", i, i, i, i)
+		},
 		func(i int) string { return fmt.Sprintf("let a%d = lib.F%d()", i, i) }},
 	{"func-new", false,
 		func(i int) string { return fmt.Sprintf("// F%d is new.\nfunc F%d() int {\n\t%d\n}", i, i, i) },
@@ -175,7 +177,9 @@ var libDecls = []libDecl{
 		},
 		func(i int) string { return fmt.Sprintf("let a%d = lib.F%d()", i, i) }},
 	{"type-old", true,
-		func(i int) string { return fmt.Sprintf("// T%d is old.\n//\n// Deprecated: use U.\ntype T%d { N int }", i, i) },
+		func(i int) string {
+			return fmt.Sprintf("// T%d is old.\n//\n// Deprecated: use U.\ntype T%d { N int }", i, i)
+		},
 		func(i int) string { return fmt.Sprintf("let a%d = lib.T%d{N: 1}.N", i, i) }},
 	{"op-old", true,
 		func(i int) string {
