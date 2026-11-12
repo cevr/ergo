@@ -672,6 +672,7 @@ func (d *direct) link(tg *target) error {
 	k.add("schema", directSchema+" link")
 	d.toolchainKey(&k, d.plan.Link)
 	k.add("extld", d.plan.CC)
+	k.add("strip", strconv.FormatBool(d.t.Strip))
 	k.add("modinfo", modinfo)
 	k.add("main", all[tg.main.Module])
 	for _, path := range slices.Sorted(mapKeys(all)) {
@@ -699,8 +700,14 @@ func (d *direct) link(tg *target) error {
 		if d.plan.pie() {
 			mode = "-buildmode=pie"
 		}
-		cmd := exec.Command(d.plan.Link.Path, "-o", out, "-importcfg", cfgPath, mode,
-			"-buildid="+buildID(key, 4), "-extld="+d.plan.CC, d.blob(all[tg.main.Module]))
+		args := []string{"-o", out, "-importcfg", cfgPath, mode, "-buildid=" + buildID(key, 4)}
+		if d.t.Strip {
+			// go build's -ldflags stand after its forced flags; under
+			// -trimpath the build information does not record them.
+			args = append(args, "-s", "-w")
+		}
+		args = append(args, "-extld="+d.plan.CC, d.blob(all[tg.main.Module]))
+		cmd := exec.Command(d.plan.Link.Path, args...)
 		cmd.Dir = d.module.Dir
 		cmd.Env = d.toolEnv("")
 		if output, err := cmd.CombinedOutput(); err != nil {

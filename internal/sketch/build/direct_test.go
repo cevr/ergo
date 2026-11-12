@@ -264,6 +264,11 @@ func TestDirectRebuildsOnEachInput(t *testing.T) {
 			t.Setenv("CC", "/nonexistent/loop-probe-x/cc")
 			return tc
 		}, 0, true, true},
+		{"strip (ergo build's default)", func(t *testing.T) build.Toolchain {
+			stripped := tc
+			stripped.Strip = true
+			return stripped
+		}, 0, true, false},
 		{"second module directory", func(t *testing.T) build.Toolchain {
 			moved := filepath.Join(outer, "moved")
 			copyTree(t, dir, moved)
@@ -424,29 +429,34 @@ func TestDirectMatchesGoBuild(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			out := t.TempDir()
-			var report build.Report
-			var stderr bytes.Buffer
-			for _, path := range []struct {
-				out     string
-				goBuild bool
-			}{{"direct", false}, {"go", true}} {
-				req := sketchfront.BuildRequest{Mode: build.ModeBuild, Source: absolute, Output: filepath.Join(out, path.out), Cache: c, Toolchain: tc, Stderr: &stderr}
-				req.Toolchain.GoBuild = path.goBuild
-				if !path.goBuild {
-					req.Report = &report
+			// Both link modes: unstripped (ergo run, --debug) and
+			// stripped (ergo build's default).
+			for _, strip := range []bool{false, true} {
+				out := t.TempDir()
+				var report build.Report
+				var stderr bytes.Buffer
+				for _, path := range []struct {
+					out     string
+					goBuild bool
+				}{{"direct", false}, {"go", true}} {
+					req := sketchfront.BuildRequest{Mode: build.ModeBuild, Source: absolute, Output: filepath.Join(out, path.out), Cache: c, Toolchain: tc, Stderr: &stderr}
+					req.Toolchain.GoBuild = path.goBuild
+					req.Toolchain.Strip = strip
+					if !path.goBuild {
+						req.Report = &report
+					}
+					if _, err := sketchfront.Build(a, req); err != nil {
+						t.Fatalf("%s, strip %t: %v\n%s", path.out, strip, err, stderr.String())
+					}
 				}
-				if _, err := sketchfront.Build(a, req); err != nil {
-					t.Fatalf("%s: %v\n%s", path.out, err, stderr.String())
+				if !report.Direct {
+					if !strings.HasPrefix(report.Refused, "direct build refused:") {
+						t.Fatalf("strip %t: the direct path failed: %s", strip, report.Refused)
+					}
+					t.Logf("strip %t: go build: %s", strip, report.Refused)
 				}
+				sameExecutable(t, fmt.Sprintf("%s (strip %t)", dir, strip), filepath.Join(out, "direct"), filepath.Join(out, "go"))
 			}
-			if !report.Direct {
-				if !strings.HasPrefix(report.Refused, "direct build refused:") {
-					t.Fatalf("the direct path failed: %s", report.Refused)
-				}
-				t.Logf("go build: %s", report.Refused)
-			}
-			sameExecutable(t, dir, filepath.Join(out, "direct"), filepath.Join(out, "go"))
 		})
 	}
 }

@@ -117,7 +117,7 @@ func (d *direct) fingerprint(tg *target, env []string) (string, error) {
 
 // loadPlan reads the plan of tg's fingerprint, or makes it.
 func (d *direct) loadPlan(tg *target) error {
-	env := d.t.env()
+	env := d.t.env(d.t.GOFLAGS)
 	fp, err := d.fingerprint(tg, env)
 	if err != nil {
 		return err
