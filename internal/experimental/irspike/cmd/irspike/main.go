@@ -5,6 +5,7 @@
 //	irspike tool LOG TOOL [ARGS...]       a -toolexec meter: run TOOL, append its cost to LOG
 //	irspike attr WORK PROGRAM             stage attribution of PROGRAM (cold, warm, edits)
 //	irspike cost WORK FUNCS REPS SEED...  decode cost per node: JSON IR vs Go text (generated programs of FUNCS functions)
+//	irspike decl -body E WORK MODULE PROG  the declaration file's share of an edit build (q134)
 //	irspike census ROOT                   every reason each body of examples, std and corpus is not lowered yet
 //
 // The toolchains come from ERGO_IRSPIKE_GOROOT_SOURCE, ERGO_IRSPIKE_GOROOT_IR
@@ -42,6 +43,8 @@ func main() {
 		err = table(os.Args[2:])
 	case "cost":
 		err = cost(os.Args[2:])
+	case "decl":
+		err = decl(os.Args[2:])
 	case "census":
 		if len(os.Args) < 3 || len(os.Args) > 4 {
 			fail(fmt.Errorf("usage: irspike census ROOT [FUNCS.json]"))
