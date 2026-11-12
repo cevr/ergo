@@ -103,7 +103,7 @@ var shortcuts = []shortcut{
 		admission:  "admitFact",
 		reference:  "factExport=off",
 		agreement:  "TestAssumptionsAgree",
-		mutant:     "fact-cut-unordered",
+		mutant:     "fact-cut-unproved",
 		consumer:   "FACT1, IRB1: Go's prove pass (ssa/ergofacts.go)",
 		referenced: func() bool { return factExport == "off" },
 	},

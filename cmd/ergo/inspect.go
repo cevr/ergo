@@ -8,6 +8,7 @@ import (
 	"ergo.local/prototype/internal/sketch/api"
 	"ergo.local/prototype/internal/sketch/machinegraph"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketchfront"
 )
 
 const inspectMachineHelp = `usage: ergo inspect machine FILE|DIR [--json]
@@ -21,7 +22,7 @@ graphs as JSON, each with its reachable pairs.
 
 Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
-` + "\n" + inspectAPIHelp
+` + "\n" + inspectAPIHelp + "\n" + inspectFactsHelp
 
 const inspectAPIHelp = `usage: ergo inspect api FILE|DIR [--json]
        ergo inspect api --diff OLD NEW [--json]
@@ -34,6 +35,19 @@ a new take or copying parameter breaks callers that pass a resource.
 Exit status: 0 on success, 1 on a source error, 2 on invalid arguments.
 `
 
+const inspectFactsHelp = `usage: ergo inspect facts FILE|DIR [--json]
+
+Lists the facts the run build exports for Go's optimizer (facts.md,
+Lowering 7): the range of each refined parameter, each index and cut a
+dominating compare proves, each two borrow parameters that never overlap,
+and each pure function, with its position, function, condition, evidence
+(proved or checked) and reason. A tested fact is never exported. A test
+build exports none: it checks each one. --json prints them as JSON.
+
+Exit status: 0 when the package checks, 1 when it does not, 2 on an
+invalid invocation.
+`
+
 // inspectCommand dispatches checked machine, public API and Go reach queries.
 func inspectCommand(args []string) error {
 	if len(args) > 0 && args[0] == "api" {
@@ -42,6 +56,13 @@ func inspectCommand(args []string) error {
 			return err
 		}
 		return inspectAPICommand(args[1:])
+	}
+	if len(args) > 0 && args[0] == "facts" {
+		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+			_, err := os.Stdout.WriteString(inspectFactsHelp)
+			return err
+		}
+		return inspectFactsCommand(args[1:])
 	}
 	if len(args) == 0 || args[0] != "machine" {
 		return inspectGoCommand(args)
@@ -112,6 +133,40 @@ func inspectAPICommand(args []string) error {
 		text = api.Text(views[0])
 	}
 	_, err := os.Stdout.WriteString(text)
+	return err
+}
+
+// inspectFactsCommand prints the facts the run build of the root package
+// exports (sketchfront.InspectFacts).
+func inspectFactsCommand(args []string) error {
+	asJSON := false
+	var rest []string
+	for _, arg := range args {
+		if arg == "--json" {
+			asJSON = true
+			continue
+		}
+		rest = append(rest, arg)
+	}
+	opts, err := parseFileOptions("inspect facts", rest)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	if err != nil {
+		return err
+	}
+	if !l.result.Checked || l.analysis.Checked() == nil {
+		return refuseUnchecked(l, opts)
+	}
+	facts, err := sketchfront.InspectFacts(l.analysis, l.source.Admitted())
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return printJSON(facts)
+	}
+	_, err = os.Stdout.WriteString(sketchfront.FactsText(facts))
 	return err
 }
 
