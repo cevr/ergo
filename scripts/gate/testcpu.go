@@ -224,7 +224,17 @@ func writeTestCPU(root string, limit limiter, packages []string) error {
 			if j < 0 {
 				return fmt.Errorf("no full-tier step %q", need)
 			}
-			command := exec.Command(steps[j].Argv[0], steps[j].Argv[1:]...)
+			// The build is a go build or the staged build's reviewed sh
+			// script (stagedBuild), as in writeFastCPU.
+			var command *exec.Cmd
+			switch argv := steps[j].Argv; argv[0] {
+			case "go":
+				command = exec.Command("go", argv[1:]...)
+			case "sh":
+				command = exec.Command("sh", argv[1:]...)
+			default:
+				return fmt.Errorf("%s: not a go build or a reviewed script: %q", need, argv)
+			}
 			command.Env, command.Dir = append(stepEnvironment(), steps[j].Env...), root
 			command.Stdout, command.Stderr = io.Discard, os.Stderr
 			if used, err := runBudgeted(limit, need, command); used.verdict != "" || err != nil {
