@@ -98,6 +98,15 @@
         "internal/sketch/lower:TestTaskGoAndTaskResults",
         "internal/sketch/lower:TestErgoRunQueueOperations"
       ]
+    },
+    {
+      "file": "inserted.md",
+      "heading": "Inserted operations",
+      "status": "partly implemented",
+      "text": ": the inventory below is normative, and `TestInsertedOpsAgree` (internal/sketch/check) checks the rule for the rows marked \"elaborated\". Owners of the open rows are named in the last column.",
+      "witnesses": [
+        "internal/sketch/check:TestInsertedOpsAgree"
+      ]
     }
   ],
   "constructs": [

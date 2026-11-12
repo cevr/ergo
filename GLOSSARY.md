@@ -115,6 +115,10 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Definite initialisation**: The rule that a variable of a non-defaultable type has a value before it is used.
 
+**Inserted operation**: An operation the compiler adds where the source names none, such as a release at a scope end, the adapter of a conversion to an operation type, the `Wire` call of `encode`, or the instance of a generic body. It carries every rule of its written form. See [inserted](docs/spec/inserted.md).
+
+**Written form**: The Ergo text that stands for an inserted operation, such as `x.Close()` for a release or `encode(Wire(v), w)` for `encode(v, w)`. The checker must give a program and the same program with its inserted operations written out the same verdict and rows ([inserted](docs/spec/inserted.md) 1 and 2).
+
 **Type switch**: `match u { case A as v: … }` over a union value, narrowing `v` to the case's variant. With several subjects, `match (a, b)`, a case is a tuple of variants, and `_` matches any variant.
 
 **Totality**: The property of a type switch, a `catch` or a machine step that covers every alternative. A total form needs no default for its declared alternatives. The checker decides it for a type switch by a usefulness check over its case matrix, never by enumerating the product of the subjects.
@@ -133,7 +137,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Replayable parameter**: A function parameter that may run more than once, such as a transaction body. It may not assign captured locals, use channels or consume a resource, and its footprint holds only `sync.Tx`.
 
-**Borrow**: A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap.
+**Borrow**: A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap. A value converted from it, to an operation type or a Go interface, keeps its lifetime ([types](docs/spec/types.md#borrows) Borrows 6), and it instantiates a type parameter only of a body that keeps no value of it (Borrows 7).
 
 **Resource**: A value whose type has a checked `Close()`, an operation type with a `Close()` operation or with an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
 

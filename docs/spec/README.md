@@ -38,6 +38,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 9. [rpc.md](rpc.md): std `rpc`, Effect RPC's HTTP wire, and `ergo gen rpc` ([#53](https://github.com/cevr/ergo/issues/53)).
 10. [facts.md](facts.md): value-tied facts (`given`, `gives`, `keeps`), record invariants, evidence labels and their lowering.
 11. [patterns.md](patterns.md): derived types (`type T derive E`), type plans, plan functions and typed byte patterns.
+12. [inserted.md](inserted.md): every operation the compiler inserts, the written form it stands for, and the rules it must carry (G9).
 
 ## Status per construct
 
