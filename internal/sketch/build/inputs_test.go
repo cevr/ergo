@@ -280,6 +280,24 @@ func TestCacheInputs(t *testing.T) {
 				}
 			}
 		})
+		t.Run("Root", func(t *testing.T) {
+			// A managed toolchain's GOROOT is the action's (internal/toolchain):
+			// the action states it and still links the same module.
+			covered["Toolchain.Root"] = true
+			goCommand, err := exec.LookPath("go")
+			if err == nil {
+				goCommand, err = filepath.EvalSymlinks(goCommand)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc := hostToolchain()
+			tc.Root = filepath.Dir(filepath.Dir(goCommand)) // GOROOT/bin/go
+			if !slices.Contains(tc.Command(module, "/out/program").Env, "GOROOT="+tc.Root) {
+				t.Fatal("the action does not state the toolchain's GOROOT")
+			}
+			reuse(t, tc)
+		})
 		t.Run("Tags", func(t *testing.T) {
 			// `ergo test --explore` (runtime.md, Explored schedules): the
 			// tag is the action's alone. One emitted module, never emitted

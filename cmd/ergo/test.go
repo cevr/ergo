@@ -71,7 +71,10 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 	if err != nil {
 		return err
 	}
-	tc := toolchain(opts)
+	tc, err := buildAction(opts)
+	if err != nil {
+		return err
+	}
 	if opts.explore {
 		// The tag chooses the runtime's controlled scheduler at link
 		// time; the emitted module is the one a plain `ergo test` uses
@@ -151,7 +154,7 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),
 		Cache:     build.Cache{Root: root},
-		Toolchain: toolchain(opts),
+		Toolchain: tc, // no explore tag: an explored run returned above
 		Stderr:    os.Stderr,
 		Ledger:    ledgerPath(opts.file),
 	})

@@ -99,7 +99,11 @@ func TestPlatformOfABuild(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s %v with GOOS=%q GOARCH=%q: %v", c.command, c.args, c.goos, c.goarch, err)
 		}
-		env := toolchain(opts).Command(build.Module{Dir: t.TempDir()}, "/nonexistent/loop-probe-x/app").Env
+		action, err := buildAction(opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		env := action.Command(build.Module{Dir: t.TempDir()}, "/nonexistent/loop-probe-x/app").Env
 		for _, want := range []string{"GOOS=" + c.want.GOOS, "GOARCH=" + c.want.GOARCH, "CGO_ENABLED=0"} {
 			if !slices.Contains(env, want) {
 				t.Fatalf("%s %v with GOOS=%q GOARCH=%q: the action's environment lacks %s", c.command, c.args, c.goos, c.goarch, want)
