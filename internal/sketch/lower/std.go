@@ -262,7 +262,7 @@ func (tc *typeCtx) namedResults(result check.Type, errName string) string {
 // returnFallible returns a fallible operand from the frame: its value and
 // error as they are.
 func (fc *funcCtx) returnFallible(x syntax.Expr, o operand) {
-	val := fc.convertAt(x, o.val)
+	val := fc.returnedTemp(check.ReturnedKey(x), fc.convertAt(x, o.val))
 	if fc.frame.law {
 		val = fc.lawResult(x, val, o.err)
 	}

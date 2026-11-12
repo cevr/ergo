@@ -749,7 +749,7 @@ func (fc *funcCtx) callArgs(list []syntax.Expr, call *syntax.CallExpr) []string 
 func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr bool) []string {
 	later := make([]bool, len(list)+1)
 	for i := len(list) - 1; i >= 0; i-- {
-		later[i] = later[i+1] || (list[i] != nil && fc.emits(list[i]))
+		later[i] = later[i+1] || (list[i] != nil && (fc.emits(list[i]) || fc.handsOff(list[i])))
 	}
 	parts := fc.partsFrom(list)
 	out := make([]string, len(list))
@@ -965,6 +965,8 @@ func (fc *funcCtx) withExpr(x *syntax.CallExpr) operand {
 	if !fc.noValue(x) {
 		res.val = fc.temp("v")
 		fc.line("var " + res.val + " " + fc.goType(fc.typeOf(x)))
+		fc.armHeldVar(x, res.val)
+		fc.armValueVar(x, res.val)
 	}
 	if fc.fallibleExpr(x) {
 		res.err = fc.temp("err")
@@ -978,6 +980,7 @@ func (fc *funcCtx) withExpr(x *syntax.CallExpr) operand {
 		d = dest{kind: destAssign, name: res.val, err: res.err, site: fc.trackResultSite(x, res.val), typ: fc.typeOf(x)}
 	}
 	fc.with(x, 0, w, d)
+	fc.armValueEnd(x, res.val)
 	return res
 }
 
@@ -1467,7 +1470,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			b.WriteString("type " + name + declParams + " struct {\n\tv " + fromGo + "\n\tw " + tc.witnessType(param, param) + "\n}\n\n")
 		} else {
 			b.WriteString(fmt.Sprintf("// %s provides %s through the functions of %s (an operations conversion).\n", name, conv.To, conv.From))
-			b.WriteString("type " + name + declParams + " struct{ v " + fromGo)
+			b.WriteString("type " + name + declParams + " struct{ v " + fromGo + "; env *" + l.env())
 			for _, field := range fields {
 				b.WriteString("; " + field)
 			}
@@ -1482,15 +1485,27 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			f := conv.Table[op.Name]
 			fd := l.funcDecl(f)
 			self := locals.alloc("a")
-			// The operation takes the caller's task first (rows.md, Rows 7);
-			// the table function runs in an environment of that task alone.
+			// The operation takes the caller's task first (rows.md, Rows 7).
+			// The table function needs no capability, but the releases it
+			// runs (a value it takes, the fields its Close releases, R3)
+			// run in an environment, as every release does: the
+			// environment of the frame that converted the value, with the
+			// caller's task (OWGEN round 3; 16a r6 On base).
 			task := locals.alloc("t")
 			params := []string{task + " *" + l.taskPkg() + ".Task"}
+			pre, e := "", ""
 			if fd.pure {
 				// A pure table function takes no environment (pure.go).
 				params[0] = "_ *" + l.taskPkg() + ".Task"
+			} else {
+				// The converting frame's environment as it is when the
+				// task is the same; else a copy with the caller's task.
+				e = locals.alloc("e")
+				c := locals.alloc("c")
+				pre = "\t" + e + " := " + self + ".env\n\tif " + e + " == nil || " + taskOf(e) + " != " + task + " {\n\t\t" +
+					c + " := " + l.env() + "{" + envTask + ": " + task + "}\n\t\tif " + e + " != nil {\n\t\t\t" + c + " = *" + e + "\n\t\t\t" + taskOf(c) + " = " + task + "\n\t\t}\n\t\t" + e + " = &" + c + "\n\t}\n"
 			}
-			args := fd.envLead("&" + l.env() + "{" + envTask + ": " + task + "}")
+			args := fd.envLead(e)
 			hidden := len(args) // the environment
 			for _, p := range op.Sig.Params {
 				n := locals.alloc("p")
@@ -1520,7 +1535,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 				result = op.Sig.Results[0]
 			}
 			opFallible := len(rowElems(op.Sig.Errors)) > 0
-			b.WriteString("func (" + self + " *" + name + recvArgs + ") " + memberName(op.Name) + "(" + strings.Join(params, ", ") + ")" + tc.resultList(result, opFallible) + " {\n")
+			b.WriteString("func (" + self + " *" + name + recvArgs + ") " + memberName(op.Name) + "(" + strings.Join(params, ", ") + ")" + tc.resultList(result, opFallible) + " {\n" + pre)
 			switch {
 			case fd.fallible == opFallible && (result != nil || opFallible):
 				b.WriteString("\treturn " + call + "\n")
@@ -1542,6 +1557,11 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	}
 	if len(values) > 0 {
 		val += ", " + strings.Join(values, ", ")
+	}
+	if fc.env != "" {
+		// The releases the adapter's functions run use this frame's
+		// environment (a pure frame has none: the task's alone).
+		val += ", env: " + fc.env
 	}
 	return "&" + name + instArgs + "{v: " + val + "}"
 }

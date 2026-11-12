@@ -16,26 +16,26 @@
     {"name":"esc1-go-callback-trusted","origin":"wf10 ESC1 r2","file":"internal/sketch/check/hostclauses.go","from":"if s.NonEscaping && v1.GoSyncCallbacks[target] == \"\" {","to":"if false && s.NonEscaping && v1.GoSyncCallbacks[target] == \"\" {","rule":"A binding cannot assert a narrower callback clause without a per-function review.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments"]},
     {"name":"esc1-go-lend-without-reason","origin":"wf10 ESC1 r2","file":"runtime/v1/goarg.go","from":"return c.Lent && c.Reason != \"\"","to":"return c.Lent","rule":"An empty source reason grants no narrower resource lend.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments"]},
     {"name":"esc1-go-receiver-take-lost","origin":"wf10 ESC1 r2","file":"internal/sketch/check/ownership.go","from":"taken = map[int]bool{0: selfTaken}","to":"taken = map[int]bool{0: false}","rule":"A bound concrete method's takes-self clause moves its receiver.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments"]},
-    {"name":"16a-r1-later-parts-inert","origin":"batch-16a fix r1 M1","file":"internal/sketch/check/ownership.go","from":"inert[i] = inert[i+1] && w.inert(xs[i])","to":"inert[i] = true","rule":"A moved part of a value still being built is owned by its statement while a later part may leave (R43).","killers":["lower:TestOwnershipRunModel"]},
+    {"name":"16a-r1-later-parts-inert","origin":"batch-16a fix r1 M1","file":"internal/sketch/check/ownership.go","from":"inert[i] = inert[i+1] && w.inert(xs[i])","to":"inert[i] = true","rule":"A moved part of a value still being built is owned by its statement while a later part may leave (R43).","killers":["lower:TestOwnershipRunModel","lower:TestOwnershipGrammarRun"]},
     {"name":"16a-r1-call-operands-unsequenced","origin":"batch-16a fix r1 M1","file":"internal/sketch/check/ownership.go","from":"w.sequence(xs, func(i int) bool { return evals[i]() })","to":"for i := range evals { evals[i]() }","rule":"A taken argument is owned by its statement while a later argument may leave (R43).","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-leaving-operand-inert","origin":"batch-16a fix r1 M1","file":"internal/sketch/check/ownership.go","from":"return false // a call, a try, a catch, an index or a block may leave","to":"return true","rule":"A call or a try can leave its statement, so a part before it has an owner.","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-division-inert","origin":"batch-16a fix r1 M1","file":"internal/sketch/check/ownership.go","from":"return false // a division by zero or a negative shift panics","to":"return w.inert(x.X) && w.inert(x.Y)","rule":"A division can raise a defect with no call, so a part before it has an owner.","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-held-take-part-owned","origin":"batch-16a fix r1 M1","file":"internal/sketch/check/ownership.go","from":"return !(held && local)","to":"return !(held && local && !local)","rule":"A local a bodiless std call takes keeps its held entry until the call returns; it gets no second, statement owner.","killers":["lower:TestOwnershipRunModel"]},
-    {"name":"16a-r1-for-pattern-uncovered","origin":"batch-16a fix r1 M3","file":"internal/sketch/check/ownership.go","from":"w.patternCover(p, lp.Elem, s.Value)","to":"_ = p","rule":"A for-in pattern over owned elements follows the pattern-owner rule: an omitted resource part is S108 (R39).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r1-for-pattern-uncovered","origin":"batch-16a fix r1 M3","file":"internal/sketch/check/ownership.go","from":"w.patternCover(p, lp.Elem, s.Value)","to":"_ = p","rule":"A for-in pattern over owned elements follows the pattern-owner rule: an omitted resource part is S108 (R39).","killers":["check:TestOwnershipFlowModel","lower:TestOwnershipGrammarRun"]},
     {"name":"16a-r2-values-seq-kept","origin":"batch-16a fix r2 M1","file":"internal/sketch/check/ownership.go","from":"if elem, ok := w.valuesSeq(x); ok && syntax.Expr(x) != w.ranged","to":"if elem, ok := w.valuesSeq(x); ok && false","rule":"A queue's Values() of resources is admitted only as the range of a for-in: a Seq has no owner, so a stored or passed one would leave its values unreleased (R35, Q7).","killers":["check:TestOwnershipFlowModel"]},
     {"name":"16a-r2-recv-func-unsequenced","origin":"batch-16a fix r2 M2 (verifier 16a r2 v2-recv-func-unsequenced)","file":"internal/sketch/check/ownership.go","from":"evals = append(evals, func() bool { return operand(call.Recv, taken[0], true, pname(0), nil) })","to":"evals = append(evals, func() bool { operand(call.Recv, taken[0], true, pname(0), nil); return false })","rule":"A taken receiver of a dot call is owned by its statement while a later argument may leave (R43).","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r2-recv-op-unsequenced","origin":"batch-16a fix r2 M2 (verifier 16a r2 v2-recv-op-unsequenced)","file":"internal/sketch/check/ownership.go","from":"evals = append(evals, func() bool { return operand(call.Recv, selfTaken, true, \"\", nil) })","to":"evals = append(evals, func() bool { operand(call.Recv, selfTaken, true, \"\", nil); return false })","rule":"A taken receiver of an operation is owned by its statement while a later argument may leave (R43).","killers":["lower:TestOwnershipRunModel"]},
-    {"name":"16a-r2-base-not-sequenced","origin":"batch-16a fix r2 M2 (verifier 16a r2 v2-base-not-sequenced)","file":"internal/sketch/check/ownership.go","from":"\t\tif x.Base != nil {\n\t\t\tsrc = append(src, x.Base)\n\t\t}","to":"\t\tif x.Base != nil {\n\t\t\tw.expr(x.Base, mMove, h)\n\t\t}","rule":"An update or spread base is a part owned by its statement while a later field may leave (R43).","killers":["lower:TestOwnershipRunModel"]},
-    {"name":"16a-r2-replaced-unacquired","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/check/ownership.go","from":"w.acquire(ownLocal{temp: rs[i].Temp, t: rs[i].Field.Type})","to":"_ = rs[i]","rule":"A field of an update's base that the value does not copy is the statement's and is released at its end (R43).","killers":["lower:TestOwnershipRunModel"]},
+    {"name":"16a-r2-base-not-sequenced","origin":"batch-16a fix r2 M2 (verifier 16a r2 v2-base-not-sequenced)","file":"internal/sketch/check/ownership.go","from":"\t\t\tsrc = append(src, x.Base)\n\t\t}\n\t\tsrc = append(src, x.Elts...)","to":"\t\t\tw.expr(x.Base, mMove, h)\n\t\t}\n\t\tsrc = append(src, x.Elts...)","rule":"An update or spread base is a part owned by its statement while a later field may leave (R43).","killers":["lower:TestOwnershipRunModel"]},
+    {"name":"16a-r2-replaced-unacquired","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/check/ownership.go","from":"w.acquire(ownLocal{temp: rs[i].Temp, t: rs[i].Field.Type})","to":"_ = rs[i]","rule":"A field of an update's base that the value does not copy is the statement's and is released at its end (R43).","killers":["lower:TestOwnershipRunModel","lower:TestOwnershipGrammarRun"]},
     {"name":"16a-r2-replaced-declaration-order","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/check/ownership.go","from":"for _, name := range order {","to":"for _, name := range order[:0] {","rule":"The fields an update names are released in written order (R43).","killers":["lower:TestOwnershipRunModel"]},
-    {"name":"16a-r2-spread-drops-kept","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/check/ownership.go","from":"return !copied[f]","to":"return false","rule":"A field of a spread's base that the value's type lacks is released (R43).","killers":["lower:TestOwnershipRunModel"]},
+    {"name":"16a-r2-spread-drops-kept","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/check/ownership.go","from":"return !copied[f]","to":"return false","rule":"A field of a spread's base that the value's type lacks is released (R43).","killers":["lower:TestOwnershipRunModel","lower:TestOwnershipGrammarRun"]},
     {"name":"po1-whole-pattern-expands-type-dag","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if !split {","to":"if false && !split {","rule":"A whole pattern does not traverse the tree expansion of a shared type DAG; counted work follows the written split.","killers":["check:TestOwnershipFlowWorkIsLinear"]},
     {"name":"po1-pattern-value-flow-skipped","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"w.expr(x, mMove, hand{at: x, how: \"let pattern moves it\"})","to":"if _, isIf := unparen(x).(*syntax.IfStmt); !isIf { w.expr(x, mMove, hand{at: x, how: \"let pattern moves it\"}) }","rule":"A destructuring let walks the paths of its value-position if before acquiring its bindings.","killers":["check:TestOwnershipFlowModel"]},
     {"name":"po1-generic-pattern-refuses-data","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if w.genericOnly(t) {","to":"if false && w.genericOnly(t) {","rule":"Generic pattern copy sites reject only resource instances, not plain-data instantiations.","killers":["check:TestOwnershipFlowModel"]},
     {"name":"po1-match-moves-at-header","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"delete(w.info.Handoffs, id) // transfer belongs to this arm, not the header","to":"_ = id // mutant: transfer also runs in non-consuming arms","rule":"The subject hand-off belongs to the selected consuming arm, not header evaluation.","killers":["lower:TestDropGlueModel"]},
     {"name":"po1-pattern-wildcard","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"w.patternRefuse(t, at, \"this pattern leaves %s without an owner; bind every resource part to exactly one name (resources R39, R42)\", t)","to":"_ = t","rule":"A consuming wildcard cannot discard a resource part.","killers":["check:TestOwnershipFlowModel"]},
     {"name":"po1-lent-pattern-loan-lost","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"loans[i].internal, loans[i].root = false, root","to":"continue","rule":"A callable pattern binding of a lent aggregate cannot escape its root's lifetime.","killers":["check:TestStructuredLendModel"]},
-    {"name":"po1-let-binding-ownerless","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"w.acquireParts(parts, ownLocal{}, loans, spec.Pattern)","to":"_ = parts; _ = loans","rule":"A let pattern gives every bound resource an owner.","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"po1-let-binding-ownerless","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"w.acquireParts(parts, ownLocal{}, loans, spec.Pattern)","to":"_ = parts; _ = loans","rule":"A let pattern gives every bound resource an owner.","killers":["check:TestOwnershipFlowModel","lower:TestOwnershipGrammarRun"]},
     {"name":"po1-pattern-missing-part","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if fp == nil && w.tracked(f.Type) {","to":"if false && fp == nil && w.tracked(f.Type) {","rule":"A consuming record pattern cannot omit a resource part.","killers":["check:TestOwnershipFlowModel"]},
     {"name":"po1-pattern-overlap","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if p.Kind == PatAs && len(w.resourceParts(w.patternParts(p.Elems[0], t, nil))) > 0 {","to":"if false && p.Kind == PatAs && len(w.resourceParts(w.patternParts(p.Elems[0], t, nil))) > 0 {","rule":"Whole and part resource owners cannot overlap.","killers":["check:TestOwnershipFlowModel"]},
     {"name":"po1-pattern-own-close","origin":"batch-16a PO1","file":"internal/sketch/check/ownpattern.go","from":"if d != nil && d.Close != nil {","to":"if false && d != nil && d.Close != nil {","rule":"A record's custom release remains with its whole owner.","killers":["check:TestOwnershipFlowModel"]},
@@ -1504,8 +1504,8 @@
       "name": "L8-A2 return does not move",
       "origin": "wf10 L8 A2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "w.expr(r, mMove, hand{at: r, how: \"it is returned\"})",
-      "to": "w.expr(r, mLend, hand{at: r, how: \"it is returned\"})",
+      "from": "w.expr(r, mMove, hand{at: r, how: \"it is returned\", ret: ret})",
+      "to": "w.expr(r, mLend, hand{at: r, how: \"it is returned\", ret: ret})",
       "rule": "resources R10: return moves the value to the caller.",
       "killers": [
         "check:TestOwnershipMessages"
@@ -1845,8 +1845,8 @@
       "name": "a2-value-tail-moves",
       "origin": "wf10 batch-15 fix-r3 (A2 M1 repeat)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed})",
-      "to": "w.expr(s.X, mMove, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed})",
+      "from": "w.expr(s.X, t.mode, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed, ret: ret})",
+      "to": "w.expr(s.X, mMove, hand{at: s.X, how: t.how, lend: t.lend, yieldRoot: t.yieldRoot, failed: t.failed, ret: ret})",
       "rule": "resources R16, R42, R43: an arm's value goes where the if or match's value goes: lent, it is lent; dropped, a new value is discarded.",
       "killers": [
         "check:TestOwnershipFlowModel"
@@ -2532,6 +2532,125 @@
     {"name":"rc4b-refine-strict-bound","origin":"wf10 RC4b","file":"internal/sketch/derive/bundle.go","from":"\"type %s %s where %d <= %s && %s <= %d\\n\"","to":"\"type %s %s where %d < %s && %s <= %d\\n\"","rule":"Refine(Of[B](), lo, hi) derives exactly `type N B where lo <= it && it <= hi` (patterns.md, Coherence 1).","killers":["check:TestDeriveModel"]},
     {"name":"rc4b-shadow-ignored","origin":"wf10 RC4b","file":"internal/sketch/derive/eval.go","from":"\t\tif f.pkg.names[fun.Name] || f.pkg.imported(f.file, fun.Name) {\n","to":"\t\tif f.pkg.imported(f.file, fun.Name) {\n","rule":"A declaration in scope hides a predeclared constructor of the same name; calls key on values, never names (patterns.md, Derivation 6).","killers":["check:TestDeriveModel"]},
     {"name":"rc4b-step-budget-off","origin":"wf10 RC4b","file":"internal/sketch/derive/eval.go","from":"\tif *what > limit {\n","to":"\tif *what >= limit {\n","rule":"A derive may take exactly its step and depth budgets and stops past them (patterns.md, Budgets 1).","killers":["check:TestDeriveModel"]},
-    {"name":"rc4b-escape-offset-shift","origin":"wf10 RC4b","file":"internal/sketch/derive/eval.go","from":"\t\t\tadd(string([]byte{byte(v)}), i)\n","to":"\t\t\tadd(string([]byte{byte(v)}), i+1)\n","rule":"A pattern byte spelled by an escape is reported at the escape's backslash (patterns.md, Diagnostics 1).","killers":["check:TestPatternDiagnostics"]}
+    {"name":"rc4b-escape-offset-shift","origin":"wf10 RC4b","file":"internal/sketch/derive/eval.go","from":"\t\t\tadd(string([]byte{byte(v)}), i)\n","to":"\t\t\tadd(string([]byte{byte(v)}), i+1)\n","rule":"A pattern byte spelled by an escape is reported at the escape's backslash (patterns.md, Diagnostics 1).","killers":["check:TestPatternDiagnostics"]},
+    {"name":"owgen-update-close-admitted","origin":"OWGEN round 3 (b)","file":"internal/sketch/check/ownership.go","from":"if bt := w.info.Types[x.Base]; bt != nil && w.writtenClose(bt) {","to":"if bt := w.info.Types[x.Base]; false && bt != nil && w.writtenClose(bt) {","rule":"resources R39: an update or spread of a record with a written Close is refused; its Close would never run.","killers":["check:TestOwnershipMessages"]},
+    {"name":"owgen-spread-none-unrecorded","origin":"OWGEN round 3 (c)","file":"internal/sketch/check/record_update.go","from":"if len(copies)+len(named) == len(s.Fields) {","to":"if len(copies) > 0 && len(copies)+len(named) == len(s.Fields) {","rule":"A spread that copies no field is still a spread: the fields of its base that its type lacks are dropped and released (R43, types.md Structs 3).","killers":["lower:TestOwnershipGrammarRun","lower:TestSpreadMatchesModel"]},
+    {
+      "name": "owgen-f2-conversion-unowned",
+      "origin": "OWGEN F2 (lang-audit B F2)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tif w.st.reached {\n\t\t\t\tw.acquire(ownLocal{temp: a})\n\t\t\t}\n\t\t\treturn false",
+      "to": "\t\t\treturn true",
+      "rule": "resources R23, R43: a resource converted to an operation type at a lending argument is owned by its statement.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu0-lent-yield-unrecorded",
+      "origin": "OWGEN FU0",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tw.info.LentYields[x] = true\n\tw.info.ArmHeld[w.vars[t.slot].temp] = true",
+      "to": "",
+      "rule": "resources R43 (the mHold rule): a lent if or match whose arm yields an enclosing name does not own that name as its temporary.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu1-returned-unowned",
+      "origin": "OWGEN FU1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\treturn ReturnedKey(r)",
+      "to": "\t\t\treturn nil",
+      "rule": "resources R10: a new value a return gives is owned by the frame until its exit is known.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu1-returned-arms-unowned",
+      "origin": "OWGEN FU1",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tt.frame = mode == mMove && h.ret != nil && h.ret == unparen(x)",
+      "to": "\tt.frame = false",
+      "rule": "resources R10: each arm's value of a returned if or match is owned by the frame until its exit is known.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu2-close-parts-outside",
+      "origin": "OWGEN FU2",
+      "file": "internal/sketch/check/drop.go",
+      "from": "\t\t\td.Own = &Drop{Type: t, Fields: d.Fields, Elem: d.Elem, Variants: d.Variants}\n\t\t\td.Fields, d.Elem, d.Variants = nil, nil, nil",
+      "to": "\t\t\t_ = n",
+      "rule": "resources R3: every caller of a written Close (an explicit x.Close(), an operation type's Close) releases the fields after its body.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu2-field-take-admitted",
+      "origin": "OWGEN FU2",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tcase w.writtenClose(w.info.Types[sel.X]):",
+      "to": "\tcase false:",
+      "rule": "resources R3, R39: a field cannot be taken in place from a record whose own Close reads it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-arm-unrecorded",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\t\tw.info.ArmValues[t.form] = d",
+      "to": "\t\t\t_ = d",
+      "rule": "resources R43: the value an arm of a value form gives is owned from its yield while the arm still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-return-late-unowned",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tif ret != nil || !w.st.reached || w.fresh != x || x == nil {",
+      "to": "\tif true {",
+      "rule": "resources R10: a new value a return gives while the return's own temporaries are owned is kept until the frame's exit.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu3-tuple-built-refused",
+      "origin": "OWGEN FU3",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.tracked(w.info.Types[x]) && w.builds(x.Elts) {",
+      "to": "w.tracked(w.info.Types[x]) && false {",
+      "rule": "resources R14, R43: a tuple built from new values in a lent arm is the statement's temporary, as a record literal is.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "owgen-fu3-tuple-names-moved",
+      "origin": "OWGEN FU3",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "w.tracked(w.info.Types[x]) && w.builds(x.Elts) {",
+      "to": "w.tracked(w.info.Types[x]) {",
+      "rule": "resources R43: a tuple of enclosing names yielded by a lent arm is a view that lends them.",
+      "killers": ["check:TestOwnershipFlowModel"]
+    },
+    {
+      "name": "owgen-match-lent-if-bindings-owned",
+      "origin": "OWGEN round 2 (found by the grammar generator, seed 1215 of the wide run)",
+      "file": "internal/sketch/check/ownpattern.go",
+      "from": "\t\t\treturn i, i >= len(w.st.slots) || w.st.slots[i].st == ownOwned",
+      "to": "\t\t\treturn i, true",
+      "rule": "resources R43 (the mHold rule): a match of a lent if that lends an enclosing name on some path binds views; the statement releases the value where it holds it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-returned-catch-call-unkept",
+      "origin": "OWGEN round 2 (found by the grammar generator, seed 1307 of the wide run; the round 1 known gap)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\tcaught.ret = ReturnedKey(x.X)",
+      "to": "\t\t_ = ReturnedKey(x.X)",
+      "rule": "resources R10: the value a returned catch gives on success is kept until the frame's exit, as each arm's is.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-held-nested-maybe-lent",
+      "origin": "OWGEN round 2 (found by the grammar generator, seeds 2106 and 2227 of the wide run)",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\tcase ownMaybe:\n\t\t// A nested if, match, catch or with that made the value on",
+      "to": "\tcase ownMaybe + 100:\n\t\t// A nested if, match, catch or with that made the value on",
+      "rule": "resources R43 (the mHold rule): a nested form that made the value on some paths and lent a name on others decides the statement's ownership per path.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    }
   ]
 }

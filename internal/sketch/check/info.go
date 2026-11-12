@@ -292,6 +292,19 @@ type Info struct {
 	// value is built. The lowering removes its entry there (R43). Added in
 	// 16a fix r1 (additive).
 	PartHands map[syntax.Expr]bool
+	// ArmHeld marks a lent if, match, catch or with (an OwnedTemps
+	// result) that some tail yields by lending an enclosing name, and
+	// LentYields marks each such tail. Its statement owns the result only
+	// on the paths of the other tails, so the lowering registers it where
+	// one of them yielded (R43, the mHold rule; OWGEN). Added in OWGEN
+	// (additive).
+	ArmHeld    map[syntax.Expr]bool
+	LentYields map[syntax.Expr]bool
+	// HeldIn maps an if, match, catch or with that is the tail of an arm
+	// of a lent one to that enclosing form: its value is the enclosing
+	// form's statement temporary, so its tails that lend a name clear
+	// the enclosing form's flag (ArmHeld). Added in OWGEN round 2.
+	HeldIn map[syntax.Expr]syntax.Expr
 	// Replaced is, for each record update or spread `T{..base, …}` whose
 	// value does not copy a field of its base that holds a resource (a
 	// field it names, or a field of a spread's base that T lacks), those
@@ -309,6 +322,25 @@ type Info struct {
 	// drops a successful result releases it (Gap 47, L8 B4). A call whose
 	// result holds no resource has none; the lowering passes nil.
 	ResultDrops map[*syntax.CallExpr]*Drop
+	// CloseParts is, for a written Close whose receiver type holds
+	// resources in its parts, the release of those parts that the Close's
+	// function runs after its body (Drop.Own, R3).
+	CloseParts map[*Func]*Drop
+	// ReturnedTemps is each new value a return gives while its frame owns
+	// a value its exit releases: the value is an owned temporary
+	// (OwnedTemps) that the return hands off with v1.Returned, so a defect
+	// in a later release of the frame releases it too (R10). An owned
+	// local that an arm of a returned if or match yields is recorded too:
+	// its hand-off keeps its entry the same way.
+	ReturnedTemps map[syntax.Expr]bool
+	// ArmValues is, for an if, match, catch or with used as a value, the
+	// release of its value when an arm still releases a value after its
+	// tail made or moved the result (the tail statement's temporaries, the
+	// arm's locals). The lowering registers the result where an arm yields
+	// it and hands it off after the form, so a defect in such a release
+	// releases it too (R43: the obligation starts at production; OWGEN
+	// FU4). Added in OWGEN round 2 (additive).
+	ArmValues map[syntax.Expr]*Drop
 	// FieldTakes is each field taken in place (`b.r.Close()`, R39, Gap
 	// 38): the owned record's local and the field's index. The lowering
 	// marks the field on the record's entry there, and the generated
@@ -460,9 +492,15 @@ func newInfo() *Info {
 		OwnedVars:      map[*Var]*Drop{},
 		OwnedTemps:     map[syntax.Expr]*Drop{},
 		PartHands:      map[syntax.Expr]bool{},
+		ArmHeld:        map[syntax.Expr]bool{},
+		LentYields:     map[syntax.Expr]bool{},
+		HeldIn:         map[syntax.Expr]syntax.Expr{},
 		Replaced:       map[*syntax.CompositeLit][]Replaced{},
 		TaskCaptures:   map[syntax.Node]*TaskCapture{},
 		ResultDrops:    map[*syntax.CallExpr]*Drop{},
+		CloseParts:     map[*Func]*Drop{},
+		ReturnedTemps:  map[syntax.Expr]bool{},
+		ArmValues:      map[syntax.Expr]*Drop{},
 		FieldTakes:     map[*syntax.SelectorExpr]FieldTake{},
 		Handoffs:       map[*syntax.Ident]*Var{},
 		PatternOwners:  map[*syntax.CaseClause]PatternOwners{},

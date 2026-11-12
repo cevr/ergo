@@ -264,7 +264,9 @@ func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
 	}
 	saved := l.info
 	l.info = info
-	frame := l.bodyNeedsFrame(d.Body.List)
+	// A taken resource parameter needs the callee's owner frame, as
+	// emitBody's needsFrame says: its release or hand-off names it.
+	frame := l.bodyNeedsFrame(d.Body.List) || l.ownsParams(vars)
 	l.info = saved
 	if frame || l.inlineRecursive(f) {
 		return false

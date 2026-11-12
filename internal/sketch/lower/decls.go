@@ -1159,7 +1159,11 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 			return
 		}
 	}
-	fc.closeBody(f, site, func() {
+	recvName := ""
+	if len(paramNames) > 0 {
+		recvName = paramNames[0]
+	}
+	fc.closeBody(f, recvName, site, func() {
 		if needsFrame {
 			fc.site = site
 			fc.openFrame(frameErr)

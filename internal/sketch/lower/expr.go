@@ -123,6 +123,26 @@ func (fc *funcCtx) emits(x syntax.Expr) bool {
 	return found
 }
 
+// handsOff reports whether x moves an owned local outside a function
+// literal: its Go text is then a hand-off call (Info.Handoffs), and Go
+// runs the calls of an expression before its other operations, so an
+// earlier operand that may panic (a division) must be spilled first, or
+// the local is no one's when that operand's defect leaves (OWGEN round 3,
+// seed 1450).
+func (fc *funcCtx) handsOff(x syntax.Expr) bool {
+	found := false
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.FuncLit:
+			return false
+		case *syntax.Ident:
+			found = found || fc.l.info.Handoffs[n] != nil
+		}
+		return !found
+	})
+	return found
+}
+
 // spill binds a value to a temporary, unless it is a constant.
 func (fc *funcCtx) spill(val string) string {
 	if val == "" || isLiteralText(val) {
@@ -143,7 +163,7 @@ func isLiteralText(s string) bool {
 func (fc *funcCtx) operands(list []syntax.Expr, convert bool) []string {
 	later := make([]bool, len(list)+1)
 	for i := len(list) - 1; i >= 0; i-- {
-		later[i] = later[i+1] || fc.emits(list[i])
+		later[i] = later[i+1] || fc.emits(list[i]) || fc.handsOff(list[i])
 	}
 	parts := fc.partsFrom(list)
 	out := make([]string, len(list))
@@ -842,7 +862,7 @@ func isGoPath(s string) bool {
 func (fc *funcCtx) elements(list []syntax.Expr, _ check.Type) []string {
 	later := make([]bool, len(list)+1)
 	for i := len(list) - 1; i >= 0; i-- {
-		later[i] = later[i+1] || fc.emits(list[i])
+		later[i] = later[i+1] || fc.emits(list[i]) || fc.handsOff(list[i])
 	}
 	parts := fc.partsFrom(list)
 	out := make([]string, len(list))
@@ -972,6 +992,8 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if m.Result != nil {
 		result = fc.temp("v")
 		fc.line("var " + result + " " + fc.goType(m.Result))
+		fc.armHeldVar(x, result)
+		fc.armValueVar(x, result)
 	} else if o.val != "" {
 		// The catch's value is discarded (D-C1), so the caught value is
 		// too; its failure is not (stage C round 3 review M1).
@@ -980,6 +1002,7 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if !fc.simpleCatch(x) {
 		fc.trackResultSite(x, result)
 		fc.patternCatch(x, m, o, result, partial)
+		fc.armValueEnd(x, result)
 		return operand{val: result}
 	}
 	fc.trackResultSite(x, result)
@@ -1062,12 +1085,13 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	fc.depth--
 	if result != "" && o.val != "" {
 		fc.line("} else {")
-		fc.line("\t" + result + " = " + fc.caughtValue(x, m, o.val))
+		fc.line("\t" + result + " = " + fc.returnedTemp(check.ReturnedKey(x.X), fc.caughtValue(x, m, o.val)))
 		if site := fc.resultNames[result]; site != "" {
 			fc.line("\t" + site + " = " + fc.resultSite(x.X))
 		}
 	}
 	fc.line("}")
+	fc.armValueEnd(x, result)
 	return operand{val: result}
 }
 
@@ -1213,7 +1237,12 @@ func (fc *funcCtx) retTail(x syntax.Expr) {
 		fc.line(fc.errReturn("nil"))
 		return
 	}
-	fc.line("return " + fc.assigned(x) + ", nil")
+	if id, ok := unparen(x).(*syntax.Ident); ok {
+		fc.returned = id // a returned local is kept until the exit (R10)
+	}
+	val := fc.assigned(x)
+	fc.returned = nil
+	fc.line("return " + fc.returnedTemp(check.ReturnedKey(x), val) + ", nil")
 }
 
 // simpleCatch reports a catch a Go type switch on the error lowers: arms of
@@ -1285,7 +1314,7 @@ func (fc *funcCtx) patternCatch(x *syntax.CatchExpr, m *check.Match, o operand, 
 	fc.depth--
 	if result != "" && o.val != "" {
 		fc.line("} else {")
-		fc.line("\t" + result + " = " + fc.caughtValue(x, m, o.val))
+		fc.line("\t" + result + " = " + fc.returnedTemp(check.ReturnedKey(x.X), fc.caughtValue(x, m, o.val)))
 		if site := fc.resultNames[result]; site != "" {
 			fc.line("\t" + site + " = " + fc.resultSite(x.X))
 		}

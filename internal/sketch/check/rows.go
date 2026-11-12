@@ -1001,6 +1001,7 @@ func (c *checker) checkFuncBody(f *Func) bool {
 	defer func() { c.cur = saved }()
 	sig := f.Sig
 	d := f.Decl
+	c.closeParts(f)
 	name := "function " + f.Name
 	t := &target{name: name, results: sig.Results, resultKnown: true, isFunc: true, main: f.Name == "main"}
 	if f.inferErrors {

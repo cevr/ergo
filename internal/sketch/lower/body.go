@@ -182,6 +182,17 @@ type funcCtx struct {
 	// goGeneric reports a Go function with type parameters, where Go
 	// declares no local type.
 	goGeneric bool
+	// heldOf maps the Go result variable of a lent if, match, catch or
+	// with whose statement owns its value on some paths only
+	// (Info.ArmHeld) to the Go flag that says this path made it;
+	// heldExpr maps the expression to the same flag (armHeldVar).
+	heldOf   map[string]string
+	heldExpr map[syntax.Expr]string
+	// armOf maps the Go result variable of a value form whose arms own
+	// their value until the form ends (Info.ArmValues) to the form;
+	// armDone holds the forms an arm registered in (armValueVar).
+	armOf   map[string]syntax.Expr
+	armDone map[syntax.Expr]bool
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -618,6 +629,7 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	}
 	val := fc.assigned(x)
 	fc.returned = nil
+	val = fc.returnedTemp(check.ReturnedKey(x), val)
 	if f.law {
 		val = fc.lawResult(x, val, "nil")
 	}
@@ -665,6 +677,28 @@ func (fc *funcCtx) trackResultSite(x syntax.Expr, name string) string {
 	fc.line("_ = " + site) // a control expression may be only a subexpression
 	fc.resultSites[unparen(x)], fc.resultNames[name] = site, site
 	return site
+}
+
+// returnedTemp hands off val, the new value x a return gives, which its
+// frame owns until its exit is known (Info.ReturnedTemps, R10): kept, so
+// a defect in a later release of the frame releases it too.
+func (fc *funcCtx) returnedTemp(x syntax.Expr, val string) string {
+	if !fc.l.info.ReturnedTemps[x] {
+		return val
+	}
+	if _, ok := x.(*syntax.Ident); ok {
+		return val // a returned local: its hand-off kept it (fc.returned)
+	}
+	if st := fc.staticState(); st != nil {
+		if _, ok := st.bit[x]; ok {
+			return fc.staticHand(x, val, true, x)
+		}
+	}
+	h := fc.l.owned[x]
+	if h == "" {
+		ice(x, "a returned value the frame owns was never registered (ownTemp)")
+	}
+	return fc.runtimeCall("Returned", fc.ownBinding("Returned", x), "", "", []string{h, val}, "", nil, nil, x)
 }
 
 // fail leaves the current frame with err (rows.md, Escapes): the frame's

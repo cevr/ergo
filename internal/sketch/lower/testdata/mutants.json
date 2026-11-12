@@ -17,15 +17,15 @@
     {"name":"ps1-search-from-fresh-only","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"+ idx + \" < len(\" + states + \") && \" + complete","to":"+ idx + \" < 1 && \" + complete","rule":"Proof covers closure under every listable operation, not only the constructor state.","killers":["lower:TestProvedRunsModel"]},
     {"name":"cu2-stale-stdin-callers","origin":"wf10 batch-16b fix-r1","file":"internal/sketch/lower/std_fs_memory_test.go","from":"let input = io.NewStdin()","to":"let input = io.NewHost()","rule":"The fast tier checks every declared full-tier table program against current std contracts.","killers":["lower:TestProgramTablesCheck"],"anchor":{"tests":["lower:TestProgramTablesCheck"]}},
     {"name":"b16b-library-init-before-std-reach","origin":"batch-16b D6 + IG11 integration","file":"internal/sketch/lower/module.go","from":"\t\tl.drainPending() // Reach std lets before the Go library's initOnce.","to":"\t\t// mutant: write initOnce before reaching the std lets","rule":"Go-library initOnce is written after queued std bodies have reached their lets, before any exported call runs.","killers":["lower:TestStdPackageLet"]},
-    {"name":"16a-r1-values-binding-unregistered","origin":"batch-16a fix r1 M2","file":"internal/sketch/lower/body.go","from":"\t\tfc.ownVar(b.v, p)","to":"\t\t_ = p","rule":"An owned for-in binding (a queue's Values(), Q7) is registered; a plan that names an unregistered owned value is an internal compiler error.","killers":["lower:TestOwnershipRunModel"]},
-    {"name":"16a-r2-base-not-handed","origin":"batch-16a fix r2 M2 (verifier 16a r2 v2-base-not-handed)","file":"internal/sketch/lower/release.go","from":"if !fc.l.info.PartHands[base] {","to":"if true {","rule":"An update or spread base that is a part is handed to the value built (R43).","killers":["lower:TestOwnershipRunModel"]},
-    {"name":"16a-r2-replaced-unregistered","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/lower/release.go","from":"fc.line(\"_ = \" + fc.own(r.Temp, d, r.Field.Type, base+\".\"+name, r.Temp))","to":"_ = name","rule":"A field of an update's base that the value does not copy is registered when the value is built.","killers":["lower:TestOwnershipRunModel"]},
+    {"name":"16a-r1-values-binding-unregistered","origin":"batch-16a fix r1 M2","file":"internal/sketch/lower/body.go","from":"\t\tfc.ownVar(b.v, p)","to":"\t\t_ = p","rule":"An owned for-in binding (a queue's Values(), Q7) is registered; a plan that names an unregistered owned value is an internal compiler error.","killers":["lower:TestOwnershipRunModel","lower:TestOwnershipGrammarRun"]},
+    {"name":"16a-r2-base-not-handed","origin":"batch-16a fix r2 M2 (verifier 16a r2 v2-base-not-handed)","file":"internal/sketch/lower/release.go","from":"if !fc.l.info.PartHands[base] {","to":"if true {","rule":"An update or spread base that is a part is handed to the value built (R43).","killers":["lower:TestOwnershipRunModel","lower:TestOwnershipGrammarRun"]},
+    {"name":"16a-r2-replaced-unregistered","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/lower/release.go","from":"fc.line(\"_ = \" + fc.own(r.Temp, d, r.Field.Type, base+\".\"+name, r.Temp))","to":"_ = name","rule":"A field of an update's base that the value does not copy is registered when the value is built.","killers":["lower:TestOwnershipRunModel","lower:TestOwnershipGrammarRun"]},
     {"name":"16a-r2-static-replaced-unplanned","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/lower/static.go","from":"add(r.Temp, info.OwnedTemps[r.Temp]) // no node of the tree","to":"_ = r","rule":"The static plan counts an update's replaced fields: one whose release is generated keeps the frame in the list lowering.","killers":["lower:TestStaticReleaseAgrees"]},
     {"name":"16a-r2-owns-replaced-unseen","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/lower/release.go","from":"if lit, ok := n.(*syntax.CompositeLit); ok && ownsReplaced(l.info, lit) {","to":"if lit, ok := n.(*syntax.CompositeLit); ok && false && ownsReplaced(l.info, lit) {","rule":"A body whose statement owns a replaced field of an update has a frame scope.","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-part-not-handed","origin":"batch-16a fix r1 M1","file":"internal/sketch/lower/release.go","from":"if x == nil || !fc.l.info.PartHands[x] {","to":"if true {","rule":"A part moves to the value built from it: its statement entry is removed there.","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-part-unspilled","origin":"batch-16a fix r1 M1","file":"internal/sketch/lower/release.go","from":"if x != nil && fc.l.info.PartHands[x] {","to":"if false && x != nil && fc.l.info.PartHands[x] {","rule":"From the first part with a statement owner on, every operand is spilled: each part is registered before the next operand runs, and every operand runs (a division may panic) before the parts are handed to the value.","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-elided-part-unregistered","origin":"batch-16a fix r1 M1","file":"internal/sketch/lower/expr.go","from":"out[i] = fc.ownTemp(lit, operand{val: fc.composite(lit, fc.typeOf(lit))}).val","to":"out[i] = fc.composite(lit, fc.typeOf(lit))","rule":"An elided literal element is registered when its statement owns it.","killers":["lower:TestOwnershipRunModel"]},
-    {"name":"po1-lower-binding-unregistered","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, v := range plan.Bindings {","to":"for _, v := range plan.Bindings[:0] {","rule":"A selected arm registers each owned binding before running its body.","killers":["lower:TestDropGlueModel"]},
+    {"name":"po1-lower-binding-unregistered","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, v := range plan.Bindings {","to":"for _, v := range plan.Bindings[:0] {","rule":"A selected arm registers each owned binding before running its body.","killers":["lower:TestDropGlueModel","lower:TestOwnershipGrammarRun"]},
     {"name":"po1-lower-subject-kept","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, source := range plan.Sources {","to":"for _, source := range plan.Sources[:0] {","rule":"A consuming arm removes its subject's old release entry.","killers":["lower:TestDropGlueModel"]},
     {"name":"po1-match-scope-unreleased","origin":"batch-16a PO1","file":"internal/sketch/lower/body.go","from":"return fc.scoped(s, func() bool { return fc.typeMatchBody(s, d) })","to":"return fc.typeMatchBody(s, d)","rule":"A temporary subject not consumed by the selected arm releases at match end, before the next statement.","killers":["lower:TestDropGlueModel"]},
     {
@@ -2495,7 +2495,7 @@
       "to": "\tfc.line(target + \" = \" + t)",
       "rule": "resources R41: an assignment releases the old value at once.",
       "killers": [
-        "lower:TestOwnershipRunModel"
+        "lower:TestOwnershipGrammarRun"
       ]
     },
     {
@@ -4025,6 +4025,119 @@
       "killers": [
         "lower:TestPatternLoweringAgrees"
       ]
+    },
+    {"name":"owgen-handoff-operands-unspilled","origin":"OWGEN round 3 (wide seed 1450)","file":"internal/sketch/lower/expr.go","from":"\tfor i := len(list) - 1; i >= 0; i-- {\n\t\tlater[i] = later[i+1] || fc.emits(list[i]) || fc.handsOff(list[i])\n\t}\n\tparts := fc.partsFrom(list)\n\tout := make([]string, len(list))\n\tfor i, x := range list {\n\t\tif convert {","to":"\tfor i := len(list) - 1; i >= 0; i-- {\n\t\tlater[i] = later[i+1] || fc.emits(list[i])\n\t}\n\tparts := fc.partsFrom(list)\n\tout := make([]string, len(list))\n\tfor i, x := range list {\n\t\tif convert {","rule":"R43, R9: an operand that may panic runs before a later operand's hand-off of a moved local, as Ergo's left-to-right order says.","killers":["lower:TestOwnershipGrammarRun"]},
+    {"name":"owgen-handoff-args-unspilled","origin":"OWGEN round 3 (wide seed 1450)","file":"internal/sketch/lower/calls.go","from":"(fc.emits(list[i]) || fc.handsOff(list[i]))","to":"fc.emits(list[i])","rule":"R43, R9: an argument that may panic runs before a later argument's hand-off of a moved local.","killers":["lower:TestOwnershipGrammarRun"]},
+    {"name":"b18-inline-taken-param","origin":"batch-18 integration (OPT4 inliner x OWGEN grammar, seed 10)","file":"internal/sketch/lower/inline.go","from":"frame := l.bodyNeedsFrame(d.Body.List) || l.ownsParams(vars)","to":"frame := l.bodyNeedsFrame(d.Body.List)","rule":"A function that takes a resource parameter keeps its owner frame (emitBody's needsFrame); an inlined body would name an owner the call site has not.","killers":["lower:TestOwnershipGrammarRun"]},
+    {"name":"owgen-adapter-env-unset","origin":"OWGEN round 3 (d, e)","file":"internal/sketch/lower/calls.go","from":"\t\tval += \", env: \" + fc.env\n","to":"","rule":"resources R3, R23: the releases an operations adapter's functions run use the converting frame's environment.","killers":["lower:TestConvertedReleaseRuns"]},
+    {"name":"owgen-spread-none-base-unbound","origin":"OWGEN round 3 (c)","file":"internal/sketch/lower/expr.go","from":"case len(copies) == 0 && !replaced:","to":"case len(copies) == 0:","rule":"A spread that copies nothing but drops a field binds its base once: the dropped fields are read from that value (R43).","killers":["lower:TestOwnershipGrammarRun"]},
+    {
+      "name": "owgen-fu0-lent-yield-registered",
+      "origin": "OWGEN FU0",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\tfc.line(h + \" = false\")",
+      "to": "\t\tfc.line(h + \" = true\")",
+      "rule": "resources R43 (the mHold rule): a lent if or match registers its value only on the paths whose arm made it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu1-returned-released",
+      "origin": "OWGEN FU1",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\tif !fc.l.info.ReturnedTemps[x] {",
+      "to": "\tif true {",
+      "rule": "resources R10: a returned new value the frame owns is kept, not released, when the frame returns it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu2-close-parts-unlowered",
+      "origin": "OWGEN FU2",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\town := f.Pkg.Info.CloseParts[f]",
+      "to": "\town := (*check.Drop)(nil)",
+      "rule": "resources R3: a written Close releases its receiver's parts after its body.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-reassign-variant-temp",
+      "origin": "OWGEN (found by the grammar generator)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tfc.line(\"var \" + t + \" \" + fc.goType(v.Type) + \" = \" + val)",
+      "to": "\tfc.line(t + \" := \" + val)",
+      "rule": "A reassigned owned local's temporary has the local's type: a variant assigned to a local of its union.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-arm-unregistered",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif form == nil || fc.l.info.LentYields[x] {",
+      "to": "\tif true {",
+      "rule": "resources R43: the value an arm of a value form gives is owned from its yield while the arm still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-arm-lent-registered",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif form == nil || fc.l.info.LentYields[x] {",
+      "to": "\tif form == nil {",
+      "rule": "resources R43 (the mHold rule): an arm that yields an enclosing name lends it; the form never owns it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-arm-unhanded",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif !fc.armDone[form] {",
+      "to": "\tif true {",
+      "rule": "resources R43: after the form, its consumer owns the value; the arm's owner hands it off.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-catch-unowned",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\tfc.armValueVar(x, result)\n",
+      "to": "",
+      "rule": "resources R43: the value a catch arm gives is owned from its yield while the arm still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-static-unplanned",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/static.go",
+      "from": "\t\t\t\tadd(armKey{x}, info.ArmValues[x])\n",
+      "to": "",
+      "rule": "The static release form holds only values whose release is one Close; an arm's owned value counts.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-with-arm-unowned",
+      "origin": "OWGEN round 3",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\tfc.armValueVar(x, res.val)\n",
+      "to": "",
+      "rule": "resources R43: the value a with's block gives is owned from its yield while the block still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-go-catch-arm-unowned",
+      "origin": "OWGEN round 3",
+      "file": "internal/sketch/lower/catch_plain.go",
+      "from": "\t\tfc.armValueVar(x, result)\n",
+      "to": "",
+      "rule": "resources R43, interop Resources: the Go resource a plain catch's arm gives is owned from its yield while the arm still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-held-nested-flag-unshared",
+      "origin": "OWGEN round 2 (found by the grammar generator, seeds 2106 and 2227 of the wide run)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\t\tfc.heldOf[result] = h",
+      "to": "\t\t\t_ = h",
+      "rule": "resources R43 (the mHold rule): a nested form's tail that lends a name clears the enclosing lent form's flag.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
     }
   ]
 }
