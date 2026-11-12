@@ -21,7 +21,7 @@ func (p *preflight) function(fr *frame, fn *check.Func) string {
 		ice("no resolved callee")
 	}
 	if fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host() {
-		if !fn.Pkg.Host() && nativeOf(fn) != nil {
+		if !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil {
 			return ""
 		}
 		return fmt.Sprintf("a Go function (%s), even a pure one", fn.Name)
@@ -60,7 +60,7 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				return true
 			}
 			switch c.Kind {
-			case check.CallLen, check.CallConversion, check.CallEmbed:
+			case check.CallLen, check.CallConversion, check.CallEmbed, check.CallEncode, check.CallDecode:
 			case check.CallFunc:
 				if inst := fr.info.Instances[x]; inst != nil && len(inst.Witnesses) > 0 {
 					why = "a generic call with unresolved operation witnesses"

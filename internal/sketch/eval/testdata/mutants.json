@@ -1248,6 +1248,24 @@
       "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
     },
     {
+      "name": "oracle-o23-preflight-codec",
+      "origin": "wf10 ORACLE O23",
+      "file": "internal/sketch/eval/preflight.go",
+      "from": "\t\t\tcase check.CallLen, check.CallConversion, check.CallEmbed, check.CallEncode, check.CallDecode:",
+      "to": "\t\t\tcase check.CallLen, check.CallConversion, check.CallEmbed:",
+      "rule": "An obligation that reaches encode or decode runs (Never silently skipped: the preflight skips only what the run cannot evaluate).",
+      "killers": ["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]
+    },
+    {
+      "name": "oracle-o23-preflight-go-extern",
+      "origin": "wf10 ORACLE O23",
+      "file": "internal/sketch/eval/preflight.go",
+      "from": "\t\tif !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil {",
+      "to": "\t\tif !fn.Pkg.Host() && nativeOf(fn) != nil || false && goNativeOf(fn) != nil {",
+      "rule": "An obligation that calls a program extern the evaluator runs (nativesgo.go) is not skipped.",
+      "killers": ["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]
+    },
+    {
       "name": "oracle-o20-go-float-is-exp",
       "origin": "wf10 ORACLE O20",
       "file": "internal/sketch/eval/nativesgo.go",

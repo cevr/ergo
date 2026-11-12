@@ -79,6 +79,44 @@ law Sampled(n int) { n == n }
 
 }
 
+// TestPreflightAdmitsWhatRuns is the smallest repro of a fixed bug: the
+// preflight skipped an obligation that reaches encode or decode, or a
+// program's extern of a Go function the evaluator calls, though the run
+// itself evaluates both (O18, O20), so 42 example obligations were
+// skipped. Mutants: oracle-o23-preflight-codec,
+// oracle-o23-preflight-go-extern.
+func TestPreflightAdmitsWhatRuns(t *testing.T) {
+	pkg := checked(t, `import json
+
+extern go math.Log func log(x float64) float64
+
+type P { X int, Name string }
+
+test Codec {
+	let c = json.Codec[P]{MaxBytes: 0, MaxDepth: 0}
+	let p = P{X: 3, Name: "a"}
+	let back = json.Decode(c, json.Encode(c, p)) catch {
+	case _:
+		return
+	}
+	assert back == p
+}
+
+test GoLog {
+	assert log(1.0) == 0.0
+}
+`)
+	rep, err := Run(pkg, DefaultBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, res := range rep.Results {
+		if res.Status != Passed {
+			t.Errorf("%s is %s (%s)", res.Name, res.Status, res.Reason)
+		}
+	}
+}
+
 // TestRunRefusesAnAbsentFootprint: a frame with no footprint is an
 // internal error, never a pure frame (rows.md, Footprints 2; the plan's
 // mutant absent-fact-pure).
