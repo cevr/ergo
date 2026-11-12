@@ -2,9 +2,10 @@
 // q128, 2026-11-11): it builds an Ergo program through the source path
 // (lower.Lower, stock go1.27.0) and through the typed-IR path
 // (lower.LowerIR, the go1.27.0 derivative's -ergoir entry) with the same
-// flags, and measures both. Source emission stays the reference. The
-// default build reads it only for `ergo build -go-text DIR` (GoText), until
-// unit IRT0b moves the IR build into ergo's own build.
+// flags, and measures both. Source emission stays the reference. ergo's
+// own build lowers through IR itself (sketchfront, internal/toolchain's
+// patched compile); it reads this package only for `ergo build -go-text
+// DIR` (GoText).
 package irspike
 
 import (

@@ -445,7 +445,9 @@ func buildID(key string, parts int) string {
 }
 
 // compileKey is the action key of a package's compile: every input of the
-// object it writes.
+// object it writes. The root package's IR file (-ergoir) is one through
+// main.go, whose last line lower.LowerIR writes as the IR file's digest;
+// the patched compile that reads it is one through the tool's digest.
 func (d *direct) compileKey(p *goPackage) (string, error) {
 	var k keyer
 	k.add("schema", directSchema+" compile")
@@ -575,6 +577,11 @@ func (d *direct) compile(p *goPackage) error {
 	}
 	if d.plan.pie() {
 		args = append(args, "-shared")
+	}
+	if p.ImportPath == d.mainPath() {
+		// Where go build puts -gcflags: the IR bodies, for the patched
+		// compile (ergoIR).
+		args = append(args, ergoIR(d.module)...)
 	}
 	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
 	if p.Embed != nil {

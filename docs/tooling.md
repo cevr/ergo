@@ -52,6 +52,22 @@ The release is installed under ergo's cache directory (the emission cache's root
 
 An install downloads into `tmp-*`, verifies, unpacks into another `tmp-*` (the commands of `bin/` and `pkg/tool/` made executable, as cmd/go does) and renames it to `release`, under the lock. So `release` names a whole toolchain or nothing, two ergo processes that start at once download once (the second waits for the lock and finds the release), and an install that died leaves only `tmp-*`, which the next install removes under the lock. With a warm cache, a build reads no network, offline too; offline with a cold cache, the build fails and names `ERGO_GO=system`. A build with the managed release runs it with `GOROOT` set to the release and `GOTOOLCHAIN=local`, so neither the user's `GOROOT` nor a toolchain line chooses another Go. A later artifact built from the release (the IR tier's patched compiler, q131) goes beside `release` as `patched-<digest>`, keyed by its patch digest, under the same lock. The emission cache's trim reads only `modules`, `staging` and `private`, so it never removes a toolchain. There is no command that removes an old release yet.
 
+### The patched compile (IR)
+
+Every `ergo build`, `ergo run` and `ergo test` lowers through typed IR (plan-tier §1.1, IRT0b): `sketchfront.Build` with `IR` uses `lower.LowerIR` (`LowerIRTests` for tests), and the module's root package is compiled with `-ergoir ergoir.json`, a flag only ergo's patched `cmd/compile` reads. The patch is `toolchain/ir/go1.27.0.patch`, embedded in ergo (`toolchain/ir`). `toolchain/ir/lock` records its sha256 and one `port <release> <patch>` line for each Go release it is ported to (a row of `toolchain/ir/ports.md`). On a build, ergo takes the GOROOT of the release it runs (the managed one, or what `go env GOROOT` reports in a module with the generated modules' go line, so `GOTOOLCHAIN` picks the release a build would run), and `internal/toolchain.Patch`:
+
+- refuses a release the lock does not port (`Go go1.27.1 has no port of the IR compiler patch (toolchain/ir/lock ports …)`), and a patch whose content is not the lock's;
+- else builds the compile once, under the release's install lock, into
+
+```
+<cache>/toolchain/<release>.<goos>-<goarch>/patched-<key>/goroot   the release with the patched compile
+<cache>/toolchain/<release>.<goos>-<goarch>/patched-<key>/src      the patched files
+```
+
+`key` digests the patch and the release's GOROOT; the directory names the release and the host, since `compile` is a host program for every target. The patch is applied in process (`toolchain.ApplyPatch`: a hunk applies where its old lines stand, at its line or the nearest one, never in part; `scripts/irport` applies it with the same function), and `compile` is built by the release's own go command with `go build -trimpath -overlay` from the release's source: no copy of the release, no git. `goroot` holds a symbolic link to each entry of the release but `pkg/tool/<goos>_<goarch>/compile`. The first build costs a compile of `cmd/compile` (100 s of CPU, measured, cold Go build cache); with a warm Go build cache it is a link (1.3 s). A build prints `ergo: building the IR compiler for <release> (once per Go release and patch)` then.
+
+The patched compile without `-ergoir` compiles as the stock one does (stock equivalence, checked on every port) and prints the stock `-V=full` line, so Go's build cache shares the standard library and the runtime packages with stock builds. The root compile is keyed by its inputs: on the direct path by the compile's digest and `main.go`, whose last line is the IR file's digest; on go build by the `-gcflags` text, which names the module directory, and `main.go`. A user's `-gcflags` in `GOFLAGS` is replaced by ergo's on go build.
+
 Building ergo itself from source still needs Go. The gate and the CLI's tests run with `ERGO_GO=system` (the gate sets it unless the caller does), so no test downloads Go; `internal/toolchain` tests the managed path against a module proxy and a checksum database served in process.
 
 ## Source admission

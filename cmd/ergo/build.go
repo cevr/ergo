@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -118,6 +119,7 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		Output:    output.Path(),
 		Cache:     build.Cache{Root: root},
 		Toolchain: tc,
+		IR:        true,
 		Stderr:    os.Stderr,
 		Ledger:    ledgerPath(opts.file),
 		Locked:    opts.locked,
@@ -142,10 +144,13 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 	if opts.platform.GOOS != runtime.GOOS || opts.platform.GOARCH != runtime.GOARCH {
 		return fmt.Errorf("-go-text builds for the host platform %s/%s only, not %s", runtime.GOOS, runtime.GOARCH, opts.platform)
 	}
-	tc, err := irspike.PatchedToolchain()
+	action, err := buildAction(opts)
 	if err != nil {
 		return fmt.Errorf("-go-text: %w", err)
 	}
+	// The spike's driver keys its own Go cache by the compile's content,
+	// beside the patched release.
+	tc := irspike.Toolchain{GOROOT: action.Root, GOCACHE: filepath.Join(filepath.Dir(action.Root), "gocache")}
 	dir, err := filepath.Abs(opts.goText)
 	if err != nil {
 		return err
@@ -161,20 +166,46 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 	return irspike.GoText(files, tc, output.Path(), dir, os.Stderr)
 }
 
-// buildAction is the Go build action of opts' command: the go command
-// ERGO_GO selects (goCommand) with the user's GOFLAGS, linking for
-// opts.platform, always stated, so the go env file's GOOS and GOARCH never
-// choose it. The emitted module is the same for every platform; Go's
-// action cache keys the link on the platform.
+// buildAction is the Go build action of opts' command: the release of the
+// go command ERGO_GO selects (goCommand), with ergo's patched compile
+// (patchedCompile), the user's GOFLAGS, linking for opts.platform, always
+// stated, so the go env file's GOOS and GOARCH never choose it. The
+// emitted module is the same for every platform; Go's action cache keys
+// the link on the platform. Every build lowers Ergo bodies through IR
+// (plan-tier §1.1), which only the patched compile reads.
 func buildAction(opts fileOptions) (build.Toolchain, error) {
 	tc := build.HostToolchain()
 	selected, err := goCommand()
 	if err != nil {
 		return build.Toolchain{}, err
 	}
-	tc.Go, tc.Root = selected.Go, selected.Root
+	patched, err := patchedCompile(selected)
+	if err != nil {
+		return build.Toolchain{}, err
+	}
+	tc.Go, tc.Root = patched.Go, patched.Root
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
 	return tc, nil
+}
+
+// patchedCompile is the release selected runs, with ergo's patched
+// compile, built once into ergo's cache (internal/toolchain, Patch).
+func patchedCompile(selected toolchain.Toolchain) (toolchain.Patched, error) {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return toolchain.Patched{}, err
+	}
+	var goMod []byte
+	for _, f := range lower.Runtime() {
+		if path.Base(f.Path) == "go.mod" {
+			goMod = f.Data // its go line is every generated module's
+		}
+	}
+	source, err := toolchain.SourceOf(selected, root, goMod)
+	if err != nil {
+		return toolchain.Patched{}, err
+	}
+	return toolchain.Patch(toolchain.PatchConfig{Cache: root, Source: source, Log: os.Stderr})
 }
 
 // goCommand is the go command every build and `ergo bind go` run

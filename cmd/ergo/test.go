@@ -87,6 +87,7 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		Output:    binary,
 		Cache:     build.Cache{Root: root},
 		Toolchain: tc,
+		IR:        true,
 		Stderr:    os.Stderr,
 	})
 	if opts.work && module.Dir != "" {

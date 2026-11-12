@@ -1,7 +1,6 @@
 package irspike
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,28 +9,9 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
-// PatchedToolchain is the derivative toolchain of an IR build: GOROOT from
-// ERGO_IRSPIKE_GOROOT_IR, and its build cache under ERGO_IRSPIKE_CACHE (or
-// the user's cache directory). Unit IRT0b replaces it with the patched
-// compile in ergo's own cache.
-func PatchedToolchain() (Toolchain, error) {
-	goroot := os.Getenv("ERGO_IRSPIKE_GOROOT_IR")
-	if goroot == "" {
-		return Toolchain{}, errors.New("no patched Go compiler: set ERGO_IRSPIKE_GOROOT_IR to a Go root built by scripts/irport (unit IRT0b puts it in ergo's cache)")
-	}
-	cache := os.Getenv("ERGO_IRSPIKE_CACHE")
-	if cache == "" {
-		dir, err := os.UserCacheDir()
-		if err != nil {
-			return Toolchain{}, err
-		}
-		cache = filepath.Join(dir, "ergo", "ir")
-	}
-	return Toolchain{GOROOT: goroot, GOCACHE: filepath.Join(cache, "ir")}, nil
-}
-
 // GoText builds files (a LowerIR or LowerIRTests module) to out with the
-// derivative toolchain tc, and writes into dir, which must not exist, the
+// derivative toolchain tc (`ergo build -go-text` passes the patched
+// release of ergo's cache, internal/toolchain Patch), and writes into dir, which must not exist, the
 // module as compiled: its Go files, each file that holds an IR body
 // replaced by the text the derivative printed of it (-ergoirtext). The
 // text is a view of what was compiled, never an input: go vet, gopls and

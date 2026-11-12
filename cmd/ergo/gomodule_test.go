@@ -118,8 +118,10 @@ func main() needs Console | go.Foreign {
 	if out, code := cli(env, "bind", "go", "example.com/greet/internal/x"); code == 0 || !strings.Contains(out, "internal or vendor package only inside the tree") {
 		t.Errorf("ergo bind go of an internal package: exit %d\n%s", code, out)
 	}
-	if out, code := cli(env, "run", "cmd/app"); code != 0 || !strings.HasSuffix(out, "hello ergo\n6\n7\nempty\n") {
-		t.Fatalf("ergo run cmd/app: exit %d\n%s", code, out)
+	// stderr may hold ergo's line about building its IR compiler (a new
+	// cache); the program prints on stdout.
+	if stdout, stderr, code := runSmokeCommand(t, commandIn(binary, app, env, "run", "cmd/app")); code != 0 || string(stdout) != "hello ergo\n6\n7\nempty\n" {
+		t.Fatalf("ergo run cmd/app: exit %d\n%s%s", code, stdout, stderr)
 	}
 
 	// The check reads files only: a go on PATH that ran would leave a mark.
