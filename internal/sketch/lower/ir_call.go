@@ -15,29 +15,24 @@ func (b *irBuilder) poll(site syntax.Node) *irStmt {
 
 // call is a call x that cannot fail at its site; stmt reports a call in
 // statement position, where a call with no result may stand. A call with
-// effects (an impure function, an operation) runs before the expression
-// that holds it, into a temporary, as the emitter's call does.
+// effects stays in place: the emitter's `v := f(…)` runs it before its
+// expression, and Go runs it there too (calls before the other operands;
+// an earlier operand before a later one's statements is spilled, operands).
 func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 	if b.fallibleCall(x) != nil {
 		irNo("untried fallible call")
 	}
-	pre, e, effect := b.callParts(x, stmt)
-	if effect && !stmt {
-		return b.hoist(pre, e, x)
-	}
-	return pre, e
+	return b.callParts(x, stmt)
 }
 
 // rawCall is the fallible call x: its Go call, whose result is the value
 // and the error (ir_fail.go binds or returns them).
 func (b *irBuilder) rawCall(x *syntax.CallExpr) ([]*irStmt, *irExpr) {
-	pre, e, _ := b.callParts(x, true)
-	return pre, e
+	return b.callParts(x, true)
 }
 
-// callParts is the call x and the statements before it; effect reports a
-// call with effects.
-func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr, bool) {
+// callParts is the call x and the statements before it.
+func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 	if x.Trailing != nil {
 		irNo("trailing block")
 	}
@@ -66,7 +61,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		default:
 			irNo("len of a non-slice")
 		}
-		return nil, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}, false
+		return nil, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}
 	case check.CallFunc:
 		f := c.Func
 		if f == nil || f.Pkg != b.l.pkg || check.GoBuiltin(f) != "" || userExtern(f) {
@@ -109,9 +104,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irArgs = append(irArgs[:at:at], append([]*irExpr{env}, irArgs[at:]...)...)
 		}
 		if fd.method != nil {
-			return pre, &irExpr{K: "mcall", Pos: p, Name: fd.name, X: irArgs[0], Args: irArgs[1:]}, !fd.pure
+			return pre, &irExpr{K: "mcall", Pos: p, Name: fd.name, X: irArgs[0], Args: irArgs[1:]}
 		}
-		return pre, &irExpr{K: "call", Pos: p, Name: fd.name, Args: irArgs}, !fd.pure
+		return pre, &irExpr{K: "call", Pos: p, Name: fd.name, Args: irArgs}
 	case check.CallProviderOp:
 		switch {
 		case b.env < 0 || c.Op == nil:
@@ -142,8 +137,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		env := &irExpr{K: "local", Pos: p, I: b.env}
 		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
 		capField := &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}
-		return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}, true
+		return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}
 	}
 	irNo("call kind %d", c.Kind)
-	return nil, nil, false
+	return nil, nil
 }
