@@ -77,6 +77,16 @@ type exitStatusError struct {
 
 func (e exitStatusError) Error() string { return e.message }
 
+// flagError is the refusal of a flag set's parse error: an option the set
+// does not define is the one unknown-option refusal, and any other parse
+// error (an option without its value) is usage.
+func flagError(err error, usage string) error {
+	if option, ok := strings.CutPrefix(err.Error(), "flag provided but not defined: "); ok {
+		return unknownOption("", option)
+	}
+	return usageError{message: usage}
+}
+
 func invalidInvocation(err error) error {
 	if err == nil {
 		return usageError{message: "invalid invocation"}
@@ -164,7 +174,22 @@ type fileOptions struct {
 // before the source, and the
 // words after it are the program's arguments (`ergo run FILE|DIR [--]
 // ARGS...`, as `go run`).
+//
+// Every refusal here is an invalid invocation (exit 2), whatever the
+// command: an unknown option, an option given to a command that does not
+// take it, a missing or extra source, a source without the extension, and
+// an unsupported target or platform. A source that names no file is found
+// later, by load: an operational failure (exit 1).
 func parseFileOptions(command string, args []string) (fileOptions, error) {
+	opts, err := fileOptionsOf(command, args)
+	if err != nil {
+		return opts, invalidInvocation(err)
+	}
+	return opts, nil
+}
+
+// fileOptionsOf is parseFileOptions before its refusal is classified.
+func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	opts := fileOptions{target: report.Target, command: command, search: exploreDefaults("")}
 	var positional []string
 	seeded, searched := false, false
