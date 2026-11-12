@@ -99,8 +99,12 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // call and its release runs before the answer ends, and
 // TestRPCCallsStopWithTheCaller that a stop of the caller (a Loopback
 // caller's) stops the call, runs its release and ends with the stop.
+// ExecWaitFor (std exec, S-tz) is After over a Running's Wait: After's
+// laws above, and runtime/v1/exec_start_test.go TestRunningMatchesModel
+// states that a stopped caller's WaitFor ends with the stop and leaves the
+// program and its bytes, and that the deadline's Expired joins the Wait.
 var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "TasksRace": true, "Set.Wait": true, "Set.Stop": true, "MachineSupervise": true, "MachineChild": true,
-	"RPCExits": true, "RPCExitLines": true, "HTTPServe": true}
+	"RPCExits": true, "RPCExitLines": true, "HTTPServe": true, "ExecWaitFor": true}
 
 // HTTPServe's stop and drain laws are TestHTTPConcurrentRequestsAndStop
 // and TestHTTPDisconnectAndDefects in runtime/v1/http_test.go.

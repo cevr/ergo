@@ -256,16 +256,23 @@ func main() needs Console | Ambient {
 `), stdout: "out a\nout b\nout c\nstatus 3\nerr x\nstatus 0\nnot found ergo-exec-missing-7f3a\ntee [p\nq] [r] ends 2 status 4\ntee [p\nq\n] [] ends 2 status 0\nwrote 0\nwrote 0\nout one\nout two\nout three\nstatus 0\nfollowed one\nfollowed two\nfollowed three\nleft the follower\nready\nended\nfailed stdout /nonexistent/loop-probe-x/out: no such file or directory\nout a\nout b\nerr e\nstatus 1\nnot found git\n", stderr: []string{"term\n"}},
 		// CU4b regression: Stop consumes a running process and returns
 		// its actual status. The trap's 37 is not a guessed signal status
-		// (137 or 143). (ESC1 refuses the old timeout.After { p.Wait() }
-		// borrow; stdlib.md, Stop and status.)
+		// (137 or 143). The wait with a deadline is exec.WaitFor (ESC1
+		// refuses the old timeout.After { p.Wait() } borrow; stdlib.md,
+		// exec, WaitFor): the program waits on its fifo, so the deadline
+		// passes first, Expired leaves it running, and Stop ends it.
 		{name: "postStopStatus", src: strings.NewReplacer("STOPFIFO", filepath.Join(dir, "stop.fifo")).Replace(`import exec
+import timeout
 
 func stoppedStatus() int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | Scheduler {
 	let p = try exec.Runner.Start(exec.New("/bin/sh", []string{"-c", "mkfifo 'STOPFIFO'; exec 3<> 'STOPFIFO'; trap 'exit 37' TERM; echo ready; read x <&3"}).WithGrace(15s), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard})
 	for line in p.Lines() {
 		if line.Text == "ready" { break }
 	}
-	p.Stop()
+	let code = p.WaitFor(0ns) catch {
+	case timeout.Expired:
+		p.Stop()
+	}
+	code
 }
 
 func main() needs Ambient | Console {
@@ -302,6 +309,8 @@ func inGroup(pid, pgid string) bool {
 // against a Script, the std's test provider.
 const execLawsProbe = `import exec
 import slices
+import time
+import timeout
 
 test ExecRunnerStartAgreesWithRun(name string, out string, errs string, status int) {
 	let c = exec.New(name, []string{})
@@ -327,6 +336,20 @@ test ExecRunnerStartAgreesWithRun(name string, out string, errs string, status i
 test ExecWithEnvOverrides(key string, first string, second string) {
 	let c = exec.New("x", []string{}).WithEnv(key, first).WithEnv(key, second)
 	assert c.Env.Get(key) == Some[string]{Value: second}
+}
+
+test ExecWaitForEndedGivesStatus(status int, d int64) {
+	let c = exec.New("x", []string{})
+	let mut results = Map[string, exec.Result]{}
+	results[exec.Key(c)] = exec.Result{Status: status, Stdout: "", Stderr: ""}
+	let p = try exec.Script{Results: results}.Start(c, exec.Streams{Stdout: exec.Discard, Stderr: exec.Discard})
+	with context { Scheduler: time.NewManual(0) } {
+		let code = p.WaitFor(duration(d)) catch {
+		case timeout.Expired:
+			-1
+		}
+		assert code == status
+	}
 }
 
 test ExecWithEnvKeepsTheOriginal(key string, first string, second string) {
@@ -371,6 +394,7 @@ test ScriptNotFoundNamesTheProgram(name string, other string) {
 var execLawStatements = map[string]string{
 	"exec Runner.StartAgreesWithRun": `StartAgreesWithRun(name string) { let c = New(name, []string{}) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch { case NotFound, Denied, Failed: return false } let mut out = []string{} let mut errs = []string{} for l in p.Lines() { if l.Stderr { errs = errs.Append(l.Text) } else { out = out.Append(l.Text) } } slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status }`,
 	"exec ScriptReplaysRecorded":     `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg, arg}) let joined = New(name, []string{arg + "," + arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} results[Key(joined)] = Result{Status: status + 1, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } let s = Script{Results: results}.Run(joined) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" && s.Status == status+1 }`,
+	"exec WaitForEndedGivesStatus":   `WaitForEndedGivesStatus(status int, d int64) { let c = New("x", []string{}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: "", Stderr: ""} let p = Script{Results: results}.Start(c, Streams{Stdout: Discard, Stderr: Discard}) catch { case NotFound, Denied, Failed: return false } with context { Scheduler: time.NewManual(0) } { let code = p.WaitFor(duration(d)) catch { case timeout.Expired: return false } code == status } }`,
 	"exec WithEnvKeepsTheOriginal":   `WithEnvKeepsTheOriginal(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first) let d = c.WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second} }`,
 	"exec WithEnvOverrides":          `WithEnvOverrides(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: second} }`,
 }

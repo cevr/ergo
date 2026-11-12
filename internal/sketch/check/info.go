@@ -154,6 +154,11 @@ type collKey struct {
 
 // Info records the checker's results for the lowering (#197, #50).
 type Info struct {
+	// Carries is the sorted Go import paths that the package of main
+	// carries into the binary for their initialization: an import go of a
+	// package whose binding declares nothing (time/tzdata; interop.md,
+	// Checking 6). The lowering imports each as `_ "path"`.
+	Carries []string
 	// Types is every expression's final type; a literal carries its one
 	// type (196u). A signed literal is one literal: `-128` where int8 is
 	// expected has Types and Values entries (int8, -128) on the signed
