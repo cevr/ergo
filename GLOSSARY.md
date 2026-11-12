@@ -195,6 +195,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Arena**: A std `arena.Of[T]`, a growable store of values of one type in one slice, addressed by `arena.Ref[T]` handles that only the store makes. A Ref carries its slot's generation, so a Ref kept after `Free` is stale and every operation on it fails with `arena.Stale`, also after the slot is reused. See [stdlib](docs/spec/stdlib.md#arenas).
 
+**Text span**: A std `text.Span`, two byte offsets that name a piece of a text and hold no pointer; the text is held once, by the value that owns the spans, and a read takes both. Not a trace **Span**. See [stdlib](docs/spec/stdlib.md#text-spans).
+
 **Atomic handle**: A shared `atomic.Int64` counter or `atomic.Bool` flag. Copies name the same cell. Each operation is one sequentially consistent Go atomic operation; a load followed by a store is not one operation. See [stdlib](docs/spec/stdlib.md#atomic-counters-and-flags).
 
 **Embedded asset**: A file selected at build time by `embedded[T](pattern)` in an immutable package declaration. Its bytes are build inputs and Go's `//go:embed` stores them in the executable. It is a string, a byte slice, or a read-only `embed.FS` provider of `fs.Files`. See [stdlib](docs/spec/stdlib.md#build-time-assets).

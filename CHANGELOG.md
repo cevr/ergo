@@ -140,6 +140,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Language and compiler
 
+- New std package `text`: `text.Span` is two `int`s that name a piece of a text, with no pointer, so a token array of spans is never scanned by Go's collector; `Cut` reads a piece with no allocation, `Get`, `Sub` and `Find` are checked reads that give `Option`, `Fields` cuts words, and `text.Spans` holds one text and spans that `Collect` checked against it (SPAN1a; [stdlib](docs/spec/stdlib.md#text-spans) Text spans). It is plain Ergo over `strings`: a module can copy it.
 - A test package (import path `P` with `test` after it) gets its role from the loader, so it checks the same as the program's root and as an import: `ergo check celltest` now finds the builders its `New<X>` functions give `cell`'s operation types, as a package that imports it always did (FU-audit; [builders](internal/sketch/check/builders.go) rule 2).
 - The check-time evaluator's step counts no longer change from run to run: describing a Map argument and comparing two Maps walk the keys in one fixed order, not Go's map order (FU-audit; `ergo check examples/ssg/memory` printed different `steps`).
 - Examples re-themed to neutral domains (owner, 2026-11-09; RT1-B, RT2): each keeps its machines, laws, matches, rows, typed failures and the counts of its laws and cases. Older entries below name the old folders as they were.

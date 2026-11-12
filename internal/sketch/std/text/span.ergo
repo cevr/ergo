@@ -1,0 +1,128 @@
+// Package text gives spans: a piece of a text named by two byte offsets,
+// with no pointer (docs/spec/stdlib.md, Text spans). A record or a slice
+// of tokens that holds spans in place of strings has no pointer, so Go's
+// collector never scans it and a store into it has no write barrier. The
+// text is held once, by the value that owns the spans, and a read takes the
+// text and the span together.
+//
+// The package is ordinary Ergo over std strings: no extern of its own and
+// no compiler rule keyed on its name, so a module can copy it and get the
+// same code (TestStdCopyAgrees). Until facts land (facts.md), each read is
+// checked: Get, Sub and Find give None for a span outside the text, and Cut
+// is a defect there, as an index out of range is.
+//
+// Prior art: Zig's tokens (a tag and a start offset into the source), Go's
+// go/token.Pos, rustc's Span and tree-sitter's byte ranges.
+import strings
+
+// Span is the bytes of a text from Start up to End, End excluded. It holds
+// no text: the same Span names different pieces of different texts.
+type Span { Start int, End int }
+
+// In reports whether sp is a piece of s: 0 <= Start <= End <= len(s).
+func In(s string, sp Span) bool { 0 <= sp.Start && sp.Start <= sp.End && sp.End <= len(s) }
+
+// Whole is the span of all of s.
+func Whole(s string) Span { Span{Start: 0, End: len(s)} }
+
+// Width is the number of bytes sp names.
+func Width(sp Span) int { sp.End - sp.Start }
+
+// Cut is the piece of s that sp names. It shares the bytes of s and
+// allocates nothing (Go's s[i:j]). A span that is not In s is a defect, as
+// an index out of range is; Get is the checked form.
+func Cut(s string, sp Span) string { strings.Slice(s, sp.Start, sp.End) }
+
+// Get is the piece of s that sp names, or None when sp is not In s.
+func Get(s string, sp Span) Option[string] {
+	if In(s, sp) {
+		Some[string]{Value: Cut(s, sp)}
+	} else {
+		None
+	}
+}
+
+// Sub is the span of the bytes from to to of the piece sp names, offsets
+// relative to sp.Start: Cut(s, Sub(…)) is Slice(Cut(s, sp), from, to). It
+// is None when sp is not In s, or when 0 <= from <= to <= Width(sp) does
+// not hold.
+func Sub(s string, sp Span, from int, to int) Option[Span] {
+	if !In(s, sp) || from < 0 || from > to || to > Width(sp) {
+		return None
+	}
+	Some[Span]{Value: Span{Start: sp.Start + from, End: sp.Start + to}}
+}
+
+// Equal reports whether sp is In s and its piece is lit. It reads the
+// piece in place: no string is made.
+func Equal(s string, sp Span, lit string) bool { In(s, sp) && Cut(s, sp) == lit }
+
+// Find is the span of the first sub inside the piece sp names, or None
+// when sp is not In s or the piece has no sub.
+func Find(s string, sp Span, sub string) Option[Span] {
+	if !In(s, sp) {
+		return None
+	}
+	let i = strings.Index(Cut(s, sp), sub)
+	if i < 0 {
+		return None
+	}
+	Some[Span]{Value: Span{Start: sp.Start + i, End: sp.Start + i + len(sub)}}
+}
+
+// space reports the white space bytes of Go's ASCII set: space, tab, line
+// feed, vertical tab, form feed and carriage return.
+func space(b byte) bool { b == 32 || (b >= 9 && b <= 13) }
+
+// Fields is the spans of the runs of s between ASCII white space, in
+// order; none when s is all space. For an ASCII s their pieces are Go's
+// strings.Fields(s), with no string made.
+func Fields(s string) []Span {
+	let mut out = []Span{}
+	let mut start = -1
+	for i in 0..len(s) {
+		if space(s[i]) {
+			if start >= 0 {
+				out = out.Append(Span{Start: start, End: i})
+				start = -1
+			}
+		} else if start < 0 {
+			start = i
+		}
+	}
+	if start >= 0 {
+		out = out.Append(Span{Start: start, End: len(s)})
+	}
+	out
+}
+
+// Spans is a text and spans of it, each In the text: one string for n
+// pieces. Its fields are unexported, so Collect is the only way to make
+// one, and every Spans holds only spans of its own text.
+type Spans { src string, at []Span }
+
+// Collect is the Spans of src and at, or None when a span of at is not In
+// src.
+func Collect(src string, at []Span) Option[Spans] {
+	for sp in at {
+		if !In(src, sp) {
+			return None
+		}
+	}
+	Some[Spans]{Value: Spans{src: src, at: at}}
+}
+
+// Source is the text of d.
+func Source(d Spans) string { d.src }
+
+// Count is the number of spans of d.
+func Count(d Spans) int { len(d.at) }
+
+// SpanAt is the i-th span of d. An i outside 0..Count(d) is a defect, as
+// an index out of range is.
+func SpanAt(d Spans, i int) Span { d.at[i] }
+
+// At is the piece of the i-th span of d. An i outside 0..Count(d) is a
+// defect, as an index out of range is; the span is In the text, since
+// Collect checked it.
+func At(d Spans, i int) string { Cut(d.src, d.at[i]) }
