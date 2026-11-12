@@ -494,37 +494,9 @@ func (w *valueWalk) unparenParent(n syntax.Node) (parent, child syntax.Node) {
 	}
 }
 
-// paramNonEscaping is the checker's rule (check/escaping.go).
+// paramNonEscaping is the checker's rule (check.ParamNonEscaping).
 func (w *valueWalk) paramNonEscaping(call *syntax.CallExpr, i int) bool {
-	k := w.info.Calls[call]
-	if k == nil {
-		return true
-	}
-	var sig *check.Signature
-	switch k.Kind {
-	case check.CallFunc:
-		if k.Func != nil {
-			sig = k.Func.Sig
-		}
-		if k.Recv != nil {
-			i++
-		}
-	case check.CallOp, check.CallProviderOp, check.CallLawOp:
-		if k.Op != nil {
-			sig = k.Op.Sig
-		}
-	case check.CallFuncValue:
-		t := w.info.Types[call.Fun]
-		if n, ok := t.(*check.Named); ok {
-			t = n.Underlying()
-		}
-		sig, _ = t.(*check.Signature)
-	}
-	if sig == nil || i >= len(sig.Params) {
-		return false
-	}
-	s, ok := sig.Params[i].Type.(*check.Signature)
-	return ok && s.NonEscaping
+	return check.ParamNonEscaping(w.info, call, i)
 }
 
 // pathRoot is the variable that heads the place or path x: x, x.f, x[i],

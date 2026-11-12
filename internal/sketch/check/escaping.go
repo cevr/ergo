@@ -264,15 +264,20 @@ func (w *escWalk) parentOf(n syntax.Node) (parent, child syntax.Node) {
 	return nil, child
 }
 
-// paramNonEscaping reports whether the i-th argument of call binds a
-// non-escaping parameter: the trailing block is the argument after the
-// written ones. A dot call's receiver is never a non-escaping value: it
-// has the named type its function is declared on (196m). A call that was
-// never checked (its callee is in error, such as a recursive group that
-// needs its row written) has no Calls entry; its own diagnostic stands, so
-// it adds none here, as in the Task use rule (taskescape.go).
 func (w *escWalk) paramNonEscaping(call *syntax.CallExpr, i int) bool {
-	k := w.info.Calls[call]
+	return ParamNonEscaping(w.info, call, i)
+}
+
+// ParamNonEscaping reports whether the i-th argument of call binds a
+// non-escaping parameter: the trailing block is the argument after the
+// written ones. The lowering decides its frames by it too (lower/values.go).
+// A dot call's receiver is never a non-escaping value: it has the named
+// type its function is declared on (196m). A call that was never checked
+// (its callee is in error, such as a recursive group that needs its row
+// written) has no Calls entry; its own diagnostic stands, so it adds none
+// here, as in the Task use rule (taskescape.go).
+func ParamNonEscaping(info *Info, call *syntax.CallExpr, i int) bool {
+	k := info.Calls[call]
 	if k == nil {
 		return true
 	}
@@ -282,17 +287,26 @@ func (w *escWalk) paramNonEscaping(call *syntax.CallExpr, i int) bool {
 		if k.Func != nil {
 			sig = k.Func.Sig
 		}
-		if k.Recv != nil {
-			i++ // a 196m dot call: the receiver is the first parameter
+		if recvParam(k) {
+			i++
 		}
 	case CallOp, CallProviderOp, CallLawOp:
 		if k.Op != nil {
 			sig = k.Op.Sig
 		}
 	case CallFuncValue:
-		sig, _ = under(w.info.Types[call.Fun]).(*Signature)
+		sig, _ = under(info.Types[call.Fun]).(*Signature)
 	}
 	return sig != nil && i < len(sig.Params) && nonEscaping(sig.Params[i].Type)
+}
+
+// recvParam reports whether the receiver of the dot call k is its callee's
+// first parameter, so the written arguments start at parameter 1: a 196m
+// dot call of a function. A binding method (an extern go with a receiver)
+// lists no receiver in its signature, as an operation does not, so its
+// written arguments start at parameter 0 (hostclauses.go).
+func recvParam(k *Call) bool {
+	return k.Kind == CallFunc && k.Recv != nil && (k.Func == nil || k.Func.Decl == nil || k.Func.Decl.Recv == nil)
 }
 
 // use checks one use of the non-escaping local v.

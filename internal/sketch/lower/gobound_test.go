@@ -47,6 +47,7 @@ import (
 // os.File.ReadDir's must reach it.
 func TestEveryGoBoundFunctionLowers(t *testing.T) {
 	var programs []*lowered
+	var refused []string
 	kept, plain, dropped := 0, 0, 0
 	sawReadDir, sawMethodValue := false, false
 	// One set of Go bindings for every program: each binding is parsed
@@ -59,6 +60,9 @@ func TestEveryGoBoundFunctionLowers(t *testing.T) {
 		for i, u := range goBoundUses(t, path) {
 			o, k, p, d := lowerGoBoundUses(t, imp, fmt.Sprintf("%s#%d", path, i), []goBoundUse{u})
 			kept, plain, dropped = kept+k, plain+p, dropped+d
+			if d > 0 {
+				refused = append(refused, u.target)
+			}
 			if o == nil {
 				continue
 			}
@@ -72,6 +76,12 @@ func TestEveryGoBoundFunctionLowers(t *testing.T) {
 		}
 	}
 	t.Logf("Go-bound functions: %d in full form, %d plain, %d the checker or lowering refuses", kept, plain, dropped)
+	if !slices.Equal(refused, goBoundRefused) {
+		// A refusal outside the intended set is a checker or lowering
+		// defect (the method-call argument index, ESC-idx), not a use the
+		// language rules out; a missing one is a rule that went unseen.
+		t.Errorf("the refused uses are %q, want exactly %q", refused, goBoundRefused)
+	}
 	if !sawReadDir {
 		t.Errorf("the os program lost its full-form os.ReadDir use: the generator no longer reaches the case the property guards")
 	}
@@ -82,6 +92,11 @@ func TestEveryGoBoundFunctionLowers(t *testing.T) {
 	}
 	typecheckGo(t, programs)
 }
+
+// goBoundRefused are the uses the property's generator cannot write, in
+// generation order: a generic Go function whose type parameter no argument
+// fixes (D6, "cannot infer T").
+var goBoundRefused = []string{"reflect.TypeAssert", "reflect.TypeFor"}
 
 // goSeqProbe holds Go's iter.Seq at the import go boundary, where the
 // binding makes it the prelude Seq (gobind): a Seq a Go call returns is an
