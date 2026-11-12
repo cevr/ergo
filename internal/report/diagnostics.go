@@ -11,8 +11,10 @@ import (
 )
 
 // DiagnosticReportSchemaVersion versions the diagnostic report. Version 2
-// dropped the lint fields and the suppression list (#205).
-const DiagnosticReportSchemaVersion = 2
+// dropped the lint fields and the suppression list (#205); version 3 brings
+// them back on the new checker (LINT0): a finding's rule, lintComplete and
+// suppressions.
+const DiagnosticReportSchemaVersion = 3
 
 // SourceSnapshot identifies the exact text a result was computed from. The
 // text stays out of JSON. A program read from a directory has no one text:
@@ -72,8 +74,10 @@ type DiagnosticFinding struct {
 	Code string `json:"code"`
 	// File is the diagnostic's file relative to the module root, for a
 	// program read from a directory (Diagnostic.File); omitted otherwise.
-	File              string         `json:"file,omitempty"`
+	File string `json:"file,omitempty"`
+	// Origin is "compiler" or "lint"; Rule names a lint finding's rule.
 	Origin            string         `json:"origin"`
+	Rule              string         `json:"rule,omitempty"`
 	Severity          string         `json:"severity"`
 	Message           string         `json:"message"`
 	Span              Span           `json:"span"`
@@ -104,6 +108,12 @@ type DiagnosticReport struct {
 	Diagnostics   []DiagnosticFinding `json:"diagnostics"`
 	ReturnedCount int                 `json:"returnedCount"`
 	Truncated     bool                `json:"truncated"`
+	// LintComplete reports that every enabled lint rule completed; false
+	// when lint did not run (unchecked source) or a rule failed (L000).
+	LintComplete bool `json:"lintComplete"`
+	// Suppressions are the statuses of the source's admitted lint
+	// suppression directives, in source order.
+	Suppressions []SuppressionStatus `json:"suppressions"`
 }
 
 // Report projects the result's diagnostics onto the snapshot's text. Every
@@ -129,6 +139,7 @@ func (r *Result) Report(snapshot SourceSnapshot, strict bool) DiagnosticReport {
 		Strict:           strict,
 		PolicyPassed:     r.Checked,
 		Diagnostics:      []DiagnosticFinding{},
+		Suppressions:     []SuppressionStatus{},
 	}
 	indexes := map[string]sourcePositionIndex{}
 	textOf := func(file string) (string, sourcePositionIndex) {
@@ -166,28 +177,31 @@ func (r *Result) Report(snapshot SourceSnapshot, strict bool) DiagnosticReport {
 		finding.LSP = lsp
 		report.Diagnostics = append(report.Diagnostics, finding)
 	}
-	sort.SliceStable(report.Diagnostics, func(i, j int) bool {
-		left, right := report.Diagnostics[i], report.Diagnostics[j]
-		if left.LocationAvailable != right.LocationAvailable {
-			return left.LocationAvailable
-		}
-		if left.File != right.File {
-			return left.File < right.File
-		}
-		if left.Span.Offset != right.Span.Offset {
-			return left.Span.Offset < right.Span.Offset
-		}
-		if left.Span.Length != right.Span.Length {
-			return left.Span.Length < right.Span.Length
-		}
-		if left.Code != right.Code {
-			return left.Code < right.Code
-		}
-		return left.Message < right.Message
-	})
+	sort.SliceStable(report.Diagnostics, func(i, j int) bool { return findingLess(report.Diagnostics[i], report.Diagnostics[j]) })
 	report.TotalCounts.Errors = len(report.Diagnostics)
 	report.ReturnedCount = len(report.Diagnostics)
 	return report
+}
+
+// findingLess is the report's total order of findings: located first, then
+// by file, span, code and message.
+func findingLess(left, right DiagnosticFinding) bool {
+	if left.LocationAvailable != right.LocationAvailable {
+		return left.LocationAvailable
+	}
+	if left.File != right.File {
+		return left.File < right.File
+	}
+	if left.Span.Offset != right.Span.Offset {
+		return left.Span.Offset < right.Span.Offset
+	}
+	if left.Span.Length != right.Span.Length {
+		return left.Span.Length < right.Span.Length
+	}
+	if left.Code != right.Code {
+		return left.Code < right.Code
+	}
+	return left.Message < right.Message
 }
 
 // WriteText renders the report for a terminal, naming the source as source:
