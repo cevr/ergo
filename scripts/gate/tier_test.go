@@ -267,11 +267,8 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 		}
 		return dirs, cpu
 	}
-	// scripts/mutants walks every ledger and each mutant's source
-	// (TestLedgerEditsApplyOnce: a declared subtree, 22a8d683d), as the
-	// residue checks and the guard read every tracked file.
 	docs, _ := reach("docs/tooling.md")
-	if want := []string{"internal/residue", "internal/testinputs/guard", "scripts/mutants"}; !slices.Equal(docs, want) {
+	if want := []string{"internal/residue", "internal/testinputs/guard"}; !slices.Equal(docs, want) {
 		t.Errorf("a docs edit reaches %v; want %v", docs, want)
 	}
 	check, cpu := reach("internal/sketch/check/check.go")
@@ -281,7 +278,7 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// evaluator internal/sketch/eval (L7 EV1) import it too.
 	// internal/sketch/api projects the checked public contracts (L8 C3).
 	// rpcgen and tsproj project the same checked contracts to RPC and TS.
-	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples", "scripts/mutants"}
+	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}
