@@ -12,8 +12,13 @@ type interp struct {
 	budget Budget
 	root   *check.Package
 	steps  int64
-	bytes  int64 // value bytes allocated, of budget.Bytes
-	files  map[syntax.Decl]*syntax.File
+	bytes  int64 // value bytes allocated
+	// stepsAt and bytesAt are steps and bytes when the obligation in
+	// progress began (the package's initializers are their own): each
+	// obligation has the whole budget, so one that runs no longer leaves
+	// less to the obligations after it.
+	stepsAt, bytesAt int64
+	files            map[syntax.Decl]*syntax.File
 	// task is the running task's own state: its call depth, its context
 	// values and its active slice ranges (sched.go); the scheduler swaps
 	// it when another task runs.
@@ -153,10 +158,10 @@ func (fr *frame) unsupported(at syntax.Node, format string, args ...any) *abrupt
 }
 
 // charge spends n steps before the work they pay for; it returns the
-// exhaustion when the budget cannot pay.
+// exhaustion when the obligation's budget cannot pay.
 func (in *interp) charge(fr *frame, at syntax.Node, n int64) *abrupt {
-	if n < 0 || in.steps > in.budget.Steps-n {
-		in.steps = in.budget.Steps
+	if n < 0 || n > in.stepsLeft() {
+		in.steps = in.stepsAt + in.budget.Steps
 		return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation used its %d steps", in.budget.Steps))
 	}
 	in.steps += n
@@ -167,13 +172,19 @@ func (in *interp) charge(fr *frame, at syntax.Node, n int64) *abrupt {
 // pay for; it returns the exhaustion when the budget cannot pay. Like a
 // step stop, a byte stop is incomplete, never passed.
 func (in *interp) allocate(fr *frame, at syntax.Node, n int64) *abrupt {
-	if n < 0 || in.bytes > in.budget.Bytes-n {
-		in.bytes = in.budget.Bytes
+	if n < 0 || in.bytes-in.bytesAt > in.budget.Bytes-n {
+		in.bytes = in.bytesAt + in.budget.Bytes
 		return fr.abrupt(ctlExhausted, at, nil, fmt.Sprintf("the evaluation allocated its %d bytes", in.budget.Bytes))
 	}
 	in.bytes += n
 	return nil
 }
+
+// stepsLeft is what the obligation in progress may still spend.
+func (in *interp) stepsLeft() int64 { return in.budget.Steps - (in.steps - in.stepsAt) }
+
+// begin gives the obligation that starts now the whole budget.
+func (in *interp) begin() { in.stepsAt, in.bytesAt = in.steps, in.bytes }
 
 // build charges both budgets of an allocation of slots collection slots
 // and raw bytes: steps for the work, bytes for the values.

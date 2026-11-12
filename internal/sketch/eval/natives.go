@@ -55,15 +55,24 @@ func init() {
 		}
 		return newSlice(vs)
 	}
-	// pure registers a function of its arguments: cost reads them.
+	// pure registers a function of its arguments: cost reads them, or
+	// what Go's function reads of them when reads names it (readsOf).
 	pure := func(name string, f func(args []Value) Value) {
+		reads := readsOf[name]
 		natives[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-			if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
+			work := argWork(args)
+			if reads != nil {
+				work = reads(args)
+			}
+			if ab := in.charge(fr, at, 1+work); ab != nil {
 				return nil, ab
 			}
 			out, why := guard(func() Value { return f(args) })
 			if why != "" {
 				return nil, fr.defect(at, "%s", why)
+			}
+			if shares[name] {
+				return out, nil
 			}
 			if ab := in.allocate(fr, at, valueSize(out)); ab != nil {
 				return nil, ab
@@ -360,6 +369,24 @@ func guard(f func() Value) (v Value, why string) {
 	}()
 	return f(), ""
 }
+
+// readsOf is the reading work of the pure natives that read less than
+// their whole arguments in Go: a substring is a view of its text, and a
+// prefix or suffix test reads the prefix's bytes. Charged as argWork, a
+// parser that slices or tests the rest of its input at each token would
+// pay its input's length per token: steps quadratic in the input where
+// the Go build's work is linear (ORACLE O22).
+var readsOf = map[string]func(a []Value) int64{
+	"strings.Slice":      func(a []Value) int64 { return 0 },
+	"strings.HasPrefix":  func(a []Value) int64 { return int64(len(a[1].(string))) },
+	"strings.HasSuffix":  func(a []Value) int64 { return int64(len(a[1].(string))) },
+	"strings.TrimPrefix": func(a []Value) int64 { return int64(len(a[1].(string))) },
+	"strings.TrimSuffix": func(a []Value) int64 { return int64(len(a[1].(string))) },
+}
+
+// shares names the pure natives whose result is a view of an argument's
+// bytes (Go's substring), which allocates no value bytes.
+var shares = map[string]bool{"strings.Slice": true, "strings.TrimPrefix": true, "strings.TrimSuffix": true}
 
 // argWork is the reading work of a native's arguments: a step per byte of
 // each text and per element of each slice.

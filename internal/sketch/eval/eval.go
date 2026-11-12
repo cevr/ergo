@@ -230,10 +230,13 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 			res = Result{Name: res.Name, Status: NotRun, Reason: stopped, Site: res.Site}
 		}
 		rep.Results = append(rep.Results, res)
-		switch res.Status {
-		case Defect:
+		// An incomplete obligation used its own budget (begin): the next
+		// one has the whole budget again. An exhausted initializer stops
+		// every one (initFail).
+		switch {
+		case res.Status == Defect:
 			stopped = "a defect stopped the run"
-		case Incomplete:
+		case res.Status == Incomplete && initFail != nil:
 			stopped = "the evaluation budget ran out"
 		}
 	}
@@ -242,6 +245,7 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 			add(Result{Name: t.Name, Site: in.site(pkg, t.Decl, t.Decl.Pos())})
 			continue
 		}
+		in.begin()
 		add(in.runTest(pkg, t))
 	}
 	for _, run := range pkg.LawRuns {
@@ -251,6 +255,7 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 				add(res)
 				continue
 			}
+			in.begin()
 			add(in.runLawTarget(run.Law, target, res))
 		}
 	}

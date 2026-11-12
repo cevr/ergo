@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +93,43 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 			if got != want {
 				t.Fatalf("seed %d: rand stream %d draw %d: the evaluator gives %s, runtime/v1 %s", seed, s, k, got, want)
 			}
+		}
+	}
+}
+
+// TestNativeWorkIsWhatGoReads is a growth guard over counted work: a
+// substring, a prefix or suffix test and a trim of one spend the same
+// steps, and a substring and a trim the same value bytes, for a text of
+// 8 bytes and of 800, as Go's own functions read only the prefix and
+// share the text (natives.go, readsOf and shares). Charged as the whole
+// text, a parser that slices the rest of its input at each token would
+// pay steps quadratic in its input. Mutants only it kills
+// (testdata/mutants.json): oracle-o22-slice-reads-all,
+// oracle-o22-prefix-reads-all, oracle-o22-slice-allocates.
+func TestNativeWorkIsWhatGoReads(t *testing.T) {
+	pkg := checked(t, "import strings\n\ntest T {\n\tassert strings.Slice(\"ab\", 0, 1) == \"a\"\n}\n")
+	in := &interp{budget: DefaultBudget()}
+	fr := in.newFrame(pkg, pkg.Tests[0].Decl)
+	work := func(name string, s string) (steps, bytes int64) {
+		args := []Value{s, "ab"}
+		if name == "strings.Slice" {
+			args = []Value{s, int64(1), int64(5)}
+		}
+		in.steps, in.bytes = 0, 0
+		if _, ab := natives[name](in, fr, fr.decl, nil, args); ab != nil {
+			t.Fatalf("%s: %s", name, ab.msg)
+		}
+		return in.steps, in.bytes
+	}
+	short, long := "ab"+strings.Repeat("x", 4)+"ab", "ab"+strings.Repeat("x", 796)+"ab"
+	for _, name := range []string{"strings.Slice", "strings.HasPrefix", "strings.HasSuffix", "strings.TrimPrefix", "strings.TrimSuffix"} {
+		s1, b1 := work(name, short)
+		s2, b2 := work(name, long)
+		if s1 != s2 {
+			t.Errorf("%s spends %d steps on %d bytes and %d on %d", name, s1, len(short), s2, len(long))
+		}
+		if name != "strings.HasPrefix" && name != "strings.HasSuffix" && (b1 != 0 || b2 != 0) {
+			t.Errorf("%s allocates %d and %d value bytes for a view of its text", name, b1, b2)
 		}
 	}
 }

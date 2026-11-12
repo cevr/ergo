@@ -457,7 +457,7 @@ func (in *interp) genRefined(fr *frame, r *testgen.Stream, t check.Type, d int, 
 		}
 		return v
 	}
-	if n < 0 || n > in.budget.Steps-in.steps {
+	if n < 0 || n > in.stepsLeft() {
 		panic(fr.abrupt(ctlExhausted, fr.decl, nil, "refined length exceeds remaining work"))
 	}
 	mustCharge(in, fr, n)

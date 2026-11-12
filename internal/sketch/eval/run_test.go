@@ -22,10 +22,10 @@ func checked(t *testing.T, src string) *check.Package {
 
 // TestRunStopsTheRun is the smallest repro of the run's stop rules: a
 // defect stops the run and every later obligation is reported not run
-// (runtime.md, Tests 3); a loop that never ends exhausts the step budget
-// and is incomplete, never passed, and the rest is not run. Mutants:
-// defect-continues, fuel-ignored (the loop never ends: the test's
-// deadline kills it), incomplete-continues.
+// (runtime.md, Tests 3); a loop that never ends exhausts its step budget
+// and is incomplete, never passed, and the obligations after it run with
+// a whole budget each. Mutants: defect-continues, fuel-ignored (the loop
+// never ends: the test's deadline kills it), budget-shared.
 func TestRunStopsTheRun(t *testing.T) {
 	pkg := checked(t, `func half(x int) int { x / x }
 
@@ -67,14 +67,14 @@ law Sampled(n int) { n == n }
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = []Status{Incomplete, NotRun, NotRun}
+	want = []Status{Incomplete, Passed, Passed}
 	for i, res := range rep.Results {
 		if i >= len(want) || res.Status != want[i] {
 			t.Fatalf("results %+v, want statuses %v", rep.Results, want)
 		}
-	}
-	if rep.Steps > rep.Limit {
-		t.Fatalf("used %d steps of %d", rep.Steps, rep.Limit)
+		if res.Steps > rep.Limit {
+			t.Fatalf("%s used %d steps of %d", res.Name, res.Steps, rep.Limit)
+		}
 	}
 
 }

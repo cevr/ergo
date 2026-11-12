@@ -112,12 +112,12 @@
       ]
     },
     {
-      "name": "incomplete-continues",
-      "origin": "wf10/l7-eval/EV1",
-      "file": "internal/sketch/eval/eval.go",
-      "from": "\t\t\tstopped = \"the evaluation budget ran out\"",
-      "to": "\t\t\tstopped = \"\"",
-      "rule": "The budget is per request: once it runs out, every later obligation is reported not run (L7 plan, section 5).",
+      "name": "budget-shared",
+      "origin": "wf10 ORACLE O22 (was incomplete-continues, EV1)",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "func (in *interp) begin() { in.stepsAt, in.bytesAt = in.steps, in.bytes }",
+      "to": "func (in *interp) begin() {}",
+      "rule": "The step budget is per obligation: an incomplete obligation leaves the whole budget to the next one (docs/testing.md, Budgets; ORACLE O22 replaces the L7 plan's per-request budget).",
       "killers": [
         "internal/sketch/eval:TestRunStopsTheRun"
       ]
@@ -126,7 +126,7 @@
       "name": "fuel-ignored",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\tif n < 0 || in.steps > in.budget.Steps-n {",
+      "from": "\tif n < 0 || n > in.stepsLeft() {",
       "to": "\tif n < 0 {",
       "rule": "Every evaluated node costs steps before its work, so a loop that never ends exhausts the budget (L7 plan, section 5).",
       "killers": [
@@ -364,7 +364,7 @@
       "name": "eval-bytes-unmetered",
       "origin": "wf10/l7-eval/EV5",
       "file": "internal/sketch/eval/interp.go",
-      "from": "if n < 0 || in.bytes > in.budget.Bytes-n {",
+      "from": "if n < 0 || in.bytes-in.bytesAt > in.budget.Bytes-n {",
       "to": "if n < 0 {",
       "rule": "Every value allocation is charged to the byte budget before it is made; a run that cannot pay is incomplete.",
       "killers": ["internal/sketchfront:TestCheckEvalRunnerModel"]
@@ -1174,6 +1174,33 @@
       "to": "\"Round\": math.RoundToEven,",
       "rule": "std math Round is the nearest integer, half away from zero.",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o22-slice-reads-all",
+      "origin": "wf10 ORACLE O22",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\t\"strings.Slice\":      func(a []Value) int64 { return 0 },",
+      "to": "\t\"strings.Slice\":      func(a []Value) int64 { return argWork(a) },",
+      "rule": "A native's steps are what Go's function reads: a substring reads none of its text (docs/testing.md, Budgets).",
+      "killers": ["internal/sketch/eval:TestNativeWorkIsWhatGoReads"]
+    },
+    {
+      "name": "oracle-o22-prefix-reads-all",
+      "origin": "wf10 ORACLE O22",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\t\"strings.HasPrefix\":  func(a []Value) int64 { return int64(len(a[1].(string))) },",
+      "to": "\t\"strings.HasPrefix\":  func(a []Value) int64 { return argWork(a) },",
+      "rule": "A prefix test reads the prefix's bytes, not the whole text (docs/testing.md, Budgets).",
+      "killers": ["internal/sketch/eval:TestNativeWorkIsWhatGoReads"]
+    },
+    {
+      "name": "oracle-o22-slice-allocates",
+      "origin": "wf10 ORACLE O22",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\t\t\tif shares[name] {",
+      "to": "\t\t\tif false && shares[name] {",
+      "rule": "A substring is a view of its text: it allocates no value bytes.",
+      "killers": ["internal/sketch/eval:TestNativeWorkIsWhatGoReads"]
     },
     {
       "name": "oracle-o20-go-float-is-exp",
