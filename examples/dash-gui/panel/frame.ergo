@@ -23,9 +23,9 @@ func Describe(i int, s State, f int) string {
 	let head = "\(i) " + Mode(s) + " got=\(p.Got) seen=\(p.Seen) "
 	match p.View {
 	case ChartView as c:
-		head + "chart n=\(Len(c.Samples)) " + spans(Downsample(Items(c.Samples), Columns))
+		head + "chart n=\(Len(c.Samples)) " + spans(RingColumns(c.Samples, Columns))
 	case SparkView as k:
-		head + "spark " + spans(Downsample(Items(k.Samples), Columns))
+		head + "spark " + spans(RingColumns(k.Samples, Columns))
 	case GaugeView as g:
 		head + "gauge at=\(Shown(g, f)) to=\(g.To)"
 	case StripView as h:

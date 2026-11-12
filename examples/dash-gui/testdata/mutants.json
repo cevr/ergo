@@ -146,6 +146,14 @@
       "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
     },
     {
+      "name": "dash-ring-columns-ignore-the-head", "origin": "wf10 GP frame",
+      "file": "examples/dash-gui/panel/draw.ergo",
+      "from": "let x = r.items[(r.head+i)%n]",
+      "to": "let x = r.items[i%n]",
+      "rule": "A chart's columns read the ring oldest first, from its head.",
+      "killers": ["examples/dash-gui/panel:law RingColumnsReadInOrder"]
+    },
+    {
       "name": "dash-view-asks-no-frames", "origin": "wf10 GP4b",
       "file": "examples/dash-gui/screen/view.ergo",
       "from": "\tui.Animate(f, func(at duration) Signal { Next })\n",

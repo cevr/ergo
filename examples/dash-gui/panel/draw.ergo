@@ -31,6 +31,44 @@ func Downsample(xs []int, width int) []Span {
 	out
 }
 
+// RingColumns is Downsample(Items(r), width), read from the ring in
+// place: a frame draws a chart of ChartLen samples with no copy of them.
+func RingColumns(r Ring[int], width int) []Span {
+	let n = len(r.items)
+	let w = if width < 1 { 1 } else { width }
+	let cols = if n < w { n } else { w }
+	let mut out = slices.WithCapacity[Span](cols)
+	for c in 0..cols {
+		let from = c * n / cols
+		let to = (c + 1) * n / cols
+		let first = r.items[(r.head+from)%n]
+		let mut lo = first
+		let mut hi = first
+		for i in from+1..to {
+			let x = r.items[(r.head+i)%n]
+			if x < lo {
+				lo = x
+			}
+			if x > hi {
+				hi = x
+			}
+		}
+		out = out.Append(Span{Lo: lo, Hi: hi})
+	}
+	out
+}
+
+// RingColumnsReadInOrder: drawing a ring's columns in place is drawing
+// its values, oldest first.
+law RingColumnsReadInOrder(cap int, xs []int, width int) {
+	let mut r = NewRing[int](1 + ((cap%16)+16)%16)
+	for x in xs {
+		r = Push(r, x)
+	}
+	let w = 1 + ((width%64)+64)%64
+	RingColumns(r, w) == Downsample(Items(r), w)
+}
+
 // DownsampleKeepsMinMax: the columns keep the samples' least and greatest
 // value, and there are as many columns as asked, or one a sample.
 law DownsampleKeepsMinMax(xs []int, width int) {

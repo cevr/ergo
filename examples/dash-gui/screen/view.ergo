@@ -4,6 +4,7 @@
 
 import dash/feed
 import dash/panel
+import slices
 import strings
 import ui
 
@@ -64,19 +65,26 @@ func policyText(p feed.Policy) string {
 	}
 }
 
-// Draw paints panel s at frame f: a chart's columns as vertical strokes
-// from the least to the greatest sample, a spark line as one stroke, a
-// gauge as a track and a bar to its eased value, a heat strip as bins
-// whose alpha is their share, a log as a tick at each entry's value. Every
-// coordinate is a whole number of pixels, so the paint list is exact.
+// Draw paints panel s at frame f: a chart's columns as one stroke whose
+// subpaths run from each column's least to its greatest sample, a spark
+// line as one stroke, a gauge as a track and a bar to its eased value, a
+// heat strip as bins whose alpha is their share, a log as one stroke of a
+// tick at each entry's value. One stroke a panel, not one a column, keeps
+// a frame's paint list to a few ops. Every coordinate is a whole number of
+// pixels, so the paint list is exact.
 func Draw(p *ui.Paint, s panel.State, f int) {
 	let ink = inkOf(s)
 	match panel.PanelOf(s).View {
 	case panel.ChartView as c:
-		let cols = panel.Downsample(panel.Items(c.Samples), Width/4)
+		let cols = panel.RingColumns(c.Samples, Width/4)
+		let mut segs = slices.WithCapacity[ui.Seg](2 * len(cols))
 		for i in 0..len(cols) {
 			let x = px(i*4 + 2)
-			ui.Stroke(p, ui.Path{Segs: []ui.Seg{ui.MoveTo{X: x, Y: y(cols[i].Lo)}, ui.LineTo{X: x, Y: y(cols[i].Hi)}}}, ink, 1.0)
+			segs = segs.Append(ui.MoveTo{X: x, Y: y(cols[i].Lo)})
+			segs = segs.Append(ui.LineTo{X: x, Y: y(cols[i].Hi)})
+		}
+		if len(segs) > 0 {
+			ui.Stroke(p, ui.Path{Segs: segs}, ink, 1.0)
 		}
 	case panel.SparkView as k:
 		let xs = panel.Items(k.Samples)
@@ -103,9 +111,14 @@ func Draw(p *ui.Paint, s panel.State, f int) {
 			ui.Fill(p, ui.RectPath(px(i*w), 0.0, px(w), px(Height)), ui.Color{..ink, A: uint8(bins[i] * 255 / most)})
 		}
 	case panel.LogView as l:
+		let mut ticks = []ui.Seg{}
 		for e in panel.Items(l.Entries) {
 			let x = px(e.Value * Width / (panel.Top + 1))
-			ui.Stroke(p, ui.Path{Segs: []ui.Seg{ui.MoveTo{X: x, Y: 0.0}, ui.LineTo{X: x, Y: px(Height)}}}, alarm, 1.0)
+			ticks = ticks.Append(ui.MoveTo{X: x, Y: 0.0})
+			ticks = ticks.Append(ui.LineTo{X: x, Y: px(Height)})
+		}
+		if len(ticks) > 0 {
+			ui.Stroke(p, ui.Path{Segs: ticks}, alarm, 1.0)
 		}
 	}
 }
