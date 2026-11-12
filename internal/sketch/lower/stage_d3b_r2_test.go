@@ -156,7 +156,13 @@ func main() needs Console {
 // replaced slice element, the later result and the parameter's parameter.
 func TestNoValueTypeArgumentsLower(t *testing.T) {
 	needsBuild(t)
+	// The type argument is written at the call in the stenciled form; a
+	// monomorphic copy (mono.go) writes it in its own signature instead,
+	// and the run below takes the copies.
+	saved := genericLowering
+	genericLowering = "stencil"
 	o := mustLower(t, "shapes", noValueShapesProgram)
+	genericLowering = saved
 	if goSrc := stripDirectives(o.mainGo()); !strings.Contains(goSrc, "Job[struct{}]") || !strings.Contains(goSrc, "runAll[struct{}](") {
 		t.Errorf("the no-value type argument is not struct{}:\n%s", goSrc)
 	}
