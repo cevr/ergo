@@ -102,9 +102,13 @@ func madeValue(x ast.Expr) bool {
 		id, ok := x.Fun.(*ast.Ident)
 		return ok && id.Name == "make"
 	case *ast.SliceExpr:
-		// A pooled array, empty: p.Get().(*[N]T)[:0]. The pool holds an
-		// array only after the one use it was taken for has ended (the
-		// body that puts it back says so), so no binding reaches it.
+		// A pooled array, empty: p.Get().(*[N]T)[:0], a package
+		// variable's method with no argument handing over an array by
+		// pointer. The pool holds an array only after the one use it was
+		// taken for has ended (the body that puts it back says so), so no
+		// binding reaches it. The form is read, not the method's name: in
+		// runtime/v1 (reviewed code) only a sync.Pool's Get takes it
+		// (JSONTake).
 		lit, ok := x.High.(*ast.BasicLit)
 		if x.Low != nil || x.Max != nil || !ok || lit.Value != "0" {
 			return false
@@ -123,7 +127,11 @@ func madeValue(x ast.Expr) bool {
 			return false
 		}
 		sel, ok := call.Fun.(*ast.SelectorExpr)
-		return ok && sel.Sel.Name == "Get"
+		if !ok {
+			return false
+		}
+		_, ok = sel.X.(*ast.Ident)
+		return ok
 	}
 	return false
 }
