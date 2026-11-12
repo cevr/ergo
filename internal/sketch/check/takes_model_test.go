@@ -27,7 +27,12 @@ import (
 // differs from the expected type's, a generic call that binds a copied T
 // to a resource); they must equal the checker's. ERGO_SEED=<n> replays one
 // seed; a failure prints the Ergo source and both results. A two-package
-// case checks that the facts cross an import.
+// case checks that the facts cross an import. Each seed runs twice: under
+// ergo fix's clause writer (Options.Infer), the only place the inference
+// lives (q137, EX3), against the fixpoint; and in the default mode against
+// the model with no inferred clause, where an unexported function's
+// hand-off of a parameter is S108 and a generic body's hand-off of its
+// lent T is a copy site.
 //
 // Mutants it kills that no other test does (ledger: takes.go): inference
 // misses a take two calls deep; mutual recursion stops after one round;
@@ -50,9 +55,27 @@ func TestTakesInferenceModel(t *testing.T) {
 		}
 	}
 	for _, seed := range seeds {
+		for _, explicit := range []bool{false, true} {
+			tkSeed(t, seed, explicit)
+		}
+	}
+	tkTwoPackages(t)
+}
+
+// tkSeed checks one seed: under ergo fix's clause writer (Options.Infer)
+// against the inference model, and in the default mode (explicit) against
+// the model in which every clause is the written one (q137, EX3).
+func tkSeed(t *testing.T, seed uint64, explicit bool) {
+	t.Helper()
+	{
 		g := tkGen(rand.New(rand.NewPCG(seed, 0x197a3)))
+		g.explicit = explicit
 		src, want, wantTakes := g.print(), g.reference(), g.inferred()
-		c, diags := checkFor(src)
+		check := checkForInfer
+		if explicit {
+			check = checkFor
+		}
+		c, diags := check(src)
 		var got []string
 		for _, d := range diags {
 			got = append(got, fmt.Sprintf("%d:%d %s", d.Line, d.Column, d.Code))
@@ -65,11 +88,10 @@ func TestTakesInferenceModel(t *testing.T) {
 			for _, d := range diags {
 				full = append(full, d.String())
 			}
-			t.Fatalf("seed %d (replay: ERGO_SEED=%d go test -run TestTakesInferenceModel ./internal/sketch/check)\nsource:\n%s\nchecker diagnostics: %v\nmodel diagnostics:   %v\n%s\nchecker clauses and copies: %v\nmodel clauses and copies:   %v",
-				seed, seed, ofNumbered(src), got, want, strings.Join(full, "\n"), gotTakes, wantTakes)
+			t.Fatalf("seed %d, explicit %v (replay: ERGO_SEED=%d go test -run TestTakesInferenceModel ./internal/sketch/check)\nsource:\n%s\nchecker diagnostics: %v\nmodel diagnostics:   %v\n%s\nchecker clauses and copies: %v\nmodel clauses and copies:   %v",
+				seed, explicit, seed, ofNumbered(src), got, want, strings.Join(full, "\n"), gotTakes, wantTakes)
 		}
 	}
-	tkTwoPackages(t)
 }
 
 const tkPrelude = `type Res { id int }
@@ -123,6 +145,9 @@ type tkGeneric struct {
 }
 
 type tkModel struct {
+	// explicit is the default mode (q137): no clause is inferred, so an
+	// unexported function's clause is its written one, none.
+	explicit bool
 	r        *rand.Rand
 	funcs    []*tkFunc
 	generics []*tkGeneric
@@ -250,7 +275,7 @@ func (m *tkModel) clauses() [][2]bool {
 			out[i] = f.written
 		}
 	}
-	for changed := true; changed; {
+	for changed := !m.explicit; changed; {
 		changed = false
 		for i, f := range m.funcs {
 			if f.exported {
@@ -288,7 +313,9 @@ func (m *tkModel) copies() (out, key []bool) {
 	for changed := true; changed; {
 		changed = false
 		for i, h := range m.generics {
-			c := h.body == 1 || h.body == 3 || h.body == 2 && out[h.callee]
+			// Explicit: h's x is lent (no clause is written), so its
+			// hand-off (body 0, x returned) is a copy of it.
+			c := h.body == 1 || h.body == 3 || h.body == 2 && out[h.callee] || m.explicit && h.body == 0
 			if c && !out[i] {
 				out[i] = true
 				key[i] = h.body == 3 || h.body == 2 && key[h.callee]
@@ -381,9 +408,9 @@ func (m *tkModel) inferred() []string {
 		}
 	}
 	// h<i> takes x when its body hands x off: it moves it, gives it to
-	// first, or to a generic callee that takes it.
+	// first, or to a generic callee that takes it. Explicit: none.
 	takes := make([]bool, len(m.generics))
-	for changed := true; changed; {
+	for changed := !m.explicit; changed; {
 		changed = false
 		for i, h := range m.generics {
 			if !takes[i] && (h.body != 2 || takes[h.callee]) {
@@ -428,8 +455,8 @@ func tkInferred(c *checker) []string {
 }
 
 // tkTwoPackages checks that the facts cross an import: main hands a value
-// to lib's exported Keep (written clause) and to lib's inferred keeper
-// through Hold, and calls lib's generic Dup, which copies its T, with a
+// to lib's exported Keep and to lib's keeper hold through Hold (written
+// clauses), and calls lib's generic Dup, which copies its T, with a
 // resource (refused) and with an int (admitted); std slices.Clone, an extern
 // generic outside runtime/v1's moving table, copies its T.
 func tkTwoPackages(t *testing.T) {
@@ -443,7 +470,7 @@ type Holder { r Res }
 
 func Keep(r Res) Holder takes r { Holder{r: r} }
 
-func hold(r Res) Holder { Keep(r) }
+func hold(r Res) Holder takes r { Keep(r) }
 
 func Hold(r Res) Holder takes r { hold(r) }
 
@@ -476,8 +503,8 @@ func main() {
 	if len(ds) != 0 {
 		t.Fatalf("lib: %v", ds)
 	}
-	if got := lp.Info.Takes; len(got) != 1 {
-		t.Fatalf("lib: inferred clauses %v, want hold's only", got)
+	if got := lp.Info.Takes; len(got) != 0 {
+		t.Fatalf("lib: inferred clauses %v, want none (q137)", got)
 	}
 	mf, err := syntax.Parse(main)
 	if err != nil {

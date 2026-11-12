@@ -192,8 +192,8 @@ func apply(texts map[string]string, ds []Diagnostic, changes map[[3]string]Chang
 			return nil, fmt.Errorf("fix: %s: %w", file, err)
 		}
 		es = append(es, ims...)
-		// From the end, so each offset holds; at one offset fails goes
-		// before needs, so needs is inserted first.
+		// From the end, so each offset holds; at one offset the clauses
+		// go fails, needs, takes, so takes is inserted first.
 		slices.SortStableFunc(es, func(a, b edit) int {
 			return cmp.Or(cmp.Compare(b.at, a.at), cmp.Compare(rank(a.clause), rank(b.clause)))
 		})
@@ -207,12 +207,14 @@ func apply(texts map[string]string, ds []Diagnostic, changes map[[3]string]Chang
 
 func rank(clause string) int {
 	switch clause {
-	case "needs":
+	case "takes":
 		return 0
-	case "fails":
+	case "needs":
 		return 1
+	case "fails":
+		return 2
 	}
-	return 2 // an import goes in front of a clause at the same offset
+	return 3 // an import goes in front of a clause at the same offset
 }
 
 // importEdits are the insertions that import each path of paths src does

@@ -167,7 +167,7 @@ type armed[E] {
 // once, and a state whose timer re-enters it would never let time pass.
 // A declared machine's After raises it first, naming the machine and the
 // state; a Machine built from parts raises it here.
-func arm[S, E, O, F, R, W](timers []armed[E], m Machine[S, E, O, F, R, W], s S, now duration, epoch int) []armed[E] {
+func arm[S, E, O, F, R, W](timers []armed[E], m Machine[S, E, O, F, R, W], s S, now duration, epoch int) []armed[E] takes timers {
 	match m.After(s) {
 	case Some[Timeout[E]] as t:
 		if t.Value.In <= 0s {

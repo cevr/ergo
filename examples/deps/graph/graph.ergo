@@ -218,7 +218,7 @@ func Path[N ordered](g Graph[N], a N, b N) Option[[]N] {
 }
 
 // back is the path to b that from records, from a.
-func back[N ordered](from Map[N, N], a N, b N) []N {
+func back[N ordered](from Map[N, N], a N, b N) []N takes b {
 	let mut path = []N{b}
 	let mut at = b
 	for at != a {

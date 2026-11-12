@@ -105,7 +105,7 @@ func get() Conn { Conn{V: 1} }
 func start() Task[int, Fault] { task.Go() { 1 } }
 func one() int { 1 }
 func apply(body func() int) int { body() }
-func wait(t Task[int, Fault]) int {
+func wait(t Task[int, Fault]) int takes t {
 	t.Wait() catch {
 	case Fault:
 		0

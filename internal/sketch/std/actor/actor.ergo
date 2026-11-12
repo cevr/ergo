@@ -261,7 +261,7 @@ func SuperviseDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity
 }
 
 // recovered is recover's state, or initial on None.
-func recovered[S, G, R](recover func() Option[S] fails G needs R, initial S) S fails G needs R {
+func recovered[S, G, R](recover func() Option[S] fails G needs R, initial S) S fails G needs R takes initial {
 	match try recover() {
 	case Some[S] as s:
 		s.Value
@@ -272,7 +272,7 @@ func recovered[S, G, R](recover func() Option[S] fails G needs R, initial S) S f
 
 // durable is m starting in initial, with save run on each committed
 // transition (keep) before the actor commits it.
-func durable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], initial S, save escaping func(prev S, next S, sig E) fails G needs R) Machine[S, E, O, F, R, W] {
+func durable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], initial S, save escaping func(prev S, next S, sig E) fails G needs R) Machine[S, E, O, F, R, W] takes initial {
 	let step = m.Step
 	Machine[S, E, O, F, R, W]{Initial: initial, Step: func(s S, e E) Decision[S, O] fails F needs R {
 		let d = try step(s, e)
