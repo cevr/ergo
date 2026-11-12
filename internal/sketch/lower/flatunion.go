@@ -129,8 +129,10 @@ type flatUnion struct {
 	// shared reports the shared slot form (U1, below): the struct holds
 	// slots by Go type, not a record per variant. slots are the slots'
 	// checked types, by index; fieldSlot[k][i] is the slot of variant k's
-	// field i. canShare reports that every variant is a plain record, so
-	// the narrowing can rebuild it from its fields.
+	// field i. canShare reports that the shared form may be taken: not
+	// under the reference unionLowering "slots". Every variant is a record
+	// declared in its union's package (the checker's Unions 1; an alias
+	// names its record), so its Go literal rebuilds it from its fields.
 	shared, canShare bool
 	slots            []check.Type
 	fieldSlot        [][]int
@@ -564,11 +566,6 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 		}
 		fu.variants = append(fu.variants, vn)
 		fu.slot = append(fu.slot, len(st.Fields) > 0)
-		// The shared form rebuilds a variant by a Go composite literal of
-		// its record: a declared record, not a type defined over one.
-		if _, rec := vn.Obj.Decl.Spec.(*syntax.StructType); !rec || vn.Alias() != nil || vn.Defined() != nil {
-			fu.canShare = false
-		}
 	}
 	if fu.canShare {
 		fu.shareSlots()

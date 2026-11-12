@@ -3540,15 +3540,6 @@
       ]
     },
     {
-      "name": "share-variant-not-record",
-      "origin": "wf10 U1",
-      "file": "internal/sketch/lower/flatunion.go",
-      "from": "\t\tif _, rec := vn.Obj.Decl.Spec.(*syntax.StructType); !rec || vn.Alias() != nil || vn.Defined() != nil {",
-      "to": "\t\tif _, rec := vn.Obj.Decl.Spec.(*syntax.StructType); false && (!rec || vn.Alias() != nil || vn.Defined() != nil) {",
-      "rule": "runtime.md Flat unions: the shared form rebuilds a variant by its record's Go literal, so a variant that is not a declared record keeps a slot per variant.",
-      "killers": []
-    },
-    {
       "name": "union-fields-unbounded",
       "origin": "wf10 OPT3",
       "file": "internal/sketch/lower/flatunion.go",
