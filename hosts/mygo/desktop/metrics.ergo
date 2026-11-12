@@ -1,0 +1,130 @@
+// Metrics is the layout's Measure on the desktop: the widths of the runs
+// of a text, and the line height of its size, as MyGo's text engine
+// measured them (learn). Ergo breaks the lines: a paragraph's runs go one
+// space apart on a line while it fits, as the layout's Monospace breaks
+// them, so the boxes the layout gives and the lines paint draws agree.
+//
+// The engine's measure is a Go call, which needs go.Foreign, and an
+// operation type's method cannot need it (README, Gap 17); so the host
+// learns every run of the tree's texts before it lays out, and Metrics
+// answers from what it learned.
+
+import go ergo.local/prototype/hosts/mygo/screen
+import strings
+import ui/layout
+
+// Metrics is what the window's text engine said: run widths and line
+// heights by font size.
+type Metrics { runs Map[run, float32], lines Map[float32, float32] }
+
+// run is a text set on one line at a size.
+type run { text string, size float32 }
+
+// NewMetrics knows nothing yet.
+func NewMetrics() Metrics { Metrics{runs: Map[run, float32]{}, lines: Map[float32, float32]{}} }
+
+// width is what the engine said of t at size, at least 0.
+func width(m Metrics, t string, size float32) float32 {
+	match m.runs.Get(run{text: t, size: size}) {
+	case Some[float32] as w:
+		fmax(w.Value, 0)
+	case None:
+		0
+	}
+}
+
+// lineHeight is the line height at size, at least 0.
+func lineHeight(m Metrics, size float32) float32 {
+	match m.lines.Get(size) {
+	case Some[float32] as h:
+		fmax(h.Value, 0)
+	case None:
+		0
+	}
+}
+
+func fmax(a float32, b float32) float32 { if a > b { a } else { b } }
+
+// paragraphs are the runs of text's paragraphs, by line feed.
+func paragraphs(text string) [][]string {
+	let mut out = [][]string{}
+	for p in strings.Split(text, "\n") {
+		out = out.Append(strings.Fields(p))
+	}
+	out
+}
+
+// Widths is the widest paragraph set on one line, its runs one space
+// apart, and the widest run.
+func Widths(m Metrics, text string, size float32) layout.Intrinsic {
+	let space = width(m, " ", size)
+	let mut most = float32(0)
+	let mut least = float32(0)
+	for words in paragraphs(text) {
+		let mut line = float32(0)
+		for i, w in words {
+			let n = width(m, w, size)
+			line = if i > 0 { line + space + n } else { n }
+			least = fmax(least, n)
+		}
+		most = fmax(most, line)
+	}
+	layout.Intrinsic{Max: most, Min: least}
+}
+
+// Height is the lines of Lines, one line height each.
+func Height(m Metrics, text string, size float32, width float32) float32 {
+	float32(len(Lines(m, text, size, width))) * lineHeight(m, size)
+}
+
+// Lines breaks each paragraph greedily: a run goes on the line when the
+// line with it is no wider than width, else it starts the next line. An
+// empty paragraph between others is an empty line; a text with no run
+// has no line.
+func Lines(m Metrics, text string, size float32, wide float32) []string {
+	let space = width(m, " ", size)
+	let mut out = []string{}
+	let mut any = false
+	for words in paragraphs(text) {
+		let mut line = ""
+		let mut at = float32(0)
+		let mut open = false
+		for w in words {
+			any = true
+			let n = width(m, w, size)
+			if !open {
+				line = w
+				at = n
+				open = true
+			} else if at+space+n <= wide {
+				line = line + " " + w
+				at = at + space + n
+			} else {
+				out = out.Append(line)
+				line = w
+				at = n
+			}
+		}
+		out = out.Append(line)
+	}
+	if !any {
+		return []string{}
+	}
+	out
+}
+
+// learn asks the window's engine for every run of text at size it has
+// not measured yet, a space, and the size's line height.
+func learn(m *Metrics, w go.Ref[screen.Window], text string, size float32) needs go.Foreign {
+	if m.lines.Get(size) == None {
+		m.lines[size] = float32(w.LineHeight(float64(size)))
+	}
+	for words in paragraphs(text) {
+		for t in words.Append(" ") {
+			let k = run{text: t, size: size}
+			if m.runs.Get(k) == None {
+				m.runs[k] = float32(w.TextWidth(t, float64(size)))
+			}
+		}
+	}
+}

@@ -1,0 +1,398 @@
+// The look of every node, the layout of the window's tree and its paint
+// list. Each paint lays the tree out anew from the nodes (the kernel's
+// own caches are for a kept tree; keeping one across passes is P-ui's),
+// then paints it in tree order, so a later sibling paints over an earlier
+// one and is hit first.
+
+import arena
+import go ergo.local/prototype/hosts/mygo/screen
+import ui
+import ui/layout
+
+// textSize is the font size of every text, in DIPs.
+let textSize = float32(16)
+
+// The colors, 0xRRGGBBAA.
+let ink = uint32(0x1f2328ff)
+
+let faint = uint32(0x6e7781ff)
+
+let button = uint32(0xe6e9edff)
+
+let accent = uint32(0x0969daff)
+
+let rule = uint32(0x8c959fff)
+
+let track = uint32(0xc6ccd3ff)
+
+let paper = uint32(0xffffffff)
+
+// mark is the size of a Check's box; switchW and switchH a Toggle's track.
+let mark = float32(18)
+
+let switchW = float32(34)
+
+let switchH = float32(20)
+
+// fieldW is an Input's width.
+let fieldW = float32(240)
+
+// edges is a ui Edges as the kernel's top, right, bottom, left.
+func edges(e ui.Edges) [4]float32 { [4]float32{dips(e.Top), dips(e.Right), dips(e.Bottom), dips(e.Left)} }
+
+// dips is a ui Length as the kernel's float32.
+func dips(n ui.Length) float32 { float32(float64(n)) }
+
+func length(s ui.Size) layout.Length {
+	match s {
+	case ui.Auto:
+		layout.Auto
+	case ui.Fixed as f:
+		layout.Px{Value: dips(f.Value)}
+	}
+}
+
+func items(a ui.Align) layout.Align {
+	match a {
+	case ui.AlignStart:
+		layout.Start
+	case ui.AlignCenter:
+		layout.Center
+	case ui.AlignEnd:
+		layout.End
+	case ui.AlignStretch:
+		layout.Stretch
+	}
+}
+
+func justify(j ui.Justify) layout.Justify {
+	match j {
+	case ui.JustifyStart:
+		layout.Start
+	case ui.JustifyCenter:
+		layout.Center
+	case ui.JustifyEnd:
+		layout.End
+	case ui.JustifyBetween:
+		layout.SpaceBetween
+	}
+}
+
+// boxStyle is a container's layout of a ui Style, in direction dir.
+func boxStyle(s ui.Style, dir layout.Direction) layout.Style {
+	let mut out = layout.Default()
+	out.Direction = dir
+	out.Width = length(s.Width)
+	out.Height = length(s.Height)
+	out.Grow = float32(s.Grow)
+	out.Shrink = float32(s.Shrink)
+	out.Padding = edges(s.Padding)
+	out.Margin = edges(s.Margin)
+	out.Gap = dips(s.Gap)
+	out.Items = items(s.Align)
+	out.Justify = justify(s.Justify)
+	out
+}
+
+// plainStyle is a node with no Style of its own.
+func plainStyle() layout.Style { boxStyle(ui.Plain(), layout.Column) }
+
+func noPadding(p [4]float32) bool { p[0] == 0 && p[1] == 0 && p[2] == 0 && p[3] == 0 }
+
+// styleOf is how a node lays out: its Style, and the room its look needs.
+func styleOf[E](n ui.Node[E], line float32) layout.Style {
+	match n {
+	case ui.BoxNode as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.RowNode as x:
+		boxStyle(x.Style, layout.Row)
+	case ui.ColumnNode as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.ScrollNode as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.AreaNode as x:
+		boxStyle(x.Style, layout.Column)
+	case ui.TextNode as x:
+		let mut s = boxStyle(x.Style, layout.Column)
+		s.Content = layout.Text{Value: x.Value, Size: textSize}
+		s
+	case ui.PressableNode[E] as x:
+		let mut s = boxStyle(x.Style, layout.Row)
+		if noPadding(s.Padding) {
+			s.Padding = [4]float32{6, 12, 6, 12}
+		}
+		s.Items = layout.Center
+		s.Justify = layout.Center
+		s
+	case ui.CheckNode[E] as x:
+		let mut s = plainStyle()
+		s.Padding = [4]float32{0, 0, 0, mark + 8}
+		s.Content = layout.Text{Value: x.Label, Size: textSize}
+		s
+	case ui.ToggleNode as x:
+		let mut s = plainStyle()
+		s.Padding = [4]float32{0, 0, 0, switchW + 10}
+		s.Content = layout.Text{Value: x.Label, Size: textSize}
+		s
+	case ui.InputNode:
+		let mut s = plainStyle()
+		s.Width = layout.Px{Value: fieldW}
+		s.Height = layout.Px{Value: line + 12}
+		s.Padding = [4]float32{6, 8, 6, 8}
+		s
+	}
+}
+
+// textOf is the text a node shows, which the window measures.
+func textOf[E](n ui.Node[E]) string {
+	match n {
+	case ui.TextNode as x:
+		x.Value
+	case ui.CheckNode[E] as x:
+		x.Label
+	case ui.ToggleNode as x:
+		x.Label
+	case ui.InputNode as x:
+		x.Value + "\n" + x.Placeholder
+	case _:
+		""
+	}
+}
+
+// labelOf is the label a script names a node by, as ui.Find matches it:
+// a Pressable's, a Check's, a Toggle's or an Area's label, a Text's
+// value, an Input's placeholder.
+func labelOf[E](n ui.Node[E]) Option[string] {
+	match n {
+	case ui.PressableNode[E] as x:
+		Some{Value: x.Label}
+	case ui.CheckNode[E] as x:
+		Some{Value: x.Label}
+	case ui.ToggleNode as x:
+		Some{Value: x.Label}
+	case ui.AreaNode as x:
+		Some{Value: x.Label}
+	case ui.TextNode as x:
+		Some{Value: x.Value}
+	case ui.InputNode as x:
+		Some{Value: x.Placeholder}
+	case _:
+		None
+	}
+}
+
+// paint lays the window's tree out at the window's size and gives the
+// window its paint list.
+func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+	learn(&d.metrics, d.w, "", textSize)
+	for _, h in d.nodes {
+		learn(&d.metrics, d.w, textOf(h.node), textSize)
+	}
+	let line = lineHeight(d.metrics, textSize)
+	let mut t = layout.New()
+	let mut rs = plainStyle()
+	rs.Width = layout.Px{Value: d.width}
+	rs.Height = layout.Px{Value: d.height}
+	let top = layout.Add(&t, rs)
+	let ids = build(d, &t, d.root, top, Map[ui.Id[E], layout.Id]{}, line)
+	let m = d.metrics
+	with context { layout.Measure: m } {
+		layout.Layout(&t, top, d.width, d.height) catch {
+		case arena.Stale:
+		}
+	}
+	d.w.Begin()
+	d.spots = []spot[E]{}
+	d.boxes = Map[ui.Id[E], layout.Box]{}
+	let full = layout.Box{X: 0, Y: 0, W: d.width, H: d.height}
+	for k in kidsOf(d, d.root) {
+		draw(d, &t, ids, k, 0, full, line)
+	}
+	d.w.Present()
+	d.painted = d.painted + 1
+}
+
+// build adds id's children under into, in order, and their subtrees.
+func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, ids Map[ui.Id[E], layout.Id], line float32) Map[ui.Id[E], layout.Id] {
+	let mut out = ids
+	for k in kidsOf(d, id) {
+		match d.nodes.Get(k) {
+		case Some[held[E]] as h:
+			let n = layout.Add(t, styleOf(h.Value.node, line))
+			layout.Append(t, into, n) catch {
+			case arena.Stale:
+			}
+			out[k] = n
+			out = build[S, E, D, F](d, t, k, n, out, line)
+		case None:
+		}
+	}
+	out
+}
+
+// draw paints id, lifted by dy (its Scrolls' offsets), within clip.
+func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], layout.Id], id ui.Id[E], dy float32, clip layout.Box, line float32) needs go.Foreign {
+	let n = match d.nodes.Get(id) {
+	case Some[held[E]] as h:
+		h.Value.node
+	case None:
+		return
+	}
+	let laid = match ids.Get(id) {
+	case Some[layout.Id] as l:
+		boxOf(t, l.Value)
+	case None:
+		return
+	}
+	let b = layout.Box{X: laid.X, Y: laid.Y - dy, W: laid.W, H: laid.H}
+	d.boxes[id] = b
+	let focus = d.focus == (Some{Value: id})
+	let s = spot[E]{id: id, node: n, box: b, clip: clip}
+	match n {
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode:
+		drawKids(d, t, ids, id, dy, clip, line)
+	case ui.ScrollNode:
+		d.spots = d.spots.Append(s)
+		let mut reach = float32(0)
+		for k in kidsOf(d, id) {
+			match ids.Get(k) {
+			case Some[layout.Id] as l:
+				let kb = boxOf(t, l.Value)
+				reach = fmax(reach, kb.Y+kb.H-laid.Y)
+			case None:
+			}
+		}
+		d.extents[id] = reach
+		let inner = cut(clip, b)
+		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
+		drawKids(d, t, ids, id, dy+scrolledBy(d, id), inner, line)
+		d.w.Unclip()
+	case ui.AreaNode as x:
+		d.spots = d.spots.Append(s)
+		access(d, id, screen.RoleGroup, x.Label, "", b, false, false)
+		drawKids(d, t, ids, id, dy, clip, line)
+	case ui.TextNode as x:
+		access(d, id, screen.RoleText, x.Value, "", b, false, false)
+		let st = styleOf(n, line)
+		lines(d, x.Value, b.X+st.Padding[3], b.Y+st.Padding[0], b.W-st.Padding[1]-st.Padding[3], ink)
+	case ui.PressableNode[E] as x:
+		d.spots = d.spots.Append(s)
+		fill(d, b, 6, button)
+		if focus {
+			ring(d, b, 6)
+		}
+		access(d, id, screen.RoleButton, x.Label, "", b, false, focus)
+		drawKids(d, t, ids, id, dy, clip, line)
+	case ui.CheckNode[E] as x:
+		d.spots = d.spots.Append(s)
+		let at = layout.Box{X: b.X, Y: b.Y + (b.H-mark)/2, W: mark, H: mark}
+		if x.Checked {
+			fill(d, at, 3, accent)
+		} else {
+			fill(d, at, 3, paper)
+			d.w.Border(float64(at.X), float64(at.Y), float64(at.W), float64(at.H), 3, 1.5, rule)
+		}
+		if focus {
+			ring(d, at, 3)
+		}
+		access(d, id, screen.RoleCheck, x.Label, "", b, x.Checked, focus)
+		lines(d, x.Label, b.X+mark+8, b.Y, b.W-mark-8, ink)
+	case ui.ToggleNode as x:
+		d.spots = d.spots.Append(s)
+		let at = layout.Box{X: b.X, Y: b.Y + (b.H-switchH)/2, W: switchW, H: switchH}
+		fill(d, at, switchH/2, if x.On { accent } else { track })
+		let knob = switchH - 4
+		let kx = if x.On { at.X + switchW - knob - 2 } else { at.X + 2 }
+		fill(d, layout.Box{X: kx, Y: at.Y + 2, W: knob, H: knob}, knob/2, paper)
+		if focus {
+			ring(d, at, switchH/2)
+		}
+		access(d, id, screen.RoleSwitch, x.Label, "", b, x.On, focus)
+		lines(d, x.Label, b.X+switchW+10, b.Y, b.W-switchW-10, ink)
+	case ui.InputNode as x:
+		d.spots = d.spots.Append(s)
+		fill(d, b, 4, paper)
+		if focus {
+			d.w.Border(float64(b.X), float64(b.Y), float64(b.W), float64(b.H), 4, 2, accent)
+		} else {
+			d.w.Border(float64(b.X), float64(b.Y), float64(b.W), float64(b.H), 4, 1, rule)
+		}
+		let inner = layout.Box{X: b.X + 8, Y: b.Y + 6, W: b.W - 16, H: b.H - 12}
+		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
+		if x.Value == "" {
+			d.w.Text(float64(inner.X), float64(inner.Y), x.Placeholder, float64(textSize), faint)
+		} else {
+			d.w.Text(float64(inner.X), float64(inner.Y), x.Value, float64(textSize), ink)
+		}
+		d.w.Unclip()
+		access(d, id, screen.RoleField, x.Placeholder, x.Value, b, false, focus)
+		if focus {
+			let caret = fmin(width(d.metrics, x.Value, textSize), inner.W)
+			d.w.Editing(x.Value, float64(inner.X+caret), float64(inner.Y), 1, float64(line))
+			fill(d, layout.Box{X: inner.X + caret, Y: inner.Y, W: 1, H: line}, 0, ink)
+		}
+	}
+}
+
+// drawKids paints id's children in order.
+func drawKids[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], layout.Id], id ui.Id[E], dy float32, clip layout.Box, line float32) needs go.Foreign {
+	for k in kidsOf(d, id) {
+		draw(d, t, ids, k, dy, clip, line)
+	}
+}
+
+// lines paints text broken as Metrics breaks it at width, from x, y.
+func lines[S, E, D, F](d *Driver[S, E, D, F], text string, x float32, y float32, wide float32, color uint32) needs go.Foreign {
+	let step = lineHeight(d.metrics, textSize)
+	for i, l in Lines(d.metrics, text, textSize, wide) {
+		d.w.Text(float64(x), float64(y+float32(i)*step), l, float64(textSize), color)
+	}
+}
+
+func fill[S, E, D, F](d *Driver[S, E, D, F], b layout.Box, radius float32, color uint32) needs go.Foreign {
+	d.w.Fill(float64(b.X), float64(b.Y), float64(b.W), float64(b.H), float64(radius), color)
+}
+
+// ring is the focus ring around b.
+func ring[S, E, D, F](d *Driver[S, E, D, F], b layout.Box, radius float32) needs go.Foreign {
+	d.w.Border(float64(b.X-3), float64(b.Y-3), float64(b.W+6), float64(b.H+6), float64(radius+3), 2, accent)
+}
+
+// cut is the part of b inside clip.
+func cut(clip layout.Box, b layout.Box) layout.Box {
+	let x = fmax(clip.X, b.X)
+	let y = fmax(clip.Y, b.Y)
+	let r = fmin(clip.X+clip.W, b.X+b.W)
+	let bottom = fmin(clip.Y+clip.H, b.Y+b.H)
+	layout.Box{X: x, Y: y, W: fmax(r-x, 0), H: fmax(bottom-y, 0)}
+}
+
+// access adds a node of the window's accessibility tree, named by an
+// id that stays the node's while it shows.
+func access[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], role int, label string, value string, b layout.Box, checked bool, focus bool) needs go.Foreign {
+	let name = match d.names.Get(id) {
+	case Some[int] as n:
+		n.Value
+	case None:
+		let n = nextName(d)
+		d.names[id] = n
+		n
+	}
+	d.w.Access(name, -1, role, label, value, float64(b.X), float64(b.Y), float64(b.W), float64(b.H), checked, focus)
+}
+
+// nextName is a name no node has had.
+func nextName[S, E, D, F](d *Driver[S, E, D, F]) int {
+	d.named = d.named + 1
+	d.named
+}
+
+// contentHeight is how far the children of a Scroll reach below its top.
+func contentHeight[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) float32 {
+	match d.extents.Get(id) {
+	case Some[float32] as h:
+		h.Value
+	case None:
+		0
+	}
+}

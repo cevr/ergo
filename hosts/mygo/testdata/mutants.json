@@ -81,6 +81,60 @@
       "to": "if false && t.nodes[i].laidW == w",
       "rule": "a box laid out at its size with nothing changed in it is kept, not computed again",
       "killers": ["mygo:TestLayoutRelaysOutAlongThePath"]
+    },
+    {
+      "name": "H3g-hit-first",
+      "origin": "H3g",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "if inside(s, x, y) {\n\t\t\t\thit = Some{Value: s}",
+      "to": "if inside(s, x, y) {\n\t\t\t\thit = Some{Value: s}\n\t\t\t\tbreak",
+      "rule": "the hit test takes the node painted last under the point: a button over an Area takes the tap",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "H3g-tab-reversed",
+      "origin": "H3g",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "let next = if back { (at + n - 1) % n } else { (at + 1) % n }",
+      "to": "let next = if back { (at + 1) % n } else { (at + n - 1) % n }",
+      "rule": "Tab moves the focus forward in paint (tree) order, Shift+Tab back",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "H3g-fill-off-its-box",
+      "origin": "H3g",
+      "file": "hosts/mygo/desktop/paint.ergo",
+      "from": "fill(d, b, 6, button)",
+      "to": "fill(d, layout.Box{X: b.X, Y: b.Y + 6, W: b.W, H: b.H}, 6, button)",
+      "rule": "a node's fill is painted on the box the layout gave it, where the hit test finds it",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "H3g-backspace-keeps-text",
+      "origin": "H3g",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "Text: withoutLast(x.Value)",
+      "to": "Text: x.Value",
+      "rule": "Backspace in the focused field removes its last rune",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "H3g-release-dropped",
+      "origin": "H3g",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "\t\t\tcase Some[spot[E]] as s:\n\t\t\t\ttry pointed(d, s.Value, ui.Up, x, y)\n\t\t\tcase None:",
+      "to": "\t\t\tcase Some[spot[E]] as s:\n\t\t\t\tlet _ = s\n\t\t\tcase None:",
+      "rule": "a release with no press goes to the Area under it",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "H3g-go-directive-dropped",
+      "origin": "H3g",
+      "file": "internal/sketch/lower/gomodule.go",
+      "from": "\"\\n\\ngo \" + newerGo(goVersion, m.Go) + \"\\n\"",
+      "to": "\"\\n\\ngo \" + goVersion + \"\\n\"",
+      "rule": "a program that binds this module (which needs Go 1.27.3, as MyGo does) builds: the emitted go.mod states the later go version",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
     }
   ]
 }

@@ -239,16 +239,29 @@ type layout struct {
 	work  int
 }
 
-var buildOracle = sync.OnceValues(func() (string, error) {
-	dir, err := os.MkdirTemp("", "layoutoracle")
+var ergoDir string
+
+// builtErgo is the repository's ergo command, built once into a
+// temporary folder, ergoDir, which TestMain removes.
+var builtErgo = sync.OnceValues(func() (string, error) {
+	dir, err := os.MkdirTemp("", "hostsmygo")
 	if err != nil {
 		return "", err
 	}
+	ergoDir = dir
 	ergo := filepath.Join(dir, "ergo")
 	if out, err := bounded("go", "build", "-C", "../..", "-o", ergo, "./cmd/ergo").CombinedOutput(); err != nil {
 		return "", fmt.Errorf("go build ergo: %v\n%s", err, out)
 	}
-	oracle := filepath.Join(dir, "oracle")
+	return ergo, nil
+})
+
+var buildOracle = sync.OnceValues(func() (string, error) {
+	ergo, err := builtErgo()
+	if err != nil {
+		return "", err
+	}
+	oracle := filepath.Join(filepath.Dir(ergo), "oracle")
 	if out, err := bounded(ergo, "build", "testdata/layoutoracle/main.ergo", "-o", oracle).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("ergo build oracle: %v\n%s", err, out)
 	}

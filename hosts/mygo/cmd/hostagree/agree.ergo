@@ -1,0 +1,237 @@
+import actor
+import go ergo.local/prototype/hosts/mygo/screen
+import mygo/desktop
+import strconv
+import strings
+import time
+import ui
+import utf8
+
+// result is how a step ended on one host: done, or the label it found no
+// node for, or how it failed.
+type result = Done{} | Missing{Label string} | Broke{Why string}
+
+// agree plays steps on both hosts and prints whether they agree after
+// each.
+func agree[E comparable, S](m Machine[S, E, int], view escaping func(f *ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
+	let w = screen.Headless(480, 640) catch {
+	case go.Error as e:
+		Console.Println("differ 0: no window: \(e.Text)")
+		return
+	}
+	let ta = actor.StartMachine(m, 1, func(o int) {})
+	let da = actor.StartMachine(m, 1, func(o int) {})
+	let mut h = ui.NewTestHost(ta, view, time.NewManual(0), 16) catch {
+	case ui.BadPatch as b:
+		Console.Println("differ 0: test host: \(b.Why)")
+		return
+	}
+	let mut d = desktop.New(w, da, view, 16) catch {
+	case ui.BadPatch as b:
+		Console.Println("differ 0: driver: \(b.Why)")
+		return
+	}
+	match compare(&h, &d, w, same) {
+	case Some[string] as why:
+		Console.Println("differ 0: \(why.Value)")
+	case None:
+		Console.Println("ok 0")
+	}
+	for i, line in steps {
+		let n = i + 1
+		let (a, b) = run(&h, &d, w, line)
+		if a != b {
+			Console.Println("differ \(n): \(line): test host \(said(a)), desktop \(said(b))")
+			continue
+		}
+		match compare(&h, &d, w, same) {
+		case Some[string] as why:
+			Console.Println("differ \(n): \(line): \(why.Value)")
+		case None:
+			Console.Println("ok \(n)")
+		}
+	}
+	Console.Println("end")
+}
+
+func said(r result) string {
+	match r {
+	case Done:
+		"done"
+	case Missing as m:
+		"no node \(m.Label)"
+	case Broke as b:
+		"failed \(b.Why)"
+	}
+}
+
+// compare is why the hosts differ now, None when they agree: the tree,
+// the app state, and each probe's pixel in the window's frame.
+func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], w go.Ref[screen.Window], same func(a S, b S) bool) Option[string] needs go.Foreign {
+	if !ui.SameShapes(ui.Screen(h), desktop.Screen(d)) {
+		return Some{Value: "trees differ:\n\(ui.Screenshot(h))"}
+	}
+	if !same(ui.StateOf(h), desktop.StateOf(d)) {
+		return Some{Value: "states differ"}
+	}
+	let _ = w.Render()
+	for p in desktop.Probes(d) {
+		let got = w.Pixel(p.X, p.Y)
+		if got != p.Color {
+			return Some{Value: "pixel of \(p.Label) at \(p.X),\(p.Y) is \(strconv.FormatInt(int64(got), 16)), want \(strconv.FormatInt(int64(p.Color), 16))"}
+		}
+	}
+	None
+}
+
+// run does one step on each host.
+func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], w go.Ref[screen.Window], line string) (result, result) needs go.Foreign {
+	let (verb, rest) = match strings.Cut(line, " ") {
+	case Some[strings.Halves] as c:
+		(c.Value.Before, c.Value.After)
+	case None:
+		(line, "")
+	}
+	match verb {
+	case "tap":
+		both(h, d, ui.TapOn{Label: rest})
+	case "type":
+		match strings.Cut(rest, "\t") {
+		case Some[strings.Halves] as c:
+			both(h, d, ui.TypeInto{Label: c.Value.Before, Text: c.Value.After})
+		case None:
+			(Broke{Why: "type needs a tab"}, Broke{Why: "type needs a tab"})
+		}
+	case "key":
+		let act = ui.KeyIn{Press: ui.KeyPress{Name: rest, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+		// A character typed with a field focused goes into the field on the
+		// desktop; TestHost, which has no focus, types it there too.
+		match (desktop.FocusId(d), desktop.FocusNode(d)) {
+		case (Some[ui.Id[E]] as id, Some[ui.Node[E]] as n):
+			match n.Value {
+			case ui.InputNode as x:
+				if utf8.RuneCount(rest) == 1 && rest != " " {
+					let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+						try desktop.Play(d, []ui.Act{act})
+					})
+					let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+						try ui.TypeText(h, id.Value, x.Value+rest)
+					})
+					return (a, b)
+				}
+			case _:
+			}
+		case _:
+		}
+		both(h, d, act)
+	case "point":
+		let f = strings.Fields(rest)
+		if len(f) != 4 {
+			return (Broke{Why: "point LABEL PHASE X Y"}, Broke{Why: "point LABEL PHASE X Y"})
+		}
+		let x = float64(atoi(f[2]))
+		let y = float64(atoi(f[3]))
+		let phase = match f[1] {
+		case "down":
+			ui.Down
+		case "up":
+			ui.Up
+		case "move":
+			ui.Moved
+		case _:
+			ui.Wheel{DX: 0, DY: y}
+		}
+		both(h, d, ui.PointOn{Label: f[0], Pointer: ui.PointerEvent{Phase: phase, X: x, Y: y}})
+	case "settle":
+		both(h, d, ui.SettleAll)
+	case "focus":
+		focusPress(h, d, w, atoi(rest))
+	case _:
+		(Broke{Why: "no step \(verb)"}, Broke{Why: "no step \(verb)"})
+	}
+}
+
+func atoi(s string) int {
+	strconv.Atoi(s) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		0
+	}
+}
+
+// both plays one act on each host.
+func both[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], act ui.Act) (result, result) needs go.Foreign {
+	let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+		try ui.Play(h, []ui.Act{act})
+	})
+	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+		try desktop.Play(d, []ui.Act{act})
+	})
+	(a, b)
+}
+
+func played(f func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign) result needs go.Foreign {
+	f() catch {
+	case ui.NoNode as n:
+		return Missing{Label: n.Label}
+	case actor.Stopped:
+		return Broke{Why: "stopped"}
+	case ui.BadPatch as b:
+		return Broke{Why: b.Why}
+	case ui.Closed:
+		return Broke{Why: "closed"}
+	}
+	Done
+}
+
+// focusPress clears the desktop's focus with a click on the empty corner
+// of the window, moves it with Tab k times and presses the focused node
+// with Enter (types "z" into a field); TestHost presses (or types into)
+// the node the desktop focused. The focus order is the tree's: after k
+// Tabs the focus is on the (k-1 mod n)-th of the n focusable nodes.
+func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], w go.Ref[screen.Window], k int) (result, result) needs go.Foreign {
+	w.Press(470, 630)
+	w.Release(470, 630)
+	for _ in 0..k {
+		w.PressKey("Tab", false)
+	}
+	let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+		try desktop.Drain(d)
+	})
+	let order = desktop.Focusables(d)
+	let mut want Option[ui.Id[E]] = None
+	if k > 0 && len(order) > 0 {
+		want = Some{Value: order[(k-1)%len(order)]}
+	}
+	if desktop.FocusId(d) != want {
+		return (Done, Broke{Why: "after \(k) Tabs the focus is not on the node it reaches in tree order (of \(len(order)))"})
+	}
+	match desktop.FocusId(d) {
+	case Some[ui.Id[E]] as id:
+		match desktop.FocusNode(d) {
+		case Some[ui.Node[E]] as n:
+			match n.Value {
+			case ui.InputNode as x:
+				w.Type("z")
+				let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+					try desktop.Drain(d)
+				})
+				let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+					try ui.TypeText(h, id.Value, x.Value+"z")
+				})
+				return (a, b2)
+			case _:
+				w.PressKey("Enter", false)
+				let b2 = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+					try desktop.Drain(d)
+				})
+				let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+					try ui.Tap(h, id.Value)
+				})
+				return (a, b2)
+			}
+		case None:
+		}
+	case None:
+	}
+	(Done, b)
+}

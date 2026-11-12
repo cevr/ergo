@@ -1,0 +1,32 @@
+// Runes of a field's text, for Backspace and for typed text a view's
+// OnKey takes rune by rune.
+
+import strings
+import utf8
+
+// runesOf is the text of each rune of s, in order.
+func runesOf(s string) []string {
+	let mut out = []string{}
+	let mut at = 0
+	for at < len(s) {
+		let r = utf8.DecodeRuneInString(strings.Slice(s, at, len(s)))
+		out = out.Append(strings.Slice(s, at, at+r.Size))
+		at = at + r.Size
+	}
+	out
+}
+
+// withoutLast is s without its last rune.
+func withoutLast(s string) string {
+	let rs = runesOf(s)
+	if len(rs) == 0 {
+		return s
+	}
+	let mut out = ""
+	for i, r in rs {
+		if i < len(rs)-1 {
+			out = out + r
+		}
+	}
+	out
+}
