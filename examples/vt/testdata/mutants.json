@@ -1,0 +1,113 @@
+{
+  "about": "vt's application mutants (DOD track DT1); each is judged by the example's laws and cases (scripts/examples vt), not by a compiler test. The rule of each names the law or the case that kills it.",
+  "mutants": [
+    {
+      "name": "dt1-csi-param-colon",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/state.ergo",
+      "from": "\t\tcase Digit, Colon, Semi:\n\t\t\tto(CsiParam, ParamByte)",
+      "to": "\t\tcase Digit, Semi:\n\t\t\tto(CsiParam, ParamByte)\n\t\tcase Colon:\n\t\t\tto(CsiIgnore, NoAct)",
+      "rule": "In csi_param a colon is a parameter byte (Ghostty's change to vt100.net, which sends it to csi_ignore), for SGR sub-parameters. Killed by law ghostty.StepMatchesTable.",
+      "killers": ["examples:vt"]
+    },
+    {
+      "name": "dt1-class-sub-not-cancel",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/state.ergo",
+      "from": "\t\tcase 0x18, 0x1a:\n\t\t\tCanSub",
+      "to": "\t\tcase 0x18:\n\t\t\tCanSub",
+      "rule": "SUB (0x1a) cancels a sequence from any state, as CAN does. Killed by law ghostty.StepMatchesTable.",
+      "killers": ["examples:vt"]
+    },
+    {
+      "name": "dt1-params-unbounded",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/machine.ergo",
+      "from": "Counts{Params: if k.Params < MaxParams { k.Params + 1 } else { k.Params }, Inter: k.Inter, Digits: false}",
+      "to": "Counts{Params: k.Params + 1, Inter: k.Inter, Digits: false}",
+      "rule": "A separator past MaxParams parameters completes none, so the collector's array is never overrun. Killed by law Parser.ParamsStayBounded.",
+      "killers": ["examples:vt"]
+    },
+    {
+      "name": "dt1-params-limit-low",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/machine.ergo",
+      "from": "let MaxParams = 24",
+      "to": "let MaxParams = 23",
+      "rule": "The parser keeps Ghostty's 24 parameters (Kakoune sends 17 in one SGR). Killed by law Parser.ParamsReachTheLimit, and by the cases.",
+      "killers": ["examples:vt"]
+    },
+    {
+      "name": "dt1-intermediates-limit-low",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/machine.ergo",
+      "from": "Inter: if k.Inter < MaxIntermediates { k.Inter + 1 } else { k.Inter }",
+      "to": "Inter: if k.Inter < 3 { k.Inter + 1 } else { k.Inter }",
+      "rule": "The parser keeps 4 intermediates, as Ghostty does. Killed by law Parser.IntermediatesReachTheLimit, and by case vt/replay-sequences.",
+      "killers": ["examples:vt"]
+    },
+    {
+      "name": "dt1-fast-text-takes-backspace",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "for j < n && input[j] >= 0x20 && input[j] < 0x7f {",
+      "to": "for j < n && input[j] >= 0x08 && input[j] < 0x7f {",
+      "rule": "The fast path takes only printable ASCII; a control after text goes through the machine. Killed by law vt.FastPathMatchesStep.",
+      "killers": ["examples:vt"]
+    },
+    {
+      "name": "dt1-fast-osc-takes-bel",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "for j < n && input[j] >= 0x20 {",
+      "to": "for j < n && input[j] >= 0x07 {",
+      "rule": "The OSC fast path stops at a control, so BEL still ends the string. Killed by law vt.FastPathMatchesStep.",
+      "killers": ["examples:vt"]
+    },
+    {
+      "name": "dt1-utf8-reset-per-piece",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "\tp.Tally.Bytes += n\n",
+      "to": "\tp.Tally.Bytes += n\n\tp.text = idle\n",
+      "rule": "A UTF-8 character cut between two pieces is decoded whole: the decoder's state carries across Feed. Killed by law vt.SplitDoesNotMatter.",
+      "killers": ["examples:vt"]
+    },
+    {
+      "name": "dt1-osc-unbounded",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "\tif len(data) <= room {",
+      "to": "\tif true {",
+      "rule": "An OSC string keeps at most OscLimit bytes and counts the rest. Killed by case vt/replay-tally (osc-cut 156).",
+      "killers": ["examples:vt"]
+    },
+    {
+      "name": "dt1-param-not-clamped",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "\t\t\tp.acc = if v > MaxParam { MaxParam } else { v }",
+      "to": "\t\t\tp.acc = v",
+      "rule": "A parameter saturates at 65535, as Ghostty's u16 does. Killed by case vt/replay-sequences (CSI 99999 C).",
+      "killers": ["examples:vt"]
+    },
+    {
+      "name": "dt1-utf8-surrogate-accepted",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "upper: if b == 0xed { 0x9f } else { 0xbf }",
+      "to": "upper: 0xbf",
+      "rule": "UTF-8 has no surrogates: ED A0 80 is three bad bytes. Killed by case vt/replay-sequences.",
+      "killers": ["examples:vt"]
+    },
+    {
+      "name": "dt1-colon-outside-sgr",
+      "origin": "wf10/dod/DT1",
+      "file": "examples/vt/vt/stream.ergo",
+      "from": "if b != 'm' && p.colons != 0 {",
+      "to": "if false && p.colons != 0 {",
+      "rule": "Only SGR takes colon sub-parameters; another CSI with one is dropped, as in Ghostty. Killed by case vt/replay-sequences (CSI 4:3 H).",
+      "killers": ["examples:vt"]
+    }
+  ]
+}

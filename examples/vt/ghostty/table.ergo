@@ -1,0 +1,167 @@
+// Package ghostty is the independent check of the VT parser: Ghostty's
+// transition table, transcribed from its source into
+// testdata/parse_table.txt with its MIT notice, and the law that holds
+// the parser's step to it for every state and every byte. It is a package
+// of its own so that the parser's package has no initializer to run, and
+// its laws run at check time too.
+
+import strconv
+import strings
+import vt/vt
+
+// Byte is a byte as a law parameter: 256 values, so a law over a State
+// and a Byte runs every pair (14 × 256 = 3,584 cases) and is proved.
+type Byte int where 0 <= it && it <= 255
+
+// StepMatchesTable: for every state and every byte, the step gives the
+// transition of Ghostty's table. The step is written from the state
+// descriptions and the table from Ghostty's source, so each checks the
+// other.
+law StepMatchesTable(s vt.State, b Byte) {
+	len(Reference.Problems) == 0 && vt.Next(s, vt.ClassOf(byte(int(b)))) == Reference.Cells[index(s)*256+int(b)]
+}
+
+// Table is a transition table over every state and byte: Cells[i*256+b]
+// is the transition of byte b in the state of index i, and Problems the
+// lines of its source that did not read.
+type Table { Cells []vt.Transition, Problems []string }
+
+// Reference is Ghostty's table.
+let Reference = ReadTable(tableText)
+
+// tableText is the transcription of Ghostty's table.
+let tableText = embedded[string]("testdata/parse_table.txt")
+
+// states is every state, in the order of index.
+let states = []vt.State{vt.Ground, vt.Escape, vt.EscapeIntermediate, vt.CsiEntry, vt.CsiIntermediate, vt.CsiParam, vt.CsiIgnore, vt.DcsEntry, vt.DcsParam, vt.DcsIntermediate, vt.DcsPassthrough, vt.DcsIgnore, vt.OscString, vt.SosPmApcString}
+
+// index is the place of s in states.
+func index(s vt.State) int {
+	match s {
+	case vt.Ground:
+		0
+	case vt.Escape:
+		1
+	case vt.EscapeIntermediate:
+		2
+	case vt.CsiEntry:
+		3
+	case vt.CsiIntermediate:
+		4
+	case vt.CsiParam:
+		5
+	case vt.CsiIgnore:
+		6
+	case vt.DcsEntry:
+		7
+	case vt.DcsParam:
+		8
+	case vt.DcsIntermediate:
+		9
+	case vt.DcsPassthrough:
+		10
+	case vt.DcsIgnore:
+		11
+	case vt.OscString:
+		12
+	case vt.SosPmApcString:
+		13
+	}
+}
+
+// ReadTable reads a table in the format of testdata/parse_table.txt: lines
+// "single BYTE FROM TO ACTION" and "range LOW HIGH FROM TO ACTION", later
+// lines over earlier ones, and every pair no line sets staying in its
+// state with no action.
+func ReadTable(text string) Table {
+	let mut cells = []vt.Transition{}
+	for s in states {
+		for _ in 0..256 {
+			cells = cells.Append(vt.Transition{To: s, Do: vt.NoAct})
+		}
+	}
+	let mut problems = []string{}
+	for line in strings.Split(text, "\n") {
+		let f = strings.Fields(line)
+		if len(f) == 0 || strings.HasPrefix(f[0], "#") {
+			continue
+		}
+		let ok = (f[0] == "single" && len(f) == 5) || (f[0] == "range" && len(f) == 6)
+		if !ok {
+			problems = problems.Append(line)
+			continue
+		}
+		let low = hexByte(f[1])
+		let high = if f[0] == "range" { hexByte(f[2]) } else { low }
+		let rest = if f[0] == "range" { 3 } else { 2 }
+		let into = stateNamed(f[rest+1])
+		let does = actNamed(f[rest+2])
+		if low < 0 || high < low || len(into) == 0 || len(does) == 0 || (f[rest] != "anywhere" && len(stateNamed(f[rest])) == 0) {
+			problems = problems.Append(line)
+			continue
+		}
+		let from = if f[rest] == "anywhere" { states } else { stateNamed(f[rest]) }
+		for s in from {
+			for b in low..high+1 {
+				cells[index(s)*256+b] = vt.Transition{To: into[0], Do: does[0]}
+			}
+		}
+	}
+	Table{Cells: cells, Problems: problems}
+}
+
+// hexByte is the value of a byte written 0xNN, or -1.
+func hexByte(t string) int {
+	if !strings.HasPrefix(t, "0x") {
+		return -1
+	}
+	let v = strconv.ParseInt(t[2:], 16, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return -1
+	}
+	if v < 0 || v > 255 { -1 } else { int(v) }
+}
+
+// stateNamed is the state of Ghostty's name, as a list of one, or none.
+func stateNamed(name string) []vt.State {
+	let mut out = []vt.State{}
+	for i in 0..len(stateNames) {
+		if stateNames[i] == name {
+			out = out.Append(states[i])
+		}
+	}
+	out
+}
+
+// stateNames is Ghostty's name of each state, in the order of states.
+let stateNames = []string{"ground", "escape", "escape_intermediate", "csi_entry", "csi_intermediate", "csi_param", "csi_ignore", "dcs_entry", "dcs_param", "dcs_intermediate", "dcs_passthrough", "dcs_ignore", "osc_string", "sos_pm_apc_string"}
+
+// actNamed is the action of Ghostty's name, as a list of one, or none.
+func actNamed(name string) []vt.Act {
+	match name {
+	case "none":
+		[]vt.Act{vt.NoAct}
+	case "ignore":
+		[]vt.Act{vt.IgnoreByte}
+	case "print":
+		[]vt.Act{vt.PrintByte}
+	case "execute":
+		[]vt.Act{vt.ExecuteByte}
+	case "collect":
+		[]vt.Act{vt.CollectByte}
+	case "param":
+		[]vt.Act{vt.ParamByte}
+	case "esc_dispatch":
+		[]vt.Act{vt.EscDispatch}
+	case "csi_dispatch":
+		[]vt.Act{vt.CsiDispatch}
+	case "put":
+		[]vt.Act{vt.DcsPut}
+	case "osc_put":
+		[]vt.Act{vt.OscPut}
+	case "apc_put":
+		[]vt.Act{vt.ApcPut}
+	case _:
+		[]vt.Act{}
+	}
+}

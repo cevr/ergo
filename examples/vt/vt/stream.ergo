@@ -1,0 +1,295 @@
+// Event is what the parser hands to a screen: a run of text, one decoded
+// character, a control, or a whole sequence. Strings (OSC, DCS, APC) are
+// handed over once, when they end.
+type Event = Text{Run string} | Glyph{C rune} | Control{C byte} | Esc{Inter string, Final byte} | Csi{Params []int, Colons int, Inter string, Final byte} | Osc{Data string} | Hook{Params []int, Inter string, Final byte} | Unhook{Len int} | Apc{Len int}
+
+// Tally counts what the parser did not hand over as it came: sequences
+// it dropped, bytes that were not UTF-8, and OSC data past the limit.
+type Tally { Bytes int, Dropped int, BadText int, OscCut int }
+
+// OscLimit is the most bytes of an OSC string that are kept.
+let OscLimit = 1024
+
+// MaxParam is the largest parameter value; a larger one is clamped to it.
+let MaxParam = 65535
+
+// Replacement is the character that stands for bytes that are not UTF-8.
+let Replacement = rune(0xfffd)
+
+// utf is the UTF-8 decoder of the ground state: the bytes it still needs,
+// the bytes it has, the code point so far, and the range the next byte
+// must be in (WHATWG's decoder).
+type utf { need int, seen int, cp int, lower int, upper int }
+
+// Stream is a parser with its collector and its decoder. Feed it bytes in
+// any pieces; the events do not depend on where the pieces end.
+type Stream {
+	parse  Parse,
+	params [24]int,
+	colons int,
+	acc    int,
+	inter  string,
+	osc    string,
+	length int,
+	text   utf,
+	fast   bool,
+	out    []Event,
+	Tally  Tally,
+}
+
+// idle is the decoder with no character begun.
+let idle = utf{need: 0, seen: 0, cp: 0, lower: 0x80, upper: 0xbf}
+
+// NewStream is a parser at the start of a stream. With fast, a run of
+// printable ASCII in the ground state, and of data in an OSC string, is
+// taken in one step; without it every byte goes through the machine. The
+// two give the same events (law FastPathMatchesStep).
+func NewStream(fast bool) Stream {
+	Stream{
+		parse:  Start,
+		params: [24]int{},
+		colons: 0,
+		acc:    0,
+		inter:  "",
+		osc:    "",
+		length: 0,
+		text:   idle,
+		fast:   fast,
+		out:    []Event{},
+		Tally:  Tally{Bytes: 0, Dropped: 0, BadText: 0, OscCut: 0},
+	}
+}
+
+// At is the parser's state.
+func At(p Stream) State { p.parse.At }
+
+// Feed parses input, the next piece of the stream, and keeps its
+// events for Take. In the ground state a byte of 0x80 or more starts a
+// UTF-8 character, and does not reach the machine (Ghostty decodes UTF-8
+// before its parser, and takes no 8-bit control there).
+func Feed(p *Stream, input string) {
+	let n = len(input)
+	let mut i = 0
+	p.Tally.Bytes += n
+	for i < n {
+		let b = input[i]
+		if p.text.need > 0 {
+			if int(b) < p.text.lower || int(b) > p.text.upper {
+				// Not a continuation: the character is bad, and b is read
+				// again from the start.
+				p.emit(Glyph{C: Replacement})
+				p.Tally.BadText += 1
+				p.text = idle
+				continue
+			}
+			p.text = utf{need: p.text.need, seen: p.text.seen + 1, cp: p.text.cp*64 + int(b&0x3f), lower: 0x80, upper: 0xbf}
+			if p.text.seen == p.text.need {
+				p.emit(Glyph{C: rune(p.text.cp)})
+				p.text = idle
+			}
+			i += 1
+			continue
+		}
+		match p.parse.At {
+		case Ground:
+			if b >= 0x80 {
+				p.lead(b)
+				i += 1
+				continue
+			}
+			if p.fast && b >= 0x20 && b < 0x7f {
+				let mut j = i + 1
+				for j < n && input[j] >= 0x20 && input[j] < 0x7f {
+					j += 1
+				}
+				p.emit(Text{Run: input[i:j]})
+				i = j
+				continue
+			}
+		case OscString:
+			if p.fast && b >= 0x20 {
+				let mut j = i + 1
+				for j < n && input[j] >= 0x20 {
+					j += 1
+				}
+				p.keep(input[i:j])
+				i = j
+				continue
+			}
+		case Escape, EscapeIntermediate, CsiEntry, CsiIntermediate, CsiParam, CsiIgnore, DcsEntry, DcsParam, DcsIntermediate, DcsPassthrough, DcsIgnore, SosPmApcString:
+		}
+		p.step(b)
+		i += 1
+	}
+}
+
+// Finish ends the stream: a character left unfinished is bad.
+func Finish(p *Stream) {
+	if p.text.need > 0 {
+		p.text = idle
+		p.Tally.BadText += 1
+		p.emit(Glyph{C: Replacement})
+	}
+}
+
+// Take is the events kept since the last Take.
+func Take(p *Stream) []Event {
+	let got = p.out
+	p.out = []Event{}
+	got
+}
+
+// emit keeps the event e.
+func emit(p *Stream, e Event) { p.out = p.out.Append(e) }
+
+// lead starts a UTF-8 character with the byte b, or hands over a bad one.
+func lead(p *Stream, b byte) {
+	if b >= 0xc2 && b <= 0xdf {
+		p.text = utf{need: 1, seen: 0, cp: int(b & 0x1f), lower: 0x80, upper: 0xbf}
+	} else if b >= 0xe0 && b <= 0xef {
+		p.text = utf{need: 2, seen: 0, cp: int(b & 0x0f), lower: if b == 0xe0 { 0xa0 } else { 0x80 }, upper: if b == 0xed { 0x9f } else { 0xbf }}
+	} else if b >= 0xf0 && b <= 0xf4 {
+		p.text = utf{need: 3, seen: 0, cp: int(b & 0x07), lower: if b == 0xf0 { 0x90 } else { 0x80 }, upper: if b == 0xf4 { 0x8f } else { 0xbf }}
+	} else {
+		p.Tally.BadText += 1
+		p.emit(Glyph{C: Replacement})
+	}
+}
+
+// keep adds data to the OSC string, up to OscLimit bytes.
+func keep(p *Stream, data string) {
+	let room = OscLimit - len(p.osc)
+	if len(data) <= room {
+		p.osc = p.osc + data
+	} else {
+		if room > 0 {
+			p.osc = p.osc + data[0:room]
+		}
+		p.Tally.OscCut += len(data) - room
+	}
+}
+
+// step runs the machine on the byte b: the exit action of the state it
+// leaves, the transition's action, and the entry action of the state it
+// enters, in that order.
+func step(p *Stream, b byte) {
+	let from = p.parse
+	let t, k = Advance(from, ClassOf(b))
+	let moved = t.To != from.At
+	if moved {
+		p.exit(from.At)
+	}
+	p.act(t.Do, b, from.Counts)
+	if moved {
+		p.enter(t.To, b, from.Counts)
+	}
+	p.parse = Parse{At: t.To, Counts: k}
+}
+
+// exit is the exit action of the state s: a string hands over what it
+// held.
+func exit(p *Stream, s State) {
+	match s {
+	case OscString:
+		p.emit(Osc{Data: p.osc})
+	case DcsPassthrough:
+		p.emit(Unhook{Len: p.length})
+	case SosPmApcString:
+		p.emit(Apc{Len: p.length})
+	case Ground, Escape, EscapeIntermediate, CsiEntry, CsiIntermediate, CsiParam, CsiIgnore, DcsEntry, DcsParam, DcsIntermediate, DcsIgnore:
+	}
+}
+
+// act is the transition action a of the byte b; k is the collector's
+// counts before it.
+func act(p *Stream, a Act, b byte, k Counts) {
+	match a {
+	case PrintByte:
+		p.emit(Text{Run: ByteText(b)})
+	case ExecuteByte:
+		p.emit(Control{C: b})
+	case CollectByte:
+		if k.Inter < MaxIntermediates {
+			p.inter = p.inter + ByteText(b)
+		}
+	case ParamByte:
+		if b == ';' || b == ':' {
+			if k.Params < MaxParams {
+				p.params[k.Params] = p.acc
+				if b == ':' {
+					p.colons = p.colons | (1 << k.Params)
+				}
+			}
+			p.acc = 0
+		} else {
+			let v = p.acc*10 + int(b-'0')
+			p.acc = if v > MaxParam { MaxParam } else { v }
+		}
+	case EscDispatch:
+		p.emit(Esc{Inter: p.inter, Final: b})
+	case CsiDispatch:
+		if k.Params >= MaxParams {
+			p.Tally.Dropped += 1
+			return
+		}
+		let params = p.complete(k)
+		if b != 'm' && p.colons != 0 {
+			// Only SGR takes sub-parameters.
+			p.Tally.Dropped += 1
+			return
+		}
+		p.emit(Csi{Params: params, Colons: p.colons, Inter: p.inter, Final: b})
+	case DcsPut, ApcPut:
+		p.length += 1
+	case OscPut:
+		p.keep(ByteText(b))
+	case NoAct, IgnoreByte:
+	}
+}
+
+// complete is the parameters with the one being read completed, when
+// there is one; k.Params is below MaxParams.
+func complete(p *Stream, k Counts) []int {
+	let mut n = k.Params
+	if k.Digits {
+		p.params[n] = p.acc
+		n += 1
+	}
+	let mut params = []int{}
+	for i in 0..n {
+		params = params.Append(p.params[i])
+	}
+	params
+}
+
+// enter is the entry action of the state s, entered on the byte b; k is
+// the collector's counts before the byte.
+func enter(p *Stream, s State, b byte, k Counts) {
+	match s {
+	case Escape, CsiEntry, DcsEntry:
+		p.inter = ""
+		p.colons = 0
+		p.acc = 0
+	case OscString:
+		p.osc = ""
+	case DcsPassthrough:
+		p.length = 0
+		if k.Params >= MaxParams {
+			p.Tally.Dropped += 1
+			return
+		}
+		p.emit(Hook{Params: p.complete(k), Inter: p.inter, Final: b})
+	case SosPmApcString:
+		p.length = 0
+	case Ground, EscapeIntermediate, CsiIntermediate, CsiParam, CsiIgnore, DcsParam, DcsIntermediate, DcsIgnore:
+	}
+}
+
+// ByteText is the one-byte string of b.
+func ByteText(b byte) string {
+	let i = int(b)
+	everyByte[i : i+1]
+}
+
+// everyByte is the 256 bytes in order.
+let everyByte = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff"

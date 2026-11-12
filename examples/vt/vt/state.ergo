@@ -1,0 +1,357 @@
+// Package vt is the parser of a terminal's input: the DEC escape-sequence
+// state machine of vt100.net, as Ghostty runs it, over a byte stream.
+//
+// The machine's states carry nothing. A byte is first put in one of 22
+// classes; the step reads the state and the class and gives the next
+// state and one of 11 transition actions. The collector (parameters,
+// intermediates) and the strings (OSC, DCS, APC) are records outside the
+// machine, which the actions change (C8: the machine stays small, the
+// data stays beside it, as Ghostty splits Parser from its stream handler).
+
+// State is where the parser is in a sequence: the 14 states of the DEC
+// parser.
+type State = Ground{} | Escape{} | EscapeIntermediate{} | CsiEntry{} | CsiIntermediate{} | CsiParam{} | CsiIgnore{} | DcsEntry{} | DcsParam{} | DcsIntermediate{} | DcsPassthrough{} | DcsIgnore{} | OscString{} | SosPmApcString{}
+
+// Class is the kind of one byte, as the step sees it: two bytes in one
+// class lead every state to the same state with the same action.
+//
+//	C0        0x00-0x06, 0x08-0x17, 0x19, 0x1c-0x1f  controls
+//	Bel       0x07                                    ends an OSC string
+//	CanSub    0x18, 0x1a                              cancel a sequence
+//	EscByte   0x1b                                    starts a sequence
+//	Inter     0x20-0x2f                               intermediates
+//	Digit     0x30-0x39                               parameter digits
+//	Colon     0x3a                                    sub-parameter separator
+//	Semi      0x3b                                    parameter separator
+//	Private   0x3c-0x3f                               private markers
+//	Final     0x40-0x7e but P X [ ] ^ _               final bytes
+//	DcsIntro  0x50 'P'
+//	SosIntro  0x58 'X', 0x5e '^', 0x5f '_'
+//	CsiIntro  0x5b '['
+//	OscIntro  0x5d ']'
+//	Del       0x7f
+//	C1        0x80-0x8f, 0x91-0x97, 0x99, 0x9a        8-bit controls
+//	C1Dcs     0x90
+//	C1Sos     0x98, 0x9e, 0x9f
+//	C1Csi     0x9b
+//	C1St      0x9c                                    string terminator
+//	C1Osc     0x9d
+//	High      0xa0-0xff
+type Class = C0{} | Bel{} | CanSub{} | EscByte{} | Inter{} | Digit{} | Colon{} | Semi{} | Private{} | Final{} | DcsIntro{} | SosIntro{} | CsiIntro{} | OscIntro{} | Del{} | C1{} | C1Dcs{} | C1Sos{} | C1Csi{} | C1St{} | C1Osc{} | High{}
+
+// Act is what a transition does with its byte: Ghostty's transition
+// actions.
+type Act = NoAct{} | IgnoreByte{} | PrintByte{} | ExecuteByte{} | CollectByte{} | ParamByte{} | EscDispatch{} | CsiDispatch{} | DcsPut{} | OscPut{} | ApcPut{}
+
+// Transition is the next state and the action of one byte.
+type Transition { To State, Do Act }
+
+// ClassOf is the class of the byte b.
+func ClassOf(b byte) Class {
+	if b < 0x20 {
+		match b {
+		case 0x07:
+			Bel
+		case 0x18, 0x1a:
+			CanSub
+		case 0x1b:
+			EscByte
+		case _:
+			C0
+		}
+	} else if b < 0x30 {
+		Inter
+	} else if b < 0x3a {
+		Digit
+	} else if b < 0x40 {
+		match b {
+		case 0x3a:
+			Colon
+		case 0x3b:
+			Semi
+		case _:
+			Private
+		}
+	} else if b < 0x7f {
+		match b {
+		case 'P':
+			DcsIntro
+		case 'X', '^', '_':
+			SosIntro
+		case '[':
+			CsiIntro
+		case ']':
+			OscIntro
+		case _:
+			Final
+		}
+	} else if b == 0x7f {
+		Del
+	} else if b < 0xa0 {
+		match b {
+		case 0x90:
+			C1Dcs
+		case 0x98, 0x9e, 0x9f:
+			C1Sos
+		case 0x9b:
+			C1Csi
+		case 0x9c:
+			C1St
+		case 0x9d:
+			C1Osc
+		case _:
+			C1
+		}
+	} else {
+		High
+	}
+}
+
+// to is the transition to s with the action a.
+func to(s State, a Act) Transition { Transition{To: s, Do: a} }
+
+// Next is the parser's step: the transition of a byte of class c in the
+// state s. It follows the state descriptions of vt100.net's DEC parser,
+// with Ghostty's changes: a colon is a parameter separator in CSI, DEL
+// prints in the ground state, and the high bytes inside a DCS or an OSC
+// string are its data, not 8-bit controls.
+func Next(s State, c Class) Transition {
+	match s {
+	case Ground:
+		match c {
+		case C0, Bel:
+			to(Ground, ExecuteByte)
+		case Inter, Digit, Colon, Semi, Private, Final, DcsIntro, SosIntro, CsiIntro, OscIntro, Del:
+			to(Ground, PrintByte)
+		case High:
+			to(Ground, NoAct)
+		case CanSub, EscByte, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc:
+			anywhere(c)
+		}
+	case Escape:
+		match c {
+		case C0, Bel:
+			to(Escape, ExecuteByte)
+		case Del:
+			to(Escape, IgnoreByte)
+		case Inter:
+			to(EscapeIntermediate, CollectByte)
+		case Digit, Colon, Semi, Private, Final:
+			to(Ground, EscDispatch)
+		case DcsIntro:
+			to(DcsEntry, NoAct)
+		case SosIntro:
+			to(SosPmApcString, NoAct)
+		case CsiIntro:
+			to(CsiEntry, NoAct)
+		case OscIntro:
+			to(OscString, NoAct)
+		case High:
+			to(Escape, NoAct)
+		case CanSub, EscByte, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc:
+			anywhere(c)
+		}
+	case EscapeIntermediate:
+		match c {
+		case C0, Bel:
+			to(EscapeIntermediate, ExecuteByte)
+		case Inter:
+			to(EscapeIntermediate, CollectByte)
+		case Del:
+			to(EscapeIntermediate, IgnoreByte)
+		case Digit, Colon, Semi, Private, Final, DcsIntro, SosIntro, CsiIntro, OscIntro:
+			to(Ground, EscDispatch)
+		case High:
+			to(EscapeIntermediate, NoAct)
+		case CanSub, EscByte, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc:
+			anywhere(c)
+		}
+	case CsiEntry:
+		match c {
+		case C0, Bel:
+			to(CsiEntry, ExecuteByte)
+		case Del:
+			to(CsiEntry, IgnoreByte)
+		case Inter:
+			to(CsiIntermediate, CollectByte)
+		case Digit, Semi:
+			to(CsiParam, ParamByte)
+		case Private:
+			to(CsiParam, CollectByte)
+		case Colon:
+			to(CsiIgnore, NoAct)
+		case Final, DcsIntro, SosIntro, CsiIntro, OscIntro:
+			to(Ground, CsiDispatch)
+		case High:
+			to(CsiEntry, NoAct)
+		case CanSub, EscByte, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc:
+			anywhere(c)
+		}
+	case CsiParam:
+		match c {
+		case C0, Bel:
+			to(CsiParam, ExecuteByte)
+		case Digit, Colon, Semi:
+			to(CsiParam, ParamByte)
+		case Del:
+			to(CsiParam, IgnoreByte)
+		case Inter:
+			to(CsiIntermediate, CollectByte)
+		case Private:
+			to(CsiIgnore, NoAct)
+		case Final, DcsIntro, SosIntro, CsiIntro, OscIntro:
+			to(Ground, CsiDispatch)
+		case High:
+			to(CsiParam, NoAct)
+		case CanSub, EscByte, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc:
+			anywhere(c)
+		}
+	case CsiIntermediate:
+		match c {
+		case C0, Bel:
+			to(CsiIntermediate, ExecuteByte)
+		case Inter:
+			to(CsiIntermediate, CollectByte)
+		case Del:
+			to(CsiIntermediate, IgnoreByte)
+		case Digit, Colon, Semi, Private:
+			to(CsiIgnore, NoAct)
+		case Final, DcsIntro, SosIntro, CsiIntro, OscIntro:
+			to(Ground, CsiDispatch)
+		case High:
+			to(CsiIntermediate, NoAct)
+		case CanSub, EscByte, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc:
+			anywhere(c)
+		}
+	case CsiIgnore:
+		match c {
+		case C0, Bel:
+			to(CsiIgnore, ExecuteByte)
+		case Inter, Digit, Colon, Semi, Private, Del:
+			to(CsiIgnore, IgnoreByte)
+		case Final, DcsIntro, SosIntro, CsiIntro, OscIntro:
+			to(Ground, NoAct)
+		case High:
+			to(CsiIgnore, NoAct)
+		case CanSub, EscByte, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc:
+			anywhere(c)
+		}
+	case DcsEntry:
+		match c {
+		case C0, Bel, Del:
+			to(DcsEntry, IgnoreByte)
+		case Inter:
+			to(DcsIntermediate, CollectByte)
+		case Colon:
+			to(DcsIgnore, NoAct)
+		case Digit, Semi:
+			to(DcsParam, ParamByte)
+		case Private:
+			to(DcsParam, CollectByte)
+		case Final, DcsIntro, SosIntro, CsiIntro, OscIntro:
+			to(DcsPassthrough, NoAct)
+		case High:
+			to(DcsEntry, NoAct)
+		case CanSub, EscByte, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc:
+			anywhere(c)
+		}
+	case DcsParam:
+		match c {
+		case C0, Bel, Del:
+			to(DcsParam, IgnoreByte)
+		case Digit, Semi:
+			to(DcsParam, ParamByte)
+		case Colon, Private:
+			to(DcsIgnore, NoAct)
+		case Inter:
+			to(DcsIntermediate, CollectByte)
+		case Final, DcsIntro, SosIntro, CsiIntro, OscIntro:
+			to(DcsPassthrough, NoAct)
+		case High:
+			to(DcsParam, NoAct)
+		case CanSub, EscByte, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc:
+			anywhere(c)
+		}
+	case DcsIntermediate:
+		match c {
+		case C0, Bel, Del:
+			to(DcsIntermediate, IgnoreByte)
+		case Inter:
+			to(DcsIntermediate, CollectByte)
+		case Digit, Colon, Semi, Private:
+			to(DcsIgnore, NoAct)
+		case Final, DcsIntro, SosIntro, CsiIntro, OscIntro:
+			to(DcsPassthrough, NoAct)
+		case High:
+			to(DcsIntermediate, NoAct)
+		case CanSub, EscByte, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc:
+			anywhere(c)
+		}
+	case DcsPassthrough:
+		// The data of a DCS string is any byte but DEL, high bytes too: a
+		// UTF-8 payload may hold bytes of the C1 range.
+		match c {
+		case C0, Bel, Inter, Digit, Colon, Semi, Private, Final, DcsIntro, SosIntro, CsiIntro, OscIntro, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc, High:
+			to(DcsPassthrough, DcsPut)
+		case Del:
+			to(DcsPassthrough, IgnoreByte)
+		case CanSub, EscByte:
+			anywhere(c)
+		}
+	case DcsIgnore:
+		match c {
+		case C0, Bel, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc, High:
+			to(DcsIgnore, IgnoreByte)
+		case Inter, Digit, Colon, Semi, Private, Final, DcsIntro, SosIntro, CsiIntro, OscIntro, Del:
+			to(DcsIgnore, NoAct)
+		case CanSub, EscByte:
+			anywhere(c)
+		}
+	case OscString:
+		// BEL ends the string (xterm's terminator); so does ST, as ESC \.
+		match c {
+		case C0:
+			to(OscString, IgnoreByte)
+		case Bel:
+			to(Ground, NoAct)
+		case Inter, Digit, Colon, Semi, Private, Final, DcsIntro, SosIntro, CsiIntro, OscIntro, Del, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc, High:
+			to(OscString, OscPut)
+		case CanSub, EscByte:
+			anywhere(c)
+		}
+	case SosPmApcString:
+		match c {
+		case C0, Bel, Inter, Digit, Colon, Semi, Private, Final, DcsIntro, SosIntro, CsiIntro, OscIntro, Del:
+			to(SosPmApcString, ApcPut)
+		case High:
+			to(SosPmApcString, NoAct)
+		case CanSub, EscByte, C1, C1Dcs, C1Sos, C1Csi, C1St, C1Osc:
+			anywhere(c)
+		}
+	}
+}
+
+// anywhere is the transition of a byte that leaves any state the same
+// way: CAN and SUB cancel to ground, ESC starts a sequence, and the 8-bit
+// controls do what their 7-bit forms do. Every other class is not one of
+// these; it stays in Ground with no action, which no caller asks for.
+func anywhere(c Class) Transition {
+	match c {
+	case CanSub, C1:
+		to(Ground, ExecuteByte)
+	case C1St:
+		to(Ground, NoAct)
+	case EscByte:
+		to(Escape, NoAct)
+	case C1Sos:
+		to(SosPmApcString, NoAct)
+	case C1Csi:
+		to(CsiEntry, NoAct)
+	case C1Dcs:
+		to(DcsEntry, NoAct)
+	case C1Osc:
+		to(OscString, NoAct)
+	case C0, Bel, Inter, Digit, Colon, Semi, Private, Final, DcsIntro, SosIntro, CsiIntro, OscIntro, Del, High:
+		to(Ground, NoAct)
+	}
+}

@@ -1,0 +1,91 @@
+// vt parses terminal output and prints what a screen would be told.
+//
+//	vt replay            parse standard input; print each event and the tally
+//	vt replay -tally     parse standard input; print only the tally
+//	vt gen SEED N        print N bytes of generated terminal output
+//
+// This binary is the only place that chooses the providers: the host's
+// standard input, output and arguments.
+
+import io
+import os
+import strconv
+import vt/vt
+import vt/workload
+
+// Usage is the text of a usage failure.
+let Usage = "usage: vt replay [-tally] | vt gen SEED N"
+
+// Chunk is the size of the pieces replay feeds, as a terminal reads.
+let Chunk = 4096
+
+// Command is what the arguments ask for.
+type Command = Replay{Events bool} | Gen{Seed int, Size int}
+
+// Parse is the command of args.
+func Parse(args []string) Command fails os.Exit {
+	match (if len(args) == 0 { "" } else { args[0] }, len(args)) {
+	case ("replay", 1):
+		Replay{Events: true}
+	case ("replay", 2):
+		if args[1] != "-tally" {
+			return os.Exit{Code: 2, Message: Usage}
+		}
+		Replay{Events: false}
+	case ("gen", 3):
+		Gen{Seed: try count(args[1]), Size: try count(args[2])}
+	case (_, _):
+		os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+// count is the count in text, or a usage failure.
+func count(text string) int fails os.Exit {
+	let n = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "vt: \(strconv.Quote(text)) is not a number\n\(Usage)"}
+	}
+	if n < 0 {
+		return os.Exit{Code: 2, Message: "vt: \(n) is negative\n\(Usage)"}
+	}
+	n
+}
+
+// Run parses input in pieces of Chunk bytes, and prints each event's
+// line when events is set, then the tally. The events of every piece are
+// rendered together, so a run of text cut by a piece is one line.
+func Run(input string, events bool) needs Console {
+	let mut p = vt.NewStream(true)
+	let mut at = 0
+	for at < len(input) {
+		let end = if at+Chunk < len(input) { at + Chunk } else { len(input) }
+		p.Feed(input[at:end])
+		if !events {
+			let _ = p.Take()
+		}
+		at = end
+	}
+	p.Finish()
+	if events {
+		for line in vt.Render(p.Take()) {
+			Console.Println(line)
+		}
+	}
+	Console.Println(vt.TallyText(p.Tally))
+}
+
+// main does what the arguments ask, on the host's arguments and input.
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
+		match try Parse(os.Process.Args()) {
+		case Replay as r:
+			let input = io.Stdin.ReadAll() catch {
+			case io.ReadFailed as f:
+				return os.Exit{Code: 1, Message: "vt: \(f.Reason)"}
+			}
+			Run(input, r.Events)
+		case Gen as g:
+			io.Stdout.Print(workload.Gen(g.Seed, g.Size))
+		}
+	}
+}

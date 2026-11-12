@@ -1,0 +1,157 @@
+// Package workload makes terminal output to feed the parser: what a
+// shell, an editor and a pager write, with the malformed bytes a terminal
+// must also survive. The same seed and size always give the same bytes.
+
+import strings
+
+// Rand is a splitmix64 stream.
+type Rand { s uint64 }
+
+// New is the stream of seed.
+func New(seed int) Rand { Rand{s: uint64(seed)} }
+
+// next is the next 64 bits of r.
+func next(r *Rand) uint64 {
+	r.s = r.s + 0x9e3779b97f4a7c15
+	let mut z = r.s
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
+	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
+	z ^ (z >> 31)
+}
+
+// below is a number in [0, n); n is positive.
+func below(r *Rand, n int) int { int(r.next() % uint64(n)) }
+
+// pick is one of xs; xs is not empty.
+func pick(r *Rand, xs []string) string { xs[r.below(len(xs))] }
+
+// words are the text of the plain runs.
+let words = []string{"the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "ls", "-la", "make", "test", "ok", "FAIL", "src/main.go:12:", "{", "}", "[x]", "~/work", "$", "#", "100%"}
+
+// wide are characters of two, three and four bytes, some of them wide.
+let wide = []string{"\xc3\xa9", "\xc3\xbc", "\xe2\x80\x94", "\xe2\x94\x80", "\xe2\x94\x82", "\xe4\xb8\x96", "\xe7\x95\x8c", "\xef\xbc\xa1", "\xf0\x9f\x98\x80", "\xf0\x9f\x9a\x80"}
+
+// finals are the final bytes of the CSI sequences the screen takes:
+// cursor moves, erases, inserts and deletes, scrolls.
+let finals = []string{"A", "B", "C", "D", "H", "f", "G", "d", "J", "K", "L", "M", "@", "P", "X", "S", "T"}
+
+// modes are the private modes the screen takes.
+let modes = []string{"6", "7", "25", "1049"}
+
+// esc are the plain escape sequences the screen takes.
+let escs = []string{"\x1bD", "\x1bE", "\x1bM", "\x1b7", "\x1b8", "\x1bc", "\x1b(B", "\x1b)0"}
+
+// controls are the C0 controls the screen takes.
+let controls = []string{"\r\n", "\n", "\r", "\t", "\x08", "\x07", "\x0b", "\x0c"}
+
+// junk is malformed or unusual input: bad UTF-8, 8-bit controls, a
+// cancelled sequence, too many parameters, a huge parameter, a colon
+// where only SGR takes one, too many intermediates, DCS and APC strings,
+// DEL inside a sequence, and an OSC that ESC \ ends. One junk piece in
+// 30 is an OSC past the limit the parser keeps.
+let junk = []string{
+	"\xc3",
+	"\x80",
+	"\xff",
+	"\xe2\x82",
+	"\xed\xa0\x80",
+	"\xf0\x9f\x98",
+	"\x9b31m",
+	"\x9c",
+	"\x1b[1;2\x183",
+	"\x1b[1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1m",
+	"\x1b[1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;24H",
+	"\x1b[99999C",
+	"\x1b[4:3H",
+	"\x1b[4:3m",
+	"\x1b[38:2::10:20:30m",
+	"\x1b[!!!!!p",
+	"\x1b[?$p",
+	"\x1bP1$qm\x1b\\",
+	"\x1bP+q544e\x1b\\",
+	"\x1b_Gf=24;AAAA\x1b\\",
+	"\x1b^pm\x1b\\",
+	"\x1b[1\x7f2m",
+	"\x1b]2;title\x1b\\",
+	"\x1b[<5;6M",
+	"\x1b[1:2:3",
+	"\x1b]0;\xe4\xb8\x96\x07",
+}
+
+// Gen is n bytes of terminal output from seed. The last piece is cut at
+// n bytes, so a sequence or a character may end unfinished.
+func Gen(seed int, n int) string {
+	let mut r = New(seed)
+	let mut parts = []string{}
+	let mut size = 0
+	for size < n {
+		let part = r.piece()
+		parts = parts.Append(part)
+		size += len(part)
+	}
+	let all = strings.Join(parts, "")
+	all[0:n]
+}
+
+// piece is one piece of output.
+func piece(r *Rand) string {
+	let k = r.below(100)
+	if k < 40 {
+		r.text()
+	} else if k < 48 {
+		r.pick(wide)
+	} else if k < 62 {
+		r.sgr()
+	} else if k < 72 {
+		let n = r.below(40)
+		"\x1b[\(n)" + r.pick(finals)
+	} else if k < 76 {
+		"\x1b[\(1 + r.below(30));\(1 + r.below(100))H"
+	} else if k < 78 {
+		"\x1b[\(1 + r.below(10));\(10 + r.below(20))r"
+	} else if k < 80 {
+		"\x1b[?" + r.pick(modes) + (if r.below(2) == 0 { "h" } else { "l" })
+	} else if k < 83 {
+		r.pick(escs)
+	} else if k < 85 {
+		"\x1b]" + (if r.below(2) == 0 { "0" } else { "2" }) + ";" + r.text() + "\x07"
+	} else if k < 95 {
+		r.pick(controls)
+	} else {
+		if r.below(30) == 0 {
+			"\x1b]2;" + strings.Repeat("long title ", 100) + "\x07"
+		} else {
+			r.pick(junk)
+		}
+	}
+}
+
+// text is a run of words and spaces.
+func text(r *Rand) string {
+	let mut parts = []string{}
+	for _ in 0..1+r.below(8) {
+		parts = parts.Append(r.pick(words))
+	}
+	strings.Join(parts, " ")
+}
+
+// sgr is a select-graphic-rendition sequence: attributes, 16, 256 and RGB
+// colours, separated by semicolons.
+func sgr(r *Rand) string {
+	let mut ps = []string{}
+	for _ in 0..r.below(4) {
+		let k = r.below(8)
+		if k < 3 {
+			ps = ps.Append(r.pick([]string{"0", "1", "3", "4", "7", "22", "23", "24", "27"}))
+		} else if k < 5 {
+			ps = ps.Append("\(30 + r.below(8))")
+		} else if k < 6 {
+			ps = ps.Append("\(90 + r.below(8))")
+		} else if k < 7 {
+			ps = ps.Append((if r.below(2) == 0 { "38" } else { "48" }) + ";5;\(r.below(256))")
+		} else {
+			ps = ps.Append((if r.below(2) == 0 { "38" } else { "48" }) + ";2;\(r.below(256));\(r.below(256));\(r.below(256))")
+		}
+	}
+	"\x1b[" + strings.Join(ps, ";") + "m"
+}
