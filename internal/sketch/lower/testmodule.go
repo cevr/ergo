@@ -55,7 +55,7 @@ func LowerTestModule(units []Unit) ([]File, error) {
 		if !bytes.Equal(goModFile(u.Go), goModFile(units[0].Go)) || u.Go.Sum != units[0].Go.Sum {
 			return nil, fmt.Errorf("lower: the packages of a test module require different Go modules")
 		}
-		code, assets, err := lowerTestParts(u)
+		code, assets, err := lowerAsMain(u)
 		if err != nil {
 			return nil, err
 		}
@@ -70,6 +70,24 @@ func LowerTestModule(units []Unit) ([]File, error) {
 		}
 	}
 	return append(moduleFiles(units[0].Go, testDispatch(len(units))), body...), nil
+}
+
+// lowerAsMain lowers u's test build with its package named main for the
+// lowering, as a load of the package alone names its root. A shared load
+// checks a package that another package imports once, under its import
+// path, and that check is also its root here; its name is a label, not an
+// input of the check, but a type's qualified text prints it: a Script's
+// no-answer defect names testing.Script[main.Photos] (TEST-one round 2).
+// Units are lowered one at a time, and the name is restored before the
+// next, whose lowering prints the package under its own name.
+func lowerAsMain(u Unit) ([]byte, []File, error) {
+	if u.Package == nil {
+		return lowerTestParts(u)
+	}
+	name := u.Package.Name
+	u.Package.Name = "main"
+	defer func() { u.Package.Name = name }()
+	return lowerTestParts(u)
 }
 
 // testDispatch is the test module's main.go: it runs the Main of the
