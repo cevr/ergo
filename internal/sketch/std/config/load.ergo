@@ -48,7 +48,7 @@ func NoFlags() Flags { Flags{given: []flag.Given{}, declared: []string{}} }
 type Defaults { events []codec.Event }
 
 // DefaultsOf states d's fields as defaults.
-func DefaultsOf[D wire](d D) Defaults {
+func DefaultsOf[D wire](d D) Defaults needs wired[D] {
 	let e = codec.NewEvents()
 	encode(d, e)
 	Defaults{events: codec.Recorded(e)}
@@ -72,7 +72,7 @@ type Malformed { Path string, Line int, Key string, Reason string }
 // whose Path is the key and its source, such as "port (env NOTES_PORT)".
 // A file's syntax fails Malformed and a file the host cannot read
 // Unreadable.
-func Load[T wire](s Spec) T fails Unreadable | Malformed | wired[T] needs Config {
+func Load[T wire](s Spec) T fails Unreadable | Malformed | wired[T] needs Config | wired[T] {
 	let mut root = fromFlags(s.Flags.given)
 	if s.Prefix != "" {
 		root = merge(root, fromEnv(Config.Environ(s.Prefix + "_"), s.Prefix))
@@ -94,7 +94,7 @@ func Load[T wire](s Spec) T fails Unreadable | Malformed | wired[T] needs Config
 // LoadSecret is Load of a T that the program keeps as a secret: the T is
 // never in a value the program holds outside the Redacted, and a failure
 // names the key and the source, never the text (WireWrongKind's Path).
-func LoadSecret[T wire](s Spec) Redacted[T] fails Unreadable | Malformed | wired[T] needs Config {
+func LoadSecret[T wire](s Spec) Redacted[T] fails Unreadable | Malformed | wired[T] needs Config | wired[T] {
 	NewRedacted(try Load[T](s))
 }
 

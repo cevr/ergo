@@ -9,16 +9,18 @@ import (
 // Inside a generic body a value of a type parameter T is a plain value, so
 // the body may keep it: capture it in a frame that may outlive the call,
 // store it in a field, an element or a payload, or pass it where it may be
-// kept. A borrow instantiates T only as a lend, when the body keeps no
-// value of T. The rule is the allow-list of the borrow rules again, over
-// every expression of the body whose type mentions T:
+// kept. A borrow instantiates T only as a lend, when the signature marks
+// T lent, `[T lent]` (q137, EX3: the signature decides, and a call reads
+// no body). The declaration's body is checked against the mark
+// (checkLentParams). The rule is the allow-list of the borrow rules
+// again, over every expression of the body whose type mentions T:
 //
 //	1. the callee of a call, or the receiver of a field read, a method
 //	   value or an operation call (x.Check());
 //	2. an argument of a parameter that is a type parameter U of a generic
-//	   function that keeps no U (checked the same way; a cycle keeps), or
-//	   of a function value's parameter of T, which is a borrow parameter
-//	   in the function the caller wrote;
+//	   function whose signature marks U lent, or of a function value's
+//	   parameter of T, which is a borrow parameter in the function the
+//	   caller wrote;
 //	3. the value of a let, of an assignment to a local or through a borrow
 //	   parameter (*out = x: the caller's local), a match subject, an operand of a
 //	   comparison or an interpolation;
@@ -28,9 +30,9 @@ import (
 // A return or a block's value keeps T (INS-3): the written instance of a
 // body that returns its T returns a *T, which Borrows 1 refuses, so the
 // call refuses it too. A block's value is kept even when it flows only
-// into a local of the body (the simpler rule). A generic function
-// with no body Ergo reads (an extern) keeps every type parameter. A
-// literal of a generic type built over a borrow (Box{V: t}) is refused at
+// into a local of the body (the simpler rule). A generic function with
+// no body Ergo reads (an extern), and a generic type, cannot mark a type
+// parameter lent. A literal of a generic type built over a borrow (Box{V: t}) is refused at
 // the literal, since a record never holds a borrow.
 //
 // Prior art: Rust carries the lifetime in the instantiated type, so
@@ -54,29 +56,57 @@ func typeMentions(t Type, tp *TypeParam) bool {
 	return found
 }
 
-// keepsTParam is why f's body may keep a value of its type parameter tp,
-// or "" when it keeps none.
+// keepsTParam is why a body of f may keep a value of its type parameter
+// tp, or "" when tp is marked lent: the signature decides (q137, EX3), and
+// the body is checked against the mark at the declaration
+// (checkLentParams), never read at a call.
 func (w *escWalk) keepsTParam(f *Func, tp *TypeParam) string {
-	if w.keeps == nil {
-		w.keeps = map[*Func]map[*TypeParam]string{}
+	if typeSet(tp) == SetLent {
+		return ""
 	}
-	if m, ok := w.keeps[f]; ok {
-		if why, done := m[tp]; done {
-			return why
+	return "its signature does not write [" + tp.Name + " lent]"
+}
+
+// checkLentParams checks the declaration d against each type parameter
+// its signature marks lent: its body keeps no value of it. A declaration
+// with no body Ergo reads (an extern) cannot mark one, nor can a type
+// declaration, whose values would hold the borrow.
+func (w *escWalk) checkLentParams(d syntax.Decl) {
+	var list *syntax.FieldList
+	var body *syntax.BlockStmt
+	what := ""
+	switch d := d.(type) {
+	case *syntax.FuncDecl:
+		list, body = d.TypeParams, d.Body
+		if d.Extern != nil || d.Body == nil {
+			what = "an extern's body is Go code, which Ergo does not read"
+		}
+	case *syntax.TypeDecl:
+		list = d.TypeParams
+		what = "a value of a generic type holds its type argument, and a record or a collection never holds a borrow"
+	default:
+		return
+	}
+	if list == nil {
+		return
+	}
+	for _, field := range list.List {
+		for _, id := range field.Names {
+			p, ok := w.info.Defs[id].(*TypeParam)
+			if !ok || typeSet(p) != SetLent {
+				continue
+			}
+			if what != "" {
+				w.c.errorf(id, CodeType, "%s cannot be lent: %s (types.md, Borrows 7)", id.Name, what)
+				continue
+			}
+			k := &keepWalk{w: w, info: w.info, tp: p}
+			k.walk(body)
+			if k.why != "" {
+				w.c.errorf(id, CodeType, "%s is lent, so the body keeps no value of it, but %s; drop lent, or keep no value of %s (types.md, Borrows 7)", id.Name, k.why, id.Name)
+			}
 		}
 	}
-	if f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil {
-		return "it has no body Ergo reads"
-	}
-	if w.keeps[f] == nil {
-		w.keeps[f] = map[*TypeParam]string{}
-	}
-	// A cycle keeps until the body is read through.
-	w.keeps[f][tp] = "it calls itself with it"
-	k := &keepWalk{w: w, info: f.Pkg.Info, tp: tp}
-	k.walk(f.Decl.Body)
-	w.keeps[f][tp] = k.why
-	return k.why
 }
 
 // keepWalk reads one generic body for one type parameter.

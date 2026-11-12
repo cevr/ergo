@@ -154,6 +154,7 @@ type TypeSet uint8
 // The type sets.
 const (
 	SetAll        TypeSet = iota // every type: a method set or no constraint
+	SetLent                      // lent: every type, a borrow included; the body keeps none (types.md, Borrows 7)
 	SetWire                      // wire: the types with a wire form
 	SetComparable                // comparable
 	SetOrdered                   // ordered
@@ -162,6 +163,8 @@ const (
 
 func (s TypeSet) String() string {
 	switch s {
+	case SetLent:
+		return "lent"
 	case SetWire:
 		return "wire"
 	case SetComparable:
@@ -349,8 +352,14 @@ type RowArg struct{ Row *Row }
 // Wired is the row element wired[T] for a wire type parameter T: the
 // failures of decode[T], which only T's type argument decides (types.md,
 // Codecs 2; owner q80). Substitution replaces it by the argument's wire
-// row (typeops.go subst), so an instance's row is concrete.
-type Wired struct{ T *TypeParam }
+// row (typeops.go subst), so an instance's row is concrete. Uses marks
+// the element of a needs row: the capabilities of T's codec functions
+// (types.md, Codecs 8; q141), which an instance replaces by the needs of
+// the argument's Wire and ParseX functions.
+type Wired struct {
+	T    *TypeParam
+	Uses bool
+}
 
 // Tuple is the value of a call with several results.
 type Tuple struct{ Types []Type }
@@ -748,6 +757,9 @@ func typeString(t Type) string {
 	case *RowArg:
 		return "{" + t.Row.list("|") + "}"
 	case *Wired:
+		if t.Uses {
+			return "wiredneeds[$" + t.T.Name + "]"
+		}
 		return "wired[$" + t.T.Name + "]"
 	case *Slice:
 		return "[]" + typeString(t.Elem)

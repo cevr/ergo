@@ -40,8 +40,8 @@ func (c *checker) wiredElem(x syntax.Expr, kind Kind, ctx *typeCtx) (Type, bool)
 	if b, _ := c.lookup(id.Name).(*Builtin); b == nil || b.Name != WiredName {
 		return nil, false
 	}
-	if kind != KindErrors || len(ix.Indices) != 1 {
-		c.errorf(x, CodeType, "%s[T] takes one wire type and stands in a fails row: fails %s[T] (types.md, Codecs 2)", WiredName, WiredName)
+	if kind != KindErrors && kind != KindUses || len(ix.Indices) != 1 {
+		c.errorf(x, CodeType, "%s[T] takes one wire type and stands in a fails or needs row: fails %s[T], needs %s[T] (types.md, Codecs 2, 8)", WiredName, WiredName, WiredName)
 		return nil, true
 	}
 	t := c.typExpr(ix.Indices[0], ctx)
@@ -52,7 +52,31 @@ func (c *checker) wiredElem(x syntax.Expr, kind Kind, ctx *typeCtx) (Type, bool)
 		c.errorf(ix.Indices[0], CodeType, "%s takes a %s type: %s", WiredName, SetWire, r)
 		return nil, true
 	}
+	if kind == KindUses {
+		return &RowArg{Row: c.wireNeedsRow(t)}, true
+	}
 	return &RowArg{Row: c.wireRow(t)}, true
+}
+
+// wireNeedsRow is the row of needs wired[T] (types.md, Codecs 8; q141):
+// the capabilities of the Wire and ParseX functions of each by-name pair
+// T's wire form reaches, both directions in one row, and wired[U] for
+// each wire type parameter U it reaches, which an instance replaces by
+// its argument's row.
+func (c *checker) wireNeedsRow(t Type) *Row {
+	row := newRow()
+	c.wireEach(t, func(t Type) {
+		if tp, ok := t.(*TypeParam); ok {
+			row = row.with(c.types, &Wired{T: tp, Uses: true})
+			return
+		}
+		if p := c.wirePair(t); p != nil {
+			for _, f := range []*Func{p.Parse, p.Wire} {
+				row = row.union(c.types, c.types.resolve(c.funcSig(f).Uses))
+			}
+		}
+	})
+	return row
 }
 
 // WirePair is the by-name wire form of a type X (types.md, Codecs 1): its
@@ -230,20 +254,21 @@ func (c *checker) wireOperand(n syntax.Node, t Type, what string) bool {
 // calls the Wire of each by-name pair v's type reaches, and decode[T](r)
 // each ParseX, so the call is charged their capabilities as a written call
 // of them there is (chargeWire); codecs may carry needs, counted (owner,
-// 2026-11-12). A ParseX of this package whose needs row is inferred is
+// 2026-11-12, q141). A wire type parameter T carries the row needs
+// wired[T] (wireNeedsRow), which an encode or decode of T charges and an
+// instance replaces by its argument's codec needs, so a generic codec
+// with needs is counted too. Only under ergo fix's clause writer
+// (Options.Infer): a ParseX of this package whose needs row is inferred is
 // reached by no name in the body that decodes, so the reference graph has
 // no edge to it and its row may still grow when the decode is typed: the
 // first check records the edge (lateEdges), and the package is checked
 // again with it (wireEdges, checkBodies), so the ParseX's row is final
 // first, or joins the fixpoint of its component. A package let's
-// initializer has no such edge, and a wire type parameter carries no
-// capability row (no needs counterpart of wired[T]), so a codec with needs
-// reached there is S108 (checkWireNeeds, satisfies).
+// initializer has no such edge, so a codec with inferred needs reached
+// there is S108 (checkWireNeeds).
 
-// wireNeed is a decode in a package let, or an instance, that reached a
-// ParseX of this package whose needs row is inferred: checked once the
-// rows are final. at is the decode; nil for an instance, reported at the
-// ParseX.
+// wireNeed is a decode in a package let that reached a ParseX of this
+// package whose needs row is inferred: checked once the rows are final.
 type wireNeed struct {
 	at    syntax.Node
 	file  *fileInfo
@@ -273,8 +298,19 @@ func (c *checker) wireFuncs(t Type, decode bool) []*Func {
 }
 
 // chargeWire charges at x the needs of the codec functions an encode
-// (decode false) or a decode of t calls.
+// (decode false) or a decode of t calls, and wired[U] for each wire type
+// parameter U that t reaches: its argument's codec may need capabilities
+// (q141), so the body writes needs wired[U].
 func (c *checker) chargeWire(x syntax.Node, t Type, decode bool) {
+	what := "encode"
+	if decode {
+		what = "decode"
+	}
+	c.wireEach(t, func(t Type) {
+		if tp, ok := t.(*TypeParam); ok {
+			c.chargeAs(x, &Wired{T: tp, Uses: true}, fmt.Sprintf("the codec of %s, which this %s calls,", tp.Name, what))
+		}
+	})
 	for _, f := range c.wireFuncs(t, decode) {
 		if c.lateUses(f) {
 			var caller *Func
@@ -296,33 +332,10 @@ func (c *checker) chargeWire(x syntax.Node, t Type, decode bool) {
 				}
 			}
 		}
-		what := "encode"
-		if decode {
-			what = "decode"
-		}
 		for _, cap := range c.types.resolve(c.funcSig(f).Uses).Elems() {
 			c.chargeAs(x, cap, fmt.Sprintf("%s, which this %s calls,", f.Name, what))
 		}
 	}
-}
-
-// wireInstanceNeeds is why t, bound to a wire type parameter, is refused
-// for the needs of its codec, or "".
-func (c *checker) wireInstanceNeeds(t Type) string {
-	for _, decode := range []bool{true, false} {
-		for _, f := range c.wireFuncs(t, decode) {
-			if c.lateUses(f) {
-				if c.silent == 0 {
-					c.wireNeeds = append(c.wireNeeds, wireNeed{nil, f.file, f})
-				}
-				continue
-			}
-			if row := c.types.resolve(c.funcSig(f).Uses); !row.Empty() {
-				return fmt.Sprintf("%s reaches %s, which needs %s, and a wire type parameter carries no capability row; call encode or decode with %s itself, where the call is charged; types.md, Codecs 8", t, f.Name, rowText(row), t)
-			}
-		}
-	}
-	return ""
 }
 
 // needEdges are the lateEdges whose ParseX needs a capability once the
@@ -354,13 +367,6 @@ func (c *checker) checkWireNeeds() {
 			continue
 		}
 		c.cur = w.file
-		if w.at == nil {
-			if !done[w.parse.Decl.Name] {
-				done[w.parse.Decl.Name] = true
-				c.errorf(w.parse.Decl.Name, CodeType, "%s needs %s and is the codec of a type bound to a wire type parameter, which carries no capability row; call encode or decode with the type itself, where the call is charged (types.md, Codecs 8)", w.parse.Name, rowText(row))
-			}
-			continue
-		}
 		if !done[w.at] {
 			done[w.at] = true
 			c.errorf(w.at, CodeType, "this decode reaches %s, whose inferred needs row is %s, and its body has no function whose row could take it; write the row of %s (types.md, Codecs 8)", w.parse.Name, rowText(row), w.parse.Name)

@@ -219,13 +219,13 @@ extern go ergo.local/prototype/runtime/v1.RPCRefuse func Refuse[T](u Unrepresent
 func Lost[T](t Transport) T { Die[T]("RpcClientError", t.Reason) }
 
 // Encode is v's JSON text.
-func Encode[T wire](v T) string {
+func Encode[T wire](v T) string needs wired[T] {
 	json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v)
 }
 
 // Decode is the T a peer's text writes; a text that is not one fails
 // Transport, as the peer broke the contract.
-func Decode[T wire](what string, text string) T fails Transport {
+func Decode[T wire](what string, text string) T fails Transport needs wired[T] {
 	json.Decode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, text) catch {
 	case _:
 		return Transport{Reason: "the \(what) is not the contract's: \(text)"}

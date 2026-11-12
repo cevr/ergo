@@ -52,12 +52,13 @@ func refused(h Hook, s Sealed, w Writer, r Reader) {
 }
 
 // wired[X] is the row of decode[X]; a wire type parameter T stands in
-// it as wired[T], which an instance replaces by its argument's row.
-func generic[T wire](r Reader) []T fails wired[[]T] {
+// it as wired[T], which an instance replaces by its argument's row; a
+// needs row writes wired[T] for the capabilities of T's codec (q141).
+func generic[T wire](r Reader) []T fails wired[[]T] needs wired[T] {
 	decode[[]T](r)
 }
 
-func optional[T wire](r Reader) Option[T] fails wired[T] {
+func optional[T wire](r Reader) Option[T] fails wired[T] needs wired[T] {
 	decode[Option[T]](r) // want S101
 }
 

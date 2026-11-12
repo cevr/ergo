@@ -32,8 +32,9 @@ import (
 // once the clause to write is added; a with release named by its part's
 // type; a generic capability instance, or a composite argument of one, not
 // named again or not spelled; the result a std call releases not charged; a replaced
-// field not charged; a codec instance admitted whose codec has a written or
-// an inferred capability row; a decode in a package let that reaches an inferred ParseX
+// field not charged; a codec instance whose codec needs a capability, by a
+// written or an inferred row, not charged at the call (needs wired[T],
+// q141); a decode in a package let that reaches an inferred ParseX
 // admitted.
 func TestReleaseNeedRows(t *testing.T) {
 	const res = "type Res { id int }\n\nfunc Close(r Res) needs Console {\n\tConsole.Println(\"close \\(r.id)\")\n}\n\n"
@@ -76,15 +77,14 @@ func TestReleaseNeedRows(t *testing.T) {
 		{
 			name: "codec instance",
 			src:  "import codec\n\ntype A { Use() }\ntype Bad { Text string }\ntype Lv { name string }\n\nfunc ParseLv(s string) Lv fails Bad { Lv{name: s} }\n\nfunc Wire(l Lv) string needs A {\n\tA.Use()\n\tl.name\n}\n\nfunc G() Lv fails wired[Lv] {\n\ttry codec.RoundTrip(Lv{name: \"x\"})\n}\n\nfunc main() {}\n",
-			want: "15:6: S108 Lv does not satisfy the constraint wire of T: Lv reaches Wire, which needs {A}, and a wire type parameter carries no capability row; call encode or decode with Lv itself, where the call is charged; types.md, Codecs 8 (types.md, Generics 2)",
+			want: "15:6: S102 this call requires A, which is not in the capability row of function G and no with provides it; write: func G() Lv fails wired[Lv] needs A",
 		},
 		{
 			name:  "inferred codec unordered",
 			infer: true,
 			src:   "import codec\n\ntype A { Use() }\ntype Bad { Text string }\ntype lw { name string }\n\nfunc Wire(l lw) string needs A { l.name }\n\nlet early = decode[lw](codec.NewReplay([]codec.Event{})) catch {\ncase _:\n\tlw{name: \"\"}\n}\n\nfunc G() lw fails wired[lw] {\n\ttry codec.RoundTrip(lw{name: \"y\"})\n}\n\nfunc parseLw(s string) lw fails Bad {\n\tA.Use()\n\tlw{name: s}\n}\n\nfunc main() {}\n",
 			want: "9:13: S108 this decode reaches parseLw, whose inferred needs row is {A}, and its body has no function whose row could take it; write the row of parseLw (types.md, Codecs 8)\n" +
-				"15:6: S108 lw does not satisfy the constraint wire of T: lw reaches Wire, which needs {A}, and a wire type parameter carries no capability row; call encode or decode with lw itself, where the call is charged; types.md, Codecs 8 (types.md, Generics 2)\n" +
-				"18:6: S108 parseLw needs {A} and is the codec of a type bound to a wire type parameter, which carries no capability row; call encode or decode with the type itself, where the call is charged (types.md, Codecs 8)",
+				"15:6: S102 this call requires A, which is not in the capability row of function G and no with provides it",
 		},
 	} {
 		check := checkFor

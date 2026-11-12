@@ -84,7 +84,7 @@ func ret[T](x T) T { return x }
 
 func arm[T](x T) T { if len("a") > 0 { x } else { x } }
 
-func local[T](x T) int {
+func local[T lent](x T) int {
 	let y = x
 	let _ = y
 	1
@@ -94,11 +94,13 @@ func via[T](x T, use escaping func(v T) int) func() int { hold(x, use) }
 
 func spawn[T](x T, use escaping func(v T) int) int { task.Go() { use(x) }.Wait() }
 
-func apply[T](x T, use func(v T) int) int { use(x) }
+func apply[T lent](x T, use func(v T) int) int { use(x) }
 
-func put[T](out *T, x T) { *out = x }
+func fwdLocal[T lent](x T) int { local(x) }
 
-func relay[T](x T, use escaping func(v T) int) int { use(x) + run(func() int { let _ = use; 1 }) }
+func put[T lent](out *T, x T) { *out = x }
+
+func relay[T lent](x T, use escaping func(v T) int) int { use(x) + run(func() int { let _ = use; 1 }) }
 
 func waited() int { task.Go() { 1 }.Wait() }
 
@@ -202,13 +204,15 @@ func bcGoCase(r *rand.Rand, name string) ([]string, int, string, string) {
 	return lines, at, local, "go local b " + site.name
 }
 
-// bcGenericSites are the places a value is a type argument. A generic
-// body that keeps no value of it takes a borrow: one that binds it to its
-// own locals (local), calls an operation on it (viaOp), passes it on to
-// such a body (fwdOp) or
-// passes it to a function value's parameter (apply), writes it through a
-// borrow parameter into the caller's local (put), and keeps only a
-// function value (relay). One that keeps it
+// bcGenericSites are the places a value is a type argument. A borrow
+// instantiates only a type parameter whose signature writes lent (q137,
+// EX3; the call reads no body), and the body of each lent one keeps no
+// value of it: it binds it to its own locals (local), passes it on to
+// such a body (fwdLocal), passes it to a function value's parameter
+// (apply), writes it through a borrow parameter into the caller's local
+// (put), and keeps only a function value (relay). A method-constrained T
+// cannot also be lent, so viaOp and fwdOp refuse a borrow though their
+// bodies keep none (a gap of the lent constraint). One that keeps it
 // refuses a borrow: it returns it, as its tail (id), by return (ret), as
 // an if's value (arm) or through a body that does (fwd; INS-3); it
 // captures it in an escaping closure (hold, later),
@@ -223,8 +227,9 @@ var bcGenericSites = []bcSite{
 	{name: "targ-arm", result: "int", at: "let u = arm(%[1]s)", after: []string{"u.Bump()"}},
 	{name: "targ-fwd", result: "int", at: "let u = fwd(%[1]s)", after: []string{"u.Bump()"}},
 	{name: "targ-local", result: "int", at: "local(%[1]s)", ok: true},
-	{name: "targ-op", result: "int", at: "viaOp(%[1]s)", ok: true},
-	{name: "targ-fwdop", result: "int", at: "fwdOp(%[1]s)", ok: true},
+	{name: "targ-op", result: "int", at: "viaOp(%[1]s)"},
+	{name: "targ-fwdop", result: "int", at: "fwdOp(%[1]s)"},
+	{name: "targ-fwdlocal", result: "int", at: "fwdLocal(%[1]s)", ok: true},
 	{name: "targ-put", result: "int", before: []string{"let mut q = %[1]s"}, at: "put(&q, %[1]s)", after: []string{"q.Bump()"}, ok: true},
 	{name: "targ-apply", result: "int", at: "apply(%[1]s, func(v %[2]s) int { v.Bump() })", ok: true},
 	{name: "targ-relay", result: "int", at: "relay(%[1]s, func(v %[2]s) int { v.Bump() })", ok: true},
@@ -263,7 +268,7 @@ func bcGenericCase(r *rand.Rand, name string) ([]string, int, string, string) {
 		body(a)
 	}
 	lines = append(lines, "}")
-	named := map[string]string{"targ-id": "typearg id", "targ-ret": "typearg ret", "targ-arm": "typearg arm", "targ-fwd": "typearg fwd", "targ-hold": "typearg hold", "targ-box": "typearg Box[*Tally]", "targ-later": "typearg later", "targ-via": "typearg via", "targ-task": "typearg spawn"}[site.name]
+	named := map[string]string{"targ-id": "typearg id", "targ-ret": "typearg ret", "targ-arm": "typearg arm", "targ-fwd": "typearg fwd", "targ-hold": "typearg hold", "targ-box": "typearg Box[*Tally]", "targ-later": "typearg later", "targ-via": "typearg via", "targ-task": "typearg spawn", "targ-op": "typearg viaOp", "targ-fwdop": "typearg fwdOp"}[site.name]
 	if source == "Fixed" || site.ok {
 		at = 0
 	}
@@ -475,5 +480,46 @@ func keep(t *Tally) Counter {
 	want := "12:2: S108 c holds a borrow (*T) as Counter, which lives only as long as the call that lent it: call its operations or bind it with a let, never return, store or pass it or convert it again (types.md, Borrows 6)"
 	if len(diags) != 1 || diags[0].String() != want {
 		t.Fatalf("got %v, want [%s]", diags, want)
+	}
+}
+
+// TestLentDeclarations pins the text and position of the declaration
+// check of the lent mark (types.md, Borrows 7; q137, EX3): a lent type
+// parameter whose body keeps a value of it, whose value goes to a type
+// parameter not marked lent, of an extern, and of a type declaration.
+// TestBorrowConvModel covers the call (a borrow binds only a lent T); it
+// writes no body that breaks its mark.
+//
+// Mutants it kills that no other test does (ledger: borrowtargs.go): the
+// declaration not checked; a lent T passed to an unmarked U admitted; a
+// lent mark on an extern or a type admitted.
+func TestLentDeclarations(t *testing.T) {
+	src := `func keepIt[T lent](x T) T { x }
+
+func pass[T lent](x T) T { let y = again(x)
+	y }
+
+func again[U](x U) U { x }
+
+func plain[T lent](x T) int { 1 }
+
+extern go slices.Clone func cloned[T lent](xs []T) []T
+
+type Box[T lent] { V T }
+`
+	_, diags := CheckSource(src)
+	var got []string
+	for _, d := range diags {
+		got = append(got, d.String())
+	}
+	want := []string{
+		"1:13: S108 T is lent, so the body keeps no value of it, but it returns a value of it; drop lent, or keep no value of T (types.md, Borrows 7)",
+		"3:11: S108 T is lent, so the body keeps no value of it, but it passes a value of it to again, and its signature does not write [U lent]; drop lent, or keep no value of T (types.md, Borrows 7)",
+		"10:1: S108 the extern cloned has the type parameter T; a user extern writes the types it calls its Go target at, and Go infers the type arguments",
+		"10:36: S108 T cannot be lent: an extern's body is Go code, which Ergo does not read (types.md, Borrows 7)",
+		"12:10: S108 T cannot be lent: a value of a generic type holds its type argument, and a record or a collection never holds a borrow (types.md, Borrows 7)",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

@@ -47,6 +47,9 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		if !ok || b == nil {
 			return t
 		}
+		if t.Uses {
+			return &RowArg{Row: c.wireNeedsRow(b)}
+		}
 		return &RowArg{Row: c.wireRow(b)}
 	case *RowVar:
 		// A use of a generic function's inferred row: the substitution is
@@ -960,7 +963,7 @@ func typeSet(t Type) TypeSet {
 // underlying type.
 func inSet(t Type, s TypeSet) bool {
 	switch s {
-	case SetAll:
+	case SetAll, SetLent:
 		return true
 	case SetComparable:
 		return comparable(t)
@@ -996,9 +999,6 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 		}
 		if p := c.firstInferredParse(t); p != nil {
 			return fmt.Sprintf("%s reaches %s, whose fails row is inferred: write it (types.md, Codecs 2)", t, p.Name)
-		}
-		if r := c.wireInstanceNeeds(t); r != "" {
-			return r
 		}
 		c.recordWire(t)
 		return ""

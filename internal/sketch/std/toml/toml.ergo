@@ -37,7 +37,7 @@ func Open(text string, maxBytes int, maxDepth int) json.Reader fails Malformed {
 // Decode reads a record with the same codec used by json. Syntax failures
 // carry TOML's line/key; derived type/ParseX failures keep their paths and
 // their own typed failures in wired[T].
-func Decode[T wire](c json.Codec[T], text string) T fails Malformed | wired[T] {
+func Decode[T wire](c json.Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
 	let r = try Open(text, c.MaxBytes, c.MaxDepth)
 	try decode[T](r)
 }
@@ -56,6 +56,6 @@ extern go ergo.local/prototype/runtime/v1.TOMLFromJSON func fromJSON(text string
 // record inside a list an inline table. It writes what json.Encode writes,
 // as TOML, so the field names, unions ("_tag") and floats (NaN as the
 // string "NaN") are json's, and no second encoder exists per type.
-func Encode[T wire](v T) string fails Unrepresentable {
+func Encode[T wire](v T) string fails Unrepresentable needs wired[T] {
 	try fromJSON(json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, v))
 }
