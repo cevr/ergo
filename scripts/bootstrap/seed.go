@@ -102,7 +102,12 @@ func (d driver) ensureSeed(l seedLock, platform string) (string, error) {
 func (d driver) reproduce(l seedLock, platforms []string, work string, fresh bool) (map[string]string, error) {
 	sums := map[string]string{}
 	for _, p := range platforms {
-		base := filepath.Join(work, strings.ReplaceAll(p, "/", "-"))
+		// A directory of its own, so a work directory that an earlier run
+		// left behind is no clean export.
+		base, err := os.MkdirTemp(work, strings.ReplaceAll(p, "/", "-")+"-")
+		if err != nil {
+			return nil, err
+		}
 		var got [2]string
 		for i, sub := range []string{"a", filepath.Join("b", "again")} {
 			dir := filepath.Join(base, sub)
