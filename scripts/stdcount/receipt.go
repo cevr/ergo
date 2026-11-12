@@ -14,10 +14,13 @@ import (
 func receipt(repo string, cs []Case, results []map[string]perOp, uses []int, rounds int, loadBefore, loadAfter string) string {
 	var b strings.Builder
 	head := gitOut(repo, "rev-parse", "HEAD")
-	dirty := gitOut(repo, "status", "--porcelain", "--", "runtime", "internal/sketch", "cmd/ergo", "scripts/stdcount")
+	// The measured code: the compiler, the runtime and the harness, test
+	// files aside.
 	state := "clean"
-	if dirty != "" {
-		state = "with uncommitted changes in runtime, internal/sketch, cmd/ergo or scripts/stdcount"
+	for _, line := range strings.Split(gitOut(repo, "status", "--porcelain", "--", "runtime", "internal/sketch", "cmd/ergo", "scripts/stdcount"), "\n") {
+		if line != "" && !strings.HasSuffix(line, "_test.go") {
+			state = "with uncommitted changes in runtime, internal/sketch, cmd/ergo or scripts/stdcount"
+		}
 	}
 	b.WriteString("# Std count: Ergo's std against Go's, in counted instructions and allocations\n\n")
 	b.WriteString("Written by `go run ./scripts/stdcount` (std-better SB0). Do not edit by hand: run the harness again.\n\n")
@@ -54,7 +57,14 @@ func receipt(repo string, cs []Case, results []map[string]perOp, uses []int, rou
 	for i := range order {
 		order[i] = i
 	}
-	weight := func(i int) float64 { return (results[i]["ergo"].instr - results[i]["go"].instr) * float64(uses[i]) }
+	extra := func(i int) float64 {
+		d := results[i]["ergo"].instr - results[i]["go"].instr
+		if d > -0.5 && d < 0.5 {
+			return 0 // no "-0"
+		}
+		return d
+	}
+	weight := func(i int) float64 { return extra(i) * float64(uses[i]) }
 	slices.SortStableFunc(order, func(a, b int) int {
 		wa, wb := weight(a), weight(b)
 		switch {
@@ -66,7 +76,7 @@ func receipt(repo string, cs []Case, results []map[string]perOp, uses []int, rou
 		return 0
 	})
 	for _, i := range order {
-		fmt.Fprintf(&b, "| `%s` | %s | %d | %.0f | %.0f |\n", cs[i].Pkg, cs[i].Name, uses[i], results[i]["ergo"].instr-results[i]["go"].instr, weight(i))
+		fmt.Fprintf(&b, "| `%s` | %s | %d | %.0f | %.0f |\n", cs[i].Pkg, cs[i].Name, uses[i], extra(i), weight(i))
 	}
 
 	b.WriteString("\n## Cells\n\n")
