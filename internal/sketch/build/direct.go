@@ -481,7 +481,10 @@ func (d *direct) toolchainKey(k *keyer, tool toolFile) {
 	k.add("tool", tool.Digest)
 	k.add("version", d.plan.Version)
 	k.add("GOOS", d.plan.GOOS)
-	k.add("GOARCH", d.plan.GOARCH)
+	// The level names the architecture too: the plan refuses every GOARCH
+	// but amd64 (level GOAMD64) and arm64 (level GOARM64), so the level's
+	// variable name decides GOARCH and GOARCH itself would add nothing. A
+	// new architecture needs its own level variable here, or GOARCH back.
 	k.add("level", d.plan.LevelKey+"="+d.plan.LevelValue)
 	k.add("GOEXPERIMENT", d.plan.Experiment)
 	k.add("pie", strconv.FormatBool(d.plan.pie()))
