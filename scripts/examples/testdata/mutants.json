@@ -54,6 +54,24 @@
       "to": "one := &runner{cfg: r.cfg, out: r.out,",
       "rule": "Each program's lines print in selection order, whatever order the programs end in.",
       "killers": ["scripts/examples:TestProgramsRunAtOnceAndPrintInOrder"]
+    },
+    {
+      "name": "ex-ledger-unchecked",
+      "origin": "wf10 batch-18 fix-laws (verify laws I1)",
+      "file": "scripts/examples/main.go",
+      "from": "if now, err := os.ReadFile(ledger); err == nil && bytes.Equal(now, kept) {",
+      "to": "if now, err := os.ReadFile(ledger); true || err == nil && bytes.Equal(now, kept) {",
+      "rule": "A checked-in ergo.laws that the program's ergo test changes fails the ledger leg.",
+      "killers": ["scripts/examples:TestTestLegFailsAStaleLedger"]
+    },
+    {
+      "name": "ex-ledger-not-restored",
+      "origin": "wf10 batch-18 fix-laws (verify laws I1)",
+      "file": "scripts/examples/main.go",
+      "from": "if err := os.WriteFile(ledger, kept, 0o644); err != nil {",
+      "to": "if err := error(nil); err != nil {",
+      "rule": "The runner puts a checked-in ergo.laws back as it was: a run leaves the tree unchanged.",
+      "killers": ["scripts/examples:TestTestLegFailsAStaleLedger"]
     }
   ]
 }
