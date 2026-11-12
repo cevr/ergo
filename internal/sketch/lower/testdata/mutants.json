@@ -1779,8 +1779,8 @@
       "name": "t5-24-false-true-values.go:1105",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\tif use == nil || use.frame != vv.frame {\n\t\treturn false\n\t}",
-      "to": "\tif use == nil || use.frame != vv.frame {\n\t\treturn true\n\t}",
+      "from": "\tif use == nil || use.frame != frame {\n\t\treturn false\n\t}",
+      "to": "\tif use == nil || use.frame != frame {\n\t\treturn true\n\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
       "killers": [
         "lower:TestValueRuleProbes"
@@ -1790,11 +1790,12 @@
       "name": "t5-25-false-true-values.go:1111",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
-      "to": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
+      "from": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
+      "to": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
-      "killers": [],
-      "gap": "survives at the T5 base too (cb1f7522): no kept or deleted test kills it (T5 base.log); a gap of the suite, not a loss of the cut"
+      "killers": [
+        "lower:TestValueRuleProbes"
+      ]
     },
     {
       "name": "t5-26-negate-if-naming.go:109",
