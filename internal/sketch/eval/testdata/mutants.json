@@ -412,7 +412,16 @@
       "from": "\tif !tailCall(fr.info, x.X, failed.call) {",
       "to": "\tif false {",
       "rule": "rows.md Catch 5: try covers the caught expression too, so in try h(g()) catch {...} a failure of g() propagates past the catch, which handles only the failures its subject yields through (h's row), as the lowering's hoisted check does.",
-      "killers": ["internal/sketch/eval:TestCatchPassesCoveredFailure"]
+      "killers": ["internal/sketch/eval:TestCatchPassesCoveredFailure", "internal/sketch/lower:TestTryCatchEvalAgrees"]
+    },
+    {
+      "name": "try-eval-branch-not-tail",
+      "origin": "wf10 TRY-eval",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\treturn tailList(info, s.Body.List, c) || s.Else != nil && tailStmt(info, s.Else, c)",
+      "to": "\t\treturn false",
+      "rule": "rows.md Error rows 2: a value if's branch tail passes its failure to the if, so a catch on the if takes it like a failure of its subject; only a failure an enclosing try covers passes the catch.",
+      "killers": ["internal/sketch/lower:TestTryCatchEvalAgrees"]
     }
   ]
 }
