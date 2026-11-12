@@ -182,7 +182,7 @@ func readErr(p string) go.Error needs go.Foreign {
 	go.Error{}
 }
 
-func join(a go.Error, b go.Error) go.Error {
+func join(a go.Error, b go.Error) go.Error needs go.Foreign {
 	errors.Join([]go.Error{a, b}) catch { case go.Error as e: return e }
 	go.Error{}
 }

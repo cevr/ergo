@@ -79,8 +79,8 @@ func i1OpaqueGraph(name, effect string) *i1Graph {
 	// (std-align S2b), so a written row of its frames lists Ambient too.
 	ambient := name == "extern"
 	return &i1Graph{name: name, opaque: true, ambient: ambient, frames: []string{"left"}, call: "left(%d)", decls: func(row, clause string) string {
-		if ambient && row != "" {
-			row += " | Ambient"
+		if ambient {
+			row = withAmbient(row)
 		}
 		defs := ""
 		if name == "context-reentry" {

@@ -248,12 +248,25 @@ func blockingNative(t *testing.T, name, route string) {
 	default:
 		child = "try subject(q)"
 	}
+	// A body that makes a live scheduler writes Ambient, and so does each
+	// caller up to launch (q137: every row is written).
+	subjRow, makerRow, launchRow := "", "", ""
+	if strings.Contains(body, "NewLiveScheduler") {
+		subjRow, launchRow = " needs Ambient", " needs Ambient"
+	}
+	if strings.Contains(maker, "NewLiveScheduler") {
+		makerRow, launchRow = " needs Ambient", " needs Ambient"
+		maker = strings.Replace(maker, " func(duration) {", " (func(duration))"+makerRow+" {", 1)
+	}
+	if strings.HasPrefix(name, "Task.") {
+		launchRow = " needs Ambient"
+	}
 	imports := "import queue\nimport task\n"
 	if strings.HasPrefix(name, "Timeline.") {
 		imports += "import time\n"
 	}
-	src := imports + maker + "\nfunc subject(" + param + ") int fails queue.Closed { " + body + " }\n" +
-		"func launch(q queue.Queue[int]) Task[int, queue.Closed] { task.Go() { " + child + " } }\nfunc main() {}\n"
+	src := imports + maker + "\nfunc subject(" + param + ") int fails queue.Closed" + subjRow + " { " + body + " }\n" +
+		"func launch(q queue.Queue[int]) Task[int, queue.Closed]" + launchRow + " { task.Go() { " + child + " } }\nfunc main() {}\n"
 	o := mustLower(t, "blocking", src)
 	if maker != "" && !envParams(t, o.mainGo())["maker"] {
 		arg = "maker(q)" // a pure maker takes no environment (pure.go, D-S5-10)

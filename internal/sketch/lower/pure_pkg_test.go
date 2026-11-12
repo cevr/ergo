@@ -57,7 +57,7 @@ func quad(n int) int { a.Quad(n) }
 
 func top(n int) int { a.Top(n) }
 
-func say(s string) { a.Say(s) }
+func say(s string) needs Console { a.Say(s) }
 
 func main() needs Console {
 	Console.Println(halves("x,y") + " " + halves("xy"))

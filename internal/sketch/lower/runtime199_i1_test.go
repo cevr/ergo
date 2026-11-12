@@ -685,10 +685,19 @@ type i1Graph struct {
 
 // row is the written row of a frame that calls the shape's frames.
 func (g i1Graph) row(row string) string {
-	if g.ambient && row != "" {
-		return row + " | Ambient"
+	if g.ambient {
+		return withAmbient(row)
 	}
 	return row
+}
+
+// withAmbient adds Ambient to a written capability row (q137: every row is
+// written, the empty one included).
+func withAmbient(row string) string {
+	if row == "" {
+		return " needs Ambient"
+	}
+	return row + " | Ambient"
 }
 
 func i1Fib(name, call1, call2 string) func(row, clause string) string {
@@ -1441,6 +1450,7 @@ func i1LivePrograms() map[string]string {
 		program := work(g.decls(e.row, e.clause), "with Local {\n"+fmt.Sprintf(g.call, 90)+"\n}\n")
 		if g.ambient {
 			program = strings.Replace(program, "func main() fails queue.Closed needs Console {", "func main() fails queue.Closed needs Console | Ambient {", 1)
+			program = strings.Replace(program, "func work(ready queue.Queue[int]) int fails queue.Closed {", "func work(ready queue.Queue[int]) int fails queue.Closed needs Ambient {", 1)
 		}
 		out["recursion-"+g.name] = program
 	}

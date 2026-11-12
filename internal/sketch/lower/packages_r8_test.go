@@ -277,8 +277,8 @@ func lowerings(u Unit) map[string]string {
 // r8Program generates a program of n files and main.ergo. File k declares
 // the error type Ak with a function that fails it, a function whose
 // written failure is E over a function type with a parameter of a mode
-// the seed chooses (escaping or not), a function whose row is inferred
-// from boxing fail[T] for a T the seed chooses (a delayed row
+// the seed chooses (escaping or not), a function whose row is written
+// for boxing fail[T] for a T the seed chooses (a delayed row
 // substitution), and two more declaration kinds the seed chooses (a
 // machine with inline variants, tests with a property and a law, a
 // capability with a provider and a context, an overload with a let).
@@ -298,6 +298,8 @@ func r8Program(seed int64, n int, refuse bool) []pkgSource {
 	}
 	var files []pkgSource
 	var errs, tries, escs, infs, arms []string
+	// The rows escs, infs and outer write (q137), each element once.
+	escRow, infRow := map[string]bool{}, map[string]bool{}
 	for k := 0; k < n; k++ {
 		mode := ""
 		if r.Intn(2) == 0 {
@@ -306,7 +308,11 @@ func r8Program(seed int64, n int, refuse bool) []pkgSource {
 		var text strings.Builder
 		fmt.Fprintf(&text, "type A%[1]d { N int }\nfunc a%[1]d(n int) int fails A%[1]d {\n\tif n == %[1]d {\n\t\treturn A%[1]d{N: %[1]d}\n\t}\n\tn\n}\n", k)
 		fmt.Fprintf(&text, "func esc%d() int fails E[func(g %sfunc())] { %d }\n", k, mode, k)
-		fmt.Fprintf(&text, "func inf%d() int { try box(fail[%s]); %d }\n", k, tys[r.Intn(len(tys))], k)
+		escRow["E[func(g " + mode + "func())]"] = true
+		ty := tys[r.Intn(len(tys))]
+		inf := "Box[func() fails Err[" + ty + "]]"
+		infRow[inf] = true
+		fmt.Fprintf(&text, "func inf%d() int fails %s { try box(fail[%s]); %d }\n", k, inf, ty, k)
 		for _, x := range r.Perm(len(extras))[:2] {
 			fmt.Fprintf(&text, extras[x], k)
 		}
@@ -327,16 +333,16 @@ type Err[T] {}
 type Box[T] { V T }
 type Wrap[T] { V T }
 func boom[T]() fails Err[T] { Err[T] }
-func fail[T]() { try boom[T]() }
+func fail[T]() fails Err[T] { try boom[T]() }
 func box[T](v T) fails Box[T] { Box[T]{V: v} }
 func wrap[T](v T) int fails Wrap[T] { Wrap[T]{V: v} }
 func each(n int) int fails %s {
 %s	try a%d(n)
 }
-func escs(n int) int {
+func escs(n int) int fails %s {
 %s	try esc%d()
 }
-func infs(n int) int {
+func infs(n int) int fails %s {
 %s	try inf%d()
 }
 func name(n int) int {
@@ -348,32 +354,42 @@ func name(n int) int {
 %s		}
 	}
 }
-`, strings.Join(errs, " | "), strings.Join(tries, ""), last, strings.Join(escs, ""), last, strings.Join(infs, ""), last, strings.Join(arms, ""))
+`, strings.Join(errs, " | "), strings.Join(tries, ""), last, rowText(escRow), strings.Join(escs, ""), last, rowText(infRow), strings.Join(infs, ""), last, strings.Join(arms, ""))
 	body := "\tlet _ = escs(0) catch { case _: 0 }\n\tlet _ = infs(0) catch { case _: 0 }\n\tlet _ = name(0)\n"
 	if refuse {
-		main += "func outer(n int) int { each(n) catch { case err: try wrap(err) } }\n"
+		main += "func outer(n int) int fails Wrap[" + strings.Join(errs, " | ") + "] { each(n) catch { case err: try wrap(err) } }\n"
 		body += "\tlet _ = outer(0) catch { case _: 0 }\n"
 	}
 	main += "func main() {\n" + body + "}\n"
 	return append(files, pkgSource{"/r8/main.ergo", main})
 }
 
+// rowText writes a set of row elements as a clause, sorted.
+func rowText(set map[string]bool) string {
+	var xs []string
+	for x := range set {
+		xs = append(xs, x)
+	}
+	sort.Strings(xs)
+	return strings.Join(xs, " | ")
+}
+
 // The round 7 verify's probes (R7 M1, M2), as programs.
 var (
 	r7NestedKeys = []pkgSource{
-		{"/v7/a.ergo", "func a() int { try box(fail[int]); 1 }\n"},
-		{"/v7/b.ergo", "func b() int { try box(fail[string]); 2 }\n"},
-		{"/v7/main.ergo", "type Err[T] {}\ntype Box[T] { V T }\nfunc boom[T]() fails Err[T] { Err[T] }\nfunc fail[T]() { try boom[T]() }\nfunc box[T](v T) fails Box[T] { Box[T]{V:v} }\nfunc both(n int) int { if n == 0 { return try a() }; try b() }\nfunc main() { let _ = both(0) catch { case _: 0 } }\n"},
+		{"/v7/a.ergo", "func a() int fails Box[func() fails Err[int]] { try box(fail[int]); 1 }\n"},
+		{"/v7/b.ergo", "func b() int fails Box[func() fails Err[string]] { try box(fail[string]); 2 }\n"},
+		{"/v7/main.ergo", "type Err[T] {}\ntype Box[T] { V T }\nfunc boom[T]() fails Err[T] { Err[T] }\nfunc fail[T]() fails Err[T] { try boom[T]() }\nfunc box[T](v T) fails Box[T] { Box[T]{V:v} }\nfunc both(n int) int fails Box[func() fails Err[int]] | Box[func() fails Err[string]] { if n == 0 { return try a() }; try b() }\nfunc main() { let _ = both(0) catch { case _: 0 } }\n"},
 	}
 	r7EscapingKeys = []pkgSource{
 		{"/v7/a.ergo", "func a() int fails E[func(g func())] { 1 }\n"},
 		{"/v7/b.ergo", "func b() int fails E[func(g escaping func())] { 2 }\n"},
-		{"/v7/main.ergo", "type E[T] { V T }\nfunc both(n int) int { if n == 0 { return try a() }; try b() }\nfunc main() { let _ = both(0) catch { case _: 0 } }\n"},
+		{"/v7/main.ergo", "type E[T] { V T }\nfunc both(n int) int fails E[func(g func())] | E[func(g escaping func())] { if n == 0 { return try a() }; try b() }\nfunc main() { let _ = both(0) catch { case _: 0 } }\n"},
 	}
 	r7RowValueRefusal = []pkgSource{
 		{"/v7/a.ergo", "type A { N int }\nfunc a(n int) int fails A { if n == 0 { return A{N:0} }; n }\n"},
 		{"/v7/b.ergo", "type B { N int }\nfunc b(n int) int fails B { if n == 1 { return B{N:1} }; n }\n"},
-		{"/v7/main.ergo", "type Wrap[T] { V T }\nfunc wrap[T](v T) int fails Wrap[T] { Wrap[T]{V:v} }\nfunc each(n int) int fails A | B { let _ = try a(n); try b(n) }\nfunc outer(n int) int { each(n) catch { case err: try wrap(err) } }\nfunc main() { let _ = outer(0) catch { case _: 0 } }\n"},
+		{"/v7/main.ergo", "type Wrap[T] { V T }\nfunc wrap[T](v T) int fails Wrap[T] { Wrap[T]{V:v} }\nfunc each(n int) int fails A | B { let _ = try a(n); try b(n) }\nfunc outer(n int) int fails Wrap[A | B] { each(n) catch { case err: try wrap(err) } }\nfunc main() { let _ = outer(0) catch { case _: 0 } }\n"},
 	}
 )
 
