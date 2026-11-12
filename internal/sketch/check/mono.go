@@ -46,6 +46,11 @@ func (c *checker) monoOwner(tps []*TypeParam) func() {
 // recordInstantiation adds the edges of one instantiation of name with
 // tparams := targs at the position at.
 func (c *checker) recordInstantiation(name string, tparams []*TypeParam, targs []Type, at syntax.Node) {
+	// Every instantiation site comes here: R22 decides its bounds late
+	// (resource.go, recordOwnership).
+	c.recordOwnership(name, tparams, targs, at)
+	// And no type argument holds a provider cell (cells.go).
+	c.recordCellArgs(targs, at)
 	if len(c.mono.owner) == 0 || at == nil {
 		return
 	}

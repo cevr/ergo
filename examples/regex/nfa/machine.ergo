@@ -57,7 +57,7 @@ func advance(p Program, at []int, c byte) []int {
 			if s.Class.Has(c) {
 				next = next.Append(s.Next)
 			}
-		case Split:
+		case Split, Save:
 		case Accept:
 		}
 	}
@@ -100,6 +100,8 @@ func include(v *visit, p Program, pc int) {
 	case Split as s:
 		v.include(p, s.X)
 		v.include(p, s.Y)
+	case Save as s:
+		v.include(p, s.Next)
 	case _:
 		v.members = v.members.Append(pc)
 	}

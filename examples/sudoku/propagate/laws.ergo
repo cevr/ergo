@@ -11,3 +11,22 @@ law AgreesWithNaive(seed int, blanks int, broken bool) {
 	let p = if broken { board.Broken(seed, n+1) } else { board.Puzzle(seed, n) }
 	board.Solvable(Solver, p) == board.Solvable(naive.Solver, p)
 }
+
+// FirstChoiceIsLowest: erasing 1 and 9 leaves two candidates at every
+// blank, in every unit. The first blank must get 1. Other solver laws
+// allow either solution and do not check the documented search order.
+law FirstChoiceIsLowest(seed int) {
+	let mut p = board.Solution(seed)
+	let mut first = -1
+	for i in 0..81 {
+		let v = p.At(i)
+		if v == 1 || v == 9 {
+			if first < 0 {
+				first = i
+			}
+			p = p.With(i, 0)
+		}
+	}
+	let s = try Solver.Solve(p)
+	s.At(first) == 1
+}

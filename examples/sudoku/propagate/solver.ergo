@@ -1,6 +1,6 @@
 // Package propagate is the fast solver: constraint propagation and
 // search, after Norvig. Each cell keeps the set of digits it may still
-// hold, as bits 1 to 9 of an int. Placing a digit removes it from the
+// hold, as bits 1 to 9 of a uint16. Placing a digit removes it from the
 // cell's peers (a cell left with one digit places it), and a unit with
 // one place left for a digit places it there. When propagation stops,
 // search tries each digit of the cell with the fewest, on a copy, and
@@ -17,10 +17,11 @@ type Solver {}
 type Contradiction {}
 
 // all is the set of every digit, bits 1 to 9.
-let all = 1022
+let all = uint16(1022)
 
-// state is the digits each of the 81 cells may still hold.
-type state { cand []int }
+// state is the digits each of the 81 cells may still hold. The fixed
+// array is a value: each search branch keeps its own candidate snapshot.
+type state { cand [81]uint16 }
 
 // unitsOf is, for each cell, the indexes into board.Units of its three
 // units.
@@ -48,9 +49,9 @@ func cellUnits() [][]int {
 // lowest such cell first.
 func Solve(_ Solver, puzzle board.Grid) board.Grid fails board.Unsolvable {
 	let unsolvable = board.Unsolvable{Givens: puzzle.Filled()}
-	let mut cand = []int{}
-	for _ in 0..81 {
-		cand = cand.Append(all)
+	let mut cand [81]uint16
+	for i in 0..81 {
+		cand[i] = all
 	}
 	let mut s = state{cand: cand}
 	for i in 0..81 {
@@ -82,9 +83,9 @@ func Solve(_ Solver, puzzle board.Grid) board.Grid fails board.Unsolvable {
 
 // assign leaves cell i with the digit d alone.
 func assign(s *state, i int, d int) fails Contradiction {
-	let others = s.cand[i] &^ (1 << d)
+	let others = s.cand[i] &^ (uint16(1) << d)
 	for e in 1..10 {
-		if others&(1<<e) != 0 {
+		if others&(uint16(1)<<e) != 0 {
 			try s.eliminate(i, e)
 		}
 	}
@@ -92,7 +93,7 @@ func assign(s *state, i int, d int) fails Contradiction {
 
 // eliminate removes d from cell i and propagates.
 func eliminate(s *state, i int, d int) fails Contradiction {
-	let bit = 1 << d
+	let bit = uint16(1) << d
 	if s.cand[i]&bit == 0 {
 		return
 	}
@@ -141,7 +142,7 @@ func search(s state) state fails Contradiction {
 		return s
 	}
 	for d in 1..10 {
-		if s.cand[best]&(1<<d) != 0 {
+		if s.cand[best]&(uint16(1)<<d) != 0 {
 			let mut t = s
 			t.assign(best, d) catch {
 			case Contradiction:
@@ -158,10 +159,10 @@ func search(s state) state fails Contradiction {
 }
 
 // count is the number of digits in the set c.
-func count(c int) int { bits.OnesCount(uint(c)) }
+func count(c uint16) int { bits.OnesCount(uint(c)) }
 
 // lowest is the lowest digit of the set c, or 0 when it is empty.
-func lowest(c int) int {
+func lowest(c uint16) int {
 	let digits = c & 0x3FE
 	if digits == 0 { 0 } else { bits.TrailingZeros(uint(digits)) }
 }

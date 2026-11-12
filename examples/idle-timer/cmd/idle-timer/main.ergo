@@ -25,6 +25,10 @@ func main() fails os.Exit needs Console | Ambient {
 		}
 	}
 	if status != 0 {
-		return os.Exit{Code: status, Message: "idle-timer: the script did not run"}
+		let code = os.ParseCode(status) catch {
+		case Unsatisfied:
+			Unreachable("timer script returned an invalid failure status")
+		}
+		return os.Exit{Code: code, Message: "idle-timer: the script did not run"}
 	}
 }

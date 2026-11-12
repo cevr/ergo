@@ -63,4 +63,24 @@ func TestInspectAPIRoute(t *testing.T) {
 	if !strings.Contains(capture("api", "--diff", old, next), "breaks callers that pass a resource") {
 		t.Fatal("diff lost warning")
 	}
+	// A derived type shows its type, parse engine, reason and counts
+	// (patterns.md, Derivation 7; mutant rc4b-inspect-engine-missing).
+	date := filepath.Join(dir, "date.ergo")
+	if err := os.WriteFile(date, []byte("type Date derive Pattern(`(?<Year>[0-9]{4})-(?<Month>[0-9]{2})`)\n\nfunc Year(s string) string fails NoMatch { try ParseDate(s).Year }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var report struct {
+		Derived []struct {
+			Type, Engine string
+			Reason       string
+			States       int
+			Allocates    bool
+		}
+	}
+	if err := json.Unmarshal([]byte(capture(date)), &report); err != nil || len(report.Derived) != 1 {
+		t.Fatalf("inspect: %v, %+v", err, report)
+	}
+	if d := report.Derived[0]; d.Type != "Date" || d.Engine != "direct" || d.Reason == "" || d.States == 0 || d.Allocates {
+		t.Fatalf("derived: %+v", d)
+	}
 }

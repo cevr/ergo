@@ -1,0 +1,41 @@
+// Prefix describes a literal that every match must start with. Complete
+// means that the language contains exactly Text, including the empty text.
+type Prefix { Text string, Complete bool }
+
+// Leading derives a sound prefix without expanding a search into .*p.*.
+// Optional/repeated patterns conservatively stop the prefix. A Plus must
+// match its operand once; it need not stop after that first occurrence.
+func Leading(n Node) Prefix {
+	match n {
+	case Empty:
+		Prefix{Text: "", Complete: true}
+	case Lit as l:
+		Prefix{Text: ByteText(l.C), Complete: true}
+	case Any, Class, Star, Quest:
+		Prefix{Text: "", Complete: false}
+	case Plus as p:
+		Prefix{Text: Leading(p.Of).Text, Complete: false}
+	case Count as c:
+		Leading(c.As)
+	case Group as g:
+		Leading(g.Of)
+	case Cat as c:
+		let mut text = ""
+		for part in c.Parts {
+			let p = Leading(part)
+			text = text + p.Text
+			if !p.Complete {
+				return Prefix{Text: text, Complete: false}
+			}
+		}
+		Prefix{Text: text, Complete: true}
+	case Alt as a:
+		let left = Leading(a.Left)
+		let right = Leading(a.Right)
+		let mut end = 0
+		for end < len(left.Text) && end < len(right.Text) && left.Text[end] == right.Text[end] {
+			end += 1
+		}
+		Prefix{Text: left.Text[:end], Complete: left.Complete && right.Complete && left.Text == right.Text}
+	}
+}

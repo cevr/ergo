@@ -22,11 +22,15 @@
 // Decode skips keys it does not know, and of two members with one key the
 // last is the value (encoding/json).
 //
-// The compiler writes a Text faster than its operations do: an encode(v,
-// t) whose t is a Text appends v's bytes to the text directly, by a
-// function made for v's type (lower/wirejson.go), and the law
-// FastAgreesWithWriter holds that it writes what the Writer operations
-// write.
+// Text's one provider is the record text below: its state is the comma
+// flag, the HTML flag and the bytes written, and its operations are Ergo
+// code, so the law runs prove Text's laws on the code that runs (types.md,
+// Laws 14). An encode(v, t) whose t is a local a let binds by a cell of
+// text calls text's functions, not a Writer adapter (lower/wiredirect.go,
+// a rule over checked facts that names no type), and the build rewrites
+// each straight run of them by the proved laws: a record's keys and commas
+// become constant text. The law FastAgreesWithWriter holds that it writes
+// what the Writer operations write.
 
 // Malformed is the failure of a text that is not one JSON value, or is
 // longer than MaxBytes, or nests deeper than MaxDepth: Offset is the byte
@@ -34,8 +38,18 @@
 type Malformed { Offset int, Reason string }
 
 // Text is JSON text being written: the prelude's Writer events, and the
-// text they wrote so far.
-// law-exempt: an event's text depends on the events before it (a comma, a key), so a law over Text's own operations restates the writer; the package laws (RoundTrips, FastAgreesWithWriter) hold what it writes through encode and decode.
+// text they wrote so far. Its one provider is text. The private
+// operations are the parts of the events: sep writes the comma one is
+// due, quote a string's JSON text, raw constant text, setComma whether
+// the next value or key needs a comma (the one state an event reads,
+// commaDue), and the bodies a value's text with no comma. A public
+// event's body is a straight line of its parts, so the build unfolds it
+// by its definition (types.md, Laws 14). The laws state what sep writes
+// after a setComma (SepAfterSet: the state the setComma leaves is in the
+// pattern, so the law needs no guard), the joins of constant text and the
+// moves of setComma across text; the std ledger holds each as proved on
+// text's code (internal/sketch/std/ergo.laws). SetCommaSets is the plain
+// law SepAfterSet rests on.
 type Text {
 	Bool(b bool),
 	Int(n int64),
@@ -54,26 +68,226 @@ type Text {
 	Number(text string),
 	// Written is the text written so far.
 	Written() string,
+
+	// raw appends text as it is; the comma state is unchanged.
+	raw(text string),
+	// sep writes a comma when one is due.
+	sep(),
+	// commaDue reports that the next value or key needs a comma.
+	commaDue() bool,
+	// setComma sets whether the next value or key needs a comma.
+	setComma(due bool),
+	// quote writes s as a JSON string; plainBody a plain s between quotes;
+	// the bodies write a value's text. None writes a comma or sets the
+	// state.
+	quote(s string),
+	plainBody(s string),
+	stringBody(s string),
+	intBody(n int64),
+	uintBody(n uint64),
+	boolBody(b bool),
+	floatBody(f float64),
+	// finish is the text written, and gives the buffer back to the pool
+	// (Encode only: nothing may use the Text after).
+	finish() string,
+
+	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
+
+	law SepAfterSet(due bool) { setComma(due); sep() } == { setComma(due); raw(commaText(due)) },
+
+	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
+	law PlainIsRaw(s string) { plainBody(s) } == { raw(inQuotes(s)) },
+	law SetCommaLast(p bool, q bool) { setComma(p); setComma(q) } == { setComma(q) },
+	law SetCommaSinks(p bool, text string) { setComma(p); raw(text) } == { raw(text); setComma(p) },
+	law SetCommaSinksString(p bool, s string) { setComma(p); stringBody(s) } == { stringBody(s); setComma(p) },
+	law SetCommaSinksInt(p bool, n int64) { setComma(p); intBody(n) } == { intBody(n); setComma(p) },
+	law SetCommaSinksUint(p bool, n uint64) { setComma(p); uintBody(n) } == { uintBody(n); setComma(p) },
+	law SetCommaSinksBool(p bool, b bool) { setComma(p); boolBody(b) } == { boolBody(b); setComma(p) },
+	law SetCommaSinksFloat(p bool, f float64) { setComma(p); floatBody(f) } == { floatBody(f); setComma(p) },
+}
+
+// text is Text's provider: comma, whether the next value or key needs a
+// comma (true after a value, false after a key and after an opening
+// bracket: one flag is the whole state, since a key ends every object
+// member's comma question and a value every list element's); html, whether
+// strings escape <, > and &; and out, the bytes written.
+type text { comma bool, html bool, out []byte }
+
+// appendString appends the bytes of s to out (Go's append at its string
+// shape, interop.md, Lowering 9).
+extern go append func appendString(out []byte, s string) []byte
+
+// The value appenders: out with a value's JSON text added.
+extern go ergo.local/prototype/runtime/v1.JSONAppendQuoted func appendQuoted(out []byte, s string, html bool) []byte
+extern go ergo.local/prototype/runtime/v1.JSONAppendInt func appendInt(out []byte, n int64) []byte
+extern go ergo.local/prototype/runtime/v1.JSONAppendUint func appendUint(out []byte, n uint64) []byte
+extern go ergo.local/prototype/runtime/v1.JSONAppendBool func appendBool(out []byte, b bool) []byte
+extern go ergo.local/prototype/runtime/v1.JSONAppendFloat func appendFloat(out []byte, f float64) []byte
+
+// bytesText is the bytes of out as a string.
+extern go ergo.local/prototype/runtime/v1.JSONBytesText func bytesText(out []byte) string
+
+// take is an empty buffer from a pool; recycle puts out's buffer back, so
+// nothing may use it after (Encode only).
+extern go ergo.local/prototype/runtime/v1.JSONTake func take() []byte
+extern go ergo.local/prototype/runtime/v1.JSONRecycle func recycle(out []byte) []byte
+
+func raw(t *text, s string) { t.out = appendString(t.out, s) }
+
+func sep(t *text) {
+	if t.comma {
+		t.raw(",")
+	}
+}
+
+func commaDue(t *text) bool { t.comma }
+
+// commaText is the text sep writes when due says whether a comma is due.
+func commaText(due bool) string { if due { "," } else { "" } }
+
+func setComma(t *text, due bool) { t.comma = due }
+
+// plain reports that s is its own JSON string text: every byte is printable
+// ASCII and none of '"', '\', <, > and &, so neither escaping changes it.
+func plain(s string) bool {
+	for i in 0..len(s) {
+		let b = s[i]
+		// '1' (49) at each plain byte, 16 to a group: a lookup, not seven
+		// comparisons.
+		if b >= 128 || "00000000000000000000000000000000110111011111111111111111111101011111111111111111111111111111011111111111111111111111111111111110"[int(b)] != 49 {
+			return false
+		}
+	}
+	true
+}
+
+// quote writes s quoted. A plain s is written as it is between quotes, so
+// a constant key or tag is constant text after the unfold (PlainIsRaw).
+func quote(t *text, s string) {
+	if plain(s) {
+		t.plainBody(s)
+	} else {
+		t.stringBody(s)
+	}
+}
+
+// plainBody writes s between quotes: one store of the buffer.
+func plainBody(t *text, s string) { t.out = appendString(appendString(appendString(t.out, "\""), s), "\"") }
+
+// inQuotes is s between quotes.
+func inQuotes(s string) string { "\"" + s + "\"" }
+
+func stringBody(t *text, s string) { t.out = appendQuoted(t.out, s, t.html) }
+
+func intBody(t *text, n int64) { t.out = appendInt(t.out, n) }
+
+func uintBody(t *text, n uint64) { t.out = appendUint(t.out, n) }
+
+func boolBody(t *text, b bool) { t.out = appendBool(t.out, b) }
+
+func floatBody(t *text, f float64) { t.out = appendFloat(t.out, f) }
+
+func Bool(t *text, b bool) {
+	t.sep()
+	t.boolBody(b)
+	t.setComma(true)
+}
+
+func Int(t *text, n int64) {
+	t.sep()
+	t.intBody(n)
+	t.setComma(true)
+}
+
+func Uint(t *text, n uint64) {
+	t.sep()
+	t.uintBody(n)
+	t.setComma(true)
+}
+
+func Float(t *text, f float64) {
+	t.sep()
+	t.floatBody(f)
+	t.setComma(true)
+}
+
+func String(t *text, s string) {
+	t.sep()
+	t.stringBody(s)
+	t.setComma(true)
+}
+
+func Null(t *text) {
+	t.sep()
+	t.raw("null")
+	t.setComma(true)
+}
+
+func Number(t *text, text string) {
+	t.sep()
+	t.raw(text)
+	t.setComma(true)
+}
+
+func BeginList(t *text, n int) {
+	t.sep()
+	t.raw("[")
+	t.setComma(false)
+}
+
+func EndList(t *text) {
+	t.raw("]")
+	t.setComma(true)
+}
+
+func BeginObject(t *text, n int) {
+	t.sep()
+	t.raw("{")
+	t.setComma(false)
+}
+
+func EndObject(t *text) {
+	t.raw("}")
+	t.setComma(true)
+}
+
+// Tag writes a union's tag as the member "_tag" (owner q81).
+func Tag(t *text, name string) {
+	t.sep()
+	t.raw("\"_tag\":")
+	t.quote(name)
+	t.setComma(true)
+}
+
+func Key(t *text, k string) {
+	t.sep()
+	t.quote(k)
+	t.raw(":")
+	t.setComma(false)
+}
+
+func Written(t *text) string { bytesText(t.out) }
+
+func finish(t *text) string {
+	let s = bytesText(t.out)
+	t.out = recycle(t.out)
+	s
 }
 
 // NewText is a Text with nothing written.
-extern go ergo.local/prototype/runtime/v1.NewJSONText func NewText() Text
+func NewText() Text { text{comma: false, html: false, out: []byte{}} }
 
 // NewHTMLText is a Text with nothing written whose strings also escape <,
 // > and & as \u003c, \u003e and \u0026, as Go's encoding/json does by
 // default, so the text is safe inside HTML.
-extern go ergo.local/prototype/runtime/v1.NewJSONHTMLText func NewHTMLText() Text
-
-// take is an empty Text from a pool; give is its text, and puts it back,
-// so nothing may use it after (Encode only).
-extern go ergo.local/prototype/runtime/v1.JSONTake func take() Text
-extern go ergo.local/prototype/runtime/v1.JSONGive func give(t Text) string
+func NewHTMLText() Text { text{comma: false, html: true, out: []byte{}} }
 
 // Cursor reads a validated text for Reader: each read takes the next value
 // of the innermost open list or object; Wrong says when it was not of the
 // kind asked for.
 // law-exempt: only open makes a Cursor, from a text, so a law cannot draw one; the package law RoundTrips holds its reads through Reader and decode.
 type Cursor {
+	runtimeOnly(),
 	TakeNull() bool,
 	// Kind is the next value's kind in WireKind's order (0 null to 6 end).
 	Kind() int,
@@ -210,12 +424,12 @@ func End(r Reader) { r.c.End() }
 type Codec[T wire] { MaxBytes int, MaxDepth int }
 
 // Encode is v's JSON text.
-// (Its Text is a pooled buffer, take and give, as encoding/json keeps its
+// (Its Text's buffer is pooled, take and recycle, as encoding/json keeps its
 // encodeState: no other code sees it.)
 func Encode[T wire](c Codec[T], v T) string {
-	let t = take()
+	let t Text = text{comma: false, html: false, out: take()}
 	encode(v, t)
-	give(t)
+	t.finish()
 }
 
 // Decode is the T that text writes: Malformed when the text breaks

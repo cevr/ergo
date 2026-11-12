@@ -1,17 +1,31 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"ps3-conversion-aliases-source","origin":"wf10 PS3","file":"internal/sketch/lower/cells.go","from":"\tw.freshen(x)\n}","to":"\t_ = x\n}","rule":"A value that moves into a cell is copied unless it is fresh or a dead local: the cell never shares storage with its source.","killers":["lower:TestProviderCellsAgree"]},
+    {"name":"ps3-cell-window-off","origin":"wf10 PS3","file":"internal/sketch/lower/rewrite.go","from":"\t\tif !ok || c.Op == nil {","to":"\t\tif true || !ok || c.Op == nil {","rule":"A window on a cell local is rewritten by its provider's proved laws.","killers":["lower:TestProviderCellsAgree"]},
+    {"name":"ps2-runner-ignores-symbolic","origin":"wf10 PS2","file":"internal/sketch/lower/valueproof.go","from":"\tif !listable {\n\t\treturn symbolic()\n\t}","to":"\tif !listable {\n\t\treturn skip(\"a law parameter cannot be listed\")\n\t}","rule":"A law over an unlistable parameter goes to the symbolic run, which proves it for every value.","killers":["lower:TestSymbolicProofsSound"]},
+    {"name":"ps1-counterexample-hidden-by-constructor","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"if record, ok := n.Underlying().(*check.Struct); ok {","to":"if record, ok := n.Underlying().(*check.Struct); false && ok {","rule":"A reached counterexample prints its record state, not the initial constructor call.","killers":["lower:TestProvedRunsModel"]},
+    {"name":"ps1-body-callee-unchecked","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"why = proofBodyWhy(c.Func, seen)","to":"why = \"\"","rule":"A helper's rowless foreign call is not an Ergo state proof.","killers":["lower:TestProvedRunsModel"]},
+    {"name":"ps1-refuted-build-accepted","origin":"wf10 PS1","file":"internal/sketch/lower/rewritecheck.go","from":"if strings.HasPrefix(line, \"FAIL law \") && strings.Contains(line, \"(reachable state)\") {","to":"if false && strings.HasPrefix(line, \"FAIL law \") && strings.Contains(line, \"(reachable state)\") {","rule":"A reachable finite counterexample refuses the build rather than only disabling its rewrite.","killers":["lower:TestProvedRunsModel"]},
+    {"name":"ps1-result-compare-skipped","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"+ leftResults + \"[\" + j + \"] != \" + rightResults + \"[\" + j + \"]","to":"+ leftResults + \"[\" + j + \"] != \" + leftResults + \"[\" + j + \"]","rule":"Equal end states do not prove unequal operation results.","killers":["lower:TestProvedRunsModel"]},
+    {"name":"ps1-private-method-unraised","origin":"wf10 PS1 closes LR3a gap","file":"internal/sketch/lower/names.go","from":"return string(op[0]-'a'+'A') + op[1:]","to":"return op","rule":"Private std operations call their exported runtime Go method.","killers":["lower:TestPrivateRuntimeOperationCalls"]},
+    {"name":"ps1-state-compare-skipped","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"w(\"if \" + key + \"(\" + a + \") != \" + key + \"(\" + c + \") { \" + held + \" = false }\")","to":"w(\"if false { \" + held + \" = false }\")","rule":"Rewrite proofs compare the full provider state, not only observations.","killers":["lower:TestProvedRunsModel"]},
+    {"name":"ps1-budget-stop-proved","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"\") >= \" + budget + \" { \" + complete + \" = false; return }\")","to":"\") >= \" + budget + \" { return }\")","rule":"A truncated search cannot prove a rewrite.","killers":["lower:TestProvedRunsModel"]},
+    {"name":"ps1-handle-keyed","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"if why := l.keyWhy(p.Type); why != \"\" {","to":"if why := l.keyWhy(p.Type); false && why != \"\" {","rule":"A handle does not have a structural state key.","killers":["lower:TestRewriteAgrees"]},
+    {"name":"ps1-superset-fail-refuses","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"if search {\n\t\tw(fmt + \".Println(\"","to":"if true {\n\t\tw(fmt + \".Println(\"","rule":"A false case in a conservative superset is not a reachable refutation.","killers":["lower:TestProvedRunsModel"]},
+    {"name":"ps1-guard-ignored","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"if law.Rewrite.Guard != nil {","to":"if false && law.Rewrite.Guard != nil {","rule":"A proof checks only states the law's guard admits.","killers":["lower:TestProvedRunsModel"]},
+    {"name":"ps1-search-from-fresh-only","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"+ idx + \" < len(\" + states + \") && \" + complete","to":"+ idx + \" < 1 && \" + complete","rule":"Proof covers closure under every listable operation, not only the constructor state.","killers":["lower:TestProvedRunsModel"]},
     {"name":"cu2-stale-stdin-callers","origin":"wf10 batch-16b fix-r1","file":"internal/sketch/lower/std_fs_memory_test.go","from":"let input = io.NewStdin()","to":"let input = io.NewHost()","rule":"The fast tier checks every declared full-tier table program against current std contracts.","killers":["lower:TestProgramTablesCheck"],"anchor":{"tests":["lower:TestProgramTablesCheck"]}},
     {"name":"b16b-library-init-before-std-reach","origin":"batch-16b D6 + IG11 integration","file":"internal/sketch/lower/module.go","from":"\t\tl.drainPending() // Reach std lets before the Go library's initOnce.","to":"\t\t// mutant: write initOnce before reaching the std lets","rule":"Go-library initOnce is written after queued std bodies have reached their lets, before any exported call runs.","killers":["lower:TestStdPackageLet"]},
-    {"name":"16a-r1-values-binding-unregistered","origin":"batch-16a fix r1 M2","file":"internal/sketch/lower/body.go","from":"\t\tfc.ownVar(b.v, p)","to":"\t\t_ = p","rule":"An owned for-in binding (a queue's Values(), Q7) is registered; a plan that names an unregistered owned value is an internal compiler error.","killers":["lower:TestOwnershipRunModel"]},
-    {"name":"16a-r2-base-not-handed","origin":"batch-16a fix r2 M2 (verifier 16a r2 v2-base-not-handed)","file":"internal/sketch/lower/release.go","from":"if !fc.l.info.PartHands[base] {","to":"if true {","rule":"An update or spread base that is a part is handed to the value built (R43).","killers":["lower:TestOwnershipRunModel"]},
-    {"name":"16a-r2-replaced-unregistered","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/lower/release.go","from":"fc.line(\"_ = \" + fc.own(r.Temp, d, r.Field.Type, base+\".\"+name, r.Temp))","to":"_ = name","rule":"A field of an update's base that the value does not copy is registered when the value is built.","killers":["lower:TestOwnershipRunModel"]},
+    {"name":"16a-r1-values-binding-unregistered","origin":"batch-16a fix r1 M2","file":"internal/sketch/lower/body.go","from":"\t\tfc.ownVar(b.v, p)","to":"\t\t_ = p","rule":"An owned for-in binding (a queue's Values(), Q7) is registered; a plan that names an unregistered owned value is an internal compiler error.","killers":["lower:TestOwnershipRunModel","lower:TestOwnershipGrammarRun"]},
+    {"name":"16a-r2-base-not-handed","origin":"batch-16a fix r2 M2 (verifier 16a r2 v2-base-not-handed)","file":"internal/sketch/lower/release.go","from":"if !fc.l.info.PartHands[base] {","to":"if true {","rule":"An update or spread base that is a part is handed to the value built (R43).","killers":["lower:TestOwnershipRunModel","lower:TestOwnershipGrammarRun"]},
+    {"name":"16a-r2-replaced-unregistered","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/lower/release.go","from":"fc.line(\"_ = \" + fc.own(r.Temp, d, r.Field.Type, base+\".\"+name, r.Temp))","to":"_ = name","rule":"A field of an update's base that the value does not copy is registered when the value is built.","killers":["lower:TestOwnershipRunModel","lower:TestOwnershipGrammarRun"]},
     {"name":"16a-r2-static-replaced-unplanned","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/lower/static.go","from":"add(r.Temp, info.OwnedTemps[r.Temp]) // no node of the tree","to":"_ = r","rule":"The static plan counts an update's replaced fields: one whose release is generated keeps the frame in the list lowering.","killers":["lower:TestStaticReleaseAgrees"]},
     {"name":"16a-r2-owns-replaced-unseen","origin":"batch-16a fix r2 (on base)","file":"internal/sketch/lower/release.go","from":"if lit, ok := n.(*syntax.CompositeLit); ok && ownsReplaced(l.info, lit) {","to":"if lit, ok := n.(*syntax.CompositeLit); ok && false && ownsReplaced(l.info, lit) {","rule":"A body whose statement owns a replaced field of an update has a frame scope.","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-part-not-handed","origin":"batch-16a fix r1 M1","file":"internal/sketch/lower/release.go","from":"if x == nil || !fc.l.info.PartHands[x] {","to":"if true {","rule":"A part moves to the value built from it: its statement entry is removed there.","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-part-unspilled","origin":"batch-16a fix r1 M1","file":"internal/sketch/lower/release.go","from":"if x != nil && fc.l.info.PartHands[x] {","to":"if false && x != nil && fc.l.info.PartHands[x] {","rule":"From the first part with a statement owner on, every operand is spilled: each part is registered before the next operand runs, and every operand runs (a division may panic) before the parts are handed to the value.","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r1-elided-part-unregistered","origin":"batch-16a fix r1 M1","file":"internal/sketch/lower/expr.go","from":"out[i] = fc.ownTemp(lit, operand{val: fc.composite(lit, fc.typeOf(lit))}).val","to":"out[i] = fc.composite(lit, fc.typeOf(lit))","rule":"An elided literal element is registered when its statement owns it.","killers":["lower:TestOwnershipRunModel"]},
-    {"name":"po1-lower-binding-unregistered","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, v := range plan.Bindings {","to":"for _, v := range plan.Bindings[:0] {","rule":"A selected arm registers each owned binding before running its body.","killers":["lower:TestDropGlueModel"]},
+    {"name":"po1-lower-binding-unregistered","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, v := range plan.Bindings {","to":"for _, v := range plan.Bindings[:0] {","rule":"A selected arm registers each owned binding before running its body.","killers":["lower:TestDropGlueModel","lower:TestOwnershipGrammarRun"]},
     {"name":"po1-lower-subject-kept","origin":"batch-16a PO1","file":"internal/sketch/lower/release.go","from":"for _, source := range plan.Sources {","to":"for _, source := range plan.Sources[:0] {","rule":"A consuming arm removes its subject's old release entry.","killers":["lower:TestDropGlueModel"]},
     {"name":"po1-match-scope-unreleased","origin":"batch-16a PO1","file":"internal/sketch/lower/body.go","from":"return fc.scoped(s, func() bool { return fc.typeMatchBody(s, d) })","to":"return fc.typeMatchBody(s, d)","rule":"A temporary subject not consumed by the selected arm releases at match end, before the next statement.","killers":["lower:TestDropGlueModel"]},
     {
@@ -57,24 +71,24 @@
     {"name":"cu4-script-drops-caller", "origin":"wf10 CU4", "file":"internal/sketch/std/exec/exec.ergo", "from":"\tcase ToCaller:\n\t\ttrue", "to":"\tcase ToCaller:\n\t\tfalse", "rule":"Script.Start replays the recorded lines of each ToCaller stream.", "killers":["lower:TestExecStartRuns", "lower:TestExecLaws"], "anchor":{"tests":["lower:TestExecStartRuns", "lower:TestExecLaws"]}},
     {"name":"cu4-split-last-empty", "origin":"wf10 CU4", "file":"internal/sketch/std/exec/exec.ergo", "from":"\tif strings.HasSuffix(text, \"\\n\") {", "to":"\tif false {", "rule":"Split gives no empty last line for text that ends in a line feed, as a Running's Lines does; StartAgreesWithRun relates them.", "killers":["lower:TestExecLaws"],"anchor":{"tests":["lower:TestExecLaws"]}},
     {"name":"cu4-host-grace-lost", "origin":"wf10 CU4", "file":"internal/sketch/std/exec/exec.ergo", "from":"c.Stdin, c.Grace, sinkKind(s.Stdout)", "to":"c.Stdin, 0s, sinkKind(s.Stdout)", "rule":"Host.Start passes the command's Grace to its release: a TERM trap runs at the scope's end.", "killers":["lower:TestExecStartRuns"], "anchor":{"tests":["lower:TestExecStartRuns"]}},
-    { "name": "sq-float", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "let v = try value(r, \"a number\")\n\tstrconv.ParseFloat(v) catch", "to": "let v = try value(r, \"a number\")\n\tstrconv.ParseFloat(v + \"1\") catch", "rule": "A float field reads its value.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "sq-uint", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "n = n*10 + d", "to": "n = n*10 + d + 1", "rule": "An unsigned field reads a decimal value.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "sq-bool", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "if v == \"true\" {", "to": "if v == \"false\" {", "rule": "A boolean field reads true and false.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "sq-int", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "strconv.ParseInt(v, 10, 64)", "to": "strconv.ParseInt(v, 8, 64)", "rule": "An integer field reads a decimal value.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "sq-path", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "return r.groups[r.at.Get()].name\n", "to": "return \"\"\n", "rule": "A value that does not parse fails WireWrongKind with its key as Path.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "sq-list-order", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "return r.groups[r.at.Get()].values[i]", "to": "return r.groups[r.at.Get()].values[len(r.groups[r.at.Get()].values)-1-i]", "rule": "A list field takes its key's values in query order.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "sq-group", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "if g.name == f.Name {", "to": "if false {", "rule": "The values of one key are one group: a repeated scalar key is not last-wins and a list keeps every value.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "sq-repeat-untyped", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "case Some as key:\n\t\t\treturn QueryRepeated{Key: key.Value}", "to": "case Some:\n\t\t\treturn w", "rule": "A repeated scalar key is the typed QueryRepeated naming the key, not a WireWrongKind.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "sq-repeat-first-wins", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "if len(g.values) != 1 {", "to": "if len(g.values) == 0 {", "rule": "A scalar field refuses a key given twice; it never takes the first value.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "e3b-lookup-tag", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "if entry.Tag == tag {", "to": "if true {", "rule": "StatusOf selects the matching tag, ignoring unrelated entries.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "e3b-response-status", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "Response{Status: status,", "to": "Response{Status: 500,", "rule": "Failure reads the shared table's status, never a default.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "e3b-response-body", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "Body: body}", "to": "Body: \"\"}", "rule": "Failure preserves the tagged JSON body.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "e3b-response-header", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "Value: \"application/json\"", "to": "Value: \"text/plain\"", "rule": "A failure is a JSON response.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "e3b-lookup-repeat", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "result != None || entry.Status < 400", "to": "entry.Status < 400", "rule": "StatusOf refuses repeated entries instead of last-wins.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "e3b-lookup-low", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "entry.Status < 400", "to": "entry.Status < 100", "rule": "StatusOf refuses success statuses.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "e3b-lookup-high", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "entry.Status > 599", "to": "entry.Status > 999", "rule": "StatusOf refuses invalid statuses above 599.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "e3-success-status", "origin": "E3", "file": "internal/sketch/std/http/router.ergo", "from": "Response{Status: route.Status, Header: []Field{Field", "to": "Response{Status: 200, Header: []Field{Field", "rule": "Success takes the matched route's explicit status.", "killers": ["lower:TestStdHTTPLawsRun"] },
-    { "name": "e3-success-empty", "origin": "E3", "file": "internal/sketch/std/http/router.ergo", "from": "if route.Status == 204 || route.Status == 205", "to": "if route.Status == 204", "rule": "A 205 success is empty, like a 204.", "killers": ["lower:TestStdHTTPLawsRun"] },
+    { "name": "sq-float", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "let v = try value(r, \"a number\")\n\tstrconv.ParseFloat(v) catch", "to": "let v = try value(r, \"a number\")\n\tstrconv.ParseFloat(v + \"1\") catch", "rule": "A float field reads its value.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "sq-uint", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "n = n*10 + d", "to": "n = n*10 + d + 1", "rule": "An unsigned field reads a decimal value.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "sq-bool", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "if v == \"true\" {", "to": "if v == \"false\" {", "rule": "A boolean field reads true and false.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "sq-int", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "strconv.ParseInt(v, 10, 64)", "to": "strconv.ParseInt(v, 8, 64)", "rule": "An integer field reads a decimal value.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "sq-path", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "return r.groups[r.at.Get()].name\n", "to": "return \"\"\n", "rule": "A value that does not parse fails WireWrongKind with its key as Path.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "sq-list-order", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "return r.groups[r.at.Get()].values[i]", "to": "return r.groups[r.at.Get()].values[len(r.groups[r.at.Get()].values)-1-i]", "rule": "A list field takes its key's values in query order.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "sq-group", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "if g.name == f.Name {", "to": "if false {", "rule": "The values of one key are one group: a repeated scalar key is not last-wins and a list keeps every value.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "sq-repeat-untyped", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "case Some as key:\n\t\t\treturn QueryRepeated{Key: key.Value}", "to": "case Some:\n\t\t\treturn w", "rule": "A repeated scalar key is the typed QueryRepeated naming the key, not a WireWrongKind.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "sq-repeat-first-wins", "origin": "S-query", "file": "internal/sketch/std/http/query.ergo", "from": "if len(g.values) != 1 {", "to": "if len(g.values) == 0 {", "rule": "A scalar field refuses a key given twice; it never takes the first value.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "e3b-lookup-tag", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "if entry.Tag == tag {", "to": "if true {", "rule": "StatusOf selects the matching tag, ignoring unrelated entries.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "e3b-response-status", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "Response{Status: status,", "to": "Response{Status: 500,", "rule": "Failure reads the shared table's status, never a default.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "e3b-response-body", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "Body: body}", "to": "Body: \"\"}", "rule": "Failure preserves the tagged JSON body.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "e3b-response-header", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "Value: \"application/json\"", "to": "Value: \"text/plain\"", "rule": "A failure is a JSON response.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "e3b-lookup-repeat", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "result != None || entry.Status < 400", "to": "entry.Status < 400", "rule": "StatusOf refuses repeated entries instead of last-wins.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "e3b-lookup-low", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "entry.Status < 400", "to": "entry.Status < 100", "rule": "StatusOf refuses success statuses.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "e3b-lookup-high", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "entry.Status > 599", "to": "entry.Status > 999", "rule": "StatusOf refuses invalid statuses above 599.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "e3-success-status", "origin": "E3", "file": "internal/sketch/std/http/router.ergo", "from": "Response{Status: route.Status, Header: []Field{Field", "to": "Response{Status: 200, Header: []Field{Field", "rule": "Success takes the matched route's explicit status.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
+    { "name": "e3-success-empty", "origin": "E3", "file": "internal/sketch/std/http/router.ergo", "from": "if route.Status == 204 || route.Status == 205", "to": "if route.Status == 204", "rule": "A 205 success is empty, like a 204.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
     {"name":"cu5-origin-row-unbound", "origin":"wf10 CU5", "file":"runtime/v1/files.go", "from":"\"http.OriginRefused\":   \"HTTPOriginRefused\",", "to":"", "rule":"The refused runtime origin is the declared std OriginRefused at the call boundary.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {"name":"cu5-hop-row-unbound", "origin":"wf10 CU5", "file":"runtime/v1/files.go", "from":"\"http.RedirectLimit\":   \"HTTPRedirectLimit\",", "to":"", "rule":"The runtime hop refusal is the declared std RedirectLimit at the call boundary.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {
@@ -154,7 +168,7 @@
       "from": "r.text.Update(func(s string) string { s + text })",
       "to": "r.text.Update(func(s string) string { text + s })",
       "rule": "A streamed body is its parts in the order they were written.",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "stream-recorder-late",
@@ -163,7 +177,7 @@
       "from": "\t\tif r.state.Get() != 1 {",
       "to": "\t\tif false {",
       "rule": "A BodyWriter kept past its Stream fails WriteFailed (one rule with Serve's provider).",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "http-imports-fstest",
@@ -172,7 +186,7 @@
       "from": "import sync",
       "to": "import sync\nimport fstest\nfunc unexpectedTestDependency() fstest.Tree { fstest.NewTree([]fstest.Node{}) }",
       "rule": "A production http import does not depend on fstest, even through law helpers.",
-      "killers": ["lower:TestHTTPHasNoTestProviderDependency"]
+      "killers": ["lower:TestHTTPHasNoTestProviderDependency"], "anchor": {"tests": ["lower:TestHTTPHasNoTestProviderDependency"]}
     },
     {
       "name": "root-host-joins",
@@ -190,7 +204,8 @@
       "from": "if errors.As(err, &pe) && pe.Err.Error() == rootErrEscapes {",
       "to": "if false && errors.As(err, &pe) && pe.Err.Error() == rootErrEscapes {",
       "rule": "A step out of the root is fs.Escapes, never Failed.",
-      "killers": ["lower:TestFSRootTreeAgreesWithHost"]
+      "killers": ["lower:TestFSRootTreeAgreesWithHost"],
+      "anchor": {"tests": ["lower:TestFSRootTreeAgreesWithHost"]}
     },
     {
       "name": "root-tree-absolute-target",
@@ -199,7 +214,7 @@
       "from": "if strings.HasPrefix(l.Target, \"/\") {",
       "to": "if false {",
       "rule": "A Tree link with an absolute target escapes, as os.Root's does.",
-      "killers": ["lower:TestFSRootTreeAgreesWithHost"]
+      "killers": ["lower:TestFSRootTreeAgreesWithHost"], "anchor": {"tests": ["lower:TestFSRootTreeAgreesWithHost"]}
     },
     {
       "name": "root-tree-dotdot-past-root",
@@ -208,7 +223,7 @@
       "from": "if count > i {\n\t\t\t\treturn fs.Escapes{Path: path}",
       "to": "if count > i {\n\t\t\t\treturn fs.NotFound{Path: path}",
       "rule": "A .. with no element before it is Escapes in the Tree, as on the host.",
-      "killers": ["lower:TestFSRootTreeAgreesWithHost"]
+      "killers": ["lower:TestFSRootTreeAgreesWithHost"], "anchor": {"tests": ["lower:TestFSRootTreeAgreesWithHost"]}
     },
     {
       "name": "files-dotdot-read",
@@ -217,7 +232,7 @@
       "from": "\t\t\treturn refused",
       "to": "\t\t\tcontinue",
       "rule": "Files refuses a .. element before any read.",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "files-prefix-ignored",
@@ -226,7 +241,7 @@
       "from": "if !strings.HasPrefix(path, prefix) {",
       "to": "if false {",
       "rule": "A path without the prefix is not served and reaches no read.",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "files-escape-404",
@@ -235,7 +250,7 @@
       "from": "case fs.Denied, fs.Escapes:\n\t\t\treturn refusal(403)",
       "to": "case fs.Denied, fs.Escapes:\n\t\t\treturn refusal(404)",
       "rule": "A name the root refuses is 403, by the one 403/404 rule.",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "files-empty-content-type",
@@ -244,7 +259,7 @@
       "from": "if text == \"\" {",
       "to": "if false {",
       "rule": "An empty file has no Content-Type.",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "files-extension-case",
@@ -253,7 +268,7 @@
       "from": "let ext = strings.ToLower(filepath.Ext(name))",
       "to": "let ext = filepath.Ext(name)",
       "rule": "ContentType ignores the case of the extension.",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "http-serve-row",
@@ -271,7 +286,7 @@
       "from": "params[strings.TrimPrefix(part, \":\")] = got[i]",
       "to": "params[strings.TrimPrefix(part, \":\")] = \"wrong\"",
       "rule": "A path built from a route and parameter values recovers those values.",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "http-head-fallback",
@@ -280,7 +295,7 @@
       "from": "if method == \"HEAD\"",
       "to": "if method == \"NEVER\"",
       "rule": "HEAD uses a GET route only when no explicit HEAD route matches.",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "go-share-result",
@@ -298,7 +313,7 @@
       "from": "valueRule() && !fc.goShares(x):",
       "to": "valueRule():",
       "rule": "interop.md Lowering 3 (G2): the shared result is not copied where it is bound.",
-      "killers": ["lower:TestImportGoHeaderWriteReachesGo"]
+      "killers": ["lower:TestImportGoHeaderWriteReachesGo"], "anchor": {"tests": ["lower:TestImportGoHeaderWriteReachesGo"]}
     },
     {
       "name": "go-let-operand",
@@ -343,7 +358,7 @@
       "from": "if m == \"GET\" { withHead = withHead.Append(\"HEAD\") }",
       "to": "if m == \"NEVER\" { withHead = withHead.Append(\"HEAD\") }",
       "rule": "A 405's Allow names HEAD when a GET route serves it.",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "http-allow-once",
@@ -352,7 +367,7 @@
       "from": "if !slices.Contains(allow, route.Method) { allow = allow.Append(route.Method) }",
       "to": "allow = allow.Append(route.Method)",
       "rule": "A 405's Allow names each method once.",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "http-header-case",
@@ -361,7 +376,7 @@
       "from": "strings.EqualFold(f.Name, name)",
       "to": "strings.Compare(f.Name, name) == 0",
       "rule": "Header lookup ignores case and preserves absence.",
-      "killers": ["lower:TestStdHTTPLawsRun"]
+      "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]}
     },
     {
       "name": "g3-omit",
@@ -376,18 +391,9 @@
       "name": "g3-null",
       "origin": "G3",
       "file": "internal/sketch/lower/wirefields.go",
-      "from": "appendConst(w, \"null\")",
-      "to": "appendConst(w, \"false\")",
+      "from": "b.WriteString(w + \".Null(\" + task + \")\\n\")\n\tb.WriteString(\"case \" + tc.goType(present)",
+      "to": "b.WriteString(w + \".Bool(\" + task + \", false)\\n\")\n\tb.WriteString(\"case \" + tc.goType(present)",
       "rule": "Nullable's empty state writes null, not false.",
-      "killers": ["lower:TestJSONFieldsAgree"]
-    },
-    {
-      "name": "g3-comma",
-      "origin": "G3",
-      "file": "internal/sketch/lower/wirefields.go",
-      "from": "em.key(key, false, task, w)",
-      "to": "em.key(key, true, task, w)",
-      "rule": "Present fields after another field need a comma even when an earlier field was omitted.",
       "killers": ["lower:TestJSONFieldsAgree"]
     },
     {
@@ -430,8 +436,8 @@
       "name": "g4-number",
       "origin": "G4",
       "file": "internal/sketch/lower/wirevalue.go",
-      "from": "return w + \".B = append(\" + w + \".B, \" + f + \"...)\\n\"",
-      "to": "return w + \".B = append(\" + w + \".B, \" + f + \"[:1]...)\\n\"",
+      "from": "return w + \".Number(\" + task + \", \" + f + \")\\n\"",
+      "to": "return w + \".Number(\" + task + \", \" + f + \"[:1])\\n\"",
       "rule": "A json.Num writes its whole spelling as it was read.",
       "killers": ["lower:TestJSONValueAgrees"]
     },
@@ -2043,83 +2049,6 @@
       ]
     },
     {
-      "name": "sj-l1",
-      "origin": "wf10 v1-lang-B S-json",
-      "file": "internal/sketch/lower/wirejson.go",
-      "from": "\tif first {\n\t\treturn appendConst(w, quotedKey(name))",
-      "to": "\tif !first {\n\t\treturn appendConst(w, quotedKey(name))",
-      "rule": "stdlib.md, json 4: the fast path writes a record's commas as the Writer path does.",
-      "killers": [
-        "lower:TestStdJSONLawsRun"
-      ]
-    },
-    {
-      "name": "sj-l2",
-      "origin": "wf10 v1-lang-B S-json",
-      "file": "internal/sketch/lower/wirejson.go",
-      "from": "\treturn \"if \" + i + \" > 0 {\\n\" + w + \".B = append(\" + w + \".B, ',')\\n}\\n\"",
-      "to": "\treturn \"\"",
-      "rule": "stdlib.md, json 4: the fast path writes the commas of a list and a Map.",
-      "killers": [
-        "lower:TestStdJSONLawsRun"
-      ]
-    },
-    {
-      "name": "sj-l3",
-      "origin": "wf10 v1-lang-B S-json",
-      "file": "internal/sketch/lower/wirejson.go",
-      "from": "\tif i == 0 {\n\t\treturn \"\"\n\t}",
-      "to": "\tif i >= 0 {\n\t\treturn \"\"\n\t}",
-      "rule": "stdlib.md, json 4: the fast path writes a tuple's commas.",
-      "killers": [
-        "lower:TestStdJSONLawsRun"
-      ]
-    },
-    {
-      "name": "sj-l4",
-      "origin": "wf10 v1-lang-B S-json",
-      "file": "internal/sketch/lower/wirejson.go",
-      "from": "\treturn appendConst(w, quotedKey(\"_tag\")+string(v1.JSONAppendString(nil, name)))",
-      "to": "\treturn appendConst(w, quotedKey(\"tag\")+string(v1.JSONAppendString(nil, name)))",
-      "rule": "stdlib.md, json 1: a union's tag is the member _tag on both paths.",
-      "killers": [
-        "lower:TestStdJSONLawsRun"
-      ]
-    },
-    {
-      "name": "sj-l5",
-      "origin": "wf10 v1-lang-B S-json",
-      "file": "internal/sketch/lower/wire.go",
-      "from": "\t\t\tfc.line(t + \".JSONValue()\")",
-      "to": "\t\t\t_ = t",
-      "rule": "stdlib.md, json 4: an encode on a Text writes the comma its state asks for.",
-      "killers": [
-        "lower:TestStdJSONLawsRun"
-      ]
-    },
-    {
-      "name": "sj-l6",
-      "origin": "wf10 v1-lang-B S-json",
-      "file": "internal/sketch/lower/wire.go",
-      "from": "\t\t\tfc.line(t + \".Comma = true\")",
-      "to": "\t\t\t_ = t",
-      "rule": "stdlib.md, json 4: an encode on a Text marks its value written.",
-      "killers": [
-        "lower:TestStdJSONLawsRun"
-      ]
-    },
-    {
-      "name": "sj-l7",
-      "origin": "wf10 v1-lang-B S-json",
-      "file": "internal/sketch/lower/wire.go",
-      "from": "\tfast := \"nil\"\n\tif wireFast() {",
-      "to": "\tfast := \"nil\"\n\tif false {",
-      "rule": "stdlib.md, json 4: a codec witness carries the fast function in a fast build.",
-      "killers": [
-        "lower:TestStdJSONLawsRun"
-      ]
-    },
-    {
       "name": "d1-body-reads-root-view",
       "origin": "wf10 defects D1",
       "file": "internal/sketch/lower/owners.go",
@@ -2343,6 +2272,34 @@
       }
     },
     {
+      "name": "ig11-call-watcher-leaks",
+      "origin": "wf10 batch-16a fix r4 (on base: TestGoCallsErgo counted goroutines still exiting)",
+      "file": "runtime/v1/gocall.go",
+      "from": "stop := context.AfterFunc(ctx, func() {",
+      "to": "go func() { <-ctx.Done(); t.Interrupt() }()\n\t\tstop := context.AfterFunc(ctx, func() {",
+      "rule": "interop.md Go calls Ergo: a call whose context is not done by its end leaves no goroutine and no registration.",
+      "killers": [
+        "lower:TestGoCallsErgo"
+      ],
+      "anchor": {
+        "tests": ["lower:TestGoCallsErgo"]
+      }
+    },
+    {
+      "name": "16a-r5-cancel-watcher-stuck",
+      "origin": "wf10 batch-16a fix r5 (verifier r5 T1: v5-cancel-watcher-stuck)",
+      "file": "runtime/v1/gocall.go",
+      "from": "\t\t\tdefer close(watched)\n\t\t\tt.Interrupt()\n",
+      "to": "\t\t\tdefer close(watched)\n\t\t\tt.Interrupt()\n\t\t\tselect {}\n",
+      "rule": "interop.md Go calls Ergo 4: Call returns only after the watcher a cancel started has ended.",
+      "killers": [
+        "lower:TestGoCallsErgo"
+      ],
+      "anchor": {
+        "tests": ["lower:TestGoCallsErgo"]
+      }
+    },
+    {
       "name": "l11-basic-decode-unnamed",
       "origin": "wf10 batch-15 fix-r2 (L11 M1)",
       "file": "internal/sketch/lower/wire.go",
@@ -2538,7 +2495,7 @@
       "to": "\tfc.line(target + \" = \" + t)",
       "rule": "resources R41: an assignment releases the old value at once.",
       "killers": [
-        "lower:TestOwnershipRunModel"
+        "lower:TestOwnershipGrammarRun"
       ]
     },
     {
@@ -3068,8 +3025,8 @@
     {"name":"cu3-marked-twice","origin":"wf10 CU3","file":"internal/sketch/std/prompt/machines.ergo","from":"\t\t\t\tchosen = chosen.Append(i)","to":"\t\t\t\tchosen = chosen.Append(i).Append(i)","rule":"A multi-select answers each marked index once, in ascending order.","killers":["lower:TestPromptLaws"],"anchor":{"tests":["lower:TestPromptLaws"]}},
     {"name":"cu3-std-machine-unnamed","origin":"wf10 CU3","file":"internal/sketch/lower/naming.go","from":"\t\t\tif !l.isSourced(p) && tn.Decl != nil {","to":"\t\t\tif false && tn.Decl != nil {","rule":"A std machine declaration lowers as a user package's: the naming pass names its initial value.","killers":["lower:TestPromptLaws"],"anchor":{"tests":["lower:TestPromptLaws"]}},
     {"name":"cu3-std-machine-ice","origin":"wf10 CU3","file":"internal/sketch/lower/std.go","from":"\tcase *syntax.MachineType:\n","to":"\tcase *syntax.TupleExpr:\n","rule":"A std machine declaration is a declaration of the program, not a runtime type.","killers":["lower:TestPromptLaws"],"anchor":{"tests":["lower:TestPromptLaws"]}},
-    {"name":"s-config-redacted-has-wire","origin":"wf10 S-config","file":"internal/sketch/std/config/redacted.ergo","from":"type Redacted[T] {\n\t// Reveal is the value the secret holds.\n\tReveal() T,\n}\n\n// NewRedacted is a secret that holds v.\nextern go ergo.local/prototype/runtime/v1.NewRedacted func NewRedacted[T](v T) Redacted[T]","to":"type Redacted[T] { Value T }\n\n// Reveal is the value the secret holds.\nfunc Reveal[T](r Redacted[T]) T { r.Value }\n\n// NewRedacted is a secret that holds v.\nfunc NewRedacted[T](v T) Redacted[T] { Redacted[T]{Value: v} }","rule":"A secret has no encoded form: config.Redacted is an operation type, so encoding a value that reaches it is refused at check time.","killers":["lower:TestRedactedRefusedAtCheck"],"anchor":{"tests":["lower:TestRedactedRefusedAtCheck"]}},
-    {"name":"s-config-redacted-has-text","origin":"wf10 S-config","file":"internal/sketch/std/config/redacted.ergo","from":"type Redacted[T] {\n\t// Reveal is the value the secret holds.\n\tReveal() T,\n}\n\n// NewRedacted is a secret that holds v.\nextern go ergo.local/prototype/runtime/v1.NewRedacted func NewRedacted[T](v T) Redacted[T]","to":"type Redacted[T] { value T }\n\n// Reveal is the value the secret holds.\nfunc Reveal[T](r Redacted[T]) T { r.value }\n\n// NewRedacted is a secret that holds v.\nfunc NewRedacted[T](v T) Redacted[T] { Redacted[T]{value: v} }","rule":"A secret never appears in a failure report: config.Redacted is an operation type, whose text is its type name.","killers":["lower:TestRedactedNeverPrints"],"anchor":{"tests":["lower:TestRedactedNeverPrints"]}},
+    {"name":"s-config-redacted-has-wire","origin":"wf10 S-config","file":"internal/sketch/std/config/redacted.ergo","from":"type Redacted[T] {\n\truntimeOnly(),\n\t// Reveal is the value the secret holds.\n\tReveal() T,\n}\n\n// NewRedacted is a secret that holds v.\nextern go ergo.local/prototype/runtime/v1.NewRedacted func NewRedacted[T](v T) Redacted[T]","to":"type Redacted[T] { Value T }\n\n// Reveal is the value the secret holds.\nfunc Reveal[T](r Redacted[T]) T { r.Value }\n\n// NewRedacted is a secret that holds v.\nfunc NewRedacted[T](v T) Redacted[T] { Redacted[T]{Value: v} }","rule":"A secret has no encoded form: config.Redacted is an operation type, so encoding a value that reaches it is refused at check time.","killers":["lower:TestRedactedRefusedAtCheck"],"anchor":{"tests":["lower:TestRedactedRefusedAtCheck"]}},
+    {"name":"s-config-redacted-has-text","origin":"wf10 S-config","file":"internal/sketch/std/config/redacted.ergo","from":"type Redacted[T] {\n\truntimeOnly(),\n\t// Reveal is the value the secret holds.\n\tReveal() T,\n}\n\n// NewRedacted is a secret that holds v.\nextern go ergo.local/prototype/runtime/v1.NewRedacted func NewRedacted[T](v T) Redacted[T]","to":"type Redacted[T] { value T }\n\n// Reveal is the value the secret holds.\nfunc Reveal[T](r Redacted[T]) T { r.value }\n\n// NewRedacted is a secret that holds v.\nfunc NewRedacted[T](v T) Redacted[T] { Redacted[T]{value: v} }","rule":"A secret never appears in a failure report: config.Redacted is an operation type, whose text is its type name.","killers":["lower:TestRedactedNeverPrints"],"anchor":{"tests":["lower:TestRedactedNeverPrints"]}},
     {"name":"gapfail-error-type-root-rows","origin":"wf10 gap-fail","file":"internal/sketch/lower/owners.go","from":"\tfor _, p := range l.libraries() {\n\t\tif p.Info == l.info {\n\t\t\treturn p","to":"\tfor _, p := range l.libraries()[:0] {\n\t\tif p.Info == l.info {\n\t\t\treturn p","rule":"A return in an imported package's body reads that package's rows: a type only the importer raises is a failure there.","killers":["lower:TestFailureRaisedByImporter"]},
     {"name":"gapfail-error-shape-declarer-only","origin":"wf10 gap-fail","file":"internal/sketch/lower/owners.go","from":"\tfor _, p := range l.libraries() {\n\t\tif errorTypeIn(p, named, l.viewOf(p)) {","to":"\tfor _, p := range []*check.Package{named.Obj.Pkg} {\n\t\tif errorTypeIn(p, named, l.viewOf(p)) {","rule":"A Go type is a Go error when a row of any package of the program names it, not only of the root or the declaring package.","killers":["lower:TestFailureRaisedByImporter"]},
     {"name":"gapos-host-getwd-fixed","origin":"wf10 gap-os","file":"internal/sketch/std/os/os.ergo","from":"func Getwd(_ Host) string fails NoWorkdir { try hostGetwd() }","to":"func Getwd(_ Host) string fails NoWorkdir { \"/\" }","rule":"os.Host's Getwd is the directory the process runs in.","killers":["lower:TestOSProcessRuns"],"anchor":{"tests":["lower:TestOSProcessRuns"]}},
@@ -3100,7 +3057,7 @@
       "killers": ["lower:TestHostResourceRun"],
       "anchor": {"tests": ["lower:TestHostResourceRun"]}
     },
-    {"name":"atomic-finite-law-proof","origin":"wf10 S-atomic r1","file":"internal/sketch/lower/std_laws_test.go","from":"( \\((\\d+ cases|proved: all \\d+ cases)\\))?","to":"( \\(\\d+ cases\\))?","rule":"The law-ledger runner accepts a proved finite-domain success as well as sampled-case and unit successes.","killers":["lower:TestStdLawsRun"]},
+    {"name":"atomic-finite-law-proof","origin":"wf10 S-atomic r1","file":"internal/sketch/lower/std_laws_test.go","from":"( \\((\\d+ cases|proved: all \\d+ cases)\\))?","to":"( \\(\\d+ cases\\))?","rule":"The law-ledger runner accepts a proved finite-domain success as well as sampled-case and unit successes.","killers":["lower:TestStdLawsRun"], "anchor": {"tests": ["lower:TestStdLawsRun"]}},
     {
       "name": "x2-always-not-negated",
       "origin": "wf10/explorer/x2",
@@ -3574,8 +3531,8 @@
       "name": "made-any",
       "origin": "wf10 OPT6",
       "file": "internal/sketch/lower/gobody.go",
-      "from": "\t\treturn ok && id.Name == \"make\"\n\t}\n\treturn false",
-      "to": "\t\treturn ok && id.Name == \"make\"\n\t}\n\treturn true",
+      "from": "\t\tif x.Low != nil || x.Max != nil || !ok || lit.Value != \"0\" {\n\t\t\treturn false",
+      "to": "\t\tif x.Low != nil || x.Max != nil || !ok || lit.Value != \"0\" {\n\t\t\treturn true",
       "rule": "types.md Bindings, Result aliasing: only a Go body that returns make(…) or nil makes its result; slices.Slice returns a part of its argument, which a bind copies.",
       "killers": [
         "lower:TestValueRuleAgrees"
@@ -3888,6 +3845,309 @@
       "killers": [
         "lower:TestMachineStepDefectFrames"
       ]
-    }
+    },
+    {"name":"lr1-continuation-skipped","origin":"wf10 LR1","file":"internal/sketch/lower/rewritelaw.go","from":"\" := range \" + steps[1] + \" { \" + obs + \" = append(\" + obs + \", \" + s + \"(\" + field + \")) }\")","to":"\" := range \" + steps[1] + \" { _ = \" + s + \" }\")","rule":"A rewrite law's sides are compared after a drawn continuation, so a difference that only later operations show refutes it (types.md, Laws 14).","killers":["lower:TestRewriteLawVerdicts"]},
+    {"name":"lr1-prefix-fresh","origin":"wf10 LR1","file":"internal/sketch/lower/rewritelaw.go","from":"\" := range \" + steps[0] + \" { \" + s + \"(\" + field + \") }\")","to":"\" := range \" + steps[0] + \" { _ = \" + s + \" }\")","rule":"A rewrite law's case runs a drawn prefix first, so a law false only in a reached state is refuted (Laws 14).","killers":["lower:TestRewriteLawVerdicts"]},
+    {"name":"lr1-guard-ignored","origin":"wf10 LR1","file":"internal/sketch/lower/rewritelaw.go","from":"\" != nil || !\" + g + \" { return nil, false }\")","to":"\" != nil || false && !\" + g + \" { return nil, false }\")","rule":"A rewrite law's case whose guard is false is not admitted (Laws 14).","killers":["lower:TestRewriteLawVerdicts"]},
+    {"name":"lr1-instances-dropped","origin":"wf10 LR1","file":"internal/sketch/lower/rewritelaw.go","from":"total := rewriteCases + rewriteInstanceCases*len(insts)","to":"total := rewriteCases + 0*len(insts)","rule":"A rewrite law's run takes cases at each site instance (Laws 14).","killers":["lower:TestRewriteLawVerdicts"]},
+    {"name":"lr2-evidence-ignored","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\tif ok, _ := rw.ev.Admit(law, prov, in); !ok {","to":"\tif ok, _ := rw.ev.Admit(law, prov, in); false && !ok {","rule":"A rewrite law applies at a site only when the build's check run admits it for the provider at the site's constants (types.md, Laws 14, Evidence).","killers":["lower:TestRewriteAgrees"]},
+    {"name":"lr2-evidence-per-type","origin":"wf10 LR2","file":"internal/sketch/lower/rewritecheck.go","from":"func evidenceKey(law, prov string) string { return law + \" for \" + prov }","to":"func evidenceKey(law, prov string) string { return law }","rule":"Evidence is per provider: a law that passed for one provider of T never applies on another (Laws 14).","killers":["lower:TestRewriteAgrees"]},
+    {"name":"lr2-window-past-opaque","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\t\tif v != recv || p != prov {\n\t\t\tbreak\n\t\t}","to":"\t\tif v != recv || p != prov {\n\t\t\tcontinue\n\t\t}","rule":"Any statement other than a provider call on the window's receiver ends the window (Laws 14, Windows).","killers":["lower:TestRewriteAgrees"]},
+    {"name":"lr2-facts-kept","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\tc := calls[i-1]\n\tvar next []rwFact\n","to":"\tc := calls[i-1]\n\tnext := rw.factsAt(prov, calls, i-1)\n","rule":"A call that no post law covers forgets every fact (Laws 14, Post laws).","killers":["lower:TestRewriteAgrees"]},
+    {"name":"lr2-post-evidence-ignored","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"if ok, _ := rw.ev.Admit(r.law, prov, RewriteInstance{Law: r.law}); !ok {","to":"if ok, _ := rw.ev.Admit(r.law, prov, RewriteInstance{Law: r.law}); false && !ok {","rule":"A post law gives a fact only when its run in the build's check passed (Laws 14, Post laws).","killers":["lower:TestRewriteAgrees"]},
+    {"name":"lr2-work-bound-off-by-one","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\t\tif work > bound {","to":"\t\tif work >= bound {","rule":"A window whose engine work passes 64 units per call keeps the reference lowering (Laws 14, Windows).","killers":["lower:TestRewriteWorkBound"]},
+    {"name":"lr2-guard-ignored","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\t\tif !held {","to":"\t\tif false && !held {","rule":"A guarded rewrite law applies only where a post-law fact says its guard holds (Laws 14).","killers":["lower:TestRewriteAgrees"]},
+    {"name":"lr2-post-from-fresh","origin":"wf10 LR2","file":"internal/sketch/lower/tests.go","from":"\t\tif l.postRun(law, tg.b) {\n\t\t\t// A post law of the check build","to":"\t\tif false && l.postRun(law, tg.b) {\n\t\t\t// A post law of the check build","rule":"A post law's check run starts from drawn reached states, since its fact is used after the operation from every state (Laws 14, Post laws).","killers":["lower:TestRewriteAgrees"]},
+    {"name":"lr2-unused-temps","origin":"wf10 LR2","file":"internal/sketch/lower/rewrite.go","from":"\t\tif t != \"\" && !used[t] {","to":"\t\tif false && t != \"\" && !used[t] {","rule":"A window rewritten to fewer calls still reads every argument once, and its Go temporaries stay used (Laws 14, Windows).","killers":["lower:TestRewriteEmptyWindow"]},
+    {"name":"lr2-prefix-shallow","origin":"wf10 LR2","file":"internal/sketch/eval/rewrite.go","from":"\tRewritePrefix        = 32\n","to":"\tRewritePrefix        = 5\n","rule":"A code-driving law's run draws prefixes up to 31 operations deep, so a law false only at a deep state is refuted (Laws 14, The run).","killers":["lower:TestRewriteDeepFalseLaw"]},
+    {"name":"lr3a-tested-admitted","origin":"wf10 LR3a","file":"internal/sketch/lower/rewritecheck.go","from":"\tcase e.ok[key] != \"proved\" && !e.admitTested:","to":"\tcase false && e.ok[key] != \"proved\" && !e.admitTested:","rule":"Only proved evidence changes code: a rewrite law whose run is tested is reported, never applied by the build (owner q115; types.md, Laws 14, Use).","killers":["lower:TestRewriteAgrees"]},
+    {
+      "name": "16b-m2-sealed-adapter",
+      "origin": "batch-16b merge of 16a-r5 (orchestrator ruling 2026-11-11)",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "if from, ok := conv.From.(*check.Named); ok && l.runtimeType(from, site) != \"\" {",
+      "to": "if from, ok := conv.From.(*check.Named); false && ok && l.runtimeType(from, site) != \"\" {",
+      "rule": "A sealed std protocol's value converted to another operation type is an adapter whose methods make the std operations' calls (sealedops.go).",
+      "killers": [
+        "lower:TestSealedStdConvertsToItsOperationTypes"
+      ]
+    },
+    {
+      "name": "16b-m2-sealed-func-arg",
+      "origin": "batch-16b merge of 16a-r5 (orchestrator ruling 2026-11-11)",
+      "file": "internal/sketch/lower/sealedops.go",
+      "from": "\t\tvals[i+1] = mc.adaptFunc(vals[i+1], p.Func, sig, site)\n",
+      "to": "\t\t_ = sig\n",
+      "rule": "The adapter of a sealed std value passes a function argument in the runtime's Go shape (adaptFunc), as a call in the program does (sync.Ref's Update).",
+      "killers": [
+        "lower:TestSealedStdConvertsToItsOperationTypes"
+      ]
+    },
+    {
+      "name": "jf-direct-param",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/wiredirect.go",
+      "from": "\t\tf = directField(e.via)\n",
+      "to": "\t\t_ = e.via\n",
+      "rule": "A type parameter's value on a direct writer is written through its witness's Direct field, not through Enc on the Writer interface (wiredirect.go).",
+      "killers": [
+        "lower:TestEncodeOnADirectWriterCallsItsMethods"
+      ]
+    },
+    {
+      "name": "jf-direct-writer",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/wiredirect.go",
+      "from": "\t\tif l.typeKey(t) == key {\n\t\t\treturn i, true",
+      "to": "\t\tif false && l.typeKey(t) == key {\n\t\t\treturn i, true",
+      "rule": "An encode whose writer is a direct writer calls the codec function made for the writer's Go type (wiredirect.go).",
+      "killers": [
+        "lower:TestEncodeOnADirectWriterCallsItsMethods"
+      ]
+    },
+    {
+      "name": "jf-direct-collect",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/wiredirect.go",
+      "from": "from != nil && !seen[l.typeKey(from)] {",
+      "to": "false && from != nil && !seen[l.typeKey(from)] {",
+      "rule": "Every direct writer type of the program's encodes is collected before the codec functions and witnesses are written (wiredirect.go).",
+      "killers": [
+        "lower:TestEncodeOnADirectWriterCallsItsMethods"
+      ]
+    },
+    {
+      "name": "jf-direct-witness",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/wire.go",
+      "from": "\tfor i, w := range fc.l.directWriters {\n\t\te, b, x",
+      "to": "\tfor i, w := range fc.l.directWriters[:0] {\n\t\te, b, x",
+      "rule": "A codec witness carries a Direct function for each direct writer, so a codec generic over T writes on a direct writer (wiredirect.go).",
+      "killers": [
+        "lower:TestStdJSONLawsRun"
+      ]
+    },
+    {
+      "name": "jf-sealed-direct",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/sealedops.go",
+      "from": "\tif directOps(from, to) {\n",
+      "to": "\tif false && directOps(from, to) {\n",
+      "rule": "A sealed std value whose runtime methods are the target's Go methods converts by Go's own conversion, so a direct writer keeps its representation (sealedops.go, wiredirect.go).",
+      "killers": [
+        "lower:TestEncodeOnADirectWriterCallsItsMethods"
+      ]
+    },
+    {
+      "name": "jf-direct-ops-binding",
+      "origin": "wf10 JSON-fast",
+      "file": "internal/sketch/lower/wiredirect.go",
+      "from": "if runtimeBindings[from.Obj.Name+\".\"+runtimeMember(op.Name)] != (runtimeBinding{task: true}) {",
+      "to": "if false && runtimeBindings[from.Obj.Name+\".\"+runtimeMember(op.Name)] != (runtimeBinding{task: true}) {",
+      "rule": "directOps admits only operations whose binding is the plain task binding: any other (a wait, a release, a context read) needs the adapter's call.",
+      "killers": [
+        "lower:TestSealedStdConvertsToItsOperationTypes"
+      ]
+    },
+    {
+      "name": "rc4b-last-returns-first",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "Some[T]{Value: xs[len(xs)-1]}",
+      "to": "Some[T]{Value: xs[0]}",
+      "rule": "slices.Last is the final element (law LastIsFinalElement).",
+      "killers": [
+        "lower:TestStdSlicesLawsRun"
+      ]
+    },
+    {
+      "name": "rc4b-adapter-wrong-variant",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/derive/bundle.go",
+      "from": "fmt.Fprintf(&b, \"if %s >= 0 { %s }\", open(v.Tag), value)",
+      "to": "fmt.Fprintf(&b, \"if %s < 0 { %s }\", open(v.Tag), value)",
+      "rule": "A derived union's parse gives the variant whose capture took part (patterns.md, Capture shapes 7; The pattern bundle 1).",
+      "killers": [
+        "lower:TestPatternLoweringAgrees"
+      ]
+    },
+    {
+      "name": "rc4b-forced-engine-ignored",
+      "origin": "wf10 RC4b round 2",
+      "file": "internal/sketch/lower/pattern.go",
+      "from": "\t\t\tengine = regexpplan.Engine(patternLowering)\n",
+      "to": "\t\t\tengine = regexpplan.Direct\n",
+      "rule": "A forced table lowering emits the table form of every deterministic plan, so the agreement runs each engine (patterns.md, Lowering 6).",
+      "killers": [
+        "lower:TestPatternLoweringAgrees"
+      ]
+    },
+    {
+      "name": "rc4b-nested-scope-not-reset",
+      "origin": "wf10 RC4b round 2",
+      "file": "internal/sketch/derive/bundle.go",
+      "from": "\t\t\t\tfmt.Fprintf(b, \"\\t\\t\\tl%d = []%s{}\\n\", g.Tag, elemType(g))\n",
+      "to": "\t\t\t\tfmt.Fprintf(b, \"\\t\\t\\tl%d = l%d\\n\", g.Tag, g.Tag)\n",
+      "rule": "Each occurrence of a repeated record starts its repeated inner captures again (patterns.md, Capture shapes 2 and 5).",
+      "killers": [
+        "lower:TestPatternLoweringAgrees"
+      ]
+    },
+    {
+      "name": "rc4b-table-wrong-slot",
+      "origin": "wf10 RC4b round 2",
+      "file": "internal/sketch/regexpplan/emit.go",
+      "from": " k := (q*257+b)*4\n",
+      "to": " k := (q*257+(b^1))*4\n",
+      "rule": "The table engine reads the edge of the byte it is at; forced on every deterministic plan, it gives the reference's values (patterns.md, Lowering 1 and 6). Also killed by regexpplan:TestEmittedDriversAgree.",
+      "killers": [
+        "lower:TestPatternLoweringAgrees"
+      ]
+    },
+    {
+      "name": "rc4b-parse-allocates",
+      "origin": "wf10 RC4b round 2",
+      "file": "internal/sketch/regexpplan/slots.go",
+      "from": " q := 0\n for pos := 0; ; pos++ {\n",
+      "to": " q := 0\n for pos := 0; ; pos++ {\n  if len(make([]int, len(s)+64)) == 0 {return r}\n",
+      "rule": "A fixed plan's direct or table parse allocates nothing, counted at run time (patterns.md, Lowering 3). Also killed by the static scan of regexpplan:TestSlotDriverAgrees.",
+      "killers": [
+        "lower:TestPatternLoweringAgrees"
+      ]
+    },
+    {"name":"owgen-handoff-operands-unspilled","origin":"OWGEN round 3 (wide seed 1450)","file":"internal/sketch/lower/expr.go","from":"\tfor i := len(list) - 1; i >= 0; i-- {\n\t\tlater[i] = later[i+1] || fc.emits(list[i]) || fc.handsOff(list[i])\n\t}\n\tparts := fc.partsFrom(list)\n\tout := make([]string, len(list))\n\tfor i, x := range list {\n\t\tif convert {","to":"\tfor i := len(list) - 1; i >= 0; i-- {\n\t\tlater[i] = later[i+1] || fc.emits(list[i])\n\t}\n\tparts := fc.partsFrom(list)\n\tout := make([]string, len(list))\n\tfor i, x := range list {\n\t\tif convert {","rule":"R43, R9: an operand that may panic runs before a later operand's hand-off of a moved local, as Ergo's left-to-right order says.","killers":["lower:TestOwnershipGrammarRun"]},
+    {"name":"owgen-handoff-args-unspilled","origin":"OWGEN round 3 (wide seed 1450)","file":"internal/sketch/lower/calls.go","from":"(fc.emits(list[i]) || fc.handsOff(list[i]))","to":"fc.emits(list[i])","rule":"R43, R9: an argument that may panic runs before a later argument's hand-off of a moved local.","killers":["lower:TestOwnershipGrammarRun"]},
+    {"name":"b18-inline-taken-param","origin":"batch-18 integration (OPT4 inliner x OWGEN grammar, seed 10)","file":"internal/sketch/lower/inline.go","from":"frame := l.bodyNeedsFrame(d.Body.List) || l.ownsParams(vars)","to":"frame := l.bodyNeedsFrame(d.Body.List)","rule":"A function that takes a resource parameter keeps its owner frame (emitBody's needsFrame); an inlined body would name an owner the call site has not.","killers":["lower:TestOwnershipGrammarRun"]},
+    {"name":"owgen-adapter-env-unset","origin":"OWGEN round 3 (d, e)","file":"internal/sketch/lower/calls.go","from":"\t\tval += \", env: \" + fc.env\n","to":"","rule":"resources R3, R23: the releases an operations adapter's functions run use the converting frame's environment.","killers":["lower:TestConvertedReleaseRuns"]},
+    {"name":"owgen-spread-none-base-unbound","origin":"OWGEN round 3 (c)","file":"internal/sketch/lower/expr.go","from":"case len(copies) == 0 && !replaced:","to":"case len(copies) == 0:","rule":"A spread that copies nothing but drops a field binds its base once: the dropped fields are read from that value (R43).","killers":["lower:TestOwnershipGrammarRun"]},
+    {
+      "name": "owgen-fu0-lent-yield-registered",
+      "origin": "OWGEN FU0",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\tfc.line(h + \" = false\")",
+      "to": "\t\tfc.line(h + \" = true\")",
+      "rule": "resources R43 (the mHold rule): a lent if or match registers its value only on the paths whose arm made it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu1-returned-released",
+      "origin": "OWGEN FU1",
+      "file": "internal/sketch/lower/body.go",
+      "from": "\tif !fc.l.info.ReturnedTemps[x] {",
+      "to": "\tif true {",
+      "rule": "resources R10: a returned new value the frame owns is kept, not released, when the frame returns it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu2-close-parts-unlowered",
+      "origin": "OWGEN FU2",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\town := f.Pkg.Info.CloseParts[f]",
+      "to": "\town := (*check.Drop)(nil)",
+      "rule": "resources R3: a written Close releases its receiver's parts after its body.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-reassign-variant-temp",
+      "origin": "OWGEN (found by the grammar generator)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tfc.line(\"var \" + t + \" \" + fc.goType(v.Type) + \" = \" + val)",
+      "to": "\tfc.line(t + \" := \" + val)",
+      "rule": "A reassigned owned local's temporary has the local's type: a variant assigned to a local of its union.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-arm-unregistered",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif form == nil || fc.l.info.LentYields[x] {",
+      "to": "\tif true {",
+      "rule": "resources R43: the value an arm of a value form gives is owned from its yield while the arm still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-arm-lent-registered",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif form == nil || fc.l.info.LentYields[x] {",
+      "to": "\tif form == nil {",
+      "rule": "resources R43 (the mHold rule): an arm that yields an enclosing name lends it; the form never owns it.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-arm-unhanded",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\tif !fc.armDone[form] {",
+      "to": "\tif true {",
+      "rule": "resources R43: after the form, its consumer owns the value; the arm's owner hands it off.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-catch-unowned",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\tfc.armValueVar(x, result)\n",
+      "to": "",
+      "rule": "resources R43: the value a catch arm gives is owned from its yield while the arm still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-fu4-static-unplanned",
+      "origin": "OWGEN FU4",
+      "file": "internal/sketch/lower/static.go",
+      "from": "\t\t\t\tadd(armKey{x}, info.ArmValues[x])\n",
+      "to": "",
+      "rule": "The static release form holds only values whose release is one Close; an arm's owned value counts.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-with-arm-unowned",
+      "origin": "OWGEN round 3",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\tfc.armValueVar(x, res.val)\n",
+      "to": "",
+      "rule": "resources R43: the value a with's block gives is owned from its yield while the block still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-go-catch-arm-unowned",
+      "origin": "OWGEN round 3",
+      "file": "internal/sketch/lower/catch_plain.go",
+      "from": "\t\tfc.armValueVar(x, result)\n",
+      "to": "",
+      "rule": "resources R43, interop Resources: the Go resource a plain catch's arm gives is owned from its yield while the arm still releases a value.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {
+      "name": "owgen-held-nested-flag-unshared",
+      "origin": "OWGEN round 2 (found by the grammar generator, seeds 2106 and 2227 of the wide run)",
+      "file": "internal/sketch/lower/release.go",
+      "from": "\t\t\tfc.heldOf[result] = h",
+      "to": "\t\t\t_ = h",
+      "rule": "resources R43 (the mHold rule): a nested form's tail that lends a name clears the enclosing lent form's flag.",
+      "killers": ["lower:TestOwnershipGrammarRun"]
+    },
+    {"name":"lrs-search-ignores-open","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/valueproof.go","from":"\tsearch := p.Ctor != nil && open == \"\"","to":"\tsearch := p.Ctor != nil","rule":"A proof runs from the constructor only when the provider's construction is closed; otherwise it lists every value (types.md, Laws 14, Proved states).","killers":["lower:TestProvedRunsModel","lower:TestRewriteAgrees"]},
+    {"name":"lrs-open-exported-field","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"unicode.IsUpper(r) {","to":"false && unicode.IsUpper(r) {","rule":"A provider with an exported field is open: another package writes it.","killers":["lower:TestConstructionModel"]},
+    {"name":"lrs-open-self-field","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\tif mentions(f.Type) {","to":"\t\tif false && mentions(f.Type) {","rule":"A provider whose field holds a provider is open: a value read out of a state is no state the search reached.","killers":["lower:TestConstructionModel"]},
+    {"name":"lrs-open-op-param","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\tif i > 0 && mentions(v.Type) {","to":"\t\t\tif i < 0 && mentions(v.Type) {","rule":"An operation that takes a provider besides its receiver opens the construction.","killers":["lower:TestConstructionModel"]},
+    {"name":"lrs-open-op-result","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\tif mentions(r) {","to":"\t\t\tif false && mentions(r) {","rule":"An operation that returns a provider opens the construction: its body may build one the search never reached.","killers":["lower:TestConstructionModel"]},
+    {"name":"lrs-open-ops-not-allowed","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\tallowed[f.Decl] = true","to":"\t\t_ = f.Decl","rule":"The operations' bodies may build and write the provider: the search runs them.","killers":["lower:TestConstructionModel"]},
+    {"name":"lrs-open-literal","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\t\t\tif isProv(info.Types[n]) {","to":"\t\t\t\t\tif false && isProv(info.Types[n]) {","rule":"A literal or record update of the provider outside its constructor and operations opens its construction (probe rwstate).","killers":["lower:TestConstructionModel"]},
+    {"name":"lrs-open-assign","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\t\t\t\tif writes(x) {","to":"\t\t\t\t\t\tif false && writes(x) {","rule":"An assignment to a provider's field outside its operations opens its construction.","killers":["lower:TestConstructionModel"]},
+    {"name":"lrs-open-nested-write","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\tcase *syntax.IndexExpr:\n\t\t\t\tx = e.X","to":"\t\t\tcase *syntax.IndexExpr:\n\t\t\t\treturn false","rule":"A write into an element of a provider's field writes the field.","killers":["lower:TestConstructionModel"]},
+    {"name":"lrs-open-address","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\t\t\tif n.Op == syntax.AND && writes(n.X) {","to":"\t\t\t\t\tif false && writes(n.X) {","rule":"A borrow of a provider's field outside its operations opens its construction.","killers":["lower:TestConstructionModel"]},
+    {"name":"lrs-open-borrow-arg","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\t\t\t\tif borrow && writes(a) {","to":"\t\t\t\t\t\tif false && writes(a) {","rule":"A provider's field passed to a borrow parameter, or as a dot call's borrowed receiver, opens its construction.","killers":["lower:TestConstructionModel"]},
+    {"name":"lrs-open-borrow-all-args","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\t\t\t\tif borrow && writes(a) {","to":"\t\t\t\t\t\tif writes(a) {","rule":"A field read passed by value (a conversion, a value parameter) does not open the construction.","killers":["lower:TestConstructionModel"]},
+    {"name":"lrs-open-conversion","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/construction.go","from":"\t\t\t\t\tif c.Kind == check.CallConversion && isProv(c.Type)","to":"\t\t\t\t\tif false && isProv(c.Type)","rule":"A conversion to the provider from a type defined over it builds a value outside its constructor.","killers":["lower:TestConstructionModel"]},
+    {"name":"lr3-sepdue-no-comma","origin":"wf10 LR3","file":"internal/sketch/std/json/json.ergo","from":"\tif t.comma {\n\t\tt.raw(\",\")\n\t}","to":"\tif t.comma {\n\t}","rule":"A value after another in a list or object is written after a comma; a law of Text that no longer holds is not proved, so the build keeps the reference.","killers":["lower:TestStdJSONLawsRun"],"anchor":{"tests":["lower:TestStdJSONLawsRun"]}},
+    {"name":"lr3-raw-reads-st","origin":"wf10 LR3","file":"internal/sketch/std/json/json.ergo","from":"func raw(t *text, s string) { t.out = appendString(t.out, s) }","to":"func raw(t *text, s string) { t.out = appendString(t.out, if t.comma { s } else { s }) }","rule":"Only a proved, current law of the std ledger rewrites a run: a raw that reads the comma state leaves SetCommaSinks unproved, and the record's brace and first key stay two appends.","killers":["lower:TestEncodeOnADirectWriterCallsItsMethods"],"anchor":{"tests":["lower:TestEncodeOnADirectWriterCallsItsMethods"]}},
+    {"name":"lr3-at-appends","origin":"wf10 LR3","file":"internal/sketch/std/json/json.ergo","from":"func setComma(t *text, due bool) { t.comma = due }","to":"func setComma(t *text, due bool) {\n\tt.comma = due\n\tt.out = appendString(t.out, \",\")\n}","rule":"Setting whether a comma is due writes no text.","killers":["lower:TestStdJSONLawsRun"],"anchor":{"tests":["lower:TestStdJSONLawsRun"]}},
+    {"name":"lr3-quote-no-2028","origin":"wf10 LR3","file":"runtime/v1/json_append.go","from":"\t\tif r == '\\u2028' || r == '\\u2029' {","to":"\t\tif false {","rule":"A string's U+2028 and U+2029 are written escaped, as encoding/json writes them (law LineSeparatorsEscaped).","killers":["lower:TestStdJSONLawsRun"]},
+    {"name":"lr3-quote-html","origin":"wf10 LR3 (from LR3a lr3a-quote-html)","file":"runtime/v1/json_append.go","from":"\tif html {\n\t\tsafe = plainHTML\n\t}","to":"\tif false {\n\t\tsafe = plainHTML\n\t}","rule":"An HTML Text escapes <, > and & as encoding/json's default does.","killers":["lower:TestStdJSONLawsRun"]},
+    {"name":"lr3-quote-invalid-byte","origin":"wf10 LR3 (from LR3a lr3a-quote-invalid-byte)","file":"runtime/v1/json_append.go","from":"\t\tif r == utf8.RuneError && size == 1 {","to":"\t\tif false {","rule":"A byte of invalid UTF-8 is written as the lone surrogate \\udcXX, which a Cursor reads back as the byte.","killers":["lower:TestStdJSONLawsRun"]},
+    {"name":"lr3-intbody-sep","origin":"wf10 LR3","file":"internal/sketch/std/json/json.ergo","from":"func intBody(t *text, n int64) { t.out = appendInt(t.out, n) }","to":"func intBody(t *text, n int64) {\n\tt.sep()\n\tt.out = appendInt(t.out, n)\n}","rule":"A value's body writes no separator: Int writes one comma before its number.","killers":["lower:TestStdJSONLawsRun"],"anchor":{"tests":["lower:TestStdJSONLawsRun"]}},
+    {"name":"ps2-unfold-of-extern","origin":"wf10 LR3 (from PS2)","file":"internal/sketch/lower/unfold.go","from":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\treturn false\n\t\t\t}","to":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\tcontinue\n\t\t\t}","rule":"Unfold by definition replaces a call by its body only when every statement is a provider call on the receiver; a body with any other call (an extern, a function off the provider) stays a call.","killers":["lower:TestRewriteAgrees"]}
   ]
 }

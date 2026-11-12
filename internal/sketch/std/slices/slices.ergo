@@ -81,6 +81,17 @@ func Min[T ordered](xs []T) Option[T] {
 	}
 }
 
+// Last is the final element of xs, or None when xs is empty. A derived
+// pattern's every-occurrence slice reads its last capture with it
+// (patterns.md, Capture shapes).
+func Last[T](xs []T) Option[T] {
+	if len(xs) == 0 {
+		None
+	} else {
+		Some[T]{Value: xs[len(xs)-1]}
+	}
+}
+
 // Ascending is a slice in ascending order. Its field is unexported, so
 // only this package builds one (types.md, Zero values 6): Ascend is the
 // one way in, and a value of the type is sorted by construction. Its zero

@@ -20,6 +20,10 @@ func main() fails os.Exit needs Console | Ambient {
 		}
 	}
 	if status != 0 {
-		return os.Exit{Code: status, Message: "keypad: the form did not open"}
+		let code = os.ParseCode(status) catch {
+		case Unsatisfied:
+			Unreachable("keypad script returned an invalid failure status")
+		}
+		return os.Exit{Code: code, Message: "keypad: the form did not open"}
 	}
 }

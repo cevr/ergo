@@ -21,8 +21,8 @@ import (
 //     entry binds nothing Provider returns, and an entry nothing reaches
 //     is not visited, so neither is acquired. The order is the one the
 //     builder follows: each entry after the providers it uses, the first
-//     ready entry first in the context pass's entry order (contexts by name,
-//     then entries in source order; ContextEntry.seq).
+//     ready entry first in the context pass's entry order (packages by path,
+//     contexts by name, then entries in source order; entryBefore).
 //  2. Release identity. An acquired provider whose type resolves a
 //     checked Close (Info.Closes) is a resource; its Close is recorded.
 //  3. Release needs. A release runs when the block ends, in the
@@ -226,7 +226,7 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 	for e := range want {
 		order = append(order, e)
 	}
-	sort.Slice(order, func(i, j int) bool { return order[i].seq < order[j].seq })
+	sort.Slice(order, func(i, j int) bool { return entryBefore(order[i], order[j]) })
 	built := map[*ContextEntry]bool{}
 	done := make([]bool, len(order))
 	var list []*Acquisition

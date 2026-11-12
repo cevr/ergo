@@ -1149,10 +1149,14 @@ func (g *gate) toolDigest(step *Step) string {
 // of the checkout during their run.
 const gitOptionalLocks = "GIT_OPTIONAL_LOCKS"
 
+// ergoGo selects the go command of ergo's builds (internal/toolchain).
+const ergoGo = "ERGO_GO"
+
 // keyedEnvironment is the environment the whole-gate key holds
 // (declaredEnvironment): the caller's variables that testenv names, and no
 // other, as Bazel's strict action environment passes only declared
-// variables, with gitOptionalLocks at 0, with the gate's collector target
+// variables, with gitOptionalLocks at 0, ERGO_GO at system unless the
+// caller sets it, with the gate's collector target
 // and the soft memory limit below the step budget (stepSoftLimit) unless
 // the caller sets them, and
 // GOMAXPROCS and the go command's -p at most the CPU budget
@@ -1178,6 +1182,12 @@ func keyedEnvironment() []string {
 		environment = append(environment, "GOMEMLIMIT="+stepSoftLimit())
 	}
 	environment = setEnvironmentVariable(environment, gitOptionalLocks, "0")
+	// The ergo a step runs builds with the go command on PATH, the one
+	// that runs the gate, and never downloads its pinned release
+	// (internal/toolchain): no step reads the network.
+	if _, set := os.LookupEnv(ergoGo); !set {
+		environment = append(environment, ergoGo+"=system")
+	}
 	cpus := stepCPUs()
 	environment = setEnvironmentVariable(environment, "GOFLAGS", stepGOFLAGS(os.Getenv("GOFLAGS"), cpus))
 	return setEnvironmentVariable(environment, "GOMAXPROCS", stepGOMAXPROCS(os.Getenv("GOMAXPROCS"), cpus))

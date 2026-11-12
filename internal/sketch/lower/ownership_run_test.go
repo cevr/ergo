@@ -314,6 +314,12 @@ func genOwnRun(seed int) (string, string) {
 		if stop && !reached {
 			continue // the body ended before its stop point
 		}
+		if seed%4 == 0 && !m.replaced {
+			// One seed in four runs a reassignment of a value still
+			// owned (R41), which a free draw reaches about once in fifty
+			// programs.
+			continue
+		}
 		return orSource(body, n, stop, g.queues), want
 	}
 }
@@ -514,6 +520,9 @@ type orModel struct {
 	defect bool
 	queues []orStmt    // the queue loops' queues, by number
 	left   [][]orEntry // what each queue still holds
+	// replaced is set when an assignment replaced a value still owned
+	// (R41): the run releases the old value at the assignment.
+	replaced bool
 }
 
 type orEntry struct {
@@ -696,6 +705,7 @@ func (m *orModel) stmt(s orStmt, sc int) orExit {
 		old := m.vars[s.v]
 		m.vars[s.v] = ne
 		if old != nil {
+			m.replaced = true
 			m.remove(old)
 			if m.release(old) {
 				return exDefect

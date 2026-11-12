@@ -744,6 +744,11 @@ type Port int where 1 <= it && it <= 65535
 law DivMod(a int, b int where b != 0) { (a / b) * b + a % b == a }
 func main() {}
 `, nil},
+	{"refinement", "a derived type: a pattern and a refinement plan (patterns.md)", `
+type Date derive Pattern(` + "`(?<Year>[0-9]{4})-(?<Month>[0-9]{2})`" + `)
+type Port derive Refine(Of[int](), 1, 65535)
+func main() {}
+`, nil},
 	{"refinement", "a by-name codec pair and its derived round-trip law", `
 type Host { name string }
 type BadHost { Text string }
@@ -759,6 +764,14 @@ type Monoid {
 	Combine(a int, b int) int,
 	// Assoc groups either way.
 	law Assoc(a int, b int, c int) { Combine(Combine(a, b), c) == Combine(a, Combine(b, c)) },
+}
+func main() {}
+`, nil},
+	{"law", "a rewrite law with a guard (types.md, Laws 14)", `
+type Counter {
+	Add(n int),
+	Even() bool,
+	law Joins(a int, b int) when Even() == true { Add(a); Add(b) } == { Add(a + b) },
 }
 func main() {}
 `, nil},

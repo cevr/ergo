@@ -1308,6 +1308,17 @@
   "ergo.local/prototype/internal/testport": {
     "TestReservedAddressAdmitsOneListenerAtATime": 0
   },
+  "ergo.local/prototype/internal/toolchain": {
+    "TestDownloadFollowsTheProxyList": 0.01,
+    "TestEnsureDownloadsOnceForTwoInstallers": 0,
+    "TestEnsureInstallsOnceAndReusesTheCache": 0.02,
+    "TestEnsureOfflineWithAColdCache": 0,
+    "TestEnsureRecoversFromAPartialDownload": 0.01,
+    "TestEnsureRefusesWhatTheDatabaseDoesNotProve": 0.02,
+    "TestProveRecordAgreesWithTheTreeHash": 0.21,
+    "TestSelectHonorsErgoGo": 0,
+    "TestTilePathIsTheLogs": 0
+  },
   "ergo.local/prototype/internal/tsproj": {
     "TestMapperFailsClosed": 0,
     "TestMapperOverlayDiagnostics": 0,
