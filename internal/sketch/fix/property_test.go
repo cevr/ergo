@@ -49,7 +49,7 @@ func TestFixProperty(t *testing.T) {
 	}
 	// Every case the property claims is reached by some seed.
 	if *fixSeed == 0 {
-		for _, what := range []string{"import added", "second round", "clause extended", "exported widened", "result opened", "takes written", "takes through a call", "needs wired written", "codec instance charged", "codec instance charged by ParseLv"} {
+		for _, what := range []string{"import added", "second round", "clause extended", "exported widened", "result opened", "takes written", "takes through a call", "needs wired written", "needs wired written for a direct encode", "codec instance charged", "codec instance charged by ParseLv"} {
 			if reached[what] == 0 {
 				t.Errorf("no seed reached %q: %v", what, reached)
 			}
@@ -72,6 +72,9 @@ type program struct {
 	// (wired[T] in a needs row is one row for both, q141).
 	codecCap int
 	onParse  bool
+	// direct: enc calls the builtin encode on its T, which charges
+	// wired[T] itself; otherwise it calls json.Encode, whose instance does.
+	direct bool
 }
 
 // callee is the function a call index names: ext past the last function.
@@ -185,7 +188,7 @@ func generate(r *rand.Rand) *program {
 	// The generic codec: enc after the others (so a call index past n
 	// still names ext), called from one function or more.
 	if r.Intn(2) == 0 {
-		p.codecCap, p.onParse = r.Intn(p.caps), r.Intn(2) == 0
+		p.codecCap, p.onParse, p.direct = r.Intn(p.caps), r.Intn(2) == 0, r.Intn(2) == 0
 		enc := &gfunc{name: "enc", leafErr: -1, codec: true}
 		p.funcs = append(p.funcs, enc)
 		for i, f := range p.funcs[:n] {
@@ -354,7 +357,11 @@ func (p *program) source(rows func(f *gfunc, k int) []string) string {
 			if cs := rows(f, 1); len(cs) > 0 {
 				b.WriteString(" needs " + strings.Join(cs, " | "))
 			}
-			b.WriteString(" {\n\tlet _ = json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, t)\n\t0\n}\n")
+			if p.direct {
+				b.WriteString(" {\n\tlet w = json.NewText()\n\tencode(t, w)\n\tlen(w.Written())\n}\n")
+			} else {
+				b.WriteString(" {\n\tlet _ = json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, t)\n\t0\n}\n")
+			}
 			continue
 		}
 		b.WriteString("\nfunc " + f.name + "(" + strings.Join(params, ", ") + ")")
@@ -546,6 +553,9 @@ func checkSeed(t *testing.T, seed int64, g *program) (reached []string) {
 		}
 		if f.codec && len(f.order[1]) == 0 {
 			reached = append(reached, "needs wired written")
+			if g.direct {
+				reached = append(reached, "needs wired written for a direct encode")
+			}
 		}
 		for _, j := range f.calls {
 			if g.callee(j).codec && !f.written[1][capName(g.codecCap)] {
