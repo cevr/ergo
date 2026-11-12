@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -287,6 +289,8 @@ func (g *gate) checkoutFacts(now time.Time) (*replay.Facts, error) {
 	if err != nil {
 		return nil, fmt.Errorf("walk the checkout: %w", err)
 	}
+	entries = slices.DeleteFunc(entries, func(e replay.Entry) bool { return gateOutput(e.Path, e.Class) })
+	recent = slices.DeleteFunc(recent, func(p string) bool { return gateOutput(p, replay.Ignored) })
 	executable, err := executableDigest()
 	if err != nil {
 		unreplayable = append(unreplayable, "the gate executable cannot be read: "+err.Error())
@@ -302,6 +306,71 @@ func (g *gate) checkoutFacts(now time.Time) (*replay.Facts, error) {
 		Unreplayable: unreplayable,
 		Recent:       recent,
 	}, nil
+}
+
+// gateOutputs are the checkout directories the gate's own steps write:
+// bin/, where "build bin/ergo" links the CLI from the sources. What is
+// there is an output of the run, not an input: every step that runs
+// bin/ergo needs that build and keys the file after it (Inputs.Built).
+// So no key holds an ignored path there. Before, a gate started on a
+// stale bin/ergo keyed it, its build rewrote it, and the end key differed:
+// the whole gate and the package steps whose closure covers the checkout
+// recorded nothing (batch-18 verify, "not recorded").
+var gateOutputs = []string{"bin/"}
+
+// gateOutput reports a path of class class that is a gate output: a
+// directory of gateOutputs or an ignored path under one. A tracked or
+// untracked file there is a source, and stays keyed.
+func gateOutput(p string, class replay.Class) bool {
+	for _, dir := range gateOutputs {
+		if p == strings.TrimSuffix(dir, "/") || strings.HasPrefix(p, dir) && (class == replay.Ignored || class == replay.NoClass) {
+			return true
+		}
+	}
+	return false
+}
+
+// rebuildOutputs runs, after a whole-gate replay, every step of steps that
+// writes the gate's outputs (Step.Writes), in root, and reports whether
+// each passed. No key holds bin/ (gateOutputs), so a replay of a record
+// may meet a bin/ergo from another tree; the build makes it this tree's
+// again. It is "build bin/ergo", a go build the build cache serves, which
+// renames its output only when the bytes differ (stagedBuild). A failed
+// build fails the gate: the record replays, the checkout's binary is not
+// the tree's.
+func rebuildOutputs(root string, steps []*Step, out io.Writer) bool {
+	ok := true
+	for _, step := range steps {
+		if len(step.Writes) == 0 {
+			continue
+		}
+		cmd := exec.Command(step.Argv[0], step.Argv[1:]...)
+		cmd.Dir = root
+		cmd.Env = stepEnvironment()
+		for _, entry := range step.Env {
+			name, value, _ := strings.Cut(entry, "=")
+			cmd.Env = setEnvironmentVariable(cmd.Env, name, value)
+		}
+		ownProcessGroup(cmd)
+		var output bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &output, &output
+		start := time.Now()
+		tracked, err := gateStop.track()
+		if err == nil {
+			if err = cmd.Start(); err == nil {
+				tracked.arm(func() { killProcessGroup(cmd.Process.Pid) })
+				err = cmd.Wait()
+			}
+			tracked.done()
+		}
+		if err != nil {
+			fmt.Fprintf(out, "gate: %s after the replay: FAILED: %v\n%s", step.Name, err, output.Bytes())
+			ok = false
+			continue
+		}
+		fmt.Fprintf(out, "gate: %s after the replay: ok (%.1fs)\n", step.Name, time.Since(start).Seconds())
+	}
+	return ok
 }
 
 // executableDigest is the SHA-256 of the running gate executable.

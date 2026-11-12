@@ -177,14 +177,10 @@ var declared = map[string][]allowance{
 		{"benchmarks", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
 		{"ergo.mod", file, "loading a program folder looks up the module file in each folder above it, up to the repository root"},
 	},
-	"internal/sketch/build": {
-		{"examples", subtree, "TestDirectMatchesGoBuild walks the example programs (filepath.WalkDir) and builds each by the direct path and by go build"},
-		{"ergo.mod", file, "loading an example looks for its module root upward and stats the repository root's ergo.mod"},
-	},
 	"internal/sketchfront": {
 		{"examples/editions/sketch/main.ergo", file, "TestSketchBuildRunsProgram and the lease test build the 2026 example program"},
 		{"examples/editions/sketch/expected.out", file, "TestSketchBuildRunsProgram compares the run with the expected output"},
-		{"examples", subtree, "TestExamplesOutputIsAFunctionOfInput walks every example package folder (filepath.WalkDir) and checks and lowers each, in this process and in two children"},
+		{"examples", subtree, "TestExamplesOutputIsAFunctionOfInput walks every example package folder (filepath.WalkDir) and checks and lowers each, in this process and in two children; TestDirectMatchesGoBuild walks the example programs and builds each by the direct path and by go build"},
 		{"ergo.mod", file, "CheckDir of a one-folder example looks for its module upward and stats the checkout root's ergo.mod (absent); adding one makes the example a package of it"},
 	},
 	"internal/testinputs": declare(

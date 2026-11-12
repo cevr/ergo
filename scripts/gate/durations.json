@@ -209,7 +209,6 @@
     "TestIRCoverage": 29.29,
     "TestIRFailuresMatchSource": 28.03,
     "TestIRMatchesSource": 34.91,
-    "TestIRRuntimeChecks": 13.79,
     "TestIRTestsRunInTheFullTier": 0.01,
     "TestIRTextChecks": 1175.06
   },
@@ -286,6 +285,11 @@
   },
   "ergo.local/prototype/internal/rpcgen": {
     "TestRpcLoopbackAgrees": 5.05
+  },
+  "ergo.local/prototype/internal/selfhostcheck": {
+    "TestSelfhostBridgeAgrees": 118.1,
+    "TestSelfhostFormatAgrees": 55.45,
+    "TestSelfhostLayoutModel": 2.55
   },
   "ergo.local/prototype/internal/sketch/api": {
     "TestOwnershipAPIModel": 0.06
@@ -810,6 +814,10 @@
     "TestWitnessFacts": 0,
     "TestWorklistOrder": 0
   },
+  "ergo.local/prototype/internal/sketch/derive": {
+    "TestPatternGrammar": 1.43,
+    "TestPatternShapes": 0.64
+  },
   "ergo.local/prototype/internal/sketch/eval": {
     "TestEvalAgreesWithReference": 0.21,
     "TestRunRefusesAnAbsentFootprint": 0,
@@ -1194,6 +1202,15 @@
   },
   "ergo.local/prototype/internal/sketch/machinegraph": {
     "TestGraphMatchesTheModel": 0.08
+  },
+  "ergo.local/prototype/internal/sketch/regexpplan": {
+    "TestBudgetsAndIdentity": 0.03,
+    "TestConstructionRejectsCorruption": 0.54,
+    "TestEmittedDriversAgree": 0.78,
+    "TestEmittedSlotDriversAgree": 1.97,
+    "TestFindIsLinear": 0,
+    "TestSlotDriverAgrees": 1.34,
+    "TestTaggedConstructionAgrees": 1.26
   },
   "ergo.local/prototype/internal/sketch/std": {
     "TestCallsLedgerRun": 0,

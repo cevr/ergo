@@ -29,11 +29,6 @@ func (fc *funcCtx) sealedOperations(conv check.Conversion, from *check.Named, va
 	if !ok {
 		ice(site, "a sealed std value converted to %s, which is not a named operation type", conv.To)
 	}
-	if directOps(from, to) {
-		// The runtime type's methods are the target's Go methods
-		// (wiredirect.go): Go's own conversion, no adapter.
-		return val
-	}
 	toDecl := l.typeDecl(to.Obj, site)
 	if toDecl.kind != kindOps {
 		ice(site, "an operations conversion to %s, which is not an operation type", conv.To)
@@ -120,7 +115,7 @@ func (fc *funcCtx) sealedMethod(tc *typeCtx, recv string, from *check.Named, fro
 	}
 	mc.bindDeferred(std, vals)
 	call := mc.stdResult(std, result, env, site, func(env string) string {
-		return mc.runtimeCall(from.Obj.Name+"."+runtimeMember(op.Name), std, "", vals[0], vals[1:], env, nil, nil, site)
+		return mc.runtimeCall(from.Obj.Name+"."+op.Name, std, "", vals[0], vals[1:], env, nil, nil, site)
 	})
 	goVal, goErr := goValue(std), goFallible(std)
 	v, err := "_", "_"

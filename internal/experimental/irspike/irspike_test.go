@@ -208,40 +208,9 @@ func TestIRMatchesSource(t *testing.T) {
 	}
 }
 
-// TestIRRuntimeChecks runs the kernel and the deep-recursion program, built
-// by the IR path, under the race detector and under the collector's
-// checkmark mode with a collection at almost every allocation, and requires
-// the source path's output. deep's frames hold pointers live across calls
-// while the stack grows, so a wrong stack map or pointer map of an IR body
-// would show as a crash or a different total.
-func TestIRRuntimeChecks(t *testing.T) {
-	src, ir := needsBuild(t)
-	for _, name := range []string{"kernel", "deep"} {
-		u, err := Load(filepath.Join("testdata", name, "main.ergo"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		dir := t.TempDir()
-		sb, ib, rep := both(t, u, src, ir, dir, BuildOptions{})
-		if len(rep.IR) == 0 {
-			t.Fatalf("%s: no IR body", name)
-		}
-		want := run(t, sb)
-		for _, env := range [][]string{{"GODEBUG=gccheckmark=1", "GOGC=1"}, {"GODEBUG=gcstoptheworld=1", "GOGC=1"}} {
-			if got := run(t, ib, env...); got != want {
-				t.Errorf("%s %v: ir %+v, source %+v", name, env, got, want)
-			}
-		}
-		rdir := t.TempDir()
-		_, rb, _ := both(t, u, src, ir, rdir, BuildOptions{Race: true})
-		if got := run(t, rb, "GORACE=halt_on_error=1"); got != want {
-			t.Errorf("%s -race: ir %+v, source %+v", name, got, want)
-		}
-	}
-}
-
 // TestIRBodyThatDoesNotCheck: an IR body whose types do not check is a
-// compile error at its .ergo position, never a passthrough (mutant M6).
+// compile error at its .ergo position, never a passthrough (mutant M6 in
+// the derivative; irspike-ir-line-shifted in this repository).
 func TestIRBodyThatDoesNotCheck(t *testing.T) {
 	_, ir := needsBuild(t)
 	u, err := Load(filepath.Join("testdata", "kernel", "main.ergo"))

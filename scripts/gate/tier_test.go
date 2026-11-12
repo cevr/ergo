@@ -140,7 +140,8 @@ func fastPackageSteps(t *testing.T, root string) map[string][]*Step {
 // (it relinks its test binaries on every run to find Go's cached result),
 // and neither is the build of every test binary, nor a need on it, nor a
 // closure sweep. Each package is keyed on its closure table entry, and no
-// host package has a step (classHeavy).
+// host package has a step (classHeavy), nor a package whose every test
+// builds Go (fullTierOnly).
 func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 	root := checkoutRoot(t)
 	steps, err := fastSteps(root)
@@ -168,6 +169,9 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 			}
 			if slices.Contains(hostTestPackages, step.Package.Dir) {
 				t.Errorf("%s: a host package's tests are heavy (classHeavy); the fast tier runs none", step.Name)
+			}
+			if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(step.Package.Dir))); err != nil || only {
+				t.Errorf("%s: every test of the package builds Go (fullTierOnly %v, %v); the fast tier runs none", step.Name, only, err)
 			}
 			if !slices.Equal(step.Package.Declared, table[step.Package.Dir]) {
 				t.Errorf("%s: declared %v; want its closure table entry %v", step.Name, step.Package.Declared, table[step.Package.Dir])
@@ -252,10 +256,17 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	}
 	// What a reached package costs in the fast tier: the recorded CPU of
 	// its fast steps. A package with no row cannot be budgeted. A host
-	// package has no fast step (classHeavy), so no edit reaches it here.
+	// package has no fast step (classHeavy), and neither has a package
+	// whose every test builds Go (fullTierOnly: internal/selfhostcheck,
+	// internal/experimental/irspike), so no edit reaches them here.
 	reach := func(file string) (dirs []string, cpu float64) {
 		for _, p := range packages {
 			if !p.closure.Covers(file) || slices.Contains(hostTestPackages, p.dir) {
+				continue
+			}
+			if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(p.dir))); err != nil {
+				t.Fatal(err)
+			} else if only {
 				continue
 			}
 			dirs = append(dirs, p.dir)
@@ -315,8 +326,12 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// (IG1-IG3), internal/sketch/machinegraph (batch 13) and the check-time
 	// evaluator internal/sketch/eval (L7 EV1) import it too.
 	// internal/sketch/api projects the checked public contracts (L8 C3).
-	// rpcgen and tsproj project the same checked contracts to RPC and TS.
-	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples", "scripts/mutants"}
+	// tsproj projects the same checked contracts to TS. rpcgen projects
+	// them to RPC, but every test of it builds Go (fullTierOnly), as do
+	// internal/selfhostcheck's and internal/experimental/irspike's; the
+	// direct build path's identity test lives in internal/sketchfront, so
+	// internal/sketch/build's tests import no part of the checker.
+	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples", "scripts/mutants"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}
@@ -347,7 +362,7 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 // comes down. The follow-ups that close it are in docs/tooling.md.
 const (
 	fastCPUTarget   = 200.0
-	fastCPUKnownGap = 274.0 // 473.7 recorded (examples step 258.5), 2026-11-11
+	fastCPUKnownGap = 273.0 // 472.6 recorded (examples step 258.5), 2026-11-12: rpcgen's 1.1 left with fullTierOnly
 	fastCPURatchet  = 0.10
 )
 

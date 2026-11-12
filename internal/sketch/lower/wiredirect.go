@@ -47,8 +47,7 @@ var wireLowering string
 func wireDirect() bool { return wireLowering != "writer" }
 
 // directWriter is the index in l.directWriters of the writer operand x of
-// an encode, when x keeps its representation: x converts to the Writer
-// from a sealed std type whose operations are the Writer's Go methods.
+// an encode, when x is a cell writer (directSource).
 func (l *lowerer) directWriter(info *check.Info, x syntax.Expr) (int, bool) {
 	if !wireDirect() {
 		return 0, false
@@ -69,10 +68,10 @@ func (l *lowerer) directWriter(info *check.Info, x syntax.Expr) (int, bool) {
 // directSource is the cell type of x, encode's writer operand, when it is
 // a cell writer (wiretext.go); nil otherwise (x is a Writer already). An
 // operation type's value converts to the Writer by Go's own interface
-// assignment, so no conversion is recorded: its static type decides. The
-// path of a sealed std runtime type whose methods are the Writer's
-// (directOps) is gone since LR3: json.Text, its one user, is a cell
-// provider, and no other std type has runtime Writer methods.
+// assignment, so no conversion is recorded: its static type decides. A
+// sealed std value always converts through its adapter (sealedOperations):
+// since LR3 no std runtime type has the Writer's methods (json.Text, the
+// one that had, is a cell provider).
 func (l *lowerer) directSource(info *check.Info, x syntax.Expr) *check.Named {
 	t, ok := info.Types[x].(*check.Named)
 	if !ok {
@@ -82,30 +81,6 @@ func (l *lowerer) directSource(info *check.Info, x syntax.Expr) *check.Named {
 		return nil
 	}
 	return t
-}
-
-// directOps reports that every operation of the operation type to is a
-// method of from's runtime type whose binding is the plain task binding
-// (runtimeBinding{task: true}): the runtime's own declaration that the
-// method takes the caller's task, never waits, and keeps the ordinary
-// operation-type ABI on its native value (blocking.go). With the
-// checker's member match, the method is then the target's Go method, so a
-// value of from is a value of to's Go interface, and a call of the
-// operation is the method call itself. Any other binding (a wait, a
-// release, a context read) needs the adapter's call (sealedOperations).
-// TestSealedStdConvertsToItsOperationTypes type-checks every pair it
-// admits. It reads declared facts only, so the naming pass may ask it.
-func directOps(from, to *check.Named) bool {
-	iface, ok := to.Underlying().(*check.Interface)
-	if !ok {
-		return false
-	}
-	for _, op := range iface.Methods {
-		if runtimeBindings[from.Obj.Name+"."+runtimeMember(op.Name)] != (runtimeBinding{task: true}) {
-			return false
-		}
-	}
-	return true
 }
 
 // collectDirectWriters sets l.directWriters: the sealed std types of the

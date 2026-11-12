@@ -8,7 +8,6 @@
     {"name":"ps1-body-callee-unchecked","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"why = proofBodyWhy(c.Func, seen)","to":"why = \"\"","rule":"A helper's rowless foreign call is not an Ergo state proof.","killers":["lower:TestProvedRunsModel"]},
     {"name":"ps1-refuted-build-accepted","origin":"wf10 PS1","file":"internal/sketch/lower/rewritecheck.go","from":"if strings.HasPrefix(line, \"FAIL law \") && strings.Contains(line, \"(reachable state)\") {","to":"if false && strings.HasPrefix(line, \"FAIL law \") && strings.Contains(line, \"(reachable state)\") {","rule":"A reachable finite counterexample refuses the build rather than only disabling its rewrite.","killers":["lower:TestProvedRunsModel"]},
     {"name":"ps1-result-compare-skipped","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"+ leftResults + \"[\" + j + \"] != \" + rightResults + \"[\" + j + \"]","to":"+ leftResults + \"[\" + j + \"] != \" + leftResults + \"[\" + j + \"]","rule":"Equal end states do not prove unequal operation results.","killers":["lower:TestProvedRunsModel"]},
-    {"name":"ps1-private-method-unraised","origin":"wf10 PS1 closes LR3a gap","file":"internal/sketch/lower/names.go","from":"return string(op[0]-'a'+'A') + op[1:]","to":"return op","rule":"Private std operations call their exported runtime Go method.","killers":["lower:TestPrivateRuntimeOperationCalls"]},
     {"name":"ps1-state-compare-skipped","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"w(\"if \" + key + \"(\" + a + \") != \" + key + \"(\" + c + \") { \" + held + \" = false }\")","to":"w(\"if false { \" + held + \" = false }\")","rule":"Rewrite proofs compare the full provider state, not only observations.","killers":["lower:TestProvedRunsModel"]},
     {"name":"ps1-budget-stop-proved","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"\") >= \" + budget + \" { \" + complete + \" = false; return }\")","to":"\") >= \" + budget + \" { return }\")","rule":"A truncated search cannot prove a rewrite.","killers":["lower:TestProvedRunsModel"]},
     {"name":"ps1-handle-keyed","origin":"wf10 PS1","file":"internal/sketch/lower/valueproof.go","from":"if why := l.keyWhy(p.Type); why != \"\" {","to":"if why := l.keyWhy(p.Type); false && why != \"\" {","rule":"A handle does not have a structural state key.","killers":["lower:TestRewriteAgrees"]},
@@ -3928,28 +3927,6 @@
       ]
     },
     {
-      "name": "jf-sealed-direct",
-      "origin": "wf10 JSON-fast",
-      "file": "internal/sketch/lower/sealedops.go",
-      "from": "\tif directOps(from, to) {\n",
-      "to": "\tif false && directOps(from, to) {\n",
-      "rule": "A sealed std value whose runtime methods are the target's Go methods converts by Go's own conversion, so a direct writer keeps its representation (sealedops.go, wiredirect.go).",
-      "killers": [
-        "lower:TestEncodeOnADirectWriterCallsItsMethods"
-      ]
-    },
-    {
-      "name": "jf-direct-ops-binding",
-      "origin": "wf10 JSON-fast",
-      "file": "internal/sketch/lower/wiredirect.go",
-      "from": "if runtimeBindings[from.Obj.Name+\".\"+runtimeMember(op.Name)] != (runtimeBinding{task: true}) {",
-      "to": "if false && runtimeBindings[from.Obj.Name+\".\"+runtimeMember(op.Name)] != (runtimeBinding{task: true}) {",
-      "rule": "directOps admits only operations whose binding is the plain task binding: any other (a wait, a release, a context read) needs the adapter's call.",
-      "killers": [
-        "lower:TestSealedStdConvertsToItsOperationTypes"
-      ]
-    },
-    {
       "name": "rc4b-last-returns-first",
       "origin": "wf10 RC4b",
       "file": "internal/sketch/std/slices/slices.ergo",
@@ -4019,6 +3996,7 @@
     {"name":"owgen-handoff-args-unspilled","origin":"OWGEN round 3 (wide seed 1450)","file":"internal/sketch/lower/calls.go","from":"(fc.emits(list[i]) || fc.handsOff(list[i]))","to":"fc.emits(list[i])","rule":"R43, R9: an argument that may panic runs before a later argument's hand-off of a moved local.","killers":["lower:TestOwnershipGrammarRun"]},
     {"name":"b18-inline-taken-param","origin":"batch-18 integration (OPT4 inliner x OWGEN grammar, seed 10)","file":"internal/sketch/lower/inline.go","from":"frame := l.bodyNeedsFrame(d.Body.List) || l.ownsParams(vars)","to":"frame := l.bodyNeedsFrame(d.Body.List)","rule":"A function that takes a resource parameter keeps its owner frame (emitBody's needsFrame); an inlined body would name an owner the call site has not.","killers":["lower:TestOwnershipGrammarRun"]},
     {"name":"owgen-adapter-env-unset","origin":"OWGEN round 3 (d, e)","file":"internal/sketch/lower/calls.go","from":"\t\tval += \", env: \" + fc.env\n","to":"","rule":"resources R3, R23: the releases an operations adapter's functions run use the converting frame's environment.","killers":["lower:TestConvertedReleaseRuns"]},
+    {"name":"owgen-adapter-task-kept","origin":"wf10 batch-18 fix-tool (verify M3)","file":"internal/sketch/lower/calls.go","from":"\" == nil || \" + taskOf(e) + \" != \" + task + \" {","to":"\" == nil {","rule":"rows.md Rows 7: an operations adapter's function runs on the caller's task, in a copy of the converting frame's environment when the tasks differ; a converted value's operation waiting on a Race loser's task sees the race's stop.","killers":["lower:TestConvertedReleaseRuns"]},
     {"name":"owgen-spread-none-base-unbound","origin":"OWGEN round 3 (c)","file":"internal/sketch/lower/expr.go","from":"case len(copies) == 0 && !replaced:","to":"case len(copies) == 0:","rule":"A spread that copies nothing but drops a field binds its base once: the dropped fields are read from that value (R43).","killers":["lower:TestOwnershipGrammarRun"]},
     {
       "name": "owgen-fu0-lent-yield-registered",
@@ -4148,6 +4126,20 @@
     {"name":"lr3-quote-html","origin":"wf10 LR3 (from LR3a lr3a-quote-html)","file":"runtime/v1/json_append.go","from":"\tif html {\n\t\tsafe = plainHTML\n\t}","to":"\tif false {\n\t\tsafe = plainHTML\n\t}","rule":"An HTML Text escapes <, > and & as encoding/json's default does.","killers":["lower:TestStdJSONLawsRun"]},
     {"name":"lr3-quote-invalid-byte","origin":"wf10 LR3 (from LR3a lr3a-quote-invalid-byte)","file":"runtime/v1/json_append.go","from":"\t\tif r == utf8.RuneError && size == 1 {","to":"\t\tif false {","rule":"A byte of invalid UTF-8 is written as the lone surrogate \\udcXX, which a Cursor reads back as the byte.","killers":["lower:TestStdJSONLawsRun"]},
     {"name":"lr3-intbody-sep","origin":"wf10 LR3","file":"internal/sketch/std/json/json.ergo","from":"func intBody(t *text, n int64) { t.out = appendInt(t.out, n) }","to":"func intBody(t *text, n int64) {\n\tt.sep()\n\tt.out = appendInt(t.out, n)\n}","rule":"A value's body writes no separator: Int writes one comma before its number.","killers":["lower:TestStdJSONLawsRun"],"anchor":{"tests":["lower:TestStdJSONLawsRun"]}},
+    {"name":"lr3-w1","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"if !top.bare || !sameCall(tail, top.entry) {","to":"if false && top.bare {","rule":"After a block the state is known only when it is an if with no else whose arm ends in the state it began in.","killers":["lower:TestJSONFieldsAgree","lower:TestCellWriterAgrees"]},
+    {"name":"wt-for-carries","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"\t\t\t\tstack = append(stack, cellBlock{})\n\t\t\t\ttail = nil","to":"\t\t\t\tstack = append(stack, cellBlock{})","rule":"A loop body starts in an unknown state: its second pass starts where the first ended.","killers":["lower:TestTOMLDecode"]},
+    {"name":"wt-mention-keeps","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"\t\t\tcase mentions:\n\t\t\t\ttail = nil","to":"\t\t\tcase mentions:","rule":"A statement that names the writer (a codec call) leaves the state unknown.","killers":["lower:TestJSONFieldsAgree"]},
+    {"name":"wt-lead-texts","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"\t\ttexts = texts[lead:]","to":"\t\t_ = lead","rule":"A run the laws do not rewrite drops its carried lead call with that call's argument texts.","killers":["lower:TestCellWriterAgrees"]},
+    {"name":"wt-branch-else","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"lines = append(lines, arm(els)...)","to":"lines = append(lines, arm(then)...)\n\t_ = els","rule":"A provider function that is an if is written as that if, each arm its own calls.","killers":["lower:TestTOMLDecode"]},
+    {"name":"wt-event-arg","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"\treturn op, arg, ok\n}","to":"\treturn op, \"\", ok\n}","rule":"An event line's argument is the event call's argument.","killers":["lower:TestCellWriterAgrees"]},
+    {"name":"wt-event-const","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"return constant.MakeString(s)","to":"return constant.MakeString(s[:0])","rule":"A quoted event argument is the constant string it spells.","killers":["lower:TestCellWriterAgrees"]},
+    {"name":"lr3-w5","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"if !changed || len(got) != 1 || !sameCall(&got[0], c) {","to":"if false && (!changed || len(got) != 1 || !sameCall(&got[0], c)) {","rule":"A run's last call is the state only when the laws make it idempotent; a constant raw is not.","killers":["lower:TestCellWriterAgrees"]},
+    {"name":"lr3-w7","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"return v, sameCall(cf.start, &start)","to":"return v, true","rule":"A codec function's entry variant serves only the state it was made for; another state calls the plain function.","killers":["lower:TestCellWriterAgrees"]},
+    {"name":"wt-unused-arg","origin":"wf10 batch-18 fix-laws (bug found by TestCellWriterAgrees)","file":"internal/sketch/lower/wiretext.go","from":"\tif rewritten {\n\t\t// An argument","to":"\tif false {\n\t\t// An argument","rule":"An argument a rewritten run drops is still read, so the Go variable that names it stays used.","killers":["lower:TestCellWriterAgrees"]},
+    {"name":"wt-admit-tested","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"if entry.Verdict != \"proved\" {","to":"if false {","rule":"A std law changes code only when its ledger entry is proved (owner q115).","killers":["lower:TestStdEvidenceAdmitsOnlyProvedCurrent"]},
+    {"name":"wt-admit-stale","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"if d != entry.Digest {","to":"if false {","rule":"A std law whose ledger digest is stale changes no code.","killers":["lower:TestStdEvidenceAdmitsOnlyProvedCurrent"]},
+    {"name":"wt-one-line-block","origin":"wf10 FU-b18 (batch-18 verify, test strength)","file":"internal/sketch/lower/wiretext.go","from":"return strings.HasPrefix(line, \"if \") && strings.HasSuffix(line, \"}\")","to":"return false && strings.HasPrefix(line, \"if \") && strings.HasSuffix(line, \"}\")","rule":"A one-line block that names no writer (an optional field's count) keeps the writer's state known, so the next key's comma is constant: one comma test fewer per encode.","killers":["lower:TestJSONCommaTestsCounted"]},
+    {"name":"wt-entry-call","origin":"wf10 FU-b18 (batch-18 verify, test strength)","file":"internal/sketch/lower/wiretext.go","from":"if !ok || l.cellFuncs[name] == nil {","to":"if true || !ok || l.cellFuncs[name] == nil {","rule":"A cell codec function called where the state is known is called by its entry variant, which runs no comma test at its start.","killers":["lower:TestJSONCommaTestsCounted"]},
     {"name":"ps2-unfold-of-extern","origin":"wf10 LR3 (from PS2)","file":"internal/sketch/lower/unfold.go","from":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\treturn false\n\t\t\t}","to":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\tcontinue\n\t\t\t}","rule":"Unfold by definition replaces a call by its body only when every statement is a provider call on the receiver; a body with any other call (an extern, a function off the provider) stays a call.","killers":["lower:TestRewriteAgrees"]}
   ]
 }

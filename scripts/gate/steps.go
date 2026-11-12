@@ -173,8 +173,9 @@ func sweepSupported() bool { return sweepOS == "linux" }
 // sweepTimeout is the test timeout of a closure sweep step. The sweep runs
 // a package's test binary in runs of at most a set recorded test time each
 // (internal/closure, planRuns), so many at a time as its jobs allow and the
-// rest in turn, and stops a run that passes its own deadline (20 minutes,
-// ERGO_CLOSURE_RUN_DEADLINE) with its package and slowest tests named. The
+// rest in turn, and stops a run that passes its deadline (a minute before
+// this timeout, or ERGO_CLOSURE_RUN_DEADLINE when set; no fixed bound of
+// its own) with its package and slowest tests named. The
 // step's timeout must outlast every run of the package in turn: with the
 // gate's 15 minute testTimeout the binary's deadline cut each run of
 // internal/sketch/lower at 13m58s, which the four runs, at once on the
@@ -196,6 +197,12 @@ func sweepStep(selection string) *Step {
 
 // buildCLIStep builds the ergo CLI into bin/ergo, once per gate run.
 const buildCLIStep = "build bin/ergo"
+
+// buildCLI is the step buildCLIStep. A whole-gate replay runs it too
+// (rebuildOutputs), so bin/ergo matches the tree after a replay.
+func buildCLI(root string) *Step {
+	return &Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: gateOutputs, Class: classFast}
+}
 
 // cliTestPackages are the test packages whose tests run the ergo CLI. A
 // test process built cmd/ergo for itself, so a package in n shards built it
@@ -381,8 +388,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// new revision. The gate's bin/ergo therefore declares no vcs.revision in
 	// its producer identity, while its artifact digest still identifies the
 	// executing bytes.
-	// It writes bin/ (Step.Writes): no closure sweep runs beside it.
-	add(&Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: []string{"bin/"}, Class: classFast})
+	// It writes bin/ (Step.Writes): no closure sweep runs beside it, and
+	// no key holds what it writes there (gateOutputs).
+	add(buildCLI(root))
 	examplesRun, err := examplesStep(root)
 	if err != nil {
 		return nil, err

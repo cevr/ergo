@@ -621,21 +621,18 @@ func countSource(seed uint64) string {
 
 // TestStdLedgerFresh: the embedded std ledger is the one a fresh run
 // writes (go run ./scripts/stdlaws); std has no other evidence path.
+//
+// It builds Go because a ledger verdict is the output of the law check
+// build: a law the symbolic run cannot prove is tested by running the
+// lowered provider bodies (SetCommaSets is tested), so no in-process
+// check gives the same entries.
 func TestStdLedgerFresh(t *testing.T) {
+	if testing.Short() {
+		t.Skip("full tier: builds std's law checks")
+	}
 	saved := compilerIdentity
 	compilerIdentity = func() (string, error) { return "test", nil }
 	defer func() { compilerIdentity = saved }()
-	if testing.Short() {
-		// A std package with a rewrite law needs its check build.
-		savedChecks := lawChecks
-		lawChecks = func(BuildRequest, func() (build.Input, error)) func([]lower.File, []string) (string, error) {
-			return func([]lower.File, []string) (string, error) {
-				t.Skip("a std rewrite law needs its check build (full tier)")
-				return "", nil
-			}
-		}
-		defer func() { lawChecks = savedChecks }()
-	}
 	root := t.TempDir()
 	fresh, err := FreshStdLedger(BuildRequest{Cache: build.Cache{Root: root}, Toolchain: build.HostToolchain()})
 	if err != nil {

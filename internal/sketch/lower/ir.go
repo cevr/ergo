@@ -35,9 +35,11 @@ type IRReport struct {
 	Hash     string         `json:"hash"`
 }
 
-// LowerIR is Lower with the experimental IR bodies. main.go ends with the
-// IR file's hash, so Go's build cache keys the main package's compile on
-// the IR as well as on the Go text.
+// LowerIR is Lower with the IR bodies. The report's Hash names the IR
+// file's content. A build keys the main package's compile on the IR
+// through one key: the direct path digests the IR file into the compile's
+// action key, go build's -ergoir flag names a file whose path names its
+// content (batch-18 verify M2: main.go carries no hash of its own).
 func LowerIR(u Unit) ([]File, IRReport, error) { return lowerIR(u, nil) }
 
 // LowerIRTests is LowerTests with the IR bodies: the test build's IR
@@ -128,7 +130,6 @@ func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
 	}
 	sum := sha256.Sum256(data)
 	l.ir.report.Hash = hex.EncodeToString(sum[:])
-	code = append(code, []byte("\n// ergoir sha256:"+l.ir.report.Hash+"\n")...)
 	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
 	files = append(files, File{Path: IRFileName, Data: data})
 	sort.Strings(l.ir.report.IR)

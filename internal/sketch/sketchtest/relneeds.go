@@ -10,7 +10,8 @@ import (
 // RelNeeds generates the programs of the release-needs property (resources
 // R5, check/releaseneeds.go): a package of functions whose bodies acquire
 // resources whose Close requires the capabilities A, B, both or none,
-// directly or through a part (a record field, a slice element), and
+// directly or through a part (a record field, a slice element, an
+// Option's variant, a queue's values left, a written Close's parts), and
 // release them at every kind of release point (a scope's end, an early
 // return, a statement's end for a temporary, a handoff into a function
 // that takes the value), under with blocks that provide A, B or both, in
@@ -37,25 +38,38 @@ const (
 )
 
 // relKinds are the resource shapes: the type, what its release needs, a
-// value of it (%d is an id).
+// value of it (%d is an id), what making that value needs (qA's written
+// row: its own queue's release), and the part of the Drop graph
+// (check/drop.go) through which the release reaches a Close that needs a
+// capability: the type's own Close, a record field, a slice element, a
+// union's variant, a queue's values left (Drain). The part "own" (a
+// written Close's parts, Drop.Own) is reached by the W<k> of a conversion.
 var relKinds = []struct {
-	name  string
-	needs int
-	mk    string
+	name    string
+	needs   int
+	mk      string
+	mkNeeds int
+	part    string
 }{
-	{"R0", 0, "R0{id: %d}"},
-	{"RA", RelA, "RA{id: %d}"},
-	{"RB", RelB, "RB{id: %d}"},
-	{"RAB", RelA | RelB, "RAB{id: %d}"},
-	{"Box", RelB, "Box{r: RB{id: %d}, n: 1}"},
-	{"[]RA", RelA, "[]RA{RA{id: %d}}"},
+	{"R0", 0, "R0{id: %d}", 0, "close"},
+	{"RA", RelA, "RA{id: %d}", 0, "close"},
+	{"RB", RelB, "RB{id: %d}", 0, "close"},
+	{"RAB", RelA | RelB, "RAB{id: %d}", 0, "close"},
+	{"Box", RelB, "Box{r: RB{id: %d}, n: 1}", 0, "fields"},
+	{"[]RA", RelA, "[]RA{RA{id: %d}}", 0, "elem"},
+	{"Option[RB]", RelB, "optB(%d)", 0, "variants"},
+	{"queue.Queue[RA]", RelA, "qA(%d)", RelA, "drain"},
 }
+
+// RelParts are the parts of a Drop graph (check/drop.go) a release walks.
+var RelParts = []string{"close", "fields", "elem", "variants", "drain", "own"}
 
 // RelPrelude declares the capabilities, their providers, the resources,
 // and for each kind k a lending lend<k> and a taking keep<k>.
 var RelPrelude = func() string {
 	var b strings.Builder
 	b.WriteString(`import codec
+import queue
 
 type A { Use() }
 type B { Use() }
@@ -75,6 +89,15 @@ func Close(r RAB) needs A | B {
 	B.Use()
 }
 type Box { r RB, n int }
+func optB(id int) Option[RB] { Some{RB{id: id}} }
+func qA(id int) queue.Queue[RA] needs A {
+	let q = queue.New[RA](2)
+	q.Push(RA{id: id}) catch {
+	case queue.Closed:
+		return q
+	}
+	q
+}
 type Bad { Text string }
 type Lv { name string }
 func ParseLv(s string) Lv fails Bad needs A {
@@ -355,7 +378,8 @@ func (f *RelFunc) written() (bool, int) {
 // in order, and each "line cap" where a written row misses a need (S102),
 // sorted. A charge is what a call of the release's Close there would
 // charge: the needs of the acquired kind at a let, a temporary or a
-// handoff into keep<k> (whose taken parameter charges its row); the
+// handoff into keep<k> (whose taken parameter charges its row), and the
+// needs of making the kind's value (qA's row) wherever it is made; the
 // callee's row at a call; B (Wire's) at an encode and A (the ParseX's,
 // written or inferred) at a decode; nothing at a lend of a local or a
 // return. A with removes what it provides. refused is each "line S108" of
@@ -373,8 +397,12 @@ func (g *RelNeeds) Model() (rows, missing, refused []string) {
 		for _, s := range ss {
 			need := 0
 			switch s.Kind {
-			case RelLet, RelTemp, RelKeep, RelKeepVar:
+			case RelLet, RelTemp, RelKeep:
+				need = relKinds[s.K].needs | relKinds[s.K].mkNeeds
+			case RelKeepVar:
 				need = relKinds[s.K].needs
+			case RelConvert:
+				need = relKinds[s.K].mkNeeds
 			case RelEncode:
 				need = RelB
 			case RelDecode:
@@ -449,6 +477,33 @@ func (g *RelNeeds) Model() (rows, missing, refused []string) {
 	}
 	slices.Sort(refused)
 	return rows, missing, refused
+}
+
+// Parts adds to reached each part of a Drop graph (RelParts) through which
+// a release the program charges, or a conversion it refuses, reaches a
+// Close that needs a capability: the property asserts that its seeds
+// reach every part, so no part's walk goes unchecked.
+func (g *RelNeeds) Parts(reached map[string]bool) {
+	var walk func(ss []*RelStmt)
+	walk = func(ss []*RelStmt) {
+		for _, s := range ss {
+			switch s.Kind {
+			case RelLet, RelTemp, RelKeep, RelKeepVar:
+				if relKinds[s.K].needs != 0 {
+					reached[relKinds[s.K].part] = true
+				}
+			case RelConvert:
+				if relKinds[s.K].needs != 0 {
+					reached["own"] = true
+					reached[relKinds[s.K].part] = true
+				}
+			}
+			walk(s.Body)
+		}
+	}
+	for _, f := range g.Funcs {
+		walk(f.Body)
+	}
 }
 
 // Releases reports whether the program releases a resource whose Close

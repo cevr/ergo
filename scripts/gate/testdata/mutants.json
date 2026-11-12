@@ -63,6 +63,69 @@
       "to": "\tif _, set := os.LookupEnv(ergoGo); false && !set {",
       "rule": "A gate step's ergo builds with the system go and never downloads Go, unless the caller sets ERGO_GO.",
       "killers": ["scripts/gate:TestStepsBuildWithTheSystemGo"]
+    },
+    {
+      "name": "b18-full-tier-package-unrecognized",
+      "origin": "wf10 batch-18 fix-tool (verify B1)",
+      "file": "scripts/gate/tier.go",
+      "from": "\treturn tests > 0, nil\n",
+      "to": "\treturn false, nil\n",
+      "rule": "A package whose every test builds Go (each Test function starts with needsBuild) has no fast-tier step, so a checker edit does not compile, link and start its test binary to skip every test.",
+      "killers": ["scripts/gate:TestFastTierReachOfAnEdit"]
+    },
+    {
+      "name": "b18-full-tier-package-stepped",
+      "origin": "wf10 batch-18 fix-tool (verify B1)",
+      "file": "scripts/gate/tier.go",
+      "from": "\t\t} else if only {\n\t\t\tcontinue\n\t\t}\n\t\t// A hermetic package",
+      "to": "\t\t} else if only && false {\n\t\t\tcontinue\n\t\t}\n\t\t// A hermetic package",
+      "rule": "The fast tier declares no step for a full-tier-only package (fullTierOnly).",
+      "killers": ["scripts/gate:TestFastStepsKeyEveryTestPackage"]
+    },
+    {
+      "name": "gate-key-stale-binary",
+      "origin": "wf10 FU-b18 (batch-18 verify, gate start key)",
+      "file": "scripts/gate/wholegate.go",
+      "from": "\tentries = slices.DeleteFunc(entries, func(e replay.Entry) bool { return gateOutput(e.Path, e.Class) })\n",
+      "to": "\t_ = gateOutput\n",
+      "rule": "No key holds the gate's own outputs (bin/): a gate started on a stale bin/ergo, which its build rewrites, still records.",
+      "killers": ["scripts/gate:TestWholeGateRecordsOverAStaleBuild"]
+    },
+    {
+      "name": "gate-replay-stale-binary",
+      "origin": "wf10 FU-b18 r2 (orchestrator: a replay leaves a stale bin/ergo)",
+      "file": "scripts/gate/wholegate.go",
+      "from": "\t\tif len(step.Writes) == 0 {\n\t\t\tcontinue\n\t\t}\n\t\tcmd := exec.Command(",
+      "to": "\t\tif true || len(step.Writes) == 0 {\n\t\t\tcontinue\n\t\t}\n\t\tcmd := exec.Command(",
+      "rule": "After a whole-gate replay the gate builds its outputs again, so bin/ergo matches the tree.",
+      "killers": ["scripts/gate:TestWholeGateRecordsOverAStaleBuild"]
+    },
+    {
+      "name": "gate-prescope-replay-stale-binary",
+      "origin": "wf10 FU-b18 r2 (orchestrator: a replay leaves a stale bin/ergo)",
+      "file": "scripts/gate/main.go",
+      "from": "if !rebuildOutputs(root, []*Step{replayBuild(root)}, out) {",
+      "to": "if !rebuildOutputs(root, []*Step{replayBuild(root)}[:0], out) {",
+      "rule": "The replay before the scope builds bin/ergo again, so the binary matches the tree.",
+      "killers": ["scripts/gate:TestWholeGateRecordNamesItsTier"]
+    },
+    {
+      "name": "sandbox-ready-fixed-limit",
+      "origin": "wf10 FU-b18 r2 (no fixed run limits in scripts/gate)",
+      "file": "scripts/gate/sandbox_linux.go",
+      "from": "\t\tcase <-tick.C:\n\t\t\tif pid := childPid.Load(); pid != 0 && processEnded(int(pid)) {",
+      "to": "\t\tcase <-time.After(time.Millisecond):\n\t\t\terr, waiting = errors.New(\"the export took too long\"), false\n\t\tcase <-tick.C:\n\t\t\tif pid := childPid.Load(); pid != 0 && processEnded(int(pid)) {",
+      "rule": "The sandbox's start waits for an event (ready, or its first process ended), never for a fixed time: a fixed bound fails an export that is still running (a 1 ms bound stands for a loaded host).",
+      "killers": ["scripts/gate:TestSandboxAdmitsSymlinkRoots", "scripts/gate:TestSandboxModuleZipIsConstructed"]
+    },
+    {
+      "name": "sandbox-first-process-unwatched",
+      "origin": "wf10 FU-b18 r2 (no fixed run limits in scripts/gate)",
+      "file": "scripts/gate/sandbox_linux.go",
+      "from": "if pid := childPid.Load(); pid != 0 && processEnded(int(pid)) {",
+      "to": "if pid := childPid.Load(); false && pid != 0 && processEnded(int(pid)) {",
+      "rule": "A sandbox whose first process fails is a failure at once: with no time bound on the start, the watch of that process is what ends the wait (killed by the test's deadline, which names TestMergeTierFailsClosed/bwrap_fails_to_mount).",
+      "killers": ["scripts/gate:TestMergeTierFailsClosed"]
     }
   ]
 }
