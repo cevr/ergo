@@ -174,7 +174,7 @@ func (c *checker) lawRelease(fact *With) string {
 		}
 		if a.Close != nil {
 			if needs := c.releaseNeeds(a.Close); len(needs) > 0 {
-				return "its provider's Close needs " + needs[0].String() + ", and a law case has no capability to release it with"
+				return "its provider's Close needs " + needs[0].String() + "; a law case has no capability to release it with"
 			}
 		}
 		// A release was found from the provider's package facts (acquire),

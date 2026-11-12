@@ -494,7 +494,7 @@ func main() {}
 		"ok law Shape.Positive for Sq (100 cases)",
 		"ok law Shape.Positive under Held (100 cases)",
 		"ok law Shape.Positive under Kept (100 cases)",
-		"skip law Shape.Positive under Needy: its provider's Close needs Console, and a law case has no capability to release it with",
+		"skip law Shape.Positive under Needy: its provider's Close needs Console; a law case has no capability to release it with",
 		"skip law Shape.Positive under Pinned: its provider names the package let pinned, which a case's release would close for every later case",
 		"ok law Shape.Positive under Sized (100 cases)",
 		"ok law Shape.Positive under Wired (100 cases)",
