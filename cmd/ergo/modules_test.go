@@ -17,8 +17,10 @@ import (
 // files 1, Modules): a program imports a package of another Ergo module,
 // example.com/counter, served by a file:// proxy in the test's folder (no
 // network). Before go.mod requires it, ergo check names the fetch command;
-// `go get example.com/counter@v1.0.0` (the command it names) writes the pin
-// and the hashes and fills the module cache; then ergo check passes with
+// ergo get refuses a module whose ergo.mod names another path and puts
+// go.mod and go.sum back (MD2); `ergo get example.com/counter@v1.0.0` (the
+// command it names) writes the pin and the hashes and fills the module
+// cache; then ergo check passes with
 // only a stub go on PATH that records any start, ergo run runs the program,
 // and ergo test runs the root's test and the law of the dependency's
 // operation type against the root's provider, and not the dependency's own
@@ -29,7 +31,9 @@ import (
 // It also catches a dependency's test run by the root's ergo test
 // (md1-dependency-test-run, which TestErgoPackages catches for a package of
 // the same module), and it is the one check that the loader's hash and the
-// command it names agree with the go command's download.
+// command it names agree with the go command's download. For ergo get it
+// alone catches a fetched module not read again (md2-get-unverified) and a
+// refused fetch that leaves go.mod and go.sum changed (md2-get-kept).
 //
 // Builds Go because the claims are the go command's: its download, its
 // go.sum lines and its extracted copy, and the test binary that ergo test
@@ -62,6 +66,11 @@ test DependencyTestStaysHome {
 	assert secret() == 2
 }
 `,
+	})
+	serveModule(t, proxy, "example.com/misnamed", "v1.0.0", map[string]string{
+		"go.mod":         "module example.com/misnamed\n\ngo 1.27\n",
+		"ergo.mod":       "module example.com/other\n",
+		"part/part.ergo": "func One() int {\n\t1\n}\n",
 	})
 	writeFiles(t, app, map[string]string{
 		"ergo.mod": "module app\n",
@@ -114,12 +123,28 @@ test DoubleScales {
 		return "", -1
 	}
 
-	const unpinned = `cmd/app/main.ergo:1:8: error S104: unknown package "example.com/counter/scale": it is not std, not in module app, and in no module that go.mod requires; require the module that holds it: go get MODULE@VERSION`
+	const unpinned = `cmd/app/main.ergo:1:8: error S104: unknown package "example.com/counter/scale": it is not std, not in module app, and in no module that go.mod requires; require the module that holds it: ergo get MODULE@VERSION`
 	if out, code := run(stubEnv, binary, "diagnostics", "cmd/app"); code == 0 || !strings.Contains(out, unpinned) {
 		t.Fatalf("ergo diagnostics before the requirement: exit %d, want %q in\n%s", code, unpinned, out)
 	}
-	if out, code := run(env, "go", "get", "example.com/counter@v1.0.0"); code != 0 {
-		t.Fatalf("go get example.com/counter@v1.0.0: exit %d\n%s", code, out)
+	// A module whose ergo.mod names another path is fetched by go get, then
+	// refused, and go.mod and go.sum are put back.
+	goMod, err := os.ReadFile(filepath.Join(app, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const misnamed = "example.com/misnamed: the ergo.mod of module example.com/misnamed@v1.0.0 names module example.com/other, not example.com/misnamed; go.mod and go.sum are as they were"
+	if out, code := run(env, binary, "get", "example.com/misnamed@v1.0.0"); code != 1 || !strings.Contains(out, misnamed) {
+		t.Fatalf("ergo get example.com/misnamed@v1.0.0: exit %d, want 1 and %q in\n%s", code, misnamed, out)
+	}
+	if now, err := os.ReadFile(filepath.Join(app, "go.mod")); err != nil || !bytes.Equal(now, goMod) {
+		t.Fatalf("go.mod after a refused ergo get: %v\n%s", err, now)
+	}
+	if _, err := os.Stat(filepath.Join(app, "go.sum")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("go.sum after a refused ergo get: %v, want none", err)
+	}
+	if out, code := run(env, binary, "get", "example.com/counter@v1.0.0"); code != 0 || !strings.HasSuffix(out, "required example.com/counter v1.0.0\n") {
+		t.Fatalf("ergo get example.com/counter@v1.0.0: exit %d\n%s", code, out)
 	}
 	if out, code := run(stubEnv, binary, "diagnostics", "cmd/app"); code != 0 {
 		t.Fatalf("ergo diagnostics with the requirement: exit %d\n%s", code, out)

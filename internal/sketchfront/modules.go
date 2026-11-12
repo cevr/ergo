@@ -39,6 +39,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/sketch/std"
 )
 
@@ -53,6 +54,8 @@ type depModule struct {
 	dir string
 	// reason is why the module serves no package; "" when it serves them.
 	reason string
+	// goModule is true when the module's root holds no ergo.mod.
+	goModule bool
 }
 
 // moduleGraph is the build list the root's go.mod gives.
@@ -64,10 +67,65 @@ type moduleGraph struct {
 }
 
 // FetchCommand is the command that puts module path at version into the
-// module cache and its hashes into go.sum, run in the module root. Every
-// diagnostic that asks for a fetch names it (MD2 brings ergo get).
+// module cache, its pin into go.mod and its hashes into go.sum, run in the
+// module. Every diagnostic that asks for a fetch names it.
 func FetchCommand(path, version string) string {
-	return "go get " + path + "@" + version
+	return "ergo get " + path + "@" + version
+}
+
+// FindModule is the root of the Ergo module at or above the folder dir, an
+// absolute path, and its name; an error when none is found or its ergo.mod
+// does not parse.
+func FindModule(dir string) (root, name string, err error) {
+	l := newLoader(hostFS{}, gobind.Platform{}, dir, "")
+	found, err := l.findModule(dir)
+	switch {
+	case err != nil:
+		return "", "", err
+	case !found:
+		return "", "", fmt.Errorf("no %s in %s or above it", ModFile, dir)
+	case l.module == "":
+		return "", "", fmt.Errorf("%s: %s", filepath.Join(l.root, ModFile), l.diags[0].Message)
+	}
+	return l.root, l.module, nil
+}
+
+// Requirement is how a module resolves one of its required modules, as an
+// import of one of its packages does (grammar.md, Source files 1,
+// Required modules).
+type Requirement struct {
+	// Path and Version name the required module that holds the path asked
+	// for, at its selected version.
+	Path, Version string
+	// GoModule is true when the module's root holds no ergo.mod: Ergo
+	// imports its Go packages through bindings (interop.md).
+	GoModule bool
+	// Why is why its packages cannot be imported; "" when they can.
+	Why string
+}
+
+// Required resolves path, a module or package path, against the
+// requirements of the Ergo module at root. It reads the module cache and
+// runs no process.
+func Required(root, path string) (Requirement, error) {
+	l := newLoader(hostFS{}, gobind.Platform{}, root, moduleCache())
+	if _, err := l.findModule(root); err != nil {
+		return Requirement{}, err
+	}
+	if len(l.diags) > 0 {
+		d := l.diags[0]
+		return Requirement{}, fmt.Errorf("%s:%d:%d: %s", filepath.Join(l.root, d.File), d.Span.Line, d.Span.Column, d.Message)
+	}
+	mod := l.required(path)
+	if l.module == "" || mod == "" {
+		return Requirement{Path: path, Why: fmt.Sprintf("the %s beside %s requires no module that holds %s", GoModFile, ModFile, path)}, nil
+	}
+	g := l.graph()
+	if g.err != "" {
+		return Requirement{Path: mod, Why: "the module graph of " + GoModFile + " cannot be read: " + g.err}, nil
+	}
+	m := l.dependency(mod, g.selected[mod])
+	return Requirement{Path: mod, Version: m.version, GoModule: m.goModule, Why: m.reason}, nil
 }
 
 // moduleCache is the folder of Go's module cache, as the go command finds
@@ -439,6 +497,7 @@ func (l *loader) dependency(path, version string) *depModule {
 	}
 	data, err := l.fsys.ReadFile(filepath.Join(m.dir, ModFile))
 	if err != nil {
+		m.goModule = true
 		m.reason = fmt.Sprintf("module %s is a Go module, not an Ergo module: its root holds no %s", m.name, ModFile)
 		return m
 	}

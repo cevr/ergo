@@ -54,6 +54,7 @@ var commands = []cliCommand{
 	{name: "fmt", usage: "fmt FILE...|DIR/... [--check] [--json] | fmt --stdin", help: fmtHelp, run: formatCommand},
 	{name: "test", usage: "test FILE|DIR|DIR/... [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE] [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]] [--schedule TOKEN] [-work] [--json] [--target go]", run: testCommand},
 	{name: "bind", usage: "bind go [-o DIR] PACKAGE...", help: bindHelp, run: bindCommand},
+	{name: "get", usage: "get MODULE[@VERSION]...", help: getHelp, run: getCommand},
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
 	{name: "gen", usage: "gen rpc [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
 	{name: "version", usage: "version [--json]", help: versionHelp, run: versionCommand},

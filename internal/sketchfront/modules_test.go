@@ -419,7 +419,7 @@ func (m *genModel) reference(dir string) string {
 			c := m.local[p]
 			if c == nil {
 				if m.noSum[p+" "+req[p]+"/go.mod"] {
-					graphErr = fmt.Sprintf("go.sum has no hash of %s %s/go.mod; run go get %s@%s", p, req[p], p, req[p])
+					graphErr = fmt.Sprintf("go.sum has no hash of %s %s/go.mod; run ergo get %s@%s", p, req[p], p, req[p])
 					return
 				}
 				c = m.mods[p][req[p]]
@@ -448,7 +448,7 @@ func (m *genModel) reference(dir string) string {
 		cut := strings.LastIndex(path, "/")
 		mod, folder := path[:cut], path[cut+1:]
 		if _, ok := req[mod]; !ok {
-			return refPkg{}, "it is not std, not in module app, and in no module that go.mod requires; require the module that holds it: go get MODULE@VERSION"
+			return refPkg{}, "it is not std, not in module app, and in no module that go.mod requires; require the module that holds it: ergo get MODULE@VERSION"
 		}
 		readGraph()
 		if graphErr != "" {
@@ -464,9 +464,9 @@ func (m *genModel) reference(dir string) string {
 			c, root = m.mods[mod][v], cache+"/"+escapeRef(mod)+"@"+v
 			switch {
 			case m.noSum[mod+" "+v]:
-				return refPkg{}, fmt.Sprintf("go.sum has no hash of %s %s; run go get %s", mod, v, name)
+				return refPkg{}, fmt.Sprintf("go.sum has no hash of %s %s; run ergo get %s", mod, v, name)
 			case m.noCopy[name]:
-				return refPkg{}, fmt.Sprintf("%s %s is not in the module cache (no %s); run go get %s", mod, v, root, name)
+				return refPkg{}, fmt.Sprintf("%s %s is not in the module cache (no %s); run ergo get %s", mod, v, root, name)
 			case c.tamper:
 				files := c.files(mod)
 				return refPkg{}, fmt.Sprintf("the module cache's copy of %s %s does not match go.sum (go.sum holds %s, the copy hashes %s); go mod verify reports it",

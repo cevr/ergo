@@ -240,6 +240,24 @@
       "to": "g.Reason = in.Reason",
       "rule": "ergo inspect shows each derived type with its parse engine, the reason and the counts (patterns.md, Derivation 7).",
       "killers": ["cmd/ergo:TestInspectAPIRoute"]
+    },
+    {
+      "name": "md2-get-unverified",
+      "origin": "wf10 MD2",
+      "file": "cmd/ergo/get.go",
+      "from": "\t\tcase r.Why != \"\":\n",
+      "to": "\t\tcase false:\n",
+      "rule": "ergo get reads each fetched module as an import does and refuses one that cannot be imported.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"]
+    },
+    {
+      "name": "md2-get-kept",
+      "origin": "wf10 MD2",
+      "file": "cmd/ergo/get.go",
+      "from": "\t\tif err := kept.restore(); err != nil {",
+      "to": "\t\tif err := error(nil); err != nil {",
+      "rule": "A refused ergo get leaves go.mod and go.sum as they were.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"]
     }
   ]
 }
