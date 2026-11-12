@@ -95,6 +95,7 @@ func requireSourceExtension(path string) error {
 const diagnosticsHelp = "usage: ergo diagnostics FILE|DIR [--strict] [--json] [--target go]\n" +
 	"Locations: one-based UTF-16 lines/columns in text; zero-based UTF-16 ranges and original UTF-8 byte spans in JSON.\n" +
 	"A DIR is a package: each finding names its file relative to the module root (file in JSON).\n" +
+	"Lint advice (ergo lint) follows the compiler's findings, under the module's ergo.lint.json; --strict fails policy on a warning too.\n" +
 	"Exit codes: 0 policy passed; 1 failed policy or source/operational failure; 2 invalid invocation.\n" +
 	"With --json, source findings produce a report on stdout even when policy fails; operational failures produce no report and explain the error on stderr.\n"
 
@@ -254,10 +255,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 	switch {
 	case len(positional) == 0:
 		return opts, fmt.Errorf("source file required")
-	case opts.strict && command != "diagnostics":
-		return opts, fmt.Errorf("--strict is only supported by diagnostics")
-	case opts.json && command != "diagnostics" && command != "run" && command != "test":
-		return opts, fmt.Errorf("--json is only supported by diagnostics, run and test")
+	case opts.strict && command != "diagnostics" && command != "lint":
+		return opts, fmt.Errorf("--strict is only supported by diagnostics and lint")
+	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test":
+		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run and test")
 	case opts.output != "" && command != "build":
 		return opts, fmt.Errorf("-o is only supported by build")
 	case platformed && command != "build":
@@ -548,10 +549,14 @@ func diagnosticsCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	run, err := lintLoaded(l, nil)
+	if err != nil {
+		return invalidInvocation(err)
+	}
 	if err := l.result.Qualify(producer.Current()); err != nil {
 		return err
 	}
-	findings := l.result.Report(l.snapshot, opts.strict)
+	findings := l.result.ReportWithLint(l.snapshot, opts.strict, run.Advice())
 	if opts.json {
 		err = printJSON(findings)
 	} else {

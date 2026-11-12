@@ -52,7 +52,7 @@ func TestRunAndTestPrintFindingsAsText(t *testing.T) {
 			t.Fatalf("ergo build %s: exit %d stdout %q stderr %q", c.source, code, stdout, stderr)
 		}
 	}
-	if _, stderr, code := cli(root, "check", "--json", "bad.ergo"); code != 1 || !strings.Contains(stderr, "--json is only supported by diagnostics, run and test") {
+	if _, stderr, code := cli(root, "check", "--json", "bad.ergo"); code != 1 || !strings.Contains(stderr, "--json is only supported by diagnostics, lint, run and test") {
 		t.Fatalf("ergo check --json: exit %d stderr %q", code, stderr)
 	}
 }
