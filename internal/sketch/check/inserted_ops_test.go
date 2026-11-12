@@ -254,6 +254,26 @@ func insReleaseElement(r *rand.Rand, name string) insSite {
 			"\t\tlet v, more = slices.Take(rest, last)\n\t\tv.Close()\n\t\trest = more\n\t}\n}\n"}
 }
 
+// insReleaseVariant: a union's release is its active variant's (R3, Gap
+// 36): a match whose arm binds the value and closes it.
+func insReleaseVariant(r *rand.Rand, name string) insSite {
+	head := fmt.Sprintf("func %s() {\n\tlet o Option[Res] = Some{mk(1)}\n", name)
+	return insSite{rule: "release-variant", name: name,
+		implicit: head + "}\n",
+		written:  head + "\tmatch o {\n\tcase Some{Value: v}:\n\t\tv.Close()\n\tcase None:\n\t}\n}\n"}
+}
+
+// insReleaseQueue: each value a for-in over q.Values() owns is released at
+// the iteration's end (R35, runtime Queues 7).
+func insReleaseQueue(r *rand.Rand, name string) insSite {
+	write := func(release string) string {
+		return fmt.Sprintf("func %s(q queue.Queue[Res]) {\n\tfor v in q.Values() {\n\t\tlend(v)\n%s\t}\n}\n", name, release)
+	}
+	return insSite{rule: "release-queue", name: name,
+		implicit: write(""),
+		written:  write("\t\tv.Close()\n")}
+}
+
 // insReleaseTemporary: a statement's temporary (R43) is a local of the
 // statement, released after it.
 func insReleaseTemporary(r *rand.Rand, name string) insSite {
@@ -463,7 +483,7 @@ func insZero(r *rand.Rand, name string) insSite {
 // insRules are the elaboration rules, by name, for the coverage check.
 var insRules = []string{"release-local", "release-field", "release-element", "release-temporary",
 	"release-assignment", "release-task", "conversion", "codec-encode", "codec-decode",
-	"instance", "receiver", "call-site", "zero"}
+	"instance", "receiver", "call-site", "zero", "release-variant", "release-queue"}
 
 // insProgram is one seed's two programs and the line span of each site.
 type insProgram struct {
@@ -509,8 +529,12 @@ func insertedProgram(seed uint64) insProgram {
 			s = insReceiver(r, name)
 		case 11:
 			s = insCallSite(r, name)
-		default:
+		case 12:
 			s = insZero(r, name)
+		case 13:
+			s = insReleaseVariant(r, name)
+		default:
+			s = insReleaseQueue(r, name)
 		}
 		sites = append(sites, s)
 	}
@@ -541,7 +565,7 @@ func insAssemble(p insParams, sites []insSite, form func(insSite) string) (strin
 		body.WriteString("\n")
 	}
 	var head strings.Builder
-	for _, pkg := range []string{"codec", "slices", "task"} {
+	for _, pkg := range []string{"codec", "queue", "slices", "task"} {
 		if strings.Contains(body.String(), pkg+".") {
 			fmt.Fprintf(&head, "import %s\n", pkg)
 		}
