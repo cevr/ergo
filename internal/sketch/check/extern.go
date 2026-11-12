@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -626,106 +625,7 @@ func SealedStd(n *Named) bool {
 	if !ok || len(spec.Union) > 0 {
 		return false
 	}
-	return stdExternResults()[n.Obj.Pkg.Path+"."+n.Obj.Name]
-}
-
-// stdExternResults is stdExternResultSet, computed once per process.
-var stdExternResults = sync.OnceValue(stdExternResultSet)
-
-// stdExternResultSet is the set, as path.Name, of the std types the results
-// of std extern functions name, at any depth of the result and its fails
-// row (not its needs row), and the types the parameters of their function
-// parameters name, read from the std sources with the parser. An
-// unqualified name is the declaring package's type when it declares one,
-// else the prelude's. It is a named function, not a closure, so it is a
-// Parse site of its own in the provenance manifest; it returns only names,
-// so no node it parses leaves it.
-func stdExternResultSet() map[string]bool {
-	sources := map[string]map[string]string{std.PreludePath: std.Prelude()}
-	for _, path := range std.Packages() {
-		if files, ok := std.Package(path); ok {
-			sources[path] = files
-		}
-	}
-	set := map[string]bool{}
-	for path, files := range sources {
-		var parsed []*syntax.File
-		declared := map[string]bool{}
-		for _, src := range files {
-			f, err := syntax.Parse(src)
-			if err != nil {
-				// Std always parses; a file that did not would unseal
-				// what its externs return.
-				panic(fmt.Sprintf("std package %s does not parse: %v", path, err))
-			}
-			parsed = append(parsed, f)
-			for _, d := range f.Decls {
-				if td, ok := d.(*syntax.TypeDecl); ok {
-					declared[td.Name.Name] = true
-				}
-			}
-		}
-		for _, f := range parsed {
-			imports := map[string]string{}
-			for _, d := range f.Decls {
-				id, ok := d.(*syntax.ImportDecl)
-				if !ok {
-					continue
-				}
-				for _, s := range id.Specs {
-					p := strings.Trim(s.Path.Value, "\"`")
-					name := p[strings.LastIndex(p, "/")+1:]
-					if s.Name != nil {
-						name = s.Name.Name
-					}
-					imports[name] = p
-				}
-			}
-			for _, d := range f.Decls {
-				fd, ok := d.(*syntax.FuncDecl)
-				if !ok || fd.Extern == nil || fd.Type == nil {
-					continue
-				}
-				// The host gives the program a value through an extern's
-				// result and through the parameters of a function the
-				// extern calls (http's serve hands each handler its
-				// request's Exchange): both are runtime values, so one
-				// rule seals both.
-				var given []*syntax.Field
-				if fd.Type.Results != nil {
-					given = append(given, fd.Type.Results.List...)
-				}
-				if fd.Type.Params != nil {
-					for _, p := range fd.Type.Params.List {
-						if ft, ok := p.Type.(*syntax.FuncType); ok && ft.Params != nil {
-							given = append(given, ft.Params.List...)
-						}
-					}
-				}
-				for _, r := range given {
-					syntax.Inspect(r.Type, func(x syntax.Node) bool {
-						switch x := x.(type) {
-						case *syntax.SelectorExpr:
-							if q, ok := x.X.(*syntax.Ident); ok {
-								if p, ok := imports[q.Name]; ok {
-									set[p+"."+x.Sel.Name] = true
-								}
-							}
-							return false
-						case *syntax.Ident:
-							if declared[x.Name] {
-								set[path+"."+x.Name] = true
-							} else {
-								set[std.PreludePath+"."+x.Name] = true
-							}
-						}
-						return true
-					})
-				}
-			}
-		}
-	}
-	return set
+	return stdSealedTable[n.Obj.Pkg.Path+"."+n.Obj.Name]
 }
 
 // sealedText is the S109 of a conversion into the sealed std protocol t.

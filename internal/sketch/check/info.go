@@ -909,7 +909,23 @@ type ContextEntry struct {
 
 	// seq orders a package's named context entries: the context pass meets the
 	// contexts by name, then their entries in source order (contextPass.own).
+	// Two packages' entries share seq values; pkg, the path of the package
+	// whose checker made the entry, orders them (entryBefore).
 	seq int
+	pkg string
+}
+
+// entryBefore is the context pass's entry order over a whole program: by
+// the path of the entry's package, then by seq within it. Both keys come
+// from the source, so the order, and every builder and adapter emitted in
+// it, is the same in every run (wf10 NONDET1: with seq alone, an embedded
+// imported context's entry tied with a local one, and an unstable sort of a
+// map's keys put either first).
+func entryBefore(a, b *ContextEntry) bool {
+	if a.pkg != b.pkg {
+		return a.pkg < b.pkg
+	}
+	return a.seq < b.seq
 }
 
 // Test is a test block (stage E, 196l).

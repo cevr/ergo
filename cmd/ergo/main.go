@@ -25,10 +25,13 @@ import (
 )
 
 func main() {
+	tuneGC()
 	// The compiler's identity recalls its image digest from the cache root
 	// it keys, so a command does not hash the whole binary each run.
 	if root, err := build.DefaultRoot(); err == nil {
 		producer.Remember(root)
+		// The checked std snapshot lives beside the emission cache (CHK1b).
+		sketchfront.UseStdCache(root)
 	}
 	if err := command(os.Args[1:]); err != nil {
 		if exit, ok := err.(exitStatusError); ok {

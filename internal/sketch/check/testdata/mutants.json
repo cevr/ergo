@@ -1,6 +1,13 @@
 {
   "about": "The mutant ledger of internal/sketch/check: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants check; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"chk1b-export-subst-row-lost","origin":"wf10 CHK1b","file":"internal/sketch/check/export.go","from":"c.types.substRow = c.substRow","to":"// omit the row substitution callback","rule":"A round-tripped deferred generic row keeps its checker's substitution callback.","killers":["check:TestStdSnapshotRestoresDeferredRows"]},
+    {"name":"chk1b-export-corruption-accepted","origin":"wf10 CHK1b","file":"internal/sketch/check/export.go","from":"if !bytes.Equal(data[:sha256.Size], sum[:]) {","to":"if false && !bytes.Equal(data[:sha256.Size], sum[:]) {","rule":"Corrupt bytes cannot become changed checked std state.","killers":["check:TestStdSnapshotInstall"]},
+    {"name":"chk1b-install-rechecks-std","origin":"wf10 CHK1b","file":"internal/sketch/check/export.go","from":"e.once.Do(func() {})","to":"// leave entry cold","rule":"An installed std entry is already checked, including its lazy once guard.","killers":["check:TestStdSnapshotInstall"]},
+    {"name":"chk1b-install-overwrites-live","origin":"wf10 CHK1b","file":"internal/sketch/check/export.go","from":"if !installed {","to":"if false && !installed {","rule":"A snapshot must not replace an already used universe.","killers":["check:TestStdSnapshotInstall"]},
+    {"name":"chk1b-export-lock-copied","origin":"wf10 CHK1b","file":"internal/sketch/exportgen/exportgen.go","from":"if f.Name() == \"_\" || isLock(f.Type()) {","to":"if f.Name() == \"_\" {","rule":"A lock is not exported as checker model data.","anchor":{"tests":["check:TestExportCodecsAreCurrent"]},"killers":["check:TestExportCodecsAreCurrent"]},
+    {"name":"chk1b-export-skip-fields-lost","origin":"wf10 CHK1b","file":"internal/sketch/exportgen/exportgen.go","from":"if _, skip := skipFields[key]; skip {","to":"if _, skip := skipFields[key]; false && skip {","rule":"Rebuilt callbacks are not encoded as function values.","anchor":{"tests":["check:TestExportCodecsAreCurrent"]},"killers":["check:TestExportCodecsAreCurrent"]},
+    {"name":"chk1b-export-field-lost","origin":"wf10 CHK1b","file":"internal/sketch/check/export_gen.go","from":"e.encPtrScope(v.universe)\n\te.encPtrTypeName(v.errorName)","to":"e.encPtrScope(nil)\n\te.encPtrTypeName(v.errorName)","rule":"The generated export carries every reachable field; a stale codec cannot silently drop a field.","anchor":{"tests":["check:TestExportCodecsAreCurrent"]},"killers":["check:TestExportCodecsAreCurrent"]},
     {"name":"esc1-go-keeps-borrow","origin":"wf10 ESC1 r2","file":"internal/sketch/check/ownership.go","from":"if hostCallee && holdsBorrow(w.info.Types[a]) {","to":"if false && hostCallee && holdsBorrow(w.info.Types[a]) {","rule":"A kept Go argument cannot retain an incoming borrow, even though a borrow itself crosses.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments"]},
     {"name":"esc1-go-default-lent","origin":"wf10 ESC1 r2","file":"internal/sketch/check/hostclauses.go","from":"if c.hostResourceParam(p.Type) && !v1.GoArgLent(target, i+off) && !slices.Contains(sig.Takes, i) {","to":"if false && c.hostResourceParam(p.Type) && !v1.GoArgLent(target, i+off) && !slices.Contains(sig.Takes, i) {","rule":"An old or edited bound-Go signature cannot lend a resource without a reviewed clause.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments"]},
     {"name":"esc1-go-recursive-interface-lent","origin":"wf10 ESC1 r2","file":"internal/sketch/check/hostclauses.go","from":"ok && isHostNamed(n) && n.Orig == nil && n.state == 1 && n.Obj.Decl != nil {","to":"false && ok && isHostNamed(n) && n.Orig == nil && n.state == 1 && n.Obj.Decl != nil {","rule":"A Go interface parameter of the interface being resolved (Chain(other Recursive)) keeps the conservative default.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments"]},
@@ -271,13 +278,14 @@
     {
       "name": "seal-callback-params",
       "origin": "wf10 Rm",
-      "file": "internal/sketch/check/extern.go",
+      "file": "internal/sketch/check/stdsealed_test.go",
       "from": "if ft, ok := p.Type.(*syntax.FuncType); ok && ft.Params != nil {",
       "to": "if ft, ok := p.Type.(*syntax.FuncType); false && ok && ft.Params != nil {",
-      "rule": "A std operation type the host hands a program through an extern's callback (http.Exchange) is sealed: the runtime's Go type, never a program interface.",
+      "rule": "A std operation type the host hands a program through an extern's callback (http.Exchange) is sealed: the runtime's Go type, never a program interface. Since CHK1 the rule is the reference that derives the generated sealed table (stdsealed_gen.go).",
       "killers": [
-        "lower:TestHTTPHandlerRows"
-      ]
+        "check:TestStdSealedTableIsCurrent"
+      ],
+      "anchor": { "tests": ["check:TestStdSealedTableIsCurrent"] }
     },
     {
       "name": "existing-0-B1 rowText prints commas",
@@ -2488,6 +2496,9 @@
       "killers": ["check:TestRowArgsAreSets"]
     },
     {"name":"builtin-shape-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/extern.go","from":"\t\t\tif msg := builtinRefusal(f, b); msg != \"\" {","to":"\t\t\tif msg := builtinRefusal(f, b); false && msg != \"\" {","rule":"A Go builtin binding has its builtin's shape (builtin.go).","killers":["check:TestBuiltinBindingShapes"]},
-    {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]}
+    {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]},
+    {"name":"sealed-table-stale","origin":"wf10 CHK1","file":"internal/sketch/check/stdsealed_gen.go","from":"\t\"actor.Host\":           true,\n","to":"","rule":"The generated sealed std set equals the set the std sources give (a stale table fails, never differs silently).","killers":["check:TestStdSealedTableIsCurrent"],"anchor":{"tests":["check:TestStdSealedTableIsCurrent"]}},
+    {"name":"bodies-from-source","origin":"wf10 CHK1","file":"runtime/v1/files.go","from":"\tf, ok := bodyTable[name]\n\tif !ok {","to":"\tif decls, err := sourceDecls(); err == nil {\n\t\treturn decls.body(name)\n\t}\n\tf, ok := bodyTable[name]\n\tif !ok {","rule":"A check reads no runtime/v1 Go source: BodyOf answers from the generated table (the counted check budget).","killers":["check:TestCheckWorkGrowsWithImports"]},
+    {"name":"nondet1-entry-order","origin":"wf10 NONDET1","file":"internal/sketch/check/info.go","from":"\tif a.pkg != b.pkg {","to":"\tif false && a.pkg != b.pkg {","rule":"A with's acquisitions, so its builder's installs and adapters, come in one order defined by the source: two packages' entries never tie.","killers":["lower:TestLoweringIsAFunctionOfInput"]}
   ]
 }

@@ -62,6 +62,7 @@ func Check(source string) Analysis {
 		return Analysis{Diagnostics: []report.Diagnostic{syntaxDiagnostic(err)}, source: source}
 	}
 	analysis := Analysis{source: source, file: file}
+	prepareStd()
 	pkg, diagnostics := check.Check("main", []*syntax.File{file}, nil)
 	analysis.pkg = pkg
 	for _, d := range diagnostics {
@@ -297,9 +298,13 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	if err := unit.Validate(); err != nil {
 		return build.Module{}, err
 	}
-	compiler, err := compilerIdentity()
-	if err != nil {
-		return build.Module{}, err
+	compiler := preparedCompilerIdentity()
+	if compiler == "" {
+		var err error
+		compiler, err = compilerIdentity()
+		if err != nil {
+			return build.Module{}, err
+		}
 	}
 	input := build.Input{
 		Dependencies: dependencies,

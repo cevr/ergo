@@ -106,6 +106,8 @@ internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo	*
 internal/sketch/check/wire.go	*
 internal/sketch/check/wirekeys_test.go	*
 internal/sketch/check/wirecall.go	*
+internal/sketch/check/export_gen.go	e.encPtrFunc(v.Wire)
+internal/sketch/check/export_gen.go	v.Wire = d.decPtrFunc()
 internal/sketch/lower/calls.go	// A codec call writes its own statements (wire.go).
 internal/sketch/lower/flat_union_property_test.go	*
 internal/sketch/lower/flatunion.go	wire's

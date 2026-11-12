@@ -560,13 +560,16 @@ func isExported(name string) bool {
 
 // ---------------------------------------------------------------- universe
 
-var universeOnce struct {
+// universeState is the universe a process builds once (universe).
+type universeState struct {
 	sync.Once
 	scope     *Scope
 	errorName *TypeName
 	goPkg     *Package
 	ref       *Named // go.Ref
 }
+
+var universeOnce universeState
 
 // universe is the predeclared block: the basic types, the constraints
 // comparable, ordered and number, true,
@@ -638,10 +641,13 @@ type preludeResult struct {
 	diags []Diagnostic
 }
 
-var preludeOnce struct {
+// preludeState is the prelude a process checks once (prelude).
+type preludeState struct {
 	sync.Once
 	r preludeResult
 }
+
+var preludeOnce preludeState
 
 // prelude checks the embedded prelude once per process. Its exported
 // declarations form the scope above the universe for every other package.
@@ -700,6 +706,7 @@ func PreludeDiagnostics() []Diagnostic { return prelude().diags }
 type stdImporter struct {
 	mu      sync.Mutex
 	entries map[string]*stdEntry
+	work    Work // guarded by mu
 }
 
 // stdEntry is one std package, checked once.
@@ -710,7 +717,9 @@ type stdEntry struct {
 }
 
 // Std is the importer of the embedded standard library (internal/sketch/std).
-var Std Importer = &stdImporter{entries: map[string]*stdEntry{}}
+var Std Importer = newStdImporter()
+
+func newStdImporter() *stdImporter { return &stdImporter{entries: map[string]*stdEntry{}} }
 
 func (s *stdImporter) Import(path string) (*Package, error) {
 	s.mu.Lock()
@@ -724,12 +733,40 @@ func (s *stdImporter) Import(path string) (*Package, error) {
 	return e.pkg, e.err
 }
 
+// Work counts the std work an importer did from source (CHK1): the std
+// package files it parsed and the std packages it checked. The prelude is
+// not counted. A check's work must grow with the std packages it imports,
+// not with the std (the counted check budget, TestCheckWorkGrowsWithImports);
+// it counts work, never time.
+type Work struct {
+	StdFilesParsed     int64
+	StdPackagesChecked int64
+}
+
+// WorkDone returns the Work of the Std importer in this process so far.
+func WorkDone() Work { return Std.(*stdImporter).done() }
+
+func (s *stdImporter) done() Work {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.work
+}
+
+// count adds files parsed and packages checked to s's Work.
+func (s *stdImporter) count(files, packages int64) {
+	s.mu.Lock()
+	s.work.StdFilesParsed += files
+	s.work.StdPackagesChecked += packages
+	s.mu.Unlock()
+}
+
 // load checks the std package at path.
 func (s *stdImporter) load(path string) (*Package, error) {
 	sources, ok := std.Package(path)
 	if !ok {
 		return nil, fmt.Errorf("no package %q", path)
 	}
+	s.count(int64(len(sources)), 1)
 	var files []*syntax.File
 	for _, name := range sortedKeys(sources) {
 		f, err := syntax.Parse(sources[name])

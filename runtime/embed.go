@@ -54,7 +54,7 @@ type pkg struct {
 
 // packages are the runtime packages, by import path relative to Module.
 // The list of files is every non-test file of the directory except those
-// that serve only the compiler (runtime/v1/files.go); a test keeps both
+// that serve only the compiler (runtime/v1/files.go and files_gen.go); a test keeps both
 // lists and the imports equal to the directories.
 var packages = map[string]pkg{
 	"runtime/testgen": {files: []string{"stream.go"}},
