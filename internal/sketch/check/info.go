@@ -712,6 +712,18 @@ type Call struct {
 	Site *Named
 }
 
+// RecvIsParam reports whether c's receiver is its callee's first
+// parameter: a dot call x.f(…) of a declared function (196m), whose
+// signature lists the receiver first. A Go-bound method's signature lists
+// no receiver (its binding declares it apart, hostClauses), so its
+// parameter i is the call's argument i; nor does an operation's.
+func (c *Call) RecvIsParam() bool {
+	if c == nil || c.Kind != CallFunc || c.Recv == nil {
+		return false
+	}
+	return c.Func == nil || c.Func.Decl == nil || c.Func.Decl.Recv == nil
+}
+
 // ConversionKind is an implicit conversion's kind.
 type ConversionKind int
 

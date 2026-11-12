@@ -610,6 +610,7 @@ func lowerGoBoundUses(t *testing.T, imp check.Importer, path string, uses []goBo
 					t.Logf("%s: %s steps from form %d: %s", path, uses[i].target, forms[i], l.text)
 				}
 				forms[i]++
+				goBoundDrop(t, path, uses[i], forms[i], l.text)
 				stepped = true
 			}
 		}
@@ -631,6 +632,7 @@ func lowerGoBoundUses(t *testing.T, imp check.Importer, path string, uses []goBo
 					forms[i] = goBoundDropped
 				} else {
 					forms[i]++
+					goBoundDrop(t, path, uses[i], forms[i], faults[0].text)
 				}
 				stepped = true
 			}
@@ -642,6 +644,35 @@ func lowerGoBoundUses(t *testing.T, imp check.Importer, path string, uses []goBo
 			return nil, 0, 0, len(uses)
 		}
 	}
+}
+
+// goBoundStated are the refusals of a plain use that the language states,
+// each with its rule: a use the checker refuses in both forms for any
+// other reason fails the property, so a checker defect cannot hide among
+// the dropped uses (fu-gobound-recv: an off-by-one receiver in
+// paramNonEscaping refused 16 Go methods that take a callback).
+var goBoundStated = []struct {
+	text *regexp.Regexp
+	rule string
+}{
+	// reflect.TypeFor, reflect.TypeAssert: T is only in the result, so a
+	// call must write its type arguments (D6).
+	{regexp.MustCompile(`cannot infer \w+`), "D6"},
+}
+
+// goBoundDrop fails the property when u, at form f after a fault text,
+// is dropped for a reason goBoundStated does not state.
+func goBoundDrop(t *testing.T, path string, u goBoundUse, f goBoundForm, text string) {
+	t.Helper()
+	if f != goBoundDropped {
+		return
+	}
+	for _, s := range goBoundStated {
+		if s.text.MatchString(text) {
+			return
+		}
+	}
+	t.Errorf("%s: %s: the checker or the lowering refuses its plain use with no stated reason: %s", path, u.target, text)
 }
 
 // goBoundFault is a diagnostic, a refusal or a panic of a lowering, at its

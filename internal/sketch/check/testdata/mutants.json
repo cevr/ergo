@@ -2521,6 +2521,17 @@
       ]
     },
     {
+      "name": "fugb-host-receiver-counted",
+      "origin": "wf10 fu-gobound-recv",
+      "file": "internal/sketch/check/info.go",
+      "from": "\treturn c.Func == nil || c.Func.Decl == nil || c.Func.Decl.Recv == nil\n",
+      "to": "\treturn true\n",
+      "rule": "A Go-bound method's signature lists no receiver, so its parameter i is the call's argument i: sync.Once's o.Do(f) passes f to Do's non-escaping callback.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
       "name": "fureaddir-go-iface-method-value-admitted",
       "origin": "wf10 FU-readdir r2",
       "file": "internal/sketch/check/gobinding.go",
