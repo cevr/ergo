@@ -44,8 +44,12 @@ func TestTryCoversToTheRight(t *testing.T) {
 	}
 	typecheckGo(t, programs)
 	t.Logf("verdicts: %v", tryVerdicts)
-	if os.Getenv("ERGO_TRY_SEED") == "" && tryVerdicts["eval, a caught argument only a try covers"] == 0 {
-		t.Errorf("the generator reached no caught argument that only a try covers (tryEvalCaught)")
+	if os.Getenv("ERGO_TRY_SEED") == "" {
+		for _, v := range []string{"eval, a caught argument only a try covers", "eval, a caught if tail", "eval, a caught match tail", "eval, a caught block tail"} {
+			if tryVerdicts[v] == 0 {
+				t.Errorf("the generator reached no %q case (tryEvalCaught)", v)
+			}
+		}
 	}
 }
 
@@ -241,6 +245,15 @@ func tryEvalCase(k int, root *tx, fn, text, shown string) string {
 // checker accepts both forms; the shown value is the model's. It kills
 // eval's fixtry-caught-takes-covered, which lets the catch take the
 // failure of a call in its caught call's arguments.
+//
+// The case's text is also the argument of the tail own(e, fail) of a
+// caught if, match or block (an if branch whose statements precede a
+// nested if), one shape per case, in the same two forms: the tail is the
+// caught expression's own result, so own's failure is the catch's
+// (sentinel), while a failure in e, or in a let before the tail, leaves
+// the frame (rows.md, Error rows 2, Catch 5; lower/tails.go passes a
+// tail's failure to its catch). It kills eval's
+// fixtry-tail-escapes, which lets a tail's failure leave the frame.
 func tryEvalCaught(t *testing.T, seed int64, k int, root *tx, text string) string {
 	t.Helper()
 	in := &interp{}
@@ -255,18 +268,48 @@ func tryEvalCaught(t *testing.T, seed int64, k int, root *tx, text string) strin
 		}()
 		return root.text(root.eval(in))
 	}()
-	result, pass, sentinel, head := "int", "pass", "-1", `t("a", 0) + try f("b", 0, false) + `
+	result, pass, own, zero, sentinel, head := "int", "pass", "own", "0", "-1", `t("a", 0) + try f("b", 0, false) + `
 	if root.isBool {
-		result, pass, sentinel, head = "bool", "passb", "false", `tb("a", true) && try fb("b", true, false) && `
+		result, pass, own, zero, sentinel, head = "bool", "passb", "ownb", "false", "false", `tb("a", true) && try fb("b", true, false) && `
 	}
 	arms := " catch {\n\tcase Bad:\n\t\t" + sentinel + "\n\t}"
-	forms := map[string]string{
-		"start":   "try " + pass + "(" + text + ")" + arms,
-		"operand": head + "(" + pass + "(" + text + ")" + arms + ")",
+	// The control shape's taken branch and whether its tail fails.
+	taken, fail := k%2 == 0, k/2%2 == 0
+	cond := map[bool]string{true: "len(xs) == 3", false: "len(xs) == 4"}
+	tail := func(arg string, f bool) string {
+		return fmt.Sprintf("%s(%s, %v)", own, arg, f)
+	}
+	var shape, control string
+	switch k % 3 {
+	case 0:
+		shape = "if"
+		control = fmt.Sprintf("(if %s { %s } else { %s })", cond[taken], tail(text, fail), tail(text, !fail))
+	case 1:
+		shape = "match"
+		subject := 1
+		if taken {
+			subject = 0
+		}
+		control = fmt.Sprintf("(match %d {\n\tcase 0:\n\t\t%s\n\tcase _:\n\t\t%s\n\t})", subject, tail(text, fail), tail(text, !fail))
+	default:
+		shape = "block"
+		control = fmt.Sprintf("(if %s {\n\t\tlet v = %s\n\t\tif %s {\n\t\t\t%s\n\t\t} else {\n\t\t\t%s\n\t\t}\n\t} else {\n\t\t%s\n\t})", cond[true], text, cond[taken], tail("v", fail), tail("v", !fail), zero)
+	}
+	controlShown := shown
+	if !strings.HasPrefix(shown, "failed at ") && fail == taken {
+		controlShown = sentinel
+	}
+	type form struct{ name, expr, shown, verdict string }
+	forms := []form{
+		{"start", "try " + pass + "(" + text + ")" + arms, shown, "eval, a caught argument only a try covers"},
+		{"operand", head + "(" + pass + "(" + text + ")" + arms + ")", shown, "eval, a caught argument only a try covers"},
+		{shape + "start", "try " + control + arms, controlShown, "eval, a caught " + shape + " tail"},
+		{shape + "operand", head + "(" + control + arms + ")", controlShown, "eval, a caught " + shape + " tail"},
 	}
 	var b strings.Builder
-	for _, name := range []string{"start", "operand"} {
-		fn := fmt.Sprintf("\nfunc %s%d(xs []int) %s fails Bad {\n\tlet r = %s\n\treturn r\n}\n", name, k, result, forms[name])
+	for _, fm := range forms {
+		name := fm.name
+		fn := fmt.Sprintf("\nfunc %s%d(xs []int) %s fails Bad {\n\tlet r = %s\n\treturn r\n}\n", name, k, result, fm.expr)
 		file, err := syntax.Parse(tryPurePrelude + fn)
 		if err != nil {
 			t.Fatalf("seed %d case %d: %v\n%s", seed, k, err, fn)
@@ -274,10 +317,10 @@ func tryEvalCaught(t *testing.T, seed int64, k int, root *tx, text string) strin
 		if _, diags := check.Check("main", []*syntax.File{file}, nil); len(diags) > 0 {
 			t.Fatalf("seed %d case %d: the checker refuses the %s form: %v\n%s\nreplay: ERGO_TRY_SEED=%d go test -run 'TestTryCoversToTheRight$' ./internal/sketch/lower", seed, k, name, diags, fn, seed)
 		}
-		tryVerdicts["eval, a caught argument only a try covers"]++
+		tryVerdicts[fm.verdict]++
 		b.WriteString(fn)
 		fmt.Fprintf(&b, "\nfunc show%s%d(xs []int) string {\n\tlet r = %s%d(xs) catch {\n\tcase Bad as e:\n\t\treturn \"failed at \" + e.At\n\t}\n\treturn \"\\(r)\"\n}\n", name, k, name, k)
-		fmt.Fprintf(&b, "\ntest %s%d {\n\tassert show%s%d([]int{10, 20, 30}) == %q\n}\n", strings.ToUpper(name[:1])+name[1:], k, name, k, shown)
+		fmt.Fprintf(&b, "\ntest %s%d {\n\tassert show%s%d([]int{10, 20, 30}) == %q\n}\n", strings.ToUpper(name[:1])+name[1:], k, name, k, fm.shown)
 	}
 	return b.String()
 }
@@ -316,6 +359,20 @@ func pass(v int) int fails Bad {
 func passb(v bool) bool fails Bad {
 	if v && !v {
 		return Bad{At: "pass"}
+	}
+	return v
+}
+
+func own(v int, fail bool) int fails Bad {
+	if fail {
+		return Bad{At: "own"}
+	}
+	return v
+}
+
+func ownb(v bool, fail bool) bool fails Bad {
+	if fail {
+		return Bad{At: "own"}
 	}
 	return v
 }

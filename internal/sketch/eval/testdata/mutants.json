@@ -418,9 +418,18 @@
       "name": "fixtry-caught-takes-covered",
       "origin": "wf10 batch 17 fix-try (M3)",
       "file": "internal/sketch/eval/expr.go",
-      "from": "\t\tif ab.kind == ctlFail && (covered || fr.tries > 0 && unparen(x) != fr.caught) {",
+      "from": "\t\tif ab.kind == ctlFail && (covered || fr.tries > 0 && !ownFailure(fr.info, fr.caught, unparen(x))) {",
       "to": "\t\tif ab.kind == ctlFail && (covered || fr.tries > 0 && fr.caught == nil) {",
       "rule": "rows.md Catch 5: a try covers the whole expression to its right, the caught expression included: in try h(g()) catch and in a + try f() + (h(g()) catch), a failure of g() leaves the frame; the catch takes h's own failure only.",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "fixtry-tail-escapes",
+      "origin": "wf10 batch 17 fix-try round 3 (M-1)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\ts, ok := caught.(syntax.Stmt)\n\treturn ok && tailOf(info, s, x)",
+      "to": "\treturn false",
+      "rule": "rows.md Error rows 2, Catch 5: the tail an if branch, a match arm or a branch's nested if yields is the caught expression's own result, so under a try its failure is the catch's, as lower/tails.go passes it (branchExpr); the condition, the subject and the statements before the tail leave the frame.",
       "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
     }
   ]
