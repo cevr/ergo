@@ -30,12 +30,26 @@ type Cache struct{ Root string }
 // removes an older root only when no build holds its lease (lease.go).
 const privateLifetime = unusedLimit
 
-// DefaultRoot is $XDG_CACHE_HOME/ergo when XDG_CACHE_HOME is absolute,
-// else os.UserCacheDir()/ergo. The XDG base directory specification makes
-// a relative value invalid and to be ignored, so on the systems where
-// os.UserCacheDir reads XDG_CACHE_HOME a relative value falls back to
-// $HOME/.cache, which os.UserCacheDir would refuse instead.
+// RootVariable names the emission cache root directly, as GOCACHE names
+// Go's build cache. A test process sets it to a directory of its own
+// (internal/testinputs), so no test writes the user's cache; it changes
+// only ergo's cache, never Go's, which XDG_CACHE_HOME would also move.
+const RootVariable = "ERGO_CACHE"
+
+// DefaultRoot is $ERGO_CACHE when it is absolute, else $XDG_CACHE_HOME/ergo
+// when XDG_CACHE_HOME is absolute, else os.UserCacheDir()/ergo. A relative
+// ERGO_CACHE is an error, as a relative GOCACHE is to the go command. The
+// XDG base directory specification makes a relative XDG_CACHE_HOME invalid
+// and to be ignored, so on the systems where os.UserCacheDir reads
+// XDG_CACHE_HOME a relative value falls back to $HOME/.cache, which
+// os.UserCacheDir would refuse instead.
 func DefaultRoot() (string, error) {
+	if own := os.Getenv(RootVariable); own != "" {
+		if !filepath.IsAbs(own) {
+			return "", fmt.Errorf("no cache directory for generated Go: %s=%q is not absolute", RootVariable, own)
+		}
+		return filepath.Clean(own), nil
+	}
 	xdg := os.Getenv("XDG_CACHE_HOME")
 	if xdg != "" && filepath.IsAbs(xdg) {
 		return filepath.Join(xdg, "ergo"), nil

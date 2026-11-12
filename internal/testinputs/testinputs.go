@@ -53,6 +53,7 @@ func Main(m *testing.M) int { return MainFunc(m, m.Run) }
 // the preparation, calls m.Run and returns its exit code. It runs only in
 // the process that runs the tests.
 func MainFunc(m *testing.M, run func() int) int {
+	run = withPrivateCache(run)
 	raiseOOMScore()
 	log := testLog(os.Args[1:])
 	if observed || log == "" {
@@ -79,6 +80,37 @@ func MainFunc(m *testing.M, run func() int) int {
 		return failed(code)
 	}
 	return code
+}
+
+// cacheVariable is build.RootVariable: the emission cache root of every
+// ergo build the test process and its programs make.
+const cacheVariable = "ERGO_CACHE"
+
+// withPrivateCache runs run with cacheVariable naming a new directory of
+// the test process's own, and removes the directory after. So no test, and
+// no ergo command a test starts with the test's environment, writes the
+// user's emission cache (docs/tooling.md, Emission cache bound). A test
+// about the user cache itself sets the variable with t.Setenv. The
+// variable's value is the test process's, set after cmd/go read the
+// environment, so it is not an input of Go's test cache, and the
+// directory is outside the module root, whose paths the log never holds.
+func withPrivateCache(run func() int) func() int {
+	return func() int {
+		dir, err := os.MkdirTemp("", "ergo-test-cache-")
+		if err == nil {
+			err = os.Setenv(cacheVariable, dir)
+		}
+		if err != nil {
+			// Running the tests now would fill the user's cache.
+			fmt.Fprintln(os.Stderr, "testinputs: private ergo cache:", err)
+			return 1
+		}
+		code := run()
+		if err := os.RemoveAll(dir); err != nil {
+			fmt.Fprintln(os.Stderr, "testinputs: remove the private ergo cache:", err)
+		}
+		return code
+	}
 }
 
 // failed turns a passing exit code into a failing one. cmd/go never caches

@@ -455,7 +455,9 @@ func TestLayoutErrorsNameTheFolder(t *testing.T) {
 }
 
 // A program that fails fmt or build fails alone: its cases do not run, the
-// other programs' do, and the runner writes nothing into the root.
+// other programs' do, and the runner writes nothing into the root. Every
+// compiler call gets the run's own emission cache, never the caller's, and
+// the run removes it (toolEnvironment).
 func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -482,6 +484,16 @@ func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 	} {
 		if !slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, want) }) {
 			t.Errorf("no call starting %q in %q", want, calls)
+		}
+	}
+	content, _ := read(t, filepath.Join(filepath.Dir(f.calls), "cache.log"))
+	caches := lines([]byte(content))
+	if len(caches) != len(calls) || caches[0] == "unset" || caches[0] == os.Getenv(cacheVariable) {
+		t.Fatalf("compiler calls got %s %q, not the run's own (caller's %q)", cacheVariable, caches, os.Getenv(cacheVariable))
+	}
+	for _, cache := range caches {
+		if _, err := os.Lstat(cache); cache != caches[0] || !os.IsNotExist(err) {
+			t.Errorf("%s %s: not the run's one cache, or left after the run (%v)", cacheVariable, cache, err)
 		}
 	}
 }

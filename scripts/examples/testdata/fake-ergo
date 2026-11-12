@@ -1,7 +1,8 @@
 #!/bin/sh
 # A stand-in for bin/ergo in the runner's tests; each test copies it into its
 # own directory. It accepts only the argument shapes the runner uses and logs
-# every call to calls.log beside itself:
+# every call to calls.log, and the ERGO_CACHE it got to cache.log, beside
+# itself:
 #   build SRC -o OUT     makes SRC (a shell script) the executable OUT; fails
 #                        on a line BUILDFAIL; on BUILDTICK starts a ticker
 #                        (below) into ticks-build beside itself, then fails;
@@ -22,6 +23,7 @@
 # failed to stop the group cannot leak it for long.
 tools=$(dirname "$0")
 printf '%s\n' "$*" >> "$tools/calls.log"
+printf '%s\n' "${ERGO_CACHE-unset}" >> "$tools/cache.log"
 tick() {
   ( end=$(( $(date +%s) + 60 )); while [ "$(date +%s)" -lt "$end" ]; do echo tick >> "$1"; sleep 0.05; done ) &
   end=$(( $(date +%s) + 10 )); until [ -s "$1" ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done
