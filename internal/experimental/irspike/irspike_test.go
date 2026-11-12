@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/lower"
@@ -35,12 +36,19 @@ func needsBuild(t *testing.T) (src, ir Toolchain) {
 	if ok {
 		return src, ir
 	}
-	src, ir, err := ErgoToolchains()
+	tcs, err := ergoToolchains()
 	if err != nil {
 		t.Fatalf("the IR tests' toolchains: %v", err)
 	}
-	return src, ir
+	return tcs[0], tcs[1]
 }
+
+// ergoToolchains is ErgoToolchains once per test process: the parts of a
+// split each ask for them.
+var ergoToolchains = sync.OnceValues(func() ([2]Toolchain, error) {
+	src, ir, err := ErgoToolchains()
+	return [2]Toolchain{src, ir}, err
+})
 
 // TestIRTestsRunInTheFullTier: in the full tier the IR tests get their
 // toolchains, from ergo's cache when no variable names them, and never

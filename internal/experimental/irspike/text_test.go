@@ -14,8 +14,10 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
-// TestIRTextChecks checks the Go text view of the IR bodies (plan-tier
-// §2, TXT) on every example binary and test build that has IR bodies:
+// irText checks the Go text view of the IR bodies (plan-tier §2, TXT) on
+// every example binary and test build that has IR bodies, split by target
+// (TestIRTextChecksPart0 …; TestSplitsCoverTheirDomain checks that the
+// parts run every target once):
 // GoText builds it through IR with the derivative printing those bodies,
 // then
 //   - the printed module builds with the derivative without -ergoir, so
@@ -28,29 +30,41 @@ import (
 //     text is what was compiled, not only Go that checks (mutant
 //     ir-text-not-what-compiled).
 //
-// The functions compared must be every IR body of every such target. These
-// tests build Go because the question is what the patched compiler
-// compiled, and types2 and vet of its printed text; no in-process check
-// reaches the derivative's trees.
-func TestIRTextChecks(t *testing.T) {
+// The functions compared must be every IR body of the target. These tests
+// build Go because the question is what the patched compiler compiled,
+// and types2 and vet of its printed text; no in-process check reaches the
+// derivative's trees.
+var irText = newSplit(split[exampleTarget]{
+	name:  "TestIRTextChecks",
+	parts: textParts,
+	cases: exampleDomain,
+	key:   exampleTarget.key,
+	run:   textCheckOn,
+})
+
+// textCheckOn checks the Go text of one target's IR bodies.
+func textCheckOn(t *testing.T, target exampleTarget) {
 	src, ir := needsBuild(t)
-	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	u, err := Load(target.dir)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s: %v", target.dir, err)
 	}
-	mains, tests, err := ExampleTargets(root)
+	lowering := lower.LowerIR
+	if target.test {
+		lowering = lower.LowerIRTests
+	}
+	files, rep, err := lowering(u)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s: %v", target.key(), err)
 	}
-	only := os.Getenv("ERGO_IRSPIKE_EXAMPLE") // a replay of one program
-	withIR, checked, funcs, wantFuncs := 0, 0, 0, 0
-	check := func(what string, files []lower.File, rep lower.IRReport) {
+	what := target.key()
+	funcs := 0
+	check := func() {
 		if len(rep.IR) == 0 {
+			t.Logf("%s has no IR bodies", what)
 			return
 		}
-		withIR++
-		wantFuncs += len(rep.IR)
-		replay := fmt.Sprintf("replay: ERGO_IRSPIKE_EXAMPLE=%s go test -run TestIRTextChecks ./internal/experimental/irspike", filepath.Base(programOf(root, strings.TrimSuffix(what, " test"))))
+		replay := fmt.Sprintf("replay: go test -run '%s' ./internal/experimental/irspike", t.Name())
 		work := t.TempDir()
 		text := filepath.Join(work, "text")
 		irShape, textShape := filepath.Join(work, "ir.shape"), filepath.Join(work, "text.shape")
@@ -90,40 +104,14 @@ func TestIRTextChecks(t *testing.T) {
 			}
 			funcs++
 		}
-		checked++
 	}
-	for _, dir := range mains {
-		if only != "" && filepath.Base(programOf(root, dir)) != only {
-			continue
-		}
-		u, err := Load(dir)
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
-		}
-		files, rep, err := lower.LowerIR(u)
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
-		}
-		check(dir, files, rep)
+	check()
+	if funcs != len(rep.IR) {
+		t.Fatalf("%s: checked %d of %d IR functions", what, funcs, len(rep.IR))
 	}
-	for _, dir := range tests {
-		if only != "" && filepath.Base(programOf(root, dir)) != only {
-			continue
-		}
-		u, err := Load(dir)
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
-		}
-		files, rep, err := lower.LowerIRTests(u)
-		if err != nil {
-			t.Fatalf("%s test build: %v", dir, err)
-		}
-		check(dir+" test", files, rep)
+	if funcs > 0 {
+		t.Logf("%s: %d IR functions: their Go text builds, vets and compiles to what was compiled", what, funcs)
 	}
-	if checked != withIR || funcs != wantFuncs || (only == "" && funcs == 0) {
-		t.Fatalf("checked %d of %d targets with IR bodies, %d of %d IR functions", checked, withIR, funcs, wantFuncs)
-	}
-	t.Logf("%d targets with IR bodies, %d IR functions: their Go text builds, vets and compiles to what was compiled", checked, funcs)
 }
 
 // irVetFindings are the lines of vet's output at positions inside an IR
