@@ -107,6 +107,10 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Definite initialisation** (checked for `var x T`; the rest designed, [#197](https://github.com/cevr/ergo/issues/197)): The rule that a variable of a non-defaultable type has a value before it is used.
 
+**Inserted operation** (inventory, G9): An operation the compiler adds where the source names none, such as a release at a scope end, the adapter of a conversion to an operation type, the `Wire` call of `encode`, or the instance of a generic body. It carries every rule of its written form. See [inserted](docs/spec/inserted.md).
+
+**Written form** (G9): The Ergo text that stands for an inserted operation, such as `x.Close()` for a release or `encode(Wire(v), w)` for `encode(v, w)`. The checker must give a program and the same program with its inserted operations written out the same verdict and rows ([inserted](docs/spec/inserted.md) 1 and 2).
+
 **Type switch** (checked, with one or several subjects): `match u { case A as v: … }` over a union value, narrowing `v` to the case's variant. With several subjects, `match (a, b)`, a case is a tuple of variants, and `_` matches any variant.
 
 **Totality**: The property of a type switch, a `catch` or a machine step that covers every alternative. A total form needs no default for its declared alternatives. The checker decides it for a type switch by a usefulness check over its case matrix, never by enumerating the product of the subjects.
