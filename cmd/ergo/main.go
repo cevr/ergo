@@ -92,7 +92,7 @@ func requireSourceExtension(path string) error {
 	return nil
 }
 
-const diagnosticsHelp = "usage: ergo diagnostics FILE|DIR [--strict] [--json] [--target go]\n" +
+const diagnosticsHelp = "usage: ergo diagnostics FILE|DIR [--lint-config FILE] [--rules MANIFEST]... [--strict] [--json] [--target go]\n" +
 	"Locations: one-based UTF-16 lines/columns in text; zero-based UTF-16 ranges and original UTF-8 byte spans in JSON.\n" +
 	"A DIR is a package: each finding names its file relative to the module root (file in JSON).\n" +
 	"Lint advice (ergo lint) follows the compiler's findings, under the module's ergo.lint.json; --strict fails policy on a warning too.\n" +
@@ -541,7 +541,14 @@ func inspectGoCommand(args []string) error {
 // diagnosticsCommand prints the diagnostic report as text or JSON; exit 1
 // when the policy fails, 2 on an invalid invocation.
 func diagnosticsCommand(args []string) error {
-	opts, err := parseFileOptions("diagnostics", args)
+	presets, sel, rest, err := lintFlags(args)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	if len(presets) > 0 {
+		return invalidInvocation(fmt.Errorf("--preset belongs to ergo lint"))
+	}
+	opts, err := parseFileOptions("diagnostics", rest)
 	if err != nil {
 		return invalidInvocation(err)
 	}
@@ -549,7 +556,7 @@ func diagnosticsCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	run, err := lintLoaded(l, nil)
+	run, err := lintLoaded(l, nil, sel)
 	if err != nil {
 		return invalidInvocation(err)
 	}

@@ -172,8 +172,6 @@ func TestDiagnosticsCLIProcessFormatsTextJSONAndUsage(t *testing.T) {
 		want string
 	}{
 		{[]string{"diagnostics", path, "--unknown"}, "unknown option --unknown"},
-		{[]string{"diagnostics", path, "--lint-config", "lint.json"}, "unknown option --lint-config"},
-		{[]string{"diagnostics", path, "--rules", "rules.json"}, "unknown option --rules"},
 		{[]string{"diagnostics", path, "--target", "llvm"}, "EF110: unsupported target llvm; the only target is go"},
 		{[]string{"diagnostics", path, "--target"}, "--target requires a value"},
 		{[]string{"diagnostics", path, clean}, "incorrect arguments for diagnostics"},
