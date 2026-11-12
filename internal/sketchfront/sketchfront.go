@@ -57,18 +57,24 @@ type Analysis struct {
 // Check parses source and checks it as one package with the 2026 checker.
 // A syntax error is the only diagnostic of a source that does not parse.
 func Check(source string) Analysis {
+	return CheckOptions(source, check.Options{})
+}
+
+// CheckOptions checks source like Check, in the checker modes opts selects.
+func CheckOptions(source string, opts check.Options) Analysis {
 	file, err := syntax.Parse(source)
 	if err != nil {
 		return Analysis{Diagnostics: []report.Diagnostic{syntaxDiagnostic(err)}, source: source}
 	}
 	analysis := Analysis{source: source, file: file}
-	pkg, diagnostics := check.Check("main", []*syntax.File{file}, nil)
+	pkg, diagnostics := check.CheckOptions("main", []*syntax.File{file}, nil, opts)
 	analysis.pkg = pkg
 	for _, d := range diagnostics {
 		analysis.Diagnostics = append(analysis.Diagnostics, report.Diagnostic{
 			Code:    d.Code,
 			Message: d.Message,
 			Span:    report.Span{Offset: d.Offset, Length: d.Length, Line: d.Line, Column: d.Column},
+			Fix:     reportFix(d.Fix),
 		})
 	}
 	return analysis

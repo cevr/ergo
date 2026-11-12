@@ -136,6 +136,8 @@ type loader struct {
 	// the reason each one does not match go.mod (gomod.go).
 	bindings map[string]string
 	stale    map[string]string
+	// opts are the checker modes of every local package (clauses.go).
+	opts check.Options
 }
 
 // GoBindings makes the loader a check.GoImporter: the program's packages
@@ -207,11 +209,15 @@ func checkDir(fsys FS, dir string) (Analysis, error) {
 }
 
 func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysis, error) {
+	return checkDirWith(fsys, dir, platform, check.Options{})
+}
+
+func checkDirWith(fsys FS, dir string, platform gobind.Platform, opts check.Options) (Analysis, error) {
 	if !filepath.IsAbs(dir) {
 		return Analysis{}, fmt.Errorf("sketchfront: the package folder %s is not absolute", dir)
 	}
 	dir = filepath.Clean(dir)
-	l := &loader{fsys: fsys, platform: platform, root: dir, pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}}
+	l := &loader{fsys: fsys, platform: platform, opts: opts, root: dir, pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}}
 	found, err := l.findModule(dir)
 	if err != nil {
 		return Analysis{}, err
@@ -565,7 +571,7 @@ func (l *loader) checkAll() {
 		if i == len(l.order)-1 {
 			path = "main" // the root package is the program's main package
 		}
-		pkg, ds := check.Check(path, files, l)
+		pkg, ds := check.CheckOptions(path, files, l, l.opts)
 		p.pkg = pkg
 		for _, d := range ds {
 			l.diags = append(l.diags, report.Diagnostic{
@@ -573,6 +579,7 @@ func (l *loader) checkAll() {
 				File:    p.files[d.File].rel,
 				Message: d.Message,
 				Span:    report.Span{Offset: d.Offset, Length: d.Length, Line: d.Line, Column: d.Column},
+				Fix:     reportFix(d.Fix),
 			})
 		}
 		if len(ds) > 0 {
