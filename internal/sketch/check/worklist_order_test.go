@@ -22,9 +22,8 @@ func TestWorklistOrder(t *testing.T) {
 			w.push(nodes[q])
 		}
 		var order []string
-		w.run(func(n *bodyNode) bool {
+		w.run(func(n *bodyNode) {
 			order = append(order, names[n])
-			return true
 		})
 		return order
 	}

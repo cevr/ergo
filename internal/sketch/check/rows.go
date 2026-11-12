@@ -824,10 +824,10 @@ func (c *checker) converge(scc []*bodyNode) bool {
 	c.silent++
 	checks := 0
 	settled := true
-	w.run(func(n *bodyNode) bool {
+	w.run(func(n *bodyNode) {
 		if checks >= budget() {
 			settled = false
-			return false
+			return
 		}
 		checks++
 		changed := check(n)
@@ -837,7 +837,6 @@ func (c *checker) converge(scc []*bodyNode) bool {
 				w.push(p)
 			}
 		}
-		return true
 	})
 	c.silent--
 	c.convergeChecks += checks

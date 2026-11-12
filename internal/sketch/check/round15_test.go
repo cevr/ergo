@@ -45,19 +45,27 @@ func oscillate(t *testing.T, srcs ...string) (*checker, []Diagnostic) {
 // TestConvergeRefusalNamesItsFile: an oscillating component that spans two
 // files is refused with each function's S108 in that function's file, at
 // its name. refuseRows once reported in whichever file was current (E2
-// round 3; the per-pass clearing in run found it).
+// round 3; the per-pass clearing in run found it). f1 writes its fails
+// clause, so its refusal names the one row it infers, the capability row.
+// Mutant (ledger t6-2): refuseRows skips a function that infers only one
+// of its rows.
 func TestConvergeRefusalNamesItsFile(t *testing.T) {
 	srcs := []string{
 		decided("type Bang {}\nfunc mark() fails Bang { return Bang }\nfunc f0() { try f1() }\n"),
-		decided("func f1() { try f0() }\n"),
+		decided("func f1() fails Bang { try f0() }\n"),
 	}
 	_, diags := oscillate(t, srcs...)
 	got := map[string]int{}
 	for _, d := range diags {
-		if !strings.HasPrefix(d.Message, "cannot infer the error row of ") {
+		var name string
+		switch {
+		case strings.HasPrefix(d.Message, "cannot infer the error row of f0;"):
+			name = "f0"
+		case strings.HasPrefix(d.Message, "cannot infer the capability row of f1;"):
+			name = "f1"
+		default:
 			continue // the synthetic rows' own cascade, as in the one-file test
 		}
-		name := strings.TrimPrefix(strings.TrimSuffix(d.Message, "; write it"), "cannot infer the error row of ")
 		if d.Code != CodeType || d.Offset+d.Length > len(srcs[d.File]) || srcs[d.File][d.Offset:d.Offset+d.Length] != name {
 			t.Errorf("a refusal not at its function's name: file %d %d:%d %s", d.File, d.Line, d.Column, d.Message)
 			continue
