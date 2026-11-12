@@ -103,9 +103,11 @@ type term struct {
 	isLen bool
 }
 
-// uncheckedOK reports whether this build may write unchecked loads.
+// uncheckedOK reports whether this build may write unchecked loads: the
+// admission of the shortcut bounds-unchecked (shortcuts.go), which a test
+// build and factLowering "checked" do not take.
 func (fc *funcCtx) uncheckedOK() bool {
-	return factLowering != "checked" && fc.l.tests == nil
+	return fc.l.takes("bounds-unchecked")
 }
 
 // factMark is the length of the fact list, to reset to after a branch.
