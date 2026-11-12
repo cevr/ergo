@@ -1,0 +1,115 @@
+// The reference for captures: the tree walked with continuations, as
+// Matches walks it, but each path carries its history and the first path
+// that succeeds, in the order of the choices, is the match. That order
+// is the definition of branch priority: an Alt tries Left first, and a
+// repeat tries one more copy before it stops (greedy).
+
+import regex/syntax
+
+// ended is where a path of the match ends and the history it has.
+type ended { End int, H syntax.History }
+
+// ParseCaptures is the events of the match of p on the whole text, or
+// None when p does not match it.
+func ParseCaptures(p syntax.Pattern, text string) Option[[]syntax.Event] {
+	let r = trace(p.Tree(), text, 0, syntax.Start, func(j int, h syntax.History) Option[ended] {
+		if j == len(text) {
+			return Some{Value: ended{End: j, H: h}}
+		}
+		None
+	})
+	match r {
+	case Some[ended] as s:
+		Some{Value: syntax.Events(s.Value.H)}
+	case None:
+		None
+	}
+}
+
+// FindCaptures is the leftmost match of p in text: the first start with
+// a match, and there the match of highest priority, or None.
+func FindCaptures(p syntax.Pattern, text string) Option[syntax.Found] {
+	for start in 0..len(text)+1 {
+		let r = trace(p.Tree(), text, start, syntax.Start, func(j int, h syntax.History) Option[ended] {
+			Some{Value: ended{End: j, H: h}}
+		})
+		match r {
+		case Some[ended] as s:
+			return Some{Value: syntax.Found{Start: start, End: s.Value.End, Events: syntax.Events(s.Value.H)}}
+		case None:
+		}
+	}
+	None
+}
+
+// trace is the first path, in priority order, on which n matches text
+// from i to some j with history h extended, and k(j, h) is not None.
+func trace(n syntax.Node, text string, i int, h syntax.History, k func(j int, h syntax.History) Option[ended]) Option[ended] {
+	match n {
+	case syntax.Empty:
+		k(i, h)
+	case syntax.Lit as l:
+		if i < len(text) && text[i] == l.C {
+			return k(i+1, h)
+		}
+		None
+	case syntax.Any:
+		if i < len(text) {
+			return k(i+1, h)
+		}
+		None
+	case syntax.Class as c:
+		if i < len(text) && c.Has(text[i]) {
+			return k(i+1, h)
+		}
+		None
+	case syntax.Cat as c:
+		traceAll(c.Parts, 0, text, i, h, k)
+	case syntax.Alt as a:
+		either(trace(a.Left, text, i, h, k), func() Option[ended] { trace(a.Right, text, i, h, k) })
+	case syntax.Star as s:
+		traceStar(s.Of, text, i, h, k)
+	case syntax.Plus as p:
+		trace(p.Of, text, i, h, func(j int, after syntax.History) Option[ended] { traceStar(p.Of, text, j, after, k) })
+	case syntax.Quest as q:
+		either(trace(q.Of, text, i, h, k), func() Option[ended] { k(i, h) })
+	case syntax.Count as c:
+		trace(c.As, text, i, h, k)
+	case syntax.Group as g:
+		let opened = syntax.Then{Before: h, Event: syntax.Open{Name: g.Name, At: i}}
+		trace(g.Of, text, i, opened, func(j int, inside syntax.History) Option[ended] {
+			k(j, syntax.Then{Before: inside, Event: syntax.Close{Name: g.Name, At: j}})
+		})
+	}
+}
+
+// either is first, or else what second makes.
+func either(first Option[ended], second func() Option[ended]) Option[ended] {
+	match first {
+	case Some[ended]:
+		first
+	case None:
+		second()
+	}
+}
+
+// traceAll is trace over parts[at:], one after another.
+func traceAll(parts []syntax.Node, at int, text string, i int, h syntax.History, k func(j int, h syntax.History) Option[ended]) Option[ended] {
+	if at == len(parts) {
+		return k(i, h)
+	}
+	trace(parts[at], text, i, h, func(j int, after syntax.History) Option[ended] { traceAll(parts, at+1, text, j, after, k) })
+}
+
+// traceStar is trace over zero or more copies of of, one more copy first.
+// A copy that matches the empty text ends the loop, as in star; Check
+// refuses such operands, so a Pattern never meets it.
+func traceStar(of syntax.Node, text string, i int, h syntax.History, k func(j int, h syntax.History) Option[ended]) Option[ended] {
+	let more = trace(of, text, i, h, func(j int, after syntax.History) Option[ended] {
+		if j > i {
+			return traceStar(of, text, j, after, k)
+		}
+		None
+	})
+	either(more, func() Option[ended] { k(i, h) })
+}
