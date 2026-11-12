@@ -368,6 +368,16 @@ func (fc *funcCtx) intVar(x syntax.Expr) (*check.Var, bool) {
 	return v, true
 }
 
+// isGoString reports a type whose Go form is string: string, or std fs's
+// Text, a mapped text (types.md, Borrows 8), which lowers to string.
+func isGoString(t check.Type) bool {
+	if check.IsMappedText(t) {
+		return true
+	}
+	b, ok := t.(*check.Basic)
+	return ok && b.Kind == check.String
+}
+
 // isInt reports Go's int.
 func isInt(t check.Type) bool {
 	b, ok := t.(*check.Basic)
@@ -424,9 +434,10 @@ func (fc *funcCtx) subject(x syntax.Expr) (*check.Var, bool) {
 	if !ok || !fc.stable(v) {
 		return nil, false
 	}
-	switch t := v.Type.(type) {
-	case *check.Basic:
-		return v, t.Kind == check.String
+	if isGoString(v.Type) {
+		return v, true
+	}
+	switch v.Type.(type) {
 	case *check.Slice:
 		return v, true
 	}
@@ -713,7 +724,7 @@ func (fc *funcCtx) uncheckedSlice(x *syntax.SliceExpr) bool {
 	if !ok {
 		return false
 	}
-	if b, isBasic := s.Type.(*check.Basic); !isBasic || b.Kind != check.String {
+	if !isGoString(s.Type) {
 		return false
 	}
 	zero := span{lo: 0, hi: 0, hasLo: true, hasHi: true}
