@@ -1,0 +1,287 @@
+import sync
+import utf8
+
+// Text layout (H5d): multi-line text broken into lines at a width, the
+// caret and selection geometry of offsets in it, and the offset under a
+// point, all through a Measure the host gives (the desktop host's text
+// engine, or Monospace in a test or a cell grid). Offsets are byte offsets
+// of the text at rune boundaries. An editor program keeps its own buffer,
+// caret and undo in its machine state and asks these functions where
+// things are; ui keeps no editing state (v1-gui kept undo and rich text
+// out of Input, and they stay out).
+
+// Font names a face and a size; the host's Measure maps it to its own.
+type Font { Family string, Size Length }
+
+// Measure is the host's text measurement.
+type Measure {
+	// Width is the advance of text set in font on one line.
+	Width(text string, font Font) Length,
+	// LineHeight is the distance between two lines of font.
+	LineHeight(font Font) Length,
+
+	// EmptyIsZero: no text takes no room.
+	law EmptyIsZero(font Font) {
+		Width("", font) == 0.0
+	},
+	// WidthGrows: text and more text is never narrower than the text,
+	// which line breaking needs (a longer line never fits where a shorter
+	// one did not).
+	law WidthGrows(a string, b string, font Font) {
+		Width(a+b, font) >= Width(a, font)
+	},
+}
+
+// Monospace measures every rune as Advance wide and every line as Line
+// high: a cell grid's measure, and the test host's.
+type Monospace { Advance Length, Line Length }
+
+// Width is the runes of text times m.Advance (a negative Advance counts as
+// 0).
+func Width(m Monospace, text string, font Font) Length {
+	if m.Advance < 0.0 {
+		return 0.0
+	}
+	Length(float64(utf8.RuneCount(text))) * m.Advance
+}
+
+// LineHeight is m.Line.
+func LineHeight(m Monospace, font Font) Length { m.Line }
+
+// Line is one line of a layout: the bytes [Start, End) of the text, and
+// how wide they are without their trailing spaces. Wrapped is whether the
+// line ends at a soft break (the next line starts at End); else it ends
+// at a newline (the next line starts at End + 1) or at the end of the
+// text.
+type Line { Start int, End int, Width Length, Wrapped bool }
+
+// TextLayout is a text broken into lines at a width.
+type TextLayout { Text string, Font Font, MaxWidth Length, LineHeight Length, Lines []Line }
+
+// Caret is where the caret at an offset is drawn: X on the line whose top
+// is Top, Height high.
+type Caret { X Length, Top Length, Height Length }
+
+// Rect is a box at X, Y of W by H.
+type Rect { X Length, Y Length, W Length, H Length }
+
+// LayoutText breaks text into lines no wider than width: at each newline,
+// and else after the last run of spaces that keeps the line within width
+// (the spaces stay at the end of the line and take no width). A word wider
+// than width alone on a line breaks between runes, with at least one rune
+// on each line.
+func LayoutText(m Measure, text string, font Font, width Length) TextLayout {
+	let mut lines = []Line{}
+	let mut start = 0
+	for {
+		let end = paragraphEnd(text, start)
+		for l in breakParagraph(m, text, font, width, start, end) {
+			lines = lines.Append(l)
+		}
+		if end >= len(text) {
+			break
+		}
+		start = end + 1
+	}
+	TextLayout{Text: text, Font: font, MaxWidth: width, LineHeight: m.LineHeight(font), Lines: lines}
+}
+
+// paragraphEnd is the offset of the first newline at or after start, or
+// the text's length.
+func paragraphEnd(text string, start int) int {
+	let mut i = start
+	for i < len(text) && text[i] != '\n' {
+		i = i + 1
+	}
+	i
+}
+
+// breakParagraph breaks the bytes [start, end), which hold no newline.
+func breakParagraph(m Measure, text string, font Font, width Length, start int, end int) []Line {
+	let mut out = []Line{}
+	let mut pos = start
+	for {
+		let mut fit = -1
+		for b in breaks(text, pos, end) {
+			if m.Width(trimSpaces(text[pos:b]), font) > width {
+				break
+			}
+			fit = b
+		}
+		if fit < 0 {
+			fit = runeFit(m, text, font, width, pos, end)
+		}
+		out = out.Append(Line{Start: pos, End: fit, Width: m.Width(trimSpaces(text[pos:fit]), font), Wrapped: fit < end})
+		if fit >= end {
+			return out
+		}
+		pos = fit
+	}
+	out
+}
+
+// breaks are the offsets in (pos, end] where a line may end: after each
+// run of spaces, and end.
+func breaks(text string, pos int, end int) []int {
+	let mut out = []int{}
+	for i in pos+1..end {
+		if text[i-1] == ' ' && text[i] != ' ' {
+			out = out.Append(i)
+		}
+	}
+	out.Append(end)
+}
+
+// runeFit is the longest run of whole runes from pos that fits in width,
+// at least one rune.
+func runeFit(m Measure, text string, font Font, width Length, pos int, end int) int {
+	if pos >= end {
+		return end
+	}
+	let mut fit = pos + runeSize(text, pos)
+	let mut next = fit
+	for next < end {
+		next = next + runeSize(text, next)
+		if m.Width(text[pos:next], font) > width {
+			break
+		}
+		fit = next
+	}
+	fit
+}
+
+func runeSize(text string, at int) int {
+	let d = utf8.DecodeRuneInString(text[at:])
+	if d.Size < 1 {
+		return 1
+	}
+	d.Size
+}
+
+// trimSpaces is s without its trailing spaces.
+func trimSpaces(s string) string {
+	let mut e = len(s)
+	for e > 0 && s[e-1] == ' ' {
+		e = e - 1
+	}
+	s[:e]
+}
+
+// lineOf is the line the caret at offset is on: the line holding it, where
+// the end of a wrapped line is the start of the next.
+func lineOf(l TextLayout, offset int) int {
+	for i, ln in l.Lines {
+		if offset >= ln.Start && (offset < ln.End || offset == ln.End && !ln.Wrapped) {
+			return i
+		}
+	}
+	len(l.Lines) - 1
+}
+
+// CaretAt is where the caret at offset is drawn. An offset outside the
+// text is taken as its nearest end.
+func CaretAt(m Measure, l TextLayout, offset int) Caret {
+	let mut o = offset
+	if o < 0 {
+		o = 0
+	}
+	if o > len(l.Text) {
+		o = len(l.Text)
+	}
+	let i = lineOf(l, o)
+	let ln = l.Lines[i]
+	Caret{X: m.Width(l.Text[ln.Start:o], l.Font), Top: Length(float64(i)) * l.LineHeight, Height: l.LineHeight}
+}
+
+// OffsetAt is the offset whose caret is nearest the point x, y: on the
+// line under y (the first or the last line past the text's edges), the
+// rune boundary whose caret is nearest x, the earlier on a tie.
+func OffsetAt(m Measure, l TextLayout, x Length, y Length) int {
+	let mut i = 0
+	if l.LineHeight > 0.0 && y > 0.0 {
+		i = int(float64(y / l.LineHeight))
+	}
+	if i >= len(l.Lines) {
+		i = len(l.Lines) - 1
+	}
+	let ln = l.Lines[i]
+	let mut best = ln.Start
+	let mut gap = distance(m.Width("", l.Font), x)
+	let mut o = ln.Start
+	for o < ln.End {
+		o = o + runeSize(l.Text, o)
+		if o == ln.End && ln.Wrapped {
+			break
+		}
+		let d = distance(m.Width(l.Text[ln.Start:o], l.Font), x)
+		if d < gap {
+			best = o
+			gap = d
+		}
+	}
+	best
+}
+
+func distance(a Length, b Length) Length {
+	if a > b {
+		return a - b
+	}
+	b - a
+}
+
+// SelectionRects are the boxes that show the selection of the bytes
+// [from, to) (either order): one per line it holds runes of, from the
+// caret of its first rune to the end of its last.
+func SelectionRects(m Measure, l TextLayout, from int, to int) []Rect {
+	let mut a = from
+	let mut b = to
+	if a > b {
+		a = to
+		b = from
+	}
+	let mut out = []Rect{}
+	for i, ln in l.Lines {
+		let mut s = ln.Start
+		if a > s {
+			s = a
+		}
+		let mut e = ln.End
+		if b < e {
+			e = b
+		}
+		if s < e {
+			let x = m.Width(l.Text[ln.Start:s], l.Font)
+			let w = m.Width(l.Text[ln.Start:e], l.Font) - x
+			out = out.Append(Rect{X: x, Y: Length(float64(i)) * l.LineHeight, W: w, H: l.LineHeight})
+		}
+	}
+	out
+}
+
+// Clipboard is the system clipboard's text: a capability an editor's
+// cut, copy and paste need, which cmd/<name>/main.ergo binds (the desktop
+// host's, or MemoryClipboard in a test).
+type Clipboard {
+	// Read is the text on the clipboard.
+	Read() string,
+	// Write puts text on the clipboard.
+	Write(text string),
+
+	// WriteThenRead: what was written last is what is read.
+	law WriteThenRead(text string) {
+		Write(text)
+		Read() == text
+	},
+}
+
+// MemoryClipboard is a Clipboard in memory; its copies share one text.
+type MemoryClipboard { text sync.Ref[string] }
+
+// NewMemoryClipboard is an empty MemoryClipboard.
+func NewMemoryClipboard() MemoryClipboard { MemoryClipboard{text: sync.NewRef("")} }
+
+// Read is the text written last.
+func Read(c MemoryClipboard) string { c.text.Get() }
+
+// Write replaces the text.
+func Write(c MemoryClipboard, text string) { c.text.Set(text) }
