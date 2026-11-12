@@ -679,7 +679,6 @@
     "TestRefusedMemberKeepsItsSignature": 0,
     "TestRefusedPatternNameBinds": 0,
     "TestRegistry": 0,
-    "TestReleaseNeedRowMessages": 0,
     "TestRepairTextsCheck": 0,
     "TestReviewCases": 0.01,
     "TestRowGraphDomain": 1.56,
