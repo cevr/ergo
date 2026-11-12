@@ -105,6 +105,15 @@ func TestDirectRebuildsOnEachInput(t *testing.T) {
 	if !first.Direct || first.Compiled != 3 || !first.Linked || !first.Planned {
 		t.Fatalf("cold build: %v", first)
 	}
+	// The compiles and links ran with a HOME under the cache whose
+	// telemetry mode is off, so they wrote no counter file there (and
+	// cmd/ergo's TestPackageNeverWritesUnderHome sees none under HOME).
+	_ = filepath.WalkDir(c.Root, func(p string, e fs.DirEntry, err error) error {
+		if err == nil && strings.HasSuffix(p, filepath.Join("telemetry", "local")) {
+			t.Errorf("the direct path's tools wrote telemetry under the cache: %s", p)
+		}
+		return nil
+	})
 	type row struct {
 		name  string
 		apply func(t *testing.T) build.Toolchain
