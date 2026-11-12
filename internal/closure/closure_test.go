@@ -112,6 +112,9 @@ var declared = map[string][]allowance{
 		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
 		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
 	),
+	"internal/sketch/lint": {
+		{"examples", subtree, "TestLayoutPresetOnExamples lints every example module under the layout preset (DiscoverPackages walks each, the loader reads its sources)"},
+	},
 	"internal/sketch/lower": declare(
 		[]allowance{
 			{"cmd/ergo", program, "the tests drive the public CLI, built once per process"},
