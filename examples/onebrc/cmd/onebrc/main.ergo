@@ -1,0 +1,64 @@
+// onebrc is the One Billion Row Challenge: it reads lines
+// "<station>;<temperature>" and prints each station's minimum, mean and
+// maximum, sorted by station.
+//
+//	onebrc FILE [WORKERS]   summarize FILE with WORKERS chunks at once
+//	                        (default: one per core)
+//
+// This binary is the only place that chooses the providers: the host's
+// files, mapped read-only.
+
+import fs
+import go runtime
+import onebrc/mapped
+import onebrc/weather
+import os
+import strconv
+
+// Usage is the text of a usage failure.
+let Usage = "usage: onebrc FILE [WORKERS]"
+
+// Command is what the arguments ask for.
+type Command { Path string, Workers int }
+
+// Parse is the command of args; cores is the default worker count.
+func Parse(args []string, cores int) Command fails os.Exit {
+	match len(args) {
+	case 1:
+		Command{Path: args[0], Workers: cores}
+	case 2:
+		let n = strconv.Atoi(args[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "onebrc: WORKERS must be a count\n\(Usage)"}
+		}
+		if n < 1 {
+			return os.Exit{Code: 2, Message: "onebrc: WORKERS must be a count\n\(Usage)"}
+		}
+		Command{Path: args[0], Workers: n}
+	case _:
+		os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+// Summary is the report of the input at path, or the exit that says why
+// there is none.
+func Summary(c Command) string fails os.Exit needs weather.Readings {
+	let text = weather.Readings.Text(c.Path) catch {
+	case weather.Unreadable as u:
+		return os.Exit{Code: 1, Message: "onebrc: \(u.Path): \(u.Reason)"}
+	}
+	let stations = weather.Summarize(text, c.Workers) catch {
+	case weather.Malformed as m:
+		return os.Exit{Code: 1, Message: "onebrc: malformed line at byte \(m.Offset): \(weather.Explain(m.Reason))"}
+	case weather.TooManyStations:
+		return os.Exit{Code: 1, Message: "onebrc: more than \(weather.MaxStations) stations"}
+	}
+	weather.Report(stations)
+}
+
+func main() fails os.Exit needs Console | Ambient | go.Foreign {
+	let host = os.NewHost()
+	let c = try Parse(host.Args(), runtime.NumCPU())
+	let readings = mapped.New(fs.NewHost())
+	Console.Println(try with context { weather.Readings: readings } { Summary(c) })
+}

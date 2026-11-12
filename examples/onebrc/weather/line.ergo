@@ -1,0 +1,109 @@
+// The form of a line, "<station>;<temperature>\n", and its one parser
+// that reads byte by byte. It is the authority on what is malformed: the
+// fast path of a Scan hands it every line it does not accept.
+
+// MaxName is the longest station name, in bytes.
+let MaxName = 100
+
+// MaxStations is the most distinct stations an input may hold.
+let MaxStations = 10000
+
+// Reason is why a line is malformed. ParseLine checks them in this order.
+type Reason = NoSeparator | EmptyStation | LongStation | NoNewline | BadTemperature
+
+// NoSeparator: the line ends before a ';'.
+type NoSeparator {}
+
+// EmptyStation: the ';' starts the line.
+type EmptyStation {}
+
+// LongStation: the station has more than MaxName bytes.
+type LongStation {}
+
+// NoNewline: the input ends inside the line.
+type NoNewline {}
+
+// BadTemperature: the temperature is not -99.9 to 99.9 with exactly one
+// fractional digit, written "-?d?d.d".
+type BadTemperature {}
+
+// Malformed is the first malformed line of an input: the byte offset of
+// its start, and why.
+type Malformed { Offset int, Reason Reason }
+
+// TooManyStations: a well-formed input names more than MaxStations
+// stations.
+type TooManyStations {}
+
+// Explain is the text of a reason.
+func Explain(r Reason) string {
+	match r {
+	case NoSeparator:
+		"no ';' before the end of the line"
+	case EmptyStation:
+		"an empty station name"
+	case LongStation:
+		"a station name longer than 100 bytes"
+	case NoNewline:
+		"no newline at the end of the input"
+	case BadTemperature:
+		"a temperature that is not -99.9 to 99.9 with one decimal"
+	}
+}
+
+// Reading is one parsed line: its station's length in bytes (the station
+// starts the line), its temperature in tenths, and where the next line
+// starts.
+type Reading { Len int, Tenths int, Next int }
+
+// ParseLine parses the line that starts at p, byte by byte.
+func ParseLine(text string, p int) Reading fails Malformed {
+	let mut i = p
+	for i < len(text) && text[i] != ';' && text[i] != '\n' {
+		i += 1
+	}
+	if i == len(text) || text[i] == '\n' {
+		return Malformed{Offset: p, Reason: NoSeparator}
+	}
+	let n = i - p
+	if n == 0 {
+		return Malformed{Offset: p, Reason: EmptyStation}
+	}
+	if n > MaxName {
+		return Malformed{Offset: p, Reason: LongStation}
+	}
+	let mut j = i + 1
+	for j < len(text) && text[j] != '\n' {
+		j += 1
+	}
+	if j == len(text) {
+		return Malformed{Offset: p, Reason: NoNewline}
+	}
+	let neg = j > i+1 && text[i+1] == '-'
+	let from = if neg { i + 2 } else { i + 1 }
+	let width = j - from
+	if width < 3 || width > 4 || text[j-2] != '.' {
+		return Malformed{Offset: p, Reason: BadTemperature}
+	}
+	for k in from..j {
+		if k != j-2 && (text[k] < '0' || text[k] > '9') {
+			return Malformed{Offset: p, Reason: BadTemperature}
+		}
+	}
+	let mut v = int(text[j-1] - '0')
+	if width == 4 {
+		v += 100*int(text[from]-'0') + 10*int(text[from+1]-'0')
+	} else {
+		v += 10 * int(text[from]-'0')
+	}
+	Reading{Len: n, Tenths: if neg { -v } else { v }, Next: j + 1}
+}
+
+// Validate parses the lines that start from p up to end, and fails with
+// the first malformed one.
+func Validate(text string, p int, end int) fails Malformed {
+	let mut at = p
+	for at < end {
+		at = try ParseLine(text, at).Next
+	}
+}

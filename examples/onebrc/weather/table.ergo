@@ -1,0 +1,123 @@
+// A chunk's table: open addressing over the stations of one chunk, keyed
+// by a station's first sixteen bytes, its length and, past sixteen bytes,
+// its bytes in the text. The key is never copied: a slot keeps where the
+// station first appears.
+
+import bits
+import slices
+import strings
+
+// TableBits is log2 of the slots of a table.
+let TableBits = 15
+
+// Slots is the number of slots of a table, at most 61% full at
+// MaxStations... and 31% here.
+let Slots = 32768
+
+// FastMargin is the room the fast path needs after a line start: a
+// station of up to MaxName bytes, its ';' and a word of temperature.
+let FastMargin = 128
+
+// Slot is one station of a table: its key words, where it first appears
+// and its length (0: the slot is free), and its Stats.
+type Slot { W0 uint64, W1 uint64, Start int, Len int, Min int, Max int, Sum int, Count int }
+
+// Part is what one chunk sums up to: its stations, or the first malformed
+// line of the chunk, or that it holds more than MaxStations stations and
+// no malformed line.
+type Part = Counted{Slots []Slot, Used []int} | Broken{Fault Malformed} | Crowded{}
+
+// Hash is the slot of a station's key words.
+func Hash(w0 uint64, w1 uint64) int {
+	int(((w0 ^ w1*0xC2B2AE3D27D4EB4F) * 0x9E3779B97F4A7C15) >> 49)
+}
+
+// Scan sums up the lines that start from p up to end. Lines start at p
+// and at end.
+func Scan(text string, from int, end int) Part {
+	let free = Slot{W0: 0, W1: 0, Start: 0, Len: 0, Min: 0, Max: 0, Sum: 0, Count: 0}
+	let mut slots = slices.Repeat([]Slot{free}, Slots)
+	let mut used = []int{}
+	let mut p = from
+	for p < end {
+		let mut w0 uint64 = 0
+		let mut w1 uint64 = 0
+		let mut n = 0
+		let mut v = 0
+		let mut next = 0
+		let mut fast = false
+		if p+FastMargin <= len(text) {
+			w0 = Word(text, p)
+			let semi = Lanes(w0, Semis)
+			let nl = Lanes(w0, Newlines)
+			if semi != 0 {
+				n = bits.TrailingZeros64(semi) >> 3
+				w0 &= LowMask(n)
+				fast = nl&LowMask(n) == 0
+			} else if nl == 0 {
+				w1 = Word(text, p+8)
+				let semi1 = Lanes(w1, Semis)
+				let nl1 = Lanes(w1, Newlines)
+				if semi1 != 0 {
+					n = 8 + bits.TrailingZeros64(semi1)>>3
+					w1 &= LowMask(n - 8)
+					fast = nl1&LowMask(n-8) == 0
+				} else if nl1 == 0 {
+					n = 16
+					for n <= MaxName && text[p+n] != ';' && text[p+n] != '\n' {
+						n += 1
+					}
+					fast = text[p+n] == ';'
+				}
+			}
+			if fast && n >= 1 && n <= MaxName {
+				let t = ReadTemp(Word(text, p+n+1))
+				v = t.Tenths
+				next = p + n + t.Width + 2
+				fast = t.Ok
+			} else {
+				fast = false
+			}
+		}
+		if !fast {
+			let r = ParseLine(text, p) catch {
+			case Malformed as m:
+				return Broken{Fault: m}
+			}
+			n = r.Len
+			v = r.Tenths
+			next = r.Next
+			let (a, b) = Words(text, p, n)
+			w0 = a
+			w1 = b
+		}
+		let mut h = Hash(w0, w1)
+		for {
+			if slots[h].Len == n && slots[h].W0 == w0 && slots[h].W1 == w1 && (n <= 16 || strings.Slice(text, slots[h].Start, slots[h].Start+n) == strings.Slice(text, p, p+n)) {
+				slots[h].Min = lo(slots[h].Min, v)
+				slots[h].Max = hi(slots[h].Max, v)
+				slots[h].Sum += v
+				slots[h].Count += 1
+				break
+			}
+			if slots[h].Len == 0 {
+				if len(used) == MaxStations {
+					Validate(text, next, end) catch {
+					case Malformed as m:
+						return Broken{Fault: m}
+					}
+					return Crowded
+				}
+				slots[h] = Slot{W0: w0, W1: w1, Start: p, Len: n, Min: v, Max: v, Sum: v, Count: 1}
+				used = used.Append(h)
+				break
+			}
+			h = (h + 1) & (Slots - 1)
+		}
+		p = next
+	}
+	Counted{Slots: slots, Used: used}
+}
+
+// StatsOf is the Stats a slot holds.
+func StatsOf(s Slot) Stats { Stats{Min: s.Min, Max: s.Max, Sum: s.Sum, Count: s.Count} }

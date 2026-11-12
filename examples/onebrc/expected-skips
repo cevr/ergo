@@ -1,0 +1,6 @@
+# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
+# mapped.Files holds an fs.Host, which only fs.NewHost builds and which
+# needs Ambient, so no generator builds one: Repeatable runs on
+# memory.Texts, and the host's files are checked by the cases and by
+# cmd/ergo TestOneBRCAgrees.
+skip law weather.Readings.Repeatable for Files: its values have no generator: fs.Host has an unexported field, so only package fs builds it; use fs.NewHost; a func NewFiles() Files with no rows would build one for each case
