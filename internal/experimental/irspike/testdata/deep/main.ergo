@@ -1,0 +1,25 @@
+// deep is the IR1 spike's stack and collector check: a deep recursion in
+// the IR subset whose every frame allocates a string-bearing slice and keeps
+// it live across the recursive call, so stack growth copies frames that
+// hold pointers and the collector scans them by the IR body's stack maps.
+
+type Cell { Name string, Weight int, Next int }
+
+func deep(n int, keep []Cell) int {
+	if n == 0 {
+		return len(keep)
+	}
+	let mine = []Cell{Cell{Name: "frame", Weight: n % 13, Next: n}}
+	let below = deep(n - 1, mine)
+	below + mine[0].Weight + len(keep[0].Name)
+}
+
+func main() needs Console {
+	let mut total = 0
+	let mut round = 0
+	for round < 20 {
+		total = total + deep(20000 + round, []Cell{Cell{Name: "root", Weight: 1, Next: 0}})
+		round = round + 1
+	}
+	Console.Println("\(total)")
+}

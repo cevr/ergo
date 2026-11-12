@@ -223,6 +223,9 @@ type lowerer struct {
 	// rewrite applies evidenced rewrite laws in the run build (rewrite.go);
 	// nil applies none.
 	rewrite *rewriter
+	// ir collects the experimental IR bodies of LowerIR
+	// (irspike_experimental.go); nil in every other lowering.
+	ir *irState
 	// goModule is the root unit's Go requirements (hostPkg).
 	goModule GoModule
 	pkg      *check.Package
