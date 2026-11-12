@@ -390,8 +390,8 @@ func (g *stdGap) lower(t *testing.T) *lowered {
 // TestStdGapRealStd drives the same two shapes over the real std: every
 // exported std function whose body converts a record into its operation
 // type result, and every exported std named context, gets a program that
-// calls it or uses it in a with, which must lower, vet and run. None
-// exists today (lowering-parse-gap.md); one that this generator cannot
+// calls it or uses it in a with, which must lower, vet and run: json's
+// NewText and NewHTMLText since LR3 (lowering-parse-gap.md); one that this generator cannot
 // drive (a function with parameters or needs, a context with needs) fails
 // here, so the generator is extended with it.
 //
@@ -450,6 +450,7 @@ func TestStdGapRealStd(t *testing.T) {
 	if len(programs) == 0 {
 		return
 	}
+	needsBuild(t)
 	exes := buildAll(t, programs, true)
 	if exes == nil {
 		return
