@@ -85,6 +85,13 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"catch arm form", "G2"},
 	{"continue in a polling loop", "G2"},
 	{"return of a value from a function with none", "G2"},
+	{"operation call that enters a release", "G2"}, // a checked Close: frames, IRG2b
+	{"call of a pointer-receiver method", "G4"},
+	{"call of an extern function", "G4"},
+	{"call that passes owned values", "G4"},
+	{"call that passes witnesses", "G4"},
+	{"call with a call site", "G4"},
+	{"call that captures owners", "G4"},
 	{"catch with patterns", "G3"},         // record patterns, case err, case _: the match tree's
 	{"catch value of another type", "G3"}, // a flat union the arms join to
 	// G3: unions, match, machines; the lowering's representation decides.

@@ -73,8 +73,19 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("call of a function outside the package")
 		}
 		fd := b.l.useFunc(f, x)
-		if fd.extern != "" || fd.ptr || len(b.l.ownedParams(f)) > 0 || len(witnessParams(f.Sig)) > 0 || c.Site != nil || len(b.fc.captureOwners(x)) > 0 {
-			irNo("call of an impure, fallible or special function")
+		switch {
+		case fd.extern != "":
+			irNo("call of an extern function")
+		case fd.ptr:
+			irNo("call of a pointer-receiver method")
+		case len(b.l.ownedParams(f)) > 0:
+			irNo("call that passes owned values")
+		case len(witnessParams(f.Sig)) > 0:
+			irNo("call that passes witnesses")
+		case c.Site != nil:
+			irNo("call with a call site")
+		case len(b.fc.captureOwners(x)) > 0:
+			irNo("call that captures owners")
 		}
 		if fd.fallible && !failsHere(c) {
 			irNo("fallible call with an empty row at its site")
@@ -102,9 +113,14 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		}
 		return pre, &irExpr{K: "call", Pos: p, Name: fd.name, Args: irArgs}, !fd.pure
 	case check.CallProviderOp:
-		if b.env < 0 || c.Op == nil || b.fc.entersRelease(x) || b.l.tests != nil {
+		switch {
+		case b.env < 0 || c.Op == nil:
 			irNo("operation call form")
+		case b.fc.entersRelease(x):
+			irNo("operation call that enters a release")
 		}
+		// A test build calls a capability's operation as a program does
+		// (calls.go: only a law's own operation, CallLawOp, differs).
 		if len(rowElems(c.Op.Sig.Errors)) > 0 && !failsHere(c) {
 			irNo("fallible call with an empty row at its site")
 		}
