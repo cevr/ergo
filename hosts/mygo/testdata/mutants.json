@@ -1,5 +1,5 @@
 {
-  "about": "H3f mutants of hosts/mygo and its drawing module. scripts/mutants measures the Ergo module only; each edit here is applied to a scratch copy of hosts/mygo, then drawgen runs in drawing/ unless regenerate is false (as go generate would after the edit), then the killers run. A killer is module:Test, where module is drawing or mygo.",
+  "about": "H3f mutants of hosts/mygo and its drawing module. scripts/mutants measures the Ergo module only; each edit here is applied to a scratch copy of the repository without .git (the layout tests build bin/ergo from it; an H2L mutant edits std ui/layout, which only hosts/mygo's oracle holds to MyGo), then drawgen runs in drawing/ unless regenerate is false (as go generate would after the edit), then the killers run. A killer is module:Test, where module is drawing or mygo.",
   "mutants": [
     {
       "name": "H3f-consts-dropped",
@@ -40,6 +40,56 @@
       "rule": "the drawing packages are what drawgen writes from the pinned MyGo",
       "regenerate": false,
       "killers": ["drawing:TestFilesCurrent", "drawing:TestMirrorsInternal"]
+    },
+    {
+      "name": "H2L-gap-after-last",
+      "origin": "H2L",
+      "file": "internal/sketch/std/ui/layout/flex.ergo",
+      "from": "if k > first {",
+      "to": "if k >= first {",
+      "rule": "a gap goes between children, not after the last",
+      "regenerate": false,
+      "killers": ["mygo:TestLayoutMatchesMyGo"]
+    },
+    {
+      "name": "H2L-grow-by-count",
+      "origin": "H2L",
+      "file": "internal/sketch/std/ui/layout/flex.ergo",
+      "from": "t.items[k].base + free*t.nodes[n].style.Grow/sum",
+      "to": "t.items[k].base + free/float32(end-first)",
+      "rule": "free space is shared by grow weight, not by count",
+      "regenerate": false,
+      "killers": ["mygo:TestLayoutMatchesMyGo"]
+    },
+    {
+      "name": "H2L-cross-padding-ignored",
+      "origin": "H2L",
+      "file": "internal/sketch/std/ui/layout/flex.ergo",
+      "from": "t.nodes[n].y = padTop + crossOff",
+      "to": "t.nodes[n].y = crossOff",
+      "rule": "a row places its children inside its padding across the line",
+      "regenerate": false,
+      "killers": ["mygo:TestLayoutMatchesMyGo"]
+    },
+    {
+      "name": "H2L-dirty-not-propagated",
+      "origin": "H2L",
+      "file": "internal/sketch/std/ui/layout/tree.ergo",
+      "from": "k = t.nodes[k].parent",
+      "to": "k = none",
+      "rule": "a change forgets what the nodes up to the root computed",
+      "regenerate": false,
+      "killers": ["mygo:TestLayoutMatchesMyGo", "mygo:TestLayoutRelaysOutAlongThePath"]
+    },
+    {
+      "name": "H2L-no-reuse",
+      "origin": "H2L",
+      "file": "internal/sketch/std/ui/layout/flex.ergo",
+      "from": "if t.nodes[i].laid && t.nodes[i].laidW == w",
+      "to": "if false && t.nodes[i].laidW == w",
+      "rule": "a box laid out at its size with nothing changed in it is kept, not computed again",
+      "regenerate": false,
+      "killers": ["mygo:TestLayoutRelaysOutAlongThePath"]
     }
   ]
 }

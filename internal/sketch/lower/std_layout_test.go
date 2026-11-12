@@ -50,12 +50,16 @@ test LayoutMeasureAtMaxOneLinePerParagraph(text string, size int) {
 	assert m.Height(text, s, m.Widths(text, s).Max) <= one * float32(len(strings.Split(text, "\n")))
 }
 
-func textTakesItsMeasure(text string, size int, width int) bool {
+func textTakesItsMeasure(word string, copies int, size int, width int) bool {
+	let text = strings.Repeat(word+" ", (copies%12+12)%12+1)
 	let s = float32(size%32 + 32)
 	let w = float32(width%500 + 500)
 	let mut t = layout.New()
 	let root = layout.Add(&t, layout.Default())
 	let stretched = layout.Add(&t, textStyle(text, s))
+	let mut halfStyle = textStyle(text, s)
+	halfStyle.Width = layout.Px{Value: w / 2}
+	let half = layout.Add(&t, halfStyle)
 	let mut rowStyle = layout.Default()
 	rowStyle.Direction = layout.Row
 	rowStyle.Items = layout.Start
@@ -65,6 +69,10 @@ func textTakesItsMeasure(text string, size int, width int) bool {
 	let fit = fmax(ws.Min, fmin(ws.Max, w))
 	with context { layout.Measure: m } {
 		layout.Append(&t, root, stretched) catch {
+		case arena.Stale:
+			return false
+		}
+		layout.Append(&t, root, half) catch {
 		case arena.Stale:
 			return false
 		}
@@ -89,10 +97,14 @@ func textTakesItsMeasure(text string, size int, width int) bool {
 	case arena.Stale:
 		return false
 	}
-	a.W == w && a.H == m.Height(text, s, w) && near(b.W, fit) && near(b.H, m.Height(text, s, b.W))
+	let c = layout.BoxOf(&t, half) catch {
+	case arena.Stale:
+		return false
+	}
+	a.W == w && a.H == m.Height(text, s, w) && c.W == w / 2 && c.H == m.Height(text, s, w / 2) && near(b.W, fit) && near(b.H, m.Height(text, s, b.W))
 }
 
-test LayoutTextTakesItsMeasure(text string, size int, width int) { assert textTakesItsMeasure(text, size, width) }
+test LayoutTextTakesItsMeasure(word string, copies int, size int, width int) { assert textTakesItsMeasure(word, copies, size, width) }
 
 func measuresOnceAtAWidth(text string, width int) bool {
 	let w = float32(width%500 + 500)
@@ -126,15 +138,45 @@ func measuresOnceAtAWidth(text string, width int) bool {
 }
 
 test LayoutMeasuresOnceAtAWidth(text string, width int) { assert measuresOnceAtAWidth(text, width) }
+
+func heightFollowsTheWidth(word string, copies int, width int) bool {
+	let text = strings.Repeat(word+" ", (copies%12+12)%12+1)
+	let w = float32(width%500 + 500)
+	let mut t = layout.New()
+	let root = layout.Add(&t, layout.Default())
+	let a = layout.Add(&t, textStyle(text, 16))
+	with context { layout.Measure: m } {
+		layout.Append(&t, root, a) catch {
+		case arena.Stale:
+			return false
+		}
+		layout.Layout(&t, root, w, inf) catch {
+		case arena.Stale:
+			return false
+		}
+		layout.Layout(&t, root, w / 2, inf) catch {
+		case arena.Stale:
+			return false
+		}
+	}
+	let b = layout.BoxOf(&t, a) catch {
+	case arena.Stale:
+		return false
+	}
+	b.W == w / 2 && b.H == m.Height(text, 16, w / 2)
+}
+
+test LayoutHeightFollowsTheWidth(word string, copies int, width int) { assert heightFollowsTheWidth(word, copies, width) }
 `
 
 // stdLayoutLawStatements is the statement of each ui/layout law, as the
 // ledger writes it, by ledger key.
 var stdLayoutLawStatements = map[string]string{
-	"ui/layout Measure.MinFitsMax":               `MinFitsMax(text string, size int) { let w = Widths(text, float32(size%64 + 64)) w.Min <= w.Max }`,
-	"ui/layout Measure.WiderIsNoTaller":          `WiderIsNoTaller(text string, size int, a int, b int) { let s = float32(size%64 + 64) let narrow = float32(a%400 + 400) let wide = narrow + float32(b%400 + 400) Height(text, s, wide) <= Height(text, s, narrow) }`,
-	"ui/layout Measure.AtMaxOneLinePerParagraph": `AtMaxOneLinePerParagraph(text string, size int) { let s = float32(size%64 + 64) let one = Height("x", s, inf) Height(text, s, Widths(text, s).Max) <= one * float32(len(strings.Split(text, "\n"))) }`,
-	"ui/layout TextTakesItsMeasure":              `TextTakesItsMeasure(text string, size int, width int) { let s = float32(size%32 + 32) let w = float32(width%500 + 500) let mut t = New() let root = Add(&t, Default()) let stretched = Add(&t, textStyle(text, s)) let mut rowStyle = Default() rowStyle.Direction = Row rowStyle.Items = Start let row = Add(&t, rowStyle) let fitted = Add(&t, textStyle(text, s)) let ws = lawMeasure.Widths(text, s) let fit = fmax(ws.Min, fmin(ws.Max, w)) with context { Measure: lawMeasure } { Append(&t, root, stretched) catch { case arena.Stale: return false } Append(&t, root, row) catch { case arena.Stale: return false } Append(&t, row, fitted) catch { case arena.Stale: return false } Layout(&t, root, w, inf) catch { case arena.Stale: return false } } let a = BoxOf(&t, stretched) catch { case arena.Stale: return false } let b = BoxOf(&t, fitted) catch { case arena.Stale: return false } a.W == w && a.H == lawMeasure.Height(text, s, w) && near(b.W, fit) && near(b.H, lawMeasure.Height(text, s, b.W)) }`,
+	"ui/layout Measure.MinFitsMax":               `MinFitsMax(text string, size int) { let w = Widths(text, float32(size%64+64)) w.Min <= w.Max }`,
+	"ui/layout Measure.WiderIsNoTaller":          `WiderIsNoTaller(text string, size int, a int, b int) { let s = float32(size%64 + 64) let narrow = float32(a%400 + 400) let wide = narrow + float32(b%400+400) Height(text, s, wide) <= Height(text, s, narrow) }`,
+	"ui/layout Measure.AtMaxOneLinePerParagraph": `AtMaxOneLinePerParagraph(text string, size int) { let s = float32(size%64 + 64) let one = Height("x", s, inf) Height(text, s, Widths(text, s).Max) <= one*float32(len(strings.Split(text, "\n"))) }`,
+	"ui/layout TextTakesItsMeasure":              `TextTakesItsMeasure(word string, copies int, size int, width int) { let text = strings.Repeat(word+" ", (copies%12+12)%12+1) let s = float32(size%32 + 32) let w = float32(width%500 + 500) let mut t = New() let root = Add(&t, Default()) let stretched = Add(&t, textStyle(text, s)) let mut halfStyle = textStyle(text, s) halfStyle.Width = Px{Value: w / 2} let half = Add(&t, halfStyle) let mut rowStyle = Default() rowStyle.Direction = Row rowStyle.Items = Start let row = Add(&t, rowStyle) let fitted = Add(&t, textStyle(text, s)) let ws = lawMeasure.Widths(text, s) let fit = fmax(ws.Min, fmin(ws.Max, w)) with context { Measure: lawMeasure } { Append(&t, root, stretched) catch { case arena.Stale: return false } Append(&t, root, half) catch { case arena.Stale: return false } Append(&t, root, row) catch { case arena.Stale: return false } Append(&t, row, fitted) catch { case arena.Stale: return false } Layout(&t, root, w, inf) catch { case arena.Stale: return false } } let a = BoxOf(&t, stretched) catch { case arena.Stale: return false } let b = BoxOf(&t, fitted) catch { case arena.Stale: return false } let c = BoxOf(&t, half) catch { case arena.Stale: return false } a.W == w && a.H == lawMeasure.Height(text, s, w) && c.W == w/2 && c.H == lawMeasure.Height(text, s, w/2) && near(b.W, fit) && near(b.H, lawMeasure.Height(text, s, b.W)) }`,
+	"ui/layout HeightFollowsTheWidth":            `HeightFollowsTheWidth(word string, copies int, width int) { let text = strings.Repeat(word+" ", (copies%12+12)%12+1) let w = float32(width%500 + 500) let mut t = New() let root = Add(&t, Default()) let a = Add(&t, textStyle(text, 16)) with context { Measure: lawMeasure } { Append(&t, root, a) catch { case arena.Stale: return false } Layout(&t, root, w, inf) catch { case arena.Stale: return false } Layout(&t, root, w/2, inf) catch { case arena.Stale: return false } } let b = BoxOf(&t, a) catch { case arena.Stale: return false } b.W == w/2 && b.H == lawMeasure.Height(text, 16, w/2) }`,
 	"ui/layout MeasuresOnceAtAWidth":             `MeasuresOnceAtAWidth(text string, width int) { let w = float32(width%500 + 500) let mut t = New() let root = Add(&t, Default()) let a = Add(&t, textStyle(text, 16)) let b = Add(&t, textStyle(text, 16)) with context { Measure: lawMeasure } { Append(&t, root, a) catch { case arena.Stale: return false } Append(&t, root, b) catch { case arena.Stale: return false } Layout(&t, root, w, inf) catch { case arena.Stale: return false } SetStyle(&t, root, Default()) catch { case arena.Stale: return false } Layout(&t, root, w, inf) catch { case arena.Stale: return false } } Measured(t) == 1 }`,
 }
 

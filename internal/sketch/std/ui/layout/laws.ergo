@@ -4,6 +4,7 @@
 // (TestLayoutMatchesMyGo in hosts/mygo).
 
 import arena
+import strings
 
 // lawMeasure is the Measure of the laws.
 let lawMeasure = Monospace
@@ -16,14 +17,18 @@ func textStyle(text string, size float32) Style {
 }
 
 // near is whether a and b are within 0.01 of each other.
-func near(a float32, b float32) bool { a - b <= 0.01 && b - a <= 0.01 }
+func near(a float32, b float32) bool { a-b <= 0.01 && b-a <= 0.01 }
 
-law TextTakesItsMeasure(text string, size int, width int) {
+law TextTakesItsMeasure(word string, copies int, size int, width int) {
+	let text = strings.Repeat(word+" ", (copies%12+12)%12+1)
 	let s = float32(size%32 + 32)
 	let w = float32(width%500 + 500)
 	let mut t = New()
 	let root = Add(&t, Default())
 	let stretched = Add(&t, textStyle(text, s))
+	let mut halfStyle = textStyle(text, s)
+	halfStyle.Width = Px{Value: w / 2}
+	let half = Add(&t, halfStyle)
 	let mut rowStyle = Default()
 	rowStyle.Direction = Row
 	rowStyle.Items = Start
@@ -33,6 +38,10 @@ law TextTakesItsMeasure(text string, size int, width int) {
 	let fit = fmax(ws.Min, fmin(ws.Max, w))
 	with context { Measure: lawMeasure } {
 		Append(&t, root, stretched) catch {
+		case arena.Stale:
+			return false
+		}
+		Append(&t, root, half) catch {
 		case arena.Stale:
 			return false
 		}
@@ -57,7 +66,11 @@ law TextTakesItsMeasure(text string, size int, width int) {
 	case arena.Stale:
 		return false
 	}
-	a.W == w && a.H == lawMeasure.Height(text, s, w) && near(b.W, fit) && near(b.H, lawMeasure.Height(text, s, b.W))
+	let c = BoxOf(&t, half) catch {
+	case arena.Stale:
+		return false
+	}
+	a.W == w && a.H == lawMeasure.Height(text, s, w) && c.W == w/2 && c.H == lawMeasure.Height(text, s, w/2) && near(b.W, fit) && near(b.H, lawMeasure.Height(text, s, b.W))
 }
 
 law MeasuresOnceAtAWidth(text string, width int) {
@@ -89,4 +102,31 @@ law MeasuresOnceAtAWidth(text string, width int) {
 		}
 	}
 	Measured(t) == 1
+}
+
+law HeightFollowsTheWidth(word string, copies int, width int) {
+	let text = strings.Repeat(word+" ", (copies%12+12)%12+1)
+	let w = float32(width%500 + 500)
+	let mut t = New()
+	let root = Add(&t, Default())
+	let a = Add(&t, textStyle(text, 16))
+	with context { Measure: lawMeasure } {
+		Append(&t, root, a) catch {
+		case arena.Stale:
+			return false
+		}
+		Layout(&t, root, w, inf) catch {
+		case arena.Stale:
+			return false
+		}
+		Layout(&t, root, w/2, inf) catch {
+		case arena.Stale:
+			return false
+		}
+	}
+	let b = BoxOf(&t, a) catch {
+	case arena.Stale:
+		return false
+	}
+	b.W == w/2 && b.H == lawMeasure.Height(text, 16, w/2)
 }

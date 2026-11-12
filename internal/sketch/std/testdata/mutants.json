@@ -41,6 +41,62 @@
       "rule": "stdlib.md cmp: Max is the larger value (law MaxMinSplit).",
       "anchor": {"tests": ["lower:TestStdSlicesLawsRun"]},
       "killers": ["lower:TestStdSlicesLawsRun"]
+    },
+    {
+      "name": "h2l-height-key-width", "origin": "wf10 H2L",
+      "file": "internal/sketch/std/ui/layout/measure.ergo",
+      "from": "let k = heightKey{text: text, size: size, width: width}", "to": "let k = heightKey{text: text, size: size, width: 0}",
+      "rule": "stdlib.md UI layout 5: what Measure said is kept by text, size and width (law TextTakesItsMeasure).",
+      "anchor": {"tests": ["lower:TestStdLayoutLawsRun"]},
+      "killers": ["lower:TestStdLayoutLawsRun"]
+    },
+    {
+      "name": "h2l-measure-any-width", "origin": "wf10 H2L",
+      "file": "internal/sketch/std/ui/layout/flex.ergo",
+      "from": "t.nodes[i].measOK && t.nodes[i].measW == w", "to": "t.nodes[i].measOK",
+      "rule": "stdlib.md UI layout 4: a node's kept height is its height at the width it was measured at (law HeightFollowsTheWidth; box-only trees cannot see it, since fixed leaves' heights do not depend on width).",
+      "anchor": {"tests": ["lower:TestStdLayoutLawsRun"]},
+      "killers": ["lower:TestStdLayoutLawsRun"]
+    },
+    {
+      "name": "h2l-text-min-is-max", "origin": "wf10 H2L",
+      "file": "internal/sketch/std/ui/layout/flex.ergo",
+      "from": "(if maxContent { ws.Max } else { ws.Min })", "to": "ws.Max",
+      "rule": "stdlib.md UI layout 5: a text's min-content width is Measure's Min, so a text in a row shrinks to it (law TextTakesItsMeasure).",
+      "anchor": {"tests": ["lower:TestStdLayoutLawsRun"]},
+      "killers": ["lower:TestStdLayoutLawsRun"]
+    },
+    {
+      "name": "h2l-height-not-kept", "origin": "wf10 H2L",
+      "file": "internal/sketch/std/ui/layout/measure.ergo",
+      "from": "t.heights[k] = h", "to": "t.measured = t.measured",
+      "rule": "stdlib.md UI layout 5: a text is measured once at a width (law MeasuresOnceAtAWidth).",
+      "anchor": {"tests": ["lower:TestStdLayoutLawsRun"]},
+      "killers": ["lower:TestStdLayoutLawsRun"]
+    },
+    {
+      "name": "h2l-monospace-max-last-word", "origin": "wf10 H2L",
+      "file": "internal/sketch/std/ui/layout/measure.ergo",
+      "from": "line = line + n + (if i > 0 { 1 } else { 0 })", "to": "line = n + (if i > 0 { 1 } else { 0 })",
+      "rule": "Measure: the max-content width is a paragraph's runs one space apart (laws Measure.MinFitsMax, Measure.AtMaxOneLinePerParagraph).",
+      "anchor": {"tests": ["lower:TestStdLayoutLawsRun"]},
+      "killers": ["lower:TestStdLayoutLawsRun"]
+    },
+    {
+      "name": "h2l-monospace-break-wider", "origin": "wf10 H2L",
+      "file": "internal/sketch/std/ui/layout/measure.ergo",
+      "from": "} else if float32(line+1+n)*em <= width {", "to": "} else if float32(line+1+n)*em >= width {",
+      "rule": "Measure: a wider line is no taller (law Measure.WiderIsNoTaller).",
+      "anchor": {"tests": ["lower:TestStdLayoutLawsRun"]},
+      "killers": ["lower:TestStdLayoutLawsRun"]
+    },
+    {
+      "name": "h2l-monospace-space-twice", "origin": "wf10 H2L",
+      "file": "internal/sketch/std/ui/layout/measure.ergo",
+      "from": "} else if float32(line+1+n)*em <= width {", "to": "} else if float32(line+2+n)*em <= width {",
+      "rule": "Measure: at its max-content width a paragraph is one line (law Measure.AtMaxOneLinePerParagraph).",
+      "anchor": {"tests": ["lower:TestStdLayoutLawsRun"]},
+      "killers": ["lower:TestStdLayoutLawsRun"]
     }
   ]
 }

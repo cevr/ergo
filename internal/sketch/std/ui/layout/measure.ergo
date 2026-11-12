@@ -20,21 +20,21 @@ type Measure {
 	Height(text string, size float32, width float32) float32,
 
 	law MinFitsMax(text string, size int) {
-		let w = Widths(text, float32(size%64 + 64))
+		let w = Widths(text, float32(size%64+64))
 		w.Min <= w.Max
 	},
 
 	law WiderIsNoTaller(text string, size int, a int, b int) {
 		let s = float32(size%64 + 64)
 		let narrow = float32(a%400 + 400)
-		let wide = narrow + float32(b%400 + 400)
+		let wide = narrow + float32(b%400+400)
 		Height(text, s, wide) <= Height(text, s, narrow)
 	},
 
 	law AtMaxOneLinePerParagraph(text string, size int) {
 		let s = float32(size%64 + 64)
 		let one = Height("x", s, inf)
-		Height(text, s, Widths(text, s).Max) <= one * float32(len(strings.Split(text, "\n")))
+		Height(text, s, Widths(text, s).Max) <= one*float32(len(strings.Split(text, "\n")))
 	},
 }
 
@@ -72,9 +72,9 @@ func Widths(_ Monospace, text string, size float32) Intrinsic {
 		for i, w in words {
 			let n = utf8.RuneCount(w)
 			line = line + n + (if i > 0 { 1 } else { 0 })
-			least = fmax(least, float32(n) * em)
+			least = fmax(least, float32(n)*em)
 		}
-		most = fmax(most, float32(line) * em)
+		most = fmax(most, float32(line)*em)
 	}
 	Intrinsic{Max: most, Min: least}
 }
@@ -94,7 +94,7 @@ func Height(_ Monospace, text string, size float32, width float32) float32 {
 			if line < 0 {
 				lines = lines + 1
 				line = n
-			} else if float32(line + 1 + n) * em <= width {
+			} else if float32(line+1+n)*em <= width {
 				line = line + 1 + n
 			} else {
 				lines = lines + 1

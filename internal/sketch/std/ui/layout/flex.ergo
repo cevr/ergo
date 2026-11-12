@@ -173,7 +173,7 @@ func measureIntrinsic(t *Tree, i int, maxContent bool) float32 needs Measure {
 		c = t.nodes[c].next
 	}
 	if row && n > 1 {
-		w = w + t.nodes[i].style.Gap * float32(n-1)
+		w = w + t.nodes[i].style.Gap*float32(n-1)
 	}
 	w + padX(t, i)
 }
@@ -218,7 +218,7 @@ func naturalHeight(t *Tree, i int, w float32, cbH float32) float32 needs Measure
 	if t.nodes[i].measOK && t.nodes[i].measW == w {
 		return t.nodes[i].measH
 	}
-	let h = contentHeight(t, i, w - padX(t, i)) + padY(t, i)
+	let h = contentHeight(t, i, w-padX(t, i)) + padY(t, i)
 	t.nodes[i].measOK = true
 	t.nodes[i].measW = w
 	t.nodes[i].measH = h
@@ -246,9 +246,9 @@ func crossOf(t *Tree, c int, cw float32, items Align) float32 needs Measure {
 		return clampW(t, c, v)
 	}
 	if stretches(t, c, items) && finite(cw) {
-		return clampW(t, c, cw - marginX(t, c))
+		return clampW(t, c, cw-marginX(t, c))
 	}
-	fitWidth(t, c, cw - marginX(t, c), cw)
+	fitWidth(t, c, cw-marginX(t, c), cw)
 }
 
 // layoutBox gives node i its size and lays out its children, unless it
@@ -261,8 +261,8 @@ func layoutBox(t *Tree, i int, w float32, h float32) needs Measure {
 	t.nodes[i].w = w
 	t.nodes[i].h = h
 	if t.nodes[i].first != none && holdsBoxes(t, i) {
-		let cw = fmax(w - padX(t, i), 0)
-		let ch = fmax(h - padY(t, i), 0)
+		let cw = fmax(w-padX(t, i), 0)
+		let ch = fmax(h-padY(t, i), 0)
 		let _ = flexLayout(t, i, cw, ch, true)
 		layoutAbsolute(t, i)
 	}
@@ -273,18 +273,18 @@ func layoutBox(t *Tree, i int, w float32, h float32) needs Measure {
 
 // item is one child in its parent's line while the parent lays out.
 type item {
-	n int,
-	base float32,
-	hyp float32,
-	pad float32,
-	minMain float32,
-	maxMain float32,
-	main float32,
-	cross float32,
-	violation float32,
+	n          int,
+	base       float32,
+	hyp        float32,
+	pad        float32,
+	minMain    float32,
+	maxMain    float32,
+	main       float32,
+	cross      float32,
+	violation  float32,
 	marginMain float32,
-	marginCr float32,
-	frozen bool,
+	marginCr   float32,
+	frozen     bool,
 }
 
 // flexLayout lays out node i's children in flow in a content box cw×ch
@@ -306,18 +306,18 @@ func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, f
 	for c != none {
 		if flows(t, c) {
 			let mut it = item{
-				n: c,
-				base: 0,
-				hyp: 0,
-				pad: 0,
-				minMain: 0,
-				maxMain: inf,
-				main: 0,
-				cross: 0,
-				violation: 0,
+				n:          c,
+				base:       0,
+				hyp:        0,
+				pad:        0,
+				minMain:    0,
+				maxMain:    inf,
+				main:       0,
+				cross:      0,
+				violation:  0,
 				marginMain: 0,
-				marginCr: 0,
-				frozen: false,
+				marginCr:   0,
+				frozen:     false,
 			}
 			if row {
 				it.marginMain = marginX(t, c)
@@ -380,7 +380,7 @@ func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, f
 	}
 	if count > 0 && finite(mainSize) {
 		let gaps = gap * float32(count-1)
-		resolveFlexible(t, first, end, mainSize - gaps, lineMain - gaps < mainSize - gaps)
+		resolveFlexible(t, first, end, mainSize-gaps, lineMain-gaps < mainSize-gaps)
 		lineMain = gaps
 		for k in first..end {
 			lineMain = lineMain + t.items[k].main + t.items[k].marginMain
@@ -403,13 +403,13 @@ func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, f
 			if ok {
 				cross = clampW(t, n, v)
 			} else if stretches(t, n, align) && finite(cw) {
-				cross = clampW(t, n, cw - marginCr)
+				cross = clampW(t, n, cw-marginCr)
 			} else {
-				cross = fitWidth(t, n, cw - marginCr, cw)
+				cross = fitWidth(t, n, cw-marginCr, cw)
 			}
 		}
 		t.items[k].cross = cross
-		lineCross = fmax(lineCross, cross + marginCr)
+		lineCross = fmax(lineCross, cross+marginCr)
 	}
 	if count > 0 && finite(crossSize) {
 		lineCross = crossSize
@@ -420,12 +420,12 @@ func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, f
 			if row {
 				let (_, ok) = resolve(t.nodes[n].style.Height, base(ch))
 				if !ok {
-					t.items[k].cross = clampH(t, n, lineCross - t.items[k].marginCr)
+					t.items[k].cross = clampH(t, n, lineCross-t.items[k].marginCr)
 				}
 			} else {
 				let (_, ok) = resolve(t.nodes[n].style.Width, base(cw))
 				if !ok {
-					t.items[k].cross = clampW(t, n, lineCross - t.items[k].marginCr)
+					t.items[k].cross = clampW(t, n, lineCross-t.items[k].marginCr)
 				}
 			}
 		}
@@ -449,7 +449,7 @@ func flexLayout(t *Tree, i int, cw float32, ch float32, commit bool) (float32, f
 	let ms = if row { 3 } else { 0 }
 	let me = if row { 1 } else { 2 }
 	let cs = if row { 0 } else { 3 }
-	let (start, between) = justifyOffsets(t.nodes[i].style.Justify, fmax(contentMain - lineMain, 0), count)
+	let (start, between) = justifyOffsets(t.nodes[i].style.Justify, fmax(contentMain-lineMain, 0), count)
 	let mut pos = start
 	for k in first..end {
 		let it = t.items[k]
@@ -511,7 +511,7 @@ func resolveFlexible(t *Tree, first int, end int, space float32, growing bool) {
 				if growing {
 					sum = sum + t.nodes[n].style.Grow
 				} else {
-					sum = sum + t.nodes[n].style.Shrink * inner(t.items[k])
+					sum = sum + t.nodes[n].style.Shrink*inner(t.items[k])
 				}
 			}
 		}
@@ -523,9 +523,9 @@ func resolveFlexible(t *Tree, first int, end int, space float32, growing bool) {
 			if !t.items[k].frozen {
 				let n = t.items[k].n
 				if growing {
-					t.items[k].main = t.items[k].base + free * t.nodes[n].style.Grow / sum
+					t.items[k].main = t.items[k].base + free*t.nodes[n].style.Grow/sum
 				} else {
-					t.items[k].main = t.items[k].base + free * t.nodes[n].style.Shrink * inner(t.items[k]) / sum
+					t.items[k].main = t.items[k].base + free*t.nodes[n].style.Shrink*inner(t.items[k])/sum
 				}
 				let clamped = fmax(t.items[k].minMain, fmin(t.items[k].main, t.items[k].maxMain))
 				t.items[k].violation = clamped - t.items[k].main
@@ -547,7 +547,7 @@ func resolveFlexible(t *Tree, first int, end int, space float32, growing bool) {
 
 // inner is an item's flex base size less its padding, which scales how
 // much it shrinks.
-func inner(it item) float32 { fmax(it.base - it.pad, 0) }
+func inner(it item) float32 { fmax(it.base-it.pad, 0) }
 
 // justifyOffsets is where the first item goes and the space added between
 // items, with free DIPs left on a line of n items.
@@ -586,7 +586,7 @@ func layoutAbsolute(t *Tree, i int) needs Measure {
 		case Flow:
 		case Absolute as a:
 			let (wv, wok) = resolve(t.nodes[c].style.Width, pw)
-			let w = if wok { clampW(t, c, wv) } else { fitWidth(t, c, pw - marginX(t, c), pw) }
+			let w = if wok { clampW(t, c, wv) } else { fitWidth(t, c, pw-marginX(t, c), pw) }
 			let (hv, hok) = resolve(t.nodes[c].style.Height, ph)
 			let h = if hok { clampH(t, c, hv) } else { heightAt(t, c, w, ph) }
 			t.nodes[c].x = a.Left + t.nodes[c].style.Margin[3]
