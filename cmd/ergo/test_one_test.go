@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -21,7 +22,7 @@ type oneModule struct {
 	root    string
 	sources string // every file, for a failing seed's report
 	pkgs    []string
-	// reaches holds the branches the program takes: "fail", "refuted", "defect".
+	// reaches holds the branches the program takes (TestModuleTestMatchesEachPackage).
 	reaches map[string]bool
 }
 
@@ -37,6 +38,7 @@ func writeOneModule(t *testing.T, seed uint64) oneModule {
 		defect = r.IntN(n)
 	}
 	values := make([]int, n)
+	imported, escapes, records := make([]bool, n), make([]bool, n), make([]bool, n)
 	var all strings.Builder
 	for i := range n {
 		var b strings.Builder
@@ -44,6 +46,7 @@ func writeOneModule(t *testing.T, seed uint64) oneModule {
 		for j := range i {
 			if r.IntN(2) == 0 {
 				imports = append(imports, j)
+				imported[j] = true
 				fmt.Fprintf(&b, "import gen/p%d\n", j)
 			}
 		}
@@ -65,6 +68,22 @@ func writeOneModule(t *testing.T, seed uint64) oneModule {
 			fmt.Fprintf(&b, "\nlaw Even%d(n int) { n %% 2 == 0 }\n", i)
 			m.reaches["refuted"] = true
 		}
+		// A typed failure that escapes a test names its type, and a failed
+		// property case prints its record argument: what a package's name
+		// could reach in its report.
+		fmt.Fprintf(&b, "\ntype Bad%d {}\n\nfunc Fail%d() fails Bad%d { Bad%d }\n\ntype Pt%d { X int }\n", i, i, i, i, i)
+		if r.IntN(2) == 0 {
+			fmt.Fprintf(&b, "\ntest E%d { try Fail%d() }\n", i, i)
+			escapes[i] = true
+		}
+		if len(imports) > 0 && r.IntN(2) == 0 {
+			fmt.Fprintf(&b, "\ntest X%d { try p%d.Fail%d() }\n", i, imports[0], imports[0])
+			m.reaches["escaped import"] = true
+		}
+		if r.IntN(2) == 0 {
+			fmt.Fprintf(&b, "\ntest Q%d(p Pt%d) { assert p.X < 3 }\n", i, i)
+			records[i] = true
+		}
 		if i == defect {
 			fmt.Fprintf(&b, "\nfunc at%d(xs []int, i int) int { xs[i] }\n\ntest D%d { assert at%d([]int{}, 1) == 0 }\n", i, i, i)
 			m.reaches["defect"] = true
@@ -73,6 +92,19 @@ func writeOneModule(t *testing.T, seed uint64) oneModule {
 		smokeWrite(t, m.root, name, b.String())
 		fmt.Fprintf(&all, "// %s\n%s\n", name, b.String())
 		m.pkgs = append(m.pkgs, fmt.Sprintf("p%d", i))
+	}
+	// The branches that matter most are in a package another package
+	// imports: one load checks it once, for both roles.
+	for i := range n {
+		if imported[i] && escapes[i] {
+			m.reaches["escape in an imported package"] = true
+		}
+		if imported[i] && records[i] {
+			m.reaches["record in an imported package"] = true
+		}
+		if imported[i] && i == defect {
+			m.reaches["defect in an imported package"] = true
+		}
 	}
 	m.sources = all.String()
 	return m
@@ -94,13 +126,13 @@ func TestModuleTestMatchesEachPackage(t *testing.T) {
 	defer func() {
 		// The seeds reach a failed test, a refuted law and a defect,
 		// which stops the run before later packages.
-		for _, branch := range []string{"fail", "refuted", "defect"} {
+		for _, branch := range []string{"fail", "refuted", "defect", "escaped import", "escape in an imported package", "record in an imported package", "defect in an imported package"} {
 			if !reached[branch] {
 				t.Errorf("no seed reaches a %s; choose seeds that do", branch)
 			}
 		}
 	}()
-	for _, seed := range []uint64{3, 11, 42} {
+	for _, seed := range []uint64{3, 11, 42, 7, 23, 58} {
 		t.Run(fmt.Sprint(seed), func(t *testing.T) {
 			m := writeOneModule(t, seed)
 			for branch := range m.reaches {
@@ -180,9 +212,9 @@ func goLogger(t *testing.T, log string) string {
 }
 
 // TestModuleTestWorksOnce is TEST-one's counted work guard: a shared run
-// over K generated packages loads the module once, checks each package once
-// under its import path when another package imports it and once as its
-// own test build's root, and links once; each package's analysis reads
+// over K generated packages loads the module once, checks each package
+// once (one check serves as its importers' import and as its own test
+// build's root), and links once; each package's analysis reads
 // the same texts as checking it alone (its revision). The link is the go
 // command's, replaced by a process that builds nothing: the count is the
 // claim, not the binary.
@@ -207,14 +239,8 @@ func TestModuleTestWorksOnce(t *testing.T) {
 			t.Fatalf("seed %d: %v\n%s", seed, err, m.sources)
 		}
 		checked := sketchfront.WorkDone()
-		imported := map[string]bool{}
-		for _, a := range analyses {
-			for _, p := range a.Packages()[:len(a.Packages())-1] {
-				imported[p.Path] = true
-			}
-		}
-		if loads, checks := checked.Loads-before.Loads, checked.Checks-before.Checks; loads != 1 || checks != int64(len(dirs)+len(imported)) {
-			t.Fatalf("seed %d: %d loads and %d checks of %d packages, %d of them imported; want 1 load and one check of each identity\n%s", seed, loads, checks, len(dirs), len(imported), m.sources)
+		if loads, checks := checked.Loads-before.Loads, checked.Checks-before.Checks; loads != 1 || checks != int64(len(dirs)) {
+			t.Fatalf("seed %d: %d loads and %d checks of %d packages; want 1 load and one check of each package\n%s", seed, loads, checks, len(dirs), m.sources)
 		}
 		for i, a := range analyses {
 			alone, err := sketchfront.CheckDir(dirs[i])
@@ -237,5 +263,37 @@ func TestModuleTestWorksOnce(t *testing.T) {
 		if links := sketchfront.WorkDone().Links - linked.Links; links != 1 {
 			t.Fatalf("seed %d: %d links of %d packages; want one", seed, links, len(dirs))
 		}
+	}
+}
+
+// TestModuleTestPackageChecksAsMain is the smallest repro of the one rule
+// that reads a root's path, found when TEST-one round 2 checked each
+// package once: the builder rule (check/builders.go, rule 2) gives
+// celltest, under its import path gen/celltest, the builders of gen/cell's
+// operation types, so its property over cell.Cell checks; checked alone,
+// as main, it has none and reports S108. A shared load that another
+// package's import made check celltest only under its path would pass
+// what `ergo test celltest` refuses; it must refuse the shared load, so
+// the packages are tested alone.
+func TestModuleTestPackageChecksAsMain(t *testing.T) {
+	root := physicalTempDir(t)
+	smokeWrite(t, root, "ergo.mod", "module gen\n")
+	smokeWrite(t, root, "cell/cell.ergo", "type Cell {\n\tGet() int,\n}\n")
+	smokeWrite(t, root, "celltest/mem.ergo", "import gen/cell\n\ntype Mem { v int }\n\nfunc Get(m Mem) int { m.v }\n\nfunc NewMem() Mem { Mem{v: 7} }\n\ntest Reads(c cell.Cell) { assert c.Get() == 7 }\n")
+	smokeWrite(t, root, "user/user.ergo", "import gen/celltest\n\nfunc Seven() int { celltest.Get(celltest.NewMem()) }\n\ntest S { assert Seven() == 7 }\n")
+	alone, err := sketchfront.CheckDir(filepath.Join(root, "celltest"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alone.Diagnostics) == 0 {
+		t.Fatal("celltest checks alone; the repro no longer reaches the builder rule")
+	}
+	platform, err := platformOf("", false, os.Getenv("GOOS"), os.Getenv("GOARCH"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := []string{filepath.Join(root, "cell"), filepath.Join(root, "celltest"), filepath.Join(root, "user")}
+	if _, err := sketchfront.CheckPackages(dirs, platform); !errors.Is(err, sketchfront.ErrNotShared) {
+		t.Fatalf("CheckPackages = %v; want ErrNotShared, as celltest alone does not check", err)
 	}
 }

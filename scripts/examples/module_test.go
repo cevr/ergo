@@ -76,6 +76,28 @@ func TestModuleProgramJudgesEachPackage(t *testing.T) {
 	}
 }
 
+// One ergo test of a program of packages that did not test every package
+// of the program fails it: a package with no evaluated obligation has an
+// empty part of the report either way, so only the package list shows
+// that it never ran. It kills one-module-any-packages.
+func TestModuleProgramRunsEveryPackage(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	dir := "examples/walker"
+	f.write(dir+"/ergo.mod", "module walker\n")
+	f.write(dir+"/README.md", "# walker\n")
+	f.write(dir+"/tags", "default\n")
+	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
+	f.write(dir+"/walk/walk.ergo", "func w() {}\n")
+	f.write(dir+"/hidden/hidden.ergo", "// MODULEHIDDEN\n// CHECKJSON {\"checked\":true,\"evaluation\":{\"schemaVersion\":1,\"status\":\"none\",\"obligations\":[]}}\nfunc h() {}\n")
+	f.write(dir+"/cases/basic/expected.out", "hi\n")
+	code, out := f.run()
+	want := "FAIL walker: test: ergo test ran the packages walker/cmd/walker walker/walk; the program's packages are walker/cmd/walker walker/hidden walker/walk"
+	if code == 0 || !strings.Contains(out, want) {
+		t.Errorf("exit %d, want a failure with %q\n%s", code, want, out)
+	}
+}
+
 // The layout of a program of packages: its binary is cmd/NAME/main.ergo,
 // cmd holds nothing else, and a package folder holds .ergo files and
 // package folders only.

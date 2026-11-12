@@ -10,7 +10,8 @@
 #   fmt --check FILE...  fails on a file holding UNFORMATTED;
 #   test DIR/...         prints `package MODULE/REL` and the reply of test
 #                        REL for each package folder below DIR, and exits
-#                        with the worst status; logs only this call;
+#                        with the worst status; logs only this call; a
+#                        package holding MODULEHIDDEN is left out;
 #   test FILE            prints the reply of a compiler without ergo test on
 #                        TESTPENDING, fails on TESTFAIL; on TESTTICK starts a
 #                        ticker into ticks-test beside itself, then fails; on
@@ -56,6 +57,8 @@ test)
     module=$(sed -n 's/^module //p' "$base/ergo.mod")
     worst=0
     for d in $(find "$base" -name '*.ergo' -not -path '*/testdata/*' | sed 's,/[^/]*$,,' | sort -u); do
+      # A package holding MODULEHIDDEN is one this ergo does not select.
+      cat "$d"/*.ergo | grep -q MODULEHIDDEN && continue
       rel=${d#"$base"}
       echo "package $module$rel"
       ( exec env FAKE_ERGO_ONE=1 "$0" test "$d" )

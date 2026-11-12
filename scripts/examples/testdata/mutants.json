@@ -71,8 +71,7 @@
       "from": "if got := slices.Sorted(slices.Values(order)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {",
       "to": "if got := slices.Sorted(slices.Values(order)); false {",
       "rule": "A run that tested other packages than the program's fails the program.",
-      "killers": [],
-      "gap": "No fixture runs an ergo whose DIR/... selection differs from the runner's package folders; both walk the same folders today (sketchfront.DiscoverPackages, packageSources). The check guards a future divergence."
+      "killers": ["scripts/examples:TestModuleProgramRunsEveryPackage"]
     }
   ]
 }

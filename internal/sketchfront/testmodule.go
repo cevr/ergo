@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 
 	"ergo.local/prototype/internal/gobind"
@@ -18,11 +19,23 @@ import (
 // `ergo test DIR/...` used to load, check, lower and link each package's
 // test build alone: each package paid std's import, the check of every
 // package it imports and a Go link. CheckPackages reads the module once and
-// checks each imported package once, under its import path; each selected
-// package is then checked once as its own test build's root, the package
-// main, which is the identity its test report names (a typed failure's
-// type, a law's title). BuildTests lowers every root's test build into one
-// Go module (lower.LowerTestModule) and links it once.
+// checks each package once. A package that another package imports is
+// checked under its import path, and that one check is also its own test
+// build's root: the test report names no package of its own (its types and
+// laws print bare), so the root's check path is not an input of its report.
+// A package that no package imports is checked as main, the root of its own
+// program. BuildTests lowers every root's test build into one Go module
+// (lower.LowerTestModule) and links it once.
+//
+// One rule of the checker reads a root's path and not only its label: the
+// builder rule (check/builders.go, rule 2) makes the package whose path is
+// P+"test" a test package of P, whose New<X> functions build P's operation
+// types. Checked alone, a test package is main and has no such builders;
+// checked under its import path it has them, and a property over one of P's
+// operation types checks where alone it does not (TEST-one round 2). So a
+// selected package whose import path ends in "test" and that another
+// package imports is checked a second time, as main, as checking it alone
+// does: the one package that keeps two checks (testRootAlone).
 //
 // Each root's Analysis is the one CheckDir gives for that folder: the same
 // root, the same imports in the same order, and the same texts, so its
@@ -120,19 +133,28 @@ func CheckPackages(dirs []string, platform gobind.Platform) ([]Analysis, error) 
 	}
 	out := make([]Analysis, len(dirs))
 	for i, p := range selected {
-		root := &loadedPackage{path: p.path, dir: p.dir, imports: p.imports}
-		for _, f := range p.files {
-			parsed, err := syntax.Parse(f.text)
-			if err != nil {
+		root := p
+		switch {
+		case !imported[p]:
+			// Its one check: no package imports it, so it is main.
+			if !l.checkShared(p, "main") {
 				return nil, ErrNotShared
 			}
-			parsed.Name = f.syntax.Name
-			f.syntax = parsed
-			root.files = append(root.files, f)
-		}
-		l.roots = append(l.roots, root)
-		if !l.checkShared(root, "main") {
-			return nil, ErrNotShared
+		case testRootAlone(p.path):
+			root = &loadedPackage{path: p.path, dir: p.dir, imports: p.imports}
+			for _, f := range p.files {
+				parsed, err := syntax.Parse(f.text)
+				if err != nil {
+					return nil, ErrNotShared
+				}
+				parsed.Name = f.syntax.Name
+				f.syntax = parsed
+				root.files = append(root.files, f)
+			}
+			l.roots = append(l.roots, root)
+			if !l.checkShared(root, "main") {
+				return nil, ErrNotShared
+			}
 		}
 		imports := l.closure(p)
 		texts := maps.Clone(moduleTexts)
@@ -167,6 +189,16 @@ func (l *loader) checkShared(p *loadedPackage, path string) bool {
 	work.checks.Add(1)
 	p.pkg = pkg
 	return len(ds) == 0
+}
+
+// testRootAlone reports whether the package at path is a test package of
+// another under the checker's builder rule (check/builders.go, rule 2):
+// its path is a package's path with "test" after it. Its check as main
+// differs from its check under its import path, so as a root it is checked
+// as main, as a load of it alone checks it.
+func testRootAlone(path string) bool {
+	base, ok := strings.CutSuffix(path, "test")
+	return ok && base != ""
 }
 
 // closure is what visit gives a load of root alone: the local packages
