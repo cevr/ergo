@@ -214,6 +214,10 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"RegisterCalls": true, "RegisterInlines": true, "TextBool": true, "TextDuration": true,
 		"TextInt": true, "TextUint": true, "TextFloat": true, "TextList": true,
 		"Main": true, "Println": true, "End": true,
+		// A law case's with scope (lawCaseScope, EX-entry r4): frame
+		// plumbing as NewScope is; it neither waits nor releases. A with
+		// in a body opens its scope through scopeCall.
+		"OpenWith": true,
 		// IG11: an exported function's root task, as Main is main's; Go's
 		// caller waits on it, no Ergo task does. L5b: a Script operation's
 		// record of a call (script.go): one lock for one append, no wait,

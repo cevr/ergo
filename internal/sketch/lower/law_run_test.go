@@ -363,18 +363,25 @@ func TestLawRunLeastPackage(t *testing.T) {
 }
 
 // TestLawRunSkips: a law that cannot run says why, and the summary counts
-// it as skipped, never as a test (fs4); so does a run under a context
-// whose build acquires a provider with a Close (L5; mutant
-// lawctx-close-runs). A provider with no generator that a context which
-// runs builds (Fn under Wired) runs there and is no skip; one whose
-// context does not run (Gn under Kept) stays a skip, which says that its
-// Close keeps every context from running it (mutant
-// lawfix-close-ignored); a provider that runs (Sq) runs beside its
-// context (mutants lawctx-covers-none, lawctx-covers-any-type,
+// it as skipped, never as a test (fs4). A run under a context whose build
+// acquires a provider with a Close releases it at the end of each case,
+// after the law's last operation: Gn's Area is negative once its Close
+// ran (mutant lawrel-before-last-op) or while an earlier case's Gn is
+// unreleased (mutant lawrel-skipped). A context whose release a case
+// cannot run is a skip: a Close that needs a capability (Needy, mutant
+// lawrel-needs-ignored), a provider that names a package let (Pinned,
+// mutant lawrel-package-let) or a generic Close with witnesses
+// (Witnessed, mutant lawrel-witnessed). A provider with no generator that a
+// context which runs builds (Fn under Wired, Gn under Kept) runs there
+// and is no skip; one whose context does not run (Nd under Needy) stays
+// a skip; a provider that runs (Sq) runs beside its context (mutants
+// lawctx-covers-none, lawctx-covers-any-type,
 // lawctx-covers-unrun-context, lawctx-covers-runnable).
 func TestLawRunSkips(t *testing.T) {
 	needsBuild(t)
-	src := `type Shape {
+	src := `import sync
+
+type Shape {
 	Area() int,
 	law Positive() { Area() >= 0 },
 }
@@ -419,15 +426,52 @@ func openRes() Res { Res{n: 1} }
 
 let Held = context { Shape: openRes() }
 
-type Gn { g func(int) int }
+let pinned = Res{n: 3}
 
-func Area(_ Gn) int { 1 }
+let Pinned = context { Shape: pinned }
 
-func Close(_ Gn) {}
+let live = sync.NewRef(0)
 
-func openGn() Gn { Gn{g: func(n int) int { n }} }
+type Gn { g func(int) int, closed sync.Ref[bool] }
+
+func Area(g Gn) int {
+	if g.closed.Get() || live.Get() != 1 {
+		return -1
+	}
+	1
+}
+
+func Close(g Gn) {
+	g.closed.Set(true)
+	live.Set(live.Get() - 1)
+}
+
+func openGn() Gn {
+	live.Set(live.Get() + 1)
+	Gn{g: func(n int) int { n }, closed: sync.NewRef(false)}
+}
 
 let Kept = context { Shape: openGn() }
+
+type Nd { g func(int) int }
+
+func Area(_ Nd) int { 1 }
+
+func Close(_ Nd) needs Console {}
+
+let Needy = context { Shape: Nd{g: func(n int) int { n }} }
+
+type Nm {}
+
+func Name(_ Nm) string { "n" }
+
+type Wt[T] { Value T }
+
+func Area[T Named](_ Wt[T]) int { 1 }
+
+func Close[T Named](_ Wt[T]) {}
+
+let Witnessed = context { Shape: Wt[Nm]{Value: Nm} }
 
 type Sq { n int }
 
@@ -445,18 +489,21 @@ func main() {}
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_skips"])
 	want := []string{
-		"skip law Shape.Positive for Gn: its values have no generator: func(int) int is a function type; it has a Close, and a law case releases no provider, so no context runs it either",
+		"skip law Shape.Positive for Nd: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it",
 		"ok law Shape.Positive for Res (100 cases)",
 		"ok law Shape.Positive for Sq (100 cases)",
-		"skip law Shape.Positive under Held: its build acquires a provider with a Close, which a law case does not release",
-		"skip law Shape.Positive under Kept: its build acquires a provider with a Close, which a law case does not release",
+		"ok law Shape.Positive under Held (100 cases)",
+		"ok law Shape.Positive under Kept (100 cases)",
+		"skip law Shape.Positive under Needy: its provider's Close needs Console, and a law case has no capability to release it with",
+		"skip law Shape.Positive under Pinned: its provider names the package let pinned, which a case's release would close for every later case",
 		"ok law Shape.Positive under Sized (100 cases)",
 		"ok law Shape.Positive under Wired (100 cases)",
+		"skip law Shape.Positive under Witnessed: its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (#197)",
 		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
 		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
 		"skip law Ranked.Same: its operation type Ranked constrains T by operations, and a run passes no witness",
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
-		"PASS (4 tests, 7 skipped)",
+		"PASS (6 tests, 8 skipped)",
 	}
 	if code != 0 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))

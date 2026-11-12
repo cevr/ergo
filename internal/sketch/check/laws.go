@@ -579,7 +579,7 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 
 // lawProviderFixes adds to the skip of each provider with no generator
 // the fix the law's shape admits (lawProviderFix). It runs with the law
-// contexts, after the ownership pass, when a provider's Close is known.
+// contexts.
 func (c *checker) lawProviderFixes() {
 	for _, r := range c.pkg.LawRuns {
 		for _, b := range r.Bindings {
@@ -599,14 +599,10 @@ func (c *checker) lawProviderFixes() {
 // the fix is the explicit one: a test file binds the provider in a named
 // context, as cmd/NAME/main.ergo binds the binary's. A row-free New<P>
 // that built the providers P holds would choose them away from the entry
-// (lint with-at-entry). A provider with a Close runs under no context (a
-// law case releases nothing), so its skip says so. Any other law runs
-// under no context, so its fix is the constructor.
+// (lint with-at-entry). Any other law runs under no context, so its fix
+// is the constructor.
 func (c *checker) lawProviderFix(law *Law, p LawProvider) string {
 	if law.Owner != nil && len(law.Slots) == 1 && law.Slots[0].Param < 0 {
-		if c.providerClose(p.Type) != nil {
-			return "; it has a Close, and a law case releases no provider, so no context runs it either"
-		}
 		return "; bind one in a named context of a test file, let Name = context { " + p.Slot.String() + ": … }, and the law runs under it"
 	}
 	return "; a func New" + p.Type.Obj.Name + "() " + p.Type.Obj.Name + " with no rows would build one for each case"
