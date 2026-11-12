@@ -1,0 +1,317 @@
+// Package lint writes Ergo rule packs (docs/specs/custom-lint.md; plan
+// LINT4): the checker's fact snapshot as Ergo records and unions, the
+// rule-pack process protocol v1, and Serve, which answers one request of
+// `ergo lint` on standard input and output. It is the Ergo side of the Go
+// SDK ergo.local/prototype/lint and reads and writes the same encoded
+// form, fact schema ergo.lint.facts 2.
+//
+// A rule reads resolved identities, never spellings: a type, a callable
+// or a context is named by its declaring package and declared name. Each
+// kind of fact is a union, so a rule that matches on it covers every kind
+// or does not check, where the Go SDK compares strings. Snapshot values
+// are immutable, so every rule reads one decoded snapshot: no rule can
+// change what another rule sees, which the Go SDK gets by decoding a copy
+// for each rule.
+
+// Span is a place in one source file: the file (Source.File), a UTF-8 byte
+// offset and length, and the 1-based line and byte column of its start.
+type Span { File string, Offset int, Length int, Line int, Column int }
+
+// Schema identifies the fact schema of a snapshot.
+type Schema { Name string, Version int }
+
+// Semantic qualifies the compiler's analysis: Revision is the digest of
+// the analysed sources, which a response echoes.
+type Semantic { Revision string, Target string, Producer string, ReuseScope string }
+
+// Source is one analysed file: its path relative to the module root ("" for
+// a program of one source text) and its length, which bounds every span in
+// it.
+type Source { File string, URI string, Bytes int }
+
+// Family is one independently available group of facts.
+type Family = DeclarationsFamily | CallablesFamily | CallsFamily | WithsFamily | BindingsFamily | ImportsFamily
+
+// DeclarationsFamily: the program's type declarations and named contexts.
+type DeclarationsFamily {}
+
+// CallablesFamily: functions, tests and laws with their rows and footprints.
+type CallablesFamily {}
+
+// CallsFamily: every checked call, with its resolved callee and site row.
+type CallsFamily {}
+
+// WithsFamily: every with, with the provider of each capability it binds.
+type WithsFamily {}
+
+// BindingsFamily: local bindings and their resolved uses.
+type BindingsFamily {}
+
+// ImportsFamily: each file's imports and the package each resolved to.
+type ImportsFamily {}
+
+// UnknownKind is the failure of a kind's name that schema 2 does not have:
+// Of names the kind ("family", "type kind"), Name the text.
+type UnknownKind { Of string, Name string }
+
+// ParseFamily and Wire are Family's by-name codec pair: a family is its
+// name on the wire.
+func ParseFamily(name string) Family fails UnknownKind {
+	match name {
+	case "declarations":
+		DeclarationsFamily
+	case "callables":
+		CallablesFamily
+	case "calls":
+		CallsFamily
+	case "withs":
+		WithsFamily
+	case "bindings":
+		BindingsFamily
+	case "imports":
+		ImportsFamily
+	case _:
+		UnknownKind{Of: "family", Name: name}
+	}
+}
+
+// UnavailableFamily says why a family was not produced.
+type UnavailableFamily { Family Family, Reason string }
+
+// TypeKind is what a declared type is.
+type TypeKind = RecordType | UnionType | OperationType | DefinedType
+
+type RecordType {}
+type UnionType {}
+type OperationType {}
+type DefinedType {}
+
+// ParseTypeKind and Wire are TypeKind's by-name codec pair.
+func ParseTypeKind(name string) TypeKind fails UnknownKind {
+	match name {
+	case "record":
+		RecordType
+	case "union":
+		UnionType
+	case "operation":
+		OperationType
+	case "defined":
+		DefinedType
+	case _:
+		UnknownKind{Of: "type kind", Name: name}
+	}
+}
+
+// CallableKind is what a callable is.
+type CallableKind = FunctionCallable | TestCallable | LawCallable
+
+type FunctionCallable {}
+type TestCallable {}
+type LawCallable {}
+
+// ParseCallableKind and Wire are CallableKind's by-name codec pair.
+func ParseCallableKind(name string) CallableKind fails UnknownKind {
+	match name {
+	case "function":
+		FunctionCallable
+	case "test":
+		TestCallable
+	case "law":
+		LawCallable
+	case _:
+		UnknownKind{Of: "callable kind", Name: name}
+	}
+}
+
+// CallKind is what a call calls.
+type CallKind = FunctionCall | OperationCall | CapabilityCall | ValueCall | ConversionCall | WithCall | BuiltinCall
+
+type FunctionCall {}
+type OperationCall {}
+type CapabilityCall {}
+type ValueCall {}
+type ConversionCall {}
+type WithCall {}
+type BuiltinCall {}
+
+// ParseCallKind and Wire are CallKind's by-name codec pair.
+func ParseCallKind(name string) CallKind fails UnknownKind {
+	match name {
+	case "function":
+		FunctionCall
+	case "operation":
+		OperationCall
+	case "capability":
+		CapabilityCall
+	case "value":
+		ValueCall
+	case "conversion":
+		ConversionCall
+	case "with":
+		WithCall
+	case "builtin":
+		BuiltinCall
+	case _:
+		UnknownKind{Of: "call kind", Name: name}
+	}
+}
+
+// ImportKind is the kind of package an import resolved to.
+type ImportKind = StdImport | ProgramImport | HostImport
+
+type StdImport {}
+type ProgramImport {}
+type HostImport {}
+
+// ParseImportKind and Wire are ImportKind's by-name codec pair.
+func ParseImportKind(name string) ImportKind fails UnknownKind {
+	match name {
+	case "std":
+		StdImport
+	case "program":
+		ProgramImport
+	case "host":
+		HostImport
+	case _:
+		UnknownKind{Of: "import kind", Name: name}
+	}
+}
+
+// TypeDecl is a type the program declares. Identity is "type:" and the
+// declaring package's path, a dot and the name. Variants are a union's
+// variant identities; Operations an operation type's operation names.
+type TypeDecl {
+	Identity   string,
+	Package    string,
+	Name       string,
+	Kind       TypeKind,
+	Exported   bool,
+	Span       Span,
+	Variants   []string,
+	Operations []string,
+}
+
+// Context is a named context the program declares: what each entry binds.
+type Context { Identity string, Package string, Name string, Span Span, Entries []ContextEntry }
+
+// ContextEntry binds Capability (a type identity) to a provider whose type
+// is Provider. Converts is false when the provider's type is the
+// capability itself. Span is the provider expression, when there is one.
+type ContextEntry { Capability string, Provider string, Converts bool, Span Option[Span] }
+
+// Callable is a function, test or law of the program. Fails is its error
+// row and Needs its capability row, as checked: every error that can
+// escape the callable is in Fails. Footprint is derived from the body.
+type Callable {
+	Identity  string,
+	Package   string,
+	Name      string,
+	Kind      CallableKind,
+	Exported  bool,
+	Span      Span,
+	Extent    Span,
+	Fails     []string,
+	Needs     []string,
+	Footprint Footprint,
+}
+
+// Footprint is what a callable's body does when it runs: the capabilities
+// it exercises, whether it starts a task, and whether it runs code whose
+// footprint is unknown. An empty footprint is a pure callable.
+type Footprint { Capabilities []string, Tasks bool, Opaque bool }
+
+// Call is one checked call inside Caller. Callee is the resolved function
+// identity, or the operation's type identity and name ("type:pkg.T.Op");
+// a call of a function value has none. Fails is the error row at the site.
+type Call { Caller string, Callee Option[string], Kind CallKind, Span Span, Fails []string }
+
+// With is one with inside Callable: the named contexts it binds, the
+// provider each capability its block needs is bound to, and the provider
+// types it builds and owns, in acquisition order.
+type With { Callable string, Span Span, Contexts []string, Entries []ContextEntry, Acquired []string }
+
+// Binding is one local binding inside Callable, with the places the
+// checker resolved to it. Type is its type as the checker prints it.
+type Binding { Identity string, Callable string, Name string, Type string, Mutable bool, Span Span, Uses []Span }
+
+// Import is one import of a file: the name the file binds, the path of the
+// package it resolved to and that package's kind.
+type Import { Name string, Path string, Kind ImportKind, Span Span }
+
+// Snapshot is one read-only fact projection of a checked program. A
+// family absent from Families is unavailable: its lists are empty, and a
+// rule that requires it is never run.
+type Snapshot {
+	Schema      Schema,
+	Semantic    Semantic,
+	Sources     []Source,
+	Checked     bool,
+	Families    []Family,
+	Unavailable []UnavailableFamily,
+	Types       []TypeDecl,
+	Contexts    []Context,
+	Callables   []Callable,
+	Calls       []Call,
+	Withs       []With,
+	Bindings    []Binding,
+	Imports     []Import,
+}
+
+// SchemaName and SchemaVersion name the fact schema this package reads.
+let SchemaName = "ergo.lint.facts"
+
+let SchemaVersion = 2
+
+// TypeIdentity is the identity of the type "PKG.Name" names; the program
+// need not declare it (a std or host type).
+func TypeIdentity(qualified string) string { "type:" + qualified }
+
+// Has reports whether s holds family.
+func Has(s Snapshot, family Family) bool {
+	for f in s.Families {
+		if f == family {
+			return true
+		}
+	}
+	false
+}
+
+// CallableOf is the callable with identity, if s holds one.
+func CallableOf(s Snapshot, identity string) Option[Callable] {
+	for c in s.Callables {
+		if c.Identity == identity {
+			return Some{Value: c}
+		}
+	}
+	None
+}
+
+// FunctionNamed is every function declared as "PKG.Name": several when
+// x.f(…) functions share the name. Tests and laws are not functions.
+func FunctionNamed(s Snapshot, qualified string) []Callable {
+	let mut out = []Callable{}
+	for c in s.Callables {
+		let function = match c.Kind {
+		case FunctionCallable:
+			true
+		case TestCallable, LawCallable:
+			false
+		}
+		if function && c.Package+"."+c.Name == qualified {
+			out = out.Append(c)
+		}
+	}
+	out
+}
+
+// TypeNamed is the type the program declares as "PKG.Name", if it declares
+// one.
+func TypeNamed(s Snapshot, qualified string) Option[TypeDecl] {
+	let identity = TypeIdentity(qualified)
+	for t in s.Types {
+		if t.Identity == identity {
+			return Some{Value: t}
+		}
+	}
+	None
+}

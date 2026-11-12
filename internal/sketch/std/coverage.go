@@ -44,7 +44,7 @@ var coverage = map[string][]string{
 // counterpart outside the standard library (errgroup, x/term).
 var coversNone = []string{
 	"actor", "arena", "codec", "config", "explore", "io", "journal", "journal/file",
-	"journal/memory", "machines", "prompt", "queue", "rpc", "schedule", "scope",
+	"journal/memory", "lint", "machines", "prompt", "queue", "rpc", "schedule", "scope",
 	"task", "tasks", "term", "timeout", "toml", "trace",
 }
 

@@ -1,0 +1,224 @@
+// A pack: its rules, what each reports, and the manifest that describes
+// them to `ergo lint` without starting the pack.
+
+import json
+
+// Severity is a diagnostic severity. Off is valid only in configuration:
+// it turns a rule off rather than describing a finding.
+type Severity = Off | Error | Warning | Information | Hint
+
+type Off {}
+type Error {}
+type Warning {}
+type Information {}
+type Hint {}
+
+// ParseSeverity and Wire are Severity's by-name codec pair.
+func ParseSeverity(name string) Severity fails UnknownKind {
+	match name {
+	case "off":
+		Off
+	case "error":
+		Error
+	case "warning":
+		Warning
+	case "information":
+		Information
+	case "hint":
+		Hint
+	case _:
+		UnknownKind{Of: "severity", Name: name}
+	}
+}
+
+// OptionType is the type of a rule option's value.
+type OptionType = StringOption | BooleanOption | IntegerOption | StringListOption
+
+type StringOption {}
+type BooleanOption {}
+type IntegerOption {}
+type StringListOption {}
+
+// ParseOptionType and Wire are OptionType's by-name codec pair.
+func ParseOptionType(name string) OptionType fails UnknownKind {
+	match name {
+	case "string":
+		StringOption
+	case "boolean":
+		BooleanOption
+	case "integer":
+		IntegerOption
+	case "string-list":
+		StringListOption
+	case _:
+		UnknownKind{Of: "option type", Name: name}
+	}
+}
+
+// OptionSpec declares one rule option. Enum restricts a string or a
+// string list. A required option has no default.
+type OptionSpec { Name string, Type OptionType, Description string, Required bool, Enum []string, Default Option[json.Value] }
+
+// RuleFailed is the failure of a rule: Reason is the runner's text for it.
+// A failed rule reports no finding, and the run is not complete.
+type RuleFailed { Reason string }
+
+// Related is a secondary place that supports a finding.
+type Related { Message string, Span Span }
+
+// Edit replaces the source text at Span with NewText; an empty span
+// inserts.
+type Edit { Span Span, NewText string }
+
+// Suggestion proposes replacing source text. The runner shows it and never
+// applies it.
+type Suggestion { Message string, Edits []Edit }
+
+// Finding is one thing a rule reports. The runner gives it the rule's
+// identity and its configured severity: a rule chooses neither.
+type Finding { Message string, Span Span, Related []Related, Suggestions []Suggestion }
+
+// Rule is one rule of a pack. Name is local to the pack; its identity is
+// namespace/name. Check reads the snapshot and the rule's options, which
+// the runner has validated against Options and completed with their
+// defaults, and gives the findings in the order it found them.
+type Rule {
+	Name            string,
+	Version         string,
+	Description     string,
+	DefaultSeverity Severity,
+	Requires        []Family,
+	Options         []OptionSpec,
+	Check           func(s Snapshot, options json.Value) []Finding fails RuleFailed,
+}
+
+// RuleConfig is a preset's setting of one rule: a severity, options, or
+// both.
+type RuleConfig { Severity Option[Severity], Options Option[json.Value] }
+
+// Preset is a named set of settings for the pack's own rules, by local
+// rule name, that a configuration extends.
+type Preset { Name string, Description string, Rules Map[string, RuleConfig] }
+
+// Pack is a namespaced, versioned set of rules that ship together.
+// FactVersions are the fact schema versions it reads.
+type Pack { Namespace string, Version string, Description string, FactVersions []int, Rules []Rule, Presets []Preset }
+
+// RuleNamed is the rule of p called name, if p has one.
+func RuleNamed(p Pack, name string) Option[Rule] {
+	for r in p.Rules {
+		if r.Name == name {
+			return Some{Value: r}
+		}
+	}
+	None
+}
+
+// OptionsOf reads a rule's options as T, a record of the rule's options
+// whose fields are named as the options are (an option "allow" is a field
+// Allow). An optional option with no default is a json.Optional field.
+func OptionsOf[T wire](options json.Value) T fails RuleFailed {
+	let text = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, options)
+	json.Decode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return RuleFailed{Reason: "options: they are not of the rule's form"}
+	}
+}
+
+// ManifestVersion is the version of the manifest format.
+let ManifestVersion = 1
+
+type wireFactSchema { Name string, Versions []int }
+
+type wireExecutable { Path string }
+
+type wireOption {
+	Name        string,
+	Type        OptionType,
+	Description json.Optional[string],
+	Required    json.Optional[bool],
+	Enum        json.Optional[[]string],
+	Default     json.Optional[json.Value],
+}
+
+type wireManifestRule {
+	Name            string,
+	Version         string,
+	Description     string,
+	DefaultSeverity Severity,
+	Requires        []Family,
+	Options         json.Optional[[]wireOption],
+}
+
+type wireRuleConfig { Severity json.Optional[Severity], Options json.Optional[json.Value] }
+
+type wirePreset { Name string, Description json.Optional[string], Rules json.Optional[Map[string, wireRuleConfig]] }
+
+type wireManifest {
+	ManifestVersion int,
+	Namespace       string,
+	Version         string,
+	Description     json.Optional[string],
+	FactSchema      wireFactSchema,
+	Executable      wireExecutable,
+	Rules           []wireManifestRule,
+	Presets         json.Optional[[]wirePreset],
+}
+
+func present[T](o Option[T]) json.Optional[T] {
+	match o {
+	case None:
+		json.Absent
+	case Some[T] as s:
+		json.Present{Value: s.Value}
+	}
+}
+
+// Manifest is the manifest of p, whose built program is at executable
+// (relative to the manifest's folder): the JSON text `ergo lint` reads to
+// select and configure p's rules without starting it. The Go SDK's
+// Pack.Manifest writes the same document.
+func Manifest(p Pack, executable string) string {
+	let mut rules = []wireManifestRule{}
+	for r in p.Rules {
+		let mut options = []wireOption{}
+		for o in r.Options {
+			options = options.Append(wireOption{
+				Name:        o.Name,
+				Type:        o.Type,
+				Description: someText(o.Description),
+				Required:    someFlag(o.Required),
+				Enum:        someList(o.Enum),
+				Default:     present(o.Default),
+			})
+		}
+		rules = rules.Append(wireManifestRule{
+			Name:            r.Name,
+			Version:         r.Version,
+			Description:     r.Description,
+			DefaultSeverity: r.DefaultSeverity,
+			Requires:        r.Requires,
+			Options:         someList(options),
+		})
+	}
+	let mut presets = []wirePreset{}
+	for preset in p.Presets {
+		let mut settings = Map[string, wireRuleConfig]{}
+		for name, c in preset.Rules {
+			settings[name] = wireRuleConfig{Severity: present(c.Severity), Options: present(c.Options)}
+		}
+		let set json.Optional[Map[string, wireRuleConfig]] = if len(settings) == 0 { json.Absent } else { json.Present{Value: settings} }
+		presets = presets.Append(wirePreset{Name: preset.Name, Description: someText(preset.Description), Rules: set})
+	}
+	let m = wireManifest{
+		ManifestVersion: ManifestVersion,
+		Namespace:       p.Namespace,
+		Version:         p.Version,
+		Description:     someText(p.Description),
+		FactSchema:      wireFactSchema{Name: SchemaName, Versions: p.FactVersions},
+		Executable:      wireExecutable{Path: executable},
+		Rules:           rules,
+		Presets:         someList(presets),
+	}
+	json.Encode(json.Codec[wireManifest]{MaxBytes: 0, MaxDepth: 0}, m)
+}

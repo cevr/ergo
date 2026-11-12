@@ -43,6 +43,7 @@ import (
 //go:embed http/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
+//go:embed lint/*.ergo
 var sources embed.FS
 
 // PreludePath is the package path of the prelude. No import names it: its

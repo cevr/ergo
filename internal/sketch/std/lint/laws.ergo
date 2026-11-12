@@ -1,0 +1,53 @@
+// The laws of the encoded forms a pack reads and writes. The ledger in
+// docs/spec/stdlib.md names the test that runs each law.
+
+import strings
+
+// SnapshotRoundTrips: the text EncodeSnapshot writes, in the Go SDK's
+// form that leaves empty lists, flags and texts out, DecodeSnapshot reads
+// back as the same snapshot, every kind of fact by its name.
+law SnapshotRoundTrips(s Snapshot) {
+	let back = DecodeSnapshot(EncodeSnapshot(s)) catch {
+	case SnapshotFailed:
+		return false
+	}
+	back == s
+}
+
+// FrameRoundTrips: ReadFrame reads the payload WriteFrame framed, in this
+// package's protocol version, whatever bytes the payload holds.
+law FrameRoundTrips(payload string) {
+	let f = ReadFrame(WriteFrame(payload)) catch {
+	case FrameMalformed:
+		return false
+	}
+	f == Frame{Version: ProtocolVersion, Payload: payload}
+}
+
+// FrameIsExact: a frame with a byte more or a byte less than its header
+// says is malformed, so a pack never answers a request it read in part.
+law FrameIsExact(payload string, extra string) {
+	let framed = WriteFrame(payload)
+	let _ = ReadFrame(framed + extra + "x") catch {
+	case FrameMalformed:
+		let _ = ReadFrame(strings.Slice(framed, 0, len(framed)-1)) catch {
+		case FrameMalformed:
+			return true
+		}
+		return false
+	}
+	false
+}
+
+// NamesReadBack: a severity and an option type read back from their names.
+law NamesReadBack(t OptionType, s Severity) {
+	let parsedType = ParseOptionType(t.Wire()) catch {
+	case UnknownKind:
+		return false
+	}
+	let parsedSeverity = ParseSeverity(s.Wire()) catch {
+	case UnknownKind:
+		return false
+	}
+	parsedType == t && parsedSeverity == s
+}

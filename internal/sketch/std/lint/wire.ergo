@@ -1,0 +1,335 @@
+// The encoded form of a snapshot: the Go SDK's JSON, which leaves out a
+// list, a flag or a text that is empty (encoding/json's omitempty). The
+// records below are that form, with json.Optional where a key may be
+// absent; the fact records above have none, so a rule reads an empty list
+// and never an absent one. Snapshot and its encoded form convert both ways,
+// and the law SnapshotRoundTrips holds that a snapshot's text reads back as
+// the snapshot.
+
+import json
+import strconv
+
+type wireSource { File string, URI json.Optional[string] "uri", Bytes int }
+
+type wireSemantic { Revision string, Target string, Producer json.Optional[string], ReuseScope json.Optional[string] }
+
+type wireTypeDecl {
+	Identity   string,
+	Package    string,
+	Name       string,
+	Kind       TypeKind,
+	Exported   json.Optional[bool],
+	Span       Span,
+	Variants   json.Optional[[]string],
+	Operations json.Optional[[]string],
+}
+
+type wireEntry { Capability string, Provider string, Converts json.Optional[bool], Span json.Optional[Span] }
+
+type wireContext { Identity string, Package string, Name string, Span Span, Entries json.Optional[[]wireEntry] }
+
+type wireFootprint { Capabilities json.Optional[[]string], Tasks json.Optional[bool], Opaque json.Optional[bool] }
+
+type wireCallable {
+	Identity  string,
+	Package   string,
+	Name      string,
+	Kind      CallableKind,
+	Exported  json.Optional[bool],
+	Span      Span,
+	Extent    Span,
+	Fails     json.Optional[[]string],
+	Needs     json.Optional[[]string],
+	Footprint wireFootprint,
+}
+
+type wireCall { Caller string, Callee json.Optional[string], Kind CallKind, Span Span, Fails json.Optional[[]string] }
+
+type wireWith { Callable string, Span Span, Contexts json.Optional[[]string], Entries json.Optional[[]wireEntry], Acquired json.Optional[[]string] }
+
+type wireBinding { Identity string, Callable string, Name string, Type string, Mutable json.Optional[bool], Span Span, Uses json.Optional[[]Span] }
+
+type wireSnapshot {
+	Schema      Schema,
+	Semantic    wireSemantic,
+	Sources     []wireSource,
+	Checked     bool,
+	Families    []Family,
+	Unavailable json.Optional[[]UnavailableFamily],
+	Types       json.Optional[[]wireTypeDecl],
+	Contexts    json.Optional[[]wireContext],
+	Callables   json.Optional[[]wireCallable],
+	Calls       json.Optional[[]wireCall],
+	Withs       json.Optional[[]wireWith],
+	Bindings    json.Optional[[]wireBinding],
+	Imports     json.Optional[[]Import],
+}
+
+// SnapshotFailed is the failure of a snapshot text that is not one fact
+// snapshot of this schema's form: Reason says where and why.
+type SnapshotFailed { Reason string }
+
+// DecodeSnapshot is the snapshot text encodes.
+func DecodeSnapshot(text string) Snapshot fails SnapshotFailed {
+	let w = json.Decode(json.Codec[wireSnapshot]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as m:
+		return SnapshotFailed{Reason: "malformed at byte \(m.Offset): \(m.Reason)"}
+	case WireMissingField as m:
+		return SnapshotFailed{Reason: "missing \(at(m.Path, m.Field))"}
+	case WireWrongKind as k:
+		return SnapshotFailed{Reason: "\(at(k.Path, "")) is not \(k.Want)"}
+	case WireUnknownTag as u:
+		return SnapshotFailed{Reason: "\(at(u.Path, "")) has no variant \(u.Tag)"}
+	case UnknownKind as u:
+		return SnapshotFailed{Reason: "unknown \(u.Of) \(strconv.Quote(u.Name))"}
+	}
+	fromWire(w)
+}
+
+// EncodeSnapshot is the text of s in the Go SDK's form.
+func EncodeSnapshot(s Snapshot) string { json.Encode(json.Codec[wireSnapshot]{MaxBytes: 0, MaxDepth: 0}, toWire(s)) }
+
+// at names a place of the text: a path and a field in it.
+func at(path string, field string) string {
+	if path == "" && field == "" {
+		return "the snapshot"
+	}
+	if path == "" {
+		return field
+	}
+	if field == "" {
+		return path
+	}
+	path + "." + field
+}
+
+func list[T](o json.Optional[[]T]) []T {
+	match o {
+	case json.Absent:
+		[]T{}
+	case json.Present[[]T] as p:
+		p.Value
+	}
+}
+
+func flag(o json.Optional[bool]) bool {
+	match o {
+	case json.Absent:
+		false
+	case json.Present[bool] as p:
+		p.Value
+	}
+}
+
+func text(o json.Optional[string]) string {
+	match o {
+	case json.Absent:
+		""
+	case json.Present[string] as p:
+		p.Value
+	}
+}
+
+func someList[T](xs []T) json.Optional[[]T] {
+	if len(xs) == 0 {
+		json.Absent
+	} else {
+		json.Present{Value: xs}
+	}
+}
+
+func someFlag(b bool) json.Optional[bool] {
+	if b {
+		json.Present{Value: true}
+	} else {
+		json.Absent
+	}
+}
+
+func someText(s string) json.Optional[string] {
+	if s == "" {
+		json.Absent
+	} else {
+		json.Present{Value: s}
+	}
+}
+
+func entryOf(w wireEntry) ContextEntry {
+	let span Option[Span] = match w.Span {
+	case json.Absent:
+		None
+	case json.Present[Span] as p:
+		Some{Value: p.Value}
+	}
+	ContextEntry{Capability: w.Capability, Provider: w.Provider, Converts: flag(w.Converts), Span: span}
+}
+
+func wireOfEntry(e ContextEntry) wireEntry {
+	let span json.Optional[Span] = match e.Span {
+	case None:
+		json.Absent
+	case Some[Span] as s:
+		json.Present{Value: s.Value}
+	}
+	wireEntry{Capability: e.Capability, Provider: e.Provider, Converts: someFlag(e.Converts), Span: span}
+}
+
+func entriesOf(o json.Optional[[]wireEntry]) []ContextEntry {
+	let mut out = []ContextEntry{}
+	for w in list(o) {
+		out = out.Append(entryOf(w))
+	}
+	out
+}
+
+func wireOfEntries(es []ContextEntry) json.Optional[[]wireEntry] {
+	let mut out = []wireEntry{}
+	for e in es {
+		out = out.Append(wireOfEntry(e))
+	}
+	someList(out)
+}
+
+func fromWire(w wireSnapshot) Snapshot {
+	let mut sources = []Source{}
+	for s in w.Sources {
+		sources = sources.Append(Source{File: s.File, URI: text(s.URI), Bytes: s.Bytes})
+	}
+	let mut types = []TypeDecl{}
+	for t in list(w.Types) {
+		types = types.Append(TypeDecl{
+			Identity:   t.Identity,
+			Package:    t.Package,
+			Name:       t.Name,
+			Kind:       t.Kind,
+			Exported:   flag(t.Exported),
+			Span:       t.Span,
+			Variants:   list(t.Variants),
+			Operations: list(t.Operations),
+		})
+	}
+	let mut contexts = []Context{}
+	for c in list(w.Contexts) {
+		contexts = contexts.Append(Context{Identity: c.Identity, Package: c.Package, Name: c.Name, Span: c.Span, Entries: entriesOf(c.Entries)})
+	}
+	let mut callables = []Callable{}
+	for c in list(w.Callables) {
+		callables = callables.Append(Callable{
+			Identity:  c.Identity,
+			Package:   c.Package,
+			Name:      c.Name,
+			Kind:      c.Kind,
+			Exported:  flag(c.Exported),
+			Span:      c.Span,
+			Extent:    c.Extent,
+			Fails:     list(c.Fails),
+			Needs:     list(c.Needs),
+			Footprint: Footprint{Capabilities: list(c.Footprint.Capabilities), Tasks: flag(c.Footprint.Tasks), Opaque: flag(c.Footprint.Opaque)},
+		})
+	}
+	let mut calls = []Call{}
+	for c in list(w.Calls) {
+		let callee Option[string] = match c.Callee {
+		case json.Absent:
+			None
+		case json.Present[string] as p:
+			Some{Value: p.Value}
+		}
+		calls = calls.Append(Call{Caller: c.Caller, Callee: callee, Kind: c.Kind, Span: c.Span, Fails: list(c.Fails)})
+	}
+	let mut withs = []With{}
+	for x in list(w.Withs) {
+		withs = withs.Append(With{Callable: x.Callable, Span: x.Span, Contexts: list(x.Contexts), Entries: entriesOf(x.Entries), Acquired: list(x.Acquired)})
+	}
+	let mut bindings = []Binding{}
+	for b in list(w.Bindings) {
+		bindings = bindings.Append(Binding{Identity: b.Identity, Callable: b.Callable, Name: b.Name, Type: b.Type, Mutable: flag(b.Mutable), Span: b.Span, Uses: list(b.Uses)})
+	}
+	Snapshot{
+		Schema:      w.Schema,
+		Semantic:    Semantic{Revision: w.Semantic.Revision, Target: w.Semantic.Target, Producer: text(w.Semantic.Producer), ReuseScope: text(w.Semantic.ReuseScope)},
+		Sources:     sources,
+		Checked:     w.Checked,
+		Families:    w.Families,
+		Unavailable: list(w.Unavailable),
+		Types:       types,
+		Contexts:    contexts,
+		Callables:   callables,
+		Calls:       calls,
+		Withs:       withs,
+		Bindings:    bindings,
+		Imports:     list(w.Imports),
+	}
+}
+
+func toWire(s Snapshot) wireSnapshot {
+	let mut sources = []wireSource{}
+	for x in s.Sources {
+		sources = sources.Append(wireSource{File: x.File, URI: someText(x.URI), Bytes: x.Bytes})
+	}
+	let mut types = []wireTypeDecl{}
+	for t in s.Types {
+		types = types.Append(wireTypeDecl{
+			Identity:   t.Identity,
+			Package:    t.Package,
+			Name:       t.Name,
+			Kind:       t.Kind,
+			Exported:   someFlag(t.Exported),
+			Span:       t.Span,
+			Variants:   someList(t.Variants),
+			Operations: someList(t.Operations),
+		})
+	}
+	let mut contexts = []wireContext{}
+	for c in s.Contexts {
+		contexts = contexts.Append(wireContext{Identity: c.Identity, Package: c.Package, Name: c.Name, Span: c.Span, Entries: wireOfEntries(c.Entries)})
+	}
+	let mut callables = []wireCallable{}
+	for c in s.Callables {
+		callables = callables.Append(wireCallable{
+			Identity:  c.Identity,
+			Package:   c.Package,
+			Name:      c.Name,
+			Kind:      c.Kind,
+			Exported:  someFlag(c.Exported),
+			Span:      c.Span,
+			Extent:    c.Extent,
+			Fails:     someList(c.Fails),
+			Needs:     someList(c.Needs),
+			Footprint: wireFootprint{Capabilities: someList(c.Footprint.Capabilities), Tasks: someFlag(c.Footprint.Tasks), Opaque: someFlag(c.Footprint.Opaque)},
+		})
+	}
+	let mut calls = []wireCall{}
+	for c in s.Calls {
+		let callee json.Optional[string] = match c.Callee {
+		case None:
+			json.Absent
+		case Some[string] as v:
+			json.Present{Value: v.Value}
+		}
+		calls = calls.Append(wireCall{Caller: c.Caller, Callee: callee, Kind: c.Kind, Span: c.Span, Fails: someList(c.Fails)})
+	}
+	let mut withs = []wireWith{}
+	for x in s.Withs {
+		withs = withs.Append(wireWith{Callable: x.Callable, Span: x.Span, Contexts: someList(x.Contexts), Entries: wireOfEntries(x.Entries), Acquired: someList(x.Acquired)})
+	}
+	let mut bindings = []wireBinding{}
+	for b in s.Bindings {
+		bindings = bindings.Append(wireBinding{Identity: b.Identity, Callable: b.Callable, Name: b.Name, Type: b.Type, Mutable: someFlag(b.Mutable), Span: b.Span, Uses: someList(b.Uses)})
+	}
+	wireSnapshot{
+		Schema:      s.Schema,
+		Semantic:    wireSemantic{Revision: s.Semantic.Revision, Target: s.Semantic.Target, Producer: someText(s.Semantic.Producer), ReuseScope: someText(s.Semantic.ReuseScope)},
+		Sources:     sources,
+		Checked:     s.Checked,
+		Families:    s.Families,
+		Unavailable: someList(s.Unavailable),
+		Types:       someList(types),
+		Contexts:    someList(contexts),
+		Callables:   someList(callables),
+		Calls:       someList(calls),
+		Withs:       someList(withs),
+		Bindings:    someList(bindings),
+		Imports:     someList(s.Imports),
+	}
+}

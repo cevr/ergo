@@ -1,0 +1,207 @@
+// The rule-pack process protocol, version 1 (docs/specs/custom-lint.md):
+// a pack reads one request frame from standard input, writes one response
+// frame to standard output and ends. A frame is the header
+// "ERGO-LINT <version> <length>\n" and then exactly length bytes of JSON;
+// the numbers are canonical decimals and the header is at most 64 bytes.
+
+import io
+import json
+import strconv
+import strings
+
+// ProtocolVersion is the version of the framing and of the request and
+// response this package speaks.
+let ProtocolVersion = 1
+
+// MaxRequestBytes bounds the request payload a pack reads.
+let MaxRequestBytes = 256 << 20
+
+let frameMagic = "ERGO-LINT"
+
+let maxFrameHeaderBytes = 64
+
+// FrameMalformed is the failure of input that is not one frame.
+type FrameMalformed { Reason string }
+
+// VersionUnsupported is the failure of a request of another protocol
+// version. Serve has answered it with a frame of its own version, which
+// the runner reports as a protocol mismatch.
+type VersionUnsupported { Version int }
+
+// RequestTooLarge is the failure of a request longer than MaxRequestBytes.
+type RequestTooLarge { Bytes int }
+
+// RequestInvalid is the failure of a request payload that is not one
+// request: Reason says why.
+type RequestInvalid { Reason string }
+
+// ServeFailed is every way Serve can fail to answer: the input is not one
+// frame of this version, or the request in it is not one request.
+type ServeFailed = FrameMalformed | VersionUnsupported | RequestTooLarge | RequestInvalid
+
+// Frame is one decoded frame: its version and its payload.
+type Frame { Version int, Payload string }
+
+// WriteFrame is the frame of payload in this package's version.
+func WriteFrame(payload string) string {
+	"\(frameMagic) \(ProtocolVersion) \(len(payload))\n" + payload
+}
+
+// ReadFrame is the one frame text holds: a valid header and then exactly
+// its length of payload, with nothing after.
+func ReadFrame(text string) Frame fails FrameMalformed {
+	let h = try frameHeaderOf(text)
+	Frame{Version: h.Version, Payload: try payloadOf(h)}
+}
+
+// frameHeader is a frame's decoded header and the text after it.
+type frameHeader { Version int, Length int, Rest string }
+
+// payloadOf is the payload after h: exactly its length, with nothing after.
+func payloadOf(h frameHeader) string fails FrameMalformed {
+	if len(h.Rest) < h.Length {
+		return FrameMalformed{Reason: "frame truncated after \(len(h.Rest)) of \(h.Length) bytes: end of output"}
+	}
+	if len(h.Rest) > h.Length {
+		return FrameMalformed{Reason: "data follows the frame"}
+	}
+	h.Rest
+}
+
+// frameHeaderOf reads the header at the start of text, as the Go SDK
+// does: up to the first line feed, at most 64 bytes.
+func frameHeaderOf(text string) frameHeader fails FrameMalformed {
+	let end = strings.Index(text, "\n")
+	if end < 0 {
+		if len(text) == 0 {
+			return FrameMalformed{Reason: "no frame: end of output"}
+		}
+		if len(text) > maxFrameHeaderBytes {
+			return FrameMalformed{Reason: "frame header exceeds \(maxFrameHeaderBytes) bytes"}
+		}
+		return FrameMalformed{Reason: "truncated frame header: end of output"}
+	}
+	if end > maxFrameHeaderBytes {
+		return FrameMalformed{Reason: "frame header exceeds \(maxFrameHeaderBytes) bytes"}
+	}
+	let line = strings.Slice(text, 0, end)
+	let malformed = FrameMalformed{Reason: "malformed frame header \(strconv.Quote(line))"}
+	let fields = strings.Split(line, " ")
+	if len(fields) != 3 || fields[0] != frameMagic {
+		return malformed
+	}
+	let version = decimal(fields[1])
+	let length = decimal(fields[2])
+	if version <= 0 || length < 0 {
+		return malformed
+	}
+	frameHeader{Version: version, Length: length, Rest: strings.Slice(text, end+1, len(text))}
+}
+
+// decimal is the value of a canonical decimal (no sign, no leading zero,
+// at most 12 digits), or -1.
+func decimal(text string) int {
+	if text == "" || len(text) > 12 || len(text) > 1 && strings.HasPrefix(text, "0") {
+		return -1
+	}
+	for r in text {
+		if r < '0' || r > '9' {
+			return -1
+		}
+	}
+	strconv.Atoi(text) catch {
+	case _:
+		return -1
+	}
+}
+
+type RequestPack { Namespace string, Version string, Identity string }
+
+type RequestRule { Name string, Version string, Options json.Value }
+
+type request { Id string, Pack RequestPack, Rules []RequestRule, Snapshot json.Value }
+
+type snapshotSemantic { Revision string }
+
+type snapshotHeader { Schema Schema, Semantic snapshotSemantic }
+
+type wireFinding { Message string, Span Span, Related json.Optional[[]Related], Suggestions json.Optional[[]Suggestion] }
+
+type wireResult { Name string, Status string, Reason json.Optional[string], Findings json.Optional[[]wireFinding] }
+
+type response { Id string, Revision string, Rules []wireResult }
+
+type refusal { Error string }
+
+// Serve answers the one request frame on standard input with one response
+// frame on standard output. A rule's failure is a failed result in the
+// response, not a failure of Serve; Serve fails only when there is no
+// request to answer. A pack's main is one call:
+//
+//	func main() fails os.Exit needs io.Stdin | io.Stdout {
+//		lint.Serve(mypack.Pack) catch { case lint.ServeFailed as f: return os.Exit{Code: 1, Message: "lint pack: " + lint.Reason(f)} … }
+//	}
+func Serve(p Pack) fails ServeFailed | io.ReadFailed needs io.Stdin | io.Stdout {
+	let input = try io.Stdin.ReadAll()
+	let answer = Answer(p, input) catch {
+	case VersionUnsupported as v:
+		io.Stdout.Print(Refusal(v.Version))
+		return v
+	case FrameMalformed as m:
+		return m
+	case RequestTooLarge as t:
+		return t
+	case RequestInvalid as i:
+		return i
+	}
+	io.Stdout.Print(answer)
+}
+
+// Answer is the response frame Serve writes for the input frame: Serve
+// without the streams, so a test runs a pack on a request it holds. It
+// reads the header, then the version, then the size, then the payload, as
+// the Go SDK does, so a request of another version fails
+// VersionUnsupported whatever follows its header, and Serve answers it
+// with Refusal.
+func Answer(p Pack, input string) string fails ServeFailed {
+	let h = try frameHeaderOf(input)
+	if h.Version != ProtocolVersion {
+		return VersionUnsupported{Version: h.Version}
+	}
+	if h.Length > MaxRequestBytes {
+		return RequestTooLarge{Bytes: h.Length}
+	}
+	let payload = try payloadOf(h)
+	let r = json.Decode(json.Codec[request]{MaxBytes: 0, MaxDepth: 0}, payload) catch {
+	case json.Malformed as m:
+		return RequestInvalid{Reason: "invalid request: \(m.Reason) at byte \(m.Offset)"}
+	case WireMissingField as m:
+		return RequestInvalid{Reason: "invalid request: missing \(at(m.Path, m.Field))"}
+	case WireWrongKind as k:
+		return RequestInvalid{Reason: "invalid request: \(at(k.Path, "")) is not \(k.Want)"}
+	case WireUnknownTag as u:
+		return RequestInvalid{Reason: "invalid request: \(at(u.Path, "")) has no variant \(u.Tag)"}
+	}
+	WriteFrame(json.Encode(json.Codec[response]{MaxBytes: 0, MaxDepth: 0}, respond(p, r)))
+}
+
+// Refusal is the frame Serve writes when a request speaks another
+// protocol version, so the runner names the mismatch.
+func Refusal(version int) string {
+	let text = "unsupported protocol version \(version); this pack speaks \(ProtocolVersion)"
+	WriteFrame(json.Encode(json.Codec[refusal]{MaxBytes: 0, MaxDepth: 0}, refusal{Error: text}))
+}
+
+// Reason is the text of a Serve failure, for a pack's standard error.
+func Reason(f ServeFailed) string {
+	match f {
+	case FrameMalformed as m:
+		m.Reason
+	case VersionUnsupported as v:
+		"unsupported protocol version \(v.Version)"
+	case RequestTooLarge as t:
+		"request of \(t.Bytes) bytes exceeds \(MaxRequestBytes)"
+	case RequestInvalid as i:
+		i.Reason
+	}
+}

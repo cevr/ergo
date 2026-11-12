@@ -1,0 +1,112 @@
+// The names of the kinds on the wire: each Wire here is the other half of
+// a Parse function beside its union (facts.ergo, pack.ergo), so each kind
+// is its name in the encoded form. The halves are in two files, so the
+// parser derives no pair law; the laws SnapshotRoundTrips (every kind of
+// a fact, through a snapshot's text) and NamesReadBack (a severity and an
+// option type) hold them.
+
+// Wire is the name of f.
+func Wire(f Family) string {
+	match f {
+	case DeclarationsFamily:
+		"declarations"
+	case CallablesFamily:
+		"callables"
+	case CallsFamily:
+		"calls"
+	case WithsFamily:
+		"withs"
+	case BindingsFamily:
+		"bindings"
+	case ImportsFamily:
+		"imports"
+	}
+}
+
+// Wire is the name of k.
+func Wire(k TypeKind) string {
+	match k {
+	case RecordType:
+		"record"
+	case UnionType:
+		"union"
+	case OperationType:
+		"operation"
+	case DefinedType:
+		"defined"
+	}
+}
+
+// Wire is the name of k.
+func Wire(k CallableKind) string {
+	match k {
+	case FunctionCallable:
+		"function"
+	case TestCallable:
+		"test"
+	case LawCallable:
+		"law"
+	}
+}
+
+// Wire is the name of k.
+func Wire(k CallKind) string {
+	match k {
+	case FunctionCall:
+		"function"
+	case OperationCall:
+		"operation"
+	case CapabilityCall:
+		"capability"
+	case ValueCall:
+		"value"
+	case ConversionCall:
+		"conversion"
+	case WithCall:
+		"with"
+	case BuiltinCall:
+		"builtin"
+	}
+}
+
+// Wire is the name of k.
+func Wire(k ImportKind) string {
+	match k {
+	case StdImport:
+		"std"
+	case ProgramImport:
+		"program"
+	case HostImport:
+		"host"
+	}
+}
+
+// Wire is the name of s.
+func Wire(s Severity) string {
+	match s {
+	case Off:
+		"off"
+	case Error:
+		"error"
+	case Warning:
+		"warning"
+	case Information:
+		"information"
+	case Hint:
+		"hint"
+	}
+}
+
+// Wire is the name of t.
+func Wire(t OptionType) string {
+	match t {
+	case StringOption:
+		"string"
+	case BooleanOption:
+		"boolean"
+	case IntegerOption:
+		"integer"
+	case StringListOption:
+		"string-list"
+	}
+}
