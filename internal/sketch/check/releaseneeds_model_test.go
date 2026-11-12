@@ -17,8 +17,10 @@ import (
 // property of the release-needs rule: a release is charged where its value
 // is acquired, as a call of its Close there would be. It generates
 // packages (sketchtest.RelNeeds) over resource shapes (a Close that needs
-// A, B, both or none, directly or through a record field or a slice
-// element) × release points (a scope's end, an early return, a
+// A, B, both or none, directly or through a record field, a slice element,
+// an Option's variant, a queue's values left or a written Close's parts;
+// the property asserts that its seeds reach every part, RelParts)
+// × release points (a scope's end, an early return, a
 // temporary's statement, a handoff into a taking callee, a handoff of a
 // local) × providers (an inferred row, a written row, an exported
 // function's empty row, a with that provides one capability or both), with calls
@@ -35,7 +37,7 @@ import (
 //
 // Mutants it kills that no other test does (ledger: releaseneeds.go): no
 // second check (a release charges nothing); a part's Close not walked
-// (Box, []RA); a temporary not charged; a taken parameter not charged; a
+// (Box, []RA, Option[RB], queue.Queue[RA], W<k>); a temporary not charged; a taken parameter not charged; a
 // with's provision ignored by a release charge; a charge made only in the
 // reporting pass, so an inferred row misses it; an encode or a decode not
 // charged; an inferred ParseX not ordered before its decoder; a
@@ -54,8 +56,17 @@ func TestReleaseNeedsModel(t *testing.T) {
 		}
 	}
 	needRe := regexp.MustCompile(`requires (\w+), which is not in the capability row`)
+	reached := map[string]bool{}
+	defer func() {
+		for _, p := range sketchtest.RelParts {
+			if len(seeds) > 1 && !t.Failed() && !reached[p] {
+				t.Errorf("no seed releases a value whose Close that needs a capability is reached through the part %q of its Drop graph", p)
+			}
+		}
+	}()
 	for _, seed := range seeds {
 		g := sketchtest.NewRelNeeds(rand.New(rand.NewPCG(seed, 0x5e1ea5e)))
+		g.Parts(reached)
 		src := g.Source()
 		wantRows, wantMissing, wantRefused := g.Model()
 		c, diags := checkFor(src)
