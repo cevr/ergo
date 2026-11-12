@@ -89,6 +89,8 @@ import (
 // The reference is form A for every union: unionLowering "interface", set
 // by a test or by a build with
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.unionLowering=interface.
+// unionLowering "slots" keeps the flat unions with a slot per variant,
+// never the shared slots (U1, below): the reference of the shared form.
 // TestMachineFlatRunAgrees runs each generated machine with flat signals,
 // with interface signals and through std's loop called through the
 // record; TestFlatUnionsAgree runs
@@ -124,7 +126,93 @@ type flatUnion struct {
 	// niche reports an Option instance of a go.Ref[S] whose Go value is
 	// the pointer itself: nil is None, any other pointer Some.
 	niche bool
+	// shared reports the shared slot form (U1, below): the struct holds
+	// slots by Go type, not a record per variant. slots are the slots'
+	// checked types, by index; fieldSlot[k][i] is the slot of variant k's
+	// field i. canShare reports that every variant is a plain record, so
+	// the narrowing can rebuild it from its fields.
+	shared, canShare bool
+	slots            []check.Type
+	fieldSlot        [][]int
 }
+
+// Shared typed payload slots (U1, speed-2). The form above gives each
+// fieldful variant a slot of its own, so a union of many variants that
+// each hold one int needs a slot per variant and misses Go's register
+// limits (stackvm's Instr: five variants of one int is a tag and five
+// words, so it was an interface). The shared form gives the struct one
+// slot per field of the widest variant, by Go type: the variants' fields
+// of one Go type share the slots of that type, the i-th such field of a
+// variant in the i-th such slot.
+//
+//	type Instr struct {
+//		tag uint8
+//		p0  int // Push's N, Jump's To, Call's To; zero for Add
+//	}
+//	func (Instr) of0(v Push) Instr { return Instr{tag: 0, p0: v.N} }
+//	func (u Instr) as0() Push      { return Push{N: u.p0} }
+//
+// Each of method builds a fresh struct, so a slot the tag's variant does
+// not use is zero, and Go's == on the struct is still Ergo's ==. Only
+// identical Go types share (a basic type by its kind, a non-generic named
+// type by its declaration); any other field type has a slot of its own.
+// No bits are reinterpreted and nothing is unsafe.
+//
+// The shared form is taken where it fits the register limits (step 4);
+// where it does not and the per-variant form does, the union keeps the
+// per-variant form; past both it is an interface. Each round of the rule
+// decides the form again from the forms of the unions a union holds; the
+// set only shrinks and flat unions hold each other without a cycle, so
+// the rounds end. The
+// per-variant form stays selectable as the reference: unionLowering
+// "slots" takes it for every union.
+
+// slotKey is the key under which fields of type t share a slot: equal
+// keys are one Go type. nil means a slot of its own.
+func slotKey(t check.Type) any {
+	switch u := t.(type) {
+	case *check.Basic:
+		return u.Kind
+	case *check.Named:
+		if u.Orig == nil && len(u.TArgs) == 0 && len(u.TParams) == 0 {
+			return u
+		}
+	}
+	return nil
+}
+
+// shareSlots assigns the shared slots of fu from its variants' fields.
+func (fu *flatUnion) shareSlots() {
+	keys := []any{}
+	fu.fieldSlot = make([][]int, len(fu.variants))
+	for k, v := range fu.variants {
+		used := map[int]bool{}
+		for _, f := range v.Underlying().(*check.Struct).Fields {
+			key, s := slotKey(f.Type), -1
+			if key != nil {
+				for j, kj := range keys {
+					if kj == key && !used[j] {
+						s = j
+						break
+					}
+				}
+			}
+			if s < 0 {
+				s = len(keys)
+				keys = append(keys, key)
+				fu.slots = append(fu.slots, f.Type)
+			}
+			used[s] = true
+			fu.fieldSlot[k] = append(fu.fieldSlot[k], s)
+		}
+	}
+}
+
+// sharedName is the Go field of shared slot s.
+func sharedName(s int) string { return "p" + strconv.Itoa(s) }
+
+// asName is the Go method that rebuilds variant k from its shared slots.
+func asName(k int) string { return "as" + strconv.Itoa(k) }
 
 // instance is fu's copy for n, an instance of its generic declaration.
 func (fu *flatUnion) instance(n *check.Named) *flatUnion {
@@ -275,7 +363,21 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 			if l.flatSet[tn] == nil {
 				continue
 			}
+			// The shared form where it fits, else the per-variant form,
+			// decided again each round from the forms of the unions it
+			// holds: flat unions hold each other without a cycle, so
+			// the forms settle once the set does.
+			fu := l.flatSet[tn]
+			was := fu.shared
+			fu.shared = fu.canShare
 			lay, cycle, known := l.layoutOf(tn.Type, map[*check.TypeName]bool{}, 0)
+			if cycle == nil && known && !lay.ssa && fu.shared {
+				fu.shared = false
+				lay, cycle, known = l.layoutOf(tn.Type, map[*check.TypeName]bool{}, 0)
+			}
+			if fu.shared != was {
+				changed = true
+			}
 			switch {
 			case cycle != nil:
 				delete(l.flatSet, cycle)
@@ -450,7 +552,7 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 	if !ok || len(u.Variants) == 0 || len(u.Variants) > 255 || u.Row != nil {
 		return nil
 	}
-	fu := &flatUnion{tn: n.Obj}
+	fu := &flatUnion{tn: n.Obj, canShare: unionLowering != "slots"}
 	for _, v := range u.Variants {
 		vn, ok := v.(*check.Named)
 		if !ok || vn.Orig != nil || len(vn.TParams) > 0 || vn.Obj.Decl == nil || l.errorType(vn) {
@@ -462,6 +564,15 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 		}
 		fu.variants = append(fu.variants, vn)
 		fu.slot = append(fu.slot, len(st.Fields) > 0)
+		// The shared form rebuilds a variant by a Go composite literal of
+		// its record: a declared record, not a type defined over one.
+		if _, rec := vn.Obj.Decl.Spec.(*syntax.StructType); !rec || vn.Alias() != nil || vn.Defined() != nil {
+			fu.canShare = false
+		}
+	}
+	if fu.canShare {
+		fu.shareSlots()
+		fu.shared = true
 	}
 	return fu
 }
@@ -580,6 +691,16 @@ func (l *lowerer) layoutOf(t check.Type, path map[*check.TypeName]bool, depth in
 			path[obj] = true
 			defer delete(path, obj)
 			lays := []goLayout{{size: 1, align: 1, ssa: true}}
+			if fu.shared {
+				for _, st := range fu.slots {
+					s, c, ok := l.layoutOf(st, path, depth+1)
+					if c != nil || !ok {
+						return goLayout{}, c, ok
+					}
+					lays = append(lays, s)
+				}
+				return structLayout(lays), nil, true
+			}
 			for k, v := range fu.variants {
 				if !fu.slot[k] {
 					continue
@@ -905,6 +1026,10 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 		}
 		self += "[" + strings.Join(names, ", ") + "]"
 	}
+	if fu.shared {
+		l.sharedDecl(b, td, fu, tc, self)
+		return
+	}
 	for k, v := range fu.variants {
 		if fu.slot[k] {
 			b.WriteString("\t" + slotName(k) + " " + tc.goType(v) + "\n")
@@ -921,6 +1046,39 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 			param, slot = "v", ", "+slotName(k)+": v"
 		}
 		b.WriteString("func (" + self + ") " + ofName(k) + "(" + param + " " + tc.goType(v) + ") " + self + " { return " + self + "{tag: " + strconv.Itoa(tag) + slot + "} }\n")
+	}
+	b.WriteString("\n")
+}
+
+// sharedDecl writes the rest of the shared form's Go type, after its tag:
+// its slots, and per variant the of method that writes the variant's
+// fields into their slots and the as method that rebuilds the variant.
+func (l *lowerer) sharedDecl(b interface{ WriteString(string) (int, error) }, td *typeDecl, fu *flatUnion, tc *typeCtx, self string) {
+	for s, st := range fu.slots {
+		b.WriteString("\t" + sharedName(s) + " " + tc.goType(st) + "\n")
+	}
+	b.WriteString("}\n\n")
+	site := syntax.Node(td.tn.Decl.Name)
+	for k, v := range fu.variants {
+		tag := k
+		if unionMutant == "sig-tag" {
+			tag = (k + 1) % len(fu.variants)
+		}
+		fields := v.Underlying().(*check.Struct).Fields
+		vd := l.typeDecl(v.Obj, site)
+		param := "_"
+		var into, from []string
+		for i, f := range fields {
+			param = "v"
+			s := sharedName(fu.fieldSlot[k][i])
+			into = append(into, s+": v."+vd.fieldName[f.Name])
+			from = append(from, vd.fieldName[f.Name]+": u."+s)
+		}
+		vt := tc.goType(v)
+		b.WriteString("func (" + self + ") " + ofName(k) + "(" + param + " " + vt + ") " + self + " { return " + self + "{" + strings.Join(append([]string{"tag: " + strconv.Itoa(tag)}, into...), ", ") + "} }\n")
+		if len(fields) > 0 {
+			b.WriteString("func (u " + self + ") " + asName(k) + "() " + vt + " { return " + vt + "{" + strings.Join(from, ", ") + "} }\n")
+		}
 	}
 	b.WriteString("\n")
 }
@@ -965,6 +1123,9 @@ func (fu *flatUnion) flatNarrow(tc *typeCtx, val string, k int) string {
 	}
 	if fu.niche {
 		return tc.goType(fu.variants[k]) + "{" + memberName("Value") + ": " + val + "}"
+	}
+	if fu.shared {
+		return val + "." + asName(k) + "()"
 	}
 	return val + "." + slotName(k)
 }
