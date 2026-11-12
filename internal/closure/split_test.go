@@ -43,7 +43,9 @@ const costFile = "scripts/gate/durations.json"
 // CPU-s with a cache per run and 1521 with the shared one, gl-sweep-cache,
 // measured under load), so a run of 45 s takes
 // about 3 CPU-minutes, and at the batch-10 gate's share (0.45 CPU per run)
-// about 7 minutes: well under the 20 minute run deadline (runDeadline).
+// about 7 minutes; under the batch-16b merge tier's load two runs took
+// over 19 minutes, so a run's deadline follows its recorded cost
+// (runDeadline, at least 30 minutes).
 const sweepRunBudget = 45.0
 
 // readCosts reads costFile under root: each package's recorded seconds per
@@ -105,6 +107,54 @@ type sweepRun struct {
 	cost       float64
 	unmeasured []string // tests of the run with no recorded time
 	weights    map[string]float64
+	// deadlineCost is the run's recorded cost that sets its deadline
+	// (runDeadline): withDeadlineCosts.
+	deadlineCost float64
+}
+
+// cpuCostFile records each test's CPU seconds for the packages the gate
+// shards (scripts/gate testCPUFile, `-record-durations -cpu`). Wall time
+// (costFile) plans the runs; a run's deadline reads CPU where the package
+// has rows, since a test that builds Go spends several CPUs per second of
+// wall: the runs of internal/sketch/lower took far more than their
+// recorded wall under load (gate16b-fix3).
+const cpuCostFile = "scripts/gate/test-cpu.json"
+
+// readCPUCosts reads cpuCostFile under root by package directory, as
+// readCosts reads costFile; no file is no table.
+func readCPUCosts(root, module string) (map[string]map[string]float64, error) {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(cpuCostFile)))
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]map[string]float64{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var byPath map[string]map[string]float64
+	if err := json.Unmarshal(data, &byPath); err != nil {
+		return nil, fmt.Errorf("%s: %w", cpuCostFile, err)
+	}
+	costs := map[string]map[string]float64{}
+	for importPath, tests := range byPath {
+		if dir, ok := strings.CutPrefix(importPath, module+"/"); ok {
+			costs[dir] = tests
+		}
+	}
+	return costs, nil
+}
+
+// withDeadlineCosts sets each run's deadlineCost: the CPU seconds cpu
+// records for its tests, or its recorded wall (cost) when that is more,
+// as when the package has no CPU rows.
+func withDeadlineCosts(plan []sweepRun, cpu map[string]float64) []sweepRun {
+	for i := range plan {
+		sum := 0.0
+		for _, name := range plan[i].tests {
+			sum += cpu[name]
+		}
+		plan[i].deadlineCost = max(sum, plan[i].cost)
+	}
+	return plan
 }
 
 // planRuns splits the tests names of one package into runs over costs, the

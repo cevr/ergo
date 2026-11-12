@@ -460,7 +460,7 @@ func runAgentTarget(t *testing.T, f fixture, dir, stepsFile string, lateAccept b
 	}
 	sock, stop := startAgent(t, lateAccept)
 	stem := filepath.Join(dir, "internal_p")
-	o, runErr := runObserved(f.root, "internal/p", f.pkg, stem, "", []string{agentVariable + "=" + sock, agentStepsVariable + "=" + stepsFile}, nil, self, append([]string{"-test.run=^TestAgentTarget$"}, args...)...)
+	o, runErr := runObserved(f.root, "internal/p", f.pkg, stem, "", 0, []string{agentVariable + "=" + sock, agentStepsVariable + "=" + stepsFile}, nil, self, append([]string{"-test.run=^TestAgentTarget$"}, args...)...)
 	var results []agentRead
 	if runErr == nil {
 		runErr = readResultsInto(stem+".out", &results)

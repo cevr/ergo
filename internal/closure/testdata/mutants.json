@@ -156,6 +156,24 @@
       "rule": "The code is in a test file, which the cover tool does not instrument. A fill removes the stores of other toolchains, so the store directory does not grow.",
       "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
       "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
+    },
+    {
+      "name": "gf3-run-deadline-from-wall",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "internal/closure/split_test.go",
+      "from": "plan[i].deadlineCost = max(sum, plan[i].cost)",
+      "to": "plan[i].deadlineCost = max(0*sum, plan[i].cost)",
+      "rule": "A swept run's deadline reads the CPU its tests record, not only their wall.",
+      "killers": ["internal/closure:TestRunDeadlineFollowsRecordedCPU"]
+    },
+    {
+      "name": "gf3-run-deadline-ignores-cost",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "internal/closure/sandbox_test.go",
+      "from": "d := hangDeadline(cost)",
+      "to": "d := hangDeadline(0)",
+      "rule": "A swept run's deadline is ten times its recorded cost, not a fixed bound.",
+      "killers": ["internal/closure:TestRunDeadlineFollowsRecordedCPU"]
     }
   ]
 }

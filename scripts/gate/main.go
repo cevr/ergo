@@ -252,11 +252,13 @@ type gate struct {
 	// spoolDir holds the steps' output spools (outputSpoolDir).
 	spoolDir string
 	noCache  bool
-	steps    []*Step
-	files    []string
-	digests  map[string]string
-	tools    map[string]*toolFact
-	toolsMu  sync.Mutex
+	// recordCPU: -record-durations -cpu (writeTestCPU).
+	recordCPU bool
+	steps     []*Step
+	files     []string
+	digests   map[string]string
+	tools     map[string]*toolFact
+	toolsMu   sync.Mutex
 
 	// roots are the paths the tool fingerprints cover (installationRoots).
 	roots []string
@@ -351,9 +353,13 @@ func main() {
 	merge := flag.Bool("merge", false, "the merge tier: run every step uncached (every go test with -count=1) and compare each verdict with the full tier's whole-gate record of the checkout's key")
 	recordDurations := flag.Bool("record-durations", false, "measure the tests of the named Go packages (every test package when none is named) serially and rewrite their rows of "+durationsFile)
 	fast := flag.Bool("fast", false, "with -record-durations: run the named packages' fast-tier steps one at a time and rewrite their CPU seconds in "+fastCPUFile)
+	cpu := flag.Bool("cpu", false, "with -record-durations: measure the CPU seconds of each test of the named packages (the sharded packages when none is named), one test at a time, and rewrite their rows of "+testCPUFile)
 	flag.Parse()
 	if *fast && !*recordDurations {
 		fatal(errors.New("-fast goes with -record-durations only"))
+	}
+	if *cpu && (!*recordDurations || *fast) {
+		fatal(errors.New("-cpu goes with -record-durations only, without -fast"))
 	}
 	if *merge && *noCache {
 		fatal(errors.New("--merge runs every step uncached already; it takes no --no-cache"))
@@ -427,6 +433,7 @@ func main() {
 		exitGate(2)
 	}
 	if *recordDurations {
+		g.recordCPU = *cpu
 		if err := g.recordDurations(os.Stdout, flag.Args(), *fast); err != nil {
 			fatal(err)
 		}
