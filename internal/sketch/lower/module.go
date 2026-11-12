@@ -320,6 +320,10 @@ type lowerer struct {
 	// (v1.HostWalk) for its init: the program names a body that makes an
 	// actor's host, which a recover may make (v1.NeedsHostWalk).
 	hostWalk bool
+	// probing is set while runtimeNamed asks runtimeType whether a std type
+	// is the runtime's: runtimeType then names nothing, so no leaf import
+	// is recorded for a reference main.go never writes (binsize BS8).
+	probing bool
 	// hostImports are the Go packages a lowered call of a user extern
 	// names (hostPkg), imported under their reserved names.
 	hostImports map[string]bool

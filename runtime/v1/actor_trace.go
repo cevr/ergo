@@ -116,6 +116,17 @@ func VariantOf[T any]() string {
 	return rt.TypeName(strings.TrimPrefix(rt.TypeString(p), "*"))
 }
 
+// FlatVariant is the name of the variant T of a generic flat union, which
+// its ErgoVariant method reads when a traced runner names a value it holds
+// (binsize BS8): the variant's type arguments are the instance's, so no
+// constant can spell them. It is the name VariantOf gives, read lazily on
+// the trace path; VariantOf itself stays the registry lowering's alone, so
+// the sizes facts that forbid it still tell that lowering apart.
+func FlatVariant[T any]() string {
+	var p *T
+	return rt.TypeName(strings.TrimPrefix(rt.TypeString(p), "*"))
+}
+
 // typeID is the identity of the Go type T without reflect (binsize BS2):
 // the type word of a nil *T, which the Go runtime keeps once per type.
 func typeID[T any]() unsafe.Pointer {

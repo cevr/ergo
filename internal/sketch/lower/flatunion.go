@@ -932,11 +932,11 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 	// the name the runtime would read from it is the union's. A generic
 	// union's variant names hold the instance's type arguments, which only
 	// the instance knows: its ErgoVariant reads each variant's Go type name
-	// at run time (v1.VariantOf), as the runtime reads a boxed variant's.
+	// at run time (v1.FlatVariant), as the runtime reads a boxed variant's.
 	if len(td.tparams) > 0 {
 		names := make([]string, len(fu.variants))
 		for k, v := range fu.variants {
-			names[k] = l.rtRef("VariantOf") + "[" + tc.goType(v) + "]"
+			names[k] = l.rtRef("FlatVariant") + "[" + tc.goType(v) + "]"
 		}
 		b.WriteString("func (x " + self + ") ErgoVariant() string { return [...]func() string{" + strings.Join(names, ", ") + "}[x.tag]() }\n")
 		b.WriteString("\n")

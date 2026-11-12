@@ -36,21 +36,10 @@ var stdRecord = v1.StdRecord
 // pointer to the runtime's type of the same name, whose methods are its
 // operations, and an open one is a declaration of the program.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
-	return l.runtimeTypeBy(n, site, l.rtRef)
-}
-
-// runtimeNamed reports whether runtimeType gives n a runtime type. It
-// names nothing in main.go: naming a leaf's type imports the leaf, and a
-// test that writes no reference must not import one (binsize BS8; a
-// program whose only rand.Stream use was this test imported the rand
-// leaf unused).
-func (l *lowerer) runtimeNamed(n *check.Named, site syntax.Node) bool {
-	return l.runtimeTypeBy(n, site, func(name string) string { return name }) != ""
-}
-
-// runtimeTypeBy is runtimeType, with ref naming a declaration of
-// runtime/v1 or of one of its leaves.
-func (l *lowerer) runtimeTypeBy(n *check.Named, site syntax.Node, ref func(string) string) string {
+	ref := l.rtRef
+	if l.probing {
+		ref = func(name string) string { return name }
+	}
 	obj := n.Obj
 	if check.IsGoError(n) {
 		// The predeclared go.Error, a user extern's failure (G4).
@@ -124,6 +113,18 @@ var runtimeProtocols = map[string]bool{
 	"time.Timeline": true, "rand.Stream": true, "config.Redacted": true,
 	"exec.Running": true, "http.Exchange": true, "http.Listener": true,
 	"http.BodyFile": true, "fs.HostRoot": true,
+}
+
+// runtimeNamed reports whether runtimeType gives n a runtime type. It
+// names nothing in main.go (l.probing): naming a leaf's type imports the
+// leaf, and a test that writes no reference must not import one (binsize
+// BS8; examples/calc, whose only rand.Stream use was such a test,
+// imported the rand leaf unused).
+func (l *lowerer) runtimeNamed(n *check.Named, site syntax.Node) bool {
+	was := l.probing
+	l.probing = true
+	defer func() { l.probing = was }()
+	return l.runtimeType(n, site) != ""
 }
 
 // isRuntimeType reports a std type the runtime's Go type stands for.
@@ -643,24 +644,30 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 
 // graphArg is the hidden graph argument of the call c of an actor's start
 // (machine.go, graphArg): the graph of the machine whose states and
-// signals are the call's type arguments for S and E.
+// signals are the call's type arguments for the Go body's first two type
+// parameters (v1.GraphOf: a start's states, then its signals), matched to
+// the Ergo signature's type parameters by name as stdTypeArgs matches
+// them.
 func (fc *funcCtx) graphArg(c *check.Call, site syntax.Node) string {
 	var state, signal string
-	if c != nil && c.Func != nil {
-		for i, tp := range c.Func.Sig.TParams {
-			if i >= len(c.TypeArgs) {
-				break
-			}
-			switch tp.Name {
-			case "S":
-				state = fc.goType(c.TypeArgs[i])
-			case "E":
-				signal = fc.goType(c.TypeArgs[i])
+	if c != nil && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Extern != nil {
+		_, name := c.Func.Decl.Extern.Split()
+		if body, err := v1.BodyOf(name); err == nil && len(body.TypeParams) >= 2 {
+			for i, tp := range c.Func.Sig.TParams {
+				if i >= len(c.TypeArgs) {
+					break
+				}
+				switch tp.Name {
+				case body.TypeParams[0].Name:
+					state = fc.goType(c.TypeArgs[i])
+				case body.TypeParams[1].Name:
+					signal = fc.goType(c.TypeArgs[i])
+				}
 			}
 		}
 	}
 	if state == "" || signal == "" {
-		ice(site, "a std body takes a machine's graph, and the called function has no type arguments S and E")
+		ice(site, "a std body takes a machine's graph, and the called function has no type arguments for its body's first two type parameters")
 	}
 	return fc.l.graphArg(state, signal)
 }
