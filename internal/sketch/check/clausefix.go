@@ -40,7 +40,11 @@ type ClauseFix struct {
 	Row      []string
 	InsertAt int
 	Text     string
-	Imports  []string
+	// Open, when not zero, is where "(" goes, with ")" at InsertAt before
+	// Text: a lone result of function type would otherwise take the
+	// clause as its own row (`func m() (func()) needs C`).
+	Open    int
+	Imports []string
 	// Signature is the function's header with the clause written, as the
 	// formatter prints it (the diagnostic's "write:" text).
 	Signature string
@@ -175,10 +179,15 @@ func (c *checker) clauseFix(f *Func, kind Kind, missing *Row) *ClauseFix {
 	default:
 		fix.InsertAt = int(clauseAt(ft))
 		fix.Text = " " + fix.Clause + " " + joined
+		if r := ft.Results; r != nil && !r.Opening.IsValid() && len(r.List) == 1 {
+			if _, ok := r.List[0].Type.(*syntax.FuncType); ok {
+				fix.Open = int(r.List[0].Type.Pos())
+			}
+		}
 	}
-	fix.Signature = signatureText(f.file.syntax.Src, d, fix.InsertAt, fix.Text)
+	fix.Signature = signatureText(f.file.syntax.Src, d, fix)
 	if !spellable {
-		fix.Text = ""
+		fix.Text, fix.Open = "", 0
 	}
 	return fix
 }
@@ -225,11 +234,14 @@ func writtenRow(src string, d *syntax.FuncDecl, kind Kind) []string {
 	return out
 }
 
-// signatureText is the header of d with text inserted at offset at, as
-// the formatter prints it.
-func signatureText(src string, d *syntax.FuncDecl, at int, text string) string {
-	start, end := int(d.Func), int(d.Body.Lbrace)
-	header := src[start:at] + text + src[at:end]
+// signatureText is the header of d with fix applied, as the formatter
+// prints it.
+func signatureText(src string, d *syntax.FuncDecl, fix *ClauseFix) string {
+	start, end, at := int(d.Func), int(d.Body.Lbrace), fix.InsertAt
+	header := src[start:at] + fix.Text + src[at:end]
+	if fix.Open > 0 {
+		header = src[start:fix.Open] + "(" + src[fix.Open:at] + ")" + fix.Text + src[at:end]
+	}
 	out, err := format.Source(header + "{}\n")
 	if err == nil {
 		if h, ok := strings.CutSuffix(strings.TrimSuffix(out, "\n"), " {}"); ok && !strings.Contains(h, "\n") {

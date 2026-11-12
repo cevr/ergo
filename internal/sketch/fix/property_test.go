@@ -18,16 +18,17 @@ var fixSeed = flag.Int64("fix.seed", 0, "replay one seed of TestFixProperty")
 
 // TestFixProperty is EXPLICIT §4's property against a least-row model of
 // a generated program: call chains, recursive groups, exported functions,
-// leaves whose written rows stay, operation-type capabilities, methods
-// and two failure kinds per function. A random subset of the clauses is
-// deleted, wholly or in part. Checked: fix then check has no clause
-// diagnostic and the same other diagnostics as the fully written program;
-// each written row is the model's least row; fix twice is fix once; fix
-// keeps the formatter's layout and changes bytes only on signature and
-// import lines; the rounds stay within Bound. Mutants (ledger in
-// mutants.md): drop one element of a clause, write needs for fails, skip
-// the re-check loop, insert after takes, skip the import, reorder written
-// elements.
+// leaves whose written rows stay, operation-type capabilities, methods,
+// two failure kinds per function and results of function type. A random
+// subset of the clauses is deleted, wholly or in part. Checked: fix then
+// check has no clause diagnostic and the same other diagnostics as the
+// fully written program; each written row is the model's least row; fix
+// twice is fix once; fix keeps the formatter's layout and changes bytes
+// only on signature and import lines; the rounds stay within Bound.
+// Mutants (ledger in testdata/mutants.json): drop one element of a
+// clause, write needs for fails, skip the re-check loop, insert after
+// takes, skip the import, reorder written elements, leave a
+// function-typed result unparenthesized.
 func TestFixProperty(t *testing.T) {
 	seeds := 60
 	first := int64(1)
@@ -43,7 +44,7 @@ func TestFixProperty(t *testing.T) {
 	}
 	// Every case the property claims is reached by some seed.
 	if *fixSeed == 0 {
-		for _, what := range []string{"import added", "second round", "clause extended", "exported widened"} {
+		for _, what := range []string{"import added", "second round", "clause extended", "exported widened", "result opened"} {
 			if reached[what] == 0 {
 				t.Errorf("no seed reached %q: %v", what, reached)
 			}
@@ -82,6 +83,9 @@ type gfunc struct {
 	takesArg bool               // the function hands off a parameter
 	withCaps []int              // capabilities used inside a with that provides them
 	lit      []bool             // per call: through a local function literal
+	// funcResult: the result is func() int, which takes a clause written
+	// after it as its own row unless it is in parentheses.
+	funcResult bool
 }
 
 func errName(i int) string { return fmt.Sprintf("E%d", i) }
@@ -129,6 +133,7 @@ func generate(r *rand.Rand) *program {
 		for range f.calls {
 			f.lit = append(f.lit, r.Intn(4) == 0)
 		}
+		f.funcResult = r.Intn(4) == 0
 		p.funcs = append(p.funcs, f)
 	}
 	if p.ext != nil && !slices.ContainsFunc(p.funcs, func(f *gfunc) bool { return slices.Contains(f.calls, n) }) {
@@ -232,7 +237,14 @@ func (p *program) source(rows func(f *gfunc, k int) []string) string {
 			params = append(params, "x Box")
 		}
 		b.WriteString("\nfunc " + f.name + "(" + strings.Join(params, ", ") + ")")
-		b.WriteString(" int")
+		switch {
+		case !f.funcResult:
+			b.WriteString(" int")
+		case len(rows(f, 0)) > 0 || len(rows(f, 1)) > 0 || f.takesArg:
+			b.WriteString(" (func() int)")
+		default:
+			b.WriteString(" func() int")
+		}
 		if es := rows(f, 0); len(es) > 0 {
 			b.WriteString(" fails " + strings.Join(es, " | "))
 		}
@@ -258,14 +270,22 @@ func (p *program) source(rows func(f *gfunc, k int) []string) string {
 				call = "try " + call
 			}
 			if f.lit[i] {
-				fmt.Fprintf(&b, "\tlet h%d = func() int {\n\t\t%s\n\t}\n", i, call)
+				result := "int"
+				if g.funcResult {
+					result = "func() int"
+				}
+				fmt.Fprintf(&b, "\tlet h%d = func() %s {\n\t\t%s\n\t}\n", i, result, call)
 				call = fmt.Sprintf("h%d()", i)
 				if len(g.least[0]) > 0 {
 					call = "try " + call
 				}
 			}
 			fmt.Fprintf(&b, "\tlet v%d = %s\n", i, call)
-			sum = append(sum, fmt.Sprintf("v%d", i))
+			if g.funcResult {
+				sum = append(sum, fmt.Sprintf("v%d()", i))
+			} else {
+				sum = append(sum, fmt.Sprintf("v%d", i))
+			}
 		}
 		for _, c := range f.ownCaps {
 			fmt.Fprintf(&b, "\tlet c%d = %s.Op()\n", c, capName(c))
@@ -275,7 +295,11 @@ func (p *program) source(rows func(f *gfunc, k int) []string) string {
 			fmt.Fprintf(&b, "\tlet w%d = with W%d { %s.Op() }\n", c, c, capName(c))
 			sum = append(sum, fmt.Sprintf("w%d", c))
 		}
-		fmt.Fprintf(&b, "\t%s\n}\n", strings.Join(sum, " + "))
+		if f.funcResult {
+			fmt.Fprintf(&b, "\tfunc() int {\n\t\t%s\n\t}\n}\n", strings.Join(sum, " + "))
+		} else {
+			fmt.Fprintf(&b, "\t%s\n}\n", strings.Join(sum, " + "))
+		}
 	}
 	return b.String()
 }
@@ -364,6 +388,11 @@ func checkSeed(t *testing.T, seed int64, g *program) (reached []string) {
 			if len(f.order[k]) > 0 && len(f.least[k]) > len(f.order[k]) {
 				reached = append(reached, "clause extended")
 			}
+		}
+	}
+	for _, f := range g.funcs {
+		if f.funcResult && !f.takesArg && len(f.order[0])+len(f.order[1]) == 0 && len(f.least[0])+len(f.least[1]) > 0 {
+			reached = append(reached, "result opened")
 		}
 	}
 	for _, c := range res.Changed {

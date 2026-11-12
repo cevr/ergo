@@ -48,9 +48,11 @@ type Diagnostic struct {
 	Fix     *Fix   `json:"fix,omitempty"`
 }
 
-// Fix is the edit that writes the clause an S101 or S102 names, under the
-// checker's Explicit option (q137): Text inserted at the byte offset
-// InsertAt of the diagnostic's file, after adding Imports. Row is the
+// Fix is the edit that writes the clause an S101 or S102 names (q137):
+// Text inserted at the byte offset InsertAt of the diagnostic's file, after
+// adding Imports; when Open is not zero, "(" goes at Open and ")" at
+// InsertAt before Text, so a lone result of function type does not take
+// the clause as its own row. Row is the
 // whole clause; Text is empty when an element cannot be spelled.
 // Signature is the header with the clause written. ergo fix applies it.
 type Fix struct {
@@ -59,6 +61,7 @@ type Fix struct {
 	Row       []string `json:"row"`
 	InsertAt  int      `json:"insertAt"`
 	Text      string   `json:"text,omitempty"`
+	Open      int      `json:"open,omitempty"`
 	Imports   []string `json:"imports,omitempty"`
 	Signature string   `json:"signature"`
 }

@@ -165,6 +165,14 @@ func apply(texts map[string]string, ds []Diagnostic, changes map[[3]string]Chang
 			return nil, fmt.Errorf("fix: a clause of %s is in %q, which is not a file of the program", f.Function, d.File)
 		}
 		edits[d.File] = append(edits[d.File], edit{at: f.InsertAt, text: f.Text, clause: f.Clause})
+		if f.Open > 0 {
+			// Both clauses of one function may open the result: once.
+			open := fmt.Sprintf("%s\x00%d\x00(", d.File, f.Open)
+			if !seen[open] {
+				seen[open] = true
+				edits[d.File] = append(edits[d.File], edit{at: f.Open, text: "("}, edit{at: f.InsertAt, text: ")"})
+			}
+		}
 		for _, p := range f.Imports {
 			if !slices.Contains(imports[d.File], p) {
 				imports[d.File] = append(imports[d.File], p)

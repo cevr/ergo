@@ -79,6 +79,7 @@ func reportFix(f *check.ClauseFix) *report.Fix {
 		Row:       f.Row,
 		InsertAt:  f.InsertAt,
 		Text:      f.Text,
+		Open:      f.Open,
 		Imports:   f.Imports,
 		Signature: f.Signature,
 	}
