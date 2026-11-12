@@ -404,6 +404,15 @@
       "to": "\t\treturn int8(int64(f)), true\n",
       "rule": "Check time converts a float to an integer by the lowering's one rule (S-conv: truncate, saturate, NaN to 0), so its verdict agrees with the Go build's.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel", "internal/sketch/lower:TestEvalAgreesWithGo"]
+    },
+    {
+      "name": "try-eval-catch-takes-covered",
+      "origin": "wf10 TRY-eval",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tif !tailCall(fr.info, x.X, failed.call) {",
+      "to": "\tif false {",
+      "rule": "rows.md Catch 5: try covers the caught expression too, so in try h(g()) catch {...} a failure of g() propagates past the catch, which handles only the failures its subject yields through (h's row), as the lowering's hoisted check does.",
+      "killers": ["internal/sketch/eval:TestCatchPassesCoveredFailure"]
     }
   ]
 }
