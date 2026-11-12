@@ -8,6 +8,7 @@
 #                        on SELFDESTRUCT moves itself away after the build,
 #                        so the next call cannot start;
 #   fmt --check FILE...  fails on a file holding UNFORMATTED;
+#   fix --check FILE     fails on a file holding UNFIXED;
 #   test FILE            prints the reply of a compiler without ergo test on
 #                        TESTPENDING, fails on TESTFAIL; on TESTTICK starts a
 #                        ticker into ticks-test beside itself, then fails; on
@@ -16,7 +17,7 @@
 #                        stdout and ERR bytes to stderr and passes; passes
 #                        otherwise.
 # A SRC or FILE that is a folder is a package (196b): build reads its
-# main.ergo, and test reads every .ergo file in it.
+# main.ergo, and test and fix read every .ergo file in it.
 # A ticker is a background loop in the caller's process group that appends a
 # line every 50 ms and ends by itself 60 s after it started, so a runner that
 # failed to stop the group cannot leak it for long.
@@ -78,6 +79,14 @@ fmt)
   for f in "$@"; do
     if grep -q UNFORMATTED "$f"; then echo "fake ergo: $f needs formatting" >&2; exit 1; fi
   done
+  ;;
+fix)
+  [ $# -eq 3 ] && [ "$2" = "--check" ] || { echo "fake ergo: want fix --check FILE, got $*" >&2; exit 64; }
+  if [ -d "$3" ]; then
+    cat "$3"/*.ergo > "$tools/fix-package.ergo" || exit 1
+    set -- "$1" "$2" "$tools/fix-package.ergo"
+  fi
+  if grep -q UNFIXED "$3"; then echo "fake ergo: signatures would change" >&2; exit 1; fi
   ;;
 *)
   echo "fake ergo: unknown command $1" >&2; exit 64

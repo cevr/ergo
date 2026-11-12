@@ -16,7 +16,7 @@ One folder is not a program: `editions` (edition fixtures that Go tests pin). An
 A program folder holds:
 
 - `main.ergo`: the program. The runner builds it with `ergo build <dir>/main.ergo -o <temp>/<name>`, outside the checkout.
-- other `.ergo` files, if any. `ergo fmt --check` checks every top-level `.ergo` file before the build.
+- other `.ergo` files, if any. `ergo fmt --check` checks every top-level `.ergo` file before the build, and then `ergo fix --check <dir>/main.ergo` fails the program when a signature misses a clause that `ergo fix` would write (q137).
 - `README.md`: what the program shows and how it works.
 - `tags`: one line of words from `default slow net cc tty gui ts`. `default` stands alone. The other tags keep a program out of the default gate: `slow` (a case runs longer than the budget), `net` (it uses the network), `cc` (it needs a C compiler), `tty` (it needs a terminal), `gui` (it opens a window) and `ts` (it has a TypeScript side; see "TypeScript leg"). The `tty` and `gui` legs are not built yet, so selecting such a program is an error.
 - `cases/`: one folder per case, at least one.
@@ -33,7 +33,7 @@ A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in p
 - top-level `.ergo` files, if any: the module root's package.
 - `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh`, `expected-skips`, `explored` and `testdata/`, as above.
 
-`ergo fmt --check` checks every `.ergo` file of its packages, and the test leg runs `ergo test <package folder>` for every package folder, printing `ok <program>: test <folder>`. A package's test build runs the laws of every operation type it sees against every provider it sees, wherever each is declared, in the least package that sees them all (law-xpkg): the laws `kv.Store` declares run in package `memory` against `memory.Table`, and the std `fs.Writes` laws run there against `memory.Full`. A provider is built by its `New<P>` constructor when its package declares one, else generated.
+`ergo fmt --check` checks every `.ergo` file of its packages, `ergo fix --check <package folder>` checks every package folder's clauses, and the test leg runs `ergo test <package folder>` for every package folder, printing `ok <program>: test <folder>`. A package's test build runs the laws of every operation type it sees against every provider it sees, wherever each is declared, in the least package that sees them all (law-xpkg): the laws `kv.Store` declares run in package `memory` against `memory.Table`, and the std `fs.Writes` laws run there against `memory.Full`. A provider is built by its `New<P>` constructor when its package declares one, else generated.
 
 A domain package states each contract it needs as an operation type with laws (`AGENTS.md`). So in a program of packages, an operation type declared outside `cmd/` with no member law is a layout error: `examples/<name>: <file>:<line>: operation type T has no law; …`. The runner reads each package folder with the checker for this check, as `ergo check DIR` does, and takes the operation types and their member laws from the checked package; a package the checker refuses is a layout error that names the diagnostic. `go run ./scripts/examples -lawless` reports every operation type with no law under `examples/`, in any program or folder, runs nothing, and exits 0.
 

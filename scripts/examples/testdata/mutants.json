@@ -36,6 +36,7 @@
       "to": "if false && evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
       "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
       "killers": ["examples:TestCheckVerdictsMatchNative"]
-    }
+    },
+    { "name": "ex2-no-fix-leg", "origin": "wf10 EX2 r2", "file": "scripts/examples/main.go", "from": "\t\t\tr.toolFailed(p, \"fix\", o, err)\n\t\t\treturn\n", "to": "", "rule": "A program a clause ergo fix would write fails the examples step (q137).", "killers": ["examples:TestFmtOrBuildFailureFailsOnlyThatProgram"] }
   ]
 }

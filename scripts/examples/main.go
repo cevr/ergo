@@ -654,7 +654,7 @@ func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
 	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, os.Environ(), "", timeout, 0)
 }
 
-// toolFailed prints the failure of a compiler leg (fmt or build) and counts
+// toolFailed prints the failure of a compiler leg (fmt, fix or build) and counts
 // it. Output over the cap is named, never printed.
 func (r *runner) toolFailed(p *program, leg string, o outcome, err error) {
 	if over := o.overCap(); err == nil && over != "" {
@@ -666,11 +666,20 @@ func (r *runner) toolFailed(p *program, leg string, o outcome, err error) {
 	r.fail(p.name + ": " + leg)
 }
 
-// runProgram formats, builds and tests one program and runs its cases.
+// runProgram formats, fixes, builds and tests one program and runs its
+// cases. The fix leg is `ergo fix --check` of each package (q137: every
+// function writes its clauses): a clause ergo fix would write fails the
+// program, as an unformatted file does.
 func (r *runner) runProgram(p *program) {
 	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.passed() {
 		r.toolFailed(p, "fmt", o, err)
 		return
+	}
+	for _, target := range p.tests {
+		if o, err := r.tool(0, "fix", "--check", target); err != nil || !o.passed() {
+			r.toolFailed(p, "fix", o, err)
+			return
+		}
 	}
 	dir, err := os.MkdirTemp(r.scratch, "build-")
 	if err != nil {
