@@ -21,6 +21,8 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 	case *syntax.IfStmt:
 		b.plain(y)
 		return b.ifValue(y)
+	case *syntax.TryExpr, *syntax.CatchExpr:
+		return b.failValue(y) // ir_fail.go
 	}
 	return nil, b.expr(x)
 }

@@ -86,6 +86,26 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"owned temporary", "G2"},
 	{"statement that releases owned values", "G2"},
 	{"op-assignment of a value with statements", "G2"},
+	{"untried fallible call", "G2"},
+	{"fallible call with an empty row at its site", "G2"},
+	{"call of an impure function from a pure one", "G2"},
+	{"try without a value", "G2"},
+	{"try of a non-call", "G2"},
+	{"catch without its Matches entry", "G2"},
+	{"catch of a non-call", "G2"},
+	{"catch arm without a pattern", "G2"},
+	{"catch arm form", "G2"},
+	{"continue in a polling loop", "G2"},
+	{"failure in a branch tail of a body with no value", "G2"},
+	{"operation call that enters a release", "G2"}, // a checked Close: frames, IRG2b
+	{"call of a pointer-receiver method", "G4"},
+	{"call of an extern function", "G4"},
+	{"call that passes owned values", "G4"},
+	{"call that passes witnesses", "G4"},
+	{"call with a call site", "G4"},
+	{"call that captures owners", "G4"},
+	{"catch with patterns", "G3"},         // record patterns, case err, case _: the match tree's
+	{"catch value of another type", "G3"}, // a flat union the arms join to
 	// G3: unions, match, machines; the lowering's representation decides.
 	{"named type that is not a record", "G3"},
 	{"record without a struct", "G3"},

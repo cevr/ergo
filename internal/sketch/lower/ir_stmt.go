@@ -81,12 +81,12 @@ type yieldTo struct {
 func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 	switch s := s.(type) {
 	case *syntax.ExprStmt:
-		pre, x := b.value(s.X)
 		p := b.pos(s.X, s.X.Pos())
 		if to != nil {
+			pre, x := b.value(s.X)
 			return append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: x})
 		}
-		return append(pre, &irStmt{K: "ret", Pos: p, X: x})
+		return b.ret(s.X, p) // ir_fail.go
 	case *syntax.ReturnStmt:
 		return b.stmt(s)
 	case *syntax.IfStmt:
@@ -188,7 +188,9 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 		}
 	}
 	switch x.(type) {
-	case *syntax.TryExpr, *syntax.CatchExpr, *syntax.SwitchStmt, *syntax.TypeSwitchStmt, *syntax.FuncLit:
+	case *syntax.TryExpr, *syntax.CatchExpr:
+		return b.failStmt(x) // ir_fail.go
+	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt, *syntax.FuncLit:
 		irNo("expression statement %T", x)
 	}
 	pre, e := b.value(x)
@@ -267,33 +269,22 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.ReturnStmt:
 		p := b.pos(s, s.Pos())
 		if len(s.Results) == 0 {
-			if b.result != nil {
-				irNo("bare return")
-			}
-			return []*irStmt{{K: "ret", Pos: p}}
+			return b.ret(nil, p) // ir_fail.go
 		}
 		if len(s.Results) != 1 {
 			irNo("several results")
 		}
-		if b.result == nil {
-			// A no-value call returned for its effect (retExpr).
-			return append(b.discard(s.Results[0]), &irStmt{K: "ret", Pos: p})
-		}
-		pre, x := b.value(s.Results[0])
-		return append(pre, &irStmt{K: "ret", Pos: p, X: x})
+		return b.ret(s.Results[0], p) // ir_fail.go
 	case *syntax.ExprStmt:
 		return b.discard(s.X)
 	case *syntax.IfStmt:
 		return []*irStmt{b.ifStmt(s, false, nil)}
 	case *syntax.ForStmt:
-		if b.env >= 0 {
-			b.gate("loop in an impure frame")
-		}
 		var cond *irExpr
 		if s.Cond != nil {
 			cond = b.cond(s.Cond)
 		}
-		return []*irStmt{{K: "while", Pos: b.pos(s, s.Pos()), X: cond, Body: b.loopBody(s.Body.List), End: b.pos(s.Body, s.Body.Rbrace)}}
+		return []*irStmt{{K: "while", Pos: b.pos(s, s.Pos()), X: cond, Body: b.loopBody(s, s.Body), End: b.pos(s.Body, s.Body.Rbrace)}}
 	case *syntax.BranchStmt:
 		if b.loops == 0 {
 			irNo("break or continue outside a loop")
@@ -306,9 +297,6 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		irNo("statement *syntax.BranchStmt %s", s.Tok)
 	case *syntax.RangeStmt:
-		if b.env >= 0 {
-			b.gate("loop in an impure frame")
-		}
 		lp := b.l.info.Loops[s]
 		if lp == nil || lp.Domain != check.LoopSlice {
 			b.gate("for-in over a non-slice")
@@ -344,18 +332,19 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		b.part(func() { st.Key = bind(s.Key) })
 		b.part(func() { st.Val = bind(s.Value) })
-		st.Body = b.loopBody(s.Body.List)
+		st.Body = b.loopBody(s, s.Body)
 		return []*irStmt{st}
 	}
 	irNo("statement %T", s)
 	return nil
 }
 
-// loopBody is a loop's body, where break and continue stand.
-func (b *irBuilder) loopBody(list []syntax.Stmt) []*irStmt {
+// loopBody is loop s's body, where break and continue stand, then its
+// back-edge poll in a polling frame (loopPoll, ir_fail.go).
+func (b *irBuilder) loopBody(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
 	b.loops++
 	defer func() { b.loops-- }()
-	return b.tail(list, false)
+	return append(b.tail(body.List, false), b.loopPoll(s, body)...)
 }
 
 // bodyEnd is what follows a body with a result whose last statement may
