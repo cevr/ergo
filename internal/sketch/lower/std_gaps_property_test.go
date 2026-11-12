@@ -399,6 +399,7 @@ func (g *stdGap) lower(t *testing.T) *lowered {
 // exits; no in-process check observes that, and Ergo has no reference
 // interpreter yet (test-speed T8).
 func TestStdGapRealStd(t *testing.T) {
+	needsBuild(t)
 	var programs []*lowered
 	want := map[string]string{}
 	add := func(name, src, out string) {
@@ -450,7 +451,6 @@ func TestStdGapRealStd(t *testing.T) {
 	if len(programs) == 0 {
 		return
 	}
-	needsBuild(t)
 	exes := buildAll(t, programs, true)
 	if exes == nil {
 		return
