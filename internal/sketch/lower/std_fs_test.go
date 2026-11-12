@@ -96,8 +96,7 @@ func Stat(m Files, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Faile
 }
 `
 
-// TestFSFilesMemory: fs.Files is an open std protocol (check.SealedStd;
-// no std extern returns it), so a program's own provider in a package of
+// TestFSFilesMemory: fs.Files has no private operation, so a program's own provider in a package of
 // the program binds it in a context and passes as a value, and the same
 // functions give the host's lines for the paths the memory holds.
 func TestFSFilesMemory(t *testing.T) {

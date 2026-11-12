@@ -231,6 +231,15 @@
       "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\treturn evaluationExit(evaluation)\n",
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
+    },
+    {
+      "name": "rc4b-inspect-engine-missing",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketchfront/inspect.go",
+      "from": "g.Engine, g.Reason = string(in.Engine), in.Reason",
+      "to": "g.Reason = in.Reason",
+      "rule": "ergo inspect shows each derived type with its parse engine, the reason and the counts (patterns.md, Derivation 7).",
+      "killers": ["cmd/ergo:TestInspectAPIRoute"]
     }
   ]
 }

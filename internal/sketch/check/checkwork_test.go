@@ -12,7 +12,7 @@ import (
 
 // budgetProgram imports one std package, calls its externs and binds a
 // provider of a std operation type, so its check reaches the sealed std
-// set (SealedStd) and the runtime body facts (v1.BodyOf).
+// set and the runtime body facts (v1.BodyOf).
 const budgetProgram = `import time
 
 let Manual = context { Scheduler: time.NewManual(0) }

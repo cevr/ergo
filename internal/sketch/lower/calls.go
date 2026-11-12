@@ -1350,6 +1350,13 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	if from, ok := conv.From.(*check.Named); ok && l.runtimeType(from, site) != "" {
 		return fc.sealedOperations(conv, from, val, site) // a sealed std value (sealedops.go)
 	}
+	if from, ok := conv.From.(*check.Named); ok && from.Underlying() != nil {
+		if _, ops := from.Underlying().(*check.Interface); ops {
+			// A sealed std operation type that Ergo code implements
+			// (http.Streaming): its value is already an interface value.
+			return val
+		}
+	}
 	key, base, ok := l.adapterName(conv)
 	if !ok {
 		unreachable(site, ruleAccepted, "an operations conversion from %s to %s with no adapter (adapterName)", conv.From, conv.To)

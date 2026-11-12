@@ -1,6 +1,7 @@
 {
   "about": "The mutant ledger of runtime/v1: edits of the runtime's source (runtime/v1 and the runtime/rt clock it parks on) that some runtime/v1 test must kill. Run it with go run ./scripts/mutants ./runtime/v1; the runner judges it by runtime/v1's own tests (docs/tooling.md, \"Mutant ledger\"). Seeded in batch 14 from the mutants batch 13 killed by hand (fua-b round 2 and its verifier, /home/exedev/.cache/baton/wf10/batch-13/verify/verdicts-2.md).",
   "mutants": [
+    {"name":"std1a-foreign-exit-range","origin":"STD1a","file":"runtime/v1/exit.go","from":"if x.Code >= 1 && x.Code <= 125 {","to":"if true {","rule":"The Go entry still validates foreign Exit values even though Ergo's field is refined.","killers":["runtime/v1:TestMainExit"]},
     {"name":"atomic-constructor","origin":"wf10 S-atomic r1","file":"runtime/v1/atomic.go","from":"c.value.Store(value)\n\treturn c","to":"c.value.Store(0)\n\treturn c","rule":"NewInt64 holds its supplied value.","killers":["runtime/v1:TestAtomicLinearizableHistory"]},
     {"name":"atomic-add-old-value","origin":"wf10 S-atomic r1","file":"runtime/v1/atomic.go","from":"return c.value.Add(delta)","to":"return c.value.Add(delta) - delta","rule":"Add returns the new value, not the replaced value.","killers":["runtime/v1:TestAtomicLinearizableHistory"]},
     {"name":"atomic-swap-old","origin":"wf10 S-atomic r1","file":"runtime/v1/atomic.go","from":"return c.value.Swap(value)","to":"c.value.Swap(value); return value","rule":"Swap returns the replaced value.","killers":["runtime/v1:TestAtomicLinearizableHistory"]},

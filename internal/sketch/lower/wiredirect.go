@@ -10,7 +10,7 @@ import (
 )
 
 // Direct writers (JSON-fast; serde's monomorphisation). An encode(v, w)
-// whose w is a sealed std value (check.SealedStd) of a type whose runtime
+// whose w is a sealed std value (std.go runtimeType) of a type whose runtime
 // methods are the Writer's Go methods (directOps) keeps that
 // representation: its conversion to the Writer is Go's own (no adapter,
 // sealedOperations), and the call is of a codec function made for the
@@ -76,7 +76,7 @@ func (l *lowerer) directWriter(info *check.Info, x syntax.Expr) (int, bool) {
 func (l *lowerer) directSource(info *check.Info, x syntax.Expr) *check.Named {
 	conv := info.Implicit[x]
 	from, ok := conv.From.(*check.Named)
-	if !ok || !check.SealedStd(from) {
+	if !ok || !l.isRuntimeType(from, x) {
 		return nil
 	}
 	if to, ok := conv.To.(*check.Named); !ok || !directOps(from, to) {

@@ -51,6 +51,17 @@ func ExportStd() ([]byte, error) {
 		s.paths = append(s.paths, path)
 		s.packages = append(s.packages, pkg)
 	}
+	// The codec carries no derive record (exportgen skipFields): a std
+	// package that declared a plan function or a derive would lose it.
+	for i, pkg := range append([]*Package{preludeOnce.r.pkg}, s.packages...) {
+		if pkg != nil && !pkg.Derive.Empty() {
+			name := std.PreludePath
+			if i > 0 {
+				name = s.paths[i-1]
+			}
+			return nil, fmt.Errorf("check: std package %s has a derive record, which the std snapshot does not carry", name)
+		}
+	}
 	s.universe = universeOnce.scope
 	s.errorName = universeOnce.errorName
 	s.goPkg = universeOnce.goPkg

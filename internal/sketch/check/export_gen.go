@@ -5204,8 +5204,6 @@ func (e *encoder) encPtrasBinding(v *asBinding) {
 func (e *encoder) encFieldsassignment(v *assignment) {
 	e.encassignClause(v.clause)
 	e.encConversion(v.conv)
-	e.encPtrNamed(v.sealed)
-	e.encType(v.from)
 }
 
 func (e *encoder) encassignment(v assignment) { e.encFieldsassignment(&v) }
@@ -14387,8 +14385,6 @@ func (d *decoder) decPtrasBinding() *asBinding {
 func (d *decoder) decFieldsassignment(v *assignment) {
 	v.clause = d.decassignClause()
 	v.conv = d.decConversion()
-	v.sealed = d.decPtrNamed()
-	v.from = d.decType()
 }
 
 func (d *decoder) decassignment() (v assignment) {

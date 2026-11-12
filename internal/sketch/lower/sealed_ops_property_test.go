@@ -166,7 +166,7 @@ func sealedSource(s stdOpType, imports []string, decl, target string) string {
 }
 
 // TestSealedStdConvertsToItsOperationTypes is the generated property of
-// the conversion of a sealed std protocol's value (check.SealedStd), whose
+// the conversion of a sealed std operation type's value (check.Sealed, on a std type), whose
 // Go form is the runtime's own type, into an operation type: every pair
 // the checker's member match admits lowers to Go that type-checks
 // (lower/sealedops.go). The pairs are every sealed std protocol of the
@@ -280,7 +280,7 @@ func sealedParam(p *check.Package) bool {
 	for _, o := range p.Exported() {
 		if f, ok := o.(*check.Func); ok && f.Name == "Conv" && len(f.Sig.Params) == 1 {
 			n, ok := f.Sig.Params[0].Type.(*check.Named)
-			return ok && check.SealedStd(n)
+			return ok && n.Obj != nil && n.Obj.Pkg.Std() && check.Sealed(n)
 		}
 	}
 	return false

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -75,6 +76,9 @@ type Package struct {
 	Path  string
 	Name  string
 	Scope *Scope
+	// Derive is the package's derive record (derive.go): its plan
+	// functions, for importers, and the matchers its bundles lower.
+	Derive *derive.Package
 	// Contexts is the context namespace: contexts are named only by with and by
 	// context embedding, so they do not collide with types (fixture with-name).
 	Contexts map[string]*Context

@@ -56,6 +56,12 @@ var skipFields = map[string]string{
 	"check.checker.withLimit":    "test hook",
 	"check.checker.nodeCheck":    "test hook",
 	"check.checker.elidedAs":     "set only while an elided literal is checked",
+	// The derive record (internal/sketch/derive). Std declares no plan
+	// function or derive, so its record is empty and nil means the same;
+	// check.ExportStd refuses a std package whose record is not empty.
+	"check.Package.Derive":  "an empty derive record, nil when decoded",
+	"check.checker.derive":  "the checked package's derive record (check.Package.Derive)",
+	"syntax.File.Expansion": "the file's package's derive record (check.Package.Derive)",
 }
 
 // Generate returns the generated sources of the syntax codec and the check

@@ -130,6 +130,7 @@ func Stream[R](status int, header []Field, write func(w BodyWriter) fails WriteF
 // Serve has one.
 // law-exempt: only the transport makes one; the runtime/v1 stream tests hold its writes, its end and its hang-up.
 type Exchange {
+	runtimeOnly(),
 	Begin(status int, header []Field),
 	Write(text string) fails WriteFailed,
 	End(),

@@ -1,13 +1,11 @@
 package check
 
 import (
+	"ergo.local/prototype/internal/sketch/std"
+	v1 "ergo.local/prototype/runtime/v1"
 	"fmt"
 	"slices"
 	"strings"
-
-	"ergo.local/prototype/internal/sketch/std"
-	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The host edge (check-v1 stage E4, 196x; D-E5). An `extern go path.F func
@@ -594,53 +592,4 @@ func (c *checker) externCallback(t Type) bool {
 func externBasic(t Type) bool {
 	b, ok := t.(*Basic)
 	return ok && b.Kind > Invalid && b.Kind <= Duration
-}
-
-// ---------------------------------------------------------------- sealed std protocols (C28)
-
-// sealedStd is t when t is a sealed std protocol, else nil (SealedStd).
-func sealedStd(t Type) *Named {
-	n, ok := t.(*Named)
-	if !ok || !SealedStd(n) {
-		return nil
-	}
-	return n
-}
-
-// SealedStd reports a sealed std protocol: an operation type of the
-// prelude or a std package that the result of a std extern names, such as
-// the prelude's Task (task.Go) and queue.Queue (queue.New), or that a
-// parameter of a function an extern calls names (http.Exchange). A std extern
-// gives a runtime value whose identity a program must not forge, so only
-// the runtime implements the type: no program value converts into it
-// (S109; #206), and the lowering represents it by its runtime/v1 type
-// (lower/std.go runtimeType). Any other std operation type is open, as
-// the prelude's Console and std os.Process are: a program value implements
-// it (stdlib.md, os 5; std-1 plan 2.2).
-func SealedStd(n *Named) bool {
-	if n == nil || n.Obj == nil || n.Obj.Pkg == nil || !n.Obj.Pkg.std || n.Obj.Decl == nil {
-		return false
-	}
-	spec, ok := n.Obj.Decl.Spec.(*syntax.InterfaceType)
-	if !ok || len(spec.Union) > 0 {
-		return false
-	}
-	return stdSealedTable[n.Obj.Pkg.Path+"."+n.Obj.Name]
-}
-
-// sealedText is the S109 of a conversion into the sealed std protocol t.
-func sealedText(v, t Type) string {
-	return fmt.Sprintf("a value of %s does not convert to %s: it is a sealed std protocol; a program value implements it in #206", v, t)
-}
-
-// sealedRefused reports at x a refused assignment a whose target is a
-// sealed std protocol, and whether it did: every site that admits by
-// assignability reports that refusal with this one diagnostic (S109),
-// instead of its own S108.
-func (c *checker) sealedRefused(x syntax.Node, a assignment) bool {
-	if a.sealed == nil {
-		return false
-	}
-	c.errorf(x, CodeOutside, "%s", sealedText(a.from, a.sealed))
-	return true
 }

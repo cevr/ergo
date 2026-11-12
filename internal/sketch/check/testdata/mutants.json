@@ -278,14 +278,14 @@
     {
       "name": "seal-callback-params",
       "origin": "wf10 Rm",
-      "file": "internal/sketch/check/stdsealed_test.go",
-      "from": "if ft, ok := p.Type.(*syntax.FuncType); ok && ft.Params != nil {",
-      "to": "if ft, ok := p.Type.(*syntax.FuncType); false && ok && ft.Params != nil {",
-      "rule": "A std operation type the host hands a program through an extern's callback (http.Exchange) is sealed: the runtime's Go type, never a program interface. Since CHK1 the rule is the reference that derives the generated sealed table (stdsealed_gen.go).",
+      "file": "internal/sketch/std/http/http.ergo",
+      "from": "type Exchange {\n\truntimeOnly(),",
+      "to": "type Exchange {",
+      "rule": "A std operation type the host hands a program through an extern's callback (http.Exchange) declares a private operation, so the visibility rule seals it.",
       "killers": [
-        "check:TestStdSealedTableIsCurrent"
+        "check:TestSealingIsTheVisibilityRule"
       ],
-      "anchor": { "tests": ["check:TestStdSealedTableIsCurrent"] }
+      "anchor": {"tests":["check:TestSealingIsTheVisibilityRule"]}
     },
     {
       "name": "existing-0-B1 rowText prints commas",
@@ -847,8 +847,8 @@
       "name": "t6-17-ne-eq-authority.go:598",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
       "file": "internal/sketch/check/authority.go",
-      "from": "\tif it := asInterface(t); it != nil {",
-      "to": "\tif it := asInterface(t); it == nil {",
+      "from": "\tif it := asInterface(t); it != nil {\n\t\treturn it.method(name)",
+      "to": "\tif it := asInterface(t); it == nil {\n\t\treturn it.method(name)",
       "rule": "operation: operation is the operation name of t's operation set when t is an operation type, a type defined over one, a type parameter (its constraint's) or a pointer to one of them: the method methodOf finds when it returns no function.",
       "killers": [
         "check:TestSealedOperationIdentity"
@@ -1054,11 +1054,11 @@
       "name": "t6-36-false-true-operators.go:334",
       "origin": "test-speed T6 no-loss sample (gen6.ts 40 6; kept coverers 1)",
       "file": "internal/sketch/check/operators.go",
-      "from": "\t\tif c.sealedRefused(x, sealed) {\n\t\t\treturn false\n\t\t}",
-      "to": "\t\tif c.sealedRefused(x, sealed) {\n\t\t\treturn true\n\t\t}",
+      "from": "if !a.ok() {\n\t\t\t\tcontinue\n\t\t\t}",
+      "to": "if !a.ok() {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "matchTypes: matchTypes reports operands of two types (S108): both operands of a binary operator have one type (196u rule 4), and == and != also compare a value with an interface it is assignable to.",
       "killers": [
-        "check:TestStdProtocolSealed"
+        "check:TestSealingIsTheVisibilityRule"
       ]
     },
     {
@@ -2497,7 +2497,6 @@
     },
     {"name":"builtin-shape-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/extern.go","from":"\t\t\tif msg := builtinRefusal(f, b); msg != \"\" {","to":"\t\t\tif msg := builtinRefusal(f, b); false && msg != \"\" {","rule":"A Go builtin binding has its builtin's shape (builtin.go).","killers":["check:TestBuiltinBindingShapes"]},
     {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]},
-    {"name":"sealed-table-stale","origin":"wf10 CHK1","file":"internal/sketch/check/stdsealed_gen.go","from":"\t\"actor.Host\":           true,\n","to":"","rule":"The generated sealed std set equals the set the std sources give (a stale table fails, never differs silently).","killers":["check:TestStdSealedTableIsCurrent"],"anchor":{"tests":["check:TestStdSealedTableIsCurrent"]}},
     {"name":"bodies-from-source","origin":"wf10 CHK1","file":"runtime/v1/files.go","from":"\tf, ok := bodyTable[name]\n\tif !ok {","to":"\tif decls, err := sourceDecls(); err == nil {\n\t\treturn decls.body(name)\n\t}\n\tf, ok := bodyTable[name]\n\tif !ok {","rule":"A check reads no runtime/v1 Go source: BodyOf answers from the generated table (the counted check budget).","killers":["check:TestCheckWorkGrowsWithImports"]},
     {"name":"nondet1-entry-order","origin":"wf10 NONDET1","file":"internal/sketch/check/info.go","from":"\tif a.pkg != b.pkg {","to":"\tif false && a.pkg != b.pkg {","rule":"A with's acquisitions, so its builder's installs and adapters, come in one order defined by the source: two packages' entries never tie.","killers":["lower:TestLoweringIsAFunctionOfInput"]},
     {"name":"ps3-open-type-accepted","origin":"wf10 PS3","file":"internal/sketch/check/cells.go","from":"\treturn nil\n}\n\n// cellRefusal","to":"\tif it.obj != nil {\n\t\treturn it.obj.Pkg\n\t}\n\treturn nil\n}\n\n// cellRefusal","rule":"A cell converts only to an operation type sealed by an unexported operation.","killers":["check:TestProviderCellDiagnostics"]},
@@ -2519,13 +2518,20 @@
     {"name":"16a-r4-copies-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"if f := owner[tp]; f != nil {","to":"if f := owner[tp]; false && f != nil {","rule":"A type argument or conversion that is a resource only through the enclosing function's type parameter is that parameter's copy site (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
     {"name":"16a-r4-conversion-site-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/expr.go","from":"c.recordConversion(op.expr, op.typ, t)","to":"_ = t","rule":"A generic body that converts a value of its type parameter to an operation type without Close makes a copy site (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
     {"name":"16a-r4-value-instance-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/takes.go","from":"\t\tw.instance(x, inst.Func, inst.TypeArgs)","to":"\t\t_ = inst","rule":"A generic function value checks the copy sites of its instance as a call does (R44).","killers":["check:TestOwnershipFlowModel"]},
-    {"name":"16b-m2-sealed-conversion","origin":"batch-16b merge of 16a-r5 (orchestrator ruling 2026-11-11: C28's sealed-source refusal removed)","file":"internal/sketch/check/typeops.go","from":"if n := sealedStd(v); n != nil && sealedStd(t) == nil && !isHostNamed(t) {","to":"if n := sealedStd(v); false && n != nil && sealedStd(t) == nil && !isHostNamed(t) {","rule":"A sealed std protocol's value converts to an operation type its members satisfy through an operations conversion, which the lowering builds from the std operations (no Go assignment of the runtime type).","killers":["lower:TestSealedStdConvertsToItsOperationTypes"]},
+    {"name":"16b-m2-sealed-conversion","origin":"batch-16b merge of 16a-r5 (orchestrator ruling 2026-11-11: C28's sealed-source refusal removed)","file":"internal/sketch/check/typeops.go","from":"if sealedStdOps(v) && !sealedStdOps(t) && !isHostNamed(t) {","to":"if false && sealedStdOps(v) && !sealedStdOps(t) && !isHostNamed(t) {","rule":"A sealed std protocol's value converts to an operation type its members satisfy through an operations conversion, which the lowering builds from the std operations (no Go assignment of the runtime type).","killers":["lower:TestSealedStdConvertsToItsOperationTypes"]},
     {"name":"16a-r3-spread-drops-reversed","origin":"batch-16a fix r3 (verifier 16a r3 v3-spread-drops-reversed)","file":"internal/sketch/check/ownership.go","from":"\tfor _, f := range bs.Fields {\n\t\tif !seen[f] {\n\t\t\tadd(f, x.Base.Pos())","to":"\tfor i := range bs.Fields {\n\t\tf := bs.Fields[len(bs.Fields)-1-i]\n\t\tif !seen[f] {\n\t\t\tadd(f, x.Base.Pos())","rule":"The fields a spread drops are released in declaration order (R43).","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r3-generic-method-value","origin":"batch-16a fix r3 M1","file":"internal/sketch/check/ownership.go","from":"\t\t\tif generic {\n\t\t\t\tif w.st.reached {","to":"\t\t\tif generic {\n\t\t\t\tif false {","rule":"In a generic body, a method value of an operation on a value that is a resource only through a type parameter (q.Values on Queue[T]) is a copy site of that parameter (R19, R35, R44).","killers":["check:TestOwnershipFlowModel"]},
     {"name":"16a-r3-values-copysite-dropped","origin":"batch-16a fix r3 (verifier 16a r3 v3-values-copysite-dropped)","file":"internal/sketch/check/ownership.go","from":"w.copySite(elem, x, fmt.Sprintf(\"%s yields owned values of %s outside a for-in\", text, elem), false)","to":"_ = text","rule":"A generic body that keeps or passes a Queue[T]'s Values() is a copy site of T (R35, R44).","killers":["check:TestOwnershipFlowModel"]},
     {"name":"lr1-const-as-passthrough","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\t\t\t\t\t\t\trw.Const[i] = true","to":"\t\t\t\t\t\t\t_ = i","rule":"A parameter a rewrite's right side computes with is constant at a site, so it may pass bare more than once (types.md, Laws 14).","killers":["lower:TestRewriteLawVerdicts"]},
     {"name":"lr1-linearity-unchecked","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\t\t\tif passed[a.Param] {","to":"\t\t\tif false && passed[a.Param] {","rule":"A pass-through parameter of a rewrite law is a bare right argument at most once (Laws 14).","killers":["check:TestRewriteLawShapes"]},
     {"name":"lr1-rows-unchecked","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\tif !lhsRow.equal(c.types, rhsRow) {","to":"\tif false && !lhsRow.equal(c.types, rhsRow) {","rule":"A rewrite law's sides fail with the same row (Laws 14).","killers":["check:TestRewriteLawShapes"]},
-    {"name":"lr1-cycle-unchecked","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\t\t\tif cycle {","to":"\t\t\tif false && cycle {","rule":"An unfold law that unfolds into itself is S108 (Laws 14).","killers":["check:TestRewriteLawShapes"]}
+    {"name":"lr1-cycle-unchecked","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\t\t\tif cycle {","to":"\t\t\tif false && cycle {","rule":"An unfold law that unfolds into itself is S108 (Laws 14).","killers":["check:TestRewriteLawShapes"]},
+    {"name":"std1a-refined-exit-field","origin":"STD1a","file":"internal/sketch/std/os/os.ergo","from":"type Exit { Code Code, Message string }","to":"type Exit { Code int, Message string }","rule":"Exit's Code field accepts only values of its refined failure-status type.","killers":["check:TestExitCodeIsRefined"],"anchor":{"tests":["check:TestExitCodeIsRefined"]}},
+    {"name":"std1a-seal-task","origin":"STD1a","file":"internal/sketch/std/prelude.ergo","from":"type Task[T, E] {\n\truntimeOnly(),","to":"type Task[T, E] {","rule":"A runtime Task cannot be forged by a program provider.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
+    {"name":"std1a-seal-queue","origin":"STD1a","file":"internal/sketch/std/queue/queue.ergo","from":"type Queue[T] {\n\truntimeOnly(),","to":"type Queue[T] {","rule":"A runtime Queue declares its seal.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
+    {"name":"rc4b-refine-strict-bound","origin":"wf10 RC4b","file":"internal/sketch/derive/bundle.go","from":"\"type %s %s where %d <= %s && %s <= %d\\n\"","to":"\"type %s %s where %d < %s && %s <= %d\\n\"","rule":"Refine(Of[B](), lo, hi) derives exactly `type N B where lo <= it && it <= hi` (patterns.md, Coherence 1).","killers":["check:TestDeriveModel"]},
+    {"name":"rc4b-shadow-ignored","origin":"wf10 RC4b","file":"internal/sketch/derive/eval.go","from":"\t\tif f.pkg.names[fun.Name] || f.pkg.imported(f.file, fun.Name) {\n","to":"\t\tif f.pkg.imported(f.file, fun.Name) {\n","rule":"A declaration in scope hides a predeclared constructor of the same name; calls key on values, never names (patterns.md, Derivation 6).","killers":["check:TestDeriveModel"]},
+    {"name":"rc4b-step-budget-off","origin":"wf10 RC4b","file":"internal/sketch/derive/eval.go","from":"\tif *what > limit {\n","to":"\tif *what >= limit {\n","rule":"A derive may take exactly its step and depth budgets and stops past them (patterns.md, Budgets 1).","killers":["check:TestDeriveModel"]},
+    {"name":"rc4b-escape-offset-shift","origin":"wf10 RC4b","file":"internal/sketch/derive/eval.go","from":"\t\t\tadd(string([]byte{byte(v)}), i)\n","to":"\t\t\tadd(string([]byte{byte(v)}), i+1)\n","rule":"A pattern byte spelled by an escape is reported at the escape's backslash (patterns.md, Diagnostics 1).","killers":["check:TestPatternDiagnostics"]}
   ]
 }

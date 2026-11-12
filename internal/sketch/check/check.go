@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -47,13 +48,24 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 	if imp == nil {
 		imp = Std
 	}
+	derived, derivedDiags := expandDerives(path, files, imp) // derive.go
 	order := canonicalFiles(files)
 	met := make([]*syntax.File, len(order))
+	rank := make([]int, len(order))
 	for i, k := range order {
 		met[i] = files[k]
+		rank[k] = i
 	}
 	c := newChecker(path, imp, prelude().scope)
+	c.derive = derived
 	pkg := c.run(met)
+	for _, d := range derivedDiags {
+		d.File = rank[d.File]
+		c.diags = append(c.diags, d)
+	}
+	if pkg != nil {
+		pkg.Derive = derived
+	}
 	// Every report has a current file (owner.go), so File is the index of
 	// a file as met, its rank in the canonical order. Sort by it, so the
 	// order of the list is a function of the sources (canon.go), and only
@@ -80,6 +92,7 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
+	derive *derive.Package // the package's derive record (derive.go)
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	pkg      *Package

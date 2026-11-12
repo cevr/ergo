@@ -803,7 +803,7 @@ func (c *checker) checkUnusedImports() {
 	for _, fi := range c.files {
 		c.cur = fi
 		for _, pn := range fi.imports {
-			if !pn.used {
+			if !pn.used && !c.derive.UsesImport(fi.syntax, pn.Name) { // derive.go
 				c.errorf(pn.spec, CodeUnused, "package %s is imported and not used", pn.Name)
 			}
 		}

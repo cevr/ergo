@@ -987,6 +987,9 @@ func (e *encoder) encFieldsTypeDecl(v *TypeDecl) {
 	e.encExpr(v.Spec)
 	e.encPos(v.WherePos)
 	e.encExpr(v.Where)
+	e.encPos(v.DerivePos)
+	e.encExpr(v.Derive)
+	e.encPtrTypeDecl(v.Origin)
 }
 
 func (e *encoder) encTypeDecl(v TypeDecl) { e.encFieldsTypeDecl(&v) }
@@ -2767,6 +2770,9 @@ func (d *decoder) decFieldsTypeDecl(v *TypeDecl) {
 	v.Spec = d.decExpr()
 	v.WherePos = d.decPos()
 	v.Where = d.decExpr()
+	v.DerivePos = d.decPos()
+	v.Derive = d.decExpr()
+	v.Origin = d.decPtrTypeDecl()
 }
 
 func (d *decoder) decTypeDecl() (v TypeDecl) {
