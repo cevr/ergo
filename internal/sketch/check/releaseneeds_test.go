@@ -7,9 +7,9 @@ import (
 
 // TestReleaseNeedRows (resources R5; releaseneeds.go) holds the text and
 // position of the release-need S102, and the two smallest repros of the
-// bug it fixes (OWGEN r3, Known gaps): a function that takes a resource
-// whose Close needs Console, called from a main with no needs Console,
-// built and then panicked with a nil Console in the Close. Exported, the
+// bug it fixes (OWGEN r3, Known gaps): main, whose row is empty, called a
+// function that takes a resource whose Close needs Console; the program
+// checked, built and then panicked with a nil Console in the Close. Exported, the
 // taking function must write the row (S102 at the taken parameter);
 // unexported, its row is inferred and main's call is charged. The third
 // row is the result a std call releases when its boundary drops it

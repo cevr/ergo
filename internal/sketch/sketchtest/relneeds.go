@@ -22,7 +22,7 @@ import (
 // reach no nil service.
 type RelNeeds struct {
 	Funcs []*RelFunc
-	// Main calls functions under a with that provides A, B or both, or
+	// Main calls functions under a with that provides one capability or both, or
 	// under none: a program whose main misses a need does not check.
 	Main     []RelMainCall
 	src      string

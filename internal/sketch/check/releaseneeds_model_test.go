@@ -21,7 +21,7 @@ import (
 // element) × release points (a scope's end, an early return, a
 // temporary's statement, a handoff into a taking callee, a handoff of a
 // local) × providers (an inferred row, a written row, an exported
-// function's empty row, a with that provides A, B or both), with calls
+// function's empty row, a with that provides one capability or both), with calls
 // between the functions (recursion included). The model's rows must equal
 // each function's checked capability row, and its missing needs (line and
 // capability) the checker's S102s; nothing else is reported. Every node
