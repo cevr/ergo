@@ -85,6 +85,11 @@ type LawDecl struct {
 	Params *FieldList
 	Body   *BlockStmt // nil for a reachability law
 	Reach  *LawReach  // nil unless a reachability law
+	// Rewrite is the rewrite form of a member law (types.md, Laws 14):
+	// `law L(params) [when R() == C] { lhs } == { rhs }`, or nil.
+	// Body then holds the guard, when there is one, as an ExprStmt, then
+	// Rewrite.Lhs and Rewrite.Rhs, so a walk of Body sees every name.
+	Rewrite *LawRewrite
 	// Derived is the refined type whose `where` the parser derived this
 	// law from (refine.go), or nil for a written one. The formatter does
 	// not print it.
@@ -102,6 +107,30 @@ func (d *LawDecl) End() Pos {
 	return d.Body.End()
 }
 func (*LawDecl) declNode() {}
+
+// LawRewrite is the rewrite form of a law (LawDecl.Rewrite). When is the
+// position of `when`, else NoPos; Eq is the position of the == between
+// the blocks (NoPos after a parse error). The guard and the blocks are
+// statements of the law's Body (RewriteGuard, RewriteSides), so every
+// walk of the law sees them once.
+type LawRewrite struct {
+	When Pos
+	Eq   Pos
+}
+
+// RewriteGuard is the `R() == C` of a rewrite law's `when`, nil without one.
+func (d *LawDecl) RewriteGuard() Expr {
+	if d.Rewrite == nil || d.Rewrite.When == NoPos {
+		return nil
+	}
+	return d.Body.List[0].(*ExprStmt).X
+}
+
+// RewriteSides are the left and right blocks of a rewrite law.
+func (d *LawDecl) RewriteSides() (lhs, rhs *BlockStmt) {
+	n := len(d.Body.List)
+	return d.Body.List[n-2].(*BlockStmt), d.Body.List[n-1].(*BlockStmt)
+}
 
 // LawReach is the graph form of a machine law (MU6). Never is the position
 // of `never` in `never reaches V`, else NoPos; Word is the position of

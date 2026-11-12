@@ -47,6 +47,13 @@ func (p *printer) decl(d syntax.Decl) {
 			p.fieldList(d.TypeParams, "[", "]")
 		}
 		p.space()
+		if d.Derive != nil {
+			// As written: the bundle it derives is not printed.
+			p.token(d.DerivePos, "derive")
+			p.space()
+			p.expr(d.Derive)
+			return
+		}
 		switch t := d.Spec.(type) {
 		case *syntax.InterfaceType:
 			if t.Union != nil {
@@ -593,6 +600,22 @@ func (p *printer) memberLaw(l *syntax.LawDecl) {
 	}
 	p.fieldList(l.Params, "(", ")")
 	p.space()
+	if r := l.Rewrite; r != nil {
+		lhs, rhs := l.RewriteSides()
+		// The rewrite form (types.md, Laws 14): its Body is synthetic.
+		if g := l.RewriteGuard(); g != nil {
+			p.token(r.When, "when")
+			p.space()
+			p.expr(g)
+			p.space()
+		}
+		p.lawBody(lhs)
+		p.space()
+		p.token(r.Eq, "==")
+		p.space()
+		p.lawBody(rhs)
+		return
+	}
 	p.lawBody(l.Body)
 }
 

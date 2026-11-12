@@ -1,0 +1,13 @@
+# docs/spec files that still use a retired name of a form (struct, type
+# switch, var or :=, interface or service): file<TAB>the unit that converts
+# it. TestSpecUsesOneNamePerForm. The list is exact: it only shrinks.
+README.md	SPEC1e
+diagnostics.md	SPEC1b
+grammar.md	SPEC1b
+interop.md	SPEC1e
+resources.md	SPEC1d
+rows.md	SPEC1b
+rpc.md	SPEC1e
+runtime.md	SPEC1d
+stdlib.md	SPEC1e
+types.md	SPEC1c

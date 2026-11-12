@@ -95,6 +95,15 @@ func (in *interp) argument(fr *frame, t check.Type, v Value) (out string) {
 		for k := range m {
 			keys = append(keys, k)
 		}
+		// The charged sort below compares as many times as its input order
+		// asks, and a map's order differs per run: start it from one order
+		// of the keys' own text, uncharged, so the steps are a function of
+		// the map (wf10 NONDET1).
+		text := make(map[Value]string, len(keys))
+		for _, k := range keys {
+			text[k] = describe(k)
+		}
+		sort.SliceStable(keys, func(i, j int) bool { return text[keys[i]] < text[keys[j]] })
 		b, basic := t.Key.(*check.Basic)
 		sort.Slice(keys, func(i, j int) bool {
 			mustCharge(in, fr, 1)

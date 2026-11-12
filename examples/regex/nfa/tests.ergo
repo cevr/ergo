@@ -2,7 +2,40 @@
 // engine.Matcher laws here, against Engine and Compiled.
 
 import regex/syntax
+import regex/engine
 import strings
+
+let Fast = context { engine.Engine: Engine }
+
+// R2-reallocate: Boolean matcher laws cannot see per-line scratch setup.
+// These counters count actual storage slots initialized, not allocations.
+test WorkspaceReusesStorage {
+	let c = NewSearchCompiled(try syntax.Parse("(c|m)at|h[aeiou]t"))
+	let mut w = NewWorkspace(c.program.Len())
+	let setup = w.Storage
+	for text in []string{"cat", "none", "hot!", "", "mat", "no", "hat"} {
+		let got = c.RunSearch(&w, text).Matched
+		assert got == NewCompiled(syntax.Search(try syntax.Parse("(c|m)at|h[aeiou]t"))).Matches(text)
+		assert w.Storage == setup
+	}
+	assert setup > 0
+}
+
+// R2-yield-stop: Boolean matching and iterator output equality do not
+// observe pulling the source after the consumer has stopped.
+test LinesStop {
+	let c = NewSearchCompiled(syntax.Literal("cat"))
+	let source = Seq[string](func(yield func(v string) bool) {
+		if !yield("cat") {
+			return
+		}
+		Unreachable("Lines pulled after its consumer stopped")
+	})
+	for line in c.Lines(source) {
+		assert line == "cat"
+		break
+	}
+}
 
 // matches reports whether the NFA matches pattern, parsed, on text.
 func matches(pattern string, text string) bool fails syntax.SyntaxError {
@@ -20,6 +53,45 @@ test MatchesWholeTexts {
 	assert try matches("a.c", "a\nc")
 	assert try matches("[]|x", "x")
 	assert !(try matches("[]", ""))
+}
+
+// checked is the checked pattern of text.
+func checked(text string) syntax.Pattern fails syntax.SyntaxError | syntax.CaptureError {
+	try syntax.Check(try syntax.Parse(text))
+}
+
+// events is the events of a parse that matched, or none.
+func events(r Option[[]syntax.Event]) []syntax.Event {
+	match r {
+	case Some[[]syntax.Event] as s:
+		s.Value
+	case None:
+		[]syntax.Event{}
+	}
+}
+
+// The owner's Date: a group that is optional takes no part when its text
+// is missing (None), which is not the empty text (Some of an empty span);
+// a repeated group keeps every occurrence, and Last is only the last.
+// RC1-occurrences-last-only, RC1-last-first and RC1-absent-empty-projection:
+// CapturesAgree compares events, never these projections.
+test DateCaptures {
+	let date = NewCapturing(try checked("(?<Year>\\d{4})-(?<Month>\\d{2})(-(?<Day>\\d{2}))?"))
+	let full = events(date.ParseCaptures("2026-11-09"))
+	assert syntax.Occurrences(full, "Year") == []syntax.Occurrence{syntax.Occurrence{Start: 0, End: 4}}
+	assert syntax.Last(full, "Day") == Some{Value: syntax.Occurrence{Start: 8, End: 10}}
+	let short = date.ParseCaptures("2026-11")
+	assert syntax.ShowParse(short) == "match (Year@0 )Year@4 (Month@5 )Month@7"
+	assert syntax.Last(events(short), "Day") == None
+	assert syntax.ShowParse(date.ParseCaptures("2026-1")) == "none"
+	let empty = NewCapturing(try checked("(?<Lead>a*)b"))
+	assert syntax.Last(events(empty.ParseCaptures("b")), "Lead") == Some{Value: syntax.Occurrence{Start: 0, End: 0}}
+	let list = NewCapturing(try checked("((?<Item>[a-z]+),)+"))
+	let items = events(list.ParseCaptures("ab,c,de,"))
+	assert syntax.Occurrences(items, "Item") == []syntax.Occurrence{syntax.Occurrence{Start: 0, End: 2}, syntax.Occurrence{Start: 3, End: 4}, syntax.Occurrence{Start: 5, End: 7}}
+	assert syntax.Last(items, "Item") == Some{Value: syntax.Occurrence{Start: 5, End: 7}}
+	let found = list.FindCaptures("--x,yz,!")
+	assert syntax.ShowFound(found) == "found 2-7 (Item@2 )Item@3 (Item@4 )Item@6"
 }
 
 // A pattern that makes a backtracker take exponential time runs in
@@ -46,4 +118,39 @@ test SamplesMatchSometimes {
 		}
 	}
 	assert yes >= 40 && yes <= 360
+}
+
+// SearchSkipsImpossibleStarts catches R1-literal-machine: Boolean-only
+// agreement cannot see a correct but unaccelerated literal search.
+test SearchSkipsImpossibleStarts {
+	let literal = NewSearchCompiled(syntax.Literal("cat"))
+	let yes = literal.Measure("the cat sat")
+	assert yes.Matched && yes.Starts == 0 && yes.Transitions == 0
+	let no = literal.Measure("the dog sat")
+	assert !no.Matched && no.Starts == 0 && no.Transitions == 0
+	let partial = NewSearchCompiled(try syntax.Parse("cat[sz]"))
+	let absent = partial.Measure("the dog sat")
+	assert !absent.Matched && absent.Starts == 0 && absent.Transitions == 0
+	let found = partial.Measure("cats!")
+	assert found.Matched && found.Starts == 1 && found.Transitions > 0
+	// Whole must not be routed through the literal Inside fast path.
+	assert !(with Fast { engine.Select(syntax.Literal("cat"), engine.Whole) }).Matches("the cat sat")
+	assert (with Fast { engine.Select(syntax.Literal("cat"), engine.Inside) }).Matches("the cat sat")
+}
+
+// Minimal repros of the R1 candidate-selection bugs. The old tests only
+// exercise Whole or an already-expanded Search, never the new entry point.
+test SearchKeepsNullableAndOverlappingCandidates {
+	// R1-alt-prefix: neither alternative's entire prefix is required.
+	assert Search(Engine, try syntax.Parse("ab|ac")).Matches("ac")
+	// R1-nullable-prefix: an optional head is not a required prefix.
+	assert Search(Engine, try syntax.Parse("a?b")).Matches("b")
+	// R1-overlap: the failed aa.c at byte 0 must not skip byte 1.
+	assert Search(Engine, try syntax.Parse("aa.c")).Matches("aaaac")
+	// R1-live-candidate: a later start must not discard byte 0's state.
+	assert Search(Engine, try syntax.Parse("a.ab")).Matches("aaab")
+	// R1-early-accept: the text need not end at the pattern's Accept.
+	assert Search(Engine, try syntax.Parse("a[bc]")).Matches("xab!")
+	// R1-plus-complete: a repeated operand cannot join a fixed Cat prefix.
+	assert Search(Engine, try syntax.Parse("xa+b")).Matches("xaab")
 }

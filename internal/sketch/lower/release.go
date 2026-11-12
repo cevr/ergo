@@ -319,7 +319,7 @@ func (fc *funcCtx) entersRelease(x *syntax.CallExpr) bool {
 // inside the release of a checked Close: frame scope, entry poll and
 // source body, so no checkpoint precedes the mask. Any other function's
 // body is written as it is.
-func (fc *funcCtx) closeBody(f *check.Func, site syntax.Node, emit func()) {
+func (fc *funcCtx) closeBody(f *check.Func, recv string, site syntax.Node, emit func()) {
 	if !isClose(f) {
 		emit()
 		return
@@ -342,7 +342,22 @@ func (fc *funcCtx) closeBody(f *check.Func, site syntax.Node, emit func()) {
 	inner := fc.out.String()
 	fc.out, fc.depth = outer, depth
 	block := "func() {\n" + inner + strings.Repeat("\t", depth) + "}"
-	fc.line(fc.runtimeCall(name, body, "", "", []string{block}, fc.envExpr(site), nil, nil, site))
+	env := fc.envExpr(site)
+	call := fc.runtimeCall(name, body, "", "", []string{block}, env, nil, nil, site)
+	own := f.Pkg.Info.CloseParts[f]
+	if own == nil {
+		fc.line(call)
+		return
+	}
+	// R3: the written body first, then the receiver's parts, each after an
+	// earlier defect (R9), so every caller of the Close releases the whole
+	// value.
+	x := recv
+	if _, ok := f.Sig.Params[0].Type.(*check.Pointer); ok {
+		x = "(*" + recv + ")"
+	}
+	drop := fc.runtimeCall("NewDrop", fc.ownBinding("NewDrop", site), "", "", nil, env, nil, nil, site)
+	fc.line(fc.glueWith(own, x, "", env, drop, "func() { "+call+" }", site))
 }
 
 // Owned values (#197 L8 B1; resources R5-R10, R21, R41, R43). The checker
@@ -398,6 +413,12 @@ func (fc *funcCtx) glue(d *check.Drop, v, taken, env string, site syntax.Node) s
 // glueOn is glue with the Go text of its v1.Drop, for a release outside a
 // frame (resultRelease).
 func (fc *funcCtx) glueOn(d *check.Drop, v, taken, env, dropText string, site syntax.Node) string {
+	return fc.glueWith(d, v, taken, env, dropText, "", site)
+}
+
+// glueWith is glueOn with first, when not "", a Go func() run as the
+// first part: a written Close's body before its receiver's parts (R3).
+func (fc *funcCtx) glueWith(d *check.Drop, v, taken, env, dropText, first string, site syntax.Node) string {
 	g := &glueGen{fc: fc, site: site, env: env, names: map[*check.Drop]string{}}
 	g.drop = fc.temp("drop")
 	top := g.parts(d, v, taken)
@@ -408,6 +429,9 @@ func (fc *funcCtx) glueOn(d *check.Drop, v, taken, env, dropText string, site sy
 	}
 	for _, n := range g.order {
 		b.WriteString(g.defs[n])
+	}
+	if first != "" {
+		b.WriteString(fc.runtimeCall("Drop.Part", fc.ownBinding("Drop.Part", site), "", g.drop, []string{first}, "", nil, nil, site) + "; ")
 	}
 	b.WriteString(top)
 	b.WriteString(fc.runtimeCall("Drop.End", fc.ownBinding("Drop.End", site), "", g.drop, nil, "", nil, nil, site))
@@ -606,11 +630,134 @@ func (fc *funcCtx) ownVar(v *check.Var, site syntax.Node) {
 	fc.line(fc.own(v, d, v.Type, fc.locals[v], site))
 }
 
+// armHeldVar declares, for x, a lent if, match, catch or with whose Go
+// result variable is result, the flag that its path made the value
+// (Info.ArmHeld): true, and false where a tail yields an enclosing name
+// by lending it (Info.LentYields, yieldStmt). Its statement registers the
+// value only where the flag holds (ownTemp), so a lent name is never
+// owned twice (R43, the mHold rule; OWGEN).
+func (fc *funcCtx) armHeldVar(x syntax.Expr, result string) {
+	if outer := fc.l.info.HeldIn[unparen(x)]; result != "" && outer != nil {
+		// The tail of an arm of a lent form, whose value is that form's:
+		// its own tails that lend a name clear that form's flag.
+		if h := fc.heldExpr[outer]; h != "" {
+			fc.heldOf[result] = h
+		}
+		return
+	}
+	if result == "" || !fc.l.info.ArmHeld[x] || fc.l.info.OwnedTemps[x] == nil {
+		return
+	}
+	if fc.heldOf == nil {
+		fc.heldOf, fc.heldExpr = map[string]string{}, map[syntax.Expr]string{}
+	}
+	h := fc.temp("held")
+	fc.line(h + " := true")
+	fc.heldOf[result], fc.heldExpr[x] = h, h
+}
+
+// armKey is the owner key of the value of an if, match, catch or with
+// while its arms run (Info.ArmValues): distinct from the form itself,
+// whose key is its statement's temporary (OwnedTemps).
+type armKey struct{ form syntax.Expr }
+
+// armValueVar opens, for x, a value form whose Go result variable is
+// result, the owner its arms register the result in when an arm still
+// releases a value after its tail (Info.ArmValues, armYield): in the list
+// form a handle of the enclosing scope, made before the arms; in the
+// static form a slot of the frame. armValueEnd hands it off.
+func (fc *funcCtx) armValueVar(x syntax.Expr, result string) {
+	form := unparen(x)
+	if result == "" || fc.l.info.ArmValues[form] == nil {
+		return
+	}
+	if fc.armOf == nil {
+		fc.armOf, fc.armDone = map[string]syntax.Expr{}, map[syntax.Expr]bool{}
+	}
+	fc.armOf[result] = form
+	if fc.staticState() != nil {
+		return
+	}
+	if fc.l.owned == nil {
+		fc.l.owned = map[any]string{}
+	}
+	h := fc.temp("own")
+	fc.l.owned[armKey{form}] = h
+	fc.line(h + " := " + fc.runtimeCall("Scope.Owner", fc.ownBinding("Scope.Owner", x), "", fc.frameScope(x), nil, "", nil, nil, x))
+}
+
+// armYield registers result, which the tail x of an arm just assigned,
+// in its form's owner (armValueVar): on success only, when err is the
+// tail's failure. A tail that lends an enclosing name gives the form
+// nothing to own (Info.LentYields).
+func (fc *funcCtx) armYield(result string, x syntax.Expr, err string) {
+	form := fc.armOf[result]
+	if form == nil || fc.l.info.LentYields[x] {
+		return
+	}
+	d, t := fc.l.info.ArmValues[form], fc.typeOf(form)
+	var reg string
+	if fc.staticState() != nil {
+		reg = fc.staticOwn(armKey{form}, d, t, result, x)
+	} else {
+		reg = fc.owning(fc.l.owned[armKey{form}], result, d, t, x)
+	}
+	if err != "" {
+		fc.line("if " + err + " == nil {")
+		fc.line("\t_ = " + reg)
+		fc.line("}")
+	} else {
+		fc.line("_ = " + reg)
+	}
+	fc.armDone[form] = true
+}
+
+// armValueEnd hands off the value of x, the form armValueVar opened, after
+// its arms' releases: its consumer owns it from here on.
+func (fc *funcCtx) armValueEnd(x syntax.Expr, result string) {
+	form := unparen(x)
+	if result == "" || fc.armOf[result] != form {
+		return
+	}
+	delete(fc.armOf, result)
+	key := armKey{form}
+	if !fc.armDone[form] {
+		if h := fc.l.owned[key]; h != "" && fc.staticState() == nil {
+			fc.line("_ = " + h) // no arm yields a value it made
+		}
+		return
+	}
+	if fc.staticState() != nil {
+		fc.line(result + " = " + fc.staticHand(key, result, false, x))
+		return
+	}
+	fc.line(result + " = " + fc.runtimeCall("Hand", fc.ownBinding("Hand", x), "", "", []string{fc.l.owned[key], result}, "", nil, nil, x))
+}
+
+// lentYield clears the flag of the result name when the tail x yields an
+// enclosing name by lending it (armHeldVar).
+func (fc *funcCtx) lentYield(name string, x syntax.Expr) {
+	if h := fc.heldOf[name]; h != "" && fc.l.info.LentYields[x] {
+		fc.line(h + " = false")
+	}
+}
+
 // ownTemp registers the value of x, a temporary its statement owns (R43),
 // in the operand o: on success only, when x may fail.
 func (fc *funcCtx) ownTemp(x syntax.Expr, o operand) operand {
 	d := fc.l.info.OwnedTemps[x]
 	if d == nil || o.val == "" {
+		return o
+	}
+	if h := fc.heldExpr[x]; h != "" {
+		cond := h
+		if o.err != "" {
+			cond += " && " + o.err + " == nil"
+		}
+		reg := fc.own(x, d, fc.typeOf(x), o.val, x)
+		fc.line("if " + cond + " {")
+		fc.line("\t_ = " + reg)
+		fc.line("}")
 		return o
 	}
 	if o.err == "" {
@@ -861,8 +1008,12 @@ func (fc *funcCtx) reassignOwned(lhs syntax.Expr, target, val string) bool {
 	if cl == nil || h == "" {
 		return false
 	}
+	// The temporary has the local's type: a variant assigned to a local of
+	// its union would give it the variant's Go type (Go assigns a struct
+	// to the sealed interface), and the release registered for it is the
+	// union's.
 	t := fc.temp("t")
-	fc.line(t + " := " + val)
+	fc.line("var " + t + " " + fc.goType(v.Type) + " = " + val)
 	next := fc.temp("own")
 	fc.line(next + " := " + fc.runtimeCall("Scope.Owner", fc.ownBinding("Scope.Owner", id), "", fc.frameScope(id), nil, "", nil, nil, id))
 	fc.line(fc.owning(next, t, cl, v.Type, id))

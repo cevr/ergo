@@ -712,6 +712,9 @@ func TestTestLeg(t *testing.T) {
 			tests = append(tests, call)
 		}
 	}
+	// The programs run at once (runAll), so the calls of different
+	// programs may interleave: compare the set.
+	slices.Sort(tests)
 	var want []string
 	for _, p := range []string{"failing", "other", "passing", "pending", "untested"} {
 		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo"))
@@ -764,6 +767,29 @@ func TestTestLegThatCannotStartFails(t *testing.T) {
 	}
 	if !strings.Contains(out, "examples: FAILED: gone: check, gone: test\n") {
 		t.Fatalf("the start failure is not counted\n%s", out)
+	}
+}
+
+// Programs run at once, and their lines print in selection order whatever
+// order they end in. The case of a waits until the case of b has started
+// (b writes a file), so b always ends first, and a runner that runs one
+// program at a time never ends a: its -timeout, the test's own time left,
+// stops it. Mutants it catches, which no other test or example does:
+// runAll running the programs one at a time again (a times out), and
+// printing each program's lines when it ends (b's lines first).
+func TestProgramsRunAtOnceAndPrintInOrder(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	mark := filepath.Join(t.TempDir(), "b-started")
+	env := "MARK=" + mark + "\n"
+	f.program("a", "#!/bin/sh\nuntil [ -e \"$MARK\" ]; do sleep 0.01; done\necho a\n", "slow\n",
+		map[string]map[string]string{"basic": {"env": env, "expected.out": "a\n"}}, nil)
+	f.program("b", "#!/bin/sh\n: > \"$MARK\"\necho b\n", "slow\n",
+		map[string]map[string]string{"basic": {"env": env, "expected.out": "b\n"}}, nil)
+	code, out := f.run("-jobs", "2", "-timeout", caseTimeout(t), "a", "b")
+	a, b := strings.Index("\n"+out, "\nok a/basic ("), strings.Index("\n"+out, "\nok b/basic (")
+	if code != 0 || a < 0 || b < 0 || a > b {
+		t.Fatalf("want exit 0 and a's lines before b's; exit %d\n%s", code, out)
 	}
 }
 

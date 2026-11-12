@@ -67,7 +67,7 @@ type Tag { Name string, R Res }
 
 type Core { R Res }
 
-type Big { ..Core, S (Res, Res), k int }
+type Big { ..Core, S (Res, Res), T Res, k int }
 
 type Small { ..Core, k int }
 
@@ -109,8 +109,8 @@ func mkt(id int, bad bool) Tag needs Console {
 	Tag{Name: "t", R: open(id, bad)}
 }
 
-func mkbig(a int, b int, c int, x bool, y bool, z bool) Big needs Console {
-	Big{R: open(a, x), S: (open(b, y), open(c, z)), k: 0}
+func mkbig(a int, b int, c int, d int, x bool, y bool, z bool, w bool) Big needs Console {
+	Big{R: open(a, x), S: (open(b, y), open(c, z)), T: open(d, w), k: 0}
 }
 
 func fkey(n int, c int) string fails Bad {
@@ -161,18 +161,18 @@ type upTarget uint8
 const (
 	upPair   upTarget = iota // let Pair{R: rA, S: rB} = Pair{..BASE, F: P, …}
 	upTag                    // let Tag{Name: _, R: rA} = Tag{..BASE, Name: KEY}
-	upSpread                 // let Small{R: rA, k: _} = Small{..BIG, k: 1}: Big's S, a tuple (a generated release), is dropped
+	upSpread                 // let Small{R: rA, k: _} = Small{..BIG, k: 1}: Big's S, a tuple (a generated release), and T are dropped, in declaration order
 )
 
 // nres is the count of resources a base of t holds: its opens.
 func (t upTarget) nres() int {
-	return [...]int{upPair: 2, upTag: 1, upSpread: 3}[t]
+	return [...]int{upPair: 2, upTag: 1, upSpread: 4}[t]
 }
 
 type baseKind uint8
 
 const (
-	bLit  baseKind = iota // Pair{R: P, S: P} (Tag{Name: "x", R: P}, Big{R: P, S: (P, P), k: 0})
+	bLit  baseKind = iota // Pair{R: P, S: P} (Tag{Name: "x", R: P}, Big{R: P, S: (P, P), T: P, k: 0})
 	bCall                 // mkp(a, b, x, y) (mkt, mkbig)
 	bVar                  // pK, bound just before: let pK = <bLit>
 	bTry                  // try mkpf(a, b, x, y, n, cond): fails when n > cond (Pair only)
@@ -191,8 +191,8 @@ type orUpdate struct {
 	target upTarget
 	base   baseKind
 	bparts []*orPart // bLit, bVar: the base's resource fields, in field order
-	ids    [3]int    // bCall, bTry: the base's ids, nres of them
-	bads   [3]bool
+	ids    [4]int    // bCall, bTry: the base's ids, nres of them
+	bads   [4]bool
 	cond   int   // bTry
 	pk     int   // bVar: the local
 	fields []int // upPair: the named fields (0 R, 1 S), in written order
@@ -219,8 +219,8 @@ func (g *orGen) update(flat func() *orPart) *orUpdate {
 			u.bparts = append(u.bparts, flat())
 		}
 		if u.target == upSpread {
-			// Big's S is a tuple of the last two.
-			u.bparts = []*orPart{u.bparts[0], {kind: pTuple, elems: u.bparts[1:]}}
+			// Big's S is a tuple of the middle two; T is the last.
+			u.bparts = []*orPart{u.bparts[0], {kind: pTuple, elems: u.bparts[1:3]}, u.bparts[3]}
 		}
 		if u.base == bVar {
 			u.pk = g.nextV
@@ -292,9 +292,9 @@ func (u *orUpdate) write(b *strings.Builder, ind string) {
 	case upSpread:
 		if u.bparts != nil {
 			x := texts(u.bparts)
-			lit = fmt.Sprintf("Big{R: %s, S: %s, k: 0}", x[0], x[1])
+			lit = fmt.Sprintf("Big{R: %s, S: %s, T: %s, k: 0}", x[0], x[1], x[2])
 		}
-		call = fmt.Sprintf("mkbig(%d, %d, %d, %v, %v, %v)", u.ids[0], u.ids[1], u.ids[2], u.bads[0], u.bads[1], u.bads[2])
+		call = fmt.Sprintf("mkbig(%d, %d, %d, %d, %v, %v, %v, %v)", u.ids[0], u.ids[1], u.ids[2], u.ids[3], u.bads[0], u.bads[1], u.bads[2], u.bads[3])
 	}
 	base := call
 	switch u.base {
@@ -375,7 +375,7 @@ func (m *orModel) update(u *orUpdate, sc int, eval func(p *orPart) (*orEntry, or
 			es = append(es, &orEntry{id: u.ids[i], bad: u.bads[i], scope: -1})
 		}
 		if u.target == upSpread {
-			es = []*orEntry{es[0], {scope: -1, parts: es[1:]}}
+			es = []*orEntry{es[0], {scope: -1, parts: es[1:3]}, es[3]}
 		}
 		base = &orEntry{scope: -1, parts: es}
 	}
@@ -413,7 +413,7 @@ func (m *orModel) update(u *orUpdate, sc int, eval func(p *orPart) (*orEntry, or
 			leaves[f] = vals[i]
 		}
 	case upSpread:
-		dropped = []*orEntry{base.parts[1]}
+		dropped = []*orEntry{base.parts[1], base.parts[2]}
 		leaves = leaves[:1]
 	}
 	for i := len(dropped) - 1; i >= 0; i-- {

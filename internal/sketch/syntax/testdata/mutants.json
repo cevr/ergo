@@ -34,6 +34,17 @@
       "killers": [
         "internal/sketch/syntax:TestPairLawDraws"
       ]
+    },
+    {
+      "name": "rc4b-format-drops-derive",
+      "origin": "wf10 RC4b",
+      "file": "internal/sketch/format/nodes.go",
+      "from": "\t\t\tp.space()\n\t\t\tp.expr(d.Derive)\n",
+      "to": "\t\t\tp.space()\n",
+      "rule": "ergo fmt prints a derive as written (patterns.md, Derivation; the decided fixture derive.ergo formats to itself).",
+      "killers": [
+        "internal/sketch/format:TestFormatIdempotent"
+      ]
     }
   ]
 }

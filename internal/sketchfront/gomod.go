@@ -33,17 +33,24 @@ const (
 // `// ergo:module <path>` for a package of go.mod's own module.
 const moduleStamp = "// ergo:module "
 
-// goRequire is one require line of go.mod.
-type goRequire struct{ path, version string }
+// goRequire is one require line of go.mod, at its line.
+type goRequire struct {
+	path, version string
+	line          int
+}
 
 // goReplace is one replace line: old [oldVersion] => new [newVersion].
-type goReplace struct{ old, oldVersion, new, newVersion string }
+type goReplace struct {
+	old, oldVersion, new, newVersion string
+	line                             int
+}
 
 // goMod is the part of a go.mod the loader reads.
 type goMod struct {
-	module  string
-	require []goRequire
-	replace []goReplace
+	module     string
+	moduleLine int
+	require    []goRequire
+	replace    []goReplace
 }
 
 // parseGoMod reads the module, require and replace directives of a go.mod,
@@ -77,12 +84,12 @@ func parseGoMod(text string) (goMod, error) {
 			if len(words) != 1 {
 				return goMod{}, fmt.Errorf("%s:%d: module takes one path", GoModFile, line)
 			}
-			m.module = words[0]
+			m.module, m.moduleLine = words[0], line
 		case "require":
 			if len(words) != 2 {
 				return goMod{}, fmt.Errorf("%s:%d: a requirement is a module path and a version", GoModFile, line)
 			}
-			m.require = append(m.require, goRequire{words[0], words[1]})
+			m.require = append(m.require, goRequire{path: words[0], version: words[1], line: line})
 		case "replace":
 			arrow := -1
 			for k, w := range words {
@@ -94,7 +101,7 @@ func parseGoMod(text string) (goMod, error) {
 			if arrow < 1 || len(left) > 2 || len(right) < 1 || len(right) > 2 {
 				return goMod{}, fmt.Errorf("%s:%d: a replacement is old [version] => new [version]", GoModFile, line)
 			}
-			r := goReplace{old: left[0], new: right[0]}
+			r := goReplace{old: left[0], new: right[0], line: line}
 			if len(left) == 2 {
 				r.oldVersion = left[1]
 			}
@@ -148,44 +155,63 @@ func localReplacement(target string) bool {
 		target == "." || target == ".."
 }
 
-// lowerModule is the emitted module's Go requirements: go.mod's require and
+// lowerModule is go.mod's source of the emitted module: its require and
 // replace lines with each local directory made absolute against root, the
-// module of go.mod itself required and replaced by root, and go.sum.
+// module of go.mod itself required and replaced by root, and go.sum. Each
+// directive names its go.mod line.
 func (m goMod) lowerModule(root, sum string) lower.GoModule {
 	out := lower.GoModule{Sum: sum}
+	from := func(line int) string { return fmt.Sprintf("%s:%d", GoModFile, line) }
 	for _, r := range m.require {
-		out.Require = append(out.Require, goModWord(r.path)+" "+goModWord(r.version))
+		out.Require = append(out.Require, lower.GoRequire{Path: r.path, Version: r.version, From: from(r.line), Line: r.line})
 		out.Modules = append(out.Modules, r.path)
 	}
 	for _, r := range m.replace {
 		target := r.new
-		if localReplacement(target) {
+		if localReplacement(target) && !filepath.IsAbs(target) {
 			target = filepath.Join(root, filepath.FromSlash(target))
 		}
-		line := goModWord(r.old)
-		if r.oldVersion != "" {
-			line += " " + goModWord(r.oldVersion)
-		}
-		line += " => " + goModWord(target)
-		if r.newVersion != "" {
-			line += " " + goModWord(r.newVersion)
-		}
-		out.Replace = append(out.Replace, line)
+		out.Replace = append(out.Replace, lower.GoReplace{Old: r.old, OldVersion: r.oldVersion, New: target, NewVersion: r.newVersion, From: from(r.line), Line: r.line})
 	}
 	if m.module != "" {
-		out.Require = append(out.Require, goModWord(m.module)+" v0.0.0")
-		out.Replace = append(out.Replace, goModWord(m.module)+" => "+goModWord(root))
+		own := from(m.moduleLine) + " (its module)"
+		out.Require = append(out.Require, lower.GoRequire{Path: m.module, Version: "v0.0.0", From: own, Line: m.moduleLine})
+		out.Replace = append(out.Replace, lower.GoReplace{Old: m.module, New: root, From: own, Line: m.moduleLine})
 		out.Modules = append(out.Modules, m.module)
 	}
 	return out
 }
 
-// goModWord is w as a go.mod word: quoted unless it is plain.
-func goModWord(w string) string {
-	if w != "" && strings.Trim(w, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~+/") == "" {
-		return w
+// emittedModule merges go.mod's source with the runtime's
+// (lower.MergeGoModules); each conflict is a diagnostic at its go.mod line.
+func (l *loader) emittedModule(m goMod, text string) lower.GoModule {
+	merged, conflicts := lower.MergeGoModules(l.holds, lower.RuntimeGoModule(), m.lowerModule(l.root, l.goSum))
+	lines := lineStarts(text)
+	for _, c := range conflicts {
+		d := modDiagnostic(text, lines, min(max(c.Line, 1), len(lines)), 1, c.Message)
+		d.File = GoModFile
+		l.diags = append(l.diags, *d)
 	}
-	return strconv.Quote(w)
+	return merged
+}
+
+// holds reports why the directory dir does not hold each of files with the
+// same bytes, "" when it does. dir is absolute: lowerModule made each local
+// replacement so.
+func (l *loader) holds(dir string, files []lower.File) string {
+	if !filepath.IsAbs(dir) {
+		return dir + " is not a directory"
+	}
+	for _, f := range files {
+		data, err := l.fsys.ReadFile(filepath.Join(dir, filepath.FromSlash(f.Path)))
+		switch {
+		case err != nil:
+			return fmt.Sprintf("%s has no %s, which this compiler emits", dir, f.Path)
+		case string(data) != string(f.Data):
+			return fmt.Sprintf("%s holds another %s than this compiler emits", dir, f.Path)
+		}
+	}
+	return ""
 }
 
 // moduleKey is the stamp a binding of a package of module mod must carry
@@ -305,6 +331,7 @@ func (l *loader) readGoModule() {
 		l.goSum = string(sum)
 		l.texts[GoSumFile] = l.goSum
 	}
+	l.goModule = l.emittedModule(m, text)
 }
 
 // bindingFile is where the binding of a Go package lives under the module

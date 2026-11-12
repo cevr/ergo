@@ -1,0 +1,3 @@
+law counter.Counter.AddJoins for counter/cmd/counter.Wheel at (1, 2) proved h1:UL/fDrIT4sXIwtgm2fsFVMuPNdrMV8OsvrGQYr0svNc=
+law counter.Counter.AddJoins for counter/cmd/counter.Wheel at (3, 4) proved h1:eDaZI/u0xNGGepOeC25BySwMh+NIm0wV6dSyMg2Yjdc=
+law counter.Counter.AddJoins for counter/cmd/counter.Wheel proved h1:4IdBAm1HgdT1X+3GvmFLwt2ZC8BVrzLFav1baNBxEco=
