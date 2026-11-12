@@ -297,6 +297,73 @@ func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 		}
 		slots = append(slots, fmt.Sprintf("%d %s %s %t", k, p.Type, closed, p.Value))
 	}
+	return d.sum(pkg, slots)
+}
+
+// ContextDigest is the digest of every input of the verdict of the run of
+// law under the named context lc in the test build of pkg (lawcache): the
+// law's owner's declaration, the context's declaration and those of the
+// contexts it embeds, every function, type and package let their
+// provider expressions reach (each provider's constructor among them),
+// the functions of each acquired provider's conversions, the instance's
+// parameter types, and the generators of every type reached, by the
+// tokens of each (no position). An edit of any of them makes a new
+// digest.
+func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) string {
+	d := newDigester()
+	d.typ(law.Owner)
+	d.context(lc.Context)
+	var slots []string
+	if lc.With != nil {
+		for _, a := range lc.With.Acquired {
+			if a.Entry == nil {
+				continue
+			}
+			for _, conv := range a.Entry.Conversions {
+				for _, f := range tableFuncs(conv) {
+					d.fn(f)
+				}
+			}
+			for _, c := range a.Entry.Caps {
+				slots = append(slots, "acquires "+c.String())
+			}
+		}
+		for _, t := range lc.With.Discharged {
+			slots = append(slots, "binds "+t.String())
+		}
+	}
+	for _, t := range lc.Params {
+		slots = append(slots, "param "+t.String())
+		if n, ok := t.(*check.Named); ok {
+			d.typ(n.Obj)
+		}
+	}
+	slots = append(slots, "context "+lc.Context.Name, "unrun "+lc.Unrun)
+	return d.sum(pkg, slots)
+}
+
+// context adds the declaration of the named context c, and of each
+// context it embeds, and walks their provider expressions.
+func (d *digester) context(c *check.Context) {
+	if c == nil || d.seen[c] {
+		return
+	}
+	d.seen[c] = true
+	// A law runs only under a named context (planLawContexts), which has
+	// its declaration; an embedded one is named too.
+	if p := c.Package(); p != nil && c.Decl != nil {
+		d.decl("context "+p.Path+"."+c.Name, p, c.Decl)
+	} else {
+		d.decls["context "+c.Name] = true
+	}
+	for _, e := range c.Entries {
+		d.context(e.Embedded)
+	}
+}
+
+// sum is the digest of the declarations the walk added, the generators
+// of the types it reached in pkg, and slots, in order.
+func (d *digester) sum(pkg *check.Package, slots []string) string {
 	d.generators(pkg)
 	keys := make([]string, 0, len(d.decls))
 	for k := range d.decls {
@@ -345,12 +412,28 @@ func (d *digester) generators(pkg *check.Package) {
 
 // RunTarget is a run of a law the test build of a package reports under
 // Label, which the verdict store keys (lawcache): a binding of a law that
-// runs, whose providers all run. A machine's law and a run under a
-// context are not targets: they run every time.
+// runs, whose providers all run; a run of an owner's law under a named
+// context (Context set); or a machine's reachability law (Machine).
 type RunTarget struct {
 	Law     *check.Law
 	Binding []check.LawProvider
+	// Context is the named context the run builds, nil for a binding's
+	// or a machine's run.
+	Context *check.LawContext
+	// Machine marks a reachability law's run: its search, which each
+	// runner reports in its own terms (eval.MachineSearch, the test
+	// build's line), so each keeps its own verdict of it.
+	Machine bool
 	Label   string
+}
+
+// Digest is TargetDigest of t, or ContextDigest for a run under a
+// context.
+func (t RunTarget) Digest(pkg *check.Package) string {
+	if t.Context != nil {
+		return ContextDigest(pkg, t.Law, *t.Context)
+	}
+	return TargetDigest(pkg, t.Law, t.Binding)
 }
 
 // RunTargets are the targets of pkg's law runs, in run order. Two runs
@@ -358,17 +441,30 @@ type RunTarget struct {
 func RunTargets(pkg *check.Package) []RunTarget {
 	var out []RunTarget
 	count := map[string]int{}
+	add := func(t RunTarget) {
+		count[t.Label]++
+		out = append(out, t)
+	}
 	for _, r := range pkg.LawRuns {
-		if r.Law.Unrun != "" || r.Law.Machine != nil {
+		if r.Law.Unrun != "" {
+			continue
+		}
+		if r.Law.Machine != nil && r.Law.Decl != nil && r.Law.Decl.Reach != nil {
+			add(RunTarget{Law: r.Law, Machine: true, Label: "law " + r.Law.Title(pkg)})
 			continue
 		}
 		for _, b := range r.Bindings {
 			if bindingUnrun(b) != "" {
 				continue
 			}
-			label := BindingLabel(pkg, r.Law, b)
-			count[label]++
-			out = append(out, RunTarget{Law: r.Law, Binding: b, Label: label})
+			add(RunTarget{Law: r.Law, Binding: b, Label: BindingLabel(pkg, r.Law, b)})
+		}
+		for i := range r.Contexts {
+			lc := &r.Contexts[i]
+			if lc.Unrun != "" {
+				continue
+			}
+			add(RunTarget{Law: r.Law, Context: lc, Label: "law " + r.Law.Title(pkg) + " under " + lc.Context.Name})
 		}
 	}
 	return slices.DeleteFunc(out, func(t RunTarget) bool { return count[t.Label] > 1 })

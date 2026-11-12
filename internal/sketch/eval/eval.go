@@ -59,12 +59,22 @@ type Budget struct {
 
 // Verdicts is a store of the verdicts of law runs that held, keyed by
 // every input of the run (lawcache; v1 audit 3, F7): the law, its
-// binding, the seed and the budget of states. Cached gives the evidence
-// (proved or tested) and the cases of a held run; Held stores one. A run
-// the store does not key gives none and stores nothing.
+// binding (none for a machine's law), the seed and the budget of states.
+// Cached gives the verdict of a held run; Held stores one. A run the
+// store does not key gives none and stores nothing.
 type Verdicts interface {
-	Cached(law *check.Law, binding []check.LawProvider) (evidence string, cases int, ok bool)
-	Held(law *check.Law, binding []check.LawProvider, evidence string, cases int)
+	Cached(law *check.Law, binding []check.LawProvider) (Verdict, bool)
+	Held(law *check.Law, binding []check.LawProvider, v Verdict)
+}
+
+// Verdict is what a cached run reports of a run that held: its evidence
+// (proved or tested), its cases, and for a reachability law its reason
+// and its search.
+type Verdict struct {
+	Evidence          string
+	Cases, TotalCases int
+	Reason            string
+	Machine           *MachineSearch
 }
 
 // DefaultBudget is the editor budget the plan proposes (section 5): one
@@ -246,16 +256,16 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 			// A target with no why is a binding of the run (lawTargets).
 			keyed := b.Verdicts != nil && target.why == ""
 			if keyed {
-				if evidence, cases, ok := b.Verdicts.Cached(run.Law, target.binding); ok {
-					res.Status, res.Evidence, res.Seed, res.Cached = Passed, evidence, b.Seed, true
-					res.Cases, res.TotalCases = cases, cases
+				if v, ok := b.Verdicts.Cached(run.Law, target.binding); ok {
+					res.Status, res.Evidence, res.Seed, res.Cached = Passed, v.Evidence, b.Seed, true
+					res.Cases, res.TotalCases, res.Reason, res.Machine = v.Cases, v.TotalCases, v.Reason, v.Machine
 					add(res)
 					continue
 				}
 			}
 			out := in.runLawTarget(run.Law, target, res)
 			if keyed && out.Status == Passed && (out.Evidence == "proved" || out.Evidence == "tested") {
-				b.Verdicts.Held(run.Law, target.binding, out.Evidence, out.Cases)
+				b.Verdicts.Held(run.Law, target.binding, Verdict{Evidence: out.Evidence, Cases: out.Cases, TotalCases: out.TotalCases, Reason: out.Reason, Machine: out.Machine})
 			}
 			add(out)
 		}

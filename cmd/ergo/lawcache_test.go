@@ -8,7 +8,9 @@ import (
 )
 
 // lawCacheSource has a rewrite law with a site (the ledger runs it), two
-// pure laws that hold and one that is false.
+// pure laws that hold and one that is false, a law that runs under the
+// named context Live, and a machine with a reaches law and a sometimes
+// law, whose pass prints its witness.
 const lawCacheSource = `import sync
 
 type Counter {
@@ -31,6 +33,44 @@ law Halves(x int) { x - x == 0 }
 
 law Wrong(x int) { x + 1 == x }
 
+type Gauge {
+	Level() int,
+	law Steady() { Level() == Level() },
+}
+
+func Level(t Tally) int { t.s.Get() }
+
+let Live = context { Gauge: NewTally() }
+
+type Lamp = Off{} | On{}
+
+type Push = Toggle{}
+
+func Flip(l Lamp, _ Push) Decision[Lamp, Lamp] {
+	match l {
+	case Off:
+		Enter[Lamp]{Next: On}
+	case On:
+		Enter[Lamp]{Next: Off}
+	}
+}
+
+func isOn(l Lamp) bool {
+	match l {
+	case On:
+		true
+	case Off:
+		false
+	}
+}
+
+type Switch machine[Lamp, Push] {
+	initial: Off,
+	step:    Flip,
+	law Lights reaches On,
+	law Lit sometimes isOn,
+}
+
 func main() {
 	let t = NewTally()
 	t.Add(3)
@@ -49,8 +89,15 @@ func main() {
 // skips the runs it lists, is generated Go that only a built test binary
 // runs; TestLawRunsOnce replaces it in process.
 //
+// A run under a named context and a machine's searches are cached too,
+// a search's witness with it.
+//
 // Mutants it kills: lc-runner-ignores-cached (the runner runs a cached
-// law), lc-test-no-record (ergo test stores no verdict).
+// law), lc-test-no-record (ergo test stores no verdict),
+// lc-context-run-ignores-cached and lc-search-ignores-cached (the run
+// under a context, or the search, runs though cached),
+// lc-record-drops-witness (the stored verdict loses the lines after the
+// ok line).
 func TestLawVerdictsCLI(t *testing.T) {
 	needsBuild(t)
 	binary := buildTestCLI(t)
@@ -58,7 +105,7 @@ func TestLawVerdictsCLI(t *testing.T) {
 	xdg := filepath.Join(t.TempDir(), "xdg")
 	tmp := t.TempDir()
 	source := smokeWrite(t, root, "main.ergo", lawCacheSource)
-	held := []string{"ok law Counter.Joins for Tally (", "ok law Doubles (100 cases)", "ok law Halves (100 cases)"}
+	held := []string{"ok law Counter.Joins for Tally (", "ok law Doubles (100 cases)", "ok law Halves (100 cases)", "ok law Gauge.Steady under Live (", "ok law Switch.Lights (", "ok law Switch.Lit ("}
 	test := func(env ...string) string {
 		t.Helper()
 		t.Setenv("ERGO_LAWCACHE", "")
@@ -72,7 +119,8 @@ func TestLawVerdictsCLI(t *testing.T) {
 		}
 		return stdout
 	}
-	for _, out := range []string{test(), test("ERGO_LAWCACHE=off")} {
+	first := test()
+	for _, out := range []string{first, test("ERGO_LAWCACHE=off")} {
 		for _, line := range held {
 			if !strings.Contains(out, line) || strings.Contains(out, "(cached)") {
 				t.Fatalf("a first run, or a run with the store off, prints %q uncached:\n%s", line, out)
@@ -81,9 +129,13 @@ func TestLawVerdictsCLI(t *testing.T) {
 	}
 	out := test()
 	for _, line := range held {
-		i := strings.Index(out, line)
-		if i < 0 || !strings.HasPrefix(out[i+strings.Index(out[i:], ")"):], ") (cached)\n") {
+		ok, rest := verdictAt(out, line)
+		if !strings.HasSuffix(ok, ") (cached)") {
 			t.Fatalf("a second ergo test does not print %q cached:\n%s", line, out)
+		}
+		// A search's witness, printed after its ok line, is printed again.
+		if _, was := verdictAt(first, line); rest != was {
+			t.Fatalf("a second ergo test prints after %q\n%q\nwant the first run's\n%q", line, rest, was)
 		}
 	}
 	stdout, stderr, _ := testRunCLI(t, binary, root, xdg, tmp, "check", source)
@@ -105,4 +157,21 @@ func TestLawVerdictsCLI(t *testing.T) {
 	if !cached["law Doubles"] || !cached["law Halves"] || cached["law Wrong"] {
 		t.Fatalf("ergo check after ergo test: cached %v, want the laws that held and not Wrong\n%s", cached, stdout)
 	}
+}
+
+// verdictAt is the line of out that begins with prefix, and the lines
+// that continue it (blank or tab-indented, as a search's witness).
+func verdictAt(out, prefix string) (line, rest string) {
+	lines := strings.Split(out, "\n")
+	for i, l := range lines {
+		if !strings.HasPrefix(l, prefix) {
+			continue
+		}
+		j := i + 1
+		for j < len(lines) && (lines[j] == "" || strings.HasPrefix(lines[j], "\t")) {
+			j++
+		}
+		return l, strings.TrimRight(strings.Join(lines[i+1:j], "\n"), "\n")
+	}
+	return "", ""
 }

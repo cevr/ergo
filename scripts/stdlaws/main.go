@@ -24,6 +24,7 @@ func main() {
 			store = lawcache.Open(root, compiler)
 		}
 		text, err = sketchfront.FreshStdLedger(sketchfront.BuildRequest{Cache: build.Cache{Root: root}, Toolchain: build.HostToolchain(), Stderr: os.Stderr, Laws: store})
+		build.Cache{Root: root}.LawsWritten(store.Wrote())
 		if err == nil {
 			err = os.WriteFile("internal/sketch/std/ergo.laws", []byte(text), 0o644)
 		}

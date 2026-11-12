@@ -1,6 +1,7 @@
 package sketchfront
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -14,19 +15,33 @@ import (
 // three times"). Check-time evaluation (Analysis.Evaluate), ergo test's
 // build (TestVerdicts) and the ledger's check runs (UpdateLedger,
 // FreshStdLedger) share one store: a law run keyed by its label, its
-// TargetDigest, the seed and the budget of states runs once, in whichever
-// comes first, and the others print its verdict "(cached)".
+// digest (lower.RunTarget.Digest: TargetDigest, or ContextDigest for a run
+// under a context), the seed and the budget of states runs once, in
+// whichever comes first, and the others print its verdict "(cached)". A
+// machine's reachability law is keyed per runner: check-time evaluation
+// reports its search (eval.MachineSearch) and the test build its own
+// text, so each runner reuses only its own verdict of it.
 
 // defaultStates is the test build's --states default and the evaluator's.
 const defaultStates = 1_000_000
 
+// The runners of a machine's law, which key its verdict apart.
+const (
+	runnerEval   = "eval"
+	runnerNative = "native"
+)
+
 // targetKey is the store's key of the run t of pkg's test build at seed
-// and states.
-func targetKey(pkg *check.Package, t lower.RunTarget, seed uint64, states int) string {
+// and states, run by runner (runnerEval or runnerNative).
+func targetKey(pkg *check.Package, t lower.RunTarget, seed uint64, states int, runner string) string {
 	if states == 0 {
 		states = defaultStates
 	}
-	return lawcache.Key("law run", t.Label, lower.TargetDigest(pkg, t.Law, t.Binding), strconv.FormatUint(seed, 10), strconv.Itoa(states))
+	parts := []string{"law run", t.Label, t.Digest(pkg), strconv.FormatUint(seed, 10), strconv.Itoa(states)}
+	if t.Machine {
+		parts = append(parts, "machine", runner)
+	}
+	return lawcache.Key(parts...)
 }
 
 // rootPackage is the analysed package whose tests and laws run.
@@ -45,7 +60,13 @@ func (a Analysis) EvalVerdicts(store *lawcache.Store, seed uint64, states int) e
 	if store == nil || pkg == nil {
 		return nil
 	}
-	v := &evalVerdicts{store: store, pkg: pkg, seed: seed, states: states, targets: lower.RunTargets(pkg)}
+	v := &evalVerdicts{store: store, pkg: pkg, seed: seed, states: states}
+	// Check time runs no law under a context.
+	for _, t := range lower.RunTargets(pkg) {
+		if t.Context == nil {
+			v.targets = append(v.targets, t)
+		}
+	}
 	v.keys = make([]string, len(v.targets))
 	return v
 }
@@ -60,37 +81,57 @@ type evalVerdicts struct {
 	keys []string
 }
 
-// key is the key of the run of law with binding, when it is a target.
-func (v *evalVerdicts) key(law *check.Law, binding []check.LawProvider) (string, bool) {
+// target is the target of the run of law with binding, and its key.
+func (v *evalVerdicts) target(law *check.Law, binding []check.LawProvider) (lower.RunTarget, string, bool) {
 	for i, t := range v.targets {
 		if t.Law != law || len(t.Binding) != len(binding) || (len(binding) > 0 && &t.Binding[0] != &binding[0]) {
 			continue
 		}
 		if v.keys[i] == "" {
-			v.keys[i] = targetKey(v.pkg, t, v.seed, v.states)
+			v.keys[i] = targetKey(v.pkg, t, v.seed, v.states, runnerEval)
 		}
-		return v.keys[i], true
+		return t, v.keys[i], true
 	}
-	return "", false
+	return lower.RunTarget{}, "", false
 }
 
-func (v *evalVerdicts) Cached(law *check.Law, binding []check.LawProvider) (string, int, bool) {
-	k, ok := v.key(law, binding)
+func (v *evalVerdicts) Cached(law *check.Law, binding []check.LawProvider) (eval.Verdict, bool) {
+	t, k, ok := v.target(law, binding)
 	if !ok {
-		return "", 0, false
+		return eval.Verdict{}, false
 	}
 	text, ok := v.store.Get(k)
 	if !ok {
-		return "", 0, false
+		return eval.Verdict{}, false
 	}
-	verdict, ok := lawcache.Decode(text)
-	return verdict.Evidence, verdict.Cases, ok
+	stored, ok := lawcache.Decode(text)
+	if !ok {
+		return eval.Verdict{}, false
+	}
+	if t.Machine {
+		// A search's verdict is check time's own: its reason and search.
+		var out eval.Verdict
+		if json.Unmarshal([]byte(stored.Text), &out) != nil || out.Evidence != stored.Evidence {
+			return eval.Verdict{}, false
+		}
+		return out, true
+	}
+	return eval.Verdict{Evidence: stored.Evidence, Cases: stored.Cases, TotalCases: stored.Cases}, true
 }
 
-func (v *evalVerdicts) Held(law *check.Law, binding []check.LawProvider, evidence string, cases int) {
-	if k, ok := v.key(law, binding); ok {
-		v.store.Put(k, lawcache.Evaluated(evidence, cases).Encode())
+func (v *evalVerdicts) Held(law *check.Law, binding []check.LawProvider, held eval.Verdict) {
+	t, k, ok := v.target(law, binding)
+	if !ok {
+		return
 	}
+	if t.Machine {
+		data, err := json.Marshal(held)
+		if err == nil {
+			v.store.Put(k, lawcache.Verdict{Evidence: held.Evidence, Cases: held.Cases, Text: string(data)}.Encode())
+		}
+		return
+	}
+	v.store.Put(k, lawcache.Evaluated(held.Evidence, held.Cases).Encode())
 }
 
 // TestVerdicts is the store's view for one run of a's test build at seed
@@ -112,13 +153,13 @@ func (a Analysis) TestVerdicts(store *lawcache.Store, seed uint64, states int) *
 	tv := &TestVerdicts{store: store}
 	for _, t := range lower.RunTargets(pkg) {
 		tv.targets = append(tv.targets, t)
-		tv.keys = append(tv.keys, targetKey(pkg, t, seed, states))
+		tv.keys = append(tv.keys, targetKey(pkg, t, seed, states, runnerNative))
 	}
 	return tv
 }
 
 // CachedFile is the text of the --cached file: a "LABEL\tTEXT" line for
-// each run the store holds a verdict of.
+// each run the store holds a verdict of, TEXT a Go quoted string.
 func (tv *TestVerdicts) CachedFile() string {
 	if tv == nil {
 		return ""
@@ -130,15 +171,15 @@ func (tv *TestVerdicts) CachedFile() string {
 			continue
 		}
 		if v, ok := lawcache.Decode(text); ok {
-			b.WriteString(t.Label + "\t" + v.Text + "\n")
+			b.WriteString(t.Label + "\t" + strconv.Quote(v.Text) + "\n")
 		}
 	}
 	return b.String()
 }
 
-// Record stores the verdict of each run whose ok line out holds: a run
-// that printed no ok line (it failed, was skipped or did not run) or a
-// cached one stores nothing.
+// Record stores the verdict of each run whose ok line out holds, with the
+// lines that continue it: a run that printed no ok line (it failed, was
+// skipped or did not run) or a cached one stores nothing.
 func (tv *TestVerdicts) Record(out string) {
 	if tv == nil {
 		return
@@ -147,8 +188,9 @@ func (tv *TestVerdicts) Record(out string) {
 	for i, t := range tv.targets {
 		at[t.Label] = i
 	}
-	for _, line := range strings.Split(out, "\n") {
-		rest, ok := strings.CutPrefix(line, "ok ")
+	lines := strings.Split(out, "\n")
+	for n := 0; n < len(lines); n++ {
+		rest, ok := strings.CutPrefix(lines[n], "ok ")
 		if !ok {
 			continue
 		}
@@ -157,8 +199,9 @@ func (tv *TestVerdicts) Record(out string) {
 		if !ok {
 			continue
 		}
-		if v, ok := lawcache.FromLine(label, line); ok {
+		if v, read, ok := lawcache.FromLines(label, lines[n:]); ok {
 			tv.store.Put(tv.keys[i], v.Encode())
+			n += read - 1
 		}
 	}
 }

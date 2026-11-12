@@ -1746,7 +1746,8 @@ func $Seed() uint64 {
 		}
 		$Cached = map[string]string{}
 		for _, line := range $strings.Split(string(data), "\n") {
-			if label, text, ok := $strings.Cut(line, "\t"); ok {
+			label, quoted, ok := $strings.Cut(line, "\t")
+			if text, err := $strconv.Unquote(quoted); ok && err == nil {
 				$Cached[label] = text
 			}
 		}
@@ -1764,8 +1765,10 @@ func $Seed() uint64 {
 }
 
 // $Cached holds the verdicts ergo test found in its store for this run's
-// seed and budget (--cached FILE, one "LABEL\tTEXT" line each; lawcache):
-// the law run LABEL held, with the ok line's TEXT.
+// seed and budget (--cached FILE, one "LABEL\tTEXT" line each, TEXT a Go
+// quoted string; lawcache): the law run LABEL held, with the ok line's
+// TEXT, and after a line break the lines that followed it (a search's
+// run).
 var $Cached map[string]string
 
 // $CachedRun prints the cached verdict of the run label, marked, and
@@ -1773,7 +1776,11 @@ var $Cached map[string]string
 func $CachedRun(label string) bool {
 	text, ok := $Cached[label]
 	if ok {
-		$fmt.Println("ok " + label + " (" + text + ") (cached)")
+		head, rest, _ := $strings.Cut(text, "\n")
+		if rest != "" {
+			rest = "\n" + rest
+		}
+		$fmt.Println("ok " + label + " (" + head + ") (cached)" + rest)
 	}
 	return ok
 }

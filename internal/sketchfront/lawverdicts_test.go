@@ -21,15 +21,39 @@ import (
 // verdictProgram is a generated program of pure laws, each reading its
 // own declarations: L1 reads f1 and the let k1, L2 reads f2 and k2, L3
 // draws a Box through its constructor NewBox, L4 reads f3, which calls
-// f1 and reads k1; Wrong is false. An edit flips one field.
+// f1 and reads k1; Wrong is false. Counter.AddsSome runs for the provider
+// Tally (its constructor NewTally, its operation Add) and under the named
+// context Live, whose provider expression builds a Tally; the machine
+// Switch's law Lights reads its step Flip. An edit flips one field.
 type verdictProgram struct {
 	k1, k2, c, other              int
 	f1Swap, f2Swap, boxSwap, f3Ze bool
 	l1Flip                        bool
+	liveLit, liveParen            bool
+	tallyZero, addSwap            bool
+	flipSwap                      bool
 	comments, moved               bool
 }
 
 func (p verdictProgram) source() string {
+	live, tally, add, flip := "NewTally()", "Tally{base: 0}", "t.base + n", "Enter[Lamp]{Next: Off}"
+	if p.liveLit {
+		// Not a Tally literal: one outside NewTally opens Tally's
+		// construction, which the run for Tally reads too.
+		live = "MakeTally()"
+	}
+	if p.liveParen {
+		live = "(" + live + ")"
+	}
+	if p.tallyZero {
+		tally = "Tally{base: 0 * 1}"
+	}
+	if p.addSwap {
+		add = "n + t.base"
+	}
+	if p.flipSwap {
+		flip = "Enter[Lamp]{Next: On}"
+	}
 	f1, f2, box, f3, l1 := "x + k1", "x * k2", fmt.Sprintf("n + %d", p.c), "f1(x) - k1", "f1(x) - x == k1"
 	if p.f1Swap {
 		f1 = "k1 + x"
@@ -60,6 +84,16 @@ func (p verdictProgram) source() string {
 		"law L4(x int) { f3(x) == x }",
 		"law Wrong(x int) { x + 1 == x }",
 		fmt.Sprintf("func other() int { %d }", p.other),
+		"type Counter {\n\tAdd(n int) int,\n\tlaw AddsSome(n int) { Add(n) - n == 0 },\n}",
+		"type Tally { base int }",
+		"func NewTally() Tally { " + tally + " }",
+		"func MakeTally() Tally { NewTally() }",
+		"func Add(t Tally, n int) int { " + add + " }",
+		"let Live = context { Counter: " + live + " }",
+		"type Lamp = Off{} | On{}",
+		"type Push = Toggle{}",
+		"func Flip(l Lamp, _ Push) Decision[Lamp, Lamp] {\n\tmatch l {\n\tcase Off:\n\t\tEnter[Lamp]{Next: On}\n\tcase On:\n\t\t" + flip + "\n\t}\n}",
+		"type Switch machine[Lamp, Push] {\n\tinitial: Off,\n\tstep: Flip,\n\tlaw Lights reaches On,\n}",
 		"func main() {}",
 	}
 	if p.moved {
@@ -91,6 +125,11 @@ func verdictEdits(r *rand.Rand) []verdictEdit {
 		{"Box's constructor, the generator of L3's cases", []string{"L3"}, func(p *verdictProgram) { p.boxSwap = true }},
 		{"f3's body, which L4 alone reads", []string{"L4"}, func(p *verdictProgram) { p.f3Ze = true }},
 		{"the law L1", []string{"L1"}, func(p *verdictProgram) { p.l1Flip = true }},
+		{"the context Live's provider expression", []string{"Counter.AddsSome under Live"}, func(p *verdictProgram) { p.liveLit = true }},
+		{"the tokens of Live's declaration, the same names", []string{"Counter.AddsSome under Live"}, func(p *verdictProgram) { p.liveParen = true }},
+		{"NewTally, the constructor Live calls", []string{"Counter.AddsSome for Tally", "Counter.AddsSome under Live"}, func(p *verdictProgram) { p.tallyZero = true }},
+		{"Add, Tally's operation", []string{"Counter.AddsSome for Tally", "Counter.AddsSome under Live"}, func(p *verdictProgram) { p.addSwap = true }},
+		{"Flip, the machine's step", []string{"Switch.Lights"}, func(p *verdictProgram) { p.flipSwap = true }},
 		{"a function no law reads", nil, func(p *verdictProgram) { p.other += 1 + r.IntN(9) }},
 		{"comments and spaces", nil, func(p *verdictProgram) { p.comments = true }},
 		{"every declaration moved", nil, func(p *verdictProgram) { p.moved = true }},
@@ -110,7 +149,8 @@ func evaluated(t *testing.T, src string, store *lawcache.Store) map[string]eval.
 	}
 	ran := map[string]eval.Status{}
 	for _, res := range rep.Results {
-		if !res.Cached {
+		// Check time skips a run under a context (ergo test's).
+		if !res.Cached && res.Status != eval.Skipped {
 			ran[strings.TrimPrefix(res.Name, "law ")] = res.Status
 		}
 	}
@@ -127,9 +167,18 @@ func evaluated(t *testing.T, src string, store *lawcache.Store) map[string]eval.
 // and writes the store; ergo test's build keys its runs alike
 // (TestVerdicts, targetKey).
 //
+// The test build's runs are keyed alike (testRuns): a run under a named
+// context reads the context's declaration and the constructors its
+// provider expressions call, and a machine's search reads its step, each
+// as its own key.
+//
 // Mutants it kills: lc-key-no-digest (the key leaves out the digest, so
 // no edit runs a law again), lc-digest-no-generators (the digest leaves
-// out the generators, so an edit of NewBox keeps L3 cached).
+// out the generators, so an edit of NewBox keeps L3 cached),
+// lc-context-digest-no-decl (a context's digest leaves out its
+// declaration, so an edit of Live keeps its run cached),
+// lc-context-runs-uncached and lc-machine-runs-uncached (no run under a
+// context, or no search, is a target: it runs every time).
 //
 // ERGO_VERDICT_SEED=N replays one seed.
 func TestLawVerdictsStale(t *testing.T) {
@@ -150,24 +199,83 @@ func TestLawVerdictsStale(t *testing.T) {
 				t.Fatalf("seed %d, edit %s (replay: ERGO_VERDICT_SEED=%d go test -run TestLawVerdictsStale ./internal/sketchfront): %s\nbase source:\n%s", seed, e.name, seed, fmt.Sprintf(format, args...), p.source())
 			}
 			store := lawcache.Open(t.TempDir(), "test")
-			if ran := evaluated(t, p.source(), store); len(ran) != 5 {
-				fail("the first evaluation ran %v, want every law", ran)
+			if ran := evaluated(t, p.source(), store); len(ran) != 7 {
+				fail("the first evaluation ran %v, want every law but the one under a context", ran)
 			}
 			if ran := evaluated(t, p.source(), store); !maps.Equal(ran, map[string]eval.Status{"Wrong": eval.Refuted}) {
 				fail("the same source evaluated again ran %v, want only the refuted law", ran)
+			}
+			// ergo test's build: each run that held prints its ok line.
+			native := testRuns(t, p.source(), store, nil)
+			if !slices.Contains(native, "Counter.AddsSome under Live") || !slices.Contains(native, "Switch.Lights") {
+				fail("the first test build ran %v, want the runs under a context and the machine's search too", native)
+			}
+			if again := testRuns(t, p.source(), store, nil); !slices.Equal(again, []string{"Wrong"}) {
+				fail("the same source built again ran %v, want only the refuted law", again)
 			}
 			q := p
 			e.apply(&q)
 			ran := evaluated(t, q.source(), store)
 			want := map[string]eval.Status{"Wrong": eval.Refuted}
+			wantNative := []string{"Wrong"}
 			for _, l := range e.stale {
-				want[l] = eval.Passed
+				if !strings.Contains(l, " under ") {
+					want[l] = eval.Passed
+				}
+				wantNative = append(wantNative, l)
 			}
 			if !maps.Equal(ran, want) {
 				fail("the edited source ran %v, want %v\nedited source:\n%s", ran, want, q.source())
 			}
+			// The shared runs check time ran again are stored again; the
+			// test build runs the rest: its runs under a context, and its
+			// own search of the machine.
+			wantNative = slices.DeleteFunc(wantNative, func(l string) bool {
+				_, shared := want[l]
+				return shared && l != "Wrong" && !strings.HasPrefix(l, "Switch.")
+			})
+			sort.Strings(wantNative)
+			if got := testRuns(t, q.source(), store, nil); !slices.Equal(got, wantNative) {
+				fail("the edited source's test build ran %v, want %v\nedited source:\n%s", got, wantNative, q.source())
+			}
 		}
 	}
+}
+
+// testRuns is a test build of src with the store, in process: each run
+// RunTargets names that the --cached file does not list runs, and prints
+// its ok line (FAIL for Wrong), and the build's output is recorded. It
+// returns the runs that ran, by name without "law ", sorted, and counts
+// each in runs when runs is not nil.
+func testRuns(t *testing.T, src string, store *lawcache.Store, runs map[string]int) []string {
+	t.Helper()
+	a := checked(t, src)
+	tv := a.TestVerdicts(store, 1, 0)
+	cached := map[string]bool{}
+	for _, line := range strings.Split(tv.CachedFile(), "\n") {
+		if label, _, ok := strings.Cut(line, "\t"); ok {
+			cached[label] = true
+		}
+	}
+	var out strings.Builder
+	var ran []string
+	for _, target := range lower.RunTargets(a.rootPackage()) {
+		if cached[target.Label] {
+			continue
+		}
+		ran = append(ran, strings.TrimPrefix(target.Label, "law "))
+		if runs != nil {
+			runs[target.Label]++
+		}
+		if target.Label == "law Wrong" {
+			out.WriteString("FAIL law Wrong (case 1 of 100): the law is false\n")
+			continue
+		}
+		out.WriteString("ok " + target.Label + " (100 cases)\n")
+	}
+	tv.Record(out.String())
+	sort.Strings(ran)
+	return ran
 }
 
 // guardSource is the counted guard's program: the ledger's program with

@@ -8,31 +8,36 @@ import (
 // Verdict is a law run's verdict that held: its evidence, proved or
 // tested, the cases it took, and the text of its ok line, the part in
 // parentheses after the run's label ("100 cases", "proved: all 12
-// cases"). Check-time evaluation and the test build write it and read it
-// alike, so either runner's verdict serves the other.
+// cases"), then, after a line break, the lines the run printed after it
+// (a search's witness). Check-time evaluation and the test build write
+// it and read it alike, so either runner's verdict serves the other.
 type Verdict struct {
 	Evidence string
 	Cases    int
 	Text     string
 }
 
-// Encode is the verdict as the store keeps it: evidence, cases and text,
-// tab-separated.
+// Encode is the verdict as the store keeps it: evidence, cases and the
+// text as a Go quoted string, tab-separated.
 func (v Verdict) Encode() string {
-	return v.Evidence + "\t" + strconv.Itoa(v.Cases) + "\t" + v.Text
+	return v.Evidence + "\t" + strconv.Itoa(v.Cases) + "\t" + strconv.Quote(v.Text)
 }
 
 // Decode reads an encoded verdict.
 func Decode(s string) (Verdict, bool) {
 	parts := strings.SplitN(s, "\t", 3)
-	if len(parts) != 3 || (parts[0] != "proved" && parts[0] != "tested") || strings.Contains(parts[2], "\n") {
+	if len(parts) != 3 || (parts[0] != "proved" && parts[0] != "tested") {
 		return Verdict{}, false
 	}
 	n, err := strconv.Atoi(parts[1])
 	if err != nil || n < 0 {
 		return Verdict{}, false
 	}
-	return Verdict{Evidence: parts[0], Cases: n, Text: parts[2]}, true
+	text, err := strconv.Unquote(parts[2])
+	if err != nil {
+		return Verdict{}, false
+	}
+	return Verdict{Evidence: parts[0], Cases: n, Text: text}, true
 }
 
 // Evaluated is the verdict of a run that held over cases, its evidence
@@ -62,6 +67,29 @@ func FromLine(label, line string) (Verdict, bool) {
 	return v, true
 }
 
+// FromLines reads the verdict of the run label from the test build's
+// output lines at its ok line, lines[0], with the lines that continue it
+// (a blank line or one that begins with a tab, as a search's witness is
+// printed), and reports how many lines it read.
+func FromLines(label string, lines []string) (Verdict, int, bool) {
+	v, ok := FromLine(label, lines[0])
+	if !ok {
+		return Verdict{}, 1, false
+	}
+	n := 1
+	for n < len(lines) && (lines[n] == "" || strings.HasPrefix(lines[n], "\t")) {
+		n++
+	}
+	end := n
+	for end > 1 && lines[end-1] == "" {
+		end--
+	}
+	if end > 1 {
+		v.Text += "\n" + strings.Join(lines[1:end], "\n")
+	}
+	return v, n, true
+}
+
 // leadingCount is the decimal number s begins with, 0 for none.
 func leadingCount(s string) int {
 	i := 0
@@ -72,7 +100,12 @@ func leadingCount(s string) int {
 	return n
 }
 
-// Line is the line a runner prints for a cached verdict of the run label.
+// Line is the text a runner prints for a cached verdict of the run label:
+// its ok line, marked, and the lines that followed it.
 func (v Verdict) Line(label string) string {
-	return "ok " + label + " (" + v.Text + ") (cached)"
+	head, rest, _ := strings.Cut(v.Text, "\n")
+	if rest != "" {
+		rest = "\n" + rest
+	}
+	return "ok " + label + " (" + head + ") (cached)" + rest
 }

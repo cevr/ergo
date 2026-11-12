@@ -161,6 +161,9 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		}
 		return exploreSearch(os.Stdout, l, binary, childArgs, opts.search, opts.run, seed, limit)
 	}
+	// The verdicts this run and its ledger write are bounded by the
+	// emission cache's trim (lawtrim.go).
+	defer boundLaws(lawStore())
 	child := testProgramCommand(binary, childArgs, limit)
 	var out bytes.Buffer
 	if verdicts != nil {
@@ -207,6 +210,14 @@ func lawStore() *lawcache.Store {
 		return nil
 	}
 	return lawStoreOf(compiler)
+}
+
+// boundLaws runs the emission cache's trim of the law verdicts when this
+// process wrote any to store (build.Cache.LawsWritten).
+func boundLaws(store *lawcache.Store) {
+	if root, err := build.DefaultRoot(); err == nil {
+		build.Cache{Root: root}.LawsWritten(store.Wrote())
+	}
 }
 
 // lawStoreOf is lawStore for the compiler identity compiler.

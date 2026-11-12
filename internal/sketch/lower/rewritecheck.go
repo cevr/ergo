@@ -177,9 +177,9 @@ func RewriteChecksCached(u Unit, run func(files []File, laws []string) (string, 
 // checkRunKey is the store's key of the check run of law in the check
 // build of pkg (lawcache): the law's title, each binding's label and
 // TargetDigest, in order, the site instances of the law the build takes,
-// in order, whether it runs as a post law, and the seed. A law that runs
-// under a context has none: a context's declarations are not in the
-// digest, so it runs every time.
+// in order, whether it runs as a post law, and the seed; for each named
+// context it runs under, the context, why it does not run, and its
+// ContextDigest.
 func checkRunKey(pkg *check.Package, law *check.Law, insts []RewriteInstance, post bool) (string, bool) {
 	parts := []string{"check run", law.Title(pkg), RewriteCheckSeed, strconv.FormatBool(post)}
 	found := false
@@ -187,12 +187,15 @@ func checkRunKey(pkg *check.Package, law *check.Law, insts []RewriteInstance, po
 		if r.Law != law {
 			continue
 		}
-		if len(r.Contexts) > 0 || found {
+		if found {
 			return "", false
 		}
 		found = true
 		for _, b := range r.Bindings {
 			parts = append(parts, "binding", BindingLabel(pkg, law, b), bindingUnrun(b), TargetDigest(pkg, law, b))
+		}
+		for _, lc := range r.Contexts {
+			parts = append(parts, "context", lc.Context.Name, lc.Unrun, ContextDigest(pkg, law, lc))
 		}
 	}
 	if !found {

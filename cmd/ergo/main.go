@@ -478,6 +478,7 @@ func checkPackage(opts fileOptions) error {
 	}
 	budget.Verdicts = l.analysis.EvalVerdicts(store, budget.Seed, budget.States)
 	evaluation, err := l.analysis.Evaluation(budget, opts.file)
+	boundLaws(store)
 	if err != nil {
 		return err
 	}

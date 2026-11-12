@@ -22,7 +22,8 @@ import (
 // aside that a crash left), and the private roots of lease.go. A count
 // bounds the published entries too: past entryCap, the cap pass removes the
 // least recently used (capEntries), after each build that published one
-// and after each due trim.
+// and after each due trim. The same passes bound the law verdict store,
+// Root/laws (lawtrim.go).
 //
 // Ages decide what to remove, never whether a removal is safe. Safety rests
 // on directory locks:
@@ -123,10 +124,17 @@ func (c Cache) maybeTrim(now time.Time) { c.trimAfter(now, false) }
 // the cap pass too, after its own pass. So a cache that only grows by
 // publication stays within entryCap after each build that the claim lets
 // trim, and a build that only reuses still reads only the stamp.
-func (c Cache) trimAfter(now time.Time, published bool) {
+func (c Cache) trimAfter(now time.Time, published bool) { c.trimPass(now, published, false) }
+
+// trimPass is trimAfter; laws reports that the command wrote law
+// verdicts (lawtrim.go), so the pass also counts Root/laws against
+// lawCap. A due trim and every cap pass bound Root/laws too (trimLaws).
+func (c Cache) trimPass(now time.Time, published, laws bool) {
 	path := filepath.Join(c.Root, trimStampName)
 	data, _ := os.ReadFile(path)
-	over := leasesSupported && published && c.overCap()
+	modulesOver := leasesSupported && published && c.overCap()
+	lawsOver := leasesSupported && laws && c.lawsOverCap()
+	over := modulesOver || lawsOver
 	if !over && !trimDue(leasesSupported, readStamp(data), now) {
 		return
 	}
@@ -149,10 +157,14 @@ func (c Cache) trimAfter(now time.Time, published bool) {
 	}
 	if !due {
 		c.capEntries()
+		if lawsOver {
+			c.trimLaws(now, false)
+		}
 		return
 	}
 	p := c.trim(now, s.cursor)
 	c.capEntries()
+	c.trimLaws(now, true)
 	if p.complete {
 		s = stamp{completed: now.Add(time.Since(began)).Unix()}
 	} else {

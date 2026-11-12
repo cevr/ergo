@@ -12,7 +12,9 @@
 // exhausted budget or a skip is never cached, so it runs (and fails)
 // every time. A store is in process memory and, when it has a root and a
 // compiler of content identity, on disk under the emission cache's root
-// (Root/laws), one small file per key, written by one rename. A compiler
+// (Root/laws), one small file per key, written by one rename, marked used
+// when read, and bounded by the emission cache's trim (build's
+// lawtrim.go: by age, and past a count, least recently used). A compiler
 // identity that is process-scoped (go run, go test) keeps the store in
 // memory: another process's compiler may differ.
 //
@@ -32,11 +34,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Version names the store's key and text encoding: a change of either
 // makes every entry a miss.
-const Version = "ergo-lawcache/1"
+const Version = "ergo-lawcache/2"
 
 // Store is a verdict store. The zero value is not usable; use Open or
 // Memory. A nil *Store stores nothing and finds nothing.
@@ -44,9 +47,10 @@ type Store struct {
 	compiler string
 	dir      string // "" keeps the store in memory only
 
-	mu   sync.Mutex
-	mem  map[string]string
-	runs map[string]int
+	mu    sync.Mutex
+	mem   map[string]string
+	runs  map[string]int
+	wrote int
 }
 
 var (
@@ -123,7 +127,34 @@ func (s *Store) Get(key string) (string, bool) {
 	s.mu.Lock()
 	s.mem[name] = text
 	s.mu.Unlock()
+	markUsed(path, time.Now())
 	return text, true
+}
+
+// markInterval is the least time between two use marks of an entry, the
+// emission cache's (build's trim.go): the trim removes the least recently
+// used entries first, by their modification time.
+const markInterval = time.Hour
+
+// markUsed sets the use mark of the entry at path to now, unless its
+// last mark is less than markInterval old. A failed mark costs only the
+// entry's age.
+func markUsed(path string, now time.Time) {
+	if info, err := os.Stat(path); err == nil && now.Sub(info.ModTime()) >= markInterval {
+		_ = os.Chtimes(path, now, now)
+	}
+}
+
+// Wrote is how many entries this process wrote to the store's disk: the
+// command that wrote any asks the emission cache's trim to bound them
+// (build.Cache.LawsWritten).
+func (s *Store) Wrote() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.wrote
 }
 
 // Put stores text, a verdict that held, under key, and counts one run of
@@ -143,8 +174,10 @@ func (s *Store) Put(key, text string) {
 	}
 	s.mem[name] = text
 	s.mu.Unlock()
-	if path != "" {
-		_ = writeAtomic(path, []byte(text))
+	if path != "" && writeAtomic(path, []byte(text)) == nil {
+		s.mu.Lock()
+		s.wrote++
+		s.mu.Unlock()
 	}
 }
 
