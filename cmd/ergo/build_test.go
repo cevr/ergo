@@ -35,7 +35,8 @@ func init() {
 // TestPackageNeverWritesUnderHome starts, which must not start another.
 const innerRunVariable = "ERGO_CMD_TEST_INNER_RUN"
 
-// TestPackageNeverWritesUnderHome runs this package's tests again with
+// TestPackageNeverWritesUnderHome runs this package's tests again, in this
+// run's tier (-short when it is), with
 // HOME set to an empty directory and XDG_CACHE_HOME unset, and requires the
 // directory to stay empty: building and running programs, in every test,
 // writes only into the tests' own temporary space. Go's caches and go env
@@ -74,7 +75,13 @@ func TestPackageNeverWritesUnderHome(t *testing.T) {
 	env = append(env, "HOME="+home, innerRunVariable+"=1", "TMPDIR="+linkedTemp,
 		"PATH="+wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"GOCACHE="+goEnv["GOCACHE"], "GOMODCACHE="+goEnv["GOMODCACHE"], "GOPATH="+goEnv["GOPATH"], "GOENV="+goEnv["GOENV"])
-	child := exec.Command(os.Args[0], "-test.count=1", "-test.v", "-test.skip=^TestPackageNeverWritesUnderHome$")
+	args := []string{"-test.count=1", "-test.v", "-test.skip=^TestPackageNeverWritesUnderHome$"}
+	if testing.Short() {
+		// The witness covers the tests of this run's tier: a -short run
+		// starts a -short package run, not the full one (OPT9 r2).
+		args = append(args, "-test.short")
+	}
+	child := exec.Command(os.Args[0], args...)
 	child.Env = env
 	stdout, stderr, code := runSmokeCommand(t, child)
 	passed := regexp.MustCompile(`(?m)^--- PASS: `).FindAll(stdout, -1)
