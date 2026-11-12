@@ -18,7 +18,7 @@ import (
 // functions whose bodies nest withs: inline contexts of one or two
 // resource providers (Res binds Store, Aud binds Audit; each Close writes
 // a line), the named context Both, whose Store is built through the Audit
-// it binds before it, a Lease whose Close needs Audit, so it runs in the
+// it binds before it, a Lease whose Close notes through Audit, so it runs in the
 // environment outside its with, a local context named by two withs, a
 // with of two operands, a log annotation (a context value) and a with
 // that installs a Context value. The innermost block ends normally, by
@@ -75,7 +75,7 @@ func TestEvalReleasesAgreeWithModel(t *testing.T) {
 		for _, res := range rep.Results {
 			names[res.Name] = true
 			// The test and the run under Both must pass; the law's other
-			// bindings (Res, Plain; Lease, whose Close needs Audit) only
+			// bindings (Res, Plain; Lease, whose Close notes through Audit) only
 			// must not fail.
 			mustPass := res.Name == "Releases" || strings.HasSuffix(res.Name, " under Both")
 			if res.Name == "Owned" && (res.Status != Skipped || !strings.Contains(res.Reason, "owns the resource r")) {
