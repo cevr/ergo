@@ -97,6 +97,21 @@ var declared = map[string][]allowance{
 	"scripts/mutants": {
 		{".", subtree, "TestLedgerEditsApplyOnce walks every package ledger and reads each mutant's source to reject ambiguous or stale edits"},
 	},
+	"scripts/bootstrap": {
+		{"toolchain/seed.lock", file, "TestCapstoneRowsOfLandedStages: S0's row is that the seed lock parses"},
+		{"compiler/ergo.mod", file, "TestCapstoneRowsOfLandedStages: S1's row looks the compiler module up"},
+		{"compiler/cmd/ergo/main.ergo", file, "TestCapstoneRowsOfLandedStages: S5's row looks the Ergo main package up"},
+		{"cmd/ergo", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package (filepath.WalkDir) to count its Go product files"},
+		{"internal/bindc", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/gobind", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/report", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketchfront", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/syntax", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/format", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/check", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/lower", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/machinegraph", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+	},
 	"internal/residue": {
 		{".", subtree, "the residue checks read every tracked file by design: git grep, git ls-files and Go's reads of each file"},
 	},
