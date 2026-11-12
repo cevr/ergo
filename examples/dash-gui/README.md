@@ -20,7 +20,7 @@ A script is one command a line: `run N` advances the clock N frames, `pause P` a
 ## Layout
 
 - `panel/`: a panel. `ring.ergo`, `draw.ergo` (downsampling, easing, heat bins), `feed.ergo` (the machine), `frame.ergo` (a panel's line).
-- `feed/`: the plumbing. `source.ergo` (the `Sensors` contract, the drop policy, a source's task), `board.ergo` (the panels, the wires and a frame's two phases).
+- `feed/`: the plumbing. `source.ergo` (the `Sensors` contract, the drop policy, a source's task), `board.ergo` (the panels, the pipes and a frame's two phases).
 - `synth/`: the `Sensors` provider.
 - `script/`: the headless driver (`LineParsesBack`) and the seeded script generator.
 - `cmd/dash-gui/main.ergo`: binds `synth.Bank` for the seed.

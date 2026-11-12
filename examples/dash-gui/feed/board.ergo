@@ -35,19 +35,19 @@ func NewBoard() Board {
 // Notice is a panel's note at a frame.
 type Notice { Panel int, Note panel.Note }
 
-// Wires is the queues between the board and its sources: an order queue
+// Pipes is the queues between the board and its sources: an order queue
 // and a data queue for each source, and one report queue for all.
-type Wires { Orders []queue.Queue[Order], Data []queue.Queue[int], Done queue.Queue[Report] }
+type Pipes { Orders []queue.Queue[Order], Data []queue.Queue[int], Done queue.Queue[Report] }
 
-// Start is the wires of n sources, and a task for each source in crew.
-func Start(n int, crew tasks.Set[queue.Closed]) Wires fails tasks.Closed needs Sensors {
+// Start is the pipes of n sources, and a task for each source in crew.
+func Start(n int, crew tasks.Set[queue.Closed]) Pipes fails tasks.Closed needs Sensors {
 	let mut orders = []queue.Queue[Order]{}
 	let mut data = []queue.Queue[int]{}
 	for _ in 0..n {
 		orders = orders.Append(queue.New[Order](1))
 		data = data.Append(queue.New[int](Capacity))
 	}
-	let w = Wires{Orders: orders, Data: data, Done: queue.New[Report](n)}
+	let w = Pipes{Orders: orders, Data: data, Done: queue.New[Report](n)}
 	for i in 0..n {
 		try tasks.Go(crew) { try Serve(i, w.Orders[i], w.Data[i], w.Done) }
 	}
@@ -55,7 +55,7 @@ func Start(n int, crew tasks.Set[queue.Closed]) Wires fails tasks.Closed needs S
 }
 
 // Stop ends the order queues, so each source's task returns.
-func Stop(w Wires) {
+func Stop(w Pipes) {
 	for o in w.Orders {
 		o.End()
 	}
@@ -65,7 +65,7 @@ func Stop(w Wires) {
 // given its order and fills its queue; when every source has reported,
 // the board drains the queues in panel order and gives each panel its
 // samples and the clock.
-func Advance(b Board, w Wires) Step fails queue.Closed needs Sensors {
+func Advance(b Board, w Pipes) Step fails queue.Closed needs Sensors {
 	let f = b.Frame + 1
 	for i in 0..len(b.Panels) {
 		try w.Orders[i].Push(Order{Frame: f, Count: Sensors.Count(i, f), Policy: b.Policies[i]})
