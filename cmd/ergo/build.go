@@ -31,7 +31,8 @@ const runHelp = "usage: ergo run [--json] [--locked] [--target go] FILE|DIR [--]
 
 // buildCommand builds a native executable and prints its path. With -work
 // it also prints WORK=DIR on stderr, DIR being the generated Go module in
-// the emission cache that the executable was linked from.
+// the emission cache that the executable was linked from, and LINK= how it
+// was linked (build.Report: the direct path's counts, or go build and why).
 func buildCommand(args []string) error {
 	opts, err := parseFileOptions("build", args)
 	if err != nil {
@@ -100,6 +101,7 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	if err != nil {
 		return receipt.Location{}, err
 	}
+	var report build.Report
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),
@@ -109,9 +111,11 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		Stderr:    os.Stderr,
 		Ledger:    ledgerPath(opts.file),
 		Locked:    opts.locked,
+		Report:    &report,
 	})
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
+		fmt.Fprintf(os.Stderr, "LINK=%s\n", report)
 	}
 	if err != nil {
 		return receipt.Location{}, err
