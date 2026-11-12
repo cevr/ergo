@@ -103,9 +103,9 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 			case check.CallFuncValue:
 				if lit, ok := unparen(x.Fun).(*syntax.FuncLit); ok {
 					why = p.body(fr, lit, lit.Body, own, ops)
-				} else {
-					why = "an unresolved function value"
 				}
+				// Any other callee is a value, known only when the run
+				// reaches the call (effects.go, callValue).
 			case check.CallOp, check.CallLawOp:
 				conv := own
 				if c.Kind == check.CallOp {

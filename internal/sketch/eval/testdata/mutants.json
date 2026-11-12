@@ -705,6 +705,33 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
+      "name": "oracle-o6-member-unresolved",
+      "origin": "wf10 ORACLE O6",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\treturn m[name]\n",
+      "to": "\treturn nil\n",
+      "rule": "A qualified name pkg.X reads the imported package's own let or function (its initializer's value), though the checker records no Uses entry for it.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering", "internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
+      "name": "oracle-o6-func-value-refused",
+      "origin": "wf10 ORACLE O6",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcase *check.Func:\n\t\treturn in.funcValue(fr, id, o)\n",
+      "to": "\tcase *check.Func:\n\t\treturn nil, fr.unsupported(id, \"a function value\")\n",
+      "rule": "A declared function named as a value is a value the evaluator calls where it is called.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o6-instance-unbound",
+      "origin": "wf10 ORACLE O6",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\tfor _, t := range inst.TypeArgs {\n\t\t\tref.targs",
+      "to": "\t\tfor _, t := range inst.TypeArgs[:0] {\n\t\t\tref.targs",
+      "rule": "A generic function's instance as a value carries its type arguments, read in the frame that names it.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
       "name": "oracle-o4-harness-drops-stderr",
       "origin": "wf10 ORACLE O4",
       "file": "internal/sketch/eval/examples_test.go",

@@ -221,6 +221,8 @@ func describeColl(v Value) (string, bool) {
 		return "{" + strings.Join(parts, ", ") + "}", true
 	case *closure:
 		return fmt.Sprintf("a function literal at %d", v.lit.Pos()), true
+	case *funcRef:
+		return "the function " + v.fn.Name, true
 	}
 	return "", false
 }

@@ -25,6 +25,9 @@ type interp struct {
 	// host is the simulated process of a RunMain run (process.go), nil
 	// under Run.
 	host *host
+	// members are the exported lets and functions of each imported
+	// package, by name (effects.go, memberOf).
+	members map[*check.Package]map[string]check.Object
 	// globals are the package-level lets, bound once by the packages'
 	// initializers before any obligation runs (init.go). Nothing writes
 	// them after.

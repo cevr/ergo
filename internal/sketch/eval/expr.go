@@ -220,7 +220,7 @@ func (in *interp) ident(fr *frame, id *syntax.Ident) (Value, *abrupt) {
 	case *check.Const:
 		return o.Val, nil
 	case *check.Func:
-		return nil, fr.unsupported(id, "a function value (%s) yet", id.Name)
+		return in.funcValue(fr, id, o)
 	case nil:
 		ice("the identifier %s has no Uses entry", id.Name)
 	}
@@ -261,10 +261,20 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		if id, ok := unparen(x.X).(*syntax.Ident); ok {
 			if _, isPkg := fr.info.Uses[id].(*check.PkgName); isPkg {
 				// A package's let: its slot, which nothing writes.
-				if v, isVar := fr.info.Uses[x.Sel].(*check.Var); isVar {
-					if s := in.globals[v]; s != nil {
+				// The checker records no Uses entry for a qualified
+				// name: the member is the imported package's own.
+				var member check.Object
+				if pn := fr.info.Uses[id].(*check.PkgName); !pn.Pkg.Host() {
+					member = in.memberOf(pn.Pkg, x.Sel.Name)
+				}
+				switch o := member.(type) {
+				case *check.Var:
+					if s := in.globals[o]; s != nil {
 						return s.v, nil, nil
 					}
+				case *check.Func:
+					v, ab := in.funcValue(fr, x, o)
+					return v, nil, ab
 				}
 				return nil, nil, fr.unsupported(x, "a package member (%s.%s) as a value yet", id.Name, x.Sel.Name)
 			}
@@ -287,8 +297,9 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		}
 		return r.fields[fieldIndex(r.t, x.Sel.Name)], root, nil
 	case *syntax.IndexExpr:
-		if fr.info.Instances[x] != nil {
-			return nil, nil, fr.unsupported(x, "a generic function's instance as a value yet")
+		if inst := fr.info.Instances[x]; inst != nil {
+			v, ab := in.funcValue(fr, x, inst.Func)
+			return v, nil, ab
 		}
 		if len(x.Indices) != 1 {
 			ice("an index with %d indices", len(x.Indices))
@@ -763,12 +774,22 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 		}
 		return v, ab
 	case check.CallFuncValue:
-		lit, ok := unparen(x.Fun).(*syntax.FuncLit)
-		if !ok {
-			return nil, fr.unsupported(x, "a call of a function value yet")
-		}
 		if x.Trailing != nil {
 			return nil, fr.unsupported(x, "a trailing block yet")
+		}
+		lit, ok := unparen(x.Fun).(*syntax.FuncLit)
+		if !ok {
+			// The callee is a value: evaluated before the arguments, as
+			// Go evaluates a call's function value first.
+			f, ab := in.expr(fr, x.Fun)
+			if ab != nil {
+				return nil, ab
+			}
+			args, ab := in.args(fr, x, c)
+			if ab != nil {
+				return nil, ab
+			}
+			return in.callValue(fr, x, f, args)
 		}
 		args, ab := in.args(fr, x, c)
 		if ab != nil {

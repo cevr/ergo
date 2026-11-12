@@ -29,12 +29,13 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs"}
 
 const mainPrelude = `import io
 import os
 import queue
 import scope
+import strings
 import sync
 import task
 import testing
@@ -55,6 +56,17 @@ func flush() needs Console {
 type Res { name string }
 
 type Box { a []int, b []int }
+
+func twice(x int) int { x * 2 }
+
+func pick[T](a T, b T) T {
+	let xs = []T{a, b}
+	xs[len(xs) - 1]
+}
+
+func apply(f func(x int) int, x int) int { f(x) }
+
+func shout(s string) string { strings.ToUpper(s) }
 
 func Close(r Res) { note("close " + r.name) }
 
@@ -113,9 +125,11 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(8) {
+		switch g.r.IntN(9) {
 		case 7:
 			g.rangePlace(k)
+		case 8:
+			g.funcs(k)
 		case 0:
 			g.owned(k)
 		case 1:
@@ -367,6 +381,32 @@ func (g *mainGen) rangePlace(k int) {
 		s = s*7 + v
 	}
 	fmt.Fprintf(&g.out, "s%d %d %d 100 1000\n", k, s, vs[j]+10*n)
+}
+
+// funcs: declared functions as values: a package function, a generic
+// one's instance and a std function the evaluator runs natively, each
+// held in a local and called through it or through a parameter.
+func (g *mainGen) funcs(k int) {
+	g.kinds["funcs"]++
+	x, m := g.r.IntN(50), 2+g.r.IntN(3)
+	a, b := fmt.Sprintf("p%d", g.r.IntN(9)), fmt.Sprintf("q%d", g.r.IntN(9))
+	g.line("")
+	g.line("func s%d() needs Console {", k)
+	g.line("\tlet f = twice")
+	g.line("\tlet g = pick[string]")
+	g.line("\tlet h = strings.ToUpper")
+	g.line("\tlet mut n = %d", x)
+	g.line("\tfor i in 0..%d {", m)
+	g.line("\t\tn = apply(f, n) + i")
+	g.line("\t}")
+	g.line("\tConsole.Println(\"s%d \\(n) \\(g(%q, %q)) \\(h(%q))\")", k, a, b, a)
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
+	n := x
+	for i := range m {
+		n = n*2 + i
+	}
+	fmt.Fprintf(&g.out, "s%d %d %s %s\n", k, n, b, strings.ToUpper(a))
 }
 
 // stderr: a line on standard error.

@@ -139,7 +139,7 @@ The rules are the rules of `ergo test`, not a second test language:
 - a `tasks.Set` that logs its failures to standard error, `timeout.After`, `tasks.Race`, `tasks.Transform` and an actor's supervisor (Go functions with no native yet);
 - a release through a generic `Close`, a `Close` that borrows its receiver, or the values a std operation type holds; a `Context` value whose provider is a resource;
 - a Go function that has no native, an `extern go` function of the program, or a host function (`a Go function (ParseDuration), even a pure one`);
-- a call of a function value whose callee the checker did not resolve, a call that passes its `CallSite`, a trailing block of a function that is not a native, a call that borrows its receiver, and a generic call whose type parameter an operation type constrains;
+- a method or a generic function whose type parameter an operation type constrains used as a value (a function literal, a package function and a generic one's instance are values, called where they are called), a call that passes its `CallSite`, a trailing block of a function that is not a native, a call that borrows its receiver, and a generic call whose type parameter an operation type constrains;
 - a `for` over a Map (its order is unspecified in Go) or over a Seq, a write that replaces the slice an active `for` ranges over (its place or a place on its path), a pointer, a refined literal, a `testing.Script` or pointer provider, and a conversion to a machine;
 - a package initializer or a machine's initial value that cannot run: every obligation of the package is skipped, never run with invented values;
 - a machine state that holds a std type, whose key the test build may take from its runtime value;

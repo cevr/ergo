@@ -329,12 +329,66 @@ func (in *interp) rawExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 }
 
 // callValue calls a function value: a function literal's closure, in the
-// frame that made it.
+// frame that made it, or a declared function, as a call of it by name
+// where the value is called.
 func (in *interp) callValue(fr *frame, at syntax.Node, f Value, args []Value) (Value, *abrupt) {
-	c, ok := f.(*closure)
-	if !ok {
-		return nil, fr.unsupported(at, "a call of a function value that is not a literal yet")
-	}
 	call, _ := at.(*syntax.CallExpr)
-	return in.callClosure(fr, call, c, args)
+	switch f := f.(type) {
+	case *closure:
+		return in.callClosure(fr, call, f, args)
+	case *funcRef:
+		if call == nil && (f.fn.Decl == nil || f.fn.Decl.Body == nil || f.fn.Decl.Extern != nil || f.fn.Pkg.Host()) && nativeOf(f.fn) == nil {
+			return nil, fr.unsupported(at, "a Go function (%s), even a pure one", f.fn.Name)
+		}
+		return in.callResolved(fr, call, f.fn, f.targs, args)
+	}
+	return nil, fr.unsupported(at, "a call of %s as a function", describe(f))
+}
+
+// memberOf is the exported member name of the package p: the object its
+// scope declares, which the package's own Defs and initializers use.
+func (in *interp) memberOf(p *check.Package, name string) check.Object {
+	if in.members == nil {
+		in.members = map[*check.Package]map[string]check.Object{}
+	}
+	m := in.members[p]
+	if m == nil {
+		m = map[string]check.Object{}
+		for _, o := range p.Exported() {
+			switch o := o.(type) {
+			case *check.Var:
+				m[o.Name] = o
+			case *check.Func:
+				m[o.Name] = o
+			}
+		}
+		in.members[p] = m
+	}
+	return m[name]
+}
+
+// funcRef is a declared function as a value: a package function, with its
+// type arguments when it is a generic one's instance.
+type funcRef struct {
+	fn    *check.Func
+	targs []rtype
+}
+
+// funcValue is the value of a name that resolves to the function fn: at
+// is the name, or the instance expression of a generic one (Max[int]).
+func (in *interp) funcValue(fr *frame, at syntax.Expr, fn *check.Func) (Value, *abrupt) {
+	if fn.Ptr {
+		return nil, fr.unsupported(at, "a function that borrows its receiver (%s) as a value yet", fn.Name)
+	}
+	ref := &funcRef{fn: fn}
+	if len(fn.Sig.TParams) > 0 {
+		inst := fr.info.Instances[at]
+		if inst == nil || len(inst.Witnesses) > 0 {
+			return nil, fr.unsupported(at, "a generic function (%s) as a value yet", fn.Name)
+		}
+		for _, t := range inst.TypeArgs {
+			ref.targs = append(ref.targs, fr.rt(t))
+		}
+	}
+	return ref, nil
 }
