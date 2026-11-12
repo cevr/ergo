@@ -1047,10 +1047,10 @@ index 0000000..284c893
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text.go b/src/cmd/compile/internal/noder/ergoir_text.go
 new file mode 100644
-index 0000000..28af996
+index 0000000..c0de35c
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text.go
-@@ -0,0 +1,513 @@
+@@ -0,0 +1,455 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1156,7 +1156,6 @@ index 0000000..28af996
 +			return "", fmt.Errorf("%s: the signature's end %v is not in the file", fd.Name.Value, end)
 +		}
 +		p.b.Reset()
-+		p.function(fd)
 +		p.block(fd.Body.List, 1)
 +		// The lines after the body keep their positions.
 +		p.b.WriteString(fmt.Sprintf("}\n//line %s:%d", end.RelFilename(), end.RelLine()+1))
@@ -1188,66 +1187,6 @@ index 0000000..28af996
 +	imports map[string]string // package path -> its local name in the file
 +	b       strings.Builder
 +	at      string // the position directive of the next line
-+	// names are the printed names of the function's parameters and
-+	// locals; taken are the names in use, those and every name of another
-+	// object the body refers to.
-+	names map[types2.Object]string
-+	taken map[string]bool
-+}
-+
-+// function starts fd: each IR local is its own variable, so it gets a
-+// name of its own in the text, which no other local and no other object
-+// the body names has; a Go := of a name in scope would reuse a variable.
-+func (p *ergoPrinter) function(fd *syntax.FuncDecl) {
-+	p.names, p.taken = map[types2.Object]string{}, map[string]bool{}
-+	sig := p.info.Defs[fd.Name].Type().(*types2.Signature)
-+	vars := []*types2.Var{sig.Recv()}
-+	for i := 0; i < sig.Params().Len(); i++ {
-+		vars = append(vars, sig.Params().At(i))
-+	}
-+	for i := 0; i < sig.Results().Len(); i++ {
-+		vars = append(vars, sig.Results().At(i))
-+	}
-+	for _, v := range vars {
-+		if v != nil && v.Name() != "" && v.Name() != "_" {
-+			p.names[v], p.taken[v.Name()] = v.Name(), true
-+		}
-+	}
-+	syntax.Inspect(fd.Body, func(n syntax.Node) bool {
-+		if name, ok := n.(*syntax.Name); ok {
-+			if obj := p.info.Uses[name]; obj != nil && !p.isLocal(obj) {
-+				p.taken[name.Value] = true
-+			}
-+		}
-+		return true
-+	})
-+}
-+
-+// isLocal reports a variable of the function: not a field and not of the
-+// package scope.
-+func (p *ergoPrinter) isLocal(obj types2.Object) bool {
-+	v, ok := obj.(*types2.Var)
-+	return ok && !v.IsField() && (v.Pkg() == nil || v.Pkg().Scope().Lookup(v.Name()) != obj)
-+}
-+
-+// name is n as printed: a local by its own name.
-+func (p *ergoPrinter) name(n *syntax.Name) string {
-+	obj := p.info.Defs[n]
-+	if obj == nil {
-+		obj = p.info.Uses[n]
-+	}
-+	if obj == nil || n.Value == "_" || !p.isLocal(obj) {
-+		return n.Value
-+	}
-+	if s, ok := p.names[obj]; ok {
-+		return s
-+	}
-+	s := n.Value
-+	for i := 1; p.taken[s]; i++ {
-+		s = fmt.Sprintf("%s_%d", n.Value, i)
-+	}
-+	p.names[obj], p.taken[s] = s, true
-+	return s
 +}
 +
 +func (p *ergoPrinter) line(depth int, s string) {
@@ -1424,7 +1363,10 @@ index 0000000..28af996
 +		case tv.IsType() && tv.Type != nil:
 +			return p.typ(tv.Type)
 +		}
-+		return p.name(x)
++		// A local by the IR's own name: two locals of one scope with one
++		// name do not compile, or bind as Go's := does, and the text's
++		// structure then differs (TestIRTextChecks).
++		return x.Value
 +	case *syntax.ParenExpr:
 +		return "(" + p.expr(x.X) + ")"
 +	case *syntax.Operation:
@@ -1462,7 +1404,7 @@ index 0000000..28af996
 +	case *syntax.TypeSwitchGuard:
 +		s := p.expr(x.X) + ".(type)"
 +		if x.Lhs != nil {
-+			s = p.name(x.Lhs) + " := " + s
++			s = x.Lhs.Value + " := " + s
 +		}
 +		return s
 +	case *syntax.CompositeLit:
