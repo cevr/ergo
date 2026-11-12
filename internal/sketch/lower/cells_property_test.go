@@ -262,6 +262,7 @@ func TestProviderCellsAgree(t *testing.T) {
 // cellCounter lowers cellCounterSource with its proof run's evidence and
 // with the reference rewrite lowering, and checks the promised form: the
 // cell window's three Adds are one under the evidence.
+// It builds Go because the evidence is the proof run of the lowered bodies.
 func cellCounter(t *testing.T) []*lowered {
 	t.Helper()
 	saved := inlineLowering
