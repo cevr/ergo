@@ -144,19 +144,14 @@ func Settle(r Stream) fails Malformed | io.ReadFailed {
 // io.ReadFailed when src fails.
 func DecodeStream[T wire](c Codec[T], src io.Source) T fails Malformed | io.ReadFailed | wired[T] {
 	let r = NewStream(src, c.MaxBytes, c.MaxDepth)
-	let v = try settling(r, func() T fails wired[T] { decode[T](r) })
-	try Settle(r)
-	v
-}
-
-// settling runs block and, when it fails, settles r first: a break of
-// the text explains the failure better than the shape failure it caused.
-func settling[T, E](r Stream, block func() T fails E) T fails Malformed | io.ReadFailed | E {
-	let v = block() catch {
+	// A failed decode settles first: a break of the text explains the
+	// failure better than the shape failure it caused.
+	let v = decode[T](r) catch {
 	case err:
 		try Settle(r)
 		return err
 	}
+	try Settle(r)
 	v
 }
 

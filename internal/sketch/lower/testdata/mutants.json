@@ -4281,6 +4281,7 @@
       "killers": [
         "lower:TestValueRuleElides"
       ]
-    }
+    },
+    {"name":"reraise-wired-member","origin":"wf10 ST reraise","file":"internal/sketch/lower/types.go","from":"\t\t\t\t// types that T's argument decides (types.md, Codecs 2).\n\t\t\t\tcontinue\n","to":"\t\t\t\t// types that T's argument decides (types.md, Codecs 2).\n\t\t\t\treturn false\n","rule":"rows.md Error rows: a returned value of an error type is a failure; wired[T] is a row of error types (types.md, Codecs 2).","killers":["lower:TestReraiseWiredRow"]}
   ]
 }
