@@ -31,7 +31,12 @@ import (
 // two things under test. Each program runs under the kit's memory limit
 // (runProgram).
 //
-// Mutant it kills (testdata/mutants.json): eval-conversion-drift. The
+// The seeds host the program's body in each evalgen host: a function, a
+// test, a function literal and a law, so each body lowering keeps value
+// semantics.
+//
+// Mutants it kills (testdata/mutants.json): eval-conversion-drift,
+// law-body-values-unanalyzed (the law-body copy bug). The
 // manual two-file mutant eval-model-shared-drift is a
 // paired edit of the model and the evaluator that keeps them agreeing
 // (TestEvalAgreesWithModel passes) while both depart from the Go target:
@@ -99,9 +104,16 @@ func TestEvalAgreesWithGo(t *testing.T) {
 	}
 }
 
-// nativeVerdict is the test binary's verdict of its test V.
+// nativeVerdict is the test binary's verdict of its test or law V.
 func nativeVerdict(stdout string) string {
 	for _, l := range lines(stdout) {
+		if r, ok := strings.CutPrefix(l, "FAIL law V "); ok {
+			if strings.Contains(r, "a defect") {
+				return "defect"
+			}
+			return "refuted"
+		}
+		l = strings.Replace(l, " law V", " V", 1)
 		switch {
 		case l == "ok V" || strings.HasPrefix(l, "ok V "):
 			return "passed"

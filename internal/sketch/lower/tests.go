@@ -500,6 +500,10 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		fc.openFrame(frameErr)
 	}
 	fc.entryPoll(l.info, d)
+	// The value rule decides a law body's copies as it does a function's
+	// or a test's: unanalyzed, `let mut y = x` would share x (the
+	// law-body copy bug, corpus wave HP).
+	l.analyzeValues(d, law.Pkg.Info)
 	fc.body(d.Body.List)
 	if sourced {
 		l.user.WriteString(l.directive(d))

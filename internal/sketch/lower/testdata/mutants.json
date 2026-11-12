@@ -4281,6 +4281,17 @@
       "killers": [
         "lower:TestValueRuleElides"
       ]
+    },
+    {
+      "name": "law-body-values-unanalyzed",
+      "origin": "wf10 corpus wave HP (law-body copy bug)",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\tl.analyzeValues(d, law.Pkg.Info)\n\tfc.body(d.Body.List)\n",
+      "to": "\tfc.body(d.Body.List)\n",
+      "rule": "types.md, Bindings: a law body keeps value semantics; let mut y = x in a law copies x as it does in a function or a test.",
+      "killers": [
+        "lower:TestEvalAgreesWithGo"
+      ]
     }
   ]
 }
