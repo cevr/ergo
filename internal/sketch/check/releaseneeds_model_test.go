@@ -22,8 +22,8 @@ import (
 // the property asserts that its seeds reach every part, RelParts)
 // × release points (a scope's end, an early return, a
 // temporary's statement, a handoff into a taking callee, a handoff of a
-// local, the end of a with that built a provider whose release needs A, B
-// or Console, through its Close or a field) × providers (an unwritten row,
+// local, the end of a with that built a provider whose release needs a
+// capability, A or B or Console, through its Close or a field) × providers (an unwritten row,
 // a written row, an exported function's empty row, a with that provides
 // one capability or both, an operand before the provider's in one with),
 // with calls between the functions (recursion included), and two kinds of

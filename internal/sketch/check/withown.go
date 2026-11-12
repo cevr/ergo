@@ -337,7 +337,7 @@ func (c *checker) providerNeeds(a *Acquisition) []relNeed {
 
 // chargeRelease charges need, a need of a's release, at s against the
 // environment outside the with (Context ownership 6): an outer with that
-// binds it provides it, else the row of the function that holds the with
+// binds it provides it; else the row of the function that holds the with
 // must hold it, as for a call of the Close at the with. The rows are
 // typed before ownership is known, so the first check records each need
 // no outer with and no written row holds (withNeeds), and a second check

@@ -121,7 +121,6 @@ func localRules() []localRule {
 		{"charge-written", "func f() string needs Store {\n\tlet w = context { Greeter: Loud, Store: Holder{v: read()} }\n\twith w { Greeter.Greet(\"x\") }\n}\n"},
 		{"charge-inferred", "func f() string {\n\tlet w = context { Store: Holder{v: read()} }\n\twith w { Store.Get() } // want S102\n}\n"},
 		{"charge-enclosing-with", "func f() string {\n\tlet w = context { Greeter: Loud, Store: Holder{v: read()} }\n\twith Stored {\n\t\twith w { Greeter.Greet(\"x\") }\n\t}\n}\n"},
-		{"charge-let-inside-with", "func f() string {\n\twith Stored {\n\t\tlet w = context { Greeter: Loud, Store: Holder{v: read()} }\n\t\tlet g = func() string {\n\t\t\twith w { Greeter.Greet(\"x\") } // want S102\n\t\t}\n\t\tg()\n\t}\n}\n"},
 		{"charge-each-with", "func f() string needs Store {\n\tlet w = context { Store: Holder{v: read()} }\n\tlet a = with w { Store.Get() }\n\tlet b = with w { Store.Get() }\n\ta + b\n}\n\nfunc g() string {\n\tlet w = context { Store: Holder{v: read()} }\n\twith Stored {\n\t\tlet a = with w { Store.Get() }\n\t\t_ = a\n\t}\n\twith w { Store.Get() } // want S102\n}\n"},
 		{"charge-literal-row", "func f() int {\n\tlet w = context { Store: Holder{v: read()} }\n\tlet g = func() string needs Store {\n\t\twith w { Store.Get() }\n\t}\n\t_ = g\n\t1\n}\n\nfunc h() escaping func() string {\n\tlet w = context { Store: Holder{v: read()} }\n\tfunc() string {\n\t\twith w { Store.Get() } // want S102\n\t}\n}\n"},
 
@@ -366,7 +365,9 @@ type chargeRef struct {
 
 // reference computes, from the drawn sets alone: one S102 at a with per
 // need of the context that the literal's written row plus its enclosing
-// with do not hold (the with around the let does not count); each
+// with do not hold (the with around the let does not count), and none in
+// a literal that writes no row, whose row takes them (q139 and law 9);
+// each
 // literal's failure row is the context's failures, which escape at the
 // with that builds it; the holding function fails with them exactly when it
 // calls a literal under try, and it needs what its called literals' rows
@@ -389,9 +390,22 @@ func (cc chargeCase) reference() chargeRef {
 			held[c] = true
 		}
 		missing := 0
-		for _, c := range cc.needs {
-			if !held[c] {
-				missing++
+		litRow := w.row
+		if len(w.row) == 0 {
+			// A literal that writes no row takes what its body charges
+			// (q139), the local context's capabilities among them, as the
+			// inline literal's (law 9): no S102 at its with.
+			litRow = nil
+			for _, c := range cc.needs {
+				if !held[c] {
+					litRow = append(litRow, c)
+				}
+			}
+		} else {
+			for _, c := range cc.needs {
+				if !held[c] {
+					missing++
+				}
 			}
 		}
 		ref.s102 = append(ref.s102, missing)
@@ -400,7 +414,7 @@ func (cc chargeCase) reference() chargeRef {
 			ref.fFails = strings.Join(es, " | ")
 		}
 		if w.call != callNone {
-			for _, c := range w.row {
+			for _, c := range litRow {
 				if !around[c] {
 					fNeeds[c] = true
 				}
