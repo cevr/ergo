@@ -40,6 +40,12 @@ import (
 // go.Ref, and a method value's literal of a method that takes its receiver
 // takes the receiver as a parameter instead of capturing it.
 //
+// A struct method that takes a Go pointer has a captured-receiver use: the
+// call on a let mut that an escaping literal captured. A binding method's
+// receiver binds no parameter of its signature, so the call writes no
+// receiver, and a write-after-capture diagnostic fails the property
+// (goBoundFalseWrite; ESC-idx r2). time.Time.In's must keep its full form.
+//
 // A method (an extern with a receiver, or an operation of a Go interface
 // type) has a second use, its method value called: `let f = recv.M`. A Go
 // method is a call-only extern (grammar.md, Extern), so that form is S108
@@ -49,7 +55,7 @@ func TestEveryGoBoundFunctionLowers(t *testing.T) {
 	var programs []*lowered
 	var refused []string
 	kept, plain, dropped := 0, 0, 0
-	sawReadDir, sawMethodValue := false, false
+	sawReadDir, sawMethodValue, sawCapture := false, false, false
 	// One set of Go bindings for every program: each binding is parsed
 	// once, not once per program (they import only Go packages).
 	imp := hresImporter{check.NewGoBindings(nil)}
@@ -70,6 +76,9 @@ func TestEveryGoBoundFunctionLowers(t *testing.T) {
 			if path == "os" && strings.Contains(o.src, "\tlet r = if c { try os.ReadDir(") && !strings.Contains(o.src, "import go io/fs") {
 				sawReadDir = true
 			}
+			if path == "time" && strings.Contains(o.src, "\tlet keep = Some{Value: func() time.Time { rm }}\n\tlet r = if c { rm.In(a0) }") {
+				sawCapture = true
+			}
 			if path == "os" && strings.Contains(o.src, "\tlet f = func(p0 int) []fs.DirEntry fails go.Error needs go.Foreign { try recv.ReadDir(p0) }\n\tlet r = if c { try f(") {
 				sawMethodValue = true
 			}
@@ -84,6 +93,9 @@ func TestEveryGoBoundFunctionLowers(t *testing.T) {
 	}
 	if !sawReadDir {
 		t.Errorf("the os program lost its full-form os.ReadDir use: the generator no longer reaches the case the property guards")
+	}
+	if !sawCapture {
+		t.Errorf("the time program lost its full-form captured receiver of time.Time.In: the generator no longer reaches the receiver-borrow rule")
 	}
 	if !sawMethodValue {
 		// A Go method is an extern: its method value is S108, and the
@@ -162,6 +174,10 @@ type goBoundUse struct {
 	// checker reports is not a resource (S110, mode crossing): the
 	// program writes its clauses without them (goBoundProgram).
 	crossing map[string]bool
+	// capture marks a captured-receiver use: a resource receiver that the
+	// literal holds cannot be handed off, so its full form may step down
+	// on the generator's text, which goBoundOwnFault does not fail.
+	capture bool
 }
 
 var (
@@ -245,6 +261,7 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 		// since a name of the function's own is not rebound (196v).
 		var params, litParams, litArgs, args, bindNames []string
 		var callback []bool
+		pointerArg := false
 		params = append(params, "c bool")
 		callee := name + "." + fn
 		recvType := goBoundOwned(qualify(recv))
@@ -260,6 +277,7 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 					p := fmt.Sprintf("p%d", len(args))
 					args, litArgs = append(args, a), append(litArgs, p)
 					pt := goBoundOwned(qualify(text(fl.Type)))
+					pointerArg = pointerArg || strings.HasPrefix(text(fl.Type), "*")
 					_, isFunc := fl.Type.(*syntax.FuncType)
 					if isFunc && v1.GoSyncCallbacks[target] == "" && !strings.HasPrefix(pt, "escaping ") {
 						// Go may keep a callback no review lists
@@ -388,6 +406,22 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 		if recv == "" {
 			return
 		}
+		if !op && pointerArg {
+			// The captured receiver: a method that takes a Go pointer,
+			// called on a let mut that an escaping literal captured. A
+			// binding method's receiver binds no parameter of its
+			// signature, so the call borrows no receiver and writes none
+			// (check.argParam, recvBorrow): the capture holds (types.md,
+			// Function values 3; ESC-idx). Its plain form is the call's.
+			fullC, _ := forms("rm."+fn, args)
+			out = append(out, goBoundUse{
+				target:  target + " (captured receiver)",
+				full:    sig + " {\n\tlet mut rm = recv\n\trm = rm\n\tlet keep = Some{Value: func() " + recvType + " { rm }}\n\t" + fullC + "\n\tlet _ = keep\n}\n",
+				short:   sig + " {\n\t" + short + "\n}\n",
+				imports: paths,
+				capture: true,
+			})
+		}
 		// The method value: in full form recv.M itself, called; in plain
 		// form the literal a program passes where the method value is
 		// refused (grammar.md, Extern), called. A literal captures recv
@@ -488,6 +522,12 @@ func goBoundOwned(t string) string {
 // property: a change of the binding format must not starve the property
 // unseen (batch 17 M2).
 var goBoundOwnFault = regexp.MustCompile(`takes \S+ names no parameter|takes names \S+ twice|a bare takes names|takes \S+ has no effect|is lent to this function literal, so it cannot hand|cannot hand \S+ off`)
+
+// goBoundFalseWrite is the diagnostic of a write after an escaping capture
+// (check/escaping.go, writeAfterText and captureWriteText). A use writes
+// its captured receiver only before the capture, so the call itself must
+// write nothing: a binding method borrows no receiver (ESC-idx).
+var goBoundFalseWrite = regexp.MustCompile(`is written here after a function literal or block captured it|is a let mut of an enclosing frame, and this function literal`)
 
 // goBoundCrossing is S110 on a name of a use's clause: the name's type
 // crosses (mode crossing, resources R1), a fact of the type the checker
@@ -610,14 +650,13 @@ func lowerGoBoundUses(t *testing.T, imp check.Importer, path string, uses []goBo
 		stepped := false
 		seen := map[int]bool{}
 		for _, l := range goBoundFaults(o) {
-			if goBoundOwnFault.MatchString(l.text) {
+			i := useAt(l.line)
+			if goBoundOwnFault.MatchString(l.text) && (i < 0 || !uses[i].capture || forms[i] != goBoundFull) {
 				t.Errorf("%s: the generator's own text refuses a use: %s\n%s", path, l.text, src)
 			}
-			i := -1
-			for j, s := range starts {
-				if s != 0 && s <= l.line {
-					i = j
-				}
+			if goBoundFalseWrite.MatchString(l.text) {
+				// No use writes a captured local after its capture.
+				t.Errorf("%s: the checker reports a write the use does not make: %s\n%s", path, l.text, src)
 			}
 			if i >= 0 && !l.internal && !seen[i] {
 				seen[i] = true

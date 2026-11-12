@@ -287,9 +287,7 @@ func ParamNonEscaping(info *Info, call *syntax.CallExpr, i int) bool {
 		if k.Func != nil {
 			sig = k.Func.Sig
 		}
-		if recvParam(k) {
-			i++
-		}
+		i = argParam(k, i)
 	case CallOp, CallProviderOp, CallLawOp:
 		if k.Op != nil {
 			sig = k.Op.Sig
@@ -300,13 +298,40 @@ func ParamNonEscaping(info *Info, call *syntax.CallExpr, i int) bool {
 	return sig != nil && i < len(sig.Params) && nonEscaping(sig.Params[i].Type)
 }
 
-// recvParam reports whether the receiver of the dot call k is its callee's
-// first parameter, so the written arguments start at parameter 1: a 196m
-// dot call of a function. A binding method (an extern go with a receiver)
-// lists no receiver in its signature, as an operation does not, so its
-// written arguments start at parameter 0 (hostclauses.go).
-func recvParam(k *Call) bool {
-	return k.Kind == CallFunc && k.Recv != nil && (k.Func == nil || k.Func.Decl == nil || k.Func.Decl.Recv == nil)
+// argParam is the index in its callee's signature of the parameter that
+// the i-th written argument of the function call k binds; i == -1 is a dot
+// call's receiver, and -1 is no parameter. The receiver of a 196m dot call
+// is the function's first parameter, so the written arguments start at 1.
+// A binding method (an extern go with a receiver) lists no receiver in its
+// signature, as an operation does not, so its receiver binds no parameter
+// and its written arguments start at 0 (hostclauses.go). The escaping rule
+// (ParamNonEscaping), the borrow rules (recvBorrow) and the lowering read
+// this one rule.
+func argParam(k *Call, i int) int {
+	if k.Kind == CallFunc && k.Recv != nil && (k.Func == nil || k.Func.Decl == nil || k.Func.Decl.Recv == nil) {
+		return i + 1
+	}
+	if i < 0 {
+		return -1
+	}
+	return i
+}
+
+// recvBorrow reports whether the receiver of the dot call k is a borrow
+// the call takes: the receiver of a 196m function whose first parameter is
+// a borrow *T, or a borrow passed to a binding method's pointer receiver.
+// A binding method on a go.Ref receives a shared handle, not a borrow, and
+// one on a copy is refused when its receiver is a pointer (hostSelector),
+// so it takes no implicit borrow.
+func recvBorrow(info *Info, k *Call) bool {
+	if k == nil || k.Kind != CallFunc || k.Recv == nil || k.Func == nil || k.Func.Sig == nil {
+		return false
+	}
+	if j := argParam(k, -1); j >= 0 {
+		return j < len(k.Func.Sig.Params) && isPointer(k.Func.Sig.Params[j].Type)
+	}
+	h := hostOf(k.Func.Pkg)
+	return h != nil && h.recvPtr[k.Func] && isPointer(info.Types[k.Recv])
 }
 
 // use checks one use of the non-escaping local v.
@@ -474,10 +499,7 @@ func (w *escWalk) markWrites(n syntax.Node) {
 // a receiver that is no borrow already: the call borrows it.
 func implicitBorrow(info *Info, call *syntax.CallExpr) syntax.Expr {
 	k := info.Calls[call]
-	if k == nil || k.Kind != CallFunc || k.Recv == nil || k.Func == nil || k.Func.Sig == nil {
-		return nil
-	}
-	if len(k.Func.Sig.Params) == 0 || !isPointer(k.Func.Sig.Params[0].Type) || isPointer(info.Types[k.Recv]) {
+	if !recvBorrow(info, k) || isPointer(info.Types[k.Recv]) {
 		return nil
 	}
 	return k.Recv
