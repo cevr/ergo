@@ -82,6 +82,15 @@
       "to": "\t\tif false {",
       "rule": "A test that fails only when its binary is built with coverage (a sandboxed self-run) and passes without stays a killer; it is not dropped as failing on the unmutated tree.",
       "killers": ["scripts/mutants:TestRunnerMatchesModel"]
+    },
+    {
+      "name": "mutnames-no-test-timeout",
+      "origin": "wf10 MUT-names r2",
+      "file": "scripts/mutants/runner.go",
+      "from": "\"-test.count=1\", \"-test.timeout=\" + (deadline * 9 / 10).String()},",
+      "to": "\"-test.count=1\"},",
+      "rule": "A Go test binary runs with a -test.timeout, as under go test, so a test that bounds its children by t.Deadline judges mutants.",
+      "killers": ["scripts/mutants:TestRunnerMatchesModel"]
     }
   ]
 }

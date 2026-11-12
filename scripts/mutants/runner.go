@@ -562,14 +562,19 @@ func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cov
 	return e.exec(ctx, root, argv, e.env(), deadline)
 }
 
-// argv returns how to run one test of a suite, and where.
-func (e *engine) argv(s *Suite, root, bin, test string) ([]string, string, []string) {
+// argv returns how to run one test of a suite, and where. A Go test binary
+// gets a -test.timeout inside the run's deadline, as go test always gives
+// one: a test that bounds its children by t.Deadline (internal/closure's
+// TestReapEndedLeavesTheHelperAndRunningChildren) fails at once without
+// it, so it judged nothing (MUT-names r2). Its own timeout also names the
+// stuck test before the runner stops the run.
+func (e *engine) argv(s *Suite, root, bin, test string, deadline time.Duration) ([]string, string, []string) {
 	var env []string
 	for _, kv := range s.Env {
 		env = append(env, expand(kv, bin, root, test))
 	}
 	if s.Package != "" {
-		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=^" + regexp.QuoteMeta(test) + "$", "-test.count=1"},
+		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=^" + regexp.QuoteMeta(test) + "$", "-test.count=1", "-test.timeout=" + (deadline * 9 / 10).String()},
 			filepath.Join(root, filepath.FromSlash(s.Package)), env
 	}
 	var argv []string
@@ -713,7 +718,7 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	defer os.RemoveAll(dir)
 	suiteName, name := splitID(t.ID)
 	s := e.suite(suiteName)
-	argv, cwd, env := e.argv(s, root, bin, name)
+	argv, cwd, env := e.argv(s, root, bin, name, e.cfg.CoverDeadline)
 	if s.Package != "" {
 		argv = append(argv, "-test.gocoverdir="+dir)
 	}
@@ -790,7 +795,7 @@ func (e *engine) plainRun(ctx context.Context, root string, s *Suite, test strin
 	if b.err != nil {
 		return outcome{}, b.err
 	}
-	argv, cwd, env := e.argv(s, root, bin, test)
+	argv, cwd, env := e.argv(s, root, bin, test, e.cfg.CoverDeadline)
 	return e.exec(ctx, cwd, argv, e.env(env...), e.cfg.CoverDeadline), nil
 }
 
@@ -949,8 +954,8 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 			r.Status, r.Detail, r.Killers, r.Killer = Invalid, detail, nil, ""
 			return r
 		}
-		argv, cwd, env := w.e.argv(s, w.root, w.bin, name)
 		deadline := max(testFloor, time.Duration(deadlineFactor*w.e.cov.test(id).Seconds*float64(time.Second)))
+		argv, cwd, env := w.e.argv(s, w.root, w.bin, name, deadline)
 		o := w.e.exec(ctx, cwd, argv, w.e.env(append(env, MutantVariable+"="+m.Name)...), deadline)
 		r.Ran = append(r.Ran, id)
 		if o.reason == "interrupted" {

@@ -29,10 +29,11 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // without, and on Linux one that allocates past the memory limit. TestGreet
 // also reads the repository with git ls-files, as internal/residue's rules
 // do: in a copy with no Git index it would fail on the unmutated tree.
-// TestPlain fails only when its binary is built with coverage, as
-// internal/closure's sandboxed self-runs do; it is the only killer of
+// TestPlain fails when its binary is built with coverage, as
+// internal/closure's sandboxed self-runs do, and when it has no deadline,
+// as internal/closure's reap test does; it is the only killer of
 // plain-only, which is uncovered unless the coverage pass reruns it
-// without coverage.
+// without coverage and with a -test.timeout.
 //
 // It checks that the runner reports exactly the model's status for each
 // mutant, that a killer is a test that asserts the mutated function (with
@@ -73,7 +74,9 @@ type fakeTest struct {
 	asserts     []string
 	broken      bool
 	// plainOnly fails when its binary is built with coverage, as
-	// internal/closure's sandboxed self-runs do; it passes without.
+	// internal/closure's sandboxed self-runs do, or when it has no
+	// deadline (go test always passes -test.timeout); it passes without
+	// coverage and with a deadline.
 	plainOnly bool
 }
 
@@ -176,6 +179,7 @@ func (m fakeModule) testSource(pkg string) string {
 			b.WriteString("\tt.Fatal(\"fails on the unmutated tree\")\n")
 		}
 		if ft.plainOnly {
+			b.WriteString("\tif _, ok := t.Deadline(); !ok {\n\t\tt.Fatal(\"no -test.timeout, unlike go test\")\n\t}\n")
 			b.WriteString("\tif testing.CoverMode() != \"\" {\n\t\tt.Fatal(\"fails when built with coverage\")\n\t}\n")
 		}
 		b.WriteString("}\n\n")

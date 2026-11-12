@@ -435,6 +435,9 @@ func TestClosureClassifiesInputs(t *testing.T) {
 		{"stat", "runtime/rt/x.go/go.mod"},
 		{"stat", "vendor"},
 		{"getenv", "HOME"},
+		// GNU ld's cwd lookup while the go command links a cgo
+		// dependency: the cmd/ergo sweep failed on it (c7486603b).
+		{"open", "-lc"},
 	}
 	out := []entry{
 		{"list", "."},                       // listing the root

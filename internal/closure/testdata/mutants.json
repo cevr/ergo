@@ -1,6 +1,5 @@
 {
-  "about": "The closure runner's own child reaper preserves the helper's status, reaps other ended children, and does not wait on running children. The focused killer observes child-exit events before checking ended-child reaping. env selects the sweep of internal/testport, a small package whose test build compiles net's cgo from the sweep's empty cache, so GNU ld's cwd lookups (rm-cgo-link-input) happen in every run.",
-  "env": ["ERGO_CLOSURE_SWEEP=internal/testport", "CGO_ENABLED=1"],
+  "about": "The closure runner's own child reaper preserves the helper's status, reaps other ended children, and does not wait on running children. The focused killer observes child-exit events before checking ended-child reaping. Every mutated line is in a _test.go file, which the cover tool does not instrument, so each row names its killers in anchor.tests.",
   "mutants": [
     {
       "name": "b15-r8-closure-skips-ended-child",
@@ -9,7 +8,8 @@
       "from": "if pid == helper {",
       "to": "if pid != 0 {",
       "rule": "An ended non-helper child is reaped, not left as a zombie.",
-      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]
+      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"],
+      "anchor": {"tests": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]}
     },
     {
       "name": "b15-r8-closure-steals-helper-status",
@@ -18,16 +18,18 @@
       "from": "if pid == helper {",
       "to": "if false && pid == helper {",
       "rule": "The helper's exec.Cmd remains the sole wait owner of its exit status.",
-      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]
+      "killers": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"],
+      "anchor": {"tests": ["internal/closure:TestReapEndedLeavesTheHelperAndRunningChildren"]}
     },
     {
       "name": "rm-cgo-link-input",
+      "origin": "wf10 Rm (c7486603b); killer MUT-names r2",
       "file": "internal/closure/closure_test.go",
       "from": "{\"-lc\", file, \"GNU ld's cwd lookup while the Go toolchain links a cgo dependency\"},",
       "to": "",
       "rule": "A real cgo linker cwd input belongs to the toolchain inputs; observation and cache hashing must remain enabled.",
-      "killers": ["internal/closure:TestEveryPackageRecordsOnlyItsClosure"],
-      "anchor": {"tests": ["internal/closure:TestEveryPackageRecordsOnlyItsClosure"]}
+      "killers": ["internal/closure:TestClosureClassifiesInputs"],
+      "anchor": {"tests": ["internal/closure:TestClosureClassifiesInputs"]}
     }
   ]
 }
