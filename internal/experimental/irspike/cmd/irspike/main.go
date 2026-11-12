@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,12 +43,16 @@ func main() {
 	case "cost":
 		err = cost(os.Args[2:])
 	case "census":
-		if len(os.Args) != 3 {
-			fail(fmt.Errorf("usage: irspike census ROOT"))
+		if len(os.Args) < 3 || len(os.Args) > 4 {
+			fail(fmt.Errorf("usage: irspike census ROOT [FUNCS.json]"))
 		}
 		var c *irspike.Census
-		if c, err = irspike.TakeCensus(os.Args[2], os.Stderr); err == nil {
+		if c, err = irspike.TakeCensus(os.Args[2], io.Discard); err == nil {
 			c.WriteTable(os.Stdout)
+			if len(os.Args) == 4 {
+				data, _ := json.Marshal(c.Funcs)
+				err = os.WriteFile(os.Args[3], data, 0o644)
+			}
 		}
 	case "gen":
 		var seed uint64

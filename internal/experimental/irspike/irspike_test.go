@@ -167,7 +167,10 @@ func TestIRMatchesSource(t *testing.T) {
 	}
 	var missing []string
 	for _, k := range []string{"def", "set", "ret", "if", "while", "range", "expr", "local", "const", "bin", "un", "call", "mcall", "field", "index", "lit", "len",
-		"op +", "op -", "op *", "op /", "op %", "op <", "op ==", "op &&", "op ||", "op !"} {
+		"op +", "op -", "op *", "op /", "op %", "op <", "op ==", "op &&", "op ||", "op !",
+		// IRG1: scalars and small forms.
+		"var", "discard", "break", "continue", "pcall", "conv", "global",
+		"op &", "op |", "op ^", "op &^", "op <<", "op >>"} {
 		if !seen[k] {
 			missing = append(missing, k)
 		}

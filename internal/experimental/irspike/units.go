@@ -20,10 +20,18 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"unnamed parameter", "G1"},
 	{"name that is not a local", "G1"},
 	{"expression *syntax.InterpolatedString", "G1"},
-	{"scalar-form local", "G1"},
-	{"expression statement that is not a call", "G1"},
+	{"interpolated string form", "G1"},
+	// Statement kinds of other units first: the first match wins.
+	{"expression statement *syntax.TryExpr", "G2"},
+	{"expression statement *syntax.CatchExpr", "G2"},
+	{"expression statement *syntax.SwitchStmt", "G3"},
+	{"expression statement *syntax.TypeSwitchStmt", "G3"},
+	{"expression statement *syntax.FuncLit", "G6"},
+	{"expression statement *", "G1"},
 	{"expression *syntax.IfStmt", "G1"},
-	{"trailing block", "G1"},
+	{"break or continue outside a loop", "G1"},
+	{"result statement *syntax.RangeStmt", "G1"},
+	{"assignment form several", "G1"},
 	{"type *check.Tuple", "G1"},
 	{"expression *syntax.TupleExpr", "G1"},
 	{"let without a variable", "G1"},
@@ -74,6 +82,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"operation call in a condition", "G2"},
 	{"operation call inside an expression", "G2"},
 	{"body that needs a frame", "G2"},
+	{"owned local", "G2"},
+	{"owned temporary", "G2"},
+	{"statement that releases owned values", "G2"},
+	{"op-assignment of a value with statements", "G2"},
 	// G3: unions, match, machines; the lowering's representation decides.
 	{"named type that is not a record", "G3"},
 	{"record without a struct", "G3"},
@@ -84,6 +96,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"statement *syntax.SwitchStmt", "G3"},
 	{"expression *syntax.SwitchStmt", "G3"},
 	{"implicit conversion", "G3"},
+	// A loop-carried union local in tag-and-slots form (scalar.go): a
+	// union representation decision.
+	{"scalar-form local", "G3"},
+	{"interpolated value of type *", "G3"},
+	{"constant of type *", "G3"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
 	{"call of a function outside the package", "G4"},
@@ -106,12 +123,15 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"copy for a known record", "G4"},
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
+	{"value copy", "G4"}, // the value rule's copy (values.go)
 	// G5: std bodies.
 	{"library body", "G5"},
 	{"intrinsic body", "G5"},
 	{"std body not reachable alone", "G5"},
 	// G6: the rest (closures, codecs, test and law bodies).
 	{"expression *syntax.FuncLit", "G6"},
+	{"trailing block", "G6"}, // with(…) { }: a context and its frame
+	{"context value", "G6"},
 	{"call kind 10", "G6"}, // CallEncode
 	{"call kind 11", "G6"}, // CallDecode
 	{"call kind 12", "G6"}, // CallEmbed
