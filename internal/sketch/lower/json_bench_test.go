@@ -41,6 +41,15 @@ func back(s string) Deploy {
 	}
 }
 
+// decodes reports that s decodes, which back's fallback would hide.
+func decodes(s string) bool {
+	let _ = json.Decode(codec(), s) catch {
+	case _:
+		return false
+	}
+	true
+}
+
 func main() needs Console {
 	Console.Println(fast(sample()))
 }
@@ -71,7 +80,7 @@ type handCheck struct {
 }
 
 type handDeploy struct {
-	ID       string            ` + "`json:\"iD\"`" + `
+	ID       string            ` + "`json:\"id\"`" + `
 	Service  string            ` + "`json:\"service\"`" + `
 	Version  string            ` + "`json:\"version\"`" + `
 	Replicas int               ` + "`json:\"replicas\"`" + `
@@ -122,6 +131,9 @@ func BenchmarkErgoEncodeWriter(b *testing.B) {
 
 func BenchmarkErgoDecode(b *testing.B) {
 	text := sample().fast(benchEnv)
+	if !decodes(benchEnv, text) {
+		b.Fatalf("the Ergo decode fails on its own text:\n%s", text)
+	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {

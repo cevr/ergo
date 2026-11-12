@@ -106,6 +106,16 @@ func (n *namer) alloc(base string) string {
 // name, unless that is a Go keyword, which no selector may be. A keyword
 // gets a suffix; a collision of the result with another member of the same
 // type is refused where the type is declared (members).
+// runtimeMember is the runtime/v1 Go method of a std operation: its name
+// with the first letter raised, so a package-private operation (json
+// Text's raw) is an exported method (Raw) the generated code can call.
+func runtimeMember(op string) string {
+	if op == "" || op[0] < 'a' || op[0] > 'z' {
+		return op
+	}
+	return string(op[0]-'a'+'A') + op[1:]
+}
+
 func memberName(name string) string {
 	if token.IsKeyword(name) {
 		return name + "_"

@@ -275,6 +275,7 @@ type valueWalk struct {
 	goArgs   []syntax.Expr            // operands of Go calls of import go that hold a Map or slice (gocall.go)
 	sites    []*refSite               // owned Ref sites (V6, refown.go)
 	handOver map[*syntax.FuncLit]bool // their literals
+	cells    []syntax.Expr            // values that move into a provider cell (cells.go)
 }
 
 // children are n's direct children, in Inspect's order.
@@ -315,6 +316,9 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		w.frames = append(w.frames, f)
 		frame = f
 		defer func() { w.frames = w.frames[:len(w.frames)-1] }()
+	}
+	if x, ok := n.(syntax.Expr); ok && cellSite(w.info, x) {
+		w.cells = append(w.cells, x)
 	}
 	switch n := n.(type) {
 	case *syntax.Ident:
@@ -800,6 +804,10 @@ func (w *valueWalk) decide() {
 		} else {
 			w.freshen(a)
 		}
+	}
+	// A value that moves into a provider cell (cells.go).
+	for _, x := range w.cells {
+		w.cellCopy(x)
 	}
 	// Owned Ref sites (V6), once every copy is decided.
 	w.decideSites()

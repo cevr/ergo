@@ -22,11 +22,11 @@
 // Decode skips keys it does not know, and of two members with one key the
 // last is the value (encoding/json).
 //
-// The compiler writes a Text faster than its operations do: an encode(v,
-// t) whose t is a Text appends v's bytes to the text directly, by a
-// function made for v's type (lower/wirejson.go), and the law
-// FastAgreesWithWriter holds that it writes what the Writer operations
-// write.
+// An encode(v, t) whose t is a Text calls the Text's own operations, not
+// a Writer adapter: Text's runtime methods are the Writer's, so the
+// compiler keeps its representation (lower/wiredirect.go, a rule over
+// checked facts that names no type), and the law FastAgreesWithWriter
+// holds that it writes what the Writer operations write.
 
 // Malformed is the failure of a text that is not one JSON value, or is
 // longer than MaxBytes, or nests deeper than MaxDepth: Offset is the byte
@@ -34,8 +34,17 @@
 type Malformed { Offset int, Reason string }
 
 // Text is JSON text being written: the prelude's Writer events, and the
-// text they wrote so far.
-// law-exempt: an event's text depends on the events before it (a comma, a key), so a law over Text's own operations restates the writer; the package laws (RoundTrips, FastAgreesWithWriter) hold what it writes through encode and decode.
+// text they wrote so far. An event is its parts, package-private
+// operations: sep writes the comma one is due, a body writes a value's or
+// a key's text with no comma, raw appends constant text, and setComma
+// sets whether the next value or key needs a comma (the one state an
+// event reads, commaDue). The laws state each event as its parts
+// (unfold), the state a part leaves (post), the comma's constant form
+// where the state is known (guarded), a key's constant text (KeyFolds,
+// KeyFoldsHTML: quote is pure Ergo, which the check-time evaluator
+// computes), and the joins of constant text (types.md, Laws 14). They
+// are checked; the build applies a rewrite law only when its run is
+// proved (owner q115), so none applies yet.
 type Text {
 	Bool(b bool),
 	Int(n int64),
@@ -54,6 +63,50 @@ type Text {
 	Number(text string),
 	// Written is the text written so far.
 	Written() string,
+
+	// raw appends text as it is; the comma state is unchanged.
+	raw(text string),
+	// sep writes a comma when one is due.
+	sep(),
+	// commaDue reports that the next value or key needs a comma.
+	commaDue() bool,
+	// setComma sets whether the next value or key needs a comma.
+	setComma(due bool),
+	// html reports that strings escape <, > and & (NewHTMLText).
+	html() bool,
+	// keyBody writes k quoted and its colon; stringBody s quoted; the
+	// other bodies a value's text. None writes a comma or sets the state.
+	keyBody(k string),
+	stringBody(s string),
+	intBody(n int64),
+	uintBody(n uint64),
+	boolBody(b bool),
+	floatBody(f float64),
+
+	law KeyParts(k string) { Key(k) } == { sep(); keyBody(k); setComma(false) },
+	law StringParts(s string) { String(s) } == { sep(); stringBody(s); setComma(true) },
+	law IntParts(n int64) { Int(n) } == { sep(); intBody(n); setComma(true) },
+	law UintParts(n uint64) { Uint(n) } == { sep(); uintBody(n); setComma(true) },
+	law BoolParts(b bool) { Bool(b) } == { sep(); boolBody(b); setComma(true) },
+	law FloatParts(f float64) { Float(f) } == { sep(); floatBody(f); setComma(true) },
+	law NullParts() { Null() } == { sep(); raw("null"); setComma(true) },
+	law NumberParts(text string) { Number(text) } == { sep(); raw(text); setComma(true) },
+	law TagParts(name string) { Tag(name) } == { sep(); raw("\"_tag\":"); stringBody(name); setComma(true) },
+	law BeginObjectParts(n int) { BeginObject(n) } == { sep(); raw("{"); setComma(false) },
+	law EndObjectParts() { EndObject() } == { raw("}"); setComma(true) },
+	law BeginListParts(n int) { BeginList(n) } == { sep(); raw("["); setComma(false) },
+	law EndListParts() { EndList() } == { raw("]"); setComma(true) },
+
+	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
+
+	law SepNoneDue() when commaDue() == false { sep() } == { },
+	law SepDue() when commaDue() == true { sep() } == { raw(",") },
+	law KeyFolds(k string) when html() == false { keyBody(k) } == { raw(quote(k, false) + ":") },
+	law KeyFoldsHTML(k string) when html() == true { keyBody(k) } == { raw(quote(k, true) + ":") },
+
+	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
+	law SetCommaLast(p bool, q bool) { setComma(p); setComma(q) } == { setComma(q) },
+	law SetCommaSinks(p bool, text string) { setComma(p); raw(text) } == { raw(text); setComma(p) },
 }
 
 // NewText is a Text with nothing written.

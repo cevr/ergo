@@ -113,6 +113,9 @@ type funcCtx struct {
 	out    *strings.Builder
 	depth  int
 	locals map[*check.Var]string
+	// cells are the immutable locals a let binds by a provider cell
+	// conversion, with it (cells.go).
+	cells map[*check.Var]check.Conversion
 	// held are the owned locals a bodiless taking call hands off only once
 	// it returns (release.go, holdTaken).
 	held       map[*syntax.Ident]bool
@@ -256,7 +259,14 @@ func (fc *funcCtx) errReturn(err string) string {
 // terminating statement (Go spec, Terminating statements).
 func (fc *funcCtx) stmts(list []syntax.Stmt) bool {
 	terminates := false
-	for _, s := range list {
+	for i := 0; i < len(list); i++ {
+		if n := fc.rewriteWindow(list[i:]); n > 0 {
+			// A rewritten window of provider calls (rewrite.go).
+			i += n - 1
+			terminates = false
+			continue
+		}
+		s := list[i]
 		terminates = fc.stmt(s)
 		if !terminates {
 			fc.releaseAt(s) // the statement's temporaries (R43)
@@ -359,6 +369,9 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			val := fc.assigned(spec.Values[0])
 			name := fc.declare(v)
 			fc.line("var " + name + " " + goType + " = " + val)
+			if !d.Mut.IsValid() {
+				fc.noteCell(v, spec.Values[0]) // cells.go
+			}
 		}
 		if !fc.l.reads[v] {
 			fc.line("_ = " + fc.locals[v])

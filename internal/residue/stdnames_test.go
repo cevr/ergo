@@ -23,14 +23,16 @@ import (
 // which Go form stands for the declaration, so the name is the binding.
 // No optimizer selects a faster form by a std name: OPT6 retired
 // maps.Update fusion, sync's owned handover and WithCapacity freshness,
-// and OPT6b the machines Run/From flat run, through general facts
-// (Ergo-side inlining of an ordinary body, a runtime body's form, copies
-// for a known record and scalar locals). A line of another category
+// OPT6b the machines Run/From flat run, and the law-rewrite units the
+// json-keyed encode path, through general facts (Ergo-side inlining of an
+// ordinary body, a runtime body's form, copies for a known record and
+// scalar locals, a writer's own rewrite laws). A line of another category
 // fails.
 //
 // A name-keyed decision is a function of a non-test file of the lowering
-// that compares a .Name or .Path selector with a string literal (== or
-// !=, or a switch on the selector with string cases). The literals "_" and
+// that compares a .Name or .Path selector with a string literal, or with
+// a package-level constant of the lowering whose value is one (== or !=,
+// or a switch on the selector with string cases). The literals "_" and
 // "main" are the blank name and the program entry, which the language
 // defines; they are not std names. Every such function must be listed,
 // and every listed function must still hold one, so the inventory never
@@ -49,7 +51,8 @@ func TestLoweringKeysOnNoStdName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)
 	}
-	found := map[string]bool{}
+	files := map[string]*ast.File{}
+	fset := token.NewFileSet()
 	for _, name := range strings.Split(strings.TrimSuffix(string(list), "\x00"), "\x00") {
 		if name == "" || strings.HasSuffix(name, "_test.go") || strings.Contains(strings.TrimPrefix(name, "internal/sketch/lower/"), "/") {
 			continue
@@ -58,7 +61,16 @@ func TestLoweringKeysOnNoStdName(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, fn := range nameKeyedFuncs(t, name, src) {
+		f, err := parser.ParseFile(fset, name, src, 0)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		files[name] = f
+	}
+	consts := stringConsts(files)
+	found := map[string]bool{}
+	for name, f := range files {
+		for _, fn := range nameKeyedFuncs(f, consts) {
 			found[filepath.Base(name)+":"+fn] = true
 		}
 	}
@@ -107,14 +119,42 @@ func readStdNames(t *testing.T) map[string]string {
 	return out
 }
 
-// nameKeyedFuncs are the functions of src (a method as Recv.Name) that
-// compare a .Name or .Path selector with a string literal.
-func nameKeyedFuncs(t *testing.T, name string, src []byte) []string {
-	t.Helper()
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, name, src, 0)
-	if err != nil {
-		t.Fatalf("%s: %v", name, err)
+// stringConsts are the lowering's package-level constants whose value is
+// a string literal, by name: a comparison with one (n.Obj.Pkg.Path ==
+// jsonPackage) keys on the literal it names, as a comparison with the
+// literal does.
+func stringConsts(files map[string]*ast.File) map[string]*ast.BasicLit {
+	out := map[string]*ast.BasicLit{}
+	for _, f := range files {
+		for _, d := range f.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, s := range gd.Specs {
+				vs := s.(*ast.ValueSpec)
+				for i, n := range vs.Names {
+					if i < len(vs.Values) {
+						if b, ok := vs.Values[i].(*ast.BasicLit); ok && b.Kind == token.STRING {
+							out[n.Name] = b
+						}
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// nameKeyedFuncs are the functions of f (a method as Recv.Name) that
+// compare a .Name or .Path selector with a string literal or a constant
+// of consts.
+func nameKeyedFuncs(f *ast.File, consts map[string]*ast.BasicLit) []string {
+	stdLit := func(x ast.Expr) bool {
+		if id, ok := x.(*ast.Ident); ok && consts[id.Name] != nil {
+			x = consts[id.Name]
+		}
+		return stdLit(x)
 	}
 	var out []string
 	for _, d := range f.Decls {
@@ -196,4 +236,7 @@ var stdNamesBaseline = []string{
 	"abi types.go:lowerer.foreignOwner",
 	"abi values.go:preludeAppend",
 	"abi values.go:preludeMapWrite",
+	// The detector reads string constants since JSON-fast (wf10); this
+	// binding compared through one before, so it joins with the detector.
+	"abi wirefields.go:jsonWrapper",
 }

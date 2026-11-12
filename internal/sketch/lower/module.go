@@ -169,7 +169,13 @@ func Lower(u Unit) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(moduleFiles(u.Go, code), l.assetFiles()...), nil
+	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
+	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && ev.HasRules() {
+		// The producer record names the ledgers and the rewrites applied
+		// (ledger.go).
+		files = append(files, File{Path: "ergo_laws.go", Data: ev.record(l, l.rewrite.applied)})
+	}
+	return files, nil
 }
 
 // lowerPackage lowers the unit's package once: program runs the naming
@@ -214,6 +220,9 @@ type lowerer struct {
 	// canon is the checked unit in canonical form (canon.go): the only
 	// place the lowering reads the unit's and the checker's lists from.
 	canon *canonical
+	// rewrite applies evidenced rewrite laws in the run build (rewrite.go);
+	// nil applies none.
+	rewrite *rewriter
 	// goModule is the root unit's Go requirements (hostPkg).
 	goModule GoModule
 	pkg      *check.Package
@@ -279,6 +288,9 @@ type lowerer struct {
 	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
 	holds    map[*check.Named]holdState
 	typeKeys map[check.Type]string
+	// directWriters are the sealed std types whose values encode writes
+	// on directly (wiredirect.go), in typeKey order.
+	directWriters []check.Type
 	// holdsVisits counts holdsMap calls (TestDefaultWorkIsLinear).
 	holdsVisits int
 	methods     map[*check.Package]map[*check.TypeName][]*check.Func
@@ -400,7 +412,11 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // newBuildLowerer is the lowerer of u for the run build (tests nil) or the
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
-	return lowererOf(canonicalize(u), u.Package, u.Go, tests)
+	l := lowererOf(canonicalize(u), u.Package, u.Go, tests)
+	if tests == nil && u.Rewrite != nil {
+		l.rewrite = newRewriter(u.Package, u.Rewrite)
+	}
+	return l
 }
 
 // lowererOf is the lowerer of the canonical unit c of the package pkg, whose

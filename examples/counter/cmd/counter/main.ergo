@@ -1,0 +1,19 @@
+import counter
+import counter/wheel
+
+// The binary selects the implementation. This record is also the provider
+// whose complete state the law runner explores; there is no parallel model.
+// Passing a value provider as a Counter value waits for provider cells (PS3).
+type Wheel { inner wheel.Wheel }
+
+func NewWheel() Wheel               { Wheel{inner: wheel.NewWheel()} }
+func Add(w *Wheel, n counter.Digit) { w.inner.Add(n) }
+func Total(w Wheel) counter.Digit   { w.inner.Total() }
+
+func main() needs Console {
+	let mut w = NewWheel()
+	w.Add(1)
+	w.Add(2)
+	w.Add(4)
+	Console.Println("\(w.Total())")
+}

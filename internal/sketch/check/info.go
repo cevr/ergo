@@ -714,6 +714,10 @@ type Conversion struct {
 	Kind     ConversionKind
 	From, To Type
 	Table    map[string]*Func
+	// Cell marks an operations conversion of a value provider whose
+	// functions take *From: the value moves into a cell, a new place the
+	// operations write (types.md, Interface assignability 6; cells.go).
+	Cell bool
 	// Instances carries each generic Table function's complete instance,
 	// including the witnesses required by its constraints. The lowering
 	// consumes this fact rather than resolving the receiver again.
@@ -975,6 +979,9 @@ type Law struct {
 	// Where holds the refinement of each parameter that takes a where
 	// (refine.go), at its index in Params; nil without any.
 	Where []*Refinement
+	// Rewrite is the checked form of a rewrite law (Decl.Rewrite; types.md,
+	// Laws 14), nil for any other law or one whose shape was refused.
+	Rewrite *Rewrite
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }
@@ -1014,6 +1021,9 @@ type LawRun struct {
 // one per parameter, for the owner's provider of such a law; nil
 // otherwise.
 type LawProvider struct {
+	// Value lends the runner's fresh provider record to pointer operations.
+	// It grants no implicit conversion to a user operation-type value.
+	Value  bool
 	Type   *Named
 	Conv   Conversion
 	Ctor   *Func

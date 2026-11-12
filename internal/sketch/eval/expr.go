@@ -19,6 +19,9 @@ func (in *interp) expr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	if ab != nil {
 		return nil, ab
 	}
+	if in.sym != nil && !in.sym.ok[x] && symbolic(v) {
+		return nil, in.symStop(fr, x, v)
+	}
 	if conv, ok := fr.info.Implicit[x]; ok && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow {
 		// A variant or a row value goes into its union unchanged: the
 		// value keeps its record type. An operations or machine table is
@@ -206,6 +209,22 @@ func (in *interp) peek(fr *frame, x syntax.Expr) (Value, *slot, *abrupt) {
 			}
 		}
 		t := fr.rtypeOf(x.X)
+		if _, isPtr := t.t.(*check.Pointer); isPtr && in.sym != nil {
+			// A field through a provider's cell (symbolic.go).
+			v, ab := in.expr(fr, x.X)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			c, ok := v.(*cell)
+			if !ok {
+				return nil, nil, fr.unsupported(x, "a pointer that is no provider cell")
+			}
+			r, ok := c.s.v.(*record)
+			if !ok {
+				return nil, nil, in.symStop(fr, x.X, c.s.v)
+			}
+			return r.fields[fieldIndex(r.t, x.Sel.Name)], c.s, nil
+		}
 		n, ok := t.t.(*check.Named)
 		if !ok || check.ScriptOf(n) != nil || structOf(n) == nil {
 			return nil, nil, fr.unsupported(x, "a member of %s yet", t.t)
@@ -216,6 +235,9 @@ func (in *interp) peek(fr *frame, x syntax.Expr) (Value, *slot, *abrupt) {
 		}
 		r, ok := base.(*record)
 		if !ok {
+			if in.sym != nil {
+				return nil, nil, in.symStop(fr, x.X, base)
+			}
 			ice("a field of %T", base)
 		}
 		return r.fields[fieldIndex(r.t, x.Sel.Name)], root, nil
@@ -650,7 +672,7 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 		if c.Site != nil {
 			return nil, fr.unsupported(x, "a call that passes its CallSite yet")
 		}
-		if c.Func.Ptr {
+		if c.Func.Ptr && in.sym == nil {
 			return nil, fr.unsupported(x, "a call that borrows its receiver yet")
 		}
 		if x.Trailing != nil {
@@ -765,6 +787,17 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 	var tok *token
 	if own != nil {
 		tok = own.own()
+	}
+	if in.sym != nil {
+		if _, ok := recv.(term); ok {
+			if c.Func.Name != "Append" {
+				return nil, in.symStop(fr, c.Recv, recv)
+			}
+			if ab := in.charge(fr, x, 1); ab != nil {
+				return nil, ab
+			}
+			return concatSlice(recv, args[0]), nil
+		}
 	}
 	switch c.Func.Name {
 	case "Append":

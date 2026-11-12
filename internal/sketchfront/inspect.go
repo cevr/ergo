@@ -32,14 +32,46 @@ import (
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // GoReport is what ergo inspect prints.
 type GoReport struct {
-	Imports   []GoImport   `json:"imports"`
-	Functions []GoFunction `json:"functions"`
-	Symbols   []GoSymbol   `json:"symbols"`
+	Imports      []GoImport          `json:"imports"`
+	Functions    []GoFunction        `json:"functions"`
+	Symbols      []GoSymbol          `json:"symbols"`
+	RewriteSites []lower.RewriteSite `json:"rewriteSites"`
+}
+
+// InspectRewrites are the rewrite sites of the checked analysis's run
+// build (types.md, Laws 14; runtime.md, Tests 10): each site's law and
+// provider, its constants, the verdict of its entry in the ledger at
+// ledger and the std ledger, the entry's state (current, stale or
+// missing), and whether the build applies the rewrite. It lowers the
+// program in process and runs no Go tool; source anchors a program of
+// one source text.
+func InspectRewrites(a Analysis, source, ledger string) ([]lower.RewriteSite, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return nil, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	unit, err := analysisUnit(a, source)
+	if err != nil {
+		return nil, err
+	}
+	text, err := ledgerText(ledger)
+	if err != nil {
+		return nil, err
+	}
+	ev, err := ledgerEvidence(a, unit, text)
+	if err != nil || !ev.HasRules() {
+		return []lower.RewriteSite{}, err
+	}
+	unit.Rewrite = ev
+	// A form the lowering refuses ends the list there; ergo build
+	// names the refusal.
+	_, _ = lower.Lower(unit)
+	return ev.Sites(), nil
 }
 
 // GoImport is one Go package the program imports.
@@ -110,7 +142,7 @@ type reachWalker struct {
 // root last; std packages are skipped).
 func InspectGo(pkgs []*check.Package) GoReport {
 	w := &reachWalker{nodes: map[*check.Func]*reachNode{}, symbols: map[string]GoSymbol{}}
-	r := GoReport{Imports: []GoImport{}, Functions: []GoFunction{}, Symbols: []GoSymbol{}}
+	r := GoReport{Imports: []GoImport{}, Functions: []GoFunction{}, Symbols: []GoSymbol{}, RewriteSites: []lower.RewriteSite{}}
 	seenImport := map[string]bool{}
 	var order []*check.Func
 	for _, p := range pkgs {

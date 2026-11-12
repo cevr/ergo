@@ -138,7 +138,30 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		return exploreSearch(os.Stdout, l, binary, childArgs, opts.search, opts.run, seed, limit)
 	}
 	child := testProgramCommand(binary, childArgs, limit)
-	return runEntryProcess(child, limit, proclimit.Watch(child))
+	if err := runEntryProcess(child, limit, proclimit.Watch(child)); err != nil {
+		return err
+	}
+	if opts.law != "" || opts.skipLaw != "" || opts.run != "" || opts.explore {
+		// A partial run checks only some laws: it leaves the ledger.
+		return nil
+	}
+	// The passing run writes the law ledger (runtime.md, Tests 10): the
+	// laws and site instances the run build uses, checked alone.
+	changed, err := sketchfront.UpdateLedger(l.analysis, sketchfront.BuildRequest{
+		Mode:      build.ModeBuild,
+		Source:    l.source.Admitted(),
+		Cache:     build.Cache{Root: root},
+		Toolchain: toolchain(opts),
+		Stderr:    os.Stderr,
+		Ledger:    ledgerPath(opts.file),
+	})
+	if err != nil {
+		return err
+	}
+	if changed > 0 {
+		fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
+	}
+	return nil
 }
 
 // testProgramCommand keeps the test program's collector inside its hard

@@ -762,6 +762,14 @@ type Monoid {
 }
 func main() {}
 `, nil},
+	{"law", "a rewrite law with a guard (types.md, Laws 14)", `
+type Counter {
+	Add(n int),
+	Even() bool,
+	law Joins(a int, b int) when Even() == true { Add(a); Add(b) } == { Add(a + b) },
+}
+func main() {}
+`, nil},
 	{"law", "a documented top-level law", `
 func add(a int, b int) int { a + b }
 // AddCommutes: the order of the operands does not matter.

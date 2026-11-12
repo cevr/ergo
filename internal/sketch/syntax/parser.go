@@ -1042,8 +1042,54 @@ func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
 		p.errorAt(p.tok.pos, 1, "a law has no type parameters; state it at concrete types, or as a member of the protocol's operation type")
 	}
 	d.Params = p.parseParameters(paramPlain)
+	r := &LawRewrite{When: NoPos, Eq: NoPos}
+	var guard Expr
+	if p.tok.tok == IDENT && p.tok.lit == "when" {
+		// The guard of a rewrite law: `when` is a word only here, and
+		// the guard parses as a control clause, so `C { … }` is C and
+		// the left block.
+		r.When = p.tok.pos
+		p.next()
+		saved := p.exprLev
+		p.exprLev = -1
+		guard = p.parseExpr()
+		p.exprLev = saved
+	}
 	d.Body = p.parseBlock()
+	if p.tok.tok != EQL && r.When == NoPos {
+		return d
+	}
+	p.parseLawRewrite(d, r, guard, top)
 	return d
+}
+
+// parseLawRewrite parses the rest of a rewrite law (types.md, Laws 14),
+// `law L(params) [when R() == C] { lhs } == { rhs }`, after its left
+// block: a law whose body is two blocks joined by == is a rewrite law,
+// the left block the pattern and the right the replacement. Its Body then
+// holds the guard, lhs and rhs (LawDecl.Rewrite). A top-level rewrite law
+// is S108: a rewrite is of an operation type's own operations.
+func (p *parser) parseLawRewrite(d *LawDecl, r *LawRewrite, guard Expr, top bool) {
+	lhs := d.Body
+	var rhs *BlockStmt
+	if top {
+		p.errorAt(d.Law, 3, "a rewrite law is a member of an operation type; a top-level law has no operations to rewrite")
+	}
+	if p.tok.tok != EQL {
+		p.errorAt(p.tok.pos, 1, "expected == { … } after a guarded law's block; a law with when is a rewrite law, { lhs } == { rhs }")
+		rhs = &BlockStmt{Lbrace: lhs.Rbrace, Rbrace: lhs.Rbrace}
+	} else {
+		r.Eq = p.tok.pos
+		p.next()
+		rhs = p.parseBlock()
+	}
+	var list []Stmt
+	if guard != nil {
+		list = append(list, &ExprStmt{X: guard})
+	}
+	list = append(list, lhs, rhs)
+	d.Rewrite = r
+	d.Body = &BlockStmt{Lbrace: lhs.Lbrace, List: list, Rbrace: rhs.Rbrace}
 }
 
 // parseLetDecl parses `let [mut] Pattern {, Pattern} [Type] [= e]`. At

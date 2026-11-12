@@ -51,26 +51,42 @@ func (tc *typeCtx) wireCodecType(self check.Type) string {
 	return "struct{ " + tc.wireCodecFuncs(self) + "; Field *" + tc.wireFieldType(self) + " }"
 }
 
-// wireCodecFuncs are the Enc, Dec and JSON fields of a codec witness.
+// wireCodecFuncs are the Enc and Dec fields of a codec witness, and its
+// Direct field for each direct writer (wiredirect.go).
 func (tc *typeCtx) wireCodecFuncs(self check.Type) string {
 	enc, dec := wireCodecSigs(self)
-	return "Enc " + tc.funcType(enc) + "; Dec " + tc.funcType(dec) + "; JSON " + tc.wireJSONType(self)
+	s := "Enc " + tc.funcType(enc) + "; Dec " + tc.funcType(dec)
+	for i, w := range tc.l.directWriters {
+		s += "; " + directField(i) + " " + tc.wireDirectType(w, self)
+	}
+	return s
 }
 
 // wireFieldType is the Go type of a witness's Field: the record-field form
 // of a json.Optional argument (wirefields.go), nil for every other type.
-// Its Enc, Dec and JSON write and read Present's bare payload, Absent
-// reports the empty state and Empty is the value of an absent key.
+// Its Enc, Dec and Direct fields write and read Present's bare payload,
+// Absent reports the empty state and Empty is the value of an absent key.
 func (tc *typeCtx) wireFieldType(self check.Type) string {
 	gt := tc.goType(self)
 	return "struct{ " + tc.wireCodecFuncs(self) + "; Absent func(" + gt + ") bool; Empty " + gt + " }"
 }
 
-// wireJSONType is the Go type of a codec witness's JSON field: the fast
-// path's function of self (wirejson.go), nil when the build takes the
-// reference path.
-func (tc *typeCtx) wireJSONType(self check.Type) string {
-	return "func(*" + tc.l.pkgName(pkgKey{"env", nil}, "Env") + ", *" + tc.l.rt() + ".Text, " + tc.goType(self) + ")"
+// wireDirectType is the Go type of a codec witness's Direct field for the
+// direct writer w: self's codec function on w's runtime type.
+func (tc *typeCtx) wireDirectType(w, self check.Type) string {
+	return "func(*" + tc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + tc.goType(w) + ", " + tc.goType(self) + ")"
+}
+
+// wireDirectFuncs are the Direct fields of a witness literal: for each
+// direct writer, a function of a self parameter that writes the value of
+// type t that v makes of it.
+func (fc *funcCtx) wireDirectFuncs(tc *typeCtx, self, t check.Type, v func(string) string) string {
+	s := ""
+	for i, w := range fc.l.directWriters {
+		e, b, x := fc.scope.alloc("e"), fc.scope.alloc("b"), fc.scope.alloc("v")
+		s += ", " + directField(i) + ": func(" + e + " *" + fc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + b + " " + tc.goType(w) + ", " + x + " " + tc.goType(self) + ") {\n" + tc.wireEncodeWith(wireEvents{via: i}, t, e, b, v(x)) + "\n}"
+	}
+	return s
 }
 
 // wireCodecSigs are the signatures of a codec witness's Enc and Dec.
@@ -113,12 +129,8 @@ func (fc *funcCtx) wireWitness(t check.Type, site syntax.Node) string {
 		params := []string{r + " " + tc.goType(decSig.Params[0].Type)}
 		return params, tc.valueResults(t), tc.wireDecode(t, e, r, x, "*new("+gt+")", fc.scope) + "return " + x + ", nil\n"
 	})
-	fast := "nil"
-	if wireFast() {
-		e, b, v := fc.scope.alloc("e"), fc.scope.alloc("b"), fc.scope.alloc("v")
-		fast = "func(" + e + " *" + fc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + b + " *" + fc.l.rt() + ".Text, " + v + " " + gt + ") {\n" + tc.wireEncodeWith(jsonEvents{}, t, e, b, v) + "\n}"
-	}
-	return tc.wireCodecType(t) + "{Enc: " + enc + ", Dec: " + dec + ", JSON: " + fast + ", Field: " + fc.wireFieldWitness(tc, t, site) + "}"
+	direct := fc.wireDirectFuncs(tc, t, t, func(v string) string { return v })
+	return tc.wireCodecType(t) + "{Enc: " + enc + ", Dec: " + dec + direct + ", Field: " + fc.wireFieldWitness(tc, t, site) + "}"
 }
 
 // wireCtx is fc's type context with its codec witnesses, for a codec call.
@@ -157,11 +169,11 @@ func (l *lowerer) wireKey(dir string, t check.Type) pkgKey {
 // wireBase is the preferred Go name of t's codec function.
 func wireBase(dir string, t check.Type) string {
 	head := "ergoEncode"
-	switch dir {
-	case "decode":
+	switch {
+	case dir == "decode":
 		head = "ergoDecode"
-	case "json":
-		head = "ergoJSON"
+	case directIndex(dir) >= 0:
+		head = "ergoWrite"
 	}
 	switch u := t.(type) {
 	case *check.Named:
@@ -207,6 +219,7 @@ func wireUnder(t check.Type) check.Type {
 // reserveWires names, in the naming pass, every codec function the
 // program's encode and decode calls can reach.
 func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, base string, sort string)) {
+	l.collectDirectWriters(pkgs)
 	walked := map[string]bool{}
 	var walk func(dir string, info *check.Info, t check.Type)
 	walk = func(dir string, info *check.Info, t check.Type) {
@@ -262,8 +275,8 @@ func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, b
 			switch c.Kind {
 			case check.CallEncode:
 				walk("encode", p.Info, c.Type)
-				if wireFast() {
-					walk("json", p.Info, c.Type)
+				if i, ok := l.directWriter(p.Info, x.Args[1]); ok {
+					walk(directDir(i), p.Info, c.Type)
 				}
 			case check.CallDecode:
 				walk("decode", p.Info, c.Type)
@@ -279,8 +292,8 @@ func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, b
 				if isWireParam(tp) && i < len(inst.TypeArgs) {
 					walk("encode", p.Info, inst.TypeArgs[i])
 					walk("decode", p.Info, inst.TypeArgs[i])
-					if wireFast() {
-						walk("json", p.Info, inst.TypeArgs[i])
+					for d := range l.directWriters {
+						walk(directDir(d), p.Info, inst.TypeArgs[i])
 					}
 				}
 			}
@@ -293,20 +306,20 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 	if fc.frame.polls {
 		fc.poll(x)
 	}
+	em := referenceEvents
+	if c.Kind == check.CallEncode {
+		if i, ok := fc.l.directWriter(fc.l.info, x.Args[1]); ok {
+			// A direct writer: its conversion to the Writer is Go's own
+			// (sealedOperations, directOps), so the operand is still the
+			// runtime value, and the events call its methods
+			// (wiredirect.go).
+			em = wireEvents{via: i}
+		}
+	}
 	vals := fc.callArgs(x.Args, x)
 	env := fc.envExpr(x)
 	tc := fc.wireCtx(x)
 	if c.Kind == check.CallEncode {
-		if wireFast() && isJSONText(fc.typeOf(x.Args[1])) {
-			// The fast path (wirejson.go): the value's bytes, after the
-			// comma the Text's state asks for.
-			t := fc.temp("text")
-			fc.line(t + " := " + vals[1])
-			fc.line(t + ".JSONValue()")
-			fc.line(tc.wireEncodeWith(jsonEvents{}, c.Type, env, t, vals[0]))
-			fc.line(t + ".Comma = true")
-			return operand{}
-		}
 		w := vals[1]
 		if fc.l.wireInline(c.Type) {
 			// The inline event is a method call on w: a variable, so a
@@ -314,7 +327,7 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 			w = fc.temp("w")
 			fc.line(w + " := " + vals[1])
 		}
-		fc.line(tc.wireEncode(c.Type, env, w, vals[0]))
+		fc.line(tc.wireEncodeWith(em, c.Type, env, w, vals[0]))
 		return operand{}
 	}
 	call := ""
@@ -335,11 +348,11 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 // wireEncode is the Go statement that writes the events of v, of type t,
 // on w.
 func (tc *typeCtx) wireEncode(t check.Type, env, w, v string) string {
-	return tc.wireEncodeWith(writerEvents{}, t, env, w, v)
+	return tc.wireEncodeWith(referenceEvents, t, env, w, v)
 }
 
 // wireEncodeWith is the Go statement that writes v, of type t, on w by
-// the path em (wirejson.go).
+// the path em (wiredirect.go).
 func (tc *typeCtx) wireEncodeWith(em wireEvents, t check.Type, env, w, v string) string {
 	l := tc.l
 	if l.wireInline(t) {
@@ -472,12 +485,12 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 	}
 	task := taskOf(env)
 	var body strings.Builder
-	if dir == "encode" || dir == "json" {
+	if via := directIndex(dir); dir == "encode" || via >= 0 {
 		w, v := scope.alloc("w"), scope.alloc("v")
-		var em wireEvents = writerEvents{}
+		em := wireEvents{via: via}
 		writer := tc.goType(check.PreludeType(check.WireWriterName))
-		if dir == "json" {
-			em, writer = jsonEvents{}, "*"+l.rt()+".Text"
+		if via >= 0 {
+			writer = tc.goType(l.directWriters[via])
 		}
 		l.wireEncodeBody(em, tc, &body, t, env, task, w, v, scope)
 		l.gen.WriteString("func " + name + tlist + "(" + lead + ", " + w + " " + writer + ", " + v + " " + goType + ") {\n" + body.String() + "}\n\n")
@@ -506,7 +519,8 @@ func (l *lowerer) wireCallFunc(f *check.Func, env string, site syntax.Node, args
 }
 
 // wireEncodeBody writes the statements of t's encode function on the
-// path em: the Writer's events, or JSON appends (wirejson.go).
+// path em: the Writer's events on the interface or on a direct writer
+// (wiredirect.go).
 func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder, t check.Type, env, task, w, v string, scope *namer) {
 	if jsonWrapper(t, "Nullable") {
 		l.wireNullableEncode(em, tc, b, t, env, task, w, v, scope)
@@ -530,32 +544,25 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 			return
 		}
 	}
-	fields := func(td *typeDecl, s *check.Struct, rec string, tagged bool) {
-		l.wireFields(em, tc, b, td, s, rec, tagged, env, task, w, scope)
-	}
-	// index is a loop's index variable: "_" on a path that needs none.
-	index := func() string {
-		if em.indexed() {
-			return scope.alloc("i")
-		}
-		return "_"
+	fields := func(td *typeDecl, s *check.Struct, rec string) {
+		l.wireFields(em, tc, b, td, s, rec, env, task, w, scope)
 	}
 	switch u := wireUnder(t).(type) {
 	case *check.Slice:
-		i, e := index(), scope.alloc("e")
+		e := scope.alloc("e")
 		b.WriteString(em.open(true, "len("+v+")", task, w))
-		b.WriteString("for " + i + ", " + e + " := range " + v + " {\n" + em.item(i, w) + tc.wireEncodeWith(em, u.Elem, env, w, e) + "\n}\n")
+		b.WriteString("for _, " + e + " := range " + v + " {\n" + tc.wireEncodeWith(em, u.Elem, env, w, e) + "\n}\n")
 		b.WriteString(em.close(true, task, w))
 	case *check.Map:
-		i, k := index(), scope.alloc("k")
+		k := scope.alloc("k")
 		b.WriteString(em.open(false, "len("+v+")", task, w))
-		b.WriteString("for " + i + ", " + k + " := range " + l.pkgName(pkgKey{"import", runtimeImport}, "ergo") + ".WireKeys(" + v + ") {\n")
-		b.WriteString(em.mapKey(tc, k, i, task, w) + tc.wireEncodeWith(em, u.Elem, env, w, v+"["+k+"]") + "\n}\n")
+		b.WriteString("for _, " + k + " := range " + l.pkgName(pkgKey{"import", runtimeImport}, "ergo") + ".WireKeys(" + v + ") {\n")
+		b.WriteString(em.mapKey(k, task, w) + tc.wireEncodeWith(em, u.Elem, env, w, v+"["+k+"]") + "\n}\n")
 		b.WriteString(em.close(false, task, w))
 	case *check.Tuple:
 		b.WriteString(em.open(true, strconv.Itoa(len(u.Types)), task, w))
 		for i, e := range u.Types {
-			b.WriteString(em.itemAt(i, w) + tc.wireEncodeWith(em, e, env, w, v+"."+tupleField(i)) + "\n")
+			b.WriteString(tc.wireEncodeWith(em, e, env, w, v+"."+tupleField(i)) + "\n")
 		}
 		b.WriteString(em.close(true, task, w))
 	case *check.Struct:
@@ -564,8 +571,8 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 			ice(tc.site, "the record type %s has no name", t)
 		}
 		td := l.typeDecl(n.Obj, tc.site)
-		b.WriteString(em.open(false, l.wireFieldCount(em, tc, b, td, u, v, scope), task, w))
-		fields(td, u, v, false)
+		b.WriteString(em.open(false, l.wireFieldCount(tc, b, td, u, v, scope), task, w))
+		fields(td, u, v)
 		b.WriteString(em.close(false, task, w))
 	case *check.Union:
 		x := scope.alloc("x")
@@ -595,9 +602,9 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 			if len(vs.Fields) == 0 {
 				b.WriteString("_ = " + x + "\n")
 			}
-			b.WriteString(em.open(false, l.wireFieldCount(em, tc, b, td, vs, x, scope), task, w))
+			b.WriteString(em.open(false, l.wireFieldCount(tc, b, td, vs, x, scope), task, w))
 			b.WriteString(em.tag(vn.Obj.Name, task, w))
-			fields(td, vs, x, true)
+			fields(td, vs, x)
 			b.WriteString(em.close(false, task, w))
 		}
 		b.WriteString("}\n")

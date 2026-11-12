@@ -23,6 +23,8 @@ type interp struct {
 	// initials are the machines' initial values, computed once after
 	// every let (machine.go initMachines).
 	initials map[*check.TypeName]Value
+	// sym is the state of a symbolic run (symbolic.go), nil otherwise.
+	sym *symRun
 }
 
 // frame is one running body: a test, a law, a function call or a call of
@@ -169,9 +171,22 @@ func unparen(x syntax.Expr) syntax.Expr {
 func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []check.Type, args []Value) (Value, *abrupt) {
 	switch {
 	case fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host():
+		if in.sym != nil {
+			v, why := externTerm(fn, args)
+			if why != "" {
+				return nil, fr.abrupt(ctlUnsupported, at, nil, why)
+			}
+			return v, nil
+		}
 		return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
 	case fn.Pkg.Info == nil:
 		ice("the package of %s has no Info", fn.Name)
+	}
+	if in.sym != nil {
+		if !rowless(fn) {
+			return nil, fr.abrupt(ctlUnsupported, at, nil, fn.Name+" has a needs or fails row")
+		}
+		in.sym.mark(fn.Pkg.Info, fn.Decl.Body)
 	}
 	callee := in.newFrame(fn.Pkg, fn.Decl)
 	if len(fn.Sig.TParams) > 0 {

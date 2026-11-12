@@ -105,6 +105,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.planLawContexts,
 		c.checkFrames,
 		c.checkEscapes,
+		// After every body: the cell types are declarations (cells.go).
+		c.checkCells,
 		c.footprints,
 		// After the footprints: a durable machine's step is pure (MU9).
 		c.checkDurableSteps,
