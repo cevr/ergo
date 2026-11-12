@@ -1,0 +1,6 @@
+{
+  "about": "The mutant ledger of internal/sketch/build: edits of the Go build action that the package's own tests must kill. Run it with go run ./scripts/mutants ./internal/sketch/build (docs/tooling.md, \"Mutant ledger\").",
+  "mutants": [
+    {"name":"tc-managed-root-unset","origin":"wf10/toolchain r1","file":"internal/sketch/build/action.go","from":"\tif t.Root != \"\" {\n\t\tset = append(","to":"\tif false && t.Root != \"\" {\n\t\tset = append(","rule":"A managed toolchain's action runs with its own GOROOT and GOTOOLCHAIN=local, whatever the user set.","killers":["internal/sketch/build:TestCommandKeepsTheUsersGoConfig"]}
+  ]
+}

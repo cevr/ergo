@@ -475,4 +475,14 @@ func TestSelectHonorsErgoGo(t *testing.T) {
 			t.Errorf("ERGO_GO=%q: %+v, %v; want %+v", value, got, err, want)
 		}
 	}
+	// A cold cache installs first; offline, that fails.
+	offline := func(name string) string {
+		if name == "GOPROXY" {
+			return "off"
+		}
+		return ""
+	}
+	if got, err := Select(offline, t.TempDir(), nil); err == nil {
+		t.Errorf("managed with a cold cache offline: %+v, no error", got)
+	}
 }

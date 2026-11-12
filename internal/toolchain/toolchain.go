@@ -56,17 +56,26 @@ type Toolchain struct {
 // GOPROXY and GOSUMDB of getenv); "system" is the go command on PATH, as
 // before ergo managed Go; any other value is the path of a go command.
 func Select(getenv func(string) string, cache string, log io.Writer) (Toolchain, error) {
-	switch choice := getenv("ERGO_GO"); choice {
-	case "", "managed":
-		root, err := Ensure(Config{Cache: cache, Proxy: getenv("GOPROXY"), SumDB: getenv("GOSUMDB"), Log: log})
-		if err != nil {
+	t, _ := Status(getenv, cache)
+	if t.Mode == "managed" {
+		if _, err := Ensure(Config{Cache: cache, Proxy: getenv("GOPROXY"), SumDB: getenv("GOSUMDB"), Log: log}); err != nil {
 			return Toolchain{}, err
 		}
-		return Toolchain{Mode: "managed", Go: filepath.Join(root, "bin", "go"+exe()), Root: root}, nil
+	}
+	return t, nil
+}
+
+// Status is the toolchain Select would choose, without installing it, and
+// whether a managed release is in the cache.
+func Status(getenv func(string) string, cache string) (Toolchain, bool) {
+	switch choice := getenv("ERGO_GO"); choice {
+	case "", "managed":
+		root := filepath.Join(Config{Cache: cache}.Dir(), "release")
+		return Toolchain{Mode: "managed", Go: filepath.Join(root, "bin", "go"+exe()), Root: root}, installed(root)
 	case "system":
-		return Toolchain{Mode: "system", Go: "go"}, nil
+		return Toolchain{Mode: "system", Go: "go"}, false
 	default:
-		return Toolchain{Mode: "path", Go: choice}, nil
+		return Toolchain{Mode: "path", Go: choice}, false
 	}
 }
 
@@ -185,7 +194,7 @@ func (c Config) install(dir, release string) error {
 	}
 	if c.Log != nil {
 		v, goos, goarch := c.platform()
-		fmt.Fprintf(c.Log, "ergo: downloading %s (%s/%s)\n", v, goos, goarch)
+		f.started = func() { fmt.Fprintf(c.Log, "ergo: downloading %s (%s/%s)\n", v, goos, goarch) }
 	}
 	archive, err := os.CreateTemp(dir, "tmp-*.zip")
 	if err != nil {
@@ -242,6 +251,8 @@ func (c Config) install(dir, release string) error {
 // fetcher reads the module proxy and the checksum database.
 type fetcher struct {
 	client *http.Client
+	// started runs before the first request to a proxy; nil is none.
+	started func()
 }
 
 // errNotFound is a 404 or 410: the next proxy of a list may have it.
@@ -335,6 +346,10 @@ func (f fetcher) download(proxies, path, version string, w *os.File) error {
 		}
 		if err := w.Truncate(0); err != nil {
 			return err
+		}
+		if f.started != nil {
+			f.started()
+			f.started = nil
 		}
 		last = f.get(strings.TrimSuffix(entry, "/")+"/"+path+"/@v/"+version+".zip", w, maxZip)
 		if last == nil || !(fallThrough || errors.Is(last, errNotFound)) {

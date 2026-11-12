@@ -18,6 +18,7 @@ import (
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 const runHelp = "usage: ergo run [--json] [--target go] FILE|DIR [--] [ARGS...]\n" +
@@ -98,12 +99,16 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	if err != nil {
 		return receipt.Location{}, err
 	}
+	tc, err := buildAction(opts)
+	if err != nil {
+		return receipt.Location{}, err
+	}
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),
 		Output:    output.Path(),
 		Cache:     build.Cache{Root: root},
-		Toolchain: toolchain(opts),
+		Toolchain: tc,
 		Stderr:    os.Stderr,
 	})
 	if opts.work && module.Dir != "" {
@@ -115,15 +120,32 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	return output, nil
 }
 
-// toolchain is the Go build action of opts' command: the go command on
-// PATH with the user's GOFLAGS, linking for opts.platform, always stated,
-// so the go env file's GOOS and GOARCH never choose it. The emitted module
-// is the same for every platform; Go's action cache keys the link on the
-// platform.
-func toolchain(opts fileOptions) build.Toolchain {
+// buildAction is the Go build action of opts' command: the go command
+// ERGO_GO selects (goCommand) with the user's GOFLAGS, linking for
+// opts.platform, always stated, so the go env file's GOOS and GOARCH never
+// choose it. The emitted module is the same for every platform; Go's
+// action cache keys the link on the platform.
+func buildAction(opts fileOptions) (build.Toolchain, error) {
 	tc := build.HostToolchain()
+	selected, err := goCommand()
+	if err != nil {
+		return build.Toolchain{}, err
+	}
+	tc.Go, tc.Root = selected.Go, selected.Root
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
-	return tc
+	return tc, nil
+}
+
+// goCommand is the go command every build and `ergo bind go` run
+// (internal/toolchain): by default the pinned release, installed under
+// ergo's cache directory on first use; ERGO_GO=system or a path chooses
+// another.
+func goCommand() (toolchain.Toolchain, error) {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return toolchain.Toolchain{}, err
+	}
+	return toolchain.Select(os.Getenv, root, os.Stderr)
 }
 
 // platformOf is the platform a build links for: --platform OS/ARCH when

@@ -19,6 +19,11 @@ import (
 type Toolchain struct {
 	// Go is the go command, a path or a name looked up on PATH.
 	Go string
+	// Root is the GOROOT of a managed toolchain (internal/toolchain), or
+	// empty. When set, the action runs with GOROOT=Root and
+	// GOTOOLCHAIN=local, so neither the user's GOROOT nor a toolchain
+	// switch picks another Go than the pinned one.
+	Root string
 	// GOOS, GOARCH and GOFLAGS are set in the action's environment; an
 	// empty value leaves Go's own default.
 	GOOS, GOARCH, GOFLAGS string
@@ -50,7 +55,11 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	child := exec.Command(t.Go, args...)
 	child.Dir = module.Dir
 	env := os.Environ()
-	for _, kv := range [][2]string{{"GOWORK", "off"}, {"CGO_ENABLED", "0"}, {"GOOS", t.GOOS}, {"GOARCH", t.GOARCH}, {"GOFLAGS", t.GOFLAGS}} {
+	set := [][2]string{{"GOWORK", "off"}, {"CGO_ENABLED", "0"}, {"GOOS", t.GOOS}, {"GOARCH", t.GOARCH}, {"GOFLAGS", t.GOFLAGS}}
+	if t.Root != "" {
+		set = append(set, [2]string{"GOROOT", t.Root}, [2]string{"GOTOOLCHAIN", "local"})
+	}
+	for _, kv := range set {
 		prefix := kv[0] + "="
 		env = slices.DeleteFunc(env, func(entry string) bool { return strings.HasPrefix(entry, prefix) })
 		if kv[1] != "" {
