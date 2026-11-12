@@ -21,9 +21,8 @@ func GenerateUnion(seed uint64) string {
 }
 
 type ugen struct {
-	r     *rand.Rand
-	b     strings.Builder
-	calls []string // main's printed calls
+	r *rand.Rand
+	b strings.Builder
 }
 
 func (g *ugen) n(k int) int { return g.r.IntN(k) }
@@ -101,8 +100,8 @@ func (g *ugen) program() string {
 		aArm = "case _:\n\tn -= 1"
 	}
 	fmt.Fprintf(&g.b, "func count(xs []Small) int {\n\tlet mut n = 0\n\tfor x in xs {\n\t\tmatch x {\n%s\t\t}\n\t\tn += 1\n\t}\n\tn\n}\n\n", g.arms("\t\t", []string{"case B as b:\n\tn += b.N", cArm, aArm}))
-	// A break inside a match leaves the loop, not Go's switch: outside the
-	// IR subset for now (unionFuncs), but its output checks the gate.
+	// A break inside a match leaves the loop, not Go's switch: the loop
+	// takes a label the break names.
 	fmt.Fprintf(&g.b, "func firstB(xs []Small) int {\n\tlet mut r = -1\n\tfor x in xs {\n\t\tmatch x {\n%s\t\t}\n\t}\n\tr\n}\n\n", g.arms("\t\t", []string{"case B as b:\n\tr = b.N\n\tbreak", "case _:\n\tr += 0"}))
 	// Variants as call arguments and in a slice of the union.
 	fmt.Fprintf(&g.b, "func all(i int) int {\n\tlet xs = []Small{mk(i), B{N: %d}, A, mk(i + 1), B{N: 5}}\n\tcount(xs) + weight(%s) + firstB(xs) * 1000\n}\n\n", g.n(9), g.cLit("i * 2"))
@@ -131,6 +130,7 @@ func (g *ugen) program() string {
 	// A named scalar.
 	fmt.Fprintf(&g.b, "func stretch(m Meters, by Meters) Meters {\n\tlet mut r = m\n\tif r < %d {\n\t\tr += by * %d\n\t}\n\tr - 1\n}\n\n", g.n(20), 1+g.n(3))
 	g.b.WriteString("func meters(m Meters) int {\n\tlet mut n = 0\n\tlet mut x = m\n\tfor x > 0 {\n\t\tx = x - 7\n\t\tn += 1\n\t}\n\tn\n}\n\n")
+	g.trees() // gen_tree.go
 	g.main()
 	return g.b.String()
 }
@@ -154,5 +154,6 @@ func (g *ugen) main() {
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"tree %d \\(sum(build(%d))) \\(depth(build(%d)))\")\n", d, d, d)
 	}
 	fmt.Fprintf(&g.b, "\tConsole.Println(\"meters \\(meters(stretch(%d, %d)))\")\n", g.n(30), g.n(5))
+	g.treeMain() // gen_tree.go
 	g.b.WriteString("}\n")
 }

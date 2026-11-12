@@ -14,7 +14,7 @@ import (
 
 // unionFuncs are GenerateUnion's functions: each gets an IR body in every
 // seed.
-var unionFuncs = []string{"mk", "flip", "weight", "name", "pick", "count", "all", "build", "sum", "depth", "classify", "code", "stretch", "meters"}
+var unionFuncs = append([]string{"mk", "flip", "weight", "name", "pick", "count", "firstB", "all", "build", "sum", "depth", "classify", "code", "stretch", "meters"}, treeFuncs...)
 
 // TestIRUnionsMatchSource is IRG3's agreement property: for generated
 // union programs (GenerateUnion), the IR path and the source path print
@@ -58,7 +58,7 @@ func TestIRUnionsMatchSource(t *testing.T) {
 		}
 		irFile := filepath.Join(dir, "ir", lower.IRFileName)
 		irKinds(t, irFile, seen)
-		of, tag := unionForms(t, irFile)
+		of, tag := unionForms(t, irFile, seen)
 		if of > 0 && tag > 0 {
 			flat++
 		}
@@ -70,7 +70,7 @@ func TestIRUnionsMatchSource(t *testing.T) {
 		return // a replay: the coverage needs the whole run
 	}
 	var missing []string
-	for _, k := range []string{"tswitch", "switch", "toiface", "assert", "zero", "mcall", "var"} {
+	for _, k := range []string{"tswitch", "switch", "toiface", "assert", "zero", "mcall", "var", "goto", "block", "labeled block", "labeled range", "labeled break"} {
 		if !seen[k] {
 			missing = append(missing, k)
 		}
@@ -87,8 +87,10 @@ func itoa(n uint64) string {
 }
 
 // unionForms counts an IR file's flat-union forms: calls of a union's of
-// method, and switches on a tag field.
-func unionForms(t *testing.T, file string) (of, tag int) {
+// method, and switches on a tag field. It marks in seen each kind of
+// statement it finds with a label ("labeled range": a loop a break inside
+// a match leaves; "labeled block": a match tree's shared arm).
+func unionForms(t *testing.T, file string, seen map[string]bool) (of, tag int) {
 	t.Helper()
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -108,6 +110,9 @@ func unionForms(t *testing.T, file string) (of, tag int) {
 			}
 			if x, _ := v["x"].(map[string]any); v["k"] == "switch" && x["k"] == "field" && x["name"] == "tag" {
 				tag++
+			}
+			if k, _ := v["k"].(string); v["label"] != nil {
+				seen["labeled "+k] = true
 			}
 			for _, x := range v {
 				walk(x)
