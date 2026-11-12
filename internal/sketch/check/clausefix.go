@@ -284,6 +284,21 @@ func (c *checker) spell(fi *fileInfo, t Type) (text, imp string, ok bool) {
 		return name, imp, ok
 	case *Basic:
 		return t.String(), "", true
+	case *Slice:
+		s, imp, ok := c.spell(fi, t.Elem)
+		return "[]" + s, imp, ok
+	case *Array:
+		s, imp, ok := c.spell(fi, t.Elem)
+		return fmt.Sprintf("[%d]%s", t.Len, s), imp, ok
+	case *Map:
+		// A capability's argument (Tab[Map[Job, int]], types.md
+		// Capabilities 7) is written as Ergo writes a map type.
+		k, kimp, kok := c.spell(fi, t.Key)
+		v, vimp, vok := c.spell(fi, t.Elem)
+		if kimp == "" {
+			kimp = vimp
+		}
+		return "Map[" + k + ", " + v + "]", kimp, kok && vok
 	}
 	return t.String(), "", false
 }
