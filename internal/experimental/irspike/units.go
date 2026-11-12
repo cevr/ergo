@@ -135,9 +135,15 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"result statement *syntax.BranchStmt", "G1"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
-	{"call of a function outside the package", "G4"},
 	{"generic or task call", "G4"},
-	{"deep type", "G4"},
+	// IRG4 calls other packages' functions and std externs with a plain
+	// runtime/v1 body; these call forms remain.
+	{"call without a function", "G4"},
+	{"call of a Go builtin", "G4"},
+	{"call of a user extern", "G4"},
+	{"call of a std intrinsic", "G4"},
+	{"dot call of a std function", "G4"},
+	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
 	{"type *check.Map", "G4"},
 	{"type *check.TypeParam", "G4"},
 	{"type *check.Signature", "G4"},
