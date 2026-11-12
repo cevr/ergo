@@ -45,7 +45,7 @@ func TestTryCoversToTheRight(t *testing.T) {
 	typecheckGo(t, programs)
 	t.Logf("verdicts: %v", tryVerdicts)
 	if os.Getenv("ERGO_TRY_SEED") == "" {
-		for _, v := range []string{"eval, a caught argument only a try covers", "eval, a caught if tail", "eval, a caught match tail", "eval, a caught block tail"} {
+		for _, v := range []string{"eval, a caught argument only a try covers", "eval, a caught if tail", "eval, a caught match tail", "eval, a caught block tail", "eval, a caught elseif tail", "eval, a caught typematch tail", "eval, a caught cond tail", "eval, a caught subject tail"} {
 			if tryVerdicts[v] == 0 {
 				t.Errorf("the generator reached no %q case (tryEvalCaught)", v)
 			}
@@ -247,13 +247,18 @@ func tryEvalCase(k int, root *tx, fn, text, shown string) string {
 // failure of a call in its caught call's arguments.
 //
 // The case's text is also the argument of the tail own(e, fail) of a
-// caught if, match or block (an if branch whose statements precede a
-// nested if), one shape per case, in the same two forms: the tail is the
-// caught expression's own result, so own's failure is the catch's
-// (sentinel), while a failure in e, or in a let before the tail, leaves
-// the frame (rows.md, Error rows 2, Catch 5; lower/tails.go passes a
-// tail's failure to its catch). It kills eval's
-// fixtry-tail-escapes, which lets a tail's failure leave the frame.
+// caught if, value match, block (an if branch whose statements precede a
+// nested if), else-if chain or type match, one shape per case, in the
+// same two forms: the tail is the caught expression's own result, so
+// own's failure is the catch's (sentinel), while a failure in e, or in a
+// let before the tail, leaves the frame (rows.md, Error rows 2, Catch 5;
+// lower/tails.go passes a tail's failure to its catch). Two more shapes
+// put e in a condition or a match subject that fails at "head": that
+// failure is not the caught expression's own, so it leaves the frame too.
+// It kills eval's fixtry-tail-escapes, which lets a tail's failure leave
+// the frame, and fixtry-elseif-tail-escapes,
+// fixtry-typematch-tail-escapes, fixtry-cond-caught and
+// fixtry-subject-caught.
 func tryEvalCaught(t *testing.T, seed int64, k int, root *tx, text string) string {
 	t.Helper()
 	in := &interp{}
@@ -280,7 +285,7 @@ func tryEvalCaught(t *testing.T, seed int64, k int, root *tx, text string) strin
 		return fmt.Sprintf("%s(%s, %v)", own, arg, f)
 	}
 	var shape, control string
-	switch k % 3 {
+	switch k % 7 {
 	case 0:
 		shape = "if"
 		control = fmt.Sprintf("(if %s { %s } else { %s })", cond[taken], tail(text, fail), tail(text, !fail))
@@ -291,12 +296,38 @@ func tryEvalCaught(t *testing.T, seed int64, k int, root *tx, text string) strin
 			subject = 0
 		}
 		control = fmt.Sprintf("(match %d {\n\tcase 0:\n\t\t%s\n\tcase _:\n\t\t%s\n\t})", subject, tail(text, fail), tail(text, !fail))
-	default:
+	case 2:
 		shape = "block"
 		control = fmt.Sprintf("(if %s {\n\t\tlet v = %s\n\t\tif %s {\n\t\t\t%s\n\t\t} else {\n\t\t\t%s\n\t\t}\n\t} else {\n\t\t%s\n\t})", cond[true], text, cond[taken], tail("v", fail), tail("v", !fail), zero)
+	case 3:
+		// The tail of an else-if branch (kills fixtry-elseif-tail-escapes).
+		shape = "elseif"
+		control = fmt.Sprintf("(if %s { %s } else if %s { %s } else { %s })", cond[false], tail(text, true), cond[taken], tail(text, fail), tail(text, !fail))
+	case 4:
+		// The tail of a type match's arm over a two-variant union (kills
+		// fixtry-typematch-tail-escapes).
+		shape = "typematch"
+		control = fmt.Sprintf("(match pick(%v) {\n\tcase L:\n\t\t%s\n\tcase R:\n\t\t%s\n\t})", taken, tail(text, fail), tail(text, !fail))
+	case 5:
+		// A failing condition is not the caught expression's own failure:
+		// it leaves the frame (kills fixtry-cond-caught).
+		shape = "cond"
+		control = fmt.Sprintf("(if %s(%s, %v) { %s } else { %s })", own+"c", text, fail, tail(text, false), zero)
+	default:
+		// A failing match subject leaves the frame too (kills
+		// fixtry-subject-caught).
+		shape = "subject"
+		control = fmt.Sprintf("(match %s(%s, %v) {\n\tcase 0:\n\t\t%s\n\tcase _:\n\t\t%s\n\t})", own+"s", text, fail, tail(text, false), tail(text, false))
 	}
 	controlShown := shown
-	if !strings.HasPrefix(shown, "failed at ") && fail == taken {
+	switch {
+	case strings.HasPrefix(shown, "failed at "):
+		// The case's own expression fails first, and leaves the frame.
+	case shape == "cond" || shape == "subject":
+		if fail {
+			controlShown = "failed at head"
+		}
+	case fail == taken:
 		controlShown = sentinel
 	}
 	type form struct{ name, expr, shown, verdict string }
@@ -375,6 +406,43 @@ func ownb(v bool, fail bool) bool fails Bad {
 		return Bad{At: "own"}
 	}
 	return v
+}
+
+func ownc(v int, fail bool) bool fails Bad {
+	if fail {
+		return Bad{At: "head"}
+	}
+	return v == v
+}
+
+func ownbc(v bool, fail bool) bool fails Bad {
+	if fail {
+		return Bad{At: "head"}
+	}
+	return v || !v
+}
+
+func owns(v int, fail bool) int fails Bad {
+	if fail {
+		return Bad{At: "head"}
+	}
+	return 0
+}
+
+func ownbs(v bool, fail bool) int fails Bad {
+	if fail {
+		return Bad{At: "head"}
+	}
+	return 0
+}
+
+type Pick = L{N int} | R{N int}
+
+func pick(left bool) Pick {
+	if left {
+		return L{N: 1}
+	}
+	return R{N: 2}
 }
 `
 
