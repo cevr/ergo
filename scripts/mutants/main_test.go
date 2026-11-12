@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/testinputs"
@@ -71,23 +72,40 @@ func TestScopeIsTheLedgersPackage(t *testing.T) {
 // other tests hang without the explored worker: 4 h of deadlines); a
 // module directory is that package (eval's row killed by
 // internal/sketchfront, NONDET1); an ergo suite name is that suite, with
-// the tools it runs (lower runs the ergo CLI). A name that is neither is
-// left out. Before, the x7 rows were judged by the untagged binary, where
-// their killers do not exist, and the other rows were run by hand.
+// the tools it runs (lower runs the ergo CLI). Before, the x7 rows were
+// judged by the untagged binary, where their killers do not exist, and the
+// other rows were run by hand. An id that names no suite, or no test of
+// its suite, is an error: the runner skipped it before, and rows whose
+// killers were v1:, sched: or rt-explore: ran without them (MUT-names).
 func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	root := t.TempDir()
-	for _, dir := range []string{"runtime/v1", "internal/sketchfront"} {
-		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+	for file, tests := range map[string]string{
+		"runtime/v1/a_test.go":            "func TestA(t *testing.T) {}\nfunc TestB(t *testing.T) {}\nfunc TestC(t *testing.T) {}\n",
+		"internal/sketchfront/f_test.go":  "func TestF(t *testing.T) {}\n",
+		"internal/sketch/lower/l_test.go": "func TestL(t *testing.T) {}\n",
+	} {
+		path := filepath.Join(root, filepath.FromSlash(file))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(tests), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
+	at := ledgerPath(root, filepath.Join(root, "runtime", "v1"))
 	ledger := &Ledger{Mutants: []*Mutant{
 		{Name: "a", Killers: []string{"runtime/v1[ergoexplore]:TestA", "runtime/v1:TestB", "internal/sketchfront:TestF"}},
-		{Name: "b", Killers: []string{"lower:TestL", "v1:TestNone"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},
+		{Name: "b", Killers: []string{"lower:TestL"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},
 	}}
-	_, tools, suites, err := suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "runtime", "v1")), Ledger: ledger}})
+	_, tools, suites, err := suitesFor(root, []Job{{Path: at, Ledger: ledger}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, id := range []string{"v1:TestA", "runtime/v1:TestNone", "lower:TestNone", "examples:nowhere", "runtime/v1[ergoexplore:TestA"} {
+		bad := &Ledger{Mutants: []*Mutant{{Name: "c", Killers: []string{"runtime/v1:TestB", id}}}}
+		if _, _, _, err := suitesFor(root, []Job{{Path: at, Ledger: bad}}); err == nil || !strings.Contains(err.Error(), id) {
+			t.Errorf("killer %q: error %v, want one that names it", id, err)
+		}
 	}
 	type got struct {
 		name, pkg, tags string

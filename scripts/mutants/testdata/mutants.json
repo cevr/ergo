@@ -37,6 +37,24 @@
       "to": "\t\tif false {\n\t\t\tvar need []Tool",
       "rule": "A package ledger's killer named by an ergo suite (lower, std, examples) runs in that suite, with its tools.",
       "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "mutnames-unresolved-suite-skipped",
+      "origin": "wf10 MUT-names",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\t\t\t\t\tunresolved = append(unresolved, fmt.Errorf(\"%s: mutant %q: %q names no suite",
+      "to": "\t\t\t\t\t\t_ = append(unresolved, fmt.Errorf(\"%s: mutant %q: %q names no suite",
+      "rule": "A killer or anchor id whose suite resolves to nothing is an error of the ledger, never a killer the runner leaves out.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "mutnames-missing-test-accepted",
+      "origin": "wf10 MUT-names",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\t\t\tif !hasTest(absRoot, &suites[i], test) {",
+      "to": "\t\t\t\tif false && !hasTest(absRoot, &suites[i], test) {",
+      "rule": "A killer or anchor id names a test its suite has (a Test func of the package, an example program); a renamed or deleted test is an error of the ledger.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
     }
   ]
 }

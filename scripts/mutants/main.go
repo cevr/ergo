@@ -274,6 +274,10 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	// only the tests the ledgers name: its other tests judge nothing here,
 	// and some need a harness of their own (runtime/v1's ergoexplore tests
 	// hang without the explored worker). No row is left to run by hand.
+	// An id whose suite or test does not exist is an error, not a killer
+	// left out: before, v1:, sched: and rt-explore: killers were skipped
+	// and their rows judged without them (MUT-names).
+	var unresolved []error
 	for _, j := range jobs {
 		for _, m := range j.Ledger.Mutants {
 			for _, id := range append(slices.Clone(m.Killers), anchorTests(m)...) {
@@ -282,7 +286,8 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 				if i < 0 {
 					s, need, ok := namedSuite(absRoot, name)
 					if !ok {
-						continue // no such suite: the runner reports what runs
+						unresolved = append(unresolved, fmt.Errorf("%s: mutant %q: %q names no suite (an ergo suite, a module directory or DIR[TAGS])", j.Path, m.Name, id))
+						continue
 					}
 					for _, t := range need {
 						if !slices.ContainsFunc(tools, func(u Tool) bool { return u.Name == t.Name }) {
@@ -293,11 +298,18 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 					suites = append(suites, s)
 					i = len(suites) - 1
 				}
+				if !hasTest(absRoot, &suites[i], test) {
+					unresolved = append(unresolved, fmt.Errorf("%s: mutant %q: %q names no test of suite %s", j.Path, m.Name, id, name))
+					continue
+				}
 				if suites[i].Only != nil && !slices.Contains(suites[i].Only, test) {
 					suites[i].Only = append(suites[i].Only, test)
 				}
 			}
 		}
+	}
+	if len(unresolved) > 0 {
+		return nil, nil, nil, errors.Join(unresolved...)
 	}
 	return cover, tools, suites, nil
 }
@@ -333,6 +345,29 @@ func namedSuite(root, name string) (Suite, []Tool, bool) {
 		return Suite{}, nil, false
 	}
 	return Suite{Name: name, Package: "./" + dir, Tags: tags}, nil, true
+}
+
+// hasTest reports whether test is a test of suite s in the checkout at
+// root: a top-level func of a _test.go file in a Go suite's directory, or
+// an example program of the examples suite. A Go suite's runner lists its
+// binary's tests and keeps only those Only names, so a name that matches
+// none ran nothing.
+func hasTest(root string, s *Suite, test string) bool {
+	switch {
+	case s.Package != "":
+		files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(s.Package), "*_test.go"))
+		for _, f := range files {
+			data, err := os.ReadFile(f)
+			if err == nil && regexp.MustCompile(`(?m)^func `+regexp.QuoteMeta(test)+`\(`).Match(data) {
+				return true
+			}
+		}
+		return false
+	case s.Name == "examples":
+		info, err := os.Stat(filepath.Join(root, "examples", test))
+		return test != "" && !strings.ContainsAny(test, `/\`) && err == nil && info.IsDir()
+	}
+	return test != ""
 }
 
 // defaultExamples lists the example programs tagged default.
