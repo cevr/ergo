@@ -98,22 +98,28 @@ func Emit(u lower.Unit, p Path, dir string) (lower.IRReport, error) {
 	if err != nil {
 		return rep, err
 	}
+	return rep, writeModule(dir, files)
+}
+
+// writeModule writes a lowering's files and the runtime into dir, which
+// must not exist yet.
+func writeModule(dir string, files []lower.File) error {
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
-		return rep, err
+		return err
 	}
 	if err := os.Mkdir(dir, 0o755); err != nil {
-		return rep, err
+		return err
 	}
 	for _, f := range append(files, lower.Runtime()...) {
 		name := filepath.Join(dir, filepath.FromSlash(f.Path))
 		if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
-			return rep, err
+			return err
 		}
 		if err := os.WriteFile(name, f.Data, 0o644); err != nil {
-			return rep, err
+			return err
 		}
 	}
-	return rep, nil
+	return nil
 }
 
 // compileID is the derivative compiler's content hash. A release-versioned

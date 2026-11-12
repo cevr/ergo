@@ -86,14 +86,7 @@ func TestIRCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The reference count: every binary is a main.ergo at depth 1 to 3
-	// under examples (P, P/sub, P/cmd/B).
-	want := 0
-	for _, pat := range []string{"*", "*/*", "*/*/*"} {
-		m, _ := filepath.Glob(filepath.Join(root, "examples", pat, "main.ergo"))
-		want += len(m)
-	}
-	if c.Targets[Examples] != want || want == 0 {
+	if want := exampleBinaries(root); c.Targets[Examples] != want || want == 0 {
 		t.Errorf("the census lowered %d example binaries; the examples hold %d", c.Targets[Examples], want)
 	}
 	var unowned []string
@@ -112,6 +105,18 @@ func TestIRCoverage(t *testing.T) {
 	if len(unowned) > 0 {
 		t.Fatalf("reasons no coverage unit owns (add each to reasonUnits): %q\n%s", unowned, b.String())
 	}
+}
+
+// exampleBinaries is the reference count of example binaries, by another
+// enumeration than ExampleTargets: a main.ergo at depth 1 to 3 under
+// examples (P, P/sub, P/cmd/B).
+func exampleBinaries(root string) int {
+	n := 0
+	for _, pat := range []string{"*", "*/*", "*/*/*"} {
+		m, _ := filepath.Glob(filepath.Join(root, "examples", pat, "main.ergo"))
+		n += len(m)
+	}
+	return n
 }
 
 type nopWriter struct{}
