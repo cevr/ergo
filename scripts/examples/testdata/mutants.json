@@ -72,6 +72,24 @@
       "to": "if err := error(nil); err != nil {",
       "rule": "The runner puts a checked-in ergo.laws back as it was: a run leaves the tree unchanged.",
       "killers": ["scripts/examples:TestTestLegFailsAStaleLedger"]
+    },
+    {
+      "name": "examples-workload-unexpected",
+      "origin": "wf10 STROBE OPC",
+      "file": "scripts/examples/main.go",
+      "from": "case file == opcount.WorkloadFile:",
+      "to": "case file == \"no \"+opcount.WorkloadFile:",
+      "rule": "A program of packages may hold a workload file (scripts/opcount).",
+      "killers": ["scripts/examples:TestModuleProgramWorkload"]
+    },
+    {
+      "name": "examples-workload-unchecked",
+      "origin": "wf10 STROBE OPC",
+      "file": "scripts/examples/main.go",
+      "from": "problem(\"%s: %s\", file, w)",
+      "to": "_ = w",
+      "rule": "A workload file that does not read is a layout error naming its line.",
+      "killers": ["scripts/examples:TestModuleProgramWorkload"]
     }
   ]
 }

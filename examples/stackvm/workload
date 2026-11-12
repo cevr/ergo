@@ -1,0 +1,5 @@
+# scripts/opcount: `stackvm bench N` runs a counting loop of N rounds; the
+# cost of one round is the slope between the two sizes.
+unit loop
+sizes 100000 600000
+args bench {n}
