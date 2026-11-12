@@ -11,6 +11,8 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	v1 "ergo.local/prototype/runtime/v1"
+	v1digest "ergo.local/prototype/runtime/v1/digest"
+	v1rand "ergo.local/prototype/runtime/v1/rand"
 )
 
 // TestNativesAgreeWithRuntime holds each native of the evaluator
@@ -70,7 +72,7 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 		// The rand stream, draw for draw.
 		s := r.Uint64N(1 << 20)
 		st, _ := natives["rand.newStream"](in, fr, fr.decl, nil, []Value{s})
-		ref := v1.NewStream(s)
+		ref := v1rand.NewStream(s)
 		for k := 0; k < 20; k++ {
 			var got, want string
 			switch r.IntN(3) {
@@ -238,7 +240,7 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "filepath.Ext", args: []Value{s}, v1: func() any { return v1.FilepathExt(s) }},
 		{name: "filepath.Clean", args: []Value{s}, v1: func() any { return v1.FilepathClean(s) }},
 		{name: "filepath.IsAbs", args: []Value{s}, v1: func() any { return v1.FilepathIsAbs(s) }},
-		{name: "hex.Encode", args: []Value{s}, v1: func() any { return v1.HexEncode(s) }},
+		{name: "hex.Encode", args: []Value{s}, v1: func() any { return v1digest.HexEncode(s) }},
 		{name: "time.DurationText", args: []Value{d}, v1: func() any { return v1.TimeDurationText(durationOf(d)) }},
 		{name: "time.Times", args: []Value{d, m}, v1: func() any { return int64(v1.TimeTimes(durationOf(d), int(m))) }},
 		{name: "time.subMono", args: []Value{d, m}, v1: func() any { return int64(v1.TimeSubMono(d, m)) }},
