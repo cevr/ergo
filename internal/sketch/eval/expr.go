@@ -24,12 +24,13 @@ func (in *interp) expr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		fr.tries--
 	}
 	if ab != nil {
-		if ab.kind == ctlFail && (covered || fr.tries > 0 && unparen(x) != fr.caught) {
+		if ab.kind == ctlFail && (covered || fr.tries > 0 && !ownFailure(fr.info, fr.caught, unparen(x))) {
 			// A right operand that a try on its left covers (q105,
 			// check.Info.TryCovers), or an expression under a try but
-			// the caught expression itself: its failure leaves the frame,
-			// as under the try itself, so a catch it is inside of takes
-			// only its caught expression's own failure (rows.md, Catch 5).
+			// the caught expression itself or a tail it yields: its
+			// failure leaves the frame, as under the try itself, so a
+			// catch it is inside of takes only its caught expression's
+			// own failure (rows.md, Catch 5).
 			out := *ab
 			out.kind = ctlEscape
 			return nil, &out
@@ -632,6 +633,63 @@ func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *a
 		return nil, &out
 	}
 	return nil, fr.defect(x, "a failure no arm of the catch takes: %s", describe(failed.val))
+}
+
+// ownFailure reports whether a failure of x is the failure of caught, the
+// caught expression of the catch being evaluated: x is caught itself, or a
+// tail caught yields through the branches of an if or the arms of a match,
+// through parentheses and nested ifs and matches (Info.Tails). The
+// lowering passes such a tail's failure to its catch (lower/tails.go,
+// branchExpr and tailFallible); a condition, a subject or a statement
+// before the tail is not the caught expression's own failure (rows.md,
+// Error rows 2, Catch 5).
+func ownFailure(info *check.Info, caught, x syntax.Expr) bool {
+	if caught == nil {
+		return false
+	}
+	caught = unparen(caught)
+	if caught == x {
+		return true
+	}
+	s, ok := caught.(syntax.Stmt)
+	return ok && tailOf(info, s, x)
+}
+
+// tailOf reports whether x is a tail the statement s yields (ownFailure).
+func tailOf(info *check.Info, s syntax.Stmt, x syntax.Expr) bool {
+	last := func(list []syntax.Stmt) bool {
+		return len(list) > 0 && tailOf(info, list[len(list)-1], x)
+	}
+	switch s := s.(type) {
+	case *syntax.ExprStmt:
+		_, tail := info.Tails[s]
+		return tail && ownFailure(info, s.X, x)
+	case *syntax.IfStmt:
+		if last(s.Body.List) {
+			return true
+		}
+		switch e := s.Else.(type) {
+		case *syntax.BlockStmt:
+			return last(e.List)
+		case *syntax.IfStmt:
+			return tailOf(info, e, x)
+		}
+	case *syntax.SwitchStmt:
+		for _, cl := range s.Clauses {
+			if last(cl.Body) {
+				return true
+			}
+		}
+	case *syntax.TypeSwitchStmt:
+		for _, cl := range s.Clauses {
+			if last(cl.Body) {
+				return true
+			}
+		}
+	case *syntax.BlockStmt:
+		return last(s.List)
+	}
+	return false
 }
 
 // callExpr runs a call: a conversion, len, a declared function with a
