@@ -37,15 +37,11 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 		return ""
 	}
 	p.seen[key] = true
-	fp, ok := fr.info.Footprints[key]
-	if !ok {
-		ice("no footprint for the frame at %d", key.Pos())
-	}
 	// A capability runs through the provider a with binds (effects.go);
 	// a capability no with of the run binds is skipped at its call. A
-	// task waits for O3's scheduler.
-	if fp.Tasks {
-		return p.in.impure(fr.pkg, key)
+	// task runs on the case's scheduler (sched.go).
+	if _, ok := fr.info.Footprints[key]; !ok {
+		ice("no footprint for the frame at %d", key.Pos())
 	}
 	why := ""
 	syntax.Inspect(body, func(n syntax.Node) bool {
@@ -87,8 +83,18 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 					why = "a generic call with unresolved operation witnesses"
 					break
 				}
-				if c.Site != nil || x.Trailing != nil {
+				if c.Site != nil {
 					why = "a call with a CallSite or trailing block"
+					break
+				}
+				if x.Trailing != nil {
+					// The block of a native the evaluator runs (task.Go,
+					// scope.OnExit, tasks.Go) is a function of its own.
+					if c.Func.Pkg.Host() || nativeOf(c.Func) == nil {
+						why = "a call with a CallSite or trailing block"
+						break
+					}
+					why = p.body(fr, x.Trailing, x.Trailing, own, ops)
 					break
 				}
 				if !preludeCollection(c.Func) {

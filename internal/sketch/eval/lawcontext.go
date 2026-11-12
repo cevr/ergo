@@ -98,6 +98,9 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		}
 		out.Cases = k + 1
 		out.Status, out.Reason, out.Site = result.Status, result.Reason, result.Site
+		if result.Schedule != 0 {
+			out.Schedule = result.Schedule
+		}
 		if result.Status != Passed {
 			out.Case, out.Arguments = k+1, args
 			return

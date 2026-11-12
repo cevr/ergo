@@ -86,15 +86,38 @@ func (in *interp) operationCall(fr *frame, x *syntax.CallExpr, c *check.Call) (V
 	if recv == nil {
 		return nil, fr.unsupported(x, "an unresolved operation")
 	}
+	if c.Kind == check.CallLawOp && fr.info.Closes[x] == nil {
+		// The provider under test is the law's capability: its call is
+		// an interruption point (runtime.md, I1 2).
+		if ab := in.poll(fr, x); ab != nil {
+			return nil, ab
+		}
+	}
+	// A std operation that takes an owned local (queue Push) holds its
+	// entry until it returns (own.go, holdTaken).
+	var held []*syntax.Ident
+	if c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil && len(c.Op.Sig.Takes) > 0 {
+		if _, native := recv.(opObject); native {
+			held = in.holdTaken(fr, x.Args, c.Op.Sig.Takes)
+		}
+	}
 	args := make([]Value, 0, len(x.Args))
 	for _, a := range x.Args {
 		v, ab := in.expr(fr, a)
 		if ab != nil {
+			for _, id := range held {
+				delete(fr.held, id) // the call never ran: the frame keeps them
+			}
 			return nil, ab
 		}
 		args = append(args, v)
 	}
-	return in.dispatch(fr, x, recv, c.Op.Name, args)
+	in.handParts(fr, x.Args...)
+	v, ab := in.dispatch(fr, x, recv, c.Op.Name, args)
+	if len(held) > 0 {
+		ab = in.settleHeld(fr, held, ab)
+	}
+	return v, ab
 }
 
 func (in *interp) testCases(pkg *check.Package, t *check.Test, res Result) Result {
@@ -242,6 +265,9 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		result := in.runBodyFrame(cf, body, law, res)
 		out.Cases = k + 1
 		out.Status, out.Reason, out.Site = result.Status, result.Reason, result.Site
+		if result.Schedule != 0 {
+			out.Schedule = result.Schedule
+		}
 		if result.Status != Passed {
 			out.Case, out.Arguments = k+1, args
 			return
@@ -257,7 +283,7 @@ func statusOf(ab *abrupt) Status {
 		return Incomplete
 	case ctlUnsupported:
 		return Skipped
-	case ctlDefect:
+	case ctlDefect, ctlInterrupt:
 		return Defect
 	case ctlAssert, ctlFail, ctlEscape:
 		return Refuted

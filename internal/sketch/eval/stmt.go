@@ -10,6 +10,9 @@ func (in *interp) stmts(fr *frame, list []syntax.Stmt) *abrupt {
 		if ab := in.stmt(fr, s); ab != nil {
 			return ab
 		}
+		if ab := in.releaseAt(fr, s); ab != nil { // the statement's temporaries (R43)
+			return ab
+		}
 	}
 	return nil
 }
@@ -47,6 +50,10 @@ func (in *interp) stmtOnly(fr *frame, s syntax.Stmt) *abrupt {
 		}
 		return fr.abrupt(ctlReturn, s, v, "")
 	case *syntax.BranchStmt:
+		// What the iterations' scopes still own ends here (R6).
+		if ab := in.releaseAt(fr, s); ab != nil {
+			return ab
+		}
 		if s.Tok == syntax.CONTINUE {
 			return fr.abrupt(ctlContinue, s, nil, "")
 		}
@@ -79,6 +86,9 @@ func (in *interp) forStmt(fr *frame, s *syntax.ForStmt) *abrupt {
 		}
 		if s.Cond != nil {
 			c, ab := in.expr(fr, s.Cond)
+			if ab == nil {
+				ab = in.releaseAt(fr, s.Cond)
+			}
 			if ab != nil {
 				return ab
 			}
@@ -86,10 +96,23 @@ func (in *interp) forStmt(fr *frame, s *syntax.ForStmt) *abrupt {
 				return nil
 			}
 		}
-		if done, ab := loopBody(in.stmts(fr, s.Body.List)); done {
+		if done, ab := loopBody(in.iteration(fr, s.Body)); done {
+			return ab
+		}
+		if ab := in.backEdge(fr, s); ab != nil {
 			return ab
 		}
 	}
+}
+
+// iteration runs one iteration of a loop's body, a scope of its own: what
+// it owns at its normal end is released then (R6).
+func (in *interp) iteration(fr *frame, body *syntax.BlockStmt) *abrupt {
+	ab := in.stmts(fr, body.List)
+	if ab == nil {
+		ab = in.releaseAt(fr, body)
+	}
+	return ab
 }
 
 // loopBody reads one iteration's completion: done when the loop ends
@@ -121,9 +144,6 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	if l.Domain == check.LoopMap {
 		return fr.unsupported(s, "a for over a Map, whose order the Go target leaves unspecified")
 	}
-	if l.Domain == check.LoopSeq {
-		return fr.unsupported(s, "a for over a Seq, which calls a function value")
-	}
 	var root *slot
 	var dom Value
 	var ab *abrupt
@@ -135,8 +155,40 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	} else {
 		dom, ab = in.expr(fr, s.X)
 	}
+	if ab == nil {
+		ab = in.releaseAt(fr, s.X) // the header's temporaries
+	}
 	if ab != nil {
 		return ab
+	}
+	if l.Domain == check.LoopSeq {
+		// A queue's Values: each step is a Pop, and the loop ends when
+		// the queue is closed and empty (runtime.md, Queues 6).
+		q, ok := dom.(*queueValues)
+		if !ok {
+			return fr.unsupported(s, "a for over a Seq, which calls a function value")
+		}
+		for {
+			v, more, ab := in.queuePop(fr, s, q.q)
+			if ab != nil {
+				return ab
+			}
+			if !more {
+				return nil
+			}
+			if ab := in.charge(fr, s, 1); ab != nil {
+				return ab
+			}
+			if ab := in.loopBind(fr, s.Value, v); ab != nil {
+				return ab
+			}
+			if done, ab := loopBody(in.iteration(fr, s.Body)); done {
+				return ab
+			}
+			if ab := in.backEdge(fr, s); ab != nil {
+				return ab
+			}
+		}
 	}
 	if l.Domain == check.LoopSlice && root != nil {
 		if xs, ok := dom.(sliceV); ok && !xs.array {
@@ -158,7 +210,11 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 		if ab := in.loopBind(fr, s.Value, elem); ab != nil {
 			return true, ab
 		}
-		return loopBody(in.stmts(fr, s.Body.List))
+		if done, ab := loopBody(in.iteration(fr, s.Body)); done {
+			return true, ab
+		}
+		ab := in.backEdge(fr, s)
+		return ab != nil, ab
 	}
 	switch l.Domain {
 	case check.LoopSlice:
@@ -216,6 +272,7 @@ func (in *interp) loopBind(fr *frame, p syntax.Expr, v Value) *abrupt {
 		}
 		if w, ok := fr.info.Defs[id].(*check.Var); ok {
 			fr.bind(w, v)
+			in.ownVar(fr, w, p)
 			return nil
 		}
 	}
@@ -230,6 +287,7 @@ func (in *interp) loopBind(fr *frame, p syntax.Expr, v Value) *abrupt {
 	if !ok {
 		return fr.defect(p, "the for pattern does not match")
 	}
+	in.ownPattern(fr, pat, p)
 	return nil
 }
 
@@ -243,7 +301,17 @@ func (in *interp) let(fr *frame, d *syntax.VarDecl) *abrupt {
 	return nil
 }
 
+// letSpec binds one spec of a let, registers each owned name in the step
+// that receives it (R8), and releases the spec's temporaries (R43).
 func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
+	ab := in.letBind(fr, spec)
+	if ab == nil {
+		ab = in.releaseAt(fr, spec)
+	}
+	return ab
+}
+
+func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 	switch {
 	case spec.Pattern != nil:
 		if len(spec.Values) != 1 {
@@ -264,6 +332,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		if !ok {
 			return fr.defect(spec.Pattern, "the let pattern does not match")
 		}
+		in.ownPattern(fr, p, spec)
 		return nil
 	case len(spec.Names) > 1 && len(spec.Values) == 1:
 		v, ab := in.expr(fr, spec.Values[0])
@@ -277,6 +346,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		for i, id := range spec.Names {
 			if w, ok := fr.info.Defs[id].(*check.Var); ok {
 				fr.bind(w, tup.elems[i])
+				in.ownVar(fr, w, id)
 			}
 		}
 		return nil
@@ -295,6 +365,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		for i, id := range spec.Names {
 			if w, ok := fr.info.Defs[id].(*check.Var); ok {
 				fr.bind(w, vals[i])
+				in.ownVar(fr, w, id)
 			}
 		}
 		return nil
@@ -328,6 +399,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 			return ab
 		}
 		fr.bind(v, z)
+		in.ownVar(fr, v, id)
 		return nil
 	}
 	val, ab := in.expr(fr, spec.Values[0])
@@ -335,6 +407,7 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		return ab
 	}
 	fr.bind(v, val)
+	in.ownVar(fr, v, id)
 	return nil
 }
 
@@ -402,6 +475,10 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 		}
 		val, ab = in.binop(fr, s, op, old, val)
 		if ab != nil {
+			return ab
+		}
+	} else if id, ok := lhs.(*syntax.Ident); ok && len(steps) == 0 {
+		if _, ab := in.reassignOwned(fr, id, val); ab != nil {
 			return ab
 		}
 	}
@@ -589,6 +666,9 @@ func (in *interp) valueMatch(fr *frame, s *syntax.SwitchStmt, ret bool) (Value, 
 		ice("a value match with no Matches entry")
 	}
 	tag, ab := in.expr(fr, s.Tag)
+	if ab == nil {
+		ab = in.releaseAt(fr, s.Tag)
+	}
 	if ab != nil {
 		return nil, ab
 	}
@@ -618,7 +698,7 @@ func (in *interp) valueMatch(fr *frame, s *syntax.SwitchStmt, ret bool) (Value, 
 					return nil, ab
 				}
 				if eq {
-					return in.yield(fr, cl.Body, ret)
+					return in.arm(fr, cl, ret)
 				}
 			default:
 				ice("a value case of pattern kind %d", p.Kind)
@@ -628,7 +708,14 @@ func (in *interp) valueMatch(fr *frame, s *syntax.SwitchStmt, ret bool) (Value, 
 	if def == nil {
 		return nil, fr.defect(s, "no case of the match took the value")
 	}
-	return in.yield(fr, def.Body, ret)
+	return in.arm(fr, def, ret)
+}
+
+// arm runs the selected clause of a match: its ownership step, then its
+// body as a scope.
+func (in *interp) arm(fr *frame, cl *syntax.CaseClause, ret bool) (Value, *abrupt) {
+	in.patternOwners(fr, cl)
+	return in.scope(fr, cl, cl.Body, ret)
 }
 
 // typeMatch runs any other match: the first clause one of whose patterns
@@ -640,11 +727,25 @@ func (in *interp) typeMatch(fr *frame, s *syntax.TypeSwitchStmt, ret bool) (Valu
 	subjects := make([]Value, len(s.Subjects))
 	for i, g := range s.Subjects {
 		v, ab := in.expr(fr, g.X)
+		if ab == nil {
+			ab = in.releaseAt(fr, g.X)
+		}
+		if ab == nil {
+			ab = in.releaseAt(fr, g)
+		}
 		if ab != nil {
 			return nil, ab
 		}
 		subjects[i] = v
 	}
+	v, ab := in.typeArms(fr, s, subjects, ret)
+	if ab == nil {
+		ab = in.releaseAt(fr, s)
+	}
+	return v, ab
+}
+
+func (in *interp) typeArms(fr *frame, s *syntax.TypeSwitchStmt, subjects []Value, ret bool) (Value, *abrupt) {
 	var subject Value = tuple{elems: subjects}
 	if len(subjects) == 1 {
 		subject = subjects[0]
@@ -668,14 +769,14 @@ func (in *interp) typeMatch(fr *frame, s *syntax.TypeSwitchStmt, ret bool) (Valu
 				return nil, ab
 			}
 			if ok {
-				return in.yield(fr, cl.Body, ret)
+				return in.arm(fr, cl, ret)
 			}
 		}
 	}
 	if def == nil {
 		return nil, fr.defect(s, "no case of the match took the value")
 	}
-	return in.yield(fr, def.Body, ret)
+	return in.arm(fr, def, ret)
 }
 
 // match tests v against the checked pattern p, read in the frame's

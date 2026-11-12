@@ -20,47 +20,6 @@ import (
 // the evaluator does not run ends the obligation as incomplete or
 // skipped, and releases nothing more.
 
-// ownership is the reason a body is skipped when it owns a resource
-// outside a with: an owned local or taken parameter (Info.OwnedVars), a
-// temporary a statement owns (OwnedTemps), a std result a boundary drops
-// (ResultDrops); each holds the release the lowering registers. Their
-// releases (L8 B1, B2) wait for a later unit, so the evaluator runs no
-// such body rather than run it without its releases. It is "" for a body
-// that owns none, and is computed once per declaration.
-func (in *interp) ownership(fr *frame) string {
-	if in.owns == nil {
-		in.owns = map[syntax.Decl]string{}
-	}
-	why, ok := in.owns[fr.decl]
-	if ok {
-		return why
-	}
-	info := fr.info
-	if len(info.OwnedVars)+len(info.OwnedTemps)+len(info.ResultDrops) > 0 && fr.decl != nil {
-		syntax.Inspect(fr.decl, func(n syntax.Node) bool {
-			if n == nil || why != "" {
-				return false
-			}
-			switch x := n.(type) {
-			case *syntax.Ident:
-				if v, ok := info.Defs[x].(*check.Var); ok && info.OwnedVars[v] != nil {
-					why = "a body that owns the resource " + v.Name + ", whose release check-time evaluation does not run yet"
-				}
-			case *syntax.CallExpr:
-				if info.ResultDrops[x] != nil {
-					why = "a body that drops a std result holding a resource, whose release check-time evaluation does not run yet"
-				}
-			}
-			if x, ok := n.(syntax.Expr); ok && info.OwnedTemps[x] != nil && why == "" {
-				why = "a body that owns a temporary resource, whose release check-time evaluation does not run yet"
-			}
-			return why == ""
-		})
-	}
-	in.owns[fr.decl] = why
-	return why
-}
-
 // acquired is one provider a with built: its acquisition and its value
 // before any conversion to an operation type.
 type acquired struct {
@@ -72,12 +31,14 @@ type acquired struct {
 // bound (the environment outside the with), and joins their defects with
 // the block's outcome ab.
 func (in *interp) releaseAll(fr *frame, at syntax.Node, built []acquired, outer *capEnv, ab *abrupt) *abrupt {
-	if ab != nil && (ab.kind == ctlExhausted || ab.kind == ctlUnsupported) {
+	if stops(ab) {
 		return ab
 	}
 	saved := fr.caps
 	fr.caps = outer
 	defer func() { fr.caps = saved }()
+	in.mask(1)
+	defer in.mask(-1)
 	for i := len(built) - 1; i >= 0; i-- {
 		b := built[i]
 		if !b.a.Releases() {
@@ -85,7 +46,7 @@ func (in *interp) releaseAll(fr *frame, at syntax.Node, built []acquired, outer 
 		}
 		var rel *abrupt
 		if b.a.Drop != nil {
-			rel = in.drop(fr, at, b.v, b.a.Drop)
+			rel = in.drop(fr, at, b.v, b.a.Drop, 0)
 		} else {
 			rel = in.closeValue(fr, at, b.v, b.a.Close)
 		}
@@ -93,7 +54,7 @@ func (in *interp) releaseAll(fr *frame, at syntax.Node, built []acquired, outer 
 			continue
 		}
 		switch {
-		case rel.kind == ctlExhausted || rel.kind == ctlUnsupported:
+		case stops(rel):
 			return rel
 		case ab == nil || ab.kind != ctlDefect:
 			// A release's defect replaces a normal end, a return or a
@@ -140,7 +101,7 @@ func releaseOutcome(fr *frame, at syntax.Node, ab *abrupt) *abrupt {
 		return nil
 	}
 	switch ab.kind {
-	case ctlDefect, ctlExhausted, ctlUnsupported:
+	case ctlDefect, ctlExhausted, ctlUnsupported, ctlAbort:
 		return ab
 	}
 	ice("a Close completed with %d", ab.kind)
@@ -150,8 +111,9 @@ func releaseOutcome(fr *frame, at syntax.Node, ab *abrupt) *abrupt {
 // drop runs the generated release d of v (check/drop.go): the type's own
 // Close first, then each part that holds a resource, last declared first;
 // each part's release runs after an earlier one's defect, and the first
-// defect is kept.
-func (in *interp) drop(fr *frame, at syntax.Node, v Value, d *check.Drop) *abrupt {
+// defect is kept. taken are the top record's fields its owner took in
+// place (R39), which it skips.
+func (in *interp) drop(fr *frame, at syntax.Node, v Value, d *check.Drop, taken uint64) *abrupt {
 	if ab := in.charge(fr, at, 1); ab != nil {
 		return ab
 	}
@@ -172,10 +134,10 @@ func (in *interp) drop(fr *frame, at syntax.Node, v Value, d *check.Drop) *abrup
 	if d.Close != nil && !keep(in.closeValue(fr, at, v, d.Close)) {
 		return out
 	}
-	if d.Drain != nil {
-		return fr.unsupported(at, "the release of the values a std operation type holds yet")
-	}
 	for _, f := range d.Fields {
+		if f.Index < 64 && taken&(1<<f.Index) != 0 {
+			continue
+		}
 		var part Value
 		switch r := v.(type) {
 		case *record:
@@ -185,7 +147,7 @@ func (in *interp) drop(fr *frame, at syntax.Node, v Value, d *check.Drop) *abrup
 		default:
 			return fr.unsupported(at, "the release of a part of %s yet", describe(v))
 		}
-		if !keep(in.drop(fr, at, part, f.Drop)) {
+		if !keep(in.drop(fr, at, part, f.Drop, 0)) {
 			return out
 		}
 	}
@@ -197,7 +159,21 @@ func (in *interp) drop(fr *frame, at syntax.Node, v Value, d *check.Drop) *abrup
 			return fr.unsupported(at, "the release of the values of %s yet", describe(v))
 		}
 		for i := s.n - 1; i >= 0; i-- {
-			if !keep(in.drop(fr, at, s.b.data[s.off+i], d.Elem)) {
+			if !keep(in.drop(fr, at, s.b.data[s.off+i], d.Elem, 0)) {
+				return out
+			}
+		}
+	}
+	if d.Drain != nil {
+		// A std queue's values left, or a Task's value no Wait took
+		// (Q7, R13, Q5): released last entered first.
+		dr, ok := v.(drainer)
+		if !ok {
+			return fr.unsupported(at, "the release of the values %s holds yet", describe(v))
+		}
+		left := dr.drain()
+		for i := len(left) - 1; i >= 0; i-- {
+			if !keep(in.drop(fr, at, left[i], d.Drain, 0)) {
 				return out
 			}
 		}
@@ -209,7 +185,7 @@ func (in *interp) drop(fr *frame, at syntax.Node, v Value, d *check.Drop) *abrup
 		}
 		for _, vd := range d.Variants {
 			if n, ok := vd.Type.(*check.Named); ok && n.Obj == r.t.Obj {
-				keep(in.drop(fr, at, v, vd))
+				keep(in.drop(fr, at, v, vd, 0))
 				break
 			}
 		}

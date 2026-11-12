@@ -104,6 +104,14 @@ func (in *interp) providerCall(fr *frame, x *syntax.CallExpr, c *check.Call) (Va
 	if !ok {
 		return nil, fr.unsupported(x, "the capability %s, which no with of the run binds", fr.typeOf(sel.X))
 	}
+	// The interruption point of a capability call (runtime.md, I1 2):
+	// before its operands, in an impure frame; a checked Close starts a
+	// release instead.
+	if fr.info.Closes[x] == nil {
+		if ab := in.poll(fr, x); ab != nil {
+			return nil, ab
+		}
+	}
 	args := make([]Value, 0, len(x.Args))
 	for _, a := range x.Args {
 		v, ab := in.expr(fr, a)
@@ -112,6 +120,7 @@ func (in *interp) providerCall(fr *frame, x *syntax.CallExpr, c *check.Call) (Va
 		}
 		args = append(args, v)
 	}
+	in.handParts(fr, x.Args...)
 	return in.dispatch(fr, x, op, c.Op.Name, args)
 }
 
@@ -149,7 +158,7 @@ func (in *interp) withOperand(fr *frame, x *syntax.CallExpr, i int, w *check.Wit
 		if w.Next != nil {
 			return in.withOperand(fr, x, i+1, w.Next)
 		}
-		return in.yield(fr, x.Trailing.List, false)
+		return in.scope(fr, x.Trailing, x.Trailing.List, false)
 	}
 	switch {
 	case w.Value != nil:
@@ -175,7 +184,24 @@ func (in *interp) withOperand(fr *frame, x *syntax.CallExpr, i int, w *check.Wit
 		return nil, ab
 	}
 	fr.caps = caps
+	// An owning with is an owner of its own (runtime/v1 OpenWith): what
+	// its block registers is released when the block ends, on every
+	// exit, before the providers it built (own.go).
+	var wo *owner
+	for _, b := range built {
+		if b.a.Releases() {
+			fr.ownerOf()
+			wo = &owner{}
+			break
+		}
+	}
+	prev := fr.own
+	if wo != nil {
+		fr.own = wo
+	}
 	v, ab := inner()
+	fr.own = prev
+	ab = in.releaseOwner(fr, wo, ab)
 	// The block ends: the with releases what it built, in the
 	// environment outside it (release.go).
 	if ab = in.releaseAll(fr, arg, built, outer, ab); ab != nil {
@@ -309,23 +335,6 @@ func (in *interp) callValue(fr *frame, at syntax.Node, f Value, args []Value) (V
 	if !ok {
 		return nil, fr.unsupported(at, "a call of a function value that is not a literal yet")
 	}
-	callee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, vars: c.vars, env: c.env, owner: c.home.owner, lawOwn: c.home.lawOwn, caps: c.caps}
-	var params []*check.Var
-	for _, field := range c.lit.Type.Params.List {
-		if len(field.Names) == 0 {
-			params = append(params, nil)
-		}
-		for _, id := range field.Names {
-			v, _ := callee.info.Defs[id].(*check.Var)
-			params = append(params, v)
-		}
-	}
-	if len(params) != len(args) {
-		ice("a function literal of %d parameters called with %d", len(params), len(args))
-	}
-	for i, p := range params {
-		callee.bind(p, args[i])
-	}
 	call, _ := at.(*syntax.CallExpr)
-	return in.runFrame(fr, call, callee, "literal", c.lit.Body.List)
+	return in.callClosure(fr, call, c, args)
 }

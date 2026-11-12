@@ -41,7 +41,7 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 		}
 		first, n = v, 1
 	}
-	pkg := checked(t, "import strconv\nimport utf8\n\ntest T {\n\tassert strconv.Itoa(utf8.RuneCount(\"a\")) == \"1\"\n}\n")
+	pkg := checked(t, "import strconv\nimport time\nimport utf8\n\ntest T {\n\tassert strconv.Itoa(utf8.RuneCount(\"a\")) == \"1\" && time.DurationText(1s) == \"1s\"\n}\n")
 	funcs := map[string]*check.Func{}
 	for _, p := range imports(pkg) {
 		for _, f := range p.Funcs {
@@ -161,6 +161,7 @@ func nativeCases(g nativeGen) []nativeCase {
 		fa, fb = f2[0], f2[1]
 	}
 	x := int64(g.r.IntN(5) - 2)
+	dur := []string{"1h2m3.5s", "-1.5ms", "0", "", "1", "3µs", "9223372036854775807ns", "9223372036854775808ns", "1e3s", "1.h", ".5s", "+2us", "1d", "-0"}[g.r.IntN(14)]
 	ls := func(ss []string) Value {
 		vs := make([]Value, len(ss))
 		for k, v := range ss {
@@ -240,6 +241,12 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "hex.Encode", args: []Value{s}, v1: func() any { return v1.HexEncode(s) }},
 		{name: "time.DurationText", args: []Value{d}, v1: func() any { return v1.TimeDurationText(durationOf(d)) }},
 		{name: "time.Times", args: []Value{d, m}, v1: func() any { return int64(v1.TimeTimes(durationOf(d), int(m))) }},
+		{name: "time.subMono", args: []Value{d, m}, v1: func() any { return int64(v1.TimeSubMono(d, m)) }},
+		{name: "time.subWall", args: []Value{d % (1 << 34), x, m % (1 << 34), int64(i)}, v1: func() any { return int64(v1.TimeSub(d%(1<<34), x, m%(1<<34), int64(i))) }},
+		{name: "time.Divide", args: []Value{d, m}, anyDefect: true, v1: func() any { return int64(v1.TimeDivide(durationOf(d), int(m))) }},
+		{name: "time.Count", args: []Value{d, m}, anyDefect: true, v1: func() any { return int64(v1.TimeCount(durationOf(d), durationOf(m))) }},
+		{name: "time.ParseDuration", args: []Value{dur}, v1: func() any { return result(v1.TimeParseDuration(dur)) }},
+		{name: "slices.Take", args: []Value{li(ints), x}, anyDefect: true, v1: func() any { return takeOf(v1.SlicesTake(ints, int(x))) }},
 		{name: "slices.Clone", args: []Value{li(ints)}, v1: func() any { return v1.SlicesClone(ints) }},
 		{name: "slices.Concat", args: []Value{li(ints), li(ints2)}, v1: func() any { return v1.SlicesConcat(ints, ints2) }},
 		{name: "slices.Reverse", args: []Value{ls(xs)}, v1: func() any { return v1.SlicesReverse(xs) }},
@@ -256,6 +263,15 @@ func nativeCases(g nativeGen) []nativeCase {
 }
 
 func durationOf(d int64) time.Duration { return time.Duration(d) }
+
+// takeOf is slices.Take's two results as one outcome.
+func takeOf(v int64, rest []int64) any {
+	r := make([]Value, len(rest))
+	for k, x := range rest {
+		r[k] = x
+	}
+	return tuple{elems: []Value{v, newSlice(r)}}
+}
 
 // result is a v1 (value, error) as one outcome.
 func result[T any](v T, err error) any {
@@ -303,6 +319,8 @@ func runtimeOutcome(fn *check.Func, f func() any) (out string) {
 		return "fails " + describe(stdRecord(fn, "Malformed", map[string]Value{"Text": e.Text}))
 	case v1.OutOfRange:
 		return "fails " + describe(stdRecord(fn, "OutOfRange", map[string]Value{"Text": e.Text}))
+	case v1.ParseError:
+		return "fails " + describe(stdRecord(fn, "ParseError", map[string]Value{"Layout": e.Layout, "Value": e.Value, "Message": e.Message}))
 	case error:
 		return "unexpected error " + e.Error()
 	default:
@@ -333,6 +351,8 @@ func toValue(fn *check.Func, v any) Value {
 	case []byte:
 		return bytesValue(string(v))
 	case int:
+		return int64(v)
+	case time.Duration:
 		return int64(v)
 	case v1.Decoded:
 		return stdRecord(fn, "Decoded", map[string]Value{"Rune": v.Rune, "Size": int64(v.Size)})

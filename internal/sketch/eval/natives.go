@@ -235,6 +235,52 @@ func init() {
 		i, ab := in.indexOf(fr, at, args[0].(sliceV), args[1])
 		return int64(i), ab
 	}
+	natives["slices.Take"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		xs, i := args[0].(sliceV).elems(), args[1].(int64)
+		if i < 0 || i >= int64(len(xs)) {
+			return nil, fr.defect(at, "index out of range [%d] with length %d", i, len(xs))
+		}
+		if ab := in.build(fr, at, int64(len(xs)), int64(len(xs)), 0); ab != nil {
+			return nil, ab
+		}
+		rest := make([]Value, 0, len(xs)-1)
+		rest = append(append(rest, xs[:i]...), xs[i+1:]...)
+		return tuple{elems: []Value{xs[i], newSlice(rest)}}, nil
+	}
+	natives["slices.SortFunc"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		xs := args[0].(sliceV).elems()
+		if ab := in.build(fr, at, int64(len(xs)), int64(len(xs)), 0); ab != nil {
+			return nil, ab
+		}
+		out := slices.Clone(xs)
+		// Go's own sort, so the order it leaves equal elements in is the
+		// order the built program's leaves them in; the first stop of a
+		// comparison ends the sort.
+		var stop *abrupt
+		slices.SortFunc(out, func(a, b Value) int {
+			if stop != nil {
+				return 0
+			}
+			v, ab := in.callValue(fr, at, args[1], []Value{a, b})
+			if ab != nil {
+				stop = ab
+				return 0
+			}
+			return cmp.Compare(v.(int64), 0)
+		})
+		if stop != nil {
+			return nil, stop
+		}
+		return newSlice(out), nil
+	}
+	natives["time.ParseDuration"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		s := args[0].(string)
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return nil, fr.abrupt(ctlFail, at, stdRecord(fn, "ParseError", map[string]Value{"Layout": "", "Value": s, "Message": err.Error()}), "")
+		}
+		return int64(d), nil
+	}
 	natives["slices.Equal"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1); ab != nil {
 			return nil, ab

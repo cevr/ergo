@@ -13,18 +13,19 @@ type interp struct {
 	root   *check.Package
 	steps  int64
 	bytes  int64 // value bytes allocated, of budget.Bytes
-	depth  int
 	files  map[syntax.Decl]*syntax.File
-	// ctxv are the context values in force for the running task,
-	// innermost first (contextvalues.go).
-	ctxv *ctxBinding
-	// owns caches ownership's verdict per declaration (release.go).
-	owns map[syntax.Decl]string
+	// task is the running task's own state: its call depth, its context
+	// values and its active slice ranges (sched.go); the scheduler swaps
+	// it when another task runs.
+	taskState
+	// sched runs the tasks of the obligation being evaluated (sched.go);
+	// bodies counts the case bodies run, for each one's schedule seed.
+	sched  *scheduler
+	bodies int
 	// globals are the package-level lets, bound once by the packages'
 	// initializers before any obligation runs (init.go). Nothing writes
 	// them after.
 	globals map[*check.Var]*slot
-	ranges  []*sliceRange
 	// initials are the machines' initial values, computed once after
 	// every let (machine.go initMachines).
 	initials map[*check.TypeName]Value
@@ -51,10 +52,26 @@ type frame struct {
 	resultPos syntax.Pos
 	// caps are the capabilities bound here (effects.go).
 	caps *capEnv
+	// key is the frame's Footprints key: its declaration, or the literal
+	// or trailing block a closure runs (interruption points, sched.go).
+	key syntax.Node
+	// Owned values (own.go): own is the innermost owner, the frame's
+	// (frameOwn) or an owning with's; owned names each entry by its
+	// checker key; kept are the values the frame returns; returned is the
+	// owned local a return or the body's tail gives back; held are the
+	// owned locals a taking std call holds until it returns; outer is the
+	// frame a literal was made in.
+	own      *owner
+	frameOwn *owner
+	owned    map[any]*owned
+	kept     []*owned
+	returned *syntax.Ident
+	held     map[*syntax.Ident]bool
+	outer    *frame
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
-	return &frame{pkg: pkg, info: pkg.Info, decl: decl, vars: map[*check.Var]*slot{}, owner: pkg.OwnerOf(decl)}
+	return &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, vars: map[*check.Var]*slot{}, owner: pkg.OwnerOf(decl)}
 }
 
 // bind binds v to a new slot holding val.
@@ -88,6 +105,12 @@ const (
 	ctlDefect      // a defect: stops the run, no catch handles it
 	ctlExhausted   // the budget ran out
 	ctlUnsupported // a form check-time evaluation does not run
+	// ctlInterrupt is a stopped task's exit from an interruption point:
+	// no catch handles it, and its frames release what they own (sched.go).
+	ctlInterrupt
+	// ctlAbort unwinds a task once the obligation has ended (an exhausted
+	// budget, a skip or a deadlock elsewhere): nothing more runs.
+	ctlAbort
 )
 
 // abrupt is a completion other than a normal one, with its site.
@@ -230,6 +253,9 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 	for i, p := range params {
 		callee.bind(p, args[i])
 	}
+	for _, p := range params {
+		in.ownVar(callee, p, fn.Decl) // a taken parameter (R8)
+	}
 	return in.runFrame(fr, at, callee, fn.Name, fn.Decl.Body.List)
 }
 
@@ -241,7 +267,13 @@ func (in *interp) runFrame(fr *frame, at *syntax.CallExpr, callee *frame, name s
 	}
 	in.depth++
 	defer func() { in.depth-- }()
-	val, ab := in.bodyValue(callee, body)
+	var val Value
+	ab := in.entryPoll(callee)
+	if ab == nil {
+		val, ab = in.bodyValue(callee, body)
+	}
+	// The frame ends: it releases what it still owns, on every exit.
+	ab = in.endFrame(callee, ab)
 	if ab == nil {
 		if val == nil {
 			val = unit{}
@@ -281,13 +313,25 @@ func (in *interp) yield(fr *frame, list []syntax.Stmt, ret bool) (Value, *abrupt
 	if len(list) == 0 {
 		return nil, nil
 	}
-	if why := in.ownership(fr); why != "" {
-		return nil, fr.abrupt(ctlUnsupported, list[0], nil, "check-time evaluation does not run "+why)
-	}
 	if ab := in.stmts(fr, list[:len(list)-1]); ab != nil {
 		return nil, ab
 	}
-	return in.yieldStmt(fr, list[len(list)-1], ret)
+	last := list[len(list)-1]
+	v, ab := in.yieldStmt(fr, last, ret)
+	if ab == nil {
+		ab = in.releaseAt(fr, last) // the statement's temporaries (R43)
+	}
+	return v, ab
+}
+
+// scope runs a scope's list (a block, an arm, a clause) and, when it ends
+// normally, the releases of the scope's end (Info.Releases[key]).
+func (in *interp) scope(fr *frame, key syntax.Node, list []syntax.Stmt, ret bool) (Value, *abrupt) {
+	v, ab := in.yield(fr, list, ret)
+	if ab == nil {
+		ab = in.releaseAt(fr, key)
+	}
+	return v, ab
 }
 
 func (in *interp) yieldStmt(fr *frame, s syntax.Stmt, ret bool) (Value, *abrupt) {
@@ -306,23 +350,26 @@ func (in *interp) yieldStmt(fr *frame, s syntax.Stmt, ret bool) (Value, *abrupt)
 		return nil, ab
 	case *syntax.IfStmt:
 		c, ab := in.expr(fr, s.Cond)
+		if ab == nil {
+			ab = in.releaseAt(fr, s.Cond) // the header's temporaries
+		}
 		if ab != nil {
 			return nil, ab
 		}
 		if truth(c) {
-			return in.yield(fr, s.Body.List, ret)
+			return in.scope(fr, s.Body, s.Body.List, ret)
 		}
 		switch e := s.Else.(type) {
 		case nil:
 			return nil, nil
 		case *syntax.BlockStmt:
-			return in.yield(fr, e.List, ret)
+			return in.scope(fr, e, e.List, ret)
 		case *syntax.IfStmt:
 			return in.yieldStmt(fr, e, ret)
 		}
 		ice("an else of %T", s.Else)
 	case *syntax.BlockStmt:
-		return in.yield(fr, s.List, ret)
+		return in.scope(fr, s, s.List, ret)
 	case *syntax.SwitchStmt:
 		return in.valueMatch(fr, s, ret)
 	case *syntax.TypeSwitchStmt:
@@ -337,7 +384,13 @@ func (in *interp) yieldStmt(fr *frame, s syntax.Stmt, ret bool) (Value, *abrupt)
 // A fallible value's failure leaves the frame: no catch inside the frame
 // sees it.
 func (in *interp) retValue(fr *frame, x syntax.Expr) (Value, *abrupt) {
+	if id, ok := unparen(x).(*syntax.Ident); ok {
+		// A returned owned local stays the frame's until its exit is
+		// known (own.go, keep).
+		fr.returned = id
+	}
 	v, ab := in.resultExpr(fr, x)
+	fr.returned = nil
 	if ab != nil {
 		if ab.kind == ctlFail {
 			out := *ab

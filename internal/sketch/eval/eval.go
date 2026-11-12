@@ -123,6 +123,10 @@ type Result struct {
 	Evidence    string
 	Seed        uint64
 	Arguments   []Argument
+	// Schedule is the schedule seed of the case that decided the result
+	// when it started a task, else 0: the evaluator runs one schedule per
+	// seed (sched.go), and says which.
+	Schedule uint64
 	// Machine is a reachability law's search (machine.go), else nil.
 	Machine *MachineSearch
 }
@@ -288,12 +292,36 @@ func (in *interp) runBody(pkg *check.Package, decl syntax.Decl, body *syntax.Blo
 func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res Result) Result {
 	pkg, decl := fr.pkg, fr.decl
 	start := in.steps
+	// The body is the root task of the case's schedule (sched.go).
+	in.bodies++
+	s := in.newScheduler(scheduleSeed(in.budget.Seed, res.Name, in.bodies))
+	in.sched, in.taskState = s, taskState{cur: s.root}
+	defer func() {
+		if r := recover(); r != nil {
+			if s.fatal == nil {
+				s.fatal = &abrupt{kind: ctlAbort, msg: "an internal error"}
+			}
+			s.panicked = nil
+			in.shutdown()
+			panic(r)
+		}
+	}()
 	var val Value
 	var ab *abrupt
 	if law {
 		val, ab = in.bodyValue(fr, body.List)
 	} else {
 		ab = in.stmts(fr, body.List)
+	}
+	ab = in.endFrame(fr, ab)
+	started := s.nextID > 2
+	in.shutdown()
+	if s.fatal != nil && s.fatal.kind != ctlAbort {
+		// The stop of another task, or a deadlock, ends the case.
+		ab = s.fatal
+	}
+	if started {
+		res.Schedule = s.seed
 	}
 	res.Steps = in.steps - start
 	if ab == nil {
@@ -326,6 +354,10 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 		res.Status, res.Reason = Incomplete, ab.msg
 	case ctlUnsupported:
 		res.Status, res.Reason = Skipped, ab.msg
+	case ctlInterrupt:
+		// Nothing stops the root task; an interruption that reaches it
+		// came from a task it waited for.
+		res.Status, res.Reason = Defect, "interrupted"
 	default:
 		ice("the control %d left the body", ab.kind)
 	}

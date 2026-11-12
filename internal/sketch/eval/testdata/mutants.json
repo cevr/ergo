@@ -622,13 +622,67 @@
       "killers": ["internal/sketch/eval:TestCoveredFailurePassesCatch"]
     },
     {
-      "name": "oracle-o2-owned-local-run",
-      "origin": "wf10 ORACLE O2",
-      "file": "internal/sketch/eval/interp.go",
-      "from": "\tif why := in.ownership(fr); why != \"\" {",
-      "to": "\tif why := in.ownership(fr); false && why != \"\" {",
-      "rule": "A body that owns a resource outside a with is skipped until the evaluator runs its release, never passed or refuted without it.",
-      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+      "name": "oracle-o3-owned-release-forward",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/own.go",
+      "from": "\tfor i := len(o.list) - 1; i >= 0; i-- {",
+      "to": "\tfor i := 0; i < len(o.list); i++ {",
+      "rule": "A frame releases the values it owns last first when it ends (resources.md R5, L8 B1).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o3-owned-handoff-ignored",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/own.go",
+      "from": "\tif e := fr.lookupOwned(key); e != nil {\n\t\te.live = false\n\t}",
+      "to": "\tif e := fr.lookupOwned(key); e != nil && false {\n\t\te.live = false\n\t}",
+      "rule": "An owned value passed to a parameter that takes it is the callee's to release; the caller releases it no more (resources.md R9).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o3-native-submono-wraps",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/tasks.go",
+      "from": "\t\tcase d < 0 && a > b:\n\t\t\td = math.MaxInt64",
+      "to": "\t\tcase false:\n\t\t\td = math.MaxInt64",
+      "rule": "The duration between two monotonic readings saturates at the largest duration where a - b overflows (runtime/v1 TimeSubMono; time.go, Sub).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o3-scheduler-host-order",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/sched.go",
+      "from": "\t\t\treturn can[s.rng.IntN(len(can))]",
+      "to": "\t\t\treturn can[0]",
+      "rule": "The scheduler picks the next task by the obligation's schedule seed, not in the order the tasks started (ORACLE O3; runtime.md, Tasks 7).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o3-virtual-time-skips-wake",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/tasks.go",
+      "from": "\t\tif best == nil || g < gap {",
+      "to": "\t\tif best == nil || g > gap {",
+      "rule": "A virtual clock moves to its nearest sleeper's deadline when every task waits, waking the sleepers due then and no later one (stdlib.md, testing.VirtualClock).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o3-deadlock-passes",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/sched.go",
+      "from": "\t\ts.fatal = fr.defect(at, \"%s\", s.deadlock())",
+      "to": "\t\ts.fatal = &abrupt{kind: ctlAbort, msg: s.deadlock()}",
+      "rule": "When every task waits and no clock can move, the obligation is a defect that names what each task waits for (ORACLE O3).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o3-stop-ignored",
+      "origin": "wf10 ORACLE O3",
+      "file": "internal/sketch/eval/sched.go",
+      "from": "func stopTree(t *etask) {\n\tt.stopped = true",
+      "to": "func stopTree(t *etask) {\n\tt.stopped = false",
+      "rule": "Stop ends a sleeping task at its wait: its exit actions run and nothing after the wait does (runtime.md, Tasks 10, I1).",
+      "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
     }
   ]
 }

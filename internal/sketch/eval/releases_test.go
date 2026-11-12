@@ -77,10 +77,7 @@ func TestEvalReleasesAgreeWithModel(t *testing.T) {
 			// The test and the run under Both must pass; the law's other
 			// bindings (Res, Plain; Lease, whose Close notes through Audit) only
 			// must not fail.
-			mustPass := res.Name == "Releases" || strings.HasSuffix(res.Name, " under Both")
-			if res.Name == "Owned" && (res.Status != Skipped || !strings.Contains(res.Reason, "owns the resource r")) {
-				t.Fatalf("seed %d: Owned is %s (%s), not skipped for its owned resource", seed, res.Status, res.Reason)
-			}
+			mustPass := res.Name == "Releases" || res.Name == "Owned" || strings.HasSuffix(res.Name, " under Both")
 			if (mustPass && res.Status != Passed) || res.Status == Refuted || res.Status == Defect {
 				t.Fatalf("seed %d: %s is %s (%s at %s:%d)\n%s\nreplay: ERGO_EVAL_RELEASE_SEED=%d go test -run TestEvalReleasesAgreeWithModel ./internal/sketch/eval",
 					seed, res.Name, res.Status, res.Reason, res.Site.File, res.Site.Line, src, seed)
@@ -195,8 +192,8 @@ func openRes(name string, fail bool) Res fails Oops {
 func refuse(c int) int fails Oops { return Oops{Code: c} }
 
 // owning owns a local resource: it is released when the function ends
-// (resources.md R5, L8 B1), which check-time evaluation does not run yet,
-// so the test Owned is skipped, never passed without its release.
+// (resources.md R5, L8 B1), so the test Owned passes only with the
+// release in the journal.
 func owning() {
 	let r = Res{name: "o"}
 	r.Put("k")

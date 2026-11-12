@@ -43,6 +43,7 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	if ab != nil {
 		return nil, ab
 	}
+	in.ownTemp(fr, x, v) // a temporary its statement owns (R43)
 	// A variant or a row value goes into its union unchanged: the value
 	// keeps its record type. A provider goes into an operation type as an
 	// operation value (effects.go); a machine table waits for a later unit.
@@ -98,6 +99,9 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	case *syntax.BasicLit:
 		ice("a literal with no Values entry")
 	case *syntax.SelectorExpr, *syntax.IndexExpr:
+		if sel, ok := x.(*syntax.SelectorExpr); ok {
+			in.takeField(fr, sel)
+		}
 		v, root, ab := in.peek(fr, x)
 		if ab != nil {
 			return nil, ab
@@ -141,27 +145,36 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 			}
 			out.elems[i] = v
 		}
+		in.handParts(fr, x.Elts...)
 		return out, nil
 	case *syntax.FuncLit:
 		// Making a function literal runs nothing: the value is the literal,
 		// the slots it reads and the capabilities bound where it is made.
 		// It runs where it is written, or where a native the evaluator
 		// runs calls it (sync.Ref's Update, natives.go).
-		return &closure{lit: x, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}, nil
+		return &closure{lit: x, key: x, params: x.Type.Params, body: x.Body, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}, nil
 	case *syntax.StarExpr:
 		return nil, fr.unsupported(x, "a pointer")
 	}
 	return nil, fr.unsupported(x, "the expression form %T", x)
 }
 
-// closure is a function literal's value: the literal and the slots of the
-// frame that made it.
+// closure is a function literal's value, or a trailing block a native
+// runs (task.Go's body): its parameters (none for a block), its body, and
+// the slots of the frame that made it. lit is the literal, nil for a
+// block; key is its Footprints key, the literal or the block.
 type closure struct {
-	lit  *syntax.FuncLit
-	vars map[*check.Var]*slot
-	env  *tenv
-	home *frame // the frame that made it: its package, declaration and owner
-	caps *capEnv
+	lit    *syntax.FuncLit
+	key    syntax.Node
+	params *syntax.FieldList
+	body   *syntax.BlockStmt
+	vars   map[*check.Var]*slot
+	env    *tenv
+	home   *frame // the frame that made it: its package, declaration and owner
+	caps   *capEnv
+	// outer is the frame whose entries the body's frame reads (own.go),
+	// when it is not home: a task's root (tasks.go).
+	outer *frame
 }
 
 // bareRecord is the value of a record with no fields named bare,
@@ -200,6 +213,7 @@ func (in *interp) ident(fr *frame, id *syntax.Ident) (Value, *abrupt) {
 	case *check.Var:
 		if s := in.slotOf(fr, o); s != nil {
 			s.lend()
+			in.handoff(fr, id)
 			return s.v, nil
 		}
 		return nil, fr.unsupported(id, "the package let %s, which no initializer bound", id.Name)
@@ -415,6 +429,7 @@ func (in *interp) binary(fr *frame, x *syntax.BinaryExpr) (Value, *abrupt) {
 		if !ok || structOf(n) == nil {
 			ice("a range of %s", t.t)
 		}
+		in.handParts(fr, x.X, x.Y)
 		r := &record{t: n, key: argsKey(n, t.env), fields: make([]Value, 2)}
 		r.fields[fieldIndex(n, "Start")] = a
 		r.fields[fieldIndex(n, "End")] = b
@@ -480,6 +495,7 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 			}
 			m.b.m[k] = v
 		}
+		in.handParts(fr, x.Elts...)
 		return m, nil
 	}
 	n, ok := t.t.(*check.Named)
@@ -521,7 +537,10 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 		}
 		out.fields[idx], set[idx] = v, true
 	}
+	in.handParts(fr, x.Elts...)
 	if base != nil {
+		in.handParts(fr, x.Base)
+		in.ownReplaced(fr, x, base)
 		if copies, spread := fr.info.Spreads[x]; spread {
 			for _, c := range copies {
 				i := fieldIndex(n, c.Field.Name)
@@ -565,6 +584,7 @@ func (in *interp) listLit(fr *frame, x *syntax.CompositeLit, n int, array bool) 
 		}
 		elems = append(elems, v)
 	}
+	in.handParts(fr, x.Elts...)
 	if array && len(elems) != n {
 		ice("an array literal of %d elements for %d", len(elems), n)
 	}
@@ -635,7 +655,7 @@ func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *a
 				return nil, ab
 			}
 			if ok {
-				val, ab := in.yield(fr, a.Body, false)
+				val, ab := in.scope(fr, a, a.Body, false)
 				if ab != nil {
 					return nil, ab
 				}
@@ -697,17 +717,39 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 		if c.Func.Ptr {
 			return nil, fr.unsupported(x, "a call that borrows its receiver yet")
 		}
-		if x.Trailing != nil {
+		if x.Trailing != nil && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
 			return nil, fr.unsupported(x, "a trailing block yet")
 		}
 		if preludeCollection(c.Func) {
 			return in.collectionCall(fr, x, c, nil)
 		}
+		// A bodiless std function that takes an owned local holds its
+		// entry until it returns (own.go, holdTaken).
+		var held []*syntax.Ident
+		if c.Func.Decl != nil && c.Func.Decl.Extern != nil && c.Func.Pkg.Std() && len(c.Func.Sig.Takes) > 0 {
+			ops := x.Args
+			if c.Recv != nil {
+				ops = append([]syntax.Expr{c.Recv}, x.Args...)
+			}
+			held = in.holdTaken(fr, ops, c.Func.Sig.Takes)
+		}
 		args, ab := in.args(fr, x, c)
 		if ab != nil {
+			for _, id := range held {
+				delete(fr.held, id)
+			}
 			return nil, ab
 		}
-		return in.call(fr, x, c.Func, c.TypeArgs, args)
+		if x.Trailing != nil {
+			// The block is the native's last argument: a function of its
+			// own, run where the native runs it (task.Go, scope.OnExit).
+			args = append(args, &closure{key: x.Trailing, body: x.Trailing, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps})
+		}
+		v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
+		if len(held) > 0 {
+			ab = in.settleHeld(fr, held, ab)
+		}
+		return v, ab
 	case check.CallFuncValue:
 		lit, ok := unparen(x.Fun).(*syntax.FuncLit)
 		if !ok {
@@ -748,21 +790,36 @@ func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call) ([]Value, *
 		}
 		args = append(args, v)
 	}
+	in.handParts(fr, c.Recv)
+	in.handParts(fr, x.Args...)
 	return args, nil
 }
 
 // callLiteral runs a function literal called where it is written: its
 // body reads and writes the slots of the frame around it, in place.
 func (in *interp) callLiteral(fr *frame, at *syntax.CallExpr, lit *syntax.FuncLit, args []Value) (Value, *abrupt) {
-	callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn, caps: fr.caps}
+	c := &closure{lit: lit, key: lit, params: lit.Type.Params, body: lit.Body, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}
+	return in.callClosure(fr, at, c, args)
+}
+
+// callClosure runs c's body as a frame of its own that reads and writes
+// the slots of the frame that made it, with c's parameters bound to args.
+func (in *interp) callClosure(fr *frame, at *syntax.CallExpr, c *closure, args []Value) (Value, *abrupt) {
+	outer := c.home
+	if c.outer != nil {
+		outer = c.outer
+	}
+	callee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: c.vars, env: c.env, owner: c.home.owner, lawOwn: c.home.lawOwn, caps: c.caps, outer: outer}
 	var params []*check.Var
-	for _, field := range lit.Type.Params.List {
-		if len(field.Names) == 0 {
-			params = append(params, nil)
-		}
-		for _, id := range field.Names {
-			v, _ := fr.info.Defs[id].(*check.Var)
-			params = append(params, v)
+	if c.params != nil {
+		for _, field := range c.params.List {
+			if len(field.Names) == 0 {
+				params = append(params, nil)
+			}
+			for _, id := range field.Names {
+				v, _ := callee.info.Defs[id].(*check.Var)
+				params = append(params, v)
+			}
 		}
 	}
 	if len(params) != len(args) {
@@ -771,7 +828,10 @@ func (in *interp) callLiteral(fr *frame, at *syntax.CallExpr, lit *syntax.FuncLi
 	for i, p := range params {
 		callee.bind(p, args[i])
 	}
-	return in.runFrame(fr, at, callee, "literal", lit.Body.List)
+	for _, p := range params {
+		in.ownVar(callee, p, c.key) // a taken parameter (R8)
+	}
+	return in.runFrame(fr, at, callee, "literal", c.body.List)
 }
 
 // preludeCollection reports the prelude's Append, Get, Delete or Put,
@@ -808,6 +868,8 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 			return nil, ab
 		}
 	}
+	in.handParts(fr, c.Recv)
+	in.handParts(fr, x.Args...)
 	var tok *token
 	if own != nil {
 		tok = own.own()
