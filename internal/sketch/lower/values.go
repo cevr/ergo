@@ -137,6 +137,8 @@ type valueFacts struct {
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
 	goShare  map[syntax.Expr]bool          // Go calls and Go field reads whose Map or slice value only Go takes, as Go holds it (H4, H5)
+	lineage  map[*syntax.CallExpr]bool     // one-extender Append sites (handover.go, own-lineage)
+	field    map[*syntax.CallExpr]bool     // Appends in place on a dead field path (handover.go, own-field)
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -166,6 +168,8 @@ func (l *lowerer) valueFacts() *valueFacts {
 			ownCall:  map[*syntax.CallExpr]bool{},
 			refSites: map[*syntax.CallExpr]*refSite{},
 			goShare:  map[syntax.Expr]bool{},
+			lineage:  map[*syntax.CallExpr]bool{},
+			field:    map[*syntax.CallExpr]bool{},
 		}
 	}
 	return l.vals
@@ -705,6 +709,8 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
+	// The one-extender sites (handover.go), before any freshness is read.
+	w.lineageSites()
 	// Owned parameters (V5): each argument of one, and the arguments a
 	// rebinding hands over in place.
 	for _, call := range w.ergo {
@@ -791,8 +797,14 @@ func (w *valueWalk) decide() {
 			if v, ok := w.info.Uses[id].(*check.Var); ok && w.freshIdent(w.varOf(v), id, false) {
 				vf.inPlace[call] = true
 			}
+		} else if w.deadField(call) {
+			// And on a dead field path (handover.go, own-field).
+			vf.inPlace[call], vf.field[call] = true, true
+			delete(vf.lineage, call)
 		}
 	}
+	// An appender in place takes its owned form (handover.go).
+	w.appenderConsumes()
 	// Owning (V1). A bind that takes an owned parameter of this function
 	// copies nothing: its callers pass the value unshared (V5).
 	if valueMutant != "never-copy" {
@@ -815,6 +827,11 @@ func (w *valueWalk) decide() {
 						args = args[1:]
 					}
 					for _, a := range args {
+						if w.spreads(call, a) && !w.l.holdsValue(elemOf(w.typeOf(a))) {
+							// Only its elements enter the root, and they
+							// hold no Map or slice (handover.go).
+							continue
+						}
 						w.freshen(a)
 					}
 				}
@@ -869,6 +886,7 @@ func (w *valueWalk) decide() {
 	w.decideSites()
 	// Consumed operands of owned runtime/v1 forms, likewise.
 	w.consumes()
+	w.settleLineage()
 }
 
 // goHeld reports x, unparenthesized, as Go's own Map or slice: the result
@@ -1894,6 +1912,11 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 		case check.CallFunc:
 			switch {
 			case preludeAppend(c.Func) || preludeMapWrite(c.Func):
+				if w.vf.lineage[x] {
+					// A one-extender site may extend its result in place
+					// later (handover.go): never fresh.
+					return false
+				}
 				if w.vf.inPlace[x] {
 					return w.fresh(w.recvOf(x))
 				}
@@ -2133,7 +2156,7 @@ func (w *valueWalk) resultsFresh() bool {
 // clipped to its length, so Go's append makes a new array, and Delete and
 // Put take a copy of the Map. vals are the call's lowered operands, the source first.
 func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string) []string {
-	if !valueRule() || len(vals) == 0 || fc.l.valueFacts().inPlace[x] || valueMutant == "in-place" {
+	if !valueRule() || len(vals) == 0 || fc.l.valueFacts().inPlace[x] || fc.l.valueFacts().lineage[x] || valueMutant == "in-place" {
 		return vals
 	}
 	switch {

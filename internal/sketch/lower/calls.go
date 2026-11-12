@@ -245,6 +245,12 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// and the instance's func(…) struct{} are one Go shape (C11).
 		vals := fc.callArgsAddr(list, x, addr)
 		vals = fc.valueSource(x, c, vals)
+		if fd.method == nil && !known {
+			if text := fc.handoverAppend(x, c, vals); text != "" {
+				// A hand-over Append (handover.go).
+				return text, true, fd.fallible
+			}
+		}
 		var head string
 		var rest []string
 		if fd.method != nil {
