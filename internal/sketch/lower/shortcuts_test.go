@@ -28,6 +28,22 @@ test At {
 	assert at("ab", 1) == 98
 }
 `,
+	"mono-instance": `func count[T](xs []T) int {
+	let mut n = 0
+	for _ in xs {
+		n = n + 1
+	}
+	n
+}
+
+func main() needs Console {
+	Console.Println("\(count([]string{"a", "b"}))")
+}
+
+test Count {
+	assert count([]int{1, 2, 3}) == 3
+}
+`,
 }
 
 // TestTestBuildsTakeNoShortcut lowers the witness of each registered

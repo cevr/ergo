@@ -240,6 +240,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A call whose callbacks are all known goes to the known variant
 		// (known.go), its literals lowered plain.
 		known := fc.knownSite(x, c)
+		// A call of a known instance goes to its plain copy (mono.go).
+		var mono *specCopy
+		if sp == nil && !known {
+			mono = fc.monoAt(x, c, c.Func, c.TypeArgs)
+		}
 		// An argument for a parameter func(…) T whose T a block with no
 		// value binds needs no adapter: a function value with no result
 		// and the instance's func(…) struct{} are one Go shape (C11).
@@ -260,6 +265,10 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 				name = fc.l.knownName(c.Func, fd)
 			}
 			head, rest = "("+vals[0]+")."+name, vals[1:]
+			if mono != nil {
+				// The copy is a plain function of the receiver.
+				head, rest = mono.name, vals
+			}
 		} else {
 			// Info names every type argument of a generic call: written,
 			// inferred, bound by a dot call's receiver (D-D8) or by an
@@ -278,6 +287,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 				// The copy for the known record (record.go): one
 				// instance, so no type arguments.
 				head = sp.name
+			}
+			if mono != nil {
+				head = mono.name // one instance: no type arguments
 			}
 		}
 		// A pure function takes no environment (pure.go): no Task result
@@ -890,6 +902,9 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 			head, args = args[0]+"."+fd.name, args[1:]
 		case inst != nil:
 			head = fd.name + fc.typeArgs(f.Sig, inst.TypeArgs, site)
+			if mono := fc.monoAt(nil, nil, f, inst.TypeArgs); mono != nil {
+				head = mono.name // the instance's plain copy (mono.go)
+			}
 		default:
 			head = fd.name
 		}

@@ -21,6 +21,9 @@ type namer struct {
 	used   map[string]bool
 	next   map[string]int // per base, the first suffix not yet tried here
 	work   *namerWork
+	// monoBases are the reserved bases of monomorphic copies (mono.go):
+	// a name base_iN of one is taken in every scope.
+	monoBases map[string]bool
 }
 
 // namerWork counts a lowering's naming work, shared by its scopes: names
@@ -68,7 +71,7 @@ func (n *namer) taken(name string) bool {
 		return true
 	}
 	for s := n; s != nil; s = s.parent {
-		if s.used[name] {
+		if s.used[name] || s.isMonoName(name) {
 			return true
 		}
 	}

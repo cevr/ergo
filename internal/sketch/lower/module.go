@@ -307,6 +307,8 @@ type lowerer struct {
 	// the copies for known records made so far (record.go).
 	recParams map[*check.Func]int
 	specs     map[specKey]*specCopy
+	monos     map[monoKey]*specCopy // monomorphic copies (mono.go)
+	monoCount map[*check.Func]int   // copies made per function (mono.go)
 	// scalarMemo holds each body's locals in the scalar form (scalar.go).
 	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
 	// flatSet are the program's flat unions (flatunion.go), decided at the

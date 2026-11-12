@@ -71,6 +71,19 @@ var shortcuts = []shortcut{
 		unsafe:     []string{"runtime/v1/unchecked.go ByteAt", "runtime/v1/unchecked.go StringAt", "runtime/v1/unchecked.go StringN", "runtime/v1/unchecked.go AddrAt"},
 		referenced: func() bool { return factLowering == "checked" },
 	},
+	{
+		// MONO1: a call of a generic function whose type arguments are
+		// known Go types goes to a plain copy for them (mono.go). The
+		// proof is the checker's instantiation; the test build takes the
+		// stenciled Go generic.
+		name:       "mono-instance",
+		class:      valueClass,
+		admission:  "monoAt",
+		reference:  "genericLowering=stencil",
+		agreement:  "TestGenericLoweringsAgree",
+		mutant:     "mono-shares-unequal-bodies",
+		referenced: func() bool { return genericLowering == "stencil" },
+	},
 }
 
 // shortcutNamed is the registry's row named name.
