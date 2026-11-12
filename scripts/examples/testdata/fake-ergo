@@ -15,6 +15,9 @@
 #                        a line "# TESTSIZE OUT ERR" writes OUT bytes to
 #                        stdout and ERR bytes to stderr and passes; passes
 #                        otherwise.
+#   test FILE --run NAME --explore MODE ...
+#                        the explore leg: on EXPLORESLOW runs a second
+#                        first; then passes, NAME alone.
 # A SRC or FILE that is a folder is a package (196b): build reads its
 # main.ergo, and test reads every .ergo file in it.
 # A ticker is a background loop in the caller's process group that appends a
@@ -44,6 +47,14 @@ check)
   fi
   ;;
 test)
+  if [ "$3" = "--run" ] && [ "$5" = "--explore" ]; then
+    # The explore leg: test FILE --run NAME --explore MODE [FLAG...]. On a
+    # line EXPLORESLOW it runs a second first (a search on a loaded host);
+    # then it passes, NAME alone.
+    if grep -q EXPLORESLOW "$2"; then sleep 1; fi
+    echo "ok $4"; echo "PASS (1 tests)"; echo "ok explore $6 (fixture)"
+    exit 0
+  fi
   [ $# -eq 2 ] || { echo "fake ergo: want test FILE, got $*" >&2; exit 64; }
   if [ -d "$2" ]; then
     cat "$2"/*.ergo > "$tools/package.ergo" || exit 1

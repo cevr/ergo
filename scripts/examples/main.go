@@ -59,11 +59,16 @@ type config struct {
 	ergo    string
 	tags    []string
 	timeout time.Duration
-	budget  time.Duration
-	record  bool
-	check   bool
-	lawless bool
-	names   []string
+	// testTimeout stops a compiler leg that runs tests (ergo check, ergo
+	// test, an explore search and its replay) only when it hangs: those
+	// legs build Go and end by themselves, so their time follows the
+	// host's load and is no verdict (AGENTS.md, Tests).
+	testTimeout time.Duration
+	budget      time.Duration
+	record      bool
+	check       bool
+	lawless     bool
+	names       []string
 	// memory is the limit of each built program a case runs: ERGO_PROGRAM_MEMORY,
 	// 2 GiB by default (internal/proclimit; docs/tooling.md, "Test memory").
 	// `ergo test` reads the same variable for the test binaries it runs.
@@ -166,7 +171,8 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.StringVar(&cfg.root, "root", ".", "repository root; programs are the folders `DIR`/examples/*")
 	flags.StringVar(&cfg.ergo, "ergo", "bin/ergo", "the compiler; a relative `PATH` is relative to -root")
 	flags.StringVar(&tags, "tags", "default", "comma-separated tags; selects the programs whose tags hold any of them")
-	flags.DurationVar(&cfg.timeout, "timeout", 30*time.Second, "per case (and per ergo test); on expiry the case fails and its process group is stopped")
+	flags.DurationVar(&cfg.timeout, "timeout", 30*time.Second, "per case; on expiry the case fails and its process group is stopped")
+	flags.DurationVar(&cfg.testTimeout, "test-timeout", 15*time.Minute, "per ergo check, ergo test, explore search and replay: a safety net that stops a hung one, never a time limit")
 	flags.DurationVar(&cfg.budget, "budget", 5*time.Second, "a case of a default program that runs longer fails; tag the program slow")
 	flags.BoolVar(&cfg.record, "record", false, "run each selected port's record.sh in place of the built program and write its goldens")
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
@@ -183,6 +189,9 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	}
 	if cfg.timeout <= 0 {
 		return nil, usageError("-timeout must be positive")
+	}
+	if cfg.testTimeout <= 0 {
+		return nil, usageError("-test-timeout must be positive")
 	}
 	memory, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
 	if err != nil {
@@ -719,7 +728,7 @@ func (r *runner) testProgram(p *program) {
 
 func (r *runner) testTarget(p *program, target, leg string) {
 	evaluation := r.checkTarget(p, target, strings.Replace(leg, "test", "check", 1))
-	o, err := r.tool(r.cfg.timeout, "test", target)
+	o, err := r.tool(r.cfg.testTimeout, "test", target)
 	if evaluation != nil && err == nil && o.overCap() == "" && !o.timedOut {
 		r.compareEvaluation(p, strings.Replace(leg, "test", "check", 1), evaluation, o.stdout)
 	}
@@ -741,7 +750,7 @@ func (r *runner) testTarget(p *program, target, leg string) {
 		}
 		fmt.Fprintf(r.out, "ok %s: %s (%s)\n", p.name, leg, seconds(o.elapsed))
 	default:
-		fmt.Fprintf(r.out, "FAIL %s: %s%s\n", p.name, leg, o.why(r.cfg.timeout))
+		fmt.Fprintf(r.out, "FAIL %s: %s%s\n", p.name, leg, o.why(r.cfg.testTimeout))
 		r.printOutput(o, nil)
 		r.fail(p.name + ": " + leg)
 	}

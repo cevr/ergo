@@ -36,6 +36,7 @@
       "to": "if false && evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
       "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
       "killers": ["examples:TestCheckVerdictsMatchNative"]
-    }
+    },
+    {"name":"ert-explore-leg-case-timeout","origin":"wf10 EXPLORE-rt","file":"scripts/examples/explored.go","from":"\t\to, err := r.tool(r.cfg.testTimeout, append(","to":"\t\to, err := r.tool(r.cfg.timeout, append(","rule":"An explore search ends by itself; only -test-timeout, the safety net for a hung one, stops it, never a case's -timeout (batch 18: a healthy search failed 30 s at load 50).","killers":["examples:TestExploreLegOutlastsTheCaseTimeout"]}
   ]
 }
