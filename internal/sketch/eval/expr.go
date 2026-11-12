@@ -971,6 +971,12 @@ func (in *interp) convert(fr *frame, x *syntax.CallExpr, v Value, from, to rtype
 		}
 	case mapV, tuple:
 		return v, nil
+	case *closure, *funcRef, *nativeFunc, seqSource:
+		// A function value converts to a function type over the same
+		// signature, as Seq[T](f) does (seq.go).
+		if _, isFunc := to.under().t.(*check.Signature); isFunc {
+			return v, nil
+		}
 	}
 	return nil, fr.unsupported(x, "a conversion to %s yet", to.t)
 }

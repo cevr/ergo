@@ -168,7 +168,7 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 		// lines of a process's standard input (process.go).
 		q, ok := dom.(seqSource)
 		if !ok {
-			return fr.unsupported(s, "a for over a Seq, which calls a function value")
+			return in.seqLoop(fr, s, dom) // seq.go
 		}
 		for {
 			v, more, ab := q.next(in, fr, s)

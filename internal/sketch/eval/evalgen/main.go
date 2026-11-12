@@ -29,7 +29,7 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq"}
 
 const mainPrelude = `import io
 import machines
@@ -68,6 +68,25 @@ func pick[T](a T, b T) T {
 func apply(f func(x int) int, x int) int { f(x) }
 
 func shout(s string) string { strings.ToUpper(s) }
+
+func ints(xs []int) Seq[int] {
+	Seq[int](func(yield func(v int) bool) {
+		for x in xs {
+			if !yield(x) {
+				return
+			}
+		}
+	})
+}
+
+func firstOver(xs Seq[int], limit int) int {
+	for v in xs {
+		if v > limit {
+			return v
+		}
+	}
+	-1
+}
 
 type Acc { total int, items []int }
 
@@ -178,7 +197,9 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(11) {
+		switch g.r.IntN(12) {
+		case 11:
+			g.seq(k)
 		case 10:
 			g.borrows(k)
 		case 9:
@@ -545,6 +566,51 @@ func (g *mainGen) machineTail(k, n int) {
 		fmt.Fprintf(&g.out, "s%d no timer\n", k)
 	}
 	fmt.Fprintf(&g.out, "s%d no work\n", k)
+}
+
+// seq: a for over a Seq that a function literal makes, Seq[int](f), with
+// a continue and a break in its body, and a return from a for over one.
+func (g *mainGen) seq(k int) {
+	g.kinds["seq"]++
+	limit := 2 + g.r.IntN(6)
+	var xs []int
+	var lits []string
+	for range g.r.IntN(7) {
+		v := g.r.IntN(10)
+		xs = append(xs, v)
+		lits = append(lits, fmt.Sprint(v))
+	}
+	list := "[]int{" + strings.Join(lits, ", ") + "}"
+	g.line("")
+	g.line("func s%d() needs Console {", k)
+	g.line("\tlet mut sum = 0")
+	g.line("\tlet mut n = 0")
+	g.line("\tfor v in ints(%s) {", list)
+	g.line("\t\tif v == 0 {")
+	g.line("\t\t\tcontinue")
+	g.line("\t\t}")
+	g.line("\t\tif v > %d {", limit)
+	g.line("\t\t\tbreak")
+	g.line("\t\t}")
+	g.line("\t\tsum = sum + v")
+	g.line("\t\tn = n + 1")
+	g.line("\t}")
+	g.line("\tConsole.Println(\"s%d \\(sum) \\(n) \\(firstOver(ints(%s), %d))\")", k, list, limit)
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
+	sum, n, first := 0, 0, -1
+	for _, v := range xs {
+		if v == 0 {
+			continue
+		}
+		if v > limit {
+			first = v
+			break
+		}
+		sum += v
+		n++
+	}
+	fmt.Fprintf(&g.out, "s%d %d %d %d\n", k, sum, n, first)
 }
 
 // borrows: writes through a borrow (types.md, Borrows) reach the place it

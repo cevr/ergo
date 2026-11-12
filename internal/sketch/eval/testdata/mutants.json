@@ -750,6 +750,15 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
+      "name": "oracle-o9-yield-goes-on-after-break",
+      "origin": "wf10 ORACLE O9",
+      "file": "internal/sketch/eval/seq.go",
+      "from": "\t\tcase ctlBreak, ctlReturn, ctlFail, ctlEscape:\n\t\t\treturn false, nil\n",
+      "to": "\t\tcase ctlBreak, ctlReturn, ctlFail, ctlEscape:\n\t\t\treturn true, nil\n",
+      "rule": "A for over a Seq that a function makes: yield returns false once the body ended the loop (a break or a return), as Go's range over a function does (prelude Seq).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
       "name": "oracle-o4-harness-drops-stderr",
       "origin": "wf10 ORACLE O4",
       "file": "internal/sketch/eval/examples_test.go",
