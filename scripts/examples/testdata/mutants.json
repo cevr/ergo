@@ -44,7 +44,7 @@
       "from": "r.cfg.root, r.toolEnv, \"\", timeout, 0)",
       "to": "r.cfg.root, os.Environ(), \"\", timeout, 0)",
       "rule": "Every compiler call of the runner builds in the run's own emission cache, which the run removes, never the caller's or the user's.",
-      "killers": ["examples:TestFmtOrBuildFailureFailsOnlyThatProgram"]
+      "killers": ["scripts/examples:TestFmtOrBuildFailureFailsOnlyThatProgram"]
     }
   ]
 }
