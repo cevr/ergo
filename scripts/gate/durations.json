@@ -848,6 +848,7 @@
     "TestCatchCostModule": 0.67,
     "TestCatchTreeAgrees": 3.22,
     "TestCatchTreeShape": 0.01,
+    "TestCellEvidenceFollowsTheDeclaringModule": 1.5,
     "TestCheckCorpusBuildsDomain": 0.05,
     "TestCheckCorpusBuildsPart0": 4.77,
     "TestCheckCorpusBuildsPart1": 4.37,

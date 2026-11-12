@@ -23,7 +23,8 @@ seam	internal/sketch/lower/naming.go:lowerer.nameAll	names a std package's lets 
 seam	internal/sketch/lower/sources.go:lowerer.locate	the position of a std node: its embedded file	-
 seam	internal/sketch/lower/sources.go:lowerer.missingImport	a reached user package needs a unit; std ships in the compiler	-
 seam	internal/sketch/lower/sources.go:lowerer.stdLetPkgs	the std packages whose lets the program initializes	-
-seam	internal/sketchfront/load.go:loader.Import	std paths resolve to the embedded std first	-
+seam	internal/sketch/lower/sources.go:shippedLedger	std's law ledger ships with its sources: the ledger of the module the compiler ships	-
+seam	internal/sketchfront/load.go:shippedImport	std paths resolve to the embedded std first	-
 seam	internal/sketchfront/load.go:modulePathProblem	a module path may not take a std package's name	-
 seam	internal/sketchfront/sketchfront.go:stdDependencies	the digest of std's sources in the build key	-
 language	internal/rpcgen/rpcgen.go:gen.importOf	a prelude name is written unqualified	-
@@ -121,13 +122,9 @@ debt	internal/sketch/lower/std.go:runtimeProtocols	std types that are runtime Go
 debt	internal/sketch/lower/types.go:lowerer.foreignOwner	the std package that owns a runtime type	NP4c
 debt	internal/sketch/lower/values.go:lowerer.ownedForm	a runtime body's owned form by name	NP4d
 debt	internal/sketch/lower/wirefields.go:jsonWrapper	the wire form of json's Optional, Nullable, Value and Num by name	CF1
-debt	internal/sketch/lower/wiretext.go:lowerer.cellRewriter	law evidence only for a root or std provider	NP2
-debt	internal/sketch/lower/wiretext.go:newStdEvidence	std's embedded ledger, read for std alone	NP2
 debt	internal/sketchfront/inspect.go:InspectGo	inspect skips std	NP5
 debt	internal/sketchfront/inspect.go:ergoBody	inspect skips std	NP5
 debt	internal/sketchfront/rewrite.go:FreshStdLedger	std's ledger is written by a std-only path	NP5
-debt	internal/sketchfront/rewrite.go:ledgerEvidence	std's ledger, read for std alone	NP2
-debt	internal/sketchfront/rewrite.go:ledgerSource.find	the ledger of a std package is std's	NP2
 debt	internal/tsproj/http.go:httpFailureStatuses	http.FailureStatus by name	NP7
 debt	internal/tsproj/http.go:httpTables	http.Route by name	NP7
 debt	internal/tsproj/project.go:stdJSON	json's wire forms by name	NP7

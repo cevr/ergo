@@ -517,7 +517,7 @@ func (e *LedgerEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInst
 		return false, "ergo.laws: " + key + " is " + state + "; run ergo test"
 	}
 	why := "law " + key + " is " + entry.Verdict + ", not proved: only proved laws change code"
-	r := e.rules[e.names.law(law)+" for "+e.names.provider(prov)]
+	r := e.rule(law, prov)
 	if open := constructionWhy(prov, r.ctor, r.conv, (*openConstruction).at); open != "" {
 		why += "; " + open
 	}
@@ -529,10 +529,46 @@ func (e *LedgerEvidence) digest(key string, law *check.Law, prov *check.Named, i
 	if d, ok := e.digests[key]; ok {
 		return d
 	}
-	r := e.rules[e.names.law(law)+" for "+e.names.provider(prov)]
+	r := e.rule(law, prov)
 	d := LawDigest(law, prov, r.conv, r.ctor, inst)
 	e.digests[key] = d
 	return d
+}
+
+// rule is the rule of law for prov: the root's, or, for a provider of
+// another package of the module (cellRewriter), one of the laws that
+// package runs, read once.
+func (e *LedgerEvidence) rule(law *check.Law, prov *check.Named) rwRule {
+	key := e.names.law(law) + " for " + e.names.provider(prov)
+	if r, ok := e.rules[key]; ok || prov.Obj.Pkg == nil {
+		return r
+	}
+	for p, rules := range newRewriter(prov.Obj.Pkg, nil).rules {
+		for _, r := range rules {
+			if k := e.names.law(r.law) + " for " + e.names.provider(p); e.rules[k].law == nil {
+				e.rules[k] = r
+			}
+		}
+	}
+	return e.rules[key]
+}
+
+// evidenceFor is the evidence for the laws of the providers pkg declares:
+// the ledger of the module that declares pkg, chosen here alone and by
+// module, never by a package's name or std membership (owner, 2026-11-12:
+// the standard library gets no special treatment; STD-NOPRIV NP2). A
+// package with a unit is the build's module's: it takes the run build's
+// evidence, the module's ergo.laws (nil in a build that takes none). A
+// package with none ships in the compiler with its ledger (shippedLedger),
+// which answers for it. A required module's own ledger joins here (MD1).
+func (l *lowerer) evidenceFor(pkg *check.Package) RewriteEvidence {
+	if l.isSourced(pkg) {
+		if l.rewrite == nil {
+			return nil
+		}
+		return l.rewrite.ev
+	}
+	return newShippedEvidence(pkg)
 }
 
 // Read is the text of the entries the build read, sorted: the run build

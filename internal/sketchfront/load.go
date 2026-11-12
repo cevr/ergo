@@ -604,11 +604,23 @@ func (l *loader) testOf(p *loadedPackage) *check.Package {
 	return under
 }
 
+// shippedImport is the package at path when the compiler ships it (std),
+// and whether it does: a shipped path resolves to the embedded package
+// first, so no module package shadows it. The loader and the law ledger's
+// pruning (ledgerSource) find a package by its path through it.
+func shippedImport(path string) (*check.Package, bool, error) {
+	if _, isStd := std.Package(path); !isStd {
+		return nil, false, nil
+	}
+	p, err := check.Std.Import(path)
+	return p, true, err
+}
+
 // Import is the loader's check.Importer: std, then the checked local
 // packages; any other path is refused with its reason.
 func (l *loader) Import(path string) (*check.Package, error) {
-	if _, isStd := std.Package(path); isStd {
-		return check.Std.Import(path)
+	if p, shipped, err := shippedImport(path); shipped {
+		return p, err
 	}
 	if p := l.pkgs[path]; p != nil && p.pkg != nil {
 		return p.pkg, nil
