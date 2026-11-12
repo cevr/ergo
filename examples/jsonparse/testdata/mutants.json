@@ -58,6 +58,14 @@
       "killers": ["examples:jsonparse"]
     },
     {
+      "name": "jsonparse-workload-raw-tab", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/workload/workload.ergo",
+      "from": "\"tab\\\\there\"",
+      "to": "\"tab\\there\"",
+      "rule": "The workload is JSON: a tab in its strings is escaped (law workload.DocumentIsJSON; the bug the first receipt run found).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
       "name": "jsonparse-depth-limit-one-short", "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/parse.ergo",
       "from": "if p.depth > MaxDepth {",

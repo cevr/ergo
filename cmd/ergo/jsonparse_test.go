@@ -116,6 +116,9 @@ func TestJSONParseAgreesWithControl(t *testing.T) {
 			t.Fatalf("jsonparse gen: %v", err)
 		}
 		ref := jsonReference(out.Bytes())
+		if ref.bad >= 0 {
+			t.Fatalf("the workload of %s records is not JSON at byte %d", n, ref.bad)
+		}
 		writeFile(t, path, out.String())
 		for _, cmd := range []string{"min", "check"} {
 			jsonAgree(t, bins, ref, path, "the workload of "+n+" records", []string{cmd}, "")

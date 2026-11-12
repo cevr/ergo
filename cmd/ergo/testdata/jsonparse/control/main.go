@@ -7,6 +7,7 @@
 //
 //	control fmt FILE | min FILE | get POINTER FILE | check FILE
 //	control check -std FILE   the same counts through encoding/json, for scale
+//	stdjson check FILE        the same, through a link named stdjson
 package main
 
 import (
@@ -14,6 +15,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -713,6 +715,11 @@ func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
 		usage()
+	}
+	if filepath.Base(os.Args[0]) == "stdjson" && len(args) == 2 && args[0] == "check" {
+		// Called as stdjson (a link to this binary), check is
+		// encoding/json's, so the receipts run both sides with one command.
+		args = []string{"check", "-std", args[1]}
 	}
 	var b strings.Builder
 	switch {

@@ -7,7 +7,7 @@
 import rand
 import strings
 
-let words = []string{"alpha", "beta", "gamma", "delta", "tab\there", "quote \\\"q\\\"", "snow ☃", "\\u00e9t\\u00e9", "\\ud83d\\ude00 face", "path\\/to"}
+let words = []string{"alpha", "beta", "gamma", "delta", "tab\\there", "quote \\\"q\\\"", "snow ☃", "\\u00e9t\\u00e9", "\\ud83d\\ude00 face", "path\\/to"}
 
 // Document is the workload of n records for seed.
 func Document(seed int, n int) string {
