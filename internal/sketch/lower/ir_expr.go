@@ -13,8 +13,11 @@ import (
 // value is x as an IR expression, after the statements (polls) that must
 // run before it.
 func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
-	if call, ok := unparen(x).(*syntax.CallExpr); ok {
-		return b.call(call, false)
+	switch u := unparen(x).(type) {
+	case *syntax.CallExpr:
+		return b.call(u, false)
+	case *syntax.TryExpr, *syntax.CatchExpr:
+		return b.failValue(u) // ir_fail.go
 	}
 	return nil, b.expr(x)
 }

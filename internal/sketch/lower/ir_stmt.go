@@ -42,8 +42,7 @@ func (b *irBuilder) tail(list []syntax.Stmt, ret bool) []*irStmt {
 func (b *irBuilder) yield(s syntax.Stmt) []*irStmt {
 	switch s := s.(type) {
 	case *syntax.ExprStmt:
-		pre, x := b.value(s.X)
-		return append(pre, &irStmt{K: "ret", Pos: b.pos(s.X, s.X.Pos()), X: x})
+		return b.ret(s.X, b.pos(s.X, s.X.Pos())) // ir_fail.go
 	case *syntax.ReturnStmt:
 		return b.stmt(s)
 	case *syntax.IfStmt:
@@ -146,17 +145,17 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.ReturnStmt:
 		p := b.pos(s, s.Pos())
 		if len(s.Results) == 0 {
-			if b.result != nil {
-				irNo("bare return")
-			}
-			return []*irStmt{{K: "ret", Pos: p}}
+			return b.ret(nil, p) // ir_fail.go
 		}
 		if len(s.Results) != 1 {
 			irNo("several results")
 		}
-		pre, x := b.value(s.Results[0])
-		return append(pre, &irStmt{K: "ret", Pos: p, X: x})
+		return b.ret(s.Results[0], p) // ir_fail.go
 	case *syntax.ExprStmt:
+		switch unparen(s.X).(type) {
+		case *syntax.TryExpr, *syntax.CatchExpr:
+			return b.failStmt(s.X) // ir_fail.go
+		}
 		call, ok := unparen(s.X).(*syntax.CallExpr)
 		if !ok {
 			irNo("expression statement that is not a call")
@@ -169,15 +168,10 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		if s.Cond == nil {
 			irNo("for without a condition")
 		}
-		if b.env >= 0 {
-			b.gate("loop in an impure frame")
-		}
 		cond := b.cond(s.Cond)
-		return []*irStmt{{K: "while", Pos: b.pos(s, s.Pos()), X: cond, Body: b.tail(s.Body.List, false), End: b.pos(s.Body, s.Body.Rbrace)}}
+		body := append(b.tail(s.Body.List, false), b.loopPoll(s, s.Body)...) // ir_fail.go
+		return []*irStmt{{K: "while", Pos: b.pos(s, s.Pos()), X: cond, Body: body, End: b.pos(s.Body, s.Body.Rbrace)}}
 	case *syntax.RangeStmt:
-		if b.env >= 0 {
-			b.gate("loop in an impure frame")
-		}
 		lp := b.l.info.Loops[s]
 		if lp == nil || lp.Domain != check.LoopSlice {
 			b.gate("for-in over a non-slice")
@@ -208,7 +202,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		b.part(func() { st.Key = bind(s.Key) })
 		b.part(func() { st.Val = bind(s.Value) })
-		st.Body = b.tail(s.Body.List, false)
+		st.Body = append(b.tail(s.Body.List, false), b.loopPoll(s, s.Body)...) // ir_fail.go
 		return []*irStmt{st}
 	}
 	irNo("statement %T", s)

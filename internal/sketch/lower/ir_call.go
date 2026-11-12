@@ -13,9 +13,31 @@ func (b *irBuilder) poll(site syntax.Node) *irStmt {
 	return &irStmt{K: "expr", Pos: p, X: &irExpr{K: "mcall", Pos: p, Name: "Check", X: task}}
 }
 
-// call is a call x; stmt reports a call in statement position, where a
-// call with no result may stand.
+// call is a call x that cannot fail at its site; stmt reports a call in
+// statement position, where a call with no result may stand. A call with
+// effects (an impure function, an operation) runs before the expression
+// that holds it, into a temporary, as the emitter's call does.
 func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
+	if b.fallibleCall(x) != nil {
+		irNo("untried fallible call")
+	}
+	pre, e, effect := b.callParts(x, stmt)
+	if effect && !stmt {
+		return b.hoist(pre, e, x)
+	}
+	return pre, e
+}
+
+// rawCall is the fallible call x: its Go call, whose result is the value
+// and the error (ir_fail.go binds or returns them).
+func (b *irBuilder) rawCall(x *syntax.CallExpr) ([]*irStmt, *irExpr) {
+	pre, e, _ := b.callParts(x, true)
+	return pre, e
+}
+
+// callParts is the call x and the statements before it; effect reports a
+// call with effects.
+func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr, bool) {
 	if x.Trailing != nil {
 		irNo("trailing block")
 	}
@@ -44,31 +66,47 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		default:
 			irNo("len of a non-slice")
 		}
-		return nil, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}
+		return nil, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}, false
 	case check.CallFunc:
 		f := c.Func
 		if f == nil || f.Pkg != b.l.pkg || check.GoBuiltin(f) != "" || userExtern(f) {
 			irNo("call of a function outside the package")
 		}
 		fd := b.l.useFunc(f, x)
-		if !fd.pure || fd.fallible || fd.extern != "" || fd.ptr || len(b.l.ownedParams(f)) > 0 || len(witnessParams(f.Sig)) > 0 {
+		if fd.extern != "" || fd.ptr || len(b.l.ownedParams(f)) > 0 || len(witnessParams(f.Sig)) > 0 || c.Site != nil || len(b.fc.captureOwners(x)) > 0 {
 			irNo("call of an impure, fallible or special function")
+		}
+		if fd.fallible && !failsHere(c) {
+			irNo("fallible call with an empty row at its site")
+		}
+		if !fd.pure && b.env < 0 {
+			irNo("call of an impure function from a pure one")
 		}
 		args := x.Args
 		if c.Recv != nil {
 			args = append([]syntax.Expr{c.Recv}, args...)
 		}
-		var irArgs []*irExpr
-		for _, a := range args {
-			irArgs = append(irArgs, b.expr(a))
+		pre, irArgs := b.operands(args)
+		if !fd.pure {
+			// The environment first, after a method's receiver
+			// (callText, taskDestArgs).
+			env := &irExpr{K: "local", Pos: p, I: b.env}
+			at := 0
+			if fd.method != nil {
+				at = 1
+			}
+			irArgs = append(irArgs[:at:at], append([]*irExpr{env}, irArgs[at:]...)...)
 		}
 		if fd.method != nil {
-			return nil, &irExpr{K: "mcall", Pos: p, Name: fd.name, X: irArgs[0], Args: irArgs[1:]}
+			return pre, &irExpr{K: "mcall", Pos: p, Name: fd.name, X: irArgs[0], Args: irArgs[1:]}, !fd.pure
 		}
-		return nil, &irExpr{K: "call", Pos: p, Name: fd.name, Args: irArgs}
+		return pre, &irExpr{K: "call", Pos: p, Name: fd.name, Args: irArgs}, !fd.pure
 	case check.CallProviderOp:
-		if b.env < 0 || c.Op == nil || len(rowElems(c.Op.Sig.Errors)) > 0 || b.fc.entersRelease(x) || b.l.tests != nil {
+		if b.env < 0 || c.Op == nil || b.fc.entersRelease(x) || b.l.tests != nil {
 			irNo("operation call form")
+		}
+		if len(rowElems(c.Op.Sig.Errors)) > 0 && !failsHere(c) {
+			irNo("fallible call with an empty row at its site")
 		}
 		sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
 		if !ok {
@@ -78,21 +116,18 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		if !ok {
 			irNo("capability without a named type")
 		}
-		env := &irExpr{K: "local", Pos: p, I: b.env}
-		args := []*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}
-		for _, a := range x.Args {
-			if _, isCall := unparen(a).(*syntax.CallExpr); isCall {
-				irNo("call in an operation's argument")
-			}
-			args = append(args, b.expr(a))
-		}
+		// The interruption point, before the operands (callText).
 		var pre []*irStmt
 		if b.fc.frame.polls {
 			pre = append(pre, b.poll(x))
 		}
+		argPre, irArgs := b.operands(x.Args)
+		pre = append(pre, argPre...)
+		env := &irExpr{K: "local", Pos: p, I: b.env}
+		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
 		capField := &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}
-		return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}
+		return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}, true
 	}
 	irNo("call kind %d", c.Kind)
-	return nil, nil
+	return nil, nil, false
 }

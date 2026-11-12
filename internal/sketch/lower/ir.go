@@ -184,6 +184,8 @@ type irStmt struct {
 	// increase).
 	ElsePos irPos `json:"epos"`
 	ElseEnd irPos `json:"eend"`
+	// Cases are a "tswitch"'s clauses (ir_fail.go); Else is its default.
+	Cases []*irCase `json:"cases,omitempty"`
 }
 
 type irExpr struct {
@@ -218,6 +220,9 @@ type irBuilder struct {
 	result check.Type
 	// reasons are a census's reasons for this body, distinct, in order.
 	reasons []string
+	// tries counts the try expressions being built (ir_fail.go): inside
+	// one, a fallible call fails the frame too.
+	tries int
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -297,9 +302,6 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	for _, g := range gates {
 		b.gate(g)
 	}
-	if fd.fallible {
-		b.gate("fallible function")
-	}
 	if fd.ptr {
 		b.gate("pointer receiver")
 	}
@@ -343,7 +345,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if b.env >= 0 && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && !b.l.knownClosed(f) && fc.frame.polls {
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}
-	b.fn.Body = append(b.fn.Body, b.tail(f.Decl.Body.List, b.result != nil)...)
+	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
 	if st.census != nil {
 		return false
 	}
