@@ -1,0 +1,40 @@
+// Where a picture lives: the Store contract, and opening a picture.
+
+// Store keeps pictures' text by name. Save replaces the whole text, so a
+// reader sees the old text or the new one.
+type Store {
+	Load(name string) string fails Missing | Unreadable,
+	Save(name string, text string) fails Unwritable,
+
+	// SaveThenLoad: a saved text is the text that loads.
+	law SaveThenLoad(name string, text string) {
+		Save(name, text) catch {
+		case Unwritable:
+			return true
+		}
+		let back = Load(name) catch {
+		case Missing, Unreadable:
+			return false
+		}
+		back == text
+	},
+}
+
+// Missing is a picture that does not exist yet.
+type Missing { Name string }
+
+// Unreadable is a picture that cannot be read, with the reason.
+type Unreadable { Name string, Reason string }
+
+// Unwritable is a picture that cannot be written, with the reason.
+type Unwritable { Name string, Reason string }
+
+// OpenPicture reads the picture name: an empty picture when it does not
+// exist yet.
+func OpenPicture(name string) Picture fails Unreadable | BadSvg needs Store {
+	let text = try Store.Load(name) catch {
+	case Missing:
+		return Empty()
+	}
+	try Parse(text)
+}

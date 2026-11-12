@@ -1,0 +1,83 @@
+// draw-gui is a drawing app: freehand strokes simplified as they are
+// drawn, rectangles, ellipses and lines on four layers; select, move and
+// delete; pan and zoom; a grid that finds the shape under the pointer;
+// pictures saved as SVG. This stage is its model and its headless driver:
+// a script of pointer events and commands on standard input, and the
+// frames a window would show, as text.
+//
+//	draw-gui gen [-seed S] [-n N]   write a script of N strokes
+//	draw-gui play FILE              play the script on standard input
+//
+// A FILE that does not exist is a new, empty picture; save writes it.
+// This binary is the only place that chooses the providers: the host's
+// files for the pictures, a seeded generator for gen.
+
+import draw/canvas
+import draw/files
+import draw/script
+import flag
+import fs
+import io
+import os
+import rand
+import slices
+
+// Usage is the text of a usage failure.
+let Usage = "usage: draw-gui gen [-seed S] [-n N] | draw-gui play FILE"
+
+let seedFlag = flag.Int("seed", 1, "the seed of the script")
+let countFlag = flag.Int("n", 100, "how many strokes")
+let fileArg = flag.Arg("file", "the picture")
+
+let genSet = flag.Set{Name: "draw-gui gen", Usage: "", Flags: []flag.Flag{seedFlag, countFlag}, Args: []flag.ArgSpec{}}
+let playSet = flag.Set{Name: "draw-gui play", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{fileArg}}
+
+// run is draw-gui on args.
+func run(args []string) fails os.Exit needs canvas.Store | io.Stdout | io.Stdin {
+	if len(args) == 0 {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	let rest = slices.Slice(args, 1, len(args))
+	match args[0] {
+	case "gen":
+		let v = flag.Parse(genSet, rest) catch {
+		case err:
+			try flag.Exit(err, Usage)
+			return
+		}
+		let n = countFlag.Get(v)
+		if n < 0 {
+			return os.Exit{Code: 2, Message: "draw-gui: -n must not be negative\n" + Usage}
+		}
+		with context { Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
+			io.Stdout.Print(canvas.Generate(n))
+		}
+	case "play":
+		let v = flag.Parse(playSet, rest) catch {
+		case err:
+			try flag.Exit(err, Usage)
+			return
+		}
+		let name = match fileArg.Get(v) {
+		case Some[string] as a:
+			a.Value
+		case None:
+			return os.Exit{Code: 2, Message: Usage}
+		}
+		let pic = canvas.OpenPicture(name) catch {
+		case canvas.Unreadable as u:
+			return os.Exit{Code: 1, Message: "draw-gui: \(u.Name): \(u.Reason)"}
+		case canvas.BadSvg as b:
+			return os.Exit{Code: 1, Message: "draw-gui: \(name): line \(b.Line): want \(b.Want)"}
+		}
+		let _ = script.Play(canvas.Open(pic), name, io.Stdin.Lines())
+	case _:
+		return os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { canvas.Store: files.New(fs.NewHost()), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
+		try run(os.NewHost().Args())
+	}
+}

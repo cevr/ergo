@@ -1,0 +1,256 @@
+// The Tool as a machine, and the laws of the picture under it.
+
+import slices
+
+// Tool is the drawing tool as a machine, started on an empty picture.
+type Tool machine[State, Signal] {
+	initial: Begin,
+	step:    Step,
+
+	// DrawAndBack: a press starts a shape and letting go ends it.
+	law DrawAndBack path [Idle, Drawing, Idle],
+
+	// ShapesStayInWorld: after every signal, every shape is inside the
+	// world, so every hit test is exact in integers.
+	law ShapesStayInWorld(signals []Signal) {
+		let world = Box{Lo: Point{X: -Limit, Y: -Limit}, Hi: Point{X: Limit, Y: Limit}}
+		let mut s = Start()
+		for sig in signals {
+			s = After(s, sig)
+			for p in Order(CanvasOf(s).Pic) {
+				if !Contains(world, BoxOf(p.Shape)) {
+					return false
+				}
+			}
+		}
+		true
+	},
+
+	// EscapeUndoesADrag: a drag of a shape that is escaped leaves every
+	// shape where it was.
+	law EscapeUndoesADrag(shapes []Shape, k int, to Point) {
+		let s = After(Begin(shapes), Pick{Tool: SelectTool})
+		let before = Order(CanvasOf(s).Pic)
+		let pressed = After(s, Down{At: onShape(s, k)})
+		Order(CanvasOf(After(After(pressed, Drag{At: Bound(to)}), Escape)).Pic) == before
+	},
+
+	// DragStaysInWorld: a shape dragged anywhere, past the world's edge
+	// included, stays inside the world.
+	law DragStaysInWorld(shapes []Shape, k int, to Point) {
+		let world = Box{Lo: Point{X: -Limit, Y: -Limit}, Hi: Point{X: Limit, Y: Limit}}
+		let s = After(Begin(shapes), Pick{Tool: SelectTool})
+		let dragged = After(After(s, Down{At: onShape(s, k)}), Drag{At: Bound(to)})
+		for p in Order(CanvasOf(dragged).Pic) {
+			if !Contains(world, BoxOf(p.Shape)) {
+				return false
+			}
+		}
+		true
+	},
+}
+
+// onShape is a screen point on the k-th shape of s's picture (the start's
+// view shows world points as they are): a stroke's or a line's first
+// point, a rectangle's corner, an ellipse's centre. With no shape it is
+// the origin.
+func onShape(s State, k int) Point {
+	let shapes = Order(CanvasOf(s).Pic)
+	if len(shapes) == 0 {
+		return Point{X: 0, Y: 0}
+	}
+	match shapes[((k%len(shapes))+len(shapes))%len(shapes)].Shape {
+	case Stroke as t:
+		t.Points[0]
+	case Rect as r:
+		r.At
+	case Ellipse as e:
+		e.Center
+	case Line as l:
+		l.From
+	}
+}
+
+// FinishStaysInWorld: every shape a tool makes between two world points
+// is inside the world.
+law FinishStaysInWorld(a Point, b Point) {
+	let world = Box{Lo: Point{X: -Limit, Y: -Limit}, Hi: Point{X: Limit, Y: Limit}}
+	for tool in []Kind{PenTool, RectTool, EllipseTool, LineTool} {
+		match Finish(tool, []Point{Bound(a), Bound(b)}) {
+		case Some[Shape] as s:
+			if !Contains(world, BoxOf(s.Value)) {
+				return false
+			}
+		case None:
+		}
+	}
+	true
+}
+
+// Begin is the tool on a picture of the shapes, made valid: the machine's
+// input.
+func Begin(shapes []Shape) State { Open(picture(shapes, []int{})) }
+
+// Run is the state after the signals, from s.
+func Run(s State, signals []Signal) State {
+	let mut at = s
+	for sig in signals {
+		at = After(at, sig)
+	}
+	at
+}
+
+// After is the state after sig: a rejected or ignored signal leaves it as
+// it was.
+func After(s State, sig Signal) State {
+	match Step(s, sig) {
+	case Enter[State] as e:
+		e.Next
+	case Stay[State] as t:
+		t.Next
+	case Emit[State, Output] as m:
+		m.Next
+	case Ignore, Reject, Done[Output]:
+		s
+	}
+}
+
+// SimplifyKeepsEndpoints: a simplified stroke starts and ends where the
+// stroke did, and keeps its points in order.
+law SimplifyKeepsEndpoints(points []Point) {
+	if len(points) == 0 {
+		return true
+	}
+	let pts = bounded(points)
+	let out = Simplify(pts)
+	if out[0] != pts[0] || out[len(out)-1] != pts[len(pts)-1] {
+		return false
+	}
+	let mut j = 0
+	for p in pts {
+		if j < len(out) && out[j] == p {
+			j = j + 1
+		}
+	}
+	j == len(out)
+}
+
+// SimplifyWithinEpsilon: every point a simplified stroke drops is within
+// Epsilon of the chord between the kept points around it.
+law SimplifyWithinEpsilon(points []Point) {
+	let pts = bounded(points)
+	let keep = Kept(pts)
+	let mut last = 0
+	for i in 0..len(pts) {
+		if keep[i] {
+			last = i
+			continue
+		}
+		let mut next = i + 1
+		for !keep[next] {
+			next = next + 1
+		}
+		let a = pts[last]
+		let b = pts[next]
+		let bx = b.X - a.X
+		let by = b.Y - a.Y
+		let px = pts[i].X - a.X
+		let py = pts[i].Y - a.Y
+		let len2 = bx*bx + by*by
+		let e2 = Epsilon * Epsilon
+		let ok = if len2 == 0 { px*px+py*py <= e2 } else { (px*by-py*bx)*(px*by-py*bx) <= e2*len2 }
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+// HitEqualsBruteForce: the grid finds the shape that testing every shape
+// finds, at any point and at points on and around each shape.
+law HitEqualsBruteForce(shapes []Shape, layers []int, at Point, near Point) {
+	let pic = picture(shapes, layers)
+	let off = Point{X: near.X % 9, Y: near.Y % 9}
+	let mut probes = []Point{Bound(at)}
+	for p in Order(pic) {
+		let b = BoxOf(p.Shape)
+		probes = probes.Append(Bound(Point{X: b.Lo.X + off.X, Y: b.Lo.Y + off.Y}))
+		probes = probes.Append(Bound(Point{X: b.Hi.X - off.X, Y: b.Hi.Y + off.Y}))
+	}
+	for p in probes {
+		if Top(pic, p) != TopOfAll(pic, p) {
+			return false
+		}
+	}
+	true
+}
+
+// MoveThenMoveBackRestores: shapes moved by a delta and back are the
+// shapes they were, and the grid holds each in the same cells.
+law MoveThenMoveBackRestores(shapes []Shape, layers []int, pick []int, want Point) {
+	let pic = picture(shapes, layers)
+	let mut ids = []int{}
+	for i in pick {
+		ids = ids.Append(1 + ((i%8)+8)%8)
+	}
+	let delta = Room(pic, ids, want)
+	let back = Move(Move(pic, ids, delta), ids, Point{X: -delta.X, Y: -delta.Y})
+	Order(back) == Order(pic) && cellSets(back.Grid) == cellSets(pic.Grid)
+}
+
+// ExportParsesBack: a picture's text reads back as the same picture.
+law ExportParsesBack(shapes []Shape, layers []int) {
+	let pic = picture(shapes, layers)
+	Order(try Parse(Export(pic))) == Order(pic)
+}
+
+// cellSets is g's cells with each cell's ids in order.
+func cellSets(g Grid) Map[int, []int] {
+	let mut out = Map[int, []int]{}
+	for k, ids in g.Cells {
+		out = out.Put(k, slices.Sort(ids))
+	}
+	out
+}
+
+// picture is the drawn shapes made valid, each on the layer drawn for it.
+func picture(shapes []Shape, layers []int) Picture {
+	let mut pic = Empty()
+	for i in 0..len(shapes) {
+		let l = if i < len(layers) { ((layers[i] % Layers) + Layers) % Layers } else { 0 }
+		let (next, _) = Add(pic, l, normal(shapes[i]))
+		pic = next
+	}
+	pic
+}
+
+// normal is s brought inside the world: points bounded, sizes not
+// negative, and every size small enough that the box stays in the world.
+func normal(s Shape) Shape {
+	match s {
+	case Stroke as k:
+		if len(k.Points) == 0 {
+			return Stroke{Points: []Point{Point{X: 0, Y: 0}}}
+		}
+		Stroke{Points: bounded(k.Points)}
+	case Rect as r:
+		let at = Bound(r.At)
+		Rect{At: at, W: Clamp(abs(r.W%300), 0, Limit-at.X), H: Clamp(abs(r.H%300), 0, Limit-at.Y)}
+	case Ellipse as e:
+		let c = Bound(e.Center)
+		Ellipse{Center: c, RX: Clamp(abs(e.RX%300), 0, Limit-abs(c.X)), RY: Clamp(abs(e.RY%300), 0, Limit-abs(c.Y))}
+	case Line as l:
+		let from = Bound(l.From)
+		Line{From: from, To: Bound(Point{X: from.X + l.To.X%300, Y: from.Y + l.To.Y%300})}
+	}
+}
+
+// bounded is the points brought inside the world, kept near each other so
+// that strokes have short segments as a pen draws them.
+func bounded(points []Point) []Point {
+	let mut out = []Point{}
+	for p in points {
+		out = out.Append(Point{X: p.X % 200, Y: p.Y % 200})
+	}
+	out
+}

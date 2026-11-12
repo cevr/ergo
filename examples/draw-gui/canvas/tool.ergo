@@ -1,0 +1,254 @@
+// The Tool machine: pointer events become shapes, moves and selections.
+// Idle waits for a press; Drawing follows the pointer until it is let go
+// and then adds the shape; Dragging moves the selected shapes with the
+// pointer; Selecting stretches a box and selects the shapes inside it.
+// Points from the pointer are screen points; the view turns them into
+// world points.
+
+import slices
+
+// View is the part of the world on screen: world = screen*100/Zoom + Pan.
+type View { Pan Point, Zoom int }
+
+// World is the world point under screen point s.
+func World(v View, s Point) Point { Bound(Point{X: s.X*100/v.Zoom + v.Pan.X, Y: s.Y*100/v.Zoom + v.Pan.Y}) }
+
+// ScreenOf is the screen point of world point w.
+func ScreenOf(v View, w Point) Point { Point{X: (w.X - v.Pan.X) * v.Zoom / 100, Y: (w.Y - v.Pan.Y) * v.Zoom / 100} }
+
+// Kind is the tool a press uses.
+type Kind = PenTool{} | RectTool{} | EllipseTool{} | LineTool{} | SelectTool{}
+
+// Canvas is what every mode holds: the picture, the view, the tool, the
+// layer new shapes go on, and the selected ids, ascending.
+type Canvas { Pic Picture, View View, Tool Kind, Layer int, Selected []int }
+
+// State is the tool in one of its modes. Drawing holds the world points
+// so far (a pen's path, or a box's two corners); Dragging the world point
+// pressed and how far the selection has moved; Selecting the box's two
+// corners.
+type State =
+	| Idle{C Canvas}
+	| Drawing{C Canvas, Points []Point}
+	| Dragging{C Canvas, From Point, Moved Point}
+	| Selecting{C Canvas, From Point, To Point}
+
+// Signal is what a pointer, a toolbar or a key gives the tool.
+type Signal =
+	| Down{At Point}
+	| Drag{At Point}
+	| Up{At Point}
+	| Pick{Tool Kind}
+	| Delete{}
+	| OnLayer{N int}
+	| Pan{By Point}
+	| Zoom{Percent int}
+	| Escape{}
+
+// Output is what the tool tells its driver: a shape added, shapes
+// removed.
+type Output = Added{Id int} | Removed{Ids []int}
+
+// Start is the tool on an empty picture: the pen, layer 0, no pan, 100%.
+func Start() State { Open(Empty()) }
+
+// Open is the tool on the picture p.
+func Open(p Picture) State {
+	Idle{C: Canvas{Pic: p, View: View{Pan: Point{X: 0, Y: 0}, Zoom: 100}, Tool: PenTool, Layer: 0, Selected: []int{}}}
+}
+
+// CanvasOf is the canvas of any mode.
+func CanvasOf(s State) Canvas {
+	match s {
+	case Idle as i:
+		i.C
+	case Drawing as d:
+		d.C
+	case Dragging as g:
+		g.C
+	case Selecting as l:
+		l.C
+	}
+}
+
+// Step is the tool's transition. A signal a mode has no use for is
+// rejected; a pointer moving over an idle canvas is ignored.
+func Step(s State, sig Signal) Decision[State, Output] {
+	match s {
+	case Idle as i:
+		idle(i.C, sig)
+	case Drawing as d:
+		drawing(d, sig)
+	case Dragging as g:
+		dragging(g, sig)
+	case Selecting as l:
+		selecting(l, sig)
+	}
+}
+
+func idle(c Canvas, sig Signal) Decision[State, Output] {
+	match sig {
+	case Down as d:
+		let w = World(c.View, d.At)
+		match c.Tool {
+		case PenTool, RectTool, EllipseTool, LineTool:
+			Enter[State]{Next: Drawing{C: c, Points: []Point{w}}}
+		case SelectTool:
+			match Top(c.Pic, w) {
+			case Some[int] as hit:
+				let sel = if slices.Contains(c.Selected, hit.Value) { c.Selected } else { []int{hit.Value} }
+				Enter[State]{Next: Dragging{C: Canvas{..c, Selected: sel}, From: w, Moved: Point{X: 0, Y: 0}}}
+			case None:
+				Enter[State]{Next: Selecting{C: Canvas{..c, Selected: []int{}}, From: w, To: w}}
+			}
+		}
+	case Drag, Up:
+		Ignore
+	case Pick as p:
+		Stay[State]{Next: Idle{C: Canvas{..c, Tool: p.Tool}}}
+	case Delete:
+		if len(c.Selected) == 0 {
+			return Reject
+		}
+		let mut pic = c.Pic
+		for id in c.Selected {
+			pic = Remove(pic, id)
+		}
+		Emit[State, Output]{Next: Idle{C: Canvas{..c, Pic: pic, Selected: []int{}}}, Output: Removed{Ids: c.Selected}}
+	case OnLayer as l:
+		if l.N < 0 || l.N >= Layers {
+			return Reject
+		}
+		Stay[State]{Next: Idle{C: Canvas{..c, Layer: l.N}}}
+	case Pan as p:
+		let at = Point{X: Clamp(c.View.Pan.X+p.By.X, -Limit, Limit), Y: Clamp(c.View.Pan.Y+p.By.Y, -Limit, Limit)}
+		Stay[State]{Next: Idle{C: Canvas{..c, View: View{..c.View, Pan: at}}}}
+	case Zoom as z:
+		if z.Percent < 25 || z.Percent > 400 {
+			return Reject
+		}
+		Stay[State]{Next: Idle{C: Canvas{..c, View: View{..c.View, Zoom: z.Percent}}}}
+	case Escape:
+		if len(c.Selected) == 0 {
+			return Reject
+		}
+		Stay[State]{Next: Idle{C: Canvas{..c, Selected: []int{}}}}
+	}
+}
+
+func drawing(d Drawing, sig Signal) Decision[State, Output] {
+	let c = d.C
+	match sig {
+	case Drag as m:
+		Stay[State]{Next: Drawing{C: c, Points: follow(c.Tool, d.Points, World(c.View, m.At))}}
+	case Up as u:
+		let points = follow(c.Tool, d.Points, World(c.View, u.At))
+		match Finish(c.Tool, points) {
+		case Some[Shape] as s:
+			let (pic, id) = Add(c.Pic, c.Layer, s.Value)
+			Emit[State, Output]{Next: Idle{C: Canvas{..c, Pic: pic}}, Output: Added{Id: id}}
+		case None:
+			Enter[State]{Next: Idle{C: c}}
+		}
+	case Escape:
+		Enter[State]{Next: Idle{C: c}}
+	case Down, Pick, Delete, OnLayer, Pan, Zoom:
+		Reject
+	}
+}
+
+// follow is the points of a shape being drawn after the pointer is at w:
+// a pen's path grows by w when w is a new place; any other tool keeps the
+// first corner and w.
+func follow(tool Kind, points []Point, w Point) []Point {
+	match tool {
+	case PenTool:
+		if points[len(points)-1] == w { points } else { points.Append(w) }
+	case RectTool, EllipseTool, LineTool, SelectTool:
+		[]Point{points[0], w}
+	}
+}
+
+// Finish is the shape the tool makes of the points drawn: a simplified
+// stroke for the pen; for the others, the shape between the first and
+// the last point, or none when they are the same point.
+func Finish(tool Kind, points []Point) Option[Shape] {
+	let a = points[0]
+	let b = points[len(points)-1]
+	match tool {
+	case PenTool:
+		Some[Shape]{Value: Stroke{Points: Simplify(points)}}
+	case RectTool:
+		if a == b {
+			return None
+		}
+		Some[Shape]{Value: Rect{At: Point{X: least(a.X, b.X), Y: least(a.Y, b.Y)}, W: abs(b.X - a.X), H: abs(b.Y - a.Y)}}
+	case EllipseTool:
+		if a == b {
+			return None
+		}
+		// The ellipse is centred on the press; its radii stop at the edge
+		// of the world.
+		let rx = least(abs(b.X-a.X), Limit-abs(a.X))
+		let ry = least(abs(b.Y-a.Y), Limit-abs(a.Y))
+		Some[Shape]{Value: Ellipse{Center: a, RX: rx, RY: ry}}
+	case LineTool:
+		if a == b {
+			return None
+		}
+		Some[Shape]{Value: Line{From: a, To: b}}
+	case SelectTool:
+		None
+	}
+}
+
+func abs(v int) int { if v < 0 { -v } else { v } }
+
+func dragging(g Dragging, sig Signal) Decision[State, Output] {
+	let c = g.C
+	match sig {
+	case Drag as m:
+		Stay[State]{Next: dragTo(g, World(c.View, m.At))}
+	case Up as u:
+		let moved = dragTo(g, World(c.View, u.At))
+		Enter[State]{Next: Idle{C: moved.C}}
+	case Escape:
+		let back = Point{X: -g.Moved.X, Y: -g.Moved.Y}
+		Enter[State]{Next: Idle{C: Canvas{..c, Pic: Move(c.Pic, c.Selected, back)}}}
+	case Down, Pick, Delete, OnLayer, Pan, Zoom:
+		Reject
+	}
+}
+
+// dragTo is the drag with the selection moved so that it is w - From
+// from where it started, as far as the world allows.
+func dragTo(g Dragging, w Point) Dragging {
+	let c = g.C
+	let want = Point{X: w.X - g.From.X - g.Moved.X, Y: w.Y - g.From.Y - g.Moved.Y}
+	let step = Room(c.Pic, c.Selected, want)
+	Dragging{
+		C:     Canvas{..c, Pic: Move(c.Pic, c.Selected, step)},
+		From:  g.From,
+		Moved: Point{X: g.Moved.X + step.X, Y: g.Moved.Y + step.Y},
+	}
+}
+
+func selecting(l Selecting, sig Signal) Decision[State, Output] {
+	let c = l.C
+	match sig {
+	case Drag as m:
+		Stay[State]{Next: Selecting{C: c, From: l.From, To: World(c.View, m.At)}}
+	case Up as u:
+		let to = World(c.View, u.At)
+		Enter[State]{Next: Idle{C: Canvas{..c, Selected: Within(c.Pic, BoxBetween(l.From, to))}}}
+	case Escape:
+		Enter[State]{Next: Idle{C: c}}
+	case Down, Pick, Delete, OnLayer, Pan, Zoom:
+		Reject
+	}
+}
+
+// BoxBetween is the box with corners a and b.
+func BoxBetween(a Point, b Point) Box {
+	Box{Lo: Point{X: least(a.X, b.X), Y: least(a.Y, b.Y)}, Hi: Point{X: most(a.X, b.X), Y: most(a.Y, b.Y)}}
+}

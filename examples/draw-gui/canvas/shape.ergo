@@ -1,0 +1,161 @@
+// Package canvas is the model of a drawing app: shapes on layers, a
+// uniform grid that finds the shape under a point, a view that pans and
+// zooms, a Tool machine that turns pointer events into shapes, moves and
+// selections, and SVG text that a drawing is saved as and read back from.
+// The file a drawing lives in is the Store contract (store.ergo), whose
+// providers live in packages named after their dependency.
+//
+// Coordinates are integers in world units, bounded by Limit, so every
+// test of a hit is exact and a drawing's text reads back as the same
+// drawing.
+
+import slices
+
+// Limit bounds every world coordinate: -Limit..Limit.
+let Limit = 10000
+
+// Point is a place in world units.
+type Point { X int, Y int }
+
+// Shape is what a drawing holds: a freehand stroke, a rectangle, an
+// ellipse or a line.
+type Shape =
+	| Stroke{Points []Point}
+	| Rect{At Point, W int, H int}
+	| Ellipse{Center Point, RX int, RY int}
+	| Line{From Point, To Point}
+
+// Placed is a shape in a drawing: its id, which also orders shapes of one
+// layer, and its layer, 0 at the bottom.
+type Placed { Id int, Layer int, Shape Shape }
+
+// Box is a rectangle of world units, both corners included.
+type Box { Lo Point, Hi Point }
+
+// BoxOf is the smallest box that holds s.
+func BoxOf(s Shape) Box {
+	match s {
+	case Stroke as k:
+		let mut lo = k.Points[0]
+		let mut hi = k.Points[0]
+		for p in k.Points {
+			lo = Point{X: least(lo.X, p.X), Y: least(lo.Y, p.Y)}
+			hi = Point{X: most(hi.X, p.X), Y: most(hi.Y, p.Y)}
+		}
+		Box{Lo: lo, Hi: hi}
+	case Rect as r:
+		Box{Lo: r.At, Hi: Point{X: r.At.X + r.W, Y: r.At.Y + r.H}}
+	case Ellipse as e:
+		Box{Lo: Point{X: e.Center.X - e.RX, Y: e.Center.Y - e.RY}, Hi: Point{X: e.Center.X + e.RX, Y: e.Center.Y + e.RY}}
+	case Line as l:
+		Box{Lo: Point{X: least(l.From.X, l.To.X), Y: least(l.From.Y, l.To.Y)}, Hi: Point{X: most(l.From.X, l.To.X), Y: most(l.From.Y, l.To.Y)}}
+	}
+}
+
+// Grow is b grown by d on every side.
+func Grow(b Box, d int) Box {
+	Box{Lo: Point{X: b.Lo.X - d, Y: b.Lo.Y - d}, Hi: Point{X: b.Hi.X + d, Y: b.Hi.Y + d}}
+}
+
+// Inside reports whether p is in b.
+func Inside(p Point, b Box) bool { b.Lo.X <= p.X && p.X <= b.Hi.X && b.Lo.Y <= p.Y && p.Y <= b.Hi.Y }
+
+// Contains reports whether box a holds box b.
+func Contains(a Box, b Box) bool { Inside(b.Lo, a) && Inside(b.Hi, a) }
+
+// Overlaps reports whether boxes a and b share a point.
+func Overlaps(a Box, b Box) bool { a.Lo.X <= b.Hi.X && b.Lo.X <= a.Hi.X && a.Lo.Y <= b.Hi.Y && b.Lo.Y <= a.Hi.Y }
+
+// Shift is s moved by d.
+func Shift(s Shape, d Point) Shape {
+	match s {
+	case Stroke as k:
+		let mut out = slices.WithCapacity[Point](len(k.Points))
+		for p in k.Points {
+			out = out.Append(add(p, d))
+		}
+		Stroke{Points: out}
+	case Rect as r:
+		Rect{..r, At: add(r.At, d)}
+	case Ellipse as e:
+		Ellipse{..e, Center: add(e.Center, d)}
+	case Line as l:
+		Line{From: add(l.From, d), To: add(l.To, d)}
+	}
+}
+
+func add(p Point, d Point) Point { Point{X: p.X + d.X, Y: p.Y + d.Y} }
+
+// least is the smaller of a and b.
+func least(a int, b int) int { if a < b { a } else { b } }
+
+// most is the larger of a and b.
+func most(a int, b int) int { if a > b { a } else { b } }
+
+// Clamp is v brought into lo..hi.
+func Clamp(v int, lo int, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	v
+}
+
+// Bound is p brought into the world.
+func Bound(p Point) Point { Point{X: Clamp(p.X, -Limit, Limit), Y: Clamp(p.Y, -Limit, Limit)} }
+
+// Tolerance is how far from a shape's outline, in world units, a point
+// still hits it.
+let Tolerance = 4
+
+// Hits reports whether p is on s: within Tolerance of a stroke's or a
+// line's segments, or inside a rectangle or an ellipse grown by
+// Tolerance.
+func Hits(s Shape, p Point) bool {
+	match s {
+	case Stroke as k:
+		if len(k.Points) == 1 {
+			return near(k.Points[0], k.Points[0], p)
+		}
+		for i in 1..len(k.Points) {
+			if near(k.Points[i-1], k.Points[i], p) {
+				return true
+			}
+		}
+		false
+	case Rect as r:
+		Inside(p, Grow(BoxOf(r), Tolerance))
+	case Ellipse as e:
+		let a = e.RX + Tolerance
+		let b = e.RY + Tolerance
+		let dx = p.X - e.Center.X
+		let dy = p.Y - e.Center.Y
+		dx*dx*b*b+dy*dy*a*a <= a*a*b*b
+	case Line as l:
+		near(l.From, l.To, p)
+	}
+}
+
+// near reports whether p is within Tolerance of the segment a b, in
+// integers: with t the projection of p on the segment scaled by its
+// squared length, the squared distance times that length is compared.
+func near(a Point, b Point, p Point) bool {
+	let ax = p.X - a.X
+	let ay = p.Y - a.Y
+	let bx = b.X - a.X
+	let by = b.Y - a.Y
+	let len2 = bx*bx + by*by
+	let t = ax*bx + ay*by
+	let tol2 = Tolerance * Tolerance
+	if len2 == 0 || t <= 0 {
+		return ax*ax+ay*ay <= tol2
+	}
+	if t >= len2 {
+		let cx = p.X - b.X
+		let cy = p.Y - b.Y
+		return cx*cx+cy*cy <= tol2
+	}
+	(ax*ax+ay*ay)*len2-t*t <= tol2*len2
+}

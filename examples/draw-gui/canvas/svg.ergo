@@ -1,0 +1,191 @@
+// A picture as SVG text: one element a line, a group a layer, each shape
+// with its id, so the text reads back as the same picture (law
+// ExportParsesBack). Parse reads this form only, and names the first line
+// it cannot read.
+
+import strconv
+import strings
+
+// Header is the first line of a picture's text.
+let Header = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"-10000 -10000 20000 20000\">"
+
+// BadSvg is a line of a picture's text that is not in its form: the line
+// number, from 1, and what was wanted there.
+type BadSvg { Line int, Want string }
+
+// Export is the SVG text of p.
+func Export(p Picture) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString(Header + "\n")
+	let mut layer = -1
+	for s in Order(p) {
+		if s.Layer != layer {
+			if layer >= 0 {
+				b.WriteString("</g>\n")
+			}
+			layer = s.Layer
+			b.WriteString("<g id=\"layer\(layer)\">\n")
+		}
+		b.WriteString(element(s) + "\n")
+	}
+	if layer >= 0 {
+		b.WriteString("</g>\n")
+	}
+	b.WriteString("</svg>\n")
+	b.String()
+}
+
+// element is the SVG line of one shape.
+func element(p Placed) string {
+	let id = "data-id=\"\(p.Id)\""
+	match p.Shape {
+	case Stroke as k:
+		let mut pts = []string{}
+		for q in k.Points {
+			pts = pts.Append("\(q.X),\(q.Y)")
+		}
+		"<polyline " + id + " points=\"" + strings.Join(pts, " ") + "\"/>"
+	case Rect as r:
+		"<rect " + id + " x=\"\(r.At.X)\" y=\"\(r.At.Y)\" width=\"\(r.W)\" height=\"\(r.H)\"/>"
+	case Ellipse as e:
+		"<ellipse " + id + " cx=\"\(e.Center.X)\" cy=\"\(e.Center.Y)\" rx=\"\(e.RX)\" ry=\"\(e.RY)\"/>"
+	case Line as l:
+		"<line " + id + " x1=\"\(l.From.X)\" y1=\"\(l.From.Y)\" x2=\"\(l.To.X)\" y2=\"\(l.To.Y)\"/>"
+	}
+}
+
+// Parse is the picture of text in Export's form.
+func Parse(text string) Picture fails BadSvg {
+	let lines = strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	if len(lines) < 2 || lines[0] != Header {
+		return BadSvg{Line: 1, Want: "the svg header"}
+	}
+	if lines[len(lines)-1] != "</svg>" {
+		return BadSvg{Line: len(lines), Want: "</svg>"}
+	}
+	let mut pic = Empty()
+	let mut layer = -1
+	let mut last = -1
+	for i in 1..len(lines)-1 {
+		let line = lines[i]
+		let n = i + 1
+		if layer < 0 {
+			let l = groupOf(line)
+			if l <= last {
+				return BadSvg{Line: n, Want: "<g id=\"layerN\"> of a higher layer, 0 to 3"}
+			}
+			layer = l
+			last = l
+			continue
+		}
+		if line == "</g>" {
+			layer = -1
+			continue
+		}
+		let p = try shapeOf(line, n, layer)
+		if p.Id < 1 || pic.Shapes.Get(p.Id) != None {
+			return BadSvg{Line: n, Want: "a new data-id of 1 or more"}
+		}
+		pic = Place(pic, p)
+	}
+	if layer >= 0 {
+		return BadSvg{Line: len(lines), Want: "</g>"}
+	}
+	pic
+}
+
+// groupOf is the layer of a group's opening line, or -1.
+func groupOf(line string) int {
+	for l in 0..Layers {
+		if line == "<g id=\"layer\(l)\">" {
+			return l
+		}
+	}
+	-1
+}
+
+// shapeOf reads the shape on line n of layer.
+func shapeOf(line string, n int, layer int) Placed fails BadSvg {
+	let parts = strings.Split(line, " ")
+	if len(parts) < 2 || !strings.HasSuffix(line, "\"/>") {
+		return BadSvg{Line: n, Want: "an element <tag data-id=\"N\" ...\"/>"}
+	}
+	let tag = parts[0]
+	let mut values = []string{}
+	let mut names = []string{}
+	let body = strings.Split(strings.TrimSuffix(strings.Slice(line, len(tag)+1, len(line)), "/>"), "\" ")
+	for a in body {
+		match strings.Cut(strings.TrimSuffix(a, "\""), "=\"") {
+		case Some[strings.Halves] as h:
+			names = names.Append(h.Value.Before)
+			values = values.Append(h.Value.After)
+		case None:
+			return BadSvg{Line: n, Want: "name=\"value\" attributes"}
+		}
+	}
+	match tag {
+	case "<polyline":
+		try want(names, []string{"data-id", "points"}, n)
+		let mut pts = []Point{}
+		for xy in strings.Split(values[1], " ") {
+			match strings.Cut(xy, ",") {
+			case Some[strings.Halves] as h:
+				pts = pts.Append(Point{X: try coord(h.Value.Before, n), Y: try coord(h.Value.After, n)})
+			case None:
+				return BadSvg{Line: n, Want: "points X,Y"}
+			}
+		}
+		Placed{Id: try whole(values[0], n), Layer: layer, Shape: Stroke{Points: pts}}
+	case "<rect":
+		try want(names, []string{"data-id", "x", "y", "width", "height"}, n)
+		let at = Point{X: try coord(values[1], n), Y: try coord(values[2], n)}
+		let w = try coord(values[3], n)
+		let h = try coord(values[4], n)
+		if w < 0 || h < 0 || at.X+w > Limit || at.Y+h > Limit {
+			return BadSvg{Line: n, Want: "a width and a height that keep the rect in the world"}
+		}
+		Placed{Id: try whole(values[0], n), Layer: layer, Shape: Rect{At: at, W: w, H: h}}
+	case "<ellipse":
+		try want(names, []string{"data-id", "cx", "cy", "rx", "ry"}, n)
+		let c = Point{X: try coord(values[1], n), Y: try coord(values[2], n)}
+		let rx = try coord(values[3], n)
+		let ry = try coord(values[4], n)
+		if rx < 0 || ry < 0 || rx > Limit-abs(c.X) || ry > Limit-abs(c.Y) {
+			return BadSvg{Line: n, Want: "radii that keep the ellipse in the world"}
+		}
+		Placed{Id: try whole(values[0], n), Layer: layer, Shape: Ellipse{Center: c, RX: rx, RY: ry}}
+	case "<line":
+		try want(names, []string{"data-id", "x1", "y1", "x2", "y2"}, n)
+		let a = Point{X: try coord(values[1], n), Y: try coord(values[2], n)}
+		let b = Point{X: try coord(values[3], n), Y: try coord(values[4], n)}
+		Placed{Id: try whole(values[0], n), Layer: layer, Shape: Line{From: a, To: b}}
+	case _:
+		BadSvg{Line: n, Want: "polyline, rect, ellipse or line"}
+	}
+}
+
+func want(names []string, wanted []string, n int) fails BadSvg {
+	if names != wanted {
+		return BadSvg{Line: n, Want: "the attributes " + strings.Join(wanted, " ")}
+	}
+}
+
+// coord reads a world coordinate.
+func coord(text string, n int) int fails BadSvg {
+	let v = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadSvg{Line: n, Want: "a whole number"}
+	}
+	if v < -Limit || v > Limit {
+		return BadSvg{Line: n, Want: "a coordinate from -10000 to 10000"}
+	}
+	v
+}
+
+// whole reads an id.
+func whole(text string, n int) int fails BadSvg {
+	strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadSvg{Line: n, Want: "a whole number"}
+	}
+}

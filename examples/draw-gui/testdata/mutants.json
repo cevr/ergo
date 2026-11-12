@@ -1,0 +1,141 @@
+{
+  "about": "draw-gui's application mutants (wf10 corpus wave GP3a): edits of the example, each with the law or the test that kills it. A killer examples/draw-gui/PKG:law L is `ergo test examples/draw-gui/PKG --law L`; cmd/ergo:TestDrawGuiAgreesWithControl is the seeded agreement property against the plain reference model and the hand Go control, which kills the mutants no law sees.",
+  "mutants": [
+    {
+      "name": "draw-simplify-drops-too-far", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/simplify.ergo",
+      "from": "{ Epsilon * Epsilon * len2 }",
+      "to": "{ Epsilon * Epsilon * Epsilon * len2 }",
+      "rule": "A dropped point is within Epsilon of the chord that replaces it.",
+      "killers": ["examples/draw-gui/canvas:law SimplifyWithinEpsilon"]
+    },
+    {
+      "name": "draw-simplify-loses-the-last-point", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/simplify.ergo",
+      "from": "\tkeep[len(points)-1] = true\n",
+      "to": "\n",
+      "rule": "A simplified stroke ends where the stroke did.",
+      "killers": ["examples/draw-gui/canvas:law SimplifyKeepsEndpoints"]
+    },
+    {
+      "name": "draw-grid-misses-the-last-column", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/grid.ergo",
+      "from": "for cx in cellOf(b.Lo.X)..cellOf(b.Hi.X)+1 {",
+      "to": "for cx in cellOf(b.Lo.X)..cellOf(b.Hi.X) {",
+      "rule": "The grid holds a shape in every cell its grown box reaches, so a hit finds it at its right edge.",
+      "killers": ["examples/draw-gui/canvas:law HitEqualsBruteForce"]
+    },
+    {
+      "name": "draw-rect-exports-its-height-as-width", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/svg.ergo",
+      "from": "width=\\\"\\(r.W)\\\"",
+      "to": "width=\\\"\\(r.H)\\\"",
+      "rule": "A picture's text reads back as the same picture.",
+      "killers": ["examples/draw-gui/canvas:law ExportParsesBack"]
+    },
+    {
+      "name": "draw-escape-drags-further", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/tool.ergo",
+      "from": "let back = Point{X: -g.Moved.X, Y: -g.Moved.Y}",
+      "to": "let back = Point{X: g.Moved.X, Y: g.Moved.Y}",
+      "rule": "An escaped drag leaves every shape where it was.",
+      "killers": ["examples/draw-gui/canvas:law Tool.EscapeUndoesADrag"]
+    },
+    {
+      "name": "draw-ellipse-past-the-edge", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/tool.ergo",
+      "from": "let rx = least(abs(b.X-a.X), Limit-abs(a.X))",
+      "to": "let rx = abs(b.X - a.X)",
+      "rule": "Every shape stays inside the world.",
+      "killers": ["examples/draw-gui/canvas:law FinishStaysInWorld"]
+    },
+    {
+      "name": "draw-move-writes-down", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/script/script.ergo",
+      "from": "\"move \\(d.At.X) \\(d.At.Y)\"",
+      "to": "\"down \\(d.At.X) \\(d.At.Y)\"",
+      "rule": "A command's line reads back as the command.",
+      "killers": ["examples/draw-gui/script:law LineParsesBack"]
+    },
+    {
+      "name": "draw-shelf-saves-another-text", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/memory/memory.ergo",
+      "from": "m.Put(name, text)",
+      "to": "m.Put(name, text + \"\\n\")",
+      "rule": "A saved text is the text that loads.",
+      "killers": ["examples/draw-gui/memory:law canvas.Store.SaveThenLoad"]
+    },
+    {
+      "name": "draw-move-keeps-the-old-cells", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/drawing.ergo",
+      "from": "Grid:   Index(Unindex(out.Grid, id, p.Value.Shape), id, moved),",
+      "to": "Grid:   out.Grid,",
+      "rule": "A moved shape is found where it now is.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-older-shape-on-top", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/drawing.ergo",
+      "from": "a.Layer == b.Layer && a.Id > b.Id",
+      "to": "a.Layer == b.Layer && a.Id < b.Id",
+      "rule": "Of two shapes on one layer, the later is on top.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-rect-moves-across-only", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/shape.ergo",
+      "from": "Rect{..r, At: add(r.At, d)}",
+      "to": "Rect{..r, At: add(r.At, Point{X: d.X, Y: 0})}",
+      "rule": "A dragged rectangle moves with the pointer.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-band-selects-what-it-touches", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/drawing.ergo",
+      "from": "if Contains(b, BoxOf(p.Shape)) {",
+      "to": "if Overlaps(b, BoxOf(p.Shape)) {",
+      "rule": "A band selects the shapes wholly inside it.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-frame-paints-off-screen", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/frame.ergo",
+      "from": "if Overlaps(on, screen) {",
+      "to": "if true {",
+      "rule": "A frame's paint list holds only what the screen shows.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-ellipse-axes-swapped", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/shape.ergo",
+      "from": "dx*dx*b*b+dy*dy*a*a <= a*a*b*b",
+      "to": "dx*dx*a*a+dy*dy*b*b <= a*a*b*b",
+      "rule": "An ellipse is hit inside its own radii.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-room-measures-from-the-left", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/drawing.ergo",
+      "from": "least(hi.X, Limit-b.Hi.X)",
+      "to": "least(hi.X, Limit-b.Lo.X)",
+      "rule": "A drag stops where the selection's right edge meets the world's.",
+      "killers": ["examples/draw-gui/canvas:law Tool.DragStaysInWorld"]
+    },
+    {
+      "name": "draw-svg-takes-a-repeated-id", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/svg.ergo",
+      "from": "if p.Id < 1 || pic.Shapes.Get(p.Id) != None {",
+      "to": "if p.Id < 1 {",
+      "rule": "A picture's text names each shape once.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-zoom-scales-the-wrong-way", "origin": "wf10 GP3a",
+      "file": "examples/draw-gui/canvas/tool.ergo",
+      "from": "X: s.X*100/v.Zoom + v.Pan.X",
+      "to": "X: s.X*v.Zoom/100 + v.Pan.X",
+      "rule": "A press lands on the world point the frame shows under it.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    }
+  ]
+}

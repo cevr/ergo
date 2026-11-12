@@ -1,0 +1,89 @@
+// A frame as text: what a window over the tool shows, written so a
+// headless script can compare it byte for byte. The first line is the
+// status; then the paint list: each shape that the screen shows, in paint
+// order, in screen units.
+
+import strings
+
+// Screen is the size of the window, in screen units.
+let Screen = Point{X: 800, Y: 600}
+
+// Frame is the lines of s's window.
+func Frame(s State) []string {
+	let c = CanvasOf(s)
+	let mut out = []string{Status(s)}
+	let screen = Box{Lo: Point{X: 0, Y: 0}, Hi: Screen}
+	for p in Order(c.Pic) {
+		let b = BoxOf(p.Shape)
+		let on = BoxBetween(ScreenOf(c.View, b.Lo), ScreenOf(c.View, b.Hi))
+		if Overlaps(on, screen) {
+			out = out.Append(Paint(c.View, p))
+		}
+	}
+	out
+}
+
+// Paint is the paint list's line of one shape, in screen units.
+func Paint(v View, p Placed) string {
+	let head = "\(p.Id) L\(p.Layer) "
+	match p.Shape {
+	case Stroke as k:
+		let b = BoxOf(k)
+		head + "stroke n=\(len(k.Points)) " + pair(ScreenOf(v, k.Points[0])) + ".." + pair(ScreenOf(v, k.Points[len(k.Points)-1])) + " box=" + pair(ScreenOf(v, b.Lo)) + ".." + pair(ScreenOf(v, b.Hi))
+	case Rect as r:
+		head + "rect " + pair(ScreenOf(v, r.At)) + " \(r.W * v.Zoom / 100)x\(r.H * v.Zoom / 100)"
+	case Ellipse as e:
+		head + "ellipse " + pair(ScreenOf(v, e.Center)) + " r=\(e.RX * v.Zoom / 100),\(e.RY * v.Zoom / 100)"
+	case Line as l:
+		head + "line " + pair(ScreenOf(v, l.From)) + ".." + pair(ScreenOf(v, l.To))
+	}
+}
+
+func pair(p Point) string { "\(p.X),\(p.Y)" }
+
+// Status is the first line of a frame.
+func Status(s State) string {
+	let c = CanvasOf(s)
+	let mut ids = []string{}
+	for id in c.Selected {
+		ids = ids.Append("\(id)")
+	}
+	let base = " tool=" + ToolName(c.Tool) + " layer=\(c.Layer) zoom=\(c.View.Zoom) pan=" + pair(c.View.Pan) + " shapes=\(len(c.Pic.Shapes)) selected=[" + strings.Join(ids, ",") + "]"
+	match s {
+	case Idle:
+		"idle" + base
+	case Drawing as d:
+		"drawing" + base + " points=\(len(d.Points))"
+	case Dragging as g:
+		"dragging" + base + " moved=" + pair(g.Moved)
+	case Selecting as l:
+		let b = BoxBetween(l.From, l.To)
+		"selecting" + base + " box=" + pair(b.Lo) + ".." + pair(b.Hi)
+	}
+}
+
+// ToolName is the script's name of a tool.
+func ToolName(k Kind) string {
+	match k {
+	case PenTool:
+		"pen"
+	case RectTool:
+		"rect"
+	case EllipseTool:
+		"ellipse"
+	case LineTool:
+		"line"
+	case SelectTool:
+		"select"
+	}
+}
+
+// ToolNamed is the tool of a script's name.
+func ToolNamed(name string) Option[Kind] {
+	for k in []Kind{PenTool, RectTool, EllipseTool, LineTool, SelectTool} {
+		if ToolName(k) == name {
+			return Some[Kind]{Value: k}
+		}
+	}
+	None
+}

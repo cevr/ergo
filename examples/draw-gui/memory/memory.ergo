@@ -1,0 +1,26 @@
+// Package memory is a Store provider over pictures held in memory, for
+// tests. Every copy of a Shelf is the same store.
+
+import draw/canvas
+import sync
+
+// Shelf holds pictures' text by name.
+type Shelf { docs sync.Ref[Map[string, string]] }
+
+// NewShelf is an empty store.
+func NewShelf() Shelf { Shelf{docs: sync.NewRef[Map[string, string]](Map[string, string]{})} }
+
+// Load is the text named name.
+func Load(s Shelf, name string) string fails canvas.Missing | canvas.Unreadable {
+	match s.docs.Get().Get(name) {
+	case Some[string] as t:
+		t.Value
+	case None:
+		return canvas.Missing{Name: name}
+	}
+}
+
+// Save makes the text named name hold text.
+func Save(s Shelf, name string, text string) fails canvas.Unwritable {
+	s.docs.Update(func(m Map[string, string]) Map[string, string] { m.Put(name, text) })
+}

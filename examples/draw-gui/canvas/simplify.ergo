@@ -1,0 +1,84 @@
+// Simplifying a freehand stroke (Douglas-Peucker): keep the two ends,
+// and keep the point farthest from the chord between them while it is
+// farther than Epsilon, then the same on each side of it. Every distance
+// is compared squared and scaled by the chord's squared length, so the
+// test is exact in integers.
+
+import slices
+
+// Epsilon is how far, in world units, a dropped point may be from the
+// chord that replaces it.
+let Epsilon = 2
+
+// Simplify is the points of a stroke with the points dropped that lie
+// within Epsilon of the chord of the points kept around them. The first
+// and the last point are always kept.
+func Simplify(points []Point) []Point {
+	let keep = Kept(points)
+	let mut out = []Point{}
+	for i in 0..len(points) {
+		if keep[i] {
+			out = out.Append(points[i])
+		}
+	}
+	out
+}
+
+// Kept is, for each point, whether Simplify keeps it.
+func Kept(points []Point) []bool {
+	let mut keep = []bool{}
+	if len(points) <= 2 {
+		for _ in points {
+			keep = keep.Append(true)
+		}
+		return keep
+	}
+	for _ in 0..len(points) {
+		keep = keep.Append(false)
+	}
+	keep[0] = true
+	keep[len(points)-1] = true
+	let mut spans = [](int, int){(0, len(points) - 1)}
+	for len(spans) > 0 {
+		let (lo, hi) = spans[len(spans)-1]
+		spans = slices.Slice(spans, 0, len(spans)-1)
+		let far = farthest(points, lo, hi)
+		if far > 0 {
+			keep[far] = true
+			spans = spans.Append((lo, far))
+			spans = spans.Append((far, hi))
+		}
+	}
+	keep
+}
+
+// farthest is the index of the point strictly between lo and hi that is
+// farthest from the chord points[lo] points[hi], the first of equals, when
+// it is farther than Epsilon; else 0.
+func farthest(points []Point, lo int, hi int) int {
+	let a = points[lo]
+	let b = points[hi]
+	let bx = b.X - a.X
+	let by = b.Y - a.Y
+	let len2 = bx*bx + by*by
+	let mut best = 0
+	let mut bestD = 0
+	for i in lo+1..hi {
+		let px = points[i].X - a.X
+		let py = points[i].Y - a.Y
+		// d is the squared distance times len2 (or the squared distance to
+		// a when the chord is a point), the same scale for every i.
+		let d = if len2 == 0 {
+			px*px + py*py
+		} else {
+			let cross = px*by - py*bx
+			cross * cross
+		}
+		if d > bestD {
+			best = i
+			bestD = d
+		}
+	}
+	let limit = if len2 == 0 { Epsilon * Epsilon } else { Epsilon * Epsilon * len2 }
+	if bestD > limit { best } else { 0 }
+}
