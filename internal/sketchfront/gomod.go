@@ -49,11 +49,12 @@ type goReplace struct {
 type goMod struct {
 	module     string
 	moduleLine int
+	goVersion  string
 	require    []goRequire
 	replace    []goReplace
 }
 
-// parseGoMod reads the module, require and replace directives of a go.mod,
+// parseGoMod reads the module, go, require and replace directives of a go.mod,
 // in single-line and block form; every other directive is go build's. An
 // error names its line.
 func parseGoMod(text string) (goMod, error) {
@@ -85,6 +86,10 @@ func parseGoMod(text string) (goMod, error) {
 				return goMod{}, fmt.Errorf("%s:%d: module takes one path", GoModFile, line)
 			}
 			m.module, m.moduleLine = words[0], line
+		case "go":
+			if len(words) == 1 {
+				m.goVersion = words[0]
+			}
 		case "require":
 			if len(words) != 2 {
 				return goMod{}, fmt.Errorf("%s:%d: a requirement is a module path and a version", GoModFile, line)
@@ -160,7 +165,7 @@ func localReplacement(target string) bool {
 // module of go.mod itself required and replaced by root, and go.sum. Each
 // directive names its go.mod line.
 func (m goMod) lowerModule(root, sum string) lower.GoModule {
-	out := lower.GoModule{Sum: sum}
+	out := lower.GoModule{Sum: sum, Go: m.goVersion}
 	from := func(line int) string { return fmt.Sprintf("%s:%d", GoModFile, line) }
 	for _, r := range m.require {
 		out.Require = append(out.Require, lower.GoRequire{Path: r.path, Version: r.version, From: from(r.line), Line: r.line})
