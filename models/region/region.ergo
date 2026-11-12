@@ -1,0 +1,527 @@
+// The package region is the design model of task regions against Go's
+// concurrent mark (IR-G REG1r, the runtime half of REG1), checked by
+// `ergo test models/region`. A task gets a region: the values the checker
+// proves never leave the task are allocated in the region's chunk, and when
+// the task ends the chunk goes back to a pool as one piece, with no mark,
+// no sweep and no per-object free. Region end races with mark workers and
+// with tasks that still hold words into the chunk, so the protocol is a
+// model before it is code (IR-G RTM0, second part; owner q78).
+//
+// A parent task P and its child C (C may run twice, so a chunk can be
+// reused); three chunks in a pool. Each region holds one chunk, taken from
+// the pool when its task starts; a chunk's generation counts its uses.
+// The words: P's local value (Pv) in P's chunk; C's local value (Cv) in
+// C's chunk; C's borrow (Cb) of P's value; and P's slot (Out) that holds
+// C's result or failure value. A word is reachable while its task runs.
+// C ends by returning a value (or a failure that carries one), which is
+// copied out into P's region first, or is stopped. P may be cancelled: it
+// stops C, which still borrows from P, and its region ends only after C
+// has ended (structured concurrency). The collector: MarkStart, ScanStacks
+// (grey the chunk of every reachable word), ScanChunk (a worker scans a
+// grey chunk), MarkEnd. A word written while the collector marks shades
+// its chunk (the write barrier).
+//
+// The design's rules:
+//   - a region ends after the copy-out of its task's result or failure,
+//     and after the regions of its children;
+//   - a chunk of a region that ends while the collector marks waits in
+//     quarantine until the mark ends, then returns to the pool.
+//
+// Invariants, checked after each step; a step that breaks one enters
+// Broken with its name:
+//   - NoDanglingWord: after a region ends, no reachable word points into
+//     its chunk (a reachable word's chunk is owned, not pooled or in
+//     quarantine, and of the word's generation);
+//   - OneOwner: a chunk is in at most one region;
+//   - RegionsClosed: when every task has ended, the count of open regions
+//     is zero;
+//   - NoScanOfReusedChunk: no worker scans a chunk reused since it was
+//     greyed.
+//
+// The scope is the two tasks above, three chunks and every interleaving.
+// It is the claim: "proved" means proved in this scope.
+//
+// Mutants, each a machine whose law Breaks must hold: a run that breaks
+// the invariant named (a step that breaks another one is not taken):
+//   - ParentEndsFirst: P's region ends while C still runs
+//     (NoDanglingWord);
+//   - FailureNotCopied: a failure's value stays in C's region
+//     (REG1's reg-result-not-copied-out; NoDanglingWord);
+//   - ChunkReusedDuringMark: an ended chunk returns to the pool while the
+//     collector marks (REG1's reg-chunk-reused-during-mark;
+//     NoScanOfReusedChunk);
+//   - OwnerKept: a region's end does not release its claim on the chunk
+//     (OneOwner);
+//   - CancelLeaks: a stopped C's region is never ended (RegionsClosed).
+//
+// Witnesses, each a machine whose law Reached must hold, so the
+// invariants are not vacuous: a chunk waits in quarantine; a failure's
+// value is copied out; a cancelled P stops a C that borrows from it; a
+// chunk is reused.
+
+type Chunk = K0{} | K1{} | K2{}
+
+// Task states.
+let NotStarted = 0
+let Running = 1
+let Cancelling = 2
+let Ended = 3
+
+// Phases.
+let Off = 0
+let Mark = 1
+
+let Chunks = 3
+
+// A word: its chunk (-1 for none) and the chunk's generation it was made in.
+type Word {
+	K int,
+	G int,
+}
+
+let NoWord = Word{K: -1, G: 0}
+
+type World {
+	P       int,
+	C       int,
+	CStarts int,
+	RegP    int,
+	RegC    int,
+	Open    int,
+	Owners  []int,
+	InPool  []bool,
+	Quar    []bool,
+	Gen     []int,
+	Pv      Word,
+	Out     Word,
+	Cv      Word,
+	Cb      Word,
+	Phase   int,
+	Stacks  bool,
+	Grey    []bool,
+	GreyGen []int,
+	// The ghost of a broken invariant, and the witnesses' events (this
+	// step's only).
+	ScanReused      bool,
+	Quarantined     bool,
+	CopiedFailure   bool,
+	DrainedBorrower bool,
+	ReusedChunk     bool,
+}
+
+type St = Live{W World} | Broken{Why string} | Seen{What string}
+
+type Act =
+	| StartP{}
+	| StartC{}
+	| Borrow{}
+	| Return{Fail bool}
+	| StopC{}
+	| CancelP{}
+	| EndP{}
+	| MarkStart{}
+	| ScanStacks{}
+	| ScanChunk{K Chunk}
+	| MarkEnd{}
+
+let NoMutant = 0
+let ParentEndsFirstMutant = 1
+let FailureNotCopiedMutant = 2
+let ChunkReusedDuringMarkMutant = 3
+let OwnerKeptMutant = 4
+let CancelLeaksMutant = 5
+
+func kx(k Chunk) int {
+	match k {
+	case K0:
+		return 0
+	case K1:
+		return 1
+	case K2:
+		return 2
+	}
+}
+
+func first() St {
+	Live{W: World{
+		P:               NotStarted,
+		C:               NotStarted,
+		CStarts:         0,
+		RegP:            -1,
+		RegC:            -1,
+		Open:            0,
+		Owners:          []int{0, 0, 0},
+		InPool:          []bool{true, true, true},
+		Quar:            []bool{false, false, false},
+		Gen:             []int{0, 0, 0},
+		Pv:              NoWord,
+		Out:             NoWord,
+		Cv:              NoWord,
+		Cb:              NoWord,
+		Phase:           Off,
+		Stacks:          false,
+		Grey:            []bool{false, false, false},
+		GreyGen:         []int{0, 0, 0},
+		ScanReused:      false,
+		Quarantined:     false,
+		CopiedFailure:   false,
+		DrainedBorrower: false,
+		ReusedChunk:     false,
+	}}
+}
+
+// take is the first chunk in the pool, or -1.
+func take(w World) int {
+	for k in 0..Chunks {
+		if w.InPool[k] {
+			return k
+		}
+	}
+	-1
+}
+
+// claim gives chunk k to a new region and returns the word of a value
+// allocated in it.
+func claim(w World, k int) World {
+	let mut v = w
+	v.InPool[k] = false
+	v.Owners[k] = v.Owners[k] + 1
+	if v.Gen[k] > 0 {
+		v.ReusedChunk = true
+	}
+	v.Gen[k] = v.Gen[k] + 1
+	v.Open = v.Open + 1
+	v
+}
+
+// shade greys the chunk of word x while the collector marks.
+func shade(w World, x Word) World {
+	let mut v = w
+	if v.Phase == Mark && x.K >= 0 && !v.Grey[x.K] {
+		v.Grey[x.K] = true
+		v.GreyGen[x.K] = x.G
+	}
+	v
+}
+
+// end ends the region of chunk k under the mutant m.
+func end(m int, w World, k int) World {
+	let mut v = w
+	if m != OwnerKeptMutant {
+		v.Owners[k] = v.Owners[k] - 1
+	}
+	if v.Phase == Mark && m != ChunkReusedDuringMarkMutant {
+		v.Quar[k] = true
+		v.Quarantined = true
+	} else {
+		v.InPool[k] = true
+	}
+	v.Open = v.Open - 1
+	v
+}
+
+func dangling(w World, x Word) bool {
+	x.K >= 0 && (w.InPool[x.K] || w.Quar[x.K] || w.Owners[x.K] == 0 || w.Gen[x.K] != x.G)
+}
+
+// broken is the name of the first invariant w breaks, or "".
+func broken(w World) string {
+	let pLive = w.P == Running || w.P == Cancelling
+	if pLive && (dangling(w, w.Pv) || dangling(w, w.Out)) || w.C == Running && (dangling(w, w.Cv) || dangling(w, w.Cb)) {
+		return "NoDanglingWord"
+	}
+	for k in 0..Chunks {
+		if w.Owners[k] > 1 {
+			return "OneOwner"
+		}
+	}
+	if w.P == Ended && w.C != Running && w.Open != 0 {
+		return "RegionsClosed"
+	}
+	if w.ScanReused {
+		return "NoScanOfReusedChunk"
+	}
+	""
+}
+
+// next is w after the action a under the mutant m (NoMutant is the
+// design), or None when a is not enabled.
+func next(m int, w World, a Act) Option[World] {
+	let mut v = w
+	v.Quarantined = false
+	v.CopiedFailure = false
+	v.DrainedBorrower = false
+	v.ReusedChunk = false
+	match a {
+	case StartP:
+		let k = take(v)
+		if v.P != NotStarted || k < 0 {
+			return None
+		}
+		v = claim(v, k)
+		v.P = Running
+		v.RegP = k
+		v.Pv = Word{K: k, G: v.Gen[k]}
+	case StartC:
+		let k = take(v)
+		if v.P != Running || v.C == Running || v.CStarts >= 2 || k < 0 {
+			return None
+		}
+		v = claim(v, k)
+		v.C = Running
+		v.CStarts = v.CStarts + 1
+		v.RegC = k
+		v.Cv = Word{K: k, G: v.Gen[k]}
+		v.Cb = NoWord
+	case Borrow:
+		if v.C != Running || v.Pv.K < 0 || v.Cb.K >= 0 {
+			return None
+		}
+		v.Cb = v.Pv
+		v = shade(v, v.Cb)
+	case Return as r:
+		// C returns: its value (or its failure's value) is copied out into
+		// P's region, then C's region ends.
+		if v.C != Running || v.P != Running {
+			return None
+		}
+		if r.Fail && m == FailureNotCopiedMutant {
+			v.Out = v.Cv
+		} else {
+			v.Out = Word{K: v.RegP, G: v.Gen[v.RegP]}
+			v.CopiedFailure = r.Fail
+		}
+		v = shade(v, v.Out)
+		v.C = Ended
+		v.Cv = NoWord
+		v.Cb = NoWord
+		v = end(m, v, v.RegC)
+		v.RegC = -1
+	case StopC:
+		// C is stopped (by itself or by P's cancel): no result.
+		if v.C != Running {
+			return None
+		}
+		v.DrainedBorrower = v.P == Cancelling && v.Cb.K >= 0
+		v.C = Ended
+		v.Cv = NoWord
+		v.Cb = NoWord
+		if m != CancelLeaksMutant {
+			v = end(m, v, v.RegC)
+		}
+		v.RegC = -1
+	case CancelP:
+		if v.P != Running {
+			return None
+		}
+		v.P = Cancelling
+	case EndP:
+		// P ends, done or cancelled: its children first.
+		if v.P != Running && v.P != Cancelling {
+			return None
+		}
+		if v.C == Running && m != ParentEndsFirstMutant {
+			return None
+		}
+		v.P = Ended
+		v.Pv = NoWord
+		v.Out = NoWord
+		v = end(m, v, v.RegP)
+		v.RegP = -1
+	case MarkStart:
+		if v.Phase != Off {
+			return None
+		}
+		v.Phase = Mark
+		v.Stacks = false
+	case ScanStacks:
+		if v.Phase != Mark || v.Stacks {
+			return None
+		}
+		if v.P == Running || v.P == Cancelling {
+			v = shade(shade(v, v.Pv), v.Out)
+		}
+		if v.C == Running {
+			v = shade(shade(v, v.Cv), v.Cb)
+		}
+		v.Stacks = true
+	case ScanChunk as s:
+		let k = kx(s.K)
+		if v.Phase != Mark || !v.Grey[k] {
+			return None
+		}
+		if v.Gen[k] != v.GreyGen[k] {
+			v.ScanReused = true
+		}
+		v.Grey[k] = false
+		v.GreyGen[k] = 0
+	case MarkEnd:
+		if v.Phase != Mark || !v.Stacks {
+			return None
+		}
+		for k in 0..Chunks {
+			if v.Grey[k] {
+				return None
+			}
+		}
+		v.Phase = Off
+		for k in 0..Chunks {
+			if v.Quar[k] {
+				v.Quar[k] = false
+				v.InPool[k] = true
+			}
+		}
+	}
+	Some[World]{Value: v}
+}
+
+// stepWith steps under the mutant m. With only set, a step enters Broken
+// only when it breaks that invariant, and a step that breaks another one
+// is not taken.
+func stepWith(m int, only string, s St, a Act) Decision[St, string] {
+	match s {
+	case Live as l:
+		match next(m, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			let why = broken(n.Value)
+			if why == "" {
+				Enter[St]{Next: Live{W: n.Value}}
+			} else if only == "" || why == only {
+				Enter[St]{Next: Broken{Why: why}}
+			} else {
+				Ignore
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepDesign(s St, a Act) Decision[St, string] { stepWith(NoMutant, "", s, a) }
+func stepParentEndsFirst(s St, a Act) Decision[St, string] {
+	stepWith(ParentEndsFirstMutant, "NoDanglingWord", s, a)
+}
+func stepFailureNotCopied(s St, a Act) Decision[St, string] {
+	stepWith(FailureNotCopiedMutant, "NoDanglingWord", s, a)
+}
+func stepChunkReusedDuringMark(s St, a Act) Decision[St, string] {
+	stepWith(ChunkReusedDuringMarkMutant, "NoScanOfReusedChunk", s, a)
+}
+func stepOwnerKept(s St, a Act) Decision[St, string]   { stepWith(OwnerKeptMutant, "OneOwner", s, a) }
+func stepCancelLeaks(s St, a Act) Decision[St, string] { stepWith(CancelLeaksMutant, "RegionsClosed", s, a) }
+
+// The design keeps every invariant in the scope.
+type Design machine[St, Act] {
+	initial: first(),
+	step:    stepDesign,
+
+	law Safe never reaches Broken,
+}
+
+type ParentEndsFirst machine[St, Act] {
+	initial: first(),
+	step:    stepParentEndsFirst,
+
+	law Breaks reaches Broken,
+}
+
+type FailureNotCopied machine[St, Act] {
+	initial: first(),
+	step:    stepFailureNotCopied,
+
+	law Breaks reaches Broken,
+}
+
+type ChunkReusedDuringMark machine[St, Act] {
+	initial: first(),
+	step:    stepChunkReusedDuringMark,
+
+	law Breaks reaches Broken,
+}
+
+type OwnerKept machine[St, Act] {
+	initial: first(),
+	step:    stepOwnerKept,
+
+	law Breaks reaches Broken,
+}
+
+type CancelLeaks machine[St, Act] {
+	initial: first(),
+	step:    stepCancelLeaks,
+
+	law Breaks reaches Broken,
+}
+
+// The witnesses. Each is the design's step that enters Seen when the
+// witness holds in the state the step reaches.
+let QuarantineWitness = 1
+let CopiedFailureWitness = 2
+let DrainedBorrowerWitness = 3
+let ReusedChunkWitness = 4
+
+func witnessed(k int, v World) bool {
+	if k == QuarantineWitness {
+		return v.Quarantined
+	}
+	if k == CopiedFailureWitness {
+		return v.CopiedFailure
+	}
+	if k == DrainedBorrowerWitness {
+		return v.DrainedBorrower
+	}
+	v.ReusedChunk
+}
+
+func stepWitness(k int, s St, a Act) Decision[St, string] {
+	match s {
+	case Live as l:
+		match next(NoMutant, l.W, a) {
+		case None:
+			Ignore
+		case Some[World] as n:
+			if witnessed(k, n.Value) {
+				Enter[St]{Next: Seen{What: "witness"}}
+			} else {
+				Enter[St]{Next: Live{W: n.Value}}
+			}
+		}
+	case _:
+		Ignore
+	}
+}
+
+func stepQuarantine(s St, a Act) Decision[St, string]      { stepWitness(QuarantineWitness, s, a) }
+func stepCopiedFailure(s St, a Act) Decision[St, string]   { stepWitness(CopiedFailureWitness, s, a) }
+func stepDrainedBorrower(s St, a Act) Decision[St, string] { stepWitness(DrainedBorrowerWitness, s, a) }
+func stepReusedChunk(s St, a Act) Decision[St, string]     { stepWitness(ReusedChunkWitness, s, a) }
+
+type Quarantines machine[St, Act] {
+	initial: first(),
+	step:    stepQuarantine,
+
+	law Reached reaches Seen,
+}
+
+type CopiesFailureOut machine[St, Act] {
+	initial: first(),
+	step:    stepCopiedFailure,
+
+	law Reached reaches Seen,
+}
+
+type DrainsBorrower machine[St, Act] {
+	initial: first(),
+	step:    stepDrainedBorrower,
+
+	law Reached reaches Seen,
+}
+
+type ReusesChunk machine[St, Act] {
+	initial: first(),
+	step:    stepReusedChunk,
+
+	law Reached reaches Seen,
+}
