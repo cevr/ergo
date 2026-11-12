@@ -112,8 +112,8 @@ func runTestCLIDir(t *testing.T, binary, directory string, input string, args ..
 	return nil, nil, -1
 }
 
-// sketchMissingNeeds is a source whose exported Greet uses Console
-// without declaring it (an exported function spells its rows): one
+// sketchMissingNeeds is a source whose Greet uses Console
+// without declaring it (every function spells its rows, q137): one
 // located S102 on line 2.
 const sketchMissingNeeds = "func Greet() {\n\tConsole.Println(\"é\")\n}\n\nfunc main() needs Console {\n\tGreet()\n}\n"
 
@@ -126,7 +126,7 @@ func TestDiagnosticsCLIProcessFormatsTextJSONAndUsage(t *testing.T) {
 	}
 
 	textOutput, textError, code := runTestCLI(t, binary, "diagnostics", path)
-	if code != 1 || string(textOutput) != path+":2:2: error S102: this call requires Console, which is not in the capability row of function Greet and no with provides it\n" || string(textError) != "diagnostics failed policy\n" {
+	if code != 1 || string(textOutput) != path+":2:2: error S102: this call requires Console, which is not in the capability row of function Greet and no with provides it; write: func Greet() needs Console\n" || string(textError) != "diagnostics failed policy\n" {
 		t.Fatalf("unexpected diagnostics text: code=%d stdout=%q stderr=%q", code, textOutput, textError)
 	}
 

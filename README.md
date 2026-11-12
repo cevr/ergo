@@ -210,7 +210,7 @@ An agent reads the same checked model as the compiler. A signature tells it what
 
 ```console
 $ ergo diagnostics fetch.ergo
-fetch.ergo:19:9: error S102: this call requires Transport, which is not in the capability row of function fetch and no with provides it
+fetch.ergo:19:9: error S102: this call requires Transport, which is not in the capability row of function fetch and no with provides it; write: func fetch(id string) string fails EntryNotFound | TransportDown needs Entries | Transport
 ```
 
 One formatter gives one layout, so edits make small, stable diffs. `ergo inspect` is designed to answer questions about a definition (its failures, its needs, its calls and a machine's graph) as JSON, and MCP will serve the same model.
