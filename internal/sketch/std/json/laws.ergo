@@ -66,6 +66,22 @@ law LineSeparatorsEscaped() {
 	Encode(Codec[string]{MaxBytes: 0, MaxDepth: 0}, "a\u2028b\u2029") == "\"a\\u2028b\\u2029\""
 }
 
+// HTMLEscaped: an HTML Text writes <, > and & as \u003c, \u003e and
+// \u0026, as encoding/json's default does; a Text writes them as they are.
+law HTMLEscaped() {
+	let h = NewHTMLText()
+	h.String("<&>")
+	let t = NewText()
+	t.String("<&>")
+	h.Written() == "\"\\u003c\\u0026\\u003e\"" && t.Written() == "\"<&>\""
+}
+
+// InvalidBytesEscaped: a byte of invalid UTF-8 is written as the lone
+// surrogate \udcXX of the byte, which a Cursor reads back as the byte.
+law InvalidBytesEscaped() {
+	Encode(Codec[string]{MaxBytes: 0, MaxDepth: 0}, "a\xffb") == "\"a\\udcffb\""
+}
+
 // TruncatedFails: no text shorter than an encoding, cut from its end, is
 // a value: Decode fails Malformed (phase 1) and builds no fleet.
 law TruncatedFails(v fleet, cut int) {

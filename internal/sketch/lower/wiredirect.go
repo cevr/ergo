@@ -19,8 +19,9 @@ import (
 // the operand's static type, its conversion to the Writer
 // (Info.Implicit) and the runtime bindings of its operations
 // (runtimeBindings). No type is named: any sealed type whose operations
-// are a Writer's takes it. std json's Text is
-// such a type today, so json.Encode writes through *v1.Text's methods.
+// are a Writer's takes it. No std type is such a type since LR3: std
+// json's Text is a value provider in a cell, whose encode is a cell
+// writer (wiretext.go) on the same direct path.
 //
 // A codec witness carries one function per direct writer type of the
 // program (Direct0, Direct1, ... in l.directWriters order) beside Enc and
