@@ -45,7 +45,7 @@ func startPipeWorker(body func(*rt.Task) error) (sched.Conn, error) {
 // leaves no goroutine behind, so a worker serves the next run with
 // nothing retained; a deadlocked run is abandoned, so its worker ends and
 // the pool starts a new one. It runs with the ergoexplore tag (the gate's
-// explored worker step).
+// explored runtime/v1 step).
 func TestWorkerRetainsNoTask(t *testing.T) {
 	q := func() *Queue[int] { return New[int](1) }
 	clean := func(t *rt.Task) error {
