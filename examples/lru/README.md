@@ -32,6 +32,8 @@ lru bench 1000000                             # 1e6 cache operations, prints a c
 
 `lru bench N` runs N get-or-put operations on a cache of 1,024 entries over 4,096 keys. The hand-written Go control (a map into a pointer list, the shape of `hashicorp/golang-lru`'s `simplelru`) and its command are in the run dir's `bench-pending-ex-f.md`; both print the same checksum. Since the std arena, a second control is a hand Go generational arena with the same checks (`wf10/s-arena/bench/handgen.go`); the interleaved command that compares the cache before and after the arena with both controls is in `wf10/s-arena/bench-pending.md`.
 
+That control, made generic like the Ergo cache, is in the repository at `cmd/ergo/testdata/lruhand`; it does not check that a slot is occupied, which the std arena does. `TestLRUCountsAsHandGo` (cmd/ergo, full tier, Linux with hardware counters) builds both and counts the user-space instructions and branches per operation of `bench`, as the difference of a 2,200,000 and a 200,000 operation run, the median of 7 alternating rounds. It fails when lru runs more than 1.01 of the control's instructions or more than its branches. At OPT9 lru ran 0.994 of the control's instructions and 0.976 of its branches.
+
 ## Limits found
 
 New gaps (`gaps-ex-f.md`):
