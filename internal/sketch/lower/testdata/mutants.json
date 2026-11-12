@@ -3494,6 +3494,59 @@
       ]
     },
     {
+      "name": "share-as-wrong-slot",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tfrom = append(from, vd.fieldName[f.Name]+\": u.\"+s)",
+      "to": "\t\t\tfrom = append(from, vd.fieldName[f.Name]+\": u.\"+sharedName(fu.fieldSlot[k][0]))",
+      "rule": "runtime.md Flat unions: narrowing a shared-slot union rebuilds each field of the variant from the slot its constructor wrote.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-of-field-order",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tinto = append(into, s+\": v.\"+vd.fieldName[f.Name])",
+      "to": "\t\t\tinto = append(into, s+\": v.\"+vd.fieldName[fields[len(fields)-1-i].Name])",
+      "rule": "runtime.md Flat unions: a shared-slot constructor writes each field into its own slot, in the field-to-slot map's order.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-slot-reused-in-variant",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\t\t\tif kj == key && !used[j] {",
+      "to": "\t\t\t\t\tif kj == key {",
+      "rule": "runtime.md Flat unions: two fields of one variant never share a slot; only fields of different variants do.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-past-register-limits",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tif cycle == nil && known && !lay.ssa && fu.shared {",
+      "to": "\t\t\tif false && cycle == nil && known && !lay.ssa && fu.shared {",
+      "rule": "runtime.md Flat unions: where the shared slots miss Go's register limits and a slot per variant fits, the union keeps a slot per variant, not a box.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-variant-not-record",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\tif _, rec := vn.Obj.Decl.Spec.(*syntax.StructType); !rec || vn.Alias() != nil || vn.Defined() != nil {",
+      "to": "\t\tif _, rec := vn.Obj.Decl.Spec.(*syntax.StructType); false && (!rec || vn.Alias() != nil || vn.Defined() != nil) {",
+      "rule": "runtime.md Flat unions: the shared form rebuilds a variant by its record's Go literal, so a variant that is not a declared record keeps a slot per variant.",
+      "killers": []
+    },
+    {
       "name": "union-fields-unbounded",
       "origin": "wf10 OPT3",
       "file": "internal/sketch/lower/flatunion.go",
