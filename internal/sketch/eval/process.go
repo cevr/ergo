@@ -507,6 +507,19 @@ func init() {
 		h.files[pt] = f
 		return unit{}, nil
 	})
+	// OpenRoot's failures: a missing directory, a file. An opened root
+	// (Go's os.Root rules for its paths) is not run yet.
+	hostNative("fs.OpenRoot", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		given := args[0].(string)
+		f := h.files[h.abs(given)]
+		switch {
+		case f == nil:
+			return nil, fail(fn, fr, at, "NotFound", given, "")
+		case !f.dir:
+			return nil, fail(fn, fr, at, "Failed", given, "not a directory")
+		}
+		return nil, fr.unsupported(at, "an opened fs.HostRoot yet")
+	})
 }
 
 // children are the names of the entries of the directory p, sorted.
