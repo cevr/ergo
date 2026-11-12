@@ -65,22 +65,7 @@
         ]
       }
     },
-    {
-      "name": "bs1-missing-import",
-      "origin": "wf10 binsize BS1",
-      "file": "runtime/embed.go",
-      "from": "\t\tfiles:   []string{\"exec.go\", \"exec_exit_kqueue.go\", \"exec_exit_linux.go\"},\n\t\timports: []string{\"runtime/rt\"},",
-      "to": "\t\tfiles:   []string{\"exec.go\", \"exec_exit_kqueue.go\", \"exec_exit_linux.go\"},\n\t\timports: []string{},",
-      "rule": "Files copies each package a leaf imports: the exec leaf imports runtime/rt.",
-      "killers": [
-        "runtime:TestPackagesMatchTheirDirectories"
-      ],
-      "anchor": {
-        "tests": [
-          "runtime:TestPackagesMatchTheirDirectories"
-        ]
-      }
-    },
+    {"name":"bs1-missing-import","origin":"wf10 binsize BS1","file":"runtime/embed.go","from":"\t\tfiles:   []string{\"exec.go\", \"exec_exit_kqueue.go\", \"exec_exit_linux.go\", \"exec_start.go\"},\n\t\timports: []string{\"runtime/rt\", \"runtime/v1\"},","to":"\t\tfiles:   []string{\"exec.go\", \"exec_exit_kqueue.go\", \"exec_exit_linux.go\", \"exec_start.go\"},\n\t\timports: []string{\"runtime/v1\"},","rule":"Files copies each package a leaf imports: the exec leaf imports runtime/rt.","killers":["runtime:TestPackagesMatchTheirDirectories"],"anchor":{"tests":["runtime:TestPackagesMatchTheirDirectories"]}},
     {
       "name": "bs2-core-imports-fmt",
       "origin": "wf10 binsize BS2",
