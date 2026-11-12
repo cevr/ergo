@@ -12,6 +12,8 @@
       "killers": ["scripts/mutants:TestCappedFaultIsMemory"]
     },
     {"name":"ert-suite-tags-dropped","origin":"wf10 EXPLORE-rt r2","file":"scripts/mutants/runner.go","from":"\tif len(s.Tags) > 0 {\n\t\targv = append(argv, \"-tags=\"+tagList(s.Tags))\n\t}\n","to":"","rule":"A suite with build tags builds its test binary with them, so a mutant of a tagged file is covered and judged.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
-    {"name":"ert-suite-tags-unfiltered","origin":"wf10 EXPLORE-rt r2","file":"scripts/mutants/runner.go","from":"s != nil && tagList(s.Tags) != tagList(m.Tags)","to":"s != nil && s == nil","rule":"A mutant is judged only by the suites built with its own tags.","killers":["scripts/mutants:TestRunnerMatchesModel"]}
+    {"name":"ert-suite-tags-unfiltered","origin":"wf10 EXPLORE-rt r2","file":"scripts/mutants/runner.go","from":"s != nil && tagList(s.Tags) != tagList(m.Tags)","to":"s != nil && s == nil","rule":"A mutant is judged only by the suites built with its own tags.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
+    {"name":"ert-killer-suite-dropped","origin":"wf10 EXPLORE-rt r4","file":"scripts/mutants/main.go","from":"\t\t\tsuites = append(suites, Suite{Name: suite, Package: \"./\" + suite, Only: foreign[suite]})\n","to":"\t\t\t_ = suite\n","rule":"A killer in another test package is judged by that package's suite.","killers":["scripts/mutants:TestKillerSuiteRunsOnlyItsTests"]},
+    {"name":"ert-killer-suite-whole","origin":"wf10 EXPLORE-rt r4","file":"scripts/mutants/runner.go","from":"\tif len(s.Only) == 0 {\n\t\treturn names\n\t}\n\treturn slices.DeleteFunc","to":"\tif true {\n\t\treturn names\n\t}\n\treturn slices.DeleteFunc","rule":"A killer suite's coverage pass runs only the tests the ledger names, never the package's whole suite.","killers":["scripts/mutants:TestKillerSuiteRunsOnlyItsTests"]}
   ]
 }

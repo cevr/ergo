@@ -32,6 +32,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -240,6 +241,7 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	var cover []string
 	var tools []Tool
 	var suites []Suite
+	foreign := map[string][]string{} // a killer's package dir: its tests
 	add := func(pkg string) {
 		if !slices.Contains(cover, pkg) {
 			cover = append(cover, pkg)
@@ -276,9 +278,38 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			if !slices.ContainsFunc(suites, func(s Suite) bool { return s.Name == name }) {
 				suites = append(suites, Suite{Name: name, Package: "./" + rel, Tags: slices.Clone(m.Tags)})
 			}
+			// A killer in another package (internal/sketch/lower:TestX for
+			// a runtime/v1 mutant that only a lowering reads) is judged by
+			// that package's suite, limited to the tests the ledger names.
+			for _, k := range m.Killers {
+				suite, test, _ := strings.Cut(k, ":")
+				if suite == rel || !isTestPackage(absRoot, suite) {
+					continue
+				}
+				if !slices.Contains(foreign[suite], test) {
+					foreign[suite] = append(foreign[suite], test)
+				}
+			}
+		}
+	}
+	for _, suite := range slices.Sorted(maps.Keys(foreign)) {
+		// A package whose own ledger runs too has its whole suite already.
+		if !slices.ContainsFunc(suites, func(s Suite) bool { return s.Name == suite }) {
+			suites = append(suites, Suite{Name: suite, Package: "./" + suite, Only: foreign[suite]})
 		}
 	}
 	return cover, tools, suites, nil
+}
+
+// isTestPackage reports whether dir, relative to root, is a package with
+// tests: a killer's suite that names a directory (internal/sketch/lower),
+// not a suite of another kind (examples:PROGRAM) or a short name (lower).
+func isTestPackage(root, dir string) bool {
+	if dir == "" || strings.HasPrefix(dir, ".") || filepath.IsAbs(dir) {
+		return false
+	}
+	tests, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*_test.go"))
+	return len(tests) > 0
 }
 
 // defaultExamples lists the example programs tagged default.

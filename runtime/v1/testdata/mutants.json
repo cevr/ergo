@@ -600,7 +600,7 @@
       "rule": "binsize BS7: a timer's signal is the one the graph gives the state its entry opened in.",
       "killers": ["runtime/v1:TestActorModelAgreesWithTimedFold"]
     },
-    {"name":"bs7-hidden-graph","origin":"wf10 binsize BS7","file":"runtime/v1/files.go","from":"case \"GraphOf\":\n\t\treturn Graph, true","to":"case \"GraphOfX\":\n\t\treturn Graph, true","rule":"binsize BS7: GraphOf is a hidden parameter that the lowering supplies.","killers":["lower:TestGraphLoweringsTraceAlike"],"gap":"killed only by lower:TestGraphLoweringsTraceAlike (the hidden GraphOf parameter is read when a program is lowered), which runtime/v1's scope does not run (scripts/mutants judges a package's ledger by its own tests); run by hand: apply the edit, go test -run TestGraphLoweringsTraceAlike ./internal/sketch/lower fails with \"the std function start has 14 Go parameters for 13 arguments\" (EXPLORE-rt r3)."},
+    {"name":"bs7-hidden-graph","origin":"wf10 binsize BS7","file":"runtime/v1/files.go","from":"case \"GraphOf\":\n\t\treturn Graph, true","to":"case \"GraphOfX\":\n\t\treturn Graph, true","rule":"binsize BS7: GraphOf is a hidden parameter that the lowering supplies.","killers":["internal/sketch/lower:TestGraphLoweringsTraceAlike"]},
     {
       "name": "bs7b-variant-self",
       "origin": "wf10 binsize BS7b",

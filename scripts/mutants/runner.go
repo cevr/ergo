@@ -74,6 +74,20 @@ type Suite struct {
 	// Tags are the build tags of a Go suite's test binary. A suite with
 	// tags judges only the mutants with the same tags, and they only it.
 	Tags []string
+	// Only, when set, are the suite's only tests: the coverage pass runs
+	// these and no other test of the package. A ledger's killer in another
+	// package is such a suite (suitesFor), so naming it does not run that
+	// package's whole test suite.
+	Only []string
+}
+
+// listed is the tests of a suite that the coverage pass runs: the
+// binary's tests, or those of them that Only names.
+func listed(s *Suite, names []string) []string {
+	if len(s.Only) == 0 {
+		return names
+	}
+	return slices.DeleteFunc(names, func(n string) bool { return !slices.Contains(s.Only, n) })
 }
 
 // TagSuite is the name of the suite that runs suite's tests built with
@@ -277,7 +291,7 @@ func (e *engine) load(ledgers []string) error {
 	}
 	fmt.Fprintf(h, "cover %q tools %q", e.cfg.Cover, toolNames(e.cfg.Tools))
 	for _, s := range e.cfg.Suites {
-		fmt.Fprintf(h, " suite %s %s %q %q %q", s.Name, s.Package, s.Command, s.Env, s.Tags)
+		fmt.Fprintf(h, " suite %s %s %q %q %q %q", s.Name, s.Package, s.Command, s.Env, s.Tags, s.Only)
 	}
 	e.key = hex.EncodeToString(h.Sum(nil))[:16]
 	return nil
@@ -633,6 +647,7 @@ func (e *engine) measure(ctx context.Context) (*coverage, error) {
 					names = append(names, n)
 				}
 			}
+			names = listed(s, names)
 		} else {
 			var err error
 			if names, err = s.List(root); err != nil {
