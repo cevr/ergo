@@ -786,6 +786,24 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
     },
     {
+      "name": "oracle-o11-child-signal-stale",
+      "origin": "wf10 ORACLE O11",
+      "file": "internal/sketch/eval/runnerkids.go",
+      "from": "&envelope{kind: envChild, sig: dargs[0], epoch: ref.epoch}",
+      "to": "&envelope{kind: envChild, sig: dargs[0], epoch: ref.epoch + 1}",
+      "rule": "A child's Emit and Done outputs reach its parent as signals of the entry that started it, stepped while that entry is open (std actor Child; runtime.md, Machines and actors 14).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o11-host-never-bound",
+      "origin": "wf10 ORACLE O11",
+      "file": "internal/sketch/eval/runnerkids.go",
+      "from": "\t\tif a.entry != nil && a.entry.open && a.entry.epoch == a.epoch && h.state == hostMade {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A host a step makes belongs to the entry the step enters or keeps, whose work fills it; Get gives that child (std actor NewHost, Host; runtime.md, Machines and actors 16).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
       "name": "oracle-o10-sink-skipped",
       "origin": "wf10 ORACLE O10",
       "file": "internal/sketch/eval/runner.go",

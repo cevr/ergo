@@ -29,7 +29,7 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids"}
 
 const mainPrelude = `import actor
 import io
@@ -142,6 +142,94 @@ type Counter machine[Ctr, Sig] { initial: ctrStart, step: ctrStep, after: ctrAft
 
 type Tally machine[Ctr, Sig] { initial: ctrStart, step: ctrStep }
 
+type Kid { n int }
+
+type Hop {}
+
+func kidStart(n int) Kid { Kid{n: n} }
+
+func kidStep(k Kid, h Hop) Decision[Kid, int] {
+	if k.n <= 1 {
+		return Done[int]{Output: 1}
+	}
+	Emit[Kid, int]{Next: Kid{n: k.n - 1}, Output: k.n}
+}
+
+type Kids machine[Kid, Hop] { initial: kidStart, step: kidStep }
+
+type KidActor = actor.Actor[Kid, Hop, Decision[Kid, int]]
+
+type Nest = Idle{rounds int, last int} | Busy{rounds int, n int, sum int, kid actor.Host[KidActor]}
+
+type NestSig = Spawn{n int} | Got{v int}
+
+func nestStart(r int) Nest { Idle{rounds: r, last: 0} }
+
+func nestStep(s Nest, e NestSig) Decision[Nest, int] {
+	match s {
+	case Idle as i:
+		match e {
+		case Spawn as sp:
+			Enter[Nest]{Next: Busy{rounds: i.rounds, n: sp.n, sum: 0, kid: actor.NewHost[KidActor]()}}
+		case Got:
+			Ignore
+		}
+	case Busy as b:
+		match e {
+		case Spawn:
+			Reject
+		case Got as g:
+			if g.v == 1 {
+				return Emit[Nest, int]{Next: Idle{rounds: b.rounds + 1, last: b.sum + 1}, Output: b.sum + 1}
+			}
+			Stay[Nest]{Next: Busy{rounds: b.rounds, n: b.n, sum: b.sum + g.v, kid: b.kid}}
+		}
+	}
+}
+
+func hop(c KidActor, k int) {
+	if k <= 0 {
+		return
+	}
+	c.Send(Hop) catch {
+	case actor.Stopped:
+		return
+	}
+	hop(c, k - 1)
+}
+
+func nestWork(s Nest) Option[machines.Work[NestSig, Scheduler]] {
+	match s {
+	case Busy as b:
+		Some{machines.Work{Listen: func(send func(e NestSig)) needs Scheduler {
+			let c = actor.ChildIn(send, b.kid, machines.Start(Kids{}, b.n), 2, func(o int) NestSig { Got{v: o} })
+			hop(c, b.n + 1)
+		}}}
+	case Idle:
+		None
+	}
+}
+
+type Nester machine[Nest, NestSig] { initial: nestStart, step: nestStep, work: nestWork }
+
+func idleAt(s Nest, r int) bool {
+	match s {
+	case Idle as i:
+		i.rounds == r
+	case Busy:
+		false
+	}
+}
+
+func lastOf(s Nest) int {
+	match s {
+	case Idle as i:
+		i.last
+	case Busy:
+		-1
+	}
+}
+
 func told(d Decision[Ctr, int]) string {
 	match d {
 	case Enter[Ctr]:
@@ -221,7 +309,9 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(13) {
+		switch g.r.IntN(14) {
+		case 13:
+			g.kids(k)
 		case 12:
 			g.actor(k)
 		case 11:
@@ -689,6 +779,43 @@ func (g *mainGen) actor(k int) {
 	} else {
 		fmt.Fprintf(&g.out, "s%d halted %d\n", k, n)
 	}
+}
+
+// kids: the Nester actor, each Spawn entering a Busy entry whose host
+// its work fills with a Kids child (actor.ChildIn); the child counts down
+// on the work's Hops, its outputs reach the parent as Got signals, and
+// its Done ends the round with an Emit of the sum.
+func (g *mainGen) kids(k int) {
+	g.kinds["kids"]++
+	capacity := g.r.IntN(3)
+	g.line("")
+	g.line("func s%d() needs Console | Ambient {", k)
+	g.line("\twith context { Scheduler: NewLiveScheduler() } {")
+	g.line("\t\tkids%d()", k)
+	g.line("\t}")
+	g.line("}")
+	g.line("")
+	g.line("func kids%d() needs Console | Scheduler {", k)
+	g.line("\tlet a = actor.StartMachine(machines.Start(Nester{}, 0), %d, func(o int) { note(\"s%d out \\(o)\") })", capacity, k)
+	rounds := 1 + g.r.IntN(3)
+	for r := 1; r <= rounds; r++ {
+		n := 1 + g.r.IntN(4)
+		g.line("\ta.Send(Spawn{n: %d}) catch {", n)
+		g.line("\tcase actor.Stopped:")
+		g.line("\t\treturn")
+		g.line("\t}")
+		g.line("\tlet w%d = actor.WaitFor(a, func(s Nest) bool { idleAt(s, %d) }) catch {", r, r)
+		g.line("\tcase actor.Stopped:")
+		g.line("\t\treturn")
+		g.line("\t}")
+		g.line("\tflush()")
+		g.line("\tConsole.Println(\"s%d round \\(lastOf(w%d))\")", k, r)
+		sum := n * (n + 1) / 2
+		fmt.Fprintf(&g.out, "s%d out %d\ns%d round %d\n", k, sum, k, sum)
+	}
+	g.line("\ta.Stop()")
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
 }
 
 // seq: a for over a Seq that a function literal makes, Seq[int](f), with

@@ -32,8 +32,9 @@ import (
 //   - Supervise restarts an incarnation a defect ended, from fresh's
 //     state, up to its limit, while admission is open.
 //
-// Children, hosts and a durable actor's recovery are not run yet: their
-// externs have no native, so a program that reaches one is a skip.
+// Children and hosts are runnerkids.go's. A durable actor's recovery is
+// not run yet: its externs have no native, so a program that reaches one
+// is a skip.
 
 // The envelope kinds of the inbox.
 const (
@@ -44,6 +45,7 @@ const (
 	envWork
 	envWorkDefect
 	envFeed
+	envChild // a child's output, tagged with its owner entry's epoch
 )
 
 // The decisions, in the order std actor's kind gives them.
@@ -109,6 +111,31 @@ type actorV struct {
 	timer   *etask
 	working *etask
 	feeds   []*etask
+
+	// The open entry (rule 13 and 15): the reference its work's Child
+	// calls find, its children in start order, its hosts and how many are
+	// still empty, whether the runner's wait to show the entry ended, and
+	// the hosts the running step made.
+	entry     *entryRef
+	kids      []*actorV
+	hosts     []*hostV
+	hostsLeft int
+	settled   bool
+	newHosts  []*hostV
+
+	// A child's (rule 13): its owner entry, which gets its outputs and
+	// its defect, and whether that defect reached the owner's inbox.
+	owner    *entryRef
+	reported bool
+}
+
+// entryRef is one entry of an actor, as its work's Child calls see it.
+type entryRef struct {
+	a       *actorV
+	epoch   uint64
+	open    bool // it takes children: its exit has not begun
+	adopted bool // a child started
+	stopped bool // its children were stopped
 }
 
 func (a *actorV) describe() string { return "an actor.Actor" }
@@ -190,39 +217,45 @@ func (in *interp) actorStart(fr *frame, at syntax.Node, fn *check.Func, args []V
 	if len(args) != 13 {
 		ice("actor.start with %d arguments", len(args))
 	}
-	if in.sched == nil {
-		return nil, fr.unsupported(at, "an actor outside a run's tasks")
-	}
-	capacity := args[12].(int64)
-	if capacity < 0 {
-		return nil, fr.defect(at, "actor.StartMachine: negative capacity %d", capacity)
-	}
 	limit := args[2].(int64)
 	if limit < 0 {
 		return nil, fr.defect(at, "actor.Supervise: a negative restart limit %d", limit)
 	}
-	sched, ok := fr.caps.lookup(typeKey(rtype{t: check.PreludeType("Scheduler")}))
-	if !ok {
-		return nil, fr.unsupported(at, "an actor whose Scheduler no with of the run binds")
-	}
-	if ab := in.build(fr, at, 1, 8, 0); ab != nil {
-		return nil, ab
-	}
 	a := &actorV{
-		fn: fn, at: at, home: fr, sched: sched,
 		initial: args[0], fresh: args[1], limit: limit,
 		step: args[3], fire: args[4], delay: args[5], workOf: args[6], hasWork: args[7], work: args[8],
 		kind: args[9], next: args[10], out: args[11],
-		inbox: &queueV{capacity: capacity, closed: stdRecord(fn, "Stopped", nil).t},
-		state: args[0],
 	}
-	a.task = in.start(in.siteOf(fr, at, "actor.StartMachine"), func(t *etask) (Value, *abrupt) {
-		return unit{}, a.runner(in)
-	})
-	if ab := in.block(fr, at, "an actor's first entry", func() bool { return a.ready || a.task.state == done }); ab != nil {
+	if ab := in.launch(fr, at, fn, a, args[12].(int64)); ab != nil {
 		return nil, ab
 	}
 	return a, nil
+}
+
+// launch starts a's runner, a child of the running task, and returns once
+// it has opened the first entry.
+func (in *interp) launch(fr *frame, at syntax.Node, fn *check.Func, a *actorV, capacity int64) *abrupt {
+	if in.sched == nil {
+		return fr.unsupported(at, "an actor outside a run's tasks")
+	}
+	if capacity < 0 {
+		return fr.defect(at, "actor.StartMachine: negative capacity %d", capacity)
+	}
+	sched, ok := fr.caps.lookup(typeKey(rtype{t: check.PreludeType("Scheduler")}))
+	if !ok {
+		return fr.unsupported(at, "an actor whose Scheduler no with of the run binds")
+	}
+	if ab := in.build(fr, at, 1, 8, 0); ab != nil {
+		return ab
+	}
+	a.fn, a.at, a.home, a.sched = fn, at, fr, sched
+	a.inbox = &queueV{capacity: capacity, closed: stdRecord(fn, "Stopped", nil).t}
+	a.state = a.initial
+	a.task = in.start(in.siteOf(fr, at, "actor.StartMachine"), func(t *etask) (Value, *abrupt) {
+		return unit{}, a.runner(in)
+	})
+	a.task.runs = a
+	return in.block(fr, at, "an actor's first entry", func() bool { return a.ready || a.task.state == done })
 }
 
 // frame is a frame for the actor's callbacks on the running task: the
@@ -266,7 +299,20 @@ func (a *actorV) runner(in *interp) *abrupt {
 		a.restarts++
 	}
 	a.ready = true
-	return a.finish(in, fr, exit)
+	if ab := a.finish(in, fr, exit); ab != nil {
+		return ab
+	}
+	if a.owner != nil && a.defect != nil {
+		// A child's defect ends its owner (rule 13): pushed now, or
+		// raised by the owner's stop of the child when it cannot be.
+		ab := in.queuePush(fr, a.at, a.owner.a.inbox, &envelope{kind: envWorkDefect, err: a.defect})
+		if stops(ab) {
+			return ab
+		}
+		a.reported = ab == nil
+	}
+	a.ended = true
+	return nil
 }
 
 // endedByDefect reports an exit that a defect ended: neither a value, a typed
@@ -343,7 +389,7 @@ func (a *actorV) handle(in *interp, fr *frame, s Value, env *envelope) (Value, b
 		a.cur = nil
 		return s, false, nil
 	}
-	if (env.kind == envTimer || env.kind == envWork) && env.epoch != a.epoch {
+	if (env.kind == envTimer || env.kind == envWork || env.kind == envChild) && env.epoch != a.epoch {
 		a.dropped++
 		a.cur = nil
 		return s, false, nil
@@ -356,6 +402,7 @@ func (a *actorV) handle(in *interp, fr *frame, s Value, env *envelope) (Value, b
 		d, ab = a.call(in, fr, a.step, s, env.sig)
 	}
 	if ab != nil {
+		a.closeHosts(&a.newHosts)
 		if (ab.kind == ctlFail || ab.kind == ctlEscape) && env.kind == envAsk {
 			a.cur = nil
 			a.answer(env, &actorReply{fail: ab})
@@ -368,6 +415,14 @@ func (a *actorV) handle(in *interp, fr *frame, s Value, env *envelope) (Value, b
 		return s, true, ab
 	}
 	k := kv.(int64)
+	// The step's hosts (rule 15): an Enter's and an Emit's are bound when
+	// the entry opens, a Stay's to the current entry; the others close.
+	switch k {
+	case decStay:
+		a.bindNewHosts()
+	case decIgnore, decReject, decDone:
+		a.closeHosts(&a.newHosts)
+	}
 	if k == decStay {
 		ns, ab := a.call(in, fr, a.next, s, d)
 		if ab != nil {
@@ -421,9 +476,24 @@ func (a *actorV) answer(env *envelope, r *actorReply) {
 // shows s (when commit; the first entry's state is shown already). When
 // the arm or the start fails, s is still shown.
 func (a *actorV) open(in *interp, fr *frame, s Value, commit bool) *abrupt {
+	a.entry = &entryRef{a: a, epoch: a.epoch, open: true}
+	a.kids = nil
+	a.bindNewHosts()
 	ab := a.arm(in, fr, s)
 	if ab == nil {
 		ab = a.startWork(in, fr, s)
+	}
+	if ab == nil && a.working != nil && a.hostsLeft > 0 {
+		// The entry has hosts and a work (rule 15): it is shown once the
+		// work filled them, reached its first wait, or ended.
+		w := a.working
+		a.settled = false
+		ab = in.block(fr, a.at, "an entry's work to fill its hosts", func() bool {
+			if w.state == blocked || w.state == done {
+				a.settled = true
+			}
+			return a.settled
+		})
 	}
 	if commit {
 		a.publish(s)
@@ -475,9 +545,17 @@ func (a *actorV) startWork(in *interp, fr *frame, s Value) *abrupt {
 	if has != true {
 		return nil
 	}
-	epoch := a.epoch
+	epoch, ref := a.epoch, a.entry
 	a.working = in.start(in.siteOf(fr, a.at, "an actor's work"), func(t *etask) (Value, *abrupt) {
 		wfr := a.frame()
+		// A work that started children ends after their stop (rule 13).
+		defer func() {
+			if ref.adopted {
+				in.mask(1)
+				_ = in.block(wfr, a.at, "an entry's children to stop", func() bool { return ref.stopped })
+				in.mask(-1)
+			}
+		}()
 		send := &nativeFunc{name: "send", call: func(in *interp, sfr *frame, at syntax.Node, args []Value) (Value, *abrupt) {
 			ab := in.queuePush(sfr, at, a.inbox, &envelope{kind: envWork, sig: args[0], epoch: epoch})
 			if ab != nil && ab.kind != ctlFail {
@@ -488,6 +566,7 @@ func (a *actorV) startWork(in *interp, fr *frame, s Value) *abrupt {
 		_, ab := a.call(in, wfr, a.work, w, send)
 		return unit{}, a.taskDefect(in, wfr, ab)
 	})
+	a.working.entry = ref
 	return nil
 }
 
@@ -548,14 +627,66 @@ func (a *actorV) stopTask(in *interp, fr *frame, t *etask) *abrupt {
 	return nil
 }
 
-// stopEntry ends the open entry: its timer, then its work.
+// stopEntry ends the open entry: its children, its timer, then its work.
 func (a *actorV) stopEntry(in *interp, fr *frame) *abrupt {
+	if ab := a.stopKids(in, fr); ab != nil {
+		return ab
+	}
 	t, w := a.timer, a.working
 	a.timer, a.working = nil, nil
 	if ab := a.stopTask(in, fr, t); ab != nil {
 		return ab
 	}
 	return a.stopTask(in, fr, w)
+}
+
+// stopKids ends the open entry's children (rule 13): the entry takes no
+// more, its hosts close, and each child is stopped and waited for, last
+// started first. It gives the first defect a child did not report.
+func (a *actorV) stopKids(in *interp, fr *frame) *abrupt {
+	ref := a.entry
+	if ref == nil {
+		return nil
+	}
+	ref.open = false
+	a.closeHosts(&a.hosts)
+	a.hostsLeft, a.settled = 0, true
+	ks := a.kids
+	a.kids = nil
+	var exit *abrupt
+	for i := len(ks) - 1; i >= 0; i-- {
+		ab := ks[i].halt(in, fr)
+		if stops(ab) {
+			return ab
+		}
+		if exit == nil {
+			exit = ab
+		}
+	}
+	ref.stopped = true
+	return exit
+}
+
+// halt stops a child for its owner and waits for its end: the defect it
+// did not report to the owner, if one ended it.
+func (a *actorV) halt(in *interp, fr *frame) *abrupt {
+	if a.task == nil {
+		return nil // its start failed
+	}
+	if a.task.state != done {
+		a.task.stopped = true
+	}
+	a.inbox.end()
+	in.mask(1)
+	ab := in.block(fr, a.at, "a child actor to end", func() bool { return a.ended })
+	in.mask(-1)
+	if ab != nil {
+		return ab
+	}
+	if a.reported {
+		return nil
+	}
+	return a.defect
 }
 
 // publish commits s as the actor's state and hands it to each Changes
@@ -581,8 +712,17 @@ func (a *actorV) release(env *envelope) {
 // entry stops, the envelope in the step and the queued ones are released
 // (a State read gets the state, a Feed starts), and the epoch moves on.
 func (a *actorV) crash(in *interp, fr *frame) *abrupt {
-	if ab := a.stopEntry(in, fr); ab != nil {
+	// Their defects are the crash's: no more is raised.
+	a.closeHosts(&a.newHosts)
+	if ab := a.stopKids(in, fr); stops(ab) {
 		return ab
+	}
+	t, w := a.timer, a.working
+	a.timer, a.working = nil, nil
+	for _, x := range []*etask{t, w} {
+		if ab := a.stopTask(in, fr, x); stops(ab) {
+			return ab
+		}
 	}
 	if a.cur != nil {
 		a.release(a.cur)
@@ -613,8 +753,13 @@ func (a *actorV) crash(in *interp, fr *frame) *abrupt {
 func (a *actorV) finish(in *interp, fr *frame, exit *abrupt) *abrupt {
 	a.inbox.end()
 	a.note(exit)
-	in.mask(1)
-	defer in.mask(-1)
+	a.closeHosts(&a.newHosts)
+	// The children first, last started first (rule 13).
+	ab := a.stopKids(in, fr)
+	if stops(ab) {
+		return ab
+	}
+	a.note(ab)
 	for _, t := range []*etask{a.timer, a.working} {
 		ab := a.stopTask(in, fr, t)
 		if stops(ab) {
@@ -647,7 +792,6 @@ func (a *actorV) finish(in *interp, fr *frame, exit *abrupt) *abrupt {
 		}
 		a.release(env)
 	}
-	a.ended = true
 	return nil
 }
 

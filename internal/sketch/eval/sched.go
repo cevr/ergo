@@ -70,6 +70,11 @@ type etask struct {
 	exit  *abrupt
 	ended bool
 	start func(t *etask) (Value, *abrupt)
+	// The actor whose runner the task is, and the entry whose work it
+	// runs (runner.go): actor.Child finds its owner entry from the
+	// running task and its ancestors, the first that is either.
+	runs  *actorV
+	entry *entryRef
 }
 
 type taskRun int
