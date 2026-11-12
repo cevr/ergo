@@ -203,8 +203,7 @@
       "from": "//go:build darwin || dragonfly",
       "to": "//go:build (darwin && arm64) || dragonfly",
       "rule": "The runtime links on every platform of the target list (a build-tagged runtime file must cover each).",
-      "killers": ["cmd/ergo:TestBuildCrossCompilesEveryPlatform"],
-      "gap": "since BS8 moved exec into the leaf runtime/v1/exec, only a program that uses exec links this file, and TestBuildCrossCompilesEveryPlatform builds examples/lookup, which does not: the test passes under the edit (EXPLORE-rt r3, run by hand). No test cross-compiles the exec leaf for every platform; a platform build of a program that runs a command would kill it (follow-up for cmd/ergo)."
+      "killers": ["cmd/ergo:TestBuildCrossCompilesEveryPlatform"]
     },
     {
       "name": "dist1-emission-keyed-on-platform",
