@@ -115,10 +115,10 @@ type tapeField struct {
 }
 
 // tapeRecords draws record types r0, r1, ...; each field's type is a
-// scalar, a wrapper, a list of leaf0 or an earlier record. Three fixed
+// scalar, a wrapper, a list of leaf0 or an earlier record. Four fixed
 // records come first: pair0 holds one record at two keys, lead0 starts
 // with an optional field (an arm right after BeginObject's run), list0
-// holds a list of records.
+// holds a list of records, null0 a Nullable[uint64].
 func tapeRecords(rng *rand.Rand) (src string, kinds []tapeField) {
 	str := func(rng *rand.Rand) string { return strconv.Quote([]string{"", "s", "q1", "key"}[rng.Intn(4)]) }
 	scalars := []tapeField{
@@ -179,7 +179,15 @@ func tapeRecords(rng *rand.Rand) (src string, kinds []tapeField) {
 		}
 		return "[]leaf0{" + strings.Join(xs, ", ") + "}"
 	}}
-	kinds = append(kinds, record("pair0", []tapeField{leaf, leaf}), record("lead0", []tapeField{scalars[4], scalars[1]}), record("list0", []tapeField{leaves}))
+	// Uint's body never unfolds, so a NonNull arm entered in a key's state
+	// is a run the laws leave as it is, after its carried call.
+	nullUint := tapeField{"json.Nullable[uint64]", func(rng *rand.Rand, _ int) string {
+		if rng.Intn(3) == 0 {
+			return "json.Null"
+		}
+		return "json.NonNull{Value: " + strconv.Itoa(rng.Intn(9)) + "}"
+	}}
+	kinds = append(kinds, record("pair0", []tapeField{leaf, leaf}), record("lead0", []tapeField{scalars[4], scalars[1]}), record("list0", []tapeField{leaves}), record("null0", []tapeField{nullUint}))
 	known := append([]tapeField{leaf, leaves}, kinds...)
 	for i := range 4 {
 		var fields []tapeField
