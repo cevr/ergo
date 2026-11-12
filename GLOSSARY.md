@@ -293,6 +293,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Paint list (ui)**: The content of a `ui.Canvas`: a list of `ui.PaintOp` values (fills and strokes of paths, and transforms and clips each closed by a pop) that the canvas's draw function wrote through a borrowed `*ui.Paint`. It is a field of the canvas node, so an unchanged list is no change, and a host replays it. See [stdlib](docs/spec/stdlib.md#ui).
 
+**Virtual rows (ui)**: A `ui.Rows` list, whose row function the composer runs only for the rows its viewport shows, plus `ui.Overscan` rows on each side. Its viewport is view-local state the host reports (`ui.Scrolled`), and its rows are keyed as `Each` rows are. See [stdlib](docs/spec/stdlib.md#ui).
+
 **UI host**: std `ui.Host[E]`, the operation type of a screen that shows patches and reports events (`Show`, `Next`, `Post`, through which a fetch's task hands its result to the loop, and `Frames`, through which `Run` asks for a `Tick` per frame only while the view animates); a value `ui.Run` drives. `ui.TestHost` is the in-process host of tests and agents: it steps the same `ui.Session` as `Run`. Not a host package's `Host` and not an **Actor host**. See [stdlib](docs/spec/stdlib.md#ui).
 
 **Uninterruptible host wait**: A foreign Go call whose Go declaration takes no `context.Context`, so an interruption reaches the task only after Go returns. `ergo inspect` lists it for each function that reaches it (IG8; [tooling](docs/tooling.md#inspect)).
