@@ -752,6 +752,28 @@ func TestTestLegFailsAnUnexpectedSkip(t *testing.T) {
 	}
 }
 
+// A checked-in ergo.laws that the program's ergo test changes is stale: the
+// ledger leg fails, the file is put back as it was, and the cases still
+// run; a program whose test leaves its ledger as it is passes (batch 18
+// I1: a stale examples/counter/ergo.laws passed, and the run rewrote it).
+// Mutants ex-ledger-unchecked, ex-ledger-not-restored.
+func TestTestLegFailsAStaleLedger(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	hi := map[string]map[string]string{"basic": {"expected.out": "hi\n"}}
+	const entry = "law Counter.Joins for Box proved h1:old\n"
+	stale := f.program("stale", "#!/bin/sh\necho hi\nexit 0\n# TESTLEDGER\ntest Fixture {\n}\n", "default\n", hi, map[string]string{"ergo.laws": entry})
+	f.program("current", "#!/bin/sh\necho hi\nexit 0\ntest Fixture {\n}\n", "default\n", hi, map[string]string{"ergo.laws": entry})
+	code, out := f.run()
+	oks, fails := verdicts(out)
+	if code != 1 || !strings.Contains(fails["stale"], " ledger: ergo test changed the checked-in ergo.laws") || fails["current"] != "" || !oks["stale/basic"] || !oks["current/basic"] {
+		t.Fatalf("want exit 1, FAIL stale: ledger, no FAIL current, and both cases ok; exit %d\n%s", code, out)
+	}
+	if got, err := os.ReadFile(filepath.Join(stale, "ergo.laws")); err != nil || string(got) != entry {
+		t.Fatalf("the stale ledger was not put back: %q, %v", got, err)
+	}
+}
+
 // An ergo test that cannot start fails the test leg and the run, as any
 // other failure of the leg does; the cases still run (apps-1 G1 r2 m2).
 func TestTestLegThatCannotStartFails(t *testing.T) {

@@ -419,6 +419,7 @@ func (l *lowerer) cellRun(cw cellWriter, env, w string, run []rwCall, texts [][]
 		}
 		return l.wireCallFunc(c.fn, env, site, append([]string{self}, args...)...)
 	}
+	used := map[[2]int]bool{}
 	for k, c := range calls {
 		var args []string
 		varies := false
@@ -430,6 +431,7 @@ func (l *lowerer) cellRun(cw cellWriter, env, w string, run []rwCall, texts [][]
 				args, varies = append(args, texts[k][j]), true
 			default:
 				pos, arg := rwPlace(a.text)
+				used[[2]int{pos, arg}] = true
 				args, varies = append(args, texts[pos][arg]), true
 			}
 		}
@@ -440,6 +442,18 @@ func (l *lowerer) cellRun(cw cellWriter, env, w string, run []rwCall, texts [][]
 			}
 		}
 		out = append(out, emit(c, args))
+	}
+	if rewritten {
+		// An argument the rewritten run no longer passes (an unfold that
+		// drops it, as Bool(b) { raw("b") } does) is still read, so a
+		// variable that names only it stays used in Go.
+		for k := lead; k < len(run); k++ {
+			for j, a := range run[k].args {
+				if a.c == nil && !used[[2]int{k, j}] {
+					out = append(out, "_ = "+texts[k][j])
+				}
+			}
+		}
 	}
 	return out, last
 }
