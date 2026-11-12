@@ -29,7 +29,9 @@ import (
 // refuses at its source, falls back to a plain `let _ =` call and then
 // drops out: only an internal error or Go that does not type-check fails.
 // os.ReadDir must keep its full form, so a broken generator cannot drop
-// every use unseen.
+// every use unseen; and a diagnostic of the generator's own text (a takes
+// clause that names no parameter of the use) fails, so a change of the
+// binding format cannot starve the property unseen (goBoundOwnFault).
 //
 // A method (an extern with a receiver, or an operation of a Go interface
 // type) has a second use, its method value called: `let f = recv.M`. A Go
@@ -218,7 +220,7 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 		params = append(params, "c bool")
 		callee := name + "." + fn
 		if recv != "" {
-			params = append(params, "recv "+qualify(recv))
+			params = append(params, "recv "+goBoundOwned(qualify(recv)))
 			callee = "recv." + fn
 		}
 		if ft.Params != nil {
@@ -228,8 +230,9 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 					a := fmt.Sprintf("a%d", len(args))
 					p := fmt.Sprintf("p%d", len(args))
 					args, litArgs = append(args, a), append(litArgs, p)
-					params = append(params, a+" "+qualify(text(fl.Type)))
-					litParams = append(litParams, p+" "+qualify(text(fl.Type)))
+					pt := goBoundOwned(qualify(text(fl.Type)))
+					params = append(params, a+" "+pt)
+					litParams = append(litParams, p+" "+pt)
 				}
 			}
 		}
@@ -245,7 +248,7 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 				}
 			}
 		}
-		rows := strings.TrimSpace(qualify(src[resEnd:end]))
+		rows := goBoundRows(qualify(src[resEnd:end]))
 		sig := qualify(tpText) + "(" + strings.Join(params, ", ") + ") " + rows
 		try := ""
 		if strings.Contains(rows, "fails") {
@@ -295,7 +298,7 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 		// refused (grammar.md, Extern), called.
 		// The literal writes the result type, so it imports what that
 		// names.
-		lit := "func(" + strings.Join(litParams, ", ") + ") " + strings.TrimSpace(qualify(src[ft.Params.End():end])) + " { " + try + callee + "(" + strings.Join(litArgs, ", ") + ") }"
+		lit := "func(" + strings.Join(litParams, ", ") + ") " + goBoundRows(qualify(src[ft.Params.End():end])) + " { " + try + callee + "(" + strings.Join(litArgs, ", ") + ") }"
 		litPaths := slices.Clone(paths)
 		for _, m := range goBoundQualifier.FindAllStringSubmatch(lit, -1) {
 			if p, ok := imports[m[1]]; ok && !slices.Contains(litPaths, p) {
@@ -343,6 +346,37 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 	}
 	return out
 }
+
+// goBoundTakes is a signature's takes clause, to its end.
+var goBoundTakes = regexp.MustCompile(`(^|\s)takes\b.*$`)
+
+// goBoundRows is the rows text of a binding's signature, trimmed, with its
+// takes clause dropped. The clause names the binding's parameters (r) or,
+// bare, an interface operation's receiver; the use renames them (a0…, p0…,
+// recv) and adds c, so a copied clause names no parameter of the use. A use
+// is unexported and has a body, so the checker infers its clause (grammar.md
+// Declarations 13, A3).
+func goBoundRows(s string) string {
+	return strings.TrimSpace(goBoundTakes.ReplaceAllString(strings.TrimSpace(s), ""))
+}
+
+// goBoundOwned is the type a use declares for a parameter of the binding's
+// type t: a Go pointer `*S` is the owned handle go.Ref[S], since Go keeps
+// its arguments by default and a borrow cannot be passed to a kept Go
+// argument (interop.md Resources 5; a go.Ref is accepted where Go takes
+// `*S`, q38). Any other type is t.
+func goBoundOwned(t string) string {
+	if s, ok := strings.CutPrefix(t, "*"); ok {
+		return "go.Ref[" + s + "]"
+	}
+	return t
+}
+
+// goBoundOwnFault marks a diagnostic that the generator's own text causes:
+// a takes clause that names no parameter of the use. Such a use steps down
+// on the generator, not on the binding, so it fails the property: a change
+// of the binding format must not starve the property unseen (batch 17 M2).
+var goBoundOwnFault = regexp.MustCompile(`takes \S+ names no parameter|takes names \S+ twice|a bare takes names|takes \S+ has no effect`)
 
 // isErrorRow reports the `fails …` field of a signature's results.
 func isErrorRow(x syntax.Expr) bool {
@@ -400,6 +434,9 @@ func lowerGoBoundUses(t *testing.T, imp check.Importer, path string, uses []goBo
 		stepped := false
 		seen := map[int]bool{}
 		for _, l := range goBoundFaults(o) {
+			if goBoundOwnFault.MatchString(l.text) {
+				t.Errorf("%s: the generator's own text refuses a use: %s\n%s", path, l.text, src)
+			}
 			i := -1
 			for j, s := range starts {
 				if s != 0 && s <= l.line {
