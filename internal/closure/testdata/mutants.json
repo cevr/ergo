@@ -26,7 +26,8 @@
       "to": "",
       "rule": "A real cgo linker cwd input belongs to the toolchain inputs; observation and cache hashing must remain enabled.",
       "killers": ["internal/closure:TestEveryPackageRecordsOnlyItsClosure"],
-      "anchor": {"tests": ["internal/closure:TestEveryPackageRecordsOnlyItsClosure"]}
+      "anchor": {"tests": ["internal/closure:TestEveryPackageRecordsOnlyItsClosure"]},
+      "gap": "Not judged by the runner: its killer needs ERGO_CLOSURE_SWEEP=cmd/ergo and cgo, and the runner's cover-built closure.test fails on the unmutated tree (its re-exec in the sweep's read-only sandbox cannot set GOCOVERDIR). A by-hand run at one thread (MUT-names, 2026-11-12) timed out in cmd/ergo's own tests before the sweep judged the inputs; run it with ERGO_CLOSURE_SWEEP=cmd/ergo at the gate's share."
     }
   ]
 }
