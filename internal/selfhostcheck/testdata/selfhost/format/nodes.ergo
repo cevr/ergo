@@ -2,6 +2,7 @@
 // (format/doc in the Go formatter's package comment, which this file
 // translates node by node).
 
+import cmp
 import slices
 
 // ---------------------------------------------------------------- tree reads
@@ -914,7 +915,7 @@ func expr1(p *Printer, x int, depth int) {
 			p.L.step(NoBlank)
 			p.indent(1)
 		}
-		p.expr1(inner, maxOf(depth-1, 1))
+		p.expr1(inner, cmp.Max(depth-1, 1))
 		if broken {
 			p.indent(-1)
 		}
@@ -1222,7 +1223,7 @@ func walkBinary(p *Printer, e int) Walk {
 		let w = p.walkBinary(l)
 		has4 = has4 || w.Has4
 		has5 = has5 || w.Has5
-		maxProblem = maxOf(maxProblem, w.MaxProblem)
+		maxProblem = cmp.Max(maxProblem, w.MaxProblem)
 	}
 	let r = p.k(e, "Y")
 	match p.fam(r) {
@@ -1231,7 +1232,7 @@ func walkBinary(p *Printer, e int) Walk {
 			let w = p.walkBinary(r)
 			has4 = has4 || w.Has4
 			has5 = has5 || w.Has5
-			maxProblem = maxOf(maxProblem, w.MaxProblem)
+			maxProblem = cmp.Max(maxProblem, w.MaxProblem)
 		}
 	case "StarExpr":
 		if op == tokenQUO {
@@ -1242,7 +1243,7 @@ func walkBinary(p *Printer, e int) Walk {
 		case "/*", "&&", "&^":
 			maxProblem = 5
 		case "++", "--":
-			maxProblem = maxOf(maxProblem, 4)
+			maxProblem = cmp.Max(maxProblem, 4)
 		case _:
 		}
 	case _:
