@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"ergo.local/prototype/internal/report"
 )
@@ -18,25 +21,63 @@ func (r *runner) checkTarget(p *program, target, leg string) *report.Evaluation 
 		r.toolFailed(p, leg, o, err)
 		return nil
 	}
+	dec := json.NewDecoder(bytes.NewReader(o.stdout))
+	e, why := checkedEvaluation(dec)
+	if why == "" && dec.More() {
+		why = "no valid evaluation envelope"
+	}
+	if why != "" {
+		fmt.Fprintf(r.out, "FAIL %s: %s: %s\n", p.name, leg, why)
+		r.fail(p.name + ": " + leg)
+		return nil
+	}
+	return e
+}
+
+// checkModule runs one `ergo check DIR/...` for a program of packages and
+// returns each package's evaluation, by its import path (TEST-one): the
+// command prints one envelope per package, in the order its test run
+// printed the packages (order). It returns nil when the run or any of its
+// envelopes is not what checkTarget accepts; the caller then checks each
+// package alone, which reports it as before.
+func (r *runner) checkModule(p *program, order []string) map[string]*report.Evaluation {
+	o, err := r.tool(r.cfg.timeout*time.Duration(len(order)), "check", filepath.Join(p.dir, "..."))
+	if err != nil || o.overCap() != "" || o.timedOut || !o.passed() {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(o.stdout))
+	out := map[string]*report.Evaluation{}
+	for _, pkg := range order {
+		e, why := checkedEvaluation(dec)
+		if why != "" {
+			return nil
+		}
+		out[pkg] = e
+	}
+	if dec.More() {
+		return nil
+	}
+	return out
+}
+
+// checkedEvaluation decodes the next check envelope of dec and returns its
+// evaluation, or why it is not a valid one.
+func checkedEvaluation(dec *json.Decoder) (*report.Evaluation, string) {
 	var envelope struct {
 		Checked    bool               `json:"checked"`
 		Evaluation *report.Evaluation `json:"evaluation"`
 	}
-	if err := json.Unmarshal(o.stdout, &envelope); err != nil || !envelope.Checked || envelope.Evaluation == nil || envelope.Evaluation.SchemaVersion != report.EvaluationSchemaVersion {
-		fmt.Fprintf(r.out, "FAIL %s: %s: no valid evaluation envelope\n", p.name, leg)
-		r.fail(p.name + ": " + leg)
-		return nil
+	if err := dec.Decode(&envelope); err != nil || !envelope.Checked || envelope.Evaluation == nil || envelope.Evaluation.SchemaVersion != report.EvaluationSchemaVersion {
+		return nil, "no valid evaluation envelope"
 	}
 	var statuses []string
 	for _, o := range envelope.Evaluation.Obligations {
 		statuses = append(statuses, o.Status)
 	}
 	if envelope.Evaluation.Status != report.EvaluationStatus(statuses) {
-		fmt.Fprintf(r.out, "FAIL %s: %s: inconsistent evaluation summary\n", p.name, leg)
-		r.fail(p.name + ": " + leg)
-		return nil
+		return nil, "inconsistent evaluation summary"
 	}
-	return envelope.Evaluation
+	return envelope.Evaluation, ""
 }
 
 type nativeEvaluation struct {

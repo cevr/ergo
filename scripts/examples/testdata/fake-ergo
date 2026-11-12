@@ -12,6 +12,8 @@
 #                        REL for each package folder below DIR, and exits
 #                        with the worst status; logs only this call; a
 #                        package holding MODULEHIDDEN is left out;
+#   check DIR/...        prints the envelope of check REL for each package
+#                        folder that test DIR/... runs, in its order;
 #   test FILE            prints the reply of a compiler without ergo test on
 #                        TESTPENDING, fails on TESTFAIL; on TESTTICK starts a
 #                        ticker into ticks-test beside itself, then fails; on
@@ -33,6 +35,21 @@ tick() {
 case "$1" in
 check)
   [ $# -eq 2 ] || { echo "fake ergo: want check FILE" >&2; exit 64; }
+  case "$2" in
+  */...)
+    # A module's packages in one run, in test DIR/...'s order: each one's
+    # envelope; the worst exit.
+    base=${2%/...}
+    worst=0
+    for d in $(find "$base" -name '*.ergo' -not -path '*/testdata/*' | sed 's,/[^/]*$,,' | sort -u); do
+      cat "$d"/*.ergo | grep -q MODULEHIDDEN && continue
+      ( exec env FAKE_ERGO_ONE=1 "$0" check "$d" )
+      status=$?
+      [ "$status" -gt "$worst" ] && worst=$status
+    done
+    exit "$worst"
+    ;;
+  esac
   if [ -d "$2" ]; then
     cat "$2"/*.ergo > "$tools/check-package.ergo" || exit 1
     set -- "$1" "$tools/check-package.ergo"

@@ -9,8 +9,8 @@ import (
 
 // A program of packages (196b) is a folder with ergo.mod: the runner
 // formats every .ergo file of its packages, builds cmd/NAME (a folder), runs
-// one ergo test over every package folder (TEST-one), reports each package's
-// leg, and runs its cases.
+// one ergo test and one ergo check over every package folder (TEST-one),
+// reports each package's leg, and runs its cases.
 func TestModuleProgram(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -39,13 +39,16 @@ func TestModuleProgram(t *testing.T) {
 		filepath.Join(root, "cmd/walker/main.ergo"), filepath.Join(root, "frame/frame.ergo"),
 		filepath.Join(root, "walk/deep/more.ergo"), filepath.Join(root, "walk/game.ergo"), filepath.Join(root, "walk/tests.ergo"),
 	}, " ")
-	for _, want := range []string{wantFmt, "test " + filepath.Join(root, "...")} {
+	for _, want := range []string{wantFmt, "test " + filepath.Join(root, "..."), "check " + filepath.Join(root, "...")} {
 		if !slices.Contains(calls, want) {
 			t.Errorf("no call %q in\n%q", want, calls)
 		}
 	}
 	build := false
 	for _, call := range calls {
+		if strings.HasPrefix(call, "check ") && call != "check "+filepath.Join(root, "...") {
+			t.Errorf("a package checked alone after one check of the module: %q", call)
+		}
 		build = build || strings.HasPrefix(call, "build "+filepath.Join(root, "cmd", "walker")+" -o ")
 	}
 	if !build {

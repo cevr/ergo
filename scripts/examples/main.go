@@ -751,11 +751,18 @@ func (r *runner) testModule(p *program) bool {
 		r.fail(p.name + ": test")
 		return true
 	}
+	// The check legs: one `ergo check DIR/...` too, or each package alone
+	// when that run is not one valid envelope per package.
+	evaluations := r.checkModule(p, order)
 	for i, target := range p.tests {
 		rel, _ := filepath.Rel(p.dir, target)
 		leg := "test " + filepath.ToSlash(rel)
 		section := sections[want[i]]
-		if evaluation := r.checkTarget(p, target, strings.Replace(leg, "test", "check", 1)); evaluation != nil {
+		evaluation := evaluations[want[i]]
+		if evaluations == nil {
+			evaluation = r.checkTarget(p, target, strings.Replace(leg, "test", "check", 1))
+		}
+		if evaluation != nil {
 			r.compareEvaluation(p, strings.Replace(leg, "test", "check", 1), evaluation, section)
 		}
 		if skips := unexpectedSkips(section, p.dir); len(skips) > 0 {

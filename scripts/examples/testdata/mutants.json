@@ -72,6 +72,24 @@
       "to": "if got := slices.Sorted(slices.Values(order)); false {",
       "rule": "A run that tested other packages than the program's fails the program.",
       "killers": ["scripts/examples:TestModuleProgramRunsEveryPackage"]
+    },
+    {
+      "name": "one-module-check-per-package",
+      "origin": "wf10 TEST-one round 2",
+      "file": "scripts/examples/main.go",
+      "from": "evaluations := r.checkModule(p, order)",
+      "to": "evaluations := r.checkModule(p, nil)",
+      "rule": "The check legs of a program of packages are one ergo check DIR/..., one load of the module, not one per package.",
+      "killers": ["scripts/examples:TestModuleProgram"]
+    },
+    {
+      "name": "one-module-check-misfiled",
+      "origin": "wf10 TEST-one round 2",
+      "file": "scripts/examples/evaluation.go",
+      "from": "out[pkg] = e",
+      "to": "out[order[0]] = e",
+      "rule": "Each envelope of one ergo check DIR/... is judged against its own package's part of the native report, in the order the packages ran.",
+      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
     }
   ]
 }
