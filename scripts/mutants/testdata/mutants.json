@@ -9,6 +9,114 @@
       "to": "case memory != 0 && bytes.Contains(report, []byte(proclimit.OutOfMemory)):\n\t\treturn \"memory\"",
       "rule": "A capped mutant child's span-queue allocation fault has reason memory.",
       "killers": ["scripts/mutants:TestCappedFaultIsMemory"]
+    },
+    {
+      "name": "mutclean-copy-without-git",
+      "origin": "wf10 MUT-clean",
+      "file": "scripts/mutants/runner.go",
+      "from": "\treturn commitCopy(dst, e.files)\n",
+      "to": "\treturn nil\n",
+      "rule": "The runner's copy carries the checkout's Git file list, so a test that reads the repository (git ls-files) can kill a mutant.",
+      "killers": ["scripts/mutants:TestRunnerMatchesModel"]
+    },
+    {
+      "name": "mutclean-other-package-killer-dropped",
+      "origin": "wf10 MUT-clean",
+      "file": "scripts/mutants/main.go",
+      "from": "\treturn Suite{Name: name, Package: \"./\" + dir, Tags: tags}, nil, true\n",
+      "to": "\treturn Suite{}, nil, false\n",
+      "rule": "A killer in another package of the module (DIR or DIR[TAGS]) is a suite the runner runs, so no row is run by hand.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "mutclean-ergo-suite-killer-dropped",
+      "origin": "wf10 MUT-clean",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\tif s.Name == name {\n\t\t\tvar need []Tool",
+      "to": "\t\tif false {\n\t\t\tvar need []Tool",
+      "rule": "A package ledger's killer named by an ergo suite (lower, std, examples) runs in that suite, with its tools.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "mutclean-work-shared",
+      "origin": "wf10 batch-18 fix-tool (verify, On base)",
+      "file": "scripts/mutants/main.go",
+      "from": "\tdir, err = os.MkdirTemp(\"\", \"ergo-mutants-\")\n",
+      "to": "\tdir = filepath.Join(os.TempDir(), \"ergo-mutants\")\n\terr = os.MkdirAll(dir, 0o755)\n",
+      "rule": "The default -work is a directory of one run: two runs at once never share coverage counters.",
+      "killers": ["scripts/mutants:TestDefaultWorkIsPrivate"]
+    },
+    {
+      "name": "mutclean-work-kept",
+      "origin": "wf10 batch-18 fix-tool (verify, On base)",
+      "file": "scripts/mutants/main.go",
+      "from": "\treturn dir, func() { _ = os.RemoveAll(dir) }, nil\n",
+      "to": "\treturn dir, func() {}, nil\n",
+      "rule": "The default -work is removed at the end of its run.",
+      "killers": ["scripts/mutants:TestDefaultWorkIsPrivate"]
+    },
+    {
+      "name": "xpkg-named-killer-not-run",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/runner.go",
+      "from": "\textra := killerIDs(m)\n",
+      "to": "\textra := anchorTests(m)\n",
+      "rule": "A ledger's named killer runs whether or not the coverage pass saw it reach the mutated lines: a test in another package kills through a program it builds.",
+      "killers": ["scripts/mutants:TestRunnerMatchesModel"]
+    },
+    {
+      "name": "xpkg-unresolved-skipped",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/main.go",
+      "from": "unresolved = append(unresolved, fmt.Sprintf(\"%s: %s: %s\", j.Path, m.Name, id))",
+      "to": "_ = id",
+      "rule": "A killer whose suite resolves to nothing is refused, not skipped (45 rows named v1:, main:, sched:, tsproj: … and were never run).",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "xpkg-select-ignored",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/main.go",
+      "from": "if j.Select != nil && !j.Select.MatchString(m.Name) {",
+      "to": "if false {",
+      "rule": "Only the selected rows bring killer suites: a run of one row builds the suites that row names, not every killer suite of its ledger.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "xpkg-note-kept",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/runner.go",
+      "from": "\tname, _, _ = strings.Cut(name, \" \")\n",
+      "to": "\t_ = \" \"\n",
+      "rule": "A note after a killer's test name (past a space) is the reader's: the runner runs the test it names.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun", "scripts/mutants:TestRunnerMatchesModel"]
+    },
+    {
+      "name": "xpkg-named-dropped",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/main.go",
+      "from": "suites[i].Named = append(suites[i].Named, test)",
+      "to": "_ = test",
+      "rule": "Every suite records the tests the ledgers name, so a Go suite missing one is refused and a command suite runs a named example that is not a default.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "xpkg-stale-killer-accepted",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/runner.go",
+      "from": "\t\t\tif len(missing) > 0 {\n",
+      "to": "\t\t\tif false {\n",
+      "rule": "A Go suite that lacks a test a ledger names is refused before the mutant pass.",
+      "gap": "No runner test builds a suite missing a named test; internal/residue:TestLedgerEditsApplyOnce refuses such a row in the checkout's ledgers before any run (ledger-killer-alias)."
+    },
+    {
+      "name": "xpkg-command-named-dropped",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/runner.go",
+      "from": "\t\t\tfor _, n := range s.Named {\n\t\t\t\tif !slices.Contains(names, n) {",
+      "to": "\t\t\tfor _, n := range []string{} {\n\t\t\t\tif !slices.Contains(names, n) {",
+      "rule": "A command suite (the examples) runs a named example that is not a default one.",
+      "gap": "The fake module of TestRunnerMatchesModel has Go suites only; the affected run of scripts/examples' ledger (examples:router) exercises it."
     }
   ]
 }

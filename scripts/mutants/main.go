@@ -8,7 +8,8 @@
 // PACKAGE is check, lower, a package directory, or a ledger file. The
 // runner works on copies of the checkout under -work and never writes the
 // checkout, except the ledgers with -write. It first measures per-test
-// coverage (once per tree: the result is kept under -work): every
+// coverage (once per tree: the result is kept under -work, by default a
+// private directory removed at the end): every
 // top-level test of the check, lower and std packages and every default
 // example program, each in its own process, with coverage of check and
 // lower (the ergo CLI and the examples runner built with coverage, their
@@ -48,6 +49,19 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// privateWork is the default -work: a directory of this run alone, which
+// done removes. A fixed shared default let two runs at once overwrite each
+// other's coverage counters (batch-18 verify, On base: "open
+// /tmp/ergo-mutants/cover/counters/37: no such file"). Pass -work to keep
+// the coverage for a later run.
+func privateWork() (dir string, done func(), err error) {
+	dir, err = os.MkdirTemp("", "ergo-mutants-")
+	if err != nil {
+		return "", nil, err
+	}
+	return dir, func() { _ = os.RemoveAll(dir) }, nil
+}
+
 func run(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("mutants", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -55,7 +69,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var selectRE, memory, jsonOut string
 	var write bool
 	flags.StringVar(&cfg.Root, "root", ".", "the checkout")
-	flags.StringVar(&cfg.Work, "work", filepath.Join(os.TempDir(), "ergo-mutants"), "scratch `DIR`: the copies, the binaries and the kept coverage")
+	flags.StringVar(&cfg.Work, "work", "", "scratch `DIR`: the copies, the binaries and the kept coverage (default: a private directory, removed at the end)")
 	flags.StringVar(&selectRE, "run", "", "judge only the mutants whose name matches `REGEXP`")
 	flags.BoolVar(&cfg.All, "all", false, "run every covering test of each mutant, to name every killer")
 	flags.BoolVar(&write, "write", false, "record the killers found (and the gaps of mutants judged for the first time) in the ledgers")
@@ -80,6 +94,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	var err error
+	if cfg.Work == "" {
+		var done func()
+		if cfg.Work, done, err = privateWork(); err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		defer done()
+	}
 	if cfg.Memory, err = proclimit.ParseSize(memory); err != nil {
 		fmt.Fprintf(stderr, "mutants: -memory: %v\n", err)
 		return 2
@@ -270,7 +292,83 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 		}
 		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
 	}
+	// A killer or anchor test in a suite no ledger brought is run too, and
+	// only the tests the ledgers name: its other tests judge nothing here,
+	// and some need a harness of their own (runtime/v1's ergoexplore tests
+	// hang without the explored worker). No row is left to run by hand: a
+	// killer that names no suite is refused, not skipped. Only the selected
+	// rows bring suites: a run of one row builds and runs the killers that
+	// row names, not every killer of its ledger.
+	var unresolved []string
+	for _, j := range jobs {
+		for _, m := range j.Ledger.Mutants {
+			if j.Select != nil && !j.Select.MatchString(m.Name) {
+				continue
+			}
+			for _, id := range killerIDs(m) {
+				name, test := splitID(id)
+				i := slices.IndexFunc(suites, func(s Suite) bool { return s.Name == name })
+				if i < 0 {
+					s, need, ok := namedSuite(absRoot, name)
+					if !ok {
+						unresolved = append(unresolved, fmt.Sprintf("%s: %s: %s", j.Path, m.Name, id))
+						continue
+					}
+					for _, t := range need {
+						if !slices.ContainsFunc(tools, func(u Tool) bool { return u.Name == t.Name }) {
+							tools = append(tools, t)
+						}
+					}
+					s.Only = []string{}
+					suites = append(suites, s)
+					i = len(suites) - 1
+				}
+				if suites[i].Only != nil && !slices.Contains(suites[i].Only, test) {
+					suites[i].Only = append(suites[i].Only, test)
+				}
+				if !slices.Contains(suites[i].Named, test) {
+					suites[i].Named = append(suites[i].Named, test)
+				}
+			}
+		}
+	}
+	if len(unresolved) > 0 {
+		return nil, nil, nil, fmt.Errorf("killers that name no suite (want DIR:Test or DIR[TAGS]:Test with DIR a module directory, check, lower, std, api or ergo:Test, or examples:PROGRAM):\n  %s", strings.Join(unresolved, "\n  "))
+	}
 	return cover, tools, suites, nil
+}
+
+// namedSuite resolves the suite of a killer id that no ledger's scope
+// brought: a suite of ergoSuites by its name (lower, std, examples …),
+// with the tools it runs; or a package of the module by its directory,
+// DIR or DIR[TAGS] (built with -tags=TAGS).
+func namedSuite(root, name string) (Suite, []Tool, bool) {
+	_, tools, suites := ergoSuites()
+	for _, s := range suites {
+		if s.Name == name {
+			var need []Tool
+			for _, t := range tools {
+				if slices.Contains(toolsOf(&s), t.Name) {
+					need = append(need, t)
+				}
+			}
+			return s, need, true
+		}
+	}
+	dir, tags, tagged := strings.Cut(name, "[")
+	if tagged {
+		if !strings.HasSuffix(tags, "]") {
+			return Suite{}, nil, false
+		}
+		tags = strings.TrimSuffix(tags, "]")
+	}
+	if dir == "" || strings.HasPrefix(dir, ".") || filepath.IsAbs(dir) {
+		return Suite{}, nil, false
+	}
+	if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(dir))); err != nil || !info.IsDir() {
+		return Suite{}, nil, false
+	}
+	return Suite{Name: name, Package: "./" + dir, Tags: tags}, nil, true
 }
 
 // defaultExamples lists the example programs tagged default.
@@ -323,7 +421,7 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 			if m.Gap != "" {
 				closed = append(closed, fmt.Sprintf("%s: killed by %s; the ledger says: %s", r.Name, r.Killer, m.Gap))
 			}
-			if len(m.Killers) > 0 && !slices.Contains(m.Killers, r.Killer) {
+			if len(m.Killers) > 0 && !slices.Contains(killerIDs(&Mutant{Killers: m.Killers}), r.Killer) {
 				moved = append(moved, fmt.Sprintf("%s: killed by %s, not by its known killers %s", r.Name, r.Killer, strings.Join(m.Killers, " ")))
 			}
 			if len(r.Killers) == 1 && len(r.Ran) == r.Covering {
@@ -390,7 +488,8 @@ func record(j Job, results []Result, cov *coverage, now time.Time) {
 			case Killed:
 				killers := slices.Clone(r.Killers)
 				for _, k := range m.Killers {
-					if cov.test(k) != nil && !slices.Contains(killers, k) {
+					suite, name := splitID(k)
+					if cov.test(suite+":"+name) != nil && !slices.Contains(killers, k) && !slices.Contains(killers, suite+":"+name) {
 						killers = append(killers, k)
 					}
 				}
