@@ -254,6 +254,10 @@ func blockingNative(t *testing.T, name, route string) {
 	if strings.Contains(body, "NewLiveScheduler") {
 		subjRow, launchRow = " needs Ambient", " needs Ambient"
 	}
+	if body == "try h.Wait()" {
+		// Wait takes the task, and the takes clause is written (q137, EX3).
+		subjRow += " takes h"
+	}
 	if strings.Contains(maker, "NewLiveScheduler") {
 		makerRow, launchRow = " needs Ambient", " needs Ambient"
 		maker = strings.Replace(maker, " func(duration) {", " (func(duration))"+makerRow+" {", 1)

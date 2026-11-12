@@ -9,7 +9,7 @@ type Card { N int }
 type Box[T] { V T }
 func Check(c Card) bool { c.N > 0 }
 func Check[T Valid](b Box[T]) bool { b.V.Check() }
-func All[T Valid](x T) bool { x.Check() }
+func All[T lent Valid](x T) bool { x.Check() }
 `
 
 // Passing *T to another constrained function adapts the receiver and
