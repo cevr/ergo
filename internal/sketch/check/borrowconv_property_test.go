@@ -20,7 +20,9 @@ import (
 // A fourth of the functions take a borrow b *strings.Builder to the Go
 // interface io.Writer instead (bcGoCase), where a reviewed lent argument
 // of a Go call admits the borrow itself and a kept one refuses it by the
-// Go argument rule (ownership.go).
+// Go argument rule (ownership.go). A fifth instantiate a type parameter
+// with the value itself (bcGenericCase): a borrow is no type argument
+// (Borrows 7), whatever the generic body does with it.
 // The lifetime model: a value from an owned source goes anywhere; a value
 // from a borrow stands only as a one-name let's value, a with's context
 // entry, or (as a local) an operation call's receiver or a capture by a
@@ -65,6 +67,10 @@ func use(c Counter) int { c.Bump() }
 func run(f escaping func() int) int { f() }
 
 func each(f func() int) int { f() }
+
+type Box[T] { V T }
+
+func hold[T](x T, use escaping func(v T) int) func() int { func() int { use(x) } }
 
 func waited() int { task.Go() { 1 }.Wait() }
 
@@ -168,12 +174,58 @@ func bcGoCase(r *rand.Rand, name string) ([]string, int, string, string) {
 	return lines, at, local, "go local b " + site.name
 }
 
+// bcGenericSites are the places a value is a type argument: of a generic
+// function that returns it (id), of one that captures it in an escaping
+// closure (hold), and of a generic record literal (Box). %[1]s is the
+// value and %[2]s its type. A borrow is no type argument anywhere, but a
+// function type that takes one is (targ-func).
+var bcGenericSites = []bcSite{
+	{name: "targ-id", result: "int", at: "let u = id(%[1]s)", after: []string{"u.Bump()"}},
+	{name: "targ-hold", result: "int", at: "let f = hold(%[1]s, func(v %[2]s) int { v.Bump() })", after: []string{"f()"}},
+	{name: "targ-box", result: "int", at: "let b = Box{V: %[1]s}", after: []string{"b.V.Bump()"}},
+	{name: "targ-func", result: "int", at: "let g = id(func(v %[2]s) int { v.Bump() })", after: []string{"g(%[1]s)"}, ok: true},
+}
+
+// bcGenericCase is bcCase over a value that instantiates a type
+// parameter: a borrow (t, &x) is refused at its line, naming the generic
+// function or the record type; an owned Fixed is accepted.
+func bcGenericCase(r *rand.Rand, name string) ([]string, int, string, string) {
+	sources := []string{"t", "&x", "Fixed"}
+	source := sources[r.IntN(len(sources))]
+	typ := map[string]string{"t": "*Tally", "&x": "*Tally", "Fixed": "Fixed"}[source]
+	site := bcGenericSites[r.IntN(len(bcGenericSites))]
+	lines := []string{fmt.Sprintf("func %s(t *Tally) %s {", name, site.result)}
+	body := func(s string) int {
+		lines = append(lines, "\t"+s)
+		return len(lines) - 1
+	}
+	if source == "&x" {
+		body("let mut x = Tally{n: 0}")
+	}
+	at := body(fmt.Sprintf(site.at, source, typ))
+	for _, a := range site.after {
+		if strings.Contains(a, "%") {
+			a = fmt.Sprintf(a, source, typ)
+		}
+		body(a)
+	}
+	lines = append(lines, "}")
+	named := map[string]string{"targ-id": "typearg id", "targ-hold": "typearg hold", "targ-box": "typearg Box[*Tally]"}[site.name]
+	if source == "Fixed" || site.ok {
+		at = 0
+	}
+	return lines, at, named, "generic " + source + " " + site.name
+}
+
 // bcCase writes one function and returns its lines, the model's refused
 // line (0 for none), counted from the function's first line, the value the
 // refusal names, and the case's name.
 func bcCase(r *rand.Rand, name string) ([]string, int, string, string) {
-	if r.IntN(4) == 0 {
+	switch r.IntN(5) {
+	case 0:
 		return bcGoCase(r, name)
+	case 1:
+		return bcGenericCase(r, name)
 	}
 	sources := []string{"t", "&x", "Fixed"}
 	source := sources[r.IntN(len(sources))]
@@ -278,6 +330,12 @@ func TestBorrowConvModel(t *testing.T) {
 				got[d.Line] = named
 			case d.Code == "S108" && strings.Contains(d.Message, "may keep it; pass an owned Go reference"):
 				got[d.Line] = "kept"
+			case d.Code == "S108" && strings.Contains(d.Message, " cannot take a borrow as its ") && strings.Contains(d.Message, "Borrows 7"):
+				f, _, _ := strings.Cut(d.Message, " ")
+				got[d.Line] = "typearg " + f
+			case d.Code == "S108" && strings.HasPrefix(d.Message, "this value of ") && strings.Contains(d.Message, "Borrows 7"):
+				t, _, _ := strings.Cut(strings.TrimPrefix(d.Message, "this value of "), " ")
+				got[d.Line] = "typearg " + t
 			default:
 				got[d.Line] = d.String()
 			}
@@ -314,6 +372,13 @@ func TestBorrowConvModel(t *testing.T) {
 		}
 		for _, k := range []string{"go direct b " + s.name + " " + ok, "go local b " + s.name + " refused"} {
 			if !reached[k] {
+				t.Errorf("no seed reaches %q", k)
+			}
+		}
+	}
+	for _, s := range bcGenericSites {
+		for _, src := range []string{"t", "&x", "Fixed"} {
+			if k := "generic " + src + " " + s.name + map[bool]string{true: " accepted", false: " refused"}[src == "Fixed" || s.ok]; !reached[k] {
 				t.Errorf("no seed reaches %q", k)
 			}
 		}

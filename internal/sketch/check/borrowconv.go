@@ -41,6 +41,13 @@ import (
 // as the non-escaping function-value rule is (escaping.go), so a position
 // the checker gains later is refused until it is listed here.
 //
+// A type argument never holds a borrow (Borrows 7; v1-audit-3 G4): inside
+// a generic body a value of a type parameter is a plain value, which the
+// body may return, store or capture in an escaping frame, so a call that
+// instantiates a generic function with a *T, written or inferred, and a
+// literal of a generic type built over one, are S108. A function type
+// that takes a borrow holds none (typeArgBorrow).
+//
 // Prior art: Rust gives `&mut T as &mut dyn Trait` the lifetime of the
 // borrow (`dyn Trait + 'a`), so the trait object cannot outlive it; Swift
 // refuses to escape a non-escaping closure or an `inout` parameter, and a
@@ -53,7 +60,52 @@ const (
 	borrowHolderText        = "%s holds a borrow (*T) as %s, which lives only as long as the call that lent it: call its operations or bind it with a let, never return, store or pass it or convert it again (types.md, Borrows 6)"
 	borrowHolderCaptureText = "%s holds a borrow (*T) as %s, and this function literal or block may outlive the call that lent it or run on another task; call its operations before it (types.md, Borrows 6)"
 	borrowCtxText           = "%s is a borrow (*T), and a context that provides it keeps the borrow's lifetime: provide it only in the context of a with, never in a context value or a local context (types.md, Borrows 6)"
+	borrowTypeArgText       = "%s cannot take a borrow as its %s (%s): a type argument never holds a borrow (*T), since the generic body may keep, return or capture its value; write the borrow as a *T parameter of a function that is not generic over it (types.md, Borrows 7)"
+	borrowValueText         = "this value of %s holds a borrow (*T), and a borrow is never stored: a type argument never holds a borrow (types.md, Borrows 7)"
 )
+
+// typeArgBorrow reports whether t, a type argument or the type of a value
+// that is not a borrow itself, holds a borrow: a *T anywhere in it but in
+// a function type's parameters and results (a function value that takes a
+// borrow holds none).
+func typeArgBorrow(t Type) bool {
+	seen := map[Type]bool{}
+	var walk func(Type) bool
+	walk = func(t Type) bool {
+		if t == nil || seen[t] {
+			return false
+		}
+		seen[t] = true
+		switch t.(type) {
+		case *Pointer:
+			return true
+		case *Signature, *RowArg:
+			return false
+		}
+		_, _, _, _, kids := shape(t)
+		return slices.ContainsFunc(kids, walk)
+	}
+	return walk(t)
+}
+
+// checkBorrowInstance applies the type argument rule at x: a generic
+// function instantiated with a borrow, and a generic value (a record or
+// union literal, a map) built over one.
+func (w *escWalk) checkBorrowInstance(x syntax.Expr) {
+	if inst := w.info.Instances[x]; inst != nil {
+		for i, a := range inst.TypeArgs {
+			if typeArgBorrow(a) && i < len(inst.Func.Sig.TParams) {
+				w.c.errorf(x, CodeType, borrowTypeArgText, inst.Func.Name, inst.Func.Sig.TParams[i].Name, a)
+				return
+			}
+		}
+	}
+	if _, ok := x.(*syntax.CompositeLit); ok {
+		if t := w.info.Types[x]; t != nil && typeArgBorrow(t) {
+			w.c.errorf(x, CodeType, borrowValueText, t)
+		}
+	}
+}
 
 // borrowText names a borrow for a message: t, &x, &xs[…].
 func borrowText(x syntax.Expr) string {
@@ -97,6 +149,7 @@ func (w *escWalk) checkBorrowConv(n syntax.Node) {
 	if !ok {
 		return
 	}
+	w.checkBorrowInstance(x)
 	if to, b := w.borrowConversion(x); to != nil {
 		parent, _ := w.parentOf(x)
 		if _, entry := parent.(*syntax.ContextEntry); entry {
