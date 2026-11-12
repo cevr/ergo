@@ -345,11 +345,7 @@ func (c *checker) planLaws() {
 				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func New" + b[0].Type.Obj.Name + "(…) " + b[0].Type.Obj.Name + " builds one"
 			}
 		}
-		for i := range r.Contexts {
-			if r.Contexts[i].Unrun == "" {
-				r.Contexts[i].Unrun = "a rewrite law runs on providers its constructor builds, not under a context"
-			}
-		}
+		// A run under a named context is planned later (lawContext).
 	}
 }
 

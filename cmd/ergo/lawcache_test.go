@@ -8,8 +8,9 @@ import (
 )
 
 // lawCacheSource has a rewrite law with a site (the ledger runs it), two
-// pure laws that hold and one that is false, a law that runs under the
-// named context Live, and a machine with a reaches law and a sometimes
+// pure laws that hold and one that is false, the rewrite law again under
+// the named context Live (a run that has no law function to call), and a
+// machine with a reaches law and a sometimes
 // law, whose pass prints its witness.
 const lawCacheSource = `import sync
 
@@ -33,14 +34,7 @@ law Halves(x int) { x - x == 0 }
 
 law Wrong(x int) { x + 1 == x }
 
-type Gauge {
-	Level() int,
-	law Steady() { Level() == Level() },
-}
-
-func Level(t Tally) int { t.s.Get() }
-
-let Live = context { Gauge: NewTally() }
+let Live = context { Counter: NewTally() }
 
 type Lamp = Off{} | On{}
 
@@ -105,7 +99,7 @@ func TestLawVerdictsCLI(t *testing.T) {
 	xdg := filepath.Join(t.TempDir(), "xdg")
 	tmp := t.TempDir()
 	source := smokeWrite(t, root, "main.ergo", lawCacheSource)
-	held := []string{"ok law Counter.Joins for Tally (", "ok law Doubles (100 cases)", "ok law Halves (100 cases)", "ok law Gauge.Steady under Live (", "ok law Switch.Lights (", "ok law Switch.Lit ("}
+	held := []string{"ok law Counter.Joins for Tally (", "ok law Doubles (100 cases)", "ok law Halves (100 cases)", "ok law Counter.Joins under Live (", "ok law Switch.Lights (", "ok law Switch.Lit ("}
 	test := func(env ...string) string {
 		t.Helper()
 		t.Setenv("ERGO_LAWCACHE", "")

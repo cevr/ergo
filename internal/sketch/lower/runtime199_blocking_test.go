@@ -47,7 +47,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.lawTarget":       "a law case's task of one binding's run, which the case's Capture classifies its unwinding against (#162)",
 			"lowerer.listedRun":       "a listed law or property case's task, which the case's Capture classifies its unwinding against (MU6b, mu6c)",
 			"lowerer.reachRuns":       "a reachability law's task, which its case's Capture classifies its unwinding against (MU6)",
-			"lowerer.rewriteRuns":     "a rewrite law case's task, which its Capture classifies its unwinding against and its drawn operation calls take (Laws 14)",
+			"lowerer.rewriteCompare":  "a rewrite law case's task, which its Capture classifies its unwinding against and its drawn operation calls take (Laws 14)",
 			"lowerer.wireFunc":        "a codec function's Writer or Reader calls, through the prelude operation type's Go interface (L11)",
 			"typeCtx.wireEncodeWith":  "an inline codec event on the Writer interface (L11) or on a direct writer's methods (wiredirect.go)",
 			"typeCtx.wireDecode":      "an inline codec read on the Reader interface (L11)",

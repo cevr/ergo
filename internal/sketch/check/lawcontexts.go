@@ -2,6 +2,8 @@ package check
 
 import (
 	"sort"
+
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // Laws under a context (types.md, Laws 10; L5, #237 stage 3). A member law
@@ -126,5 +128,60 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 			}
 		}
 	}
+	if lc.Unrun == "" && law.Decl.Rewrite != nil && !freshEntry(w, node.entry) {
+		// Each side of a rewrite law's case needs its own provider
+		// (Laws 14): a build of the context makes one only when the
+		// entry calls the provider's constructor.
+		lc.Unrun = "a rewrite law runs each side on a fresh provider, and only an entry that calls a constructor func NewP(…) P builds one"
+	}
 	return lc, true
+}
+
+// freshEntry reports whether the entry e, of the context w or of one it
+// embeds, builds a new provider each time a with of the context runs: its
+// provider calls the constructor New<P> of its provider type P. A let
+// that holds a provider is one provider for every build.
+func freshEntry(w *Context, e *ContextEntry) bool {
+	pkg := entryPackage(w, e, map[*Context]bool{})
+	if pkg == nil || e.Provider == nil {
+		return false
+	}
+	call, ok := unparen(e.Provider).(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	var id *syntax.Ident
+	switch x := unparen(call.Fun).(type) {
+	case *syntax.Ident:
+		id = x
+	case *syntax.SelectorExpr:
+		id = x.Sel
+	}
+	if id == nil {
+		return false
+	}
+	f, _ := pkg.Info.Uses[id].(*Func)
+	if f == nil || len(f.Sig.Results) != 1 {
+		return false
+	}
+	n, _ := f.Sig.Results[0].(*Named)
+	return n != nil && n.Obj.ctor == f
+}
+
+// entryPackage is the package of the context, w or one it embeds, whose
+// own entries hold e; nil when none does.
+func entryPackage(w *Context, e *ContextEntry, seen map[*Context]bool) *Package {
+	if w == nil || seen[w] {
+		return nil
+	}
+	seen[w] = true
+	for _, own := range w.Entries {
+		if own == e {
+			return w.pkg
+		}
+		if p := entryPackage(own.Embedded, e, seen); p != nil {
+			return p
+		}
+	}
+	return nil
 }
