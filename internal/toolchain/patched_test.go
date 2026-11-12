@@ -201,6 +201,28 @@ func TestPatchBuildsOnceForTwoBuilds(t *testing.T) {
 	}
 }
 
+// TestGoModPinsTheRelease: ergo's own build runs the release it pins.
+// go.mod's toolchain line, which the go command switches to on every
+// host, names toolchain.Version, so the Mac's and this host's builds and
+// tests run one release, the one the IR patch is ported to. Mutant:
+// go.mod's toolchain line names another release
+// (irt-gomod-toolchain-differs).
+func TestGoModPinsTheRelease(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if name, ok := strings.CutPrefix(strings.TrimSpace(line), "toolchain "); ok {
+			lines = append(lines, strings.TrimSpace(name))
+		}
+	}
+	if len(lines) != 1 || lines[0] != Version {
+		t.Errorf("go.mod's toolchain lines are %q; want one, %s (toolchain.Version)", lines, Version)
+	}
+}
+
 // TestPatchRefusesAnUnportedGo: ergo patches only a release the lock ports
 // the patch to, and the release it pins is one. Mutants: the port is
 // looked up by the pin instead of the release the build runs
