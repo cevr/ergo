@@ -160,13 +160,15 @@ func (c *checker) clauseFix(f *Func, kind Kind, missing *Row) *ClauseFix {
 	var add []string
 	spellable := true
 	for _, e := range missing.Elems() {
-		text, imp, ok := c.spell(f.file, e)
+		text, imps, ok := c.spell(f.file, e)
 		if !ok {
 			spellable = false
 		}
 		add = append(add, text)
-		if imp != "" && !containsString(fix.Imports, imp) {
-			fix.Imports = append(fix.Imports, imp)
+		for _, imp := range imps {
+			if !containsString(fix.Imports, imp) {
+				fix.Imports = append(fix.Imports, imp)
+			}
 		}
 	}
 	// By spelling: the identity order of a row follows the declarations, and
@@ -261,46 +263,122 @@ func signatureText(src string, d *syntax.FuncDecl, fix *ClauseFix) string {
 // spell is how the file fi writes t: a type of its package or of the
 // prelude by name, an imported type through the file's import name. A
 // type of a package the file does not import is qualified by the
-// package's name and returns its path to import. ok is false for a type
-// with no source spelling.
-func (c *checker) spell(fi *fileInfo, t Type) (text, imp string, ok bool) {
+// package's name and returns its path to import (imps, each once). ok is
+// false for a type with no source spelling. It writes every form a
+// capability's argument takes (types.md, Capabilities 7: typExpr resolves
+// these and no other): a named type and its instance, a slice, an array,
+// a map, a tuple, a function type with its rows and takes clause, and an
+// error row argument. A record, an operation type or a union is written
+// only as a declaration, so it is a named type here.
+func (c *checker) spell(fi *fileInfo, t Type) (text string, imps []string, ok bool) {
+	s := &speller{c: c, fi: fi, ok: true}
+	text = s.typ(t)
+	return text, s.imps, s.ok
+}
+
+// speller spells types for spell, gathering the imports they need.
+type speller struct {
+	c    *checker
+	fi   *fileInfo
+	imps []string
+	ok   bool
+}
+
+func (s *speller) typ(t Type) string {
 	switch t := t.(type) {
 	case *TypeParam:
-		return t.Name, "", true
+		return t.Name
 	case *Named:
-		name, imp, ok := c.spellName(fi, t.Obj)
+		name, imp, ok := s.c.spellName(s.fi, t.Obj)
+		s.ok = s.ok && ok
+		if imp != "" && !containsString(s.imps, imp) {
+			s.imps = append(s.imps, imp)
+		}
 		if len(t.TArgs) > 0 {
-			parts := make([]string, len(t.TArgs))
-			for i, a := range t.TArgs {
-				s, aimp, aok := c.spell(fi, a)
-				parts[i] = s
-				ok = ok && aok
-				if imp == "" {
-					imp = aimp
-				}
-			}
-			name += "[" + strings.Join(parts, ", ") + "]"
+			name += "[" + s.list(t.TArgs) + "]"
 		}
-		return name, imp, ok
+		return name
 	case *Basic:
-		return t.String(), "", true
+		return t.String()
 	case *Slice:
-		s, imp, ok := c.spell(fi, t.Elem)
-		return "[]" + s, imp, ok
+		return "[]" + s.typ(t.Elem)
 	case *Array:
-		s, imp, ok := c.spell(fi, t.Elem)
-		return fmt.Sprintf("[%d]%s", t.Len, s), imp, ok
+		return fmt.Sprintf("[%d]%s", t.Len, s.typ(t.Elem))
 	case *Map:
-		// A capability's argument (Tab[Map[Job, int]], types.md
-		// Capabilities 7) is written as Ergo writes a map type.
-		k, kimp, kok := c.spell(fi, t.Key)
-		v, vimp, vok := c.spell(fi, t.Elem)
-		if kimp == "" {
-			kimp = vimp
-		}
-		return "Map[" + k + ", " + v + "]", kimp, kok && vok
+		return "Map[" + s.typ(t.Key) + ", " + s.typ(t.Elem) + "]"
+	case *Pointer:
+		return "*" + s.typ(t.Elem) // a borrow, as a function type's parameter
+	case *Tuple:
+		return "(" + s.list(t.Types) + ")"
+	case *RowArg:
+		return s.row(t.Row)
+	case *Signature:
+		return s.sig(t)
 	}
-	return t.String(), "", false
+	s.ok = false
+	return t.String()
+}
+
+func (s *speller) list(ts []Type) string {
+	parts := make([]string, len(ts))
+	for i, t := range ts {
+		parts[i] = s.typ(t)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// row spells a row's elements as a row is written, A | B, in an order of
+// their texts.
+func (s *speller) row(r *Row) string {
+	var parts []string
+	for _, e := range r.Elems() {
+		parts = append(parts, s.typ(e))
+	}
+	slices.Sort(parts)
+	return strings.Join(parts, " | ")
+}
+
+// sig spells a function type as signature writes it: escaping on a
+// parameter of a function type that may escape, the results, fails and
+// needs rows, and a takes clause by the names of its parameters (a
+// written takes names them all). A function type written in source has
+// no bare takes and no empty fails.
+func (s *speller) sig(t *Signature) string {
+	var b strings.Builder
+	b.WriteString("func(")
+	named := len(t.Takes) > 0
+	for i, p := range t.Params {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		if named {
+			b.WriteString(p.Name + " ")
+		}
+		if ps, ok := p.Type.(*Signature); ok && !ps.NonEscaping {
+			b.WriteString("escaping ")
+		}
+		b.WriteString(s.typ(p.Type))
+	}
+	b.WriteString(")")
+	// A written function type has at most one result: several are a
+	// tuple, (A, B).
+	for _, r := range t.Results {
+		b.WriteString(" " + s.typ(r))
+	}
+	if !t.Errors.Empty() {
+		b.WriteString(" fails " + s.row(t.Errors))
+	}
+	if !t.Uses.Empty() {
+		b.WriteString(" " + requirementKeyword + " " + s.row(t.Uses))
+	}
+	if named {
+		names := make([]string, len(t.Takes))
+		for i, ix := range t.Takes {
+			names[i] = t.Params[ix].Name
+		}
+		b.WriteString(" takes " + strings.Join(names, ", "))
+	}
+	return b.String()
 }
 
 func (c *checker) spellName(fi *fileInfo, o *TypeName) (string, string, bool) {

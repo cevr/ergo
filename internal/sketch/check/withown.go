@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -386,9 +387,9 @@ func (c *checker) chargeRelease(s *withSite, a *Acquisition, need relNeed) {
 		c.withNeeds[op] = append(c.withNeeds[op], relCap{key: k, cap: cap, what: what})
 		return
 	}
-	// A need the second check could not charge (a capability it cannot
-	// name again, seedType: an argument of an anonymous record or function
-	// type that names this package's types).
+	// A need the second check could not charge: seedType rebuilds every
+	// form a capability's argument takes, so no written program reaches
+	// this; it keeps the need from being dropped if one ever did.
 	c.errorf(s.x, CodeMissingCap, "%s requires %s, which is not in the capability row of %s and no with provides it", what, cap, t.name)
 }
 
@@ -437,7 +438,9 @@ func (c *checker) chargeWithReleases(x *syntax.CallExpr, frames []*withFrame) {
 		op := withOperand{x, i}
 		for _, r := range c.withSeeds[op] {
 			cap := c.seedCap(r)
-			if cap == nil {
+			if cap == nil || !sameAcross(r.cap, cap) {
+				// Not named again as the first check found it: reported
+				// by chargeRelease, as a need never charged.
 				continue
 			}
 			c.withHit[withNeedKey{op, r.key}] = true
@@ -459,31 +462,50 @@ func (c *checker) seedCap(r relCap) Type {
 // seedType is t, a type of the first check, in the second: a type that
 // names none of this package's types is the same in both checks; this
 // package's named type is looked up by name again, and an instance of a
-// generic one (Log[Job], a capability's concrete arguments, types.md
-// Capabilities 7) is instantiated again from its arguments' types. nil
-// for a type it cannot rebuild.
+// generic type (Log[Job], a capability's concrete arguments, types.md
+// Capabilities 7) is instantiated again from its arguments' types. It
+// rebuilds every form typExpr resolves a capability's argument to (a
+// slice, an array, a map, a borrow, a tuple, a function type and its
+// rows, an error row argument); a record, an operation type or a union is
+// a named type there. nil for any other type.
 func (c *checker) seedType(t Type) Type {
 	if !c.namesLocal(t) {
 		return t
 	}
 	switch t := t.(type) {
 	case *Named:
-		o, _ := c.pkg.Scope.lookup(t.origin().Obj.Name)
-		tn, ok := o.(*TypeName)
-		if !ok {
-			return nil
-		}
-		n, ok := tn.Type.(*Named)
-		if !ok || len(t.TArgs) == 0 {
-			return tn.Type
-		}
-		args := make([]Type, len(t.TArgs))
-		for i, a := range t.TArgs {
-			if args[i] = c.seedType(a); args[i] == nil {
+		n := t.origin()
+		if c.local(n) {
+			o, _ := c.pkg.Scope.lookup(n.Obj.Name)
+			tn, ok := o.(*TypeName)
+			if !ok {
 				return nil
 			}
+			if n, ok = tn.Type.(*Named); !ok || len(t.TArgs) == 0 {
+				return tn.Type
+			}
+		}
+		// Another package's generic type keeps its origin: its
+		// arguments name this package's types.
+		args := c.seedTypes(t.TArgs)
+		if args == nil {
+			return nil
 		}
 		return c.instantiate(n, args)
+	case *Tuple:
+		if ts := c.seedTypes(t.Types); ts != nil {
+			return &Tuple{Types: ts}
+		}
+	case *RowArg:
+		if r := c.seedRow(t.Row); r != nil {
+			return &RowArg{Row: r}
+		}
+	case *Pointer:
+		if e := c.seedType(t.Elem); e != nil {
+			return &Pointer{Elem: e}
+		}
+	case *Signature:
+		return c.seedSig(t)
 	case *Slice:
 		if e := c.seedType(t.Elem); e != nil {
 			return &Slice{Elem: e}
@@ -501,7 +523,100 @@ func (c *checker) seedType(t Type) Type {
 	return nil
 }
 
-// namesLocal reports a named type of this package that t is built from.
+func (c *checker) seedTypes(ts []Type) []Type {
+	out := make([]Type, len(ts))
+	for i, t := range ts {
+		if out[i] = c.seedType(t); out[i] == nil {
+			return nil
+		}
+	}
+	return out
+}
+
+func (c *checker) seedRow(r *Row) *Row {
+	out := newRow()
+	for _, e := range r.Elems() {
+		s := c.seedType(e)
+		if s == nil {
+			return nil
+		}
+		out = out.with(c.types, s)
+	}
+	return out
+}
+
+// seedSig is a function type of the first check in the second: its
+// parameters, results and rows rebuilt, its marks kept.
+func (c *checker) seedSig(t *Signature) Type {
+	params := make([]*Var, len(t.Params))
+	for i, p := range t.Params {
+		pt := c.seedType(p.Type)
+		if pt == nil {
+			return nil
+		}
+		params[i] = &Var{Name: p.Name, Type: pt, Pos: p.Pos, param: true}
+	}
+	results := c.seedTypes(t.Results)
+	errs, uses := c.seedRow(t.Errors), c.seedRow(t.Uses)
+	if results == nil || errs == nil || uses == nil {
+		return nil
+	}
+	return &Signature{Params: params, Results: results, Fallible: t.Fallible, Errors: errs, Uses: uses,
+		NonEscaping: t.NonEscaping, Takes: slices.Clone(t.Takes), TakesSelf: t.TakesSelf}
+}
+
+// sameAcross reports that a, a type of one check, and b, of another,
+// are the same type: the same forms (shape, which reads a function type's
+// escaping mark and takes clause), named types of one declaration by
+// package and name, and rows of the same elements. Ids are each check's
+// own, so it compares the structure.
+func sameAcross(a, b Type) bool {
+	if ra, ok := a.(*RowArg); ok {
+		rb, ok := b.(*RowArg)
+		if !ok || len(ra.Row.Elems()) != len(rb.Row.Elems()) {
+			return false
+		}
+		for _, x := range ra.Row.Elems() {
+			if !slices.ContainsFunc(rb.Row.Elems(), func(y Type) bool { return sameAcross(x, y) }) {
+				return false
+			}
+		}
+		return true
+	}
+	ka, refA, na, sa, kidsA := shape(a)
+	kb, refB, nb, sb, kidsB := shape(b)
+	if ka != kb || na != nb || sa != sb || len(kidsA) != len(kidsB) {
+		return false
+	}
+	switch ka {
+	case vNamed:
+		oa, ob := refA.(*Named).Obj, refB.(*Named).Obj
+		if oa.Name != ob.Name || (oa.Pkg == nil) != (ob.Pkg == nil) || oa.Pkg != nil && oa.Pkg.Path != ob.Pkg.Path {
+			return false
+		}
+	case vBasic:
+		if refA != refB {
+			return false
+		}
+	case vSlice, vArray, vMap, vPointer, vTuple, vSig:
+	default:
+		return false // no form of a capability's argument
+	}
+	for i := range kidsA {
+		if !sameAcross(kidsA[i], kidsB[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// local reports a named type of this package.
+func (c *checker) local(n *Named) bool {
+	return n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Path == c.pkg.Path
+}
+
+// namesLocal reports a named type of this package that t is built from,
+// through a function type's rows and a row argument's elements too.
 func (c *checker) namesLocal(t Type) bool {
 	seen := map[Type]bool{}
 	var walk func(Type) bool
@@ -510,16 +625,14 @@ func (c *checker) namesLocal(t Type) bool {
 			return false
 		}
 		seen[t] = true
-		if n, ok := t.(*Named); ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Path == c.pkg.Path {
+		if n, ok := t.(*Named); ok && c.local(n) {
 			return true
 		}
-		_, _, _, _, kids := shape(t)
-		for _, k := range kids {
-			if walk(k) {
-				return true
-			}
+		if r, ok := t.(*RowArg); ok {
+			return slices.ContainsFunc(r.Row.Elems(), walk)
 		}
-		return false
+		_, _, _, _, kids := shape(t)
+		return slices.ContainsFunc(kids, walk)
 	}
 	return walk(t)
 }
