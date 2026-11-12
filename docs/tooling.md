@@ -67,6 +67,8 @@ Errors always fail policy. Strict mode changes only the policy decision for warn
 
 `ergo fmt` formats with the one formatter and reports one formatter identity, at the top level and per file. `--stdin` writes only formatted source to stdout. Human file statuses and operational errors go to stderr. File `--json` and `--check --json` reports use stdout and keep stderr empty; `--stdin` with `--json` is an invocation error. Exit 0 means formatting completed (or the check found no differences), exit 1 means the check found differences, and exit 2 means an invocation, syntax, I/O, stale-source or limit failure.
 
+`ergo fix FILE|DIR [--check] [--json]` writes the `fails` and `needs` clauses that the signatures of a file, or of a package folder and the local packages it imports, are missing (explicit local signatures, owner 2026-11-12). It only adds clause elements and the imports they need, writes each changed file once by rename, and prints one line per widened signature, public contracts first under "public contract widened:". `--check` writes nothing and exits 1 when a signature would change. Any other diagnostic goes to stderr and the exit status is 1. `check`, `build` and `test` never run it ([diagnostics](spec/diagnostics.md#s102-missing-capability)).
+
 | Boundary | Limit |
 | --- | ---: |
 | File count | 100 files |
