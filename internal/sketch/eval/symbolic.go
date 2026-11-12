@@ -407,8 +407,8 @@ func rowless(fn *check.Func) bool {
 }
 
 // solvedEmpty reports a row with no element once each inferred row
-// variable (an unexported function's row) is replaced by its solution; an
-// unsolved variable is not empty.
+// variable (an unexported function's row) is replaced by its solution; a
+// final variable with no solution is empty, an unsolved one is not.
 func solvedEmpty(r *check.Row) bool {
 	for _, e := range r.Elems() {
 		v, ok := e.(*check.RowVar)
@@ -416,6 +416,9 @@ func solvedEmpty(r *check.Row) bool {
 			return false
 		}
 		sol := v.Solution()
+		if sol == nil && v.Final() {
+			continue
+		}
 		if sol == nil || !solvedEmpty(sol) {
 			return false
 		}
