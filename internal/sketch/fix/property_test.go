@@ -67,8 +67,8 @@ type program struct {
 	// midWritten is whether mid.Mid writes its fails clause.
 	midWritten bool
 	// codecCap is the capability Lv's codec needs when the program has the
-	// generic codec enc (the last function); -1 for none. onParse: ParseLv
-	// needs it, not Wire; an encode is charged both directions' needs
+	// generic codec enc (the last function); -1 for none. onParse: ParseLv,
+	// not Wire, requires it; an encode is charged both directions' needs
 	// (wired[T] in a needs row is one row for both, q141).
 	codecCap int
 	onParse  bool

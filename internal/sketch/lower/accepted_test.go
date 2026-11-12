@@ -24,7 +24,7 @@ import (
 // each needs a witness, a source that lowers whole and compiles.
 var implementedFamilies = []string{
 	"File", "ImportDecl", "ImportSpec", "TypeDecl", "FuncDecl", "VarDecl", "VarSpec", "ContextDecl", "ContextBody", "ContextEntry",
-	"Field", "FieldList", "FuncType", "StructType", "InterfaceType", "VariantSpec", "ErrorRow", "NeedsClause", "ExternSpec",
+	"Field", "FieldList", "FuncType", "StructType", "InterfaceType", "VariantSpec", "ErrorRow", "NeedsClause", "TakesClause", "ExternSpec",
 	"Ident", "BasicLit", "CompositeLit", "KeyValueExpr", "FuncLit", "ParenExpr", "SelectorExpr", "IndexExpr", "SliceExpr",
 	"CallExpr", "UnaryExpr", "BinaryExpr", "StarExpr", "TryExpr", "CatchExpr", "CatchArm", "AsPattern", "ArrayType", "MapType",
 	"DeclStmt", "ExprStmt", "AssignStmt", "ReturnStmt", "BlockStmt", "IfStmt", "ForStmt", "BranchStmt",

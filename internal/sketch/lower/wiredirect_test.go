@@ -40,7 +40,7 @@ func mine(p Port) {
 	encode(p, Text{n: 0})
 }
 
-func show[T wire](v T) string {
+func show[T wire](v T) string needs wired[T] {
 	let t = json.NewText()
 	encode(v, t)
 	t.Written()
