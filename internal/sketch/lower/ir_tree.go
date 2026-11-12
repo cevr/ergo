@@ -30,8 +30,9 @@ package lower
 // not decrease (dwarfgen's marker): monotone moves a scope's position up
 // to the last one written before it.
 //
-// Not yet: a match the tree leaves to the flat lowering, a match on a
-// scalar-form local (tagSwitchOf's scalarTags).
+// A scalar-form local as a subject is gathered first, as the emitter's
+// headerValue does (ir_scalar.go). Not yet: a match the tree leaves to the
+// flat lowering.
 
 import (
 	"strconv"

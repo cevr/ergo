@@ -271,6 +271,8 @@ type irBuilder struct {
 	// switch needs one; labels counts the function's labels (ir_tree.go).
 	label  string
 	labels int
+	// scalars are the locals in the scalar form (ir_scalar.go).
+	scalars map[*check.Var]*irScalar
 }
 
 // gate stops the body for reason; a census records it and goes on.

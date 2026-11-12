@@ -75,8 +75,8 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 		}
 		return b.treeMatch(s, subjects, s.Clauses, s.Rbrace, ret, to) // ir_tree.go
 	}
-	// A scalar-form local stops at its let (stmt); a parameter takes the
-	// form only in a body its call is inlined into (scalar.go).
+	// A parameter takes the scalar form only in a body its call is inlined
+	// into (scalar.go); the IR does not inline.
 	if len(b.l.info.Releases[s.Subjects[0]]) > 0 || len(b.l.info.Releases[x]) > 0 {
 		irNo("match subject that releases owned values")
 	}
@@ -86,19 +86,32 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 	}
 	gst := b.goType(st, x)
 	p := b.pos(s, s.Pos())
-	pre, sx := b.value(x)
-	p = past(p, pre)
-	// The subject is read once, into a local the cases read again.
-	subj := b.temp("s"+strconv.Itoa(b.next), gst, p)
-	pre = append(pre, &irStmt{K: "def", Pos: p, Local: subj, X: sx})
+	var pre []*irStmt
+	subj := -1
 	fu := b.flatOf(st)
-	if fu == nil && !b.fc.isInterface(st) {
-		irNo("match on a value that is no union")
+	sc := b.scalarIdent(x) // ir_scalar.go
+	if sc == nil {
+		var sx *irExpr
+		pre, sx = b.value(x)
+		p = past(p, pre)
+		// The subject is read once, into a local the cases read again.
+		subj = b.temp("s"+strconv.Itoa(b.next), gst, p)
+		pre = append(pre, &irStmt{K: "def", Pos: p, Local: subj, X: sx})
+		if fu == nil && !b.fc.isInterface(st) {
+			irNo("match on a value that is no union")
+		}
 	}
 	seen := map[string]bool{}
-	sw := &irStmt{K: "tswitch", Pos: p, End: b.pos(s, s.Rbrace), X: &irExpr{K: "local", Pos: p, I: subj}}
-	if fu != nil {
+	sw := &irStmt{K: "tswitch", Pos: p, End: b.pos(s, s.Rbrace)}
+	switch {
+	case sc != nil:
+		// A scalar-form local: the switch reads its tag, each case its
+		// slot (the emitter's scalarTags).
+		sw.K, sw.X = "switch", &irExpr{K: "local", Pos: p, I: sc.tag}
+	case fu != nil:
 		sw.K, sw.X = "switch", b.tagOf(subj, p)
+	default:
+		sw.X = &irExpr{K: "local", Pos: p, I: subj}
 	}
 	hasDefault := false
 	for _, cl := range s.Clauses {
@@ -127,6 +140,14 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 				irNo("covered case") // the emitter refuses it (unreachable)
 			}
 			seen[g] = true
+			if sc != nil {
+				k := b.scalarTag(sc, t, item)
+				if k < 0 {
+					irNo("case of another type")
+				}
+				c.Vals = append(c.Vals, &irExpr{K: "const", Pos: cp, T: "uint8", V: strconv.Itoa(k)})
+				continue
+			}
 			if fu == nil {
 				c.Types = append(c.Types, g)
 				continue
@@ -144,7 +165,9 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 			}
 			b.locals[as] = name
 			var val *irExpr
-			if fu != nil {
+			if sc != nil {
+				val = &irExpr{K: "local", Pos: cp, I: sc.slots[b.scalarTag(sc, asType, cl)]}
+			} else if fu != nil {
 				val = b.narrow(fu, subj, fu.tagOf(asType), cp, cl)
 			} else {
 				val = &irExpr{K: "assert", Pos: cp, T: b.goType(asType, cl), X: &irExpr{K: "local", Pos: cp, I: subj}}

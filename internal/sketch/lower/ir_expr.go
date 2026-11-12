@@ -28,6 +28,12 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 		pre, e = b.matchValue(y) // ir_match.go
 	case *syntax.TryExpr, *syntax.CatchExpr:
 		pre, e = b.failValue(y) // ir_fail.go
+	case *syntax.Ident:
+		sc := b.scalarIdent(y)
+		if sc == nil {
+			return nil, b.expr(x)
+		}
+		pre, e = b.gather(sc, y, b.pos(y, y.Pos())) // ir_scalar.go
 	default:
 		return nil, b.expr(x) // expr converts
 	}
@@ -94,6 +100,10 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		case *check.Var:
 			if i, known := b.locals[o]; known {
 				return &irExpr{K: "local", Pos: p, I: i}
+			}
+			if b.scalars[o] != nil {
+				// Its gather writes statements: a value (ir_scalar.go).
+				irNo("scalar-form local inside an expression")
 			}
 			if name, ok := b.l.vars[o]; ok {
 				// A package let: its Go variable.

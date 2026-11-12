@@ -232,9 +232,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			if !ok {
 				irNo("let without a variable")
 			}
-			if b.fc.scalarOf(v) != nil {
-				b.reserve(v)
-				irNo("scalar-form local")
+			if sl, ok := b.scalarLet(v, spec.Values[0], s.Decl.Mut.IsValid(), b.pos(s.Decl, s.Decl.Pos())); ok {
+				out = append(out, sl...) // ir_scalar.go
+				continue
 			}
 			var pre []*irStmt
 			var x *irExpr
@@ -268,6 +268,13 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			irNo("assignment to a place")
 		}
 		v, ok := b.l.info.Uses[id].(*check.Var)
+		if sc := b.scalars[v]; sc != nil && ok {
+			if op != "" {
+				irNo("op-assignment of a scalar-form local")
+			}
+			pre, x := b.value(s.Rhs[0])
+			return append(pre, b.scatter(sc, x, s, b.pos(s, s.Pos()))...) // ir_scalar.go
+		}
 		i, known := b.locals[v]
 		if !ok || !known {
 			irNo("assignment to a non-local")
