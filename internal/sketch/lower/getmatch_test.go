@@ -132,6 +132,132 @@ func (s getShape) fn(i int) string {
 
 const getFuncs = 12
 
+// lowerCopyMode lowers src with the element copy of a comma-ok read, or
+// with the reference copy of the whole receiver (getCopy "receiver").
+func lowerCopyMode(t *testing.T, name, src string, element bool) *lowered {
+	t.Helper()
+	saved := getCopy
+	defer func() { getCopy = saved }()
+	getCopy = ""
+	if !element {
+		getCopy = "receiver"
+	}
+	return mustLower(t, name, src)
+}
+
+// TestGetMatchCopiesTheValueNotTheMap is the speed promise of the comma-ok
+// read (wf10 GP frame cost): where the value rule copies a Map that a
+// match on m.Get(k) reads, the read takes the value in place and copies
+// that value only, so a read costs one value and not the whole Map (std
+// ui's composer read its sibling index this way on every node: 13.9M
+// instructions a dash-gui frame, 3.84M with the element copy). The
+// reference copies the receiver.
+func TestGetMatchCopiesTheValueNotTheMap(t *testing.T) {
+	src := `type Box { m Map[int, []int] }
+
+func look(b *Box, k int) int {
+	match b.m.Get(k) {
+	case Some[[]int] as s:
+		len(s.Value)
+	case None:
+		0
+	}
+}
+
+func main() needs Console {
+	let mut b = Box{m: Map[int, []int]{1: []int{4, 5}}}
+	Console.Println("\(look(&b, 1))")
+}
+`
+	read := regexp.MustCompile(`(?m)^\s*v(_[0-9]+)?, ok(_[0-9]+)? := (.*)\[k\]$`)
+	for _, element := range []bool{true, false} {
+		fn := goFuncBody(t, lowerCopyMode(t, fmt.Sprintf("gc%v", element), src, element).mainGo(), "look")
+		m := read.FindStringSubmatch(fn)
+		if m == nil {
+			t.Fatalf("element %v: no comma-ok read in\n%s", element, fn)
+		}
+		copied := strings.Contains(m[3], "Clone")
+		if copied == element {
+			t.Errorf("element %v: the read's receiver is %s (want a copy only in the reference)\n%s", element, m[3], fn)
+		}
+		if element && !strings.Contains(fn, "slices.Clone(v") {
+			t.Errorf("the element read does not copy the value it binds:\n%s", fn)
+		}
+	}
+}
+
+var getCopySeed = flag.Uint64("getcopy.seed", 0, "run TestGetMatchElementCopyAgrees on this seed alone")
+
+// TestGetMatchElementCopyAgrees is the seeded property of the element
+// copy: each seed writes functions that read a Map of slices through a
+// pointer with a match on Get and then return the value, keep it in the
+// Box, keep it and write to the kept copy, append to it, or only read it;
+// main writes to what they return and prints the Map after each. Built
+// with the element copy and with the reference copy of the receiver, the
+// two programs must print the same. A failure prints the seed, the Ergo
+// source and both outputs.
+// Replay: go test -run '^TestGetMatchElementCopyAgrees$' ./internal/sketch/lower -args -getcopy.seed=N
+//
+// It builds Go because the question is whether a value read from the Map
+// stays apart from it at run time, through every later copy decision the
+// value rule makes; no in-process check observes that, and Ergo has no
+// reference interpreter yet (test-speed T8).
+func TestGetMatchElementCopyAgrees(t *testing.T) {
+	needsBuild(t)
+	seeds := []uint64{1, 2, 3}
+	if *getCopySeed != 0 {
+		seeds = []uint64{*getCopySeed}
+	}
+	uses := []string{"return", "keep", "keepWrite", "append", "read"}
+	reached := map[string]bool{}
+	var programs []*lowered
+	sources := map[uint64]string{}
+	const funcs = 8
+	for _, seed := range seeds {
+		r := rand.New(rand.NewPCG(seed, 0x6763))
+		var b strings.Builder
+		b.WriteString("type Box { m Map[int, []int], kept []int }\n\n")
+		var calls strings.Builder
+		for i := range funcs {
+			use := uses[r.IntN(len(uses))]
+			reached[use] = true
+			arm := map[string]string{
+				"return":    "\t\ts.Value\n",
+				"keep":      "\t\tb.kept = s.Value\n\t\ts.Value\n",
+				"keepWrite": "\t\tb.kept = s.Value\n\t\tb.kept[0] = 77\n\t\ts.Value\n",
+				"append":    "\t\ts.Value.Append(9)\n",
+				"read":      "\t\t[]int{len(s.Value), s.Value[0]}\n",
+			}[use]
+			fmt.Fprintf(&b, "func f%d(b *Box, k int) []int {\n\tmatch b.m.Get(k) {\n\tcase Some[[]int] as s:\n%s\tcase None:\n\t\t[]int{0}\n\t}\n}\n\n", i, arm)
+			fmt.Fprintf(&calls, "\tlet mut r%d = f%d(&b, %d)\n\tr%d[0] = %d\n\tConsole.Println(\"f%d \\(list(r%d)) \\(list(b.kept)) \\(show(b.m))\")\n", i, i, 1+r.IntN(2), i, 100+i, i, i)
+		}
+		b.WriteString("func show(m Map[int, []int]) string {\n\tlet mut out = \"\"\n\tfor k in 1..3 {\n\t\tmatch m.Get(k) {\n\t\tcase Some[[]int] as s:\n\t\t\tout = out + \"\\(k)=\" + list(s.Value) + \" \"\n\t\tcase None:\n\t\t}\n\t}\n\tout\n}\n\n")
+		b.WriteString("func list(xs []int) string {\n\tlet mut out = \"[\"\n\tfor x in xs {\n\t\tout = out + \"\\(x) \"\n\t}\n\tout + \"]\"\n}\n\n")
+		b.WriteString("func main() needs Console {\n\tlet mut b = Box{m: Map[int, []int]{1: []int{1, 2}, 2: slices.WithCapacity[int](8).Append(3)}, kept: []int{}}\n")
+		b.WriteString(calls.String())
+		b.WriteString("}\n")
+		src := "import slices\n\n" + b.String()
+		sources[seed] = src
+		programs = append(programs,
+			lowerCopyMode(t, fmt.Sprintf("gc%don", seed), src, true),
+			lowerCopyMode(t, fmt.Sprintf("gc%doff", seed), src, false))
+	}
+	exes := buildAll(t, programs, true)
+	if exes == nil {
+		t.Fatalf("the Get copy programs do not build (seeds %v)", seeds)
+	}
+	for _, seed := range seeds {
+		on, onErr, onCode := runExe(t, exes[fmt.Sprintf("gc%don", seed)])
+		off, offErr, offCode := runExe(t, exes[fmt.Sprintf("gc%doff", seed)])
+		if on != off || onCode != 0 || offCode != 0 || strings.Count(on, "\n") != funcs {
+			t.Errorf("seed %d: element copy and receiver copy differ\nReplay: go test -run '^TestGetMatchElementCopyAgrees$' ./internal/sketch/lower -args -getcopy.seed=%d\n%s\n--- element (exit %d)\n%s%s\n--- receiver (exit %d)\n%s%s", seed, seed, sources[seed], onCode, on, onErr, offCode, off, offErr)
+		}
+	}
+	if *getCopySeed == 0 && len(reached) != len(uses) {
+		t.Errorf("the fixed seeds reach %d of %d uses: %v", len(reached), len(uses), reached)
+	}
+}
+
 // TestGetMatchAgrees is the seeded property of lw-get-commaok: each seed
 // writes a program of getFuncs generated matches on m.Get(k) (every
 // context, arm shape and arm order), lowers it with comma-ok and with the

@@ -34,6 +34,11 @@ import (
 // folds the match into a test; hand Go writes `v, ok := m[k]`.
 var getLowering string
 
+// getCopy "receiver" keeps the value rule's copy of the whole receiver
+// in a comma-ok read (the reference for getMatch's element copy); set by
+// a test or by -ldflags=-X=ergo.local/prototype/internal/sketch/lower.getCopy=receiver.
+var getCopy string
+
 // getArm is the arm that takes one variant of the Option and the binding
 // it makes: as, a binding of the variant (Some[V] or None); value, a
 // binding of Some's value.
@@ -83,9 +88,34 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	if len(list) != 2 {
 		ice(call, "a call of the prelude's Get with %d operands", len(list))
 	}
+	// The value rule may copy the receiver so that the Option it returns
+	// does not share the Map (values.go, Escapes). The read takes one
+	// value out of the Map, so copying that value is the same guarantee
+	// at the cost of one element, not of the whole Map: the receiver is
+	// read in place unless the key's evaluation could write to it (an
+	// operand in flight), and the value an arm binds is copied instead.
+	// The reference is getCopy "receiver" (TestGetMatchElementCopyAgrees).
+	elemCopy := false
+	if fc.l.vals != nil && fc.l.vals.clone[list[0]] && getCopy != "receiver" &&
+		!fc.emits(list[1]) && !fc.handsOff(list[1]) {
+		fc.l.vals.clone[list[0]] = false
+		defer func() { fc.l.vals.clone[list[0]] = true }()
+		elemCopy = some.as != nil || some.value != nil
+	}
 	vals := fc.callArgs(list, call)
 	v, okName := fc.temp("v"), fc.temp("ok")
 	fc.line(v + ", " + okName + " := " + vals[0] + "[" + vals[1] + "]")
+	if elemCopy {
+		m, ok := underEqual(fc.typeOf(list[0])).(*check.Map)
+		if !ok {
+			ice(call, "a receiver of the prelude's Get that is not a Map")
+		}
+		if c := fc.cloneValue(m.Elem, v, call); c != v {
+			fc.line("if " + okName + " {")
+			fc.line(v + " = " + c)
+			fc.line("}")
+		}
+	}
 	if some.as == nil && some.value == nil {
 		fc.line("_ = " + v)
 	}
