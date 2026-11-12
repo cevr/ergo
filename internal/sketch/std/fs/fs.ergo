@@ -315,14 +315,52 @@ func ReadFile(_ Host, path string) string fails NotFound | Denied | Failed {
 	try hostReadFile(path)
 }
 
-// MapFile is the whole text of the file at path, as ReadFile gives it,
-// read through a read-only mapping of the file instead of a copy: a large
-// file costs no read and no heap until its bytes are read. The mapping is
-// never unmapped, so a program maps a file it reads to the end, once. It
-// is a function of Host alone, not an operation of Files: a memory
-// provider has its text already.
-func MapFile(_ Host, path string) string fails NotFound | Denied | Failed {
+// Text is the text of a Mapped: a borrow of it (types.md, Borrows 8). It
+// stands only as a parameter's type, a let's value, an argument of a Text
+// parameter, the operand of an index, a slice, len or a comparison, and
+// the range of a for; never in a result, a field, an element, a type
+// argument, an interpolation, an assignment or a frame that may outlive
+// the call. Every use of a text is a use of its Mapped, so no text is read
+// after its Mapped is closed. A slice of a text is a text of the same
+// Mapped. Clone copies one into a string that may outlive it; no
+// conversion makes a string of a Text or a Text of a string.
+type Text string
+
+// Mapped is a file's text, read through a read-only mapping of the file
+// instead of a copy (MapFile), or a text held in memory (MapText). Close
+// unmaps it; the release of its owner closes it otherwise. Text is the
+// text, a borrow of the Mapped. Only the runtime makes one.
+// law-exempt: only MapFile and MapText make one; MapTextIsText and the
+// runtime's TestFSMappedKeepsItsInvariant check their texts.
+type Mapped {
+	runtimeOnly(),
+	Text() Text,
+	Close(),
+}
+
+// MapFile maps the file at path: its text is the whole file, as ReadFile
+// gives it, read where the page cache holds it, so a large file costs no
+// read and no heap until its bytes are read. A file that is not regular
+// (a pipe, a device) is read into memory. A file that another process
+// truncates while it is mapped makes a read past its new end a defect that
+// names the file, never a crash of the process. It is a function of Host
+// alone, not an operation of Files.
+func MapFile(_ Host, path string) Mapped fails NotFound | Denied | Failed {
 	try hostMapFile(path)
+}
+
+// MapText is a Mapped whose text is text, held in memory: a provider in
+// memory gives one where a host provider maps a file. Its Close releases
+// nothing.
+extern go ergo.local/prototype/runtime/v1.FSMapText func MapText(text string) Mapped
+
+// Clone is a copy of the text t as a string, which outlives t's Mapped.
+extern go ergo.local/prototype/runtime/v1.FSClone func Clone(t Text) string
+
+// MapTextIsText: the text of MapText(s) is s.
+law MapTextIsText(s string) {
+	let m = MapText(s)
+	Clone(m.Text()) == s
 }
 
 // ReadDir is the names of the entries of the directory at path, sorted.
@@ -379,7 +417,7 @@ func Remove(_ Host, path string) fails NotFound | Denied | Failed {
 }
 
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostReadFile(path string) string fails NotFound | Denied | Failed
-extern go ergo.local/prototype/runtime/v1.FSMapFile func hostMapFile(path string) string fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSMapFile func hostMapFile(path string) Mapped fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSReadDir func hostReadDir(path string) []string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSStat func hostStat(path string) Info fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSWriteFile func hostWriteFile(path string, text string) fails NotFound | Denied | Failed

@@ -137,7 +137,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Replayable parameter**: A function parameter that may run more than once, such as a transaction body. It may not assign captured locals, use channels or consume a resource, and its footprint holds only `sync.Tx`.
 
-**Borrow**: A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap. A value converted from it, to an operation type or a Go interface, keeps its lifetime ([types](docs/spec/types.md#borrows) Borrows 6), and it instantiates a type parameter only of a body that keeps no value of it (Borrows 7).
+**Borrow**: A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap. A value converted from it, to an operation type or a Go interface, keeps its lifetime ([types](docs/spec/types.md#borrows) Borrows 6), and it instantiates a type parameter only of a body that keeps no value of it (Borrows 7). A **mapped text**, `fs.Text`, is a borrow of its `fs.Mapped` with no `*` written: it is never stored, returned or converted, and every use of it is a use of its Mapped, so none follows `Close` (Borrows 8).
 
 **Resource**: A value whose type has a checked `Close()`, an operation type with a `Close()` operation or with an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
 

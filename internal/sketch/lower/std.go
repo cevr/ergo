@@ -55,6 +55,12 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	if obj.Pkg.Path == "os" && obj.Name == "Code" {
 		return "int"
 	}
+	// A mapped text is the Go string of its Mapped (v1.Mapped.Text): the
+	// checker's borrow rule (types.md, Borrows 8) is what keeps it, so its
+	// Go form is the plain string every string operation reads.
+	if obj.Pkg.Path == "fs" && obj.Name == "Text" {
+		return "string"
+	}
 	switch spec := obj.Decl.Spec.(type) {
 	case *syntax.StructType:
 		goName, ok := stdRecord(obj.Pkg.Path, obj.Name)
@@ -108,7 +114,7 @@ var runtimeProtocols = map[string]bool{
 	"actor.Actor": true, "actor.Host": true, "tasks.Set": true, "testing.Op": true,
 	"time.Timeline": true, "rand.Stream": true, "config.Redacted": true,
 	"exec.Running": true, "http.Exchange": true, "http.Listener": true,
-	"http.BodyFile": true, "fs.HostRoot": true,
+	"http.BodyFile": true, "fs.HostRoot": true, "fs.Mapped": true,
 }
 
 // isRuntimeType reports a std type the runtime's Go type stands for.

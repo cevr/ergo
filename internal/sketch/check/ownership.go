@@ -233,7 +233,11 @@ type ownWalk struct {
 	copies  map[*TypeParam]CopySite
 	// borrow maps a let-bound borrow `let p = &h` of an owned local to
 	// that local: a Close called through p takes h (R19).
-	borrow    map[*Var]*Var
+	borrow map[*Var]*Var
+	// textRoots maps a local that holds a mapped text to the local that
+	// owns its Mapped: a use of the text is a use of that owner
+	// (mappedtext.go, Borrows 8).
+	textRoots map[*Var]*Var
 	lending   *lendWalk
 	lendFrame syntax.Node
 	// ranged is the range of the for-in being walked, without its
@@ -964,6 +968,7 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 		}
 	}
 	w.letBorrow(spec)
+	w.letText(spec)
 }
 
 // letBorrow records `let p = &h`, or `let q = p` of such a p, where h is
@@ -1498,6 +1503,9 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		v, _ := w.info.Uses[x].(*Var)
 		i, ok := w.slot[v]
 		if v == nil || !ok {
+			if v != nil && w.textUse(x, v, h) {
+				return
+			}
 			w.pkgLetMove(x, v, mode, h)
 			w.funcValue(x, w.info.Types[x])
 			w.valueInstance(x)
@@ -2435,12 +2443,14 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			}
 			return false
 		}
-		w.expr(a, mLend, hand{hostLend: hostCallee, lend: func(i int, id *syntax.Ident) {
+		lendTo := func(i int, id *syntax.Ident) {
 			if loan == nil {
 				loan = &ownLoanCall{name: name, active: true}
 			}
 			w.st.slots[i].callLoans = append(liveLoans(w.st.slots[i].callLoans), ownLoan{loan, id})
-		}})
+		}
+		w.expr(a, mLend, hand{hostLend: hostCallee, lend: lendTo})
+		w.textLoan(a, lendTo)
 		if len(w.valueLoans(a)) > 0 && !nonEscaping(pt) {
 			w.checkLoanValue(a)
 		}

@@ -6503,6 +6503,7 @@ func (e *encoder) encFieldsownWalk(v *ownWalk) {
 	e.encT220(v.promote)
 	e.encT253(v.copies)
 	e.encT254(v.borrow)
+	e.encT254(v.textRoots)
 	e.encPtrlendWalk(v.lending)
 	e.encSyntax_Node(v.lendFrame)
 	e.encSyntax_Expr(v.ranged)
@@ -7002,6 +7003,7 @@ func (e *encoder) encFieldstypeCtx(v *typeCtx) {
 	e.encT11(v.decl)
 	e.encT11(v.field)
 	e.encT11(v.param)
+	e.encSyntax_Expr(v.textTop)
 	e.encPtrScope(v.scope)
 	e.encPtrlitParams(v.lit)
 }
@@ -16756,6 +16758,7 @@ func (d *decoder) decFieldsownWalk(v *ownWalk) {
 	v.promote = d.decT220()
 	v.copies = d.decT253()
 	v.borrow = d.decT254()
+	v.textRoots = d.decT254()
 	v.lending = d.decPtrlendWalk()
 	v.lendFrame = d.decSyntax_Node()
 	v.ranged = d.decSyntax_Expr()
@@ -17558,6 +17561,7 @@ func (d *decoder) decFieldstypeCtx(v *typeCtx) {
 	v.decl = d.decT11()
 	v.field = d.decT11()
 	v.param = d.decT11()
+	v.textTop = d.decSyntax_Expr()
 	v.scope = d.decPtrScope()
 	v.lit = d.decPtrlitParams()
 }

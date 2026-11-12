@@ -480,7 +480,6 @@ var runtimeBindings = map[string]runtimeBinding{
 	// std fs (G4, G4b; stdlib.md, fs): bodies that read or write the host
 	// file system and neither wait nor release.
 	"FSReadFile":  {},
-	"FSMapFile":   {},
 	"FSReadDir":   {},
 	"FSStat":      {},
 	"FSWriteFile": {},
@@ -499,6 +498,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"HostRoot.ReadDir":  {task: true},
 	"HostRoot.Stat":     {task: true},
 	"HostRoot.Name":     {task: true},
+	// fs.Mapped (wf10 MAPPED): a mapping and its text; Close unmaps. None
+	// waits, and Close releases only the mapping.
+	"FSMapFile":    {},
+	"FSMapText":    {},
+	"FSClone":      {},
+	"Mapped.Text":  {},
+	"Mapped.Close": {},
 	// std io (S1b; stdlib.md, io): bodies that write or read a standard
 	// stream of the host process; none releases. A read of standard input
 	// waits on the caller's task (batch-12 C3, decision O15): a stop of that

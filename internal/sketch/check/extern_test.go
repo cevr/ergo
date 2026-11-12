@@ -948,6 +948,21 @@ func main() {
 	use(Mine)
 }
 `,
+	// std fs Mapped (wf10 MAPPED): MapFile and MapText return it, and its
+	// runtimeOnly keeps every program value out. Mine has no Text: fs.Text
+	// is never a program function's result (types.md, Borrows 8).
+	"fs.Mapped": `import fs
+
+type Mine {}
+
+func Close(_ Mine) {}
+
+func use(m fs.Mapped) { _ = len(m.Text()) }
+
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported

@@ -1149,6 +1149,7 @@ type typeCtx struct {
 	decl     bool                  // a type declaration: bracket parameters only
 	field    bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
 	param    bool                  // a parameter or receiver: *T allowed
+	textTop  syntax.Expr           // a parameter's whole type: fs.Text allowed there (mappedtext.go)
 	scope    *Scope
 	lit      *litParams // a function literal's signature: its untyped parameters (D-E1)
 }
@@ -1236,6 +1237,9 @@ func (c *checker) lookupType(name string, ctx *typeCtx) Object {
 // suppresses every diagnostic that would follow from it (D3).
 func (c *checker) typExpr(x syntax.Expr, ctx *typeCtx) Type {
 	t := c.typExpr0(x, ctx)
+	if IsMappedText(t) && !c.textPlacement(x, ctx) {
+		return invalid
+	}
 	if n, ok := t.(*Named); ok && n.Orig == nil && len(n.TParams) > 0 {
 		c.errorf(x, CodeType, "generic type %s needs type arguments", n)
 		return invalid
@@ -1999,6 +2003,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 		for _, field := range ft.Params.List {
 			var t Type
 			if field.Type != nil {
+				pctx.textTop = field.Type
 				t = writtenParamType(field.Type, c.typExpr(field.Type, &pctx))
 			}
 			if len(field.Names) == 0 {

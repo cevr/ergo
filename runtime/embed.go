@@ -20,7 +20,7 @@ import (
 	"slices"
 )
 
-//go:embed rt/cause.go rt/clock.go rt/doc.go rt/gocontext.go rt/handle.go rt/idle.go rt/machine.go rt/regions.go rt/run.go rt/sched.go rt/sched_explore.go rt/sched_live.go rt/scope.go rt/task.go rt/tasks.go rt/timeout.go rt/trace.go rt/values.go
+//go:embed rt/cause.go rt/clock.go rt/doc.go rt/gocontext.go rt/handle.go rt/idle.go rt/machine.go rt/mapfault.go rt/regions.go rt/run.go rt/sched.go rt/sched_explore.go rt/sched_live.go rt/scope.go rt/task.go rt/tasks.go rt/timeout.go rt/trace.go rt/values.go
 //go:embed v1/actor.go v1/actor_host.go v1/actor_recover.go v1/actor_trace.go v1/mailbox.go v1/trace.go
 //go:embed rt/rttrace/encode.go rt/rttrace/jsonl.go rt/rttrace/rttrace.go
 //go:embed v1/context.go v1/data.go v1/exit.go v1/explore_laws.go v1/explore_off.go v1/explore_on.go v1/queue.go v1/runtime.go v1/sealed.go v1/task.go v1/text.go
@@ -36,7 +36,7 @@ import (
 //go:embed v1/exec.go v1/exec_exit_kqueue.go v1/exec_exit_linux.go v1/exec_start.go
 //go:embed explore/explore.go
 //go:embed testgen/stream.go
-//go:embed v1/moves.go v1/static.go v1/owned.go v1/unchecked.go
+//go:embed v1/mapped.go v1/moves.go v1/static.go v1/owned.go v1/unchecked.go
 //go:embed v1/redacted.go v1/redacted_text.go v1/config_names.go v1/toml_encode.go
 //go:embed explore/sched/dfs.go explore/sched/pct.go explore/sched/sched.go explore/sched/token.go explore/sched/worker.go
 var sources embed.FS
@@ -62,10 +62,10 @@ var packages = map[string]pkg{
 		files: []string{"explore.go"},
 	},
 	"runtime/rt": {
-		files: []string{"cause.go", "clock.go", "doc.go", "gocontext.go", "handle.go", "idle.go", "machine.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "task.go", "tasks.go", "timeout.go", "trace.go", "values.go"},
+		files: []string{"cause.go", "clock.go", "doc.go", "gocontext.go", "handle.go", "idle.go", "machine.go", "mapfault.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "task.go", "tasks.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "atomic.go", "collections.go", "config_names.go", "context.go", "csv.go", "data.go", "digest.go", "embed.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exec_start.go", "exit.go", "explore_laws.go", "explore_off.go", "explore_on.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "http.go", "http_client.go", "http_network.go", "json.go", "json_append.go", "mailbox.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "rand.go", "redacted.go", "redacted_text.go", "rpc.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "sync.go", "task.go", "term.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "unchecked.go", "wire.go"},
+		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "atomic.go", "collections.go", "config_names.go", "context.go", "csv.go", "data.go", "digest.go", "embed.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exec_start.go", "exit.go", "explore_laws.go", "explore_off.go", "explore_on.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "http.go", "http_client.go", "http_network.go", "json.go", "json_append.go", "mailbox.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "rand.go", "redacted.go", "redacted_text.go", "rpc.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "sync.go", "task.go", "term.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "unchecked.go", "wire.go"},
 		imports: []string{"runtime/explore/sched", "runtime/rt", "runtime/rt/rttrace"},
 	},
 	// The schedule explorer's strategies and worker transport: the

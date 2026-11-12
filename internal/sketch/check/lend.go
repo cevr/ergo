@@ -539,6 +539,12 @@ func (w *ownWalk) literalCaptures(key syntax.Node, body *syntax.BlockStmt, captu
 			return true
 		}
 		v, _ := w.info.Uses[id].(*Var)
+		if r := w.textRoots[v]; r != nil {
+			// A captured text captures its Mapped's owner (Borrows 8): the
+			// closure holds a lend of it, as a capture of the owner does.
+			w.textCapture(key, id, r, dest, seen)
+			return true
+		}
 		i, ok := w.slot[v]
 		if !ok || seen[v] {
 			return true

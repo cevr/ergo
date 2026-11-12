@@ -191,53 +191,91 @@ func FSReadFile(path string) (string, error) {
 	return string(data), nil
 }
 
-// FSMapFile is the body of fs.Host's MapFile: the whole file at path as
-// text, read through a read-only shared mapping of the file, not copied.
+// Mapped is fs.Mapped: the text of a file read through a read-only shared
+// mapping of it (FSMapFile), or a text held in memory (FSMapText). Close
+// unmaps it. Its methods take no hidden argument.
+//
+// Safety invariant (unsafe.String in FSMapFile): the bytes text points at
+// never change and stay mapped while anything reads text. The mapping is
+// PROT_READ, so no store through it is possible; Close alone unmaps it,
+// once. The checker keeps every read before Close: text reaches the
+// program only as an fs.Text, a borrow of its Mapped that no record,
+// collection, result, send or escaping frame holds and whose every use is
+// a use of the Mapped, so no use follows Close (types.md, Borrows 8;
+// TestMappedTextModel). fs.Clone copies a text into a string that may
+// outlive it. TestFSMappedKeepsItsInvariant checks the protection, the
+// text, and that Close unmaps.
+//
+// The host keeps one fact out of the program's reach: a file truncated by
+// another process while it is mapped faults on the next read of a missing
+// page (SIGBUS). The mapping is registered with rt (MapRegister), so a
+// task that reads it panics on the fault instead of crashing, and the
+// defect names the file (rt.MappedFault; TestMappedTruncationIsADefect).
+type Mapped struct {
+	text string
+	data []byte // the mapping; nil for a text in memory or an unmapped one
+	id   uint64 // the rt registration of data
+}
+
+// Text is the mapped text.
+func (m *Mapped) Text() string { return m.text }
+
+// Close unmaps the mapping, once: a second Close does nothing.
+//
+//ergo:host
+func (m *Mapped) Close() {
+	if m.data == nil {
+		return
+	}
+	rt.MapUnregister(m.id)
+	data := m.data
+	m.data, m.text = nil, ""
+	_ = syscall.Munmap(data)
+}
+
+// FSMapFile is the body of fs.MapFile: the Mapped of the whole file at
+// path, read through a read-only shared mapping of the file, not copied.
 // A large file costs no read and no heap: the text is the page cache's
 // bytes, faulted in as they are first read.
 //
-// Safety invariant (unsafe.String): the bytes the string points at never
-// change and stay mapped while the program runs. The mapping is
-// PROT_READ, so no store through it is possible, and it is never
-// unmapped: no Munmap is called and the slice that names it is dropped
-// here, so nothing can unmap it. So the string is immutable for as long
-// as anything reads it, as Go requires of a string. The host keeps one
-// fact out of the program's reach: a file truncated by another process
-// while it is mapped faults on the next read of a missing page (SIGBUS),
-// which Go reports as a fatal fault. TestFSMapFileKeepsItsInvariant checks
-// the protection and that the text outlives a collection.
-//
-// An empty file maps nothing and is "". A directory fails as FSReadFile
-// fails for it, and any other file that is not regular (a pipe, a
-// device) is read as FSReadFile reads it.
+// An empty file maps nothing and its text is "". A directory fails as
+// FSReadFile fails for it, and any other file that is not regular (a
+// pipe, a device) is read as FSReadFile reads it, into memory.
 //
 //ergo:host
-func FSMapFile(path string) (string, error) {
+func FSMapFile(path string) (*Mapped, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", fsErr(path, err)
+		return nil, fsErr(path, err)
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
-		return "", fsErr(path, err)
+		return nil, fsErr(path, err)
 	}
 	if !info.Mode().IsRegular() {
-		return FSReadFile(path)
+		text, err := FSReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		return &Mapped{text: text}, nil
 	}
 	size := info.Size()
 	if size == 0 {
-		return "", nil
+		return &Mapped{}, nil
 	}
 	if int64(int(size)) != size {
-		return "", Failed{Path: path, Reason: "file too large"}
+		return nil, Failed{Path: path, Reason: "file too large"}
 	}
 	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
-		return "", Failed{Path: path, Reason: err.Error()}
+		return nil, Failed{Path: path, Reason: err.Error()}
 	}
-	return unsafe.String(&data[0], len(data)), nil
+	m := &Mapped{text: unsafe.String(&data[0], len(data)), data: data}
+	m.id = rt.MapRegister(uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)), path)
+	return m, nil
 }
+
 
 // FSReadDir is the body of fs.Host's ReadDir: the names of the entries of
 // the directory at path, sorted by name (Go's os.ReadDir sorts them).
