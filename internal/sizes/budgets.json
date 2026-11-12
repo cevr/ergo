@@ -1,9 +1,9 @@
 {
-  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) measured on linux/amd64 with go1.27.0, plus 2 %, rounded up; Go package ceilings likewise. BS0 set them at main f6802de7; BS1 (runtime/v1 leaves), BS2 (core without fmt and reflect), BS3 (no time type in the task's type graph), BS5 (frontend reachability: unused equals hello) and BS6 (relative paths and compact call tables) lowered them; BS7 (machine graphs as static data, no init-time registration) added pairing, an actor program, with its registry facts. A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
+  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) measured on linux/amd64 with go1.27.0, plus 2 %, rounded up; Go package ceilings likewise. BS0 set them at main f6802de7; BS1 (runtime/v1 leaves), BS2 (core without fmt and reflect), BS3 (no time type in the task's type graph), BS5 (frontend reachability: unused equals hello) and BS6 (relative paths and compact call tables) lowered them; BS7 (machine graphs as static data, no init-time registration) added pairing, an actor program, with its registry facts; BS8 (the stack landed on batch 17, with http, rpc, redacted, exec start and the host walk in leaves) raised every fixture's ceiling to its measured value plus 2 % for the batch-17 code the stack had not seen: the core's json.go and moves.go initializers and ergoStack's new frames (hello +4 KB stripped), std flag's parser (kvstore main +64 KB) and the core's JSON text (deploys, pairing). A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
   "fixtures": {
     "hello": {
-      "ergoOnly": 262784,
-      "ergoOnlyStripped": 179651,
+      "ergoOnly": 269308,
+      "ergoOnlyStripped": 183829,
       "goPackages": 69,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
@@ -23,8 +23,8 @@
       ]
     },
     "pure": {
-      "ergoOnly": 263176,
-      "ergoOnlyStripped": 179651,
+      "ergoOnly": 269349,
+      "ergoOnlyStripped": 183829,
       "goPackages": 69,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
@@ -44,8 +44,8 @@
       ]
     },
     "unused": {
-      "ergoOnly": 262784,
-      "ergoOnlyStripped": 179651,
+      "ergoOnly": 269308,
+      "ergoOnlyStripped": 183829,
       "goPackages": 69,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
@@ -68,8 +68,8 @@
       ]
     },
     "relay": {
-      "ergoOnly": 295353,
-      "ergoOnlyStripped": 204719,
+      "ergoOnly": 301405,
+      "ergoOnlyStripped": 208896,
       "goPackages": 69,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
@@ -89,8 +89,8 @@
       ]
     },
     "kvstore": {
-      "ergoOnly": 871282,
-      "ergoOnlyStripped": 589087,
+      "ergoOnly": 979670,
+      "ergoOnlyStripped": 676824,
       "goPackages": 70,
       "forbid": [
         "^fmt\\.",
@@ -106,8 +106,8 @@
       ]
     },
     "deploys": {
-      "ergoOnly": 594272,
-      "ergoOnlyStripped": 413615,
+      "ergoOnly": 635690,
+      "ergoOnlyStripped": 442860,
       "goPackages": 69,
       "forbid": [
         "^time\\.Time\\.(String|Format|GoString)$",
@@ -128,8 +128,8 @@
       ]
     },
     "pairing": {
-      "ergoOnly": 1262681,
-      "ergoOnlyStripped": 869008,
+      "ergoOnly": 1304670,
+      "ergoOnlyStripped": 898253,
       "goPackages": 73,
       "forbid": [
         "^ergo\\.local/prototype/runtime/v1\\.(RegisterMachine|RegisteredGraph|VariantOf)\\[",
