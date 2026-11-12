@@ -135,7 +135,7 @@ func lookup(environ []string, key string) string {
 }
 
 func git(repo string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	cmd := exec.Command("git", append([]string{"--no-optional-locks", "-C", repo}, args...)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -148,7 +148,7 @@ func git(repo string, args ...string) (string, error) {
 // export writes the tree of commit into dst, an empty directory: a clean
 // checkout with no git state, from git archive.
 func export(repo, commit, dst string) error {
-	cmd := exec.Command("git", "-C", repo, "archive", "--format=tar", commit)
+	cmd := exec.Command("git", "--no-optional-locks", "-C", repo, "archive", "--format=tar", commit)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	r, err := cmd.StdoutPipe()
