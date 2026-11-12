@@ -147,7 +147,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	defer l.removeDir(scratch)
-	r := &runner{cfg: cfg, out: stdout, scratch: scratch, live: l}
+	r := &runner{cfg: cfg, out: stdout, scratch: scratch, live: l, toolEnv: toolEnvironment(os.Environ(), scratch)}
 	for _, p := range selected {
 		if cfg.record {
 			r.recordProgram(p)
@@ -620,10 +620,13 @@ func sortedKeys(m map[string]string) []string {
 }
 
 type runner struct {
-	cfg      *config
-	out      io.Writer
-	scratch  string // holds only the built programs
-	live     *live
+	cfg     *config
+	out     io.Writer
+	scratch string // holds only the built programs
+	live    *live
+	// toolEnv is the environment of every compiler command
+	// (toolEnvironment).
+	toolEnv  []string
 	cases    int
 	failures []string
 	// ts is the TypeScript run of the program whose cases run now, or
@@ -651,7 +654,21 @@ func (r *runner) finish() int {
 // tool runs a compiler command from the root with the runner's environment
 // and empty input, in its own process group.
 func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
-	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, os.Environ(), "", timeout, 0)
+	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, r.toolEnv, "", timeout, 0)
+}
+
+// cacheVariable is build.RootVariable, the emission cache root.
+const cacheVariable = "ERGO_CACHE"
+
+// toolEnvironment is environ with the emission cache root set to a folder
+// of the run's scratch, whatever the caller set: the runner is a check, and
+// its programs would fill the user's cache (docs/tooling.md, Emission cache
+// bound). The folder goes with the scratch when the run ends.
+func toolEnvironment(environ []string, scratch string) []string {
+	env := slices.DeleteFunc(slices.Clone(environ), func(entry string) bool {
+		return strings.HasPrefix(entry, cacheVariable+"=")
+	})
+	return append(env, cacheVariable+"="+filepath.Join(scratch, "cache"))
 }
 
 // toolFailed prints the failure of a compiler leg (fmt or build) and counts

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/testinputs"
 )
@@ -32,8 +33,18 @@ func TestMain(m *testing.M) {
 	// overrides Go variables with t.Setenv.
 	testCLI.environment = os.Environ()
 	// Process tests run the CLI and the programs it builds, which Go's test
-	// cache sees only through observation.
-	code := testinputs.Main(m)
+	// cache sees only through observation. This package's tests resolve
+	// the emission cache through XDG_CACHE_HOME, as a user's command does:
+	// init in build_test.go makes it private, the tests pass their own
+	// to the CLIs they start, and TestPackageNeverWritesUnderHome checks
+	// that nothing reaches HOME. So the private ERGO_CACHE that
+	// testinputs sets, which would come first, is taken off again.
+	code := testinputs.MainFunc(m, func() int {
+		if err := os.Unsetenv(build.RootVariable); err != nil {
+			return 1
+		}
+		return m.Run()
+	})
 	if testCLI.dir != "" {
 		_ = os.RemoveAll(testCLI.dir)
 	}

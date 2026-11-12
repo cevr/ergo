@@ -17,3 +17,13 @@ Each is an edit of `unparkedWaits` in `runtime_waits_test.go`, judged by hand (t
 | `Wait()` calls not counted | TestRuntimeWaitsPark | The rows `machineStart` and `Task.Wait` go stale. |
 | `rt.Park` not seen | TestRuntimeWaitsPark | Every parked wait (`Actor.await`, `Queue.wait`, …) is flagged. |
 | Function literals not entered (`mk1-residue-skips-literals`) | TestRuntimeWaitRule | Survives TestRuntimeWaitsPark; the rule test's literal is not flagged. |
+
+# Private emission cache mutants (wf10 CACHE-bound)
+
+Judged by hand: the edit applied, `go test -count=1 -run TestTestsUseAPrivateErgoCache ./internal/residue` run, the file restored. The rule: no test process resolves the emission cache to the user's (docs/tooling.md, Emission cache bound).
+
+| Mutant | Killer | Evidence |
+| --- | --- | --- |
+| `cache-bound-tests-share-user-cache`: `run = withPrivateCache(run)` removed from `testinputs.MainFunc` | TestTestsUseAPrivateErgoCache | Fails: "the test process resolves the emission cache to /home/exedev/.cache/ergo". |
+| `cache-bound-forgotten-not-refused` (in `internal/sketch/build`'s ledger): `DefaultRoot` skips the test rule | TestTestsUseAPrivateErgoCache, and TestForgottenCacheIsRefused there | Fails: "with ERGO_CACHE cleared a test process resolves "/home/exedev/.cache/ergo" (<nil>)" (round 2). |
+| `cache-bound-root-variable-ignored` (in `internal/sketch/build`'s ledger): `DefaultRoot` ignores `ERGO_CACHE` | TestTestsUseAPrivateErgoCache, and TestDefaultRoot there | The private directory is set but never resolved, so the process resolves the user's. |

@@ -30,13 +30,48 @@ type Cache struct{ Root string }
 // removes an older root only when no build holds its lease (lease.go).
 const privateLifetime = unusedLimit
 
-// DefaultRoot is $XDG_CACHE_HOME/ergo when XDG_CACHE_HOME is absolute,
-// else os.UserCacheDir()/ergo. The XDG base directory specification makes
-// a relative value invalid and to be ignored, so on the systems where
-// os.UserCacheDir reads XDG_CACHE_HOME a relative value falls back to
-// $HOME/.cache, which os.UserCacheDir would refuse instead.
+// RootVariable names the emission cache root directly, as GOCACHE names
+// Go's build cache. A test process sets it to a directory of its own
+// (internal/testinputs), so no test writes the user's cache; it changes
+// only ergo's cache, never Go's, which XDG_CACHE_HOME would also move.
+const RootVariable = "ERGO_CACHE"
+
+// DefaultRoot is $ERGO_CACHE when it is absolute, else $XDG_CACHE_HOME/ergo
+// when XDG_CACHE_HOME is absolute, else os.UserCacheDir()/ergo. A relative
+// ERGO_CACHE is an error, as a relative GOCACHE is to the go command. The
+// XDG base directory specification makes a relative XDG_CACHE_HOME invalid
+// and to be ignored, so on the systems where os.UserCacheDir reads
+// XDG_CACHE_HOME a relative value falls back to $HOME/.cache, which
+// os.UserCacheDir would refuse instead.
+//
+// A Go test never builds in the user's cache (docs/tooling.md, Emission
+// cache bound). So DefaultRoot refuses a root that the environment of a Go
+// test binary, this process or an ancestor, resolves to without
+// ERGO_CACHE: the cache of the user who ran the test. It reads that
+// environment as the test binary was started (testRoots), so no
+// environment a test builds for its programs, whatever it forgets, and no
+// variable a test changes, can hide the user's cache from the rule.
 func DefaultRoot() (string, error) {
-	xdg := os.Getenv("XDG_CACHE_HOME")
+	root, err := resolveRoot(os.Getenv, true)
+	if err != nil {
+		return "", err
+	}
+	if test, ok := testRoots(root); ok {
+		return "", fmt.Errorf("no cache directory for generated Go: %s resolves to the user's cache under the Go test %s; a test builds in a cache of its own: set %s (internal/testinputs sets it for each test process)", root, test, RootVariable)
+	}
+	return root, nil
+}
+
+// resolveRoot is DefaultRoot's resolution in the environment getenv reads,
+// without the test rule; own selects whether ERGO_CACHE counts.
+func resolveRoot(getenv func(string) string, own bool) (string, error) {
+	if dir := getenv(RootVariable); own && dir != "" {
+		if !filepath.IsAbs(dir) {
+			return "", fmt.Errorf("no cache directory for generated Go: %s=%q is not absolute", RootVariable, dir)
+		}
+		return filepath.Clean(dir), nil
+	}
+	xdg := getenv("XDG_CACHE_HOME")
 	if xdg != "" && filepath.IsAbs(xdg) {
 		return filepath.Join(xdg, "ergo"), nil
 	}
@@ -46,9 +81,11 @@ func DefaultRoot() (string, error) {
 	case "windows", "darwin", "ios", "plan9":
 		dir, err = os.UserCacheDir()
 	default:
-		var home string
-		if home, err = os.UserHomeDir(); err == nil {
+		// os.UserHomeDir is $HOME on these systems.
+		if home := getenv("HOME"); home != "" {
 			dir = filepath.Join(home, ".cache")
+		} else {
+			err = errors.New("$HOME is not defined")
 		}
 	}
 	if err != nil {
@@ -134,17 +171,18 @@ var testHookEntryOpened func(dir string)
 // until the caller calls Release on the module, after its link; on failure
 // Module holds nothing when it returns. A trim never moves a directory a
 // build holds. Module starts the cache's trim when one is due, after it has
-// decided its own module and while it holds it.
+// decided its own module and while it holds it, and the cap pass when it
+// published an entry past the cap (trim.go, trimAfter).
 //
 // When in.Compiler is process-scoped, the same steps run in the process's
 // private root instead, and the module is never published: a key that only
 // one process can trust never names a shared entry. The build also holds
 // the root's lease until Release.
-func (c Cache) Module(in Input, emit Emitter) (Module, error) {
+func (c Cache) Module(in Input, emit Emitter) (built Module, err error) {
 	if !filepath.IsAbs(c.Root) {
 		return Module{}, fmt.Errorf("build: cache root %q is not absolute", c.Root)
 	}
-	defer func() { c.maybeTrim(time.Now()) }()
+	defer func() { c.trimAfter(time.Now(), err == nil && !built.Reused && !built.Private) }()
 	if !processScoped(in.Compiler) {
 		return c.module(in, emit)
 	}
