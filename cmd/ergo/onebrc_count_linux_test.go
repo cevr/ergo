@@ -42,8 +42,15 @@ import (
 // A host with no counter of user-space instructions (no PMU in the VM, or
 // perf_event_paranoid above 2) skips the test and says why.
 //
+// The bound is 0.95 since BCE1 (2026-11-12): the bounds facts take the
+// checks off the fast path's word loads, and onebrc ran 283.24
+// instructions per row to the control's 303.81 (0.932; 100,000,000 rows,
+// 7 rounds; 299.05 before). The control keeps its checks: it is the
+// algorithm as a Go programmer writes it.
+//
 // Mutants: const-let-never (lower ledger: package lets stay Go variables,
-// so the table's mask and bounds are loads) puts onebrc above the control.
+// so the table's mask and bounds are loads) puts onebrc above the control,
+// and bounds-unchecked-never (BCE1: no load is unchecked) above the bound.
 func TestOneBRCCountsAsHandGo(t *testing.T) {
 	needsBuild(t)
 	runtime.LockOSThread()
@@ -99,8 +106,8 @@ func TestOneBRCCountsAsHandGo(t *testing.T) {
 	}
 	ratio := brcMedian(ergo) / brcMedian(hand)
 	t.Logf("per row over %d rows: onebrc %.2f instructions, hand Go %.2f; ratio %.3f", rows, brcMedian(ergo), brcMedian(hand), ratio)
-	if ratio > 1.00 {
-		t.Errorf("onebrc runs %.3f of the hand control's instructions per row; want at most 1.00", ratio)
+	if ratio > 0.95 {
+		t.Errorf("onebrc runs %.3f of the hand control's instructions per row; want at most 0.95", ratio)
 	}
 }
 

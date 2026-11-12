@@ -2,12 +2,12 @@
 // temperature as 64-bit little-endian words.
 
 import bits
-import strings
 
-// Word is the eight bytes of text at p as a little-endian word; p+8 is
-// within text.
-func Word(text string, p int) uint64 {
-	let w = strings.Slice(text, p, p+8)
+// Word is the eight bytes of w as a little-endian word. Its caller cuts w
+// from the text where a guard proves the cut in range, so the cut needs
+// no check (the lowering's bounds facts), and gc, which then sees eight
+// bytes, needs none for the reads.
+func Word(w string) uint64 {
 	uint64(w[0]) | uint64(w[1])<<8 | uint64(w[2])<<16 | uint64(w[3])<<24 | uint64(w[4])<<32 | uint64(w[5])<<40 | uint64(w[6])<<48 | uint64(w[7])<<56
 }
 

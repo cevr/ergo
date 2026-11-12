@@ -15,8 +15,9 @@ let TableBits = 15
 let Slots = 32768
 
 // FastMargin is the room the fast path needs after a line start: a
-// station of up to MaxName bytes, its ';' and a word of temperature.
-let FastMargin = 128
+// station of up to MaxName bytes, its ';' and a word of temperature, read
+// at an offset masked to 0..127, so 127+1+8.
+let FastMargin = 136
 
 // Slot is one station of a table: its key words, where it first appears
 // and its length (0: the slot is free), and its Stats.
@@ -46,9 +47,13 @@ func Scan(text string, from int, end int) Part {
 		let mut v = 0
 		let mut next = 0
 		let mut fast = false
-		if p+FastMargin <= len(text) {
-			w0 = Word(text, p)
-			w1 = Word(text, p+8)
+		// The guard proves each cut of the fast path in range (the
+		// lowering's bounds facts: no cut ends past p+136), so none is
+		// checked again. It is written with len on the right: p+FastMargin
+		// could wrap past the largest int, len(text)-FastMargin cannot.
+		if 0 <= p && p <= len(text)-FastMargin {
+			w0 = Word(text[p : p+8])
+			w1 = Word(text[p+8 : p+16])
 			let s0 = Lanes(w0, Semis)
 			let s1 = Lanes(w1, Semis)
 			let mut bad uint64 = 0
@@ -63,8 +68,8 @@ func Scan(text string, from int, end int) Part {
 			} else {
 				bad = Lanes(w0, Newlines) | Lanes(w1, Newlines)
 				n = 16
-				for n <= MaxName {
-					let w = Word(text, p+n)
+				for uint(n) <= uint(MaxName) {
+					let w = Word(text[p+n : p+n+8])
 					let s = Lanes(w, Semis)
 					if s != 0 {
 						bad |= Lanes(w&Below(s), Newlines)
@@ -75,7 +80,12 @@ func Scan(text string, from int, end int) Part {
 					n += 8
 				}
 			}
-			let t = ReadTemp(Word(text, p+n+1))
+			// The temperature's word, read with no branch: m is n for a
+			// station of 1 to MaxName bytes, the only one the fast path
+			// keeps, and stays in 0..127 for any other, so the word lies in
+			// the guard's margin either way.
+			let m = n & 127
+			let t = ReadTemp(Word(text[p+m+1 : p+m+9]))
 			v = t.Tenths
 			next = p + n + t.Width + 2
 			fast = (bad|t.Bad) == 0 && uint(n-1) < uint(MaxName)
