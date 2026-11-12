@@ -22,11 +22,13 @@ import (
 // case is a partial catch under try, or a total catch whose subject's
 // covered calls an outer try propagates. The reference model in this file
 // gives each case's value or failure. The check-time evaluator runs every
-// case's test in process, and the lowered Go type-checks (typecheckGo);
-// TestTryCatchEvalAgreesBuilt runs the lowered programs, so both are held
-// to the model and so to each other. A failing seed prints the Ergo
-// source, both outputs and the replay command; ERGO_TRY_EVAL_SEED=<seed>
-// replays one seed. The seeds must reach every outcome in teOutcomes.
+// case's test in process, and the lowered Go type-checks (typecheckGo).
+// A failing seed prints the Ergo source, the evaluator's verdict, the
+// model's line and the replay command; ERGO_TRY_EVAL_SEED=<seed> replays
+// one seed. The seeds must reach every outcome in teOutcomes. The lowered
+// programs of these seeds, run under the default and the reference
+// lowerings, printed the model's lines at 3014761e8 (TRY-eval round 1);
+// that leg named no lowering mutant other tests miss, so it is not kept.
 //
 // Mutants it kills (eval testdata/mutants.json): try-eval-catch-takes-covered,
 // try-eval-branch-not-tail.
@@ -54,38 +56,6 @@ func TestTryCatchEvalAgrees(t *testing.T) {
 		for _, k := range teOutcomes {
 			if outcomes[k] == 0 {
 				t.Errorf("no case reached the outcome %s (reached: %v)", k, outcomes)
-			}
-		}
-	}
-}
-
-// TestTryCatchEvalAgreesBuilt runs the same seeds' programs, under the
-// default and the reference lowerings, and compares each printed line with
-// the model. It builds Go because the claim is what the lowered program
-// does when a covered call fails (the hoisted check returns before the
-// catch's switch): go/types says only that it compiles.
-func TestTryCatchEvalAgreesBuilt(t *testing.T) {
-	needsBuild(t)
-	var built []*lowered
-	var progs []teProgram
-	for _, seed := range teSeeds() {
-		p := teGenerate(seed)
-		progs = append(progs, p)
-		built = append(built, mustLower(t, fmt.Sprintf("tryeval%d", seed), p.src))
-		func() {
-			defer referenceLowerings()()
-			built = append(built, mustLower(t, fmt.Sprintf("tryeval%d_ref", seed), p.src))
-		}()
-	}
-	exes := buildAll(t, built, true)
-	if exes == nil {
-		return
-	}
-	for _, p := range progs {
-		for _, name := range []string{fmt.Sprintf("tryeval%d", p.seed), fmt.Sprintf("tryeval%d_ref", p.seed)} {
-			stdout, stderr, code := runExe(t, exes[name])
-			if code != 0 || stdout != p.want {
-				t.Errorf("seed %d, %s: exit %d, stderr %q\n%s\nsource:\n%s\n%s", p.seed, name, code, stderr, diffLines(stdout, p.want), p.src, p.replay())
 			}
 		}
 	}
@@ -122,7 +92,6 @@ const teCases = 12
 type teProgram struct {
 	seed     int64
 	src      string
-	want     string            // main's lines
 	wants    map[string]string // test name -> the model's line
 	outcomes map[string]int
 }
@@ -393,11 +362,12 @@ var teArmValue = map[string]int{"A": -1, "B": -2}
 
 // teGenerate makes seed's program: teCases case functions, each with a
 // show function that renders its value or failure, a test per case that
-// asserts the model's line, and a main that prints every line.
+// asserts the model's line, and a main that prints every line (the run
+// build that typecheckGo checks).
 func teGenerate(seed int64) teProgram {
 	g := &teGen{rng: rand.New(rand.NewSource(seed))}
 	p := teProgram{seed: seed, wants: map[string]string{}, outcomes: map[string]int{}}
-	var src, main, want strings.Builder
+	var src, main strings.Builder
 	src.WriteString(tePrelude)
 	main.WriteString("\nfunc main() needs Console {\n")
 	for k := 1; k <= teCases; k++ {
@@ -473,10 +443,9 @@ func teGenerate(seed int64) teProgram {
 		p.wants[name] = line
 		fmt.Fprintf(&src, "\ntest %s {\n\tassert show%d(3) == %q\n}\n", name, k, line)
 		fmt.Fprintf(&main, "\tConsole.Println(show%d(3))\n", k)
-		want.WriteString(line + "\n")
 	}
 	main.WriteString("}\n")
 	src.WriteString(main.String())
-	p.src, p.want = src.String(), want.String()
+	p.src = src.String()
 	return p
 }
