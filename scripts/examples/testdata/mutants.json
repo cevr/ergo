@@ -36,6 +36,43 @@
       "to": "if false && evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
       "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
       "killers": ["examples:TestCheckVerdictsMatchNative"]
+    },
+    {
+      "name": "one-module-per-package",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "if p.module && len(p.tests) > 1 && r.testModule(p) {",
+      "to": "if false && p.module && len(p.tests) > 1 && r.testModule(p) {",
+      "rule": "The test leg of a program of packages is one ergo test DIR/..., one check of the module and one test binary, not one per package.",
+      "killers": ["examples:TestModuleProgram"]
+    },
+    {
+      "name": "one-module-ignores-evaluation",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "r.compareEvaluation(p, strings.Replace(leg, \"test\", \"check\", 1), evaluation, section)",
+      "to": "_ = section",
+      "rule": "One ergo test of a program of packages still compares each package's check-time verdicts with its part of the native report.",
+      "killers": ["examples:TestModuleProgramJudgesEachPackage"]
+    },
+    {
+      "name": "one-module-ignores-skips",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "if skips := unexpectedSkips(section, p.dir); len(skips) > 0 {",
+      "to": "if skips := unexpectedSkips(section, p.dir); false && len(skips) > 0 {",
+      "rule": "One ergo test of a program of packages fails a package whose part of the report holds a skip that expected-skips does not list (fs4).",
+      "killers": ["examples:TestModuleProgramJudgesEachPackage"]
+    },
+    {
+      "name": "one-module-any-packages",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "if got := slices.Sorted(slices.Values(order)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {",
+      "to": "if got := slices.Sorted(slices.Values(order)); false {",
+      "rule": "A run that tested other packages than the program's fails the program.",
+      "killers": [],
+      "gap": "No fixture runs an ergo whose DIR/... selection differs from the runner's package folders; both walk the same folders today (sketchfront.DiscoverPackages, packageSources). The check guards a future divergence."
     }
   ]
 }

@@ -74,6 +74,17 @@ failure does not hide later packages: the command exits 1 if any selected packag
 failed. A defect or signal stops the run and keeps its status. `--seed`, `-work`
 and target options keep their per-package meaning. Recursive check writes one
 JSON check envelope per package, one per line, and exits 1 if any failed.
+
+`ergo test DIR/...` loads the module once: std is imported once, a package that
+another selected package imports is checked once, and each selected package is
+checked once more as its own test build's root. It links one test binary that
+holds every selected package's test build and runs it once per package, so each
+package prints what `ergo test` of that package alone prints, with the same
+receipt and the same exit status rule (TEST-one). When the packages cannot share
+one load or one build (a diagnostic, a lowering refusal, a Go build failure, a
+module binding in `ergo.bind`), and for `-work`, `--explore` and a schedule
+search, each package is checked and built alone, as before, so a failure is
+reported where it belongs.
 Formatting still uses syntax only; a type error does not prevent formatting.
 
 ## Exit status
