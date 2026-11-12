@@ -26,9 +26,6 @@ func (p *preflight) function(fr *frame, fn *check.Func) string {
 		}
 		return fmt.Sprintf("a Go function (%s), even a pure one", fn.Name)
 	}
-	if fn.Ptr {
-		return "a call that borrows its receiver"
-	}
 	return p.body(p.in.newFrame(fn.Pkg, fn.Decl), fn.Decl, fn.Decl.Body, nil, nil)
 }
 

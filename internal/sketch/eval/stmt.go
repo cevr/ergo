@@ -532,8 +532,9 @@ func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrup
 		}
 		return s, nil, "", nil
 	case *syntax.SelectorExpr:
-		if _, ok := fr.typeOf(x.X).(*check.Pointer); ok {
-			return nil, nil, "a field through a pointer", nil
+		if isPointer(fr.typeOf(x.X)) {
+			root, steps, ab := in.placeThrough(fr, x.X)
+			return root, append(steps, step{at: x, field: x.Sel.Name}), "", ab
 		}
 		root, steps, why, ab := in.place(fr, x.X)
 		if ab != nil || why != "" {
@@ -541,10 +542,15 @@ func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrup
 		}
 		return root, append(steps, step{at: x, field: x.Sel.Name}), "", nil
 	case *syntax.IndexExpr:
-		if _, ok := fr.typeOf(x.X).(*check.Pointer); ok {
-			return nil, nil, "an element through a pointer", nil
+		var root *slot
+		var steps []step
+		var why string
+		var ab *abrupt
+		if isPointer(fr.typeOf(x.X)) {
+			root, steps, ab = in.placeThrough(fr, x.X)
+		} else {
+			root, steps, why, ab = in.place(fr, x.X)
 		}
-		root, steps, why, ab := in.place(fr, x.X)
 		if ab != nil || why != "" {
 			return nil, nil, why, ab
 		}
@@ -557,7 +563,8 @@ func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrup
 		}
 		return root, append(steps, step{at: x, index: iv}), "", nil
 	case *syntax.StarExpr:
-		return nil, nil, "a pointer's target", nil
+		root, steps, ab := in.placeThrough(fr, x.X)
+		return root, steps, "", ab
 	}
 	return nil, nil, "this place", nil
 }

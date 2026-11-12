@@ -227,6 +227,8 @@ func describeColl(v Value) (string, bool) {
 		return "the function " + v.name, true
 	case *machinePlan:
 		return v.tn.Name + "{}", true
+	case *ptrV:
+		return "a borrow", true
 	}
 	return "", false
 }

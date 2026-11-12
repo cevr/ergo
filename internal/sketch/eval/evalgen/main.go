@@ -29,7 +29,7 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows"}
 
 const mainPrelude = `import io
 import machines
@@ -68,6 +68,24 @@ func pick[T](a T, b T) T {
 func apply(f func(x int) int, x int) int { f(x) }
 
 func shout(s string) string { strings.ToUpper(s) }
+
+type Acc { total int, items []int }
+
+func push(a *Acc, v int) {
+	a.items = a.items.Append(v)
+	a.total = a.total + v
+}
+
+func bump(a *Acc, i int) { a.items[i] = a.items[i] * 10 }
+
+func size(a Acc) int { len(a.items) }
+
+func both(a *Acc, v int) {
+	push(a, v)
+	if a.size() == 3 {
+		bump(a, 0)
+	}
+}
 
 type Ctr { n int, limit int }
 
@@ -160,7 +178,9 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(10) {
+		switch g.r.IntN(11) {
+		case 10:
+			g.borrows(k)
 		case 9:
 			g.machine(k)
 		case 7:
@@ -525,6 +545,28 @@ func (g *mainGen) machineTail(k, n int) {
 		fmt.Fprintf(&g.out, "s%d no timer\n", k)
 	}
 	fmt.Fprintf(&g.out, "s%d no work\n", k)
+}
+
+// borrows: writes through a borrow (types.md, Borrows) reach the place it
+// lends, by an explicit &x, a dot call's implicit borrow, a borrow passed
+// on and a borrow of a slice's element; a copy made before is unchanged.
+func (g *mainGen) borrows(k int) {
+	g.kinds["borrows"]++
+	v1, v2, v3, v4 := 1+g.r.IntN(9), g.r.IntN(9), g.r.IntN(9), g.r.IntN(9)
+	g.line("")
+	g.line("func s%d() needs Console {", k)
+	g.line("\tlet mut acc = Acc{total: 0, items: []int{}}")
+	g.line("\tlet before = acc")
+	g.line("\tacc.push(%d)", v1)
+	g.line("\tpush(&acc, %d)", v2)
+	g.line("\tboth(&acc, %d)", v3)
+	g.line("\tlet mut rows = []Acc{acc, acc}")
+	g.line("\tpush(&rows[1], %d)", v4)
+	g.line("\tConsole.Println(\"s%d \\(acc.total) \\(len(acc.items)) \\(acc.items[0]) \\(before.total) \\(rows[0].total) \\(rows[1].total) \\(acc.size())\")", k)
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
+	t := v1 + v2 + v3
+	fmt.Fprintf(&g.out, "s%d %d 3 %d 0 %d %d 3\n", k, t, v1*10, t, t+v4)
 }
 
 // stderr: a line on standard error.

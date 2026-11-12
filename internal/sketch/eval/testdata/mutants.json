@@ -741,6 +741,15 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
+      "name": "oracle-o8-borrow-copies",
+      "origin": "wf10 ORACLE O8",
+      "file": "internal/sketch/eval/pointer.go",
+      "from": "\treturn &ptrV{root: root, path: steps}, nil\n",
+      "to": "\treturn &ptrV{root: &slot{v: root.v}, path: steps}, nil\n",
+      "rule": "A write through a borrow writes the place it lends, as the Go target's pointer does (types.md, Borrows).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
       "name": "oracle-o4-harness-drops-stderr",
       "origin": "wf10 ORACLE O4",
       "file": "internal/sketch/eval/examples_test.go",

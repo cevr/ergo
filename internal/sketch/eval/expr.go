@@ -154,7 +154,7 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		// runs calls it (sync.Ref's Update, natives.go).
 		return &closure{lit: x, key: x, params: x.Type.Params, body: x.Body, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}, nil
 	case *syntax.StarExpr:
-		return nil, fr.unsupported(x, "a pointer")
+		return in.deref(fr, x.X)
 	}
 	return nil, fr.unsupported(x, "the expression form %T", x)
 }
@@ -280,11 +280,14 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			}
 		}
 		t := fr.rtypeOf(x.X)
+		if p, ok := t.t.(*check.Pointer); ok {
+			t = rtype{t: p.Elem, env: t.env} // a field through a borrow
+		}
 		n, ok := t.t.(*check.Named)
 		if !ok || check.ScriptOf(n) != nil || structOf(n) == nil {
 			return nil, nil, fr.unsupported(x, "a member of %s yet", t.t)
 		}
-		base, root, ab := in.peekPath(fr, x.X, path)
+		base, root, ab := in.peekBase(fr, x.X, path)
 		if ab != nil {
 			return nil, nil, ab
 		}
@@ -296,6 +299,8 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			*path = append(*path, step{at: x, field: x.Sel.Name})
 		}
 		return r.fields[fieldIndex(r.t, x.Sel.Name)], root, nil
+	case *syntax.StarExpr:
+		return in.peekBase(fr, x.X, path)
 	case *syntax.IndexExpr:
 		if inst := fr.info.Instances[x]; inst != nil {
 			v, ab := in.funcValue(fr, x, inst.Func)
@@ -304,7 +309,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		if len(x.Indices) != 1 {
 			ice("an index with %d indices", len(x.Indices))
 		}
-		base, root, ab := in.peekPath(fr, x.X, path)
+		base, root, ab := in.peekBase(fr, x.X, path)
 		if ab != nil {
 			return nil, nil, ab
 		}
@@ -463,7 +468,7 @@ func (in *interp) binary(fr *frame, x *syntax.BinaryExpr) (Value, *abrupt) {
 
 func (in *interp) unary(fr *frame, x *syntax.UnaryExpr) (Value, *abrupt) {
 	if x.Op == syntax.AND {
-		return nil, fr.unsupported(x, "a pointer")
+		return in.borrow(fr, x.X) // pointer.go
 	}
 	a, ab := in.expr(fr, x.X)
 	if ab != nil {
@@ -740,9 +745,6 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 		if c.Site != nil {
 			return nil, fr.unsupported(x, "a call that passes its CallSite yet")
 		}
-		if c.Func.Ptr {
-			return nil, fr.unsupported(x, "a call that borrows its receiver yet")
-		}
 		if x.Trailing != nil && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
 			return nil, fr.unsupported(x, "a trailing block yet")
 		}
@@ -813,7 +815,7 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call) ([]Value, *abrupt) {
 	var args []Value
 	if c.Recv != nil {
-		v, ab := in.expr(fr, c.Recv)
+		v, ab := in.receiver(fr, c.Recv, c.Func)
 		if ab != nil {
 			return nil, ab
 		}
