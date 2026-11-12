@@ -1,0 +1,92 @@
+// The laws of text in the layout, under Monospace: a text leaf takes the
+// size its Measure gives, and the tree asks Measure once for a text at a
+// width. The flexbox itself has its oracle, MyGo's flexbox
+// (TestLayoutMatchesMyGo in hosts/mygo).
+
+import arena
+
+// lawMeasure is the Measure of the laws.
+let lawMeasure = Monospace
+
+// textStyle is the style of a leaf of text at size.
+func textStyle(text string, size float32) Style {
+	let mut s = Default()
+	s.Content = Text{Value: text, Size: size}
+	s
+}
+
+// near is whether a and b are within 0.01 of each other.
+func near(a float32, b float32) bool { a - b <= 0.01 && b - a <= 0.01 }
+
+law TextTakesItsMeasure(text string, size int, width int) {
+	let s = float32(size%32 + 32)
+	let w = float32(width%500 + 500)
+	let mut t = New()
+	let root = Add(&t, Default())
+	let stretched = Add(&t, textStyle(text, s))
+	let mut rowStyle = Default()
+	rowStyle.Direction = Row
+	rowStyle.Items = Start
+	let row = Add(&t, rowStyle)
+	let fitted = Add(&t, textStyle(text, s))
+	let ws = lawMeasure.Widths(text, s)
+	let fit = fmax(ws.Min, fmin(ws.Max, w))
+	with context { Measure: lawMeasure } {
+		Append(&t, root, stretched) catch {
+		case arena.Stale:
+			return false
+		}
+		Append(&t, root, row) catch {
+		case arena.Stale:
+			return false
+		}
+		Append(&t, row, fitted) catch {
+		case arena.Stale:
+			return false
+		}
+		Layout(&t, root, w, inf) catch {
+		case arena.Stale:
+			return false
+		}
+	}
+	let a = BoxOf(&t, stretched) catch {
+	case arena.Stale:
+		return false
+	}
+	let b = BoxOf(&t, fitted) catch {
+	case arena.Stale:
+		return false
+	}
+	a.W == w && a.H == lawMeasure.Height(text, s, w) && near(b.W, fit) && near(b.H, lawMeasure.Height(text, s, b.W))
+}
+
+law MeasuresOnceAtAWidth(text string, width int) {
+	let w = float32(width%500 + 500)
+	let mut t = New()
+	let root = Add(&t, Default())
+	let a = Add(&t, textStyle(text, 16))
+	let b = Add(&t, textStyle(text, 16))
+	with context { Measure: lawMeasure } {
+		Append(&t, root, a) catch {
+		case arena.Stale:
+			return false
+		}
+		Append(&t, root, b) catch {
+		case arena.Stale:
+			return false
+		}
+		Layout(&t, root, w, inf) catch {
+		case arena.Stale:
+			return false
+		}
+		SetStyle(&t, root, Default()) catch {
+		case arena.Stale:
+			return false
+		}
+		Layout(&t, root, w, inf) catch {
+		case arena.Stale:
+			return false
+		}
+	}
+	Measured(t) == 1
+}

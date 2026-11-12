@@ -1,0 +1,157 @@
+// Text is measured content: a node whose Content is Text is a leaf as
+// wide and as high as its text set at its size, through the host's
+// Measure. The tree keeps what Measure said, keyed by the text, the size
+// and the width, so a text is measured once at a width however often the
+// boxes around it lay out.
+
+import strings
+import utf8
+
+// Measure measures text for the layout: a host sets it with its fonts,
+// and Monospace measures with none.
+type Measure {
+	// Widths is text's max-content width, all on one line but at its line
+	// feeds, and its min-content width, its widest run that no line break
+	// may cut, at font size size.
+	Widths(text string, size float32) Intrinsic,
+	// Height is the height of text at font size size broken into lines
+	// no wider than width, where a run wider than width takes a line of
+	// its own.
+	Height(text string, size float32, width float32) float32,
+
+	law MinFitsMax(text string, size int) {
+		let w = Widths(text, float32(size%64 + 64))
+		w.Min <= w.Max
+	},
+
+	law WiderIsNoTaller(text string, size int, a int, b int) {
+		let s = float32(size%64 + 64)
+		let narrow = float32(a%400 + 400)
+		let wide = narrow + float32(b%400 + 400)
+		Height(text, s, wide) <= Height(text, s, narrow)
+	},
+
+	law AtMaxOneLinePerParagraph(text string, size int) {
+		let s = float32(size%64 + 64)
+		let one = Height("x", s, inf)
+		Height(text, s, Widths(text, s).Max) <= one * float32(len(strings.Split(text, "\n")))
+	},
+}
+
+// Intrinsic is a max-content and a min-content width.
+type Intrinsic { Max float32, Min float32 }
+
+// Monospace is the Measure of a font whose every rune is half an em wide
+// and whose lines are 1.25 em apart, that breaks lines at spaces: MyGo's
+// stub engine's measure, for tests. Runs of spaces count as one, and a
+// text with no rune but spaces measures nothing.
+type Monospace {}
+
+// advance and leading are Monospace's rune width and line height, in em.
+let advance = float32(0.5)
+
+let leading = float32(1.25)
+
+// words are the runs of the paragraphs of text, by line feed.
+func paragraphs(text string) [][]string {
+	let mut out = [][]string{}
+	for p in strings.Split(text, "\n") {
+		out = out.Append(strings.Fields(p))
+	}
+	out
+}
+
+// Widths is the widest paragraph's runs one space apart, and the widest
+// run.
+func Widths(_ Monospace, text string, size float32) Intrinsic {
+	let em = advance * size
+	let mut most = float32(0)
+	let mut least = float32(0)
+	for words in paragraphs(text) {
+		let mut line = 0
+		for i, w in words {
+			let n = utf8.RuneCount(w)
+			line = line + n + (if i > 0 { 1 } else { 0 })
+			least = fmax(least, float32(n) * em)
+		}
+		most = fmax(most, float32(line) * em)
+	}
+	Intrinsic{Max: most, Min: least}
+}
+
+// Height breaks each paragraph greedily: a run goes on the line when the
+// line with it is no wider than width, and on a new line otherwise. An
+// empty paragraph between others is a line; a text of no runs has none.
+func Height(_ Monospace, text string, size float32, width float32) float32 {
+	let em = advance * size
+	let mut lines = 0
+	let mut any = false
+	for words in paragraphs(text) {
+		let mut line = -1
+		for w in words {
+			any = true
+			let n = utf8.RuneCount(w)
+			if line < 0 {
+				lines = lines + 1
+				line = n
+			} else if float32(line + 1 + n) * em <= width {
+				line = line + 1 + n
+			} else {
+				lines = lines + 1
+				line = n
+			}
+		}
+		if line < 0 {
+			lines = lines + 1
+		}
+	}
+	if !any {
+		return 0
+	}
+	float32(lines) * leading * size
+}
+
+// textKey and heightKey name what the tree keeps of Measure.
+type textKey { text string, size float32 }
+
+type heightKey { text string, size float32, width float32 }
+
+// keep is how many of each the tree keeps before it lets them all go.
+let keep = 4096
+
+// textWidths is what Measure says of Widths(text, size), kept.
+func textWidths(t *Tree, text string, size float32) Intrinsic needs Measure {
+	let k = textKey{text: text, size: size}
+	match t.widths.Get(k) {
+	case Some[Intrinsic] as w:
+		return w.Value
+	case None:
+	}
+	if len(t.widths) >= keep {
+		t.widths = Map[textKey, Intrinsic]{}
+	}
+	let w = Measure.Widths(text, size)
+	t.widths[k] = w
+	t.measured = t.measured + 1
+	w
+}
+
+// textHeight is what Measure says of Height(text, size, width), kept.
+func textHeight(t *Tree, text string, size float32, width float32) float32 needs Measure {
+	let k = heightKey{text: text, size: size, width: width}
+	match t.heights.Get(k) {
+	case Some[float32] as h:
+		return h.Value
+	case None:
+	}
+	if len(t.heights) >= keep {
+		t.heights = Map[heightKey, float32]{}
+	}
+	let h = Measure.Height(text, size, width)
+	t.heights[k] = h
+	t.measured = t.measured + 1
+	h
+}
+
+// Measured is how many times the tree has asked Measure, since New.
+func Measured(t Tree) int { t.measured }

@@ -1,0 +1,317 @@
+// Package layout is the layout kernel of the ui hosts: a tree of boxes
+// laid out by a subset of CSS flexbox, with box-sizing border-box
+// (docs/spec/stdlib.md, UI layout). Every painted host (the MyGo desktop
+// host, the terminal cell host, ui.TestHost) lays out with it, so a view
+// has one layout on every host.
+//
+// The subset: a box lays its children out in a row or a column, with a
+// gap between them, padding inside it and margins around each child; a
+// child has a width, a height and a flex basis (a length in DIPs, a
+// percentage of its container, or automatic), and grows and shrinks by
+// its factors; children align across the line (start, center, end,
+// stretch) and are justified along it (start, center, end, and space
+// between, around or evenly); a child may leave the flow, placed at an
+// offset from its parent's padding box; a leaf may hold text, which the
+// host's Measure measures (measure.ergo). Lines do not wrap, sizes have
+// no minimum or maximum but the content's own, and a box has no border.
+//
+// The kernel keeps what it computed: a node keeps the size it was laid
+// out at and the widths and height it measured, and lays out again only
+// what changed since. A change of a node's style or children forgets
+// those of the node and of every node around it, up to the root, so
+// changing one leaf lays out again the boxes on its path, not the tree
+// (Work counts them). The tree also keeps what Measure said, so a tree
+// is laid out under one Measure.
+//
+// MyGo's flexbox (ui/layout.go at afb7d5f) is the oracle:
+// TestLayoutMatchesMyGo in hosts/mygo lays out generated trees with both
+// and compares every box. This kernel follows MyGo's algorithm step by
+// step, in float32 as MyGo computes, so the boxes agree to rounding.
+//
+// Nodes are named by Ids that only this package builds: an Id carries
+// the generation of an arena.Ref, so an Id kept after Remove fails with
+// arena.Stale.
+
+import arena
+
+// Length is a size along one axis: automatic (from the content or the
+// container), a number of DIPs, or a percentage of the container's size,
+// which is automatic while that size is not known.
+type Length = Auto{} | Px{Value float32} | Percent{Value float32}
+
+// Direction is the main axis of a box's children.
+type Direction = Row{} | Column{}
+
+// Align places a child across its line (Stretch fills it); Start, Center
+// and End also justify children along the line.
+type Align = Start{} | Center{} | End{} | Stretch{}
+
+// Justify places the children along the line, with the space left over.
+type Justify = Start | Center | End | SpaceBetween{} | SpaceAround{} | SpaceEvenly{}
+
+// Position is a child in its parent's flow, or out of it at an offset
+// from the parent's padding box.
+type Position = Flow{} | Absolute{Left float32, Top float32}
+
+// Content is what a box holds: boxes, its children, or a text at a font
+// size, which makes it a leaf as large as Measure says (its children, if
+// it has any, are not laid out).
+type Content = Boxes{} | Text{Value string, Size float32}
+
+// Style is how one box lays out. Edges ([4]float32) are top, right,
+// bottom and left.
+type Style {
+	Direction Direction,
+	Width Length,
+	Height Length,
+	Basis Length,
+	Grow float32,
+	Shrink float32,
+	Padding [4]float32,
+	Margin [4]float32,
+	Gap float32,
+	Items Align,
+	Self Option[Align],
+	Justify Justify,
+	Position Position,
+	Content Content,
+}
+
+// Default is a column with automatic sizes, no padding, margin or gap,
+// that shrinks by 1 and does not grow, and stretches its children: CSS's
+// defaults for a flex container in a column.
+func Default() Style {
+	Style{
+		Direction: Column,
+		Width: Auto,
+		Height: Auto,
+		Basis: Auto,
+		Grow: 0,
+		Shrink: 1,
+		Padding: [4]float32{},
+		Margin: [4]float32{},
+		Gap: 0,
+		Items: Stretch,
+		Self: None,
+		Justify: Start,
+		Position: Flow,
+		Content: Boxes,
+	}
+}
+
+// Box is a laid-out border box, in DIPs from the top left of the root.
+type Box { X float32, Y float32, W float32, H float32 }
+
+// Id names one node of a Tree.
+type Id { ref arena.Ref[int] }
+
+// none is the index of no node.
+let none = -1
+
+// node is one box. x and y are relative to the parent's border box. The
+// caches hold while laid (the size it was laid out at), intrOK (its
+// max-content and min-content widths) and measOK (its height at a width)
+// are set; forget clears them.
+type node {
+	style Style,
+	parent int,
+	first int,
+	last int,
+	next int,
+	prev int,
+	x float32,
+	y float32,
+	w float32,
+	h float32,
+	laid bool,
+	laidW float32,
+	laidH float32,
+	intr [2]float32,
+	intrOK [2]bool,
+	measOK bool,
+	measW float32,
+	measH float32,
+	ref arena.Ref[int],
+}
+
+// Tree is the store of the nodes. Change it through a *Tree borrow.
+type Tree {
+	nodes []node,
+	ids arena.Of[int],
+	free []int,
+	items []item,
+	work int,
+	widths Map[textKey, Intrinsic],
+	heights Map[heightKey, float32],
+	measured int,
+}
+
+// New is an empty tree.
+func New() Tree {
+	Tree{
+		nodes: []node{},
+		ids: arena.New[int](),
+		free: []int{},
+		items: []item{},
+		work: 0,
+		widths: Map[textKey, Intrinsic]{},
+		heights: Map[heightKey, float32]{},
+		measured: 0,
+	}
+}
+
+// Add makes a node of style s, with no parent and no children.
+func Add(t *Tree, s Style) Id {
+	let mut i = len(t.nodes)
+	if len(t.free) > 0 {
+		i = t.free[len(t.free)-1]
+		t.free = t.free[:len(t.free)-1]
+	}
+	let r = t.ids.Put(i)
+	let n = node{
+		style: s,
+		parent: none,
+		first: none,
+		last: none,
+		next: none,
+		prev: none,
+		x: 0,
+		y: 0,
+		w: 0,
+		h: 0,
+		laid: false,
+		laidW: 0,
+		laidH: 0,
+		intr: [2]float32{},
+		intrOK: [2]bool{},
+		measOK: false,
+		measW: 0,
+		measH: 0,
+		ref: r,
+	}
+	if i == len(t.nodes) {
+		t.nodes = t.nodes.Append(n)
+	} else {
+		t.nodes[i] = n
+	}
+	Id{ref: r}
+}
+
+// at is the index of id's node.
+func at(t *Tree, id Id) int fails arena.Stale { try t.ids.Get(id.ref) }
+
+// Append makes child the last child of parent, taking it from the parent
+// it had.
+func Append(t *Tree, parent Id, child Id) fails arena.Stale {
+	let p = try at(t, parent)
+	let c = try at(t, child)
+	detach(t, c)
+	let last = t.nodes[p].last
+	t.nodes[c].parent = p
+	t.nodes[c].prev = last
+	t.nodes[c].next = none
+	if last == none {
+		t.nodes[p].first = c
+	} else {
+		t.nodes[last].next = c
+	}
+	t.nodes[p].last = c
+	forget(t, p)
+}
+
+// detach takes node c out of its parent's children.
+func detach(t *Tree, c int) {
+	let p = t.nodes[c].parent
+	if p == none {
+		return
+	}
+	let prev = t.nodes[c].prev
+	let next = t.nodes[c].next
+	if prev == none {
+		t.nodes[p].first = next
+	} else {
+		t.nodes[prev].next = next
+	}
+	if next == none {
+		t.nodes[p].last = prev
+	} else {
+		t.nodes[next].prev = prev
+	}
+	t.nodes[c].parent = none
+	t.nodes[c].prev = none
+	t.nodes[c].next = none
+	forget(t, p)
+}
+
+// Remove takes id's node out of the tree with all its descendants, whose
+// Ids are stale from then on.
+func Remove(t *Tree, id Id) fails arena.Stale {
+	let c = try at(t, id)
+	detach(t, c)
+	let mut stack = []int{c}
+	for len(stack) > 0 {
+		let i = stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		let mut k = t.nodes[i].first
+		for k != none {
+			stack = stack.Append(k)
+			k = t.nodes[k].next
+		}
+		let _ = try t.ids.Free(t.nodes[i].ref)
+		t.free = t.free.Append(i)
+	}
+}
+
+// SetStyle gives id's node the style s.
+func SetStyle(t *Tree, id Id, s Style) fails arena.Stale {
+	let i = try at(t, id)
+	t.nodes[i].style = s
+	forget(t, i)
+}
+
+// StyleOf is the style of id's node.
+func StyleOf(t *Tree, id Id) Style fails arena.Stale {
+	let i = try at(t, id)
+	t.nodes[i].style
+}
+
+// forget clears what node i and every node around it computed, up to the
+// root: a change of i changes their content.
+func forget(t *Tree, i int) {
+	let mut k = i
+	for k != none {
+		t.nodes[k].laid = false
+		t.nodes[k].intrOK = [2]bool{}
+		t.nodes[k].measOK = false
+		k = t.nodes[k].parent
+	}
+}
+
+// Layout lays out the tree under root in a w×h DIP window: root takes
+// exactly that size, at the window's top left.
+func Layout(t *Tree, root Id, w float32, h float32) fails arena.Stale needs Measure {
+	let r = try at(t, root)
+	t.work = 0
+	t.nodes[r].x = 0
+	t.nodes[r].y = 0
+	layoutBox(t, r, w, h)
+}
+
+// BoxOf is id's border box after the last Layout of its root.
+func BoxOf(t *Tree, id Id) Box fails arena.Stale {
+	let i = try at(t, id)
+	let mut x = t.nodes[i].x
+	let mut y = t.nodes[i].y
+	let mut p = t.nodes[i].parent
+	for p != none {
+		x = x + t.nodes[p].x
+		y = y + t.nodes[p].y
+		p = t.nodes[p].parent
+	}
+	Box{X: x, Y: y, W: t.nodes[i].w, H: t.nodes[i].h}
+}
+
+// Work is how many boxes the last Layout computed: it gave each its size
+// and laid out its children. A box laid out at the size it had, with
+// nothing in it changed, is not counted.
+func Work(t Tree) int { t.work }

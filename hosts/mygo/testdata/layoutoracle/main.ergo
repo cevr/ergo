@@ -1,0 +1,156 @@
+// layoutoracle lays out the trees TestLayoutMatchesMyGo generates with
+// std ui/layout and prints every box, so the test compares them with
+// MyGo's. It reads one command a line from standard input:
+//
+//	tree W H                 a new tree, in a W×H window
+//	node ID PARENT STYLE...  node ID (0, 1, … in order) of that style, the
+//	                         last child of PARENT (-1: of the window)
+//	set ID STYLE...          node ID takes that style
+//	layout                   lay out, then print "box ID X Y W H" for each
+//	                         node, "work N" and "end"
+//
+// STYLE is: direction (r or c); width, height and basis (a for auto, pV
+// for V DIPs, %V for V percent); grow; shrink; padding and margin (top,
+// right, bottom, left); gap; items (s, c, e or t for stretch); self (- or
+// as items); justify (s, c, e, b between, a around, v evenly); position
+// (f, or a with left and top).
+
+import io
+import math
+import strconv
+import strings
+import ui/layout
+
+// Session is the tree being read and its nodes by ID.
+type Session { tree layout.Tree, root layout.Id, ids []layout.Id, w float32, h float32 }
+
+func num(s string) float32 {
+	let v = strconv.ParseFloat(s) catch {
+	case _:
+		return float32(math.NaN())
+	}
+	float32(v)
+}
+
+func length(s string) layout.Length {
+	if s == "a" {
+		return layout.Auto
+	}
+	if strings.HasPrefix(s, "%") {
+		return layout.Percent{Value: num(strings.TrimPrefix(s, "%"))}
+	}
+	layout.Px{Value: num(strings.TrimPrefix(s, "p"))}
+}
+
+func align(s string) layout.Align {
+	if s == "c" {
+		return layout.Center
+	}
+	if s == "e" {
+		return layout.End
+	}
+	if s == "t" {
+		return layout.Stretch
+	}
+	layout.Start
+}
+
+func justify(s string) layout.Justify {
+	if s == "c" {
+		return layout.Center
+	}
+	if s == "e" {
+		return layout.End
+	}
+	if s == "b" {
+		return layout.SpaceBetween
+	}
+	if s == "a" {
+		return layout.SpaceAround
+	}
+	if s == "v" {
+		return layout.SpaceEvenly
+	}
+	layout.Start
+}
+
+// style reads a STYLE from f, its first field at f[0].
+func style(f []string) layout.Style {
+	let mut s = layout.Default()
+	s.Direction = if f[0] == "r" { layout.Row } else { layout.Column }
+	s.Width = length(f[1])
+	s.Height = length(f[2])
+	s.Basis = length(f[3])
+	s.Grow = num(f[4])
+	s.Shrink = num(f[5])
+	s.Padding = [4]float32{num(f[6]), num(f[7]), num(f[8]), num(f[9])}
+	s.Margin = [4]float32{num(f[10]), num(f[11]), num(f[12]), num(f[13])}
+	s.Gap = num(f[14])
+	s.Items = align(f[15])
+	s.Self = if f[16] == "-" { None } else { Some{Value: align(f[16])} }
+	s.Justify = justify(f[17])
+	s.Position = if f[18] == "a" { layout.Absolute{Left: num(f[19]), Top: num(f[20])} } else { layout.Flow }
+	s
+}
+
+// session is a new tree in a w×h window, with its root.
+func session(w float32, h float32) Session {
+	let mut t = layout.New()
+	let root = layout.Add(&t, layout.Default())
+	Session{tree: t, root: root, ids: []layout.Id{}, w: w, h: h}
+}
+
+func run() needs io.Stdin | io.Stdout | layout.Measure {
+	let mut s = session(0, 0)
+	for line in io.Stdin.Lines() {
+		let f = strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		if f[0] == "tree" {
+			s = session(num(f[1]), num(f[2]))
+		} else if f[0] == "node" {
+			let id = layout.Add(&s.tree, style(f[3:]))
+			s.ids = s.ids.Append(id)
+			let p = strconv.Atoi(f[2]) catch {
+			case _:
+				-1
+			}
+			let parent = if p < 0 { s.root } else { s.ids[p] }
+			layout.Append(&s.tree, parent, id) catch {
+			case _:
+				io.Stdout.Println("error append")
+			}
+		} else if f[0] == "set" {
+			let k = strconv.Atoi(f[1]) catch {
+			case _:
+				0
+			}
+			layout.SetStyle(&s.tree, s.ids[k], style(f[2:])) catch {
+			case _:
+				io.Stdout.Println("error set")
+			}
+		} else if f[0] == "layout" {
+			layout.Layout(&s.tree, s.root, s.w, s.h) catch {
+			case _:
+				io.Stdout.Println("error layout")
+			}
+			for k, id in s.ids {
+				let b = layout.BoxOf(&s.tree, id) catch {
+				case _:
+					layout.Box{X: -1, Y: -1, W: -1, H: -1}
+				}
+				io.Stdout.Println("box \(k) \(b.X) \(b.Y) \(b.W) \(b.H)")
+			}
+			io.Stdout.Println("work \(layout.Work(s.tree))")
+			io.Stdout.Println("end")
+		}
+	}
+}
+
+func main() needs Ambient {
+	// The trees hold no text: Monospace is never asked.
+	with context { io.Stdin: io.NewStdin(), io.Stdout: io.NewHost(), layout.Measure: layout.Monospace } {
+		run()
+	}
+}

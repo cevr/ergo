@@ -40,6 +40,19 @@ renderer on the fake backend's surface, hears a press, and measures text.
 Tests drive `AttachContent` themselves with a `surface.Conn` over a fake
 window's surface; a desktop program passes the content to `mygo.NewWindow`.
 
+## The layout oracle
+
+Ergo's layout kernel is std `ui/layout`, Ergo source. MyGo's flexbox is its
+oracle (docs/spec/stdlib.md, UI layout): `TestLayoutMatchesMyGo` builds
+`bin/ergo` from the repository, builds `testdata/layoutoracle` with it
+(a program that reads trees on standard input and prints the kernel's
+boxes), and compares every box with MyGo's under `ui.Tester`, read by
+label, on 300 generated trees and three edits of each. A failing seed
+prints the input and `go test -run TestLayoutMatchesMyGo -layout.seed=N`
+replays it. `TestLayoutRelaysOutAlongThePath` counts the boxes the kernel
+lays out again after one leaf changes. On Linux each program they start
+runs under `prlimit --data=4GiB`.
+
 ## Pins and checks
 
 - MyGo `github.com/egoist/mygo` at `afb7d5f` (`v0.8.4-0.20261109183017-afb7d5f170f7`), Go 1.27.3.
