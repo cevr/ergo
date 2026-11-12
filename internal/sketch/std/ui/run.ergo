@@ -1,0 +1,55 @@
+import actor
+
+// Event is what a host reports: a press of a node, or a text typed into
+// an Input node.
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string}
+
+// Closed is the failure of Next when the host has closed (its window, its
+// terminal, its script ended).
+type Closed {}
+
+// Host shows patches and reports input. Providers: the test host (H4),
+// the desktop host, the terminal host; cmd/<name>/main.ergo chooses one.
+// law-exempt: a host's laws (the mirror of its patches is what it shows, a tap at a node's box sends that node's event) need a running host and its screen; they run against each provider (the test host, H4), not here.
+type Host[E] {
+	// Show applies one commit's changes.
+	Show(ops []Op[E]),
+	// Next waits for the next input; it fails Closed when the host closed.
+	Next() Event[E] fails Closed,
+}
+
+// Signal is the signal an input sends: a press of a Pressable or a Check,
+// a text into an Input. None for input on any other node, or on a node the
+// tree no longer holds (a press that raced a commit).
+func Signal[E](t *Tree[E], input Event[E]) Option[E] {
+	match input {
+	case Press[E] as p:
+		Pressed(t, p.Id)
+	case Type[E] as x:
+		Typed(t, x.Id, x.Text)
+	}
+}
+
+// Render writes view(s) into a fresh frame and commits it to t.
+func Render[S, E comparable](t *Tree[E], view func(f *Frame[E], s S), s S) []Op[E] {
+	let mut f = NewFrame[E]()
+	view(&f, s)
+	Commit(t, &f)
+}
+
+// Run shows view of a's state on h until h closes: each input's signal is
+// sent to a, and the state after it is shown. Run fails with h's Closed,
+// or with Stopped when a has ended.
+func Run[S, E comparable, D, F](h Host[E], a actor.Actor[S, E, D, F], view func(f *Frame[E], s S)) fails Closed | actor.Stopped {
+	let mut t = NewTree[E]()
+	h.Show(Render(&t, view, a.State()))
+	for {
+		let input = try h.Next()
+		match Signal(&t, input) {
+		case Some[E] as e:
+			try a.Send(e.Value)
+			h.Show(Render(&t, view, a.State()))
+		case None:
+		}
+	}
+}

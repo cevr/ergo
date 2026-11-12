@@ -1,0 +1,96 @@
+// Package ui builds user interfaces as a retained tree of nodes (stdlib.md,
+// UI). A view is an ordinary function of the program's state that writes
+// nodes into a Frame: func(f *ui.Frame[E], s S), where E is the program's
+// signal type. Commit reconciles what a view wrote with the tree of the
+// last frame and returns the Patch a host applies. Events are data: a
+// Pressable carries the signal value it sends.
+//
+// The composer, the node arena and the patch are Ergo bodies over std
+// arena, so the memory of a GUI is Ergo's memory (corpus wave Q1).
+//
+// Prior art: Gio threads a layout.Context through every widget function,
+// as a view threads its Frame here; Jetpack Compose keys a node by its
+// call site and passes its composer as a hidden parameter; Elm, Lustre and
+// SwiftUI build a value tree and diff it; Inferno and ivi place keyed
+// children with a longest increasing subsequence, as Commit does.
+
+// Length is a length in device-independent pixels.
+type Length float64
+
+// Edges are lengths on the four sides of a box.
+type Edges { Top Length, Right Length, Bottom Length, Left Length }
+
+// All is the same length on every side.
+func All(n Length) Edges { Edges{Top: n, Right: n, Bottom: n, Left: n} }
+
+// Align places children on the cross axis; Justify on the main axis.
+type Align = AlignStart | AlignCenter | AlignEnd | AlignStretch
+
+// AlignStart is the default placement.
+type AlignStart {}
+
+// AlignCenter centres.
+type AlignCenter {}
+
+// AlignEnd places at the end.
+type AlignEnd {}
+
+// AlignStretch fills the cross axis.
+type AlignStretch {}
+
+// Justify places children on the main axis.
+type Justify = JustifyStart | JustifyCenter | JustifyEnd | JustifyBetween
+
+// JustifyStart packs at the start.
+type JustifyStart {}
+
+// JustifyCenter packs in the centre.
+type JustifyCenter {}
+
+// JustifyEnd packs at the end.
+type JustifyEnd {}
+
+// JustifyBetween spreads the free space between the children.
+type JustifyBetween {}
+
+// Size is a written width or height, or Auto.
+type Size = Auto | Fixed{Value Length}
+
+// Auto lets the layout decide.
+type Auto {}
+
+// Style is the layout of one node: a subset of CSS flexbox (the layout
+// kernel, ui/layout, reads it).
+type Style {
+	Gap     Length,
+	Padding Edges,
+	Margin  Edges,
+	Grow    float64,
+	Shrink  float64,
+	Width   Size,
+	Height  Size,
+	Align   Align,
+	Justify Justify,
+}
+
+// Plain is the Style with nothing written.
+func Plain() Style {
+	Style{Gap: 0, Padding: All(0), Margin: All(0), Grow: 0, Shrink: 1, Width: Auto, Height: Auto, Align: AlignStart, Justify: JustifyStart}
+}
+
+// Node is what one node shows, as a host receives it in a Patch. It holds
+// no function, so two Nodes compare with ==.
+type Node[E] = BoxNode{Style Style} | RowNode{Style Style} | ColumnNode{Style Style} | ScrollNode{Style Style} | TextNode{Value string, Style Style} | PressableNode{Label string, On E, Style Style} | CheckNode{Label string, Checked bool, On E} | InputNode{Value string, Placeholder string}
+
+// Key names a row of an Each. Two rows of one Each with one Key are one
+// instance across frames, wherever they move.
+type Key = NoKey | IntKey{Value int} | TextKey{Value string}
+
+// NoKey is the key of a node outside every Each.
+type NoKey {}
+
+// ByInt is the Key of an integer.
+func ByInt(n int) Key { IntKey{Value: n} }
+
+// ByText is the Key of a string.
+func ByText(s string) Key { TextKey{Value: s} }

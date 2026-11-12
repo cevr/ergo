@@ -1,0 +1,187 @@
+import arena
+
+// Shape is a tree of Nodes as values: what a frame wrote, what a tree
+// holds, or what a host shows. Two shapes are the same screen when
+// SameShapes says so.
+type Shape[E] { Node Node[E], Kids []Shape[E] }
+
+// FrameShape is what f holds, the children of the root.
+func FrameShape[E](f *Frame[E]) []Shape[E] {
+	let kids = childLists(f)
+	frameShapes(f, kids, kids[0])
+}
+
+func frameShapes[E](f *Frame[E], kids [][]int, want []int) []Shape[E] {
+	let mut out = []Shape[E]{}
+	for s in want {
+		out = out.Append(Shape[E]{Node: f.specs[s].node, Kids: frameShapes[E](f, kids, kids[s+1])})
+	}
+	out
+}
+
+// TreeShape is what t holds, the children of the root.
+func TreeShape[E](t *Tree[E]) []Shape[E] { treeShapes(t, at(t, t.root).kids) }
+
+func treeShapes[E](t *Tree[E], refs []arena.Ref[node[E]]) []Shape[E] {
+	let mut out = []Shape[E]{}
+	for r in refs {
+		let n = at(t, r)
+		out = out.Append(Shape[E]{Node: n.node, Kids: treeShapes[E](t, n.kids)})
+	}
+	out
+}
+
+// SameShapes is whether a and b are the same nodes in the same order.
+func SameShapes[E comparable](a []Shape[E], b []Shape[E]) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		if x.Node != b[i].Node || !SameShapes[E](x.Kids, b[i].Kids) {
+			return false
+		}
+	}
+	true
+}
+
+// Mirror is a host's copy of a tree, built only from patches: the model
+// of what every host shows.
+type Mirror[E] { nodes Map[Id[E], mirrored[E]], root Id[E] }
+
+type mirrored[E] { node Node[E], parent Id[E], kids []Id[E] }
+
+// BadPatch is the failure of an op that does not fit the mirror: an Id it
+// does not hold, an Insert of an Id it holds, a Before that is no child of
+// the parent, a Move to another parent, a Set that changes a node's kind
+// (a node keeps its Id only while its kind stays, so a host may keep one
+// widget per Id).
+type BadPatch { Why string }
+
+// NewMirror is the mirror of a tree with only its root.
+func NewMirror[E](root Id[E]) Mirror[E] {
+	let mut nodes = Map[Id[E], mirrored[E]]{}
+	nodes[root] = mirrored[E]{node: BoxNode{Style: Plain()}, parent: root, kids: []Id[E]{}}
+	Mirror[E]{nodes: nodes, root: root}
+}
+
+// Apply applies ops in order.
+func Apply[E](m *Mirror[E], ops []Op[E]) fails BadPatch {
+	for op in ops {
+		match op {
+		case Insert[E] as o:
+			if holds(m, o.Id) {
+				return BadPatch{Why: "insert of a node the mirror holds"}
+			}
+			let p = try held(m, o.Parent)
+			m.nodes[o.Parent] = mirrored[E]{node: p.node, parent: p.parent, kids: try placed(p.kids, o.Id, o.Before)}
+			m.nodes[o.Id] = mirrored[E]{node: o.Node, parent: o.Parent, kids: []Id[E]{}}
+		case Move[E] as o:
+			let n = try held(m, o.Id)
+			if n.parent != o.Parent {
+				return BadPatch{Why: "move to another parent"}
+			}
+			let p = try held(m, o.Parent)
+			m.nodes[o.Parent] = mirrored[E]{node: p.node, parent: p.parent, kids: try placed(without(p.kids, o.Id), o.Id, o.Before)}
+		case Remove[E] as o:
+			let n = try held(m, o.Id)
+			if o.Id == m.root {
+				return BadPatch{Why: "remove of the root"}
+			}
+			let p = try held(m, n.parent)
+			m.nodes[n.parent] = mirrored[E]{node: p.node, parent: p.parent, kids: without(p.kids, o.Id)}
+			forget(m, o.Id)
+		case Set[E] as o:
+			let n = try held(m, o.Id)
+			if kindOf(n.node) != kindOf(o.Node) {
+				return BadPatch{Why: "set changes the kind of a node"}
+			}
+			m.nodes[o.Id] = mirrored[E]{node: o.Node, parent: n.parent, kids: n.kids}
+		}
+	}
+}
+
+func holds[E](m *Mirror[E], id Id[E]) bool {
+	match m.nodes.Get(id) {
+	case Some[mirrored[E]]:
+		true
+	case None:
+		false
+	}
+}
+
+func held[E](m *Mirror[E], id Id[E]) mirrored[E] fails BadPatch {
+	match m.nodes.Get(id) {
+	case Some[mirrored[E]] as n:
+		n.Value
+	case None:
+		BadPatch{Why: "an op names a node the mirror does not hold"}
+	}
+}
+
+// placed is kids with id put in front of before, or last for None.
+func placed[E](kids []Id[E], id Id[E], before Option[Id[E]]) []Id[E] fails BadPatch {
+	match before {
+	case None:
+		kids.Append(id)
+	case Some[Id[E]] as b:
+		let mut out = []Id[E]{}
+		let mut found = false
+		for k in kids {
+			if k == b.Value {
+				out = out.Append(id)
+				found = true
+			}
+			out = out.Append(k)
+		}
+		if !found {
+			return BadPatch{Why: "before names no child of the parent"}
+		}
+		out
+	}
+}
+
+func without[E](kids []Id[E], id Id[E]) []Id[E] {
+	let mut out = []Id[E]{}
+	for k in kids {
+		if k != id {
+			out = out.Append(k)
+		}
+	}
+	out
+}
+
+func forget[E](m *Mirror[E], id Id[E]) {
+	match m.nodes.Get(id) {
+	case Some[mirrored[E]] as n:
+		for k in n.Value.kids {
+			forget[E](m, k)
+		}
+		m.nodes = m.nodes.Delete(id)
+	case None:
+	}
+}
+
+// MirrorShape is what m shows, the children of the root.
+func MirrorShape[E](m *Mirror[E]) []Shape[E] {
+	match m.nodes.Get(m.root) {
+	case Some[mirrored[E]] as r:
+		mirrorShapes(m, r.Value.kids)
+	case None:
+		[]Shape[E]{}
+	}
+}
+
+func mirrorShapes[E](m *Mirror[E], ids []Id[E]) []Shape[E] {
+	let mut out = []Shape[E]{}
+	for id in ids {
+		match m.nodes.Get(id) {
+		case Some[mirrored[E]] as n:
+			out = out.Append(Shape[E]{Node: n.Value.node, Kids: mirrorShapes[E](m, n.Value.kids)})
+		case None:
+		}
+	}
+	out
+}
+
+// Held is the number of nodes m holds, its root included.
+func Held[E](m *Mirror[E]) int { len(m.nodes) }

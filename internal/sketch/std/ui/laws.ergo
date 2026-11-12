@@ -1,0 +1,385 @@
+// The laws of the composer, at int signals (a top-level law is not
+// generic). Each draws a view program and states from a seed: a program
+// is a tree of primitives whose texts, keys and signals read the state,
+// so a run of states grows, shrinks, reorders and edits the tree. model
+// is the shape a program means, written without a Frame, so a law checks
+// what a frame records as well as what a commit makes of it.
+
+// prog is a generated view. pSwap writes a Text or a Check at one
+// forwarded call site, as a helper with a CallSite parameter can.
+type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog}
+
+// rng is the laws' generator (a linear congruence).
+type rng { x int }
+
+func draw(r *rng, n int) int {
+	r.x = (r.x*1103515245 + 12345) % 2147483648
+	(r.x / 65536) % n
+}
+
+func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} }
+
+let slots = 6
+
+func genProg(r *rng, depth int) prog {
+	let kind = draw(r, 8)
+	if depth == 0 || kind < 4 {
+		match kind % 4 {
+		case 0:
+			pText{slot: draw(r, slots)}
+		case 1:
+			pInput{slot: draw(r, slots)}
+		case 2:
+			pCheck{slot: draw(r, slots)}
+		case _:
+			pSwap{slot: draw(r, slots)}
+		}
+	} else {
+		let mut kids = []prog{}
+		for _ in 0..draw(r, 4) {
+			kids = kids.Append(genProg(r, depth-1))
+		}
+		match kind {
+		case 4:
+			pBox{slot: draw(r, slots), kids: kids}
+		case 5:
+			pRow{kids: kids}
+		case 6:
+			pPress{slot: draw(r, slots), kids: kids}
+		case _:
+			pEach{slot: draw(r, slots), kids: kids}
+		}
+	}
+}
+
+func genState(r *rng) []int {
+	let mut s = []int{}
+	for _ in 0..slots {
+		s = s.Append(draw(r, 64))
+	}
+	s
+}
+
+// items are the keys an Each shows for state value v: 0 to 5 turned by v,
+// some left out, so a change of v moves, adds and removes rows.
+func items(v int) []int {
+	let mut out = []int{}
+	for i in 0..6 {
+		let k = (i + v) % 6
+		if (k + v/6) % 3 != 0 {
+			out = out.Append(k)
+		}
+	}
+	out
+}
+
+func gapped(v int) Style {
+	let mut st = Plain()
+	st.Gap = Length(float64(v % 3))
+	st
+}
+
+// swap writes a Text or a Check at its caller's site.
+func swap(f *Frame[int], v int, at CallSite) {
+	if v%2 == 0 {
+		Text(f, "even \(v)", at)
+	} else {
+		Check(f, "odd", v%3 == 0, v, at)
+	}
+}
+
+func render(f *Frame[int], p prog, s []int, row int) {
+	match p {
+	case pText as x:
+		Text(f, "t\(s[x.slot]+row)")
+	case pInput as x:
+		let v = s[x.slot] + row
+		Input(f, "v\(v)", "type", func(t string) int { len(t) + v })
+	case pCheck as x:
+		Check(f, "c", s[x.slot]%2 == 0, s[x.slot]+row)
+	case pSwap as x:
+		swap(f, s[x.slot]+row)
+	case pBox as x:
+		Box(f, gapped(s[x.slot])) {
+			for c in x.kids {
+				render(f, c, s, row)
+			}
+		}
+	case pRow as x:
+		Row(f, Plain()) {
+			for c in x.kids {
+				render(f, c, s, row)
+			}
+		}
+		Text(f, "after")
+	case pPress as x:
+		Pressable(f, "press", s[x.slot]%4+row) {
+			for c in x.kids {
+				render(f, c, s, row)
+			}
+		}
+	case pEach as x:
+		Each(f, items(s[x.slot]), func(k int) Key { ByInt(k) }) func(k int) {
+			for c in x.kids {
+				render(f, c, s, k)
+			}
+		}
+		Text(f, "after")
+	}
+}
+
+// model is the shapes p means at state s.
+func model(p prog, s []int, row int) []Shape[int] {
+	match p {
+	case pText as x:
+		[]Shape[int]{leaf(TextNode{Value: "t\(s[x.slot]+row)", Style: Plain()})}
+	case pInput as x:
+		[]Shape[int]{leaf(InputNode{Value: "v\(s[x.slot]+row)", Placeholder: "type"})}
+	case pCheck as x:
+		[]Shape[int]{leaf(CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})}
+	case pSwap as x:
+		let v = s[x.slot] + row
+		if v%2 == 0 {
+			return []Shape[int]{leaf(TextNode{Value: "even \(v)", Style: Plain()})}
+		}
+		[]Shape[int]{leaf(CheckNode{Label: "odd", Checked: v%3 == 0, On: v})}
+	case pBox as x:
+		[]Shape[int]{Shape[int]{Node: BoxNode{Style: gapped(s[x.slot])}, Kids: models(x.kids, s, row)}}
+	case pRow as x:
+		[]Shape[int]{Shape[int]{Node: RowNode{Style: Plain()}, Kids: models(x.kids, s, row)}, leaf(TextNode{Value: "after", Style: Plain()})}
+	case pPress as x:
+		[]Shape[int]{Shape[int]{Node: PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: Plain()}, Kids: models(x.kids, s, row)}}
+	case pEach as x:
+		let mut out = []Shape[int]{}
+		for k in items(s[x.slot]) {
+			for c in models(x.kids, s, k) {
+				out = out.Append(c)
+			}
+		}
+		out.Append(leaf(TextNode{Value: "after", Style: Plain()}))
+	}
+}
+
+func models(ps []prog, s []int, row int) []Shape[int] {
+	let mut out = []Shape[int]{}
+	for p in ps {
+		for x in model(p, s, row) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func leaf(n Node[int]) Shape[int] { Shape[int]{Node: n, Kids: []Shape[int]{}} }
+
+func frameOf(ps []prog, s []int) Frame[int] {
+	let mut f = NewFrame[int]()
+	for p in ps {
+		render(&f, p, s, 0)
+	}
+	f
+}
+
+func genRoot(r *rng) []prog {
+	let mut ps = []prog{}
+	for _ in 0..draw(r, 4)+1 {
+		ps = ps.Append(genProg(r, 3))
+	}
+	ps
+}
+
+func nodes(shapes []Shape[int]) int {
+	let mut n = 0
+	for x in shapes {
+		n = n + 1 + nodes(x.Kids)
+	}
+	n
+}
+
+// IncrementalEqualsFresh: committing the frames of a run of states in
+// order leaves the tree, and the mirror built from the patches, showing
+// what the program means at the last state, as a fresh commit of that
+// frame shows it. The tree holds no node more than the frame wrote.
+law IncrementalEqualsFresh(seed int, steps int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r)
+	let mut t = NewTree[int]()
+	let mut m = NewMirror[int](Root(&t))
+	for _ in 0..(steps%8+8)%8+1 {
+		let s = genState(&r)
+		let mut f = frameOf(ps, s)
+		Apply(&m, Commit(&t, &f)) catch {
+		case BadPatch:
+			return false
+		}
+		let mut fresh = NewTree[int]()
+		let mut fm = NewMirror[int](Root(&fresh))
+		Apply(&fm, Commit(&fresh, &f)) catch {
+		case BadPatch:
+			return false
+		}
+		let want = models(ps, s, 0)
+		if !SameShapes(FrameShape(&f), want) || !SameShapes(TreeShape(&t), want) || !SameShapes(MirrorShape(&m), want) || !SameShapes(MirrorShape(&fm), want) {
+			return false
+		}
+		if Len(&t) != nodes(want)+1 || Held(&m) != Len(&t) {
+			return false
+		}
+	}
+	true
+}
+
+// IdempotentCommit: a second commit of an equal frame changes nothing.
+law IdempotentCommit(seed int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r)
+	let mut t = NewTree[int]()
+	let s0 = genState(&r)
+	let s1 = genState(&r)
+	let mut a = frameOf(ps, s0)
+	let _ = Commit(&t, &a)
+	let mut b = frameOf(ps, s1)
+	let _ = Commit(&t, &b)
+	let mut c = frameOf(ps, s1)
+	len(Commit(&t, &c)) == 0
+}
+
+func shuffled(xs []int, r *rng) []int {
+	let mut out = xs
+	for i in 0..len(out) {
+		let j = i + draw(r, len(out)-i)
+		let x = out[i]
+		out[i] = out[j]
+		out[j] = x
+	}
+	out
+}
+
+func keyedRows(f *Frame[int], xs []int) {
+	Column(f, Plain()) {
+		Each(f, xs, func(x int) Key { ByInt(x) }) func(x int) {
+			Text(f, "row \(x)")
+			Pressable(f, "go", x) {
+				Text(f, "go")
+			}
+		}
+		Text(f, "end")
+	}
+}
+
+// rowIds is the Ids of each key's two nodes, by key, in the column the
+// view writes.
+func rowIds(t *Tree[int], xs []int) Map[int, (Id[int], Id[int])] {
+	let mut out = Map[int, (Id[int], Id[int])]{}
+	let col = Kids(t, Root(t))
+	if len(col) != 1 {
+		return out
+	}
+	let kids = Kids(t, col[0])
+	if len(kids) != 2*len(xs)+1 {
+		return out
+	}
+	for i, x in xs {
+		out[x] = (kids[2*i], kids[2*i+1])
+	}
+	out[-1] = (kids[2*len(xs)], kids[2*len(xs)])
+	out
+}
+
+// KeyedIdentity: a permutation of keyed rows keeps each row's nodes, and
+// the node after the Each, with their Ids, and the patch only moves them.
+law KeyedIdentity(seed int, count int) {
+	let mut r = seeded(seed)
+	let mut xs = []int{}
+	for i in 0..(count%12+12)%12+1 {
+		xs = xs.Append(i * 7)
+	}
+	let ys = shuffled(xs, &r)
+	let mut t = NewTree[int]()
+	let mut m = NewMirror[int](Root(&t))
+	let mut a = NewFrame[int]()
+	keyedRows(&a, xs)
+	Apply(&m, Commit(&t, &a)) catch {
+	case BadPatch:
+		return false
+	}
+	let before = rowIds(&t, xs)
+	let mut b = NewFrame[int]()
+	keyedRows(&b, ys)
+	let ops = Commit(&t, &b)
+	Apply(&m, ops) catch {
+	case BadPatch:
+		return false
+	}
+	for op in ops {
+		match op {
+		case Move[int]:
+		case _:
+			return false
+		}
+	}
+	let after = rowIds(&t, ys)
+	if len(before) != len(xs)+1 || len(after) != len(xs)+1 || !SameShapes(MirrorShape(&m), FrameShape(&b)) {
+		return false
+	}
+	for x, ids in before {
+		if after.Get(x) != (Some{Value: ids}) {
+			return false
+		}
+	}
+	true
+}
+
+// sent is the signal o holds, or -1 for None (the laws' signals are not
+// negative).
+func sent(o Option[int]) int {
+	match o {
+	case Some[int] as v:
+		v.Value
+	case None:
+		-1
+	}
+}
+
+func signalsAgree(t *Tree[int], id Id[int]) bool {
+	let mut ok = true
+	let pressed = sent(Signal(t, Press[int]{Id: id}))
+	let typed = sent(Signal(t, Type[int]{Id: id, Text: "abc"}))
+	match NodeOf(t, id) {
+	case Some[Node[int]] as n:
+		match n.Value {
+		case PressableNode[int] as p:
+			ok = pressed == p.On && typed == -1
+		case CheckNode[int] as c:
+			ok = pressed == c.On && typed == -1
+		case InputNode as i:
+			ok = i.Value == "v\(typed-3)" && pressed == -1
+		case _:
+			ok = pressed == -1 && typed == -1
+		}
+	case None:
+		return false
+	}
+	for k in Kids(t, id) {
+		ok = ok && signalsAgree(t, k)
+	}
+	ok
+}
+
+// PressGivesSignal: a press of a Pressable or a Check sends its On, a
+// text into an Input sends the Input's signal, and any other node sends
+// nothing, after every commit of a run.
+law PressGivesSignal(seed int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r)
+	let mut t = NewTree[int]()
+	let mut ok = true
+	for _ in 0..3 {
+		let mut f = frameOf(ps, genState(&r))
+		let _ = Commit(&t, &f)
+		for k in Kids(&t, Root(&t)) {
+			ok = ok && signalsAgree(&t, k)
+		}
+	}
+	ok
+}

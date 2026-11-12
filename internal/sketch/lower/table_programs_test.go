@@ -19,6 +19,7 @@ var (
 	_ = declarePrograms("TestStdRandLawsRun", testBuildProgram("stdrand", stdRandLawsProbe))
 	_ = declarePrograms("TestStdSlicesLawsRun", testBuildProgram("stdslices", stdSlicesLawsProbe))
 	_ = declarePrograms("TestStdArenaLawsRun", testBuildProgram("stdarena", stdArenaLawsProbe))
+	_ = declarePrograms("TestUITreeModel", testBuildProgram("stduitree", stdUITreeProbe))
 	_ = declarePrograms("TestSyncLaws", testBuildProgram("synclaws", syncLawsProbe))
 	_ = declarePrograms("TestStdTimeLawsRun", testBuildProgram("stdtime", stdTimeLawsProbe))
 	_ = declarePrograms("TestExecLaws", testBuildProgram("execlaws", execLawsProbe))

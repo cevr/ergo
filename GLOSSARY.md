@@ -287,6 +287,10 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Host-driven program** (direction; owner direction 2026-11-02, [#202](https://github.com/cevr/ergo/issues/202) and [#240](https://github.com/cevr/ergo/issues/240)): A program whose control loop a host owns, such as a game engine, a GUI window or a TUI screen that calls it each frame or event on the host's thread through a declared entry signature, while its capabilities stay separate services provided by a context rather than one platform owning them all.
 
+**Frame (ui)**: std `ui.Frame[E]`, the composer a view writes into: a view is `func(f *ui.Frame[E], s S)`, an explicit borrow and not a capability, and `Commit` reconciles what it wrote with the retained tree into a patch (`[]ui.Op[E]`). `E` is the program's signal type. See [stdlib](docs/spec/stdlib.md#ui).
+
+**UI host**: std `ui.Host[E]`, the operation type of a screen that shows patches and reports input (`Show`, `Next`); a value `ui.Run` drives. Not a host package's `Host` and not an **Actor host**. See [stdlib](docs/spec/stdlib.md#ui).
+
 **Uninterruptible host wait**: A foreign Go call whose Go declaration takes no `context.Context`, so an interruption reaches the task only after Go returns. `ergo inspect` lists it for each function that reaches it (IG8; [tooling](docs/tooling.md#inspect)).
 
 **Exit accumulator**: The runtime record that combines a body's outcome with release defects and interruption into one exit cause, so a release never hides a failure.
