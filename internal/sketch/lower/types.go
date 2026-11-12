@@ -738,6 +738,12 @@ func (l *lowerer) isErrorValue(t check.Type, p *check.Package, o check.FactOwner
 				// the row it is bound to (types.md, Generics 1; q47).
 				continue
 			}
+			if _, ok := v.(*check.Wired); ok {
+				// wired[T] in a generic body: the decode failures of T's
+				// type argument, error types each (types.md, Codecs 2;
+				// owner q80), as a row parameter's member is.
+				continue
+			}
 			if !l.isErrorValue(v, p, o) {
 				return false
 			}
