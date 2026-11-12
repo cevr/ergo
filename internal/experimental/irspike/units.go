@@ -172,8 +172,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call without a Calls entry", "G4"},
 	{"value copy", "G4"}, // the value rule's copy (values.go)
 	// G5: std bodies.
-	{"library body", "G5"},
-	{"intrinsic body", "G5"},
+	// A library body takes an IR body as a sourced one does (IRG5).
+	// An extern's body is the lowerer's Go text (Append, Get, Put,
+	// Delete, Sleep): Go by plan-tier §1.4 (hand-written Go compiles as
+	// Go), not an Ergo body the IR expresses (IRG5).
+	{"intrinsic body", "Go"},
 	{"std body not reachable alone", "G5"},
 	// G6: the rest (closures, codecs, test and law bodies).
 	{"expression *syntax.FuncLit", "G6"},
