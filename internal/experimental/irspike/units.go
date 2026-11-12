@@ -104,7 +104,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call that passes witnesses", "G4"},
 	{"call with a call site", "G4"},
 	{"call that captures owners", "G4"},
-	{"catch with patterns", "G3"},         // record patterns, case err, case _: the match tree's
+	{"catch with patterns", "G3b"},        // record patterns, case err, case _: the match tree's
 	{"catch value of another type", "G3"}, // a flat union the arms join to
 	// G3: unions, match, machines; the lowering's representation decides.
 	{"named type that is not a record", "G3"},
@@ -115,12 +115,28 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"result statement *syntax.SwitchStmt", "G3"},
 	{"statement *syntax.SwitchStmt", "G3"},
 	{"expression *syntax.SwitchStmt", "G3"},
-	{"implicit conversion", "G3"},
+	{"implicit conversion", "G3b"}, // of a fallible call's result (ret)
+	{"constant of type *", "G3"},
+	// G3b (IRG3's follow-up): the match tree, scalar-form locals, machines.
 	// A loop-carried union local in tag-and-slots form (scalar.go): a
 	// union representation decision.
-	{"scalar-form local", "G3"},
-	{"interpolated value of type *", "G3"},
-	{"constant of type *", "G3"},
+	{"scalar-form local", "G3b"},
+	{"match with patterns", "G3b"},  // the decision tree (matchtree.go)
+	{"break inside a match", "G3b"}, // Go's break leaves the switch: a labelled loop
+	{"interpolated value of type *", "G3b"},
+	{"machine conversion", "G3b"},
+	{"machine value", "G3b"},
+	{"row conversion", "G3b"},
+	{"type defined over a non-basic type", "G3b"},
+	{"value of a type defined over a flat union", "G3b"},
+	{"value of another type", "G3b"},
+	{"match on a value that is no union", "G3b"},
+	{"match on a value of type *", "G3b"},
+	{"match subject that releases owned values", "G2"},
+	{"match on Get", "G4"},         // a Map read: the comma-ok form (getmatch.go)
+	{"operation-type value", "G4"}, // a value of an operation type: an interface of functions
+	{"operations conversion", "G4"},
+	{"result statement *syntax.BranchStmt", "G1"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
 	{"call of a function outside the package", "G4"},
