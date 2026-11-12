@@ -35,6 +35,8 @@ type declRow struct {
 	Share     float64 `json:"decl_share_of_edit"`
 	IRFuncs   int     `json:"ir_funcs"`
 	Fallbacks int     `json:"fallback_funcs"`
+	// Link is the first line of the declaration build's expected failure.
+	Link string `json:"link_failure,omitempty"`
 }
 
 // decl measures the DECL share of PROGRAM: the IR path builds MODULE cold,
@@ -93,8 +95,21 @@ func decl(args []string) error {
 	}
 	log := filepath.Join(work, "decl-tools.jsonl")
 	src.GOCACHE = filepath.Join(work, "gocache-source")
-	// The link fails (no bodies); the compile ran and was counted.
-	_, _ = irspike.Build(src, irspike.Source, dmod, filepath.Join(work, "decl.bin"), irspike.BuildOptions{Toolexec: self + " tool " + log})
+	// The link fails (no bodies); the compile ran and was counted. A
+	// compile error (a Go position in the output) would count a compile
+	// that stopped early.
+	_, berr := irspike.Build(src, irspike.Source, dmod, filepath.Join(work, "decl.bin"), irspike.BuildOptions{Toolexec: self + " tool " + log})
+	if berr != nil && strings.Contains(berr.Error(), ".go:") {
+		return fmt.Errorf("the declaration file does not compile: %w", berr)
+	}
+	if berr != nil {
+		msg := berr.Error()
+		if i := strings.Index(msg, "\n"); i >= 0 {
+			msg = msg[i+1:]
+		}
+		msg = strings.Join(strings.Fields(msg), " ")
+		row.Link = msg[:min(len(msg), 200)]
+	}
 	if row.Decl, err = programCompile(log); err != nil {
 		return fmt.Errorf("declaration compile: %w", err)
 	}
@@ -122,7 +137,28 @@ func programCompile(log string) (int64, error) {
 	return 0, fmt.Errorf("%s: no compile of the program package", log)
 }
 
-// stripBodies removes every function body of the Go file, and the imports
+// generic reports a function with type parameters, or a method of a
+// generic type.
+func generic(fd *ast.FuncDecl) bool {
+	if fd.Type.TypeParams != nil && len(fd.Type.TypeParams.List) > 0 {
+		return true
+	}
+	if fd.Recv == nil || len(fd.Recv.List) == 0 {
+		return false
+	}
+	t := fd.Recv.List[0].Type
+	if s, ok := t.(*ast.StarExpr); ok {
+		t = s.X
+	}
+	switch t.(type) {
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		return true
+	}
+	return false
+}
+
+// stripBodies removes every function body of the Go file (a generic one
+// keeps a panic, init an empty body), and the imports
 // only bodies used.
 func stripBodies(name string) error {
 	fset := token.NewFileSet()
@@ -131,7 +167,19 @@ func stripBodies(name string) error {
 		return err
 	}
 	for _, d := range f.Decls {
-		if fd, ok := d.(*ast.FuncDecl); ok {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		switch {
+		case fd.Name.Name == "init" && fd.Recv == nil:
+			// init must have a body: an empty one.
+			fd.Body = &ast.BlockStmt{}
+		case generic(fd):
+			// A generic function must have a body: a panic, the least
+			// a body can be.
+			fd.Body = &ast.BlockStmt{List: []ast.Stmt{&ast.ExprStmt{X: &ast.CallExpr{Fun: ast.NewIdent("panic"), Args: []ast.Expr{&ast.BasicLit{Kind: token.INT, Value: "0"}}}}}}
+		default:
 			fd.Body = nil
 		}
 	}
