@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/lower"
@@ -140,6 +142,7 @@ var (
 	lineDirective = regexp.MustCompile(`(?m)^//line .*\n|/\*line [^*]*\*/`)
 	column        = regexp.MustCompile(`Column: \d+`)
 	columnText    = regexp.MustCompile(`(\.ergo:\d+):\d+`)
+	inlineCall    = regexp.MustCompile(`\{Call: (\d+),`)
 	assertText    = regexp.MustCompile(`(ergoAssertFail\("[^"]*", )"(?:[^"\\]|\\.)*"`)
 )
 
@@ -154,12 +157,32 @@ func positionless(goText string) string {
 	goText = assertText.ReplaceAllString(goText, `$1"_"`)
 	goText = columnText.ReplaceAllString(goText, "$1:_")
 	lines := strings.Split(goText, "\n")
+	// moved maps a call row's index to its index in the sorted run; the
+	// inline table (lower: ergoInlines) names a call by that index.
+	var moved map[int]int
 	for i := 0; i < len(lines); {
 		j := i
 		for j < len(lines) && strings.HasPrefix(lines[j], "\t{Func: ") {
 			j++
 		}
-		slices.Sort(lines[i:j])
+		if j > i {
+			run := make([]int, j-i)
+			for k := range run {
+				run[k] = k
+			}
+			sort.SliceStable(run, func(a, b int) bool { return lines[i+run[a]] < lines[i+run[b]] })
+			moved = map[int]int{}
+			for to, from := range run {
+				moved[from] = to
+			}
+			slices.Sort(lines[i:j])
+		}
+		if m := inlineCall.FindStringSubmatch(lines[i]); m != nil && moved != nil {
+			n, _ := strconv.Atoi(m[1])
+			if to, ok := moved[n]; ok {
+				lines[i] = strings.Replace(lines[i], m[0], "{Call: "+strconv.Itoa(to)+",", 1)
+			}
+		}
 		i = max(j, i+1)
 	}
 	return strings.Join(lines, "\n")
