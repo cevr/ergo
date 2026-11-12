@@ -149,7 +149,7 @@ func orDash(s string) string {
 }
 
 func gitOut(repo string, args ...string) string {
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 	cmd.Dir = repo
 	out, err := cmd.Output()
 	if err != nil {
