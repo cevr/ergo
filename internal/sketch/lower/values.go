@@ -5,6 +5,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Value semantics for Maps and slices (value-rule; owner q26, 2026-11-08:
@@ -129,6 +130,7 @@ type valueFacts struct {
 	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
 	handed   map[syntax.Expr]bool       // arguments a rebinding hands over to a pure body (V7)
 	from     map[freshKey]int8          // freshFrom: 1 deciding, 2 fresh, 3 not fresh
+	consumes map[*syntax.CallExpr]bool  // calls of a runtime/v1 body's owned form: their first operand is consumed
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
@@ -140,6 +142,11 @@ type valueFacts struct {
 type ownedParam struct {
 	index int
 	bind  syntax.Expr
+	// consumed reports a parameter that a call consumes (consumedUse)
+	// rather than one a let mut takes: bind is that call's operand, and
+	// the body's analysis reads v as an unshared local.
+	consumed bool
+	v        *check.Var
 }
 
 func (l *lowerer) valueFacts() *valueFacts {
@@ -152,6 +159,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			consumed: map[syntax.Expr]bool{},
 			handed:   map[syntax.Expr]bool{},
 			from:     map[freshKey]int8{},
+			consumes: map[*syntax.CallExpr]bool{},
 			owned:    map[*syntax.FuncDecl][]ownedParam{},
 			ownCall:  map[*syntax.CallExpr]bool{},
 			refSites: map[*syntax.CallExpr]*refSite{},
@@ -180,6 +188,7 @@ func (l *lowerer) analyzeValues(root syntax.Node, info *check.Info) *valueWalk {
 		tailsOf(d.Body.List, w.root.tails)
 	}
 	w.walk(root, nil)
+	w.consumedParams(root)
 	w.decide()
 	w.done = true
 	return w
@@ -830,6 +839,8 @@ func (w *valueWalk) decide() {
 	}
 	// Owned Ref sites (V6), once every copy is decided.
 	w.decideSites()
+	// Consumed operands of owned runtime/v1 forms, likewise.
+	w.consumes()
 }
 
 // goHeld reports x, unparenthesized, as Go's own Map or slice: the result
@@ -1098,18 +1109,150 @@ func (l *lowerer) ownedParams(fn *check.Func) []ownedParam {
 			if id != nil {
 				if v, ok := info.Defs[id].(*check.Var); ok && w.vars[v] != nil && l.holdsValue(v.Type) {
 					if bind := w.ownedBind(f, w.vars[v]); bind != nil {
-						out = append(out, ownedParam{index: i, bind: bind})
+						out = append(out, ownedParam{index: i, bind: bind, v: v})
+					} else if use := w.consumedUse(f, w.vars[v]); use != nil && valueMutant != "consume-blind" {
+						out = append(out, ownedParam{index: i, bind: use, consumed: true, v: v})
 					}
 				}
 			}
 			i++
 		}
 	}
-	if len(out) > 0 && l.funcDecl(fn).method != nil {
-		out = nil
-	}
 	vf.owned[d] = out
 	return out
+}
+
+// consumedParams makes each consumed owned parameter (consumedUse) of the
+// function root a local of the root frame that holds an unshared value:
+// its callers pass it unshared (V5), and its body reads it once.
+func (w *valueWalk) consumedParams(root syntax.Node) {
+	d, ok := root.(*syntax.FuncDecl)
+	if !ok || d.Name == nil {
+		return
+	}
+	f, ok := w.info.Defs[d.Name].(*check.Func)
+	if !ok {
+		return
+	}
+	for _, p := range w.l.ownedParams(f) {
+		if vv := w.vars[p.v]; p.consumed && vv != nil {
+			vv.local, vv.handed, vv.frame, vv.loops = true, true, w.root, nil
+		}
+	}
+}
+
+// consumes decides the calls of a runtime/v1 body's owned form: the first
+// operand is consumed when it is fresh, so no binding reads its storage
+// after the call (a local dead after it and never shared, a consumed
+// parameter, a literal, a fresh result or a copy).
+func (w *valueWalk) consumes() {
+	if !valueOwned() {
+		return
+	}
+	for _, call := range w.pure {
+		c := w.info.Calls[call]
+		if c == nil || call.Trailing != nil || w.l.ownedForm(c.Func) == "" {
+			continue
+		}
+		if ops := callOperands(call, c); len(ops) > 0 && (valueMutant == "consume-any" || w.fresh(ops[0])) {
+			w.vf.consumes[call] = true
+		}
+	}
+}
+
+// consumedUse is the one use of the parameter vv of f that a call
+// consumes (types.md, Bindings 2, consumed arguments), or nil: vv is read
+// once, in the body's own frame and outside any loop, as an operand of a
+// call, itself or a field path of it, at a position the call consumes
+// (consumedAt); and f cannot fail after that read. Such a parameter is
+// owned (V5): its callers pass it unshared, so the call it reaches takes
+// it over.
+func (w *valueWalk) consumedUse(f *check.Func, vv *vvar) syntax.Expr {
+	if vv.ptr || vv.local || len(vv.occs) != 1 {
+		return nil
+	}
+	o := vv.occs[0]
+	if o.frame != w.root || len(o.loops) > 0 {
+		return nil
+	}
+	x := syntax.Expr(o.id)
+	var use syntax.Expr
+	for use == nil {
+		switch p := w.parent[x].(type) {
+		case *syntax.ParenExpr:
+			x = p
+		case *syntax.SelectorExpr:
+			if p.X != x {
+				return nil
+			}
+			if call, ok := w.parent[p].(*syntax.CallExpr); ok && call.Fun == syntax.Expr(p) {
+				// A dot call: x is its receiver.
+				use = w.consumedAt(call, x)
+				if use == nil {
+					return nil
+				}
+				continue
+			}
+			if _, field := w.typeOf(p.X).(*check.Named); !field {
+				return nil
+			}
+			x = p
+		case *syntax.CallExpr:
+			if use = w.consumedAt(p, x); use == nil {
+				return nil
+			}
+		default:
+			return nil
+		}
+	}
+	if len(rowElems(f.Sig.Errors)) > 0 && w.failsAfter(f, o.pre) {
+		return nil
+	}
+	return use
+}
+
+// consumedAt is x when it is the operand of call at a position the call
+// consumes, or nil: the first operand of a std function whose runtime/v1
+// body has an owned form (v1.Body.Owned), or an owned parameter (V5) of a
+// function with an Ergo body.
+func (w *valueWalk) consumedAt(call *syntax.CallExpr, x syntax.Expr) syntax.Expr {
+	c := w.info.Calls[call]
+	if c == nil || c.Kind != check.CallFunc || c.Func == nil || call.Trailing != nil {
+		return nil
+	}
+	ops := callOperands(call, c)
+	at := -1
+	for i, op := range ops {
+		if op == x {
+			at = i
+		}
+	}
+	switch {
+	case at < 0:
+		return nil
+	case at == 0 && w.l.ownedForm(c.Func) != "":
+		return x
+	}
+	for _, p := range w.l.ownedParams(c.Func) {
+		if p.index == at {
+			return x
+		}
+	}
+	return nil
+}
+
+// ownedForm is the owned form of the runtime/v1 body that the std
+// function f binds (v1.Body.Owned), or "".
+func (l *lowerer) ownedForm(f *check.Func) string {
+	if !l.pureV1(f) {
+		return ""
+	}
+	_, name := f.Decl.Extern.Split()
+	body, err := v1.BodyOf(name)
+	if err != nil {
+		return ""
+	}
+	return body.Owned
 }
 
 // ownedBind is the value of the one bind that takes the parameter vv of f
@@ -1222,22 +1365,34 @@ func (l *lowerer) reserveOwned(pkgs []*check.Package) {
 // parameter list, results its result list, typeArgs the names of its type
 // parameters, and args its Go operands in order (the environment, the
 // destination and the witnesses first, then one per parameter; the wrapper
-// copies each owned one). It calls body, the owned body.
-func (fc *funcCtx) ownedWrapper(f *check.Func, head, params, results, body string, typeArgs []string, args []string, site syntax.Node) string {
+// copies each owned one). It calls body, the owned body. For a method,
+// recv names the receiver, the first parameter, which args leaves out,
+// and body is a method of it.
+func (fc *funcCtx) ownedWrapper(f *check.Func, head, params, results, body string, typeArgs []string, args []string, recv string, site syntax.Node) string {
 	owned := map[int]bool{}
 	for _, p := range fc.l.ownedParams(f) {
 		owned[p.index] = true
 	}
-	lead := len(args) - len(f.Sig.Params)
+	first := 0
+	if recv != "" {
+		first = 1
+		if owned[0] {
+			recv = fc.cloneValue(f.Sig.Params[0].Type, recv, site)
+		}
+	}
+	lead := len(args) - (len(f.Sig.Params) - first)
 	var ops []string
 	for i, a := range args {
-		if j := i - lead; j >= 0 && owned[j] {
+		if j := i - lead + first; i >= lead && owned[j] {
 			a = fc.cloneValue(f.Sig.Params[j].Type, a, site)
 		}
 		ops = append(ops, a)
 	}
 	if len(typeArgs) > 0 {
 		body += "[" + strings.Join(typeArgs, ", ") + "]"
+	}
+	if recv != "" {
+		body = "(" + recv + ")." + body
 	}
 	call := body + "(" + strings.Join(ops, ", ") + ")"
 	if strings.TrimSpace(results) != "" {

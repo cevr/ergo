@@ -17,3 +17,13 @@ Each is an edit of `unparkedWaits` in `runtime_waits_test.go`, judged by hand (t
 | `Wait()` calls not counted | TestRuntimeWaitsPark | The rows `machineStart` and `Task.Wait` go stale. |
 | `rt.Park` not seen | TestRuntimeWaitsPark | Every parked wait (`Actor.await`, `Queue.wait`, …) is flagged. |
 | Function literals not entered (`mk1-residue-skips-literals`) | TestRuntimeWaitRule | Survives TestRuntimeWaitsPark; the rule test's literal is not flagged. |
+
+# Unsafe inventory mutants (wf10 STD-sh r2)
+
+Each applied by hand (an edit, `go test -run TestUnsafeBodiesListed ./internal/residue`, the file restored), 2026-11-12: all killed.
+
+| Mutant | Killer | Evidence |
+| --- | --- | --- |
+| The `StringsBuilderTextOwned` line names another function (the body is unlisted) | TestUnsafeBodiesListed | `runtime/v1/owned.go StringsBuilderTextOwned uses package unsafe and is not in …` |
+| `StringsBuilderTextOwned` returns `string(buf)` (the line goes stale) | TestUnsafeBodiesListed | `names no use of unsafe (a stale line)` |
+| The review part of a line removed | TestUnsafeBodiesListed | the line format error |

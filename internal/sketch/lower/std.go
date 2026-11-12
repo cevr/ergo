@@ -261,6 +261,11 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 		}
 		return fc.ownedRefCall(x, c, s, args, fc.stdTypeArgs(owned, f.Sig, c.TypeArgs, x), len(f.Sig.Results) > 0)
 	}
+	if fc.l.vals != nil && fc.l.vals.consumes[x] {
+		// The first operand is consumed (values.go, consumes): the owned
+		// form, of the same shape, takes it over.
+		name = body.Owned
+	}
 	vals := fc.callArgs(args, x)
 	for i, p := range body.Params {
 		if p.Func != nil {

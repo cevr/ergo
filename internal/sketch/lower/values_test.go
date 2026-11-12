@@ -17,6 +17,7 @@ import (
 
 const valueElideSource = `import maps
 import slices
+import strings
 import sync
 import utf8
 
@@ -122,6 +123,25 @@ func bytesOf(n int) []byte {
 	p
 }
 
+// joined's builder is dead at String: String's receiver is consumed, so
+// the text shares the buffer (Bindings 2, consumed arguments). kept's is
+// read after String, so its call copies the builder first.
+func joined(n int) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..n {
+		b.WriteByte(byte(i + 65))
+	}
+	b.String()
+}
+
+func keptText(n int) string {
+	let mut b = strings.NewBuilder()
+	b.WriteByte(byte(n + 65))
+	let s = b.String()
+	b.WriteByte(byte(n + 66))
+	s + b.String()
+}
+
 // bytesOf's result is fresh: p's handed reads leave it unshared.
 func bytesTwice(n int) []byte {
 	let mut x = bytesOf(n)
@@ -163,7 +183,7 @@ func tally(n int) int {
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3)))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1))")
 }
 `
 
@@ -195,6 +215,23 @@ func TestValueRuleElides(t *testing.T) {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") || strings.Contains(body, "Clip(") {
 			t.Errorf("%s copies a fresh value:\n%s", fn, body)
 		}
+	}
+	// A consumed receiver (Bindings 2): String's owned body shares the
+	// buffer through the runtime/v1 owned form; joined calls it with no
+	// copy, and keptText copies the builder it reads again.
+	if body := goFunc(t, code, "joined"); !strings.Contains(body, ".StringOwned(") || strings.Contains(body, "Clone") {
+		t.Errorf("joined does not hand its dead builder to String:\n%s", body)
+	}
+	if body := goFunc(t, code, "keptText"); strings.Count(body, "ergoCloneBuilder(") != 1 {
+		t.Errorf("keptText should copy the builder it writes after String, once:\n%s", body)
+	}
+	if !strings.Contains(code, "ergo.StringsBuilderTextOwned(") {
+		t.Errorf("String's owned body does not call the owned form StringsBuilderTextOwned")
+	}
+	// The method String itself, which a method value or a host protocol
+	// reaches, copies its receiver before the owned body takes it.
+	if !regexp.MustCompile(`\) String\(env \*Env\) string \{\n\treturn \(ergoCloneBuilder\(\w+\)\)\.StringOwned\(env\)`).MatchString(code) {
+		t.Errorf("the method String does not copy its receiver for the owned body")
 	}
 	if body := goFunc(t, code, "keptOwned"); strings.Count(body, "slices.Clone(") != 1 {
 		t.Errorf("kept should copy the kept read once:\n%s", body)

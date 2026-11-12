@@ -3954,6 +3954,50 @@
       "killers": [
         "lower:TestValueRuleElides"
       ]
+    },
+    {
+      "name": "consumed-param",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\t\t\t} else if use := w.consumedUse(f, w.vars[v]); use != nil && valueMutant != \"consume-blind\" {\n",
+      "to": "\t\t\t\t\t} else if use := w.consumedUse(f, w.vars[v]); false && use != nil && valueMutant != \"consume-blind\" {\n",
+      "rule": "types.md, Bindings 2 (consumed arguments): a parameter whose one use a call consumes is owned, so a dead receiver reaches String's owned body uncopied (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "consumes-off",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tw.vf.consumes[call] = true\n",
+      "to": "\t\t\t_ = call\n",
+      "rule": "types.md, Bindings 2 (consumed arguments): a fresh first operand of a runtime/v1 body with an owned form calls the owned form (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "owned-method-call",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\t\t\t// The owned body, a method too (V5).\n\t\t\t\tname = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+\"Owned\")\n",
+      "to": "\t\t\t\t// The owned body, a method too (V5).\n",
+      "rule": "values.go, V5: a call that passes its owned receiver unshared calls the owned method, not the copying one (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "owned-method-wrapper-copy",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\trecv = fc.cloneValue(f.Sig.Params[0].Type, recv, site)\n",
+      "to": "\t\t\t_ = site\n",
+      "rule": "values.go, V5: the method a method value or a host protocol reaches copies its owned receiver before the owned body takes it.",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
     }
   ]
 }

@@ -213,3 +213,41 @@ func (q *Missing[T]) Lost() {}
 		}
 	}
 }
+
+// TestBodyOwnedForm: an //ergo:owned directive names a function of the
+// same shape (Body.Owned); one of another shape, or a name that is no
+// exported function, is refused, since the lowering calls the owned form
+// in the body's place with the body's arguments.
+// Mutants it alone catches (testdata/mutants.json): stdsh-owned-shape.
+func TestBodyOwnedForm(t *testing.T) {
+	src := `package v1
+
+//ergo:owned TextOwned
+func Text(buf []byte) string { return string(buf) }
+
+func TextOwned(buf []byte) string { return "" }
+
+//ergo:owned WideOwned
+func Narrow(buf []byte) string { return "" }
+
+func WideOwned(buf []byte, n int) string { return "" }
+
+//ergo:owned Nowhere
+func Lost(buf []byte) string { return "" }
+`
+	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err := decls.body("Text"); err != nil || b.Owned != "TextOwned" {
+		t.Errorf("Text: owned %q, %v; want TextOwned", b.Owned, err)
+	}
+	for name, msg := range map[string]string{
+		"Narrow": "has another shape",
+		"Lost":   "which is no exported function",
+	} {
+		if _, err := decls.body(name); err == nil || !strings.Contains(err.Error(), msg) {
+			t.Errorf("%s: error %v, want one containing %q", name, err, msg)
+		}
+	}
+}

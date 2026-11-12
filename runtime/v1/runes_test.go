@@ -141,6 +141,13 @@ func TestStdRunesMatchGo(t *testing.T) {
 		if StringsBuilderText(eb) != gb.String() || len(eb) != gb.Len() {
 			t.Fatalf("case %d: Builder text %q (len %d); Go %q (len %d)", i, StringsBuilderText(eb), len(eb), gb.String(), gb.Len())
 		}
+		// The owned form shares the consumed buffer: the same text, and
+		// an append past its length (all a Builder writes) leaves it.
+		owned := StringsBuilderTextOwned(eb)
+		eb = StringsBuilderAppend(eb, repl)
+		if owned != gb.String() {
+			t.Fatalf("case %d: owned Builder text %q; Go %q", i, owned, gb.String())
+		}
 		sign := r.IntN(3) - 1
 		if MathIsNaN(f) != math.IsNaN(f) || MathIsInf(f, sign) != math.IsInf(f, sign) || MathInf(sign) != math.Inf(sign) || !math.IsNaN(MathNaN()) {
 			t.Fatalf("case %d: IsNaN, IsInf or Inf of %v, %d", i, f, sign)

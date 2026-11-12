@@ -91,11 +91,13 @@ func StringsBuilderGrow(buf []byte, n int) []byte {
 	return buf
 }
 
-// StringsBuilderText is the text of buf, a copy of its bytes. Go's
-// strings.Builder.String shares the bytes through unsafe; Ergo copies
-// until an unsafe body is measured and admitted (stdlib.md, unsafe rule).
+// StringsBuilderText is the text of buf, a copy of its bytes. Where the
+// caller's buffer is consumed (no binding reads it after the call), the
+// lowering calls its owned form StringsBuilderTextOwned, which shares the
+// bytes with no copy, as Go's strings.Builder.String does.
 //
 //ergo:pure
+//ergo:owned StringsBuilderTextOwned
 func StringsBuilderText(buf []byte) string { return string(buf) }
 
 // StringsFields is strings.Fields.

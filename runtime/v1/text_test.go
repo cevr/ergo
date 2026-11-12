@@ -269,6 +269,7 @@ func textBenches() []textBench {
 			textSink = g.Cap()
 		}},
 		{"BuilderText", "StringsBuilderText", func() { textSink = StringsBuilderText(built) }, func() { textSink = goBuilt.String() }},
+		{"BuilderTextOwned", "StringsBuilderTextOwned", func() { textSink = StringsBuilderTextOwned(built) }, func() { textSink = goBuilt.String() }},
 		{"Fields", "StringsFields", func() { textSink = StringsFields(s) }, func() { textSink = strings.Fields(s) }},
 		{"Repeat", "StringsRepeat", func() { textSink = StringsRepeat("ab", 64) }, func() { textSink = strings.Repeat("ab", 64) }},
 		{"ToLower", "StringsToLower", func() { textSink = StringsToLower("ALPHA,Beta") }, func() { textSink = strings.ToLower("ALPHA,Beta") }},

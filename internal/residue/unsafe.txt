@@ -1,0 +1,11 @@
+# The unsafe bodies of runtime/v1 (owner q112, 2026-11-11: reviewed unsafe
+# bodies in runtime/v1 only; value-facts note, Inventory). One line per
+# function of a non-test runtime/v1 file that names package unsafe:
+#
+#   <file> <function> | invariant: <what makes it safe> | review: <who>, <date>
+#
+# TestUnsafeBodiesListed fails on a use of unsafe outside this list, on a
+# line that names no such use, and on a line with no invariant or review.
+# The lowering selects an unsafe body from a fact, never from a std name.
+runtime/v1/term_unix.go ioctl | invariant: arg points to a live Go value of the exact kernel type the request names, converted in the call expression (unsafe.Pointer rule 4) | review: STD-sh r2 (listed; body unchanged since the 2026-11-02 FFI rule), 2026-11-12
+runtime/v1/owned.go StringsBuilderTextOwned | invariant: the lowering calls it only on a consumed buffer (types.md, Bindings 2), so no code writes buf[0:len(buf)] after the call; Ergo writes a slice's bytes only through a binding that holds it | review: STD-sh r2 implementor, 2026-11-12; verifier to confirm
