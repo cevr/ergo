@@ -21,7 +21,7 @@ func TestIRFailuresMatchSource(t *testing.T) {
 	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 16)
 	seen := map[string]bool{}
-	fallibleIR, defects, polled := 0, 0, 0
+	fallibleIR, defects, polled, tailIR := 0, 0, 0, 0
 	for seed := first; seed < first+count; seed++ {
 		dir := t.TempDir()
 		text := GenerateFail(seed)
@@ -47,6 +47,9 @@ func TestIRFailuresMatchSource(t *testing.T) {
 			if strings.Contains(text, "func "+name+"(") && fallibleHead(text, name) {
 				fallibleIR++
 			}
+			if errorTail(text, name) {
+				tailIR++
+			}
 		}
 	}
 	if count < 16 {
@@ -59,9 +62,23 @@ func TestIRFailuresMatchSource(t *testing.T) {
 		}
 	}
 	sort.Strings(missing)
-	if len(missing) > 0 || fallibleIR == 0 || defects == 0 || polled == 0 {
-		t.Fatalf("the run did not reach: kinds %v, fallible IR bodies %d, failing seeds %d, loops ending in their poll %d", missing, fallibleIR, defects, polled)
+	if len(missing) > 0 || fallibleIR == 0 || defects == 0 || polled == 0 || tailIR == 0 {
+		t.Fatalf("the run did not reach: kinds %v, fallible IR bodies %d, failing seeds %d, loops ending in their poll %d, IR bodies with no value ending in an error value %d", missing, fallibleIR, defects, polled, tailIR)
 	}
+}
+
+// errorTail reports that name's body in text has no value and ends in an
+// error value (GenerateFail's unit tail), which fails the function.
+func errorTail(text, name string) bool {
+	_, rest, ok := strings.Cut(text, "func "+name+"(")
+	if !ok {
+		return false
+	}
+	head, body, _ := strings.Cut(rest, "{\n")
+	body, _, _ = strings.Cut(body, "\n}\n")
+	lines := strings.Split(body, "\n")
+	lastLine := lines[len(lines)-1]
+	return strings.Contains(head, ") fails ") && (strings.HasPrefix(lastLine, "\tE1{") || strings.HasPrefix(lastLine, "\tE2{"))
 }
 
 // backEdgePolls counts the loops of an IR file whose body ends in the
