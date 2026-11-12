@@ -36,6 +36,11 @@ type Mutant struct {
 	// runner tries them first. An empty list with no Gap is a mutant the
 	// runner has not judged yet.
 	Killers []string `json:"killers"`
+	// Tags are the build tags of the code the mutant edits (such as
+	// ergoexplore, the explored runtime). The runner builds and runs its
+	// tests with them, as the suite TagSuite(SUITE, Tags), and with them
+	// alone: its killers are named TagSuite(SUITE, Tags):NAME.
+	Tags []string `json:"tags,omitempty"`
 	// Gap, when set, says why no test kills the mutant: a known survivor,
 	// a gap of the suite that a new test may name. It is not a failure.
 	Gap string `json:"gap,omitempty"`

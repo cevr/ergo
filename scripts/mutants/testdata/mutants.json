@@ -10,6 +10,8 @@
       "to": "case memory != 0 && bytes.Contains(report, []byte(proclimit.OutOfMemory)):\n\t\treturn \"memory\"",
       "rule": "A capped mutant child's span-queue allocation fault has reason memory.",
       "killers": ["scripts/mutants:TestCappedFaultIsMemory"]
-    }
+    },
+    {"name":"ert-suite-tags-dropped","origin":"wf10 EXPLORE-rt r2","file":"scripts/mutants/runner.go","from":"\tif len(s.Tags) > 0 {\n\t\targv = append(argv, \"-tags=\"+tagList(s.Tags))\n\t}\n","to":"","rule":"A suite with build tags builds its test binary with them, so a mutant of a tagged file is covered and judged.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
+    {"name":"ert-suite-tags-unfiltered","origin":"wf10 EXPLORE-rt r2","file":"scripts/mutants/runner.go","from":"s != nil && tagList(s.Tags) != tagList(m.Tags)","to":"s != nil && s == nil","rule":"A mutant is judged only by the suites built with its own tags.","killers":["scripts/mutants:TestRunnerMatchesModel"]}
   ]
 }

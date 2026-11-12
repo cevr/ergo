@@ -230,7 +230,8 @@ func ergoSuites() ([]string, []Tool, []Suite) {
 // the lowering's ledgers take ergoSuites. The ledger of any other package
 // (runtime/v1, batch 14) is judged by that package's own tests, with
 // coverage of the packages its mutants edit (a runtime/v1 test kills a
-// mutant of runtime/rt too).
+// mutant of runtime/rt too), and by them built with a mutant's build tags
+// for each tag set the ledger's mutants name (Mutant.Tags).
 func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -265,10 +266,17 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			continue
 		}
 		add("./" + rel)
+		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
 		for _, m := range j.Ledger.Mutants {
 			add("./" + filepath.ToSlash(filepath.Dir(m.File)))
+			// A mutant with build tags is judged by the package's tests
+			// built with them: a suite of its own, measured in the
+			// coverage pass too, so a file only the tags build has blocks.
+			name := TagSuite(rel, m.Tags)
+			if !slices.ContainsFunc(suites, func(s Suite) bool { return s.Name == name }) {
+				suites = append(suites, Suite{Name: name, Package: "./" + rel, Tags: slices.Clone(m.Tags)})
+			}
 		}
-		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
 	}
 	return cover, tools, suites, nil
 }

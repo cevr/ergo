@@ -71,6 +71,25 @@ type Suite struct {
 	Command []string
 	List    func(root string) ([]string, error)
 	Env     []string
+	// Tags are the build tags of a Go suite's test binary. A suite with
+	// tags judges only the mutants with the same tags, and they only it.
+	Tags []string
+}
+
+// TagSuite is the name of the suite that runs suite's tests built with
+// tags: "runtime/v1+ergoexplore". A suite without tags keeps its name.
+func TagSuite(suite string, tags []string) string {
+	if len(tags) == 0 {
+		return suite
+	}
+	return suite + "+" + tagList(tags)
+}
+
+// tagList is tags as go build's -tags takes them, in one order.
+func tagList(tags []string) string {
+	t := slices.Clone(tags)
+	slices.Sort(t)
+	return strings.Join(slices.Compact(t), ",")
 }
 
 // Deadlines of the mutant pass, derived from the coverage pass: a child may
@@ -258,7 +277,7 @@ func (e *engine) load(ledgers []string) error {
 	}
 	fmt.Fprintf(h, "cover %q tools %q", e.cfg.Cover, toolNames(e.cfg.Tools))
 	for _, s := range e.cfg.Suites {
-		fmt.Fprintf(h, " suite %s %s %q %q", s.Name, s.Package, s.Command, s.Env)
+		fmt.Fprintf(h, " suite %s %s %q %q %q", s.Name, s.Package, s.Command, s.Env, s.Tags)
 	}
 	e.key = hex.EncodeToString(h.Sum(nil))[:16]
 	return nil
@@ -511,6 +530,9 @@ func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cov
 	if cover {
 		argv = append(argv, "-cover", "-covermode=set", "-coverpkg="+strings.Join(e.cfg.Cover, ","))
 	}
+	if len(s.Tags) > 0 {
+		argv = append(argv, "-tags="+tagList(s.Tags))
+	}
 	argv = append(argv, "-o", filepath.Join(bin, s.Name+".test"), s.Package)
 	return e.exec(ctx, root, argv, e.env(), deadline)
 }
@@ -535,6 +557,11 @@ func (e *engine) argv(s *Suite, root, bin, test string) ([]string, string, []str
 func splitID(id string) (string, string) {
 	suite, name, _ := strings.Cut(id, ":")
 	return suite, name
+}
+
+func suiteOf(id string) string {
+	suite, _ := splitID(id)
+	return suite
 }
 
 // prepareCoverage reads the coverage file, the cached one of this tree, or
@@ -812,6 +839,13 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 		}
 	}
 	covering := w.e.cov.covering(file, lo, hi, header && m.Anchor == nil, extra)
+	// A mutant is judged by the suites built with its tags alone: a test of
+	// another build runs other code.
+	for id := range covering {
+		if s := w.e.suite(suiteOf(id)); s != nil && tagList(s.Tags) != tagList(m.Tags) {
+			delete(covering, id)
+		}
+	}
 	r.Covering = len(covering)
 	if len(covering) == 0 {
 		r.Status = Uncovered
