@@ -128,7 +128,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			irNo("selector on a non-record")
 		}
 		b.goType(n, x)
-		td := b.l.useType(b.l.typeDecl(n.Obj, x))
+		// goType queued the declaration, unless the runtime's Go type
+		// stands for n (IRG4: a std record such as os.Exit), as fieldName.
+		td := b.l.typeDecl(n.Obj, x)
 		field, ok := td.fieldName[x.Sel.Name]
 		if !ok {
 			irNo("selector that is not a field")
@@ -159,7 +161,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				lit.Elems = append(lit.Elems, b.expr(e))
 			}
 		case *check.Named:
-			td := b.l.useType(b.l.typeDecl(tt.Obj, x))
+			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
 			s := tt.Underlying().(*check.Struct)
 			if len(x.Elts) != len(s.Fields) {
 				irNo("record literal without every field")
