@@ -44,7 +44,8 @@ func (b *irBuilder) scalarLet(v *check.Var, x syntax.Expr, mut bool, p irPos) (o
 	}
 	n, isNamed := v.Type.(*check.Named)
 	if !isNamed {
-		irNo("scalar-form local of an unnamed type")
+		// The lowering's scalarOf takes a type parameter's bound type.
+		irNo("scalar-form local of a type parameter")
 	}
 	u, isUnion := n.Underlying().(*check.Union)
 	if !isUnion {

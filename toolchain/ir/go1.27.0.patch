@@ -647,10 +647,10 @@ index 0000000..862851f
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_fail.go b/src/cmd/compile/internal/noder/ergoir_fail.go
 new file mode 100644
-index 0000000..da5527c
+index 0000000..47d2679
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_fail.go
-@@ -0,0 +1,300 @@
+@@ -0,0 +1,303 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -932,7 +932,10 @@ index 0000000..da5527c
 +			return nil, nil, true
 +		}
 +		iface, isIface := types2.CoreType(vt).(*types2.Interface)
-+		if !isIface || types2.IsInterface(tt) || !types2.Implements(tt, iface) {
++		// A concrete type implements the operand's interface; an
++		// interface (a row's error into its union, IRG3b) is checked at
++		// run time, as Go's x.(I).
++		if !isIface || !types2.IsInterface(tt) && !types2.Implements(tt, iface) {
 +			c.errorf(x.Pos, "ergoir: assertion of %v to %v", vt, tt)
 +			return nil, nil, true
 +		}

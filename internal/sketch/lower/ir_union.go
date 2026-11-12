@@ -119,7 +119,10 @@ func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
 	case check.ConvMachine:
 		irNo("machine conversion")
 	case check.ConvRow:
-		irNo("row conversion")
+		// The row value (a Go error) holds one of the union's error
+		// variants, which implement its sealed interface (the emitter's
+		// convert, D-C3).
+		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
 		irNo("operations conversion")
 	}

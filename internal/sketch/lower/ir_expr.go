@@ -34,6 +34,20 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 			return nil, b.expr(x)
 		}
 		pre, e = b.gather(sc, y, b.pos(y, y.Pos())) // ir_scalar.go
+	case *syntax.BinaryExpr:
+		// An if or a match as an operand of an operator that evaluates
+		// both: its statements run in operand order (the emitter's binary
+		// takes its operands).
+		op := y.Op.String()
+		if op == "&&" || op == "||" || op == ".." || !isBranch(y.X) && !isBranch(y.Y) {
+			return nil, b.expr(x)
+		}
+		b.plain(y)
+		b.goType(b.l.info.Types[y], y)
+		b.operator(op, b.l.info.Types[y.X], y)
+		var vals []*irExpr
+		pre, vals = b.operands([]syntax.Expr{y.X, y.Y}) // ir_fail.go
+		e = &irExpr{K: "bin", Pos: b.pos(y, y.OpPos), Op: op, X: vals[0], Y: vals[1]}
 	default:
 		return nil, b.expr(x) // expr converts
 	}

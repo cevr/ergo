@@ -60,7 +60,10 @@ func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
 	}
 	if call := b.fallibleCall(x); call != nil {
 		if _, implicit := b.l.info.Implicit[x]; implicit {
-			irNo("implicit conversion")
+			// The value converts (a variant into the result's union):
+			// the call's failure leaves first, then the value returns.
+			pre, v := b.try(call)
+			return append(pre, &irStmt{K: "ret", Pos: p, X: b.implicit(x, v)})
 		}
 		pre, e := b.rawCall(call)
 		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
@@ -394,16 +397,25 @@ func (b *irBuilder) operand(x syntax.Expr) ([]*irStmt, *irExpr) {
 			}
 			return pre, v
 		}
-	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
-		return nil, b.expr(x) // inside an operand it keeps its gate (value)
 	}
-	return b.value(x) // the implicit conversion too (ir_union.go)
+	return b.value(x) // an if or match too, the implicit conversion too (ir_union.go)
 }
 
-// operands evaluates list left to right (the emitter's callArgs): an
+// isBranch reports an if or a match: a value whose statements may assign
+// a local.
+func isBranch(x syntax.Expr) bool {
+	switch unparen(x).(type) {
+	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		return true
+	}
+	return false
+}
+
+// operands evaluates list left to right (the emitter's operands): an
 // operand before one that runs statements is spilled to a temporary, so
-// it is evaluated first. A constant or a local needs no spill: no
-// statement IR writes before a later operand assigns a local.
+// it is evaluated first. A constant needs no spill, nor a local unless a
+// later operand is an if or a match, whose arms may assign it: no other
+// statement IR writes assigns a source local.
 func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 	pres := make([][]*irStmt, len(list))
 	vals := make([]*irExpr, len(list))
@@ -413,11 +425,12 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 	var pre []*irStmt
 	for i, a := range list {
 		pre = append(pre, pres[i]...)
-		later := false
-		for _, p := range pres[i+1:] {
+		later, branch := false, false
+		for k, p := range pres[i+1:] {
 			later = later || len(p) > 0
+			branch = branch || isBranch(list[i+1+k])
 		}
-		if later && vals[i].K != "const" && vals[i].K != "local" {
+		if later && vals[i].K != "const" && (vals[i].K != "local" || branch) {
 			p := vals[i].Pos
 			t := b.temp("arg", b.goType(b.l.info.Types[a], a), p)
 			pre = append(pre, &irStmt{K: "def", Pos: p, Local: t, X: vals[i]})
