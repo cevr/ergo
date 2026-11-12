@@ -6,7 +6,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Lowering
 
-- A rebinding `p = f(…, p, …)` of a pure std body, on a place rooted at a `let mut` local or a borrow, hands `p` over with no copy (V7, STD-sh; [types](docs/spec/types.md#bindings) Bindings 2): `p = utf8.AppendRune(p, r)` in a loop appended a copy of `p` each time, and now appends in place, as hand Go does.
+- A rebinding `p = f(…, p, …)` on a place rooted at a `let mut` local or a borrow hands `p` over with no copy when `f` is pure, has no failure row and returns no storage but `p`'s: a pure runtime/v1 body, or a user function whose body the value analysis proves so (V7, STD-sh; [types](docs/spec/types.md#bindings) Bindings 2). `p = utf8.AppendRune(p, r)` and `p = addByte(p, c)` of a user function in a loop copied `p` at each call, and now append in place, as hand Go does.
 - Static resource frames can use stack slots and one cleanup defer instead of the owner list (P-L8, #197). Nested scopes still release at their own ends; dynamic plans keep the reference list lowering. Cleanup and failure guarantees are unchanged. Performance measurements are pending a quiet host.
 
 ### Breaking changes

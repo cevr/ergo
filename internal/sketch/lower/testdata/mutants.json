@@ -3893,9 +3893,64 @@
       "name": "v7-hand-over",
       "origin": "wf10 STD-sh",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\tif arg := w.handedArg(call); arg != nil {\n",
-      "to": "\t\tif arg := w.handedArg(call); false && arg != nil {\n",
-      "rule": "types.md, Bindings 2 (V7): p = f(…, p, …) of a pure std body hands p over with no copy, so a loop of writes appends in place (speed only).",
+      "from": "\t\t\tif arg := w.handedArg(call); arg != nil {\n",
+      "to": "\t\t\tif arg := w.handedArg(call); false && arg != nil {\n",
+      "rule": "types.md, Bindings 2 (V7): p = f(…, p, …) of a pure body hands p over with no copy, so a loop of writes appends in place (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "v7-hand-shared",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\tif ergo && valueMutant != \"hand-shared\" && !w.l.freshFrom(c.Func, at, len(call.Args)) {\n",
+      "to": "\tif false && ergo && valueMutant != \"hand-shared\" && !w.l.freshFrom(c.Func, at, len(call.Args)) {\n",
+      "rule": "types.md, Bindings 2 (V7): an Ergo body hands p over only when its results share no storage but p's (freshFrom); one that returns another argument or a package let copies.",
+      "killers": [
+        "lower:TestValueRuleAgrees"
+      ]
+    },
+    {
+      "name": "v7-owner-premise",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\tif w.owner != nil && vv.v == w.owner {\n",
+      "to": "\tif false && w.owner != nil && vv.v == w.owner {\n",
+      "rule": "types.md, Bindings 2 (V7): freshFrom reads the handed parameter as an unshared local, so a user function whose result is its parameter's storage hands it over (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "v7-pure-body-fresh",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tif x.Trailing == nil && w.l.pureV1(c.Func) {\n",
+      "to": "\t\t\tif false && x.Trailing == nil && w.l.pureV1(c.Func) {\n",
+      "rule": "types.md, Bindings 2: a pure runtime/v1 body's result is fresh when every argument is (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "v7-pure-body-operands",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\t\t\tif !w.fresh(a) {\n\t\t\t\t\t\treturn false\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn true\n",
+      "to": "\t\t\t\t\tif false && !w.fresh(a) {\n\t\t\t\t\t\treturn false\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn true\n",
+      "rule": "types.md, Bindings 2: a pure runtime/v1 body's result shares its arguments' storage, so it is fresh only when every argument is.",
+      "killers": [
+        "lower:TestValueRuleAgrees"
+      ]
+    },
+    {
+      "name": "v7-handed-unshared",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tif !w.vf.clone[o.path] && !w.vf.handed[o.path] {\n",
+      "to": "\t\t\tif !w.vf.clone[o.path] {\n",
+      "rule": "types.md, Bindings 2 (V7): a handed read leaves the binding unshared, so its later value enters another binding with no copy (speed only).",
       "killers": [
         "lower:TestValueRuleElides"
       ]

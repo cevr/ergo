@@ -57,9 +57,11 @@ import (
 //     p, …) whose old value nothing else reads hands it over with no copy
 //     (consumable): m = maps.Update(m, k, f) writes m in place, as hand Go
 //     writes m[k] = f(m[k]);
-//   - hand-over (V7, handedArg): a rebinding p = f(…, p, …) of a pure std
-//     body with no failure row, on one place rooted at a let mut or a
-//     borrow, passes p with no copy and takes the result with none;
+//   - hand-over (V7, handedArg): a rebinding p = f(…, p, …) of a pure f
+//     with no failure row whose result shares no storage but p's (a pure
+//     runtime/v1 body, or an Ergo body freshFrom proves so), on one place
+//     rooted at a let mut or a borrow, passes p with no copy and takes
+//     the result with none;
 //   - a Ref owns its value (V6, refown.go): the parameter of a function
 //     literal written at Ref.Update or sync.Modify takes the held value
 //     over, as an unshared local; the cell copies a value that may be
@@ -110,8 +112,9 @@ var valueLowering string
 // and for owned Refs (V6) "hand-nonliteral" (a function value takes the
 // held value over), "store-unfresh" (every site is proved fresh),
 // "share-blind" (every pure call keeps nothing) and "return-blind" (two
-// parts of one returned value count as two returns). Empty in every
-// build.
+// parts of one returned value count as two returns), and for hand-over
+// (V7) "hand-shared" (an Ergo body's result is taken as sharing only the
+// handed parameter). Empty in every build.
 var valueMutant string
 
 // valueRule reports whether the value rule lowers this build.
@@ -124,7 +127,8 @@ type valueFacts struct {
 	roots    map[syntax.Node]*valueWalk // analyzed bodies
 	fresh    map[*check.Func]int8       // 1 deciding, 2 fresh, 3 not fresh
 	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
-	handed   map[syntax.Expr]bool       // arguments a rebinding hands to a pure std body (V7)
+	handed   map[syntax.Expr]bool       // arguments a rebinding hands over to a pure body (V7)
+	from     map[freshKey]int8          // freshFrom: 1 deciding, 2 fresh, 3 not fresh
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
@@ -147,6 +151,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			fresh:    map[*check.Func]int8{},
 			consumed: map[syntax.Expr]bool{},
 			handed:   map[syntax.Expr]bool{},
+			from:     map[freshKey]int8{},
 			owned:    map[*syntax.FuncDecl][]ownedParam{},
 			ownCall:  map[*syntax.CallExpr]bool{},
 			refSites: map[*syntax.CallExpr]*refSite{},
@@ -176,6 +181,7 @@ func (l *lowerer) analyzeValues(root syntax.Node, info *check.Info) *valueWalk {
 	}
 	w.walk(root, nil)
 	w.decide()
+	w.done = true
 	return w
 }
 
@@ -279,6 +285,8 @@ type valueWalk struct {
 	ergo     []*syntax.CallExpr        // calls of functions with an Ergo body (V5)
 	pure     []*syntax.CallExpr        // calls of other pure std bodies (V7)
 	handed   map[*syntax.CallExpr]bool // V7 calls: a fresh result (new storage, or the dead handed argument's)
+	owner    *check.Var                // freshFrom's parameter, read as an unshared local (V7)
+	done     bool                      // decide has run
 	args     []syntax.Expr             // arguments of owned parameters (V5)
 	goArgs   []syntax.Expr             // operands of Go calls of import go that hold a Map or slice (gocall.go)
 	sites    []*refSite                // owned Ref sites (V6, refown.go)
@@ -681,11 +689,13 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
-	// Hand-over (V7): p = f(…, p, …) with f a pure std body.
-	for _, call := range w.pure {
-		if arg := w.handedArg(call); arg != nil {
-			vf.handed[arg] = true
-			w.handed[call] = true
+	// Hand-over (V7): p = f(…, p, …) with f a pure body, Ergo or Go.
+	for _, calls := range [][]*syntax.CallExpr{w.pure, w.ergo} {
+		for _, call := range calls {
+			if arg := w.handedArg(call); arg != nil {
+				vf.handed[arg] = true
+				w.handed[call] = true
+			}
 		}
 	}
 	for _, vv := range w.order {
@@ -943,21 +953,43 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 }
 
 // handedArg is the argument that the rebinding p = f(…, p, …) hands over
-// to the pure std body f with no copy (V7), or nil: the call is the whole
-// right side of a plain assignment to one place p, rooted at a let mut
-// local or a borrow; one argument is that same place; f has no failure
-// row; every other argument holds no slice or Map, so the result shares
-// no storage but p's; and the statement names p's root nowhere else, nor
-// does a frame other than the statement's. The old value of p is dead after the statement, so nothing reads
-// the storage f received but f's result, which is the new value of p. A
-// pure std body keeps nothing of its arguments but its result and writes
-// no element of them that their length covers (stdlib.md, Pure bodies),
-// so a defect inside f leaves p as it was. So p = f(p, s) through a
-// borrow appends in place, as p = p.Append(x) does (V3), where a copy of
-// p at each call would make a loop of them quadratic.
+// to f with no copy (V7), or nil. The fact is general; it names no
+// function and no package:
+//
+//   - the call is the whole right side of a plain assignment to one place
+//     p, rooted at a let mut local or a borrow, and one argument is that
+//     same place;
+//   - the statement names p's root nowhere else, nor does a frame other
+//     than the statement's, so p's old value is dead from the call to the
+//     store-back: nothing reads it but f;
+//   - f is pure and has no failure row, so nothing f runs can observe p's
+//     old value, and the store-back always follows the call;
+//   - f writes no storage of its argument that p's length covers, and its
+//     result shares no storage but p's: for an Ergo body, f is pure
+//     (isPure), owns no parameter (V5 hands those over itself), and its
+//     results are fresh when that parameter holds an unshared value
+//     (freshFrom), so a parameter it binds to a let mut is copied in its
+//     body and no other argument, package let or capture reaches its
+//     result; for an extern bound to a pure Go body, the body keeps
+//     nothing of its arguments but its result and writes no element of
+//     them that their length covers (stdlib.md, Pure bodies), and every
+//     other argument holds no slice or Map.
+//
+// So nothing reads the storage f received but f's result, which is the
+// new value of p: p = f(p, s) through a borrow appends in place, as
+// p = p.Append(x) does (V3), where a copy of p at each call would make a
+// loop of them quadratic. The copying lowering ("copy") hands nothing
+// over, and is the reference of TestValueRuleAgrees.
 func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
+	if !valueOwned() {
+		return nil
+	}
 	c := w.info.Calls[call]
 	if c == nil || c.Recv != nil || c.Func == nil || c.Func.Sig == nil || len(rowElems(c.Func.Sig.Errors)) > 0 {
+		return nil
+	}
+	ergo := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
+	if ergo && (w.vf.ownCall[call] || !w.l.isPure(c.Func)) {
 		return nil
 	}
 	parent, child := w.unparenParent(call)
@@ -978,17 +1010,21 @@ func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
 		return nil
 	}
 	var arg syntax.Expr
-	for _, a := range call.Args {
+	at := -1
+	for i, a := range call.Args {
 		if aid := pathRoot(a); aid != nil && w.info.Uses[aid] == check.Object(v) {
 			if arg != nil || !samePlace(s.Lhs[0], a) {
 				return nil
 			}
-			arg = a
-		} else if w.l.holdsValue(w.typeOf(a)) {
+			arg, at = a, i
+		} else if !ergo && w.l.holdsValue(w.typeOf(a)) {
 			return nil // the result could share another argument's storage
 		}
 	}
 	if arg == nil {
+		return nil
+	}
+	if ergo && valueMutant != "hand-shared" && !w.l.freshFrom(c.Func, at, len(call.Args)) {
 		return nil
 	}
 	aid := pathRoot(arg)
@@ -1668,7 +1704,22 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 				}
 				return !w.l.holdsValue(elemOf(w.typeOf(x)))
 			}
-			return w.l.freshResult(c.Func)
+			if w.l.freshResult(c.Func) {
+				return true
+			}
+			if x.Trailing == nil && w.l.pureV1(c.Func) {
+				// A pure runtime/v1 body keeps nothing of its arguments
+				// but its result, and reaches no other storage (stdlib.md,
+				// Pure bodies): its result is fresh when every argument
+				// is.
+				for _, a := range callOperands(x, c) {
+					if !w.fresh(a) {
+						return false
+					}
+				}
+				return true
+			}
+			return false
 		}
 	}
 	return false
@@ -1688,7 +1739,13 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 	if valueMutant == "elide-live" && vv.local {
 		return true
 	}
-	if !vv.local || vv.ptr {
+	local, frame, loops, unshared := vv.local, vv.frame, vv.loops, vv.mut || vv.handed
+	if w.owner != nil && vv.v == w.owner {
+		// freshFrom's premise: the parameter holds an unshared value, as
+		// a let mut of the body's own frame does.
+		local, frame, loops, unshared = true, w.root, nil, true
+	}
+	if !local || vv.ptr {
 		return false
 	}
 	var use *vocc
@@ -1697,7 +1754,7 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 			use = o
 		}
 	}
-	if use == nil || use.frame != vv.frame {
+	if use == nil || use.frame != frame {
 		return false
 	}
 	// A use that is the value, or a part of the value, its frame returns
@@ -1708,7 +1765,7 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 	returning := ret != nil
 	if !returning {
 		for _, l := range use.loops {
-			if !containsNode(vv.loops, l) {
+			if !containsNode(loops, l) {
 				return false
 			}
 		}
@@ -1717,7 +1774,7 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 		if o == use {
 			continue
 		}
-		if o.frame != vv.frame {
+		if o.frame != frame {
 			return false
 		}
 		// An earlier use in a returned value that does not hold use ends
@@ -1739,15 +1796,78 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 			return false
 		}
 		if o.kind == occEscape || o.kind == occReturn {
-			if !w.vf.clone[o.path] {
+			// A copied read shares nothing; nor does a handed one (V7),
+			// whose storage only the binding's new value holds.
+			if !w.vf.clone[o.path] && !w.vf.handed[o.path] {
 				return false
 			}
 		}
 	}
-	if vv.mut || vv.handed {
+	if unshared {
 		return true
 	}
 	return vv.init != nil && w.fresh(vv.init)
+}
+
+// freshKey names a parameter of a function: freshFrom's question.
+type freshKey struct {
+	f *check.Func
+	i int
+}
+
+// freshFrom reports whether every result of the Ergo body f, called with
+// n arguments, is fresh when its parameter i holds an unshared value
+// (V7): the analysis of f's body, read with that parameter as a let mut
+// of the body's frame (freshIdent), proves each returned value fresh. So
+// a result shares no storage but that parameter's: not another
+// parameter's, a package let's or a capture's. A function being decided
+// is not fresh, as in freshResult.
+func (l *lowerer) freshFrom(f *check.Func, i, n int) bool {
+	vf := l.valueFacts()
+	k := freshKey{f, i}
+	switch vf.from[k] {
+	case 1, 3:
+		return false
+	case 2:
+		return true
+	}
+	vf.from[k] = 3
+	if f == nil || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Decl.Type == nil || f.Decl.Type.Params == nil {
+		return false
+	}
+	var params []*syntax.Ident
+	for _, field := range f.Decl.Type.Params.List {
+		params = append(params, field.Names...)
+	}
+	if len(params) != n || i < 0 || i >= n {
+		return false
+	}
+	p, ok := f.Pkg.Info.Defs[params[i]].(*check.Var)
+	if !ok {
+		return false
+	}
+	// Decide f's own freshness first: a call of f inside its body then
+	// reads that answer, never one made under this premise.
+	if l.freshResult(f) {
+		vf.from[k] = 2
+		return true
+	}
+	vf.from[k] = 1
+	saved := l.info
+	l.info = f.Pkg.Info
+	w := l.analyzeValues(f.Decl, f.Pkg.Info)
+	fresh := false
+	if w.root != nil && w.done {
+		w.owner = p
+		fresh = w.resultsFresh()
+		w.owner = nil
+	}
+	l.info = saved
+	vf.from[k] = 3
+	if fresh {
+		vf.from[k] = 2
+	}
+	return fresh
 }
 
 // freshResult reports whether every result of f is fresh: an Ergo body
