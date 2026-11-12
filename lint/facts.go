@@ -10,7 +10,7 @@
 //
 // Every fact is plain data: records of strings, numbers, booleans and lists,
 // and string tags for kinds. The same schema is expressible as Ergo records
-// and unions, so a pack written in Ergo (LINT4) reads the same wire form.
+// and unions, so a pack written in Ergo (LINT4) reads the same encoded form.
 //
 // This package imports nothing from the compiler: a pack depends on the fact
 // schema, not on checker internals (TestSDKDoesNotImportCompilerInternals).
@@ -18,7 +18,7 @@ package lint
 
 import "slices"
 
-// FactSchemaName and FactSchemaVersion identify the snapshot wire contract.
+// FactSchemaName and FactSchemaVersion identify the snapshot's encoded contract.
 // Version 2 is the schema of the Ergo checker (internal/sketch/check): it
 // replaced version 1's services, providers, provisions and layers with
 // operation types, contexts and withs. An additive optional field keeps the

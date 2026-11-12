@@ -450,7 +450,7 @@ type AnalysisIdentity struct {
 	FactSchema    Schema   `json:"factSchema"`
 	Packs         []string `json:"packs"`
 	Configuration string   `json:"configuration"`
-	// Snapshot digests the snapshot's wire form: the document URI and byte
+	// Snapshot digests the snapshot's encoded form: the document URI and byte
 	// count and every fact family, never the host-only source text.
 	Snapshot string `json:"snapshot"`
 	// Request digests the request of a pack's report without its id: the
@@ -520,17 +520,17 @@ func (a AnalysisIdentity) inProcess() AnalysisIdentity {
 // Analysis computes the analysis identity of evaluating this configuration
 // over snapshot.
 func (c *Configuration) Analysis(snapshot *Snapshot) AnalysisIdentity {
-	wire, err := json.Marshal(snapshot)
+	encoded, err := json.Marshal(snapshot)
 	if err != nil {
 		panic(err)
 	}
-	return c.analysis(snapshot, wire)
+	return c.analysis(snapshot, encoded)
 }
 
-// analysis is Analysis over the snapshot's wire form, which the runner has
+// analysis is Analysis over the snapshot's encoded form, which the runner has
 // already encoded for the request.
-func (c *Configuration) analysis(snapshot *Snapshot, wire []byte) AnalysisIdentity {
-	sum := sha256.Sum256(wire)
+func (c *Configuration) analysis(snapshot *Snapshot, encoded []byte) AnalysisIdentity {
+	sum := sha256.Sum256(encoded)
 	identity := AnalysisIdentity{Semantic: snapshot.Semantic, FactSchema: snapshot.Schema, Packs: []string{}, Configuration: c.Identity(), Snapshot: "sha256:" + hex.EncodeToString(sum[:])}
 	for _, manifest := range c.registry.packs {
 		identity.Packs = append(identity.Packs, manifest.Namespace+"@"+manifest.Identity())
@@ -617,7 +617,7 @@ type Report struct {
 // request, rule execution and response validation under the default
 // limits, including the size of the response a pack process would write,
 // without a process or framing. Each rule reads its own copy decoded from
-// the snapshot's wire form, exactly as in a pack process.
+// the snapshot's encoded form, exactly as in a pack process.
 func Evaluate(pack *Pack, configuration *Configuration, snapshot *Snapshot) (Report, error) {
 	work, err := prepare(configuration, pack.Namespace, snapshot)
 	if err != nil {
@@ -627,11 +627,11 @@ func Evaluate(pack *Pack, configuration *Configuration, snapshot *Snapshot) (Rep
 	if len(work.request.Rules) > 0 {
 		response := respond(pack, work.request)
 		// The size Serve would frame: the same encoding of the same value.
-		wire, err := json.Marshal(response)
+		encoded, err := json.Marshal(response)
 		if err != nil {
 			return Report{}, fmt.Errorf("encode response: %w", err)
 		}
-		if failure := work.accept(response, len(wire), DefaultLimits()); failure != nil {
+		if failure := work.accept(response, len(encoded), DefaultLimits()); failure != nil {
 			work.fail(failure)
 		}
 	}

@@ -122,8 +122,8 @@ type RunOptions struct {
 // earlier, so FirstByte bounds startup plus whatever work preceded that
 // write, not necessarily the rules.
 type Trace struct {
-	// Prepare encodes the fact snapshot into its wire form and admits the
-	// rules; SnapshotBytes is the size of that wire form.
+	// Prepare encodes the fact snapshot into its encoded form and admits the
+	// rules; SnapshotBytes is the size of that encoded form.
 	Prepare       time.Duration
 	SnapshotBytes int
 	// Started reports whether a pack process was started. No process

@@ -190,7 +190,7 @@ func prepare(configuration *Configuration, namespace string, snapshot *Snapshot)
 	if !ok {
 		return nil, fmt.Errorf("rule pack %s is not selected by this configuration", namespace)
 	}
-	wire, err := json.Marshal(snapshot)
+	encoded, err := json.Marshal(snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("encode fact snapshot: %w", err)
 	}
@@ -202,7 +202,7 @@ func prepare(configuration *Configuration, namespace string, snapshot *Snapshot)
 		request: Request{
 			Pack:     RequestPack{Namespace: namespace, Version: manifest.Version, Identity: manifest.Identity()},
 			Rules:    []RequestRule{},
-			Snapshot: wire,
+			Snapshot: encoded,
 		},
 		report: Report{Complete: true, Rules: []RuleStatus{}, Findings: []ReportedFinding{}},
 	}
@@ -221,7 +221,7 @@ func prepare(configuration *Configuration, namespace string, snapshot *Snapshot)
 		work.settings[metadata.Name] = setting
 		work.request.Rules = append(work.request.Rules, RequestRule{Name: metadata.Name, Version: metadata.Version, Options: setting.Options.canonical()})
 	}
-	work.report.Analysis = configuration.analysis(snapshot, wire).requested(work.request)
+	work.report.Analysis = configuration.analysis(snapshot, encoded).requested(work.request)
 	return work, nil
 }
 
