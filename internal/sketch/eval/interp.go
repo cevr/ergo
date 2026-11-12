@@ -22,6 +22,9 @@ type interp struct {
 	// bodies counts the case bodies run, for each one's schedule seed.
 	sched  *scheduler
 	bodies int
+	// host is the simulated process of a RunMain run (process.go), nil
+	// under Run.
+	host *host
 	// globals are the package-level lets, bound once by the packages'
 	// initializers before any obligation runs (init.go). Nothing writes
 	// them after.

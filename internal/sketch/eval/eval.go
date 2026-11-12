@@ -289,12 +289,13 @@ func (in *interp) runBody(pkg *check.Package, decl syntax.Decl, body *syntax.Blo
 	return in.runBodyFrame(fr, body, law, res)
 }
 
-func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res Result) Result {
-	pkg, decl := fr.pkg, fr.decl
-	start := in.steps
-	// The body is the root task of the case's schedule (sched.go).
+// rootTask runs body, fr's statements, as the root task of a schedule of
+// its own (sched.go), ends fr, and ends every task still running. It
+// returns the schedule's seed when body started a task (else 0) and the
+// exit: the stop of another task, or a deadlock, ends the root's too.
+func (in *interp) rootTask(fr *frame, name string, body func() *abrupt) (uint64, *abrupt) {
 	in.bodies++
-	s := in.newScheduler(scheduleSeed(in.budget.Seed, res.Name, in.bodies))
+	s := in.newScheduler(scheduleSeed(in.budget.Seed, name, in.bodies))
 	in.sched, in.taskState = s, taskState{cur: s.root}
 	defer func() {
 		if r := recover(); r != nil {
@@ -306,23 +307,32 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 			panic(r)
 		}
 	}()
-	var val Value
-	var ab *abrupt
-	if law {
-		val, ab = in.bodyValue(fr, body.List)
-	} else {
-		ab = in.stmts(fr, body.List)
-	}
-	ab = in.endFrame(fr, ab)
+	ab := in.endFrame(fr, body())
 	started := s.nextID > 2
 	in.shutdown()
 	if s.fatal != nil && s.fatal.kind != ctlAbort {
-		// The stop of another task, or a deadlock, ends the case.
 		ab = s.fatal
 	}
-	if started {
-		res.Schedule = s.seed
+	if !started {
+		return 0, ab
 	}
+	return s.seed, ab
+}
+
+func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res Result) Result {
+	pkg, decl := fr.pkg, fr.decl
+	start := in.steps
+	var val Value
+	var ab *abrupt
+	res.Schedule, ab = in.rootTask(fr, res.Name, func() *abrupt {
+		var ab *abrupt
+		if law {
+			val, ab = in.bodyValue(fr, body.List)
+		} else {
+			ab = in.stmts(fr, body.List)
+		}
+		return ab
+	})
 	res.Steps = in.steps - start
 	if ab == nil {
 		if law && val != nil && !truth(val) {

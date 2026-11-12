@@ -478,6 +478,16 @@ func (in *interp) queuePop(fr *frame, at syntax.Node, q *queueV) (Value, bool, *
 // (stmt.go).
 type queueValues struct{ q *queueV }
 
+// seqSource is a Seq a native made, which a for loop runs step by step:
+// next gives the next value, or more false at its end.
+type seqSource interface {
+	next(in *interp, fr *frame, at syntax.Node) (v Value, more bool, ab *abrupt)
+}
+
+func (s *queueValues) next(in *interp, fr *frame, at syntax.Node) (Value, bool, *abrupt) {
+	return in.queuePop(fr, at, s.q)
+}
+
 // timelineV is a time.Timeline: time.Manual's (moved only by Advance) or
 // testing.VirtualClock's (auto: it also moves to its next sleeper's
 // deadline when no task can go on). now is the time since start.

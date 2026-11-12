@@ -3,11 +3,11 @@ package eval
 import (
 	"fmt"
 	"go/constant"
+	"math"
 	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Value is an evaluated Ergo value, in a private tagged form. A basic
@@ -135,38 +135,53 @@ func fromUint64(k check.BasicKind, u uint64) (Value, bool) {
 // out of an integer's range implementation-defined, so the evaluator does
 // not guess (plan section 4).
 func fromFloat(k check.BasicKind, f float64) (Value, bool) {
-	// A float converts to an integer by the one rule the lowering calls
-	// (types.md, Conversions 4; S-conv): runtime/v1's FloatTo* truncate
-	// toward zero, saturate at the bounds and take NaN to 0.
+	// A float converts to an integer by the one rule of types.md,
+	// Conversions 4 (S-conv): toward zero, saturated at the type's bounds,
+	// NaN to 0. The evaluator's own code: runtime/v1's FloatTo* are the
+	// built program's, which TestEvalAgreesWithGo holds this to.
+	sat := func(lo, hi int64) int64 { return min(max(floatToInt64(f), lo), hi) }
 	switch k {
 	case check.Float32:
 		return float32(f), true
 	case check.Float64:
 		return f, true
-	case check.Int:
-		return int64(v1.FloatToInt(f)), true
+	case check.Int, check.Int64:
+		return floatToInt64(f), true
 	case check.Int8:
-		return v1.FloatToInt8(f), true
+		return int8(sat(math.MinInt8, math.MaxInt8)), true
 	case check.Int16:
-		return v1.FloatToInt16(f), true
+		return int16(sat(math.MinInt16, math.MaxInt16)), true
 	case check.Int32:
-		return v1.FloatToInt32(f), true
-	case check.Int64:
-		return v1.FloatToInt64(f), true
-	case check.Uint:
-		return uint64(v1.FloatToUint(f)), true
+		return int32(sat(math.MinInt32, math.MaxInt32)), true
 	case check.Uint8:
-		return v1.FloatToUint8(f), true
+		return uint8(sat(0, math.MaxUint8)), true
 	case check.Uint16:
-		return v1.FloatToUint16(f), true
+		return uint16(sat(0, math.MaxUint16)), true
 	case check.Uint32:
-		return v1.FloatToUint32(f), true
-	case check.Uint64:
-		return v1.FloatToUint64(f), true
-	case check.Uintptr:
-		return uint64(v1.FloatToUintptr(f)), true
+		return uint32(sat(0, math.MaxUint32)), true
+	case check.Uint, check.Uint64, check.Uintptr:
+		switch {
+		case math.IsNaN(f) || f <= -1:
+			return uint64(0), true
+		case f >= 0x1p64:
+			return uint64(math.MaxUint64), true
+		}
+		return uint64(f), true
 	}
 	return nil, false
+}
+
+// floatToInt64 is f toward zero, saturated at int64's bounds, NaN 0.
+func floatToInt64(f float64) int64 {
+	switch {
+	case math.IsNaN(f):
+		return 0
+	case f >= 0x1p63:
+		return math.MaxInt64
+	case f < -0x1p63:
+		return math.MinInt64
+	}
+	return int64(f)
 }
 
 // convertBasic converts v to the basic kind k as Go's conversion does, or

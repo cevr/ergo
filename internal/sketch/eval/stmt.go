@@ -162,14 +162,15 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 		return ab
 	}
 	if l.Domain == check.LoopSeq {
-		// A queue's Values: each step is a Pop, and the loop ends when
-		// the queue is closed and empty (runtime.md, Queues 6).
-		q, ok := dom.(*queueValues)
+		// A Seq a native made: a queue's Values, each step a Pop, ending
+		// when the queue is closed and empty (runtime.md, Queues 6); the
+		// lines of a process's standard input (process.go).
+		q, ok := dom.(seqSource)
 		if !ok {
 			return fr.unsupported(s, "a for over a Seq, which calls a function value")
 		}
 		for {
-			v, more, ab := in.queuePop(fr, s, q.q)
+			v, more, ab := q.next(in, fr, s)
 			if ab != nil {
 				return ab
 			}

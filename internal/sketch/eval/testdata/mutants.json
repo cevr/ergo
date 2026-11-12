@@ -400,7 +400,7 @@
       "name": "b16d-eval-float-int-wraps",
       "origin": "wf10 batch 16d (EV x S-conv)",
       "file": "internal/sketch/eval/value.go",
-      "from": "\t\treturn v1.FloatToInt8(f), true\n",
+      "from": "\t\treturn int8(sat(math.MinInt8, math.MaxInt8)), true\n",
       "to": "\t\treturn int8(int64(f)), true\n",
       "rule": "Check time converts a float to an integer by the lowering's one rule (S-conv: truncate, saturate, NaN to 0), so its verdict agrees with the Go build's.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel", "internal/sketch/lower:TestEvalAgreesWithGo"]
@@ -683,6 +683,73 @@
       "to": "func stopTree(t *etask) {\n\tt.stopped = false",
       "rule": "Stop ends a sleeping task at its wait: its exit actions run and nothing after the wait does (runtime.md, Tasks 10, I1).",
       "killers": ["internal/sketch/eval:TestEvalTasksAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o4-harness-compares-self",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/examples_test.go",
+      "from": "\tif got.Stdout != g.stdout {\n",
+      "to": "\tif got.Stdout != got.Stdout {\n",
+      "rule": "The agreement harness compares the evaluator's run with the recorded (or built) run, never a run with itself.",
+      "killers": ["internal/sketch/eval:TestHarnessFlagsEachStream"],
+      "anchor": {"tests": ["internal/sketch/eval:TestHarnessFlagsEachStream"]}
+    },
+    {
+      "name": "oracle-o4-harness-drops-stderr",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/examples_test.go",
+      "from": "\tif got.Stderr != g.errs {\n",
+      "to": "\tif false && got.Stderr != g.errs {\n",
+      "rule": "The agreement harness compares standard error.",
+      "killers": ["internal/sketch/eval:TestHarnessFlagsEachStream"],
+      "anchor": {"tests": ["internal/sketch/eval:TestHarnessFlagsEachStream"]}
+    },
+    {
+      "name": "oracle-o4-harness-ignores-exit",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/examples_test.go",
+      "from": "\tif got.Status != g.status {\n",
+      "to": "\tif false && got.Status != g.status {\n",
+      "rule": "The agreement harness compares the exit status.",
+      "killers": ["internal/sketch/eval:TestHarnessFlagsEachStream"],
+      "anchor": {"tests": ["internal/sketch/eval:TestHarnessFlagsEachStream"]}
+    },
+    {
+      "name": "oracle-o4-exit-code-ignored",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/process.go",
+      "from": "\t\t\tout.Status = int(code)\n",
+      "to": "\t\t\tout.Status = 1\n",
+      "rule": "An os.Exit that leaves main exits with its Code when it is in 1..125 (runtime.md, Exit causes).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o4-stdin-line-feed-kept",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/process.go",
+      "from": "\treturn line, true, nil\n",
+      "to": "\treturn line + \"\\n\", true, nil\n",
+      "rule": "io.Stdin.Lines gives each line without its line feed.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o4-console-to-stderr",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/process.go",
+      "from": "\t\tc.h.stdout.WriteString(args[0].(string) + \"\\n\")\n",
+      "to": "\t\tc.h.stderr.WriteString(args[0].(string) + \"\\n\")\n",
+      "rule": "The host's Console prints a line on standard output.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o4-imports-lowering",
+      "origin": "wf10 ORACLE O4",
+      "file": "internal/sketch/eval/value.go",
+      "from": "\t\"math\"\n\t\"strconv\"\n",
+      "to": "\t\"math\"\n\t\"strconv\"\n\n\t_ \"ergo.local/prototype/internal/sketch/lower\"\n",
+      "rule": "The evaluator is the reference every build agrees with: it shares no code with the lowering (ORACLE, import guard).",
+      "killers": ["internal/sketch/eval:TestEvalSharesNoLowering"],
+      "anchor": {"tests": ["internal/sketch/eval:TestEvalSharesNoLowering"]}
     }
   ]
 }
