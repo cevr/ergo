@@ -99,6 +99,7 @@ func censusIR(u Unit, tests bool, reach []*check.Func) (IRCensus, error) {
 // reachAll queues a census's extra bodies (CensusStd); program calls it
 // once the package's own declarations are lowered.
 func (st *irState) reachAll(l *lowerer) {
+	st.reached = append(st.reached, st.reach...)
 	for _, f := range st.reach {
 		func() {
 			defer func() {
@@ -152,6 +153,26 @@ type irState struct {
 	// keep are declarations that keep the imports IR bodies name used
 	// (keepImport).
 	keep map[string]bool
+	// reached are the census bodies reachAll has queued: a restart
+	// queues them again.
+	reached []*check.Func
+}
+
+// restart empties st for a lowering that runs again from the start
+// (lowerAgain, after a flat union bailed): the bodies the abandoned run
+// built, and their reasons, are dropped, since every function is lowered
+// again.
+func (st *irState) restart() *irState {
+	if st == nil {
+		return nil
+	}
+	reach := append(st.reached, st.reach...)
+	census := st.census
+	if census != nil {
+		census = &IRCensus{}
+	}
+	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach}
+	return st
 }
 
 // The IR format; the derivative's noder/ergoir.go reads the same shape.
@@ -235,6 +256,13 @@ type irBuilder struct {
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
+	// admitted are the unions admitted so far (ir_union.go): one that
+	// holds itself is admitted once.
+	admitted map[*check.TypeName]bool
+	// switches is the depth of Go switches (a match's, a catch's) inside
+	// the innermost loop: a break there would leave the switch, not the
+	// loop (ir_match.go).
+	switches int
 }
 
 // gate stops the body for reason; a census records it and goes on.

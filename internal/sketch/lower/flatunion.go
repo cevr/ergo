@@ -173,6 +173,7 @@ func (l *lowerer) lowerAgain() ([]byte, error) {
 	}
 	next := lowererOf(l.canon, l.pkg, l.goModule, tests)
 	next.noEntry, next.matchTest = l.noEntry, l.matchTest
+	next.ir = l.ir.restart() // LowerIR and CensusIR (ir.go)
 	next.flatOff = map[*check.TypeName]bool{}
 	for tn := range l.flatOff {
 		next.flatOff[tn] = true

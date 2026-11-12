@@ -15,25 +15,32 @@ import (
 // statements: an if expression inside an operand keeps its source body,
 // since hoisting it would move it before the operands to its left.
 func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
+	var pre []*irStmt
+	var e *irExpr
 	switch y := unparen(x).(type) {
 	case *syntax.CallExpr:
-		return b.call(y, false)
+		pre, e = b.call(y, false)
 	case *syntax.IfStmt:
 		b.plain(y)
-		return b.ifValue(y)
+		pre, e = b.ifValue(y)
+	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		b.plain(y)
+		pre, e = b.matchValue(y) // ir_match.go
 	case *syntax.TryExpr, *syntax.CatchExpr:
-		return b.failValue(y) // ir_fail.go
+		pre, e = b.failValue(y) // ir_fail.go
+	default:
+		return nil, b.expr(x) // expr converts
 	}
-	return nil, b.expr(x)
+	if _, ok := b.l.info.Implicit[x]; !ok {
+		x = unparen(x)
+	}
+	return pre, b.implicit(x, e) // ir_union.go
 }
 
-// plain stops x if the emitter does more than compute it: an implicit
-// conversion, the value rule's copy, an owned temporary or a context
-// value.
+// plain stops x if the emitter does more than compute it: the value
+// rule's copy, an owned temporary or a context value. An implicit
+// conversion is the caller's (implicit, ir_union.go).
 func (b *irBuilder) plain(x syntax.Expr) {
-	if _, ok := b.l.info.Implicit[x]; ok {
-		irNo("implicit conversion")
-	}
 	if b.l.vals != nil && b.l.vals.clone[x] {
 		irNo("value copy")
 	}
@@ -58,13 +65,18 @@ func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
 	if !irOps[op] {
 		irNo("operator %s", op)
 	}
-	if _, basic := t.(*check.Basic); !basic {
+	if b.scalarBasic(t) == nil { // ir_union.go: a named scalar's too
 		irNo("operator %s on a non-basic type", op)
 	}
 	b.goType(t, site)
 }
 
+// expr is x after its implicit conversion (implicit, ir_union.go).
 func (b *irBuilder) expr(x syntax.Expr) *irExpr {
+	return b.implicit(x, b.exprOf(x))
+}
+
+func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 	b.plain(x)
 	p := b.pos(x, x.Pos())
 	t, ok := b.l.info.Types[x]
@@ -91,6 +103,10 @@ func (b *irBuilder) expr(x syntax.Expr) *irExpr {
 			}
 		case *check.Const:
 			return &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(o.Val)}
+		case *check.TypeName:
+			if e := b.bareRecord(o, t, x, p); e != nil { // ir_union.go
+				return e
+			}
 		}
 		irNo("name that is not a local")
 	case *syntax.BinaryExpr:
@@ -182,10 +198,11 @@ func (b *irBuilder) expr(x syntax.Expr) *irExpr {
 // type the value rounded once from the exact one.
 func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p irPos) *irExpr {
 	gt := b.goType(t, x)
-	bt := basicOf(t)
+	bt := b.scalarBasic(t) // ir_union.go: a named scalar's too
 	if bt == nil {
 		irNo("constant of type %s", t)
 	}
+	t = bt
 	switch v.Kind() {
 	case constant.Bool:
 		return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatBool(constant.BoolVal(v))}

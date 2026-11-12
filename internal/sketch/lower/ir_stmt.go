@@ -75,6 +75,7 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 // yieldTo is where a branch's last statement puts its value: a local.
 type yieldTo struct {
 	local int
+	t     check.Type // the local's type: a variant joins its union (ir_union.go)
 }
 
 // yield is s in result position: its value is returned, or put in to.
@@ -82,13 +83,23 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 	switch s := s.(type) {
 	case *syntax.ExprStmt:
 		p := b.pos(s.X, s.X.Pos())
+		_, conv := b.l.info.Implicit[s.X]
+		if m, ok := unparen(s.X).(syntax.Stmt); ok && !conv {
+			switch m.(type) {
+			case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+				return b.matchStmt(m, true, to) // ir_match.go: each arm yields
+			}
+		}
 		if to != nil {
 			pre, x := b.value(s.X)
+			x = b.assignedTo(s.X, x, to.t) // ir_union.go
 			return append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: x})
 		}
 		return b.ret(s.X, p) // ir_fail.go
 	case *syntax.ReturnStmt:
 		return b.stmt(s)
+	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		return b.matchStmt(s, true, to) // ir_match.go
 	case *syntax.IfStmt:
 		if s.Else == nil {
 			if to != nil {
@@ -172,7 +183,7 @@ func (b *irBuilder) ifValue(s *syntax.IfStmt) ([]*irStmt, *irExpr) {
 	}
 	p := b.pos(s, s.Pos())
 	i := b.temp(fmt.Sprintf("if%d", b.next), b.goType(t, s), p)
-	pre := []*irStmt{{K: "var", Pos: p, Local: i}, b.ifStmt(s, true, &yieldTo{local: i})}
+	pre := []*irStmt{{K: "var", Pos: p, Local: i}, b.ifStmt(s, true, &yieldTo{local: i, t: t})}
 	return pre, &irExpr{K: "local", Pos: p, I: i}
 }
 
@@ -187,10 +198,14 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 			return append(pre, &irStmt{K: "expr", Pos: p, X: e})
 		}
 	}
-	switch x.(type) {
+	switch y := x.(type) {
 	case *syntax.TryExpr, *syntax.CatchExpr:
 		return b.failStmt(x) // ir_fail.go
-	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt, *syntax.FuncLit:
+	case *syntax.SwitchStmt:
+		return b.matchStmt(y, false, nil) // ir_match.go
+	case *syntax.TypeSwitchStmt:
+		return b.matchStmt(y, false, nil) // ir_match.go
+	case *syntax.FuncLit:
 		irNo("expression statement %T", x)
 	}
 	pre, e := b.value(x)
@@ -279,6 +294,8 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		return b.discard(s.X)
 	case *syntax.IfStmt:
 		return []*irStmt{b.ifStmt(s, false, nil)}
+	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		return b.matchStmt(s, false, nil) // ir_match.go
 	case *syntax.ForStmt:
 		var cond *irExpr
 		if s.Cond != nil {
@@ -291,6 +308,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		switch s.Tok {
 		case syntax.BREAK:
+			if b.switches > 0 {
+				irNo("break inside a match") // ir_match.go: Go's break would leave the switch
+			}
 			return []*irStmt{{K: "break", Pos: b.pos(s, s.Pos())}}
 		case syntax.CONTINUE:
 			return []*irStmt{{K: "continue", Pos: b.pos(s, s.Pos())}}
@@ -343,7 +363,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 // back-edge poll in a polling frame (loopPoll, ir_fail.go).
 func (b *irBuilder) loopBody(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
 	b.loops++
-	defer func() { b.loops-- }()
+	switches := b.switches
+	b.switches = 0
+	defer func() { b.loops, b.switches = b.loops-1, switches }()
 	return append(b.tail(body.List, false), b.loopPoll(s, body)...)
 }
 

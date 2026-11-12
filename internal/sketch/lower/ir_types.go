@@ -65,7 +65,8 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 			irNo("generic or declared-elsewhere type")
 		}
 		if _, ok := t.Obj.Decl.Spec.(*syntax.StructType); !ok {
-			irNo("named type that is not a record")
+			b.admitNamed(t, depth) // ir_union.go
+			return
 		}
 		s, ok := t.Underlying().(*check.Struct)
 		if !ok {

@@ -28,6 +28,10 @@ type irCase struct {
 	Pos   irPos     `json:"pos"`
 	Types []string  `json:"types"`
 	Body  []*irStmt `json:"body,omitempty"`
+	// Vals are a "switch" case's constants (ir_match.go); Def marks the
+	// default clause in its source place (no types, no values).
+	Vals []*irExpr `json:"vals,omitempty"`
+	Def  bool      `json:"def,omitempty"`
 }
 
 // fallibleCall is x, unparenthesized, when it is a call that can fail at
@@ -74,6 +78,7 @@ func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
 		return append(b.discard(x), &irStmt{K: "ret", Pos: p})
 	}
 	pre, e := b.value(x)
+	e = b.assignedTo(x, e, b.result) // a variant joins the result's union (ir_union.go)
 	return append(pre, &irStmt{K: "ret", Pos: p, X: e})
 }
 
@@ -272,10 +277,8 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	var rt string
 	if m.Result != nil {
 		rt = b.goType(m.Result, x)
-		if v >= 0 {
-			if ct := b.l.info.Types[call]; ct == nil || b.goType(ct, call) != rt {
-				irNo("catch value of another type")
-			}
+		if v >= 0 && b.l.info.Types[call] == nil {
+			irNo("catch value of another type")
 		}
 		result = b.temp("caught", rt, p)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: result, X: &irExpr{K: "zero", Pos: p, T: rt}})
@@ -288,7 +291,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 			b.locals[a.as] = name
 			c.Body = append(c.Body, &irStmt{K: "def", Pos: a.pos, Local: name, X: &irExpr{K: "assert", Pos: a.pos, T: a.asT, X: &irExpr{K: "local", Pos: a.pos, I: e}}})
 		}
-		c.Body = append(c.Body, b.armBody(x.Arms[i], result)...)
+		c.Body = append(c.Body, b.armBody(x.Arms[i], result, m.Result)...)
 		sw.Cases = append(sw.Cases, c)
 	}
 	sw.ElsePos = b.pos(x, x.Rbrace)
@@ -303,7 +306,9 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	ifs := &irStmt{K: "if", Pos: p, End: sw.End, X: b.notNil(e, p), Then: []*irStmt{sw}}
 	if result >= 0 && v >= 0 {
 		ifs.ElsePos, ifs.ElseEnd = sw.End, sw.End
-		ifs.Else = []*irStmt{{K: "set", Pos: sw.End, Local: result, X: &irExpr{K: "local", Pos: sw.End, I: v}}}
+		// The call's value joins the union of the arms' (ir_union.go).
+		val := b.variantInto(b.l.info.Types[call], m.Result, &irExpr{K: "local", Pos: sw.End, I: v}, call)
+		ifs.Else = []*irStmt{{K: "set", Pos: sw.End, Local: result, X: val}}
 	}
 	pre = append(pre, ifs)
 	if result < 0 {
@@ -314,7 +319,9 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 
 // armBody is a catch arm's statements; its last expression is the
 // catch's value when the catch has one (result >= 0), else dropped.
-func (b *irBuilder) armBody(a *syntax.CatchArm, result int) []*irStmt {
+func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type) []*irStmt {
+	b.switches++ // a case of the catch's type switch (ir_match.go)
+	defer func() { b.switches-- }()
 	list := a.Body
 	if len(list) == 0 {
 		if result >= 0 {
@@ -340,6 +347,7 @@ func (b *irBuilder) armBody(a *syntax.CatchArm, result int) []*irStmt {
 	}
 	b.part(func() {
 		pre, v := b.value(last.X)
+		v = b.assignedTo(last.X, v, rt) // a variant joins the union (ir_union.go)
 		out = append(append(out, pre...), &irStmt{K: "set", Pos: b.pos(last.X, last.X.Pos()), Local: result, X: v})
 	})
 	return out
@@ -350,8 +358,6 @@ func (b *irBuilder) armBody(a *syntax.CatchArm, result int) []*irStmt {
 // emitter's tries).
 func (b *irBuilder) operand(x syntax.Expr) ([]*irStmt, *irExpr) {
 	switch u := unparen(x).(type) {
-	case *syntax.TryExpr, *syntax.CatchExpr:
-		return b.failValue(u)
 	case *syntax.CallExpr:
 		if b.tries > 0 && b.fallibleCall(u) != nil {
 			pre, v := b.try(u)
@@ -360,12 +366,10 @@ func (b *irBuilder) operand(x syntax.Expr) ([]*irStmt, *irExpr) {
 			}
 			return pre, v
 		}
-		if _, implicit := b.l.info.Implicit[x]; implicit {
-			irNo("implicit conversion")
-		}
-		return b.call(u, false)
+	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		return nil, b.expr(x) // inside an operand it keeps its gate (value)
 	}
-	return nil, b.expr(x)
+	return b.value(x) // the implicit conversion too (ir_union.go)
 }
 
 // operands evaluates list left to right (the emitter's callArgs): an
