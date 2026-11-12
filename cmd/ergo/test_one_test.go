@@ -40,6 +40,7 @@ func writeOneModule(t *testing.T, seed uint64) oneModule {
 	// The defect's kind is drawn from its own stream, so the rest of a
 	// seed's program does not move with it.
 	scriptDefect := rand.New(rand.NewPCG(seed, 0x5c71)).IntN(2) == 0
+	ownScript := false
 	values := make([]int, n)
 	imported, escapes, records := make([]bool, n), make([]bool, n), make([]bool, n)
 	var all strings.Builder
@@ -90,12 +91,20 @@ func writeOneModule(t *testing.T, seed uint64) oneModule {
 			fmt.Fprintf(&b, "\ntest Q%d(p Pt%d) { assert p.X < 3 }\n", i, i)
 			records[i] = true
 		}
+		fmt.Fprintf(&b, "\ntype Photos%d {\n\tGet(k string) int,\n}\n", i)
 		switch {
 		case i == defect && scriptDefect:
 			// A Script's no-answer defect prints the operation type's
-			// qualified name, its package's name as the root's own run
-			// names it: main.
-			fmt.Fprintf(&b, "\ntype Photos%d {\n\tGet(k string) int,\n}\n\ntest D%d {\n\tlet s = testing.Script[Photos%d]{}\n\tlet n = with context { Photos%d: s } { Photos%d.Get(\"a\") }\n\tassert n == 0\n}\n", i, i, i, i, i)
+			// qualified name: its own package's as the root's own run
+			// names it, main, or an import's under that import's name.
+			photos := fmt.Sprintf("Photos%d", i)
+			if len(imports) > 0 {
+				photos = fmt.Sprintf("p%d.Photos%d", imports[0], imports[0])
+				m.reaches["script defect over an imported type"] = true
+			} else {
+				ownScript = true
+			}
+			fmt.Fprintf(&b, "\ntest D%d {\n\tlet s = testing.Script[%s]{}\n\tlet n = with context { %s: s } { %s.Get(\"a\") }\n\tassert n == 0\n}\n", i, photos, photos, photos)
 			m.reaches["defect"] = true
 		case i == defect:
 			fmt.Fprintf(&b, "\nfunc at%d(xs []int, i int) int { xs[i] }\n\ntest D%d { assert at%d([]int{}, 1) == 0 }\n", i, i, i)
@@ -115,7 +124,7 @@ func writeOneModule(t *testing.T, seed uint64) oneModule {
 		if imported[i] && records[i] {
 			m.reaches["record in an imported package"] = true
 		}
-		if imported[i] && i == defect && scriptDefect {
+		if imported[i] && i == defect && ownScript {
 			m.reaches["script defect in an imported package"] = true
 		}
 		if imported[i] && i == defect {
@@ -142,7 +151,7 @@ func TestModuleTestMatchesEachPackage(t *testing.T) {
 	defer func() {
 		// The seeds reach a failed test, a refuted law and a defect,
 		// which stops the run before later packages.
-		for _, branch := range []string{"fail", "refuted", "defect", "escaped import", "escape in an imported package", "record in an imported package", "defect in an imported package", "script defect in an imported package"} {
+		for _, branch := range []string{"fail", "refuted", "defect", "escaped import", "escape in an imported package", "record in an imported package", "defect in an imported package", "script defect in an imported package", "script defect over an imported type"} {
 			if !reached[branch] {
 				t.Errorf("no seed reaches a %s; choose seeds that do", branch)
 			}
