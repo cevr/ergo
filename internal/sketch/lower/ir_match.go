@@ -80,6 +80,7 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 	gst := b.goType(st, x)
 	p := b.pos(s, s.Pos())
 	pre, sx := b.value(x)
+	p = past(p, pre)
 	// The subject is read once, into a local the cases read again.
 	subj := b.temp("s"+strconv.Itoa(b.next), gst, p)
 	pre = append(pre, &irStmt{K: "def", Pos: p, Local: subj, X: sx})
@@ -157,6 +158,21 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 	return append(pre, b.closeMatch(s, sw, hasDefault, ret, to))
 }
 
+// past is p, or the last end of pre's statements when it comes after p: a
+// match's switch opens its scope after its subject's scopes close (a
+// `match f() catch {...} {...}` puts the catch's switch first), since the
+// compiler's DWARF scope positions must not decrease.
+func past(p irPos, pre []*irStmt) irPos {
+	for _, s := range pre {
+		for _, e := range []irPos{s.End, s.ElseEnd} {
+			if e[0] == p[0] && (e[1] > p[1] || e[1] == p[1] && e[2] > p[2]) {
+				p = e
+			}
+		}
+	}
+	return p
+}
+
 // tagOf is the tag of the flat union in the local s (tagExpr).
 func (b *irBuilder) tagOf(s int, p irPos) *irExpr {
 	return &irExpr{K: "field", Pos: p, Name: "tag", X: &irExpr{K: "local", Pos: p, I: s}}
@@ -179,6 +195,7 @@ func (b *irBuilder) valueMatch(s *syntax.SwitchStmt, ret bool, to *yieldTo) []*i
 	}
 	p := b.pos(s, s.Pos())
 	pre, tag := b.value(s.Tag)
+	p = past(p, pre)
 	sw := &irStmt{K: "switch", Pos: p, End: b.pos(s, s.Rbrace), X: tag}
 	seen := map[string]bool{}
 	hasDefault := false
