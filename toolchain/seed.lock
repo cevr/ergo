@@ -1,0 +1,8 @@
+# The seed ergo that builds stage 1 (docs/tooling.md, Bootstrap and release).
+# Reproduce: go run ./scripts/bootstrap verify-seed
+seed seed-0
+source 2765b02aff5b0de578d497a838d76a5937e130fc
+go go1.27.4
+package ./cmd/ergo
+sha256 linux/amd64 d4c2439deff8e0402c1072b9d7c0d5f64893b5e47de9398a56460574aa5597c0
+sha256 darwin/arm64 a1d0190e1b18c168b102bca174823a9235bb0ee041ea16a75fa5977f2937248e
