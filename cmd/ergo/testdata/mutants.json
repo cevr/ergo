@@ -230,6 +230,10 @@
       "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\treturn evaluationExit(evaluation)\n",
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
-    }
+    },
+    {"name":"lint0-config-ignored","origin":"wf10 LINT0","file":"cmd/ergo/lint.go","from":"return lint.ParseConfig(data)","to":"_ = data\n\treturn lint.DefaultConfig(), nil","rule":"ergo lint reads the ergo.lint.json beside the module's ergo.mod.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]},
+    {"name":"lint0-diagnostics-without-lint","origin":"wf10 LINT0","file":"cmd/ergo/main.go","from":"findings := l.result.ReportWithLint(l.snapshot, opts.strict, run.Advice())","to":"findings := l.result.ReportWithLint(l.snapshot, opts.strict, nil); _ = run","rule":"ergo diagnostics merges lint advice after the compiler's findings.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]},
+    {"name":"lint0-strict-ignores-warnings","origin":"wf10 LINT0","file":"internal/report/lint.go","from":"(!strict || report.TotalCounts.Warnings == 0)","to":"true","rule":"--strict fails policy on a lint warning.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"],"anchor":{"tests":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]}},
+    {"name":"lint0-policy-ignores-lint-errors","origin":"wf10 LINT0","file":"internal/report/lint.go","from":"advice.Complete && report.TotalCounts.Errors == 0","to":"advice.Complete","rule":"A lint finding of severity error fails policy.","killers":["cmd/ergo:TestLintCommandReadsModuleConfiguration"],"anchor":{"tests":["cmd/ergo:TestLintCommandReadsModuleConfiguration"]}}
   ]
 }

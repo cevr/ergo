@@ -17,3 +17,12 @@ Each is an edit of `unparkedWaits` in `runtime_waits_test.go`, judged by hand (t
 | `Wait()` calls not counted | TestRuntimeWaitsPark | The rows `machineStart` and `Task.Wait` go stale. |
 | `rt.Park` not seen | TestRuntimeWaitsPark | Every parked wait (`Actor.await`, `Queue.wait`, …) is flagged. |
 | Function literals not entered (`mk1-residue-skips-literals`) | TestRuntimeWaitRule | Survives TestRuntimeWaitsPark; the rule test's literal is not flagged. |
+
+# Lint spelling mutants (wf10 LINT0)
+
+Each is an edit of a lint rule that matches by spelling, judged by hand: the edit applied, `go test -run 'TestLintRulesReadNoSpelling' ./internal/residue` and the rule's property in `./internal/sketch/lint` run, the file restored. Both survive the rule properties, whose controls cannot tell the spelled match from the fact on every input; the guard kills them.
+
+| Mutant | Killer | Evidence |
+| --- | --- | --- |
+| `rule_foreign_error_public.go`: `check.IsGoError(n)` replaced by `n.String() == "go.Error"` | TestLintRulesReadNoSpelling | `rule_foreign_error_public.go:31: compares a spelling with a string`. |
+| `rule_silent_catch.go`: a callee spelled `tally` counted as a trace (`fun.Name == "tally" \|\| check.CallAddsFootprint(info, n)`) | TestLintRulesReadNoSpelling | `rule_silent_catch.go:90: compares a spelling with a string`; TestSilentCatchAgreesWithReference stays green. |
