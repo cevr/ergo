@@ -10,9 +10,10 @@
 // node under the pointer itself. Run drives one in a desktop window;
 // a test drives one on a headless window (screen.Headless) with Play.
 //
-// The Driver is not a ui.Host provider: its operations call Go, which
-// needs go.Foreign, and an operation type's method cannot need it (README
-// Gap 17); ui.Run's loop is written here once more over the window.
+// The Driver is not a ui.Host provider: its operations call Go, so their
+// row holds go.Foreign, which an operation type's method cannot hold
+// (README Gap 17); ui.Run's loop is written here once more over the
+// window.
 
 import actor
 import arena

@@ -4,8 +4,8 @@
 // space apart on a line while it fits, as the layout's Monospace breaks
 // them, so the boxes the layout gives and the lines paint draws agree.
 //
-// The engine's measure is a Go call, which needs go.Foreign, and an
-// operation type's method cannot need it (README, Gap 17); so the host
+// The engine's measure is a Go call, whose row holds go.Foreign, which an
+// operation type's method cannot hold (README, Gap 17); so the host
 // learns every run of the tree's texts before it lays out, and Metrics
 // answers from what it learned.
 
