@@ -51,6 +51,53 @@ func StringsTrimPrefix(s, prefix string) string { return strings.TrimPrefix(s, p
 //ergo:pure
 func StringsTrimSuffix(s, suffix string) string { return strings.TrimSuffix(s, suffix) }
 
+// StringsTrimLeft is strings.TrimLeft: s without the leading runes that
+// cutset holds.
+//
+//ergo:pure
+func StringsTrimLeft(s, cutset string) string { return strings.TrimLeft(s, cutset) }
+
+// StringsTrimRight is strings.TrimRight: s without the trailing runes that
+// cutset holds.
+//
+//ergo:pure
+func StringsTrimRight(s, cutset string) string { return strings.TrimRight(s, cutset) }
+
+// StringsBuilderAppend is buf with the bytes of s added, as Go's
+// strings.Builder.WriteString appends them to its buffer.
+//
+//ergo:pure
+func StringsBuilderAppend(buf []byte, s string) []byte { return append(buf, s...) }
+
+// StringsBuilderAppendByte is buf with c added, as Go's
+// strings.Builder.WriteByte appends it.
+//
+//ergo:pure
+func StringsBuilderAppendByte(buf []byte, c byte) []byte { return append(buf, c) }
+
+// StringsBuilderGrow is buf with room for n more bytes, as Go's
+// strings.Builder.Grow makes it: a negative n panics with Go's message.
+//
+//ergo:pure
+func StringsBuilderGrow(buf []byte, n int) []byte {
+	if n < 0 {
+		panic("strings.Builder.Grow: negative count")
+	}
+	if cap(buf)-len(buf) < n {
+		grown := make([]byte, len(buf), 2*cap(buf)+n)
+		copy(grown, buf)
+		return grown
+	}
+	return buf
+}
+
+// StringsBuilderText is the text of buf, a copy of its bytes. Go's
+// strings.Builder.String shares the bytes through unsafe; Ergo copies
+// until an unsafe body is measured and admitted (stdlib.md, unsafe rule).
+//
+//ergo:pure
+func StringsBuilderText(buf []byte) string { return string(buf) }
+
 // StringsFields is strings.Fields.
 //
 //ergo:pure

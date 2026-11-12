@@ -167,6 +167,22 @@ test StringsLinesStops(s string, t string) {
 	}
 }
 
+test StringsBuilderConcatenates(a string, c byte, d string) {
+	let mut b = strings.NewBuilder()
+	b.WriteString(a)
+	b.Grow(len(d))
+	b.WriteByte(c)
+	let mut copy = b
+	copy.WriteString(d)
+	let mut one = strings.NewBuilder()
+	one.WriteByte(c)
+	let want = a + one.String()
+	assert b.String() == want && b.Len() == len(want)
+	assert copy.String() == want+d && copy.Len() == len(want)+len(d)
+	b.WriteString(d + d)
+	assert copy.String() == want+d && b.String() == want+d+d
+}
+
 // last is 1 when text ends in a line with no line feed.
 func last(text string) int {
 	if strings.HasSuffix(text, "\n") || text == "" {
@@ -202,9 +218,10 @@ func last(text string) int {
 		t.Errorf("the laws: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 10))
 	}
 	lawledger.Run(t, lawsPassed(t, map[string]string{
-		"strings CutRebuilds":  `CutRebuilds(s string, sep string) { match Cut(s, sep) { case Some[Halves] as h: h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == len(h.Value.Before) case None: !Contains(s, sep) } }`,
-		"strings LinesRebuild": `LinesRebuild(s string) { let mut joined = "" for line in Lines(s) { joined = joined + line } joined == s }`,
-		"strings LinesStops":   `LinesStops(s string) { let lines = Lines(s) let mut n = 0 lines(func(line string) bool { n = n + 1 true }) for k in 1..n+2 { let mut calls = 0 lines(func(line string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
+		"strings BuilderConcatenates": `BuilderConcatenates(a string, c byte, d string) { let mut b = NewBuilder() b.WriteString(a) b.Grow(len(d)) b.WriteByte(c) let mut copy = b copy.WriteString(d) let want = a + builderText([]byte{c}) b.String() == want && b.Len() == len(want) && copy.String() == want+d && copy.Len() == len(want)+len(d) }`,
+		"strings CutRebuilds":         `CutRebuilds(s string, sep string) { match Cut(s, sep) { case Some[Halves] as h: h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == len(h.Value.Before) case None: !Contains(s, sep) } }`,
+		"strings LinesRebuild":        `LinesRebuild(s string) { let mut joined = "" for line in Lines(s) { joined = joined + line } joined == s }`,
+		"strings LinesStops":          `LinesStops(s string) { let lines = Lines(s) let mut n = 0 lines(func(line string) bool { n = n + 1 true }) for k in 1..n+2 { let mut calls = 0 lines(func(line string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 	}, func(key string) string {
 		return "Strings" + strings.TrimPrefix(key, "strings ")
 	}, laws, stdout))

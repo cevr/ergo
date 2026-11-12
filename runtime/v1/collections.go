@@ -181,3 +181,15 @@ func CmpCompare[T ordered](a T, b T) int {
 func CmpLess[T ordered](a T, b T) bool {
 	return (a != a && b == b) || a < b
 }
+
+// CmpMax is Go's builtin max(a, b): the larger value; for floats a NaN
+// gives NaN, and max(-0, +0) is +0.
+//
+//ergo:pure
+func CmpMax[T ordered](a T, b T) T { return max(a, b) }
+
+// CmpMin is Go's builtin min(a, b): the smaller value; for floats a NaN
+// gives NaN, and min(-0, +0) is -0.
+//
+//ergo:pure
+func CmpMin[T ordered](a T, b T) T { return min(a, b) }
