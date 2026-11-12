@@ -39,6 +39,9 @@ type interp struct {
 	// mapRanged says a for over a Map ran (maporder.go).
 	mapOrder  mapOrder
 	mapRanged bool
+	// pairs are the by-name wire pairs every package's check recorded
+	// (wire.go), built at the first codec call.
+	pairs map[*check.TypeName]*check.WirePair
 }
 
 // frame is one running body: a test, a law, a function call or a call of

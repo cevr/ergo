@@ -30,11 +30,12 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids", "bits", "maps", "deadline"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids", "bits", "maps", "deadline", "codec"}
 
 const mainPrelude = `import actor
 import bits
 import io
+import json
 import machines
 import os
 import queue
@@ -61,6 +62,54 @@ func flush() needs Console {
 }
 
 type Res { name string }
+
+type Pt { X int8, Label string }
+type Circle { R float64 }
+type Square { Side int }
+type Shape = Circle | Square
+type Doc {
+	Name string,
+	Pts []Pt,
+	Shape Shape,
+	Tags Map[string, uint8],
+	Pair (int, bool),
+	Note json.Optional[string],
+	Level json.Nullable[int],
+	ID int "doc_id",
+	HTTPCode int,
+}
+
+func showDoc(tag string, text string) needs Console {
+	let c = json.Codec[Doc]{MaxBytes: 0, MaxDepth: 0}
+	let d = json.Decode(c, text) catch {
+	case json.Malformed as m:
+		Console.Println(tag + " malformed \(m.Offset) \(m.Reason)")
+		return
+	case WireWrongKind as w:
+		Console.Println(tag + " wrong \(w.Path) \(w.Want)")
+		return
+	case WireMissingField as w:
+		Console.Println(tag + " missing \(w.Path) \(w.Field)")
+		return
+	case WireUnknownTag as w:
+		Console.Println(tag + " tag \(w.Path) \(w.Tag)")
+		return
+	}
+	Console.Println(tag + " " + json.Encode(c, d))
+}
+
+func showValue(tag string, text string) needs Console {
+	let c = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let v = json.Decode(c, text) catch {
+	case json.Malformed as m:
+		Console.Println(tag + " malformed \(m.Offset) \(m.Reason)")
+		return
+	case _:
+		Console.Println(tag + " shape")
+		return
+	}
+	Console.Println(tag + " " + json.Encode(c, v))
+}
 
 type Box { a []int, b []int }
 
@@ -282,6 +331,7 @@ func imports() needs Scheduler | time.Clock {
 	case timeout.Expired:
 		0
 	}
+	let _ = json.Encode(json.Codec[int]{MaxBytes: 0, MaxDepth: 0}, 1)
 }
 
 // recorder uses io and os too.
@@ -321,7 +371,9 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(17) {
+		switch g.r.IntN(18) {
+		case 17:
+			g.codec(k)
 		case 16:
 			g.deadline(k)
 		case 15:

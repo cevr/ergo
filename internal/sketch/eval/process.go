@@ -317,13 +317,18 @@ func init() {
 	})
 	hostNative("config.hostEnviron", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		prefix := args[0].(string)
-		var out []string
-		for k, v := range h.env {
+		// Sorted by name: "A0=x" sorts before "A=y", but A before A0.
+		var names []string
+		for k := range h.env {
 			if strings.HasPrefix(k, prefix) {
-				out = append(out, k+"="+v)
+				names = append(names, k)
 			}
 		}
-		sort.Strings(out)
+		sort.Strings(names)
+		out := make([]string, len(names))
+		for i, k := range names {
+			out[i] = k + "=" + h.env[k]
+		}
 		return stringSlice(out), nil
 	})
 	// The terminal: the simulated process's standard input is no

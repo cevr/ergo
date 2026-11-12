@@ -1048,6 +1048,105 @@
       "to": "\t\tif false {",
       "rule": "grammar.md Expressions 1 (q105): the failure of an operand that a try on its left covers leaves the frame, as under the try itself; a catch around the call it is an argument of does not take it.",
       "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "oracle-o18-json-html-ignored",
+      "origin": "wf10 ORACLE O18",
+      "file": "internal/sketch/eval/nativesjson.go",
+      "from": "\t\tcase html && (r == '<' || r == '>' || r == '&'):",
+      "to": "\t\tcase false && html && (r == '<' || r == '>' || r == '&'):",
+      "rule": "std json NewHTMLText: its strings escape <, > and & as \\u003c, \\u003e and \\u0026.",
+      "killers": ["internal/sketch/eval:TestJSONAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o18-json-pair-split",
+      "origin": "wf10 ORACLE O18",
+      "file": "internal/sketch/eval/nativesjson.go",
+      "from": "ok && low >= 0xDC00 && low < 0xE000 {",
+      "to": "ok && low >= 0xDC00 && low < 0xDC00 {",
+      "rule": "std json reads a surrogate pair escape as its one character.",
+      "killers": ["internal/sketch/eval:TestJSONAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o18-json-path-index",
+      "origin": "wf10 ORACLE O18",
+      "file": "internal/sketch/eval/nativesjson.go",
+      "from": "\t\t\tb.WriteString(\"[\" + strconv.Itoa(f.n-1) + \"]\")",
+      "to": "\t\t\tb.WriteString(\"[\" + strconv.Itoa(f.n) + \"]\")",
+      "rule": "std json Path names a list element by its index from 0 (hosts[2].port).",
+      "killers": ["internal/sketch/eval:TestJSONAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o18-json-depth-one-more",
+      "origin": "wf10 ORACLE O18",
+      "file": "internal/sketch/eval/nativesjson.go",
+      "from": "\t\tif depth >= p.depth {",
+      "to": "\t\tif depth > p.depth {",
+      "rule": "std json Open: a text nested deeper than MaxDepth lists and objects is Malformed.",
+      "killers": ["internal/sketch/eval:TestJSONAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o18-json-tag-any-kind",
+      "origin": "wf10 ORACLE O18",
+      "file": "internal/sketch/eval/nativesjson.go",
+      "from": "if f.node.keys[i] == \"_tag\" && f.node.elems[i].kind == 3 {",
+      "to": "if f.node.keys[i] == \"_tag\" {",
+      "rule": "std json Tag is the string value of the member _tag; a _tag of another kind is no tag.",
+      "killers": ["internal/sketch/eval:TestJSONAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o18-config-env-case-kept",
+      "origin": "wf10 ORACLE O18",
+      "file": "internal/sketch/eval/nativesconfig.go",
+      "from": "\t\treturn joinKey(a[0], \"__\", \"_\", strings.ToLower)",
+      "to": "\t\treturn joinKey(a[0], \"__\", \"_\", func(s string) string { return s })",
+      "rule": "std config: a variable's words are read in lower case before they join in camel case.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o18-wire-keys-unsorted",
+      "origin": "wf10 ORACLE O18",
+      "file": "internal/sketch/eval/wire.go",
+      "from": "\t\tsort.Slice(keys, func(i, j int) bool { return keys[i].(string) < keys[j].(string) })\n",
+      "to": "\t\t_ = sort.Slice\n",
+      "rule": "types.md Codecs 2: a Map is an object with its keys in order.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o18-wire-absent-missing",
+      "origin": "wf10 ORACLE O18",
+      "file": "internal/sketch/eval/wire.go",
+      "from": "\t\tif check.WireFormOf(ts[i].t) == check.WireOmittable {\n\t\t\tvals[i] = newRecordOf(wrapperOf(ts[i]).empty, nil)\n\t\t\tcontinue\n\t\t}\n",
+      "to": "",
+      "rule": "types.md Codecs 8: a missing key of an omittable field decodes to the empty variant.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o18-wire-first-member-wins",
+      "origin": "wf10 ORACLE O18",
+      "file": "internal/sketch/eval/wire.go",
+      "from": "\t\tif i < 0 {\n\t\t\tif _, ab := w.event(rd, \"Skip\"); ab != nil {",
+      "to": "\t\tif i < 0 || seen[i] {\n\t\t\tif _, ab := w.event(rd, \"Skip\"); ab != nil {",
+      "rule": "std json: of two members with one key the last is the value (decode reads each member it knows).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o18-wire-long-tuple",
+      "origin": "wf10 ORACLE O18",
+      "file": "internal/sketch/eval/wire.go",
+      "from": "\t\tif more {\n\t\t\treturn nil, w.wrongKind(rd, want)\n\t\t}\n",
+      "to": "\t\tif false && more {\n\t\t\treturn nil, w.wrongKind(rd, want)\n\t\t}\n",
+      "rule": "A tuple decodes from a list of exactly its length; a longer one fails WireWrongKind.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o18-wire-int8-unbounded-above",
+      "origin": "wf10 ORACLE O18",
+      "file": "internal/sketch/eval/wire.go",
+      "from": "ok && (i < b[0] || i > b[1]) {",
+      "to": "ok && i < b[0] {",
+      "rule": "types.md Codecs 3: an integer outside its type's range fails WireWrongKind.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     }
   ]
 }
