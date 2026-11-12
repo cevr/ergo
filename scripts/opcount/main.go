@@ -711,12 +711,12 @@ func (b builder) exec(dir, name string, args ...string) error {
 }
 
 func commit() string {
-	head, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	head, err := exec.Command("git", "--no-optional-locks", "rev-parse", "HEAD").Output()
 	if err != nil {
 		return "unknown"
 	}
 	c := strings.TrimSpace(string(head))
-	if status, err := exec.Command("git", "status", "--porcelain").Output(); err == nil && len(bytes.TrimSpace(status)) > 0 {
+	if status, err := exec.Command("git", "--no-optional-locks", "status", "--porcelain").Output(); err == nil && len(bytes.TrimSpace(status)) > 0 {
 		c += "+dirty"
 	}
 	return c
