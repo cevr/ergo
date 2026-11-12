@@ -9,7 +9,7 @@ import (
 // decision tree lowers (matchtree.go): record, constant, bind and nested
 // patterns, several subjects, or-patterns and wildcards whose arms
 // several leaves reach (a shared arm), and a break inside a match.
-var treeFuncs = []string{"pairs", "P.points", "trees", "flags", "stops"} // points takes a P first: P's method
+var treeFuncs = []string{"pairs", "P.points", "trees", "flags", "stops", "risky", "caught", "part"} // points takes a P first: P's method
 
 // pick is a random subset of arms in their order, with every arm whose
 // text starts with "!" kept (its "!" dropped): dropping an arm never makes
@@ -83,6 +83,22 @@ func (g *ugen) trees() {
 		"case P{X: 9, Y: v}:\n\tn += v\n\tbreak",
 		"!case P{X: u}:\n\tn += u",
 	})))
+	// A catch with record patterns, an or-pattern, `case err` and a
+	// wildcard: the emitter's tree on the error (patternCatch); total and
+	// partial.
+	g.b.WriteString("type E1 { Code int }\n\ntype E2 { Why string }\n\n")
+	fmt.Fprintf(&g.b, "func risky(n int) int fails E1 | E2 {\n\tif n %% 3 == 0 {\n\t\treturn E1{Code: n}\n\t}\n\tif n %% 3 == 1 {\n\t\treturn E2{Why: \"w\\(n %% %d)\"}\n\t}\n\tn * 2\n}\n\n", 2+g.n(3))
+	fmt.Fprintf(&g.b, "func caught(n int) int {\n\trisky(n) catch {\n%s\t}\n}\n\n", block("\t", g.pick([]string{
+		"case E1{Code: 0}:\n\t-100",
+		"case E1{Code: 3}, E2{Why: \"w1\"}:\n\t33",
+		"case E2{Why: \"w0\"}:\n\t-7",
+		"case E1{Code: 6} as e:\n\te.Code * 10",
+		[]string{"!case err:\n\tmatch err {\n\tcase E1 as e:\n\t\te.Code + 500\n\tcase E2:\n\t\t-1\n\t}", "!case _:\n\t-1"}[g.n(2)],
+	})))
+	fmt.Fprintf(&g.b, "func part(n int) int fails E1 | E2 {\n\tlet v = try risky(n) catch {\n%s\t}\n\tv + 1\n}\n\n", block("\t", g.pick([]string{
+		"!case E1{Code: " + fmt.Sprint(3*g.n(3)) + "}:\n\t1000",
+		"!case E2{Why: \"w1\"}, E2{Why: \"w2\"}:\n\t2000",
+	})))
 }
 
 // treeMain writes main's lines for treeFuncs.
@@ -105,4 +121,8 @@ func (g *ugen) treeMain() {
 		ps = append(ps, fmt.Sprintf("P{X: %d, Y: %d}", g.n(10), g.n(5)))
 	}
 	fmt.Fprintf(&g.b, "\tConsole.Println(\"stops \\(stops([]P{%s}))\")\n", strings.Join(ps, ", "))
+	for n := 0; n < 10; n++ {
+		fmt.Fprintf(&g.b, "\tlet p%d = part(%d) catch {\n\tcase E1 as e:\n\t\te.Code - 50\n\tcase E2 as e:\n\t\tlen(e.Why) - 60\n\t}\n", n, n)
+		fmt.Fprintf(&g.b, "\tConsole.Println(\"catch %d \\(caught(%d)) \\(p%d)\")\n", n, n, n)
+	}
 }
