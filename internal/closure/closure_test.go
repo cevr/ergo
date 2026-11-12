@@ -660,6 +660,10 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cpuCosts, err := readCPUCosts(root, module)
+	if err != nil {
+		t.Fatal(err)
+	}
 	roots := []string{root}
 	protect, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -726,7 +730,7 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			name := strings.ReplaceAll(dir, "/", "_")
-			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], std, sem)
+			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], cpuCosts[dir], std, sem)
 			results[i].took = took
 			if err != nil {
 				results[i].err = err
@@ -960,7 +964,7 @@ func modulePackages(t *testing.T, root string) (map[string]closure, []string) {
 // and stem.out, of a run of a split package to stem.<i>.log and
 // stem.<i>.out. took says how long the build and each run took once it
 // held its slot.
-func runPackage(root, protect string, roots []string, dir, binary, stem string, costs map[string]float64, std string, sem chan struct{}) (entries []entry, took string, err error) {
+func runPackage(root, protect string, roots []string, dir, binary, stem string, costs, cpu map[string]float64, std string, sem chan struct{}) (entries []entry, took string, err error) {
 	sem <- struct{}{}
 	start := time.Now()
 	err = buildTestBinary(root, dir, binary)
@@ -978,6 +982,7 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 	if err != nil {
 		return nil, took, err
 	}
+	plan = withDeadlineCosts(plan, cpu)
 	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, std, sem, nil)
 	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(durations, " "))
 	return entries, took, err
@@ -1028,7 +1033,7 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 				runStem = fmt.Sprintf("%s.%d", stem, i+1)
 			}
 			start := time.Now()
-			runs[i], errs[i] = runTestsWith(protect, roots, dir, pkgDir, runStem, cache, extra, binary, run.args...)
+			runs[i], errs[i] = runTestsWith(protect, roots, dir, pkgDir, runStem, cache, run.deadlineCost, extra, binary, run.args...)
 			durations[i] = time.Since(start).Round(100 * time.Millisecond).String()
 			errs[i] = runFailure(i, len(plan), run, errs[i])
 		})
@@ -1049,7 +1054,7 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 // has a run's bound (runDeadline), so a build that does not end fails with
 // its package named.
 func buildTestBinary(root, dir, binary string) error {
-	bound, err := runDeadline()
+	bound, err := runDeadline(0)
 	if err != nil {
 		return err
 	}
@@ -1085,19 +1090,20 @@ func sweepEnvironment() []string { return testenv.Environment(os.Environ()) }
 // removal, such a path would name an absent place in scratch, which is no
 // input, and the read would be classified by nothing.
 func runTests(protect string, roots []string, pkg, pkgDir, stem string, extra []string, binary string, args ...string) ([]entry, error) {
-	return runTestsWith(protect, roots, pkg, pkgDir, stem, "", extra, binary, args...)
+	return runTestsWith(protect, roots, pkg, pkgDir, stem, "", 0, extra, binary, args...)
 }
 
 // runTestsWith is runTests with cache, when not empty, as the run's
 // GOCACHE: a directory the runs of one package share (runPlan), writable in
-// the run's sandbox as its scratch directories are.
-func runTestsWith(protect string, roots []string, pkg, pkgDir, stem, cache string, extra []string, binary string, args ...string) ([]entry, error) {
+// the run's sandbox as its scratch directories are; and with cost, the
+// run's recorded seconds, which set its deadline (runDeadline).
+func runTestsWith(protect string, roots []string, pkg, pkgDir, stem, cache string, cost float64, extra []string, binary string, args ...string) ([]entry, error) {
 	var entries []entry
 	classify := func(run observedRun) (err error) {
 		entries, err = run.entries(roots)
 		return err
 	}
-	if _, err := runObserved(protect, pkg, pkgDir, stem, cache, extra, classify, binary, args...); err != nil {
+	if _, err := runObserved(protect, pkg, pkgDir, stem, cache, cost, extra, classify, binary, args...); err != nil {
 		return nil, err
 	}
 	return entries, nil
@@ -1122,7 +1128,7 @@ func (o observedRun) entries(roots []string) ([]entry, error) {
 
 // runObserved is runTestsWith up to the classification. classify, if not
 // nil, runs while the run's scratch directories still exist.
-func runObserved(protect, pkg, pkgDir, stem, cache string, extra []string, classify func(observedRun) error, binary string, args ...string) (observedRun, error) {
+func runObserved(protect, pkg, pkgDir, stem, cache string, cost float64, extra []string, classify func(observedRun) error, binary string, args ...string) (observedRun, error) {
 	fail := func(err error) (observedRun, error) { return observedRun{}, err }
 	s, err := newScratch()
 	if err != nil {
@@ -1132,7 +1138,7 @@ func runObserved(protect, pkg, pkgDir, stem, cache string, extra []string, class
 	log := filepath.Join(s.log, "test.log")
 	identityFile := filepath.Join(s.log, "identity.json")
 	// The binary's own deadline ends inside the run's (runTestTimeout).
-	deadline, err := runDeadline()
+	deadline, err := runDeadline(cost)
 	if err != nil {
 		return fail(err)
 	}

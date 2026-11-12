@@ -136,13 +136,13 @@ func TestLongestStepTakesTheFirstFreedSlot(t *testing.T) {
 
 // TestStepsWeighTheirRecordedTime: in the full tier every swept package
 // has rows in durations.json, every step that runs a package's tests has a
-// weight, each sharded test step weighs the recorded time of its tests, the
-// other packages' step theirs, a closure sweep sweepWeightFactor times its
-// package's (a host package's the stated default), and the closure
-// sweep of internal/sketch/lower is the heaviest step after the writers,
-// so it takes the first slot the writers free (batch-10: it started at
-// 381 s of the merge tier and was its longest step). Every sweep step has
-// the sweep's test timeout.
+// weight, each sharded test step weighs the recorded cost of its tests
+// (shardCosts), the other packages' step theirs, a closure sweep
+// sweepWeightFactor times its package's (a host package's the stated
+// default), and the closure sweep of internal/sketch/lower is the heaviest
+// step after the writers, so it takes the first slot the writers free
+// (batch-10: it started at 381 s of the merge tier and was its longest
+// step).
 func TestStepsWeighTheirRecordedTime(t *testing.T) {
 	host := sweepOS
 	t.Cleanup(func() { sweepOS = host })
@@ -153,6 +153,10 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	durations, err := readDurations(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpu, err := readTestCPU(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,9 +190,6 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 			if math.Abs(step.Weight-want) > 1e-6 {
 				t.Errorf("%s weighs %v, want %v", step.Name, step.Weight, want)
 			}
-			if !slices.Contains(step.Argv, sweepTimeout) {
-				t.Errorf("%s: argv %q lacks %s", step.Name, step.Argv, sweepTimeout)
-			}
 		}
 		if runsGoTest(step) && step.Sweep == "" && step.Name != fullBuildStep && step.Weight <= 0 {
 			t.Errorf("%s runs recorded tests and has no weight", step.Name)
@@ -211,7 +212,7 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := recordedSeconds(names, durations[pkg]); math.Abs(weight-want) > 1e-6 {
+		if want := recordedSeconds(names, shardCosts(durations, cpu, pkg)); math.Abs(weight-want) > 1e-6 {
 			t.Errorf("the shards of %s weigh %v in all; want its tests' recorded %v", pkg, weight, want)
 		}
 	}
