@@ -1,0 +1,44 @@
+// The tree's law, over shapes and rays built from generated numbers.
+
+// TreeHitEqualsBruteForce: the tree finds the shape every shape in order
+// finds, at the same distance, for every ray, even among repeated shapes
+// and rays that graze a box. Every shape is there twice, so every hit is a
+// tie that the first of the two wins.
+law TreeHitEqualsBruteForce(xs []int, ys []int) {
+	let once = shapesOf(xs)
+	let mut shapes = once
+	for s in once {
+		shapes = shapes.Append(s)
+	}
+	let t = Build(shapes)
+	let mut i = 0
+	for i+6 <= len(ys) {
+		let r = Ray{Origin: V(coord(ys[i]), coord(ys[i+1]), coord(ys[i+2])), Dir: V(coord(ys[i+3]), coord(ys[i+4]), coord(ys[i+5]))}
+		if Nearest(t, r, 0.001, 1e300) != BruteForce(shapes, r, 0.001, 1e300) {
+			return false
+		}
+		i += 1
+	}
+	true
+}
+
+// coord is a coordinate from -5 to 5 in steps of a quarter, from n.
+func coord(n int) float64 { float64((n%41+41)%41-20) * 0.25 }
+
+// shapesOf is a shape for every window of numbers in xs: a sphere or a
+// triangle, by the window's first number; a repeated window repeats its
+// shape.
+func shapesOf(xs []int) []Shape {
+	let mut shapes = []Shape{}
+	let mut i = 0
+	for i+10 <= len(xs) {
+		if xs[i]%2 == 0 {
+			let radius = 0.25 + float64((xs[i+4]%8+8)%8)*0.25
+			shapes = shapes.Append(Sphere{Center: V(coord(xs[i+1]), coord(xs[i+2]), coord(xs[i+3])), Radius: radius, Mat: 0})
+		} else {
+			shapes = shapes.Append(Triangle{A: V(coord(xs[i+1]), coord(xs[i+2]), coord(xs[i+3])), B: V(coord(xs[i+4]), coord(xs[i+5]), coord(xs[i+6])), C: V(coord(xs[i+7]), coord(xs[i+8]), coord(xs[i+9])), Mat: 0})
+		}
+		i += 3
+	}
+	shapes
+}

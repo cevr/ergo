@@ -1,0 +1,44 @@
+// Package render traces paths of light through a scene: materials, the
+// camera, a seeded stream per pixel, the path as a machine, and the image
+// in tiles rendered in parallel.
+
+import raytrace/geom
+
+// Stream is SplitMix64: a seeded stream of numbers, one per pixel, so a
+// pixel's samples do not depend on which tile or task renders it.
+type Stream { state uint64 }
+
+// PixelStream is the stream of pixel i of an image seeded with seed.
+func PixelStream(seed uint64, i int) Stream {
+	Stream{state: seed ^ (uint64(i) * 0xD1B54A32D192ED03)}
+}
+
+// Seeded is the stream that starts at seed.
+func Seeded(seed uint64) Stream { Stream{state: seed} }
+
+// Next is the stream's next number.
+func Next(s *Stream) uint64 {
+	s.state += 0x9E3779B97F4A7C15
+	let mut z = s.state
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EB
+	z ^ (z >> 31)
+}
+
+// Float is the stream's next number in [0, 1).
+func Float(s *Stream) float64 { float64(s.Next()>>11) * (1.0 / 9007199254740992.0) }
+
+// InBall is a point drawn uniformly from the ball of radius 1: the first
+// point of the cube [-1, 1)³ drawn that lies inside it.
+func InBall(s *Stream) geom.Vec {
+	for {
+		let p = geom.V(2.0*s.Float()-1.0, 2.0*s.Float()-1.0, 2.0*s.Float()-1.0)
+		let d = geom.Dot(p, p)
+		if d < 1.0 && d > 1e-12 {
+			return p
+		}
+	}
+}
+
+// OnSphere is a direction drawn uniformly: InBall scaled to length 1.
+func OnSphere(s *Stream) geom.Vec { geom.Unit(s.InBall()) }

@@ -1,0 +1,45 @@
+// Package world makes the seeded scenes the program renders: a ground, a
+// light above, and spheres and triangles of every material scattered on
+// the ground. A seed gives one scene on every host.
+
+import raytrace/geom
+import raytrace/render
+
+// Generate is the scene of seed with n objects, seen by a camera of the
+// given aspect (width over height).
+func Generate(seed uint64, n int, aspect float64) render.Scene {
+	let mut s = render.Seeded(seed)
+	let mut shapes = []geom.Shape{}
+	let mut mats = []render.Material{}
+	shapes = shapes.Append(geom.Sphere{Center: geom.V(0.0, -1000.0, 0.0), Radius: 1000.0, Mat: 0})
+	mats = mats.Append(render.Diffuse{Albedo: geom.V(0.5, 0.5, 0.5)})
+	shapes = shapes.Append(geom.Sphere{Center: geom.V(0.0, 7.0, 0.0), Radius: 2.0, Mat: 1})
+	mats = mats.Append(render.Light{Emit: geom.V(4.0, 4.0, 4.0)})
+	for _ in 0..n {
+		let x = 8.0*s.Float() - 4.0
+		let z = 8.0*s.Float() - 4.0
+		let size = 0.2 + 0.5*s.Float()
+		let mat = len(mats)
+		if s.Next()%3 == 0 {
+			let a = geom.V(x, 0.0, z)
+			let b = geom.V(x+size*(2.0*s.Float()-1.0), 2.0*size, z+size*(2.0*s.Float()-1.0))
+			let c = geom.V(x+size*(2.0*s.Float()-1.0), size*s.Float(), z+size*(2.0*s.Float()-1.0))
+			shapes = shapes.Append(geom.Triangle{A: a, B: b, C: c, Mat: mat})
+		} else {
+			shapes = shapes.Append(geom.Sphere{Center: geom.V(x, size, z), Radius: size, Mat: mat})
+		}
+		let kind = s.Next() % 10
+		let color = geom.V(0.2+0.8*s.Float(), 0.2+0.8*s.Float(), 0.2+0.8*s.Float())
+		if kind < 5 {
+			mats = mats.Append(render.Diffuse{Albedo: color})
+		} else if kind < 8 {
+			mats = mats.Append(render.Metal{Albedo: color, Fuzz: 0.5 * s.Float()})
+		} else if kind < 9 {
+			mats = mats.Append(render.Glass{Index: 1.5})
+		} else {
+			mats = mats.Append(render.Light{Emit: geom.Scale(color, 3.0)})
+		}
+	}
+	let cam = render.LookAt(geom.V(0.0, 2.0, -9.0), geom.V(0.0, 0.5, 0.0), aspect)
+	render.Scene{Tree: geom.Build(shapes), Materials: mats, Camera: cam}
+}

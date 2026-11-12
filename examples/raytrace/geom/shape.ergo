@@ -1,0 +1,173 @@
+// The two kinds of shape, where a ray meets each, and their bounds.
+
+import math
+
+// Shape is a sphere or a triangle, each with the index of its material.
+type Shape = Sphere{Center Vec, Radius float64, Mat int} | Triangle{A Vec, B Vec, C Vec, Mat int}
+
+// Miss is the distance Intersect gives for no hit: no hit is at a
+// negative distance.
+let Miss = -1.0
+
+// Intersect is the distance along r to the nearest point of s in the open
+// interval (lo, hi], or Miss.
+func Intersect(s Shape, r Ray, lo float64, hi float64) float64 {
+	match s {
+	case Sphere as sp:
+		let oc = Sub(r.Origin, sp.Center)
+		let a = Dot(r.Dir, r.Dir)
+		let hb = Dot(oc, r.Dir)
+		let c = Dot(oc, oc) - sp.Radius*sp.Radius
+		let disc = hb*hb - a*c
+		if disc < 0.0 {
+			return Miss
+		}
+		let sq = math.Sqrt(disc)
+		let near = (-hb - sq) / a
+		if near > lo && near <= hi {
+			return near
+		}
+		let far = (-hb + sq) / a
+		if far > lo && far <= hi {
+			return far
+		}
+		Miss
+	case Triangle as tr:
+		// Möller and Trumbore: a degenerate triangle has det 0 and is
+		// never hit.
+		let e1 = Sub(tr.B, tr.A)
+		let e2 = Sub(tr.C, tr.A)
+		let p = Cross(r.Dir, e2)
+		let det = Dot(e1, p)
+		if det > -1e-12 && det < 1e-12 {
+			return Miss
+		}
+		let inv = 1.0 / det
+		let s0 = Sub(r.Origin, tr.A)
+		let u = Dot(s0, p) * inv
+		if u < 0.0 || u > 1.0 {
+			return Miss
+		}
+		let q = Cross(s0, e1)
+		let v = Dot(r.Dir, q) * inv
+		if v < 0.0 || u+v > 1.0 {
+			return Miss
+		}
+		let t = Dot(e2, q) * inv
+		if t > lo && t <= hi {
+			return t
+		}
+		Miss
+	}
+}
+
+// Normal is the outward normal of s at its point p, of length 1.
+func Normal(s Shape, p Vec) Vec {
+	match s {
+	case Sphere as sp:
+		Scale(Sub(p, sp.Center), 1.0/sp.Radius)
+	case Triangle as tr:
+		Unit(Cross(Sub(tr.B, tr.A), Sub(tr.C, tr.A)))
+	}
+}
+
+// MaterialOf is the index of s's material.
+func MaterialOf(s Shape) int {
+	match s {
+	case Sphere as sp:
+		sp.Mat
+	case Triangle as tr:
+		tr.Mat
+	}
+}
+
+// Box is the axis-aligned box from Min to Max.
+type Box { Min Vec, Max Vec }
+
+// Pad is how much a bound grows on each side, relative to its size, so a
+// hit on a shape's edge is inside its box after rounding.
+let Pad = 1e-7
+
+// Bounds is the box around s, padded.
+func Bounds(s Shape) Box {
+	match s {
+	case Sphere as sp:
+		let r = V(sp.Radius, sp.Radius, sp.Radius)
+		padded(Box{Min: Sub(sp.Center, r), Max: Add(sp.Center, r)})
+	case Triangle as tr:
+		padded(Union(Union(Box{Min: tr.A, Max: tr.A}, Box{Min: tr.B, Max: tr.B}), Box{Min: tr.C, Max: tr.C}))
+	}
+}
+
+// padded is b grown by Pad times one plus the largest magnitude of a
+// coordinate on each side.
+func padded(b Box) Box {
+	let m = 1.0 + largest(math.Abs(b.Min.X), math.Abs(b.Min.Y), math.Abs(b.Min.Z), math.Abs(b.Max.X), math.Abs(b.Max.Y), math.Abs(b.Max.Z))
+	let e = V(m*Pad, m*Pad, m*Pad)
+	Box{Min: Sub(b.Min, e), Max: Add(b.Max, e)}
+}
+
+// largest is the largest of six numbers.
+func largest(a float64, b float64, c float64, d float64, e float64, f float64) float64 {
+	let mut m = a
+	for x in []float64{b, c, d, e, f} {
+		if x > m {
+			m = x
+		}
+	}
+	m
+}
+
+// Union is the smallest box around a and b.
+func Union(a Box, b Box) Box {
+	Box{Min: V(lower(a.Min.X, b.Min.X), lower(a.Min.Y, b.Min.Y), lower(a.Min.Z, b.Min.Z)), Max: V(higher(a.Max.X, b.Max.X), higher(a.Max.Y, b.Max.Y), higher(a.Max.Z, b.Max.Z))}
+}
+
+func lower(a float64, b float64) float64 {
+	if b < a {
+		return b
+	}
+	a
+}
+
+func higher(a float64, b float64) float64 {
+	if b > a {
+		return b
+	}
+	a
+}
+
+// Centroid is the middle of s's box.
+func Centroid(s Shape) Vec {
+	let b = Bounds(s)
+	Scale(Add(b.Min, b.Max), 0.5)
+}
+
+// Crosses reports whether r passes through b between lo and hi. An axis
+// the ray is parallel to gives an infinite or undefined slab; a NaN bound
+// never narrows the interval.
+func Crosses(b Box, r Ray, lo float64, hi float64) bool {
+	let mut near = lo
+	let mut far = hi
+	for k in 0..3 {
+		let inv = 1.0 / Axis(r.Dir, k)
+		let o = Axis(r.Origin, k)
+		let mut t0 = (Axis(b.Min, k) - o) * inv
+		let mut t1 = (Axis(b.Max, k) - o) * inv
+		if inv < 0.0 {
+			let t = t0
+			t0 = t1
+			t1 = t
+		}
+		if t0 > near {
+			near = t0
+		}
+		if t1 < far {
+			far = t1
+		}
+		if far < near {
+			return false
+		}
+	}
+	true
+}

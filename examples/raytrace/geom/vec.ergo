@@ -1,0 +1,57 @@
+// Package geom is the geometry of a scene: vectors, rays, boxes, the two
+// kinds of shape, and the bounding-volume tree that finds the nearest
+// shape a ray hits.
+
+import math
+
+// Vec is a point, a direction or a color: three float64 components.
+type Vec { X float64, Y float64, Z float64 }
+
+// V is the vector (x, y, z).
+func V(x float64, y float64, z float64) Vec { Vec{X: x, Y: y, Z: z} }
+
+// Add is a + b.
+func Add(a Vec, b Vec) Vec { Vec{X: a.X + b.X, Y: a.Y + b.Y, Z: a.Z + b.Z} }
+
+// Sub is a - b.
+func Sub(a Vec, b Vec) Vec { Vec{X: a.X - b.X, Y: a.Y - b.Y, Z: a.Z - b.Z} }
+
+// Scale is a times s.
+func Scale(a Vec, s float64) Vec { Vec{X: a.X * s, Y: a.Y * s, Z: a.Z * s} }
+
+// Mul is a times b, component by component (a color filter).
+func Mul(a Vec, b Vec) Vec { Vec{X: a.X * b.X, Y: a.Y * b.Y, Z: a.Z * b.Z} }
+
+// Neg is -a.
+func Neg(a Vec) Vec { Vec{X: -a.X, Y: -a.Y, Z: -a.Z} }
+
+// Dot is the dot product of a and b.
+func Dot(a Vec, b Vec) float64 { a.X*b.X + a.Y*b.Y + a.Z*b.Z }
+
+// Cross is the cross product a × b.
+func Cross(a Vec, b Vec) Vec {
+	Vec{X: a.Y*b.Z - a.Z*b.Y, Y: a.Z*b.X - a.X*b.Z, Z: a.X*b.Y - a.Y*b.X}
+}
+
+// Length is |a|.
+func Length(a Vec) float64 { math.Sqrt(Dot(a, a)) }
+
+// Unit is a scaled to length 1. a is not zero.
+func Unit(a Vec) Vec { Scale(a, 1.0/Length(a)) }
+
+// Axis is a's component on axis k: 0 is X, 1 is Y, 2 is Z.
+func Axis(a Vec, k int) float64 {
+	if k == 0 {
+		return a.X
+	}
+	if k == 1 {
+		return a.Y
+	}
+	a.Z
+}
+
+// Ray is the half line Origin + t·Dir, t > 0.
+type Ray { Origin Vec, Dir Vec }
+
+// At is the point of r at t.
+func At(r Ray, t float64) Vec { Add(r.Origin, Scale(r.Dir, t)) }

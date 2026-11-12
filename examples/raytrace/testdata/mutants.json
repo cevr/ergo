@@ -1,0 +1,85 @@
+{
+  "about": "raytrace's application mutants (corpus wave HP3): edits of the example that its laws and cases judge, and edits that only TestRaytraceAgreesWithControl in cmd/ergo (the seeded property against the hand Go control) sees.",
+  "mutants": [
+    {
+      "name": "raytrace-tree-tie-last-wins", "origin": "corpus wave HP3",
+      "file": "examples/raytrace/geom/tree.ergo",
+      "from": "\t\t\t\t\tlet d = Intersect(t.Shapes[i], r, lo, best)\n\t\t\t\t\tif d != Miss && (d < best || i < shape) {",
+      "to": "\t\t\t\t\tlet d = Intersect(t.Shapes[i], r, lo, best)\n\t\t\t\t\tif d != Miss && (d < best || i > shape) {",
+      "rule": "Of equally near shapes, a ray meets the first: the tree agrees with testing every shape in order.",
+      "anchor": {"tests": ["examples:raytrace"]}, "killers": ["examples:raytrace"]
+    },
+    {
+      "name": "raytrace-sphere-far-root-dropped", "origin": "corpus wave HP3",
+      "file": "examples/raytrace/geom/shape.ergo",
+      "from": "\t\tif far > lo && far <= hi {\n\t\t\treturn far\n\t\t}\n",
+      "to": "",
+      "rule": "A ray that starts inside a sphere (through glass) meets its far side.",
+      "anchor": {"tests": ["examples:raytrace"]}, "killers": ["examples:raytrace", "cmd/ergo:TestRaytraceAgreesWithControl"]
+    },
+    {
+      "name": "raytrace-stream-per-tile", "origin": "corpus wave HP3",
+      "file": "examples/raytrace/render/image.ergo",
+      "from": "func(t Tile) []uint8 { RenderTile(sc, t, w, h, spp, seed) }",
+      "to": "func(t Tile) []uint8 { RenderTile(sc, t, w, h, spp, seed+uint64(t.X0)) }",
+      "rule": "A pixel's samples do not depend on the tile that renders it.",
+      "anchor": {"tests": ["examples:raytrace"]}, "killers": ["examples:raytrace", "cmd/ergo:TestRaytraceAgreesWithControl"]
+    },
+    {
+      "name": "raytrace-sky-goes-negative", "origin": "corpus wave HP3",
+      "file": "examples/raytrace/render/path.ergo",
+      "from": "geom.Scale(geom.V(1.0, 1.0, 1.0), 1.0-t)",
+      "to": "geom.Scale(geom.V(1.0, 1.0, 1.0), 1.0-2.0*t)",
+      "rule": "No light is below zero: the sky blends white and blue.",
+      "anchor": {"tests": ["examples:raytrace"]}, "killers": ["examples:raytrace", "cmd/ergo:TestRaytraceAgreesWithControl"]
+    },
+    {
+      "name": "raytrace-glass-ratio-inverted", "origin": "corpus wave HP3",
+      "file": "examples/raytrace/render/path.ergo",
+      "from": "\t\t\tif front {\n\t\t\t\tratio = 1.0 / g.Index",
+      "to": "\t\t\tif !front {\n\t\t\t\tratio = 1.0 / g.Index",
+      "rule": "Light entering glass bends by 1/index, leaving it by index.",
+      "anchor": {"tests": ["examples:raytrace"]}, "killers": ["cmd/ergo:TestRaytraceAgreesWithControl"]
+    },
+    {
+      "name": "raytrace-metal-never-absorbs", "origin": "corpus wave HP3",
+      "file": "examples/raytrace/render/path.ergo",
+      "from": "\t\t\tif geom.Dot(dir, n) <= 0.0 {\n\t\t\t\treturn Absorbed",
+      "to": "\t\t\tif geom.Dot(dir, n) < -2.0 {\n\t\t\t\treturn Absorbed",
+      "rule": "A blurred reflection that points into the surface is absorbed.",
+      "anchor": {"tests": ["examples:raytrace"]}, "killers": ["cmd/ergo:TestRaytraceAgreesWithControl"]
+    },
+    {
+      "name": "raytrace-one-bounce-too-many", "origin": "corpus wave HP3",
+      "file": "examples/raytrace/render/path.ergo",
+      "from": "\t\tif b.Bounce+1 >= MaxBounces {",
+      "to": "\t\tif b.Bounce+1 > MaxBounces {",
+      "rule": "A path meets at most MaxBounces surfaces.",
+      "anchor": {"tests": ["examples:raytrace"]}, "killers": ["examples:raytrace", "cmd/ergo:TestRaytraceAgreesWithControl"]
+    },
+    {
+      "name": "raytrace-no-gamma", "origin": "corpus wave HP3",
+      "file": "examples/raytrace/render/image.ergo",
+      "from": "\t\tg = math.Sqrt(c)\n",
+      "to": "\t\tg = c\n",
+      "rule": "A channel's byte is the square root of its light (gamma 2).",
+      "anchor": {"tests": ["examples:raytrace"]}, "killers": ["examples:raytrace", "cmd/ergo:TestRaytraceAgreesWithControl"]
+    },
+    {
+      "name": "raytrace-blue-from-green", "origin": "corpus wave HP3",
+      "file": "examples/raytrace/render/image.ergo",
+      "from": "\t\t\t\timage[at+2] = part[k+2]",
+      "to": "\t\t\t\timage[at+2] = part[k+1]",
+      "rule": "A tile's pixels land in the image channel by channel.",
+      "anchor": {"tests": ["examples:raytrace"]}, "killers": ["examples:raytrace", "cmd/ergo:TestRaytraceAgreesWithControl"]
+    },
+    {
+      "name": "raytrace-tile-drops-last-column", "origin": "corpus wave HP3",
+      "file": "examples/raytrace/render/image.ergo",
+      "from": "lesser(x+size, w), Y1:",
+      "to": "lesser(x+size, w-1), Y1:",
+      "rule": "The tiles cover every pixel once.",
+      "anchor": {"tests": ["examples:raytrace"]}, "killers": ["examples:raytrace", "cmd/ergo:TestRaytraceAgreesWithControl"]
+    }
+  ]
+}

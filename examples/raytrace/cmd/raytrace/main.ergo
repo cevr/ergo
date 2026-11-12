@@ -1,0 +1,65 @@
+// raytrace renders a seeded scene of spheres and triangles by path
+// tracing, and writes the image as a binary PPM to standard output.
+//
+//	raytrace W H SPP SEED OBJECTS WORKERS TILE
+//
+// W×H pixels, SPP samples a pixel, the scene of SEED with OBJECTS objects,
+// tiles of TILE×TILE pixels rendered by WORKERS tasks at once. The image
+// is the same for every WORKERS and TILE.
+
+import io
+import os
+import strconv
+import strings
+import raytrace/render
+import raytrace/world
+
+// Usage is the text of a usage failure.
+let Usage = "usage: raytrace W H SPP SEED OBJECTS WORKERS TILE"
+
+// Job is what the arguments ask for.
+type Job { Width int, Height int, Samples int, Seed uint64, Objects int, Workers int, Tile int }
+
+// count is the count arg names, at least least, or the usage exit naming it.
+func count(arg string, name string, least int) int fails os.Exit {
+	let n = strconv.Atoi(arg) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "raytrace: \(name) must be a count\n\(Usage)"}
+	}
+	if n < least {
+		return os.Exit{Code: 2, Message: "raytrace: \(name) must be a count\n\(Usage)"}
+	}
+	n
+}
+
+// Parse is the job of args.
+func Parse(args []string) Job fails os.Exit {
+	if len(args) != 7 {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	Job{Width: try count(args[0], "W", 1), Height: try count(args[1], "H", 1), Samples: try count(args[2], "SPP", 1), Seed: uint64(try count(args[3], "SEED", 0)), Objects: try count(args[4], "OBJECTS", 0), Workers: try count(args[5], "WORKERS", 1), Tile: try count(args[6], "TILE", 1)}
+}
+
+// PPM is the binary PPM of a w×h image of bytes, red, green and blue.
+func PPM(w int, h int, pixels []uint8) string {
+	let mut b = strings.NewBuilder()
+	b.Grow(len(pixels) + 32)
+	b.WriteString("P6\n\(w) \(h)\n255\n")
+	for p in pixels {
+		b.WriteByte(p)
+	}
+	b.String()
+}
+
+// Run is the image the job asks for.
+func Run(j Job) string {
+	let sc = world.Generate(j.Seed, j.Objects, float64(j.Width)/float64(j.Height))
+	PPM(j.Width, j.Height, render.Render(sc, j.Width, j.Height, j.Samples, j.Seed, j.Workers, j.Tile))
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = os.NewHost()
+	let j = try Parse(host.Args())
+	let out = Run(j)
+	with context { io.Stdout: io.NewHost() } { io.Stdout.Print(out) }
+}
