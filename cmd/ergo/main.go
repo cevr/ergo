@@ -134,10 +134,13 @@ type fileOptions struct {
 	args []string
 	// platform is the GOOS/GOARCH the command checks for (platformOf).
 	platform gobind.Platform
+	// goText is build's -go-text DIR: build through IR and write the Go
+	// text of what was compiled into DIR (buildGoText).
+	goText string
 }
 
 // parseFileOptions reads the options of command. --strict and --json belong
-// to diagnostics, -o and --platform to build, -work to build and test,
+// to diagnostics, -o, --platform and -go-text DIR to build, -work to build and test,
 // --seed N (or --seed=N) to check and test, --eval-steps N and
 // --eval-bytes N to check, and --states N, --law NAME, --skip-law NAME,
 // --run NAME (or --run=NAME), --receipt FILE and --explore to test; any
@@ -200,7 +203,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		switch args[i] {
-		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run":
+		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "-go-text":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
@@ -225,6 +228,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 				opts.skipLaw, selected = args[i+1], true
 			case "--run":
 				opts.run, ran = args[i+1], true
+			case "-go-text":
+				opts.goText = args[i+1]
 			default:
 				opts.seed, seeded = args[i+1], true
 			}
@@ -262,6 +267,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("-o is only supported by build")
 	case platformed && command != "build":
 		return opts, fmt.Errorf("--platform is only supported by build")
+	case opts.goText != "" && command != "build":
+		return opts, fmt.Errorf("-go-text is only supported by build")
 	case opts.work && command != "build" && command != "test":
 		return opts, fmt.Errorf("-work is only supported by build and test")
 	case opts.receipt != "" && command != "test":
