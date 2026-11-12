@@ -1,0 +1,313 @@
+{
+  "about": "The mutant ledger of internal/selfhostcheck and the self-hosting pilot it tests (testdata/selfhost): edits of the Go adapter and of the Ergo tree decoder that TestSelfhostBridgeAgrees, or the adapter's TestFamiliesCoverSyntax, must kill. scripts/mutants judges only check and lower today, and the pilot is a nested Go module; until it has a suite, a unit that changes these files applies each edit by hand and runs the killer (wf10 SH0).",
+  "mutants": [
+    {
+      "name": "sh-tree-drops-child",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/tree/decode.ergo",
+      "from": "\t\t\titems = items.Append(x)\n",
+      "to": "\t\t\tif len(items) + 1 < count {\n\t\t\t\titems = items.Append(x)\n\t\t\t}\n",
+      "rule": "Decode keeps every item of a list: a dropped child is a different tree.",
+      "killers": [
+        "selfhostcheck:TestSelfhostBridgeAgrees"
+      ]
+    },
+    {
+      "name": "sh-tree-loses-absent-pos",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/tree/decode.ergo",
+      "from": "(Position{At: None}, at + 1)",
+      "to": "(Position{At: Some[int]{Value: 0}}, at + 1)",
+      "rule": "An absent position (syntax.NoPos) is None, never offset 0.",
+      "killers": [
+        "selfhostcheck:TestSelfhostBridgeAgrees"
+      ]
+    },
+    {
+      "name": "sh-encoding-replaces-invalid-byte",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
+      "from": "func str(s string) string  { return",
+      "to": "func str(s string) string  { s = strings.ToValidUTF8(s, \"\\uFFFD\"); return",
+      "rule": "The encoding carries every string byte for byte, invalid UTF-8 included.",
+      "killers": [
+        "selfhostcheck:TestSelfhostBridgeAgrees"
+      ]
+    },
+    {
+      "name": "sh-tree-column-off-by-one",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/tree/tree.ergo",
+      "from": "Column: offset - t.Lines[line] + 1}",
+      "to": "Column: offset - t.Lines[line]}",
+      "rule": "Locate counts the line and the byte column from 1, as syntax.File.Position does.",
+      "killers": [
+        "selfhostcheck:TestSelfhostBridgeAgrees"
+      ]
+    },
+    {
+      "name": "sh-encoding-drops-error-location",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
+      "from": "integer(e.Line)",
+      "to": "integer(0)",
+      "rule": "A syntax failure crosses with its code, message, offset, length, line and column.",
+      "killers": [
+        "selfhostcheck:TestSelfhostBridgeAgrees"
+      ]
+    },
+    {
+      "name": "sh-family-table-misses-node",
+      "origin": "wf10/selfhost/SH0",
+      "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
+      "from": "syntax.AssertStmt{}, ",
+      "to": "",
+      "rule": "The encoding carries every node type of the syntax package; the corpus may not yet write a new one.",
+      "killers": [
+        "selfhost/hostsyntax:TestFamiliesCoverSyntax"
+      ]
+    },
+    {
+      "name": "sh-comment-crosses-token",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/printer.ergo",
+      "from": "let at = p.sourceToken(text)",
+      "to": "let at = NoPos",
+      "rule": "A synthesized token found next in the source prints at its source position, so a comment before it stays before it.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-derive-printed-twice",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/span.ergo",
+      "from": "\t\thas(t, id, \"Derived\")\n",
+      "to": "\t\tfalse\n",
+      "rule": "A declaration the parser derived from a refinement is not printed: the parser derives it again.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-synth-merges-operator",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/text.ergo",
+      "from": "\t\tb == '-' || b == '='\n",
+      "to": "\t\tb == '='\n",
+      "rule": "Two bytes that would lex as one token (- -) are written with a blank between them.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-precedence-loses-parens",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/span.ergo",
+      "from": "case \"*\", \"/\", \"%\", \"<<\", \">>\", \"&\", \"&^\":",
+      "to": "case \"*\", \"/\", \"<<\", \">>\", \"&\", \"&^\":",
+      "rule": "The precedence table is syntax.Token.Precedence: % binds at level 5, which decides the blanks around it (gofmt's cutoff).",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-align-counts-bytes",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/align.ergo",
+      "from": "width = cmp.Max(width, utf8.RuneCount(lines[k].Cells[column]))",
+      "to": "width = cmp.Max(width, len(lines[k].Cells[column]))",
+      "rule": "A column's width counts runes, not bytes.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-align-taper-overpads",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/align.ergo",
+      "from": "if hi > alignSmall && float64(hi) >= alignRatio*float64(lo) {",
+      "to": "if false && hi > alignSmall {",
+      "rule": "The section bound: once a cell is wider than alignSmall, every cell of the section stays within alignRatio of the widest.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-limit-allows-one-extra-byte",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/align.ergo",
+      "from": "\t\tif size > limit {\n",
+      "to": "\t\tif size > limit+1 {\n",
+      "rule": "A positive limit one byte below the size is refused.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-newline-duplicates-empty-line",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/layout.ergo",
+      "from": "if blank && !l.NoBlank {",
+      "to": "if blank {",
+      "rule": "A line break asked as never blank (after an opener) never keeps the source's blank line.",
+      "killers": [
+        "selfhostcheck:TestSelfhostLayoutModel"
+      ]
+    },
+    {
+      "name": "sh-empty-column-adds-width",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/align.ergo",
+      "from": "\t\tif width > 0 {\n\t\t\twidth += 1\n\t\t}\n",
+      "to": "\t\twidth += 1\n",
+      "rule": "A column block of empty cells takes no width.",
+      "killers": [
+        "selfhostcheck:TestSelfhostLayoutModel"
+      ]
+    },
+    {
+      "name": "sh-finish-builds-before-limit",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/align.ergo",
+      "from": "\tif limit > 0 && sizeOver(lines, w, first, limit) {\n\t\treturn OutputLimit{Limit: limit, Built: 0}\n\t}\n\tlet text = build(lines, w, first)\n",
+      "to": "\tlet text = build(lines, w, first)\n\tif limit > 0 && len(text) > limit {\n\t\treturn OutputLimit{Limit: limit, Built: len(text)}\n\t}\n",
+      "rule": "A refusal is decided from the computed size before any text is built (the refusal reports the bytes built: none).",
+      "killers": [
+        "selfhostcheck:TestSelfhostLayoutModel"
+      ]
+    },
+    {
+      "name": "sh-trailing-comment-unaligned",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/comments.ergo",
+      "from": "\t\tp.emit(slash)\n\t\tp.L.step(Separator)\n",
+      "to": "\t\tp.emit(slash)\n\t\tp.L.step(Put{Text: \" \"})\n",
+      "rule": "A comment that ends a line is a cell of its own, aligned with the trailing comments of its neighbours.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-clause-comment-joins-next",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/comments.ergo",
+      "from": "p.ln(p.CSlash[p.Ci])-p.ln(p.LastEnd) >= 2 {",
+      "to": "p.ln(p.CSlash[p.Ci])-p.ln(p.LastEnd) >= 3 {",
+      "rule": "A comment after a clause's last statement belongs to the next clause when a blank line separates it from the statement.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-one-line-body-holds-two",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": "len(contents) > 1 {",
+      "to": "len(contents) > 2 {",
+      "rule": "A braced body stays on one line with at most one element: an explicit ; becomes a line break.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-forces-break-misses-catch",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/span.ergo",
+      "from": "case \"SwitchStmt\", \"TypeSwitchStmt\", \"CatchExpr\":\n\t\treturn true",
+      "to": "case \"SwitchStmt\", \"TypeSwitchStmt\":\n\t\treturn true",
+      "rule": "A catch prints its clauses on lines of their own, so a body that holds one is never on one line.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-blank-kept-before-comma",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/printer.ergo",
+      "from": "if text == \",\" ||",
+      "to": "if text == \";\" ||",
+      "rule": "After a block comment on the same line, no blank is written before a comma (go/printer).",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-number-selector-glues",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": "if p.fam(base) == \"BasicLit\" && (p.n(base, \"Kind\") == tokenINT",
+      "to": "if false && (p.n(base, \"Kind\") == tokenINT",
+      "rule": "A selector on a number literal keeps a blank before the dot, or `0.A` would scan as the number `0.`.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-slice-blanks-one-index",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": "blanks = count > 1 && binary",
+      "to": "blanks = count > 0 && binary",
+      "rule": "A slice expression has blanks around its colons only when more than one index is present and one is binary.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-union-ignores-variant-span",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": " || p.ln(p.stop(v)) != p.ln(p.start(v))",
+      "to": "",
+      "rule": "A union prints one variant per line when a variant spans several source lines.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-if-end-ignores-else",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/span.ergo",
+      "from": "if has(t, id, \"Else\") { endOf(t, kid(t, id, \"Else\")) } else { endOf(t, kid(t, id, \"Body\")) }",
+      "to": "endOf(t, kid(t, id, \"Body\"))",
+      "rule": "An if ends where its else ends (syntax.IfStmt.End): an if on one line keeps its blocks on that line.",
+      "killers": [
+        "selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-separator-loses-tail",
+      "origin": "wf10/STD-sh",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/layout.ergo",
+      "from": "\tif cell != \"\" {\n\t\tl.CellsTail = cell[len(cell)-1]\n\t}\n",
+      "to": "",
+      "rule": "After a separator the line's last byte is the last byte of its last non-empty cell, so a blank keeps two tokens apart across a column (the tail the builder replaces a scan of the parts with).",
+      "killers": [
+        "selfhostcheck:TestSelfhostLayoutModel"
+      ]
+    },
+    {
+      "name": "sh-separator-keeps-blank",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/layout.ergo",
+      "from": "strings.TrimRight(l.closeCell(), \" \")",
+      "to": "l.closeCell()",
+      "rule": "A cell ended by a separator drops its trailing blanks before it is padded.",
+      "killers": [
+        "selfhostcheck:TestSelfhostLayoutModel"
+      ]
+    },
+    {
+      "name": "sh-steps-reads-emit-inverted",
+      "origin": "wf10/selfhost/SH1",
+      "file": "internal/selfhostcheck/testdata/selfhost/formatapi/format.ergo",
+      "from": "format.Emit{Blank: w[at+1] == '1'}",
+      "to": "format.Emit{Blank: w[at+1] == '0'}",
+      "rule": "Steps reads the command list the model writes.",
+      "killers": [
+        "selfhostcheck:TestSelfhostLayoutModel"
+      ]
+    }
+  ]
+}

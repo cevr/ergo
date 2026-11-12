@@ -17,6 +17,30 @@
       "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
       "anchor": {"tests": ["std:TestExternArgumentClauses"]},
       "killers": ["std:TestExternArgumentClauses"]
+    },
+    {
+      "name": "stdsh-trimleft-binding", "origin": "wf10 STD-sh",
+      "file": "internal/sketch/std/strings/strings.ergo",
+      "from": "runtime/v1.StringsTrimLeft func TrimLeft", "to": "runtime/v1.StringsTrimRight func TrimLeft",
+      "rule": "stdlib.md strings 10: TrimLeft binds Go's TrimLeft (law TrimLeftRightKeepEnds).",
+      "anchor": {"tests": ["lower:TestStdTextRuns2"]},
+      "killers": ["lower:TestStdTextRuns2"]
+    },
+    {
+      "name": "stdsh-builder-write", "origin": "wf10 STD-sh",
+      "file": "internal/sketch/std/strings/builder.ergo",
+      "from": "{ b.buf = builderAppend(b.buf, s) }", "to": "{ b.buf = builderAppend(b.buf, s+s) }",
+      "rule": "stdlib.md strings 10: a Builder's text is its writes in order (law BuilderConcatenates).",
+      "anchor": {"tests": ["lower:TestStdTextRuns2"]},
+      "killers": ["lower:TestStdTextRuns2"]
+    },
+    {
+      "name": "stdsh-max-binding", "origin": "wf10 STD-sh",
+      "file": "internal/sketch/std/cmp/cmp.ergo",
+      "from": "runtime/v1.CmpMax func Max", "to": "runtime/v1.CmpMin func Max",
+      "rule": "stdlib.md cmp: Max is the larger value (law MaxMinSplit).",
+      "anchor": {"tests": ["lower:TestStdSlicesLawsRun"]},
+      "killers": ["lower:TestStdSlicesLawsRun"]
     }
   ]
 }

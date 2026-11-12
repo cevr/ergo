@@ -1,0 +1,74 @@
+// Comments: each is printed before the first token after it, by
+// structure, not by its source column.
+
+import strings
+
+// flushComments prints every comment before at.
+func flushComments(p *Printer, at int) {
+	for p.Ci < len(p.CSlash) && p.CSlash[p.Ci] < at {
+		p.comment(at)
+	}
+}
+
+// flushClauseComments prints, at the current (clause body) indentation,
+// the comments before at up to the first one that a blank line separates
+// from what precedes it; that one and the rest belong to the next clause.
+func flushClauseComments(p *Printer, at int) {
+	for p.Ci < len(p.CSlash) && p.CSlash[p.Ci] < at {
+		if p.LastEnd >= 0 && p.ln(p.CSlash[p.Ci])-p.ln(p.LastEnd) >= 2 {
+			return
+		}
+		p.comment(at)
+	}
+}
+
+// comment prints the next comment; limit is the token it precedes.
+func comment(p *Printer, limit int) {
+	let ci = p.Ci
+	let slash = p.CSlash[ci]
+	let end = p.CEnd[ci]
+	let mut next = limit
+	if ci+1 < len(p.CSlash) && p.CSlash[ci+1] < limit {
+		next = p.CSlash[ci+1]
+	}
+	p.Ci = ci + 1
+	let isLine = strings.HasPrefix(p.CText[ci], "//")
+	// A line comment ends at a newline; trailing blanks, and a carriage
+	// return the scanner kept because a blank followed it, are dropped, so
+	// the output reads back as the same comment.
+	let text = if isLine { strings.TrimRight(p.CText[ci], " \t\r") } else { p.CText[ci] }
+	let trailing = p.LastEnd >= 0 && p.ln(slash) == p.ln(p.LastEnd)
+	if trailing && p.L.PendingNL > 0 {
+		// A comment that ends a line aligns with its neighbours.
+		let nl = p.L.PendingNL
+		let noBlank = p.L.NoBlank
+		p.L.PendingNL = 0
+		p.L.PendingSpace = false
+		p.emit(slash)
+		p.L.step(Separator)
+		p.L.step(Put{Text: text})
+		p.L.PendingNL = nl
+		p.L.NoBlank = noBlank
+	} else if trailing {
+		p.space()
+		p.emit(slash)
+		p.L.step(Put{Text: text})
+		if isLine {
+			p.newline()
+		} else {
+			p.space()
+		}
+	} else {
+		if p.LastEnd >= 0 {
+			p.newline()
+		}
+		p.emit(slash)
+		p.write(text)
+		if isLine || p.ln(next) > p.ln(end) {
+			p.newline()
+		} else {
+			p.space()
+		}
+	}
+	p.LastEnd = end
+}
