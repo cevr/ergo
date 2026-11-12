@@ -26,7 +26,8 @@ import (
 //
 // Mutants only it kills (testdata/mutants.json): oracle-o1-native-pad-bytes,
 // oracle-o1-native-parse-range, oracle-o1-native-times-wraps,
-// oracle-o1-native-intn-modulo, oracle-o1-native-splitn-zero.
+// oracle-o1-native-intn-modulo, oracle-o1-native-splitn-count,
+// oracle-o1-native-split-empty-sep.
 func TestNativesAgreeWithRuntime(t *testing.T) {
 	n := 300
 	if testing.Short() {

@@ -503,6 +503,42 @@
       "to": "\t\treturn list(strings.Split(str(a[0]), str(a[1])))",
       "rule": "strings.SplitN gives at most n parts, none for n == 0 (an empty slice: Ergo has no nil slice).",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-ops-table-dropped",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\treturn &operation{value: v, conv: conv, env: fr.env}, nil",
+      "to": "\t\treturn v, nil",
+      "rule": "A value converted to an operation type calls its provider's functions through the conversion's checked table (ConvOperations), never by the source value alone.",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-named-entry-sees-caller",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\t\tcf.caps = building\n",
+      "to": "\t\t\tcf.caps = fr.caps\n",
+      "rule": "A named context's entry sees the providers the context built before it, not the caller's bindings (rows.md, Context 9).",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-native-split-empty-sep",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\tpure(\"strings.Split\", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })",
+      "to": "\tpure(\"strings.Split\", func(a []Value) Value {\n\t\tif str(a[1]) == \"\" {\n\t\t\treturn list([]string{str(a[0])})\n\t\t}\n\t\treturn list(strings.Split(str(a[0]), str(a[1])))\n\t})",
+      "rule": "strings.Split with an empty separator splits after each UTF-8 sequence, as Go's does.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-native-ref-update-lost",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\t\tr.v = v\n\t\treturn unit{}, nil",
+      "to": "\t\t_ = v\n\t\treturn unit{}, nil",
+      "rule": "A Ref is one cell every copy shares: Update through one copy is seen through every other.",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
     }
   ]
 }

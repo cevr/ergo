@@ -28,8 +28,9 @@ import (
 //
 // Mutants only it kills (testdata/mutants.json): oracle-o1-skips-effect,
 // oracle-o1-outer-binding-wins, oracle-o1-with-binding-leaks,
-// oracle-o1-callee-loses-caps, oracle-o1-closure-caps-late,
-// oracle-o1-member-law-unbound.
+// oracle-o1-callee-loses-caps, oracle-o1-member-law-unbound,
+// oracle-o1-context-law-unbound, oracle-o1-ops-table-dropped,
+// oracle-o1-named-entry-sees-caller, oracle-o1-native-ref-update-lost.
 func TestEvalEffectsAgreeWithModel(t *testing.T) {
 	n := 120
 	if testing.Short() {
@@ -58,8 +59,14 @@ func TestEvalEffectsAgreeWithModel(t *testing.T) {
 					seed, res.Name, res.Status, res.Reason, res.Site.File, res.Site.Line, src, seed)
 			}
 		}
-		if len(rep.Results) != 3 {
-			t.Fatalf("seed %d: results %+v", seed, rep.Results)
+		names := map[string]bool{}
+		for _, res := range rep.Results {
+			names[res.Name] = true
+		}
+		for _, want := range []string{"Effects", "law Store.DeleteAfterPut for Table", "law Store.DeleteAfterPut under Doubled", "law Store.DeleteAfterPut under Keyed", "law prelude.Random.IntNInRange under Keyed"} {
+			if !names[want] {
+				t.Fatalf("seed %d: no obligation %s in %+v", seed, want, rep.Results)
+			}
 		}
 	}
 	if n > 1 {
@@ -72,7 +79,7 @@ func TestEvalEffectsAgreeWithModel(t *testing.T) {
 }
 
 // effectForms lists every step a run of seeds must reach.
-var effectForms = []string{"put", "show", "bump", "drop", "via", "draw", "with-inline", "with-outer", "with-named", "with-local", "missing"}
+var effectForms = []string{"put", "show", "bump", "drop", "via", "draw", "with-inline", "with-outer", "with-named", "with-local", "with-keyed", "missing"}
 
 const effectPrelude = `import io
 import rand
@@ -131,6 +138,11 @@ func DeleteAfterPutHolds(k string, v int) bool needs Store {
 }
 
 let Doubled = context { Store: Scaled(2) }
+
+// Keyed's Store is built from the Random it binds before it.
+let Keyed = context { Random: rand.Seeded(7), Store: Drawn() }
+
+func Drawn() Table needs Random { Scaled(2 + Random.IntN(3)) }
 
 func say(line string) needs io.Stdout { io.Stdout.Println(line) }
 
@@ -217,7 +229,7 @@ func (g *effectGen) step(depth int) {
 	v := g.r.IntN(20) - 5
 	kinds := []string{"put", "put", "show", "show", "bump", "drop", "via", "draw"}
 	if depth < 4 {
-		kinds = append(kinds, "with-inline", "with-outer", "with-named", "with-local")
+		kinds = append(kinds, "with-inline", "with-outer", "with-named", "with-local", "with-keyed")
 	}
 	kind := kinds[g.r.IntN(len(kinds))]
 	g.reached[kind] = true
@@ -267,6 +279,19 @@ func (g *effectGen) step(depth int) {
 		case "with-local":
 			g.line(depth, "with local {")
 			inner = &effectStore{cells: map[string]int{}, scale: 5}
+		case "with-keyed":
+			// Keyed's Drawn draws from Keyed's own Random, not the test's.
+			// The block's draws continue Keyed's stream.
+			g.line(depth, "with Keyed {")
+			keyed := rand.New(rand.NewPCG(7, randSeedHi))
+			inner = &effectStore{cells: map[string]int{}, scale: 2 + keyed.IntN(3)}
+			saved := g.draws
+			g.draws = keyed
+			defer func() { g.draws = saved }()
+			// A with builds only the entries its block reaches
+			// (resources.md, What a with acquires 1): this use of Store
+			// makes the block build Drawn, which draws first.
+			g.line(depth+1, "Store.Put(%q, 0)", "z")
 		}
 		g.stack = append(g.stack, inner)
 		g.steps(depth+1, 1+g.r.IntN(4))
