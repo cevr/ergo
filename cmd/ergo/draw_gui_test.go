@@ -72,7 +72,64 @@ func TestDrawGuiAgreesWithControl(t *testing.T) {
 				t.Fatalf("seed %d: %s changed pic.svg with no save\nreplay: DRAW_SEED=%d go test -count=1 -run '^TestDrawGuiAgreesWithControl$' ./cmd/ergo", seed, filepath.Base(bin), seed)
 			}
 		}
+		// Every fifth seed also plays the script as a scene on the
+		// window's view (ui.TestHost): pointer lines are pointer events
+		// on the picture, tool, layer, zoom and pan lines press the
+		// toolbar's buttons, escape is the Escape key. Its text nodes and
+		// the saved file are the reference's, but for a press of a value
+		// the toolbar has no button for (drawSceneAsPlay).
+		if seed%5 == 0 || seeds == 1 {
+			want, saved := drawReference(file, exists, drawSceneAsPlay(script))
+			dir := t.TempDir()
+			path := filepath.Join(dir, "pic.svg")
+			if exists {
+				if err := os.WriteFile(path, []byte(file), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := runCorpus(t, ergoBin, dir, []string{"scene", "pic.svg"}, script)
+			if got != want {
+				t.Fatalf("seed %d: the scene printed other text than the reference\n%s\nreplay: DRAW_SEED=%d go test -count=1 -run '^TestDrawGuiAgreesWithControl$' ./cmd/ergo",
+					seed, firstDiff(got, want), seed)
+			}
+			if text, _ := os.ReadFile(path); saved != nil && string(text) != *saved {
+				t.Fatalf("seed %d: the scene saved\n%s\nthe reference\n%s\nreplay: DRAW_SEED=%d go test -count=1 -run '^TestDrawGuiAgreesWithControl$' ./cmd/ergo", seed, text, *saved, seed)
+			}
+		}
 	}
+}
+
+// drawSceneAsPlay is a play script as the scene plays it: a layer, zoom
+// or pan line whose numbers read, but for which the toolbar has no button
+// (layers 0 to 3; zooms 25, 50, 100, 200 and 400; pans of 100 along one
+// axis), becomes the scene's "? no node LABEL" (an "echo" line of
+// drawReference); every other line is the same.
+func drawSceneAsPlay(script string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimSuffix(script, "\n"), "\n") {
+		words := strings.Split(line, " ")
+		var nums []int
+		for _, w := range words[1:] {
+			if v, err := strconv.Atoi(w); err == nil && v >= -10000 && v <= 10000 {
+				nums = append(nums, v)
+			}
+		}
+		label := ""
+		switch {
+		case words[0] == "layer" && len(words) == 2 && len(nums) == 1 && (nums[0] < 0 || nums[0] > 3):
+			label = fmt.Sprintf("layer %d", nums[0])
+		case words[0] == "zoom" && len(words) == 2 && len(nums) == 1 && !slices.Contains([]int{25, 50, 100, 200, 400}, nums[0]):
+			label = fmt.Sprintf("zoom %d", nums[0])
+		case words[0] == "pan" && len(words) == 3 && len(nums) == 2 && !slices.Contains([][2]int{{-100, 0}, {100, 0}, {0, -100}, {0, 100}}, [2]int{nums[0], nums[1]}):
+			label = fmt.Sprintf("pan %d %d", nums[0], nums[1])
+		}
+		if label != "" {
+			b.WriteString("echo ? no node " + label + "\n")
+		} else {
+			b.WriteString(line + "\n")
+		}
+	}
+	return b.String()
 }
 
 type drawPoint struct{ x, y int }
@@ -453,6 +510,11 @@ func drawReference(file string, exists bool, script string) (string, *string) {
 	bad := func(ln, want string) { fmt.Fprintf(&out, "? \"%s\": want %s\n", ln, want) }
 	for _, ln := range strings.Split(strings.TrimSuffix(script, "\n"), "\n") {
 		if ln == "" || strings.HasPrefix(ln, "#") {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(ln, "echo "); ok {
+			// A scene's line (drawSceneAsPlay); a play script has none.
+			out.WriteString(rest + "\n")
 			continue
 		}
 		words := strings.Split(ln, " ")

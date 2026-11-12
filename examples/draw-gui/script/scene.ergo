@@ -1,0 +1,128 @@
+// A scene: the view on ui.TestHost, driven by the same script lines as
+// Play, the way an agent drives the window. A pointer line is a pointer
+// event on the picture; a tool, layer, zoom or pan line presses the
+// toolbar's button of that label ("tool pen", "layer 2", "zoom 200",
+// "pan -100 0"); escape is the Escape key. show writes the window's text
+// nodes (the status line and the paint list's lines, as Play's show
+// writes them), shot the whole screen with the canvas's paint list;
+// export, save and hit read the app's state, as Play's do.
+
+import actor
+import draw/canvas
+import draw/window
+import io
+import machines
+import slices
+import strings
+import sync
+import time
+import ui
+
+// Scene opens the window on picture pic, named name, and plays lines.
+func Scene(pic canvas.Picture, name string, lines Seq[string], clock time.Manual) fails ui.BadPatch | actor.Stopped needs canvas.Store | Scheduler | io.Stdout {
+	let outputs = sync.NewRef[[]canvas.Output]([]canvas.Output{})
+	let a = actor.StartMachine(machines.Start(window.App{}, pic), 8, func(o canvas.Output) {
+		outputs.Update(func(old []canvas.Output) []canvas.Output { old.Append(o) })
+	})
+	let mut h = try ui.NewTestHost(a, window.View, clock, 4)
+	for line in lines {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if line == "shot" {
+			io.Stdout.Print(ui.Screenshot(&h))
+			continue
+		}
+		let c = Parse(line) catch {
+		case BadLine as b:
+			io.Stdout.Println("? \"" + b.Text + "\": want " + b.Want)
+			continue
+		}
+		match c {
+		case Show:
+			for t in texts(ui.Screen(&h)) {
+				io.Stdout.Println(t)
+			}
+		case Export, Save, Hit:
+			let _ = Play(ui.StateOf(&h), name, slices.Values([]string{line}))
+		case Send as m:
+			ui.Play(&h, []ui.Act{act(m.Signal)}) catch {
+			case ui.NoNode as x:
+				io.Stdout.Println("? no node " + x.Label)
+			case actor.Stopped as s:
+				return s
+			case ui.BadPatch as b:
+				return b
+			}
+			let now = canvas.CanvasOf(ui.StateOf(&h))
+			for o in outputs.Get() {
+				io.Stdout.Println(reported(now, o))
+			}
+			outputs.Set([]canvas.Output{})
+		}
+	}
+	a.Stop()
+}
+
+// act is the window's step of a tool signal: a pointer event on the
+// picture, a toolbar press, or a key.
+func act(s canvas.Signal) ui.Act {
+	match s {
+	case canvas.Down as d:
+		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Phase: ui.Down, X: float64(d.At.X), Y: float64(d.At.Y)}}
+	case canvas.Drag as d:
+		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Phase: ui.Moved, X: float64(d.At.X), Y: float64(d.At.Y)}}
+	case canvas.Up as d:
+		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Phase: ui.Up, X: float64(d.At.X), Y: float64(d.At.Y)}}
+	case canvas.Pick as k:
+		ui.TapOn{Label: "tool " + canvas.ToolName(k.Tool)}
+	case canvas.Delete:
+		ui.TapOn{Label: "delete"}
+	case canvas.OnLayer as l:
+		ui.TapOn{Label: "layer \(l.N)"}
+	case canvas.Zoom as z:
+		ui.TapOn{Label: "zoom \(z.Percent)"}
+	case canvas.Pan as p:
+		ui.TapOn{Label: "pan \(p.By.X) \(p.By.Y)"}
+	case canvas.Escape:
+		ui.KeyIn{Press: ui.KeyPress{Name: "Escape", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+	}
+}
+
+// reported is the line of a tool's output, as Play writes it.
+func reported(c canvas.Canvas, o canvas.Output) string {
+	match o {
+	case canvas.Added as a:
+		match c.Pic.Shapes.Get(a.Id) {
+		case Some[canvas.Placed] as p:
+			"added " + canvas.Paint(c.View, p.Value)
+		case None:
+			"added \(a.Id)"
+		}
+	case canvas.Removed as r:
+		let mut ids = []string{}
+		for id in r.Ids {
+			ids = ids.Append("\(id)")
+		}
+		"removed " + strings.Join(ids, ",")
+	}
+}
+
+// texts is the values of the screen's text nodes in tree order, leaving
+// out the captions inside buttons.
+func texts(shapes []ui.Shape[canvas.Signal]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case ui.PressableNode:
+			continue
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode:
+		}
+		for t in texts(s.Kids) {
+			out = out.Append(t)
+		}
+	}
+	out
+}

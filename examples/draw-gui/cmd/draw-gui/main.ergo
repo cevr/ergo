@@ -7,11 +7,14 @@
 //
 //	draw-gui gen [-seed S] [-n N]   write a script of N strokes
 //	draw-gui play FILE              play the script on standard input
+//	draw-gui scene FILE             play it on the window's view, on
+//	                                ui.TestHost
 //
 // A FILE that does not exist is a new, empty picture; save writes it.
 // This binary is the only place that chooses the providers: the host's
 // files for the pictures, a seeded generator for gen.
 
+import actor
 import draw/canvas
 import draw/files
 import draw/script
@@ -21,9 +24,11 @@ import io
 import os
 import rand
 import slices
+import time
+import ui
 
 // Usage is the text of a usage failure.
-let Usage = "usage: draw-gui gen [-seed S] [-n N] | draw-gui play FILE"
+let Usage = "usage: draw-gui gen [-seed S] [-n N] | draw-gui play FILE | draw-gui scene FILE"
 
 let seedFlag = flag.Int("seed", 1, "the seed of the script")
 let countFlag = flag.Int("n", 100, "how many strokes")
@@ -31,6 +36,7 @@ let fileArg = flag.Arg("file", "the picture")
 
 let genSet = flag.Set{Name: "draw-gui gen", Usage: "", Flags: []flag.Flag{seedFlag, countFlag}, Args: []flag.ArgSpec{}}
 let playSet = flag.Set{Name: "draw-gui play", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{fileArg}}
+let sceneSet = flag.Set{Name: "draw-gui scene", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{fileArg}}
 
 // run is draw-gui on args.
 func run(args []string) fails os.Exit needs canvas.Store | io.Stdout | io.Stdin {
@@ -71,6 +77,33 @@ func run(args []string) fails os.Exit needs canvas.Store | io.Stdout | io.Stdin 
 			return os.Exit{Code: 1, Message: "draw-gui: \(name): line \(b.Line): want \(b.Want)"}
 		}
 		let _ = script.Play(canvas.Open(pic), name, io.Stdin.Lines())
+	case "scene":
+		let v = flag.Parse(sceneSet, rest) catch {
+		case err:
+			try flag.Exit(err, Usage)
+			return
+		}
+		let name = match fileArg.Get(v) {
+		case Some[string] as a:
+			a.Value
+		case None:
+			return os.Exit{Code: 2, Message: Usage}
+		}
+		let pic = canvas.OpenPicture(name) catch {
+		case canvas.Unreadable as u:
+			return os.Exit{Code: 1, Message: "draw-gui: \(u.Name): \(u.Reason)"}
+		case canvas.BadSvg as b:
+			return os.Exit{Code: 1, Message: "draw-gui: \(name): line \(b.Line): want \(b.Want)"}
+		}
+		let clock = time.NewManual(0)
+		with context { Scheduler: clock } {
+			script.Scene(pic, name, io.Stdin.Lines(), clock) catch {
+			case ui.BadPatch as b:
+				return os.Exit{Code: 1, Message: "draw-gui: the view's patch did not apply: " + b.Why}
+			case actor.Stopped:
+				return os.Exit{Code: 1, Message: "draw-gui: the app stopped"}
+			}
+		}
 	case _:
 		return os.Exit{Code: 2, Message: Usage}
 	}

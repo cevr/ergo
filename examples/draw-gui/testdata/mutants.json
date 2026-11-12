@@ -136,6 +136,86 @@
       "to": "X: s.X*v.Zoom/100 + v.Pan.X",
       "rule": "A press lands on the world point the frame shows under it.",
       "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-view-move-is-a-press", "origin": "wf10 GP3b",
+      "file": "examples/draw-gui/window/view.ergo",
+      "from": "Some{Value: canvas.Drag{At: at}}",
+      "to": "Some{Value: canvas.Down{At: at}}",
+      "rule": "A pointer moving on the picture drags; it does not press.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-view-escape-key-ignored", "origin": "wf10 GP3b",
+      "file": "examples/draw-gui/window/view.ergo",
+      "from": "case \"Escape\":\n\t\t\tSome{Value: canvas.Escape}",
+      "to": "case \"Escape\":\n\t\t\tNone",
+      "rule": "The Escape key escapes the tool's gesture.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-view-drops-the-first-paint-line", "origin": "wf10 GP3b",
+      "file": "examples/draw-gui/window/view.ergo",
+      "from": "for i in 1..len(lines) {",
+      "to": "for i in 2..len(lines) {",
+      "rule": "The window shows a line for every shape on the screen.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-view-lacks-a-zoom-button", "origin": "wf10 GP3b",
+      "file": "examples/draw-gui/window/view.ergo",
+      "from": "[]int{25, 50, 100, 200, 400}",
+      "to": "[]int{25, 50, 100, 200}",
+      "rule": "The toolbar has a button for each zoom it offers.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-scene-pans-the-other-axis", "origin": "wf10 GP3b",
+      "file": "examples/draw-gui/script/scene.ergo",
+      "from": "ui.TapOn{Label: \"pan \\(p.By.X) \\(p.By.Y)\"}",
+      "to": "ui.TapOn{Label: \"pan \\(p.By.Y) \\(p.By.X)\"}",
+      "rule": "A pan line presses the button of its own move.",
+      "killers": ["cmd/ergo:TestDrawGuiAgreesWithControl"]
+    },
+    {
+      "name": "draw-paint-ignores-the-selection", "origin": "wf10 GP3b",
+      "file": "examples/draw-gui/window/draw.ergo",
+      "from": "if chosen(c.Selected, placed.Id) { selection } else",
+      "to": "if false { selection } else",
+      "rule": "A selected shape is painted in the selection's colour.",
+      "killers": ["scripts/examples:draw-gui"]
+    },
+    {
+      "name": "draw-paint-draws-off-screen-shapes", "origin": "wf10 GP3b",
+      "file": "examples/draw-gui/window/draw.ergo",
+      "from": "if !canvas.Overlaps(",
+      "to": "if false && !canvas.Overlaps(",
+      "rule": "The paint list holds only the shapes the screen shows.",
+      "killers": ["scripts/examples:draw-gui"]
+    },
+    {
+      "name": "draw-paint-layers-one-ink", "origin": "wf10 GP3b",
+      "file": "examples/draw-gui/window/draw.ergo",
+      "from": "uint8(200 - layer*50)",
+      "to": "uint8(200)",
+      "rule": "A higher layer is painted darker.",
+      "killers": ["scripts/examples:draw-gui"]
+    },
+    {
+      "name": "draw-paint-oval-arms-truncated", "origin": "wf10 GP3b",
+      "file": "examples/draw-gui/window/draw.ergo",
+      "from": "px((a*Kappa + 500) / 1000)",
+      "to": "px(a * Kappa / 1000)",
+      "rule": "An ellipse's control arms are rounded to the nearest pixel.",
+      "killers": ["scripts/examples:draw-gui"]
+    },
+    {
+      "name": "draw-paint-hides-the-pending-shape", "origin": "wf10 GP3b",
+      "file": "examples/draw-gui/window/draw.ergo",
+      "from": "if len(d.Points) > 0 {",
+      "to": "if false {",
+      "rule": "A shape being drawn is painted over the picture.",
+      "killers": ["scripts/examples:draw-gui"]
     }
   ]
 }

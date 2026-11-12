@@ -1,1 +1,1 @@
-usage: draw-gui gen [-seed S] [-n N] | draw-gui play FILE
+usage: draw-gui gen [-seed S] [-n N] | draw-gui play FILE | draw-gui scene FILE
