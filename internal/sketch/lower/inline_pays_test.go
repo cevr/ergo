@@ -45,6 +45,27 @@ func classify(x int) Tok {
 
 func tiny(x int) Tok { Num{v: x} }
 
+func spread(x int) int {
+	if x < 0 {
+		return 0
+	}
+	if x % 3 == 0 {
+		return x * 2 + 1
+	}
+	if x % 3 == 1 {
+		return x * 5 - 2
+	}
+	x * x + 7
+}
+
+func huge[T number](xs []T) T {
+	let a = xs[0] + xs[1] + xs[2] + xs[0] * xs[1] * xs[2]
+	let c = a + xs[0] - xs[1] + xs[2] - a * a + xs[0] * a - xs[1] * a
+	let d = c + a * xs[0] - c * xs[1] + a * c * xs[2] - a - c + xs[0]
+	let e = d * d - c * c + a * a - xs[0] * d + xs[1] * c - xs[2] * a
+	a + c + d + e + a * c * d * e - xs[0] * xs[1] * xs[2] + a - c + d - e
+}
+
 func first[T](xs []T, d T) T {
 	if len(xs) == 0 {
 		return d
@@ -194,6 +215,7 @@ func main() needs Console {
 		sum = sum + first(xs, i) + widest(xs, 0, i) + weight(classify(i)) + weight(tiny(i)) + outer(xs, i)
 		sum = sum + apply1(func(x int) int { widest(xs, 0, x) }, i)
 		sum = sum + sumTo(xs, i)
+		sum = sum + spread(i) + huge(xs)
 	}
 	match once(M{}, Count{n: 1}, Tick{d: 2}) {
 	case Stay[St]:
@@ -224,6 +246,15 @@ func TestInlinePays(t *testing.T) {
 	if n := inlineSizeOf(t, "classify"); n <= goSizeBudget {
 		t.Fatalf("classify has %d nodes, want more than goSizeBudget (%d)", n, goSizeBudget)
 	}
+	// spread is a Go leaf with an unboxed result larger than goSizeBudget,
+	// and huge a body over inlineBudget: both stay calls on the loop path
+	// too, where the size test would let them in (inlineRule decides).
+	if n := inlineSizeOf(t, "spread"); n <= goSizeBudget || n > inlineBudget {
+		t.Fatalf("spread has %d nodes, want more than goSizeBudget (%d) and at most inlineBudget (%d)", n, goSizeBudget, inlineBudget)
+	}
+	if n := inlineSizeOf(t, "huge"); n <= inlineBudget {
+		t.Fatalf("huge has %d nodes, want more than inlineBudget (%d)", n, inlineBudget)
+	}
 	calls := func(code, name string) int {
 		return len(regexp.MustCompile(`\b`+name+`(Known)?(_[0-9]+)?(\[[^\]]*\])?\(`).FindAllString(code, -1))
 	}
@@ -243,8 +274,8 @@ func TestInlinePays(t *testing.T) {
 		// since Go inlines it. once's copy calls step; From's inlines it.
 		// Of the functions with a Go body of their own, only coldTo is
 		// off every loop path.
-		{"", map[string]int{"first": 0, "widest": 3, "classify": 1, "tiny": 2, "outer": 0, "apply1": 0, "onceM:step": 1, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 1, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 1}},
-		{"budget", map[string]int{"first": 0, "widest": 0, "classify": 0, "tiny": 0, "outer": 0, "apply1": 0, "onceM:step": 0, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 0, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 0}},
+		{"", map[string]int{"first": 0, "widest": 3, "classify": 1, "tiny": 2, "outer": 0, "apply1": 0, "onceM:step": 1, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 1, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 1, "spread": 1, "huge": 1}},
+		{"budget", map[string]int{"first": 0, "widest": 0, "classify": 0, "tiny": 0, "outer": 0, "apply1": 0, "onceM:step": 0, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 0, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 0, "spread": 1, "huge": 1}},
 	} {
 		saved, savedHot := inlineCostLowering, hotLowering
 		if mode.rule == "direct" {

@@ -197,7 +197,8 @@ func (l *lowerer) growthOf(scope *namer) int {
 // Go lays the handler out of line, so the success path runs straight on.
 // A site that declares a variable before its handler (a catch whose arms
 // yield a value) cannot be jumped over; it places the label at the join,
-// which is the reference's code (placeFail).
+// which is the reference's code (placeFail). A call whose returns write a
+// join local (scalar.go) keeps its failures at the join too.
 //
 // The reference is failLowering "join": every return jumps to the join.
 // It is set by a test, or by a build with
@@ -695,7 +696,9 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 	if fallible {
 		ret.err = fc.temp("err")
 		fc.line("var " + ret.err + " error")
-		if jump {
+		if jump && ret.join == nil {
+			// A join local's returns stay at the join: its writes are
+			// the scalar form's (scalar.go), not the result's.
 			ret.fail = fc.temp("fail")
 		}
 	}
@@ -965,9 +968,6 @@ func (fc *funcCtx) inlineReturn(vals []string) {
 		if len(vals) > 1 && vals[1] != "nil" {
 			fc.line("if " + vals[1] + " != nil {")
 			fc.line("\t" + in.err + " = " + vals[1])
-			if in.fail != "" {
-				fc.line("\tgoto " + in.fail)
-			}
 			fc.line("} else {")
 			fc.depth++
 			fc.scatter(in.join, vals[0])

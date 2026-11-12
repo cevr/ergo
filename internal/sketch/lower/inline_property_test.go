@@ -206,6 +206,25 @@ func keep[T](v T, p *T, w T) T {
 
 type Probe = Hit{At int} | Lost{At int}
 
+type Pn { v int }
+type Pw { s string }
+type Po { c string }
+type Ps { at int }
+
+// Ptok is a union Go holds as an interface: a variable of a variant
+// passed to weigh is not of its parameter's Go type, so it is converted,
+// not substituted (inline-subst-type).
+type Ptok = Pn | Pw | Po | Ps
+
+func weigh[T](t Ptok, d T) int {
+	match t {
+	case Pn as n:
+		n.v
+	case _:
+		0
+	}
+}
+
 func probeAt[T](p Probe, b *Box[T]) int {
 	match p {
 	case Hit as h:
@@ -536,6 +555,10 @@ func (g *inlineGen) stmt() {
 		g.line(fmt.Sprintf("let %s = Hit{At: %d}", h, k))
 		g.line(fmt.Sprintf("Console.Println(\"\\(probeAt(%s, &b))\")", h))
 		g.out("%d", k+g.n)
+		pn := g.name("pn")
+		g.line(fmt.Sprintf("let %s = Pn{v: %d}", pn, w))
+		g.line(fmt.Sprintf("Console.Println(\"\\(weigh(%s, 0))\")", pn))
+		g.out("%d", w)
 	case 10:
 		v := g.r.IntN(20)
 		g.line(fmt.Sprintf("b.items = b.items.Append(%d)", v))
