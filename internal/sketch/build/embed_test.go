@@ -25,21 +25,21 @@ import (
 // an error wherever a pattern reaches them.
 var (
 	embedAlways = []string{"data/a.txt", "data/sub/c.txt", "top.txt", ".top"}
-	// A group's probe is a pattern that reaches its rule.
+	// A group's probes are patterns that reach its rule.
 	embedMaybe = []struct {
-		files []string
-		probe string
+		files  []string
+		probes []string
 	}{
-		{[]string{"data/b.md"}, "data/*.md"},
-		{[]string{"data/.hidden"}, "data/.hidden"},
-		{[]string{"data/_under.txt"}, "data/_*"},
-		{[]string{"data/sub/.deep"}, "all:data/sub"},
-		{[]string{"data/.git/config"}, "all:data"},
-		{[]string{"data/_dir/x.txt"}, "data/_dir"},
-		{[]string{"data/mod/go.mod", "data/mod/m.txt"}, "data/mod/m.txt"},
-		{[]string{"data/empty/.keep"}, "data/[es]*"},
-		{[]string{"data/link"}, "data/link"},
-		{[]string{"data/ldir"}, "data/ldir/*"},
+		{[]string{"data/b.md"}, []string{"data/*.md"}},
+		{[]string{"data/.hidden"}, []string{"data/.hidden", "data", "all:data"}},
+		{[]string{"data/_under.txt"}, []string{"data/_*", "data", "all:data"}},
+		{[]string{"data/sub/.deep"}, []string{"all:data/sub", "data/sub"}},
+		{[]string{"data/.git/config"}, []string{"all:data"}},
+		{[]string{"data/_dir/x.txt"}, []string{"data/_dir", "all:data"}},
+		{[]string{"data/mod/go.mod", "data/mod/m.txt"}, []string{"data/mod/m.txt", "data", "all:data"}},
+		{[]string{"data/empty/.keep"}, []string{"data/[es]*", "data/empty"}},
+		{[]string{"data/link"}, []string{"data/link", "data"}},
+		{[]string{"data/ldir"}, []string{"data/ldir/*", "data"}},
 	}
 	embedBad = []string{"data/con.txt", "data/semi;colon.txt", "data/end."}
 )
@@ -59,10 +59,10 @@ func embedTree(t *testing.T, dir string, seed uint64) []string {
 	entries := slices.Clone(embedAlways)
 	// Two groups and at most one bad name, so that one rule at a time
 	// decides whether the build fails.
-	var probes []string
+	var probes [][]string
 	for _, i := range r.Perm(len(embedMaybe))[:2] {
 		entries = append(entries, embedMaybe[i].files...)
-		probes = append(probes, embedMaybe[i].probe)
+		probes = append(probes, embedMaybe[i].probes)
 	}
 	if r.IntN(3) == 0 {
 		entries = append(entries, embedBad[r.IntN(len(embedBad))])
@@ -89,12 +89,18 @@ func embedTree(t *testing.T, dir string, seed uint64) []string {
 			t.Fatal(err)
 		}
 	}
-	patterns := []string{embedPatterns[r.IntN(len(embedPatterns))]}
-	switch r.IntN(3) {
-	case 0:
-		patterns = append(patterns, embedPatterns[r.IntN(len(embedPatterns))])
-	case 1:
-		patterns = append(patterns, probes[r.IntN(len(probes))])
+	// A pattern is a probe of a group in the tree at odds of two in
+	// three, else any pattern.
+	pick := func() string {
+		if r.IntN(3) == 0 {
+			return embedPatterns[r.IntN(len(embedPatterns))]
+		}
+		p := probes[r.IntN(len(probes))]
+		return p[r.IntN(len(p))]
+	}
+	patterns := []string{pick()}
+	if r.IntN(3) != 0 {
+		patterns = append(patterns, pick())
 	}
 	// main prints every embedded file, so the linker keeps them all and
 	// the executables differ when the embedded files do.
