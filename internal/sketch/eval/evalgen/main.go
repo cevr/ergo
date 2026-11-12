@@ -2,6 +2,7 @@ package evalgen
 
 import (
 	"fmt"
+	mbits "math/bits"
 	"math/rand/v2"
 	"strings"
 	"time"
@@ -29,14 +30,17 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids", "bits"}
 
 const mainPrelude = `import actor
+import bits
 import io
 import machines
 import os
 import queue
 import scope
+import sha256
+import slices
 import strings
 import sync
 import task
@@ -270,6 +274,9 @@ func imports() needs Scheduler | time.Clock {
 	let _ = time.Clock.Now()
 	let _ = machines.Initial(machines.Start(Counter{}, 1))
 	let _ = actor.StartMachine(machines.Start(Tally{}, 1), 0, func(o int) {})
+	let _ = bits.Len(1)
+	let _ = sha256.Sum("")
+	let _ = slices.Repeat([]int{}, 1)
 }
 
 // recorder uses io and os too.
@@ -309,7 +316,9 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(14) {
+		switch g.r.IntN(15) {
+		case 14:
+			g.bits(k)
 		case 13:
 			g.kids(k)
 		case 12:
@@ -778,6 +787,36 @@ func (g *mainGen) actor(k int) {
 		fmt.Fprintf(&g.out, "s%d finished %d %d\n", k, n, n)
 	} else {
 		fmt.Fprintf(&g.out, "s%d halted %d\n", k, n)
+	}
+}
+
+// bits: std bits of a seeded uint, slices.Repeat of a seeded list.
+func (g *mainGen) bits(k int) {
+	g.kinds["bits"]++
+	x := g.r.Uint64() >> g.r.IntN(64)
+	n := g.r.IntN(4)
+	var lits []string
+	var xs []int
+	for range g.r.IntN(4) {
+		v := g.r.IntN(10)
+		xs = append(xs, v)
+		lits = append(lits, fmt.Sprint(v))
+	}
+	g.line("")
+	g.line("func s%d() needs Console {", k)
+	g.line("\tlet x = uint64(%d)", x)
+	g.line("\tlet ys = slices.Repeat([]int{%s}, %d)", strings.Join(lits, ", "), n)
+	g.line("\tConsole.Println(\"s%d \\(bits.OnesCount64(x)) \\(bits.OnesCount(uint(x))) \\(bits.Len64(x)) \\(bits.LeadingZeros64(x)) \\(bits.TrailingZeros64(x)) \\(len(ys)) \\(len(sha256.Sum(\"s%d\")))\")", k, k)
+	g.line("\tfor y in ys {")
+	g.line("\t\tConsole.Println(\"s%d y \\(y)\")", k)
+	g.line("\t}")
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
+	fmt.Fprintf(&g.out, "s%d %d %d %d %d %d %d 32\n", k, mbits.OnesCount64(x), mbits.OnesCount64(x), mbits.Len64(x), mbits.LeadingZeros64(x), mbits.TrailingZeros64(x), len(xs)*n)
+	for range n {
+		for _, y := range xs {
+			fmt.Fprintf(&g.out, "s%d y %d\n", k, y)
+		}
 	}
 }
 

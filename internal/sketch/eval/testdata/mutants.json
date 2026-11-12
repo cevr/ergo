@@ -804,6 +804,24 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
+      "name": "oracle-o12-ones-count-is-len",
+      "origin": "wf10 ORACLE O12",
+      "file": "internal/sketch/eval/nativesbits.go",
+      "from": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })\n",
+      "to": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })\n",
+      "rule": "std bits.OnesCount64 is Go's math/bits.OnesCount64 (stdlib.md; std bits).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o12-repeat-once",
+      "origin": "wf10 ORACLE O12",
+      "file": "internal/sketch/eval/nativesbits.go",
+      "from": "newSlice(slices.Repeat(xs.elems(), int(n)))",
+      "to": "newSlice(slices.Repeat(xs.elems(), min(int(n), 1)))",
+      "rule": "std slices.Repeat is Go's slices.Repeat: n copies of xs (std slices).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
       "name": "oracle-o10-sink-skipped",
       "origin": "wf10 ORACLE O10",
       "file": "internal/sketch/eval/runner.go",
