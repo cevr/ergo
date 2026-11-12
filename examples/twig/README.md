@@ -35,7 +35,7 @@ print(p)                  // {x: 3, tags: ["a", "b", "55"]}
 - **Unions and exhaustive `match` all the way down.** Tokens, the tree (`syntax.Expr`, `syntax.Stmt`), the resolved code (`resolve.Node`, `resolve.Code`), values (`eval.Value`) and every failure are unions; every pass is a `match` the checker holds total, so a node added to the tree stops each pass that forgets it.
 - **Control flow as typed failures.** `return`, `break` and `continue` leave a statement as the failures `Returned`, `Broke` and `Continued` of the row `Flow`, beside `RunError`; the call and the loop that own them catch them, and a body's signature says which can escape it. This puts failures on the hot path, the workload IR-G's FAIL1 lacked.
 - **A machine in the lexer.** A string literal is read by the machine `syntax.Quoting` (body, escape); its laws are proved on its graph (`EscapesReturn`) or tested (`PlainBytesAreThemselves`, `EscapedQuoteStaysOpen`).
-- **Laws against models.** `syntax.PrintParsesBack` prints generated trees with the fewest parentheses and parses them back, so a wrong binding power or associativity is caught; `syntax.TokensStandInOrder` checks positions; `resolve.SlotsFitTheirFrames` checks every slot and hop of resolved programs; `eval.ArithmeticAgreesWithModel` holds the interpreter's ints to a fold in Ergo. `script.Sources.Repeatable` is the source contract's law.
+- **Laws against models.** `syntax.PrintParsesBack` prints generated trees with the fewest parentheses and parses them back, so a wrong binding power or associativity is caught; `syntax.TokensStandInOrder` checks positions; `resolve.SlotsFitTheirFrames` checks every slot and hop of resolved programs; `eval.ArithmeticAgreesWithModel` holds the interpreter's ints to a fold in Ergo. `script.Sources.Repeatable` is the source contract's law, run on both providers. `eval.Value` is boxed in the lowered Go (a union of nine variants); the control's is a tagged struct, which the receipts compare.
 - **Value semantics, and where they cost.** Ergo has no pointer fields, so lists, records and frames live in the `eval.Machine` and are named by number, as an arena would name them; a frame of a function that makes no function is reused after its call.
 
 ## Layout
@@ -44,7 +44,7 @@ print(p)                  // {x: 3, tags: ["a", "b", "55"]}
 - `resolve/`: the resolved code, the resolver and its laws.
 - `eval/`: values, the machine and the tree walker, and the arithmetic law.
 - `script/`: the `Sources` contract and the run from source text to output, error lines and status.
-- `files/`: `Sources` over the host's files. `memory/`: `Sources` over texts in memory.
+- `files/`: `Sources` over a file system (`fs.Files`); `NewDisk` builds one over an `fstest.Memory`, so `Repeatable` runs on it. `memory/`: `Sources` over texts in memory.
 - `workload/`: the generator of the receipts' program.
 - `cmd/twig/main.ergo`: binds `files` over `fs.NewHost()`.
 

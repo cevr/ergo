@@ -1,18 +1,19 @@
-// Package files is the host's Sources provider: a file of the host's
-// disk, read whole.
+// Package files is the host's Sources provider: a file of a file system,
+// read whole. The binary gives it the host's; a test may give it an
+// fstest.Memory.
 
 import fs
 import twig/script
 
-// Disk reads the host's files. Only New makes one.
-type Disk { host fs.Host }
+// Disk reads the files of a file system.
+type Disk { files fs.Files }
 
-// New is the provider over the host's files.
-func New(host fs.Host) Disk { Disk{host: host} }
+// New is the provider over files.
+func New(files fs.Files) Disk { Disk{files: files} }
 
 // Read is the whole text of the file at path.
 func Read(d Disk, path string) string fails script.Unreadable {
-	d.host.ReadFile(path) catch {
+	d.files.ReadFile(path) catch {
 	case fs.NotFound:
 		return script.Unreadable{Path: path, Reason: "no such file"}
 	case fs.Denied:
