@@ -66,6 +66,8 @@ A path that names a folder, and does not end in `.ergo`, is a package (196b U3; 
 
 ## Inspect
 
+`ergo inspect deps DIR [--json]` (MD3) lists each required module the program reads, as `PATH@VERSION (Go trusted)` or `(Go not trusted)`, and below it each of its packages the program reads with the capabilities its exported functions need (`needs Console | go.Foreign`, `needs nothing`, or `not checked` when the program has diagnostics) and its uses of Go, one per line (`import go strings`, `extern go strings.ToUpper`). It is the list to read before a `trust go` line ([grammar](spec/grammar.md#source-files) rule 1, Trusted Go), so it prints also when the program does not check, and then exits 1. It starts no process.
+
 `ergo inspect` prints one JSON object (`sketchfront.InspectGo`, the one core a later MCP tool prints too, #203) about what the program reaches of Go ([interop](spec/interop.md)). It reads the checker's model and the bindings' text only, and starts no Go process.
 
 - `imports`: each Go package the program's packages import with `import go`, once: `path`, `provenance` (`go1.27 std (embedded)` for Go's standard library, or `module <path> <version>` from the binding's stamp, IG7), and `refused`, each declaration the binding does not import with its `reason`.

@@ -258,6 +258,24 @@
       "to": "\t\tif err := error(nil); err != nil {",
       "rule": "A refused ergo get leaves go.mod and go.sum as they were.",
       "killers": ["cmd/ergo:TestErgoModuleRequirement"]
+    },
+    {
+      "name": "md3-deps-go-dropped",
+      "origin": "wf10 MD3",
+      "file": "cmd/ergo/deps.go",
+      "from": "Go: slices.Clone(p.Go)}",
+      "to": "Go: nil}",
+      "rule": "ergo inspect deps lists each dependency package's uses of Go, also when the program does not check.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"]
+    },
+    {
+      "name": "md3-deps-trust-hidden",
+      "origin": "wf10 MD3",
+      "file": "cmd/ergo/deps.go",
+      "from": "\t\tif r.Trusted {\n",
+      "to": "\t\tif false {\n",
+      "rule": "ergo inspect deps shows whether the root trusts each module's Go.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"]
     }
   ]
 }

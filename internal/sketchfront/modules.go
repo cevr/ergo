@@ -40,7 +40,10 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/gobind"
+	"ergo.local/prototype/internal/report"
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // depModule is one required module of the build list that a package of
@@ -502,7 +505,9 @@ func (l *loader) dependency(path, version string) *depModule {
 		return m
 	}
 	l.texts[m.name+"/"+ModFile] = string(data)
-	name, problem := parseModule(string(data))
+	// Only the root's trust lines count, as only the root's replace lines
+	// do: a dependency's say what it needs, not what the program admits.
+	name, _, problem := parseModule(string(data))
 	switch {
 	case problem != nil:
 		m.reason = fmt.Sprintf("the %s of module %s does not parse: %s", ModFile, m.name, problem.Message)
@@ -552,6 +557,57 @@ func (l *loader) fetchDependency(m *depModule) string {
 	}
 	m.dir = dir
 	return ""
+}
+
+// trustGo records the uses of Go in file f of p, a required module's
+// package: each `import go` and each `extern go` (grammar.md, Source
+// files 1, Trusted Go). Ergo does not check Go code, so a use in a module
+// that the root's ergo.mod does not trust is S108 at the use, and p is
+// broken.
+func (l *loader) trustGo(p *loadedPackage, f loadedFile, file *syntax.File) {
+	type use struct {
+		pos  syntax.Pos
+		what string
+	}
+	var uses []use
+	extern := func(e *syntax.ExternSpec) {
+		if e != nil && e.Target != nil {
+			uses = append(uses, use{e.Pos(), "extern go " + e.Target.Value})
+		}
+	}
+	for _, d := range file.Decls {
+		switch d := d.(type) {
+		case *syntax.ImportDecl:
+			for _, s := range d.Specs {
+				if s.Kind == syntax.ImportGo && s.Path != nil {
+					uses = append(uses, use{s.NamePos, "import go " + importPath(s)})
+				}
+			}
+		case *syntax.FuncDecl:
+			extern(d.Extern)
+		case *syntax.TypeDecl:
+			extern(d.Extern)
+		case *syntax.VarDecl:
+			extern(d.Extern)
+		}
+	}
+	trusted := slices.Contains(l.trust, p.mod.path)
+	lines := lineStarts(f.text)
+	for _, u := range uses {
+		p.goUses = append(p.goUses, u.what)
+		if trusted {
+			continue
+		}
+		line, col := file.Position(u.pos)
+		l.diags = append(l.diags, report.Diagnostic{
+			Code: check.CodeType,
+			File: f.rel,
+			Message: fmt.Sprintf("module %s uses Go (%s), and the %s of module %s does not trust its Go: Ergo does not check Go code; after review, add the line \"trust go %s\" to %s",
+				p.mod.name, u.what, ModFile, l.module, p.mod.path, ModFile),
+			Span: span(f.text, lines, line, col),
+		})
+		p.broken = true
+	}
 }
 
 // relRoot names a folder for a diagnostic: relative to the module root

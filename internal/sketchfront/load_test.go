@@ -129,8 +129,9 @@ func TestLoaderOrderIsTheNames(t *testing.T) {
 	}
 }
 
-// TestLoaderModuleFile (196b Q1): ergo.mod holds one line, module NAME,
-// and NAME is an import path that does not start with a std path.
+// TestLoaderModuleFile (196b Q1; MD3): ergo.mod holds one line, module
+// NAME, and NAME is an import path that does not start with a std path;
+// and lines trust go MODULE, each module once. Rows of diagnostic text.
 func TestLoaderModuleFile(t *testing.T) {
 	for _, c := range []struct {
 		text, module, problem string
@@ -142,13 +143,17 @@ func TestLoaderModuleFile(t *testing.T) {
 		{"module log\n", "", "starts with the std package log"},
 		{"module strings/x\n", "", "starts with the std package strings"},
 		{"module prelude\n", "", "starts with the std package prelude"},
-		{"module app\nmodule b\n", "", "one line, module NAME, and nothing else"},
-		{"go 1.22\n", "", "one line, module NAME, and nothing else"},
+		{"module app\nmodule b\n", "", "the line module NAME and lines trust go MODULE, and nothing else"},
+		{"go 1.22\n", "", "the line module NAME and lines trust go MODULE, and nothing else"},
+		{"trust go example.com/x\nmodule app\ntrust go example.com/y\n", "app", ""},
+		{"module app\ntrust example.com/x\n", "", "the line module NAME and lines trust go MODULE, and nothing else"},
+		{"module app\ntrust go example.com/x\ntrust go example.com/x\n", "", "trusts the Go of module example.com/x twice"},
+		{"module app\ntrust go a//b\n", "", "is not an import path"},
 		{"module 1app\n", "", "is not an import path"},
 		{"module a//b\n", "", "is not an import path"},
 		{"module a/\n", "", "is not an import path"},
 	} {
-		module, d := parseModule(c.text)
+		module, _, d := parseModule(c.text)
 		switch {
 		case c.problem == "" && (d != nil || module != c.module):
 			t.Errorf("%q: module %q diagnostic %+v, want %q", c.text, module, d, c.module)

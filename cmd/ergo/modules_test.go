@@ -33,7 +33,12 @@ import (
 // the same module), and it is the one check that the loader's hash and the
 // command it names agree with the go command's download. For ergo get it
 // alone catches a fetched module not read again (md2-get-unverified) and a
-// refused fetch that leaves go.mod and go.sum changed (md2-get-kept).
+// refused fetch that leaves go.mod and go.sum changed (md2-get-kept). For
+// MD3 the module uses Go: the check refuses it until ergo.mod trusts it,
+// ergo inspect deps lists its Go use and the trust line, and the program
+// then builds and runs the dependency's Go call. It alone catches the Go
+// uses dropped from ergo inspect deps (md3-deps-go-dropped) and the trust
+// state hidden there (md3-deps-trust-hidden).
 //
 // Builds Go because the claims are the go command's: its download, its
 // go.sum lines and its extracted copy, and the test binary that ergo test
@@ -48,7 +53,14 @@ func TestErgoModuleRequirement(t *testing.T) {
 	serveModule(t, proxy, "example.com/counter", "v1.0.0", map[string]string{
 		"go.mod":   "module example.com/counter\n\ngo 1.27\n",
 		"ergo.mod": "module example.com/counter\n",
-		"scale/scale.ergo": `// Scale is the contract of a scaling step.
+		"scale/scale.ergo": `import go strings
+
+// Shout is s in upper case, by Go's strings.ToUpper.
+func Shout(s string) string {
+	strings.ToUpper(s)
+}
+
+// Scale is the contract of a scaling step.
 type Scale {
 	Times(n int) int,
 
@@ -88,6 +100,7 @@ func main() needs Console {
 	with context { scale.Scale: Double } {
 		Console.Println("\(scale.Scale.Times(21))")
 	}
+	Console.Println(scale.Shout("ok"))
 }
 
 test DoubleScales {
@@ -146,14 +159,29 @@ test DoubleScales {
 	if out, code := run(env, binary, "get", "example.com/counter@v1.0.0"); code != 0 || !strings.HasSuffix(out, "required example.com/counter v1.0.0\n") {
 		t.Fatalf("ergo get example.com/counter@v1.0.0: exit %d\n%s", code, out)
 	}
+	// The module uses Go, so the root must trust it (MD3); ergo inspect
+	// deps shows what it would trust.
+	const untrusted = `example.com/counter@v1.0.0/scale/scale.ergo:1:8: error S108: module example.com/counter@v1.0.0 uses Go (import go strings), and the ergo.mod of module app does not trust its Go`
+	if out, code := run(stubEnv, binary, "diagnostics", "cmd/app"); code == 0 || !strings.Contains(out, untrusted) {
+		t.Fatalf("ergo diagnostics with an untrusted module's Go: exit %d, want %q in\n%s", code, untrusted, out)
+	}
+	const listed = "example.com/counter@v1.0.0 (Go not trusted)\n  example.com/counter/scale: not checked\n    import go strings\n"
+	if out, code := run(stubEnv, binary, "inspect", "deps", "cmd/app"); code != 1 || !strings.HasPrefix(out, listed) {
+		t.Fatalf("ergo inspect deps before the trust line: exit %d, want 1 and %q first in\n%s", code, listed, out)
+	}
+	writeFiles(t, app, map[string]string{"ergo.mod": "module app\ntrust go example.com/counter\n"})
 	if out, code := run(stubEnv, binary, "diagnostics", "cmd/app"); code != 0 {
 		t.Fatalf("ergo diagnostics with the requirement: exit %d\n%s", code, out)
+	}
+	const trusted = "example.com/counter@v1.0.0 (Go trusted)\n  example.com/counter/scale: needs nothing\n    import go strings\n"
+	if out, code := run(stubEnv, binary, "inspect", "deps", "cmd/app"); code != 0 || out != trusted {
+		t.Fatalf("ergo inspect deps with the trust line: exit %d, want %q, got\n%s", code, trusted, out)
 	}
 	if _, err := os.Stat(mark); err == nil {
 		t.Fatal("ergo diagnostics started a go command")
 	}
-	if out, code := run(env, binary, "run", "cmd/app"); code != 0 || !strings.HasSuffix(out, "42\n") {
-		t.Fatalf("ergo run cmd/app: exit %d, want 42\n%s", code, out)
+	if out, code := run(env, binary, "run", "cmd/app"); code != 0 || !strings.HasSuffix(out, "42\nOK\n") {
+		t.Fatalf("ergo run cmd/app: exit %d, want 42 and OK\n%s", code, out)
 	}
 	out, code := run(env, binary, "test", "cmd/app")
 	if code != 0 || !strings.Contains(out, "DoubleScales") || !strings.Contains(out, "TimesZero for") || strings.Contains(out, "DependencyTestStaysHome") {

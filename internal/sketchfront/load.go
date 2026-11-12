@@ -99,6 +99,10 @@ type loadedPackage struct {
 	// for a package of the program's own module.
 	mod    *depModule
 	assets map[string][]byte // build-time embed inputs, by package-relative path
+	// goUses are the package's uses of Go, in source order: `import go
+	// "P"` and `extern go T` (modules.go, trustGo); read for a required
+	// module's package only.
+	goUses []string
 	// broken is a package with diagnostics, or one that imports such a
 	// package: it is not checked, and nothing it reaches is built.
 	broken bool
@@ -119,6 +123,8 @@ type program struct {
 	// module and modRoot are the module's name and folder; module is ""
 	// with no ergo.mod.
 	module, modRoot string
+	// trust are the modules whose Go the root's ergo.mod trusts.
+	trust []string
 }
 
 // loader reads and checks one program.
@@ -127,7 +133,9 @@ type loader struct {
 	platform gobind.Platform
 	root     string // the module root, or the root package's folder
 	module   string // the module name; empty with no ergo.mod
-	pkgs     map[string]*loadedPackage
+	// trust are the required modules whose Go the root's ergo.mod trusts.
+	trust []string
+	pkgs  map[string]*loadedPackage
 	// missing holds the reason of each local import path with no package.
 	missing map[string]string
 	state   map[*loadedPackage]int
@@ -271,7 +279,7 @@ func checkDirIn(fsys FS, dir string, platform gobind.Platform, modCache string) 
 	}
 	p := &program{texts: l.texts, bindings: l.bindings}
 	if found {
-		p.module, p.modRoot = l.module, l.root
+		p.module, p.modRoot, p.trust = l.module, l.root, l.trust
 	}
 	if l.goMod != nil {
 		// An Ergo module's requirement stays in the emitted go.mod: go
@@ -305,13 +313,13 @@ func (l *loader) findModule(dir string) (bool, error) {
 			l.root = d
 			text := string(data)
 			l.texts[ModFile] = text
-			module, diagnostic := parseModule(text)
+			module, trust, diagnostic := parseModule(text)
 			if diagnostic != nil {
 				diagnostic.File = ModFile
 				l.diags = append(l.diags, *diagnostic)
 				return true, nil
 			}
-			l.module = module
+			l.module, l.trust = module, trust
 			l.readGoModule()
 			return true, nil
 		case err == nil:
@@ -327,10 +335,16 @@ func (l *loader) findModule(dir string) (bool, error) {
 	}
 }
 
-// parseModule reads an ergo.mod: blank lines and one line `module NAME`.
-func parseModule(text string) (string, *report.Diagnostic) {
+// parseModule reads an ergo.mod: blank lines, one line `module NAME`, and
+// lines `trust go MODULE`, each naming a required module whose Go code
+// (import go, extern go) the module's programs admit (grammar.md, Source
+// files 1, Trusted Go). It returns the module name and the trusted
+// module paths in their order.
+func parseModule(text string) (string, []string, *report.Diagnostic) {
+	const shape = "ergo.mod holds the line module NAME and lines trust go MODULE, and nothing else"
 	lines := lineStarts(text)
 	module, at := "", -1
+	var trust []string
 	for i, start := range lines {
 		end := len(text)
 		if i+1 < len(lines) {
@@ -341,19 +355,31 @@ func parseModule(text string) (string, *report.Diagnostic) {
 			continue
 		}
 		fields := strings.Fields(line)
-		if at >= 0 || len(fields) != 2 || fields[0] != "module" {
-			return "", modDiagnostic(text, lines, i+1, 1, "ergo.mod holds one line, module NAME, and nothing else")
+		switch {
+		case len(fields) == 2 && fields[0] == "module" && at < 0:
+			module, at = fields[1], i
+		case len(fields) == 3 && fields[0] == "trust" && fields[1] == "go":
+			col := strings.LastIndex(line, fields[2]) + 1
+			if slices.Contains(trust, fields[2]) {
+				return "", nil, modDiagnostic(text, lines, i+1, col, fmt.Sprintf("ergo.mod trusts the Go of module %s twice", fields[2]))
+			}
+			if reason := modulePathProblem(fields[2]); reason != "" {
+				return "", nil, modDiagnostic(text, lines, i+1, col, reason)
+			}
+			trust = append(trust, fields[2])
+			continue
+		default:
+			return "", nil, modDiagnostic(text, lines, i+1, 1, shape)
 		}
-		module, at = fields[1], i
 		col := strings.Index(line, module) + 1
 		if reason := modulePathProblem(module); reason != "" {
-			return "", modDiagnostic(text, lines, i+1, col, reason)
+			return "", nil, modDiagnostic(text, lines, i+1, col, reason)
 		}
 	}
 	if at < 0 {
-		return "", modDiagnostic(text, lines, 1, 1, "ergo.mod holds one line, module NAME; it names no module")
+		return "", nil, modDiagnostic(text, lines, 1, 1, "ergo.mod names no module: it holds the line module NAME")
 	}
-	return module, nil
+	return module, trust, nil
 }
 
 func modDiagnostic(text string, lines []int, line, col int, message string) *report.Diagnostic {
@@ -424,7 +450,7 @@ func (l *loader) nestedModule(dir string, mod *depModule) string {
 		}
 		rel := l.relIn(mod, d)
 		if data, err := l.fsys.ReadFile(file); err == nil {
-			if module, problem := parseModule(string(data)); problem == nil {
+			if module, _, problem := parseModule(string(data)); problem == nil {
 				return fmt.Sprintf("the folder %s is module %s (%s/%s); import its packages by that module's path, which %s requires", rel, module, rel, ModFile, GoModFile)
 			}
 		}
@@ -489,6 +515,9 @@ func (l *loader) read(path, dir string, mod *depModule) (*loadedPackage, error) 
 		} else {
 			parsed.Name = name
 			f.syntax = parsed
+			if mod != nil {
+				l.trustGo(p, f, parsed)
+			}
 			for _, spec := range importSpecs(parsed) {
 				// Every import of a module's package but std's is the
 				// loader's: its own module's, or a required module's.

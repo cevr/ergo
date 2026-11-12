@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -35,7 +36,19 @@ import (
 // or whose ergo.mod names another module, accepted; the cache path not
 // escaped. It also catches a dependency's unexported function made visible
 // (md1-unexported-visible), the visibility rule across the module line.
+//
+// MD3 (grammar.md, Source files 1, Trusted Go) adds, from a stream of its
+// own: dependency packages that use Go (import go, extern go), the root's
+// trust go lines, and functions that reach the console with no row, in the
+// root and in dependencies; the reference takes that diagnostic from a
+// check of the function alone, so the Ambient rule is the same on both
+// sides of the module line. Mutants it alone catches (md3-*): trust lines
+// ignored or not read, an extern go not seen as Go, a dependency's
+// diagnostics dropped.
 func TestModuleResolutionAgrees(t *testing.T) {
+	if len(Check(leakSource).Diagnostics) == 0 {
+		t.Fatalf("a function that reaches the console with no row checks:\n%s", leakSource)
+	}
 	for seed := uint64(1); seed <= 160; seed++ {
 		t.Run(fmt.Sprintf("seed=%d", seed), func(t *testing.T) {
 			m := genModules(seed)
@@ -65,6 +78,11 @@ func TestModuleResolutionAgrees(t *testing.T) {
 type genPkg struct {
 	imports []string // import paths, in source order
 	secret  string   // an import path whose unexported function F calls
+	// goUse is how the package uses Go (MD3): 0 not, 1 `import go
+	// strings` called from F, 2 `extern go strings.ToUpper`.
+	goUse int
+	// leak declares H, which writes to the console with no row.
+	leak bool
 }
 
 type genVersion struct {
@@ -85,6 +103,7 @@ type genModel struct {
 	lib      *genPkg                // app/lib, when generated
 	noSum    map[string]bool        // go.sum keys left out
 	noCopy   map[string]bool        // path@version copies not written
+	trust    []string               // the root ergo.mod's trust go lines
 }
 
 func genModules(seed uint64) *genModel {
@@ -203,6 +222,38 @@ func genModules(seed uint64) *genModel {
 	if r.IntN(3) == 0 {
 		m.root.secret = m.root.imports[0]
 	}
+	// MD3's draws come from their own stream, so MD1's graphs stay as
+	// they were: uses of Go in dependencies, the root's trust lines, and
+	// functions that reach the console with no row, on either side of
+	// the module line.
+	r3 := rand.New(rand.NewPCG(seed, 0x6d6433))
+	mark := func(pkgs map[string]genPkg, dependency bool) {
+		for _, folder := range slices.Sorted(maps.Keys(pkgs)) {
+			p := pkgs[folder]
+			if dependency && r3.IntN(3) == 0 {
+				p.goUse = 1 + r3.IntN(2)
+			}
+			p.leak = r3.IntN(6) == 0
+			pkgs[folder] = p
+		}
+	}
+	for _, path := range m.paths {
+		if c := m.local[path]; c != nil {
+			mark(c.pkgs, true)
+		}
+		for _, v := range m.versions {
+			if c := m.mods[path][v]; c != nil {
+				mark(c.pkgs, true)
+			}
+		}
+		if r3.IntN(2) == 0 {
+			m.trust = append(m.trust, path)
+		}
+	}
+	m.root.leak = r3.IntN(6) == 0
+	if m.lib != nil {
+		m.lib.leak = r3.IntN(6) == 0
+	}
 	return m
 }
 
@@ -222,6 +273,9 @@ func (p genPkg) source() string {
 	for _, path := range p.imports {
 		fmt.Fprintf(&b, "import %s\n", path)
 	}
+	if p.goUse == 1 {
+		b.WriteString("import go strings\n")
+	}
 	b.WriteString("\nfunc F() int {\n\treturn 1")
 	for _, path := range p.imports {
 		if path == p.secret {
@@ -230,8 +284,32 @@ func (p genPkg) source() string {
 			fmt.Fprintf(&b, " + %s.F()", qualifier(path))
 		}
 	}
+	if p.goUse == 1 {
+		b.WriteString(" + strings.Count(\"a\", \"a\")")
+	}
 	b.WriteString("\n}\n\nfunc f() int {\n\treturn 0\n}\n")
+	if p.leak {
+		b.WriteString("\n" + leakSource)
+	}
+	if p.goUse == 2 {
+		b.WriteString("\nextern go strings.ToUpper func Upper(s string) string\n")
+	}
 	return b.String()
+}
+
+// leakSource reaches the console with no row: the Ambient rule's
+// diagnostic, whose text and position the reference takes from a check of
+// this one text alone (rows.md, Capability safety).
+const leakSource = "func H() {\n\tConsole.Println(\"\")\n}\n"
+
+// lineOf is the 1-based line of src that starts with prefix; 0 for none.
+func lineOf(src, prefix string) int {
+	for i, line := range strings.Split(src, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 func (v *genVersion) files(path string) map[string]string {
@@ -348,7 +426,11 @@ func (m *genModel) write(t *testing.T, dir string) string {
 			}
 		}
 	}
-	put(filepath.Join(root, "ergo.mod"), "module app\n")
+	ergoMod := "module app\n"
+	for _, path := range m.trust {
+		ergoMod += "trust go " + path + "\n"
+	}
+	put(filepath.Join(root, "ergo.mod"), ergoMod)
 	put(filepath.Join(root, "go.mod"), goMod)
 	put(filepath.Join(root, "go.sum"), sum.String())
 	put(filepath.Join(root, "cmd", "x.ergo"), m.root.source())
@@ -363,7 +445,7 @@ func (m *genModel) short(dir, s string) string { return strings.ReplaceAll(s, di
 
 func (m *genModel) listing() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "root requires %v, replaces %d, lib %v\n== app/cmd/x.ergo\n%s", m.rootReq, len(m.local), m.lib != nil, m.root.source())
+	fmt.Fprintf(&b, "root requires %v, replaces %d, lib %v, trusts %v\n== app/cmd/x.ergo\n%s", m.rootReq, len(m.local), m.lib != nil, m.trust, m.root.source())
 	if m.lib != nil {
 		fmt.Fprintf(&b, "== app/lib/x.ergo\n%s", m.lib.source())
 	}
@@ -387,6 +469,7 @@ func (m *genModel) listing() string {
 type refPkg struct {
 	path, dir, file string // file: its x.ergo as diagnostics name it
 	pkg             genPkg
+	mod, name       string // its required module's path and path@version; "" for app's
 }
 
 // reference resolves the model as grammar.md's Modules rule says, with the
@@ -396,6 +479,7 @@ type refPkg struct {
 // it there, and a package that imports a broken one not checked.
 func (m *genModel) reference(dir string) string {
 	cache := "$T/modcache"
+	leak := Check(leakSource).Diagnostics
 	req := map[string]string{}
 	for _, r := range m.rootReq {
 		req[r[0]] = r[1]
@@ -483,7 +567,7 @@ func (m *genModel) reference(dir string) string {
 		if !ok {
 			return refPkg{}, fmt.Sprintf("no folder %s in module %s", folder, name)
 		}
-		return refPkg{path: path, dir: root + "/" + folder, file: name + "/" + folder + "/x.ergo", pkg: p}, ""
+		return refPkg{path: path, dir: root + "/" + folder, file: name + "/" + folder + "/x.ergo", pkg: p, mod: mod, name: name}, ""
 	}
 
 	var out strings.Builder
@@ -510,6 +594,16 @@ func (m *genModel) reference(dir string) string {
 					continue
 				}
 				pkgs[path] = q
+				if q.mod != "" && q.pkg.goUse > 0 && !slices.Contains(m.trust, q.mod) {
+					src := q.pkg.source()
+					use, line, col := "import go strings", lineOf(src, "import go"), len("import ")+1
+					if q.pkg.goUse == 2 {
+						use, line, col = "extern go strings.ToUpper", lineOf(src, "extern go"), 1
+					}
+					diags = append(diags, fmt.Sprintf("%s S108 %d:%d module %s uses Go (%s), and the ergo.mod of module app does not trust its Go: Ergo does not check Go code; after review, add the line \"trust go %s\" to ergo.mod",
+						q.file, line, col, q.name, use, q.mod))
+					broken[q.path] = true
+				}
 			}
 			switch state[path] {
 			case visiting:
@@ -548,7 +642,14 @@ func (m *genModel) reference(dir string) string {
 				}
 				q := qualifier(p.pkg.secret)
 				col += len(" + " + q + ".")
-				diags = append(diags, fmt.Sprintf("%s S104 %d:%d %s.f is not an exported declaration of package %s", p.file, len(p.pkg.imports)+3, col, q, p.pkg.secret))
+				diags = append(diags, fmt.Sprintf("%s S104 %d:%d %s.f is not an exported declaration of package %s", p.file, lineOf(p.pkg.source(), "\treturn 1"), col, q, p.pkg.secret))
+				broken[p.path] = true
+			}
+			if p.pkg.leak {
+				for _, d := range leak {
+					line := lineOf(p.pkg.source(), "func H") + d.Span.Line - 1
+					diags = append(diags, fmt.Sprintf("%s %s %d:%d %s", p.file, d.Code, line, d.Span.Column, d.Message))
+				}
 				broken[p.path] = true
 			}
 		}
