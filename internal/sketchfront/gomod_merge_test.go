@@ -21,9 +21,9 @@ import (
 // ./ inside the module and absolute, the same module required or replaced
 // twice, the module's own path under or equal to the runtime's, and
 // ergo.local/prototype required and replaced by a directory that holds the
-// runtime's bytes or other ones, or by this repository, with a Go package
-// that imports the compiler's syntax package: the bug's repro, kind
-// "compiler repository") the reference is the generator's own
+// runtime's bytes or other ones, or by this repository, whose package
+// ergo.local/prototype/runtime the copied tree does not hold: the bug's
+// repro, kind "compiler repository") the reference is the generator's own
 // record: an admitted module checks with no diagnostic, and the go command
 // resolves every package of the emitted module, the packages only each
 // replacement holds included; a conflicting one is one go.mod diagnostic,
@@ -188,7 +188,12 @@ func genMergeCase(r *rand.Rand, runtime []lower.File) mergeCase {
 		own = "ergo.local/program"
 	case c.kind == "admitted own runtime module":
 		own = "ergo.local/prototype"
-	case c.kind == "compiler repository" || r.IntN(3) == 0:
+	case c.kind == "compiler repository":
+		// A module path under the repository's would make the go command
+		// look for the module's packages in the repository too, outside
+		// this test's closure (internal/closure); the other shapes put the
+		// path there.
+	case r.IntN(3) == 0:
 		own = "ergo.local/prototype/examples/app"
 	}
 	moduleLine := add("module %s", quoteMaybe(r, own))
@@ -290,12 +295,11 @@ func genMergeCase(r *rand.Rand, runtime []lower.File) mergeCase {
 			c.conflict, c.line = [2]string{runtimeLabel, label(rep)}, rep
 		}
 	case "compiler repository":
-		// the G1 repro: this repository serves the runtime, and a Go
-		// package of the module imports the compiler's syntax package
+		// the G1 repro: this repository serves the runtime, and a package
+		// that only the repository holds (the runtime's embed) resolves
 		add("require ergo.local/prototype v0.0.0")
 		add("replace ergo.local/prototype => %s", quoteMaybe(r, "$REPO"))
-		c.files["app/hostsyntax/parse.go"] = "package hostsyntax\n\nimport \"ergo.local/prototype/internal/sketch/syntax\"\n\nvar _ = syntax.Parse\n"
-		c.imports = append(c.imports, "ergo.local/prototype/examples/app/hostsyntax")
+		c.imports = append(c.imports, "ergo.local/prototype/runtime")
 	case "main module path":
 		c.conflict, c.line = [2]string{fmt.Sprintf("go.mod:%d (its module) ", moduleLine), "emitted main module"}, moduleLine
 	}
