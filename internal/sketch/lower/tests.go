@@ -88,15 +88,24 @@ type testLowering struct {
 // the package as Lower lowers it, each test as a Go function, and a main
 // that runs the tests (see Test mode). It takes the unit Lower takes.
 func LowerTests(u Unit) ([]File, error) {
-	if err := u.Validate(); err != nil {
+	code, assets, err := lowerTestParts(u)
+	if err != nil {
 		return nil, err
+	}
+	return append(moduleFiles(u.Go, code), assets...), nil
+}
+
+// lowerTestParts is the test build's main.go and its embedded assets.
+func lowerTestParts(u Unit) ([]byte, []File, error) {
+	if err := u.Validate(); err != nil {
+		return nil, nil, err
 	}
 	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
 	code, err := l.program()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return append(moduleFiles(u.Go, code), l.assetFiles()...), nil
+	return code, l.assetFiles(), nil
 }
 
 // testHelpers are the harness's package-scope entities: key and preferred

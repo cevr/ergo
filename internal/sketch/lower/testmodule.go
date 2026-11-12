@@ -50,50 +50,26 @@ func LowerTestModule(units []Unit) ([]File, error) {
 	if len(units) == 0 {
 		return nil, fmt.Errorf("lower: a test module has no package")
 	}
-	var head, body []File
+	var body []File
 	for k, u := range units {
-		files, err := LowerTests(u)
+		if !bytes.Equal(goModFile(u.Go), goModFile(units[0].Go)) || u.Go.Sum != units[0].Go.Sum {
+			return nil, fmt.Errorf("lower: the packages of a test module require different Go modules")
+		}
+		code, assets, err := lowerTestParts(u)
 		if err != nil {
 			return nil, err
 		}
 		dir := testPackageDir(k)
-		sum := false
-		for _, f := range files {
-			switch f.Path {
-			case "go.mod", "go.sum":
-				sum = sum || f.Path == "go.sum"
-				if k == 0 {
-					head = append(head, f)
-					continue
-				}
-				if i := indexFile(head, f.Path); i < 0 || !bytes.Equal(head[i].Data, f.Data) {
-					return nil, fmt.Errorf("lower: the packages of a test module require different Go modules (%s)", f.Path)
-				}
-			case "main.go":
-				data, err := rehomeTest(f.Data, dir)
-				if err != nil {
-					return nil, err
-				}
-				body = append(body, File{Path: dir + "/main.go", Data: data})
-			default:
-				body = append(body, File{Path: dir + "/" + f.Path, Data: f.Data})
-			}
+		code, err = rehomeTest(code, dir)
+		if err != nil {
+			return nil, err
 		}
-		if k > 0 && sum != (indexFile(head, "go.sum") >= 0) {
-			return nil, fmt.Errorf("lower: the packages of a test module require different Go modules (go.sum)")
+		body = append(body, File{Path: dir + "/main.go", Data: code})
+		for _, f := range assets {
+			body = append(body, File{Path: dir + "/" + f.Path, Data: f.Data})
 		}
 	}
-	head = append(head, File{Path: "main.go", Data: testDispatch(len(units))})
-	return append(head, body...), nil
-}
-
-func indexFile(files []File, path string) int {
-	for i, f := range files {
-		if f.Path == path {
-			return i
-		}
-	}
-	return -1
+	return append(moduleFiles(units[0].Go, testDispatch(len(units))), body...), nil
 }
 
 // testDispatch is the test module's main.go: it runs the Main of the
@@ -145,16 +121,17 @@ func rehomeTest(src []byte, name string) ([]byte, error) {
 	offset := func(p token.Pos) int { return fset.Position(p).Offset }
 	edits := []edit{{offset(f.Name.Pos()), offset(f.Name.End()), name}}
 	var entry *ast.FuncDecl
+	if obj := f.Scope.Lookup("main"); obj != nil {
+		entry, _ = obj.Decl.(*ast.FuncDecl)
+	}
+	if entry == nil || entry.Body == nil {
+		return nil, fmt.Errorf("lower: a test build has no main (a compiler defect)")
+	}
+	// An init function is the one function Go never declares in the file's
+	// scope (go/parser's resolver), so it is the function with no object.
 	var inits []string
 	for _, d := range f.Decls {
-		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Recv != nil {
-			continue
-		}
-		switch fd.Name.Name {
-		case "main":
-			entry = fd
-		case "init":
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Name.Obj == nil {
 			fresh := "ergoTestInit"
 			for k := 2; used[fresh]; k++ {
 				fresh = "ergoTestInit" + strconv.Itoa(k)
@@ -163,9 +140,6 @@ func rehomeTest(src []byte, name string) ([]byte, error) {
 			inits = append(inits, fresh)
 			edits = append(edits, edit{offset(fd.Name.Pos()), offset(fd.Name.End()), fresh})
 		}
-	}
-	if entry == nil || entry.Body == nil {
-		return nil, fmt.Errorf("lower: a test build has no main (a compiler defect)")
 	}
 	// main is a Go function only the runtime calls; any other use of the
 	// name is a local or a field, which keeps it.
