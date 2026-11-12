@@ -1016,6 +1016,12 @@ func (o *TypeParam) pos() syntax.Pos { return o.Pos }
 
 // def records a declaring identifier (Info.Defs).
 func (c *checker) def(id *syntax.Ident, o Object) {
+	if s, ok := c.relSeeds[id]; ok {
+		if v, ok := o.(*Var); ok {
+			c.relHit[id] = true
+			c.chargeOwned(id, v.Type, s)
+		}
+	}
 	if c.silent == 0 && id != nil && id.Name != "_" && !c.synthetic[id] {
 		c.pkg.Info.Defs[id] = o
 	}

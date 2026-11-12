@@ -92,6 +92,12 @@ type checker struct {
 	silent   int
 	shallow  int       // an alias's target is read with the Named types it names, bodies unread (aliasOf)
 	tests    testState // tests and assert (tests.go)
+	// relSeeds are the nodes whose owned value's release needs a
+	// capability, found by a first check of the package; the second check
+	// charges each where its frame is typed (releaseneeds.go). relHit
+	// records the charged ones.
+	relSeeds map[syntax.Node]relSeed
+	relHit   map[syntax.Node]bool
 	// refusedBinders holds the binders the reporting pass has already
 	// refused by name (a pattern name that names a package object, a
 	// prelude name), so the binder rules add no second diagnostic (D3).

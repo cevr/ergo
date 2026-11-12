@@ -16,7 +16,24 @@ import (
 // run checks the package: collect declarations, resolve types lazily, check
 // signatures, check bodies one strongly connected component at a time, then
 // the package-level rules that need every body (Go types2's phase order).
+// When an owned value's release needs a capability, the package is checked
+// a second time, which charges that need where the value is acquired
+// (releaseneeds.go); the second check's result is the package's.
 func (c *checker) run(files []*syntax.File) *Package {
+	pkg := c.runOnce(files)
+	seeds := c.releaseSeeds()
+	if len(seeds) == 0 {
+		return pkg
+	}
+	n := newChecker(c.pkg.Path, c.imp, c.universe)
+	n.pkg.std = c.pkg.std
+	n.relSeeds, n.relHit = seeds, map[syntax.Node]bool{}
+	pkg = n.runOnce(files)
+	*c = *n
+	return pkg
+}
+
+func (c *checker) runOnce(files []*syntax.File) *Package {
 	for i, f := range files {
 		c.files = append(c.files, &fileInfo{syntax: f, index: i, scope: newScope(nil)})
 	}

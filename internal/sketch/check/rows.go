@@ -56,6 +56,12 @@ func (t *target) row(declared, inferred *Row) *Row {
 // that discharges it records it with its providing entry, which the
 // membership test found (withFrame.discharge, With.Discharged).
 func (c *checker) charge(n syntax.Node, cap Type) {
+	c.chargeAs(n, cap, "")
+}
+
+// chargeAs is charge with the subject of its S102 written out: what
+// requires cap ("" for describeCharge(n)).
+func (c *checker) chargeAs(n syntax.Node, cap Type, what string) {
 	if c.fn == nil || c.fn.t == nil {
 		return
 	}
@@ -96,7 +102,10 @@ func (c *checker) charge(n syntax.Node, cap Type) {
 	case t.context:
 		c.errorf(n, CodeMissingCap, "%s requires %s while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)", t.name, cap)
 	default:
-		c.errorf(n, CodeMissingCap, "%s requires %s, which is not in the capability row of %s and no with provides it", describeCharge(n), cap, t.name)
+		if what == "" {
+			what = describeCharge(n)
+		}
+		c.errorf(n, CodeMissingCap, "%s requires %s, which is not in the capability row of %s and no with provides it", what, cap, t.name)
 	}
 }
 
