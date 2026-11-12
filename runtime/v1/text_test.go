@@ -221,6 +221,9 @@ func textBenches() []textBench {
 	xs := strings.Split(s, ",")
 	buf := make([]byte, 0, 8)
 	bad := s + "\xff\xe4\xb8" + s
+	built := []byte(s)
+	goBuilt := &strings.Builder{}
+	goBuilt.WriteString(s)
 	return []textBench{
 		{"Split", "StringsSplit", func() { textSink = StringsSplit(s, ",") }, func() { textSink = strings.Split(s, ",") }},
 		{"Join", "StringsJoin", func() { textSink = StringsJoin(xs, ";") }, func() { textSink = strings.Join(xs, ";") }},
@@ -229,6 +232,43 @@ func textBenches() []textBench {
 		{"TrimSpace", "StringsTrimSpace", func() { textSink = StringsTrimSpace(s) }, func() { textSink = strings.TrimSpace(s) }},
 		{"TrimPrefix", "StringsTrimPrefix", func() { textSink = StringsTrimPrefix(s, "alpha,") }, func() { textSink = strings.TrimPrefix(s, "alpha,") }},
 		{"TrimSuffix", "StringsTrimSuffix", func() { textSink = StringsTrimSuffix(s, "gamma ") }, func() { textSink = strings.TrimSuffix(s, "gamma ") }},
+		{"TrimLeft", "StringsTrimLeft", func() { textSink = StringsTrimLeft(" \t"+s, " \t") }, func() { textSink = strings.TrimLeft(" \t"+s, " \t") }},
+		{"TrimRight", "StringsTrimRight", func() { textSink = StringsTrimRight(s, " ma") }, func() { textSink = strings.TrimRight(s, " ma") }},
+		// The builder bodies against Go's strings.Builder: a loop of
+		// writes, a Grow, and the text of a built buffer (Go's String
+		// shares its bytes; StringsBuilderText copies them).
+		{"BuilderAppend", "StringsBuilderAppend", func() {
+			var b []byte
+			for range 16 {
+				b = StringsBuilderAppend(b, "alpha,")
+			}
+			textSink = len(b)
+		}, func() {
+			var g strings.Builder
+			for range 16 {
+				g.WriteString("alpha,")
+			}
+			textSink = g.Len()
+		}},
+		{"BuilderAppendByte", "StringsBuilderAppendByte", func() {
+			var b []byte
+			for i := range 64 {
+				b = StringsBuilderAppendByte(b, byte(i))
+			}
+			textSink = len(b)
+		}, func() {
+			var g strings.Builder
+			for i := range 64 {
+				g.WriteByte(byte(i))
+			}
+			textSink = g.Len()
+		}},
+		{"BuilderGrow", "StringsBuilderGrow", func() { textSink = cap(StringsBuilderGrow(nil, 256)) }, func() {
+			var g strings.Builder
+			g.Grow(256)
+			textSink = g.Cap()
+		}},
+		{"BuilderText", "StringsBuilderText", func() { textSink = StringsBuilderText(built) }, func() { textSink = goBuilt.String() }},
 		{"Fields", "StringsFields", func() { textSink = StringsFields(s) }, func() { textSink = strings.Fields(s) }},
 		{"Repeat", "StringsRepeat", func() { textSink = StringsRepeat("ab", 64) }, func() { textSink = strings.Repeat("ab", 64) }},
 		{"ToLower", "StringsToLower", func() { textSink = StringsToLower("ALPHA,Beta") }, func() { textSink = strings.ToLower("ALPHA,Beta") }},
