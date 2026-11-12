@@ -74,12 +74,24 @@ func (l *lowerer) directWriter(info *check.Info, x syntax.Expr) (int, bool) {
 // converts from to the Writer, when directOps holds; nil otherwise (no
 // conversion: x is a Writer already).
 func (l *lowerer) directSource(info *check.Info, x syntax.Expr) *check.Named {
+	if t, ok := info.Types[x].(*check.Named); ok {
+		// An operation type's value converts to the Writer by Go's own
+		// interface assignment, so no conversion is recorded: its static
+		// type decides a cell writer (wiretext.go).
+		if _, ok := cellWriterOf(t, check.PreludeType(check.WireWriterName)); ok {
+			return t
+		}
+	}
 	conv := info.Implicit[x]
 	from, ok := conv.From.(*check.Named)
-	if !ok || !check.SealedStd(from) {
+	if !ok {
 		return nil
 	}
-	if to, ok := conv.To.(*check.Named); !ok || !directOps(from, to) {
+	to, ok := conv.To.(*check.Named)
+	if !ok {
+		return nil
+	}
+	if !check.SealedStd(from) || !directOps(from, to) {
 		return nil
 	}
 	return from

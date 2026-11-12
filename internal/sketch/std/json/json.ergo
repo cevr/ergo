@@ -44,10 +44,12 @@ type Malformed { Offset int, Reason string }
 // the next value or key needs a comma (the one state an event reads,
 // commaDue), and the bodies a value's text with no comma. A public
 // event's body is a straight line of its parts, so the build unfolds it
-// by its definition (types.md, Laws 14). The laws state when sep is due
-// (guarded, with the post law SetCommaSets), the joins of constant text
-// and the moves of setComma across text; the std ledger holds each as
-// proved on text's code (internal/sketch/std/ergo.laws).
+// by its definition (types.md, Laws 14). The laws state what sep writes
+// after a setComma (SepAfterSet: the state the setComma leaves is in the
+// pattern, so the law needs no guard), the joins of constant text and the
+// moves of setComma across text; the std ledger holds each as proved on
+// text's code (internal/sketch/std/ergo.laws). SetCommaSets is the plain
+// law SepAfterSet rests on.
 type Text {
 	Bool(b bool),
 	Int(n int64),
@@ -89,8 +91,7 @@ type Text {
 
 	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
 
-	law SepNoneDue() when commaDue() == false { sep() } == { },
-	law SepDue() when commaDue() == true { sep() } == { raw(",") },
+	law SepAfterSet(due bool) { setComma(due); sep() } == { setComma(due); raw(commaText(due)) },
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 	law SetCommaLast(p bool, q bool) { setComma(p); setComma(q) } == { setComma(q) },
@@ -137,6 +138,9 @@ func sep(t *text) {
 }
 
 func commaDue(t *text) bool { t.comma }
+
+// commaText is the text sep writes when due says whether a comma is due.
+func commaText(due bool) string { if due { "," } else { "" } }
 
 func setComma(t *text, due bool) { t.comma = due }
 

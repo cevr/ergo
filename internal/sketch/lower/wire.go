@@ -74,7 +74,7 @@ func (tc *typeCtx) wireFieldType(self check.Type) string {
 // wireDirectType is the Go type of a codec witness's Direct field for the
 // direct writer w: self's codec function on w's runtime type.
 func (tc *typeCtx) wireDirectType(w, self check.Type) string {
-	return "func(*" + tc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + tc.goType(w) + ", " + tc.goType(self) + ")"
+	return "func(*" + tc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + tc.directGoType(w) + ", " + tc.goType(self) + ")"
 }
 
 // wireDirectFuncs are the Direct fields of a witness literal: for each
@@ -84,7 +84,7 @@ func (fc *funcCtx) wireDirectFuncs(tc *typeCtx, self, t check.Type, v func(strin
 	s := ""
 	for i, w := range fc.l.directWriters {
 		e, b, x := fc.scope.alloc("e"), fc.scope.alloc("b"), fc.scope.alloc("v")
-		s += ", " + directField(i) + ": func(" + e + " *" + fc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + b + " " + tc.goType(w) + ", " + x + " " + tc.goType(self) + ") {\n" + tc.wireEncodeWith(wireEvents{via: i}, t, e, b, v(x)) + "\n}"
+		s += ", " + directField(i) + ": func(" + e + " *" + fc.l.pkgName(pkgKey{"env", nil}, "Env") + ", " + b + " " + tc.directGoType(w) + ", " + x + " " + tc.goType(self) + ") {\n" + tc.wireEncodeWith(wireEvents{via: i}, t, e, b, v(x)) + "\n}"
 	}
 	return s
 }
@@ -321,6 +321,10 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 	tc := fc.wireCtx(x)
 	if c.Kind == check.CallEncode {
 		w := vals[1]
+		if cw, ok := fc.l.cellOf(em); ok {
+			// The cell's own value: P's functions write the events.
+			w = fc.cellOperand(cw, vals[1])
+		}
 		if fc.l.wireInline(c.Type) {
 			// The inline event is a method call on w: a variable, so a
 			// Writer adapter's pointer methods are in its method set.
@@ -356,7 +360,11 @@ func (tc *typeCtx) wireEncode(t check.Type, env, w, v string) string {
 func (tc *typeCtx) wireEncodeWith(em wireEvents, t check.Type, env, w, v string) string {
 	l := tc.l
 	if l.wireInline(t) {
-		return em.basic(tc, wireUnder(t).(*check.Basic), taskOf(env), w, v)
+		s := em.basic(tc, wireUnder(t).(*check.Basic), taskOf(env), w, v)
+		if cw, ok := l.cellOf(em); ok {
+			s = l.cellEvents(cw, env, w, s, tc.site)
+		}
+		return s
 	}
 	if tp, ok := t.(*check.TypeParam); ok {
 		return em.param(tc, tp, env, w, v)
@@ -490,10 +498,14 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 		em := wireEvents{via: via}
 		writer := tc.goType(check.PreludeType(check.WireWriterName))
 		if via >= 0 {
-			writer = tc.goType(l.directWriters[via])
+			writer = tc.directGoType(l.directWriters[via])
 		}
 		l.wireEncodeBody(em, tc, &body, t, env, task, w, v, scope)
-		l.gen.WriteString("func " + name + tlist + "(" + lead + ", " + w + " " + writer + ", " + v + " " + goType + ") {\n" + body.String() + "}\n\n")
+		text := body.String()
+		if cw, ok := l.cellOf(em); ok {
+			text = l.cellEvents(cw, env, w, text, site)
+		}
+		l.gen.WriteString("func " + name + tlist + "(" + lead + ", " + w + " " + writer + ", " + v + " " + goType + ") {\n" + text + "}\n\n")
 		return name
 	}
 	r := scope.alloc("r")
