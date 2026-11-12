@@ -1,0 +1,1253 @@
+// The layout of each node family: gofmt's for every construct Go has
+// (format/doc in the Go formatter's package comment, which this file
+// translates node by node).
+
+import slices
+
+// ---------------------------------------------------------------- tree reads
+
+func fam(p *Printer, id int) string             { family(p.T, id) }
+func at(p *Printer, id int, name string) int    { pos(p.T, id, name) }
+func hasK(p *Printer, id int, name string) bool { has(p.T, id, name) }
+func k(p *Printer, id int, name string) int     { kid(p.T, id, name) }
+func ks(p *Printer, id int, name string) []int  { kids(p.T, id, name) }
+func s(p *Printer, id int, name string) string  { str(p.T, id, name) }
+func n(p *Printer, id int, name string) int     { num(p.T, id, name) }
+func fl(p *Printer, id int, name string) bool   { flag(p.T, id, name) }
+func start(p *Printer, id int) int              { posOf(p.T, id) }
+func stop(p *Printer, id int) int               { endOf(p.T, id) }
+
+// starts are the first bytes of the nodes ids.
+func starts(p *Printer, ids []int) []int {
+	let mut out = []int{}
+	for id in ids {
+		out = out.Append(p.start(id))
+	}
+	out
+}
+
+// ---------------------------------------------------------------- file and declarations
+
+func printFile(p *Printer) {
+	let mut printed = 0
+	for d in p.ks(p.T.Root, "Decls") {
+		if isDerived(p.T, d) {
+			continue // the parser derives it again from its refined type
+		}
+		if printed > 0 {
+			p.newline()
+		}
+		printed += 1
+		p.decl(d)
+	}
+}
+
+func ident(p *Printer, x int) { p.token(p.at(x, "NamePos"), p.s(x, "Name")) }
+
+func decl(p *Printer, d int) {
+	match p.fam(d) {
+	case "ImportDecl":
+		p.importDecl(d)
+	case "VarDecl":
+		p.letDecl(d)
+	case "TypeDecl":
+		p.externSpec(d)
+		p.token(p.at(d, "Type"), "type")
+		p.space()
+		p.ident(p.k(d, "Name"))
+		if p.hasK(d, "TypeParams") {
+			p.fieldList(p.k(d, "TypeParams"), "[", "]")
+		}
+		p.space()
+		let spec = p.k(d, "Spec")
+		if p.fam(spec) == "InterfaceType" && len(p.ks(spec, "Union")) > 0 {
+			p.unionType(spec)
+			return
+		}
+		p.expr(spec)
+		if p.hasK(d, "Where") {
+			p.space()
+			p.token(p.at(d, "WherePos"), "where")
+			p.space()
+			p.expr(p.k(d, "Where"))
+		}
+	case "FuncDecl":
+		p.externSpec(d)
+		p.token(p.at(d, "Func"), "func")
+		p.space()
+		if p.hasK(d, "Recv") {
+			p.fieldList(p.k(d, "Recv"), "(", ")")
+			p.space()
+		}
+		p.ident(p.k(d, "Name"))
+		if p.hasK(d, "TypeParams") {
+			p.fieldList(p.k(d, "TypeParams"), "[", "]")
+		}
+		p.signature(p.k(d, "Type"))
+		if p.hasK(d, "Body") {
+			let body = p.k(d, "Body")
+			if p.blockOneLine(body) {
+				p.L.step(Separator) // consecutive one-line functions align their bodies (gofmt)
+			} else {
+				p.space()
+			}
+			p.block(body, true)
+		}
+	case "ContextDecl":
+		p.tok(p.at(d, "Let"), "let")
+		p.space()
+		p.ident(p.k(d, "Name"))
+		p.space()
+		p.synth("=")
+		p.space()
+		p.printContext(p.at(d, "Context"), d)
+	case "TestDecl":
+		p.token(p.at(d, "Test"), "test")
+		p.space()
+		p.ident(p.k(d, "Name"))
+		if p.hasK(d, "Params") {
+			p.fieldList(p.k(d, "Params"), "(", ")")
+		}
+		p.space()
+		p.block(p.k(d, "Body"), true)
+	case "LawDecl":
+		// A top-level law prints as a top-level test does (law-top).
+		p.token(p.at(d, "Law"), "law")
+		p.space()
+		p.ident(p.k(d, "Name"))
+		p.fieldList(p.k(d, "Params"), "(", ")")
+		p.space()
+		p.block(p.k(d, "Body"), true)
+	case _:
+	}
+}
+
+// closeBody ends a multi-line body: comments before the closer at the
+// body's indentation, then the closer on its own line.
+func closeBody(p *Printer, closePos int, close string) {
+	p.newline()
+	p.flushComments(closePos)
+	p.indent(-1)
+	p.newlineNoBlank()
+	p.token(closePos, close)
+}
+
+// importDecl prints `import [go] [alias] path`.
+func importDecl(p *Printer, d int) {
+	p.token(p.at(d, "Import"), "import")
+	let spec = p.ks(d, "Specs")[0]
+	p.space()
+	if p.n(spec, "Kind") == 3 {
+		p.token(p.at(spec, "NamePos"), "go")
+		p.space()
+	}
+	if p.hasK(spec, "Name") {
+		p.ident(p.k(spec, "Name"))
+		p.space()
+	}
+	p.basicLit(p.k(spec, "Path"))
+}
+
+// externSpec prints `extern go target `, the head of an extern declaration,
+// when the declaration d has one.
+func externSpec(p *Printer, d int) {
+	if !p.hasK(d, "Extern") {
+		return
+	}
+	let x = p.k(d, "Extern")
+	p.token(p.at(x, "Extern"), "extern")
+	p.space()
+	p.token(p.at(x, "Go"), "go")
+	p.space()
+	p.basicLit(p.k(x, "Target"))
+	p.space()
+}
+
+// letDecl prints `[extern go target] let [mut] patterns [Type] [= value]`.
+func letDecl(p *Printer, d int) {
+	p.externSpec(d)
+	p.token(p.at(d, "Var"), "let")
+	p.space()
+	if p.at(d, "Mut") >= 0 {
+		p.token(p.at(d, "Mut"), "mut")
+		p.space()
+	}
+	let spec = p.ks(d, "Specs")[0]
+	if p.hasK(spec, "Pattern") {
+		p.expr(p.k(spec, "Pattern"))
+	} else {
+		p.identList(p.ks(spec, "Names"), true)
+	}
+	if p.hasK(spec, "Type") {
+		p.space()
+		p.typ(p.k(spec, "Type"))
+	}
+	let values = p.ks(spec, "Values")
+	if len(values) > 0 {
+		p.space()
+		p.token(p.at(spec, "Assign"), "=")
+		p.assignRHS(values)
+	}
+}
+
+// identList prints grouped names; a line break after a comma follows the
+// source. With indented, the names after the break take one continuation
+// level; without it they take the level the enclosing list or block gives,
+// as go/printer's identList(…, indent).
+func identList(p *Printer, list []int, indented bool) {
+	let mut broken = false
+	for i, x in list {
+		if i > 0 {
+			p.synth(",")
+			if p.gap(p.start(x), true) && !broken && indented {
+				broken = true
+				p.indent(1)
+			}
+		}
+		p.ident(x)
+	}
+	if broken {
+		p.indent(-1)
+	}
+}
+
+// assignRHS prints the right side of an assignment or let after its
+// operator; a line break after the operator follows the source.
+func assignRHS(p *Printer, values []int) {
+	let broken = p.gap(p.start(values[0]), true)
+	if broken {
+		p.indent(1)
+	}
+	p.exprList(values, 1)
+	if broken {
+		p.indent(-1)
+	}
+}
+
+// ---------------------------------------------------------------- lists
+
+// list prints len(itemStarts) comma-separated items between an opener and
+// a closer. The line breaks after the opener, between items and before the
+// closer follow the source; with any of them, the items indent one level
+// and a closer on its own line follows a comma.
+func list(p *Printer, openPos int, open string, itemStarts []int, item func(i int), closePos int, close string) {
+	p.tok(openPos, open)
+	if len(itemStarts) == 0 {
+		p.tok(closePos, close)
+		return
+	}
+	// The items indent at the list's first line break, not before it, as
+	// go/printer's exprList and parameters do.
+	let mut indented = false
+	let saved = p.ListIndented
+	for i in 0..len(itemStarts) {
+		if i == 0 {
+			if p.gap(itemStarts[0], false) {
+				p.L.step(NoBlank)
+				p.indent(1)
+				indented = true
+			}
+		} else {
+			p.synth(",")
+			if p.gap(itemStarts[i], true) && !indented {
+				p.indent(1)
+				indented = true
+			}
+		}
+		p.ListIndented = indented
+		item(i)
+	}
+	p.ListIndented = saved
+	if closePos >= 0 && p.breakBefore(closePos) {
+		if !indented {
+			p.indent(1)
+		}
+		p.synth(",")
+		p.closeBody(closePos, close)
+		return
+	}
+	if indented {
+		p.indent(-1)
+	}
+	p.tok(closePos, close)
+}
+
+// exprList prints an unbracketed expression list; a line break after a
+// comma follows the source and indents the rest one level.
+func exprList(p *Printer, xs []int, depth int) {
+	let mut broken = false
+	for i, x in xs {
+		if i > 0 {
+			p.synth(",")
+			if p.gap(p.start(x), true) && !broken {
+				broken = true
+				p.indent(1)
+			}
+		}
+		p.expr1(x, depth)
+	}
+	if broken {
+		p.indent(-1)
+	}
+}
+
+// ---------------------------------------------------------------- signatures and fields
+
+// fieldList prints a parameter or type parameter list.
+func fieldList(p *Printer, l int, open string, close string) {
+	let fields = p.ks(l, "List")
+	p.list(p.at(l, "Opening"), open, p.starts(fields), func(i int) {
+		let f = fields[i]
+		let names = p.ks(f, "Names")
+		p.identList(names, !p.ListIndented)
+		if p.at(f, "Any") > 0 {
+			p.space()
+			p.token(p.at(f, "Any"), "any")
+		}
+		if p.hasK(f, "Type") {
+			if len(names) > 0 {
+				p.space()
+			}
+			p.typ(p.k(f, "Type"))
+		}
+		if p.hasK(f, "Where") {
+			p.space()
+			p.token(p.at(f, "WherePos"), "where")
+			p.space()
+			p.expr(p.k(f, "Where"))
+		}
+	}, p.at(l, "Closing"), close)
+}
+
+// signature prints `(params) [Result] [fails …] [needs …] [takes …]`.
+func signature(p *Printer, ft int) {
+	p.fieldList(p.k(ft, "Params"), "(", ")")
+	if p.hasK(ft, "Results") {
+		for f in p.ks(p.k(ft, "Results"), "List") {
+			p.space()
+			p.typ(p.k(f, "Type"))
+		}
+	}
+	if p.hasK(ft, "Needs") {
+		p.space()
+		p.needsClause(p.k(ft, "Needs"))
+	}
+	if p.hasK(ft, "Takes") {
+		let tk = p.k(ft, "Takes")
+		p.space()
+		p.token(p.at(tk, "Takes"), "takes")
+		let names = p.ks(tk, "Names")
+		if len(names) > 0 {
+			p.space()
+			p.identList(names, true)
+		}
+	}
+}
+
+func needsClause(p *Printer, u int) {
+	p.token(p.at(u, "Needs"), "needs")
+	p.row(p.ks(u, "Names"))
+}
+
+// row prints the names of an error row or a capability row, ` A | B`: both
+// rows are unions and are spelled alike (196n).
+func row(p *Printer, names []int) {
+	for i, x in names {
+		p.space()
+		if i > 0 {
+			p.synth("|")
+			p.space()
+		}
+		p.typ(x)
+	}
+}
+
+// ---------------------------------------------------------------- types
+
+func typ(p *Printer, x int) { p.expr1(x, 1) }
+
+// members prints `{ m, m }` on one line when the source has the braces on
+// one line and no member prints on several; otherwise one member per line
+// with a trailing comma, field types aligned in a column (gofmt's struct
+// rule). tight drops the blanks inside one-line braces (a union variant).
+func members(p *Printer, lbrace int, rbrace int, nodes []int, print func(i int, aligned bool), tight bool) {
+	let mut oneLine = p.ln(lbrace) == p.ln(rbrace)
+	for m in nodes {
+		oneLine = oneLine && !forcesBreak(p.T, m)
+	}
+	if oneLine {
+		p.token(lbrace, "{")
+		for i in 0..len(nodes) {
+			if i > 0 {
+				p.synth(",")
+				p.space()
+			} else if !tight {
+				p.space()
+			}
+			print(i, false)
+		}
+		if len(nodes) > 0 && !tight {
+			p.space()
+		}
+		p.token(rbrace, "}")
+		return
+	}
+	p.openBody(lbrace)
+	for i in 0..len(nodes) {
+		p.bodyLine(i)
+		print(i, true)
+		p.synth(",")
+	}
+	p.closeBody(rbrace, "}")
+}
+
+// fieldMember prints one field of a record or variant body.
+func fieldMember(p *Printer, f int, aligned bool) {
+	if p.fl(f, "Include") {
+		p.token(p.at(f, "Dots"), "..")
+		p.typ(p.k(f, "Type"))
+		return
+	}
+	p.identList(p.ks(f, "Names"), false)
+	if aligned {
+		p.L.step(Separator)
+	} else {
+		p.space()
+	}
+	p.typ(p.k(f, "Type"))
+	if p.hasK(f, "Key") {
+		let key = p.k(f, "Key")
+		p.space()
+		p.token(p.start(key), p.s(key, "Value"))
+	}
+}
+
+func fieldMembers(p *Printer, fieldList int, tight bool) {
+	let fields = p.ks(fieldList, "List")
+	p.members(p.at(fieldList, "Opening"), p.at(fieldList, "Closing"), fields, func(i int, aligned bool) {
+		p.fieldMember(fields[i], aligned)
+	}, tight)
+}
+
+// operationType prints the operations and laws of an operation type in
+// source order.
+func operationType(p *Printer, t int) {
+	let methods = p.ks(t, "Methods")
+	let laws = p.ks(t, "Laws")
+	let mut nodes = []int{}
+	let mut i = 0
+	let mut j = 0
+	for i < len(methods) || j < len(laws) {
+		if j == len(laws) || i < len(methods) && p.start(methods[i]) < p.start(laws[j]) {
+			nodes = nodes.Append(methods[i])
+			i += 1
+			continue
+		}
+		nodes = nodes.Append(laws[j])
+		j += 1
+	}
+	p.members(p.at(t, "Lbrace"), p.at(t, "Rbrace"), nodes, func(x int, aligned bool) {
+		let m = nodes[x]
+		if p.fam(m) == "LawDecl" {
+			p.memberLaw(m)
+			return
+		}
+		p.ident(p.ks(m, "Names")[0])
+		p.signature(p.k(m, "Type"))
+	}, false)
+}
+
+// lawBody prints a law's block. A law is usually one equation after its
+// setup, so a body written on one line stays on one line with its
+// statements separated by `;` when nothing in it breaks.
+func lawBody(p *Printer, b int) {
+	let stmts = p.ks(b, "List")
+	let mut oneLine = p.ln(p.at(b, "Lbrace")) == p.ln(p.at(b, "Rbrace"))
+	for x in stmts {
+		oneLine = oneLine && !forcesBreak(p.T, x)
+	}
+	if !oneLine || len(stmts) < 2 {
+		p.block(b, true)
+		return
+	}
+	p.token(p.at(b, "Lbrace"), "{")
+	for i, x in stmts {
+		if i > 0 {
+			p.synth(";")
+		}
+		p.space()
+		p.stmt(x)
+	}
+	p.space()
+	p.token(p.at(b, "Rbrace"), "}")
+}
+
+// unionType prints `= A | B{…}`: on one line when the variants are on one line
+// in the source, else one variant per line, each after a leading `|`
+// (#196, D4).
+func unionType(p *Printer, t int) {
+	p.synth("=")
+	let variants = p.ks(t, "Union")
+	let first = variants[0]
+	let mut multi = false
+	for v in variants {
+		multi = multi || p.ln(p.start(v)) != p.ln(p.start(first)) || p.ln(p.stop(v)) != p.ln(p.start(v))
+	}
+	if !multi {
+		for i, v in variants {
+			p.space()
+			if i > 0 {
+				p.synth("|")
+				p.space()
+			}
+			p.variant(v)
+		}
+		return
+	}
+	p.indent(1)
+	for v in variants {
+		p.newlineNoBlank()
+		p.synth("|")
+		p.space()
+		p.variant(v)
+	}
+	p.indent(-1)
+}
+
+func variant(p *Printer, x int) {
+	if p.fam(x) != "VariantSpec" {
+		p.typ(x)
+		return
+	}
+	p.ident(p.k(x, "Name"))
+	if p.hasK(x, "TypeArgs") {
+		p.fieldList(p.k(x, "TypeArgs"), "[", "]")
+	}
+	p.fieldMembers(p.k(x, "Fields"), true)
+}
+
+func machineType(p *Printer, t int) {
+	p.token(p.at(t, "Machine"), "machine")
+	let params = []int{p.k(t, "State"), p.k(t, "Signal")}
+	p.list(p.at(t, "Lbrack"), "[", p.starts(params), func(i int) { p.typ(params[i]) }, p.at(t, "Rbrack"), "]")
+	p.space()
+	let entries = p.ks(t, "Entries")
+	let mut nodes = entries
+	for l in p.ks(t, "Laws") {
+		nodes = nodes.Append(l)
+	}
+	p.members(p.at(t, "Lbrace"), p.at(t, "Rbrace"), nodes, func(i int, aligned bool) {
+		if i >= len(entries) {
+			p.memberLaw(nodes[i])
+			return
+		}
+		let e = entries[i]
+		p.token(p.at(e, "NamePos"), p.s(e, "Name"))
+		p.tok(p.at(e, "Colon"), ":")
+		if aligned {
+			p.L.step(Separator)
+		} else {
+			p.space()
+		}
+		p.expr(p.k(e, "Value"))
+	}, false)
+}
+
+// memberLaw prints a law of an operation type or a machine: `law Name(params)
+// { body }`, or a machine's reachability law (MU6).
+func memberLaw(p *Printer, l int) {
+	p.token(p.at(l, "Law"), "law")
+	p.space()
+	p.ident(p.k(l, "Name"))
+	if p.hasK(l, "Reach") {
+		let r = p.k(l, "Reach")
+		p.space()
+		if p.at(r, "Never") != NoPos {
+			p.token(p.at(r, "Never"), "never")
+			p.space()
+		}
+		if p.hasK(r, "Pred") {
+			p.token(p.at(r, "Word"), p.s(r, "Invariant"))
+			p.space()
+			p.ident(p.k(r, "Pred"))
+			return
+		}
+		let targets = p.ks(r, "Targets")
+		if !p.fl(r, "Path") {
+			p.token(p.at(r, "Word"), "reaches")
+			p.space()
+			p.ident(targets[0])
+			return
+		}
+		p.token(p.at(r, "Word"), "path")
+		p.space()
+		p.token(p.at(r, "Lbrack"), "[")
+		for i, id in targets {
+			if i > 0 {
+				p.synth(",")
+				p.space()
+			}
+			p.ident(id)
+		}
+		p.token(p.at(r, "Rbrack"), "]")
+		return
+	}
+	p.fieldList(p.k(l, "Params"), "(", ")")
+	p.space()
+	p.lawBody(p.k(l, "Body"))
+}
+
+// printContext prints `context [provides …] [needs …] { entries }` of owner, a
+// context declaration or literal.
+func printContext(p *Printer, contextPos int, owner int) {
+	p.token(contextPos, "context")
+	if p.hasK(owner, "Provides") {
+		let pr = p.k(owner, "Provides")
+		p.space()
+		p.token(p.at(pr, "Provides"), "provides")
+		p.row(p.ks(pr, "Names"))
+	}
+	if p.hasK(owner, "Needs") {
+		p.space()
+		p.needsClause(p.k(owner, "Needs"))
+	}
+	p.space()
+	let b = p.k(owner, "Body")
+	let entries = p.ks(b, "Entries")
+	p.members(p.at(b, "Lbrace"), p.at(b, "Rbrace"), entries, func(i int, aligned bool) {
+		let e = entries[i]
+		let kind = p.n(e, "Kind")
+		if kind == 2 {
+			p.token(p.at(e, "Replace"), "replace")
+			p.space()
+		}
+		p.typ(p.k(e, "Key"))
+		for key in p.ks(e, "Keys") {
+			p.synth(",")
+			p.space()
+			p.typ(key)
+		}
+		if kind == 1 {
+			return
+		}
+		p.tok(p.at(e, "Assign"), ":")
+		if aligned {
+			p.L.step(Separator)
+		} else {
+			p.space()
+		}
+		p.expr(p.k(e, "Value"))
+	}, false)
+}
+
+// oneLine reports whether a braced body stays on one line: the source has
+// it on one line with at most one element (an explicit `;` between two
+// elements becomes a line break), and nothing inside it prints on several
+// lines.
+func oneLine(p *Printer, lbrace int, rbrace int, contents []int) bool {
+	if p.ln(lbrace) != p.ln(rbrace) || len(contents) > 1 {
+		return false
+	}
+	for x in contents {
+		if forcesBreak(p.T, x) {
+			return false
+		}
+	}
+	true
+}
+
+func openBody(p *Printer, lbrace int) {
+	p.token(lbrace, "{")
+	p.indent(1)
+	p.L.step(NoBlank)
+}
+
+func bodyLine(p *Printer, i int) {
+	if i == 0 {
+		p.newlineNoBlank()
+	} else {
+		p.newline()
+	}
+}
+
+// ---------------------------------------------------------------- statements
+
+// block prints a braced statement list. With oneLineOK, a block the source
+// has on one line with at most one statement stays on one line (gofmt's
+// function-body rule).
+func block(p *Printer, b int, oneLineOK bool) {
+	let stmts = p.ks(b, "List")
+	if oneLineOK && p.oneLine(p.at(b, "Lbrace"), p.at(b, "Rbrace"), stmts) {
+		p.token(p.at(b, "Lbrace"), "{")
+		if len(stmts) == 1 {
+			p.space()
+			p.stmt(stmts[0])
+			p.space()
+		}
+		p.token(p.at(b, "Rbrace"), "}")
+		return
+	}
+	p.openBody(p.at(b, "Lbrace"))
+	p.stmtList(stmts)
+	p.closeBody(p.at(b, "Rbrace"), "}")
+}
+
+// blockOneLine reports whether a function-body-like block prints on one line.
+func blockOneLine(p *Printer, b int) bool { p.oneLine(p.at(b, "Lbrace"), p.at(b, "Rbrace"), p.ks(b, "List")) }
+
+// indexDepth is the depth of an index element: gofmt's depth+1, except for
+// a union of types, which keeps its blanks as a failure row does.
+func indexDepth(p *Printer, x int, depth int) int {
+	if p.fam(x) == "BinaryExpr" && p.n(x, "Op") == tokenOR {
+		return 1
+	}
+	depth + 1
+}
+
+func stmtList(p *Printer, stmts []int) {
+	for i, x in stmts {
+		p.bodyLine(i)
+		p.stmt(x)
+	}
+}
+
+// sameLine reports whether the source has x on one line: an if or for
+// written on one line keeps its one-statement blocks on that line.
+func sameLine(p *Printer, x int) bool { p.ln(p.start(x)) == p.ln(p.stop(x)) }
+
+func stmt(p *Printer, x int) {
+	match p.fam(x) {
+	case "ExprStmt":
+		p.expr(p.k(x, "X"))
+	case "DeclStmt":
+		p.letDecl(p.k(x, "Decl"))
+	case "AssignStmt":
+		p.exprList(p.ks(x, "Lhs"), 1)
+		p.space()
+		p.token(p.at(x, "TokPos"), tokenText(p.n(x, "Tok")))
+		p.assignRHS(p.ks(x, "Rhs"))
+	case "ReturnStmt":
+		p.token(p.at(x, "Return"), "return")
+		let results = p.ks(x, "Results")
+		if len(results) > 0 {
+			p.space()
+			p.exprList(results, 1)
+		}
+	case "BranchStmt":
+		p.token(p.at(x, "TokPos"), tokenText(p.n(x, "Tok")))
+	case "AssertStmt":
+		p.token(p.at(x, "Assert"), "assert")
+		p.space()
+		p.expr(p.k(x, "X"))
+	case "BlockStmt":
+		p.block(x, false)
+	case "IfStmt":
+		p.ifStmt(x, p.sameLine(x))
+	case "SwitchStmt":
+		p.token(p.at(x, "Switch"), "match")
+		p.space()
+		p.expr(p.k(x, "Tag"))
+		p.space()
+		p.caseClauses(x)
+	case "TypeSwitchStmt":
+		p.token(p.at(x, "Switch"), "match")
+		p.space()
+		let subjects = p.ks(x, "Subjects")
+		if len(subjects) == 1 {
+			p.expr(p.k(subjects[0], "X"))
+		} else {
+			p.synth("(")
+			for i, g in subjects {
+				if i > 0 {
+					p.synth(",")
+					p.space()
+				}
+				p.expr(p.k(g, "X"))
+			}
+			p.synth(")")
+		}
+		p.space()
+		p.caseClauses(x)
+	case "ForStmt":
+		p.token(p.at(x, "For"), "for")
+		if p.hasK(x, "Cond") {
+			p.space()
+			p.expr(p.k(x, "Cond"))
+		}
+		p.space()
+		p.block(p.k(x, "Body"), p.sameLine(x))
+	case "RangeStmt":
+		p.token(p.at(x, "For"), "for")
+		p.space()
+		if p.hasK(x, "Key") {
+			p.expr(p.k(x, "Key"))
+			p.synth(",")
+			p.space()
+		}
+		p.expr(p.k(x, "Value"))
+		p.space()
+		p.token(p.at(x, "Range"), "in")
+		p.space()
+		p.expr(p.k(x, "X"))
+		p.space()
+		p.block(p.k(x, "Body"), p.sameLine(x))
+	case _:
+	}
+}
+
+func ifStmt(p *Printer, x int, oneLineOK bool) {
+	p.token(p.at(x, "If"), "if")
+	p.space()
+	p.expr(p.k(x, "Cond"))
+	p.space()
+	p.block(p.k(x, "Body"), oneLineOK)
+	if p.hasK(x, "Else") {
+		p.space()
+		p.token(p.at(x, "ElsePos"), "else")
+		p.space()
+		let e = p.k(x, "Else")
+		if p.fam(e) == "IfStmt" {
+			p.ifStmt(e, oneLineOK)
+		} else {
+			p.block(e, oneLineOK)
+		}
+	}
+}
+
+// clauses prints the clause list of a match or catch: each case at the
+// statement's indentation, its body one level in. arms are the clauses,
+// each with Case, its patterns in the field patterns, Colon and Body.
+func clauses(p *Printer, lbrace int, arms []int, patterns string, rbrace int) {
+	let base = p.L.Indent
+	p.token(lbrace, "{")
+	p.L.step(NoBlank)
+	for i, arm in arms {
+		if i > 0 {
+			p.newline()
+			p.flushClauseComments(p.at(arm, "Case"))
+			p.L.step(SetIndent{To: base})
+			p.newline()
+		} else {
+			p.newlineNoBlank()
+		}
+		p.caseHead(p.at(arm, "Case"), p.ks(arm, patterns), p.at(arm, "Colon"))
+		p.L.step(SetIndent{To: base + 1})
+		p.stmtList(p.ks(arm, "Body"))
+	}
+	if len(arms) > 0 {
+		p.newline()
+		p.flushClauseComments(rbrace)
+	}
+	p.L.step(SetIndent{To: base})
+	p.newline()
+	p.flushComments(rbrace)
+	p.newlineNoBlank()
+	p.token(rbrace, "}")
+}
+
+// caseHead prints `case P, Q:`, or `case _:` for an empty list.
+func caseHead(p *Printer, casePos int, patterns []int, colon int) {
+	p.token(casePos, "case")
+	p.space()
+	if len(patterns) == 0 {
+		p.synth("_")
+	} else {
+		p.exprList(patterns, 1)
+	}
+	p.token(colon, ":")
+}
+
+func caseClauses(p *Printer, x int) {
+	p.clauses(p.at(x, "Lbrace"), p.ks(x, "Clauses"), "List", p.at(x, "Rbrace"))
+}
+
+// ---------------------------------------------------------------- expressions
+
+func expr(p *Printer, x int) { p.expr1(x, 1) }
+
+func basicLit(p *Printer, x int) { p.tokenEnd(p.at(x, "ValuePos"), p.s(x, "Value"), p.at(x, "ValueEnd")) }
+
+func expr1(p *Printer, x int, depth int) {
+	match p.fam(x) {
+	case "Ident":
+		p.ident(x)
+	case "BasicLit":
+		p.basicLit(x)
+	case "InterpolatedString":
+		let exprs = p.ks(x, "Exprs")
+		for i, text in p.ks(x, "Texts") {
+			p.basicLit(text)
+			if i < len(exprs) {
+				p.expr(exprs[i])
+			}
+		}
+	case "BinaryExpr":
+		if p.n(x, "Op") == tokenDOTDOT {
+			// `a..b` is written without blanks, its bounds as operands
+			// of a nested binary expression (Rust's rustfmt: `0..n`).
+			p.binaryOperand(p.k(x, "X"), depth+1)
+			p.token(p.at(x, "OpPos"), "..")
+			p.binaryOperand(p.k(x, "Y"), depth+1)
+			return
+		}
+		// A line break after an operator indents the rest of the binary
+		// expression once (gofmt).
+		let indented = p.binaryBreaks(x)
+		if indented {
+			p.indent(1)
+		}
+		p.binary(x, depth)
+		if indented {
+			p.indent(-1)
+		}
+	case "UnaryExpr":
+		p.token(p.at(x, "OpPos"), tokenText(p.n(x, "Op")))
+		p.expr1(p.k(x, "X"), depth)
+	case "StarExpr":
+		p.token(p.at(x, "Star"), "*")
+		p.expr1(p.k(x, "X"), 1)
+	case "ParenExpr":
+		p.token(p.at(x, "Lparen"), "(")
+		let inner = p.k(x, "X")
+		let broken = p.gap(p.start(inner), false)
+		if broken {
+			p.L.step(NoBlank)
+			p.indent(1)
+		}
+		p.expr1(inner, maxOf(depth-1, 1))
+		if broken {
+			p.indent(-1)
+		}
+		p.gap(p.at(x, "Rparen"), false)
+		p.token(p.at(x, "Rparen"), ")")
+	case "SelectorExpr":
+		let base = p.k(x, "X")
+		p.expr1(base, depth)
+		if p.fam(base) == "BasicLit" && (p.n(base, "Kind") == tokenINT || p.n(base, "Kind") == tokenFLOAT) {
+			// `0 .A` printed as `0.A` would scan as the number `0.`; a
+			// blank keeps the tokens apart (go/printer's mayCombine).
+			p.space()
+		}
+		p.synth(".")
+		let sel = p.k(x, "Sel")
+		if p.breakBefore(p.start(sel)) {
+			p.indent(1)
+			p.newline()
+			p.ident(sel)
+			p.indent(-1)
+		} else {
+			p.ident(sel)
+		}
+	case "IndexExpr":
+		p.expr1(p.k(x, "X"), depth)
+		let indices = p.ks(x, "Indices")
+		p.list(p.at(x, "Lbrack"), "[", p.starts(indices), func(i int) { p.expr1(indices[i], p.indexDepth(indices[i], depth)) }, p.at(x, "Rbrack"), "]")
+	case "SliceExpr":
+		p.expr1(p.k(x, "X"), depth)
+		p.token(p.at(x, "Lbrack"), "[")
+		p.slice(x, depth)
+		p.token(p.at(x, "Rbrack"), "]")
+	case "TypeGuard":
+		p.expr1(p.k(x, "X"), depth)
+	case "CallExpr":
+		p.call(x, depth)
+	case "CompositeLit":
+		if p.hasK(x, "Type") {
+			p.expr1(p.k(x, "Type"), depth)
+		}
+		let elts = p.ks(x, "Elts")
+		if !p.hasK(x, "Base") {
+			p.list(p.at(x, "Lbrace"), "{", p.starts(elts), func(i int) { p.element(elts[i]) }, p.at(x, "Rbrace"), "}")
+			return
+		}
+		// A record update: `..base` is the first item of the list, so it
+		// shares the line rules of the fields after it.
+		let mut itemStarts = []int{p.at(x, "DotDot")}
+		for e in elts {
+			itemStarts = itemStarts.Append(p.start(e))
+		}
+		p.list(p.at(x, "Lbrace"), "{", itemStarts, func(i int) {
+			if i == 0 {
+				p.token(p.at(x, "DotDot"), "..")
+				p.expr(p.k(x, "Base"))
+				return
+			}
+			p.element(elts[i-1])
+		}, p.at(x, "Rbrace"), "}")
+	case "KeyValueExpr":
+		p.element(x)
+	case "AsPattern":
+		p.expr1(p.k(x, "X"), depth)
+		p.space()
+		p.token(p.at(x, "As"), "as")
+		p.space()
+		p.ident(p.k(x, "Name"))
+	case "FuncLit":
+		p.funcType(p.k(x, "Type"))
+		p.space()
+		p.block(p.k(x, "Body"), true)
+	case "TryExpr":
+		p.token(p.at(x, "Try"), "try")
+		p.space()
+		p.expr1(p.k(x, "X"), depth)
+	case "CatchExpr":
+		p.expr1(p.k(x, "X"), depth)
+		p.space()
+		p.token(p.at(x, "Catch"), "catch")
+		p.space()
+		p.clauses(p.at(x, "Lbrace"), p.ks(x, "Arms"), "Types", p.at(x, "Rbrace"))
+	case "ContextLit":
+		p.printContext(p.at(x, "Context"), x)
+	case "IfStmt":
+		p.ifStmt(x, p.sameLine(x))
+	case "SwitchStmt", "TypeSwitchStmt":
+		p.stmt(x)
+	case "ArrayType":
+		p.token(p.at(x, "Lbrack"), "[")
+		if p.s(x, "Len") != "" {
+			p.token(p.at(x, "LenPos"), p.s(x, "Len"))
+		}
+		p.synth("]")
+		p.typ(p.k(x, "Elt"))
+	case "MapType":
+		p.token(p.at(x, "Map"), "Map")
+		let params = []int{p.k(x, "Key"), p.k(x, "Value")}
+		p.list(p.at(x, "Lbrack"), "[", p.starts(params), func(i int) { p.typ(params[i]) }, p.at(x, "Rbrack"), "]")
+	case "FuncType":
+		p.funcType(x)
+	case "StructType":
+		p.fieldMembers(p.k(x, "Fields"), false)
+	case "InterfaceType":
+		if len(p.ks(x, "Union")) > 0 {
+			p.unionType(x)
+			return
+		}
+		p.operationType(x)
+	case "MachineType":
+		p.machineType(x)
+	case "ErrorRow":
+		p.token(p.at(x, "Error"), "fails")
+		p.row(p.ks(x, "Types"))
+	case "TupleExpr":
+		let elts = p.ks(x, "Elts")
+		if p.at(x, "Lparen") < 0 {
+			p.exprList(elts, depth)
+			return
+		}
+		p.list(p.at(x, "Lparen"), "(", p.starts(elts), func(i int) { p.expr(elts[i]) }, p.at(x, "Rparen"), ")")
+	case _:
+	}
+}
+
+func call(p *Printer, x int, depth int) {
+	let fun = p.k(x, "Fun")
+	let all = p.ks(x, "Args")
+	if p.fam(fun) == "Ident" && p.s(fun, "Name") == "with" && p.at(x, "Lparen") < 0 {
+		// `with E, F { body }`, the call shape of the with form; one
+		// argument prints without parentheses (#196, D4).
+		p.token(p.at(fun, "NamePos"), "with")
+		p.space()
+		p.exprList(all, 1)
+		p.space()
+		p.block(p.k(x, "Trailing"), true)
+		return
+	}
+	p.expr1(fun, depth)
+	let trailingFunc = p.fl(x, "TrailingFunc")
+	// The trailing function literal goes back after the `)` (grammar.md,
+	// Expressions 9).
+	let args = if trailingFunc { slices.Slice(all, 0, len(all)-1) } else { all }
+	let argDepth = if len(args) > 1 { depth + 1 } else { depth }
+	p.list(p.at(x, "Lparen"), "(", p.starts(args), func(i int) { p.expr1(args[i], argDepth) }, p.at(x, "Rparen"), ")")
+	if trailingFunc {
+		p.space()
+		p.expr1(last(all), depth)
+	}
+	if p.hasK(x, "Trailing") {
+		p.space()
+		p.block(p.k(x, "Trailing"), true)
+	}
+}
+
+func funcType(p *Printer, t int) {
+	if p.at(t, "Escaping") >= 0 {
+		p.token(p.at(t, "Escaping"), "escaping")
+		p.space()
+	}
+	if p.at(t, "Func") >= 0 {
+		p.token(p.at(t, "Func"), "func")
+	}
+	p.signature(t)
+}
+
+// element prints a composite literal element. A keyed element that starts
+// its line aligns its value with the keyed elements of the lines around it.
+func element(p *Printer, x int) {
+	if p.fam(x) != "KeyValueExpr" {
+		p.expr(x)
+		return
+	}
+	let startsLine = !p.L.Started || p.L.PendingNL > 0
+	p.expr(p.k(x, "Key"))
+	p.token(p.at(x, "Colon"), ":")
+	let value = p.k(x, "Value")
+	if p.gap(p.start(value), false) {
+		p.indent(1)
+		p.expr(value)
+		p.indent(-1)
+		return
+	}
+	if startsLine {
+		p.L.step(Separator)
+	} else {
+		p.space()
+	}
+	p.expr(value)
+}
+
+// slice prints the indices of a slice expression with gofmt's blanks: around
+// the colons when more than one index is present and one is binary. An
+// absent index is NoPos.
+func slice(p *Printer, x int, depth int) {
+	let mut indices = []int{p.opt(x, "Low"), p.opt(x, "High")}
+	if p.fl(x, "Slice3") {
+		indices = indices.Append(p.opt(x, "Max"))
+	}
+	let mut blanks = false
+	if depth <= 1 {
+		let mut count = 0
+		let mut binary = false
+		for e in indices {
+			if e >= 0 {
+				count += 1
+				binary = binary || p.fam(e) == "BinaryExpr"
+			}
+		}
+		blanks = count > 1 && binary
+	}
+	for i, e in indices {
+		if i > 0 {
+			if indices[i-1] >= 0 && blanks {
+				p.space()
+			}
+			p.synth(":")
+			if e >= 0 && blanks {
+				p.space()
+			}
+		}
+		if e >= 0 {
+			p.expr1(e, depth+1)
+		}
+	}
+}
+
+// opt is the node of a field, or -1 when it holds none.
+func opt(p *Printer, id int, name string) int { if p.hasK(id, name) { p.k(id, name) } else { -1 } }
+
+// ---------------------------------------------------------------- binary expressions (go/printer's spacing)
+
+// binary prints x with gofmt's blanks: an operator of a precedence at or
+// above the expression's cutoff is written without blanks (x*y + z).
+func binary(p *Printer, x int, depth int) {
+	let op = p.n(x, "Op")
+	let prec = precedence(op)
+	let blank = prec < p.cutoff(x, depth)
+	let left = p.k(x, "X")
+	let right = p.k(x, "Y")
+	p.binaryOperand(left, depth+p.diffPrec(left, prec))
+	if blank {
+		p.space()
+	}
+	p.token(p.at(x, "OpPos"), tokenText(op))
+	p.gap(p.start(right), blank)
+	p.binaryOperand(right, depth+1)
+}
+
+func binaryOperand(p *Printer, x int, depth int) {
+	if p.fam(x) == "BinaryExpr" && p.n(x, "Op") != tokenDOTDOT {
+		p.binary(x, depth)
+		return
+	}
+	p.expr1(x, depth)
+}
+
+// binaryBreaks reports whether the source breaks a line after an operator
+// of the binary expression x or its binary operands.
+func binaryBreaks(p *Printer, x int) bool {
+	if p.ln(p.start(p.k(x, "Y"))) > p.ln(p.at(x, "OpPos")) {
+		return true
+	}
+	for e in []int{p.k(x, "X"), p.k(x, "Y")} {
+		if p.fam(e) == "BinaryExpr" && p.binaryBreaks(e) {
+			return true
+		}
+	}
+	false
+}
+
+func cutoff(p *Printer, e int, depth int) int {
+	let w = p.walkBinary(e)
+	if w.MaxProblem > 0 {
+		return w.MaxProblem + 1
+	}
+	if w.Has4 && w.Has5 {
+		return if depth == 1 { 5 } else { 4 }
+	}
+	if depth == 1 { 6 } else { 4 }
+}
+
+func diffPrec(p *Printer, x int, prec int) int {
+	if p.fam(x) != "BinaryExpr" || prec != precedence(p.n(x, "Op")) {
+		return 1
+	}
+	0
+}
+
+// walkBinary is go/printer's walkBinary, memoised per node: cutoff asks it
+// for every operator of a chain, which would be quadratic in the chain's
+// length.
+func walkBinary(p *Printer, e int) Walk {
+	match p.Walked.Get(e) {
+	case Some[Walk] as done:
+		return done.Value
+	case None:
+	}
+	let op = p.n(e, "Op")
+	let prec = precedence(op)
+	let mut has4 = prec == 4
+	let mut has5 = prec == 5
+	let mut maxProblem = 0
+	let l = p.k(e, "X")
+	if p.fam(l) == "BinaryExpr" && precedence(p.n(l, "Op")) >= prec {
+		let w = p.walkBinary(l)
+		has4 = has4 || w.Has4
+		has5 = has5 || w.Has5
+		maxProblem = maxOf(maxProblem, w.MaxProblem)
+	}
+	let r = p.k(e, "Y")
+	match p.fam(r) {
+	case "BinaryExpr":
+		if precedence(p.n(r, "Op")) > prec {
+			let w = p.walkBinary(r)
+			has4 = has4 || w.Has4
+			has5 = has5 || w.Has5
+			maxProblem = maxOf(maxProblem, w.MaxProblem)
+		}
+	case "StarExpr":
+		if op == tokenQUO {
+			maxProblem = 5
+		}
+	case "UnaryExpr":
+		match tokenText(op) + tokenText(p.n(r, "Op")) {
+		case "/*", "&&", "&^":
+			maxProblem = 5
+		case "++", "--":
+			maxProblem = maxOf(maxProblem, 4)
+		case _:
+		}
+	case _:
+	}
+	let w = Walk{Has4: has4, Has5: has5, MaxProblem: maxProblem}
+	p.Walked[e] = w
+	w
+}

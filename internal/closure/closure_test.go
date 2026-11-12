@@ -152,6 +152,7 @@ var declared = map[string][]allowance{
 		[]allowance{
 			{"examples", subtree, "TestSelfhostBridgeAgrees parses every examples/**/*.ergo through the Go adapter and the Ergo decoder (filepath.WalkDir)"},
 			{"internal/sketch/syntax/testdata/corpus", subtree, "the bridge property's inputs include sketchtest.Positive, whose Corpus walks the parser's corpus (filepath.WalkDir)"},
+			{"internal/sketch/format/testdata/fuzz/FuzzFormat", subtree, "TestSelfhostFormatAgrees's inputs include the formatter's checked-in fuzz seeds (fuzzSeeds reads the folder)"},
 		},
 		glob("docs/spec/*.md", "the bridge property's inputs include every go fence of the language spec (sketchtest.SpecFences)"),
 		glob("docs/research/ef-migrate/*.ergo", "the bridge property's inputs include the migrated examples (sketchtest.Repository)"),

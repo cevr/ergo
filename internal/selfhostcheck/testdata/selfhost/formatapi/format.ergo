@@ -1,9 +1,16 @@
 // Package formatapi is the self-hosting pilot's library root: `ergo lib`
-// exports its functions to Go. SH0 exports Project, the tracer of the
-// parser boundary; SH1 adds the formatter's entries.
+// exports its functions to Go. It is the composition root of the library:
+// it binds the format package's Parser capability to the Go parser through
+// the adapter hostsyntax, and turns typed outcomes into primitive encodings
+// a Go caller reads. It makes no layout decision.
+//
+// Project (SH0) is the tracer of the parser boundary. Format, FormatTree,
+// Steps and Laws (SH1) run the Ergo formatter.
 
 import go ergo.local/prototype/selfhost/hostsyntax
+import selfhost/format
 import selfhost/tree
+import strings
 
 // Project parses src with the Go parser, decodes the adapter's encoding into
 // the Ergo tree and returns the tree's projection (tree.Project), or the
@@ -21,4 +28,139 @@ func Project(src string) string needs go.Foreign {
 		return "badencoding \(b.Reason) at \(b.At)\n"
 	}
 	tree.Project(t)
+}
+
+// parseGo is the Go parser, through the adapter's encoding.
+func parseGo(src string) tree.Tree fails tree.SyntaxFailure | format.InvalidTree needs go.Foreign {
+	format.Decoded(hostsyntax.Parse(src))
+}
+
+// Format is format.Source over the Go parser, as an outcome: "ok\n" and
+// the text, "syntax <code> <len>:<message> <offset> <length> <line>
+// <column>\n", "limit <n>\n", or "invalid <node> <reason>\n".
+func Format(src string, limit int) string needs go.Foreign {
+	let text = format.Source(src, limit, parseGo) catch {
+	case tree.SyntaxFailure as f:
+		return syntaxOutcome(f)
+	case format.OutputLimit as o:
+		return "limit \(o.Limit)\n"
+	case format.InvalidTree as i:
+		return "invalid \(i.Node) \(i.Reason)\n"
+	}
+	"ok\n" + text
+}
+
+func syntaxOutcome(f tree.SyntaxFailure) string {
+	"syntax \(f.Code) \(len(f.Message)):" + f.Message + " \(f.Offset) \(f.Length) \(f.Line) \(f.Column)\n"
+}
+
+// FormatTree lays out a tree given as the adapter's encoding, with no
+// parse: the layout's cost alone, beside the decode. Its outcome is
+// Format's.
+func FormatTree(encoding string, limit int) string {
+	let t = format.Decoded(encoding) catch {
+	case tree.SyntaxFailure as f:
+		return syntaxOutcome(f)
+	case format.InvalidTree as i:
+		return "invalid \(i.Node) \(i.Reason)\n"
+	}
+	let r = format.Print(t, limit) catch {
+	case format.OutputLimit as o:
+		return "limit \(o.Limit)\n"
+	case format.InvalidTree as i:
+		return "invalid \(i.Node) \(i.Reason)\n"
+	}
+	"ok\n" + r.Text
+}
+
+// Laws is format.CheckLaws over the Go parser: "ok\n" or the broken laws.
+func Laws(src string) string needs go.Foreign {
+	format.CheckLaws(src, parseGo)
+}
+
+// Steps drives the layout state by an encoded command list and renders it:
+// "ok <built>\n" and the text, "limit <n> built <bytes>\n", or "bad <offset>\n"
+// for a list it cannot read. Each command is one letter: s Space,
+// n Newline, b NoBlank, e0 or e1 Emit (with the source's blank line),
+// w<len>:<text> Write, p<len>:<text> Put, | Separator, i<n>; Indent,
+// t<n>; SetIndent, l EndLine.
+func Steps(commands string, limit int) string {
+	let list = readCommands(commands) catch {
+	case BadCommand as b:
+		return "bad \(b.At)\n"
+	}
+	let r = format.Steps(list, limit) catch {
+	case format.OutputLimit as o:
+		return "limit \(o.Limit) built \(o.Built)\n"
+	}
+	"ok \(r.Built)\n" + r.Text
+}
+
+// BadCommand is a command list Steps cannot read, at a byte.
+type BadCommand { At int }
+
+func readCommands(w string) []format.Command fails BadCommand {
+	let mut out = []format.Command{}
+	let mut at = 0
+	for at < len(w) {
+		let c = w[at]
+		match c {
+		case 's':
+			out = out.Append(format.Space)
+			at += 1
+		case 'n':
+			out = out.Append(format.Newline)
+			at += 1
+		case 'b':
+			out = out.Append(format.NoBlank)
+			at += 1
+		case '|':
+			out = out.Append(format.Separator)
+			at += 1
+		case 'l':
+			out = out.Append(format.EndLine)
+			at += 1
+		case 'e':
+			if at+1 >= len(w) || w[at+1] != '0' && w[at+1] != '1' {
+				return BadCommand{At: at}
+			}
+			out = out.Append(format.Emit{Blank: w[at+1] == '1'})
+			at += 2
+		case 'w', 'p':
+			let (n, start) = try decimalAt(w, at+1, ':')
+			if n < 0 || n > len(w)-start {
+				return BadCommand{At: at}
+			}
+			let text = strings.Slice(w, start, start+n)
+			out = out.Append(if c == 'w' { format.Write{Text: text} } else { format.Put{Text: text} })
+			at = start + n
+		case 'i', 't':
+			let (n, next) = try decimalAt(w, at+1, ';')
+			out = out.Append(if c == 'i' { format.Indent{By: n} } else { format.SetIndent{To: n} })
+			at = next
+		case _:
+			return BadCommand{At: at}
+		}
+	}
+	out
+}
+
+// decimalAt reads an optionally negative decimal at at, ended by stop: its
+// value and the offset after stop.
+func decimalAt(w string, at int, stop byte) (int, int) fails BadCommand {
+	let mut i = at
+	let negative = i < len(w) && w[i] == '-'
+	if negative {
+		i += 1
+	}
+	let digits = i
+	let mut n = 0
+	for i < len(w) && w[i] >= '0' && w[i] <= '9' {
+		n = n*10 + int(w[i]-'0')
+		i += 1
+	}
+	if i == digits || i >= len(w) || w[i] != stop {
+		return BadCommand{At: at}
+	}
+	(if negative { -n } else { n }, i + 1)
 }
