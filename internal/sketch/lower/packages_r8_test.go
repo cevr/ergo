@@ -308,7 +308,7 @@ func r8Program(seed int64, n int, refuse bool) []pkgSource {
 		var text strings.Builder
 		fmt.Fprintf(&text, "type A%[1]d { N int }\nfunc a%[1]d(n int) int fails A%[1]d {\n\tif n == %[1]d {\n\t\treturn A%[1]d{N: %[1]d}\n\t}\n\tn\n}\n", k)
 		fmt.Fprintf(&text, "func esc%d() int fails E[func(g %sfunc())] { %d }\n", k, mode, k)
-		escRow["E[func(g " + mode + "func())]"] = true
+		escRow["E[func(g "+mode+"func())]"] = true
 		ty := tys[r.Intn(len(tys))]
 		inf := "Box[func() fails Err[" + ty + "]]"
 		infRow[inf] = true
