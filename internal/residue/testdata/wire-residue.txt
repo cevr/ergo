@@ -15,6 +15,19 @@
 !internal/migrate196/oldsyntax/
 
 # network sense: wire formats, wire keys and forms of a codec, codec functions named Wire, bytes on the wire (decision 4)
+internal/sketch/check/wireform.go	*
+internal/sketch/check/wireform_test.go	*
+internal/sketch/lower/wireform_test.go	*
+docs/spec/types.md	8. **Declared wire forms.**
+docs/spec/types.md	A marker with the wrong structural shape is S108 when used as `wire`.
+docs/spec/types.md	A structural form cannot also declare an independent Parse/Wire pair;
+docs/spec/types.md	with a single wire payload.
+docs/spec/types.md	Parse/Wire pair (rule 1). Its wire string
+docs/spec/types.md	two-field record, first a string key and then a wire value.
+docs/spec/types.md	Construction authority and wire admission
+docs/spec/types.md	Parse/Wire form or refinement that direct field access would bypass.
+internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/lower/wire.go"
+internal/sketch/std/prelude.ergo	// WireForm(x X)'s result declares X's representation to the wire protocol.
 internal/sketch/std/toml/toml.ergo	func Decode[T wire](c json.Codec[T], text string) T fails Malformed | wired[T] {
 cmd/ergo/tsmap.go	*
 internal/tsproj/accept_test.go	*

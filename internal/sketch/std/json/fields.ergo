@@ -5,6 +5,7 @@
 type Absent {}
 type Present[T] { Value T }
 type Optional[T] = Absent | Present[T]
+func WireForm[T](x Optional[T]) WireOmittable { WireOmittable }
 
 // Nullable writes null or the value directly. A Nullable record field is
 // required: a missing key is WireMissingField, not Null. Optional[Nullable[T]]
@@ -12,3 +13,4 @@ type Optional[T] = Absent | Present[T]
 type Null {}
 type NonNull[T] { Value T }
 type Nullable[T] = Null | NonNull[T]
+func WireForm[T](x Nullable[T]) WireNullable { WireNullable }

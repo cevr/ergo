@@ -3,6 +3,7 @@ package residue_test
 import (
 	"bufio"
 	"go/ast"
+	"go/constant"
 	"go/parser"
 	"go/token"
 	"go/types"
@@ -10,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -21,7 +21,9 @@ import (
 // category, abi: a backend binding. A runtime type representation, a
 // prelude collection wrapper or a std extern's ABI: the lowering must know
 // which Go form stands for the declaration, so the name is the binding.
-// No optimizer selects a faster form by a std name: OPT6 retired
+// Apart from the pre-existing json Text path sanctioned by owner q108
+// until LR3 removes it, no optimizer selects a faster form by a std name:
+// OPT6 retired
 // maps.Update fusion, sync's owned handover and WithCapacity freshness,
 // and OPT6b the machines Run/From flat run, through general facts
 // (Ergo-side inlining of an ordinary body, a runtime body's form, copies
@@ -29,7 +31,7 @@ import (
 // fails.
 //
 // A name-keyed decision is a function of a non-test file of the lowering
-// that compares a .Name or .Path selector with a string literal (== or
+// that compares a .Name or .Path selector with a constant string (== or
 // !=, or a switch on the selector with string cases). The literals "_" and
 // "main" are the blank name and the program entry, which the language
 // defines; they are not std names. Every such function must be listed,
@@ -50,6 +52,9 @@ func TestLoweringKeysOnNoStdName(t *testing.T) {
 		t.Fatalf("git ls-files: %v", err)
 	}
 	found := map[string]bool{}
+	fset := token.NewFileSet()
+	var files []*ast.File
+	names := map[*ast.File]string{}
 	for _, name := range strings.Split(strings.TrimSuffix(string(list), "\x00"), "\x00") {
 		if name == "" || strings.HasSuffix(name, "_test.go") || strings.Contains(strings.TrimPrefix(name, "internal/sketch/lower/"), "/") {
 			continue
@@ -58,8 +63,19 @@ func TestLoweringKeysOnNoStdName(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, fn := range nameKeyedFuncs(t, name, src) {
-			found[filepath.Base(name)+":"+fn] = true
+		f, err := parser.ParseFile(fset, name, src, 0)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		files = append(files, f)
+		names[f] = name
+	}
+	info := &types.Info{Types: map[ast.Expr]types.TypeAndValue{}}
+	conf := types.Config{Error: func(error) {}}
+	_, _ = conf.Check("lower", fset, files, info)
+	for _, f := range files {
+		for _, fn := range nameKeyedFuncs(f, info) {
+			found[filepath.Base(names[f])+":"+fn] = true
 		}
 	}
 	listed := readStdNames(t)
@@ -108,13 +124,18 @@ func readStdNames(t *testing.T) map[string]string {
 }
 
 // nameKeyedFuncs are the functions of src (a method as Recv.Name) that
-// compare a .Name or .Path selector with a string literal.
-func nameKeyedFuncs(t *testing.T, name string, src []byte) []string {
-	t.Helper()
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, name, src, 0)
-	if err != nil {
-		t.Fatalf("%s: %v", name, err)
+// compare a .Name or .Path selector with a constant string. go/types
+// evaluates aliases, concatenations and package-local constants across
+// files too. Unresolved
+// imports/types do not prevent it from evaluating independent constants.
+func nameKeyedFuncs(f *ast.File, info *types.Info) []string {
+	stdConst := func(x ast.Expr) bool {
+		value := info.Types[x].Value
+		if value == nil || value.Kind() != constant.String {
+			return false
+		}
+		s := constant.StringVal(value)
+		return s != "_" && s != "main" && types.Universe.Lookup(s) == nil
 	}
 	var out []string
 	for _, d := range f.Decls {
@@ -126,14 +147,14 @@ func nameKeyedFuncs(t *testing.T, name string, src []byte) []string {
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
 			switch n := n.(type) {
 			case *ast.BinaryExpr:
-				if (n.Op == token.EQL || n.Op == token.NEQ) && (nameSel(n.X) && stdLit(n.Y) || nameSel(n.Y) && stdLit(n.X)) {
+				if (n.Op == token.EQL || n.Op == token.NEQ) && (nameSel(n.X) && stdConst(n.Y) || nameSel(n.Y) && stdConst(n.X)) {
 					keyed = true
 				}
 			case *ast.SwitchStmt:
 				if n.Tag != nil && nameSel(n.Tag) {
 					for _, c := range n.Body.List {
 						for _, e := range c.(*ast.CaseClause).List {
-							if stdLit(e) {
+							if stdConst(e) {
 								keyed = true
 							}
 						}
@@ -166,21 +187,10 @@ func nameSel(x ast.Expr) bool {
 	return ok && (s.Sel.Name == "Name" || s.Sel.Name == "Path")
 }
 
-// stdLit reports a string literal that may name a std declaration: any
-// but the blank name, the program entry and a name Go predeclares (make,
-// nil: the host language's own, which a fact about a Go body reads).
-func stdLit(x ast.Expr) bool {
-	b, ok := x.(*ast.BasicLit)
-	if !ok || b.Kind != token.STRING {
-		return false
-	}
-	s, err := strconv.Unquote(b.Value)
-	return err == nil && s != "_" && s != "main" && types.Universe.Lookup(s) == nil
-}
-
 // stdNamesBaseline is testdata/std-names.txt as OPT6 left it (the rule
 // landed with OPT4a): `category file:function`. A line may leave the
-// inventory; none may join.
+// inventory; none may join. CF1 corrects the old literal-only scanner's
+// missed, owner-sanctioned Text site (q108); LR3 removes that site.
 var stdNamesBaseline = []string{
 	"abi calls.go:funcCtx.callee",
 	"abi calls.go:lowerer.hostImportNames",
@@ -196,4 +206,5 @@ var stdNamesBaseline = []string{
 	"abi types.go:lowerer.foreignOwner",
 	"abi values.go:preludeAppend",
 	"abi values.go:preludeMapWrite",
+	"abi wirejson.go:isJSONText",
 }
