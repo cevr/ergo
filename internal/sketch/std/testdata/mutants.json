@@ -17,6 +17,14 @@
       "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
       "anchor": {"tests": ["std:TestExternArgumentClauses"]},
       "killers": ["std:TestExternArgumentClauses"]
+    },
+    {
+      "name": "lint4-ledger-pair-sliced", "origin": "wf10 LINT4 r2",
+      "file": "internal/sketch/std/laws_test.go",
+      "from": "\tif d.Pair != nil {\n\t\treturn pairStatement(f, d)\n\t}\n", "to": "",
+      "rule": "The ledger reads a derived pair law's statement as pair.go derives it, never as a slice of its source (bug: a std file with a by-name pair panics the ledger).",
+      "anchor": {"tests": ["std:TestPairLawStatement"]},
+      "killers": ["std:TestPairLawStatement"]
     }
   ]
 }

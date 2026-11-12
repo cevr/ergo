@@ -2,6 +2,7 @@ package std_test
 
 import (
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -229,9 +230,41 @@ var spaces = regexp.MustCompile(`\s+`)
 
 // lawStatement is the source text of d from its name to its closing
 // brace, with each run of white space made one space: the Statement cell
-// of its ledger row.
+// of its ledger row. The round-trip law of a by-name pair (d.Pair) has no
+// source text: the parser derives it after the file's declarations, at
+// the Wire's position (syntax/pair.go). Its statement is the law as
+// pair.go's doc writes it, with X, ParseX and the drawn parameter's type
+// as the file spells them.
 func lawStatement(f *syntax.File, d *syntax.LawDecl) string {
+	if d.Pair != nil {
+		return pairStatement(f, d)
+	}
 	return spaces.ReplaceAllString(f.Src[d.Name.Pos():d.Body.End()], " ")
+}
+
+// pairStatement is the statement of the round-trip law d the parser
+// derived from a by-name pair: over a drawn x of an open X, else over a
+// drawn b through ParseX, with catch and try only when ParseX fails.
+func pairStatement(f *syntax.File, d *syntax.LawDecl) string {
+	param := d.Params.List[0]
+	x := strings.TrimSuffix(d.Name.Name, "RoundTrips")
+	_, fails := d.Body.List[len(d.Body.List)-1].(*syntax.ExprStmt).X.(*syntax.TryExpr)
+	held := "Parse" + x + "(x.Wire()) == x"
+	if fails {
+		held = "try " + held
+	}
+	if open, ok := param.Type.(*syntax.Ident); ok && param.Names[0].Name == "x" {
+		// An open X: the law draws x itself. Its type node is built at
+		// the Wire's position, so it is read by name, not from the source.
+		return fmt.Sprintf("%s(x %s) { %s }", d.Name.Name, open.Name, held)
+	}
+	// B is parsed again from the Wire's own tokens: its source text.
+	b := spaces.ReplaceAllString(f.Src[param.Type.Pos():param.Type.End()], " ")
+	drawn := "Parse" + x + "(b)"
+	if fails {
+		drawn += " catch { case _: return true }"
+	}
+	return fmt.Sprintf("%s(b %s) { let x = %s %s }", d.Name.Name, b, drawn, held)
 }
 
 // sourceLaws are the laws of the std sources by ledger key, "pkg Law" for
@@ -273,6 +306,80 @@ func sourceLaws(t *testing.T, pkgs []stdLawPackage) map[string]string {
 		}
 	}
 	return out
+}
+
+// TestPairLawStatement is the smallest repro of LINT4 bug "a std file
+// with a by-name pair panics the ledger": lawStatement sliced a derived
+// pair law's source from its name, at the Wire's name, to its body's
+// end, at the Wire's func keyword before it, so TestStdLawLedger panicked
+// (slice bounds out of range) on any std file declaring ParseX and Wire
+// together. The statement of a derived law is the law pair.go derives,
+// in its open form and in its drawn form with catch and try.
+//
+// Mutant lint4-ledger-pair-sliced (lawStatement slices every law).
+func TestPairLawStatement(t *testing.T) {
+	const src = `type UnknownKind { Name string }
+
+type On {}
+
+type Off {}
+
+type Mode = On | Off
+
+func ParseMode(name string) Mode fails UnknownKind {
+	if name == "on" {
+		return On{}
+	}
+	if name == "off" {
+		return Off{}
+	}
+	UnknownKind{Name: name}
+}
+
+func Wire(m Mode) string {
+	match m {
+	case On:
+		"on"
+	case Off:
+		"off"
+	}
+}
+
+type Level int
+
+func ParseLevel(n int) Level { Level(n) }
+
+func Wire(l Level) int { int(l) }
+
+type Port int
+
+func ParsePort(text []string) Port fails UnknownKind {
+	if len(text) == 0 {
+		return UnknownKind{Name: ""}
+	}
+	Port(len(text))
+}
+
+func Wire(p Port) []string { []string{"p"} }
+`
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, d := range f.Decls {
+		if l, ok := d.(*syntax.LawDecl); ok {
+			got[l.Name.Name] = lawStatement(f, l)
+		}
+	}
+	want := map[string]string{
+		"ModeRoundTrips":  "ModeRoundTrips(x Mode) { try ParseMode(x.Wire()) == x }",
+		"LevelRoundTrips": "LevelRoundTrips(b int) { let x = ParseLevel(b) ParseLevel(x.Wire()) == x }",
+		"PortRoundTrips":  "PortRoundTrips(b []string) { let x = ParsePort(b) catch { case _: return true } try ParsePort(x.Wire()) == x }",
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("the derived pair laws' statements are\n%q\nwant\n%q", got, want)
+	}
 }
 
 // TestStdLawLedger: each law of std source has exactly one ledger row, each
