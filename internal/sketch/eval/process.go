@@ -93,9 +93,29 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 	if main == nil {
 		return Exit{}, errors.New("eval: the package has no main")
 	}
+	out, ranged, err := runMainOrdered(pkg, main, b, p, mapAscending)
+	if err != nil || !ranged {
+		return out, err
+	}
+	// A for over a Map ran: the outcome counts only when the other order
+	// reaches it too (maporder.go).
+	other, _, err := runMainOrdered(pkg, main, b, p, mapDescending)
+	if err != nil {
+		return out, err
+	}
+	if !sameExit(out, other) && out.Skipped == "" && out.Incomplete == "" {
+		out.Skipped = orderNote
+	}
+	return out, nil
+}
+
+// runMainOrdered is RunMain with every Map visited in order; it says
+// whether a for over a Map ran.
+func runMainOrdered(pkg *check.Package, main *check.Func, b Budget, p Process, order mapOrder) (out Exit, ranged bool, err error) {
 	h := newHost(p)
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, host: h}
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, host: h, mapOrder: order}
 	defer func() {
+		ranged = in.mapRanged
 		if r := recover(); r != nil {
 			ie, ok := r.(internalError)
 			if !ok {
@@ -115,14 +135,14 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 			fmt.Fprintf(&h.stderr, "panic: %s\n", f.reason)
 			out.Status = 2
 		}
-		return out, nil
+		return out, false, nil
 	}
 	fr := in.newFrame(pkg, main.Decl)
 	for _, c := range main.Sig.Uses.Elems() {
 		n, ok := c.(*check.Named)
 		if !ok || n.Obj.Pkg == nil || n.Obj.Pkg.Path != "prelude" || n.Obj.Name != "Console" && n.Obj.Name != "Ambient" {
 			out.Skipped, out.Site = fmt.Sprintf("main needs %s, which the host does not provide", c), in.site(pkg, main.Decl, main.Decl.Pos())
-			return out, nil
+			return out, false, nil
 		}
 		fr.caps = &capEnv{key: typeKey(rtype{t: n}), op: &hostCap{name: n.Obj.Name, h: h}, next: fr.caps}
 	}
@@ -131,7 +151,7 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 		return ab
 	})
 	if ab == nil || ab.kind == ctlReturn {
-		return out, nil
+		return out, false, nil
 	}
 	out.Site = in.site(ab.pkg, ab.decl, ab.at)
 	switch ab.kind {
@@ -139,7 +159,7 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 		r, ok := ab.val.(*record)
 		if !ok || r.t.Obj.Pkg == nil || r.t.Obj.Pkg.Path != "os" || r.t.Obj.Name != "Exit" {
 			out.Skipped = "the text of a failure that leaves main, " + describe(ab.val)
-			return out, nil
+			return out, false, nil
 		}
 		code, msg := r.fields[fieldIndex(r.t, "Code")].(int64), r.fields[fieldIndex(r.t, "Message")].(string)
 		h.stderr.WriteString(msg + "\n")
@@ -164,7 +184,7 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 	default:
 		ice("the control %d left main", ab.kind)
 	}
-	return out, nil
+	return out, false, nil
 }
 
 func newHost(p Process) *host {

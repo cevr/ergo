@@ -180,7 +180,29 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	if b.Bytes == 0 {
 		b.Bytes = defaultBytes
 	}
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}}
+	rep, ranged, err := runOrdered(pkg, b, mapAscending)
+	if err != nil || !ranged {
+		return rep, err
+	}
+	// A for over a Map ran: only what the other order also reaches is a
+	// verdict (maporder.go).
+	other, _, err := runOrdered(pkg, b, mapDescending)
+	if err != nil {
+		return rep, err
+	}
+	for i := range rep.Results {
+		if i >= len(other.Results) || !sameResult(rep.Results[i], other.Results[i]) {
+			r := &rep.Results[i]
+			r.Status, r.Reason, r.Case, r.Arguments = Skipped, orderNote, 0, nil
+		}
+	}
+	return rep, nil
+}
+
+// runOrdered is Run with every Map visited in order; it says whether a
+// for over a Map ran.
+func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, ranged bool, err error) {
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order}
 	rep.Limit, rep.BytesLimit = b.Steps, b.Bytes
 	defer func() {
 		if r := recover(); r != nil {
@@ -233,7 +255,7 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 		}
 	}
 	rep.Steps, rep.Bytes = in.steps, in.bytes
-	return rep, nil
+	return rep, in.mapRanged, nil
 }
 
 func lawName(l *check.Law) string {

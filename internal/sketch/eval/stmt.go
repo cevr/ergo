@@ -133,22 +133,18 @@ func loopBody(ab *abrupt) (bool, *abrupt) {
 // rangeStmt runs a for-in over the domain the checker recorded (types.md,
 // Loops and len 1, 7): a slice's initial header with live element writes,
 // an array's initial value, a string's runes as Go decodes them, or a Range counting
-// up from Start, End excluded. A Map's order is unspecified, so a for over
-// one has no verdict the Go target is sure to share: a skip (plan section
-// 4). A Seq calls a function value, which a pure frame never does.
+// up from Start, End excluded. A Map's order is unspecified: maporder.go
+// runs it in each of two orders. A Seq calls a function value.
 func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	l := fr.info.Loops[s]
 	if l == nil {
 		ice("a for-in with no Loops entry")
 	}
-	if l.Domain == check.LoopMap {
-		return fr.unsupported(s, "a for over a Map, whose order the Go target leaves unspecified")
-	}
 	var root *slot
 	var path []step
 	var dom Value
 	var ab *abrupt
-	if l.Domain == check.LoopSlice {
+	if l.Domain == check.LoopSlice || l.Domain == check.LoopMap {
 		dom, root, ab = in.peekPath(fr, s.X, &path)
 		if root != nil {
 			root.lend()
@@ -161,6 +157,9 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	}
 	if ab != nil {
 		return ab
+	}
+	if l.Domain == check.LoopMap {
+		return in.rangeMap(fr, s, dom.(mapV), root, path) // maporder.go
 	}
 	if l.Domain == check.LoopSeq {
 		// A Seq a native made: a queue's Values, each step a Pop, ending

@@ -51,10 +51,6 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 		switch x := n.(type) {
 		case *syntax.FuncLit:
 			return false // only a known immediately-called literal is reached
-		case *syntax.RangeStmt:
-			if _, ok := fr.rtypeOf(x.X).under().t.(*check.Map); ok {
-				why = "Map iteration has unspecified order"
-			}
 		case *syntax.CallExpr:
 			c := fr.info.Calls[x]
 			if c == nil {

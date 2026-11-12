@@ -35,6 +35,10 @@ type interp struct {
 	// initials are the machines' initial values, computed once after
 	// every let (machine.go initMachines).
 	initials map[*check.TypeName]Value
+	// mapOrder is the order this run visits a Map's keys in, and
+	// mapRanged says a for over a Map ran (maporder.go).
+	mapOrder  mapOrder
+	mapRanged bool
 }
 
 // frame is one running body: a test, a law, a function call or a call of

@@ -30,7 +30,7 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids", "bits"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids", "bits", "maps"}
 
 const mainPrelude = `import actor
 import bits
@@ -316,7 +316,9 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(15) {
+		switch g.r.IntN(16) {
+		case 15:
+			g.maps(k)
 		case 14:
 			g.bits(k)
 		case 13:
@@ -788,6 +790,65 @@ func (g *mainGen) actor(k int) {
 	} else {
 		fmt.Fprintf(&g.out, "s%d halted %d\n", k, n)
 	}
+}
+
+// maps: fors over a seeded Map whose outcome no order decides: a count
+// and a sum; a loop that deletes every other key at its first entry
+// (Go visits no deleted entry, so one entry is visited in any order); a
+// loop that zeroes every other value at its first entry (each entry's
+// value is read when it is reached, so one value is not zero).
+func (g *mainGen) maps(k int) {
+	g.kinds["maps"]++
+	m := map[int]int{}
+	var lits []string
+	for range g.r.IntN(6) {
+		key, v := g.r.IntN(20)-5, 1+g.r.IntN(9)
+		if _, dup := m[key]; dup {
+			continue
+		}
+		m[key] = v
+		lits = append(lits, fmt.Sprintf("%d: %d", key, v))
+	}
+	g.line("")
+	g.line("func s%d() needs Console {", k)
+	g.line("\tlet m = Map[int, int]{%s}", strings.Join(lits, ", "))
+	g.line("\tlet mut n = 0")
+	g.line("\tlet mut sum = 0")
+	g.line("\tfor key, v in m {")
+	g.line("\t\tn = n + 1")
+	g.line("\t\tsum = sum + key * v")
+	g.line("\t}")
+	g.line("\tlet mut d = m")
+	g.line("\tlet mut seen = 0")
+	g.line("\tfor key, _ in d {")
+	g.line("\t\tseen = seen + 1")
+	g.line("\t\tfor o, _ in m {")
+	g.line("\t\t\tif o != key {")
+	g.line("\t\t\t\td = d.Delete(o)")
+	g.line("\t\t\t}")
+	g.line("\t\t}")
+	g.line("\t}")
+	g.line("\tlet mut z = m")
+	g.line("\tlet mut live = 0")
+	g.line("\tfor key, v in z {")
+	g.line("\t\tif v != 0 {")
+	g.line("\t\t\tlive = live + 1")
+	g.line("\t\t}")
+	g.line("\t\tfor o, _ in m {")
+	g.line("\t\t\tif o != key {")
+	g.line("\t\t\t\tz[o] = 0")
+	g.line("\t\t\t}")
+	g.line("\t\t}")
+	g.line("\t}")
+	g.line("\tConsole.Println(\"s%d \\(n) \\(sum) \\(seen) \\(len(d)) \\(live)\")", k)
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
+	sum := 0
+	for key, v := range m {
+		sum += key * v
+	}
+	one := min(len(m), 1)
+	fmt.Fprintf(&g.out, "s%d %d %d %d %d %d\n", k, len(m), sum, one, one, one)
 }
 
 // bits: std bits of a seeded uint, slices.Repeat of a seeded list.

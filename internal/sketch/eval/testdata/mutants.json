@@ -804,6 +804,42 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
+      "name": "oracle-o14-one-order",
+      "origin": "wf10 ORACLE O14",
+      "file": "internal/sketch/eval/process.go",
+      "from": "\tout, ranged, err := runMainOrdered(pkg, main, b, p, mapAscending)\n\tif err != nil || !ranged {",
+      "to": "\tout, ranged, err := runMainOrdered(pkg, main, b, p, mapAscending)\n\tif err != nil || !ranged || true {",
+      "rule": "A for over a Map has no order the Go target promises (types.md, Loops and len 1): a main whose outcome one order decides gets no verdict (maporder.go).",
+      "killers": ["internal/sketch/eval:TestMapOrderNeverDecides"]
+    },
+    {
+      "name": "oracle-o14-test-order-kept",
+      "origin": "wf10 ORACLE O14",
+      "file": "internal/sketch/eval/eval.go",
+      "from": "\t\tif i >= len(other.Results) || !sameResult(rep.Results[i], other.Results[i]) {",
+      "to": "\t\tif i >= len(other.Results) {",
+      "rule": "An obligation whose verdict the order of a for over a Map decides is a skip that says so, never a verdict (maporder.go).",
+      "killers": ["internal/sketch/eval:TestMapOrderNeverDecides"]
+    },
+    {
+      "name": "oracle-o14-deleted-visited",
+      "origin": "wf10 ORACLE O14",
+      "file": "internal/sketch/eval/maporder.go",
+      "from": "\t\tif !present {\n\t\t\tn--",
+      "to": "\t\tif !present && false {\n\t\t\tn--",
+      "rule": "A for over a Map visits no entry deleted before it is reached (types.md, Loops and len 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o14-value-at-start",
+      "origin": "wf10 ORACLE O14",
+      "file": "internal/sketch/eval/maporder.go",
+      "from": "\t\tv, present := cur.b.m[k]\n",
+      "to": "\t\t_, present := cur.b.m[k]\n\t\tv := dom.b.m[k]\n",
+      "rule": "A for over a Map takes no snapshot: an entry's value is read when the loop reaches it (types.md, Loops and len 1).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
       "name": "oracle-o13-parse-message-lost",
       "origin": "wf10 ORACLE O13",
       "file": "internal/sketch/eval/nativestime.go",
