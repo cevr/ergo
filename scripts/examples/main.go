@@ -787,7 +787,16 @@ func (r *runner) runProgram(p *program) {
 // test` of its main.ergo, or of each package folder of a program of
 // packages (as go test runs one package at a time). A failure fails the
 // program; its cases still run.
+//
+// A program's checked-in law ledger (ergo.laws, runtime.md Tests 10) must
+// be the one its passing ergo test writes: a stale one keeps the reference
+// lowering at the sites it names. ergo test rewrites the file in place, so
+// the runner keeps its bytes, fails the ledger leg when the run changed
+// them, and puts them back: a run of the runner leaves the tree as it was.
 func (r *runner) testProgram(p *program) {
+	ledger := filepath.Join(p.dir, "ergo.laws")
+	kept, err := os.ReadFile(ledger)
+	tracked := err == nil
 	for _, target := range p.tests {
 		leg := "test"
 		if p.module {
@@ -796,6 +805,18 @@ func (r *runner) testProgram(p *program) {
 		}
 		r.testTarget(p, target, leg)
 	}
+	if !tracked {
+		return
+	}
+	if now, err := os.ReadFile(ledger); err == nil && bytes.Equal(now, kept) {
+		return
+	}
+	if err := os.WriteFile(ledger, kept, 0o644); err != nil {
+		fmt.Fprintf(r.out, "FAIL %s: ledger: ergo test changed ergo.laws, and the runner could not put it back: %v\n", p.name, err)
+	} else {
+		fmt.Fprintf(r.out, "FAIL %s: ledger: ergo test changed the checked-in ergo.laws (put back); run ergo test in %s and commit the file it writes\n", p.name, p.dir)
+	}
+	r.fail(p.name + ": ledger")
 }
 
 func (r *runner) testTarget(p *program, target, leg string) {
