@@ -1,0 +1,327 @@
+// The laws of the referee (BN2). MatchesReference holds the machine to a
+// reference model that recomputes every word from the full list of blocks
+// the Scripted meter gives, with no state carried from block to block;
+// AlternatesOrder holds the order of the blocks; MachineIsJudge holds the
+// machine declaration to the driver.
+
+// MatchesReference: Judge on a Scripted meter gives the result the
+// reference model computes: the primary judged at each look until it has
+// its word, each secondary judged only from the primary's look on, a lost
+// sample refusing its series from its pair on, a refused primary ending
+// the run, and the run ending at the first look where every series has
+// its word or at the last.
+law MatchesReference(seed uint64, size int, pick int) {
+	let p = planOf(seed, pick)
+	let m = scriptOf(seed, size, p)
+	let got = with context { Meter: m } { Judge(p) }
+	got == reference(p, m)
+}
+
+// AlternatesOrder: a run asks for base's warm block, then head's, then
+// for each pair base first when its index is even and head first when it
+// is odd; its blocks are numbered in order, and there are at most
+// Bound(design) of them.
+law AlternatesOrder(seed uint64, size int, pick int) {
+	let p = planOf(seed, pick)
+	let m = scriptOf(seed, size, p)
+	let mut s = Start(p)
+	let mut asked = []Block{}
+	for len(asked) <= Bound(p.Design) {
+		match Next(s) {
+		case Finished:
+			break
+		case Run as r:
+			asked = asked.Append(r.Block)
+			s = Record(s, Measure(m, r.Block, seriesOf(p)))
+		}
+	}
+	if len(asked) > Bound(p.Design) {
+		return false
+	}
+	for n, b in asked {
+		let base = if n < 2 { n == 0 } else { ((n-2)/2)%2 == (n-2)%2 }
+		if b.Number != n || b.Warm != (n < 2) || isBase(b.Side) != base {
+			return false
+		}
+	}
+	true
+}
+
+// MachineIsJudge: the Referee machine, fed the blocks Next asks for, ends
+// with Judge's result, and rejects a signal for any other block.
+law MachineIsJudge(seed uint64, size int, pick int) {
+	let p = planOf(seed, pick)
+	let m = scriptOf(seed, size, p)
+	let want = with context { Meter: m } { Judge(p) }
+	let mut s = Start(p)
+	for _ in 0..(Bound(p.Design) + 1) {
+		match Next(s) {
+		case Finished as f:
+			return f.Result == want
+		case Run as r:
+			let wrong = Measured{Block: Block{..r.Block, Number: r.Block.Number + 1}, Samples: []Sample{}}
+			match RefereeStep(s, wrong) {
+			case Reject:
+			case _:
+				return false
+			}
+			match RefereeStep(s, Measured{Block: r.Block, Samples: Measure(m, r.Block, seriesOf(p))}) {
+			case Stay[Judging] as st:
+				s = st.Next
+			case Done[Result] as d:
+				return d.Output == want
+			case _:
+				return false
+			}
+		}
+	}
+	false
+}
+
+// SecondariesAreOneFamily: secondaries that each say Better from 6 pairs
+// of one sign (p 1/32 each) keep it alone, and in a family of two or
+// more, where Holm asks p <= 5% / m of the smallest, all say Unclear.
+law SecondariesAreOneFamily(seed uint64, size int) {
+	let m = within(size, 1, 5)
+	let s = Series{Name: "s", Kind: Counted, Claim: Change{Bound: 0.02}}
+	let mut rest = []Series{}
+	let mut effects = []float64{-0.3}
+	for _ in 0..m {
+		rest = rest.Append(s)
+		effects = effects.Append(-0.3)
+	}
+	let p = Plan{Primary: s, Secondaries: rest, Design: Fixed{Pairs: 6}}
+	let meter = Scripted{Seed: seed, Scale: 1000.0, Effects: effects, Noise: 0.01, Warm: 50.0, Lose: []Planted{}}
+	let r = with context { Meter: meter } { Judge(p) }
+	for w in r.Secondaries {
+		let ok = match w {
+		case Some[Verdict] as v:
+			match v.Value {
+			case Better:
+				m == 1
+			case Unclear:
+				m > 1
+			case _:
+				false
+			}
+		case None:
+			false
+		}
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+// reference is the result of plan p on meter m, computed from the blocks
+// m gives with no state carried between blocks.
+func reference(p Plan, m Scripted) Result {
+	let all = seriesOf(p)
+	let d = p.Design
+	let end = last(d)
+	let mut none = []Option[Verdict]{}
+	for _ in p.Secondaries {
+		none = none.Append(None)
+	}
+	if end < MinPairs() {
+		return Result{Primary: Refused{Why: FewPairs{Pairs: end}}, Secondaries: none, Blocks: 0, Pairs: 0}
+	}
+	if end > MaxPairs() {
+		return Result{Primary: Refused{Why: TooManyPairs{Pairs: end}}, Secondaries: none, Blocks: 0, Pairs: 0}
+	}
+	// at[i] is series i's word with the pair count it came at, given that
+	// the series may be judged from look from on and the run lasts until
+	// stop; None when it has none by then.
+	let primary = wordUntil(p, m, all, 0, 0, end)
+	let (pw, pat) = match primary {
+	case Some[(Verdict, int)] as w:
+		w.Value
+	case None:
+		(Refused{Why: FewPairs{Pairs: 0}}, end)
+	}
+	let refused = match pw {
+	case Refused:
+		true
+	case Better, Worse, Same, NoWorse, Unclear, Underpowered:
+		false
+	}
+	let mut stop = pat
+	if !refused {
+		for look in Looks(d) {
+			if look < pat {
+				continue
+			}
+			stop = look
+			let mut every = true
+			for i in 1..len(all) {
+				if wordUntil(p, m, all, i, pat, look) == None {
+					every = false
+				}
+			}
+			if every {
+				break
+			}
+		}
+	}
+	let mut words = []Option[Verdict]{Some[Verdict]{Value: pw}}
+	for i in 1..len(all) {
+		let from = if refused { stop + 1 } else { pat }
+		match wordUntil(p, m, all, i, from, stop) {
+		case Some[(Verdict, int)] as w:
+			let (v, _) = w.Value
+			words = words.Append(Some[Verdict]{Value: v})
+		case None:
+			words = words.Append(None)
+		}
+	}
+	// The secondaries that say Better or Worse from an interval are one
+	// family: those Holm does not reject at 5% say Unclear.
+	let mut ps = []float64{}
+	let mut at = []int{}
+	for i in 1..len(words) {
+		match words[i] {
+		case Some[Verdict] as w:
+			match w.Value {
+			case Better as b:
+				if !b.Of.Exact {
+					ps = ps.Append(b.Of.P)
+					at = at.Append(i)
+				}
+			case Worse as b:
+				if !b.Of.Exact {
+					ps = ps.Append(b.Of.P)
+					at = at.Append(i)
+				}
+			case Same, NoWorse, Unclear, Underpowered, Refused:
+			}
+		case None:
+		}
+	}
+	let rejected = Holm(ps, 0.05)
+	let mut rest = []Option[Verdict]{}
+	for i in 1..len(words) {
+		let mut w = words[i]
+		for j, k in at {
+			if k == i && !rejected[j] {
+				w = Some[Verdict]{Value: Unclear{Of: differenceOf(w), Needed: None}}
+			}
+		}
+		rest = rest.Append(w)
+	}
+	Result{Primary: pw, Secondaries: rest, Blocks: 2 + 2*stop, Pairs: stop}
+}
+
+// referenceWord is the word of verdict v at a look, restated: v when it
+// decides or at the last look; for an Unclear one of a planned design,
+// Underpowered when a 50% chance needs more pairs than the last look;
+// else None.
+func referenceWord(v Verdict, pairs []Pair, c Claim, d Design, final bool) Option[Verdict] {
+	let u = match v {
+	case Unclear as x:
+		x
+	case Better, Worse, Same, NoWorse, Underpowered, Refused:
+		return Some[Verdict]{Value: v}
+	}
+	if final {
+		return Some[Verdict]{Value: v}
+	}
+	match d {
+	case Fixed:
+		return None
+	case Planned:
+	}
+	let log = positive(pairs)
+	let diffs = differences(pairs, log)
+	let shift = threshold(pairs, log, c)
+	let likely = match c {
+	case Change:
+		Needed(diffs, shift, Level(d), 0.5)
+	case NoWorseThan:
+		neededBeside(diffs, shift, Level(d), 0.5)
+	}
+	match likely {
+	case Some[int] as n:
+		if n.Value > last(d) { Some[Verdict]{Value: Underpowered{Of: u.Of, Needed: n.Value}} } else { None }
+	case None:
+		None
+	}
+}
+
+// wordUntil is series i's first word with the pairs it came at, in a run
+// that lasts stop pairs and judges the series at looks from pair from on:
+// a refusal at the first pair whose blocks lost it, or a verdict at a
+// look before any refusal.
+func wordUntil(p Plan, m Scripted, all []Series, i int, from int, stop int) Option[(Verdict, int)] {
+	let d = p.Design
+	let mut pairs = []Pair{}
+	for k in 0..stop {
+		let baseAt = if k%2 == 0 { 2 + 2*k } else { 3 + 2*k }
+		let headAt = if k%2 == 0 { 3 + 2*k } else { 2 + 2*k }
+		let b = sampleOf(Measure(m, Block{Side: Base, Number: baseAt, Warm: false}, all), i)
+		let h = sampleOf(Measure(m, Block{Side: Head, Number: headAt, Warm: false}, all), i)
+		let first = if k%2 == 0 { b } else { h }
+		let second = if k%2 == 0 { h } else { b }
+		match (first, second) {
+		case (Lost as l, _):
+			return Some[(Verdict, int)]{Value: (Refused{Why: l.Why}, k + 1)}
+		case (Got, Lost as l):
+			return Some[(Verdict, int)]{Value: (Refused{Why: l.Why}, k + 1)}
+		case (Got as x, Got as y):
+			pairs = pairs.Append(if k%2 == 0 { Pair{Base: x.Value, Head: y.Value} } else { Pair{Base: y.Value, Head: x.Value} })
+		}
+		let n = k + 1
+		if n >= from && IsLook(d, n) {
+			match referenceWord(Decide(pairs, all[i].Kind, all[i].Claim, Level(d)), pairs, all[i].Claim, d, n >= last(d)) {
+			case Some[Verdict] as w:
+				return Some[(Verdict, int)]{Value: (w.Value, n)}
+			case None:
+			}
+		}
+	}
+	None
+}
+
+// isBase reports whether s is the base side.
+func isBase(s Side) bool {
+	match s {
+	case Base:
+		true
+	case Head:
+		false
+	}
+}
+
+// planOf is a plan drawn from seed: a primary and up to five
+// secondaries (enough that Holm's family demotes some) of any kind and
+// claim, Planned or Fixed with 3 to 30 pairs, with 6 (where one sign
+// throughout has p 1/32, which Holm demotes in a family of two), or with
+// 401.
+func planOf(seed uint64, pick int) Plan {
+	let mut all = []Series{}
+	for i in 0..(1 + draw(seed, 20, 6)) {
+		let claims = []Claim{Change{Bound: 0.02}, Change{Bound: 0.5}, NoWorseThan{Margin: 0.0}, NoWorseThan{Margin: 0.1}}
+		all = all.Append(Series{Name: "s", Kind: kindOf(draw(seed, 21+i, 3)), Claim: claims[draw(seed, 30+i, 4)]})
+	}
+	let designs = []Design{Planned, Planned, Fixed{Pairs: 3 + draw(seed, 40, 28)}, Fixed{Pairs: 6}, Fixed{Pairs: 401}}
+	let d = designs[within(pick, 0, 4)]
+	Plan{Primary: all[0], Secondaries: all[1:], Design: d}
+}
+
+// scriptOf is a Scripted meter drawn from seed: an effect per series of
+// -30% to +30% or none, noise of 0, 1%, 10% or 20%, warm blocks 50 times
+// slower, and up to two refusals planted in blocks of the run.
+func scriptOf(seed uint64, size int, p Plan) Scripted {
+	let effects = []float64{-0.3, -0.1, -0.05, 0.0, 0.0, 0.05, 0.1, 0.3}
+	let mut e = []float64{}
+	for i in 0..(1 + len(p.Secondaries)) {
+		e = e.Append(effects[draw(seed, 50+i, len(effects))])
+	}
+	let noises = []float64{0.0, 0.01, 0.1, 0.2}
+	let refusals = []Refusal{RunIncomplete, Multiplexed, NoMetric, NotEquivalent}
+	let mut lose = []Planted{}
+	for j in 0..within(size, 0, 2) {
+		lose = lose.Append(Planted{Series: draw(seed, 60+j, 1+len(p.Secondaries)), Block: draw(seed, 70+j, Bound(p.Design)), Why: refusals[draw(seed, 80+j, 4)]})
+	}
+	Scripted{Seed: seed, Scale: 1000.0, Effects: e, Noise: noises[draw(seed, 90, 4)], Warm: 50.0, Lose: lose}
+}

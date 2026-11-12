@@ -1,6 +1,6 @@
 # Bench: a performance referee for Ergo
 
-Status: **design record** (STROBE BN0, 2026-11-12). The statistics are **built**: std `bench`, `internal/sketch/std/bench/stats.ergo` (BN1; [stdlib.md, Bench statistics](../spec/stdlib.md#bench-statistics)). The referee machine, the host meter, the `bench` declaration, the `ergo bench` command, the report, the gate step and the examples are not built yet ([Not built yet](#not-built-yet)). The terms are defined in [GLOSSARY.md](../../GLOSSARY.md#tooling-and-testing) and nowhere else.
+Status: **design record** (STROBE BN0, 2026-11-12). The statistics and the referee machine are **built**: std `bench`, `internal/sketch/std/bench/stats.ergo` (BN1) and `referee.ergo` (BN2) ([stdlib.md, Bench statistics](../spec/stdlib.md#bench-statistics)). The host meter, the `bench` declaration, the `ergo bench` command, the report, the gate step and the examples are not built yet ([Not built yet](#not-built-yet)). The terms are defined in [GLOSSARY.md](../../GLOSSARY.md#tooling-and-testing) and nowhere else.
 
 Owner, 2026-11-12: "What I want is also something like hona/strobe for ergo - if we could either add support for strobe or just copy it". Ergo copies strobe's method and rules, not its code: strobe (MIT, release 0.32.0) is 127,332 lines of Rust for browsers, native windows, phones, profilers and a daemon; about 4,800 of them are the part Ergo needs (measured: `stats.rs` 856, `validity.rs` 874, `host/spawn.rs` 1,145, `app/report.rs` 740, `app/card.rs` 1,146).
 
@@ -135,12 +135,14 @@ The owner's 2026-11-12 rule "decide, don't ask" applies; each decision names its
 - Decided (BN1): every counter is better lower. By *subtract before you add*: every counter of the catalogue is a cost. Reverse by: a direction field on `Change` and `NoWorseThan`.
 - Decided (BN1): the bound on the difference scale is b times the larger of the two sides' medians, where strobe takes base's: the same both ways, so `Mirror` holds there too. Reverse by: base's median, and `Mirror` restricted to the log scale.
 - Decided (BN1): a judged series with margin 0 whose interval is `[0, 0]` is `Unclear`, not `NoWorse` (the interval does not lie below the margin), as strobe's; only an exact counter says `NoWorse` at margin 0.
+- Decided (BN2): a refused primary ends the run at once, and a secondary with no word by then has none (`None`), not a verdict: no further block can give the primary a value, and a secondary is judged only after the primary. A secondary's own refusal is its word whenever it comes. By *valid or nothing* (Method 9) and *subtract before you add*. Reverse by: running the secondaries on to the last look.
+- Decided (BN2): Holm's family is the secondaries whose verdict is `Better` or `Worse` from an interval; `Same`, `NoWorse`, exact and refused ones are not tested for a difference and stay out. One Holm does not reject says `Unclear` with no projection. Reverse by: a family of every judged secondary.
+- Decided (BN2): a `Fixed` design outside `MinPairs` to `MaxPairs` is refused before any block runs (`FewPairs`, `TooManyPairs`), so no run is spent on a series that cannot be judged. Reverse by: running it and refusing at the look.
 
 ## Not built yet
 
 | Unit | What |
 | --- | --- |
-| BN2 | The referee machine: discard, pair, look, decide, run on for the secondaries, stop; a `Meter` operation type with laws and a scripted provider. |
 | BN3 | The host meter: the child in its own process group, pinned, under the memory bound, counted with events enabled at exec, `Multiplexed` from the read times. |
 | BN4a, BN4b | The `bench` declaration, its diagnostics and erasure; the `ergo bench` command, its harness, sides, modes, ledger and lock. |
 | BN5 | The text table, the `bench.v1` receipt, the delimited block with its digest, the SVG card. |

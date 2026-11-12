@@ -1,0 +1,454 @@
+// The referee (BN2; docs/specs/bench.md, Method 1, 2, 5, 9 and 10): the
+// sequential design of one run as a machine. It asks for one block at a
+// time, from a Meter: one warm block of each side first, which it
+// discards; then pairs, base first and head first in turn. After each
+// pair that is a look of the plan's design it judges the primary series
+// with Decide; once the primary has its verdict it judges the
+// secondaries at each look, and it stops when every series has its word
+// or the last look is passed. A decided series keeps the verdict and the
+// pairs of the look that decided it. A block that lost a counter refuses
+// that counter's series and no other; a refused primary ends the run.
+// Every step is pure: the referee holds no clock and starts no process,
+// so a test drives it with Scripted and the host meter (BN3) drives it in
+// `ergo bench`.
+
+import math
+
+// Series is one counter a run judges: its name, its kind and the claim it
+// answers.
+type Series { Name string, Kind Kind, Claim Claim }
+
+// Plan is what a run judges: the primary series, the secondaries and the
+// design of the looks.
+type Plan {
+	Primary     Series,
+	Secondaries []Series,
+	Design      Design,
+}
+
+// Side is the side a block runs.
+type Side = Base | Head
+
+// Base is the side a run compares against.
+type Base {}
+
+// Head is the side a run judges.
+type Head {}
+
+// Block is one block the referee asks for: its side, its number in the
+// run (0 for the first), and whether it is a warm block that the referee
+// discards.
+type Block { Side Side, Number int, Warm bool }
+
+// Sample is the value of one counter in one block, or why the block has
+// none.
+type Sample = Got | Lost
+
+// Got is a counter's value in one block (docs/specs/bench.md, Method 1:
+// its cost per bench unit).
+type Got { Value float64 }
+
+// Lost is a counter the block did not give: Why names the validator.
+type Lost { Why Refusal }
+
+// Meter runs the blocks of a run. Measure runs block b and gives one
+// sample per series of the plan, in order; a sample it leaves out is
+// Lost{Why: NoMetric}, never 0.
+type Meter {
+	Measure(b Block, series []Series) []Sample,
+
+	// ReadsEverySeries: a meter answers every series it is asked for.
+	law ReadsEverySeries(at int, warm bool, n int) {
+		let mut series = []Series{}
+		for _ in 0..(if n < 0 { -n % 5 } else { n % 5 }) {
+			series = series.Append(Series{Name: "s", Kind: Counted, Claim: Change{Bound: 0.02}})
+		}
+		len(Measure(Block{Side: Head, Number: at, Warm: warm}, series)) == len(series)
+	},
+}
+
+// Result is the end of a run: the primary's verdict, a word for each
+// secondary (None when the run ended before it had one), the blocks run,
+// warm ones included, and the pairs completed.
+type Result {
+	Primary     Verdict,
+	Secondaries []Option[Verdict],
+	Blocks      int,
+	Pairs       int,
+}
+
+// Judging is the referee's state between two blocks.
+type Judging {
+	Plan    Plan,
+	Blocks  int,
+	First   []Sample,
+	Pairs   [][]Pair,
+	Words   []Option[Verdict],
+	Stopped bool,
+}
+
+// Step is what the referee asks next: a block to run, or the result.
+type Step = Run | Finished
+
+// Run asks for one block.
+type Run { Block Block }
+
+// Finished is the end of the run.
+type Finished { Result Result }
+
+// Measured is one block's samples, the referee machine's signal.
+type Measured { Block Block, Samples []Sample }
+
+// Referee is the referee as a machine over Measured signals: its input is
+// the plan, and it ends with the Result. A signal for another block than
+// the one asked for is rejected.
+type Referee machine[Judging, Measured] {
+	initial: Start,
+	step:    RefereeStep,
+}
+
+// RefereeStep records e when it is the block Next asks for.
+func RefereeStep(s Judging, e Measured) Decision[Judging, Result] {
+	match Next(s) {
+	case Finished:
+		Reject
+	case Run as r:
+		if r.Block.Number != e.Block.Number {
+			return Reject
+		}
+		let n = Record(s, e.Samples)
+		match Next(n) {
+		case Finished as f:
+			Done[Result]{Output: f.Result}
+		case Run:
+			Stay[Judging]{Next: n}
+		}
+	}
+}
+
+// Judge runs the plan p on the Meter in the context and gives its result.
+// It runs at most Bound(p.Design) blocks.
+func Judge(p Plan) Result needs Meter {
+	let mut s = Start(p)
+	for {
+		match Next(s) {
+		case Finished as f:
+			return f.Result
+		case Run as r:
+			s = Record(s, Meter.Measure(r.Block, seriesOf(p)))
+		}
+	}
+}
+
+// Bound is the most blocks a run of design d asks for: two warm blocks
+// and two per pair of its last look.
+func Bound(d Design) int { 2 + 2*last(d) }
+
+// Start is the referee before its first block. A Fixed design with fewer
+// than MinPairs or more than MaxPairs pairs is refused before any block
+// runs (FewPairs, TooManyPairs).
+func Start(p Plan) Judging {
+	let n = 1 + len(p.Secondaries)
+	let mut pairs = [][]Pair{}
+	let mut words = []Option[Verdict]{}
+	for _ in 0..n {
+		pairs = pairs.Append([]Pair{})
+		words = words.Append(None)
+	}
+	let s = Judging{Plan: p, Blocks: 0, First: []Sample{}, Pairs: pairs, Words: words, Stopped: false}
+	let end = last(p.Design)
+	if end < MinPairs() {
+		return refuse(s, 0, FewPairs{Pairs: end})
+	}
+	if end > MaxPairs() {
+		return refuse(s, 0, TooManyPairs{Pairs: end})
+	}
+	s
+}
+
+// Next is the block the referee asks for, or its result. Block 0 is base's
+// warm block and block 1 head's; then pair k runs base first when k is
+// even and head first when it is odd.
+func Next(s Judging) Step {
+	if s.Stopped {
+		return Finished{Result: result(s)}
+	}
+	let n = s.Blocks
+	if n < 2 {
+		return Run{Block: Block{Side: if n == 0 { Base } else { Head }, Number: n, Warm: true}}
+	}
+	let even = ((n-2)/2)%2 == 0
+	let first = (n-2)%2 == 0
+	Run{Block: Block{Side: if even == first { Base } else { Head }, Number: n, Warm: false}}
+}
+
+// Record takes the samples of the block Next asked for. A warm block is
+// counted and discarded; the first block of a pair is kept until its
+// second, and then each series takes its pair, or its refusal when either
+// block lost it. After a pair that is a look, the series are judged.
+func Record(s Judging, samples []Sample) Judging {
+	if s.Stopped {
+		return s
+	}
+	let n = s.Blocks
+	if n <= 1 {
+		return Judging{..s, Blocks: n + 1}
+	}
+	if (n-2)%2 == 0 {
+		return Judging{..s, Blocks: n + 1, First: samples}
+	}
+	let k = (n - 2) / 2
+	let baseFirst = k%2 == 0
+	let mut pairs = s.Pairs
+	let mut words = s.Words
+	for i in 0..len(pairs) {
+		if words[i] != None {
+			continue
+		}
+		let a = sampleOf(s.First, i)
+		let b = sampleOf(samples, i)
+		match (a, b) {
+		case (Lost as l, _):
+			words[i] = Some[Verdict]{Value: Refused{Why: l.Why}}
+		case (Got, Lost as l):
+			words[i] = Some[Verdict]{Value: Refused{Why: l.Why}}
+		case (Got as x, Got as y):
+			pairs[i] = pairs[i].Append(if baseFirst { Pair{Base: x.Value, Head: y.Value} } else { Pair{Base: y.Value, Head: x.Value} })
+		}
+	}
+	let next = Judging{..s, Blocks: n + 1, First: []Sample{}, Pairs: pairs, Words: words}
+	if s.Words[0] == None && words[0] != None {
+		return Judging{..next, Stopped: true}
+	}
+	if IsLook(s.Plan.Design, k+1) {
+		return look(next, k+1)
+	}
+	next
+}
+
+// look judges at a look after done pairs: the primary first, then, once
+// it has its word, each secondary with none. At the last look every
+// series takes the verdict it has. The run stops when every series has
+// its word.
+func look(s Judging, done int) Judging {
+	let d = s.Plan.Design
+	let level = Level(d)
+	let final = done >= last(d)
+	let all = seriesOf(s.Plan)
+	let mut words = s.Words
+	for i in 0..len(words) {
+		if words[i] != None || i > 0 && words[0] == None {
+			continue
+		}
+		words[i] = word(Decide(s.Pairs[i], all[i].Kind, all[i].Claim, level), s.Pairs[i], all[i].Claim, level, d, final)
+	}
+	let mut every = true
+	for w in words {
+		if w == None {
+			every = false
+		}
+	}
+	Judging{..s, Words: words, Stopped: every || final}
+}
+
+// word is the word a verdict v gives its series at a look: v itself when
+// it decides or the look is the last one; Underpowered when a planned
+// series would need more pairs than its last look even for a 50% chance
+// (the futility stop); else None, and the series runs on.
+func word(v Verdict, pairs []Pair, c Claim, level float64, d Design, final bool) Option[Verdict] {
+	match v {
+	case Unclear as u:
+		if final {
+			return Some[Verdict]{Value: v}
+		}
+		match d {
+		case Fixed:
+			None
+		case Planned:
+			let log = positive(pairs)
+			let diffs = differences(pairs, log)
+			let shift = threshold(pairs, log, c)
+			let likely = match c {
+			case Change:
+				Needed(diffs, shift, level, 0.5)
+			case NoWorseThan:
+				neededBeside(diffs, shift, level, 0.5)
+			}
+			match likely {
+			case Some[int] as n:
+				if n.Value > last(d) {
+					return Some[Verdict]{Value: Underpowered{Of: u.Of, Needed: n.Value}}
+				}
+				None
+			case None:
+				None
+			}
+		}
+	case Better, Worse, Same, NoWorse, Underpowered, Refused:
+		Some[Verdict]{Value: v}
+	}
+}
+
+// result is the run's result. The secondaries' differences are one family:
+// Holm's step-down at 5% over the p-values of those whose verdict is
+// Better or Worse and not exact; one it does not reject is Unclear.
+func result(s Judging) Result {
+	let mut ps = []float64{}
+	let mut at = []int{}
+	for i in 1..len(s.Words) {
+		match s.Words[i] {
+		case Some[Verdict] as w:
+			match w.Value {
+			case Better as b:
+				if !b.Of.Exact {
+					ps = ps.Append(b.Of.P)
+					at = at.Append(i)
+				}
+			case Worse as b:
+				if !b.Of.Exact {
+					ps = ps.Append(b.Of.P)
+					at = at.Append(i)
+				}
+			case Same, NoWorse, Unclear, Underpowered, Refused:
+			}
+		case None:
+		}
+	}
+	let mut words = s.Words
+	for j, rejected in Holm(ps, 0.05) {
+		if !rejected {
+			words[at[j]] = Some[Verdict]{Value: Unclear{Of: differenceOf(words[at[j]]), Needed: None}}
+		}
+	}
+	let primary = match words[0] {
+	case Some[Verdict] as w:
+		w.Value
+	case None:
+		Refused{Why: FewPairs{Pairs: len(s.Pairs[0])}}
+	}
+	let mut rest = []Option[Verdict]{}
+	for i in 1..len(words) {
+		rest = rest.Append(words[i])
+	}
+	let pairs = if s.Blocks < 2 { 0 } else { (s.Blocks - 2) / 2 }
+	Result{Primary: primary, Secondaries: rest, Blocks: s.Blocks, Pairs: pairs}
+}
+
+// differenceOf is the difference a word carries (zero for none or a
+// refusal, which result never asks for).
+func differenceOf(w Option[Verdict]) Difference {
+	match w {
+	case Some[Verdict] as v:
+		match v.Value {
+		case Better as b:
+			b.Of
+		case Worse as b:
+			b.Of
+		case Same as b:
+			b.Of
+		case NoWorse as b:
+			b.Of
+		case Unclear as b:
+			b.Of
+		case Underpowered as b:
+			b.Of
+		case Refused:
+			Difference{Pairs: 0, Log: false, Estimate: 0.0, Low: 0.0, High: 0.0, Coverage: 0.0, P: 1.0, Exact: false}
+		}
+	case None:
+		Difference{Pairs: 0, Log: false, Estimate: 0.0, Low: 0.0, High: 0.0, Coverage: 0.0, P: 1.0, Exact: false}
+	}
+}
+
+// refuse ends the run before block n with the primary refused.
+func refuse(s Judging, n int, why Refusal) Judging {
+	let mut words = s.Words
+	words[0] = Some[Verdict]{Value: Refused{Why: why}}
+	Judging{..s, Blocks: n, Words: words, Stopped: true}
+}
+
+// sampleOf is sample i of a block, or NoMetric when the block gave fewer.
+func sampleOf(samples []Sample, i int) Sample {
+	if i < len(samples) {
+		return samples[i]
+	}
+	Lost{Why: NoMetric}
+}
+
+// seriesOf is the plan's series, the primary first.
+func seriesOf(p Plan) []Series {
+	let mut all = []Series{p.Primary}
+	for x in p.Secondaries {
+		all = all.Append(x)
+	}
+	all
+}
+
+// last is d's last look.
+func last(d Design) int {
+	let looks = Looks(d)
+	looks[len(looks)-1]
+}
+
+// Scripted is the Meter of tests: no process and no clock. Block number b
+// reads, for series i, Scale times (1 + i), times exp(Effects[i]) on the
+// head side, times exp(Noise × u) with u in [-1, 1) drawn from Seed, b
+// and i (no noise for an Exact series), times Warm for a warm block.
+// Planted refusals replace a sample.
+type Scripted {
+	Seed    uint64,
+	Scale   float64,
+	Effects []float64,
+	Noise   float64,
+	Warm    float64,
+	Lose    []Planted,
+}
+
+// Planted is a refusal a Scripted meter gives for series Series in block
+// Block.
+type Planted { Series int, Block int, Why Refusal }
+
+// Measure is Scripted's reading of block b (see Scripted).
+func Measure(m Scripted, b Block, series []Series) []Sample {
+	let mut out = []Sample{}
+	for i, x in series {
+		let mut lost = false
+		let mut why Refusal = NoMetric
+		for p in m.Lose {
+			if p.Series == i && p.Block == b.Number && !lost {
+				lost = true
+				why = p.Why
+			}
+		}
+		if lost {
+			out = out.Append(Lost{Why: why})
+			continue
+		}
+		let effect = if i < len(m.Effects) { m.Effects[i] } else { 0.0 }
+		let head = match b.Side {
+		case Base:
+			0.0
+		case Head:
+			effect
+		}
+		let noise = match x.Kind {
+		case Exact:
+			0.0
+		case Counted, Timed:
+			m.Noise * (2.0*unitOf(m.Seed, b.Number, i) - 1.0)
+		}
+		let warm = if b.Warm { m.Warm } else { 1.0 }
+		out = out.Append(Got{Value: m.Scale * float64(1+i) * math.Exp(head+noise) * warm})
+	}
+	out
+}
+
+// unitOf is a value in [0, 1) drawn from seed, block and series by
+// SplitMix64.
+func unitOf(seed uint64, block int, series int) float64 {
+	let mut z = seed + uint64(block)*0x9e3779b97f4a7c15 + uint64(series)*0xbf58476d1ce4e5b9 + 0x94d049bb133111eb
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
+	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
+	z = z ^ (z >> 31)
+	float64(z>>11) / 9007199254740992.0
+}

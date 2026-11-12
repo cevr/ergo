@@ -68,13 +68,8 @@ func TestStdBenchLawsRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	laws := map[string]lawledger.Law{}
-	for _, d := range f.Decls {
-		law, ok := d.(*syntax.LawDecl)
-		if !ok {
-			continue
-		}
-		name := law.Name.Name
-		ran := regexp.MustCompile(`(?m)^ok law ` + name + ` \((\d+ cases|proved: (all \d+ cases|1 case))\)$`)
+	add := func(name string, law *syntax.LawDecl) {
+		ran := regexp.MustCompile(`(?m)^ok law ` + regexp.QuoteMeta(name) + `( for \w+)? \((\d+ cases|proved: (all \d+ cases|1 case))\)$`)
 		laws["bench "+name] = lawledger.Law{
 			Statement: stdBenchProgram[law.Name.Pos():law.Body.End()],
 			Check: func(t *testing.T) {
@@ -82,6 +77,20 @@ func TestStdBenchLawsRun(t *testing.T) {
 					t.Errorf("no ok line for law %s:\n%s", name, stdout)
 				}
 			},
+		}
+	}
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *syntax.LawDecl:
+			add(d.Name.Name, d)
+		case *syntax.TypeDecl:
+			// An operation type's laws run once per provider (Meter's
+			// for Scripted); the ledger names them Type.Law.
+			if it, ok := d.Spec.(*syntax.InterfaceType); ok {
+				for _, law := range it.Laws {
+					add(d.Name.Name+"."+law.Name.Name, law)
+				}
+			}
 		}
 	}
 	if len(laws) == 0 {
