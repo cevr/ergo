@@ -640,10 +640,10 @@ index 0000000..862851f
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_fail.go b/src/cmd/compile/internal/noder/ergoir_fail.go
 new file mode 100644
-index 0000000..da5527c
+index 0000000..257a84e
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_fail.go
-@@ -0,0 +1,300 @@
+@@ -0,0 +1,304 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -810,7 +810,7 @@ index 0000000..da5527c
 +			return nil, true
 +		}
 +		v, e := c.local(s.Pos, s.Local), c.local(s.Pos, *s.Val)
-+		if s.X == nil || (s.X.K != "call" && s.X.K != "mcall") {
++		if s.X == nil || (s.X.K != "call" && s.X.K != "mcall" && s.X.K != "pcall") {
 +			c.errorf(s.Pos, "ergoir: def2 of a value that is not a call")
 +			return nil, true
 +		}
@@ -867,7 +867,9 @@ index 0000000..da5527c
 +				if te == nil {
 +					return nil, true
 +				}
-+				if types2.IsInterface(tt) || !types2.Implements(tt, iface) || seen[tt] {
++				// Go's rule, as an assertion's: a concrete case implements
++				// the error interface; an interface case (a union) is any.
++				if !types2.IsInterface(tt) && !types2.Implements(tt, iface) || seen[tt] {
 +					c.errorf(k.Pos, "ergoir: case %v of a switch on %v", tt, t)
 +					return nil, true
 +				}
@@ -925,7 +927,9 @@ index 0000000..da5527c
 +			return nil, nil, true
 +		}
 +		iface, isIface := types2.CoreType(vt).(*types2.Interface)
-+		if !isIface || types2.IsInterface(tt) || !types2.Implements(tt, iface) {
++		// Go's rule: a concrete type implements the operand's interface;
++		// an interface (a union of another package, IRG4) is any.
++		if !isIface || !types2.IsInterface(tt) && !types2.Implements(tt, iface) {
 +			c.errorf(x.Pos, "ergoir: assertion of %v to %v", vt, tt)
 +			return nil, nil, true
 +		}
