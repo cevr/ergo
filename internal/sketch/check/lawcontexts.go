@@ -172,10 +172,8 @@ func (c *checker) lawRelease(fact *With) string {
 		if closeWitnessed(a.Close) != "" {
 			return "its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (#197)"
 		}
-		if a.Close != nil {
-			if needs := c.releaseNeeds(a.Close); len(needs) > 0 {
-				return "its provider's Close needs " + needs[0].String() + "; a law case has no capability to release it with"
-			}
+		if needs := c.acquisitionNeeds(a); len(needs) > 0 {
+			return "its provider's release needs " + needs[0].String() + "; a law case has no capability to release it with"
 		}
 		// A release was found from the provider's package facts (acquire),
 		// so info is set.

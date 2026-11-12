@@ -367,7 +367,14 @@ func TestLawRunLeastPackage(t *testing.T) {
 // acquires a provider with a Close releases it at the end of each case,
 // after the law's last operation: Gn's Area is negative once its Close
 // ran (mutant lawrel-before-last-op) or while an earlier case's Gn is
-// unreleased (mutant lawrel-skipped). A context whose release a case
+// unreleased (mutant lawrel-skipped); so does a provider with no Close
+// whose field holds one (Holder under Locked: its generated release
+// closes the Lock, mutant lawrel-field-unreleased), and a with of that
+// context compiles (locked: the checker charged a nil Close's needs, and a
+// named builder's generated release needed a frame scope; mutants
+// relneeds-drop-as-close, field-release-on-frame). A part's Close that
+// needs a capability makes its context a skip (Gate under Latched, mutant
+// relneeds-parts-ignored). A context whose release a case
 // cannot run is a skip: a Close that needs a capability (Needy, mutant
 // lawrel-needs-ignored), a provider that names a package let (Pinned,
 // mutant lawrel-package-let) or a generic Close with witnesses
@@ -453,6 +460,45 @@ func openGn() Gn {
 
 let Kept = context { Shape: openGn() }
 
+type Lock { g func(int) int, closed sync.Ref[bool] }
+
+func Close(k Lock) {
+	k.closed.Set(true)
+	live.Set(live.Get() - 1)
+}
+
+type Holder { lock Lock }
+
+func Area(h Holder) int {
+	if h.lock.closed.Get() || live.Get() != 1 {
+		return -1
+	}
+	1
+}
+
+func openHolder() Holder {
+	live.Set(live.Get() + 1)
+	Holder{lock: Lock{g: func(n int) int { n }, closed: sync.NewRef(false)}}
+}
+
+let Locked = context { Shape: openHolder() }
+
+func locked() int {
+	with Locked {
+		Shape.Area()
+	}
+}
+
+type Latch { n int }
+
+func Close(_ Latch) needs Console {}
+
+type Gate { latch Latch }
+
+func Area(_ Gate) int { 1 }
+
+let Latched = context { Shape: Gate{latch: Latch{n: 1}} }
+
 type Nd { g func(int) int }
 
 func Area(_ Nd) int { 1 }
@@ -491,10 +537,13 @@ func main() {}
 	want := []string{
 		"skip law Shape.Positive for Nd: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it",
 		"ok law Shape.Positive for Res (100 cases)",
+		"ok law Shape.Positive for Gate (100 cases)",
 		"ok law Shape.Positive for Sq (100 cases)",
 		"ok law Shape.Positive under Held (100 cases)",
 		"ok law Shape.Positive under Kept (100 cases)",
-		"skip law Shape.Positive under Needy: its provider's Close needs Console; a law case has no capability to release it with",
+		"skip law Shape.Positive under Latched: its provider's release needs Console; a law case has no capability to release it with",
+		"ok law Shape.Positive under Locked (100 cases)",
+		"skip law Shape.Positive under Needy: its provider's release needs Console; a law case has no capability to release it with",
 		"skip law Shape.Positive under Pinned: its provider names the package let pinned, which a case's release would close for every later case",
 		"ok law Shape.Positive under Sized (100 cases)",
 		"ok law Shape.Positive under Wired (100 cases)",
@@ -503,7 +552,7 @@ func main() {}
 		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
 		"skip law Ranked.Same: its operation type Ranked constrains T by operations, and a run passes no witness",
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
-		"PASS (6 tests, 8 skipped)",
+		"PASS (8 tests, 9 skipped)",
 	}
 	if code != 0 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
