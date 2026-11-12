@@ -407,7 +407,7 @@ func (fc *funcCtx) ident(id *syntax.Ident) string {
 		}
 		if name, ok := fc.l.vars[o]; ok {
 			fc.l.reachStdLet(o)
-			return name
+			return fc.l.letRead(o, name)
 		}
 		ice(id, "the variable %s has no Go name", id.Name)
 	case *check.Func:
@@ -461,7 +461,7 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 						// program (sources.go).
 						if name, ok := fc.l.vars[o]; ok {
 							fc.l.reachStdLet(o)
-							return name
+							return fc.l.letRead(o, name)
 						}
 						ice(x, "the let %s.%s has no Go name", id.Name, x.Sel.Name)
 					}

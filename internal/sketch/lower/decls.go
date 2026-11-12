@@ -149,6 +149,9 @@ func (l *lowerer) declareName(d syntax.Decl) {
 				for _, id := range spec.Names {
 					if v, ok := l.info.Defs[id].(*check.Var); ok {
 						l.vars[v] = l.pkgName(pkgKey{"let", v}, v.Name)
+						if l.constLet(spec, v) {
+							l.consts[v] = true
+						}
 					}
 				}
 				if spec.Pattern != nil {
@@ -1385,13 +1388,54 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
+		if ok && l.consts[v] {
+			l.letDecl(id, "const "+name+" "+goType+" = "+val+"\n\n")
+			return
+		}
 		l.letDecl(id, "var "+name+" "+goType+" = "+val+"\n\n")
 		return
+	}
+	if ok && l.consts[v] {
+		ice(id, "the constant let %s needs statements", id.Name)
 	}
 	if name != "_" {
 		l.letDecl(id, "var "+name+" "+goType+"\n\n")
 	}
 	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
+}
+
+// constLet reports whether the package let v, of spec, lowers to a Go
+// constant (wf10 1BRC): a single name whose initializer the checker
+// evaluated to a constant, of type bool, string or an integer type. A Go
+// package variable is a load at every read, and Go folds no expression
+// over it: `h & (Slots - 1)` loads Slots and subtracts on every probe of
+// examples/onebrc's table, and a constant is an immediate. Every read is
+// then v1.Let(name) (letRead), a call of an identity that gc inlines and
+// whose result is no Go constant expression, so Go evaluates every
+// expression over it as it evaluates one over the variable: an integer
+// wraps, a division by zero is a defect at run time, and a conversion
+// out of range wraps, where a constant expression would be a Go compile
+// error. A float stays a variable, since Go evaluates a float constant
+// expression exactly, not rounded at each step. A package let is
+// immutable and never borrowed (grammar.md, let), so no read needs its
+// address.
+func (l *lowerer) constLet(spec *syntax.VarSpec, v *check.Var) bool {
+	if spec.Pattern != nil || len(spec.Names) != 1 || len(spec.Values) != 1 {
+		return false
+	}
+	if _, constant := l.info.Values[spec.Values[0]]; !constant {
+		return false
+	}
+	b, ok := v.Type.(*check.Basic)
+	return ok && b.Kind >= check.Bool && b.Kind <= check.Uintptr
+}
+
+// letRead is the Go text of a read of the package let v, Go-named name.
+func (l *lowerer) letRead(v *check.Var, name string) string {
+	if l.consts[v] {
+		return l.rt() + ".Let(" + name + ")"
+	}
+	return name
 }
 
 // letDecl writes the Go declaration text of a package let: a program

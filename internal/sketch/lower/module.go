@@ -232,6 +232,7 @@ type lowerer struct {
 	deps     map[*check.Func][]bool     // result-alias summaries (alias.go)
 	stats    knownStats                 // what known.go and alias.go did (tests only)
 	vars     map[*check.Var]string      // package-level lets
+	consts   map[*check.Var]bool        // the lets lowered as Go constants (constLet)
 	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types
 	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
@@ -398,6 +399,7 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		types:     map[*check.TypeName]*typeDecl{},
 		funcs:     map[*check.Func]*funcDecl{},
 		vars:      map[*check.Var]string{},
+		consts:    map[*check.Var]bool{},
 		contexts:  map[contextSet]string{},
 		adapters:  map[string]string{},
 		scripts:   map[string]bool{},
