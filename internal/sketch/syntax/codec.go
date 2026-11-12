@@ -17,10 +17,22 @@ import (
 // any order of references survive. The field codec is generated
 // (codec_gen.go, internal/sketch/exportgen).
 
+// The table is written in segments (one per checked package of the
+// snapshot), so a reader decodes only the segments it needs. Ids are global
+// and grow from segment to segment: a segment's objects are the ones first
+// named while it was written, and a reference to an earlier segment's object
+// is that object's id. Below reports each such reference, so the caller can
+// record which earlier segments a segment needs.
+
 // NodeEncoder writes a table of syntax objects.
 type NodeEncoder struct {
 	ids  map[any]uint64
 	objs []any
+	// start is the number of objects of the segments already written.
+	start int
+	// Below, when set, receives every id of an earlier segment that the
+	// current segment names.
+	Below func(id uint64)
 }
 
 // NewNodeEncoder returns an empty table.
@@ -30,6 +42,9 @@ func NewNodeEncoder() *NodeEncoder { return &NodeEncoder{ids: map[any]uint64{}} 
 // struct), giving it the next id the first time.
 func (n *NodeEncoder) ID(x any) uint64 {
 	if id, ok := n.ids[x]; ok {
+		if id <= uint64(n.start) && n.Below != nil {
+			n.Below(id)
+		}
 		return id
 	}
 	if objTag(x) == 0 {
@@ -50,36 +65,83 @@ func (n *NodeEncoder) Lookup(x any) (uint64, bool) {
 	return n.ID(x), true
 }
 
-// Bytes writes the table: the count, each object's tag, then each
-// object's fields. A field may name an object no caller named; it joins
-// the table and is written in turn.
+// Next is the id the next new object of the table gets.
+func (n *NodeEncoder) Next() uint64 { return uint64(len(n.objs)) + 1 }
+
+// Bytes writes the current segment and starts the next: the count, each
+// new object's tag, then each new object's fields. A field may name an
+// object no caller named; it joins the segment and is written in turn.
 func (n *NodeEncoder) Bytes() []byte {
 	body := &encoder{table: n}
-	for i := 0; i < len(n.objs); i++ {
+	for i := n.start; i < len(n.objs); i++ {
 		body.encObj(n.objs[i])
 	}
 	head := &encoder{}
-	head.uint(uint64(len(n.objs)))
-	for _, x := range n.objs {
+	head.uint(uint64(len(n.objs) - n.start))
+	for _, x := range n.objs[n.start:] {
 		head.uint(objTag(x))
 	}
+	n.start = len(n.objs)
 	return append(head.buf, body.buf...)
 }
 
-// DecodeNodes reads a table that NodeEncoder.Bytes wrote, and returns its
-// objects by id: the object of id i is at index i-1.
-func DecodeNodes(data []byte) (objs []any, err error) {
-	d := &decoder{buf: data}
+// NodeTable holds the decoded segments of a table that NodeEncoder wrote.
+type NodeTable struct {
+	// starts[i] is the first id of segment i; starts[len] ends the last.
+	starts []uint64
+	segs   [][]any
+}
+
+// NewNodeTable returns a table whose segment i holds the ids from
+// starts[i] up to starts[i+1]; no segment is decoded yet.
+func NewNodeTable(starts []uint64) *NodeTable {
+	return &NodeTable{starts: starts, segs: make([][]any, len(starts)-1)}
+}
+
+// Obj returns the object of id and whether its segment is decoded.
+func (t *NodeTable) Obj(id uint64) (any, bool) {
+	i := segmentOf(t.starts, id)
+	if i < 0 || t.segs[i] == nil {
+		return nil, false
+	}
+	return t.segs[i][id-t.starts[i]], true
+}
+
+// segmentOf is the segment whose ids hold id, or -1.
+func segmentOf(starts []uint64, id uint64) int {
+	lo, hi := 0, len(starts)-1
+	if hi < 0 || id < starts[0] || id >= starts[hi] {
+		return -1
+	}
+	for lo+1 < hi {
+		mid := (lo + hi) / 2
+		if id < starts[mid] {
+			hi = mid
+		} else {
+			lo = mid
+		}
+	}
+	return lo
+}
+
+// Decode reads segment seg, which NodeEncoder.Bytes wrote. Its references
+// to earlier segments must name decoded segments. On an error the table
+// is unchanged.
+func (t *NodeTable) Decode(seg int, data []byte) (err error) {
+	d := &decoder{buf: data, table: t, start: t.starts[seg]}
 	defer func() {
 		if r := recover(); r != nil {
 			if e, ok := r.(decodeError); ok {
-				objs, err = nil, e
+				err = e
 				return
 			}
 			panic(r)
 		}
 	}()
 	count := d.uint()
+	if count != t.starts[seg+1]-t.starts[seg] {
+		d.failf("segment of %d objects, want %d", count, t.starts[seg+1]-t.starts[seg])
+	}
 	if count > uint64(len(data)) {
 		d.failf("syntax table of %d objects in %d bytes", count, len(data))
 	}
@@ -97,7 +159,8 @@ func DecodeNodes(data []byte) (objs []any, err error) {
 	if d.pos != len(d.buf) {
 		d.failf("%d bytes after the syntax table", len(d.buf)-d.pos)
 	}
-	return d.objs, nil
+	t.segs[seg] = d.objs
+	return nil
 }
 
 type encoder struct {
@@ -134,6 +197,9 @@ type decoder struct {
 	buf  []byte
 	pos  int
 	objs []any
+	// table and start resolve ids below this segment's first id, start.
+	table *NodeTable
+	start uint64
 }
 
 // decodeError is a malformed table.
@@ -147,10 +213,16 @@ func (d *decoder) obj(id uint64) any {
 	if id == 0 {
 		return nil
 	}
-	if id > uint64(len(d.objs)) {
-		d.failf("object id %d of %d", id, len(d.objs))
+	if id >= d.start && id-d.start < uint64(len(d.objs)) {
+		return d.objs[id-d.start]
 	}
-	return d.objs[id-1]
+	if id < d.start {
+		if x, ok := d.table.Obj(id); ok {
+			return x
+		}
+	}
+	d.failf("object id %d outside the decoded segments", id)
+	return nil
 }
 
 func (d *decoder) uint() uint64 {
