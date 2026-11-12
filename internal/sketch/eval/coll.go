@@ -223,6 +223,10 @@ func describeColl(v Value) (string, bool) {
 		return fmt.Sprintf("a function literal at %d", v.lit.Pos()), true
 	case *funcRef:
 		return "the function " + v.fn.Name, true
+	case *nativeFunc:
+		return "the function " + v.name, true
+	case *machinePlan:
+		return v.tn.Name + "{}", true
 	}
 	return "", false
 }

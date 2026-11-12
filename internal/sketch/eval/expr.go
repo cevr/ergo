@@ -522,6 +522,9 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 		return m, nil
 	}
 	n, ok := t.t.(*check.Named)
+	if _, machine := t.under().t.(*check.MachineType); ok && machine && len(x.Elts) == 0 {
+		return &machinePlan{tn: n.Obj}, nil // machinevalue.go
+	}
 	if !ok || structOf(n) == nil || check.ScriptOf(n) != nil || check.IsGoError(n) {
 		return nil, fr.unsupported(x, "a literal of %s yet", t.t)
 	}
@@ -936,28 +939,7 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 
 // option is Some{v} or None of the call's Option type.
 func (in *interp) option(fr *frame, x *syntax.CallExpr, v Value, found bool) (Value, *abrupt) {
-	t := fr.rtypeOf(x)
-	u, ok := t.under().t.(*check.Union)
-	if !ok {
-		ice("Get's result is %s, no Option", t.t)
-	}
-	want := "None"
-	if found {
-		want = "Some"
-	}
-	for _, vt := range u.Variants {
-		n, ok := vt.(*check.Named)
-		if !ok || n.Obj.Name != want {
-			continue
-		}
-		r := &record{t: n, key: argsKey(n, t.under().env)}
-		if found {
-			r.fields = []Value{v}
-		}
-		return r, nil
-	}
-	ice("the Option %s has no %s", t.t, want)
-	return nil, nil
+	return optionOf(fr.rtypeOf(x), v, found), nil
 }
 
 // convert is T(v) from the type from: a basic conversion as Go's, between

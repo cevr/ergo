@@ -732,6 +732,15 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
+      "name": "oracle-o7-after-dropped",
+      "origin": "wf10 ORACLE O7",
+      "file": "internal/sketch/eval/machinevalue.go",
+      "from": "\t\tif fn == nil {\n\t\t\treturn optionOf(result, nil, false), nil\n",
+      "to": "\t\tif true {\n\t\t\treturn optionOf(result, nil, false), nil\n",
+      "rule": "A machine value's After is its declaration's after function (runtime.md, Machines and actors 10); only a machine with none has no timer in every state.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
       "name": "oracle-o4-harness-drops-stderr",
       "origin": "wf10 ORACLE O4",
       "file": "internal/sketch/eval/examples_test.go",

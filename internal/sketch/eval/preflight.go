@@ -49,18 +49,8 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 			return false
 		}
 		mustCharge(p.in, fr, 1)
-		if x, ok := n.(syntax.Expr); ok {
-			if c := fr.info.Implicit[x]; c.Kind == check.ConvMachine {
-				why = "an unsupported implicit machine conversion"
-				return false
-			}
-			for _, c := range fr.info.ImplicitElems[x] {
-				if c.Kind == check.ConvMachine {
-					why = "an unsupported tuple-element conversion"
-					return false
-				}
-			}
-		}
+		// A machine's conversion, alone or a tuple's element, is a value
+		// the run makes (machinevalue.go).
 		switch x := n.(type) {
 		case *syntax.FuncLit:
 			return false // only a known immediately-called literal is reached

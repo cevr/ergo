@@ -57,6 +57,11 @@ func (in *interp) toOperation(fr *frame, at syntax.Node, v Value, conv check.Con
 			return nil, ab
 		}
 		return &operation{value: v, conv: conv, env: fr.env}, nil
+	case check.ConvMachine:
+		if p, ok := v.(*machinePlan); ok {
+			return in.machineValue(fr, at, p, conv)
+		}
+		return nil, fr.unsupported(at, "a conversion of %s to a Machine yet", describe(v))
 	}
 	return nil, fr.unsupported(at, "a conversion to the operation type %s yet", conv.To)
 }
@@ -341,6 +346,8 @@ func (in *interp) callValue(fr *frame, at syntax.Node, f Value, args []Value) (V
 			return nil, fr.unsupported(at, "a Go function (%s), even a pure one", f.fn.Name)
 		}
 		return in.callResolved(fr, call, f.fn, f.targs, args)
+	case *nativeFunc:
+		return f.call(in, fr, at, args)
 	}
 	return nil, fr.unsupported(at, "a call of %s as a function", describe(f))
 }

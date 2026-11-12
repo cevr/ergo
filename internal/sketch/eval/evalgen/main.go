@@ -29,9 +29,10 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine"}
 
 const mainPrelude = `import io
+import machines
 import os
 import queue
 import scope
@@ -68,6 +69,39 @@ func apply(f func(x int) int, x int) int { f(x) }
 
 func shout(s string) string { strings.ToUpper(s) }
 
+type Ctr { n int, limit int }
+
+type Sig = Add{k int} | Tick{}
+
+func ctrStart(limit int) Ctr { Ctr{n: 0, limit: limit} }
+
+func ctrStep(c Ctr, s Sig) Decision[Ctr, int] {
+	match s {
+	case Add as a:
+		if c.n + a.k > c.limit {
+			return Reject
+		}
+		if a.k == 0 {
+			return Ignore
+		}
+		Emit[Ctr, int]{Next: Ctr{n: c.n + a.k, limit: c.limit}, Output: c.n + a.k}
+	case Tick:
+		if c.n >= c.limit {
+			return Done[int]{Output: c.n}
+		}
+		Stay[Ctr]{Next: Ctr{n: c.n + 1, limit: c.limit}}
+	}
+}
+
+func ctrAfter(c Ctr) Option[Timeout[Sig]] {
+	if c.n % 2 == 0 {
+		return Some[Timeout[Sig]]{Value: Timeout[Sig]{In: time.Times(1ms, c.n + 1), Signal: Tick}}
+	}
+	None
+}
+
+type Counter machine[Ctr, Sig] { initial: ctrStart, step: ctrStep, after: ctrAfter }
+
 func Close(r Res) { note("close " + r.name) }
 
 func use(r Res) { note("use " + r.name) }
@@ -86,6 +120,7 @@ func imports() needs Scheduler | time.Clock {
 	let _ = testing.NewVirtualClock(0)
 	Scheduler.Sleep(0s)
 	let _ = time.Clock.Now()
+	let _ = machines.Initial(machines.Start(Counter{}, 1))
 }
 
 // recorder uses io and os too.
@@ -125,7 +160,9 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(9) {
+		switch g.r.IntN(10) {
+		case 9:
+			g.machine(k)
 		case 7:
 			g.rangePlace(k)
 		case 8:
@@ -407,6 +444,87 @@ func (g *mainGen) funcs(k int) {
 		n = n*2 + i
 	}
 	fmt.Fprintf(&g.out, "s%d %d %s %s\n", k, n, b, strings.ToUpper(a))
+}
+
+// machine: a machine declaration's value, converted to the prelude's
+// Machine through machines.Start (its initial is a function of an input),
+// folded by machines.Run over a seeded list of signals; its After read for
+// the state the run ended in, and its Work, which it does not declare.
+func (g *mainGen) machine(k int) {
+	g.kinds["machine"]++
+	limit := 3 + g.r.IntN(8)
+	var sigs []string
+	type sig struct{ add, k int }
+	var model []sig
+	for range 1 + g.r.IntN(6) {
+		if g.r.IntN(3) == 0 {
+			sigs, model = append(sigs, "Tick"), append(model, sig{})
+			continue
+		}
+		v := g.r.IntN(4)
+		sigs, model = append(sigs, fmt.Sprintf("Add{k: %d}", v)), append(model, sig{add: 1, k: v})
+	}
+	g.line("")
+	g.line("func s%d() needs Console {", k)
+	g.line("\tlet m = machines.Start(Counter{}, %d)", limit)
+	g.line("\tlet o = machines.Run(m, []Sig{%s}) catch {", strings.Join(sigs, ", "))
+	g.line("\tcase machines.Rejected as r:")
+	g.line("\t\tConsole.Println(\"s%d rejected \\(r.At)\")", k)
+	g.line("\t\treturn")
+	g.line("\t}")
+	g.line("\tlet mut last = m.Initial")
+	g.line("\tmatch o {")
+	g.line("\tcase machines.Finished[Ctr, int] as f:")
+	g.line("\t\tConsole.Println(\"s%d done \\(f.State.n) \\(f.Output) \\(len(f.Emitted))\")", k)
+	g.line("\t\tlast = f.State")
+	g.line("\tcase machines.Running[Ctr, int] as r:")
+	g.line("\t\tConsole.Println(\"s%d running \\(r.State.n) \\(len(r.Emitted))\")", k)
+	g.line("\t\tlast = r.State")
+	g.line("\t}")
+	g.line("\tmatch m.After(last) {")
+	g.line("\tcase Some[Timeout[Sig]] as t:")
+	g.line("\t\tConsole.Println(\"s%d timer \\(t.Value.In)\")", k)
+	g.line("\tcase None:")
+	g.line("\t\tConsole.Println(\"s%d no timer\")", k)
+	g.line("\t}")
+	g.line("\tmatch m.Work(last) {")
+	g.line("\tcase Some:")
+	g.line("\t\tConsole.Println(\"s%d work\")", k)
+	g.line("\tcase None:")
+	g.line("\t\tConsole.Println(\"s%d no work\")", k)
+	g.line("\t}")
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
+	n, emitted := 0, 0
+	for i, s := range model {
+		switch {
+		case s.add == 0 && n >= limit:
+			fmt.Fprintf(&g.out, "s%d done %d %d %d\n", k, n, n, emitted)
+			g.machineTail(k, n)
+			return
+		case s.add == 0:
+			n++
+		case n+s.k > limit:
+			fmt.Fprintf(&g.out, "s%d rejected %d\n", k, i)
+			return
+		case s.k == 0:
+		default:
+			n += s.k
+			emitted++
+		}
+	}
+	fmt.Fprintf(&g.out, "s%d running %d %d\n", k, n, emitted)
+	g.machineTail(k, n)
+}
+
+// machineTail is the model of the timer and work lines of machine.
+func (g *mainGen) machineTail(k, n int) {
+	if n%2 == 0 {
+		fmt.Fprintf(&g.out, "s%d timer %s\n", k, time.Duration(n+1)*time.Millisecond)
+	} else {
+		fmt.Fprintf(&g.out, "s%d no timer\n", k)
+	}
+	fmt.Fprintf(&g.out, "s%d no work\n", k)
 }
 
 // stderr: a line on standard error.
