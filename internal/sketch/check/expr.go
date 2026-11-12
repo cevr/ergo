@@ -1162,7 +1162,7 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		t, handle = e, true
 	}
 	if isHostNamed(t) {
-		return c.hostSelector(x, base, t.(*Named), handle)
+		return c.hostSelector(x, base, t.(*Named), handle, called)
 	}
 	if isInvalid(under(t)) {
 		// A refused declared type (`type MyQ queue.Queue[int]`) was

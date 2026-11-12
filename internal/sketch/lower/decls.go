@@ -262,6 +262,17 @@ func (l *lowerer) typeName(tn *check.TypeName) string {
 	if td := l.types[tn]; td != nil {
 		return td.name
 	}
+	if tn.Pkg.Host() {
+		// A Go type of import go is Go's own declaration, named through
+		// its package's import (goType): it takes no package-scope name
+		// and is never emitted. Its structure (a record's fields, read by
+		// a selection or a copy) is still its typeDecl's. The name does not
+		// mark the import used: only a written type does (hostPkg).
+		path := tn.Pkg.Path
+		td := &typeDecl{tn: tn, name: l.pkgName(pkgKey{"import", path}, hostBase(path)) + "." + tn.Name, library: true, emitted: true}
+		l.types[tn] = td
+		return td.name
+	}
 	td := &typeDecl{tn: tn, name: l.pkgName(pkgKey{"type", tn}, tn.Name), library: tn.Pkg != l.pkg}
 	l.types[tn] = td
 	return td.name

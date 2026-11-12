@@ -380,14 +380,18 @@ func (l *lowerer) libraryPackages() []*check.Package {
 			}
 		}
 		for x, t := range info.Types {
-			if n, ok := t.(*check.Named); ok && l.readsFact(p, x) {
+			if !l.readsFact(p, x) {
+				continue
+			}
+			if n, ok := t.(*check.Named); ok {
 				add(n.Obj.Pkg)
-				// A Go type inside another (go.Ref[url.URL],
-				// Option[go.Ref[bufio.Reader]]) is Go's, named through
-				// its package's import.
-				for _, h := range hostPkgsIn(n, nil) {
-					add(h)
-				}
+			}
+			// A Go type anywhere inside an expression's type
+			// (go.Ref[url.URL], Option[go.Ref[bufio.Reader]], the
+			// []fs.DirEntry of os.ReadDir) is Go's, named through its
+			// package's import, which the program need not write.
+			for _, h := range hostPkgsIn(t, nil) {
+				add(h)
 			}
 		}
 		// A dot call reaches a function no name uses: the prelude's
