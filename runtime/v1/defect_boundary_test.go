@@ -14,6 +14,15 @@ import (
 // release defect, and every release kind (an exit action, a nested one, a
 // Close) adds its own defect after the body's.
 
+// rootSpan is the span of runMain's root task: "main", or under the
+// ergoexplore tag the explored run's root (rt.ExploreTraced), "explore".
+func rootSpan() string {
+	if rt.Exploring {
+		return "explore"
+	}
+	return "main"
+}
+
 // A root-task defect with context in force writes the chain line of main
 // and the context under it, shadowed keys left out, outermost first.
 func TestDefectRootContext(t *testing.T) {
@@ -37,7 +46,7 @@ func TestDefectRootContext(t *testing.T) {
 		t.Fatalf("snapshot %+v, want %+v", got, want)
 	}
 	var out strings.Builder
-	if report(&out, err) != 2 || !strings.Contains(out.String(), " main\n\t  context trace.span=\"root\" log.y=\"middle\" log.x=\"new\"\n") {
+	if report(&out, err) != 2 || !strings.Contains(out.String(), " "+rootSpan()+"\n\t  context trace.span=\"root\" log.y=\"middle\" log.x=\"new\"\n") {
 		t.Fatalf("root report:\n%s", out.String())
 	}
 	// With no context in force, the root alone writes no chain.

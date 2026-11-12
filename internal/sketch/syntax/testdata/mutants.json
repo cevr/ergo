@@ -34,6 +34,7 @@
       "killers": [
         "internal/sketch/syntax:TestPairLawDraws"
       ]
-    }
+    },
+    {"name":"try1-groups-right","origin":"wf10 lang-2 TRY1","file":"internal/sketch/syntax/parse_expr.go","from":"\t\tp.tryOperand(pos)\n\t\tx := p.parseUnary()","to":"\t\tp.tryOperand(pos)\n\t\tx := p.parseBinary(1)","rule":"grammar.md Expressions 1 (q105): a try in operand position wraps its operand only; it adds no grouping.","killers":["internal/sketch/syntax:TestTryAddsNoGrouping"]}
   ]
 }

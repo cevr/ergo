@@ -117,6 +117,13 @@ func TestImportGoUses(t *testing.T) {
 		{"value-direct", "import go unicode\nimport go strings\nfunc F(s string) string { strings.Map(unicode.ToUpper, s) }\n", ""},
 		{"value-slice", "import go strings\nfunc F() int { let f = strings.Fields; len(f(\"a b\")) }\n",
 			"2:24:S108 strings.Fields is an extern and is not a value; pass func(s string) []string { strings.Fields(s) } (grammar.md, Extern)"},
+		// S-tz: a Go package whose binding declares nothing is carried by
+		// its import, in the package of main only (interop.md, Checking 6).
+		// Mutants they alone catch: a carried import still S110 in main;
+		// one admitted outside main.
+		{"carried-in-main", "import go time/tzdata\nfunc main() {}\n", ""},
+		{"carried-outside-main", "import go time/tzdata\nfunc F() int { 1 }\n",
+			"1:8:S108 Go package time/tzdata declares nothing; it is carried into the binary for its initialization, and only the package of main, which makes the binary, carries it (interop.md, Checking 6)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, d := check.CheckSource(tc.src)

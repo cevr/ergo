@@ -37,7 +37,7 @@ test KeepsTheLawsAtSixtyFourBlanks(seed int) {
 	let p = board.Puzzle(seed, 64)
 	let s = try Solver.Solve(p)
 	assert board.Solves(s, p)
-	assert (try Solver.Solve(p)) == s
+	assert try Solver.Solve(p) == s
 }
 
 // On puzzles with few blanks the solution is the sample itself, so both

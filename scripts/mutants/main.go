@@ -32,6 +32,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -220,7 +221,7 @@ func ergoSuites() ([]string, []Tool, []Suite) {
 		{Name: "api", Package: "./internal/sketch/api"},
 		{Name: "ergo", Package: "./cmd/ergo"},
 		// The case budget is off: a slow case under the runner's load is not
-		// a kill. The per-case timeout stays: a mutant that loops is one.
+		// a kill. A mutant that loops is one: the runner's deadline stops it.
 		{Name: "examples", Command: []string{"{bin:examples}", "-root", "{root}", "-ergo", "{bin:ergo}", "-budget", "1h", "{test}"}, List: defaultExamples},
 	}
 	return cover, tools, suites
@@ -230,7 +231,8 @@ func ergoSuites() ([]string, []Tool, []Suite) {
 // the lowering's ledgers take ergoSuites. The ledger of any other package
 // (runtime/v1, batch 14) is judged by that package's own tests, with
 // coverage of the packages its mutants edit (a runtime/v1 test kills a
-// mutant of runtime/rt too).
+// mutant of runtime/rt too), and by them built with a mutant's build tags
+// for each tag set the ledger's mutants name (Mutant.Tags).
 func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -239,6 +241,7 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	var cover []string
 	var tools []Tool
 	var suites []Suite
+	foreign := map[string][]string{} // a killer's package dir: its tests
 	add := func(pkg string) {
 		if !slices.Contains(cover, pkg) {
 			cover = append(cover, pkg)
@@ -265,12 +268,48 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			continue
 		}
 		add("./" + rel)
+		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
 		for _, m := range j.Ledger.Mutants {
 			add("./" + filepath.ToSlash(filepath.Dir(m.File)))
+			// A mutant with build tags is judged by the package's tests
+			// built with them: a suite of its own, measured in the
+			// coverage pass too, so a file only the tags build has blocks.
+			name := TagSuite(rel, m.Tags)
+			if !slices.ContainsFunc(suites, func(s Suite) bool { return s.Name == name }) {
+				suites = append(suites, Suite{Name: name, Package: "./" + rel, Tags: slices.Clone(m.Tags)})
+			}
+			// A killer in another package (internal/sketch/lower:TestX for
+			// a runtime/v1 mutant that only a lowering reads) is judged by
+			// that package's suite, limited to the tests the ledger names.
+			for _, k := range m.Killers {
+				suite, test, _ := strings.Cut(k, ":")
+				if suite == rel || !isTestPackage(absRoot, suite) {
+					continue
+				}
+				if !slices.Contains(foreign[suite], test) {
+					foreign[suite] = append(foreign[suite], test)
+				}
+			}
 		}
-		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
+	}
+	for _, suite := range slices.Sorted(maps.Keys(foreign)) {
+		// A package whose own ledger runs too has its whole suite already.
+		if !slices.ContainsFunc(suites, func(s Suite) bool { return s.Name == suite }) {
+			suites = append(suites, Suite{Name: suite, Package: "./" + suite, Only: foreign[suite]})
+		}
 	}
 	return cover, tools, suites, nil
+}
+
+// isTestPackage reports whether dir, relative to root, is a package with
+// tests: a killer's suite that names a directory (internal/sketch/lower),
+// not a suite of another kind (examples:PROGRAM) or a short name (lower).
+func isTestPackage(root, dir string) bool {
+	if dir == "" || strings.HasPrefix(dir, ".") || filepath.IsAbs(dir) {
+		return false
+	}
+	tests, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*_test.go"))
+	return len(tests) > 0
 }
 
 // defaultExamples lists the example programs tagged default.

@@ -2,8 +2,11 @@ package lower
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
 	"go/scanner"
 	"go/token"
+	"go/types"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,6 +14,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/machinegraph"
 	"ergo.local/prototype/internal/sketch/syntax"
+	rtpkg "ergo.local/prototype/runtime/rt"
 )
 
 // Machine plan values (spec D5; runtime.md, Machines and actors 1 and 5).
@@ -153,12 +157,44 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 	}
 }
 
-// machineGraph is the init function that registers the machine td's graph
-// with the runtime (v1.RegisterMachine; MU15): its step's arms, each with
-// its .ergo position and the Go variants of the states and signals it
-// takes, and the signal variant of each state's timer. A traced actor of
-// the machine names the arm of each decision from it (runtime.md, Machines
-// and actors 15). state and signal are the machine's Go types.
+// Machine graphs (MU15; binsize BS7; runtime.md, Machines and actors 15).
+// A traced actor names the arm of each decision and the signal of each
+// timer from its machine's graph: the step's arms, each with its .ergo
+// position and the variants of the states and signals it takes, and the
+// signal variant of each state's timer. The graph is static data: a
+// package variable of constant composite literals, which the Go linker
+// lays out and no initializer builds, and which it drops when no actor
+// start is reached. The variant names are constants the lowering derives
+// from the Go type (variantName), the name a runner gives a value it holds.
+//
+// An actor's start (MachineSupervise, MachineChild) takes the graph as its
+// hidden graph argument (v1.Graph): ergoMachineGraph[S, E], a generated
+// function whose type switch gives the graph of the machine of states S
+// and signals E. It is the start's own type arguments that choose, so a
+// Machine record built from parts (machines.Start, actor.StartDurable)
+// keeps its declaration's arms. Two machines with the same state and
+// signal types get no case, so their actors report no arm, as the runtime
+// could not tell their arms apart.
+//
+// graphLowering "registry" is the reference, the lowering before BS7: an
+// init function per machine registers its graph, with names VariantOf
+// computes at start-up, in the runtime's registry (v1.RegisterMachine),
+// and the hidden argument reads it (v1.RegisteredGraph). Select it with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.graphLowering=registry.
+var graphLowering string
+
+// graphRegistry reports the reference lowering of machine graphs.
+func graphRegistry() bool { return graphLowering == "registry" }
+
+// machineGraphEntry is one machine's static graph: the Go types of its
+// states and signals and the name and value of its variable.
+type machineGraphEntry struct {
+	state, signal, name, value string
+}
+
+// machineGraph lowers the machine td's graph: under the reference, the
+// init function that registers it; else an entry of l.machineGraphs,
+// which graphAccessor writes. state and signal are the machine's Go types.
 func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) string {
 	spec, ok := td.tn.Decl.Spec.(*syntax.MachineType)
 	if !ok {
@@ -172,11 +208,27 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 		return ""
 	}
 	rt := l.rt()
-	goOf := map[string]string{}
-	for _, v := range append(append([]machinegraph.Variant{}, g.States...), g.Signals...) {
-		goOf[v.Name] = rt + ".VariantOf[" + tc.goType(v.Type) + "]()"
+	// The Go text of each state's and each signal's variant name, by its
+	// Ergo name: two maps, since a state and a signal variant may share
+	// an Ergo name (two instances of one generic record).
+	names := func(vs []machinegraph.Variant) map[string]string {
+		goOf := map[string]string{}
+		for _, v := range vs {
+			t := tc.goType(v.Type)
+			if graphRegistry() {
+				goOf[v.Name] = rt + ".VariantOf[" + t + "]()"
+				continue
+			}
+			name, ok := l.variantName(t)
+			if !ok {
+				ice(td.tn.Decl.Name, "the machine %s has the variant %s, whose Go type %s the lowering cannot name", td.tn.Name, v.Name, t)
+			}
+			goOf[v.Name] = strconv.Quote(name)
+		}
+		return goOf
 	}
-	list := func(vs []string) string {
+	stateOf, signalOf := names(g.States), names(g.Signals)
+	list := func(vs []string, goOf map[string]string) string {
 		if vs == nil {
 			return "nil"
 		}
@@ -187,11 +239,19 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 		return "[]string{" + strings.Join(out, ", ") + "}"
 	}
 	var b strings.Builder
-	b.WriteString("func init() {\n\t" + rt + ".RegisterMachine[" + state + ", " + signal + "](" + rt + ".MachineGraph{\n\t\tArms: []" + rt + ".MachineArm{\n")
+	b.WriteString(rt + ".MachineGraph{\n\tArms: []" + rt + ".MachineArm{\n")
 	for _, a := range g.Arms {
-		fmt.Fprintf(&b, "\t\t\t{Site: %s, States: %s, Signals: %s, Partial: %t},\n", strconv.Quote(a.Site.String()), list(a.States), list(a.Signals), a.Partial)
+		// A case of several tuple patterns is one runtime arm per
+		// pattern, at one site, which the runner names once.
+		alts := a.Alts
+		if alts == nil {
+			alts = []machinegraph.Alt{{States: a.States, Signals: a.Signals, Partial: a.Partial}}
+		}
+		for _, x := range alts {
+			fmt.Fprintf(&b, "\t\t{Site: %s, States: %s, Signals: %s, Partial: %t},\n", strconv.Quote(a.Site.String()), list(x.States, stateOf), list(x.Signals, signalOf), x.Partial)
+		}
 	}
-	b.WriteString("\t\t},\n\t\tTimers: map[string]string{\n")
+	b.WriteString("\t},\n\tTimers: []" + rt + ".MachineTimer{\n")
 	keys := make([]string, 0, len(g.Timers))
 	for k := range g.Timers {
 		keys = append(keys, k)
@@ -199,11 +259,184 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 	sort.Strings(keys)
 	for _, k := range keys {
 		if sig := g.Timers[k].Signal; sig != machinegraph.Any {
-			b.WriteString("\t\t\t" + goOf[k] + ": " + goOf[sig] + ",\n")
+			b.WriteString("\t\t{State: " + stateOf[k] + ", Signal: " + signalOf[sig] + "},\n")
 		}
 	}
-	b.WriteString("\t\t},\n\t})\n}\n\n")
-	return b.String()
+	b.WriteString("\t},\n}")
+	if graphRegistry() {
+		return "func init() {\n\t" + rt + ".RegisterMachine[" + state + ", " + signal + "](" + b.String() + ")\n}\n\n"
+	}
+	l.machineGraphs = append(l.machineGraphs, machineGraphEntry{state: state, signal: signal,
+		name: l.pkgName(pkgKey{"machine graph", td.tn}, "ergoGraph"+td.tn.Name), value: b.String()})
+	return ""
+}
+
+// graphArg is the hidden graph argument of an actor's start whose states
+// and signals are the Go types state and signal.
+func (l *lowerer) graphArg(state, signal string) string {
+	if graphRegistry() {
+		return l.rt() + ".RegisteredGraph[" + state + ", " + signal + "]"
+	}
+	l.graphsUsed = true
+	return l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph") + "[" + state + ", " + signal + "]"
+}
+
+// graphAccessor writes ergoMachineGraph, when an actor's start names it,
+// and the graph variables its cases give: one case per pair of state and
+// signal types that one machine alone has.
+//
+//	type ergoMachinePair[S, E any] struct{}
+//
+//	func ergoMachineGraph[S, E any]() *ergo.MachineGraph {
+//		switch any(ergoMachinePair[S, E]{}).(type) {
+//		case ergoMachinePair[Phase, Signal]:
+//			return &ergoGraphFinder
+//		}
+//		return nil
+//	}
+//
+//	var ergoGraphFinder = ergo.MachineGraph{…}
+func (l *lowerer) graphAccessor() string {
+	if !l.graphsUsed {
+		return ""
+	}
+	pairs := map[[2]string]int{}
+	for _, e := range l.machineGraphs {
+		pairs[[2]string{e.state, e.signal}]++
+	}
+	scope := newNamer(l.names)
+	s, e := scope.alloc("S"), scope.alloc("E")
+	pair := l.pkgName(pkgKey{"machine pair", nil}, "ergoMachinePair")
+	var b, vars strings.Builder
+	b.WriteString("type " + pair + "[" + s + ", " + e + " any] struct{}\n\n")
+	b.WriteString("func " + l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph") + "[" + s + ", " + e + " any]() *" + l.rt() + ".MachineGraph {\n")
+	b.WriteString("\tswitch any(" + pair + "[" + s + ", " + e + "]{}).(type) {\n")
+	for _, g := range l.machineGraphs {
+		if pairs[[2]string{g.state, g.signal}] != 1 {
+			continue
+		}
+		b.WriteString("\tcase " + pair + "[" + g.state + ", " + g.signal + "]:\n\t\treturn &" + g.name + "\n")
+		vars.WriteString("var " + g.name + " = " + g.value + "\n\n")
+	}
+	b.WriteString("\t}\n\treturn nil\n}\n\n")
+	return b.String() + vars.String()
+}
+
+// variantName is the name a runner gives a value of the Go type t, the
+// text the lowering writes for it in main.go: rt.TypeName of Go's runtime
+// type string, as v1.VariantOf computes it at run time. ok is false for a
+// type that runtimeSpelling does not spell.
+func (l *lowerer) variantName(t string) (string, bool) {
+	x, err := parser.ParseExpr(t)
+	if err != nil {
+		return "", false
+	}
+	paths := map[string]string{}
+	for k, name := range l.pkgNames {
+		if p, ok := k.obj.(string); ok && k.kind == "import" {
+			paths[name] = p
+		}
+	}
+	s, ok := runtimeSpelling(x, paths)
+	if !ok {
+		return "", false
+	}
+	return rtpkg.TypeName(s), true
+}
+
+// runtimeSpelling is Go's runtime type string of the type expression x of
+// main.go, where paths gives each import name's path. It spells the forms
+// goType writes (types.go): a predeclared type as Go names it, a type of
+// package main as main.T, a type of another package with its import path
+// (Go's runtime names the path inside a type's brackets; at the top
+// level rt.TypeName drops the qualifier), type arguments apart by a bare
+// comma, slices, arrays, maps, pointers, function types and the structs of
+// tuples. ok is false for any other form: an interface, a channel, a
+// struct with an embedded field or a tag, which no value type lowers to.
+func runtimeSpelling(x ast.Expr, paths map[string]string) (string, bool) {
+	list := func(fl []*ast.Field, sep string, named bool) (string, int, bool) {
+		var out []string
+		for _, f := range fl {
+			s, ok := runtimeSpelling(f.Type, paths)
+			if !ok || named && (len(f.Names) == 0 || f.Tag != nil) {
+				return "", 0, false
+			}
+			if named {
+				for _, n := range f.Names {
+					out = append(out, n.Name+" "+s)
+				}
+				continue
+			}
+			for range max(len(f.Names), 1) {
+				out = append(out, s)
+			}
+		}
+		return strings.Join(out, sep), len(out), true
+	}
+	elem := func(prefix string, y ast.Expr) (string, bool) {
+		s, ok := runtimeSpelling(y, paths)
+		return prefix + s, ok
+	}
+	switch x := x.(type) {
+	case *ast.Ident:
+		if _, ok := types.Universe.Lookup(x.Name).(*types.TypeName); ok {
+			return x.Name, true
+		}
+		return "main." + x.Name, true
+	case *ast.SelectorExpr:
+		pkg, ok := x.X.(*ast.Ident)
+		if !ok || paths[pkg.Name] == "" {
+			return "", false
+		}
+		return paths[pkg.Name] + "." + x.Sel.Name, true
+	case *ast.IndexExpr:
+		return runtimeSpelling(&ast.IndexListExpr{X: x.X, Indices: []ast.Expr{x.Index}}, paths)
+	case *ast.IndexListExpr:
+		head, ok := runtimeSpelling(x.X, paths)
+		args := make([]string, len(x.Indices))
+		for i, a := range x.Indices {
+			s, ok2 := runtimeSpelling(a, paths)
+			ok = ok && ok2
+			args[i] = s
+		}
+		return head + "[" + strings.Join(args, ",") + "]", ok
+	case *ast.StarExpr:
+		return elem("*", x.X)
+	case *ast.ArrayType:
+		if x.Len == nil {
+			return elem("[]", x.Elt)
+		}
+		n, ok := x.Len.(*ast.BasicLit)
+		if !ok {
+			return "", false
+		}
+		return elem("["+n.Value+"]", x.Elt)
+	case *ast.MapType:
+		k, ok := runtimeSpelling(x.Key, paths)
+		v, ok2 := elem("]", x.Value)
+		return "map[" + k + v, ok && ok2
+	case *ast.FuncType:
+		params, _, ok := list(x.Params.List, ", ", false)
+		var rs []*ast.Field
+		if x.Results != nil {
+			rs = x.Results.List
+		}
+		results, n, ok2 := list(rs, ", ", false)
+		switch {
+		case n == 1:
+			results = " " + results
+		case n > 1:
+			results = " (" + results + ")"
+		}
+		return "func(" + params + ")" + results, ok && ok2
+	case *ast.StructType:
+		fields, n, ok := list(x.Fields.List, "; ", true)
+		if n == 0 {
+			return "struct {}", ok
+		}
+		return "struct { " + fields + " }", ok
+	}
+	return "", false
 }
 
 // machinePure reports a step whose plan takes no environment: no error
@@ -319,7 +552,7 @@ func (fc *funcCtx) positiveTimers(conv check.Conversion, after *check.Func, site
 		body := ind + gv + " := " + g + "\n" +
 			ind + o + ", " + err + " := " + gv + "(" + env + ", " + s + ")\n" +
 			ind + "if " + fc.optionSomeIf(sig.Results[0], o, t, site) + " && " + t + ".Value.In <= 0 {\n" +
-			ind + "\tpanic(" + fc.l.rt() + ".MachineTimerNotPositive(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value.In))\n" +
+			ind + "\tpanic(" + fc.l.rtRef("MachineTimerNotPositive") + "(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value.In))\n" +
 			ind + "}\n" +
 			ind + "return " + o + ", " + err + "\n"
 		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]), body

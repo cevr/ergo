@@ -175,7 +175,7 @@ import . "path/filepath"
 //ergo:pure
 func Base2(p string) string { return Base(p) }
 `
-	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(lexical)}, "b.go": {Data: []byte(dotted)}})
+	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(lexical)}, "b.go": {Data: []byte(dotted)}}, Path)
 	if err != nil {
 		t.Fatal(err)
 	}

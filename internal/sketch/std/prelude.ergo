@@ -169,6 +169,15 @@ type WireKind = WireNull | WireBool | WireNumber | WireString | WireList | WireO
 type WireMissingField { Path string, Field string }
 type WireUnknownTag { Path string, Tag string }
 
+// WireForm(x X)'s result declares X's representation to the wire protocol.
+// These markers carry no runtime data. The codec checks the structural
+// requirements of the selected form (types.md, Codecs 8).
+type WireOmittable {}
+type WireNullable {}
+type WireBare {}
+type WireNumberText {}
+type WireMembers {}
+
 // The rows of these functions make the shape failures error types of the
 // prelude, as unsatisfied does for Unsatisfied.
 func wireWrongKind(e WireWrongKind) fails WireWrongKind { e }
@@ -211,8 +220,9 @@ extern go ergo.local/prototype/runtime/v1.Get func Get[K comparable, V](m Map[K,
 
 // Delete is m without the key k. m is unchanged: a Map is a value (owner
 // q26), and the lowering deletes in place only for m = m.Delete(k) or a
-// dead m.
-extern go ergo.local/prototype/runtime/v1.Delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V]
+// dead m. It binds Go's builtin delete (OPT7): the call is the builtin
+// itself, with no Go function between.
+extern go delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V]
 
 // Put is m with k set to v: the entry is added, or its value replaced. m
 // is unchanged, as Delete leaves it (owner q26), and the lowering writes
@@ -300,6 +310,7 @@ type InputMachine[I, S, E, O, F, R, W] {
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
 type Task[T, E] {
+	runtimeOnly(),
 	// Wait takes the task: its one result moves out once (#197 q54).
 	// Stop lends it, so a law can say what holds after it.
 	Wait() T fails E takes,

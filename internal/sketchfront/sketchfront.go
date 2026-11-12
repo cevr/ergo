@@ -286,7 +286,7 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	}
 	// A program of one source text is anchored at the request's Source; a
 	// program read from a folder at the admitted path of each file it read.
-	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: req.Source, Text: a.source}}}
+	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: req.Source, Text: a.source}}, Root: filepath.Dir(req.Source)}
 	dependencies := stdDependencies()
 	if a.program != nil {
 		unit = a.program.unit()

@@ -48,7 +48,7 @@ func fstart(t *rt.Task, capacity int) *Actor[[]int, int, rdec] {
 		}
 		return rdec{decideStay, e}, nil
 	}
-	return MachineStart(Site("fed"), t, releaser{make(chan sleep)}, []int{}, step,
+	return MachineStart(Site("fed"), t, releaser{make(chan sleep)}, nil, []int{}, step,
 		func(*rt.Task, []int, []int) (rdec, error) { return rdec{kind: decideIgnore}, nil },
 		func([]int) time.Duration { return ActorNoTimer() }, noWork[[]int], hasNoWork, runNoWork[int],
 		func(d rdec) int { return d.kind },

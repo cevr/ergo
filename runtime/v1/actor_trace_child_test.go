@@ -23,10 +23,10 @@ func TestActorTracesChildren(t *testing.T) {
 	next := func(s, _ int) int { return s }
 	ignore := func(*rt.Task, int, int) (int, error) { return decideIgnore, nil }
 	started := make(chan struct{})
-	parent := MachineStart(Site("parent"), root, sl, 0, ignore, nil, noTimer,
+	parent := MachineStart(Site("parent"), root, sl, nil, 0, ignore, nil, noTimer,
 		func(s int) bool { return s == 0 }, func(w bool) bool { return w },
 		func(wt *rt.Task, _ bool, _ func(int)) {
-			_ = MachineChild(Site("child"), wt, sl, nil, 0, ignore, nil, noTimer,
+			_ = MachineChild(Site("child"), wt, sl, nil, nil, 0, ignore, nil, noTimer,
 				noWork[int], hasNoWork, runNoWork[int], kind, next, func(*rt.Task, int, func(int)) {}, 1)
 			close(started)
 			<-wt.Done()

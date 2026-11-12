@@ -37,6 +37,7 @@ type Malformed { Offset int, Reason string }
 // text they wrote so far.
 // law-exempt: an event's text depends on the events before it (a comma, a key), so a law over Text's own operations restates the writer; the package laws (RoundTrips, FastAgreesWithWriter) hold what it writes through encode and decode.
 type Text {
+	runtimeOnly(),
 	Bool(b bool),
 	Int(n int64),
 	Uint(n uint64),
@@ -74,6 +75,7 @@ extern go ergo.local/prototype/runtime/v1.JSONGive func give(t Text) string
 // kind asked for.
 // law-exempt: only open makes a Cursor, from a text, so a law cannot draw one; the package law RoundTrips holds its reads through Reader and decode.
 type Cursor {
+	runtimeOnly(),
 	TakeNull() bool,
 	// Kind is the next value's kind in WireKind's order (0 null to 6 end).
 	Kind() int,

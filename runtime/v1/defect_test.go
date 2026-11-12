@@ -130,6 +130,23 @@ func TestDefectReportAcrossObservations(t *testing.T) {
 	}
 }
 
+// TestDefectReportReadsTrimmedFrames: a program's tables name its sources
+// relative to its module root, and go build -trimpath records a frame of
+// one under the program's module path (binsize BS6). The report matches
+// the frame and names the relative file. Mutant bs6-trim-off.
+func TestDefectReportReadsTrimmedFrames(t *testing.T) {
+	RegisterCalls([]struct {
+		Name      string
+		File      string
+		Line, End int
+	}{{Name: "pick", File: "main.ergo", Line: 1, End: 3}}, nil)
+	t.Cleanup(func() { registered, decls, calls = false, nil, nil })
+	stack := "goroutine 1 [running]:\npanic({0x1, 0x2})\n\t/go/src/runtime/panic.go:787 +0x132\nmain.pick(...)\n\t" + ProgramModule + "/main.ergo:2 +0x18\n"
+	if frames := ergoStack([]byte(stack)); !slices.Equal(frames, []string{"pick at main.ergo:2"}) {
+		t.Fatalf("frames %q; want [pick at main.ergo:2]", frames)
+	}
+}
+
 // TestDefectReportFramesEndAtTheTaskBody: the Go body passed to Go, the
 // lowered task.Go block's entry, is not reported as a call; the frames
 // above it are, and nothing below it.
@@ -196,21 +213,28 @@ func TestDefectReportWrapperNotARepeat(t *testing.T) {
 // TestDefectKeptWhenTypedFailureDropped: a task whose body fails and whose
 // exit action panics exits with both; Stop and the owner's drain drop the
 // abandoned typed failure and keep the defect, marked as an exit action's,
-// with the task's chain.
+// with the task's chain. The child says it is ready through a queue, a
+// wait the runtime parks: under the ergoexplore tag runMain runs the body
+// under the controlled scheduler, which a raw channel receive blocks for
+// ever (the waiting task never yields, so the child never runs).
 func TestDefectKeptWhenTypedFailureDropped(t *testing.T) {
 	for _, o := range []observe{byStop, byDrain} {
 		t.Run(o.String(), func(t *testing.T) {
-			ready := make(chan struct{})
+			ready := New[struct{}](1)
 			err := runMain(func(root *rt.Task) error {
 				return frame(root, func(s *Scope) error {
 					c := ownedGo(s, "child", func(ct *rt.Task) (int, error) {
 						return frameValue(ct, func(cs *Scope) (int, error) {
 							OnExit(cs, func() { boom() })
-							close(ready)
+							if err := ready.Push(ct, struct{}{}); err != nil {
+								return 0, err
+							}
 							return 0, bad{"abandoned"}
 						})
 					})
-					<-ready
+					if _, err := ready.Pop(root); err != nil {
+						return err
+					}
 					if o == byStop {
 						c.Stop()
 					}

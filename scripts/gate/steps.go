@@ -224,6 +224,19 @@ const corpusGcPackage = "internal/sketch/lower"
 
 var corpusGcEnvironment = []string{"ERGO_TEST_CORPUS_GC=1"}
 
+// sizesStep is the full tier's size receipt (binsize plan, BS0): the
+// command internal/sizes/cmd/sizes builds the fixtures as `ergo build` does,
+// default and stripped, with a Go hello control, prints one JSON receipt per
+// fixture, and fails a fixture over its budget (internal/sizes/budgets.json).
+// It is a command and not a test, so a checker edit reaches no extra test
+// package in the fast tier. Its Weight is its measured seconds with an
+// empty Go build cache (71.1 s at GOMAXPROCS=1 with its own compile, 2026-11-10).
+const (
+	sizesStep    = "sizes"
+	sizesCommand = "./internal/sizes/cmd/sizes"
+	sizesWeight  = 71.1
+)
+
 // gofmtDirectories are the Go trees the gate requires to be gofmt-clean.
 var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "tools/provenance"}
 
@@ -280,12 +293,12 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		return nil, err
 	}
 	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeout, "./runtime/rt"}, Weight: packageSeconds(durations[modulePath(root)+"/runtime/rt"]), Class: classHeavy})
-	// The explored build's worker and children laws (runtime/v1
-	// explore_on.go, explore_laws.go): their tests alone, since the rest
-	// of runtime/v1 runs untagged. The tagged tests have no row of their
-	// own, so the step weighs runtime/v1's record, an upper bound that
-	// starts it early.
-	add(&Step{Name: "explored worker", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeout, "-run", "^(TestWorkerRetainsNoTask|TestChildrenLawsExplored|TestChildLawsReadEvents|TestHandlesNamedBySource)$", "./runtime/v1"}, Weight: packageSeconds(durations[modulePath(root)+"/runtime/v1"]), Class: classHeavy})
+	// runtime/v1 in the explored build (explore_on.go, explore_laws.go):
+	// the whole package, so a new test cannot skip the controlled
+	// scheduler; its waits go through the scheduler (runtime.md, Explored
+	// schedules). The tagged run has no row of its own, so the step weighs
+	// runtime/v1's record.
+	add(&Step{Name: "explored runtime/v1", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeout, "./runtime/v1"}, Weight: packageSeconds(durations[modulePath(root)+"/runtime/v1"]), Class: classHeavy})
 	var unsharded, hermetic []string
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
@@ -337,6 +350,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		others += packageSeconds(durations[pkg])
 	}
 	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools, Weight: others, Class: classHeavy})
+	add(&Step{Name: sizesStep, Needs: []string{"go test build"}, Argv: []string{"go", "run", sizesCommand}, Weight: sizesWeight, Class: classHeavy})
 	// The full tier sweeps every package's closure on every run (gate-tier
 	// round 1 and plan G2: "always in the full tier"; owner question 3 of
 	// batch 9, on its default), one package per step, as the fast tier

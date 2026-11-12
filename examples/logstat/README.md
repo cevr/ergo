@@ -69,7 +69,7 @@ Each gap has its repro in the run dir's `examples-wave/gaps-ex-a.md`.
 - **G-ex-a-11 (std behaviour differs from Go).** A `time.Time` keeps no zone offset: a time parsed with `+0100` is written back with `+0000`. logstat writes every time in UTC, and the law `FormatParses` holds for UTC lines only.
 - **G-ex-a-12 (performance).** `slices.Ascending` has no length or index, and `Items` copies the sample, so `Percentiles` takes every percentile in one call to copy it once.
 - **G-ex-a-14 (closed by S-json).** `report.Encode` writes over std json's HTML `Text` (Go's escapes of <, > and &, `Null` for an empty span), in the field order Go's struct gives; a byte of invalid UTF-8 is `\udcXX`, where Go writes `\ufffd`, so the text reads back as the bytes.
-- **Not a gap, found on the way.** `number` is a predeclared constraint, so a function named `number` is S108 (types.md, Generics 2); and `try` must start an expression (`1000000 * try f()` is S001), so the value is bound first.
+- **Not a gap, found on the way.** `number` is a predeclared constraint, so a function named `number` is S108 (types.md, Generics 2). (Closed: `try` may start any operand since q105, so `1000000 * try f()` is written as is.)
 
 Closed in batch 13: G-exup-7 (fu6a: `time.NewTime` builds a generated `time.Time`, so the laws take a `Request` in place of a seed).
 

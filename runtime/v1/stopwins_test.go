@@ -50,6 +50,7 @@ func TestStopWinsReleaseModel(t *testing.T) {
 				body := func(ct *rt.Task) (int, error) {
 					switch o {
 					case returnsAfter:
+						rt.Await(ct, ct.StopRequested) // through the scheduler (task_test.go)
 						<-ct.Done()
 					case fails:
 						return 0, bad{"fails"}
@@ -70,7 +71,9 @@ func TestStopWinsReleaseModel(t *testing.T) {
 						switch c {
 						case release:
 							if o == returnsFirst || o == fails {
-								if !testwait.Until(t, func() bool { return task.h.Task().Parent() == nil }) {
+								finished := func() bool { return task.h.Task().Parent() == nil }
+								rt.Await(root, finished)
+								if !testwait.Until(t, finished) {
 									t.Fatal("the child did not finish")
 								}
 							}
@@ -98,7 +101,7 @@ func TestStopWinsReleaseModel(t *testing.T) {
 					parent := Go(&s, "owner", func(pt *rt.Task) (struct{}, error) {
 						return struct{}{}, owner(pt)
 					})
-					<-waiting
+					awaitClosed(root, waiting)
 					parent.Stop()
 					return nil
 				})
@@ -202,10 +205,14 @@ func testBoundaryReleases(t *testing.T) {
 		default:
 			what = "After"
 			s := newVirtualSleeper()
-			if !ends(kinds[0]) {
+			// Under the ergoexplore tag the deadline child waits on s, a
+			// clock outside the explored run, holding the baton, so the
+			// body runs only after the deadline passes: the clock moves for
+			// every block there (timeout_live_test.go).
+			if !ends(kinds[0]) || rt.Exploring {
 				go func() {
 					s.v.AwaitTimers(1)
-					s.v.Advance(time.Hour)
+					s.v.Advance(rt.Span(time.Hour))
 				}()
 			}
 			_ = runMain(func(root *rt.Task) error {

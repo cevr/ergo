@@ -25,8 +25,7 @@ func Eval(e Expr) int fails DivideByZero {
 	case Lit as l:
 		l.N
 	case Neg as n:
-		let x = try Eval(n.X)
-		0 - x
+		0 - try Eval(n.X)
 	case Bin as b:
 		let l = try Eval(b.L)
 		let r = try Eval(b.R)

@@ -9,14 +9,14 @@ test ParsesPrecedence {
 test ParsesClasses {
 	let n = try Parse("[^a-c\\]]")
 	assert n == Class{Spans: []Span{Span{Lo: 'a', Hi: 'c'}, Span{Lo: ']', Hi: ']'}}, Negated: true}
-	assert (try Parse("[]")) == Class{Spans: []Span{}, Negated: false}
-	assert (try Parse("[a-]")) == Class{Spans: []Span{Span{Lo: 'a', Hi: 'a'}, Span{Lo: '-', Hi: '-'}}, Negated: false}
+	assert try Parse("[]") == Class{Spans: []Span{}, Negated: false}
+	assert try Parse("[a-]") == Class{Spans: []Span{Span{Lo: 'a', Hi: 'a'}, Span{Lo: '-', Hi: '-'}}, Negated: false}
 }
 
 test GroupsAreNotNodes {
-	assert (try Parse("(a)")) == Lit{C: 'a'}
-	assert (try Parse("()")) == Empty
-	assert (try Parse("(ab)c")) == Cat{Parts: []Node{Cat{Parts: []Node{Lit{C: 'a'}, Lit{C: 'b'}}}, Lit{C: 'c'}}}
+	assert try Parse("(a)") == Lit{C: 'a'}
+	assert try Parse("()") == Empty
+	assert try Parse("(ab)c") == Cat{Parts: []Node{Cat{Parts: []Node{Lit{C: 'a'}, Lit{C: 'b'}}}, Lit{C: 'c'}}}
 }
 
 // failure is the message of Parse(text), or "ok".
@@ -62,6 +62,6 @@ test ScrambleReachesTheMetas {
 test EveryByteRoundTrips {
 	for i in 0..256 {
 		let n = Literal(ByteText(byte(i)))
-		assert (try Parse(Print(n))) == n
+		assert try Parse(Print(n)) == n
 	}
 }

@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
+	// The hostwalk leaf sets the walk of a recovered state (rt.Held), as a
+	// program that names ActorRecovering links it (binsize BS8).
+	_ "ergo.local/prototype/runtime/v1/hostwalk"
 )
 
 // The recovered-hosts property (wf10 DH1; rule 15; runtime.md, Machines
@@ -181,7 +184,7 @@ func (d *durableHosts) start(t *rt.Task, sl Sleeper, initial dst) *Actor[dst, ds
 			if h.peek() != hostOpen {
 				continue // a carried host of an ended entry, or filled
 			}
-			c := MachineChild(Site("courier"), wt, sl, h, marker,
+			c := MachineChild(Site("courier"), wt, sl, nil, h, marker,
 				func(*rt.Task, int, int) (int, error) { return decideIgnore, nil }, nil,
 				func(int) time.Duration { return ActorNoTimer() },
 				noWork[int], hasNoWork, runNoWork[int], func(d int) int { return d }, func(s, _ int) int { return s },
@@ -192,7 +195,7 @@ func (d *durableHosts) start(t *rt.Task, sl Sleeper, initial dst) *Actor[dst, ds
 		}
 		_, _ = New[int](1).Pop(wt) // until the entry ends
 	}
-	return MachineSupervise(Site("durable"), t, sl, initial, fresh, 1000,
+	return MachineSupervise(Site("durable"), t, sl, nil, initial, fresh, 1000,
 		step, nil, func(dst) time.Duration { return ActorNoTimer() },
 		func(s dst) dst { return s }, func(dst) bool { return true }, work,
 		func(dec ddec) int { return dec.kind },

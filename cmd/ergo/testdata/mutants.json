@@ -2,6 +2,7 @@
   "about": "Host context interruption acceptance mutants. Run the named CLI killer; it builds emitted programs because the contract is a live foreign wait and completed cleanup.",
   "mutants": [
     {"name":"e5-receipt-last-wins","origin":"wf10 batch-16b fix-r1","file":"cmd/ergo/recursive.go","from":"one.receipt = filepath.Join(module.receiptDir, filepath.FromSlash(checked.Path)+\".json\")","to":"one.receipt = module.receiptDir","rule":"Recursive receipts retain every package, including an earlier refutation. The CLI subprocess is not instrumented by the package's coverage pass.","killers":["cmd/ergo:TestModuleLawSelectionReceipts"],"anchor":{"tests":["cmd/ergo:TestModuleLawSelectionReceipts"]}},
+    {"name":"rcpt-reset-per-run","origin":"wf10 FU-rcpt","file":"internal/sketch/lower/tests.go","from":"b.WriteString(\"\\t\" + l.helper(\"Receipt\") + \".laws = nil\\n\")","to":"_ = 0","rule":"An explored worker runs the tests once per schedule in one process; each run's receipt holds each law run once, equal to a plain run's. The CLI subprocess is not instrumented by the package's coverage pass.","killers":["cmd/ergo:TestExploreReceiptMatchesPlain"],"anchor":{"tests":["cmd/ergo:TestExploreReceiptMatchesPlain"]}},
     {"name":"e5-receipt-main-identity","origin":"wf10 batch-16b fix-r1","file":"cmd/ergo/recursive.go","from":"filepath.FromSlash(checked.Path)","to":"filepath.FromSlash(pkg.Path)","rule":"Receipt identity is the loaded module path, not the checker's program-entry identity main. The CLI subprocess is not instrumented by the package's coverage pass.","killers":["cmd/ergo:TestModuleLawSelectionReceipts"],"anchor":{"tests":["cmd/ergo:TestModuleLawSelectionReceipts"]}},
     {"name":"e5-law-every-package","origin":"wf10 batch-16b fix-r1","file":"cmd/ergo/recursive.go","from":"if !found {","to":"if false && !found {","rule":"A recursive law selection runs only packages whose checked run list contains the title. The CLI subprocess is not instrumented by the package's coverage pass.","killers":["cmd/ergo:TestModuleLawSelectionReceipts"],"anchor":{"tests":["cmd/ergo:TestModuleLawSelectionReceipts"]}},
     {"name":"x6-worker-inherits-collector","origin":"wf10 batch-16b fix-r1","file":"cmd/ergo/explore_unix.go","from":"append(boundedProgramEnv(limit), sched.WorkerEnv+\"=1\")","to":"append(os.Environ(), sched.WorkerEnv+\"=1\")","rule":"Explored and plain test-program children share the bounded collector policy.","killers":["cmd/ergo:TestTestProgramEnvironment"]},
@@ -198,7 +199,7 @@
     {
       "name": "dist1-runtime-kqueue-arm64-only",
       "origin": "wf10 DIST1",
-      "file": "runtime/v1/exec_exit_kqueue.go",
+      "file": "runtime/v1/exec/exec_exit_kqueue.go",
       "from": "//go:build darwin || dragonfly",
       "to": "//go:build (darwin && arm64) || dragonfly",
       "rule": "The runtime links on every platform of the target list (a build-tagged runtime file must cover each).",
@@ -230,6 +231,28 @@
       "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\treturn evaluationExit(evaluation)\n",
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
+    },
+    {
+      "name": "bs4-default-unstripped",
+      "origin": "wf10 binsize BS4",
+      "file": "cmd/ergo/build.go",
+      "from": "tc.Strip = opts.command == \"build\" && !opts.debug",
+      "to": "tc.Strip = false && opts.command == \"build\" && !opts.debug",
+      "rule": "binsize plan 3 (e): ergo build links without the symbol table and DWARF by default.",
+      "killers": [
+        "cmd/ergo:TestBuildStripsUnlessDebug"
+      ]
+    },
+    {
+      "name": "bs4-debug-stripped",
+      "origin": "wf10 binsize BS4",
+      "file": "cmd/ergo/build.go",
+      "from": "tc.Strip = opts.command == \"build\" && !opts.debug",
+      "to": "tc.Strip = opts.command == \"build\"",
+      "rule": "binsize plan 3 (e): ergo build --debug keeps the symbol table and DWARF.",
+      "killers": [
+        "cmd/ergo:TestBuildStripsUnlessDebug"
+      ]
     }
   ]
 }

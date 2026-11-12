@@ -149,7 +149,7 @@ func hostScript(t *testing.T, seed int64, n int, rng *rand.Rand, reached map[str
 		return hdec{kind: e.kind, next: next}, nil
 	}
 	fill := func(wt *rt.Task, h *Host[hostChild], entry int) {
-		MachineChild(Site("screen"), wt, sl, h, entry,
+		MachineChild(Site("screen"), wt, sl, nil, h, entry,
 			func(*rt.Task, int, int) (int, error) { return decideIgnore, nil }, nil,
 			func(int) time.Duration { return ActorNoTimer() },
 			noWork[int], hasNoWork, runNoWork[int], childKind, childNext, func(*rt.Task, int, func(hsig)) {}, 1)
@@ -179,7 +179,7 @@ func hostScript(t *testing.T, seed int64, n int, rng *rand.Rand, reached map[str
 		}
 		_, _ = s.gate.Pop(wt) // until the entry ends
 	}
-	a := MachineStart(Site("root"), root, sl, hst{entry: 0},
+	a := MachineStart(Site("root"), root, sl, nil, hst{entry: 0},
 		step, nil, noTimer,
 		func(s hst) hst { return s },
 		func(s hst) bool { return s.gate != nil },

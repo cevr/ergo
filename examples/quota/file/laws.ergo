@@ -24,7 +24,7 @@ func Written(ts []quota.Move) (string, quota.Table) {
 // the same volumes, floors, sizes, records and count.
 law ReplayRebuilds(ns []int) {
 	let text, b = Written(quota.Day(ns))
-	(try Replay(text)) == b
+	try Replay(text) == b
 }
 
 // AnyWordKeeps: a key or a volume of any text, tabs and line feeds

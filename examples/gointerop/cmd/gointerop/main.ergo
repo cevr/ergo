@@ -146,7 +146,7 @@ test ParseReadsEachCommand {
 func exitOf(args []string) int {
 	Parse(args) catch {
 	case os.Exit as e:
-		return e.Code
+		return int(e.Code)
 	}
 	0
 }
@@ -164,7 +164,7 @@ func world() fstest.Memory fails fs.NotFound | fs.Denied | fs.Failed {
 func statusOf(list string) int needs Console | checksum.Hasher | fs.Files | io.Stdin {
 	CheckAll(list) catch {
 	case os.Exit as e:
-		return e.Code
+		return int(e.Code)
 	}
 	0
 }

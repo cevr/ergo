@@ -20,6 +20,11 @@ import (
 //	}
 //	func (Sig) of0(Increment) Sig { return Sig{tag: 0} }
 //	func (Sig) of1(v Add) Sig     { return Sig{tag: 1, v1: v} }
+//	func (x Sig) ErgoVariant() string { return [...]string{"Increment", "Add"}[x.tag] }
+//
+// ErgoVariant names the variant a value holds, for a traced actor
+// (runtime.md, Machines and actors 15): the name the runtime reads from a
+// value's Go type would be the union's.
 //
 // A []Sig is then a slice of small values: a match is a switch on a byte,
 // as a hand loop over a []byte is, where a sealed interface costs a load
@@ -922,6 +927,30 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 		}
 		b.WriteString("func (" + self + ") " + ofName(k) + "(" + param + " " + tc.goType(v) + ") " + self + " { return " + self + "{tag: " + strconv.Itoa(tag) + slot + "} }\n")
 	}
+	// ErgoVariant names the variant a value holds, as a traced runner
+	// names a signal (v1 actor_trace.go): the Go type is the union's, so
+	// the name the runtime would read from it is the union's. A generic
+	// union's variant names hold the instance's type arguments, which only
+	// the instance knows: its ErgoVariant reads each variant's Go type name
+	// at run time (v1.VariantOf), as the runtime reads a boxed variant's.
+	if len(td.tparams) > 0 {
+		names := make([]string, len(fu.variants))
+		for k, v := range fu.variants {
+			names[k] = l.rtRef("VariantOf") + "[" + tc.goType(v) + "]"
+		}
+		b.WriteString("func (x " + self + ") ErgoVariant() string { return [...]func() string{" + strings.Join(names, ", ") + "}[x.tag]() }\n")
+		b.WriteString("\n")
+		return
+	}
+	names := make([]string, len(fu.variants))
+	for k, v := range fu.variants {
+		name, ok := l.variantName(tc.goType(v))
+		if !ok {
+			ice(td.tn.Decl.Name, "the flat union %s has the variant %s, whose Go type the lowering cannot name", td.tn.Name, v.Obj.Name)
+		}
+		names[k] = strconv.Quote(name)
+	}
+	b.WriteString("func (x " + self + ") ErgoVariant() string { return [...]string{" + strings.Join(names, ", ") + "}[x.tag] }\n")
 	b.WriteString("\n")
 }
 

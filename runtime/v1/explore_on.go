@@ -3,12 +3,12 @@
 package v1
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -67,13 +67,13 @@ func exploreDefect(res explored) string {
 	case res.Deadlock != nil:
 		var waits []string
 		for _, p := range res.Deadlock {
-			wait := fmt.Sprintf("task %s waits to %v", p.Task, p.Kind)
+			wait := "task " + p.Task + " waits to " + p.Kind.String()
 			if name, ok := res.Handles[p.Handle]; ok {
 				wait += " on " + name
 			}
 			waits = append(waits, wait)
 		}
-		return fmt.Sprintf("explore: no task can run after %d steps (a deadlock): %s", res.Picks, strings.Join(waits, "; "))
+		return "explore: no task can run after " + strconv.Itoa(res.Picks) + " steps (a deadlock): " + strings.Join(waits, "; ")
 	}
 	return ""
 }
@@ -157,7 +157,7 @@ func (s *strategy) Pick(c rt.Choice) (int, error) {
 	if w := s.replay; w != nil {
 		k, err := sched.Replay{Schedule: w.abs}.Pick(sched.Choice{Enabled: sc.Enabled, Current: sc.Current, Step: c.Step - w.start})
 		if err != nil {
-			return 0, fmt.Errorf("explore.Replay: %w", err)
+			return 0, replayError{err}
 		}
 		if c.Step-w.start == len(w.abs)-1 {
 			s.replay = nil
@@ -242,7 +242,7 @@ func sourceName(callees []string) string {
 		files[d.File] = true
 	}
 	for _, c := range calls {
-		files[c.File] = true
+		files[callNames[c.File]] = true
 	}
 	var pcs [64]uintptr
 	frames := runtime.CallersFrames(pcs[:runtime.Callers(3, pcs[:])])
@@ -251,7 +251,7 @@ func sourceName(callees []string) string {
 		if files[f.File] {
 			var on []int
 			for i, c := range calls {
-				if c.File == f.File && c.Line == f.Line {
+				if callNames[c.File] == f.File && int(c.Line) == f.Line {
 					on = append(on, i)
 				}
 			}
@@ -274,11 +274,11 @@ func sourceName(callees []string) string {
 				})
 			}
 			for _, i := range on {
-				if wanted(calls[i].Callee) || len(on) == 1 {
-					return fmt.Sprintf("%s at %s:%d:%d", calls[i].Callee, file, f.Line, calls[i].Column)
+				if callee := callNames[calls[i].Callee]; wanted(callee) || len(on) == 1 {
+					return callee + " at " + file + ":" + strconv.Itoa(f.Line) + ":" + strconv.Itoa(int(calls[i].Column))
 				}
 			}
-			return fmt.Sprintf("%s:%d", file, f.Line)
+			return file + ":" + strconv.Itoa(f.Line)
 		}
 		if !more {
 			return ""
@@ -295,3 +295,11 @@ func outputSize() int64 {
 	}
 	return fi.Size()
 }
+
+// replayError is a replay's failure to pick: fmt.Errorf's "explore.Replay:
+// %w" text and unwrap, without fmt in the core (binsize BS8).
+type replayError struct{ err error }
+
+func (e replayError) Error() string { return "explore.Replay: " + e.err.Error() }
+
+func (e replayError) Unwrap() error { return e.err }

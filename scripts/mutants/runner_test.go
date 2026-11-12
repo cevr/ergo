@@ -26,7 +26,10 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // unmutated tree. Its ledger holds one value mutant per function (known
 // killers drawn at random, some wrong), a mutant that does not build, one
 // that no longer applies, a string-literal mutant with an anchor and one
-// without, and on Linux one that allocates past the memory limit.
+// without, and on Linux one that allocates past the memory limit. A file
+// and a test of one build only with the tag mtag; the suite one+mtag
+// builds one's tests with it and judges the tagged mutant alone (no other
+// mutant may run its tests, and without the tag the file has no blocks).
 //
 // It checks that the runner reports exactly the model's status for each
 // mutant, that a killer is a test that asserts the mutated function (with
@@ -111,6 +114,9 @@ func generate(r *rand.Rand) fakeModule {
 		fakeTest{suite: "one", name: "TestGreet", calls: []string{"one.Greet"}, asserts: []string{"one.Greet"}},
 		fakeTest{suite: "one", name: "TestBroken", calls: []string{m.funcs[0]}, asserts: []string{m.funcs[0]}, broken: true},
 		fakeTest{suite: "two", name: "TestGrow", calls: []string{"two.Grow"}, asserts: []string{"two.Grow"}},
+		// one/tagged.go and its test build only with the tag mtag: the
+		// suite one+mtag runs one's tests built with it.
+		fakeTest{suite: "one+mtag", name: "TestTagged", calls: []string{"one.Tagged"}, asserts: []string{"one.Tagged"}},
 	)
 	return m
 }
@@ -231,6 +237,8 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		"two/f.go":                    m.source("two"),
 		"one/f_test.go":               m.testSource("one"),
 		"two/f_test.go":               m.testSource("two"),
+		"one/tagged.go":               "//go:build mtag\n\npackage one\n\nfunc Tagged() int { return 7 }\n",
+		"one/tagged_test.go":          "//go:build mtag\n\npackage one_test\n\nimport (\n\t\"testing\"\n\n\t\"fake.test/m/internal/fakelog\"\n\t\"fake.test/m/one\"\n)\n\nfunc TestTagged(t *testing.T) {\n\tfakelog.Ran(t)\n\tif one.Tagged() != 7 {\n\t\tt.Fatal(\"one.Tagged\")\n\t}\n}\n",
 	}
 	for name, text := range files {
 		writeFile(t, filepath.Join(repo, name), text)
@@ -263,6 +271,7 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		{&Mutant{Name: "no-longer-applies", File: "one/f.go", From: "return 9999 }", To: "return 1 }"}, expect{status: Stale}},
 		{&Mutant{Name: "literal-anchored", File: "one/f.go", From: `"hello"`, To: `"hullo"`, Anchor: &Anchor{Text: "return greeting + farewell"}}, m.model("one.Greet", false)},
 		{&Mutant{Name: "literal-bare", File: "one/f.go", From: `"bye"`, To: `"by"`}, expect{status: Uncovered}},
+		{&Mutant{Name: "tagged", File: "one/tagged.go", From: "return 7 }", To: "return 8 }", Tags: []string{"mtag"}}, m.model("one.Tagged", false)},
 	}
 	memoryLimit := uint64(0)
 	if runtime.GOOS == "linux" {
@@ -285,10 +294,11 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 	logPath := filepath.Join(t.TempDir(), "ran.log")
 	t.Setenv("FAKE_LOG", logPath)
 	cfg := Config{
-		Root:    repo,
-		Work:    filepath.Join(t.TempDir(), "work"),
-		Cover:   []string{"./one", "./two"},
-		Suites:  []Suite{{Name: "one", Package: "./one", Env: []string{"FAKE_SUITE=one"}}, {Name: "two", Package: "./two", Env: []string{"FAKE_SUITE=two"}}},
+		Root:  repo,
+		Work:  filepath.Join(t.TempDir(), "work"),
+		Cover: []string{"./one", "./two"},
+		Suites: []Suite{{Name: "one", Package: "./one", Env: []string{"FAKE_SUITE=one"}}, {Name: "two", Package: "./two", Env: []string{"FAKE_SUITE=two"}},
+			{Name: TagSuite("one", []string{"mtag"}), Package: "./one", Env: []string{"FAKE_SUITE=one+mtag"}, Tags: []string{"mtag"}}},
 		Workers: 2,
 		Procs:   1,
 		Memory:  memoryLimit,

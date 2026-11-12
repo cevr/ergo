@@ -4,7 +4,6 @@ package rt
 
 import (
 	"errors"
-	"fmt"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -68,8 +67,8 @@ type Choice struct {
 // SchedEvent is one entry of a run's trace: a pick, or a move of the clock.
 type SchedEvent struct {
 	Pending
-	Tick bool      // a clock moved; Pending.Handle names it
-	Now  time.Time // a tick's time on the clock that moved (Handle)
+	Tick bool    // a clock moved; Pending.Handle names it
+	Now  Instant // a tick's time on the clock that moved (Handle)
 }
 
 // Result is what an explored run did.
@@ -192,6 +191,29 @@ func ExploreTraced(start time.Time, s Strategy, tr Tracer, body func(*Task) erro
 	return res
 }
 
+// AbortExplore stops the active explored run from outside it, with why as
+// the run's Stopped, and reports whether a run was active. Explore then
+// returns at once and frees the process for the next run, even when a task
+// of the run waits where the scheduler cannot see it (a raw channel, a
+// live timer): a step outside the scheduler never reaches a point, so only
+// a watchdog outside the run can end it. The run's tasks stay where they
+// wait, as after a deadlock; every hook passes for them from now on. Only
+// the explored build has it: the live build has no run to stop.
+func AbortExplore(why error) bool {
+	e := active.Load()
+	if e == nil {
+		return false
+	}
+	e.v.mu.Lock()
+	defer e.v.mu.Unlock()
+	if e.free {
+		return false
+	}
+	e.res.Stopped = why
+	e.release()
+	return true
+}
+
 // handleNames is Result.Handles. v.mu is held.
 func (e *explorer) handleNames() map[int]string {
 	out := map[int]string{}
@@ -300,7 +322,7 @@ func (e *explorer) handoff(from *xtask) *xtask {
 	}
 	i, err := e.strategy.Pick(c)
 	if err == nil && (i < 0 || i >= len(cands)) {
-		err = fmt.Errorf("the strategy picked %d of %d enabled tasks", i, len(cands))
+		err = errors.New("the strategy picked " + strconv.Itoa(i) + " of " + strconv.Itoa(len(cands)) + " enabled tasks")
 	}
 	if err != nil {
 		e.res.Stopped = err

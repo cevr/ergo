@@ -84,7 +84,12 @@ func (c *checker) record(x syntax.Expr, op operand) {
 // sites that pass one). The result may be fallible, a type or a package;
 // positions decide what they accept.
 func (c *checker) expr(x syntax.Expr, hint Type) operand {
-	op := c.expr0(x, hint)
+	var op operand
+	if top := c.spineTop(x); top || c.covering() && c.cover.roots[x] != nil {
+		op = c.coveredExpr(x, hint, top) // a try in operand position (cover.go)
+	} else {
+		op = c.expr0(x, hint)
+	}
 	op.expr = x
 	c.record(x, op)
 	return op
@@ -104,13 +109,17 @@ func (c *checker) handled(op *operand) {
 	if op.invalid() || !op.fallible() {
 		return
 	}
-	if c.fn != nil && c.fn.t != nil && c.fn.t.tries > 0 {
-		// Under try, the failure escapes as try's own does; an unknown
-		// row escapes with its invalid element.
-		c.escape(op.expr, op.errs)
-		op.errs = nil
-		c.fn.t.tried = true
-		return
+	if c.fn != nil && c.fn.t != nil {
+		root := c.covering() && c.coveredRoot(op.expr)
+		if root || c.fn.t.tries > 0 {
+			// Under try, the failure escapes as try's own does; an
+			// unknown row escapes with its invalid element. A covered
+			// right operand's own failure is its try's (cover.go).
+			c.escape(op.expr, op.errs)
+			op.errs = nil
+			c.fn.t.tried = c.fn.t.tried || !root
+			return
+		}
 	}
 	// Only the known part is evidence of a failure; an unknown row also
 	// makes the target's inferred row unknown, so nothing cascades from
@@ -936,7 +945,6 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 				f := s.Fields[i]
 				op := c.fieldValue(e, f.Type)
 				c.assign(&op, f.Type, "field "+f.Name)
-				c.exitCodeRange(t, f.Name, op, e)
 			}
 			return !denied
 		}
@@ -977,7 +985,6 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 		set[id.Name] = true
 		op := c.fieldValue(kv.Value, f.Type)
 		c.assign(&op, f.Type, "field "+f.Name)
-		c.exitCodeRange(t, f.Name, op, kv.Value)
 	}
 	if !ok || denied {
 		return false
@@ -1162,7 +1169,7 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		t, handle = e, true
 	}
 	if isHostNamed(t) {
-		return c.hostSelector(x, base, t.(*Named), handle)
+		return c.hostSelector(x, base, t.(*Named), handle, called)
 	}
 	if isInvalid(under(t)) {
 		// A refused declared type (`type MyQ queue.Queue[int]`) was
@@ -1685,10 +1692,6 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		return false
 	}
 	a, why := c.assignability(op.typ, t)
-	if c.sealedRefused(op.expr, a) {
-		op.mode = modeInvalid
-		return false
-	}
 	if !a.ok() {
 		repair := ""
 		if what == "return" || what == "the body's tail value" {

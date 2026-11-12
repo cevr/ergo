@@ -65,7 +65,7 @@ func readExplored(p *program) ([]explored, []string) {
 func (r *runner) exploreProgram(p *program) {
 	for _, e := range p.explored {
 		leg := "explore " + e.label + " " + e.name
-		o, err := r.tool(r.cfg.timeout, append([]string{"test", e.target, "--run", e.name}, e.flags...)...)
+		o, err := r.tool(r.cfg.testTimeout, append([]string{"test", e.target, "--run", e.name}, e.flags...)...)
 		switch {
 		case err != nil:
 			fmt.Fprintf(r.out, "FAIL %s: %s: could not start: %v\n", p.name, leg, err)
@@ -79,7 +79,7 @@ func (r *runner) exploreProgram(p *program) {
 			fmt.Fprintf(r.out, "ok %s: %s (%s)\n", p.name, leg, seconds(o.elapsed))
 			continue
 		default:
-			fmt.Fprintf(r.out, "FAIL %s: %s%s\n", p.name, leg, o.why(r.cfg.timeout))
+			fmt.Fprintf(r.out, "FAIL %s: %s%s\n", p.name, leg, o.why(r.cfg.testTimeout))
 			r.printOutput(o, nil)
 			fmt.Fprintf(r.out, "    %s\n", r.replays(o))
 		}
@@ -131,7 +131,7 @@ func (r *runner) replays(o outcome) string {
 	for i, w := range words {
 		words[i] = strings.TrimSuffix(strings.TrimPrefix(w, "'"), "'")
 	}
-	again, err := r.tool(r.cfg.timeout, words...)
+	again, err := r.tool(r.cfg.testTimeout, words...)
 	if err != nil {
 		return "the replay could not start: " + err.Error()
 	}

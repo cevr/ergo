@@ -73,7 +73,7 @@ func buildAdd(v flag.Values) Cmd {
 let usage = "usage: bookmarks add [--title t] [--tag t]... url | bookmarks list [--limit n] [--tag t] | bookmarks sync [--remote url] | bookmarks config"
 
 // exit is the failure that ends bookmarks with status code and message.
-func exit(code int, message string) os.Exit { os.Exit{Code: code, Message: "bookmarks: " + message} }
+func exit(code os.Code, message string) os.Exit { os.Exit{Code: code, Message: "bookmarks: " + message} }
 
 // load is the Settings of a command, or its problem as an exit.
 func load(flags config.Flags) settings.Settings fails os.Exit needs config.Config {

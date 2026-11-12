@@ -13,9 +13,10 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 )
 
-// lw-pure-prelude (G-ex-e-5, G-ex-f-6): the prelude's Append, Get and
-// Delete are pure std bodies (runtime/v1 data.go), so a function whose only
-// calls are theirs, with loops and arithmetic, lowers to a Go function with
+// lw-pure-prelude (G-ex-e-5, G-ex-f-6): the prelude's Append and Get are
+// pure std bodies (runtime/v1 data.go) and its Delete is Go's delete
+// (OPT7), so a function whose only calls are theirs, with loops and
+// arithmetic, lowers to a Go function with
 // no environment and no task poll, and its output is unchanged. The
 // reference lowering, with their calls opaque, is
 // check.SetPureCollectionsForTest(false).
@@ -84,7 +85,7 @@ func TestPurePreludeEmits(t *testing.T) {
 			t.Errorf("%s reads an environment or polls:\n%s", name, fn)
 		}
 	}
-	for _, wrapper := range []string{"func Append[T any](xs []T, x T) []T {", "func Get[K comparable, V any](m map[K]V, k K) Option[V] {", "func Delete[K comparable, V any](m map[K]V, k K) map[K]V {"} {
+	for _, wrapper := range []string{"func Append[T any](xs []T, x T) []T {", "func Get[K comparable, V any](m map[K]V, k K) Option[V] {"} {
 		if !strings.Contains(marked, wrapper) {
 			t.Errorf("no pure wrapper %q in\n%s", wrapper, marked)
 		}

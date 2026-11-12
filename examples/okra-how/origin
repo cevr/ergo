@@ -1,1 +1,0 @@
-okra how, from github.com/cevr/okra at 976dd24 (okra v0.13.0): src/how/commands/index.ts, src/how/topics.ts and src/how/errors.ts. testdata/guides/*/SKILL.md are okra's skills/*/SKILL.md at that commit, byte for byte, and testdata/guides/topics is the order of TOPICS in src/how/topics.ts.

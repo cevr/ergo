@@ -36,6 +36,7 @@ internal/closure/sandbox_linux_test.go	collectChildren	the poll interval of the 
 # sleeps caseLife, so load cannot end it first
 scripts/examples/main_test.go	TestCaseProcessGroupIsStopped	-timeout 1s is the timeout under test; the case sleeps caseLife
 scripts/examples/stop_test.go	TestEveryExitPathStopsTheGroup	-timeout 2s is the timeout row's subject; the case sleeps caseLife
+scripts/examples/explored_test.go	TestExploreLegOutlastsTheCaseTimeout	-timeout 1ms is the bound the explore leg must not meet; the pass needs no time, and the fake search runs a second, so load cannot hide the mutant
 
 # load can turn these; each is a named follow-up
 scripts/gate/output_oracle_linux_test.go	runOracleHelper	follow-up FU-oracle-hold: hold the file until the scope watch reports a sample, not 300 ms

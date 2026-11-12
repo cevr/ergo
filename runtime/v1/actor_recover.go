@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"reflect"
 	"sync"
 
 	"ergo.local/prototype/runtime/rt"
@@ -147,90 +146,26 @@ func (a *Actor[S, E, D]) closeRecovered() {
 }
 
 // heldHosts splits made into the hosts the value s holds and the rest,
-// each in the order of made. It walks s as data: structs, arrays, slices,
-// maps, interfaces and pointers, each pointer once. It does not enter a
-// function (a host a closure captures is not held as data) or a pointer
-// to a value of the runtime's own types (an actor, a queue, a Ref, or a
-// host that is not in made), which is a handle, not data.
+// each in the order of made. The walk of s as data (rt.Held) needs
+// reflect, which the core does not link: the hostwalk leaf sets it, and
+// the lowering links that leaf into every program that names NewHost
+// (hostWalkUsers), the one body that makes a host. A program that makes
+// no host has no recovered host, and bindRecovered never calls this.
 func heldHosts[S any](s S, made []hostCell) (held, rest []hostCell) {
-	want := make(map[uintptr]bool, len(made))
-	for _, h := range made {
-		want[reflect.ValueOf(h).Pointer()] = false
+	targets := make([]any, len(made))
+	for i, h := range made {
+		targets[i] = h
 	}
-	found := 0
-	seen := map[uintptr]bool{}
-	stack := []reflect.Value{reflect.ValueOf(&s).Elem()}
-	for len(stack) > 0 && found < len(want) {
-		v := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		switch v.Kind() {
-		case reflect.Pointer:
-			if v.IsNil() {
-				continue
-			}
-			p := v.Pointer()
-			if was, ok := want[p]; ok {
-				if !was {
-					want[p] = true
-					found++
-				}
-				continue
-			}
-			if seen[p] || runtimeType(v.Type().Elem()) {
-				continue
-			}
-			seen[p] = true
-			stack = append(stack, v.Elem())
-		case reflect.Interface:
-			if !v.IsNil() {
-				stack = append(stack, v.Elem())
-			}
-		case reflect.Struct:
-			for i := v.NumField() - 1; i >= 0; i-- {
-				stack = append(stack, v.Field(i))
-			}
-		case reflect.Slice, reflect.Array:
-			if !mayHold(v.Type().Elem()) {
-				continue
-			}
-			for i := v.Len() - 1; i >= 0; i-- {
-				stack = append(stack, v.Index(i))
-			}
-		case reflect.Map:
-			if !mayHold(v.Type().Key()) && !mayHold(v.Type().Elem()) {
-				continue
-			}
-			it := v.MapRange()
-			for it.Next() {
-				stack = append(stack, it.Key(), it.Value())
-			}
-		}
+	in, ok := rt.Held(&s, targets)
+	if !ok {
+		panic("runtime: a recovered actor's hosts need the hostwalk leaf, which this program does not link (an internal error of the lowering)")
 	}
-	for _, h := range made {
-		if want[reflect.ValueOf(h).Pointer()] {
+	for i, h := range made {
+		if in[i] {
 			held = append(held, h)
 		} else {
 			rest = append(rest, h)
 		}
 	}
 	return held, rest
-}
-
-// runtimePkgs are the packages whose values heldHosts does not enter.
-var runtimePkgs = map[string]bool{
-	reflect.TypeFor[recovery]().PkgPath(): true,
-	reflect.TypeFor[rt.Task]().PkgPath():  true,
-}
-
-// runtimeType reports a type of the runtime's own packages.
-func runtimeType(t reflect.Type) bool { return runtimePkgs[t.PkgPath()] }
-
-// mayHold reports whether a value of type t may hold a pointer: an
-// element of a basic kind holds no host.
-func mayHold(t reflect.Type) bool {
-	switch t.Kind() {
-	case reflect.Pointer, reflect.Interface, reflect.Struct, reflect.Slice, reflect.Array, reflect.Map:
-		return true
-	}
-	return false
 }

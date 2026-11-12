@@ -154,7 +154,7 @@ func (m tmachine) start(t *rt.Task, sl Sleeper, capacity int, gateOpen chan stru
 		*outs = append(*outs, tout{d.out, shown})
 		mu.Unlock()
 	}
-	self = MachineStart(Site("actor test"), t, sl, m.init, step, fire, m.in,
+	self = MachineStart(Site("actor test"), t, sl, testGraph(m), m.init, step, fire, m.in,
 		noWork[tstate], hasNoWork, runNoWork[tsig], func(d tdec) int { return d.kind }, next, out, capacity)
 	return self
 }
@@ -206,7 +206,7 @@ func (r *ref) open() bool {
 		tm := r.m.timers[r.s.v]
 		r.armed, r.deadline, r.due = true, r.now+int(d), tsig{tm.sig, tm.x}
 		r.events = append(r.events, rt.MachineEvent{What: rt.MachineTimerArmed, Epoch: r.epoch, State: stateVariant(r.s),
-			Signal: sigVariant(r.due), In: d})
+			Signal: sigVariant(r.due), In: rt.Span(d)})
 		return true
 	}
 	return false
@@ -502,7 +502,6 @@ func runActorCase(c actorCase, seen map[string]bool) string {
 	// reference's, each decision with the arm the reference finds.
 	log := &machineLog{}
 	task := rt.TracedRoot("actor driver", log)
-	registerTestGraph(c.m)
 	dr := &driver{task: task, regs: regs, gateOpen: make(chan struct{}), entered: make(chan struct{}, 1)}
 	dr.r = &ref{m: c.m, s: c.m.init, seen: seen}
 	dr.a = c.m.start(task, releaser{regs}, c.capacity, dr.gateOpen, dr.entered, &dr.mu, &dr.outs)
@@ -665,7 +664,7 @@ func signalLog(t *rt.Task, capacity int, entered chan struct{}, hold chan struct
 		}
 		return rdec{decideStay, e}, nil
 	}
-	return MachineStart(Site("signal log"), t, releaser{make(chan sleep)}, nil, step,
+	return MachineStart(Site("signal log"), t, releaser{make(chan sleep)}, nil, nil, step,
 		func(*rt.Task, []int, []int) (rdec, error) { return rdec{kind: decideIgnore}, nil },
 		func([]int) time.Duration { return ActorNoTimer() }, noWork[[]int], hasNoWork, runNoWork[int],
 		func(d rdec) int { return d.kind },
@@ -874,7 +873,7 @@ func TestActorStopExitIsTheReferences(t *testing.T) {
 // on the runner's goroutine, the commit and the answer.
 func BenchmarkActorAsk(b *testing.B) {
 	root := rt.Root("bench")
-	a := MachineStart(Site("bench"), root, releaser{make(chan sleep)}, 0,
+	a := MachineStart(Site("bench"), root, releaser{make(chan sleep)}, nil, 0,
 		func(_ *rt.Task, s int, e int) (int, error) { return decideStay, nil },
 		func(*rt.Task, int, int) (int, error) { return decideIgnore, nil },
 		func(int) time.Duration { return ActorNoTimer() }, noWork[int], hasNoWork, runNoWork[int],

@@ -2,6 +2,7 @@ package std_test
 
 import (
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -231,6 +232,17 @@ var spaces = regexp.MustCompile(`\s+`)
 // brace, with each run of white space made one space: the Statement cell
 // of its ledger row.
 func lawStatement(f *syntax.File, d *syntax.LawDecl) string {
+	if td := d.Derived; td != nil {
+		// Derived nodes retain the type's source positions, not a source
+		// slice of the generated law. State the parser's derived law.
+		base := spaces.ReplaceAllString(f.Src[td.Spec.Pos():td.Spec.End()], " ")
+		binding := "let it " + base + " = v"
+		switch td.Spec.(type) {
+		case *syntax.Ident, *syntax.SelectorExpr:
+			binding = "let it = " + base + "(v)"
+		}
+		return fmt.Sprintf("%s(v %s) { %s (%s) && try %s(it) == v }", d.Name.Name, td.Name.Name, binding, syntax.WhereText(f.Src, td.Where), syntax.ParseName(td.Name.Name))
+	}
 	return spaces.ReplaceAllString(f.Src[d.Name.Pos():d.Body.End()], " ")
 }
 
@@ -327,7 +339,7 @@ func TestStdLawLedger(t *testing.T) {
 // tree: a runner in another package is "no func Test… of the runner
 // packages" until its directory is added here and to the sweep's grants
 // (internal/closure declared; batch-10 gate 1).
-var runnerPackages = []string{"internal/sketch/lower", "internal/sketch/std", "runtime/v1"}
+var runnerPackages = []string{"internal/sketch/lower", "internal/sketch/std", "runtime/v1", "runtime/v1/digest", "runtime/v1/exec", "runtime/v1/rand"}
 
 // repoTests are the names of the top-level func Test… declarations of the
 // _test.go files of runnerPackages, each with whether its body calls

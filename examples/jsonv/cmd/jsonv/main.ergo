@@ -68,6 +68,6 @@ test InferredSchemaAccepts(v json.Tree) {
 	}
 	let docs = memory.Shelf{Docs: []memory.Doc{memory.Doc{Name: "s", Text: inferred}, memory.Doc{Name: "d", Text: doc}}}
 	with context { app.Documents: docs } {
-		assert (try app.Answer(app.Validate{Schema: "s", Doc: "d"})) == "d: ok\n"
+		assert try app.Answer(app.Validate{Schema: "s", Doc: "d"}) == "d: ok\n"
 	}
 }

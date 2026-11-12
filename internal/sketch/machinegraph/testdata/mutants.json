@@ -1,0 +1,32 @@
+{
+  "about": "The mutant ledger of internal/sketch/machinegraph: edits of the machine graph reader that a test must kill. Run it with go run ./scripts/mutants ./internal/sketch/machinegraph (docs/tooling.md, \"Mutant ledger\"). Seeded in wf10 binsize BS7b.",
+  "mutants": [
+    {
+      "name": "bs7b-generic-name",
+      "origin": "wf10 binsize BS7b",
+      "file": "internal/sketch/machinegraph/graph.go",
+      "from": "\t\tif len(n.TArgs) == 0 {\n\t\t\treturn n.Obj.Name\n",
+      "to": "\t\tif true {\n\t\t\treturn n.Obj.Name\n",
+      "rule": "binsize BS7b: two instances of one generic record in one union have variant names apart (their type arguments).",
+      "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7b-alts-dropped",
+      "origin": "wf10 binsize BS7b",
+      "file": "internal/sketch/machinegraph/graph.go",
+      "from": "if len(roles) > 1 && len(cl.List) > 1 {",
+      "to": "if false {",
+      "rule": "binsize BS7b: a case of several tuple patterns takes the pairs each pattern takes, not the product of their variants.",
+      "killers": ["internal/sketch/machinegraph:TestGraphMatchesTheModel", "lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs7b-takes-alts",
+      "origin": "wf10 binsize BS7b",
+      "file": "internal/sketch/machinegraph/graph.go",
+      "from": "\tif a.Alts == nil {\n\t\treturn takes(a.States, state)",
+      "to": "\tif true {\n\t\treturn takes(a.States, state)",
+      "rule": "binsize BS7b: an arm of several tuple patterns takes a pair one of them takes (ArmOf, Reachable).",
+      "killers": ["internal/sketch/machinegraph:TestGraphMatchesTheModel"]
+    }
+  ]
+}

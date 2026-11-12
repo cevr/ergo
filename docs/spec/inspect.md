@@ -1,8 +1,6 @@
 # Public API inspection
 
-Status: **implemented** (L8 C3). The text output is also the docs view until
-a separate doc generator exists. Inspection checks source; it does not run
-the program or lower it to Go.
+Status: **implemented**. The text output is also the docs view until a separate doc generator exists. Inspection checks source; it does not run the program or lower it to Go.
 
 ```
 ergo inspect api FILE|DIR [--json]

@@ -17,7 +17,8 @@ import (
 // admitted bodies over: an acquisition (open, or give, whose callee
 // returns its owned local, R10), a lend, a move by let, an explicit Close,
 // a call of a taking function, a reassignment of a let mut (R41), a
-// temporary (R43), if/else, a for loop with break and continue (R6), a
+// temporary (R43), if/else (its header a comparison, a starting try, or a
+// match on a starting try), a for loop with break and continue (R6), a
 // try of a failing call (R7), a defect in the body or in a Close (R9),
 // and a stop at a generated point of a task, reached by a queue handshake
 // (no fixed waits). A Go reference model of the frame's list (the Quint
@@ -34,7 +35,9 @@ import (
 // mutants.json, L8-B1): release at function end, not iteration end; a
 // statement's temporaries not released; a moved local still released; a
 // reassignment does not release the old value; a returned local released
-// by its frame; the branch releases skipped.
+// by its frame; the branch releases skipped; a try's failure releases
+// keyed as the header it starts (check mutants.json,
+// try1-failure-shares-header-key).
 func TestOwnershipRunModel(t *testing.T) {
 	needsBuild(t)
 	seeds, first := 48, 1
@@ -95,7 +98,7 @@ const (
 	orKeep                 // keep(v): the callee takes v and releases it at its end
 	orAssign               // v = open(id, bad), v a let mut (R41)
 	orTemp                 // use(open(id, bad)), a temporary (R43)
-	orIf                   // if n > cond { body } else { els }
+	orIf                   // if n > cond { body } else { els }; head picks a try header
 	orFor                  // for i in 0..loops { body }, with breakAt and contAt
 	orFail                 // try fail(cond): fails when n > cond
 	orBoom                 // boom(cond): a defect when n > cond
@@ -113,6 +116,7 @@ type orStmt struct {
 	mut       bool
 	cond      int
 	body, els []orStmt
+	head      orHead // orIf: how the branch is written
 	loops     int
 	breakAt   int // -1 for none
 	contAt    int // -1 for none
@@ -120,6 +124,17 @@ type orStmt struct {
 	q         int       // orQLoop: the queue's parameter number
 	elems     []orEntry // orQLoop: the queue's elements, in push order
 }
+
+// orHead is how an orIf is written. A try that starts a header shares its
+// node with the header (the if condition, the match subject): the header's
+// temporaries and the try's failure edge must not share a release entry.
+type orHead uint8
+
+const (
+	orHeadCmp   orHead = iota // if n > cond
+	orHeadTry                 // if try above(n, cond)
+	orHeadMatch               // match try side(n, cond) { case Hi: … case Lo: … }
+)
 
 // orGen generates an admitted body: it tracks each variable's state as
 // the checker does (owned, moved, maybe) and uses only owned ones.
@@ -254,7 +269,7 @@ func (g *orGen) stmt() orStmt {
 			if g.depth > 2 {
 				continue
 			}
-			s := orStmt{kind: orIf, cond: g.r.IntN(4)}
+			s := orStmt{kind: orIf, cond: g.r.IntN(4), head: orHead(g.r.IntN(3))}
 			before := g.snapshot()
 			s.body = g.block(1 + g.r.IntN(3))
 			then := g.snapshot()
@@ -353,6 +368,28 @@ func fail(n int, c int) fails Bad {
 		return Bad{n: n}
 	}
 }
+
+type Hi {}
+
+type Lo {}
+
+type Side = Hi | Lo
+
+func above(n int, c int) bool fails Bad {
+	if c < 0 {
+		return Bad{n: n}
+	}
+	n > c
+}
+
+func side(n int, c int) Side fails Bad {
+	if try above(n, c) {
+		return Hi
+	}
+	Lo
+}
+
+func skip() {}
 
 func boom(n int, c int) {
 	if n > c {
@@ -462,7 +499,22 @@ func orWrite(b *strings.Builder, list []orStmt, depth int, muts map[int]bool) {
 		case orTemp:
 			fmt.Fprintf(b, "%suse(open(%d, %v))\n", ind, s.id, s.bad)
 		case orIf:
-			fmt.Fprintf(b, "%sif n > %d {\n", ind, s.cond)
+			if s.head == orHeadMatch {
+				fmt.Fprintf(b, "%smatch try side(n, %d) {\n%scase Hi:\n", ind, s.cond, ind)
+				orWrite(b, s.body, depth+1, muts)
+				fmt.Fprintf(b, "%scase Lo:\n", ind)
+				orWrite(b, s.els, depth+1, muts)
+				if s.els == nil {
+					fmt.Fprintf(b, "%s\tskip()\n", ind)
+				}
+				fmt.Fprintf(b, "%s}\n", ind)
+				continue
+			}
+			if s.head == orHeadTry {
+				fmt.Fprintf(b, "%sif try above(n, %d) {\n", ind, s.cond)
+			} else {
+				fmt.Fprintf(b, "%sif n > %d {\n", ind, s.cond)
+			}
 			orWrite(b, s.body, depth+1, muts)
 			if s.els != nil {
 				fmt.Fprintf(b, "%s} else {\n", ind)

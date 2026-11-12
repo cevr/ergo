@@ -15,6 +15,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 	runtimefiles "ergo.local/prototype/runtime"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The emitted module. Its main package is at the root. The runtime package
@@ -24,7 +25,7 @@ import (
 // implements it, the module needs no download and no go.sum, and the build
 // key covers the runtime's exact bytes.
 const (
-	programModule = "ergo.local/program"
+	programModule = v1.ProgramModule
 	runtimeModule = "ergo.local/prototype"
 	runtimeDir    = "ergo"
 	runtimeImport = runtimeModule + "/runtime/v1"
@@ -46,7 +47,16 @@ type File struct {
 // under v1.Main, whose defect report names Ergo call sites (#230).
 func Runtime() []File {
 	files := []File{{Path: runtimeDir + "/go.mod", Data: []byte("module " + runtimeModule + "\n\ngo " + goVersion + "\n")}}
-	src, err := runtimefiles.Files("runtime/v1", "runtime/explore", "runtime/testgen")
+	// Every leaf of runtime/v1 is copied with it: a program imports only
+	// the leaves it calls (rtRef), and the Go linker reads only imported
+	// packages, so a leaf it does not import costs it no byte. The gofmt
+	// and hostwalk leaves (v1.HostText, v1.HostWalk) are copied as well.
+	pkgs := []string{"runtime/v1", "runtime/explore", "runtime/testgen"}
+	for _, leaf := range v1.Leaves {
+		pkgs = append(pkgs, "runtime/v1/"+leaf)
+	}
+	pkgs = append(pkgs, strings.TrimPrefix(v1.HostText, runtimefiles.Module+"/"), strings.TrimPrefix(v1.HostWalk, runtimefiles.Module+"/"))
+	src, err := runtimefiles.Files(pkgs...)
 	if err != nil {
 		panic("lower: the runtime source is not embedded: " + err.Error())
 	}
@@ -246,18 +256,26 @@ type lowerer struct {
 	formats  int        // go/format runs
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
-	// Go function took in, inlineSites the inlined calls (inline.go), and
+	// Go function took in under the reference growth rule (growth.go),
+	// inlineSites the inlined calls (inline.go), and
 	// lastDir the last //line directive a body wrote. inlineCb holds the
 	// functions whose body calls unknown code only through its callback
 	// parameters (inlineRule).
 	inlineOK    map[inlineKey]knownState
 	inlineCb    map[*check.Func]bool
 	inlineGrown map[*namer]int
+	// hot are the functions called inside a loop (hot.go).
+	hot map[*check.Func]bool
 	// copyScopes are the Go functions that are copies for a known record
 	// (record.go): they take copyGrowth.
 	copyScopes  map[*namer]bool
 	inlineSites []inlineSite
 	lastDir     string
+	// fresh holds the fresh temporaries (forms.go).
+	fresh map[freshKey]bool
+	// letUses counts each package let's uses and its uses where a Go
+	// constant is safe (forms.go, constLet).
+	letUses map[*check.Var][2]int
 
 	types    map[*check.TypeName]*typeDecl
 	funcs    map[*check.Func]*funcDecl
@@ -290,6 +308,22 @@ type lowerer struct {
 	rtName, timeName, taskName string
 	embedName                  string
 	embedUsed                  bool
+	// rtLeaves are the leaves of runtime/v1 that main.go names (rtRef),
+	// by import path.
+	rtLeaves map[string]bool
+	// hostText is set when main.go imports the gofmt leaf of runtime/v1
+	// (v1.HostText) for its init: the program uses a Go package (hostPkg),
+	// whose values only fmt can write, or names a body that writes a
+	// machine state (v1.NeedsHostText).
+	hostText bool
+	// hostWalk is set when main.go imports the hostwalk leaf of runtime/v1
+	// (v1.HostWalk) for its init: the program names a body that makes an
+	// actor's host, which a recover may make (v1.NeedsHostWalk).
+	hostWalk bool
+	// probing is set while runtimeNamed asks runtimeType whether a std type
+	// is the runtime's: runtimeType then names nothing, so no leaf import
+	// is recorded for a reference main.go never writes (binsize BS8).
+	probing bool
 	// hostImports are the Go packages a lowered call of a user extern
 	// names (hostPkg), imported under their reserved names.
 	hostImports map[string]bool
@@ -318,6 +352,11 @@ type lowerer struct {
 	// machines, in the order they were lowered; initFunc runs them after
 	// every let, in package initialization order (machine.go).
 	machineInits []machineInitial
+	// machineGraphs are the static graphs of the sourced packages'
+	// machines, in the order they were lowered, and graphsUsed records that
+	// an actor's start names ergoMachineGraph (machine.go, graphAccessor).
+	machineGraphs []machineGraphEntry
+	graphsUsed    bool
 	// entryInits records that the entry calls ergoInit; program checks it
 	// against hasInits once every declaration is lowered (F13).
 	entryInits bool
@@ -356,6 +395,9 @@ type lowerer struct {
 	// initEnvArg is the entry's environment variable, which its call of
 	// ergoInit passes (initSlot).
 	initEnvArg string
+	// reached is the reachable set of declarations (reach.go), nil when
+	// every declaration is lowered.
+	reached map[syntax.Decl]bool
 
 	// noEntry lowers a package with an empty Go main instead of a call of
 	// its main: the corpus test lowers library-shaped fixtures this way.
@@ -502,7 +544,7 @@ func (l *lowerer) guard(f func()) {
 			}
 			s := l.srcs[src]
 			line, col := s.file.Position(ref.pos)
-			l.refusals = append(l.refusals, Refusal{Source: s.unit, Path: s.path, Offset: int(ref.pos), Line: line, Column: col, Message: ref.msg})
+			l.refusals = append(l.refusals, Refusal{Source: s.unit, Path: s.admitted, Offset: int(ref.pos), Line: line, Column: col, Message: ref.msg})
 		}
 	}()
 	f()
@@ -519,15 +561,24 @@ func (l *lowerer) program() ([]byte, error) {
 		defer func() { statsHook(l.stats) }()
 	}
 	l.nameAll()
+	l.computeReach()
 	main := l.mainFunc()
-	l.eachDecl(l.pkg, l.decl)
-	// Every initializer of every sourced package is lowered here: a
-	// library's lets, and its machines' initial values (F13). A library's
-	// other declarations are lowered where they are used, and so is a std
-	// package's let (reachStdLet, wf10 defects D6), so the entry leaves a
-	// slot for the call of ergoInit, filled once every body is lowered.
+	l.eachDecl(l.pkg, func(d syntax.Decl) {
+		if l.declReached(d) {
+			l.decl(d)
+		}
+	})
+	// Every initializer of every reached declaration of a sourced package
+	// is lowered here: a library's lets, and its machines' initial values
+	// (F13). A library's other declarations are lowered where they are
+	// used, and so is a std package's let (reachStdLet, wf10 defects D6),
+	// so the entry leaves a slot for the call of ergoInit, filled once
+	// every body is lowered.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
+			if !l.declReached(d) {
+				return
+			}
 			switch d := d.(type) {
 			case *syntax.VarDecl:
 				l.packageLet(d)
@@ -584,6 +635,7 @@ func (l *lowerer) program() ([]byte, error) {
 		return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
 	}
 	table := l.callTable() // before the imports: it may name the runtime package
+	graphs := l.graphAccessor()
 	inits := l.initFunc()
 	var out strings.Builder
 	out.WriteString("// Code generated by ergo from " + path.Base(strings.ReplaceAll(l.srcs[0].path, "\\", "/")) + ". DO NOT EDIT.\n\npackage " + l.goPackage() + "\n\n")
@@ -598,6 +650,15 @@ func (l *lowerer) program() ([]byte, error) {
 	if l.rtName != "" {
 		imports = append(imports, l.rtName+" "+`"`+runtimeImport+`"`)
 	}
+	for _, leaf := range slices.Sorted(maps.Keys(l.rtLeaves)) {
+		imports = append(imports, l.pkgNames[pkgKey{"import", leaf}]+" "+strconv.Quote(leaf))
+	}
+	if l.hostText {
+		imports = append(imports, "_ "+strconv.Quote(v1.HostText))
+	}
+	if l.hostWalk {
+		imports = append(imports, "_ "+strconv.Quote(v1.HostWalk))
+	}
 	if l.timeName != "" {
 		imports = append(imports, l.timeName+` "time"`)
 	}
@@ -606,6 +667,11 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	for _, path := range slices.Sorted(maps.Keys(l.hostImports)) {
 		imports = append(imports, l.pkgNames[pkgKey{"import", path}]+" "+strconv.Quote(path))
+	}
+	// A Go package the entry carries for its initialization (time/tzdata;
+	// interop.md, Checking 6): Go's blank import.
+	for _, path := range l.info.Carries {
+		imports = append(imports, "_ "+strconv.Quote(path))
 	}
 	imports = append(imports, l.testImports()...)
 	imports = append(imports, l.libImports...)
@@ -617,6 +683,7 @@ func (l *lowerer) program() ([]byte, error) {
 	out.WriteString(entryText)
 	l.envType(&out)
 	out.WriteString(l.gen.String())
+	out.WriteString(graphs)
 	out.WriteString(table)
 	out.WriteString(l.user.String())
 	out.WriteString(inits)
@@ -722,6 +789,31 @@ func (l *lowerer) rt() string {
 	}
 	return l.rtName
 }
+
+// rtRef is the Go reference to the exported declaration name of runtime/v1
+// or of one of its leaves (a body, a record or an operation type): through
+// the import of the package that declares it (v1.PackageOf), so a program
+// imports a leaf only when it names one of its declarations.
+func (l *lowerer) rtRef(name string) string {
+	if v1.NeedsHostText(name) {
+		l.hostText = true
+	}
+	if v1.NeedsHostWalk(name) {
+		l.hostWalk = true
+	}
+	pkg := v1.PackageOf(name)
+	if pkg == "" || pkg == runtimeImport {
+		return l.rt() + "." + name
+	}
+	if l.rtLeaves == nil {
+		l.rtLeaves = map[string]bool{}
+	}
+	l.rtLeaves[pkg] = true
+	return l.pkgName(pkgKey{"import", pkg}, leafName(pkg)) + "." + name
+}
+
+// leafName is the name main.go gives the import of the runtime leaf pkg.
+func leafName(pkg string) string { return "ergo" + path.Base(pkg) }
 
 // timePkg is the time package's name in main.go.
 func (l *lowerer) timePkg() string {

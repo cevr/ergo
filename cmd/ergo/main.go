@@ -110,6 +110,8 @@ type fileOptions struct {
 	// mode the tests run once, under the cooperative schedule.
 	explore bool
 	search  exploreOptions
+	// debug is build's --debug: link with the symbol table and DWARF.
+	debug bool
 	// seed is test's --seed, a decimal uint64; empty when not given.
 	seed string
 	// states is test's --states, the budget of a reachability law's
@@ -137,8 +139,8 @@ type fileOptions struct {
 }
 
 // parseFileOptions reads the options of command. --strict and --json belong
-// to diagnostics, -o and --platform to build, -work to build and test,
-// --seed N (or --seed=N) to check and test, --eval-steps N and
+// to diagnostics, -o, --debug and --platform to build, -work to build and
+// test, --seed N (or --seed=N) to check and test, --eval-steps N and
 // --eval-bytes N to check, and --states N, --law NAME, --skip-law NAME,
 // --run NAME (or --run=NAME), --receipt FILE and --explore to test; any
 // other option is unknown. A target other than Go is the EF110 refusal,
@@ -241,6 +243,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 				opts.search.mode = args[i+1]
 				i++
 			}
+		case "--debug":
+			opts.debug = true
 		default:
 			if strings.HasPrefix(args[i], "-") {
 				return opts, fmt.Errorf("unknown option %s", args[i])
@@ -270,6 +274,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--explore is only supported by test")
 	case searched && opts.search.mode == "":
 		return opts, fmt.Errorf("--preempt, --schedules and --depth need --explore dfs, pct or random")
+	case opts.debug && command != "build":
+		return opts, fmt.Errorf("--debug is only supported by build")
 	case seeded && command != "test" && command != "check":
 		return opts, fmt.Errorf("--seed is only supported by check and test")
 	case ran && command != "test":

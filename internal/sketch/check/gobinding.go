@@ -169,9 +169,10 @@ func (c *checker) unknownMember(x *syntax.SelectorExpr, pn *PkgName) {
 // operand is not addressable, and a read through a handle or a borrow
 // charges go.Foreign, since Go code may write that memory. A method is
 // Go's: one in the method set of *T only needs a handle or a borrow, as Go
-// takes no address of a copy. A method or field the binding refuses is
-// S109 with its reason.
-func (c *checker) hostSelector(x *syntax.SelectorExpr, base operand, n *Named, handle bool) operand {
+// takes no address of a copy. A method is reached only by a call (called):
+// as a value it is S108 with the literal to pass, as for any call-only
+// extern. A method or field the binding refuses is S109 with its reason.
+func (c *checker) hostSelector(x *syntax.SelectorExpr, base operand, n *Named, handle, called bool) operand {
 	shared := handle || isPointer(base.typ)
 	if s := asStruct(n); s != nil {
 		if f, _ := s.field(x.Sel.Name); f != nil {
@@ -186,6 +187,13 @@ func (c *checker) hostSelector(x *syntax.SelectorExpr, base operand, n *Named, h
 	if sig != nil {
 		if fn != nil && h.recvPtr[fn] && !shared {
 			c.errorf(x, CodeOutside, "the Go method %s.%s has a pointer receiver; call it on a go.Ref[%s] or a borrow, not on a copy (docs/spec/interop.md)", n, x.Sel.Name, n)
+			return bad(x)
+		}
+		if !called {
+			// A Go method is an extern, a struct's or an interface's, and
+			// is called directly: its method value would be Go's, of no
+			// Ergo function shape (grammar.md, Extern; FU-readdir r2).
+			c.errorf(x, CodeType, "%s", externValueText(operand{typ: sig, expr: x}))
 			return bad(x)
 		}
 		var m *Method

@@ -64,3 +64,46 @@ func TestScopeIsTheLedgersPackage(t *testing.T) {
 		t.Errorf("lower, check and runtime/v1: cover %q, %d tools, suites %q; want suites %q", both.Cover, len(both.Tools), names, want)
 	}
 }
+
+// TestKillerSuiteRunsOnlyItsTests: a mutant whose killer is in another
+// package (a runtime/v1 edit that only a lowering reads) is judged by that
+// package's suite, and the coverage pass runs only the tests the ledger
+// names there, not the package's whole suite. A killer that names no test
+// package (examples:PROGRAM, the short name lower) adds no suite, and a
+// package whose own ledger runs too keeps its whole suite.
+//
+// Mutants: ert-killer-suite-dropped, ert-killer-suite-whole.
+func TestKillerSuiteRunsOnlyItsTests(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"runtime/v1", "runtime/rt", "internal/sketch/lower"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, dir, "x_test.go"), []byte("package x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v1 := Job{Path: ledgerPath(root, filepath.Join(root, "runtime", "v1")), Ledger: &Ledger{Mutants: []*Mutant{
+		{Name: "a", File: "runtime/v1/files.go", Killers: []string{"internal/sketch/lower:TestA", "examples:prog", "lower:TestB", "runtime/rt:TestR"}},
+		{Name: "b", File: "runtime/v1/files.go", Killers: []string{"internal/sketch/lower:TestC", "internal/sketch/lower:TestA"}},
+	}}}
+	rtOwn := Job{Path: ledgerPath(root, filepath.Join(root, "runtime", "rt")), Ledger: &Ledger{}}
+	_, _, suites, err := suitesFor(root, []Job{v1, rtOwn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]string{}
+	for _, s := range suites {
+		got[s.Name] = s.Only
+	}
+	if len(got) != 3 || !slices.Equal(got["internal/sketch/lower"], []string{"TestA", "TestC"}) || got["runtime/rt"] != nil || got["runtime/v1"] != nil {
+		t.Errorf("suites %+v; want runtime/v1 and runtime/rt whole and internal/sketch/lower limited to TestA and TestC", suites)
+	}
+	only := Suite{Only: []string{"TestA", "TestC"}}
+	if l := listed(&only, []string{"TestA", "TestB", "TestC"}); !slices.Equal(l, []string{"TestA", "TestC"}) {
+		t.Errorf("the coverage pass of a killer suite runs %v; want TestA and TestC", l)
+	}
+	if l := listed(&Suite{}, []string{"TestA", "TestB"}); len(l) != 2 {
+		t.Errorf("a whole suite runs %v", l)
+	}
+}

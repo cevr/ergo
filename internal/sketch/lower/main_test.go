@@ -56,6 +56,15 @@ func TestMain(m *testing.M) {
 	if _, ok := os.LookupEnv(proclimit.Variable); !ok {
 		os.Setenv(proclimit.Variable, strconv.FormatUint(proclimit.DefaultLimit, 10))
 	}
+	// This package's tests lower declarations that main does not reach:
+	// Go harnesses call lowered functions by name, and shape tests read a
+	// declaration's lowering. They run the reference lowering, which
+	// lowers every declaration (reach.go).
+	// TestReachLowersNoUnreachableDeclaration lowers under reach itself,
+	// and the CLI, the examples and the conformance programs run it.
+	if reachLowering == "" {
+		reachLowering = "all"
+	}
 	code := testinputs.Main(m)
 	removeProgramTables()
 	if testCLI.dir != "" {

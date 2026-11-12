@@ -34,7 +34,7 @@ func failureOf(text string) string {
 let person = "{\"type\": \"object\", \"properties\": {\"name\": {\"type\": \"string\", \"minLength\": 1}, \"age\": {\"type\": \"integer\", \"minimum\": 0, \"maximum\": 150}, \"role\": {\"type\": \"string\", \"enum\": [\"admin\", \"user\"]}, \"tags\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}, \"minItems\": 1}}, \"required\": [\"name\", \"age\"], \"additionalProperties\": false}"
 
 test ValidPersonHasNoViolation {
-	assert (try reportOf(person, "{\"name\": \"Ada\", \"age\": 36, \"tags\": [\"math\"]}")) == ""
+	assert try reportOf(person, "{\"name\": \"Ada\", \"age\": 36, \"tags\": [\"math\"]}") == ""
 }
 
 test EveryViolationIsNamed {
@@ -45,8 +45,8 @@ test EveryViolationIsNamed {
 test MissingAndBounds {
 	let got = try reportOf(person, "{\"age\": 151, \"tags\": []}")
 	assert got == "$.age: 151 is more than the maximum 150\n$.tags: want at least 1 items, got 0\n$: missing member \"name\""
-	assert (try reportOf(person, "{\"name\": \"x\", \"age\": -1}")) == "$.age: -1 is less than the minimum 0"
-	assert (try reportOf(person, "[]")) == "$: want an object, got an array"
+	assert try reportOf(person, "{\"name\": \"x\", \"age\": -1}") == "$.age: -1 is less than the minimum 0"
+	assert try reportOf(person, "[]") == "$: want an object, got an array"
 }
 
 test IntegersAsJSONSchemaCountsThem {

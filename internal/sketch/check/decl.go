@@ -798,13 +798,49 @@ func (c *checker) bindBrokenImportName(fi *fileInfo, spec *syntax.ImportSpec, pa
 }
 
 func (c *checker) checkUnusedImports() {
+	_, entry := c.pkg.Scope.names["main"].(*Func)
 	for _, fi := range c.files {
 		c.cur = fi
 		for _, pn := range fi.imports {
-			if !pn.used {
-				c.errorf(pn.spec, CodeUnused, "package %s is imported and not used", pn.Name)
+			if pn.used {
+				continue
 			}
+			if carried(pn) {
+				c.carry(pn, entry)
+				continue
+			}
+			c.errorf(pn.spec, CodeUnused, "package %s is imported and not used", pn.Name)
 		}
+	}
+}
+
+// carried reports an import go of a package whose binding declares
+// nothing (interop.md, Checking 6): Go's time/tzdata, whose only effect is
+// its initialization. It has no name to use, so the import is its use.
+// Only an unused Go import pays the binding's read (gobinding.go reads a
+// binding lazily).
+func carried(pn *PkgName) bool {
+	h := hostOf(pn.Pkg)
+	if h == nil {
+		return false
+	}
+	h.load()
+	return h.err == "" && len(pn.Pkg.Scope.names) == 0 && len(h.refused) == 0
+}
+
+// carry records a carried import in the package of main, which makes the
+// binary: the lowering imports the Go package for its initialization
+// (Info.Carries). Anywhere else the import would put the package into
+// every binary that imports this one, a choice that is only the entry's,
+// so it is S108 there.
+func (c *checker) carry(pn *PkgName, entry bool) {
+	if !entry {
+		c.errorf(pn.spec, CodeType, "Go package %s declares nothing; it is carried into the binary for its initialization, and only the package of main, which makes the binary, carries it (interop.md, Checking 6)", pn.Pkg.Path)
+		return
+	}
+	if !slices.Contains(c.pkg.Info.Carries, pn.Pkg.Path) {
+		c.pkg.Info.Carries = append(c.pkg.Info.Carries, pn.Pkg.Path)
+		slices.Sort(c.pkg.Info.Carries)
 	}
 }
 

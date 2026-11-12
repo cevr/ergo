@@ -580,6 +580,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Running.Wait":   {wait: callerWait},
 	"Running.Close":  {release: callerRelease},
 	"Running.Stop":   {release: callerRelease},
+	// WaitFor races Wait, on a child of the caller's task, against the
+	// Scheduler's deadline, as timeout.After does (v1.After).
+	"ExecWaitFor": {wait: childWait},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.
@@ -605,7 +608,7 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 	}
 	var head string
 	if recv == "" {
-		head = fc.l.rt() + "." + name + typeArgs
+		head = fc.l.rtRef(name) + typeArgs
 	} else {
 		i := strings.LastIndex(name, ".")
 		if i < 0 || typeArgs != "" {

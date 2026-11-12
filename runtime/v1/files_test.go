@@ -50,6 +50,7 @@ func TestBodiesFollowTheHiddenConvention(t *testing.T) {
 			t.Errorf("BodyOf(%q): %v", name, err)
 			continue
 		}
+		w.Package = Path
 		if !reflect.DeepEqual(got, w) {
 			t.Errorf("BodyOf(%q) = %+v, want %+v", name, got, w)
 		}
@@ -88,7 +89,7 @@ func OtherRt(t *other.Task) {}
 func BadBlock(f func(n int, t *rtx.Task)) {}
 func unexported(s *Scope) {}
 `
-	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}, "a_test.go": {Data: []byte("package v1\nfunc Skipped() {}\n")}})
+	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}, "a_test.go": {Data: []byte("package v1\nfunc Skipped() {}\n")}}, Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +153,7 @@ type hidden struct{}
 
 func Rec2() {}
 `
-	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}})
+	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}}, Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +191,7 @@ func (p Plain) N() {}
 func (b Box[K]) Short() {}
 func (q *Missing[T]) Lost() {}
 `
-	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}})
+	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}}, Path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -394,7 +394,7 @@ Status: **checked** by `internal/sketch/check` and **lowered** by `internal/sket
 3. **Bindings** are immutable and read: an unread one is S110, `_` ignores it. A single name follows the one binder rule (check-v1 D-D2 and D-D3; [rows.md](rows.md#totality), Totality 6): a known constant or capability name is a pattern, and a package type's name binds a local ([Scope](#scope) 1), so `for line in lines` binds `line` beside `type line`; a binding may be any irrefutable pattern. `for cond { }` needs a `bool`.
 4. **`Seq[T]`** is `type Seq[T] func(yield func(v T) bool)`, a protocol any function implements by conversion, `Seq[int](f)`. `for v in s` runs the body as `yield`; a `break` or `return` makes `yield` return false. *Law:* a Seq never calls `yield` again after it returns false. `queue.Values()` returns one ([stdlib.md](stdlib.md#v1-packages-task-scope-queue-and-slice)). *Prior art:* Go's `iter.Seq[T]` and range over func; Rust's `IntoIterator`.
 5. **Map entries.** A write `m[k] = v` inserts or replaces the entry, and needs `m` rooted at a `let mut`; the write is seen through that root alone ([Bindings](#bindings) 1). A read `m[k]` is S108 "a Map read may miss; write m.Get(k), which returns an Option", whatever `V` is: there is no default value for a missing key, and `m[k] op= v` reads. The default of a `Map` is an empty, writable `Map`, wherever a default is made: a `let` with a `Map` type and no value, a field a record literal omits, and a `Map` inside a defaulted record or tuple, named or not, a generic instance included, at any depth. The lowering writes `map[K]V{}`, never Go's nil map. A defined type or instance whose default holds a `Map` has one generated Go function that builds its default, which a nested default calls, so the lowering's work and output grow linearly in the types; every default builds its own `Map`s, so two defaults never share one. *Prior art:* Rust's `#[derive(Default)]` emits one `default()` per type that calls each field's; Rust's `map[k]` panics on a missing key; Gleam's `dict.get` returns a `Result`; Go returns the zero value, the habit this rule removes, and its nil map panics on a write; Rust's `HashMap::new()`, Gleam's `dict.new()` and Elixir's `%{}` are empty and usable.
-6. **`len` is the only built-in function** (D-D5). It takes a slice, an array, a `Map` or a `string` (its bytes); a pointer is S108 "len takes a slice, an array, a Map or a string", so write `len(*p)`. Every other Go built-in is S104 with the Ergo form ([diagnostics.md](diagnostics.md#s104-unknown-name)). An index does not see through a pointer either: `(*p)[i]`.
+6. **`len` is the one built-in function Ergo keeps from Go** (D-D5). Ergo's own built-ins are `with`, `encode` and `decode` ([Codecs](#codecs)), `embedded` ([stdlib.md](stdlib.md)) and the row former `wired`. `len` takes a slice, an array, a `Map` or a `string` (its bytes); a pointer is S108 "len takes a slice, an array, a Map or a string", so write `len(*p)`. Every other Go built-in is S104 with the Ergo form ([diagnostics.md](diagnostics.md#s104-unknown-name)). An index does not see through a pointer either: `(*p)[i]`.
 7. **Lowering.** A slice, a `Map` and a string are Go's `range` (a string's is Go's rune decoding, with no conversion or allocation); a `Range` is a counting loop over its value, evaluated once; a `Seq` keeps the one Go shape of every Ergo function value and is adapted at the loop to Go's range over func, so a `break` is Go's. Each binding is a Go variable of one iteration, so a function literal captures that iteration's value.
 
 ## Scope
@@ -408,7 +408,7 @@ Scopes nest as in Go: the universe and the prelude, outside the package scope, o
 
 ## Prelude types
 
-Status: **declared** in the embedded prelude (`internal/sketch/std/prelude.ergo`) and checked by the checker (#196); the build refuses them until #50, except the timeout result `timeout.Expired`. The capabilities' method sets are provisional until [#209](https://github.com/cevr/ergo/issues/209); `Option` is [#99](https://github.com/cevr/ergo/issues/99)'s.
+Status: **implemented**: declared in the embedded prelude (`internal/sketch/std/prelude.ergo`), checked by the checker and lowered by the build ([support](support.md)). The capabilities' method sets are provisional until [#209](https://github.com/cevr/ergo/issues/209); `Option` is [#99](https://github.com/cevr/ergo/issues/99)'s.
 
 - `Option[T]` with `Some` and `None` ([#99](https://github.com/cevr/ergo/issues/99)).
 - `Range[T] { Start T, End T }`, the value of `a..b`, and `Seq[T]`, an iterator ([Loops and len](#loops-and-len)).
@@ -436,7 +436,7 @@ Status: **implemented**: checked and lowered (owner q29, 2026-11-08; synthesis M
 
 ## Laws
 
-Status: **implemented: checked and run by `ergo test`** for top-level laws, for member laws of an operation type, a generic one included at each provider's instance ([#162](https://github.com/cevr/ergo/issues/162) law-run-1, rule 10; L4), and for laws in a machine (MU6, rule 13). The checker checks every law (check-v1 stage E3b, 196l; [#125](https://github.com/cevr/ergo/issues/125), [#170](https://github.com/cevr/ergo/issues/170)). A law of an imported operation type against this package's providers is checked and not run yet.
+Status: **implemented: checked and run by `ergo test`** for top-level laws, for member laws of an operation type, a generic one included at each provider's instance ([#162](https://github.com/cevr/ergo/issues/162) law-run-1, rule 10; L4), and for laws in a machine (MU6, rule 13). The checker checks every law (check-v1 stage E3b, 196l; [#125](https://github.com/cevr/ergo/issues/125), [#170](https://github.com/cevr/ergo/issues/170)). A law of an imported operation type runs against this package's providers in the least package that sees the binding (rule 10; `TestLawRunLeastPackage`).
 
 ```go
 type Codec[T comparable] {
@@ -550,5 +550,49 @@ Status: **the core is implemented** ([#49](https://github.com/cevr/ergo/issues/4
 5. **Lowering.** One Go function per type and direction walks the structure: no reflection and no `any`; a basic value is one inline event. std `codec`'s `Events` and `Replay` record and replay the events, and its laws hold the round trip on generated values ([stdlib.md, Std laws](stdlib.md#std-laws)).
 6. **Generic codecs.** `func Decode[T wire](r Reader) T fails Malformed | wired[T]` reads any wire `T`. The predeclared row former `wired[X]` (owner q80) stands in a fails row for the row of `decode[X]` (rule 3); each wire type parameter `T` that `X` reaches stays in the row as `wired[T]`, and an instance replaces it by its argument's row, so the caller of `Decode[Draft]` handles `Draft`'s failures and no others. `decode[Option[T]]` reaches a union, so its row is `wired[Option[T]]`, wider than `wired[T]`. `wired` takes one wire type and stands only in a fails row (S108 otherwise). The lowering passes a wire type parameter's codec as a witness, a struct of its encode and decode functions, so a generic codec is Go generic code with no reflection; the caller builds the witness from the argument's derived functions.
 7. **Round-trip law of a pair.** A file that declares both `ParseX(b B) X` (no `needs`) and `Wire(x X) B` (no failure, no `needs`) gets the law the parser derives, `law XRoundTrips(b B) { let x = ParseX(b) catch { case _: return true } try ParseX(x.Wire()) == x }`, which `ergo test` runs as any law. The dot form `x.Wire()` names `X`'s own `Wire` when the package declares several (196m rule 3); a `ParseX` that fails nothing gets the law without `catch` and `try`; a `ParseX` with a `needs` clause derives no law, since the law has no provider for it. A value of `X` is drawn through `ParseX`, as a decode meets it, so the law needs no generator under `X`'s authority, and a `ParseX` that normalises its input satisfies it. When the file declares `X` open (a record of exported fields, or a union of such records of the file), every value is a valid `X`, so the law draws `x` itself and reaches every value: `law XRoundTrips(x X) { try ParseX(x.Wire()) == x }` (confparse's `LevelRoundTrips`, proved over the four levels). `X` must be comparable; the formatter does not print the law. A pair whose halves are in two files derives none.
+8. **Declared wire forms.** A type's own package may declare a rowless
+   `func WireForm(x X) WireOmittable { WireOmittable }`, or its generic
+   counterpart. The result is one of the predeclared protocol markers
+   below. This signature declares representation metadata; a derived codec
+   does not call the function. Its body is ordinary checked source.
+   The declaration takes only its receiver and its receiver's type
+   parameters, with no failure or service row. The rule is open to every
+   package; no std package, type, variant or field name selects a form.
+   A marker with the wrong structural shape is S108 when used as `wire`.
+   A structural form cannot also declare an independent Parse/Wire pair;
+   `WireNumberText` is the exception because its pair supplies its spelling.
+
+   - `WireOmittable`: a union of two record variants, one empty and one
+     with a single wire payload. In a record field the empty variant
+     omits its key; the other writes its bare payload. A missing key
+     decodes to the empty variant. At the root or in a list the union
+     keeps its ordinary tagged representation.
+   - `WireNullable`: the same union shape, but the empty variant writes
+     null and the other writes its payload everywhere. A record key is
+     still required. Nesting an omittable form around a nullable form
+     gives absent, present null and present value.
+   - `WireBare`: a union of records with distinct event kinds. An empty
+     variant is null. A one-field variant writes that field directly.
+     A variant with its own `WireNumberText` or `WireMembers` form uses
+     that form. Decode selects by `Reader.Peek`, not a variant tag.
+     A variant with no single statically known event kind, or two
+     variants of the same kind, is refused.
+   - `WireNumberText`: a record with one string field and a string
+     Parse/Wire pair (rule 1). Its wire string is emitted as a number's
+     spelling, not a quoted string; decode reads `Reader.Number` and
+     calls the parser. The pair's failures remain in `wired[X]`.
+   - `WireMembers`: a record with one slice field. Each element is a
+     two-field record, first a string key and then a wire value. It writes
+     an object in slice order and preserves duplicate keys. Decode
+     reconstructs the entries in that order.
+
+   Construction authority and wire admission still apply to every payload.
+   The record alternatives of an omittable/nullable form, and the slice,
+   entry record and key of a members form, must have no independent
+   Parse/Wire form or refinement that direct field access would bypass.
+   A number-text pair's base is the ordinary `string` type.
+   Generic record fields use their argument's field form through the
+   codec witness, exactly as a concrete field does. std json declares
+   Optional, Nullable, Value, Num and Object through these same rules.
 
 *Prior art:* Rust serde and Roc's `Encoding` derive per type over a format's event interface, monomorphised (rules 2 and 5); ReScript's `@spice` emits plain functions; Elixir's `@derive Jason.Encoder`; Effect Schema gives one declaration, typed issues with a path and a round trip, as runtime values; Go's `encoding/json` walks by reflection with struct tags, and json v2's `jsontext` streams tokens, the model of the events; Swift's `Codable` names the constraint.

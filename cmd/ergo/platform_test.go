@@ -5,6 +5,7 @@ import (
 	"debug/buildinfo"
 	"debug/elf"
 	"debug/macho"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -17,10 +18,23 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 )
 
+// runsACommand is a program that runs a command, so it links the runtime's
+// exec leaf; it is built, never run.
+const runsACommand = `import exec
+
+func main() fails exec.NotFound | exec.Denied | exec.Failed needs Console | Ambient {
+	let r = try exec.NewHost().Run(exec.New("/nonexistent/loop-probe-x", []string{}))
+	Console.Println(r.Stdout)
+}
+`
+
 // TestBuildCrossCompilesEveryPlatform: `ergo build --platform OS/ARCH`
 // links the lookup example for each platform of the one target list
 // (gobind.Platforms), from one emitted module, and each executable's file
 // format, machine and build settings name that platform with cgo off. It
+// links a program that runs a command for each platform too: the exec
+// leaf's exit watchers are build-tagged per platform (exec_exit_kqueue.go,
+// exec_exit_linux.go), and lookup does not link the leaf (BS8). It
 // builds Go because the claim is the go command's cross link (the
 // runtime's build-tagged files, the linker's file format and the settings
 // it stamps into the executable), which no in-process check of the lowered
@@ -31,6 +45,10 @@ func TestBuildCrossCompilesEveryPlatform(t *testing.T) {
 	needsBuild(t)
 	binary := buildTestCLI(t)
 	program := filepath.Join(smokeWorkspace(t, "examples/lookup"), "examples", "lookup", "cmd", "lookup")
+	runs := filepath.Join(t.TempDir(), "runs.ergo")
+	if err := os.WriteFile(runs, []byte(runsACommand), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	module := ""
 	for _, p := range gobind.Platforms {
 		output := filepath.Join(t.TempDir(), "lookup")
@@ -62,6 +80,20 @@ func TestBuildCrossCompilesEveryPlatform(t *testing.T) {
 		if settings["GOOS"] != p.GOOS || settings["GOARCH"] != p.GOARCH || settings["CGO_ENABLED"] != "0" {
 			t.Fatalf("--platform %s: the executable's build settings are GOOS=%q GOARCH=%q CGO_ENABLED=%q",
 				p, settings["GOOS"], settings["GOARCH"], settings["CGO_ENABLED"])
+		}
+		// A program that runs a command links the exec leaf
+		// (runtime/v1/exec) and its build-tagged exit watchers, which
+		// lookup does not: the leaf links for every platform too.
+		output = filepath.Join(t.TempDir(), "runs")
+		command = exec.Command(binary, "build", "--platform", p.String(), "-o", output, runs)
+		stdout.Reset()
+		stderr.Reset()
+		command.Stdout, command.Stderr = &stdout, &stderr
+		if err := proclimit.Run(command, 4<<30); err != nil {
+			t.Fatalf("ergo build --platform %s of a program that runs a command: %v\n%s%s", p, err, stdout.Bytes(), stderr.Bytes())
+		}
+		if got := executablePlatform(t, output); got != p {
+			t.Fatalf("--platform %s linked a %s executable of the program that runs a command", p, got)
 		}
 	}
 }

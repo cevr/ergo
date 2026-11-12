@@ -1,0 +1,134 @@
+{
+  "about": "The mutant ledger of package runtime (runtimefiles): edits of the core runtime packages that a runtime test must kill. Run it with go run ./scripts/mutants ./runtime (docs/tooling.md, \"Mutant ledger\"). Seeded by binsize BS1.",
+  "mutants": [
+    {
+      "name": "bs1-core-imports-crypto",
+      "origin": "wf10 binsize BS1",
+      "file": "runtime/v1/runtime.go",
+      "from": "import (\n",
+      "to": "import (\n\t_ \"crypto/sha256\"\n",
+      "rule": "stdlib.md Types 4 (binsize BS1): runtime/v1 imports no crypto/, encoding/, hash/ or os/exec package; a body that needs one is in a leaf.",
+      "killers": [
+        "runtime:TestCoreHasNoInitRoots"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestCoreHasNoInitRoots"
+        ]
+      }
+    },
+    {
+      "name": "bs1-core-init",
+      "origin": "wf10 binsize BS1",
+      "file": "runtime/v1/runtime.go",
+      "from": "import (\n",
+      "to": "func init() {}\n\nimport (\n",
+      "rule": "stdlib.md Types 4 (binsize BS1): no core runtime package declares an init function.",
+      "killers": [
+        "runtime:TestCoreHasNoInitRoots"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestCoreHasNoInitRoots"
+        ]
+      }
+    },
+    {
+      "name": "bs8-core-imports-net",
+      "origin": "wf10 binsize BS8",
+      "file": "runtime/v1/runtime.go",
+      "from": "import (\n",
+      "to": "import (\n\t_ \"net/http\"\n",
+      "rule": "stdlib.md Types 4 (binsize BS8): runtime/v1 imports no net/ package; the http and rpc bodies are in their leaves.",
+      "killers": [
+        "runtime:TestCoreHasNoInitRoots"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestCoreHasNoInitRoots"
+        ]
+      }
+    },
+    {
+      "name": "bs8-core-imports-log",
+      "origin": "wf10 binsize BS8",
+      "file": "runtime/v1/runtime.go",
+      "from": "import (\n",
+      "to": "import (\n\t_ \"log/slog\"\n",
+      "rule": "stdlib.md Types 4 (binsize BS8): runtime/v1 imports no log/ package; the redacted bodies, which format for slog, are in their leaf.",
+      "killers": [
+        "runtime:TestCoreHasNoInitRoots"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestCoreHasNoInitRoots"
+        ]
+      }
+    },
+    {"name":"bs1-missing-import","origin":"wf10 binsize BS1","file":"runtime/embed.go","from":"\t\tfiles:   []string{\"exec.go\", \"exec_exit_kqueue.go\", \"exec_exit_linux.go\", \"exec_start.go\"},\n\t\timports: []string{\"runtime/rt\", \"runtime/v1\"},","to":"\t\tfiles:   []string{\"exec.go\", \"exec_exit_kqueue.go\", \"exec_exit_linux.go\", \"exec_start.go\"},\n\t\timports: []string{\"runtime/v1\"},","rule":"Files copies each package a leaf imports: the exec leaf imports runtime/rt.","killers":["runtime:TestPackagesMatchTheirDirectories"],"anchor":{"tests":["runtime:TestPackagesMatchTheirDirectories"]}},
+    {
+      "name": "bs2-core-imports-fmt",
+      "origin": "wf10 binsize BS2",
+      "file": "runtime/rt/cause.go",
+      "from": "import (\n",
+      "to": "import (\n\t_ \"fmt\"\n",
+      "rule": "stdlib.md Types 4 (binsize BS2): runtime/rt, runtime/rt/rttrace and runtime/v1 import no fmt, reflect or runtime/debug.",
+      "killers": [
+        "runtime:TestCoreHasNoInitRoots"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestCoreHasNoInitRoots"
+        ]
+      }
+    },
+    {
+      "name": "bs3-virtual-time",
+      "origin": "wf10 binsize BS3",
+      "file": "runtime/rt/clock.go",
+      "from": "\tnow    Instant\n",
+      "to": "\tnow    Instant\n\tstart  time.Time\n",
+      "rule": "stdlib.md Types 4 (binsize BS3): no type of package time is reachable from rt.Task through fields, elements and method signatures.",
+      "killers": [
+        "runtime:TestTaskTypeGraphHasNoTime"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestTaskTypeGraphHasNoTime"
+        ]
+      }
+    },
+    {
+      "name": "bs3-span-duration",
+      "origin": "wf10 binsize BS3",
+      "file": "runtime/rt/machine.go",
+      "from": "\tIn     Span\n",
+      "to": "\tIn     time.Duration\n",
+      "rule": "stdlib.md Types 4 (binsize BS3): a machine event, which a traced task's tracer reaches, holds its timer's In as an rt.Span.",
+      "killers": [
+        "runtime:TestTaskTypeGraphHasNoTime"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestTaskTypeGraphHasNoTime"
+        ]
+      }
+    },
+    {
+      "name": "bs3-walk-shallow",
+      "origin": "wf10 binsize BS3",
+      "file": "runtime/typegraph_test.go",
+      "from": "\t\t\t\t\twalk(sel.Type(), append(slices.Clone(path), \".\"+sel.Obj().Name()))\n",
+      "to": "\t\t\t\t\t_ = sel\n",
+      "rule": "The type-graph walk follows method signatures, as the Go linker does for a type used in an interface.",
+      "killers": [
+        "runtime:TestWalkTypesFollowsEveryEdge"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestWalkTypesFollowsEveryEdge"
+        ]
+      }
+    }
+  ]
+}

@@ -1,11 +1,9 @@
 package v1
 
 import (
-	"fmt"
 	"io"
 	"os"
-	"reflect"
-	"runtime/debug"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -50,14 +48,25 @@ type Panic struct {
 }
 
 // String is the panic value's text, as Go's panic report writes it.
-func (p *Panic) String() string { return fmt.Sprint(p.Value) }
+func (p *Panic) String() string { return rt.Text(p.Value) }
 
 // defectOf records p, a fresh defect recovered on the goroutine of task t,
 // with the Go stack at the panic and t's context values now. Call it inside
 // the recover, while the panicking frame is still on the stack, and before
-// the frame's regions close.
+// the frame's regions close. The stack is read as runtime/debug.Stack
+// reads it, without importing runtime/debug, which imports fmt (binsize
+// BS2).
 func defectOf(t *rt.Task, p any) *Panic {
-	return &Panic{Value: p, Stack: debug.Stack(), Context: contextOf(t)}
+	stack := make([]byte, 1024)
+	for {
+		n := runtime.Stack(stack, false)
+		if n < len(stack) {
+			stack = stack[:n]
+			break
+		}
+		stack = make([]byte, 2*len(stack))
+	}
+	return &Panic{Value: p, Stack: stack, Context: contextOf(t)}
 }
 
 // exit carries a recorded exit, in rt's canonical form, across lowered
@@ -181,12 +190,33 @@ var (
 		File      string
 		Line, End int
 	}
-	calls []struct {
-		Func, Callee string
-		File         string
-		Line, Column int
-	}
+	calls     []SourceCall
+	callNames []string
 )
+
+type sourceCall = struct {
+	Func, Callee string
+	File         string
+	Line, Column int
+}
+
+// SourceCall is one compact call-table entry (binsize BS6). Func, Callee
+// and File index the table's shared strings. Positions are one-based.
+// Five uint32 words use 20 bytes per site on every Go target.
+type SourceCall struct {
+	Func, Callee, File uint32
+	Line, Column       uint32
+}
+
+// RegisterCompactCalls installs a source map whose call sites share their
+// names and file paths. Like RegisterCalls, it runs only before main.
+func RegisterCompactCalls(declTable []struct {
+	Name      string
+	File      string
+	Line, End int
+}, names []string, table []SourceCall) {
+	registered, decls, calls, callNames = true, declTable, table, names
+}
 
 // RegisterCalls registers the program's source map (#230). decls has one
 // entry per source declaration (a function, a package-level let, a context):
@@ -199,12 +229,25 @@ func RegisterCalls(declTable []struct {
 	Name      string
 	File      string
 	Line, End int
-}, table []struct {
-	Func, Callee string
-	File         string
-	Line, Column int
-}) {
-	registered, decls, calls = true, declTable, table
+}, table []sourceCall) {
+	// Only the selectable wide reference calls this adapter. A default
+	// program links neither this conversion nor its map allocation.
+	var names []string
+	indices := map[string]uint32{}
+	intern := func(text string) uint32 {
+		if i, ok := indices[text]; ok {
+			return i
+		}
+		i := uint32(len(names))
+		indices[text] = i
+		names = append(names, text)
+		return i
+	}
+	compact := make([]SourceCall, len(table))
+	for i, c := range table {
+		compact[i] = SourceCall{Func: intern(c.Func), Callee: intern(c.Callee), File: intern(c.File), Line: uint32(c.Line), Column: uint32(c.Column)}
+	}
+	RegisterCompactCalls(declTable, names, compact)
 }
 
 // inlines are the program's inlined calls (RegisterInlines).
@@ -226,7 +269,14 @@ func RegisterInlines(table []struct{ Call, Parent int }) {
 
 // taskEntry starts the traceback line of guarded, the boundary of every
 // task's body (Go, runMain).
-var taskEntry = reflect.TypeFor[Panic]().PkgPath() + ".guarded["
+const taskEntry = "ergo.local/prototype/runtime/v1.guarded["
+
+// ProgramModule is the module path of every emitted program (the
+// lowering's go.mod names it). A //line directive names a source relative
+// to the module root (binsize BS6), and go build -trimpath records that
+// name under the module path, ergo.local/program/main.ergo; ergoStack
+// reads a frame's file without it, as the tables name it.
+const ProgramModule = "ergo.local/program"
 
 // ergoStack is the Ergo call chain of a defect's Go stack, innermost
 // first. Only frames at a position of the program's source (a line
@@ -261,7 +311,7 @@ func ergoStack(stack []byte) []string {
 		files[d.File] = true
 	}
 	for _, c := range calls {
-		files[c.File] = true
+		files[callNames[c.File]] = true
 	}
 	var frames []site
 	lines := strings.Split(string(stack), "\n")
@@ -308,6 +358,7 @@ func ergoStack(stack []byte) []string {
 		if i := strings.LastIndex(loc, " +0x"); i >= 0 {
 			loc = loc[:i]
 		}
+		loc = strings.TrimPrefix(loc, ProgramModule+"/")
 		i := strings.LastIndex(loc, ":")
 		if i < 0 {
 			continue
@@ -366,7 +417,7 @@ func ergoStack(stack []byte) []string {
 		for s := f.inl; s > 0 && s <= len(inlines); s = inlines[s-1].Parent + 1 {
 			if k := inlines[s-1].Call; k >= 0 && k < len(calls) {
 				c := calls[k]
-				add(fmt.Sprintf("%s calls %s at %s:%d:%d", c.Func, c.Callee, c.File, c.Line, c.Column), f.fn)
+				add(callNames[c.Func]+" calls "+callNames[c.Callee]+" at "+callNames[c.File]+":"+strconv.Itoa(int(c.Line))+":"+strconv.Itoa(int(c.Column)), f.fn)
 			}
 		}
 	}
@@ -377,7 +428,7 @@ func ergoStack(stack []byte) []string {
 		name := owner(f)
 		for s := f.inl; s > 0 && s <= len(inlines); s = inlines[s-1].Parent + 1 {
 			if k := inlines[s-1].Call; k >= 0 && k < len(calls) {
-				name = calls[k].Func
+				name = callNames[calls[k].Func]
 			}
 		}
 		return name
@@ -390,7 +441,7 @@ func ergoStack(stack []byte) []string {
 		var here []int
 		if i > 0 {
 			for j, c := range calls {
-				if c.File == f.file && c.Line == f.line {
+				if callNames[c.File] == f.file && int(c.Line) == f.line {
 					here = append(here, j)
 				}
 			}
@@ -400,7 +451,7 @@ func ergoStack(stack []byte) []string {
 			if name != "" {
 				name += " "
 			}
-			add(fmt.Sprintf("%sat %s:%d", name, f.file, f.line), f.fn)
+			add(name+"at "+f.file+":"+strconv.Itoa(f.line), f.fn)
 			chain(f)
 			continue
 		}
@@ -409,7 +460,7 @@ func ergoStack(stack []byte) []string {
 			// the declaration of the frame inside it.
 			var made []int
 			for _, j := range here {
-				if calls[j].Callee == callee(frames[i-1]) {
+				if callNames[calls[j].Callee] == callee(frames[i-1]) {
 					made = append(made, j)
 				}
 			}
@@ -418,18 +469,18 @@ func ergoStack(stack []byte) []string {
 			}
 		}
 		c := calls[here[0]]
-		callees := []string{c.Callee}
+		callees := []string{callNames[c.Callee]}
 		for _, j := range here[1:] {
-			callees = append(callees, calls[j].Callee)
+			callees = append(callees, callNames[calls[j].Callee])
 		}
-		add(fmt.Sprintf("%s calls %s at %s:%d:%d", c.Func, strings.Join(callees, " or "), c.File, c.Line, c.Column), f.fn)
+		add(callNames[c.Func]+" calls "+strings.Join(callees, " or ")+" at "+callNames[c.File]+":"+strconv.Itoa(int(c.Line))+":"+strconv.Itoa(int(c.Column)), f.fn)
 		chain(f)
 	}
 	out := make([]string, len(entries))
 	for i, e := range entries {
 		out[i] = e.text
 		if e.times > 1 {
-			out[i] = fmt.Sprintf("%s (%d times)", e.text, e.times)
+			out[i] = e.text + " (" + strconv.Itoa(e.times) + " times)"
 		}
 	}
 	return out
@@ -510,12 +561,12 @@ func report(w io.Writer, err error) int {
 		switch r.Kind {
 		case rt.KindFailure:
 			interruptedOnly = false
-			fmt.Fprintf(w, "error: %v\n", r.Err)
+			io.WriteString(w, "error: "+rt.Text(r.Err)+"\n")
 		case rt.KindDefect:
 			defect, interruptedOnly = true, false
 			reportDefect(w, r)
 		case rt.KindInterruption:
-			fmt.Fprintln(w, "interrupted")
+			io.WriteString(w, "interrupted\n")
 		}
 	}
 	switch {
@@ -533,11 +584,11 @@ func report(w io.Writer, err error) int {
 // would claim success (0) or a status the shell reserves (126 and up), so
 // reportExit adds a line that names it and returns 1.
 func reportExit(w io.Writer, x Exit) int {
-	fmt.Fprintln(w, x.Message)
+	io.WriteString(w, x.Message+"\n")
 	if x.Code >= 1 && x.Code <= 125 {
 		return x.Code
 	}
-	fmt.Fprintf(w, "error: os.Exit code %d is outside 1..125\n", x.Code)
+	io.WriteString(w, "error: os.Exit code "+strconv.Itoa(x.Code)+" is outside 1..125\n")
 	return 1
 }
 
@@ -547,7 +598,7 @@ func reportDefect(w io.Writer, r rt.Reason) {
 	if r.InRelease {
 		where = " (in an exit action)"
 	}
-	fmt.Fprintf(w, "panic: %v%s\n", r.Value, where)
+	io.WriteString(w, "panic: "+rt.Text(r.Value)+where+"\n")
 	p, _ := r.Value.(*Panic)
 	var stack []byte
 	var context []Binding
@@ -556,25 +607,25 @@ func reportDefect(w io.Writer, r rt.Reason) {
 	}
 	if registered && len(stack) > 0 {
 		for _, s := range ergoStack(stack) {
-			fmt.Fprintf(w, "\t%s\n", s)
+			io.WriteString(w, "\t"+s+"\n")
 		}
 	}
 	if len(r.Chain) > 1 || len(context) > 0 {
 		for i, f := range r.Chain {
-			fmt.Fprintf(w, "\ttask #%d %s\n", f.Task, f.Span)
+			io.WriteString(w, "\ttask #"+strconv.FormatUint(f.Task, 10)+" "+f.Span+"\n")
 			if i == 0 && len(context) > 0 {
-				fmt.Fprint(w, "\t  context")
+				line := "\t  context"
 				for _, b := range context {
-					fmt.Fprintf(w, " %s.%s=%s", b.Package, b.Key, strconv.Quote(b.Text))
+					line += " " + b.Package + "." + b.Key + "=" + strconv.Quote(b.Text)
 				}
-				fmt.Fprintln(w)
+				io.WriteString(w, line+"\n")
 			}
 		}
 		if r.ChainCut {
-			fmt.Fprintf(w, "\t%s\n", rt.ChainCutLine)
+			io.WriteString(w, "\t"+rt.ChainCutLine+"\n")
 		}
 	}
 	if !registered && len(stack) > 0 {
-		fmt.Fprintf(w, "\n%s\n", stack)
+		io.WriteString(w, "\n"+string(stack)+"\n")
 	}
 }

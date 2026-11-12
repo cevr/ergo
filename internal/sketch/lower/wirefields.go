@@ -8,16 +8,11 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// jsonWrapper selects the JSON representation of ordinary std unions.
-// Admission, matching, generators and failure rows stay structural: there
-// is no checker exception for either library type (owner q85).
-func jsonWrapper(t check.Type, name string) bool {
-	n, ok := t.(*check.Named)
-	return ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Std() && n.Obj.Pkg.Path == jsonPackage && n.Obj.Name == name
-}
-
 // wrapperParts reads the empty and payload alternatives from the union.
-func wrapperParts(t check.Type) (empty, present check.Type, field *check.Field) {
+func (tc *typeCtx) wrapperParts(t check.Type) (empty, present check.Type, field *check.Field) {
+	if fu := tc.l.flatUnionOf(t); fu != nil {
+		flatBail(tc.site, fu)
+	}
 	u := wireUnder(t).(*check.Union)
 	for _, v := range u.Variants {
 		s := wireUnder(v).(*check.Struct)
@@ -30,16 +25,16 @@ func wrapperParts(t check.Type) (empty, present check.Type, field *check.Field) 
 	return
 }
 
-// wireFieldWitness is the Field of t's codec witness: for json.Optional,
+// wireFieldWitness is the Field of t's codec witness: for an omittable union,
 // the record-field form, so a record field typed by a type parameter takes
-// the form of its argument as a field declared Optional does; nil
+// the same form as a field declared with its concrete argument type; nil
 // otherwise. The rule is one: the field's type after instantiation selects
 // the form.
 func (fc *funcCtx) wireFieldWitness(tc *typeCtx, t check.Type, site syntax.Node) string {
-	if !jsonWrapper(t, "Optional") {
+	if check.WireFormOf(t) != check.WireOmittable {
 		return "nil"
 	}
-	empty, present, field := wrapperParts(t)
+	empty, present, field := tc.wrapperParts(t)
 	gt, pt := tc.goType(t), tc.goType(present)
 	payload := func(v string) string {
 		return v + ".(" + pt + ")." + fc.l.typeDecl(present.(*check.Named).Obj, site).fieldName[field.Name]
@@ -89,7 +84,7 @@ func (tc *typeCtx) wrapperValue(present check.Type, field *check.Field, value st
 }
 
 func (l *lowerer) wireNullableEncode(em wireEvents, tc *typeCtx, b *strings.Builder, t check.Type, env, task, w, v string, scope *namer) {
-	empty, present, field := wrapperParts(t)
+	empty, present, field := tc.wrapperParts(t)
 	x := scope.alloc("value")
 	td := l.typeDecl(present.(*check.Named).Obj, tc.site)
 	b.WriteString("switch " + x + " := " + v + ".(type) {\ncase " + tc.goType(empty) + ":\n")
@@ -102,7 +97,7 @@ func (l *lowerer) wireNullableEncode(em wireEvents, tc *typeCtx, b *strings.Buil
 }
 
 func (l *lowerer) wireNullableDecode(tc *typeCtx, b *strings.Builder, t check.Type, env, task, r, zero string, scope *namer) {
-	empty, present, field := wrapperParts(t)
+	empty, present, field := tc.wrapperParts(t)
 	b.WriteString("if " + r + ".TakeNull(" + task + ") {\nreturn " + tc.goType(empty) + "{}, nil\n}\n")
 	x := scope.alloc("value")
 	b.WriteString(tc.wireDecode(field.Type, env, r, x, zero, scope))
@@ -119,7 +114,7 @@ func (l *lowerer) wireFieldCount(em wireEvents, tc *typeCtx, b *strings.Builder,
 	count := ""
 	for _, f := range s.Fields {
 		wit, _, param := tc.paramField(f.Type)
-		if !param && !jsonWrapper(f.Type, "Optional") {
+		if !param && check.WireFormOf(f.Type) != check.WireOmittable {
 			continue
 		}
 		if count == "" {
@@ -131,7 +126,7 @@ func (l *lowerer) wireFieldCount(em wireEvents, tc *typeCtx, b *strings.Builder,
 			b.WriteString("if " + wit + ".Field != nil && " + wit + ".Field.Absent(" + fv + ") { " + count + "-- }\n")
 			continue
 		}
-		empty, _, _ := wrapperParts(f.Type)
+		empty, _, _ := tc.wrapperParts(f.Type)
 		b.WriteString("if _, absent := " + fv + ".(" + tc.goType(empty) + "); absent { " + count + "-- }\n")
 	}
 	if count != "" {
@@ -141,13 +136,13 @@ func (l *lowerer) wireFieldCount(em wireEvents, tc *typeCtx, b *strings.Builder,
 }
 
 // wireFields writes the fields, omitting Absent before writing its key.
-// Only records with Optional fields need a dynamic comma. The normal
+// Only records with omittable fields need a dynamic comma. The normal
 // fixed-field path keeps its compile-time commas.
 func (l *lowerer) wireFields(em wireEvents, tc *typeCtx, b *strings.Builder, td *typeDecl, s *check.Struct, rec string, tagged bool, env, task, w string, scope *namer) {
 	dynamic := false
 	for _, f := range s.Fields {
 		_, _, param := tc.paramField(f.Type)
-		dynamic = dynamic || param || jsonWrapper(f.Type, "Optional")
+		dynamic = dynamic || param || check.WireFormOf(f.Type) == check.WireOmittable
 	}
 	count := ""
 	if dynamic {
@@ -167,16 +162,16 @@ func (l *lowerer) wireFields(em wireEvents, tc *typeCtx, b *strings.Builder, td 
 		key := check.WireFieldName(f)
 		if wit, ftc, ok := tc.paramField(ft); ok {
 			// The argument decides at run time: its witness's Field is
-			// set only for json.Optional.
+			// set only for an omittable argument.
 			b.WriteString("if " + wit + ".Field == nil || !" + wit + ".Field.Absent(" + fv + ") {\n")
 			b.WriteString(dynamicKey(key))
 			b.WriteString("if " + wit + ".Field != nil {\n" + ftc.wireEncodeWith(em, ft, env, w, fv) + "\n} else {\n" + tc.wireEncodeWith(em, ft, env, w, fv) + "\n}\n")
 			b.WriteString(count + "++\n}\n")
 			continue
 		}
-		optional := jsonWrapper(ft, "Optional")
+		optional := check.WireFormOf(ft) == check.WireOmittable
 		if optional {
-			_, present, field := wrapperParts(ft)
+			_, present, field := tc.wrapperParts(ft)
 			x, ok := scope.alloc("present"), scope.alloc("ok")
 			b.WriteString("if " + x + ", " + ok + " := " + fv + ".(" + tc.goType(present) + "); " + ok + " {\n")
 			fv = x + "." + l.typeDecl(present.(*check.Named).Obj, tc.site).fieldName[field.Name]

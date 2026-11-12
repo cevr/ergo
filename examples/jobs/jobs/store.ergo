@@ -28,7 +28,7 @@ type Store {
 		let at = time.Unix(sec%4000000000, 0)
 		let first = Add("first", 0, at)
 		let j = Add(name, priority, at)
-		j.Id != first.Id && j.Name == name && j.Priority == priority && j.State == Queued && j.Since == at && j.Created == at && (try Get(j.Id)) == j
+		j.Id != first.Id && j.Name == name && j.Priority == priority && j.State == Queued && j.Since == at && j.Created == at && try Get(j.Id) == j
 	},
 
 	// AllByAscendingId: All lists every job once, by ascending id.
@@ -54,7 +54,7 @@ type Store {
 		let j = Add(name, 0, time.Unix(0, 0))
 		let next = Job{..j, Id: j.Id + 1, Priority: priority, State: Cancelled}
 		try Swap(j, next)
-		(try Get(j.Id)) == Job{..next, Id: j.Id}
+		try Get(j.Id) == Job{..next, Id: j.Id}
 	},
 
 	// StaleSwapChangesNothing: a swap or a removal from a job the store no
@@ -70,7 +70,7 @@ type Store {
 			}
 			Remove(j) catch {
 			case Stale:
-				return (try Get(j.Id)) == first
+				return try Get(j.Id) == first
 			case NotFound:
 				return false
 			}
@@ -96,7 +96,7 @@ type Store {
 			case NotFound:
 				Remove(j) catch {
 				case NotFound:
-					return (try Get(other.Id)) == other && len(All()) == 1
+					return try Get(other.Id) == other && len(All()) == 1
 				case Stale:
 					return false
 				}

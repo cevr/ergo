@@ -543,9 +543,10 @@ type (
 		Y     Expr
 	}
 
-	// TryExpr is `try x`. It binds looser than every binary operator, also
-	// in operand position, where it extends over the rest of the binary
-	// expression to its right (grammar.md D8).
+	// TryExpr is `try x`. At the start of an expression x is the whole
+	// expression; in operand position x is the operand only, and the try
+	// adds no grouping (q105): the calls it covers to its right are the
+	// checker's rule (grammar.md, Expressions 1).
 	TryExpr struct {
 		Try Pos
 		X   Expr

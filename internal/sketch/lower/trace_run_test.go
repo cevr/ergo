@@ -20,7 +20,8 @@ import (
 // source, gives its state and signal; and each work started ends (returned,
 // failed or interrupted) in the same entry. It builds Go because the
 // arms the runner names are the ones the lowering wrote into the program
-// (v1.RegisterMachine), which only the lowered program holds.
+// (a static ergo.MachineGraph the start is given), which only the lowered
+// program holds.
 func TestErgoRunTracesMachineArms(t *testing.T) {
 	needsBuild(t)
 	src, err := os.ReadFile(filepath.Join("testdata", "work", "listen.ergo"))

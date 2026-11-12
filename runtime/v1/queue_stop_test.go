@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"errors"
 	"runtime"
 	"testing"
 	"time"
@@ -192,7 +193,9 @@ func (flushFailed) Error() string { return "FlushFailed" }
 // with FlushFailed, stops the producer, which is waiting in Push, and
 // drains it: the Push wakes with the interruption, the exit action closes
 // the queue, and Run returns FlushFailed. No goroutine outlives it. Before
-// gap 1's repair the producer kept waiting and Run never returned.
+// gap 1's repair the producer kept waiting and Run never returned. Under
+// the ergoexplore tag Run is an explored run, so its waits go through the
+// scheduler (pushWaitsOn): that repair's absence is then a deadlock defect.
 func TestPollerEnds(t *testing.T) {
 	base := runtime.NumGoroutine()
 	var q *Queue[int]
@@ -212,11 +215,15 @@ func TestPollerEnds(t *testing.T) {
 			})
 			// batch: wait until the producer waits on the full queue, take
 			// one batch of five, then fail the flush.
-			parked(t, q, 1)
+			pushWaitsOn(t, root, q)
 			batch := 0
 			for v := range q.Values(root) {
 				_ = v
 				if batch++; batch == 5 {
+					// The flush fails once the producer waits again on
+					// the queue it refilled, so the stop reaches a Push
+					// that waits, in a live and in an explored run.
+					pushWaitsOn(t, root, q)
 					return flushFailed{}
 				}
 			}
@@ -232,6 +239,11 @@ func TestPollerEnds(t *testing.T) {
 			t.Fatalf("Run ended with %#v; want FlushFailed", err)
 		}
 	case <-testwait.After(t):
+		// An explored Run that hangs outside the scheduler is aborted, so
+		// it frees the explorer for the next test (within).
+		if abortExplored(errors.New("Run did not end by the test's deadline")) {
+			<-done
+		}
 		t.Fatal("Run did not end by the test's deadline: the producer waiting in Push never saw the stop")
 	}
 	q.mu.Lock()

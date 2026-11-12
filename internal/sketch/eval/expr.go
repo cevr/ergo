@@ -41,6 +41,14 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	}
 	v, ab := in.exprOf(fr, x)
 	if ab != nil {
+		if ab.kind == ctlFail && fr.info.TryCovers[x] != nil {
+			// A right operand that a try on its left covers (q105,
+			// check.Info.TryCovers): its failure leaves the frame, as
+			// under the try itself.
+			out := *ab
+			out.kind = ctlEscape
+			return nil, &out
+		}
 		return nil, ab
 	}
 	in.ownTemp(fr, x, v) // a temporary its statement owns (R43)
