@@ -132,6 +132,10 @@ type knownStats struct {
 	// Dropped is the calls whose discarded result goes to the variant
 	// with no result (forms.go).
 	Dropped int
+	// FailsAround is the catches and tries whose handler the success path
+	// jumps around, and FailsJoined the failure labels placed at the
+	// join (inline.go, failJump; placeFail).
+	FailsAround, FailsJoined int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

@@ -617,6 +617,7 @@ func (fc *funcCtx) ownTemp(x syntax.Expr, o operand) operand {
 		o.val = fc.own(x, d, fc.typeOf(x), o.val, x)
 		return o
 	}
+	o = fc.joinFail(o) // the temporary is declared after the call (failJump)
 	val := fc.temp("t")
 	fc.line(val + " := " + o.val)
 	reg := fc.own(x, d, fc.typeOf(x), val, x)

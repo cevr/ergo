@@ -19,6 +19,12 @@ import (
 // for an untried fallible expression, the name of its error variable.
 type operand struct {
 	val, err string
+	// fail is the label the failing returns of an inlined call jump to,
+	// when the site asked for it (failJump), and failOut and failAt where
+	// the call's code ended; the site places the label (placeFail).
+	fail    string
+	failOut *strings.Builder
+	failAt  int
 }
 
 func unparen(x syntax.Expr) syntax.Expr {
@@ -284,8 +290,8 @@ func (fc *funcCtx) covered(x syntax.Expr) operand {
 	o := fc.expr1(x)
 	fc.tries--
 	if o.err != "" {
-		fc.propagate(o.err)
-		o.err = ""
+		fc.propagateFailed(o)
+		o.err, o.fail = "", ""
 	}
 	return o
 }
@@ -961,12 +967,82 @@ func (fc *funcCtx) try(x *syntax.TryExpr) operand {
 		fc.tries--
 		return o
 	}
-	o := fc.expr(x.X)
+	o := fc.asked(x.X)
 	fc.tries--
 	if o.err != "" {
-		fc.propagate(o.err)
+		fc.propagateFailed(o)
 	}
 	return operand{val: o.val}
+}
+
+// asked lowers x as the operand of a catch or a try that places its
+// inlined failing returns (failJump, inline.go).
+func (fc *funcCtx) asked(x syntax.Expr) operand {
+	saved := fc.failJump
+	fc.failJump = unparen(x)
+	defer func() { fc.failJump = saved }()
+	return fc.expr(x)
+}
+
+// placeFail places the label of o's inlined failing returns (failJump),
+// and reports whether the site writes its handler under it, past a jump
+// around it (failAround): only when direct (the site declares nothing
+// before its handler). Otherwise the label goes where the call's code
+// ended, the join of the reference. Every writer between the call and its
+// site places the label first (ownTemp, covered), so nothing was written
+// since the call.
+func (fc *funcCtx) placeFail(o operand, direct bool) bool {
+	if o.fail == "" {
+		return false
+	}
+	if o.failOut != fc.out || fc.out.Len() != o.failAt {
+		ice(nil, "code written between an inlined call and the site that places its failure label %s", o.fail)
+	}
+	if direct {
+		fc.l.stats.FailsAround++
+		return true
+	}
+	fc.l.stats.FailsJoined++
+	fc.line(o.fail + ":")
+	return false
+}
+
+// joinFail places o's failure label at the join, before a writer that
+// stands between the call and its site writes, and returns o without it.
+func (fc *funcCtx) joinFail(o operand) operand {
+	fc.placeFail(o, false)
+	o.fail = ""
+	return o
+}
+
+// propagateFailed leaves the frame with o's error when it failed, the
+// success path jumping around the test when o's failures jump to their
+// own label (failJump).
+func (fc *funcCtx) propagateFailed(o operand) {
+	past := fc.failAround(o, true)
+	fc.propagate(o.err)
+	fc.failPast(past)
+}
+
+// failAround writes, when placeFail let the site do so, the jump that
+// takes the success path around the handler and the label of the
+// handler, and returns the label after the handler, which failPast
+// writes ("" when the failures meet the success path at the join).
+func (fc *funcCtx) failAround(o operand, direct bool) string {
+	if !fc.placeFail(o, direct) {
+		return ""
+	}
+	past := fc.temp("past")
+	fc.line("goto " + past)
+	fc.line(o.fail + ":")
+	return past
+}
+
+// failPast writes the label after a handler (failAround).
+func (fc *funcCtx) failPast(past string) {
+	if past != "" {
+		fc.line(past + ":")
+	}
 }
 
 // propagate leaves the frame with err when it is not nil (rows.md, Error
@@ -995,7 +1071,12 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if plain && catchBinding(fc.l.info, x) == nil {
 		fc.rawErr = x.X
 	}
-	o := fc.expr(x.X)
+	var o operand
+	if plain {
+		o = fc.expr(x.X)
+	} else {
+		o = fc.asked(x.X)
+	}
 	fc.rawErr = nil
 	if o.err == "" {
 		ice(x.X, "catch on an expression that cannot fail")
@@ -1005,6 +1086,9 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	}
 	result := ""
 	alias := fc.simpleCatch(x) && fc.catchAlias(x, m, o)
+	// With no value to declare, the handler is jumped around (failJump).
+	past := fc.failAround(o, alias || m.Result == nil)
+	defer fc.failPast(past)
 	if alias {
 		// The catch's value is its operand's (forms.go): no arm yields.
 	} else if m.Result != nil {

@@ -34,7 +34,8 @@ import (
 // it refuses elsewhere.
 //
 // The program runs under the new lowering, under the rule before the
-// size test (inlineCostLowering "budget") and under the reference
+// size test (inlineCostLowering "budget"), with every inlined failure at
+// its call's join (failLowering "join") and under the reference
 // (inlineLowering "call"); stdout must equal the model's, a Go fold of the
 // same statements, and the exit code and standard error (the typed
 // failure, or the defect with its Ergo frames) must be the same under
@@ -625,10 +626,11 @@ func TestInlineAgrees(t *testing.T) {
 	}
 	var runs []run
 	var programs []*lowered
-	// Three lowerings of each program: the rule (""), the rule before
-	// OPT8's size test ("budget", inlineCostLowering) and no inlining
-	// ("ref", inlineLowering "call").
-	modes := []string{"", "budget", "ref"}
+	// Four lowerings of each program: the rule (""), the rule before
+	// OPT8's size test ("budget", inlineCostLowering), every inlined
+	// failure at its call's join ("join", failLowering; OPT9) and no
+	// inlining ("ref", inlineLowering "call").
+	modes := []string{"", "budget", "join", "ref"}
 	stats := map[string]*knownStats{}
 	for _, m := range modes {
 		stats[m] = &knownStats{}
@@ -637,14 +639,19 @@ func TestInlineAgrees(t *testing.T) {
 		src, want := inlineProgram(seed, reached)
 		runs = append(runs, run{seed, src, want})
 		for _, m := range modes {
-			saved := inlineCostLowering
+			saved, savedFail := inlineCostLowering, failLowering
 			if m == "budget" {
 				inlineCostLowering = "budget"
 			}
+			if m == "join" {
+				failLowering = "join"
+			}
 			p, s := lowerInlineMode(t, fmt.Sprintf("in%d%s", seed, m), src, m == "ref")
-			inlineCostLowering = saved
+			inlineCostLowering, failLowering = saved, savedFail
 			stats[m].Inlined += s.Inlined
 			stats[m].Substituted += s.Substituted
+			stats[m].FailsAround += s.FailsAround
+			stats[m].FailsJoined += s.FailsJoined
 			programs = append(programs, p)
 		}
 	}
@@ -680,5 +687,13 @@ func TestInlineAgrees(t *testing.T) {
 	}
 	if s := stats["ref"]; s.Inlined != 0 || s.Substituted != 0 {
 		t.Errorf("the reference lowering inlined: %+v", *s)
+	}
+	// The failure labels (failJump): the new lowering places each kind,
+	// the join reference none.
+	if s := stats[""]; s.FailsAround == 0 || s.FailsJoined == 0 {
+		t.Errorf("the new lowering does not place every kind of failure label: around %d, joined %d", s.FailsAround, s.FailsJoined)
+	}
+	if s := stats["join"]; s.FailsAround+s.FailsJoined != 0 {
+		t.Errorf("the join reference placed failure labels: %+v", *s)
 	}
 }

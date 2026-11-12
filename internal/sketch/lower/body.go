@@ -127,6 +127,9 @@ type funcCtx struct {
 	// fallible value propagates (196r: try covers the expression to its
 	// right).
 	tries int
+	// failJump is the call whose inlined failing returns the site being
+	// lowered places (failJump, inline.go): a catch's or a try's operand.
+	failJump syntax.Expr
 	// owner is the Ergo name of the source declaration being lowered (a
 	// function, a package let, a context), the Func of its call identities
 	// (#230); a function literal inherits it.
@@ -689,6 +692,10 @@ func (fc *funcCtx) fail(err string) {
 	}
 	if in := f.inline; in != nil {
 		fc.line(in.err + " = " + err)
+		if in.fail != "" {
+			fc.line("goto " + in.fail)
+			return
+		}
 		fc.line("goto " + in.label)
 		return
 	}

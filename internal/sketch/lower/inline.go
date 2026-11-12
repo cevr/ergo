@@ -175,11 +175,51 @@ func (l *lowerer) growthOf(scope *namer) int {
 	return inlineGrowth
 }
 
+// failJump: the returns of an inlined body meet at the label after its
+// block, and a catch or try there tests the error. Where the success path
+// writes memory, Go does not thread that test (its shortcircuit pass
+// takes a join block of phis alone, and the memory phi stops it), so the
+// success path pays a test and a jump at every site, where hand Go
+// branches to its panic or return at the failure itself: lru paid two
+// branches and five instructions per arena access (OPT9).
+//
+// So a catch or try asks for its operand's failures (funcCtx.failJump):
+// the failing returns of the inlined body jump to a label of their own,
+// and the site writes its handler under that label, past a jump that
+// takes the success path around it:
+//
+//	{ ... err = Stale{}; goto fail ... }
+//	goto ok
+//	fail:
+//	if err != nil { panic(...) }
+//	ok:
+//
+// Go lays the handler out of line, so the success path runs straight on.
+// A site that declares a variable before its handler (a catch whose arms
+// yield a value) cannot be jumped over; it places the label at the join,
+// which is the reference's code (placeFail).
+//
+// The reference is failLowering "join": every return jumps to the join.
+// It is set by a test, or by a build with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.failLowering=join.
+// TestInlineAgrees runs it as a lowering of its own.
+//
+// Prior art: Go's own inliner keeps a callee's panic in line, and
+// cmd/compile's shortcircuit pass threads a branch on a phi of constants
+// only through a join block of phis alone; GCC and LLVM thread jumps over
+// such joins (jump threading). OCaml's flambda and Gleam's and ReScript's
+// lowerings of a case on a result have no join to thread: the failure is
+// a branch of its own.
+var failLowering string
+
 // inlineRet is where the returns of an inlined body go: its result and
 // error variables, and the label after its block.
 type inlineRet struct {
 	res, err, label string
-	gotos           int
+	// fail is the label the failing returns jump to (failJump), "" when
+	// they jump to label.
+	fail  string
+	gotos int
 	// join is the join local the returns write instead of res (scalar.go).
 	join *scalarLocal
 	// resType is the Go type of res, and iface whether it is an interface
@@ -592,6 +632,7 @@ func (fc *funcCtx) plainAdapter(name string, s *check.Signature) string {
 // operands, the block of its body and the label its returns jump to.
 func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, list []syntax.Expr, lits map[int]*syntax.FuncLit, funs map[int]*check.Func) operand {
 	f := c.Func
+	jump := fc.failJump == syntax.Expr(x) && failLowering != "join"
 	fc.l.readsOf(f)
 	addr := false
 	if c.Recv != nil && f.Ptr {
@@ -654,6 +695,9 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 	if fallible {
 		ret.err = fc.temp("err")
 		fc.line("var " + ret.err + " error")
+		if jump {
+			ret.fail = fc.temp("fail")
+		}
 	}
 	ic.frame = inlineFrame(result, fallible, ret)
 	fc.l.stats.Inlined++
@@ -740,11 +784,16 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		ic.body(f.Decl.Body.List)
 	}()
 	fc.closeInline(ic.out.String(), ret, before)
+	o := operand{val: ret.res, err: ret.err, fail: ret.fail}
 	if ret.join != nil {
-		return operand{val: ret.join.name, err: ret.err}
+		o.val = ret.join.name
+	} else {
+		fc.markFresh(ret.res)
 	}
-	fc.markFresh(ret.res)
-	return operand{val: ret.res, err: ret.err}
+	if o.fail != "" {
+		o.failOut, o.failAt = fc.out, fc.out.Len()
+	}
+	return o
 }
 
 // inlineArgs are the operands of an inlined call, evaluated as callArgsAddr
@@ -818,6 +867,9 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	fc.line("}")
 	if strings.Contains(body, jump) {
 		fc.line(ret.label + ":")
+	}
+	if ret.fail != "" && !strings.Contains(body, "goto "+ret.fail+"\n") {
+		ret.fail = "" // no return fails: the site has no label to place
 	}
 	if ret.err != "" {
 		fc.line("_ = " + ret.err)
@@ -913,6 +965,9 @@ func (fc *funcCtx) inlineReturn(vals []string) {
 		if len(vals) > 1 && vals[1] != "nil" {
 			fc.line("if " + vals[1] + " != nil {")
 			fc.line("\t" + in.err + " = " + vals[1])
+			if in.fail != "" {
+				fc.line("\tgoto " + in.fail)
+			}
 			fc.line("} else {")
 			fc.depth++
 			fc.scatter(in.join, vals[0])
@@ -930,11 +985,18 @@ func (fc *funcCtx) inlineReturn(vals []string) {
 		lhs, rhs = append(lhs, in.res), append(rhs, vals[0])
 		i = 1
 	}
-	if in.err != "" && i < len(vals) && vals[i] != "nil" {
+	failing := in.err != "" && i < len(vals) && vals[i] != "nil"
+	if failing {
 		lhs, rhs = append(lhs, in.err), append(rhs, vals[i])
 	}
 	if len(lhs) > 0 {
 		fc.line(strings.Join(lhs, ", ") + " = " + strings.Join(rhs, ", "))
+	}
+	if failing && in.fail != "" {
+		// return f(): the error of a call, nil when it succeeded.
+		fc.line("if " + in.err + " != nil {")
+		fc.line("\tgoto " + in.fail)
+		fc.line("}")
 	}
 	fc.line("goto " + in.label)
 }
