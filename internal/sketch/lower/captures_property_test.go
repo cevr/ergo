@@ -722,7 +722,8 @@ func captureHolderModel(t *testing.T) {
 }
 
 // callAliasPrograms draws opaque borrow flow through calls. The optimization
-// cannot assume Borrows 1 was proved at a generic instantiation. Mutants:
+// cannot assume Borrows 1 was proved at a generic instantiation. (A generic
+// body that keeps its T, later's closure, refuses a borrow: Borrows 7.) Mutants:
 // c2-address-proof-ignored and c2-implicit-address-proof-ignored. The no-borrow
 // control kills c2-fast-path-lost, without pinning a count of captures.
 func callAliasPrograms() []holderProgram {
@@ -733,7 +734,6 @@ func callAliasPrograms() []holderProgram {
 		forms := []string{
 			"let p = id(&x)",
 			"let p = Box.pass(&x)",
-			"let f = later(&x); let p = f()",
 			"let mut p = &y; put(&p, &x)",
 			"let p = id(id(&x))",
 		}
@@ -747,7 +747,6 @@ func callAliasPrograms() []holderProgram {
 				src := `type Box {}
 func id[T](x T) T { x }
 func pass[T](b Box, x T) T { x }
-func later[T](x T) func() T { func() T { x } }
 func put[T](out *T, x T) { *out = x }
 func bump(p *int, n int) { *p = *p + n }
 func make() func() int {

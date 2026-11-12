@@ -21,8 +21,8 @@ import (
 // interface io.Writer instead (bcGoCase), where a reviewed lent argument
 // of a Go call admits the borrow itself and a kept one refuses it by the
 // Go argument rule (ownership.go). A fifth instantiate a type parameter
-// with the value itself (bcGenericCase): a borrow is no type argument
-// (Borrows 7), whatever the generic body does with it.
+// with the value itself (bcGenericCase): a borrow is a type argument only
+// of a body that keeps no value of it (Borrows 7).
 // The lifetime model: a value from an owned source goes anywhere; a value
 // from a borrow stands only as a one-name let's value, a with's context
 // entry, or (as a local) an operation call's receiver or a capture by a
@@ -71,6 +71,22 @@ func each(f func() int) int { f() }
 type Box[T] { V T }
 
 func hold[T](x T, use escaping func(v T) int) func() int { func() int { use(x) } }
+
+func later[T](x T) func() T { func() T { x } }
+
+func viaOp[T Counter](x T) int { x.Bump() }
+
+func fwd[T](x T) T { id(x) }
+
+func via[T](x T, use escaping func(v T) int) func() int { hold(x, use) }
+
+func spawn[T](x T, use escaping func(v T) int) int { task.Go() { use(x) }.Wait() }
+
+func apply[T](x T, use func(v T) int) int { use(x) }
+
+func put[T](out *T, x T) { *out = x }
+
+func relay[T](x T, use escaping func(v T) int) int { use(x) + run(func() int { let _ = use; 1 }) }
 
 func waited() int { task.Go() { 1 }.Wait() }
 
@@ -174,16 +190,31 @@ func bcGoCase(r *rand.Rand, name string) ([]string, int, string, string) {
 	return lines, at, local, "go local b " + site.name
 }
 
-// bcGenericSites are the places a value is a type argument: of a generic
-// function that returns it (id), of one that captures it in an escaping
-// closure (hold), and of a generic record literal (Box). %[1]s is the
-// value and %[2]s its type. A borrow is no type argument anywhere, but a
-// function type that takes one is (targ-func).
+// bcGenericSites are the places a value is a type argument. A generic
+// body that keeps no value of it takes a borrow: one that returns it (id),
+// passes it on to such a body (fwd), calls an operation on it (viaOp) or
+// passes it to a function value's parameter (apply), writes it through a
+// borrow parameter into the caller's local (put), and keeps only a
+// function value (relay). One that keeps it
+// refuses a borrow: it captures it in an escaping closure (hold, later),
+// passes it to a body that does (via), or captures it in task.Go's block
+// (spawn); and a generic record literal never holds one (Box). A function
+// type that takes a borrow is a type argument even of a body that keeps it
+// (targ-func). %[1]s is the
+// value and %[2]s its type.
 var bcGenericSites = []bcSite{
-	{name: "targ-id", result: "int", at: "let u = id(%[1]s)", after: []string{"u.Bump()"}},
+	{name: "targ-id", result: "int", at: "let u = id(%[1]s)", after: []string{"u.Bump()"}, ok: true},
+	{name: "targ-fwd", result: "int", at: "let u = fwd(%[1]s)", after: []string{"u.Bump()"}, ok: true},
+	{name: "targ-op", result: "int", at: "viaOp(%[1]s)", ok: true},
+	{name: "targ-put", result: "int", before: []string{"let mut q = %[1]s"}, at: "put(&q, %[1]s)", after: []string{"q.Bump()"}, ok: true},
+	{name: "targ-apply", result: "int", at: "apply(%[1]s, func(v %[2]s) int { v.Bump() })", ok: true},
+	{name: "targ-relay", result: "int", at: "relay(%[1]s, func(v %[2]s) int { v.Bump() })", ok: true},
+	{name: "targ-later", result: "int", at: "let g = later(%[1]s)", after: []string{"g().Bump()"}},
+	{name: "targ-via", result: "int", at: "let f = via(%[1]s, func(v %[2]s) int { v.Bump() })", after: []string{"f()"}},
+	{name: "targ-task", result: "int", at: "spawn(%[1]s, func(v %[2]s) int { v.Bump() })"},
 	{name: "targ-hold", result: "int", at: "let f = hold(%[1]s, func(v %[2]s) int { v.Bump() })", after: []string{"f()"}},
 	{name: "targ-box", result: "int", at: "let b = Box{V: %[1]s}", after: []string{"b.V.Bump()"}},
-	{name: "targ-func", result: "int", at: "let g = id(func(v %[2]s) int { v.Bump() })", after: []string{"g(%[1]s)"}, ok: true},
+	{name: "targ-func", result: "int", at: "let g = later(func(v %[2]s) int { v.Bump() })", after: []string{"g()(%[1]s)"}, ok: true},
 }
 
 // bcGenericCase is bcCase over a value that instantiates a type
@@ -202,6 +233,9 @@ func bcGenericCase(r *rand.Rand, name string) ([]string, int, string, string) {
 	if source == "&x" {
 		body("let mut x = Tally{n: 0}")
 	}
+	for _, a := range site.before {
+		body(fmt.Sprintf(a, source, typ))
+	}
 	at := body(fmt.Sprintf(site.at, source, typ))
 	for _, a := range site.after {
 		if strings.Contains(a, "%") {
@@ -210,7 +244,7 @@ func bcGenericCase(r *rand.Rand, name string) ([]string, int, string, string) {
 		body(a)
 	}
 	lines = append(lines, "}")
-	named := map[string]string{"targ-id": "typearg id", "targ-hold": "typearg hold", "targ-box": "typearg Box[*Tally]"}[site.name]
+	named := map[string]string{"targ-hold": "typearg hold", "targ-box": "typearg Box[*Tally]", "targ-later": "typearg later", "targ-via": "typearg via", "targ-task": "typearg spawn"}[site.name]
 	if source == "Fixed" || site.ok {
 		at = 0
 	}
