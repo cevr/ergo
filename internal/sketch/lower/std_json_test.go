@@ -35,8 +35,7 @@ test JsonRoundTrips(v fleet) {
 
 func viaWriter[T wire](v T) string {
 	let t = json.NewText()
-	let w Writer = t
-	encode(v, w)
+	encode(v, t)
 	t.Written()
 }
 
@@ -48,17 +47,15 @@ test JsonFastAgreesWithWriter(v fleet) {
 	encode(v, t)
 	t.EndList()
 	let w = json.NewText()
-	let r Writer = w
-	r.BeginList(3)
-	encode(v, r)
-	r.Int(2)
-	encode(v, r)
-	r.EndList()
+	w.BeginList(3)
+	encode(v, w)
+	w.Int(2)
+	encode(v, w)
+	w.EndList()
 	let h = json.NewHTMLText()
 	encode(v, h)
 	let g = json.NewHTMLText()
-	let gw Writer = g
-	encode(v, gw)
+	encode(v, g)
 	assert t.Written() == w.Written() && h.Written() == g.Written()
 	assert json.Encode(codec(), v) == viaWriter(v)
 }
@@ -145,7 +142,7 @@ test JsonFastRefinedPair(names []string, p int) {
 // stdJSONLawStatements is each restated law's ledger statement.
 var stdJSONLawStatements = map[string]string{
 	"json DepthLimits":          `DepthLimits(k int) { let n = if k < 0 { -(k + 1) } else { k } let depth = n % 64 + 1 let _ = Open(nest(depth), 0, depth) catch { case _: return false } let _ = Open(nest(depth + 1), 0, depth) catch { case Malformed: return true } false }`,
-	"json FastAgreesWithWriter": `FastAgreesWithWriter(v fleet) { let t = NewText() t.BeginList(3) encode(v, t) t.Int(2) encode(v, t) t.EndList() let w = NewText() let r Writer = w r.BeginList(3) encode(v, r) r.Int(2) encode(v, r) r.EndList() let h = NewHTMLText() encode(v, h) let g = NewHTMLText() let gw Writer = g encode(v, gw) t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v) }`,
+	"json FastAgreesWithWriter": `FastAgreesWithWriter(v fleet) { let t Text = text{comma: false, html: false, out: []byte{}} t.BeginList(3) encode(v, t) t.Int(2) encode(v, t) t.EndList() let w = NewText() w.BeginList(3) encode(v, w) w.Int(2) encode(v, w) w.EndList() let h Text = text{comma: false, html: true, out: []byte{}} encode(v, h) let g = NewHTMLText() encode(v, g) t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v) }`,
 	"json RoundTrips":           `RoundTrips(v fleet) { let back = Decode(codec(), Encode(codec(), v)) catch { case _: return false } back == v }`,
 	"json TruncatedFails":       `TruncatedFails(v fleet, cut int) { let text = Encode(codec(), v) let n = if cut < 0 { -(cut + 1) } else { cut } let short = text[:n % len(text)] let _ = Decode(codec(), short) catch { case Malformed: return true case _: return false } false }`,
 }

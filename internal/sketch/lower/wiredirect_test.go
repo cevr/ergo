@@ -54,8 +54,7 @@ func nested(c bool) string {
 
 func viaWriter(p Port) string {
 	let t = json.NewText()
-	let w Writer = t
-	encode(p, w)
+	encode(p, t)
 	t.Written()
 }
 
