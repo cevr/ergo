@@ -167,14 +167,10 @@ var declared = map[string][]allowance{
 		{"scripts/examples", program, "the package-folder test runs `go run ./scripts/examples` with the CLI under test (packages_test.go, tidewalk-replay)"},
 		{"examples", subtree, "the package-folder test runs scripts/examples, which loads every program folder of examples/ whatever the selection (loadExamples) and walks the selected one, so a changed example reruns it"},
 	},
-	"internal/sketch/build": {
-		{"examples", subtree, "TestDirectMatchesGoBuild walks the example programs (filepath.WalkDir) and builds each by the direct path and by go build"},
-		{"ergo.mod", file, "loading an example looks for its module root upward and stats the repository root's ergo.mod"},
-	},
 	"internal/sketchfront": {
 		{"examples/editions/sketch/main.ergo", file, "TestSketchBuildRunsProgram and the lease test build the 2026 example program"},
 		{"examples/editions/sketch/expected.out", file, "TestSketchBuildRunsProgram compares the run with the expected output"},
-		{"examples", subtree, "TestExamplesOutputIsAFunctionOfInput walks every example package folder (filepath.WalkDir) and checks and lowers each, in this process and in two children"},
+		{"examples", subtree, "TestExamplesOutputIsAFunctionOfInput walks every example package folder (filepath.WalkDir) and checks and lowers each, in this process and in two children; TestDirectMatchesGoBuild walks the example programs and builds each by the direct path and by go build"},
 		{"ergo.mod", file, "CheckDir of a one-folder example looks for its module upward and stats the checkout root's ergo.mod (absent); adding one makes the example a package of it"},
 	},
 	"internal/testinputs": declare(

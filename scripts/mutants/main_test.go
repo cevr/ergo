@@ -32,6 +32,35 @@ func TestHeaderLineIsCoveredByWhatReachesIt(t *testing.T) {
 	}
 }
 
+// TestDefaultWorkIsPrivate is the smallest repro of batch 18's shared
+// scratch: two runs at once with the default -work shared
+// /tmp/ergo-mutants, and one run's coverage pass removed the other's
+// counters ("open /tmp/ergo-mutants/cover/counters/37: no such file").
+// Each run's default is its own directory, removed at the end (mutants
+// mutclean-work-shared, mutclean-work-kept).
+func TestDefaultWorkIsPrivate(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	a, doneA, err := privateWork()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, doneB, err := privateWork()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == b {
+		t.Fatalf("two runs share the work directory %s", a)
+	}
+	doneA()
+	if _, err := os.Stat(a); !os.IsNotExist(err) {
+		t.Errorf("the run's work directory %s is left after the run: %v", a, err)
+	}
+	if _, err := os.Stat(b); err != nil {
+		t.Errorf("ending one run removed another's work directory: %v", err)
+	}
+	doneB()
+}
+
 // TestScopeIsTheLedgersPackage: a ledger outside check and lower is judged
 // by its own package's tests alone, so the coverage pass records that
 // package's blocks and runs only its tests (M1: under ergoSuites a

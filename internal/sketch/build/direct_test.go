@@ -2,13 +2,8 @@ package build_test
 
 import (
 	"bytes"
-	"debug/elf"
-	"debug/macho"
-	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"io/fs"
-	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,92 +11,8 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/build"
-	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/sketch/build/exetest"
 )
-
-// buildIDMarker opens the build ID string every Go executable carries
-// (cmd/internal/buildid).
-const buildIDMarker = "\xff Go build ID: \""
-
-// maskBuildID zeroes every occurrence of the executable's own build ID:
-// the .note.go.buildid note of an ELF file, the marked string at the start
-// of the text elsewhere. Build IDs differ by design: Go's are its own
-// action IDs, the direct path's are its action keys. Nothing else may
-// differ.
-func maskBuildID(t *testing.T, b []byte) []byte {
-	t.Helper()
-	var id []byte
-	if f, err := elf.NewFile(bytes.NewReader(b)); err == nil {
-		s := f.Section(".note.go.buildid")
-		if s == nil {
-			t.Fatal("ELF executable has no Go build ID note")
-		}
-		note, err := s.Data()
-		// namesz, descsz, type, then the name "Go\x00\x00" and the ID.
-		if err != nil || len(note) < 16 {
-			t.Fatalf("Go build ID note: %v", err)
-		}
-		id = bytes.Clone(note[16 : 16+binary.LittleEndian.Uint32(note[4:8])])
-		// The linker derives the GNU build ID from the Go build ID.
-		if s := f.Section(".note.gnu.build-id"); s != nil {
-			gnu, err := s.Data()
-			if err != nil || len(gnu) < 16 {
-				t.Fatalf("GNU build ID note: %v", err)
-			}
-			b = bytes.ReplaceAll(b, gnu[16:16+binary.LittleEndian.Uint32(gnu[4:8])], make([]byte, binary.LittleEndian.Uint32(gnu[4:8])))
-		}
-	} else {
-		if f, err := macho.NewFile(bytes.NewReader(b)); err == nil {
-			// The linker derives the LC_UUID from the build ID, and the
-			// ad hoc code signature hashes every page, the build ID's too.
-			b = bytes.Clone(b)
-			for _, l := range f.Loads {
-				raw := l.Raw()
-				switch f.ByteOrder.Uint32(raw[0:4]) {
-				case 0x1b: // LC_UUID: cmd, cmdsize, uuid[16]
-					b = bytes.ReplaceAll(b, raw[8:24], make([]byte, 16))
-				case 0x1d: // LC_CODE_SIGNATURE: cmd, cmdsize, dataoff, datasize
-					off, size := f.ByteOrder.Uint32(raw[8:12]), f.ByteOrder.Uint32(raw[12:16])
-					clear(b[off : off+size])
-				}
-			}
-		}
-		i := bytes.Index(b, []byte(buildIDMarker))
-		if i < 0 {
-			t.Fatal("executable has no build ID")
-		}
-		rest := b[i+len(buildIDMarker):]
-		j := bytes.Index(rest, []byte("\"\n"))
-		if j < 0 {
-			t.Fatal("executable has no build ID end")
-		}
-		id = bytes.Clone(rest[:j])
-	}
-	return bytes.ReplaceAll(b, id, make([]byte, len(id)))
-}
-
-// sameExecutable fails unless the two files are equal but for their
-// build IDs, naming the first differing offset.
-func sameExecutable(t *testing.T, what, direct, gobuild string) {
-	t.Helper()
-	a, err := os.ReadFile(direct)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(gobuild)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, b = maskBuildID(t, a), maskBuildID(t, b)
-	if bytes.Equal(a, b) {
-		return
-	}
-	at := 0
-	for at < min(len(a), len(b)) && a[at] == b[at] {
-		at++
-	}
-	t.Fatalf("%s: the direct executable (%d bytes) differs from go build's (%d bytes) at offset %d", what, len(a), len(b), at)
-}
 
 // both links module with the direct path and with go build, checks that
 // the executables are the same, and returns the direct path's report.
@@ -119,7 +30,7 @@ func both(t *testing.T, c build.Cache, tc build.Toolchain, dir string) build.Rep
 	if _, err := ref.Build(c, module, filepath.Join(out, "go"), &stderr); err != nil {
 		t.Fatalf("go build: %v\n%s", err, stderr.String())
 	}
-	sameExecutable(t, dir, filepath.Join(out, "direct"), filepath.Join(out, "go"))
+	exetest.Same(t, dir, filepath.Join(out, "direct"), filepath.Join(out, "go"))
 	return report
 }
 
@@ -369,127 +280,4 @@ func TestDirectRefusesWhatItCannotKey(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestDirectMatchesGoBuild is the identity property: for every example
-// program and seeded generated programs, the direct path's executable is
-// go build's but for the build ID. It builds Go because the property is
-// about the executables the two paths write. A failing case names the
-// program (a generated one prints its source and its seed; replay with
-// ERGO_DIRECT_SEED=N).
-func TestDirectMatchesGoBuild(t *testing.T) {
-	if testing.Short() {
-		t.Skip("full tier: builds Go")
-	}
-	c := build.Cache{Root: t.TempDir()}
-	tc := build.Toolchain{Go: "go"}
-	var programs []string
-	root, err := filepath.Abs(filepath.Join("..", "..", "..", "examples"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !e.IsDir() && e.Name() == "main.ergo" {
-			programs = append(programs, filepath.Dir(path))
-		}
-		return nil
-	})
-	if err != nil || len(programs) == 0 {
-		t.Fatalf("no example programs: %v", err)
-	}
-	seeds := []uint64{1, 2, 3, 4, 5, 6, 7, 8}
-	if s := os.Getenv("ERGO_DIRECT_SEED"); s != "" {
-		var seed uint64
-		fmt.Sscan(s, &seed)
-		seeds, programs = []uint64{seed}, nil
-	}
-	for _, seed := range seeds {
-		dir := filepath.Join(t.TempDir(), fmt.Sprintf("generated%d", seed))
-		writeFiles(t, dir, map[string]string{"main.ergo": generated(seed)})
-		programs = append(programs, dir)
-	}
-	for _, dir := range programs {
-		t.Run(filepath.Base(dir), func(t *testing.T) {
-			if strings.HasPrefix(filepath.Base(dir), "generated") {
-				source, _ := os.ReadFile(filepath.Join(dir, "main.ergo"))
-				defer func() {
-					if t.Failed() {
-						t.Logf("generated program (replay with ERGO_DIRECT_SEED):\n%s", source)
-					}
-				}()
-			}
-			a, err := sketchfront.CheckDir(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			absolute, err := filepath.Abs(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// Both link modes: unstripped (ergo run, --debug) and
-			// stripped (ergo build's default).
-			for _, strip := range []bool{false, true} {
-				out := t.TempDir()
-				var report build.Report
-				var stderr bytes.Buffer
-				for _, path := range []struct {
-					out     string
-					goBuild bool
-				}{{"direct", false}, {"go", true}} {
-					req := sketchfront.BuildRequest{Mode: build.ModeBuild, Source: absolute, Output: filepath.Join(out, path.out), Cache: c, Toolchain: tc, Stderr: &stderr}
-					req.Toolchain.GoBuild = path.goBuild
-					req.Toolchain.Strip = strip
-					if !path.goBuild {
-						req.Report = &report
-					}
-					if _, err := sketchfront.Build(a, req); err != nil {
-						t.Fatalf("%s, strip %t: %v\n%s", path.out, strip, err, stderr.String())
-					}
-				}
-				if !report.Direct {
-					if !strings.HasPrefix(report.Refused, "direct build refused:") {
-						t.Fatalf("strip %t: the direct path failed: %s", strip, report.Refused)
-					}
-					t.Logf("strip %t: go build: %s", strip, report.Refused)
-				}
-				sameExecutable(t, fmt.Sprintf("%s (strip %t)", dir, strip), filepath.Join(out, "direct"), filepath.Join(out, "go"))
-			}
-		})
-	}
-}
-
-// generated is a seeded program: a chain of string functions, some of
-// them calling the standard strings and strconv packages, so seeds vary
-// the standard imports, the main package's size and its text.
-func generated(seed uint64) string {
-	r := rand.New(rand.NewPCG(seed, 0x6469726563740a))
-	useStrings, useStrconv := r.IntN(2) == 0, r.IntN(2) == 0
-	var b strings.Builder
-	if useStrings {
-		b.WriteString("import strings\n")
-	}
-	if useStrconv {
-		b.WriteString("import strconv\n")
-	}
-	b.WriteString("\n")
-	n := 1 + r.IntN(12)
-	for i := range n {
-		body := fmt.Sprintf("s + %q", fmt.Sprintf("-%d.%d", seed, r.IntN(1000)))
-		switch k := r.IntN(3); {
-		case k == 1 && useStrings:
-			body = "strings.TrimSpace(" + body + ")"
-		case k == 2 && useStrconv:
-			body = fmt.Sprintf("s + strconv.Itoa(%d)", r.IntN(1<<20))
-		}
-		fmt.Fprintf(&b, "func f%d(s string) string { %s }\n\n", i, body)
-	}
-	call := fmt.Sprintf("%q", fmt.Sprintf("seed %d", seed))
-	for i := range n {
-		call = fmt.Sprintf("f%d(%s)", i, call)
-	}
-	fmt.Fprintf(&b, "func main() needs Console {\n\tConsole.Println(%s)\n}\n", call)
-	return b.String()
 }

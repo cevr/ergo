@@ -8,7 +8,8 @@
 // PACKAGE is check, lower, a package directory, or a ledger file. The
 // runner works on copies of the checkout under -work and never writes the
 // checkout, except the ledgers with -write. It first measures per-test
-// coverage (once per tree: the result is kept under -work): every
+// coverage (once per tree: the result is kept under -work, by default a
+// private directory removed at the end): every
 // top-level test of the check, lower and std packages and every default
 // example program, each in its own process, with coverage of check and
 // lower (the ergo CLI and the examples runner built with coverage, their
@@ -48,6 +49,19 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// privateWork is the default -work: a directory of this run alone, which
+// done removes. A fixed shared default let two runs at once overwrite each
+// other's coverage counters (batch-18 verify, On base: "open
+// /tmp/ergo-mutants/cover/counters/37: no such file"). Pass -work to keep
+// the coverage for a later run.
+func privateWork() (dir string, done func(), err error) {
+	dir, err = os.MkdirTemp("", "ergo-mutants-")
+	if err != nil {
+		return "", nil, err
+	}
+	return dir, func() { _ = os.RemoveAll(dir) }, nil
+}
+
 func run(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("mutants", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -55,7 +69,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var selectRE, memory, jsonOut string
 	var write bool
 	flags.StringVar(&cfg.Root, "root", ".", "the checkout")
-	flags.StringVar(&cfg.Work, "work", filepath.Join(os.TempDir(), "ergo-mutants"), "scratch `DIR`: the copies, the binaries and the kept coverage")
+	flags.StringVar(&cfg.Work, "work", "", "scratch `DIR`: the copies, the binaries and the kept coverage (default: a private directory, removed at the end)")
 	flags.StringVar(&selectRE, "run", "", "judge only the mutants whose name matches `REGEXP`")
 	flags.BoolVar(&cfg.All, "all", false, "run every covering test of each mutant, to name every killer")
 	flags.BoolVar(&write, "write", false, "record the killers found (and the gaps of mutants judged for the first time) in the ledgers")
@@ -80,6 +94,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	var err error
+	if cfg.Work == "" {
+		var done func()
+		if cfg.Work, done, err = privateWork(); err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		defer done()
+	}
 	if cfg.Memory, err = proclimit.ParseSize(memory); err != nil {
 		fmt.Fprintf(stderr, "mutants: -memory: %v\n", err)
 		return 2

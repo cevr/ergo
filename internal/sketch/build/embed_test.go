@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketch/build/exetest"
 )
 
 // Each generated tree under the embedding package holds embedAlways, two
@@ -173,7 +174,7 @@ func TestDirectEmbedMatchesGoBuild(t *testing.T) {
 			if err != nil || !report.Direct {
 				t.Fatalf("go build builds but the direct path did not: %v, %v\n%s", report, err, stderr.String())
 			}
-			sameExecutable(t, dir, filepath.Join(out, "direct"), filepath.Join(out, "go"))
+			exetest.Same(t, dir, filepath.Join(out, "direct"), filepath.Join(out, "go"))
 		})
 	}
 	t.Logf("%d seeds built, %d failed in both paths", built, failed)
