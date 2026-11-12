@@ -134,8 +134,9 @@ type knownStats struct {
 	Dropped int
 	// FailsAround is the catches and tries whose handler the success path
 	// jumps around, and FailsJoined the failure labels placed at the
-	// join (inline.go, failJump; placeFail).
-	FailsAround, FailsJoined int
+	// join (inline.go, failJump; placeFail). Of FailsAround, AliasesAround
+	// are catches whose value is named and TriesAround tries.
+	FailsAround, FailsJoined, AliasesAround, TriesAround int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

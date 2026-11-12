@@ -1020,6 +1020,9 @@ func (fc *funcCtx) joinFail(o operand) operand {
 // own label (failJump).
 func (fc *funcCtx) propagateFailed(o operand) {
 	past := fc.failAround(o, true)
+	if past != "" {
+		fc.l.stats.TriesAround++
+	}
 	fc.propagate(o.err)
 	fc.failPast(past)
 }
@@ -1089,6 +1092,9 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	// With no value to declare, the handler is jumped around (failJump).
 	past := fc.failAround(o, alias || m.Result == nil)
 	defer fc.failPast(past)
+	if past != "" && alias {
+		fc.l.stats.AliasesAround++
+	}
 	if alias {
 		// The catch's value is its operand's (forms.go): no arm yields.
 	} else if m.Result != nil {

@@ -82,6 +82,38 @@ func pick(b *Box[int], i int) int {
 	}
 }
 
+// atVia and bumpVia return a fallible call's result and error as their
+// own (OPT9: a return of a call's error, which jumps to its site's
+// failure label only when it failed; bumpVia's other failing return keeps
+// that label); bumpSlow has a loop, so it stays a call. safeAt declares a failure it never returns (its site has no
+// failure label to place).
+func atVia(b *Box[int], i int) int fails Missing {
+	at(b, i)
+}
+
+func bumpSlow(b *Box[int], i int) fails Missing {
+	for x in b.items {
+		if x == -12345 {
+			return Missing{At: x}
+		}
+	}
+	if i < 0 || i >= len(b.items) {
+		return Missing{At: i}
+	}
+	b.items[i] = b.items[i] + 1
+}
+
+func bumpVia(b *Box[int], i int) fails Missing {
+	if i == -77 {
+		return Missing{At: i}
+	}
+	bumpSlow(b, i)
+}
+
+func safeAt(b *Box[int], i int) int fails Missing {
+	clampAt(b, i)
+}
+
 func bump(b *Box[int], i int, d int) {
 	update(b, i, func(v *int) { *v = *v * 3 % 1009 + d }) catch {
 	case Missing:
@@ -370,6 +402,28 @@ func (g *inlineGen) stmt() {
 		} else {
 			g.reached["pick-missing"] = true
 		}
+		// The failures of atVia's inlined body, a returned call's error,
+		// at a catch whose value is named (failJump), and into a let mut;
+		// safeAt never fails.
+		a, m, s := g.name("a"), g.name("m"), g.name("s")
+		g.line(fmt.Sprintf("let %s = atVia(&b, %d) catch {\n\tcase Missing:\n\t\t-2\n\t}", a, i))
+		g.line(fmt.Sprintf("let mut %s = 0", m))
+		g.line(fmt.Sprintf("%s = atVia(&b, %d) catch {\n\tcase Missing:\n\t\t-3\n\t}", m, i+1))
+		g.line(fmt.Sprintf("let %s = safeAt(&b, %d) catch {\n\tcase Missing:\n\t\t-4\n\t}", s, i))
+		g.line(fmt.Sprintf("Console.Println(\"\\(%s) \\(%s) \\(%s)\")", a, m, s))
+		via := func(i, d int) int {
+			if v, ok := g.at(i); ok {
+				return v
+			}
+			return d
+		}
+		g.out("%d %d %d", via(i, -2), via(i+1, -3), g.clamp(i))
+		g.line(fmt.Sprintf("bumpVia(&b, %d) catch {\n\tcase Missing:\n\t\tb.n = b.n + 1\n\t}", i))
+		if _, ok := g.at(i); ok {
+			g.items[i]++
+		} else {
+			g.n++
+		}
 	case 1:
 		i, d := g.index(), g.r.IntN(50)
 		g.line(fmt.Sprintf("bump(&b, %d, %d)", i, d))
@@ -652,6 +706,8 @@ func TestInlineAgrees(t *testing.T) {
 			stats[m].Substituted += s.Substituted
 			stats[m].FailsAround += s.FailsAround
 			stats[m].FailsJoined += s.FailsJoined
+			stats[m].AliasesAround += s.AliasesAround
+			stats[m].TriesAround += s.TriesAround
 			programs = append(programs, p)
 		}
 	}
@@ -690,8 +746,9 @@ func TestInlineAgrees(t *testing.T) {
 	}
 	// The failure labels (failJump): the new lowering places each kind,
 	// the join reference none.
-	if s := stats[""]; s.FailsAround == 0 || s.FailsJoined == 0 {
-		t.Errorf("the new lowering does not place every kind of failure label: around %d, joined %d", s.FailsAround, s.FailsJoined)
+	if s := stats[""]; s.FailsAround == 0 || s.FailsJoined == 0 || s.AliasesAround == 0 || s.TriesAround == 0 {
+		t.Errorf("the new lowering does not place every kind of failure label: around %d (named catches %d, tries %d), joined %d",
+			s.FailsAround, s.AliasesAround, s.TriesAround, s.FailsJoined)
 	}
 	if s := stats["join"]; s.FailsAround+s.FailsJoined != 0 {
 		t.Errorf("the join reference placed failure labels: %+v", *s)
