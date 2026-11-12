@@ -91,10 +91,9 @@ func (in *interp) argument(fr *frame, t check.Type, v Value) (out string) {
 	case *check.Map:
 		m := v.(mapV).b.m
 		mustCharge(in, fr, int64(len(m)))
-		keys := make([]Value, 0, len(m))
-		for k := range m {
-			keys = append(keys, k)
-		}
+		// The sort below charges each comparison, so it starts from the
+		// keys' fixed order, not the Map's (keyOrder).
+		keys := keyOrder(m)
 		b, basic := t.Key.(*check.Basic)
 		sort.Slice(keys, func(i, j int) bool {
 			mustCharge(in, fr, 1)
