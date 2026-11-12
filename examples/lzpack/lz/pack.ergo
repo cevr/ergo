@@ -72,8 +72,7 @@ func Word(text string, p int) uint64 {
 // longest is the longest match for p within the block that ends at end.
 func longest(c *Chain, text string, p int, end int) Match {
 	let mut best = Match{From: 0, Len: 0}
-	let h = Hash4(text, p)
-	let mut cand = int(c.head[h])
+	let mut cand = int(c.head[Hash4(text, p)])
 	let mut tries = 0
 	for cand != 0 && tries < MaxChain {
 		let q = cand - 1

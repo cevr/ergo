@@ -89,16 +89,13 @@ law EmptyIsIdentity(a []int) {
 // AddIsMergeOfOne: the in-place update is the merge with one point, so a
 // chunk's Sums is the merge of its points' Sums.
 law AddIsMergeOfOne(a []int, q []int, j int, d int) {
-	addIsMerge(sumsOf(a), PointOf(q), (j%2+2)%2, (d%1000+1000)%1000)
-}
-
-// addIsMerge is AddIsMergeOfOne's body for one case. It is a function,
-// not the law's own body: in a law body, a let mut copy of a value read
-// later is not made (a lowering gap the HP lane reported).
-func addIsMerge(x Sums, p Point, j int, d int) bool {
+	let x = sumsOf(a)
+	let p = PointOf(q)
+	let jj = (j%2 + 2) % 2
+	let dd = (d%1000 + 1000) % 1000
 	let mut y = x
-	y.Add(p, j, d)
-	y == Merge(x, Of(2, p, j, d))
+	y.Add(p, jj, dd)
+	y == Merge(x, Of(2, p, jj, dd))
 }
 
 // floatAssociative is MergeAssociative stated over float64 sums.
