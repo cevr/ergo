@@ -43,12 +43,18 @@ import (
 
 // treeIR writes one match tree.
 type treeIR struct {
-	b       *irBuilder
-	s       syntax.Stmt
-	p       irPos
-	clauses []*syntax.CaseClause
-	ret     bool
-	to      *yieldTo
+	b *irBuilder
+	// s is the match or the catch; site a syntax expression of it, where
+	// a constant's type is admitted.
+	s    syntax.Node
+	site syntax.Expr
+	p    irPos
+	// body writes arm k's body; exit the statements of a default branch
+	// that no row reaches (none: the branch is not written); terminates
+	// reports that every arm's body ends the function.
+	body       func(k int) []*irStmt
+	exit       func(p irPos) []*irStmt
+	terminates bool
 	// heads are the IR locals of the tree's value names: the subjects'
 	// placeholders and the narrowed names of the cases being written.
 	heads map[string]treeHead
@@ -72,10 +78,8 @@ type treeHead struct {
 func (b *irBuilder) treeMatch(s syntax.Stmt, subjects []syntax.Expr, clauses []*syntax.CaseClause, end syntax.Pos, ret bool, to *yieldTo) []*irStmt {
 	p := b.pos(s, s.Pos())
 	var pre []*irStmt
-	t := &treeIR{b: b, s: s, clauses: clauses, ret: ret, to: to, heads: map[string]treeHead{}, types: map[string]check.Type{}, consts: map[string]*check.Pattern{}}
-	vals := make([]string, len(subjects))
-	types := make([]check.Type, len(subjects))
-	for i, x := range subjects {
+	var cols []treeHead
+	for _, x := range subjects {
 		if len(b.l.info.Releases[x]) > 0 {
 			irNo("match subject that releases owned values")
 		}
@@ -89,19 +93,43 @@ func (b *irBuilder) treeMatch(s syntax.Stmt, subjects []syntax.Expr, clauses []*
 		p = past(p, pre)
 		local := b.temp("s"+strconv.Itoa(b.next), gst, p)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: local, X: e})
-		vals[i] = "\x01s" + strconv.Itoa(local)
-		types[i] = st
-		t.heads[vals[i]] = treeHead{local, st}
+		cols = append(cols, treeHead{local, st})
 	}
-	t.p = p
-	arms := make([]treeArm, len(clauses))
+	alts := make([][]*check.Pattern, len(clauses))
 	for k, cl := range clauses {
 		for _, item := range cl.List {
 			pt := b.l.info.Patterns[item]
 			if pt == nil {
 				irNo("case without its pattern")
 			}
-			arms[k].alts = append(arms[k].alts, pt)
+			alts[k] = append(alts[k], pt)
+		}
+	}
+	t := &treeIR{b: b, s: s, site: subjects[0], p: p, terminates: ret && to == nil}
+	t.body = func(k int) []*irStmt { return b.arm(clauses[k].Body, ret, to) }
+	if ret || to != nil {
+		t.exit = func(p irPos) []*irStmt { return []*irStmt{noCase(b, s, p)} }
+	}
+	return append(pre, t.write(cols, alts, b.pos(s, end))...)
+}
+
+// write is the tree of the columns cols (IR locals and their checked
+// types) and the arms' pattern alternatives alts (none: an arm that
+// matches every value), the match ending at ep.
+func (t *treeIR) write(cols []treeHead, alts [][]*check.Pattern, ep irPos) []*irStmt {
+	b, s, p := t.b, t.s, t.p
+	t.heads, t.types, t.consts = map[string]treeHead{}, map[string]check.Type{}, map[string]*check.Pattern{}
+	vals := make([]string, len(cols))
+	types := make([]check.Type, len(cols))
+	for i, c := range cols {
+		vals[i] = "\x01s" + strconv.Itoa(c.local)
+		types[i] = c.t
+		t.heads[vals[i]] = c
+	}
+	arms := make([]treeArm, len(alts))
+	for k, a := range alts {
+		arms[k].alts = a
+		for _, pt := range a {
 			t.collect(pt)
 		}
 	}
@@ -141,13 +169,12 @@ func (b *irBuilder) treeMatch(s syntax.Stmt, subjects []syntax.Expr, clauses []*
 			decls = append(decls, &irStmt{K: "var", Pos: p, Local: l})
 		}
 	}
-	ep := b.pos(s, end)
 	out := t.child(tree, ep) // a match whose first row tests nothing is a leaf
 	if len(shared) > 0 {
 		// Every arm returns when the match's value is the function's
 		// result; otherwise each path leaves the block at its end.
 		exit := ""
-		if !ret || to != nil {
+		if !t.terminates {
 			b.labels++
 			exit = "end" + strconv.Itoa(b.labels)
 		}
@@ -159,7 +186,7 @@ func (b *irBuilder) treeMatch(s syntax.Stmt, subjects []syntax.Expr, clauses []*
 		}
 		jump()
 		for k, arm := range shared {
-			body = append(body, &irStmt{K: "block", Pos: p, End: ep, Label: t.shared[arm], Body: b.arm(clauses[arm].Body, ret, to)})
+			body = append(body, &irStmt{K: "block", Pos: p, End: ep, Label: t.shared[arm], Body: t.body(arm)})
 			if k < len(shared)-1 {
 				jump()
 			}
@@ -171,7 +198,7 @@ func (b *irBuilder) treeMatch(s syntax.Stmt, subjects []syntax.Expr, clauses []*
 	}
 	cur := p
 	monotone(out, &cur)
-	return append(pre, out...)
+	return out
 }
 
 // collect records the types and constants of the pattern p and its parts.
@@ -180,7 +207,7 @@ func (t *treeIR) collect(p *check.Pattern) {
 	case check.PatTypeTest, check.PatRecord:
 		t.types[t.b.fc.goType(p.Type)] = p.Type
 	case check.PatConst:
-		t.consts[t.b.fc.constant(p.Type, p.Value, t.s)] = p
+		t.consts[t.b.fc.constant(p.Type, p.Value, t.site)] = p
 	}
 	for _, e := range p.Elems {
 		t.collect(e)
@@ -284,7 +311,7 @@ func (t *treeIR) node(n *mnode, end irPos) *irStmt {
 			if !ok {
 				irNo("match tree case of an unknown constant")
 			}
-			ic.Vals = []*irExpr{b.constant(ct, cp.Value, t.subject(), p)}
+			ic.Vals = []*irExpr{b.constant(ct, cp.Value, t.site, p)}
 		}
 		ic.Body = append(ic.Body, t.child(c.child, end)...)
 		sw.Cases = append(sw.Cases, ic)
@@ -294,8 +321,8 @@ func (t *treeIR) node(n *mnode, end irPos) *irStmt {
 	switch {
 	case !n.def.fail:
 		sw.Cases = append(sw.Cases, &irCase{Pos: p, Def: true, Body: t.child(n.def, end)})
-	case t.ret || t.to != nil:
-		sw.Else = []*irStmt{noCase(b, t.s, end)}
+	case t.exit != nil:
+		sw.Else = t.exit(end)
 	}
 	return sw
 }
@@ -347,19 +374,7 @@ func (t *treeIR) leaf(lf *mleaf) []*irStmt {
 		b.locals[bd.v] = l
 		out = append(out, &irStmt{K: "def", Pos: t.p, Local: l, X: e})
 	}
-	return append(out, b.arm(t.clauses[lf.arm].Body, t.ret, t.to)...)
-}
-
-// subject is a syntax node of the match for the type admission of a
-// constant.
-func (t *treeIR) subject() syntax.Expr {
-	switch s := t.s.(type) {
-	case *syntax.TypeSwitchStmt:
-		return s.Subjects[0].X
-	case *syntax.SwitchStmt:
-		return s.Tag
-	}
-	return nil
+	return append(out, t.body(lf.arm)...)
 }
 
 // noCase is the emitter's defect of a match that no case matched, at the
