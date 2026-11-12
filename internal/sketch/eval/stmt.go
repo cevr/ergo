@@ -307,7 +307,9 @@ func (in *interp) letSpec(fr *frame, spec *syntax.VarSpec) *abrupt {
 		return ab
 	}
 	if c, ok := fr.info.Defs[id].(*check.Context); ok && c.Local {
-		return fr.unsupported(spec, "a local context, which binds capabilities")
+		// A local context is a recipe with no value: each with that names
+		// it builds its providers in place (rows.md, Context 9; effects.go).
+		return nil
 	}
 	if id.Name == "_" {
 		if len(spec.Values) == 1 {

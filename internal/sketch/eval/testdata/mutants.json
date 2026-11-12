@@ -404,6 +404,105 @@
       "to": "\t\treturn int8(int64(f)), true\n",
       "rule": "Check time converts a float to an integer by the lowering's one rule (S-conv: truncate, saturate, NaN to 0), so its verdict agrees with the Go build's.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel", "internal/sketch/lower:TestEvalAgreesWithGo"]
+    },
+    {
+      "name": "oracle-o1-skips-effect",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\top, ok := fr.caps.lookup(key)\n\tif !ok {",
+      "to": "\top, ok := fr.caps.lookup(key)\n\tif ok || !ok {",
+      "rule": "A capability's operation runs on the provider the nearest with binds; check time never skips an effect it can run (plan-tier eval-skips-effect).",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-outer-binding-wins",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\tfor ; c != nil; c = c.next {\n\t\tif c.key == key {\n\t\t\treturn c.op, true\n\t\t}\n\t}\n\treturn nil, false",
+      "to": "\tvar last Value\n\tfound := false\n\tfor ; c != nil; c = c.next {\n\t\tif c.key == key {\n\t\t\tlast, found = c.op, true\n\t\t}\n\t}\n\treturn last, found",
+      "rule": "The provider of a capability is the one the nearest with binds (types.md, Capabilities 2), whatever the outer withs bind (plan-tier eval-provider-nondeterministic).",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-with-binding-leaks",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\tdefer func() { fr.caps = saved }()",
+      "to": "\tdefer func() { _ = saved }()",
+      "rule": "A with's bindings end with its block: after it, the outer provider is bound again (rows.md, With).",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-callee-loses-caps",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\tcallee.caps = fr.caps\n",
+      "to": "\tcallee.caps = nil\n",
+      "rule": "A function that needs a capability runs with the provider its caller's nearest with binds.",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-member-law-unbound",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\t\t\tcf.caps = &capEnv{key: typeKey(cf.rt(to)), op: v, next: cf.caps}",
+      "to": "\t\t\t\t_ = to",
+      "rule": "A member law's body runs with its provider bound to its own operation type, so a function it calls that needs the type sees that provider.",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-context-law-unbound",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/lawcontext.go",
+      "from": "\t\tcf.lawOwn, cf.caps = own, caps",
+      "to": "\t\tcf.lawOwn, cf.caps = own, nil",
+      "rule": "A law under a named context runs with the providers the context builds bound for its body (types.md, Laws 10).",
+      "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o1-native-pad-bytes",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\tn := utf8.RuneCountInString(s)\n\tif n >= width {",
+      "to": "\tn := len(s)\n\tif n >= width {",
+      "rule": "strings.PadLeft and PadRight count the runes of s as fmt's %*s does, an invalid byte as one rune.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-native-parse-range",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\t\t\tcase ok && ne.Err == strconv.ErrRange:",
+      "to": "\t\t\tcase ok && ne.Err == strconv.ErrRange && false:",
+      "rule": "A number out of its type's range fails strconv.OutOfRange, not Malformed.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-native-times-wraps",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\tif hi != 0 || lo > limit {",
+      "to": "\tif false && (hi != 0 || lo > limit) {",
+      "rule": "time.Times saturates at the bounds of duration; it never wraps.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-native-intn-modulo",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\t\treturn int64(s.r.IntN(int(n))), nil",
+      "to": "\t\treturn int64(s.r.Uint64() % uint64(n)), nil",
+      "rule": "rand.Seeded's stream is Go's rand.New(rand.NewPCG(seed, \"ErgoRand\")), draw for draw: IntN is Go's IntN.",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o1-native-splitn-count",
+      "origin": "wf10 ORACLE O1",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\t\treturn list(strings.SplitN(str(a[0]), str(a[1]), i64(a[2])))",
+      "to": "\t\treturn list(strings.Split(str(a[0]), str(a[1])))",
+      "rule": "strings.SplitN gives at most n parts, none for n == 0 (an empty slice: Ergo has no nil slice).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     }
   ]
 }

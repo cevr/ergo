@@ -15,6 +15,7 @@ import (
 type lawTarget struct {
 	name, why string
 	binding   []check.LawProvider
+	ctx       *check.LawContext // a run under a named context (lawcontext.go)
 }
 
 func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
@@ -22,8 +23,9 @@ func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 	for _, b := range run.Bindings {
 		out = append(out, lawTarget{name: bindingName(pkg, run.Law, b), binding: b})
 	}
-	for _, c := range run.Contexts {
-		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law) + " under " + c.Context.Name, why: "a context-backed law, which check-time evaluation does not build"})
+	for i := range run.Contexts {
+		c := &run.Contexts[i]
+		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law) + " under " + c.Context.Name, why: c.Unrun, ctx: c})
 	}
 	if len(out) == 0 {
 		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law), why: "no binding of the law runs in this package"})
@@ -118,6 +120,9 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 	}
 	if law.Machine != nil && law.Decl.Reach != nil {
 		return in.machineLaw(law, res)
+	}
+	if tg.ctx != nil {
+		return in.contextLaw(law, tg.ctx, res)
 	}
 	fr := in.newFrame(law.Pkg, law.Decl)
 	if own := testplan.GenericOwner(law); own != nil {
@@ -224,7 +229,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 			if input.Param < 0 {
 				// A member law's body calls functions that need its own
 				// operation type: the provider under test is bound to it.
-				cf.lawOwn = v.(*operation)
+				cf.lawOwn = v
 				to := input.Provider.Conv.To
 				if to == nil {
 					to = input.Type

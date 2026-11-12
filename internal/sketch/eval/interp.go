@@ -40,7 +40,7 @@ type frame struct {
 	// owner is the fact owner of the body (test, law or production): an
 	// error type only a test's row names is a failure in a test body.
 	owner  check.FactOwner
-	lawOwn *operation
+	lawOwn Value // the law's own provider: an *operation or an opObject
 	// resultPos is the expression returned by this frame, including the
 	// chosen nested tail. The enclosing law uses it for a false result.
 	resultPos syntax.Pos

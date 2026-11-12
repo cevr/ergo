@@ -35,15 +35,15 @@ A module of packages (`ergo.mod`: `module pureeval`), in the Go layout:
 | obligation | status | evidence | cases | steps |
 | --- | --- | --- | ---: | ---: |
 | `BurstThenWait` | passed | evaluated | 1 | 638 |
-| `TextIsLowerCase` | skipped | | | 21 |
+| `TextIsLowerCase` | passed | evaluated | 1 | 278 |
 | `law RefillNeverOverfills` | passed | tested | 100 | 20090 |
 | `law VerdictIsExact` | passed | tested | 100 | 19230 |
 | `law DelayIsLeast` | passed | tested | 100 | 22454 |
 | `law CostsAreOrdered` | passed | proved | 9 | 650 |
 
-The evaluation's summary status is `skipped`, because one obligation is skipped; the exit status is 0. `ergo test limit` runs all six and passes.
+The evaluation's summary status is `passed` and the exit status is 0. `ergo test limit` runs the same six and passes.
 
-**Skips.** `TextIsLowerCase` calls `strings.ToLower`, a Go function. Check-time evaluation never runs Go code, even a pure function, so `ergo check` lists the test as skipped with the reason `a Go function (ToLower), even a pure one` and the replay command `ergo test limit --seed 1`. `ergo test` runs it.
+**Natives.** `TextIsLowerCase` calls `strings.ToLower`, a std function with no Ergo body. Check-time evaluation never runs Go code, so it runs its own implementation of the function (a native, [testing.md](../../docs/testing.md#check-time-evaluation)), which `TestNativesAgreeWithRuntime` holds to the built program's. A std function with no native is skipped, with the reason `a Go function (NAME), even a pure one` and the replay command `ergo test limit --seed 1`; `ergo test` still runs it.
 
 ## A mutant
 
