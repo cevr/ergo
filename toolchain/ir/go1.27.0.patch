@@ -570,10 +570,10 @@ index 0000000..50bd0fe
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_fail.go b/src/cmd/compile/internal/noder/ergoir_fail.go
 new file mode 100644
-index 0000000..27dd323
+index 0000000..d1a6c7c
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_fail.go
-@@ -0,0 +1,298 @@
+@@ -0,0 +1,310 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -619,6 +619,18 @@ index 0000000..27dd323
 +// nilOf is the zero value of t, spelled as the untyped nil the writer
 +// encodes as a typed zero (exprZero).
 +func (c *ergoChecker) nilOf(p ergoPos, t types2.Type) syntax.Expr {
++	switch t.Underlying().(type) {
++	case *types2.Struct, *types2.Array:
++		// The reader's zero of a struct or an array (ir.NewZero) is a
++		// composite literal that was never typechecked, which later
++		// passes reject; spell T{} instead.
++		l := &syntax.CompositeLit{}
++		l.SetPos(c.pos(p))
++		tv := syntax.TypeAndValue{Type: t}
++		tv.SetIsValue()
++		l.SetTypeInfo(tv)
++		return l
++	}
 +	n := syntax.NewName(c.pos(p), "nil")
 +	c.info.Uses[n] = types2.Universe.Lookup("nil")
 +	tv := syntax.TypeAndValue{Type: t}
