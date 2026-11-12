@@ -87,7 +87,7 @@
       "origin": "wf10 TEST-one round 2",
       "file": "scripts/examples/evaluation.go",
       "from": "out[pkg] = e",
-      "to": "out[order[0]] = e",
+      "to": "out[order[0]], _ = e, pkg",
       "rule": "Each envelope of one ergo check DIR/... is judged against its own package's part of the native report, in the order the packages ran.",
       "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
     }
