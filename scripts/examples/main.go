@@ -35,7 +35,7 @@ func main() {
 
 // knownTags are the words a program's tags file may hold. default stands
 // alone; the others keep a program out of the default gate.
-var knownTags = []string{"default", "slow", "net", "cc", "tty", "gui", "ts"}
+var knownTags = []string{"default", "slow", "net", "cc", "tty", "gui", "ts", "mod"}
 
 // laterLegs are the tags whose legs are later units: selecting such a
 // program is a diagnostic, never a silent run.
@@ -507,6 +507,9 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 	if present["ts"] != p.tagged("ts") {
 		problem("a ts/ folder and the tag ts go together: the ts leg runs the TypeScript side in ts/")
 	}
+	if p.tagged("mod") && !(p.module && present["go.mod"]) {
+		problem("tagged mod: the mod leg checks the modules of the go.mod beside ergo.mod, and this program has none")
+	}
 	for _, source := range p.sources {
 		// The test leg tests every package, as go test ./... does: the
 		// compiler decides what a package's test build runs, its tests,
@@ -749,6 +752,9 @@ func (r *runner) toolFailed(p *program, leg string, o outcome, err error) {
 
 // runProgram formats, builds and tests one program and runs its cases.
 func (r *runner) runProgram(p *program) {
+	if p.tagged("mod") && !r.modLeg(p) {
+		return
+	}
 	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.passed() {
 		r.toolFailed(p, "fmt", o, err)
 		return
