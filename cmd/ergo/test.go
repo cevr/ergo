@@ -92,10 +92,17 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 	if err != nil {
 		return err
 	}
+	return runTestBinary(opts, l, binary, nil)
+}
+
+// runTestBinary runs the tests of the package l in the test binary, its
+// arguments after prefix: none for a package's own binary, the package's
+// index for a module's one binary (sharedTestCommand).
+func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string) error {
 	// The binary names the source, as it was given here (a file or a
 	// package's folder), in a refuted case's or law's replay line (X1b),
 	// and a receipt names the source and its revision (L10).
-	childArgs := []string{"--source", opts.file, "--revision", l.result.Revision}
+	childArgs := append(prefix[:len(prefix):len(prefix)], "--source", opts.file, "--revision", l.result.Revision)
 	if opts.seed != "" {
 		childArgs = append(childArgs, "--seed", opts.seed)
 	}

@@ -9,7 +9,8 @@ import (
 
 // A program of packages (196b) is a folder with ergo.mod: the runner
 // formats every .ergo file of its packages, builds cmd/NAME (a folder), runs
-// ergo test on each package folder that declares a test, and runs its cases.
+// one ergo test over every package folder (TEST-one), reports each package's
+// leg, and runs its cases.
 func TestModuleProgram(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -38,7 +39,7 @@ func TestModuleProgram(t *testing.T) {
 		filepath.Join(root, "cmd/walker/main.ergo"), filepath.Join(root, "frame/frame.ergo"),
 		filepath.Join(root, "walk/deep/more.ergo"), filepath.Join(root, "walk/game.ergo"), filepath.Join(root, "walk/tests.ergo"),
 	}, " ")
-	for _, want := range []string{wantFmt, "test " + filepath.Join(root, "walk"), "test " + filepath.Join(root, "walk/deep")} {
+	for _, want := range []string{wantFmt, "test " + filepath.Join(root, "...")} {
 		if !slices.Contains(calls, want) {
 			t.Errorf("no call %q in\n%q", want, calls)
 		}

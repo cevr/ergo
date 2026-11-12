@@ -332,22 +332,29 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	if err != nil {
 		return build.Module{}, err
 	}
+	return module, link(module, req)
+}
+
+// link links the published module to the request's output with the go
+// command; work counts each link (TEST-one's guard).
+func link(module build.Module, req BuildRequest) error {
 	// The build holds a private module's root until its link ends, on every
 	// path; then a long-lived host holds nothing between builds.
 	defer module.Release()
 	absolute, err := filepath.Abs(req.Output)
 	if err != nil {
-		return module, err
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
-		return module, err
+		return err
 	}
+	work.links.Add(1)
 	child := req.Toolchain.Command(module, absolute)
 	child.Stdout, child.Stderr = req.Stderr, req.Stderr
 	if err := child.Run(); err != nil {
-		return module, fmt.Errorf("Go build failed: %w", err)
+		return fmt.Errorf("Go build failed: %w", err)
 	}
-	return module, nil
+	return nil
 }
 
 // stdDependencies summarises the bundled standard library: the prelude and

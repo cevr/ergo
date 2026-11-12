@@ -136,6 +136,9 @@ type loader struct {
 	// the reason each one does not match go.mod (gomod.go).
 	bindings map[string]string
 	stale    map[string]string
+	// roots are the test roots of a shared load (CheckPackages): each a
+	// package of order read again and checked as its own program's main.
+	roots []*loadedPackage
 }
 
 // GoBindings makes the loader a check.GoImporter: the program's packages
@@ -212,6 +215,7 @@ func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysi
 	}
 	dir = filepath.Clean(dir)
 	l := &loader{fsys: fsys, platform: platform, root: dir, pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}}
+	work.loads.Add(1)
 	found, err := l.findModule(dir)
 	if err != nil {
 		return Analysis{}, err
@@ -566,6 +570,7 @@ func (l *loader) checkAll() {
 			path = "main" // the root package is the program's main package
 		}
 		pkg, ds := check.Check(path, files, l)
+		work.checks.Add(1)
 		p.pkg = pkg
 		for _, d := range ds {
 			l.diags = append(l.diags, report.Diagnostic{

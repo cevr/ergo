@@ -8,6 +8,9 @@
 #                        on SELFDESTRUCT moves itself away after the build,
 #                        so the next call cannot start;
 #   fmt --check FILE...  fails on a file holding UNFORMATTED;
+#   test DIR/...         prints `package MODULE/REL` and the reply of test
+#                        REL for each package folder below DIR, and exits
+#                        with the worst status; logs only this call;
 #   test FILE            prints the reply of a compiler without ergo test on
 #                        TESTPENDING, fails on TESTFAIL; on TESTTICK starts a
 #                        ticker into ticks-test beside itself, then fails; on
@@ -21,7 +24,7 @@
 # line every 50 ms and ends by itself 60 s after it started, so a runner that
 # failed to stop the group cannot leak it for long.
 tools=$(dirname "$0")
-printf '%s\n' "$*" >> "$tools/calls.log"
+[ -n "${FAKE_ERGO_ONE:-}" ] || printf '%s\n' "$*" >> "$tools/calls.log"
 tick() {
   ( end=$(( $(date +%s) + 60 )); while [ "$(date +%s)" -lt "$end" ]; do echo tick >> "$1"; sleep 0.05; done ) &
   end=$(( $(date +%s) + 10 )); until [ -s "$1" ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done
@@ -45,6 +48,23 @@ check)
   ;;
 test)
   [ $# -eq 2 ] || { echo "fake ergo: want test FILE, got $*" >&2; exit 64; }
+  case "$2" in
+  */...)
+    # A module's packages in one run: each folder of .ergo files below,
+    # testdata aside, as package MODULE/REL, then its reply; the worst exit.
+    base=${2%/...}
+    module=$(sed -n 's/^module //p' "$base/ergo.mod")
+    worst=0
+    for d in $(find "$base" -name '*.ergo' -not -path '*/testdata/*' | sed 's,/[^/]*$,,' | sort -u); do
+      rel=${d#"$base"}
+      echo "package $module$rel"
+      ( exec env FAKE_ERGO_ONE=1 "$0" test "$d" )
+      status=$?
+      [ "$status" -gt "$worst" ] && worst=$status
+    done
+    exit "$worst"
+    ;;
+  esac
   if [ -d "$2" ]; then
     cat "$2"/*.ergo > "$tools/package.ergo" || exit 1
     set -- "$1" "$tools/package.ergo"

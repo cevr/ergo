@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -703,10 +704,16 @@ func (r *runner) runProgram(p *program) {
 }
 
 // testProgram runs the test build of each package of the program: `ergo
-// test` of its main.ergo, or of each package folder of a program of
-// packages (as go test runs one package at a time). A failure fails the
+// test` of its main.ergo, or for a program of packages one `ergo test
+// DIR/...`, which checks the module once and links one test binary for
+// every package (TEST-one), its report split at each `package P` line. A
+// run that does not pass is run again one package at a time, so each
+// failure is reported at its package as before. A failure fails the
 // program; its cases still run.
 func (r *runner) testProgram(p *program) {
+	if p.module && len(p.tests) > 1 && r.testModule(p) {
+		return
+	}
 	for _, target := range p.tests {
 		leg := "test"
 		if p.module {
@@ -715,6 +722,87 @@ func (r *runner) testProgram(p *program) {
 		}
 		r.testTarget(p, target, leg)
 	}
+}
+
+// testModule runs every package of the program of packages p in one `ergo
+// test DIR/...` and reports each package's leg, as testTarget does, from
+// its part of the report: the check leg's evaluation against it, its
+// unexpected skips, and its ok line. It reports false, having printed
+// nothing, when the run did not pass; testProgram then tests each package
+// alone. A run that passed but did not test exactly the program's packages
+// fails the program.
+func (r *runner) testModule(p *program) bool {
+	module, err := moduleName(p.dir)
+	if err != nil {
+		return false
+	}
+	o, err := r.tool(r.cfg.timeout*time.Duration(len(p.tests)), "test", filepath.Join(p.dir, "..."))
+	if err != nil || o.overCap() != "" || o.timedOut || !o.passed() {
+		return false
+	}
+	sections, order := splitPackages(o.stdout)
+	var want []string
+	for _, target := range p.tests {
+		rel, _ := filepath.Rel(p.dir, target)
+		want = append(want, path.Join(module, filepath.ToSlash(rel)))
+	}
+	if got := slices.Sorted(slices.Values(order)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
+		fmt.Fprintf(r.out, "FAIL %s: test: ergo test ran the packages %s; the program's packages are %s\n", p.name, strings.Join(got, " "), strings.Join(want, " "))
+		r.fail(p.name + ": test")
+		return true
+	}
+	for i, target := range p.tests {
+		rel, _ := filepath.Rel(p.dir, target)
+		leg := "test " + filepath.ToSlash(rel)
+		section := sections[want[i]]
+		if evaluation := r.checkTarget(p, target, strings.Replace(leg, "test", "check", 1)); evaluation != nil {
+			r.compareEvaluation(p, strings.Replace(leg, "test", "check", 1), evaluation, section)
+		}
+		if skips := unexpectedSkips(section, p.dir); len(skips) > 0 {
+			fmt.Fprintf(r.out, "FAIL %s: %s: %d unexpected skips; run each law, or list its line in %s with the reason (fs4)\n", p.name, leg, len(skips), expectedSkipsFile)
+			for _, s := range skips {
+				fmt.Fprintf(r.out, "    %s\n", s)
+			}
+			r.fail(p.name + ": " + leg)
+			continue
+		}
+		fmt.Fprintf(r.out, "ok %s: %s (in one run of %s)\n", p.name, leg, seconds(o.elapsed))
+	}
+	return true
+}
+
+// moduleName is the module that the ergo.mod in dir declares.
+func moduleName(dir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "ergo.mod"))
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if name, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			return strings.TrimSpace(name), nil
+		}
+	}
+	return "", errors.New("ergo.mod declares no module")
+}
+
+// splitPackages splits the stdout of `ergo test DIR/...` at each `package
+// P` line: the lines after it, by P, and the packages in report order.
+func splitPackages(stdout []byte) (map[string][]byte, []string) {
+	sections := map[string][]byte{}
+	var order []string
+	current := ""
+	for _, line := range strings.SplitAfter(string(stdout), "\n") {
+		if name, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), "package "); ok {
+			current = name
+			order = append(order, name)
+			sections[name] = []byte{}
+			continue
+		}
+		if current != "" {
+			sections[current] = append(sections[current], line...)
+		}
+	}
+	return sections, order
 }
 
 func (r *runner) testTarget(p *program, target, leg string) {
