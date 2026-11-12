@@ -87,7 +87,12 @@
       "rule": "The dependency table has a row for every rt.OpKind.",
       "killers": [
         "runtime/explore/sched:TestDependencyTableTotal"
-      ]
+      ],
+      "anchor": {
+        "tests": [
+          "runtime/explore/sched:TestDependencyTableTotal"
+        ]
+      }
     },
     {
       "name": "x6-pool-keeps-abandoned",
