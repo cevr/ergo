@@ -63,21 +63,16 @@ func layoutFindings(t *testing.T, dir string, conf *lint.Configuration) []string
 	return out
 }
 
-// examplePicks are the functions of examples/ outside an entry file that
-// pick an implementation, each by the layout preset's functions option:
-// the in-process loopback servers, which serve a fresh memory provider.
-var examplePicks = []string{"loopback.NewLoopback"}
-
 // TestLayoutPresetOnExamples holds the examples to the layout their
 // AGENTS.md rule states (owner, 2026-11-04): each example module is clean
-// under the layout preset, with examplePicks listed. A planted module then
+// under the layout preset, with no options. A planted module then
 // shows each rule firing where the layout is broken, and only there: a
 // kind-suffixed file and a with that picks a program implementation
 // outside the entry file; not the same with in a function the options
 // list, in a file of tests, or in cmd/NAME/main.ergo, nor a with of a
 // capability value passed down.
 func TestLayoutPresetOnExamples(t *testing.T) {
-	conf := layoutConf(t, examplePicks)
+	conf := layoutConf(t, nil)
 	modules, err := filepath.Glob(filepath.Join("..", "..", "..", "examples", "*", "ergo.mod"))
 	if err != nil || len(modules) == 0 {
 		t.Fatalf("no example modules: %v", err)

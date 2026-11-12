@@ -1,6 +1,12 @@
 # ergo test cannot build the generated RPC Client of jobs.Jobs: a
 # Client needs a Conn to a served job server. The page case and loopback/ call the
-# contract over RPC instead (loopback/ runs these laws through the wire).
+# contract over RPC instead (loopback/tests.ergo asserts these laws through the wire).
 skip law jobs.Jobs.CancelOfTerminalFails for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; a func NewClient() Client with no rows would build one for each case
 skip law jobs.Jobs.ProgressMonotone for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; a func NewClient() Client with no rows would build one for each case
 skip law jobs.Jobs.RejectsWhatCannotRun for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; a func NewClient() Client with no rows would build one for each case
+# Nor a Loopback: it serves the job server its caller passes in, and only a
+# test picks that server outside cmd/jobs-web/main.ergo. loopback/tests.ergo
+# picks a memory server and asserts these laws through the wire.
+skip law jobs.Jobs.CancelOfTerminalFails for Loopback: its values have no generator: jobsrpc.Client has an unexported field, so only package jobsrpc builds it; use jobsrpc.NewClient; a func NewLoopback() Loopback with no rows would build one for each case
+skip law jobs.Jobs.ProgressMonotone for Loopback: its values have no generator: jobsrpc.Client has an unexported field, so only package jobsrpc builds it; use jobsrpc.NewClient; a func NewLoopback() Loopback with no rows would build one for each case
+skip law jobs.Jobs.RejectsWhatCannotRun for Loopback: its values have no generator: jobsrpc.Client has an unexported field, so only package jobsrpc builds it; use jobsrpc.NewClient; a func NewLoopback() Loopback with no rows would build one for each case

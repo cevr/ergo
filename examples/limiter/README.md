@@ -22,11 +22,12 @@ reads it through the content mapper (`tools/ts`), so there is no generated
   which the next Advance closes; its release (`scope.OnExit`) runs on
   every exit, a stop of its caller included, and notes it. `ergo test memory` runs the contract's laws
   against it.
-- `loopback/` is the same limiter through the wire: the generated client
-  of a memory limiter that the generated server serves in process
-  (`rpc.Loopback`: Serve's own server answers each call in memory).
-  `ergo test loopback` runs the contract's laws against the client, so
-  the laws that hold for the provider hold through the wire.
+- `loopback/` is a limiter through the wire: the generated client of the
+  `limits.Limiter` its caller passes in, which the generated server serves
+  in process (`rpc.Loopback`: Serve's own server answers each call in
+  memory), so it picks no provider. Its tests (`loopback/tests.ergo`)
+  pass a memory limiter and assert the contract's laws through the
+  client, so the laws that hold for the provider hold through the wire.
 - `cmd/limiter/main.ergo` chooses the buckets (`api`: 5 tokens, one back
   per 200 ms; `search`: 3, one per second), binds `limits.Limiter` to the
   memory provider and serves it on `127.0.0.1:0`, printing the address
