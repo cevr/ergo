@@ -30,7 +30,7 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids", "bits", "maps", "deadline", "codec"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids", "bits", "maps", "deadline", "codec", "durable"}
 
 const mainPrelude = `import actor
 import bits
@@ -266,6 +266,28 @@ func nestWork(s Nest) Option[machines.Work[NestSig, Scheduler]] {
 
 type Nester machine[Nest, NestSig] { initial: nestStart, step: nestStep, work: nestWork }
 
+type Lost {}
+
+// replayNest is the Nester's state after sigs from its start: a durable
+// recover's fold, whose Spawn makes a host no entry owns yet.
+func replayNest(sigs []NestSig) Nest {
+	let mut s = nestStart(0)
+	for e in sigs {
+		match nestStep(s, e) {
+		case Enter[Nest] as en:
+			s = en.Next
+		case Stay[Nest] as st:
+			s = st.Next
+		case Emit[Nest, int] as em:
+			s = em.Next
+		case Ignore:
+		case Reject:
+		case Done[int]:
+		}
+	}
+	s
+}
+
 func idleAt(s Nest, r int) bool {
 	match s {
 	case Idle as i:
@@ -371,7 +393,9 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(18) {
+		switch g.r.IntN(19) {
+		case 18:
+			g.durable(k)
 		case 17:
 			g.codec(k)
 		case 16:
@@ -994,6 +1018,68 @@ func (g *mainGen) bits(k int) {
 			fmt.Fprintf(&g.out, "s%d y %d\n", k, y)
 		}
 	}
+}
+
+// durable: the Nester as a durable actor over a journal (a Ref) that
+// holds one Spawn: the recover replays it, so the first entry is Busy
+// with the host the replay made, which that entry binds and its work
+// fills with a Kids child; save journals every committed signal, so the
+// journal's length at the end counts the commits.
+func (g *mainGen) durable(k int) {
+	g.kinds["durable"]++
+	capacity := g.r.IntN(3)
+	n0 := 1 + g.r.IntN(4)
+	g.line("")
+	g.line("func s%d() needs Console | Ambient {", k)
+	g.line("\twith context { Scheduler: NewLiveScheduler() } {")
+	g.line("\t\tdurable%d()", k)
+	g.line("\t}")
+	g.line("}")
+	g.line("")
+	g.line("func durable%d() needs Console | Scheduler {", k)
+	g.line("\tlet j = sync.NewRef[[]NestSig]([]NestSig{Spawn{n: %d}})", n0)
+	g.line("\tlet a = actor.StartDurable(machines.Start(Nester{}, 0), %d, func(o int) { note(\"s%d out \\(o)\") }, func() Option[Nest] fails Lost {", capacity, k)
+	g.line("\t\tlet sigs = j.Get()")
+	g.line("\t\tif len(sigs) == 0 {")
+	g.line("\t\t\treturn Lost")
+	g.line("\t\t}")
+	g.line("\t\tSome[Nest]{Value: replayNest(sigs)}")
+	g.line("\t}, func(prev Nest, next Nest, sig NestSig) fails Lost {")
+	g.line("\t\tif len(j.Get()) > 1000 {")
+	g.line("\t\t\treturn Lost")
+	g.line("\t\t}")
+	g.line("\t\tj.Update(func(xs []NestSig) []NestSig { xs.Append(sig) })")
+	g.line("\t}) catch {")
+	g.line("\tcase Lost:")
+	g.line("\t\treturn")
+	g.line("\t}")
+	commits := 1
+	rounds := 1 + g.r.IntN(3)
+	for r := 1; r <= rounds; r++ {
+		n := n0
+		if r > 1 {
+			n = 1 + g.r.IntN(4)
+			commits++ // the Spawn's Enter
+			g.line("\ta.Send(Spawn{n: %d}) catch {", n)
+			g.line("\tcase actor.Stopped:")
+			g.line("\t\treturn")
+			g.line("\t}")
+		}
+		commits += n // n-1 Stays and the Emit
+		g.line("\tlet w%d = actor.WaitFor(a, func(s Nest) bool { idleAt(s, %d) }) catch {", r, r)
+		g.line("\tcase actor.Stopped:")
+		g.line("\t\treturn")
+		g.line("\t}")
+		g.line("\tflush()")
+		g.line("\tConsole.Println(\"s%d round \\(lastOf(w%d))\")", k, r)
+		sum := n * (n + 1) / 2
+		fmt.Fprintf(&g.out, "s%d out %d\ns%d round %d\n", k, sum, k, sum)
+	}
+	g.line("\ta.Stop()")
+	g.line("\tConsole.Println(\"s%d journal \\(len(j.Get()))\")", k)
+	fmt.Fprintf(&g.out, "s%d journal %d\n", k, commits)
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
 }
 
 // kids: the Nester actor, each Spawn entering a Busy entry whose host

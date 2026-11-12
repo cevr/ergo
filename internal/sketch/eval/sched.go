@@ -75,6 +75,11 @@ type etask struct {
 	// running task and its ancestors, the first that is either.
 	runs  *actorV
 	entry *entryRef
+	// recov collects the hosts a durable recover makes on the task (and
+	// the tasks it starts); handoff holds them for the first actor the
+	// task starts after (runnerdurable.go).
+	recov   *recovery
+	handoff *[]*hostV
 }
 
 type taskRun int

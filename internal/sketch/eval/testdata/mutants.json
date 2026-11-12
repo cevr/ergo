@@ -1147,6 +1147,24 @@
       "to": "ok && i < b[0] {",
       "rule": "types.md Codecs 3: an integer outside its type's range fails WireWrongKind.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o19-recovered-hosts-closed",
+      "origin": "wf10 ORACLE O19",
+      "file": "internal/sketch/eval/runnerdurable.go",
+      "from": "\t\tif held[h] {",
+      "to": "\t\tif false && held[h] {",
+      "rule": "runtime.md Machines and actors 16.1/17: the recovered actor's first entry binds each host its first state holds.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o19-save-skipped",
+      "origin": "wf10 ORACLE O19",
+      "file": "internal/sketch/eval/runnerdurable.go",
+      "from": "\t\t_, ab := in.callValue(fr, at, args[0], args[1:])",
+      "to": "\t\tvar ab *abrupt",
+      "rule": "runtime.md Machines and actors 17.1: save runs for each step that commits, before the actor commits the state.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
     }
   ]
 }

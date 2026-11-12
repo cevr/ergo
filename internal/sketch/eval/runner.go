@@ -122,6 +122,9 @@ type actorV struct {
 	hostsLeft int
 	settled   bool
 	newHosts  []*hostV
+	// recovered are the unbound hosts a durable recover (or a restart's
+	// fresh) made, for the incarnation's first entry (runnerdurable.go).
+	recovered []*hostV
 
 	// A child's (rule 13): its owner entry, which gets its outputs and
 	// its defect, and whether that defect reached the owner's inbox.
@@ -249,6 +252,11 @@ func (in *interp) launch(fr *frame, at syntax.Node, fn *check.Func, a *actorV, c
 		return ab
 	}
 	a.fn, a.at, a.home, a.sched = fn, at, fr, sched
+	if in.cur != nil && in.cur.handoff != nil {
+		// A durable start's recovered hosts, for this actor only.
+		h := in.cur.handoff
+		a.recovered, *h = *h, nil
+	}
 	a.inbox = &queueV{capacity: capacity, closed: stdRecord(fn, "Stopped", nil).t}
 	a.state = a.initial
 	a.task = in.start(in.siteOf(fr, at, "actor.StartMachine"), func(t *etask) (Value, *abrupt) {
@@ -330,7 +338,10 @@ func endedByDefect(ab *abrupt) bool {
 
 // renew gives a new incarnation fresh's state, committed and shown.
 func (a *actorV) renew(in *interp, fr *frame) *abrupt {
-	s, ab := in.callValue(fr, a.at, a.fresh, nil)
+	// fresh runs as a durable recover does: its hosts are unbound, for
+	// the incarnation's first entry, and close when it fails.
+	s, hosts, ab := in.recoverWith(func() (Value, *abrupt) { return in.callValue(fr, a.at, a.fresh, nil) })
+	a.recovered = hosts
 	if ab != nil {
 		if ab.kind == ctlFail || ab.kind == ctlEscape {
 			return fr.unsupported(a.at, "the failure of a supervised actor's restart state yet")
@@ -478,6 +489,7 @@ func (a *actorV) answer(env *envelope, r *actorReply) {
 func (a *actorV) open(in *interp, fr *frame, s Value, commit bool) *abrupt {
 	a.entry = &entryRef{a: a, epoch: a.epoch, open: true}
 	a.kids = nil
+	a.bindRecovered(s)
 	a.bindNewHosts()
 	ab := a.arm(in, fr, s)
 	if ab == nil {
@@ -714,6 +726,7 @@ func (a *actorV) release(env *envelope) {
 func (a *actorV) crash(in *interp, fr *frame) *abrupt {
 	// Their defects are the crash's: no more is raised.
 	a.closeHosts(&a.newHosts)
+	a.closeHosts(&a.recovered)
 	if ab := a.stopKids(in, fr); stops(ab) {
 		return ab
 	}
@@ -754,6 +767,7 @@ func (a *actorV) finish(in *interp, fr *frame, exit *abrupt) *abrupt {
 	a.inbox.end()
 	a.note(exit)
 	a.closeHosts(&a.newHosts)
+	a.closeHosts(&a.recovered)
 	// The children first, last started first (rule 13).
 	ab := a.stopKids(in, fr)
 	if stops(ab) {
