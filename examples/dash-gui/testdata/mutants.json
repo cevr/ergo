@@ -12,10 +12,18 @@
     {
       "name": "dash-column-skips-its-last-sample", "origin": "wf10 GP4a",
       "file": "examples/dash-gui/panel/draw.ergo",
-      "from": "for i in from+1..to {",
-      "to": "for i in from+1..to-1 {",
+      "from": "for i in from+1..to {\n\t\t\tif xs[i] < lo {",
+      "to": "for i in from+1..to-1 {\n\t\t\tif xs[i] < lo {",
       "rule": "A chart's columns keep the samples' least and greatest value.",
       "killers": ["examples/dash-gui/panel:law DownsampleKeepsMinMax"]
+    },
+    {
+      "name": "dash-ring-column-skips-its-last-sample", "origin": "wf10 GP frame",
+      "file": "examples/dash-gui/panel/draw.ergo",
+      "from": "for i in from+1..to {\n\t\t\tlet x = r.items",
+      "to": "for i in from+1..to-1 {\n\t\t\tlet x = r.items",
+      "rule": "Drawing a chart from its ring in place reads every sample of each column.",
+      "killers": ["examples/dash-gui/panel:law RingColumnsReadInOrder"]
     },
     {
       "name": "dash-ease-runs-backwards", "origin": "wf10 GP4a",
