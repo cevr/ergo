@@ -29,7 +29,8 @@ const runHelp = "usage: ergo run [--json] [--target go] FILE|DIR [--] [ARGS...]\
 
 // buildCommand builds a native executable and prints its path. With -work
 // it also prints WORK=DIR on stderr, DIR being the generated Go module in
-// the emission cache that the executable was linked from.
+// the emission cache that the executable was linked from, and LINK= how it
+// was linked (build.Report: the direct path's counts, or go build and why).
 func buildCommand(args []string) error {
 	opts, err := parseFileOptions("build", args)
 	if err != nil {

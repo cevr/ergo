@@ -3,6 +3,7 @@ package build
 import (
 	"bytes"
 	"debug/elf"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -244,6 +245,21 @@ func TestCacheInputs(t *testing.T) {
 			}
 			if got, want := runProgram(t, binary), expectedOutput(t, base, "r1", "unset"); got != want {
 				t.Fatalf("wrapped toolchain's executable prints %q, want %q", got, want)
+			}
+		})
+		t.Run("GoBuild", func(t *testing.T) {
+			// The reference path is go build itself, not the direct path
+			// (direct.go): the selection is the action's alone.
+			covered["Toolchain.GoBuild"] = true
+			for _, goBuild := range []bool{false, true} {
+				tc := hostToolchain()
+				tc.GoBuild = goBuild
+				report, err := tc.Build(Cache{Root: root}, module, filepath.Join(t.TempDir(), "program"), io.Discard)
+				// This module's go line is not the toolchain's, so the
+				// direct path refuses it; only the selection says why.
+				if err != nil || (report.Refused == "go build selected") != goBuild {
+					t.Fatalf("GoBuild=%t built by %v: %v", goBuild, report, err)
+				}
 			}
 		})
 		t.Run("Tags", func(t *testing.T) {
