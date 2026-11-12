@@ -2,6 +2,7 @@ package sketchfront
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,7 +20,9 @@ import (
 //
 // Mutants it kills (no other test reads these reports): inspect lists no
 // site; inspect names no source position; inspect says applied for an entry that is not current; check's
-// evaluation passes a rewrite law or skips it with another reason.
+// evaluation passes a rewrite law or skips it with another reason;
+// lrs-inspect-why, inspect does not say that an open construction (a
+// literal outside the constructor, v1 audit 3 G1) keeps the law unproved.
 func TestRewriteLawReported(t *testing.T) {
 	saved, savedChecks := compilerIdentity, lawChecks
 	compilerIdentity = func() (string, error) { return "test", nil }
@@ -58,6 +61,35 @@ func TestRewriteLawReported(t *testing.T) {
 			t.Errorf("inspect's rewrite sites are %+v, want [%+v]", got, c.want)
 		}
 	}
+	// v1 audit 3, G1 (probe rwstate): a literal of Tally in main opens its
+	// construction, so the proof lists every value, the law is not proved,
+	// and inspect names the literal as the reason.
+	open := ledgerProgram{depth: 1, sites: [][2]int{{2, 3}}, open: true}
+	lawChecks = func(BuildRequest, func() (build.Input, error)) func([]lower.File, []string) (string, error) {
+		return func(_ []lower.File, laws []string) (string, error) {
+			var b strings.Builder
+			for _, l := range laws {
+				b.WriteString("skip law " + l + " for Tally (not proved: false at a state which may be unreachable)\n")
+			}
+			return b.String(), nil
+		}
+	}
+	openPath := filepath.Join(t.TempDir(), lower.LedgerFile)
+	opened := checked(t, open.source())
+	if _, err := UpdateLedger(opened, BuildRequest{Mode: build.ModeBuild, Source: "/ergo-test/ledger.ergo", Ledger: openPath}); err != nil {
+		t.Fatal(err)
+	}
+	src := open.source()
+	litLine := strings.Count(src[:strings.Index(src, "Tally{s: sync.NewRef[int](1)")], "\n") + 1
+	got, err := InspectRewrites(opened, "/ergo-test/ledger.ergo", openPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "the proof covers every value of Tally, not only the states NewTally and its operations reach: a literal builds one at "
+	if len(got) != 1 || got[0].Applied || got[0].State != "current" || !strings.Contains(got[0].Why, want) || !strings.HasSuffix(got[0].Why, ":"+strconv.Itoa(litLine)+":10") {
+		t.Errorf("inspect's site for an open provider is %+v, want its why to end %q…:%d:10", got, want, litLine)
+	}
+	lawChecks = fakeLawChecks
 	rep, err := eval.Run(base.pkg, eval.DefaultBudget())
 	if err != nil {
 		t.Fatal(err)

@@ -179,7 +179,7 @@ func provedModel(t *testing.T) {
 	type model struct {
 		n, initial                                  int
 		bounded, ctor, handle, unlisted, bad, guard bool
-		resultBad, foreign                          bool
+		resultBad, foreign, open                    bool
 		want                                        string
 	}
 	ms := []model{
@@ -195,6 +195,10 @@ func provedModel(t *testing.T) {
 		{bounded: true, ctor: true, bad: true, guard: true},
 		{bounded: true, ctor: true, resultBad: true},
 		{bounded: true, ctor: true, foreign: true},
+		// A literal outside the constructor opens the construction (v1
+		// audit 3, G1): every value is a state, as without a constructor.
+		{bounded: true, ctor: true, bad: true, open: true},
+		{bounded: true, ctor: true, open: true},
 	}
 	var program strings.Builder
 	program.WriteString("import sync\nimport strconv\n")
@@ -218,7 +222,7 @@ func provedModel(t *testing.T) {
 			}
 			visit(q)
 		}
-		if m.ctor && !m.unlisted {
+		if m.ctor && !m.unlisted && !m.open {
 			visit(m.initial)
 		} else {
 			for s := range m.n {
@@ -243,7 +247,7 @@ func provedModel(t *testing.T) {
 			m.want = "FAIL"
 		case same:
 			m.want = "proved"
-		case m.ctor && !m.unlisted:
+		case m.ctor && !m.unlisted && !m.open:
 			m.want = "FAIL"
 		default:
 			m.want = "unproved"
@@ -290,6 +294,9 @@ func provedModel(t *testing.T) {
 		}
 		src.WriteString(" }\n")
 		fmt.Fprintf(&src, "func Read(_ %s) int { 0 }\n", p)
+		if m.open {
+			fmt.Fprintf(&src, "func odd%s() %s { %s{s: %d} }\n", suffix, p, p, m.n-1)
+		}
 		fmt.Fprintf(&src, "func Ready(p %s) bool { int(p.s) != %d }\n", p, m.n-1)
 		fmt.Fprintf(&src, "type %s { Inc(), Twice(), Read() int, Ready() bool,\n", typ)
 		if m.resultBad {

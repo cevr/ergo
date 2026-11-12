@@ -156,13 +156,19 @@ func constructionOpen(prov *check.Named, ctor *check.Func, conv check.Conversion
 						found("a conversion makes one", n)
 						return false
 					}
+					// A function's argument for a borrow parameter, or the
+					// receiver of an operation call, may be written.
+					var args []syntax.Expr
 					var params []*check.Var
-					if c.Func != nil {
+					switch {
+					case c.Func != nil:
 						params = c.Func.Sig.Params
-					}
-					args := n.Args
-					if c.Recv != nil {
-						args = append([]syntax.Expr{c.Recv}, args...)
+						if c.Recv != nil {
+							args = append(args, c.Recv)
+						}
+						args = append(args, n.Args...)
+					case c.Recv != nil:
+						args = []syntax.Expr{c.Recv}
 					}
 					for i, a := range args {
 						borrow := c.Func == nil || i >= len(params)
