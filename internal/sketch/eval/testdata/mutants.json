@@ -1203,6 +1203,51 @@
       "killers": ["internal/sketch/eval:TestNativeWorkIsWhatGoReads"]
     },
     {
+      "name": "oracle-o23-default-port",
+      "origin": "wf10 ORACLE O23",
+      "file": "internal/sketch/eval/nativeshttp.go",
+      "from": "\tif u.Scheme == \"http\" && port == \"80\" || u.Scheme == \"https\" && port == \"443\" {",
+      "to": "\tif false && (u.Scheme == \"http\" && port == \"80\" || u.Scheme == \"https\" && port == \"443\") {",
+      "rule": "A network policy's origin drops its scheme's default port (std http, NewNet).",
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o23-host-case",
+      "origin": "wf10 ORACLE O23",
+      "file": "internal/sketch/eval/nativeshttp.go",
+      "from": "\t\thost = strings.ToLower(host)",
+      "to": "\t\thost = strings.TrimSpace(host)",
+      "rule": "A network policy compares a host name in lower case.",
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o23-refused-allowed",
+      "origin": "wf10 ORACLE O23",
+      "file": "internal/sketch/eval/nativeshttp.go",
+      "from": "\t\tallowed := anyOrigin",
+      "to": "\t\tallowed := true || anyOrigin",
+      "rule": "A fetch whose origin the policy does not list fails OriginRefused before any exchange.",
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o23-limits",
+      "origin": "wf10 ORACLE O23",
+      "file": "internal/sketch/eval/nativeshttp.go",
+      "from": "\t\tif r.fields[fieldIndex(r.t, n)].(int64) <= 0 {",
+      "to": "\t\tif r.fields[fieldIndex(r.t, n)].(int64) < 0 {",
+      "rule": "Every limit of http.Limits must be positive: zero is InvalidLimits.",
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o23-listen-text",
+      "origin": "wf10 ORACLE O23",
+      "file": "internal/sketch/eval/nativeshttp.go",
+      "from": "Op: \"listen\", Net: \"tcp\"",
+      "to": "Op: \"dial\", Net: \"tcp\"",
+      "rule": "ListenFailed's Reason is Go's net.Listen error text.",
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
       "name": "oracle-o20-go-float-is-exp",
       "origin": "wf10 ORACLE O20",
       "file": "internal/sketch/eval/nativesgo.go",

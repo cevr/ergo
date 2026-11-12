@@ -263,20 +263,21 @@ func (h *host) abs(p string) string {
 	return path.Clean(p)
 }
 
-func init() {
-	// hostNative wraps a host extern: under Run there is no process, and
-	// the call is a skip at its site.
-	hostNative := func(name string, f func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt)) {
-		natives[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-			if in.host == nil {
-				return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
-			}
-			if ab := in.charge(fr, at, 1); ab != nil {
-				return nil, ab
-			}
-			return f(in, in.host, fr, at, fn, args)
+// hostNative registers a host extern: under Run there is no process, and
+// the call is a skip at its site.
+func hostNative(name string, f func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt)) {
+	natives[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if in.host == nil {
+			return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
 		}
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return f(in, in.host, fr, at, fn, args)
 	}
+}
+
+func init() {
 	hostNative("io.hostPrint", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		h.stdout.WriteString(args[0].(string))
 		return unit{}, nil
@@ -508,7 +509,8 @@ func init() {
 		return unit{}, nil
 	})
 	// OpenRoot's failures: a missing directory, a file. An opened root
-	// (Go's os.Root rules for its paths) is not run yet.
+	// names its directory; its reads (Go's os.Root rules for its paths)
+	// are not run yet.
 	hostNative("fs.OpenRoot", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
 		f := h.files[h.abs(given)]
@@ -518,8 +520,20 @@ func init() {
 		case !f.dir:
 			return nil, fail(fn, fr, at, "Failed", given, "not a directory")
 		}
-		return nil, fr.unsupported(at, "an opened fs.HostRoot yet")
+		return &hostRootV{name: given}, nil
 	})
+}
+
+// hostRootV is an opened fs.HostRoot of the simulated file system.
+type hostRootV struct{ name string }
+
+func (r *hostRootV) describe() string { return "an fs.HostRoot" }
+
+func (r *hostRootV) opCall(in *interp, fr *frame, at syntax.Node, name string, args []Value) (Value, *abrupt) {
+	if name == "Name" {
+		return r.name, in.charge(fr, at, 1)
+	}
+	return nil, fr.unsupported(at, "a read through an opened fs.HostRoot (%s) yet", name)
 }
 
 // children are the names of the entries of the directory p, sorted.
