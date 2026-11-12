@@ -101,6 +101,9 @@ type Package struct {
 	// types 1; owners.go); returning a value of one is a failure in a body
 	// that sees the owner. IsErrorType reads them.
 	ErrorTypes map[FactOwner]map[*Named]bool
+	// Clauses are the inferred rows of the package's functions as the
+	// clauses that write them, under Options.Clauses (clausefix.go).
+	Clauses []ClauseFix
 
 	qualify bool // print its types with the package name
 	// std marks the prelude and each package the std importer serves (C30,
