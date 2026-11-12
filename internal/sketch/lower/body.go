@@ -254,15 +254,18 @@ func (fc *funcCtx) errReturn(err string) string {
 
 // stmts writes a statement list and reports whether its Go form ends in a
 // terminating statement (Go spec, Terminating statements).
+//
+// The statements after a terminating one never run, and Go's vet reports
+// them unreachable: they are not written (a tail after a `for {}` that
+// only leaves by return).
 func (fc *funcCtx) stmts(list []syntax.Stmt) bool {
-	terminates := false
 	for _, s := range list {
-		terminates = fc.stmt(s)
-		if !terminates {
-			fc.releaseAt(s) // the statement's temporaries (R43)
+		if fc.stmt(s) {
+			return true
 		}
+		fc.releaseAt(s) // the statement's temporaries (R43)
 	}
-	return terminates
+	return false
 }
 
 // block writes a nested statement list one level deeper.

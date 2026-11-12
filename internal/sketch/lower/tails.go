@@ -57,7 +57,9 @@ func (fc *funcCtx) yieldList(list []syntax.Stmt, d dest) bool {
 	if d.kind == destStmt || len(list) == 0 {
 		return fc.stmts(list)
 	}
-	fc.stmts(list[:len(list)-1])
+	if fc.stmts(list[:len(list)-1]) {
+		return true // the tail is unreachable (stmts)
+	}
 	last := list[len(list)-1]
 	t := fc.yieldStmt(last, d)
 	if !t {
