@@ -468,7 +468,7 @@
       "to": "\t\t_ = text\n",
       "rule": "An evaluation's steps are a function of the program: the charged sort of a map argument's keys starts from one order, not the map's.",
       "killers": ["internal/sketchfront:TestExamplesOutputIsAFunctionOfInput"],
-      "gap": "Only internal/sketchfront's full-tier TestExamplesOutputIsAFunctionOfInput kills it (examples/ssg's law over a Map receiver, in two passes and two processes); the eval suite's own tests do not compare two runs. Run it by hand."
+      "anchor": {"tests": ["internal/sketchfront:TestExamplesOutputIsAFunctionOfInput"]}
     }
   ]
 }
