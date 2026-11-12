@@ -54,3 +54,30 @@ func TestMeasureReadsEachFile(t *testing.T) {
 		t.Fatalf("measured %d and %d (%v), want 11 and 7", size, small, err)
 	}
 }
+
+// TestRegistryFactsForbidTheRegistryOnly checks the actor fixtures' facts
+// in budgets.json against synthetic receipts: the reference lowering's
+// start-up registration (RegisterMachine) breaks them, and the lazy read
+// of a generic flat union's variant name (VariantOf, which BS8's
+// ErgoVariant calls on the trace path) does not.
+// Mutants: bs8-fact-names-variant (the fact forbids VariantOf again) and
+// bs8-fact-misses-register (the fact no longer names RegisterMachine).
+func TestRegistryFactsForbidTheRegistryOnly(t *testing.T) {
+	budget, err := Checked()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fixture := range []string{"deploys", "pairing"} {
+		f := budget.Fixtures[fixture]
+		one := Budget{Fixtures: map[string]Fixture{fixture: f}}
+		receipt := func(symbol string) Receipt {
+			return Receipt{Fixture: fixture, Binary: Binary{Size: 1, Stripped: 1, symbols: []string{"main.main", symbol}}}
+		}
+		if problems := one.Check([]Receipt{receipt("ergo.local/prototype/runtime/v1.VariantOf[go.shape.struct {}]")}); len(problems) != 0 {
+			t.Errorf("%s: a lazy VariantOf breaks %q; only the registry lowering should", fixture, problems)
+		}
+		if problems := one.Check([]Receipt{receipt("ergo.local/prototype/runtime/v1.RegisterMachine[go.shape.struct {},go.shape.struct {}]")}); len(problems) != 1 {
+			t.Errorf("%s: RegisterMachine gives %q; want the registry fact", fixture, problems)
+		}
+	}
+}

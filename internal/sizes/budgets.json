@@ -1,5 +1,5 @@
 {
-  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) measured on linux/amd64 with go1.27.0, plus 2 %, rounded up; Go package ceilings likewise. BS0 set them at main f6802de7; BS1 (runtime/v1 leaves), BS2 (core without fmt and reflect), BS3 (no time type in the task's type graph), BS5 (frontend reachability: unused equals hello) and BS6 (relative paths and compact call tables) lowered them; BS7 (machine graphs as static data, no init-time registration) added pairing, an actor program, with its registry facts; BS8 (the stack landed on batch 17, with http, rpc, redacted, exec start and the host walk in leaves) raised every fixture's ceiling to its measured value plus 2 % for the batch-17 code the stack had not seen: the core's json.go and moves.go initializers and ergoStack's new frames (hello +4 KB stripped), std flag's parser (kvstore main +64 KB) and the core's JSON text (deploys, pairing). A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
+  "reason": "Ceilings are the Ergo-only bytes (fixture minus the Go hello control, default and stripped builds) measured on linux/amd64 with go1.27.0, plus 2 %, rounded up; Go package ceilings likewise. BS0 set them at main f6802de7; BS1 (runtime/v1 leaves), BS2 (core without fmt and reflect), BS3 (no time type in the task's type graph), BS5 (frontend reachability: unused equals hello) and BS6 (relative paths and compact call tables) lowered them; BS7 (machine graphs as static data, no init-time registration) added pairing, an actor program, with its registry facts; BS8 (the stack landed on batch 17, with http, rpc, redacted, exec start and the host walk in leaves) raised every fixture's ceiling to its measured value plus 2 % for the batch-17 code the stack had not seen: the core's json.go and moves.go initializers and ergoStack's new frames (hello +4 KB stripped), std flag's parser (kvstore main +64 KB) and the core's JSON text (deploys, pairing); it narrowed the registry facts to the start-up registration (RegisterMachine, RegisteredGraph, main.init.N), since a generic flat union's ErgoVariant reads VariantOf lazily on the trace path. A unit that shrinks a fixture lowers its ceilings to its measured value plus 2 %; a unit that grows one past a ceiling raises it only with the reason in its request. Forbid lists facts: patterns of linked symbol names that must stay absent.",
   "fixtures": {
     "hello": {
       "ergoOnly": 269308,
@@ -123,7 +123,7 @@
         "^hash/crc32\\.",
         "^encoding/base64\\.",
         "^math/rand",
-        "^ergo\\.local/prototype/runtime/v1\\.(RegisterMachine|RegisteredGraph|VariantOf)\\[",
+        "^ergo\\.local/prototype/runtime/v1\\.(RegisterMachine|RegisteredGraph)\\[",
         "^main\\.init\\.[1-9]"
       ]
     },
@@ -132,7 +132,7 @@
       "ergoOnlyStripped": 898253,
       "goPackages": 73,
       "forbid": [
-        "^ergo\\.local/prototype/runtime/v1\\.(RegisterMachine|RegisteredGraph|VariantOf)\\[",
+        "^ergo\\.local/prototype/runtime/v1\\.(RegisterMachine|RegisteredGraph)\\[",
         "^main\\.init\\.[1-9]",
         "^net/",
         "^encoding/json\\.",

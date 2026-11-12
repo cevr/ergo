@@ -44,6 +44,28 @@
       "killers": [
         "internal/sizes:TestBudgetSubtractsTheControl"
       ]
+    },
+    {
+      "name": "bs8-fact-names-variant",
+      "origin": "wf10 binsize BS8",
+      "file": "internal/sizes/budgets.json",
+      "from": "\"^ergo\\\\.local/prototype/runtime/v1\\\\.(RegisterMachine|RegisteredGraph)\\\\[\",\n        \"^main\\\\.init\\\\.[1-9]\",\n        \"^net/\",",
+      "to": "\"^ergo\\\\.local/prototype/runtime/v1\\\\.(RegisterMachine|RegisteredGraph|VariantOf)\\\\[\",\n        \"^main\\\\.init\\\\.[1-9]\",\n        \"^net/\",",
+      "rule": "binsize BS8: the registry facts forbid the reference lowering's start-up registration, not the lazy variant read of a generic flat union's ErgoVariant.",
+      "killers": [
+        "internal/sizes:TestRegistryFactsForbidTheRegistryOnly"
+      ]
+    },
+    {
+      "name": "bs8-fact-misses-register",
+      "origin": "wf10 binsize BS8",
+      "file": "internal/sizes/budgets.json",
+      "from": "\"^ergo\\\\.local/prototype/runtime/v1\\\\.(RegisterMachine|RegisteredGraph)\\\\[\",\n        \"^main\\\\.init\\\\.[1-9]\",\n        \"^net/\",",
+      "to": "\"^ergo\\\\.local/prototype/runtime/v1\\\\.(RegisteredGraph)\\\\[\",\n        \"^main\\\\.init\\\\.[1-9]\",\n        \"^net/\",",
+      "rule": "binsize BS7, BS8: an actor fixture that links the registry lowering's RegisterMachine breaks its fact.",
+      "killers": [
+        "internal/sizes:TestRegistryFactsForbidTheRegistryOnly"
+      ]
     }
   ]
 }

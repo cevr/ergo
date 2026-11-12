@@ -109,20 +109,11 @@ func RegisteredGraph[S, E any]() *MachineGraph {
 
 // VariantOf is the variant name of a value of the Go type T, as a runner
 // names one it holds: the type's name. The reference lowering names a
-// graph's variants with it; the default lowering writes the same names as
-// constants.
+// graph's variants with it at start-up; the default lowering writes the
+// same names as constants. A generic flat union's ErgoVariant reads it
+// lazily, on the trace path (binsize BS8): the variant's type arguments
+// are the instance's, so no constant can spell them.
 func VariantOf[T any]() string {
-	var p *T
-	return rt.TypeName(strings.TrimPrefix(rt.TypeString(p), "*"))
-}
-
-// FlatVariant is the name of the variant T of a generic flat union, which
-// its ErgoVariant method reads when a traced runner names a value it holds
-// (binsize BS8): the variant's type arguments are the instance's, so no
-// constant can spell them. It is the name VariantOf gives, read lazily on
-// the trace path; VariantOf itself stays the registry lowering's alone, so
-// the sizes facts that forbid it still tell that lowering apart.
-func FlatVariant[T any]() string {
 	var p *T
 	return rt.TypeName(strings.TrimPrefix(rt.TypeString(p), "*"))
 }
