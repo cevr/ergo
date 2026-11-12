@@ -21,10 +21,13 @@ import (
 // package it imports and a Go link. CheckPackages reads the module once and
 // checks each package once. A package that another package imports is
 // checked under its import path, and that one check is also its own test
-// build's root: the test report names no package of its own (its types and
-// laws print bare), so the root's check path is not an input of its report.
-// A package that no package imports is checked as main, the root of its own
-// program. BuildTests lowers every root's test build into one Go module
+// build's root. Its name is a label, not an input of the check: the test
+// report prints the root's types and laws bare, and where a text qualifies
+// a root type (a Script's defect, an evaluation's reason) the lowering
+// (lower.LowerTestModule) and the evaluation (Analysis.Evaluate) name the
+// root main while they run, as a load of it alone names it. A package that
+// no package imports is checked as main, the root of its own program.
+// BuildTests lowers every root's test build into one Go module
 // (lower.LowerTestModule) and links it once.
 //
 // One rule of the checker reads a root's path and not only its label: the
@@ -49,8 +52,7 @@ import (
 var ErrNotShared = errors.New("sketchfront: the packages do not share one load")
 
 // work counts the front end's work, for the guard that a shared run loads
-// the module once, checks each package at most once per identity and
-// links once (WorkDone).
+// the module once, checks each package once and links once (WorkDone).
 var work struct{ loads, checks, links atomic.Int64 }
 
 // Work is a count of the front end's work since the process started.

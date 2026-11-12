@@ -75,16 +75,21 @@ failed. A defect or signal stops the run and keeps its status. `--seed`, `-work`
 and target options keep their per-package meaning. Recursive check writes one
 JSON check envelope per package, one per line, and exits 1 if any failed.
 
-`ergo test DIR/...` loads the module once: std is imported once, a package that
-another selected package imports is checked once, and each selected package is
-checked once more as its own test build's root. It links one test binary that
+`ergo test DIR/...` and `ergo check DIR/...` load the module once: std is
+imported once and each package is checked once, its one check serving both its
+importers and its own root; while a package's own test build is lowered or its
+obligations evaluated, it is named `main`, as checking it alone names it. A
+selected test package (its path a package's path with `test` after it) that
+another package imports is checked a second time, as `main`, because the
+builder rule reads its path. `ergo test` links one test binary that
 holds every selected package's test build and runs it once per package, so each
 package prints what `ergo test` of that package alone prints, with the same
 receipt and the same exit status rule (TEST-one). When the packages cannot share
 one load or one build (a diagnostic, a lowering refusal, a Go build failure, a
 module binding in `ergo.bind`), and for `-work`, `--explore` and a schedule
 search, each package is checked and built alone, as before, so a failure is
-reported where it belongs.
+reported where it belongs; `ergo check DIR/...` likewise checks each package
+alone when they cannot share one load.
 Formatting still uses syntax only; a type error does not prevent formatting.
 
 ## Exit status
