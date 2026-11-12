@@ -14,15 +14,19 @@ import (
 // the taken parameter). The second row is the result a std call releases
 // when its boundary drops it (Info.ResultDrops: timeout.After's late
 // result), charged at the call. The third is the field a record update
-// replaces (Info.Replaced), charged at the update's base. The last two
+// replaces (Info.Replaced), charged at the update's base. The fourth is
+// the release of a with's provider through a field (Context ownership 6),
+// charged at the with and named by the provider's type. The last two
 // are the codec refusals (types.md, Codecs 8): a wire type parameter
 // bound to a type whose codec needs a capability, and, in the clause
 // writer's inference (Options.Infer), a decode in a package let that
 // reaches an inferred ParseX that needs one.
 //
 // Mutants it kills that TestReleaseNeedsModel does not (ledger:
-// releaseneeds.go): the release-need text without the Close, the type or
-// the capability; the result a std call releases not charged; a replaced
+// releaseneeds.go, withown.go, clausefix.go): the release-need text
+// without the Close, the type or the capability, or without its subject
+// once the clause to write is added; a with release named by its part's
+// type; the result a std call releases not charged; a replaced
 // field not charged; a codec instance admitted whose codec has a written or
 // an inferred capability row; a decode in a package let that reaches an inferred ParseX
 // admitted.
@@ -48,6 +52,11 @@ func TestReleaseNeedRows(t *testing.T) {
 			want: "7:6: S102 RB.Close, run by the release of Box here, requires B, which is not in the capability row of function G and no with provides it; write: func G() needs B\n" +
 				"8:6: S102 RB.Close, run by the release of Box here, requires B, which is not in the capability row of function G and no with provides it; write: func G() needs B\n" +
 				"8:16: S102 RB.Close, run by the release of RB here, requires B, which is not in the capability row of function G and no with provides it; write: func G() needs B",
+		},
+		{
+			name: "with provider part",
+			src:  "type B { Use() }\ntype C { Use() }\ntype RB { id int }\nfunc Close(r RB) needs B { B.Use() }\ntype PcBox { r RB, id int }\nfunc Use(_ PcBox) {}\n\nfunc G() {\n\twith context { C: PcBox{r: RB{id: 1}, id: 1} } { C.Use() }\n}\n\nfunc main() {}\n",
+			want: "9:2: S102 RB.Close, run by the release of PcBox when this with ends, requires B, which is not in the capability row of function G and no with provides it; write: func G() needs B",
 		},
 		{
 			name: "codec instance",

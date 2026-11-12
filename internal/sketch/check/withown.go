@@ -425,16 +425,14 @@ type relCap struct {
 
 // chargeWithReleases charges, in the second check, the release needs the
 // first check found for the operands of the with x (withSeeds), each at x
-// against the scope around its operand's frame, as a call of the Close
-// there is charged.
+// as a call of the Close there is charged. The scope is the one around the
+// with: a need an operand before its own provides (the scope around its
+// frame) was never found, since the first check reads that scope.
 func (c *checker) chargeWithReleases(x *syntax.CallExpr, frames []*withFrame) {
 	if len(c.withSeeds) == 0 {
 		return
 	}
-	t := c.fn.t
-	saved := t.scope
-	defer func() { t.scope = saved }()
-	for i, f := range frames {
+	for i := range frames {
 		op := withOperand{x, i}
 		for _, r := range c.withSeeds[op] {
 			cap := c.seedCap(r)
@@ -442,7 +440,6 @@ func (c *checker) chargeWithReleases(x *syntax.CallExpr, frames []*withFrame) {
 				continue
 			}
 			c.withHit[withNeedKey{op, r.key}] = true
-			t.scope = f.outer
 			c.chargeAs(x, cap, r.what)
 		}
 	}

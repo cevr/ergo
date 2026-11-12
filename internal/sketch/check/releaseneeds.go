@@ -15,19 +15,21 @@ import (
 // value's owner, so the charge is made where the owner acquires the value:
 // an owned local or a taken parameter at its name, a temporary a statement
 // owns at its expression, the result a std call releases at the call, and
-// the fields a record update or spread does not copy at its base. An
-// inferred row takes the need, as it takes a call's (rows.md, Inference);
-// a written row that lacks it is S102 there, naming the Close, the
-// released type and the capability. A with's own providers keep their rule
-// (resources.md, Context ownership 6; withown.go chargeRelease).
+// the fields a record update or spread does not copy at its base. A row
+// that lacks the need is S102 there, naming the Close, the released type
+// and the capability, with the clause to write (q137); a function literal
+// with no expected type, and under ergo fix's clause writer
+// (Options.Infer) an unexported function, takes it into its row, as it
+// takes a call's. A with's own providers follow the same rule, charged at
+// the with (resources.md, Context ownership 6; withown.go chargeRelease).
 //
 // Ownership is decided after the bodies are typed (ownership.go), and the
-// rows are inferred while they are typed. So a package whose owned values
-// need a capability is checked twice: the first check finds the owned
-// values (releaseSeeds), the second charges each at its node while the
-// bodies are typed (chargeOwned), so the inferred rows reach their callers
-// by the same fixpoint as any call. Ownership does not read rows, so the
-// second check finds the same owned values.
+// rows are charged while they are typed. So a package whose owned values
+// or with providers need a capability is checked twice: the first check
+// finds them (releaseSeeds, withNeeds), the second charges each at its
+// node while the bodies are typed (chargeOwned, chargeWithReleases), so a
+// literal's row and an inferred row reach their callers as any call's.
+// Ownership does not read rows, so the second check finds the same values.
 //
 // Prior art: Koka types a finally action with the effects of the frame
 // around it; Rust's Drop has no effects to charge; Gleam, Elixir

@@ -42,7 +42,7 @@ type RelNeeds struct {
 // It checks under the checker's one mode as the program does under
 // inference, so the run property runs it.
 func (g *RelNeeds) Explicit() *RelNeeds {
-	rows := g.rows(true, false)
+	rows := g.rows(true)
 	e := &RelNeeds{Main: g.Main, parseWritten: true}
 	for i, f := range g.Funcs {
 		c := *f
@@ -53,23 +53,6 @@ func (g *RelNeeds) Explicit() *RelNeeds {
 	}
 	e.print()
 	return e
-}
-
-// FixedRows are the rows ergo fix writes (check/clausefix.go, fix.Run):
-// the least rows that hold every charge, each function widened from its
-// written row, exported or not, and main from the empty row, in order
-// with main last ("A | B", "" for none).
-func (g *RelNeeds) FixedRows() []string {
-	rows := g.rows(false, true)
-	var out []string
-	for _, r := range rows {
-		out = append(out, rowText(r))
-	}
-	main := 0
-	for _, m := range g.Main {
-		main |= rows[m.Callee] &^ m.Provides
-	}
-	return append(out, rowText(main))
 }
 
 // The capabilities of the model, a bit each. Console is the prelude's:
@@ -506,7 +489,7 @@ func (f *RelFunc) written(infer bool) (bool, int) {
 // whose release needs a capability, which an adapter could not carry
 // (G7), sorted.
 func (g *RelNeeds) Model(infer bool) (rows, missing, refused []string) {
-	row := g.rows(infer, false)
+	row := g.rows(infer)
 	// parseLw writes no row: its A.Use() is S102 unless it is inferred.
 	if !infer && !g.parseWritten {
 		missing = append(missing, fmt.Sprintf("%d A", g.parseLw))
@@ -560,20 +543,19 @@ func (g *RelNeeds) Model(infer bool) (rows, missing, refused []string) {
 
 // rows are the functions' rows: each fixed row as written, and each other
 // row the least that holds its body's charges, by a fixpoint over the
-// calls. infer selects the clause writer's mode (written); all widens
-// every function from its written row, as ergo fix does.
-func (g *RelNeeds) rows(infer, all bool) []int {
+// calls. infer selects the clause writer's mode (written).
+func (g *RelNeeds) rows(infer bool) []int {
 	row := make([]int, len(g.Funcs))
 	for i, f := range g.Funcs {
-		if ok, w := f.written(infer); ok || all {
+		if ok, w := f.written(infer); ok {
 			row[i] = w
 		}
 	}
-	charges := g.charges(row, infer || all)
+	charges := g.charges(row, infer)
 	for changed := true; changed; {
 		changed = false
 		for i, f := range g.Funcs {
-			if ok, _ := f.written(infer); ok && !all {
+			if ok, _ := f.written(infer); ok {
 				continue
 			}
 			charges(f.Body, 0, func(_ *RelStmt, need int) {
