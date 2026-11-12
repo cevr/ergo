@@ -1202,10 +1202,10 @@ index 0000000..b68c413
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text.go b/src/cmd/compile/internal/noder/ergoir_text.go
 new file mode 100644
-index 0000000..c0de35c
+index 0000000..6758106
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text.go
-@@ -0,0 +1,455 @@
+@@ -0,0 +1,610 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1311,6 +1311,7 @@ index 0000000..c0de35c
 +			return "", fmt.Errorf("%s: the signature's end %v is not in the file", fd.Name.Value, end)
 +		}
 +		p.b.Reset()
++		p.reads = ergoReads(info, fd.Body)
 +		p.block(fd.Body.List, 1)
 +		// The lines after the body keep their positions.
 +		p.b.WriteString(fmt.Sprintf("}\n//line %s:%d", end.RelFilename(), end.RelLine()+1))
@@ -1342,6 +1343,131 @@ index 0000000..c0de35c
 +	imports map[string]string // package path -> its local name in the file
 +	b       strings.Builder
 +	at      string // the position directive of the next line
++	// reads are the objects the body being printed reads: a local it
++	// defines and never reads gets `_ = x` after its definition, since Go
++	// text refuses a variable declared and not used (an IR body need not
++	// read every local: a catch's result whose value is dropped).
++	reads map[types2.Object]bool
++}
++
++// ergoReads is every object body reads: each name, except a plain name
++// assigned to (x = …, x := …, var x).
++func ergoReads(info *types2.Info, body *syntax.BlockStmt) map[types2.Object]bool {
++	reads := map[types2.Object]bool{}
++	var lhs func(x syntax.Expr) bool
++	lhs = func(x syntax.Expr) bool {
++		switch x := x.(type) {
++		case *syntax.Name:
++			return true
++		case *syntax.ListExpr:
++			for _, e := range x.ElemList {
++				if !lhs(e) {
++					syntax.Inspect(e, visitReads(info, reads, lhs))
++				}
++			}
++			return true
++		}
++		return false
++	}
++	syntax.Inspect(body, visitReads(info, reads, lhs))
++	return reads
++}
++
++func visitReads(info *types2.Info, reads map[types2.Object]bool, lhs func(syntax.Expr) bool) func(syntax.Node) bool {
++	var visit func(n syntax.Node) bool
++	visit = func(n syntax.Node) bool {
++		switch n := n.(type) {
++		case *syntax.Name:
++			if obj := info.Uses[n]; obj != nil {
++				reads[obj] = true
++			}
++		case *syntax.AssignStmt:
++			if !lhs(n.Lhs) {
++				syntax.Inspect(n.Lhs, visit)
++			}
++			if n.Rhs != nil {
++				syntax.Inspect(n.Rhs, visit)
++			}
++			return false
++		case *syntax.RangeClause:
++			if n.Lhs != nil && !lhs(n.Lhs) {
++				syntax.Inspect(n.Lhs, visit)
++			}
++			syntax.Inspect(n.X, visit)
++			return false
++		case *syntax.VarDecl:
++			return false
++		}
++		return true
++	}
++	return visit
++}
++
++// unread writes `_ = x` for each name of defs that the body never reads.
++func (p *ergoPrinter) unread(depth int, defs ...*syntax.Name) {
++	for _, n := range defs {
++		if obj := p.info.Defs[n]; obj != nil && n.Value != "_" && !p.reads[obj] {
++			p.line(depth, "_ = "+n.Value)
++		}
++	}
++}
++
++// ergoTerminating reports a terminating statement as Go's spec defines it
++// (a return, a panic call, a block, an if with an else, a for with no
++// condition and a switch with a default, whose branches all terminate,
++// with no break): vet finds a statement after one unreachable, so the
++// text stops at it. The IR may carry such a statement (a match in result
++// position ends with the function end's unreachable panic); it never
++// runs, and the shape skips it too.
++func ergoTerminating(s syntax.Stmt) bool {
++	switch s := s.(type) {
++	case *syntax.ReturnStmt:
++		return true
++	case *syntax.ExprStmt:
++		call, ok := s.X.(*syntax.CallExpr)
++		if !ok {
++			return false
++		}
++		name, ok := call.Fun.(*syntax.Name)
++		return ok && name.Value == "panic"
++	case *syntax.BlockStmt:
++		return len(s.List) > 0 && ergoTerminating(s.List[len(s.List)-1])
++	case *syntax.IfStmt:
++		return s.Else != nil && ergoTerminating(s.Then) && ergoTerminating(s.Else)
++	case *syntax.ForStmt:
++		_, isRange := s.Init.(*syntax.RangeClause)
++		return s.Cond == nil && !isRange && !ergoHasBreak(s.Body)
++	case *syntax.SwitchStmt:
++		def := false
++		for _, c := range s.Body {
++			if c.Cases == nil {
++				def = true
++			}
++			if len(c.Body) == 0 || !ergoTerminating(c.Body[len(c.Body)-1]) {
++				return false
++			}
++			for _, st := range c.Body {
++				if ergoHasBreak(st) {
++					return false
++				}
++			}
++		}
++		return def
++	}
++	return false
++}
++
++// ergoHasBreak reports any break inside n (conservatively, a nested
++// loop's or switch's too).
++func ergoHasBreak(n syntax.Node) bool {
++	found := false
++	syntax.Inspect(n, func(n syntax.Node) bool {
++		if b, ok := n.(*syntax.BranchStmt); ok && b.Tok == syntax.Break {
++			found = true
++		}
++		return !found
++	})
++	return found
 +}
 +
 +func (p *ergoPrinter) line(depth int, s string) {
@@ -1355,6 +1481,9 @@ index 0000000..c0de35c
 +func (p *ergoPrinter) block(list []syntax.Stmt, depth int) {
 +	for _, s := range list {
 +		p.stmt(s, depth)
++		if ergoTerminating(s) {
++			return // what follows never runs (ergoTerminating)
++		}
 +	}
 +}
 +
@@ -1421,6 +1550,27 @@ index 0000000..c0de35c
 +		p.line(depth, t)
 +	case *syntax.ExprStmt, *syntax.AssignStmt:
 +		p.line(depth, p.simple(s.(syntax.SimpleStmt)))
++		if a, ok := s.(*syntax.AssignStmt); ok && a.Op == syntax.Def {
++			var defs []*syntax.Name
++			for _, e := range syntax.UnpackListExpr(a.Lhs) {
++				if n, ok := e.(*syntax.Name); ok {
++					defs = append(defs, n)
++				}
++			}
++			p.unread(depth, defs...)
++		}
++	case *syntax.DeclStmt:
++		// var x T: an if expression's or a match's result local.
++		var vd *syntax.VarDecl
++		if len(s.DeclList) == 1 {
++			vd, _ = s.DeclList[0].(*syntax.VarDecl)
++		}
++		if vd == nil || len(vd.NameList) != 1 || vd.Values != nil || p.info.Defs[vd.NameList[0]] == nil {
++			p.line(depth, "ergoirNoText() /* declaration */")
++			break
++		}
++		p.line(depth, "var "+vd.NameList[0].Value+" "+p.typ(p.info.Defs[vd.NameList[0]].Type()))
++		p.unread(depth, vd.NameList[0])
 +	default:
 +		p.line(depth, fmt.Sprintf("ergoirNoText() /* %T */", s))
 +	}
@@ -1517,6 +1667,11 @@ index 0000000..c0de35c
 +			return p.zero(tv.Type)
 +		case tv.IsType() && tv.Type != nil:
 +			return p.typ(tv.Type)
++		}
++		// A package qualifier (a runtime/v1 call, IRG4) is the decoder's
++		// name of the package; the file imports it by its own name.
++		if pn, ok := p.info.Uses[x].(*types2.PkgName); ok {
++			return p.qualifier(pn.Imported())
 +		}
 +		// A local by the IR's own name: two locals of one scope with one
 +		// name do not compile, or bind as Go's := does, and the text's
@@ -1663,10 +1818,10 @@ index 0000000..c0de35c
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text_shape.go b/src/cmd/compile/internal/noder/ergoir_text_shape.go
 new file mode 100644
-index 0000000..1010bb7
+index 0000000..fc7c310
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text_shape.go
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,425 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1771,6 +1926,11 @@ index 0000000..1010bb7
 +	if id, ok := s.ids[obj]; ok {
 +		return id
 +	}
++	if pn, ok := obj.(*types2.PkgName); ok {
++		// A qualifier: the decoder names the package by its own name, the
++		// text by the file's import name (IRG4).
++		return "import " + pn.Imported().Path()
++	}
 +	switch {
 +	case obj.Parent() == types2.Universe:
 +		return "universe." + obj.Name()
@@ -1785,10 +1945,76 @@ index 0000000..1010bb7
 +	return "out of scope " + n.Value
 +}
 +
++// stmts writes list up to its first terminating statement: the text omits
++// what follows one (vet: unreachable code), and so does the shape, on both
++// sides. `_ = x` of a plain name is left out on both sides too: the text
++// adds one after each local the body never reads (Go refuses an unused
++// variable), and the IR need not read every local.
 +func (s *ergoShaper) stmts(list []syntax.Stmt, depth int) {
 +	for _, st := range list {
++		if a, ok := st.(*syntax.AssignStmt); ok && a.Op == 0 && a.Rhs != nil {
++			l, lok := a.Lhs.(*syntax.Name)
++			_, rok := a.Rhs.(*syntax.Name)
++			if lok && rok && l.Value == "_" {
++				continue
++			}
++		}
 +		s.stmt(st, depth)
++		if shapeTerminates(st) {
++			return
++		}
 +	}
++}
++
++// shapeTerminates is Go's terminating statement (the spec's list: a
++// return, a panic call, a block, an if with an else, a for with no
++// condition and no break, a switch with a default whose clauses all end
++// in one and hold no break), written apart from the printer's.
++func shapeTerminates(st syntax.Stmt) bool {
++	brk := func(n syntax.Node) bool {
++		found := false
++		syntax.Inspect(n, func(n syntax.Node) bool {
++			if b, ok := n.(*syntax.BranchStmt); ok && b.Tok == syntax.Break {
++				found = true
++			}
++			return !found
++		})
++		return found
++	}
++	switch st := st.(type) {
++	case *syntax.ReturnStmt:
++		return true
++	case *syntax.ExprStmt:
++		if call, ok := st.X.(*syntax.CallExpr); ok {
++			if n, ok := call.Fun.(*syntax.Name); ok && n.Value == "panic" {
++				return true
++			}
++		}
++	case *syntax.BlockStmt:
++		return len(st.List) > 0 && shapeTerminates(st.List[len(st.List)-1])
++	case *syntax.IfStmt:
++		return st.Else != nil && shapeTerminates(st.Then) && shapeTerminates(st.Else)
++	case *syntax.ForStmt:
++		if _, r := st.Init.(*syntax.RangeClause); r || st.Cond != nil {
++			return false
++		}
++		return !brk(st.Body)
++	case *syntax.SwitchStmt:
++		def := false
++		for _, c := range st.Body {
++			def = def || c.Cases == nil
++			if len(c.Body) == 0 || !shapeTerminates(c.Body[len(c.Body)-1]) {
++				return false
++			}
++			for _, b := range c.Body {
++				if brk(b) {
++					return false
++				}
++			}
++		}
++		return def
++	}
++	return false
 +}
 +
 +func (s *ergoShaper) stmt(st syntax.Stmt, depth int) {
@@ -1864,6 +2090,21 @@ index 0000000..1010bb7
 +		}
 +	case *syntax.BranchStmt:
 +		s.out(depth, "branch %v", st.Tok)
++	case *syntax.DeclStmt:
++		// var x T (an if expression's or a match's result local).
++		for _, d := range st.DeclList {
++			vd, ok := d.(*syntax.VarDecl)
++			if !ok || vd.Values != nil || len(vd.NameList) != 1 {
++				s.out(depth, "declaration %T", d)
++				continue
++			}
++			obj := s.info.Defs[vd.NameList[0]]
++			t := ""
++			if obj != nil {
++				t = ergoShapeType(obj.Type())
++			}
++			s.out(depth, "var %s %s", s.object(vd.NameList[0]), t)
++		}
 +	default:
 +		s.out(depth, "statement %T", st)
 +	}
