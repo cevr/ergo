@@ -197,17 +197,26 @@ func (c *checker) takesFix(f *Func, missing []int) *ClauseFix {
 		}
 		fix.InsertAt = int(at)
 		fix.Text = " takes " + joined
-		if r := ft.Results; r != nil && !r.Opening.IsValid() && len(r.List) == 1 {
-			if _, ok := r.List[0].Type.(*syntax.FuncType); ok {
-				fix.Open = int(r.List[0].Type.Pos())
-			}
-		}
+		fix.Open = loneFuncResult(ft)
 	}
 	fix.Signature = signatureText(f.file.syntax.Src, d, fix)
 	if !spellable {
 		fix.Text, fix.Open = "", 0
 	}
 	return fix
+}
+
+// loneFuncResult is where a new clause needs an opening parenthesis: a
+// clause written after a lone result of function type is the function's
+// only when the result is in parentheses; otherwise it is the result
+// type's row. 0 when none is needed.
+func loneFuncResult(ft *syntax.FuncType) int {
+	if r := ft.Results; r != nil && !r.Opening.IsValid() && len(r.List) == 1 {
+		if _, ok := r.List[0].Type.(*syntax.FuncType); ok {
+			return int(r.List[0].Type.Pos())
+		}
+	}
+	return 0
 }
 
 // clauseFix is the edit that adds the elements of missing to f's clause
@@ -250,11 +259,7 @@ func (c *checker) clauseFix(f *Func, kind Kind, missing *Row) *ClauseFix {
 	default:
 		fix.InsertAt = int(clauseAt(ft))
 		fix.Text = " " + fix.Clause + " " + joined
-		if r := ft.Results; r != nil && !r.Opening.IsValid() && len(r.List) == 1 {
-			if _, ok := r.List[0].Type.(*syntax.FuncType); ok {
-				fix.Open = int(r.List[0].Type.Pos())
-			}
-		}
+		fix.Open = loneFuncResult(ft)
 	}
 	fix.Signature = signatureText(f.file.syntax.Src, d, fix)
 	if !spellable {

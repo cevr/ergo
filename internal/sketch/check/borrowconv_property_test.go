@@ -483,6 +483,62 @@ func keep(t *Tally) Counter {
 	}
 }
 
+// bcLentSites names, for each generic function of the prelude, the
+// bcGenericSites case whose model says whether its body keeps a value of
+// T (the case's ok is false).
+var bcLentSites = map[string]string{
+	"id": "targ-id", "ret": "targ-ret", "arm": "targ-arm", "fwd": "targ-fwd",
+	"later": "targ-later", "via": "targ-via", "spawn": "targ-task", "hold": "targ-hold",
+	"local": "targ-local", "fwdLocal": "targ-fwdlocal", "put": "targ-put",
+	"apply": "targ-apply", "relay": "targ-relay",
+}
+
+// TestLentMarkModel is the declaration half of the property (types.md,
+// Borrows 7; q137, EX3): marking a generic function of the prelude lent is
+// refused at its T exactly when TestBorrowConvModel's model says its body
+// keeps a value of T, and is otherwise silent. TestBorrowConvModel covers
+// the call, which reads only the mark.
+//
+// Mutants it kills that no other test does (ledger: borrowtargs.go): the
+// lent declaration not checked; each keep rule of keepWalk (a capture by
+// an escaping frame, a pass to an unmarked type parameter, a function
+// value's parameter, a function value captured) dropped or widened.
+func TestLentMarkModel(t *testing.T) {
+	sites := map[string]bcSite{}
+	for _, s := range bcGenericSites {
+		sites[s.name] = s
+	}
+	lines := strings.Split(borrowConvPrelude, "\n")
+	for name, site := range bcLentSites {
+		keeps := !sites[site].ok
+		src := borrowConvPrelude
+		at := 0
+		for i, l := range lines {
+			if strings.HasPrefix(l, "func "+name+"[T") {
+				at = i + 1
+			}
+		}
+		if at == 0 {
+			t.Fatalf("%s: no declaration in the prelude", name)
+		}
+		src = strings.Replace(src, "func "+name+"[T](", "func "+name+"[T lent](", 1)
+		src += "\nfunc main() {}\n"
+		_, diags := CheckSource(src)
+		var got []string
+		for _, d := range diags {
+			got = append(got, d.String())
+		}
+		ok := len(got) == 0
+		if keeps {
+			ok = len(diags) == 1 && diags[0].Code == "S108" && diags[0].Line == at &&
+				strings.Contains(diags[0].Message, "T is lent, so the body keeps no value of it, but ")
+		}
+		if !ok {
+			t.Errorf("%s marked lent (keeps %v by %s): got\n\t%s", name, keeps, site, strings.Join(got, "\n\t"))
+		}
+	}
+}
+
 // TestLentDeclarations pins the text and position of the declaration
 // check of the lent mark (types.md, Borrows 7; q137, EX3): a lent type
 // parameter whose body keeps a value of it, whose value goes to a type

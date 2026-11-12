@@ -19,7 +19,9 @@ var fixSeed = flag.Int64("fix.seed", 0, "replay one seed of TestFixProperty")
 // TestFixProperty is EXPLICIT §4's property against a least-row model of
 // a generated program: call chains, recursive groups, exported functions,
 // leaves whose written rows stay, operation-type capabilities, methods,
-// two failure kinds per function and results of function type. A random
+// two failure kinds per function, results of function type, takes
+// hand-offs, and a generic codec enc[T wire] whose needs row is wired[T]
+// and whose instance enc[Lv] is charged Lv's codec needs (q141). A random
 // subset of the clauses is deleted, wholly or in part. Checked: fix then
 // check has no clause diagnostic and the same other diagnostics as the
 // fully written program; each written row is the model's least row; fix
@@ -28,7 +30,10 @@ var fixSeed = flag.Int64("fix.seed", 0, "replay one seed of TestFixProperty")
 // Mutants (ledger in testdata/mutants.json): drop one element of a
 // clause, write needs for fails, skip the re-check loop, insert after
 // takes, skip the import, reorder written elements, leave a
-// function-typed result unparenthesized.
+// function-typed result unparenthesized; and in the checker (ledger in
+// ../check/testdata/mutants.json) a lent hand-off with no takes fix, an
+// encode of a type parameter not charged wired[T], and an instance whose
+// wired[T] is not replaced by its argument's codec needs.
 func TestFixProperty(t *testing.T) {
 	seeds := 60
 	first := int64(1)
@@ -44,7 +49,7 @@ func TestFixProperty(t *testing.T) {
 	}
 	// Every case the property claims is reached by some seed.
 	if *fixSeed == 0 {
-		for _, what := range []string{"import added", "second round", "clause extended", "exported widened", "result opened", "takes written", "takes through a call"} {
+		for _, what := range []string{"import added", "second round", "clause extended", "exported widened", "result opened", "takes written", "takes through a call", "needs wired written", "codec instance charged", "codec instance charged by ParseLv"} {
 			if reached[what] == 0 {
 				t.Errorf("no seed reached %q: %v", what, reached)
 			}
@@ -61,14 +66,32 @@ type program struct {
 	ext *gfunc
 	// midWritten is whether mid.Mid writes its fails clause.
 	midWritten bool
+	// codecCap is the capability Lv's codec needs when the program has the
+	// generic codec enc (the last function); -1 for none. onParse: ParseLv
+	// needs it, not Wire; an encode is charged both directions' needs
+	// (wired[T] in a needs row is one row for both, q141).
+	codecCap int
+	onParse  bool
 }
 
 // callee is the function a call index names: ext past the last function.
 func (p *program) callee(j int) *gfunc {
-	if j == len(p.funcs) {
+	if j == p.extAt() {
 		return p.ext
 	}
+	if j > p.extAt() {
+		return p.funcs[j-1]
+	}
 	return p.funcs[j]
+}
+
+// extAt is the call index that names ext: one past the generated
+// functions, before enc.
+func (p *program) extAt() int {
+	if p.codecCap >= 0 {
+		return len(p.funcs) - 1
+	}
+	return len(p.funcs)
 }
 
 type gfunc struct {
@@ -93,13 +116,25 @@ type gfunc struct {
 	// funcResult: the result is func() int, which takes a clause written
 	// after it as its own row unless it is in parentheses.
 	funcResult bool
+	// codec: this is enc[T wire](t T), which encodes t; its least needs
+	// row is wired[T], and a call enc(Lv{...}) is charged Lv's codec needs.
+	codec bool
+}
+
+// callNeeds is the needs a call of g charges: an instance of enc replaces
+// wired[T] by Lv's codec needs.
+func (p *program) callNeeds(g *gfunc) map[string]bool {
+	if g.codec {
+		return map[string]bool{capName(p.codecCap): true}
+	}
+	return g.least[1]
 }
 
 func errName(i int) string { return fmt.Sprintf("E%d", i) }
 func capName(i int) string { return fmt.Sprintf("C%d", i) }
 
 func generate(r *rand.Rand) *program {
-	p := &program{errs: 1 + r.Intn(3), caps: 1 + r.Intn(3)}
+	p := &program{errs: 1 + r.Intn(3), caps: 1 + r.Intn(3), codecCap: -1}
 	if r.Intn(2) == 0 {
 		p.ext = &gfunc{name: "mid.Mid", least: [2]map[string]bool{{"lib.LE": true}, {}}}
 		p.midWritten = r.Intn(2) == 0
@@ -147,6 +182,19 @@ func generate(r *rand.Rand) *program {
 		p.funcs[0].calls = append(p.funcs[0].calls, n)
 		p.funcs[0].lit = append(p.funcs[0].lit, false)
 	}
+	// The generic codec: enc after the others (so a call index past n
+	// still names ext), called from one function or more.
+	if r.Intn(2) == 0 {
+		p.codecCap, p.onParse = r.Intn(p.caps), r.Intn(2) == 0
+		enc := &gfunc{name: "enc", leafErr: -1, codec: true}
+		p.funcs = append(p.funcs, enc)
+		for i, f := range p.funcs[:n] {
+			if i == 0 || r.Intn(3) == 0 {
+				f.calls = append(f.calls, n+1)
+				f.lit = append(f.lit, r.Intn(4) == 0)
+			}
+		}
+	}
 	// The hand-offs of x: Close, or one call (not through a literal, which
 	// may run more than once) of a function that has x too.
 	for _, f := range p.funcs {
@@ -187,6 +235,9 @@ func generate(r *rand.Rand) *program {
 	// every callee's, to a fixpoint.
 	for _, f := range p.funcs {
 		f.least = [2]map[string]bool{{}, {}}
+		if f.codec {
+			f.least[1]["wired[T]"] = true
+		}
 		if f.leafErr >= 0 {
 			f.least[0][errName(f.leafErr)] = true
 		}
@@ -199,7 +250,11 @@ func generate(r *rand.Rand) *program {
 		for _, f := range p.funcs {
 			for _, j := range f.calls {
 				for k := 0; k < 2; k++ {
-					for e := range p.callee(j).least[k] {
+					from := p.callee(j).least[k]
+					if k == 1 {
+						from = p.callNeeds(p.callee(j))
+					}
+					for e := range from {
 						if !f.least[k][e] {
 							f.least[k][e] = true
 							changed = true
@@ -251,6 +306,9 @@ func sortedKeys(m map[string]bool) []string {
 // source prints the program with the rows rows(f) gives each function.
 func (p *program) source(rows func(f *gfunc, k int) []string) string {
 	var b strings.Builder
+	if p.codecCap >= 0 {
+		b.WriteString("import json\n")
+	}
 	if p.ext != nil {
 		b.WriteString("import m/mid\n")
 		for _, f := range p.funcs {
@@ -259,6 +317,8 @@ func (p *program) source(rows func(f *gfunc, k int) []string) string {
 				break
 			}
 		}
+	}
+	if p.codecCap >= 0 || p.ext != nil {
 		b.WriteString("\n")
 	}
 	for i := 0; i < p.errs; i++ {
@@ -271,6 +331,16 @@ func (p *program) source(rows func(f *gfunc, k int) []string) string {
 	for i := 0; i < p.caps; i++ {
 		fmt.Fprintf(&b, "\nlet W%d = context {\n\t%s: Impl,\n}\n", i, capName(i))
 	}
+	if p.codecCap >= 0 {
+		parse, wire := "", ""
+		use := fmt.Sprintf(" needs %[1]s {\n\tlet _ = %[1]s.Op()\n", capName(p.codecCap))
+		if p.onParse {
+			parse, wire = use, " {\n"
+		} else {
+			parse, wire = " {\n", use
+		}
+		fmt.Fprintf(&b, "\ntype Lv {\n\tname string,\n}\n\ntype BadLv {}\n\nfunc ParseLv(s string) Lv fails BadLv%s\tLv{name: s}\n}\n\nfunc Wire(l Lv) string%s\tl.name\n}\n", parse, wire)
+	}
 	for _, f := range p.funcs {
 		var params []string
 		if f.method {
@@ -278,6 +348,14 @@ func (p *program) source(rows func(f *gfunc, k int) []string) string {
 		}
 		if f.takesArg {
 			params = append(params, "x Box")
+		}
+		if f.codec {
+			b.WriteString("\nfunc " + f.name + "[T wire](t T) int")
+			if cs := rows(f, 1); len(cs) > 0 {
+				b.WriteString(" needs " + strings.Join(cs, " | "))
+			}
+			b.WriteString(" {\n\tlet _ = json.Encode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, t)\n\t0\n}\n")
+			continue
 		}
 		b.WriteString("\nfunc " + f.name + "(" + strings.Join(params, ", ") + ")")
 		switch {
@@ -313,6 +391,8 @@ func (p *program) source(rows func(f *gfunc, k int) []string) string {
 				call += "x"
 			case g.takesArg:
 				call += "Box{N: 1}"
+			case g.codec:
+				call += "Lv{name: \"v\"}"
 			}
 			call += ")"
 			if len(g.least[0]) > 0 {
@@ -463,6 +543,17 @@ func checkSeed(t *testing.T, seed int64, g *program) (reached []string) {
 	for _, f := range g.funcs {
 		if f.funcResult && !f.writtenTakes && len(f.order[0])+len(f.order[1]) == 0 && (len(f.least[0])+len(f.least[1]) > 0 || f.leastTakes) {
 			reached = append(reached, "result opened")
+		}
+		if f.codec && len(f.order[1]) == 0 {
+			reached = append(reached, "needs wired written")
+		}
+		for _, j := range f.calls {
+			if g.callee(j).codec && !f.written[1][capName(g.codecCap)] {
+				reached = append(reached, "codec instance charged")
+				if g.onParse {
+					reached = append(reached, "codec instance charged by ParseLv")
+				}
+			}
 		}
 		if f.leastTakes && !f.writtenTakes {
 			reached = append(reached, "takes written")

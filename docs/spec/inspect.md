@@ -9,7 +9,7 @@ ergo inspect api --diff OLD NEW [--json]
 
 1. The view lists each exported function and method in name order. A
    function reached as a method is qualified by its receiver type. It shows
-   its checked signature, `fails`, `needs`, its written or inferred `takes`
+   its checked signature, `fails`, `needs`, its written `takes`
    clause, and the checker's copy policy for its generic type parameters.
    Each body copy says `copies T at file:line:column (plain data only)` and
    gives the checker's reason. A bodiless generic says `foreign body` in
