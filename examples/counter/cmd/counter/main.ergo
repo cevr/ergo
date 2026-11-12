@@ -3,7 +3,9 @@ import counter/wheel
 
 // The binary selects the implementation. This record is also the provider
 // whose complete state the law runner explores; there is no parallel model.
-// Passing a value provider as a Counter value waits for provider cells (PS3).
+// A Wheel is not passed as a Counter value: a value provider moves into a
+// provider cell only for a sealed operation type, in that type's package
+// (types.md, Interface assignability 6), and this binary is not counter.
 type Wheel { inner wheel.Wheel }
 
 func NewWheel() Wheel               { Wheel{inner: wheel.NewWheel()} }
