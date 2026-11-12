@@ -41,6 +41,16 @@ import ergo.local/prototype/runtime/v1
 # of one binding. gostd imports embed and no ergo.local package (go list
 # -deps), so it cannot name, receive or build a syntax node.
 import ergo.local/prototype/internal/sketch/std/gostd
+# derive (patterns.md Derivation; check/derive.go, check.go, info.go):
+# expandDerives calls derive.Expand on a package's files before the checker
+# meets them, and Package.Derive / checker.derive hold its record. derive
+# does make syntax nodes (it parses each derived bundle), but only before
+# the check, and only into the file it expands: each bundle is spliced into
+# that file's declarations (or its type's spec) and every position in it is
+# set to the derive's (derive.reposition). So each node it makes lies in a
+# file's tree at a position of that file, as a parsed node does; the
+# checker gets nodes from it through the files only, never from a call.
+import ergo.local/prototype/internal/sketch/derive
 
 # The syntax callees that yield a node, each with the only sites that may
 # call it (E2b round 4 review M2). Each site parses a whole file and checks
@@ -50,6 +60,12 @@ import ergo.local/prototype/internal/sketch/std/gostd
 # file and checks it as that binding's package (c.files), like
 # (*stdImporter).load.
 callee Parse CheckSource prelude$1 (*stdImporter).load (*hostPkg).load
+# A rewrite law's guard and sides (LR, rewrite.go) are parts of the law's
+# Body that the parser built: RewriteGuard returns its first statement's
+# expression and RewriteSides its last two blocks, nodes of the law's file,
+# never fresh ones.
+callee (*LawDecl).RewriteGuard (*checker).rewriteLaw (*checker).rewriteShape
+callee (*LawDecl).RewriteSides (*checker).rewriteLaw (*checker).rewriteShape
 
 # The checker's own functions that parse caller text, with the sites that
 # may reference them: none, so a pass cannot reach the parser through the
