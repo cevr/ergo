@@ -1,0 +1,66 @@
+browsing sort=name asc filter="" shown=16/16 top=0 cursor=0 selected=0
+>  10	Altau 72	Hydra	0.67	12831.4	F7I	05h08m	37.7	8
+   9	Beral	Andromeda	8.52	13981.2	A0II	08h23m	71.8	1
+   12	Gaos	Leo	10.91	16772.8	A9V	11h38m	-14.8	12
+   8	Helyed	Lyra	14.76	16570.8	O6IV	05h30m	52.2	12
+   4	Ixpha	Cygnus	1.24	4179.4	M5II	06h12m	-46.2	7
+browsing sort=name asc filter="" shown=16/16 top=3 cursor=7 selected=0
+   8	Helyed	Lyra	14.76	16570.8	O6IV	05h30m	52.2	12
+   4	Ixpha	Cygnus	1.24	4179.4	M5II	06h12m	-46.2	7
+   13	Kornorix	Lyra	5.85	17300.3	B4IV	15h44m	-16.5	10
+   3	Korzan	Leo	3.91	16122.0	G3I	09h26m	61.9	4
+>  0	Mial	Andromeda	7.96	5572.9	F3II	17h42m	-17.5	0
+browsing sort=name asc filter="" shown=16/16 top=11 cursor=15 selected=0
+   5	Saix	Cepheus	14.90	8674.9	O3IV	20h25m	-51.2	0
+   1	Wezeb 45	Auriga	1.92	18903.0	F8III	12h39m	75.9	9
+   11	Zaneb	Pegasus	0.89	9736.4	O6II	13h17m	10.5	0
+   15	Zürich Β	Orion	0.50	20.5	G2V	05h55m	-0.5	3
+>  14	Αλφα Ωριωνος	Orion	0.50	5480.0	M1I	05h55m	7.4	0
+browsing sort=magnitude asc filter="" shown=16/16 top=0 cursor=0 selected=0
+>  14	Αλφα Ωριωνος	Orion	0.50	5480.0	M1I	05h55m	7.4	0
+   15	Zürich Β	Orion	0.50	20.5	G2V	05h55m	-0.5	3
+   10	Altau 72	Hydra	0.67	12831.4	F7I	05h08m	37.7	8
+   11	Zaneb	Pegasus	0.89	9736.4	O6II	13h17m	10.5	0
+   4	Ixpha	Cygnus	1.24	4179.4	M5II	06h12m	-46.2	7
+browsing sort=magnitude desc filter="" shown=16/16 top=0 cursor=0 selected=0
+>  6	Norzannor	Scorpius	15.20	11569.3	B7I	00h59m	-69.5	5
+   5	Saix	Cepheus	14.90	8674.9	O3IV	20h25m	-51.2	0
+   8	Helyed	Lyra	14.76	16570.8	O6IV	05h30m	52.2	12
+   2	Sacazan	Cygnus	13.68	1697.3	G9I	22h49m	-51.0	1
+   12	Gaos	Leo	10.91	16772.8	A9V	11h38m	-14.8	12
+filtering sort=magnitude desc filter="o" shown=9/16 top=0 cursor=0 selected=0
+>  6	Norzannor	Scorpius	15.20	11569.3	B7I	00h59m	-69.5	5
+   12	Gaos	Leo	10.91	16772.8	A9V	11h38m	-14.8	12
+   9	Beral	Andromeda	8.52	13981.2	A0II	08h23m	71.8	1
+   0	Mial	Andromeda	7.96	5572.9	F3II	17h42m	-17.5	0
+   13	Kornorix	Lyra	5.85	17300.3	B4IV	15h44m	-16.5	10
+filtering sort=magnitude desc filter="or" shown=5/16 top=0 cursor=0 selected=0
+>  6	Norzannor	Scorpius	15.20	11569.3	B7I	00h59m	-69.5	5
+   13	Kornorix	Lyra	5.85	17300.3	B4IV	15h44m	-16.5	10
+   3	Korzan	Leo	3.91	16122.0	G3I	09h26m	61.9	4
+   14	Αλφα Ωριωνος	Orion	0.50	5480.0	M1I	05h55m	7.4	0
+   15	Zürich Β	Orion	0.50	20.5	G2V	05h55m	-0.5	3
+filtering sort=magnitude desc filter="ΩΡ" shown=1/16 top=0 cursor=0 selected=0
+>  14	Αλφα Ωριωνος	Orion	0.50	5480.0	M1I	05h55m	7.4	0
+browsing sort=magnitude desc filter="" shown=16/16 top=0 cursor=0 selected=0
+>  6	Norzannor	Scorpius	15.20	11569.3	B7I	00h59m	-69.5	5
+   5	Saix	Cepheus	14.90	8674.9	O3IV	20h25m	-51.2	0
+   8	Helyed	Lyra	14.76	16570.8	O6IV	05h30m	52.2	12
+   2	Sacazan	Cygnus	13.68	1697.3	G9I	22h49m	-51.0	1
+   12	Gaos	Leo	10.91	16772.8	A9V	11h38m	-14.8	12
+browsing sort=magnitude desc filter="lyra" shown=2/16 top=0 cursor=1 selected=2
+ * 8	Helyed	Lyra	14.76	16570.8	O6IV	05h30m	52.2	12
+>* 13	Kornorix	Lyra	5.85	17300.3	B4IV	15h44m	-16.5	10
+browsing sort=distance asc filter="lyra" shown=2/16 top=0 cursor=1 selected=2
+ * 8	Helyed	Lyra	14.76	16570.8	O6IV	05h30m	52.2	12
+>* 13	Kornorix	Lyra	5.85	17300.3	B4IV	15h44m	-16.5	10
+refused magnitude "5.859": not a number of this column's form
+browsing sort=distance asc filter="lyra" shown=2/16 top=0 cursor=1 selected=2
+ * 8	Helyed	Lyra	14.76	16570.8	O6IV	05h30m	52.2	12
+>* 13	Kornorix	Lyra	-1.50	17300.3	B4IV	15h44m	-16.5	10
+refused name "": a blank value
+browsing sort=distance asc filter="lyra" shown=2/16 top=0 cursor=1 selected=0
+   8	Helyed	Lyra	14.76	16570.8	O6IV	05h30m	52.2	12
+>  13	Kornorix	Lyra	-1.50	17300.3	B4IV	15h47m	-16.5	10
+? "sort sideways": want a column: name constellation magnitude distance class ascension declination planets
+? "fly": want a command: show down up pagedown pageup home end sort filter type backspace enter escape mark extend edit

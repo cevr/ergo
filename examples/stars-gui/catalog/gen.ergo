@@ -1,0 +1,44 @@
+// A generated catalogue: the workload of the program at any size, drawn
+// from the Random in the context, so a seed replays it.
+
+import strings
+
+// Generate is n stars drawn from Random. Names repeat as often as a large
+// catalogue's do, so a sort meets ties.
+func Generate(n int) []Star needs Random {
+	let syllables = []string{"al", "ber", "ca", "den", "eb", "fir", "ga", "hel", "ix", "ju", "kor", "lam", "mi", "nor", "os", "pha", "qua", "ris", "sa", "tau", "ur", "ve", "wez", "yed", "zan"}
+	let constellations = []string{"Andromeda", "Aquila", "Auriga", "Bootes", "Carina", "Cassiopeia", "Centaurus", "Cepheus", "Cetus", "Crux", "Cygnus", "Draco", "Eridanus", "Gemini", "Hydra", "Leo", "Lyra", "Orion", "Pegasus", "Perseus", "Puppis", "Scorpius", "Taurus", "Ursa Major", "Vela", "Virgo"}
+	let classes = []string{"O", "B", "A", "F", "G", "K", "M"}
+	let sizes = []string{"V", "IV", "III", "II", "I"}
+	let mut rows = []Star{}
+	for _ in 0..n {
+		let mut name = ""
+		for _ in 0..2+Random.IntN(2) {
+			name = name + syllables[Random.IntN(len(syllables))]
+		}
+		name = capitalize(name)
+		if Random.IntN(4) == 0 {
+			name = name + " \(Random.IntN(99) + 1)"
+		}
+		let class = classes[Random.IntN(len(classes))] + "\(Random.IntN(10))" + sizes[Random.IntN(len(sizes))]
+		rows = rows.Append(Star{
+			Name:          name,
+			Constellation: constellations[Random.IntN(len(constellations))],
+			Magnitude:     Random.IntN(1700) - 150,
+			Distance:      40 + Random.IntN(200000),
+			Class:         class,
+			Ascension:     Random.IntN(1440),
+			Declination:   Random.IntN(1801) - 900,
+			Planets:       Random.IntN(13),
+		})
+	}
+	rows
+}
+
+// capitalize is name with its first letter in upper case.
+func capitalize(name string) string {
+	if name == "" {
+		return name
+	}
+	strings.ToUpper(strings.Slice(name, 0, 1)) + strings.Slice(name, 1, len(name))
+}

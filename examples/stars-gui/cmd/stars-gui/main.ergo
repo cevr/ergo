@@ -1,0 +1,83 @@
+// stars-gui is a table of stars: scroll, sort by any column, filter as
+// you type, select a range and edit a cell. This stage is its model and
+// its headless driver: a script of commands on standard input, and the
+// frames a window would show, as text.
+//
+//	stars-gui gen [-seed S] [-n N]     write a catalogue of N stars
+//	stars-gui run [-rows H] CATALOG    play the script on standard input
+//
+// This binary is the only place that chooses the providers: the host's
+// files for the catalogue, a seeded generator for gen.
+
+import flag
+import fs
+import io
+import os
+import rand
+import slices
+import stars/catalog
+import stars/files
+import stars/script
+
+// Usage is the text of a usage failure.
+let Usage = "usage: stars-gui gen [-seed S] [-n N] | stars-gui run [-rows H] CATALOG"
+
+let seedFlag = flag.Int("seed", 1, "the seed of the catalogue")
+let countFlag = flag.Int("n", 1000, "how many stars")
+let rowsFlag = flag.Int("rows", 10, "the window's height in rows")
+let catalogueArg = flag.Arg("catalogue", "the catalogue file")
+
+let genSet = flag.Set{Name: "stars-gui gen", Usage: "", Flags: []flag.Flag{seedFlag, countFlag}, Args: []flag.ArgSpec{}}
+let runSet = flag.Set{Name: "stars-gui run", Usage: "", Flags: []flag.Flag{rowsFlag}, Args: []flag.ArgSpec{catalogueArg}}
+
+// run is stars-gui on args.
+func run(args []string) fails os.Exit needs catalog.Shelf | io.Stdout | io.Stdin {
+	if len(args) == 0 {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	match args[0] {
+	case "gen":
+		let v = flag.Parse(genSet, slices.Slice(args, 1, len(args))) catch {
+		case err:
+			try flag.Exit(err, Usage)
+			return
+		}
+		let n = countFlag.Get(v)
+		if n < 0 {
+			return os.Exit{Code: 2, Message: "stars-gui: -n must not be negative\n" + Usage}
+		}
+		with context { Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
+			io.Stdout.Print(catalog.Format(catalog.Generate(n)))
+		}
+	case "run":
+		let v = flag.Parse(runSet, slices.Slice(args, 1, len(args))) catch {
+		case err:
+			try flag.Exit(err, Usage)
+			return
+		}
+		let name = match catalogueArg.Get(v) {
+		case Some[string] as a:
+			a.Value
+		case None:
+			return os.Exit{Code: 2, Message: Usage}
+		}
+		let text = catalog.Shelf.Text(name) catch {
+		case catalog.Unreadable as u:
+			return os.Exit{Code: 1, Message: "stars-gui: \(u.Name): \(u.Reason)"}
+		}
+		let rows = catalog.Parse(text) catch {
+		case catalog.Malformed as m:
+			return os.Exit{Code: 1, Message: "stars-gui: \(name): " + catalog.Describe(m)}
+		}
+		let _ = script.Play(catalog.Open(rows, rowsFlag.Get(v)), io.Stdin.Lines())
+	case _:
+		return os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = fs.NewHost()
+	with context { catalog.Shelf: files.New(host), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
+		try run(os.NewHost().Args())
+	}
+}

@@ -1,0 +1,133 @@
+{
+  "about": "stars-gui's application mutants (wf10 corpus wave GP1a): edits of the example, each with the law or the test that kills it. A killer examples/stars-gui/PKG:law L is `ergo test examples/stars-gui/PKG --law L`; cmd/ergo:TestStarsGuiAgreesWithControl is the seeded agreement property against the reference model and the hand Go control, which kills the mutants no law sees.",
+  "mutants": [
+    {
+      "name": "stars-window-lets-cursor-fall-below", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "if cursor >= top+g.Height {",
+      "to": "if cursor > top+g.Height {",
+      "rule": "The window always holds the cursor's row.",
+      "killers": ["examples/stars-gui/catalog:law Table.WindowWithinBounds"]
+    },
+    {
+      "name": "stars-sort-clears-selection", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "Stay[State]{Next: Browsing{G: Settle(Grid{..g, View: view, Key: key, Cursor: follow(view, at, g.Cursor)})}}",
+      "to": "Stay[State]{Next: Browsing{G: Settle(Grid{..g, View: view, Key: key, Cursor: follow(view, at, g.Cursor), Selected: []int{}})}}",
+      "rule": "A sort keeps the selected stars.",
+      "killers": ["examples/stars-gui/catalog:law Table.SelectionSurvivesSort"]
+    },
+    {
+      "name": "stars-narrow-keeps-every-row", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/view.ergo",
+      "from": "\t\tif Matches(rows[id], filter) {",
+      "to": "\t\tif true {",
+      "rule": "A typed letter keeps only the shown stars that the longer filter keeps.",
+      "killers": ["examples/stars-gui/catalog:law Table.ViewIsOrder", "examples/stars-gui/catalog:law NarrowIsOrder", "examples/stars-gui/catalog:law FilterThenSortCommutes"]
+    },
+    {
+      "name": "stars-order-always-keeps-the-first", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/view.ergo",
+      "from": "\t\tif Matches(s, filter) {",
+      "to": "\t\tif Matches(s, filter) || id == 0 {",
+      "rule": "A filter keeps a star only when the filter is in its name or constellation.",
+      "killers": ["examples/stars-gui/catalog:law FilterThenSortCommutes"]
+    },
+    {
+      "name": "stars-sort-adds-a-row", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/view.ergo",
+      "from": "slices.SortFunc(ids, func",
+      "to": "slices.SortFunc(ids.Append(0), func",
+      "rule": "A sort shows exactly the ids it is given.",
+      "killers": ["examples/stars-gui/catalog:law SortIsPermutation"]
+    },
+    {
+      "name": "stars-fixed-drops-leading-zeros", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/star.ergo",
+      "from": "strings.PadLeft(strconv.Itoa(a%scale), places, '0')",
+      "to": "strconv.Itoa(a%scale)",
+      "rule": "A fixed-point number prints every decimal place: 1.05, not 1.5.",
+      "killers": ["examples/stars-gui/catalog:law CellTextReadsBack"]
+    },
+    {
+      "name": "stars-distance-sets-declination", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/edit.ergo",
+      "from": "Star{..s, Distance: f.Value}",
+      "to": "Star{..s, Declination: f.Value}",
+      "rule": "An edit of a column changes that column.",
+      "killers": ["examples/stars-gui/catalog:law SetShowsTheCell"]
+    },
+    {
+      "name": "stars-catalogue-joins-with-spaces", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/shelf.ergo",
+      "from": "strings.Join(cells, \"\\t\")",
+      "to": "strings.Join(cells, \" \")",
+      "rule": "A catalogue line separates its cells with tabs, so it reads back.",
+      "killers": ["examples/stars-gui/catalog:law FormatParsesBack"]
+    },
+    {
+      "name": "stars-edit-is-never-opened", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "Enter[State]{Next: Editing{G: g, Row: id.Value, Column: e.Column, Draft: CellText(CellOf(g.Rows[id.Value], e.Column))}}",
+      "to": "Enter[State]{Next: Filtering{G: g, Before: CellText(CellOf(g.Rows[id.Value], e.Column))}}",
+      "rule": "Edit opens the draft of the cell under the cursor.",
+      "killers": ["examples/stars-gui/catalog:law Table.ReachesEditing"]
+    },
+    {
+      "name": "stars-filter-is-never-started", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "Enter[State]{Next: Filtering{G: g, Before: g.Filter}}",
+      "to": "Reject",
+      "rule": "Filter starts a filter from browsing.",
+      "killers": ["examples/stars-gui/catalog:law Table.FilterAndBack"]
+    },
+    {
+      "name": "stars-up-writes-down", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/script/script.ergo",
+      "from": "\"up \\(-m.By)\"",
+      "to": "\"up \\(m.By)\"",
+      "rule": "A command's line reads back as the command.",
+      "killers": ["examples/stars-gui/script:law LineParsesBack"]
+    },
+    {
+      "name": "stars-cursor-mark-on-top-row", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/frame.ergo",
+      "from": "if at == g.Cursor { \">\" }",
+      "to": "if at == g.Top { \">\" }",
+      "rule": "A frame marks the row under the cursor.",
+      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+    },
+    {
+      "name": "stars-edit-leaves-the-cursor", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "Cursor: follow(view, Some[int]{Value: e.Row}, g.Cursor)",
+      "to": "Cursor: g.Cursor",
+      "rule": "After an edit moves a row, the cursor stays on that row.",
+      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+    },
+    {
+      "name": "stars-cancel-clears-the-filter", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "Filter: f.Before, View: Order(g.Rows, f.Before, g.Key)",
+      "to": "Filter: \"\", View: Order(g.Rows, \"\", g.Key)",
+      "rule": "Cancel of a filter restores the filter it started from.",
+      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+    },
+    {
+      "name": "stars-selection-stops-short", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "for i in lo..hi+1 {",
+      "to": "for i in lo..hi {",
+      "rule": "A selection runs from the anchor to the cursor, both included.",
+      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+    },
+    {
+      "name": "stars-planets-take-four-digits", "origin": "wf10 GP1a",
+      "file": "examples/stars-gui/catalog/edit.ergo",
+      "from": "if n > 999 {",
+      "to": "if n > 9999 {",
+      "rule": "The planets column takes 0 to 999.",
+      "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
+    }
+  ]
+}

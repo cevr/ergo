@@ -1,0 +1,23 @@
+// Package files is the host's Shelf provider: a catalogue is a file of
+// the host's disk.
+
+import fs
+import stars/catalog
+
+// Disk reads catalogues from the host's files. Only New makes one.
+type Disk { host fs.Host }
+
+// New is the provider over the host's files.
+func New(host fs.Host) Disk { Disk{host: host} }
+
+// Text is the whole text of the file at name.
+func Text(d Disk, name string) string fails catalog.Unreadable {
+	fs.ReadFile(d.host, name) catch {
+	case fs.NotFound:
+		return catalog.Unreadable{Name: name, Reason: "no such file"}
+	case fs.Denied:
+		return catalog.Unreadable{Name: name, Reason: "permission denied"}
+	case fs.Failed as e:
+		return catalog.Unreadable{Name: name, Reason: e.Reason}
+	}
+}

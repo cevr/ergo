@@ -1,0 +1,336 @@
+// The Table machine: a window of Height rows over the view, a cursor, a
+// selection, and three modes. Browsing moves, sorts, selects and starts a
+// filter or an edit; Filtering narrows the view as each letter is typed;
+// Editing holds the draft of one cell until Commit applies it or Cancel
+// drops it. A refused edit is the step's typed failure, so the caller
+// decides what to show, and the state stays as it was.
+
+import slices
+import strings
+import utf8
+
+// Grid is what every mode shows: the catalogue, the view over it, and
+// the window. View holds ids (indexes of Rows), filtered and sorted;
+// Cursor and Top are positions in View; Anchor and Selected are ids, so a
+// sort or a filter keeps them.
+type Grid {
+	Rows     []Star,
+	View     []int,
+	Key      SortKey,
+	Filter   string,
+	Top      int,
+	Cursor   int,
+	Height   int,
+	Anchor   Option[int],
+	Selected []int,
+}
+
+// State is the table in one of its modes. Filtering keeps the filter it
+// started from, which Cancel restores. Editing keeps the star's id, the
+// column and the draft text.
+type State = Browsing{G Grid} | Filtering{G Grid, Before string} | Editing{G Grid, Row int, Column Column, Draft string}
+
+// Signal is what a script or a window gives the table. Move is by rows
+// (negative is up); Page is by a window; Type adds text to a filter or a
+// draft; Mark sets the anchor of a selection at the cursor and Extend
+// selects every row from the anchor to the cursor.
+type Signal =
+	| Move{By int}
+	| Page{Down bool}
+	| Home{}
+	| End{}
+	| SortBy{Column Column}
+	| StartFilter{}
+	| Type{Text string}
+	| Backspace{}
+	| Commit{}
+	| Cancel{}
+	| Mark{}
+	| Extend{}
+	| Edit{Column Column}
+
+// MaxHeight is the tallest window, in rows.
+let MaxHeight = 1000
+
+// Open is the table over rows, sorted by name, with a window of height
+// rows (1 to MaxHeight).
+func Open(rows []Star, height int) State {
+	let key = SortKey{Column: Name, Descending: false}
+	let h = clamp(height, 1, MaxHeight)
+	Browsing{G: Grid{Rows: rows, View: Order(rows, "", key), Key: key, Filter: "", Top: 0, Cursor: 0, Height: h, Anchor: None, Selected: []int{}}}
+}
+
+// GridOf is the grid of any mode.
+func GridOf(s State) Grid {
+	match s {
+	case Browsing as b:
+		b.G
+	case Filtering as f:
+		f.G
+	case Editing as e:
+		e.G
+	}
+}
+
+// Step is the table's transition. A signal that a mode has no use for is
+// rejected and changes nothing.
+func Step(s State, sig Signal) Decision[State, Refused] fails Refused {
+	match s {
+	case Browsing as b:
+		browse(b.G, sig)
+	case Filtering as f:
+		filtering(f, sig)
+	case Editing as e:
+		try editing(e, sig)
+	}
+}
+
+func browse(g Grid, sig Signal) Decision[State, Refused] {
+	match sig {
+	case Move as m:
+		Stay[State]{Next: Browsing{G: Settle(Grid{..g, Cursor: g.Cursor + m.By})}}
+	case Page as p:
+		let by = if p.Down { g.Height } else { -g.Height }
+		Stay[State]{Next: Browsing{G: Settle(Grid{..g, Cursor: g.Cursor + by, Top: g.Top + by})}}
+	case Home:
+		Stay[State]{Next: Browsing{G: Settle(Grid{..g, Cursor: 0})}}
+	case End:
+		Stay[State]{Next: Browsing{G: Settle(Grid{..g, Cursor: len(g.View) - 1})}}
+	case SortBy as k:
+		let key = if k.Column == g.Key.Column { SortKey{Column: k.Column, Descending: !g.Key.Descending} } else { SortKey{Column: k.Column, Descending: false} }
+		let at = idAt(g)
+		let view = Sorted(g.Rows, g.View, key)
+		Stay[State]{Next: Browsing{G: Settle(Grid{..g, View: view, Key: key, Cursor: follow(view, at, g.Cursor)})}}
+	case StartFilter:
+		Enter[State]{Next: Filtering{G: g, Before: g.Filter}}
+	case Mark:
+		match idAt(g) {
+		case Some[int] as id:
+			Stay[State]{Next: Browsing{G: Grid{..g, Anchor: Some[int]{Value: id.Value}}}}
+		case None:
+			Reject
+		}
+	case Extend:
+		match g.Anchor {
+		case Some[int] as a:
+			let from = slices.Index(g.View, a.Value)
+			if from < 0 || len(g.View) == 0 {
+				return Reject
+			}
+			let lo = if from < g.Cursor { from } else { g.Cursor }
+			let hi = if from < g.Cursor { g.Cursor } else { from }
+			let mut picked = []int{}
+			for i in lo..hi+1 {
+				picked = picked.Append(g.View[i])
+			}
+			Stay[State]{Next: Browsing{G: Grid{..g, Selected: slices.Sort(picked)}}}
+		case None:
+			Reject
+		}
+	case Edit as e:
+		match idAt(g) {
+		case Some[int] as id:
+			Enter[State]{Next: Editing{G: g, Row: id.Value, Column: e.Column, Draft: CellText(CellOf(g.Rows[id.Value], e.Column))}}
+		case None:
+			Reject
+		}
+	case Cancel:
+		Stay[State]{Next: Browsing{G: Grid{..g, Anchor: None, Selected: []int{}}}}
+	case Type, Backspace, Commit:
+		Reject
+	}
+}
+
+func filtering(f Filtering, sig Signal) Decision[State, Refused] {
+	let g = f.G
+	match sig {
+	case Type as t:
+		let next = g.Filter + t.Text
+		let view = if Narrows(g.Filter, next) { Narrow(g.Rows, g.View, next) } else { Order(g.Rows, next, g.Key) }
+		Stay[State]{Next: Filtering{G: Settle(Grid{..g, Filter: next, View: view, Cursor: 0, Top: 0}), Before: f.Before}}
+	case Backspace:
+		if g.Filter == "" {
+			return Reject
+		}
+		let next = dropLast(g.Filter)
+		Stay[State]{Next: Filtering{G: Settle(Grid{..g, Filter: next, View: Order(g.Rows, next, g.Key), Cursor: 0, Top: 0}), Before: f.Before}}
+	case Commit:
+		Enter[State]{Next: Browsing{G: g}}
+	case Cancel:
+		Enter[State]{Next: Browsing{G: Settle(Grid{..g, Filter: f.Before, View: Order(g.Rows, f.Before, g.Key), Cursor: 0, Top: 0})}}
+	case Move, Page, Home, End, SortBy, StartFilter, Mark, Extend, Edit:
+		Reject
+	}
+}
+
+func editing(e Editing, sig Signal) Decision[State, Refused] fails Refused {
+	let g = e.G
+	match sig {
+	case Type as t:
+		Stay[State]{Next: Editing{..e, Draft: e.Draft + t.Text}}
+	case Backspace:
+		if e.Draft == "" {
+			return Reject
+		}
+		Stay[State]{Next: Editing{..e, Draft: dropLast(e.Draft)}}
+	case Commit:
+		let cell = try ParseCell(e.Column, e.Draft)
+		let mut rows = g.Rows
+		rows[e.Row] = Set(rows[e.Row], e.Column, cell)
+		let view = Order(rows, g.Filter, g.Key)
+		Enter[State]{Next: Browsing{G: Settle(Grid{..g, Rows: rows, View: view, Cursor: follow(view, Some[int]{Value: e.Row}, g.Cursor)})}}
+	case Cancel:
+		Enter[State]{Next: Browsing{G: g}}
+	case Move, Page, Home, End, SortBy, StartFilter, Mark, Extend, Edit:
+		Reject
+	}
+}
+
+// Settle keeps the cursor on a row of the view and the window over the
+// cursor, inside the view: the rule WindowWithinBounds states.
+func Settle(g Grid) Grid {
+	let n = len(g.View)
+	let last = if n == 0 { 0 } else { n - 1 }
+	let cursor = clamp(g.Cursor, 0, last)
+	let mut top = g.Top
+	if cursor < top {
+		top = cursor
+	}
+	if cursor >= top+g.Height {
+		top = cursor - g.Height + 1
+	}
+	let room = if n > g.Height { n - g.Height } else { 0 }
+	Grid{..g, Cursor: cursor, Top: clamp(top, 0, room)}
+}
+
+// InBounds reports whether g keeps the window rule: the cursor on a row
+// of the view (0 when it is empty), the window over the cursor, and the
+// window inside the view.
+func InBounds(g Grid) bool {
+	let n = len(g.View)
+	let room = if n > g.Height { n - g.Height } else { 0 }
+	let cursorOK = if n == 0 { g.Cursor == 0 } else { 0 <= g.Cursor && g.Cursor < n }
+	cursorOK && 0 <= g.Top && g.Top <= room && g.Top <= g.Cursor && (n == 0 || g.Cursor < g.Top+g.Height)
+}
+
+func clamp(v int, lo int, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	v
+}
+
+// idAt is the id under the cursor, or None for an empty view.
+func idAt(g Grid) Option[int] {
+	if len(g.View) == 0 {
+		return None
+	}
+	Some[int]{Value: g.View[g.Cursor]}
+}
+
+// follow is the position of id in view, or cursor when id is not there.
+func follow(view []int, id Option[int], cursor int) int {
+	match id {
+	case Some[int] as i:
+		let at = slices.Index(view, i.Value)
+		if at < 0 { cursor } else { at }
+	case None:
+		cursor
+	}
+}
+
+// dropLast is text without its last rune (its last byte, when that byte
+// ends no valid rune).
+func dropLast(text string) string {
+	let mut last = 0
+	for i, _ in text {
+		last = i
+	}
+	let cut = strings.Slice(text, last, len(text))
+	if utf8.ValidString(cut) {
+		return strings.Slice(text, 0, last)
+	}
+	strings.Slice(text, 0, len(text)-1)
+}
+
+// Table is the table as a machine, started on a catalogue and a height.
+type Table machine[State, Signal] {
+	initial: Open,
+	step:    Step,
+
+	// ReachesEditing: some script opens a cell's draft.
+	law ReachesEditing reaches Editing,
+
+	// FilterAndBack: a filter starts from browsing and ends in it.
+	law FilterAndBack path [Browsing, Filtering, Browsing],
+
+	// WindowWithinBounds: after every signal, the cursor is on a row of
+	// the view, the window holds the cursor and stays inside the view.
+	law WindowWithinBounds(rows []Star, height int, signals []Signal) {
+		let mut s = Open(rows, height%30)
+		if !InBounds(GridOf(s)) {
+			return false
+		}
+		for sig in signals {
+			s = After(s, sig)
+			if !InBounds(GridOf(s)) {
+				return false
+			}
+		}
+		true
+	},
+
+	// SelectionSurvivesSort: a sort keeps the selected stars, the anchor
+	// and the star under the cursor.
+	law SelectionSurvivesSort(rows []Star, signals []Signal, n int) {
+		let mut s = Open(rows, 5)
+		for sig in signals {
+			s = After(s, sig)
+		}
+		let g = GridOf(s)
+		match s {
+		case Browsing:
+			let sorted = GridOf(After(s, SortBy{Column: columnOf(n)}))
+			sorted.Selected == g.Selected && sorted.Anchor == g.Anchor && idAt(sorted) == idAt(g)
+		case Filtering, Editing:
+			true
+		}
+	},
+
+	// ViewIsOrder: whatever the script, the view is the filter's stars in
+	// the key's order: narrowing as letters are typed, sorting the shown
+	// list and editing a row never drift from a fresh Order.
+	law ViewIsOrder(rows []Star, signals []Signal) {
+		let mut s = Open(rows, 4)
+		for sig in signals {
+			s = After(s, sig)
+			let g = GridOf(s)
+			if g.View != Order(g.Rows, g.Filter, g.Key) {
+				return false
+			}
+		}
+		true
+	},
+}
+
+// After is the state after sig: a refused edit and a rejected signal
+// leave it as it was.
+func After(s State, sig Signal) State {
+	let d = Step(s, sig) catch {
+	case Refused:
+		return s
+	}
+	match d {
+	case Enter[State] as e:
+		e.Next
+	case Stay[State] as t:
+		t.Next
+	case Emit[State, Refused] as m:
+		m.Next
+	case Ignore, Reject, Done[Refused]:
+		s
+	}
+}

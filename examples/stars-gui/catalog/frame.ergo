@@ -1,0 +1,49 @@
+// A frame as text: what a window over the table shows, written so a
+// headless script can compare it byte for byte. The first line is the
+// status; each row line is the cursor mark, the selection mark, the id
+// and the cells, separated by tabs.
+
+import slices
+import strconv
+import strings
+
+// Frame is the lines of s's window.
+func Frame(s State) []string {
+	let g = GridOf(s)
+	let mut lines = []string{Status(s)}
+	let end = if g.Top+g.Height < len(g.View) { g.Top + g.Height } else { len(g.View) }
+	for at in g.Top..end {
+		lines = lines.Append(RowLine(g, at))
+	}
+	lines
+}
+
+// Status is the first line of a frame: the mode, the sort, the filter,
+// how many stars the view shows, and the window.
+func Status(s State) string {
+	let g = GridOf(s)
+	let dir = if g.Key.Descending { "desc" } else { "asc" }
+	let base = "sort=" + ColumnName(g.Key.Column) + " " + dir + " filter=" + Quote(g.Filter) + " shown=\(len(g.View))/\(len(g.Rows)) top=\(g.Top) cursor=\(g.Cursor) selected=\(len(g.Selected))"
+	match s {
+	case Browsing:
+		"browsing " + base
+	case Filtering:
+		"filtering " + base
+	case Editing as e:
+		"editing " + base + " edit=" + ColumnName(e.Column) + " row=\(e.Row) draft=" + Quote(e.Draft)
+	}
+}
+
+// RowLine is the line of the view's row at position at.
+func RowLine(g Grid, at int) string {
+	let id = g.View[at]
+	let cursor = if at == g.Cursor { ">" } else { " " }
+	let picked = if slices.Contains(g.Selected, id) { "*" } else { " " }
+	let mut b = strings.NewBuilder()
+	b.WriteString(cursor + picked + " " + strconv.Itoa(id))
+	for c in Columns() {
+		b.WriteByte('\t')
+		b.WriteString(CellText(CellOf(g.Rows[id], c)))
+	}
+	b.String()
+}

@@ -1,0 +1,218 @@
+// Package script is the headless driver of the table: a script is lines
+// of commands, each a signal of the Table machine or "show", which writes
+// the frame a window would show. It runs with no window and no terminal,
+// so the program's cases and its agreement property compare frames as
+// text.
+
+import io
+import stars/catalog
+import strconv
+import strings
+
+// Command is one line of a script.
+type Command = Show{} | Send{Signal catalog.Signal}
+
+// BadLine is a line that is no command, with what was wanted.
+type BadLine { Text string, Want string }
+
+// Parse reads one line of a script:
+//
+//	show                       write the frame
+//	down N, up N               move the cursor N rows
+//	pagedown, pageup, home, end
+//	sort COLUMN                sort by COLUMN, or reverse it
+//	filter                     start a filter
+//	type TEXT                  add TEXT (the rest of the line) to the filter or draft
+//	backspace, enter, escape
+//	mark, extend               anchor a selection, select to the cursor
+//	edit COLUMN                edit the cell under the cursor
+func Parse(line string) Command fails BadLine {
+	let word, rest = split(line)
+	match word {
+	case "show":
+		try bare(line, rest)
+		Show
+	case "down":
+		Send{Signal: catalog.Move{By: try count(line, rest)}}
+	case "up":
+		Send{Signal: catalog.Move{By: -(try count(line, rest))}}
+	case "pagedown":
+		try bare(line, rest)
+		Send{Signal: catalog.Page{Down: true}}
+	case "pageup":
+		try bare(line, rest)
+		Send{Signal: catalog.Page{Down: false}}
+	case "home":
+		try bare(line, rest)
+		Send{Signal: catalog.Home}
+	case "end":
+		try bare(line, rest)
+		Send{Signal: catalog.End}
+	case "sort":
+		Send{Signal: catalog.SortBy{Column: try column(line, rest)}}
+	case "filter":
+		try bare(line, rest)
+		Send{Signal: catalog.StartFilter}
+	case "type":
+		Send{Signal: catalog.Type{Text: rest}}
+	case "backspace":
+		try bare(line, rest)
+		Send{Signal: catalog.Backspace}
+	case "enter":
+		try bare(line, rest)
+		Send{Signal: catalog.Commit}
+	case "escape":
+		try bare(line, rest)
+		Send{Signal: catalog.Cancel}
+	case "mark":
+		try bare(line, rest)
+		Send{Signal: catalog.Mark}
+	case "extend":
+		try bare(line, rest)
+		Send{Signal: catalog.Extend}
+	case "edit":
+		Send{Signal: catalog.Edit{Column: try column(line, rest)}}
+	case _:
+		BadLine{Text: line, Want: "a command: show down up pagedown pageup home end sort filter type backspace enter escape mark extend edit"}
+	}
+}
+
+// Line is the script line of c: Parse(Line(c)) is c (law LineParsesBack).
+func Line(c Command) string {
+	match c {
+	case Show:
+		"show"
+	case Send as s:
+		match s.Signal {
+		case catalog.Move as m:
+			if m.By < 0 { "up \(-m.By)" } else { "down \(m.By)" }
+		case catalog.Page as p:
+			if p.Down { "pagedown" } else { "pageup" }
+		case catalog.Home:
+			"home"
+		case catalog.End:
+			"end"
+		case catalog.SortBy as k:
+			"sort " + catalog.ColumnName(k.Column)
+		case catalog.StartFilter:
+			"filter"
+		case catalog.Type as t:
+			"type " + t.Text
+		case catalog.Backspace:
+			"backspace"
+		case catalog.Commit:
+			"enter"
+		case catalog.Cancel:
+			"escape"
+		case catalog.Mark:
+			"mark"
+		case catalog.Extend:
+			"extend"
+		case catalog.Edit as e:
+			"edit " + catalog.ColumnName(e.Column)
+		}
+	}
+}
+
+// split is the first word of line and the rest after one space.
+func split(line string) (string, string) {
+	match strings.Cut(line, " ") {
+	case Some[strings.Halves] as h:
+		(h.Value.Before, h.Value.After)
+	case None:
+		(line, "")
+	}
+}
+
+func bare(line string, rest string) fails BadLine {
+	if rest != "" {
+		return BadLine{Text: line, Want: "no argument"}
+	}
+}
+
+func count(line string, rest string) int fails BadLine {
+	let n = strconv.Atoi(rest) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadLine{Text: line, Want: "a count of rows"}
+	}
+	if n < 0 || n > 1000000000 {
+		return BadLine{Text: line, Want: "a count of rows"}
+	}
+	n
+}
+
+func column(line string, rest string) catalog.Column fails BadLine {
+	match catalog.ColumnOf(rest) {
+	case Some[catalog.Column] as c:
+		c.Value
+	case None:
+		BadLine{Text: line, Want: "a column: name constellation magnitude distance class ascension declination planets"}
+	}
+}
+
+// Play runs the script's lines on s and writes what each line shows: a
+// frame for show, a refusal for an edit the column does not take, and a
+// note for a line that is no command. A blank line and a line that
+// starts with # do nothing. It is the state after the last line.
+func Play(s catalog.State, lines Seq[string]) catalog.State needs io.Stdout {
+	let mut at = s
+	for line in lines {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let c = Parse(line) catch {
+		case BadLine as b:
+			io.Stdout.Println("? " + catalog.Quote(b.Text) + ": want " + b.Want)
+			continue
+		}
+		match c {
+		case Show:
+			for l in catalog.Frame(at) {
+				io.Stdout.Println(l)
+			}
+		case Send as m:
+			at = step(at, m.Signal)
+		}
+	}
+	at
+}
+
+// step is the state after sig, writing a refusal.
+func step(s catalog.State, sig catalog.Signal) catalog.State needs io.Stdout {
+	let d = catalog.Step(s, sig) catch {
+	case catalog.Refused as r:
+		io.Stdout.Println("refused " + catalog.ColumnName(r.Column) + " " + catalog.Quote(r.Text) + ": " + catalog.Explain(r.Reason))
+		return s
+	}
+	match d {
+	case Enter[catalog.State] as e:
+		e.Next
+	case Stay[catalog.State] as t:
+		t.Next
+	case Emit[catalog.State, catalog.Refused] as m:
+		m.Next
+	case Ignore, Reject, Done[catalog.Refused]:
+		s
+	}
+}
+
+// LineParsesBack: a command's line reads back as the command, for every
+// command whose text a line can hold.
+law LineParsesBack(c Command) {
+	match c {
+	case Send as s:
+		match s.Signal {
+		case catalog.Type as t:
+			if strings.Contains(t.Text, "\n") {
+				return true
+			}
+		case catalog.Move as m:
+			if m.By > 1000000000 || m.By < -1000000000 {
+				return true
+			}
+		case _:
+		}
+	case Show:
+	}
+	(try Parse(Line(c))) == c
+}

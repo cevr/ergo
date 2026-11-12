@@ -1,0 +1,106 @@
+// The catalogue's text: where it comes from (the Shelf contract) and its
+// form, one star per line with its eight cells in the table's order,
+// separated by tabs, each cell as CellText writes it.
+
+import strings
+
+// Shelf is where the text of a catalogue comes from. The binary chooses
+// the provider: the host's files, or texts in memory.
+type Shelf {
+	Text(name string) string fails Unreadable,
+
+	// Repeatable: two reads of one catalogue give one text.
+	law Repeatable(name string) {
+		let a = Text(name) catch {
+		case Unreadable:
+			return true
+		}
+		let b = Text(name) catch {
+		case Unreadable:
+			return false
+		}
+		a == b
+	},
+}
+
+// Unreadable is a catalogue that cannot be read, with the reason.
+type Unreadable { Name string, Reason string }
+
+// Malformed is a line of a catalogue that is not a star: the line's
+// number (from 1) and the cell that refused its text, or a wrong count of
+// cells.
+type Malformed { Line int, Problem Problem }
+
+// Problem is what is wrong with a line.
+type Problem = CellCount{Got int} | BadCell{Refused Refused}
+
+// Describe is the text of a malformed line.
+func Describe(m Malformed) string {
+	match m.Problem {
+	case CellCount as c:
+		"line \(m.Line): \(c.Got) cells, want 8"
+	case BadCell as b:
+		"line \(m.Line): " + ColumnName(b.Refused.Column) + " " + Quote(b.Refused.Text) + ": " + Explain(b.Refused.Reason)
+	}
+}
+
+// Parse reads a catalogue's text. A last line with no line break is a
+// line; an empty text has no stars.
+func Parse(text string) []Star fails Malformed {
+	let mut rows = []Star{}
+	let mut n = 0
+	for line in strings.Lines(text) {
+		n = n + 1
+		rows = rows.Append(try ParseLine(strings.TrimSuffix(line, "\n"), n))
+	}
+	rows
+}
+
+// ParseLine reads one line of a catalogue; n is its number.
+func ParseLine(line string, n int) Star fails Malformed {
+	let cells = strings.Split(line, "\t")
+	let all = Columns()
+	if len(cells) != len(all) {
+		return Malformed{Line: n, Problem: CellCount{Got: len(cells)}}
+	}
+	let mut s = Star{Name: "", Constellation: "", Magnitude: 0, Distance: 0, Class: "", Ascension: 0, Declination: 0, Planets: 0}
+	for i, c in all {
+		let cell = ParseCell(c, cells[i]) catch {
+		case Refused as r:
+			return Malformed{Line: n, Problem: BadCell{Refused: r}}
+		}
+		s = Set(s, c, cell)
+	}
+	s
+}
+
+// Line is the text of s in a catalogue, with no line break.
+func Line(s Star) string {
+	let mut cells = []string{}
+	for c in Columns() {
+		cells = cells.Append(CellText(CellOf(s, c)))
+	}
+	strings.Join(cells, "\t")
+}
+
+// Format is the catalogue text of rows.
+func Format(rows []Star) string {
+	let mut b = strings.NewBuilder()
+	for s in rows {
+		b.WriteString(Line(s))
+		b.WriteByte('\n')
+	}
+	b.String()
+}
+
+// Quote is text in double quotes, as a frame and a message show it.
+func Quote(text string) string { "\"" + text + "\"" }
+
+// FormatParsesBack: the text of valid stars reads back as those stars.
+law FormatParsesBack(rows []Star) {
+	let mut valid = []Star{}
+	for s in rows {
+		valid = valid.Append(normal(s))
+	}
+	(try Parse(Format(valid))) == valid
+}

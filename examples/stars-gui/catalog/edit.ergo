@@ -1,0 +1,219 @@
+// The edit of one cell: a typed text is read as the column's cell, or
+// refused with the reason, and a star takes the cell. The catalogue's
+// reader uses the same function, so a file and an edit accept the same
+// texts.
+
+import strconv
+import strings
+
+// Refused is a text that a column does not take, with the reason.
+type Refused { Column Column, Text string, Reason Reason }
+
+// Reason is why a column refuses a text.
+type Reason = Blank{} | Separator{} | NotANumber{} | OutOfRange{Low string, High string}
+
+// Explain is the text of a reason.
+func Explain(r Reason) string {
+	match r {
+	case Blank:
+		"a blank value"
+	case Separator:
+		"a tab or a line break"
+	case NotANumber:
+		"not a number of this column's form"
+	case OutOfRange as o:
+		"out of range " + o.Low + " to " + o.High
+	}
+}
+
+// ParseCell is text read as a cell of column c, in the form CellText
+// writes: a text that is not blank and holds no tab or line break; a
+// fixed-point number with at most the column's places; a right ascension
+// HHhMMm; a count. Each number must be in the column's range.
+func ParseCell(c Column, text string) Cell fails Refused {
+	match c {
+	case Name, Constellation, Class:
+		if strings.TrimSpace(text) == "" {
+			return Refused{Column: c, Text: text, Reason: Blank}
+		}
+		if strings.Contains(text, "\t") || strings.Contains(text, "\n") || strings.Contains(text, "\r") {
+			return Refused{Column: c, Text: text, Reason: Separator}
+		}
+		Text{Value: text}
+	case Magnitude:
+		Fixed{Value: try fixedIn(c, text, 2, -3000, 3000), Places: 2}
+	case Distance:
+		Fixed{Value: try fixedIn(c, text, 1, 0, 99999999), Places: 1}
+	case Declination:
+		Fixed{Value: try fixedIn(c, text, 1, -900, 900), Places: 1}
+	case Ascension:
+		let ok = len(text) == 6 && strings.Slice(text, 2, 3) == "h" && strings.Slice(text, 5, 6) == "m" && digits(strings.Slice(text, 0, 2)) && digits(strings.Slice(text, 3, 5))
+		if !ok {
+			return Refused{Column: c, Text: text, Reason: NotANumber}
+		}
+		let h = digitsValue(strings.Slice(text, 0, 2))
+		let m = digitsValue(strings.Slice(text, 3, 5))
+		if h > 23 || m > 59 {
+			return Refused{Column: c, Text: text, Reason: OutOfRange{Low: "00h00m", High: "23h59m"}}
+		}
+		Hours{Minutes: h*60 + m}
+	case Planets:
+		if text == "" || !digits(text) || len(text) > 4 {
+			return Refused{Column: c, Text: text, Reason: NotANumber}
+		}
+		let n = digitsValue(text)
+		if n > 999 {
+			return Refused{Column: c, Text: text, Reason: OutOfRange{Low: "0", High: "999"}}
+		}
+		Count{Value: n}
+	}
+}
+
+// fixedIn is text read as a fixed-point number of places places, in
+// low..high (in the column's unit).
+func fixedIn(c Column, text string, places int, low int, high int) int fails Refused {
+	let v = ParseFixed(text, places) catch {
+	case NotFixed:
+		return Refused{Column: c, Text: text, Reason: NotANumber}
+	}
+	if v < low || v > high {
+		return Refused{Column: c, Text: text, Reason: OutOfRange{Low: FixedText(low, places), High: FixedText(high, places)}}
+	}
+	v
+}
+
+// NotFixed is a text that is not a fixed-point number.
+type NotFixed {}
+
+// ParseFixed reads -?D+(.D{1,places})? as an integer in units of
+// 10^-places: ParseFixed("-1.4", 2) is -140. The whole part has at most
+// nine digits.
+func ParseFixed(text string, places int) int fails NotFixed {
+	let neg = strings.HasPrefix(text, "-")
+	let body = if neg { strings.Slice(text, 1, len(text)) } else { text }
+	let mut whole = body
+	let mut frac = ""
+	match strings.Cut(body, ".") {
+	case Some[strings.Halves] as h:
+		whole = h.Value.Before
+		frac = h.Value.After
+		if len(frac) == 0 || len(frac) > places {
+			return NotFixed
+		}
+	case None:
+	}
+	if len(whole) == 0 || len(whole) > 9 || !digits(whole) || !digits(frac) {
+		return NotFixed
+	}
+	let mut v = digitsValue(whole) * tens(places)
+	if frac != "" {
+		v = v + digitsValue(frac)*tens(places-len(frac))
+	}
+	if neg { -v } else { v }
+}
+
+// digits reports whether text is ASCII digits only (the empty text is).
+func digits(text string) bool {
+	for r in text {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	true
+}
+
+// number is the value of a text of at most nine ASCII digits.
+func digitsValue(text string) int {
+	strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		Unreachable("number reads only digits")
+	}
+}
+
+// Set is s with column c holding cell. A cell of another column's variant
+// leaves s as it is; ParseCell gives each column its variant.
+func Set(s Star, c Column, cell Cell) Star {
+	match (c, cell) {
+	case (Name, Text as t):
+		Star{..s, Name: t.Value}
+	case (Constellation, Text as t):
+		Star{..s, Constellation: t.Value}
+	case (Class, Text as t):
+		Star{..s, Class: t.Value}
+	case (Magnitude, Fixed as f):
+		Star{..s, Magnitude: f.Value}
+	case (Distance, Fixed as f):
+		Star{..s, Distance: f.Value}
+	case (Declination, Fixed as f):
+		Star{..s, Declination: f.Value}
+	case (Ascension, Hours as h):
+		Star{..s, Ascension: h.Minutes}
+	case (Planets, Count as n):
+		Star{..s, Planets: n.Value}
+	case (_, _):
+		s
+	}
+}
+
+// CellTextReadsBack: the cell of a valid star prints as a text that its
+// column reads back as the same cell, and a text a column takes reads
+// back the same way.
+law CellTextReadsBack(s Star, text string, n int) {
+	let c = columnOf(n)
+	let cell = CellOf(normal(s), c)
+	if (try ParseCell(c, CellText(cell))) != cell {
+		return false
+	}
+	let typed = ParseCell(c, text) catch {
+	case Refused:
+		return true
+	}
+	(try ParseCell(c, CellText(typed))) == typed
+}
+
+// SetShowsTheCell: a star that takes a cell of a column shows that cell
+// in the column, and every other column as it was.
+law SetShowsTheCell(s Star, t Star, n int) {
+	let c = columnOf(n)
+	let cell = CellOf(normal(t), c)
+	let after = Set(s, c, cell)
+	for d in Columns() {
+		let want = if d == c { cell } else { CellOf(s, d) }
+		if CellOf(after, d) != want {
+			return false
+		}
+	}
+	true
+}
+
+// normal is s made valid: each number brought into its column's range,
+// each text that its column refuses replaced by "x". A law draws any star
+// and states its rule on normal(s), so most cases hold real cells.
+func normal(s Star) Star {
+	let mut out = Star{
+		..s,
+		Magnitude:   wrap(s.Magnitude, -3000, 3000),
+		Distance:    wrap(s.Distance, 0, 99999999),
+		Ascension:   wrap(s.Ascension, 0, 1439),
+		Declination: wrap(s.Declination, -900, 900),
+		Planets:     wrap(s.Planets, 0, 999),
+	}
+	for c in []Column{Name, Constellation, Class} {
+		let _ = ParseCell(c, CellText(CellOf(out, c))) catch {
+		case Refused:
+			out = Set(out, c, Text{Value: "x"})
+			continue
+		}
+	}
+	out
+}
+
+// wrap is v when it is in lo..hi, else v brought into lo..hi by its
+// remainder.
+func wrap(v int, lo int, hi int) int {
+	if lo <= v && v <= hi {
+		return v
+	}
+	let span = hi - lo + 1
+	lo + ((v%span)+span)%span
+}
