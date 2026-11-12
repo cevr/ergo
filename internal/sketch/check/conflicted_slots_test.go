@@ -10,12 +10,12 @@ import (
 // declaration; the parameter in E's slot takes no kind from it, and only
 // if it is unconstrained (A, constrained, keeps its own kind, so its
 // misuse is still reported); the other slots still give their parameters
-// their kinds (B a capability row, so no misuse at J[A, B]). Mutants
+// their kinds (B an error row, so no misuse at J[A, B]). Mutants
 // (ledger): t6-6 marks a constrained parameter conflicted (A's misuse
 // goes silent); t6-23 skips the whole index expression (B is left a type
 // and J[A, B] reports it).
 func TestConflictedSlotKinds(t *testing.T) {
-	const src = "type J[E, R] { f func() fails E, k func() needs E, h func() needs R }\nfunc run[A comparable, B](j J[A, B]) A { 1 }\n"
+	const src = "type J[E, R] { f func() fails E, h func() fails R, k func() needs E }\nfunc run[A comparable, B](j J[A, B]) A { 1 }\n"
 	_, ds := checkFor(src)
 	var got []string
 	for _, d := range ds {
