@@ -25,6 +25,9 @@ type Queue[T] {
 	// Values pops each value in turn, as a Seq for a for loop: it waits
 	// like Pop and ends when the queue is closed and empty. A break stops
 	// it; the values not yet popped stay in the queue.
+	//
+	// Unbounded: it ends only when another task closes the queue, so a
+	// loop that collects it all waits for that close.
 	Values() Seq[T],
 	// Poll takes the value Pop would take when one is there now, and is
 	// None when there is none, open or closed. It never waits. With

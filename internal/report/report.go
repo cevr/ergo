@@ -53,14 +53,23 @@ type Diagnostic struct {
 // InsertAt of the diagnostic's file, after adding Imports. Row is the
 // whole clause; Text is empty when an element cannot be spelled.
 // Signature is the header with the clause written. ergo fix applies it.
+//
+// A lint finding's fix (LINT1) has the same shape: Rule names its rule,
+// Text replaces the Replace bytes from InsertAt (0 for an insertion),
+// Unused names the imports the edit may leave unused (ergo fix removes one
+// when the fixed file's check reports it unused), and Clause, Function,
+// Row and Signature are empty.
 type Fix struct {
-	Clause    string   `json:"clause"`
-	Function  string   `json:"function"`
-	Row       []string `json:"row"`
+	Clause    string   `json:"clause,omitempty"`
+	Function  string   `json:"function,omitempty"`
+	Row       []string `json:"row,omitempty"`
+	Rule      string   `json:"rule,omitempty"`
 	InsertAt  int      `json:"insertAt"`
+	Replace   int      `json:"replace,omitempty"`
 	Text      string   `json:"text,omitempty"`
 	Imports   []string `json:"imports,omitempty"`
-	Signature string   `json:"signature"`
+	Unused    []string `json:"unused,omitempty"`
+	Signature string   `json:"signature,omitempty"`
 }
 
 // Target is Ergo's only compilation target.

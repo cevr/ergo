@@ -84,6 +84,8 @@ type DiagnosticFinding struct {
 	Span              Span           `json:"span"`
 	LocationAvailable bool           `json:"locationAvailable"`
 	LSP               *LSPDiagnostic `json:"lsp,omitempty"`
+	// Fix is the edit ergo fix applies for the finding, when it has one.
+	Fix *Fix `json:"fix,omitempty"`
 }
 
 // DiagnosticCounts counts findings by severity.
@@ -163,7 +165,7 @@ func (r *Result) Report(snapshot SourceSnapshot, strict bool) DiagnosticReport {
 			continue
 		}
 		seen[key] = true
-		finding := DiagnosticFinding{Code: diagnostic.Code, File: diagnostic.File, Origin: "compiler", Severity: "error", Message: diagnostic.Message, Span: span}
+		finding := DiagnosticFinding{Code: diagnostic.Code, File: diagnostic.File, Origin: "compiler", Severity: "error", Message: diagnostic.Message, Span: span, Fix: diagnostic.Fix}
 		lsp := &LSPDiagnostic{Severity: 1, Code: diagnostic.Code, Source: "ergo", Message: diagnostic.Message}
 		// A zero Span is the no-location value, such as the EF110 refusal.
 		// A real span carries one-based coordinates, also when it is empty.

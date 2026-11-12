@@ -23,7 +23,11 @@ func (c *Configuration) Run(in Input) Result {
 		case !in.Checked:
 			st.Status, st.Reason = StatusNotEvaluated, ReasonUnchecked
 		default:
-			found, err := runRule(rule, in)
+			options, err := c.optionsOf(rule)
+			var found []Finding
+			if err == nil {
+				found, err = runRule(rule, options, in)
+			}
 			if err != nil {
 				st.Status = StatusFailed
 				res.Complete = false
@@ -33,6 +37,11 @@ func (c *Configuration) Run(in Input) Result {
 			st.Status = StatusCompleted
 			for _, f := range found {
 				f.Code, f.Rule, f.Severity = rule.Code, rule.Name, severity
+				if f.Fix != nil {
+					fix := *f.Fix
+					fix.Rule = rule.Name
+					f.Fix = &fix
+				}
 				findings = append(findings, f)
 			}
 		}
@@ -119,8 +128,15 @@ func (c *Configuration) suppress(d directive, checked bool, statuses map[string]
 	return ""
 }
 
+// Fixable reports a finding `ergo fix --lint` applies: it has a fix and its
+// rule is enabled and marks its fixes safe (Rule.SafeFix).
+func (c *Configuration) Fixable(f Finding) bool {
+	rule := c.registry.byName[f.Rule]
+	return f.Fix != nil && rule != nil && rule.SafeFix && c.severity[f.Rule] != Off
+}
+
 // runRule runs one rule over every file of every checked package.
-func runRule(rule *Rule, in Input) (found []Finding, err error) {
+func runRule(rule *Rule, options any, in Input) (found []Finding, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			found, err = nil, fmt.Errorf("panic: %v", r)
@@ -134,7 +150,7 @@ func runRule(rule *Rule, in Input) (found []Finding, err error) {
 			if file.Syntax == nil {
 				continue
 			}
-			pass := &Pass{Package: unit.Package, Info: unit.Package.Info, File: file.Syntax, rel: file.Rel}
+			pass := &Pass{Package: unit.Package, Info: unit.Package.Info, File: file.Syntax, Options: options, rel: file.Rel}
 			rule.Check(pass)
 			if pass.bad != nil {
 				return nil, pass.bad

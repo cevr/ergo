@@ -8,9 +8,10 @@ import (
 	"slices"
 
 	"ergo.local/prototype/internal/sketch/fix"
+	"ergo.local/prototype/internal/sketch/lint"
 )
 
-const fixHelp = `usage: ergo fix FILE|DIR [--check] [--json]
+const fixHelp = `usage: ergo fix FILE|DIR [--check] [--json] [--lint]
 
 Writes the fails and needs clauses that the signatures of FILE, or of the
 package in DIR and the local packages it imports, are missing (q137:
@@ -20,6 +21,9 @@ It prints one line per widened signature, public contracts first.
 
   --check  write nothing; exit 1 when a signature would change
   --json   print the result as JSON
+  --lint   then apply the safe lint fixes (race-for-timeout) of the
+           module's lint configuration, until none is left; a fix that
+           leaves a diagnostic refuses the run and writes nothing
 
 The checker never runs fix: check, build and test leave sources as they
 are. Other diagnostics are printed, and the exit status is then 1.
@@ -30,32 +34,51 @@ type fixReport struct {
 	Rounds    int              `json:"rounds"`
 	Changed   []fix.Change     `json:"changed"`
 	Remaining []fix.Diagnostic `json:"remaining"`
+	Linted    []fix.Linted     `json:"linted,omitempty"`
 }
+
+const fixUsage = "usage: ergo fix FILE|DIR [--check] [--json] [--lint]"
 
 func fixCommand(args []string) error {
 	var path string
-	var check, asJSON bool
+	var check, asJSON, withLint bool
 	for _, a := range args {
 		switch a {
 		case "--check":
 			check = true
 		case "--json":
 			asJSON = true
+		case "--lint":
+			withLint = true
 		default:
 			if path != "" || len(a) > 1 && a[0] == '-' {
-				return usageError{message: "usage: ergo fix FILE|DIR [--check] [--json]"}
+				return usageError{message: fixUsage}
 			}
 			path = a
 		}
 	}
 	if path == "" {
-		return usageError{message: "usage: ergo fix FILE|DIR [--check] [--json]"}
+		return usageError{message: fixUsage}
 	}
 	texts, chk, err := fix.Load(path)
 	if err != nil {
 		return err
 	}
-	res, err := fix.Run(texts, chk)
+	var linter fix.Linter
+	if withLint {
+		doc, err := lintConfig(path)
+		if err != nil {
+			return invalidInvocation(err)
+		}
+		conf, err := lint.Builtin().Configure(doc, nil)
+		if err != nil {
+			return invalidInvocation(fmt.Errorf("%s: %w", lint.ConfigFile, err))
+		}
+		if linter, err = fix.LintOf(path, conf); err != nil {
+			return err
+		}
+	}
+	res, err := fix.RunLint(texts, chk, linter)
 	if err != nil {
 		return err
 	}
@@ -64,7 +87,7 @@ func fixCommand(args []string) error {
 			return err
 		}
 	}
-	rep := fixReport{Written: !check && len(res.Changed) > 0, Rounds: res.Rounds, Changed: res.Changed, Remaining: res.Remaining}
+	rep := fixReport{Written: !check && (len(res.Changed) > 0 || len(res.Linted) > 0), Rounds: res.Rounds, Changed: res.Changed, Remaining: res.Remaining, Linted: res.Linted}
 	if rep.Changed == nil {
 		rep.Changed = []fix.Change{}
 	}
@@ -83,6 +106,8 @@ func fixCommand(args []string) error {
 		return exitStatusError{code: 1, message: "fix: diagnostics remain", handled: true}
 	case check && len(res.Changed) > 0:
 		return exitStatusError{code: 1, message: "fix: signatures would change", handled: true}
+	case check && len(res.Linted) > 0:
+		return exitStatusError{code: 1, message: "fix: lint fixes would apply", handled: true}
 	}
 	return nil
 }
@@ -97,6 +122,9 @@ func printFix(rep fixReport) {
 			indent = "  "
 		}
 		fmt.Printf("%s%s: %s\n", indent, displayPath(c.File), c.Signature)
+	}
+	for _, l := range rep.Linted {
+		fmt.Printf("%s:%d: fixed %s\n", displayPath(l.File), l.Line, l.Rule)
 	}
 	for _, d := range rep.Remaining {
 		fmt.Fprintf(os.Stderr, "%s:%d:%d: error %s: %s\n", displayPath(d.File), d.Span.Line, d.Span.Column, d.Code, d.Message)

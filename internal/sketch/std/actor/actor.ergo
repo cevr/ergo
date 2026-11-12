@@ -51,6 +51,9 @@ type Actor[S, E, D, F] {
 	// number of loops; it ends after the actor ends and it gave every
 	// state committed before the end, also one a stop overtook. A break
 	// ends it. A loop that does not read keeps the states.
+	//
+	// Unbounded: it ends only when the actor ends, so a loop that collects
+	// it all waits for the actor's end.
 	Changes() Seq[S],
 	// Drain closes admission, so later Sends and Asks fail Stopped, and
 	// waits until the actor has stepped every signal queued before it, in
