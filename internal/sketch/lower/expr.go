@@ -31,6 +31,20 @@ func unparen(x syntax.Expr) syntax.Expr {
 	}
 }
 
+// tried is the operand of the try that starts x (through parentheses),
+// or x itself when no try starts it. A lowering that looks for a shape
+// that cannot fail itself (an assert's comparison, a matched Get) looks
+// through the try, so that try a.b(c) == d and (try a).b(c) == d lower
+// alike (q105: parentheses carry no meaning), and lowers the shape's
+// operands under fc.tries, as fc.try would. A try on a catch (fc.try's
+// partial catch) has no such shape.
+func tried(x syntax.Expr) syntax.Expr {
+	if t, ok := unparen(x).(*syntax.TryExpr); ok {
+		return unparen(t.X)
+	}
+	return x
+}
+
 // typeOf is x's checked type.
 func (fc *funcCtx) typeOf(x syntax.Expr) check.Type {
 	t, ok := fc.typed(x)
@@ -276,6 +290,27 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 // expr lowers x; in a statement header, a composite literal value is
 // parenthesized (header.go).
 func (fc *funcCtx) expr(x syntax.Expr) operand {
+	if fc.l.info.TryCovers[x] != nil {
+		return fc.covered(x)
+	}
+	return fc.expr1(x)
+}
+
+// covered lowers x, the right operand that a try in operand position on
+// its left covers (check.Info.TryCovers, q105): as under the try, every
+// failure evaluated in it leaves the frame, after the left operand.
+func (fc *funcCtx) covered(x syntax.Expr) operand {
+	fc.tries++
+	o := fc.expr1(x)
+	fc.tries--
+	if o.err != "" {
+		fc.propagate(o.err)
+		o.err = ""
+	}
+	return o
+}
+
+func (fc *funcCtx) expr1(x syntax.Expr) operand {
 	o := fc.exprOf(x)
 	if fc.l.vals != nil && fc.l.vals.clone[x] {
 		// The value rule's copy (values.go).
@@ -989,7 +1024,10 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		return fc.plainCatchBody(x, m, o)
 	}
 	result := ""
-	if m.Result != nil {
+	alias := fc.simpleCatch(x) && fc.catchAlias(x, m, o)
+	if alias {
+		// The catch's value is its operand's (forms.go): no arm yields.
+	} else if m.Result != nil {
 		result = fc.temp("v")
 		fc.line("var " + result + " " + fc.goType(m.Result))
 		fc.armHeldVar(x, result)
@@ -1044,6 +1082,24 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		}
 		arms = append(arms, ar)
 	}
+	if !bind && len(arms) == 1 && len(arms[0].types) == 1 && fc.soleFailure(x) {
+		// The row is the arm's one variant (forms.go): a non-nil error is
+		// it, so the arm runs with no type switch and no defect arm.
+		fc.line("if " + o.err + " != nil {")
+		fc.depth++
+		fc.arm(x.Arms[0], result, m.Result)
+		fc.depth--
+		if result != "" && o.val != "" {
+			fc.line("} else {")
+			fc.line("\t" + result + " = " + fc.caughtValue(x, m, o.val))
+		}
+		fc.line("}")
+		if alias {
+			return operand{val: o.val}
+		}
+		fc.markFresh(result)
+		return operand{val: result}
+	}
 	fc.line("if " + o.err + " != nil {")
 	fc.depth++
 	narrowed := ""
@@ -1091,7 +1147,11 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		}
 	}
 	fc.line("}")
+	if alias {
+		return operand{val: o.val}
+	}
 	fc.armValueEnd(x, result)
+	fc.markFresh(result)
 	return operand{val: result}
 }
 

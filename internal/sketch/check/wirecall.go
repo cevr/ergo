@@ -226,7 +226,7 @@ func (c *checker) wireOperand(n syntax.Node, t Type, what string) bool {
 	return true
 }
 
-// The needs of a codec (types.md, Codecs 8; G3 of the v1 audit 3): encode(v, w)
+// The needs of a codec (types.md, Codecs 9; G3 of the v1 audit 3): encode(v, w)
 // calls the Wire of each by-name pair v's type reaches, and decode[T](r)
 // each ParseX, so the call is charged their capabilities as a written call
 // of them there is (chargeWire); codecs may carry needs, counted (owner,
@@ -318,7 +318,7 @@ func (c *checker) wireInstanceNeeds(t Type) string {
 				continue
 			}
 			if row := c.types.resolve(c.funcSig(f).Uses); !row.Empty() {
-				return fmt.Sprintf("%s reaches %s, which needs %s, and a wire type parameter carries no capability row; call encode or decode with %s itself, where the call is charged; types.md, Codecs 8", t, f.Name, rowText(row), t)
+				return fmt.Sprintf("%s reaches %s, which needs %s, and a wire type parameter carries no capability row; call encode or decode with %s itself, where the call is charged; types.md, Codecs 9", t, f.Name, rowText(row), t)
 			}
 		}
 	}
@@ -357,13 +357,13 @@ func (c *checker) checkWireNeeds() {
 		if w.at == nil {
 			if !done[w.parse.Decl.Name] {
 				done[w.parse.Decl.Name] = true
-				c.errorf(w.parse.Decl.Name, CodeType, "%s needs %s and is the codec of a type bound to a wire type parameter, which carries no capability row; call encode or decode with the type itself, where the call is charged (types.md, Codecs 8)", w.parse.Name, rowText(row))
+				c.errorf(w.parse.Decl.Name, CodeType, "%s needs %s and is the codec of a type bound to a wire type parameter, which carries no capability row; call encode or decode with the type itself, where the call is charged (types.md, Codecs 9)", w.parse.Name, rowText(row))
 			}
 			continue
 		}
 		if !done[w.at] {
 			done[w.at] = true
-			c.errorf(w.at, CodeType, "this decode reaches %s, whose inferred needs row is %s, and its body has no function whose row could take it; write the row of %s (types.md, Codecs 8)", w.parse.Name, rowText(row), w.parse.Name)
+			c.errorf(w.at, CodeType, "this decode reaches %s, whose inferred needs row is %s, and its body has no function whose row could take it; write the row of %s (types.md, Codecs 9)", w.parse.Name, rowText(row), w.parse.Name)
 		}
 	}
 }

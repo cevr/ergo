@@ -1,5 +1,13 @@
 # Run-artifact mutant
 
+## CF1 constant-aware std-name rule
+
+`cf1-residue-literal-only`: change stdConst to return false unless its
+argument is an ast.BasicLit. TestLoweringKeysOnNoStdName then calls the
+pre-existing wirejson.go:isJSONText inventory row stale. The red before
+the scanner fix is recorded in the CF1 run's red-residue.log. No previous
+inventory row depended on the value of a named constant.
+
 | Mutant | Killer | Evidence |
 | --- | --- | --- |
 | Restore the os package identity range check, or SealedStd's extern-result rule in the checker | TestCheckerNamesNoStdPackage | STD1a red acceptance, empty identity inventory. |

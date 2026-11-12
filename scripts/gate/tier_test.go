@@ -254,14 +254,19 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stepped := map[string]bool{}
+	for dir := range fastPackageSteps(t, root) {
+		stepped[dir] = true
+	}
 	// What a reached package costs in the fast tier: the recorded CPU of
 	// its fast steps. A package with no row cannot be budgeted. A host
 	// package has no fast step (classHeavy), and neither has a package
 	// whose every test builds Go (fullTierOnly: internal/selfhostcheck,
-	// internal/experimental/irspike), so no edit reaches them here.
+	// internal/experimental/irspike) or is large (fastSteps), so no edit
+	// reaches them here.
 	reach := func(file string) (dirs []string, cpu float64) {
 		for _, p := range packages {
-			if !p.closure.Covers(file) || slices.Contains(hostTestPackages, p.dir) {
+			if !p.closure.Covers(file) || !stepped[p.dir] {
 				continue
 			}
 			if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(p.dir))); err != nil {
@@ -278,11 +283,8 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 		}
 		return dirs, cpu
 	}
-	// scripts/mutants walks every ledger and each mutant's source
-	// (TestLedgerEditsApplyOnce: a declared subtree, 22a8d683d), as the
-	// residue checks and the guard read every tracked file.
 	docs, _ := reach("docs/tooling.md")
-	if want := []string{"internal/residue", "internal/testinputs/guard", "scripts/mutants"}; !slices.Equal(docs, want) {
+	if want := []string{"internal/residue", "internal/testinputs/guard"}; !slices.Equal(docs, want) {
 		t.Errorf("a docs edit reaches %v; want %v", docs, want)
 	}
 	// The steps that are no package's and that the budget counts
@@ -330,8 +332,10 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// them to RPC, but every test of it builds Go (fullTierOnly), as do
 	// internal/selfhostcheck's and internal/experimental/irspike's; the
 	// direct build path's identity test lives in internal/sketchfront, so
-	// internal/sketch/build's tests import no part of the checker.
-	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples", "scripts/mutants"}
+	// internal/sketch/build's tests import no part of the checker. The
+	// ledger anchor check lives in internal/residue (main's eb40167a3), so
+	// scripts/mutants is not reached.
+	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}

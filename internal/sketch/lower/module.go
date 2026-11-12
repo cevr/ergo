@@ -211,18 +211,26 @@ type lowerer struct {
 	formats  int        // go/format runs
 
 	// inlineOK holds the inline decisions, inlineGrown the body nodes each
-	// Go function took in, inlineSites the inlined calls (inline.go), and
+	// Go function took in under the reference growth rule (growth.go),
+	// inlineSites the inlined calls (inline.go), and
 	// lastDir the last //line directive a body wrote. inlineCb holds the
 	// functions whose body calls unknown code only through its callback
 	// parameters (inlineRule).
 	inlineOK    map[inlineKey]knownState
 	inlineCb    map[*check.Func]bool
 	inlineGrown map[*namer]int
+	// hot are the functions called inside a loop (hot.go).
+	hot map[*check.Func]bool
 	// copyScopes are the Go functions that are copies for a known record
 	// (record.go): they take copyGrowth.
 	copyScopes  map[*namer]bool
 	inlineSites []inlineSite
 	lastDir     string
+	// fresh holds the fresh temporaries (forms.go).
+	fresh map[freshKey]bool
+	// letUses counts each package let's uses and its uses where a Go
+	// constant is safe (forms.go, constLet).
+	letUses map[*check.Var][2]int
 
 	types    map[*check.TypeName]*typeDecl
 	funcs    map[*check.Func]*funcDecl
@@ -584,6 +592,11 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	for _, path := range slices.Sorted(maps.Keys(l.hostImports)) {
 		imports = append(imports, l.pkgNames[pkgKey{"import", path}]+" "+strconv.Quote(path))
+	}
+	// A Go package the entry carries for its initialization (time/tzdata;
+	// interop.md, Checking 6): Go's blank import.
+	for _, path := range l.info.Carries {
+		imports = append(imports, "_ "+strconv.Quote(path))
 	}
 	imports = append(imports, l.testImports()...)
 	imports = append(imports, l.libImports...)

@@ -46,9 +46,9 @@ test UnitsAndPeers {
 
 test ConsistentFindsTwice {
 	assert Consistent(try Parse(easy))
-	assert !Consistent((try Parse(easy)).With(0, 3))
-	assert !Consistent((try Parse(easy)).With(1, 9))
-	assert !Consistent((try Parse(easy)).With(10, 3))
+	assert !Consistent(try Parse(easy).With(0, 3))
+	assert !Consistent(try Parse(easy).With(1, 9))
+	assert !Consistent(try Parse(easy).With(10, 3))
 }
 
 test SolvesNeedsGivens {

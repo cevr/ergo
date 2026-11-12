@@ -381,7 +381,7 @@
       "name": "g3-omit",
       "origin": "G3",
       "file": "internal/sketch/lower/wirefields.go",
-      "from": "optional := jsonWrapper(ft, \"Optional\")",
+      "from": "optional := check.WireFormOf(ft) == check.WireOmittable",
       "to": "optional := false",
       "rule": "Absent fields write no key and Present writes its bare value.",
       "killers": ["lower:TestJSONFieldsAgree"]
@@ -399,8 +399,8 @@
       "name": "g3-required",
       "origin": "G3",
       "file": "internal/sketch/lower/wire.go",
-      "from": "if jsonWrapper(f.Type, \"Optional\") {",
-      "to": "if jsonWrapper(f.Type, \"Optional\") || jsonWrapper(f.Type, \"Nullable\") {",
+      "from": "if check.WireFormOf(f.Type) == check.WireOmittable {",
+      "to": "if check.WireFormOf(f.Type) == check.WireOmittable || check.WireFormOf(f.Type) == check.WireNullable {",
       "rule": "A Nullable field still requires its key; null is not absence.",
       "killers": ["lower:TestJSONFieldsAgree"]
     },
@@ -408,7 +408,7 @@
       "name": "g3-generic-witness",
       "origin": "G3",
       "file": "internal/sketch/lower/wirefields.go",
-      "from": "if !jsonWrapper(t, \"Optional\") {",
+      "from": "if check.WireFormOf(t) != check.WireOmittable {",
       "to": "if true {",
       "rule": "A json.Optional argument's witness carries the record-field form, so a field typed by a type parameter omits Absent.",
       "killers": ["lower:TestJSONFieldsAgree"]
@@ -4138,6 +4138,136 @@
     {"name":"wt-unused-arg","origin":"wf10 batch-18 fix-laws (bug found by TestCellWriterAgrees)","file":"internal/sketch/lower/wiretext.go","from":"\tif rewritten {\n\t\t// An argument","to":"\tif false {\n\t\t// An argument","rule":"An argument a rewritten run drops is still read, so the Go variable that names it stays used.","killers":["lower:TestCellWriterAgrees"]},
     {"name":"wt-admit-tested","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"if entry.Verdict != \"proved\" {","to":"if false {","rule":"A std law changes code only when its ledger entry is proved (owner q115).","killers":["lower:TestStdEvidenceAdmitsOnlyProvedCurrent"]},
     {"name":"wt-admit-stale","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"if d != entry.Digest {","to":"if false {","rule":"A std law whose ledger digest is stale changes no code.","killers":["lower:TestStdEvidenceAdmitsOnlyProvedCurrent"]},
-    {"name":"ps2-unfold-of-extern","origin":"wf10 LR3 (from PS2)","file":"internal/sketch/lower/unfold.go","from":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\treturn false\n\t\t\t}","to":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\tcontinue\n\t\t\t}","rule":"Unfold by definition replaces a call by its body only when every statement is a provider call on the receiver; a body with any other call (an extern, a function off the provider) stays a call.","killers":["lower:TestRewriteAgrees"]}
+    {"name":"ps2-unfold-of-extern","origin":"wf10 LR3 (from PS2)","file":"internal/sketch/lower/unfold.go","from":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\treturn false\n\t\t\t}","to":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\tcontinue\n\t\t\t}","rule":"Unfold by definition replaces a call by its body only when every statement is a provider call on the receiver; a body with any other call (an extern, a function off the provider) stays a call.","killers":["lower:TestRewriteAgrees"]},
+    {"name":"cf1-field-count-by-name","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirefields.go","from":"if !param && check.WireFormOf(f.Type) != check.WireOmittable {","to":"if !param && (check.WireFormOf(f.Type) != check.WireOmittable || !f.Type.(*check.Named).Obj.Pkg.Std()) {","rule":"Writer.BeginObject's field count omits an absent user field too.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-number-parser-bypassed","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirevalue.go","from":"b.WriteString(l.wireParseReturn(p.Parse, env, tc.site, tc.goType(p.Base)+\"(\"+x+\")\"))","to":"b.WriteString(\"return \" + tc.wrapperValue(t, wireUnder(t).(*check.Struct).Fields[0], tc.goType(p.Base)+\"(\"+x+\")\") + \", nil\\n\")","rule":"A number form decodes through its declared parser and preserves its typed failures.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-parse-fallibility","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wire.go","from":"if !l.useFunc(parse, site).fallible {","to":"if false {","rule":"An infallible Parse function is adapted to a codec's value/error result without an invalid Go return.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-form-by-name","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirefields.go","from":"if check.WireFormOf(t) != check.WireOmittable {","to":"if check.WireFormOf(t) != check.WireOmittable || !t.(*check.Named).Obj.Pkg.Std() {","rule":"A user-owned omittable union receives the same field witness as std, without package identity.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-absent-key-written","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirefields.go","from":"wit + \".Field == nil || !\" + wit + \".Field.Absent(\"","to":"wit + \".Field == nil || true || !\" + wit + \".Field.Absent(\"","rule":"An absent generic field omits its key before encoding a payload.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-missing-key-not-decoded","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wire.go","from":"wit + \".Field.Empty\\n}\\n\"","to":"wit + \".Field.Empty\\n\" + missing + \"}\\n\"","rule":"A missing omittable generic field decodes as its empty alternative, not a required-field failure.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-bare-tagged","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wire.go","from":"if check.WireFormOf(t) == check.WireBare {\n\t\tl.wireValueEncode","to":"if false && check.WireFormOf(t) == check.WireBare {\n\t\tl.wireValueEncode","rule":"A user bare union writes by event kind without a variant tag.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-number-string","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirevalue.go","from":"b.WriteString(numEncode(task, w, spelling))","to":"b.WriteString(em.basic(tc, check.Typ[check.String], task, w, spelling))","rule":"A number-text form writes the original numeric spelling, not a quoted string.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"cf1-members-key","origin":"wf10 CF1 q119","file":"internal/sketch/lower/wirevalue.go","from":"em.mapKey(m+\".\"+td.fieldName[entry.Fields[0].Name], task, w)","to":"em.mapKey(\"\\\"wrong\\\"\", task, w)","rule":"Ordered object members retain each entry's own key.","killers":["lower:TestWireFormsAgree"]},
+    {"name":"opt8-pays-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"\tif inlineCostLowering == \"budget\" {\n\t\treturn true\n\t}\n\tbig :=","to":"\tif true {\n\t\treturn true\n\t}\n\tbig :=","rule":"Inline cost rule, Size: a body larger than Go's inline budget is inlined only on a loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-pays-size-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"big := inlineSize(f.Decl.Body) > goSizeBudget","to":"big := inlineSize(f.Decl.Body) > 100*goSizeBudget","rule":"Inline cost rule, Size: the size test reads the body's nodes against goSizeBudget.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-pays-go-leaf","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"\tif goLeaf(f) {\n\t\treturn big && fc.onLoopPath()","to":"\tif false && goLeaf(f) {\n\t\treturn big && fc.onLoopPath()","rule":"Inline cost rule, Size: a Go leaf with a boxed result within Go's budget is left to Go's inliner.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-loop-lexical-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"func (fc *funcCtx) onLoopPath() bool { return fc.hot || len(fc.loops) > 0 }","to":"func (fc *funcCtx) onLoopPath() bool { return fc.hot }","rule":"Inline cost rule, Size: a site inside a loop of its Go function is on a loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-inlined-hot-dropped","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}","to":"directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, path: fc.sitePath()}","rule":"Inline cost rule, Size: a site in a body inlined on a loop path is on that loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-literal-hot-dropped","origin":"wf10 OPT8","file":"internal/sketch/lower/inline.go","from":"inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}","to":"inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath()}","rule":"Inline cost rule, Size: a site in a literal substituted on a loop path is on that loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-field-pays-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/record.go","from":"!fc.l.inlineWithin(g, fieldBudget) || !fc.pays(g) {","to":"!fc.l.inlineWithin(g, fieldBudget) {","rule":"Inline cost rule, Size: a known record's field call in a copy pays for its size as any call does.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-func-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/decls.go","from":"\tfc.hot = l.hotFunc(f)\n","to":"\tfc.hot = false\n","rule":"Inline cost rule, Size: the body of a function on a loop path is on that loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-all","origin":"wf10 OPT8","file":"internal/sketch/lower/hot.go","from":"\treturn l.hot[f]\n","to":"\treturn true\n","rule":"Inline cost rule, Size: a function no loop reaches is off every loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-loop-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/hot.go","from":"if (loop || cycle[h]) && !hot[h] {","to":"if (cycle[h]) && !hot[h] {","rule":"Inline cost rule, Size: a function called inside a loop is on a loop path.","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-transitive-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/hot.go","from":"walk(g.Decl.Body, hot[g])","to":"walk(g.Decl.Body, false)","rule":"Inline cost rule, Size: a function called by a function on a loop path is on it (lru's cache methods).","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-recursion-blind","origin":"wf10 OPT8","file":"internal/sketch/lower/hot.go","from":"cycle[h] = l.inlineRecursive(h)","to":"cycle[h] = false","rule":"Inline cost rule, Size: a recursive function is on a loop path (the recursion is its loop).","killers":["lower:TestInlinePays"]},
+    {"name":"opt8-hot-rewalk","origin":"wf10 OPT8","file":"internal/sketch/lower/hot.go","from":"\t\t\t\t\t\tseen[h] = false // walk it again: its callees are hot now\n","to":"","rule":"Inline cost rule, Size: a function found on a loop path after its body was walked is walked again, so the set is closed under calls.","killers":["lower:TestInlinePays"]},
+    {"name":"forms-reference-blind","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"func formsOn() bool { return formLowering != \"reference\" }","to":"func formsOn() bool { return true }","rule":"The reference lowering (formLowering reference) writes the value forms as before OPT5.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-alias-fresh","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\tif !fc.isFresh(val) {\n\t\treturn false\n\t}\n\tdelete(fc.l.fresh, freshKey{fc.scope, val})\n\tfc.locals[v] = val","to":"\tif val == \"\" {\n\t\treturn false\n\t}\n\tdelete(fc.l.fresh, freshKey{fc.scope, val})\n\tfc.locals[v] = val","rule":"types.md Bindings: a let is a copy; it names its value's Go variable only when that variable is a fresh temporary no write reaches.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-catch-leaves","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\tif !fc.leaves(a.Body) {","to":"\t\tif false && !fc.leaves(a.Body) {","rule":"rows.md Catch: a catch has its operand's value only when every arm leaves; an arm that yields gives the catch its value.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-rename-func","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\tif t == token.FUNC || t == token.ILLEGAL {","to":"\t\tif t == token.ILLEGAL {","rule":"An inlined body with a function literal keeps its own tail variable: a literal could keep it past the body.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-rename-key","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\tif toks[i+1].tok == token.COLON {","to":"\t\tif false {","rule":"renameTail renames a variable, never a composite literal key or a label spelled as it.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-rename-selector","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":" && (i == 0 || toks[i-1].tok != token.PERIOD) {","to":" {","rule":"renameTail renames a variable, never a field or method spelled as it.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-rename-type","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"if end == n || strings.TrimSpace(body[toks[decl+2].off:toks[end].off]) != resType {","to":"if end == n {","rule":"renameTail renames a tail variable into the result only when the variable's Go type is the result's.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-rename-iface","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":" && t.depth == 0 && !iface:","to":" && t.depth == 0:","rule":"renameTail does not rename an untyped := tail into an interface result: Go assigns a variant to it with no conversion.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-const-divisor","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\t\tif !l.constLike(n.Y) {\n\t\t\t\treturn []syntax.Expr{n.X}\n\t\t\t}","to":"\t\t\tif true {\n\t\t\t\treturn []syntax.Expr{n.X, n.Y}\n\t\t\t}","rule":"A package let read as a divisor stays a Go variable: a constant zero divisor is a Go build error, where Ergo raises the run's defect.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-const-fold","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\t\t\tif !l.constLike(n.Y) {\n\t\t\t\tout = append(out, n.X)","to":"\t\t\tif true {\n\t\t\t\tout = append(out, n.X)","rule":"A package let added to a constant stays a Go variable: Go folds two constants at build time, where an overflow is an error, not the run's wrap.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-map-sameplace","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\tif recv == nil || !samePlace(s.Lhs[0], recv) {","to":"\tif recv == nil {","rule":"Only p = p.f(…) drops its store back: a Map written in place into another place is that place's new value.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-map-type","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"!isMap {\n\t\treturn false // a slice","to":"!isMap && false {\n\t\treturn false // a slice","rule":"A slice's in-place append changes its header: its store back stays.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-sole-row","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\tif len(c.Fails.Elems()) != 1 {","to":"\tif len(c.Fails.Elems()) == 0 {","rule":"rows.md Catch: a catch arm takes exactly its types; only a row of one variant lets its nil test stand for the arm's type test.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-alias-once","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"\tdelete(fc.l.fresh, freshKey{fc.scope, val})\n","to":"","rule":"types.md Bindings: a let mut of a let is a second variable; a fresh temporary names one let at most.","killers":["lower:TestFormsAgree","lower:TestArrayValuesAgree"]},
+    {"name":"forms-sole-footprint","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"if fp, ok := f.Pkg.Info.Footprints[f.Decl]; !ok || !fp.Empty() {","to":"if false {","rule":"rows.md Catch 6: a catch of a callee that may be interrupted keeps the default that passes the interruption on.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-sole-goerror","origin":"wf10 OPT5","file":"internal/sketch/lower/forms.go","from":"ok && check.IsGoError(n) {","to":"ok && false && check.IsGoError(n) {","rule":"rows.md Catch 6: a catch of an Ergo call failing go.Error keeps its type switch and re-panicking default.","killers":["lower:TestPlainCatchAgrees"]},
+    {"name":"forms-drop-stmt","origin":"wf10 OPT5 r2","file":"internal/sketch/lower/drop.go","from":"if !formsOn() || fc.stmtCall != x {","to":"if !formsOn() {","rule":"Only a call whose statement discards its value goes to the variant with no result.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-drop-result","origin":"wf10 OPT5 r2","file":"internal/sketch/lower/decls.go","from":"if len(f.Sig.Results) == 1 && !drop {","to":"if len(f.Sig.Results) == 1 {","rule":"The variant with no result returns nothing: each return evaluates its value for its effects alone.","killers":["lower:TestFormsAgree"]},
+    {"name":"forms-drop-reference","origin":"wf10 OPT5 r2","file":"internal/sketch/lower/drop.go","from":"if !formsOn() || fc.stmtCall != x {","to":"if fc.stmtCall != x {","rule":"The reference lowering (formLowering reference) calls the function itself.","killers":["lower:TestFormsAgree"]},
+    {"name":"builtin-delete-shared-source","origin":"wf10 OPT7","file":"internal/sketch/lower/values.go","from":"\treturn check.GoBuiltin(f) == \"delete\" || f != nil","to":"\treturn f != nil","rule":"types.md Bindings 1: a binding of Go's delete writes a copy of a Map that is seen again (the value rule), as the prelude's Delete does.","killers":["lower:TestBuiltinsAgree"],"anchor":{"tests":["lower:TestBuiltinsAgree"]}},
+    {"name":"builtin-delete-statement-value","origin":"wf10 OPT7","file":"internal/sketch/lower/calls.go","from":"\t\tif fc.stmtCall == x {\n\t\t\treturn \"delete(\"","to":"\t\tif false {\n\t\t\treturn \"delete(\"","rule":"An in-place m = m.Delete(k) is Go's delete statement alone, with no Map value left unused.","killers":["lower:TestBuiltinsAgree"],"anchor":{"tests":["lower:TestBuiltinsAgree"]}},
+    {"name":"builtin-delete-via-helper","origin":"wf10 OPT7","file":"internal/sketch/lower/calls.go","from":"\tif b == \"delete\" {\n","to":"\tif b == \"delete\" && false {\n","rule":"The prelude's Delete is Go's delete at its call (OPT7), not a Go function between.","killers":["lower:TestBuiltinsAgree"],"anchor":{"tests":["lower:TestBuiltinsAgree"]}},
+    {"name":"growth-paths-shared","origin":"wf10 OPT7","file":"internal/sketch/lower/growth.go","from":"\tfc.path = append(fc.path[:n:n], acct)\n","to":"\t_ = acct\n","rule":"Each statement list has its own growth account: two arms of a branch never spend each other's allowance.","killers":["lower:TestInlineGrowth"],"anchor":{"tests":["lower:TestInlineGrowth"]}},
+    {"name":"growth-prefix-dropped","origin":"wf10 OPT7","file":"internal/sketch/lower/growth.go","from":"spent: top[len(top)-1].spent,","to":"spent: 0,","rule":"A list's account starts with the growth of the list around it.","killers":["lower:TestInlineGrowth"],"anchor":{"tests":["lower:TestInlineGrowth"]}},
+    {"name":"growth-cold-ignored","origin":"wf10 OPT7","file":"internal/sketch/lower/growth.go","from":"cold: top[len(top)-1].cold || fc.coldList(list)}","to":"cold: top[len(top)-1].cold}","rule":"A site on a list that ends in a typed failure or a defect is not inlined.","killers":["lower:TestInlineGrowth"],"anchor":{"tests":["lower:TestInlineGrowth"]}},
+    {"name":"growth-unbounded","origin":"wf10 OPT7","file":"internal/sketch/lower/growth.go","from":"acct.cold || acct.spent+size > fc.l.growthOf(fc.scope)","to":"acct.cold","rule":"A path takes at most inlineGrowth nodes of inlined bodies (copyGrowth in a copy for a known record).","killers":["lower:TestInlineGrowth"],"anchor":{"tests":["lower:TestInlineGrowth"]}},
+    {"name":"growth-inlined-path-reset","origin":"wf10 OPT7","file":"internal/sketch/lower/inline.go","from":"directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}","to":"directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, hot: fc.onLoopPath()}","rule":"An inlined body's sites spend the path of its site.","killers":["lower:TestInlineGrowth"],"anchor":{"tests":["lower:TestInlineGrowth"]}},
+    {"name":"stz-carry-not-imported","origin":"wf10 S-tz","file":"internal/sketch/lower/module.go","from":"\t\timports = append(imports, \"_ \"+strconv.Quote(path))","to":"\t\t_ = path","rule":"interop.md Lowering 12: a carried Go package is a blank import of the entry's emitted file, so the binary holds the zone data.","killers":["lower:TestZoneDataCarried"]},
+    {
+      "name": "fureaddir-host-pkg-named-only",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/naming.go",
+      "from": "for _, h := range hostPkgsIn(t, nil) {",
+      "to": "for _, h := range hostPkgsIn(func() check.Type { if n, ok := t.(*check.Named); ok { return n }; return nil }(), nil) {",
+      "rule": "The naming pass names the import of every Go package a read expression type mentions at any depth ([]fs.DirEntry of os.ReadDir), not only a Named expression type's.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-host-type-scope-name",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\tif tn.Pkg.Host() {\n\t\t// A Go type of import go is Go's own declaration",
+      "to": "\tif false {\n\t\t// A Go type of import go is Go's own declaration",
+      "rule": "A Go type of import go takes no package-scope name: its typeDecl (read by a copy or a field selection after the naming pass) is named through its package's import.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-result-unadapted",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "return fc.seqFromGo(t, r, x)",
+      "to": "return r",
+      "rule": "A Go iter.Seq result, which the binding maps to the prelude Seq, becomes an Ergo Seq at the import go boundary.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-arg-unadapted",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "\tfc.goSeqArgs(sig, x.Args, vals, x)\n",
+      "to": "\t// mutant: no Seq argument adapter\n",
+      "rule": "An Ergo Seq argument of a Go call whose parameter is iter.Seq becomes Go's iter.Seq.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-ignores-stop",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "ind + \"\\t\\tif !\" + ok2 + \" {\\n\" +",
+      "to": "ind + \"\\t\\tif false && !\" + ok2 + \" {\\n\" +",
+      "rule": "A Seq made from a Go iter.Seq stops ranging when its Ergo yield returns false (a break in a for-in over it).",
+      "killers": [
+        "lower:TestGoSeqCrossesTheBoundary"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-result-generic",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "\t\t\tt = fc.typeOf(x)\n",
+      "to": "\t\t\t_ = fc.typeOf(x)\n",
+      "rule": "A Seq result of a generic Go function (maps.Keys) takes the call's checked type, not the function's type parameter.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {
+      "name": "fureaddir-seq-arg-generic",
+      "origin": "wf10 FU-readdir",
+      "file": "internal/sketch/lower/gocall.go",
+      "from": "n, ok := fc.typeOf(args[i]).(*check.Named)",
+      "to": "n, ok := p.Type.(*check.Named)",
+      "rule": "A Seq argument of a generic Go function (slices.Collect) takes the argument's checked type, not the function's type parameter.",
+      "killers": [
+        "lower:TestEveryGoBoundFunctionLowers"
+      ]
+    },
+    {"name":"try1-covered-failure-dropped","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"\t\tfc.propagate(o.err)\n\t\to.err = \"\"","to":"\t\tfc.line(\"_ = \" + o.err)\n\t\to.err = \"\"","rule":"rows.md Error rows 7: a failure of a covered right operand leaves the frame.","killers":["lower:TestTryCoversToTheRightBuilt"]},
+    {"name":"try1-and-right-hoisted","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"if (op == \"&&\" || op == \"||\") && fc.emits(x.Y) {","to":"if false && (op == \"&&\" || op == \"||\") && fc.emits(x.Y) {","rule":"types.md Operators: the right operand of && and || runs only when the left one does not decide, a covered one too.","killers":["lower:TestTryCoversToTheRightBuilt"]},
+    {"name":"try1-right-before-left","origin":"wf10 lang-2 TRY1","file":"internal/sketch/lower/expr.go","from":"\treturn fc.binaryOf(x, fc.operands([]syntax.Expr{x.X, x.Y}, false))","to":"\treturn fc.binaryOf(x, func(p []string) []string { return []string{p[1], p[0]} }(fc.operands([]syntax.Expr{x.Y, x.X}, false)))","rule":"spec D4: operands evaluate left to right; a covered call is hoisted after the left operand.","killers":["lower:TestTryCoversToTheRightBuilt"]}
   ]
 }

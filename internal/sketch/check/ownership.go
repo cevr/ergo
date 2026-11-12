@@ -33,8 +33,9 @@ import (
 //
 // The pass records the release plan in Info.Releases: at each scope's end,
 // each statement's end (its temporaries, R43), each exit edge (return,
-// break, continue, a try's failure that leaves the function) and each
-// assignment (the old value, R41), what is still owned there, last
+// break, continue; a try's failure that leaves the function, in
+// Info.TryReleases) and each assignment (the old value, R41), what is
+// still owned there, last
 // acquired first, with a drop flag for a value owned on some paths only.
 //
 // A loop body runs to its fixpoint: the lattice per value is owned,
@@ -1587,7 +1588,7 @@ func (w *ownWalk) callFailure(x *syntax.CallExpr, h hand) {
 // position: a later failure may follow a block whose locals are already gone.
 // A value absent on any failure path has a drop flag. Each path supplies the
 // order at its production boundary, never the success destination's state.
-func (w *ownWalk) recordFailures(key syntax.Node, paths [][]Release) {
+func (w *ownWalk) recordFailures(key *syntax.TryExpr, paths [][]Release) {
 	var out []Release
 	for i, path := range paths {
 		for j := range out {
@@ -1626,7 +1627,11 @@ func (w *ownWalk) recordFailures(key syntax.Node, paths [][]Release) {
 			}
 		}
 	}
-	w.record(key, out)
+	if len(out) == 0 {
+		delete(w.info.TryReleases, key)
+		return
+	}
+	w.info.TryReleases[key] = out
 }
 
 // lendRoot carries the root owner only when the expression's result holds
@@ -1954,11 +1959,11 @@ func (w *ownWalk) replaced(x *syntax.CompositeLit) []Replaced {
 			add(f, x.Base.Pos())
 		}
 	}
-	// Each temporary is a node made from x, so it lies in x's file
-	// (owner.go; the provenance manifest lists this site).
+	// Each temporary is a node the checker makes (made, owner.go), from
+	// the update it releases for, so it lies in the update's file.
 	var rs []Replaced
 	for _, d := range drops {
-		rs = append(rs, Replaced{Field: d.f, Temp: made(w.c, &syntax.Ident{NamePos: d.at, Name: d.f.Name}, x)})
+		rs = append(rs, Replaced{Field: d.f, Temp: made(w.c, &syntax.Ident{NamePos: d.at, Name: d.f.Name}, syntax.Node(x))})
 	}
 	if len(rs) > 0 {
 		w.info.Replaced[x] = rs

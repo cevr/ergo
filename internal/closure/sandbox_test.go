@@ -179,7 +179,8 @@ func (r runTimeout) Error() string {
 }
 
 // runDeadlineVariable bounds each run of a test binary in the sandbox (a
-// Go duration; 20 minutes by default). A run that has not ended by then is
+// Go duration; by default hangDeadline of the run's recorded cost). A run
+// that has not ended by then is
 // a failure that names its package and the processes the run still had,
 // and its process group is stopped, so a run that hangs (an observed child
 // stuck in its start, for example) leaves no process behind.
@@ -214,18 +215,36 @@ func binaryDeadline() (time.Time, bool) {
 	return processStart.Add(timeout), true
 }
 
-// runDeadline is the bound of one run that starts now: runDeadlineVariable
-// (20 minutes by default), and never past runReportMargin before this test
-// binary's own deadline. At batch 9 a swept run that did not end held the
-// sweep until the step's test timeout panicked, which named no package and
-// reported no verdict (b9-fix-gate). A run started with less time left than
-// the margin gets a second, so it fails at once with its package named. A
-// run holds at most sweepRunBudget of recorded test time (planRuns), so it
-// ends well within the 20 minutes; the gate gives the sweep step a test
-// timeout long enough for every run of a package in turn (scripts/gate,
-// sweepTimeout), so the binary's deadline bounds only a sweep that hangs.
-func runDeadline() (time.Duration, error) {
-	d := 20 * time.Minute
+// hangFloor and hangFactor make a run's deadline from its recorded cost as
+// scripts/gate makes a go test step's (its hangDeadline): a deadline only
+// stops a hung run and names it, so load slows a run and never fails it.
+// The fixed 20 minutes this replaced stopped two runs of
+// internal/sketch/lower at 19m30s under the batch-16b merge tier's load
+// (gate16b-fix3).
+const (
+	hangFloor  = 30 * time.Minute
+	hangFactor = 10
+)
+
+// hangDeadline is hangFactor times cost seconds, at least hangFloor, in
+// whole minutes.
+func hangDeadline(cost float64) time.Duration {
+	d := time.Duration(hangFactor * cost * float64(time.Second))
+	return max(hangFloor, d.Round(time.Minute))
+}
+
+// runDeadline is the bound of one run of recorded cost seconds that starts
+// now: runDeadlineVariable (hangDeadline of cost by default), and never
+// past runReportMargin before this test binary's own deadline. At batch 9
+// a swept run that did not end held the sweep until the step's test
+// timeout panicked, which named no package and reported no verdict
+// (b9-fix-gate). A run started with less time left than the margin gets a
+// second, so it fails at once with its package named. The gate gives the
+// sweep step a test timeout long enough for every run of a package in turn
+// (scripts/gate, sweepStep), so the binary's deadline bounds only a sweep
+// that hangs.
+func runDeadline(cost float64) (time.Duration, error) {
+	d := hangDeadline(cost)
 	if value := os.Getenv(runDeadlineVariable); value != "" {
 		parsed, err := time.ParseDuration(value)
 		if err != nil || parsed <= 0 {
@@ -246,7 +265,7 @@ func runDeadline() (time.Duration, error) {
 // refused, and the binary's own error otherwise. The run's bound is
 // runDeadline.
 func runProtected(sb sandbox, pkg, dir string, env []string, output string, binary string, args ...string) error {
-	deadline, err := runDeadline()
+	deadline, err := runDeadline(0)
 	if err != nil {
 		return err
 	}

@@ -161,6 +161,11 @@ type collKey struct {
 
 // Info records the checker's results for the lowering (#197, #50).
 type Info struct {
+	// Carries is the sorted Go import paths that the package of main
+	// carries into the binary for their initialization: an import go of a
+	// package whose binding declares nothing (time/tzdata; interop.md,
+	// Checking 6). The lowering imports each as `_ "path"`.
+	Carries []string
 	// Types is every expression's final type; a literal carries its one
 	// type (196u). A signed literal is one literal: `-128` where int8 is
 	// expected has Types and Values entries (int8, -128) on the signed
@@ -268,17 +273,31 @@ type Info struct {
 	// decides it by type identity; the lowering reads it and never
 	// compares types again (batch-12 M1: two packages named errs).
 	ReturnedValues map[syntax.Expr]bool
+	// TryCovers is each right operand that a try in operand position
+	// covers (q105; grammar.md, Expressions 1): the operand Y of a binary
+	// expression whose left operand holds the try on its operator spine,
+	// mapped to the leftmost such try. Every fallible value evaluated in
+	// Y propagates, as under the try itself (cover.go).
+	TryCovers map[syntax.Expr]*syntax.TryExpr
 	// Releases is the release plan of the ownership pass (#197 L8 A2;
 	// resources R5, R10, R21, R41, R43; ownership.go): what is still owned,
 	// in release order (last acquired first), where control leaves a place.
 	// Keys: a scope (*syntax.BlockStmt, *syntax.CaseClause,
 	// *syntax.CatchArm) at its normal end; a statement, or the header
 	// expression of an if, match or for, for the temporaries it owns; an
-	// exit edge (*syntax.ReturnStmt, *syntax.BranchStmt, the failure edge
-	// of a *syntax.TryExpr that leaves the function) for everything it
+	// exit edge (*syntax.ReturnStmt, *syntax.BranchStmt) for everything it
 	// leaves; the assigned *syntax.Ident of an assignment for the old value
 	// (R41). A missing key releases nothing. Added in L8 A2 (additive).
 	Releases map[syntax.Node][]Release
+	// TryReleases is the release plan of a try's failure edge that leaves
+	// the function: everything it leaves. It is a map of its own because a
+	// try that starts a header is the header expression too (`match try
+	// f() {`), and that key in Releases holds the header's temporaries,
+	// which end on the normal path. The entry holds the paths of the try's
+	// own operand; a failure of a right operand it covers (TryCovers) adds
+	// none, since both release lowerings release a failure exit from what
+	// the frame holds at run time (presence bits, the scope list).
+	TryReleases map[*syntax.TryExpr][]Release
 	// OwnedVars and OwnedTemps are the values the ownership pass gives an
 	// owner (#197 L8 B1): each owned local and taken parameter, and each
 	// temporary a statement owns (R43), with the release the lowering
@@ -491,7 +510,9 @@ func newInfo() *Info {
 		Instances:     map[syntax.Expr]*Instance{},
 
 		ReturnedValues: map[syntax.Expr]bool{},
+		TryCovers:      map[syntax.Expr]*syntax.TryExpr{},
 		Releases:       map[syntax.Node][]Release{},
+		TryReleases:    map[*syntax.TryExpr][]Release{},
 		OwnedVars:      map[*Var]*Drop{},
 		OwnedTemps:     map[syntax.Expr]*Drop{},
 		PartHands:      map[syntax.Expr]bool{},

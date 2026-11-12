@@ -215,6 +215,29 @@ func TestSpecAssumptionsAreDecided(t *testing.T) {
 	}
 }
 
+// glossaryStatus matches a status label in a glossary entry's prose: a
+// parenthetical that starts with a status word ("(designed)",
+// "(implemented for structural JSON)"), and the text that explains such
+// labels.
+var glossaryStatus = regexp.MustCompile(`(?i)\((?:checked|designed|implemented|planned|proposed|prototyped?)\b[^)]*\)|\bstatus in parentheses\b`)
+
+// TestGlossaryCarriesNoStatus: a GLOSSARY.md entry defines a term and
+// carries no status label; a construct's status is in docs/spec/status.json
+// (SPEC1a).
+func TestGlossaryCarriesNoStatus(t *testing.T) {
+	// The path is the package's, not git's, so the mutant runner's copy
+	// of the checkout (no .git) judges the rule too.
+	data, err := os.ReadFile(filepath.Join("..", "..", "GLOSSARY.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	specProse(string(data), func(line int, prose string) {
+		for _, m := range glossaryStatus.FindAllString(prose, -1) {
+			t.Errorf("GLOSSARY.md:%d: a status label %q; the status goes in docs/spec/status.json", line, m)
+		}
+	})
+}
+
 // TestSpecTextRules pins the two text rules on fixed text.
 func TestSpecTextRules(t *testing.T) {
 	for _, c := range []struct {

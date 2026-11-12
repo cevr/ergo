@@ -95,6 +95,7 @@ type checker struct {
 	derive *derive.Package // the package's derive record (derive.go)
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
+	cover    tryCover // tries in operand position (cover.go)
 	pkg      *Package
 	imp      Importer
 	ownGo    *GoBindings // the Go packages of an importer that is no GoImporter

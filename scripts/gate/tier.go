@@ -406,8 +406,14 @@ func fastSteps(root string) ([]*Step, error) {
 		}
 		measured := durations[p.importPath]
 		fast, large := fastSelection(names, measured)
+		if len(names) > 0 && len(fast) == 0 {
+			// Every test is large: a step would run none and only build
+			// the test binary, which go vet type-checks. The full tier
+			// runs the tests (scripts/langmigrate's TestTryParensIsIdempotent).
+			continue
+		}
 		pkg := "./" + p.dir
-		base := []string{"go", "test", fastFlag, testTimeout}
+		base := []string{"go", "test", fastFlag}
 		name := "go test " + pkg + " (fast)"
 		n := 1
 		if slices.Contains(slowPackages, pkg) {
@@ -420,7 +426,7 @@ func fastSteps(root string) ([]*Step, error) {
 		groups := shard(fast, measured, n)
 		selections, weights := fastShardArgs(groups, large), shardWeights(groups, measured)
 		for i, selection := range selections {
-			step := &Step{Name: name, Needs: needs, Argv: append(append(slices.Clone(base), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast}
+			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast}
 			if len(selections) > 1 {
 				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
 			}

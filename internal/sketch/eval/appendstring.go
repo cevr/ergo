@@ -3,7 +3,7 @@ package eval
 import "ergo.local/prototype/internal/sketch/check"
 
 // appendString runs Go's append(out, s...) (check.AppendsString): the
-// bytes of s added at the end of out, in a new slice (interop.md, Lowering 9).
+// bytes of s added at the end of out, in a new slice (interop.md, Lowering 13).
 // Concrete operands give the concrete bytes. In a symbolic run the result
 // is the term fn(base, text) in normal form: base is never itself such a
 // term and holds no known bytes (they move into text), and text is a

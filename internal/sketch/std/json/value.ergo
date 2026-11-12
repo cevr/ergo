@@ -18,6 +18,9 @@ type Array { Items []Value }
 type Member { Key string, Value Value }
 type Object { Members []Member }
 type Value = Null | Boolean | Num | Str | Array | Object
+func WireForm(x Value) WireBare { WireBare }
+func WireForm(x Num) WireNumberText { WireNumberText }
+func WireForm(x Object) WireMembers { WireMembers }
 
 // IntNumber is n's number.
 func IntNumber(n int64) Num { Num{text: strconv.FormatInt(n, 10)} }

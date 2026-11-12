@@ -94,8 +94,8 @@ func Body(n int, p PatternHeld) {
 		}
 		return true
 	})
-	for _, rs := range c.pkg.Info.Releases {
-		for _, release := range rs {
+	for _, p := range allPlans(c.pkg.Info) {
+		for _, release := range p.rs {
 			planned[release.Var] = true
 		}
 	}
@@ -227,8 +227,8 @@ func pair() Pair { Pair{R: open(1), S: open(2)} }
 		return
 	}
 	planned := map[*Var]bool{}
-	for _, rs := range c.pkg.Info.Releases {
-		for _, release := range rs {
+	for _, p := range allPlans(c.pkg.Info) {
+		for _, release := range p.rs {
 			planned[release.Var] = true
 		}
 	}

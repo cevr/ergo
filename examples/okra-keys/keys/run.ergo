@@ -38,7 +38,7 @@ func Run(args []string) fails Usage | NotFound | InvalidInput | StoreFailed need
 		let file = try Store.Save(k.Set(s.Provider, trimmed))
 		io.Stderr.Eprintln("Saved \"\(s.Provider)\" key to \(file)")
 	case ListKeys:
-		let names = (try Store.Load()).Names()
+		let names = try Store.Load().Names()
 		if len(names) == 0 {
 			io.Stderr.Eprintln("No keys stored. Add one with `okra keys set <provider> <key>`.")
 			return
@@ -54,7 +54,7 @@ func Run(args []string) fails Usage | NotFound | InvalidInput | StoreFailed need
 			}
 		case None:
 		}
-		match (try Store.Load()).Lookup(g.Provider) {
+		match try Store.Load().Lookup(g.Provider) {
 		case Some[string] as stored:
 			if stored.Value != "" {
 				io.Stdout.Println("\(Mask(stored.Value)) (stored)")

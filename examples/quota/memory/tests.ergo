@@ -26,8 +26,7 @@ func day(ns []int) quota.Store {
 func total(s quota.Store) int64 fails quota.UnknownVolume | quota.Unavailable {
 	let mut sum = int64(0)
 	for id in try s.Volumes() {
-		let b = try s.SizeOf(id)
-		sum = sum + b
+		sum = sum + try s.SizeOf(id)
 	}
 	sum
 }
