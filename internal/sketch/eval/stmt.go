@@ -145,10 +145,11 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 		return fr.unsupported(s, "a for over a Map, whose order the Go target leaves unspecified")
 	}
 	var root *slot
+	var path []step
 	var dom Value
 	var ab *abrupt
 	if l.Domain == check.LoopSlice {
-		dom, root, ab = in.peek(fr, s.X)
+		dom, root, ab = in.peekPath(fr, s.X, &path)
 		if root != nil {
 			root.lend()
 		}
@@ -191,13 +192,6 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 			}
 		}
 	}
-	if l.Domain == check.LoopSlice && root != nil {
-		if xs, ok := dom.(sliceV); ok && !xs.array {
-			if _, direct := unparen(s.X).(*syntax.Ident); !direct {
-				return fr.unsupported(s, "a slice range rooted through a field or subscript yet")
-			}
-		}
-	}
 	iter := func(pos, elem Value) (bool, *abrupt) {
 		if root != nil && !basicValue(elem) {
 			root.lend() // the iteration binding holds its own element value
@@ -222,8 +216,8 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 		xs := dom.(sliceV)
 		if !xs.array {
 			// A loop is not a value binding (Bindings 3). Follow writes
-			// through the ranged root even when COW relocates its store.
-			in.ranges = append(in.ranges, &sliceRange{root: root, view: &xs})
+			// through the ranged place even when COW relocates its store.
+			in.ranges = append(in.ranges, &sliceRange{root: root, path: path, view: &xs})
 			defer func() { in.ranges = in.ranges[:len(in.ranges)-1] }()
 		}
 		for i := 0; i < xs.n; i++ {
@@ -448,8 +442,10 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 		return fr.unsupported(lhs, "an assignment to %s yet", why)
 	}
 	for _, r := range in.ranges {
-		if r.root == root && len(steps) == 0 {
-			return fr.unsupported(lhs, "replacement of an active slice range's root yet")
+		// A write of the ranged place or of a place on its path replaces
+		// the ranged slice.
+		if r.root == root && len(steps) <= len(r.path) && samePath(steps, r.path[:len(steps)]) {
+			return fr.unsupported(lhs, "replacement of an active slice range's place yet")
 		}
 	}
 	var old Value
@@ -483,7 +479,7 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 			return ab
 		}
 	}
-	nv, ab := in.storePath(fr, root, root.v, steps, val)
+	nv, ab := in.storePath(fr, root, root.v, steps, 0, val)
 	if ab != nil {
 		return ab
 	}
@@ -592,8 +588,10 @@ func (in *interp) read(fr *frame, v Value, steps []step) (Value, *abrupt) {
 
 // storePath is cur with val written at the path: a new record at each
 // field, and each slice, array or Map on the path owned by tok, copied
-// once when another value may share it.
-func (in *interp) storePath(fr *frame, root *slot, cur Value, steps []step, val Value) (Value, *abrupt) {
+// once when another value may share it. cur is the value at full[:k], and
+// the steps left are full[k:].
+func (in *interp) storePath(fr *frame, root *slot, cur Value, full []step, k int, val Value) (Value, *abrupt) {
+	steps := full[k:]
 	tok := root.own()
 	if len(steps) == 0 {
 		return val, nil
@@ -605,7 +603,7 @@ func (in *interp) storePath(fr *frame, root *slot, cur Value, steps []step, val 
 		if ab := in.charge(fr, st.at, int64(len(c.fields))); ab != nil {
 			return nil, ab
 		}
-		inner, ab := in.storePath(fr, root, c.fields[i], steps[1:], val)
+		inner, ab := in.storePath(fr, root, c.fields[i], full, k+1, val)
 		if ab != nil {
 			return nil, ab
 		}
@@ -624,11 +622,11 @@ func (in *interp) storePath(fr *frame, root *slot, cur Value, steps []step, val 
 			return nil, ab
 		}
 		for _, r := range in.ranges {
-			if r.root == root && r.view.b == old {
+			if r.root == root && r.view.b == old && samePath(full[:k], r.path) {
 				r.view.b, r.view.off = c.b, r.view.off-oldOff
 			}
 		}
-		inner, ab := in.storePath(fr, root, c.b.data[c.off+i], steps[1:], val)
+		inner, ab := in.storePath(fr, root, c.b.data[c.off+i], full, k+1, val)
 		if ab != nil {
 			return nil, ab
 		}

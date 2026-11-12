@@ -29,7 +29,7 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place"}
 
 const mainPrelude = `import io
 import os
@@ -53,6 +53,8 @@ func flush() needs Console {
 }
 
 type Res { name string }
+
+type Box { a []int, b []int }
 
 func Close(r Res) { note("close " + r.name) }
 
@@ -111,7 +113,9 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(7) {
+		switch g.r.IntN(8) {
+		case 7:
+			g.rangePlace(k)
 		case 0:
 			g.owned(k)
 		case 1:
@@ -318,6 +322,51 @@ func (g *mainGen) args(k int, args []string) {
 	for _, a := range args {
 		g.out.WriteString(a + "\n")
 	}
+}
+
+// rangePlace: a for over a slice reached through a subscript and a field
+// sees the writes through that place to its later elements, and not the
+// writes through another place that held the same slice when the loop
+// began (a field it was copied to, the sibling row it was copied from).
+func (g *mainGen) rangePlace(k int) {
+	g.kinds["range-place"]++
+	n := 2 + g.r.IntN(3)
+	vs := make([]int, n)
+	lits := make([]string, n)
+	for i := range vs {
+		vs[i] = g.r.IntN(10)
+		lits[i] = fmt.Sprint(vs[i])
+	}
+	row, j := g.r.IntN(2), g.r.IntN(n)
+	g.line("")
+	g.line("func s%d() needs Console {", k)
+	g.line("\tlet mut bx = Box{a: []int{%s}, b: []int{}}", strings.Join(lits, ", "))
+	g.line("\tbx.b = bx.a")
+	g.line("\tlet mut rows = []Box{bx, bx}")
+	g.line("\tlet mut s = 0")
+	g.line("\tfor x in rows[%d].a {", row)
+	g.line("\t\ts = s * 7 + x")
+	// The other places first: while they still share the loop's store.
+	if g.r.IntN(2) == 0 {
+		g.line("\t\trows[%d].b[%d] = 100", row, j)
+		g.line("\t\trows[%d].a[%d] = 1000", 1-row, j)
+	} else {
+		g.line("\t\trows[%d].a[%d] = 1000", 1-row, j)
+		g.line("\t\trows[%d].b[%d] = 100", row, j)
+	}
+	g.line("\t\trows[%d].a[%d] = rows[%d].a[%d] + 10", row, j, row, j)
+	g.line("\t}")
+	g.line("\tConsole.Println(\"s%d \\(s) \\(rows[%d].a[%d]) \\(rows[%d].b[%d]) \\(rows[%d].a[%d])\")", k, row, j, row, j, 1-row, j)
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
+	s := 0
+	for i, v := range vs {
+		if i == j {
+			v += 10 * i // the writes of the turns before this one
+		}
+		s = s*7 + v
+	}
+	fmt.Fprintf(&g.out, "s%d %d %d 100 1000\n", k, s, vs[j]+10*n)
 }
 
 // stderr: a line on standard error.

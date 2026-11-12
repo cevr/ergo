@@ -229,8 +229,8 @@
       "name": "range-snapshot-domain",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/stmt.go",
-      "from": "\t\t\tif r.root == root && r.view.b == old {",
-      "to": "\t\t\tif false && r.root == root && r.view.b == old {",
+      "from": "\t\t\tif r.root == root && r.view.b == old && samePath(full[:k], r.path) {",
+      "to": "\t\t\tif false && r.root == root && r.view.b == old && samePath(full[:k], r.path) {",
       "rule": "Slice range sees indexed writes through its root (Bindings 3; Loops and len 7); seed-83 bug.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     },
@@ -694,6 +694,15 @@
       "rule": "The agreement harness compares the evaluator's run with the recorded (or built) run, never a run with itself.",
       "killers": ["internal/sketch/eval:TestHarnessFlagsEachStream"],
       "anchor": {"tests": ["internal/sketch/eval:TestHarnessFlagsEachStream"]}
+    },
+    {
+      "name": "oracle-o5-range-follows-other-place",
+      "origin": "wf10 ORACLE O5",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "r.view.b == old && samePath(full[:k], r.path) {",
+      "to": "r.view.b == old {",
+      "rule": "A for over a slice reached through a field or subscript sees the writes through that place only, not through another place that shared the slice when the loop began (types.md, Bindings 3; Loops and len 7).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
       "name": "oracle-o4-harness-drops-stderr",

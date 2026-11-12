@@ -241,6 +241,12 @@ func (in *interp) slotOf(fr *frame, v *check.Var) *slot {
 // does not start at one; the caller lends it when the value it reads
 // holds a store.
 func (in *interp) peek(fr *frame, x syntax.Expr) (Value, *slot, *abrupt) {
+	return in.peekPath(fr, x, nil)
+}
+
+// peekPath is peek that also appends to *path, when path is not nil, the
+// steps from root to x: each field, and each index with its value.
+func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot, *abrupt) {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
 		if v, ok := fr.info.Uses[x].(*check.Var); ok {
@@ -268,13 +274,16 @@ func (in *interp) peek(fr *frame, x syntax.Expr) (Value, *slot, *abrupt) {
 		if !ok || check.ScriptOf(n) != nil || structOf(n) == nil {
 			return nil, nil, fr.unsupported(x, "a member of %s yet", t.t)
 		}
-		base, root, ab := in.peek(fr, x.X)
+		base, root, ab := in.peekPath(fr, x.X, path)
 		if ab != nil {
 			return nil, nil, ab
 		}
 		r, ok := base.(*record)
 		if !ok {
 			ice("a field of %T", base)
+		}
+		if path != nil {
+			*path = append(*path, step{at: x, field: x.Sel.Name})
 		}
 		return r.fields[fieldIndex(r.t, x.Sel.Name)], root, nil
 	case *syntax.IndexExpr:
@@ -284,13 +293,16 @@ func (in *interp) peek(fr *frame, x syntax.Expr) (Value, *slot, *abrupt) {
 		if len(x.Indices) != 1 {
 			ice("an index with %d indices", len(x.Indices))
 		}
-		base, root, ab := in.peek(fr, x.X)
+		base, root, ab := in.peekPath(fr, x.X, path)
 		if ab != nil {
 			return nil, nil, ab
 		}
 		iv, ab := in.expr(fr, x.Indices[0])
 		if ab != nil {
 			return nil, nil, ab
+		}
+		if path != nil {
+			*path = append(*path, step{at: x, index: iv})
 		}
 		switch b := base.(type) {
 		case string:

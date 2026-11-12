@@ -20,12 +20,14 @@ import (
 // TestEvalAgreesWithLowering holds a program's main at check time to the
 // model and to the built program (ORACLE O4). Each seed's evalgen main
 // program (scenarios of owned resources, tasks over a queue, sleeps on a
-// virtual clock, a stopped task, standard input, arguments, standard error
-// and an os.Exit) runs under eval.RunMain with the seed's arguments and
-// input; its standard output, standard error and status must be the
-// model's, and the seeds must reach every scenario. In the full tier the
-// first seeds are also built with the ergo command and run: the built
-// program's streams and status must be the evaluator's. A failing seed
+// virtual clock, a stopped task, standard input, arguments, standard
+// error, a for over a slice reached through a subscript and a field, and
+// an os.Exit) runs under eval.RunMain with the seed's arguments and input;
+// its standard output, standard error and status must be the model's, and
+// the seeds must reach every scenario. In the full tier the first seeds,
+// and each later seed with a scenario they lack, are also built with the
+// ergo command and run: the built program's streams and status must be
+// the evaluator's. A failing seed
 // prints the source, both runs and the replay command.
 //
 // It builds Go because the other side of the agreement is the built
@@ -33,7 +35,8 @@ import (
 // built program runs under proclimit's memory bound.
 //
 // Mutants only it kills (testdata/mutants.json): oracle-o4-exit-code-ignored,
-// oracle-o4-stdin-line-feed-kept, oracle-o4-console-to-stderr.
+// oracle-o4-stdin-line-feed-kept, oracle-o4-console-to-stderr,
+// oracle-o5-range-follows-other-place.
 func TestEvalAgreesWithLowering(t *testing.T) {
 	n, built := 60, 6
 	first := uint64(1)
@@ -79,8 +82,21 @@ func TestEvalAgreesWithLowering(t *testing.T) {
 		return // the built side is the full tier's
 	}
 	ergo := buildErgo(t)
-	for seed := first; seed < first+uint64(built); seed++ {
+	// The first seeds, and each later seed that reaches a scenario they
+	// do not, so the built side runs every scenario.
+	builtKinds := map[string]bool{}
+	for seed := first; seed < first+uint64(n); seed++ {
 		p := programs[seed]
+		fresh := false
+		for k := range p.Kinds {
+			fresh = fresh || !builtKinds[k]
+		}
+		if seed >= first+uint64(built) && !fresh {
+			continue
+		}
+		for k := range p.Kinds {
+			builtKinds[k] = true
+		}
 		native := runBuilt(t, ergo, p)
 		if d := runsDiffer(runs[seed], native); d != "" {
 			t.Fatalf("seed %d: the evaluator and the built program differ: %s\n%s\nreplay: ERGO_EVAL_MAIN_SEED=%d go test -run TestEvalAgreesWithLowering ./internal/sketch/eval", seed, d, p.Source, seed)
