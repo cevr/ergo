@@ -5,7 +5,7 @@ import arena
 // SameShapes says so.
 type Shape[E] { Node Node[E], Kids []Shape[E] }
 
-// FrameShape is what f holds, the children of the root.
+// FrameShape is what f's last pass wrote, the children of the root.
 func FrameShape[E](f *Frame[E]) []Shape[E] {
 	let kids = childLists(f)
 	frameShapes(f, kids, kids[0])
@@ -19,14 +19,14 @@ func frameShapes[E](f *Frame[E], kids [][]int, want []int) []Shape[E] {
 	out
 }
 
-// TreeShape is what t holds, the children of the root.
-func TreeShape[E](t *Tree[E]) []Shape[E] { treeShapes(t, at(t, t.root).kids) }
+// TreeShape is what f's retained tree holds, the children of the root.
+func TreeShape[E](f *Frame[E]) []Shape[E] { treeShapes(f, nodeAt(f, f.root).kids) }
 
-func treeShapes[E](t *Tree[E], refs []arena.Ref[node[E]]) []Shape[E] {
+func treeShapes[E](f *Frame[E], refs []arena.Ref[node[E]]) []Shape[E] {
 	let mut out = []Shape[E]{}
 	for r in refs {
-		let n = at(t, r)
-		out = out.Append(Shape[E]{Node: n.node, Kids: treeShapes[E](t, n.kids)})
+		let n = nodeAt(f, r)
+		out = out.Append(Shape[E]{Node: n.node, Kids: treeShapes[E](f, n.kids)})
 	}
 	out
 }

@@ -1,9 +1,10 @@
 // Package ui builds user interfaces as a retained tree of nodes (stdlib.md,
 // UI). A view is an ordinary function of the program's state that writes
 // nodes into a Frame: func(f *ui.Frame[E], s S), where E is the program's
-// signal type. Commit reconciles what a view wrote with the tree of the
-// last frame and returns the Patch a host applies. Events are data: a
-// Pressable carries the signal value it sends.
+// signal type. Render runs a view as one pass and reconciles what it wrote
+// with the tree of the last pass, returning the ops a host applies. Events
+// are data: a Pressable carries the signal value it sends. The frame keeps
+// view-local cells (a draft, a flag) and loads, keyed like nodes.
 //
 // The composer, the node arena and the patch are Ergo bodies over std
 // arena, so the memory of a GUI is Ergo's memory (corpus wave Q1).
@@ -80,7 +81,7 @@ func Plain() Style {
 
 // Node is what one node shows, as a host receives it in a Patch. It holds
 // no function, so two Nodes compare with ==.
-type Node[E] = BoxNode{Style Style} | RowNode{Style Style} | ColumnNode{Style Style} | ScrollNode{Style Style} | TextNode{Value string, Style Style} | PressableNode{Label string, On E, Style Style} | CheckNode{Label string, Checked bool, On E} | InputNode{Value string, Placeholder string}
+type Node[E] = BoxNode{Style Style} | RowNode{Style Style} | ColumnNode{Style Style} | ScrollNode{Style Style} | TextNode{Value string, Style Style} | PressableNode{Label string, On E, Style Style} | CheckNode{Label string, Checked bool, On E} | InputNode{Value string, Placeholder string} | ToggleNode{Label string, On bool}
 
 // Key names a row of an Each. Two rows of one Each with one Key are one
 // instance across frames, wherever they move.

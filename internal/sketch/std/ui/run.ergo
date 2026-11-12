@@ -18,38 +18,52 @@ type Host[E] {
 	Next() Event[E] fails Closed,
 }
 
-// Signal is the signal an input sends: a press of a Pressable or a Check,
-// a text into an Input. None for input on any other node, or on a node the
-// tree no longer holds (a press that raced a commit).
-func Signal[E](t *Tree[E], input Event[E]) Option[E] {
-	match input {
-	case Press[E] as p:
-		Pressed(t, p.Id)
-	case Type[E] as x:
-		Typed(t, x.Id, x.Text)
+// Run shows view of a's state on h until h closes: each input is handled
+// (Handle), its signal is sent to a, and the state after it is shown. The
+// fetches of a commit run after it is shown, in order, and the signal of
+// each is sent while its load still wants it (Arrive). Run fails with h's
+// Closed, or with Stopped when a has ended.
+//
+// This is the reference loop: a fetch runs on the loop, so input waits for
+// it. The test host (H4) runs fetches as tasks and interleaves them with
+// input, under the same rule.
+func Run[S, E comparable, D, F](h Host[E], a actor.Actor[S, E, D, F], view func(f *Frame[E], s S)) fails Closed | actor.Stopped {
+	let mut f = NewFrame[E]()
+	try show(h, a, &f, view)
+	for {
+		let input = try h.Next()
+		let done = Handle(&f, input)
+		match done.Signal {
+		case Some[E] as e:
+			try a.Send(e.Value)
+			try show(h, a, &f, view)
+		case None:
+			if done.Changed {
+				try show(h, a, &f, view)
+			}
+		}
 	}
 }
 
-// Render writes view(s) into a fresh frame and commits it to t.
-func Render[S, E comparable](t *Tree[E], view func(f *Frame[E], s S), s S) []Op[E] {
-	let mut f = NewFrame[E]()
-	view(&f, s)
-	Commit(t, &f)
-}
-
-// Run shows view of a's state on h until h closes: each input's signal is
-// sent to a, and the state after it is shown. Run fails with h's Closed,
-// or with Stopped when a has ended.
-func Run[S, E comparable, D, F](h Host[E], a actor.Actor[S, E, D, F], view func(f *Frame[E], s S)) fails Closed | actor.Stopped {
-	let mut t = NewTree[E]()
-	h.Show(Render(&t, view, a.State()))
-	for {
-		let input = try h.Next()
-		match Signal(&t, input) {
-		case Some[E] as e:
-			try a.Send(e.Value)
-			h.Show(Render(&t, view, a.State()))
-		case None:
+// show renders a's state, shows the patch and runs the commit's fetches.
+func show[S, E comparable, D, F](h Host[E], a actor.Actor[S, E, D, F], f *Frame[E], view func(f *Frame[E], s S)) fails actor.Stopped {
+	h.Show(Render(f, view, a.State()))
+	let mut jobs = Jobs(f)
+	for len(jobs) > 0 {
+		let mut next = []Job[E]{}
+		for j in jobs {
+			match j {
+			case Fetch[E] as x:
+				if Arrive(f, x.Epoch) {
+					try a.Send(x.Run())
+					h.Show(Render(f, view, a.State()))
+					for k in Jobs(f) {
+						next = next.Append(k)
+					}
+				}
+			case Cancel:
+			}
 		}
+		jobs = next
 	}
 }

@@ -1,0 +1,326 @@
+import arena
+
+// View-local state and loads (stdlib.md, UI 5 and 6).
+//
+// The composer keeps only state a host owns: the text of a field, a flag a
+// toggle flips. Each cell is keyed by the identity of the call that reads
+// it, under the node that encloses it, so a keyed row keeps its own cells
+// when rows move, and a cell whose call stops returning is dropped: the
+// next mount starts from init. Any other state is a field of the
+// program's machine state. Prior art: the DOM keeps an input's value in
+// the element; Gio keeps a widget's state in a value (widget.Editor,
+// widget.Bool); Compose's remember keeps erased values in a slot table,
+// which Ergo has no type for.
+
+// Cell is one piece of view-local state.
+type Cell = TextCell{Value string} | FlagCell{On bool}
+
+// cellAt names a cell in a pass: the identity of the call that read it,
+// under parent spec parent (-1 the root).
+type cellAt { parent int, id ident }
+
+// cellSpec is a cell a pass read, with its value.
+type cellSpec { parent int, id ident, cell Cell }
+
+// Draft is the text of a field, as this pass reads it.
+type Draft { Value string, at cellAt }
+
+// Flag is an on-off state, as this pass reads it.
+type Flag { On bool, at cellAt }
+
+// remember reads the cell at the call's identity: its value from the last
+// pass when the enclosing node kept its identity and the cell was read
+// there, else init.
+func remember[E](f *Frame[E], init Cell, at CallSite) (cellAt, Cell) {
+	let id = identify(f, at)
+	let o = owner(f, f.parent)
+	let mut c = init
+	if arena.Has(f.nodes, o) {
+		match nodeAt(f, o).cells.Get(id) {
+		case Some[Cell] as old:
+			if sameCell(old.Value, init) {
+				c = old.Value
+			}
+		case None:
+		}
+	}
+	f.cells = f.cells.Append(cellSpec{parent: f.parent, id: id, cell: c})
+	(cellAt{parent: f.parent, id: id}, c)
+}
+
+func sameCell(a Cell, b Cell) bool {
+	match a {
+	case TextCell:
+		match b {
+		case TextCell:
+			true
+		case FlagCell:
+			false
+		}
+	case FlagCell:
+		match b {
+		case TextCell:
+			false
+		case FlagCell:
+			true
+		}
+	}
+}
+
+// NewDraft is the draft text at this call, init on its first pass.
+func NewDraft[E](f *Frame[E], init string, at CallSite) Draft {
+	let (where, c) = remember(f, TextCell{Value: init}, at)
+	match c {
+	case TextCell as t:
+		Draft{Value: t.Value, at: where}
+	case FlagCell:
+		Unreachable("ui: a draft cell holds text")
+	}
+}
+
+// NewFlag is the flag at this call, init on its first pass.
+func NewFlag[E](f *Frame[E], init bool, at CallSite) Flag {
+	let (where, c) = remember(f, FlagCell{On: init}, at)
+	match c {
+	case FlagCell as b:
+		Flag{On: b.On, at: where}
+	case TextCell:
+		Unreachable("ui: a flag cell holds a flag")
+	}
+}
+
+// Field shows a text field over d: a text the host takes in it becomes the
+// draft's value at the next pass, and sends no signal.
+func Field[E](f *Frame[E], d Draft, placeholder string, at CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder}, None, Some{Value: d.at}, at)
+}
+
+// Toggle shows a check box over fl: a press flips the flag and sends no
+// signal.
+func Toggle[E](f *Frame[E], fl Flag, label string, at CallSite) {
+	let _ = put(f, ToggleNode{Label: label, On: fl.On}, None, Some{Value: fl.at}, at)
+}
+
+// Submit is a Pressable that also empties d when pressed: a press sends on
+// (made from d's value by the view) and the draft is "" at the next pass.
+func Submit[E](f *Frame[E], d Draft, label string, on E, body func(), at CallSite) {
+	let outer = f.parent
+	f.parent = put(f, PressableNode{Label: label, On: on, Style: Plain()}, None, Some{Value: d.at}, at)
+	body()
+	f.parent = outer
+}
+
+// Async is the state of a value that a load fetches: matched exhaustively.
+type Async[T, F] = Loading | Ready{Value T} | Failed{Error F}
+
+// Loading is a load that has not arrived.
+type Loading {}
+
+// slot is a live load: its key and the epoch of its fetch.
+type slot { key Key, epoch int }
+
+// loadSpec is a load a pass wrote.
+type loadSpec[E] { parent int, id ident, key Key, fetch func() E }
+
+// Job is work a commit gives the host loop: run a fetch, or cancel one.
+// Each fetch has an epoch no other fetch of the frame has.
+type Job[E] = Fetch{Epoch int, Run func() E} | Cancel{Epoch int}
+
+// Load asks for fetch() while this call returns with key: the host runs
+// it after the commit, never in the pass, and its result is a signal of
+// the program (Arrive). A new key cancels the fetch of the old key and
+// starts one with a new epoch; a pass without this call cancels it. The
+// program keeps the result in its machine state, as an Async.
+func Load[E](f *Frame[E], key Key, fetch escaping func() E, at CallSite) {
+	let id = identify(f, at)
+	f.loads = f.loads.Append(loadSpec[E]{parent: f.parent, id: id, key: key, fetch: fetch})
+}
+
+// Jobs are the jobs of the last commit, in order.
+func Jobs[E](f *Frame[E]) []Job[E] { f.jobs }
+
+// Arrive is whether the fetch of epoch is still wanted: its load is live
+// with that epoch. A host loop gives the program the signal of a fetch
+// only when Arrive is true, so a result never shows for a key it was not
+// fetched for.
+func Arrive[E](f *Frame[E], epoch int) bool {
+	live(f, f.root, epoch)
+}
+
+func live[E](f *Frame[E], r arena.Ref[node[E]], epoch int) bool {
+	let n = nodeAt(f, r)
+	for _, l in n.loads {
+		if l.epoch == epoch {
+			return true
+		}
+	}
+	for k in n.kids {
+		if live[E](f, k, epoch) {
+			return true
+		}
+	}
+	false
+}
+
+// settle stores the pass's cells and loads in the nodes that own them,
+// after reconcile, and decides the jobs of the loads.
+func settle[E](f *Frame[E]) {
+	let mut cells = Map[arena.Ref[node[E]], Map[ident, Cell]]{}
+	for c in f.cells {
+		let o = made(f, c.parent)
+		let mut m = mapOf(cells, o)
+		m[c.id] = c.cell
+		cells[o] = m
+	}
+	let mut loads = Map[arena.Ref[node[E]], Map[ident, slot]]{}
+	for l in f.loads {
+		let o = made(f, l.parent)
+		let mut m = loadsOf(loads, o)
+		let mut s = slot{key: l.key, epoch: 0}
+		let mut started = true
+		match nodeAt(f, o).loads.Get(l.id) {
+		case Some[slot] as old:
+			if old.Value.key == l.key {
+				s = old.Value
+				started = false
+			}
+		case None:
+		}
+		if started {
+			f.epoch = f.epoch + 1
+			s = slot{key: l.key, epoch: f.epoch}
+			f.jobs = f.jobs.Append(Fetch{Epoch: s.epoch, Run: l.fetch})
+		}
+		m[l.id] = s
+		loads[o] = m
+	}
+	for s in f.specs {
+		let mut b Option[bound[E]] = None
+		match s.binds {
+		case Some[cellAt] as c:
+			b = Some{Value: bound[E]{owner: made(f, c.Value.parent), id: c.Value.id}}
+		case None:
+		}
+		change(f, s.ref, func(n *node[E]) { n.binds = b })
+	}
+	keep(f, f.root, cells, loads)
+}
+
+// keep walks the tree: each node gets this pass's cells and loads, and each
+// load it held that this pass does not keep is cancelled.
+func keep[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]]) {
+	let n = nodeAt(f, r)
+	let now = loadsOf(loads, r)
+	for id, l in n.loads {
+		match now.Get(id) {
+		case Some[slot] as s:
+			if s.Value.epoch != l.epoch {
+				f.jobs = f.jobs.Append(Cancel{Epoch: l.epoch})
+			}
+		case None:
+			f.jobs = f.jobs.Append(Cancel{Epoch: l.epoch})
+		}
+	}
+	let c = mapOf(cells, r)
+	change(f, r, func(m *node[E]) {
+		m.cells = c
+		m.loads = now
+	})
+	for k in n.kids {
+		keep[E](f, k, cells, loads)
+	}
+}
+
+// made is the node of this pass that spec index p (-1 the root) became.
+func made[E](f *Frame[E], p int) arena.Ref[node[E]] {
+	if p < 0 {
+		return f.root
+	}
+	f.specs[p].ref
+}
+
+func mapOf[E](m Map[arena.Ref[node[E]], Map[ident, Cell]], r arena.Ref[node[E]]) Map[ident, Cell] {
+	match m.Get(r) {
+	case Some[Map[ident, Cell]] as x:
+		x.Value
+	case None:
+		Map[ident, Cell]{}
+	}
+}
+
+func loadsOf[E](m Map[arena.Ref[node[E]], Map[ident, slot]], r arena.Ref[node[E]]) Map[ident, slot] {
+	match m.Get(r) {
+	case Some[Map[ident, slot]] as x:
+		x.Value
+	case None:
+		Map[ident, slot]{}
+	}
+}
+
+// Handled is what an event did: the signal it sends to the program, and
+// whether it changed view-local state (so the view must render again).
+type Handled[E] { Signal Option[E], Changed bool }
+
+// Handle applies a host event to f: a press sends a Pressable's or a
+// Check's signal, flips a Toggle and empties a Submit's draft; a text
+// sends an Input's signal or becomes a Field's draft. An event on a node
+// f no longer holds (it raced a commit) does nothing.
+func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
+	let mut out = Handled[E]{Signal: None, Changed: false}
+	match event {
+	case Press[E] as p:
+		let n = f.nodes.Get(p.Id.ref) catch {
+		case arena.Stale:
+			return out
+		}
+		match n.node {
+		case PressableNode[E] as x:
+			out.Signal = Some{Value: x.On}
+			match n.binds {
+			case Some[bound[E]] as d:
+				out.Changed = write(f, d.Value, TextCell{Value: ""})
+			case None:
+			}
+		case CheckNode[E] as x:
+			out.Signal = Some{Value: x.On}
+		case ToggleNode as x:
+			match n.binds {
+			case Some[bound[E]] as d:
+				out.Changed = write(f, d.Value, FlagCell{On: !x.On})
+			case None:
+			}
+		case _:
+		}
+	case Type[E] as x:
+		let n = f.nodes.Get(x.Id.ref) catch {
+		case arena.Stale:
+			return out
+		}
+		match n.onText {
+		case Some[func(t string) E] as g:
+			out.Signal = Some{Value: g.Value(x.Text)}
+		case None:
+		}
+		match n.binds {
+		case Some[bound[E]] as d:
+			out.Changed = write(f, d.Value, TextCell{Value: x.Text})
+		case None:
+		}
+	}
+	out
+}
+
+// write sets the cell b names, when its owner still holds it; it is
+// whether the cell changed.
+func write[E](f *Frame[E], b bound[E], c Cell) bool {
+	if !arena.Has(f.nodes, b.owner) {
+		return false
+	}
+	match nodeAt(f, b.owner).cells.Get(b.id) {
+	case Some[Cell] as old:
+		change(f, b.owner, func(n *node[E]) { n.cells[b.id] = c })
+		old.Value != c
+	case None:
+		false
+	}
+}

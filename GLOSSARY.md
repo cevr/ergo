@@ -287,7 +287,9 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Host-driven program** (direction; owner direction 2026-11-02, [#202](https://github.com/cevr/ergo/issues/202) and [#240](https://github.com/cevr/ergo/issues/240)): A program whose control loop a host owns, such as a game engine, a GUI window or a TUI screen that calls it each frame or event on the host's thread through a declared entry signature, while its capabilities stay separate services provided by a context rather than one platform owning them all.
 
-**Frame (ui)**: std `ui.Frame[E]`, the composer a view writes into: a view is `func(f *ui.Frame[E], s S)`, an explicit borrow and not a capability, and `Commit` reconciles what it wrote with the retained tree into a patch (`[]ui.Op[E]`). `E` is the program's signal type. See [stdlib](docs/spec/stdlib.md#ui).
+**Frame (ui)**: std `ui.Frame[E]`, the composer a view writes into: a view is `func(f *ui.Frame[E], s S)`, an explicit borrow and not a capability. The frame holds the retained tree, its view-local cells and its loads; `ui.Render` runs one pass and reconciles what it wrote into a patch (`[]ui.Op[E]`). `E` is the program's signal type.
+
+**Load epoch (ui)**: The number of one fetch a `ui.Load` asked for, unique within its frame. A new key, a new place or a removal ends the epoch, and a result is taken only while its epoch is live (`ui.Arrive`), so a result never shows for a key it was not fetched for. See [stdlib](docs/spec/stdlib.md#ui).
 
 **UI host**: std `ui.Host[E]`, the operation type of a screen that shows patches and reports input (`Show`, `Next`); a value `ui.Run` drives. Not a host package's `Host` and not an **Actor host**. See [stdlib](docs/spec/stdlib.md#ui).
 

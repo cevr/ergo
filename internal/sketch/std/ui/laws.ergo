@@ -172,12 +172,13 @@ func models(ps []prog, s []int, row int) []Shape[int] {
 
 func leaf(n Node[int]) Shape[int] { Shape[int]{Node: n, Kids: []Shape[int]{}} }
 
-func frameOf(ps []prog, s []int) Frame[int] {
-	let mut f = NewFrame[int]()
-	for p in ps {
-		render(&f, p, s, 0)
-	}
-	f
+// pass renders the programs ps at state s as one pass of f.
+func pass(f *Frame[int], ps []prog, s []int) []Op[int] {
+	Render(f, func(g *Frame[int], st []int) {
+		for p in ps {
+			render(g, p, st, 0)
+		}
+	}, s)
 }
 
 func genRoot(r *rng) []prog {
@@ -203,45 +204,41 @@ func nodes(shapes []Shape[int]) int {
 law IncrementalEqualsFresh(seed int, steps int) {
 	let mut r = seeded(seed)
 	let ps = genRoot(&r)
-	let mut t = NewTree[int]()
-	let mut m = NewMirror[int](Root(&t))
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
 	for _ in 0..(steps%8+8)%8+1 {
 		let s = genState(&r)
-		let mut f = frameOf(ps, s)
-		Apply(&m, Commit(&t, &f)) catch {
+		Apply(&m, pass(&f, ps, s)) catch {
 		case BadPatch:
 			return false
 		}
-		let mut fresh = NewTree[int]()
+		let mut fresh = NewFrame[int]()
 		let mut fm = NewMirror[int](Root(&fresh))
-		Apply(&fm, Commit(&fresh, &f)) catch {
+		Apply(&fm, pass(&fresh, ps, s)) catch {
 		case BadPatch:
 			return false
 		}
 		let want = models(ps, s, 0)
-		if !SameShapes(FrameShape(&f), want) || !SameShapes(TreeShape(&t), want) || !SameShapes(MirrorShape(&m), want) || !SameShapes(MirrorShape(&fm), want) {
+		if !SameShapes(FrameShape(&f), want) || !SameShapes(TreeShape(&f), want) || !SameShapes(MirrorShape(&m), want) || !SameShapes(MirrorShape(&fm), want) {
 			return false
 		}
-		if Len(&t) != nodes(want)+1 || Held(&m) != Len(&t) {
+		if Len(&f) != nodes(want)+1 || Held(&m) != Len(&f) {
 			return false
 		}
 	}
 	true
 }
 
-// IdempotentCommit: a second commit of an equal frame changes nothing.
+// IdempotentCommit: a second pass of an equal view changes nothing.
 law IdempotentCommit(seed int) {
 	let mut r = seeded(seed)
 	let ps = genRoot(&r)
-	let mut t = NewTree[int]()
+	let mut f = NewFrame[int]()
 	let s0 = genState(&r)
 	let s1 = genState(&r)
-	let mut a = frameOf(ps, s0)
-	let _ = Commit(&t, &a)
-	let mut b = frameOf(ps, s1)
-	let _ = Commit(&t, &b)
-	let mut c = frameOf(ps, s1)
-	len(Commit(&t, &c)) == 0
+	let _ = pass(&f, ps, s0)
+	let _ = pass(&f, ps, s1)
+	len(pass(&f, ps, s1)) == 0
 }
 
 func shuffled(xs []int, r *rng) []int {
@@ -269,13 +266,13 @@ func keyedRows(f *Frame[int], xs []int) {
 
 // rowIds is the Ids of each key's two nodes, by key, in the column the
 // view writes.
-func rowIds(t *Tree[int], xs []int) Map[int, (Id[int], Id[int])] {
+func rowIds(f *Frame[int], xs []int) Map[int, (Id[int], Id[int])] {
 	let mut out = Map[int, (Id[int], Id[int])]{}
-	let col = Kids(t, Root(t))
+	let col = Kids(f, Root(f))
 	if len(col) != 1 {
 		return out
 	}
-	let kids = Kids(t, col[0])
+	let kids = Kids(f, col[0])
 	if len(kids) != 2*len(xs)+1 {
 		return out
 	}
@@ -295,18 +292,14 @@ law KeyedIdentity(seed int, count int) {
 		xs = xs.Append(i * 7)
 	}
 	let ys = shuffled(xs, &r)
-	let mut t = NewTree[int]()
-	let mut m = NewMirror[int](Root(&t))
-	let mut a = NewFrame[int]()
-	keyedRows(&a, xs)
-	Apply(&m, Commit(&t, &a)) catch {
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	Apply(&m, Render(&f, keyedRows, xs)) catch {
 	case BadPatch:
 		return false
 	}
-	let before = rowIds(&t, xs)
-	let mut b = NewFrame[int]()
-	keyedRows(&b, ys)
-	let ops = Commit(&t, &b)
+	let before = rowIds(&f, xs)
+	let ops = Render(&f, keyedRows, ys)
 	Apply(&m, ops) catch {
 	case BadPatch:
 		return false
@@ -318,8 +311,8 @@ law KeyedIdentity(seed int, count int) {
 			return false
 		}
 	}
-	let after = rowIds(&t, ys)
-	if len(before) != len(xs)+1 || len(after) != len(xs)+1 || !SameShapes(MirrorShape(&m), FrameShape(&b)) {
+	let after = rowIds(&f, ys)
+	if len(before) != len(xs)+1 || len(after) != len(xs)+1 || !SameShapes(MirrorShape(&m), FrameShape(&f)) {
 		return false
 	}
 	for x, ids in before {
@@ -341,11 +334,11 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(t *Tree[int], id Id[int]) bool {
+func signalsAgree(f *Frame[int], id Id[int]) bool {
 	let mut ok = true
-	let pressed = sent(Signal(t, Press[int]{Id: id}))
-	let typed = sent(Signal(t, Type[int]{Id: id, Text: "abc"}))
-	match NodeOf(t, id) {
+	let pressed = sent(Handle(f, Press[int]{Id: id}).Signal)
+	let typed = sent(Handle(f, Type[int]{Id: id, Text: "abc"}).Signal)
+	match NodeOf(f, id) {
 	case Some[Node[int]] as n:
 		match n.Value {
 		case PressableNode[int] as p:
@@ -360,8 +353,8 @@ func signalsAgree(t *Tree[int], id Id[int]) bool {
 	case None:
 		return false
 	}
-	for k in Kids(t, id) {
-		ok = ok && signalsAgree(t, k)
+	for k in Kids(f, id) {
+		ok = ok && signalsAgree(f, k)
 	}
 	ok
 }
@@ -372,13 +365,12 @@ func signalsAgree(t *Tree[int], id Id[int]) bool {
 law PressGivesSignal(seed int) {
 	let mut r = seeded(seed)
 	let ps = genRoot(&r)
-	let mut t = NewTree[int]()
+	let mut f = NewFrame[int]()
 	let mut ok = true
 	for _ in 0..3 {
-		let mut f = frameOf(ps, genState(&r))
-		let _ = Commit(&t, &f)
-		for k in Kids(&t, Root(&t)) {
-			ok = ok && signalsAgree(&t, k)
+		let _ = pass(&f, ps, genState(&r))
+		for k in Kids(&f, Root(&f)) {
+			ok = ok && signalsAgree(&f, k)
 		}
 	}
 	ok
