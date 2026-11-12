@@ -238,6 +238,14 @@ func (c *checker) checkBodies() {
 			w = c.varRefs(n.v)
 		}
 		owner := n.owner()
+		if n.fn != nil && n.fn.Decl != nil {
+			// A decode reaches its ParseX by no name (wirecall.go).
+			for _, d := range c.wireEdges[n.fn.Decl] {
+				if pf, ok := c.pkg.Info.Defs[d.Name].(*Func); ok {
+					w.refs[pf] = true
+				}
+			}
+		}
 		c.refs[owner], c.valueRefs[owner] = w.refs, w.values
 		if len(w.guarded) > 0 {
 			c.guardedRefs[owner] = w.guarded

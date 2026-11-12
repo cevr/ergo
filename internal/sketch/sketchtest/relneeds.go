@@ -55,7 +55,9 @@ var relKinds = []struct {
 // and for each kind k a lending lend<k> and a taking keep<k>.
 var RelPrelude = func() string {
 	var b strings.Builder
-	b.WriteString(`type A { Use() }
+	b.WriteString(`import codec
+
+type A { Use() }
 type B { Use() }
 type Pa {}
 func Use(_ Pa) {}
@@ -73,9 +75,27 @@ func Close(r RAB) needs A | B {
 	B.Use()
 }
 type Box { r RB, n int }
+type Bad { Text string }
+type Lv { name string }
+func ParseLv(s string) Lv fails Bad needs A {
+	A.Use()
+	Lv{name: s}
+}
+func Wire(l Lv) string needs B {
+	B.Use()
+	l.name
+}
+type lw { name string }
+func Wire(l lw) string needs B {
+	B.Use()
+	l.name
+}
+type Closer { Close() }
+func lendC(c Closer) {}
 `)
 	for k, kd := range relKinds {
 		fmt.Fprintf(&b, "func lend%d(r %s) {}\nfunc keep%d(r %s) takes r {}\n", k, kd.name, k, kd.name)
+		fmt.Fprintf(&b, "type W%d { inner %s }\nfunc Close(w W%d) {}\n", k, kd.name, k)
 	}
 	return b.String()
 }()
@@ -91,6 +111,9 @@ const (
 	RelCall           // if n > 0 { fJ(n - 1) }
 	RelWith           // with context { … } { Body }
 	RelIf             // if n > 1 { Body }
+	RelEncode         // encode(X{name: "x"}, ev): Wire needs B (X: K%2, Lv or lw)
+	RelDecode         // let _ = decode[X](…) catch { … }: ParseX needs A
+	RelConvert        // let cV Closer = WK{inner: MK}; lendC(cV): S108 when K's release needs a capability
 )
 
 type RelStmt struct {
@@ -130,7 +153,7 @@ func NewRelNeeds(r *rand.Rand) *RelNeeds {
 		var out []*RelStmt
 		mark := len(vars)
 		for range size {
-			s := &RelStmt{Kind: r.IntN(9), K: r.IntN(len(relKinds))}
+			s := &RelStmt{Kind: r.IntN(12), K: r.IntN(len(relKinds))}
 			id++
 			s.ID = id
 			switch s.Kind {
@@ -153,6 +176,9 @@ func NewRelNeeds(r *rand.Rand) *RelNeeds {
 				}
 			case RelCall:
 				s.Callee = r.IntN(n)
+			case RelDecode, RelConvert:
+				s.V = nextV
+				nextV++
 			case RelWith, RelIf:
 				if depth >= 2 {
 					s.Kind = RelCall
@@ -178,6 +204,15 @@ func NewRelNeeds(r *rand.Rand) *RelNeeds {
 	}
 	g.print()
 	return g
+}
+
+// codecType is the codec type of statement kind k: Lv, whose ParseLv
+// writes needs A, or lw, whose parseLw infers it; each Wire needs B.
+func codecType(k int) string {
+	if k%2 == 0 {
+		return "Lv"
+	}
+	return "lw"
 }
 
 // FuncName is the name of function i.
@@ -254,6 +289,16 @@ func (g *RelNeeds) print() {
 				emit(depth, "if n > 1 {")
 				stmts(depth+1, s.Body)
 				emit(depth, "}")
+			case RelEncode:
+				emit(depth, "encode(%s{name: \"x\"}, ev)", codecType(s.K))
+			case RelDecode:
+				emit(depth, "let _ = decode[%s](codec.NewReplay(ev.Recorded())) catch {", codecType(s.K))
+				emit(depth, "case _:")
+				emit(depth+1, "%s{name: \"\"}", codecType(s.K))
+				emit(depth, "}")
+			case RelConvert:
+				emit(depth, "let c%d Closer = W%d{inner: %s}", s.V, s.K, mk)
+				emit(depth, "lendC(c%d)", s.V)
 			}
 		}
 	}
@@ -267,6 +312,8 @@ func (g *RelNeeds) print() {
 		}
 		emit(0, "")
 		emit(0, "func %s(n int)%s {", g.FuncName(i), row)
+		emit(1, "let ev = codec.NewEvents()")
+		emit(1, "let _ = ev.Recorded()")
 		stmts(1, f.Body)
 		emit(0, "}")
 	}
@@ -285,6 +332,9 @@ func (g *RelNeeds) print() {
 		emit(1, "}")
 	}
 	emit(0, "}")
+	// Last, so no declaration order checks it before the bodies that
+	// decode lw: only the edge a decode adds orders it first.
+	b.WriteString("\nfunc parseLw(s string) lw fails Bad {\n\tA.Use()\n\tlw{name: s}\n}\n")
 	g.src = b.String()
 }
 
@@ -306,9 +356,12 @@ func (f *RelFunc) written() (bool, int) {
 // sorted. A charge is what a call of the release's Close there would
 // charge: the needs of the acquired kind at a let, a temporary or a
 // handoff into keep<k> (whose taken parameter charges its row); the
-// callee's row at a call; nothing at a lend of a local or a return. A with
-// removes what it provides.
-func (g *RelNeeds) Model() (rows []string, missing []string) {
+// callee's row at a call; B (Wire's) at an encode and A (the ParseX's,
+// written or inferred) at a decode; nothing at a lend of a local or a
+// return. A with removes what it provides. refused is each "line S108" of
+// a conversion to Closer whose release needs a capability, which an
+// adapter could not carry (G7), sorted.
+func (g *RelNeeds) Model() (rows, missing, refused []string) {
 	row := make([]int, len(g.Funcs))
 	for i, f := range g.Funcs {
 		if ok, w := f.written(); ok {
@@ -322,6 +375,10 @@ func (g *RelNeeds) Model() (rows []string, missing []string) {
 			switch s.Kind {
 			case RelLet, RelTemp, RelKeep, RelKeepVar:
 				need = relKinds[s.K].needs
+			case RelEncode:
+				need = RelB
+			case RelDecode:
+				need = RelA
 			case RelCall:
 				need = row[s.Callee]
 			case RelWith:
@@ -378,7 +435,20 @@ func (g *RelNeeds) Model() (rows []string, missing []string) {
 	}
 	slices.Sort(missing)
 	missing = slices.Compact(missing)
-	return rows, missing
+	var convert func(ss []*RelStmt)
+	convert = func(ss []*RelStmt) {
+		for _, s := range ss {
+			if s.Kind == RelConvert && relKinds[s.K].needs != 0 {
+				refused = append(refused, fmt.Sprintf("%d S108", g.line[s]))
+			}
+			convert(s.Body)
+		}
+	}
+	for _, f := range g.Funcs {
+		convert(f.Body)
+	}
+	slices.Sort(refused)
+	return rows, missing, refused
 }
 
 // Releases reports whether the program releases a resource whose Close

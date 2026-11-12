@@ -80,6 +80,25 @@ func (c *checker) releaseSeeds() map[syntax.Node]relSeed {
 	return seeds
 }
 
+// releaseWider is why a value of type v cannot implement m, an operation
+// type's Close, for its release's needs, or "". The operation type's
+// release runs v's whole release (its Close, then its parts' Closes, R3)
+// wherever the converted value is released, so each capability a part's
+// Close needs must be in m's row, as v's own Close's must (implements). An
+// adapter carries no environment for it (G7 of the v1 audit 3).
+func (c *checker) releaseWider(v Type, m *Method) string {
+	if m.Name != "Close" || !closeShape(m) || !c.holdsResource(v) {
+		return ""
+	}
+	d, _ := c.dropOf(v)
+	for _, need := range c.dropNeeds(d) {
+		if !m.Sig.Uses.has(c.types, need.cap) {
+			return fmt.Sprintf("the release of %s runs %s.Close, which requires %s, which the interface's Close does not; a converted value is released wherever its new owner ends, so its release needs no capability (resources R5, Release needs)", v, need.close.Receiver, need.cap)
+		}
+	}
+	return ""
+}
+
 // relNeed is one capability a release needs and the Close that needs it.
 type relNeed struct {
 	cap   Type
