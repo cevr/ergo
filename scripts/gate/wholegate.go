@@ -287,6 +287,8 @@ func (g *gate) checkoutFacts(now time.Time) (*replay.Facts, error) {
 	if err != nil {
 		return nil, fmt.Errorf("walk the checkout: %w", err)
 	}
+	entries = slices.DeleteFunc(entries, func(e replay.Entry) bool { return gateOutput(e.Path, e.Class) })
+	recent = slices.DeleteFunc(recent, func(p string) bool { return gateOutput(p, replay.Ignored) })
 	executable, err := executableDigest()
 	if err != nil {
 		unreplayable = append(unreplayable, "the gate executable cannot be read: "+err.Error())
@@ -302,6 +304,28 @@ func (g *gate) checkoutFacts(now time.Time) (*replay.Facts, error) {
 		Unreplayable: unreplayable,
 		Recent:       recent,
 	}, nil
+}
+
+// gateOutputs are the checkout directories the gate's own steps write:
+// bin/, where "build bin/ergo" links the CLI from the sources. What is
+// there is an output of the run, not an input: every step that runs
+// bin/ergo needs that build and keys the file after it (Inputs.Built).
+// So no key holds an ignored path there. Before, a gate started on a
+// stale bin/ergo keyed it, its build rewrote it, and the end key differed:
+// the whole gate and the package steps whose closure covers the checkout
+// recorded nothing (batch-18 verify, "not recorded").
+var gateOutputs = []string{"bin/"}
+
+// gateOutput reports a path of class class that is a gate output: a
+// directory of gateOutputs or an ignored path under one. A tracked or
+// untracked file there is a source, and stays keyed.
+func gateOutput(p string, class replay.Class) bool {
+	for _, dir := range gateOutputs {
+		if p == strings.TrimSuffix(dir, "/") || strings.HasPrefix(p, dir) && (class == replay.Ignored || class == replay.NoClass) {
+			return true
+		}
+	}
+	return false
 }
 
 // executableDigest is the SHA-256 of the running gate executable.

@@ -381,8 +381,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// new revision. The gate's bin/ergo therefore declares no vcs.revision in
 	// its producer identity, while its artifact digest still identifies the
 	// executing bytes.
-	// It writes bin/ (Step.Writes): no closure sweep runs beside it.
-	add(&Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: []string{"bin/"}, Class: classFast})
+	// It writes bin/ (Step.Writes): no closure sweep runs beside it, and
+	// no key holds what it writes there (gateOutputs).
+	add(&Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: gateOutputs, Class: classFast})
 	examplesRun, err := examplesStep(root)
 	if err != nil {
 		return nil, err

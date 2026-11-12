@@ -185,6 +185,26 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 	}
 }
 
+// TestWholeGateRecordsOverAStaleBuild: a gate that starts on a stale
+// bin/ergo, which its own build step rewrites, records its pass and
+// replays it (gateOutputs). Mutant gate-key-stale-binary (the key holds
+// bin/ again): the build changes the end key, and the run records nothing.
+func TestWholeGateRecordsOverAStaleBuild(t *testing.T) {
+	root := fixture(t)
+	write(t, root, ".gitignore", "/runs/\n/bin/\n")
+	write(t, root, "bin/ergo", "stale\n")
+	build := &Step{Name: "build", Argv: []string{"sh", "-c", `echo "fresh $$" > bin/ergo.new && mv bin/ergo.new bin/ergo`}, Writes: gateOutputs}
+	g := wholeFixture(t, root, []*Step{build})
+	code, out := runWhole(t, g)
+	if code != 0 || !strings.Contains(out, "gate: recorded whole-gate key ") {
+		t.Fatalf("a run over a stale bin/ergo exits %d and does not record:\n%s", code, out)
+	}
+	code, out = runWhole(t, g)
+	if code != 0 || !strings.Contains(out, "gate: replayed 1 steps (key ") {
+		t.Fatalf("the recorded run does not replay (exit %d):\n%s", code, out)
+	}
+}
+
 // TestWholeGateRecordNamesItsTier: the tier is a fact of the whole-gate
 // key. A full-tier record replays for a full-tier run, by the run itself
 // and by the replay before the scope (replayWholeGate, which keys every

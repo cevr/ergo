@@ -81,6 +81,15 @@
       "to": "\t\t} else if only && false {\n\t\t\tcontinue\n\t\t}\n\t\t// A hermetic package",
       "rule": "The fast tier declares no step for a full-tier-only package (fullTierOnly).",
       "killers": ["scripts/gate:TestFastStepsKeyEveryTestPackage"]
+    },
+    {
+      "name": "gate-key-stale-binary",
+      "origin": "wf10 FU-b18 (batch-18 verify, gate start key)",
+      "file": "scripts/gate/wholegate.go",
+      "from": "\tentries = slices.DeleteFunc(entries, func(e replay.Entry) bool { return gateOutput(e.Path, e.Class) })\n",
+      "to": "\t_ = gateOutput\n",
+      "rule": "No key holds the gate's own outputs (bin/): a gate started on a stale bin/ergo, which its build rewrites, still records.",
+      "killers": ["scripts/gate:TestWholeGateRecordsOverAStaleBuild"]
     }
   ]
 }
