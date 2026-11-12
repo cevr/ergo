@@ -95,7 +95,10 @@ type loadedPackage struct {
 	files   []loadedFile
 	imports []localImport
 	pkg     *check.Package
-	assets  map[string][]byte // build-time embed inputs, by package-relative path
+	// mod is the required module that holds the package (modules.go); nil
+	// for a package of the program's own module.
+	mod    *depModule
+	assets map[string][]byte // build-time embed inputs, by package-relative path
 	// broken is a package with diagnostics, or one that imports such a
 	// package: it is not checked, and nothing it reaches is built.
 	broken bool
@@ -141,6 +144,22 @@ type loader struct {
 	// the reason each one does not match go.mod (gomod.go).
 	bindings map[string]string
 	stale    map[string]string
+	// modCache is Go's module cache folder, "" when none is known;
+	// modules is the build list, read on the first import of another
+	// module; deps the required modules read, by path (modules.go).
+	modCache string
+	modules  *moduleGraph
+	deps     map[string]*depModule
+	// localOnly reads the program's own module and no other: a recursive
+	// command orders the module's packages and reads no dependency.
+	localOnly bool
+}
+
+// newLoader is a loader of the package folder dir, an absolute path, that
+// reads required modules from the module cache folder modCache.
+func newLoader(fsys FS, platform gobind.Platform, dir, modCache string) *loader {
+	return &loader{fsys: fsys, platform: platform, root: dir, modCache: modCache, pkgs: map[string]*loadedPackage{}, missing: map[string]string{},
+		state: map[*loadedPackage]int{}, texts: map[string]string{}, deps: map[string]*depModule{}}
 }
 
 // GoBindings makes the loader a check.GoImporter: the program's packages
@@ -212,12 +231,18 @@ func checkDir(fsys FS, dir string) (Analysis, error) {
 }
 
 func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysis, error) {
+	return checkDirIn(fsys, dir, platform, moduleCache())
+}
+
+// checkDirIn checks the package in dir with required modules read from the
+// module cache folder modCache.
+func checkDirIn(fsys FS, dir string, platform gobind.Platform, modCache string) (Analysis, error) {
 	prepareStd()
 	if !filepath.IsAbs(dir) {
 		return Analysis{}, fmt.Errorf("sketchfront: the package folder %s is not absolute", dir)
 	}
 	dir = filepath.Clean(dir)
-	l := &loader{fsys: fsys, platform: platform, root: dir, pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}}
+	l := newLoader(fsys, platform, dir, modCache)
 	found, err := l.findModule(dir)
 	if err != nil {
 		return Analysis{}, err
@@ -230,7 +255,7 @@ func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysi
 		}
 	}
 	if !found || l.module != "" {
-		root, err := l.read(rootPath, dir)
+		root, err := l.read(rootPath, dir, nil)
 		if err != nil {
 			return Analysis{}, err
 		}
@@ -249,6 +274,8 @@ func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysi
 		p.module, p.modRoot = l.module, l.root
 	}
 	if l.goMod != nil {
+		// An Ergo module's requirement stays in the emitted go.mod: go
+		// build keeps a requirement no Go import names, as go.mod does.
 		p.goModule = l.goModule
 	}
 	if len(l.order) > 0 {
@@ -378,25 +405,30 @@ func (l *loader) local(path string) (string, bool) {
 	return filepath.Join(l.root, filepath.FromSlash(rel)), true
 }
 
-// nestedModule is why the folder dir is not in the program's module: a
-// folder below the module root, dir itself or one above it, that holds its
-// own ergo.mod ends the module there, as a nested go.mod ends a Go module
-// (go.dev/ref/mod). Imports across modules are S104 in v1 (196b Q1). It is
-// empty for a folder of the module.
-func (l *loader) nestedModule(dir string) string {
-	for d := dir; d != l.root && strings.HasPrefix(d, l.root+string(filepath.Separator)); d = filepath.Dir(d) {
-		name := filepath.Join(d, ModFile)
-		info, err := l.fsys.Stat(name)
+// nestedModule is why the folder dir is not in the module mod (nil for the
+// program's own): a folder below the module root, dir itself or one above
+// it, that holds its own ergo.mod ends the module there, as a nested go.mod
+// ends a Go module (go.dev/ref/mod). Its packages are imported by that
+// module's path, through a requirement (modules.go). It is empty for a
+// folder of the module.
+func (l *loader) nestedModule(dir string, mod *depModule) string {
+	root, name := l.root, l.module
+	if mod != nil {
+		root, name = mod.dir, mod.name
+	}
+	for d := dir; d != root && strings.HasPrefix(d, root+string(filepath.Separator)); d = filepath.Dir(d) {
+		file := filepath.Join(d, ModFile)
+		info, err := l.fsys.Stat(file)
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		rel := l.rel(d)
-		if data, err := l.fsys.ReadFile(name); err == nil {
+		rel := l.relIn(mod, d)
+		if data, err := l.fsys.ReadFile(file); err == nil {
 			if module, problem := parseModule(string(data)); problem == nil {
-				return fmt.Sprintf("the folder %s is module %s (%s/%s); a program imports std and its own module only", rel, module, rel, ModFile)
+				return fmt.Sprintf("the folder %s is module %s (%s/%s); import its packages by that module's path, which %s requires", rel, module, rel, ModFile, GoModFile)
 			}
 		}
-		return fmt.Sprintf("the folder %s holds its own %s, so it is not in module %s; a program imports std and its own module only", rel, ModFile, l.module)
+		return fmt.Sprintf("the folder %s holds its own %s, so it is not in module %s", rel, ModFile, name)
 	}
 	return ""
 }
@@ -405,14 +437,19 @@ func (l *loader) nestedModule(dir string) string {
 // in byte order of their names, each parsed and named, and its local
 // imports. A folder with no .ergo file is no package: nil, and the reason
 // is recorded for the importer.
-func (l *loader) read(path, dir string) (*loadedPackage, error) {
+func (l *loader) read(path, dir string, mod *depModule) (*loadedPackage, error) {
 	if p, ok := l.pkgs[path]; ok {
 		return p, nil
 	}
-	relDir := l.rel(dir)
+	relDir := l.relIn(mod, dir)
 	entries, err := l.fsys.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
-		l.missing[path] = fmt.Sprintf("no folder %s in module %s", relDir, l.module)
+		module := l.module
+		if mod != nil {
+			module = mod.name
+			relDir = strings.TrimPrefix(relDir, mod.name+"/")
+		}
+		l.missing[path] = fmt.Sprintf("no folder %s in module %s", relDir, module)
 		return nil, nil
 	}
 	if err != nil {
@@ -432,7 +469,7 @@ func (l *loader) read(path, dir string) (*loadedPackage, error) {
 	}
 	// The listing's order is the host's; the package's is the names'.
 	slices.Sort(names)
-	p := &loadedPackage{path: path, dir: dir}
+	p := &loadedPackage{path: path, dir: dir, mod: mod}
 	l.pkgs[path] = p
 	seen := map[string]bool{}
 	for i, name := range names {
@@ -441,7 +478,7 @@ func (l *loader) read(path, dir string) (*loadedPackage, error) {
 		if err != nil {
 			return nil, err
 		}
-		f := loadedFile{rel: l.rel(abs), abs: abs, text: string(data)}
+		f := loadedFile{rel: l.relIn(mod, abs), abs: abs, text: string(data)}
 		l.texts[f.rel] = f.text
 		parsed, err := syntax.Parse(f.text)
 		if err != nil {
@@ -453,8 +490,10 @@ func (l *loader) read(path, dir string) (*loadedPackage, error) {
 			parsed.Name = name
 			f.syntax = parsed
 			for _, spec := range importSpecs(parsed) {
+				// Every import of a module's package but std's is the
+				// loader's: its own module's, or a required module's.
 				target := importPath(spec)
-				if _, ok := l.local(target); ok && !seen[target] {
+				if target != "" && l.module != "" && !isStdPath(target) && !seen[target] {
 					seen[target] = true
 					p.imports = append(p.imports, localImport{path: target, file: i, spec: spec})
 				}
@@ -465,13 +504,25 @@ func (l *loader) read(path, dir string) (*loadedPackage, error) {
 	return p, nil
 }
 
-// rel is a path relative to the module root, slash-separated.
-func (l *loader) rel(name string) string {
-	rel, err := filepath.Rel(l.root, name)
+// relIn is a path of module mod as diagnostics name it, slash-separated:
+// relative to the program's module root for nil, else mod's name
+// (path@version) and the path below its root.
+func (l *loader) relIn(mod *depModule, name string) string {
+	root := l.root
+	if mod != nil {
+		root = mod.dir
+	}
+	rel, err := filepath.Rel(root, name)
 	if err != nil {
 		return filepath.ToSlash(name)
 	}
-	return filepath.ToSlash(rel)
+	if mod == nil {
+		return filepath.ToSlash(rel)
+	}
+	if rel == "." {
+		return mod.name
+	}
+	return mod.name + "/" + filepath.ToSlash(rel)
 }
 
 // importSpecs are a file's import specs, in source order.
@@ -509,12 +560,20 @@ func (l *loader) visit(p *loadedPackage, stack []*loadedPackage) error {
 	l.state[p] = visiting
 	stack = append(stack, p)
 	for _, imp := range p.imports {
-		dir, _ := l.local(imp.path)
-		if reason := l.nestedModule(dir); reason != "" {
+		if _, done := l.pkgs[imp.path]; !done {
+			if _, failed := l.missing[imp.path]; failed {
+				continue
+			}
+		}
+		dir, mod, reason := l.locate(imp.path)
+		if reason == "" {
+			reason = l.nestedModule(dir, mod)
+		}
+		if reason != "" {
 			l.missing[imp.path] = reason
 			continue
 		}
-		q, err := l.read(imp.path, dir)
+		q, err := l.read(imp.path, dir, mod)
 		if err != nil {
 			return err
 		}
@@ -619,7 +678,7 @@ func (l *loader) Import(path string) (*check.Package, error) {
 	if l.module == "" {
 		return nil, &check.ImportError{Path: path, Reason: "no " + ModFile + " above the program's folder declares a module, so the program imports std only"}
 	}
-	return nil, &check.ImportError{Path: path, Reason: fmt.Sprintf("it is not std and not in module %s; a program imports std and its own module only", l.module)}
+	return nil, &check.ImportError{Path: path, Reason: fmt.Sprintf("it is not std and not in module %s, and the program reads no package of that path", l.module)}
 }
 
 // Text is the analysed text: the source of a program of one file, or for
@@ -712,6 +771,9 @@ func (p *program) dependencies() []build.Dependency {
 	for path, src := range p.bindings {
 		out = append(out, sourceDependency("go "+path, map[string]string{bindingFile(path): src}))
 	}
+	// A required module's packages are among the imports above, keyed by
+	// their admitted paths (the copy's folder names the module and its
+	// version) and bytes, which are what its go.sum hash is a hash of.
 	return out
 }
 

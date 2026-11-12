@@ -175,7 +175,7 @@ func TestLoaderImportReasons(t *testing.T) {
 		// A nested ergo.mod ends the module (M1 of round 1): a folder under
 		// it, or the folder that holds it, is another module's.
 		{map[string]string{"ergo.mod": "module app\n", "main.ergo": "import app/sub/x\n\n" + main, "sub/ergo.mod": "module other\n", "sub/x/x.ergo": "func Name() string {\n\treturn \"x\"\n}\n"}, ".",
-			`unknown package "app/sub/x": the folder sub is module other (sub/ergo.mod); a program imports std and its own module only`},
+			`unknown package "app/sub/x": the folder sub is module other (sub/ergo.mod); import its packages by that module's path, which go.mod requires`},
 		{map[string]string{"ergo.mod": "module app\n", "main.ergo": "import app/x\n\n" + main, "x/ergo.mod": "module other\n", "x/x.ergo": "func Name() string {\n\treturn \"x\"\n}\n"}, ".",
 			`unknown package "app/x": the folder x is module other (x/ergo.mod)`},
 		{map[string]string{"ergo.mod": "module app\n", "main.ergo": "import app/x\n\n" + main, "x/ergo.mod": "go 1.22\n", "x/x.ergo": "func Name() string {\n\treturn \"x\"\n}\n"}, ".",
