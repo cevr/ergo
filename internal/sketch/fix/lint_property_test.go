@@ -38,7 +38,8 @@ func raceBody(r *rand.Rand, indent, inner string) string {
 // fixes (the sleep first or second, a tail or a return fallback, a race
 // nested in another's working block, so a later round fixes it), with
 // timeout imported or not, with tasks still used by a race the rule does
-// not report (two working blocks) or used by nothing after the fix, and
+// not report (two working blocks) or reports without a fix (one that
+// already fails timeout.Expired) or used by nothing after the fix, and
 // with a local named timeout, whose fixed text does not check, so the run
 // is refused. Otherwise, after ergo fix --lint: the program checks; each
 // fixable race was fixed once; lint finds no fixable finding and no
@@ -69,15 +70,23 @@ func TestFixLintProperty(t *testing.T) {
 		b.WriteString("\nfunc work() int needs Scheduler {\n\tScheduler.Sleep(5s)\n\t7\n}\n")
 		if imported {
 			b.WriteString("\nfunc bounded() int needs Scheduler {\n\ttimeout.After(1s, func() int needs Scheduler { work() }) catch {\n\tcase timeout.Expired:\n\t\treturn 0\n\t}\n}\n")
+			b.WriteString("\nfunc late() int fails timeout.Expired {\n\ttimeout.Expired\n}\n")
 		}
 		want, refused := 0, false
 		for i := 0; i < 1+r.IntN(3); i++ {
 			fmt.Fprintf(&b, "\nfunc r%d() int needs Scheduler {\n\t", i)
 			kind := r.IntN(4)
-			if !imported && r.IntN(8) == 0 {
+			switch {
+			case !imported && r.IntN(8) == 0:
 				kind = 4
+			case imported && r.IntN(4) == 0:
+				kind = 5
 			}
 			switch kind {
+			case 5:
+				// a race that already fails timeout.Expired: reported with
+				// no fix, so the run leaves it
+				b.WriteString("tasks.Race([]func() int fails timeout.Expired needs Scheduler{\n\t\tfunc() int fails timeout.Expired needs Scheduler {\n\t\t\ttry late()\n\t\t},\n\t\tfunc() int fails timeout.Expired needs Scheduler {\n\t\t\tScheduler.Sleep(2s)\n\t\t\t0\n\t\t},\n\t}) catch {\n\tcase timeout.Expired:\n\t\treturn 0\n\t}")
 			case 4:
 				// a local named timeout: the fixed text does not check,
 				// so the run is refused

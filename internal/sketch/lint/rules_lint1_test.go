@@ -108,6 +108,8 @@ var collectKinds = []collectKind{
 	{"collect-own", -1, "slices.Collect(Values(xs))"},
 	// a program function whose doc states the fact
 	{"collect-marked", 0, "slices.Collect(Endless(xs))"},
+	// "Unbounded:" inside a paragraph is prose, not the fact
+	{"collect-prose", -1, "slices.Collect(Bounded(xs))"},
 	{"loop-append", 1, "let mut out = []int{}\n\tfor v in q.Values() {\n\t\tout = out.Append(v)\n\t}\n\tout"},
 	{"loop-break", -1, "let mut out = []int{}\n\tfor v in q.Values() {\n\t\tout = out.Append(v)\n\t\tif len(out) > 3 {\n\t\t\tbreak\n\t\t}\n\t}\n\tout"},
 	// a break of an inner loop does not leave the outer one
@@ -127,6 +129,12 @@ func Values(xs []int) Seq[int] {
 //
 // Unbounded: it ends only when its source is closed.
 func Endless(xs []int) Seq[int] {
+	slices.Values(xs)
+}
+
+// Bounded gives xs. It is not what the old notes called
+// Unbounded: it ends with xs.
+func Bounded(xs []int) Seq[int] {
 	slices.Values(xs)
 }
 `
@@ -304,6 +312,8 @@ var raceKinds = []raceKind{
 	{"own-race", false, false, "Race([]func() int needs Scheduler{\n" + raceBody + raceSleeper + "\t})"},
 	// the race already fails timeout.Expired: a fix's catch would take it
 	{"fails-expired", true, false, "tasks.Race([]func() int fails timeout.Expired needs Scheduler{\n\t\tfunc() int fails timeout.Expired needs Scheduler {\n\t\t\ttry late()\n\t\t},\n\t\tfunc() int fails timeout.Expired needs Scheduler {\n\t\t\tScheduler.Sleep(2s)\n\t\t\t0\n\t\t},\n\t}) catch {\n\tcase timeout.Expired:\n\t\t-2\n\t}"},
+	// the same, in a block that declares the failure, so no catch is on it
+	{"fails-expired-declared", true, false, "let f = func() int fails timeout.Expired needs Scheduler { tasks.Race([]func() int fails timeout.Expired needs Scheduler{\n\t\tfunc() int fails timeout.Expired needs Scheduler {\n\t\t\ttry late()\n\t\t},\n\t\tfunc() int fails timeout.Expired needs Scheduler {\n\t\t\tScheduler.Sleep(2s)\n\t\t\t0\n\t\t},\n\t}) }\n\tf() catch {\n\tcase timeout.Expired:\n\t\t-2\n\t}"},
 }
 
 const racePrelude = `import tasks
