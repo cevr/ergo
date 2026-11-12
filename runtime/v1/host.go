@@ -103,11 +103,36 @@ func (e NoWorkdir) Error() string { return "os.NoWorkdir{Message:" + e.Message +
 // absolute path (Go's os.Getwd). Every error of os.Getwd is NoWorkdir with
 // Go's text, so the Ergo row holds it whole.
 //
+// It fails with NoWorkdir when the working directory has been removed, on
+// every host. Go's os.Getwd does not promise that: Linux's getcwd fails,
+// but darwin's gives the removed directory's old path. So the path it
+// gives must name the same file as ".", or the directory is gone. The
+// usual path costs what os.Getwd costs: an absolute $PWD that names "."
+// is the answer (os.Getwd's own first step, with the same two stats), and
+// only a process whose $PWD does not name "." pays os.Getwd and one more
+// stat.
+//
 //ergo:host
 func OSGetwd() (string, error) {
+	dot, err := os.Stat(".")
+	if err != nil {
+		return "", NoWorkdir{Message: err.Error()}
+	}
+	if pwd := os.Getenv("PWD"); strings.HasPrefix(pwd, "/") {
+		if named, err := os.Stat(pwd); err == nil && os.SameFile(named, dot) {
+			return pwd, nil
+		}
+	}
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", NoWorkdir{Message: err.Error()}
+	}
+	named, err := os.Stat(dir)
+	if err != nil {
+		return "", NoWorkdir{Message: err.Error()}
+	}
+	if !os.SameFile(named, dot) {
+		return "", NoWorkdir{Message: "getwd: " + dir + " no longer names the working directory"}
 	}
 	return dir, nil
 }

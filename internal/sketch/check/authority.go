@@ -473,6 +473,21 @@ func Sealed(t Type) bool {
 	return false
 }
 
+// sealedStd is t when t is a sealed operation type of the prelude or a std
+// package (Sealed: it declares an unexported operation, as the prelude's
+// Task and queue.Queue do), else nil. The runtime's own Go type stands for
+// its value (lower/std.go runtimeType), with the runtime's Go shapes, so
+// its conversion to another operation type goes through an adapter
+// (lower/sealedops.go). An open std operation type, such as os.Process,
+// is a program interface like any other.
+func sealedStd(t Type) *Named {
+	n, ok := t.(*Named)
+	if !ok || n.Obj == nil || !n.Obj.Pkg.Std() || !Sealed(n) {
+		return nil
+	}
+	return n
+}
+
 // implementers are the types of owner that may implement it: each a
 // declared type of owner, not an operation type, with a function of owner
 // for every operation of it whose first parameter is the type or a borrow

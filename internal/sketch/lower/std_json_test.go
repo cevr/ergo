@@ -175,3 +175,27 @@ func TestStdJSONLawsRun(t *testing.T) {
 	}
 	lawledger.Run(t, laws)
 }
+
+// TestNestedEncodeKeepsTheFastText is the smallest repro of batch-16b r3
+// M1: an encode inside another encode's value operand cleared the outer
+// call's skip of the Text's Writer conversion (a funcCtx field, efae1bc9f),
+// so the outer fast path read JSONValue off the Writer adapter and the
+// lowered Go did not type-check. Mutant: 16b-m2-json-text-raw.
+func TestNestedEncodeKeepsTheFastText(t *testing.T) {
+	const src = `import json
+
+func main() needs Console {
+	let t = json.NewText()
+	let t2 = json.NewText()
+	let c = len(t2.Written()) == 0
+	encode(if c {
+		encode(1, t2)
+		7
+	} else {
+		2
+	}, t)
+	Console.Println(t.Written() + " " + t2.Written())
+}
+`
+	typecheckGo(t, []*lowered{mustLower(t, "nestedencode", src)})
+}

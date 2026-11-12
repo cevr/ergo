@@ -21,8 +21,15 @@ import (
 // code observes it at its next interruption point, unwinds, and runs its
 // releases, masked (I2); the call then returns ctx.Err(). A ctx that is
 // never done (context.Background) costs nothing: no goroutine and no
-// registration. A registration (context.AfterFunc) is removed before Call
-// returns, so no goroutine is left behind.
+// registration. Any other ctx gets a registration (context.AfterFunc),
+// which Call removes before it returns: a ctx not done during the call
+// starts no goroutine and leaves none. A ctx done during the call
+// interrupts the task from the goroutine context.AfterFunc starts, and
+// Call waits for that function to end (it closes a channel Call receives
+// from) before it returns: no function of Call still runs after Call, and
+// its goroutine has only to exit (Go gives no way to wait for a
+// goroutine's exit itself; a count of goroutines just after Call is a
+// race, so TestGoCallsErgo observes the return, not a count).
 //
 // A typed failure returns as an error whose value is the Ergo failure; a
 // defect returns as the defect error that names the Ergo call sites, as the
@@ -36,8 +43,17 @@ import (
 func Call[T any](ctx context.Context, span string, body func(*rt.Task) (T, error)) (T, error) {
 	t := rt.Root(span)
 	if ctx.Done() != nil {
-		stop := context.AfterFunc(ctx, t.Interrupt)
-		defer stop()
+		watched := make(chan struct{})
+		stop := context.AfterFunc(ctx, func() {
+			defer close(watched)
+			t.Interrupt()
+		})
+		defer func() {
+			if !stop() {
+				// The watcher started: Call returns after it ends.
+				<-watched
+			}
+		}()
 	}
 	// runOn is the root task's run under the defect owner (guarded), as
 	// main's: v is written by the body before runOn returns.

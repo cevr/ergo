@@ -197,6 +197,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"lowerer.testRunnerHead":   "the test runner's declared header: func ergoTests(env *Env, seed uint64)",
 		"funcCtx.operations":       "an Env value of the caller's task for an operation table",
 		"funcCtx.witnessMethod":    "an Env value of the caller's task for a witness adapter",
+		"funcCtx.sealedMethod":     "an Env value of the caller's task for a sealed std adapter (sealedops.go)",
 		"funcCtx.scriptOperations": "an Env value of the caller's task for a Script adapter (script.go)",
 		"funcCtx.contextValue":     "the zero Env a Context value's providers build into where no environment is bound: a variable, no closure (its closure is envClosure's)",
 		"typeCtx.funcType":         "a function type, which has no body",

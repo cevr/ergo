@@ -293,11 +293,20 @@ func (fc *funcCtx) wireCall(x *syntax.CallExpr, c *check.Call) operand {
 	if fc.frame.polls {
 		fc.poll(x)
 	}
-	vals := fc.callArgs(x.Args, x)
+	fast := c.Kind == check.CallEncode && wireFast() && isJSONText(fc.typeOf(x.Args[1]))
+	var raw syntax.Expr
+	if fast {
+		// The fast path writes through the runtime's Text, not the Writer
+		// adapter its conversion would make (sealedops.go). The skip is
+		// this call's argument, so an encode inside the value operand
+		// cannot reach it.
+		raw = x.Args[1]
+	}
+	vals := fc.callArgsRaw(x.Args, x, raw)
 	env := fc.envExpr(x)
 	tc := fc.wireCtx(x)
 	if c.Kind == check.CallEncode {
-		if wireFast() && isJSONText(fc.typeOf(x.Args[1])) {
+		if fast {
 			// The fast path (wirejson.go): the value's bytes, after the
 			// comma the Text's state asks for.
 			t := fc.temp("text")

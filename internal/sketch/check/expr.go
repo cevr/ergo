@@ -1728,6 +1728,9 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		return false
 	}
 	c.implicit(op.expr, a)
+	if a.clause == assignOperations {
+		c.recordConversion(op.expr, op.typ, t)
+	}
 	return true
 }
 

@@ -196,8 +196,14 @@ type checker struct {
 	// resourceSites are the map keys and taken parameters A1's late pass
 	// decides (resource.go); the seen sets keep one site per syntax node.
 	resourceSites []resourceSite
-	takesSeen     map[*syntax.TakesClause]bool
-	mapKeysSeen   map[syntax.Expr]bool
+	// ownershipSites are the places a value meets an operation type
+	// without Close (R22): a type argument bound by one, and a conversion
+	// in a generic body; ownershipSeen keeps one site per node and type
+	// parameter (resource.go).
+	ownershipSites []ownershipSite
+	ownershipSeen  map[ownershipKey]bool
+	takesSeen      map[*syntax.TakesClause]bool
+	mapKeysSeen    map[syntax.Expr]bool
 	// typeNodes are the expressions checked as types (a conversion's
 	// callee, a composite literal's type): the Task use rule skips them.
 	typeNodes map[syntax.Expr]bool

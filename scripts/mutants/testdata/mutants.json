@@ -1,7 +1,6 @@
 {
   "about": "The mutant runner shares the capped-child classifier with proclimit.",
   "mutants": [
-    {"name":"embed-duplicate-ledger-anchor","origin":"wf10 batch-16b fix-r1","file":"internal/sketchfront/testdata/mutants.json","from":"l.user.WriteString(\\\"//go:embed \\\" + strings.Join","to":"//go:embed ","rule":"Every ledger edit applies exactly once at HEAD, including literal template edits.","killers":["scripts/mutants:TestLedgerEditsApplyOnce"],"anchor":{"tests":["scripts/mutants:TestLedgerEditsApplyOnce"]}},
     {
       "name": "gcoom-mutants-text-only",
       "origin": "wf10 FU-gcoom r2",

@@ -1284,13 +1284,24 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 			w.expr(x.X, mLend, hand{})
 			return
 		}
-		if op := w.resourceMethod(x); op != nil {
+		if op, generic := w.resourceMethod(x); op != nil {
 			// The same for any other operation of a resource (Task.Wait,
 			// Task.Stop; #197 L8 B3t): the function value would own its
-			// receiver, or hold a lend of it past its release.
-			w.reportCode(x, CodeType, "%s is a method value of %s on %s, a resource; a function value owns no resource and holds no lend of one (resources R19, R33); call %s() instead", exprText(x), op.Name, exprText(x.X), exprText(x))
-			w.expr(x.X, mLend, hand{})
-			return
+			// receiver, or hold a lend of it past its release. A queue's
+			// Values is one: f() of f = q.Values would be a Seq of owned
+			// values that no for-in over q.Values() releases (R35). In a
+			// generic body whose receiver is a resource only through a
+			// type parameter (Queue[T]), the method value is a copy site
+			// of that parameter (R44).
+			if generic {
+				if w.st.reached {
+					w.copySite(w.info.Types[x.X], x, fmt.Sprintf("%s is a method value of %s on %s", exprText(x), op.Name, exprText(x.X)), false)
+				}
+			} else {
+				w.reportCode(x, CodeType, "%s is a method value of %s on %s, a resource; a function value owns no resource and holds no lend of one (resources R19, R33); call %s() instead", exprText(x), op.Name, exprText(x.X), exprText(x))
+				w.expr(x.X, mLend, hand{})
+				return
+			}
 		}
 		if w.selector(x, mode, h) {
 			return
@@ -1301,6 +1312,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		if id, ok := unparen(x.X).(*syntax.Ident); ok {
 			if _, fn := w.info.Uses[id].(*Func); fn {
 				w.funcValue(id, w.info.Types[x]) // f[T] as a value
+				w.valueInstance(x)
 				lend(x.Indices...)
 				return
 			}
@@ -1367,6 +1379,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		if v == nil || !ok {
 			w.pkgLetMove(x, v, mode, h)
 			w.funcValue(x, w.info.Types[x])
+			w.valueInstance(x)
 			return
 		}
 		if mode == mHold && w.tail.slot >= 0 && i >= w.tail.first && !h.yieldRoot {
@@ -1580,20 +1593,21 @@ func placeText(x syntax.Expr) string {
 
 // resourceMethod returns the operation of the method value x when the
 // value it is called on holds a resource; nil otherwise (a field, plain
-// data).
-func (w *ownWalk) resourceMethod(x *syntax.SelectorExpr) *Method {
+// data). generic is true when that value is a resource only through a
+// type parameter of the walked declaration (Queue[T]).
+func (w *ownWalk) resourceMethod(x *syntax.SelectorExpr) (op *Method, generic bool) {
 	if _, ok := w.info.Types[x].(*Signature); !ok {
-		return nil
+		return nil, false
 	}
 	t := w.info.Types[x.X]
-	if t == nil || isInvalid(t) || !w.c.holdsResource(t) {
-		return nil
+	if t == nil || isInvalid(t) || !w.c.mayHoldResource(t) {
+		return nil, false
 	}
 	it := asInterface(t)
 	if it == nil {
-		return nil
+		return nil, false
 	}
-	return it.method(x.Sel.Name)
+	return it.method(x.Sel.Name), !w.c.holdsResource(t)
 }
 
 // selector evaluates a field x.f of a record; it reports false for any
@@ -1784,8 +1798,8 @@ func (w *ownWalk) replaced(x *syntax.CompositeLit) []Replaced {
 			add(f, x.Base.Pos())
 		}
 	}
-	// Each Temp is a node the checker makes (made, owner.go): the key of
-	// its release, made from the update.
+	// Each temporary is a node the checker makes (made, owner.go), from
+	// the update it releases for, so it lies in the update's file.
 	var rs []Replaced
 	for _, d := range drops {
 		rs = append(rs, Replaced{Field: d.f, Temp: made(w.c, &syntax.Ident{NamePos: d.at, Name: d.f.Name}, syntax.Node(x))})

@@ -1446,8 +1446,8 @@
       "name": "L8-A1 a conversion to a crossing operation type admitted",
       "origin": "wf10 L8 A1 (#197)",
       "file": "internal/sketch/check/typeops.go",
-      "from": "if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {",
-      "to": "if false && !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.holdsResource(t) {",
+      "from": "if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.releasable(t) {",
+      "to": "if false && !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.releasable(t) {",
       "rule": "resources R22: a resource converted to an operation type with no Close is S108.",
       "killers": [
         "check:TestResourceTypeModel"
@@ -2246,8 +2246,8 @@
       "name": "L8-B3t a method value of a resource's operation admitted",
       "origin": "wf10 L8 B3t (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "if op := w.resourceMethod(x); op != nil {",
-      "to": "if op := w.resourceMethod(x); op != nil && op == nil {",
+      "from": "if op, generic := w.resourceMethod(x); op != nil {",
+      "to": "if op, generic := w.resourceMethod(x); op != nil && op == nil {",
       "rule": "resources R33: a function value owns no resource and holds no lend of one (t.Wait, t.Stop as values).",
       "killers": [
         "lower:TestCheckedImpliesLoweredPart8"
@@ -2536,6 +2536,31 @@
     {"name":"try1-operand-redundant-dropped","origin":"wf10 lang-2 TRY1","file":"internal/sketch/check/cover.go","from":"if cv.right[tr] && !cv.used[tr] {","to":"if false && cv.right[tr] && !cv.used[tr] {","rule":"rows.md Error rows 6: a try in operand position with nothing fallible after it is S108.","killers":["lower:TestTryCoversToTheRight"]},
     {"name":"try1-unary-ends-spine","origin":"wf10 lang-2 TRY1","file":"internal/sketch/check/cover.go","from":"\t\tcase *syntax.UnaryExpr:\n\t\t\treturn walk(e.X)","to":"\t\tcase *syntax.UnaryExpr:\n\t\t\treturn nil","rule":"grammar.md Expressions 1 (q105): a try under a unary operator still covers the rest of the expression (-try f() + g()).","killers":["lower:TestTryCoversToTheRight"]},
     {"name":"try1-nearest-try","origin":"wf10 lang-2 TRY1","file":"internal/sketch/check/handlers.go","from":"\t\t\tt.tried = saved","to":"\t\t\tt.tried = saved || t.tried","rule":"rows.md Error rows 6: a failure belongs to the nearest try that covers it, so an enclosing try with nothing else is redundant.","killers":["lower:TestTryCoversToTheRight"]},
-    {"name":"try1-failure-shares-header-key","origin":"wf10 lang-2 TRY1","file":"internal/sketch/check/ownership.go","from":"\tw.info.TryReleases[key] = out\n","to":"\tw.info.TryReleases[key] = out\n\tw.info.Releases[key] = out\n","rule":"resources R43, R7: a try that starts a header (match try f() {) keys the header's temporaries in Releases; its failure edge's releases (Info.TryReleases) never run on the normal path.","killers":["lower:TestOwnershipRunModel","lower:TestStaticReleaseAgrees"]}
+    {"name":"try1-failure-shares-header-key","origin":"wf10 lang-2 TRY1","file":"internal/sketch/check/ownership.go","from":"\tw.info.TryReleases[key] = out\n","to":"\tw.info.TryReleases[key] = out\n\tw.info.Releases[key] = out\n","rule":"resources R43, R7: a try that starts a header (match try f() {) keys the header's temporaries in Releases; its failure edge's releases (Info.TryReleases) never run on the normal path.","killers":["lower:TestOwnershipRunModel","lower:TestStaticReleaseAgrees"]},
+    {"name":"16a-r5-site-takes-holds","origin":"batch-16a fix r5 M1","file":"internal/sketch/check/resource.go","from":"if c.holdsResource(s.from) && !c.releasable(s.to) {","to":"if c.holdsResource(s.from) && !c.holdsResource(s.to) {","rule":"A resource type argument meets a bound only when the bound has a release (R1, R13): an operation that takes the value releases nothing (R22).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r5-copies-takes-holds","origin":"batch-16a fix r5 M1","file":"internal/sketch/check/resource.go","from":"!c.mayHoldResource(s.from) || c.releasable(s.to) {","to":"!c.mayHoldResource(s.from) || c.mayHoldResource(s.to) {","rule":"A type parameter that binds an inner bound with no release (only a taking operation) is a copy site (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r5-conversion-takes-holds","origin":"batch-16a fix r5 M1","file":"internal/sketch/check/typeops.go","from":"c.holdsResource(v) && !c.releasable(t) {","to":"c.holdsResource(v) && !c.holdsResource(t) {","rule":"A resource converted to an operation type with no release is R22's refusal, the same predicate as at an instantiation (R1, R13, R22).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r4-bound-site-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"c.addOwnershipSite(ownershipSite{file: c.cur, at: at, name: name, tp: tp, from: targs[i], to: cons})","to":"_ = cons","rule":"Every instantiation records its type arguments bound by an operation type, for R22 at the instantiation (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r4-bound-concrete-skipped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"if c.holdsResource(s.from) && !c.releasable(s.to) {","to":"if false && c.holdsResource(s.from) && !c.releasable(s.to) {","rule":"A resource type argument for a type parameter bound by an operation type without Close is S108 with R22's text (R22).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r4-bound-close-ignored","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"if c.holdsResource(s.from) && !c.releasable(s.to) {","to":"if c.holdsResource(s.from) {","rule":"A bound with Close admits a resource type argument (R22, R23).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r4-copies-close-ignored","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"!c.mayHoldResource(s.from) || c.releasable(s.to) {","to":"!c.mayHoldResource(s.from) || false {","rule":"A type parameter bound with Close that binds an inner bound with Close is no copy site (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r4-copies-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"if f := owner[tp]; f != nil {","to":"if f := owner[tp]; false && f != nil {","rule":"A type argument or conversion that is a resource only through the enclosing function's type parameter is that parameter's copy site (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r4-conversion-site-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/expr.go","from":"c.recordConversion(op.expr, op.typ, t)","to":"_ = t","rule":"A generic body that converts a value of its type parameter to an operation type without Close makes a copy site (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r4-value-instance-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/takes.go","from":"\t\tw.instance(x, inst.Func, inst.TypeArgs)","to":"\t\t_ = inst","rule":"A generic function value checks the copy sites of its instance as a call does (R44).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16b-m2-sealed-conversion","origin":"batch-16b merge of 16a-r5 (orchestrator ruling 2026-11-11: C28's sealed-source refusal removed)","file":"internal/sketch/check/typeops.go","from":"if n := sealedStd(v); n != nil && sealedStd(t) == nil && !isHostNamed(t) {","to":"if n := sealedStd(v); false && n != nil && sealedStd(t) == nil && !isHostNamed(t) {","rule":"A sealed std protocol's value converts to an operation type its members satisfy through an operations conversion, which the lowering builds from the std operations (no Go assignment of the runtime type).","killers":["lower:TestSealedStdConvertsToItsOperationTypes"]},
+    {"name":"16a-r3-spread-drops-reversed","origin":"batch-16a fix r3 (verifier 16a r3 v3-spread-drops-reversed)","file":"internal/sketch/check/ownership.go","from":"\tfor _, f := range bs.Fields {\n\t\tif !seen[f] {\n\t\t\tadd(f, x.Base.Pos())","to":"\tfor i := range bs.Fields {\n\t\tf := bs.Fields[len(bs.Fields)-1-i]\n\t\tif !seen[f] {\n\t\t\tadd(f, x.Base.Pos())","rule":"The fields a spread drops are released in declaration order (R43).","killers":["lower:TestOwnershipRunModel"]},
+    {"name":"16a-r3-generic-method-value","origin":"batch-16a fix r3 M1","file":"internal/sketch/check/ownership.go","from":"\t\t\tif generic {\n\t\t\t\tif w.st.reached {","to":"\t\t\tif generic {\n\t\t\t\tif false {","rule":"In a generic body, a method value of an operation on a value that is a resource only through a type parameter (q.Values on Queue[T]) is a copy site of that parameter (R19, R35, R44).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r3-values-copysite-dropped","origin":"batch-16a fix r3 (verifier 16a r3 v3-values-copysite-dropped)","file":"internal/sketch/check/ownership.go","from":"w.copySite(elem, x, fmt.Sprintf(\"%s yields owned values of %s outside a for-in\", text, elem), false)","to":"_ = text","rule":"A generic body that keeps or passes a Queue[T]'s Values() is a copy site of T (R35, R44).","killers":["check:TestOwnershipFlowModel"]},
+    {
+      "name": "16b-g-ops-into-go-interface",
+      "origin": "wf10 batch-16b gate fix (r3 On base)",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {",
+      "to": "if false && isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {",
+      "rule": "An Ergo operation type's value is not a Go interface's value: its operations take Ergo's calling convention, so the checker refuses what Go would refuse.",
+      "killers": [
+        "check:TestImportGoUses"
+      ]
+    }
   ]
 }

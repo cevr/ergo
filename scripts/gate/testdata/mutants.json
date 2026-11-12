@@ -45,6 +45,51 @@
       "to": "if false && len(names) > 0 && len(fast) == 0 {",
       "rule": "A package whose every test is large has no fast step, so it costs the fast budget nothing.",
       "killers": ["scripts/gate:TestFastTierReachOfAnEdit"]
+    },
+    {
+      "name": "gf3-shards-dealt-by-wall",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "scripts/gate/testcpu.go",
+      "from": "if rows := cpu[importPath]; len(rows) > 0 {",
+      "to": "if rows := cpu[importPath]; len(rows) > 1e9 {",
+      "rule": "A package with recorded CPU rows deals its shards by CPU, not wall time.",
+      "killers": ["scripts/gate:TestShardsBalanceTheirRecordedCPU"]
+    },
+    {
+      "name": "gf3-hang-floor-at-go-default",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "scripts/gate/testcpu.go",
+      "from": "const hangFloor = 30 * time.Minute",
+      "to": "const hangFloor = 15 * time.Minute",
+      "rule": "No go test step's deadline is go test's 15 minute default.",
+      "killers": ["scripts/gate:TestGoTestStepsHaveHangDeadlines"]
+    },
+    {
+      "name": "gf3-build-step-without-deadline",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "scripts/gate/steps.go",
+      "from": "Argv: []string{\"go\", \"test\", testTimeout, \"-run\", \"^$\", \"./...\"}",
+      "to": "Argv: []string{\"go\", \"test\", \"-run\", \"^$\", \"./...\"}",
+      "rule": "Every go test command of a step passes -timeout.",
+      "killers": ["scripts/gate:TestGoTestStepsHaveHangDeadlines"]
+    },
+    {
+      "name": "gf3-shard-deadline-ignores-cost",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "scripts/gate/steps.go",
+      "from": "argv := append([]string{\"go\", \"test\", testTimeoutFor(weights[i])}, selection...)",
+      "to": "argv := append([]string{\"go\", \"test\", testTimeout}, selection...)",
+      "rule": "A shard's deadline is ten times its recorded cost.",
+      "killers": ["scripts/gate:TestGoTestStepsHaveHangDeadlines"]
+    },
+    {
+      "name": "gf3-pause-keeps-the-span",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "scripts/gate/testcpu.go",
+      "from": "case !sub && top == s.running:",
+      "to": "case !sub && top == s.running && action != \"=== PAUSE\":",
+      "rule": "A paused test's wait is not its CPU.",
+      "killers": ["scripts/gate:TestCPUSpansAttributeToTopLevelTests"]
     }
   ]
 }

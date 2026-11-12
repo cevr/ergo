@@ -486,10 +486,15 @@ func TestStdHostLawsHold(t *testing.T) {
 		}},
 		// In the test's directory and in one that is removed while the
 		// process is in it: two reads agree, in value and in failure, and
-		// the failure is NoWorkdir.
+		// the failure is NoWorkdir. The test's directory is read once with
+		// a $PWD that names it and once with none, so both of the host's
+		// paths to the answer run.
 		"os Process.GetwdIsStable": {Statement: `GetwdIsStable() { let first = Getwd() catch { case NoWorkdir: let _ = Getwd() catch { case NoWorkdir: return true } return false } let second = Getwd() catch { case NoWorkdir: return false } first == second }`, Check: func(t *testing.T) {
-			for _, gone := range []bool{false, true} {
-				if gone {
+			for i, gone := range []bool{false, false, true} {
+				if i == 1 {
+					t.Chdir(dir)
+					t.Setenv("PWD", "")
+				} else if gone {
 					sub := filepath.Join(dir, "cwd-gone")
 					if err := os.Mkdir(sub, 0o755); err != nil {
 						t.Fatal(err)
