@@ -33,6 +33,7 @@ type LawContext struct {
 // only such contexts here. It runs after the ownership pass, so the
 // acquisitions and Closes are known.
 func (c *checker) planLawContexts() {
+	c.lawProviderFixes()
 	if len(c.pkg.Contexts) == 0 {
 		return
 	}
@@ -86,7 +87,7 @@ func (c *checker) planLawContexts() {
 // and whose entry for the owner is a value of p's type. The run under
 // that context is then p's run, so p is no skip. This is how a test file
 // picks a provider that takes another one, as cmd/NAME/main.ergo picks
-// the binary's: let OverMemory = context { limits.Limiter:
+// the binary's: let overMemory = context { limits.Limiter:
 // NewLoopback(memory.NewMemory()) }.
 func (c *checker) builtByContext(p LawProvider, under []LawContext) bool {
 	if p.Unrun == "" {

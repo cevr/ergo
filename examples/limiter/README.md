@@ -27,7 +27,7 @@ reads it through the content mapper (`tools/ts`), so there is no generated
   in process (`rpc.Loopback`: Serve's own server answers each call in
   memory), so it picks no provider. Its test file (`loopback/tests.ergo`)
   picks one, as `cmd/limiter/main.ergo` picks the binary's: the named
-  context `OverMemory` binds `limits.Limiter` to a Loopback over a fresh
+  context `overMemory` binds `limits.Limiter` to a Loopback over a fresh
   memory limiter, and `ergo test loopback` runs the contract's laws under
   it, so the laws that hold for the provider hold through the wire.
 - `cmd/limiter/main.ergo` chooses the buckets (`api`: 5 tokens, one back

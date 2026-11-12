@@ -367,8 +367,9 @@ func TestLawRunLeastPackage(t *testing.T) {
 // whose build acquires a provider with a Close (L5; mutant
 // lawctx-close-runs). A provider with no generator that a context which
 // runs builds (Fn under Wired) runs there and is no skip; one whose
-// context does not run (Gn under Kept) stays a skip, which names the
-// context form as its fix; a provider that runs (Sq) runs beside its
+// context does not run (Gn under Kept) stays a skip, which says that its
+// Close keeps every context from running it (mutant
+// lawfix-close-ignored); a provider that runs (Sq) runs beside its
 // context (mutants lawctx-covers-none, lawctx-covers-any-type,
 // lawctx-covers-unrun-context, lawctx-covers-runnable).
 func TestLawRunSkips(t *testing.T) {
@@ -444,7 +445,7 @@ func main() {}
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_skips"])
 	want := []string{
-		"skip law Shape.Positive for Gn: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it",
+		"skip law Shape.Positive for Gn: its values have no generator: func(int) int is a function type; it has a Close, and a law case releases no provider, so no context runs it either",
 		"ok law Shape.Positive for Res (100 cases)",
 		"ok law Shape.Positive for Sq (100 cases)",
 		"skip law Shape.Positive under Held: its build acquires a provider with a Close, which a law case does not release",

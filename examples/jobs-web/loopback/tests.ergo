@@ -1,10 +1,11 @@
 // The test file of package loopback picks the server its law runs serve
 // (cmd/jobs-web/main.ergo picks the binary's): each case of each jobs.Jobs
-// law builds OverMemory, a Loopback over a fresh memory server, so the
-// laws that hold for the memory provider hold through the wire.
+// law builds overMemory, a Loopback over a fresh memory server, so the
+// laws that hold for the memory provider hold through the wire. The
+// context is unexported, so only the test build's law runs read it.
 
 import jobsweb/jobs
 import jobsweb/memory
 
-// OverMemory binds the contract to a Loopback over a fresh memory server.
-let OverMemory = context { jobs.Jobs: NewLoopback(memory.New()) }
+// overMemory binds the contract to a Loopback over a fresh memory server.
+let overMemory = context { jobs.Jobs: NewLoopback(memory.New()) }

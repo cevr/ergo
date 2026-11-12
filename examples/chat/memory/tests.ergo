@@ -1,12 +1,19 @@
 // The memory connection's tests, and the server's: sessions replayed over
 // memory connections with a time.Manual clock, so no test sleeps or
-// touches the host. ergo test skips the Conn and Peer laws (a Server and
-// a Sender hold a queue, and Pipe takes a size; expected-skips), so they
-// are restated as a test.
+// touches the host. A Server and a Sender hold queues, which have no
+// generator, so the law runs need a provider this file picks: the Peer
+// laws run under oneLine, a Sender over two queues of one line each. The
+// Conn law HangupIsFinal does not: a Server has a Close, and a law case
+// does not release a context's provider (expected-skips), so
+// HangupIsFinalHolds holds it here, with the lines sent before the
+// hang-up read first.
 
 import chat/server
 import queue
 import time
+
+// oneLine binds the server's sending side to a Sender over fresh queues.
+let oneLine = context { server.Peer: Sender{inbound: queue.New[string](1), outbound: queue.New[string](1)} }
 
 test HangupIsFinalHolds(lines []string) {
 	// Room for every line: a Send to a full connection waits for a reader,
@@ -18,8 +25,6 @@ test HangupIsFinalHolds(lines []string) {
 			assert false
 		}
 	}
-	end.Peer().Hangup()
-	// HangupIsIdempotent: a second Hangup changes nothing.
 	end.Peer().Hangup()
 	// The lines sent before the hang-up are read first.
 	for l in lines {

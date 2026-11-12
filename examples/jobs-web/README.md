@@ -25,7 +25,7 @@ file and no second declaration to keep in step.
   client of the `jobs.Jobs` its caller passes in, so it picks no provider.
   Its test file (`loopback/tests.ergo`) picks one, as
   `cmd/jobs-web/main.ergo` picks the binary's: the named context
-  `OverMemory` binds `jobs.Jobs` to a Loopback over a fresh memory server,
+  `overMemory` binds `jobs.Jobs` to a Loopback over a fresh memory server,
   and `ergo test loopback` runs the contract's laws under it, so the laws
   that hold for the provider hold through the wire.
 - `cmd/jobs-web/main.ergo` opens the page's folder (its one argument) as an

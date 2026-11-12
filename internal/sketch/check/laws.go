@@ -476,11 +476,6 @@ func (c *checker) lawRuns() []LawRun {
 					parts = append(parts, p.Type.Obj.Pkg)
 				}
 				if least(parts) {
-					for k := range b {
-						if b[k].noGenerator {
-							b[k].Unrun += lawProviderFix(law, b[k])
-						}
-					}
 					run.Bindings = append(run.Bindings, c.lawInstance(law, b))
 				}
 			}
@@ -582,16 +577,36 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	return lp, true
 }
 
+// lawProviderFixes adds to the skip of each provider with no generator
+// the fix the law's shape admits (lawProviderFix). It runs with the law
+// contexts, after the ownership pass, when a provider's Close is known.
+func (c *checker) lawProviderFixes() {
+	for _, r := range c.pkg.LawRuns {
+		for _, b := range r.Bindings {
+			for k := range b {
+				if b[k].noGenerator {
+					b[k].Unrun += c.lawProviderFix(r.Law, b[k])
+					b[k].noGenerator = false
+				}
+			}
+		}
+	}
+}
+
 // lawProviderFix is the fix the skip of p, a provider with no generator
-// bound to a slot of law, names (lawRuns). A member law whose one slot is
-// its owner runs under a named context that binds the owner
-// (lawcontexts.go), so the fix is the explicit one: a test file binds the
-// provider in a named context, as cmd/NAME/main.ergo binds the binary's.
-// A row-free New<P> that built the providers P holds would choose them
-// away from the entry (lint with-at-entry). Any other law runs under no
-// context, so its fix is the constructor.
-func lawProviderFix(law *Law, p LawProvider) string {
+// bound to a slot of law, names. A member law whose one slot is its owner
+// runs under a named context that binds the owner (lawcontexts.go), so
+// the fix is the explicit one: a test file binds the provider in a named
+// context, as cmd/NAME/main.ergo binds the binary's. A row-free New<P>
+// that built the providers P holds would choose them away from the entry
+// (lint with-at-entry). A provider with a Close runs under no context (a
+// law case releases nothing), so its skip says so. Any other law runs
+// under no context, so its fix is the constructor.
+func (c *checker) lawProviderFix(law *Law, p LawProvider) string {
 	if law.Owner != nil && len(law.Slots) == 1 && law.Slots[0].Param < 0 {
+		if c.providerClose(p.Type) != nil {
+			return "; it has a Close, and a law case releases no provider, so no context runs it either"
+		}
 		return "; bind one in a named context of a test file, let Name = context { " + p.Slot.String() + ": … }, and the law runs under it"
 	}
 	return "; a func New" + p.Type.Obj.Name + "() " + p.Type.Obj.Name + " with no rows would build one for each case"

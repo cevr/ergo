@@ -1,11 +1,12 @@
 // The test file of package loopback picks the limiter its law runs serve
 // (cmd/limiter/main.ergo picks the binary's): each case of each
-// limits.Limiter law builds OverMemory, a Loopback over a fresh memory
+// limits.Limiter law builds overMemory, a Loopback over a fresh memory
 // limiter, so the laws that hold for the memory provider hold through the
-// wire.
+// wire. The context is unexported, so only the test build's law runs read
+// it.
 
 import limiter/limits
 import limiter/memory
 
-// OverMemory binds the contract to a Loopback over a fresh memory limiter.
-let OverMemory = context { limits.Limiter: NewLoopback(memory.NewMemory()) }
+// overMemory binds the contract to a Loopback over a fresh memory limiter.
+let overMemory = context { limits.Limiter: NewLoopback(memory.NewMemory()) }

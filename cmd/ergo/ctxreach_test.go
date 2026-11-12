@@ -16,8 +16,12 @@ import (
 //   - twoop: `with Mine, n.Q { both() }`; n is named only by the second
 //     operand of the with (round 2 M1).
 //   - examples/lookup without Missing and the tests: main names the
-//     memory package only in `let Memory = context { …, memory.Listing }`,
-//     and main reaches Memory through its local context `live`.
+//     memory package only in `let Memory = context { …, hosts.Resolver:
+//     memory.Static }`, and main reaches Memory through its local context
+//     `live`. (Until EX-entry r3, Memory embedded memory.Listing, a
+//     context of the memory package; a provider package no longer picks
+//     its provider, lint with-at-entry, and site's cmd/app2 keeps an
+//     embedded foreign context.)
 func TestErgoRunContextOnlyPackage(t *testing.T) {
 	binary := buildTestCLI(t)
 	workspace := smokeWorkspace(t, "cmd/ergo/testdata/ctxreach", readmeSmokeProgram)
@@ -50,14 +54,14 @@ func TestErgoRunContextOnlyPackage(t *testing.T) {
 	src = strings.Replace(src[:tests+1], missing, "", 1)
 	// The cut main names the memory package only inside the context Memory,
 	// which main reaches through the local context `live` (Memory embedded,
-	// memory.Listing embedded in Memory: two embeddings deep).
+	// memory.Static a provider of Memory's).
 	for _, line := range strings.Split(src, "\n") {
 		if strings.Contains(line, "memory.") && !strings.HasPrefix(line, "let Memory = context {") {
 			t.Fatalf("the repro names memory outside the context Memory: %q\n%s", line, src)
 		}
 	}
-	if !strings.Contains(src, "memory.Listing") || !strings.Contains(src, "context { Memory,") {
-		t.Fatalf("the repro no longer reaches memory.Listing through Memory:\n%s", src)
+	if !strings.Contains(src, "memory.Static") || !strings.Contains(src, "context { Memory,") {
+		t.Fatalf("the repro no longer reaches memory.Static through Memory:\n%s", src)
 	}
 	if err := os.WriteFile(mainPath, []byte(src), 0o644); err != nil {
 		t.Fatal(err)

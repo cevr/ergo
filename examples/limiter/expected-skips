@@ -1,7 +1,7 @@
 # ergo test cannot build the generated RPC Client of limits.Limiter: a
 # Client needs a Conn to a served limiter. The gateway case calls the
 # contract over RPC instead, and loopback/'s law runs call it through the
-# wire (under the context OverMemory of loopback/tests.ergo).
+# wire (under the context overMemory of loopback/tests.ergo).
 skip law limits.Limiter.NeverOverdraws for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; bind one in a named context of a test file, let Name = context { limits.Limiter: … }, and the law runs under it
 skip law limits.Limiter.RetryAfterIsExact for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; bind one in a named context of a test file, let Name = context { limits.Limiter: … }, and the law runs under it
 skip law limits.Limiter.LimitedTakesNothing for Client: its values have no generator: rpc.Conn has an unexported field, so only package rpc builds it; use rpc.Dial or rpc.Loopback; bind one in a named context of a test file, let Name = context { limits.Limiter: … }, and the law runs under it
