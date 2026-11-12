@@ -55,6 +55,10 @@ type shortcut struct {
 	agreement string // the property test that holds it to the reference or a model
 	mutant    string // the ledger mutant that drops the proof's condition
 	unsafe    []string
+	// consumer is, for a fact kind (facts.go), the Go pass that reads the
+	// exported fact: a memory-class row names its runtime bodies or its
+	// consumer.
+	consumer string
 	// referenced reports whether the build selects the reference lowering.
 	referenced func() bool
 }
@@ -70,6 +74,58 @@ var shortcuts = []shortcut{
 		mutant:     "bounds-wrap-taken",
 		unsafe:     []string{"runtime/v1/unchecked.go ByteAt", "runtime/v1/unchecked.go StringAt", "runtime/v1/unchecked.go StringN", "runtime/v1/unchecked.go AddrAt"},
 		referenced: func() bool { return factLowering == "checked" },
+	},
+	// The fact kinds (facts.go, FACT0): each leaves the run build for a Go
+	// pass that waits for the IR batch; the export changes no Go text.
+	{
+		name:       "fact-range",
+		class:      memoryClass,
+		admission:  "admitFact",
+		reference:  "factExport=off",
+		agreement:  "TestAssumptionsAgree",
+		mutant:     "fact-on-wrong-value",
+		consumer:   "FACT1, ARITH1: Go's prove pass (ssa/ergofacts.go)",
+		referenced: func() bool { return factExport == "off" },
+	},
+	{
+		name:       "fact-index",
+		class:      memoryClass,
+		admission:  "admitFact",
+		reference:  "factExport=off",
+		agreement:  "TestAssumptionsAgree",
+		mutant:     "fact-wrong-dominator",
+		consumer:   "FACT1, IRB1: Go's prove pass (ssa/ergofacts.go)",
+		referenced: func() bool { return factExport == "off" },
+	},
+	{
+		name:       "fact-cut",
+		class:      memoryClass,
+		admission:  "admitFact",
+		reference:  "factExport=off",
+		agreement:  "TestAssumptionsAgree",
+		mutant:     "fact-cut-unordered",
+		consumer:   "FACT1, IRB1: Go's prove pass (ssa/ergofacts.go)",
+		referenced: func() bool { return factExport == "off" },
+	},
+	{
+		name:       "fact-disjoint",
+		class:      memoryClass,
+		admission:  "admitFact",
+		reference:  "factExport=off",
+		agreement:  "TestAssumptionsAgree",
+		mutant:     "fact-disjoint-unchecked",
+		consumer:   "ALIAS1: Go's disjoint (ssa/ergofacts.go)",
+		referenced: func() bool { return factExport == "off" },
+	},
+	{
+		name:       "fact-pure",
+		class:      memoryClass,
+		admission:  "admitFact",
+		reference:  "factExport=off",
+		agreement:  "TestAssumptionsAgree",
+		mutant:     "fact-pure-with-borrow",
+		consumer:   "PURE1: Go's CSE, dead code and loop-invariant passes (ssa/ergofacts.go)",
+		referenced: func() bool { return factExport == "off" },
 	},
 }
 

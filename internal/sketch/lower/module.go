@@ -240,6 +240,8 @@ type lowerer struct {
 	// unstable are, per package, the let mut locals a bounds fact never
 	// names (bounds.go, unstableVars).
 	unstable map[*check.Info]map[*check.Var]bool
+	// facts are the facts the run build exports (facts.go), once each.
+	facts    factSet
 	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types
 	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)

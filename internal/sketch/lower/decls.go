@@ -1198,6 +1198,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 		default:
 			fc.entryPoll(f.Pkg.Info, f.Decl)
 		}
+		fc.entryFacts(f, fd.pure) // facts.go
 		fc.body(f.Decl.Body.List)
 	})
 	if fc.frame.static != nil {

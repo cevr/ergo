@@ -11,6 +11,11 @@ import (
 // whose run build takes it at least once, with a test, so that its test
 // build lowers the same sites.
 var shortcutWitness = map[string]string{
+	"fact-range":    factsWitness,
+	"fact-index":    factsWitness,
+	"fact-cut":      factsWitness,
+	"fact-disjoint": factsWitness,
+	"fact-pure":     factsWitness,
 	"bounds-unchecked": `func at(s string, i int) int {
 	let mut acc = 0
 	if 0 <= i && i <= len(s)-1 {
@@ -29,6 +34,39 @@ test At {
 }
 `,
 }
+
+// factsWitness exports a fact of each kind (facts.go).
+const factsWitness = `type Port int where 1 <= it && it <= 65535
+
+type C { N int }
+
+func port(p Port) int { int(p) + 1 }
+
+func swap(a *C, b *C) {
+	let n = a.N
+	a.N = b.N
+	b.N = n
+}
+
+func at(s string, i int) int {
+	let mut acc = 0
+	if 0 <= i && i <= len(s)-2 {
+		acc = int(s[i]) + len(s[i:i + 2])
+	}
+	acc
+}
+
+func main() needs Console {
+	let mut x = C{N: 1}
+	let mut y = C{N: 2}
+	swap(&x, &y)
+	Console.Println("\(port(8080) + at("abc", 1) + x.N)")
+}
+
+test Port {
+	assert port(80) == 81
+}
+`
 
 // TestTestBuildsTakeNoShortcut lowers the witness of each registered
 // shortcut twice: the run build takes the shortcut at some site, and the

@@ -27,7 +27,10 @@ import (
 //     declares, an agreement test the package's tests declare, and a
 //     ledger mutant of that name that the agreement test kills;
 //   - a memory-class row names the runtime bodies it calls, each listed
-//     in internal/residue/testdata/unsafe.txt.
+//     in internal/residue/testdata/unsafe.txt, or, for a fact kind, the
+//     Go pass that consumes the fact;
+//   - every fact kind (a factKind constant, lower/facts.go) is a row of
+//     its name whose admission is admitFact (FACT0).
 //
 // Mutants it alone catches: assert-shortcut-unregistered (lower's ledger:
 // the row's name no longer matches its admission's takes); a row with its
@@ -48,6 +51,7 @@ func TestShortcutsAreRegistered(t *testing.T) {
 		name, fn, at string
 	}
 	var takes []takeCall
+	var kinds []takeCall // the fact kinds: value, constant, position
 	funcs := map[string]bool{}
 	vars := map[string]bool{}
 	testFuncs := map[string]bool{}
@@ -95,6 +99,22 @@ func TestShortcutsAreRegistered(t *testing.T) {
 					return true
 				})
 			case *ast.GenDecl:
+				if !test && d.Tok == token.CONST {
+					for _, spec := range d.Specs {
+						vs := spec.(*ast.ValueSpec)
+						if id, ok := vs.Type.(*ast.Ident); !ok || id.Name != "factKind" {
+							continue
+						}
+						for i := range vs.Names {
+							if i < len(vs.Values) {
+								if lit, ok := vs.Values[i].(*ast.BasicLit); ok {
+									s, _ := strconv.Unquote(lit.Value)
+									kinds = append(kinds, takeCall{s, vs.Names[i].Name, fset.Position(lit.Pos()).String()})
+								}
+							}
+						}
+					}
+				}
 				if test || d.Tok != token.VAR {
 					continue
 				}
@@ -190,8 +210,8 @@ func TestShortcutsAreRegistered(t *testing.T) {
 			}
 		}
 		bodies := unsafeOf[at]
-		if row["class"] == "memoryClass" && len(bodies) == 0 {
-			t.Errorf("%s: %q is of the memory class and names no runtime body (unsafe)", at, name)
+		if row["class"] == "memoryClass" && len(bodies) == 0 && row["consumer"] == "" {
+			t.Errorf("%s: %q is of the memory class and names no runtime body (unsafe) and no consumer of its fact", at, name)
 		}
 		for _, b := range bodies {
 			if !strings.Contains(string(unsafeTxt), "\n"+b+" | ") {
@@ -206,6 +226,18 @@ func TestShortcutsAreRegistered(t *testing.T) {
 		}
 		if !asked {
 			t.Errorf("%s: %q: its admission function %s never asks takes(%q)", at, name, row["admission"], name)
+		}
+	}
+	// A fact kind leaves the build through admitFact only, and is a row
+	// of its own (FACT0): a kind the export writes and the registry does
+	// not list fails here.
+	for _, k := range kinds {
+		row := byName[k.name]
+		switch {
+		case row == nil:
+			t.Errorf("%s: the fact kind %s (%q) is not a row of the registry: register it in shortcuts.go", k.at, k.fn, k.name)
+		case row["admission"] != "admitFact":
+			t.Errorf("%s: the fact kind %q is admitted by %s, not by admitFact, the one admission of facts", k.at, k.name, row["admission"])
 		}
 	}
 	for _, c := range takes {
