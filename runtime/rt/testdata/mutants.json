@@ -146,6 +146,88 @@
       "killers": [
         "v1:TestHandlesNamedBySource"
       ]
+    },
+    {
+      "name": "pace-ignores-user-gogc",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "\tif gogcSet {\n\t\treturn 0, false\n\t}\n",
+      "to": "",
+      "rule": "GOGC in the environment turns the heap pacing off: the user's setting wins",
+      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
+    },
+    {
+      "name": "pace-floor-above-limit",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "if limit > 0 && limit/4 < floor {",
+      "to": "if false && limit > 0 && limit/4 < floor {",
+      "rule": "A memory limit lowers the floor to a quarter of the limit",
+      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
+    },
+    {
+      "name": "pace-never-returns-to-100",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "if live+(live+roots)*basePercent/100 >= floor || heapMinimum",
+      "to": "if heapMinimum",
+      "rule": "Above the floor the pace is Go's GOGC=100: the goal stays within max(floor, Go's goal)",
+      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
+    },
+    {
+      "name": "pace-ignores-roots",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "ceilDiv((floor-live)*100, live+roots)",
+      "to": "ceilDiv((floor-live)*100, max(live, 1))",
+      "rule": "Go's goal scales the stacks and globals with the percent, so the percent accounts for them",
+      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
+    },
+    {
+      "name": "pace-ignores-heap-minimum",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "p := ceilDiv(floor*100, heapMinimum)",
+      "to": "p := ceilDiv(floor*100, 1)",
+      "rule": "Go scales its minimum heap with the percent, so a percent above floor*100/4MiB overshoots the floor",
+      "killers": ["runtime/rt:TestPaceKeepsItsBound"]
+    },
+    {
+      "name": "pace-not-rearmed",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "\truntime.AddCleanup(&paceSentinel{}, (*pacer).cycle, p)\n",
+      "to": "\t_ = runtime.AddCleanup[paceSentinel, *pacer]\n",
+      "rule": "The pace is recomputed after every cycle, so a live heap that grows past the floor returns to Go's pace",
+      "killers": ["runtime/rt:TestPaceFollowsTheCycles"]
+    },
+    {
+      "name": "pace-overrides-program-percent",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "p.set != -2 && int64(old) != p.set",
+      "to": "false && p.set != -2 && int64(old) != p.set",
+      "rule": "A percent the program sets itself wins: the pacer stops",
+      "killers": ["runtime/rt:TestPaceFollowsTheCycles"]
+    },
+    {
+      "name": "pace-cgroup-leaf-only",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/rt/pace.go",
+      "from": "\t\tif dir == \"/\" {\n\t\t\treturn limit\n\t\t}\n",
+      "to": "\t\tif true {\n\t\t\treturn limit\n\t\t}\n",
+      "rule": "The cgroup limit is the smallest memory.max of the process's cgroup and every cgroup above it",
+      "killers": ["runtime/rt:TestPaceReadsTheCgroupTree"]
+    },
+    {
+      "name": "pace-not-started",
+      "origin": "wf10/ir-guarantees/PACE1",
+      "file": "runtime/v1/exit.go",
+      "from": "\trt.Pace()\n\tos.Exit(",
+      "to": "\tos.Exit(",
+      "rule": "Emitted main paces the program's heap",
+      "killers": [],
+      "gap": "Only a built Ergo program runs v1.Main, which exits the process; no in-process test can call it. The receipt in runtime/rt/MEASURED.md, Heap pacing (GC cycles per workload with and without GOGC set), is its evidence."
     }
   ]
 }

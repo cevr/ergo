@@ -439,10 +439,12 @@ func ergoStack(stack []byte) []string {
 // exits with the status of its exit (Exit causes, rule 6): 0 on success, 1
 // for a typed failure, 2 when any reason is a defect, as Go's own panic
 // report does, and 130 when every reason is an interruption. Each reason is
-// written on standard error.
+// written on standard error. The program's heap is paced first
+// (rt.Pace).
 //
 //ergo:host
 func Main(body func(*rt.Task) error) {
+	rt.Pace()
 	os.Exit(report(os.Stderr, runMain(body)))
 }
 
