@@ -78,11 +78,10 @@ func httpClientFor(maxHeader int) *http.Client {
 	tr.MaxResponseHeaderBytes = int64(maxHeader)
 	// The body comes back as the peer sent it: no transparent gzip.
 	tr.DisableCompression = true
-	c := &http.Client{
-		Transport: tr,
-		// One request is one exchange: a redirect is a response.
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
+	// One request is one exchange: a redirect is a response. The client
+	// sends through its Transport's RoundTrip, which never follows one
+	// (TestHTTPClientMatchesServer: a 3xx comes back as sent).
+	c := &http.Client{Transport: tr}
 	got, _ := httpTransports.LoadOrStore(maxHeader, c)
 	return got.(*http.Client)
 }
