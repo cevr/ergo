@@ -4087,6 +4087,17 @@
       ]
     },
     {
+      "name": "bs8-probe-imports",
+      "origin": "wf10 binsize BS8",
+      "file": "internal/sketch/lower/refown.go",
+      "from": "!l.runtimeNamed(n, site)",
+      "to": "l.runtimeType(n, site) == \"\"",
+      "rule": "stdlib.md Types 4 (binsize BS8): a program imports a leaf only when main.go names one of its declarations; a test whether a std type is the runtime's names nothing (examples/calc imported the rand leaf unused).",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
+    },
+    {
       "name": "bs5-edge-uses",
       "origin": "wf10 binsize BS5",
       "file": "internal/sketch/lower/reach.go",

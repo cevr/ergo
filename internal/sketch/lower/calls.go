@@ -1389,7 +1389,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			ice(site, "an operations conversion from %s, whose witness is not bound here", conv.From)
 		}
 	}
-	if l.runtimeType(to, site) != "" {
+	if l.runtimeNamed(to, site) {
 		// A std type is the runtime's concrete Go type (stage D3b), a sealed
 		// std protocol the checker refuses a conversion to (C28, #206).
 		ice(site, "a value of the program converted to the sealed std type %s, which the checker refuses (#206)", conv.To)

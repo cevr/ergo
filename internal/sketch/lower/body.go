@@ -1254,7 +1254,7 @@ func (fc *funcCtx) isInterface(t check.Type) bool {
 		return true // a row value, a Go error
 	}
 	n, ok := t.(*check.Named)
-	if !ok || fc.l.runtimeType(n, fc.site) != "" {
+	if !ok || fc.l.runtimeNamed(n, fc.site) {
 		return false // a std type is the runtime's concrete Go type
 	}
 	td := fc.l.typeDecl(n.Obj, fc.site)

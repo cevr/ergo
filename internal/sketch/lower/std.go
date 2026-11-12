@@ -36,6 +36,21 @@ var stdRecord = v1.StdRecord
 // pointer to the runtime's type of the same name, whose methods are its
 // operations, and an open one is a declaration of the program.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
+	return l.runtimeTypeBy(n, site, l.rtRef)
+}
+
+// runtimeNamed reports whether runtimeType gives n a runtime type. It
+// names nothing in main.go: naming a leaf's type imports the leaf, and a
+// test that writes no reference must not import one (binsize BS8; a
+// program whose only rand.Stream use was this test imported the rand
+// leaf unused).
+func (l *lowerer) runtimeNamed(n *check.Named, site syntax.Node) bool {
+	return l.runtimeTypeBy(n, site, func(name string) string { return name }) != ""
+}
+
+// runtimeTypeBy is runtimeType, with ref naming a declaration of
+// runtime/v1 or of one of its leaves.
+func (l *lowerer) runtimeTypeBy(n *check.Named, site syntax.Node, ref func(string) string) string {
 	obj := n.Obj
 	if check.IsGoError(n) {
 		// The predeclared go.Error, a user extern's failure (G4).
@@ -68,7 +83,7 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 		if _, err := v1.StructFieldsOf(goName, len(origin.TParams)); err != nil {
 			ice(site, "the std record %s.%s binds v1.%s: %v", obj.Pkg.Path, obj.Name, goName, err)
 		}
-		return l.rtRef(goName)
+		return ref(goName)
 	case *syntax.InterfaceType:
 		if len(spec.Union) == 0 {
 			if !runtimeProtocols[obj.Pkg.Path+"."+obj.Name] {
@@ -77,7 +92,7 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			if !check.Sealed(n) {
 				ice(site, "the runtime-backed protocol %s must declare an unexported operation", n)
 			}
-			return "*" + l.rtRef(obj.Name)
+			return "*" + ref(obj.Name)
 		}
 		// A closed union of std records, such as flag.Failure (std-align
 		// S1d) or time.Layout (S2b): a declaration of the program, as the
@@ -114,7 +129,7 @@ var runtimeProtocols = map[string]bool{
 // isRuntimeType reports a std type the runtime's Go type stands for.
 func (l *lowerer) isRuntimeType(t check.Type, site syntax.Node) bool {
 	n, ok := t.(*check.Named)
-	return ok && l.runtimeType(n, site) != ""
+	return ok && l.runtimeNamed(n, site)
 }
 
 // stdBody is the runtime/v1 body of the std extern function f, or false
@@ -353,7 +368,7 @@ func (fc *funcCtx) opCallExpr(x *syntax.CallExpr, c *check.Call, args []syntax.E
 	}
 	t := fc.typeOf(c.Recv)
 	vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)
-	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, x) != "" {
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeNamed(n, x) {
 		body := opBody(n, c.Op.Name, len(args), x)
 		for i, p := range body.Params {
 			if p.Func != nil {
@@ -442,7 +457,7 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 	if tp, ok := t.(*check.TypeParam); ok {
 		return fc.witnessCall(tp, op, vals, env, site)
 	}
-	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeNamed(n, site) {
 		body := opBody(n, op.Name, len(vals)-1, site)
 		if x == nil {
 			for _, p := range body.Params {
@@ -467,7 +482,7 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 // runtime binding, which only runtimeCall emits: it refuses every runtime
 // type, so the blocking owner scan allows it by name.
 func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, env string, site syntax.Node) (string, bool, bool) {
-	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeNamed(n, site) {
 		ice(site, "the std operation %s.%s bypasses its runtime binding", n.Obj.Name, op.Name)
 	}
 	// The checker refuses every other way to reach a sealed std operation:
@@ -475,7 +490,7 @@ func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, 
 	// and a pointer to one (S108 at the call, stage D3b Rule 5). An open
 	// one, such as os.Process, is an interface of the
 	// program, so its operation is the Go method below.
-	if n := fc.l.foreignOwner(t); n != nil && fc.l.runtimeType(n, site) != "" {
+	if n := fc.l.foreignOwner(t); n != nil && fc.l.runtimeNamed(n, site) {
 		ice(site, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, op.Name, t)
 	}
 	rest := append([]string{taskOf(env)}, vals[1:]...)

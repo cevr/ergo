@@ -25,8 +25,9 @@ import (
 // bs1-leaf-in-core (rtRef names every declaration through runtime/v1),
 // bs2-hook-always (every program imports gofmt), bs2-hook-never (a
 // program that imports go does not), bs8-walk-always (every program
-// imports hostwalk) and bs8-walk-never (a program that makes a host does
-// not).
+// imports hostwalk), bs8-walk-never (a program that makes a host does
+// not) and bs8-probe-imports (a test whether a std type is the runtime's
+// names it, importing its leaf).
 func TestMainImportsOnlyTheRuntimeLeavesItCalls(t *testing.T) {
 	const leaf = runtimeImport + "/"
 	cases := []struct {
@@ -40,10 +41,10 @@ func TestMainImportsOnlyTheRuntimeLeavesItCalls(t *testing.T) {
 		{"actor host", "import actor\n\nfunc main() needs Console {\n\tlet _ = actor.NewHost[int]()\n\tConsole.Println(\"x\")\n}\n", []string{leaf + "hostwalk"}},
 		{"http", "import http\n\nfunc main() needs Console {\n\tConsole.Println(\"\\(len(http.ParseQuery(\"a=1\")))\")\n}\n", []string{leaf + "http"}},
 	}
-	for _, c := range cases {
-		out := lowerSource(c.name, c.src, true)
+	check := func(name string, out *lowered, want []string) {
+		t.Helper()
 		if out.err != nil || len(out.diags) > 0 || len(out.refused) > 0 || out.panicked != nil {
-			t.Fatalf("%s: %v %v %v %v", c.name, out.err, out.diags, out.refused, out.panicked)
+			t.Fatalf("%s: %v %v %v %v", name, out.err, out.diags, out.refused, out.panicked)
 		}
 		file, err := parser.ParseFile(token.NewFileSet(), "main.go", out.mainGo(), parser.ImportsOnly)
 		if err != nil {
@@ -57,9 +58,20 @@ func TestMainImportsOnlyTheRuntimeLeavesItCalls(t *testing.T) {
 			}
 		}
 		slices.Sort(leaves)
-		if !slices.Equal(leaves, c.want) {
-			t.Errorf("%s imports the runtime leaves %v; want %v", c.name, leaves, c.want)
+		if !slices.Equal(leaves, want) {
+			t.Errorf("%s imports the runtime leaves %v; want %v", name, leaves, want)
 		}
 		typecheckGo(t, []*lowered{out})
 	}
+	for _, c := range cases {
+		check(c.name, lowerSource(c.name, c.src, true), c.want)
+	}
+	// An imported package's function that main never calls is not lowered
+	// (reach), so a leaf only it would name is not imported: a std type's
+	// operation call there is classified without naming the type (the bug
+	// of examples/calc, whose ast.Samples alone drew from rand.Seeded).
+	gen := checkPackage(t, "gen", []pkgSource{{"/ergo-test/gen/gen.ergo", "import rand\n\nfunc Name() string { \"gen\" }\n\nfunc Samples(seed int) int {\n\twith context { Random: rand.Seeded(uint64(seed)) } {\n\t\tRandom.IntN(6)\n\t}\n}\n"}}, nil)
+	main := checkPackage(t, "main", []pkgSource{{"/ergo-test/main/main.ergo", "import gen\n\nfunc main() needs Console {\n\tConsole.Println(gen.Name())\n}\n"}}, pkgImporter{"gen": gen.Package})
+	main.Imports = []Unit{gen}
+	check("unreached rand", mustLowerUnit(t, "unreached rand", main, false), nil)
 }
