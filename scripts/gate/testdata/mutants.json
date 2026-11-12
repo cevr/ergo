@@ -36,6 +36,15 @@
       "to": "p.free--",
       "rule": "An immediate memory-heavy reservation also takes all requested slots.",
       "killers": ["scripts/gate:TestSlotPoolReservesMemoryHeavySteps"]
+    },
+    {
+      "name": "b17-fast-all-large-stepped",
+      "origin": "wf10 batch-17 integration (TRY1's scripts/langmigrate)",
+      "file": "scripts/gate/tier.go",
+      "from": "if len(names) > 0 && len(fast) == 0 {",
+      "to": "if false && len(names) > 0 && len(fast) == 0 {",
+      "rule": "A package whose every test is large has no fast step, so it costs the fast budget nothing.",
+      "killers": ["scripts/gate:TestFastTierReachOfAnEdit"]
     }
   ]
 }
