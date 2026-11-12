@@ -105,11 +105,17 @@ func main() needs Console {
 // frame that converted the value, on the calling task. Since REL-needs
 // (resources R5, Release needs; G7) a converted value's release needs no
 // capability, so the releases log to a sync.Ref, as the ownership grammar
-// does. It builds Go because the failure is a nil dereference in the
-// emitted adapter's release, which go/types cannot see.
+// does. raced calls a converted value's operation on a Race block's task,
+// which the race stops while the operation waits in Pop: the adapter's
+// copy of the converting frame's environment carries the calling task
+// (mutant owgen-adapter-task-kept: kept on main's task, Pop never sees the
+// stop and the program deadlocks). It builds Go because the failure is a
+// nil dereference in the emitted adapter's release, and a wait on the
+// wrong task, which go/types cannot see.
 func TestConvertedReleaseRuns(t *testing.T) {
 	needsBuild(t)
-	wantRun(t, `import sync
+	wantRun(t, `import queue
+import sync
 import tasks
 
 type Res { id int, log sync.Ref[string] }
@@ -150,10 +156,34 @@ func run(log sync.Ref[string]) {
 	}
 }
 
+type Box { q queue.Queue[int] }
+type WaitC { Wait() int fails queue.Closed }
+func Wait(b Box) int fails queue.Closed { b.q.Pop() }
+
+// The first block is in Wait, or about to enter it, when the second wins.
+func raced() int {
+	let started = queue.New[int](1)
+	let w WaitC = Box{q: queue.New[int](1)}
+	tasks.Race([]func() int fails queue.Closed{
+		func() int fails queue.Closed {
+			try started.Push(1)
+			w.Wait()
+		},
+		func() int fails queue.Closed {
+			try started.Pop()
+			7
+		},
+	}) catch {
+	case queue.Closed:
+		0
+	}
+}
+
 func main() needs Console {
 	let log = sync.NewRef[string]("")
 	run(log)
 	Console.Println(log.Get())
+	Console.Println("won \(raced())")
 }
-`, "mark 1\nclose 5\nkept\nclose 7\nkept in a task\nclose 6\nclose 3\nclose 1\n\n")
+`, "mark 1\nclose 5\nkept\nclose 7\nkept in a task\nclose 6\nclose 3\nclose 1\n\nwon 7\n")
 }
