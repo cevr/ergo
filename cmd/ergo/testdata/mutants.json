@@ -230,6 +230,8 @@
       "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\treturn evaluationExit(evaluation)\n",
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
-    }
+    },
+    {"name":"lc-runner-ignores-cached","origin":"wf10 LAWCACHE r1","file":"internal/sketch/lower/tests.go","from":"\ttext, ok := $Cached[label]\n","to":"\ttext, ok := $Cached[\"\"]\n","rule":"The test build's runner prints a law run that ergo test found in the verdict store (--cached) as cached and does not run it. The emitted harness runs only in a built test binary.","killers":["cmd/ergo:TestLawVerdictsCLI"],"anchor":{"tests":["cmd/ergo:TestLawVerdictsCLI"]}},
+    {"name":"lc-test-no-record","origin":"wf10 LAWCACHE r1","file":"cmd/ergo/test.go","from":"\tverdicts.Record(out.String())\n","to":"\t_ = out\n","rule":"ergo test stores the verdict of each law run that held, so the next ergo test at the same inputs does not run it.","killers":["cmd/ergo:TestLawVerdictsCLI"],"anchor":{"tests":["cmd/ergo:TestLawVerdictsCLI"]}}
   ]
 }

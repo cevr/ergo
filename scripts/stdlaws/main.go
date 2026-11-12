@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
@@ -16,7 +17,13 @@ func main() {
 	root, err := build.DefaultRoot()
 	if err == nil {
 		var text string
-		text, err = sketchfront.FreshStdLedger(sketchfront.BuildRequest{Cache: build.Cache{Root: root}, Toolchain: build.HostToolchain(), Stderr: os.Stderr})
+		// The check runs of std's laws at unchanged inputs are cached
+		// (lawcache), so a second run builds and runs nothing.
+		var store *lawcache.Store
+		if compiler, cerr := build.CompilerIdentity(); cerr == nil {
+			store = lawcache.Open(root, compiler)
+		}
+		text, err = sketchfront.FreshStdLedger(sketchfront.BuildRequest{Cache: build.Cache{Root: root}, Toolchain: build.HostToolchain(), Stderr: os.Stderr, Laws: store})
 		if err == nil {
 			err = os.WriteFile("internal/sketch/std/ergo.laws", []byte(text), 0o644)
 		}
