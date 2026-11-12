@@ -1,0 +1,7 @@
+{
+  "about": "The mutant ledger of the IR build path's coverage and agreement tooling (internal/experimental/irspike and the IR builder's census in internal/sketch/lower/ir.go). Its killers need the IR toolchains or the full tier; see toolchain/ir/ports.md. The patch-level mutant port-stock-not-identical (a planted codegen change outside the -ergoir guard) is an edit of the Go patch, run with scripts/irport -patch, not here.",
+  "mutants": [
+    {"name":"irt-first-reason-only","origin":"wf10 IRT0a","file":"internal/sketch/lower/ir.go","from":"func (b *irBuilder) note(reason string) {\n\tfor _, r := range b.reasons {","to":"func (b *irBuilder) note(reason string) {\n\tif len(b.reasons) > 0 {\n\t\treturn\n\t}\n\tfor _, r := range b.reasons {","rule":"The IR census names every reason a body is not lowered, not only the first","killers":["irspike:TestIRCensusFindsEveryReason"]},
+    {"name":"irt-example-skipped","origin":"wf10 IRT0a","file":"internal/experimental/irspike/census.go","from":"\tfor _, dir := range mains {\n\t\tu, err := Load(dir)","to":"\tfor _, dir := range mains[1:] {\n\t\tu, err := Load(dir)","rule":"The IR coverage report lowers every example binary; none is skipped","killers":["irspike:TestIRCoverage"]}
+  ]
+}

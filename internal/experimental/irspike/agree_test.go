@@ -10,9 +10,9 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/sketch/lower"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // tsTag marks the programs whose cases run a TypeScript client against the
@@ -20,10 +20,6 @@ import (
 // dependencies, so this test builds both paths and runs their test builds,
 // but not their cases.
 const tsTag = "ts"
-
-// hungAfter stops a program that does not end: a hung case, named, never a
-// verdict on speed.
-const hungAfter = 5 * time.Minute
 
 // caseRun is one scripted run of a binary: the files of a case folder.
 type caseRun struct {
@@ -59,12 +55,12 @@ func loadCases(prog string) []caseRun {
 	return out
 }
 
-// exec runs argv in cwd with env and stdin in a process group of its own,
-// under the kernel memory bound; a run past hungAfter is killed with its
-// group and named.
+// execBounded runs argv in cwd with env and stdin in a process group of
+// its own, under the kernel memory bound; a run still going at the test's
+// deadline (testwait) is killed with its group and named as hung.
 func execBounded(t *testing.T, argv []string, cwd string, env []string, stdin string) outcome {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), hungAfter)
+	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir, cmd.Env = cwd, env
@@ -85,7 +81,7 @@ func execBounded(t *testing.T, argv []string, cwd string, env []string, stdin st
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // anything the program left
 	}
 	if ctx.Err() != nil {
-		t.Fatalf("%v hung past %s (killed)", argv, hungAfter)
+		t.Fatalf("%v hung until the test's deadline (killed)", argv)
 	}
 	o := outcome{stdout: out.String(), stderr: defectText(errb.String())}
 	var ee *exec.ExitError

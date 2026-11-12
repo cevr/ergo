@@ -99,7 +99,7 @@ func port(goroot, work, patchFile, lockFile, examples string, noder bool) (resul
 	if err != nil {
 		return r, err
 	}
-	apply := exec.Command("git", "apply", "--reject", "--whitespace=nowarn", abs)
+	apply := exec.Command("git", "--no-optional-locks", "apply", "--reject", "--whitespace=nowarn", abs)
 	apply.Dir = patched
 	out, applyErr := apply.CombinedOutput()
 	r.rejected = len(regexp.MustCompile(`(?m)^Rejected hunk`).FindAll(out, -1))
