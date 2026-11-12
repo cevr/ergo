@@ -31,15 +31,18 @@ var hotLowering string
 // once per element of the loop that takes it.
 //
 // A call through a function value or an operation names no callee here,
-// so it marks every function that can be its callee (OPT9: lru's loop
-// through an operation or a function value lost its callees' inlines):
-// a call of a function value on a loop path marks each function the
-// program takes as a value (a reference that is not a call's callee),
-// and a call of an operation marks each function that implements an
-// operation of its name (the tables of the program's operations
-// conversions, check.ConvOperations). Both over-approximate the callees,
-// as a points-to set without flow does: a function there is inlined into
-// where it may not run in the loop, which costs size, never behaviour.
+// so it marks every function that can be its callee (OPT9: under the
+// direct mark, a loop through either kept its callee's large callees as
+// Go calls, TestInlinePays): a call of a function value in a loop marks
+// each function the program takes as a value (a reference that is not a
+// call's callee), and a call of an operation in a loop marks each
+// function that implements an operation of its name (the tables of the
+// walked packages' operations conversions, check.ConvOperations). Both
+// over-approximate the callees, as a points-to set without flow does: a
+// function there may be inlined where it does not run in a loop, which
+// costs size, never behaviour. They are marked each time the queue runs
+// empty, and the walk goes on until nothing new is marked, so the order
+// in which a value, a table and a call are found does not matter.
 func (l *lowerer) loopCalled() map[*check.Func]bool {
 	hot := map[*check.Func]bool{}
 	cycle := map[*check.Func]bool{} // a call of f is a loop when f's body reaches f
@@ -59,34 +62,14 @@ func (l *lowerer) loopCalled() map[*check.Func]bool {
 		visit(h)
 	}
 	direct := hotLowering == "direct"
-	// values are the functions taken as values so far, and valueHot
-	// whether a function value is called on a loop path: once it is,
-	// every function taken as a value is hot.
+	// values are the functions taken as values, valueHot whether a
+	// function value is called in a loop; impls are the functions that
+	// implement each operation name, opHot the names called in a loop.
 	var values []*check.Func
 	valueHot := false
-	// impls are the functions that implement each operation name, by the
-	// operations conversions of the packages walked; opHot the operation
-	// names called on a loop path.
 	impls := map[string][]*check.Func{}
 	opHot := map[string]bool{}
 	tables := map[*check.Info]bool{}
-	addTables := func(info *check.Info) {
-		if tables[info] {
-			return
-		}
-		tables[info] = true
-		for _, conv := range operationsConversions(info) {
-			for name, h := range conv.Table {
-				if h == nil {
-					continue
-				}
-				impls[name] = append(impls[name], h)
-				if opHot[name] {
-					mark(h)
-				}
-			}
-		}
-	}
 	pkgs := map[*check.Package]bool{}
 	for _, s := range l.srcs {
 		if s.pkg != nil && !pkgs[s.pkg] {
@@ -97,70 +80,85 @@ func (l *lowerer) loopCalled() map[*check.Func]bool {
 		}
 	}
 	for len(queue) > 0 {
-		g := queue[0]
-		queue = queue[1:]
-		if g.Decl == nil || g.Decl.Body == nil || g.Pkg == nil || g.Pkg.Info == nil {
-			continue
-		}
-		info := g.Pkg.Info
-		if !direct {
-			addTables(info)
-		}
-		callee := map[*syntax.Ident]bool{}
-		var walk func(n syntax.Node, loop bool)
-		walk = func(n syntax.Node, loop bool) {
-			syntax.Inspect(n, func(m syntax.Node) bool {
-				switch m := m.(type) {
-				case *syntax.ForStmt, *syntax.RangeStmt:
-					if !loop {
-						walk(m, true)
-						return false
-					}
-				case *syntax.Ident:
-					h, ok := info.Uses[m].(*check.Func)
-					if !ok || callee[m] || direct {
-						break
-					}
-					values = append(values, h)
-					if valueHot {
-						mark(h)
-					}
-				case *syntax.CallExpr:
-					if id := calleeIdent(m.Fun); id != nil {
-						callee[id] = true
-					}
-					c := info.Calls[m]
-					if c == nil {
-						break
-					}
-					switch {
-					case c.Kind == check.CallFuncValue && loop && !direct && !valueHot:
-						valueHot = true
-						for _, h := range values {
-							mark(h)
-						}
-					case (c.Kind == check.CallOp || c.Kind == check.CallProviderOp) && c.Op != nil && loop && !direct && !opHot[c.Op.Name]:
-						opHot[c.Op.Name] = true
-						for _, h := range impls[c.Op.Name] {
-							mark(h)
+		for len(queue) > 0 {
+			g := queue[0]
+			queue = queue[1:]
+			if g.Decl == nil || g.Decl.Body == nil || g.Pkg == nil || g.Pkg.Info == nil {
+				continue
+			}
+			info := g.Pkg.Info
+			if !tables[info] {
+				tables[info] = true
+				for _, conv := range operationsConversions(info) {
+					for name, h := range conv.Table {
+						if h != nil {
+							impls[name] = append(impls[name], h)
 						}
 					}
-					if c.Kind != check.CallFunc || c.Func == nil {
-						break
-					}
-					h := c.Func
-					if _, ok := cycle[h]; !ok {
-						cycle[h] = l.inlineRecursive(h)
-					}
-					if loop || cycle[h] {
-						mark(h)
-					}
-					visit(h)
 				}
-				return true
-			})
+			}
+			callee := map[*syntax.Ident]bool{}
+			var walk func(n syntax.Node, loop bool)
+			walk = func(n syntax.Node, loop bool) {
+				syntax.Inspect(n, func(m syntax.Node) bool {
+					switch m := m.(type) {
+					case *syntax.ForStmt, *syntax.RangeStmt:
+						if !loop {
+							walk(m, true)
+							return false
+						}
+					case *syntax.Ident:
+						if h, ok := info.Uses[m].(*check.Func); ok && !callee[m] {
+							values = append(values, h)
+						}
+					case *syntax.CallExpr:
+						if id := calleeIdent(m.Fun); id != nil {
+							callee[id] = true
+						}
+						c := info.Calls[m]
+						if c == nil {
+							break
+						}
+						if c.Kind == check.CallFuncValue && loop {
+							valueHot = true
+						}
+						if (c.Kind == check.CallOp || c.Kind == check.CallProviderOp) && c.Op != nil && loop {
+							opHot[c.Op.Name] = true
+						}
+						if c.Kind != check.CallFunc || c.Func == nil {
+							break
+						}
+						h := c.Func
+						if _, ok := cycle[h]; !ok {
+							cycle[h] = l.inlineRecursive(h)
+						}
+						if loop || cycle[h] {
+							mark(h)
+						}
+						visit(h)
+					}
+					return true
+				})
+			}
+			walk(g.Decl.Body, hot[g])
 		}
-		walk(g.Decl.Body, hot[g])
+		if direct {
+			break
+		}
+		// The queue ran empty: mark the callees of the calls through
+		// values and operations, which queues those that are new.
+		for _, h := range values {
+			if valueHot && !hot[h] {
+				mark(h)
+			}
+		}
+		for name := range opHot {
+			for _, h := range impls[name] {
+				if !hot[h] {
+					mark(h)
+				}
+			}
+		}
 	}
 	return hot
 }
@@ -179,24 +177,13 @@ func calleeIdent(x syntax.Expr) *syntax.Ident {
 	return nil
 }
 
-// operationsConversions are the operations conversions of info: at its
-// assignment sites (Implicit) and in its withs' contexts.
+// operationsConversions are the operations conversions of info's
+// assignment sites (Implicit), a with's provider entries included.
 func operationsConversions(info *check.Info) []check.Conversion {
 	var out []check.Conversion
 	for _, conv := range info.Implicit {
 		if conv.Kind == check.ConvOperations {
 			out = append(out, conv)
-		}
-	}
-	for _, w := range info.Withs {
-		for _, ctx := range w.Contexts {
-			for _, e := range ctx.Entries {
-				for _, conv := range e.Conversions {
-					if conv.Kind == check.ConvOperations {
-						out = append(out, conv)
-					}
-				}
-			}
 		}
 	}
 	return out

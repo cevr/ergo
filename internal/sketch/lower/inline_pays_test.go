@@ -71,13 +71,24 @@ func apply1(f func(x int) int, x int) int { f(x) }
 
 type Pick {
 	At(xs []int, k int) int,
+	Once(xs []int) int,
 }
 
 type Picker { base int }
 
 func At(p Picker, xs []int, k int) int { widest(xs, 0, k) + p.base }
 
-func pickAt(xs []int, k int) int { widest(xs, 0, k) }
+func Once(p Picker, xs []int) int { widest(xs, 0, p.base) }
+
+func pickAt(xs []int, k int) int { widest(xs, 0, k) + spanOf(xs, k) }
+
+func spanOf(xs []int, n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + i
+	}
+	s + widest(xs, 0, n)
+}
 
 func viaFn(f func(xs []int, k int) int, xs []int, n int) int {
 	let mut s = 0
@@ -177,7 +188,7 @@ func main() needs Console {
 	sum = sum + coldTo(xs, 2) + down(xs, 2)
 	sum = sum + viaFn(pickAt, xs, 3)
 	with context { Pick: Picker{base: 1} } {
-		sum = sum + viaOp(xs, 3)
+		sum = sum + viaOp(xs, 3) + Pick.Once(xs)
 	}
 	for i in 0..3 {
 		sum = sum + first(xs, i) + widest(xs, 0, i) + weight(classify(i)) + weight(tiny(i)) + outer(xs, i)
@@ -218,20 +229,22 @@ func TestInlinePays(t *testing.T) {
 	}
 	// pickAt and Picker.At run in a loop only through a function value
 	// (viaFn) and an operation (viaOp): the loop-path mark reaches them
-	// (OPT9, hot.go); its reference ("direct", hotLowering) does not.
+	// and spanOf, which only pickAt calls (OPT9, hot.go); its reference
+	// ("direct", hotLowering) does not. Picker.Once is an operation called
+	// off every loop, so it stays off the loop path.
 	for _, mode := range []struct {
 		rule string
 		want map[string]int
 	}{
-		{"direct", map[string]int{"pickAt:widest": 1, "Picker.At:widest": 1, "sumTo:widest": 0, "coldTo:widest": 1}},
+		{"direct", map[string]int{"pickAt:widest": 1, "Picker.At:widest": 1, "spanOf:widest": 1, "Picker.Once:widest": 1, "sumTo:widest": 0, "coldTo:widest": 1}},
 		// Off the loop: widest stays a call twice (main's site, and its
 		// site in outer's inlined body) and in the literal's body once;
 		// classify and tiny stay calls; on the loop path, only tiny does,
 		// since Go inlines it. once's copy calls step; From's inlines it.
 		// Of the functions with a Go body of their own, only coldTo is
 		// off every loop path.
-		{"", map[string]int{"first": 0, "widest": 3, "classify": 1, "tiny": 2, "outer": 0, "apply1": 0, "onceM:step": 1, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 1, "pickAt:widest": 0, "Picker.At:widest": 0}},
-		{"budget", map[string]int{"first": 0, "widest": 0, "classify": 0, "tiny": 0, "outer": 0, "apply1": 0, "onceM:step": 0, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 0, "pickAt:widest": 0, "Picker.At:widest": 0}},
+		{"", map[string]int{"first": 0, "widest": 3, "classify": 1, "tiny": 2, "outer": 0, "apply1": 0, "onceM:step": 1, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 1, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 1}},
+		{"budget", map[string]int{"first": 0, "widest": 0, "classify": 0, "tiny": 0, "outer": 0, "apply1": 0, "onceM:step": 0, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 0, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 0}},
 	} {
 		saved, savedHot := inlineCostLowering, hotLowering
 		if mode.rule == "direct" {
@@ -259,6 +272,21 @@ func TestInlinePays(t *testing.T) {
 				t.Errorf("rule %q: %s calls %s %d times, want %d\n%s", mode.rule, fn, name, got, want, body)
 			}
 		}
+	}
+	// A function value called off every loop puts no function taken as a
+	// value on the loop path (paysSource calls one in a loop, which marks
+	// them all): pickOnce keeps widest a call.
+	cold := paysSource[strings.Index(paysSource, "type Num "):strings.Index(paysSource, "func outer(")] + `
+func pickOnce(xs []int) int { widest(xs, 0, 1) }
+
+func callOnce(f func(xs []int) int, xs []int) int { f(xs) }
+
+func main() needs Console {
+	Console.Println("\(callOnce(pickOnce, []int{4, 5}))")
+}
+`
+	if body := goFunc(t, mustLower(t, "inlinepayscold", cold).mainGo(), "pickOnce"); calls(body, "widest") != 1 {
+		t.Errorf("a function value called off every loop put pickOnce on a loop path:\n%s", body)
 	}
 }
 
