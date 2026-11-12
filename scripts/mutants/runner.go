@@ -811,7 +811,15 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 			hi = lo + strings.Count(a.Text, "\n")
 		}
 	}
-	covering := w.e.cov.covering(file, lo, hi, header && m.Anchor == nil, extra)
+	var covering map[string]bool
+	if strings.HasSuffix(m.File, ".go") {
+		covering = w.e.cov.covering(file, lo, hi, header && m.Anchor == nil, extra)
+	} else {
+		// The cover tool sees Go blocks only, so no block holds a line of
+		// another file (std's .ergo sources, a ledger): such a mutant is
+		// judged by the tests its row names, with no coverage filter.
+		covering = w.e.cov.named(append(slices.Clone(m.Killers), extra...))
+	}
 	r.Covering = len(covering)
 	if len(covering) == 0 {
 		r.Status = Uncovered
