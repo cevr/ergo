@@ -57,6 +57,9 @@ import (
 //     p, …) whose old value nothing else reads hands it over with no copy
 //     (consumable): m = maps.Update(m, k, f) writes m in place, as hand Go
 //     writes m[k] = f(m[k]);
+//   - hand-over (V7, handedArg): a rebinding p = f(…, p, …) of a pure std
+//     body with no failure row, on one place rooted at a let mut or a
+//     borrow, passes p with no copy and takes the result with none;
 //   - a Ref owns its value (V6, refown.go): the parameter of a function
 //     literal written at Ref.Update or sync.Modify takes the held value
 //     over, as an unshared local; the cell copies a value that may be
@@ -121,6 +124,7 @@ type valueFacts struct {
 	roots    map[syntax.Node]*valueWalk // analyzed bodies
 	fresh    map[*check.Func]int8       // 1 deciding, 2 fresh, 3 not fresh
 	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
+	handed   map[syntax.Expr]bool       // arguments a rebinding hands to a pure std body (V7)
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
@@ -142,6 +146,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			roots:    map[syntax.Node]*valueWalk{},
 			fresh:    map[*check.Func]int8{},
 			consumed: map[syntax.Expr]bool{},
+			handed:   map[syntax.Expr]bool{},
 			owned:    map[*syntax.FuncDecl][]ownedParam{},
 			ownCall:  map[*syntax.CallExpr]bool{},
 			refSites: map[*syntax.CallExpr]*refSite{},
@@ -160,6 +165,7 @@ func (l *lowerer) analyzeValues(root syntax.Node, info *check.Info) *valueWalk {
 		return w
 	}
 	w := &valueWalk{l: l, info: info, vf: vf, vars: map[*check.Var]*vvar{}, pre: map[syntax.Node]int{}, post: map[syntax.Node]int{}, parent: map[syntax.Node]syntax.Node{}, frameOf: map[syntax.Node]*vframe{}}
+	w.handed = map[*syntax.CallExpr]bool{}
 	vf.roots[root] = w
 	if !valueRule() || isNilNode(root) {
 		return w
@@ -269,12 +275,14 @@ type valueWalk struct {
 	frameOf  map[syntax.Node]*vframe
 	frames   []*vframe
 	owns     []owning
-	calls    []*syntax.CallExpr       // prelude Append, Delete and Put calls
-	ergo     []*syntax.CallExpr       // calls of functions with an Ergo body (V5)
-	args     []syntax.Expr            // arguments of owned parameters (V5)
-	goArgs   []syntax.Expr            // operands of Go calls of import go that hold a Map or slice (gocall.go)
-	sites    []*refSite               // owned Ref sites (V6, refown.go)
-	handOver map[*syntax.FuncLit]bool // their literals
+	calls    []*syntax.CallExpr        // prelude Append, Delete and Put calls
+	ergo     []*syntax.CallExpr        // calls of functions with an Ergo body (V5)
+	pure     []*syntax.CallExpr        // calls of other pure std bodies (V7)
+	handed   map[*syntax.CallExpr]bool // V7 calls: a fresh result (new storage, or the dead handed argument's)
+	args     []syntax.Expr             // arguments of owned parameters (V5)
+	goArgs   []syntax.Expr             // operands of Go calls of import go that hold a Map or slice (gocall.go)
+	sites    []*refSite                // owned Ref sites (V6, refown.go)
+	handOver map[*syntax.FuncLit]bool  // their literals
 }
 
 // children are n's direct children, in Inspect's order.
@@ -355,6 +363,8 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 			w.calls = append(w.calls, n)
 		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
 			w.ergo = append(w.ergo, n)
+		} else if c != nil && c.Kind == check.CallFunc && pureStdBody(c.Func) {
+			w.pure = append(w.pure, n)
 		} else if c != nil && (goImportCall(c, w.typeOf) || goExternCall(c)) {
 			list := n.Args
 			if c.Recv != nil {
@@ -671,6 +681,13 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
+	// Hand-over (V7): p = f(…, p, …) with f a pure std body.
+	for _, call := range w.pure {
+		if arg := w.handedArg(call); arg != nil {
+			vf.handed[arg] = true
+			w.handed[call] = true
+		}
+	}
 	for _, vv := range w.order {
 		for _, o := range vv.occs {
 			w.classify(vv, o)
@@ -697,7 +714,7 @@ func (w *valueWalk) decide() {
 						w.l.stats.ArgsShared++
 					}
 				case o.kind == occEscape || o.kind == occReturn:
-					if !w.needsCopy(vv, o) {
+					if vf.handed[o.path] || !w.needsCopy(vv, o) {
 						break
 					}
 					if o.result && !w.inFlight(vv, o) {
@@ -923,6 +940,73 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 		}
 	}
 	return true
+}
+
+// handedArg is the argument that the rebinding p = f(…, p, …) hands over
+// to the pure std body f with no copy (V7), or nil: the call is the whole
+// right side of a plain assignment to one place p, rooted at a let mut
+// local or a borrow; one argument is that same place; f has no failure
+// row; every other argument holds no slice or Map, so the result shares
+// no storage but p's; and the statement names p's root nowhere else, nor
+// does a frame other than the statement's. The old value of p is dead after the statement, so nothing reads
+// the storage f received but f's result, which is the new value of p. A
+// pure std body keeps nothing of its arguments but its result and writes
+// no element of them that their length covers (stdlib.md, Pure bodies),
+// so a defect inside f leaves p as it was. So p = f(p, s) through a
+// borrow appends in place, as p = p.Append(x) does (V3), where a copy of
+// p at each call would make a loop of them quadratic.
+func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
+	c := w.info.Calls[call]
+	if c == nil || c.Recv != nil || c.Func == nil || c.Func.Sig == nil || len(rowElems(c.Func.Sig.Errors)) > 0 {
+		return nil
+	}
+	parent, child := w.unparenParent(call)
+	s, ok := parent.(*syntax.AssignStmt)
+	if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || s.Rhs[0] != child {
+		return nil
+	}
+	lid := pathRoot(s.Lhs[0])
+	if lid == nil {
+		return nil
+	}
+	v, ok := w.info.Uses[lid].(*check.Var)
+	if !ok {
+		return nil
+	}
+	vv := w.varOf(v)
+	if !vv.root() {
+		return nil
+	}
+	var arg syntax.Expr
+	for _, a := range call.Args {
+		if aid := pathRoot(a); aid != nil && w.info.Uses[aid] == check.Object(v) {
+			if arg != nil || !samePlace(s.Lhs[0], a) {
+				return nil
+			}
+			arg = a
+		} else if w.l.holdsValue(w.typeOf(a)) {
+			return nil // the result could share another argument's storage
+		}
+	}
+	if arg == nil {
+		return nil
+	}
+	aid := pathRoot(arg)
+	var frame *vframe
+	for _, o := range vv.occs {
+		if o.id == lid {
+			frame = o.frame
+		}
+	}
+	for _, o := range vv.occs {
+		if o.frame != frame {
+			return nil
+		}
+		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] {
+			return nil
+		}
+	}
+	return arg
 }
 
 // ownedParams are the owned parameters of f (V5), in order: a parameter
@@ -1526,6 +1610,9 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 		return true
 	}
 	if !w.l.holdsValue(w.typeOf(e)) || w.vf.clone[e] {
+		return true
+	}
+	if call, ok := e.(*syntax.CallExpr); ok && w.handed[call] {
 		return true
 	}
 	switch x := e.(type) {

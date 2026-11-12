@@ -18,6 +18,7 @@ import (
 const valueElideSource = `import maps
 import slices
 import sync
+import utf8
 
 type Box { M Map[int, int], S []int }
 
@@ -93,6 +94,22 @@ func boxed(n int) Box {
 	b
 }
 
+type Text { B []byte }
+
+func addRune(r rune, t *Text) { t.B = utf8.AppendRune(t.B, r) }
+
+func runes(n int) Text {
+	let mut p = []byte{}
+	for i in 0..n {
+		p = utf8.AppendRune(p, rune(i))
+	}
+	let mut t = Text{B: []byte{}}
+	for _ in 0..len(p) {
+		addRune('x', &t)
+	}
+	t
+}
+
 func moved(n int) []int {
 	let xs = collect(n)
 	let mut ys = xs
@@ -127,7 +144,7 @@ func tally(n int) int {
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B))")
 }
 `
 
@@ -142,7 +159,9 @@ func main() needs Console {
 // F2), and the parameter's copy moves to the wrapper, which only an
 // indirect call reaches. With a named pure callback the rebinding is inlined
 // (inline.go) with the callback called through its site adapter; with inlineLowering
-// "call" it calls the owned body, uncopied.
+// "call" it calls the owned body, uncopied. A rebinding p = f(p, …) of a
+// pure std body hands p over with no copy (V7), through a let mut local
+// and through a borrow, so a loop of utf8.AppendRune appends in place.
 // It reads the emitted Go only: the copies' meaning
 // is TestValueRuleAgrees', which passes with every copy in place, so only
 // the Go text tells this rule from the one that copies everywhere and from
@@ -151,7 +170,7 @@ func main() needs Console {
 func TestValueRuleElides(t *testing.T) {
 	p := lowerValueMode(t, "velide", valueElideSource, true)
 	code := p.mainGo()
-	for _, fn := range []string{"build", "collect", "roomy", "drop", "puts", "boxed", "moved", "count", "putOwned"} {
+	for _, fn := range []string{"build", "collect", "roomy", "drop", "puts", "boxed", "moved", "count", "putOwned", "runes", "addRune"} {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") || strings.Contains(body, "Clip(") {
 			t.Errorf("%s copies a fresh value:\n%s", fn, body)
 		}

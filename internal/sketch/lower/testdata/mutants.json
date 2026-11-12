@@ -3888,6 +3888,17 @@
       "killers": [
         "lower:TestMachineStepDefectFrames"
       ]
+    },
+    {
+      "name": "v7-hand-over",
+      "origin": "wf10 STD-sh",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\tif arg := w.handedArg(call); arg != nil {\n",
+      "to": "\t\tif arg := w.handedArg(call); false && arg != nil {\n",
+      "rule": "types.md, Bindings 2 (V7): p = f(…, p, …) of a pure std body hands p over with no copy, so a loop of writes appends in place (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
     }
   ]
 }

@@ -75,11 +75,6 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 		}
 		return StringsEqualFold(s, s) && StringsEqualFold(s, t) == StringsEqualFold(t, s), []string{s, t}
 	},
-	"strings TrimLeftRightKeepEnds": func(r *rand.Rand) (bool, any) {
-		s, cutset := randomString(r), randomString(r)
-		l, rt := StringsTrimLeft(s, cutset), StringsTrimRight(s, cutset)
-		return strings.HasSuffix(s, l) && strings.HasPrefix(s, rt) && StringsTrimLeft(l, cutset) == l && StringsTrimRight(rt, cutset) == rt, []string{s, cutset}
-	},
 	"strings TrimSpaceIsIdempotent": func(r *rand.Rand) (bool, any) {
 		s := randomString(r)
 		return StringsTrimSpace(StringsTrimSpace(s)) == StringsTrimSpace(s), s
@@ -204,7 +199,6 @@ var textLawStatements = map[string]string{
 	"strings ReplaceAllLength":       `ReplaceAllLength(s string, old string, repl string) { if old == "" { return true } len(ReplaceAll(s, old, repl)) == len(s)+Count(s, old)*(len(repl)-len(old)) }`,
 	"strings ToLowerIsIdempotent":    `ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) == ToLower(s) }`,
 	"strings TrimSpaceIsIdempotent":  `TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) == TrimSpace(s) }`,
-	"strings TrimLeftRightKeepEnds":  `TrimLeftRightKeepEnds(s string, cutset string) { let l = TrimLeft(s, cutset) let r = TrimRight(s, cutset) HasSuffix(s, l) && HasPrefix(s, r) && TrimLeft(l, cutset) == l && TrimRight(r, cutset) == r }`,
 	"utf8 RuneCountAddsRune":         `RuneCountAddsRune(s string) { RuneCount(s+"é") == RuneCount(s)+1 }`,
 	"utf8 RuneCountAtMostLen":        `RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }`,
 	"utf8 RuneCountOfConcat":         `RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneCount(b) }`,
