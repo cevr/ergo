@@ -2488,6 +2488,7 @@
       "killers": ["check:TestRowArgsAreSets"]
     },
     {"name":"builtin-shape-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/extern.go","from":"\t\t\tif msg := builtinRefusal(f, b); msg != \"\" {","to":"\t\t\tif msg := builtinRefusal(f, b); false && msg != \"\" {","rule":"A Go builtin binding has its builtin's shape (builtin.go).","killers":["check:TestBuiltinBindingShapes"]},
-    {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]}
+    {"name":"builtin-row-unchecked","origin":"wf10 OPT4b","file":"internal/sketch/check/builtin.go","from":"\tif !s.Errors.Empty() || !s.Uses.Empty() {","to":"\tif false {","rule":"A Go builtin binding has no fails or needs row.","killers":["check:TestBuiltinBindingShapes"]},
+    {"name":"ex1-drop-element","origin":"wf10 EX1 r1","file":"internal/sketch/check/clausefix.go","from":"\tfor _, e := range missing.Elems() {","to":"\tfor _, e := range missing.Elems()[:max(1, len(missing.Elems())-1)] {","rule":"The clause names every element the body needs (q137). The fix loop heals a short clause in its next round, so the write: text row kills it.","killers":["check:TestExplicitClauseText"]}
   ]
 }
