@@ -167,7 +167,7 @@ func local() string {
 			t.Fatal(err)
 		}
 		_, ds := check.Check("main", []*syntax.File{a, b}, imp)
-		// b's written row needs Console, so main's call of b is the S102.
+		// b writes the Console row, so main's call of b is the S102.
 		if len(ds) != 1 || ds[0].Code != "S102" || ds[0].File != 0 || !strings.Contains(ds[0].Message, "Console") {
 			t.Errorf("second file: diagnostics %v, want one S102 for Console at main's call of b", ds)
 		}
