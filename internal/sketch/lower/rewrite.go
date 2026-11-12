@@ -241,7 +241,7 @@ func (fc *funcCtx) windowCall(s syntax.Stmt) (*check.Var, *check.Named, *check.F
 		return nil, nil, nil, nil
 	}
 	c := fc.l.info.Calls[call]
-	if c == nil || c.Kind != check.CallFunc || c.Recv == nil || !rewritable(c.Func) {
+	if c == nil || c.Recv == nil {
 		return nil, nil, nil, nil
 	}
 	id, ok := unparen(c.Recv).(*syntax.Ident)
@@ -255,7 +255,24 @@ func (fc *funcCtx) windowCall(s syntax.Stmt) (*check.Var, *check.Named, *check.F
 	if _, local := fc.locals[v]; !local {
 		return nil, nil, nil, nil
 	}
+	fn := c.Func
 	typ := v.Type
+	switch c.Kind {
+	case check.CallFunc:
+	case check.CallOp:
+		// An operation on a local a let bound by a cell conversion: the
+		// cell's own value, of the provider the conversion names (cells.go).
+		conv, _, ok := fc.cellWindow(v)
+		if !ok || c.Op == nil {
+			return nil, nil, nil, nil
+		}
+		fn, typ = conv.Table[c.Op.Name], conv.From
+	default:
+		return nil, nil, nil, nil
+	}
+	if !rewritable(fn) {
+		return nil, nil, nil, nil
+	}
 	if ptr, ok := typ.(*check.Pointer); ok {
 		typ = ptr.Elem
 	}
@@ -265,7 +282,7 @@ func (fc *funcCtx) windowCall(s syntax.Stmt) (*check.Var, *check.Named, *check.F
 	}
 	known := false
 	for _, r := range fc.l.rewrite.rules[prov] {
-		if r.conv.Table[c.Func.Name] == c.Func {
+		if r.conv.Table[fn.Name] == fn {
 			known = true
 			break
 		}
@@ -289,7 +306,7 @@ func (fc *funcCtx) windowCall(s syntax.Stmt) (*check.Var, *check.Named, *check.F
 			return nil, nil, nil, nil
 		}
 	}
-	return v, prov, c.Func, call
+	return v, prov, fn, call
 }
 
 // rewriteWindow lowers the window that starts list, when the engine
@@ -340,6 +357,10 @@ func (fc *funcCtx) rewriteWindow(list []syntax.Stmt) int {
 	r := fc.temp("recv")
 	receiver := fc.value(unparen(fc.l.info.Calls[calls[0]].Recv))
 	_, borrowed := recv.Type.(*check.Pointer)
+	if _, cell, ok := fc.cellWindow(recv); ok {
+		// The cell's own value, through the adapter it lives in.
+		receiver, borrowed = cell, true
+	}
 	pointer := borrowed
 	for _, rule := range fc.l.rewrite.rules[prov] {
 		_, lends := rule.conv.From.(*check.Pointer)
