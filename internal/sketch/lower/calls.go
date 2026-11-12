@@ -252,6 +252,10 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 				ice(x, "a method call with no receiver")
 			}
 			name := fd.name
+			if fc.l.vals != nil && fc.l.vals.ownCall[x] {
+				// The owned body, a method too (V5).
+				name = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+"Owned")
+			}
 			if known {
 				name = fc.l.knownName(c.Func, fd)
 			}

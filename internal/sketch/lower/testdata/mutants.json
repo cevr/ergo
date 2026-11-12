@@ -4141,6 +4141,138 @@
     {"name":"wt-unused-arg","origin":"wf10 batch-18 fix-laws (bug found by TestCellWriterAgrees)","file":"internal/sketch/lower/wiretext.go","from":"\tif rewritten {\n\t\t// An argument","to":"\tif false {\n\t\t// An argument","rule":"An argument a rewritten run drops is still read, so the Go variable that names it stays used.","killers":["lower:TestCellWriterAgrees"]},
     {"name":"wt-admit-tested","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"if entry.Verdict != \"proved\" {","to":"if false {","rule":"A std law changes code only when its ledger entry is proved (owner q115).","killers":["lower:TestStdEvidenceAdmitsOnlyProvedCurrent"]},
     {"name":"wt-admit-stale","origin":"wf10 batch-18 fix-laws (verify laws M2)","file":"internal/sketch/lower/wiretext.go","from":"if d != entry.Digest {","to":"if false {","rule":"A std law whose ledger digest is stale changes no code.","killers":["lower:TestStdEvidenceAdmitsOnlyProvedCurrent"]},
-    {"name":"ps2-unfold-of-extern","origin":"wf10 LR3 (from PS2)","file":"internal/sketch/lower/unfold.go","from":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\treturn false\n\t\t\t}","to":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\tcontinue\n\t\t\t}","rule":"Unfold by definition replaces a call by its body only when every statement is a provider call on the receiver; a body with any other call (an extern, a function off the provider) stays a call.","killers":["lower:TestRewriteAgrees"]}
+    {"name":"ps2-unfold-of-extern","origin":"wf10 LR3 (from PS2)","file":"internal/sketch/lower/unfold.go","from":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\treturn false\n\t\t\t}","to":"\t\t\tif ic == nil || ic.Kind != check.CallFunc || ic.Recv == nil || !rewritable(ic.Func) {\n\t\t\t\tcontinue\n\t\t\t}","rule":"Unfold by definition replaces a call by its body only when every statement is a provider call on the receiver; a body with any other call (an extern, a function off the provider) stays a call.","killers":["lower:TestRewriteAgrees"]},
+    {
+      "name": "v7-hand-over",
+      "origin": "wf10 STD-sh",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tif arg := w.handedArg(call); arg != nil {\n",
+      "to": "\t\t\tif arg := w.handedArg(call); false && arg != nil {\n",
+      "rule": "types.md, Bindings 2 (V7): p = f(…, p, …) of a pure body hands p over with no copy, so a loop of writes appends in place (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "v7-hand-shared",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\tif ergo && valueMutant != \"hand-shared\" && !w.l.freshFrom(c.Func, at, len(ops)) {\n",
+      "to": "\tif false && ergo && valueMutant != \"hand-shared\" && !w.l.freshFrom(c.Func, at, len(ops)) {\n",
+      "rule": "types.md, Bindings 2 (V7): an Ergo body hands p over only when its results share no storage but p's (freshFrom); one that returns another argument or a package let copies.",
+      "killers": [
+        "lower:TestValueRuleAgrees"
+      ]
+    },
+    {
+      "name": "v7-owner-premise",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\tif w.owner != nil && vv.v == w.owner {\n",
+      "to": "\tif false && w.owner != nil && vv.v == w.owner {\n",
+      "rule": "types.md, Bindings 2 (V7): freshFrom reads the handed parameter as an unshared local, so a user function whose result is its parameter's storage hands it over (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "v7-pure-body-fresh",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tif x.Trailing == nil && w.l.pureV1(c.Func) {\n",
+      "to": "\t\t\tif false && x.Trailing == nil && w.l.pureV1(c.Func) {\n",
+      "rule": "types.md, Bindings 2: a pure runtime/v1 body's result is fresh when every argument is (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "v7-pure-body-operands",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\t\t\tif !w.fresh(a) {\n\t\t\t\t\t\treturn false\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn true\n",
+      "to": "\t\t\t\t\tif false && !w.fresh(a) {\n\t\t\t\t\t\treturn false\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn true\n",
+      "rule": "types.md, Bindings 2: a pure runtime/v1 body's result shares its arguments' storage, so it is fresh only when every argument is.",
+      "killers": [
+        "lower:TestValueRuleAgrees"
+      ]
+    },
+    {
+      "name": "v7-handed-unshared",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tif !w.vf.clone[o.path] && !w.vf.handed[o.path] {\n",
+      "to": "\t\t\tif !w.vf.clone[o.path] {\n",
+      "rule": "types.md, Bindings 2 (V7): a handed read leaves the binding unshared, so its later value enters another binding with no copy (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "consumed-param",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\t\t\t} else if use := w.consumedUse(f, w.vars[v]); use != nil && valueMutant != \"consume-blind\" {\n",
+      "to": "\t\t\t\t\t} else if use := w.consumedUse(f, w.vars[v]); false && use != nil && valueMutant != \"consume-blind\" {\n",
+      "rule": "types.md, Bindings 2 (consumed arguments): a parameter whose one use a call consumes is owned, so a dead receiver reaches String's owned body uncopied (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "consumes-off",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tw.vf.consumes[call] = true\n",
+      "to": "\t\t\t_ = call\n",
+      "rule": "types.md, Bindings 2 (consumed arguments): a fresh first operand of a runtime/v1 body with an owned form calls the owned form (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "owned-method-call",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\t\t\t// The owned body, a method too (V5).\n\t\t\t\tname = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+\"Owned\")\n",
+      "to": "\t\t\t\t// The owned body, a method too (V5).\n",
+      "rule": "values.go, V5: a call that passes its owned receiver unshared calls the owned method, not the copying one (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "owned-method-wrapper-copy",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\trecv = fc.cloneValue(f.Sig.Params[0].Type, recv, site)\n",
+      "to": "\t\t\t_ = site\n",
+      "rule": "values.go, V5: the method a method value or a host protocol reaches copies its owned receiver before the owned body takes it.",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "consumes-live",
+      "origin": "wf10 STD-sh r3",
+      "file": "internal/sketch/lower/values.go",
+      "from": "len(ops) > 0 && (valueMutant == \"consume-any\" || w.fresh(ops[0])) {\n",
+      "to": "len(ops) > 0 {\n",
+      "rule": "types.md, Bindings 2 (consumed arguments): an owned form takes its first operand over only when that operand is fresh; a binding read after the call is copied, so slices.Sort of a live slice leaves it unsorted.",
+      "killers": [
+        "lower:TestValueRuleAgrees"
+      ]
+    },
+    {
+      "name": "v7-dot-call",
+      "origin": "wf10 STD-sh r3",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t// A dot call p = p.m(…): the receiver is the first operand, unless\n",
+      "to": "\t\treturn nil\n",
+      "rule": "types.md, Bindings 2 (hand-over): a dot rebinding p = p.m(…) hands its by-value receiver over like any operand (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    }
   ]
 }

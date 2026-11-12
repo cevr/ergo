@@ -1,8 +1,6 @@
 # path<TAB>comparison<TAB>remaining semantic rule
 internal/sketch/check/authority.go	n.origin().Obj.Pkg.Path == std.PreludePath	Ambient host authority; follow-up declared contracts
 internal/sketch/check/authority.go	obj.Pkg.Path == std.PreludePath	Task ownership; predeclared language type
-internal/sketch/check/builders.go	q.Path == tn.Pkg.Path+"test"	test-package builder lookup, not a std identity
-internal/sketch/check/builders.go	pn.Pkg.Path == base	test-package builder lookup, not a std identity
 internal/sketch/check/call.go	c.pkg.Path == std.PreludePath	prelude generic collection functions; follow-up declared contracts
 internal/sketch/check/call.go	f.Pkg.Path == std.PreludePath	Unreachable; predeclared language function
 internal/sketch/check/contextvalues.go	n.Obj.Pkg.Path != std.PreludePath	Context predeclared row value
