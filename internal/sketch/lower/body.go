@@ -430,7 +430,10 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 		return
 	}
 	rhsEmits := fc.emits(s.Rhs[0])
-	target := fc.target(s.Lhs[0], rhsEmits)
+	// x *= y of floats is x = T(x * y): the product rounds (floatLowering,
+	// expr.go), so the place is fixed first, as when the value emits.
+	product := op == "*" && floatLowering != "fuse" && isFloatType(fc.typeOf(s.Lhs[0]))
+	target := fc.target(s.Lhs[0], rhsEmits || product)
 	if op == "" {
 		mark := fc.out.Len()
 		val := fc.assigned(s.Rhs[0])
@@ -440,10 +443,14 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 		fc.line(target + " = " + fc.joinResult(mark, val))
 		return
 	}
-	if rhsEmits {
+	if rhsEmits || product {
 		old := fc.temp("old")
 		fc.line(old + " := " + target)
 		val := fc.value(s.Rhs[0])
+		if product {
+			fc.line(target + " = " + fc.goType(fc.typeOf(s.Lhs[0])) + "(" + old + " * " + val + ")")
+			return
+		}
 		fc.line(target + " = " + old + " " + op + " " + val)
 		return
 	}

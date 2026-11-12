@@ -4326,6 +4326,50 @@
       "killers": [
         "lower:TestArrayIndexInPlaceAgrees"
       ]
+    },
+    {
+      "name": "float-product-bare",
+      "origin": "wf10 corpus wave HP4 (float products round)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\tif x.Op == syntax.MUL && fc.roundsProduct(x) {\n",
+      "to": "\tif x.Op == syntax.MUL && fc.roundsProduct(x) && false {\n",
+      "rule": "A product of floats is under an explicit conversion to its type, so no host fuses it into a sum (types.md, Numeric types).",
+      "killers": [
+        "lower:TestFloatProductsRound"
+      ]
+    },
+    {
+      "name": "float-mul-assign-bare",
+      "origin": "wf10 corpus wave HP4 (float products round)",
+      "file": "internal/sketch/lower/body.go",
+      "from": "product := op == \"*\" && floatLowering != \"fuse\" && isFloatType(",
+      "to": "product := op == \"*\" && floatLowering == \"never\" && isFloatType(",
+      "rule": "x *= y of floats lowers to x = T(x * y): Go's *= would leave the product to fuse with a later sum.",
+      "killers": [
+        "lower:TestFloatProductsRound"
+      ]
+    },
+    {
+      "name": "float-defined-type-unseen",
+      "origin": "wf10 corpus wave HP4 (float products round)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\tb, ok := underOf(t).(*check.Basic)\n\treturn ok && (b.Kind == check.Float32 || b.Kind == check.Float64)\n",
+      "to": "\tb, ok := t.(*check.Basic)\n\treturn ok && (b.Kind == check.Float32 || b.Kind == check.Float64)\n",
+      "rule": "A product of a type defined over a float rounds as the float does.",
+      "killers": [
+        "lower:TestFloatProductsRound"
+      ]
+    },
+    {
+      "name": "float32-unseen",
+      "origin": "wf10 corpus wave HP4 (float products round)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\treturn ok && (b.Kind == check.Float32 || b.Kind == check.Float64)\n",
+      "to": "\treturn ok && b.Kind == check.Float64\n",
+      "rule": "A product of float32s rounds to float32, as a product of float64s rounds to float64.",
+      "killers": [
+        "lower:TestFloatProductsRound"
+      ]
     }
   ]
 }

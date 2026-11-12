@@ -585,7 +585,36 @@ func (fc *funcCtx) binaryOf(x *syntax.BinaryExpr, parts []string) string {
 			return fc.equalOp(x, parts) // structural equality (equal.go)
 		}
 	}
+	if x.Op == syntax.MUL && fc.roundsProduct(x) {
+		return fc.goType(fc.typeOf(x)) + "(" + parts[0] + " * " + parts[1] + ")"
+	}
 	return "(" + parts[0] + " " + x.Op.String() + " " + parts[1] + ")"
+}
+
+// floatLowering selects how a float product lowers. "" (the default) puts
+// every product of floats that is not a constant under an explicit
+// conversion to its type, T(a * b): Go may fuse a product and a sum into
+// one fused multiply-add, rounding once (arm64, ppc64, s390x, riscv64;
+// across statements too), and an explicit conversion rounds to the type's
+// precision and stops that (the Go spec, Arithmetic operators: "An
+// explicit floating-point type conversion rounds to the precision of the
+// target type, preventing fusion"). So a program's float results are the
+// same on every host (types.md, Numeric types; corpus-wave Q5). "fuse" is
+// the reference, Go's own form, which a host may fuse: set it with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.floatLowering=fuse
+// to count what the rounding costs.
+var floatLowering string
+
+// roundsProduct reports a product x of floats that floatLowering puts
+// under a conversion: it is not a constant (Go folds a constant exactly).
+func (fc *funcCtx) roundsProduct(x syntax.Expr) bool {
+	return floatLowering != "fuse" && !fc.isConst(x) && isFloatType(fc.typeOf(x))
+}
+
+// isFloatType reports float32, float64 or a type defined over one.
+func isFloatType(t check.Type) bool {
+	b, ok := underOf(t).(*check.Basic)
+	return ok && (b.Kind == check.Float32 || b.Kind == check.Float64)
 }
 
 // rangeValue lowers a..b, which the checker types as the prelude's
