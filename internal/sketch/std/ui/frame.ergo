@@ -436,6 +436,8 @@ func kindOf[E](n Node[E]) int {
 		8
 	case AreaNode:
 		9
+	case CanvasNode:
+		10
 	}
 }
 

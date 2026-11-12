@@ -16,6 +16,7 @@ import actor
 import machines
 import queue
 import scope
+import strings
 import time
 
 type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog}
@@ -669,6 +670,157 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
+type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
+
+func genPaint(r *rng, depth int) []pp {
+	let mut out = []pp{}
+	for _ in 0..draw(r, 4) {
+		let k = draw(r, 50)
+		let kind = draw(r, 5)
+		if depth == 0 || kind < 3 {
+			match kind % 3 {
+			case 0:
+				out = out.Append(ppFill{k: k})
+			case 1:
+				out = out.Append(ppStroke{k: k})
+			case _:
+				out = out.Append(ppRect{k: k})
+			}
+		} else if kind == 3 {
+			out = out.Append(ppMove{k: k, kids: genPaint(r, depth-1)})
+		} else {
+			out = out.Append(ppClip{k: k, kids: genPaint(r, depth-1)})
+		}
+	}
+	out
+}
+
+func num(s int, k int, i int) float64 { float64((s*7+k*13+i*5)%60) + 0.5 }
+
+func tone(s int, k int) ui.Color { ui.Color{R: uint8((s + k) % 256), G: uint8(k % 256), B: uint8((s * 3) % 256), A: 255} }
+
+func tri(s int, k int) ui.Path {
+	ui.Path{Segs: []ui.Seg{ui.MoveTo{X: num(s, k, 0), Y: num(s, k, 1)}, ui.LineTo{X: num(s, k, 2), Y: num(s, k, 3)}, ui.QuadTo{CX: num(s, k, 4), CY: num(s, k, 5), X: num(s, k, 6), Y: num(s, k, 7)}, ui.CubicTo{C1X: num(s, k, 8), C1Y: num(s, k, 9), C2X: num(s, k, 10), C2Y: num(s, k, 11), X: num(s, k, 12), Y: num(s, k, 13)}, ui.ClosePath}}
+}
+
+func paintProg(p *ui.Paint, prog []pp, s int) {
+	for op in prog {
+		match op {
+		case ppFill as x:
+			ui.Fill(p, tri(s, x.k), tone(s, x.k))
+		case ppStroke as x:
+			ui.Stroke(p, tri(s, x.k), tone(s, x.k), num(s, x.k, 14))
+		case ppRect as x:
+			ui.Fill(p, ui.RectPath(num(s, x.k, 0), num(s, x.k, 1), num(s, x.k, 2), num(s, x.k, 3)), tone(s, x.k))
+		case ppMove as x:
+			ui.Transformed(p, ui.Affine{A: num(s, x.k, 0), B: 0.0, C: 0.0, D: num(s, x.k, 1), E: num(s, x.k, 2), F: num(s, x.k, 3)}) {
+				paintProg(p, x.kids, s)
+			}
+		case ppClip as x:
+			ui.Clipped(p, num(s, x.k, 0), num(s, x.k, 1), num(s, x.k, 2), num(s, x.k, 3)) {
+				paintProg(p, x.kids, s)
+			}
+		}
+	}
+}
+
+func paintModel(prog []pp, s int) []ui.PaintOp {
+	let mut out = []ui.PaintOp{}
+	for op in prog {
+		match op {
+		case ppFill as x:
+			out = out.Append(ui.FillOp{Path: tri(s, x.k), Color: tone(s, x.k)})
+		case ppStroke as x:
+			out = out.Append(ui.StrokeOp{Path: tri(s, x.k), Color: tone(s, x.k), Width: num(s, x.k, 14)})
+		case ppRect as x:
+			let rx = num(s, x.k, 0)
+			let ry = num(s, x.k, 1)
+			let rw = num(s, x.k, 2)
+			let rh = num(s, x.k, 3)
+			let corners = ui.Path{Segs: []ui.Seg{ui.MoveTo{X: rx, Y: ry}, ui.LineTo{X: rx + rw, Y: ry}, ui.LineTo{X: rx + rw, Y: ry + rh}, ui.LineTo{X: rx, Y: ry + rh}, ui.ClosePath}}
+			out = out.Append(ui.FillOp{Path: corners, Color: tone(s, x.k)})
+		case ppMove as x:
+			out = out.Append(ui.PushTransform{M: ui.Affine{A: num(s, x.k, 0), B: 0.0, C: 0.0, D: num(s, x.k, 1), E: num(s, x.k, 2), F: num(s, x.k, 3)}})
+			for o in paintModel(x.kids, s) {
+				out = out.Append(o)
+			}
+			out = out.Append(ui.PopPaint)
+		case ppClip as x:
+			out = out.Append(ui.PushClip{X: num(s, x.k, 0), Y: num(s, x.k, 1), W: num(s, x.k, 2), H: num(s, x.k, 3)})
+			for o in paintModel(x.kids, s) {
+				out = out.Append(o)
+			}
+			out = out.Append(ui.PopPaint)
+		}
+	}
+	out
+}
+
+func dialStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func dialTimer(s int) Option[Timeout[int]] { None }
+
+func dialWork(s int) Option[func(send func(e int))] { None }
+
+func dialMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: dialStep, After: dialTimer, Work: dialWork}
+}
+
+func canvasOf(shapes []ui.Shape[int]) ([]ui.PaintOp, bool) {
+	for x in shapes {
+		match x.Node {
+		case ui.CanvasNode as c:
+			return (c.Paint, true)
+		case _:
+		}
+	}
+	([]ui.PaintOp{}, false)
+}
+
+func lawPaintMatchesList(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		paintFollows(seed, steps, m)
+	}
+}
+
+func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let prog = genPaint(&r, 2)
+	let view = func(f *ui.Frame[int], s int) {
+		ui.Text(f, "at \(s)")
+		ui.Pressable(f, "next", (s*5+3)%11) {
+			ui.Text(f, "next")
+		}
+		ui.Canvas(f, "board", 120, 80) func(p *ui.Paint) {
+			paintProg(p, prog, s)
+		}
+	}
+	let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, view, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	for _ in 0..(steps%12+12)%12+1 {
+		ui.Play(&h, []ui.Act{ui.TapOn{Label: "next"}}) catch {
+		case _:
+			return false
+		}
+		let s = ui.StateOf(&h)
+		let (shown, ok) = canvasOf(ui.Screen(&h))
+		let want = paintModel(prog, s)
+		if !ok || shown != want || ui.Find(&h, "board") == None || strings.Count(ui.Screenshot(&h), "\n") != 4+len(want) {
+			return false
+		}
+		let mut g = ui.NewFrame[int]()
+		let _ = ui.Render(&g, view, s)
+		if len(ui.Render(&g, view, s)) != 0 {
+			return false
+		}
+	}
+	true
+}
+
 test UiScriptShowsTheView(seed int, steps int) {
 	assert lawScriptShowsTheView(seed, steps)
 }
@@ -684,6 +836,10 @@ test UiNoTickWhenSettled(seed int, steps int) {
 test UiInputGivesSignal(seed int, steps int) {
 	assert lawInputGivesSignal(seed, steps)
 }
+
+test UiPaintMatchesList(seed int, steps int) {
+	assert lawPaintMatchesList(seed, steps)
+}
 `
 
 // stdUIHostStatements is the statement of each ui law, as the ledger writes it,
@@ -693,6 +849,7 @@ var stdUIHostStatements = map[string]string{
 	"ui CancelledFetchStops": `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
 	"ui NoTickWhenSettled":   `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,
 	"ui InputGivesSignal":    `InputGivesSignal(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { inputFollows(seed, steps, m) } }`,
+	"ui PaintMatchesList":    `PaintMatchesList(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { paintFollows(seed, steps, m) } }`,
 }
 
 // TestUIHostModel runs the probe's tests with --seed 1; lawledger.Run holds that
