@@ -44,6 +44,16 @@ test Count {
 	assert count([]int{1, 2, 3}) == 3
 }
 `,
+	"layout-pointers-first": `type Row { N int, Name string }
+
+func main() needs Console {
+	Console.Println(Row{N: 1, Name: "a"}.Name)
+}
+
+test Name {
+	assert Row{N: 1, Name: "a"}.N == 1
+}
+`,
 }
 
 // TestTestBuildsTakeNoShortcut lowers the witness of each registered

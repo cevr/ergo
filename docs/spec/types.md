@@ -130,7 +130,7 @@ Status: **implemented** for rules 1 to 3 and 5: checked by `internal/sketch/chec
 
 ## Structs
 
-Status: **implemented**: rules 1 to 4 are checked by `internal/sketch/check` (check-v1 stage B, D-B2) and lowered to Go structs (check-v1 stage C). Rule 5 is [#197](https://github.com/cevr/ergo/issues/197)'s (aggregate resources, [resources.md](resources.md)); rule 6 is **designed**; rule 7 (included records) is **implemented**.
+Status: **implemented**: rules 1 to 4 are checked by `internal/sketch/check` (check-v1 stage B, D-B2) and lowered to Go structs (check-v1 stage C). Rule 5 is [#197](https://github.com/cevr/ergo/issues/197)'s (aggregate resources, [resources.md](resources.md)); rule 6 is **designed**; rule 7 (included records) and rule 8 (layout) are **implemented**.
 
 ```go
 type Order {
@@ -164,6 +164,7 @@ let same = Order{"42", 1999}
    - Each included field keeps its declaration: the field of `R` that declares it, through any depth of includes and in every instance (`check.Field.Origin`). A spread copies a field only from a field of the same declaration ([rule 3](#structs)).
    - The included fields are ordinary fields everywhere: a keyed or positional literal, a field read, a record pattern (`case Prompt{S: s, Left: n}`), equality, text forms, generated values, codecs and construction authority. `R` stays an ordinary record type. `..` in a pattern stays S001.
    - Lowering: the Go struct lists every field flat, in order; there is no Go embedding, so the lowering is unchanged. *Prior art:* ReScript 11's record type spread `type c = {...a, x: int}` copies field declarations and refuses a duplicate label; Go embedding promotes fields and refuses an ambiguous one only where it is used; Elm's extensible records type functions over "any record with these fields".
+8. **Layout** (NOSCAN1, 2026-11-12). A record promises no field layout: every field is read and written by its name, literals are keyed in the lowered Go, and codecs, text, equality and patterns walk the declared order. So in a run build the Go struct of a record lists the fields that hold a pointer word (a string, a slice, a Map, a pointer, a function, an interface or union, a record that holds one) and the fields whose layout the lowering does not know first, in declared order, then the pointer-free fields by alignment, largest first (`lower/layout.go`). Go's collector scans a value only up to its last pointer word, so a record with one string and six numbers is scanned for two words, not eight. The order is a function of the declaration. A test build and `layoutLowering=declared` keep the declared order. No Go code outside the program sees a record's struct in v1 ([interop](interop.md) Limits 5). *Prior art:* Rust reorders fields unless `repr(C)`; GHC puts a closure's pointers first; OCaml marks blocks with no pointers; Go keeps declared order.
 
 ## Unions
 

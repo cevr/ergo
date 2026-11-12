@@ -84,6 +84,19 @@ var shortcuts = []shortcut{
 		mutant:     "mono-shares-unequal-bodies",
 		referenced: func() bool { return genericLowering == "stencil" },
 	},
+	{
+		// NOSCAN1: a record's Go struct lists its pointer-holding fields
+		// first (layout.go). No value fact: the order is a function of the
+		// declaration; the admission is that no Go code outside the
+		// program sees the struct. The test build keeps the declared order.
+		name:       "layout-pointers-first",
+		class:      valueClass,
+		admission:  "layoutOrder",
+		reference:  "layoutLowering=declared",
+		agreement:  "TestLayoutsAgree",
+		mutant:     "layout-codec-reads-reordered-field",
+		referenced: func() bool { return layoutLowering == "declared" },
+	},
 }
 
 // shortcutNamed is the registry's row named name.

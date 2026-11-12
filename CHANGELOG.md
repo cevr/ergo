@@ -6,6 +6,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Lowering
 
+- In a run build a record's Go struct lists its pointer-holding fields first, then the rest by alignment, so the collector scans a shorter prefix and padding shrinks (NOSCAN1; [types](docs/spec/types.md#structs) Structs 8). Codecs, text and equality keep the declared order.
 - A run build calls a generic function, or a method of a generic record, through a plain Go copy for each distinct instance of known Go types, so Go compiles it with no GC-shape stencil and no dictionary (MONO1; [types](docs/spec/types.md#generics) Generics 5). Test builds and `genericLowering=stencil` keep the Go generic.
 - The hand-over covers a dot rebinding `p = p.m(…)` whose method takes its receiver by value, and `slices.Sort` of a slice nothing reads after the call sorts it in place through its owned form `SlicesSortOwned` (STD-sh r3; [types](docs/spec/types.md#bindings) Bindings 2). The unsafe inventory moved to `internal/residue/testdata/unsafe.txt`.
 - A parameter whose one use a call consumes is owned, a method's receiver included, and a runtime/v1 body may name an owned form that takes its first argument over (`//ergo:owned`; STD-sh r2; [types](docs/spec/types.md#bindings) Bindings 2, consumed arguments). `b.String()` on a `strings.Builder` that nothing reads after the call now shares the buffer with no copy, as Go's `String` does; the one `unsafe` body is listed in `internal/residue/testdata/unsafe.txt` (owner q112), which `TestUnsafeBodiesListed` holds.

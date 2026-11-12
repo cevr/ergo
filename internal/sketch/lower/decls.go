@@ -573,7 +573,11 @@ func (l *lowerer) emitType(td *typeDecl) {
 	switch td.kind {
 	case kindRecord:
 		b.WriteString("type " + td.name + tparams + " struct {\n")
-		for _, f := range td.fields {
+		// The Go field order is the lowering's (layout.go); every use reads
+		// a field by its Go name.
+		order := l.layoutOrder(td)
+		l.layoutReport(td, order)
+		for _, f := range order {
 			b.WriteString("\t" + td.fieldName[f.Name] + " " + tc.goType(f.Type) + "\n")
 		}
 		b.WriteString("}\n\n")

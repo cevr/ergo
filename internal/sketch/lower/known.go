@@ -119,6 +119,8 @@ type knownStats struct {
 	// Taken is the sites that took each shortcut, by its name in the
 	// registry (shortcuts.go).
 	Taken map[string]int
+	// Layouts is the layout report: a row per record emitted (layout.go).
+	Layouts []LayoutRow
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of
