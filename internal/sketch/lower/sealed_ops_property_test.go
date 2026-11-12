@@ -265,8 +265,12 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 			programs = append(programs, o)
 		}
 	}
-	if only == "" && !admitted["json.Text->prelude.Writer"] {
-		t.Errorf("json.Text into the prelude's Writer is not among the admitted pairs (%d): the property lost its known pair", len(admitted))
+	// The known pair: a std runtime type into a prelude operation type.
+	// json.Text into the Writer was it until LR3, where Text became a
+	// provider cell, which converts to the Writer only as encode's operand
+	// (types.md, Interface assignability 6).
+	if only == "" && !admitted["rand.Stream->prelude.Random"] {
+		t.Errorf("rand.Stream into the prelude's Random is not among the admitted pairs (%d): the property lost its known pair", len(admitted))
 	}
 	t.Logf("%d sealed std protocols, %d cases, %d admitted", sealedSeen, len(cases), len(admitted))
 	typecheckGo(t, programs)

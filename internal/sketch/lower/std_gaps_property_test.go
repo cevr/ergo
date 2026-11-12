@@ -424,7 +424,13 @@ func TestStdGapRealStd(t *testing.T) {
 				continue
 			}
 			name := "realfn_" + strings.ReplaceAll(path, "/", "_") + "_" + f.Name
-			add(name, fmt.Sprintf("import %s\n\nfunc keep[T](_ T) {}\n\nfunc main() needs Console {\n\tkeep(%s.%s())\n\tConsole.Println(\"made\")\n}\n", path, path, f.Name), "made\n")
+			use := "keep(%s.%s())"
+			if _, cell := check.CellProvider(f.Sig.Results[0]); cell {
+				// A provider cell stays on its task: no type argument
+				// may carry it (types.md, Interface assignability 6).
+				use = "let _ = %s.%s()"
+			}
+			add(name, fmt.Sprintf("import %s\n\nfunc keep[T](_ T) {}\n\nfunc main() needs Console {\n\t"+use+"\n\tConsole.Println(\"made\")\n}\n", path, path, f.Name), "made\n")
 		}
 		for _, cname := range slices.Sorted(func(yield func(string) bool) {
 			for n := range p.Contexts {

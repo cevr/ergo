@@ -50,6 +50,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.wireFunc":        "a codec function's Writer or Reader calls, through the prelude operation type's Go interface (L11)",
 			"typeCtx.wireEncodeWith":  "an inline codec event on the Writer interface (L11) or on a direct writer's methods (wiredirect.go)",
 			"typeCtx.wireDecode":      "an inline codec read on the Reader interface (L11)",
+			"lowerer.cellEventsFrom":  "a cell writer's events, whose Writer calls on the task it rewrites into the provider's functions (LR3, wiretext.go)",
 			"typeCtx.wireKind":        "the Reader's Path for a WireWrongKind (L11)",
 		}},
 		{"memberName", map[string]string{
