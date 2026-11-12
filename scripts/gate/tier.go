@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"math"
 	"os"
@@ -283,9 +286,74 @@ func classFastSteps(full []*Step) ([]*Step, error) {
 	return steps, nil
 }
 
+// fullTierOnly says whether every test of the package in dir belongs to
+// the full tier: it has a test, every Test function's first statement
+// calls needsBuild (the -short skip of a test that builds or runs Go, as
+// in internal/sketch/lower), and it has no Fuzz or Example function, which
+// -short would still run. Such a package's -short run skips every test,
+// yet it still compiles, links and starts its test binary: after a
+// checker edit that was most of the cost of internal/selfhostcheck and
+// internal/experimental/irspike (batch-18 verify B1). So the fast tier
+// gives it no step, and the full tier runs it as it runs every package.
+func fullTierOnly(dir string) (bool, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
+	if err != nil {
+		return false, err
+	}
+	fset := token.NewFileSet()
+	tests := 0
+	for _, file := range files {
+		f, err := parser.ParseFile(fset, file, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return false, err
+		}
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil || fn.Name.Name == "TestMain" {
+				continue
+			}
+			name := fn.Name.Name
+			switch {
+			case strings.HasPrefix(name, "Fuzz"), strings.HasPrefix(name, "Example"):
+				return false, nil
+			case !strings.HasPrefix(name, "Test"):
+				continue
+			}
+			tests++
+			if fn.Body == nil || len(fn.Body.List) == 0 || !callsNeedsBuild(fn.Body.List[0]) {
+				return false, nil
+			}
+		}
+	}
+	return tests > 0, nil
+}
+
+// callsNeedsBuild says whether the statement is a call of needsBuild, its
+// results dropped or assigned.
+func callsNeedsBuild(s ast.Stmt) bool {
+	var e ast.Expr
+	switch s := s.(type) {
+	case *ast.ExprStmt:
+		e = s.X
+	case *ast.AssignStmt:
+		if len(s.Rhs) != 1 {
+			return false
+		}
+		e = s.Rhs[0]
+	default:
+		return false
+	}
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	id, ok := call.Fun.(*ast.Ident)
+	return ok && id.Name == "needsBuild"
+}
+
 // fastSteps declares the fast tier: the full tier's classFast steps
 // (classFastSteps), and one keyed -short step per test package or shard
-// but the host packages'.
+// but the host packages' and the full-tier-only packages' (fullTierOnly).
 func fastSteps(root string) ([]*Step, error) {
 	packages, problem, err := testPackages(root)
 	if err != nil {
@@ -316,6 +384,11 @@ func fastSteps(root string) ([]*Step, error) {
 		// wall, 392 CPU-s under -short at 2b089097, gate-minute
 		// measure.md). The full tier runs them on every batch head.
 		if slices.Contains(hostTestPackages, relative) {
+			continue
+		}
+		if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(p.dir))); err != nil {
+			return nil, err
+		} else if only {
 			continue
 		}
 		// A hermetic package builds as its full-tier step builds it.

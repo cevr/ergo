@@ -158,8 +158,6 @@ type BuildOptions struct {
 	Toolexec string
 	// Strip links without symbol and DWARF tables (-ldflags=-s -w).
 	Strip bool
-	// Race builds with the race detector (it needs cgo).
-	Race bool
 	// GCFlags are extra compiler flags of the program's root package.
 	GCFlags []string
 	// Stderr receives the go command's output.
@@ -194,9 +192,6 @@ func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, 
 	if o.Strip {
 		args = append(args, "-ldflags=-s -w")
 	}
-	if o.Race {
-		args = append(args, "-race")
-	}
 	args = append(args, "-o", out, ".")
 	cmd := exec.Command(filepath.Join(tc.GOROOT, "bin", "go"), args...)
 	cmd.Dir = dir
@@ -208,11 +203,7 @@ func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, 
 		}
 		return false
 	})
-	cgo := "0"
-	if o.Race {
-		cgo = "1"
-	}
-	cmd.Env = append(env, "GOROOT="+tc.GOROOT, "GOCACHE="+cache, "GOWORK=off", "CGO_ENABLED="+cgo, "GOTOOLCHAIN=local")
+	cmd.Env = append(env, "GOROOT="+tc.GOROOT, "GOCACHE="+cache, "GOWORK=off", "CGO_ENABLED=0", "GOTOOLCHAIN=local")
 	cmd.Stdout, cmd.Stderr = o.Stderr, o.Stderr
 	return cmd, nil
 }

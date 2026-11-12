@@ -37,6 +37,24 @@
       "to": "\t\tif false {\n\t\t\tvar need []Tool",
       "rule": "A package ledger's killer named by an ergo suite (lower, std, examples) runs in that suite, with its tools.",
       "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "mutclean-work-shared",
+      "origin": "wf10 batch-18 fix-tool (verify, On base)",
+      "file": "scripts/mutants/main.go",
+      "from": "\tdir, err = os.MkdirTemp(\"\", \"ergo-mutants-\")\n",
+      "to": "\tdir = filepath.Join(os.TempDir(), \"ergo-mutants\")\n\terr = os.MkdirAll(dir, 0o755)\n",
+      "rule": "The default -work is a directory of one run: two runs at once never share coverage counters.",
+      "killers": ["scripts/mutants:TestDefaultWorkIsPrivate"]
+    },
+    {
+      "name": "mutclean-work-kept",
+      "origin": "wf10 batch-18 fix-tool (verify, On base)",
+      "file": "scripts/mutants/main.go",
+      "from": "\treturn dir, func() { _ = os.RemoveAll(dir) }, nil\n",
+      "to": "\treturn dir, func() {}, nil\n",
+      "rule": "The default -work is removed at the end of its run.",
+      "killers": ["scripts/mutants:TestDefaultWorkIsPrivate"]
     }
   ]
 }
