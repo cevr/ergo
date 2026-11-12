@@ -1,0 +1,232 @@
+import actor
+import queue
+import time
+
+// TestHost runs a view over an actor in process, for a test or an agent:
+// the host a scene script drives. It steps the same Session that Run
+// steps, so what it shows is what a window would show for the same
+// events. What it shows is a Mirror built only from the patches; it finds
+// nodes by their label, presses and types into them, and settles the
+// loads. Time moves only when Advance moves it.
+//
+// It lays nothing out: a tap names a node, not a point. Hit testing by
+// boxes comes with the layout kernel (ui/layout).
+type TestHost[S, E, D, F] {
+	clock   time.Manual,
+	posted  queue.Queue[Event[E]],
+	mirror  Mirror[E],
+	session Session[S, E, D, F],
+}
+
+// NoNode is the failure of a script step whose label names no node on the
+// screen.
+type NoNode { Label string }
+
+// NewTestHost shows view of a's state. clock is the time the program's
+// tasks sleep on (a test binds it as their Scheduler); only Advance moves
+// it. A fetch's result waits in a queue of room results until the host
+// takes it.
+func NewTestHost[E comparable, S, D, F](a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S), clock time.Manual, room int) TestHost[S, E, D, F] fails BadPatch {
+	let posted = queue.New[Event[E]](room)
+	let (s, first) = Start(a, view, func(ev Event[E]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	let mut m = NewMirror[E](Root(&session.frame))
+	try Apply(&m, first)
+	TestHost[S, E, D, F]{clock: clock, posted: posted, mirror: m, session: session}
+}
+
+// apply steps one event and shows its patch.
+func apply[E comparable, S, D, F](h *TestHost[S, E, D, F], ev Event[E]) fails actor.Stopped | BadPatch {
+	let ops = try Step(&h.session, ev)
+	try Apply(&h.mirror, ops)
+}
+
+// Tap presses the node id.
+func Tap[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
+	try apply(h, Press[E]{Id: id})
+}
+
+// TypeText types text into the node id.
+func TypeText[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], text string) fails actor.Stopped | BadPatch {
+	try apply(h, Type[E]{Id: id, Text: text})
+}
+
+// Pump takes every result a fetch has posted, without waiting.
+func Pump[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	for {
+		match h.posted.Poll() {
+		case Some[Event[E]] as ev:
+			try apply(h, ev.Value)
+		case None:
+			return
+		}
+	}
+}
+
+// Settle waits until no fetch is in flight and every posted result is
+// taken: the screen then shows the actor's latest state with each live
+// load's result (ui_loop.qnt settledShowsLatest). A fetch that waits on
+// the clock waits until an Advance; Settle does not move the clock, so a
+// script advances first.
+func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	for InFlight(&h.session) > 0 {
+		let ev = h.posted.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		try apply(h, ev)
+	}
+	try Pump(h)
+}
+
+// Advance moves the clock by d. It takes no result: a fetch it wakes posts
+// on its own task, and Settle or Pump takes it.
+func Advance[S, E, D, F](h *TestHost[S, E, D, F], d duration) {
+	h.clock.Advance(d)
+}
+
+// Now is the clock's time.
+func Now[S, E, D, F](h *TestHost[S, E, D, F]) time.Time { h.clock.Now() }
+
+// Screen is what the host shows, built only from the patches.
+func Screen[S, E, D, F](h *TestHost[S, E, D, F]) []Shape[E] { MirrorShape(&h.mirror) }
+
+// StateOf is the actor's state.
+func StateOf[S, E, D, F](h *TestHost[S, E, D, F]) S { h.session.actor.State() }
+
+// Fetching is the number of fetches in flight.
+func Fetching[S, E, D, F](h *TestHost[S, E, D, F]) int { InFlight(&h.session) }
+
+// Find is the first node on the screen, in tree order, whose label is
+// label: a Pressable's, a Check's or a Toggle's label, a Text's value, an
+// Input's placeholder.
+func Find[S, E, D, F](h *TestHost[S, E, D, F], label string) Option[Id[E]] {
+	findIn(&h.mirror, h.mirror.root, label)
+}
+
+func findIn[E](m *Mirror[E], id Id[E], label string) Option[Id[E]] {
+	match m.nodes.Get(id) {
+	case Some[mirrored[E]] as n:
+		for k in n.Value.kids {
+			match m.nodes.Get(k) {
+			case Some[mirrored[E]] as c:
+				if labelOf(c.Value.node) == (Some{Value: label}) {
+					return Some{Value: k}
+				}
+			case None:
+			}
+			match findIn[E](m, k, label) {
+			case Some[Id[E]] as found:
+				return found
+			case None:
+			}
+		}
+		None
+	case None:
+		None
+	}
+}
+
+// labelOf is the label Find matches, None for a node with none.
+func labelOf[E](n Node[E]) Option[string] {
+	match n {
+	case PressableNode[E] as x:
+		Some{Value: x.Label}
+	case CheckNode[E] as x:
+		Some{Value: x.Label}
+	case ToggleNode as x:
+		Some{Value: x.Label}
+	case TextNode as x:
+		Some{Value: x.Value}
+	case InputNode as x:
+		Some{Value: x.Placeholder}
+	case _:
+		None
+	}
+}
+
+// Act is one step of a scene script, by label.
+type Act = TapOn{Label string} | TypeInto{Label string, Text string} | SettleAll | AdvanceBy{By duration}
+
+// SettleAll settles the loads.
+type SettleAll {}
+
+// Play runs a script in order. A step whose label names no node fails
+// NoNode with that label.
+func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails NoNode | actor.Stopped | BadPatch {
+	for act in script {
+		match act {
+		case TapOn as x:
+			try Tap(h, try found(h, x.Label))
+		case TypeInto as x:
+			try TypeText(h, try found(h, x.Label), x.Text)
+		case SettleAll:
+			try Settle(h)
+		case AdvanceBy as x:
+			Advance(h, x.By)
+		}
+	}
+}
+
+func found[S, E, D, F](h *TestHost[S, E, D, F], label string) Id[E] fails NoNode {
+	match Find(h, label) {
+	case Some[Id[E]] as id:
+		id.Value
+	case None:
+		NoNode{Label: label}
+	}
+}
+
+// Screenshot is the screen as text, one node a line, indented by depth:
+// what an agent reads.
+func Screenshot[S, E, D, F](h *TestHost[S, E, D, F]) string {
+	let mut out = ""
+	for line in shotLines(Screen(h), "") {
+		out = out + line + "\n"
+	}
+	out
+}
+
+func shotLines[E](shapes []Shape[E], indent string) []string {
+	let mut out = []string{}
+	for s in shapes {
+		out = out.Append(indent + nodeText(s.Node))
+		for l in shotLines[E](s.Kids, indent+"  ") {
+			out = out.Append(l)
+		}
+	}
+	out
+}
+
+func nodeText[E](n Node[E]) string {
+	match n {
+	case BoxNode:
+		"box"
+	case RowNode:
+		"row"
+	case ColumnNode:
+		"column"
+	case ScrollNode:
+		"scroll"
+	case TextNode as x:
+		"text \"\(x.Value)\""
+	case PressableNode[E] as x:
+		"button \"\(x.Label)\""
+	case CheckNode[E] as x:
+		if x.Checked {
+			return "[x] \"\(x.Label)\""
+		}
+		"[ ] \"\(x.Label)\""
+	case ToggleNode as x:
+		if x.On {
+			return "(on) \"\(x.Label)\""
+		}
+		"(off) \"\(x.Label)\""
+	case InputNode as x:
+		"input \"\(x.Value)\" (\(x.Placeholder))"
+	}
+}

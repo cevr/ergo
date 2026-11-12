@@ -263,8 +263,9 @@ type Handled[E] { Signal Option[E], Changed bool }
 
 // Handle applies a host event to f: a press sends a Pressable's or a
 // Check's signal, flips a Toggle and empties a Submit's draft; a text
-// sends an Input's signal or becomes a Field's draft. An event on a node
-// f no longer holds (it raced a commit) does nothing.
+// sends an Input's signal or becomes a Field's draft; a fetch's result
+// sends its signal while its load is live (Arrive). An event on a node f
+// no longer holds (it raced a commit) does nothing.
 func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	let mut out = Handled[E]{Signal: None, Changed: false}
 	match event {
@@ -305,6 +306,10 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		case Some[bound[E]] as d:
 			out.Changed = write(f, d.Value, TextCell{Value: x.Text})
 		case None:
+		}
+	case Arrived[E] as a:
+		if Arrive(f, a.Epoch) {
+			out.Signal = Some{Value: a.Signal}
 		}
 	}
 	out

@@ -291,7 +291,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Load epoch (ui)**: The number of one fetch a `ui.Load` asked for, unique within its frame. A new key, a new place or a removal ends the epoch, and a result is taken only while its epoch is live (`ui.Arrive`), so a result never shows for a key it was not fetched for. See [stdlib](docs/spec/stdlib.md#ui).
 
-**UI host**: std `ui.Host[E]`, the operation type of a screen that shows patches and reports input (`Show`, `Next`); a value `ui.Run` drives. Not a host package's `Host` and not an **Actor host**. See [stdlib](docs/spec/stdlib.md#ui).
+**UI host**: std `ui.Host[E]`, the operation type of a screen that shows patches and reports events (`Show`, `Next`, and `Post`, through which a fetch's task hands its result to the loop); a value `ui.Run` drives. `ui.TestHost` is the in-process host of tests and agents: it steps the same `ui.Session` as `Run`. Not a host package's `Host` and not an **Actor host**. See [stdlib](docs/spec/stdlib.md#ui).
 
 **Uninterruptible host wait**: A foreign Go call whose Go declaration takes no `context.Context`, so an interruption reaches the task only after Go returns. `ergo inspect` lists it for each function that reaches it (IG8; [tooling](docs/tooling.md#inspect)).
 

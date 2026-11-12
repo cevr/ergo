@@ -506,17 +506,19 @@ func lawLoadFollowsModel(seed int, steps int) bool {
 				wanted = c.Value.epoch == x.epoch
 			case None:
 			}
-			if ui.Arrive(&f, x.epoch) != wanted {
+			let got = sent(ui.Handle(&f, ui.Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal)
+			if ui.Arrive(&f, x.epoch) != wanted || (got != -1) != wanted {
 				return false
 			}
 			if wanted {
-				ready = x.run()
+				ready = got
 			}
 		}
 	}
 	for x in flight {
-		if ui.Arrive(&f, x.epoch) {
-			ready = x.run()
+		let got = sent(ui.Handle(&f, ui.Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal)
+		if got != -1 {
+			ready = got
 		}
 	}
 	match cur {
@@ -545,7 +547,7 @@ test UiLoadFollowsModel(seed int, steps int) {
 var stdUILoadStatements = map[string]string{
 	"ui StateKeeps":       `StateKeeps(seed int, steps int) { cellsFollowModel(seed, steps, false) }`,
 	"ui FreshMountInits":  `FreshMountInits(seed int, steps int) { cellsFollowModel(seed, steps, true) }`,
-	"ui LoadFollowsModel": `LoadFollowsModel(seed int, steps int) { let mut r = seeded(seed) let mut f = NewFrame[int]() let mut cur Option[loaded] = None let mut flight = []fetching{} let mut used = Map[int, bool]{} let mut ready = -1 for _ in 0..(steps%24+24)%24+2 { if draw(&r, 2) == 0 || len(flight) == 0 { let mut w = want{at: Nowhere, key: draw(&r, 3)} match draw(&r, 3) { case 0: case 1: w.at = Top case _: w.at = Boxed } let _ = Render(&f, loadView, w) let mut fetches = []Fetch[int]{} let mut cancels = []int{} for j in Jobs(&f) { match j { case Fetch[int] as x: fetches = fetches.Append(x) case Cancel as c: cancels = cancels.Append(c.Epoch) } } let mut wantCancel = -1 let mut wantFetch = false match cur { case Some[loaded] as c: if c.Value.at != w.at || c.Value.key != w.key { wantCancel = c.Value.epoch wantFetch = w.at != Nowhere } case None: wantFetch = w.at != Nowhere } if wantCancel >= 0 { if len(cancels) != 1 || cancels[0] != wantCancel { return false } cur = None ready = -1 } else if len(cancels) != 0 { return false } if wantFetch { if len(fetches) != 1 || used.Get(fetches[0].Epoch) != None { return false } used[fetches[0].Epoch] = true cur = Some{Value: loaded{at: w.at, key: w.key, epoch: fetches[0].Epoch}} flight = flight.Append(fetching{epoch: fetches[0].Epoch, run: fetches[0].Run}) } else if len(fetches) != 0 { return false } } else { let i = draw(&r, len(flight)) let x = flight[i] let mut rest = []fetching{} for j, y in flight { if j != i { rest = rest.Append(y) } } flight = rest let mut wanted = false match cur { case Some[loaded] as c: wanted = c.Value.epoch == x.epoch case None: } if Arrive(&f, x.epoch) != wanted { return false } if wanted { ready = x.run() } } } for x in flight { if Arrive(&f, x.epoch) { ready = x.run() } } match cur { case Some[loaded] as c: ready == c.Value.key case None: ready == -1 } }`,
+	"ui LoadFollowsModel": `LoadFollowsModel(seed int, steps int) { let mut r = seeded(seed) let mut f = NewFrame[int]() let mut cur Option[loaded] = None let mut flight = []fetching{} let mut used = Map[int, bool]{} let mut ready = -1 for _ in 0..(steps%24+24)%24+2 { if draw(&r, 2) == 0 || len(flight) == 0 { let mut w = want{at: Nowhere, key: draw(&r, 3)} match draw(&r, 3) { case 0: case 1: w.at = Top case _: w.at = Boxed } let _ = Render(&f, loadView, w) let mut fetches = []Fetch[int]{} let mut cancels = []int{} for j in Jobs(&f) { match j { case Fetch[int] as x: fetches = fetches.Append(x) case Cancel as c: cancels = cancels.Append(c.Epoch) } } let mut wantCancel = -1 let mut wantFetch = false match cur { case Some[loaded] as c: if c.Value.at != w.at || c.Value.key != w.key { wantCancel = c.Value.epoch wantFetch = w.at != Nowhere } case None: wantFetch = w.at != Nowhere } if wantCancel >= 0 { if len(cancels) != 1 || cancels[0] != wantCancel { return false } cur = None ready = -1 } else if len(cancels) != 0 { return false } if wantFetch { if len(fetches) != 1 || used.Get(fetches[0].Epoch) != None { return false } used[fetches[0].Epoch] = true cur = Some{Value: loaded{at: w.at, key: w.key, epoch: fetches[0].Epoch}} flight = flight.Append(fetching{epoch: fetches[0].Epoch, run: fetches[0].Run}) } else if len(fetches) != 0 { return false } } else { let i = draw(&r, len(flight)) let x = flight[i] let mut rest = []fetching{} for j, y in flight { if j != i { rest = rest.Append(y) } } flight = rest let mut wanted = false match cur { case Some[loaded] as c: wanted = c.Value.epoch == x.epoch case None: } let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal) if Arrive(&f, x.epoch) != wanted || (got != -1) != wanted { return false } if wanted { ready = got } } } for x in flight { let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal) if got != -1 { ready = got } } match cur { case Some[loaded] as c: ready == c.Value.key case None: ready == -1 } }`,
 }
 
 // TestUILoadModel runs the probe's tests with --seed 1; lawledger.Run holds that

@@ -1,0 +1,84 @@
+import actor
+import task
+
+// Session is the loop of one view over one actor, whatever the host: the
+// frame, the actor whose state the view shows, the view, where the
+// fetches post their results, and the fetch tasks in flight by epoch. Run
+// drives one on a Host; TestHost drives one from a test or an agent.
+type Session[S, E, D, F] {
+	frame    Frame[E],
+	actor    actor.Actor[S, E, D, F],
+	view     func(f *Frame[E], s S),
+	post     func(ev Event[E]),
+	inflight Map[int, Task[bool]],
+}
+
+// Start renders the first pass of view over a's state and starts its
+// fetches; post gets each fetch's result as an Arrived event, on the
+// fetch's task. The result is the first patch.
+func Start[E comparable, S, D, F](a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S), post escaping func(ev Event[E])) (Session[S, E, D, F], []Op[E]) {
+	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: view, post: post, inflight: Map[int, Task[bool]]{}}
+	let ops = runPass(&s)
+	(s, ops)
+}
+
+// runPass renders the actor's state, then starts each Fetch of the commit as
+// a task and stops the task of each Cancel.
+func runPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
+	let ops = Render(&s.frame, s.view, s.actor.State())
+	for j in Jobs(&s.frame) {
+		match j {
+		case Fetch[E] as x:
+			let post = s.post
+			let run = x.Run
+			let epoch = x.Epoch
+			let t = task.Go() {
+				post(Arrived[E]{Epoch: epoch, Signal: run()})
+				true
+			}
+			s.inflight[epoch] = t
+		case Cancel as c:
+			finish(s, c.Epoch)
+		}
+	}
+	ops
+}
+
+// finish stops the task of epoch, if one is in flight, and waits until it
+// has ended: a cancelled fetch stops; a fetch that posted its result has
+// ended or is ending.
+func finish[S, E, D, F](s *Session[S, E, D, F], epoch int) {
+	let found, rest = s.inflight.Take(epoch)
+	s.inflight = rest
+	match found {
+	case Some[Task[bool]] as t:
+		t.Value.Stop()
+	case None:
+	}
+}
+
+// Step applies one event: a press or a text is handled (Handle), and a
+// fetch's result is taken while its load is live (Arrive). A signal goes to
+// the actor; after a signal or a changed cell the view renders again and
+// the result is that pass's patch, else no op.
+func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
+	match ev {
+	case Arrived[E] as x:
+		finish(s, x.Epoch)
+	case _:
+	}
+	let done = Handle(&s.frame, ev)
+	match done.Signal {
+	case Some[E] as e:
+		try s.actor.Send(e.Value)
+		return runPass(s)
+	case None:
+	}
+	if done.Changed {
+		return runPass(s)
+	}
+	[]Op[E]{}
+}
+
+// InFlight is the number of fetches started and not yet taken or stopped.
+func InFlight[S, E, D, F](s *Session[S, E, D, F]) int { len(s.inflight) }

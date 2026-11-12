@@ -198,7 +198,8 @@ type fetching { epoch int, run func() int }
 // exactly the jobs the model wants: a new load, or a load with a new key or
 // a new place, is one Fetch with an epoch no fetch had, and the load it
 // replaces, or a load the pass leaves out, is one Cancel of its epoch.
-// Arrive takes a result exactly when its epoch is the live load's
+// Arrive, and Handle of the Arrived event a fetch posts, take a result
+// exactly when its epoch is the live load's
 // (noStaleReady), and once every fetch has finished, the result the
 // program holds is the live load's key (settledShowsLatest).
 law LoadFollowsModel(seed int, steps int) {
@@ -275,17 +276,19 @@ law LoadFollowsModel(seed int, steps int) {
 				wanted = c.Value.epoch == x.epoch
 			case None:
 			}
-			if Arrive(&f, x.epoch) != wanted {
+			let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal)
+			if Arrive(&f, x.epoch) != wanted || (got != -1) != wanted {
 				return false
 			}
 			if wanted {
-				ready = x.run()
+				ready = got
 			}
 		}
 	}
 	for x in flight {
-		if Arrive(&f, x.epoch) {
-			ready = x.run()
+		let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal)
+		if got != -1 {
+			ready = got
 		}
 	}
 	match cur {

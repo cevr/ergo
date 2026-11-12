@@ -1,0 +1,201 @@
+// The laws of the test host: a scene script on TestHost shows what the
+// view means at the actor's state, reached by the signals the script's
+// presses send; a fetch whose load ends is stopped, and Settle waits for
+// the live one. They run their actors on a time.Manual (a law cannot hold
+// Ambient, so it binds no host Scheduler).
+
+import actor
+import machines
+import queue
+import scope
+import time
+
+// shelf is the state of the list app: its rows, by key, and the next key.
+type shelf { rows []int, next int }
+
+// shelfStep: signal 0 adds a row with the next key; signal k removes the
+// row k.
+func shelfStep(s shelf, e int) Decision[shelf, int] {
+	if e == 0 {
+		return Enter[shelf]{Next: shelf{rows: s.rows.Append(s.next), next: s.next + 1}}
+	}
+	let mut rows = []int{}
+	for k in s.rows {
+		if k != e {
+			rows = rows.Append(k)
+		}
+	}
+	Enter[shelf]{Next: shelf{rows: rows, next: s.next}}
+}
+
+func shelfTimer(s shelf) Option[Timeout[int]] { None }
+
+func shelfWork(s shelf) Option[func(send func(e int))] { None }
+
+func shelfMachine() Machine[shelf, int, int] {
+	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: shelfTimer, Work: shelfWork}
+}
+
+// shelfView shows the count, an add button, and each row with a delete
+// button: every row's button has the label "del", so a press by label
+// takes the first row on the screen.
+func shelfView(f *Frame[int], s shelf) {
+	Column(f, Plain()) {
+		Text(f, "\(len(s.rows)) rows")
+		Pressable(f, "add", 0) {
+			Text(f, "+")
+		}
+		Each(f, s.rows, func(k int) Key { ByInt(k) }) func(k int) {
+			Row(f, Plain()) {
+				Text(f, "row \(k)")
+				Pressable(f, "del", k) {
+					Text(f, "x")
+				}
+			}
+		}
+	}
+}
+
+// freshShape is what view means at s: one pass of a new frame.
+func freshShape[S](view func(f *Frame[int], s S), s S) []Shape[int] {
+	let mut g = NewFrame[int]()
+	let _ = Render(&g, view, s)
+	FrameShape(&g)
+}
+
+// ScriptShowsTheView: after each step of a drawn script of presses by
+// label ("add", or "del", the first row's), the test host's screen is the
+// view of the actor's state, and that state is the model's: a press of
+// "del" removes the first row on the screen. The clock never moves.
+law ScriptShowsTheView(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		scriptShows(seed, steps, m)
+	}
+}
+
+func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, shelfView, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let start = Now(&h)
+	let mut model = shelf{rows: []int{}, next: 1}
+	for _ in 0..(steps%16+16)%16+1 {
+		let mut label = "add"
+		if len(model.rows) > 0 && draw(&r, 2) == 0 {
+			label = "del"
+			model = machines.Next(model, shelfStep(model, model.rows[0]))
+		} else {
+			model = machines.Next(model, shelfStep(model, 0))
+		}
+		Play(&h, []Act{TapOn{Label: label}}) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		if s != model || !SameShapes(Screen(&h), freshShape(shelfView, s)) || Now(&h) != start {
+			return false
+		}
+	}
+	true
+}
+
+// chosen is the state of the load app: the key its view loads, and the
+// result the program holds (-1 for none yet).
+type chosen { key int, ready int }
+
+// chosenStep: a signal of 0 or more is a new key, and the result goes back to
+// none; a negative signal is a fetch's result.
+func chosenStep(s chosen, e int) Decision[chosen, int] {
+	if e >= 0 {
+		return Enter[chosen]{Next: chosen{key: e, ready: -1}}
+	}
+	Enter[chosen]{Next: chosen{key: s.key, ready: -1 - e}}
+}
+
+func chosenTimer(s chosen) Option[Timeout[int]] { None }
+
+func chosenWork(s chosen) Option[func(send func(e int))] { None }
+
+func chosenMachine() Machine[chosen, int, int] {
+	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: chosenTimer, Work: chosenWork}
+}
+
+// valueOf is what the fetch of key k gives.
+func valueOf(k int) int { k*10 + 7 }
+
+// CancelledFetchStops: the load app's fetch says when it starts and when
+// it ends, and sleeps an hour on the clock. A press of "next" changes the
+// key: when the press returns, the fetch of the old key has ended (its task
+// was stopped, not left asleep), one fetch is in flight, and the program
+// holds no result. After the clock moves an hour, Settle returns with the
+// live key's result shown and no fetch in flight (settledShowsLatest).
+law CancelledFetchStops(steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		cancelStops(steps, m)
+	}
+}
+
+func cancelStops(steps int, m time.Manual) bool needs Scheduler {
+	let started = queue.New[int](64)
+	let ended = queue.New[int](64)
+	let view = func(f *Frame[int], s chosen) {
+		let k = s.key
+		Text(f, "key \(k) ready \(s.ready)")
+		Pressable(f, "next", k+1+k%3) {
+			Text(f, "next")
+		}
+		Load(f, ByInt(k), func() int {
+			started.Push(k) catch {
+			case queue.Closed:
+			}
+			scope.OnExit() {
+				ended.Push(k) catch {
+				case queue.Closed:
+				}
+			}
+			time.Sleep(m, 1h)
+			-1 - valueOf(k)
+		})
+	}
+	let a = actor.StartMachine(chosenMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let first = started.Pop() catch {
+	case queue.Closed:
+		return false
+	}
+	if first != 0 {
+		return false
+	}
+	for _ in 0..(steps%8+8)%8+1 {
+		let old = StateOf(&h).key
+		Play(&h, []Act{TapOn{Label: "next"}}) catch {
+		case _:
+			return false
+		}
+		let s = StateOf(&h)
+		if ended.Poll() != (Some{Value: old}) || Fetching(&h) != 1 || s.ready != -1 {
+			return false
+		}
+		let now = started.Pop() catch {
+		case queue.Closed:
+			return false
+		}
+		if now != s.key {
+			return false
+		}
+	}
+	Play(&h, []Act{AdvanceBy{By: 1h}, SettleAll}) catch {
+	case _:
+		return false
+	}
+	let s = StateOf(&h)
+	s.ready == valueOf(s.key) && Fetching(&h) == 0 && SameShapes(Screen(&h), freshShape(view, s))
+}

@@ -1,69 +1,44 @@
 import actor
 
-// Event is what a host reports: a press of a node, or a text typed into
-// an Input node.
-type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string}
+// Event is what reaches the loop: a press of a node, a text typed into an
+// Input node, or the result of a load's fetch (Arrived), which a fetch's
+// task posts with the epoch it was started for.
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E}
 
 // Closed is the failure of Next when the host has closed (its window, its
 // terminal, its script ended).
 type Closed {}
 
-// Host shows patches and reports input. Providers: the test host (H4),
-// the desktop host, the terminal host; cmd/<name>/main.ergo chooses one.
-// law-exempt: a host's laws (the mirror of its patches is what it shows, a tap at a node's box sends that node's event) need a running host and its screen; they run against each provider (the test host, H4), not here.
+// Host shows patches and reports events. Providers: the desktop host, the
+// terminal host; cmd/<name>/main.ergo chooses one. TestHost drives the
+// same Session in process instead.
+// law-exempt: a host's laws (the mirror of its patches is what it shows, a tap at a node's box sends that node's event) need a running host and its screen; they run against each provider, not here.
 type Host[E] {
-	// Show applies one commit's changes.
+	// Show applies one pass's changes.
 	Show(ops []Op[E]),
-	// Next waits for the next input; it fails Closed when the host closed.
+	// Next waits for the next event, input or posted, in the order they
+	// came; it fails Closed when the host closed.
 	Next() Event[E] fails Closed,
+	// Post queues ev for Next. A fetch's task calls it with its result, so
+	// a result reaches the loop on the loop's own thread, as input does.
+	// It never waits for the loop.
+	Post(ev Event[E]),
 }
 
-// Run shows view of a's state on h until h closes: each input is handled
-// (Handle), its signal is sent to a, and the state after it is shown. The
-// fetches of a commit run after it is shown, in order, and the signal of
-// each is sent while its load still wants it (Arrive). Run fails with h's
-// Closed, or with Stopped when a has ended.
-//
-// This is the reference loop: a fetch runs on the loop, so input waits for
-// it. The test host (H4) runs fetches as tasks and interleaves them with
-// input, under the same rule.
-func Run[S, E comparable, D, F](h Host[E], a actor.Actor[S, E, D, F], view func(f *Frame[E], s S)) fails Closed | actor.Stopped {
-	let mut f = NewFrame[E]()
-	try show(h, a, &f, view)
+// Run shows view of a's state on h until h closes. Each event is a Step of
+// one Session: its signal goes to a, and the pass after it is shown. A
+// load's fetch runs as a task of Run's caller and posts its result to h;
+// a fetch whose load ended is stopped. Run fails with h's Closed, or with
+// Stopped when a has ended.
+func Run[E comparable, S, D, F](h Host[E], a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S)) fails Closed | actor.Stopped {
+	let (s, first) = Start(a, view, func(ev Event[E]) { h.Post(ev) })
+	let mut session = s
+	h.Show(first)
 	for {
-		let input = try h.Next()
-		let done = Handle(&f, input)
-		match done.Signal {
-		case Some[E] as e:
-			try a.Send(e.Value)
-			try show(h, a, &f, view)
-		case None:
-			if done.Changed {
-				try show(h, a, &f, view)
-			}
+		let ev = try h.Next()
+		let ops = try Step(&session, ev)
+		if len(ops) > 0 {
+			h.Show(ops)
 		}
-	}
-}
-
-// show renders a's state, shows the patch and runs the commit's fetches.
-func show[S, E comparable, D, F](h Host[E], a actor.Actor[S, E, D, F], f *Frame[E], view func(f *Frame[E], s S)) fails actor.Stopped {
-	h.Show(Render(f, view, a.State()))
-	let mut jobs = Jobs(f)
-	for len(jobs) > 0 {
-		let mut next = []Job[E]{}
-		for j in jobs {
-			match j {
-			case Fetch[E] as x:
-				if Arrive(f, x.Epoch) {
-					try a.Send(x.Run())
-					h.Show(Render(f, view, a.State()))
-					for k in Jobs(f) {
-						next = next.Append(k)
-					}
-				}
-			case Cancel:
-			}
-		}
-		jobs = next
 	}
 }
