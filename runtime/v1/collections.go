@@ -94,10 +94,44 @@ func SlicesReverse[T any](xs []T) []T {
 func SlicesClone[T any](xs []T) []T { return slices.Clone(xs) }
 
 // SlicesConcat is slices.Concat(a, b): a new array of at least len(a) +
-// len(b), so the result shares no array with a or b.
+// len(b), so the result shares no array with a or b. Where a is consumed
+// (no binding reads it after the call), the lowering calls its owned form
+// SlicesConcatOwned, which appends b to a's array (OWN1).
 //
 //ergo:pure
+//ergo:owned SlicesConcatOwned
 func SlicesConcat[T any](a []T, b []T) []T { return slices.Concat(a, b) }
+
+// SlicesConcatOwned is append(a, b...): SlicesConcat's owned form, called
+// on a consumed a, whose array nothing else reads, so b's elements go into
+// a's spare capacity and a loop of p = slices.Concat(p, q) is linear, as
+// hand Go's p = append(p, q...) is. It writes past a's length, so it is
+// not marked pure. A test build calls its checking form,
+// SlicesConcatPoison, instead.
+//
+//ergo:check SlicesConcatPoison
+func SlicesConcatOwned[T any](a []T, b []T) []T { return append(a, b...) }
+
+// SlicesConcatPoison is SlicesConcatOwned's checking form, which a test
+// build calls where the run build calls the owned form (lower/handover.go):
+// it makes the new array SlicesConcat makes, then clears a's whole array,
+// which the proof says no binding reads again. A read the proof missed
+// reads zero values, so the program's own tests see it.
+func SlicesConcatPoison[T any](a []T, b []T) []T {
+	out := slices.Concat(a, b)
+	clear(a[:cap(a)])
+	return out
+}
+
+// AppendPoison is the checking form of an Append the run build makes in
+// place on a dead field (lower/handover.go): a new array, as the clipped
+// Append makes, and then xs's whole array cleared, since the proof says no
+// binding reads it again.
+func AppendPoison[T any](xs []T, x T) []T {
+	out := append(xs[:len(xs):len(xs)], x)
+	clear(xs[:cap(xs)])
+	return out
+}
 
 // SlicesRepeat is slices.Repeat(xs, n): xs n times over, in a new array.
 // A negative n, or a length past int, panics, as Go's does: a defect.

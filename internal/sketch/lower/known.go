@@ -119,6 +119,9 @@ type knownStats struct {
 	// Taken is the sites that took each shortcut, by its name in the
 	// registry (shortcuts.go).
 	Taken map[string]int
+	// Copies is the form of each Append and owned-form site
+	// (handover.go, the copy report).
+	Copies []CopySite
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of

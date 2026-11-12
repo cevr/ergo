@@ -28,6 +28,58 @@ test At {
 	assert at("ab", 1) == 98
 }
 `,
+	"own-consume": `import slices
+
+func join(parts [][]int) []int {
+	let mut doc = []int{}
+	for p in parts {
+		doc = slices.Concat(doc, p)
+	}
+	doc
+}
+
+func main() needs Console {
+	Console.Println("\(len(join([][]int{[]int{1}, []int{2, 3}})))")
+}
+
+test Join {
+	assert len(join([][]int{[]int{1}, []int{2, 3}})) == 3
+}
+`,
+	"own-field": `type Bag { Items []int, N int }
+
+func grow(n int) int {
+	let mut total = 0
+	for i in 0..n {
+		let c = Bag{Items: []int{i}, N: i}
+		let d = Bag{N: c.N + 1, Items: c.Items.Append(i)}
+		total = total + len(d.Items)
+	}
+	total
+}
+
+func main() needs Console {
+	Console.Println("\(grow(3))")
+}
+
+test Grow {
+	assert grow(3) == 6
+}
+`,
+	"own-lineage": `type Bag { Items []int, N int }
+
+func step(b Bag, x int) Bag {
+	Bag{Items: b.Items.Append(x), N: b.N + 1}
+}
+
+func main() needs Console {
+	Console.Println("\(len(step(step(Bag{Items: []int{}, N: 0}, 1), 2).Items))")
+}
+
+test Step {
+	assert len(step(step(Bag{Items: []int{}, N: 0}, 1), 2).Items) == 2
+}
+`,
 }
 
 // TestTestBuildsTakeNoShortcut lowers the witness of each registered

@@ -247,6 +247,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"SlicesReverse":        {},
 	"SlicesClone":          {},
 	"SlicesConcat":         {},
+	"SlicesConcatOwned":    {}, // handover.go, own-consume
+	"SlicesConcatPoison":   {}, // its checking form
 	"SlicesRepeat":         {},
 	"SlicesSlice":          {},
 	"MapsClone":            {},
