@@ -103,7 +103,7 @@ func (l *lowerer) isRuntimeType(t check.Type, site syntax.Node) bool {
 // runtime/v1 ship with the compiler, so no user program can cause it
 // (TestStdExternsHaveBodies holds every std extern to a body).
 func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
-	if fd.extern == "" || !fd.library || l.intrinsic(fd.fn) != nil {
+	if fd.extern == "" || !fd.library && !fd.fn.Pkg.Std() || l.intrinsic(fd.fn) != nil {
 		return v1.Body{}, "", false
 	}
 	i := strings.LastIndex(fd.extern, ".")

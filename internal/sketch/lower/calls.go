@@ -397,6 +397,13 @@ func (fc *funcCtx) builtinCall(x *syntax.CallExpr, c *check.Call, args []syntax.
 			vals[i] = "*(" + vals[i] + ")"
 		}
 	}
+	if check.AppendsString(c.Func) {
+		// Go's append at its string shape: the bytes of s, spread.
+		b = "appendString"
+		if builtinLowering != "call" {
+			return "append(" + vals[0] + ", " + vals[1] + "...)"
+		}
+	}
 	if builtinLowering == "call" {
 		return fc.l.builtinHelper(b, x) + "(" + strings.Join(vals, ", ") + ")"
 	}
@@ -414,13 +421,14 @@ var builtinLowering string
 // builtinHelpers are the reference's Go functions, by builtin; ORD stands
 // for the import name of Go's cmp.
 var builtinHelpers = map[string]string{
-	"append": "[T any](xs []T, x T) []T { return append(xs, x) }",
-	"len":    "[T any](xs []T) int { return len(xs) }",
-	"cap":    "[T any](xs []T) int { return cap(xs) }",
-	"copy":   "[T any](dst []T, src []T) int { return copy(dst, src) }",
-	"clear":  "[T any](xs []T) { clear(xs) }",
-	"min":    "[T ORD.Ordered](a T, b T) T { return min(a, b) }",
-	"max":    "[T ORD.Ordered](a T, b T) T { return max(a, b) }",
+	"append":       "[T any](xs []T, x T) []T { return append(xs, x) }",
+	"appendString": "(xs []byte, s string) []byte { return append(xs, s...) }",
+	"len":          "[T any](xs []T) int { return len(xs) }",
+	"cap":          "[T any](xs []T) int { return cap(xs) }",
+	"copy":         "[T any](dst []T, src []T) int { return copy(dst, src) }",
+	"clear":        "[T any](xs []T) { clear(xs) }",
+	"min":          "[T ORD.Ordered](a T, b T) T { return min(a, b) }",
+	"max":          "[T ORD.Ordered](a T, b T) T { return max(a, b) }",
 }
 
 // builtinHelper is the name of the reference's Go function for b, written

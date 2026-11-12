@@ -558,7 +558,7 @@ func pathRoot(x syntax.Expr) *syntax.Ident {
 // append (check/builtin.go): a call that may write past its source's length,
 // so its source is clipped where it is not new or dead (V3).
 func preludeAppend(f *check.Func) bool {
-	return check.GoBuiltin(f) == "append" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append"
+	return check.GoBuiltin(f) == "append" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append" || appenderExtern(f)
 }
 
 // preludeMapWrite reports the prelude's Delete or Put: a call that writes

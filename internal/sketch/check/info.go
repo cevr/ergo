@@ -75,6 +75,9 @@ type Package struct {
 	Path  string
 	Name  string
 	Scope *Scope
+	// cellConvs is, by cell type of this package, a cell conversion into
+	// it that the package makes (CellProvider).
+	cellConvs map[*Named]Conversion
 	// Contexts is the context namespace: contexts are named only by with and by
 	// context embedding, so they do not collide with types (fixture with-name).
 	Contexts map[string]*Context

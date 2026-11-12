@@ -156,7 +156,16 @@ func (c *checker) encodeCall(x *syntax.CallExpr) operand {
 		return bad(x)
 	}
 	v, ok := c.argValue(x.Args[0], nil, x)
-	okW := c.argument(x.Args[1], preludeType(WireWriterName), x)
+	// The writer operand is lent to encode, which keeps no writer: a
+	// value that holds a cell (a Text) converts to the Writer here and
+	// nowhere else (encodeLend).
+	wt := preludeType(WireWriterName)
+	w, okW := c.argValue(x.Args[1], wt, x)
+	if okW {
+		c.encodeLend = true
+		c.assign(&w, wt, "argument")
+		c.encodeLend = false
+	}
 	if !ok || !okW || v.invalid() {
 		return bad(x)
 	}

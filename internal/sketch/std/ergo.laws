@@ -1,1 +1,12 @@
 # std law ledger (runtime.md, Tests 10). Written by go run ./scripts/stdlaws; do not edit.
+law json.Text.RawJoins for json.text skipped h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
+law json.Text.SepDue for json.text skipped h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
+law json.Text.SepNoneDue for json.text skipped h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
+law json.Text.SetCommaLast for json.text skipped h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
+law json.Text.SetCommaSets for json.text tested h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
+law json.Text.SetCommaSinks for json.text skipped h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
+law json.Text.SetCommaSinksBool for json.text skipped h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
+law json.Text.SetCommaSinksFloat for json.text skipped h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
+law json.Text.SetCommaSinksInt for json.text skipped h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
+law json.Text.SetCommaSinksString for json.text skipped h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
+law json.Text.SetCommaSinksUint for json.text skipped h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=

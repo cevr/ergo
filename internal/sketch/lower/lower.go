@@ -60,6 +60,10 @@ type Unit struct {
 	// Rewrite is the evidence of the law runs the run build may rewrite
 	// with (rewrite.go); nil rewrites nothing. The test build ignores it.
 	Rewrite RewriteEvidence
+	// AllLaws asks RewriteChecks for every rewrite and post law of the
+	// unit, not only those its run build's sites use: std's ledger
+	// (FreshStdLedger) holds each law proved once, for every program.
+	AllLaws bool
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose

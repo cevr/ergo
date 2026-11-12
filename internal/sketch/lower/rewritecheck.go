@@ -59,6 +59,22 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 		if _, err := probeLower(probe); err != nil {
 			return nil, err
 		}
+		if u.AllLaws && len(laws) == 0 {
+			// Every law of the unit, whether a site asks for it or not.
+			seen := map[*check.Law]bool{}
+			for _, law := range ev.asked {
+				seen[law] = true
+			}
+			for _, rules := range newRewriter(u.Package, nil).rules {
+				for _, r := range rules {
+					if !seen[r.law] {
+						seen[r.law] = true
+						ev.asked = append(ev.asked, r.law)
+					}
+				}
+			}
+			sort.Slice(ev.asked, func(i, j int) bool { return ev.asked[i].Title(u.Package) < ev.asked[j].Title(u.Package) })
+		}
 		if len(ev.asked)+len(ev.askedInsts) == 0 {
 			break
 		}

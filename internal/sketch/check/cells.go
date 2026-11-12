@@ -86,6 +86,52 @@ func (c *checker) cellRefusal(v, t Type, it *Interface) string {
 	return ""
 }
 
+// CellProvider is the cell conversion into t when t has one provider: t
+// is a sealed operation type, exactly one type of its sealing package
+// provides every operation of t, one or more of them on *P, and the
+// package converts a P to t. Then every value of t is a cell of P, since
+// only t's package can make one (types.md, Interface assignability 6), so
+// the lowering may reach P's value behind any t (lower/wiredirect.go).
+func CellProvider(t Type) (Conversion, bool) {
+	n, ok := t.(*Named)
+	if !ok || n.Obj == nil || n.Obj.Pkg == nil || n.Obj.Pkg.Host() {
+		return Conversion{}, false
+	}
+	it := asInterface(n)
+	if it == nil || it.Set != SetAll || len(it.Methods) == 0 || len(n.TArgs) > 0 {
+		return Conversion{}, false
+	}
+	p := sealedPkg(it)
+	if p == nil || p != n.Obj.Pkg {
+		return Conversion{}, false
+	}
+	conv, ok := p.cellConvs[n.origin()]
+	if !ok {
+		return Conversion{}, false
+	}
+	providers := 0
+	for _, tn := range p.Types {
+		pn, ok := tn.Type.(*Named)
+		if !ok || asInterface(pn) != nil {
+			continue
+		}
+		all := true
+		for _, m := range it.Methods {
+			if pn.method(m.Name) == nil {
+				all = false
+				break
+			}
+		}
+		if all {
+			providers++
+		}
+	}
+	if providers != 1 {
+		return Conversion{}, false
+	}
+	return conv, true
+}
+
 // cellType reports whether t is a cell type: a sealed operation type of
 // the program that a type of its package provides, every operation, with
 // one or more of them on *P.

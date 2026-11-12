@@ -358,7 +358,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			}
 			cell = true
 		}
-		if h := c.holdsCell(v); h != nil && !c.cellType(t) {
+		if h := c.holdsCell(v); h != nil && !c.cellType(t) && !(c.encodeLend && !cell) {
 			// A cell stays where its confinement rules see it.
 			return assignment{}, fmt.Sprintf(cellHideText, v, h, t)
 		}
@@ -400,7 +400,14 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 				}
 			}
 		}
-		return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t, Table: table, Instances: instances, Cell: cell}}, ""
+		conv := Conversion{Kind: ConvOperations, From: v, To: t, Table: table, Instances: instances, Cell: cell}
+		if n, ok := t.(*Named); ok && cell && len(instances) == 0 && n.Obj.Pkg == c.pkg {
+			if c.pkg.cellConvs == nil {
+				c.pkg.cellConvs = map[*Named]Conversion{}
+			}
+			c.pkg.cellConvs[n.origin()] = conv
+		}
+		return assignment{clause: assignOperations, conv: conv}, ""
 	}
 	if rt, ok := t.(*Union); ok && rt.Row != nil {
 		// Clause 7 (q47): into a row value goes a value of one of its
