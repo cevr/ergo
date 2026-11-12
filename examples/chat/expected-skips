@@ -5,5 +5,5 @@
 # negative one or one near 2^63 cannot be allocated, so a generator must not
 # draw it. memory/tests.ergo restates HangupIsFinal and HangupIsIdempotent on
 # a Pipe sized to its lines.
-skip law server.Conn.HangupIsFinal for Server: its values have no generator: queue.Queue[string] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewServer() Server with no rows would build one for each case
-skip law server.Peer.HangupIsIdempotent for Sender: its values have no generator: queue.Queue[string] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewSender() Sender with no rows would build one for each case
+skip law server.Conn.HangupIsFinal for Server: its values have no generator: queue.Queue[string] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { server.Conn: … }, and the law runs under it
+skip law server.Peer.HangupIsIdempotent for Sender: its values have no generator: queue.Queue[string] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { server.Peer: … }, and the law runs under it

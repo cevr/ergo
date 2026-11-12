@@ -1,29 +1,10 @@
-// The jobs.Jobs laws through the wire. A test file is where a test picks
-// its provider (cmd/jobs-web/main.ergo picks the binary's): each case
-// serves a fresh memory server (memory.New) and calls it through a
-// Loopback, so the same laws that hold for the memory provider hold for
-// its client.
+// The test file of package loopback picks the server its law runs serve
+// (cmd/jobs-web/main.ergo picks the binary's): each case of each jobs.Jobs
+// law builds OverMemory, a Loopback over a fresh memory server, so the
+// laws that hold for the memory provider hold through the wire.
 
 import jobsweb/jobs
 import jobsweb/memory
 
-// overMemory is a Loopback over a fresh memory server.
-func overMemory() Loopback { NewLoopback(memory.New()) }
-
-test CancelOfTerminalFailsThroughTheWire(steps int, failAt int) {
-	with context { jobs.Jobs: overMemory() } {
-		assert jobs.CancelOfTerminalFails(steps, failAt)
-	}
-}
-
-test ProgressMonotoneThroughTheWire(steps int, failAt int, works []int) {
-	with context { jobs.Jobs: overMemory() } {
-		assert jobs.ProgressMonotone(steps, failAt, works)
-	}
-}
-
-test RejectsWhatCannotRunThroughTheWire(steps int) {
-	with context { jobs.Jobs: overMemory() } {
-		assert jobs.RejectsWhatCannotRun(steps)
-	}
-}
+// OverMemory binds the contract to a Loopback over a fresh memory server.
+let OverMemory = context { jobs.Jobs: NewLoopback(memory.New()) }

@@ -476,6 +476,11 @@ func (c *checker) lawRuns() []LawRun {
 					parts = append(parts, p.Type.Obj.Pkg)
 				}
 				if least(parts) {
+					for k := range b {
+						if b[k].noGenerator {
+							b[k].Unrun += lawProviderFix(law, b[k])
+						}
+					}
 					run.Bindings = append(run.Bindings, c.lawInstance(law, b))
 				}
 			}
@@ -571,9 +576,25 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
-		lp.Unrun = "its values have no generator: " + why + "; a func New" + p.Obj.Name + "() " + p.Obj.Name + " with no rows would build one for each case"
+		lp.Unrun = "its values have no generator: " + why
+		lp.noGenerator = true
 	}
 	return lp, true
+}
+
+// lawProviderFix is the fix the skip of p, a provider with no generator
+// bound to a slot of law, names (lawRuns). A member law whose one slot is
+// its owner runs under a named context that binds the owner
+// (lawcontexts.go), so the fix is the explicit one: a test file binds the
+// provider in a named context, as cmd/NAME/main.ergo binds the binary's.
+// A row-free New<P> that built the providers P holds would choose them
+// away from the entry (lint with-at-entry). Any other law runs under no
+// context, so its fix is the constructor.
+func lawProviderFix(law *Law, p LawProvider) string {
+	if law.Owner != nil && len(law.Slots) == 1 && law.Slots[0].Param < 0 {
+		return "; bind one in a named context of a test file, let Name = context { " + p.Slot.String() + ": … }, and the law runs under it"
+	}
+	return "; a func New" + p.Type.Obj.Name + "() " + p.Type.Obj.Name + " with no rows would build one for each case"
 }
 
 // lawClosures are, for pkg and each package it sees, the packages each

@@ -1,29 +1,11 @@
-// The limits.Limiter laws through the wire. A test file is where a test
-// picks its provider (cmd/limiter/main.ergo picks the binary's): each case
-// serves a fresh memory limiter (memory.NewMemory) and calls it through a
-// Loopback, so the same laws that hold for the memory provider hold for
-// its client.
+// The test file of package loopback picks the limiter its law runs serve
+// (cmd/limiter/main.ergo picks the binary's): each case of each
+// limits.Limiter law builds OverMemory, a Loopback over a fresh memory
+// limiter, so the laws that hold for the memory provider hold through the
+// wire.
 
 import limiter/limits
 import limiter/memory
 
-// overMemory is a Loopback over a fresh memory limiter.
-func overMemory() Loopback { NewLoopback(memory.NewMemory()) }
-
-test NeverOverdrawsThroughTheWire(pick int, costs []int) {
-	with context { limits.Limiter: overMemory() } {
-		assert limits.NeverOverdraws(pick, costs)
-	}
-}
-
-test RetryAfterIsExactThroughTheWire(pick int, cost int) {
-	with context { limits.Limiter: overMemory() } {
-		assert limits.RetryAfterIsExact(pick, cost)
-	}
-}
-
-test LimitedTakesNothingThroughTheWire(pick int, cost int) {
-	with context { limits.Limiter: overMemory() } {
-		assert limits.LimitedTakesNothing(pick, cost)
-	}
-}
+// OverMemory binds the contract to a Loopback over a fresh memory limiter.
+let OverMemory = context { limits.Limiter: NewLoopback(memory.NewMemory()) }

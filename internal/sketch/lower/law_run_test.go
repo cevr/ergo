@@ -151,7 +151,7 @@ func TestLawRunState(t *testing.T) {
 		!strings.HasSuffix(got[2], "law refuted at main.ergo:10:3: the law is false") {
 		t.Errorf("line 3 is %q", got[2])
 	}
-	if want := "skip law Counter.AddAdds for Plain: its values have no generator: func(int) int is a function type; a func NewPlain() Plain with no rows would build one for each case"; got[0] != want {
+	if want := "skip law Counter.AddAdds for Plain: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Counter: … }, and the law runs under it"; got[0] != want {
 		t.Errorf("line 1 is %q, want %q", got[0], want)
 	}
 	if got[3] != "FAIL (1 of 2 tests, 1 skipped)" {
@@ -247,12 +247,15 @@ func TestLawRunOtherPackage(t *testing.T) {
 	if code != 1 || len(got) != 7 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
-	const plain = ": its values have no generator: func(int) int is a function type; a func NewPlain() Plain with no rows would build one for each case"
+	// A member law's fix is the context form; a law whose slot is a
+	// parameter runs under no context, so its fix is the constructor
+	// (mutant lawfix-one-text).
+	const plain = ": its values have no generator: func(int) int is a function type; "
 	want := []struct{ line, prefix, suffix string }{
-		{line: "skip law kv.Store.GetAfterPut for Plain" + plain},
+		{line: "skip law kv.Store.GetAfterPut for Plain" + plain + "bind one in a named context of a test file, let Name = context { kv.Store: … }, and the law runs under it"},
 		{line: "ok law kv.Store.GetAfterPut for Last (100 cases)"},
 		{prefix: "FAIL law kv.Store.GetAfterPut for Zero (case ", suffix: "law refuted at lib.ergo:6:3: the law is false"},
-		{line: "skip law kv.PutKeepsOthers with s = Plain" + plain},
+		{line: "skip law kv.PutKeepsOthers with s = Plain" + plain + "a func NewPlain() Plain with no rows would build one for each case"},
 		{prefix: "FAIL law kv.PutKeepsOthers with s = Last (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
 		{prefix: "FAIL law kv.PutKeepsOthers with s = Zero (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
 		{line: "FAIL (3 of 4 tests, 2 skipped)"},
@@ -362,7 +365,12 @@ func TestLawRunLeastPackage(t *testing.T) {
 // TestLawRunSkips: a law that cannot run says why, and the summary counts
 // it as skipped, never as a test (fs4); so does a run under a context
 // whose build acquires a provider with a Close (L5; mutant
-// lawctx-close-runs).
+// lawctx-close-runs). A provider with no generator that a context which
+// runs builds (Fn under Wired) runs there and is no skip; one whose
+// context does not run (Gn under Kept) stays a skip, which names the
+// context form as its fix; a provider that runs (Sq) runs beside its
+// context (mutants lawctx-covers-none, lawctx-covers-any-type,
+// lawctx-covers-unrun-context, lawctx-covers-runnable).
 func TestLawRunSkips(t *testing.T) {
 	needsBuild(t)
 	src := `type Shape {
@@ -410,6 +418,24 @@ func openRes() Res { Res{n: 1} }
 
 let Held = context { Shape: openRes() }
 
+type Gn { g func(int) int }
+
+func Area(_ Gn) int { 1 }
+
+func Close(_ Gn) {}
+
+func openGn() Gn { Gn{g: func(n int) int { n }} }
+
+let Kept = context { Shape: openGn() }
+
+type Sq { n int }
+
+func Area(_ Sq) int { 1 }
+
+let Sized = context { Shape: Sq{n: 2} }
+
+let Wired = context { Shape: Fn{f: func(n int) int { n }} }
+
 func main() {}
 `
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_skips", src)}, true)
@@ -418,14 +444,18 @@ func main() {}
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_skips"])
 	want := []string{
-		"skip law Shape.Positive for Fn: its values have no generator: func(int) int is a function type; a func NewFn() Fn with no rows would build one for each case",
+		"skip law Shape.Positive for Gn: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it",
 		"ok law Shape.Positive for Res (100 cases)",
+		"ok law Shape.Positive for Sq (100 cases)",
 		"skip law Shape.Positive under Held: its build acquires a provider with a Close, which a law case does not release",
+		"skip law Shape.Positive under Kept: its build acquires a provider with a Close, which a law case does not release",
+		"ok law Shape.Positive under Sized (100 cases)",
+		"ok law Shape.Positive under Wired (100 cases)",
 		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
 		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
 		"skip law Ranked.Same: its operation type Ranked constrains T by operations, and a run passes no witness",
 		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
-		"PASS (1 tests, 6 skipped)",
+		"PASS (4 tests, 7 skipped)",
 	}
 	if code != 0 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
@@ -526,7 +556,7 @@ func TestLawRunCapabilities(t *testing.T) {
 	got := verdicts(stdout)
 	want := []struct{ line, prefix, suffix string }{
 		{line: "ok BookStartsEmpty"},
-		{line: "skip law Notes.AddReads for Stuck: its values have no generator: queue.Queue[int] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewStuck() Stuck with no rows would build one for each case"},
+		{line: "skip law Notes.AddReads for Stuck: its values have no generator: queue.Queue[int] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Notes: … }, and the law runs under it"},
 		{line: "ok law Notes.AddReads for Book (100 cases)"},
 		{prefix: "FAIL law Notes.AddReads for Lossy (case 1 of 100, seed 7, size 0: provider = Lossy{files: fstest.NewMemory(), writes: fstest.NewMemory()}, line = ", suffix: "law refuted at main.ergo:12:3: the law is false"},
 		{line: "ok law Loud.CountsUp for Echo (100 cases)"},

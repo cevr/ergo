@@ -25,9 +25,11 @@ reads it through the content mapper (`tools/ts`), so there is no generated
 - `loopback/` is a limiter through the wire: the generated client of the
   `limits.Limiter` its caller passes in, which the generated server serves
   in process (`rpc.Loopback`: Serve's own server answers each call in
-  memory), so it picks no provider. Its tests (`loopback/tests.ergo`)
-  pass a memory limiter and assert the contract's laws through the
-  client, so the laws that hold for the provider hold through the wire.
+  memory), so it picks no provider. Its test file (`loopback/tests.ergo`)
+  picks one, as `cmd/limiter/main.ergo` picks the binary's: the named
+  context `OverMemory` binds `limits.Limiter` to a Loopback over a fresh
+  memory limiter, and `ergo test loopback` runs the contract's laws under
+  it, so the laws that hold for the provider hold through the wire.
 - `cmd/limiter/main.ergo` chooses the buckets (`api`: 5 tokens, one back
   per 200 ms; `search`: 3, one per second), binds `limits.Limiter` to the
   memory provider and serves it on `127.0.0.1:0`, printing the address

@@ -1,6 +1,7 @@
 package check
 
 import (
+	"slices"
 	"sort"
 )
 
@@ -67,13 +68,41 @@ func (c *checker) planLawContexts() {
 				continue
 			}
 			if i, ok := runs[law]; ok {
-				c.pkg.LawRuns[i].Contexts = under
+				r := &c.pkg.LawRuns[i]
+				r.Contexts = under
+				r.Bindings = slices.DeleteFunc(r.Bindings, func(b []LawProvider) bool {
+					return c.builtByContext(b[0], under)
+				})
 				continue
 			}
 			runs[law] = len(c.pkg.LawRuns)
 			c.pkg.LawRuns = append(c.pkg.LawRuns, LawRun{Law: law, Contexts: under})
 		}
 	}
+}
+
+// builtByContext reports whether a context of under builds the provider p
+// that the law's run cannot build itself (p.Unrun): a context that runs
+// and whose entry for the owner is a value of p's type. The run under
+// that context is then p's run, so p is no skip. This is how a test file
+// picks a provider that takes another one, as cmd/NAME/main.ergo picks
+// the binary's: let OverMemory = context { limits.Limiter:
+// NewLoopback(memory.NewMemory()) }.
+func (c *checker) builtByContext(p LawProvider, under []LawContext) bool {
+	if p.Unrun == "" {
+		return false
+	}
+	for _, lc := range under {
+		if lc.Unrun != "" {
+			continue
+		}
+		e := lc.With.Entries[0]
+		info := providerInfo(c.contextOwners.of[e])
+		if info != nil && e.Provider != nil && c.identical(info.Types[e.Provider], p.Type) {
+			return true
+		}
+	}
+	return false
 }
 
 // lawContext is the run of law under the named context w, when w binds its
