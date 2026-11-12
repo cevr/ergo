@@ -1,0 +1,66 @@
+// k-means++ seeding (Arthur and Vassilvitskii, 2007), with integer
+// weights: the first centroid is a point drawn uniformly, and each next
+// one a point drawn with weight its squared distance to the nearest
+// centroid so far. The draw is an integer below the total weight, so the
+// seeding is exact and the same on every host.
+
+import slices
+
+// Mix is a SplitMix64 stream: its state, advanced by a constant per draw.
+type Mix { state uint64 }
+
+// Seeded is the stream of seed.
+func Seeded(seed uint64) Mix { Mix{state: seed} }
+
+// Next is the stream's next 64 bits.
+func Next(m *Mix) uint64 {
+	m.state += 0x9E3779B97F4A7C15
+	let mut z = m.state
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EB
+	z ^ (z >> 31)
+}
+
+// Below is a draw from 0 to n-1; n > 0.
+func Below(m *Mix, n int) int { int(m.Next() % uint64(n)) }
+
+// SeedCentroids is k centroids of points (not empty) by k-means++ from
+// seed. When every point is a centroid already, the next is drawn
+// uniformly.
+func SeedCentroids(points []Point, k int, seed uint64) []Point {
+	let mut m = Seeded(seed)
+	let mut cents = []Point{points[m.Below(len(points))]}
+	let mut near = slices.WithCapacity[int](len(points))
+	for p in points {
+		near = near.Append(Dist(p, cents[0]))
+	}
+	for len(cents) < k {
+		let mut total = 0
+		for d in near {
+			total += d
+		}
+		let mut pick = 0
+		if total == 0 {
+			pick = m.Below(len(points))
+		} else {
+			let u = int(m.Next() % uint64(total))
+			let mut acc = 0
+			for i, d in near {
+				acc += d
+				if acc > u {
+					pick = i
+					break
+				}
+			}
+		}
+		let c = points[pick]
+		cents = cents.Append(c)
+		for i in 0..len(points) {
+			let d = Dist(points[i], c)
+			if d < near[i] {
+				near[i] = d
+			}
+		}
+	}
+	cents
+}

@@ -1,0 +1,1 @@
+usage: kmeans run FILE K ROUNDS WORKERS SEED | kmeans gen N SEED

@@ -1,0 +1,113 @@
+// The assignment step's result: for each centroid, the sum of the points
+// nearest to it and their count, and the inertia (the sum of each point's
+// distance to its centroid). Sums merge by Merge, whose laws let chunks be
+// summed in parallel and merged in any grouping and order.
+
+// Sums is what a set of points sums up to against k centroids: Total
+// holds k sums of Dims coordinates, centroid j's at j*Dims.
+type Sums { Total []int, Count []int, Inertia int }
+
+// Empty is the Sums of no point against k centroids: the identity of
+// Merge.
+func Empty(k int) Sums {
+	let mut total = []int{}
+	let mut count = []int{}
+	for _ in 0..k {
+		for _ in 0..Dims {
+			total = total.Append(0)
+		}
+		count = count.Append(0)
+	}
+	Sums{Total: total, Count: count, Inertia: 0}
+}
+
+// Merge is the Sums of the points of a and of b together. a and b are
+// against the same centroids.
+func Merge(a Sums, b Sums) Sums {
+	let mut s = a
+	for i in 0..len(s.Total) {
+		s.Total[i] += b.Total[i]
+	}
+	for j in 0..len(s.Count) {
+		s.Count[j] += b.Count[j]
+	}
+	s.Inertia += b.Inertia
+	s
+}
+
+// Add is s with the point p, nearest to centroid j at distance d. The
+// assignment step updates its Sums in place by it.
+func Add(s *Sums, p Point, j int, d int) {
+	let at = j * Dims
+	s.Total[at] += int(p[0])
+	s.Total[at+1] += int(p[1])
+	s.Total[at+2] += int(p[2])
+	s.Total[at+3] += int(p[3])
+	s.Total[at+4] += int(p[4])
+	s.Total[at+5] += int(p[5])
+	s.Total[at+6] += int(p[6])
+	s.Total[at+7] += int(p[7])
+	s.Count[j] += 1
+	s.Inertia += d
+}
+
+// Of is the Sums of one point, nearest to centroid j of k at distance d.
+func Of(k int, p Point, j int, d int) Sums {
+	let mut s = Empty(k)
+	s.Add(p, j, d)
+	s
+}
+
+// sumsOf is a Sums against two centroids built from generated values.
+func sumsOf(xs []int) Sums {
+	let mut s = Empty(2)
+	for i, x in xs {
+		s = Merge(s, Of(2, PointOf(xs[i:]), (x%2+2)%2, (x%1000+1000)%1000))
+	}
+	s
+}
+
+// MergeAssociative: chunks merge in any grouping.
+law MergeAssociative(a []int, b []int, c []int) {
+	let x = sumsOf(a)
+	let y = sumsOf(b)
+	let z = sumsOf(c)
+	Merge(Merge(x, y), z) == Merge(x, Merge(y, z))
+}
+
+// MergeCommutative: chunks merge in any order.
+law MergeCommutative(a []int, b []int) {
+	Merge(sumsOf(a), sumsOf(b)) == Merge(sumsOf(b), sumsOf(a))
+}
+
+// EmptyIsIdentity: a chunk with no point changes nothing.
+law EmptyIsIdentity(a []int) {
+	let x = sumsOf(a)
+	Merge(x, Empty(2)) == x && Merge(Empty(2), x) == x
+}
+
+// AddIsMergeOfOne: the in-place update is the merge with one point, so a
+// chunk's Sums is the merge of its points' Sums.
+law AddIsMergeOfOne(a []int, q []int, j int, d int) {
+	addIsMerge(sumsOf(a), PointOf(q), (j%2+2)%2, (d%1000+1000)%1000)
+}
+
+// addIsMerge is AddIsMergeOfOne's body for one case. It is a function,
+// not the law's own body: in a law body, a let mut copy of a value read
+// later is not made (a lowering gap the HP lane reported).
+func addIsMerge(x Sums, p Point, j int, d int) bool {
+	let mut y = x
+	y.Add(p, j, d)
+	y == Merge(x, Of(2, p, j, d))
+}
+
+// floatAssociative is MergeAssociative stated over float64 sums.
+func floatAssociative(a float64, b float64, c float64) bool { (a+b)+c == a+(b+c) }
+
+// FloatSumsDependOnTheGrouping: the law MergeAssociative over float64
+// sums is false, so a float centroid would depend on the split of the
+// points among the workers. Stated as a law, the test run refutes it with
+// this case; that is why the coordinates and sums here are integers.
+test FloatSumsDependOnTheGrouping {
+	assert !floatAssociative(0.1, 0.2, 0.3)
+}

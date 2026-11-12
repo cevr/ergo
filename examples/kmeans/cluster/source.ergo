@@ -1,0 +1,110 @@
+// Where the points come from, and their text: one point a line, eight
+// decimal coordinates separated by single spaces.
+
+import slices
+
+// Source gives the text of an input by its path. The binary chooses the
+// provider: the host's files mapped read-only, or texts in memory.
+type Source {
+	Text(path string) string fails Unreadable,
+
+	// Repeatable: two reads of one input give the same text.
+	law Repeatable(path string) {
+		let a = Text(path) catch {
+		case Unreadable:
+			return true
+		}
+		let b = Text(path) catch {
+		case Unreadable:
+			return false
+		}
+		a == b
+	},
+}
+
+// Unreadable is an input that cannot be read, with the host's reason.
+type Unreadable { Path string, Reason string }
+
+// Malformed is a line that is not a point: its number, from 1, and why.
+type Malformed { Line int, Reason Flaw }
+
+// Flaw is why a line is not a point.
+type Flaw = NotANumber | OutOfRange | WrongCount | NoNewline
+
+// NotANumber: a field is empty or holds a byte that is not a digit.
+type NotANumber {}
+
+// OutOfRange: a coordinate is above MaxCoord.
+type OutOfRange {}
+
+// WrongCount: the line does not hold exactly Dims fields.
+type WrongCount {}
+
+// NoNewline: the text ends inside a line.
+type NoNewline {}
+
+// Explain is the text of a flaw.
+func Explain(f Flaw) string {
+	match f {
+	case NotANumber:
+		"a field that is not a number"
+	case OutOfRange:
+		"a coordinate above 4095"
+	case WrongCount:
+		"not 8 coordinates"
+	case NoNewline:
+		"no newline at the end of the input"
+	}
+}
+
+// Parse is the points of text.
+func Parse(text string) []Point fails Malformed {
+	let mut points = slices.WithCapacity[Point](len(text) / 32)
+	let mut i = 0
+	let mut line = 1
+	for i < len(text) {
+		let mut p = Point{}
+		let mut d = 0
+		for {
+			if d == Dims {
+				return Malformed{Line: line, Reason: WrongCount}
+			}
+			let mut v = 0
+			let start = i
+			for i < len(text) && text[i] >= '0' && text[i] <= '9' {
+				v = v*10 + int(text[i]-'0')
+				if v > MaxCoord {
+					return Malformed{Line: line, Reason: OutOfRange}
+				}
+				i += 1
+			}
+			if i == start {
+				return Malformed{Line: line, Reason: NotANumber}
+			}
+			p[d] = int32(v)
+			d += 1
+			if i == len(text) {
+				return Malformed{Line: line, Reason: NoNewline}
+			}
+			if text[i] == '\n' {
+				break
+			}
+			if text[i] != ' ' {
+				return Malformed{Line: line, Reason: NotANumber}
+			}
+			i += 1
+		}
+		if d != Dims {
+			return Malformed{Line: line, Reason: WrongCount}
+		}
+		points = points.Append(p)
+		i += 1
+		line += 1
+	}
+	points
+}
+
+// Text is the text of a point, its line without the newline.
+func Text(p Point) string {
+	"\(p[0]) \(p[1]) \(p[2]) \(p[3]) \(p[4]) \(p[5]) \(p[6]) \(p[7])"
+}

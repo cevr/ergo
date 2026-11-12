@@ -1,0 +1,62 @@
+// Package corpus writes the seeded inputs of the receipts and the cases:
+// n points around a number of true centres, one point a line. A seed
+// gives one input on every host: the stream is the cluster package's
+// SplitMix64.
+
+import kmeans/cluster
+import strings
+
+// Centres is how many true centres the points gather around.
+let Centres = 48
+
+// Spread is the half width of the noise of each coordinate.
+let Spread = 256
+
+// Generate is the text of n points from seed.
+func Generate(n int, seed uint64) string {
+	let mut m = cluster.Seeded(seed)
+	let mut centres = []cluster.Point{}
+	for _ in 0..Centres {
+		let mut c = cluster.Point{}
+		for d in 0..cluster.Dims {
+			c[d] = int32(512 + m.Below(cluster.MaxCoord-1023))
+		}
+		centres = centres.Append(c)
+	}
+	let mut b = strings.NewBuilder()
+	b.Grow(n * 40)
+	for _ in 0..n {
+		let c = centres[m.Below(Centres)]
+		for d in 0..cluster.Dims {
+			let noise = m.Below(Spread+1) + m.Below(Spread+1) - Spread
+			let v = clamp(int(c[d]) + noise)
+			if d > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteString("\(v)")
+		}
+		b.WriteByte('\n')
+	}
+	b.String()
+}
+
+// clamp is v brought into 0..MaxCoord.
+func clamp(v int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > cluster.MaxCoord {
+		return cluster.MaxCoord
+	}
+	v
+}
+
+// GenerateParses: every generated text is points, n of them.
+law GenerateParses(n int, seed uint64) {
+	let count = (n%200 + 200) % 200
+	let points = cluster.Parse(Generate(count, seed)) catch {
+	case cluster.Malformed:
+		return false
+	}
+	len(points) == count
+}
