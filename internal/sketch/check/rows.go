@@ -360,12 +360,10 @@ func (c *checker) checkComponent(scc []*bodyNode) {
 			inferred = true
 		}
 	}
-	// Without inference (the checker's mode; Options.Infer is ergo fix's)
-	// every row is written: nothing iterates and nothing is pinned, so a
-	// cyclic component is checked once, like any other (EXPLICIT EX2), and
-	// its instantiation cycles are found after the reporting pass, as for
-	// cycles through methods (checkBodies).
-	if cyclic && c.opts.Infer {
+	// Without inference (Options.Infer is ergo fix's) a body has no edge to
+	// a function (linkBodies), so only vars on an initialization cycle form
+	// a cyclic component: every body is checked once (EXPLICIT EX2).
+	if cyclic {
 		// One silent pass records the component's instantiations, so an
 		// expanding cycle is rejected before the rows iterate (round-2 M1).
 		// It is also typing's record of the callback frames class G reads

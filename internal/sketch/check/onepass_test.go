@@ -90,9 +90,8 @@ func onePassProgram(r *rand.Rand) string {
 // checks each body once. Over generated programs with recursive groups,
 // typed x.f() calls and package vars, and over every example file, the
 // body checks visit exactly the bodies' syntax nodes. Mutants (ledger):
-// the silent pass of a cyclic component, the typing of waiting x.f()
-// calls, and the init discovery's silent pass, each run without
-// inference.
+// the typing of waiting x.f() calls and the init discovery's silent
+// pass, each run without inference.
 func TestCheckOnePass(t *testing.T) {
 	first, seeds := int64(1), 200
 	if *onePassSeed != 0 {
