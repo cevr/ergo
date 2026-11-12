@@ -158,9 +158,9 @@
     {"name":"cu4b-invented-status", "origin":"wf10 CU4b", "file":"runtime/v1/exec_start.go", "from":"func (r *Running) Stop(ct *rt.Task) int {\n\tr.Close(ct)\n\treturn r.status", "to":"func (r *Running) Stop(ct *rt.Task) int {\n\tr.Close(ct)\n\treturn 143", "rule":"Stop returns the actual child's status, including a nonstandard TERM trap exit and an already exited program.", "killers":["runtime/v1:TestRunningMatchesModel"]},
     {"name":"cu4b-skips-shutdown", "origin":"wf10 CU4b", "file":"runtime/v1/exec_start.go", "from":"func (r *Running) Stop(ct *rt.Task) int {\n\tr.Close(ct)", "to":"func (r *Running) Stop(ct *rt.Task) int {\n\t_ = ct", "rule":"Stop before output or mid-stream ends and reaps the owned program before returning.", "killers":["runtime/v1:TestRunningMatchesModel"]},
     {"name":"cu4b-checks-stopped-caller", "origin":"wf10 CU4b", "file":"runtime/v1/exec_start.go", "from":"func (r *Running) Stop(ct *rt.Task) int {\n\tr.Close(ct)", "to":"func (r *Running) Stop(ct *rt.Task) int {\n\tct.Check()\n\tr.Close(ct)", "rule":"Stop completes owned cleanup and returns its status even for a caller with pending interruption.", "killers":["runtime/v1:TestRunningMatchesModel"]},
-    { "name": "st-client-parses-location", "origin": "S-target", "file": "runtime/v1/http_client.go", "from": "resp, err := c.Transport.RoundTrip(req)\n\tif err != nil {\n\t\treturn httpDone{", "to": "resp, err := c.Do(req)\n\tif err != nil {\n\t\treturn httpDone{", "rule": "A 3xx whose Location url.Parse refuses is a response, not a failed exchange.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
+    { "name": "st-client-parses-location", "origin": "S-target", "file": "runtime/v1/http_client.go", "from": "resp, err := tr.RoundTrip(req)\n\tif err != nil {\n\t\treturn httpDone{", "to": "resp, err := (&http.Client{Transport: tr}).Do(req)\n\tif err != nil {\n\t\treturn httpDone{", "rule": "A 3xx whose Location url.Parse refuses is a response, not a failed exchange.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
     { "name": "b16b-stream-target-lost", "origin": "batch-16b S-target x CU6 integration", "file": "runtime/v1/http_client.go", "from": "\treq.URL = u\n\tif body == \"\" {\n\t\treq.Body, req.ContentLength = http.NoBody, 0\n\t}\n\tfor _, f := range header {\n\t\treq.Header.Add(f.Name, f.Value)\n\t}\n\tevents :=", "to": "\tif body == \"\" {\n\t\treq.Body, req.ContentLength = http.NoBody, 0\n\t}\n\tfor _, f := range header {\n\t\treq.Header.Add(f.Name, f.Value)\n\t}\n\tevents :=", "rule": "HTTPFetchInto sends the web target as given, as HTTPFetch does.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
-    { "name": "b16b-stream-client-parses-location", "origin": "batch-16b S-target x CU6 integration", "file": "runtime/v1/http_client.go", "from": "resp, err := c.Transport.RoundTrip(req)\n\tif err != nil {\n\t\tsend(", "to": "resp, err := c.Do(req)\n\tif err != nil {\n\t\tsend(", "rule": "A streamed 3xx whose Location url.Parse refuses is a response the fetch resolves, not a failed exchange.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
+    { "name": "b16b-stream-client-parses-location", "origin": "batch-16b S-target x CU6 integration", "file": "runtime/v1/http_client.go", "from": "resp, err := tr.RoundTrip(req)\n\tif err != nil {\n\t\tsend(", "to": "resp, err := (&http.Client{Transport: tr}).Do(req)\n\tif err != nil {\n\t\tsend(", "rule": "A streamed 3xx whose Location url.Parse refuses is a response the fetch resolves, not a failed exchange.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
     { "name": "st-backslash-authority", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "end := strings.IndexAny(after, \"/\\\\?#\")", "to": "end := strings.IndexAny(after, \"/?#\")", "rule": "A backslash ends the authority of a special URL.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
     { "name": "st-fragment-location", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "case location == \"\" || strings.HasPrefix(location, \"#\"):", "to": "case location == \"\":", "rule": "A Location that is only a fragment keeps path and query.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
     { "name": "st-same-scheme-absolute", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "\t\tlocation = rest\n", "to": "\t\treturn webParse(location)\n", "rule": "A Location http:x under an http URL is relative.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
@@ -178,8 +178,8 @@
     { "name": "st-dotdot-spellings", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "case \"..\", \".%2e\", \"%2e.\", \"%2e%2e\":", "to": "case \"..\":", "rule": "A double-dot segment may spell its dots %2e.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
     { "name": "st-backslash", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "if i < len(path) && path[i] != '/' && path[i] != '\\\\' {", "to": "if i < len(path) && path[i] != '/' {", "rule": "In a special URL's path a backslash is a slash.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
     { "name": "st-query-uses-path-set", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "q := webEncode(query, webQuerySet)", "to": "q := webEncode(query, webPathSet)", "rule": "The query has its own encode set: | ^ ` { } stay.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
-    { "name": "st-query-set", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "webQuerySet = \" \\\"#<>'\"", "to": "webQuerySet = \" \\\"#<>\"", "rule": "A special URL's query encodes '.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
-    { "name": "st-path-set", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "webPathSet  = \" \\\"#<>?^`{}\"", "to": "webPathSet  = \" \\\"#<>?`{}\"", "rule": "The path percent-encode set holds ^.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
+    { "name": "st-query-set", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "webQuerySet = \" \\\"#<>'\"", "to": "webQuerySet = \" \\\"#<>\"", "rule": "A special URL's query encodes '.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"], "anchor": {"tests": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"]} },
+    { "name": "st-path-set", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "webPathSet  = \" \\\"#<>?^`{}\"", "to": "webPathSet  = \" \\\"#<>?`{}\"", "rule": "The path percent-encode set holds ^.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"], "anchor": {"tests": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"]} },
     { "name": "st-del", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "if c < 0x20 || c >= 0x7f || strings.IndexByte(set, c) >= 0 {", "to": "if c < 0x20 || c > 0x7f || strings.IndexByte(set, c) >= 0 {", "rule": "DEL is in the C0 control percent-encode set.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
     { "name": "st-percent-kept", "origin": "S-target", "file": "runtime/v1/http_network.go", "from": "if c < 0x20 || c >= 0x7f || strings.IndexByte(set, c) >= 0 {", "to": "if c < 0x20 || c >= 0x7f || c == '%' || strings.IndexByte(set, c) >= 0 {", "rule": "An escape the URL holds, valid or not, is sent as it is.", "killers": ["runtime/v1:TestHTTPFetchSendsTheWebTarget"] },
     {"name":"cu5-zone-not-escaped", "origin":"wf10 CU5", "file":"runtime/v1/http_network.go", "from":"return (&url.URL{Scheme: u.Scheme, Host: host}).String(), nil", "to":"return u.Scheme + \"://\" + host, nil", "rule":"A canonical origin remains a parseable URL, including an escaped IPv6 interface zone, so a credential owner can be read again.", "killers":["runtime/v1:TestHTTPNetworkMatchesModel"]},
@@ -215,8 +215,14 @@
       "from": "\treturn rpcReadExit([]byte(body), strings.HasPrefix(contentType, rpcNDJSON), id)",
       "to": "\treturn rpcReadExit([]byte(body), true, id)",
       "rule": "A Loopback Call reads the json Exit its server answered; the contract's laws hold through it.",
-      "killers": ["examples:limiter/loopback (ergo test: limits.Limiter laws for Loopback)"],
-      "gap": "uncovered by the runner: only a generated program runs this body, and runtime/v1's own tests do not reach it (scripts/mutants judges a package's ledger by its own tests, M1); its killer is run by hand: go run ./scripts/examples limiter"
+      "killers": [
+        "examples:limiter"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:limiter"
+        ]
+      }
     },
     {"name":"root-reopens-directory", "origin":"wf10 G1f r2", "file":"runtime/v1/host.go", "from":"if err := f(r.root); err != nil {", "to":"reopened, err := os.OpenRoot(r.root.Name()); if err != nil { return fsErr(path, err) }; defer reopened.Close(); if err := f(reopened); err != nil {", "rule":"A Root retains the opened directory across a rename and replacement of its name.", "killers":["runtime/v1:TestFSRootKeepsOpenedDirectory"]},
     {"name":"root-release-omitted", "origin":"wf10 G1f r2", "file":"runtime/v1/host.go", "from":"OnExit(s, func() { _ = r.root.Close() })", "to":"_ = r", "rule":"Every acquired Root closes at frame end, including failure, defect and stop.", "killers":["runtime/v1:TestFSRootClosesAtScopeEnd"]},
@@ -240,7 +246,6 @@
     {"name":"http-timers-overlap", "origin":"wf10 E4 r2", "file":"runtime/v1/http.go", "from":"pt.h.Task().Interrupt()", "to":"pt.h.Task().Interrupt(); if pt.c.timer == pt { pt.c.timer = nil }", "rule":"A connection has at most one live phase timer task: its old timer must be joined, not merely interrupted, before the next starts.", "killers":["runtime/v1:TestHTTPPhasesExpireOnTheScheduler"]},
     {"name":"client-body-budget", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"\tif len(body) > limits.MaxBodyBytes {", "to":"\tif false {", "rule":"A response body over the client's budget is TooLarge, never a truncated success.", "killers":["runtime/v1:TestHTTPClientMatchesServer"]},
     {"name":"client-query-order", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"b.WriteString(url.QueryEscape(f.Value))", "to":"b.WriteString(f.Value)", "rule":"Query values arrive as sent: each is escaped once.", "killers":["runtime/v1:TestHTTPClientMatchesServer"]},
-    {"name":"client-follows-redirects", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"\t\tCheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },\n", "to":"", "rule":"One request is one exchange: a 3xx comes back as sent.", "killers":["runtime/v1:TestHTTPClientMatchesServer"]},
     {"name":"client-path-raw", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"u.Path, u.RawQuery = path, httpQuery(query)", "to":"u.Opaque, u.RawQuery = path, httpQuery(query)", "rule":"Path is the decoded path: the client escapes it, so it arrives as sent.", "killers":["runtime/v1:TestHTTPClientMatchesServer"]},
     {"name":"client-refused-kind", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"\tcase errors.Is(err, syscall.ECONNREFUSED):", "to":"\tcase errors.Is(err, syscall.EINVAL):", "rule":"A refused connection is the typed Refused cause, apart from a broken exchange.", "killers":["runtime/v1:TestHTTPClientRefusedAndStopped"]},
     {"name":"client-stop-ignored", "origin":"wf10 H1", "file":"runtime/v1/http_client.go", "from":"\tcase <-t.Done():\n\t\tcancel()\n\t\t<-got\n\t\tpanic(rt.Interrupted)", "to":"\tcase <-t.Done():\n\t\td = <-got", "rule":"A stop of the caller cancels the exchange and ends the call with the stop.", "killers":["runtime/v1:TestHTTPClientRefusedAndStopped"]},
@@ -254,8 +259,8 @@
     {"name":"cu4-no-group-wait", "origin":"wf10 CU4", "file":"runtime/v1/exec_start.go", "from":"\t_ = p.cmd.Wait()\n\texecAwaitGroupEnd(p.group)", "to":"\t_ = p.cmd.Wait()", "rule":"The release returns only when no process of the program's group is left, zombies included.", "killers":["runtime/v1:TestExecStreams"]},
     {"name":"cu4-start-ignores-stop", "origin":"wf10 CU4", "file":"runtime/v1/exec_start.go", "from":"errAppend bool) (*Running, error) {\n\tt.Check()", "to":"errAppend bool) (*Running, error) {", "rule":"A stopped caller's Start starts nothing and makes no file sink.", "killers":["runtime/v1:TestExecStartStopped"]},
     {"name":"cu4-run-grace-ignored", "origin":"wf10 CU4", "file":"runtime/v1/exec.go", "from":"\t\tif grace > 0 {\n", "to":"\t\tif false {\n", "rule":"Run's stop follows the command's grace: SIGTERM first.", "killers":["runtime/v1:TestExecRunGrace"]},
-    {"name":"gapos-getwd-raw-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\t\treturn \"\", NoWorkdir{Message: err.Error()}","to":"\t\treturn \"\", err","rule":"Every failure of the host's Getwd is os.NoWorkdir, so the Ergo row holds it whole.","killers":["std:TestStdHostLawsHold"],"gap":"uncovered by runtime/v1's own tests: std TestStdHostLawsHold (os Process.GetwdIsStable, removed directory) kills it, run by hand (wf10 gap-os)"},
-    {"name":"gapos-getwd-ignores-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\tdir, err := os.Getwd()\n\tif err != nil {","to":"\tdir, err := os.Getwd()\n\tif false {","rule":"The host's Getwd fails when the working directory was removed; it never gives an empty path.","killers":["std:TestStdHostLawsHold"],"gap":"uncovered by runtime/v1's own tests: std TestStdHostLawsHold (os Process.GetwdIsStable, removed directory) kills it, run by hand (wf10 gap-os)"},
+    {"name":"gapos-getwd-raw-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\t\treturn \"\", NoWorkdir{Message: err.Error()}","to":"\t\treturn \"\", err","rule":"Every failure of the host's Getwd is os.NoWorkdir, so the Ergo row holds it whole.","killers":["std:TestStdHostLawsHold"],"anchor":{"tests":["std:TestStdHostLawsHold"]}},
+    {"name":"gapos-getwd-ignores-error","origin":"wf10 gap-os","file":"runtime/v1/host.go","from":"\tdir, err := os.Getwd()\n\tif err != nil {","to":"\tdir, err := os.Getwd()\n\tif false {","rule":"The host's Getwd fails when the working directory was removed; it never gives an empty path.","killers":["std:TestStdHostLawsHold"],"anchor":{"tests":["std:TestStdHostLawsHold"]}},
     {
       "name": "x7-late-output",
       "origin": "wf10/explorer/x7 (MU5 lateOutput; models/children LateOutput)",
@@ -264,8 +269,8 @@
       "to": "\ttagged := env.kind == timerSignal || env.kind == workSignal\n",
       "rule": "NoLateChildOutput: a child output of an ended entry is dropped, never stepped.",
       "killers": [
-        "v1:TestChildrenLawsExplored",
-        "v1:TestActorChildrenAgreeWithTree"
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
       ]
     },
     {
@@ -276,8 +281,8 @@
       "to": "\ta.task.Interrupt()\n\ta.inbox.Close()\n",
       "rule": "ChildrenStopFirst, ChildInsideEntry: an entry's exit waits for each child's end before it stops the next one and before the next entry opens.",
       "killers": [
-        "v1:TestChildrenLawsExplored",
-        "v1:TestActorChildrenAgreeWithTree"
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
       ]
     },
     {
@@ -288,8 +293,8 @@
       "to": "\tif len(a.kids) > 0 {\n\t\ta.kids = a.kids[:len(a.kids)-1]\n\t}\n\ta.kids = append(a.kids, &kid{halt: halt})",
       "rule": "ChildInsideEntry: an entry keeps every child it started, so its exit stops them all.",
       "killers": [
-        "v1:TestChildrenLawsExplored",
-        "v1:TestActorChildrenAgreeWithTree"
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
       ]
     },
     {
@@ -300,8 +305,8 @@
       "to": "\ta.working = rt.Go(&holder,",
       "rule": "ChildInsideEntry: a Stop reaches an entry's work only after the entry's children ended.",
       "killers": [
-        "v1:TestChildrenLawsExplored",
-        "v1:TestActorChildrenAgreeWithTree"
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
       ]
     },
     {
@@ -312,8 +317,9 @@
       "to": "\tif tagged && env.epoch%4 != a.epoch%4 {\n",
       "rule": "NoLateChildOutput: entries are compared whole; a counter that wraps at 4 steps an output four entries late.",
       "killers": [
-        "v1:TestChildrenLawsExplored"
-      ]
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
+      ],
+      "anchor": {"tests": ["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}
     },
     {
       "name": "x7-adopt-unseen",
@@ -323,8 +329,9 @@
       "to": "",
       "rule": "An explored run sees every wait: an entry's exit waits for a child's start in progress through the scheduler, not on kidsMu with the baton held. Without it the run hangs with the baton held until the test's hung-test deadline.",
       "killers": [
-        "v1:TestChildrenLawsExplored"
-      ]
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
+      ],
+      "anchor": {"tests": ["runtime/v1[ergoexplore]:TestChildrenLawsExplored"]}
     },
     {
       "name": "x7-law-drops-child-output",
@@ -334,8 +341,10 @@
       "to": "\t\tif m.Source == \"stale\" {\n",
       "rule": "The reader counts every child output the parent steps; one that drops them never sees NoLateChildOutput break.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
-      ]
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-open-unchecked",
@@ -345,8 +354,10 @@
       "to": "\t\t\t_ = k\n",
       "rule": "ChildInsideEntry: the next entry opens only after the old entry's children ended.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
-      ]
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-work-unchecked",
@@ -356,8 +367,10 @@
       "to": "\t\t\tif k := l.liveKid(en); false && k != nil {\n\t\t\t\tl.breaks(\"ChildInsideEntry\", \"the work",
       "rule": "ChildInsideEntry: an entry's work is stopped only after the entry's children ended.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
-      ]
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-start-unchecked",
@@ -367,8 +380,10 @@
       "to": "\t\tif !p.live {\n",
       "rule": "ChildInsideEntry: a child starts only while the entry that starts it is open.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
-      ]
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-sibling-unchecked",
@@ -378,8 +393,10 @@
       "to": "\t\t\t\tif k := l.actors[s]; false && k.live {\n",
       "rule": "ChildrenStopFirst: the last started child stops first.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
-      ]
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-orphan-unchecked",
@@ -389,8 +406,10 @@
       "to": "\t\t\t_ = k\n",
       "rule": "ChildrenStopFirst: no child lives after its parent ended.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
-      ]
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x7-law-owner-lost",
@@ -400,8 +419,10 @@
       "to": "\t\ten, ok := l.works[x]\n\t\tif !ok || true {\n",
       "rule": "A child is found from the task tree: the nearest ancestor that is a work names its entry.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
-      ]
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ], "anchor": {"tests": [
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
+      ]}
     },
     {
       "name": "x8-name-unregistered",
@@ -411,7 +432,7 @@
       "to": "\t\t_ = q\n",
       "rule": "queue.New names its queue in an explored run.",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1:TestHandlesNamedBySource"
       ]
     },
     {
@@ -422,7 +443,7 @@
       "to": "\t\tif true {\n",
       "rule": "A handle's name is the nearest frame at a position of the program's source, not a runtime frame.",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1:TestHandlesNamedBySource"
       ]
     },
     {
@@ -433,7 +454,7 @@
       "to": "if true {",
       "rule": "Among the calls on the frame's line, the name is the constructor's call, with its column.",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1:TestHandlesNamedBySource"
       ]
     },
     {
@@ -444,7 +465,7 @@
       "to": "\t\t\t\t_ = rel\n",
       "rule": "The file is named relative to the folder of the program's files (its package path), not by its base name.",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1:TestHandlesNamedBySource"
       ]
     },
     {
@@ -455,7 +476,7 @@
       "to": "Failure: exploreDefect(res)}",
       "rule": "A worker's outcome carries the run's handle names to the search.",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1:TestHandlesNamedBySource"
       ]
     },
     {

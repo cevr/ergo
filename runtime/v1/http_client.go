@@ -68,23 +68,21 @@ func HTTPCheckOrigin(origin string, limits HTTPLimits) error {
 
 // httpTransports holds one Go transport per response header budget, so
 // clients with one budget share their idle connections.
-var httpTransports sync.Map // int -> *http.Client
+var httpTransports sync.Map // int -> *http.Transport
 
-func httpClientFor(maxHeader int) *http.Client {
-	if c, ok := httpTransports.Load(maxHeader); ok {
-		return c.(*http.Client)
+// httpTransportFor is the shared transport of a header budget. The client
+// sends through the transport alone, never http.Client: one request is one
+// exchange, so a redirect is a response the caller reads.
+func httpTransportFor(maxHeader int) *http.Transport {
+	if tr, ok := httpTransports.Load(maxHeader); ok {
+		return tr.(*http.Transport)
 	}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.MaxResponseHeaderBytes = int64(maxHeader)
 	// The body comes back as the peer sent it: no transparent gzip.
 	tr.DisableCompression = true
-	c := &http.Client{
-		Transport: tr,
-		// One request is one exchange: a redirect is a response.
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
-	got, _ := httpTransports.LoadOrStore(maxHeader, c)
-	return got.(*http.Client)
+	got, _ := httpTransports.LoadOrStore(maxHeader, tr)
+	return got.(*http.Transport)
 }
 
 // httpToken reports whether s is an RFC 9110 token (a method or a field
@@ -182,7 +180,7 @@ func httpDoURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header 
 		req.Header.Add(f.Name, f.Value)
 	}
 	got := make(chan httpDone, 1)
-	go func() { got <- httpExchange(httpClientFor(limits.MaxHeaderBytes), req, limits) }()
+	go func() { got <- httpExchange(httpTransportFor(limits.MaxHeaderBytes), req, limits) }()
 	var d httpDone
 	select {
 	case d = <-got:
@@ -195,11 +193,11 @@ func httpDoURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, header 
 }
 
 // httpExchange sends req and reads at most limits.MaxBodyBytes of body.
-func httpExchange(c *http.Client, req *http.Request, limits HTTPLimits) httpDone {
+func httpExchange(tr *http.Transport, req *http.Request, limits HTTPLimits) httpDone {
 	// The transport alone: Client.Do parses a 3xx's Location even when it
 	// follows nothing, and fails the exchange on one url.Parse refuses
 	// ("%zz"), where a redirect is a response the caller reads.
-	resp, err := c.Transport.RoundTrip(req)
+	resp, err := tr.RoundTrip(req)
 	if err != nil {
 		return httpDone{err: httpDoErr(err, limits)}
 	}
@@ -303,7 +301,7 @@ func httpStreamURL(t *rt.Task, u *url.URL, limits HTTPLimits, method string, hea
 		req.Header.Add(f.Name, f.Value)
 	}
 	events := make(chan httpEvent)
-	go httpStreamRead(ctx, httpClientFor(limits.MaxHeaderBytes), req, limits, events)
+	go httpStreamRead(ctx, httpTransportFor(limits.MaxHeaderBytes), req, limits, events)
 	// The join: cancel, then take every event until the reader closes the
 	// channel. It runs on every exit, a panic of put or of a stop included.
 	defer func() {
@@ -368,7 +366,7 @@ func httpRefusedStatus(t *rt.Task, status int, events <-chan httpEvent) error {
 
 // httpStreamRead is the reader of httpStreamURL. It closes events when it
 // ends; a cancel of ctx ends every send and the read under way.
-func httpStreamRead(ctx context.Context, c *http.Client, req *http.Request, limits HTTPLimits, events chan<- httpEvent) {
+func httpStreamRead(ctx context.Context, tr *http.Transport, req *http.Request, limits HTTPLimits, events chan<- httpEvent) {
 	defer close(events)
 	send := func(e httpEvent) bool {
 		select {
@@ -380,7 +378,7 @@ func httpStreamRead(ctx context.Context, c *http.Client, req *http.Request, limi
 	}
 	// The transport alone, as httpExchange: a 3xx's Location is the
 	// caller's to read, not Client.Do's to parse.
-	resp, err := c.Transport.RoundTrip(req)
+	resp, err := tr.RoundTrip(req)
 	if err != nil {
 		send(httpEvent{err: httpDoErr(err, limits)})
 		return

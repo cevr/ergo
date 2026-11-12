@@ -272,8 +272,8 @@
     { "name": "gw-key", "file": "internal/sketch/check/wirecall.go", "from": "if key := field.Origin().WireKey; key != \"\" {", "to": "if key := field.Origin().WireKey; key != \"\" && false {", "rule": "An explicit field key replaces the implicit key for every codec.", "killers": ["check:TestWireKeysDeclared"] },
     { "name": "gw-origin", "file": "internal/sketch/check/wirecall.go", "from": "field.Origin().WireKey", "to": "field.WireKey", "rule": "Included and instantiated fields keep the declaring field's key.", "killers": ["check:TestWireKeysDeclared"] },
     { "name": "gw-invalid", "file": "internal/sketch/check/decl.go", "from": "err != nil || key == \"\" || !utf8.ValidString(key)", "to": "err != nil || key == \"\" && false || !utf8.ValidString(key) && false", "rule": "A field key is non-empty valid UTF-8 even if no codec uses the record.", "killers": ["check:TestWireKeyDiagnostics"] },
-    { "name": "gw-group", "file": "internal/sketch/syntax/parser.go", "from": "if len(f.Names) != 1 {", "to": "if len(f.Names) != 1 && false {", "rule": "One explicit key belongs to one field, never a field group.", "killers": ["check:TestWireKeyDiagnostics"] },
-    { "name": "gw-format", "file": "internal/sketch/format/nodes.go", "from": "if f.Key != nil {", "to": "if f.Key != nil && false {", "rule": "Formatting preserves field keys.", "killers": ["check:TestWireKeysDeclared"] },
+    { "name": "gw-group", "file": "internal/sketch/syntax/parser.go", "from": "if len(f.Names) != 1 {", "to": "if len(f.Names) != 1 && false {", "rule": "One explicit key belongs to one field, never a field group.", "killers": ["check:TestWireKeyDiagnostics"], "anchor": {"tests": ["check:TestWireKeyDiagnostics"]} },
+    { "name": "gw-format", "file": "internal/sketch/format/nodes.go", "from": "if f.Key != nil {", "to": "if f.Key != nil && false {", "rule": "Formatting preserves field keys.", "killers": ["check:TestWireKeysDeclared"], "anchor": {"tests": ["check:TestWireKeysDeclared"]} },
     { "name": "gw-tag", "file": "internal/sketch/check/wire.go", "from": "if tagged && k == \"_tag\" {", "to": "if tagged && k == \"_tag\" && false {", "rule": "A variant field cannot replace its union's discriminator key.", "killers": ["check:TestWireKeyDiagnostics"] },
     {
       "name": "seal-callback-params",
@@ -1883,7 +1883,7 @@
       "rule": "The ownership flow names every kind of expression (no default): a new kind, which may hold a block, has no silent skip.",
       "killers": [
         "check:TestMintFormNamesEveryKind"
-      ]
+      ], "anchor": {"tests": ["check:TestMintFormNamesEveryKind"]}
     },
     {
       "name": "a2-empty-copy-unreachable",
