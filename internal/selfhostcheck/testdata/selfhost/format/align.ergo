@@ -11,7 +11,9 @@ extern go math.Log func logOf(x float64) float64
 extern go math.Exp func expOf(x float64) float64
 
 // OutputLimit is the refusal of an output larger than the caller's bound.
-type OutputLimit { Limit int }
+// Built is the bytes of text built before the refusal: none, since the
+// size is known first (Steps reports it, so a test observes it).
+type OutputLimit { Limit int, Built int }
 
 // Rendered is the text of a layout and the bytes written to build it: a
 // refusal builds none.
@@ -59,7 +61,7 @@ func Finish(layout Layout, limit int) Rendered fails OutputLimit {
 	for i in first..len(lines) {
 		size += lineLen(lines, w, i) + 1
 		if limit > 0 && size > limit {
-			return OutputLimit{Limit: limit}
+			return OutputLimit{Limit: limit, Built: 0}
 		}
 	}
 	let mut out = []string{}

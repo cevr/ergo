@@ -172,10 +172,34 @@ func Comments(t tree.Tree) []string {
 
 // ---------------------------------------------------------------- layout laws
 
+// plausible reports a command list whose indentation stays within what a
+// printer asks: a nesting depth, not an arbitrary integer. The layout laws
+// hold vacuously beyond it, where the size of the indentation alone would
+// overflow an int (as Go's formatter would).
+func plausible(commands []Command) bool {
+	let mut depth = 0
+	for c in commands {
+		match c {
+		case Indent as i:
+			depth += i.By
+		case SetIndent as s:
+			depth = s.To
+		case _:
+		}
+		if depth < -1000 || depth > 1000 {
+			return false
+		}
+	}
+	true
+}
+
 // BoundedLayout: with no limit the commands give a text; a positive limit
 // below its size is refused with that limit, and any other limit gives the
 // same text.
 func BoundedLayout(commands []Command, limit int) bool needs Layouter {
+	if !plausible(commands) {
+		return true
+	}
 	let full = Layouter.Render(commands, 0) catch {
 	case OutputLimit:
 		return false
@@ -192,6 +216,9 @@ func BoundedLayout(commands []Command, limit int) bool needs Layouter {
 
 // CoalescedLayout: a Newline after a Newline changes nothing.
 func CoalescedLayout(commands []Command) bool needs Layouter {
+	if !plausible(commands) {
+		return true
+	}
 	let mut doubled = []Command{}
 	for c in commands {
 		doubled = doubled.Append(c)
@@ -215,6 +242,9 @@ func CoalescedLayout(commands []Command) bool needs Layouter {
 // LinesLayout: a text never starts with a line break, and a text that is
 // not empty ends with one.
 func LinesLayout(commands []Command) bool needs Layouter {
+	if !plausible(commands) {
+		return true
+	}
 	let r = Layouter.Render(commands, 0) catch {
 	case OutputLimit:
 		return false

@@ -34,6 +34,20 @@ func Source[R](src string, limit int, parse func(src string) tree.Tree fails tre
 	r.Text
 }
 
+// Decoded is the tree of an encoding of the Go adapter: an encoding the
+// decoder cannot read, or a node family the adapter does not carry, is a
+// tree the printer cannot read.
+func Decoded(encoding string) tree.Tree fails tree.SyntaxFailure | InvalidTree {
+	tree.Decode(encoding) catch {
+	case tree.SyntaxFailure as f:
+		return f
+	case tree.Unsupported as u:
+		return InvalidTree{Node: -1, Reason: "unsupported node family " + u.Family}
+	case tree.BadEncoding as b:
+		return InvalidTree{Node: -1, Reason: "bad encoding: \(b.Reason) at \(b.At)"}
+	}
+}
+
 // Layouter is the contract of the layout state: commands in, text out.
 // Render returns the text of the commands' layout, or OutputLimit when a
 // positive limit is smaller than it, decided before the text is built.

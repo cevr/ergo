@@ -32,20 +32,7 @@ func Project(src string) string needs go.Foreign {
 
 // parseGo is the Go parser, through the adapter's encoding.
 func parseGo(src string) tree.Tree fails tree.SyntaxFailure | format.InvalidTree needs go.Foreign {
-	decodeTree(hostsyntax.Parse(src))
-}
-
-// decodeTree reads an encoding; an encoding the decoder cannot read, or a node
-// type the adapter does not carry, is a tree the printer cannot read.
-func decodeTree(encoding string) tree.Tree fails tree.SyntaxFailure | format.InvalidTree {
-	tree.Decode(encoding) catch {
-	case tree.SyntaxFailure as f:
-		return f
-	case tree.Unsupported as u:
-		return format.InvalidTree{Node: -1, Reason: "unsupported node family " + u.Family}
-	case tree.BadEncoding as b:
-		return format.InvalidTree{Node: -1, Reason: "bad encoding: \(b.Reason) at \(b.At)"}
-	}
+	format.Decoded(hostsyntax.Parse(src))
 }
 
 // Format is format.Source over the Go parser, as an outcome: "ok\n" and
@@ -71,7 +58,7 @@ func syntaxOutcome(f tree.SyntaxFailure) string {
 // parse: the layout's cost alone, beside the decode. Its outcome is
 // Format's.
 func FormatTree(encoding string, limit int) string {
-	let t = decodeTree(encoding) catch {
+	let t = format.Decoded(encoding) catch {
 	case tree.SyntaxFailure as f:
 		return syntaxOutcome(f)
 	case format.InvalidTree as i:
@@ -92,7 +79,7 @@ func Laws(src string) string needs go.Foreign {
 }
 
 // Steps drives the layout state by an encoded command list and renders it:
-// "ok <built>\n" and the text, "limit <n> built 0\n", or "bad <offset>\n"
+// "ok <built>\n" and the text, "limit <n> built <bytes>\n", or "bad <offset>\n"
 // for a list it cannot read. Each command is one letter: s Space,
 // n Newline, b NoBlank, e0 or e1 Emit (with the source's blank line),
 // w<len>:<text> Write, p<len>:<text> Put, | Separator, i<n>; Indent,
@@ -104,7 +91,7 @@ func Steps(commands string, limit int) string {
 	}
 	let r = format.Steps(list, limit) catch {
 	case format.OutputLimit as o:
-		return "limit \(o.Limit) built 0\n"
+		return "limit \(o.Limit) built \(o.Built)\n"
 	}
 	"ok \(r.Built)\n" + r.Text
 }
