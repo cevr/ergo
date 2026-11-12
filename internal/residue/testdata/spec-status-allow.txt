@@ -1,0 +1,10 @@
+# docs/spec files whose section Status paragraphs are still written by
+# hand: file<TAB>the unit that moves them to docs/spec/status.json. A
+# file's opening Status paragraph is generated already.
+# TestSpecStatusIsGenerated. The list is exact: it only shrinks.
+grammar.md	SPEC1b
+interop.md	SPEC1e
+resources.md	SPEC1d
+rows.md	SPEC1b
+runtime.md	SPEC1d
+types.md	SPEC1c

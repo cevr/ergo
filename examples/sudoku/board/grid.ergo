@@ -90,11 +90,12 @@ func Filled(g Grid) int {
 
 // Line is g in 81 bytes, "." for an empty cell: the form Parse reads.
 func Line(g Grid) string {
-	let mut out = ""
-	for c in g.cells {
-		out = out + if c == 0 { "." } else { "\(c)" }
+	let digits = ".123456789"
+	let mut out [81]string
+	for i, c in g.cells {
+		out[i] = digits[c : c+1]
 	}
-	out
+	strings.Join(out[0:81], "")
 }
 
 // Picture is g as 11 lines of text, with a rule between boxes.

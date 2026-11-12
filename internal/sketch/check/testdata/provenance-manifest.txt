@@ -24,6 +24,12 @@ import ergo.local/prototype/internal/sketch/std ergo.local/prototype/internal/sk
 # no host I/O; it imports no ergo.local package (go list -deps), so it
 # cannot name, receive or build a syntax node.
 import math/big
+# CHK1b: bytes.Equal and crypto/sha256.Sum256 verify the snapshot before any
+# graph decode. crypto/sha256 (embed.go, package assets) also hashes one
+# embed key's bytes (sha256.Sum256) into a name. Both accept only bytes and
+# import no ergo.local package (go list -deps), so they cannot name, receive
+# or build a syntax node.
+import bytes crypto/sha256
 # runtime/v1 (G5b, the std purity fact): footprint.go calls only
 # v1.BodyOf(name string) and reads Body.Pure; extern.go reads only the
 # []string v1.PureImports (G9, the user extern allowlist). runtime/v1 depends on no
@@ -40,12 +46,10 @@ import ergo.local/prototype/internal/sketch/std/gostd
 # call it (E2b round 4 review M2). Each site parses a whole file and checks
 # it as a package; a parse elsewhere makes nodes of no checked file. prelude
 # parses inside its preludeOnce.Do closure, prelude$1.
-# stdExternResultSet (extern.go, #206) parses the std sources, checks
-# nothing and returns only type names, so no node it makes reaches a pass.
 # (*hostPkg).load (gobinding.go, #202 IG2) parses one Go binding's whole
 # file and checks it as that binding's package (c.files), like
 # (*stdImporter).load.
-callee Parse CheckSource prelude$1 (*stdImporter).load (*hostPkg).load stdExternResultSet
+callee Parse CheckSource prelude$1 (*stdImporter).load (*hostPkg).load
 
 # The checker's own functions that parse caller text, with the sites that
 # may reference them: none, so a pass cannot reach the parser through the
@@ -69,3 +73,8 @@ site (*checker).assignStmt BinaryExpr compoundFixture
 # on the length itself. Its origin is the ArrayType, so it lies in that file.
 # Every [N]T reaches it; TestArrayDiagnostics reports at it.
 site (*checker).arrayType BasicLit arrayFixture
+# replaced (ownership.go, R43) makes the temporary key of each resource
+# field an update or spread drops from its base: an Ident at the field's
+# name (or at the base), made from the composite literal, so it lies in
+# that file. An update that names a resource field reaches it.
+site (*ownWalk).replaced Ident updateDropFixture

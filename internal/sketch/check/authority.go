@@ -463,6 +463,26 @@ func sealedOwner(it *Interface, from *Package) *Package {
 	return nil
 }
 
+// Sealed reports an operation type with an unexported operation. Only
+// types of that operation's package implement it (grammar.md, Visibility).
+// This fact applies to every package, not only the standard library.
+func Sealed(t Type) bool {
+	if it := asInterface(t); it != nil {
+		return sealedOwner(it, nil) != nil
+	}
+	return false
+}
+
+// sealedStdOps reports a named std operation type that is Sealed. Only std
+// implements it, so its value may be the runtime's own Go type, whose
+// conversion into another operation type the checker records for the
+// lowering's adapter (typeops.go; lower/sealedops.go). It reads the
+// declaration (an unexported operation), never a std name.
+func sealedStdOps(t Type) bool {
+	n, ok := t.(*Named)
+	return ok && n.Obj != nil && n.Obj.Pkg.Std() && Sealed(n)
+}
+
 // implementers are the types of owner that may implement it: each a
 // declared type of owner, not an operation type, with a function of owner
 // for every operation of it whose first parameter is the type or a borrow

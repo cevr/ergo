@@ -21,3 +21,4 @@ abi	std.go:lowerer.runtimeType	the runtime type representation of the prelude Ta
 abi	types.go:lowerer.foreignOwner	the std package that owns a runtime type representation (prelude types are the program's)
 abi	values.go:preludeAppend	the prelude Append extern's ABI: its argument is clipped before the runtime append
 abi	values.go:preludeMapWrite	the prelude Delete and Put externs' ABI: the map argument is cloned before the runtime write
+abi	wirefields.go:jsonWrapper	the wire form of std json's Optional, Nullable, Value and Num (owner q85): what the text is, not how fast it is written

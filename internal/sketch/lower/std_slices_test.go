@@ -227,6 +227,14 @@ test SlicesMaxIsLastSorted(xs []int) {
 	assert slices.Max(xs) == Some[int]{Value: s[len(s) - 1]} && slices.Min(xs) == Some[int]{Value: s[0]}
 }
 
+test SlicesLastIsFinalElement(xs []int) {
+	if len(xs) == 0 {
+		assert slices.Last(xs) == None
+		return
+	}
+	assert slices.Last(xs) == Some[int]{Value: xs[len(xs) - 1]}
+}
+
 test SlicesAscendOrders(xs []int) { assert isSorted(slices.Items(slices.Ascend(xs))) }
 
 test SlicesAscendPermutes(xs []int) {
@@ -526,6 +534,7 @@ var stdSlicesLawStatements = map[string]string{
 	"slices FilterKeepsTheAccepted":    `FilterKeepsTheAccepted(xs []int) { let even = func(x int) bool { x%2 == 0 } let kept = Filter(xs, even) let mut i = 0 for x in xs { if even(x) { if i >= len(kept) || kept[i] != x { return false } i = i + 1 } } i == len(kept) }`,
 	"slices FoldSumMatchesLoop":        `FoldSumMatchesLoop(xs []int) { let mut sum = 0 for x in xs { sum = sum + x } Fold(xs, 0, func(acc int, x int) int { acc + x }) == sum }`,
 	"slices MaxIsLastSorted":           `MaxIsLastSorted(xs []int) { let s = Sort(xs) if len(s) == 0 { return Max(xs) == None && Min(xs) == None } Max(xs) == Some[int]{Value: s[len(s)-1]} && Min(xs) == Some[int]{Value: s[0]} }`,
+	"slices LastIsFinalElement":        `LastIsFinalElement(xs []int) { if len(xs) == 0 { return Last(xs) == None } Last(xs) == Some[int]{Value: xs[len(xs)-1]} }`,
 	"slices ReverseTwiceIsSame":        `ReverseTwiceIsSame(xs []int) { Equal(Reverse(Reverse(xs)), xs) }`,
 	"slices SortIsIdempotent":          `SortIsIdempotent(xs []int) { Equal(Sort(Sort(xs)), Sort(xs)) }`,
 	"slices SortLeavesItsArgument":     `SortLeavesItsArgument(xs []int) { let before = Transform(xs, func(x int) int { x }) let sorted = Sort(xs) len(sorted) == len(xs) && Equal(xs, before) }`,

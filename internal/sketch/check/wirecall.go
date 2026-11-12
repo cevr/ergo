@@ -1,6 +1,11 @@
 package check
 
-import "ergo.local/prototype/internal/sketch/syntax"
+import (
+	"fmt"
+	"slices"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
 
 // The predeclared encode and decode (types.md, Codecs; L11 design items 2
 // to 5). encode(v, w) writes v's wire form as events on the Writer w;
@@ -156,7 +161,16 @@ func (c *checker) encodeCall(x *syntax.CallExpr) operand {
 		return bad(x)
 	}
 	v, ok := c.argValue(x.Args[0], nil, x)
-	okW := c.argument(x.Args[1], preludeType(WireWriterName), x)
+	// The writer operand is lent to encode, which keeps no writer: a
+	// value that holds a cell (a Text) converts to the Writer here and
+	// nowhere else (encodeLend).
+	wt := preludeType(WireWriterName)
+	w, okW := c.argValue(x.Args[1], wt, x)
+	if okW {
+		c.encodeLend = true
+		c.assign(&w, wt, "argument")
+		c.encodeLend = false
+	}
 	if !ok || !okW || v.invalid() {
 		return bad(x)
 	}
@@ -166,6 +180,7 @@ func (c *checker) encodeCall(x *syntax.CallExpr) operand {
 	call := c.callInfo(x)
 	call.Kind, call.Type = CallEncode, v.typ
 	c.recordWire(v.typ)
+	c.chargeWire(x, v.typ, false)
 	return operand{mode: modeNoValue, typ: NoValue, errs: v.errs}
 }
 
@@ -192,6 +207,7 @@ func (c *checker) decodeCall(x *syntax.CallExpr, t Type) operand {
 	call := c.callInfo(x)
 	call.Kind, call.Type, call.Fails = CallDecode, t, row
 	c.recordWire(t)
+	c.chargeWire(x, t, true)
 	return operand{mode: modeValue, typ: t, errs: row}
 }
 
@@ -208,6 +224,148 @@ func (c *checker) wireOperand(n syntax.Node, t Type, what string) bool {
 		return false
 	}
 	return true
+}
+
+// The needs of a codec (types.md, Codecs 8; G3 of the v1 audit 3): encode(v, w)
+// calls the Wire of each by-name pair v's type reaches, and decode[T](r)
+// each ParseX, so the call is charged their capabilities as a written call
+// of them there is (chargeWire); codecs may carry needs, counted (owner,
+// 2026-11-12). A ParseX of this package whose needs row is inferred is
+// reached by no name in the body that decodes, so the reference graph has
+// no edge to it and its row may still grow when the decode is typed: the
+// first check records the edge (lateEdges), and the package is checked
+// again with it (wireEdges, checkBodies), so the ParseX's row is final
+// first, or joins the fixpoint of its component. A package let's
+// initializer has no such edge, and a wire type parameter carries no
+// capability row (no needs counterpart of wired[T]), so a codec with needs
+// reached there is S108 (checkWireNeeds, satisfies).
+
+// wireNeed is a decode in a package let, or an instance, that reached a
+// ParseX of this package whose needs row is inferred: checked once the
+// rows are final. at is the decode; nil for an instance, reported at the
+// ParseX.
+type wireNeed struct {
+	at    syntax.Node
+	file  *fileInfo
+	parse *Func
+}
+
+// lateUses reports whether f's needs row is still being inferred while
+// this package's bodies are checked.
+func (c *checker) lateUses(f *Func) bool {
+	return f.inferUses && f.owner == nil && f.Pkg == c.pkg
+}
+
+// wireFuncs are the codec functions t's wire form reaches: each pair's
+// ParseX for decode, its Wire for encode.
+func (c *checker) wireFuncs(t Type, decode bool) []*Func {
+	var out []*Func
+	c.wireEach(t, func(t Type) {
+		if p := c.wirePair(t); p != nil {
+			if decode {
+				out = append(out, p.Parse)
+			} else {
+				out = append(out, p.Wire)
+			}
+		}
+	})
+	return out
+}
+
+// chargeWire charges at x the needs of the codec functions an encode
+// (decode false) or a decode of t calls.
+func (c *checker) chargeWire(x syntax.Node, t Type, decode bool) {
+	for _, f := range c.wireFuncs(t, decode) {
+		if c.lateUses(f) {
+			var caller *Func
+			if c.fn != nil {
+				caller = c.fn.fn
+			}
+			switch {
+			case caller == nil || caller.Decl == nil:
+				if c.silent == 0 {
+					c.wireNeeds = append(c.wireNeeds, wireNeed{x, c.cur, f})
+				}
+				continue
+			case !slices.Contains(c.wireEdges[caller.Decl], f.Decl):
+				if c.lateEdges == nil {
+					c.lateEdges = map[*syntax.FuncDecl][]*syntax.FuncDecl{}
+				}
+				if !slices.Contains(c.lateEdges[caller.Decl], f.Decl) {
+					c.lateEdges[caller.Decl] = append(c.lateEdges[caller.Decl], f.Decl)
+				}
+			}
+		}
+		what := "encode"
+		if decode {
+			what = "decode"
+		}
+		for _, cap := range c.types.resolve(c.funcSig(f).Uses).Elems() {
+			c.chargeAs(x, cap, fmt.Sprintf("%s, which this %s calls,", f.Name, what))
+		}
+	}
+}
+
+// wireInstanceNeeds is why t, bound to a wire type parameter, is refused
+// for the needs of its codec, or "".
+func (c *checker) wireInstanceNeeds(t Type) string {
+	for _, decode := range []bool{true, false} {
+		for _, f := range c.wireFuncs(t, decode) {
+			if c.lateUses(f) {
+				if c.silent == 0 {
+					c.wireNeeds = append(c.wireNeeds, wireNeed{nil, f.file, f})
+				}
+				continue
+			}
+			if row := c.types.resolve(c.funcSig(f).Uses); !row.Empty() {
+				return fmt.Sprintf("%s reaches %s, which needs %s, and a wire type parameter carries no capability row; call encode or decode with %s itself, where the call is charged; types.md, Codecs 8", t, f.Name, rowText(row), t)
+			}
+		}
+	}
+	return ""
+}
+
+// needEdges are the lateEdges whose ParseX needs a capability once the
+// rows are final: the edges a second check must order the bodies by.
+func (c *checker) needEdges() map[*syntax.FuncDecl][]*syntax.FuncDecl {
+	var out map[*syntax.FuncDecl][]*syntax.FuncDecl
+	for caller, parses := range c.lateEdges {
+		for _, d := range parses {
+			pf, ok := c.pkg.Info.Defs[d.Name].(*Func)
+			if !ok || c.types.resolve(c.funcSig(pf).Uses).Empty() {
+				continue
+			}
+			if out == nil {
+				out = map[*syntax.FuncDecl][]*syntax.FuncDecl{}
+			}
+			out[caller] = append(out[caller], d)
+		}
+	}
+	return out
+}
+
+// checkWireNeeds reports each decode that reached a ParseX whose inferred
+// needs row is not empty.
+func (c *checker) checkWireNeeds() {
+	done := map[syntax.Node]bool{}
+	for _, w := range c.wireNeeds {
+		row := c.types.resolve(c.funcSig(w.parse).Uses)
+		if row.Empty() {
+			continue
+		}
+		c.cur = w.file
+		if w.at == nil {
+			if !done[w.parse.Decl.Name] {
+				done[w.parse.Decl.Name] = true
+				c.errorf(w.parse.Decl.Name, CodeType, "%s needs %s and is the codec of a type bound to a wire type parameter, which carries no capability row; call encode or decode with the type itself, where the call is charged (types.md, Codecs 8)", w.parse.Name, rowText(row))
+			}
+			continue
+		}
+		if !done[w.at] {
+			done[w.at] = true
+			c.errorf(w.at, CodeType, "this decode reaches %s, whose inferred needs row is %s, and its body has no function whose row could take it; write the row of %s (types.md, Codecs 8)", w.parse.Name, rowText(row), w.parse.Name)
+		}
+	}
 }
 
 // recordWire notes the by-name pairs t reaches, for the lowering.

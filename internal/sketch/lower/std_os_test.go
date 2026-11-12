@@ -12,7 +12,7 @@ import (
 
 // osProgram reads the host process through os.Process: the count and the
 // arguments, a set, an empty and an unset variable; it fails os.Exit when
-// the first argument is "nope" or "zero".
+// the first argument is "nope".
 const osProgram = `import os
 import strings
 
@@ -29,9 +29,6 @@ func run() fails os.Exit needs Console | os.Process {
 	let args = os.Process.Args()
 	if len(args) > 0 && args[0] == "nope" {
 		return os.Exit{Code: 3, Message: "[NOT_FOUND] Unknown topic 'nope'"}
-	}
-	if len(args) > 0 && args[0] == "zero" {
-		return os.Exit{Code: len(args) - 1, Message: "claims success"} // computed: a constant 0 is S108 (G-ex-c-17)
 	}
 	Console.Println("\(len(args)) \(strings.Join(args, " "))")
 	Console.Println(show(os.Process.Getenv("ERGO_G2_K")))
@@ -126,10 +123,9 @@ func main() needs Console | Ambient {
 // a context (stdlib.md, host packages): Args excludes the program name;
 // Getenv tells Some("") from None; Getwd is the directory the program
 // starts in (gap-os); os.Exit alone writes its Message
-// verbatim and exits with its Code, and a Code outside 1..125 exits 1
-// (runtime.md, Exit causes). A program's own provider gives the same
-// output through the same calls. os.Process is an open std protocol
-// (check.SealedStd), so both providers convert to it and it lowers as a
+// verbatim and exits with its refined Code (runtime.md, Exit causes).
+// A program's own provider gives the same output through the same calls.
+// os.Process has no private operation, so both providers convert to it and it lowers as a
 // declaration of the program.
 //
 // It builds Go because it checks what the built program prints and how it
@@ -158,7 +154,6 @@ func TestOSProcessRuns(t *testing.T) {
 	}{
 		{"host", exes["osHost"], []string{"a", "b"}, want, "", 0},
 		{"hostNope", exes["osHost"], []string{"nope"}, "", "[NOT_FOUND] Unknown topic 'nope'\n", 3},
-		{"hostZero", exes["osHost"], []string{"zero"}, "", "claims success\nerror: os.Exit code 0 is outside 1..125\n", 1},
 		{"fake", exes["osFake"], []string{"ignored"}, reads + "/work\n", "", 0},
 		{"param", exes["osParam"], []string{"a"}, "1 v\n3 fake\n", "", 0},
 	}

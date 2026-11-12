@@ -140,7 +140,8 @@ func fastPackageSteps(t *testing.T, root string) map[string][]*Step {
 // (it relinks its test binaries on every run to find Go's cached result),
 // and neither is the build of every test binary, nor a need on it, nor a
 // closure sweep. Each package is keyed on its closure table entry, and no
-// host package has a step (classHeavy).
+// host package has a step (classHeavy), nor a package whose every test
+// builds Go (fullTierOnly).
 func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 	root := checkoutRoot(t)
 	steps, err := fastSteps(root)
@@ -168,6 +169,9 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 			}
 			if slices.Contains(hostTestPackages, step.Package.Dir) {
 				t.Errorf("%s: a host package's tests are heavy (classHeavy); the fast tier runs none", step.Name)
+			}
+			if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(step.Package.Dir))); err != nil || only {
+				t.Errorf("%s: every test of the package builds Go (fullTierOnly %v, %v); the fast tier runs none", step.Name, only, err)
 			}
 			if !slices.Equal(step.Package.Declared, table[step.Package.Dir]) {
 				t.Errorf("%s: declared %v; want its closure table entry %v", step.Name, step.Package.Declared, table[step.Package.Dir])
@@ -252,10 +256,17 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	}
 	// What a reached package costs in the fast tier: the recorded CPU of
 	// its fast steps. A package with no row cannot be budgeted. A host
-	// package has no fast step (classHeavy), so no edit reaches it here.
+	// package has no fast step (classHeavy), and neither has a package
+	// whose every test builds Go (fullTierOnly: internal/selfhostcheck,
+	// internal/experimental/irspike), so no edit reaches them here.
 	reach := func(file string) (dirs []string, cpu float64) {
 		for _, p := range packages {
 			if !p.closure.Covers(file) || slices.Contains(hostTestPackages, p.dir) {
+				continue
+			}
+			if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(p.dir))); err != nil {
+				t.Fatal(err)
+			} else if only {
 				continue
 			}
 			dirs = append(dirs, p.dir)
@@ -274,23 +285,64 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	if want := []string{"internal/residue", "internal/testinputs/guard", "scripts/mutants"}; !slices.Equal(docs, want) {
 		t.Errorf("a docs edit reaches %v; want %v", docs, want)
 	}
+	// The steps that are no package's and that the budget counts
+	// (fastCPUSteps). The examples step reruns after an edit of its own
+	// inputs (the runner's closure, examples/) or of the bin/ergo it runs,
+	// which builds cmd/ergo's closure; so an edit that cmd/ergo's tests
+	// reach, reaches it.
+	examples, err := examplesStep(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli := slices.IndexFunc(packages, func(p testPackage) bool { return p.dir == "cmd/ergo" })
+	if cli < 0 {
+		t.Fatal("no cmd/ergo test package")
+	}
+	if !slices.Equal(fastCPUSteps, []string{examples.Name}) {
+		t.Fatalf("fastCPUSteps is %q: say here what reaches each step", fastCPUSteps)
+	}
+	reachSteps := func(file string) (names []string, cpu float64) {
+		if selected(file, examples.Inputs) || packages[cli].closure.Covers(file) {
+			names = append(names, examples.Name)
+			recorded, ok := fastCPU[examples.Name]
+			if !ok {
+				t.Errorf("%q has no row in %s: run go run ./scripts/gate -record-durations -fast %q", examples.Name, fastCPUFile, examples.Name)
+			}
+			cpu += recorded
+		}
+		return names, cpu
+	}
+	if steps, _ := reachSteps("docs/tooling.md"); len(steps) != 0 {
+		t.Errorf("a docs edit reaches the steps %q; want none", steps)
+	}
 	check, cpu := reach("internal/sketch/check/check.go")
+	checkSteps, stepsCPU := reachSteps("internal/sketch/check/check.go")
+	if !slices.Equal(checkSteps, []string{examples.Name}) {
+		t.Errorf("a checker edit reaches the steps %q; want %q", checkSteps, examples.Name)
+	}
+	cpu += stepsCPU
 	// scripts/examples builds on the checker since d3-lawcheck-model
 	// (batch 9): its examples runner imports the checker. internal/gobind
 	// (IG1-IG3), internal/sketch/machinegraph (batch 13) and the check-time
 	// evaluator internal/sketch/eval (L7 EV1) import it too.
 	// internal/sketch/api projects the checked public contracts (L8 C3).
-	// rpcgen and tsproj project the same checked contracts to RPC and TS.
-	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples", "scripts/mutants"}
+	// tsproj projects the same checked contracts to TS. rpcgen projects
+	// them to RPC, but every test of it builds Go (fullTierOnly), as do
+	// internal/selfhostcheck's and internal/experimental/irspike's; the
+	// direct build path's identity test lives in internal/sketchfront, so
+	// internal/sketch/build's tests import no part of the checker.
+	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples", "scripts/mutants"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}
-	t.Logf("the checker edit's fast set: %.1f CPU-s recorded, target %.0f, gap %.1f", cpu, fastCPUTarget, cpu-fastCPUTarget)
-	if fastCPUKnownGap != 0 {
-		t.Errorf("fastCPUKnownGap is %.0f: fast-cpu (batch 9) closed the gap, and a new excess is a defect to fix, not a gap to allow", fastCPUKnownGap)
-	}
+	t.Logf("the checker edit's fast set: %.1f CPU-s recorded (%.1f of it the steps %q), target %.0f, gap %.1f", cpu, stepsCPU, checkSteps, fastCPUTarget, cpu-fastCPUTarget)
 	if cpu > fastCPUTarget+fastCPUKnownGap {
-		t.Errorf("the checker edit's fast set is %.1f CPU-s; the target is %.0f and the known gap %.0f (gate-fast plan 3.4)", cpu, fastCPUTarget, fastCPUKnownGap)
+		t.Errorf("the checker edit's fast set is %.1f CPU-s; the target is %.0f and the known gap %.0f (gate-fast plan 3.4): a new excess is a defect to fix, not a gap to allow", cpu, fastCPUTarget, fastCPUKnownGap)
+	}
+	// The gap only shrinks: once the recorded set is well under the
+	// target and the gap, the gap comes down to what the rows show.
+	if fastCPUKnownGap > 0 && cpu < (fastCPUTarget+fastCPUKnownGap)*(1-fastCPURatchet) {
+		t.Errorf("the checker edit's fast set is %.1f CPU-s, under the target %.0f and the known gap %.0f by more than %.0f%%: lower fastCPUKnownGap to %.0f", cpu, fastCPUTarget, fastCPUKnownGap, fastCPURatchet*100, math.Max(0, math.Ceil(cpu-fastCPUTarget)))
 	}
 }
 
@@ -300,11 +352,18 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 // gap 6), which fast-cpu (batch 9) removed: the lower shards run the
 // gate's one bin/ergo (cliTestPackages) instead of building cmd/ergo per
 // shard, TestContextReachProperty builds a fixed quarter of its programs
-// under -short, and the lower typed scans share one source importer. The
-// gap stays 0: the test fails when it is not.
+// under -short, and the lower typed scans share one source importer.
+//
+// GATE-ex (2026-11-11) counted the examples step, which the budget had
+// left out, and re-recorded the rows (docs/tooling.md, "CPU budget"): the
+// set is now over the target again, and fastCPUKnownGap is that measured
+// excess. The test fails when the set grows past the target and the gap,
+// and when it falls more than fastCPURatchet under them, so the gap only
+// comes down. The follow-ups that close it are in docs/tooling.md.
 const (
 	fastCPUTarget   = 200.0
-	fastCPUKnownGap = 0.0
+	fastCPUKnownGap = 273.0 // 472.6 recorded (examples step 258.5), 2026-11-12: rpcgen's 1.1 left with fullTierOnly
+	fastCPURatchet  = 0.10
 )
 
 // Over the module's tests as go test lists them: each fast-tier package's

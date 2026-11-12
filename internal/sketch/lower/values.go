@@ -275,6 +275,7 @@ type valueWalk struct {
 	goArgs   []syntax.Expr            // operands of Go calls of import go that hold a Map or slice (gocall.go)
 	sites    []*refSite               // owned Ref sites (V6, refown.go)
 	handOver map[*syntax.FuncLit]bool // their literals
+	cells    []syntax.Expr            // values that move into a provider cell (cells.go)
 }
 
 // children are n's direct children, in Inspect's order.
@@ -315,6 +316,9 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		w.frames = append(w.frames, f)
 		frame = f
 		defer func() { w.frames = w.frames[:len(w.frames)-1] }()
+	}
+	if x, ok := n.(syntax.Expr); ok && cellSite(w.info, x) {
+		w.cells = append(w.cells, x)
 	}
 	switch n := n.(type) {
 	case *syntax.Ident:
@@ -554,7 +558,7 @@ func pathRoot(x syntax.Expr) *syntax.Ident {
 // append (check/builtin.go): a call that may write past its source's length,
 // so its source is clipped where it is not new or dead (V3).
 func preludeAppend(f *check.Func) bool {
-	return check.GoBuiltin(f) == "append" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append"
+	return check.GoBuiltin(f) == "append" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append" || appenderExtern(f)
 }
 
 // preludeMapWrite reports the prelude's Delete or Put: a call that writes
@@ -638,9 +642,25 @@ func (w *valueWalk) recvOf(call *syntax.CallExpr) syntax.Expr {
 func (w *valueWalk) decide() {
 	vf := w.vf
 	// In-place pattern: p = p.Append(x), p = p.Delete(k) or p = p.Put(k, v), one place
-	// rooted at a let mut or a borrow.
+	// rooted at a let mut or a borrow. A chain whose source is such a call,
+	// p = append(append(p, a), b), is in place at each call: no binding
+	// holds an inner call's result, so the chain is the statements
+	// p = append(p, a); p = append(p, b), which the pattern takes in place.
+	isCall := map[syntax.Node]bool{}
 	for _, call := range w.calls {
+		isCall[call] = true
+	}
+	for _, call := range w.calls {
+		chain := []*syntax.CallExpr{call}
 		parent, child := w.unparenParent(call)
+		for {
+			pc, ok := parent.(*syntax.CallExpr)
+			if !ok || !isCall[pc] || w.recvOf(pc) != child {
+				break
+			}
+			chain = append(chain, pc)
+			parent, child = w.unparenParent(pc)
+		}
 		s, ok := parent.(*syntax.AssignStmt)
 		if !ok || s.Tok != syntax.ASSIGN || len(s.Rhs) != 1 || s.Rhs[0] != child {
 			continue
@@ -651,7 +671,9 @@ func (w *valueWalk) decide() {
 			continue
 		}
 		if v, ok := w.info.Uses[id].(*check.Var); ok && w.varOf(v).root() {
-			vf.inPlace[call] = true
+			for _, c := range chain {
+				vf.inPlace[c] = true
+			}
 		}
 	}
 	// Owned parameters (V5): each argument of one, and the arguments a
@@ -800,6 +822,10 @@ func (w *valueWalk) decide() {
 		} else {
 			w.freshen(a)
 		}
+	}
+	// A value that moves into a provider cell (cells.go).
+	for _, x := range w.cells {
+		w.cellCopy(x)
 	}
 	// Owned Ref sites (V6), once every copy is decided.
 	w.decideSites()

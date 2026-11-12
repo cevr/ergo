@@ -113,6 +113,9 @@ type program struct {
 	// bindings the module bindings the check read, by Go import path.
 	goModule lower.GoModule
 	bindings map[string]string
+	// module and modRoot are the module's name and folder; module is ""
+	// with no ergo.mod.
+	module, modRoot string
 }
 
 // loader reads and checks one program.
@@ -132,6 +135,8 @@ type loader struct {
 	// goMod is the go.mod beside ergo.mod, nil with none; goSum its go.sum.
 	goMod *goMod
 	goSum string
+	// goModule is go.mod merged with the runtime's directives (gomod.go).
+	goModule lower.GoModule
 	// bindings are the module bindings read, by Go import path, and stale
 	// the reason each one does not match go.mod (gomod.go).
 	bindings map[string]string
@@ -213,6 +218,7 @@ func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysi
 }
 
 func checkDirWith(fsys FS, dir string, platform gobind.Platform, opts check.Options) (Analysis, error) {
+	prepareStd()
 	if !filepath.IsAbs(dir) {
 		return Analysis{}, fmt.Errorf("sketchfront: the package folder %s is not absolute", dir)
 	}
@@ -245,8 +251,11 @@ func checkDirWith(fsys FS, dir string, platform gobind.Platform, opts check.Opti
 		}
 	}
 	p := &program{texts: l.texts, bindings: l.bindings}
+	if found {
+		p.module, p.modRoot = l.module, l.root
+	}
 	if l.goMod != nil {
-		p.goModule = l.goMod.lowerModule(l.root, l.goSum)
+		p.goModule = l.goModule
 	}
 	if len(l.order) > 0 {
 		p.root = l.order[len(l.order)-1]
@@ -689,7 +698,7 @@ func (p *program) dependencies() []build.Dependency {
 	m := p.goModule
 	if len(m.Require)+len(m.Replace) > 0 || m.Sum != "" {
 		out = append(out, sourceDependency("go module", map[string]string{
-			GoModFile: strings.Join(m.Require, "\n") + "\n--\n" + strings.Join(m.Replace, "\n"),
+			GoModFile: string(m.GoModFile()),
 			GoSumFile: m.Sum,
 		}))
 	}

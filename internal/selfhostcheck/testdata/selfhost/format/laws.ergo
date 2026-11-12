@@ -1,0 +1,253 @@
+// The formatter's laws. The source laws take the parser as a parameter
+// with its row R, as Source does, and hold vacuously for a source the
+// formatter refuses: the property of internal/selfhostcheck holds the
+// refusals themselves to the Go formatter's. The layout laws are
+// Layouter's, pure, and run on generated command lists.
+
+import selfhost/tree
+import strings
+
+// ---------------------------------------------------------------- source laws
+
+// IdempotentHolds: the output formats to itself.
+func IdempotentHolds[R](src string, parse func(src string) tree.Tree fails tree.SyntaxFailure | InvalidTree needs R) bool needs R {
+	let out = Source(src, 0, parse) catch {
+	case tree.SyntaxFailure, OutputLimit, InvalidTree:
+		return true
+	}
+	let again = Source(out, 0, parse) catch {
+	case tree.SyntaxFailure, OutputLimit, InvalidTree:
+		return false
+	}
+	again == out
+}
+
+// ShapeHolds: the output parses to the input's tree, positions and
+// comments aside.
+func ShapeHolds[R](src string, parse func(src string) tree.Tree fails tree.SyntaxFailure | InvalidTree needs R) bool needs R {
+	let out = Source(src, 0, parse) catch {
+	case tree.SyntaxFailure, OutputLimit, InvalidTree:
+		return true
+	}
+	let before = parse(src) catch {
+	case tree.SyntaxFailure, InvalidTree:
+		return false
+	}
+	let after = parse(out) catch {
+	case tree.SyntaxFailure, InvalidTree:
+		return false
+	}
+	Shape(before) == Shape(after)
+}
+
+// CommentsHold: the output has the input's comments, in order; a line
+// comment's trailing blanks are not part of it.
+func CommentsHold[R](src string, parse func(src string) tree.Tree fails tree.SyntaxFailure | InvalidTree needs R) bool needs R {
+	let out = Source(src, 0, parse) catch {
+	case tree.SyntaxFailure, OutputLimit, InvalidTree:
+		return true
+	}
+	let before = parse(src) catch {
+	case tree.SyntaxFailure, InvalidTree:
+		return false
+	}
+	let after = parse(out) catch {
+	case tree.SyntaxFailure, InvalidTree:
+		return false
+	}
+	Comments(before) == Comments(after)
+}
+
+// BoundHolds: a limit at or above the output's size, or not positive,
+// gives the output; a positive limit below it is refused with that limit.
+func BoundHolds[R](src string, parse func(src string) tree.Tree fails tree.SyntaxFailure | InvalidTree needs R) bool needs R {
+	let out = Source(src, 0, parse) catch {
+	case tree.SyntaxFailure, OutputLimit, InvalidTree:
+		return true
+	}
+	let size = len(out)
+	for limit in []int{-1, size, size + 1} {
+		let got = Source(src, limit, parse) catch {
+		case tree.SyntaxFailure, OutputLimit, InvalidTree:
+			return false
+		}
+		if got != out {
+			return false
+		}
+	}
+	if size > 1 {
+		// A text from a limit below the size breaks the law.
+		let _ = Source(src, size-1, parse) catch {
+		case OutputLimit as o:
+			return o.Limit == size-1
+		case tree.SyntaxFailure, InvalidTree:
+			return false
+		}
+		return false
+	}
+	true
+}
+
+// CheckLaws is "ok\n", or the names of the source laws src breaks, one per
+// line.
+func CheckLaws[R](src string, parse func(src string) tree.Tree fails tree.SyntaxFailure | InvalidTree needs R) string needs R {
+	let mut broken = []string{}
+	if !IdempotentHolds(src, parse) {
+		broken = broken.Append("Idempotent\n")
+	}
+	if !ShapeHolds(src, parse) {
+		broken = broken.Append("ShapeKept\n")
+	}
+	if !CommentsHold(src, parse) {
+		broken = broken.Append("CommentsKept\n")
+	}
+	if !BoundHolds(src, parse) {
+		broken = broken.Append("Bounded\n")
+	}
+	if len(broken) == 0 {
+		return "ok\n"
+	}
+	strings.Join(broken, "")
+}
+
+// Shape is the text of t without positions and comments: node families,
+// names, literals, operators and the order and nesting of children.
+// Formatting must not change it (go/printer's tests compare go/ast trees
+// the same way).
+func Shape(t tree.Tree) string {
+	strings.Join(shape(t, tree.Ref{Id: t.Root}, []string{}), "")
+}
+
+func shape(t tree.Tree, it tree.Item, out []string) []string {
+	let mut o = out
+	match it {
+	case tree.Number as n:
+		o = o.Append("\(n.V)")
+	case tree.Position:
+	case tree.Bytes as b:
+		o = o.Append("\(len(b.V)):" + b.V)
+	case tree.Flag as f:
+		o = o.Append(if f.V { "true" } else { "false" })
+	case tree.Missing:
+		o = o.Append("nil")
+	case tree.Ref as r:
+		let nd = t.Nodes[r.Id]
+		o = o.Append(nd.Family + "{")
+		for f in nd.Fields {
+			let skip = f.Name == "Doc" || nd.Family == "File" && (f.Name == "Src" || f.Name == "Comments")
+			match f.Value {
+			case tree.Position:
+			case _:
+				if !skip {
+					o = o.Append(f.Name + ":")
+					o = shape(t, f.Value, o)
+					o = o.Append(" ")
+				}
+			}
+		}
+		o = o.Append("}")
+	case tree.List as l:
+		o = o.Append("[")
+		for x in l.Items {
+			o = shape(t, x, o)
+			o = o.Append(",")
+		}
+		o = o.Append("]")
+	}
+	o
+}
+
+// Comments are the texts of t's comments in order, a line comment's
+// trailing blanks dropped.
+func Comments(t tree.Tree) []string {
+	let mut out = []string{}
+	for g in kids(t, t.Root, "Comments") {
+		for c in kids(t, g, "List") {
+			let text = str(t, c, "Text")
+			out = out.Append(if strings.HasPrefix(text, "//") { trimRightOf(text, " \t\r") } else { text })
+		}
+	}
+	out
+}
+
+// ---------------------------------------------------------------- layout laws
+
+// plausible reports a command list whose indentation stays within what a
+// printer asks: a nesting depth, not an arbitrary integer. The layout laws
+// hold vacuously beyond it, where the size of the indentation alone would
+// overflow an int (as Go's formatter would).
+func plausible(commands []Command) bool {
+	let mut depth = 0
+	for c in commands {
+		match c {
+		case Indent as i:
+			depth += i.By
+		case SetIndent as s:
+			depth = s.To
+		case _:
+		}
+		if depth < -1000 || depth > 1000 {
+			return false
+		}
+	}
+	true
+}
+
+// BoundedLayout: with no limit the commands give a text; a positive limit
+// below its size is refused with that limit, and any other limit gives the
+// same text.
+func BoundedLayout(commands []Command, limit int) bool needs Layouter {
+	if !plausible(commands) {
+		return true
+	}
+	let full = Layouter.Render(commands, 0) catch {
+	case OutputLimit:
+		return false
+	}
+	if full.Built != len(full.Text) {
+		return false
+	}
+	let got = Layouter.Render(commands, limit) catch {
+	case OutputLimit as o:
+		return limit > 0 && len(full.Text) > limit && o.Limit == limit
+	}
+	!(limit > 0 && len(full.Text) > limit) && got.Text == full.Text
+}
+
+// CoalescedLayout: a Newline after a Newline changes nothing.
+func CoalescedLayout(commands []Command) bool needs Layouter {
+	if !plausible(commands) {
+		return true
+	}
+	let mut doubled = []Command{}
+	for c in commands {
+		doubled = doubled.Append(c)
+		match c {
+		case Newline:
+			doubled = doubled.Append(Newline)
+		case _:
+		}
+	}
+	let a = Layouter.Render(commands, 0) catch {
+	case OutputLimit:
+		return false
+	}
+	let b = Layouter.Render(doubled, 0) catch {
+	case OutputLimit:
+		return false
+	}
+	a.Text == b.Text
+}
+
+// LinesLayout: a text never starts with a line break, and a text that is
+// not empty ends with one.
+func LinesLayout(commands []Command) bool needs Layouter {
+	if !plausible(commands) {
+		return true
+	}
+	let r = Layouter.Render(commands, 0) catch {
+	case OutputLimit:
+		return false
+	}
+	r.Text == "" || !strings.HasPrefix(r.Text, "\n") && strings.HasSuffix(r.Text, "\n")
+}
