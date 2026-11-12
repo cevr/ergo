@@ -1,4 +1,4 @@
-package v1
+package http
 
 import (
 	"errors"
@@ -125,7 +125,7 @@ func TestHTTPClientMatchesServer(t *testing.T) {
 		in := arrived
 		mu.Unlock()
 		fail := func(what string) {
-			t.Fatalf("seed %d: %s\ncase %+v\narrived %+v\nresponse %+v, %v\nreplay: go test -run 'TestHTTPClientMatchesServer' ./runtime/v1", seed, what, c, in, res, err)
+			t.Fatalf("seed %d: %s\ncase %+v\narrived %+v\nresponse %+v, %v\nreplay: go test -run 'TestHTTPClientMatchesServer' ./runtime/v1/http", seed, what, c, in, res, err)
 		}
 		if in.method != c.method || in.path != c.path || in.body != c.body {
 			fail("the request did not arrive as sent")

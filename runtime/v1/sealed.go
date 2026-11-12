@@ -16,7 +16,3 @@ func (*Host[A]) runtimeOnly()        {}
 func (*Set) runtimeOnly()            {}
 func (*Op[A, F]) runtimeOnly()       {}
 func (*Timeline) runtimeOnly()       {}
-func (*Stream) runtimeOnly()         {}
-func (*Redacted[T]) runtimeOnly()    {}
-func (*Running) runtimeOnly()        {}
-func (*Exchange) runtimeOnly()       {}

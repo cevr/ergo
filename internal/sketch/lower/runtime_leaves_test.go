@@ -16,12 +16,17 @@ import (
 // leaves. The gofmt leaf, which links fmt for its init alone (binsize
 // BS2), is imported by a program that imports go and by one with a
 // machine timer, whose defect writes the state with fmt, and by no
-// other. The import set is the size rule itself, not a shape of the
-// lowered Go.
+// other. The hostwalk leaf (binsize BS8), which links reflect for its
+// init alone, is imported by a program that makes an actor's host, whose
+// recovered state the runtime walks for hosts, and by no other; the http
+// leaf, which links net/http, by a program that calls an http body. The
+// import set is the size rule itself, not a shape of the lowered Go.
 // Mutants: bs1-import-all-leaves (main.go imports every leaf),
 // bs1-leaf-in-core (rtRef names every declaration through runtime/v1),
-// bs2-hook-always (every program imports gofmt) and bs2-hook-never (a
-// program that imports go does not).
+// bs2-hook-always (every program imports gofmt), bs2-hook-never (a
+// program that imports go does not), bs8-walk-always (every program
+// imports hostwalk) and bs8-walk-never (a program that makes a host does
+// not).
 func TestMainImportsOnlyTheRuntimeLeavesItCalls(t *testing.T) {
 	const leaf = runtimeImport + "/"
 	cases := []struct {
@@ -32,6 +37,8 @@ func TestMainImportsOnlyTheRuntimeLeavesItCalls(t *testing.T) {
 		{"digest and csv", "import csv\nimport hex\n\nfunc main() needs Console {\n\tlet rows = csv.ReadAll(hex.Encode(\"a\")) catch {\n\t\tcase csv.ParseError: [][]string{}\n\t}\n\tConsole.Println(\"\\(len(rows))\")\n}\n", []string{leaf + "csv", leaf + "digest"}},
 		{"import go", "import go strconv\n\nfunc main() needs Console {\n\tlet n = strconv.ParseInt(\"12\", 10, 64) catch { case go.Error: -1 }\n\tConsole.Println(\"\\(n)\")\n}\n", []string{leaf + "gofmt"}},
 		{"machine timer", machineTimerProgram(1, false), []string{leaf + "gofmt"}},
+		{"actor host", "import actor\n\nfunc main() needs Console {\n\tlet _ = actor.NewHost[int]()\n\tConsole.Println(\"x\")\n}\n", []string{leaf + "hostwalk"}},
+		{"http", "import http\n\nfunc main() needs Console {\n\tConsole.Println(\"\\(len(http.ParseQuery(\"a=1\")))\")\n}\n", []string{leaf + "http"}},
 	}
 	for _, c := range cases {
 		out := lowerSource(c.name, c.src, true)

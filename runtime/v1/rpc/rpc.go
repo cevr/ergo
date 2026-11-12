@@ -1,4 +1,4 @@
-package v1
+package rpc
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The bodies of std rpc (docs/spec/rpc.md; R1): Effect RPC 4.1.2's HTTP
@@ -121,7 +122,7 @@ func RPCExactUint(path string, n uint64) error {
 func RPCTagged(tag string, object string) string {
 	b := make([]byte, 0, len(object)+len(tag)+12)
 	b = append(b, `{"_tag":`...)
-	b = JSONAppendString(b, tag)
+	b = v1.JSONAppendString(b, tag)
 	rest := strings.TrimSpace(object)
 	if len(rest) < 2 || rest[0] != '{' {
 		panic(rpcDefect{Name: "RpcError", Message: "rpc.Tagged: not an object: " + object})
@@ -176,7 +177,7 @@ type rpcCall struct {
 // Only the goroutine that runs t calls its methods: it owns the handles
 // and consumes each with Wait; ended carries each finished call back.
 type rpcRun struct {
-	span   Site
+	span   v1.Site
 	t      *rt.Task
 	handle func(*rt.Task, string, string) (string, error)
 	ended  chan *rpcCall
@@ -188,7 +189,7 @@ func (s *rpcRun) start(c *rpcCall) {
 	holder := rt.NewScope(s.t)
 	ready := make(chan struct{})
 	c.h = rt.Go(&holder, string(s.span), func(ct *rt.Task) (struct{}, error) {
-		v, err := guarded(ct, func(ct *rt.Task) (string, error) { return s.handle(ct, c.tag, c.payload) })
+		v, err := v1.Guarded(ct, func(ct *rt.Task) (string, error) { return s.handle(ct, c.tag, c.payload) })
 		c.exit = rpcExit(v, err)
 		<-ready // c.h is set
 		s.ended <- c
@@ -218,7 +219,7 @@ func (s *rpcRun) stopAll() {
 // gives each Exit line to each as its call ends, on t's goroutine. A stop
 // of t, a defect or a stop raised by each, and an error of each stop the
 // calls left and wait for them before rpcCalls ends: no call outlives it.
-func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), each func(line []byte) error) error {
+func rpcCalls(span v1.Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), each func(line []byte) error) error {
 	t.Check()
 	s := &rpcRun{span: span, t: t, handle: handle, ended: make(chan *rpcCall, len(envs)), live: map[*rpcCall]bool{}}
 	// A stop or a defect unwinds through here: the calls left stop and are
@@ -258,7 +259,7 @@ func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, s
 // the json answer: the array of their Exits, in the order the calls end,
 // each with its request's id. A stop of t stops the calls, waits for
 // their releases and ends RPCExits with the stop.
-func RPCExits(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error)) string {
+func RPCExits(span v1.Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error)) string {
 	out := []byte{'['}
 	_ = rpcCalls(span, t, envs, handle, func(line []byte) error {
 		if len(out) > 1 {
@@ -273,7 +274,7 @@ func RPCExits(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, s
 // RPCExitLines runs each Request of envs as RPCExits does and emits each
 // Exit as an ndjson line as soon as its call ends: emit's failure stops
 // the calls left and is RPCExitLines' failure.
-func RPCExitLines(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), emit func(*rt.Task, string) error) error {
+func RPCExitLines(span v1.Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), emit func(*rt.Task, string) error) error {
 	return rpcCalls(span, t, envs, handle, func(line []byte) error {
 		return emit(t, string(append(line, '\n')))
 	})
@@ -289,7 +290,7 @@ func RPCRequest(id, tag, payload string) string {
 	b = append(b, `{"_tag":"Request","id":`...)
 	b = append(b, id...)
 	b = append(b, `,"tag":`...)
-	b = JSONAppendString(b, tag)
+	b = v1.JSONAppendString(b, tag)
 	b = append(b, `,"payload":`...)
 	b = append(b, payload...)
 	b = append(b, `,"headers":[]}`...)
@@ -348,7 +349,7 @@ func rpcExit(v string, err error) string {
 				continue
 			}
 			p := r.Value
-			if pv, ok := p.(*Panic); ok {
+			if pv, ok := p.(*v1.Panic); ok {
 				p = pv.Value
 			}
 			if d, ok := p.(rpcDefect); ok {
@@ -367,9 +368,9 @@ func rpcExit(v string, err error) string {
 
 func rpcDieExit(name, message string) string {
 	b := []byte(`{"_tag":"Failure","cause":[{"_tag":"Die","defect":{"name":`)
-	b = JSONAppendString(b, name)
+	b = v1.JSONAppendString(b, name)
 	b = append(b, `,"message":`...)
-	b = JSONAppendString(b, message)
+	b = v1.JSONAppendString(b, message)
 	b = append(b, `}}]}`...)
 	return string(b)
 }
@@ -378,13 +379,13 @@ func rpcDieExit(name, message string) string {
 // Schema.Defect reads it, then the int's path and value.
 func rpcWideExit(d rpcDefect) string {
 	b := []byte(`{"_tag":"Failure","cause":[{"_tag":"Die","defect":{"name":`)
-	b = JSONAppendString(b, d.Name)
+	b = v1.JSONAppendString(b, d.Name)
 	b = append(b, `,"message":`...)
-	b = JSONAppendString(b, d.Message)
+	b = v1.JSONAppendString(b, d.Message)
 	b = append(b, `,"path":`...)
-	b = JSONAppendString(b, d.Wide.Path)
+	b = v1.JSONAppendString(b, d.Wide.Path)
 	b = append(b, `,"value":`...)
-	b = JSONAppendString(b, d.Wide.Value)
+	b = v1.JSONAppendString(b, d.Wide.Value)
 	b = append(b, `}}]}`...)
 	return string(b)
 }

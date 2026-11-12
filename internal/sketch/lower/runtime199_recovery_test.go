@@ -3,6 +3,7 @@ package lower
 import (
 	"go/ast"
 	"go/types"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -124,19 +125,56 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 	isRT := func(f *types.Func) bool {
 		return f.Pkg() != nil && strings.HasSuffix(f.Pkg().Path(), "/runtime/rt")
 	}
+	// v1 and its leaves (binsize BS1, BS8): a leaf hands rt the body
+	// through v1.Guarded, which runs it by guarded.
+	pkgs := []*typedSource{v1}
+	v1Dir := filepath.Join("..", "..", "..", "runtime", "v1")
+	entries, err := os.ReadDir(v1Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() && e.Name() != "testdata" {
+			pkgs = append(pkgs, typedPackage(t, filepath.Join(v1Dir, e.Name())))
+		}
+	}
+	if len(pkgs) < 3 {
+		t.Fatalf("the scan found %d packages of runtime/v1; want the core and its leaves", len(pkgs))
+	}
+	seen := map[string]bool{}
+	for _, src := range pkgs {
+		scanDefectOwners(t, src, allowed, seen, isRT, recovering)
+	}
+	for edge := range allowed {
+		if !seen[edge] {
+			t.Errorf("v1 no longer takes the edge %s; the scan no longer sees the owner", edge)
+		}
+	}
+}
+
+// scanDefectOwners checks one package of runtime/v1 (the core or a leaf)
+// against the defect owner's edges, recording each edge it takes in seen.
+func scanDefectOwners(t *testing.T, v1 *typedSource, allowed map[string]string, seen map[string]bool, isRT func(*types.Func) bool, recovering map[string]bool) {
+	t.Helper()
 	v1Func := func(e ast.Expr) string {
 		var name string
 		ast.Inspect(e, func(n ast.Node) bool {
 			if id, ok := n.(*ast.Ident); ok {
-				if f, ok := v1.info.Uses[id].(*types.Func); ok && f.Pkg() == v1.pkg && (f.Name() == "guarded" || f.Name() == "classify") {
+				f, ok := v1.info.Uses[id].(*types.Func)
+				if !ok || f.Pkg() == nil || !strings.HasSuffix(f.Pkg().Path(), "/runtime/v1") && f.Pkg() != v1.pkg {
+					return true
+				}
+				switch f.Name() {
+				case "guarded", "classify":
 					name = f.Name()
+				case "Guarded": // the leaves' name of guarded (runtime/v1 leaves.go)
+					name = "guarded"
 				}
 			}
 			return true
 		})
 		return name
 	}
-	seen := map[string]bool{}
 	v1.owners(func(owner string, decl ast.Decl) {
 		ast.Inspect(decl, func(n ast.Node) bool {
 			switch n := n.(type) {
@@ -183,11 +221,6 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		})
 		recoverFlows(t, v1, owner, decl)
 	})
-	for edge := range allowed {
-		if !seen[edge] {
-			t.Errorf("v1 no longer takes the edge %s; the scan no longer sees the owner", edge)
-		}
-	}
 }
 
 // recoverFlows checks that each recover in decl hands its value to capture

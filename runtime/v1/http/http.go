@@ -1,4 +1,4 @@
-package v1
+package http
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Listener is the transport shared by server protocols. HTTP adds no
@@ -85,6 +86,9 @@ type Exchange struct {
 	started bool // Begin committed the status and the header
 	ended   bool // End ran, or the request task ended
 }
+
+// runtimeOnly implements http.Exchange's private operation (runtime/v1/sealed.go).
+func (*Exchange) runtimeOnly() {}
 
 // Begin commits status and header and flushes them, so the client sees
 // the response start before the first part. A second Begin is a defect:
@@ -445,7 +449,7 @@ func connState(nc net.Conn, st http.ConnState) {
 // is the connection's last. A stop drains the timers with the requests.
 //
 //ergo:host
-func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
+func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
 	if !limits.valid() {
 		return HTTPInvalidLimits(limits)
 	}
@@ -470,7 +474,7 @@ func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPL
 		holder := rt.NewScope(t)
 		pt.h = rt.Go(&holder, timerSite, func(ct *rt.Task) (struct{}, error) {
 			defer func() { fired <- pt }()
-			return guarded(ct, func(ct *rt.Task) (struct{}, error) {
+			return v1.Guarded(ct, func(ct *rt.Task) (struct{}, error) {
 				sleeper.Sleep(ct, d)
 				return struct{}{}, nil
 			})
@@ -568,7 +572,7 @@ func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPL
 			holder := rt.NewScope(t)
 			c.h = rt.Go(&holder, string(site), func(ct *rt.Task) (struct{}, error) {
 				defer func() { ended <- c }()
-				return guarded(ct, func(ct *rt.Task) (struct{}, error) {
+				return v1.Guarded(ct, func(ct *rt.Task) (struct{}, error) {
 					c.start(ct)
 					ct.Check()
 					v := c.in
@@ -585,7 +589,7 @@ func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPL
 				causes.Add(err)
 				causes.Add(shutdown())
 				<-served
-				raise(causes.Err())
+				v1.Raise(causes.Err())
 			}
 		case c := <-ended:
 			err := finish(c, false)
@@ -594,19 +598,19 @@ func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPL
 				causes.Add(err)
 				causes.Add(shutdown())
 				<-served
-				raise(causes.Err())
+				v1.Raise(causes.Err())
 			}
 		case <-t.Done():
 			var causes rt.Cause
 			causes.AddInterruption()
 			causes.Add(shutdown())
 			<-served
-			raise(causes.Err())
+			v1.Raise(causes.Err())
 		case err := <-served:
 			var causes rt.Cause
-			causes.Add(capture(t, fmt.Errorf("http.Serve: %w", err)))
+			causes.Add(v1.Capture(t, fmt.Errorf("http.Serve: %w", err)))
 			causes.Add(shutdown())
-			raise(causes.Err())
+			v1.Raise(causes.Err())
 		}
 	}
 }

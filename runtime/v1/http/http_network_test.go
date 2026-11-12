@@ -1,4 +1,4 @@
-package v1
+package http
 
 import (
 	"errors"
@@ -189,7 +189,7 @@ func TestHTTPNetworkMatchesModel(t *testing.T) {
 		got := slices.Clone(arrived)
 		mu.Unlock()
 		fail := func(reason string) {
-			t.Fatalf("seed %d: %s\ngraph=%+v mode=%d hops=%d\nwant=%+v\ngot=%+v\nresponse=%+v error=%v\nreplay: ERGO_HTTP_NETWORK_SEED=%d go test -run '^TestHTTPNetworkMatchesModel$' ./runtime/v1", seed, reason, graph, mode, hops, want, got, res, err, seed)
+			t.Fatalf("seed %d: %s\ngraph=%+v mode=%d hops=%d\nwant=%+v\ngot=%+v\nresponse=%+v error=%v\nreplay: ERGO_HTTP_NETWORK_SEED=%d go test -run '^TestHTTPNetworkMatchesModel$' ./runtime/v1/http", seed, reason, graph, mode, hops, want, got, res, err, seed)
 		}
 		if !slices.Equal(got, want) {
 			fail("the observed exchanges differ from the graph model")

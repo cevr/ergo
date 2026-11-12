@@ -929,7 +929,19 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 	}
 	// ErgoVariant names the variant a value holds, as a traced runner
 	// names a signal (v1 actor_trace.go): the Go type is the union's, so
-	// the name the runtime would read from it is the union's.
+	// the name the runtime would read from it is the union's. A generic
+	// union's variant names hold the instance's type arguments, which only
+	// the instance knows: its ErgoVariant reads each variant's Go type name
+	// at run time (v1.VariantOf), as the runtime reads a boxed variant's.
+	if len(td.tparams) > 0 {
+		names := make([]string, len(fu.variants))
+		for k, v := range fu.variants {
+			names[k] = l.rtRef("VariantOf") + "[" + tc.goType(v) + "]"
+		}
+		b.WriteString("func (x " + self + ") ErgoVariant() string { return [...]func() string{" + strings.Join(names, ", ") + "}[x.tag]() }\n")
+		b.WriteString("\n")
+		return
+	}
 	names := make([]string, len(fu.variants))
 	for k, v := range fu.variants {
 		name, ok := l.variantName(tc.goType(v))
@@ -938,7 +950,7 @@ func (l *lowerer) flatDecl(b interface{ WriteString(string) (int, error) }, td *
 		}
 		names[k] = strconv.Quote(name)
 	}
-	b.WriteString("func (x " + td.name + ") ErgoVariant() string { return [...]string{" + strings.Join(names, ", ") + "}[x.tag] }\n")
+	b.WriteString("func (x " + self + ") ErgoVariant() string { return [...]string{" + strings.Join(names, ", ") + "}[x.tag] }\n")
 	b.WriteString("\n")
 }
 

@@ -1,4 +1,4 @@
-package v1
+package http
 
 import (
 	"bufio"
@@ -12,6 +12,7 @@ import (
 
 	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // TestHTTPStreamFlushesEachPart holds a streamed response between two
@@ -69,9 +70,9 @@ func TestHTTPStreamHangUpStopsTheWriter(t *testing.T) {
 	wrote, ended := make(chan struct{}), make(chan struct{})
 	var returned atomic.Bool
 	l, _ := startHTTP(t, func(ct *rt.Task, x *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
-		s := NewScope(ct)
+		s := v1.NewScope(ct)
 		defer s.End(nil)
-		OnExit(&s, func() { close(ended) })
+		v1.OnExit(&s, func() { close(ended) })
 		x.Begin(200, nil)
 		if err := x.Write(ct, "one\n"); err != nil {
 			t.Errorf("first part: %v", err)

@@ -1,4 +1,4 @@
-package v1
+package http
 
 import (
 	"errors"
@@ -17,6 +17,7 @@ import (
 
 	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // sinkCase is one generated response: its status, the body, the sizes of
@@ -162,7 +163,7 @@ func TestHTTPFetchIntoMatchesModel(t *testing.T) {
 		mu.Unlock()
 		limits := HTTPLimits{MaxBodyBytes: budget, MaxHeaderBytes: 8192, IdleTimeout: 5 * time.Second, ReadHeaderTimeout: 10 * time.Second, ReadBodyTimeout: 30 * time.Second}
 		fail := func(reason string, got string, err error) {
-			t.Fatalf("seed %d: %s\nstatus=%d accepted=%v (listed %v) fixed=%v size=%d budget=%d declared=%v redirect=%v file=%v old=%v missing=%v writes=%v\ngot %d bytes, error %v\nreplay: ERGO_HTTP_SINK_SEED=%d go test -run '^TestHTTPFetchIntoMatchesModel$' ./runtime/v1", seed, reason, status, accepts(status), listed, fixed, size, budget, c.declared, c.redirect, toFile, old, missing, c.writes, len(got), err, seed)
+			t.Fatalf("seed %d: %s\nstatus=%d accepted=%v (listed %v) fixed=%v size=%d budget=%d declared=%v redirect=%v file=%v old=%v missing=%v writes=%v\ngot %d bytes, error %v\nreplay: ERGO_HTTP_SINK_SEED=%d go test -run '^TestHTTPFetchIntoMatchesModel$' ./runtime/v1/http", seed, reason, status, accepts(status), listed, fixed, size, budget, c.declared, c.redirect, toFile, old, missing, c.writes, len(got), err, seed)
 		}
 		var got strings.Builder
 		put := func(_ *rt.Task, part string) error {
@@ -191,8 +192,8 @@ func TestHTTPFetchIntoMatchesModel(t *testing.T) {
 			}
 		}
 		if toFile {
-			s := NewScope(task)
-			root, rerr := FSOpenRoot(&s, dir)
+			s := v1.NewScope(task)
+			root, rerr := v1.FSOpenRoot(&s, dir)
 			if rerr != nil {
 				t.Fatal(rerr)
 			}
@@ -250,7 +251,7 @@ func TestHTTPFetchIntoMatchesModel(t *testing.T) {
 			continue
 		}
 		if missing {
-			var e NotFound
+			var e v1.NotFound
 			if err == nil || !errors.As(err, &e) && len(sent) <= budget {
 				fail("a file below a missing directory did not fail NotFound", text, err)
 			}
@@ -298,8 +299,8 @@ func TestHTTPFetchIntoStops(t *testing.T) {
 	t.Cleanup(func() { close(release); peer.Close() })
 	dir := t.TempDir()
 	caller := rt.Root("stopped sink caller")
-	s := NewScope(rt.Root("root owner"))
-	root, err := FSOpenRoot(&s, dir)
+	s := v1.NewScope(rt.Root("root owner"))
+	root, err := v1.FSOpenRoot(&s, dir)
 	if err != nil {
 		t.Fatal(err)
 	}

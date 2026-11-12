@@ -164,7 +164,7 @@ func TestExternArgumentClauses(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, p := range declaredClauses(t) {
-		if p.target != "" && !strings.HasPrefix(p.target, v1Path+".") {
+		if p.target != "" && !runtimeBody(p.target) {
 			// A Go standard library binding (gobind): its callback clause
 			// is v1.GoSyncCallbacks'.
 			if p.clause == "non-escaping" && v1.GoSyncCallbacks[p.target] == "" {
@@ -189,10 +189,19 @@ func TestExternArgumentClauses(t *testing.T) {
 	if t.Failed() {
 		var all []string
 		for _, p := range declaredClauses(t) {
-			if p.target == "" || strings.HasPrefix(p.target, v1Path+".") {
+			if p.target == "" || runtimeBody(p.target) {
 				all = append(all, fmt.Sprintf("%s %s", p.key, p.clause))
 			}
 		}
 		t.Logf("declared:\n%s", strings.Join(all, "\n"))
 	}
+}
+
+// runtimeBody reports whether an extern's Go target, "path.Name", is a
+// body of runtime/v1 or of one of its leaves (v1.Owns), whose clauses
+// std.ArgClauses reviews.
+func runtimeBody(target string) bool {
+	slash := strings.LastIndex(target, "/")
+	dot := strings.Index(target[slash+1:], ".")
+	return dot >= 0 && v1.Owns(target[:slash+1+dot])
 }

@@ -50,12 +50,12 @@ func Runtime() []File {
 	// Every leaf of runtime/v1 is copied with it: a program imports only
 	// the leaves it calls (rtRef), and the Go linker reads only imported
 	// packages, so a leaf it does not import costs it no byte. The gofmt
-	// leaf (v1.HostText) is copied as well.
+	// and hostwalk leaves (v1.HostText, v1.HostWalk) are copied as well.
 	pkgs := []string{"runtime/v1", "runtime/explore", "runtime/testgen"}
 	for _, leaf := range v1.Leaves {
 		pkgs = append(pkgs, "runtime/v1/"+leaf)
 	}
-	pkgs = append(pkgs, strings.TrimPrefix(v1.HostText, runtimefiles.Module+"/"))
+	pkgs = append(pkgs, strings.TrimPrefix(v1.HostText, runtimefiles.Module+"/"), strings.TrimPrefix(v1.HostWalk, runtimefiles.Module+"/"))
 	src, err := runtimefiles.Files(pkgs...)
 	if err != nil {
 		panic("lower: the runtime source is not embedded: " + err.Error())
@@ -316,6 +316,10 @@ type lowerer struct {
 	// whose values only fmt can write, or names a body that writes a
 	// machine state (v1.NeedsHostText).
 	hostText bool
+	// hostWalk is set when main.go imports the hostwalk leaf of runtime/v1
+	// (v1.HostWalk) for its init: the program names a body that makes an
+	// actor's host, which a recover may make (v1.NeedsHostWalk).
+	hostWalk bool
 	// hostImports are the Go packages a lowered call of a user extern
 	// names (hostPkg), imported under their reserved names.
 	hostImports map[string]bool
@@ -648,6 +652,9 @@ func (l *lowerer) program() ([]byte, error) {
 	if l.hostText {
 		imports = append(imports, "_ "+strconv.Quote(v1.HostText))
 	}
+	if l.hostWalk {
+		imports = append(imports, "_ "+strconv.Quote(v1.HostWalk))
+	}
 	if l.timeName != "" {
 		imports = append(imports, l.timeName+` "time"`)
 	}
@@ -786,6 +793,9 @@ func (l *lowerer) rt() string {
 func (l *lowerer) rtRef(name string) string {
 	if v1.NeedsHostText(name) {
 		l.hostText = true
+	}
+	if v1.NeedsHostWalk(name) {
+		l.hostWalk = true
 	}
 	pkg := v1.PackageOf(name)
 	if pkg == "" || pkg == runtimeImport {

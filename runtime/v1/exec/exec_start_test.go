@@ -1,4 +1,4 @@
-package v1
+package exec
 
 import (
 	"fmt"
@@ -17,6 +17,7 @@ import (
 
 	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // fakeProc is a program for the lifecycle model: the test writes its bytes
@@ -427,7 +428,7 @@ steps:
 			switch {
 			case ended && (err != nil || code != want || sl.armed() != 0):
 				fail(fmt.Sprintf("waitfor after exit %d: %d, %v, %d deadlines armed; want the status, no failure, none armed", want, code, err, sl.armed()))
-			case !ended && err != (Expired{}):
+			case !ended && err != (v1.Expired{}):
 				fail(fmt.Sprintf("waitfor before exit: %d, %v; want Expired", code, err))
 			}
 			if ended {
@@ -592,7 +593,7 @@ func TestRunningMatchesModel(t *testing.T) {
 		c := genLifeCase(r)
 		want := modelLife(c)
 		signals, status, l, reaps, after, failed := runLife(t, c)
-		where := fmt.Sprintf("seed 23,5 case %d %+v (replay: go test -run '^TestRunningMatchesModel$' ./runtime/v1)", i, c)
+		where := fmt.Sprintf("seed 23,5 case %d %+v (replay: go test -run '^TestRunningMatchesModel$' ./runtime/v1/exec)", i, c)
 		seen[c.ending+fmt.Sprint(" grace=", c.grace, " ignore=", c.ignoreTerm, " exit=", want.signals[0] == "KILL" && len(want.signals) == 1)]++
 		exited := false
 		for _, s := range c.steps {

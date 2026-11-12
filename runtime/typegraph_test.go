@@ -2,10 +2,13 @@ package runtimefiles
 
 import (
 	"go/ast"
+	"go/build"
 	"go/importer"
 	"go/parser"
 	"go/token"
 	"go/types"
+	"io"
+	gopath "path"
 	"slices"
 	"strings"
 	"testing"
@@ -20,13 +23,24 @@ import (
 var taskGraphPackages = []string{"ergo.local/prototype/runtime/rt", "sync", "sync/atomic", "internal/sync", "unsafe"}
 
 // typeGraph type-checks the runtime package path (one of packages) from
-// its embedded source.
+// its embedded source: the files the host's default build compiles (not
+// rt's explored scheduler, sched_explore.go, under ergoexplore).
 func typeGraph(t *testing.T, path string) *types.Package {
 	t.Helper()
 	fset := token.NewFileSet()
 	var files []*ast.File
+	ctxt := build.Default
+	ctxt.JoinPath = gopath.Join
+	ctxt.OpenFile = func(p string) (io.ReadCloser, error) { return sources.Open(p) }
+	dir := strings.TrimPrefix(path, "runtime/")
 	for _, name := range packages[path].files {
-		data, err := sources.ReadFile(strings.TrimPrefix(path, "runtime/") + "/" + name)
+		if ok, err := ctxt.MatchFile(dir, name); err != nil || !ok {
+			if err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		data, err := sources.ReadFile(dir + "/" + name)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -982,7 +982,7 @@ over generated Go values, that no `fmt` verb, `fmt.Errorf` chain,
 
 ## Std laws
 
-HTTP's transport lifetime runs in `runtime/v1.TestHTTPConcurrentRequestsAndStop`
+HTTP's transport lifetime runs in `runtime/v1/http.TestHTTPConcurrentRequestsAndStop`
 and `TestHTTPDisconnectAndDefects`; its buffered requests run against a map
 model in `TestHTTPServerMatchesModel`. These are socket tests, not proofs.
 
@@ -1319,7 +1319,7 @@ The table has one row per std package, the prelude included. The Effect module i
 
 | Package | Effect module | Workarounds not copied | Ergo construct | Lowering against hand Go |
 | --- | --- | --- | --- | --- |
-| `http` | `HttpServer` (platform), `HttpClient.followRedirects` | W1, W4, W5, W6, W11, W14 | function handlers retain `needs R`; typed body results and pure route matches are closed unions; Serve owns child tasks; Net and Network are replaceable operation types, origin/redirect policies are unions and credentials have construction authority ([http](#http); [runtime.md, Tasks](runtime.md#tasks)) | pending: `runtime/v1.BenchmarkHTTPServer` alternates the buffered adapter and net/http with request contexts, shutdown cancellation and joined workers; tracing is off. Quiet-host command: `wf10/g1-http/bench-pending.md`. CU5's matched redirect/policy harness is also pending. No parity claim yet. |
+| `http` | `HttpServer` (platform), `HttpClient.followRedirects` | W1, W4, W5, W6, W11, W14 | function handlers retain `needs R`; typed body results and pure route matches are closed unions; Serve owns child tasks; Net and Network are replaceable operation types, origin/redirect policies are unions and credentials have construction authority ([http](#http); [runtime.md, Tasks](runtime.md#tasks)) | pending: `runtime/v1/http.BenchmarkHTTPServer` alternates the buffered adapter and net/http with request contexts, shutdown cancellation and joined workers; tracing is off. Quiet-host command: `wf10/g1-http/bench-pending.md`. CU5's matched redirect/policy harness is also pending. No parity claim yet. |
 | `atomic` | `Ref.ts` shared scalar state | W3, W4, W5, W14 | sealed counter/flag operation types with laws; ordinary calls and task-set ownership ([Atomic counters and flags](#atomic-counters-and-flags); [rows.md, Capability rows](rows.md#capability-rows)) | pending: `runtime/v1.BenchmarkAtomic` compares native wrapper Add and flag Swap with direct Go sync/atomic; command in `wf10/s-sys/bench-pending.md`; no speed claim |
 | `arena` | none: the pin has no arena module; Effect's nearest intent is stable identity for values in a store (`HashMap.ts` keyed by an id the program mints) | W3, W5, W9, W10 | `Ref[T]` that only `arena` builds (construction authority), a generation checked on every use, `Stale` in the error row matched by a total `catch`, and borrows for writes ([Arenas](#arenas); [types.md, Zero values](types.md#zero-values-and-definite-initialisation) 6; [rows.md, Catch](rows.md#catch)) | pending: `examples/lru` `lru bench 3000000` against its base index arena, a hand Go pointer list and a hand Go generational arena; command in `wf10/s-arena/bench-pending.md`; no speed claim |
 | `embed` | `FileSystem.ts` intent: replaceable reads; no compile-time embedding module | W4, W5, W14 | predeclared `embedded[T]`, `fs.Files`, typed failures and `context` ([Build-time assets](#build-time-assets); [rows.md, Capability rows](rows.md#capability-rows)) | none: direct Go `//go:embed`; tree reads wrap `embed.FS` and `io/fs.Sub`, the hand-Go control; no runtime speed claim |

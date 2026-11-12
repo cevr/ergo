@@ -1,7 +1,9 @@
-package v1
+package exec
 
 import (
+	"errors"
 	"io"
+	"io/fs"
 	"iter"
 	"os"
 	"os/exec"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The body of std exec's Start (docs/spec/stdlib.md, exec 9 to 12): a
@@ -105,6 +108,9 @@ type Running struct {
 	once   sync.Once
 	status int
 }
+
+// runtimeOnly implements exec.Running's private operation (runtime/v1/sealed.go).
+func (*Running) runtimeOnly() {}
 
 // newRunning starts the readers of the ToCaller streams out and errs
 // (either may be nil) for p.
@@ -315,7 +321,7 @@ func (r *Running) Wait(t *rt.Task) int {
 // that releases it, it ends the program when it still runs (SIGTERM, the
 // grace, SIGKILL; see the lifecycle above) and then finishes as Wait does.
 func (r *Running) Close(ct *rt.Task) {
-	Release(ct, func() {
+	v1.Release(ct, func() {
 		r.end()
 		r.finish()
 	})
@@ -339,13 +345,13 @@ func (r *Running) Stop(ct *rt.Task) int {
 // to r's owner, and fails Expired. Wait is safe on any task: it waits on
 // channels and finish runs once, so the child may wait on r while the
 // caller owns it (stdlib.md, exec: WaitFor).
-func ExecWaitFor(span Site, t *rt.Task, s Sleeper, r *Running, d time.Duration) (int, error) {
+func ExecWaitFor(span v1.Site, t *rt.Task, s v1.Sleeper, r *Running, d time.Duration) (int, error) {
 	select {
 	case <-r.proc.exited():
 		return r.Wait(t), nil
 	default:
 	}
-	return After(span, t, s, nil, d, func(ct *rt.Task) (int, error) {
+	return v1.After(span, t, s, nil, d, func(ct *rt.Task) (int, error) {
 		return r.Wait(ct), nil
 	})
 }
@@ -593,4 +599,14 @@ func ExecReplay(chunks []ExecChunk, status int, caller bool) *Running {
 	}
 	close(r.ended)
 	return r
+}
+
+// fsReason is the cause of a file system failure without the operation
+// and the path, as runtime/v1's fs bodies write it.
+func fsReason(err error) string {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err.Error()
+	}
+	return err.Error()
 }

@@ -24,6 +24,9 @@ type Stream struct {
 	r  *rand.Rand
 }
 
+// runtimeOnly implements rand.Stream's private operation (runtime/v1/sealed.go).
+func (*Stream) runtimeOnly() {}
+
 // NewStream is the stream of rand.Seeded(seed).
 func NewStream(seed uint64) *Stream {
 	return &Stream{r: rand.New(rand.NewPCG(seed, RandSeedHi))}

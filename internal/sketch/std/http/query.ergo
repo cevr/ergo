@@ -13,7 +13,7 @@ type QueryRepeated { Key string }
 // %XX an escape; the fields are in key order, and the values of one key
 // in the order they came. A pair with a malformed escape is dropped, as
 // Go's Request.URL.Query drops it.
-extern go ergo.local/prototype/runtime/v1.HTTPParseQuery func ParseQuery(raw string) []Field
+extern go ergo.local/prototype/runtime/v1/http.HTTPParseQuery func ParseQuery(raw string) []Field
 
 // DecodeQuery reads a T from query fields through the derived codec
 // (types.md, Codecs), as json.Decode reads one from a text, so a query

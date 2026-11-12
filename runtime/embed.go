@@ -20,25 +20,24 @@ import (
 	"slices"
 )
 
-//go:embed rt/cause.go rt/clock.go rt/doc.go rt/gocontext.go rt/handle.go rt/idle.go rt/machine.go rt/regions.go rt/run.go rt/sched.go rt/sched_explore.go rt/sched_live.go rt/scope.go rt/task.go rt/tasks.go rt/text.go rt/timeout.go rt/trace.go rt/values.go
+//go:embed rt/cause.go rt/clock.go rt/doc.go rt/gocontext.go rt/handle.go rt/held.go rt/idle.go rt/machine.go rt/regions.go rt/run.go rt/sched.go rt/sched_explore.go rt/sched_live.go rt/scope.go rt/task.go rt/tasks.go rt/text.go rt/timeout.go rt/trace.go rt/values.go
 //go:embed v1/actor.go v1/actor_host.go v1/actor_recover.go v1/actor_trace.go v1/mailbox.go v1/trace.go
 //go:embed rt/rttrace/encode.go rt/rttrace/jsonl.go rt/rttrace/rttrace.go
 //go:embed v1/context.go v1/data.go v1/exit.go v1/explore_laws.go v1/explore_off.go v1/explore_on.go v1/queue.go v1/runtime.go v1/task.go v1/text.go
 //go:embed v1/host.go v1/term.go v1/term_unix.go v1/term_linux.go v1/term_darwin.go
-//go:embed v1/http.go v1/http_client.go v1/http_network.go
-//go:embed v1/embed.go
+//go:embed v1/http/http.go v1/http/http_client.go v1/http/http_network.go v1/rpc/rpc.go
+//go:embed v1/embed.go v1/leaves.go
 //go:embed v1/atomic.go
 //go:embed v1/collections.go
-//go:embed v1/time.go v1/timetext.go v1/wire.go v1/json.go v1/toml.go v1/rpc.go
-//go:embed v1/sync.go v1/set.go v1/script.go v1/shrink.go
+//go:embed v1/time.go v1/timetext.go v1/wire.go v1/json.go v1/toml.go
+//go:embed v1/sync.go v1/set.go v1/script.go v1/sealed.go v1/shrink.go
 //go:embed v1/path.go v1/numbers.go v1/goerror.go v1/goarg.go v1/gocall.go v1/gocallback.go
-//go:embed v1/exec_start.go
-//go:embed v1/digest/digest.go v1/csv/csv.go v1/rand/rand.go v1/gofmt/gofmt.go
-//go:embed v1/exec/exec.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go
+//go:embed v1/digest/digest.go v1/csv/csv.go v1/rand/rand.go v1/gofmt/gofmt.go v1/hostwalk/hostwalk.go
+//go:embed v1/exec/exec.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go v1/exec/exec_start.go
 //go:embed explore/explore.go
 //go:embed testgen/stream.go
 //go:embed v1/moves.go v1/static.go
-//go:embed v1/redacted.go v1/redacted_text.go v1/config_names.go v1/toml_encode.go
+//go:embed v1/redacted/redacted.go v1/redacted/redacted_text.go v1/config_names.go v1/toml_encode.go
 //go:embed explore/sched/dfs.go explore/sched/pct.go explore/sched/sched.go explore/sched/token.go explore/sched/worker.go
 var sources embed.FS
 
@@ -63,10 +62,10 @@ var packages = map[string]pkg{
 		files: []string{"explore.go"},
 	},
 	"runtime/rt": {
-		files: []string{"cause.go", "clock.go", "doc.go", "gocontext.go", "handle.go", "idle.go", "machine.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "task.go", "tasks.go", "text.go", "timeout.go", "trace.go", "values.go"},
+		files: []string{"cause.go", "clock.go", "doc.go", "gocontext.go", "handle.go", "held.go", "idle.go", "machine.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "task.go", "tasks.go", "text.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "atomic.go", "collections.go", "config_names.go", "context.go", "data.go", "embed.go", "exec_start.go", "exit.go", "explore_laws.go", "explore_off.go", "explore_on.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "http.go", "http_client.go", "http_network.go", "json.go", "mailbox.go", "moves.go", "numbers.go", "path.go", "queue.go", "redacted.go", "redacted_text.go", "rpc.go", "runtime.go", "script.go", "set.go", "shrink.go", "static.go", "sync.go", "task.go", "term.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "wire.go"},
+		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "atomic.go", "collections.go", "config_names.go", "context.go", "data.go", "embed.go", "exit.go", "explore_laws.go", "explore_off.go", "explore_on.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "host.go", "json.go", "leaves.go", "mailbox.go", "moves.go", "numbers.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "sync.go", "task.go", "term.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "wire.go"},
 		imports: []string{"runtime/explore/sched", "runtime/rt", "runtime/rt/rttrace"},
 	},
 	// The schedule explorer's strategies and worker transport: the
@@ -87,12 +86,30 @@ var packages = map[string]pkg{
 		files:   []string{"gofmt.go"},
 		imports: []string{"runtime/rt"},
 	},
-	"runtime/v1/exec": {
-		files:   []string{"exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go"},
+	"runtime/v1/hostwalk": {
+		files:   []string{"hostwalk.go"},
 		imports: []string{"runtime/rt"},
+	},
+	"runtime/v1/exec": {
+		files:   []string{"exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exec_start.go"},
+		imports: []string{"runtime/rt", "runtime/v1"},
 	},
 	"runtime/v1/rand": {
 		files: []string{"rand.go"},
+	},
+	// net/http links fmt, reflect, crypto/tls and encoding/* (binsize BS8).
+	"runtime/v1/http": {
+		files:   []string{"http.go", "http_client.go", "http_network.go"},
+		imports: []string{"runtime/rt", "runtime/v1"},
+	},
+	// fmt and log/slog: Redacted's Format and LogValue (binsize BS8).
+	"runtime/v1/redacted": {
+		files: []string{"redacted.go", "redacted_text.go"},
+	},
+	// encoding/json and net/http (binsize BS8).
+	"runtime/v1/rpc": {
+		files:   []string{"rpc.go"},
+		imports: []string{"runtime/rt", "runtime/v1"},
 	},
 	"runtime/rt/rttrace": {
 		files:   []string{"encode.go", "jsonl.go", "rttrace.go"},

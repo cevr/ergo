@@ -1,4 +1,4 @@
-package v1
+package http
 
 import (
 	"errors"
@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // HTTPSinkFailed is http.SinkFailed: a sink that refused a part of a body.
@@ -27,7 +28,7 @@ func (e HTTPSinkFailed) Error() string { return "http.SinkFailed: " + e.Reason }
 // file is made at the first Put (open), so a fetch that puts nothing makes
 // none until HTTPIntoFile keeps it.
 type BodyFile struct {
-	root *HostRoot
+	root *v1.HostRoot
 	name string
 	// tmp and f are the new file once open made it; failed is the error
 	// that kept open from making it, which HTTPIntoFile returns.
@@ -45,7 +46,7 @@ func (p *BodyFile) open() error {
 	var err error
 	for range 16 {
 		p.tmp = dir + "." + base + ".part-" + strconv.FormatUint(rand.Uint64(), 36)
-		p.f, err = p.root.root.OpenFile(p.tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+		p.f, err = p.root.OSRoot().OpenFile(p.tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
 		if !errors.Is(err, fs.ErrExist) {
 			break
 		}
@@ -62,10 +63,10 @@ func (p *BodyFile) open() error {
 //ergo:host
 func (p *BodyFile) Put(_ *rt.Task, text string) error {
 	if err := p.open(); err != nil {
-		return HTTPSinkFailed{Reason: fsReason(err)}
+		return HTTPSinkFailed{Reason: v1.FSReason(err)}
 	}
 	if _, err := p.f.WriteString(text); err != nil {
-		return HTTPSinkFailed{Reason: fsReason(err)}
+		return HTTPSinkFailed{Reason: v1.FSReason(err)}
 	}
 	return nil
 }
@@ -84,39 +85,39 @@ func (p *BodyFile) partOnly() {}
 // failure.
 //
 //ergo:host
-func HTTPIntoFile(t *rt.Task, root *HostRoot, name string, fetch func(*rt.Task, *BodyFile) (HTTPResponse, error)) (HTTPResponse, error) {
+func HTTPIntoFile(t *rt.Task, root *v1.HostRoot, name string, fetch func(*rt.Task, *BodyFile) (HTTPResponse, error)) (HTTPResponse, error) {
 	t.Check()
 	if name == "" {
-		return HTTPResponse{}, Failed{Path: name, Reason: "empty path"}
+		return HTTPResponse{}, v1.Failed{Path: name, Reason: "empty path"}
 	}
 	file := &BodyFile{root: root, name: name}
 	kept := false
 	defer func() {
 		if !kept && file.f != nil {
 			_ = file.f.Close()
-			_ = root.root.Remove(file.tmp)
+			_ = root.OSRoot().Remove(file.tmp)
 		}
 	}()
 	res, err := fetch(t, file)
 	if file.failed != nil {
-		return HTTPResponse{}, rootErr(name, file.failed)
+		return HTTPResponse{}, v1.RootErr(name, file.failed)
 	}
 	if err != nil {
 		return HTTPResponse{}, err
 	}
 	if err := file.open(); err != nil {
-		return HTTPResponse{}, rootErr(name, err)
+		return HTTPResponse{}, v1.RootErr(name, err)
 	}
 	if err := file.f.Sync(); err != nil {
-		return HTTPResponse{}, rootErr(name, err)
+		return HTTPResponse{}, v1.RootErr(name, err)
 	}
 	if err := file.f.Close(); err != nil {
-		return HTTPResponse{}, rootErr(name, err)
+		return HTTPResponse{}, v1.RootErr(name, err)
 	}
-	if err := root.root.Rename(file.tmp, name); err != nil {
-		_ = root.root.Remove(file.tmp)
+	if err := root.OSRoot().Rename(file.tmp, name); err != nil {
+		_ = root.OSRoot().Remove(file.tmp)
 		kept = true // closed and removed here
-		return HTTPResponse{}, rootErr(name, err)
+		return HTTPResponse{}, v1.RootErr(name, err)
 	}
 	kept = true
 	return res, nil

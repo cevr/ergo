@@ -4,7 +4,6 @@ package rt
 
 import (
 	"errors"
-	"fmt"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -68,8 +67,8 @@ type Choice struct {
 // SchedEvent is one entry of a run's trace: a pick, or a move of the clock.
 type SchedEvent struct {
 	Pending
-	Tick bool      // a clock moved; Pending.Handle names it
-	Now  time.Time // a tick's time on the clock that moved (Handle)
+	Tick bool    // a clock moved; Pending.Handle names it
+	Now  Instant // a tick's time on the clock that moved (Handle)
 }
 
 // Result is what an explored run did.
@@ -300,7 +299,7 @@ func (e *explorer) handoff(from *xtask) *xtask {
 	}
 	i, err := e.strategy.Pick(c)
 	if err == nil && (i < 0 || i >= len(cands)) {
-		err = fmt.Errorf("the strategy picked %d of %d enabled tasks", i, len(cands))
+		err = errors.New("the strategy picked " + strconv.Itoa(i) + " of " + strconv.Itoa(len(cands)) + " enabled tasks")
 	}
 	if err != nil {
 		e.res.Stopped = err

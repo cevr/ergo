@@ -1,4 +1,4 @@
-package v1
+package rpc
 
 import (
 	"bytes"
@@ -8,10 +8,36 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
+	ergohttp "ergo.local/prototype/runtime/v1/http"
 )
+
+// liveSleeper is the host Scheduler, as a program binds NewLiveScheduler.
+type liveSleeper struct{}
+
+func (liveSleeper) Sleep(t *rt.Task, d time.Duration) { v1.Sleep(t, d) }
+
+// startHTTP serves handle on a loopback listener with the std http server
+// (the http leaf's HTTPServe), as std rpc's Answer is served, until the
+// test ends.
+func startHTTP(t *testing.T, handle func(*rt.Task, *ergohttp.Exchange, string, string, []ergohttp.HTTPField, []ergohttp.HTTPField, string, bool, string) ergohttp.HTTPResponse) *ergohttp.Listener {
+	t.Helper()
+	l, err := ergohttp.HTTPListen("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := ergohttp.HTTPLimits{MaxBodyBytes: 1 << 20, MaxHeaderBytes: 4096, IdleTimeout: time.Hour, ReadHeaderTimeout: time.Hour, ReadBodyTimeout: time.Hour}
+	s := v1.NewScope(rt.Root(t.Name()))
+	h := v1.Go(&s, "http test server", func(ct *rt.Task) (struct{}, error) {
+		return struct{}{}, ergohttp.HTTPServe("http test request", ct, liveSleeper{}, l, limits, handle)
+	})
+	t.Cleanup(func() { h.Stop(); l.Close() })
+	return l
+}
 
 // rpcHarness serves the rpc bodies on HTTPServe with a Go handle, as std
 // rpc's Answer does with the generated Handle: RPCParse, then RPCExits for
@@ -51,7 +77,7 @@ func startRPC(t *testing.T) *rpcHarness {
 	t.Helper()
 	h := &rpcHarness{started: make(chan struct{}, 1), release: make(chan struct{})}
 	handle := rpcHandle(h)
-	l, _ := startHTTPLimits(t, serveLimits(1<<20, 4096), func(ct *rt.Task, x *Exchange, _, _ string, _, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
+	l := startHTTP(t, func(ct *rt.Task, x *ergohttp.Exchange, _, _ string, _, header []ergohttp.HTTPField, body string, _ bool, _ string) ergohttp.HTTPResponse {
 		framed := false
 		for _, f := range header {
 			if strings.EqualFold(f.Name, "Content-Type") && strings.HasPrefix(f.Value, rpcNDJSON) {
@@ -60,15 +86,15 @@ func startRPC(t *testing.T) *rpcHarness {
 		}
 		envs, err := RPCParse(body, framed)
 		if err != nil {
-			return HTTPResponse{Status: 400, Body: err.Error()}
+			return ergohttp.HTTPResponse{Status: 400, Body: err.Error()}
 		}
 		if !framed {
-			return HTTPResponse{Status: 200, Header: []HTTPField{{"Content-Type", rpcJSON}}, Body: RPCExits("rpc test", ct, envs, handle)}
+			return ergohttp.HTTPResponse{Status: 200, Header: []ergohttp.HTTPField{{Name: "Content-Type", Value: rpcJSON}}, Body: RPCExits("rpc test", ct, envs, handle)}
 		}
-		x.Begin(200, []HTTPField{{"Content-Type", rpcNDJSON}})
+		x.Begin(200, []ergohttp.HTTPField{{Name: "Content-Type", Value: rpcNDJSON}})
 		_ = RPCExitLines("rpc test", ct, envs, handle, func(t *rt.Task, line string) error { return x.Write(t, line) })
 		x.End()
-		return HTTPResponse{Status: 200}
+		return ergohttp.HTTPResponse{Status: 200}
 	})
 	h.url = "http://" + l.Addr() + "/rpc"
 	return h
@@ -287,7 +313,7 @@ func TestRPCFailedEmitStopsTheCallsLeft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refused := HTTPWriteFailed{Reason: "the client went away"}
+	refused := ergohttp.HTTPWriteFailed{Reason: "the client went away"}
 	request := rt.Root("rpc request")
 	done := make(chan error, 1)
 	go func() {

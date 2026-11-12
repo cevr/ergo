@@ -1,4 +1,4 @@
-package v1
+package http
 
 import (
 	"bufio"
@@ -132,7 +132,7 @@ func TestHTTPFetchSendsTheWebTarget(t *testing.T) {
 			}
 			fail := func(format string, args ...any) {
 				t.Helper()
-				t.Fatalf("%s, row %d of testdata/webtarget/targets.jsonl %+v: "+format+"\nreplay: go test -run '^TestHTTPFetchSendsTheWebTarget$' ./runtime/v1", append([]any{via.name, i + 1, row}, args...)...)
+				t.Fatalf("%s, row %d of testdata/webtarget/targets.jsonl %+v: "+format+"\nreplay: go test -run '^TestHTTPFetchSendsTheWebTarget$' ./runtime/v1/http", append([]any{via.name, i + 1, row}, args...)...)
 			}
 			done := make(chan error, 1)
 			go func() { done <- via.fetch(raw) }()

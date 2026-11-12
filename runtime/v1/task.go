@@ -868,9 +868,22 @@ func OwnErr(s *Scope, site Site, rel func() error) *Owned {
 // Go's habit of `defer f.Close()` drops the error instead.
 func CloseFailed(at string, err error) {
 	if err != nil {
-		panic(fmt.Errorf("release of the value acquired at %s: %w", at, err))
+		panic(closeFailure{at: at, err: err})
 	}
 }
+
+// closeFailure is CloseFailed's defect: fmt.Errorf's "%s: %w" text and
+// unwrap, without fmt in the core (binsize BS2).
+type closeFailure struct {
+	at  string
+	err error
+}
+
+func (c closeFailure) Error() string {
+	return "release of the value acquired at " + c.at + ": " + c.err.Error()
+}
+
+func (c closeFailure) Unwrap() error { return c.err }
 
 // Hand removes h's entry, the value v being handed off: moved to a new
 // owner or taken by a call, and returns v.

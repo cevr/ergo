@@ -1,4 +1,4 @@
-package v1
+package http
 
 import (
 	"bufio"
@@ -17,13 +17,14 @@ import (
 
 	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // httpHandler is the trusted transport callback; the std wrapper makes
 // its seven scalar arguments into a public Request with a closed Body.
 type httpHandler = func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
 
-func startHTTP(t *testing.T, handle httpHandler) (*Listener, *Task[struct{}]) {
+func startHTTP(t *testing.T, handle httpHandler) (*Listener, *serverTask) {
 	t.Helper()
 	return startHTTPLimits(t, serveLimits(16, 4096), handle)
 }
@@ -37,30 +38,50 @@ func serveLimits(body, header int) HTTPLimits {
 // liveSleeper is the host Scheduler, as a program binds NewLiveScheduler.
 type liveSleeper struct{}
 
-func (liveSleeper) Sleep(t *rt.Task, d time.Duration) { Sleep(t, d) }
+func (liveSleeper) Sleep(t *rt.Task, d time.Duration) { v1.Sleep(t, d) }
 
-func startHTTPLimits(t *testing.T, limits HTTPLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
+func startHTTPLimits(t *testing.T, limits HTTPLimits, handle httpHandler) (*Listener, *serverTask) {
 	t.Helper()
 	return startHTTPOn(t, liveSleeper{}, limits, handle)
 }
 
-func startHTTPOn(t *testing.T, sleeper Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
+func startHTTPOn(t *testing.T, sleeper v1.Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *serverTask) {
 	t.Helper()
 	return startHTTPRoot(t, rt.Root(t.Name()), sleeper, limits, handle)
 }
 
-func startHTTPRoot(t *testing.T, root *rt.Task, sleeper Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *Task[struct{}]) {
+func startHTTPRoot(t *testing.T, root *rt.Task, sleeper v1.Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *serverTask) {
 	t.Helper()
 	l, err := HTTPListen("127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := NewScope(root)
-	h := Go(&s, "http test server", func(ct *rt.Task) (struct{}, error) {
-		return struct{}{}, HTTPServe("http test request", ct, sleeper, l, limits, handle)
-	})
+	holder := rt.NewScope(root)
+	h := &serverTask{h: rt.Go(&holder, "http test server", func(ct *rt.Task) (struct{}, error) {
+		return v1.Guarded(ct, func(ct *rt.Task) (struct{}, error) {
+			return struct{}{}, HTTPServe("http test request", ct, sleeper, l, limits, handle)
+		})
+	})}
 	t.Cleanup(func() { h.Stop(); l.Close() })
 	return l, h
+}
+
+// serverTask is the test server's task, started as v1.Go starts one, with
+// its rt handle at hand so a test can interrupt it or join its raw exit.
+type serverTask struct {
+	h    *rt.Handle[struct{}]
+	used bool // Stop ran, or a test joined h
+}
+
+// Stop is v1.Task's Stop: interrupt, wait, raise the defects.
+func (s *serverTask) Stop() {
+	if s.used {
+		return
+	}
+	s.used = true
+	if err := s.h.Stop(); err != nil {
+		v1.Raise(err)
+	}
 }
 
 func httpClient(t *testing.T) *http.Client {
@@ -264,7 +285,7 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 				got := httpText(t, resp)
 				wantQuery := "tag=" + strconv.FormatUint(seed, 10) + ";tag=" + strconv.Itoa(step) + ";"
 				if resp.StatusCode != status || got != want || responseBody == "" && resp.Header.Get("Content-Type") != "" || resp.Header.Get("X-Query") != wantQuery || resp.Header.Get("X-Request-Echo") != "value" {
-					t.Fatalf("seed %d step %d\nrequests: %q\nserver: %d %q %v\nmodel: %d %q\nreplay: go test ./runtime/v1 -run TestHTTPServerMatchesModel/%d", seed, step, trace, resp.StatusCode, got, resp.Header, status, want, seed)
+					t.Fatalf("seed %d step %d\nrequests: %q\nserver: %d %q %v\nmodel: %d %q\nreplay: go test ./runtime/v1/http -run TestHTTPServerMatchesModel/%d", seed, step, trace, resp.StatusCode, got, resp.Header, status, want, seed)
 				}
 			}
 			server.Stop()
@@ -310,7 +331,7 @@ func (s *stepSleeper) Sleep(t *rt.Task, d time.Duration) {
 		s.mu.Lock()
 		delete(s.waiters, w)
 		s.mu.Unlock()
-		raise(rt.Interrupted)
+		v1.Raise(rt.Interrupted)
 	}
 }
 
@@ -392,7 +413,7 @@ func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 			stop := testwait.AfterFunc(t, func() { conn.Close() })
 			defer stop()
 			r := bufio.NewReader(conn)
-			replay := fmt.Sprintf("seed %d, limits %+v; replay: go test ./runtime/v1 -run TestHTTPPhasesExpireOnTheScheduler/%d", seed, limits, seed)
+			replay := fmt.Sprintf("seed %d, limits %+v; replay: go test ./runtime/v1/http -run TestHTTPPhasesExpireOnTheScheduler/%d", seed, limits, seed)
 			armed := func(want time.Duration, step string) {
 				t.Helper()
 				select {
@@ -476,9 +497,9 @@ func TestHTTPConcurrentRequestsAndStop(t *testing.T) {
 		if path == "/count" {
 			return HTTPResponse{Status: 200, Body: strconv.FormatInt(count.Add(1), 10)}
 		}
-		s := NewScope(ct)
+		s := v1.NewScope(ct)
 		defer s.End(nil)
-		OnExit(&s, func() { <-cleanup; releaseCount.Add(1); released <- struct{}{} })
+		v1.OnExit(&s, func() { <-cleanup; releaseCount.Add(1); released <- struct{}{} })
 		started <- struct{}{}
 		<-ct.Done()
 		ct.Check()
@@ -542,13 +563,13 @@ func TestHTTPDisconnectAndDefects(t *testing.T) {
 	started, ended := make(chan struct{}), make(chan struct{})
 	sl := newStepSleeper()
 	l, server := startHTTPOn(t, sl, serveLimits(16, 4096), func(ct *rt.Task, _ *Exchange, _, path string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
-		s := NewScope(ct)
+		s := v1.NewScope(ct)
 		defer s.End(nil)
 		if path == "/defect" {
-			OnExit(&s, func() { panic("cleanup-http") })
+			v1.OnExit(&s, func() { panic("cleanup-http") })
 			panic("body-http")
 		}
-		OnExit(&s, func() { close(ended) })
+		v1.OnExit(&s, func() { close(ended) })
 		close(started)
 		<-ct.Done()
 		ct.Check()

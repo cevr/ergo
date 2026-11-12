@@ -1,4 +1,4 @@
-package v1
+package redacted
 
 // Redacted is config.Redacted[T], the body of std config's secret
 // (docs/spec/stdlib.md, config): a value of T whose every text form is
@@ -27,6 +27,9 @@ package v1
 // secrecy::SecretBox prints "[REDACTED]" through Debug and has no Display;
 // Go's log/slog has LogValuer for the same purpose.
 type Redacted[T any] struct{ v *T }
+
+// runtimeOnly implements config.Redacted's private operation (runtime/v1/sealed.go).
+func (*Redacted[T]) runtimeOnly() {}
 
 // NewRedacted is config.NewRedacted: a secret that holds v.
 func NewRedacted[T any](v T) *Redacted[T] { return &Redacted[T]{v: &v} }

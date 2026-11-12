@@ -156,7 +156,7 @@ type Chunk { Text string, Stderr bool }
 // of its group is left, on every exit, a stop and a timeout included.
 //
 // law-exempt: the lifecycle is a property against a model over a fake
-// process (runtime/v1 TestRunningMatchesModel); a real program's streams
+// process (runtime/v1/exec TestRunningMatchesModel); a real program's streams
 // are TestExecStreams.
 type Running {
 	runtimeOnly(),
@@ -166,7 +166,7 @@ type Running {
 	// reads the chunks Chunks gives, so a caller may mix the two. A break
 	// or a stop leaves the bytes read and not given for the next Lines or
 	// Chunks; after Wait it gives none.
-	// seq-exempt: Running is law-exempt (its lines come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1) holds Lines over chunks cut anywhere, a break and the bytes it leaves for Chunks, and the stop of a reader against its model, and lower TestExecStartRuns a break on the host (a follower).
+	// seq-exempt: Running is law-exempt (its lines come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1/exec) holds Lines over chunks cut anywhere, a break and the bytes it leaves for Chunks, and the stop of a reader against its model, and lower TestExecStartRuns a break on the host (a follower).
 	Lines() Seq[Line],
 	// Chunks gives the bytes of the streams whose sink is ToCaller as they
 	// are read, with no wait for a line feed, each stream's in its order,
@@ -175,7 +175,7 @@ type Running {
 	// caller's reading paces it. A tee is the caller's loop: write each
 	// Chunk where it goes and keep it. A break leaves the rest for the next
 	// Chunks; after Wait it gives none.
-	// seq-exempt: Running is law-exempt (its bytes come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1) holds the bytes of each stream as they come and at the end, a break and the stop of a reader against its model, and lower TestExecStartRuns a tee on the host.
+	// seq-exempt: Running is law-exempt (its bytes come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1/exec) holds the bytes of each stream as they come and at the end, a break and the stop of a reader against its model, and lower TestExecStartRuns a tee on the host.
 	Chunks() Seq[Chunk],
 	// Wait waits for the program's end and gives its status, 128 plus the
 	// signal's number for a program a signal ended. It drops the bytes not
@@ -205,7 +205,7 @@ type Running {
 //	}
 func WaitFor(p Running, d duration) int fails timeout.Expired needs Scheduler { try waitFor(p, d) }
 
-extern go ergo.local/prototype/runtime/v1.ExecWaitFor func waitFor(p Running, d duration) int fails timeout.Expired needs Scheduler
+extern go ergo.local/prototype/runtime/v1/exec.ExecWaitFor func waitFor(p Running, d duration) int fails timeout.Expired needs Scheduler
 
 // WaitForEndedGivesStatus: a program that has ended gives the status Wait
 // gives, never Expired, whatever the deadline. A Script's Running has
@@ -330,7 +330,7 @@ func toCaller(s Sink) bool {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecReplay func replay(cs []Chunk, status int, caller bool) Running
+extern go ergo.local/prototype/runtime/v1/exec.ExecReplay func replay(cs []Chunk, status int, caller bool) Running
 
 // ScriptReplaysRecorded: a Script gives back the Result recorded for a
 // command, whatever its status, and two commands whose arguments differ
