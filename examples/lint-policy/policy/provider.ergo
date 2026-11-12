@@ -1,0 +1,77 @@
+import json
+import lint
+
+// providerOptions are provider-boundary's options: the provider type and
+// the functions that may bind it, each as PKG.Name.
+type providerOptions { Provider string, Allow []string }
+
+// ProviderBoundary restricts a configured provider to the configured
+// composition functions. It reads the provider each with binds, resolved
+// by the checker: a local of another name that holds the provider, or a
+// named context that binds it, matches; a local spelled like the provider
+// that holds another value, or a capability value passed on, does not.
+let ProviderBoundary = lint.Rule{
+	Name:            "provider-boundary",
+	Version:         "2",
+	Description:     "Only the configured composition functions may bind the configured provider.",
+	DefaultSeverity: lint.Error,
+	Requires:        []lint.Family{lint.DeclarationsFamily, lint.CallablesFamily, lint.WithsFamily},
+	Options:         []lint.OptionSpec{
+		lint.OptionSpec{Name: "provider", Type: lint.StringOption, Description: "The provider type, as PKG.Name.", Required: true, Enum: []string{}, Default: None},
+		lint.OptionSpec{Name: "allow", Type: lint.StringListOption, Description: "The functions, as PKG.Name, that may bind it.", Required: true, Enum: []string{}, Default: None},
+	},
+	Check: providerBoundary,
+}
+
+func providerBoundary(s lint.Snapshot, options json.Value) []lint.Finding fails lint.RuleFailed {
+	let o = try lint.OptionsOf[providerOptions](options)
+	let provider = match lint.TypeNamed(s, o.Provider) {
+	case None:
+		return configured("provider", o.Provider)
+	case Some[lint.TypeDecl] as t:
+		t.Value.Identity
+	}
+	let allowed = functions(s, o.Allow) catch {
+	case Unselected as u:
+		return configured("function", u.Name)
+	}
+	let mut out = []lint.Finding{}
+	for w in s.Withs {
+		if selected(allowed, w.Callable) {
+			continue
+		}
+		for entry in w.Entries {
+			if entry.Provider != provider {
+				continue
+			}
+			out = out.Append(lint.Finding{
+				Message:     "\(nameOf(s, w.Callable)) binds \(o.Provider); only \(listed(o.Allow)) may bind it",
+				Span:        w.Span,
+				Related:     entryPlace(entry, w.Span),
+				Suggestions: []lint.Suggestion{},
+			})
+			break
+		}
+	}
+	out
+}
+
+// entryPlace is the context entry that binds the provider, as a related
+// place, when it stands outside the with: in a named context.
+func entryPlace(entry lint.ContextEntry, outer lint.Span) []lint.Related {
+	match entry.Span {
+	case None:
+		[]lint.Related{}
+	case Some[lint.Span] as s:
+		if within(s.Value, outer) {
+			[]lint.Related{}
+		} else {
+			[]lint.Related{lint.Related{Message: "the context entry that binds it", Span: s.Value}}
+		}
+	}
+}
+
+// within reports whether span a lies within span b of the same file.
+func within(a lint.Span, b lint.Span) bool {
+	a.File == b.File && a.Offset >= b.Offset && a.Offset+a.Length <= b.Offset+b.Length
+}
