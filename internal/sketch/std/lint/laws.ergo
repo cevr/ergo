@@ -56,9 +56,11 @@ law NamesReadBack(t OptionType, s Severity) {
 // AnswerAdmitsAndChecks: Answer runs a requested rule only at the version
 // the pack implements, fails a finding whose span is outside the one
 // admitted source, and completes one inside it, with the Go SDK's texts.
+// The length lies within two bytes of the source's end, where a bound
+// that is off by one shows.
 law AnswerAdmitsAndChecks(offset int, length int, sameVersion bool) {
 	let o = offset % 20
-	let l = length % 20
+	let l = 16 - o + length%3
 	let span = Span{File: "a.ergo", Offset: o, Length: l, Line: 1, Column: 1}
 	let rule = Rule{Name: "probe", Version: "1", Description: "d", DefaultSeverity: Warning, Requires: []Family{}, Options: []OptionSpec{}, Check: func(s Snapshot, options json.Value) []Finding fails RuleFailed {
 		[]Finding{Finding{Message: "m", Span: span, Related: []Related{}, Suggestions: []Suggestion{}}}
