@@ -467,6 +467,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	// std fs (G4, G4b; stdlib.md, fs): bodies that read or write the host
 	// file system and neither wait nor release.
 	"FSReadFile":  {},
+	"FSMapFile":   {},
 	"FSReadDir":   {},
 	"FSStat":      {},
 	"FSWriteFile": {},

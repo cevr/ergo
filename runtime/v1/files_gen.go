@@ -117,6 +117,7 @@ var bodyTable = map[string]bodyFact{
 	"FS.Stat":                   {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}}, Results: []string{"Info", "error"}}},
 	"FSAppendFile":              {body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"error"}, Host: true}},
 	"FSChmod":                   {body: Body{Params: []Param{{Type: "string"}, {Type: "int"}}, Results: []string{"error"}, Host: true}},
+	"FSMapFile":                 {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"string", "error"}, Host: true}},
 	"FSMkdirAll":                {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"error"}, Host: true}},
 	"FSMkdirAllMode":            {body: Body{Params: []Param{{Type: "string"}, {Type: "int"}}, Results: []string{"error"}, Host: true}},
 	"FSOpenRoot":                {body: Body{Hidden: []Hidden{"frame"}, Params: []Param{{Type: "string"}}, Results: []string{"*HostRoot", "error"}, Host: true}},
