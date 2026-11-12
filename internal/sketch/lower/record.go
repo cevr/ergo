@@ -301,7 +301,7 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 // unknown here). The call's identity stays the field call's, so a defect
 // report names the frame it names without inlining.
 func (fc *funcCtx) inlineField(x *syntax.CallExpr, c *check.Call, g *check.Func, gd *funcDecl) bool {
-	if fc.frame == nil || fc.inlDepth >= inlineDepth || len(callbackParams(g)) > 0 || !fc.l.inlineWithin(g, fieldBudget) {
+	if fc.frame == nil || fc.inlDepth >= inlineDepth || len(callbackParams(g)) > 0 || !fc.l.inlineWithin(g, fieldBudget) || !fc.pays(g) {
 		return false
 	}
 	if len(g.Sig.Results) == 1 && fc.noValue(x) {

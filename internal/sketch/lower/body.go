@@ -168,6 +168,9 @@ type funcCtx struct {
 	inlDepth int
 	lits     map[*check.Var]*litSub
 	inlined  *operand
+	// hot marks an inlined body whose site is on a loop path (inline.go,
+	// onLoopPath): its own sites run once per iteration too.
+	hot bool
 	// recs are the record parameters of a copy for a known record and
 	// the record each stands for (record.go).
 	recs map[*check.Var]*knownRec
@@ -193,7 +196,7 @@ func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
 // type bindings and witnesses. These facts and captured local names are
 // shared; execution state (environment, frame, loops and tries) is fresh.
 func (fc *funcCtx) innerFuncCtx() *funcCtx {
-	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner, witness: fc.witness}
+	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner, witness: fc.witness, hot: fc.onLoopPath()}
 }
 
 // line writes one Go line at the current depth.

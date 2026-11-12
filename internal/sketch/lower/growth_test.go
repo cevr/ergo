@@ -99,13 +99,16 @@ func main() needs Console {
 		return len(regexp.MustCompile(`\b`+name+`(Known)?(_[0-9]+)?(\[[^\]]*\])?\(`).FindAllStringIndex(body, -1))
 	}
 	for _, ref := range []bool{false, true} {
-		saved := growthLowering
-		growthLowering = ""
+		// The size rule (inline.go, Size; TestInlinePays) is held at its
+		// reference, so every site here is decided by growth alone: mid is
+		// larger than goSizeBudget, and these sites are on no loop path.
+		saved, savedCost := growthLowering, inlineCostLowering
+		growthLowering, inlineCostLowering = "", "budget"
 		if ref {
 			growthLowering = "function"
 		}
 		o := mustLower(t, "inlinegrowth", src)
-		growthLowering = saved
+		growthLowering, inlineCostLowering = saved, savedCost
 		code := o.mainGo()
 		for _, row := range []struct {
 			fn, callee string
