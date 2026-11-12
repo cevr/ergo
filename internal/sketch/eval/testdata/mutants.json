@@ -409,9 +409,18 @@
       "name": "try1-eval-cover-ignored",
       "origin": "wf10 batch 17 (TRY1 x EV)",
       "file": "internal/sketch/eval/expr.go",
-      "from": "\t\tif ab.kind == ctlFail && fr.info.TryCovers[x] != nil {",
-      "to": "\t\tif false {",
+      "from": "\tif covered {\n\t\tfr.tries++",
+      "to": "\tif false {\n\t\tfr.tries++",
       "rule": "grammar.md Expressions 1 (q105): the failure of an operand that a try on its left covers leaves the frame, as under the try itself; a catch around the call it is an argument of does not take it.",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "fixtry-caught-takes-covered",
+      "origin": "wf10 batch 17 fix-try (M3)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\tif ab.kind == ctlFail && (covered || fr.tries > 0 && unparen(x) != fr.caught) {",
+      "to": "\t\tif ab.kind == ctlFail && (covered || fr.tries > 0 && fr.caught == nil) {",
+      "rule": "rows.md Catch 5: a try covers the whole expression to its right, the caught expression included: in try h(g()) catch and in a + try f() + (h(g()) catch), a failure of g() leaves the frame; the catch takes h's own failure only.",
       "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
     }
   ]
