@@ -25,7 +25,7 @@ func Generate(seed uint64) string {
 // the subset, the census reasons of the constructs planted in it: the
 // reference a census of the program must contain.
 func GeneratePlanted(seed uint64) (string, map[string][]string) {
-	g := &gen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), planted: map[string][]string{}}
+	g := &gen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), planted: map[string][]string{}, oob: seed%8 == 0}
 	return g.program(), g.planted
 }
 
@@ -102,6 +102,9 @@ type gen struct {
 	planted map[string][]string
 	// funcs0, when set, is the number of functions (GenerateN).
 	funcs0 int
+	// oob: main ends with an out-of-range read in an IR body (every
+	// eighth seed).
+	oob bool
 }
 
 func (g *gen) n(k int) int { return g.r.IntN(k) }
@@ -121,6 +124,11 @@ func (g *gen) program() string {
 	}
 	for i := 0; i < nf; i++ {
 		g.function(i)
+	}
+	if g.oob {
+		// The out-of-range negative control, in an IR body: both paths
+		// must fail the same way.
+		g.b.WriteString("func oob(xs []int, i int) int {\n\txs[len(xs) + i*i]\n}\n\n")
 	}
 	g.main()
 	return g.b.String()
@@ -189,7 +197,14 @@ func (g *gen) function(i int) {
 		g.stmt(f.result, 2)
 	}
 	g.sink(f.result, params)
-	fmt.Fprintf(&g.b, "\t%s\n}\n\n", g.value(f.result, 3))
+	if f.result == tStr {
+		// A string result ends with the text of every scalar in scope, so
+		// a wrong local (an op-assignment, a loop's counter, a value's
+		// text) shows in the output.
+		fmt.Fprintf(&g.b, "\t(%s) + %s\n}\n\n", g.expr(tStr, 3), g.trace())
+	} else {
+		fmt.Fprintf(&g.b, "\t%s\n}\n\n", g.value(f.result, 3))
+	}
 	g.funcs = append(g.funcs, f)
 }
 
@@ -232,6 +247,9 @@ func (g *gen) stmt(res gtype, budget int) {
 		}
 		fmt.Fprintf(&g.b, "%s%s %s %s = %s\n", in, kw, v.name, v.t, g.value(t, 3))
 		g.scope = append(g.scope, v)
+		if mut && g.n(2) == 0 {
+			g.assign(v)
+		}
 	case k < 6:
 		var muts []gvar
 		for _, v := range g.scope {
@@ -243,13 +261,7 @@ func (g *gen) stmt(res gtype, budget int) {
 			g.stmt(res, 0)
 			return
 		}
-		v := muts[g.n(len(muts))]
-		g.assigned[v.name] = true
-		if op := g.opAssign(v.t); op != "" {
-			fmt.Fprintf(&g.b, "%s%s %s= %s\n", in, v.name, op, g.expr(v.t, 2))
-			return
-		}
-		fmt.Fprintf(&g.b, "%s%s = %s\n", in, v.name, g.value(v.t, 3))
+		g.assign(muts[g.n(len(muts))])
 	case k < 7:
 		fmt.Fprintf(&g.b, "%slet _ = %s\n", in, g.expr(scalars[g.n(len(scalars))], 2))
 	case k < 9:
@@ -295,6 +307,17 @@ func (g *gen) stmt(res gtype, budget int) {
 	default:
 		fmt.Fprintf(&g.b, "%sif %s {\n%s\treturn %s\n%s}\n", in, g.expr(tBool, 2), in, g.value(res, 2), in)
 	}
+}
+
+// assign writes an assignment of the mut local v: often an op-assignment.
+func (g *gen) assign(v gvar) {
+	in := g.indent()
+	g.assigned[v.name] = true
+	if op := g.opAssign(v.t); op != "" {
+		fmt.Fprintf(&g.b, "%s%s %s= %s\n", in, v.name, op, g.expr(v.t, 2))
+		return
+	}
+	fmt.Fprintf(&g.b, "%s%s = %s\n", in, v.name, g.value(v.t, 3))
 }
 
 // opAssign is an assignment operator for a local of type t, or "" for a
@@ -462,7 +485,7 @@ func (g *gen) expr(t gtype, d int) string {
 	}
 	switch t {
 	case tInt:
-		switch g.n(9) {
+		switch g.n(10) {
 		case 0, 1:
 			ops := []string{"+", "-", "*"}
 			return "(" + g.expr(tInt, d-1) + " " + ops[g.n(3)] + " " + g.expr(tInt, d-1) + ")"
@@ -479,6 +502,9 @@ func (g *gen) expr(t gtype, d int) string {
 			return g.index(d)
 		case 7:
 			return "(-(" + g.expr(tInt, d-1) + "))"
+		case 8:
+			ops := []string{"&", "|", "^", "&^"}
+			return "(" + g.expr(tInt, d-1) + " " + ops[g.n(4)] + " " + g.expr(tInt, d-1) + ")"
 		default:
 			return g.leaf(tInt)
 		}
@@ -568,7 +594,7 @@ func (g *gen) expr(t gtype, d int) string {
 			return "(" + g.expr(tStr, d-1) + " + " + g.expr(tStr, d-1) + ")"
 		case 1:
 			return g.expr(tRec, d-1) + ".S"
-		case 2:
+		case 2, 3:
 			return g.interp(d)
 		default:
 			return g.leaf(tStr)
@@ -589,13 +615,34 @@ func (g *gen) expr(t gtype, d int) string {
 	panic("gen: type " + string(t))
 }
 
+// trace is an interpolated string of every scalar parameter and local in
+// scope.
+func (g *gen) trace() string {
+	var b strings.Builder
+	b.WriteString(`"`)
+	for _, v := range g.scope {
+		for _, s := range scalars {
+			if v.t == s {
+				b.WriteString(`|\(` + g.read(v) + `)`)
+			}
+		}
+	}
+	b.WriteString(`"`)
+	return b.String()
+}
+
 // interp is an interpolated string of one to three scalar values.
 func (g *gen) interp(d int) string {
 	var b strings.Builder
 	b.WriteString(`"`)
 	for i, n := 0, 1+g.n(3); i < n; i++ {
 		b.WriteString([]string{"", "x", "a b", "=", `\n`}[g.n(5)])
-		b.WriteString(`\(` + g.expr(scalars[g.n(len(scalars))], d-1) + `)`)
+		t := scalars[g.n(len(scalars))]
+		x := g.expr(t, d-1)
+		if (t == tInt || t == tI64 || t == tF64) && g.n(2) == 0 {
+			x = "-(" + x + ")" // a signed value's text keeps its sign
+		}
+		b.WriteString(`\(` + x + `)`)
 	}
 	b.WriteString([]string{"", "!", "z"}[g.n(3)] + `"`)
 	return b.String()
@@ -678,5 +725,8 @@ func (g *gen) main() {
 		fmt.Fprintf(&g.b, "\t\tConsole.Println(\"%s \\(%s)\")\n", f.name, c)
 	}
 	fmt.Fprintf(&g.b, "\t\tConsole.Println(\"op \\(viaOp(%s, %s))\")\n", g.leaf(tInt), g.leaf(tInt))
+	if g.oob {
+		g.b.WriteString("\t\tConsole.Println(\"oob \\(oob([]int{1, 2}, 1))\")\n")
+	}
 	g.b.WriteString("\t}\n}\n")
 }
