@@ -24,6 +24,11 @@ import ergo.local/prototype/internal/sketch/std ergo.local/prototype/internal/sk
 # no host I/O; it imports no ergo.local package (go list -deps), so it
 # cannot name, receive or build a syntax node.
 import math/big
+# crypto/sha256 (embed.go, package assets): embed.go calls only
+# sha256.Sum256([]byte) on a key string, a [32]byte digest. The package
+# imports no ergo.local package (go list -deps), so it cannot name, receive
+# or build a syntax node.
+import crypto/sha256
 # runtime/v1 (G5b, the std purity fact): footprint.go calls only
 # v1.BodyOf(name string) and reads Body.Pure; extern.go reads only the
 # []string v1.PureImports (G9, the user extern allowlist). runtime/v1 depends on no
@@ -69,3 +74,8 @@ site (*checker).assignStmt BinaryExpr compoundFixture
 # on the length itself. Its origin is the ArrayType, so it lies in that file.
 # Every [N]T reaches it; TestArrayDiagnostics reports at it.
 site (*checker).arrayType BasicLit arrayFixture
+# (*ownWalk).replaced (ownership.go, 16a fix r2) makes the Ident that keys
+# the release of a resource field an update or spread drops (Info.Replaced,
+# OwnedTemps). It is no node of the tree; its origin is the update's
+# CompositeLit. TestOwnershipRunModel's record updates reach it.
+site (*ownWalk).replaced Ident updateDropFixture
