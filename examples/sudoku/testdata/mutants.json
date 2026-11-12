@@ -1,5 +1,5 @@
 {
-  "about": "Sudoku representation, search and formatter mutants. Killers name Ergo laws/tests, run with ergo test, not Go packages.",
+  "about": "Sudoku representation, search and formatter mutants. Killers are the examples suite (examples:sudoku: its laws, tests and CLI cases); each rule names the law or test that kills it.",
   "mutants": [
     {
       "name": "v2-highest-digit-first",
@@ -8,8 +8,8 @@
       "from": "\tfor d in 1..10 {\n\t\tif s.cand[best]",
       "to": "\tfor reverse in 1..10 {\n\t\tlet d = 10 - reverse\n\t\tif s.cand[best]",
       "rule": "FirstChoiceIsLowest observes the search order on generated grids with digits 1 and 9 erased; validity and deterministic repeated solves do not distinguish the order.",
-      "anchor": {"tests": ["propagate.FirstChoiceIsLowest"]},
-      "killers": ["propagate.FirstChoiceIsLowest"]
+      "anchor": {"tests": ["examples:sudoku"]},
+      "killers": ["examples:sudoku"]
     },
     {
       "name": "v2-highest-tied-cell-first",
@@ -18,8 +18,8 @@
       "from": "n > 1 && n < fewest",
       "to": "n > 1 && n <= fewest",
       "rule": "FirstChoiceIsLowest requires the lowest tied cell, not only the lowest candidate digit.",
-      "anchor": {"tests": ["propagate.FirstChoiceIsLowest"]},
-      "killers": ["propagate.FirstChoiceIsLowest"]
+      "anchor": {"tests": ["examples:sudoku"]},
+      "killers": ["examples:sudoku"]
     },
     {
       "name": "v2-missing-ninth-bit",
@@ -28,8 +28,8 @@
       "from": "uint16(1022)",
       "to": "uint16(510)",
       "rule": "Existing SolvesHardPuzzles needs digit 9 and kills a truncated candidate mask.",
-      "anchor": {"tests": ["propagate.SolvesHardPuzzles"]},
-      "killers": ["propagate.SolvesHardPuzzles"]
+      "anchor": {"tests": ["examples:sudoku"]},
+      "killers": ["examples:sudoku"]
     },
     {
       "name": "v2-reuse-failed-branch",
@@ -38,8 +38,8 @@
       "from": "\tfor d in 1..10 {\n\t\tif s.cand[best]&(uint16(1)<<d) != 0 {\n\t\t\tlet mut t = s",
       "to": "\tlet mut t = s\n\tfor d in 1..10 {\n\t\tif s.cand[best]&(uint16(1)<<d) != 0 {",
       "rule": "Existing SolvesHardPuzzles needs a fresh value snapshot on retry after a contradiction.",
-      "anchor": {"tests": ["propagate.SolvesHardPuzzles"]},
-      "killers": ["propagate.SolvesHardPuzzles"]
+      "anchor": {"tests": ["examples:sudoku"]},
+      "killers": ["examples:sudoku"]
     },
     {
       "name": "v2-formatter-drops-digits",
@@ -48,8 +48,8 @@
       "from": "out[i] = digits[c : c+1]",
       "to": "out[i] = digits[c-c : c-c+1]",
       "rule": "Existing LineRoundTrip detects an incorrect fragment at any filled cell.",
-      "anchor": {"tests": ["board.LineRoundTrip"]},
-      "killers": ["board.LineRoundTrip"]
+      "anchor": {"tests": ["examples:sudoku"]},
+      "killers": ["examples:sudoku"]
     }
   ]
 }
