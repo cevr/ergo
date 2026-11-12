@@ -4292,6 +4292,39 @@
       "killers": [
         "lower:TestEvalAgreesWithGo"
       ]
+    },
+    {
+      "name": "array-in-place-pointer-param",
+      "origin": "wf10 corpus wave HP (array index copy)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\t\t\t\tif _, ptr := p.Type.(*check.Pointer); ptr {\n\t\t\t\t\t\tok = false\n",
+      "to": "\t\t\t\t\tif _, ptr := p.Type.(*check.Pointer); ptr {\n\t\t\t\t\t\tok = ok && true\n",
+      "rule": "Ergo reads a before i in a[i]: a call in i that writes a through a pointer parameter (its receiver included) is not seen by the read.",
+      "killers": [
+        "lower:TestArrayIndexInPlaceAgrees"
+      ]
+    },
+    {
+      "name": "array-in-place-function-value",
+      "origin": "wf10 corpus wave HP (array index copy)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\t\tcase c == nil || c.Kind != check.CallFunc || c.Func == nil || c.Func.Sig == nil:\n\t\t\t\tok = false\n",
+      "to": "\t\t\tcase c == nil:\n\t\t\t\tok = false\n\t\t\tcase c.Kind != check.CallFunc || c.Func == nil || c.Func.Sig == nil:\n",
+      "rule": "Ergo reads a before i in a[i]: a call of a function value in i may write a let mut it captures, which the read does not see.",
+      "killers": [
+        "lower:TestArrayIndexInPlaceAgrees"
+      ]
+    },
+    {
+      "name": "array-in-place-literal-argument",
+      "origin": "wf10 corpus wave HP (array index copy)",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "\t\tcase *syntax.FuncLit:\n\t\t\tok = false\n\t\tcase *syntax.CallExpr:\n\t\t\tc := fc.l.info.Calls[n]\n",
+      "to": "\t\tcase *syntax.FuncLit:\n\t\t\treturn false\n\t\tcase *syntax.CallExpr:\n\t\t\tc := fc.l.info.Calls[n]\n",
+      "rule": "Ergo reads a before i in a[i]: a function literal in i, passed to a named function, may write a let mut it captures.",
+      "killers": [
+        "lower:TestArrayIndexInPlaceAgrees"
+      ]
     }
   ]
 }
