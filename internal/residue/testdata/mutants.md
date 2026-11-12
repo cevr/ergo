@@ -27,3 +27,12 @@ Each applied by hand (an edit, `go test -run TestUnsafeBodiesListed ./internal/r
 | The `StringsBuilderTextOwned` line names another function (the body is unlisted) | TestUnsafeBodiesListed | `runtime/v1/owned.go StringsBuilderTextOwned uses package unsafe and is not in …` |
 | `StringsBuilderTextOwned` returns `string(buf)` (the line goes stale) | TestUnsafeBodiesListed | `names no use of unsafe (a stale line)` |
 | The review part of a line removed | TestUnsafeBodiesListed | the line format error |
+
+# Unsafe inventory over every package (wf10 FU-audit, audit 3 G8)
+
+Each applied by hand as above, 2026-11-12: all killed. Red at the base (19e38b73f, the rule widened, no rows added): 16 uses outside runtime/v1 unlisted, `runtime/rt/trace.go identOf` among them (run dir `fu-audit/red-unsafe.log`).
+
+| Mutant | Killer | Evidence |
+| --- | --- | --- |
+| `runtime/rt/trace.go identOf` unlisted (the line renamed); the runtime/v1-only scan of STD-sh lets it survive | TestUnsafeBodiesListed | `runtime/rt/trace.go identOf uses package unsafe and is not in …` |
+| `goPackageFile` reads testdata and `_`/`.` directories too | TestUnsafeBodiesListed | 270 uses flagged, the bindc fixtures' generated code among them |
