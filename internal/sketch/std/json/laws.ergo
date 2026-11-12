@@ -59,6 +59,13 @@ law FastAgreesWithWriter(v fleet) {
 	t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v)
 }
 
+// LineSeparatorsEscaped: a string's U+2028 and U+2029 are written as
+// \u2028 and \u2029, as encoding/json writes them, so the text is also a
+// JavaScript string.
+law LineSeparatorsEscaped() {
+	Encode(Codec[string]{MaxBytes: 0, MaxDepth: 0}, "a\u2028b\u2029") == "\"a\\u2028b\\u2029\""
+}
+
 // TruncatedFails: no text shorter than an encoding, cut from its end, is
 // a value: Decode fails Malformed (phase 1) and builds no fleet.
 law TruncatedFails(v fleet, cut int) {

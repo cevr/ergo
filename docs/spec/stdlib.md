@@ -1273,33 +1273,24 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `codec` | `UnknownTagFails` | `UnknownTagFails(name string) { if name == "up" { return true } if name == "down" { return true } let evs = []Event{BeginObjectEvent{N: 0}, TagEvent{Name: name}, EndObjectEvent} let _ = decode[state](NewReplay(evs)) catch { case WireUnknownTag: return true case _: return false } false }` | `TestStdCodecLawsRun` | tested |
 | `json` | `DepthLimits` | `DepthLimits(k int) { let n = if k < 0 { -(k + 1) } else { k } let depth = n % 64 + 1 let _ = Open(nest(depth), 0, depth) catch { case _: return false } let _ = Open(nest(depth + 1), 0, depth) catch { case Malformed: return true } false }` | `TestStdJSONLawsRun` | tested |
 | `json` | `FastAgreesWithWriter` | `FastAgreesWithWriter(v fleet) { let t Text = text{comma: false, html: false, out: []byte{}} t.BeginList(3) encode(v, t) t.Int(2) encode(v, t) t.EndList() let w = NewText() w.BeginList(3) encode(v, w) w.Int(2) encode(v, w) w.EndList() let h Text = text{comma: false, html: true, out: []byte{}} encode(v, h) let g = NewHTMLText() encode(v, g) t.Written() == w.Written() && h.Written() == g.Written() && Encode(codec(), v) == viaWriter(v) }` | `TestStdJSONLawsRun` | tested |
+| `json` | `LineSeparatorsEscaped` | `LineSeparatorsEscaped() { Encode(Codec[string]{MaxBytes: 0, MaxDepth: 0}, "a\u2028b\u2029") == "\"a\\u2028b\\u2029\"" }` | `TestStdJSONLawsRun` | tested |
 | `json` | `RoundTrips` | `RoundTrips(v fleet) { let back = Decode(codec(), Encode(codec(), v)) catch { case _: return false } back == v }` | `TestStdJSONLawsRun` | tested |
 | `json` | `OptionalRoundTrips` | `OptionalRoundTrips(v Option[int]) { optionalRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
 | `json` | `NullableRoundTrips` | `NullableRoundTrips(v Option[int]) { nullableRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
 | `json` | `NestedRoundTrips` | `NestedRoundTrips(v Option[Option[int]]) { nestedRoundTrips(v) }` | `TestJSONFieldsAgree` | tested |
 | `json` | `ValueRoundTrips` | `ValueRoundTrips(d doc) { valueRoundTrips(d) }` | `TestJSONValueAgrees` | tested |
 | `json` | `TruncatedFails` | `TruncatedFails(v fleet, cut int) { let text = Encode(codec(), v) let n = if cut < 0 { -(cut + 1) } else { cut } let short = text[:n % len(text)] let _ = Decode(codec(), short) catch { case Malformed: return true case _: return false } false }` | `TestStdJSONLawsRun` | tested |
-| `json` | `Text.KeyParts` | `KeyParts(k string) { Key(k) } == { sep(); keyBody(k); setComma(false) }` | `#162` | checked |
-| `json` | `Text.StringParts` | `StringParts(s string) { String(s) } == { sep(); stringBody(s); setComma(true) }` | `#162` | checked |
-| `json` | `Text.IntParts` | `IntParts(n int64) { Int(n) } == { sep(); intBody(n); setComma(true) }` | `#162` | checked |
-| `json` | `Text.UintParts` | `UintParts(n uint64) { Uint(n) } == { sep(); uintBody(n); setComma(true) }` | `#162` | checked |
-| `json` | `Text.BoolParts` | `BoolParts(b bool) { Bool(b) } == { sep(); boolBody(b); setComma(true) }` | `#162` | checked |
-| `json` | `Text.FloatParts` | `FloatParts(f float64) { Float(f) } == { sep(); floatBody(f); setComma(true) }` | `#162` | checked |
-| `json` | `Text.NullParts` | `NullParts() { Null() } == { sep(); raw("null"); setComma(true) }` | `#162` | checked |
-| `json` | `Text.NumberParts` | `NumberParts(text string) { Number(text) } == { sep(); raw(text); setComma(true) }` | `#162` | checked |
-| `json` | `Text.TagParts` | `TagParts(name string) { Tag(name) } == { sep(); raw("\"_tag\":"); stringBody(name); setComma(true) }` | `#162` | checked |
-| `json` | `Text.BeginObjectParts` | `BeginObjectParts(n int) { BeginObject(n) } == { sep(); raw("{"); setComma(false) }` | `#162` | checked |
-| `json` | `Text.EndObjectParts` | `EndObjectParts() { EndObject() } == { raw("}"); setComma(true) }` | `#162` | checked |
-| `json` | `Text.BeginListParts` | `BeginListParts(n int) { BeginList(n) } == { sep(); raw("["); setComma(false) }` | `#162` | checked |
-| `json` | `Text.EndListParts` | `EndListParts() { EndList() } == { raw("]"); setComma(true) }` | `#162` | checked |
 | `json` | `Text.SetCommaSets` | `SetCommaSets(due bool) { setComma(due); commaDue() == due }` | `#162` | checked |
-| `json` | `Text.SepNoneDue` | `SepNoneDue() when commaDue() == false { sep() } == { }` | `#162` | checked |
-| `json` | `Text.SepDue` | `SepDue() when commaDue() == true { sep() } == { raw(",") }` | `#162` | checked |
-| `json` | `Text.KeyFolds` | `KeyFolds(k string) when html() == false { keyBody(k) } == { raw(quote(k, false) + ":") }` | `#162` | checked |
-| `json` | `Text.KeyFoldsHTML` | `KeyFoldsHTML(k string) when html() == true { keyBody(k) } == { raw(quote(k, true) + ":") }` | `#162` | checked |
+| `json` | `Text.SepAfterSet` | `SepAfterSet(due bool) { setComma(due); sep() } == { setComma(due); raw(commaText(due)) }` | `#162` | checked |
 | `json` | `Text.RawJoins` | `RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) }` | `#162` | checked |
+| `json` | `Text.PlainIsRaw` | `PlainIsRaw(s string) { plainBody(s) } == { raw(inQuotes(s)) }` | `#162` | checked |
 | `json` | `Text.SetCommaLast` | `SetCommaLast(p bool, q bool) { setComma(p); setComma(q) } == { setComma(q) }` | `#162` | checked |
 | `json` | `Text.SetCommaSinks` | `SetCommaSinks(p bool, text string) { setComma(p); raw(text) } == { raw(text); setComma(p) }` | `#162` | checked |
+| `json` | `Text.SetCommaSinksString` | `SetCommaSinksString(p bool, s string) { setComma(p); stringBody(s) } == { stringBody(s); setComma(p) }` | `#162` | checked |
+| `json` | `Text.SetCommaSinksInt` | `SetCommaSinksInt(p bool, n int64) { setComma(p); intBody(n) } == { intBody(n); setComma(p) }` | `#162` | checked |
+| `json` | `Text.SetCommaSinksUint` | `SetCommaSinksUint(p bool, n uint64) { setComma(p); uintBody(n) } == { uintBody(n); setComma(p) }` | `#162` | checked |
+| `json` | `Text.SetCommaSinksBool` | `SetCommaSinksBool(p bool, b bool) { setComma(p); boolBody(b) } == { boolBody(b); setComma(p) }` | `#162` | checked |
+| `json` | `Text.SetCommaSinksFloat` | `SetCommaSinksFloat(p bool, f float64) { setComma(p); floatBody(f) } == { floatBody(f); setComma(p) }` | `#162` | checked |
 
 *Prior art:* Haskell states class laws beside the class and runs them with QuickCheck's `prop_` functions; Elixir's `StreamData` states properties beside `test`; MoonBit ships its core with property tests; Gleam and ReScript state none in source. Ergo states each law in the std source, where a reader of the std sees it, and keeps the Go test that runs it in one ledger until #162.
 
