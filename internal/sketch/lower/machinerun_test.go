@@ -47,8 +47,8 @@ type flatGen struct {
 	fields  []string // per variant: "", "t" (a string) or "xs" (a slice)
 	signals int
 	// sigs is, per signal variant, its fields: "" (none), "v" (an int)
-	// or "vt" (an int and a string, which makes most unions too large to
-	// be flat: flatunion.go).
+	// or "vt" (an int and two strings, which makes the union too large to
+	// be flat in either form: flatunion.go).
 	sigs []string
 	boom string // the failure a fallible arm returns
 }
@@ -59,7 +59,7 @@ func (g *flatGen) sigLit(j int, v string) string {
 	case "":
 		return fmt.Sprintf("E%d", j)
 	case "vt":
-		return fmt.Sprintf("E%d{v: %s, t: \"t\"}", j, v)
+		return fmt.Sprintf("E%d{v: %s, t: \"t\", u: \"u\"}", j, v)
 	}
 	return fmt.Sprintf("E%d{v: %s}", j, v)
 }
@@ -204,7 +204,7 @@ func flatRunProgram(seed uint64, k int, reached map[string]bool) (name, src stri
 		case "":
 			sigs = append(sigs, fmt.Sprintf("E%d{}", j))
 		case "vt":
-			sigs = append(sigs, fmt.Sprintf("E%d{ v int, t string }", j))
+			sigs = append(sigs, fmt.Sprintf("E%d{ v int, t string, u string }", j))
 		default:
 			sigs = append(sigs, fmt.Sprintf("E%d{ v int }", j))
 		}
@@ -441,17 +441,16 @@ func flatRunCases(t *testing.T, seeds []uint64, check bool, report func(format s
 				report("seed %d, %s: the reference lowering writes a copy\n%s", seed, name, src)
 			}
 			// The signal union is flat exactly where flatunion.go's rule
-			// admits it: the struct fits 32 bytes (a tag and 8 bytes per
-			// int variant, or a tag and the one int-and-string variant).
-			// The other two lowerings never make it flat.
-			ints, strs := 0, 0
+			// admits it: the struct fits 32 bytes (a tag and the int slot
+			// the int variants share; an int and two strings fit in no
+			// form). The other two lowerings never make it flat.
+			strs := 0
 			for _, line := range lines(src) {
 				if strings.HasPrefix(line, "type Sig = ") {
-					ints += strings.Count(line, "{ v int }")
-					strs += strings.Count(line, "{ v int, t string }")
+					strs += strings.Count(line, "{ v int, t string, u string }")
 				}
 			}
-			wantFlat := strs == 0 || strs == 1 && ints == 0
+			wantFlat := strs == 0
 			if got := strings.Contains(c.flat.mainGo(), "type Sig struct"); got != wantFlat {
 				report("seed %d, %s: the signal union is flat %v, want %v\n%s", seed, name, got, wantFlat, src)
 			}
