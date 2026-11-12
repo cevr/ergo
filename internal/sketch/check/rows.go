@@ -293,6 +293,15 @@ func (c *checker) discoverInit() {
 			m[o] = true
 		}
 	}
+	if !c.opts.Infer {
+		// Without inference no row restarts, so typing need not run ahead:
+		// the lexical cycles are known now, and a cycle through a method
+		// call is met where the reporting pass checks the var on demand
+		// (checkPkgVar) and by checkInitCycles after it (EXPLICIT EX2: one
+		// pass per body).
+		c.checkInitCycles()
+		return
+	}
 	c.silent++
 	c.init.tentative = true
 	visited := map[*Func]bool{}
@@ -351,7 +360,12 @@ func (c *checker) checkComponent(scc []*bodyNode) {
 			inferred = true
 		}
 	}
-	if cyclic {
+	// Without inference (the checker's mode; Options.Infer is ergo fix's)
+	// every row is written: nothing iterates and nothing is pinned, so a
+	// cyclic component is checked once, like any other (EXPLICIT EX2), and
+	// its instantiation cycles are found after the reporting pass, as for
+	// cycles through methods (checkBodies).
+	if cyclic && c.opts.Infer {
 		// One silent pass records the component's instantiations, so an
 		// expanding cycle is rejected before the rows iterate (round-2 M1).
 		// It is also typing's record of the callback frames class G reads

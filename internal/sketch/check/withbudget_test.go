@@ -44,7 +44,7 @@ func TestWithBudgetRefuses(t *testing.T) {
 	for _, sc := range []struct {
 		shape string
 		n     int
-	}{{"pairs", 300}, {"fan", 700}} {
+	}{{"pairs", 300}, {"fan", 1000}} {
 		shape, n := sc.shape, sc.n
 		diags, c := checkWithBudget(t, withShape(shape, 12), nil)
 		if len(diags) > 0 {
