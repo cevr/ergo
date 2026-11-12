@@ -93,8 +93,8 @@
       "name": "absent-fact-pure",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/preflight.go",
-      "from": "\tif !ok {\n\t\tice(\"no footprint",
-      "to": "\tif !ok && false {\n\t\tice(\"no footprint",
+      "from": "\tif _, ok := fr.info.Footprints[key]; !ok {\n\t\tice(\"no footprint",
+      "to": "\tif _, ok := fr.info.Footprints[key]; !ok && false {\n\t\tice(\"no footprint",
       "rule": "An absent footprint is not an empty one (rows.md, Footprints 2): an internal error, never a pure frame.",
       "killers": [
         "internal/sketch/eval:TestRunRefusesAnAbsentFootprint"
@@ -165,9 +165,9 @@
     {
       "name": "imported-provider-wrong",
       "origin": "wf10/l7-eval/EV3",
-      "file": "internal/sketch/eval/cases.go",
-      "from": "\tfn := op.conv.Table[c.Op.Name]",
-      "to": "\tfn := op.conv.Table[c.Op.Name]\n\tif ps := imports(in.root); len(ps) > 0 { for _, other := range ps[0].Funcs { if other.Name == fn.Name { fn = other; break } } }",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\tfn := r.conv.Table[name]\n\t\tif fn == nil {",
+      "to": "\t\tfn := r.conv.Table[name]\n\t\tif ps := imports(in.root); fn != nil && len(ps) > 0 { for _, other := range ps[0].Funcs { if other.Name == fn.Name { fn = other; break } } }\n\t\tif fn == nil {",
       "rule": "The binding's checked conversion selects its method; short names from another package cannot replace it.",
       "killers": ["internal/sketch/eval:TestCaseProviderIdentity"]
     },
@@ -247,8 +247,8 @@
       "name": "literal-frame-copies",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/expr.go",
-      "from": "\tcallee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn}",
-      "to": "\tvars := map[*check.Var]*slot{}; for k, v := range fr.vars { vars[k] = &slot{v: v.v} }; callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn}",
+      "from": "\tcallee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: c.vars,",
+      "to": "\tvars := map[*check.Var]*slot{}; for k, v := range c.vars { vars[k] = &slot{v: v.v} }; callee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: vars,",
       "rule": "An immediately called literal writes its enclosing mutable locals (Function values 2).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     },
@@ -292,7 +292,7 @@
       "name": "generic-substitution-unbound",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\t\t\tcallee.env.m[tp] = fr.rt(targs[i])",
+      "from": "\t\t\tcallee.env.m[tp] = targs[i]",
       "to": "\t\t\t_ = i; callee.env.m[tp] = rtype{t: tp}",
       "rule": "A generic call's checked arguments bind the callee's type parameters, including nominal patterns (Generics).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
@@ -553,7 +553,7 @@
       "name": "oracle-o2-release-skipped-on-exit",
       "origin": "wf10 ORACLE O2",
       "file": "internal/sketch/eval/release.go",
-      "from": "\tif ab != nil && (ab.kind == ctlExhausted || ab.kind == ctlUnsupported) {\n\t\treturn ab\n\t}\n\tsaved := fr.caps",
+      "from": "\tif stops(ab) {\n\t\treturn ab\n\t}\n\tsaved := fr.caps",
       "to": "\tif ab != nil {\n\t\treturn ab\n\t}\n\tsaved := fr.caps",
       "rule": "A with releases what it built on every exit of its block: a return and a typed failure too (Context ownership 3).",
       "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
