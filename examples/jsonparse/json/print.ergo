@@ -26,6 +26,9 @@ func Quoted(s string) string {
 	b.String()
 }
 
+// WriteQuoted writes s to b as Quoted gives it.
+func WriteQuoted(b *strings.Builder, s string) { quote(b, s) }
+
 let hexDigits = "0123456789abcdef"
 
 func quote(b *strings.Builder, s string) {

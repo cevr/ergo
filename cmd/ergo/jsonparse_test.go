@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,9 +31,10 @@ import (
 // are not UTF-8, repeated keys, every number form, odd whitespace, and
 // nesting at encoding/json's depth limit), each again with one to three
 // bytes changed, and the `jsonparse gen` workload at two sizes. Both must
-// print, for `min`, `fmt`, `check` and `get`, the reference's standard
-// output and exit status, a failure's line and column, and the same
-// standard error as each other. A failing seed prints the document and its
+// print, for `min`, `fmt`, `check` and `get`, each over the pointer tree
+// and over the flat tree (`-flat`), the reference's standard output and
+// exit status, a failure's line and column, and the same standard error
+// as each other. A failing seed prints the document and its
 // replay command.
 //
 // It builds Go because the programs under test are the linked binaries:
@@ -131,13 +133,15 @@ func TestJSONParseAgreesWithControl(t *testing.T) {
 func jsonAgree(t *testing.T, bins []string, ref jsonRef, path, what string, args []string, replay string) {
 	t.Helper()
 	want := ref.outcome(args, filepath.Base(path))
+	flat := append([]string{args[0], "-flat"}, args[1:]...)
 	var first string
-	for i, bin := range bins {
-		got := runCorpus(t, bin, append(args, path)...)
+	for i, run := range [][]string{args, flat, args, flat} {
+		bin := bins[i/2]
+		got := runCorpus(t, bin, append(slices.Clone(run), path)...)
 		if !want.MatchString(got) || (i > 0 && got != first) {
 			src, _ := os.ReadFile(path)
-			t.Fatalf("%s: %s %s printed\n%s\nthe reference wants\n%s\nthe other binary printed\n%s\nthe document:\n%q\n%s",
-				what, filepath.Base(bin), strings.Join(args, " "), clip(got), want, clip(first), clip(string(src)), replay)
+			t.Fatalf("%s: %s %s printed\n%s\nthe reference wants\n%s\nthe first run printed\n%s\nthe document:\n%q\n%s",
+				what, filepath.Base(bin), strings.Join(run, " "), clip(got), want, clip(first), clip(string(src)), replay)
 		}
 		first = got
 	}

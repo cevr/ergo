@@ -112,6 +112,78 @@
       "to": "if i < 0 || i > len(a.Items) {",
       "rule": "A pointer's index names an element only below the array's length.",
       "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+    },
+    {
+      "name": "flat-close-keeps-the-stack", "origin": "wf10 PA flat",
+      "file": "examples/jsonparse/flat/parse.ergo",
+      "from": "\tb.top = mark",
+      "to": "\tb.top = b.top",
+      "rule": "A container that closes takes its children off the stack, so they are no children of its parent (law flat.PrintsAsTheTree).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "flat-object-counts-ids-not-members", "origin": "wf10 PA flat",
+      "file": "examples/jsonparse/flat/parse.ergo",
+      "from": "let count = int32((b.top - mark) / 2)",
+      "to": "let count = int32(b.top - mark)",
+      "rule": "An object's B counts members, each a key id and a value id in Extras (law flat.PrintsAsTheTree).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "flat-span-takes-the-quote", "origin": "wf10 PA flat",
+      "file": "examples/jsonparse/flat/parse.ergo",
+      "from": "B: int32(i - start)})",
+      "to": "B: int32(i - start + 1)})",
+      "rule": "A plain string's span ends before its closing quote (law flat.PrintsAsTheTree).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "flat-pointer-gets-the-key", "origin": "wf10 PA flat",
+      "file": "examples/jsonparse/flat/pointer.ergo",
+      "from": "return Child(t, n, 2*k+1)",
+      "to": "return Child(t, n, 2*k)",
+      "rule": "A member's value is the second id of its pair (law flat.PointersReachTheTreesPlaces).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "flat-stack-entry-not-reused", "origin": "wf10 PA flat",
+      "file": "examples/jsonparse/flat/parse.ergo",
+      "from": "b.stack[b.top] = id",
+      "to": "b.stack[b.top] = b.stack[0]",
+      "rule": "A push over a stack entry that a closed container left writes the new id (law flat.PrintsAsTheTree).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "flat-return-is-no-space", "origin": "wf10 PA flat",
+      "file": "examples/jsonparse/flat/parse.ergo",
+      "from": "if c != ' ' && c != '\\n' && c != '\\t' && c != '\\r' {",
+      "to": "if c != ' ' && c != '\\n' && c != '\\t' {",
+      "rule": "The flat reader takes a carriage return as whitespace, as the tree reader does. The law FailsWhereTheTreeFails draws a byte for a place of compact text, where a return is rarely whitespace; the suite's and the generator's whitespace reach it.",
+      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+    },
+    {
+      "name": "flat-pool-id-one-past", "origin": "wf10 PA flat",
+      "file": "examples/jsonparse/flat/parse.ergo",
+      "from": "A: int32(len(b.pool) - 1)",
+      "to": "A: int32(len(b.pool))",
+      "rule": "A Pooled node names the string just added to the pool (law flat.PrintsAsTheTree).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "flat-depth-limit-one-past", "origin": "wf10 PA flat",
+      "file": "examples/jsonparse/flat/parse.ergo",
+      "from": "if b.depth > json.MaxDepth {",
+      "to": "if b.depth > json.MaxDepth+1 {",
+      "rule": "The flat reader nests at most json.MaxDepth deep, as the tree reader and encoding/json do.",
+      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+    },
+    {
+      "name": "flat-index-one-past-the-end", "origin": "wf10 PA flat",
+      "file": "examples/jsonparse/flat/pointer.ergo",
+      "from": "if i < 0 || i >= int(n.B) {",
+      "to": "if i < 0 || i > int(n.B) {",
+      "rule": "A pointer's index names an element of the flat tree only below the array's count.",
+      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
     }
   ]
 }

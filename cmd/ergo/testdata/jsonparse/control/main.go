@@ -6,6 +6,9 @@
 // for byte, failures included.
 //
 //	control fmt FILE | min FILE | get POINTER FILE | check FILE
+//	control CMD -flat ARGS    the same commands over a flat tree (nodes in
+//	                          one slice, children as ranges of extras,
+//	                          strings as spans), as jsonparse -flat
 //	control check -std FILE   the same counts through encoding/json, for scale
 //	stdjson check FILE        the same, through a link named stdjson
 package main
@@ -21,7 +24,7 @@ import (
 	"unicode/utf8"
 )
 
-const usageText = "usage: jsonparse fmt FILE | min FILE | get POINTER FILE | check FILE | gen -seed S -n N"
+const usageText = "usage: jsonparse fmt [-flat] FILE | min [-flat] FILE | get [-flat] POINTER FILE | check [-flat] FILE | gen -seed S -n N"
 
 const maxDepth = 10000
 
@@ -679,7 +682,7 @@ func die(line string) {
 	os.Exit(1)
 }
 
-func load(path string) (string, value) {
+func readSource(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		reason := err.Error()
@@ -691,19 +694,362 @@ func load(path string) (string, value) {
 		}
 		die(path + ": " + reason)
 	}
-	src := string(data)
+	return string(data)
+}
+
+func dieSyntax(path, src string, serr *syntaxError) {
+	line, start := 1, 0
+	for i := 0; i < serr.offset; i++ {
+		if src[i] == '\n' {
+			line++
+			start = i + 1
+		}
+	}
+	die(path + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(serr.offset-start+1) + ": " + serr.reason)
+}
+
+func load(path string) (string, value) {
+	src := readSource(path)
 	v, serr := parse(src)
 	if serr != nil {
-		line, start := 1, 0
-		for i := 0; i < serr.offset; i++ {
-			if src[i] == '\n' {
-				line++
-				start = i + 1
-			}
-		}
-		die(path + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(serr.offset-start+1) + ": " + serr.reason)
+		dieSyntax(path, src, serr)
 	}
 	return src, v
+}
+
+// ---- the flat tree (-flat) ----
+
+// fnode is one value of a flat tree: for a number or a plain string the
+// span [a, a+b) of the source; for a decoded string pool[a]; for an array
+// b children at extras[a:]; for an object b members, key and value ids
+// alternating at extras[a:].
+type fnode struct {
+	kind kind
+	a, b int32
+}
+
+const kPooled = kObject + 1
+
+type ftree struct {
+	src    string
+	nodes  []fnode
+	extras []int32
+	pool   []string
+	root   int32
+}
+
+type fparser struct {
+	parser
+	t     ftree
+	stack []int32
+}
+
+func (f *fparser) add(n fnode) int32 {
+	f.t.nodes = append(f.t.nodes, n)
+	return int32(len(f.t.nodes) - 1)
+}
+
+func parseFlat(src string) (ftree, *syntaxError) {
+	f := &fparser{parser: parser{src: src}, t: ftree{src: src}}
+	f.skip()
+	root := f.fvalue()
+	if f.err != nil {
+		return ftree{}, f.err
+	}
+	f.skip()
+	if f.pos < len(f.src) {
+		f.fail(f.pos, "expected the end, found "+f.found())
+		return ftree{}, f.err
+	}
+	f.t.root = root
+	return f.t, nil
+}
+
+func (f *fparser) fvalue() int32 {
+	if f.pos >= len(f.src) {
+		f.fail(f.pos, "expected a value, found the end")
+		return 0
+	}
+	switch c := f.src[f.pos]; c {
+	case '{':
+		return f.fcontainer(kObject, '}')
+	case '[':
+		return f.fcontainer(kArray, ']')
+	case '"':
+		return f.fstr()
+	case 't', 'f', 'n':
+		v := f.value()
+		if f.err != nil {
+			return 0
+		}
+		n := fnode{kind: v.kind}
+		if v.b {
+			n.b = 1
+		}
+		return f.add(n)
+	default:
+		start := f.pos
+		f.value()
+		if f.err != nil {
+			return 0
+		}
+		return f.add(fnode{kind: kNumber, a: int32(start), b: int32(f.pos - start)})
+	}
+}
+
+func (f *fparser) fstr() int32 {
+	s, start := f.src, f.pos+1
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		if c == '"' {
+			f.pos = i + 1
+			return f.add(fnode{kind: kString, a: int32(start), b: int32(i - start)})
+		}
+		if c == '\\' || c < 0x20 || c >= 0x80 {
+			break
+		}
+	}
+	text := f.str()
+	if f.err != nil {
+		return 0
+	}
+	f.t.pool = append(f.t.pool, text)
+	return f.add(fnode{kind: kPooled, a: int32(len(f.t.pool) - 1)})
+}
+
+// fcontainer reads an array or an object after its opening bracket.
+func (f *fparser) fcontainer(kind kind, end byte) int32 {
+	if !f.enter() {
+		return 0
+	}
+	mark := len(f.stack)
+	finish := func() int32 {
+		f.pos++
+		f.depth--
+		start := int32(len(f.t.extras))
+		f.t.extras = append(f.t.extras, f.stack[mark:]...)
+		n := int32(len(f.stack) - mark)
+		if kind == kObject {
+			n /= 2
+		}
+		f.stack = f.stack[:mark]
+		return f.add(fnode{kind: kind, a: start, b: n})
+	}
+	if f.pos < len(f.src) && f.src[f.pos] == end {
+		return finish()
+	}
+	for {
+		if kind == kObject {
+			if f.pos >= len(f.src) || f.src[f.pos] != '"' {
+				f.fail(f.pos, "expected a string key, found "+f.found())
+				return 0
+			}
+			key := f.fstr()
+			if f.err != nil {
+				return 0
+			}
+			f.stack = append(f.stack, key)
+			f.skip()
+			if f.pos >= len(f.src) || f.src[f.pos] != ':' {
+				f.fail(f.pos, "expected ':', found "+f.found())
+				return 0
+			}
+			f.pos++
+			f.skip()
+		}
+		v := f.fvalue()
+		if f.err != nil {
+			return 0
+		}
+		f.stack = append(f.stack, v)
+		f.skip()
+		if f.pos < len(f.src) {
+			switch f.src[f.pos] {
+			case ',':
+				f.pos++
+				f.skip()
+				continue
+			case end:
+				return finish()
+			}
+		}
+		if kind == kObject {
+			f.fail(f.pos, "expected ',' or '}', found "+f.found())
+		} else {
+			f.fail(f.pos, "expected ',' or ']', found "+f.found())
+		}
+		return 0
+	}
+}
+
+func (t *ftree) text(n fnode) string {
+	if n.kind == kPooled {
+		return t.pool[n.a]
+	}
+	return t.src[n.a : n.a+n.b]
+}
+
+func (t *ftree) compact(b *strings.Builder, id int32) {
+	n := t.nodes[id]
+	switch n.kind {
+	case kNull:
+		b.WriteString("null")
+	case kBool:
+		if n.b == 1 {
+			b.WriteString("true")
+		} else {
+			b.WriteString("false")
+		}
+	case kNumber:
+		b.WriteString(t.text(n))
+	case kString, kPooled:
+		quote(b, t.text(n))
+	case kArray:
+		b.WriteByte('[')
+		for k, c := range t.extras[n.a : n.a+n.b] {
+			if k > 0 {
+				b.WriteByte(',')
+			}
+			t.compact(b, c)
+		}
+		b.WriteByte(']')
+	case kObject:
+		b.WriteByte('{')
+		for k := int32(0); k < n.b; k++ {
+			if k > 0 {
+				b.WriteByte(',')
+			}
+			quote(b, t.text(t.nodes[t.extras[n.a+2*k]]))
+			b.WriteByte(':')
+			t.compact(b, t.extras[n.a+2*k+1])
+		}
+		b.WriteByte('}')
+	}
+}
+
+func (t *ftree) indent(b *strings.Builder, id int32, depth int) {
+	n := t.nodes[id]
+	if (n.kind != kArray && n.kind != kObject) || n.b == 0 {
+		t.compact(b, id)
+		return
+	}
+	open, close := byte('['), byte(']')
+	if n.kind == kObject {
+		open, close = '{', '}'
+	}
+	b.WriteByte(open)
+	for k := int32(0); k < n.b; k++ {
+		if k > 0 {
+			b.WriteByte(',')
+		}
+		newline(b, depth+1)
+		child := t.extras[n.a+k]
+		if n.kind == kObject {
+			quote(b, t.text(t.nodes[t.extras[n.a+2*k]]))
+			b.WriteString(": ")
+			child = t.extras[n.a+2*k+1]
+		}
+		t.indent(b, child, depth+1)
+	}
+	newline(b, depth)
+	b.WriteByte(close)
+}
+
+func (t *ftree) get(toks []string) (int32, string) {
+	id, prefix := t.root, ""
+	for _, tok := range toks {
+		prefix += "/" + escaped(tok)
+		n := t.nodes[id]
+		next := int32(-1)
+		switch n.kind {
+		case kObject:
+			for k := n.b - 1; k >= 0; k-- {
+				if t.text(t.nodes[t.extras[n.a+2*k]]) == tok {
+					next = t.extras[n.a+2*k+1]
+					break
+				}
+			}
+		case kArray:
+			if i := index(tok); i >= 0 && i < int(n.b) {
+				next = t.extras[n.a+int32(i)]
+			}
+		}
+		if next < 0 {
+			return -1, prefix
+		}
+		id = next
+	}
+	return id, ""
+}
+
+func (t *ftree) count(id int32) int {
+	n := t.nodes[id]
+	c := 1
+	switch n.kind {
+	case kArray:
+		for _, x := range t.extras[n.a : n.a+n.b] {
+			c += t.count(x)
+		}
+	case kObject:
+		for k := int32(0); k < n.b; k++ {
+			c += t.count(t.extras[n.a+2*k+1])
+		}
+	}
+	return c
+}
+
+func (t *ftree) depth(id int32) int {
+	n := t.nodes[id]
+	step := int32(1)
+	switch n.kind {
+	case kArray:
+	case kObject:
+		step = 2
+	default:
+		return 0
+	}
+	d := 0
+	for k := int32(0); k < n.b; k++ {
+		d = max(d, t.depth(t.extras[n.a+step*k+step-1]))
+	}
+	return d + 1
+}
+
+func loadFlat(path string) ftree {
+	src := readSource(path)
+	t, serr := parseFlat(src)
+	if serr != nil {
+		dieSyntax(path, src, serr)
+	}
+	return t
+}
+
+// mainFlat runs a command of -flat; args has the flag removed.
+func mainFlat(args []string, b *strings.Builder) {
+	switch {
+	case args[0] == "fmt" && len(args) == 2:
+		t := loadFlat(args[1])
+		t.indent(b, t.root, 0)
+	case args[0] == "min" && len(args) == 2:
+		t := loadFlat(args[1])
+		t.compact(b, t.root)
+	case args[0] == "get" && len(args) == 3:
+		t := loadFlat(args[2])
+		toks, why := tokens(args[1])
+		if why != "" {
+			die(args[1] + ": " + why)
+		}
+		at, missing := t.get(toks)
+		if at < 0 {
+			die(args[2] + ": no value at " + missing)
+		}
+		t.indent(b, at, 0)
+	case args[0] == "check" && len(args) == 2:
+		t := loadFlat(args[1])
+		b.WriteString("values " + strconv.Itoa(t.count(t.root)) + "\ndepth " + strconv.Itoa(t.depth(t.root)))
+	default:
+		usage()
+	}
 }
 
 func usage() {
@@ -722,6 +1068,12 @@ func main() {
 		args = []string{"check", "-std", args[1]}
 	}
 	var b strings.Builder
+	if len(args) >= 2 && args[1] == "-flat" {
+		mainFlat(append([]string{args[0]}, args[2:]...), &b)
+		b.WriteByte('\n')
+		os.Stdout.WriteString(b.String())
+		return
+	}
 	switch {
 	case args[0] == "fmt" && len(args) == 2:
 		_, v := load(args[1])

@@ -190,6 +190,18 @@ func object(p *parser) Value fails Malformed {
 	}
 }
 
+// Decoded is a string literal's decoded bytes and the offset after its
+// closing quote.
+type Decoded { Text string, End int }
+
+// ReadString reads the string literal whose opening quote is at offset
+// open of src, as Parse reads one, with Parse's failures.
+func ReadString(src string, open int) Decoded fails Malformed {
+	let mut p = parser{src: src, pos: open, depth: 0}
+	let s = try text(&p)
+	Decoded{Text: s, End: p.pos}
+}
+
 // text reads a string after its opening quote: its bytes, with the
 // escapes decoded. A string with no escape and only ASCII is a slice of
 // the source.

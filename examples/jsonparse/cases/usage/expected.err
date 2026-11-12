@@ -1,1 +1,1 @@
-usage: jsonparse fmt FILE | min FILE | get POINTER FILE | check FILE | gen -seed S -n N
+usage: jsonparse fmt [-flat] FILE | min [-flat] FILE | get [-flat] POINTER FILE | check [-flat] FILE | gen -seed S -n N

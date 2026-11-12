@@ -1,0 +1,80 @@
+// The flat tree against the pointer tree of package json, over json's
+// generated values: the same reading, the same failures, the same text.
+
+import jsonparse/json
+import strings
+
+// PrintsAsTheTree: for the samples of seed, both printed forms read flat
+// print as json prints the value, and count and nest as it does.
+law PrintsAsTheTree(seed int) {
+	for v in json.Samples(seed) {
+		for form in []string{json.Compact(v), json.Indent(v)} {
+			let t = Parse(form) catch {
+			case json.Malformed:
+				return false
+			}
+			if Compact(t, t.Root) != json.Compact(v) || Indent(t, t.Root) != json.Indent(v) {
+				return false
+			}
+			if Count(t, t.Root) != json.Count(v) || Depth(t, t.Root) != json.Depth(v) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// FailsWhereTheTreeFails: a sample's text with the byte at at replaced
+// by c reads flat as it reads into a tree: the same failure at the same
+// place, or the same value.
+law FailsWhereTheTreeFails(seed int, at int, c byte) {
+	for v in json.Samples(seed) {
+		let text = json.Compact(v)
+		let k = if at < 0 { -at % (len(text) + 1) } else { at % (len(text) + 1) }
+		let mut b = strings.NewBuilder()
+		b.WriteString(strings.Slice(text, 0, k))
+		b.WriteByte(c)
+		b.WriteString(strings.Slice(text, if k < len(text) { k + 1 } else { k }, len(text)))
+		let broken = b.String()
+		let want = json.Parse(broken) catch {
+		case json.Malformed as m:
+			let _ = Parse(broken) catch {
+			case json.Malformed as f:
+				if f != m {
+					return false
+				}
+				continue
+			}
+			return false
+		}
+		let t = Parse(broken) catch {
+		case json.Malformed:
+			return false
+		}
+		if Compact(t, t.Root) != json.Compact(want) {
+			return false
+		}
+	}
+	true
+}
+
+// PointersReachTheTreesPlaces: each place of a sample, got flat by its
+// pointer, prints as the place.
+law PointersReachTheTreesPlaces(seed int) {
+	for v in json.Samples(seed) {
+		let t = Parse(json.Compact(v)) catch {
+		case json.Malformed:
+			return false
+		}
+		for p in json.Places(v) {
+			let id = Get(t, p.Pointer) catch {
+			case json.BadPointer, json.NoValue:
+				return false
+			}
+			if Compact(t, id) != json.Compact(p.At) {
+				return false
+			}
+		}
+	}
+	true
+}

@@ -1,0 +1,59 @@
+// The commands over the flat tree (`-flat`): the same output and the same
+// failure lines as the commands over the pointer tree.
+
+import jsonparse/flat
+import jsonparse/json
+
+// LoadFlat is the flat tree of the document at path.
+func LoadFlat(path string) flat.Tree fails Failed needs Documents {
+	let src = Documents.Read(path) catch {
+	case Unreadable as u:
+		return Failed{Line: u.Path + ": " + u.Reason}
+	}
+	flat.Parse(src) catch {
+	case json.Malformed as m:
+		return Failed{Line: path + ":\(m.Line):\(m.Col): " + m.Reason}
+	}
+}
+
+// FlatFmt is Fmt over the flat tree.
+func FlatFmt(path string) Outcome needs Documents {
+	let t = LoadFlat(path) catch {
+	case Failed as f:
+		return failed(f.Line)
+	}
+	Outcome{Out: flat.Indent(t, t.Root) + "\n", Err: "", Status: 0}
+}
+
+// FlatMin is Min over the flat tree.
+func FlatMin(path string) Outcome needs Documents {
+	let t = LoadFlat(path) catch {
+	case Failed as f:
+		return failed(f.Line)
+	}
+	Outcome{Out: flat.Compact(t, t.Root) + "\n", Err: "", Status: 0}
+}
+
+// FlatGet is Get over the flat tree.
+func FlatGet(ptr string, path string) Outcome needs Documents {
+	let t = LoadFlat(path) catch {
+	case Failed as f:
+		return failed(f.Line)
+	}
+	let at = flat.Get(t, ptr) catch {
+	case json.BadPointer as b:
+		return failed(b.Pointer + ": " + b.Why)
+	case json.NoValue as n:
+		return failed(path + ": no value at " + n.At)
+	}
+	Outcome{Out: flat.Indent(t, at) + "\n", Err: "", Status: 0}
+}
+
+// FlatCheck is Check over the flat tree.
+func FlatCheck(path string) Outcome needs Documents {
+	let t = LoadFlat(path) catch {
+	case Failed as f:
+		return failed(f.Line)
+	}
+	Outcome{Out: "values \(flat.Count(t, t.Root))\ndepth \(flat.Depth(t, t.Root))\n", Err: "", Status: 0}
+}

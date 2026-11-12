@@ -84,7 +84,7 @@ func step(v Value, t string, prefix string) Value fails NoValue {
 		}
 		NoValue{At: prefix}
 	case Array as a:
-		let i = index(t)
+		let i = Index(t)
 		if i < 0 || i >= len(a.Items) {
 			return NoValue{At: prefix}
 		}
@@ -94,9 +94,9 @@ func step(v Value, t string, prefix string) Value fails NoValue {
 	}
 }
 
-// index is the array index t spells: digits with no leading zero (but
+// Index is the array index t spells: digits with no leading zero (but
 // "0"), or -1.
-func index(t string) int {
+func Index(t string) int {
 	if len(t) == 0 || len(t) > 9 || (t[0] == '0' && len(t) > 1) {
 		return -1
 	}

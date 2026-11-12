@@ -7,6 +7,10 @@
 //	jsonparse check FILE          how many values FILE holds and how deep they nest
 //	jsonparse gen -seed S -n N    write the workload of N records for seed S
 //
+// fmt, min, get and check take -flat after the command word: they then
+// read the document into the flat tree of package flat (nodes in one
+// slice, children as ranges, strings as spans) and print the same.
+//
 // A text that is not JSON fails with its line and column. This binary is
 // the only place that chooses the providers: the host's files.
 
@@ -19,7 +23,7 @@ import os
 import strconv
 
 // Usage is the text of a usage failure.
-let Usage = "usage: jsonparse fmt FILE | min FILE | get POINTER FILE | check FILE | gen -seed S -n N"
+let Usage = "usage: jsonparse fmt [-flat] FILE | min [-flat] FILE | get [-flat] POINTER FILE | check [-flat] FILE | gen -seed S -n N"
 
 func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
 
@@ -47,6 +51,21 @@ func finish(o app.Outcome) fails os.Exit needs io.Stdout {
 func run(args []string) fails os.Exit needs io.Stdout | app.Documents {
 	if len(args) == 0 {
 		return usage()
+	}
+	if len(args) >= 2 && args[1] == "-flat" {
+		match (args[0], len(args)) {
+		case ("fmt", 3):
+			try finish(app.FlatFmt(args[2]))
+		case ("min", 3):
+			try finish(app.FlatMin(args[2]))
+		case ("get", 4):
+			try finish(app.FlatGet(args[2], args[3]))
+		case ("check", 3):
+			try finish(app.FlatCheck(args[2]))
+		case _:
+			return usage()
+		}
+		return
 	}
 	match (args[0], len(args)) {
 	case ("fmt", 2):

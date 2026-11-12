@@ -33,10 +33,25 @@ jsonparse: malformed.json:3:19: expected a value, found ","
 - **Typed failures with positions.** `json.Parse` fails with `json.Malformed{Offset, Line, Col, Reason}`; `json.Get` fails with `BadPointer | NoValue`; `app.Load` turns them into the line the user reads.
 - **Laws against models.** `json.PrintParsesBack` prints generated values both ways and reads them back; `json.PointersReachTheirPlaces` gets every place of a generated value by its pointer. `app.Documents.Repeatable` is the document contract's law, run on both providers.
 
+## The flat tree (`-flat`)
+
+`fmt`, `min`, `get` and `check` take `-flat` after the command word. They then read the document into the tree of package `flat`, which has the data-oriented layout of Yuku's and Zig's ASTs:
+- every value is a `flat.Node` (`Kind`, `A`, `B`: 12 bytes) in one slice, named by a dense `flat.NodeId`;
+- an array's children and an object's key and value ids are a range of a second slice, `Extras`;
+- a number or a plain string is a span of the source, and only a string with an escape or a byte outside ASCII is decoded, into `Pool`.
+
+A document of any size is a handful of growing slices, where package `json`'s tree is one box per value. Its laws hold it to package `json`:
+- `PrintsAsTheTree`: the same text, count and depth;
+- `FailsWhereTheTreeFails`: the same failure at the same byte;
+- `PointersReachTheTreesPlaces`.
+
+The receipts compare the two trees on one input.
+
 ## Layout
 
 - `json/`: values, the number machine, the parser, the printers, pointers, the generator and the laws.
-- `app/`: the `Documents` contract and the commands, from a document's name to output, error line and status.
+- `flat/`: the flat tree, its reader, printers and pointer walk, and the laws that tie it to `json/`.
+- `app/`: the `Documents` contract and the commands (`flat.ergo`: the `-flat` ones), from a document's name to output, error line and status.
 - `files/`: `Documents` over a file system (`fs.Files`); `NewDisk` builds one over an `fstest.Memory`, so `Repeatable` runs on it. `memory/`: `Documents` over texts in memory.
 - `workload/`: the generator of the receipts' document.
 - `cmd/jsonparse/main.ergo`: binds `files` over `fs.NewHost()`.
