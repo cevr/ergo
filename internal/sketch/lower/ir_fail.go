@@ -34,6 +34,21 @@ type irCase struct {
 	Def  bool      `json:"def,omitempty"`
 }
 
+// tempNames is the namer of a body's temporaries: below the function's Go
+// scope (its parameters, the package, Go's reserved names), with every
+// identifier the body spells taken, so a temporary captures no source
+// local, whatever the order they are declared in.
+func (b *irBuilder) tempNames(body *syntax.BlockStmt) *namer {
+	n := newNamer(b.fc.scope)
+	syntax.Inspect(body, func(x syntax.Node) bool {
+		if id, ok := x.(*syntax.Ident); ok {
+			n.used[id.Name] = true
+		}
+		return true
+	})
+	return n
+}
+
 // fallibleCall is x, unparenthesized, when it is a call that can fail at
 // its site.
 func (b *irBuilder) fallibleCall(x syntax.Expr) *syntax.CallExpr {
@@ -314,7 +329,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	for i, a := range arms {
 		c := &irCase{Pos: a.pos, Types: a.types}
 		if a.as != nil {
-			name := b.temp(a.as.Name, a.asT, a.pos)
+			name := b.named(a.as.Name, a.asT, a.pos)
 			b.locals[a.as] = name
 			c.Body = append(c.Body, &irStmt{K: "def", Pos: a.pos, Local: name, X: &irExpr{K: "assert", Pos: a.pos, T: a.asT, X: &irExpr{K: "local", Pos: a.pos, I: e}}})
 		}

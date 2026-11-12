@@ -57,7 +57,11 @@ func (fc *funcCtx) yieldList(list []syntax.Stmt, d dest) bool {
 	if d.kind == destStmt || len(list) == 0 {
 		return fc.stmts(list)
 	}
-	fc.stmts(list[:len(list)-1])
+	if fc.stmts(list[:len(list)-1]) {
+		// The tail never runs (a `for {}` that only leaves by return ends
+		// the list), and go vet reports it unreachable: it is not written.
+		return true
+	}
 	last := list[len(list)-1]
 	t := fc.yieldStmt(last, d)
 	if !t {

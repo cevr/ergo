@@ -30,17 +30,47 @@ func (b *irBuilder) local(v *check.Var, id *syntax.Ident) int {
 	if b.l.info.OwnedVars[v] != nil {
 		irNo("owned local")
 	}
-	i := b.temp(v.Name, b.goType(v.Type, id), b.pos(id, id.Pos()))
+	i := b.named(v.Name, b.goType(v.Type, id), b.pos(id, id.Pos()))
 	b.locals[v] = i
 	return i
 }
 
-// temp declares a local of the IR body that no Ergo variable names: an
-// if expression's result.
+// temp declares a temporary local of the Go type typ (an if expression's
+// result, a try's pair, a spilled operand), named after name but unique in
+// the function (tempNames): two temporaries never share a name, so the Go
+// text view (TXT) and DWARF tell them apart.
 func (b *irBuilder) temp(name, typ string, p irPos) int {
+	return b.declare(b.names.alloc(name), typ, p)
+}
+
+// named declares the local of a source variable spelled name (a let, an
+// `as` binding): it keeps its spelling unless that is taken (localName).
+func (b *irBuilder) named(name, typ string, p irPos) int {
+	return b.declare(b.localName(name), typ, p)
+}
+
+// localName is the Go name of a source local spelled name, the emitter's
+// discipline (names.go): its spelling when Go's scope of the function (its
+// parameters, the package, Go's reserved and predeclared names) and every
+// local and temporary of the body so far leave it free, else the
+// temporaries' namer's name_N. A local spelled len or string never shadows
+// Go's, and two locals of one spelling in two scopes are told apart.
+func (b *irBuilder) localName(name string) string {
+	if !b.fc.scope.taken(name) && !b.given[name] {
+		return name
+	}
+	return b.names.alloc(name)
+}
+
+// declare appends the local name of the Go type typ to the body.
+func (b *irBuilder) declare(name, typ string, p irPos) int {
 	i := b.next
 	b.next++
 	b.fn.Locals = append(b.fn.Locals, irLocal{Name: name, Type: typ, Pos: p})
+	if b.given == nil {
+		b.given = map[string]bool{}
+	}
+	b.given[name] = true
 	return i
 }
 

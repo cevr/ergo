@@ -273,6 +273,12 @@ type irBuilder struct {
 	labels int
 	// scalars are the locals in the scalar form (ir_scalar.go).
 	scalars map[*check.Var]*irScalar
+	// names allocates the temporaries' names (ir_fail.go, tempNames).
+	names *namer
+	// given are the names the body's locals and temporaries have: a
+	// source local keeps its spelling unless Go's scope or one of these
+	// has it (ir_stmt.go, localName).
+	given map[string]bool
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -401,6 +407,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.part(func() { b.goType(b.result, f.Decl) })
 	}
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
+	b.names = b.tempNames(f.Decl.Body) // ir_fail.go
 	if b.env >= 0 && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && !b.l.knownClosed(f) && fc.frame.polls {
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}

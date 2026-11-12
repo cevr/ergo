@@ -165,7 +165,7 @@ func (t *treeIR) write(cols []treeHead, alts [][]*check.Pattern, ep irPos) []*ir
 			if _, dup := b.locals[bd.v]; dup {
 				irNo("local declared twice")
 			}
-			l := b.temp(bd.v.Name, b.goType(bd.v.Type, s), p)
+			l := b.named(bd.v.Name, b.goType(bd.v.Type, s), p)
 			b.locals[bd.v] = l
 			decls = append(decls, &irStmt{K: "var", Pos: p, Local: l})
 		}
@@ -371,7 +371,7 @@ func (t *treeIR) leaf(lf *mleaf) []*irStmt {
 		if _, dup := b.locals[bd.v]; dup {
 			irNo("local declared twice")
 		}
-		l := b.temp(bd.v.Name, g, t.p)
+		l := b.named(bd.v.Name, g, t.p)
 		b.locals[bd.v] = l
 		out = append(out, &irStmt{K: "def", Pos: t.p, Local: l, X: e})
 	}

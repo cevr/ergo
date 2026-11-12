@@ -159,7 +159,7 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 			c.Vals = append(c.Vals, &irExpr{K: "const", Pos: cp, T: "uint8", V: strconv.Itoa(k)})
 		}
 		if as != nil {
-			name := b.temp(as.Name, b.goType(asType, cl), cp)
+			name := b.named(as.Name, b.goType(asType, cl), cp)
 			if _, dup := b.locals[as]; dup {
 				irNo("local declared twice")
 			}

@@ -1,12 +1,14 @@
 diff --git a/src/cmd/compile/internal/base/flag.go b/src/cmd/compile/internal/base/flag.go
-index c8f1b2d..028a9cf 100644
+index c8f1b2d..dbdb46e 100644
 --- a/src/cmd/compile/internal/base/flag.go
 +++ b/src/cmd/compile/internal/base/flag.go
-@@ -101,6 +101,7 @@ type CmdFlags struct {
+@@ -101,6 +101,9 @@ type CmdFlags struct {
  	Dynlink            *bool        "help:\"support references to Go symbols defined in other shared libraries\"" // &Ctxt.Flag_dynlink, set below
  	EmbedCfg           func(string) "help:\"read go:embed configuration from `file`\""
  	Env                func(string) "help:\"add `definition` of the form key=value to environment\""
 +	ErgoIR             string       "help:\"experimental: read typed function bodies from Ergo IR `file`\""
++	ErgoIRText         string       "help:\"with -ergoir: print the Go files that hold IR bodies, as compiled, into `dir`\""
++	ErgoIRShape        string       "help:\"write the structure of every function body, as compiled, to `file`\""
  	GenDwarfInl        int          "help:\"generate DWARF inline info records\"" // 0=disabled, 1=funcs, 2=funcs+formals/locals
  	GoVersion          string       "help:\"required version of the runtime\""
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
@@ -1322,6 +1324,812 @@ index 0000000..35e6dea
 +	}
 +	return e
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoir_text.go b/src/cmd/compile/internal/noder/ergoir_text.go
+new file mode 100644
+index 0000000..c0de35c
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_text.go
+@@ -0,0 +1,455 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Ergo IR decoder: the Go text of the IR bodies. See ergoir.go.
++//
++// With -ergoirtext=DIR, every Go file of the package that holds an IR body
++// is written to DIR (same base name) with each IR body printed as Go text
++// after its declaration: the typed syntax trees ergoAttach built, which the
++// unified writer then encodes, so the text is a view of what was compiled,
++// never an input. Each expression is printed from its type record: a
++// constant with its type, a zero value of its type, a composite literal
++// of its type. ergoir_text_shape.go writes the structure of the same trees
++// (-ergoirshape), which a build of the printed text must reproduce.
++
++package noder
++
++import (
++	"fmt"
++	"go/constant"
++	"os"
++	"path/filepath"
++	"strconv"
++	"strings"
++
++	"cmd/compile/internal/base"
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// ergoBodiless is every function declared without a body.
++func ergoBodiless(noders []*noder) map[*syntax.FuncDecl]bool {
++	out := map[*syntax.FuncDecl]bool{}
++	for _, p := range noders {
++		for _, d := range p.file.DeclList {
++			if fd, ok := d.(*syntax.FuncDecl); ok && fd.Body == nil {
++				out[fd] = true
++			}
++		}
++	}
++	return out
++}
++
++// ergoTextOut writes the text (-ergoirtext) and the structure
++// (-ergoirshape) of the bodies ergoAttach gave the functions of bodiless.
++func ergoTextOut(pkg *types2.Package, info *types2.Info, noders []*noder, bodiless map[*syntax.FuncDecl]bool) {
++	attached := map[*syntax.FuncDecl]bool{}
++	for fd := range bodiless {
++		if fd.Body != nil {
++			attached[fd] = true
++		}
++	}
++	if base.Flag.ErgoIRShape != "" {
++		ergoShapeOut(info, noders, attached)
++	}
++	if base.Flag.ErgoIRText == "" {
++		return
++	}
++	if err := os.MkdirAll(base.Flag.ErgoIRText, 0o755); err != nil {
++		base.Fatalf("ergoir: %v", err)
++	}
++	for _, p := range noders {
++		var decls []*syntax.FuncDecl
++		for _, d := range p.file.DeclList {
++			if fd, ok := d.(*syntax.FuncDecl); ok && attached[fd] {
++				decls = append(decls, fd)
++			}
++		}
++		if len(decls) == 0 {
++			continue
++		}
++		name := p.file.Pos().FileBase().Filename()
++		src, err := os.ReadFile(name)
++		if err != nil {
++			base.Fatalf("ergoir: %v", err)
++		}
++		text, err := ergoFileText(pkg, info, p.file, string(src), decls)
++		if err != nil {
++			base.Fatalf("ergoir: %s: %v", name, err)
++		}
++		if err := os.WriteFile(filepath.Join(base.Flag.ErgoIRText, filepath.Base(name)), []byte(text), 0o644); err != nil {
++			base.Fatalf("ergoir: %v", err)
++		}
++	}
++}
++
++// ergoFileText is src with each of decls' bodies printed after its
++// signature, which ends its line.
++func ergoFileText(pkg *types2.Package, info *types2.Info, file *syntax.File, src string, decls []*syntax.FuncDecl) (string, error) {
++	p := &ergoPrinter{pkg: pkg, info: info, imports: map[string]string{}}
++	for _, d := range file.DeclList {
++		if id, ok := d.(*syntax.ImportDecl); ok && id.LocalPkgName != nil && id.Path != nil {
++			if path, err := strconv.Unquote(id.Path.Value); err == nil {
++				p.imports[path] = id.LocalPkgName.Value
++			}
++		}
++	}
++	lines := strings.Split(src, "\n")
++	bodies := map[int]string{} // line index -> the body to append
++	for _, fd := range decls {
++		end := syntax.EndPos(fd.Type)
++		if end.FileBase() != file.Pos().FileBase() || end.Line() == 0 || int(end.Line()) > len(lines) {
++			return "", fmt.Errorf("%s: the signature's end %v is not in the file", fd.Name.Value, end)
++		}
++		p.b.Reset()
++		p.block(fd.Body.List, 1)
++		// The lines after the body keep their positions.
++		p.b.WriteString(fmt.Sprintf("}\n//line %s:%d", end.RelFilename(), end.RelLine()+1))
++		bodies[int(end.Line())-1] = p.b.String()
++	}
++	var out strings.Builder
++	for i, l := range lines {
++		body, ok := bodies[i]
++		if !ok {
++			out.WriteString(l)
++		} else {
++			comment := ""
++			if j := strings.Index(l, "//"); j >= 0 {
++				l, comment = strings.TrimRight(l[:j], " \t"), " "+l[j:]
++			}
++			out.WriteString(l + " {" + comment + "\n" + body)
++		}
++		if i < len(lines)-1 {
++			out.WriteByte('\n')
++		}
++	}
++	return out.String(), nil
++}
++
++// ergoPrinter prints typed syntax as Go text.
++type ergoPrinter struct {
++	pkg     *types2.Package
++	info    *types2.Info
++	imports map[string]string // package path -> its local name in the file
++	b       strings.Builder
++	at      string // the position directive of the next line
++}
++
++func (p *ergoPrinter) line(depth int, s string) {
++	p.b.WriteString(strings.Repeat("\t", depth))
++	p.b.WriteString(p.at)
++	p.at = ""
++	p.b.WriteString(s)
++	p.b.WriteByte('\n')
++}
++
++func (p *ergoPrinter) block(list []syntax.Stmt, depth int) {
++	for _, s := range list {
++		p.stmt(s, depth)
++	}
++}
++
++func (p *ergoPrinter) stmt(s syntax.Stmt, depth int) {
++	// The statement's line starts at its .ergo position.
++	if pos := s.Pos(); pos.IsKnown() {
++		p.at = fmt.Sprintf("/*line %s:%d:%d*/", pos.RelFilename(), pos.RelLine(), pos.RelCol())
++	}
++	switch s := s.(type) {
++	case *syntax.EmptyStmt:
++	case *syntax.BlockStmt:
++		p.line(depth, "{")
++		p.block(s.List, depth+1)
++		p.line(depth, "}")
++	case *syntax.IfStmt:
++		p.ifStmt(s, depth, "")
++	case *syntax.ForStmt:
++		head := "for "
++		switch {
++		case s.Init == nil && s.Cond == nil && s.Post == nil:
++		case s.Init != nil && s.Cond == nil && s.Post == nil:
++			if rc, ok := s.Init.(*syntax.RangeClause); ok {
++				head += p.rangeClause(rc) + " "
++				break
++			}
++			head += p.simple(s.Init) + "; ; "
++		case s.Init == nil && s.Post == nil:
++			head += p.header(s.Cond) + " "
++		default:
++			head += p.simple(s.Init) + "; " + p.header(s.Cond) + "; " + p.simple(s.Post) + " "
++		}
++		p.line(depth, head+"{")
++		p.block(s.Body.List, depth+1)
++		p.line(depth, "}")
++	case *syntax.SwitchStmt:
++		head := "switch "
++		if s.Init != nil {
++			head += p.simple(s.Init) + "; "
++		}
++		if s.Tag != nil {
++			head += p.header(s.Tag) + " "
++		}
++		p.line(depth, head+"{")
++		for _, c := range s.Body {
++			if c.Cases == nil {
++				p.line(depth, "default:")
++			} else {
++				p.line(depth, "case "+p.expr(c.Cases)+":")
++			}
++			p.block(c.Body, depth+1)
++		}
++		p.line(depth, "}")
++	case *syntax.ReturnStmt:
++		if s.Results == nil {
++			p.line(depth, "return")
++		} else {
++			p.line(depth, "return "+p.expr(s.Results))
++		}
++	case *syntax.BranchStmt:
++		t := s.Tok.String()
++		if s.Label != nil {
++			t += " " + s.Label.Value
++		}
++		p.line(depth, t)
++	case *syntax.ExprStmt, *syntax.AssignStmt:
++		p.line(depth, p.simple(s.(syntax.SimpleStmt)))
++	default:
++		p.line(depth, fmt.Sprintf("ergoirNoText() /* %T */", s))
++	}
++}
++
++func (p *ergoPrinter) ifStmt(s *syntax.IfStmt, depth int, prefix string) {
++	head := "if "
++	if s.Init != nil {
++		head += p.simple(s.Init) + "; "
++	}
++	p.line(depth, prefix+head+p.header(s.Cond)+" {")
++	p.block(s.Then.List, depth+1)
++	switch e := s.Else.(type) {
++	case nil:
++		p.line(depth, "}")
++	case *syntax.IfStmt:
++		p.ifStmt(e, depth, "} else ")
++	case *syntax.BlockStmt:
++		p.line(depth, "} else {")
++		p.block(e.List, depth+1)
++		p.line(depth, "}")
++	default:
++		p.line(depth, fmt.Sprintf("} else { ergoirNoText() /* %T */ }", e))
++	}
++}
++
++// simple is a statement that fits a header: an assignment or an
++// expression.
++func (p *ergoPrinter) simple(s syntax.SimpleStmt) string {
++	switch s := s.(type) {
++	case *syntax.ExprStmt:
++		return p.expr(s.X)
++	case *syntax.AssignStmt:
++		lhs := p.expr(s.Lhs)
++		switch {
++		case s.Rhs == nil:
++			return lhs + s.Op.String() + s.Op.String()
++		case s.Op == syntax.Def:
++			return lhs + " := " + p.expr(s.Rhs)
++		case s.Op == 0:
++			return lhs + " = " + p.expr(s.Rhs)
++		}
++		return lhs + " " + s.Op.String() + "= " + p.expr(s.Rhs)
++	}
++	return fmt.Sprintf("ergoirNoText() /* %T */", s)
++}
++
++func (p *ergoPrinter) rangeClause(rc *syntax.RangeClause) string {
++	x := p.header(rc.X)
++	if rc.Lhs == nil || ergoAllBlank(rc.Lhs) {
++		return "range " + x
++	}
++	op := " = "
++	if rc.Def {
++		op = " := "
++	}
++	return p.expr(rc.Lhs) + op + "range " + x
++}
++
++// ergoAllBlank reports a left-hand side of blank names only.
++func ergoAllBlank(x syntax.Expr) bool {
++	l, ok := x.(*syntax.ListExpr)
++	if !ok {
++		n, ok := x.(*syntax.Name)
++		return ok && n.Value == "_"
++	}
++	for _, e := range l.ElemList {
++		if !ergoAllBlank(e) {
++			return false
++		}
++	}
++	return true
++}
++
++// header is an expression in a statement header, where a composite
++// literal needs parentheses.
++func (p *ergoPrinter) header(x syntax.Expr) string {
++	s := p.expr(x)
++	if strings.Contains(s, "{") {
++		return "(" + s + ")"
++	}
++	return s
++}
++
++func (p *ergoPrinter) expr(x syntax.Expr) string {
++	tv := x.GetTypeInfo()
++	if tv.Value != nil && !tv.IsType() {
++		return p.constant(tv.Type, tv.Value)
++	}
++	switch x := x.(type) {
++	case *syntax.Name:
++		switch {
++		case tv.IsNil():
++			return p.zero(tv.Type)
++		case tv.IsType() && tv.Type != nil:
++			return p.typ(tv.Type)
++		}
++		// A local by the IR's own name: two locals of one scope with one
++		// name do not compile, or bind as Go's := does, and the text's
++		// structure then differs (TestIRTextChecks).
++		return x.Value
++	case *syntax.ParenExpr:
++		return "(" + p.expr(x.X) + ")"
++	case *syntax.Operation:
++		if x.Y == nil {
++			return "(" + x.Op.String() + p.expr(x.X) + ")"
++		}
++		return "(" + p.expr(x.X) + " " + x.Op.String() + " " + p.expr(x.Y) + ")"
++	case *syntax.CallExpr:
++		args := make([]string, len(x.ArgList))
++		for i, a := range x.ArgList {
++			args[i] = p.expr(a)
++		}
++		dots := ""
++		if x.HasDots {
++			dots = "..."
++		}
++		return p.expr(x.Fun) + "(" + strings.Join(args, ", ") + dots + ")"
++	case *syntax.SelectorExpr:
++		return p.expr(x.X) + "." + x.Sel.Value
++	case *syntax.IndexExpr:
++		return p.expr(x.X) + "[" + p.expr(x.Index) + "]"
++	case *syntax.SliceExpr:
++		s := p.expr(x.X) + "["
++		for i, e := range x.Index {
++			if i > 0 {
++				s += ":"
++			}
++			if e != nil {
++				s += p.expr(e)
++			}
++		}
++		return s + "]"
++	case *syntax.AssertExpr:
++		return p.expr(x.X) + ".(" + p.expr(x.Type) + ")"
++	case *syntax.TypeSwitchGuard:
++		s := p.expr(x.X) + ".(type)"
++		if x.Lhs != nil {
++			s = x.Lhs.Value + " := " + s
++		}
++		return s
++	case *syntax.CompositeLit:
++		if tv.Type == nil {
++			break
++		}
++		elems := make([]string, len(x.ElemList))
++		for i, e := range x.ElemList {
++			elems[i] = p.expr(e)
++		}
++		return p.typeOperand(tv.Type) + "{" + strings.Join(elems, ", ") + "}"
++	case *syntax.KeyValueExpr:
++		return p.expr(x.Key) + ": " + p.expr(x.Value)
++	case *syntax.ListExpr:
++		elems := make([]string, len(x.ElemList))
++		for i, e := range x.ElemList {
++			elems[i] = p.expr(e)
++		}
++		return strings.Join(elems, ", ")
++	}
++	return fmt.Sprintf("ergoirNoText() /* %T */", x)
++}
++
++func (p *ergoPrinter) qualifier(pkg *types2.Package) string {
++	if pkg == p.pkg {
++		return ""
++	}
++	if n, ok := p.imports[pkg.Path()]; ok {
++		return n
++	}
++	return pkg.Name()
++}
++
++func (p *ergoPrinter) typ(t types2.Type) string {
++	return types2.TypeString(t, p.qualifier)
++}
++
++// typeOperand is t spelled to be called or followed by a literal: a
++// (qualified) name as it is, any other type in parentheses.
++func (p *ergoPrinter) typeOperand(t types2.Type) string {
++	s := p.typ(t)
++	if _, named := types2.Unalias(t).(*types2.Named); named {
++		return s
++	}
++	if _, basic := t.(*types2.Basic); basic {
++		return s
++	}
++	if strings.HasPrefix(s, "[]") && !strings.Contains(s, "func") && !strings.Contains(s, "chan") {
++		return s
++	}
++	return "(" + s + ")"
++}
++
++// constant is v as a constant of type t: a bare literal when t is the
++// literal's default type, else a conversion.
++func (p *ergoPrinter) constant(t types2.Type, v constant.Value) string {
++	var lit string
++	def := types2.Typ[types2.Invalid]
++	switch v.Kind() {
++	case constant.Bool:
++		lit, def = v.ExactString(), types2.Typ[types2.Bool]
++	case constant.String:
++		lit, def = strconv.Quote(constant.StringVal(v)), types2.Typ[types2.String]
++	case constant.Int:
++		lit, def = v.ExactString(), types2.Typ[types2.Int]
++	case constant.Float:
++		f, _ := constant.Float64Val(v)
++		lit, def = strconv.FormatFloat(f, 'g', -1, 64), types2.Typ[types2.Float64]
++		if !strings.ContainsAny(lit, ".eEn") {
++			lit += ".0"
++		}
++	default:
++		lit = v.ExactString()
++	}
++	if b, ok := t.(*types2.Basic); t == nil || ok && (b == def || b.Info()&types2.IsUntyped != 0) {
++		if strings.HasPrefix(lit, "-") {
++			return "(" + lit + ")"
++		}
++		return lit
++	}
++	return p.typeOperand(t) + "(" + lit + ")"
++}
++
++// zero is the zero value of t, which the IR spells as a nil the writer
++// encodes as t's zero.
++func (p *ergoPrinter) zero(t types2.Type) string {
++	switch u := t.Underlying().(type) {
++	case *types2.Basic:
++		switch {
++		case u.Info()&types2.IsBoolean != 0:
++			return p.constant(t, constant.MakeBool(false))
++		case u.Info()&types2.IsString != 0:
++			return p.constant(t, constant.MakeString(""))
++		case u.Info()&types2.IsNumeric != 0:
++			return p.constant(t, constant.MakeInt64(0))
++		}
++	case *types2.Struct, *types2.Array:
++		return p.typeOperand(t) + "{}"
++	}
++	return p.typeOperand(t) + "(nil)"
++}
+diff --git a/src/cmd/compile/internal/noder/ergoir_text_shape.go b/src/cmd/compile/internal/noder/ergoir_text_shape.go
+new file mode 100644
+index 0000000..1010bb7
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_text_shape.go
+@@ -0,0 +1,339 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Ergo IR decoder: the structure of function bodies. See ergoir_text.go.
++//
++// With -ergoirshape=FILE, the compiler writes one block per function body
++// of the package (with -ergoir: per IR body) to FILE: every statement and
++// expression in order, each with what the writer encodes of it (its kind,
++// operator, the object a name denotes, a constant's value, the recorded
++// type), and nothing it does not (positions, parentheses, spelling). A
++// build of the -ergoirtext output must write the same blocks for the IR
++// functions as the IR build did: the printed text then compiles to what
++// was compiled. This walk shares no code with the printer.
++
++package noder
++
++import (
++	"fmt"
++	"go/constant"
++	"os"
++	"strings"
++
++	"cmd/compile/internal/base"
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// ergoShapeOut writes the shape of every function body of the package,
++// or of only's functions when only is not nil.
++func ergoShapeOut(info *types2.Info, noders []*noder, only map[*syntax.FuncDecl]bool) {
++	var b strings.Builder
++	for _, p := range noders {
++		for _, d := range p.file.DeclList {
++			fd, ok := d.(*syntax.FuncDecl)
++			if !ok || fd.Body == nil || only != nil && !only[fd] {
++				continue
++			}
++			obj, ok := info.Defs[fd.Name].(*types2.Func)
++			if !ok {
++				continue
++			}
++			s := &ergoShaper{info: info, ids: map[types2.Object]string{}, b: &b}
++			sig := obj.Type().(*types2.Signature)
++			if r := sig.Recv(); r != nil {
++				s.ids[r] = "recv"
++			}
++			for i := 0; i < sig.Params().Len(); i++ {
++				s.ids[sig.Params().At(i)] = fmt.Sprintf("p%d", i)
++			}
++			for i := 0; i < sig.Results().Len(); i++ {
++				s.ids[sig.Results().At(i)] = fmt.Sprintf("r%d", i)
++			}
++			fmt.Fprintf(&b, "func %s\n", ergoKey(obj))
++			s.stmts(fd.Body.List, 1)
++			b.WriteString("end\n")
++		}
++	}
++	if err := os.WriteFile(base.Flag.ErgoIRShape, []byte(b.String()), 0o644); err != nil {
++		base.Fatalf("ergoir: %v", err)
++	}
++}
++
++type ergoShaper struct {
++	info   *types2.Info
++	ids    map[types2.Object]string
++	locals int
++	b      *strings.Builder
++}
++
++func (s *ergoShaper) out(depth int, format string, args ...any) {
++	s.b.WriteString(strings.Repeat(" ", depth))
++	fmt.Fprintf(s.b, format, args...)
++	s.b.WriteByte('\n')
++}
++
++func ergoShapeType(t types2.Type) string {
++	if t == nil {
++		return "void"
++	}
++	if tup, ok := t.(*types2.Tuple); ok && tup.Len() == 0 {
++		return "void"
++	}
++	// The IR records a comparison as bool where types2 records untyped
++	// bool; the writer encodes both as bool.
++	return types2.TypeString(types2.Default(t), nil)
++}
++
++// object is what a name denotes: a parameter, a local (numbered in order
++// of definition), a package-level or a universe object.
++func (s *ergoShaper) object(n *syntax.Name) string {
++	if n.Value == "_" {
++		return "_"
++	}
++	obj, def := s.info.Defs[n], true
++	if obj == nil {
++		obj, def = s.info.Uses[n], false
++	}
++	if obj == nil {
++		return "unresolved " + n.Value
++	}
++	if id, ok := s.ids[obj]; ok {
++		return id
++	}
++	switch {
++	case obj.Parent() == types2.Universe:
++		return "universe." + obj.Name()
++	case obj.Pkg() != nil && obj.Pkg().Scope().Lookup(obj.Name()) == obj:
++		return "package." + obj.Name()
++	case def:
++		id := fmt.Sprintf("local%d", s.locals)
++		s.locals++
++		s.ids[obj] = id
++		return id
++	}
++	return "out of scope " + n.Value
++}
++
++func (s *ergoShaper) stmts(list []syntax.Stmt, depth int) {
++	for _, st := range list {
++		s.stmt(st, depth)
++	}
++}
++
++func (s *ergoShaper) stmt(st syntax.Stmt, depth int) {
++	switch st := st.(type) {
++	case nil:
++		s.out(depth, "none")
++	case *syntax.EmptyStmt:
++	case *syntax.BlockStmt:
++		s.out(depth, "block")
++		s.stmts(st.List, depth+1)
++	case *syntax.ExprStmt:
++		s.out(depth, "expr")
++		s.expr(st.X, depth+1)
++	case *syntax.AssignStmt:
++		s.out(depth, "assign op %d", st.Op)
++		s.lhs(st.Lhs, depth+1)
++		if st.Rhs != nil {
++			s.expr(st.Rhs, depth+1)
++		}
++	case *syntax.ReturnStmt:
++		s.out(depth, "return")
++		if st.Results != nil {
++			s.expr(st.Results, depth+1)
++		}
++	case *syntax.IfStmt:
++		s.out(depth, "if")
++		if st.Init != nil {
++			s.stmt(st.Init, depth+1)
++		}
++		s.expr(st.Cond, depth+1)
++		s.stmt(st.Then, depth+1)
++		if st.Else != nil {
++			s.out(depth, "else")
++			s.stmt(st.Else, depth+1)
++		}
++	case *syntax.ForStmt:
++		s.out(depth, "for")
++		if rc, ok := st.Init.(*syntax.RangeClause); ok {
++			s.out(depth+1, "range def %t", rc.Def)
++			if rc.Lhs != nil && !ergoAllBlank(rc.Lhs) {
++				s.lhs(rc.Lhs, depth+2)
++			}
++			s.expr(rc.X, depth+2)
++		} else if st.Init != nil {
++			s.stmt(st.Init, depth+1)
++		}
++		if st.Cond != nil {
++			s.out(depth+1, "cond")
++			s.expr(st.Cond, depth+2)
++		}
++		if st.Post != nil {
++			s.out(depth+1, "post")
++			s.stmt(st.Post, depth+2)
++		}
++		s.stmt(st.Body, depth+1)
++	case *syntax.SwitchStmt:
++		s.out(depth, "switch")
++		if st.Init != nil {
++			s.stmt(st.Init, depth+1)
++		}
++		if st.Tag != nil {
++			s.expr(st.Tag, depth+1)
++		}
++		for _, c := range st.Body {
++			if c.Cases == nil {
++				s.out(depth+1, "default")
++			} else {
++				s.out(depth+1, "case")
++				s.expr(c.Cases, depth+2)
++			}
++			s.out(depth+1, "body")
++			s.stmts(c.Body, depth+2)
++		}
++	case *syntax.BranchStmt:
++		s.out(depth, "branch %v", st.Tok)
++	default:
++		s.out(depth, "statement %T", st)
++	}
++}
++
++// lhs is the left-hand side of an assignment or a range: names defined or
++// assigned, or other expressions.
++func (s *ergoShaper) lhs(x syntax.Expr, depth int) {
++	switch x := x.(type) {
++	case *syntax.ListExpr:
++		for _, e := range x.ElemList {
++			s.lhs(e, depth)
++		}
++	case *syntax.Name:
++		s.out(depth, "name %s", s.object(x))
++	default:
++		s.expr(x, depth)
++	}
++}
++
++func (s *ergoShaper) expr(x syntax.Expr, depth int) {
++	if p, ok := x.(*syntax.ParenExpr); ok {
++		s.expr(p.X, depth)
++		return
++	}
++	tv := x.GetTypeInfo()
++	switch {
++	case tv.IsType():
++		s.out(depth, "type %s", ergoShapeType(tv.Type))
++		return
++	case tv.Value != nil:
++		s.out(depth, "constant %s %s", ergoShapeType(tv.Type), tv.Value.ExactString())
++		return
++	case tv.IsNil():
++		s.zero(tv.Type, depth)
++		return
++	case tv.IsBuiltin():
++		s.out(depth, "builtin %s", syntax.String(x))
++		return
++	}
++	if call, ok := x.(*syntax.CallExpr); ok && len(call.ArgList) == 1 && call.Fun.GetTypeInfo().IsType() && call.ArgList[0].GetTypeInfo().IsNil() {
++		s.zero(tv.Type, depth) // T(nil)
++		return
++	}
++	typ := ergoShapeType(tv.Type)
++	switch x := x.(type) {
++	case *syntax.Name:
++		s.out(depth, "name %s %s", s.object(x), typ)
++	case *syntax.Operation:
++		s.out(depth, "operation %v %s", x.Op, typ)
++		s.expr(x.X, depth+1)
++		if x.Y != nil {
++			s.expr(x.Y, depth+1)
++		}
++	case *syntax.CallExpr:
++		s.out(depth, "call dots %t %s", x.HasDots, typ)
++		s.expr(x.Fun, depth+1)
++		for _, a := range x.ArgList {
++			s.expr(a, depth+1)
++		}
++	case *syntax.SelectorExpr:
++		s.out(depth, "selector %s %s", x.Sel.Value, typ)
++		s.expr(x.X, depth+1)
++	case *syntax.IndexExpr:
++		s.out(depth, "index %s", typ)
++		s.expr(x.X, depth+1)
++		s.expr(x.Index, depth+1)
++	case *syntax.SliceExpr:
++		s.out(depth, "slice %s", typ)
++		s.expr(x.X, depth+1)
++		for _, e := range x.Index {
++			if e == nil {
++				s.out(depth+1, "none")
++			} else {
++				s.expr(e, depth+1)
++			}
++		}
++	case *syntax.AssertExpr:
++		s.out(depth, "assert %s", typ)
++		s.expr(x.X, depth+1)
++		s.expr(x.Type, depth+1)
++	case *syntax.TypeSwitchGuard:
++		lhs := ""
++		if x.Lhs != nil {
++			lhs = s.object(x.Lhs)
++		}
++		s.out(depth, "type switch %s", lhs)
++		s.expr(x.X, depth+1)
++	case *syntax.CompositeLit:
++		s.out(depth, "composite %d %s", len(x.ElemList), typ)
++		for _, e := range x.ElemList {
++			s.expr(e, depth+1)
++		}
++	case *syntax.KeyValueExpr:
++		key := "?"
++		if n, ok := x.Key.(*syntax.Name); ok {
++			key = n.Value
++		}
++		s.out(depth, "key %s", key)
++		s.expr(x.Value, depth+1)
++	case *syntax.ListExpr:
++		s.out(depth, "list %d", len(x.ElemList))
++		for _, e := range x.ElemList {
++			s.expr(e, depth+1)
++		}
++	default:
++		s.out(depth, "expression %T %s", x, typ)
++	}
++}
++
++// zero is t's zero value, which the IR spells as a typed nil and Go text
++// as a constant, T{} or T(nil).
++func (s *ergoShaper) zero(t types2.Type, depth int) {
++	if t == nil {
++		s.out(depth, "zero void")
++		return
++	}
++	if u, ok := t.Underlying().(*types2.Basic); ok {
++		var v constant.Value
++		switch {
++		case u.Info()&types2.IsBoolean != 0:
++			v = constant.MakeBool(false)
++		case u.Info()&types2.IsString != 0:
++			v = constant.MakeString("")
++		case u.Info()&types2.IsNumeric != 0:
++			v = constant.MakeInt64(0)
++		}
++		if v != nil {
++			s.out(depth, "constant %s %s", ergoShapeType(t), v.ExactString())
++			return
++		}
++	}
++	if _, ok := t.Underlying().(*types2.Struct); ok {
++		s.out(depth, "composite 0 %s", ergoShapeType(t))
++		return
++	}
++	if _, ok := t.Underlying().(*types2.Array); ok {
++		s.out(depth, "composite 0 %s", ergoShapeType(t))
++		return
++	}
++	s.out(depth, "zero %s", ergoShapeType(t))
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
 new file mode 100644
 index 0000000..0ad692c
@@ -1679,15 +2487,19 @@ index 0000000..9a3cbd3
 +	return nil, nil, false
 +}
 diff --git a/src/cmd/compile/internal/noder/unified.go b/src/cmd/compile/internal/noder/unified.go
-index 9ec2e40..b96b76f 100644
+index 9ec2e40..e04cee0 100644
 --- a/src/cmd/compile/internal/noder/unified.go
 +++ b/src/cmd/compile/internal/noder/unified.go
-@@ -320,6 +320,9 @@ func readBodies(target *ir.Package, duringInlining bool, profile *pgoir.Profile)
+@@ -320,6 +320,13 @@ func readBodies(target *ir.Package, duringInlining bool, profile *pgoir.Profile)
  // and returns the result.
  func writePkgStub(m posMap, noders []*noder) string {
  	pkg, info, otherInfo := checkFiles(m, noders)
 +	if base.Flag.ErgoIR != "" {
++		bodiless := ergoBodiless(noders)
 +		ergoAttach(m, pkg, info, noders)
++		ergoTextOut(pkg, info, noders, bodiless) // ergoir_text.go
++	} else if base.Flag.ErgoIRShape != "" {
++		ergoShapeOut(info, noders, nil)
 +	}
  
  	pw := newPkgWriter(m, pkg, info, otherInfo)

@@ -12,11 +12,13 @@ import (
 	"strings"
 	"syscall"
 
+	"ergo.local/prototype/internal/experimental/irspike"
 	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/toolchain"
 )
@@ -98,6 +100,9 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	if err != nil {
 		return receipt.Location{}, err
 	}
+	if opts.goText != "" {
+		return output, buildGoText(l, opts, output)
+	}
 	root, err := build.DefaultRoot()
 	if err != nil {
 		return receipt.Location{}, err
@@ -126,6 +131,34 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		return receipt.Location{}, err
 	}
 	return output, nil
+}
+
+// buildGoText is build -go-text DIR (plan-tier §2, TXT): it lowers the
+// program through IR, builds the executable with the patched compile, and
+// writes into DIR, which must not exist, the Go module as compiled: each
+// IR body printed as Go text at its .ergo positions, a view for go vet,
+// gopls and a reader, never an input. The IR build is for the host only.
+func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
+	if opts.platform.GOOS != runtime.GOOS || opts.platform.GOARCH != runtime.GOARCH {
+		return fmt.Errorf("-go-text builds for the host platform %s/%s only, not %s", runtime.GOOS, runtime.GOARCH, opts.platform)
+	}
+	tc, err := irspike.PatchedToolchain()
+	if err != nil {
+		return fmt.Errorf("-go-text: %w", err)
+	}
+	dir, err := filepath.Abs(opts.goText)
+	if err != nil {
+		return err
+	}
+	unit, err := sketchfront.IRSpikeUnit(l.analysis, l.source.Admitted())
+	if err != nil {
+		return err
+	}
+	files, _, err := lower.LowerIR(unit)
+	if err != nil {
+		return err
+	}
+	return irspike.GoText(files, tc, output.Path(), dir, os.Stderr)
 }
 
 // buildAction is the Go build action of opts' command: the go command
