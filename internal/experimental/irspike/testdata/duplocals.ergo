@@ -1,0 +1,18 @@
+// The smallest repro of the duplicate-locals bug (wf10 TXT r1): each try
+// binds a value and an error temporary, and the IR builder named both
+// pairs v and err in one scope.
+
+type Bad { Code int }
+
+func one(n int) int fails Bad {
+	if n < 0 {
+		return Bad{Code: n}
+	}
+	n
+}
+
+func two(n int) int fails Bad {
+	let a = try one(n)
+	let b = try one(a)
+	b
+}

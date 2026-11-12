@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -25,6 +26,7 @@ import (
 //     text is what was compiled, not only Go that checks (mutant
 //     ir-text-not-what-compiled).
 //
+// One row more is the smallest repro of a fixed bug, testdata/duplocals.ergo.
 // The functions compared must be every IR body of every such target. These
 // tests build Go because the question is what the patched compiler
 // compiled, and types2 and vet of its printed text; no in-process check
@@ -41,13 +43,13 @@ func TestIRTextChecks(t *testing.T) {
 	}
 	only := os.Getenv("ERGO_IRSPIKE_EXAMPLE") // a replay of one program
 	withIR, checked, funcs, wantFuncs := 0, 0, 0, 0
-	check := func(what string, files []lower.File, rep lower.IRReport) {
+	check := func(what, program string, files []lower.File, rep lower.IRReport) {
 		if len(rep.IR) == 0 {
 			return
 		}
 		withIR++
 		wantFuncs += len(rep.IR)
-		replay := fmt.Sprintf("replay: ERGO_IRSPIKE_EXAMPLE=%s go test -run TestIRTextChecks ./internal/experimental/irspike", filepath.Base(programOf(root, strings.TrimSuffix(what, " test"))))
+		replay := fmt.Sprintf("replay: ERGO_IRSPIKE_EXAMPLE=%s go test -run TestIRTextChecks ./internal/experimental/irspike", program)
 		work := t.TempDir()
 		text := filepath.Join(work, "text")
 		irShape, textShape := filepath.Join(work, "ir.shape"), filepath.Join(work, "text.shape")
@@ -94,7 +96,7 @@ func TestIRTextChecks(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", dir, err)
 		}
-		check(dir, files, rep)
+		check(dir, filepath.Base(programOf(root, dir)), files, rep)
 	}
 	for _, dir := range tests {
 		if only != "" && filepath.Base(programOf(root, dir)) != only {
@@ -108,7 +110,25 @@ func TestIRTextChecks(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s test build: %v", dir, err)
 		}
-		check(dir+" test", files, rep)
+		check(dir+" test", filepath.Base(programOf(root, dir)), files, rep)
+	}
+	// The smallest repro of the duplicate-locals bug (TXT r1): two try
+	// temporaries of one scope were both named v and err, so the text did
+	// not compile, or := reused the first variable (mutant
+	// ir-temp-name-reused).
+	if only == "" || only == "duplocals" {
+		u, err := Load(filepath.Join("testdata", "duplocals.ergo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files, rep, err := lower.LowerIRTests(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(rep.IR, "two") {
+			t.Fatalf("duplocals: two has no IR body: %v", rep.Fallback)
+		}
+		check("duplocals", "duplocals", files, rep)
 	}
 	if checked != withIR || funcs != wantFuncs || (only == "" && funcs == 0) {
 		t.Fatalf("checked %d of %d targets with IR bodies, %d of %d IR functions", checked, withIR, funcs, wantFuncs)
