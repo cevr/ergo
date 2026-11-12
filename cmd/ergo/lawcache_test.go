@@ -130,7 +130,7 @@ func TestLawVerdictsCLI(t *testing.T) {
 	out := test()
 	for _, line := range held {
 		ok, rest := verdictAt(out, line)
-		if !strings.HasSuffix(ok, ") (cached)") {
+		if !strings.HasSuffix(ok, ") (cached)") || strings.Count(out, line) != 1 {
 			t.Fatalf("a second ergo test does not print %q cached:\n%s", line, out)
 		}
 		// A search's witness, printed after its ok line, is printed again.

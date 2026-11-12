@@ -117,6 +117,9 @@
       "to": "if strings.HasPrefix(arg, \"-test.\") && false {",
       "rule": "A Go test binary of another name is known by its testing flags.",
       "killers": ["internal/sketch/build:TestTestBinaryIsNamedOrFlagged"]
-    }
+    },
+    {"name":"lc-trim-laws-not-counted","origin":"wf10 LAWCACHE r2","file":"internal/sketch/build/trim.go","from":"lawsOver := leasesSupported && laws && c.lawsOverCap()","to":"lawsOver := false && laws && c.lawsOverCap()","rule":"A command that wrote law verdicts counts the store, and past lawCap the cap pass removes the least recently used.","killers":["internal/sketch/build:TestLawVerdictsCapped"]},
+    {"name":"lc-trim-skips-laws","origin":"wf10 LAWCACHE r2","file":"internal/sketch/build/trim.go","from":"\tc.trimLaws(now, true)\n","to":"\n","rule":"A due trim visits the law verdict store: it removes the verdicts unused for unusedLimit and a crashed writer's temporary file.","killers":["internal/sketch/build:TestDueTrimVisitsLaws"]},
+    {"name":"lc-get-no-mark","origin":"wf10 LAWCACHE r2","file":"internal/sketch/lawcache/lawcache.go","from":"\tmarkUsed(path, time.Now())\n","to":"\n","rule":"A verdict a command reads is marked used, so the cap pass keeps it over one used before the read.","killers":["internal/sketch/build:TestReadVerdictIsKeptByTheCap"]}
   ]
 }
