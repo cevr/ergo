@@ -104,7 +104,7 @@ func Scan(text fs.Text, from int, end int) Part {
 		}
 		let mut h = Hash(w0, w1)
 		for {
-			if slots[h].Len == n && slots[h].W0 == w0 && slots[h].W1 == w1 && (n <= 16 || text[slots[h].Start : slots[h].Start+n] == text[p : p+n]) {
+			if slots[h].Len == n && slots[h].W0 == w0 && slots[h].W1 == w1 && (n <= 16 || text[slots[h].Start:slots[h].Start+n] == text[p:p+n]) {
 				slots[h].Min = lo(slots[h].Min, v)
 				slots[h].Max = hi(slots[h].Max, v)
 				slots[h].Sum += v
