@@ -26,6 +26,13 @@ func GeneratePlanted(seed uint64) (string, map[string][]string) {
 	return g.program(), g.planted
 }
 
+// GenerateN is Generate with n functions: the decode-cost receipt's large
+// programs.
+func GenerateN(seed uint64, n int) string {
+	g := &gen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), planted: map[string][]string{}, funcs0: n}
+	return g.program()
+}
+
 // The planted constructs and the census reason of each.
 const (
 	reasonInterp  = "expression *syntax.InterpolatedString"
@@ -76,6 +83,8 @@ type gen struct {
 	// planted are the census reasons planted in each function outside the
 	// subset.
 	planted map[string][]string
+	// funcs0, when set, is the number of functions (GenerateN).
+	funcs0 int
 }
 
 func (g *gen) n(k int) int { return g.r.IntN(k) }
@@ -89,6 +98,9 @@ func (g *gen) program() string {
 	fmt.Fprintf(&g.b, "func Apply(_ Prov, a int, b int) int {\n\ta*%d - b\n}\n\n", k)
 	g.b.WriteString("func viaOp(a int, b int) int needs Op {\n\tOp.Apply(a, b)\n}\n\n")
 	nf := 3 + g.n(5)
+	if g.funcs0 > 0 {
+		nf = g.funcs0
+	}
 	for i := 0; i < nf; i++ {
 		g.function(i)
 	}
