@@ -329,6 +329,9 @@ func (fc *funcCtx) opCallExpr(x *syntax.CallExpr, c *check.Call, args []syntax.E
 		}
 		return fc.ownedRefCall(x, c, s, append([]syntax.Expr{c.Recv}, args...), "["+strings.Join(targs, ", ")+"]", c.Op != nil && c.Op.Sig != nil && len(c.Op.Sig.Results) > 0)
 	}
+	if text, result, ok := fc.cellOpCall(x, c, args); ok {
+		return text, result, false
+	}
 	t := fc.typeOf(c.Recv)
 	vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)
 	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, x) != "" {

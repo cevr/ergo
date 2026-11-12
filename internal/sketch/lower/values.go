@@ -642,9 +642,25 @@ func (w *valueWalk) recvOf(call *syntax.CallExpr) syntax.Expr {
 func (w *valueWalk) decide() {
 	vf := w.vf
 	// In-place pattern: p = p.Append(x), p = p.Delete(k) or p = p.Put(k, v), one place
-	// rooted at a let mut or a borrow.
+	// rooted at a let mut or a borrow. A chain whose source is such a call,
+	// p = append(append(p, a), b), is in place at each call: no binding
+	// holds an inner call's result, so the chain is the statements
+	// p = append(p, a); p = append(p, b), which the pattern takes in place.
+	isCall := map[syntax.Node]bool{}
 	for _, call := range w.calls {
+		isCall[call] = true
+	}
+	for _, call := range w.calls {
+		chain := []*syntax.CallExpr{call}
 		parent, child := w.unparenParent(call)
+		for {
+			pc, ok := parent.(*syntax.CallExpr)
+			if !ok || !isCall[pc] || w.recvOf(pc) != child {
+				break
+			}
+			chain = append(chain, pc)
+			parent, child = w.unparenParent(pc)
+		}
 		s, ok := parent.(*syntax.AssignStmt)
 		if !ok || s.Tok != syntax.ASSIGN || len(s.Rhs) != 1 || s.Rhs[0] != child {
 			continue
@@ -655,7 +671,9 @@ func (w *valueWalk) decide() {
 			continue
 		}
 		if v, ok := w.info.Uses[id].(*check.Var); ok && w.varOf(v).root() {
-			vf.inPlace[call] = true
+			for _, c := range chain {
+				vf.inPlace[c] = true
+			}
 		}
 	}
 	// Owned parameters (V5): each argument of one, and the arguments a

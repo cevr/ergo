@@ -39,7 +39,6 @@ func unfoldDef(c rwCall) ([]rwCall, bool) {
 	if f == nil || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil {
 		return nil, false
 	}
-	info := f.Pkg.Info
 	params := paramVars(f)
 	if len(params) != len(c.args)+1 || params[0] == nil {
 		return nil, false
@@ -56,6 +55,16 @@ func unfoldDef(c rwCall) ([]rwCall, bool) {
 			consts[p] = a.c
 		}
 	}
+	return straightLine(f, binds, consts, f.Decl.Body.List)
+}
+
+// straightLine is list, statements of f's body, as the provider calls it
+// makes on f's receiver, each argument a constant or binds' argument for
+// a parameter of f; an `if` the evaluator folds from consts is its taken
+// arm. ok is false for any other statement.
+func straightLine(f *check.Func, binds map[*check.Var]rwArg, consts map[*check.Var]constant.Value, list []syntax.Stmt) ([]rwCall, bool) {
+	info := f.Pkg.Info
+	params := paramVars(f)
 	var out []rwCall
 	var line func(list []syntax.Stmt) bool
 	line = func(list []syntax.Stmt) bool {
@@ -120,8 +129,74 @@ func unfoldDef(c rwCall) ([]rwCall, bool) {
 		}
 		return true
 	}
-	if !line(f.Decl.Body.List) {
+	if !line(list) {
 		return nil, false
 	}
 	return out, true
+}
+
+// branchDef reads c's function when its body is one `if` whose condition
+// is a call of a pure function of the package on parameters (plain(s)),
+// with an else, and each arm a straight line (straightLine): the call is
+// that `if`, by definition. Each argument of cond and of the arms' calls
+// is a constant or c's argument for the parameter, as c passes it.
+func branchDef(c rwCall) (cond *check.Func, condArgs []rwArg, then, els []rwCall, ok bool) {
+	f := c.fn
+	if f == nil || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || len(f.Decl.Body.List) != 1 {
+		return nil, nil, nil, nil, false
+	}
+	is, isIf := f.Decl.Body.List[0].(*syntax.IfStmt)
+	if !isIf || is.Else == nil {
+		return nil, nil, nil, nil, false
+	}
+	info := f.Pkg.Info
+	params := paramVars(f)
+	if len(params) != len(c.args)+1 || params[0] == nil {
+		return nil, nil, nil, nil, false
+	}
+	binds := map[*check.Var]rwArg{}
+	for j, a := range c.args {
+		if p := params[j+1]; p != nil {
+			binds[p] = a
+		}
+	}
+	call, isCall := unparen(is.Cond).(*syntax.CallExpr)
+	if !isCall || call.Trailing != nil {
+		return nil, nil, nil, nil, false
+	}
+	ic := info.Calls[call]
+	if ic == nil || ic.Kind != check.CallFunc || ic.Recv != nil || ic.Func == nil || ic.Func.Pkg != f.Pkg || ic.Func.Sig == nil || ic.Func.Sig.Fallible || len(ic.Func.Sig.TParams) > 0 {
+		return nil, nil, nil, nil, false
+	}
+	for _, a := range call.Args {
+		if v, isConst := info.Values[a]; isConst {
+			condArgs = append(condArgs, rwArg{c: v})
+			continue
+		}
+		id, isID := unparen(a).(*syntax.Ident)
+		if !isID {
+			return nil, nil, nil, nil, false
+		}
+		p, isVar := info.Uses[id].(*check.Var)
+		b, bound := binds[p]
+		if !isVar || !bound {
+			return nil, nil, nil, nil, false
+		}
+		condArgs = append(condArgs, b)
+	}
+	then, ok = straightLine(f, binds, nil, is.Body.List)
+	if !ok {
+		return nil, nil, nil, nil, false
+	}
+	var arm []syntax.Stmt
+	if b, isBlock := is.Else.(*syntax.BlockStmt); isBlock {
+		arm = b.List
+	} else {
+		arm = []syntax.Stmt{is.Else}
+	}
+	els, ok = straightLine(f, binds, nil, arm)
+	if !ok {
+		return nil, nil, nil, nil, false
+	}
+	return ic.Func, condArgs, then, els, true
 }

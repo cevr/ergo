@@ -144,8 +144,10 @@ func TestEncodeOnADirectWriterCallsItsMethods(t *testing.T) {
 
 	fast := lowerSource("direct", directWriterSource, true)
 	calls := codecCalls(t, fast)
+	// A build of the reference (-X wireLowering=writer) has no direct
+	// path: the second half checks its form.
 	for _, fn := range []string{"show", "main"} {
-		if !direct(calls[fn]) {
+		if wireLowering != "writer" && !direct(calls[fn]) {
 			t.Errorf("direct lowering: %s's encode on a json.Text calls %v, want only codec functions over the Text's Go type", fn, calls[fn])
 		}
 	}

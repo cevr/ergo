@@ -77,9 +77,11 @@ type Text {
 	commaDue() bool,
 	// setComma sets whether the next value or key needs a comma.
 	setComma(due bool),
-	// quote writes s as a JSON string; the bodies write a value's text.
-	// None writes a comma or sets the state.
+	// quote writes s as a JSON string; plainBody a plain s between quotes;
+	// the bodies write a value's text. None writes a comma or sets the
+	// state.
 	quote(s string),
+	plainBody(s string),
 	stringBody(s string),
 	intBody(n int64),
 	uintBody(n uint64),
@@ -94,6 +96,7 @@ type Text {
 	law SepAfterSet(due bool) { setComma(due); sep() } == { setComma(due); raw(commaText(due)) },
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
+	law PlainIsRaw(s string) { plainBody(s) } == { raw(inQuotes(s)) },
 	law SetCommaLast(p bool, q bool) { setComma(p); setComma(q) } == { setComma(q) },
 	law SetCommaSinks(p bool, text string) { setComma(p); raw(text) } == { raw(text); setComma(p) },
 	law SetCommaSinksString(p bool, s string) { setComma(p); stringBody(s) } == { stringBody(s); setComma(p) },
@@ -157,16 +160,20 @@ func plain(s string) bool {
 }
 
 // quote writes s quoted. A plain s is written as it is between quotes, so
-// a constant key or tag is constant text after the unfold.
+// a constant key or tag is constant text after the unfold (PlainIsRaw).
 func quote(t *text, s string) {
 	if plain(s) {
-		t.raw("\"")
-		t.raw(s)
-		t.raw("\"")
+		t.plainBody(s)
 	} else {
 		t.stringBody(s)
 	}
 }
+
+// plainBody writes s between quotes: one store of the buffer.
+func plainBody(t *text, s string) { t.out = appendString(appendString(appendString(t.out, "\""), s), "\"") }
+
+// inQuotes is s between quotes.
+func inQuotes(s string) string { "\"" + s + "\"" }
 
 func stringBody(t *text, s string) { t.out = appendQuoted(t.out, s, t.html) }
 

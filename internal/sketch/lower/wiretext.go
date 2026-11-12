@@ -2,6 +2,8 @@ package lower
 
 import (
 	"go/constant"
+	"go/token"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -117,29 +119,95 @@ func (fc *funcCtx) cellOperand(cw cellWriter, x syntax.Expr, val string) string 
 	return "&(" + val + ").(*" + name + ").v"
 }
 
+// cellOpCall lowers x, an operation call on a cell local declared by its
+// adapter's Go type (noteCell), as the call of the provider's function on
+// the cell's own value: the adapter's method makes that call (with an
+// environment of the calling task), so the value is the same and the call
+// is static. ok is false for any other call, and for a function that fails,
+// needs a service or takes a function value, whose adapter method adapts
+// more than the receiver.
+func (fc *funcCtx) cellOpCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr) (text string, result, ok bool) {
+	id, isID := unparen(c.Recv).(*syntax.Ident)
+	if !isID || c.Op == nil {
+		return "", false, false
+	}
+	v, isVar := fc.l.info.Uses[id].(*check.Var)
+	if !isVar || !fc.cellConcrete[v] {
+		return "", false, false
+	}
+	fn := fc.cells[v].Table[c.Op.Name]
+	if fn == nil || fc.l.useFunc(fn, x).fallible {
+		return "", false, false
+	}
+	for _, p := range fn.Sig.Params {
+		if _, isFunc := p.Type.(*check.Signature); isFunc {
+			return "", false, false
+		}
+	}
+	self := "&" + fc.locals[v] + ".v"
+	if !fn.Ptr {
+		self = fc.locals[v] + ".v"
+	}
+	vals := fc.callArgs(args, x)
+	return fc.l.wireCallFunc(fn, fc.envExpr(x), x, append([]string{self}, vals...)...), len(fn.Sig.Results) > 0, true
+}
+
 // cellEvents is text, Go statements of a codec function whose event lines
 // are Writer method calls on w, with each straight run of events made
 // calls of the cell provider's functions and rewritten by its laws.
+//
+// Carry: the provider's state where a run ends is known when the run's
+// last call is constant and idempotent by the laws (c; c == c, as
+// SetCommaLast proves for setComma). An `if` arm that follows the run
+// directly, behind a condition that names no w, starts in that state, so
+// its run is rewritten as c then the arm: since the state is c's own,
+// running c once more changes nothing. After the arm's closing brace the
+// state is still c's when the arm also ends with c (no else: either path
+// ends in it).
 func (l *lowerer) cellEvents(cw cellWriter, env, w, text string, site syntax.Node) string {
 	task := taskOf(env)
 	lines := strings.Split(text, "\n")
+	names := regexp.MustCompile(`\b` + regexp.QuoteMeta(w) + `\b`)
 	var out []string
 	var run []rwCall
 	var texts [][]string
+	// tail is the known state's call where the text now stands; entry is
+	// the state an if arm being read started in.
+	var tail, entry *rwCall
+	// lead is 1 when the run starts with entry's call, carried (not
+	// written by the text).
+	lead := 0
 	flush := func() {
-		if len(run) > 0 {
-			out = append(out, l.cellRun(cw, env, w, run, texts, site)...)
+		switch {
+		case len(run) == 0:
+			return
+		case len(run) == lead:
+			tail = entry // an arm of no event: the state is entry's
+		default:
+			lines, last := l.cellRun(cw, env, w, run, texts, lead, site)
+			out = append(out, lines...)
+			tail = l.idempotent(cw.prov, last)
 		}
-		run, texts = nil, nil
+		run, texts, lead = nil, nil, 0
 	}
 	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
 			continue // no statement: the run goes on
 		}
-		op, arg, ok := eventLine(strings.TrimSpace(line), w, task)
+		op, arg, ok := eventLine(trimmed, w, task)
 		if !ok {
 			flush()
 			out = append(out, line)
+			switch {
+			case strings.HasPrefix(trimmed, "if ") && strings.HasSuffix(trimmed, " {") && !names.MatchString(trimmed) && tail != nil:
+				entry, tail = tail, nil
+				run, texts, lead = []rwCall{*entry}, [][]string{make([]string, len(entry.args))}, 1
+			case trimmed == "}" && entry != nil && sameCall(tail, entry):
+				tail, entry = entry, nil
+			default:
+				tail, entry = nil, nil
+			}
 			continue
 		}
 		fn := cw.conv.Table[op]
@@ -192,35 +260,133 @@ func eventConst(arg string) constant.Value {
 }
 
 // cellRun is the Go lines of one run of events: the rewritten calls when
-// the provider's laws rewrite it, the run's own calls otherwise.
-func (l *lowerer) cellRun(cw cellWriter, env, w string, run []rwCall, texts [][]string, site syntax.Node) []string {
-	calls, rewritten := run, false
+// the provider's laws rewrite it, the run's own calls otherwise, without
+// its first lead calls (carried, cellEvents). last is the run's last call
+// when its arguments are constants, else nil.
+func (l *lowerer) cellRun(cw cellWriter, env, w string, run []rwCall, texts [][]string, lead int, site syntax.Node) (out []string, last *rwCall) {
+	calls, rewritten := run[lead:], false
 	if rw := l.cellRewriter(cw.prov); rw != nil {
 		if got, changed := rw.run(cw.prov, run); changed {
 			calls, rewritten = got, true
 		}
 	}
-	var out []string
+	if !rewritten {
+		texts = texts[lead:]
+	}
+	if n := len(calls); n > 0 {
+		c := calls[n-1]
+		last = &c
+		for _, a := range c.args {
+			if a.c == nil {
+				last = nil
+			}
+		}
+	}
+	emit := func(c rwCall, args []string) string {
+		self := w
+		if !c.fn.Ptr {
+			self = "(*" + w + ")"
+		}
+		return l.wireCallFunc(c.fn, env, site, append([]string{self}, args...)...)
+	}
 	for k, c := range calls {
 		var args []string
+		varies := false
 		for j, a := range c.args {
 			switch {
 			case a.c != nil:
 				args = append(args, l.constGo(c.fn.Sig.Params[j+1].Type, a.c, site))
 			case !rewritten:
-				args = append(args, texts[k][j])
+				args, varies = append(args, texts[k][j]), true
 			default:
 				pos, arg := rwPlace(a.text)
-				args = append(args, texts[pos][arg])
+				args, varies = append(args, texts[pos][arg]), true
 			}
 		}
-		self := w
-		if !c.fn.Ptr {
-			self = "(*" + w + ")"
+		if varies && rewriteLowering != "reference" {
+			if lines, ok := l.cellBranch(c, args, emit, env, site); ok {
+				out = append(out, lines...)
+				continue
+			}
 		}
-		out = append(out, l.wireCallFunc(c.fn, env, site, append([]string{self}, args...)...))
+		out = append(out, emit(c, args))
 	}
-	return out
+	return out, last
+}
+
+// cellBranch is the Go lines of c, a call of a provider function whose
+// body is an if of a pure condition (branchDef), as that if, written in
+// the codec function: by definition the same, and each arm's calls are
+// on the cell's value where the codec function holds it, so Go inlines
+// them there (a plain key's quotes are one append of the buffer, with no
+// write through a pointer). args are c's arguments' Go text.
+func (l *lowerer) cellBranch(c rwCall, args []string, emit func(rwCall, []string) string, env string, site syntax.Node) ([]string, bool) {
+	tagged := rwCall{fn: c.fn}
+	for j, a := range c.args {
+		if a.c == nil {
+			a = rwArg{text: "#" + strconv.Itoa(j)}
+		}
+		tagged.args = append(tagged.args, a)
+	}
+	cond, condArgs, then, els, ok := branchDef(tagged)
+	if !ok {
+		return nil, false
+	}
+	texts := func(fn *check.Func, as []rwArg, skip int) []string {
+		var out []string
+		for i, a := range as {
+			if a.c != nil {
+				out = append(out, l.constGo(fn.Sig.Params[i+skip].Type, a.c, site))
+				continue
+			}
+			j, _ := strconv.Atoi(strings.TrimPrefix(a.text, "#"))
+			out = append(out, args[j])
+		}
+		return out
+	}
+	arm := func(calls []rwCall) []string {
+		var out []string
+		for _, ac := range calls {
+			out = append(out, emit(ac, texts(ac.fn, ac.args, 1)))
+		}
+		return out
+	}
+	lines := []string{"if " + l.wireCallFunc(cond, env, site, texts(cond, condArgs, 0)...) + " {"}
+	lines = append(lines, arm(then)...)
+	lines = append(lines, "} else {")
+	lines = append(lines, arm(els)...)
+	return append(lines, "}"), true
+}
+
+// idempotent is c when the provider's laws rewrite c; c to c alone (so a
+// state c ended in is c's own: c changes it no more), else nil.
+func (l *lowerer) idempotent(prov *check.Named, c *rwCall) *rwCall {
+	if c == nil {
+		return nil
+	}
+	rw := l.cellRewriter(prov)
+	if rw == nil {
+		return nil
+	}
+	got, changed := rw.run(prov, []rwCall{*c, *c})
+	if !changed || len(got) != 1 || !sameCall(&got[0], c) {
+		return nil
+	}
+	return c
+}
+
+// sameCall reports two calls of one function on equal constants.
+func sameCall(a, b *rwCall) bool {
+	if a == nil || b == nil || a.fn != b.fn || len(a.args) != len(b.args) {
+		return false
+	}
+	for i := range a.args {
+		x, y := a.args[i].c, b.args[i].c
+		if x == nil || y == nil || x.Kind() != y.Kind() || !constant.Compare(x, token.EQL, y) {
+			return false
+		}
+	}
+	return true
 }
 
 // cellRewriter is the rewriter of the cell provider prov's laws: the run
