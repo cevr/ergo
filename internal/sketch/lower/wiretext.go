@@ -164,26 +164,53 @@ func (fc *funcCtx) cellOpCall(x *syntax.CallExpr, c *check.Call, args []syntax.E
 // running c once more changes nothing. After the arm's closing brace the
 // state is still c's when the arm also ends with c (no else: either path
 // ends in it).
+//
+// The carry follows the text's blocks: an `if` or a `switch` whose header
+// names no w opens a block that starts in the state before it; each arm
+// (the then arm, `} else {`, a `case` or `default:`) starts there; an
+// `if` with no else ends in that state when its arm does. A `for` body,
+// and any statement that names w, leaves the state unknown; a statement
+// that names no w keeps it. A line with a brace the reader does not know
+// stops the carry for the rest of the text. start is the state the text
+// starts in (a codec function's entry variant, cellVariant), or nil.
+//
+// A call of a cell codec function where the state is known calls its
+// variant for that state: the variant's runs know their entry.
 func (l *lowerer) cellEvents(cw cellWriter, env, w, text string, site syntax.Node) string {
+	return l.cellEventsFrom(cw, env, w, text, nil, site)
+}
+
+// cellBlock is a block of the text cellEvents reads: the state its arms
+// start in (nil when unknown), whether its arms are a switch's, and
+// whether it is an if with no else so far.
+type cellBlock struct {
+	entry       *rwCall
+	cases, bare bool
+}
+
+// cellEventsFrom is cellEvents of a text that starts in start's state.
+func (l *lowerer) cellEventsFrom(cw cellWriter, env, w, text string, start *rwCall, site syntax.Node) string {
 	task := taskOf(env)
 	lines := strings.Split(text, "\n")
 	names := regexp.MustCompile(`\b` + regexp.QuoteMeta(w) + `\b`)
 	var out []string
 	var run []rwCall
 	var texts [][]string
-	// tail is the known state's call where the text now stands; entry is
-	// the state an if arm being read started in.
-	var tail, entry *rwCall
-	// lead is 1 when the run starts with entry's call, carried (not
+	var stack []cellBlock
+	// tail is the known state's call where the text now stands.
+	tail := start
+	stopped := false
+	// lead is 1 when the run starts with the state's call, carried (not
 	// written by the text).
 	lead := 0
+	begin := func(c *rwCall) {
+		tail = c
+		if stopped {
+			tail = nil
+		}
+	}
 	flush := func() {
-		switch {
-		case len(run) == 0:
-			return
-		case len(run) == lead:
-			tail = entry // an arm of no event: the state is entry's
-		default:
+		if len(run) > 0 {
 			lines, last := l.cellRun(cw, env, w, run, texts, lead, site)
 			out = append(out, lines...)
 			tail = l.idempotent(cw.prov, last)
@@ -198,15 +225,44 @@ func (l *lowerer) cellEvents(cw cellWriter, env, w, text string, site syntax.Nod
 		op, arg, ok := eventLine(trimmed, w, task)
 		if !ok {
 			flush()
+			if tail != nil && !stopped {
+				line = l.cellEntryCall(line, w, *tail)
+			}
 			out = append(out, line)
+			mentions := names.MatchString(trimmed)
+			opens := strings.HasSuffix(trimmed, " {")
 			switch {
-			case strings.HasPrefix(trimmed, "if ") && strings.HasSuffix(trimmed, " {") && !names.MatchString(trimmed) && tail != nil:
-				entry, tail = tail, nil
-				run, texts, lead = []rwCall{*entry}, [][]string{make([]string, len(entry.args))}, 1
-			case trimmed == "}" && entry != nil && sameCall(tail, entry):
-				tail, entry = entry, nil
-			default:
-				tail, entry = nil, nil
+			case stopped:
+				tail = nil
+			case opens && (strings.HasPrefix(trimmed, "if ") || strings.HasPrefix(trimmed, "switch ")):
+				entry := tail
+				if mentions {
+					entry = nil
+				}
+				sw := strings.HasPrefix(trimmed, "switch ")
+				stack = append(stack, cellBlock{entry: entry, cases: sw, bare: !sw})
+				begin(nil)
+				if !sw {
+					begin(entry) // the then arm
+				}
+			case opens && strings.HasPrefix(trimmed, "for "):
+				stack = append(stack, cellBlock{})
+				tail = nil
+			case trimmed == "} else {" && len(stack) > 0 && !stack[len(stack)-1].cases:
+				stack[len(stack)-1].bare = false
+				begin(stack[len(stack)-1].entry)
+			case (strings.HasPrefix(trimmed, "case ") || trimmed == "default:") && strings.HasSuffix(trimmed, ":") && len(stack) > 0 && stack[len(stack)-1].cases:
+				begin(stack[len(stack)-1].entry)
+			case trimmed == "}" && len(stack) > 0:
+				top := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				if !top.bare || !sameCall(tail, top.entry) {
+					tail = nil
+				}
+			case strings.ContainsAny(trimmed, "{}") || strings.HasPrefix(trimmed, "case ") || trimmed == "default:" || strings.HasPrefix(trimmed, "else"):
+				stopped, tail = true, nil
+			case mentions:
+				tail = nil
 			}
 			continue
 		}
@@ -220,11 +276,76 @@ func (l *lowerer) cellEvents(cw cellWriter, env, w, text string, site syntax.Nod
 			c.args = append(c.args, rwArg{c: eventConst(arg)})
 			ts = append(ts, arg)
 		}
+		if len(run) == 0 && tail != nil && !stopped {
+			// The run starts in tail's state.
+			run, texts, lead = []rwCall{*tail}, [][]string{make([]string, len(tail.args))}, 1
+		}
 		run = append(run, c)
 		texts = append(texts, ts)
 	}
 	flush()
 	return strings.Join(out, "\n")
+}
+
+// cellFunc is a cell writer's codec function: key names its one variant,
+// which starts in the state start (nil until a call asks for it); emit
+// writes the variant once the function's text is known (wireFunc), and
+// pending reports a variant asked for before.
+type cellFunc struct {
+	key     pkgKey
+	start   *rwCall
+	emit    func(name string, start rwCall)
+	pending bool
+}
+
+// cellEntryKey is the package-scope key of the entry variant of the codec
+// function of key (reserveWires).
+func cellEntryKey(key pkgKey) pkgKey {
+	return pkgKey{"cellentry", key.kind + " " + key.obj.(string)}
+}
+
+// cellEntryCall is line with its call of a cell codec function on *w,
+// `*w = f(env, *w, v)`, made a call of f's variant for the state start.
+// So the callee's first run knows it starts in start's state, as an arm
+// of the caller would: a record or list in a key's place drops its comma
+// test. Any other line is returned as it is.
+func (l *lowerer) cellEntryCall(line, w string, start rwCall) string {
+	indent := line[:len(line)-len(strings.TrimLeft(line, "\t "))]
+	rest, ok := strings.CutPrefix(strings.TrimSpace(line), "*"+w+" = ")
+	if !ok {
+		return line
+	}
+	name, args, ok := strings.Cut(rest, "(")
+	if !ok || l.cellFuncs[name] == nil {
+		return line
+	}
+	v, ok := l.cellVariant(name, start)
+	if !ok {
+		return line
+	}
+	return indent + "*" + w + " = " + v + "(" + args
+}
+
+// cellVariant is the Go name of the variant of the cell codec function
+// name that starts in start's state, written when name's text is known.
+// A function has one variant, for the first state a call asks for; ok is
+// false for another state, or when the naming pass reserved none.
+func (l *lowerer) cellVariant(name string, start rwCall) (string, bool) {
+	cf := l.cellFuncs[name]
+	v, reserved := l.pkgNames[cf.key]
+	switch {
+	case !reserved:
+		return "", false
+	case cf.start != nil:
+		return v, sameCall(cf.start, &start)
+	}
+	cf.start = &start
+	if cf.emit != nil {
+		cf.emit(v, start)
+	} else {
+		cf.pending = true
+	}
+	return v, true
 }
 
 // eventLine reads an event line `w.Op(task)` or `w.Op(task, arg)`.

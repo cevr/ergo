@@ -97,6 +97,12 @@ func (fc *funcCtx) wireDirectFuncs(tc *typeCtx, self, t check.Type, v func(strin
 		body := tc.wireEncodeWith(em, t, e, b, v(x))
 		if cw, ok := fc.l.cellOf(em); ok {
 			_, isParam := t.(*check.TypeParam)
+			if !fc.l.wireInline(t) && !isParam && tc.wireWits(t) == "" && v(x) == x && tc.goType(self) == tc.goType(t) {
+				// The codec function is the field itself: no closure
+				// passes the state on once more.
+				s += ", " + directField(i) + ": " + fc.l.wireFunc(em.dir(), t, tc.site)
+				continue
+			}
 			if !fc.l.wireInline(t) && !isParam {
 				// One codec function: it takes and gives the state.
 				body = "return " + fc.l.wireFunc(em.dir(), t, tc.site) + "(" + e + tc.wireWits(t) + ", " + param + ", " + v(x) + ")"
@@ -265,6 +271,12 @@ func (l *lowerer) reserveWires(pkgs []*check.Package, reserve func(key pkgKey, b
 			return
 		}
 		reserve(key, wireBase(dir, t), key.kind+" "+key.obj.(string))
+		if via := directIndex(dir); via >= 0 {
+			if _, ok := l.cellOf(wireEvents{via: via}); ok {
+				// Its variant that starts in a known state (cellVariant).
+				reserve(cellEntryKey(key), wireBase(dir, t)+"_entry", "cellentry "+key.kind+" "+key.obj.(string))
+			}
+		}
 		switch u := wireUnder(t).(type) {
 		case *check.Slice:
 			walk(dir, info, u.Elem)
@@ -530,14 +542,36 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 		if via >= 0 {
 			writer = tc.directGoType(l.directWriters[via])
 		}
+		cw, cell := l.cellOf(em)
+		var cf *cellFunc
+		if cell {
+			// Registered before the body, so a recursive call is known
+			// (cellEntryCall).
+			if l.cellFuncs == nil {
+				l.cellFuncs = map[string]*cellFunc{}
+			}
+			cf = &cellFunc{key: cellEntryKey(key)}
+			l.cellFuncs[name] = cf
+		}
 		l.wireEncodeBody(em, tc, &body, t, env, task, w, v, scope)
 		text, param, result := body.String(), w, ""
-		if cw, ok := l.cellOf(em); ok {
+		head := func(n string) string {
+			return "func " + n + tlist + "(" + lead + ", " + param + " " + writer + ", " + v + " " + goType + ")" + result + " {\n"
+		}
+		if cell {
 			// The state passes by value and comes back (cellFuncs).
 			param, result = scope.alloc("wv"), " "+writer
-			text = w + " := &" + param + "\n" + l.cellEvents(cw, env, w, text, site) + "\nreturn " + param + "\n"
+			raw := text
+			text = w + " := &" + param + "\n" + l.cellEvents(cw, env, w, raw, site) + "\nreturn " + param + "\n"
+			cf.emit = func(n string, start rwCall) {
+				l.gen.WriteString(head(n) + w + " := &" + param + "\n" + l.cellEventsFrom(cw, env, w, raw, &start, site) + "\nreturn " + param + "\n}\n\n")
+			}
 		}
-		l.gen.WriteString("func " + name + tlist + "(" + lead + ", " + param + " " + writer + ", " + v + " " + goType + ")" + result + " {\n" + text + "}\n\n")
+		l.gen.WriteString(head(name) + text + "}\n\n")
+		if cell && cf.pending {
+			cf.pending = false
+			cf.emit(l.pkgNames[cf.key], *cf.start)
+		}
 		return name
 	}
 	r := scope.alloc("r")

@@ -27,11 +27,22 @@ import (
 //ergo:pure
 func JSONAppendQuoted(b []byte, s string, html bool) []byte {
 	const hex = "0123456789abcdef"
+	// The ASCII bytes a string writes as themselves, '1' at a byte's
+	// index, 16 to a group: not a control byte, '"' or '\\'; nor <, > and &
+	// when html. A lookup, as encoding/json's safeSet.
+	const plain = "0000000000000000" + "0000000000000000" + "1101111111111111" + "1111111111111111" +
+		"1111111111111111" + "1111111111110111" + "1111111111111111" + "1111111111111111"
+	const plainHTML = "0000000000000000" + "0000000000000000" + "1101110111111111" + "1111111111110101" +
+		"1111111111111111" + "1111111111110111" + "1111111111111111" + "1111111111111111"
+	safe := plain
+	if html {
+		safe = plainHTML
+	}
 	b = append(b, '"')
 	start := 0
 	for i := 0; i < len(s); {
 		if c := s[i]; c < utf8.RuneSelf {
-			if c >= 0x20 && c != '"' && c != '\\' && (!html || c != '<' && c != '>' && c != '&') {
+			if safe[c] == '1' {
 				i++
 				continue
 			}

@@ -152,7 +152,9 @@ func setComma(t *text, due bool) { t.comma = due }
 func plain(s string) bool {
 	for i in 0..len(s) {
 		let b = s[i]
-		if b < 32 || b >= 127 || b == 34 || b == 92 || b == 60 || b == 62 || b == 38 {
+		// '1' (49) at each plain byte, 16 to a group: a lookup, not seven
+		// comparisons.
+		if b >= 128 || "00000000000000000000000000000000110111011111111111111111111101011111111111111111111111111111011111111111111111111111111111111110"[int(b)] != 49 {
 			return false
 		}
 	}
