@@ -2446,8 +2446,8 @@
       "name": "L8-B1 release at function end, not iteration end",
       "origin": "wf10 L8 B1 (#197)",
       "file": "internal/sketch/lower/body.go",
-      "from": "\tfc.scoped(body, func() bool { return fc.block(body.List) })",
-      "to": "\tfc.block(body.List)",
+      "from": "\tterminates := fc.scoped(body, func() bool { return fc.block(body.List) })",
+      "to": "\tterminates := fc.block(body.List)",
       "rule": "resources R6: a loop body is its own scope; what an iteration owns is released at its end.",
       "killers": [
         "lower:TestOwnershipRunModel"
