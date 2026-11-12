@@ -250,12 +250,15 @@ func TestCacheInputs(t *testing.T) {
 			// A managed toolchain's GOROOT is the action's (internal/toolchain):
 			// the action states it and still links the same module.
 			covered["Toolchain.Root"] = true
-			out, err := exec.Command("go", "env", "GOROOT").Output()
+			goCommand, err := exec.LookPath("go")
+			if err == nil {
+				goCommand, err = filepath.EvalSymlinks(goCommand)
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
 			tc := hostToolchain()
-			tc.Root = strings.TrimSpace(string(out))
+			tc.Root = filepath.Dir(filepath.Dir(goCommand)) // GOROOT/bin/go
 			if !slices.Contains(tc.Command(module, "/out/program").Env, "GOROOT="+tc.Root) {
 				t.Fatal("the action does not state the toolchain's GOROOT")
 			}
