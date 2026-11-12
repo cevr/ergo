@@ -88,6 +88,7 @@ func TestProviderCellDiagnostics(t *testing.T) {
 		{name: "open type", src: cellLib + "func main() { let o Open = NewBox()\n let _ = o }\n", line: 18, want: "a cell needs an operation type sealed in its provider's package (an unexported operation); Open has none"},
 		{name: "foreign site", lib: true, src: "import lib\nfunc main() { let c lib.Bag = lib.NewBox()\n let _ = c }\n", line: 2, want: "a cell of lib.Bag is made only in package lib, which seals it"},
 		{name: "context provider", src: cellLib + "let W = context { Bag: NewBox() }\nfunc main() { }\n", line: 18, want: "the provider of a with is shared by the tasks of its block"},
+		{name: "hidden in another operation type", src: cellLib + "func main() { let c Bag = NewBox()\n let o Open = c\n let _ = o }\n", line: 19, want: "Bag holds the provider cell Bag, and Open is no cell type"},
 		{name: "package let", src: cellLib + "let shared Bag = NewBox()\nfunc main() { }\n", line: 18, want: "the package let shared holds the provider cell Bag"},
 		{name: "resource into no Close", src: resource(false) + "func main() { let c Bag = Kept{r: Res{id: 1}, n: 0}\n let _ = c }\n", line: 12, want: "Kept is a resource and Bag has no Close"},
 		{name: "use after move", src: resource(true) + "func main() { let k = Kept{r: Res{id: 1}, n: 0}\n let c Bag = k\n let n = k.n\n let _ = n\n c.Add(1) }\n", line: 14, want: "k was handed off"},
