@@ -152,7 +152,10 @@ func (fc *funcCtx) ifYield(s *syntax.IfStmt, d dest) bool {
 	cond := fc.headerValue(s.Cond)
 	fc.line("if " + cond + " {")
 	fc.depth++
+	mark := fc.factMark()
+	fc.assume(s.Cond) // bounds.go: the facts the condition gives its body
 	then := fc.scoped(s.Body, func() bool { return fc.yieldList(s.Body.List, d) })
+	fc.factReset(mark)
 	fc.depth--
 	switch e := s.Else.(type) {
 	case nil:

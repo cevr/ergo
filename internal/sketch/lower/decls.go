@@ -151,6 +151,7 @@ func (l *lowerer) declareName(d syntax.Decl) {
 						l.vars[v] = l.pkgName(pkgKey{"let", v}, v.Name)
 						if l.constLet(spec, v) {
 							l.consts[v] = true
+							l.constVals[v] = l.info.Values[spec.Values[0]]
 						}
 					}
 				}
