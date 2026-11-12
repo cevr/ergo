@@ -24,6 +24,6 @@ raytrace W H SPP SEED OBJECTS WORKERS TILE > image.ppm
 
 ## The Go control
 
-`cmd/ergo/testdata/raytrace/control` is the same scene, tree, materials and sampling in hand Go (shapes and materials as tagged structs, no interfaces; a goroutine per worker taking tiles from a counter), every float operation in the Ergo program's order. `TestRaytraceAgreesWithControl` (cmd/ergo, full tier) checks that both write the same bytes on seeded jobs.
+`cmd/ergo/testdata/raytrace/control` is the same scene, tree, materials and sampling in hand Go (shapes and materials as tagged structs, no interfaces; a goroutine per worker taking tiles from a counter), every float operation in the Ergo program's order. `TestRaytraceAgreesWithControl` (cmd/ergo, full tier) checks that both write the same bytes on seeded jobs. The bytes are the same on every host: Ergo rounds every float operation, so Go fuses no multiply and add on arm64 (types.md, Operators 5), and the control writes each product as `float64(a*b)` for the same reason.
 
-Gaps: Go may fuse a multiply and an add on arm64, so the bytes are equal on one host but not across hosts (corpus-wave Q5); there the test allows a small mean difference. Small records (`Vec`, `Ray`) are passed by value through every call.
+Gaps: small records (`Vec`, `Ray`) and the `Scene` are passed by value through every call; the path's state, a machine's, is a Go interface.

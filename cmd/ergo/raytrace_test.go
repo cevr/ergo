@@ -6,7 +6,6 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"testing"
 
@@ -22,11 +21,10 @@ import (
 // implementation of the README's scene, tree, materials and sampling, so
 // a change to either that changes a pixel shows here.
 //
-// On amd64 the bytes must be equal. Go may fuse a multiply and an add into
-// one instruction on other architectures, and the two programs' Go is not
-// written the same way, so a sample may round differently and a path may
-// take another bounce (corpus-wave Q5). There the test requires the same
-// header and a mean channel difference of at most 2 levels.
+// The bytes must be equal on every host: Go may fuse a multiply and an add
+// into one instruction on some architectures, so the Ergo lowering rounds
+// every product of floats (types.md, Operators 5) and the control writes
+// each product as float64(a*b), which Go rounds too.
 //
 // It builds Go because the programs under test are the linked binaries:
 // the Ergo program renders its tiles on the task runtime and the control
@@ -58,14 +56,8 @@ func TestRaytraceAgreesWithControl(t *testing.T) {
 		if code != 0 || wantCode != 0 {
 			t.Fatalf("seed %d %v: exit %d, control %d\n%s", seed, args, code, wantCode, replay)
 		}
-		if runtime.GOARCH == "amd64" {
-			if !bytes.Equal(got, want) {
-				t.Fatalf("seed %d %v: the images differ (%s)\n%s", seed, args, firstDiff(got, want), replay)
-			}
-			continue
-		}
-		if d, ok := meanDiff(got, want); !ok || d > 2 {
-			t.Fatalf("seed %d %v: the images differ by %.2f levels a channel (%s)\n%s", seed, args, d, firstDiff(got, want), replay)
+		if !bytes.Equal(got, want) {
+			t.Fatalf("seed %d %v: the images differ (%s)\n%s", seed, args, firstDiff(got, want), replay)
 		}
 	}
 }
@@ -95,18 +87,4 @@ func firstDiff(a, b []byte) string {
 		}
 	}
 	return fmt.Sprintf("lengths %d and %d", len(a), len(b))
-}
-
-// meanDiff is the mean absolute difference of two PPMs' bytes, and false
-// when their lengths differ.
-func meanDiff(a, b []byte) (float64, bool) {
-	if len(a) != len(b) || len(a) == 0 {
-		return 0, false
-	}
-	sum := 0
-	for i := range a {
-		d := int(a[i]) - int(b[i])
-		sum += max(d, -d)
-	}
-	return float64(sum) / float64(len(a)), true
 }

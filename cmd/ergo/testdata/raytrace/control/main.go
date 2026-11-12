@@ -4,7 +4,10 @@
 // in slices (no interfaces), vectors by value, a fixed stack for the tree
 // walk, one goroutine per tile from a shared counter. It writes byte for
 // byte what the Ergo program writes on the same host, with the same exit
-// status; every float operation is in the Ergo program's order.
+// status; every float operation is in the Ergo program's order. Every
+// product of floats is written float64(a*b), which Go rounds, so no host
+// fuses it into a sum (the Go spec, Arithmetic operators): the Ergo
+// lowering writes its products so, and the bytes agree on every host.
 //
 //	control W H SPP SEED OBJECTS WORKERS TILE
 package main
@@ -55,13 +58,17 @@ func count(arg, name string, least int) int {
 
 type vec struct{ x, y, z float64 }
 
-func add(a, b vec) vec           { return vec{a.x + b.x, a.y + b.y, a.z + b.z} }
-func sub(a, b vec) vec           { return vec{a.x - b.x, a.y - b.y, a.z - b.z} }
-func scale(a vec, s float64) vec { return vec{a.x * s, a.y * s, a.z * s} }
-func mul(a, b vec) vec           { return vec{a.x * b.x, a.y * b.y, a.z * b.z} }
-func dot(a, b vec) float64       { return a.x*b.x + a.y*b.y + a.z*b.z }
+func add(a, b vec) vec { return vec{a.x + b.x, a.y + b.y, a.z + b.z} }
+func sub(a, b vec) vec { return vec{a.x - b.x, a.y - b.y, a.z - b.z} }
+func scale(a vec, s float64) vec {
+	return vec{float64(a.x * s), float64(a.y * s), float64(a.z * s)}
+}
+func mul(a, b vec) vec {
+	return vec{float64(a.x * b.x), float64(a.y * b.y), float64(a.z * b.z)}
+}
+func dot(a, b vec) float64 { return float64(a.x*b.x) + float64(a.y*b.y) + float64(a.z*b.z) }
 func cross(a, b vec) vec {
-	return vec{a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x}
+	return vec{float64(a.y*b.z) - float64(a.z*b.y), float64(a.z*b.x) - float64(a.x*b.z), float64(a.x*b.y) - float64(a.y*b.x)}
 }
 func unit(a vec) vec { return scale(a, 1.0/math.Sqrt(dot(a, a))) }
 func axis(a vec, k int) float64 {
@@ -93,8 +100,8 @@ func intersect(s *shape, r ray, lo, hi float64) float64 {
 		oc := sub(r.origin, s.a)
 		a := dot(r.dir, r.dir)
 		hb := dot(oc, r.dir)
-		c := dot(oc, oc) - s.radius*s.radius
-		disc := hb*hb - a*c
+		c := dot(oc, oc) - float64(s.radius*s.radius)
+		disc := float64(hb*hb) - float64(a*c)
 		if disc < 0 {
 			return miss
 		}
@@ -118,16 +125,16 @@ func intersect(s *shape, r ray, lo, hi float64) float64 {
 	}
 	inv := 1.0 / det
 	s0 := sub(r.origin, s.a)
-	u := dot(s0, p) * inv
+	u := float64(dot(s0, p) * inv)
 	if u < 0 || u > 1 {
 		return miss
 	}
 	q := cross(s0, e1)
-	v := dot(r.dir, q) * inv
+	v := float64(dot(r.dir, q) * inv)
 	if v < 0 || u+v > 1 {
 		return miss
 	}
-	t := dot(e2, q) * inv
+	t := float64(dot(e2, q) * inv)
 	if t > lo && t <= hi {
 		return t
 	}
@@ -171,7 +178,7 @@ func padded(b box) box {
 		}
 	}
 	m = 1.0 + m
-	e := vec{m * pad, m * pad, m * pad}
+	e := vec{float64(m * pad), float64(m * pad), float64(m * pad)}
 	return box{sub(b.min, e), add(b.max, e)}
 }
 
@@ -193,8 +200,8 @@ func crosses(b *box, r ray, lo, hi float64) bool {
 	for k := range 3 {
 		inv := 1.0 / axis(r.dir, k)
 		o := axis(r.origin, k)
-		t0 := (axis(b.min, k) - o) * inv
-		t1 := (axis(b.max, k) - o) * inv
+		t0 := float64((axis(b.min, k) - o) * inv)
+		t1 := float64((axis(b.max, k) - o) * inv)
 		if inv < 0 {
 			t0, t1 = t1, t0
 		}
@@ -343,13 +350,15 @@ func (s *stream) next() uint64 {
 	return z ^ (z >> 31)
 }
 
-func (s *stream) float() float64 { return float64(s.next()>>11) * (1.0 / 9007199254740992.0) }
+func (s *stream) float() float64 {
+	return float64(float64(s.next()>>11) * (1.0 / 9007199254740992.0))
+}
 
 func (s *stream) inBall() vec {
 	for {
-		x := 2.0*s.float() - 1.0
-		y := 2.0*s.float() - 1.0
-		z := 2.0*s.float() - 1.0
+		x := float64(2.0*s.float()) - 1.0
+		y := float64(2.0*s.float()) - 1.0
+		z := float64(2.0*s.float()) - 1.0
 		p := vec{x, y, z}
 		d := dot(p, p)
 		if d < 1.0 && d > 1e-12 {
@@ -366,7 +375,7 @@ func lookAt(from, to vec, aspect float64) camera {
 	w := unit(sub(from, to))
 	u := unit(cross(vec{0, 1, 0}, w))
 	v := cross(w, u)
-	horiz := scale(u, aspect*viewHeight)
+	horiz := scale(u, float64(aspect*viewHeight))
 	vert := scale(v, viewHeight)
 	corner := sub(sub(sub(from, scale(horiz, 0.5)), scale(vert, 0.5)), w)
 	return camera{from, corner, horiz, vert}
@@ -388,32 +397,32 @@ func generate(seed uint64, n int, aspect float64) scene {
 	shapes := []shape{{a: vec{0, -1000, 0}, radius: 1000, mat: 0}, {a: vec{0, 7, 0}, radius: 2, mat: 1}}
 	mats := []material{{kind: diffuse, color: vec{0.5, 0.5, 0.5}}, {kind: light, color: vec{4, 4, 4}}}
 	for range n {
-		x := 8.0*s.float() - 4.0
-		z := 8.0*s.float() - 4.0
-		size := 0.2 + 0.5*s.float()
+		x := float64(8.0*s.float()) - 4.0
+		z := float64(8.0*s.float()) - 4.0
+		size := 0.2 + float64(0.5*s.float())
 		mat := len(mats)
 		if s.next()%3 == 0 {
 			a := vec{x, 0, z}
-			bx := x + size*(2.0*s.float()-1.0)
-			by := 2.0 * size
-			bz := z + size*(2.0*s.float()-1.0)
-			cx := x + size*(2.0*s.float()-1.0)
-			cy := size * s.float()
-			cz := z + size*(2.0*s.float()-1.0)
+			bx := x + float64(size*(float64(2.0*s.float())-1.0))
+			by := float64(2.0 * size)
+			bz := z + float64(size*(float64(2.0*s.float())-1.0))
+			cx := x + float64(size*(float64(2.0*s.float())-1.0))
+			cy := float64(size * s.float())
+			cz := z + float64(size*(float64(2.0*s.float())-1.0))
 			shapes = append(shapes, shape{tri: true, a: a, b: vec{bx, by, bz}, c: vec{cx, cy, cz}, mat: mat})
 		} else {
 			shapes = append(shapes, shape{a: vec{x, size, z}, radius: size, mat: mat})
 		}
 		kind := s.next() % 10
-		cr := 0.2 + 0.8*s.float()
-		cg := 0.2 + 0.8*s.float()
-		cb := 0.2 + 0.8*s.float()
+		cr := 0.2 + float64(0.8*s.float())
+		cg := 0.2 + float64(0.8*s.float())
+		cb := 0.2 + float64(0.8*s.float())
 		color := vec{cr, cg, cb}
 		switch {
 		case kind < 5:
 			mats = append(mats, material{kind: diffuse, color: color})
 		case kind < 8:
-			mats = append(mats, material{kind: metal, color: color, fuzz: 0.5 * s.float()})
+			mats = append(mats, material{kind: metal, color: color, fuzz: float64(0.5 * s.float())})
 		case kind < 9:
 			mats = append(mats, material{kind: glass, index: 1.5})
 		default:
@@ -429,12 +438,12 @@ const (
 	nearT      = 0.001
 )
 
-func reflect(v, n vec) vec { return sub(v, scale(n, 2.0*dot(v, n))) }
+func reflect(v, n vec) vec { return sub(v, scale(n, float64(2.0*dot(v, n)))) }
 
 func schlick(cos, ratio float64) float64 {
 	r0 := (1.0 - ratio) / (1.0 + ratio)
-	r0 = r0 * r0
-	return r0 + (1.0-r0)*math.Pow(1.0-cos, 5.0)
+	r0 = float64(r0 * r0)
+	return r0 + float64((1.0-r0)*math.Pow(1.0-cos, 5.0))
 }
 
 func trace(sc *scene, r ray, s *stream) vec {
@@ -443,7 +452,7 @@ func trace(sc *scene, r ray, s *stream) vec {
 	for bounce := 0; ; bounce++ {
 		t, i := sc.tree.nearest(r, nearT, far)
 		if i < 0 {
-			tt := 0.5 * (unit(r.dir).y + 1.0)
+			tt := float64(0.5 * (unit(r.dir).y + 1.0))
 			sky := add(scale(vec{1, 1, 1}, 1.0-tt), scale(vec{0.5, 0.7, 1.0}, tt))
 			return add(color, mul(through, sky))
 		}
@@ -483,13 +492,13 @@ func trace(sc *scene, r ray, s *stream) vec {
 			if cos > 1 {
 				cos = 1
 			}
-			k := 1.0 - cos*cos
+			k := 1.0 - float64(cos*cos)
 			if k < 0 {
 				k = 0
 			}
 			sin := math.Sqrt(k)
 			dir := reflect(u, n)
-			if ratio*sin <= 1.0 && schlick(cos, ratio) <= s.float() {
+			if float64(ratio*sin) <= 1.0 && schlick(cos, ratio) <= s.float() {
 				perp := scale(add(u, scale(n, cos)), ratio)
 				along := scale(n, -math.Sqrt(math.Abs(1.0-dot(perp, perp))))
 				dir = add(perp, along)
@@ -510,7 +519,7 @@ func level(c float64) byte {
 	if g > 0.999 {
 		g = 0.999
 	}
-	return byte(int(g * 256.0))
+	return byte(int(float64(g * 256.0)))
 }
 
 func render(sc *scene, w, h, spp int, seed uint64, workers, size int) []byte {
