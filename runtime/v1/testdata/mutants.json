@@ -268,8 +268,8 @@
       "to": "\ttagged := env.kind == timerSignal || env.kind == workSignal\n",
       "rule": "NoLateChildOutput: a child output of an ended entry is dropped, never stepped.",
       "killers": [
-        "v1:TestChildrenLawsExplored",
-        "v1:TestActorChildrenAgreeWithTree"
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
       ]
     },
     {
@@ -280,8 +280,8 @@
       "to": "\ta.task.Interrupt()\n\ta.inbox.Close()\n",
       "rule": "ChildrenStopFirst, ChildInsideEntry: an entry's exit waits for each child's end before it stops the next one and before the next entry opens.",
       "killers": [
-        "v1:TestChildrenLawsExplored",
-        "v1:TestActorChildrenAgreeWithTree"
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
       ]
     },
     {
@@ -292,8 +292,8 @@
       "to": "\tif len(a.kids) > 0 {\n\t\ta.kids = a.kids[:len(a.kids)-1]\n\t}\n\ta.kids = append(a.kids, &kid{halt: halt})",
       "rule": "ChildInsideEntry: an entry keeps every child it started, so its exit stops them all.",
       "killers": [
-        "v1:TestChildrenLawsExplored",
-        "v1:TestActorChildrenAgreeWithTree"
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
       ]
     },
     {
@@ -304,8 +304,8 @@
       "to": "\ta.working = rt.Go(&holder,",
       "rule": "ChildInsideEntry: a Stop reaches an entry's work only after the entry's children ended.",
       "killers": [
-        "v1:TestChildrenLawsExplored",
-        "v1:TestActorChildrenAgreeWithTree"
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored",
+        "runtime/v1:TestActorChildrenAgreeWithTree"
       ]
     },
     {
@@ -316,7 +316,7 @@
       "to": "\tif tagged && env.epoch%4 != a.epoch%4 {\n",
       "rule": "NoLateChildOutput: entries are compared whole; a counter that wraps at 4 steps an output four entries late.",
       "killers": [
-        "v1:TestChildrenLawsExplored"
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
       ]
     },
     {
@@ -327,7 +327,7 @@
       "to": "",
       "rule": "An explored run sees every wait: an entry's exit waits for a child's start in progress through the scheduler, not on kidsMu with the baton held. Without it the run hangs with the baton held until the test's hung-test deadline.",
       "killers": [
-        "v1:TestChildrenLawsExplored"
+        "runtime/v1[ergoexplore]:TestChildrenLawsExplored"
       ]
     },
     {
@@ -338,7 +338,7 @@
       "to": "\t\tif m.Source == \"stale\" {\n",
       "rule": "The reader counts every child output the parent steps; one that drops them never sees NoLateChildOutput break.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
       ]
     },
     {
@@ -349,7 +349,7 @@
       "to": "\t\t\t_ = k\n",
       "rule": "ChildInsideEntry: the next entry opens only after the old entry's children ended.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
       ]
     },
     {
@@ -360,7 +360,7 @@
       "to": "\t\t\tif k := l.liveKid(en); false && k != nil {\n\t\t\t\tl.breaks(\"ChildInsideEntry\", \"the work",
       "rule": "ChildInsideEntry: an entry's work is stopped only after the entry's children ended.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
       ]
     },
     {
@@ -371,7 +371,7 @@
       "to": "\t\tif !p.live {\n",
       "rule": "ChildInsideEntry: a child starts only while the entry that starts it is open.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
       ]
     },
     {
@@ -382,7 +382,7 @@
       "to": "\t\t\t\tif k := l.actors[s]; false && k.live {\n",
       "rule": "ChildrenStopFirst: the last started child stops first.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
       ]
     },
     {
@@ -393,7 +393,7 @@
       "to": "\t\t\t_ = k\n",
       "rule": "ChildrenStopFirst: no child lives after its parent ended.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
       ]
     },
     {
@@ -404,7 +404,7 @@
       "to": "\t\ten, ok := l.works[x]\n\t\tif !ok || true {\n",
       "rule": "A child is found from the task tree: the nearest ancestor that is a work names its entry.",
       "killers": [
-        "v1:TestChildLawsReadEvents"
+        "runtime/v1[ergoexplore]:TestChildLawsReadEvents"
       ]
     },
     {
@@ -415,7 +415,7 @@
       "to": "\t\t_ = q\n",
       "rule": "queue.New names its queue in an explored run.",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     },
     {
@@ -426,7 +426,7 @@
       "to": "\t\tif true {\n",
       "rule": "A handle's name is the nearest frame at a position of the program's source, not a runtime frame.",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     },
     {
@@ -437,7 +437,7 @@
       "to": "if true {",
       "rule": "Among the calls on the frame's line, the name is the constructor's call, with its column.",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     },
     {
@@ -448,7 +448,7 @@
       "to": "\t\t\t\t_ = rel\n",
       "rule": "The file is named relative to the folder of the program's files (its package path), not by its base name.",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     },
     {
@@ -459,7 +459,7 @@
       "to": "Failure: exploreDefect(res)}",
       "rule": "A worker's outcome carries the run's handle names to the search.",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     },
     {

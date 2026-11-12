@@ -423,7 +423,7 @@
       "rule": "capInsert: capInsert returns n with (k, t) added, provided by e, and whether it was added; when over is set, an element already there whose entry is not e is copied with e (changed).",
       "killers": [
         "check:TestCapSetPut",
-        "examples:checkout",
+        "examples:lookup",
         "lower:TestCheckIsCanonical"
       ]
     },
@@ -2492,7 +2492,7 @@
       "from": "Machine: tn, Pkg: c.pkg, file: fi}",
       "to": "Machine: tn, file: fi}",
       "rule": "Every law records the package that declares it, a machine's law too.",
-      "killers": ["eval:TestMachineLawsAgreeWithModel"]
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
     },
     {
       "name": "F8-row-arg-keeps-named-row-whole",

@@ -9,7 +9,7 @@
       "to": "\treturn (ka == change || kb == change) && !(a.Kind == \"push\" && b.Kind == \"push\")\n",
       "rule": "Two pushes to one queue are dependent: their order shows in the pops.",
       "killers": [
-        "sched:TestDPORFindsEveryOutcome"
+        "runtime/explore/sched:TestDPORFindsEveryOutcome"
       ]
     },
     {
@@ -20,7 +20,7 @@
       "to": "if (!Dependent(s, taken) || true) && enabled(c, s) {",
       "rule": "A sleeping task wakes when the step taken is dependent with its step.",
       "killers": [
-        "sched:TestDPORFindsEveryOutcome"
+        "runtime/explore/sched:TestDPORFindsEveryOutcome"
       ]
     },
     {
@@ -31,7 +31,7 @@
       "to": "\td.n, d.drained, d.blocked, d.diverged = 0, false, false, \"\"\n",
       "rule": "The preemption count starts at 0 for each schedule.",
       "killers": [
-        "sched:TestDPORFindsEveryOutcome"
+        "runtime/explore/sched:TestDPORFindsEveryOutcome"
       ]
     },
     {
@@ -42,7 +42,7 @@
       "to": "\tif i > 0 {\n",
       "rule": "A bounded search keeps no sleep sets: the orders that put a task to sleep may lie past the bound.",
       "killers": [
-        "sched:TestDPORFindsEveryOutcome"
+        "runtime/explore/sched:TestDPORFindsEveryOutcome"
       ]
     },
     {
@@ -53,7 +53,7 @@
       "to": "\t\t_ = i\n",
       "rule": "At a change point the task at the point drops to priority d-i.",
       "killers": [
-        "sched:TestPCTMatchesReference"
+        "runtime/explore/sched:TestPCTMatchesReference"
       ]
     },
     {
@@ -64,7 +64,7 @@
       "to": "\treturn 0, nil\n",
       "rule": "A replay that leaves its schedule stops the run.",
       "killers": [
-        "sched:TestDPORFindsEveryOutcome"
+        "runtime/explore/sched:TestDPORFindsEveryOutcome"
       ]
     },
     {
@@ -75,7 +75,7 @@
       "to": "\t\tout[i] = r.Choices[i].Enabled[k*0].Task\n",
       "rule": "A printed schedule names each picked task by its spawn path, not by its place among the enabled tasks.",
       "killers": [
-        "sched:TestDPORFindsEveryOutcome"
+        "runtime/explore/sched:TestDPORFindsEveryOutcome"
       ]
     },
     {
@@ -86,7 +86,7 @@
       "to": "",
       "rule": "The dependency table has a row for every rt.OpKind.",
       "killers": [
-        "sched:TestDependencyTableTotal"
+        "runtime/explore/sched:TestDependencyTableTotal"
       ]
     },
     {
@@ -97,7 +97,7 @@
       "to": "\t\tp.Abandoned++\n",
       "rule": "A run that left a task ends its worker.",
       "killers": [
-        "sched:TestPoolReplacesAbandonedWorkers"
+        "runtime/explore/sched:TestPoolReplacesAbandonedWorkers"
       ]
     },
     {
@@ -108,8 +108,8 @@
       "to": "\t\tp.Abandoned++\n\t}\n\tp.Close()\n",
       "rule": "A worker whose runs ended clean is reused: at most one worker more than the abandoned runs.",
       "killers": [
-        "sched:TestPoolReplacesAbandonedWorkers",
-        "v1:TestWorkerRetainsNoTask"
+        "runtime/explore/sched:TestPoolReplacesAbandonedWorkers",
+        "runtime/v1[ergoexplore]:TestWorkerRetainsNoTask"
       ]
     },
     {
@@ -120,7 +120,7 @@
       "to": "\to.Abandoned = res.Escape != \"\" || res.Stopped != nil\n",
       "rule": "A deadlocked run leaves its tasks parked: its worker serves no more runs.",
       "killers": [
-        "v1:TestWorkerRetainsNoTask"
+        "runtime/v1[ergoexplore]:TestWorkerRetainsNoTask"
       ]
     },
     {
@@ -131,7 +131,7 @@
       "to": "\t\trel = append(rel, q)\n",
       "rule": "The printed test's schedule is an Ergo []string literal.",
       "killers": [
-        "main:TestReplayTestChecks"
+        "cmd/ergo:TestReplayTestChecks"
       ]
     },
     {
@@ -142,7 +142,7 @@
       "to": "\toff := 0\n",
       "rule": "The printed schedule is relative to the failing test: the root's children of earlier tests do not count.",
       "killers": [
-        "main:TestReplayTestChecks"
+        "cmd/ergo:TestReplayTestChecks"
       ]
     },
     {
@@ -153,7 +153,7 @@
       "to": "\t\tselected = \"\"\n",
       "rule": "The replay command of a failure under --run NAME keeps --run NAME.",
       "killers": [
-        "main:TestReplayTestChecks"
+        "cmd/ergo:TestReplayTestChecks"
       ]
     },
     {
@@ -164,7 +164,7 @@
       "to": "--schedule %s\\n\"",
       "rule": "The replay command quotes the schedule token: its stars are glob characters to a shell.",
       "killers": [
-        "main:TestReplayTestChecks"
+        "cmd/ergo:TestReplayTestChecks"
       ]
     },
     {
@@ -175,7 +175,7 @@
       "to": "\n",
       "rule": "Under --run NAME the printed failing test is NAME, even when the run stopped before any verdict line.",
       "killers": [
-        "main:TestReplayTestChecks"
+        "cmd/ergo:TestReplayTestChecks"
       ]
     },
     {
@@ -186,7 +186,7 @@
       "to": "\t\tif name, ok := names[s.Handle]; ok && false {\n",
       "rule": "Words print a handle by the name the run gave it.",
       "killers": [
-        "v1:TestHandlesNamedBySource"
+        "runtime/v1[ergoexplore]:TestHandlesNamedBySource"
       ]
     }
   ]

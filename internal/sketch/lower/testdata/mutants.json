@@ -1462,7 +1462,7 @@
       "killers": [
         "lower:TestStdLawsAddNoGo",
         "lower:TestRuntime199FrameClassCoverage",
-        "examples:checkout"
+        "examples:lookup"
       ]
     },
     {
@@ -2360,7 +2360,7 @@
       "to": "\t\t\tif false {",
       "rule": "types.md Codecs 1-2: decode[T] takes every codable T, a basic one at the top too.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -2371,7 +2371,7 @@
       "to": "\tif false {\n\t\t// decode[T] of a basic T",
       "rule": "types.md Codecs 1-2: decode[T] of a basic T reads one event.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -2382,7 +2382,7 @@
       "to": "\t\tif false {",
       "rule": "types.md Codecs 1-2: encode(v, w) of a basic v writes one event on any Writer.",
       "killers": [
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
@@ -3458,7 +3458,7 @@
       "rule": "types.md Equality: two Nones of an Option whose payload is a union are equal; the payload the tag does not name is not compared.",
       "killers": [
         "lower:TestFlatUnionsAgree",
-        "lower:TestStdWireLawsRun"
+        "lower:TestStdCodecLawsRun"
       ]
     },
     {
