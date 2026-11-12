@@ -539,6 +539,96 @@
       "to": "\t\t_ = v\n\t\treturn unit{}, nil",
       "rule": "A Ref is one cell every copy shares: Update through one copy is seen through every other.",
       "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-release-forward",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/release.go",
+      "from": "\tfor i := len(built) - 1; i >= 0; i-- {\n\t\tb := built[i]",
+      "to": "\tfor i := 0; i < len(built); i++ {\n\t\tb := built[i]",
+      "rule": "A with releases its providers in reverse acquisition order, dependents first (resources.md R5, Context ownership 4).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-release-skipped-on-exit",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/release.go",
+      "from": "\tif ab != nil && (ab.kind == ctlExhausted || ab.kind == ctlUnsupported) {\n\t\treturn ab\n\t}\n\tsaved := fr.caps",
+      "to": "\tif ab != nil {\n\t\treturn ab\n\t}\n\tsaved := fr.caps",
+      "rule": "A with releases what it built on every exit of its block: a return and a typed failure too (Context ownership 3).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-release-in-inner-env",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/release.go",
+      "from": "\tsaved := fr.caps\n\tfr.caps = outer\n",
+      "to": "\tsaved := fr.caps\n\t_ = outer\n",
+      "rule": "A release runs in the environment outside the with: a Close that needs a capability takes the outer with's provider, not one its own with binds (Context ownership 6).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-release-twice",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\tif ab = in.releaseAll(fr, arg, built, outer, ab); ab != nil {",
+      "to": "\tin.releaseAll(fr, arg, built, outer, nil)\n\tif ab = in.releaseAll(fr, arg, built, outer, ab); ab != nil {",
+      "rule": "A with releases each provider once (Context ownership 3).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-acquire-fail-leaks",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\t\tab = in.releaseAll(fr, at, built, outer, ab)\n",
+      "to": "\t\t\t_ = outer\n",
+      "rule": "A failure while a with builds a provider releases the providers built before it, last first, before it leaves (R7).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-law-case-unreleased",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/lawcontext.go",
+      "from": "in.releaseAll(cf, law.Decl, built, outer, nil)",
+      "to": "in.releaseAll(cf, law.Decl, built[:0], outer, nil)",
+      "rule": "A law case under a context releases the providers its build acquired when the case ends (types.md, Laws 10).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-context-value-leaks",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/contextvalues.go",
+      "from": "\tdefer func() { in.ctxv = saved }()",
+      "to": "\tdefer func() { _ = saved }()",
+      "rule": "A context value's binding ends with its with's block, on every exit (runtime.md G1).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-install-binds-nothing",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/effects.go",
+      "from": "\t\t\tfr.caps = &capEnv{key: b.key, op: b.op, next: fr.caps}",
+      "to": "\t\t\t_ = b",
+      "rule": "A with of a Context value binds the providers the value holds for its block (rows.md, Context values).",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-o2-covered-failure-caught",
+      "origin": "wf10 ORACLE O2 (batch 17 fix-try r2 probe)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tv, ab := in.tailExpr(fr, x)\n\tif ab != nil && ab.kind == ctlFail {",
+      "to": "\tv, ab := in.tailExpr(fr, x)\n\tif false && ab != nil && ab.kind == ctlFail {",
+      "rule": "Under try X catch, a failure covered in a value position inside X passes the catch and leaves the frame (rows.md, Catch 5).",
+      "killers": ["internal/sketch/eval:TestCoveredFailurePassesCatch"]
+    },
+    {
+      "name": "oracle-o2-owned-local-run",
+      "origin": "wf10 ORACLE O2",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\tif why := in.ownership(fr); why != \"\" {",
+      "to": "\tif why := in.ownership(fr); false && why != \"\" {",
+      "rule": "A body that owns a resource outside a with is skipped until the evaluator runs its release, never passed or refuted without it.",
+      "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
     }
   ]
 }

@@ -144,28 +144,44 @@ func (in *interp) withOperand(fr *frame, x *syntax.CallExpr, i int, w *check.Wit
 	if (w.Next == nil) != (i == len(x.Args)-1) {
 		ice("a with of %d operands whose With.Next chain ends at operand %d", len(x.Args), i+1)
 	}
+	outer := fr.caps
+	inner := func() (Value, *abrupt) {
+		if w.Next != nil {
+			return in.withOperand(fr, x, i+1, w.Next)
+		}
+		return in.yield(fr, x.Trailing.List, false)
+	}
 	switch {
 	case w.Value != nil:
-		return nil, fr.unsupported(arg, "a with of a context value (contextKey) yet")
+		return in.bindContextValue(fr, arg, w.Value, inner)
 	case w.Installs != nil:
-		return nil, fr.unsupported(arg, "a with that installs a Context value yet")
+		v, ab := in.expr(fr, arg)
+		if ab != nil {
+			return nil, ab
+		}
+		cv, ok := v.(*contextValue)
+		if !ok {
+			return nil, fr.unsupported(arg, "a Context value the evaluator did not build (%s)", describe(v))
+		}
+		for _, b := range cv.binds {
+			fr.caps = &capEnv{key: b.key, op: b.op, next: fr.caps}
+		}
+		return inner()
 	case len(w.Contexts) == 0:
 		ice("a with operand with neither a context nor a context binding")
 	}
-	for _, a := range w.Acquired {
-		if a.Releases() {
-			return nil, fr.unsupported(arg, "a with whose provider is a resource it releases yet")
-		}
-	}
-	caps, ab := in.acquire(fr, arg, w)
+	caps, built, ab := in.acquire(fr, arg, w)
 	if ab != nil {
 		return nil, ab
 	}
 	fr.caps = caps
-	if w.Next != nil {
-		return in.withOperand(fr, x, i+1, w.Next)
+	v, ab := inner()
+	// The block ends: the with releases what it built, in the
+	// environment outside it (release.go).
+	if ab = in.releaseAll(fr, arg, built, outer, ab); ab != nil {
+		return nil, ab
 	}
-	return in.yield(fr, x.Trailing.List, false)
+	return v, nil
 }
 
 // acquire builds the with's providers (With.Acquired), each once, in the
@@ -175,8 +191,19 @@ func (in *interp) withOperand(fr *frame, x *syntax.CallExpr, i int, w *check.Wit
 // outside the with, and the enclosing frame's locals; an entry of a
 // named context is evaluated in a frame of the context's package, and
 // sees the providers built before it (rows.md, Context 3, 4 and 9).
-func (in *interp) acquire(fr *frame, at syntax.Node, w *check.With) (*capEnv, *abrupt) {
+//
+// built lists the providers in acquisition order, for the with's
+// releases (release.go). A failure, a defect or a stop while a provider is
+// built releases the providers built before it, last first, before it
+// leaves (resources.md R7, Context ownership 8).
+func (in *interp) acquire(fr *frame, at syntax.Node, w *check.With) (caps *capEnv, built []acquired, ab *abrupt) {
 	outer := fr.caps
+	defer func() {
+		if ab != nil {
+			ab = in.releaseAll(fr, at, built, outer, ab)
+			built = nil
+		}
+	}()
 	lexical := map[*check.ContextEntry]bool{}
 	pkgs := map[*check.ContextEntry]*check.Context{}
 	var walk func(c *check.Context, lit bool)
@@ -195,42 +222,44 @@ func (in *interp) acquire(fr *frame, at syntax.Node, w *check.With) (*capEnv, *a
 		}
 	}
 	walk(w.Contexts[0], true)
-	built := map[*check.ContextEntry]Value{}
+	values := map[*check.ContextEntry]Value{}
 	building := outer
 	for _, a := range w.Acquired {
 		e := a.Entry
 		var v Value
-		var ab *abrupt
 		if lexical[e] {
 			v, ab = in.rawExpr(fr, e.Provider)
 		} else {
 			ctx := pkgs[e]
 			if ctx == nil || ctx.Decl == nil {
-				return nil, fr.unsupported(at, "a provider of a context the evaluator cannot place yet")
+				return nil, built, fr.unsupported(at, "a provider of a context the evaluator cannot place yet")
 			}
 			cf := in.newFrame(ctx.Package(), ctx.Decl)
 			cf.caps = building
 			v, ab = in.rawExpr(cf, e.Provider)
 		}
 		if ab != nil {
-			return nil, ab
+			return nil, built, ab
 		}
-		built[e] = v
+		// Built and registered in one step (R8): a later failure
+		// releases it.
+		values[e] = v
+		built = append(built, acquired{a: a, v: v})
 		for _, j := range a.Caps {
 			op, ab := in.entryOperation(fr, at, e, j, v)
 			if ab != nil {
-				return nil, ab
+				return nil, built, ab
 			}
 			building = &capEnv{key: typeKey(fr.rt(e.Caps[j])), op: op, next: building}
 		}
 	}
-	caps := outer
+	caps = outer
 	for i, cap := range w.Discharged {
 		if i >= len(w.Entries) {
 			ice("a with discharges %d capabilities with %d entries", len(w.Discharged), len(w.Entries))
 		}
 		e := w.Entries[i]
-		v, ok := built[e]
+		v, ok := values[e]
 		if !ok {
 			ice("a with discharges %s by an entry it did not acquire", cap)
 		}
@@ -247,11 +276,11 @@ func (in *interp) acquire(fr *frame, at syntax.Node, w *check.With) (*capEnv, *a
 		}
 		op, ab := in.entryOperation(fr, at, e, j, v)
 		if ab != nil {
-			return nil, ab
+			return nil, built, ab
 		}
 		caps = &capEnv{key: key, op: op, next: caps}
 	}
-	return caps, nil
+	return caps, built, nil
 }
 
 // entryOperation is the provider v of entry e put into its capability j.

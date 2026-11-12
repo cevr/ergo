@@ -251,6 +251,20 @@ func init() {
 		return m, nil
 	}
 
+	// The task's context values (log, trace): the reading package is
+	// the namespace, as a with of a value of its type binds it.
+	for _, p := range []string{"log", "trace"} {
+		natives[p+".contextBound"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+			_, ok := in.contextLookup(fn.Pkg.Path, args[0].(string))
+			return ok, nil
+		}
+		natives[p+".contextValue"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+			// "" when no binding is in force (stdlib: the innermost
+			// binding's text, or the empty text).
+			text, _ := in.contextLookup(fn.Pkg.Path, args[0].(string))
+			return text, nil
+		}
+	}
 	natives["sync.NewRef"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.build(fr, at, 1, 1, 0); ab != nil {
 			return nil, ab

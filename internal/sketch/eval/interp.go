@@ -15,6 +15,11 @@ type interp struct {
 	bytes  int64 // value bytes allocated, of budget.Bytes
 	depth  int
 	files  map[syntax.Decl]*syntax.File
+	// ctxv are the context values in force for the running task,
+	// innermost first (contextvalues.go).
+	ctxv *ctxBinding
+	// owns caches ownership's verdict per declaration (release.go).
+	owns map[syntax.Decl]string
 	// globals are the package-level lets, bound once by the packages'
 	// initializers before any obligation runs (init.go). Nothing writes
 	// them after.
@@ -276,6 +281,9 @@ func (in *interp) yield(fr *frame, list []syntax.Stmt, ret bool) (Value, *abrupt
 	if len(list) == 0 {
 		return nil, nil
 	}
+	if why := in.ownership(fr); why != "" {
+		return nil, fr.abrupt(ctlUnsupported, list[0], nil, "check-time evaluation does not run "+why)
+	}
 	if ab := in.stmts(fr, list[:len(list)-1]); ab != nil {
 		return nil, ab
 	}
@@ -359,7 +367,7 @@ func (in *interp) resultExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		origin = unparen(t.X)
 	}
 	fr.resultPos = origin.Pos()
-	v, ab := in.expr(fr, x)
+	v, ab := in.tailExpr(fr, x)
 	switch origin.(type) {
 	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt, *syntax.CatchExpr:
 	default:

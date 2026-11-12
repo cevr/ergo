@@ -110,7 +110,11 @@ func (in *interp) initPackage(p *check.Package) *initFailure {
 		if decl.Extern != nil {
 			return &initFailure{Skipped, fmt.Sprintf("the package let at %s is a Go value, which check-time evaluation never reads", siteText(site)), site}
 		}
-		if why := in.impure(p, spec); why != "" {
+		// An opaque footprint (a Go function, a function value, an
+		// operation) is decided at the call, as in any body: a native
+		// runs, anything else is a skip at its site (ORACLE O2).
+		if fp := p.Info.Footprints[spec]; fp.Opaque && !fp.Tasks && len(fp.Caps) == 0 {
+		} else if why := in.impure(p, spec); why != "" {
 			return &initFailure{Skipped, fmt.Sprintf("the package initializer at %s cannot run at check time: %s", siteText(site), why), site}
 		}
 		fr := in.newFrame(p, decl)

@@ -10,10 +10,34 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// expr evaluates x. Each evaluated node costs a step before its work.
+// expr evaluates x in a value position: an operand, an argument, a
+// condition, an initializer. A typed failure there is covered by a try
+// around it (the checker refuses it elsewhere, S105), so it leaves the
+// frame: no catch inside the frame takes it, not even the catch of a try
+// … catch whose subject holds x (rows.md, Catch 5: the catch handles the
+// caught expression's own row, and a covered failure passes it).
 func (in *interp) expr(fr *frame, x syntax.Expr) (Value, *abrupt) {
+	v, ab := in.tailExpr(fr, x)
+	if ab != nil && ab.kind == ctlFail {
+		out := *ab
+		out.kind = ctlEscape
+		return nil, &out
+	}
+	return v, ab
+}
+
+// tailExpr evaluates x where its own failure is the enclosing
+// expression's: the subject of a try or a catch, a parenthesized
+// expression, a block's tail. Each evaluated node costs a step before its
+// work.
+func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	if ab := in.charge(fr, x, 1); ab != nil {
 		return nil, ab
+	}
+	if len(fr.info.ContextValues) > 0 {
+		if w := fr.info.ContextValues[x]; w != nil {
+			return in.makeContextValue(fr, x, w)
+		}
 	}
 	v, ab := in.exprOf(fr, x)
 	if ab != nil {
@@ -68,7 +92,7 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	}
 	switch x := x.(type) {
 	case *syntax.ParenExpr:
-		return in.expr(fr, x.X)
+		return in.tailExpr(fr, x.X)
 	case *syntax.Ident:
 		return in.ident(fr, x)
 	case *syntax.BasicLit:
@@ -572,7 +596,7 @@ func (in *interp) try(fr *frame, x *syntax.TryExpr) (Value, *abrupt) {
 	if c, ok := unparen(x.X).(*syntax.CatchExpr); ok {
 		return in.catch(fr, c, true)
 	}
-	v, ab := in.expr(fr, x.X)
+	v, ab := in.tailExpr(fr, x.X)
 	if ab != nil && ab.kind == ctlFail {
 		out := *ab
 		out.kind = ctlEscape
@@ -590,7 +614,7 @@ func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *a
 	if m == nil {
 		ice("a catch with no Matches entry")
 	}
-	v, failed := in.expr(fr, x.X)
+	v, failed := in.tailExpr(fr, x.X)
 	if failed == nil {
 		return v, nil
 	}

@@ -73,7 +73,7 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 			args = append(args, Argument{Name: v.Name, Value: in.argument(cf, types[i], a)})
 			cf.bind(v, a)
 		}
-		caps, ab := in.acquire(cf, law.Decl, lc.With)
+		caps, built, ab := in.acquire(cf, law.Decl, lc.With)
 		if ab != nil {
 			out.Status, out.Reason, out.Site = statusOf(ab), ab.msg, in.site(ab.pkg, ab.decl, ab.at)
 			out.Case, out.Arguments = k+1, args
@@ -84,8 +84,18 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		if !found {
 			ice("the context %s does not bind %s", lc.Context.Name, cap)
 		}
+		outer := cf.caps
 		cf.lawOwn, cf.caps = own, caps
 		result := in.runBodyFrame(cf, law.Decl.Body, true, res)
+		// The case owns what its build acquired: it releases them after
+		// the law's last operation, last built first, each once; a
+		// release's defect fails the case as any defect does (types.md,
+		// Laws 10, Under a context).
+		if result.Status == Passed || result.Status == Refuted || result.Status == Defect {
+			if rel := in.releaseAll(cf, law.Decl, built, outer, nil); rel != nil && (result.Status != Defect || rel.kind != ctlDefect) {
+				result.Status, result.Reason, result.Site = statusOf(rel), rel.msg, in.site(rel.pkg, rel.decl, rel.at)
+			}
+		}
 		out.Cases = k + 1
 		out.Status, out.Reason, out.Site = result.Status, result.Reason, result.Site
 		if result.Status != Passed {
