@@ -404,6 +404,15 @@
       "to": "\t\treturn int8(int64(f)), true\n",
       "rule": "Check time converts a float to an integer by the lowering's one rule (S-conv: truncate, saturate, NaN to 0), so its verdict agrees with the Go build's.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel", "internal/sketch/lower:TestEvalAgreesWithGo"]
+    },
+    {
+      "name": "try1-eval-cover-ignored",
+      "origin": "wf10 batch 17 (TRY1 x EV)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\tif ab.kind == ctlFail && fr.info.TryCovers[x] != nil {",
+      "to": "\t\tif false {",
+      "rule": "grammar.md Expressions 1 (q105): the failure of an operand that a try on its left covers leaves the frame, as under the try itself; a catch around the call it is an argument of does not take it.",
+      "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
     }
   ]
 }

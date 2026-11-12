@@ -17,6 +17,14 @@ func (in *interp) expr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	}
 	v, ab := in.exprOf(fr, x)
 	if ab != nil {
+		if ab.kind == ctlFail && fr.info.TryCovers[x] != nil {
+			// A right operand that a try on its left covers (q105,
+			// check.Info.TryCovers): its failure leaves the frame, as
+			// under the try itself.
+			out := *ab
+			out.kind = ctlEscape
+			return nil, &out
+		}
 		return nil, ab
 	}
 	if conv, ok := fr.info.Implicit[x]; ok && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow {

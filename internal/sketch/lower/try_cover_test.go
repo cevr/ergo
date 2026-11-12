@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -29,7 +30,8 @@ import (
 //
 // The checker's verdict is compared in process (the parse tree is
 // syntax.TestTryAddsNoGrouping's), and the lowered Go of the accepted
-// cases is type-checked (typecheckGo). A failing seed prints the Ergo
+// cases is type-checked (typecheckGo) and evaluated at check time
+// (tryEvaluates). A failing seed prints the Ergo
 // source, both outputs and the replay command; ERGO_TRY_SEED=<seed>
 // replays one seed.
 func TestTryCoversToTheRight(t *testing.T) {
@@ -106,8 +108,9 @@ type tryProgram struct {
 func tryCoverSeed(t *testing.T, seed int64) *tryProgram {
 	t.Helper()
 	g := &tryGen{rng: rand.New(rand.NewSource(seed))}
-	var src, main, want strings.Builder
+	var src, main, want, pure strings.Builder
 	src.WriteString(tryPrelude)
+	pure.WriteString(tryPurePrelude)
 	main.WriteString("\nfunc main() needs Console {\n\tlet xs = []int{10, 20, 30}\n")
 	accepted := 0
 	for k := 1; k <= tryCoverCases; k++ {
@@ -154,6 +157,11 @@ func tryCoverSeed(t *testing.T, seed int64) *tryProgram {
 			}()
 			return root.text(root.eval(in))
 		}()
+		shown := result
+		if in.failed != "" {
+			shown = "failed at " + in.failed
+		}
+		pure.WriteString(tryEvalCase(k, root, strings.Replace(fn, " needs Console {", " {", 1), text, shown))
 		fmt.Fprintf(&want, "case %d\n", k)
 		for _, line := range in.trace {
 			want.WriteString(line + "\n")
@@ -169,12 +177,91 @@ func tryCoverSeed(t *testing.T, seed int64) *tryProgram {
 	if accepted == 0 {
 		return nil
 	}
+	tryEvaluates(t, seed, pure.String())
 	main.WriteString("}\n")
 	src.WriteString(main.String())
 	name := fmt.Sprintf("trycover%d", seed)
 	o := mustLower(t, name, src.String())
 	return &tryProgram{seed: seed, lowered: o, want: want.String()}
 }
+
+// tryEvaluates is the evaluator's leg (internal/sketch/eval, the same
+// order): the seed's accepted cases, with pure calls, run at check time,
+// and each test must pass. A case's shown value is the model's value, or
+// "failed at" the tag of the model's first failure. Each case runs twice:
+// as its own function, and as the argument of a fallible call that a catch
+// handles: a failure that a try in the case covers still leaves the frame
+// past the catch (q105; the catch handles the call's row). It kills eval's
+// try1-eval-cover-ignored, which lets the catch take the failure of an
+// operand that a try on its left covers.
+func tryEvaluates(t *testing.T, seed int64, src string) {
+	t.Helper()
+	rep, err := evaluate(src)
+	if err != nil {
+		t.Fatalf("seed %d: the evaluator: %v\nsource:\n%s\nreplay: ERGO_TRY_SEED=%d go test -run 'TestTryCoversToTheRight$' ./internal/sketch/lower", seed, err, src, seed)
+	}
+	for _, r := range rep.Results {
+		if r.Status != eval.Passed {
+			t.Fatalf("seed %d: the evaluator: %s %s: %s at %d:%d\nsource:\n%s\nreplay: ERGO_TRY_SEED=%d go test -run 'TestTryCoversToTheRight$' ./internal/sketch/lower", seed, r.Name, r.Status, r.Reason, r.Site.Line, r.Site.Column, src, seed)
+		}
+	}
+}
+
+// tryEvalCase is case k of the evaluator's leg: fn (pure), the same case
+// under a catch, and their tests.
+func tryEvalCase(k int, root *tx, fn, text, shown string) string {
+	result, pass, sentinel := "int", "pass", "-1"
+	if root.isBool {
+		result, pass, sentinel = "bool", "passb", "false"
+	}
+	var b strings.Builder
+	b.WriteString(fn)
+	fmt.Fprintf(&b, "\nfunc caught%d(xs []int) %s fails Bad {\n\tlet r = %s(%s) catch {\n\tcase Bad:\n\t\t%s\n\t}\n\treturn r\n}\n", k, result, pass, text, sentinel)
+	for _, name := range []string{"case", "caught"} {
+		fmt.Fprintf(&b, "\nfunc show%s%d(xs []int) string {\n\tlet r = %s%d(xs) catch {\n\tcase Bad as e:\n\t\treturn \"failed at \" + e.At\n\t}\n\treturn \"\\(r)\"\n}\n", name, k, name, k)
+		fmt.Fprintf(&b, "\ntest %s%d {\n\tassert show%s%d([]int{10, 20, 30}) == %q\n}\n", strings.ToUpper(name[:1])+name[1:], k, name, k, shown)
+	}
+	return b.String()
+}
+
+const tryPurePrelude = `type Bad { At string }
+
+func t(tag string, v int) int {
+	return v
+}
+
+func f(tag string, v int, fail bool) int fails Bad {
+	if fail {
+		return Bad{At: tag}
+	}
+	return v
+}
+
+func tb(tag string, v bool) bool {
+	return v
+}
+
+func fb(tag string, v bool, fail bool) bool fails Bad {
+	if fail {
+		return Bad{At: tag}
+	}
+	return v
+}
+
+func pass(v int) int fails Bad {
+	if v == -12345 {
+		return Bad{At: "pass"}
+	}
+	return v
+}
+
+func passb(v bool) bool fails Bad {
+	if v && !v {
+		return Bad{At: "pass"}
+	}
+	return v
+}
+`
 
 func tryCaseFunc(k int, root *tx, text string) string {
 	result := "int"
