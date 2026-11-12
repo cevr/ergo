@@ -4065,6 +4065,28 @@
       ]
     },
     {
+      "name": "bs8-walk-always",
+      "origin": "wf10 binsize BS8",
+      "file": "internal/sketch/lower/module.go",
+      "from": "\tif l.hostWalk {\n",
+      "to": "\tif true {\n",
+      "rule": "stdlib.md Types 4 (binsize BS8): a program imports the hostwalk leaf, which links reflect, only when it names a body of v1.NeedsHostWalk.",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
+    },
+    {
+      "name": "bs8-walk-never",
+      "origin": "wf10 binsize BS8",
+      "file": "internal/sketch/lower/module.go",
+      "from": "\t\tl.hostWalk = true\n",
+      "to": "",
+      "rule": "stdlib.md Types 4 (binsize BS8): a program that makes an actor's host imports the hostwalk leaf, so a recovered state's hosts are found.",
+      "killers": [
+        "lower:TestMainImportsOnlyTheRuntimeLeavesItCalls"
+      ]
+    },
+    {
       "name": "bs5-edge-uses",
       "origin": "wf10 binsize BS5",
       "file": "internal/sketch/lower/reach.go",

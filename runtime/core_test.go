@@ -18,16 +18,21 @@ var corePackages = []string{"runtime/rt", "runtime/rt/rttrace", "runtime/v1"}
 // one is in a leaf of runtime/v1, which only a program that calls it
 // imports. fmt and reflect, with runtime/debug that imports fmt, were 70 KB
 // of every program (binsize BS2): the core writes a value with rt.Text,
-// and the gofmt leaf links fmt only into a program that needs it.
-var coreRefused = []string{"crypto/", "encoding/", "hash/", "os/exec", "fmt", "reflect", "runtime/debug"}
+// and the gofmt leaf links fmt only into a program that needs it. net/http
+// (the http and rpc leaves) and log/slog (the redacted leaf) import fmt
+// and reflect and have init tasks of their own (binsize BS8).
+var coreRefused = []string{"crypto/", "encoding/", "hash/", "os/exec", "fmt", "reflect", "runtime/debug", "net", "log"}
 
 // TestCoreHasNoInitRoots: the core packages declare no init function and
 // import no package of coreRefused. The Go linker keeps the init task of
 // every imported package and every function an init reaches, whether or
 // not the program calls into the package, so either would add its code to
 // every Ergo program (binsize BS1).
-// Mutants: bs1-core-imports-crypto (runtime/v1 imports crypto/sha256) and
-// bs1-core-init (runtime/v1 declares an init function).
+// Mutants: bs1-core-imports-crypto (runtime/v1 imports crypto/sha256),
+// bs1-core-init (runtime/v1 declares an init function), and the BS8 leaf
+// boundaries bs8-core-imports-net (runtime/v1 imports net/http, as the
+// http and rpc bodies did) and bs8-core-imports-log (log/slog, as the
+// redacted bodies did).
 func TestCoreHasNoInitRoots(t *testing.T) {
 	for _, path := range corePackages {
 		for _, name := range packages[path].files {

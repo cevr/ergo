@@ -556,8 +556,8 @@
       "name": "dh1-all-held",
       "origin": "wf10/DH1 round 1",
       "file": "runtime/v1/actor_recover.go",
-      "from": "\t\tif want[reflect.ValueOf(h).Pointer()] {\n",
-      "to": "\t\tif true || want[reflect.ValueOf(h).Pointer()] {\n",
+      "from": "\t\tif in[i] {\n",
+      "to": "\t\tif true || in[i] {\n",
       "rule": "runtime.md Machines and actors 17: the first entry binds only the recovered hosts its state holds; the others close.",
       "killers": [
         "runtime/v1:TestDurableHostsRecover"
@@ -791,6 +791,24 @@
       "to": "if a.Site != last || true {",
       "rule": "binsize BS7b: the patterns of one case are one arm, so a decision names its site once.",
       "killers": ["lower:TestGraphLoweringsTraceAlike"]
+    },
+    {
+      "name": "bs8-host-walk-user-missing",
+      "origin": "wf10 binsize BS8",
+      "file": "runtime/v1/files.go",
+      "from": "var hostWalkUsers = []string{\"NewHost\"}",
+      "to": "var hostWalkUsers = []string{}",
+      "rule": "binsize BS8: every exported body that makes an actor's host links the hostwalk leaf, which walks a recovered state for hosts.",
+      "killers": ["runtime/v1:TestHostWalkUsersAreListed"]
+    },
+    {
+      "name": "bs8-walk-unset",
+      "origin": "wf10 binsize BS8",
+      "file": "runtime/v1/hostwalk/hostwalk.go",
+      "from": "func init() { rt.UseHeldWalk(held) }",
+      "to": "func init() { _ = held }",
+      "rule": "binsize BS8: the hostwalk leaf's init installs the walk that finds a recovered state's hosts.",
+      "killers": ["runtime/v1:TestDurableHostsRecover"]
     }
   ]
 }

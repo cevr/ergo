@@ -34,6 +34,38 @@
       }
     },
     {
+      "name": "bs8-core-imports-net",
+      "origin": "wf10 binsize BS8",
+      "file": "runtime/v1/runtime.go",
+      "from": "import (\n",
+      "to": "import (\n\t_ \"net/http\"\n",
+      "rule": "stdlib.md Types 4 (binsize BS8): runtime/v1 imports no net/ package; the http and rpc bodies are in their leaves.",
+      "killers": [
+        "runtime:TestCoreHasNoInitRoots"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestCoreHasNoInitRoots"
+        ]
+      }
+    },
+    {
+      "name": "bs8-core-imports-log",
+      "origin": "wf10 binsize BS8",
+      "file": "runtime/v1/runtime.go",
+      "from": "import (\n",
+      "to": "import (\n\t_ \"log/slog\"\n",
+      "rule": "stdlib.md Types 4 (binsize BS8): runtime/v1 imports no log/ package; the redacted bodies, which format for slog, are in their leaf.",
+      "killers": [
+        "runtime:TestCoreHasNoInitRoots"
+      ],
+      "anchor": {
+        "tests": [
+          "runtime:TestCoreHasNoInitRoots"
+        ]
+      }
+    },
+    {
       "name": "bs1-missing-import",
       "origin": "wf10 binsize BS1",
       "file": "runtime/embed.go",
