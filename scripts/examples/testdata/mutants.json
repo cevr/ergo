@@ -44,7 +44,7 @@
       "from": "if p.module && len(p.tests) > 1 && r.testModule(p) {",
       "to": "if false && p.module && len(p.tests) > 1 && r.testModule(p) {",
       "rule": "The test leg of a program of packages is one ergo test DIR/..., one check of the module and one test binary, not one per package.",
-      "killers": ["examples:TestModuleProgram"]
+      "killers": ["scripts/examples:TestModuleProgram"]
     },
     {
       "name": "one-module-ignores-evaluation",
@@ -53,7 +53,7 @@
       "from": "r.compareEvaluation(p, strings.Replace(leg, \"test\", \"check\", 1), evaluation, section)",
       "to": "_ = section",
       "rule": "One ergo test of a program of packages still compares each package's check-time verdicts with its part of the native report.",
-      "killers": ["examples:TestModuleProgramJudgesEachPackage"]
+      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
     },
     {
       "name": "one-module-ignores-skips",
@@ -62,7 +62,7 @@
       "from": "if skips := unexpectedSkips(section, p.dir); len(skips) > 0 {",
       "to": "if skips := unexpectedSkips(section, p.dir); false && len(skips) > 0 {",
       "rule": "One ergo test of a program of packages fails a package whose part of the report holds a skip that expected-skips does not list (fs4).",
-      "killers": ["examples:TestModuleProgramJudgesEachPackage"]
+      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
     },
     {
       "name": "one-module-any-packages",
