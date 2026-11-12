@@ -136,7 +136,7 @@ func TestStdSnapshotInstall(t *testing.T) {
 // decoder that forgets the callback. The format carries the whole checker
 // graph, not just the currently forced part of std.
 func TestStdSnapshotRestoresDeferredRows(t *testing.T) {
-	c, ds := checkFor(`type Failed {}
+	c, ds := checkForInfer(`type Failed {}
 func apply[E](f func() fails E) { try f() }
 `)
 	if len(ds) != 0 {
