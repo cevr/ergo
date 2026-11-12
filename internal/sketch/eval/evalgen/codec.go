@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// codec: a seeded Doc (the prelude's record of every wire part: a list of
+// codec: a seeded Doc (the prelude's record of every codec part: a list of
 // records with an int8, a tagged union, a Map of uint8, a tuple, an
 // Optional and a Nullable field, a declared key and a capital run),
 // encoded with std json, then decoded from texts made from its canonical

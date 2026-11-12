@@ -350,7 +350,7 @@ func (w wireWalk) encodeRecord(r rtype, wr Value, rec *record, tag string) *abru
 func mustConvert(v Value, k check.BasicKind) Value {
 	out, ok := convertBasic(v, k)
 	if !ok {
-		ice("a wire value %T as %v", v, k)
+		ice("a codec value %T as %v", v, k)
 	}
 	return out
 }

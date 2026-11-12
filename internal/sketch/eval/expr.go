@@ -819,7 +819,7 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 	case check.CallEmbed:
 		return in.embedValue(fr, x, c) // nativesembed.go
 	case check.CallEncode, check.CallDecode:
-		return in.wireCall(fr, x, c) // wire.go
+		return in.wireCall(fr, x, c) // codecwalk.go
 	}
 	return nil, fr.unsupported(x, "this call (kind %d)", c.Kind)
 }

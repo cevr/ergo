@@ -10,7 +10,7 @@ import (
 )
 
 // std config's names (ORACLE O18), from docs/spec/stdlib.md, config: a key
-// is a dotted path of wire keys; a word of a wire key starts at its first
+// is a dotted path of codec keys; a word of a codec key starts at its first
 // byte and at each upper-case letter. A flag spells each key's words in
 // lower case joined by "-", the keys joined by "."; a variable is the
 // prefix, "_", each key's words in upper case joined by "_", the keys
