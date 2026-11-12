@@ -41,7 +41,9 @@ const innerRunVariable = "ERGO_CMD_TEST_INNER_RUN"
 // writes only into the tests' own temporary space. Go's caches and go env
 // file keep the locations this process resolved, and the go command runs
 // with a HOME and config directory of its own (goOwnHome), so the run
-// measures Ergo's writes, not the go command's telemetry. The inner run's temporary directory is
+// measures Ergo's writes, not the go command's telemetry; Go's telemetry
+// mode is off in the witnessed HOME (goTelemetryOff), so the compile and
+// link that Ergo runs itself count nothing there either. The inner run's temporary directory is
 // reached through a symbolic link, with GOTMPDIR unset, so its tests see
 // a logical path that differs from the physical one, as on darwin.
 //
@@ -53,6 +55,7 @@ func TestPackageNeverWritesUnderHome(t *testing.T) {
 		t.Skip("inside the run this test started")
 	}
 	home := t.TempDir()
+	telemetryOff := goTelemetryOff(t, home)
 	temp := t.TempDir()
 	linkedTemp := filepath.Join(t.TempDir(), "linked-tmp")
 	if err := os.Symlink(temp, linkedTemp); err != nil {
@@ -87,7 +90,7 @@ func TestPackageNeverWritesUnderHome(t *testing.T) {
 	}
 	var written []string
 	_ = filepath.WalkDir(home, func(p string, d fs.DirEntry, err error) error {
-		if p != home {
+		if p != home && !slices.Contains(telemetryOff, p) {
 			written = append(written, p)
 		}
 		return nil
@@ -95,6 +98,41 @@ func TestPackageNeverWritesUnderHome(t *testing.T) {
 	if len(written) != 0 {
 		t.Fatalf("the package's tests wrote under HOME: %v", written[:min(len(written), 20)])
 	}
+}
+
+// goTelemetryOff turns Go's telemetry off in the witnessed HOME, as `go
+// telemetry off` does: it writes "off" to the mode file of Go's telemetry
+// directory, os.UserConfigDir()/go/telemetry/mode, which is
+// $HOME/.config/go/telemetry/mode on Linux (the inner run has no
+// XDG_CONFIG_HOME) and $HOME/Library/Application Support/go/telemetry/mode
+// on darwin. It returns the paths it made, which the witness admits.
+//
+// goOwnHome keeps the go command's own state out of the witnessed HOME,
+// but Ergo's direct build path (internal/sketch/build, direct.go) runs the
+// toolchain's compile and link itself, with Ergo's HOME, as a user's build
+// does; with no mode file they count into
+// $HOME/.config/go/telemetry/local (the batch-18 head failed so). With
+// the mode off they write nothing (x/telemetry: counter.Open does not open
+// a file in mode off). The go command reads no GOTELEMETRY variable: its
+// mode is this file (cmd/go/internal/telemetrycmd), so the environment
+// cannot turn it off.
+func goTelemetryOff(t *testing.T, home string) []string {
+	t.Helper()
+	config := filepath.Join(home, ".config")
+	made := []string{config}
+	if runtime.GOOS == "darwin" {
+		made = []string{filepath.Join(home, "Library"), filepath.Join(home, "Library", "Application Support")}
+		config = made[1]
+	}
+	made = append(made, filepath.Join(config, "go"), filepath.Join(config, "go", "telemetry"))
+	if err := os.MkdirAll(made[len(made)-1], 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mode := filepath.Join(made[len(made)-1], "mode")
+	if err := os.WriteFile(mode, []byte("off"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return append(made, mode)
 }
 
 // goOwnHome returns a directory holding a `go` that runs the real go

@@ -241,6 +241,16 @@
       "to": "g.Reason = in.Reason",
       "rule": "ergo inspect shows each derived type with its parse engine, the reason and the counts (patterns.md, Derivation 7).",
       "killers": ["cmd/ergo:TestInspectAPIRoute"]
+    },
+    {
+      "name": "b18-home-telemetry-on",
+      "origin": "wf10 batch-18 fix-base",
+      "file": "cmd/ergo/build_test.go",
+      "from": "os.WriteFile(mode, []byte(\"off\"), 0o644)",
+      "to": "os.WriteFile(mode, []byte(\"local\"), 0o644)",
+      "rule": "The HOME witness measures Ergo's writes: with Go's telemetry left on, the compile and link the direct build path runs write their counters under the witnessed HOME, which is Go's write, not Ergo's.",
+      "anchor": {"tests": ["cmd/ergo:TestPackageNeverWritesUnderHome"]},
+      "killers": ["cmd/ergo:TestPackageNeverWritesUnderHome"]
     }
   ]
 }
