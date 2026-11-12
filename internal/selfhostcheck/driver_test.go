@@ -107,13 +107,32 @@ func buildDriver(t *testing.T, lib string) string {
 // from the parser's tree, and the one the Ergo library built.
 type pair struct{ goSide, ergoSide string }
 
-// runDriver runs the driver once over every source, under the program
-// memory limit, in its own process group.
+// runDriver runs the driver once in mode project over every source.
 func runDriver(t *testing.T, exe string, srcs []string) []pair {
 	t.Helper()
+	cases := make([][]string, len(srcs))
+	for i, s := range srcs {
+		cases[i] = []string{s}
+	}
+	answers := runMode(t, exe, "project", cases, 2)
+	out := make([]pair, len(answers))
+	for i, a := range answers {
+		out[i] = pair{a[0], a[1]}
+	}
+	return out
+}
+
+// runMode runs the driver once in mode (testdata/driver/main.go) over every
+// case, each a list of framed values, under the program memory limit, in
+// its own process group, and reads answers frames per case.
+func runMode(t *testing.T, exe, mode string, cases [][]string, answers int) [][]string {
+	t.Helper()
 	var in bytes.Buffer
-	for _, s := range srcs {
-		fmt.Fprintf(&in, "%d:%s", len(s), s)
+	fmt.Fprintf(&in, "%d:%s", len(mode), mode)
+	for _, c := range cases {
+		for _, s := range c {
+			fmt.Fprintf(&in, "%d:%s", len(s), s)
+		}
 	}
 	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
 	if err != nil {
@@ -127,14 +146,17 @@ func runDriver(t *testing.T, exe string, srcs []string) []pair {
 		t.Fatalf("driver: %v\n%s", err, stderr.String())
 	}
 	r := bufio.NewReader(&stdout)
-	var out []pair
-	for range srcs {
-		g, err1 := readFrame(r)
-		e, err2 := readFrame(r)
-		if err1 != nil || err2 != nil {
-			t.Fatalf("driver answered %d of %d sources: %v %v\n%s", len(out), len(srcs), err1, err2, stderr.String())
+	out := make([][]string, 0, len(cases))
+	for range cases {
+		a := make([]string, answers)
+		for k := range a {
+			s, err := readFrame(r)
+			if err != nil {
+				t.Fatalf("driver answered %d of %d cases: %v\n%s", len(out), len(cases), err, stderr.String())
+			}
+			a[k] = s
 		}
-		out = append(out, pair{g, e})
+		out = append(out, a)
 	}
 	if rest, _ := io.ReadAll(r); len(rest) > 0 {
 		t.Fatalf("driver wrote %d bytes past its last answer", len(rest))

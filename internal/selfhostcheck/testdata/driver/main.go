@@ -1,10 +1,22 @@
-// Command driver is the comparison driver of TestSelfhostBridgeAgrees. Its
-// module path, ergo.local/prototype/selfhostprobe, lets it import the Go
-// parser. It reads framed sources on stdin ("<len>:<bytes>" each) and writes,
-// for each, two framed projections on stdout: the one it builds from
-// syntax.Parse's tree with reflection, and the one the Ergo library
-// formatapi builds from the tree it decoded from the adapter's encoding. The two
-// paths share only the parser.
+// Command driver is the comparison driver of the selfhostcheck properties.
+// Its module path, ergo.local/prototype/selfhostprobe, lets it import the
+// Go parser and the Go formatter. It reads framed values on stdin
+// ("<len>:<bytes>" each): first the mode, then the cases of that mode, and
+// writes framed answers on stdout:
+//
+//   - project (TestSelfhostBridgeAgrees): a source; answers the projection
+//     it builds from syntax.Parse's tree with reflection, and the one the
+//     Ergo library formatapi builds from the tree it decoded.
+//   - format (TestSelfhostFormatAgrees): a source and a limit; answers the
+//     outcome of the Go formatter (format.SourceBounded) and the outcome of
+//     the Ergo formatter (formatapi.Format), both in one encoding.
+//   - laws (TestSelfhostFormatAgrees): a source; answers the Ergo verdicts
+//     of the formatter's laws (formatapi.Laws).
+//   - steps (TestSelfhostLayoutModel): an encoded command list and a limit;
+//     answers the Ergo layout's outcome (formatapi.Steps).
+//
+// The Go and Ergo paths share only the parser; the driver makes no layout
+// decision.
 package main
 
 import (
@@ -18,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"formatapi"
 )
@@ -26,22 +39,88 @@ func main() {
 	in := bufio.NewReader(os.Stdin)
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
+	mode, err := frame(in)
+	if err != nil {
+		fail(err)
+	}
+	ctx := context.Background()
 	for {
-		src, err := frame(in)
+		first, err := frame(in)
 		if err == io.EOF {
 			return
 		}
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "driver:", err)
-			os.Exit(2)
+			fail(err)
 		}
-		goSide := project(src)
-		ergoSide, err := formatapi.Project(context.Background(), src)
-		if err != nil {
-			ergoSide = "ergo error " + err.Error() + "\n"
+		var answers []string
+		switch mode {
+		case "project":
+			e, err := formatapi.Project(ctx, first)
+			answers = []string{project(first), ergo(e, err)}
+		case "format":
+			limit := number(in)
+			g, gerr := format.SourceBounded(first, limit)
+			e, err := formatapi.Format(ctx, first, int64(limit))
+			answers = []string{outcome(g, gerr), ergo(e, err)}
+		case "laws":
+			e, err := formatapi.Laws(ctx, first)
+			answers = []string{ergo(e, err)}
+		case "steps":
+			limit := number(in)
+			e, err := formatapi.Steps(ctx, first, int64(limit))
+			answers = []string{ergo(e, err)}
+		default:
+			fail(fmt.Errorf("unknown mode %q", mode))
 		}
-		fmt.Fprintf(out, "%d:%s%d:%s", len(goSide), goSide, len(ergoSide), ergoSide)
+		for _, a := range answers {
+			fmt.Fprintf(out, "%d:%s", len(a), a)
+		}
 	}
+}
+
+func fail(err error) {
+	fmt.Fprintln(os.Stderr, "driver:", err)
+	os.Exit(2)
+}
+
+// ergo is an Ergo library answer; an error of the call itself (a defect)
+// is its own outcome, never equal to a Go one.
+func ergo(s string, err error) string {
+	if err != nil {
+		return "ergo error " + err.Error() + "\n"
+	}
+	return s
+}
+
+// number reads one framed decimal.
+func number(in *bufio.Reader) int {
+	s, err := frame(in)
+	if err != nil {
+		fail(err)
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		fail(err)
+	}
+	return n
+}
+
+// outcome is the encoding of a Go formatter result that formatapi.Format
+// writes for the Ergo one: "ok\n" and the text, the located syntax failure,
+// or the refused limit.
+func outcome(text string, err error) string {
+	if err == nil {
+		return "ok\n" + text
+	}
+	var se *syntax.Error
+	if errors.As(err, &se) {
+		return fmt.Sprintf("syntax %s %d:%s %d %d %d %d\n", se.Code, len(se.Message), se.Message, se.Offset, se.Length, se.Line, se.Column)
+	}
+	var le *format.LimitError
+	if errors.As(err, &le) {
+		return fmt.Sprintf("limit %d\n", le.Limit)
+	}
+	return "go error " + err.Error() + "\n"
 }
 
 // frame reads one "<len>:<bytes>" frame.
