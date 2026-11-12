@@ -118,7 +118,7 @@ func g() { with W { A.Use() } }
 		var got []string
 		for _, d := range ds {
 			got = append(got, d.Code+" "+fmt.Sprint(d.Line))
-			if !strings.Contains(d.Message, "the release of Res when this with ends requires Log") {
+			if !strings.Contains(d.Message, "Res.Close, run by the release of Res when this with ends, requires Log") {
 				t.Errorf("message: %s", d.Message)
 			}
 		}

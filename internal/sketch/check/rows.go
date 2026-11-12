@@ -104,7 +104,7 @@ func (c *checker) chargeAs(n syntax.Node, cap Type, what string) {
 		// An unknown written row (a refused entry, rowExpr) may hold cap.
 		return
 	}
-	if !t.context && c.pend(t, n, KindUses, newRow().with(c.types, cap)) {
+	if !t.context && c.pend(t, n, KindUses, newRow().with(c.types, cap), what) {
 		return
 	}
 	switch {
@@ -152,7 +152,7 @@ func (c *checker) escape(n syntax.Node, row *Row) {
 	if extra.Empty() {
 		return
 	}
-	if !t.context && c.pend(t, n, KindErrors, extra) {
+	if !t.context && c.pend(t, n, KindErrors, extra, "") {
 		return
 	}
 	switch {

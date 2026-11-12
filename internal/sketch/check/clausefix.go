@@ -57,20 +57,23 @@ type pendingClause struct {
 	n     syntax.Node
 	kind  Kind
 	extra *Row // the site's elements outside the written clause
+	// what is the subject of a capability site's S102 ("" for
+	// describeCharge(n)): a release names its Close (chargeAs).
+	what string
 }
 
 // pend records that the body of the function declaration being checked
-// exceeds its clause of kind at n. It reports false when the target is
-// not a declaration's or Options.Infer holds, so the caller reports as
-// before.
-func (c *checker) pend(t *target, n syntax.Node, kind Kind, extra *Row) bool {
+// exceeds its clause of kind at n (what, as for chargeAs). It reports
+// false when the target is not a declaration's or Options.Infer holds,
+// so the caller reports as before.
+func (c *checker) pend(t *target, n syntax.Node, kind Kind, extra *Row, what string) bool {
 	if c.opts.Infer || t.decl == nil {
 		return false
 	}
 	if c.silent > 0 {
 		return true
 	}
-	t.pending = append(t.pending, pendingClause{n: n, kind: kind, extra: extra})
+	t.pending = append(t.pending, pendingClause{n: n, kind: kind, extra: extra, what: what})
 	if kind == KindErrors {
 		t.missErrors = t.missErrors.union(c.types, extra)
 	} else {
@@ -109,7 +112,11 @@ func (c *checker) clauseReport(t *target) {
 			msg = fmt.Sprintf("%s escapes %s, whose error row %s does not list it; %s", rowText(p.extra), t.name, rowText(t.declErrors), write)
 		} else {
 			code = CodeMissingCap
-			msg = fmt.Sprintf("%s requires %s, which is not in the capability row of %s and no with provides it; %s", describeCharge(p.n), p.extra.String(), t.name, write)
+			what := p.what
+			if what == "" {
+				what = describeCharge(p.n)
+			}
+			msg = fmt.Sprintf("%s requires %s, which is not in the capability row of %s and no with provides it; %s", what, p.extra.String(), t.name, write)
 		}
 		before := len(c.diags)
 		c.errorf(p.n, code, "%s", msg)

@@ -579,11 +579,19 @@ func make() Plain needs Console {
 		t.Fatalf("no f in\n%s", numbered(src))
 		return "", nil, ""
 	}
-	for _, sig := range []string{"", " needs Console", " needs Console | Greeter", " needs Greeter"} {
-		inRow, inCodes, _ := check1(sig, bodies[0])
-		locRow, locCodes, src := check1(sig, bodies[1])
-		if inRow != locRow || strings.Join(inCodes, " ") != strings.Join(locCodes, " ") {
-			t.Errorf("written row%s: the inline literal gives %q %v, the local %q %v\n%s", sig, inRow, inCodes, locRow, locCodes, numbered(src))
+	// In a function literal with no expected type, whose row is the rows
+	// its body charges (q139), the law holds too: the local context's
+	// need joins the literal's row as the inline literal's does.
+	literal := func(body string) string {
+		return "\tlet g = func() string {\n\t" + body + "\t}\n\tg()\n"
+	}
+	for _, wrap := range []func(string) string{func(b string) string { return b }, literal} {
+		for _, sig := range []string{"", " needs Console", " needs Console | Greeter", " needs Greeter"} {
+			inRow, inCodes, _ := check1(sig, wrap(bodies[0]))
+			locRow, locCodes, src := check1(sig, wrap(bodies[1]))
+			if inRow != locRow || strings.Join(inCodes, " ") != strings.Join(locCodes, " ") {
+				t.Errorf("written row%s: the inline literal gives %q %v, the local %q %v\n%s", sig, inRow, inCodes, locRow, locCodes, numbered(src))
+			}
 		}
 	}
 }

@@ -68,6 +68,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 	c.fn.branches = c.fn.branches[:len(c.fn.branches)-1]
 	done()
 	t.scope = scope
+	c.chargeWithReleases(x, frames)
 	c.recordWith(x, frames)
 	// A with's Fails is the row its block passes through (rows.md, With 6).
 	c.callInfo(x).Fails = errs

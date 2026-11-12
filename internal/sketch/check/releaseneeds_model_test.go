@@ -22,26 +22,35 @@ import (
 // the property asserts that its seeds reach every part, RelParts)
 // × release points (a scope's end, an early return, a
 // temporary's statement, a handoff into a taking callee, a handoff of a
-// local) × providers (an inferred row, a written row, an exported
-// function's empty row, a with that provides one capability or both), with calls
-// between the functions (recursion included), and two kinds of inserted
-// call: an encode or a decode of a type whose Wire or ParseX needs a
-// capability (the ParseX's row written or inferred; G3 of the v1 audit 3),
-// and a conversion to an operation type of a value whose release needs one
-// (S108; G7). The model's rows must equal each function's checked
-// capability row, its missing needs (line and capability) the checker's
-// S102s, and its refused conversions the S108s; nothing else is reported.
-// Every node the first check found is charged by the second (relHit), so
-// no release escapes the charge. ERGO_SEED=<n> replays one seed; a failure prints the
-// Ergo source and both results.
+// local, the end of a with that built a provider whose release needs A, B
+// or Console, through its Close or a field) × providers (an unwritten row,
+// a written row, an exported function's empty row, a with that provides
+// one capability or both, an operand before the provider's in one with),
+// with calls between the functions (recursion included), and two kinds of
+// inserted call: an encode or a decode of a type whose Wire or ParseX
+// needs a capability (the ParseX's row written or not; G3 of the v1 audit
+// 3), and a conversion to an operation type of a value whose release
+// needs one (S108; G7). Each program is checked in both modes: the
+// checker's, where every unwritten row is empty (q137), and the clause
+// writer's (Options.Infer), where an unexported function's is inferred.
+// The model's rows must equal each function's checked capability row, its
+// missing needs (line and capability) the checker's S102s, and its
+// refused conversions the S108s; nothing else is reported. Every node and
+// with operand the first check found is charged by the second (relHit,
+// withHit), so no release escapes the charge. ERGO_SEED=<n> replays one
+// seed; a failure prints the Ergo source and both results.
 //
-// Mutants it kills that no other test does (ledger: releaseneeds.go): no
-// second check (a release charges nothing); a part's Close not walked
-// (Box, []RA, Option[RB], queue.Queue[RA], W<k>); a temporary not charged; a taken parameter not charged; a
+// Mutants it kills that no other test does (ledger: releaseneeds.go,
+// withown.go): no second check (a release charges nothing); a part's
+// Close not walked (Box, []RA, Option[RB], queue.Queue[RA], W<k>,
+// PcBox); a temporary not charged; a taken parameter not charged; a
 // with's provision ignored by a release charge; a charge made only in the
 // reporting pass, so an inferred row misses it; an encode or a decode not
 // charged; an inferred ParseX not ordered before its decoder; a
-// conversion admitted whose part's Close needs a capability.
+// conversion admitted whose part's Close needs a capability; a with
+// provider's release need not charged where the with is typed, so an
+// inferred row misses it; the operands before the provider's not
+// providing it; another package's capability not named again.
 func TestReleaseNeedsModel(t *testing.T) {
 	seeds := make([]uint64, 0, 300)
 	if s := os.Getenv("ERGO_SEED"); s != "" {
@@ -55,7 +64,6 @@ func TestReleaseNeedsModel(t *testing.T) {
 			seeds = append(seeds, i+1)
 		}
 	}
-	needRe := regexp.MustCompile(`requires (\w+), which is not in the capability row`)
 	reached := map[string]bool{}
 	defer func() {
 		for _, p := range sketchtest.RelParts {
@@ -67,9 +75,25 @@ func TestReleaseNeedsModel(t *testing.T) {
 	for _, seed := range seeds {
 		g := sketchtest.NewRelNeeds(rand.New(rand.NewPCG(seed, 0x5e1ea5e)))
 		g.Parts(reached)
+		for _, infer := range []bool{false, true} {
+			relNeedsSeed(t, seed, g, infer)
+		}
+	}
+}
+
+// relNeedsSeed checks one generated program in one mode: the checker's
+// (every unwritten row empty) or the clause writer's (Options.Infer).
+func relNeedsSeed(t *testing.T, seed uint64, g *sketchtest.RelNeeds, infer bool) {
+	t.Helper()
+	needRe := regexp.MustCompile(`requires (\w+), which is not in the capability row`)
+	{
 		src := g.Source()
-		wantRows, wantMissing, wantRefused := g.Model()
-		c, diags := checkFor(src)
+		wantRows, wantMissing, wantRefused := g.Model(infer)
+		check := checkFor
+		if infer {
+			check = checkForInfer
+		}
+		c, diags := check(src)
 		var gotMissing, gotRefused, other []string
 		for _, d := range diags {
 			m := needRe.FindStringSubmatch(d.Message)
@@ -99,14 +123,21 @@ func TestReleaseNeedsModel(t *testing.T) {
 					unhit++
 				}
 			}
+			for op, caps := range c.withSeeds {
+				for _, r := range caps {
+					if !c.withHit[withNeedKey{op, r.key}] {
+						unhit++
+					}
+				}
+			}
 		}
 		if len(other) > 0 || unhit > 0 || !slices.Equal(gotRows, wantRows) || !slices.Equal(gotMissing, wantMissing) || !slices.Equal(gotRefused, wantRefused) {
 			var full []string
 			for _, d := range diags {
 				full = append(full, d.String())
 			}
-			t.Fatalf("seed %d (replay: ERGO_SEED=%d go test -run TestReleaseNeedsModel ./internal/sketch/check)\nsource:\n%s\nchecker rows: %q\nmodel rows:   %q\nchecker missing: %q\nmodel missing:   %q\nchecker refused: %q\nmodel refused:   %q\nnodes not charged: %d\ndiagnostics:\n%s",
-				seed, seed, ofNumbered(src), gotRows, wantRows, gotMissing, wantMissing, gotRefused, wantRefused, unhit, strings.Join(full, "\n"))
+			t.Fatalf("seed %d, infer %v (replay: ERGO_SEED=%d go test -run TestReleaseNeedsModel ./internal/sketch/check)\nsource:\n%s\nchecker rows: %q\nmodel rows:   %q\nchecker missing: %q\nmodel missing:   %q\nchecker refused: %q\nmodel refused:   %q\nnodes not charged: %d\ndiagnostics:\n%s",
+				seed, infer, seed, ofNumbered(src), gotRows, wantRows, gotMissing, wantMissing, gotRefused, wantRefused, unhit, strings.Join(full, "\n"))
 		}
 	}
 }

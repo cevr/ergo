@@ -162,8 +162,8 @@ func (c *checker) withOwnership() {
 				c.errorf(at, CodeType, "this resource provider names the package let %s, which has no owner to hand it to the with; a with owns and releases the providers it builds (resources R11); make the value in the provider", name)
 			}
 			c.cur = s.file
-			for _, cap := range c.releaseNeeds(a.Close) {
-				c.chargeRelease(s, a, cap)
+			for _, need := range c.providerNeeds(a) {
+				c.chargeRelease(s, a, need)
 			}
 		}
 		if owning {
@@ -325,9 +325,32 @@ func (c *checker) releaseNeeds(cl *Close) []Type {
 	return c.types.resolve(row).Elems()
 }
 
-// chargeRelease charges cap, a need of a's release, at s against the
-// environment outside the with (rule 3).
-func (c *checker) chargeRelease(s *withSite, a *Acquisition, cap Type) {
+// providerNeeds are the capabilities the release of a requires: the Close
+// of each part of the provider's release (Drop, R3), as for any release
+// (resources R5, Release needs).
+func (c *checker) providerNeeds(a *Acquisition) []relNeed {
+	if a.Drop != nil {
+		return c.dropNeeds(a.Drop)
+	}
+	return c.dropNeeds(&Drop{Close: a.Close}) // a.Releases()
+}
+
+// chargeRelease charges need, a need of a's release, at s against the
+// environment outside the with (Context ownership 6): an outer with that
+// binds it provides it, else the row of the function that holds the with
+// must hold it, as for a call of the Close at the with. The rows are
+// typed before ownership is known, so the first check records each need
+// no outer with and no written row holds (withNeeds), and a second check
+// charges it where the with is typed (chargeWithReleases): an inferred
+// row takes it, and a written row that lacks it is S102 with the clause
+// to write. A need the second check charged is done here.
+func (c *checker) chargeRelease(s *withSite, a *Acquisition, need relNeed) {
+	cap := need.cap
+	k, keyed := keyOf(cap)
+	op := withOperand{s.x, s.operand}
+	if keyed && c.withHit[withNeedKey{op, k}] {
+		return
+	}
 	if f, unknown := s.outer.binder(c.types, cap); unknown {
 		return
 	} else if f != nil {
@@ -349,12 +372,103 @@ func (c *checker) chargeRelease(s *withSite, a *Acquisition, cap Type) {
 	case t.declUses == nil && t.uses.unknown(c.types):
 		return
 	}
-	what := a.Close.Receiver
-	if t.declUses == nil {
-		c.errorf(s.x, CodeMissingCap, "the release of %s when this with ends requires %s, which is not in the inferred capability row of %s and no outer with provides it; a release runs outside the with and widens no inferred row, so write the row of %s (resources.md, Context ownership)", what, cap, t.name, t.name)
+	what := withReleaseWhat(need, a)
+	if keyed && c.withHit == nil {
+		// The first check: the second charges it where the with is typed.
+		if c.withNeeds == nil {
+			c.withNeeds = map[withOperand][]relCap{}
+		}
+		for _, r := range c.withNeeds[op] {
+			if r.key == k {
+				return
+			}
+		}
+		c.withNeeds[op] = append(c.withNeeds[op], relCap{key: k, cap: cap, what: what})
 		return
 	}
-	c.errorf(s.x, CodeMissingCap, "the release of %s when this with ends requires %s, which is not in the capability row of %s and no outer with provides it; a release runs outside the with (resources.md, Context ownership)", what, cap, t.name)
+	// A need the second check could not charge (a capability it cannot
+	// name again: an instance of a generic capability of this package).
+	c.errorf(s.x, CodeMissingCap, "%s requires %s, which is not in the capability row of %s and no with provides it", what, cap, t.name)
+}
+
+// withReleaseWhat is the subject of a with release's S102.
+func withReleaseWhat(need relNeed, a *Acquisition) string {
+	var of Type
+	if a.Drop != nil {
+		of = a.Drop.Type
+	} else {
+		of = a.Close.Receiver
+	}
+	return fmt.Sprintf("%s.Close, run by the release of %s when this with ends,", need.close.Receiver, of)
+}
+
+// withOperand is one operand of a with (withSite).
+type withOperand struct {
+	x *syntax.CallExpr
+	i int
+}
+
+// withNeedKey is one capability a with operand's release needs.
+type withNeedKey struct {
+	op  withOperand
+	cap capKey
+}
+
+// relCap is a capability a with operand's release needs, as the first
+// check found it (withNeeds): its key, the type of the first check, and
+// the S102's subject.
+type relCap struct {
+	key  capKey
+	cap  Type
+	what string
+}
+
+// chargeWithReleases charges, in the second check, the release needs the
+// first check found for the operands of the with x (withSeeds), each at x
+// against the scope around its operand's frame, as a call of the Close
+// there is charged.
+func (c *checker) chargeWithReleases(x *syntax.CallExpr, frames []*withFrame) {
+	if len(c.withSeeds) == 0 {
+		return
+	}
+	t := c.fn.t
+	saved := t.scope
+	defer func() { t.scope = saved }()
+	for i, f := range frames {
+		op := withOperand{x, i}
+		for _, r := range c.withSeeds[op] {
+			cap := c.seedCap(r)
+			if cap == nil {
+				continue
+			}
+			c.withHit[withNeedKey{op, r.key}] = true
+			t.scope = f.outer
+			c.chargeAs(x, cap, r.what)
+		}
+	}
+}
+
+// seedCap is, in the second check, the capability the first check found:
+// another package's type is the same in both checks; this package's is
+// looked up by name again. nil for an instance of this package's generic
+// capability, which chargeRelease reports in the first check's way.
+func (c *checker) seedCap(r relCap) Type {
+	n, ok := r.cap.(*Named)
+	if !ok || n.Obj == nil {
+		return nil
+	}
+	if n.Obj.Pkg == nil || n.Obj.Pkg.Path != c.pkg.Path {
+		return r.cap
+	}
+	if n.Orig != nil {
+		return nil
+	}
+	if o, _ := c.pkg.Scope.lookup(n.Obj.Name); o != nil {
+		if tn, ok := o.(*TypeName); ok {
+			return tn.Type
+		}
+	}
+	return nil
 }
 
 // discharge adds cap, provided by e, to the with's discharged list, in its

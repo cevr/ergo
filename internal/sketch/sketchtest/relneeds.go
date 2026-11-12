@@ -14,13 +14,14 @@ import (
 // Option's variant, a queue's values left, a written Close's parts), and
 // release them at every kind of release point (a scope's end, an early
 // return, a statement's end for a temporary, a handoff into a function
-// that takes the value), under with blocks that provide A, B or both, in
-// functions whose capability row is inferred (unexported, no row written),
-// written, or empty (exported, no row written). A small effects model
-// (Model) computes each inferred row and every line where a written row
-// misses a capability; the check property holds the checker to it, and
-// the run property runs a sample of the programs that check, which must
-// reach no nil service.
+// that takes the value, the end of a with that built the value as a
+// provider), under with blocks that provide A, B or both, in functions
+// whose capability row is written or not (empty under the checker's one
+// mode; inferred by the clause writer's, Options.Infer). A small effects
+// model (Model) computes each row and every line where a row misses a
+// capability; the check property holds the checker to it, and the run
+// property runs a sample of the programs that check, which must reach no
+// nil service.
 type RelNeeds struct {
 	Funcs []*RelFunc
 	// Main calls functions under a with that provides one capability or both, or
@@ -29,13 +30,69 @@ type RelNeeds struct {
 	src      string
 	line     map[*RelStmt]int
 	mainLine []int
+	// parseLw is the line of parseLw's A.Use(), which its unwritten row
+	// misses under the checker's one mode unless parseWritten.
+	parseLw      int
+	parseWritten bool
 }
 
-// The capabilities of the model, a bit each.
+// Explicit is the program with the clauses the clause writer infers
+// written: each unexported function that writes no row writes its
+// inferred row, and parseLw writes needs A. Each line keeps its number.
+// It checks under the checker's one mode as the program does under
+// inference, so the run property runs it.
+func (g *RelNeeds) Explicit() *RelNeeds {
+	rows := g.rows(true, false)
+	e := &RelNeeds{Main: g.Main, parseWritten: true}
+	for i, f := range g.Funcs {
+		c := *f
+		if ok, _ := f.written(true); !ok {
+			c.Written = rows[i]
+		}
+		e.Funcs = append(e.Funcs, &c)
+	}
+	e.print()
+	return e
+}
+
+// FixedRows are the rows ergo fix writes (check/clausefix.go, fix.Run):
+// the least rows that hold every charge, each function widened from its
+// written row, exported or not, and main from the empty row, in order
+// with main last ("A | B", "" for none).
+func (g *RelNeeds) FixedRows() []string {
+	rows := g.rows(false, true)
+	var out []string
+	for _, r := range rows {
+		out = append(out, rowText(r))
+	}
+	main := 0
+	for _, m := range g.Main {
+		main |= rows[m.Callee] &^ m.Provides
+	}
+	return append(out, rowText(main))
+}
+
+// The capabilities of the model, a bit each. Console is the prelude's:
+// another package's capability, which no with of the program binds.
 const (
 	RelA = 1 << iota
 	RelB
+	RelConsole
 )
+
+// relProviders are the providers of the capability C that a with builds
+// and releases when it ends: the type, what its release needs, and the
+// part of its Drop graph that needs it (its own Close, or a field).
+var relProviders = []struct {
+	name  string
+	needs int
+	part  string
+}{
+	{"PcA", RelA, "with-close"},
+	{"PcB", RelB, "with-close"},
+	{"PcBox", RelB, "with-fields"},
+	{"PcCon", RelConsole, "with-close"},
+}
 
 // relKinds are the resource shapes: the type, what its release needs, a
 // value of it (%d is an id), what making that value needs (qA's written
@@ -61,8 +118,9 @@ var relKinds = []struct {
 	{"queue.Queue[RA]", RelA, "qA(%d)", RelA, "drain"},
 }
 
-// RelParts are the parts of a Drop graph (check/drop.go) a release walks.
-var RelParts = []string{"close", "fields", "elem", "variants", "drain", "own"}
+// RelParts are the parts of a Drop graph (check/drop.go) a release walks,
+// and the parts of a with's provider (its own Close, a field).
+var RelParts = []string{"close", "fields", "elem", "variants", "drain", "own", "with-close", "with-fields", "with-split"}
 
 // RelPrelude declares the capabilities, their providers, the resources,
 // and for each kind k a lending lend<k> and a taking keep<k>.
@@ -115,13 +173,37 @@ func Wire(l lw) string needs B {
 }
 type Closer { Close() }
 func lendC(c Closer) {}
+type C { Use() }
+type PcA { id int }
+func Use(_ PcA) {}
+func Close(_ PcA) needs A { A.Use() }
+type PcB { id int }
+func Use(_ PcB) {}
+func Close(_ PcB) needs B { B.Use() }
+type PcBox { r RB, id int }
+func Use(_ PcBox) {}
+type PcCon { id int }
+func Use(_ PcCon) {}
+func Close(_ PcCon) needs Console { Console.Println("closed") }
 `)
 	for k, kd := range relKinds {
-		fmt.Fprintf(&b, "func lend%d(r %s) {}\nfunc keep%d(r %s) takes r {}\n", k, kd.name, k, kd.name)
+		row := ""
+		if kd.needs != 0 {
+			row = " needs " + rowText(kd.needs)
+		}
+		fmt.Fprintf(&b, "func lend%d(r %s) {}\nfunc keep%d(r %s)%s takes r {}\n", k, kd.name, k, kd.name, row)
 		fmt.Fprintf(&b, "type W%d { inner %s }\nfunc Close(w W%d) {}\n", k, kd.name, k)
 	}
 	return b.String()
 }()
+
+// providerValue is a value of provider kind p (%d is an id).
+func providerValue(p, id int) string {
+	if relProviders[p].name == "PcBox" {
+		return fmt.Sprintf("PcBox{r: RB{id: %d}, id: %d}", id, id)
+	}
+	return fmt.Sprintf("%s{id: %d}", relProviders[p].name, id)
+}
 
 // RelStmt kinds.
 const (
@@ -137,12 +219,18 @@ const (
 	RelEncode         // encode(X{name: "x"}, ev): Wire needs B (X: K%2, Lv or lw)
 	RelDecode         // let _ = decode[X](…) catch { … }: ParseX needs A
 	RelConvert        // let cV Closer = WK{inner: MK}; lendC(cV): S108 when K's release needs a capability
+	RelProvide        // with context { C: PROVIDER, … } { C.Use(); Body }: the with releases the provider when it ends
 )
 
 type RelStmt struct {
 	Kind, K, V, Callee, ID int
-	Provides               int // RelWith: the capabilities its context binds
-	Body                   []*RelStmt
+	// Provides is what RelWith's context binds, and what RelProvide's
+	// binds beside C: in the same context, which provides nothing to the
+	// release, or, Split, in an operand before it, which does.
+	Provides int
+	P        int // RelProvide: the provider kind (relProviders)
+	Split    bool
+	Body     []*RelStmt
 }
 
 type RelFunc struct {
@@ -176,7 +264,7 @@ func NewRelNeeds(r *rand.Rand) *RelNeeds {
 		var out []*RelStmt
 		mark := len(vars)
 		for range size {
-			s := &RelStmt{Kind: r.IntN(12), K: r.IntN(len(relKinds))}
+			s := &RelStmt{Kind: r.IntN(13), K: r.IntN(len(relKinds))}
 			id++
 			s.ID = id
 			switch s.Kind {
@@ -202,13 +290,18 @@ func NewRelNeeds(r *rand.Rand) *RelNeeds {
 			case RelDecode, RelConvert:
 				s.V = nextV
 				nextV++
-			case RelWith, RelIf:
+			case RelWith, RelIf, RelProvide:
 				if depth >= 2 {
 					s.Kind = RelCall
 					s.Callee = r.IntN(n)
 					break
 				}
 				s.Provides = 1 + r.IntN(3)
+				if s.Kind == RelProvide {
+					s.Provides = r.IntN(4)
+					s.P = r.IntN(len(relProviders))
+					s.Split = s.Provides != 0 && r.IntN(2) == 0
+				}
 				s.Body = block(depth+1, 1+r.IntN(3))
 			}
 			out = append(out, s)
@@ -253,6 +346,9 @@ func rowText(row int) string {
 	}
 	if row&RelB != 0 {
 		caps = append(caps, "B")
+	}
+	if row&RelConsole != 0 {
+		caps = append(caps, "Console")
 	}
 	return strings.Join(caps, " | ")
 }
@@ -312,6 +408,19 @@ func (g *RelNeeds) print() {
 				emit(depth, "if n > 1 {")
 				stmts(depth+1, s.Body)
 				emit(depth, "}")
+			case RelProvide:
+				entries := "C: " + providerValue(s.P, s.ID)
+				switch {
+				case s.Split:
+					emit(depth, "with context { %s }, context { %s } {", providers(s.Provides), entries)
+				case s.Provides != 0:
+					emit(depth, "with context { %s, %s } {", entries, providers(s.Provides))
+				default:
+					emit(depth, "with context { %s } {", entries)
+				}
+				emit(depth+1, "C.Use()")
+				stmts(depth+1, s.Body)
+				emit(depth, "}")
 			case RelEncode:
 				emit(depth, "encode(%s{name: \"x\"}, ev)", codecType(s.K))
 			case RelDecode:
@@ -357,91 +466,61 @@ func (g *RelNeeds) print() {
 	emit(0, "}")
 	// Last, so no declaration order checks it before the bodies that
 	// decode lw: only the edge a decode adds orders it first.
-	b.WriteString("\nfunc parseLw(s string) lw fails Bad {\n\tA.Use()\n\tlw{name: s}\n}\n")
+	g.parseLw = line + 2
+	parseRow := ""
+	if g.parseWritten {
+		parseRow = " needs A"
+	}
+	fmt.Fprintf(&b, "\nfunc parseLw(s string) lw fails Bad%s {\n\tA.Use()\n\tlw{name: s}\n}\n", parseRow)
 	g.src = b.String()
 }
 
-// written reports whether f's row is written (or empty for an exported
-// function), and that row. A written empty row prints no clause, so an
-// unexported function with Written 0 is inferred.
-func (f *RelFunc) written() (bool, int) {
+// written reports whether f's row is fixed (written, or the empty row an
+// unwritten clause is), and that row. Under the clause writer's inference
+// (infer), an unexported function that writes no row is inferred; a
+// written empty row prints no clause, so one with Written 0 is too.
+func (f *RelFunc) written(infer bool) (bool, int) {
 	switch {
 	case f.Written > 0:
 		return true, f.Written
-	case f.Exported:
+	case f.Exported || !infer:
 		return true, 0
 	}
 	return false, 0
 }
 
 // Model is the effects model: each function's row ("A | B", "" for none),
-// in order, and each "line cap" where a written row misses a need (S102),
-// sorted. A charge is what a call of the release's Close there would
-// charge: the needs of the acquired kind at a let, a temporary or a
-// handoff into keep<k> (whose taken parameter charges its row), and the
-// needs of making the kind's value (qA's row) wherever it is made; the
-// callee's row at a call; B (Wire's) at an encode and A (the ParseX's,
-// written or inferred) at a decode; nothing at a lend of a local or a
-// return. A with removes what it provides. refused is each "line S108" of
-// a conversion to Closer whose release needs a capability, which an
-// adapter could not carry (G7), sorted.
-func (g *RelNeeds) Model() (rows, missing, refused []string) {
-	row := make([]int, len(g.Funcs))
-	for i, f := range g.Funcs {
-		if ok, w := f.written(); ok {
-			row[i] = w
-		}
+// in order, and each "line cap" where a fixed row misses a need (S102),
+// sorted. infer selects the clause writer's mode (Options.Infer), where an
+// unexported function's unwritten row is inferred; otherwise every
+// unwritten row is empty (q137). A charge is what a call of the release's
+// Close there would charge: the needs of the acquired kind at a let, a
+// temporary or a handoff into keep<k> (whose taken parameter charges its
+// row), and the needs of making the kind's value (qA's row) wherever it is
+// made; the callee's row at a call; B (Wire's) at an encode and A (the
+// ParseX's, written or inferred) at a decode; nothing at a lend of a
+// local or a return; at a with that builds a provider, the needs of the
+// provider's release, against what the withs around it provide (an
+// operand before it included, not its own context). A with removes what
+// it provides. refused is each "line S108" of a conversion to Closer
+// whose release needs a capability, which an adapter could not carry
+// (G7), sorted.
+func (g *RelNeeds) Model(infer bool) (rows, missing, refused []string) {
+	row := g.rows(infer, false)
+	// parseLw writes no row: its A.Use() is S102 unless it is inferred.
+	if !infer && !g.parseWritten {
+		missing = append(missing, fmt.Sprintf("%d A", g.parseLw))
 	}
-	var charges func(ss []*RelStmt, provided int, at func(*RelStmt, int))
-	charges = func(ss []*RelStmt, provided int, at func(*RelStmt, int)) {
-		for _, s := range ss {
-			need := 0
-			switch s.Kind {
-			case RelLet, RelTemp, RelKeep:
-				need = relKinds[s.K].needs | relKinds[s.K].mkNeeds
-			case RelKeepVar:
-				need = relKinds[s.K].needs
-			case RelConvert:
-				need = relKinds[s.K].mkNeeds
-			case RelEncode:
-				need = RelB
-			case RelDecode:
-				need = RelA
-			case RelCall:
-				need = row[s.Callee]
-			case RelWith:
-				charges(s.Body, provided|s.Provides, at)
-			case RelIf:
-				charges(s.Body, provided, at)
-			}
-			if need &^= provided; need != 0 {
-				at(s, need)
-			}
-		}
-	}
-	for changed := true; changed; {
-		changed = false
-		for i, f := range g.Funcs {
-			if ok, _ := f.written(); ok {
-				continue
-			}
-			charges(f.Body, 0, func(_ *RelStmt, need int) {
-				if row[i]|need != row[i] {
-					row[i] |= need
-					changed = true
-				}
-			})
-		}
-	}
+	charges := g.charges(row, infer)
 	seen := map[string]bool{}
 	for i, f := range g.Funcs {
 		rows = append(rows, rowText(row[i]))
-		ok, w := f.written()
+		ok, w := f.written(infer)
 		if !ok {
 			continue
 		}
 		charges(f.Body, 0, func(s *RelStmt, need int) {
-			for _, c := range []int{RelA, RelB} {
+			for _, c := range []int{RelA, RelB, RelConsole} {
 				if need&c != 0 && w&c == 0 {
 					k := fmt.Sprintf("%d %s", g.line[s], rowText(c))
 					if !seen[k] {
@@ -455,7 +534,7 @@ func (g *RelNeeds) Model() (rows, missing, refused []string) {
 	// main writes no row: each call outside a with that provides the
 	// callee's row misses it.
 	for i, m := range g.Main {
-		for _, c := range []int{RelA, RelB} {
+		for _, c := range []int{RelA, RelB, RelConsole} {
 			if row[m.Callee]&c != 0 && m.Provides&c == 0 {
 				missing = append(missing, fmt.Sprintf("%d %s", g.mainLine[i], rowText(c)))
 			}
@@ -479,6 +558,82 @@ func (g *RelNeeds) Model() (rows, missing, refused []string) {
 	return rows, missing, refused
 }
 
+// rows are the functions' rows: each fixed row as written, and each other
+// row the least that holds its body's charges, by a fixpoint over the
+// calls. infer selects the clause writer's mode (written); all widens
+// every function from its written row, as ergo fix does.
+func (g *RelNeeds) rows(infer, all bool) []int {
+	row := make([]int, len(g.Funcs))
+	for i, f := range g.Funcs {
+		if ok, w := f.written(infer); ok || all {
+			row[i] = w
+		}
+	}
+	charges := g.charges(row, infer || all)
+	for changed := true; changed; {
+		changed = false
+		for i, f := range g.Funcs {
+			if ok, _ := f.written(infer); ok && !all {
+				continue
+			}
+			charges(f.Body, 0, func(_ *RelStmt, need int) {
+				if row[i]|need != row[i] {
+					row[i] |= need
+					changed = true
+				}
+			})
+		}
+	}
+	return row
+}
+
+// charges walks a body: at receives each statement's charge that the withs
+// around it (provided) do not provide. row is the functions' rows, read at
+// each call; parseLw's row is A when it is written or inferred (lwA).
+func (g *RelNeeds) charges(row []int, lwA bool) func(ss []*RelStmt, provided int, at func(*RelStmt, int)) {
+	lwRow := 0
+	if lwA || g.parseWritten {
+		lwRow = RelA
+	}
+	var charges func(ss []*RelStmt, provided int, at func(*RelStmt, int))
+	charges = func(ss []*RelStmt, provided int, at func(*RelStmt, int)) {
+		for _, s := range ss {
+			need := 0
+			switch s.Kind {
+			case RelLet, RelTemp, RelKeep:
+				need = relKinds[s.K].needs | relKinds[s.K].mkNeeds
+			case RelKeepVar:
+				need = relKinds[s.K].needs
+			case RelConvert:
+				need = relKinds[s.K].mkNeeds
+			case RelEncode:
+				need = RelB
+			case RelDecode:
+				need = RelA
+				if codecType(s.K) == "lw" {
+					need = lwRow
+				}
+			case RelCall:
+				need = row[s.Callee]
+			case RelWith:
+				charges(s.Body, provided|s.Provides, at)
+			case RelIf:
+				charges(s.Body, provided, at)
+			case RelProvide:
+				charges(s.Body, provided|s.Provides, at)
+				need = relProviders[s.P].needs
+				if s.Split {
+					need &^= s.Provides
+				}
+			}
+			if need &^= provided; need != 0 {
+				at(s, need)
+			}
+		}
+	}
+	return charges
+}
+
 // Parts adds to reached each part of a Drop graph (RelParts) through which
 // a release the program charges, or a conversion it refuses, reaches a
 // Close that needs a capability: the property asserts that its seeds
@@ -496,6 +651,11 @@ func (g *RelNeeds) Parts(reached map[string]bool) {
 				if relKinds[s.K].needs != 0 {
 					reached["own"] = true
 					reached[relKinds[s.K].part] = true
+				}
+			case RelProvide:
+				reached[relProviders[s.P].part] = true
+				if s.Split && relProviders[s.P].needs&s.Provides != 0 {
+					reached["with-split"] = true
 				}
 			}
 			walk(s.Body)
@@ -517,6 +677,8 @@ func (g *RelNeeds) Releases() bool {
 				if relKinds[s.K].needs != 0 {
 					return true
 				}
+			case RelProvide:
+				return true
 			case RelWith, RelIf:
 				if rel(s.Body) {
 					return true

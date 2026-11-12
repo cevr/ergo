@@ -21,14 +21,16 @@ import (
 // (releaseneeds.go); the second check's result is the package's.
 func (c *checker) run(files []*syntax.File) *Package {
 	pkg := c.runOnce(files)
-	seeds, edges := c.releaseSeeds(), c.needEdges()
-	if len(seeds) == 0 && len(edges) == 0 {
+	seeds, edges, withs := c.releaseSeeds(), c.needEdges(), c.withNeeds
+	if len(seeds) == 0 && len(edges) == 0 && len(withs) == 0 {
 		return pkg
 	}
 	n := newChecker(c.pkg.Path, c.imp, c.universe)
 	n.pkg.std = c.pkg.std
+	n.opts, n.derive = c.opts, c.derive
 	n.relSeeds, n.relHit = seeds, map[syntax.Node]bool{}
 	n.wireEdges = edges
+	n.withSeeds, n.withHit = withs, map[withNeedKey]bool{}
 	pkg = n.runOnce(files)
 	*c = *n
 	return pkg

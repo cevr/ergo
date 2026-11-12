@@ -136,6 +136,13 @@ type checker struct {
 	// inferred needs row that its decodes reach; a second check orders
 	// the bodies by them (wireEdges; wirecall.go).
 	lateEdges, wireEdges map[*syntax.FuncDecl][]*syntax.FuncDecl
+	// withNeeds are the with operands whose providers' release needs a
+	// capability that no outer with provides and no written row holds,
+	// found by the first check; withSeeds are the same, read by the
+	// second check, which charges each where the with is typed, and
+	// withHit records the charged ones (releaseneeds.go).
+	withNeeds, withSeeds map[withOperand][]relCap
+	withHit              map[withNeedKey]bool
 	// refusedBinders holds the binders the reporting pass has already
 	// refused by name (a pattern name that names a package object, a
 	// prelude name), so the binder rules add no second diagnostic (D3).
