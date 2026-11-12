@@ -48,36 +48,37 @@ func Scan(text string, from int, end int) Part {
 		let mut fast = false
 		if p+FastMargin <= len(text) {
 			w0 = Word(text, p)
-			let semi = Lanes(w0, Semis)
-			let nl = Lanes(w0, Newlines)
-			if semi != 0 {
-				n = bits.TrailingZeros64(semi) >> 3
-				w0 &= LowMask(n)
-				fast = nl&LowMask(n) == 0
-			} else if nl == 0 {
-				w1 = Word(text, p+8)
-				let semi1 = Lanes(w1, Semis)
-				let nl1 = Lanes(w1, Newlines)
-				if semi1 != 0 {
-					n = 8 + bits.TrailingZeros64(semi1)>>3
-					w1 &= LowMask(n - 8)
-					fast = nl1&LowMask(n-8) == 0
-				} else if nl1 == 0 {
-					n = 16
-					for n <= MaxName && text[p+n] != ';' && text[p+n] != '\n' {
-						n += 1
+			w1 = Word(text, p+8)
+			let s0 = Lanes(w0, Semis)
+			let s1 = Lanes(w1, Semis)
+			let mut bad uint64 = 0
+			if (s0 | s1) != 0 {
+				// A station of up to 15 bytes, with no branch on the word
+				// that ends it: z is 1 when the first word has no ';'.
+				let z = ((s0 - 1) & ^s0) >> 63
+				w0 &= Below(s0)
+				w1 &= Below(s1) & -z
+				n = (bits.TrailingZeros64(s0) >> 3) + ((bits.TrailingZeros64(s1) >> 3) & -int(z))
+				bad = Lanes(w0, Newlines) | Lanes(w1, Newlines)
+			} else {
+				bad = Lanes(w0, Newlines) | Lanes(w1, Newlines)
+				n = 16
+				for n <= MaxName {
+					let w = Word(text, p+n)
+					let s = Lanes(w, Semis)
+					if s != 0 {
+						bad |= Lanes(w&Below(s), Newlines)
+						n += bits.TrailingZeros64(s) >> 3
+						break
 					}
-					fast = text[p+n] == ';'
+					bad |= Lanes(w, Newlines)
+					n += 8
 				}
 			}
-			if fast && n >= 1 && n <= MaxName {
-				let t = ReadTemp(Word(text, p+n+1))
-				v = t.Tenths
-				next = p + n + t.Width + 2
-				fast = t.Ok
-			} else {
-				fast = false
-			}
+			let t = ReadTemp(Word(text, p+n+1))
+			v = t.Tenths
+			next = p + n + t.Width + 2
+			fast = (bad | t.Bad) == 0 && uint(n-1) < uint(MaxName)
 		}
 		if !fast {
 			let r = ParseLine(text, p) catch {

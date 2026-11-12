@@ -37,6 +37,9 @@ const (
 	// station of up to 100 bytes, its ';', and an 8-byte load of the
 	// temperature.
 	fastMargin = 128
+	// semis and newlines are ';' and '\n' in every byte of a word.
+	semis    = 0x3B3B3B3B3B3B3B3B
+	newlines = 0x0A0A0A0A0A0A0A0A
 )
 
 // Reasons a line is malformed, in the order the line parser checks them.
@@ -222,31 +225,36 @@ func lanes(w, rep uint64) uint64 {
 	return (x - 0x0101010101010101) & ^x & 0x8080808080808080
 }
 
-func lowMask(n int) uint64 { return 1<<(uint(n)*8) - 1 }
+// below keeps the bytes of a word below the lowest lane that s marks
+// (lanes): all of them when s marks none.
+func below(s uint64) uint64 {
+	z := ((s - 1) &^ s) >> 63
+	return (s^(s-1))>>8 | -z
+}
 
 func hash(w0, w1 uint64) int {
 	return int(((w0 ^ w1*0xC2B2AE3D27D4EB4F) * 0x9E3779B97F4A7C15) >> (64 - tableBits))
 }
 
 // temp reads the temperature that starts the word w, "-?d?d.d\n": its
-// tenths, the length of its text before the newline, and whether w holds
-// that form.
-func temp(w uint64) (int, int, bool) {
+// tenths, the width of its text before the newline, and bad, which is 0
+// exactly when w holds that form. It has no branch, and every shift is by
+// a count below 64 (& 63), so gc writes one instruction for each.
+func temp(w uint64) (value int, width int, bad uint64) {
 	neg := (((w ^ 0x2D) & 0xFF) - 1) >> 63
-	dot := bits.TrailingZeros64(^w&0x10101000) >> 3
-	n := dot + 2
-	dotOK := (w>>(uint(dot)*8))&0xFF == '.'
-	nlOK := (w>>(uint(n)*8))&0xFF == '\n'
-	d := (w & lowMask(n+1)) ^ 0x1E<<(uint(dot)*8) ^ neg*0x1D ^ 0x3A<<(uint(n)*8)
-	l := lowMask(n + 1)
-	digitsOK := d&0xF0F0F0F0F0F0F0F0&l == 0x3030303030303030&l &&
-		((d&0x0F0F0F0F0F0F0F0F&l)+(0x0606060606060606&l))&0x1010101010101010 == 0
-	whole := dot - int(neg)
-	ok := dot <= 3 && dotOK && nlOK && digitsOK && whole >= 1 && whole <= 2
+	dot := uint(bits.TrailingZeros64(^w&0x10101000)) >> 3
+	sh := dot * 8 & 63
+	nsh := (dot*8 + 16) & 63
+	l := ^uint64(0) >> ((40 - dot*8) & 63)
+	d := (w & l) ^ 0x1E<<sh ^ neg*0x1D ^ 0x3A<<nsh
+	bad = ((d&0xF0F0F0F0F0F0F0F0)^0x3030303030303030)&l |
+		((d&0x0F0F0F0F0F0F0F0F)+0x0606060606060606)&0x1010101010101010&l |
+		((w>>sh)&0xFF ^ '.') | ((w>>nsh)&0xFF ^ '\n') |
+		uint64(dot-uint(neg)-1)&^1
 	signed := -neg
-	digits := ((w & ^(signed & 0xFF)) << (24 - uint(dot)*8)) & 0x0F000F0F00
+	digits := ((w & ^(signed & 0xFF)) << ((24 - dot*8) & 63)) & 0x0F000F0F00
 	abs := ((digits * 0x640a0001) >> 32) & 0x3FF
-	return int((abs ^ signed) - signed), n, ok
+	return int((abs ^ signed) - signed), int(dot) + 2, bad
 }
 
 // line parses the line at p byte by byte: the station's length, the
@@ -320,34 +328,33 @@ func scan(text []byte, p, end int) part {
 		fast := false
 		if p+fastMargin <= len(text) {
 			w0 = le64(text, p)
-			semi := lanes(w0, 0x3B3B3B3B3B3B3B3B)
-			nl := lanes(w0, 0x0A0A0A0A0A0A0A0A)
-			if semi != 0 {
-				n = bits.TrailingZeros64(semi) >> 3
-				w0 &= lowMask(n)
-				fast = nl&lowMask(n) == 0
-			} else if nl == 0 {
-				w1 = le64(text, p+8)
-				semi = lanes(w1, 0x3B3B3B3B3B3B3B3B)
-				nl = lanes(w1, 0x0A0A0A0A0A0A0A0A)
-				if semi != 0 {
-					n = 8 + bits.TrailingZeros64(semi)>>3
-					w1 &= lowMask(n - 8)
-					fast = nl&lowMask(n-8) == 0
-				} else if nl == 0 {
-					n = 16
-					for n <= maxName && text[p+n] != ';' && text[p+n] != '\n' {
-						n++
+			w1 = le64(text, p+8)
+			s0 := lanes(w0, semis)
+			s1 := lanes(w1, semis)
+			var bad uint64
+			if s0|s1 != 0 {
+				// A name of up to 15 bytes, with no branch on which
+				// word ends it: z is 1 when the first word has no ';'.
+				z := ((s0 - 1) &^ s0) >> 63
+				w0 &= below(s0)
+				w1 &= below(s1) & -z
+				n = bits.TrailingZeros64(s0)>>3 + bits.TrailingZeros64(s1)>>3&-int(z)
+				bad = lanes(w0, newlines) | lanes(w1, newlines)
+			} else {
+				bad = lanes(w0, newlines) | lanes(w1, newlines)
+				for n = 16; n <= maxName; n += 8 {
+					w := le64(text, p+n)
+					if s := lanes(w, semis); s != 0 {
+						bad |= lanes(w&below(s), newlines)
+						n += bits.TrailingZeros64(s) >> 3
+						break
 					}
-					fast = text[p+n] == ';'
+					bad |= lanes(w, newlines)
 				}
 			}
-			if fast && n >= 1 && n <= maxName {
-				v, tn, ok := temp(le64(text, p+n+1))
-				value, next, fast = v, p+n+tn+2, ok
-			} else {
-				fast = false
-			}
+			v, width, tbad := temp(le64(text, p+n+1))
+			value, next = v, p+n+width+2
+			fast = bad|tbad == 0 && uint(n-1) < maxName
 		}
 		if !fast {
 			var reason int

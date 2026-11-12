@@ -4,8 +4,10 @@
 //	gen ROWS SEED [STATIONS] > measurements.txt
 //
 // The stations are generated, not the challenge's list: STATIONS names
-// (default 413, the size of the challenge's list) of 3 to 24 bytes, some
-// with multibyte UTF-8 letters, each with a mean drawn from -20.0 to 35.0.
+// (default 413, the size of the challenge's list) of 3 to 14 bytes, and
+// one in ten of 15 to 26 (the list's names are 3 to 26 bytes, most under
+// 12), some with multibyte UTF-8 letters, each with a mean drawn from
+// -20.0 to 35.0.
 // A reading is its station's mean plus a deviation of up to ±15.0,
 // clamped to -99.9..99.9, with one decimal, as the challenge's generator
 // writes them. The same arguments write the same bytes.
@@ -41,7 +43,10 @@ func main() {
 	seen := map[string]bool{}
 	letters := []string{"a", "e", "i", "o", "u", "n", "r", "s", "t", "l", "k", "m", "é", "ü", "ø", "ł", "ç", "ñ", "ı", "ğ"}
 	for len(names) < stations {
-		size := 3 + r.IntN(22)
+		size := 3 + r.IntN(12)
+		if r.IntN(10) == 0 {
+			size = 15 + r.IntN(12)
+		}
 		name := []byte{byte('A' + r.IntN(26))}
 		for len(name) < size {
 			if r.IntN(9) == 0 && len(name) < size-1 {

@@ -19,8 +19,12 @@ func Lanes(w uint64, rep uint64) uint64 {
 	(x - 0x0101010101010101) & ^x & 0x8080808080808080
 }
 
-// LowMask keeps the low n bytes of a word.
-func LowMask(n int) uint64 { (uint64(1) << (uint(n) * 8)) - 1 }
+// Below keeps the bytes of a word below the lowest lane that s marks
+// (Lanes): all of them when s marks none.
+func Below(s uint64) uint64 {
+	let z = ((s - 1) & ^s) >> 63
+	((s ^ (s - 1)) >> 8) | -z
+}
 
 // Semis is 0x3B, ';', in every lane.
 let Semis uint64 = 0x3B3B3B3B3B3B3B3B
@@ -28,27 +32,27 @@ let Semis uint64 = 0x3B3B3B3B3B3B3B3B
 // Newlines is 0x0A, '\n', in every lane.
 let Newlines uint64 = 0x0A0A0A0A0A0A0A0A
 
-// Temp is a temperature read from the word that starts it, "-?d?d.d\n".
-type Temp { Tenths int, Width int, Ok bool }
+// Temp is a temperature read from the word that starts it, "-?d?d.d\n":
+// Bad is 0 exactly when the word holds that form.
+type Temp { Tenths int, Width int, Bad uint64 }
 
 // ReadTemp reads the temperature at the start of w: its tenths, the width
-// of its text before the newline, and whether w holds that form. One
-// branch decides the form (Wuerthinger's multiply turns the digits into
-// the value).
+// of its text before the newline, and Bad, 0 exactly when w holds that
+// form. It has no branch (Wuerthinger's multiply turns the digits into
+// the value), and every shift is by a count below 64 (& 63), so Go makes
+// one instruction of each.
 func ReadTemp(w uint64) Temp {
 	let neg = (((w ^ 0x2D) & 0xFF) - 1) >> 63
-	let dot = bits.TrailingZeros64(^w&0x10101000) >> 3
-	let n = dot + 2
-	let dotOk = (w>>(uint(dot)*8))&0xFF == 0x2E
-	let nlOk = (w>>(uint(n)*8))&0xFF == 0x0A
-	let l = LowMask(n + 1)
-	let d = (w & l) ^ (uint64(0x1E) << (uint(dot) * 8)) ^ (neg * 0x1D) ^ (uint64(0x3A) << (uint(n) * 8))
-	let digitsOk = d&0xF0F0F0F0F0F0F0F0&l == 0x3030303030303030&l && ((d&0x0F0F0F0F0F0F0F0F&l)+(0x0606060606060606&l))&0x1010101010101010 == 0
-	let whole = dot - int(neg)
+	let dot = uint(bits.TrailingZeros64(^w&0x10101000)) >> 3
+	let sh = (dot * 8) & 63
+	let nsh = (dot*8 + 16) & 63
+	let l = ^uint64(0) >> ((40 - dot*8) & 63)
+	let d = (w & l) ^ (uint64(0x1E) << sh) ^ (neg * 0x1D) ^ (uint64(0x3A) << nsh)
+	let bad = (((d & 0xF0F0F0F0F0F0F0F0) ^ 0x3030303030303030) & l) | ((((d & 0x0F0F0F0F0F0F0F0F) + 0x0606060606060606) & 0x1010101010101010) & l) | (((w >> sh) & 0xFF) ^ 0x2E) | (((w >> nsh) & 0xFF) ^ 0x0A) | (uint64(dot-uint(neg)-1) & ^uint64(1))
 	let signed = -neg
-	let digits = ((w & ^(signed & 0xFF)) << (24 - uint(dot)*8)) & 0x0F000F0F00
+	let digits = ((w & ^(signed & 0xFF)) << ((24 - dot*8) & 63)) & 0x0F000F0F00
 	let abs = ((digits * 0x640a0001) >> 32) & 0x3FF
-	Temp{Tenths: int((abs ^ signed) - signed), Width: n, Ok: dot <= 3 && dotOk && nlOk && digitsOk && whole >= 1 && whole <= 2}
+	Temp{Tenths: int((abs ^ signed) - signed), Width: int(dot) + 2, Bad: bad}
 }
 
 // Words is the first sixteen bytes of the station of n bytes at p, as the

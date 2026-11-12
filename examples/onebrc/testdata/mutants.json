@@ -1,0 +1,37 @@
+{
+  "about": "onebrc's application mutants (wf10 1BRC): edits of the example that its laws do not see; TestOneBRCAgrees in cmd/ergo (the seeded property against the reference and the hand Go control) kills each.",
+  "mutants": [
+    {
+      "name": "onebrc-fast-path-accepts-bad-temperature", "origin": "wf10 1BRC",
+      "file": "examples/onebrc/weather/table.ergo",
+      "from": "fast = (bad | t.Bad) == 0 && uint(n-1) < uint(MaxName)",
+      "to": "fast = bad == 0 && uint(n-1) < uint(MaxName)",
+      "rule": "The fast path takes a line only when its temperature has the form -?d?d.d; any other line goes to the byte parser, which reports it.",
+      "killers": ["cmd/ergo:TestOneBRCAgrees"]
+    },
+    {
+      "name": "onebrc-long-name-compare-stops-at-16", "origin": "wf10 1BRC",
+      "file": "examples/onebrc/weather/table.ergo",
+      "from": "(n <= 16 || strings.Slice(",
+      "to": "(true || strings.Slice(",
+      "rule": "Two stations longer than 16 bytes with the same first 16 bytes and length are one station only when all their bytes agree.",
+      "killers": ["cmd/ergo:TestOneBRCAgrees"]
+    },
+    {
+      "name": "onebrc-split-cuts-a-line", "origin": "wf10 1BRC",
+      "file": "examples/onebrc/weather/summary.ergo",
+      "from": "for at < len(text) && at > 0 && text[at-1] != '\\n' {",
+      "to": "for false && at < len(text) && at > 0 && text[at-1] != '\\n' {",
+      "rule": "Every chunk starts at a line start, so no line is split between two workers.",
+      "killers": ["cmd/ergo:TestOneBRCAgrees"]
+    },
+    {
+      "name": "onebrc-reduce-keeps-one-chunk", "origin": "wf10 1BRC",
+      "file": "examples/onebrc/weather/summary.ergo",
+      "from": "total[name] = Merge(had, StatsOf(s))",
+      "to": "total[name] = StatsOf(s)",
+      "rule": "A station's Stats is the Merge of its Stats in every chunk.",
+      "killers": ["cmd/ergo:TestOneBRCAgrees"]
+    }
+  ]
+}
