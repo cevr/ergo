@@ -20,14 +20,15 @@ import (
 //	   of a function value's parameter of T, which is a borrow parameter
 //	   in the function the caller wrote;
 //	3. the value of a let, of an assignment to a local or through a borrow
-//	   parameter (*out = x: the caller's local), a return, a block's
-//	   tail, a discarded statement, a match subject, an operand of a
+//	   parameter (*out = x: the caller's local), a match subject, an operand of a
 //	   comparison or an interpolation;
 //	and no use of a local of T inside a function literal or block that may
 //	outlive the call it is passed to (task.Go's block among them).
 //
-// The caller holds what the call returns: a result of type T is a borrow
-// there and obeys the borrow rules (Borrows 1 and 6). A generic function
+// A return or a block's value keeps T (INS-3): the written instance of a
+// body that returns its T returns a *T, which Borrows 1 refuses, so the
+// call refuses it too. A block's value is kept even when it flows only
+// into a local of the body (the simpler rule). A generic function
 // with no body Ergo reads (an extern) keeps every type parameter. A
 // literal of a generic type built over a borrow (Box{V: t}) is refused at
 // the literal, since a record never holds a borrow.
@@ -253,9 +254,17 @@ func (k *keepWalk) position(x syntax.Expr) string {
 			}
 		}
 		return ""
-	case *syntax.VarSpec, *syntax.ReturnStmt, *syntax.InterpolatedString, *syntax.BinaryExpr:
+	case *syntax.VarSpec, *syntax.InterpolatedString, *syntax.BinaryExpr:
 		return ""
-	case *syntax.ExprStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+	case *syntax.ReturnStmt:
+		return "it returns a value of it"
+	case *syntax.ExprStmt:
+		// A block's value flows out of the block: to the function's
+		// result, or to what the block's if or match gives it to. (A
+		// statement that discards a value of T is a call of a body that
+		// returns one, which keeps it already.)
+		return "it returns a value of it"
+	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		return ""
 	case *syntax.StarExpr, *syntax.UnaryExpr:
 		// A read or write through a borrow, or a borrow of a local:

@@ -617,8 +617,8 @@ func diffCheck(p twin, cycleOnly bool) []string {
 // program whose lowering Go accepts: the inferred subset's S108 "cannot
 // infer T; write the type arguments" (D6 as amended in round 7).
 func isRefusal(d string) bool {
-	if strings.Contains(d, "S108") && strings.Contains(d, "keeps the borrow's lifetime") {
-		return true // Borrows 6: Go keeps a pointer in an interface; Ergo's borrow may not
+	if strings.Contains(d, "S108") && (strings.Contains(d, "keeps the borrow's lifetime") || strings.Contains(d, "cannot take a borrow as its")) {
+		return true // Borrows 6 and 7: Go keeps a pointer anywhere; Ergo's borrow may not
 	}
 	return strings.Contains(d, "S108") && strings.Contains(d, "cannot infer") && strings.Contains(d, "write the type arguments")
 }

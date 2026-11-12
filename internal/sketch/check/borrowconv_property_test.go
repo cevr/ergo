@@ -78,6 +78,18 @@ func viaOp[T Counter](x T) int { x.Bump() }
 
 func fwd[T](x T) T { id(x) }
 
+func fwdOp[T Counter](x T) int { viaOp(x) }
+
+func ret[T](x T) T { return x }
+
+func arm[T](x T) T { if len("a") > 0 { x } else { x } }
+
+func local[T](x T) int {
+	let y = x
+	let _ = y
+	1
+}
+
 func via[T](x T, use escaping func(v T) int) func() int { hold(x, use) }
 
 func spawn[T](x T, use escaping func(v T) int) int { task.Go() { use(x) }.Wait() }
@@ -191,21 +203,28 @@ func bcGoCase(r *rand.Rand, name string) ([]string, int, string, string) {
 }
 
 // bcGenericSites are the places a value is a type argument. A generic
-// body that keeps no value of it takes a borrow: one that returns it (id),
-// passes it on to such a body (fwd), calls an operation on it (viaOp) or
+// body that keeps no value of it takes a borrow: one that binds it to its
+// own locals (local), calls an operation on it (viaOp), passes it on to
+// such a body (fwdOp) or
 // passes it to a function value's parameter (apply), writes it through a
 // borrow parameter into the caller's local (put), and keeps only a
 // function value (relay). One that keeps it
-// refuses a borrow: it captures it in an escaping closure (hold, later),
+// refuses a borrow: it returns it, as its tail (id), by return (ret), as
+// an if's value (arm) or through a body that does (fwd; INS-3); it
+// captures it in an escaping closure (hold, later),
 // passes it to a body that does (via), or captures it in task.Go's block
 // (spawn); and a generic record literal never holds one (Box). A function
 // type that takes a borrow is a type argument even of a body that keeps it
 // (targ-func). %[1]s is the
 // value and %[2]s its type.
 var bcGenericSites = []bcSite{
-	{name: "targ-id", result: "int", at: "let u = id(%[1]s)", after: []string{"u.Bump()"}, ok: true},
-	{name: "targ-fwd", result: "int", at: "let u = fwd(%[1]s)", after: []string{"u.Bump()"}, ok: true},
+	{name: "targ-id", result: "int", at: "let u = id(%[1]s)", after: []string{"u.Bump()"}},
+	{name: "targ-ret", result: "int", at: "let u = ret(%[1]s)", after: []string{"u.Bump()"}},
+	{name: "targ-arm", result: "int", at: "let u = arm(%[1]s)", after: []string{"u.Bump()"}},
+	{name: "targ-fwd", result: "int", at: "let u = fwd(%[1]s)", after: []string{"u.Bump()"}},
+	{name: "targ-local", result: "int", at: "local(%[1]s)", ok: true},
 	{name: "targ-op", result: "int", at: "viaOp(%[1]s)", ok: true},
+	{name: "targ-fwdop", result: "int", at: "fwdOp(%[1]s)", ok: true},
 	{name: "targ-put", result: "int", before: []string{"let mut q = %[1]s"}, at: "put(&q, %[1]s)", after: []string{"q.Bump()"}, ok: true},
 	{name: "targ-apply", result: "int", at: "apply(%[1]s, func(v %[2]s) int { v.Bump() })", ok: true},
 	{name: "targ-relay", result: "int", at: "relay(%[1]s, func(v %[2]s) int { v.Bump() })", ok: true},
@@ -244,7 +263,7 @@ func bcGenericCase(r *rand.Rand, name string) ([]string, int, string, string) {
 		body(a)
 	}
 	lines = append(lines, "}")
-	named := map[string]string{"targ-hold": "typearg hold", "targ-box": "typearg Box[*Tally]", "targ-later": "typearg later", "targ-via": "typearg via", "targ-task": "typearg spawn"}[site.name]
+	named := map[string]string{"targ-id": "typearg id", "targ-ret": "typearg ret", "targ-arm": "typearg arm", "targ-fwd": "typearg fwd", "targ-hold": "typearg hold", "targ-box": "typearg Box[*Tally]", "targ-later": "typearg later", "targ-via": "typearg via", "targ-task": "typearg spawn"}[site.name]
 	if source == "Fixed" || site.ok {
 		at = 0
 	}
@@ -342,7 +361,7 @@ func borrowConvProgram(seed uint64) (string, map[int]string, []string) {
 // TestBorrowConvModel is the property (see above).
 func TestBorrowConvModel(t *testing.T) {
 	seeds := []uint64{}
-	for s := range uint64(300) {
+	for s := range uint64(600) {
 		seeds = append(seeds, s+1)
 	}
 	if *borrowConvSeed != 0 {

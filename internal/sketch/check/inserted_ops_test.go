@@ -627,7 +627,7 @@ func insertedOutcome(src string, spans [][2]int, sites []insSite) (insOutcome, e
 }
 
 // insGaps are the findings insertedGap names.
-var insGaps = []string{"REL-needs", "G3", "G4"}
+var insGaps = []string{"REL-needs", "G3"}
 
 // insertedGap names the finding that owns a site's known disagreement at
 // this head, or "" when the two forms must agree.
@@ -639,9 +639,6 @@ func insertedGap(p insParams, s insSite) string {
 	case s.rule == "codec-encode" && p.wireNeeds, s.rule == "codec-decode" && p.parseNeeds:
 		// encode and decode charge no row with their pair's needs.
 		return "G3"
-	case s.rule == "instance" && strings.HasSuffix(s.variant, "/*Tally"):
-		// A borrow instantiates T and escapes where *T may not.
-		return "G4"
 	}
 	return ""
 }

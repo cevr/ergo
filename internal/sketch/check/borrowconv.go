@@ -91,23 +91,50 @@ func typeArgBorrow(t Type) bool {
 // function instantiated with a borrow, and a generic value (a record or
 // union literal, a map) built over one.
 func (w *escWalk) checkBorrowInstance(x syntax.Expr) {
-	if inst := w.info.Instances[x]; inst != nil {
-		for i, a := range inst.TypeArgs {
-			if !typeArgBorrow(a) || i >= len(inst.Func.Sig.TParams) {
-				continue
-			}
-			tp := inst.Func.Sig.TParams[i]
-			if why := w.keepsTParam(inst.Func, tp); why != "" {
-				w.c.errorf(x, CodeType, borrowTypeArgText, inst.Func.Name, tp.Name, a, inst.Func.Name, tp.Name, why)
-				return
-			}
-		}
+	if inst, tp, a, why := w.borrowInstance(x); why != "" && !w.refusedArgument(x) {
+		w.c.errorf(x, CodeType, borrowTypeArgText, inst.Func.Name, tp.Name, a, inst.Func.Name, tp.Name, why)
+		return
 	}
 	if _, ok := x.(*syntax.CompositeLit); ok {
 		if t := w.info.Types[x]; t != nil && typeArgBorrow(t) {
 			w.c.errorf(x, CodeType, borrowValueText, t)
 		}
 	}
+}
+
+// borrowInstance is the instance at x whose type argument a for tp holds
+// a borrow that the body keeps, with why; why is "" when there is none.
+func (w *escWalk) borrowInstance(x syntax.Expr) (*Instance, *TypeParam, Type, string) {
+	inst := w.info.Instances[x]
+	if inst == nil {
+		return nil, nil, nil, ""
+	}
+	for i, a := range inst.TypeArgs {
+		if !typeArgBorrow(a) || i >= len(inst.Func.Sig.TParams) {
+			continue
+		}
+		tp := inst.Func.Sig.TParams[i]
+		if why := w.keepsTParam(inst.Func, tp); why != "" {
+			return inst, tp, a, why
+		}
+	}
+	return nil, nil, nil, ""
+}
+
+// refusedArgument reports whether an argument of the call x is itself a
+// refused instance: its result holds the borrow only because of that
+// refusal, which is the one diagnostic of the root cause.
+func (w *escWalk) refusedArgument(x syntax.Expr) bool {
+	call, ok := x.(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	for _, a := range call.Args {
+		if _, _, _, why := w.borrowInstance(unparen(a)); why != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // borrowText names a borrow for a message: t, &x, &xs[…].
