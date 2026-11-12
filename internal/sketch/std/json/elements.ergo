@@ -21,7 +21,7 @@ import io
 import sync
 
 // Elements is the values of r as T, read one at a time.
-type Elements[T wire] { r Stream, at sync.Ref[int] }
+type Elements[T wire] { r Stream, seq bool, at sync.Ref[int] }
 
 // The places of an Elements: before the first value, among the values,
 // past the end.
@@ -31,7 +31,7 @@ let eDone = 2
 
 // NewElements reads r's values as T: the elements of the array r's text
 // holds, or each value of a sequence stream.
-func NewElements[T wire](r Stream) Elements[T] { Elements[T]{r: r, at: sync.NewRef[int](eStart)} }
+func NewElements[T wire](r Stream) Elements[T] { Elements[T]{r: r, seq: sequence(r), at: sync.NewRef[int](eStart)} }
 
 // Next is the next element, or None after the last, once the rest of
 // the text is settled.
@@ -42,7 +42,7 @@ func Next[T wire](e Elements[T]) Option[T] fails Malformed | io.ReadFailed | Wir
 		return None
 	}
 	if at == eStart {
-		if !r.st.Get().seq {
+		if !e.seq {
 			r.BeginList() catch {
 			case WireWrongKind as w:
 				try Settle(r)
@@ -51,16 +51,15 @@ func Next[T wire](e Elements[T]) Option[T] fails Malformed | io.ReadFailed | Wir
 		}
 		e.at.Set(eIn)
 	}
-	let seq = r.st.Get().seq
-	if !another(r, seq) {
-		return try e.finish(!seq)
+	if !another(r, e.seq) {
+		return try e.finish(!e.seq)
 	}
 	let v = decode[T](r) catch {
 	case err:
 		try Settle(r)
 		return err
 	}
-	if r.st.Get().bad {
+	if broke(r) {
 		// The element's own text broke (a list or object the text ends
 		// in): a decode reads on past a break, so Settle tells it.
 		try Settle(r)

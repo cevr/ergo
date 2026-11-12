@@ -459,9 +459,9 @@ func valuesStopAtBreak(vs []up, seps []int, cut int, cuts []int) bool {
 }
 
 // ElementsHoldOneWindow: reading a sequence of n values from chunks of
-// one size holds at most that size and the few bytes a token past the
-// edge needs, however many values the text holds (the growth guard: the
-// window counts the bytes the Stream keeps).
+// one size holds at most that size and the token cut by its edge (no
+// longer than one value), however many values the text holds (the growth
+// guard: the window counts the bytes the Stream keeps).
 test JsonElementsHoldOneWindow(v up, n int, size int) {
 	assert holdsOneWindow(v, n, size)
 }
@@ -489,7 +489,7 @@ func holdsOneWindow(v up, n int, size int) bool {
 			break
 		}
 	}
-	read == count && json.Window(r) <= chunk+6
+	read == count && json.Window(r) <= chunk+len(text)
 }
 `
 
