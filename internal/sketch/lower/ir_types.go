@@ -3,8 +3,6 @@ package lower
 // IR builder: types (goType, admit). See ir.go.
 
 import (
-	"strings"
-
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -18,38 +16,10 @@ import (
 // keepImport).
 func (b *irBuilder) goType(t check.Type, site syntax.Node) string {
 	b.admit(t, 0)
-	s := b.fc.goType(t)
-	if b.usesDuration(t) {
-		name := b.l.timePkg()
-		s = strings.ReplaceAll(s, name+".Duration", "time.Duration")
-		b.keepImport("var _ " + name + ".Duration")
-	}
-	for _, r := range strings.TrimLeft(s, "[]") {
-		if !(r == '_' || r == '.' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
-			irNo("Go type spelling %s", s)
-		}
-	}
-	if strings.Contains(strings.TrimPrefix(strings.TrimLeft(s, "[]"), "time.Duration"), ".") {
-		irNo("Go type spelling %s", s)
-	}
-	return s
-}
-
-// usesDuration reports a type the subset admits that spells duration.
-func (b *irBuilder) usesDuration(t check.Type) bool {
-	switch t := t.(type) {
-	case *check.Basic:
-		return t.Kind == check.Duration
-	case *check.Slice:
-		return b.usesDuration(t.Elem)
-	}
-	return false
+	return b.spelling(b.fc.goType(t)) // ir_pkg.go
 }
 
 func (b *irBuilder) admit(t check.Type, depth int) {
-	if depth > 4 {
-		irNo("deep type")
-	}
 	switch t := t.(type) {
 	case *check.Basic:
 		switch t.Kind {
@@ -71,6 +41,9 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		s, ok := t.Underlying().(*check.Struct)
 		if !ok {
 			irNo("record without a struct")
+		}
+		if b.admitOnce(t.Obj) { // ir_pkg.go
+			return
 		}
 		for _, f := range s.Fields {
 			b.admit(f.Type, depth+1)
