@@ -77,8 +77,10 @@ func Run(p resolve.Program) Report {
 	Report{Out: m.out.String(), End: end, Nodes: m.nodes, Calls: m.calls}
 }
 
-// enter is a frame of size slots whose parent is env: a free one when
-// there is one, else a new one.
+// enter is a frame of size slots, each nil, whose parent is env: a free
+// one when there is one, else a new one. A slot read before its let (a
+// function a block binds at its start can be called before the let of a
+// name it reads) is nil, never a value of an earlier call.
 func enter(m *Machine, slots int, env int) int {
 	if len(m.free) == 0 {
 		m.frames = m.frames.Append(Frame{Slots: slices.Repeat([]Value{Nil}, slots), Parent: env})
@@ -88,6 +90,10 @@ func enter(m *Machine, slots int, env int) int {
 	m.free = m.free[0 : len(m.free)-1]
 	if len(m.frames[id].Slots) < slots {
 		m.frames[id].Slots = slices.Repeat([]Value{Nil}, slots)
+	} else {
+		for i in 0..slots {
+			m.frames[id].Slots[i] = Nil
+		}
 	}
 	m.frames[id].Parent = env
 	id
