@@ -179,7 +179,8 @@ func (r runTimeout) Error() string {
 }
 
 // runDeadlineVariable bounds each run of a test binary in the sandbox (a
-// Go duration; 20 minutes by default). A run that has not ended by then is
+// Go duration; unset, only the binary's own deadline bounds a run,
+// runBound). A run that has not ended by then is
 // a failure that names its package and the processes the run still had,
 // and its process group is stopped, so a run that hangs (an observed child
 // stuck in its start, for example) leaves no process behind.
@@ -214,27 +215,38 @@ func binaryDeadline() (time.Time, bool) {
 	return processStart.Add(timeout), true
 }
 
-// runDeadline is the bound of one run that starts now: runDeadlineVariable
-// (20 minutes by default), and never past runReportMargin before this test
-// binary's own deadline. At batch 9 a swept run that did not end held the
-// sweep until the step's test timeout panicked, which named no package and
-// reported no verdict (b9-fix-gate). A run started with less time left than
-// the margin gets a second, so it fails at once with its package named. A
-// run holds at most sweepRunBudget of recorded test time (planRuns), so it
-// ends well within the 20 minutes; the gate gives the sweep step a test
-// timeout long enough for every run of a package in turn (scripts/gate,
-// sweepTimeout), so the binary's deadline bounds only a sweep that hangs.
+// runDeadline is the bound of one run that starts now (runBound): no
+// later than runReportMargin before this test binary's own deadline, and
+// runDeadlineVariable when it is set. At batch 9 a swept run that did not
+// end held the sweep until the step's test timeout panicked, which named
+// no package and reported no verdict (b9-fix-gate). The gate gives the
+// sweep step a test timeout long enough for every run of a package in turn
+// (scripts/gate, sweepTimeout), so the binary's deadline bounds only a
+// sweep that hangs.
 func runDeadline() (time.Duration, error) {
-	d := 20 * time.Minute
-	if value := os.Getenv(runDeadlineVariable); value != "" {
+	end, ok := binaryDeadline()
+	return runBound(os.Getenv(runDeadlineVariable), end, ok, time.Now())
+}
+
+// runBound is runDeadline at now, with value the setting of
+// runDeadlineVariable and end the binary's deadline when hasEnd. With
+// neither, a run has no bound (forever). The sweep has no fixed bound of
+// its own (AGENTS.md: no fixed time limits; a deadline only stops a hung
+// test): its fixed 20 minutes cut the cmd/ergo run of a sweep that was
+// still running, at 19m30s under a load of 46 to 64 (wf10 OPT9 gate). A
+// run started with less time left than the margin gets a second, so it
+// fails at once with its package named.
+func runBound(value string, end time.Time, hasEnd bool, now time.Time) (time.Duration, error) {
+	d := time.Duration(forever)
+	if value != "" {
 		parsed, err := time.ParseDuration(value)
 		if err != nil || parsed <= 0 {
 			return 0, fmt.Errorf("%s=%q: want a positive duration", runDeadlineVariable, value)
 		}
 		d = parsed
 	}
-	if end, ok := binaryDeadline(); ok {
-		d = max(min(d, time.Until(end)-runReportMargin), time.Second)
+	if hasEnd {
+		d = max(min(d, end.Sub(now)-runReportMargin), time.Second)
 	}
 	return d, nil
 }

@@ -26,6 +26,15 @@
       "to": "",
       "rule": "A real cgo linker cwd input belongs to the toolchain inputs; observation and cache hashing must remain enabled.",
       "killers": ["closure:TestEveryPackageRecordsOnlyItsClosure (ERGO_CLOSURE_SWEEP=cmd/ergo, cgo enabled, cold per-package cache)"]
+    },
+    {
+      "name": "closure-run-fixed-limit",
+      "origin": "wf10 FU-b18 r2 (OPT9 gate: a fixed 20 minutes cut a running cmd/ergo sweep)",
+      "file": "internal/closure/sandbox_test.go",
+      "from": "\td := time.Duration(forever)\n",
+      "to": "\td := 20 * time.Minute\n",
+      "rule": "A swept run has no fixed bound of its own: only the binary's deadline, or an explicit ERGO_CLOSURE_RUN_DEADLINE, stops it.",
+      "killers": ["internal/closure:TestRunBoundHasNoFixedLimit"]
     }
   ]
 }

@@ -80,6 +80,22 @@ func TestStuckRunTarget(t *testing.T) {
 // forever is a wait with no bound in readableWithin.
 const forever = 100 * 365 * 24 * time.Hour
 
+// TestRunBoundHasNoFixedLimit: with runDeadlineVariable unset, only the
+// binary's deadline (less runReportMargin) bounds a run, and with no
+// binary deadline nothing does. The smallest repro of the wf10 OPT9 gate
+// failure: a fixed 20 minutes cut a cmd/ergo run that was still running.
+// Mutant closure-run-fixed-limit.
+func TestRunBoundHasNoFixedLimit(t *testing.T) {
+	now := time.Unix(0, 0)
+	end := now.Add(45 * time.Minute)
+	if got, err := runBound("", end, true, now); err != nil || got != 45*time.Minute-runReportMargin {
+		t.Errorf("a run with 45m left and no setting is bounded at %v (%v), want %v", got, err, 45*time.Minute-runReportMargin)
+	}
+	if got, err := runBound("", time.Time{}, false, now); err != nil || got != forever {
+		t.Errorf("a run with no deadline and no setting is bounded at %v (%v), want none", got, err)
+	}
+}
+
 // TestRunDeadlineStopsAStuckRun: a run that does not end within the run
 // deadline is a failure that names its package, well before the deadline of
 // the test that runs it, and no process of the run is left.

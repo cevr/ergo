@@ -42,7 +42,7 @@ const costFile = "scripts/gate/durations.json"
 // CPU-s with a cache per run and 1521 with the shared one, gl-sweep-cache,
 // measured under load), so a run of 45 s takes
 // about 3 CPU-minutes, and at the batch-10 gate's share (0.45 CPU per run)
-// about 7 minutes: well under the 20 minute run deadline (runDeadline).
+// about 7 minutes. Only the binary's deadline bounds a run (runDeadline).
 const sweepRunBudget = 45.0
 
 // readCosts reads costFile under root: each package's recorded seconds per
