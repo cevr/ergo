@@ -582,7 +582,8 @@ func insAssemble(p insParams, sites []insSite, form func(insSite) string) (strin
 }
 
 // insOutcome is the checker's verdict on each site and on the rest of the
-// program: the codes of the diagnostics in its lines, and sN's rows.
+// program: the set of the codes of the diagnostics in its lines, and sN's
+// rows.
 type insOutcome struct {
 	rest  string
 	sites []string
@@ -610,7 +611,10 @@ func insertedOutcome(src string, spans [][2]int, sites []insSite) (insOutcome, e
 	}
 	out := insOutcome{rest: strings.Join(rest, "; ")}
 	for i, s := range sites {
+		// The set of codes: a written form may report one refusal at two
+		// places (a mono copy's parameter and result), which is one verdict.
 		slices.Sort(codes[i])
+		codes[i] = slices.Compact(codes[i])
 		row := "no function"
 		for _, f := range pkg.Funcs {
 			if f.Name == s.name && f.Sig != nil {
