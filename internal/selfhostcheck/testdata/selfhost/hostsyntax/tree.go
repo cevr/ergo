@@ -30,6 +30,8 @@ func init() {
 		syntax.IfStmt{}, syntax.SwitchStmt{}, syntax.TypeSwitchStmt{}, syntax.ForStmt{}, syntax.RangeStmt{},
 		syntax.CaseClause{}, syntax.ExternSpec{}, syntax.TestDecl{}, syntax.LawDecl{}, syntax.LawReach{},
 		syntax.AssertStmt{}, syntax.VariantSpec{}, syntax.AsPattern{}, syntax.InterpolatedString{},
+		// Not a Node, but a node's field points to it (LawDecl.Rewrite).
+		syntax.LawRewrite{},
 	} {
 		families[reflect.TypeOf(n)] = true
 	}
