@@ -217,7 +217,7 @@ func (c *checker) wireOperand(n syntax.Node, t Type, what string) bool {
 	return true
 }
 
-// Codec needs (types.md, Codecs 8; G3 of the v1 audit 3): encode(v, w)
+// The needs of a codec (types.md, Codecs 8; G3 of the v1 audit 3): encode(v, w)
 // calls the Wire of each by-name pair v's type reaches, and decode[T](r)
 // each ParseX, so the call is charged their capabilities as a written call
 // of them there is (chargeWire); codecs may carry needs, counted (owner,

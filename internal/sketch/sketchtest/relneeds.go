@@ -207,7 +207,7 @@ func NewRelNeeds(r *rand.Rand) *RelNeeds {
 }
 
 // codecType is the codec type of statement kind k: Lv, whose ParseLv
-// writes needs A, or lw, whose parseLw infers it; each Wire needs B.
+// writes needs A; lw, whose parseLw infers it. Each Wire needs B.
 func codecType(k int) string {
 	if k%2 == 0 {
 		return "Lv"

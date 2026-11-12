@@ -23,8 +23,8 @@ import (
 // Mutants it kills that TestReleaseNeedsModel does not (ledger:
 // releaseneeds.go): the release-need text without the Close, the type or
 // the capability; the result a std call releases not charged; a replaced
-// field not charged; a codec instance with needs admitted, written or
-// inferred; a decode in a package let that reaches an inferred ParseX
+// field not charged; a codec instance admitted whose codec has a written or
+// an inferred capability row; a decode in a package let that reaches an inferred ParseX
 // admitted.
 func TestReleaseNeedRows(t *testing.T) {
 	const res = "type Res { id int }\n\nfunc Close(r Res) needs Console {\n\tConsole.Println(\"close \\(r.id)\")\n}\n\n"
