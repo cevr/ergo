@@ -1,0 +1,109 @@
+{
+  "about": "jsonparse's mutants (wf10 corpus wave 1, PA1): each law's mutant, killed by `ergo test` of its package, and the edits no law or case sees, which TestJSONParseAgreesWithControl in cmd/ergo (JSONTestSuite, generated documents and the workload against a reference on encoding/json and the hand Go control) kills.",
+  "mutants": [
+    {
+      "name": "jsonparse-pointer-escapes-slash-first", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/pointer.ergo",
+      "from": "strings.ReplaceAll(strings.ReplaceAll(t, \"~\", \"~0\"), \"/\", \"~1\")",
+      "to": "strings.ReplaceAll(strings.ReplaceAll(t, \"/\", \"~1\"), \"~\", \"~0\")",
+      "rule": "A pointer escapes ~ before /, so a key with a / is written ~1, not ~01 (law json.PointersReachTheirPlaces).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "jsonparse-pointer-tilde-one-is-tilde", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/pointer.ergo",
+      "from": "b.WriteByte('/')",
+      "to": "b.WriteByte('~')",
+      "rule": "In a pointer's token, ~1 stands for / (law json.PointersReachTheirPlaces).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "jsonparse-quote-keeps-backslash", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/print.ergo",
+      "from": "if c >= 0x20 && c != '\"' && c != '\\\\' && c != 0x7f {",
+      "to": "if c >= 0x20 && c != '\"' && c != 0x7f {",
+      "rule": "The printers escape a backslash, so the text reads back as the value (law json.PrintParsesBack).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "jsonparse-escape-b-is-form-feed", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/parse.ergo",
+      "from": "b.WriteByte(0x08)",
+      "to": "b.WriteByte(0x0c)",
+      "rule": "The escape \\b is the byte 0x08 (law json.PrintParsesBack: the printer writes 0x08 as \\b).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "jsonparse-zero-takes-digits", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/number.ergo",
+      "from": "case (Whole, Nought), (Whole, Digit):",
+      "to": "case (Whole, Nought), (Whole, Digit), (Zero, Nought), (Zero, Digit):",
+      "rule": "No digit follows a leading 0 (law json.Numeral.ZeroEndsItsInteger).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "jsonparse-exponent-takes-no-sign", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/number.ergo",
+      "from": "case (Mark, Dash), (Mark, Plus):",
+      "to": "case (Sign, Dash), (Sign, Plus):",
+      "rule": "An exponent may have a sign before its digits (law json.Numeral.ExponentTakesASign).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "jsonparse-zero-takes-no-fraction", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/number.ergo",
+      "from": "case (Zero, Dot), (Whole, Dot):",
+      "to": "case (Whole, Dot):",
+      "rule": "0.5 is a number (law json.Numeral.FractionFollowsZero).",
+      "killers": ["examples:jsonparse"]
+    },
+    {
+      "name": "jsonparse-depth-limit-one-short", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/parse.ergo",
+      "from": "if p.depth > MaxDepth {",
+      "to": "if p.depth >= MaxDepth {",
+      "rule": "Arrays and objects nest 10000 deep, as in encoding/json, and the 10001st fails at its bracket.",
+      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+    },
+    {
+      "name": "jsonparse-return-is-no-space", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/parse.ergo",
+      "from": "if c != ' ' && c != '\\n' && c != '\\t' && c != '\\r' {",
+      "to": "if c != ' ' && c != '\\n' && c != '\\t' {",
+      "rule": "A carriage return is whitespace between tokens (RFC 8259, section 2).",
+      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+    },
+    {
+      "name": "jsonparse-invalid-utf8-kept", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/parse.ergo",
+      "from": "if d.Size == 1 {",
+      "to": "if d.Size == 0 {",
+      "rule": "A byte of a string that is not UTF-8 reads as U+FFFD, as in encoding/json, so every printed text is UTF-8.",
+      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+    },
+    {
+      "name": "jsonparse-newline-in-a-string", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/parse.ergo",
+      "from": "} else if c < 0x20 {",
+      "to": "} else if c < 0x0a {",
+      "rule": "A string holds no control byte unescaped: a raw newline in a string is not JSON.",
+      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+    },
+    {
+      "name": "jsonparse-unknown-escape-at-backslash", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/parse.ergo",
+      "from": "return fail(p, i+1, \"an unknown escape\")",
+      "to": "return fail(p, i, \"an unknown escape\")",
+      "rule": "A failure names the first byte that is not JSON: after a backslash, the byte that is no escape.",
+      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+    },
+    {
+      "name": "jsonparse-index-one-past-the-end", "origin": "wf10 PA1",
+      "file": "examples/jsonparse/json/pointer.ergo",
+      "from": "if i < 0 || i >= len(a.Items) {",
+      "to": "if i < 0 || i > len(a.Items) {",
+      "rule": "A pointer's index names an element only below the array's length.",
+      "killers": ["cmd/ergo:TestJSONParseAgreesWithControl"]
+    }
+  ]
+}
