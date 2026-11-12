@@ -60,14 +60,14 @@ func main() {
 		case "format":
 			limit := number(in)
 			g, gerr := format.SourceBounded(first, limit)
-			e, err := formatapi.Format(ctx, first, int64(limit))
+			e, err := formatapi.Format(ctx, first, limit)
 			answers = []string{outcome(g, gerr), ergo(e, err)}
 		case "laws":
 			e, err := formatapi.Laws(ctx, first)
 			answers = []string{ergo(e, err)}
 		case "steps":
 			limit := number(in)
-			e, err := formatapi.Steps(ctx, first, int64(limit))
+			e, err := formatapi.Steps(ctx, first, limit)
 			answers = []string{ergo(e, err)}
 		default:
 			fail(fmt.Errorf("unknown mode %q", mode))

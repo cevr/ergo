@@ -1,0 +1,208 @@
+// The printer: it walks a tree, decides the whitespace before each token
+// from the tree and the source, and hands its requests to the layout.
+
+import selfhost/tree
+import strings
+
+// Printer is the state of one print of a tree.
+type Printer {
+	T tree.Tree,
+	Src string,
+	EOF int,
+	// The comments in source order: where each starts and ends, its text.
+	CSlash []int,
+	CEnd []int,
+	CText []string,
+	// Ci is the next comment to print.
+	Ci int,
+	L Layout,
+	// LastEnd is the end of the last printed source item (token or
+	// comment), LastTok of the last printed source token.
+	LastEnd int,
+	LastTok int,
+	// Walked memoises walkBinary by node.
+	Walked Map[int, Walk],
+	// ListIndented reports that the innermost list being printed has
+	// already broken a line before the current item, so the item has a
+	// continuation level (go/printer's ws == ignore in parameters).
+	ListIndented bool,
+}
+
+// Walk is go/printer's walkBinary result for one binary expression.
+type Walk { Has4 bool, Has5 bool, MaxProblem int }
+
+func newPrinter(t tree.Tree) Printer {
+	let file = t.Root
+	let mut slash = []int{}
+	let mut end = []int{}
+	let mut text = []string{}
+	for g in kids(t, file, "Comments") {
+		for c in kids(t, g, "List") {
+			slash = slash.Append(pos(t, c, "Slash"))
+			end = end.Append(pos(t, c, "EndPos"))
+			text = text.Append(str(t, c, "Text"))
+		}
+	}
+	Printer{
+		T: t,
+		Src: str(t, file, "Src"),
+		EOF: pos(t, file, "EOF"),
+		CSlash: slash,
+		CEnd: end,
+		CText: text,
+		Ci: 0,
+		L: NewLayout(),
+		LastEnd: NoPos,
+		LastTok: NoPos,
+		Walked: Map[int, Walk]{},
+		ListIndented: false,
+	}
+}
+
+func ln(p *Printer, at int) int { line(p.T, at) }
+
+// breakBefore reports whether the source has a line break between the
+// last printed token and at.
+func breakBefore(p *Printer, at int) bool {
+	p.LastTok >= 0 && p.ln(at) > p.ln(p.LastTok)
+}
+
+// ---------------------------------------------------------------- whitespace requests
+
+func space(p *Printer) { p.L.step(Space) }
+
+func newline(p *Printer) { p.L.step(Newline) }
+
+// newlineNoBlank asks for a line break that is never a blank line (after
+// an opening brace, before a closing one).
+func newlineNoBlank(p *Printer) {
+	p.L.step(Newline)
+	p.L.step(NoBlank)
+}
+
+func indent(p *Printer, by int) { p.L.step(Indent{By: by}) }
+
+// gap is the whitespace before the token at at in a gap whose line break
+// the source decides: a line break if the source has one, else a blank
+// when blank.
+func gap(p *Printer, at int, blank bool) bool {
+	if p.breakBefore(at) {
+		p.newline()
+		return true
+	}
+	if blank {
+		p.space()
+	}
+	false
+}
+
+// ---------------------------------------------------------------- output
+
+// emit applies the pending whitespace before an item at at (NoPos for a
+// synthesized token): a requested line break is a blank line when the
+// source has one between the last item and this one.
+func emit(p *Printer, at int) {
+	let blank = at >= 0 && p.LastEnd >= 0 && p.ln(at)-p.ln(p.LastEnd) >= 2
+	p.L.step(Emit{Blank: blank})
+}
+
+func write(p *Printer, text string) { p.L.step(Write{Text: text}) }
+
+// token prints a source token at at after the comments before it.
+func token(p *Printer, at int, text string) { p.tokenEnd(at, text, at+len(text)) }
+
+func tokenEnd(p *Printer, at int, text string, end int) {
+	p.flushComments(at)
+	if p.L.PendingSpace && p.L.PendingNL == 0 && p.LastEnd > p.LastTok && p.LastTok >= 0 {
+		// After a block comment on the same line, go/printer writes no
+		// blank before `,`, nor before `)` or `]` unless the comment
+		// directly follows the opener: `f(a /* x */, b)`, `f( /* x */ )`.
+		// The middle and tail segments of an interpolated string start
+		// with the `)` that closes the interpolation, so they count as `)`.
+		let opener = p.Src[p.LastTok-1]
+		if text == "," || strings.HasPrefix(text, ")") && opener != '(' || text == "]" && opener != '[' {
+			p.L.PendingSpace = false
+		}
+	}
+	p.emit(at)
+	p.write(text)
+	p.LastEnd = end
+	p.LastTok = end
+}
+
+// tok prints a token at at, or a synthesized one when the tree has no
+// position for it.
+func tok(p *Printer, at int, text string) {
+	if at >= 0 {
+		p.token(at, text)
+		return
+	}
+	p.synth(text)
+}
+
+// synth prints a token whose position the tree does not record: a comma,
+// a `|`, the `]` of an array type, the `.` of a selector. When the next
+// source token after the last printed one is that token, it is printed at
+// its source position, so the comments before it stay before it and the
+// comments after it stay after it. Otherwise the token is not in the
+// source, such as a comma added before a closer on its own line.
+func synth(p *Printer, text string) {
+	let at = p.sourceToken(text)
+	if at >= 0 {
+		p.token(at, text)
+		return
+	}
+	p.emit(NoPos)
+	p.write(text)
+}
+
+// sourceToken is the offset of text as the next source token after the
+// last printed token, skipping blanks and comments, or NoPos.
+func sourceToken(p *Printer, text string) int {
+	if p.LastTok < 0 {
+		return NoPos
+	}
+	let src = p.Src
+	let mut i = p.LastTok
+	// The first comment that starts at or after i.
+	let mut lo = 0
+	let mut hi = len(p.CSlash)
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if p.CSlash[mid] >= i {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	let mut ci = lo
+	for i < len(src) {
+		let c = src[i]
+		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+			i += 1
+			continue
+		}
+		for ci < len(p.CSlash) && p.CSlash[ci] < i {
+			ci += 1
+		}
+		if ci < len(p.CSlash) && p.CSlash[ci] == i {
+			i = p.CEnd[ci]
+			continue
+		}
+		break
+	}
+	if !hasAt(src, i, text) {
+		return NoPos
+	}
+	let end = i + len(text)
+	if isWordByte(text[len(text)-1]) && end < len(src) && isWordByte(src[end]) {
+		return NoPos
+	}
+	i
+}
+
+// finish prints the comments after the last token and renders.
+func finish(p *Printer, limit int) Rendered fails OutputLimit {
+	p.flushComments(p.EOF + 1)
+	Finish(p.L, limit)
+}

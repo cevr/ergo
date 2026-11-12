@@ -78,6 +78,7 @@ func TestSelfhostFormatAgrees(t *testing.T) {
 	for k, p := range probes {
 		cases[k] = []string{inputs[p.in].Src, strconv.Itoa(p.limit)}
 	}
+	t.Logf("seed %d: %d inputs, %d formatted by Go, %d probes", seed, len(inputs), len(lawCases), len(probes))
 	exe := buildDriver(t, "formatapi")
 	answers := runMode(t, exe, "format", cases, 2)
 	replay := "replay: " + seedVariable + "=" + strconv.FormatUint(seed, 10) + " go test -count=1 -run '^TestSelfhostFormatAgrees$' ./internal/selfhostcheck"

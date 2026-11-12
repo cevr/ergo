@@ -1,0 +1,204 @@
+// Package format is Ergo's formatter rewritten in Ergo (the self-hosting
+// pilot, wf10 SH1): one canonical layout with no options, printed from the
+// Go parser's tree as package tree holds it. It translates the Go formatter
+// (internal/sketch/format) rule for rule, and a property holds the two to
+// the same bytes and the same failures; the Go formatter stays the default.
+//
+// The layout is gofmt's for every construct Go has: tabs indent, spaces
+// align (struct fields, trailing comments, the keys of multi-line
+// composite literals, context and machine entries), lines are never
+// wrapped, each gap between tokens keeps "line break or not" from the
+// source, runs of blank lines collapse to one, and an explicit `;` becomes
+// a line break. An own-line comment takes the indentation of the block or
+// clause body that contains it.
+//
+// Print is pure. Source parses through the Parser capability, which the
+// composition roots (formatapi, cmd/format) bind to the Go parser.
+
+import selfhost/tree
+import strings
+
+// InvalidTree is a tree the printer cannot read: a node family it does not
+// know, a field missing or of another kind, a node id outside the tree. The
+// Go parser never gives one; a newer parser or another encoder may.
+type InvalidTree { Node int, Reason string }
+
+// Source formats src: its tree from parse, laid out. The parser is a
+// parameter, and its row R is Source's: Source is pure over a pure parser
+// and charges go.Foreign over the Go one. (An operation type cannot
+// declare the parser: a provider's operations need nothing at call time,
+// README Gap 17; gaps.md.)
+func Source[R](src string, limit int, parse func(src string) tree.Tree fails tree.SyntaxFailure | InvalidTree needs R) string fails tree.SyntaxFailure | OutputLimit | InvalidTree needs R {
+	let t = try parse(src)
+	let r = try Print(t, limit)
+	r.Text
+}
+
+// Layouter is the contract of the layout state: commands in, text out.
+// Render returns the text of the commands' layout, or OutputLimit when a
+// positive limit is smaller than it, decided before the text is built.
+type Layouter {
+	Render(commands []Command, limit int) Rendered fails OutputLimit,
+
+	// A limit refuses exactly the texts longer than it, and a refusal
+	// builds nothing.
+	law Bounded(commands []Command, limit int) { BoundedLayout(commands, limit) },
+	// Two line break requests in a row are one.
+	law NewlinesCoalesce(commands []Command) { CoalescedLayout(commands) },
+	// A text never starts with a blank line and ends with one line break.
+	law Lines(commands []Command) { LinesLayout(commands) },
+}
+
+// Cells is this package's provider of Layouter: the layout of layout.ergo
+// and align.ergo.
+type Cells {}
+
+func Render(_ Cells, commands []Command, limit int) Rendered fails OutputLimit { Steps(commands, limit) }
+
+// Print prints a parsed tree in the canonical layout. A positive limit
+// bounds the output as in Finish.
+func Print(t tree.Tree, limit int) Rendered fails OutputLimit | InvalidTree {
+	try Validate(t)
+	let mut p = newPrinter(t)
+	p.printFile()
+	p.finish(limit)
+}
+
+// Steps drives a layout by commands and renders it: the layout state alone,
+// with no tree.
+func Steps(commands []Command, limit int) Rendered fails OutputLimit {
+	let mut l = NewLayout()
+	for c in commands {
+		l.step(c)
+	}
+	Finish(l, limit)
+}
+
+// ---------------------------------------------------------------- validation
+
+// schema is, for each node family the printer reads, the fields it reads
+// and their kinds: n a node or none, l a list of nodes, p a position, i a
+// number, s a string, b a flag.
+let schema = Map[string, string]{
+	"File": "Src s Decls l Comments l EOF p",
+	"CommentGroup": "List l",
+	"Comment": "Slash p Text s EndPos p",
+	"ImportDecl": "Doc n Import p Specs l",
+	"ImportSpec": "Kind i Name n NamePos p Path n",
+	"VarDecl": "Doc n Extern n Var p Mut p Specs l",
+	"VarSpec": "Names l Pattern n Type n Assign p Values l",
+	"TypeDecl": "Doc n Extern n Type p Name n TypeParams n Spec n WherePos p Where n",
+	"FuncDecl": "Doc n Extern n Func p Recv n Name n TypeParams n Type n Body n Derived n",
+	"ContextDecl": "Doc n Let p Context p Name n Provides n Needs n Body n",
+	"ContextBody": "Lbrace p Entries l Rbrace p",
+	"ContextEntry": "Doc n Kind i Replace p Key n Keys l Assign p Value n",
+	"Field": "Doc n Names l Type n Key n Any p Include b Dots p WherePos p Where n",
+	"FieldList": "Opening p List l Closing p",
+	"NeedsClause": "Needs p Names l",
+	"TakesClause": "Takes p Names l",
+	"ProvidesClause": "Provides p Names l",
+	"MachineEntry": "Doc n NamePos p Name s Colon p Value n",
+	"CatchArm": "Case p Types l Colon p Body l",
+	"CaseClause": "Case p List l Colon p Body l",
+	"Ident": "NamePos p Name s",
+	"BasicLit": "ValuePos p Kind i Value s ValueEnd p",
+	"CompositeLit": "Type n Lbrace p DotDot p Base n Elts l Rbrace p",
+	"KeyValueExpr": "Key n Colon p Value n",
+	"FuncLit": "Type n Body n",
+	"ParenExpr": "Lparen p X n Rparen p",
+	"SelectorExpr": "X n Sel n",
+	"IndexExpr": "X n Lbrack p Indices l Rbrack p",
+	"SliceExpr": "X n Lbrack p Low n High n Max n Slice3 b Rbrack p",
+	"TypeGuard": "X n",
+	"CallExpr": "Fun n Lparen p Args l Rparen p Trailing n TrailingFunc b",
+	"StarExpr": "Star p X n",
+	"UnaryExpr": "OpPos p Op i X n",
+	"BinaryExpr": "X n OpPos p Op i Y n",
+	"TryExpr": "Try p X n",
+	"CatchExpr": "X n Catch p Lbrace p Arms l Rbrace p",
+	"ContextLit": "Context p Provides n Needs n Body n",
+	"ArrayType": "Lbrack p Len s LenPos p Elt n",
+	"MapType": "Map p Lbrack p Key n Value n Rbrack p",
+	"FuncType": "Escaping p Func p Params n Results n Needs n Takes n",
+	"StructType": "Fields n",
+	"InterfaceType": "Lbrace p Methods l Laws l Union l Rbrace p",
+	"ErrorRow": "Error p Types l",
+	"MachineType": "Machine p Lbrack p State n Signal n Rbrack p Lbrace p Entries l Rbrace p Laws l",
+	"TupleExpr": "Lparen p Elts l Rparen p",
+	"DeclStmt": "Decl n",
+	"ExprStmt": "X n",
+	"AssignStmt": "Lhs l TokPos p Tok i Rhs l",
+	"ReturnStmt": "Return p Results l",
+	"BranchStmt": "TokPos p Tok i",
+	"BlockStmt": "Lbrace p List l Rbrace p",
+	"IfStmt": "If p Cond n Body n ElsePos p Else n",
+	"SwitchStmt": "Switch p Tag n Lbrace p Clauses l Rbrace p",
+	"TypeSwitchStmt": "Switch p Subjects l Lbrace p Clauses l Rbrace p",
+	"ForStmt": "For p Cond n Body n",
+	"RangeStmt": "For p Key n Value n Range p X n Body n",
+	"ExternSpec": "Extern p Go p Target n",
+	"TestDecl": "Doc n Test p Name n Params n Body n",
+	"LawDecl": "Doc n Law p Name n Params n Body n Reach n Derived n Pair n",
+	"LawReach": "Never p Word p Path b Lbrack p Targets l Rbrack p Invariant s Pred n",
+	"AssertStmt": "Assert p X n",
+	"VariantSpec": "Name n TypeArgs n Fields n",
+	"AsPattern": "X n As p Name n",
+	"InterpolatedString": "Texts l Exprs l",
+}
+
+// Validate checks that t is a tree the printer can read.
+func Validate(t tree.Tree) fails InvalidTree {
+	if t.Root < 0 || t.Root >= len(t.Nodes) || family(t, t.Root) != "File" {
+		return InvalidTree{Node: t.Root, Reason: "the root is not a File"}
+	}
+	for id, nd in t.Nodes {
+		let fields = match schema.Get(nd.Family) {
+		case Some[string] as s:
+			strings.Fields(s.Value)
+		case None:
+			return InvalidTree{Node: id, Reason: "unknown node family " + nd.Family}
+		}
+		let mut i = 0
+		for i+1 < len(fields) {
+			let name = fields[i]
+			let it = item(t, id, name)
+			if !kindIs(t, it, fields[i+1]) {
+				return InvalidTree{Node: id, Reason: nd.Family + "." + name + " is not of kind " + fields[i+1]}
+			}
+			i += 2
+		}
+	}
+}
+
+// kindIs reports whether it is of kind (schema's letters).
+func kindIs(t tree.Tree, it tree.Item, kind string) bool {
+	match it {
+	case tree.Number:
+		kind == "i"
+	case tree.Position:
+		kind == "p"
+	case tree.Bytes:
+		kind == "s"
+	case tree.Flag:
+		kind == "b"
+	case tree.Missing:
+		kind == "n"
+	case tree.Ref as r:
+		kind == "n" && r.Id >= 0 && r.Id < len(t.Nodes)
+	case tree.List as l:
+		if kind != "l" {
+			return false
+		}
+		for x in l.Items {
+			match x {
+			case tree.Ref as r:
+				if r.Id < 0 || r.Id >= len(t.Nodes) {
+					return false
+				}
+			case _:
+				return false
+			}
+		}
+		true
+	}
+}

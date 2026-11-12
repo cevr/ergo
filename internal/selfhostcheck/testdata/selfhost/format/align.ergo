@@ -1,0 +1,174 @@
+// Rendering: the cells of each column block are aligned and the lines
+// joined, after the output's size is known.
+
+import strings
+import utf8
+
+// Go's math.Log and math.Exp: std math has neither (gaps.md), and math is
+// on the pure allowlist, so the column sections compute go/printer's
+// geometric mean with the same float operations as the Go formatter.
+extern go math.Log func logOf(x float64) float64
+extern go math.Exp func expOf(x float64) float64
+
+// OutputLimit is the refusal of an output larger than the caller's bound.
+type OutputLimit { Limit int }
+
+// Rendered is the text of a layout and the bytes written to build it: a
+// refusal builds none.
+type Rendered { Text string, Built int }
+
+// Alignment sections follow go/printer's exprList heuristic on every
+// column: a cell whose width differs from the geometric mean of its
+// section's non-empty widths by a factor of alignRatio or more starts a new
+// section, unless both it and the previous non-empty cell are at most
+// alignSmall wide. An empty cell may share a section only while the
+// section's width is at most alignSmall, and a section that holds an empty
+// cell ends before a cell wider than alignSmall. In a section whose widest
+// cell is wider than alignSmall, every non-empty cell is wider than the
+// widest over alignRatio, so the output is linear in the input.
+let alignRatio = 2.5
+let alignSmall = 40
+
+// Widths are the padded width of each cell, by line and column; 0 is no
+// padding.
+type Widths { Of [][]int }
+
+// Finish ends a layout: it aligns the cells of each column block and joins
+// the lines. A column block is a run of adjacent lines with the same
+// indentation that all have a cell in that column followed by another
+// cell; blocks of a column nest inside the blocks of the column before it.
+// Cells are padded with spaces to the block's widest cell plus one; a
+// block of empty cells takes no width. A positive limit bounds the output
+// in bytes: the size is computed before any text is built, and a larger
+// output is OutputLimit with no text.
+func Finish(layout Layout, limit int) Rendered fails OutputLimit {
+	let mut l = layout
+	l.endLine()
+	let lines = l.Lines
+	let mut w = Widths{Of: [][]int{}}
+	for _ in 0..len(lines) {
+		w.Of = w.Of.Append([]int{})
+	}
+	w.align(lines, 0, len(lines), 0)
+	// Leading empty lines are dropped: no output starts with a blank line.
+	let mut first = 0
+	for first < len(lines) && lineLen(lines, w, first) == 0 {
+		first += 1
+	}
+	let mut size = 0
+	for i in first..len(lines) {
+		size += lineLen(lines, w, i) + 1
+		if limit > 0 && size > limit {
+			return OutputLimit{Limit: limit}
+		}
+	}
+	let mut out = []string{}
+	for i in first..len(lines) {
+		let row = lines[i]
+		if row.Indent > 0 {
+			out = out.Append(strings.Repeat("\t", row.Indent))
+		}
+		for j, c in row.Cells {
+			out = out.Append(c)
+			if j < len(row.Cells)-1 {
+				let width = w.Of[i][j]
+				if width > 0 {
+					out = out.Append(strings.Repeat(" ", width-utf8.RuneCount(c)))
+				}
+			}
+		}
+		out = out.Append("\n")
+	}
+	let text = strings.Join(out, "")
+	Rendered{Text: text, Built: len(text)}
+}
+
+// lineLen is the length in bytes of line i with its padding, without its
+// line break.
+func lineLen(lines []Line, w Widths, i int) int {
+	let row = lines[i]
+	let mut n = maxOf(row.Indent, 0)
+	for j, c in row.Cells {
+		n += len(c)
+		if j < len(row.Cells)-1 {
+			let width = w.Of[i][j]
+			if width > 0 {
+				n += width - utf8.RuneCount(c)
+			}
+		}
+	}
+	n
+}
+
+// align sets the widths of column for lines from to to, and of the
+// columns after it within each block.
+func align(w *Widths, lines []Line, from int, to int, column int) {
+	let mut i = from
+	for i < to {
+		if len(lines[i].Cells) <= column+1 {
+			i += 1
+			continue
+		}
+		let mut j = i + 1
+		let mut prev = utf8.RuneCount(lines[i].Cells[column])
+		let mut widest = prev
+		let mut narrowest = prev
+		let mut hasEmpty = prev == 0
+		let mut lnsum = 0.0
+		let mut count = 0
+		if prev > 0 {
+			lnsum = logOf(float64(prev))
+			count = 1
+		}
+		for j < to && len(lines[j].Cells) > column+1 && lines[j].Indent == lines[i].Indent {
+			let s = utf8.RuneCount(lines[j].Cells[column])
+			if s == 0 {
+				if widest > alignSmall {
+					break
+				}
+				hasEmpty = true
+				j += 1
+				continue
+			}
+			if hasEmpty && s > alignSmall {
+				break
+			}
+			if count > 0 && (s > alignSmall || prev > alignSmall) {
+				let ratio = float64(s) / expOf(lnsum/float64(count))
+				if ratio*alignRatio <= 1.0 || ratio >= alignRatio {
+					break
+				}
+			}
+			if count > 0 {
+				let hi = maxOf(widest, s)
+				let lo = minOf(narrowest, s)
+				if hi > alignSmall && float64(hi) >= alignRatio*float64(lo) {
+					break
+				}
+				narrowest = lo
+			} else {
+				narrowest = s
+			}
+			lnsum += logOf(float64(s))
+			count += 1
+			prev = s
+			widest = maxOf(widest, s)
+			j += 1
+		}
+		let mut width = 0
+		for k in i..j {
+			width = maxOf(width, utf8.RuneCount(lines[k].Cells[column]))
+		}
+		if width > 0 {
+			width += 1
+		}
+		for k in i..j {
+			for len(w.Of[k]) <= column {
+				w.Of[k] = w.Of[k].Append(0)
+			}
+			w.Of[k][column] = width
+		}
+		w.align(lines, i, j, column+1)
+		i = j
+	}
+}

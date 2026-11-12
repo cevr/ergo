@@ -1,0 +1,183 @@
+// The layout state: output lines of cells, and the whitespace the printer
+// has asked for before the next item. The printer decides what to ask
+// from the tree and the source; the layout only applies the requests. It
+// is a sequential transducer: step applies one Command, and Render
+// (align.ergo) finishes.
+
+import slices
+import strings
+
+// Line is one output line: its indentation in tabs and its cells. Every
+// cell but the last is padded to the width of its column block. Indent is
+// -1 for the continuation of a multi-line raw string or block comment,
+// which is never re-indented.
+type Line { Indent int, Cells []string }
+
+// Layout is the state of the output.
+type Layout {
+	Lines []Line,
+	// Cells are the finished cells of the current line, Parts the text of
+	// its open cell.
+	Cells []string,
+	Parts []string,
+	// Started reports that the current line has an item.
+	Started bool,
+	Indent int,
+	// PendingNL is the line breaks before the next item, PendingSpace a
+	// blank before it on the same line; NoBlank makes the next line break
+	// never a blank line.
+	PendingNL int,
+	PendingSpace bool,
+	NoBlank bool,
+}
+
+// Command is one request of the printer.
+type Command = Space{}
+	| Newline{}
+	| NoBlank{}
+	| Emit{Blank bool}
+	| Write{Text string}
+	| Put{Text string}
+	| Separator{}
+	| Indent{By int}
+	| SetIndent{To int}
+	| EndLine{}
+
+// NewLayout is the empty output.
+func NewLayout() Layout {
+	Layout{Lines: []Line{}, Cells: []string{}, Parts: []string{}, Started: false, Indent: 0, PendingNL: 0, PendingSpace: false, NoBlank: false}
+}
+
+// step applies c to l.
+func step(l *Layout, c Command) {
+	match c {
+	case Space:
+		l.PendingSpace = true
+	case Newline:
+		l.newline()
+	case NoBlank:
+		l.NoBlank = true
+	case Emit as e:
+		l.emit(e.Blank)
+	case Write as w:
+		l.write(w.Text)
+	case Put as p:
+		l.put(p.Text)
+	case Separator:
+		l.sep()
+	case Indent as i:
+		l.Indent += i.By
+	case SetIndent as s:
+		l.Indent = s.To
+	case EndLine:
+		l.endLine()
+	}
+}
+
+// newline asks for a line break before the next item; several requests
+// are one break.
+func newline(l *Layout) {
+	if l.PendingNL == 0 {
+		l.PendingNL = 1
+	}
+}
+
+// emit applies the pending whitespace before an item. blank reports that
+// the source has a blank line before it, which is kept unless NoBlank.
+func emit(l *Layout, blank bool) {
+	if l.PendingNL > 0 && (l.Started || len(l.Lines) > 0) {
+		l.endLine()
+		if blank && !l.NoBlank {
+			l.Lines = l.Lines.Append(Line{Indent: 0, Cells: []string{}})
+		}
+	}
+	l.PendingNL = 0
+	l.NoBlank = false
+	if !l.Started {
+		l.Started = true
+		l.PendingSpace = false
+		l.Lines = l.Lines.Append(Line{Indent: l.Indent, Cells: []string{}})
+		return
+	}
+	if l.PendingSpace {
+		l.put(" ")
+	}
+	l.PendingSpace = false
+}
+
+// put appends text to the open cell as it is.
+func put(l *Layout, text string) {
+	l.Parts = l.Parts.Append(text)
+}
+
+func cellText(l *Layout) string { strings.Join(l.Parts, "") }
+
+// endLine closes the current line: its open cell is its last cell, and
+// trailing empty cells are dropped.
+func endLine(l *Layout) {
+	if !l.Started {
+		return
+	}
+	let mut cells = l.Cells.Append(l.cellText())
+	l.Parts = []string{}
+	for len(cells) > 1 && cells[len(cells)-1] == "" {
+		cells = slices.Slice(cells, 0, len(cells)-1)
+	}
+	l.Lines[len(l.Lines)-1].Cells = cells
+	l.Cells = []string{}
+	l.Started = false
+}
+
+// sep ends the open cell: the next text aligns with the cells of the same
+// column on the neighbouring lines.
+func sep(l *Layout) {
+	l.Cells = l.Cells.Append(trimRightOf(l.cellText(), " "))
+	l.Parts = []string{}
+}
+
+// lastByte is the last byte written on the current line, or 0.
+func lastByte(l *Layout) byte {
+	let mut i = len(l.Parts) - 1
+	for i >= 0 {
+		let s = l.Parts[i]
+		if s != "" {
+			return s[len(s)-1]
+		}
+		i -= 1
+	}
+	let mut j = len(l.Cells) - 1
+	for j >= 0 {
+		let s = l.Cells[j]
+		if s != "" {
+			return s[len(s)-1]
+		}
+		j -= 1
+	}
+	0
+}
+
+// write appends text with a blank first when the last byte and text's
+// first would lex as one token; a text with line breaks (a raw string or
+// block comment) continues on lines that are never re-indented.
+func write(l *Layout, text string) {
+	if text == "" {
+		return
+	}
+	let last = l.lastByte()
+	if last != 0 && merges(last, text[0]) {
+		l.put(" ")
+	}
+	let mut rest = text
+	for {
+		let i = indexNewline(rest)
+		if i < 0 {
+			l.put(rest)
+			return
+		}
+		l.put(strings.Slice(rest, 0, i))
+		l.endLine()
+		l.Started = true
+		l.Lines = l.Lines.Append(Line{Indent: -1, Cells: []string{}})
+		rest = strings.Slice(rest, i+1, len(rest))
+	}
+}
