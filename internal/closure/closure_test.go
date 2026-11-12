@@ -112,6 +112,10 @@ var declared = map[string][]allowance{
 		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
 		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
 	),
+	"examples/lintpack/policy": exactly("the in-process fixture tests run the example pack over its fixtures under its configurations, as `ergo lint test` does; loading the manifest admits (stats) the program it names",
+		"examples/lintpack/policy.json", "examples/lintpack/provider.lint.json", "examples/lintpack/failure.lint.json", "examples/lintpack/bin/policy-lint",
+		"examples/lintpack/testdata/provider_boundary.ergo", "examples/lintpack/testdata/provider_boundary.lint.json",
+		"examples/lintpack/testdata/forbidden_failure.ergo", "examples/lintpack/testdata/forbidden_failure.lint.json"),
 	"internal/sketch/lint": {
 		{"examples", subtree, "TestLayoutPresetOnExamples lints every example module under the layout preset (DiscoverPackages walks each, the loader reads its sources)"},
 	},
