@@ -804,6 +804,42 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
+      "name": "oracle-o16-max-by-less",
+      "origin": "wf10 ORACLE O16",
+      "file": "internal/sketch/eval/nativesmore.go",
+      "from": "\t\t\tcase float64:\n\t\t\t\tbest = max(b, x.(float64))\n",
+      "to": "",
+      "rule": "std slices.Max is Go's slices.Max: Go's max over the list, NaN anywhere giving NaN and +0 beating -0 (std slices).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o16-stable-sort-reversed",
+      "origin": "wf10 ORACLE O16",
+      "file": "internal/sketch/eval/nativesmore.go",
+      "from": "\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"slices.largest\"]",
+      "to": "\t\t\treturn cmp.Compare(0, v.(int64))\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"slices.largest\"]",
+      "rule": "std slices.SortStableFunc sorts a copy by compare, as Go's slices.SortStableFunc (std slices).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o16-timer-text",
+      "origin": "wf10 ORACLE O16",
+      "file": "internal/sketch/eval/nativesmore.go",
+      "from": "the timer armed at \"+now.String()",
+      "to": "the timer set at \"+now.String()",
+      "rule": "A timer that is not positive is a defect whose text is the runtime's (runtime.md, Machines; std machines).",
+      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o16-take-gives-cleared",
+      "origin": "wf10 ORACLE O16",
+      "file": "internal/sketch/eval/nativesmore.go",
+      "from": "\t\tv := cell.fields[i]\n",
+      "to": "\t\tv := Value(clearedCell{})\n",
+      "rule": "arena's takeValue gives the stored value and clears its cell (std arena Free).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
       "name": "oracle-o15-bytes-as-text",
       "origin": "wf10 ORACLE O15",
       "file": "internal/sketch/eval/nativesembed.go",

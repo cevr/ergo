@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 	v1digest "ergo.local/prototype/runtime/v1/digest"
 	v1rand "ergo.local/prototype/runtime/v1/rand"
@@ -201,6 +203,18 @@ func nativeCases(g nativeGen) []nativeCase {
 	if g.r.IntN(4) == 0 {
 		text = text[:g.r.IntN(len(text)+1)]
 	}
+	// slices.largest takes a list with an element; a float list mixes
+	// both zeros, which Go's max orders.
+	nonEmpty := append([]int64{x}, ints...)
+	zeros := append([]float64{math.Copysign(0, -1)}, fl...)
+	if g.r.IntN(2) == 0 {
+		zeros = append(zeros, 0)
+	}
+	// SortStableFunc by the remainder mod 3, so equal keys keep their
+	// order only when the sort is stable.
+	byMod3 := &nativeFunc{name: "byMod3", call: func(in *interp, fr *frame, at syntax.Node, args []Value) (Value, *abrupt) {
+		return int64(cmp.Compare(mod3(args[0].(int64)), mod3(args[1].(int64)))), nil
+	}}
 	return []nativeCase{
 		{name: "time.format", args: []Value{sec, nsec, lay}, v1: func() any { return v1.TimeFormat(sec, nsec, lay) }},
 		{name: "time.parse", args: []Value{lay, text}, v1: func() any { return result(v1.TimeParse(lay, text)) }},
@@ -270,12 +284,21 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "slices.Index", args: []Value{li(ints), x}, v1: func() any { return int64(v1.SlicesIndex(ints, x)) }},
 		{name: "slices.Equal", args: []Value{li(ints), li(ints2)}, v1: func() any { return v1.SlicesEqual(ints, ints2) }},
 		{name: "slices.Slice", args: []Value{li(ints), si, sj}, anyDefect: true, v1: func() any { return v1.SlicesSlice(ints, int(si), int(sj)) }},
+		{name: "slices.largest", args: []Value{li(nonEmpty)}, v1: func() any { return v1.SlicesMax(nonEmpty) }},
+		{name: "slices.largest", args: []Value{lf(zeros)}, v1: func() any { return v1.SlicesMax(zeros) }},
+		{name: "slices.SortStableFunc", args: []Value{li(ints), byMod3}, v1: func() any {
+			return v1.SlicesSortStableFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })
+		}},
+		{name: "math.Trunc", args: []Value{f}, v1: func() any { return v1.MathTrunc(f) }},
+		{name: "machines.notPositive", args: []Value{d, m}, v1: func() any { v1.MachineTimerNotPositiveAt(durationOf(d), durationOf(m)); return nil }},
 		{name: "cmp.Compare", args: []Value{fa, fb}, v1: func() any { return int64(v1.CmpCompare(fa, fb)) }},
 		{name: "cmp.Compare", args: []Value{s, u}, v1: func() any { return int64(v1.CmpCompare(s, u)) }},
 	}
 }
 
 func durationOf(d int64) time.Duration { return time.Duration(d) }
+
+func mod3(n int64) int64 { return (n%3 + 3) % 3 }
 
 // takeOf is slices.Take's two results as one outcome.
 func takeOf(v int64, rest []int64) any {
