@@ -1,0 +1,21 @@
+// The smallest repro of a back-edge poll written after a loop body that
+// ends in a return or a break (wf10 IRG3b, the TXT merge): the poll could
+// never run, and go vet of the Go text called it unreachable code.
+
+func firstOf(xs []int) int needs Console {
+	for x in xs {
+		Console.Println("first")
+		return x
+	}
+	0
+}
+
+func lastBefore(xs []int, stop int) int needs Console {
+	let mut n = 0
+	for x in xs {
+		Console.Println("at")
+		n = x
+		break
+	}
+	n + stop
+}

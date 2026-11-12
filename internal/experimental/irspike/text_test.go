@@ -119,8 +119,11 @@ func TestIRTextChecks(t *testing.T) {
 	//     first variable (mutant ir-temp-name-reused);
 	//   - shadow (IRG3b): a source local kept its Ergo spelling, so a local
 	//     named strconv shadowed the package its int's text calls (mutant
-	//     ir-local-raw-spelling).
-	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}} {
+	//     ir-local-raw-spelling);
+	//   - pollend (IRG3b): a loop body ending in a return or a break was
+	//     followed by its back-edge poll, unreachable code to go vet
+	//     (mutant ir-loop-poll-after-terminating-body).
+	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}} {
 		if only != "" && only != r.name {
 			continue
 		}
