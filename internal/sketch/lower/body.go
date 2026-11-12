@@ -949,7 +949,7 @@ func (fc *funcCtx) loopBody(s syntax.Stmt, loop *loopCtx, body *syntax.BlockStmt
 	fc.out = &strings.Builder{}
 	// The iteration is a scope of its own (R6): what its body still owns
 	// is released before the back-edge poll.
-	fc.scoped(body, func() bool { return fc.block(body.List) })
+	terminates := fc.scoped(body, func() bool { return fc.block(body.List) })
 	text := fc.out.String()
 	fc.out = saved
 	if loop.next == "" {
@@ -962,7 +962,16 @@ func (fc *funcCtx) loopBody(s syntax.Stmt, loop *loopCtx, body *syntax.BlockStmt
 		fc.depth--
 		fc.line(loop.next + ":")
 	}
-	if fc.frame.polls {
+	// A body that ends in a return or a break with no continue to jump to
+	// the poll never reaches it: go vet calls a poll there unreachable.
+	if n := len(body.List); loop.next == "" && n > 0 {
+		if br, ok := body.List[n-1].(*syntax.BranchStmt); ok && br.Tok == syntax.BREAK {
+			terminates = true
+		}
+	} else {
+		terminates = false
+	}
+	if fc.frame.polls && !terminates {
 		fc.depth++
 		fc.at(s)
 		fc.poll(s)

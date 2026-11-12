@@ -1079,10 +1079,10 @@ index 0000000..3d9db4a
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..35e6dea
+index 0000000..0639e70
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,289 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1097,8 +1097,12 @@ index 0000000..35e6dea
 +)
 +
 +// ergoTerminates is the Go spec's terminating statement for the IR's
-+// statement forms: a return, a call of panic, or an if whose both
-+// branches terminate.
++// statement forms: a return, a call of panic, a goto, an if whose both
++// branches terminate, a block whose last statement terminates, a labeled
++// statement that terminates and that no break leaves, a for without a
++// condition that no break leaves, a switch with a default whose clauses
++// all terminate and that no break leaves (the builder's irTerminates,
++// ir_end.go, is the same list).
 +func ergoTerminates(s syntax.Stmt) bool {
 +	switch s := s.(type) {
 +	case *syntax.ReturnStmt:
@@ -1108,6 +1112,29 @@ index 0000000..35e6dea
 +		return last != nil && ergoTerminates(last)
 +	case *syntax.IfStmt:
 +		return s.Else != nil && ergoTerminates(s.Then) && ergoTerminates(s.Else)
++	case *syntax.BranchStmt:
++		return s.Tok == syntax.Goto
++	case *syntax.LabeledStmt:
++		// A block the IR labels (ergoir_label.go); a break naming it
++		// leaves it.
++		return ergoTerminates(s.Stmt) && !ergoBreaks(s.Stmt, s.Label.Value)
++	case *syntax.ForStmt:
++		return s.Cond == nil && s.Init == nil && s.Post == nil && !ergoBreaks(s.Body, "")
++	case *syntax.SwitchStmt:
++		def := false
++		for _, c := range s.Body {
++			def = def || c.Cases == nil
++			last := lastNonEmptyStmt(c.Body)
++			if last == nil || !ergoTerminates(last) {
++				return false
++			}
++			for _, b := range c.Body {
++				if ergoBreaks(b, "") {
++					return false
++				}
++			}
++		}
++		return def
 +	case *syntax.ExprStmt:
 +		call, ok := s.X.(*syntax.CallExpr)
 +		if !ok {
@@ -1117,6 +1144,27 @@ index 0000000..35e6dea
 +		return ok && name.Value == "panic"
 +	}
 +	return false
++}
++
++// ergoBreaks reports a break in s that leaves the statement s is in: one
++// naming label, or with label "" an unlabeled one outside any for or
++// switch nested in s.
++func ergoBreaks(s syntax.Stmt, label string) bool {
++	found := false
++	syntax.Inspect(s, func(n syntax.Node) bool {
++		switch n := n.(type) {
++		case *syntax.BranchStmt:
++			if n.Tok == syntax.Break && (label == "" && n.Label == nil || n.Label != nil && n.Label.Value == label) {
++				found = true
++			}
++		case *syntax.ForStmt, *syntax.SwitchStmt:
++			return label != ""
++		case syntax.Expr:
++			return false
++		}
++		return !found
++	})
++	return found
 +}
 +
 +func (c *ergoChecker) stmts(list []*ergoStmt) []syntax.Stmt {
@@ -1326,10 +1374,10 @@ index 0000000..35e6dea
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text.go b/src/cmd/compile/internal/noder/ergoir_text.go
 new file mode 100644
-index 0000000..c0de35c
+index 0000000..9c5f523
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text.go
-@@ -0,0 +1,455 @@
+@@ -0,0 +1,483 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1545,6 +1593,34 @@ index 0000000..c0de35c
 +		p.line(depth, t)
 +	case *syntax.ExprStmt, *syntax.AssignStmt:
 +		p.line(depth, p.simple(s.(syntax.SimpleStmt)))
++	case *syntax.LabeledStmt:
++		// IRG3b: a labeled loop or block, a goto's target; the statement
++		// follows on its own line, at its own position.
++		p.line(depth, s.Label.Value+":")
++		p.stmt(s.Stmt, depth)
++	case *syntax.DeclStmt:
++		// var x T: a local at its zero value (an if's or a match's
++		// result, a binding a match tree's leaves set).
++		for _, d := range s.DeclList {
++			vd, ok := d.(*syntax.VarDecl)
++			if !ok || len(vd.NameList) != 1 || vd.Values != nil {
++				p.line(depth, fmt.Sprintf("ergoirNoText() /* %T */", d))
++				continue
++			}
++			n := vd.NameList[0]
++			var t types2.Type
++			if o := p.info.Defs[n]; o != nil {
++				t = o.Type()
++			}
++			if t == nil {
++				t = n.GetTypeInfo().Type
++			}
++			if t == nil {
++				p.line(depth, "ergoirNoText() /* var without a type */")
++				continue
++			}
++			p.line(depth, "var "+n.Value+" "+p.typ(t))
++		}
 +	default:
 +		p.line(depth, fmt.Sprintf("ergoirNoText() /* %T */", s))
 +	}
@@ -1787,10 +1863,10 @@ index 0000000..c0de35c
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text_shape.go b/src/cmd/compile/internal/noder/ergoir_text_shape.go
 new file mode 100644
-index 0000000..1010bb7
+index 0000000..8a876d7
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text_shape.go
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,360 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1987,7 +2063,28 @@ index 0000000..1010bb7
 +			s.stmts(c.Body, depth+2)
 +		}
 +	case *syntax.BranchStmt:
++		if st.Label != nil {
++			s.out(depth, "branch %v %s", st.Tok, st.Label.Value)
++			break
++		}
 +		s.out(depth, "branch %v", st.Tok)
++	case *syntax.LabeledStmt:
++		// IRG3b: a labeled loop or block, a goto's target.
++		s.out(depth, "label %s", st.Label.Value)
++		s.stmt(st.Stmt, depth+1)
++	case *syntax.DeclStmt:
++		// var x T: a local declared at its zero value.
++		for _, d := range st.DeclList {
++			vd, ok := d.(*syntax.VarDecl)
++			if !ok || vd.Values != nil {
++				s.out(depth, "declaration %T", d)
++				continue
++			}
++			s.out(depth, "var")
++			for _, n := range vd.NameList {
++				s.lhs(n, depth+1)
++			}
++		}
 +	default:
 +		s.out(depth, "statement %T", st)
 +	}

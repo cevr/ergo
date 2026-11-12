@@ -414,52 +414,26 @@ func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) 
 	switches, label := b.switches, b.label
 	b.switches, b.label = 0, ""
 	defer func() { b.loops, b.switches, b.label = b.loops-1, switches, label }()
-	st.Body = append(b.tail(body.List, false), b.loopPoll(s, body)...)
+	st.Body = b.tail(body.List, false)
+	poll := b.loopPoll(s, body) // its gates hold either way
+	// The back-edge poll follows a body that reaches its end: after a
+	// break or a terminating statement it never runs, and go vet calls it
+	// unreachable (ir_end.go).
+	if n := len(st.Body); n == 0 || st.Body[n-1].K != "break" && !irTerminates(st.Body[n-1]) {
+		st.Body = append(st.Body, poll...)
+	}
 	st.Label = b.label
 }
 
-// bodyEnd is what follows a body with a result whose last statement may
-// complete (a loop, an if without else): the emitter's panic, which a
-// checked program never reaches (fc.body).
-func (b *irBuilder) bodyEnd(list []syntax.Stmt, end irPos) []*irStmt {
-	if b.result == nil || len(list) == 0 {
+// bodyEnd is what follows the IR body of a function with a result whose
+// last statement does not terminate by Go's rule (a loop that breaks, an
+// if without else; ir_end.go): the emitter's panic, which a checked
+// program never reaches (fc.body). After a terminating statement it
+// writes nothing: go vet calls a statement there unreachable.
+func (b *irBuilder) bodyEnd(body []*irStmt, end irPos) []*irStmt {
+	if b.result == nil || len(body) == 0 || irListTerminates(body) {
 		return nil
-	}
-	switch s := list[len(list)-1].(type) {
-	case *syntax.ExprStmt, *syntax.ReturnStmt:
-		return nil
-	case *syntax.IfStmt:
-		if s.Else != nil && !b.completes(s) {
-			return nil
-		}
 	}
 	msg := &irExpr{K: "const", Pos: end, T: "string", V: "ergo: unreachable: the function's end"}
 	return []*irStmt{{K: "panic", Pos: end, X: msg}}
-}
-
-// completes reports an if chain in result position with a branch whose
-// last statement may complete (a loop, a one-armed if).
-func (b *irBuilder) completes(s *syntax.IfStmt) bool {
-	lastCompletes := func(list []syntax.Stmt) bool {
-		if len(list) == 0 {
-			return true
-		}
-		switch l := list[len(list)-1].(type) {
-		case *syntax.ExprStmt, *syntax.ReturnStmt:
-			return false
-		case *syntax.IfStmt:
-			return l.Else == nil || b.completes(l)
-		}
-		return true
-	}
-	if lastCompletes(s.Body.List) {
-		return true
-	}
-	switch e := s.Else.(type) {
-	case *syntax.BlockStmt:
-		return lastCompletes(e.List)
-	case *syntax.IfStmt:
-		return e.Else == nil || b.completes(e)
-	}
-	return true
 }
