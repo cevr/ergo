@@ -1390,6 +1390,68 @@ The table has one row per std package, the prelude included. The Effect module i
 
 *Prior art:* ReScript makes pipe-first `->` a plain call and uncurries by default (W2, W3); Elixir's `|>` is a macro and `with` chains the happy path (W1, W2), and `@derive` generates protocol code (W7, W8); Gleam's `use` replaces callbacks with plain lines and its `Result` replaces exceptions (W1, W5), with no type classes (W16); Roc and MoonBit derive equality, hashing and codecs (W7, W8), and Roc gives each host effect as a platform capability (W4, W18); Elm has no derivation and writes decoders by hand, the shape W7 and W17 avoid; Koka's evidence passing makes a tail-resumptive handler a direct call, as Ergo's environment of capabilities does (W14).
 
+## Std is ordinary
+
+The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH_STAR.md#owner-rules); [decision](../decisions.md#owner-direction-2026-11-12)). Anything a std package can do, any module can do through the same written mechanism: a declaration in its source that the compiler reads. No checker rule, lowering, optimizer, cache or tool decides by a std name or by std membership, with two exceptions, both written here:
+
+1. **The seam.** The compiler may know that std exists to find it, ship it, cache it and name it. These files hold that knowledge, and they change no meaning:
+   - `internal/sketch/check/check.go`: loads the embedded prelude and std packages and marks them std.
+   - `internal/sketch/check/decl.go`: a std import path always names std, so no package shadows it.
+   - `internal/sketch/check/export.go` and `internal/sketch/check/export_gen.go`: the checked std snapshot.
+   - `internal/sketch/check/info.go`: the accessor of the std mark.
+   - `internal/sketchfront/load.go`: std paths resolve to the embedded std, and a module path does not take a std package's name.
+   - `internal/sketchfront/sketchfront.go`: the digest of std's sources is part of every build key.
+   - `internal/sketch/lower/lower.go`, `internal/sketch/lower/naming.go` and `internal/sketch/lower/sources.go`: a std package ships in the compiler, so the lowering names its declarations and positions from the embedded files, not from a unit.
+2. **The predeclared names.** The language gives a meaning to some names that the prelude declares, and to the operation names of its protocols. These functions read such a name:
+
+| Reader | Predeclared name |
+| --- | --- |
+| `internal/rpcgen/rpcgen.go:gen.importOf` | a prelude name, written unqualified |
+| `internal/rpcgen/rpcgen.go:pairOf` | `Wire`, the codec's conversion protocol |
+| `internal/sketch/check/authority.go:authorityText` | a prelude constructor, named unqualified |
+| `internal/sketch/check/authority.go:isAmbient` | `Ambient` |
+| `internal/sketch/check/call.go:checker.collFuncs` | `Append`, `Get`, `Delete`, `Put` |
+| `internal/sketch/check/call.go:checker.preludeOp` | a prelude operation, reached by the dot form |
+| `internal/sketch/check/call.go:isUnreachable` | `Unreachable` |
+| `internal/sketch/check/close.go:checker.closeFacts` | `Close`, the release operation |
+| `internal/sketch/check/close.go:closeTakes` | `Close` |
+| `internal/sketch/check/contextvalues.go:contextRow` | `Context` |
+| `internal/sketch/check/decl.go:checker.collectSelfFuncs` | the prelude's ownership declarations |
+| `internal/sketch/check/entry.go:checker.checkErrorMethods` | `Error`, the method of a failure |
+| `internal/sketch/check/extern.go:IsGoError` | `go.Error` |
+| `internal/sketch/check/footprint.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
+| `internal/sketch/check/hostres.go:checker.hostCloseFunc` | `Close` |
+| `internal/sketch/check/laws.go:lawClosures` | the prelude's providers in a law |
+| `internal/sketch/check/loops.go:checker.preludeOrigin` | `Range`, `Seq` |
+| `internal/sketch/check/match.go:reusableBinderName` | `Decision` |
+| `internal/sketch/check/ownership.go:checker.checkOwnership` | `Close` |
+| `internal/sketch/check/ownership.go:ownWalk.valuesSeq` | `Values`, the iteration operation |
+| `internal/sketch/check/releaseneeds.go:checker.releaseWider` | `Close` |
+| `internal/sketch/check/stmt.go:checker.isErrorValue` | `go.Error` |
+| `internal/sketch/check/takes.go:checker.takesPass` | `Close` |
+| `internal/sketch/derive/eval.go:evaluator.callee` | `Of`, the derive plan's constructor |
+| `internal/sketch/eval/arguments.go:interp.argumentType` | the prelude's types |
+| `internal/sketch/eval/expr.go:interp.collectionCall` | `Append`, `Get`, `Delete`, `Put` |
+| `internal/sketch/eval/expr.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
+| `internal/sketch/eval/machine.go:interp.machineStep` | `Enter`, `Stay`, `Emit`, `Done`, `Next` |
+| `internal/sketch/eval/stmt.go:interp.handover` | `Get` |
+| `internal/sketch/lower/builders.go:lowerer.builtText` | a prelude constructor, written unqualified |
+| `internal/sketch/lower/calls.go:funcCtx.callee` | a prelude function, written unqualified |
+| `internal/sketch/lower/decls.go:isPreludeType` | `Option`, `Some`, `None` |
+| `internal/sketch/lower/decls.go:lowerer.intrinsic` | `Append`, `Delete`, `Put`, `Take` |
+| `internal/sketch/lower/getmatch.go:getPattern` | `Some`'s `Value`, the comma-ok form of `Get` |
+| `internal/sketch/lower/getmatch.go:preludeGet` | `Get` |
+| `internal/sketch/lower/gocall.go:isOptionType` | `Option` |
+| `internal/sketch/lower/library.go:hostProvides` | `Console`, `Ambient` |
+| `internal/sketch/lower/literal.go:lowerer.ergoType` | a prelude type, written unqualified |
+| `internal/sketch/lower/module.go:lowerer.hostFields` | `Console`, `Ambient` |
+| `internal/sketch/lower/values.go:preludeAppend` | `Append` |
+| `internal/sketch/lower/values.go:preludeMapWrite` | `Delete`, `Put` |
+| `internal/tsproj/project.go:emitter.declare` | `Wire` |
+| `internal/tsproj/project.go:emitter.schema` | `Option` |
+
+Every other read of std membership or a std name is debt, listed with the change that removes it in `internal/residue/testdata/std-privileges.txt`; the list only shrinks. `TestCompilerReadsNoStdMembership` holds the source to these lists. The proof is the copy: a std package copied into a user module checks, lowers and counts the same (`TestStdCopyAgrees`, with the packages that still differ and why in `internal/sketch/std/testdata/std-copy.txt`).
+
 ## Packages by origin
 
 - **Same as Go:** `strings`, `strconv`, `utf8`, `slices`, `maps`, `cmp`, `math`, `bits`, `csv` (Go's `encoding/csv`), `hex`, `sha256`, `crc32`, `time`, `rand`, `os`, `fs`, `net`, `sql`.
