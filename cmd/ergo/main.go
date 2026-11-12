@@ -437,6 +437,9 @@ func checkCommand(args []string) error {
 		return err
 	}
 	if recursivePattern(opts.file) {
+		if shared, err := sharedCheckCommand(opts); shared {
+			return err
+		}
 		return recursiveCommand(opts, checkPackage)
 	}
 	return checkPackage(opts)
@@ -447,6 +450,12 @@ func checkPackage(opts fileOptions) error {
 	if err != nil {
 		return err
 	}
+	return checkLoaded(opts, l)
+}
+
+// checkLoaded prints the check envelope of a loaded package, evaluated
+// when it checks, and returns check's exit status.
+func checkLoaded(opts fileOptions, l loaded) error {
 	if err := l.result.Qualify(producer.Current()); err != nil {
 		return err
 	}

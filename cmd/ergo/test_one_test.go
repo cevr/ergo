@@ -211,6 +211,55 @@ func TestModuleTestMatchesEachPackage(t *testing.T) {
 	}
 }
 
+// TestModuleCheckMatchesEachPackage is the property of the shared check
+// (TEST-one round 2): on the generated programs of packages, `ergo check
+// DIR/...` loads the module once and prints, for each package, the
+// envelope and evaluation that `ergo check` of that package alone prints,
+// and exits as the recursive command's rule reads the packages' own exits.
+// The packages' own checks are the reference. It runs in process: check
+// builds no Go. A failing seed prints the program and the replay command.
+func TestModuleCheckMatchesEachPackage(t *testing.T) {
+	reached := map[string]bool{}
+	for _, seed := range []uint64{3, 11, 42, 7, 23, 58} {
+		m := writeOneModule(t, seed)
+		for branch := range m.reaches {
+			reached[branch] = true
+		}
+		fail := func(format string, args ...any) {
+			t.Helper()
+			t.Fatalf("seed %d: %s\n%sreplay: go test ./cmd/ergo -count=1 -run '^TestModuleCheckMatchesEachPackage$'", seed, fmt.Sprintf(format, args...), m.sources)
+		}
+		packages, err := sketchfront.DiscoverPackages(m.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want []byte
+		wantCode := 0
+		for _, pkg := range packages {
+			out, code := checkInProcess(t, pkg.Dir)
+			want = append(want, out...)
+			if code > 1 {
+				wantCode = code
+				break
+			}
+			wantCode = max(wantCode, code)
+		}
+		before := sketchfront.WorkDone()
+		got, code := checkInProcess(t, filepath.Join(m.root, "..."))
+		if loads := sketchfront.WorkDone().Loads - before.Loads; loads != 1 {
+			fail("ergo check ./... loaded the module %d times, want once", loads)
+		}
+		if !bytes.Equal(got, want) || code != wantCode {
+			fail("ergo check ./...: exit %d, want %d\n--- stdout\n%s\n--- each package\n%s", code, wantCode, got, want)
+		}
+	}
+	for _, branch := range []string{"escape in an imported package", "script defect in an imported package"} {
+		if !reached[branch] {
+			t.Errorf("no seed reaches a %s; choose seeds that do", branch)
+		}
+	}
+}
+
 // goLogger is a folder whose go appends a line to log and runs the go
 // command of PATH.
 func goLogger(t *testing.T, log string) string {

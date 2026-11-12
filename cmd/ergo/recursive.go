@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
@@ -81,6 +82,74 @@ func (module moduleTestOptions) select_(one *fileOptions, l loaded) (bool, error
 	return true, nil
 }
 
+// loadShared loads the packages below opts.file with one load of their
+// module (sketchfront.CheckPackages): each package as loadFolder loads it
+// alone, the same source, snapshot, analysis and result. ok is false when
+// they cannot share a load or a package does not check; the caller then
+// loads each package alone, which reports it as before.
+func loadShared(opts fileOptions, platform gobind.Platform) ([]sketchfront.PackageTarget, []loaded, bool) {
+	packages, err := sketchfront.DiscoverPackages(filepath.Dir(filepath.Clean(opts.file)))
+	if err != nil {
+		return nil, nil, false
+	}
+	sources := make([]receipt.Location, len(packages))
+	dirs := make([]string, len(packages))
+	for i, pkg := range packages {
+		if sources[i], err = receipt.LocateSource(pkg.Dir); err != nil {
+			return nil, nil, false
+		}
+		dirs[i] = sources[i].Admitted()
+	}
+	analyses, err := sketchfront.CheckPackages(dirs, platform)
+	if err != nil {
+		return nil, nil, false
+	}
+	loads := make([]loaded, len(analyses))
+	for i, a := range analyses {
+		uri, err := report.FileURI(dirs[i])
+		if err != nil {
+			return nil, nil, false
+		}
+		loads[i] = loaded{
+			source:   sources[i],
+			name:     filepath.Base(dirs[i]),
+			snapshot: report.SourceSnapshot{URI: uri, Origin: "disk", Files: a.Files()},
+			analysis: a,
+			result:   a.Result(a.Text(), opts.target),
+		}
+		if !loads[i].result.Checked {
+			return nil, nil, false
+		}
+	}
+	return packages, loads, true
+}
+
+// sharedCheckCommand runs `ergo check DIR/...` with one load of the module
+// (loadShared): each package's envelope and evaluation are what `ergo
+// check` of that package alone prints, in the order and with the exit
+// status rules of recursiveCommand. shared is false when the packages
+// cannot share a load; then each package is checked alone.
+func sharedCheckCommand(opts fileOptions) (shared bool, err error) {
+	packages, loads, ok := loadShared(opts, opts.platform)
+	if !ok {
+		return false, nil
+	}
+	failed := false
+	for i, l := range loads {
+		one := opts
+		one.file = packages[i].Dir
+		stop, fail := packageOutcome(packages[i].Path, checkLoaded(one, l))
+		if stop != nil {
+			return true, stop
+		}
+		failed = failed || fail
+	}
+	if failed {
+		return true, exitStatusError{code: 1, handled: true}
+	}
+	return true, nil
+}
+
 // sharedTestCommand runs `ergo test DIR/...` with one load of the module
 // and one test binary (TEST-one; sketchfront.CheckPackages, BuildTests):
 // the binary runs once per selected package, so each package prints what
@@ -93,24 +162,12 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 	if opts.work || opts.explore || opts.search.mode != "" {
 		return false, nil
 	}
-	packages, err := sketchfront.DiscoverPackages(filepath.Dir(filepath.Clean(opts.file)))
-	if err != nil {
-		return false, nil
-	}
 	platform, err := platformOf("", false, os.Getenv("GOOS"), os.Getenv("GOARCH"))
 	if err != nil {
 		return false, nil
 	}
-	sources := make([]receipt.Location, len(packages))
-	dirs := make([]string, len(packages))
-	for i, pkg := range packages {
-		if sources[i], err = receipt.LocateSource(pkg.Dir); err != nil {
-			return false, nil
-		}
-		dirs[i] = sources[i].Admitted()
-	}
-	analyses, err := sketchfront.CheckPackages(dirs, platform)
-	if err != nil {
+	packages, loads, ok := loadShared(opts, platform)
+	if !ok {
 		return false, nil
 	}
 	type selected struct {
@@ -120,21 +177,8 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 	}
 	runs := make([]selected, len(packages))
 	var built []sketchfront.Analysis
-	for i, a := range analyses {
-		uri, err := report.FileURI(dirs[i])
-		if err != nil {
-			return false, nil
-		}
-		l := loaded{
-			source:   sources[i],
-			name:     filepath.Base(dirs[i]),
-			snapshot: report.SourceSnapshot{URI: uri, Origin: "disk", Files: a.Files()},
-			analysis: a,
-			result:   a.Result(a.Text(), opts.target),
-		}
-		if !l.result.Checked {
-			return false, nil
-		}
+	for i, l := range loads {
+		a := l.analysis
 		one := opts
 		one.file = packages[i].Dir
 		run, err := module.select_(&one, l)
@@ -178,11 +222,11 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 			continue
 		}
 		err := runTestBinary(r.one, r.l, binary, []string{lower.TestPackageFlag, strconv.Itoa(r.index)})
-		if stop, fail := packageOutcome(packages[i].Path, err); stop != nil {
+		stop, fail := packageOutcome(packages[i].Path, err)
+		if stop != nil {
 			return true, stop
-		} else if fail {
-			failed = true
 		}
+		failed = failed || fail
 	}
 	if failed {
 		return true, exitStatusError{code: 1, handled: true}
@@ -209,7 +253,9 @@ func recursiveCommand(opts fileOptions, run func(fileOptions) error) error {
 		if stop != nil {
 			return stop
 		}
-		failed = failed || fail
+		if fail {
+			failed = true
+		}
 	}
 	if failed {
 		return exitStatusError{code: 1, handled: true}
