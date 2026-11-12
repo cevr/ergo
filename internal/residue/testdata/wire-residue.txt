@@ -126,6 +126,8 @@ CHANGELOG.md	a wire type parameter is not bound to a type whose codec needs
 internal/sketch/check/wirecall.go	*
 internal/sketch/check/export_gen.go	e.encPtrFunc(v.Wire)
 internal/sketch/check/export_gen.go	v.Wire = d.decPtrFunc()
+internal/sketch/lower/reraise_test.go	func only[T wire](r Reader) T fails wired[T] {
+internal/sketch/lower/reraise_test.go	func mixed[T wire](r Reader, n int) T fails bad | wired[T] {
 internal/sketch/lower/calls.go	// A codec call writes its own statements (wire.go).
 internal/sketch/lower/flat_union_property_test.go	*
 internal/sketch/lower/flatunion.go	wire's
