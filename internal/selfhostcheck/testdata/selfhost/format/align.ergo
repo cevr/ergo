@@ -57,13 +57,30 @@ func Finish(layout Layout, limit int) Rendered fails OutputLimit {
 	for first < len(lines) && lineLen(lines, w, first) == 0 {
 		first += 1
 	}
+	if limit > 0 && sizeOver(lines, w, first, limit) {
+		return OutputLimit{Limit: limit, Built: 0}
+	}
+	let text = build(lines, w, first)
+	Rendered{Text: text, Built: len(text)}
+}
+
+// sizeOver reports whether the text of lines from first is longer than
+// limit, from the cells and their padding alone; it stops at the first
+// line past the limit.
+func sizeOver(lines []Line, w Widths, first int, limit int) bool {
 	let mut size = 0
 	for i in first..len(lines) {
 		size += lineLen(lines, w, i) + 1
-		if limit > 0 && size > limit {
-			return OutputLimit{Limit: limit, Built: 0}
+		if size > limit {
+			return true
 		}
 	}
+	false
+}
+
+// build is the text of lines from first: the indentation, and each cell
+// but the last padded to its width.
+func build(lines []Line, w Widths, first int) string {
 	let mut out = []string{}
 	for i in first..len(lines) {
 		let row = lines[i]
@@ -81,8 +98,7 @@ func Finish(layout Layout, limit int) Rendered fails OutputLimit {
 		}
 		out = out.Append("\n")
 	}
-	let text = strings.Join(out, "")
-	Rendered{Text: text, Built: len(text)}
+	strings.Join(out, "")
 }
 
 // lineLen is the length in bytes of line i with its padding, without its
