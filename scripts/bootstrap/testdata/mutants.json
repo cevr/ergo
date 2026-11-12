@@ -1,0 +1,113 @@
+{
+  "about": "Capstone S0: the bootstrap driver. A build is a function of the source and the Go release; a seed is rebuilt from its source and never trusted; a landed stage's capstone rows hold.",
+  "mutants": [
+    {
+      "name": "s0-no-trimpath",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/build.go",
+      "from": "\"build\", \"-trimpath\", \"-buildvcs=false\",",
+      "to": "\"build\", \"-buildvcs=false\",",
+      "rule": "The checkout's path does not reach the binary.",
+      "killers": ["scripts/bootstrap:TestBuildIsAFunctionOfSourceAndGo"]
+    },
+    {
+      "name": "s0-vcs-stamped",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/build.go",
+      "from": "\"build\", \"-trimpath\", \"-buildvcs=false\",",
+      "to": "\"build\", \"-trimpath\",",
+      "rule": "The checkout's git state does not reach the binary.",
+      "killers": ["scripts/bootstrap:TestBuildIsAFunctionOfSourceAndGo"]
+    },
+    {
+      "name": "s0-environment-leaks",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/build.go",
+      "from": "\t\t\tif k == p {",
+      "to": "\t\t\tif k == p || true {",
+      "rule": "Only the variables that locate programs and caches pass to go build.",
+      "killers": ["scripts/bootstrap:TestBuildIsAFunctionOfSourceAndGo"]
+    },
+    {
+      "name": "s0-go-env-file-read",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/build.go",
+      "from": "\"GOENV=off\", \"GOWORK=off\"",
+      "to": "\"GOWORK=off\"",
+      "rule": "The user's go env file does not reach the binary.",
+      "killers": ["scripts/bootstrap:TestBuildIsAFunctionOfSourceAndGo"]
+    },
+    {
+      "name": "s0-cgo-by-host",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/build.go",
+      "from": "\"GOFLAGS=\", \"CGO_ENABLED=0\",",
+      "to": "\"GOFLAGS=\",",
+      "rule": "Whether the host has a C compiler does not reach the binary.",
+      "killers": ["scripts/bootstrap:TestBuildIsAFunctionOfSourceAndGo"]
+    },
+    {
+      "name": "s0-cached-seed-trusted",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/seed.go",
+      "from": "if sum, err := fileSum(path); err == nil && sum == want {",
+      "to": "if _, err := fileSum(path); err == nil {",
+      "rule": "A cached seed is used only with the lock's digest.",
+      "killers": ["scripts/bootstrap:TestSeedIsReproducedNotTrusted"]
+    },
+    {
+      "name": "s0-rebuilt-seed-unchecked",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/seed.go",
+      "from": "\tif sum != want {",
+      "to": "\tif false {",
+      "rule": "A seed rebuilt from its source is refused unless its digest is the lock's.",
+      "killers": ["scripts/bootstrap:TestSeedIsReproducedNotTrusted"]
+    },
+    {
+      "name": "s0-verify-unchecked",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/seed.go",
+      "from": "\t\tif sums[p] != l.Sums[p] {",
+      "to": "\t\tif false {",
+      "rule": "verify-seed fails when the source does not build the lock's digest.",
+      "killers": ["scripts/bootstrap:TestSeedIsReproducedNotTrusted"]
+    },
+    {
+      "name": "s0-go-release-unchecked",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/seed.go",
+      "from": "} else if v != l.Go {",
+      "to": "} else if false {",
+      "rule": "A seed built by another Go release than the lock names is refused.",
+      "killers": ["scripts/bootstrap:TestSeedIsReproducedNotTrusted"]
+    },
+    {
+      "name": "s0-tag-unchecked",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/seed.go",
+      "from": "if err == nil && tag != l.Source {",
+      "to": "if err == nil && tag != l.Source && false {",
+      "rule": "A tag of the seed's name that names another commit is refused.",
+      "killers": ["scripts/bootstrap:TestSeedIsReproducedNotTrusted"]
+    },
+    {
+      "name": "s0-compiler-packages-ignored",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/stages.go",
+      "from": "if _, err := os.Stat(filepath.Join(d.repo, \"compiler\")); err == nil {",
+      "to": "if false {",
+      "rule": "A tree with Ergo compiler packages is refused until the mixed-binary step exists, never built without them.",
+      "killers": ["scripts/bootstrap:TestStagesRefuseErgoCompilerPackages"]
+    },
+    {
+      "name": "s0-lock-row-reads-elsewhere",
+      "origin": "wf10 capstone S0",
+      "file": "scripts/bootstrap/capstone.go",
+      "from": "_, lockErr := readLock(filepath.Join(root, lockFile))",
+      "to": "_, lockErr := readLock(filepath.Join(root, lockFile+\".old\"))",
+      "rule": "The capstone row of the seed lock reads toolchain/seed.lock, and S0 has landed.",
+      "killers": ["scripts/bootstrap:TestCapstoneRowsOfLandedStages"]
+    }
+  ]
+}
