@@ -213,21 +213,28 @@ func TestDefectReportWrapperNotARepeat(t *testing.T) {
 // TestDefectKeptWhenTypedFailureDropped: a task whose body fails and whose
 // exit action panics exits with both; Stop and the owner's drain drop the
 // abandoned typed failure and keep the defect, marked as an exit action's,
-// with the task's chain.
+// with the task's chain. The child says it is ready through a queue, a
+// wait the runtime parks: under the ergoexplore tag runMain runs the body
+// under the controlled scheduler, which a raw channel receive blocks for
+// ever (the waiting task never yields, so the child never runs).
 func TestDefectKeptWhenTypedFailureDropped(t *testing.T) {
 	for _, o := range []observe{byStop, byDrain} {
 		t.Run(o.String(), func(t *testing.T) {
-			ready := make(chan struct{})
+			ready := New[struct{}](1)
 			err := runMain(func(root *rt.Task) error {
 				return frame(root, func(s *Scope) error {
 					c := ownedGo(s, "child", func(ct *rt.Task) (int, error) {
 						return frameValue(ct, func(cs *Scope) (int, error) {
 							OnExit(cs, func() { boom() })
-							close(ready)
+							if err := ready.Push(ct, struct{}{}); err != nil {
+								return 0, err
+							}
 							return 0, bad{"abandoned"}
 						})
 					})
-					<-ready
+					if _, err := ready.Pop(root); err != nil {
+						return err
+					}
 					if o == byStop {
 						c.Stop()
 					}
