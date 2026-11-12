@@ -819,14 +819,16 @@ func (s *stdImporter) decoded(path string) {
 
 // Work counts the std work an importer did (CHK1, CHK1b): the std package
 // files it parsed and the std packages it checked from source, and the std
-// packages it decoded from an installed snapshot. The prelude is not
-// counted. A check's work must grow with the std packages it imports, not
-// with the std (the counted check budget, TestCheckWorkGrowsWithImports);
-// it counts work, never time.
+// packages it decoded from an installed snapshot, and the bytes it read
+// from that snapshot (CHK1c). The prelude is not counted. A check's work
+// must grow with the std packages it imports, not with the std (the
+// counted check budget, TestCheckWorkGrowsWithImports and
+// TestStdDecodeGrowsWithImports); it counts work, never time.
 type Work struct {
-	StdFilesParsed     int64
-	StdPackagesChecked int64
-	StdPackagesDecoded int64
+	StdFilesParsed       int64
+	StdPackagesChecked   int64
+	StdPackagesDecoded   int64
+	StdSnapshotBytesRead int64
 }
 
 // WorkDone returns the Work of the Std importer in this process so far.
@@ -835,7 +837,11 @@ func WorkDone() Work { return Std.(*stdImporter).done() }
 func (s *stdImporter) done() Work {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.work
+	w := s.work
+	if s.snap != nil {
+		w.StdSnapshotBytesRead = s.snap.read.Load()
+	}
+	return w
 }
 
 // count adds files parsed and packages checked to s's Work.

@@ -22,6 +22,13 @@ const stdFreeProgram = `func main() needs Console {
 // closure (read from the import declarations of the sources). It counts
 // work, never time. It kills install-decodes-eagerly: a reader that decodes
 // all of std at install passes every other test.
+//
+// It also counts the bytes read from the snapshot (CHK1c): the install
+// reads no more than the header and the base, and a check then reads the
+// segments of its std closure and no other byte. It kills
+// snapshot-read-whole: a reader that reads the whole file at install
+// decodes the same model and passes every other test, but holds the whole
+// std in memory for a program that imports none of it.
 func TestStdDecodeGrowsWithImports(t *testing.T) {
 	ResetStdForTest()
 	defer ResetStdForTest()
@@ -29,12 +36,26 @@ func TestStdDecodeGrowsWithImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	snap, _, err := openSnapshot(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixed int64
 	install := func() {
 		t.Helper()
 		ResetStdForTest()
-		if err := InstallStd(data); err != nil {
-			t.Fatal(err)
+		installBytes(t, data)
+		fixed = WorkDone().StdSnapshotBytesRead
+		if before := int64(snap.segs[1].off); fixed > before {
+			t.Fatalf("the install read %d bytes; want at most the %d before the first package segment", fixed, before)
 		}
+	}
+	want := func(closure []string) Work {
+		w := Work{StdPackagesDecoded: int64(len(closure)), StdSnapshotBytesRead: fixed}
+		for _, p := range closure {
+			w.StdSnapshotBytesRead += int64(snap.segs[snap.byPath[p]].size)
+		}
+		return w
 	}
 	for _, c := range []struct {
 		name, src string
@@ -44,7 +65,7 @@ func TestStdDecodeGrowsWithImports(t *testing.T) {
 		if _, ds := CheckSource(c.src); len(ds) != 0 {
 			t.Fatalf("%s: %v", c.name, ds)
 		}
-		if got, want := WorkDone(), (Work{StdPackagesDecoded: int64(len(c.closure))}); got != want {
+		if got, want := WorkDone(), want(c.closure); got != want {
 			t.Errorf("a check of the %s program did %+v; want %+v, the std closure %v alone", c.name, got, want, c.closure)
 		}
 	}
@@ -54,9 +75,17 @@ func TestStdDecodeGrowsWithImports(t *testing.T) {
 			t.Fatal(err)
 		}
 		closure := stdClosure(t, path)
-		if got, want := WorkDone(), (Work{StdPackagesDecoded: int64(len(closure))}); got != want {
+		if got, want := WorkDone(), want(closure); got != want {
 			t.Errorf("importing %s did %+v; want %+v, its std closure %v alone", path, got, want, closure)
 		}
+	}
+}
+
+// installBytes installs a snapshot held in memory.
+func installBytes(t *testing.T, data []byte) {
+	t.Helper()
+	if err := InstallStd(bytes.NewReader(data), int64(len(data))); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -77,7 +106,7 @@ func TestStdSnapshotInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	ResetStdForTest()
-	snap, _, err := openSnapshot(data)
+	snap, _, err := openSnapshot(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,16 +116,14 @@ func TestStdSnapshotInstall(t *testing.T) {
 	at := len(snapshotMagic) + sha256.Size
 	at += bytes.Index(header[at:], []byte(snap.segs[1].path))
 	header[at] ^= 1
-	if err := InstallStd(header); err == nil {
+	if err := InstallStd(bytes.NewReader(header), int64(len(header))); err == nil {
 		t.Fatal("snapshot with a corrupt header installed")
 	}
 	// A flipped byte at the end of the last segment: that package comes
 	// from source, as if the snapshot did not hold it.
 	corrupt := append([]byte(nil), data...)
 	corrupt[len(corrupt)-1] ^= 1
-	if err := InstallStd(corrupt); err != nil {
-		t.Fatal(err)
-	}
+	installBytes(t, corrupt)
 	last := snap.segs[len(snap.segs)-1].path
 	if p, err := Std.Import(last); err != nil || p == nil || p.Path != last {
 		t.Fatalf("%s from a corrupt segment: %v, %v", last, p, err)
@@ -105,9 +132,7 @@ func TestStdSnapshotInstall(t *testing.T) {
 		t.Fatalf("a corrupt segment of %s did %+v; want it checked from source, its imports decoded", last, got)
 	}
 	ResetStdForTest()
-	if err := InstallStd(data); err != nil {
-		t.Fatal(err)
-	}
+	installBytes(t, data)
 	for _, path := range std.Packages() {
 		p, err := Std.Import(path)
 		if err != nil || p == nil || p.Path != path {
@@ -117,11 +142,12 @@ func TestStdSnapshotInstall(t *testing.T) {
 	if _, ds := CheckSource(budgetProgram); len(ds) != 0 {
 		t.Fatal(ds)
 	}
-	if got, want := WorkDone(), (Work{StdPackagesDecoded: int64(len(std.Packages()))}); got != want {
+	got := WorkDone()
+	if want := (Work{StdPackagesDecoded: int64(len(std.Packages())), StdSnapshotBytesRead: got.StdSnapshotBytesRead}); got != want {
 		t.Fatalf("warm snapshot did %+v; want %+v, no source work", got, want)
 	}
 	u, p := universe(), prelude().scope
-	if err := InstallStd(data); err != ErrInstalled {
+	if err := InstallStd(bytes.NewReader(data), int64(len(data))); err != ErrInstalled {
 		t.Fatalf("late install: %v; want ErrInstalled", err)
 	}
 	if universe() != u || prelude().scope != p {
@@ -152,7 +178,7 @@ func apply[E](f func() fails E) { try f() }
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, decoded, err := openSnapshot(data)
+	_, decoded, err := openSnapshot(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatal(err)
 	}
