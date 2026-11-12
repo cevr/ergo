@@ -197,6 +197,12 @@ func sweepStep(selection string) *Step {
 // buildCLIStep builds the ergo CLI into bin/ergo, once per gate run.
 const buildCLIStep = "build bin/ergo"
 
+// buildCLI is the step buildCLIStep. A whole-gate replay runs it too
+// (rebuildOutputs), so bin/ergo matches the tree after a replay.
+func buildCLI(root string) *Step {
+	return &Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: gateOutputs, Class: classFast}
+}
+
 // cliTestPackages are the test packages whose tests run the ergo CLI. A
 // test process built cmd/ergo for itself, so a package in n shards built it
 // n times per run, each build racing the others after an edit of the
@@ -383,7 +389,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// executing bytes.
 	// It writes bin/ (Step.Writes): no closure sweep runs beside it, and
 	// no key holds what it writes there (gateOutputs).
-	add(&Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo"), Writes: gateOutputs, Class: classFast})
+	add(buildCLI(root))
 	examplesRun, err := examplesStep(root)
 	if err != nil {
 		return nil, err

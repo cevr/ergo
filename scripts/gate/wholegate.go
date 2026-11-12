@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -326,6 +328,49 @@ func gateOutput(p string, class replay.Class) bool {
 		}
 	}
 	return false
+}
+
+// rebuildOutputs runs, after a whole-gate replay, every step of steps that
+// writes the gate's outputs (Step.Writes), in root, and reports whether
+// each passed. No key holds bin/ (gateOutputs), so a replay of a record
+// may meet a bin/ergo from another tree; the build makes it this tree's
+// again. It is "build bin/ergo", a go build the build cache serves, which
+// renames its output only when the bytes differ (stagedBuild). A failed
+// build fails the gate: the record replays, the checkout's binary is not
+// the tree's.
+func rebuildOutputs(root string, steps []*Step, out io.Writer) bool {
+	ok := true
+	for _, step := range steps {
+		if len(step.Writes) == 0 {
+			continue
+		}
+		cmd := exec.Command(step.Argv[0], step.Argv[1:]...)
+		cmd.Dir = root
+		cmd.Env = stepEnvironment()
+		for _, entry := range step.Env {
+			name, value, _ := strings.Cut(entry, "=")
+			cmd.Env = setEnvironmentVariable(cmd.Env, name, value)
+		}
+		ownProcessGroup(cmd)
+		var output bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &output, &output
+		start := time.Now()
+		tracked, err := gateStop.track()
+		if err == nil {
+			if err = cmd.Start(); err == nil {
+				tracked.arm(func() { killProcessGroup(cmd.Process.Pid) })
+				err = cmd.Wait()
+			}
+			tracked.done()
+		}
+		if err != nil {
+			fmt.Fprintf(out, "gate: %s after the replay: FAILED: %v\n%s", step.Name, err, output.Bytes())
+			ok = false
+			continue
+		}
+		fmt.Fprintf(out, "gate: %s after the replay: ok (%.1fs)\n", step.Name, time.Since(start).Seconds())
+	}
+	return ok
 }
 
 // executableDigest is the SHA-256 of the running gate executable.

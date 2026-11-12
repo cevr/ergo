@@ -90,6 +90,24 @@
       "to": "\t_ = gateOutput\n",
       "rule": "No key holds the gate's own outputs (bin/): a gate started on a stale bin/ergo, which its build rewrites, still records.",
       "killers": ["scripts/gate:TestWholeGateRecordsOverAStaleBuild"]
+    },
+    {
+      "name": "gate-replay-stale-binary",
+      "origin": "wf10 FU-b18 r2 (orchestrator: a replay leaves a stale bin/ergo)",
+      "file": "scripts/gate/wholegate.go",
+      "from": "\t\tif len(step.Writes) == 0 {\n\t\t\tcontinue\n\t\t}\n\t\tcmd := exec.Command(",
+      "to": "\t\tif true || len(step.Writes) == 0 {\n\t\t\tcontinue\n\t\t}\n\t\tcmd := exec.Command(",
+      "rule": "After a whole-gate replay the gate builds its outputs again, so bin/ergo matches the tree.",
+      "killers": ["scripts/gate:TestWholeGateRecordsOverAStaleBuild"]
+    },
+    {
+      "name": "gate-prescope-replay-stale-binary",
+      "origin": "wf10 FU-b18 r2 (orchestrator: a replay leaves a stale bin/ergo)",
+      "file": "scripts/gate/main.go",
+      "from": "if !rebuildOutputs(root, []*Step{replayBuild(root)}, out) {",
+      "to": "if !rebuildOutputs(root, []*Step{replayBuild(root)}[:0], out) {",
+      "rule": "The replay before the scope builds bin/ergo again, so the binary matches the tree.",
+      "killers": ["scripts/gate:TestWholeGateRecordNamesItsTier"]
     }
   ]
 }
