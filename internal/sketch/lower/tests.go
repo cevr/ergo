@@ -715,6 +715,9 @@ func (l *lowerer) testRunner() string {
 	var b strings.Builder
 	b.WriteString("// " + l.helper("Tests") + " runs every test in source order (196l).\n")
 	b.WriteString(l.testRunnerHead(env, seed))
+	// An explored worker runs the tests once per schedule in one process,
+	// so each run starts its receipt empty: it holds each law run once.
+	b.WriteString("\t" + l.helper("Receipt") + ".laws = nil\n")
 	tests := l.runTests()
 	// --run NAME (X8) selects one test or law by name ($Want); a name that
 	// no test or law of the build has is a usage error that runs nothing.
