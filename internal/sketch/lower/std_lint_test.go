@@ -46,18 +46,67 @@ test LintFrameIsExact(payload string, extra string) {
 	assert refused == 2
 }
 
-test LintNamesReadBack(t lint.OptionType, s lint.Severity) {
-	let parsedType = lint.ParseOptionType(t.Wire()) catch {
+test LintFamilyRoundTrips(x lint.Family) {
+	let back = lint.ParseFamily(x.Wire()) catch {
 	case lint.UnknownKind:
 		assert false
-		t
+		x
 	}
-	let parsedSeverity = lint.ParseSeverity(s.Wire()) catch {
+	assert back == x
+}
+
+test LintTypeKindRoundTrips(x lint.TypeKind) {
+	let back = lint.ParseTypeKind(x.Wire()) catch {
 	case lint.UnknownKind:
 		assert false
-		s
+		x
 	}
-	assert parsedType == t && parsedSeverity == s
+	assert back == x
+}
+
+test LintCallableKindRoundTrips(x lint.CallableKind) {
+	let back = lint.ParseCallableKind(x.Wire()) catch {
+	case lint.UnknownKind:
+		assert false
+		x
+	}
+	assert back == x
+}
+
+test LintCallKindRoundTrips(x lint.CallKind) {
+	let back = lint.ParseCallKind(x.Wire()) catch {
+	case lint.UnknownKind:
+		assert false
+		x
+	}
+	assert back == x
+}
+
+test LintImportKindRoundTrips(x lint.ImportKind) {
+	let back = lint.ParseImportKind(x.Wire()) catch {
+	case lint.UnknownKind:
+		assert false
+		x
+	}
+	assert back == x
+}
+
+test LintSeverityRoundTrips(x lint.Severity) {
+	let back = lint.ParseSeverity(x.Wire()) catch {
+	case lint.UnknownKind:
+		assert false
+		x
+	}
+	assert back == x
+}
+
+test LintOptionTypeRoundTrips(x lint.OptionType) {
+	let back = lint.ParseOptionType(x.Wire()) catch {
+	case lint.UnknownKind:
+		assert false
+		x
+	}
+	assert back == x
 }
 
 test LintAnswerAdmitsAndChecks(offset int, length int, sameVersion bool) {
@@ -98,11 +147,17 @@ test LintAnswerAdmitsAndChecks(offset int, length int, sameVersion bool) {
 // stdLintLawStatements is the statement of each law the probe restates,
 // by ledger key; lawledger.Run holds it equal to the ledger.
 var stdLintLawStatements = map[string]string{
-	"lint SnapshotRoundTrips":    `SnapshotRoundTrips(s Snapshot) { let back = DecodeSnapshot(EncodeSnapshot(s)) catch { case SnapshotFailed: return false } back == s }`,
-	"lint FrameRoundTrips":       `FrameRoundTrips(payload string) { let f = ReadFrame(WriteFrame(payload)) catch { case FrameMalformed: return false } f == Frame{Version: ProtocolVersion, Payload: payload} }`,
-	"lint FrameIsExact":          `FrameIsExact(payload string, extra string) { let framed = WriteFrame(payload) let _ = ReadFrame(framed + extra + "x") catch { case FrameMalformed: let _ = ReadFrame(strings.Slice(framed, 0, len(framed)-1)) catch { case FrameMalformed: return true } return false } false }`,
-	"lint NamesReadBack":         `NamesReadBack(t OptionType, s Severity) { let parsedType = ParseOptionType(t.Wire()) catch { case UnknownKind: return false } let parsedSeverity = ParseSeverity(s.Wire()) catch { case UnknownKind: return false } parsedType == t && parsedSeverity == s }`,
-	"lint AnswerAdmitsAndChecks": `AnswerAdmitsAndChecks(offset int, length int, sameVersion bool) { let o = offset % 20 let l = 16 - o + length%3 let span = Span{File: "a.ergo", Offset: o, Length: l, Line: 1, Column: 1} let rule = Rule{Name: "probe", Version: "1", Description: "d", DefaultSeverity: Warning, Requires: []Family{}, Options: []OptionSpec{}, Check: func(s Snapshot, options json.Value) []Finding fails RuleFailed { []Finding{Finding{Message: "m", Span: span, Related: []Related{}, Suggestions: []Suggestion{}}} }} let p = Pack{Namespace: "ns", Version: "0", Description: "", FactVersions: []int{SchemaVersion}, Rules: []Rule{rule}, Presets: []Preset{}} let s = Snapshot{Schema: Schema{Name: SchemaName, Version: SchemaVersion}, Semantic: Semantic{Revision: "r", Target: "go", Producer: "", ReuseScope: ""}, Sources: []Source{Source{File: "a.ergo", URI: "", Bytes: 16}}, Checked: true, Families: []Family{CallsFamily}, Unavailable: []UnavailableFamily{}, Types: []TypeDecl{}, Contexts: []Context{}, Callables: []Callable{}, Calls: []Call{}, Withs: []With{}, Bindings: []Binding{}, Imports: []Import{}} let version = if sameVersion { "1" } else { "2" } let text = "{\"id\":\"i\",\"pack\":{\"namespace\":\"ns\",\"version\":\"0\",\"identity\":\"x\"},\"rules\":[{\"name\":\"probe\",\"version\":\"" + version + "\",\"options\":{}}],\"snapshot\":" + EncodeSnapshot(s) + "}" let answer = Answer(p, WriteFrame(text)) catch { case _: return false } let frame = ReadFrame(answer) catch { case FrameMalformed: return false } let inside = o >= 0 && l >= 0 && o <= 16 && l <= 16-o let want = if !sameVersion { "\"status\":\"failed\",\"reason\":\"manifest declares rule version 2; the pack implements 1\"" } else if inside { "\"status\":\"completed\",\"findings\":[{\"message\":\"m\"" } else { "\"status\":\"failed\",\"reason\":\"finding \\\"m\\\": span {File:a.ergo Offset:" } strings.Contains(frame.Payload, want) }`,
+	"lint SnapshotRoundTrips":     `SnapshotRoundTrips(s Snapshot) { let back = DecodeSnapshot(EncodeSnapshot(s)) catch { case SnapshotFailed: return false } back == s }`,
+	"lint FrameRoundTrips":        `FrameRoundTrips(payload string) { let f = ReadFrame(WriteFrame(payload)) catch { case FrameMalformed: return false } f == Frame{Version: ProtocolVersion, Payload: payload} }`,
+	"lint FrameIsExact":           `FrameIsExact(payload string, extra string) { let framed = WriteFrame(payload) let _ = ReadFrame(framed + extra + "x") catch { case FrameMalformed: let _ = ReadFrame(strings.Slice(framed, 0, len(framed)-1)) catch { case FrameMalformed: return true } return false } false }`,
+	"lint FamilyRoundTrips":       `FamilyRoundTrips(x Family) { try ParseFamily(x.Wire()) == x }`,
+	"lint TypeKindRoundTrips":     `TypeKindRoundTrips(x TypeKind) { try ParseTypeKind(x.Wire()) == x }`,
+	"lint CallableKindRoundTrips": `CallableKindRoundTrips(x CallableKind) { try ParseCallableKind(x.Wire()) == x }`,
+	"lint CallKindRoundTrips":     `CallKindRoundTrips(x CallKind) { try ParseCallKind(x.Wire()) == x }`,
+	"lint ImportKindRoundTrips":   `ImportKindRoundTrips(x ImportKind) { try ParseImportKind(x.Wire()) == x }`,
+	"lint SeverityRoundTrips":     `SeverityRoundTrips(x Severity) { try ParseSeverity(x.Wire()) == x }`,
+	"lint OptionTypeRoundTrips":   `OptionTypeRoundTrips(x OptionType) { try ParseOptionType(x.Wire()) == x }`,
+	"lint AnswerAdmitsAndChecks":  `AnswerAdmitsAndChecks(offset int, length int, sameVersion bool) { let o = offset % 20 let l = 16 - o + length%3 let span = Span{File: "a.ergo", Offset: o, Length: l, Line: 1, Column: 1} let rule = Rule{Name: "probe", Version: "1", Description: "d", DefaultSeverity: Warning, Requires: []Family{}, Options: []OptionSpec{}, Check: func(s Snapshot, options json.Value) []Finding fails RuleFailed { []Finding{Finding{Message: "m", Span: span, Related: []Related{}, Suggestions: []Suggestion{}}} }} let p = Pack{Namespace: "ns", Version: "0", Description: "", FactVersions: []int{SchemaVersion}, Rules: []Rule{rule}, Presets: []Preset{}} let s = Snapshot{Schema: Schema{Name: SchemaName, Version: SchemaVersion}, Semantic: Semantic{Revision: "r", Target: "go", Producer: "", ReuseScope: ""}, Sources: []Source{Source{File: "a.ergo", URI: "", Bytes: 16}}, Checked: true, Families: []Family{CallsFamily}, Unavailable: []UnavailableFamily{}, Types: []TypeDecl{}, Contexts: []Context{}, Callables: []Callable{}, Calls: []Call{}, Withs: []With{}, Bindings: []Binding{}, Imports: []Import{}} let version = if sameVersion { "1" } else { "2" } let text = "{\"id\":\"i\",\"pack\":{\"namespace\":\"ns\",\"version\":\"0\",\"identity\":\"x\"},\"rules\":[{\"name\":\"probe\",\"version\":\"" + version + "\",\"options\":{}}],\"snapshot\":" + EncodeSnapshot(s) + "}" let answer = Answer(p, WriteFrame(text)) catch { case _: return false } let frame = ReadFrame(answer) catch { case FrameMalformed: return false } let inside = o >= 0 && l >= 0 && o <= 16 && l <= 16-o let want = if !sameVersion { "\"status\":\"failed\",\"reason\":\"manifest declares rule version 2; the pack implements 1\"" } else if inside { "\"status\":\"completed\",\"findings\":[{\"message\":\"m\"" } else { "\"status\":\"failed\",\"reason\":\"finding \\\"m\\\": span {File:a.ergo Offset:" } strings.Contains(frame.Payload, want) }`,
 }
 
 // TestStdLintLawsRun runs the lint probe's tests with --seed 1;

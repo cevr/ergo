@@ -31,6 +31,22 @@ func ParseSeverity(name string) Severity fails UnknownKind {
 	}
 }
 
+// Wire is the name of s.
+func Wire(s Severity) string {
+	match s {
+	case Off:
+		"off"
+	case Error:
+		"error"
+	case Warning:
+		"warning"
+	case Information:
+		"information"
+	case Hint:
+		"hint"
+	}
+}
+
 // OptionType is the type of a rule option's value.
 type OptionType = StringOption | BooleanOption | IntegerOption | StringListOption
 
@@ -52,6 +68,20 @@ func ParseOptionType(name string) OptionType fails UnknownKind {
 		StringListOption
 	case _:
 		UnknownKind{Of: "option type", Name: name}
+	}
+}
+
+// Wire is the name of t.
+func Wire(t OptionType) string {
+	match t {
+	case StringOption:
+		"string"
+	case BooleanOption:
+		"boolean"
+	case IntegerOption:
+		"integer"
+	case StringListOption:
+		"string-list"
 	}
 }
 
@@ -117,9 +147,13 @@ func RuleNamed(p Pack, name string) Option[Rule] {
 // OptionsOf reads a rule's options as T, a record of the rule's options
 // whose fields are named as the options are (an option "allow" is a field
 // Allow). An optional option with no default is a json.Optional field.
+// Options the codec cannot read (past its depth or size) fail with the
+// codec's reason; options of another form than T fail as such.
 func OptionsOf[T wire](options json.Value) T fails RuleFailed {
 	let text = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, options)
 	json.Decode(json.Codec[T]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as m:
+		return RuleFailed{Reason: "options: " + m.Reason}
 	case _:
 		return RuleFailed{Reason: "options: they are not of the rule's form"}
 	}

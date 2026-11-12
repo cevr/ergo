@@ -75,6 +75,24 @@ func ParseFamily(name string) Family fails UnknownKind {
 	}
 }
 
+// Wire is the name of f.
+func Wire(f Family) string {
+	match f {
+	case DeclarationsFamily:
+		"declarations"
+	case CallablesFamily:
+		"callables"
+	case CallsFamily:
+		"calls"
+	case WithsFamily:
+		"withs"
+	case BindingsFamily:
+		"bindings"
+	case ImportsFamily:
+		"imports"
+	}
+}
+
 // UnavailableFamily says why a family was not produced.
 type UnavailableFamily { Family Family, Reason string }
 
@@ -102,6 +120,20 @@ func ParseTypeKind(name string) TypeKind fails UnknownKind {
 	}
 }
 
+// Wire is the name of k.
+func Wire(k TypeKind) string {
+	match k {
+	case RecordType:
+		"record"
+	case UnionType:
+		"union"
+	case OperationType:
+		"operation"
+	case DefinedType:
+		"defined"
+	}
+}
+
 // CallableKind is what a callable is.
 type CallableKind = FunctionCallable | TestCallable | LawCallable
 
@@ -120,6 +152,18 @@ func ParseCallableKind(name string) CallableKind fails UnknownKind {
 		LawCallable
 	case _:
 		UnknownKind{Of: "callable kind", Name: name}
+	}
+}
+
+// Wire is the name of k.
+func Wire(k CallableKind) string {
+	match k {
+	case FunctionCallable:
+		"function"
+	case TestCallable:
+		"test"
+	case LawCallable:
+		"law"
 	}
 }
 
@@ -156,6 +200,26 @@ func ParseCallKind(name string) CallKind fails UnknownKind {
 	}
 }
 
+// Wire is the name of k.
+func Wire(k CallKind) string {
+	match k {
+	case FunctionCall:
+		"function"
+	case OperationCall:
+		"operation"
+	case CapabilityCall:
+		"capability"
+	case ValueCall:
+		"value"
+	case ConversionCall:
+		"conversion"
+	case WithCall:
+		"with"
+	case BuiltinCall:
+		"builtin"
+	}
+}
+
 // ImportKind is the kind of package an import resolved to.
 type ImportKind = StdImport | ProgramImport | HostImport
 
@@ -174,6 +238,18 @@ func ParseImportKind(name string) ImportKind fails UnknownKind {
 		HostImport
 	case _:
 		UnknownKind{Of: "import kind", Name: name}
+	}
+}
+
+// Wire is the name of k.
+func Wire(k ImportKind) string {
+	match k {
+	case StdImport:
+		"std"
+	case ProgramImport:
+		"program"
+	case HostImport:
+		"host"
 	}
 }
 

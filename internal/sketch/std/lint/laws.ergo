@@ -1,5 +1,7 @@
 // The laws of the encoded forms a pack reads and writes. The ledger in
-// docs/spec/stdlib.md names the test that runs each law.
+// docs/spec/stdlib.md names the test that runs each law. Each kind's
+// ParseX and Wire stand together, so the parser derives its round trip
+// (XRoundTrips, syntax/pair.go).
 
 import json
 import strings
@@ -38,19 +40,6 @@ law FrameIsExact(payload string, extra string) {
 		return false
 	}
 	false
-}
-
-// NamesReadBack: a severity and an option type read back from their names.
-law NamesReadBack(t OptionType, s Severity) {
-	let parsedType = ParseOptionType(t.Wire()) catch {
-	case UnknownKind:
-		return false
-	}
-	let parsedSeverity = ParseSeverity(s.Wire()) catch {
-	case UnknownKind:
-		return false
-	}
-	parsedType == t && parsedSeverity == s
 }
 
 // AnswerAdmitsAndChecks: Answer runs a requested rule only at the version

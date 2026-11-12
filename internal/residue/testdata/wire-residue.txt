@@ -67,15 +67,21 @@ docs/spec/stdlib.md	`Decode`, `Encode`, `ParseX`/`Wire`;
 docs/spec/stdlib.md	html.Td([]html.Child{html.Int(o.Quantity.Wire())}),
 docs/spec/stdlib.md	`ParseX` and `Wire` are each union's name pair
 docs/spec/stdlib.md	| `OptionsOf[T wire](options json.Value) T fails
-docs/spec/stdlib.md	let parsedType = ParseOptionType(t.Wire())
-docs/spec/stdlib.md	let parsedSeverity = ParseSeverity(s.Wire())
+docs/spec/stdlib.md	{ try ParseFamily(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseTypeKind(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseCallableKind(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseCallKind(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseImportKind(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseSeverity(x.Wire()) == x }
+docs/spec/stdlib.md	{ try ParseOptionType(x.Wire()) == x }
 docs/spec/stdlib.md	with its name pair (`ParseCallKind`, `Wire`), matched exhaustively
 internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/std/lint/wire.ergo","from":"\t\tcase json.Present[string] as p:
 internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/std/lint/wire.ergo","from":"\tcase json.Present[Span] as p:
 internal/sketch/lower/std_lint_test.go	*
+internal/sketch/lower/catch_wired_test.go	*
+internal/sketch/std/laws_test.go	*
 internal/sketch/std/lint/facts.ergo	*
 internal/sketch/std/lint/laws.ergo	*
-internal/sketch/std/lint/names.ergo	*
 internal/sketch/std/lint/pack.ergo	*
 docs/specs/absence-and-host-boundaries.md	JSON null or explicitly tagged wire data.
 docs/specs/absence-and-host-boundaries.md	## Wire and JavaScript boundaries
