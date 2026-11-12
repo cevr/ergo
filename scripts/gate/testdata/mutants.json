@@ -108,6 +108,24 @@
       "to": "if !rebuildOutputs(root, []*Step{replayBuild(root)}[:0], out) {",
       "rule": "The replay before the scope builds bin/ergo again, so the binary matches the tree.",
       "killers": ["scripts/gate:TestWholeGateRecordNamesItsTier"]
+    },
+    {
+      "name": "sandbox-ready-fixed-limit",
+      "origin": "wf10 FU-b18 r2 (no fixed run limits in scripts/gate)",
+      "file": "scripts/gate/sandbox_linux.go",
+      "from": "\t\tcase <-tick.C:\n\t\t\tif pid := childPid.Load(); pid != 0 && processEnded(int(pid)) {",
+      "to": "\t\tcase <-time.After(time.Millisecond):\n\t\t\terr, waiting = errors.New(\"the export took too long\"), false\n\t\tcase <-tick.C:\n\t\t\tif pid := childPid.Load(); pid != 0 && processEnded(int(pid)) {",
+      "rule": "The sandbox's start waits for an event (ready, or its first process ended), never for a fixed time: a fixed bound fails an export that is still running (a 1 ms bound stands for a loaded host).",
+      "killers": ["scripts/gate:TestSandboxAdmitsSymlinkRoots", "scripts/gate:TestSandboxModuleZipIsConstructed"]
+    },
+    {
+      "name": "sandbox-first-process-unwatched",
+      "origin": "wf10 FU-b18 r2 (no fixed run limits in scripts/gate)",
+      "file": "scripts/gate/sandbox_linux.go",
+      "from": "if pid := childPid.Load(); pid != 0 && processEnded(int(pid)) {",
+      "to": "if pid := childPid.Load(); false && pid != 0 && processEnded(int(pid)) {",
+      "rule": "A sandbox whose first process fails is a failure at once: with no time bound on the start, the watch of that process is what ends the wait (killed by the test's deadline, which names TestMergeTierFailsClosed/bwrap_fails_to_mount).",
+      "killers": ["scripts/gate:TestMergeTierFailsClosed"]
     }
   ]
 }
