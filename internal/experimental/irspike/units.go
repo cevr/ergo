@@ -102,27 +102,36 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call that passes witnesses", "G4"},
 	{"call with a call site", "G4"},
 	{"call that captures owners", "G4"},
-	{"catch with patterns", "G3b"},        // record patterns, case err, case _: the match tree's
 	{"catch value of another type", "G3"}, // a flat union the arms join to
 	// G3: unions, match, machines; the lowering's representation decides.
 	{"named type that is not a record", "G3"},
 	{"record without a struct", "G3"},
-	// A match inside an operand: hoisting it would move it before the
-	// operands to its left (as an if expression's, G1).
+	// A match or an if inside an operand that is not a call's or a
+	// binary operator's at the value's top (IRG3b takes those, in operand
+	// order): deeper, hoisting it would move it before the operands to its
+	// left.
 	{"expression *syntax.TypeSwitchStmt", "G3b"},
 	{"expression *syntax.SwitchStmt", "G3b"},
-	{"implicit conversion", "G3b"}, // of a fallible call's result (ret)
+	{"implicit conversion", "G3b"}, // a conversion kind the builder does not know
 	{"constant of type *", "G3"},
-	// G3b (IRG3's follow-up): the match tree, scalar-form locals, machines.
+	// G3b (IRG3's follow-up): the match tree, scalar-form locals.
 	// A loop-carried union local in tag-and-slots form (scalar.go): a
-	// union representation decision.
-	{"scalar-form local", "G3b"},
-	{"match with patterns", "G3b"},  // the decision tree (matchtree.go)
-	{"break inside a match", "G3b"}, // Go's break leaves the switch: a labelled loop
+	// union representation decision; a read deep in an expression gathers
+	// with statements.
+	{"scalar-form local of a type parameter", "G4"},
+	{"scalar-form local *", "G3b"},
+	{"op-assignment of a scalar-form local", "G3b"},
+	{"match with patterns", "G3b"}, // the flat lowering of a tree (flatPatternMatch)
+	{"match tree *", "G3b"},
+	{"match binding of another type", "G3b"},
+	{"shared arm binding that its first leaf does not make", "G3b"},
+	{"record pattern of an unnamed type", "G3b"},
 	{"interpolated value of type *", "G3b"},
-	{"machine conversion", "G3b"},
-	{"machine value", "G3b"},
-	{"row conversion", "G3b"},
+	{"interpolated named duration", "G3b"},
+	// A machine's value is ergo.Machine, a generic std record: its bodies
+	// stop at G4's generic types first (no census body reaches these).
+	{"machine conversion", "G4"},
+	{"machine value", "G4"},
 	{"type defined over a non-basic type", "G3b"},
 	{"value of a type defined over a flat union", "G3b"},
 	{"value of another type", "G3b"},

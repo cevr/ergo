@@ -8,8 +8,11 @@ import (
 // treeFuncs are the functions trees writes (IRG3b): matches the emitter's
 // decision tree lowers (matchtree.go): record, constant, bind and nested
 // patterns, several subjects, or-patterns and wildcards whose arms
-// several leaves reach (a shared arm), and a break inside a match.
-var treeFuncs = []string{"pairs", "P.points", "trees", "flags", "stops", "risky", "caught", "part", "walk"} // points takes a P first: P's method
+// several leaves reach (a shared arm), and a break inside a match; catches
+// with patterns, a loop-carried union local (the scalar form), a returned
+// call's converted value, a row conversion, named scalars' text, and an if
+// or a match as an operator's operand.
+var treeFuncs = []string{"pairs", "P.points", "trees", "flags", "stops", "risky", "caught", "part", "walk", "leafOf", "lift", "label", "mix"} // points takes a P first: P's method
 
 // pick is a random subset of arms in their order, with every arm whose
 // text starts with "!" kept (its "!" dropped): dropping an arm never makes
@@ -86,14 +89,14 @@ func (g *ugen) trees() {
 	// A catch with record patterns, an or-pattern, `case err` and a
 	// wildcard: the emitter's tree on the error (patternCatch); total and
 	// partial.
-	g.b.WriteString("type E1 { Code int }\n\ntype E2 { Why string }\n\n")
+	g.b.WriteString("type E1 { Code int }\n\ntype E2 { Why string }\n\ntype Bad = E1 | E2\n\n")
 	fmt.Fprintf(&g.b, "func risky(n int) int fails E1 | E2 {\n\tif n %% 3 == 0 {\n\t\treturn E1{Code: n}\n\t}\n\tif n %% 3 == 1 {\n\t\treturn E2{Why: \"w\\(n %% %d)\"}\n\t}\n\tn * 2\n}\n\n", 2+g.n(3))
 	fmt.Fprintf(&g.b, "func caught(n int) int {\n\trisky(n) catch {\n%s\t}\n}\n\n", block("\t", g.pick([]string{
 		"case E1{Code: 0}:\n\t-100",
 		"case E1{Code: 3}, E2{Why: \"w1\"}:\n\t33",
 		"case E2{Why: \"w0\"}:\n\t-7",
 		"case E1{Code: 6} as e:\n\te.Code * 10",
-		[]string{"!case err:\n\tmatch err {\n\tcase E1 as e:\n\t\te.Code + 500\n\tcase E2:\n\t\t-1\n\t}", "!case _:\n\t-1"}[g.n(2)],
+		[]string{"!case err:\n\tmatch err {\n\tcase E1 as e:\n\t\te.Code + 500\n\tcase E2:\n\t\t-1\n\t}", "!case _:\n\t-1", "!case err:\n\tlet bad Bad = err\n\tmatch bad {\n\tcase E1 as e:\n\t\te.Code + 700\n\tcase E2:\n\t\t-2\n\t}"}[g.n(3)],
 	})))
 	fmt.Fprintf(&g.b, "func part(n int) int fails E1 | E2 {\n\tlet v = try risky(n) catch {\n%s\t}\n\tv + 1\n}\n\n", block("\t", g.pick([]string{
 		"!case E1{Code: " + fmt.Sprint(3*g.n(3)) + "}:\n\t1000",
@@ -103,6 +106,14 @@ func (g *ugen) trees() {
 	// form (scalar.go): its let and assignments scatter, a match reads
 	// its tag, a call's operand gathers.
 	fmt.Fprintf(&g.b, "func walk(t Tree, n int) int {\n\tlet mut cur = t\n\tlet mut acc = 0\n\tlet mut i = 0\n\tfor i < n {\n\t\tmatch cur {\n\t\tcase Leaf as l:\n\t\t\tacc += l.N\n\t\t\tcur = Node{L: l, R: Leaf{N: i}, K: i + %d}\n\t\tcase Node as nd:\n\t\t\tacc += nd.K\n\t\t\tcur = nd.%s\n\t\t}\n\t\ti += 1\n\t}\n\tlet s = sum(cur)\n\tacc * 100 + s\n}\n\n", g.n(3), []string{"L", "R"}[g.n(2)])
+	// A fallible call's variant returned into the frame's union: the
+	// failure leaves first, then the value converts.
+	fmt.Fprintf(&g.b, "func leafOf(n int) Leaf fails E1 | E2 {\n\tif n %% %d == 0 {\n\t\treturn E1{Code: n}\n\t}\n\tLeaf{N: n}\n}\n\nfunc lift(n int) Tree fails E1 | E2 {\n\treturn leafOf(n)\n}\n\n", 2+g.n(3))
+	// Named scalars' text; an if and a match as operands of an operator,
+	// after an operand an arm assigns (the operand is read first).
+	g.b.WriteString("type Word string\n\ntype On bool\n\n")
+	fmt.Fprintf(&g.b, "func label(m Meters, w Word, o On) string {\n\t\"m=\\(m) w=\\(w) o=\\(o) \\(m * %d)\"\n}\n\n", 1+g.n(3))
+	fmt.Fprintf(&g.b, "func mix(xs []P) int {\n\tlet mut n = 0\n\tfor x in xs {\n\t\tn = n + (match x {\n\t\tcase P{X: %d}:\n\t\t\tn = 100\n\t\t\t1\n\t\tcase P as q:\n\t\t\tq.Y\n\t\t})\n\t\tn = n * (if x.Y > %d {\n\t\t\tn = n + 1\n\t\t\t2\n\t\t} else {\n\t\t\t3\n\t\t})\n\t}\n\tn\n}\n\n", g.n(4), g.n(4))
 }
 
 // treeMain writes main's lines for treeFuncs.
@@ -132,4 +143,13 @@ func (g *ugen) treeMain() {
 	for d := 0; d < 4; d++ {
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"walk %d \\(walk(build(%d), %d))\")\n", d, d, g.n(7))
 	}
+	for n := 0; n < 6; n++ {
+		fmt.Fprintf(&g.b, "\tlet t%d = lift(%d) catch {\n\tcase E1 as e:\n\t\tLeaf{N: e.Code + 40}\n\tcase E2:\n\t\tLeaf{N: -4}\n\t}\n", n, n)
+		fmt.Fprintf(&g.b, "\tConsole.Println(\"lift %d \\(sum(t%d)) \\(label(Meters(%d), Word(\"w%d\"), On(%v)))\")\n", n, n, n*7, g.n(3), g.n(2) == 0)
+	}
+	ps = ps[:0]
+	for i := 0; i < 5; i++ {
+		ps = append(ps, fmt.Sprintf("P{X: %d, Y: %d}", g.n(4), g.n(6)))
+	}
+	fmt.Fprintf(&g.b, "\tConsole.Println(\"mix \\(mix([]P{%s}))\")\n", strings.Join(ps, ", "))
 }
