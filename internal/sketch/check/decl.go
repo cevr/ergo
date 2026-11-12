@@ -2413,6 +2413,9 @@ func (c *checker) selfArgsOK(d *syntax.FuncDecl, args []syntax.Expr) bool {
 // exported machine (the export guard) spell their rows.
 func (c *checker) inferFlags(f *Func) {
 	d := f.Decl
+	if c.opts.Explicit {
+		return // q137: an unwritten clause is the empty clause
+	}
 	if d.Body == nil || isExported(f.Name) || f.Name == "main" || c.guarded[f] {
 		return
 	}

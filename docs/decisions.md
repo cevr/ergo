@@ -2,6 +2,95 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-12
+
+Entries in this section and in the [2026-11-11](#owner-direction-2026-11-11) section, and the entries marked "synced" in the [2026-11-10](#owner-direction-2026-11-10) section, were copied on 2026-11-12 from the run's decision logs (the `decisions.md` files of the orchestration run, and the owner lines of its plan ledger), so that every owner decision q84 to q138 is in this file. A quotation in double quotes is the owner's words; "as assumed" means the owner accepted the recommendation the question stated.
+
+- **Explicit local signatures; nothing is inferred (2026-11-12, q137).** Asked whether unexported functions keep their inferred clauses, the owner answered: "maybe it's just better to be explicit at all times - We're entering an age where now agents really do the writing. Inference works well for humans since we're lazy, but agents tend to work better with explicitness". Then: "we can also make this a North Star". Decided (the recommendation the owner accepted):
+  - Nothing is inferred anywhere. `needs`, error rows (`fails`), and the `given`, `gives` and `keeps` clauses are written on every function, exported or not.
+  - The checker checks each body against its own signature. It does no call-graph inference. A missing clause is a diagnostic that names the exact clause to add.
+  - `ergo fix` writes the missing clauses on request.
+  - A provider release's needs (with `with` included) are declared, with no inference.
+
+  It supersedes the inference half of q118 (below), the private half of q69 ("The clause is inferred for an unexported function", [2026-11-09](#owner-direction-2026-11-09)) and the principle line "inferred where private, written where public" of q69 to q71, and amendment 1 of [rows-and-constraints §7](research/rows-and-constraints.md#7-amendments-recommended-to-196-and-162) (row elision for unexported functions). It also supersedes a 2026-11-12 answer in the release-needs unit ("Sure" to a `with` provider's release needs widening an inferred row). North star: the tiebreak **Explicit local signatures** beat **inference** ([NORTH_STAR.md](../NORTH_STAR.md#tiebreaks)). Status: decided, not built. The checker still infers the rows of unexported functions and function literals until the explicit-signature units land ([rows.md](spec/rows.md), Capabilities 6).
+
+  - q139 (answered as assumed): the rule covers declarations. A function literal or a block takes its rows from the parameter type it is passed to, or from its body where that parameter is a row parameter; the enclosing function writes everything that leaves it.
+  - q140 (answered as assumed): pass-through elision is dropped. The tiebreak **Go-simple signatures** no longer says "Elide only pass-through rows"; an unwritten clause is the empty clause, and `inspect` and the docs print the written signature. Types.md Generics 3 is deleted. It supersedes the "Elision may apply to pass-through rows only" sentence of the 2026-10-12 readability entry (below).
+  - Built so far: the checker option `Explicit` (off by default) and `ergo fix`; the option becomes the only mode in the unit that deletes inference.
+
+  Prior art: Rust writes every `fn` signature in full, private or not, and inference stops at the body, so a body change never changes a contract. Gleam and ReScript infer inside a module; Elixir has no checked signatures. Koka infers effect rows, and its authors recommend writing them on exported functions. Effect infers `E` and `R` through TypeScript. MoonBit requires annotations on top-level functions.
+
+- **No stage repeats work (2026-11-12).** Owner: "the goal would be that we don't ... type check twice and do work twice." Decided: no stage of a build repeats work that another stage already did. A counted "double work" receipt per edit build lists the passes per stage (Ergo parse and check, std check, Go parse and types2, Go compile, link, the go command, law runs); each repeated pass maps to the unit that removes it.
+
+- **Ergo manages Go (2026-11-12, q136).** Owner: "this will be hidden behind a single Ergo tool chain, right?" (yes), then, asked whether `ergo` also fetches and manages Go: "Ergo manages Go". Decided: `ergo` fetches its pinned Go release through the `golang.org/toolchain` module (verified by the checksum database), builds the patched compiler once, and caches both. A system Go is optional. It supersedes the "Go is a prerequisite" part of q87 ([synced 2026-11-10 entry](#owner-direction-2026-11-10)).
+
+- **Better-than-Go std (2026-11-12).** Owner: "a good rule ... is if we can make better versions of Go's own standard library given our better guarantees ... if it can be faster, that's the goal ... we should freely do that and by default do that." Decided: Ergo's std is Ergo's own. Names and conventions follow Effect's intent and Go's conventions, unchanged. Implementations default to whatever Ergo's guarantees (the value rule, ownership and moves, borrows, proved laws, typed failures, closed unions, explicit rows) make faster or safer than Go's std, measured (counted instructions, allocations) against the Go std function, with Go's behavior as the oracle wherever the semantics are meant to match. Wrapping Go's std is the fallback only when no better version is measured. Still binding: no optimizer keyed on a std name (the compiler gains general facts, and std uses them); `unsafe` only in reviewed `runtime/v1` bodies (q112). North star: the tiebreak **Better-than-Go std** beats **wrapping Go's std** ([NORTH_STAR.md](../NORTH_STAR.md#tiebreaks)).
+
+- **IR is the build path (2026-11-12, q138 and its correction).** Asked whether v1 ships before the IR gate can be met (consistency audit 3, C5), the owner first answered: "I think it's fine. We don't have to wait till 1.28". The orchestrator read this as "v1 ships on the source path; IR stays internal until its gate". The owner corrected that reading: "No, I'm saying IR is the path. We don't need more gating. We just do that as if though it was the only way." Decided:
+  - IR is the build path now. There is no decision gate (the gate unit is dropped). v1 ships on IR.
+  - Source emission is not a product path. It stays only as the test-time reference oracle until the evaluator oracle (q135) replaces it; then it retires.
+  - An unsupported construct is a work item, never a fallback.
+  - Correctness guards stay: agreement properties against the oracle, and mutants. Speed criteria are receipts, not gates.
+  - Each Go release port is a release task, started at the release candidate or the development branch.
+
+  It supersedes the first reading of q138, the "source emission stays the reference and the v1 default" part of q128, the "source path stays the reference" part of q129, and the "decision gate" reading of q132 (all below, [2026-11-11](#owner-direction-2026-11-11)).
+
+## Owner direction, 2026-11-11
+
+- **Self-hosting pilot in v1 (2026-11-11).** Owner: "let's try to put a pilot in V1". Decided: a self-hosting pilot in v1, one self-contained compiler package (the formatter) rewritten in Ergo and run beside the Go original as a shadow, with outputs compared by a property; the Go formatter stays the default and the oracle, and the parser stays Go. Pilot module location (owner, SH0 q1): `internal/selfhostcheck/testdata/selfhost`. It amends the 2026-11-04 entry "Self-hosting after v1 is the speed test" ([2026-11-04](#owner-direction-2026-11-04)): a pilot is in v1, and the staged port stays after v1.
+
+- **Sorted Map order, `try` on any operand, explicit `fail` (2026-11-11, q104 to q106).** From the language design audit. Decided:
+  - q104: Map iteration order is sorted key order (ascending for ordered keys; the canonical key encoding for other key types). It is the semantics everywhere: `for`-`in`, `maps.Keys` and `maps.Values`, printing, encoding and the explorer. The lowering may skip the sort only where the checker proves the result identical; a seeded property compares it against an always-sort lowering, which stays selectable.
+  - q105: `try` may start any operand (Zig's rule); the examples drop the needless parentheses.
+  - q106: failing is explicit: `fail e` (and `try`) fails; returning or yielding an error value returns it. The five type-and-position cases go.
+
+- **Time zone data from source (2026-11-11, q107).** Decided: an Ergo std way carries zone data from source (unit S-tz); a ported CLI drops the `-tags=timetzdata` build tag when it lands; lookup stays host-first; differences from Bun stay declared.
+
+- **Laws drive checked rewrites (2026-11-11, q108 to q111).** Decided:
+  - q108: "yes": plan a language unit where checked laws on a type may drive compiler rewrites. JSON-fast is held, and `json` keeps its keyed path (listed) until the unit lands.
+  - q109: after "give me some sketches", form B: an equation between two blocks, with no new keyword, `law L(params) { lhs } == { rhs }`. The left block is the pattern and the right block is the replacement (direction by position). The constant parameters are bound by the left side (the run log says "inferred from use"; this is a binding by the pattern, not an inferred clause, so q137 leaves it). The `when R() == C` guard of the first form is superseded by q117.
+  - q110: as assumed (evidence for rewrite laws).
+  - q111: after "what is most consistent across the language; can user-land implementations benefit?", the mechanism is open to every type; `json`'s writer primitives stay package-private ("keep private", confirmed).
+
+- **Value-tied facts in v1 (2026-11-11, q112 to q114).** Owner: "add a design note for value tied facts and put it into V1", and "We can also update our examples to use it". Decided:
+  - q112: yes in v1: a fact may remove a Go bounds check through an unchecked load (a reviewed `unsafe` body in `runtime/v1`) where Go's prove pass cannot.
+  - q113: record invariants in v1, with exit checks (checked at each exported exit in test builds, erased in run builds).
+  - q114: the `given`, `gives` and `keeps` clauses, as assumed.
+
+- **Proved laws only, the law ledger, one clause engine (2026-11-11, q115 to q120).** Decided:
+  - q115: proved only: tested evidence is reported, never acted on.
+  - q116: a checked-in law ledger beside `ergo.mod` (as `go.sum` is beside `go.mod`).
+  - q117: one engine for `given`/`gives` (VF1); `when` is dropped from laws.
+  - q118: `given`, `gives` and `keeps` are keywords, inferred for unexported functions. **Superseded in part by q137, 2026-11-12:** the inference half no longer holds; the clauses are written on every function. The keyword half stands.
+  - q119: the codec field form follows a general rule; the 13 `json` name checks go.
+  - q120: "Proved, bounded states" (it differs from the assumption): a new unit first lets a provider declare a keyed value state and listable parameters (enums, refinements) so that the explorer proves laws; `Counter` becomes `Add(n Digit)`; `json`'s laws are proved once in the std gate over a finite model. It supersedes the run's split-by-stakes assumption (rewrites admitted on strengthened tested evidence): the admission step admits proved evidence only.
+  - q115 to q119 were answered as assumed.
+
+- **Cells and a stale ledger (2026-11-11, q121 and q122).** As assumed. q121: a value provider converts to an operation type by moving into a cell, only for an operation type sealed in its own package, and task-confined. q122: a stale or missing `ergo.laws` entry keeps the reference lowering, with one printed line; `ergo build --locked` refuses.
+
+- **Typed patterns in v1 (2026-11-11, q123 to q126).** Owner: "compile time regexes where it would capture groups, make it options by default, etc. and then kind of lower it to ... faster". Decided:
+  - q123: "Pattern declarations in v1" (it differs from the assumption): the compile-time engine and the derivation rule with its syntax are v1.
+  - q124: every occurrence goes into a slice; a last-capture projection is named separately.
+  - q125: a byte (ASCII) subset.
+  - q126: "type T derive E": one shared derivation rule with a closed `TypePlan` algebra.
+
+- **A Go dialect means syntax and interop; an IR spike (2026-11-11, q127 and q128).** Owner: "research what it would take to skip the go lowering and go straight to go byte code. Is it possible to make Ergo a dialect? Or would that just be equivalent to forking Go?". Decided:
+  - q127: "Syntax and interop" (Ergo is not a Go superset).
+  - q128: "Spike IR now" (it differs from the assumption): a bounded go1.27.0 typed-IR adapter for a small subset, beside the source path. **Superseded in part by the 2026-11-12 correction "IR is the path":** "source emission stays the reference and the v1 default" no longer holds.
+
+- **An IR speed tier and a direct build (2026-11-11, q129 and q130).** Owner: "what I'm really excited about of the IR path is ... a better way of unlocking faster than handwritten go". Decided:
+  - q129: "Grow an IR speed tier" (it differs from the assumption): extend the IR subset (fallible functions, `match`, library bodies) and add the bounded-index flag and escape hints, beside value facts; flags come only from checked or proved facts. **Superseded in part by the 2026-11-12 correction "IR is the path":** "the source path stays the reference" no longer holds, and IR is not a tier beside the source path.
+  - q130: queue BUILD-direct (the build skips the go command).
+
+- **IR becomes the only path (2026-11-11, q131 and q132).** Decided:
+  - q131: build the patched compiler locally.
+  - q132: "if its the correct path then goal is the only path": IR is the only build path, not an opt-in or a default with a source fallback. An unsupported construct is a diagnostic, never a fallback. **Superseded in part by the 2026-11-12 correction "IR is the path":** the orchestrator's reading that three criteria form a decision gate before the flip no longer holds; there is no gate.
+
+- **Speed decides; the evaluator is the oracle (2026-11-11, q133 to q135).** Decided:
+  - q133: "not sure what the differences are"; asked again with the options explained, as q135.
+  - q134: "mainly speed... compiling and checking ... as fast as possible": declarations go through IR if and only if that makes builds and checks faster, by measurement.
+  - q135: "Extend the evaluator": the check-time evaluator grows to effects and is the reference oracle once source emission retires.
+
 ## Decided by principle, 2026-11-11
 
 - **Check the sources of full-tier programs in the fast tier.** `TestProgramTablesCheck` checks and lowers every declared lower-test program in process, without a Go build, even when its execution test needs the full tier. Guard: check `fast-tier checker pass over the Ergo sources that full-tier lower tests embed`. This closes the stale-stdin-caller class that a fast gate missed. Principle: fix root causes and exceptionally fast feedback. It checks declared table sources, not every input a generated runtime property can construct.
@@ -66,14 +155,31 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 
   Principles: explicit contracts (the operation type is the contract; nothing is declared twice), Go the only target. Prior art: Effect's `RpcGroup`/`RpcClient` (`effect/src/rpc/RpcMessage.ts`, `RpcSerialization.ts`); gRPC's generated stubs; Elixir's `:erpc`; Gleam and ReScript leave RPC to hand-written JSON codecs or a TypeScript client ([PRIOR_ART](../PRIOR_ART.md#language-and-library-references)).
 
+- **Synced: application pilot decisions (2026-11-10, q86 to q89).** q86, q88 and q89 set the scope, branches and pin of a private application pilot; by the owner's rule of 2026-11-10, their content stays out of this repository. One part of q87 is a general toolchain rule: Go was documented as a prerequisite for building an Ergo program, and a missing Go failed with a clear message. **Superseded by q136, 2026-11-12:** Ergo manages Go, and a system Go is optional ([2026-11-12](#owner-direction-2026-11-12)).
+
+- **Synced: one HTTP limits record (2026-11-10, q97).** First the owner answered q97: keep the split (`ServerLimits` and `ClientLimits`). **Superseded later the same day:** "hmm i think one limit is better". Decided: one `http.Limits` (byte budgets, `IdleTimeout`, `ReadHeaderTimeout`, `ReadBodyTimeout`), taken by `Serve`, `rpc.Serve`, `NewClient` and `NewNet`. The client reads only the byte budgets, as [stdlib.md](spec/stdlib.md) states; the rule "every field of a limits record is read" is removed. A non-positive timeout is refused (`InvalidLimits`) wherever `Limits` is taken.
+
+- **Synced: a codec key after the field's type (2026-11-10, q98).** Decided: a field's codec key is a string literal after the field's type, `TeamID string "team_id"`, as built.
+
+- **Synced: CLI port exceptions (2026-11-10, q99 to q101).** The owner approved these declared differences from the q95 parity bar:
+  - q99: with no terminal, the port exits 1 with a message (the TypeScript tool exits 130 silently); a configuration error after the path uses Ergo's TOML wording.
+  - q100: the image command's decode and transport error suffixes, on the named cases.
+  - q101: an upload refuses a URL with user information and a non-443 port.
+
+  Owner, on the ports: "we wanna make sure the ports are fully ergo. We don't want to leave anything to TS. These are pilots that show that our V1 works." Every command and subcommand of a ported CLI runs in Ergo by default; a gap in Ergo becomes an Ergo unit, never a TypeScript route.
+
+- **Synced: report the Go runtime fault upstream (2026-11-10, q102).** A Go program under the default 2 GiB memory cap could fault (SIGSEGV) in a probe. Owner: "file upstream too". The neutral probe was added to the existing Go issue golang/go#82667.
+
+- **Synced: link the linear port (2026-11-10, q103).** Owner: "Link it now". The installed `linear` command runs the Ergo port; the TypeScript implementation stays the way back (q96).
+
 ## Owner direction, 2026-11-09
 
 - **Ownership spelling: a `takes` clause, shown copies, `escaping` merged later (2026-11-09, q69 to q71).** Asked after the #197 ownership prior-art study (run dir `v1-L8/prior-art.md`); the owner answered as assumed. Decided:
-  - q69: a function that keeps an argument says so in a clause after its rows, `func NewLog(f File) Log takes f`, and a bare `takes` on an operation takes its receiver. The clause is inferred for an unexported function and written on an exported signature, as rows are; it is part of a function type's identity, as `escaping` is.
+  - q69: a function that keeps an argument says so in a clause after its rows, `func NewLog(f File) Log takes f`, and a bare `takes` on an operation takes its receiver. The clause is inferred for an unexported function and written on an exported signature, as rows are; it is part of a function type's identity, as `escaping` is. **Superseded in part by q137, 2026-11-12:** the clause is written on every function; nothing is inferred ([2026-11-12](#owner-direction-2026-11-12)).
   - q70: an exported generic function that copies a `T` carries no mark: the copies are shown in docs, `ergo inspect` and the summary diff.
   - q71: `escaping` (a kept function value) and `takes` (a kept resource) say one thing, that an argument outlives the call; they merge into the `takes` clause in a later unit, as one rule (q39), not in L8.
 
-  Rules: [resources.md](spec/resources.md); [types.md, Function values](spec/types.md). Principles: inferred where private, written where public (as rows); one rule (q39). Prior art: Lean 4's owned and borrowed parameters (an inferred lent-to-taken fixpoint per component); Swift's `consuming` and `borrowing`; Rust's moves.
+  Rules: [resources.md](spec/resources.md); [types.md, Function values](spec/types.md). Principles: inferred where private, written where public (as rows; superseded by q137, 2026-11-12: written everywhere); one rule (q39). Prior art: Lean 4's owned and borrowed parameters (an inferred lent-to-taken fixpoint per component); Swift's `consuming` and `borrowing`; Rust's moves.
 
 - **A trailing function literal (2026-11-09, q72).** Asked in the GUI plan (q68, explained and asked again as q72): the owner chose option (c), a trailing `func(...)` literal with Go's parameter list. Decided: `ui.Each(todos, keyOf) func(t Todo) ui.Node { row(t) }` means `ui.Each(todos, keyOf, func(t Todo) ui.Node { row(t) })`. It is an ordinary function literal moved after the call, so `return` works in it as in any literal. The parameterless trailing block `f() { body }` stays as it is: one rule for both (q39). Unit L-tb built it (grammar.md, Trailing blocks). Prior art: Kotlin's and Swift's trailing lambdas and closures; Ruby's blocks.
 
@@ -210,7 +316,7 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
   - It is checked, not run: [#162](https://github.com/cevr/ergo/issues/162) runs a top-level law as a fuzz target over its parameters, and a member law against every provider. No build contains Go from a law ([types](spec/types.md#laws) rule 11).
 
   Prior art: Haskell QuickCheck states `prop_x` at top level and class laws beside the class; Lean, Coq/Rocq, Idris and Dafny state `theorem` and `lemma` at top level and put protocol laws in a class or structure; Elixir StreamData's `property` sits beside ExUnit's `test` at the top of a test module, compiled only under `mix test`; MoonBit uses top-level `test` blocks with a quickcheck library; Gleam (`qcheck`) and ReScript (fast-check) have property tests as library functions and no law construct; Fai checks `example:` contracts beside definitions. Zig, Go and Rust keep their tests out of the normal build, as Ergo keeps laws out of both builds.
-- **Self-hosting after v1 is the speed test.** Owner, asked what self-hosting would take: "we can do that post-V1. I think self-hosting is probably a good litmus test to see how fast we are. The goal is to be 1x or below handwritten optimized Go code". The compiler (about 42,000 lines of Go today) is ported in stages: `format`, then `syntax`, then `check` and `lower`. Each stage goes on only when its output is byte-identical to the Go compiler's on the conformance corpus and its benchmark ratio against the Go version is at most 1.0. A three-stage build closes the port, and the compiler's own generated Go is the bootstrap seed. Prerequisites: packages, Go interop ([#202](https://github.com/cevr/ergo/issues/202)), predictable map and slice aliasing ([#222](https://github.com/cevr/ergo/issues/222)), record update and `let … else`. Ticket: [#242](https://github.com/cevr/ergo/issues/242). Prior art: Go 1.5 translated its C compiler to Go; TypeScript left self-hosting for Go for about a 10x speedup; Elixir bootstraps from Erlang; Gleam, ReScript, Elm and PureScript stay on their host language.
+- **Self-hosting after v1 is the speed test.** Owner, asked what self-hosting would take: "we can do that post-V1. I think self-hosting is probably a good litmus test to see how fast we are. The goal is to be 1x or below handwritten optimized Go code". The compiler (about 42,000 lines of Go today) is ported in stages: `format`, then `syntax`, then `check` and `lower`. Each stage goes on only when its output is byte-identical to the Go compiler's on the conformance corpus and its benchmark ratio against the Go version is at most 1.0. A three-stage build closes the port, and the compiler's own generated Go is the bootstrap seed. **Amended 2026-11-11 and 2026-11-12:** a self-hosting pilot is in v1 ("let's try to put a pilot in V1", [2026-11-11](#owner-direction-2026-11-11)), and the staged port stays after v1. Once source emission retires ("IR is the path", [2026-11-12](#owner-direction-2026-11-12)), no generated Go exists, so the generated-Go seed no longer holds; the seed is open (the audit proposes the previous released `ergo` binary, as Go and Rust bootstrap). Prerequisites: packages, Go interop ([#202](https://github.com/cevr/ergo/issues/202)), predictable map and slice aliasing ([#222](https://github.com/cevr/ergo/issues/222)), record update and `let … else`. Ticket: [#242](https://github.com/cevr/ergo/issues/242). Prior art: Go 1.5 translated its C compiler to Go; TypeScript left self-hosting for Go for about a 10x speedup; Elixir bootstraps from Erlang; Gleam, ReScript, Elm and PureScript stay on their host language.
 - **Speed levers keep the guarantees.** Owner: "Ideally, we would be able to kind of take advantage of compiler tricks and hints that we can give to make certain operations even faster - And for the rest, we should be able to kind of provide levers that increase speed while maintaining the simplicity and the capabilities and the guarantees that Ergo's North Stars provide". Decided by principle (pillar 7 and the tiebreak **Contract guardrails** beat **zero-cost slogans**): a lever changes speed, never meaning. It is admitted in one of three forms: proved by the checker from facts it already has (exhaustive unions, unique ownership, purity, refinements, as the proof tier of 2026-11-02 (b) removes a proved check); licensed by a law the program states and the test tier checks; or a hint whose removal never changes a result (layout, inlining, a profile). Unsafe code stays at the FFI edge. A research spike measures each candidate trick against matched optimized Go, keeps the losers visible, and sends the questions that shape v1 lowering (union layout, generic specialization, the lowering of code without effects) to [#196](https://github.com/cevr/ergo/issues/196) first. Ticket: [#243](https://github.com/cevr/ergo/issues/243). Prior art: GHC `RULES` and `SPECIALIZE`, Koka Perceus, Rust monomorphization, Go PGO and bounds-check elimination, ReScript's lowering of variants and strings.
 
 ## Owner direction, 2026-11-03
@@ -309,7 +415,7 @@ The recorded synthesis of these three directions, not owner words, follows. A co
 
 ### Owner readability direction, 2026-10-12
 
-Owner readability direction, 2026-10-12: "The language should feel easy to read, easy to understand, should not feel rust like, or Haskell like, and kind of like, obtuse, abstract language, but expressive, declarative, and explicit." On generics: "I feel like the language design is leading more typescript than go, especially with the generics … they look very expressive. I'm not sure if they look simple … It could be that that's the best way, but just to put some thoughts on there." Together with the 2026-10-11 goal above, signatures should read with Go's simplicity. Simplify what users write, not what the compiler checks: checked rows, ownership and explicit public contracts all stay (the fail-safe TypeScript projection went with the JavaScript target on 2026-10-26). [#135](https://github.com/cevr/ergo/issues/135) measures implicit kinds, pass-through row elision, named constraints in the type-parameter list and a worded row difference against a rewritten corpus. Elision may apply to pass-through rows only, never to declared requirements. Until #135 decides, the current generic and row spellings, and the surface syntax of [#116](https://github.com/cevr/ergo/issues/116), are provisional.
+Owner readability direction, 2026-10-12: "The language should feel easy to read, easy to understand, should not feel rust like, or Haskell like, and kind of like, obtuse, abstract language, but expressive, declarative, and explicit." On generics: "I feel like the language design is leading more typescript than go, especially with the generics … they look very expressive. I'm not sure if they look simple … It could be that that's the best way, but just to put some thoughts on there." Together with the 2026-10-11 goal above, signatures should read with Go's simplicity. Simplify what users write, not what the compiler checks: checked rows, ownership and explicit public contracts all stay (the fail-safe TypeScript projection went with the JavaScript target on 2026-10-26). [#135](https://github.com/cevr/ergo/issues/135) measures implicit kinds, pass-through row elision, named constraints in the type-parameter list and a worded row difference against a rewritten corpus. Elision may apply to pass-through rows only, never to declared requirements (superseded by q140, 2026-11-12: no elision). Until #135 decides, the current generic and row spellings, and the surface syntax of [#116](https://github.com/cevr/ergo/issues/116), are provisional.
 
 [Note: "the 2026-10-11 goal above" is [Owner application direction, 2026-10-11](#owner-application-direction-2026-10-11), now below this entry.]
 

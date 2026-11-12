@@ -206,7 +206,7 @@ func TestEnvelopeShapes(t *testing.T) {
 	if got, want := keys(result.Report(SourceSnapshot{Text: source}, false)), []string{"checked", "diagnostics", "lintComplete", "policyPassed", "producer", "returnedCount", "revision", "schemaVersion", "snapshot", "source", "strict", "suppressions", "target", "totalCounts", "truncated"}; !slices.Equal(got, want) {
 		t.Fatalf("report keys %v, want %v", got, want)
 	}
-	if CheckSchemaVersion != 10 || DiagnosticReportSchemaVersion != 3 || FormatterSchemaVersion != 1 {
+	if CheckSchemaVersion != 11 || DiagnosticReportSchemaVersion != 3 || FormatterSchemaVersion != 1 {
 		t.Fatal("a schema version moved without this test")
 	}
 }

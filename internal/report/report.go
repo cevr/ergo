@@ -16,8 +16,8 @@ import (
 
 // CheckSchemaVersion versions the check envelope and the snapshot
 // qualification every qualified projection carries. Version 10 dropped the
-// edition field (#205).
-const CheckSchemaVersion = 10
+// edition field (#205); version 11 added a diagnostic's fix (Fix).
+const CheckSchemaVersion = 11
 
 // MaxCheckDiagnostics bounds the diagnostics a check envelope lists. The
 // envelope says when it dropped the rest.
@@ -45,6 +45,22 @@ type Diagnostic struct {
 	File    string `json:"file,omitempty"`
 	Message string `json:"message"`
 	Span    Span   `json:"span"`
+	Fix     *Fix   `json:"fix,omitempty"`
+}
+
+// Fix is the edit that writes the clause an S101 or S102 names, under the
+// checker's Explicit option (q137): Text inserted at the byte offset
+// InsertAt of the diagnostic's file, after adding Imports. Row is the
+// whole clause; Text is empty when an element cannot be spelled.
+// Signature is the header with the clause written. ergo fix applies it.
+type Fix struct {
+	Clause    string   `json:"clause"`
+	Function  string   `json:"function"`
+	Row       []string `json:"row"`
+	InsertAt  int      `json:"insertAt"`
+	Text      string   `json:"text,omitempty"`
+	Imports   []string `json:"imports,omitempty"`
+	Signature string   `json:"signature"`
 }
 
 // Target is Ergo's only compilation target.
