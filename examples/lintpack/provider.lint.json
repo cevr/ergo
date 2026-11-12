@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "packs": [{"manifest": "policy.json"}],
+  "rules": {
+    "policy/forbidden-failure": "off",
+    "policy/provider-boundary": {
+      "options": {"provider": "main.Disk", "allow": ["main.compose"]}
+    }
+  }
+}

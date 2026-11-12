@@ -49,6 +49,10 @@ var nonPrograms = map[string]string{
 	// editions/sketch is pinned by cmd/ergo's and the sketch packages' Go
 	// tests and by README.md; the unit that retires those tests adopts it.
 	"editions": "edition fixtures that Go tests pin",
+	// lintpack is a Go rule pack (docs/specs/custom-lint.md): its .ergo
+	// files are lint fixtures, which examples/lintpack/policy's tests and
+	// `ergo lint test` run.
+	"lintpack": "a Go rule pack and its lint fixtures",
 }
 
 // caseFiles are the files a case folder may hold.

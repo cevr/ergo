@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "packs": [{"manifest": "policy.json"}],
+  "extends": ["policy/strict"],
+  "rules": {
+    "policy/provider-boundary": "off",
+    "policy/forbidden-failure": {
+      "severity": "error",
+      "options": {
+        "failure": "main.Denied",
+        "functions": ["main.fetch", "main.forwards", "main.relay", "main.recovers", "main.timed", "main.foreign", "main.legacy", "main.spelled"]
+      }
+    }
+  }
+}

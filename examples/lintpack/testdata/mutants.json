@@ -1,0 +1,8 @@
+{
+  "about": "Example policy pack mutants (wf10 LINT3). Killed by the in-process fixture tests of examples/lintpack/policy; cmd/ergo TestLintTestRunsThePolicyPack runs the same fixtures over the built pack process.",
+  "mutants": [
+    {"name":"lint3-policy-allow-ignored","origin":"wf10 LINT3","file":"examples/lintpack/policy/provider.go","from":"if allowed[with.Callable] {","to":"if false {","rule":"A configured composition function may bind the provider.","killers":["examples/lintpack/policy:TestFixturesInProcess"]},
+    {"name":"lint3-policy-reads-needs","origin":"wf10 LINT3","file":"examples/lintpack/policy/failure.go","from":"!slices.Contains(callable.Fails, failure)","to":"!slices.Contains(callable.Needs, failure)","rule":"The forbidden failure is read from the checked failure row.","killers":["examples/lintpack/policy:TestFixturesInProcess"]},
+    {"name":"lint3-policy-manifest-drift","origin":"wf10 LINT3","file":"examples/lintpack/policy/pack.go","from":"Version:      \"0.2.0\",","to":"Version:      \"0.2.1\",","rule":"The committed manifest is the pack's own metadata.","killers":["examples/lintpack/policy:TestManifestIsThePack"]}
+  ]
+}
