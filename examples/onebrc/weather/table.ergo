@@ -4,8 +4,8 @@
 // station first appears.
 
 import bits
+import fs
 import slices
-import strings
 
 // TableBits is log2 of the slots of a table.
 let TableBits = 15
@@ -35,7 +35,7 @@ func Hash(w0 uint64, w1 uint64) int {
 
 // Scan sums up the lines that start from p up to end. Lines start at p
 // and at end.
-func Scan(text string, from int, end int) Part {
+func Scan(text fs.Text, from int, end int) Part {
 	let free = Slot{W0: 0, W1: 0, Start: 0, Len: 0, Min: 0, Max: 0, Sum: 0, Count: 0}
 	let mut slots = slices.Repeat([]Slot{free}, Slots)
 	let mut used = []int{}
@@ -104,7 +104,7 @@ func Scan(text string, from int, end int) Part {
 		}
 		let mut h = Hash(w0, w1)
 		for {
-			if slots[h].Len == n && slots[h].W0 == w0 && slots[h].W1 == w1 && (n <= 16 || strings.Slice(text, slots[h].Start, slots[h].Start+n) == strings.Slice(text, p, p+n)) {
+			if slots[h].Len == n && slots[h].W0 == w0 && slots[h].W1 == w1 && (n <= 16 || text[slots[h].Start : slots[h].Start+n] == text[p : p+n]) {
 				slots[h].Min = lo(slots[h].Min, v)
 				slots[h].Max = hi(slots[h].Max, v)
 				slots[h].Sum += v

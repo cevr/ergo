@@ -276,7 +276,6 @@ func FSMapFile(path string) (*Mapped, error) {
 	return m, nil
 }
 
-
 // FSReadDir is the body of fs.Host's ReadDir: the names of the entries of
 // the directory at path, sorted by name (Go's os.ReadDir sorts them).
 //

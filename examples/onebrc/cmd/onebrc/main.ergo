@@ -43,11 +43,11 @@ func Parse(args []string, cores int) Command fails os.Exit {
 // Summary is the report of the input at path, or the exit that says why
 // there is none.
 func Summary(c Command) string fails os.Exit needs weather.Readings {
-	let text = weather.Readings.Text(c.Path) catch {
+	let input = weather.Readings.Open(c.Path) catch {
 	case weather.Unreadable as u:
 		return os.Exit{Code: 1, Message: "onebrc: \(u.Path): \(u.Reason)"}
 	}
-	let stations = weather.Summarize(text, c.Workers) catch {
+	let stations = weather.Summarize(input.Text(), c.Workers) catch {
 	case weather.Malformed as m:
 		return os.Exit{Code: 1, Message: "onebrc: malformed line at byte \(m.Offset): \(weather.Explain(m.Reason))"}
 	case weather.TooManyStations:

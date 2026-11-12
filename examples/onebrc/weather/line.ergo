@@ -2,6 +2,8 @@
 // that reads byte by byte. It is the authority on what is malformed: the
 // fast path of a Scan hands it every line it does not accept.
 
+import fs
+
 // MaxName is the longest station name, in bytes.
 let MaxName = 100
 
@@ -57,7 +59,7 @@ func Explain(r Reason) string {
 type Reading { Len int, Tenths int, Next int }
 
 // ParseLine parses the line that starts at p, byte by byte.
-func ParseLine(text string, p int) Reading fails Malformed {
+func ParseLine(text fs.Text, p int) Reading fails Malformed {
 	let mut i = p
 	for i < len(text) && text[i] != ';' && text[i] != '\n' {
 		i += 1
@@ -101,7 +103,7 @@ func ParseLine(text string, p int) Reading fails Malformed {
 
 // Validate parses the lines that start from p up to end, and fails with
 // the first malformed one.
-func Validate(text string, p int, end int) fails Malformed {
+func Validate(text fs.Text, p int, end int) fails Malformed {
 	let mut at = p
 	for at < end {
 		at = try ParseLine(text, at).Next

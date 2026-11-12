@@ -1,16 +1,17 @@
 // Package memory is a Readings provider over texts held in memory, for
 // tests: an input is named by a key.
 
+import fs
 import onebrc/weather
 
 // Texts holds the inputs by name.
 type Texts { Inputs Map[string, string] }
 
-// Text is the input named path.
-func Text(t Texts, path string) string fails weather.Unreadable {
+// Open is the input named path, as a Mapped held in memory (fs.MapText).
+func Open(t Texts, path string) fs.Mapped fails weather.Unreadable {
 	match t.Inputs.Get(path) {
 	case Some[string] as s:
-		s.Value
+		fs.MapText(s.Value)
 	case None:
 		return weather.Unreadable{Path: path, Reason: "no such input"}
 	}
