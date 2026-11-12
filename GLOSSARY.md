@@ -45,9 +45,11 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Row**: An error row or a capability row. Rows are checked and then erased from the emitted Go.
 
-**Inferred row** (checked): A row the checker computes from a body because the row is not written: the rows of an unexported function with a body and of a function literal. A written row is declared and is an upper bound. Inference runs per strongly connected component of a package's reference graph.
+**Inferred row** (retired by decision, 2026-11-12; still checked until the explicit-signature units land): A row the checker computes from a body because the row is not written: the rows of an unexported function with a body and of a function literal. A written row is declared and is an upper bound. Inference runs per strongly connected component of a package's reference graph. Under the tiebreak **Explicit local signatures** beat **inference** ([NORTH_STAR](NORTH_STAR.md#tiebreaks); [decision](docs/decisions.md#owner-direction-2026-11-12)), no row is inferred: an unwritten row is empty, as under the export guard.
 
-**Export guard** (checked): The rule that a declaration other code depends on spells its rows: exported functions, operations, `main`, laws, bodiless declarations and the step of an exported machine type. An unwritten row there is empty, never inferred.
+**Export guard** (checked for exported declarations; decided for every function, 2026-11-12): The rule that a declaration spells its rows: exported functions, operations, `main`, laws, bodiless declarations and the step of an exported machine type. An unwritten row there is empty, never inferred. By the 2026-11-12 decision it is the signature rule for every named function, operation and method, exported or not, and for every clause: `fails`, `needs`, `takes`, `given`, `gives` and `keeps`. A body that exceeds its signature is a diagnostic that names the clause to add.
+
+**Clause** (decided, 2026-11-12): A part of a signature, written after the result type, that states a contract the checker checks the body against: an error row (`fails`), a capability row (`needs`), an ownership clause (`takes`), or a fact clause (`given`, `gives`, `keeps`). A clause is always written; an unwritten clause is the empty clause, and the checker never computes one from a body or a call graph. Code the compiler generates gets its clauses from its generator, and `ergo inspect` shows them.
 
 **Requirement binding** (checked): The bare name of a capability a written `needs` row lists, entered in the body's frame beside the parameters. A local of that name in the same frame is an error.
 
@@ -121,7 +123,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Non-escaping parameter**: A function-typed parameter written without `escaping`. The callee runs it only on the calling task, before the call returns, one run at a time, and no one keeps it ([types.md](docs/spec/types.md#function-values) Function values 2). Any other use needs `escaping`.
 
-**Concurrent parameter**: A function parameter that the callee runs on another task while another run or the caller may run. It is written `escaping` (ESC1, 2026-11-11); no separate clause marks it, and an argument to it may not assign captured locals.
+**Concurrent parameter**: A function parameter that the callee runs on another task while another run or the caller may run. It is written `escaping` (ESC1, 2026-11-11); no separate clause marks it, and an argument to it may not assign captured locals. The fact is always the written `escaping`; the compiler does not infer it (decision, 2026-11-12).
 
 **Replayable parameter** (designed): A function parameter that may run more than once, such as a transaction body. It may not assign captured locals, use channels or consume a resource, and its footprint holds only `sync.Tx`.
 
@@ -209,7 +211,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Declared contract** ([#130](https://github.com/cevr/ergo/issues/130)): A library primitive's statement of what its body does with its parameters, written only in the vocabulary that inference produces, for a primitive that has no reference body to infer from. It is consumed exactly as an inferred contract is, so it grants no meaning that inference could not.
 
-**Recipe-parameter contract** ([#130](https://github.com/cevr/ergo/issues/130)): The inferred summary of what a function's body does with each function-typed parameter: calls it, hands it to a task, stores it or replays it. A caller substitutes its actual argument. In the Go-shaped language it carries the non-escaping, concurrent and replayable facts and travels in the interface summary.
+**Recipe-parameter contract** ([#130](https://github.com/cevr/ergo/issues/130)): The inferred summary of what a function's body does with each function-typed parameter: calls it, hands it to a task, stores it or replays it. A caller substitutes its actual argument. In the Go-shaped language it carries the non-escaping, concurrent and replayable facts and travels in the interface summary. Superseded as an inferred summary (decision, 2026-11-12, [explicit local signatures](docs/decisions.md#owner-direction-2026-11-12)): when it is built, each fact is a written clause or a written parameter prefix, never inferred from the body.
 
 **Language protocol**: A nominal row label whose charging or discharge a construct's own checking rule defines, such as `go.Foreign` for calls through `import go`, or `sync.Tx` inside `sync.Atomically`. It is predeclared. An ordinary capability, whose label enters a row only through declared operations or requirements, is not a language protocol.
 
@@ -428,6 +430,8 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 **Request scope**: A fresh owning scope for one HTTP request, linked to connection and server cancellation. Completed shutdown includes its handler cleanup.
 
 ## Tooling and testing
+
+**`ergo fix`** (designed, 2026-11-12): The command that writes the missing clauses of a signature on request. A diagnostic for a body that exceeds its signature names the exact clause to add, and `ergo fix` writes that clause into the source. It is the tool half of the tiebreak **Explicit local signatures** beat **inference**: the checker never infers a clause, and the tool writes it for the author ([decision](docs/decisions.md#owner-direction-2026-11-12)).
 
 **Lint advice**: Optional guidance about an admitted program, distinct from diagnostics that determine whether its contracts are valid.
 
