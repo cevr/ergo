@@ -268,10 +268,10 @@ func (in *interp) impure(pkg *check.Package, key syntax.Node) string {
 		ice("no footprint for the frame at %d", key.Pos())
 	}
 	switch {
-	case len(fp.Caps) > 0:
-		return fmt.Sprintf("it uses the capability %s, which check-time evaluation never runs", fp.Caps[0])
 	case fp.Tasks:
 		return "it starts a task, which check-time evaluation never runs"
+	case len(fp.Caps) > 0:
+		return fmt.Sprintf("it uses the capability %s, which check-time evaluation never runs", fp.Caps[0])
 	case fp.Opaque:
 		return "it calls code whose footprint is unknown (a function value, an operation or a Go function)"
 	}

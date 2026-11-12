@@ -21,6 +21,9 @@ func (p *preflight) function(fr *frame, fn *check.Func) string {
 		ice("no resolved callee")
 	}
 	if fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host() {
+		if !fn.Pkg.Host() && nativeOf(fn) != nil {
+			return ""
+		}
 		return fmt.Sprintf("a Go function (%s), even a pure one", fn.Name)
 	}
 	if fn.Ptr {
@@ -38,7 +41,10 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 	if !ok {
 		ice("no footprint for the frame at %d", key.Pos())
 	}
-	if len(fp.Caps) > 0 || fp.Tasks {
+	// A capability runs through the provider a with binds (effects.go);
+	// a capability no with of the run binds is skipped at its call. A
+	// task waits for O3's scheduler.
+	if fp.Tasks {
 		return p.in.impure(fr.pkg, key)
 	}
 	why := ""
@@ -48,12 +54,12 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 		}
 		mustCharge(p.in, fr, 1)
 		if x, ok := n.(syntax.Expr); ok {
-			if c := fr.info.Implicit[x]; c.Kind != 0 && c.Kind != check.ConvVariant && c.Kind != check.ConvRow {
-				why = "an unsupported implicit operation or machine conversion"
+			if c := fr.info.Implicit[x]; c.Kind == check.ConvMachine {
+				why = "an unsupported implicit machine conversion"
 				return false
 			}
 			for _, c := range fr.info.ImplicitElems[x] {
-				if c.Kind != 0 && c.Kind != check.ConvVariant && c.Kind != check.ConvRow {
+				if c.Kind == check.ConvMachine {
 					why = "an unsupported tuple-element conversion"
 					return false
 				}
@@ -107,7 +113,8 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 					}
 				}
 				if conv == nil {
-					why = "an unresolved operation"
+					// An operation value's provider is known only when
+					// the run reaches the call (effects.go dispatch).
 					break
 				}
 				fn := conv.Table[c.Op.Name]
@@ -115,6 +122,8 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 					ice("no checked method for operation %s", c.Op.Name)
 				}
 				why = p.function(fr, fn)
+			case check.CallProviderOp, check.CallWith:
+				// The provider is the nearest with's, known at the run.
 			default:
 				why = fmt.Sprintf("an unsupported call (kind %d)", c.Kind)
 			}

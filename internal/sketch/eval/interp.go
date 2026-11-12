@@ -44,6 +44,8 @@ type frame struct {
 	// resultPos is the expression returned by this frame, including the
 	// chosen nested tail. The enclosing law uses it for a false result.
 	resultPos syntax.Pos
+	// caps are the capabilities bound here (effects.go).
+	caps *capEnv
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
@@ -167,24 +169,44 @@ func unparen(x syntax.Expr) syntax.Expr {
 // function with a body). It returns the result, or a ctlFail with the
 // callee's failure.
 func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []check.Type, args []Value) (Value, *abrupt) {
+	if at != nil && len(fn.Sig.TParams) > 0 && fr.info.Instances[at] != nil && len(fr.info.Instances[at].Witnesses) > 0 {
+		return nil, fr.unsupported(at, "a generic call whose type parameter an operation type constrains (%s) yet", fn.Name)
+	}
+	// Each type argument is read in the caller's substitution.
+	var rt []rtype
+	for _, t := range targs {
+		rt = append(rt, fr.rt(t))
+	}
+	return in.callResolved(fr, at, fn, rt, args)
+}
+
+// callResolved is call with its type arguments already read. A std
+// function with no Ergo body runs as the evaluator's native, if it has
+// one (natives.go); any other Go function is skipped. The callee sees
+// the caller's capabilities.
+func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []rtype, args []Value) (Value, *abrupt) {
 	switch {
 	case fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host():
+		if nat := nativeOf(fn); nat != nil && !fn.Pkg.Host() {
+			var site syntax.Node = fr.decl
+			if at != nil {
+				site = at
+			}
+			return nat(in, fr, site, fn, args)
+		}
 		return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
 	case fn.Pkg.Info == nil:
 		ice("the package of %s has no Info", fn.Name)
 	}
 	callee := in.newFrame(fn.Pkg, fn.Decl)
+	callee.caps = fr.caps
 	if len(fn.Sig.TParams) > 0 {
 		if len(targs) != len(fn.Sig.TParams) {
 			ice("the generic call of %s has %d type arguments for %d parameters", fn.Name, len(targs), len(fn.Sig.TParams))
 		}
-		if at != nil && fr.info.Instances[at] != nil && len(fr.info.Instances[at].Witnesses) > 0 {
-			return nil, fr.unsupported(at, "a generic call whose type parameter an operation type constrains (%s) yet", fn.Name)
-		}
-		// Each type argument is read in the caller's substitution.
 		callee.env = &tenv{m: map[*check.TypeParam]rtype{}}
 		for i, tp := range fn.Sig.TParams {
-			callee.env.m[tp] = fr.rt(targs[i])
+			callee.env.m[tp] = targs[i]
 		}
 	}
 	var params []*check.Var

@@ -329,6 +329,10 @@ func describe(v Value) string {
 		return formatFloat(v, 64)
 	case unit:
 		return "no value"
+	case *operation:
+		return describe(v.value)
+	case opObject:
+		return v.describe()
 	}
 	if s, ok := describeColl(v); ok {
 		return s

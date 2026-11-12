@@ -59,28 +59,32 @@ func bindingName(pkg *check.Package, law *check.Law, b []check.LawProvider) stri
 }
 
 // operation is a checked provider conversion, never a live Go function value.
+// env is the substitution of the frame that made the conversion, which
+// its instances' type arguments are read in.
 type operation struct {
 	value Value
 	conv  check.Conversion
+	env   *tenv
 }
 
+// operationCall runs an operation of an operation-type value (CallOp) or
+// of the law's own provider (CallLawOp).
 func (in *interp) operationCall(fr *frame, x *syntax.CallExpr, c *check.Call) (Value, *abrupt) {
-	op := fr.lawOwn
+	var recv Value
+	if fr.lawOwn != nil {
+		recv = fr.lawOwn
+	}
 	if c.Kind == check.CallOp {
 		v, ab := in.expr(fr, c.Recv)
 		if ab != nil {
 			return nil, ab
 		}
-		op, _ = v.(*operation)
+		recv = v
 	}
-	if op == nil {
+	if recv == nil {
 		return nil, fr.unsupported(x, "an unresolved operation")
 	}
-	fn := op.conv.Table[c.Op.Name]
-	if fn == nil {
-		ice("no checked method for operation %s", c.Op.Name)
-	}
-	args := []Value{op.value}
+	args := make([]Value, 0, len(x.Args))
 	for _, a := range x.Args {
 		v, ab := in.expr(fr, a)
 		if ab != nil {
@@ -88,11 +92,7 @@ func (in *interp) operationCall(fr *frame, x *syntax.CallExpr, c *check.Call) (V
 		}
 		args = append(args, v)
 	}
-	var targs []check.Type
-	if inst := op.conv.Instances[c.Op.Name]; inst != nil {
-		targs = inst.TypeArgs
-	}
-	return in.call(fr, x, fn, targs, args)
+	return in.dispatch(fr, x, recv, c.Op.Name, args)
 }
 
 func (in *interp) testCases(pkg *check.Package, t *check.Test, res Result) Result {
@@ -219,10 +219,17 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 			}
 			args = append(args, Argument{Name: input.Name, Value: text})
 			if input.Provider != nil {
-				v = &operation{value: v, conv: input.Provider.Conv}
+				v = &operation{value: v, conv: input.Provider.Conv, env: cf.env}
 			}
 			if input.Param < 0 {
+				// A member law's body calls functions that need its own
+				// operation type: the provider under test is bound to it.
 				cf.lawOwn = v.(*operation)
+				to := input.Provider.Conv.To
+				if to == nil {
+					to = input.Type
+				}
+				cf.caps = &capEnv{key: typeKey(cf.rt(to)), op: v, next: cf.caps}
 			} else {
 				cf.bind(params[input.Param], v)
 			}

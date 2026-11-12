@@ -19,15 +19,33 @@ func (in *interp) expr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	if ab != nil {
 		return nil, ab
 	}
+	// A variant or a row value goes into its union unchanged: the value
+	// keeps its record type. A provider goes into an operation type as an
+	// operation value (effects.go); a machine table waits for a later unit.
 	if conv, ok := fr.info.Implicit[x]; ok && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow {
-		// A variant or a row value goes into its union unchanged: the
-		// value keeps its record type. An operations or machine table is
-		// a function value.
-		return nil, fr.unsupported(x, "a conversion to the operation type %s yet", conv.To)
+		return in.toOperation(fr, x, v, conv)
 	}
-	for _, conv := range fr.info.ImplicitElems[x] {
-		if conv.Kind != 0 && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow {
-			return nil, fr.unsupported(x, "a conversion to the operation type %s yet", conv.To)
+	if convs := fr.info.ImplicitElems[x]; len(convs) > 0 {
+		t, ok := v.(tuple)
+		if !ok || len(t.elems) != len(convs) {
+			ice("element conversions of %T", v)
+		}
+		var out tuple
+		for i, conv := range convs {
+			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow {
+				continue
+			}
+			if out.elems == nil {
+				out.elems = append([]Value(nil), t.elems...)
+			}
+			e, ab := in.toOperation(fr, x, t.elems[i], conv)
+			if ab != nil {
+				return nil, ab
+			}
+			out.elems[i] = e
+		}
+		if out.elems != nil {
+			return out, nil
 		}
 	}
 	return v, nil
@@ -101,11 +119,11 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		}
 		return out, nil
 	case *syntax.FuncLit:
-		// Making a function literal runs nothing: the value is the literal
-		// and the slots it reads. Only a call where it is written runs it
-		// at check time; any other call of a function value is opaque
-		// (rows.md, Footprints) and never reaches the evaluator.
-		return &closure{lit: x, vars: fr.vars, env: fr.env}, nil
+		// Making a function literal runs nothing: the value is the literal,
+		// the slots it reads and the capabilities bound where it is made.
+		// It runs where it is written, or where a native the evaluator
+		// runs calls it (sync.Ref's Update, natives.go).
+		return &closure{lit: x, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}, nil
 	case *syntax.StarExpr:
 		return nil, fr.unsupported(x, "a pointer")
 	}
@@ -118,6 +136,8 @@ type closure struct {
 	lit  *syntax.FuncLit
 	vars map[*check.Var]*slot
 	env  *tenv
+	home *frame // the frame that made it: its package, declaration and owner
+	caps *capEnv
 }
 
 // bareRecord is the value of a record with no fields named bare,
@@ -677,8 +697,10 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 			return nil, ab
 		}
 		return in.callLiteral(fr, x, lit, args)
-	case check.CallWith, check.CallProviderOp:
-		return nil, fr.unsupported(x, "a with or a capability, which check-time evaluation never runs")
+	case check.CallWith:
+		return in.withExpr(fr, x)
+	case check.CallProviderOp:
+		return in.providerCall(fr, x, c)
 	case check.CallOp, check.CallLawOp:
 		return in.operationCall(fr, x, c)
 	}
@@ -708,7 +730,7 @@ func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call) ([]Value, *
 // callLiteral runs a function literal called where it is written: its
 // body reads and writes the slots of the frame around it, in place.
 func (in *interp) callLiteral(fr *frame, at *syntax.CallExpr, lit *syntax.FuncLit, args []Value) (Value, *abrupt) {
-	callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn}
+	callee := &frame{pkg: fr.pkg, info: fr.info, decl: fr.decl, vars: fr.vars, env: fr.env, owner: fr.owner, lawOwn: fr.lawOwn, caps: fr.caps}
 	var params []*check.Var
 	for _, field := range lit.Type.Params.List {
 		if len(field.Names) == 0 {
