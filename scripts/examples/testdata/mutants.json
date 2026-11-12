@@ -80,7 +80,7 @@
       "from": "case file == opcount.WorkloadFile:",
       "to": "case file == \"no \"+opcount.WorkloadFile:",
       "rule": "A program of packages may hold a workload file (scripts/opcount).",
-      "killers": ["scripts/examples:TestModuleProgramWorkload"]
+      "killers": ["scripts/examples:TestRepoExamplesHoldTheirLaws", "scripts/examples:TestModuleProgramWorkload"]
     },
     {
       "name": "examples-workload-unchecked",
