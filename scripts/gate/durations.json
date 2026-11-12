@@ -266,6 +266,7 @@
     "TestUTF16RangeCountsCodeUnitsAndNormalizesCRLF": 0
   },
   "ergo.local/prototype/internal/residue": {
+    "TestCompilerReadsNoStdMembership": 0.9,
     "TestContextResidue": 0.07,
     "TestGitCallRule": 0,
     "TestGitCallsTakeNoOptionalLocks": 0.36,
@@ -1218,6 +1219,7 @@
     "TestProgramPackagesHaveNoHostProvider": 0,
     "TestSeqStopRuleFixtures": 0.01,
     "TestStdBindsNoForeignBody": 0.01,
+    "TestStdCopyAgrees": 4.5,
     "TestStdExternCallersHoldAuthority": 0.09,
     "TestStdHostGuardAgreesWithOracle": 1.03,
     "TestStdHostHandOutChains": 4.86,

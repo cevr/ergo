@@ -122,9 +122,12 @@ var declared = map[string][]allowance{
 			{"docs/spec/stdlib.md", file, "the std law runners pass their laws to lawledger.Run, which reads the Std laws ledger to hold each restatement to its row (fu-ledger-runner)"},
 		},
 	),
+	// The std tests import internal/sketch/lower (TestStdCopyAgrees lowers
+	// each std package and its copy), so lower's files, its test files
+	// among them, are in the package's closure: TestStdLawLedger's read of
+	// them (runnerPackages) needs no grant.
 	"internal/sketch/std": declare(
 		[]allowance{{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"}},
-		glob("internal/sketch/lower/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages) to find each ledger runner and whether it calls lawledger.Run"),
 	),
 	"runtime/v1": {
 		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},

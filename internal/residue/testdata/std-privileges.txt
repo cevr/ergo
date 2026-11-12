@@ -1,0 +1,133 @@
+# The compiler's functions that read std membership or a std name
+# (TestCompilerReadsNoStdMembership; owner, 2026-11-12: the standard
+# library gets no special treatment). A line is
+# `category<TAB>file:function<TAB>reason<TAB>unit`.
+# seam: a function of a seam file (docs/spec/stdlib.md, Std is ordinary)
+#   that finds, ships, caches or names std and decides nothing.
+# language: a reader of a predeclared name of the language, listed in the
+#   same section.
+# debt: any other; the unit names who removes it. Debt only shrinks.
+
+seam	internal/sketch/check/check.go:StdFixture	a test fixture checked as std (no Ergo source reaches it)	-
+seam	internal/sketch/check/check.go:prelude	loads the embedded prelude and marks it std	-
+seam	internal/sketch/check/check.go:stdImporter.load	loads an embedded std package and marks it std	-
+seam	internal/sketch/check/check.go:stdImporter.testOf	finds the std package a std test package tests	-
+seam	internal/sketch/check/decl.go:checker.importSpec	a std path always names std (no shadowing)	-
+seam	internal/sketch/check/decl.go:checker.run	the second check of a package keeps its std mark	-
+seam	internal/sketch/check/export.go:ExportStd	writes the checked std snapshot	-
+seam	internal/sketch/check/export_gen.go:decoder.decFieldsPackage	reads a package's std mark from the snapshot	-
+seam	internal/sketch/check/export_gen.go:encoder.encFieldsPackage	writes a package's std mark into the snapshot	-
+seam	internal/sketch/check/info.go:Package.Std	the accessor of the std mark	-
+seam	internal/sketch/lower/lower.go:Unit.Validate	a std package has no unit: its sources ship in the compiler	-
+seam	internal/sketch/lower/naming.go:lowerer.nameAll	names a std package's lets and context builders, which have no unit	-
+seam	internal/sketch/lower/sources.go:lowerer.locate	the position of a std node: its embedded file	-
+seam	internal/sketch/lower/sources.go:lowerer.missingImport	a reached user package needs a unit; std ships in the compiler	-
+seam	internal/sketch/lower/sources.go:lowerer.stdLetPkgs	the std packages whose lets the program initializes	-
+seam	internal/sketchfront/load.go:loader.Import	std paths resolve to the embedded std first	-
+seam	internal/sketchfront/load.go:modulePathProblem	a module path may not take a std package's name	-
+seam	internal/sketchfront/sketchfront.go:stdDependencies	the digest of std's sources in the build key	-
+language	internal/rpcgen/rpcgen.go:gen.importOf	a prelude name is written unqualified	-
+language	internal/rpcgen/rpcgen.go:pairOf	Wire, the codec's conversion protocol	-
+language	internal/sketch/check/authority.go:authorityText	a prelude constructor is named unqualified in a diagnostic	-
+language	internal/sketch/check/authority.go:isAmbient	Ambient, the host authority	-
+language	internal/sketch/check/call.go:checker.collFuncs	the prelude collection functions Append, Get, Delete and Put	-
+language	internal/sketch/check/call.go:checker.preludeOp	a prelude operation reached by the dot form	-
+language	internal/sketch/check/call.go:isUnreachable	Unreachable	-
+language	internal/sketch/check/close.go:checker.closeFacts	Close, the release operation	-
+language	internal/sketch/check/close.go:closeTakes	Close, the release operation	-
+language	internal/sketch/check/contextvalues.go:contextRow	Context, the predeclared row value	-
+language	internal/sketch/check/decl.go:checker.collectSelfFuncs	the prelude's ownership declarations	-
+language	internal/sketch/check/entry.go:checker.checkErrorMethods	Error, the method of a failure type	-
+language	internal/sketch/check/extern.go:IsGoError	go.Error of the Go boundary	-
+language	internal/sketch/check/footprint.go:preludeCollection	the prelude collection functions	-
+language	internal/sketch/check/hostres.go:checker.hostCloseFunc	Close, the release operation of a host resource	-
+language	internal/sketch/check/laws.go:lawClosures	the prelude's providers in a law	-
+language	internal/sketch/check/loops.go:checker.preludeOrigin	Range and Seq, the iteration forms	-
+language	internal/sketch/check/match.go:reusableBinderName	Decision, the machine result	-
+language	internal/sketch/check/ownership.go:checker.checkOwnership	Close, the release operation	-
+language	internal/sketch/check/ownership.go:ownWalk.valuesSeq	Values, the iteration operation	-
+language	internal/sketch/check/releaseneeds.go:checker.releaseWider	Close, the release operation	-
+language	internal/sketch/check/stmt.go:checker.isErrorValue	go.Error of the Go boundary	-
+language	internal/sketch/check/takes.go:checker.takesPass	Close, the release operation	-
+language	internal/sketch/derive/eval.go:evaluator.callee	Of, the derive plan's constructor	-
+language	internal/sketch/eval/arguments.go:interp.argumentType	prelude types are the program's	-
+language	internal/sketch/eval/expr.go:interp.collectionCall	the prelude collection functions	-
+language	internal/sketch/eval/expr.go:preludeCollection	the prelude collection functions	-
+language	internal/sketch/eval/machine.go:interp.machineStep	Enter, Stay, Emit, Done and Next of a machine	-
+language	internal/sketch/eval/stmt.go:interp.handover	the prelude Get	-
+language	internal/sketch/lower/builders.go:lowerer.builtText	a prelude constructor is written unqualified	-
+language	internal/sketch/lower/calls.go:funcCtx.callee	a prelude function is written unqualified in the call table	-
+language	internal/sketch/lower/decls.go:isPreludeType	Option, Some and None	-
+language	internal/sketch/lower/decls.go:lowerer.intrinsic	the prelude collection functions	-
+language	internal/sketch/lower/getmatch.go:getPattern	Some's Value, the comma-ok form of Get	-
+language	internal/sketch/lower/getmatch.go:preludeGet	the prelude Get	-
+language	internal/sketch/lower/gocall.go:isOptionType	Option at the Go boundary	-
+language	internal/sketch/lower/library.go:hostProvides	Console and Ambient at the entry	-
+language	internal/sketch/lower/literal.go:lowerer.ergoType	a prelude type is written unqualified	-
+language	internal/sketch/lower/module.go:lowerer.hostFields	Console and Ambient at the entry	-
+language	internal/sketch/lower/values.go:preludeAppend	the prelude Append	-
+language	internal/sketch/lower/values.go:preludeMapWrite	the prelude Delete and Put	-
+language	internal/tsproj/project.go:emitter.declare	Wire, the codec's conversion protocol	-
+language	internal/tsproj/project.go:emitter.schema	Option	-
+debt	internal/sketch/check/authority.go:sealedStdOps	a std operation type is the runtime's Go type	NP4c
+debt	internal/sketch/check/drop.go:dropWalk.drain	a std type's drain body by name	NP3c
+debt	internal/sketch/check/drop.go:releasesResult	a std extern's hidden result release	NP4b
+debt	internal/sketch/check/durable.go:MakesHost	actor.NewHost by name	NP3a
+debt	internal/sketch/check/durable.go:TakesDurableMachine	the durable runners by name	NP3a
+debt	internal/sketch/check/durable.go:checker.durableStep	the durable step rule skips std	NP3a
+debt	internal/sketch/check/durable.go:checker.recordDurable	machines.Start by name	NP3a
+debt	internal/sketch/check/embed.go:checker.embedCall	embed.FS by name	NP3d
+debt	internal/sketch/check/expr.go:checker.compositeLit	a Context literal only in std	NP3d
+debt	internal/sketch/check/extern.go:checker.checkExterns	std skips the user extern rule	NP4e
+debt	internal/sketch/check/extern.go:externValue	a std extern's value-ness from its runtime body	NP4e
+debt	internal/sketch/check/footprint.go:pureStd	only a std extern is pure	NP4b
+debt	internal/sketch/check/lend.go:callbackKeeper	a std body that keeps a callback, by name	NP4b
+debt	internal/sketch/check/lend.go:ownWalk.drainsLends	a std body that drains lends, by name	NP4b
+debt	internal/sketch/check/ownership.go:isQueue	queue.Queue by name	NP3c
+debt	internal/sketch/check/ownership.go:ownWalk.holdsTaken	a std type keeps taken values	NP3c
+debt	internal/sketch/check/running.go:checker.running	a std body that stops running code, by name	NP4b
+debt	internal/sketch/check/script.go:returnsRunning	a std body that stops running code, by name	NP4b
+debt	internal/sketch/check/script.go:scriptArg	testing.Script by name	NP3d
+debt	internal/sketch/check/takes.go:copiesOf	a runtime body that only moves, by name	NP4b
+debt	internal/sketch/check/taskcapture.go:movingBody	a std body that moves its argument, by name	NP4b
+debt	internal/sketch/check/withown.go:isOnExit	scope.OnExit by name	NP3d
+debt	internal/sketch/check/work.go:TakesWorkSend	actor.Child and ChildIn by name	NP3b
+debt	internal/sketch/check/work.go:checker.workLit	the fields of machines.Work by name	NP3b
+debt	internal/sketch/check/work.go:checker.workLitForm	the fields of machines.Work by name	NP3b
+debt	internal/sketch/check/work.go:isWorkType	machines.Work by name	NP3b
+debt	internal/sketch/eval/machine.go:interp.machineLaw	a machine law is skipped when its state holds a std type	NP7
+debt	internal/sketch/lower/blocking.go:lowerer.hostBlockingIntrinsic	the host Sleep by name	NP4d
+debt	internal/sketch/lower/blocking.go:runtimeBindings	the wait and release policy by body name	NP4d
+debt	internal/sketch/lower/calls.go:funcCtx.buildProvider	a std provider has no line directive and its own Info	NP8
+debt	internal/sketch/lower/calls.go:funcCtx.scopeCall	a runtime body's convention by name	NP4d
+debt	internal/sketch/lower/calls.go:lowerer.hostImportNames	std time is imported by the runtime already	NP4c
+debt	internal/sketch/lower/calls.go:lowerer.stdContext	a std context's builder is a std body	NP8
+debt	internal/sketch/lower/calls.go:userExtern	a user extern is a plain Go call	NP4d
+debt	internal/sketch/lower/context.go:contextNamespace	the context namespace std:path	NP8
+debt	internal/sketch/lower/embed.go:funcCtx.packageEmbed	the embedded FS body by name	NP4d
+debt	internal/sketch/lower/gobody.go:appenderExtern	a std extern that appends	NP4b
+debt	internal/sketch/lower/refown.go:funcCtx.ownedRefCall	a runtime body's convention by name	NP4d
+debt	internal/sketch/lower/refown.go:lowerer.ownedFormOf	a runtime body's owned form by name	NP4d
+debt	internal/sketch/lower/release.go:funcCtx.closeBody	a runtime body's release by name	NP4d
+debt	internal/sketch/lower/release.go:funcCtx.holdTaken	a std type keeps taken values	NP3c
+debt	internal/sketch/lower/release.go:funcCtx.ownBinding	a runtime body's convention by name	NP4d
+debt	internal/sketch/lower/release.go:funcCtx.stdOp	a std operation is a runtime body	NP4d
+debt	internal/sketch/lower/static.go:takesHeld	a std extern that takes its argument	NP4b
+debt	internal/sketch/lower/std.go:funcCtx.stdCall	a std extern calls its runtime body with hidden arguments	NP4d
+debt	internal/sketch/lower/std.go:lowerer.runtimeType	a std record or operation type is the runtime's Go type	NP4c
+debt	internal/sketch/lower/std.go:lowerer.stdBody	only a std extern binds a runtime body	NP4d
+debt	internal/sketch/lower/std.go:opBody	a std operation's runtime body by name	NP4d
+debt	internal/sketch/lower/std.go:runtimeProtocols	std types that are runtime Go types, by name	NP4c
+debt	internal/sketch/lower/types.go:lowerer.foreignOwner	the std package that owns a runtime type	NP4c
+debt	internal/sketch/lower/values.go:lowerer.ownedForm	a runtime body's owned form by name	NP4d
+debt	internal/sketch/lower/wirefields.go:jsonWrapper	the wire form of json's Optional, Nullable, Value and Num by name	CF1
+debt	internal/sketch/lower/wiretext.go:lowerer.cellRewriter	law evidence only for a root or std provider	NP2
+debt	internal/sketch/lower/wiretext.go:newStdEvidence	std's embedded ledger, read for std alone	NP2
+debt	internal/sketchfront/inspect.go:InspectGo	inspect skips std	NP5
+debt	internal/sketchfront/inspect.go:ergoBody	inspect skips std	NP5
+debt	internal/sketchfront/rewrite.go:FreshStdLedger	std's ledger is written by a std-only path	NP5
+debt	internal/sketchfront/rewrite.go:ledgerEvidence	std's ledger, read for std alone	NP2
+debt	internal/sketchfront/rewrite.go:ledgerSource.find	the ledger of a std package is std's	NP2
+debt	internal/tsproj/http.go:httpFailureStatuses	http.FailureStatus by name	NP7
+debt	internal/tsproj/http.go:httpTables	http.Route by name	NP7
+debt	internal/tsproj/project.go:stdJSON	json's wire forms by name	NP7

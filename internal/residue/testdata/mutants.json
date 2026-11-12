@@ -40,6 +40,56 @@
       "rule": "Code in a fenced block is not prose: Go's words in a habit message stay.",
       "killers": ["internal/residue:TestSpecTextRules"],
       "anchor": {"tests": ["internal/residue:TestSpecTextRules"]}
+    },
+    {
+      "name": "residue-std-read-unlisted",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "func (fc *funcCtx) typeOf(x syntax.Expr) check.Type {\n",
+      "to": "func (fc *funcCtx) typeOf(x syntax.Expr) check.Type {\n\t_ = fc.l.pkg.Std()\n",
+      "rule": "The standard library gets no special treatment: a new read of std membership in the compiler has no row of std-privileges.txt.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-name-through-constant",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "// typeOf is x's checked type.\n",
+      "to": "const mutantQueue = \"queue\"\n\nfunc mutantIsQueue(p *check.Package) bool { return p.Path == mutantQueue }\n\n// typeOf is x's checked type.\n",
+      "rule": "A comparison with a std package path through a package-level constant is a comparison with the path.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-table-key",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "// typeOf is x's checked type.\n",
+      "to": "var mutantTable = map[string]bool{\"queue.Queue\": true}\n\n// typeOf is x's checked type.\n",
+      "rule": "A table keyed by a std name is a decision by name.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-debt-grows",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/residue/testdata/std-privileges.txt",
+      "from": "language\tinternal/sketch/lower/values.go:preludeAppend\tthe prelude Append\t-\n",
+      "to": "debt\tinternal/sketch/lower/values.go:preludeAppend\tthe prelude Append\tNP6\n",
+      "rule": "The debt list only shrinks: a row may not join it.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-scan-skips-package",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/residue/std_membership_test.go",
+      "from": "\"internal/sketch/format\", \"internal/sketchfront\", \"internal/tsproj\",\n",
+      "to": "\"internal/sketch/format\", \"internal/sketchfront\",\n",
+      "rule": "The rule reads every compiler package: a package left out of the scan would hide its reads.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
     }
   ]
 }

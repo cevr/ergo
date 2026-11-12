@@ -41,6 +41,42 @@
       "rule": "stdlib.md cmp: Max is the larger value (law MaxMinSplit).",
       "anchor": {"tests": ["lower:TestStdSlicesLawsRun"]},
       "killers": ["lower:TestStdSlicesLawsRun"]
+    },
+    {
+      "name": "copy-membership-fast-path", "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\tfd.pure = l.isPure(f) || l.pureIntrinsic(f)\n",
+      "to": "\tfd.pure = (l.isPure(f) || l.pureIntrinsic(f)) && (f.Pkg == l.pkg || f.Pkg.Std())\n",
+      "rule": "The standard library gets no special treatment: a lowering that gives the fast form (a function with no environment) only to std is caught by the copy of a std package.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-derived-flag", "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/decls.go",
+      "from": "\tfd.pure = l.isPure(f) || l.pureIntrinsic(f)\n",
+      "to": "\tfd.pure = (l.isPure(f) || l.pureIntrinsic(f)) && (f.Pkg == l.pkg || !l.isSourced(f.Pkg))\n",
+      "rule": "The same decision through a flag derived from membership (a package with no unit), which no source scan sees: only the copy property catches it.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-name-table", "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/std.go",
+      "from": "\"http.BodyFile\": true, \"fs.HostRoot\": true,\n",
+      "to": "\"http.BodyFile\": true, \"fs.HostRoot\": true, \"copyfixture.Counter\": true,\n",
+      "rule": "A new row of a table keyed by a std name changes how the std package lowers and not how its copy does.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
+    },
+    {
+      "name": "copy-normalise-too-much", "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/std/copy_test.go",
+      "from": "\t\t\tif to, ok := final[id.Name]; ok {\n\t\t\t\tid.Name = to\n",
+      "to": "\t\t\tif _, ok := final[id.Name]; ok {\n\t\t\t\tid.Name = \"_\"\n",
+      "rule": "The copy property's normaliser folds only how std ships and is named: one that also folds a callee's Go name would pass a privilege, so its self-test plants one difference per kind.",
+      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
+      "killers": ["std:TestStdCopyAgrees"]
     }
   ]
 }
