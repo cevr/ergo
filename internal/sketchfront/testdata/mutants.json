@@ -9,6 +9,8 @@
     {"name":"embed-local-initializer","file":"internal/sketch/check/embed.go","from":"if spec == nil {","to":"if spec == nil && false {","killers":["sketchfront:TestEmbeddedDiagnostics"]},
     {"name":"embed-multiple-string-files","file":"internal/sketchfront/embed.go","from":"if !tree && len(selected) != 1 {","to":"if false {","killers":["sketchfront:TestEmbeddedDiagnostics"]},
     {"name":"embed-tree-prefix-retained","file":"runtime/v1/embed.go","from":"fs.Sub(files, prefix)","to":"fs.Sub(files, \".\")","killers":["example:router"]},
-    {"name":"embed-invalid-element","file":"internal/sketchfront/embed.go","from":"if !embedNameAllowed(name) {","to":"if false {","killers":["sketchfront:TestEmbeddedDiagnostics"]}
+    {"name":"embed-invalid-element","file":"internal/sketchfront/embed.go","from":"if !embedNameAllowed(name) {","to":"if false {","killers":["sketchfront:TestEmbeddedDiagnostics"]},
+    {"name":"fu-role-from-path","file":"internal/sketch/check/builders.go","from":"if q.testOf == tn.Pkg {","to":"if q.Path == tn.Pkg.Path+\"test\" {","killers":["internal/sketchfront:TestTestPackageChecksAlikeAsRoot"]},
+    {"name":"fu-role-not-given","file":"internal/sketchfront/load.go","from":"check.CheckTest(path, files, l, l.testOf(p))","to":"check.CheckTest(path, files, l, nil)","killers":["internal/sketchfront:TestTestPackageChecksAlikeAsRoot"]}
   ]
 }

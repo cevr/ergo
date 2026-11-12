@@ -44,6 +44,16 @@ func (d Diagnostic) String() string {
 // change. A diagnostic's File is the index of its file in files. Two
 // files with the same non-empty Name are an internal compiler error.
 func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnostic) {
+	return CheckTest(path, files, imp, nil)
+}
+
+// CheckTest is Check for a package whose loader gives it the role of under's
+// test package (builders.go, rule 2; nil for none): its New<X> functions
+// may build under's operation types. The role comes from the loader, which
+// knows the package's import path whether it is the program's root
+// (checked as main) or an import (TestedPath), so a package checks the
+// same either way.
+func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) (*Package, []Diagnostic) {
 	if imp == nil {
 		imp = Std
 	}
@@ -53,6 +63,7 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 		met[i] = files[k]
 	}
 	c := newChecker(path, imp, prelude().scope)
+	c.pkg.testOf = under
 	pkg := c.run(met)
 	// Every report has a current file (owner.go), so File is the index of
 	// a file as met, its rank in the canonical order. Sort by it, so the
@@ -741,6 +752,7 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	}
 	c := newChecker(path, s, prelude().scope)
 	c.pkg.std = true
+	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
 	var err error
 	if len(c.diags) > 0 {
@@ -758,8 +770,26 @@ func (s *stdImporter) load(path string) (*Package, error) {
 func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
 	c := newChecker(path, Std, prelude().scope)
 	c.pkg.std = true
+	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
 	return pkg, c.sorted()
+}
+
+// testOf is the std package whose test package is at path (fstest's fs),
+// or nil (TestedPath).
+func (s *stdImporter) testOf(path string) *Package {
+	base, ok := TestedPath(path)
+	if !ok {
+		return nil
+	}
+	if _, isStd := std.Package(base); !isStd {
+		return nil
+	}
+	under, err := s.Import(base)
+	if err != nil {
+		return nil
+	}
+	return under
 }
 
 func sortedKeys[V any](m map[string]V) []string {
