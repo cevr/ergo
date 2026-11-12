@@ -1,5 +1,5 @@
 # std law ledger (runtime.md, Tests 10). Written by go run ./scripts/stdlaws; do not edit.
-law json.Text.RawJoins for json.text skipped h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
+law json.Text.RawJoins for json.text proved h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
 law json.Text.SepDue for json.text proved h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
 law json.Text.SepNoneDue for json.text proved h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
 law json.Text.SetCommaLast for json.text proved h1:FGBtVW00v6UUgz/YQ8CIkiiBbPRK7GaD2ra2qAesSvE=
