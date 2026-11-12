@@ -15,7 +15,13 @@ import (
 // without it (docs/tooling.md, "Mutant ledger").
 type Ledger struct {
 	// About says what the file is, for a reader who opens it cold.
-	About   string    `json:"about"`
+	About string `json:"about"`
+	// Env is NAME=VALUE entries that the runner gives every run of the
+	// ledger's own suite, coverage pass and mutant pass: the switches its
+	// killers need (ERGO_TS_TEST=1 for tsproj's TS leg), so that a plain
+	// `go run ./scripts/mutants DIR` judges them. Only a package ledger
+	// has one; check and lower share the ergo suites.
+	Env     []string  `json:"env,omitempty"`
 	Mutants []*Mutant `json:"mutants"`
 }
 
@@ -63,6 +69,11 @@ func readLedger(path string) (*Ledger, error) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&l); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	for _, kv := range l.Env {
+		if name, _, ok := strings.Cut(kv, "="); !ok || name == "" {
+			return nil, fmt.Errorf("%s: env entry %q is not NAME=VALUE", path, kv)
+		}
 	}
 	seen := map[string]bool{}
 	for i, m := range l.Mutants {

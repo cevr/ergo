@@ -255,6 +255,9 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 		}
 		rel = filepath.ToSlash(rel)
 		if rel == "internal/sketch/check" || rel == "internal/sketch/lower" {
+			if len(j.Ledger.Env) > 0 {
+				return nil, nil, nil, fmt.Errorf("ledger %s: env is for a package ledger's own suite; check and lower share the ergo suites", j.Path)
+			}
 			if tools == nil {
 				c, t, s := ergoSuites()
 				tools, suites = t, append(suites, s...)
@@ -268,7 +271,9 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 		for _, m := range j.Ledger.Mutants {
 			add("./" + filepath.ToSlash(filepath.Dir(m.File)))
 		}
-		suites = append(suites, Suite{Name: rel, Package: "./" + rel})
+		// The ledger's env reaches every run of its own suite (the coverage
+		// pass and the mutant pass), and enters the tree key with it.
+		suites = append(suites, Suite{Name: rel, Package: "./" + rel, Env: slices.Clone(j.Ledger.Env)})
 	}
 	// A killer or anchor test in a suite no ledger brought is run too, and
 	// only the tests the ledgers name: its other tests judge nothing here,

@@ -132,3 +132,37 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 		t.Errorf("tools %+v, want the ergo CLI that lower runs", tools)
 	}
 }
+
+// TestLedgerEnvReachesItsOwnSuite: a package ledger's env is the
+// environment of its own suite, where its killers run, and of no other
+// suite. Before, tsproj's TS-leg killers skipped unless the person running
+// the runner remembered ERGO_TS_TEST=1, and 36 of its 62 rows went
+// unjudged (MUT-names r1). check and lower share the ergo suites, so an
+// env in their ledgers is refused rather than leaking into every suite.
+func TestLedgerEnvReachesItsOwnSuite(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "internal", "sketch", "lower", "l_test.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("func TestL(t *testing.T) {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"ERGO_TS_TEST=1"}
+	own := &Ledger{Env: env, Mutants: []*Mutant{{Name: "a", Killers: []string{"lower:TestL"}}}}
+	_, _, suites, err := suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "internal", "tsproj")), Ledger: own}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(suites) < 2 || suites[0].Name != "internal/tsproj" || !slices.Equal(suites[0].Env, env) {
+		t.Fatalf("suites %+v: the ledger's own suite comes first with its env", suites)
+	}
+	for _, s := range suites[1:] {
+		if slices.Contains(s.Env, env[0]) {
+			t.Errorf("suite %s got the tsproj ledger's env: %q", s.Name, s.Env)
+		}
+	}
+	if _, _, _, err := suitesFor(root, []Job{{Path: ledgerPath(root, "lower"), Ledger: &Ledger{Env: env}}}); err == nil {
+		t.Error("lower's ledger took an env")
+	}
+}

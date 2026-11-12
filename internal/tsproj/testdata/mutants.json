@@ -1,5 +1,6 @@
 {
-  "about": "R3' projection/mapper/loader mutants. Run it as ERGO_TS_TEST=1 go run ./scripts/mutants internal/tsproj: without the variable the TS-leg killers skip. Those killers build and run the ergo CLI, so the coverage pass cannot see them reach the line; their rows name them in anchor.tests (MUT-names).",
+  "about": "R3' projection/mapper/loader mutants. The TS-leg killers skip without ERGO_TS_TEST=1, so env gives it to every run of this ledger's suite. Those killers build and run the ergo CLI, so the coverage pass cannot see them reach the line; their rows name them in anchor.tests (MUT-names).",
+  "env": ["ERGO_TS_TEST=1"],
   "mutants": [
     { "name": "e3b-head", "origin": "E3b", "file": "internal/tsproj/http.go", "from": "if method == \"HEAD\" && len(op.Fails) > 0 {", "to": "if false {", "rule": "The profile cannot promise tagged error bodies for HEAD.", "killers": ["internal/tsproj:TestHttpFailureTableDiagnostics"] },
     { "name": "e3b-row-leak", "origin": "E3b", "file": "internal/tsproj/http.go", "from": "for _, p := range op.Params {", "to": "for _, other := range ops { for _, f := range other.Fails { for _, n := range httpFailures(f) { route.failures = append(route.failures, httpFailure{typ: n, status: statuses[n.Obj.Name]}) } } }\nfor _, p := range op.Params {", "rule": "An HTTP endpoint keeps its operation's own failure row, not the contract's aggregate.", "killers": ["internal/tsproj:TestHttpApiClientCallsJobs"], "anchor": {"tests": ["internal/tsproj:TestHttpApiClientCallsJobs"]} },

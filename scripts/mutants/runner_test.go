@@ -29,6 +29,10 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // without, and on Linux one that allocates past the memory limit. TestGreet
 // also reads the repository with git ls-files, as internal/residue's rules
 // do: in a copy with no Git index it would fail on the unmutated tree.
+// TestPlain fails only when its binary is built with coverage, as
+// internal/closure's sandboxed self-runs do; it is the only killer of
+// plain-only, which is uncovered unless the coverage pass reruns it
+// without coverage.
 //
 // It checks that the runner reports exactly the model's status for each
 // mutant, that a killer is a test that asserts the mutated function (with
@@ -68,6 +72,9 @@ type fakeTest struct {
 	calls       []string
 	asserts     []string
 	broken      bool
+	// plainOnly fails when its binary is built with coverage, as
+	// internal/closure's sandboxed self-runs do; it passes without.
+	plainOnly bool
 }
 
 func (f fakeTest) id() string { return f.suite + ":" + f.name }
@@ -113,6 +120,7 @@ func generate(r *rand.Rand) fakeModule {
 		fakeTest{suite: "one", name: "TestGreet", calls: []string{"one.Greet"}, asserts: []string{"one.Greet"}},
 		fakeTest{suite: "one", name: "TestBroken", calls: []string{m.funcs[0]}, asserts: []string{m.funcs[0]}, broken: true},
 		fakeTest{suite: "two", name: "TestGrow", calls: []string{"two.Grow"}, asserts: []string{"two.Grow"}},
+		fakeTest{suite: "two", name: "TestPlain", calls: []string{"two.Plain"}, asserts: []string{"two.Plain"}, plainOnly: true},
 	)
 	return m
 }
@@ -129,7 +137,7 @@ func (m fakeModule) source(pkg string) string {
 	if pkg == "one" {
 		b.WriteString("var greeting = \"hello\"\n\nvar farewell = \"bye\"\n\nfunc Greet() string { return greeting + farewell }\n")
 	} else {
-		b.WriteString("func Grow(n int) int { return n }\n")
+		b.WriteString("func Grow(n int) int { return n }\n\nfunc Plain() int { return 7 }\n")
 	}
 	return b.String()
 }
@@ -154,6 +162,9 @@ func (m fakeModule) testSource(pkg string) string {
 			case "two.Grow":
 				fmt.Fprintf(&b, "\tif two.Grow(1) != 1 {\n\t\tt.Fatal(%q)\n\t}\n", fn)
 				continue
+			case "two.Plain":
+				fmt.Fprintf(&b, "\tif two.Plain() != 7 {\n\t\tt.Fatal(%q)\n\t}\n", fn)
+				continue
 			}
 			if slices.Contains(ft.asserts, fn) {
 				fmt.Fprintf(&b, "\tif %s != %d {\n\t\tt.Fatal(%q)\n\t}\n", got, value(fn), fn)
@@ -163,6 +174,9 @@ func (m fakeModule) testSource(pkg string) string {
 		}
 		if ft.broken {
 			b.WriteString("\tt.Fatal(\"fails on the unmutated tree\")\n")
+		}
+		if ft.plainOnly {
+			b.WriteString("\tif testing.CoverMode() != \"\" {\n\t\tt.Fatal(\"fails when built with coverage\")\n\t}\n")
 		}
 		b.WriteString("}\n\n")
 	}
@@ -268,6 +282,7 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		{&Mutant{Name: "no-longer-applies", File: "one/f.go", From: "return 9999 }", To: "return 1 }"}, expect{status: Stale}},
 		{&Mutant{Name: "literal-anchored", File: "one/f.go", From: `"hello"`, To: `"hullo"`, Anchor: &Anchor{Text: "return greeting + farewell"}}, m.model("one.Greet", false)},
 		{&Mutant{Name: "literal-bare", File: "one/f.go", From: `"bye"`, To: `"by"`}, expect{status: Uncovered}},
+		{&Mutant{Name: "plain-only", File: "two/f.go", From: "func Plain() int { return 7 }", To: "func Plain() int { return 8 }"}, m.model("two.Plain", false)},
 	}
 	memoryLimit := uint64(0)
 	if runtime.GOOS == "linux" {

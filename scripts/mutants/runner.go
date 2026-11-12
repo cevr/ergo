@@ -149,6 +149,15 @@ type engine struct {
 	key    string
 	cov    *coverage
 	logMu  sync.Mutex
+	// plain are the coverage pass's test binaries built without coverage,
+	// by suite name, built the first time one is needed (plainBinary).
+	plainMu sync.Mutex
+	plain   map[string]*plainBuild
+}
+
+type plainBuild struct {
+	once sync.Once
+	err  error
 }
 
 type treeFile struct {
@@ -710,6 +719,26 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	}
 	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir)...), e.cfg.CoverDeadline)
 	t.Seconds = o.seconds
+	if o.reason != "" && s.Package != "" {
+		// A test may fail only because its binary is built with coverage:
+		// internal/closure's tests run their own binary in a sandbox where
+		// all but fresh scratch is read-only, and a coverage-built binary
+		// writes its coverage at exit under TMPDIR, so the run fails though
+		// its tests pass. The mutant pass runs binaries built without
+		// coverage, so such a test still judges mutants: run it once so,
+		// and if it passes there, keep it, with the blocks its coverage run
+		// recorded (MUT-names r2: 8 closure tests, rm-cgo-link-input's
+		// killer among them, judged nothing).
+		plain, err := e.plainRun(ctx, root, s, name)
+		if err != nil {
+			return err
+		}
+		if plain.reason == "" {
+			e.logf("coverage: %s fails only when built with coverage (%s); it passes without, so it stays a killer", t.ID, o.reason)
+			t.Seconds = max(t.Seconds, plain.seconds)
+			o = plain
+		}
+	}
 	if o.reason != "" {
 		t.Failed = true
 		t.Detail = o.reason + ": " + lastLines(o.tail, 20)
@@ -733,6 +762,36 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	mu.Lock()
 	defer mu.Unlock()
 	return k.add(i, f)
+}
+
+// plainRun runs one test of the Go suite s in the coverage pass's copy at
+// root with the suite's binary built without coverage, built once per suite.
+func (e *engine) plainRun(ctx context.Context, root string, s *Suite, test string) (outcome, error) {
+	bin := filepath.Join(e.cfg.Work, "cover", "plain")
+	e.plainMu.Lock()
+	if e.plain == nil {
+		e.plain = map[string]*plainBuild{}
+	}
+	b := e.plain[s.Name]
+	if b == nil {
+		b = &plainBuild{}
+		e.plain[s.Name] = b
+	}
+	e.plainMu.Unlock()
+	b.once.Do(func() {
+		if err := os.MkdirAll(bin, 0o755); err != nil {
+			b.err = err
+			return
+		}
+		if o := e.buildSuite(ctx, root, bin, s, false, e.cfg.CoverDeadline); o.reason != "" {
+			b.err = fmt.Errorf("build suite %s without coverage: %s\n%s", s.Name, o.reason, o.tail)
+		}
+	})
+	if b.err != nil {
+		return outcome{}, b.err
+	}
+	argv, cwd, env := e.argv(s, root, bin, test)
+	return e.exec(ctx, cwd, argv, e.env(env...), e.cfg.CoverDeadline), nil
 }
 
 // headerLine reports whether the line of text at byte offset at is a case
