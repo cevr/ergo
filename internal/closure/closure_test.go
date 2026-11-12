@@ -148,6 +148,17 @@ var declared = map[string][]allowance{
 		glob("docs/research/ef-migrate/*.ergo", "the formatter round-trips the migrated examples (sketchtest.Repository)"),
 		[]allowance{{"examples/editions/sketch/main.ergo", file, "the formatter round-trips the 2026 example program (sketchtest.Repository)"}},
 	),
+	"internal/selfhostcheck": declare(
+		[]allowance{
+			{"examples", subtree, "TestSelfhostBridgeAgrees parses every examples/**/*.ergo through the Go adapter and the Ergo decoder (filepath.WalkDir)"},
+			{"internal/sketch/syntax/testdata/corpus", subtree, "the bridge property's inputs include sketchtest.Positive, whose Corpus walks the parser's corpus (filepath.WalkDir)"},
+			{"internal/sketch/format/testdata/fuzz/FuzzFormat", subtree, "TestSelfhostFormatAgrees's inputs include the formatter's checked-in fuzz seeds (fuzzSeeds reads the folder)"},
+		},
+		glob("docs/spec/*.md", "the bridge property's inputs include every go fence of the language spec (sketchtest.SpecFences)"),
+		glob("docs/research/ef-migrate/*.ergo", "the bridge property's inputs include the migrated examples (sketchtest.Repository)"),
+		exactly("the driver's go build asks whether the repository module, which replaces ergo.local/prototype, also holds the driver's and the pilot's packages (Go's ambiguous-import check): it looks these paths up, and they do not exist",
+			"selfhostprobe", "selfhost/hostsyntax"),
+	),
 	"cmd/ergo": {
 		{"README.md", file, "the README smoke test runs the README's go blocks and commands"},
 		{"examples/lookup", subtree, "the README smoke test compares the README's first two go blocks with the lookup example's files and copies the program, a module of packages, into a workspace (smokeWorkspace walks it)"},
