@@ -3,8 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -18,7 +18,9 @@ import (
 // leg then runs each law (or prints a native run's cached verdict), and
 // the comparison is of two runners, never of one verdict with itself.
 func (r *runner) checkTarget(p *program, target, leg string) *report.Evaluation {
-	o, err := r.live.execute([]string{r.cfg.ergo, "check", target}, r.cfg.root, append(os.Environ(), "ERGO_LAWCACHE=off"), "", r.cfg.timeout, 0)
+	// The run's own emission cache, as every compiler call (toolEnv).
+	env := append(slices.Clip(r.toolEnv), "ERGO_LAWCACHE=off")
+	o, err := r.live.execute([]string{r.cfg.ergo, "check", target}, r.cfg.root, env, "", r.cfg.timeout, 0)
 	if err != nil || !o.passed() {
 		r.toolFailed(p, leg, o, err)
 		return nil
