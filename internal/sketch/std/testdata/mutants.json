@@ -41,6 +41,11 @@
       "rule": "stdlib.md cmp: Max is the larger value (law MaxMinSplit).",
       "anchor": {"tests": ["lower:TestStdSlicesLawsRun"]},
       "killers": ["lower:TestStdSlicesLawsRun"]
-    }
+    },
+    {"name":"sj0-chunk-size-short","origin":"wf10 SJ0","file":"internal/sketch/std/io/source.ergo","from":"\t\t\tend = p.at + size\n","to":"\t\t\tend = p.at + size - 1\n","rule":"stdlib.md io 10: Chunked's chunks are size bytes, the last one shorter (ChunksJoinToInput).","anchor":{"tests":["lower:TestIOLaws"]},"killers":["lower:TestIOLaws"]},
+    {"name":"sj0-cut-not-passed","origin":"wf10 SJ0","file":"internal/sketch/std/io/source.ergo","from":"\t\t\tnext = next + 1\n","to":"\t\t\tnext = next\n","rule":"stdlib.md io 10: a chunk is not empty; each kept cut ends one chunk (ChunksJoinToInput).","anchor":{"tests":["lower:TestIOLaws"]},"killers":["lower:TestIOLaws"]},
+    {"name":"sj0-empty-last-chunk","origin":"wf10 SJ0","file":"internal/sketch/std/io/source.ergo","from":"\t\tif p.at >= len(text) {\n","to":"\t\tif p.at > len(text) {\n","rule":"stdlib.md io 10: Read gives None at the end, never an empty chunk, and None again after it (ChunksJoinToInput).","anchor":{"tests":["lower:TestIOLaws"]},"killers":["lower:TestIOLaws"]},
+    {"name":"sj0-cut-kept-twice","origin":"wf10 SJ0","file":"internal/sketch/std/io/source.ergo","from":"func CutAt(text string, cuts []int) Memory {\n\tlet mut kept = []int{}\n\tfor c in cuts {\n\t\tif c > 0 && c < len(text) && (len(kept) == 0 || c > kept[len(kept)-1]) {","to":"func CutAt(text string, cuts []int) Memory {\n\tlet mut kept = []int{}\n\tfor c in cuts {\n\t\tif c > 0 && c < len(text) && (len(kept) == 0 || c >= kept[len(kept)-1]) {","rule":"stdlib.md io 10: CutAt keeps a cut only when it is after the one before (ChunksJoinToInput: no empty chunk).","anchor":{"tests":["lower:TestIOLaws"]},"killers":["lower:TestIOLaws"]},
+    {"name":"sj0-stdin-ends-early","origin":"wf10 SJ0","file":"internal/sketch/std/io/source.ergo","from":"\tif chunk == \"\" { None } else { Some[string]{Value: chunk} }","to":"\tif len(chunk) < 4096 { None } else { Some[string]{Value: chunk} }","rule":"stdlib.md io 10: In's Read gives None only at the end of standard input.","anchor":{"tests":["lower:TestIOStdinRest"]},"killers":["lower:TestIOStdinRest"]}
   ]
 }

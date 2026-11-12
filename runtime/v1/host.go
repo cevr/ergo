@@ -743,6 +743,34 @@ func IOLines(t *rt.Task) iter.Seq[string] {
 	return stdinReader().lines(t)
 }
 
+// IORead is the body of io.In's Read (In as a Source) on t, the caller's task: the
+// next chunk of standard input, at most max bytes (io.DefaultChunk when
+// max is not positive), from where the last read stopped, or "" at the
+// end. It takes what the shared reader holds, or what the next host read
+// lands, and does not wait to fill max. A stop of t ends the wait and
+// raises rt.Interrupted; the bytes read meanwhile stay for the next read.
+//
+//ergo:host
+func IORead(t *rt.Task, max int) (string, error) {
+	if max <= 0 {
+		max = ioDefaultChunk
+	}
+	t.Check()
+	chunk, err, ok := stdinReader().take(t.Done(), func(b []byte, _ bool) int { return min(len(b), max) })
+	switch {
+	case !ok:
+		panic(rt.Interrupted)
+	case err == io.EOF:
+		return "", nil
+	case err != nil:
+		return "", ReadFailed{Reason: fsReason(err)}
+	}
+	return string(chunk), nil
+}
+
+// ioDefaultChunk is std io's DefaultChunk.
+const ioDefaultChunk = 65536
+
 // lineReader is one buffered reader that every read of its input goes
 // through, lines, the whole rest and term's keys alike, so a read starts
 // where the one before it stopped: the bytes read ahead stay in buf for

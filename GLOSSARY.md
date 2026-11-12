@@ -289,6 +289,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Uninterruptible host wait**: A foreign Go call whose Go declaration takes no `context.Context`, so an interruption reaches the task only after Go returns. `ergo inspect` lists it for each function that reaches it (IG8; [tooling](docs/tooling.md#inspect)).
 
+**Source** (`io.Source`): An input given chunk by chunk to a reader that asks for the next chunk when it has used the one before, so the input is never held whole. A chunk is a string that is not empty and never changes; the chunks, in order, join to the input. See [stdlib, io 10](docs/spec/stdlib.md#io).
+
 **Exit accumulator**: The runtime record that combines a body's outcome with release defects and interruption into one exit cause, so a release never hides a failure.
 
 **Definition ID**: The stable name of one checked definition, derived by the checker from the declaration: `<package>.<Name>`, `<package>.<Type>.<Method>`, or `<enclosing ID>/<construct>#<n>` for a block such as a timeout. It is meaningful only with the source revision it was computed from. Runtime traces, defect chains and `ergo inspect` share this ID space ([traceability](docs/research/traceability.md)).

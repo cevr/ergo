@@ -508,6 +508,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"IOIsTerminal":       {},
 	"IOReadAll":          {wait: callerWait},
 	"IOLines":            {wait: callerWait},
+	"IORead":             {wait: callerWait},
 	"IOStdinIsTerminal":  {},
 	"IOStderrIsTerminal": {},
 	// std term (CU2; stdlib.md, term): a mode change and a size read are

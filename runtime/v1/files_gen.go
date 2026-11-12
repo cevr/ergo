@@ -205,6 +205,7 @@ var bodyTable = map[string]bodyFact{
 	"IOIsTerminal":              {body: Body{Results: []string{"bool"}, Host: true}},
 	"IOLines":                   {body: Body{Hidden: []Hidden{"task"}, Results: []string{"iter.Seq[string]"}, Host: true}},
 	"IOPrint":                   {body: Body{Params: []Param{{Type: "string"}}, Host: true}},
+	"IORead":                    {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "int"}}, Results: []string{"string", "error"}, Host: true}},
 	"IOReadAll":                 {body: Body{Hidden: []Hidden{"task"}, Results: []string{"string", "error"}, Host: true}},
 	"IOStderrIsTerminal":        {body: Body{Results: []string{"bool"}, Host: true}},
 	"IOStdinIsTerminal":         {body: Body{Results: []string{"bool"}, Host: true}},
