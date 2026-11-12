@@ -250,12 +250,17 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stepped := map[string]bool{}
+	for dir := range fastPackageSteps(t, root) {
+		stepped[dir] = true
+	}
 	// What a reached package costs in the fast tier: the recorded CPU of
 	// its fast steps. A package with no row cannot be budgeted. A host
-	// package has no fast step (classHeavy), so no edit reaches it here.
+	// package has no fast step (classHeavy), and neither has a package
+	// whose every test is large (fastSteps), so no edit reaches them here.
 	reach := func(file string) (dirs []string, cpu float64) {
 		for _, p := range packages {
-			if !p.closure.Covers(file) || slices.Contains(hostTestPackages, p.dir) {
+			if !p.closure.Covers(file) || !stepped[p.dir] {
 				continue
 			}
 			dirs = append(dirs, p.dir)

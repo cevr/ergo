@@ -333,6 +333,12 @@ func fastSteps(root string) ([]*Step, error) {
 		}
 		measured := durations[p.importPath]
 		fast, large := fastSelection(names, measured)
+		if len(names) > 0 && len(fast) == 0 {
+			// Every test is large: a step would run none and only build
+			// the test binary, which go vet type-checks. The full tier
+			// runs the tests (scripts/langmigrate's TestTryParensIsIdempotent).
+			continue
+		}
 		pkg := "./" + p.dir
 		base := []string{"go", "test", fastFlag, testTimeout}
 		name := "go test " + pkg + " (fast)"
