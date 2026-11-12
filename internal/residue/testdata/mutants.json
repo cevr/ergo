@@ -40,6 +40,16 @@
       "rule": "Code in a fenced block is not prose: Go's words in a habit message stay.",
       "killers": ["internal/residue:TestSpecTextRules"],
       "anchor": {"tests": ["internal/residue:TestSpecTextRules"]}
+    },
+    {
+      "name": "spec1a-glossary-status-label",
+      "origin": "wf10 batch-17 fix-gen M4",
+      "file": "GLOSSARY.md",
+      "from": "in a machine, the step graph",
+      "to": "in a machine (designed), the step graph",
+      "rule": "A GLOSSARY entry carries no status label; the status is in docs/spec/status.json.",
+      "killers": ["internal/residue:TestGlossaryCarriesNoStatus"],
+      "anchor": {"tests": ["internal/residue:TestGlossaryCarriesNoStatus"]}
     }
   ]
 }
