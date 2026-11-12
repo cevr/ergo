@@ -1,0 +1,1 @@
+https://github.com/toml-lang/toml-test at 96fd088448ec0f4d9f061c730ed7854399c46faf (2026-10-27): LICENSE, tests/files-toml-1.0.0 and the files it names, unchanged. MIT (LICENSE). A valid/ file must read as its .json (toml-test's tagged JSON); an invalid/ file must be rejected. cmd/ergo TestTOMLParseAgreesWithControl runs every file.

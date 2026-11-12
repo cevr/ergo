@@ -1,0 +1,39 @@
+# A sample of every TOML form tomlparse reads.
+title = "TOML \"sample\" \u00e9"
+path = 'C:\Users\tom'
+"quoted key" = 1_000
+site."google.com" = true
+
+[owner]
+name = "Tom"
+dob = 1979-05-27T07:32:00-08:00
+lunch = 12:30:00
+day = 1979-05-27
+
+[numbers]
+hex = 0xDEAD_beef
+oct = 0o755
+bin = 0b1101
+float = -6.02e+23
+specials = [inf, -inf, nan]
+
+[strings]
+poem = """
+Roses are red \
+    and violets are blue"""
+raw = '''
+first line
+second's line'''
+
+[[fruit]]
+name = "apple"
+physical = { color = "red", shape.kind = "round" }
+
+[fruit.variety]
+names = [
+  "red delicious", # a comment
+  "granny smith",
+]
+
+[[fruit]]
+name = "banana"

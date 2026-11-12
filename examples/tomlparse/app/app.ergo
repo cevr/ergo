@@ -1,0 +1,80 @@
+// Package app is tomlparse's commands: each reads a document through
+// Documents, parses it, and gives what the user reads, with each failure
+// as the line tomlparse: FILE:LINE:COL: reason.
+
+import tomlparse/toml
+
+// Unreadable is a document that cannot be read.
+type Unreadable { Path string, Reason string }
+
+// Documents is where the text of a document comes from. The binary
+// chooses the provider: the host's files, or texts in memory.
+type Documents {
+	Read(path string) string fails Unreadable,
+
+	// Repeatable: two reads of one document give one text.
+	law Repeatable(path string) {
+		let a = Read(path) catch {
+		case Unreadable:
+			return true
+		}
+		let b = Read(path) catch {
+		case Unreadable:
+			return false
+		}
+		a == b
+	},
+}
+
+// Outcome is what a command gives the user: standard output, the line of
+// its failure (empty when it has none) and the exit status.
+type Outcome { Out string, Err string, Status int }
+
+// Failed is a failure that ends a command, with the line that says why.
+type Failed { Line string }
+
+func failed(line string) Outcome { Outcome{Out: "", Err: "tomlparse: " + line, Status: 1} }
+
+// Load is the root table of the document at path.
+func Load(path string) toml.Value fails Failed needs Documents {
+	let src = Documents.Read(path) catch {
+	case Unreadable as u:
+		return Failed{Line: u.Path + ": " + u.Reason}
+	}
+	toml.Parse(src) catch {
+	case toml.Malformed as m:
+		return Failed{Line: path + ":\(m.Line):\(m.Col): " + m.Reason}
+	case toml.Duplicate as d:
+		return Failed{Line: path + ":\(d.Line):\(d.Col): key " + d.Key + " is defined twice"}
+	case toml.Clash as c:
+		return Failed{Line: path + ":\(c.Line):\(c.Col): key " + c.Key + " " + c.Why}
+	}
+}
+
+// JSON is the document at path as toml-test's tagged JSON.
+func JSON(path string) Outcome needs Documents {
+	let v = Load(path) catch {
+	case Failed as f:
+		return failed(f.Line)
+	}
+	Outcome{Out: toml.Tagged(v) + "\n", Err: "", Status: 0}
+}
+
+// Fmt is the document at path printed again as TOML.
+func Fmt(path string) Outcome needs Documents {
+	let v = Load(path) catch {
+	case Failed as f:
+		return failed(f.Line)
+	}
+	Outcome{Out: toml.Print(v), Err: "", Status: 0}
+}
+
+// Check is how many values the document at path holds (its tables
+// included) and how deep they nest.
+func Check(path string) Outcome needs Documents {
+	let v = Load(path) catch {
+	case Failed as f:
+		return failed(f.Line)
+	}
+	Outcome{Out: "values \(toml.Count(v))\ndepth \(toml.Depth(v))\n", Err: "", Status: 0}
+}

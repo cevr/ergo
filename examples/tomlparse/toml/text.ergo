@@ -1,0 +1,245 @@
+// TOML's four string forms: basic "…" with escapes, literal '…' as
+// written, and the multi-line form of each.
+
+import strings
+import utf8
+
+// basic reads a basic string at its opening quote: its text, with the
+// escapes decoded. A string with no escape is a slice of the source.
+func basic(b *builder) string fails Malformed {
+	if strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), "\"\"\"") {
+		return try multiBasic(b)
+	}
+	let start = b.pos + 1
+	let mut i = start
+	for i < len(b.src) {
+		let c = b.src[i]
+		if c == '"' {
+			b.pos = i + 1
+			return strings.Slice(b.src, start, i)
+		}
+		if c == '\\' || control(c) {
+			break
+		}
+		i += 1
+	}
+	let mut out = strings.NewBuilder()
+	out.WriteString(strings.Slice(b.src, start, i))
+	for i < len(b.src) {
+		let c = b.src[i]
+		if c == '"' {
+			b.pos = i + 1
+			return out.String()
+		}
+		if c == '\\' {
+			i = try escape(b, &out, i)
+		} else if c == '\n' || c == '\r' {
+			return fail(b, i, "a newline in a one-line string")
+		} else if control(c) {
+			return fail(b, i, "a control character in a string")
+		} else {
+			out.WriteByte(c)
+			i += 1
+		}
+	}
+	fail(b, len(b.src), "a string has no closing quote")
+}
+
+// escape decodes the escape at offset i into out, and is the offset after
+// it.
+func escape(b *builder, out *strings.Builder, i int) int fails Malformed {
+	if i+1 >= len(b.src) {
+		return fail(b, len(b.src), "a string has no closing quote")
+	}
+	match b.src[i+1] {
+	case '"':
+		out.WriteByte('"')
+	case '\\':
+		out.WriteByte('\\')
+	case 'b':
+		out.WriteByte(0x08)
+	case 'f':
+		out.WriteByte(0x0c)
+	case 'n':
+		out.WriteByte('\n')
+	case 'r':
+		out.WriteByte('\r')
+	case 't':
+		out.WriteByte('\t')
+	case 'u':
+		out.WriteString(try scalarEscape(b, i, 4))
+		return i + 6
+	case 'U':
+		out.WriteString(try scalarEscape(b, i, 8))
+		return i + 10
+	case _:
+		return fail(b, i, "an unknown escape")
+	}
+	i + 2
+}
+
+// digit is the value of the hex digit c, or -1.
+func digit(c byte) int {
+	if c >= '0' && c <= '9' {
+		int(c - '0')
+	} else if c >= 'a' && c <= 'f' {
+		int(c-'a') + 10
+	} else if c >= 'A' && c <= 'F' {
+		int(c-'A') + 10
+	} else {
+		-1
+	}
+}
+
+// scalarEscape is the text of the \u or \U escape at offset i, of n hex
+// digits: a Unicode scalar value, never a surrogate.
+func scalarEscape(b *builder, i int, n int) string fails Malformed {
+	let mut r = 0
+	for k in i+2..i+2+n {
+		if k >= len(b.src) || digit(b.src[k]) < 0 {
+			return fail(b, k, "a \\\(if n == 4 { "u" } else { "U" }) escape needs \(n) hex digits")
+		}
+		r = r*16 + digit(b.src[k])
+	}
+	if (r >= 0xD800 && r < 0xE000) || r > 0x10FFFF {
+		return fail(b, i, "an escape of a code point that is not a Unicode scalar value")
+	}
+	utf8.RuneText(rune(r))
+}
+
+// quotes is how many of the byte q stand at offset i.
+func quotes(b *builder, i int, q byte) int {
+	let mut k = i
+	for k < len(b.src) && b.src[k] == q {
+		k += 1
+	}
+	k - i
+}
+
+// multiBasic reads a multi-line basic string at its first quote. A
+// newline right after the opening quotes is not part of it; a backslash
+// at the end of a line takes the line break and the blanks after it.
+func multiBasic(b *builder) string fails Malformed {
+	b.pos += 3
+	let _ = newline(b)
+	let mut out = strings.NewBuilder()
+	let mut i = b.pos
+	for i < len(b.src) {
+		let c = b.src[i]
+		if c == '"' {
+			let q = quotes(b, i, '"')
+			if q >= 3 {
+				if q > 5 {
+					return fail(b, i+5, "too many quotes at the end of a multi-line string")
+				}
+				for _ in 0..q-3 {
+					out.WriteByte('"')
+				}
+				b.pos = i + q
+				return out.String()
+			}
+			for _ in 0..q {
+				out.WriteByte('"')
+			}
+			i += q
+		} else if c == '\\' && i+1 < len(b.src) && (b.src[i+1] == ' ' || b.src[i+1] == '\t' || b.src[i+1] == '\n' || b.src[i+1] == '\r') {
+			let mut k = i + 1
+			for k < len(b.src) && (b.src[k] == ' ' || b.src[k] == '\t') {
+				k += 1
+			}
+			b.pos = k
+			if !newline(b) {
+				return fail(b, k, "a backslash ends a line only before its newline")
+			}
+			k = b.pos
+			for k < len(b.src) {
+				b.pos = k
+				if b.src[k] == ' ' || b.src[k] == '\t' {
+					k += 1
+				} else if newline(b) {
+					k = b.pos
+				} else {
+					break
+				}
+			}
+			i = k
+		} else if c == '\\' {
+			i = try escape(b, &out, i)
+		} else if c == '\n' {
+			out.WriteByte('\n')
+			i += 1
+		} else if c == '\r' && i+1 < len(b.src) && b.src[i+1] == '\n' {
+			out.WriteString("\r\n")
+			i += 2
+		} else if control(c) {
+			return fail(b, i, "a control character in a string")
+		} else {
+			out.WriteByte(c)
+			i += 1
+		}
+	}
+	fail(b, len(b.src), "a multi-line string has no closing quotes")
+}
+
+// literal reads a literal string at its opening quote: its text as
+// written.
+func literal(b *builder) string fails Malformed {
+	if strings.HasPrefix(strings.Slice(b.src, b.pos, len(b.src)), "'''") {
+		return try multiLiteral(b)
+	}
+	let start = b.pos + 1
+	for i in start..len(b.src) {
+		let c = b.src[i]
+		if c == '\'' {
+			b.pos = i + 1
+			return strings.Slice(b.src, start, i)
+		}
+		if c == '\n' || c == '\r' {
+			return fail(b, i, "a newline in a one-line string")
+		}
+		if control(c) {
+			return fail(b, i, "a control character in a string")
+		}
+	}
+	fail(b, len(b.src), "a string has no closing quote")
+}
+
+// multiLiteral reads a multi-line literal string at its first quote.
+func multiLiteral(b *builder) string fails Malformed {
+	b.pos += 3
+	let _ = newline(b)
+	let mut out = strings.NewBuilder()
+	let mut i = b.pos
+	for i < len(b.src) {
+		let c = b.src[i]
+		if c == '\'' {
+			let q = quotes(b, i, '\'')
+			if q >= 3 {
+				if q > 5 {
+					return fail(b, i+5, "too many quotes at the end of a multi-line string")
+				}
+				for _ in 0..q-3 {
+					out.WriteByte('\'')
+				}
+				b.pos = i + q
+				return out.String()
+			}
+			for _ in 0..q {
+				out.WriteByte('\'')
+			}
+			i += q
+		} else if c == '\n' {
+			out.WriteByte('\n')
+			i += 1
+		} else if c == '\r' && i+1 < len(b.src) && b.src[i+1] == '\n' {
+			out.WriteString("\r\n")
+			i += 2
+		} else if control(c) {
+			return fail(b, i, "a control character in a string")
+		} else {
+			out.WriteByte(c)
+			i += 1
+		}
+	}
+	fail(b, len(b.src), "a multi-line string has no closing quotes")
+}

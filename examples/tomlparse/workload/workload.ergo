@@ -1,0 +1,86 @@
+// Package workload writes the TOML document the receipts parse: a
+// header table and n [[record]] tables. Each record has every string
+// form, integers in each base, floats, booleans, each date and time form,
+// an array over lines with comments, an inline table, dotted keys and a
+// sub-table, so the parser's every path runs. The seed draws the values,
+// so two seeds give two documents of one shape.
+
+import rand
+import strings
+
+let words = []string{"alpha", "beta", "gamma", "tab\\there", "quote \\\"q\\\"", "snow ☃", "\\u00e9t\\u00e9", "\\U0001F600 face", "back\\\\slash"}
+
+let raws = []string{"C:\\path\\to", "no \"escapes\" here", "regex [a-z]+\\d"}
+
+// Document is the workload of n records for seed.
+func Document(seed int, n int) string {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		write(n)
+	}
+}
+
+func pick(xs []string) string needs Random { xs[Random.IntN(len(xs))] }
+
+func integer() string needs Random {
+	match Random.IntN(5) {
+	case 0:
+		"\(Random.IntN(1000000))"
+	case 1:
+		"-\(1 + Random.IntN(999))_\(100 + Random.IntN(900))"
+	case 2:
+		"0x\(Random.IntN(9) + 1)F_ab"
+	case 3:
+		"0o\(Random.IntN(8))7"
+	case _:
+		"0b1\(Random.IntN(2))01"
+	}
+}
+
+func float() string needs Random {
+	match Random.IntN(5) {
+	case 0:
+		"\(Random.IntN(1000)).\(Random.IntN(1000))"
+	case 1:
+		"-\(Random.IntN(10)).\(Random.IntN(100))e-\(Random.IntN(20))"
+	case 2:
+		"\(Random.IntN(100))E+\(Random.IntN(9))"
+	case 3:
+		"1_000.000_5"
+	case _:
+		if Random.IntN(2) == 0 { "+inf" } else { "nan" }
+	}
+}
+
+func moment() string needs Random {
+	let day = 1 + Random.IntN(28)
+	let d = if day < 10 { "0\(day)" } else { "\(day)" }
+	match Random.IntN(4) {
+	case 0:
+		"2024-02-" + d + "T07:32:00Z"
+	case 1:
+		"1979-05-" + d + " 00:32:00.999999-07:00"
+	case 2:
+		"2000-12-" + d
+	case _:
+		"07:32:\(10 + Random.IntN(50)).25"
+	}
+}
+
+func write(n int) string needs Random {
+	let mut b = strings.NewBuilder()
+	b.WriteString("# the tomlparse workload\ntitle = \"workload\"\n\n[owner]\nname = \"Tom Preston-Werner\"\ndob = 1979-05-27T07:32:00-08:00\n")
+	for i in 0..n {
+		b.WriteString("\n[[record]]\nid = \(i)\nname = \"" + pick(words) + "\"\n")
+		b.WriteString("path = '" + pick(raws) + "'\n")
+		b.WriteString("count = " + integer() + "\nratio = " + float() + "\n")
+		b.WriteString("active = " + (if Random.IntN(2) == 0 { "true" } else { "false" }) + "\n")
+		b.WriteString("when = " + moment() + "\n")
+		b.WriteString("tags = [\n  \"" + pick(words) + "\", # a comment\n  '" + pick(raws) + "',\n]\n")
+		b.WriteString("point = { x = " + integer() + ", y = " + float() + ", note = \"" + pick(words) + "\" }\n")
+		b.WriteString("meta.by = \"" + pick(words) + "\"\nmeta.\"created at\" = " + moment() + "\n")
+		b.WriteString("notes = \"\"\"\n" + pick(words) + " \\\n    " + pick(words) + "\"\"\"\n")
+		b.WriteString("raw = '''\nfirst\n" + pick(raws) + "'''\n")
+		b.WriteString("\n[record.extra]\nweight = " + integer() + "\nmixed = [1, \"two\", 3.0, [4], {five = 5}]\n")
+	}
+	b.String()
+}

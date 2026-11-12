@@ -1,0 +1,58 @@
+# the tomlparse workload
+title = "workload"
+
+[owner]
+name = "Tom Preston-Werner"
+dob = 1979-05-27T07:32:00-08:00
+
+[[record]]
+id = 0
+name = "beta"
+path = 'no "escapes" here'
+count = 0o07
+ratio = -6.59e-16
+active = false
+when = 1979-05-06 00:32:00.999999-07:00
+tags = [
+  "snow ☃", # a comment
+  'no "escapes" here',
+]
+point = { x = 0x9F_ab, y = 1_000.000_5, note = "\U0001F600 face" }
+meta.by = "gamma"
+meta."created at" = 2000-12-15
+notes = """
+gamma \
+    beta"""
+raw = '''
+first
+no "escapes" here'''
+
+[record.extra]
+weight = 0x4F_ab
+mixed = [1, "two", 3.0, [4], {five = 5}]
+
+[[record]]
+id = 1
+name = "tab\there"
+path = 'no "escapes" here'
+count = 698048
+ratio = 117.558
+active = true
+when = 2000-12-10
+tags = [
+  "snow ☃", # a comment
+  'C:\path\to',
+]
+point = { x = -49_118, y = -2.1e-18, note = "back\\slash" }
+meta.by = "snow ☃"
+meta."created at" = 07:32:36.25
+notes = """
+\U0001F600 face \
+    \u00e9t\u00e9"""
+raw = '''
+first
+C:\path\to'''
+
+[record.extra]
+weight = -618_393
+mixed = [1, "two", 3.0, [4], {five = 5}]

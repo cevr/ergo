@@ -1,0 +1,1 @@
+usage: tomlparse json FILE | fmt FILE | check FILE | gen -seed S -n N

@@ -1,0 +1,94 @@
+// The generator builds trees from Random, for the laws: every kind of
+// value, keys that need quotes, strings with every escape and text
+// outside ASCII, numbers at their limits, each date and time form, and
+// tables, inline tables and arrays of tables nested in each other.
+// Samples binds Random to rand.Seeded(seed), so a law that takes a seed
+// replays from it.
+
+import math
+import rand
+
+// KeyNames are the keys the generator draws: bare, quoted, empty and dotted.
+let KeyNames = []string{"a", "b", "key-1", "under_score", "007", "with space", "dot.ted", "", "é", "q\"\\", "tab\t"}
+
+// Texts are the strings the generator draws.
+let Texts = []string{"", "plain", "line\n\ttab\r", "q\"\\'", "\b\f\u0001\u001f\u007f", "é", "☃ snow", "😀", "'''", "\"\"\"", "# not a comment"}
+
+// Ints are the integers the generator draws.
+let Ints = []int64{0, 1, -1, 42, 9223372036854775807, -9223372036854775807 - 1, 1000000}
+
+// Floats are the floats the generator draws, nan and both infinities too.
+func Floats() []float64 {
+	[]float64{0.5, -3.25, 1e100, 2.5e-30, 0.1, 0.0, 6.02214076e23, 100.0, math.Inf(1), math.Inf(-1), math.NaN()}
+}
+
+// Moments are dates and times of each form, as Parse writes them.
+let Moments = []Moment{
+	Moment{Kind: OffsetDateTime, Text: "1979-05-27T07:32:00Z"},
+	Moment{Kind: OffsetDateTime, Text: "1979-05-27T00:32:00.999999-07:00"},
+	Moment{Kind: LocalDateTime, Text: "2000-02-29T23:59:59"},
+	Moment{Kind: LocalDate, Text: "2024-12-31"},
+	Moment{Kind: LocalTime, Text: "00:00:00.5"},
+}
+
+func pick[T](xs []T) T needs Random { xs[Random.IntN(len(xs))] }
+
+// GenValue is a value of depth at most depth.
+func GenValue(depth int) Value needs Random {
+	let n = if depth <= 0 { Random.IntN(5) } else { Random.IntN(9) }
+	match n {
+	case 0:
+		Str{S: pick(Texts)}
+	case 1:
+		Int{N: pick(Ints)}
+	case 2:
+		Float{F: pick(Floats())}
+	case 3:
+		if Random.IntN(2) == 0 { Bool{B: true} } else { pick(Moments) }
+	case 4:
+		Str{S: pick(Texts) + pick(Texts)}
+	case 5, 6:
+		let mut items = []Value{}
+		for _ in 0..Random.IntN(4) {
+			items = items.Append(GenValue(depth - 1))
+		}
+		Array{Items: items}
+	case 7:
+		let mut items = []Value{}
+		for _ in 0..1+Random.IntN(3) {
+			items = items.Append(GenTable(depth - 1))
+		}
+		Array{Items: items}
+	case _:
+		GenTable(depth - 1)
+	}
+}
+
+// GenTable is a table of depth at most depth + 1, with distinct keys.
+func GenTable(depth int) Value needs Random {
+	let mut members = []Member{}
+	for _ in 0..Random.IntN(5) {
+		let k = pick(KeyNames)
+		let mut taken = false
+		for m in members {
+			if m.Key == k {
+				taken = true
+			}
+		}
+		if !taken {
+			members = members.Append(Member{Key: k, Val: GenValue(depth)})
+		}
+	}
+	Table{Members: members}
+}
+
+// Samples is ten tables of depth at most 4 from seed.
+func Samples(seed int) []Value {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut out = []Value{}
+		for _ in 0..10 {
+			out = out.Append(GenTable(3))
+		}
+		out
+	}
+}

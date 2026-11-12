@@ -1,0 +1,8 @@
+[server]
+host = "a.example"
+
+[client]
+retries = 3
+
+[server]
+port = 8080

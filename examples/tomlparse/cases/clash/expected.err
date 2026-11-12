@@ -1,0 +1,1 @@
+tomlparse: clash.toml:4:8: key fruit.apple is a table dotted keys defined, which a header cannot define

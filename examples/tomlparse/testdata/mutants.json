@@ -1,0 +1,148 @@
+{
+  "about": "tomlparse's mutants (wf10 corpus wave 1, PA2): each law's mutant, killed by `ergo test` of its package, and the edits no law or case sees, which TestTOMLParseAgreesWithControl in cmd/ergo (toml-test, documents written from generated trees, and the workload, against the hand Go control) kills.",
+  "mutants": [
+    {
+      "name": "tomlparse-set-twice-is-a-clash",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/define.ergo",
+      "from": "\tcase (_, Set):\n\t\tDone[Refusal]{Output: Twice}",
+      "to": "\tcase (_, Set):\n\t\tDone[Refusal]{Output: Conflict{Why: \"is defined\"}}",
+      "rule": "A key given a value once more is defined twice (laws Definition.SetOnlyOnce and toml.RedefinedKeysFail).",
+      "killers": [
+        "examples:tomlparse"
+      ]
+    },
+    {
+      "name": "tomlparse-pass-ignores-the-last-table",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/parse.ergo",
+      "from": "if b.nodes[id].form == Elements { b.nodes[id].last } else { id }",
+      "to": "id",
+      "rule": "A header below an array of tables goes into its last table (law toml.PrintParsesBack).",
+      "killers": [
+        "examples:tomlparse"
+      ]
+    },
+    {
+      "name": "tomlparse-escape-b-is-form-feed",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/text.ergo",
+      "from": "out.WriteByte(0x08)",
+      "to": "out.WriteByte(0x0c)",
+      "rule": "\\b is the backspace (law toml.PrintParsesBack).",
+      "killers": [
+        "examples:tomlparse"
+      ]
+    },
+    {
+      "name": "tomlparse-2000-is-no-leap-year",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/scalar.ergo",
+      "from": "year%400 == 0)",
+      "to": "year%400 == 1)",
+      "rule": "A year divisible by 400 is a leap year, so 2000-02-29 is a date (law toml.PrintParsesBack).",
+      "killers": [
+        "examples:tomlparse"
+      ]
+    },
+    {
+      "name": "tomlparse-keys-never-quoted",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/parse.ergo",
+      "from": "\t\t\treturn Quoted(name)",
+      "to": "\t\t\treturn name",
+      "rule": "A key that is not bare prints quoted (law toml.PrintParsesBack).",
+      "killers": [
+        "examples:tomlparse"
+      ]
+    },
+    {
+      "name": "tomlparse-keys-not-indexed",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/parse.ergo",
+      "from": "b.index = b.index.Put(at, id)",
+      "to": "b.index = b.index",
+      "rule": "A new key is found again by its table and name (laws toml.PrintParsesBack and toml.RedefinedKeysFail).",
+      "killers": [
+        "examples:tomlparse"
+      ]
+    },
+    {
+      "name": "tomlparse-header-twice-accepted",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/define.ergo",
+      "from": "\tcase (Header, Open):\n\t\tDone[Refusal]{Output: Twice}",
+      "to": "\tcase (Header, Open):\n\t\tStay[Shape]{Next: s}",
+      "rule": "A [table] header defines its table once (case twice; toml-test invalid/table/duplicate-*).",
+      "killers": [
+        "examples:tomlparse"
+      ]
+    },
+    {
+      "name": "tomlparse-dotted-keys-extend-a-header-table",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/define.ergo",
+      "from": "\tcase (Header, Dot):\n\t\tDone[Refusal]{Output: Conflict{Why: \"is a table a header defined, which dotted keys cannot extend\"}}",
+      "to": "\tcase (Header, Dot):\n\t\tStay[Shape]{Next: s}",
+      "rule": "Dotted keys cannot extend a table a header defined (toml-test invalid/table/append-with-dotted-keys-*).",
+      "killers": [
+        "cmd/ergo:TestTOMLParseAgreesWithControl"
+      ]
+    },
+    {
+      "name": "tomlparse-closing-quotes-keep-one-too-few",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/text.ergo",
+      "from": "for _ in 0..q-3 {\n\t\t\t\t\tout.WriteByte('\"')",
+      "to": "for _ in 0..q-4 {\n\t\t\t\t\tout.WriteByte('\"')",
+      "rule": "Up to two quotes before a multi-line basic string's closing quotes are its text (toml-test valid/string/multiline-quotes).",
+      "killers": [
+        "cmd/ergo:TestTOMLParseAgreesWithControl"
+      ]
+    },
+    {
+      "name": "tomlparse-leading-zero-accepted",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/scalar.ergo",
+      "from": "i > whole+1 {",
+      "to": "i > whole+2 {",
+      "rule": "A decimal integer has no leading zero (toml-test invalid/integer/leading-zero-*).",
+      "killers": [
+        "cmd/ergo:TestTOMLParseAgreesWithControl"
+      ]
+    },
+    {
+      "name": "tomlparse-tagged-keys-in-reverse",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/print.ergo",
+      "from": "strings.Compare(a.Key, b.Key)",
+      "to": "strings.Compare(b.Key, a.Key)",
+      "rule": "json writes a table's keys in byte order (case json; the generated trees' JSON, compared byte for byte). The laws compare Tagged with Tagged, so no law sees the order.",
+      "killers": [
+        "examples:tomlparse"
+      ]
+    },
+    {
+      "name": "tomlparse-surrogate-escape-accepted",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/text.ergo",
+      "from": "(r >= 0xD800 && r < 0xE000)",
+      "to": "(r >= 0xD800 && r < 0xD800)",
+      "rule": "An escape names a Unicode scalar value, never a surrogate (toml-test invalid/string/bad-uni-esc-*).",
+      "killers": [
+        "cmd/ergo:TestTOMLParseAgreesWithControl"
+      ]
+    },
+    {
+      "name": "tomlparse-utf8-unchecked",
+      "origin": "wf10 PA2",
+      "file": "examples/tomlparse/toml/parse.ergo",
+      "from": "if d.Size == 1 {",
+      "to": "if d.Size == 0 {",
+      "rule": "The text must be UTF-8 (toml-test invalid/encoding/*).",
+      "killers": [
+        "cmd/ergo:TestTOMLParseAgreesWithControl"
+      ]
+    }
+  ]
+}
