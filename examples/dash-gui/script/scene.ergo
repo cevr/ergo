@@ -1,0 +1,117 @@
+// A scene: the view on ui.TestHost, driven by a script of frames and
+// presses, the way an agent drives the window. The host's clock is the
+// caller's time.Manual; a frame period is a 120th of a second, and each
+// frame the view's Animate sends the app a Next.
+
+import actor
+import dash/feed
+import dash/screen
+import io
+import machines
+import queue
+import strconv
+import strings
+import sync
+import time
+import ui
+
+// Period is a frame of the virtual clock: 120 frames a second.
+let Period = duration(int64(8333333))
+
+// Scene moves the clock frames frames, then plays the scene script lines:
+//
+//	frames N      move the clock N frames
+//	tap LABEL     press the node labelled LABEL ("toggle P", "policy P")
+//	show          the frame's text: its number, each panel's line, the drops
+//	shot          the whole screen, paint lists included
+//
+// The panels' notes are written as the frames that make them pass, as the
+// headless driver writes them. A tap of a label that is on no node writes
+// `? no node LABEL`.
+func Scene(lines Seq[string], frames int, clock time.Manual) fails ui.BadPatch | actor.Stopped needs feed.Sensors | Scheduler | io.Stdout {
+	let notes = sync.NewRef[[]feed.Notice]([]feed.Notice{})
+	let a = actor.StartMachine(machines.Start(screen.App{}, feed.NewBoard()), 8, func(o []feed.Notice) {
+		notes.Update(func(old []feed.Notice) []feed.Notice {
+			let mut all = old
+			for n in o {
+				all = all.Append(n)
+			}
+			all
+		})
+	})
+	let mut h = try ui.NewTestHost(a, screen.View, clock, 4)
+	ui.FrameEvery(&h, Period)
+	try advance(&h, frames, notes)
+	for line in lines {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let words = strings.Split(line, " ")
+		match words[0] {
+		case "frames":
+			let n = strconv.Atoi(if len(words) == 2 { words[1] } else { "" }) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				io.Stdout.Println("? \"" + line + "\": want frames N")
+				continue
+			}
+			if n < 0 {
+				io.Stdout.Println("? \"" + line + "\": want frames N")
+				continue
+			}
+			try advance(&h, n, notes)
+		case "tap":
+			let label = strings.TrimPrefix(line, "tap ")
+			ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
+			case ui.NoNode as x:
+				io.Stdout.Println("? no node " + x.Label)
+			case actor.Stopped as s:
+				return s
+			case ui.BadPatch as b:
+				return b
+			}
+		case "show":
+			for t in texts(ui.Screen(&h)) {
+				io.Stdout.Println(t)
+			}
+		case "shot":
+			io.Stdout.Print(ui.Screenshot(&h))
+		case _:
+			io.Stdout.Println("? \"" + line + "\": want frames, tap, show or shot")
+		}
+	}
+	// The board's queues are made fresh each frame and never ended, so
+	// the app's step cannot fail with queue.Closed.
+	a.Stop() catch {
+	case queue.Closed:
+	}
+}
+
+// advance moves h's clock n frames, writing each frame's notes.
+func advance(h *ui.TestHost[screen.Dash, screen.Signal, Decision[screen.Dash, []feed.Notice], queue.Closed], n int, notes sync.Ref[[]feed.Notice]) fails ui.BadPatch | actor.Stopped needs io.Stdout {
+	for _ in 0..n {
+		try ui.Advance(h, Period)
+		for x in notes.Get() {
+			io.Stdout.Println(note(x))
+		}
+		notes.Set([]feed.Notice{})
+	}
+}
+
+// texts is the values of the screen's text nodes in tree order, leaving
+// out the captions inside buttons.
+func texts(shapes []ui.Shape[screen.Signal]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case ui.PressableNode:
+			continue
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode:
+		}
+		for t in texts(s.Kids) {
+			out = out.Append(t)
+		}
+	}
+	out
+}

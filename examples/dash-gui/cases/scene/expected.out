@@ -1,0 +1,371 @@
+frame 0
+0 live got=0 seen=0 chart n=0 []
+1 live got=0 seen=0 chart n=0 []
+2 live got=0 seen=0 chart n=0 []
+3 live got=0 seen=0 chart n=0 []
+4 live got=0 seen=0 spark []
+5 live got=0 seen=0 spark []
+6 live got=0 seen=0 spark []
+7 live got=0 seen=0 gauge at=0 to=0
+8 live got=0 seen=0 gauge at=0 to=0
+9 live got=0 seen=0 strip [0 0 0 0 0 0 0 0]
+10 live got=0 seen=0 strip [0 0 0 0 0 0 0 0]
+11 live got=0 seen=0 log []
+dropped 0 0 0 0 0 0 0 0 0 0 0 0
+61: 0 stale
+61: 1 stale
+61: 6 stale
+61: 10 stale
+61: 11 stale
+frame 70
+0 stale got=0 seen=0 chart n=0 []
+1 stale got=0 seen=0 chart n=0 []
+2 live got=128 seen=70 chart n=128 [469-864 520-901 579-970 605-965 592-961 524-915 507-819 379-731]
+3 live got=109 seen=69 chart n=109 [522-909 536-828 406-750 347-729 280-662 233-606 146-528 177-543]
+4 live got=60 seen=70 spark [260-576 232-570 215-577 227-490 146-485 162-410 26-360 129-506]
+5 live got=73 seen=70 spark [110-400 65-239 295-537 182-550 261-663 287-682 356-507 319-670]
+6 stale got=0 seen=0 spark []
+7 live got=110 seen=70 gauge at=697 to=593
+8 live got=112 seen=70 gauge at=441 to=232
+9 live got=103 seen=70 strip [4 17 25 22 23 11 1 0]
+10 stale got=0 seen=0 strip [0 0 0 0 0 0 0 0]
+11 stale got=0 seen=0 log []
+dropped 0 0 32 24 0 8 0 24 24 16 0 0
+? no node toggle 12
+frame 71
+0 stale got=0 seen=0 chart n=0 []
+1 stale got=0 seen=0 chart n=0 []
+2 live got=130 seen=71 chart n=130 [469-864 520-901 579-970 605-965 592-961 524-915 474-819 379-731]
+3 paused got=109 seen=69 chart n=109 [522-909 536-828 406-750 347-729 280-662 233-606 146-528 177-543]
+4 live got=62 seen=71 spark [260-576 232-570 215-577 227-490 146-485 178-410 26-360 129-506]
+5 live got=74 seen=71 spark [65-385 102-434 288-537 182-550 287-663 361-682 356-670 319-601]
+6 stale got=0 seen=0 spark []
+7 live got=111 seen=71 gauge at=687 to=421
+8 live got=112 seen=70 gauge at=421 to=232
+9 live got=105 seen=71 strip [4 19 25 22 23 11 1 0]
+10 stale got=0 seen=0 strip [0 0 0 0 0 0 0 0]
+11 stale got=0 seen=0 log []
+dropped 0 0 32 24 0 8 0 24 24 16 0 0
+180: 6 live
+180: 10 live
+180: 11 live
+183: 1 live
+? "frames": want frames N
+column
+  text "frame 301"
+  column
+    text "0 stale got=0 seen=0 chart n=0 []"
+    row
+      button "toggle 0"
+        text "pause"
+      button "policy 0"
+        text "drop oldest"
+    canvas "panel 0" 256x64
+  column
+    text "1 live got=147 seen=300 chart n=147 [145-556 299-717 358-728 378-771 442-857 596-961 484-819 388-865]"
+    row
+      button "toggle 1"
+        text "pause"
+      button "policy 1"
+        text "drop oldest"
+    canvas "panel 1" 256x64
+      stroke rgba(60,180,90,255) 1 M 2 55 L 2 32
+      stroke rgba(60,180,90,255) 1 M 6 41 L 6 37
+      stroke rgba(60,180,90,255) 1 M 10 41 L 10 32
+      stroke rgba(60,180,90,255) 1 M 14 40 L 14 38
+      stroke rgba(60,180,90,255) 1 M 18 36 L 18 30
+      stroke rgba(60,180,90,255) 1 M 22 36 L 22 32
+      stroke rgba(60,180,90,255) 1 M 26 47 L 26 29
+      stroke rgba(60,180,90,255) 1 M 30 30 L 30 30
+      stroke rgba(60,180,90,255) 1 M 34 45 L 34 41
+      stroke rgba(60,180,90,255) 1 M 38 36 L 38 33
+      stroke rgba(60,180,90,255) 1 M 42 40 L 42 35
+      stroke rgba(60,180,90,255) 1 M 46 44 L 46 21
+      stroke rgba(60,180,90,255) 1 M 50 42 L 50 28
+      stroke rgba(60,180,90,255) 1 M 54 34 L 54 19
+      stroke rgba(60,180,90,255) 1 M 58 26 L 58 20
+      stroke rgba(60,180,90,255) 1 M 62 26 L 62 21
+      stroke rgba(60,180,90,255) 1 M 66 33 L 66 18
+      stroke rgba(60,180,90,255) 1 M 70 32 L 70 31
+      stroke rgba(60,180,90,255) 1 M 74 32 L 74 22
+      stroke rgba(60,180,90,255) 1 M 78 39 L 78 39
+      stroke rgba(60,180,90,255) 1 M 82 29 L 82 19
+      stroke rgba(60,180,90,255) 1 M 86 42 L 86 28
+      stroke rgba(60,180,90,255) 1 M 90 32 L 90 28
+      stroke rgba(60,180,90,255) 1 M 94 30 L 94 25
+      stroke rgba(60,180,90,255) 1 M 98 40 L 98 39
+      stroke rgba(60,180,90,255) 1 M 102 29 L 102 26
+      stroke rgba(60,180,90,255) 1 M 106 38 L 106 15
+      stroke rgba(60,180,90,255) 1 M 110 39 L 110 17
+      stroke rgba(60,180,90,255) 1 M 114 26 L 114 22
+      stroke rgba(60,180,90,255) 1 M 118 37 L 118 27
+      stroke rgba(60,180,90,255) 1 M 122 40 L 122 26
+      stroke rgba(60,180,90,255) 1 M 126 29 L 126 21
+      stroke rgba(60,180,90,255) 1 M 130 32 L 130 13
+      stroke rgba(60,180,90,255) 1 M 134 36 L 134 17
+      stroke rgba(60,180,90,255) 1 M 138 25 L 138 24
+      stroke rgba(60,180,90,255) 1 M 142 33 L 142 19
+      stroke rgba(60,180,90,255) 1 M 146 24 L 146 11
+      stroke rgba(60,180,90,255) 1 M 150 30 L 150 13
+      stroke rgba(60,180,90,255) 1 M 154 28 L 154 10
+      stroke rgba(60,180,90,255) 1 M 158 17 L 158 16
+      stroke rgba(60,180,90,255) 1 M 162 26 L 162 16
+      stroke rgba(60,180,90,255) 1 M 166 16 L 166 9
+      stroke rgba(60,180,90,255) 1 M 170 19 L 170 19
+      stroke rgba(60,180,90,255) 1 M 174 25 L 174 11
+      stroke rgba(60,180,90,255) 1 M 178 6 L 178 4
+      stroke rgba(60,180,90,255) 1 M 182 20 L 182 7
+      stroke rgba(60,180,90,255) 1 M 186 20 L 186 14
+      stroke rgba(60,180,90,255) 1 M 190 26 L 190 3
+      stroke rgba(60,180,90,255) 1 M 194 19 L 194 12
+      stroke rgba(60,180,90,255) 1 M 198 21 L 198 17
+      stroke rgba(60,180,90,255) 1 M 202 32 L 202 15
+      stroke rgba(60,180,90,255) 1 M 206 19 L 206 16
+      stroke rgba(60,180,90,255) 1 M 210 29 L 210 28
+      stroke rgba(60,180,90,255) 1 M 214 23 L 214 15
+      stroke rgba(60,180,90,255) 1 M 218 34 L 218 24
+      stroke rgba(60,180,90,255) 1 M 222 22 L 222 18
+      stroke rgba(60,180,90,255) 1 M 226 10 L 226 9
+      stroke rgba(60,180,90,255) 1 M 230 33 L 230 13
+      stroke rgba(60,180,90,255) 1 M 234 10 L 234 10
+      stroke rgba(60,180,90,255) 1 M 238 25 L 238 18
+      stroke rgba(60,180,90,255) 1 M 242 36 L 242 19
+      stroke rgba(60,180,90,255) 1 M 246 35 L 246 29
+      stroke rgba(60,180,90,255) 1 M 250 22 L 250 21
+      stroke rgba(60,180,90,255) 1 M 254 40 L 254 21
+  column
+    text "2 live got=402 seen=301 chart n=402 [469-970 524-965 320-819 57-595 53-695 362-782 459-967 311-769]"
+    row
+      button "toggle 2"
+        text "pause"
+      button "policy 2"
+        text "drop oldest"
+    canvas "panel 2" 256x64
+      stroke rgba(60,180,90,255) 1 M 2 34 L 2 10
+      stroke rgba(60,180,90,255) 1 M 6 28 L 6 9
+      stroke rgba(60,180,90,255) 1 M 10 31 L 10 13
+      stroke rgba(60,180,90,255) 1 M 14 29 L 14 7
+      stroke rgba(60,180,90,255) 1 M 18 28 L 18 7
+      stroke rgba(60,180,90,255) 1 M 22 25 L 22 9
+      stroke rgba(60,180,90,255) 1 M 26 26 L 26 2
+      stroke rgba(60,180,90,255) 1 M 30 27 L 30 4
+      stroke rgba(60,180,90,255) 1 M 34 22 L 34 10
+      stroke rgba(60,180,90,255) 1 M 38 26 L 38 3
+      stroke rgba(60,180,90,255) 1 M 42 24 L 42 4
+      stroke rgba(60,180,90,255) 1 M 46 23 L 46 3
+      stroke rgba(60,180,90,255) 1 M 50 27 L 50 12
+      stroke rgba(60,180,90,255) 1 M 54 31 L 54 7
+      stroke rgba(60,180,90,255) 1 M 58 22 L 58 7
+      stroke rgba(60,180,90,255) 1 M 62 24 L 62 6
+      stroke rgba(60,180,90,255) 1 M 66 31 L 66 14
+      stroke rgba(60,180,90,255) 1 M 70 34 L 70 12
+      stroke rgba(60,180,90,255) 1 M 74 35 L 74 20
+      stroke rgba(60,180,90,255) 1 M 78 38 L 78 18
+      stroke rgba(60,180,90,255) 1 M 82 40 L 82 19
+      stroke rgba(60,180,90,255) 1 M 86 44 L 86 26
+      stroke rgba(60,180,90,255) 1 M 90 43 L 90 25
+      stroke rgba(60,180,90,255) 1 M 94 44 L 94 28
+      stroke rgba(60,180,90,255) 1 M 98 47 L 98 28
+      stroke rgba(60,180,90,255) 1 M 102 46 L 102 26
+      stroke rgba(60,180,90,255) 1 M 106 44 L 106 29
+      stroke rgba(60,180,90,255) 1 M 110 47 L 110 35
+      stroke rgba(60,180,90,255) 1 M 114 48 L 114 35
+      stroke rgba(60,180,90,255) 1 M 118 54 L 118 37
+      stroke rgba(60,180,90,255) 1 M 122 61 L 122 37
+      stroke rgba(60,180,90,255) 1 M 126 52 L 126 43
+      stroke rgba(60,180,90,255) 1 M 130 61 L 130 45
+      stroke rgba(60,180,90,255) 1 M 134 58 L 134 44
+      stroke rgba(60,180,90,255) 1 M 138 57 L 138 34
+      stroke rgba(60,180,90,255) 1 M 142 55 L 142 37
+      stroke rgba(60,180,90,255) 1 M 146 49 L 146 30
+      stroke rgba(60,180,90,255) 1 M 150 48 L 150 30
+      stroke rgba(60,180,90,255) 1 M 154 45 L 154 25
+      stroke rgba(60,180,90,255) 1 M 158 45 L 158 20
+      stroke rgba(60,180,90,255) 1 M 162 36 L 162 19
+      stroke rgba(60,180,90,255) 1 M 166 37 L 166 25
+      stroke rgba(60,180,90,255) 1 M 170 41 L 170 18
+      stroke rgba(60,180,90,255) 1 M 174 40 L 174 16
+      stroke rgba(60,180,90,255) 1 M 178 39 L 178 24
+      stroke rgba(60,180,90,255) 1 M 182 34 L 182 14
+      stroke rgba(60,180,90,255) 1 M 186 30 L 186 18
+      stroke rgba(60,180,90,255) 1 M 190 34 L 190 16
+      stroke rgba(60,180,90,255) 1 M 194 24 L 194 10
+      stroke rgba(60,180,90,255) 1 M 198 22 L 198 7
+      stroke rgba(60,180,90,255) 1 M 202 21 L 202 3
+      stroke rgba(60,180,90,255) 1 M 206 16 L 206 3
+      stroke rgba(60,180,90,255) 1 M 210 26 L 210 8
+      stroke rgba(60,180,90,255) 1 M 214 25 L 214 10
+      stroke rgba(60,180,90,255) 1 M 218 29 L 218 12
+      stroke rgba(60,180,90,255) 1 M 222 35 L 222 17
+      stroke rgba(60,180,90,255) 1 M 226 40 L 226 15
+      stroke rgba(60,180,90,255) 1 M 230 33 L 230 16
+      stroke rgba(60,180,90,255) 1 M 234 38 L 234 17
+      stroke rgba(60,180,90,255) 1 M 238 36 L 238 22
+      stroke rgba(60,180,90,255) 1 M 242 43 L 242 25
+      stroke rgba(60,180,90,255) 1 M 246 37 L 246 23
+      stroke rgba(60,180,90,255) 1 M 250 45 L 250 34
+      stroke rgba(60,180,90,255) 1 M 254 44 L 254 27
+  column
+    text "3 paused got=109 seen=69 chart n=109 [522-909 536-828 406-750 347-729 280-662 233-606 146-528 177-543]"
+    row
+      button "toggle 3"
+        text "resume"
+      button "policy 3"
+        text "drop oldest"
+    canvas "panel 3" 256x64
+      stroke rgba(220,160,40,255) 1 M 2 6 L 2 6
+      stroke rgba(220,160,40,255) 1 M 6 28 L 6 15
+      stroke rgba(220,160,40,255) 1 M 10 26 L 10 21
+      stroke rgba(220,160,40,255) 1 M 14 11 L 14 11
+      stroke rgba(220,160,40,255) 1 M 18 25 L 18 21
+      stroke rgba(220,160,40,255) 1 M 22 31 L 22 31
+      stroke rgba(220,160,40,255) 1 M 26 7 L 26 7
+      stroke rgba(220,160,40,255) 1 M 30 20 L 30 14
+      stroke rgba(220,160,40,255) 1 M 34 23 L 34 12
+      stroke rgba(220,160,40,255) 1 M 38 23 L 38 18
+      stroke rgba(220,160,40,255) 1 M 42 12 L 42 12
+      stroke rgba(220,160,40,255) 1 M 46 30 L 46 27
+      stroke rgba(220,160,40,255) 1 M 50 27 L 50 26
+      stroke rgba(220,160,40,255) 1 M 54 14 L 54 14
+      stroke rgba(220,160,40,255) 1 M 58 30 L 58 27
+      stroke rgba(220,160,40,255) 1 M 62 16 L 62 15
+      stroke rgba(220,160,40,255) 1 M 66 21 L 66 21
+      stroke rgba(220,160,40,255) 1 M 70 34 L 70 18
+      stroke rgba(220,160,40,255) 1 M 74 37 L 74 27
+      stroke rgba(220,160,40,255) 1 M 78 33 L 78 16
+      stroke rgba(220,160,40,255) 1 M 82 17 L 82 17
+      stroke rgba(220,160,40,255) 1 M 86 36 L 86 34
+      stroke rgba(220,160,40,255) 1 M 90 35 L 90 34
+      stroke rgba(220,160,40,255) 1 M 94 39 L 94 39
+      stroke rgba(220,160,40,255) 1 M 98 19 L 98 18
+      stroke rgba(220,160,40,255) 1 M 102 37 L 102 37
+      stroke rgba(220,160,40,255) 1 M 106 31 L 106 31
+      stroke rgba(220,160,40,255) 1 M 110 28 L 110 22
+      stroke rgba(220,160,40,255) 1 M 114 42 L 114 20
+      stroke rgba(220,160,40,255) 1 M 118 41 L 118 23
+      stroke rgba(220,160,40,255) 1 M 122 26 L 122 26
+      stroke rgba(220,160,40,255) 1 M 126 42 L 126 23
+      stroke rgba(220,160,40,255) 1 M 130 23 L 130 22
+      stroke rgba(220,160,40,255) 1 M 134 45 L 134 45
+      stroke rgba(220,160,40,255) 1 M 138 47 L 138 23
+      stroke rgba(220,160,40,255) 1 M 142 39 L 142 36
+      stroke rgba(220,160,40,255) 1 M 146 40 L 146 28
+      stroke rgba(220,160,40,255) 1 M 150 30 L 150 30
+      stroke rgba(220,160,40,255) 1 M 154 31 L 154 25
+      stroke rgba(220,160,40,255) 1 M 158 36 L 158 26
+      stroke rgba(220,160,40,255) 1 M 162 47 L 162 47
+      stroke rgba(220,160,40,255) 1 M 166 38 L 166 26
+      stroke rgba(220,160,40,255) 1 M 170 29 L 170 28
+      stroke rgba(220,160,40,255) 1 M 174 28 L 174 28
+      stroke rgba(220,160,40,255) 1 M 178 47 L 178 43
+      stroke rgba(220,160,40,255) 1 M 182 50 L 182 35
+      stroke rgba(220,160,40,255) 1 M 186 49 L 186 36
+      stroke rgba(220,160,40,255) 1 M 190 44 L 190 44
+      stroke rgba(220,160,40,255) 1 M 194 40 L 194 34
+      stroke rgba(220,160,40,255) 1 M 198 35 L 198 31
+      stroke rgba(220,160,40,255) 1 M 202 51 L 202 51
+      stroke rgba(220,160,40,255) 1 M 206 44 L 206 40
+      stroke rgba(220,160,40,255) 1 M 210 55 L 210 47
+      stroke rgba(220,160,40,255) 1 M 214 37 L 214 37
+      stroke rgba(220,160,40,255) 1 M 218 34 L 218 32
+      stroke rgba(220,160,40,255) 1 M 222 54 L 222 51
+      stroke rgba(220,160,40,255) 1 M 226 43 L 226 34
+      stroke rgba(220,160,40,255) 1 M 230 32 L 230 32
+      stroke rgba(220,160,40,255) 1 M 234 50 L 234 46
+      stroke rgba(220,160,40,255) 1 M 238 43 L 238 30
+      stroke rgba(220,160,40,255) 1 M 242 31 L 242 31
+      stroke rgba(220,160,40,255) 1 M 246 46 L 246 43
+      stroke rgba(220,160,40,255) 1 M 250 53 L 250 36
+      stroke rgba(220,160,40,255) 1 M 254 42 L 254 39
+  column
+    text "4 paused got=347 seen=270 spark [241-601 222-559 149-527 107-392 67-412 91-367 73-377 179-474]"
+    row
+      button "toggle 4"
+        text "resume"
+      button "policy 4"
+        text "drop oldest"
+    canvas "panel 4" 256x64
+      stroke rgba(220,160,40,255) 1 M 0 43 L 4 33 L 8 38 L 12 27 L 16 29 L 20 49 L 24 41 L 28 26 L 32 29 L 36 44 L 40 39 L 44 31 L 48 32 L 52 50 L 56 49 L 60 33 L 64 31 L 68 50 L 72 47 L 76 41 L 80 55 L 84 38 L 88 47 L 92 50 L 96 47 L 100 51 L 104 39 L 108 51 L 112 54 L 116 46 L 120 50 L 124 58 L 128 38 L 132 41 L 136 47 L 140 55 L 144 51 L 148 43 L 152 60 L 156 55 L 160 51 L 164 44 L 168 50 L 172 58 L 176 52 L 180 41 L 184 42 L 188 59 L 192 55 L 196 47 L 200 45 L 204 57 L 208 50 L 212 46 L 216 60 L 220 40 L 224 48 L 228 45 L 232 53 L 236 36 L 240 45 L 244 47 L 248 50 L 252 34
+  column
+    text "5 live got=403 seen=300 spark [495-726 397-756 551-795 461-829 480-817 513-809 492-812 515-875]"
+    row
+      button "toggle 5"
+        text "pause"
+      button "policy 5"
+        text "drop newest"
+    canvas "panel 5" 256x64
+      stroke rgba(60,180,90,255) 1 M 0 26 L 4 22 L 8 22 L 12 28 L 16 33 L 20 18 L 24 24 L 28 18 L 32 35 L 36 17 L 40 16 L 44 17 L 48 21 L 52 25 L 56 39 L 60 34 L 64 18 L 68 19 L 72 29 L 76 19 L 80 14 L 84 25 L 88 23 L 92 26 L 96 11 L 100 35 L 104 25 L 108 27 L 112 25 L 116 34 L 120 18 L 124 15 L 128 34 L 132 22 L 136 18 L 140 30 L 144 12 L 148 12 L 152 29 L 156 30 L 160 32 L 164 21 L 168 21 L 172 13 L 176 14 L 180 28 L 184 13 L 188 18 L 192 30 L 196 25 L 200 13 L 204 33 L 208 20 L 212 15 L 216 13 L 220 33 L 224 23 L 228 16 L 232 15 L 236 28 L 240 23 L 244 8 L 248 32 L 252 9
+  column
+    text "6 live got=108 seen=301 spark [335-675 417-775 421-850 509-843 549-953 590-842 561-920 486-861]"
+    row
+      button "toggle 6"
+        text "pause"
+      button "policy 6"
+        text "drop oldest"
+    canvas "panel 6" 256x64
+      stroke rgba(60,180,90,255) 1 M 0 26 L 4 43 L 8 21 L 12 25 L 16 41 L 20 26 L 24 40 L 28 36 L 32 23 L 36 35 L 40 18 L 44 17 L 48 38 L 52 36 L 56 15 L 60 18 L 64 24 L 68 38 L 72 16 L 76 31 L 80 12 L 84 14 L 88 25 L 92 10 L 96 32 L 100 20 L 104 26 L 108 21 L 112 13 L 116 13 L 120 12 L 124 11 L 128 29 L 132 8 L 136 11 L 140 6 L 144 5 L 148 22 L 152 11 L 156 4 L 160 14 L 164 27 L 168 13 L 172 20 L 176 11 L 180 12 L 184 24 L 188 12 L 192 6 L 196 24 L 200 8 L 204 21 L 208 27 L 212 10 L 216 29 L 220 10 L 224 29 L 228 21 L 232 9 L 236 13 L 240 10 L 244 33 L 248 27 L 252 16
+  column
+    text "7 live got=462 seen=297 gauge at=502 to=407"
+    row
+      button "toggle 7"
+        text "pause"
+      button "policy 7"
+        text "drop oldest"
+    canvas "panel 7" 256x64
+      fill rgba(40,40,48,255) M 0 24 L 256 24 L 256 40 L 0 40 Z
+      fill rgba(60,180,90,255) M 0 24 L 128 24 L 128 40 L 0 40 Z
+  column
+    text "8 live got=347 seen=301 gauge at=283 to=220"
+    row
+      button "toggle 8"
+        text "pause"
+      button "policy 8"
+        text "drop oldest"
+    canvas "panel 8" 256x64
+      fill rgba(40,40,48,255) M 0 24 L 256 24 L 256 40 L 0 40 Z
+      fill rgba(60,180,90,255) M 0 24 L 72 24 L 72 40 L 0 40 Z
+  column
+    text "9 live got=378 seen=300 strip [5 27 42 44 57 42 23 16]"
+    row
+      button "toggle 9"
+        text "pause"
+      button "policy 9"
+        text "drop oldest"
+    canvas "panel 9" 256x64
+      fill rgba(60,180,90,22) M 0 0 L 32 0 L 32 64 L 0 64 Z
+      fill rgba(60,180,90,120) M 32 0 L 64 0 L 64 64 L 32 64 Z
+      fill rgba(60,180,90,187) M 64 0 L 96 0 L 96 64 L 64 64 Z
+      fill rgba(60,180,90,196) M 96 0 L 128 0 L 128 64 L 96 64 Z
+      fill rgba(60,180,90,255) M 128 0 L 160 0 L 160 64 L 128 64 Z
+      fill rgba(60,180,90,187) M 160 0 L 192 0 L 192 64 L 160 64 Z
+      fill rgba(60,180,90,102) M 192 0 L 224 0 L 224 64 L 192 64 Z
+      fill rgba(60,180,90,71) M 224 0 L 256 0 L 256 64 L 224 64 Z
+  column
+    text "10 live got=190 seen=301 strip [15 34 54 57 16 11 3 0]"
+    row
+      button "toggle 10"
+        text "pause"
+      button "policy 10"
+        text "drop oldest"
+    canvas "panel 10" 256x64
+      fill rgba(60,180,90,67) M 0 0 L 32 0 L 32 64 L 0 64 Z
+      fill rgba(60,180,90,152) M 32 0 L 64 0 L 64 64 L 32 64 Z
+      fill rgba(60,180,90,241) M 64 0 L 96 0 L 96 64 L 64 64 Z
+      fill rgba(60,180,90,255) M 96 0 L 128 0 L 128 64 L 96 64 Z
+      fill rgba(60,180,90,71) M 128 0 L 160 0 L 160 64 L 128 64 Z
+      fill rgba(60,180,90,49) M 160 0 L 192 0 L 192 64 L 160 64 Z
+      fill rgba(60,180,90,13) M 192 0 L 224 0 L 224 64 L 192 64 Z
+      fill rgba(60,180,90,0) M 224 0 L 256 0 L 256 64 L 224 64 Z
+  column
+    text "11 live got=149 seen=301 log [288:902 295:906 300:942 301:911]"
+    row
+      button "toggle 11"
+        text "pause"
+      button "policy 11"
+        text "drop oldest"
+    canvas "panel 11" 256x64
+      stroke rgba(220,60,40,255) 1 M 230 0 L 230 64
+      stroke rgba(220,60,40,255) 1 M 231 0 L 231 64
+      stroke rgba(220,60,40,255) 1 M 241 0 L 241 64
+      stroke rgba(220,60,40,255) 1 M 233 0 L 233 64
+  text "dropped 0 24 56 64 40 56 0 96 40 48 32 16"

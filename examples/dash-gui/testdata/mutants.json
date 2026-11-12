@@ -144,6 +144,86 @@
       "to": "dropped[r.Source] + 0",
       "rule": "The board counts every sample a queue dropped.",
       "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-view-asks-no-frames", "origin": "wf10 GP4b",
+      "file": "examples/dash-gui/screen/view.ergo",
+      "from": "\tui.Animate(f, func(at duration) Signal { Next })\n",
+      "to": "\n",
+      "rule": "The view asks the host for frames, so the clock moves the board.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-pause-button-swaps-the-policy", "origin": "wf10 GP4b",
+      "file": "examples/dash-gui/screen/app.ergo",
+      "from": "Dash{Board: feed.Toggle(d.Board, t.Panel)}",
+      "to": "Dash{Board: feed.Swap(d.Board, t.Panel)}",
+      "rule": "A panel's pause button pauses or resumes it.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-app-drops-the-notes", "origin": "wf10 GP4b",
+      "file": "examples/dash-gui/screen/app.ergo",
+      "from": "if len(s.Notes) == 0 {",
+      "to": "if true {",
+      "rule": "A frame's notes reach the app's output.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-frame-ignores-the-policy", "origin": "wf10 GP4b",
+      "file": "examples/dash-gui/feed/board.ergo",
+      "from": "Offer(q, Capacity, b.Policies[i], Sensors.Read(i, f, k))",
+      "to": "Offer(q, Capacity, DropOldest, Sensors.Read(i, f, k))",
+      "rule": "The tasks-free frame drops by each source's policy, as the tasks do.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-screen-reads-button-captions", "origin": "wf10 GP4b",
+      "file": "examples/dash-gui/script/scene.ergo",
+      "from": "\t\tcase ui.PressableNode:\n\t\t\tcontinue\n",
+      "to": "\t\tcase ui.PressableNode:\n",
+      "rule": "A scene's show writes the panels' lines, not the buttons' captions.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-chart-column-off-centre", "origin": "wf10 GP4b",
+      "file": "examples/dash-gui/screen/view.ergo",
+      "from": "let x = px(i*4 + 2)",
+      "to": "let x = px(i * 4)",
+      "rule": "A chart column is drawn at the middle of its four pixels.",
+      "killers": ["scripts/examples:dash-gui"]
+    },
+    {
+      "name": "dash-samples-drawn-upside-down", "origin": "wf10 GP4b",
+      "file": "examples/dash-gui/screen/view.ergo",
+      "from": "px(Height - v*Height/(panel.Top+1))",
+      "to": "px(v * Height / (panel.Top + 1))",
+      "rule": "A greater sample is drawn higher.",
+      "killers": ["scripts/examples:dash-gui"]
+    },
+    {
+      "name": "dash-gauge-bar-skips-the-ease", "origin": "wf10 GP4b",
+      "file": "examples/dash-gui/screen/view.ergo",
+      "from": "px(panel.Shown(g, f)*Width/(panel.Top+1))",
+      "to": "px(g.To*Width/(panel.Top+1))",
+      "rule": "A gauge's bar shows its eased value.",
+      "killers": ["scripts/examples:dash-gui"]
+    },
+    {
+      "name": "dash-heat-alpha-not-a-share", "origin": "wf10 GP4b",
+      "file": "examples/dash-gui/screen/view.ergo",
+      "from": "A: uint8(bins[i] * 255 / most)",
+      "to": "A: uint8(bins[i])",
+      "rule": "A heat bin's alpha is its share of the fullest bin.",
+      "killers": ["scripts/examples:dash-gui"]
+    },
+    {
+      "name": "dash-paused-button-says-pause", "origin": "wf10 GP4b",
+      "file": "examples/dash-gui/screen/view.ergo",
+      "from": "\t\t\"resume\"\n",
+      "to": "\t\t\"pause\"\n",
+      "rule": "A paused panel's button offers to resume it.",
+      "killers": ["scripts/examples:dash-gui"]
     }
   ]
 }

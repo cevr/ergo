@@ -1,0 +1,131 @@
+// The view: a column of the frame's number, one block per panel (its line,
+// its buttons, its canvas), and the queues' drop counts. The panel lines
+// are panel.Describe's, so the screen's text is the headless driver's.
+
+import dash/feed
+import dash/panel
+import strings
+import ui
+
+// Width and Height are a panel canvas's size, in pixels.
+let Width = 256
+let Height = 64
+
+// View shows d and asks the host for frames.
+func View(f *ui.Frame[Signal], d Dash) {
+	ui.Animate(f, func(at duration) Signal { Next })
+	let b = d.Board
+	let mut ids = []int{}
+	for i in 0..len(b.Panels) {
+		ids = ids.Append(i)
+	}
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "frame \(b.Frame)")
+		ui.Each(f, ids, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {
+			let s = b.Panels[i]
+			ui.Column(f, ui.Plain()) {
+				ui.Text(f, panel.Describe(i, s, b.Frame))
+				ui.Row(f, ui.Plain()) {
+					ui.Pressable(f, "toggle \(i)", Toggle{Panel: i}) {
+						ui.Text(f, toggleText(s))
+					}
+					ui.Pressable(f, "policy \(i)", Swap{Panel: i}) {
+						ui.Text(f, policyText(b.Policies[i]))
+					}
+				}
+				ui.Canvas(f, "panel \(i)", ui.Length(float64(Width)), ui.Length(float64(Height))) func(p *ui.Paint) {
+					Draw(p, s, b.Frame)
+				}
+			}
+		}
+		let mut words = []string{}
+		for n in b.Dropped {
+			words = words.Append("\(n)")
+		}
+		ui.Text(f, "dropped "+strings.Join(words, " "))
+	}
+}
+
+func toggleText(s panel.State) string {
+	match s {
+	case panel.Paused:
+		"resume"
+	case panel.Live, panel.Stale:
+		"pause"
+	}
+}
+
+func policyText(p feed.Policy) string {
+	match p {
+	case feed.DropOldest:
+		"drop oldest"
+	case feed.DropNewest:
+		"drop newest"
+	}
+}
+
+// Draw paints panel s at frame f: a chart's columns as vertical strokes
+// from the least to the greatest sample, a spark line as one stroke, a
+// gauge as a track and a bar to its eased value, a heat strip as bins
+// whose alpha is their share, a log as a tick at each entry's value. Every
+// coordinate is a whole number of pixels, so the paint list is exact.
+func Draw(p *ui.Paint, s panel.State, f int) {
+	let ink = inkOf(s)
+	match panel.PanelOf(s).View {
+	case panel.ChartView as c:
+		let cols = panel.Downsample(panel.Items(c.Samples), Width/4)
+		for i in 0..len(cols) {
+			let x = px(i*4 + 2)
+			ui.Stroke(p, ui.Path{Segs: []ui.Seg{ui.MoveTo{X: x, Y: y(cols[i].Lo)}, ui.LineTo{X: x, Y: y(cols[i].Hi)}}}, ink, 1.0)
+		}
+	case panel.SparkView as k:
+		let xs = panel.Items(k.Samples)
+		if len(xs) > 0 {
+			let mut segs = []ui.Seg{ui.MoveTo{X: px(0), Y: y(xs[0])}}
+			for i in 1..len(xs) {
+				segs = segs.Append(ui.LineTo{X: px(i * Width / panel.SparkLen), Y: y(xs[i])})
+			}
+			ui.Stroke(p, ui.Path{Segs: segs}, ink, 1.0)
+		}
+	case panel.GaugeView as g:
+		ui.Fill(p, ui.RectPath(0.0, px(Height/2-8), px(Width), 16.0), track)
+		ui.Fill(p, ui.RectPath(0.0, px(Height/2-8), px(panel.Shown(g, f)*Width/(panel.Top+1)), 16.0), ink)
+	case panel.StripView as h:
+		let bins = panel.Heat(panel.Items(h.Samples), 0, panel.Top)
+		let mut most = 1
+		for n in bins {
+			if n > most {
+				most = n
+			}
+		}
+		let w = Width / panel.Bins
+		for i in 0..len(bins) {
+			ui.Fill(p, ui.RectPath(px(i*w), 0.0, px(w), px(Height)), ui.Color{..ink, A: uint8(bins[i] * 255 / most)})
+		}
+	case panel.LogView as l:
+		for e in panel.Items(l.Entries) {
+			let x = px(e.Value * Width / (panel.Top + 1))
+			ui.Stroke(p, ui.Path{Segs: []ui.Seg{ui.MoveTo{X: x, Y: 0.0}, ui.LineTo{X: x, Y: px(Height)}}}, alarm, 1.0)
+		}
+	}
+}
+
+// y is a sample's height on a canvas: 0 at the bottom, Top at the top.
+func y(v int) float64 { px(Height - v*Height/(panel.Top+1)) }
+
+func px(n int) float64 { float64(n) }
+
+let track = ui.Color{R: 40, G: 40, B: 48, A: 255}
+let alarm = ui.Color{R: 220, G: 60, B: 40, A: 255}
+
+// inkOf is a panel's colour by mode: green live, amber paused, grey stale.
+func inkOf(s panel.State) ui.Color {
+	match s {
+	case panel.Live:
+		ui.Color{R: 60, G: 180, B: 90, A: 255}
+	case panel.Paused:
+		ui.Color{R: 220, G: 160, B: 40, A: 255}
+	case panel.Stale:
+		ui.Color{R: 120, G: 120, B: 120, A: 255}
+	}
+}

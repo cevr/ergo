@@ -75,18 +75,55 @@ func Advance(b Board, w Pipes) Step fails queue.Closed needs Sensors {
 		let r = try w.Done.Pop()
 		dropped[r.Source] = dropped[r.Source] + r.Dropped
 	}
+	let mut data = [][]int{}
+	for q in w.Data {
+		data = data.Append(drain(q))
+	}
+	Shown(b, f, data, dropped)
+}
+
+// Frame is Advance with no tasks: each source's samples of the frame are
+// offered, in order, to a queue of its own under its policy, as its task
+// would offer them, and the board takes what the queues kept. A view's
+// step runs it, since a step starts no task; the two agree on every frame
+// (cmd/ergo TestDashGuiAgreesWithControl runs both).
+func Frame(b Board) Step fails queue.Closed needs Sensors {
+	let f = b.Frame + 1
+	let mut dropped = slices.Clone(b.Dropped)
+	let mut data = [][]int{}
+	for i in 0..len(b.Panels) {
+		let q = queue.New[int](Capacity)
+		for k in 0..Sensors.Count(i, f) {
+			if try Offer(q, Capacity, b.Policies[i], Sensors.Read(i, f, k)) {
+				dropped[i] = dropped[i] + 1
+			}
+		}
+		data = data.Append(drain(q))
+	}
+	Shown(b, f, data, dropped)
+}
+
+// drain is every sample q holds, oldest first, without waiting.
+func drain(q queue.Queue[int]) []int {
+	let mut values = []int{}
+	for {
+		match q.Poll() {
+		case Some[int] as v:
+			values = values.Append(v.Value)
+		case None:
+			break
+		}
+	}
+	values
+}
+
+// Shown is b at frame f: each panel given its samples of the frame, then
+// the clock, with the notes the panels emit, and the queues' drop counts.
+func Shown(b Board, f int, data [][]int, dropped []int) Step {
 	let mut panels = []panel.State{}
 	let mut notes = []Notice{}
 	for i in 0..len(b.Panels) {
-		let mut values = []int{}
-		for {
-			match w.Data[i].Poll() {
-			case Some[int] as v:
-				values = values.Append(v.Value)
-			case None:
-				break
-			}
-		}
+		let values = data[i]
 		let mut s = b.Panels[i]
 		for e in []panel.Event{panel.Samples{Frame: f, Values: values}, panel.Tick{Frame: f}} {
 			match panel.Step(s, e) {
@@ -146,4 +183,32 @@ func SetPolicy(b Board, i int, p Policy) Board {
 	let mut policies = slices.Clone(b.Policies)
 	policies[i] = p
 	Board{..b, Policies: policies}
+}
+
+// Toggle is b with panel i paused, or resumed when it was paused: what a
+// panel's pause button does. A panel that does not exist leaves b.
+func Toggle(b Board, i int) Board {
+	if i < 0 || i >= len(b.Panels) {
+		return b
+	}
+	match b.Panels[i] {
+	case panel.Paused:
+		Send(b, i, panel.Resume).Board
+	case panel.Live, panel.Stale:
+		Send(b, i, panel.Pause).Board
+	}
+}
+
+// Swap is b with source i's queue dropping by the other policy: what a
+// panel's policy button does.
+func Swap(b Board, i int) Board {
+	if i < 0 || i >= len(b.Policies) {
+		return b
+	}
+	match b.Policies[i] {
+	case DropOldest:
+		SetPolicy(b, i, DropNewest)
+	case DropNewest:
+		SetPolicy(b, i, DropOldest)
+	}
 }

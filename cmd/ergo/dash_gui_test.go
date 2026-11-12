@@ -21,7 +21,11 @@ import (
 // and runs that end on either side of the stale bound, the silent
 // stretches' edges and the bursts past a queue's capacity, pauses of
 // paused and stale panels, resumes of running ones, panels past the
-// last, policy changes in mid-run, and lines that are no command. A
+// last, policy changes in mid-run, and lines that are no command. Every
+// fifth seed also plays a scene on the view (dash-gui scene: the app
+// machine under ui.TestHost, a frame of the clock a board frame through
+// feed.Frame's tasks-free path), whose text nodes must be the reference's
+// frames, with button presses read as pauses, resumes and policy swaps. A
 // failing seed prints its replay command and the first line that
 // differs.
 //
@@ -58,7 +62,86 @@ func TestDashGuiAgreesWithControl(t *testing.T) {
 					seed, filepath.Base(bin), firstDiff(got, want), seed)
 			}
 		}
+		// Every fifth seed also plays a scene on the view (ui.TestHost):
+		// its text nodes are what the reference shows, with each button
+		// press read as the reference's pause, resume or policy swap.
+		// Scenes are short, since a frame of the view costs far more than
+		// a frame of play (GP/bench-pending.md).
+		if seed%5 == 0 || seeds == 1 {
+			scene := dashScene(r)
+			want := corpusOutput(dashReference(bank, dashSceneAsPlay(scene)), "", 0)
+			got := runCorpus(t, ergoBin, t.TempDir(), []string{"scene", "-seed", strconv.Itoa(bank)}, scene)
+			if got != want {
+				t.Fatalf("seed %d: the scene printed other text than the reference\n%s\nreplay: DASH_SEED=%d go test -count=1 -run '^TestDashGuiAgreesWithControl$' ./cmd/ergo",
+					seed, firstDiff(got, want), seed)
+			}
+		}
 	}
+}
+
+// dashScene is a seed's scene script: about 300 frames in short runs,
+// presses of every panel's buttons and of labels on no button.
+func dashScene(r *rand.Rand) string {
+	var b strings.Builder
+	frames := 0
+	for frames < 300 {
+		switch k := r.IntN(20); {
+		case k < 7:
+			n := []int{0, 1, 2, 30, 59, 60, 61, 62}[r.IntN(8)]
+			frames += n + 1
+			fmt.Fprintf(&b, "frames %d\n", n)
+		case k < 10:
+			fmt.Fprintf(&b, "tap toggle %d\n", r.IntN(13))
+		case k < 12:
+			fmt.Fprintf(&b, "tap policy %d\n", r.IntN(13))
+		case k < 15:
+			b.WriteString("show\n")
+		default:
+			b.WriteString([]string{"", "# note", "fly", "frames", "frames -1", "frames x", "frames 1 2", "frames +2", "tap toggle 01", "tap knob", "tap panel 3"}[r.IntN(11)] + "\n")
+		}
+	}
+	b.WriteString("show\n")
+	return b.String()
+}
+
+// dashSceneAsPlay is scene as a script of dashReference: frames are runs,
+// a show is a show and its drops, a press of a panel's button is its
+// toggle or swap, a press of a canvas does nothing, and the rest is the
+// text the scene writes for it ("echo").
+func dashSceneAsPlay(scene string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimSuffix(scene, "\n"), "\n") {
+		words := strings.Split(line, " ")
+		switch {
+		case line == "" || strings.HasPrefix(line, "#"):
+		case words[0] == "frames":
+			arg := ""
+			if len(words) == 2 {
+				arg = words[1]
+			}
+			if n, err := strconv.Atoi(arg); err == nil && n >= 0 {
+				fmt.Fprintf(&b, "run %d\n", n)
+			} else {
+				b.WriteString("echo ? \"" + line + "\": want frames N\n")
+			}
+		case line == "show":
+			b.WriteString("show\ndrops\n")
+		case words[0] == "tap":
+			label := strings.TrimPrefix(line, "tap ")
+			n, err := strconv.Atoi(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(label, "toggle "), "policy "), "panel "))
+			switch {
+			case err != nil || n < 0 || n >= 12 || strconv.Itoa(n) != label[strings.LastIndex(label, " ")+1:] || !strings.Contains(label, " "):
+				b.WriteString("echo ? no node " + label + "\n")
+			case strings.HasPrefix(label, "toggle "):
+				fmt.Fprintf(&b, "toggle %d\n", n)
+			case strings.HasPrefix(label, "policy "):
+				fmt.Fprintf(&b, "swap %d\n", n)
+			}
+		default:
+			b.WriteString("echo ? \"" + line + "\": want frames, tap, show or shot\n")
+		}
+	}
+	return b.String()
 }
 
 // dashScript is a seed's script: about 2,000 frames in runs that often
@@ -281,6 +364,19 @@ func dashReference(bank int, script string) string {
 			default:
 				newest[n] = words[2] == "newest"
 			}
+		// The scene's commands (dashSceneAsPlay); a play script has none.
+		case "echo":
+			out.WriteString(strings.TrimPrefix(line, "echo ") + "\n")
+		case "toggle":
+			n, _ := strconv.Atoi(words[1])
+			if panels[n].mode == "paused" {
+				panels[n].mode = "live"
+			} else {
+				panels[n].mode = "paused"
+			}
+		case "swap":
+			n, _ := strconv.Atoi(words[1])
+			newest[n] = !newest[n]
 		default:
 			bad("run, pause, resume, policy, show or drops")
 		}
