@@ -502,3 +502,35 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 **Quiescence**: The scheduler state in which no managed fiber is running or runnable. A wake in flight is not idle: a fiber that has been signalled, fired or cancelled but has not run again is runnable. At quiescence, every pending timer that managed work can register without outside input is registered. `Scheduler.awaitRegistration()` returns at quiescence, and `Scheduler.advance` selects each deadline only at quiescence. When several fibers wait for quiescence at once, the order in which they are released is unspecified. Interrupting a waiter is an ordinary interruption. Unmanaged goroutines, host promises and foreign blocking calls are outside it.
 
 **Latch handoff**: What `Sync.signal` does to the fibers parked on a latch. It completes the latch, makes each waiter runnable and returns. Wherever execution is serialized into turns (Go under the managed test scheduler), the signaller keeps its turn and each waiter resumes later on a turn of its own, never inside the signaller's turn. Interrupting the signaller after `signal` returns cannot undo the signal or affect a waiter it does not own. A waiter interrupted after it is signalled but before it runs, directly or by its owner's close, ends interrupted, and the latch stays signalled. Live Go has no turns: a waiter runs on its own goroutine, possibly in parallel with the signaller, so an interrupt after `signal` races with it.
+
+### Bench
+
+The referee of `ergo bench` ([specs/bench.md](docs/specs/bench.md); std `bench`).
+
+**Bench**: A declaration that names a piece of work to measure, its bench sizes, the counter it is judged on and the claims it holds. Every build but a bench build erases it, as every build but a test build erases a `test`.
+
+**Bench case**: One `bench` declaration, run on every side the run names.
+
+**Bench size**: A value of a bench case's one `int` parameter. A case names two, a small and a large one.
+
+**Bench unit**: The piece of work one step of a bench size stands for (one lookup, one row). A bench block's value is the cost of one bench unit: the counter at the large size less the counter at the small one, over the difference of the sizes, so a fixed cost falls out.
+
+**Bench block**: One fresh process of one side at one bench size, with the counters it reports. Not the language's **Block**.
+
+**Bench side**: What one half of each pair runs: a commit, a compiler, a lowering, a hand Go control or a command. A run has two, base and head.
+
+**Bench control**: A side that is a hand-written Go package, named by the bench case with a no-worse claim, so Ergo is held to the hand Go it must match or beat.
+
+**Pair**: One bench block of each side, run back to back, base first and head first in turn. Its difference is `ln(head) - ln(base)` when every value of the series is above 0, else `head - base`.
+
+**Series**: The pairs of one bench case and one counter, judged together at the planned looks.
+
+**Verdict**: What the referee says of one series: `Better`, `Worse`, `Same`, `NoWorse`, `Unclear`, `Underpowered`, or `Refused` with its refusal. Every verdict but a refusal carries its interval and pairs.
+
+**Refusal**: Why a series has no value (`NoCounter`, `Multiplexed`, `RunIncomplete`, `NotEquivalent`, `CounterUnstable`, `NoMetric`, `FewPairs`, `TooManyPairs`, `NotFinite`, `SharedRunner`). A refusal carries no number; it is never read as 0.
+
+**Exact counter**: A counter that holds one value per side in every bench block (elements copied, checks left, allocations under one processor, a program's own count). Compared exactly, with no test; one that moves is refused. Only an exact counter may stand in a `hold` clause or a growth law.
+
+**Counted counter**: A hardware count (instructions, branches), tight on a loaded host but not exact. Judged over pairs, never held exactly.
+
+**Timed counter**: A time or a memory peak (CPU, wall, peak resident memory). Judged over pairs, never held exactly, and never by the gate.
