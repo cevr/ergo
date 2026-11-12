@@ -22,17 +22,18 @@ type Layout {
 	Parts []string,
 	// Started reports that the current line has an item.
 	Started bool,
-	Indent int,
+	Indent  int,
 	// PendingNL is the line breaks before the next item, PendingSpace a
 	// blank before it on the same line; NoBlank makes the next line break
 	// never a blank line.
-	PendingNL int,
+	PendingNL    int,
 	PendingSpace bool,
-	NoBlank bool,
+	NoBlank      bool,
 }
 
 // Command is one request of the printer.
-type Command = Space{}
+type Command =
+	| Space{}
 	| Newline{}
 	| NoBlank{}
 	| Emit{Blank bool}

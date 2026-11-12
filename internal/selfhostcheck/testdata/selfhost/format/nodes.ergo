@@ -6,16 +6,16 @@ import slices
 
 // ---------------------------------------------------------------- tree reads
 
-func fam(p *Printer, id int) string { family(p.T, id) }
-func at(p *Printer, id int, name string) int { pos(p.T, id, name) }
+func fam(p *Printer, id int) string             { family(p.T, id) }
+func at(p *Printer, id int, name string) int    { pos(p.T, id, name) }
 func hasK(p *Printer, id int, name string) bool { has(p.T, id, name) }
-func k(p *Printer, id int, name string) int { kid(p.T, id, name) }
-func ks(p *Printer, id int, name string) []int { kids(p.T, id, name) }
-func s(p *Printer, id int, name string) string { str(p.T, id, name) }
-func n(p *Printer, id int, name string) int { num(p.T, id, name) }
-func fl(p *Printer, id int, name string) bool { flag(p.T, id, name) }
-func start(p *Printer, id int) int { posOf(p.T, id) }
-func stop(p *Printer, id int) int { endOf(p.T, id) }
+func k(p *Printer, id int, name string) int     { kid(p.T, id, name) }
+func ks(p *Printer, id int, name string) []int  { kids(p.T, id, name) }
+func s(p *Printer, id int, name string) string  { str(p.T, id, name) }
+func n(p *Printer, id int, name string) int     { num(p.T, id, name) }
+func fl(p *Printer, id int, name string) bool   { flag(p.T, id, name) }
+func start(p *Printer, id int) int              { posOf(p.T, id) }
+func stop(p *Printer, id int) int               { endOf(p.T, id) }
 
 // starts are the first bytes of the nodes ids.
 func starts(p *Printer, ids []int) []int {

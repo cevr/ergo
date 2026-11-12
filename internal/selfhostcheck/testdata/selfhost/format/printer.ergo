@@ -6,16 +6,16 @@ import strings
 
 // Printer is the state of one print of a tree.
 type Printer {
-	T tree.Tree,
+	T   tree.Tree,
 	Src string,
 	EOF int,
 	// The comments in source order: where each starts and ends, its text.
 	CSlash []int,
-	CEnd []int,
-	CText []string,
+	CEnd   []int,
+	CText  []string,
 	// Ci is the next comment to print.
 	Ci int,
-	L Layout,
+	L  Layout,
 	// LastEnd is the end of the last printed source item (token or
 	// comment), LastTok of the last printed source token.
 	LastEnd int,
@@ -44,17 +44,17 @@ func newPrinter(t tree.Tree) Printer {
 		}
 	}
 	Printer{
-		T: t,
-		Src: str(t, file, "Src"),
-		EOF: pos(t, file, "EOF"),
-		CSlash: slash,
-		CEnd: end,
-		CText: text,
-		Ci: 0,
-		L: NewLayout(),
-		LastEnd: NoPos,
-		LastTok: NoPos,
-		Walked: Map[int, Walk]{},
+		T:            t,
+		Src:          str(t, file, "Src"),
+		EOF:          pos(t, file, "EOF"),
+		CSlash:       slash,
+		CEnd:         end,
+		CText:        text,
+		Ci:           0,
+		L:            NewLayout(),
+		LastEnd:      NoPos,
+		LastTok:      NoPos,
+		Walked:       Map[int, Walk]{},
 		ListIndented: false,
 	}
 }
