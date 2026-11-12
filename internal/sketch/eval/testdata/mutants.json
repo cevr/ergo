@@ -804,6 +804,33 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
+      "name": "oracle-o17-deadline-never-fires",
+      "origin": "wf10 ORACLE O17",
+      "file": "internal/sketch/eval/nativestimeout.go",
+      "from": "\t\t\tfired = !t.stopped\n",
+      "to": "\t\t\tfired = false\n",
+      "rule": "timeout.After fails Expired when its deadline passes first, the body stopped and drained (runtime.md, Timeouts 4).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o17-body-not-stopped",
+      "origin": "wf10 ORACLE O17",
+      "file": "internal/sketch/eval/nativestimeout.go",
+      "from": "\t\tdefault: // the deadline passed first\n\t\t\tstopTree(child)\n",
+      "to": "\t\tdefault: // the deadline passed first\n",
+      "rule": "A deadline that passes first stops the body: its later effects never happen (runtime.md, Timeouts 4).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o17-trailing-refused",
+      "origin": "wf10 ORACLE O17",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\tif x.Trailing != nil && !ergoBody && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {",
+      "to": "\t\tif x.Trailing != nil && (!ergoBody || true) && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {",
+      "rule": "A trailing block is the last argument of the function it follows, a function literal (grammar.md, Expressions).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
       "name": "oracle-o16-max-by-less",
       "origin": "wf10 ORACLE O16",
       "file": "internal/sketch/eval/nativesmore.go",

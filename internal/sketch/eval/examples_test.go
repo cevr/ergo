@@ -87,7 +87,7 @@ func TestEvalAgreesOnExamples(t *testing.T) {
 			}
 			if got.Skipped != "" || got.Incomplete != "" {
 				why := got.Skipped + got.Incomplete
-				skips[why] = append(skips[why], label)
+				skips[why] = append(skips[why], fmt.Sprintf("%s@%s:%d", label, filepath.Base(got.Site.File), got.Site.Line))
 				continue
 			}
 			if d := disagreement(g, got); d != "" {

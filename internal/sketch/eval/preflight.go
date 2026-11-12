@@ -73,11 +73,17 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 				if x.Trailing != nil {
 					// The block of a native the evaluator runs (task.Go,
 					// scope.OnExit, tasks.Go) is a function of its own.
-					if c.Func.Pkg.Host() || nativeOf(c.Func) == nil {
+					// A function with an Ergo body takes it as its last
+					// argument, a function literal.
+					ergoBody := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
+					if !ergoBody && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
 						why = "a call with a CallSite or trailing block"
 						break
 					}
 					why = p.body(fr, x.Trailing, x.Trailing, own, ops)
+					if why == "" && ergoBody && !preludeCollection(c.Func) {
+						why = p.function(fr, c.Func)
+					}
 					break
 				}
 				if !preludeCollection(c.Func) {

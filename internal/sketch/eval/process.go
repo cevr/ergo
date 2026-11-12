@@ -326,6 +326,18 @@ func init() {
 		sort.Strings(out)
 		return stringSlice(out), nil
 	})
+	// The terminal: the simulated process's standard input is no
+	// terminal, so a mode or a size fails NotTerminal, and there is no
+	// mode to restore.
+	notTerminal := func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return nil, fr.abrupt(ctlFail, at, stdRecord(fn, "NotTerminal", nil), "")
+	}
+	hostNative("term.hostEnterRaw", notTerminal)
+	hostNative("term.hostEnterNoEcho", notTerminal)
+	hostNative("term.hostSize", notTerminal)
+	hostNative("term.hostLeave", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return unit{}, nil
+	})
 	hostNative("time.hostNow", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.clock.opCall(in, fr, at, "Read", nil)
 	})

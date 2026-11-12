@@ -30,7 +30,7 @@ type MainProgram struct {
 }
 
 // MainKinds lists every scenario a run of seeds must reach.
-var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids", "bits", "maps"}
+var MainKinds = []string{"owned", "tasks", "clock", "stop", "stdin", "args", "stderr", "exit", "range-place", "funcs", "machine", "borrows", "seq", "actor", "kids", "bits", "maps", "deadline"}
 
 const mainPrelude = `import actor
 import bits
@@ -45,6 +45,7 @@ import strings
 import sync
 import task
 import testing
+import timeout
 import time
 
 let journal = sync.NewRef[[]string]([]string{})
@@ -277,6 +278,10 @@ func imports() needs Scheduler | time.Clock {
 	let _ = bits.Len(1)
 	let _ = sha256.Sum("")
 	let _ = slices.Repeat([]int{}, 1)
+	let _ = timeout.After(1s) { 1 } catch {
+	case timeout.Expired:
+		0
+	}
 }
 
 // recorder uses io and os too.
@@ -316,7 +321,9 @@ func GenerateMain(seed uint64) MainProgram {
 	}
 	n := 3 + g.r.IntN(4)
 	for k := range n {
-		switch g.r.IntN(16) {
+		switch g.r.IntN(17) {
+		case 16:
+			g.deadline(k)
 		case 15:
 			g.maps(k)
 		case 14:
@@ -790,6 +797,62 @@ func (g *mainGen) actor(k int) {
 	} else {
 		fmt.Fprintf(&g.out, "s%d halted %d\n", k, n)
 	}
+}
+
+// deadline: timeout.After on the live Scheduler, a body that ends at once
+// (its value, or its typed failure) against a deadline of an hour, or a
+// body that sleeps an hour against a deadline of a millisecond (Expired,
+// the body stopped: its note never written). No two of them race.
+func (g *mainGen) deadline(k int) {
+	g.kinds["deadline"]++
+	g.line("")
+	g.line("type Late%d { n int }", k)
+	g.line("")
+	g.line("func late%d(n int) int fails Late%d {", k, k)
+	g.line("\treturn Late%d{n: n}", k)
+	g.line("}")
+	g.line("")
+	g.line("func s%d() needs Console | Ambient {", k)
+	g.line("\twith context { Scheduler: NewLiveScheduler() } {")
+	g.line("\t\tdeadline%d()", k)
+	g.line("\t}")
+	g.line("}")
+	g.line("")
+	// An Ergo function's trailing block is its last argument.
+	g.line("func both%d(base int, body func() int) int { base + body() + body() }", k)
+	g.line("")
+	g.line("func deadline%d() needs Console | Scheduler {", k)
+	tw := g.r.IntN(9)
+	g.line("\tlet b%d = %d", k, tw)
+	g.line("\tConsole.Println(\"s%d both \\(both%d(1) { b%d * 10 })\")", k, k, k)
+	fmt.Fprintf(&g.out, "s%d both %d\n", k, 1+20*tw)
+	for i := range 1 + g.r.IntN(3) {
+		v := g.r.IntN(50)
+		switch g.r.IntN(3) {
+		case 0:
+			g.line("\tlet v%d = timeout.After(1h) { %d } catch {", i, v)
+			fmt.Fprintf(&g.out, "s%d %d %d\n", k, i, v)
+		case 1:
+			g.line("\tlet v%d = timeout.After(1h) { try late%d(%d) } catch {", i, k, v)
+			g.line("\tcase Late%d as l:", k)
+			g.line("\t\t-l.n")
+			fmt.Fprintf(&g.out, "s%d %d %d\n", k, i, -v)
+		default:
+			g.line("\tlet v%d = timeout.After(1ms) {", i)
+			g.line("\t\tScheduler.Sleep(1h)")
+			g.line("\t\tnote(\"s%d late\")", k)
+			g.line("\t\t%d", v)
+			g.line("\t} catch {")
+			fmt.Fprintf(&g.out, "s%d %d -1\n", k, i)
+		}
+		g.line("\tcase timeout.Expired:")
+		g.line("\t\t-1")
+		g.line("\t}")
+		g.line("\tflush()")
+		g.line("\tConsole.Println(\"s%d %d \\(v%d)\")", k, i, i)
+	}
+	g.line("}")
+	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
 }
 
 // maps: fors over a seeded Map whose outcome no order decides: a count
