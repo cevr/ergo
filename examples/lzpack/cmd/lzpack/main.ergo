@@ -1,0 +1,96 @@
+// lzpack packs and unpacks bytes in an LZ77-style block format, and
+// writes the seeded inputs its receipts read.
+//
+//	lzpack pack FILE          write FILE packed to standard output
+//	lzpack unpack FILE        write the bytes FILE packs
+//	lzpack gen KIND N SEED    write N bytes of KIND (text, binary,
+//	                          zeros, random) from SEED
+//
+// This binary is the only place that chooses the providers: the host's
+// files, mapped read-only, and the host's standard output.
+
+import fs
+import io
+import lzpack/corpus
+import lzpack/lz
+import lzpack/mapped
+import os
+import strconv
+
+// Usage is the text of a usage failure.
+let Usage = "usage: lzpack pack FILE | lzpack unpack FILE | lzpack gen KIND N SEED"
+
+// Command is what the arguments ask for.
+type Command = PackFile{Path string} | UnpackFile{Path string} | GenInput{Kind corpus.Kind, Size int, Seed uint64}
+
+// usage is the exit of arguments that ask for nothing lzpack does.
+func usage(why string) os.Exit {
+	if why == "" {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	os.Exit{Code: 2, Message: "lzpack: \(why)\n\(Usage)"}
+}
+
+// Parse is the command of args.
+func Parse(args []string) Command fails os.Exit {
+	if len(args) == 2 && args[0] == "pack" {
+		return PackFile{Path: args[1]}
+	}
+	if len(args) == 2 && args[0] == "unpack" {
+		return UnpackFile{Path: args[1]}
+	}
+	if len(args) != 4 || args[0] != "gen" {
+		return usage("")
+	}
+	let kind = match corpus.KindOf(args[1]) {
+	case Some[corpus.Kind] as k:
+		k.Value
+	case None:
+		return usage("KIND is text, binary, zeros or random")
+	}
+	let n = strconv.Atoi(args[2]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return usage("N must be a count of bytes")
+	}
+	if n < 0 {
+		return usage("N must be a count of bytes")
+	}
+	let seed = strconv.Atoi(args[3]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return usage("SEED must be a number")
+	}
+	GenInput{Kind: kind, Size: n, Seed: uint64(seed)}
+}
+
+// Run is the bytes the command writes, or the exit that says why there
+// are none.
+func Run(c Command) string fails os.Exit needs lz.Source {
+	match c {
+	case PackFile as p:
+		lz.Pack(try read(p.Path))
+	case UnpackFile as u:
+		let packed = try read(u.Path)
+		lz.Unpack(packed) catch {
+		case lz.Corrupt as e:
+			return os.Exit{Code: 1, Message: "lzpack: \(u.Path): corrupt at byte \(e.Offset): \(lz.Explain(e.Reason))"}
+		}
+	case GenInput as g:
+		corpus.Generate(g.Kind, g.Size, g.Seed)
+	}
+}
+
+// read is the bytes of the input at path.
+func read(path string) string fails os.Exit needs lz.Source {
+	lz.Source.Bytes(path) catch {
+	case lz.Unreadable as u:
+		return os.Exit{Code: 1, Message: "lzpack: \(u.Path): \(u.Reason)"}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = os.NewHost()
+	let c = try Parse(host.Args())
+	let source = mapped.New(fs.NewHost())
+	let out = try with context { lz.Source: source } { Run(c) }
+	with context { io.Stdout: io.NewHost() } { io.Stdout.Print(out) }
+}

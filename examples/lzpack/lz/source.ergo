@@ -1,0 +1,23 @@
+// Where the bytes to pack or unpack come from. The binary chooses the
+// provider: the host's files mapped read-only, or texts in memory.
+
+// Source gives the bytes of an input by its path.
+type Source {
+	Bytes(path string) string fails Unreadable,
+
+	// Repeatable: two reads of one input give the same bytes.
+	law Repeatable(path string) {
+		let a = Bytes(path) catch {
+		case Unreadable:
+			return true
+		}
+		let b = Bytes(path) catch {
+		case Unreadable:
+			return false
+		}
+		a == b
+	},
+}
+
+// Unreadable is an input that cannot be read, with the host's reason.
+type Unreadable { Path string, Reason string }

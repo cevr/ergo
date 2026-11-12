@@ -1,0 +1,2 @@
+lzpack: KIND is text, binary, zeros or random
+usage: lzpack pack FILE | lzpack unpack FILE | lzpack gen KIND N SEED

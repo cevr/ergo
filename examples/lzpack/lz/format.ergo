@@ -1,0 +1,87 @@
+// Package lz is an LZ77-style compressor and its block format: a hash
+// chain finds earlier copies of the bytes ahead in a window of the last
+// 65,535 bytes, and the packed stream holds literals and matches in
+// blocks. Unpack checks every byte it reads, so a stream that is not one
+// Pack could write fails with a Corrupt value, never a defect.
+//
+// The format (README.md has the same text):
+//
+//	stream   = "LZPK" block* end
+//	block    = uvarint(n) sequence*        n raw bytes, 1..BlockMax
+//	end      = uvarint(0)
+//	sequence = token ext(L)? literal*L [offset ext(M)?]
+//	token    = L<<4 | M, each a nibble; 15 means more bytes follow (ext)
+//	ext      = 255* last                   the length is 15 + the sum
+//	offset   = uint16 little-endian, 1..65535, at most the bytes so far
+//
+// A sequence writes L literal bytes, then, unless they end the block,
+// copies M+4 bytes from offset bytes back. The copy may overlap what it
+// writes, as a run does. The last sequence of a block that ends in
+// literals has M = 0 and no offset.
+
+// Magic opens every packed stream.
+let Magic = "LZPK"
+
+// BlockMax is the most raw bytes a block holds.
+let BlockMax = 65536
+
+// Window is the span a match reaches back: offsets are below it.
+let Window = 65536
+
+// WindowMask is Window - 1: a position's slot in a window-sized ring.
+let WindowMask = 65535
+
+// MinMatch is the shortest match the format can write.
+let MinMatch = 4
+
+// Reason is why a stream is corrupt.
+type Reason = BadMagic | Truncated | BlockTooLong | Overrun | BadOffset | StrayMatch | Trailing
+
+// BadMagic: the stream does not start with Magic.
+type BadMagic {}
+
+// Truncated: the stream ends inside a block, a sequence or before the
+// end mark.
+type Truncated {}
+
+// BlockTooLong: a block header names more than BlockMax bytes.
+type BlockTooLong {}
+
+// Overrun: a sequence's literals or copy run past the end of its block.
+type Overrun {}
+
+// BadOffset: a copy starts at offset 0 or before the first byte.
+type BadOffset {}
+
+// StrayMatch: literals end a block, and the token still names a match.
+type StrayMatch {}
+
+// Trailing: bytes follow the end mark.
+type Trailing {}
+
+// Corrupt is a stream Unpack refuses: where (a byte offset in the
+// stream) and why. Offset is the start of the block header for
+// BlockTooLong, of the sequence's token for Overrun, BadOffset and
+// StrayMatch, the first byte after the end mark for Trailing, the end of
+// the stream for Truncated and 0 for BadMagic.
+type Corrupt { Offset int, Reason Reason }
+
+// Explain is the text of a reason.
+func Explain(r Reason) string {
+	match r {
+	case BadMagic:
+		"the stream does not start with LZPK"
+	case Truncated:
+		"the stream ends early"
+	case BlockTooLong:
+		"a block of more than 65536 bytes"
+	case Overrun:
+		"a sequence runs past the end of its block"
+	case BadOffset:
+		"a copy from before the start of the output"
+	case StrayMatch:
+		"a match after the last literals of a block"
+	case Trailing:
+		"bytes after the end of the stream"
+	}
+}

@@ -1,0 +1,79 @@
+// Walk: the steps a stream asks of a decoder, read with the decoder's own
+// checks but with no output, so the laws can see each copy's reach.
+
+import strings
+
+// Step is one move of a decoder: literals, or a copy from Offset bytes
+// back. At is the output position where it starts.
+type Step = Literals{At int, Len int} | Copy{At int, Offset int, Len int}
+
+// Walk is the steps of packed, in order, or the Corrupt Unpack gives.
+func Walk(packed string) []Step fails Corrupt {
+	let mut steps = []Step{}
+	if len(packed) < len(Magic) || strings.Slice(packed, 0, len(Magic)) != Magic {
+		return Corrupt{Offset: 0, Reason: BadMagic}
+	}
+	let mut d = Decoder{win: [65536]byte{}, out: strings.NewBuilder(), total: 0, at: len(Magic)}
+	for {
+		let h = d.at
+		let n = try d.uvarint(packed)
+		if n == 0 {
+			break
+		}
+		if n > BlockMax {
+			return Corrupt{Offset: h, Reason: BlockTooLong}
+		}
+		let mut pos = 0
+		for pos < n {
+			let t = d.at
+			if t >= len(packed) {
+				return truncated(packed)
+			}
+			let tok = int(packed[t])
+			d.at += 1
+			let mut l = tok >> 4
+			if l == 15 {
+				l = try d.ext(packed, 15)
+			}
+			if l > n-pos {
+				return Corrupt{Offset: t, Reason: Overrun}
+			}
+			if l > len(packed)-d.at {
+				return truncated(packed)
+			}
+			steps = steps.Append(Literals{At: d.total, Len: l})
+			d.at += l
+			d.total += l
+			pos += l
+			if pos == n {
+				if tok&15 != 0 {
+					return Corrupt{Offset: t, Reason: StrayMatch}
+				}
+				break
+			}
+			if 2 > len(packed)-d.at {
+				return truncated(packed)
+			}
+			let off = int(packed[d.at]) | int(packed[d.at+1])<<8
+			d.at += 2
+			if off == 0 || off > d.total {
+				return Corrupt{Offset: t, Reason: BadOffset}
+			}
+			let mut m = tok & 15
+			if m == 15 {
+				m = try d.ext(packed, 15)
+			}
+			m += MinMatch
+			if m > n-pos {
+				return Corrupt{Offset: t, Reason: Overrun}
+			}
+			steps = steps.Append(Copy{At: d.total, Offset: off, Len: m})
+			d.total += m
+			pos += m
+		}
+	}
+	if d.at < len(packed) {
+		return Corrupt{Offset: d.at, Reason: Trailing}
+	}
+	steps
+}

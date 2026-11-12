@@ -1,0 +1,189 @@
+// Pack: a greedy parse over a hash chain. At each position it walks the
+// chain of earlier positions whose first four bytes hash alike, newest
+// first, at most MaxChain of them and none a Window or more back, and
+// takes the longest match of at least MinMatch bytes (the newest of
+// equal ones). Every earlier position whose four bytes lie in the input
+// is in a chain before the search, so the parse is a function of the
+// input alone: the hand Go control and the reference in cmd/ergo make
+// the same bytes.
+
+import bits
+import strings
+
+// HashBits is log2 of the chain heads.
+let HashBits = 15
+
+// Heads is the number of chain heads.
+let Heads = 32768
+
+// MaxChain is the most candidates one search reads.
+let MaxChain = 16
+
+// Chain is the match finder's state: for each hash, the newest position
+// with it, and for each position of the last Window, the position before
+// it with its hash. A position p is stored as p+1, so 0 is "none".
+type Chain { head [32768]int32, prev [65536]int32 }
+
+// NewChain is the chain of no position.
+func NewChain() Chain { Chain{head: [32768]int32{}, prev: [65536]int32{}} }
+
+// Hash4 is the chain head of the four bytes at p.
+func Hash4(text string, p int) int {
+	let w = uint32(text[p]) | uint32(text[p+1])<<8 | uint32(text[p+2])<<16 | uint32(text[p+3])<<24
+	int((w * 2654435761) >> (32 - HashBits))
+}
+
+// insert puts position q in its chain, when its four bytes are in text.
+func insert(c *Chain, text string, q int) {
+	if q+MinMatch <= len(text) {
+		let h = Hash4(text, q)
+		c.prev[q&WindowMask] = c.head[h]
+		c.head[h] = int32(q + 1)
+	}
+}
+
+// Match is where the longest match found starts and its length (0: none).
+type Match { From int, Len int }
+
+// common is how many bytes text[q:] and text[p:end] share at their
+// starts; q < p < end <= len(text). It compares eight bytes at a time
+// while eight are left before end.
+func common(text string, q int, p int, end int) int {
+	let mut n = 0
+	for p+n+8 <= end {
+		let x = Word(text, q+n) ^ Word(text, p+n)
+		if x != 0 {
+			return n + (bits.TrailingZeros64(x) >> 3)
+		}
+		n += 8
+	}
+	for p+n < end && text[q+n] == text[p+n] {
+		n += 1
+	}
+	n
+}
+
+// Word is the eight bytes at p, little-endian.
+func Word(text string, p int) uint64 {
+	let w = text[p : p+8]
+	uint64(w[0]) | uint64(w[1])<<8 | uint64(w[2])<<16 | uint64(w[3])<<24 | uint64(w[4])<<32 | uint64(w[5])<<40 | uint64(w[6])<<48 | uint64(w[7])<<56
+}
+
+// longest is the longest match for p within the block that ends at end.
+func longest(c *Chain, text string, p int, end int) Match {
+	let mut best = Match{From: 0, Len: 0}
+	let h = Hash4(text, p)
+	let mut cand = int(c.head[h])
+	let mut tries = 0
+	for cand != 0 && tries < MaxChain {
+		let q = cand - 1
+		if p-q >= Window {
+			break
+		}
+		let n = common(text, q, p, end)
+		if n > best.Len {
+			best = Match{From: q, Len: n}
+			if n == end-p {
+				break
+			}
+		}
+		cand = int(c.prev[q&WindowMask])
+		tries += 1
+	}
+	best
+}
+
+// Pack is text in the block format.
+func Pack(text string) string {
+	let mut out = strings.NewBuilder()
+	out.Grow(len(text)/2 + 64)
+	out.WriteString(Magic)
+	let mut c = NewChain()
+	let mut from = 0
+	for from < len(text) {
+		let end = lo(from+BlockMax, len(text))
+		writeUvarint(&out, end-from)
+		packBlock(&out, &c, text, from, end)
+		from = end
+	}
+	writeUvarint(&out, 0)
+	out.String()
+}
+
+// packBlock writes the sequences of the block from..end.
+func packBlock(out *strings.Builder, c *Chain, text string, from int, end int) {
+	let mut anchor = from
+	let mut p = from
+	for p+MinMatch <= end {
+		let m = longest(c, text, p, end)
+		insert(c, text, p)
+		if m.Len >= MinMatch {
+			writeSequence(out, text, anchor, p, p-m.From, m.Len)
+			for q in p+1..p+m.Len {
+				insert(c, text, q)
+			}
+			p += m.Len
+			anchor = p
+		} else {
+			p += 1
+		}
+	}
+	for q in p..end {
+		insert(c, text, q)
+	}
+	if anchor < end {
+		writeLiterals(out, text, anchor, end)
+	}
+}
+
+// writeSequence writes the literals anchor..p and a copy of n bytes from
+// offset back.
+func writeSequence(out *strings.Builder, text string, anchor int, p int, offset int, n int) {
+	let l = p - anchor
+	let m = n - MinMatch
+	out.WriteByte(byte(lo(l, 15)<<4 | lo(m, 15)))
+	if l >= 15 {
+		writeExt(out, l-15)
+	}
+	out.WriteString(strings.Slice(text, anchor, p))
+	out.WriteByte(byte(offset & 255))
+	out.WriteByte(byte(offset >> 8))
+	if m >= 15 {
+		writeExt(out, m-15)
+	}
+}
+
+// writeLiterals writes the last literals of a block, anchor..end.
+func writeLiterals(out *strings.Builder, text string, anchor int, end int) {
+	let l = end - anchor
+	out.WriteByte(byte(lo(l, 15) << 4))
+	if l >= 15 {
+		writeExt(out, l-15)
+	}
+	out.WriteString(strings.Slice(text, anchor, end))
+}
+
+// writeExt writes the rest of a length past its nibble: 255s, then the
+// remainder.
+func writeExt(out *strings.Builder, rest int) {
+	let mut r = rest
+	for r >= 255 {
+		out.WriteByte(255)
+		r -= 255
+	}
+	out.WriteByte(byte(r))
+}
+
+// writeUvarint writes n in seven-bit groups, low first, the high bit set
+// on all but the last.
+func writeUvarint(out *strings.Builder, n int) {
+	let mut v = n
+	for v >= 128 {
+		out.WriteByte(byte(v&127 | 128))
+		v = v >> 7
+	}
+	out.WriteByte(byte(v))
+}
+
+// lo is the smaller of a and b.
+func lo(a int, b int) int { if a < b { a } else { b } }

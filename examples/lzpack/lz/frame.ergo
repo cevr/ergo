@@ -1,0 +1,91 @@
+// The stream's frame as a machine: the magic, then blocks, then the end
+// mark, and nothing after it. Unpack steps it once per block, so the
+// order of a stream's parts is the machine's, and a refusal is a Reason
+// the machine gives, never a branch spread over the decoder.
+
+import machines
+
+// Frame is where a stream is: before its magic, in its blocks (with the
+// raw bytes so far), or past its end mark.
+type Frame = Header{} | Body{Total int} | Ended{Total int}
+
+// Part is what the decoder reads next at the frame's level: the magic (or
+// bytes that are not it), a block header of Raw bytes, the end mark, or a
+// byte after the end mark.
+type Part = Opened{Ok bool} | Block{Raw int} | EndMark{} | Extra{}
+
+// FrameStep is the frame's transition. A stream that is not one Pack
+// could write ends the frame with the Reason for it.
+func FrameStep(f Frame, p Part) Decision[Frame, Reason] {
+	match (f, p) {
+	case (Header, Opened as o):
+		if o.Ok {
+			Enter[Frame]{Next: Body{Total: 0}}
+		} else {
+			Done[Reason]{Output: BadMagic}
+		}
+	case (Body as b, Block as k):
+		if k.Raw > BlockMax {
+			Done[Reason]{Output: BlockTooLong}
+		} else {
+			Stay[Frame]{Next: Body{Total: b.Total + k.Raw}}
+		}
+	case (Body as b, EndMark):
+		Enter[Frame]{Next: Ended{Total: b.Total}}
+	case (Ended, Extra):
+		Done[Reason]{Output: Trailing}
+	case (Header, Block), (Header, EndMark), (Header, Extra), (Body, Opened), (Body, Extra), (Ended, Opened), (Ended, Block), (Ended, EndMark):
+		Reject
+	}
+}
+
+// Framing is the frame as a machine.
+type Framing machine[Frame, Part] {
+	initial: Header,
+	step:    FrameStep,
+
+	// CanEnd: a stream can reach its end mark.
+	law CanEnd reaches Ended,
+
+	// InOrder: the magic opens the body, and the end mark closes it.
+	law InOrder path [Header, Body, Ended],
+
+	// TotalIsTheBlocks: the end mark's total is the sum of the blocks,
+	// for blocks of 1 to BlockMax bytes.
+	law TotalIsTheBlocks(raws []int) {
+		let mut parts = []Part{Opened{Ok: true}}
+		let mut sum = 0
+		for r in raws {
+			let n = 1 + (r%BlockMax+BlockMax)%BlockMax
+			parts = parts.Append(Block{Raw: n})
+			sum += n
+		}
+		parts = parts.Append(EndMark)
+		let o = machines.Run(Framing{}, parts) catch {
+		case machines.Rejected:
+			return false
+		}
+		match o {
+		case machines.Running[Frame, Reason] as r:
+			r.State == Ended{Total: sum}
+		case machines.Finished[Frame, Reason]:
+			false
+		}
+	},
+
+	// LongBlockIsRefused: a block of more than BlockMax bytes ends the
+	// frame with BlockTooLong.
+	law LongBlockIsRefused(extra int) {
+		let n = BlockMax + 1 + (extra%1000+1000)%1000
+		let o = machines.Run(Framing{}, []Part{Opened{Ok: true}, Block{Raw: n}}) catch {
+		case machines.Rejected:
+			return false
+		}
+		match o {
+		case machines.Finished[Frame, Reason] as f:
+			f.Output == BlockTooLong
+		case machines.Running[Frame, Reason]:
+			false
+		}
+	},
+}

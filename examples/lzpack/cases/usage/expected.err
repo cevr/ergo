@@ -1,0 +1,1 @@
+usage: lzpack pack FILE | lzpack unpack FILE | lzpack gen KIND N SEED

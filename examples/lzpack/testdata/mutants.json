@@ -1,0 +1,61 @@
+{
+  "about": "lzpack's application mutants (corpus wave HP2): edits of the example that its laws and cases judge, and edits that keep every stream valid, which only TestLzpackAgreesWithControl in cmd/ergo (the seeded property against the plain reference and the hand Go control) sees.",
+  "mutants": [
+    {
+      "name": "lzpack-match-reaches-past-window", "origin": "corpus wave HP2",
+      "file": "examples/lzpack/lz/pack.ergo",
+      "from": "if p-q >= Window {",
+      "to": "if false && p-q >= Window {",
+      "rule": "A match starts fewer than Window bytes back, so its offset fits the format's 16 bits and a decoder needs only a Window of history.",
+      "anchor": {"tests": ["examples:lzpack"]}, "killers": ["examples:lzpack"]
+    },
+    {
+      "name": "lzpack-literals-past-stream-end", "origin": "corpus wave HP2",
+      "file": "examples/lzpack/lz/unpack.ergo",
+      "from": "\t\tif l > len(packed)-d.at {\n\t\t\treturn truncated(packed)\n\t\t}\n\t\td.literals(packed, l)",
+      "to": "\t\td.literals(packed, l)",
+      "rule": "Literals that the stream does not hold are Truncated, a typed failure, never a slice past the end (a defect).",
+      "anchor": {"tests": ["examples:lzpack"]}, "killers": ["examples:lzpack"]
+    },
+    {
+      "name": "lzpack-offset-before-output", "origin": "corpus wave HP2",
+      "file": "examples/lzpack/lz/unpack.ergo",
+      "from": "\t\tif off == 0 || off > d.total {\n\t\t\treturn Corrupt{Offset: t, Reason: BadOffset}\n\t\t}\n\t\tlet mut m = tok & 15\n\t\tif m == 15 {\n\t\t\tm = try d.ext(packed, 15)\n\t\t}\n\t\tm += MinMatch\n\t\tif m > n-pos {\n\t\t\treturn Corrupt{Offset: t, Reason: Overrun}\n\t\t}\n\t\td.copy(off, m)",
+      "to": "\t\tlet mut m = tok & 15\n\t\tif m == 15 {\n\t\t\tm = try d.ext(packed, 15)\n\t\t}\n\t\tm += MinMatch\n\t\tif m > n-pos {\n\t\t\treturn Corrupt{Offset: t, Reason: Overrun}\n\t\t}\n\t\td.copy(off, m)",
+      "rule": "A copy from offset 0 or from before the first byte is BadOffset. The ring makes such a read no defect, so only the agreement with Walk and with the control sees it.",
+      "anchor": {"tests": ["examples:lzpack"]}, "killers": ["examples:lzpack", "cmd/ergo:TestLzpackAgreesWithControl"]
+    },
+    {
+      "name": "lzpack-copy-past-block", "origin": "corpus wave HP2",
+      "file": "examples/lzpack/lz/unpack.ergo",
+      "from": "\t\tm += MinMatch\n\t\tif m > n-pos {\n\t\t\treturn Corrupt{Offset: t, Reason: Overrun}\n\t\t}\n\t\td.copy(off, m)",
+      "to": "\t\tm += MinMatch\n\t\td.copy(off, m)",
+      "rule": "A copy that runs past its block's raw length is Overrun.",
+      "anchor": {"tests": ["examples:lzpack"]}, "killers": ["cmd/ergo:TestLzpackAgreesWithControl"]
+    },
+    {
+      "name": "lzpack-match-positions-not-chained", "origin": "corpus wave HP2",
+      "file": "examples/lzpack/lz/pack.ergo",
+      "from": "\t\t\tfor q in p+1..p+m.Len {\n\t\t\t\tinsert(c, text, q)\n\t\t\t}\n",
+      "to": "",
+      "rule": "Every earlier position whose four bytes are in the input is in a chain, so the parse is the format's: a stream that skips them is valid but not the one the control and the reference write.",
+      "anchor": {"tests": ["examples:lzpack"]}, "killers": ["cmd/ergo:TestLzpackAgreesWithControl"]
+    },
+    {
+      "name": "lzpack-older-equal-match-wins", "origin": "corpus wave HP2",
+      "file": "examples/lzpack/lz/pack.ergo",
+      "from": "\t\tif n > best.Len {",
+      "to": "\t\tif n >= best.Len {",
+      "rule": "Of equal matches the newest wins (the shortest offset).",
+      "anchor": {"tests": ["examples:lzpack"]}, "killers": ["cmd/ergo:TestLzpackAgreesWithControl"]
+    },
+    {
+      "name": "lzpack-block-limit-off-by-one", "origin": "corpus wave HP2",
+      "file": "examples/lzpack/lz/frame.ergo",
+      "from": "if k.Raw > BlockMax {",
+      "to": "if k.Raw > BlockMax+1 {",
+      "rule": "A block holds at most BlockMax raw bytes; a header of BlockMax+1 is BlockTooLong.",
+      "anchor": {"tests": ["examples:lzpack"]}, "killers": ["examples:lzpack", "cmd/ergo:TestLzpackAgreesWithControl"]
+    }
+  ]
+}

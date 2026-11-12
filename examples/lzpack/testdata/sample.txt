@@ -1,0 +1,8 @@
+A window slides over the stream. Each block holds literals and copies.
+A copy names how far back it starts and how long it runs; a run of one
+byte is a copy that overlaps itself: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.
+A window slides over the stream. Each block holds literals and copies.
+The decoder checks every length against its block, and every offset
+against the bytes it has written, so a corrupt stream is a failure it
+names, never a read outside the window.
+A window slides over the stream. Each block holds literals and copies.
