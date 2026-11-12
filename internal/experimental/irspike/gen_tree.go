@@ -9,7 +9,7 @@ import (
 // decision tree lowers (matchtree.go): record, constant, bind and nested
 // patterns, several subjects, or-patterns and wildcards whose arms
 // several leaves reach (a shared arm), and a break inside a match.
-var treeFuncs = []string{"pairs", "P.points", "trees", "flags", "stops", "risky", "caught", "part"} // points takes a P first: P's method
+var treeFuncs = []string{"pairs", "P.points", "trees", "flags", "stops", "risky", "caught", "part", "walk"} // points takes a P first: P's method
 
 // pick is a random subset of arms in their order, with every arm whose
 // text starts with "!" kept (its "!" dropped): dropping an arm never makes
@@ -99,6 +99,10 @@ func (g *ugen) trees() {
 		"!case E1{Code: " + fmt.Sprint(3*g.n(3)) + "}:\n\t1000",
 		"!case E2{Why: \"w1\"}, E2{Why: \"w2\"}:\n\t2000",
 	})))
+	// A loop-carried union local, which the lowering gives the scalar
+	// form (scalar.go): its let and assignments scatter, a match reads
+	// its tag, a call's operand gathers.
+	fmt.Fprintf(&g.b, "func walk(t Tree, n int) int {\n\tlet mut cur = t\n\tlet mut acc = 0\n\tlet mut i = 0\n\tfor i < n {\n\t\tmatch cur {\n\t\tcase Leaf as l:\n\t\t\tacc += l.N\n\t\t\tcur = Node{L: l, R: Leaf{N: i}, K: i + %d}\n\t\tcase Node as nd:\n\t\t\tacc += nd.K\n\t\t\tcur = nd.%s\n\t\t}\n\t\ti += 1\n\t}\n\tlet s = sum(cur)\n\tacc * 100 + s\n}\n\n", g.n(3), []string{"L", "R"}[g.n(2)])
 }
 
 // treeMain writes main's lines for treeFuncs.
@@ -124,5 +128,8 @@ func (g *ugen) treeMain() {
 	for n := 0; n < 10; n++ {
 		fmt.Fprintf(&g.b, "\tlet p%d = part(%d) catch {\n\tcase E1 as e:\n\t\te.Code - 50\n\tcase E2 as e:\n\t\tlen(e.Why) - 60\n\t}\n", n, n)
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"catch %d \\(caught(%d)) \\(p%d)\")\n", n, n, n)
+	}
+	for d := 0; d < 4; d++ {
+		fmt.Fprintf(&g.b, "\tConsole.Println(\"walk %d \\(walk(build(%d), %d))\")\n", d, d, g.n(7))
 	}
 }
