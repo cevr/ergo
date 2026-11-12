@@ -421,7 +421,8 @@
       "from": "\t\treturn tailList(info, s.Body.List, c) || s.Else != nil && tailStmt(info, s.Else, c)",
       "to": "\t\treturn false",
       "rule": "rows.md Error rows 2: a value if's branch tail passes its failure to the if, so a catch on the if takes it like a failure of its subject; only a failure an enclosing try covers passes the catch.",
-      "killers": ["internal/sketch/lower:TestTryCatchEvalAgrees"]
+      "killers": ["internal/sketch/lower:TestTryCatchEvalAgrees"],
+      "gap": "uncovered by eval's own tests: no eval test catches a value if; lower TestTryCatchEvalAgrees (outcome caught-branch) kills it, run by hand (wf10 TRY-eval)"
     }
   ]
 }
