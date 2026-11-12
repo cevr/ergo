@@ -1,0 +1,8 @@
+# scripts/opcount: summarize N generated rows with one worker; the cost of
+# one row is the slope between the two sizes. The control is the hand Go
+# program of TestOneBRCCountsAsHandGo (same algorithm, same output).
+unit row
+sizes 1000000 11000000
+input go cmd/ergo/testdata/onebrc/gen {n} 7
+args {input} 1
+control cmd/ergo/testdata/onebrc/control

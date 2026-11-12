@@ -52,6 +52,36 @@ func TestModuleProgram(t *testing.T) {
 	}
 }
 
+// A program of packages may hold a workload file (scripts/opcount's sizes
+// and arguments): the runner admits one that reads and names the line of
+// one that does not, as a layout error. internal/opcount's property covers
+// the kinds of bad line; this test covers that the runner reads the file.
+// Mutants: examples-workload-unexpected, examples-workload-unchecked.
+func TestModuleProgramWorkload(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		workload string
+		code     int
+		want     string
+	}{
+		{"unit op\nsizes 10 20\nargs bench {n}\n", 0, "ok walker/basic ("},
+		{"unit op\nsizes 20 10\nargs bench {n}\n", 2, "examples/walker: workload: line 2: sizes 20 10"},
+	} {
+		f := newFixture(t)
+		dir := "examples/walker"
+		f.write(dir+"/ergo.mod", "module walker\n")
+		f.write(dir+"/README.md", "# walker\n")
+		f.write(dir+"/tags", "default\n")
+		f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
+		f.write(dir+"/cases/basic/expected.out", "hi\n")
+		f.write(dir+"/workload", c.workload)
+		code, out := f.run()
+		if code != c.code || !strings.Contains(out, c.want) {
+			t.Errorf("workload %q: exit %d, want %d and %q\n%s", c.workload, code, c.code, c.want, out)
+		}
+	}
+}
+
 // The layout of a program of packages: its binary is cmd/NAME/main.ergo,
 // cmd holds nothing else, and a package folder holds .ergo files and
 // package folders only.
