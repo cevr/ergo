@@ -1,0 +1,5 @@
+# scripts/opcount: `lru bench N` runs N cache operations; the cost of one
+# is the slope between the two sizes (IR-G measure's lru workload).
+unit op
+sizes 200000 1200000
+args bench {n}
