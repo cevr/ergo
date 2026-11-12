@@ -339,8 +339,8 @@ func (s *speller) row(r *Row) string {
 }
 
 // sig spells a function type as signature writes it: escaping on a
-// parameter of a function type that may escape, the results, fails and
-// needs rows, and a takes clause by the names of its parameters (a
+// parameter of a function type that may escape, the results, the fails
+// row and the needs row; then a takes clause by the names of its parameters (a
 // written takes names them all). A function type written in source has
 // no bare takes and no empty fails.
 func (s *speller) sig(t *Signature) string {

@@ -4119,123 +4119,126 @@ func (e *encoder) encT151(v interface{}) {
 	case *snapshot:
 		e.uint(209)
 		e.encPtrsnapshot(x)
-	case *stdBase:
+	case *speller:
 		e.uint(210)
+		e.encPtrspeller(x)
+	case *stdBase:
+		e.uint(211)
 		e.encPtrstdBase(x)
 	case *stdEntry:
-		e.uint(211)
+		e.uint(212)
 		e.encPtrstdEntry(x)
 	case *stdImporter:
-		e.uint(212)
+		e.uint(213)
 		e.encPtrstdImporter(x)
 	case *stdSnapshot:
-		e.uint(213)
+		e.uint(214)
 		e.encPtrstdSnapshot(x)
 	case *switchGroup:
-		e.uint(214)
+		e.uint(215)
 		e.encPtrswitchGroup(x)
 	case *switchUnion:
-		e.uint(215)
+		e.uint(216)
 		e.encPtrswitchUnion(x)
 	case *target:
-		e.uint(216)
+		e.uint(217)
 		e.encPtrtarget(x)
 	case *taskNode:
-		e.uint(217)
+		e.uint(218)
 		e.encPtrtaskNode(x)
 	case *testState:
-		e.uint(218)
+		e.uint(219)
 		e.encPtrtestState(x)
 	case *trimmedNode:
-		e.uint(219)
+		e.uint(220)
 		e.encPtrtrimmedNode(x)
 	case *typeCtx:
-		e.uint(220)
+		e.uint(221)
 		e.encPtrtypeCtx(x)
 	case *typeEnv:
-		e.uint(221)
+		e.uint(222)
 		e.encPtrtypeEnv(x)
 	case *typeTable:
-		e.uint(222)
+		e.uint(223)
 		e.encPtrtypeTable(x)
 	case *typeWalker:
-		e.uint(223)
+		e.uint(224)
 		e.encPtrtypeWalker(x)
 	case *universeState:
-		e.uint(224)
+		e.uint(225)
 		e.encPtruniverseState(x)
 	case *useAt:
-		e.uint(225)
+		e.uint(226)
 		e.encPtruseAt(x)
 	case *useSite:
-		e.uint(226)
+		e.uint(227)
 		e.encPtruseSite(x)
 	case *valueFrame:
-		e.uint(227)
+		e.uint(228)
 		e.encPtrvalueFrame(x)
 	case *variantIndex:
-		e.uint(228)
+		e.uint(229)
 		e.encPtrvariantIndex(x)
 	case *vcand:
-		e.uint(229)
+		e.uint(230)
 		e.encPtrvcand(x)
 	case *vnode:
-		e.uint(230)
+		e.uint(231)
 		e.encPtrvnode(x)
 	case *vrow:
-		e.uint(231)
+		e.uint(232)
 		e.encPtrvrow(x)
 	case *vsym:
-		e.uint(232)
+		e.uint(233)
 		e.encPtrvsym(x)
 	case *vterms:
-		e.uint(233)
+		e.uint(234)
 		e.encPtrvterms(x)
 	case *wireFault:
-		e.uint(234)
+		e.uint(235)
 		e.encPtrwireFault(x)
 	case *wireNeed:
-		e.uint(235)
+		e.uint(236)
 		e.encPtrwireNeed(x)
 	case *withFrame:
-		e.uint(236)
+		e.uint(237)
 		e.encPtrwithFrame(x)
 	case *withNeedKey:
-		e.uint(237)
+		e.uint(238)
 		e.encPtrwithNeedKey(x)
 	case *withOperand:
-		e.uint(238)
+		e.uint(239)
 		e.encPtrwithOperand(x)
 	case *withRefusal:
-		e.uint(239)
+		e.uint(240)
 		e.encPtrwithRefusal(x)
 	case *withScope:
-		e.uint(240)
+		e.uint(241)
 		e.encPtrwithScope(x)
 	case *withSite:
-		e.uint(241)
+		e.uint(242)
 		e.encPtrwithSite(x)
 	case *worklist:
-		e.uint(242)
+		e.uint(243)
 		e.encPtrworklist(x)
 	case bool:
-		e.uint(243)
+		e.uint(244)
 		e.encT12(x)
 	case int:
-		e.uint(244)
+		e.uint(245)
 		e.encT1(x)
 	case int32:
-		e.uint(245)
+		e.uint(246)
 		e.encT150(x)
 	case int64:
-		e.uint(246)
+		e.uint(247)
 		e.encT136(x)
 	case string:
-		e.uint(247)
+		e.uint(248)
 		e.encT2(x)
 	default:
 		if id, ok := e.nodes.Lookup(x); ok {
-			e.uint(248)
+			e.uint(249)
 			e.uint(id)
 			return
 		}
@@ -7080,6 +7083,22 @@ func (e *encoder) encPtrsink(v *sink) {
 		return
 	}
 	e.encFieldssink(v)
+}
+
+func (e *encoder) encFieldsspeller(v *speller) {
+	e.encPtrchecker(v.c)
+	e.encPtrfileInfo(v.fi)
+	e.encT87(v.imps)
+	e.encT12(v.ok)
+}
+
+func (e *encoder) encspeller(v speller) { e.encFieldsspeller(&v) }
+
+func (e *encoder) encPtrspeller(v *speller) {
+	if e.ref(v, v == nil) {
+		return
+	}
+	e.encFieldsspeller(v)
 }
 
 func (e *encoder) encFieldsstdEntry(v *stdEntry) {
@@ -13394,82 +13413,84 @@ func (d *decoder) decT151() interface{} {
 	case 209:
 		return d.decPtrsnapshot()
 	case 210:
-		return d.decPtrstdBase()
+		return d.decPtrspeller()
 	case 211:
-		return d.decPtrstdEntry()
+		return d.decPtrstdBase()
 	case 212:
-		return d.decPtrstdImporter()
+		return d.decPtrstdEntry()
 	case 213:
-		return d.decPtrstdSnapshot()
+		return d.decPtrstdImporter()
 	case 214:
-		return d.decPtrswitchGroup()
+		return d.decPtrstdSnapshot()
 	case 215:
-		return d.decPtrswitchUnion()
+		return d.decPtrswitchGroup()
 	case 216:
-		return d.decPtrtarget()
+		return d.decPtrswitchUnion()
 	case 217:
-		return d.decPtrtaskNode()
+		return d.decPtrtarget()
 	case 218:
-		return d.decPtrtestState()
+		return d.decPtrtaskNode()
 	case 219:
-		return d.decPtrtrimmedNode()
+		return d.decPtrtestState()
 	case 220:
-		return d.decPtrtypeCtx()
+		return d.decPtrtrimmedNode()
 	case 221:
-		return d.decPtrtypeEnv()
+		return d.decPtrtypeCtx()
 	case 222:
-		return d.decPtrtypeTable()
+		return d.decPtrtypeEnv()
 	case 223:
-		return d.decPtrtypeWalker()
+		return d.decPtrtypeTable()
 	case 224:
-		return d.decPtruniverseState()
+		return d.decPtrtypeWalker()
 	case 225:
-		return d.decPtruseAt()
+		return d.decPtruniverseState()
 	case 226:
-		return d.decPtruseSite()
+		return d.decPtruseAt()
 	case 227:
-		return d.decPtrvalueFrame()
+		return d.decPtruseSite()
 	case 228:
-		return d.decPtrvariantIndex()
+		return d.decPtrvalueFrame()
 	case 229:
-		return d.decPtrvcand()
+		return d.decPtrvariantIndex()
 	case 230:
-		return d.decPtrvnode()
+		return d.decPtrvcand()
 	case 231:
-		return d.decPtrvrow()
+		return d.decPtrvnode()
 	case 232:
-		return d.decPtrvsym()
+		return d.decPtrvrow()
 	case 233:
-		return d.decPtrvterms()
+		return d.decPtrvsym()
 	case 234:
-		return d.decPtrwireFault()
+		return d.decPtrvterms()
 	case 235:
-		return d.decPtrwireNeed()
+		return d.decPtrwireFault()
 	case 236:
-		return d.decPtrwithFrame()
+		return d.decPtrwireNeed()
 	case 237:
-		return d.decPtrwithNeedKey()
+		return d.decPtrwithFrame()
 	case 238:
-		return d.decPtrwithOperand()
+		return d.decPtrwithNeedKey()
 	case 239:
-		return d.decPtrwithRefusal()
+		return d.decPtrwithOperand()
 	case 240:
-		return d.decPtrwithScope()
+		return d.decPtrwithRefusal()
 	case 241:
-		return d.decPtrwithSite()
+		return d.decPtrwithScope()
 	case 242:
-		return d.decPtrworklist()
+		return d.decPtrwithSite()
 	case 243:
-		return d.decT12()
+		return d.decPtrworklist()
 	case 244:
-		return d.decT1()
+		return d.decT12()
 	case 245:
-		return d.decT150()
+		return d.decT1()
 	case 246:
-		return d.decT136()
+		return d.decT150()
 	case 247:
-		return d.decT2()
+		return d.decT136()
 	case 248:
+		return d.decT2()
+	case 249:
 		return d.node().(interface{})
 	}
 	d.failf("bad tag in interface{}")
@@ -17812,6 +17833,32 @@ func (d *decoder) decPtrsink() *sink {
 	v := new(sink)
 	d.add(v)
 	d.decFieldssink(v)
+	return v
+}
+
+func (d *decoder) decFieldsspeller(v *speller) {
+	v.c = d.decPtrchecker()
+	v.fi = d.decPtrfileInfo()
+	v.imps = d.decT87()
+	v.ok = d.decT12()
+}
+
+func (d *decoder) decspeller() (v speller) {
+	d.decFieldsspeller(&v)
+	return v
+}
+
+func (d *decoder) decPtrspeller() *speller {
+	x, fresh := d.ref()
+	if !fresh {
+		if x == nil {
+			return nil
+		}
+		return x.(*speller)
+	}
+	v := new(speller)
+	d.add(v)
+	d.decFieldsspeller(v)
 	return v
 }
 
