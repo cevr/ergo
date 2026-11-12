@@ -342,10 +342,13 @@ func TestDirectRefusesWhatItCannotKey(t *testing.T) {
 	for _, r := range []struct {
 		name  string
 		files map[string]string
+		// reason is in the refusal: go build embeds the non-ASCII
+		// name, so only the reason tells an undecided name from a bad one.
+		reason string
 	}{
-		{"embed", map[string]string{"dep/lib/embed.go": "package lib\n\nimport _ \"embed\"\n\n//go:embed data.txt\nvar Data string\n", "dep/lib/data.txt": "x"}},
-		{"assembly", map[string]string{"dep/lib/stub.s": "", "dep/lib/decl.go": "package lib\n\nfunc stub()\n"}},
-		{"go:debug", map[string]string{"debug.go": "//go:debug panicnil=1\n\npackage main\n"}},
+		{"embed of a non-ASCII name", map[string]string{"dep/lib/embed.go": "package lib\n\nimport _ \"embed\"\n\n//go:embed données.txt\nvar Data string\n", "dep/lib/données.txt": "x"}, "left to go build"},
+		{"assembly", map[string]string{"dep/lib/stub.s": "", "dep/lib/decl.go": "package lib\n\nfunc stub()\n"}, ""},
+		{"go:debug", map[string]string{"debug.go": "//go:debug panicnil=1\n\npackage main\n"}, ""},
 	} {
 		t.Run(r.name, func(t *testing.T) {
 			dir := fixture(t)
@@ -356,8 +359,8 @@ func TestDirectRefusesWhatItCannotKey(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v\n%s", err, stderr.String())
 			}
-			if got.Direct || !strings.HasPrefix(got.Refused, "direct build refused:") {
-				t.Fatalf("got %v, want a refusal", got)
+			if got.Direct || !strings.HasPrefix(got.Refused, "direct build refused:") || !strings.Contains(got.Refused, r.reason) {
+				t.Fatalf("got %v, want a refusal (%q)", got, r.reason)
 			}
 		})
 	}

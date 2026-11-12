@@ -140,6 +140,9 @@ type goPackage struct {
 	// Trim is the import path the package's directory reads as in the
 	// object under -trimpath: path@version/rel for a replaced module.
 	Trim string
+	// Embed maps each //go:embed pattern to the files it embeds, relative
+	// to Dir, resolved on every build (embed.go).
+	Embed map[string][]string
 }
 
 // target is a module's build target and its packages in dependency order,
@@ -357,7 +360,11 @@ func (d *direct) scan(p planFile) (*target, error) {
 			return refuse("package %s has cgo or non-Go files", importPath)
 		}
 		if len(bp.EmbedPatterns) > 0 {
-			return refuse("package %s embeds files", importPath)
+			embeds, err := resolveEmbed(pkg.Dir, bp.EmbedPatterns)
+			if err != nil {
+				return refuse("package %s: %v", importPath, err)
+			}
+			pkg.Embed = embeds
 		}
 		for _, dir := range bp.Directives {
 			if strings.HasPrefix(dir.Text, "//go:debug") {
@@ -471,6 +478,9 @@ func (d *direct) compileKey(p *goPackage) (string, error) {
 		k.add("import", imp)
 		k.add("export", a.Export)
 	}
+	if err := embedKey(&k, p); err != nil {
+		return "", err
+	}
 	return k.sum(), nil
 }
 
@@ -566,7 +576,18 @@ func (d *direct) compile(p *goPackage) error {
 	if d.plan.pie() {
 		args = append(args, "-shared")
 	}
-	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"), "-pack")
+	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
+	if p.Embed != nil {
+		cfg, err := embedConfig(p)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(objdir, "embedcfg"), cfg, 0o644); err != nil {
+			return err
+		}
+		args = append(args, "-embedcfg", filepath.Join(objdir, "embedcfg"))
+	}
+	args = append(args, "-pack")
 	args = append(args, p.Files...)
 	cmd := exec.Command(d.plan.Compile.Path, args...)
 	cmd.Dir = d.module.Dir
