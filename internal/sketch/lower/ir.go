@@ -218,6 +218,9 @@ type irStmt struct {
 	Op string `json:"op,omitempty"`
 	// Cases are a "tswitch"'s clauses (ir_fail.go); Else is its default.
 	Cases []*irCase `json:"cases,omitempty"`
+	// Label is a loop's or a block's label, or the one a break, continue
+	// or goto names (ir_tree.go).
+	Label string `json:"label,omitempty"`
 }
 
 type irExpr struct {
@@ -262,8 +265,12 @@ type irBuilder struct {
 	admitted map[*check.TypeName]bool
 	// switches is the depth of Go switches (a match's, a catch's) inside
 	// the innermost loop: a break there would leave the switch, not the
-	// loop (ir_match.go).
+	// loop, so it names the loop's label (ir_match.go).
 	switches int
+	// label is the innermost loop's label, "" until a break inside a
+	// switch needs one; labels counts the function's labels (ir_tree.go).
+	label  string
+	labels int
 }
 
 // gate stops the body for reason; a census records it and goes on.

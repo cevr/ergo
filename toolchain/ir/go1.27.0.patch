@@ -12,10 +12,10 @@ index c8f1b2d..028a9cf 100644
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..79a7c1a
+index 0000000..1e4014f
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,231 @@
+@@ -0,0 +1,240 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -91,6 +91,9 @@ index 0000000..79a7c1a
 +	// Cases are a "tswitch"'s clauses (ergoir_fail.go); Else is its
 +	// default clause, at ElsePos.
 +	Cases []*ergoCase `json:"cases,omitempty"`
++	// Label is a loop's or a block's label, or the label a break,
++	// continue or goto names (ergoir_label.go).
++	Label string `json:"label,omitempty"`
 +}
 +
 +type ergoExpr struct {
@@ -124,6 +127,11 @@ index 0000000..79a7c1a
 +	locals []*types2.Var
 +	nerr   int
 +	loops  []*syntax.ForStmt // the loops around the statement being decoded
++	// loopLabels are the loops' labels ("" for none); labels the
++	// function's declared labels; gotos its gotos (ergoir_label.go).
++	loopLabels []string
++	labels     map[string]bool
++	gotos      []*ergoStmt
 +}
 +
 +// ergoAttach gives every function the IR file names its checked body.
@@ -210,7 +218,7 @@ index 0000000..79a7c1a
 +func (c *ergoChecker) function(fd *syntax.FuncDecl, fn *ergoFunc) {
 +	obj := c.info.Defs[fd.Name].(*types2.Func)
 +	c.sig = obj.Type().(*types2.Signature)
-+	c.locals = nil
++	c.locals, c.labels, c.gotos = nil, nil, nil
 +	if r := c.sig.Recv(); r != nil {
 +		c.locals = append(c.locals, r)
 +	}
@@ -231,6 +239,7 @@ index 0000000..79a7c1a
 +	before := c.nerr
 +	body := &syntax.BlockStmt{List: c.stmts(fn.Body), Rbrace: c.pos(fn.End)}
 +	body.SetPos(c.pos(fn.Pos))
++	c.ergoLabelsDone() // ergoir_label.go
 +	if c.nerr != before {
 +		return
 +	}
@@ -942,12 +951,133 @@ index 0000000..da5527c
 +	}
 +	return types2.Implements(t, ergoError().Underlying().(*types2.Interface))
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoir_label.go b/src/cmd/compile/internal/noder/ergoir_label.go
+new file mode 100644
+index 0000000..3d9db4a
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_label.go
+@@ -0,0 +1,115 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package noder
++
++// Ergo IR labels (IRG3b): a loop that a break inside a switch leaves
++// carries a label, and the break names it, since Go's unlabeled break
++// leaves the innermost switch; a match tree's shared arm is a labeled
++// block that its leaves reach by goto, as the Ergo emitter writes it
++// (matchtree.go).
++//
++//	{"k": "while"|"range", "label": "loop1", ...}  loop1: for ... { ... }
++//	{"k": "break"|"continue", "label": "loop1"}   break loop1
++//	{"k": "block", "label": "arm1", "body": [...]} arm1: { ... }
++//	{"k": "block", "body": [...]}                 { ... }
++//	{"k": "goto", "label": "arm1"}                goto arm1
++//
++// A label is a Go identifier, declared once per function; a break or
++// continue names a loop around it; a goto names a block of the function
++// (checked when the function's body is done, ergoLabelsDone).
++
++import (
++	"go/token"
++
++	"cmd/compile/internal/syntax"
++)
++
++// labeled is st, labeled with s.Label when it has one.
++func (c *ergoChecker) labeled(s *ergoStmt, st syntax.Stmt) syntax.Stmt {
++	if s.Label == "" || st == nil {
++		return st
++	}
++	if !c.declareLabel(s) {
++		return nil
++	}
++	l := &syntax.LabeledStmt{Label: syntax.NewName(c.pos(s.Pos), s.Label), Stmt: st}
++	l.SetPos(c.pos(s.Pos))
++	return l
++}
++
++func (c *ergoChecker) declareLabel(s *ergoStmt) bool {
++	if !token.IsIdentifier(s.Label) || s.Label == "_" {
++		c.errorf(s.Pos, "ergoir: label %q", s.Label)
++		return false
++	}
++	if c.labels == nil {
++		c.labels = map[string]bool{}
++	}
++	if c.labels[s.Label] {
++		c.errorf(s.Pos, "ergoir: label %s declared twice", s.Label)
++		return false
++	}
++	c.labels[s.Label] = true
++	return true
++}
++
++// labelStmt decodes a block or a goto, and a labeled break or continue.
++func (c *ergoChecker) labelStmt(s *ergoStmt) (syntax.Stmt, bool) {
++	pos := c.pos(s.Pos)
++	switch s.K {
++	case "block":
++		return c.labeled(s, c.block(s.Pos, s.End, s.Body)), true
++	case "goto":
++		if !token.IsIdentifier(s.Label) {
++			c.errorf(s.Pos, "ergoir: goto %q", s.Label)
++			return nil, true
++		}
++		c.gotos = append(c.gotos, s)
++		st := &syntax.BranchStmt{Tok: syntax.Goto, Label: syntax.NewName(pos, s.Label)}
++		st.SetPos(pos)
++		return st, true
++	}
++	return nil, false
++}
++
++// branch is a break or continue of the loop labeled s.Label, or of the
++// innermost loop.
++func (c *ergoChecker) branch(s *ergoStmt) syntax.Stmt {
++	pos := c.pos(s.Pos)
++	if len(c.loops) == 0 {
++		c.errorf(s.Pos, "ergoir: %s outside a loop", s.K)
++		return nil
++	}
++	st := &syntax.BranchStmt{Tok: syntax.Break, Target: c.loops[len(c.loops)-1]}
++	if s.K == "continue" {
++		st.Tok = syntax.Continue
++	}
++	if s.Label != "" {
++		target := -1
++		for i, l := range c.loopLabels {
++			if l == s.Label {
++				target = i
++			}
++		}
++		if target < 0 {
++			c.errorf(s.Pos, "ergoir: %s %s names no loop around it", s.K, s.Label)
++			return nil
++		}
++		st.Target, st.Label = c.loops[target], syntax.NewName(pos, s.Label)
++	}
++	st.SetPos(pos)
++	return st
++}
++
++// ergoLabelsDone checks that every goto of the function names one of its
++// blocks, and forgets the function's labels.
++func (c *ergoChecker) ergoLabelsDone() {
++	for _, g := range c.gotos {
++		if !c.labels[g.Label] {
++			c.errorf(g.Pos, "ergoir: goto %s names no block", g.Label)
++		}
++	}
++	c.labels, c.gotos = nil, nil
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..b68c413
+index 0000000..35e6dea
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,241 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1001,9 +1131,10 @@ index 0000000..b68c413
 +}
 +
 +// loopBlock is a loop's body, where break and continue name loop.
-+func (c *ergoChecker) loopBlock(loop *syntax.ForStmt, p, end ergoPos, list []*ergoStmt) *syntax.BlockStmt {
-+	c.loops = append(c.loops, loop)
-+	defer func() { c.loops = c.loops[:len(c.loops)-1] }()
++// label is the loop's label, or "" (ergoir_label.go).
++func (c *ergoChecker) loopBlock(loop *syntax.ForStmt, label string, p, end ergoPos, list []*ergoStmt) *syntax.BlockStmt {
++	c.loops, c.loopLabels = append(c.loops, loop), append(c.loopLabels, label)
++	defer func() { c.loops, c.loopLabels = c.loops[:len(c.loops)-1], c.loopLabels[:len(c.loopLabels)-1] }()
 +	return c.block(p, end, list)
 +}
 +
@@ -1085,19 +1216,10 @@ index 0000000..b68c413
 +				return nil
 +			}
 +		}
-+		st.Body = c.loopBlock(st, s.Pos, s.End, s.Body)
-+		return st
++		st.Body = c.loopBlock(st, s.Label, s.Pos, s.End, s.Body)
++		return c.labeled(s, st) // ergoir_label.go
 +	case "break", "continue":
-+		if len(c.loops) == 0 {
-+			c.errorf(s.Pos, "ergoir: %s outside a loop", s.K)
-+			return nil
-+		}
-+		st := &syntax.BranchStmt{Tok: syntax.Break, Target: c.loops[len(c.loops)-1]}
-+		if s.K == "continue" {
-+			st.Tok = syntax.Continue
-+		}
-+		st.SetPos(pos)
-+		return st
++		return c.branch(s) // ergoir_label.go
 +	case "panic":
 +		// panic(x), x a string: a path a checked program never takes; or
 +		// x an error: a failure in a frame that cannot fail, or a total
@@ -1154,8 +1276,8 @@ index 0000000..b68c413
 +		rc.SetPos(pos)
 +		st := &syntax.ForStmt{Init: rc}
 +		st.SetPos(pos)
-+		st.Body = c.loopBlock(st, s.Pos, s.End, s.Body)
-+		return st
++		st.Body = c.loopBlock(st, s.Label, s.Pos, s.End, s.Body)
++		return c.labeled(s, st) // ergoir_label.go
 +	case "expr":
 +		if s.X == nil || (s.X.K != "call" && s.X.K != "mcall" && s.X.K != "pcall") {
 +			c.errorf(s.Pos, "ergoir: an expression statement is a call")
@@ -1177,6 +1299,9 @@ index 0000000..b68c413
 +		return st
 +	}
 +	if st, ok := c.unionStmt(s); ok { // ergoir_union.go
++		return st
++	}
++	if st, ok := c.labelStmt(s); ok { // ergoir_label.go
 +		return st
 +	}
 +	c.errorf(s.Pos, "ergoir: unknown statement %q", s.K)

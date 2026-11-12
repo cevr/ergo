@@ -4,6 +4,7 @@ package lower
 
 import (
 	"fmt"
+	"strconv"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -301,17 +302,26 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		if s.Cond != nil {
 			cond = b.cond(s.Cond)
 		}
-		return []*irStmt{{K: "while", Pos: b.pos(s, s.Pos()), X: cond, Body: b.loopBody(s, s.Body), End: b.pos(s.Body, s.Body.Rbrace)}}
+		st := &irStmt{K: "while", Pos: b.pos(s, s.Pos()), X: cond, End: b.pos(s.Body, s.Body.Rbrace)}
+		b.loopBody(st, s, s.Body)
+		return []*irStmt{st}
 	case *syntax.BranchStmt:
 		if b.loops == 0 {
 			irNo("break or continue outside a loop")
 		}
 		switch s.Tok {
 		case syntax.BREAK:
+			st := &irStmt{K: "break", Pos: b.pos(s, s.Pos())}
 			if b.switches > 0 {
-				irNo("break inside a match") // ir_match.go: Go's break would leave the switch
+				// Go's unlabeled break would leave the switch (ir_match.go):
+				// it names the loop, as the emitter's branch does.
+				if b.label == "" {
+					b.labels++
+					b.label = "loop" + strconv.Itoa(b.labels)
+				}
+				st.Label = b.label
 			}
-			return []*irStmt{{K: "break", Pos: b.pos(s, s.Pos())}}
+			return []*irStmt{st}
 		case syntax.CONTINUE:
 			return []*irStmt{{K: "continue", Pos: b.pos(s, s.Pos())}}
 		}
@@ -352,21 +362,23 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		b.part(func() { st.Key = bind(s.Key) })
 		b.part(func() { st.Val = bind(s.Value) })
-		st.Body = b.loopBody(s, s.Body)
+		b.loopBody(st, s, s.Body)
 		return []*irStmt{st}
 	}
 	irNo("statement %T", s)
 	return nil
 }
 
-// loopBody is loop s's body, where break and continue stand, then its
-// back-edge poll in a polling frame (loopPoll, ir_fail.go).
-func (b *irBuilder) loopBody(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
+// loopBody gives st, loop s, its body, where break and continue stand,
+// then its back-edge poll in a polling frame (loopPoll, ir_fail.go), and
+// the label a break inside a switch names.
+func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) {
 	b.loops++
-	switches := b.switches
-	b.switches = 0
-	defer func() { b.loops, b.switches = b.loops-1, switches }()
-	return append(b.tail(body.List, false), b.loopPoll(s, body)...)
+	switches, label := b.switches, b.label
+	b.switches, b.label = 0, ""
+	defer func() { b.loops, b.switches, b.label = b.loops-1, switches, label }()
+	st.Body = append(b.tail(body.List, false), b.loopPoll(s, body)...)
+	st.Label = b.label
 }
 
 // bodyEnd is what follows a body with a result whose last statement may

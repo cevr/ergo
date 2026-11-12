@@ -59,14 +59,21 @@ func (b *irBuilder) matchValue(s syntax.Expr) ([]*irStmt, *irExpr) {
 
 // typeMatch is the match s on one subject of a union.
 func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) []*irStmt {
-	if !b.fc.simpleTypeMatch(s) {
-		irNo("match with patterns")
-	}
 	x := s.Subjects[0].X
 	if call, ok := unparen(x).(*syntax.CallExpr); ok {
 		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFunc && preludeGet(c.Func) {
 			irNo("match on Get")
 		}
+	}
+	if !b.fc.simpleTypeMatch(s) {
+		subjects := make([]syntax.Expr, len(s.Subjects))
+		for i, g := range s.Subjects {
+			if len(b.l.info.Releases[g]) > 0 {
+				irNo("match subject that releases owned values")
+			}
+			subjects[i] = g.X
+		}
+		return b.treeMatch(s, subjects, s.Clauses, s.Rbrace, ret, to) // ir_tree.go
 	}
 	// A scalar-form local stops at its let (stmt); a parameter takes the
 	// form only in a body its call is inlined into (scalar.go).
