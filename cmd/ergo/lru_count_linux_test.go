@@ -19,7 +19,7 @@ import (
 
 // TestLRUCountsAsHandGo is the counted guard of the owner's speed goal on
 // examples/lru (OPT9): `lru bench` runs no more user-space instructions and
-// no more branches per operation than the hand-written Go control
+// fewer branches per operation than the hand-written Go control
 // (testdata/lruhand, the same loop on a generational arena), as a ratio of
 // counts, never of time. It builds Go because the claim is about the
 // machine code gc makes of the lowered program (OPT9's gap was a branch gc
@@ -35,10 +35,12 @@ import (
 // of 2,200,000, which leaves 2,000,000 operations and none of the
 // start-up; the two programs alternate over 7 rounds and the medians are
 // compared. Both print the same checksum, so they do the same work. It
-// kills lower's mutant opt9-fail-around-alias, which no other test or law
-// sees (a catch whose value is named keeps its failure at the join: same
-// behaviour, same counts of placed labels); with every inlined failure at
-// the join, lru counted 2.9% more branches than the control (OPT9).
+// kills lower's mutant opt9-fail-around-noresult, which no other test or
+// law sees (a catch with no result keeps its failure at the join: same
+// behaviour, every kind of label still placed); with it, lru counted
+// 0.992 of the control's instructions and 0.986 of its branches, against
+// 0.976 and 0.949 without it (OPT9 round 2, after the arena's
+// generation-parity liveness).
 //
 // A host with no counter of user-space instructions (no PMU in the VM, or
 // perf_event_paranoid above 2) skips the test and says why.
@@ -71,11 +73,14 @@ func TestLRUCountsAsHandGo(t *testing.T) {
 	ins, br := median(lru.ins)/median(hand.ins), median(lru.br)/median(hand.br)
 	t.Logf("per operation: lru %.1f instructions, %.1f branches; hand Go %.1f, %.1f; ratios %.3f, %.3f",
 		median(lru.ins), median(lru.br), median(hand.ins), median(hand.br), ins, br)
-	// Instructions may be 1% over the control's (one program's count
-	// varies by about that between rounds); branches may not be over it
-	// (OPT9 measured lru 2.5% under it, and 2.9% over at the join).
-	if ins > 1.01 || br > 1.00 {
-		t.Errorf("lru bench runs %.3f of the hand control's instructions and %.3f of its branches per operation; want at most 1.01 and 1.00", ins, br)
+	// lru may not run more instructions than the control, and must run
+	// at least 3% fewer branches: its arena tells a live slot with the
+	// generation compare alone, and its catches jump around their
+	// handlers. The branch bound sits about 2% from both the head's ratio
+	// and the mutant's (one program's count varies by under 1% between
+	// rounds).
+	if ins > 1.00 || br > 0.97 {
+		t.Errorf("lru bench runs %.3f of the hand control's instructions and %.3f of its branches per operation; want at most 1.00 and 0.97", ins, br)
 	}
 }
 
