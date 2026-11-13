@@ -216,8 +216,8 @@
       "from": "\treturn rpcReadExit([]byte(body), strings.HasPrefix(contentType, rpcNDJSON), id)",
       "to": "\treturn rpcReadExit([]byte(body), true, id)",
       "rule": "A Loopback Call reads the json Exit its server answered; the contract's laws hold through it.",
-      "killers": ["examples:limiter/loopback (ergo test: limits.Limiter laws for Loopback)"],
-      "gap": "uncovered by the runner: only a generated program runs this body, and runtime/v1's own tests do not reach it (scripts/mutants judges a package's ledger by its own tests, M1); its killer is run by hand: go run ./scripts/examples limiter"
+      "killers": ["examples:limiter (its loopback package: ergo test: limits.Limiter laws for Loopback)"],
+      "gap": "only a generated program runs this body, and runtime/v1's own tests do not reach it; the runner runs its named killer examples:limiter (fu-mutants-xpkg), which needs a warm Bun cache (tools/ts/README.md): without one it fails on the unmutated tree and the row is uncovered"
     },
     {"name":"root-reopens-directory", "origin":"wf10 G1f r2", "file":"runtime/v1/host.go", "from":"if err := f(r.root); err != nil {", "to":"reopened, err := os.OpenRoot(r.root.Name()); if err != nil { return fsErr(path, err) }; defer reopened.Close(); if err := f(reopened); err != nil {", "rule":"A Root retains the opened directory across a rename and replacement of its name.", "killers":["runtime/v1:TestFSRootKeepsOpenedDirectory"]},
     {"name":"root-release-omitted", "origin":"wf10 G1f r2", "file":"runtime/v1/host.go", "from":"OnExit(s, func() { _ = r.root.Close() })", "to":"_ = r", "rule":"Every acquired Root closes at frame end, including failure, defect and stop.", "killers":["runtime/v1:TestFSRootClosesAtScopeEnd"]},
@@ -434,7 +434,7 @@
       "origin": "wf10/explorer/x8",
       "file": "runtime/v1/explore_on.go",
       "from": "if wanted(calls[i].Callee) || len(on) == 1 {",
-      "to": "if true {",
+      "to": "if wanted(calls[i].Callee) || true {",
       "rule": "Among the calls on the frame's line, the name is the constructor's call, with its column.",
       "killers": [
         "runtime/v1[ergoexplore]:TestHandlesNamedBySource"

@@ -129,8 +129,11 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 	}
 	test, _, _ := strings.Cut(rest, " ")
 	if suite == "examples" {
-		if info, err := os.Stat(filepath.Join(root, "examples", test)); err != nil || !info.IsDir() {
-			return "no example program " + test
+		// A program is a directory of examples with its ergo.mod; a
+		// package or a case inside one is not (r3b-local-exit named
+		// examples:limiter/loopback, which the examples runner refuses).
+		if _, err := os.Stat(filepath.Join(root, "examples", test, "ergo.mod")); err != nil || strings.Contains(test, "/") {
+			return "no example program " + test + " (want examples:PROGRAM, a directory of examples with an ergo.mod)"
 		}
 		return ""
 	}
