@@ -86,7 +86,7 @@
       "file": "examples/fk-table/table/table.ergo",
       "from": "\t\tif d.Diet != w.Value {\n",
       "to": "\t\tif d.Diet != w.Value && false {\n",
-      "rule": "The diet filter keeps that diet only (law RowsAreTheMatches; case tour).",
+      "rule": "The diet filter keeps that diet only (cases tour and badscript; RowsAreTheMatches reads Matches, so it cannot see this).",
       "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
     },
     {
