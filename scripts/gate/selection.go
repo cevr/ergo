@@ -106,6 +106,17 @@ var performanceVariables = []string{"GOCACHE", "GOMAXPROCS", "GOGC", "GOMEMLIMIT
 // log names (gate-speed GS9). Only the record sets it; it changes no verdict.
 const embedObserveVariable = "ERGO_EMBED_OBSERVE"
 
+// recordedCLIs are the packages whose tests run the package's own
+// executable, each with the variable through which a test takes one built
+// for it (gate-speed GS11). The record builds it with coverage of the
+// test's packages and hands each test a wrapper that writes the CLI's
+// counters beside the test's own, so the blocks a test ran in the CLI are
+// its blocks, and the test does not build the CLI from source, which would
+// read every source file and select it after every edit. A test that
+// ignores the variable still builds from source: it reads the sources and
+// is selected by any edit (fail closed).
+var recordedCLIs = map[string]string{"cmd/ergo": "ERGO_TEST_CLI"}
+
 // observedEmbeds are the packages that observe the files they embed
 // (embedObserveVariable): an edit of one of those files is a read the record
 // placed, which reruns its readers, not every test. A file another package
@@ -552,6 +563,17 @@ func recordCoverage(root, cacheDir string, limit limiter, p testPackage, env, de
 	if output, err := build.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("go test -c -cover %s: %w\n%s", p.dir, err, output)
 	}
+	// A package whose tests run the package's own executable gets one
+	// built with coverage of the same packages (recordedCLIs).
+	cliVariable, hasCLI := recordedCLIs[p.dir]
+	cli := filepath.Join(scratch, "cli")
+	if hasCLI {
+		build := exec.Command("go", "build", "-cover", "-covermode=set", "-coverpkg="+strings.Join(coverpkg, ","), "-o", cli, "./"+p.dir)
+		build.Env, build.Dir = env, root
+		if output, err := build.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("go build -cover %s: %w\n%s", p.dir, err, output)
+		}
+	}
 	facts, err := selectionFacts(declared)
 	if err != nil {
 		return nil, err
@@ -594,6 +616,16 @@ func recordCoverage(root, cacheDir string, limit limiter, p testPackage, env, de
 		// after every edit, a docs edit included.
 		command.Env = setEnvironmentVariable(setEnvironmentVariable(setEnvironmentVariable(env, "TMPDIR", temporary), "GOTMPDIR", temporary), "GOCOVERDIR", counters)
 		command.Env = setEnvironmentVariable(command.Env, embedObserveVariable, root)
+		if hasCLI {
+			// The wrapper names the test's counters whatever environment
+			// the test gives the CLI.
+			wrapper := filepath.Join(work, "cli")
+			script := fmt.Sprintf("#!/bin/sh\nGOCOVERDIR='%s' exec '%s' \"$@\"\n", counters, cli)
+			if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+				return nil, err
+			}
+			command.Env = setEnvironmentVariable(command.Env, cliVariable, wrapper)
+		}
 		command.Dir = packageDir
 		var output bytes.Buffer
 		command.Stdout, command.Stderr = &output, &output

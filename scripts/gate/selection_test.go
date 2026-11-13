@@ -270,7 +270,7 @@ func TestSelectionRunsEveryTestAnEditReaches(t *testing.T) {
 				run = append(run, name)
 			}
 		}
-		verdicts := selectionVerdicts(t, root, edited)
+		verdicts := selectionVerdicts(t, root, edited, "p", selectionNames)
 		var names []string
 		for _, i := range applied {
 			names = append(names, selectionEdits[i].name)
@@ -325,13 +325,13 @@ func TestSelectionRunsEveryTestAnEditReaches(t *testing.T) {
 // selectionVerdicts runs the fixture's tests and returns each top-level
 // test's verdict: pass, fail, or none when it did not run (a build
 // failure).
-func selectionVerdicts(t *testing.T, root string, env []string) map[string]string {
+func selectionVerdicts(t *testing.T, root string, env []string, dir string, names []string) map[string]string {
 	t.Helper()
-	command := exec.Command("go", "test", "-json", "-short", "-count=1", "./p")
+	command := exec.Command("go", "test", "-json", "-short", "-count=1", "./"+dir)
 	command.Env, command.Dir = env, root
 	output, _ := command.Output()
 	verdicts := map[string]string{}
-	for _, name := range selectionNames {
+	for _, name := range names {
 		verdicts[name] = "none"
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(output))

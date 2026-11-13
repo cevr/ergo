@@ -40,9 +40,20 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// testCLIVariable names a CLI the gate's coverage record built from this
+// package's sources with coverage (scripts/gate, recordedCLIs; gate-speed
+// GS11). A test uses it instead of building its own: the record reads
+// which code of the CLI a test ran from its counters, where a build of its
+// own would read every source file and tie the test to every edit.
+const testCLIVariable = "ERGO_TEST_CLI"
+
 func buildTestCLI(t *testing.T) string {
 	t.Helper()
 	testCLI.once.Do(func() {
+		if path := os.Getenv(testCLIVariable); path != "" {
+			testCLI.path = path
+			return
+		}
 		testCLI.dir, testCLI.err = os.MkdirTemp("", "ef-test-cli-")
 		if testCLI.err != nil {
 			return
