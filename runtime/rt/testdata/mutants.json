@@ -175,6 +175,17 @@
       "killers": [
         "runtime/rt:TestGroupMembersLeave"
       ]
+    },
+    {
+      "name": "gx4-member-on-own-goroutine",
+      "origin": "wf10 GX4",
+      "file": "runtime/rt/group.go",
+      "from": "\tv, err := Run(t, body)\n",
+      "to": "\tvar v T\n\tvar err error\n\tran := make(chan struct{})\n\tgo func() { v, err = Run(t, body); close(ran) }()\n\t<-ran\n",
+      "rule": "std http Serve (GX4): a request's task runs on the goroutine that read the request.",
+      "killers": [
+        "runtime/v1:TestHTTPHandlerRunsOnTheConnection"
+      ]
     }
   ]
 }
