@@ -40,6 +40,6 @@ func main() fails os.Exit needs Console | Ambient {
 	Console.Println("read \(read) unread \(unread)")
 	let last = threads.Thread(b, "thread\((n - 1) % 7)")
 	if len(last) > 0 {
-		Console.Println("last: \(last[len(last) - 1].Body)")
+		Console.Println("last: \(last[len(last)-1].Body)")
 	}
 }

@@ -3,7 +3,7 @@
 // InOrder: the messages of a thread are kept in the order they are filed,
 // and each after the first joins the thread with its new count.
 law InOrder(n int) {
-	let k = 1 + (if n < 0 { -(n + 1) } else { n }) % 12
+	let k = 1 + (if n < 0 { -(n + 1) } else { n })%12
 	let mut b = New()
 	for i in 0..k {
 		match File(&b, Msg{Thread: "t", From: "a", Body: "m\(i)"}) {
@@ -12,7 +12,7 @@ law InOrder(n int) {
 				return false
 			}
 		case Joined as j:
-			if i == 0 || j.Count != i + 1 {
+			if i == 0 || j.Count != i+1 {
 				return false
 			}
 		case EmptyBody:
@@ -30,7 +30,7 @@ law InOrder(n int) {
 // ThreadsApart: filing into one thread leaves every other thread, and a
 // copy of the inbox taken before, as they were.
 law ThreadsApart(n int) {
-	let k = 1 + (if n < 0 { -(n + 1) } else { n }) % 6
+	let k = 1 + (if n < 0 { -(n + 1) } else { n })%6
 	let mut b = New()
 	let _ = File(&b, Msg{Thread: "x", From: "a", Body: "first"})
 	let _ = File(&b, Msg{Thread: "y", From: "a", Body: "other"})
@@ -38,7 +38,7 @@ law ThreadsApart(n int) {
 	for i in 0..k {
 		let _ = File(&b, Msg{Thread: "x", From: "b", Body: "more \(i)"})
 	}
-	len(Thread(b, "x")) == k + 1 && len(Thread(b, "y")) == 1 && len(Thread(before, "x")) == 1 && Unread(before, "x") == 1
+	len(Thread(b, "x")) == k+1 && len(Thread(b, "y")) == 1 && len(Thread(before, "x")) == 1 && Unread(before, "x") == 1
 }
 
 // EmptyRefused: a message with no body is refused and changes nothing.
@@ -56,7 +56,7 @@ law EmptyRefused(n int) {
 // ReadClears: reading a thread returns its unread count and clears it,
 // keeping its messages.
 law ReadClears(n int) {
-	let k = 1 + (if n < 0 { -(n + 1) } else { n }) % 5
+	let k = 1 + (if n < 0 { -(n + 1) } else { n })%5
 	let mut b = New()
 	for i in 0..k {
 		let _ = File(&b, Msg{Thread: "t", From: "a", Body: "m\(i)"})

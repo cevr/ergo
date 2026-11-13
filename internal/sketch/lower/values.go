@@ -943,7 +943,7 @@ func (w *valueWalk) decide() {
 		// is unshared, as Append's element is (V9).
 		for _, call := range w.calls {
 			c := w.info.Calls[call]
-			if ops := callOperands(call, c); preludeMapWrite(c.Func) && c.Func.Name == "Put" && len(ops) == 3 && w.l.entryWritten(w.typeOf(ops[0])) {
+			if ops := callOperands(call, c); preludeMapWrite(c.Func) && len(ops) == 3 && w.l.entryWritten(w.typeOf(ops[0])) {
 				w.freshen(ops[2])
 			}
 		}

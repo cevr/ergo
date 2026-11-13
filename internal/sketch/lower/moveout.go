@@ -159,7 +159,8 @@ func moveOutsIn(info *check.Info, list []syntax.Stmt) []moveOut {
 		var bound *check.Var
 		switch r := unparen(bind.Rhs[0]).(type) {
 		case *syntax.SelectorExpr:
-			if id, ok := unparen(r.X).(*syntax.Ident); ok && r.Sel.Name == "Value" && some.as != nil && info.Uses[id] == some.as {
+			// Some has one field: any selector on its binding is its value.
+			if id, ok := unparen(r.X).(*syntax.Ident); ok && some.as != nil && info.Uses[id] == some.as {
 				bound = some.as
 			}
 		case *syntax.Ident:
