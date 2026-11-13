@@ -55,7 +55,7 @@ func (a agreeType) source(values bool) string {
 	if a.other != "" {
 		q := rwType{name: "X", prov: a.other, c: a.c, d: a.od}.source()
 		_, provider, _ := strings.Cut(q, "}\n\n")
-		src += provider
+		src += strings.Replace(provider, "} implements X\n", "} implements "+a.name+"\n", 1)
 	}
 	return a.rename(src)
 }
@@ -259,7 +259,7 @@ func (a agreeType) valueSource() string {
 		p := provider.name
 		// k is 0 in every state New and the operations reach; a value
 		// built outside them (agreeProgram's open sites) may hold another.
-		fmt.Fprintf(&b, "type %s { s Digit, k Digit }\nfunc New%s() %s { %s{s: 0, k: 0} }\n", p, p, p, p)
+		fmt.Fprintf(&b, "type %s { s Digit, k Digit } implements %s\nfunc New%s() %s { %s{s: 0, k: 0} }\n", p, a.name, p, p, p)
 		fmt.Fprintf(&b, "func Add(p *%s, n Digit) { p.s = digit(int(p.s) + int(n)*%d + int(p.k)) }\n", p, a.c)
 		fmt.Fprintf(&b, "func Inc(p *%s) { p.s = digit(int(p.s) + %d) }\n", p, provider.delta)
 		fmt.Fprintf(&b, "func Halve(p *%s) { p.s = digit(int(p.s)/2) }\n", p)
@@ -524,7 +524,7 @@ func TestRewriteDeepFalseLaw(t *testing.T) {
 // used").
 func TestRewriteEmptyWindow(t *testing.T) {
 	src := "import sync\n\ntype T {\n\tTouch(n int),\n\tRead() int,\n\n\tlaw Idle(n int) { Touch(n) } == { },\n}\n\n" +
-		"type P { s sync.Ref[int] }\n\nfunc NewP() P { P{s: sync.NewRef[int](0)} }\n\n" +
+		"type P { s sync.Ref[int] } implements T\n\nfunc NewP() P { P{s: sync.NewRef[int](0)} }\n\n" +
 		"func Touch(p P, n int) { }\n\nfunc Read(p P) int { p.s.Get() }\n\n" +
 		"func site(x int) needs Console {\n\tlet c = NewP()\n\tc.Touch(x)\n\tConsole.Println(\"\\(c.Read())\")\n}\n\nfunc main() needs Console { site(1) }\n"
 	file, err := syntax.Parse(src)
@@ -560,7 +560,7 @@ func TestRewriteWorkBound(t *testing.T) {
 		src := "import sync\n\ntype T {\n\tAdd(n int),\n\tInc(),\n\tRead() int,\n\n" +
 			"\tlaw Swap(a int) { Inc(); Add(a) } == { Add(a); Inc() },\n" +
 			"\tlaw Back(a int) { Add(a); Inc() } == { Inc(); Add(a) },\n}\n\n" +
-			"type P { s sync.Ref[int] }\n\nfunc NewP() P { P{s: sync.NewRef[int](0)} }\n\n" +
+			"type P { s sync.Ref[int] } implements T\n\nfunc NewP() P { P{s: sync.NewRef[int](0)} }\n\n" +
 			"func Add(p P, n int) { p.s.Set(p.s.Get() + n) }\n\nfunc Inc(p P) { p.s.Set(p.s.Get() + 1) }\n\nfunc Read(p P) int { p.s.Get() }\n\n" +
 			"func site(x int) needs Console {\n\tlet c = NewP()\n\t" + strings.Join(calls, "\n\t") + "\n\tConsole.Println(\"\\(c.Read())\")\n}\n\nfunc main() needs Console { site(1) }\n"
 		file, err := syntax.Parse(src)

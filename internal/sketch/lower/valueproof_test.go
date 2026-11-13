@@ -217,7 +217,7 @@ func provedModel(t *testing.T) {
 		if m.handle {
 			src.WriteString(", h sync.Ref[bool]")
 		}
-		src.WriteString(" }\n")
+		fmt.Fprintf(&src, " } implements %s\n", typ)
 		fmt.Fprintf(&src, "func state%s(n int) %s { match n %% %d {\n", suffix, fieldT, m.n)
 		for s := 0; s < m.n-1; s++ {
 			fmt.Fprintf(&src, "case %d: %d\n", s, s)
