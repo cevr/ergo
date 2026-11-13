@@ -5,6 +5,8 @@
 // back in place (the entry move-out, docs/spec/types.md, Bindings), so
 // filing costs the same however long the thread is.
 
+import maps
+
 // Msg is one message.
 type Msg { Thread string, From string, Body string }
 
@@ -40,6 +42,22 @@ func File(b *Inbox, m Msg) Filed {
 		return Opened{Thread: m.Thread}
 	}
 	Joined{Thread: m.Thread, Count: count}
+}
+
+// Forward adds m to the end of thread to as an upsert, without touching
+// the unread counts, and returns the thread's new length. maps.Update
+// hands the Map over and gets it back (b.threads = maps.Update(b.threads,
+// …)), and the callback's thread is fresh, so the Map is written in place.
+func Forward(b *Inbox, to string, m Msg) int {
+	b.threads = maps.Update(b.threads, to, func(old Option[[]Msg]) []Msg {
+		match old {
+		case Some[[]Msg] as t:
+			t.Value.Append(m)
+		case None:
+			[]Msg{m}
+		}
+	})
+	len(Thread(*b, to))
 }
 
 // Thread is the messages of a thread, oldest first; empty when there are

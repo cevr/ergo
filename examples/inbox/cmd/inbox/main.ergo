@@ -1,6 +1,7 @@
 // inbox N files N messages into seven threads (message i into thread
-// i % 7), reads one thread, and prints the threads, the longest thread and
-// what is left unread.
+// i % 7), forwards one more into thread1, reads one thread, and prints
+// the threads, the longest thread, what is left unread and thread1's
+// length.
 
 import os
 import strconv
@@ -31,13 +32,14 @@ func main() fails os.Exit needs Console | Ambient {
 			return os.Exit{Code: 1, Message: "message \(i) refused"}
 		}
 	}
+	let forwarded = threads.Forward(&b, "thread1", threads.Msg{Thread: "thread1", From: "me", Body: "forwarded"})
 	let read = threads.MarkRead(&b, "thread0")
 	let mut unread = 0
 	for t in 0..7 {
 		unread = unread + threads.Unread(b, "thread\(t)")
 	}
 	Console.Println("threads \(threads.Threads(b)) opened \(opened) longest \(longest)")
-	Console.Println("read \(read) unread \(unread)")
+	Console.Println("read \(read) unread \(unread) thread1 \(forwarded)")
 	let last = threads.Thread(b, "thread\((n - 1) % 7)")
 	if len(last) > 0 {
 		Console.Println("last: \(last[len(last)-1].Body)")

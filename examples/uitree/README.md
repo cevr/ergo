@@ -33,16 +33,16 @@ root that is the tree, and the pass is quadratic again (the growth guard
 `TestFanOutGrowsLinearly` holds that case linear).
 
 Counted receipt: allocations of one `Place` on a pass of n nodes: base
-e02194103, the entry rule (MAPCOPY round 1, 983a6a13a), and the move-out
-(scratch harness, Go's `runtime.MemStats`).
+e02194103, the entry rule (MAPCOPY round 1, 983a6a13a), the move-out
+(round 2, 8021ffbe3), and a stored path read after (round 3) (scratch
+harness, Go's `runtime.MemStats`).
 
-| pass | base | entry rule | move-out |
-| --- | --- | --- | --- |
-| 1000 nodes | 1666 allocations, 191348 B | 5.8 allocations, 372 B | 4.2 allocations, 228 B |
-| 2000 nodes | 3169 allocations, 378261 B | 4.8 allocations, 324 B | 3.2 allocations, 180 B |
+| pass | base | entry rule | move-out | stored read |
+| --- | --- | --- | --- | --- |
+| 1000 nodes | 1666 allocations, 191348 B | 5.8 allocations, 372 B | 4.2 allocations, 228 B | 3.2 allocations, 180 B |
+| 2000 nodes | 3169 allocations, 378261 B | 4.8 allocations, 324 B | 3.2 allocations, 180 B | 2.2 allocations, 132 B |
 
-Copy sites in `Place`'s Go: 5, 3, 2. What remains is the path: it is
-read from the parent's entry and stored under the child's key, so it is
-copied at the read (the parent keeps its entry), and copied again at the
-store because `len(path)` reads it after; the second copy is a known gap
-(a read after the store needs no copy).
+Copy sites in `Place`'s Go: 5, 3, 2, 1. What remains is the path's copy
+at the read: the parent keeps its entry. The store into `p.paths` copies
+nothing, though `len(path)` reads `path` after it: `Map[int, []int]` has
+no entry write path, so neither the entry nor `path` is written again.

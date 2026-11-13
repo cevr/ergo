@@ -41,6 +41,30 @@ law ThreadsApart(n int) {
 	len(Thread(b, "x")) == k+1 && len(Thread(b, "y")) == 1 && len(Thread(before, "x")) == 1 && Unread(before, "x") == 1
 }
 
+// ForwardIsFile: forwarding k messages builds the thread filing them
+// would, and leaves a copy of the inbox taken before as it was.
+law ForwardIsFile(n int) {
+	let k = 1 + (if n < 0 { -(n + 1) } else { n })%6
+	let mut a = New()
+	let mut b = New()
+	let _ = File(&b, Msg{Thread: "x", From: "a", Body: "first"})
+	let _ = File(&a, Msg{Thread: "x", From: "a", Body: "first"})
+	let before = b
+	let mut ok = true
+	for i in 0..k {
+		let m = Msg{Thread: "x", From: "b", Body: "more \(i)"}
+		let _ = File(&a, m)
+		ok = ok && Forward(&b, "x", m) == i+2
+	}
+	let ta = Thread(a, "x")
+	let tb = Thread(b, "x")
+	ok = ok && len(ta) == len(tb) && len(Thread(before, "x")) == 1
+	for i in 0..len(ta) {
+		ok = ok && ta[i].Body == tb[i].Body
+	}
+	ok
+}
+
 // EmptyRefused: a message with no body is refused and changes nothing.
 law EmptyRefused(n int) {
 	let mut b = New()
