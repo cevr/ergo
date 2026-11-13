@@ -51,6 +51,27 @@ type Config struct {
 	// earlier run to derive a deadline from.
 	CoverDeadline time.Duration
 	Log           io.Writer
+	// Sources check a mutant of a source file that go build does not
+	// compile (an .ergo row) before any test runs.
+	Sources []SourceCheck
+}
+
+// SourceCheck validates the mutants of one kind of source file. A mutated
+// file that the formatter would rewrite (FK7a), or that the compiler
+// refuses with a diagnostic the unmutated file does not have (FK12a), fails
+// every test that formats or checks it for that reason alone: such a
+// mutant is invalid, never killed, unless its row declares that the
+// refusal is its point (Mutant.Refused). Format and Check are commands;
+// their words may hold {bin:TOOL} (Tool, built from the unmutated copy),
+// {file} (the mutated file) and {dir} (its directory). Format exits 0 when
+// the file is formatted. Check prints a JSON object whose "diagnostics"
+// hold a "code" each; output that is not one counts as a refusal when the
+// command fails.
+type SourceCheck struct {
+	Ext    string
+	Tool   Tool
+	Format []string
+	Check  []string
 }
 
 // Tool is a binary that suites run, built from the checkout (with
@@ -766,6 +787,11 @@ type worker struct {
 	bin     string
 	touched map[string]bool
 	err     error
+	// unmutated holds each source file's state before any mutant (they
+	// are restored after each one), and sourceTools the source checks'
+	// tools built from the unmutated copy.
+	unmutated   map[string]sourceState
+	sourceTools map[string]bool
 }
 
 // judge applies one mutant, runs its covering tests (known killers first,
@@ -823,6 +849,17 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 		r.Status, r.Detail = Invalid, err.Error()
 		return r
 	}
+	source := w.e.sourceCheck(m.File)
+	if m.Refused != "" {
+		source = nil
+	}
+	var before sourceState
+	if source != nil {
+		if before, err = w.source(ctx, source, path, false); err != nil {
+			r.Status, r.Detail = Invalid, err.Error()
+			return r
+		}
+	}
 	w.touched[m.File] = true
 	if err := os.WriteFile(path, []byte(strings.Replace(string(original), m.From, m.To, 1)), info.Mode().Perm()); err != nil {
 		w.err = errors.Join(w.err, err)
@@ -834,6 +871,17 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 			w.err = errors.Join(w.err, fmt.Errorf("restore %s: %w", m.File, err))
 		}
 	}()
+	if source != nil {
+		after, err := w.source(ctx, source, path, true)
+		if err != nil {
+			r.Status, r.Detail = Invalid, err.Error()
+			return r
+		}
+		if why := before.refusal(after); why != "" {
+			r.Status, r.Detail = Invalid, why
+			return r
+		}
+	}
 	built := map[string]bool{}
 	for _, id := range w.e.cov.order(covering, m.Killers) {
 		if ctx.Err() != nil {

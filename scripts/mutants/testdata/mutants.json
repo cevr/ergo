@@ -9,6 +9,9 @@
       "to": "case memory != 0 && bytes.Contains(report, []byte(proclimit.OutOfMemory)):\n\t\treturn \"memory\"",
       "rule": "A capped mutant child's span-queue allocation fault has reason memory.",
       "killers": ["scripts/mutants:TestCappedFaultIsMemory"]
-    }
+    },
+    { "name": "fk7a-format-ignored", "origin": "wf10 FK7a", "file": "scripts/mutants/source.go", "from": "\tif before.formatted && !after.formatted {\n", "to": "\tif false && before.formatted && !after.formatted {\n", "rule": "A mutated source the formatter would rewrite is invalid, never killed: the runner's format check fails it whatever its edit means.", "killers": ["scripts/mutants:TestRunnerMatchesModel"] },
+    { "name": "fk12a-refusal-ignored", "origin": "wf10 FK12a", "file": "scripts/mutants/source.go", "from": "\t\tif after.codes[code] > before.codes[code] {\n", "to": "\t\tif false && after.codes[code] > before.codes[code] {\n", "rule": "A mutated source the compiler refuses with a new diagnostic is invalid, never killed.", "killers": ["scripts/mutants:TestRunnerMatchesModel"] },
+    { "name": "fk12a-declared-ignored", "origin": "wf10 FK12a", "file": "scripts/mutants/runner.go", "from": "\tif m.Refused != \"\" {\n\t\tsource = nil\n", "to": "\tif false {\n\t\tsource = nil\n", "rule": "A row that declares the refusal its point (refused) is judged by its tests: the refusal may kill it.", "killers": ["scripts/mutants:TestRunnerMatchesModel"] }
   ]
 }

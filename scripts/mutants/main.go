@@ -106,6 +106,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "mutants: %v\n", err)
 		return 2
 	}
+	cfg.Sources = ergoSources
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
 	start := time.Now()
@@ -201,6 +202,17 @@ func addScope(cfg *Config, s scope) {
 		}
 	}
 }
+
+// ergoSources validate every .ergo mutant, whichever suites judge it: the
+// compiler built from the unmutated checkout formats and checks the
+// mutated file's package folder (a std folder checked as a folder has
+// diagnostics of its own, such as S108; only new ones count).
+var ergoSources = []SourceCheck{{
+	Ext:    ".ergo",
+	Tool:   Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}},
+	Format: []string{"{bin:ergo}", "fmt", "--check", "{file}"},
+	Check:  []string{"{bin:ergo}", "check", "{dir}"},
+}}
 
 // ergoSuites are the suites that judge the checker's and the lowering's
 // mutants: their own tests, the std tests (laws and guards), and the
