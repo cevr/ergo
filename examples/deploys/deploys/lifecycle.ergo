@@ -25,9 +25,7 @@ func Step(s Status, e Event) Decision[Status, Status] {
 		Enter[Status]{Next: Live}
 	case (Approved, Cancel):
 		Enter[Status]{Next: Cancelled}
-	case (Live, Approve), (Live, Release), (Live, Cancel):
-		Reject
-	case (Cancelled, Approve), (Cancelled, Release), (Cancelled, Cancel):
+	case (Live | Cancelled, Approve | Release | Cancel):
 		Reject
 	}
 }

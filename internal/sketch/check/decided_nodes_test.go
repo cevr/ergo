@@ -20,7 +20,7 @@ var decidedFamilies = []string{
 	"test", "assert",
 	"if value", "match value", "value match", "type match", "tuple subject",
 	"record pattern", "as pattern", "nested as pattern",
-	"catch arm", "catch-all binding",
+	"catch arm", "catch-all binding", "or pattern",
 	"for in", "for pattern", "for tuple pattern", "counting range", "range value", "for condition",
 	"assignment", "break and continue",
 	"function literal", "untyped parameter",
@@ -477,6 +477,24 @@ func f(u U) int {
 }
 func main() {}
 `, []string{"S108:7", "S108:7"}},
+	{"or pattern", "nested alternatives in a match's and a catch's patterns (FK7a)", `
+type A {}
+type B {}
+type U = A | B
+type Bang { N int }
+func load() int fails Bang { 1 }
+func f(u U, n int) int {
+	let k = load() catch {
+	case Bang{N: 1 | 2}: 0
+	case Bang: 1
+	}
+	match (u, n) {
+	case (A | B, 0): k
+	case _: 2
+	}
+}
+func main() {}
+`, nil},
 	{"catch arm", "catch arm with as", `
 type NotFound { ID string }
 type Gone {}

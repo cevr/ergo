@@ -36,7 +36,7 @@ func Step(s State, sig Signal) Decision[State, State] {
 	match (s, sig) {
 	case (Queued, Start):
 		Enter[State]{Next: Running}
-	case (Queued, Cancel), (Running, Cancel):
+	case (Queued | Running, Cancel):
 		Enter[State]{Next: Cancelled}
 	case (Running, Finish):
 		Enter[State]{Next: Done}

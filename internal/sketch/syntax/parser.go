@@ -61,6 +61,9 @@ type parser struct {
 	// literal or a trailing block (Go's rule); it is above zero inside
 	// parentheses and brackets.
 	exprLev int
+	// orAllowed is true while a case's patterns are parsed: there a nested
+	// pattern may list alternatives with | (orpattern.go).
+	orAllowed bool
 	// nest is the number of levels open on the path being parsed: each
 	// enter() opens one. peak is the deepest level reached by the subtree
 	// being measured (see measure); a chain retains its own height in it,

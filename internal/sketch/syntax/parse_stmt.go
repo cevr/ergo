@@ -208,7 +208,7 @@ func (p *parser) parsePatternCore() Expr {
 		p.next()
 		saved := p.exprLev
 		p.exprLev = 1
-		first := p.parsePattern()
+		first := p.parseAlternatives()
 		if p.tok.tok != COMMA {
 			p.exprLev = saved
 			return &ParenExpr{Lparen: lparen, X: first, Rparen: p.want(RPAREN)}
@@ -216,7 +216,7 @@ func (p *parser) parsePatternCore() Expr {
 		p.refuseSingleton()
 		t := &TupleExpr{Lparen: lparen, Elts: []Expr{first}}
 		for p.got(COMMA) && p.tok.tok != RPAREN {
-			t.Elts = append(t.Elts, p.parsePattern())
+			t.Elts = append(t.Elts, p.parseAlternatives())
 		}
 		p.exprLev = saved
 		t.Rparen = p.want(RPAREN)
@@ -242,10 +242,10 @@ func (p *parser) parseRecordPattern(typ Expr) *CompositeLit {
 		if p.tok.tok == IDENT && p.peek(1).tok == COLON {
 			key := p.parseIdent()
 			colon := p.want(COLON)
-			elt = &KeyValueExpr{Key: key, Colon: colon, Value: p.parsePattern()}
+			elt = &KeyValueExpr{Key: key, Colon: colon, Value: p.parseAlternatives()}
 			keyed = true
 		} else {
-			elt = p.parsePattern()
+			elt = p.parseAlternatives()
 			positional = true
 		}
 		if keyed && positional {

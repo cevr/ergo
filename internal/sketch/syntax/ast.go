@@ -726,8 +726,11 @@ func (e *MachineEntry) End() Pos { return e.Value.End() }
 type CatchArm struct {
 	Case  Pos
 	Types []Expr
-	Colon Pos
-	Body  []Stmt
+	// Written is the patterns as written when one holds an OrPattern;
+	// Types is then their expansion (orpattern.go). nil otherwise.
+	Written []Expr
+	Colon   Pos
+	Body    []Stmt
 }
 
 func (a *CatchArm) Pos() Pos { return a.Case }
@@ -963,10 +966,14 @@ type (
 // CaseClause is `case list:` or `default:` (List is nil) of an expression
 // or type switch.
 type CaseClause struct {
-	Case  Pos
-	List  []Expr
-	Colon Pos
-	Body  []Stmt
+	Case Pos
+	List []Expr
+	// Written is the patterns as written when one holds an OrPattern;
+	// List is then their expansion, one pattern per combination of
+	// alternatives (orpattern.go). nil otherwise.
+	Written []Expr
+	Colon   Pos
+	Body    []Stmt
 }
 
 func (c *CaseClause) Pos() Pos { return c.Case }

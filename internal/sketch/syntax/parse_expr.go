@@ -117,7 +117,7 @@ func (p *parser) parseCatch(x Expr) *CatchExpr {
 	for p.tok.tok == CASE {
 		arm := &CatchArm{Case: p.tok.pos}
 		p.next()
-		arm.Types = p.parseCaseList()
+		arm.Types, arm.Written = p.parseCaseList()
 		arm.Colon = p.want(COLON)
 		arm.Body = p.parseStmtList()
 		c.Arms = append(c.Arms, arm)
@@ -668,7 +668,7 @@ func (p *parser) parseMatch() Stmt {
 	for p.tok.tok == CASE {
 		c := &CaseClause{Case: p.tok.pos}
 		p.next()
-		c.List = p.parseCaseList()
+		c.List, c.Written = p.parseCaseList()
 		if len(c.List) == 1 {
 			if id, ok := c.List[0].(*Ident); ok && id.Name == "_" {
 				c.List = nil
@@ -720,9 +720,13 @@ func literalCases(clauses []*CaseClause) bool {
 }
 
 // parseCaseList parses `Pattern {, Pattern}` up to the colon. A case item
-// that goes on as an expression is S001 with a pointer to if.
-func (p *parser) parseCaseList() []Expr {
-	var list []Expr
+// that goes on as an expression is S001 with a pointer to if. A pattern
+// may nest alternatives (`(A | B, C)`); the list is then their expansion
+// and written the list as written (orpattern.go).
+func (p *parser) parseCaseList() (list, written []Expr) {
+	saved := p.orAllowed
+	p.orAllowed = true
+	defer func() { p.orAllowed = saved }()
 	for {
 		list = append(list, p.parsePattern())
 		switch {
@@ -730,11 +734,13 @@ func (p *parser) parseCaseList() []Expr {
 			p.next()
 			continue
 		case p.tok.tok == COLON:
-			return list
+			return p.expandCase(list)
+		case p.tok.tok == OR:
+			p.errorf("the alternatives of a case are separated by commas: case A, B:; | separates alternatives inside a tuple, a record pattern or parentheses")
 		case p.tok.tok.Precedence() > 0, p.tok.tok == LPAREN, p.tok.tok == PERIOD, p.tok.tok == LBRACK, p.tok.tok == DOTDOT:
 			p.errorf("a case lists patterns, not expressions; test a condition with `if`")
 		}
-		return list
+		return p.expandCase(list)
 	}
 }
 

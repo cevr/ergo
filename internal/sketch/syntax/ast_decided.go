@@ -189,6 +189,20 @@ func (x *AsPattern) Pos() Pos { return x.X.Pos() }
 func (x *AsPattern) End() Pos { return x.Name.End() }
 func (*AsPattern) exprNode()  {}
 
+// OrPattern is `P | Q` nested in a case's pattern: a tuple element, a
+// record pattern's field or a parenthesised pattern (FK7a; orpattern.go).
+// It matches when one alternative matches. The parser expands a case
+// whose patterns hold one into the case's list of patterns, so only the
+// formatter reads it (CaseClause.Written, CatchArm.Written).
+type OrPattern struct {
+	Alts []Expr
+	Bars []Pos // the `|` before each alternative after the first
+}
+
+func (x *OrPattern) Pos() Pos { return x.Alts[0].Pos() }
+func (x *OrPattern) End() Pos { return x.Alts[len(x.Alts)-1].End() }
+func (*OrPattern) exprNode()  {}
+
 // InterpolatedString is `"a \(x) b"`. Texts holds the raw source of each
 // literal segment, delimiters included: the head runs from the opening
 // quote through the first `\(` (Kind STRING_HEAD), each middle from a `)`

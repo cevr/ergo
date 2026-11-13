@@ -1260,7 +1260,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		// them (withProviders), so the literal evaluates nothing.
 		return
 	case *syntax.BasicLit, *syntax.ArrayType, *syntax.MapType, *syntax.FuncType, *syntax.StructType,
-		*syntax.InterfaceType, *syntax.ErrorRow, *syntax.MachineType, *syntax.VariantSpec, *syntax.AsPattern:
+		*syntax.InterfaceType, *syntax.ErrorRow, *syntax.MachineType, *syntax.VariantSpec, *syntax.AsPattern, *syntax.OrPattern:
 		// A literal, a type or a pattern: no value of a local is used.
 		return
 	case *syntax.KeyValueExpr:

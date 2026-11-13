@@ -529,7 +529,7 @@ func (cs *catchSpace) judge(it catchItem, row *Row, valid bool) (refused bool) {
 			if it.whole && cs.wholeSeen[id] {
 				c.errorf(it.te, CodeType, "%s is caught twice (rows.md, Catch 2)", it.t)
 			} else {
-				c.errorf(it.te, CodeType, "%s (unreachable; rows.md, Catch 2)", c.coveredBy(m.rows, m.origin))
+				c.errorf(it.te, CodeType, "%s (unreachable; rows.md, Catch 2)", c.coveredBy(m.rows, m.origin, it.te))
 			}
 			return
 		}

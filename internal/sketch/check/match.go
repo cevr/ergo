@@ -736,7 +736,7 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 	judge := func(at syntax.Node, row solverRow) {
 		u, ok := useful.caseUseful(matrix, row)
 		if ok && !u {
-			c.errorf(at, CodeType, "%s (unreachable)", c.coveredBy(matrix, origin))
+			c.errorf(at, CodeType, "%s (unreachable)", c.coveredBy(matrix, origin, at))
 			return
 		}
 		before := len(matrix.rows)
@@ -827,10 +827,13 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 	}
 }
 
-// coveredBy says what covers an unreachable case row: the earlier case
+// coveredBy says what covers an unreachable case row at: the earlier case
 // that alone covers it, by its text ("the earlier case `B`"; no line, so the
-// message does not move with the declarations), or the cases before it together.
-func (c *checker) coveredBy(m *rowSet, origin []syntax.Node) string {
+// message does not move with the declarations), or the cases before it
+// together. An alternative of a nested or-pattern covered by an earlier
+// alternative of the same written pattern (both expansions span it,
+// syntax/orpattern.go) says so.
+func (c *checker) coveredBy(m *rowSet, origin []syntax.Node, at syntax.Node) string {
 	i := m.cover
 	if i < 0 || i >= len(origin) {
 		return "this case is already covered by the cases before it"
@@ -842,6 +845,9 @@ func (c *checker) coveredBy(m *rowSet, origin []syntax.Node) string {
 	}
 	if rs := []rune(text); len(rs) > 40 {
 		text = string(rs[:37]) + "…"
+	}
+	if o := origin[i]; o.Pos() == at.Pos() && o.End() == at.End() {
+		return fmt.Sprintf("an alternative of `%s` is already covered by an earlier alternative of it", text)
 	}
 	return fmt.Sprintf("this case is already covered by the earlier case `%s`", text)
 }
