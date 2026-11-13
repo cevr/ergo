@@ -101,7 +101,7 @@
       "name": "fk7-log-keeps-one-more", "origin": "wf10/fk7a",
       "file": "examples/fk-wizard/desk/desk.ergo",
       "from": "if len(log) == LogLimit {",
-      "to": "if len(log) == LogLimit + 1 {",
+      "to": "if len(log) == LogLimit+1 {",
       "rule": "The log keeps the newest twenty (law LogKeepsTheNewest; the tour shows only new lines).",
       "anchor": {"tests": ["examples:fk-wizard"]}, "killers": ["examples:fk-wizard"]
     },
@@ -117,7 +117,7 @@
       "name": "fk7-move-logged-as-ignored", "origin": "wf10/fk7a",
       "file": "examples/fk-wizard/desk/desk.ergo",
       "from": "\"\\(StageName(d.Stage)) -> \\(StageName(next)) on \\(SignalName(sig))\"",
-      "to": "\"\\(SignalName(sig)) ignored in \\(StageName(d.Stage))\" + StageName(next)[0:0]",
+      "to": "\"\\(SignalName(sig)) ignored in \\(StageName(d.Stage))\"+StageName(next)[0:0]",
       "rule": "A transition is logged from, to and on what (case tour).",
       "anchor": {"tests": ["examples:fk-wizard"]}, "killers": ["examples:fk-wizard"]
     }
