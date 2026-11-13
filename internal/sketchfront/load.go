@@ -127,6 +127,8 @@ type program struct {
 	// module and modRoot are the module's name and folder; module is ""
 	// with no ergo.mod.
 	module, modRoot string
+	// platform is the GOOS/GOARCH the bindings were read for.
+	platform gobind.Platform
 }
 
 // loader reads and checks one program.
@@ -261,7 +263,7 @@ func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysi
 			l.checkAll()
 		}
 	}
-	p := &program{texts: l.texts, bindings: l.bindings}
+	p := &program{texts: l.texts, bindings: l.bindings, platform: platform}
 	if found {
 		p.module, p.modRoot = l.module, l.root
 	}

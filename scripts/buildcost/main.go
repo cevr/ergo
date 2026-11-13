@@ -10,6 +10,7 @@
 //	go run ./scripts/buildcost empty [-work DIR]
 //	go run ./scripts/buildcost start [-work DIR] [-ergo PATH]
 //	go run ./scripts/buildcost count CMD [ARG...]
+//	go run ./scripts/buildcost reuse [-work DIR] [-sizes 10,50] [-examples deps]
 //
 // The scenarios, for each generated program gN (internal/testinputs/
 // genprogram) and each named example: first build (Go's std archives are
@@ -20,7 +21,9 @@
 // Go program, /bin/true) and the empty-package compile (Go's compile of
 // `package p`, the fixed cost of one compile process).
 // `start` counts the process start (start.go), and `count` counts any
-// command: the least user-mode instructions of five runs.
+// command: the least user-mode instructions of five runs. `reuse` counts
+// in process what the incremental check would reuse after each edit
+// (reuse.go).
 //
 // Each run has its own Ergo cache under -work (XDG_CACHE_HOME), so a
 // scenario's predecessor is the one listed before it. -work defaults to a
@@ -52,7 +55,7 @@ func main() {
 		runner{}.leastOf(strings.Join(os.Args[2:], " "), os.Args[2:])
 		return
 	}
-	if len(os.Args) > 1 && (os.Args[1] == "empty" || os.Args[1] == "start") {
+	if len(os.Args) > 1 && (os.Args[1] == "empty" || os.Args[1] == "start" || os.Args[1] == "reuse") {
 		os.Exit(run(os.Args[2:], os.Args[1]))
 	}
 	os.Exit(run(os.Args[1:], ""))
@@ -146,7 +149,7 @@ func run(args []string, mode string) int {
 			defer os.RemoveAll(dir)
 		}
 	}
-	if r.ergo == "" {
+	if r.ergo == "" && mode != "reuse" {
 		r.ergo = filepath.Join(r.work, "bin", "ergo")
 		build := exec.Command("go", "build", "-o", r.ergo, "./cmd/ergo")
 		build.Stdout, build.Stderr = os.Stderr, os.Stderr
@@ -175,6 +178,10 @@ func run(args []string, mode string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
+		if mode == "reuse" {
+			r.reuse(fmt.Sprintf("g%d", n), dir, "cmd/app", genprogram.Name(0)+"/"+genprogram.Name(0)+".ergo")
+			continue
+		}
 		r.scenarios(fmt.Sprintf("g%d", n), dir, "cmd/app", genprogram.Name(0)+"/"+genprogram.Name(0)+".ergo", genprogram.Name(0))
 	}
 	for _, name := range strings.Split(*examples, ",") {
@@ -191,6 +198,10 @@ func run(args []string, mode string) int {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
+		}
+		if mode == "reuse" {
+			r.reuse(name, dir, main, leaf)
+			continue
 		}
 		r.scenarios(name, dir, main, leaf, filepath.Dir(leaf))
 	}

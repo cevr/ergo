@@ -120,6 +120,44 @@ a package-level map that nothing reaches, and a probe reaches nothing.
 `GODEBUG=inittrace=1 ergo version` shows the inits as `ergo` runs them.
 `TestStartBuildsNoTables` bounds the module's init bytes at 64 KiB.
 
+## Incremental check (CS5a)
+
+`go run ./scripts/buildcost reuse -sizes 10,50 -examples
+deps,bookmarks,backups,adventure` checks each program in process, applies the
+edits below one after another, and checks again after each. For each edit it
+counts the packages that the decision of [Interface
+fingerprint](../spec/build.md#interface-fingerprint) would check again. Today
+every package is still checked; this counts what the cutoff would skip. The
+edits are:
+
+- a comment appended to a file of the lowest package;
+- a body edit there: one more on the first integer literal, or one more
+  letter in the first string, in a function that is not generic;
+- an exported function added there;
+- an unexported function added to main.
+
+The table gives the packages checked again, out of all the program's packages.
+
+| Program | Packages | Comment | Body | Export added | Main decl added |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| g10 | 11 | 0 | 1 | 4 | 1 |
+| g50 | 44 | 0 | 1 | 21 | 1 |
+| deps | 6 | 0 | none* | 5 | 1 |
+| bookmarks | 4 | 0 | 1 | 2 | 1 |
+| backups | 5 | 0 | 1 | 5 | 1 |
+| adventure | 3 | 0 | 1 | 2 | 1 |
+
+\* Every function of deps' lowest package (`graph`) is generic, and a
+generic body is part of the interface, so the tool makes no body edit.
+
+- A comment edit checks nothing again.
+- A body edit checks again only its own package.
+- An added export checks again every package above it. The interface
+  fingerprint includes the imports' interfaces (Interface fingerprint, 3);
+  stopping at a middle package whose view did not change waits on CS5b.
+
+The raw log is the wf10 run's `compile-speed/receipts/reuse-cs5a.log`.
+
 ## R
 
 R, the private reference server of 11 packages (42,771 lowered Go lines),
