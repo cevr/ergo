@@ -145,8 +145,33 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "slices", Name: "Clip", V: "[]" + elem + ", " + elem, Args: []*irExpr{src}}
 	case preludeMapWrite(c.Func):
-		irNo("Map write")
+		if len(c.TypeArgs) != 2 {
+			irNo("Map write form")
+		}
+		k, v := b.goType(c.TypeArgs[0], x), b.goType(c.TypeArgs[1], x)
+		m := "map[" + k + "]" + v
+		if b.goType(b.l.info.Types[args[0]], x) != m {
+			irNo("Map write to a defined Map type")
+		}
+		b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[" + b.fc.goType(c.TypeArgs[0]) + "]" + b.fc.goType(c.TypeArgs[1]) + "]")
+		src := irArgs[0]
+		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "maps", Name: "Clone", V: m + ", " + k + ", " + v, Args: []*irExpr{src}}
 	}
+}
+
+// admitMap admits a Map, Go's map[K]V: its key and its value. A Map is a
+// value (V3): a call that writes one writes a copy unless it may write in
+// place (valueSource), and a copy of a local is the value rule's ("value
+// copy", which keeps the source body).
+func (b *irBuilder) admitMap(t *check.Map, depth int) {
+	b.admit(t.Key, depth+1)
+	b.admit(t.Elem, depth+1)
+}
+
+// goRange reports a for-in domain the emitter lowers to Go's range over
+// the value (rangeStmt): a slice, a Map, a string's runes.
+func goRange(d check.LoopDomain) bool {
+	return d == check.LoopSlice || d == check.LoopMap || d == check.LoopString
 }
 
 // own is the type whose Go type fu's helpers spell: the instance, for a

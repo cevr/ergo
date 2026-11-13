@@ -65,7 +65,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("len form")
 		}
 		switch t := b.l.info.Types[x.Args[0]].(type) {
-		case *check.Slice:
+		case *check.Slice, *check.Map:
 		case *check.Basic:
 			if t.Kind != check.String {
 				irNo("len of a non-slice")

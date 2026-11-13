@@ -30,6 +30,9 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	case *check.Slice:
 		b.admit(t.Elem, depth+1)
 		return
+	case *check.Map:
+		b.admitMap(t, depth) // ir_pkg.go
+		return
 	case *check.Named:
 		if len(t.TParams) > 0 || t.Obj.Decl == nil {
 			irNo("generic or declared-elsewhere type")

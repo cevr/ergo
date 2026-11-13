@@ -318,7 +318,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		irNo("statement *syntax.BranchStmt %s", s.Tok)
 	case *syntax.RangeStmt:
 		lp := b.l.info.Loops[s]
-		if lp == nil || lp.Domain != check.LoopSlice {
+		if lp == nil || !goRange(lp.Domain) { // ir_pkg.go
 			b.gate("for-in over a non-slice")
 		}
 		var x *irExpr

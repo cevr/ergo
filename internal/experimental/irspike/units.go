@@ -142,7 +142,8 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"Option's pointer niche", "G4"},
 	{"append form", "G4"},
 	{"append to a defined slice type", "G4"},
-	{"Map write", "G4"},
+	{"Map write form", "G4"},
+	{"Map write to a defined Map type", "G4"},
 	// IRG4 calls other packages' functions and std externs with a plain
 	// runtime/v1 body; these call forms remain.
 	{"call without a function", "G4"},
