@@ -1055,6 +1055,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `actor` | `SelectStops` | `SelectStops(xs []int) { selectStops(Select(source(xs), func(x int) int { x % 3 })) }` | `TestStdActorLawsRun` | tested |
 | `actor` | `SendsStepInOrder` | `SendsStepInOrder(signals []int) { with context { Scheduler: time.NewManual(0) } { inOrder(signals) } }` | `TestStdActorLawsRun` | tested |
 | `actor` | `SinkGetsEachOutput` | `SinkGetsEachOutput(signals []int) { with context { Scheduler: time.NewManual(0) } { heard(signals) } }` | `TestStdActorLawsRun` | tested |
+| `actor` | `VersionCountsCommits` | `VersionCountsCommits(signals []int) { with context { Scheduler: time.NewManual(0) } { versioned(signals) } }` | `TestStdActorLawsRun` | tested |
 | `base64` | `DecodeInvertsEncode` | `DecodeInvertsEncode(s string) { let std = try Decode(StdEncoding, Encode(StdEncoding, s)) let url = try Decode(URLEncoding, Encode(URLEncoding, s)) std == s && url == s }` | `TestStdDigestLaws` | tested |
 | `base64` | `EncodedLength` | `EncodedLength(s string) { len(Encode(StdEncoding, s)) == (len(s) + 2) / 3 * 4 }` | `TestStdDigestLaws` | tested |
 | `bits` | `LenAndLeadingZeros` | `LenAndLeadingZeros(x uint64) { Len64(x)+LeadingZeros64(x) == 64 }` | `TestStdRunesLaws` | tested |

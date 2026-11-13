@@ -517,3 +517,44 @@ law SinkGetsEachOutput(signals []int) {
 		heard(signals)
 	}
 }
+
+// versioned: a tally actor asked each signal shows one version more for
+// each decision that commits (Enter, Stay, Emit; tally has no Tell, work
+// or hosts) and none for an Ignore or a Reject, starting at 1 for its
+// first state; Shown's state is the actor's State. It stops at a Done.
+func versioned(signals []int) bool needs Scheduler {
+	let a = StartMachine(tally(), 1, func(o int) {})
+	let _ = a.State()
+	let mut want = 1
+	for e in signals {
+		let d = a.Ask(e) catch {
+		case Stopped:
+			a.Stop()
+			return false
+		}
+		match d {
+		case Done[int]:
+			a.Stop()
+			return Version(a) == want
+		case Ignore, Reject:
+		case _:
+			want = want + 1
+		}
+		let (s, v) = Shown(a)
+		if v != want || s != a.State() {
+			a.Stop()
+			return false
+		}
+	}
+	a.Stop()
+	true
+}
+
+// VersionCountsCommits: an actor's version counts the states it shows,
+// one per commit, so a watcher that redraws when the version moved
+// redraws once per change; Shown gives the state with its version.
+law VersionCountsCommits(signals []int) {
+	with context { Scheduler: time.NewManual(0) } {
+		versioned(signals)
+	}
+}

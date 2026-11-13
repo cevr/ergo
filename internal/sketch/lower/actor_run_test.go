@@ -501,6 +501,42 @@ func SinkGetsEachOutput(signals []int) bool {
 
 test ActorSinkGetsEachOutput(signals []int) { assert SinkGetsEachOutput(signals) }
 
+func versioned(signals []int) bool needs Scheduler {
+	let a = actor.StartMachine(tally(), 1, func(o int) {})
+	let _ = a.State()
+	let mut want = 1
+	for e in signals {
+		let d = a.Ask(e) catch {
+		case actor.Stopped:
+			a.Stop()
+			return false
+		}
+		match d {
+		case Done[int]:
+			a.Stop()
+			return actor.Version(a) == want
+		case Ignore, Reject:
+		case _:
+			want = want + 1
+		}
+		let (s, v) = actor.Shown(a)
+		if v != want || s != a.State() {
+			a.Stop()
+			return false
+		}
+	}
+	a.Stop()
+	true
+}
+
+func VersionCountsCommits(signals []int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		versioned(signals)
+	}
+}
+
+test ActorVersionCountsCommits(signals []int) { assert VersionCountsCommits(signals) }
+
 // staged and its helpers restate the machine of the actor stage's law
 // (std actor stage_laws.ergo), which this package cannot name.
 type staged = stagedOpen{N int, Ticks int} | stagedSaving{N int, Ticks int} | stagedSaved{N int, Ticks int}
@@ -667,6 +703,7 @@ var actorLawStatements = map[string]string{
 	"actor RestartIsFresh":             `RestartIsFresh(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { restarted(signals, n) } }`,
 	"actor RestartRecovers":            `RestartRecovers(signals []int, n int) { with context { Scheduler: time.NewManual(0) } { recoveredRun(signals, n) } }`,
 	"actor SinkGetsEachOutput":         `SinkGetsEachOutput(signals []int) { with context { Scheduler: time.NewManual(0) } { heard(signals) } }`,
+	"actor VersionCountsCommits":       `VersionCountsCommits(signals []int) { with context { Scheduler: time.NewManual(0) } { versioned(signals) } }`,
 	"actor SendsStepInOrder":           `SendsStepInOrder(signals []int) { with context { Scheduler: time.NewManual(0) } { inOrder(signals) } }`,
 	"testing Stage.SettleIsIdempotent": `SettleIsIdempotent() { Settle() let v = Show() Settle() Show() == v }`,
 	"testing Stage.ShowIsStable":       `ShowIsStable() { Settle() Show() == Show() }`,

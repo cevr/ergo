@@ -177,7 +177,10 @@ type Actor[S, E, D any] struct {
 
 	mu    sync.Mutex
 	state S // the last committed state
-	ended bool
+	// version counts the states published: 1 for the first, one more for
+	// each state a Changes loop is given (ActorShown).
+	version int
+	ended   bool
 	// doneWait are the waitDone callers parked in a clock's domain.
 	doneWait []*rt.Task
 	exit     error // the runner's exit, read after done closes
@@ -444,7 +447,7 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 	a := &Actor[S, E, D]{
 		sleeper: sl, span: string(span),
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
-		done: make(chan struct{}), state: initial,
+		done: make(chan struct{}), state: initial, version: 1,
 		report: report, fresh: fresh, limit: limit,
 		// A durable start's recovered hosts (DH1): this actor's first
 		// entry binds or closes them.
@@ -1162,6 +1165,7 @@ func (a *Actor[S, E, D]) publish(s S) {
 // publishLocked is publish with a.mu held.
 func (a *Actor[S, E, D]) publishLocked(s S) {
 	a.state = s
+	a.version++
 	if len(a.subs) == 0 {
 		return
 	}
@@ -1636,6 +1640,15 @@ func ActorHasLatest[S, E, D any](a *Actor[S, E, D]) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.hasLatest
+}
+
+// ActorShown is std actor's shown(a): the state a showed last (the one
+// a Changes loop was given last) and its version, the count of states a
+// showed, read together under the actor's lock. It does not wait.
+func ActorShown[S, E, D any](a *Actor[S, E, D]) (S, int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.state, a.version
 }
 
 // ActorLatest is std actor's latest(a): the decision of the last signal a

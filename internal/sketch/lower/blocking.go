@@ -552,6 +552,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"ActorFailure":   {},
 	"ActorHasLatest": {},
 	"ActorLatest":    {},
+	"ActorShown":     {},
 	// MU5: MachineChild starts the child's task as a child of the caller's
 	// task, shielded from its stop (the owner entry stops it), and waits
 	// for nothing but the child's start, as MachineStart does.

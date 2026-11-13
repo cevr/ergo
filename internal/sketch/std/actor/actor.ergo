@@ -575,6 +575,21 @@ func Latest[S, E, D, F](a Actor[S, E, D, F]) Option[D] {
 	}
 }
 
+// Shown is the state a showed last, the one a Changes loop was given
+// last, and its version: how many states a has shown, 1 for its first and
+// one more for each state it commits after (each Enter, Stay, Emit and
+// Tell; an entry with hosts and a work shows its state once). A watcher
+// that redraws compares versions, so it redraws once per change, never
+// twice for one (VersionCountsCommits). It does not wait: the state is
+// the one shown, not the one after every signal admitted (State).
+func Shown[S, E, D, F](a Actor[S, E, D, F]) (S, int) { shown(a) }
+
+// Version is the version of the state a showed last (Shown).
+func Version[S, E, D, F](a Actor[S, E, D, F]) int {
+	let (_, v) = shown(a)
+	v
+}
+
 // Select is f of each state of changes, with each value equal (==) to
 // the one before it dropped: a view of one part of the state that changes
 // only when that part does. Select(a.Changes(), f) gives f of the state
@@ -613,3 +628,6 @@ extern go ergo.local/prototype/runtime/v1.ActorFailure func failure[S, E, D, F](
 extern go ergo.local/prototype/runtime/v1.ActorHasLatest func hasLatest[S, E, D, F](a Actor[S, E, D, F]) bool
 
 extern go ergo.local/prototype/runtime/v1.ActorLatest func latest[S, E, D, F](a Actor[S, E, D, F]) D
+
+// shown is the state a showed last and its version, read together.
+extern go ergo.local/prototype/runtime/v1.ActorShown func shown[S, E, D, F](a Actor[S, E, D, F]) (S, int)
