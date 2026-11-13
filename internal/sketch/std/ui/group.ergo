@@ -44,8 +44,9 @@ type keptGroup[E] { slot int, specs []spec[E], inner []groupKey[E] }
 
 // groupRec is one group of a pass: its parent spec, identity and slot, the
 // specs it wrote [start, end), the enclosing group (-1 none), whether it
-// may be kept, and the kept group it wrote again, if it did.
-type groupRec[E] { parent int, id ident, slot int, start int, end int, outer int, pure bool, again Option[keptGroup[E]] }
+// may be kept, and the index in keptList of the kept group it wrote
+// again (-1 none).
+type groupRec[E] { parent int, id ident, slot int, start int, end int, outer int, pure bool, again int }
 
 // group writes body's nodes as one group (the compiler's form of a
 // component call, never written by a program): the nodes of the last
@@ -56,18 +57,20 @@ func group[E comparable, A comparable](f *Frame[E], args A, body func(), at Call
 	let outer = f.group
 	let r = len(f.groups)
 	let mut slot = -1
+	// The kept groups are a list the map indexes: a Map whose values hold
+	// slices is copied whole when read (measured: 93% of a pass).
 	match f.kept.Get(key) {
-	case Some[keptGroup[E]] as k:
-		slot = k.Value.slot
-		if argsSame(f.args, slot, args) && writeAgain(f, k.Value) {
-			f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: len(f.specs) - len(k.Value.specs), end: len(f.specs), outer: outer, pure: true, again: Some{Value: k.Value}})
+	case Some[int] as i:
+		slot = f.keptList[i.Value].slot
+		if argsSame(f.args, slot, args) && writeAgain(f, i.Value) {
+			f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: len(f.specs) - len(f.keptList[i.Value].specs), end: len(f.specs), outer: outer, pure: true, again: i.Value})
 			return
 		}
 		argsSet(f.args, slot, args)
 	case None:
 		slot = argsPut(f.args, args)
 	}
-	f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: len(f.specs), end: len(f.specs), outer: outer, pure: true, again: None})
+	f.groups = f.groups.Append(groupRec[E]{parent: f.parent, id: id, slot: slot, start: len(f.specs), end: len(f.specs), outer: outer, pure: true, again: -1})
 	let cells = len(f.cells)
 	let loads = len(f.loads)
 	let keys = len(f.keys)
@@ -91,13 +94,13 @@ func groupIdent[E](f *Frame[E], at CallSite) ident {
 	ident{site: at, each: f.each, key: f.key, n: n}
 }
 
-// writeAgain writes k's specs under the current parent, as its call would:
+// writeAgain writes the specs of kept group i under the current parent, as its call would:
 // each spec under the group's parent takes the next count of its identity
 // there, which must be the count it had, else nothing is written and the
 // call runs. It is true when it wrote them.
-func writeAgain[E](f *Frame[E], k keptGroup[E]) bool {
+func writeAgain[E](f *Frame[E], i int) bool {
 	let mut counts = Map[slotOf, int]{}
-	for s in k.specs {
+	for s in f.keptList[i].specs {
 		if s.parent < 0 {
 			let at = slotOf{parent: f.parent, b: base{site: s.id.site, each: s.id.each, key: s.id.key}}
 			let n = count(counts, at)
@@ -111,7 +114,7 @@ func writeAgain[E](f *Frame[E], k keptGroup[E]) bool {
 		f.seen[at] = count(f.seen, at) + n
 	}
 	let first = len(f.specs)
-	for s in k.specs {
+	for s in f.keptList[i].specs {
 		let mut parent = f.parent
 		if s.parent >= 0 {
 			parent = first + s.parent
@@ -126,7 +129,8 @@ func writeAgain[E](f *Frame[E], k keptGroup[E]) bool {
 // it wrote; a group written again also keeps the groups inside it. The
 // slot of a group no longer kept is freed.
 func keepGroups[E](f *Frame[E]) {
-	let mut next = Map[groupKey[E], keptGroup[E]]{}
+	let mut next = Map[groupKey[E], int]{}
+	let mut list = []keptGroup[E]{}
 	let mut keys = []groupKey[E]{}
 	let mut inner = [][]groupKey[E]{}
 	for g in f.groups {
@@ -139,18 +143,17 @@ func keepGroups[E](f *Frame[E]) {
 	}
 	for i, g in f.groups {
 		let mut add = []groupKey[E]{keys[i]}
-		match g.again {
-		case Some[keptGroup[E]] as k:
-			for x in k.Value.inner {
+		if g.again >= 0 {
+			for x in f.keptList[g.again].inner {
 				add = add.Append(x)
 				match f.kept.Get(x) {
-				case Some[keptGroup[E]] as old:
-					next[x] = old.Value
+				case Some[int] as old:
+					next[x] = len(list)
+					list = list.Append(f.keptList[old.Value])
 				case None:
 				}
 			}
-			inner[i] = k.Value.inner
-		case None:
+			inner[i] = f.keptList[g.again].inner
 		}
 		let mut up = g.outer
 		for up >= 0 {
@@ -172,16 +175,17 @@ func keepGroups[E](f *Frame[E]) {
 				}
 				specs = specs.Append(c)
 			}
-			next[keys[i]] = keptGroup[E]{slot: g.slot, specs: specs, inner: inner[i]}
+			next[keys[i]] = len(list)
+			list = list.Append(keptGroup[E]{slot: g.slot, specs: specs, inner: inner[i]})
 		}
 	}
 	// Each slot the last pass's groups or this pass's held and no kept
 	// group holds now is freed, once.
 	let mut live = Map[int, bool]{}
-	for _, k in next {
+	for k in list {
 		live[k.slot] = true
 	}
-	for _, old in f.kept {
+	for old in f.keptList {
 		if !isLive(live, old.slot) {
 			argsFree(f.args, old.slot)
 			live[old.slot] = true
@@ -194,8 +198,11 @@ func keepGroups[E](f *Frame[E]) {
 		}
 	}
 	f.kept = next
+	f.keptList = list
 }
 
+// isLive reports slot marked in live (a set of ints; also the parents
+// prior has indexed).
 func isLive(live Map[int, bool], slot int) bool {
 	match live.Get(slot) {
 	case Some[bool]:

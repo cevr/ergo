@@ -11,7 +11,8 @@ type Frame[E] {
 	cells  []cellSpec,
 	loads  []loadSpec[E],
 	seen   Map[slotOf, int],
-	index  Map[int, Map[ident, arena.Ref[node[E]]]],
+	index  Map[indexAt, arena.Ref[node[E]]],
+	indexed Map[int, bool],
 	parent int,
 	each   CallSite,
 	key    Key,
@@ -25,7 +26,8 @@ type Frame[E] {
 	// last pass, this pass's groups, the one being written (-1 none), the
 	// groups' identities counted apart from the nodes', and the bodies run.
 	args   GroupArgs,
-	kept   Map[groupKey[E], keptGroup[E]],
+	kept   Map[groupKey[E], int],
+	keptList []keptGroup[E],
 	groups []groupRec[E],
 	group  int,
 	groupSeen Map[slotOf, int],
@@ -47,6 +49,10 @@ type base { site CallSite, each CallSite, key Key }
 
 // slotOf is a base under one parent spec (-1 the root), for counting n.
 type slotOf { parent int, b base }
+
+// indexAt is an identity under one parent spec (-1 the root): a key of
+// the pass's index of the last pass's children (prior).
+type indexAt { parent int, id ident }
 
 // node is one retained node: what it shows, its identity, its children in
 // order, the signal of a text (an Input), the cell an event on it writes
@@ -91,7 +97,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[int, Map[ident, arena.Ref[node[E]]]]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0, args: newArgs(), kept: Map[groupKey[E], keptGroup[E]]{}, groups: []groupRec[E]{}, group: -1, groupSeen: Map[slotOf, int]{}, groupRuns: 0}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[indexAt, arena.Ref[node[E]]]{}, indexed: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, groups: []groupRec[E]{}, group: -1, groupSeen: Map[slotOf, int]{}, groupRuns: 0}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]]) node[E] {
@@ -112,7 +118,8 @@ func begin[E](f *Frame[E]) {
 	f.cells = []cellSpec{}
 	f.loads = []loadSpec[E]{}
 	f.seen = Map[slotOf, int]{}
-	f.index = Map[int, Map[ident, arena.Ref[node[E]]]]{}
+	f.index = Map[indexAt, arena.Ref[node[E]]]{}
+	f.indexed = Map[int, bool]{}
 	f.parent = -1
 	f.each = nowhere
 	f.key = NoKey
@@ -159,18 +166,16 @@ func prior[E](f *Frame[E], id ident) arena.Ref[node[E]] {
 	if !arena.Has(f.nodes, o) {
 		return arena.Null[node[E]]()
 	}
-	let k = f.parent + 1
-	let mut kids = Map[ident, arena.Ref[node[E]]]{}
-	match f.index.Get(k) {
-	case Some[Map[ident, arena.Ref[node[E]]]] as m:
-		kids = m.Value
-	case None:
+	// One flat index, filled once per parent: a Map read out of a Map is
+	// a copy, which made each write cost its siblings (P-ui, measured:
+	// 92% of a pass of 1,617 nodes in the copy).
+	if !isLive(f.indexed, f.parent) {
 		for r in nodeAt(f, o).kids {
-			kids[nodeAt(f, r).id] = r
+			f.index[indexAt{parent: f.parent, id: nodeAt(f, r).id}] = r
 		}
-		f.index[k] = kids
+		f.indexed[f.parent] = true
 	}
-	match kids.Get(id) {
+	match f.index.Get(indexAt{parent: f.parent, id: id}) {
 	case Some[arena.Ref[node[E]]] as r:
 		r.Value
 	case None:
