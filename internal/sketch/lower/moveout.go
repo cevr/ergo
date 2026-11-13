@@ -292,6 +292,29 @@ func (w *valueWalk) copiedOnce(v *check.Var) bool {
 	return w.vf.copied[v] && len(w.varOf(v).occs) == 1
 }
 
+// storedAsEntry reports a use that is the whole value stored by an index
+// write m[k] = x into a Map whose entries no write reaches (V8: the type
+// is not entry-written, V9).
+func (w *valueWalk) storedAsEntry(use *vocc) bool {
+	if !entryRule() || use.path != syntax.Expr(use.id) {
+		return false
+	}
+	parent, child := w.unparenParent(use.id)
+	s, ok := parent.(*syntax.AssignStmt)
+	if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || s.Rhs[0] != child {
+		return false
+	}
+	ix, ok := unparen(s.Lhs[0]).(*syntax.IndexExpr)
+	if !ok {
+		return false
+	}
+	t := w.typeOf(ix.X)
+	if _, isMap := underEqual(t).(*check.Map); !isMap {
+		return false
+	}
+	return !w.l.entryWritten(t)
+}
+
 // decideMoveOuts finds the move-outs of the body (V9) that hold, once its
 // uses are classified, and marks them: the Get's receiver is a read, and
 // the bind of X takes the entry with no copy.

@@ -57,7 +57,7 @@ import (
 //     caller that shares it, not by the callee, and a rebinding p = f(…,
 //     p, …) whose old value nothing else reads hands it over with no copy
 //     (consumable): m = maps.Update(m, k, f) writes m in place, as hand Go
-//     writes m[k] = f(m[k]);
+//     writes m[k] = f(m[k]); p may be rooted at a let mut or a borrow;
 //   - hand-over (V7, handedArg): a rebinding p = f(…, p, …) of a pure f
 //     with no failure row whose result shares no storage but p's (a pure
 //     runtime/v1 body, or an Ergo body freshFrom proves so), on one place
@@ -1136,11 +1136,17 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 		return false
 	}
 	vv := w.varOf(v)
-	if !vv.local || !vv.mut || vv.ptr {
+	// A borrow is the only path to its target (Borrows 2): through one,
+	// b.f = f(…, b.f, …) hands b.f over as a let mut's place does.
+	if !(vv.local && vv.mut && !vv.ptr || vv.ptr && lid != s.Lhs[0]) {
 		return false
 	}
+	frame := vv.frame
+	if frame == nil {
+		frame = w.root // a parameter's frame is the body's
+	}
 	for _, o := range vv.occs {
-		if o.frame != vv.frame {
+		if o.frame != frame {
 			if valueMutant == "consume-captured" {
 				continue
 			}
@@ -2232,7 +2238,78 @@ func (w *valueWalk) typeArgShared(c *check.Call, x syntax.Expr) bool {
 			held = true
 		}
 	}
-	return held && w.l.needsCloneFunc(w.typeOf(x), !entryRule())
+	if !held || !w.l.needsCloneFunc(w.typeOf(x), !entryRule()) {
+		return false
+	}
+	return !entryRule() || !w.argsUnshared(c, x)
+}
+
+// argsUnshared reports a generic call x whose every operand that may
+// carry a value of a type argument holding a Map or slice brings none
+// another binding reaches: the operand is consumed (its old value is
+// dead, so the result is its storage alone), fresh, or a function literal
+// whose results are all fresh (litFresh). Then the result shares no
+// argument's value: m = maps.Update(m, k, func(o) { … }) on an
+// entry-written type stays unshared (V9).
+func (w *valueWalk) argsUnshared(c *check.Call, x syntax.Expr) bool {
+	call, ok := x.(*syntax.CallExpr)
+	sig := c.Func.Sig
+	if !ok || sig == nil || len(c.TypeArgs) != len(sig.TParams) {
+		return false
+	}
+	held := map[*check.TypeParam]bool{}
+	for i, tp := range sig.TParams {
+		held[tp] = w.l.holdsValue(c.TypeArgs[i])
+	}
+	ops := callOperands(call, c)
+	if len(ops) != len(sig.Params) {
+		return false
+	}
+	for i, op := range ops {
+		carries := false
+		for _, tp := range freeTypeParams(sig.Params[i].Type) {
+			carries = carries || held[tp]
+		}
+		switch lit, isLit := unparen(op).(*syntax.FuncLit); {
+		case !carries || w.vf.consumed[op]:
+		case isLit:
+			if !w.litFresh(lit) {
+				return false
+			}
+		default:
+			if _, isFunc := underEqual(w.typeOf(op)).(*check.Signature); isFunc || !w.fresh(op) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// litFresh reports a function literal whose every result, each value its
+// body ends in and each a return statement gives, is fresh.
+func (w *valueWalk) litFresh(lit *syntax.FuncLit) bool {
+	f := w.frameOf[lit]
+	if f == nil || len(f.tails) == 0 {
+		return false
+	}
+	for t := range f.tails {
+		if !w.fresh(t) {
+			return false
+		}
+	}
+	ok := true
+	syntax.Inspect(lit.Body, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.FuncLit:
+			return false
+		case *syntax.ReturnStmt:
+			for _, r := range n.Results {
+				ok = ok && w.fresh(r)
+			}
+		}
+		return ok
+	})
+	return ok
 }
 
 // parentIsPath reports whether x is the path its root id heads.
@@ -2282,6 +2359,12 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 	// value counts (the two parts would share).
 	ret := w.returnNode(use, use.id)
 	returning := ret != nil
+	// A let mut stored whole as an entry of a Map whose entries have no
+	// write path (V8; not entry-written, V9) shares with the entry only
+	// storage neither writes: the entry is never written, and the let mut
+	// is not when every later use reads it (p.paths[id] = path, then
+	// len(path)). Its later reads do not end its freshness.
+	stored := vv.mut && w.storedAsEntry(use)
 	if !returning {
 		for _, l := range use.loops {
 			if !containsNode(loops, l) {
@@ -2318,7 +2401,7 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 			if inRet && o.pre > use.pre {
 				return false
 			}
-		} else if o.pre > use.pre {
+		} else if o.pre > use.pre && !(o.kind == occRead && stored) {
 			if end := w.endingReturn(use); valueOwned() && end != nil && (o.pre < w.pre[end] || o.pre >= w.post[end]) {
 				// The use's return statement ends the frame: o, outside
 				// it, never runs after the use (handover.go).

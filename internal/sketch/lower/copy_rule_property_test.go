@@ -100,7 +100,8 @@ var copyFamilies = []copyFamily{
 	{"moved", "sf", "string", func(n int) string { return fmt.Sprintf("%q", fmt.Sprint(n)) }, `k + "1"`, "len(k)", true},
 }
 
-const copyPrelude = `import slices
+const copyPrelude = `import maps
+import slices
 import sync
 
 type Box { M Map[int, int], S []int }
@@ -135,10 +136,12 @@ func szMs(v []Map[int, int]) int {
 	t
 }
 
-// head and cell keep both imports used in every seed.
+// head, cell and upd keep the imports used in every seed.
 func head(s []int) []int { slices.Slice(s, 0, 1) }
 
 func cell(m Map[int, int]) sync.Ref[Map[int, int]] { sync.NewRef[Map[int, int]](m) }
+
+func upd(m Map[int, int]) Map[int, int] { maps.Update(m, 1, func(_ Option[int]) int { 1 }) }
 
 // put2 stores v in a copy of m through a type parameter, where a copy
 // stops (rmw generic).
@@ -206,7 +209,7 @@ func rmw%[1]s%[2]s(r *%[1]s%[2]s, k %[5]s) int {
 
 // copyShapes is the number of shapes copyGen.shape draws from in each
 // family.
-const copyShapes = 10
+const copyShapes = 12
 
 type copyGen struct {
 	r       *rand.Rand
@@ -324,6 +327,18 @@ func (g *copyGen) shape(fam copyFamily, combo int) {
 		}
 	case 8:
 		shape = "ref modify"
+	case 9:
+		// The rebinding hands the Map over, through a let mut or a
+		// borrow, and the literal's result is fresh (argsUnshared).
+		shape = "update"
+		body = fmt.Sprintf("\tr.m = maps.Update(r.m, k, func(_ Option[%s]) %s { %s })\n\tlen(r.m)%s\n", e.typ, e.typ, e.zero, tail)
+	case 10:
+		// An entry read, written and stored under another key, then read:
+		// plain, the store copies nothing (storedAsEntry); moved, it
+		// copies, since a move-out may write the stored entry.
+		shape = "store read"
+		body = fmt.Sprintf("\tlet mut s = %s\n\tmatch r.m.Get(k) {\n\tcase Some[%s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%s\n\tr.m[%s] = s\n\tlen(r.m) + %s(s)%s\n", e.zero, e.typ, e.write, fam.next, sz, tail)
+		want = holds + moved
 	default:
 		g.chain(name, k, &shape, &head, &body, &want, &call)
 		access = "value"
@@ -420,7 +435,7 @@ func (g *copyGen) chain(name string, k int, shape, head, body *string, want *int
 }
 
 // copyAdversaries are the agreement-only shapes of the moved family.
-var copyAdversaries = []string{"rmw snapshot", "rmw kept get", "rmw put shared", "rmw literal shared", "rmw across call", "rmw generic", "rmw option fn", "rmw range", "rmw ref get", "rmw same value", "rmw return between"}
+var copyAdversaries = []string{"rmw snapshot", "rmw kept get", "rmw put shared", "rmw literal shared", "rmw across call", "rmw generic", "rmw option fn", "rmw range", "rmw ref get", "rmw same value", "rmw return between", "update snapshot", "update other", "update shared"}
 
 // adversary writes one agreement-only function of the moved family: a
 // value that may share an entry's storage, read after a move-out of it.
@@ -480,6 +495,17 @@ func (g *copyGen) adversary(e copyEntry, which string, ptr bool) {
 		ptr = true
 		head, tail = fmt.Sprintf("func %s(r *%s, k string) int {\n", name, st), ""
 		body = fmt.Sprintf("\tlet mut s = %s\n\tmatch r.m.Get(k) {\n\tcase Some[%s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%s\n\tif len(k) == 1 {\n\t\treturn %s(s)\n\t}\n\tr.m[k] = s\n\tdm%s(r.m) * 3\n", e.zero, e.typ, e.write, sz, st)
+	case "update snapshot":
+		body = fmt.Sprintf("\tlet snap = r.m\n\tr.m = maps.Update(r.m, k, func(_ Option[%s]) %s { %s })\n", e.typ, e.typ, e.zero) + rmw + fmt.Sprintf("\tdm%s(snap) * 3 + dm%s(r.m)%s\n", st, st, tail)
+	case "update other":
+		// Update's result shares r.m's entries (its body copies the
+		// table at its type parameters), and the move-out writes one.
+		// Through a borrow: nothing writes r.
+		ptr = true
+		head, tail = fmt.Sprintf("func %s(r *%s, k string) int {\n", name, st), ""
+		body = fmt.Sprintf("\tlet mut t = maps.Update(r.m, k + \"z\", func(_ Option[%[1]s]) %[1]s { %[2]s })\n\tlet mut s = %[2]s\n\tmatch t.Get(k) {\n\tcase Some[%[1]s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%[3]s\n\tt[k] = s\n\tdm%[4]s(t) * 3 + dm%[4]s(r.m)%[5]s\n", e.typ, e.zero, e.write, st, tail)
+	case "update shared":
+		body = fmt.Sprintf("\tlet e = %s\n\tr.m = maps.Update(r.m, k, func(_ Option[%s]) %s { e })\n", e.sample, e.typ, e.typ) + rmw + fmt.Sprintf("\t%s(e) * 3 + dm%s(r.m)%s\n", sz, st, tail)
 	case "rmw same value":
 		body = fmt.Sprintf("\tlet e = %s\n\tr.m[k] = e\n\tr.m[k + \"x\"] = e\n", e.sample) + rmw + fmt.Sprintf("\t%s(e) * 3 + dm%s(r.m)%s\n", sz, st, tail)
 	}
@@ -554,10 +580,10 @@ func goFuncsOf(t *testing.T, mainGo, name string) string {
 func copyPaths() []string {
 	var out []string
 	for _, f := range copyFamilies {
-		shapes := []string{"get keep", "get match", "get none", "get in flight", "entry copy"}
+		shapes := []string{"get keep", "get match", "get none", "get in flight", "entry copy", "update", "store read"}
 		refs := []string{"ref modify"}
 		if f.moved {
-			shapes = []string{"get keep", "get match", "get none", "get in flight", "entry rmw"}
+			shapes = []string{"get keep", "get match", "get none", "get in flight", "entry rmw", "update", "store read"}
 			refs = append(refs, "ref rmw")
 		}
 		for _, e := range copyEntries {
