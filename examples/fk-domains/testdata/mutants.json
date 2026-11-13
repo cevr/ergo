@@ -232,6 +232,62 @@
       "to": "\tlet mut steps = 1 + st.Size/1000\n",
       "rule": "The planner's work does not grow with the catalog (law StepWorkIsFlat).",
       "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd3-nogen", "origin": "wf10/fd3a",
+      "file": "examples/fk-domains/search/search.ergo",
+      "from": "\tif !live(s, k) {\n\t\treturn Ignore\n\t}\n\tlet t = Now()\n\tlet ck = cacheKey(k.Label, k.Offset, k.Limit)\n\tlet settled = Search{..s, Cache: cache.Settle(s.Cache, ck, k.Gen, listings, t), InFlight: None}\n\tif k.Label != LabelOf(s.Phase) {\n\t\treturn Stay[Search]{Next: settled}\n\t}\n",
+      "to": "\tlet t = Now()\n\tlet ck = cacheKey(k.Label, k.Offset, k.Limit)\n\tlet settled = Search{..s, Cache: cache.Settle(s.Cache, ck, k.Gen, listings, t), InFlight: None}\n",
+      "rule": "The model's NoGen: an answer is taken only for the load the cache waits on (ShownBelongs; story: a canceled query cannot restore old results).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd3-bylabel", "origin": "wf10/fd3a",
+      "file": "examples/fk-domains/search/search.ergo",
+      "from": "\tif !live(s, k) {\n\t\treturn Ignore\n\t}\n\tlet t = Now()\n",
+      "to": "\tif k.Label != LabelOf(s.Phase) {\n\t\treturn Ignore\n\t}\n\tlet t = Now()\n",
+      "rule": "The model's ByLabel: an answer of the current label but an old load is not taken (ShownMonotone).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd3-nodebounce", "origin": "wf10/fd3a",
+      "file": "examples/fk-domains/search/search.ergo",
+      "from": "func Debounce() duration { 150ms }",
+      "to": "func Debounce() duration { 1ms }",
+      "rule": "The model's NoDebounce: no request starts inside the 150 ms of a key (NoWastedRequest, BurstMakesOneSearch).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd3-renew-on-hit", "origin": "wf10/fd3a",
+      "file": "examples/fk-domains/search/search.ergo",
+      "from": "\t\tPlanned{State: fill(at, r, f.Value), Effects: []Effect{}}\n",
+      "to": "\t\tlet b = cache.Begin(at.Cache, ck)\n\t\tPlanned{State: fill(Search{..at, Cache: cache.Settle(b.Cache, ck, b.Gen, f.Value, t)}, r, f.Value), Effects: []Effect{}}\n",
+      "rule": "The model's RenewOnHit: a hit keeps the entry's freshness (FreshBound; story: fresh results expire one minute after completion even after reuse).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd3-keep-pending", "origin": "wf10/fd3a",
+      "file": "examples/fk-domains/search/search.ergo",
+      "from": "Cache: cache.Cut(s.Cache, ck), InFlight: None}, Effects: []Effect{Cancel{Key: k.Value}}}",
+      "to": "Cache: cache.Cut(s.Cache, ck+\"-\"), InFlight: None}, Effects: []Effect{Cancel{Key: k.Value}}}",
+      "rule": "The model's KeepPending: a cut load's entry goes, so the label is fetched again (SettledShows).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd3-index-on-scroll", "origin": "wf10/fd3a",
+      "file": "examples/fk-domains/search/search.ergo",
+      "from": "\ttold(advance(s, Now()))\n",
+      "to": "\ttold(advance(rebuild(s), Now()))\n",
+      "rule": "A scroll or a resize never builds the index again (target P3; law ScrollKeepsIndex).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd3-cart-cleared", "origin": "wf10/fd3a",
+      "file": "examples/fk-domains/search/search.ergo",
+      "from": "\t\tWindow:   window.Spec{..s.Window, ScrollTop: 0},\n\t}\n",
+      "to": "\t\tWindow:   window.Spec{..s.Window, ScrollTop: 0},\n\t\tCart:     []domains.Available{},\n\t}\n",
+      "rule": "A new query keeps the cart (story: cart additions are unique and removals are idempotent, across queries).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
     }
   ]
 }
