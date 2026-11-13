@@ -1,3 +1,5 @@
+import dense
+import maps
 import strings
 import vt/plain
 import vt/vt
@@ -65,10 +67,8 @@ func Fill(config vt.Config) string {
 // Audit checks the style counts and the styled flags of every live row:
 // the alternate buffer and the ring's lines from base on.
 func Audit(s *Screen) bool {
-	let mut seen = []int{}
-	for _ in s.styles.list {
-		seen = seen.Append(0)
-	}
+	let mut seen = Map[dense.ID[vt.Style], int]{}
+	let mut cells = []dense.Opt[vt.Style]{s.penID}
 	let mut rows = []int{}
 	for r in 0..s.rows {
 		rows = rows.Append(r)
@@ -78,27 +78,23 @@ func Audit(s *Screen) bool {
 	}
 	for ri in rows {
 		for i in ri*s.cols..(ri+1)*s.cols {
-			let id = int(s.cells[i].style)
-			seen[id] += 1
-			if id != 0 && s.flags[ri]&flagStyled == 0 {
+			cells = cells.Append(s.cells[i].style)
+			if s.cells[i].style != noStyle && s.flags[ri]&flagStyled == 0 {
 				return false
 			}
 		}
 	}
-	seen[int(s.penID)] += 1
-	for id in 1..len(seen) {
-		if seen[id] != s.styles.counts[id] {
-			return false
-		}
-		let held = match s.styles.ids.Get(s.styles.list[id]) {
-		case Some[int] as v:
-			v.Value == id
+	for c in cells {
+		match dense.Unpack(c) {
+		case Some[dense.ID[vt.Style]] as id:
+			seen[id.Value] = maps.GetOr(seen, id.Value, 0) + 1
 		case None:
-			false
 		}
-		if held != (seen[id] > 0) {
+	}
+	for id, n in seen {
+		if dense.Uses(s.styles, id) != n || dense.Find(s.styles, dense.Member(s.styles, id)) != (Some[dense.ID[vt.Style]]{Value: id}) {
 			return false
 		}
 	}
-	true
+	dense.Live(s.styles) == len(seen)
 }

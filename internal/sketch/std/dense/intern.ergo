@@ -1,0 +1,172 @@
+import strings
+
+// Interner gives each distinct value of T one id, the id of its row: the
+// first Intern of a value puts it, and every later Intern of an equal
+// value returns the same id (Zig's InternPool, rustc's interners). Ids
+// compare where values would: two ids are equal exactly when their values
+// are. Values are never removed; for values that come and go, use
+// Counted.
+type Interner[T comparable] { ids Map[T, ID[T]], rows []T }
+
+// NewInterner is an interner of no values.
+func NewInterner[T comparable]() Interner[T] { Interner[T]{ids: Map[T, ID[T]]{}, rows: []T{}} }
+
+// Intern is the id of v: the id an equal value was given before, or a new
+// one.
+func Intern[T comparable](s *Interner[T], v T) ID[T] {
+	match s.ids.Get(v) {
+	case Some[ID[T]] as id:
+		id.Value
+	case None:
+		let id = next[T](len(s.rows))
+		s.rows = s.rows.Append(v)
+		s.ids = s.ids.Put(v, id)
+		id
+	}
+}
+
+// Value is the value id names. An id past the end is a defect.
+func Value[T comparable](s Interner[T], id ID[T]) T { s.rows[int(id.n)] }
+
+// Lookup is the id of v, or None when v was never interned.
+func Lookup[T comparable](s Interner[T], v T) Option[ID[T]] { s.ids.Get(v) }
+
+// Interned is the count of distinct values.
+func Interned[T comparable](s Interner[T]) int { len(s.rows) }
+
+// Str is the row tag of interned text: an ID[Str] names a text of a
+// Strings table.
+type Str {}
+
+// Strings interns text with few pointers: every text that is settled lies
+// in one string, addressed by a pair of uint32 offsets per id, and the
+// table that finds a text is a []uint32 of ids, open addressed by an
+// FNV-1a hash. Texts interned since the last settling wait in a short list
+// of their own, which is joined onto the one string when it holds as many
+// bytes as the string (so each byte is copied a bounded number of times).
+// Where Go keeps a map[string]uint32, the collector here scans the one
+// string and the short list, not a pointer per text.
+type Strings {
+	text    string,
+	tail    []string,
+	pending int,
+	spans   []uint32,
+	slots   []uint32,
+	used    int,
+}
+
+// NewStrings is a table of no texts.
+func NewStrings() Strings {
+	Strings{text: "", tail: []string{}, pending: 0, spans: []uint32{}, slots: []uint32{}, used: 0}
+}
+
+// Texts is the count of distinct texts.
+func Texts(s Strings) int { len(s.spans)/2 + len(s.tail) }
+
+// Text is the text id names: a part of the one string, not a copy, once
+// the text is settled. An id past the end is a defect.
+func Text(s Strings, id ID[Str]) string {
+	let i = int(id.n)
+	let settled = len(s.spans) / 2
+	if i < settled {
+		return s.text[int(s.spans[2*i]):int(s.spans[2*i+1])]
+	}
+	s.tail[i-settled]
+}
+
+// hash is the 32-bit FNV-1a hash of text.
+func hash(text string) uint32 {
+	let mut h = uint32(2166136261)
+	for i in 0..len(text) {
+		h = (h ^ uint32(text[i])) * uint32(16777619)
+	}
+	h
+}
+
+// FindText is the id of text, or None when it was never interned.
+func FindText(s Strings, text string) Option[ID[Str]] {
+	if len(s.slots) == 0 {
+		return None
+	}
+	let mask = len(s.slots) - 1
+	let mut at = int(hash(text)) & mask
+	for s.slots[at] != 0 {
+		let id = ID[Str]{n: s.slots[at] - 1}
+		if Text(s, id) == text {
+			return Some[ID[Str]]{Value: id}
+		}
+		at = (at + 1) & mask
+	}
+	None
+}
+
+// place puts id in the first free slot of its text's probe sequence.
+func place(s *Strings, id ID[Str], text string) {
+	let mask = len(s.slots) - 1
+	let mut at = int(hash(text)) & mask
+	for s.slots[at] != 0 {
+		at = (at + 1) & mask
+	}
+	s.slots[at] = id.n + 1
+	s.used = s.used + 1
+}
+
+// grow doubles the slots, at least 16, and places every id again.
+func grow(s *Strings) {
+	let mut n = len(s.slots) + 16
+	if n < 16 {
+		n = 16
+	}
+	let mut slots = []uint32{}
+	for _ in 0..n {
+		slots = slots.Append(uint32(0))
+	}
+	s.slots = slots
+	s.used = 0
+	for i in 0..Texts(*s) {
+		let id = ID[Str]{n: uint32(i)}
+		place(s, id, Text(*s, id))
+	}
+}
+
+// settle joins the waiting texts onto the one string.
+func settle(s *Strings) {
+	let mut start = len(s.text)
+	let mut parts = []string{s.text}
+	for t in s.tail {
+		parts = parts.Append(t)
+		// Two appends: a chained x.Append(a).Append(b) copies x (the
+		// lowering clips the receiver of the outer Append).
+		s.spans = s.spans.Append(uint32(start))
+		s.spans = s.spans.Append(uint32(start + len(t)))
+		start = start + len(t)
+	}
+	s.text = strings.Join(parts, "")
+	s.tail = []string{}
+	s.pending = 0
+}
+
+// InternText is the id of text: the id an equal text was given before, or
+// a new one.
+func InternText(s *Strings, text string) ID[Str] {
+	match FindText(*s, text) {
+	case Some[ID[Str]] as found:
+		return found.Value
+	case None:
+	}
+	if len(s.text)+s.pending+len(text) >= int(none) {
+		Unreachable("dense: a Strings table holds at most 4294967295 bytes")
+	}
+	let id = next[Str](Texts(*s))
+	s.tail = s.tail.Append(text)
+	s.pending = s.pending + len(text)
+	if (s.used+1)*4 > len(s.slots)*3 {
+		grow(s)
+	} else {
+		place(s, id, text)
+	}
+	if s.pending > 0 && s.pending >= len(s.text) {
+		settle(s)
+	}
+	id
+}

@@ -137,9 +137,9 @@
       "name": "dt2-style-never-freed",
       "origin": "wf10/dod/DT2",
       "file": "examples/vt/screen/styles.ergo",
-      "from": "if t.counts[i] == 0 {",
-      "to": "if t.counts[i] == -1 {",
-      "rule": "A style whose count falls to 0 leaves the set and its id is free. Killed by law screen.StylesAreCounted.",
+      "from": "\t\tt.Release(held.Value)\n",
+      "to": "",
+      "rule": "release gives the set its Release, so a style whose count falls to 0 leaves it (the set's own rule is dense's ReleaseThenReuse). Killed by law screen.StylesAreCounted.",
       "killers": [
         "examples:vt"
       ]
@@ -148,8 +148,8 @@
       "name": "dt2-pen-not-counted",
       "origin": "wf10/dod/DT2",
       "file": "examples/vt/screen/screen.ergo",
-      "from": "\ts.styles.retain(id)\n\ts.styles.release(s.penID)",
-      "to": "\ts.styles.release(s.penID)",
+      "from": "\tretain(&s.styles, id)\n\trelease(&s.styles, s.penID)",
+      "to": "\trelease(&s.styles, s.penID)",
       "rule": "The pen holds a count on its style, so the style stays while the pen holds it. Killed by law screen.StylesAreCounted.",
       "killers": [
         "examples:vt"
@@ -159,7 +159,7 @@
       "name": "dt2-styled-flag-missing",
       "origin": "wf10/dod/DT2",
       "file": "examples/vt/screen/screen.ergo",
-      "from": "\t\tif c.style != 0 {\n\t\t\ts.flags[ri] = s.flags[ri] | flagStyled\n\t\t}\n",
+      "from": "\t\tif c.style != noStyle {\n\t\t\ts.flags[ri] = s.flags[ri] | flagStyled\n\t\t}\n",
       "to": "",
       "rule": "A row with a styled cell is flagged, so clearing it releases its styles. Killed by law screen.StylesAreCounted.",
       "killers": [
@@ -247,9 +247,9 @@
       "name": "dt2-free-id-stale-style",
       "origin": "wf10/dod/DT2",
       "file": "examples/vt/screen/styles.ergo",
-      "from": "\t\t\tt.list[id] = st\n",
-      "to": "",
-      "rule": "A reused id takes its new style. Killed by law screen.ScreenMatchesPlain.",
+      "from": "\t\tdense.Member(t, held.Value)\n",
+      "to": "\t\tvt.Default\n",
+      "rule": "A cell shows the style its id names (a reused id's new style is dense's ReleaseThenReuse). Killed by law screen.ScreenMatchesPlain.",
       "killers": [
         "examples:vt"
       ]
@@ -326,7 +326,7 @@
       "file": "examples/vt/vt/screen.ergo",
       "from": "if pages < 1 { 1 } else { pages }",
       "to": "if pages < 1 { 2 } else { pages }",
-      "rule": "A history too small for a page keeps one page. Both providers read HistoryPages, so they still agree; killed by law vt.Screen.HistoryDropsOldestPage, for screen.Shared and plain.Shared.",
+      "rule": "A history too small for a page keeps one page. Both providers read HistoryPages, so they still agree; killed by law vt.Screen.HistoryDropsOldestPage, for screen.Screen and plain.Screen, borrow providers.",
       "killers": [
         "examples:vt"
       ]

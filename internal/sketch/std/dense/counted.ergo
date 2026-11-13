@@ -1,0 +1,69 @@
+// Counted is a set of values in use, each with an id and a count of its
+// holders (Ghostty's RefCountedSet: a terminal's styles, each held by the
+// cells that show it). Add gives a value its id, the one it holds already
+// when it is in the set; Use counts one more holder of an id and Release
+// one less. When a count falls to 0 the value leaves the set and its id is
+// free: the next new value takes it. So an id stays as long as some holder
+// holds it, and the ids in use stay few.
+type Counted[T comparable] { rows []T, counts []uint32, ids Map[T, ID[T]], free []ID[T] }
+
+// NewCounted is a set of no values.
+func NewCounted[T comparable]() Counted[T] {
+	Counted[T]{rows: []T{}, counts: []uint32{}, ids: Map[T, ID[T]]{}, free: []ID[T]{}}
+}
+
+// Add is the id of v: its id when v is in the set, else a free id, or a
+// new one, with no holder yet. A value added and never used stays in the
+// set until a Use and a Release of its id.
+func Add[T comparable](c *Counted[T], v T) ID[T] {
+	match c.ids.Get(v) {
+	case Some[ID[T]] as id:
+		return id.Value
+	case None:
+	}
+	let mut id = ID[T]{n: uint32(0)}
+	if len(c.free) > 0 {
+		id = c.free[len(c.free)-1]
+		c.free = c.free[0 : len(c.free)-1]
+		c.rows[int(id.n)] = v
+	} else {
+		id = next[T](len(c.rows))
+		c.rows = c.rows.Append(v)
+		c.counts = c.counts.Append(uint32(0))
+	}
+	c.ids = c.ids.Put(v, id)
+	id
+}
+
+// Use counts one more holder of id. An id past the end is a defect.
+func Use[T comparable](c *Counted[T], id ID[T]) { c.counts[int(id.n)] = c.counts[int(id.n)] + 1 }
+
+// Release counts one holder of id less; at 0 the value leaves the set and
+// id is free. A Release of an id with no holder is a defect.
+func Release[T comparable](c *Counted[T], id ID[T]) {
+	let i = int(id.n)
+	if c.counts[i] == 0 {
+		Unreachable("dense: Release of an id that no holder holds")
+	}
+	c.counts[i] = c.counts[i] - 1
+	if c.counts[i] == 0 {
+		c.ids = c.ids.Delete(c.rows[i])
+		c.free = c.free.Append(id)
+	}
+}
+
+// Member is the value id names. An id past the end is a defect; a freed
+// id names the value it held last, until Add gives it another.
+func Member[T comparable](c Counted[T], id ID[T]) T { c.rows[int(id.n)] }
+
+// Find is the id of v, or None when v is not in the set.
+func Find[T comparable](c Counted[T], v T) Option[ID[T]] { c.ids.Get(v) }
+
+// Uses is the count of holders of id.
+func Uses[T comparable](c Counted[T], id ID[T]) int { int(c.counts[int(id.n)]) }
+
+// Live is the count of values in the set.
+func Live[T comparable](c Counted[T]) int { len(c.ids) }
+
+// Slots is the count of ids the set has made: Live plus the free ones.
+func Slots[T comparable](c Counted[T]) int { len(c.rows) }

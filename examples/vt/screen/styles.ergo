@@ -1,65 +1,49 @@
+import dense
 import vt/vt
 
-// Styles is the screen's counted set of styles: each style in use has an
-// id, and the id's count is the cells that hold it, plus one if the pen
-// holds it. When a count falls to 0 the style leaves the set and its id
-// is free for the next new style (Ghostty's RefCountedSet). Id 0 is the
-// default style; it is never counted and never freed.
-type Styles {
-	list   []vt.Style,
-	counts []int,
-	ids    Map[vt.Style, int],
-	free   []int,
-}
+// The screen's styles are a dense.Counted[vt.Style]: each style in use
+// has an id, and the id's count is the cells that hold it, plus one if
+// the pen holds it. When a count falls to 0 the style leaves the set and
+// its id is free for the next new style (Ghostty's RefCountedSet). A cell
+// holds a dense.Opt of the id: no id is the default style, which is never
+// counted.
 
-// NewStyles is the set with the default style only.
-func NewStyles() Styles {
-	Styles{list: []vt.Style{vt.Default}, counts: []int{0}, ids: Map[vt.Style, int]{}, free: []int{}}
-}
+// noStyle is the default style's id.
+let noStyle = dense.NoID[vt.Style]()
 
-// intern is the id of st, given a new id with count 0 when st is not in
-// the set.
-func intern(t *Styles, st vt.Style) uint32 {
+// intern is the id of st in t, with no new holder: no id for the
+// default style.
+func intern(t *dense.Counted[vt.Style], st vt.Style) dense.Opt[vt.Style] {
 	if st == vt.Default {
-		return uint32(0)
+		return noStyle
 	}
-	match t.ids.Get(st) {
-	case Some[int] as id:
-		uint32(id.Value)
-	case None:
-		let mut id = len(t.list)
-		if len(t.free) > 0 {
-			id = t.free[len(t.free)-1]
-			t.free = t.free[0 : len(t.free)-1]
-			t.list[id] = st
-		} else {
-			t.list = t.list.Append(st)
-			t.counts = t.counts.Append(0)
-		}
-		t.ids = t.ids.Put(st, id)
-		uint32(id)
-	}
+	dense.OptOf(t.Add(st))
 }
 
 // retain counts one more holder of id.
-func retain(t *Styles, id uint32) {
-	if id != 0 {
-		t.counts[int(id)] += 1
+func retain(t *dense.Counted[vt.Style], id dense.Opt[vt.Style]) {
+	match dense.Unpack(id) {
+	case Some[dense.ID[vt.Style]] as held:
+		t.Use(held.Value)
+	case None:
 	}
 }
 
-// release counts one holder of id less, and frees it at 0.
-func release(t *Styles, id uint32) {
-	if id == 0 {
-		return
-	}
-	let i = int(id)
-	t.counts[i] -= 1
-	if t.counts[i] == 0 {
-		t.ids = t.ids.Delete(t.list[i])
-		t.free = t.free.Append(i)
+// release counts one holder of id less; at 0 its style leaves the set.
+func release(t *dense.Counted[vt.Style], id dense.Opt[vt.Style]) {
+	match dense.Unpack(id) {
+	case Some[dense.ID[vt.Style]] as held:
+		t.Release(held.Value)
+	case None:
 	}
 }
 
 // styleAt is the style of id.
-func styleAt(t Styles, id uint32) vt.Style { t.list[int(id)] }
+func styleAt(t dense.Counted[vt.Style], id dense.Opt[vt.Style]) vt.Style {
+	match dense.Unpack(id) {
+	case Some[dense.ID[vt.Style]] as held:
+		dense.Member(t, held.Value)
+	case None:
+		vt.Default
+	}
+}

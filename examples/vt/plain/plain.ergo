@@ -78,6 +78,10 @@ func blankLines(rows int, cols int) []Line {
 	lines
 }
 
+// NewScreen is a blank screen of vt.LawSize: the constructor a law case
+// builds the screen with, binding its address to vt.Screen.
+func NewScreen() Screen { New(vt.LawSize) }
+
 // least is the smaller of a and b.
 func least(a int, b int) int { if a < b { a } else { b } }
 

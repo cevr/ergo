@@ -121,3 +121,96 @@ func TestDensePutGrowsLinearly(t *testing.T) {
 	needsBuild(t)
 	goTestEmitted(t, mustLower(t, "densegrowth", denseUseSource), denseGrowthDriver)
 }
+
+// denseStringsSource interns n words twice each in a dense.Strings.
+const denseStringsSource = `import dense
+
+func words(n int) dense.Strings {
+	let mut s = dense.NewStrings()
+	for _ in 0..2 {
+		for i in 0..n {
+			let _ = s.InternText("w\(i)")
+		}
+	}
+	s
+}
+
+func main() {}
+`
+
+// denseStringsDriver counts the bytes and allocations of interning n words
+// twice each, in dense.Strings and in a hand-Go map[string]uint32, at n
+// and 2n, and prints them as receipt lines. Strings at 2n cost at most
+// three times n (the growth guard); the comparison with the map pins no
+// bound.
+const denseStringsDriver = `package main
+import (
+	"fmt"
+	"reflect"
+	"runtime"
+	"strconv"
+	"testing"
+)
+func count(f func()) (uint64, uint64) {
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	f()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc, after.Mallocs - before.Mallocs
+}
+func ergoWords(n int) func() {
+	return func() {
+		f := reflect.ValueOf(words)
+		args := []reflect.Value{reflect.ValueOf(n)}
+		if f.Type().NumIn() == 2 {
+			args = append([]reflect.Value{reflect.Zero(f.Type().In(0))}, args...)
+		}
+		runtime.KeepAlive(f.Call(args))
+	}
+}
+func goWords(n int) func() {
+	return func() {
+		m := map[string]uint32{}
+		for round := 0; round < 2; round++ {
+			for i := 0; i < n; i++ {
+				w := "w" + strconv.Itoa(i)
+				if _, ok := m[w]; !ok {
+					m[w] = uint32(len(m))
+				}
+			}
+		}
+		runtime.KeepAlive(m)
+	}
+}
+func TestStringsCounts(t *testing.T) {
+	const n = 1 << 12
+	var bytes [2]uint64
+	for k, size := range []int{n, 2 * n} {
+		eb, em := count(ergoWords(size))
+		gb, gm := count(goWords(size))
+		bytes[k] = eb
+		fmt.Printf("receipt strings n=%d dense.Strings bytes=%d allocs=%d go-map bytes=%d allocs=%d\n", size, eb, em, gb, gm)
+	}
+	if bytes[1] > 3*bytes[0] {
+		t.Fatalf("Strings of %d words allocated %d bytes, of %d words %d bytes: more than three times", n, bytes[0], 2*n, bytes[1])
+	}
+}
+`
+
+// TestDenseStringsCounts is Strings' counted receipt and growth guard
+// (Dense stores 4): the bytes and allocations of interning n and 2n words
+// in dense.Strings and in a hand-Go map[string]uint32, logged, with
+// Strings' bytes at 2n at most three times n. It kills
+// dense-strings-slots-grow-by-sixteen.
+//
+// It builds Go because it counts the allocations of the built program
+// (runtime.MemStats); no in-process check observes them.
+func TestDenseStringsCounts(t *testing.T) {
+	needsBuild(t)
+	out := goTestEmittedVerbose(t, mustLower(t, "densestrings", denseStringsSource), denseStringsDriver)
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "receipt ") {
+			t.Log(line)
+		}
+	}
+}

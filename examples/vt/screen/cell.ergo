@@ -3,13 +3,17 @@
 // of its style. The cells of every row live in one slice, the alternate
 // buffer's rows first and then a ring of pages for the main buffer and
 // its history; a byte column holds each row's flags. Styles are interned
-// once per screen and counted, so a style leaves the set when its last
-// cell does.
+// once per screen and counted (dense.Counted), so a style leaves the set
+// when its last cell does.
+
+import dense
+import vt/vt
 
 // Cell is one cell: bits 0 to 20 of bits are the code point (0 for a
 // blank), bits 21 and 22 its part (PartSingle, PartHead, PartTail), and
-// style is the id of its style in the screen's set (0 is the default).
-type Cell { bits uint32, style uint32 }
+// style is the id of its style in the screen's set (no id is the
+// default).
+type Cell { bits uint32, style dense.Opt[vt.Style] }
 
 // The parts of a cell.
 let PartSingle = 0
@@ -23,10 +27,10 @@ let codeMask = uint32(0x1fffff)
 let partShift = uint32(21)
 
 // Blank is the blank cell of the default style.
-let Blank = Cell{bits: uint32(0), style: uint32(0)}
+let Blank = Cell{bits: uint32(0), style: noStyle}
 
 // NewCell is the cell of c, part and style.
-func NewCell(c rune, part int, style uint32) Cell {
+func NewCell(c rune, part int, style dense.Opt[vt.Style]) Cell {
 	Cell{bits: uint32(c)&codeMask | uint32(part)<<partShift, style: style}
 }
 
@@ -37,7 +41,7 @@ func Code(c Cell) rune { rune(c.bits & codeMask) }
 func PartOf(c Cell) int { int(c.bits >> partShift & 3) }
 
 // StyleOf is the cell's style id.
-func StyleOf(c Cell) uint32 { c.style }
+func StyleOf(c Cell) dense.Opt[vt.Style] { c.style }
 
 // CodePoint is a Unicode code point.
 type CodePoint int where 0 <= it && it <= 0x10ffff
@@ -47,7 +51,9 @@ type PartBits int where 0 <= it && it <= 2
 
 // CellFieldsRoundTrip: each accessor reads what NewCell packed, for
 // every code point, so no field overlaps another.
-law CellFieldsRoundTrip(c CodePoint, part PartBits, style uint32) {
+law CellFieldsRoundTrip(c CodePoint, part PartBits, st vt.Style) {
+	let mut set = dense.NewCounted[vt.Style]()
+	let style = intern(&set, st)
 	let x = NewCell(rune(int(c)), int(part), style)
 	Code(x) == rune(int(c)) && PartOf(x) == int(part) && StyleOf(x) == style
 }

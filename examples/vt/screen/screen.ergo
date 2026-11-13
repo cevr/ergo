@@ -1,3 +1,4 @@
+import dense
 import vt/vt
 
 // Row flags.
@@ -29,12 +30,12 @@ type Screen {
 	limit     int,
 	cur       vt.Cursor,
 	pen       vt.Style,
-	penID     uint32,
+	penID     dense.Opt[vt.Style],
 	top       int,
 	bottom    int,
 	saved     Option[Saved],
 	title     string,
-	styles    Styles,
+	styles    dense.Counted[vt.Style],
 	grown     int,
 }
 
@@ -56,12 +57,12 @@ func New(config vt.Config) Screen {
 		limit:     vt.HistoryLimit(size),
 		cur:       home,
 		pen:       vt.Default,
-		penID:     uint32(0),
+		penID:     noStyle,
 		top:       0,
 		bottom:    rows - 1,
 		saved:     None,
 		title:     "",
-		styles:    NewStyles(),
+		styles:    dense.NewCounted[vt.Style](),
 		grown:     0,
 	}
 	s.grow(rows)
@@ -99,6 +100,10 @@ func rowOf(s *Screen, r int) int {
 	if s.cur.Alternate { r } else { s.slotRow(s.first + r) }
 }
 
+// NewScreen is a blank screen of vt.LawSize: the constructor a law case
+// builds the screen with, binding its address to vt.Screen.
+func NewScreen() Screen { New(vt.LawSize) }
+
 // least is the smaller of a and b.
 func least(a int, b int) int { if a < b { a } else { b } }
 
@@ -109,9 +114,9 @@ func most(a int, b int) int { if a > b { a } else { b } }
 func set(s *Screen, ri int, i int, c Cell) {
 	let old = s.cells[i].style
 	if old != c.style {
-		s.styles.retain(c.style)
-		s.styles.release(old)
-		if c.style != 0 {
+		retain(&s.styles, c.style)
+		release(&s.styles, old)
+		if c.style != noStyle {
 			s.flags[ri] = s.flags[ri] | flagStyled
 		}
 	}
@@ -124,7 +129,7 @@ func clearRow(s *Screen, ri int) {
 	let at = ri * s.cols
 	if s.flags[ri]&flagStyled != 0 {
 		for i in at..at+s.cols {
-			s.styles.release(s.cells[i].style)
+			release(&s.styles, s.cells[i].style)
 			s.cells[i] = Blank
 		}
 	} else {
@@ -176,12 +181,12 @@ func Print(s *Screen, run string) {
 			let c = Cell{bits: uint32(run[i+j]), style: id}
 			let old = s.cells[at+j].style
 			if old != id {
-				s.styles.retain(id)
-				s.styles.release(old)
+				retain(&s.styles, id)
+				release(&s.styles, old)
 			}
 			s.cells[at+j] = c
 		}
-		if id != 0 {
+		if id != noStyle {
 			s.flags[ri] = s.flags[ri] | flagStyled
 		}
 		i += k
@@ -587,9 +592,9 @@ func SetRegion(s *Screen, top int, bottom int) {
 // SetPen sets the pen: its style is interned once here, not once per
 // cell.
 func SetPen(s *Screen, pen vt.Style) {
-	let id = s.styles.intern(pen)
-	s.styles.retain(id)
-	s.styles.release(s.penID)
+	let id = intern(&s.styles, pen)
+	retain(&s.styles, id)
+	release(&s.styles, s.penID)
 	s.penID = id
 	s.pen = pen
 }
@@ -650,7 +655,7 @@ func CellAt(s *Screen, l int, col int) vt.Shown {
 	} else if p == PartTail {
 		part = vt.Tail
 	}
-	vt.Shown{C: Code(c), Part: part, Style: s.styles.styleAt(c.style)}
+	vt.Shown{C: Code(c), Part: part, Style: styleAt(s.styles, c.style)}
 }
 
 // Wrapped reports whether line l ended in an autowrap.

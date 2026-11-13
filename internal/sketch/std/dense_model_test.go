@@ -313,10 +313,23 @@ func denseBuildAndRun(t *testing.T) {
 	}
 	prog.WriteString("func main() needs Console {\n" + calls.String() + "}\n")
 	denseRun.src = prog.String()
-	copied, err := os.ReadFile(filepath.Join(root, "internal/sketch/std/dense/dense.ergo"))
+	// The copy is every source of the package but its laws.
+	sources, err := filepath.Glob(filepath.Join(root, "internal/sketch/std/dense/*.ergo"))
 	if err != nil {
 		denseRun.err = err
 		return
+	}
+	copied := map[string][]byte{}
+	for _, p := range sources {
+		if strings.HasSuffix(p, "laws.ergo") {
+			continue
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			denseRun.err = err
+			return
+		}
+		copied["mod/local/"+filepath.Base(p)] = data
 	}
 	dir, err := os.MkdirTemp("", "ergo-dense-model-")
 	if err != nil {
@@ -326,9 +339,11 @@ func denseBuildAndRun(t *testing.T) {
 	defer os.RemoveAll(dir)
 	files := map[string][]byte{
 		"mod/ergo.mod":            []byte("module m\n"),
-		"mod/local/dense.ergo":    copied,
 		"mod/cmd/agree/main.ergo": []byte(denseRun.src),
 		"bin/.keep":               nil,
+	}
+	for rel, data := range copied {
+		files[rel] = data
 	}
 	for rel, data := range files {
 		p := filepath.Join(dir, filepath.FromSlash(rel))
@@ -416,8 +431,8 @@ func TestDenseAgreesWithModel(t *testing.T) {
 	}
 }
 
-// TestDenseCopyAgrees holds that dense.ergo copied into a user module, as
-// package local, checks and builds (std dense uses nothing a user module
+// TestDenseCopyAgrees holds that std dense's sources but its laws, copied
+// into a user module as package local, checks and builds (std dense uses nothing a user module
 // cannot) and prints, seed by seed, what std dense prints.
 //
 // It builds Go because it shares TestDenseAgreesWithModel's build and run:
