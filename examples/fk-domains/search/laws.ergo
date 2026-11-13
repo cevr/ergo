@@ -32,18 +32,18 @@ import fk-domains/search/route
 // the last key, the best version shown per label and range, and the
 // invariants broken so far.
 type Sim {
-	S Search,
-	Clock time.Manual,
-	Due Option[int],
-	Flying []Key,
+	S       Search,
+	Clock   time.Manual,
+	Due     Option[int],
+	Flying  []Key,
 	Orphans []Key,
 	Fetches []Key,
-	URL string,
-	Tops int,
+	URL     string,
+	Tops    int,
 	Version int,
 	TypedAt int,
-	Best Map[string, int],
-	Broken []string,
+	Best    Map[string, int],
+	Broken  []string,
 }
 
 // DebounceMs is the debounce the laws hold the machine to: the
@@ -561,7 +561,7 @@ law ScrollKeepsIndex(ops []int, tops []int) {
 	let mut at = m
 	for t in tops {
 		at = Feed(at, Scrolled{Top: (if t < 0 { -t } else { t }) % 100000})
-		at = Feed(at, Resized{Viewport: 240 + (if t < 0 { -t } else { t }) % 400})
+		at = Feed(at, Resized{Viewport: 240 + (if t < 0 { -t } else { t })%400})
 	}
 	at.S.IndexBuilds == m.S.IndexBuilds
 }

@@ -389,6 +389,7 @@ examples/fk-domains/sample/sample.ergo	*
 examples/fk-domains/server/origin.ergo	*
 examples/fk-domains/server/recorded/wire.mjs	*
 examples/fk-domains/README.md	*
+examples/fk-domains/search/search.ergo	Some[string]{Value: domains.Wire(l)}
 examples/fk-domains/expected-skips	*
 examples/fk-domains/origin/README.md	*
 examples/fk-domains/origin/measure/README.md	*

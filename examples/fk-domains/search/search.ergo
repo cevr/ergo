@@ -47,21 +47,21 @@ type Index = Identity{N int} | Listed{Rows []int}
 // Comparisons count its builds and the comparisons its sorts made
 // (targets P3 and P8).
 type Search {
-	Phase Phase,
-	Route route.Route,
-	Catalog []string,
-	Cache cache.Cache[string, []domains.Listing],
-	Ranges []plan.Load,
-	Whole plan.Load,
-	Pages Map[int, []domains.Listing],
-	Checked int,
-	InFlight Option[Key],
-	Failed Option[Key],
-	Window window.Spec,
-	Index Index,
+	Phase       Phase,
+	Route       route.Route,
+	Catalog     []string,
+	Cache       cache.Cache[string, []domains.Listing],
+	Ranges      []plan.Load,
+	Whole       plan.Load,
+	Pages       Map[int, []domains.Listing],
+	Checked     int,
+	InFlight    Option[Key],
+	Failed      Option[Key],
+	Window      window.Spec,
+	Index       Index,
 	IndexBuilds int,
 	Comparisons int,
-	Cart []domains.Available,
+	Cart        []domains.Available,
 }
 
 // Signal is what the machine reads: a key in the field (Typed), the
