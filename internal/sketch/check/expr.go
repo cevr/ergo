@@ -682,8 +682,10 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 			return bad(x)
 		}
 	}
-	if _, isContext := contextRow(t); isContext && !c.pkg.std {
-		// Only a conversion makes a Context value (contextvalues.go).
+	if _, isContext := contextRow(t); isContext && t.(*Named).Obj.Pkg != c.pkg {
+		// Only a conversion makes a Context value (contextvalues.go):
+		// its field is unexported, so by construction authority only its
+		// declaring package writes the literal (STD-NOPRIV NP3d).
 		c.errorf(x, CodeType, "a Context value is made from a context: let v %s = context { … } (rows.md, Context values)", t)
 		t = invalid
 	}
