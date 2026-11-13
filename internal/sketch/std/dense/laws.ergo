@@ -1,0 +1,199 @@
+// The laws of the dense stores, at int rows (a top-level law is not
+// generic), run by TestStdDenseLawsRun. The std mutant ledger
+// (internal/sketch/std/testdata/mutants.json, dense-*) names the law that
+// kills each mutant, and the seeded model property TestDenseAgreesWithModel
+// beside it; In and SetOf's mutants only the property kills.
+
+import maps
+import slices
+
+// filled is a table after a Put of each of xs, and the ids Put returned.
+func filled(xs []int) (Table[int], []ID[int]) {
+	let mut t = New[int]()
+	let mut ids = []ID[int]{}
+	for x in xs {
+		ids = ids.Append(t.Put(x))
+	}
+	(t, ids)
+}
+
+// pick is a position of 0..n, from k; n is positive.
+func pick(k int, n int) int { (k%n + n) % n }
+
+// PutThenAt: At reads what Put appended, and Len counts it.
+law PutThenAt(xs []int, v int) {
+	let (start, _) = filled(xs)
+	let mut t = start
+	let id = t.Put(v)
+	At(t, id) == v && Has(t, id) && Len(t) == len(xs)+1
+}
+
+// PutKeepsOthers: a Put changes no row an earlier id names.
+law PutKeepsOthers(xs []int, v int) {
+	let (start, ids) = filled(xs)
+	let mut t = start
+	let fresh = t.Put(v)
+	let mut ok = true
+	for i, id in ids {
+		ok = ok && id != fresh && At(t, id) == xs[i]
+	}
+	ok
+}
+
+// IDsAreDense: Each, IDs and Rows give the rows in the order they were
+// put, with ids 0 to Len-1, and IDOf is the id of each position.
+law IDsAreDense(xs []int) {
+	let (t, ids) = filled(xs)
+	let mut i = 0
+	let mut ok = true
+	for e in Each(t) {
+		ok = ok && i < len(xs) && e.ID == ids[i] && Index(e.ID) == i && e.Row == xs[i]
+		i = i + 1
+	}
+	let mut j = 0
+	for id in IDs(t) {
+		ok = ok && j < len(ids) && id == ids[j]
+		j = j + 1
+	}
+	for k, row in Rows(t) {
+		ok = ok && row == xs[k] && IDOf(t, k) == ids[k]
+	}
+	ok && i == len(xs) && j == len(xs) && len(Rows(t)) == len(xs)
+}
+
+// TableEachStops: Each stops when its yield returns false.
+law TableEachStops(xs []int) {
+	let (t, _) = filled(xs)
+	let s = Each(t)
+	let n = len(xs)
+	for k in 1..n+2 {
+		let mut calls = 0
+		s(func(e Entry[int]) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
+
+// TableIDsStops: IDs stops when its yield returns false.
+law TableIDsStops(xs []int) {
+	let (t, _) = filled(xs)
+	let s = IDs(t)
+	let n = len(xs)
+	for k in 1..n+2 {
+		let mut calls = 0
+		s(func(id ID[int]) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
+
+// GetAgreesWithHas: Get is Some exactly when Has, and then holds the row
+// At reads. The ids come from a longer table, so some are past the end.
+law GetAgreesWithHas(xs []int) {
+	let (t, _) = filled(xs)
+	let (_, ids) = filled(xs.Append(0).Append(0))
+	let mut ok = true
+	for id in ids {
+		match Get(t, id) {
+		case Some[int] as v:
+			ok = ok && Has(t, id) && v.Value == At(t, id)
+		case None:
+			ok = ok && !Has(t, id)
+		}
+	}
+	ok
+}
+
+// SetThenAt: At reads what Set wrote, and Set changes no other row.
+law SetThenAt(xs []int, k int, v int) {
+	if len(xs) == 0 {
+		return true
+	}
+	let (start, ids) = filled(xs)
+	let mut t = start
+	let i = pick(k, len(xs))
+	t.Set(ids[i], v)
+	let mut ok = At(t, ids[i]) == v && Len(t) == len(xs)
+	for j, id in ids {
+		ok = ok && (j == i || At(t, id) == xs[j])
+	}
+	ok
+}
+
+// OptRoundTrips: an Opt holds the id it was made of, or none.
+law OptRoundTrips(xs []int, k int) {
+	if len(xs) == 0 {
+		return Unpack(NoID[int]()) == None
+	}
+	let (_, ids) = filled(xs)
+	let id = ids[pick(k, len(ids))]
+	let other = ids[0]
+	Unpack(OptOf(id)) == Some[ID[int]]{Value: id} && Unpack(NoID[int]()) == None && Or(OptOf(id), other) == id && Or(NoID[int](), other) == other
+}
+
+// NextThenOf: hand columns pushed once per Next read back by the id Next
+// gave, and Total counts the ids.
+law NextThenOf(xs []int) {
+	let mut c = NewCount[int]()
+	let mut col = NewCol[int, int]()
+	let mut ids = []ID[int]{}
+	for x in xs {
+		ids = ids.Append(c.Next())
+		col.Push(x)
+	}
+	let mut ok = Total(c) == len(xs)
+	for i, id in ids {
+		ok = ok && In(col, id) && Of(col, id) == xs[i] && Index(id) == i
+	}
+	if len(ids) > 0 {
+		col.SetOf(ids[0], -1)
+		ok = ok && Of(col, ids[0]) == -1
+	}
+	ok
+}
+
+// SideDefaults: SideOf is the value last set for an id, and the default
+// for every other id, past the end too.
+law SideDefaults(xs []int, sets []int, d int) {
+	let (_, ids) = filled(xs)
+	let mut s = NewSide[int, int](d)
+	let mut model = Map[ID[int], int]{}
+	if len(ids) > 0 {
+		for v in sets {
+			let id = ids[pick(v, len(ids))]
+			s.SideSet(id, v)
+			model[id] = v
+		}
+	}
+	let mut ok = true
+	for id in ids {
+		ok = ok && SideOf(s, id) == maps.GetOr(model, id, d)
+	}
+	ok
+}
+
+// ListRoundTrips: List reads the items PutList put.
+law ListRoundTrips(xs []int) {
+	let mut p = NewPool[int]()
+	let r = p.PutList(xs)
+	slices.Equal(List(p, r), xs) && RunLen(r) == len(xs)
+}
+
+// ListsDoNotOverlap: a later PutList changes no earlier list.
+law ListsDoNotOverlap(a []int, b []int, c []int) {
+	let mut p = NewPool[int]()
+	let ra = p.PutList(a)
+	let rb = p.PutList(b)
+	let rc = p.PutList(c)
+	slices.Equal(List(p, ra), a) && slices.Equal(List(p, rb), b) && slices.Equal(List(p, rc), c) && Items(p) == len(a)+len(b)+len(c)
+}

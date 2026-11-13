@@ -183,6 +183,10 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 ## Constructs, contracts and laws
 
+**Dense id**: A std `dense.ID[K]`, the id of a row of a store of `K`: one `uint32`, four bytes and no pointer, made only by the store's `Put` or `Next`, so it is never forged and never of another row type. `dense.Opt[K]` is a dense id or none in the same four bytes. See [stdlib](docs/spec/stdlib.md#dense-stores).
+
+**Dense store**: A std `dense` store of rows addressed by dense ids, from which rows are never removed: a `Table[T]` of whole rows, a `Count` with `Col`s (one column per field), a `Side` of data few rows have, a `Pool` of short lists. A store of rows with no pointer field is pointer-free, so the collector does not scan it. Distinct from an arena, whose refs carry a generation because its values are removed. See [stdlib](docs/spec/stdlib.md#dense-stores).
+
 **Arena**: A std `arena.Of[T]`, a growable store of values of one type in one slice, addressed by `arena.Ref[T]` handles that only the store makes. A Ref carries its slot's generation, so a Ref kept after `Free` is stale and every operation on it fails with `arena.Stale`, also after the slot is reused. See [stdlib](docs/spec/stdlib.md#arenas).
 
 **Atomic handle**: A shared `atomic.Int64` counter or `atomic.Bool` flag. Copies name the same cell. Each operation is one sequentially consistent Go atomic operation; a load followed by a store is not one operation. See [stdlib](docs/spec/stdlib.md#atomic-counters-and-flags).
