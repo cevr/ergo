@@ -60,17 +60,20 @@ law CodesIgnoreCaseAndSpace(a Allowance, pad int where 0 <= pad && pad <= 3, low
 // a second after the filing (upstream's PlaceOrder delay), and not a
 // moment before.
 law FilingTakesASecond(ms int where 0 <= ms && ms <= 2000) {
-	let c = testing.NewVirtualClock(0)
-	let at = duration(int64(ms) * 1000000)
-	let s = with context { Scheduler: c, time.Clock: c } { filedAt(at) }
-	match s {
-	case Confirmed as k:
-		at >= 1s && k == Confirmed{Overnight: false, Allowance: None, ID: "DAY-1001"}
-	case Filing:
-		at < 1s
-	case Plan, Supplies, Permit, Review, Cancelled:
-		false
+	let ok = func(at duration) bool {
+		let c = testing.NewVirtualClock(0)
+		let s = with context { Scheduler: c, time.Clock: c } { filedAt(at) }
+		match s {
+		case Confirmed as k:
+			at >= 1s && k == Confirmed{Overnight: false, Allowance: None, ID: "DAY-1001"}
+		case Filing:
+			at < 1s
+		case Plan, Supplies, Permit, Review, Cancelled:
+			false
+		}
 	}
+	// The drawn time, and the two either side of the answer.
+	ok(duration(int64(ms)*1000000)) && ok(999ms) && ok(1s)
 }
 
 // filedAt is the stage at the time end of a day trip filed at 0.
