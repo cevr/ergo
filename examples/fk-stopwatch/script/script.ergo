@@ -14,7 +14,7 @@ type BadLine { Line int, Why string }
 
 // Script is a read script: the presses at their times, and the time the
 // run ends.
-type Script { Trace []machines.Timed[watch.Signal], End duration }
+type Script { Trace []machines.Timed[watch.Button], End duration }
 
 // Read reads the lines of a script. Each line is `@MS WORD`: MS is the
 // time in milliseconds from the start, never earlier than the line before,
@@ -22,7 +22,7 @@ type Script { Trace []machines.Timed[watch.Signal], End duration }
 // at MS and must be the last. A blank line or a line that starts with # is
 // skipped.
 func Read(lines []string) Script fails BadLine {
-	let mut trace = []machines.Timed[watch.Signal]{}
+	let mut trace = []machines.Timed[watch.Button]{}
 	let mut last = 0s
 	for i, line in lines {
 		let n = i + 1
@@ -51,7 +51,7 @@ func Read(lines []string) Script fails BadLine {
 		case _:
 			return BadLine{Line: n, Why: "unknown word \(words[1])"}
 		}
-		trace = trace.Append(machines.Timed[watch.Signal]{At: t, Signal: s})
+		trace = trace.Append(machines.Timed[watch.Button]{At: t, Signal: s})
 	}
 	BadLine{Line: len(lines) + 1, Why: "the script has no @MS end line"}
 }
@@ -82,7 +82,7 @@ func Run() int needs Console | io.Stdin | time.Clock | Scheduler {
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let mut part = []machines.Timed[watch.Signal]{}
+	let mut part = []machines.Timed[watch.Button]{}
 	for x in s.Trace {
 		part = part.Append(x)
 		show(x.At, watch.Replay(part, x.At))

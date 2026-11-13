@@ -230,9 +230,95 @@ func machinePure(step *check.Func, fd *funcDecl, site syntax.Node) bool {
 // runner that calls this After loops at one instant.
 func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string {
 	if after := conv.Table["After"]; after != nil {
+		if r := after.Sig.Results; len(r) == 1 && everyOption(r[0]) {
+			return fc.everyTimers(conv, after, site)
+		}
 		return fc.positiveTimers(conv, after, site)
 	}
 	return fc.machineNone(conv, "After", site)
+}
+
+// everyOption reports whether t is Option[machines.Every[E]].
+func everyOption(t check.Type) bool {
+	o, ok := t.(*check.Named)
+	return ok && len(o.TArgs) == 1 && check.IsStdEvery(o.TArgs[0])
+}
+
+// everyTimers is the After of a machine whose after function gives a
+// machines.Every (FKG1): it calls the after function and gives its timer
+// as a Timeout whose Signal is made from time.Clock's reading when the
+// runner calls it for a timer that fires (v1.MachineFiringNow, bound by
+// std machines' firing), and from the zero time otherwise, where the
+// runner reads only In. A timer whose In is not positive is the same
+// defect as positiveTimers'. The clock is the environment's: the
+// conversion charged time.Clock to the machine's runner row W.
+//
+//	func(env *Env, s S) (Option[Timeout[E]], error) {
+//		o, _ := after(env, s)
+//		if t, ok := o.(Some[Every[E]]); ok {
+//			if t.Value.In <= 0 { panic(…) }
+//			var at Time
+//			if v1.MachineFiringNow(env.task) { at = env.Clock.Now(env.task) }
+//			e, err := t.Value.Signal(env, at)
+//			if err != nil { return None{}, err }
+//			return Some[Timeout[E]]{Value: Timeout[E]{In: t.Value.In, Signal: e}}, nil
+//		}
+//		return None{}, nil
+//	}
+func (fc *funcCtx) everyTimers(conv check.Conversion, after *check.Func, site syntax.Node) string {
+	sig := after.Sig
+	field := fc.machineField(conv, "After", site)
+	clock, ok := check.EveryClock(sig).(*check.Named)
+	if !ok || len(sig.Params) != 1 {
+		ice(site, "the after function %s is not func(S) Option[machines.Every[E]] over std time", after.Name)
+	}
+	timeout, ok := field.Results[0].(*check.Named)
+	if !ok || len(timeout.TArgs) != 1 {
+		ice(site, "the prelude Machine's After gives no Option[Timeout[E]]")
+	}
+	every := sig.Results[0].(*check.Named).TArgs[0].(*check.Named)
+	st, ok := every.Underlying().(*check.Struct)
+	var at check.Type
+	if ok {
+		for _, f := range st.Fields {
+			if fs, isSig := f.Type.(*check.Signature); f.Name == "Signal" && isSig && len(fs.Params) == 1 {
+				at = fs.Params[0].Type
+			}
+		}
+	}
+	if at == nil {
+		ice(site, "std machines.Every has no Signal func(at time.Time) E")
+	}
+	machine := "machine"
+	if n, ok := conv.From.(*check.Named); ok {
+		machine = n.Obj.Name
+	}
+	g := fc.funcValue(after, sig, site, nil)
+	gv, s, o, t, when, e, err := fc.scope.alloc("after"), fc.scope.alloc("s"), fc.scope.alloc("o"), fc.scope.alloc("t"), fc.scope.alloc("at"), fc.scope.alloc("e"), fc.scope.alloc("err")
+	in, signal := memberName("In"), memberName("Signal")
+	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
+		ind := strings.Repeat("\t", fc.depth+1)
+		none := fc.optionNone(field.Results[0], site)
+		value := fc.goType(timeout.TArgs[0]) + "{" + in + ": " + t + ".Value." + in + ", " + signal + ": " + e + "}"
+		body := ind + gv + " := " + g + "\n" +
+			ind + o + ", _ := " + gv + "(" + env + ", " + s + ")\n" +
+			ind + "if " + fc.optionSomeIf(sig.Results[0], o, t, site) + " {\n" +
+			ind + "\tif " + t + ".Value." + in + " <= 0 {\n" +
+			ind + "\t\tpanic(" + fc.l.rt() + ".MachineTimerNotPositive(" + strconv.Quote(machine) + ", " + s + ", " + t + ".Value." + in + "))\n" +
+			ind + "\t}\n" +
+			ind + "\tvar " + when + " " + fc.goType(at) + "\n" +
+			ind + "\tif " + fc.l.rt() + ".MachineFiringNow(" + taskOf(env) + ") {\n" +
+			ind + "\t\t" + when + " = " + env + "." + fc.l.envField(clock) + ".Now(" + taskOf(env) + ")\n" +
+			ind + "\t}\n" +
+			ind + "\t" + e + ", " + err + " := " + t + ".Value." + signal + "(" + env + ", " + when + ")\n" +
+			ind + "\tif " + err + " != nil {\n" +
+			ind + "\t\treturn " + none + ", " + err + "\n" +
+			ind + "\t}\n" +
+			ind + "\treturn " + fc.optionSome(field.Results[0], value, site) + ", nil\n" +
+			ind + "}\n" +
+			ind + "return " + none + ", nil\n"
+		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(field.Results[0]), body
+	})
 }
 
 // machineWork is the Work of a machine value's Machine (ConvMachine, MU4):

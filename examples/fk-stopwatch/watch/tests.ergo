@@ -1,26 +1,31 @@
 // Upstream's seven story tests (stopwatch/src/story.test.ts), restated.
 // Upstream reads the clock in two commands, DetermineStartTime and
-// DetermineTickTime, and stores a start time. Here the step reads
-// time.Clock and the Running state owns its timer, so "fires the command"
-// becomes "enters the state whose entry arms the tick", with the clock's
-// reading in the state, and "resolve the command" is a step at a later
-// time on a time.Manual, or a timed run on a virtual clock.
+// DetermineTickTime, and stores a start time. Here every signal carries
+// the clock's reading, a press its own and a tick the reading it fired at
+// (a machines.Every timer), and the Running state owns its timer, so
+// "fires the command" becomes "enters the state whose entry arms the
+// tick", and "resolve the command" is the next signal's reading, or a
+// timed run on a virtual clock. A test of the step binds no clock.
 
 import machines
-import time
 
-func at(t duration, s Signal) machines.Timed[Signal] { machines.Timed[Signal]{At: t, Signal: s} }
+func at(t duration, b Button) machines.Timed[Button] { machines.Timed[Button]{At: t, Signal: b} }
 
-// armed reports whether the entry of w arms the tick.
-func armed(w Watch) bool { tick(w) == Some{Timeout[Signal]{In: TickEvery, Signal: Ticked}} }
+// armed reports whether the entry of w arms the tick: after TickEvery, a
+// Ticked at the reading it fires at.
+func armed(w Watch) bool {
+	match tick(w) {
+	case Some[machines.Every[Signal]] as t:
+		t.Value.In == TickEvery && t.Value.Signal(reading(ms(7))) == Ticked{At: reading(ms(7))}
+	case None:
+		false
+	}
+}
 
 test StartEntersRunningFromTheShownTime {
 	// ClickedStart fires DetermineStartTime with current elapsed time.
-	let c = time.NewManual(1000)
-	with context { time.Clock: c } {
-		let n = Running{Before: 2s, Since: time.Clock.Now(), Elapsed: 2s}
-		assert Step(Stopped{Elapsed: 2s}, Start) == Enter[Watch]{Next: n} && armed(n)
-	}
+	let n = Running{Before: 2s, Since: reading(0s), Elapsed: 2s}
+	assert Step(Stopped{Elapsed: 2s}, Pressed{Button: Start, At: reading(0s)}) == Enter[Watch]{Next: n} && armed(n)
 }
 
 test StartRunsTheWatchOnTheClock {
@@ -28,55 +33,40 @@ test StartRunsTheWatchOnTheClock {
 	// running: started at 500ms, the watch runs from then, and 50ms later
 	// shows 50ms. (Upstream starts from 2s shown; a timed run starts from
 	// the initial state, and the test above covers a shown time.)
-	let w = run([]machines.Timed[Signal]{at(ms(500), Start)}, ms(550))
+	let w = run([]machines.Timed[Button]{at(ms(500), Start)}, ms(550))
 	assert ElapsedOf(w) == ms(50) && IsRunning(w)
 }
 
 test StopKeepsTheTime {
 	// ClickedStop pauses the stopwatch without zeroing time: the time up to
 	// the stop, by the clock (upstream keeps the time of the last tick).
-	let c = time.NewManual(1000)
-	with context { time.Clock: c } {
-		let w = Running{Before: 5s, Since: time.Clock.Now(), Elapsed: 5s}
-		time.Advance(c, ms(3))
-		let n = machines.Next(w, Step(w, Stop))
-		assert n == Stopped{Elapsed: ms(5003)} && !armed(n)
-	}
+	let w = Running{Before: 5s, Since: reading(0s), Elapsed: 5s}
+	let n = machines.Next(w, Step(w, Pressed{Button: Stop, At: reading(ms(3))}))
+	assert n == Stopped{Elapsed: ms(5003)} && !armed(n)
 }
 
 test ResetZeros {
 	// ClickedReset zeros elapsedMs, isRunning, and startTime.
-	let c = time.NewManual(1000)
-	with context { time.Clock: c } {
-		let w = Running{Before: 5s, Since: time.Clock.Now(), Elapsed: 5s}
-		assert machines.Next(w, Step(w, Reset)) == Stopped{Elapsed: 0s}
-	}
+	let w = Running{Before: 5s, Since: reading(0s), Elapsed: 5s}
+	assert machines.Next(w, Step(w, Pressed{Button: Reset, At: reading(0s)})) == Stopped{Elapsed: 0s}
 }
 
 test ResetOfAnIdleWatchKeepsIt {
 	// ClickedReset on an idle stopwatch is a no-op.
-	let c = time.NewManual(1000)
-	with context { time.Clock: c } {
-		assert machines.Next(Initial(), Step(Initial(), Reset)) == Initial()
-	}
+	assert machines.Next(Initial(), Step(Initial(), Pressed{Button: Reset, At: reading(0s)})) == Initial()
 }
 
 test TickShowsTheClockTimeAndArmsTheNext {
 	// Ticked fires DetermineTickTime with the stored startTime: a tick 37ms
 	// after the start, late, shows 37ms more, not one interval.
-	let c = time.NewManual(1000)
-	with context { time.Clock: c } {
-		let start = time.Clock.Now()
-		let w = Running{Before: 5s, Since: start, Elapsed: 5s}
-		time.Advance(c, ms(37))
-		let n = Running{Before: 5s, Since: start, Elapsed: ms(5037)}
-		assert Step(w, Ticked) == Enter[Watch]{Next: n} && armed(n)
-	}
+	let w = Running{Before: 5s, Since: reading(0s), Elapsed: 5s}
+	let n = Running{Before: 5s, Since: reading(0s), Elapsed: ms(5037)}
+	assert Step(w, Ticked{At: reading(ms(37))}) == Enter[Watch]{Next: n} && armed(n)
 }
 
 test TicksStoreTheElapsedTime {
 	// CompletedDetermineTickTime stores the new elapsed time: started at 0
 	// and stopped at 1234ms, the watch shows 00:01.23.
-	let w = run([]machines.Timed[Signal]{at(0s, Start), at(ms(1234), Stop)}, 2s)
+	let w = run([]machines.Timed[Button]{at(0s, Start), at(ms(1234), Stop)}, 2s)
 	assert w == Stopped{Elapsed: ms(1234)} && Format(ElapsedOf(w)) == "00:01.23"
 }

@@ -4,7 +4,8 @@
 // time before the last start, and the clock's elapsed time since it. The
 // shown time is never a count of ticks, so a late tick, or ticks that come
 // bunched, show the clock's time and lose nothing. Stopping ends the
-// entry, and with it the timer, so a stopped watch never ticks.
+// entry, and with it the timer, so a stopped watch never ticks. Every
+// signal carries the clock's reading, so the step reads no clock.
 
 import machines
 import time
@@ -17,50 +18,76 @@ let TickEvery = 10ms
 // and the time it shows, which each tick sets from the clock.
 type Watch = Stopped{Elapsed duration} | Running{Before duration, Since time.Time, Elapsed duration}
 
-// Signal is what the watch takes: the three buttons, and its own tick.
-type Signal = Start{} | Stop{} | Reset{} | Ticked{}
+// Button is one of the watch's three buttons.
+type Button = Start{} | Stop{} | Reset{}
+
+// Signal is what the watch takes: a press of a button at the clock's
+// reading, and its own tick at the reading it fired at.
+type Signal = Pressed{Button Button, At time.Time} | Ticked{At time.Time}
 
 // Initial is a stopped watch at zero.
 func Initial() Watch { Stopped{Elapsed: 0s} }
 
-// Step is the transition; it reads time.Clock. Start runs a stopped watch
-// from the time it shows, from the clock's time now; a tick shows the time
-// before the start plus the clock's time since it, and enters Running
-// again, which arms the next tick; Stop keeps that time, read at the stop;
-// Reset is the initial watch from any state. A button that does not apply
-// (Start while running, Stop while stopped) is ignored and keeps the entry.
-func Step(w Watch, s Signal) Decision[Watch, Never] needs time.Clock {
+// Step is the transition. Start runs a stopped watch from the time it
+// shows, from the press's reading; a tick shows the time before the start
+// plus the time from the start's reading to the tick's, and enters Running
+// again, which arms the next tick; Stop keeps that time, to the stop's
+// reading; Reset is the initial watch from any state. A button that does
+// not apply (Start while running, Stop while stopped) is ignored and keeps
+// the entry, as a tick of a stopped watch is.
+func Step(w Watch, s Signal) Decision[Watch, Never] {
 	match (w, s) {
-	case (Stopped as st, Start):
-		Enter[Watch]{Next: Running{Before: st.Elapsed, Since: time.Clock.Now(), Elapsed: st.Elapsed}}
-	case (Running as r, Stop):
-		Enter[Watch]{Next: Stopped{Elapsed: r.Before + time.Since(r.Since)}}
-	case (Running as r, Ticked):
-		Enter[Watch]{Next: Running{Before: r.Before, Since: r.Since, Elapsed: r.Before + time.Since(r.Since)}}
-	case (_, Reset):
-		Enter[Watch]{Next: Initial()}
-	case (Running, Start), (Stopped, Stop), (Stopped, Ticked):
+	case (_, Pressed as p):
+		press(w, p.Button, p.At)
+	case (Running as r, Ticked as t):
+		Enter[Watch]{Next: Running{Before: r.Before, Since: r.Since, Elapsed: r.Before + t.At.Sub(r.Since)}}
+	case (Stopped, Ticked):
 		Ignore
 	}
 }
 
-// tick is the timer of a running watch's entry: Ticked after TickEvery.
-func tick(w Watch) Option[Timeout[Signal]] {
+// press is the transition of a press of b in w at the reading at.
+func press(w Watch, b Button, at time.Time) Decision[Watch, Never] {
+	match (w, b) {
+	case (Stopped as st, Start):
+		Enter[Watch]{Next: Running{Before: st.Elapsed, Since: at, Elapsed: st.Elapsed}}
+	case (Running as r, Stop):
+		Enter[Watch]{Next: Stopped{Elapsed: r.Before + at.Sub(r.Since)}}
+	case (_, Reset):
+		Enter[Watch]{Next: Initial()}
+	case (Running, Start), (Stopped, Stop):
+		Ignore
+	}
+}
+
+// tick is the timer of a running watch's entry: after TickEvery, Ticked
+// at the clock's reading when it fires.
+func tick(w Watch) Option[machines.Every[Signal]] {
 	match w {
 	case Running:
-		Some{Timeout[Signal]{In: TickEvery, Signal: Ticked}}
+		Some{machines.Every[Signal]{In: TickEvery, Signal: tickedAt}}
 	case Stopped:
 		None
 	}
 }
 
+// tickedAt is the tick at the reading at.
+func tickedAt(at time.Time) Signal { Ticked{At: at} }
+
 // Stopwatch is the watch as a machine.
 type Stopwatch machine[Watch, Signal] { initial: Initial(), step: Step, after: tick }
 
-// Replay is the watch's last state after trace, run until end on the
-// clock of the context. A watch never rejects, so the run never fails.
-func Replay(trace []machines.Timed[Signal], end duration) Watch needs time.Clock | Scheduler {
-	let o = machines.RunTimed(Stopwatch{}, trace, end) catch {
+// Replay is the watch's last state after the presses of trace, run until
+// end on the clock of the context: each press carries the clock's reading
+// at its time, read at the run's start plus its At, as a button's event
+// carries its own time. A watch never rejects, so the run never fails.
+func Replay(trace []machines.Timed[Button], end duration) Watch needs time.Clock | Scheduler {
+	let start = time.Clock.Now()
+	let mut signals = []machines.Timed[Signal]{}
+	for p in trace {
+		signals = signals.Append(machines.Timed[Signal]{At: p.At, Signal: Pressed{Button: p.Signal, At: start.Add(p.At)}})
+	}
+	let o = machines.RunTimed(Stopwatch{}, signals, end) catch {
 	case machines.Rejected:
 		return Initial()
 	}

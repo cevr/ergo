@@ -285,6 +285,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Exchange.End":   {},
 	// std machines (fs2): the defect of a timer that is not positive.
 	"MachineTimerNotPositiveAt": {},
+	// std machines (FKG1): firing binds the firing mark on the caller's
+	// task while the state's After runs, and never waits.
+	"MachineFiring": {task: true},
 	// std-duration: pure bodies of duration text and arithmetic.
 	"TimeParseDuration": {},
 	"TimeDurationText":  {},

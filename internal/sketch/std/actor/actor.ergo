@@ -101,6 +101,12 @@ type Actor[S, E, D, F] {
 // a decision, the output of a decision, and the inbox's capacity.
 extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh escaping func() S fails G needs R, limit int, step escaping func(s S, e E) D fails F needs R, fire escaping func(at S, s S) D fails F needs R, delay escaping func(s S) duration, workOf escaping func(s S) W, hasWork escaping func(w W) bool, work escaping func(w W, send func(e E)) needs R, kind escaping func(d D) int, next escaping func(s S, d D) S, out escaping func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
+// firing is after(s) with the runner's firing mark on the calling task
+// (std machines' firing, FKG1): the fire of start and child calls the
+// state's After this way, so a machines.Every timer's signal carries
+// time.Clock's reading as it fires; the delay reads only In.
+extern go ergo.local/prototype/runtime/v1.MachineFiring func firing[S, T](after func(s S) T, s S) T
+
 // noTimer is the delay start reads as "no timer" for a state whose After
 // is None.
 extern go ergo.local/prototype/runtime/v1.ActorNoTimer func noTimer() duration
@@ -151,7 +157,7 @@ extern go ergo.local/prototype/runtime/v1.ActorRestarts func Restarts[S, E, D, F
 // restarts (limit of them) start in fresh's state.
 func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, fresh escaping func() S fails G needs R, limit int) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	start(m.Initial, fresh, limit, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
-		match m.After(at) {
+		match firing(m.After, at) {
 		case Some[Timeout[E]] as t:
 			try m.Step(s, t.Value.Signal)
 		case None:
@@ -362,7 +368,7 @@ func ChildIn[S, E, O, F, R, W, P](send func(e P), host Host[Actor[S, E, Decision
 // childOf is the body of Child and ChildIn.
 func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	child(host, m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
-		match m.After(at) {
+		match firing(m.After, at) {
 		case Some[Timeout[E]] as t:
 			try m.Step(s, t.Value.Signal)
 		case None:

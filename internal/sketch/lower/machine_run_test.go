@@ -870,14 +870,73 @@ test MachinesRunSplits(a []int, b []int) { assert RunSplits(a, b) }
 test MachinesNextTakesItsState(s int, n int) { assert NextTakesItsState(s, n) }
 
 test MachinesUntimedRunsAsRun(signals []int, gaps []int) { assert UntimedRunsAsRun(signals, gaps) }
+
+// Beats is a metronome: the reading its entry opened at, the beats it was
+// given, and how many of them carried a reading other than the opening
+// reading plus Beat, the time the timer waits.
+type Beats { Opened time.Time, Count int, Wrong int }
+
+// Pulse is what a metronome takes: its own beat at the reading it fired
+// at, and a nudge at the reading it came at, which opens a new entry.
+type Pulse = Beat{At time.Time} | Nudge{At time.Time}
+
+// Tempo is how long a metronome's entry waits for its beat.
+let Tempo = 7ms
+
+// opened is a metronome opened at the reading at.
+func opened(at time.Time) Beats { Beats{Opened: at, Count: 0, Wrong: 0} }
+
+// pulse is the metronome's step: a beat or a nudge opens a new entry at
+// its reading, which arms the next beat; a beat counts, and counts as
+// wrong when its reading is not the entry's opening reading plus Tempo.
+func pulse(b Beats, p Pulse) Decision[Beats, Never] {
+	match p {
+	case Beat as t:
+		let wrong = if t.At == b.Opened.Add(Tempo) { b.Wrong } else { b.Wrong + 1 }
+		Enter[Beats]{Next: Beats{Opened: t.At, Count: b.Count + 1, Wrong: wrong}}
+	case Nudge as n:
+		Enter[Beats]{Next: Beats{Opened: n.At, Count: b.Count, Wrong: b.Wrong}}
+	}
+}
+
+// beat is every entry's timer: Beat at the reading it fires at, Tempo
+// after the entry opened.
+func beat(b Beats) Option[machines.Every[Pulse]] { Some{machines.Every[Pulse]{In: Tempo, Signal: beatAt}} }
+
+func beatAt(at time.Time) Pulse { Beat{At: at} }
+
+// Metronome is the metronome as a machine, opened at its input's reading.
+type Metronome machine[Beats, Pulse] { initial: opened, step: pulse, after: beat }
+
+func EveryCarriesTheReading(gaps []int) bool {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } {
+		let start = time.Clock.Now()
+		let mut trace = []machines.Timed[Pulse]{}
+		let mut at = 0s
+		for g in gaps {
+			at = at + time.Times(1ms, ((g % 20) + 20) % 20)
+			trace = trace.Append(machines.Timed[Pulse]{At: at, Signal: Nudge{At: start.Add(at)}})
+		}
+		let o = machines.RunTimed(machines.Start(Metronome{}, start), trace, at + time.Times(Tempo, 3)) catch {
+		case machines.Rejected:
+			return false
+		}
+		let b = machines.LastState(o)
+		b.Wrong == 0 && b.Count >= 3 && b.Opened == start.Add(at + time.Times(Tempo, 3))
+	}
+}
+
+test MachinesEveryCarriesTheReading(gaps []int) { assert EveryCarriesTheReading(gaps) }
 `
 
 // machinesLawStatements is the statement of each machines law, as the
 // ledger writes it.
 var machinesLawStatements = map[string]string{
-	"machines RunSplits":         `RunSplits(a []int, b []int) { let mut whole = a for e in b { whole = whole.Append(e) } let first = Run(tally(), a) catch { case Rejected: return true } match first { case Running[int, int] as r: from(0, whole, 0, []int{}) == from(r.State, b, len(a), r.Emitted) case Finished[int, int]: true } }`,
-	"machines NextTakesItsState": `NextTakesItsState(s int, n int) { Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n && Next[int, int](s, Emit[int, int]{Next: n, Output: s}) == n && Next[int, int](s, Ignore) == s && Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s }`,
-	"machines UntimedRunsAsRun":  `UntimedRunsAsRun(signals []int, gaps []int) { let mut trace = []Timed[int]{} let mut at = 0s for i, e in signals { if i < len(gaps) { at = at + duration(int64(gaps[i] % 1000)) } trace = trace.Append(Timed[int]{At: at, Signal: e}) } let c = testing.NewVirtualClock(0) let timed = with context { Scheduler: c, time.Clock: c } { timedTally(trace, at) } from(0, signals, 0, []int{}) == timed }`,
+	"machines RunSplits":              `RunSplits(a []int, b []int) { let mut whole = a for e in b { whole = whole.Append(e) } let first = Run(tally(), a) catch { case Rejected: return true } match first { case Running[int, int] as r: from(0, whole, 0, []int{}) == from(r.State, b, len(a), r.Emitted) case Finished[int, int]: true } }`,
+	"machines NextTakesItsState":      `NextTakesItsState(s int, n int) { Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n && Next[int, int](s, Emit[int, int]{Next: n, Output: s}) == n && Next[int, int](s, Ignore) == s && Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s }`,
+	"machines EveryCarriesTheReading": `EveryCarriesTheReading(gaps []int) { let c = testing.NewVirtualClock(0) with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let mut trace = []Timed[Pulse]{} let mut at = 0s for g in gaps { at = at + time.Times(1ms, ((g % 20) + 20) % 20) trace = trace.Append(Timed[Pulse]{At: at, Signal: Nudge{At: start.Add(at)}}) } let o = RunTimed(Start(Metronome{}, start), trace, at + time.Times(Tempo, 3)) catch { case Rejected: return false } let b = LastState(o) b.Wrong == 0 && b.Count >= 3 && b.Opened == start.Add(at + time.Times(Tempo, 3)) } }`,
+	"machines UntimedRunsAsRun":       `UntimedRunsAsRun(signals []int, gaps []int) { let mut trace = []Timed[int]{} let mut at = 0s for i, e in signals { if i < len(gaps) { at = at + duration(int64(gaps[i] % 1000)) } trace = trace.Append(Timed[int]{At: at, Signal: e}) } let c = testing.NewVirtualClock(0) let timed = with context { Scheduler: c, time.Clock: c } { timedTally(trace, at) } from(0, signals, 0, []int{}) == timed }`,
 }
 
 // TestStdMachinesLawsRun runs the probe's tests with --seed 1; lawledger.Run

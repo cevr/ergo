@@ -34,6 +34,29 @@ import time
 // Work of its own (a prelude name cannot be declared).
 type Work[E, R] { Start func(send func(e E)) needs R }
 
+// Every is a state's timer whose signal is made from the time it fires
+// (runtime.md, Machines and actors 9; FKG1): a machine's `after: g` entry
+// may name g(s S) Option[machines.Every[E]] instead of
+// Option[Timeout[E]]. When an entry of the state lasts In, the runner
+// reads time.Clock and gives the machine Signal(at), at the reading. So
+// the step gets the clock's reading as signal data and needs no clock of
+// its own: a test of it passes the time it wants. The runner reads the
+// clock, so a machine with an Every timer charges time.Clock to its
+// runner's row W (actor.StartMachine), never to its step's R: Run and
+// From fire no timer and need no clock. A declared machine's value is
+// still a Machine: its After gives a Timeout whose Signal, outside a
+// firing, is Signal of the zero time. Every lives here, not in the
+// prelude, because the prelude cannot name time.Time. Elm's Time.every
+// interval Tick and Foldkit's Stream.tick give the same reading.
+type Every[E] { In duration, Signal func(at time.Time) E }
+
+// firing is after(s) with the runner's firing mark on the calling task: a
+// declared machine's After, called this way, gives an Every timer's
+// signal at time.Clock's reading now (Every). RunTimed and the actor's
+// runner call a state's After this way when its timer fires, and plainly
+// when the entry opens, where only In is read.
+extern go ergo.local/prototype/runtime/v1.MachineFiring func firing[S, T](after func(s S) T, s S) T
+
 // Finished is a run that the step ended with Done: the state the step saw
 // last, Done's output, and the outputs of the run's Emits before it, in
 // order.
@@ -166,12 +189,12 @@ func From[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, signals []E) Outco
 	Running[S, O]{State: at, Emitted: out}
 }
 
-// armed is a timer the run armed: it gives Signal at At to the entry
-// numbered Epoch.
-type armed[E] {
+// armed is a timer the run armed: it fires at At for the entry numbered
+// Epoch, which opened in State; its signal is made when it fires (fired).
+type armed[S] {
 	At duration,
 	Epoch int,
-	Signal E,
+	State S,
 }
 
 // arm adds the timer of the entry epoch, which opened in s at now, to
@@ -180,15 +203,28 @@ type armed[E] {
 // once, and a state whose timer re-enters it would never let time pass.
 // A declared machine's After raises it first, naming the machine and the
 // state; a Machine built from parts raises it here.
-func arm[S, E, O, F, R, W](timers []armed[E], m Machine[S, E, O, F, R, W], s S, now duration, epoch int) []armed[E] {
+func arm[S, E, O, F, R, W](timers []armed[S], m Machine[S, E, O, F, R, W], s S, now duration, epoch int) []armed[S] {
 	match m.After(s) {
 	case Some[Timeout[E]] as t:
 		if t.Value.In <= 0s {
 			notPositive(now, t.Value.In)
 		}
-		timers.Append(armed[E]{At: now + t.Value.In, Epoch: epoch, Signal: t.Value.Signal})
+		timers.Append(armed[S]{At: now + t.Value.In, Epoch: epoch, State: s})
 	case None:
 		timers
+	}
+}
+
+// fired is the signal of the timer that an entry opened in s armed, made
+// as it fires: m.After(s) under the firing mark, so an Every timer's
+// signal carries time.Clock's reading now. After is a function of the
+// state alone, so it gives the timer it gave when the entry opened.
+func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) E {
+	match firing(m.After, s) {
+	case Some[Timeout[E]] as t:
+		t.Value.Signal
+	case None:
+		Unreachable("the state's After gave a timer when its entry opened")
 	}
 }
 
@@ -199,7 +235,7 @@ extern go ergo.local/prototype/runtime/v1.MachineTimerNotPositiveAt func notPosi
 // due is the index of the earliest timer in timers that fires before the
 // time limit (at or before it when closed), or -1; of two at one time, the
 // one armed first.
-func due[E](timers []armed[E], limit duration, closed bool) int {
+func due[S](timers []armed[S], limit duration, closed bool) int {
 	let mut k = -1
 	for i, t in timers {
 		if t.At < limit || closed && t.At == limit {
@@ -212,8 +248,8 @@ func due[E](timers []armed[E], limit duration, closed bool) int {
 }
 
 // without is timers with its k-th timer taken out.
-func without[E](timers []armed[E], k int) []armed[E] {
-	let mut rest = []armed[E]{}
+func without[S](timers []armed[S], k int) []armed[S] {
+	let mut rest = []armed[S]{}
 	for i, t in timers {
 		if i != k {
 			rest = rest.Append(t)
@@ -241,7 +277,8 @@ func until(start time.Time, at duration) duration needs time.Clock | Scheduler {
 // and takes the time it reads as the signal's (never before the last:
 // the clock does not go back). Each entry has the timer m.After of its
 // state, armed when the entry opens (the first state at 0, an Enter or an
-// Emit at the time of its signal): it gives its Signal In after that. A
+// Emit at the time of its signal): it gives its Signal In after that,
+// made when it fires, so an Every timer's carries the clock's reading. A
 // Stay keeps the entry and its timer; an entry that ends takes its timer
 // with it: a timer of an ended entry is dropped, never stepped. A timer
 // fires before a signal that comes later than it and after one that comes
@@ -257,7 +294,7 @@ func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], e
 	let mut out = []O{}
 	let mut now = 0s
 	let mut epoch = 0
-	let mut timers = arm([]armed[E]{}, m, at, now, epoch)
+	let mut timers = arm([]armed[S]{}, m, at, now, epoch)
 	let mut i = 0
 	for {
 		let closed = i >= len(trace)
@@ -273,7 +310,7 @@ func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], e
 		let ev = if timer {
 			timers[k]
 		} else {
-			armed[E]{At: trace[i].At, Epoch: epoch, Signal: trace[i].Signal}
+			armed[S]{At: trace[i].At, Epoch: epoch, State: at}
 		}
 		if timer {
 			timers = without(timers, k)
@@ -285,7 +322,12 @@ func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], e
 			i = i + 1
 		}
 		now = until(start, ev.At)
-		let d = try m.Step(at, ev.Signal)
+		let sig = if timer {
+			fired(m, ev.State)
+		} else {
+			trace[i - 1].Signal
+		}
+		let d = try m.Step(at, sig)
 		match d {
 		case Done[O] as done:
 			return Finished[S, O]{State: at, Output: done.Output, Emitted: out}
