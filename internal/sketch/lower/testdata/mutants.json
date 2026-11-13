@@ -4322,6 +4322,8 @@
       "rule": "A computed argument folds from the call's constants, so it reads the parameters the call binds.",
       "anchor": {"tests": ["lower:TestUnfoldFoldsAComputedArgument"]},
       "killers": ["lower:TestUnfoldFoldsAComputedArgument"]
-    }
+    },
+    {"name":"nappend-float-not-appender","origin":"wf10 REF NAPPEND","file":"runtime/v1/text.go","from":"\treturn strconv.AppendFloat(b, f, fmt, prec, 64)\n","to":"\tout := strconv.AppendFloat(b, f, fmt, prec, 64)\n\treturn out\n","rule":"std strconv's appenders are appenders (goBodyAppends), so a package that holds its buffer appends a number in place, with no copy.","killers":["lower:TestStrconvAppendersWriteInPlace"]},
+    {"name":"nappend-std-operand-unclipped","origin":"wf10 REF NAPPEND","file":"internal/sketch/lower/std.go","from":"\tvals = fc.valueSource(x, c, vals)\n\tfor i, p := range body.Params {","to":"\tfor i, p := range body.Params {","rule":"A std appender's operand that is not written in place is clipped (V3), as the prelude Append's is, so two appends to one buffer never share its spare capacity.","killers":["lower:TestStrconvAppendersWriteInPlace"]}
   ]
 }

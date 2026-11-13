@@ -4,6 +4,8 @@
 // a *NumError with ErrSyntax or ErrRange, is two failures here, so a
 // caller tells "not a number" from "too big" with a match.
 
+import strings
+
 // Malformed is the failure of a text that is not in the form the function
 // reads (Go's ErrSyntax).
 type Malformed { Text string }
@@ -45,6 +47,19 @@ extern go ergo.local/prototype/runtime/v1.StrconvFormatBool func FormatBool(b bo
 // or 'X') with prec digits; prec -1 is the fewest digits that read back
 // as f exactly.
 extern go ergo.local/prototype/runtime/v1.StrconvFormatFloat func FormatFloat(f float64, fmt byte, prec int) string
+
+// AppendInt is out with FormatInt(n, base) appended: Go's
+// strconv.AppendInt. It appends in place when out has room, so a writer
+// that holds its buffer (`t.out = AppendInt(t.out, n, 10)`) writes a
+// number with no copy and no text between, as std json's does.
+extern go ergo.local/prototype/runtime/v1.StrconvAppendInt func AppendInt(out []byte, n int64, base int) []byte
+
+// AppendUint is out with n in base appended, as AppendInt.
+extern go ergo.local/prototype/runtime/v1.StrconvAppendUint func AppendUint(out []byte, n uint64, base int) []byte
+
+// AppendFloat is out with FormatFloat(f, fmt, prec) appended, as
+// AppendInt.
+extern go ergo.local/prototype/runtime/v1.StrconvAppendFloat func AppendFloat(out []byte, f float64, fmt byte, prec int) []byte
 
 // Quote is s as a double-quoted Go string literal, with Go escapes.
 extern go ergo.local/prototype/runtime/v1.StrconvQuote func Quote(s string) string
@@ -93,4 +108,12 @@ law ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) == int64(n) }
 law ParseIntInvertsFormatInt(n int64, b int) {
 	let base = 2 + (b%35+35)%35
 	try ParseInt(FormatInt(n, base), base, 64) == n
+}
+
+// AppendsFormat: each appender appends the text its Format gives after
+// what out holds, the empty buffer and a written one alike.
+law AppendsFormat(n int64, u uint64, f float64, b int) {
+	let base = 2 + (b%35+35)%35
+	let out = AppendInt(AppendFloat(AppendUint(AppendInt([]byte{}, n, base), u>>1, base), f, 'g', -1), n, base)
+	strings.FromBytes(out) == FormatInt(n, base)+FormatInt(int64(u>>1), base)+FormatFloat(f, 'g', -1)+FormatInt(n, base)
 }

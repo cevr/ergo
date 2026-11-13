@@ -171,6 +171,12 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 		got, err := StrconvParseFloat(StrconvFormatFloat(f, 'g', -1))
 		return err == nil && got == f, f
 	},
+	"strconv AppendsFormat": func(r *rand.Rand) (bool, any) {
+		n, u, f := r.Int64()>>r.IntN(64), r.Uint64()>>r.IntN(64), randomFloat(r)
+		base := 2 + r.IntN(35)
+		out := StrconvAppendInt(StrconvAppendFloat(StrconvAppendUint(StrconvAppendInt([]byte{}, n, base), u>>1, base), f, 'g', -1), n, base)
+		return StringsFromBytes(out) == StrconvFormatInt(n, base)+StrconvFormatInt(int64(u>>1), base)+StrconvFormatFloat(f, 'g', -1)+StrconvFormatInt(n, base), []any{n, u, f, base}
+	},
 	"strconv ParseIntInvertsFormat": func(r *rand.Rand) (bool, any) {
 		n := int(r.Int64()) >> r.IntN(64)
 		got, err := StrconvParseInt(StrconvItoa(n), 10, 64)
@@ -183,6 +189,7 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 // to the ledger, so a law changed in source fails here until its
 // restatement above is changed with it.
 var textLawStatements = map[string]string{
+	"strconv AppendsFormat":          `AppendsFormat(n int64, u uint64, f float64, b int) { let base = 2 + (b%35+35)%35 let out = AppendInt(AppendFloat(AppendUint(AppendInt([]byte{}, n, base), u>>1, base), f, 'g', -1), n, base) strings.FromBytes(out) == FormatInt(n, base)+FormatInt(int64(u>>1), base)+FormatFloat(f, 'g', -1)+FormatInt(n, base) }`,
 	"strconv AtoiInvertsItoa":        `AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) == n }`,
 	"strconv FormatFloatRoundTrips":  `FormatFloatRoundTrips(f float64) { if f != f { return true } try ParseFloat(FormatFloat(f, 'g', -1)) == f }`,
 	"strconv ItoaInvertsAtoi":        `ItoaInvertsAtoi(s string) { let n = Atoi(s) catch { case Malformed, OutOfRange: return true } try Atoi(Itoa(n)) == n }`,
@@ -302,6 +309,9 @@ func textBenches() []textBench {
 		{"ParseFloat", "StrconvParseFloat", func() { textSink, _ = StrconvParseFloat("3.14159e10") }, func() { textSink, _ = strconv.ParseFloat("3.14159e10", 64) }},
 		{"ParseBool", "StrconvParseBool", func() { textSink, _ = StrconvParseBool("false") }, func() { textSink, _ = strconv.ParseBool("false") }},
 		{"FormatBool", "StrconvFormatBool", func() { textSink = StrconvFormatBool(true) }, func() { textSink = strconv.FormatBool(true) }},
+		{"AppendInt", "StrconvAppendInt", func() { buf = StrconvAppendInt(buf[:0], -1234567890, 10) }, func() { buf = strconv.AppendInt(buf[:0], -1234567890, 10) }},
+		{"AppendUint", "StrconvAppendUint", func() { buf = StrconvAppendUint(buf[:0], 1234567890, 16) }, func() { buf = strconv.AppendUint(buf[:0], 1234567890, 16) }},
+		{"AppendFloat", "StrconvAppendFloat", func() { buf = StrconvAppendFloat(buf[:0], 3.14159e10, 'g', -1) }, func() { buf = strconv.AppendFloat(buf[:0], 3.14159e10, 'g', -1, 64) }},
 		{"FormatFloat", "StrconvFormatFloat", func() { textSink = StrconvFormatFloat(3.14159e10, 'g', -1) }, func() { textSink = strconv.FormatFloat(3.14159e10, 'g', -1, 64) }},
 		{"Unquote", "StrconvUnquote", func() { textSink, _ = StrconvUnquote(`"a\tb\u00e9"`) }, func() { textSink, _ = strconv.Unquote(`"a\tb\u00e9"`) }},
 		{"Quote", "StrconvQuote", func() { textSink = StrconvQuote("a\tb\u00e9\xff") }, func() { textSink = strconv.Quote("a\tb\u00e9\xff") }},

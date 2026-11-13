@@ -446,6 +446,27 @@ func StrconvFormatFloat(f float64, fmt byte, prec int) string {
 	return strconv.FormatFloat(f, fmt, prec, 64)
 }
 
+// StrconvAppendInt is strconv.AppendInt: b with n in base appended. An
+// appender (lower, goBodyAppends): the call writes into b's spare
+// capacity, so a buffer the caller holds is appended in place, not copied.
+//
+//ergo:pure
+func StrconvAppendInt(b []byte, n int64, base int) []byte { return strconv.AppendInt(b, n, base) }
+
+// StrconvAppendUint is strconv.AppendUint, an appender as
+// StrconvAppendInt is.
+//
+//ergo:pure
+func StrconvAppendUint(b []byte, n uint64, base int) []byte { return strconv.AppendUint(b, n, base) }
+
+// StrconvAppendFloat is strconv.AppendFloat at 64 bits, an appender as
+// StrconvAppendInt is.
+//
+//ergo:pure
+func StrconvAppendFloat(b []byte, f float64, fmt byte, prec int) []byte {
+	return strconv.AppendFloat(b, f, fmt, prec, 64)
+}
+
 // StrconvUnquote is strconv.Unquote.
 //
 //ergo:pure

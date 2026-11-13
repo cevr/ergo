@@ -238,6 +238,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StrconvParseBool":    {},
 	"StrconvFormatBool":   {},
 	"StrconvFormatFloat":  {},
+	"StrconvAppendInt":    {},
+	"StrconvAppendUint":   {},
+	"StrconvAppendFloat":  {},
 	"StrconvUnquote":      {},
 	// std slices and cmp (std-align S2a; stdlib.md, Slices and Maps):
 	// bodies that compute on their arguments and neither wait nor release.

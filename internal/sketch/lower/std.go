@@ -289,6 +289,10 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 		name = body.Owned
 	}
 	vals := fc.callArgs(args, x)
+	// An appender's operand is clipped where it is not written in place
+	// (V3), as the prelude's Append's is: two appends to one buffer never
+	// write the same spare capacity.
+	vals = fc.valueSource(x, c, vals)
 	for i, p := range body.Params {
 		if p.Func != nil {
 			vals[i] = fc.adaptFunc(vals[i], p.Func, fc.argSig(args[i], x), x)
