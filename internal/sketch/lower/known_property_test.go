@@ -31,9 +31,11 @@ import (
 // prints the Ergo source, the output and the model, and its replay
 // command. The fixed seeds must reach every path in knownPaths, and the
 // counts of the lowerings (knownStats) show the rules ran: the new one
-// makes known sites, variants, closed frames, shared arguments, result
-// copies and borrow copies; the reference makes no known site and shares
-// no argument by a summary.
+// makes known sites, variants, shared arguments, result copies and borrow
+// copies; the reference makes no known site and shares no argument by a
+// summary. A closed frame (bumpAll) needs no closed-frame rule since H2-fp:
+// its footprint joins its known sites' literals, so the checker records no
+// entry poll and ClosedEntries stays 0.
 
 var knownSeed = flag.Uint64("known.seed", 0, "run TestKnownCallbacksAgree on this seed alone")
 
@@ -136,7 +138,8 @@ func fwd2[T](b *Box[T], f func(v *T)) {
 	each(b, f)
 }
 
-// bumpAll is a closed frame: opaque only through its known site.
+// bumpAll runs unknown code only through its known sites: its footprint
+// is their literals' (H2-fp), so it has no entry poll.
 func bumpAll(b *Box[int], c int) {
 	each(b, func(v *int) { *v = *v + c })
 	fwd(b, 1, func(v *int) { *v = *v * 2 % 10007 })
@@ -604,7 +607,7 @@ func TestKnownCallbacksAgree(t *testing.T) {
 			t.Errorf("the fixed seeds never reach %q: %v", path, reached)
 		}
 	}
-	if newStats.Sites == 0 || newStats.Variants == 0 || newStats.ClosedEntries == 0 || newStats.ArgsShared == 0 || newStats.ResultCopies == 0 || newStats.BorrowCopies == 0 {
+	if newStats.Sites == 0 || newStats.Variants == 0 || newStats.ArgsShared == 0 || newStats.ResultCopies == 0 || newStats.BorrowCopies == 0 {
 		t.Errorf("the new lowering did not run every rule: %+v", newStats)
 	}
 	if refStats.Sites != 0 || refStats.Variants != 0 || refStats.ClosedEntries != 0 || refStats.ArgsShared != 0 || refStats.BorrowCopies == 0 {
