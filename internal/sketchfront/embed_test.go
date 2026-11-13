@@ -29,7 +29,7 @@ func TestEmbeddedAssetsSnapshot(t *testing.T) {
 	}
 	rng := rand.New(rand.NewPCG(seed, seed+1))
 	for _, kind := range []string{"string", "[]byte", "embed.FS"} {
-		for _, location := range []string{"root", "imported"} {
+		for _, location := range []string{"root", "imported", "unread"} {
 			t.Run(kind+"/"+location, func(t *testing.T) {
 				imports := ""
 				pattern := "data/help.txt"
@@ -42,10 +42,18 @@ func TestEmbeddedAssetsSnapshot(t *testing.T) {
 				for i := range payload {
 					payload[i] = byte(rng.UintN(256))
 				}
-				files := map[string]string{"ergo.mod": "module app\n", "main.ergo": source + "func main() {}\n", "data/help.txt": string(payload)}
+				// The asset is read from main, except "unread": a build
+				// lowers only what main reaches, so an unread let has no
+				// directive and its asset is no build input; the test
+				// build lowers every declaration.
+				main := "func main() { let _ = Asset }\n"
+				if location == "unread" {
+					main = "func main() {}\n"
+				}
+				files := map[string]string{"ergo.mod": "module app\n", "main.ergo": source + main, "data/help.txt": string(payload)}
 				assetPath := "data/help.txt"
 				if location == "imported" {
-					files = map[string]string{"ergo.mod": "module app\n", "main.ergo": "import app/lib\nfunc main() { lib.Use() }\n", "lib/lib.ergo": source + "func Use() {}\n", "lib/data/help.txt": string(payload)}
+					files = map[string]string{"ergo.mod": "module app\n", "main.ergo": "import app/lib\nfunc main() { lib.Use() }\n", "lib/lib.ergo": source + "func Use() { let _ = Asset }\n", "lib/data/help.txt": string(payload)}
 					assetPath = "lib/data/help.txt"
 				}
 				root := writeTree(t, files)
@@ -74,7 +82,11 @@ func TestEmbeddedAssetsSnapshot(t *testing.T) {
 								assetBytes += len(f.Data)
 							}
 						}
-						if assetBytes != len(payload) || !bytes.Contains(code, []byte("//go:embed ")) || bytes.Contains(code, payload) {
+						if location == "unread" && mode == 0 {
+							if assetBytes != 0 || bytes.Contains(code, []byte("//go:embed ")) {
+								t.Fatalf("seed %d: an unread embedded let wrote %d asset bytes or a directive\n%s", seed, assetBytes, code)
+							}
+						} else if assetBytes != len(payload) || !bytes.Contains(code, []byte("//go:embed ")) || bytes.Contains(code, payload) {
 							t.Fatalf("seed %d: payload must occur once in asset files and never in Go literals; asset bytes %d want %d\n%s", seed, assetBytes, len(payload), code)
 						}
 						if mode == 0 {

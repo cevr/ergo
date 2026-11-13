@@ -44,16 +44,29 @@ func (fc *funcCtx) packageEmbed(c *check.Call, name, typ string, site syntax.Nod
 
 // assetFiles returns deterministic build inputs from the checked facts,
 // including imported packages. It never reads the file system in lowering.
+// An asset is a build input only when the lowering writes its directive:
+// a let of a sourced package that the build does not reach (reach.go) has
+// no Go declaration, so its asset is not written either.
 func (l *lowerer) assetFiles() []File {
 	byPath := map[string][]byte{}
 	for _, s := range l.srcs {
-		for _, c := range s.pkg.Info.Calls {
-			if c.Embed == nil {
+		sourced := s.pkg == l.pkg || l.isSourced(s.pkg)
+		for _, d := range s.file.Decls {
+			if sourced && !l.declReached(d) {
 				continue
 			}
-			for _, f := range c.Embed.Files {
-				byPath[path.Join(c.Embed.Prefix, f.Path)] = f.Data
-			}
+			syntax.Inspect(d, func(n syntax.Node) bool {
+				x, ok := n.(*syntax.CallExpr)
+				if !ok {
+					return true
+				}
+				if c := s.pkg.Info.Calls[x]; c != nil && c.Embed != nil {
+					for _, f := range c.Embed.Files {
+						byPath[path.Join(c.Embed.Prefix, f.Path)] = f.Data
+					}
+				}
+				return true
+			})
 		}
 	}
 	names := make([]string, 0, len(byPath))
