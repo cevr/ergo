@@ -10,8 +10,9 @@ type Conflict { ID string, Status string, Event string }
 // Step is the lifecycle: a pending deploy is approved or cancelled; an
 // approved one is released (live) or cancelled; a second approval is
 // ignored; a live or a cancelled deploy takes no event. The match names every pair, so a new
-// status or event stops the build until its row is written.
-func Step(s Status, e Event) Decision[Status, Status] {
+// status or event stops the build until its row is written. A deploy
+// gives no output and never ends: its output is Never.
+func Step(s Status, e Event) Decision[Status, Never] {
 	match (s, e) {
 	case (Pending, Approve):
 		Enter[Status]{Next: Approved}
