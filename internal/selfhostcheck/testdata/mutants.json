@@ -9,7 +9,7 @@
       "to": "\t\t\tif len(items) + 1 < count {\n\t\t\t\titems = items.Append(x)\n\t\t\t}\n",
       "rule": "Decode keeps every item of a list: a dropped child is a different tree.",
       "killers": [
-        "selfhostcheck:TestSelfhostBridgeAgrees"
+        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
       ]
     },
     {
@@ -20,7 +20,7 @@
       "to": "(Position{At: Some[int]{Value: 0}}, at + 1)",
       "rule": "An absent position (syntax.NoPos) is None, never offset 0.",
       "killers": [
-        "selfhostcheck:TestSelfhostBridgeAgrees"
+        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
       ]
     },
     {
@@ -31,7 +31,7 @@
       "to": "func str(s string) string  { s = strings.ToValidUTF8(s, \"\\uFFFD\"); return",
       "rule": "The encoding carries every string byte for byte, invalid UTF-8 included.",
       "killers": [
-        "selfhostcheck:TestSelfhostBridgeAgrees"
+        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
       ]
     },
     {
@@ -42,7 +42,7 @@
       "to": "Column: offset - t.Lines[line]}",
       "rule": "Locate counts the line and the byte column from 1, as syntax.File.Position does.",
       "killers": [
-        "selfhostcheck:TestSelfhostBridgeAgrees"
+        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
       ]
     },
     {
@@ -53,7 +53,7 @@
       "to": "integer(0)",
       "rule": "A syntax failure crosses with its code, message, offset, length, line and column.",
       "killers": [
-        "selfhostcheck:TestSelfhostBridgeAgrees"
+        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
       ]
     },
     {
@@ -64,7 +64,7 @@
       "to": "",
       "rule": "The encoding carries every node type of the syntax package; the corpus may not yet write a new one.",
       "killers": [
-        "selfhost/hostsyntax:TestFamiliesCoverSyntax"
+        "internal/selfhostcheck/testdata/selfhost/hostsyntax:TestFamiliesCoverSyntax"
       ]
     },
     {
@@ -75,7 +75,7 @@
       "to": "let at = NoPos",
       "rule": "A synthesized token found next in the source prints at its source position, so a comment before it stays before it.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -86,7 +86,7 @@
       "to": "\t\tfalse\n",
       "rule": "A declaration the parser derived from a refinement is not printed: the parser derives it again.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -97,7 +97,7 @@
       "to": "\t\tb == '='\n",
       "rule": "Two bytes that would lex as one token (- -) are written with a blank between them.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -108,7 +108,7 @@
       "to": "case \"*\", \"/\", \"<<\", \">>\", \"&\", \"&^\":",
       "rule": "The precedence table is syntax.Token.Precedence: % binds at level 5, which decides the blanks around it (gofmt's cutoff).",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -119,7 +119,7 @@
       "to": "width = maxOf(width, len(lines[k].Cells[column]))",
       "rule": "A column's width counts runes, not bytes.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -130,7 +130,7 @@
       "to": "if false && hi > alignSmall {",
       "rule": "The section bound: once a cell is wider than alignSmall, every cell of the section stays within alignRatio of the widest.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -141,7 +141,7 @@
       "to": "\t\tif size > limit+1 {\n",
       "rule": "A positive limit one byte below the size is refused.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -152,7 +152,7 @@
       "to": "if blank {",
       "rule": "A line break asked as never blank (after an opener) never keeps the source's blank line.",
       "killers": [
-        "selfhostcheck:TestSelfhostLayoutModel"
+        "internal/selfhostcheck:TestSelfhostLayoutModel"
       ]
     },
     {
@@ -163,7 +163,7 @@
       "to": "\t\twidth += 1\n",
       "rule": "A column block of empty cells takes no width.",
       "killers": [
-        "selfhostcheck:TestSelfhostLayoutModel"
+        "internal/selfhostcheck:TestSelfhostLayoutModel"
       ]
     },
     {
@@ -174,7 +174,7 @@
       "to": "\tlet text = build(lines, w, first)\n\tif limit > 0 && len(text) > limit {\n\t\treturn OutputLimit{Limit: limit, Built: len(text)}\n\t}\n",
       "rule": "A refusal is decided from the computed size before any text is built (the refusal reports the bytes built: none).",
       "killers": [
-        "selfhostcheck:TestSelfhostLayoutModel"
+        "internal/selfhostcheck:TestSelfhostLayoutModel"
       ]
     },
     {
@@ -185,7 +185,7 @@
       "to": "\t\tp.emit(slash)\n\t\tp.L.step(Put{Text: \" \"})\n",
       "rule": "A comment that ends a line is a cell of its own, aligned with the trailing comments of its neighbours.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -196,7 +196,7 @@
       "to": "p.ln(p.CSlash[p.Ci])-p.ln(p.LastEnd) >= 3 {",
       "rule": "A comment after a clause's last statement belongs to the next clause when a blank line separates it from the statement.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -207,7 +207,7 @@
       "to": "len(contents) > 2 {",
       "rule": "A braced body stays on one line with at most one element: an explicit ; becomes a line break.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -218,7 +218,7 @@
       "to": "case \"SwitchStmt\", \"TypeSwitchStmt\":\n\t\treturn true",
       "rule": "A catch prints its clauses on lines of their own, so a body that holds one is never on one line.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -229,7 +229,7 @@
       "to": "if text == \";\" ||",
       "rule": "After a block comment on the same line, no blank is written before a comma (go/printer).",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -240,7 +240,7 @@
       "to": "if false && (p.n(base, \"Kind\") == tokenINT",
       "rule": "A selector on a number literal keeps a blank before the dot, or `0.A` would scan as the number `0.`.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -251,7 +251,7 @@
       "to": "blanks = count > 0 && binary",
       "rule": "A slice expression has blanks around its colons only when more than one index is present and one is binary.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -262,7 +262,7 @@
       "to": "",
       "rule": "A union prints one variant per line when a variant spans several source lines.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -273,7 +273,7 @@
       "to": "endOf(t, kid(t, id, \"Body\"))",
       "rule": "An if ends where its else ends (syntax.IfStmt.End): an if on one line keeps its blocks on that line.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -284,7 +284,7 @@
       "to": "l.cellText()",
       "rule": "A cell ended by a separator drops its trailing blanks before it is padded.",
       "killers": [
-        "selfhostcheck:TestSelfhostLayoutModel"
+        "internal/selfhostcheck:TestSelfhostLayoutModel"
       ]
     },
     {
@@ -295,7 +295,7 @@
       "to": "format.Emit{Blank: w[at+1] == '0'}",
       "rule": "Steps reads the command list the model writes.",
       "killers": [
-        "selfhostcheck:TestSelfhostLayoutModel"
+        "internal/selfhostcheck:TestSelfhostLayoutModel"
       ]
     },
     {
@@ -306,8 +306,8 @@
       "to": "",
       "rule": "A struct a family's field points to (LawDecl.Rewrite) is a family: else the encoding is a U document while the Go projection prints it.",
       "killers": [
-        "selfhost/hostsyntax:TestFamiliesCoverSyntax",
-        "selfhostcheck:TestSelfhostBridgeAgrees"
+        "internal/selfhostcheck/testdata/selfhost/hostsyntax:TestFamiliesCoverSyntax",
+        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
       ]
     },
     {
@@ -318,7 +318,7 @@
       "to": "\tif false && p.hasK(l, \"Rewrite\") {\n",
       "rule": "A rewrite law prints as `{ lhs } == { rhs }`, as the Go formatter's memberLaw does, not its synthetic Body.",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
     {
@@ -329,7 +329,7 @@
       "to": "\t\tif false {\n",
       "rule": "A rewrite law's `when R() == C` guard is printed (types.md Laws 14's SepAfterValue fence).",
       "killers": [
-        "selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     }
   ]

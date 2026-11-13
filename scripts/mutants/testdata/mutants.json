@@ -54,6 +54,78 @@
       "to": "\treturn dir, func() {}, nil\n",
       "rule": "The default -work is removed at the end of its run.",
       "killers": ["scripts/mutants:TestDefaultWorkIsPrivate"]
+    },
+    {
+      "name": "xpkg-named-killer-not-run",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/runner.go",
+      "from": "\textra := killerIDs(m)\n",
+      "to": "\textra := anchorTests(m)\n",
+      "rule": "A ledger's named killer runs whether or not the coverage pass saw it reach the mutated lines: a test in another package kills through a program it builds.",
+      "killers": ["scripts/mutants:TestRunnerMatchesModel"]
+    },
+    {
+      "name": "xpkg-unresolved-skipped",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/main.go",
+      "from": "unresolved = append(unresolved, fmt.Sprintf(\"%s: %s: %s\", j.Path, m.Name, id))",
+      "to": "_ = id",
+      "rule": "A killer whose suite resolves to nothing is refused, not skipped (45 rows named v1:, main:, sched:, tsproj: … and were never run).",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "xpkg-select-ignored",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/main.go",
+      "from": "if j.Select != nil && !j.Select.MatchString(m.Name) {",
+      "to": "if false {",
+      "rule": "Only the selected rows bring killer suites: a run of one row builds the suites that row names, not every killer suite of its ledger.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "xpkg-note-kept",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/runner.go",
+      "from": "\tname, _, _ = strings.Cut(name, \" \")\n",
+      "to": "\t_ = \" \"\n",
+      "rule": "A note after a killer's test name (past a space) is the reader's: the runner runs the test it names.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun", "scripts/mutants:TestRunnerMatchesModel"]
+    },
+    {
+      "name": "xpkg-named-dropped",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/main.go",
+      "from": "suites[i].Named = append(suites[i].Named, test)",
+      "to": "_ = test",
+      "rule": "Every suite records the tests the ledgers name, so a Go suite missing one is refused and a command suite runs a named example that is not a default.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "xpkg-example-ledger-own-suite",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\tif goFiles(absRoot, rel, true) {\n",
+      "to": "\t\tif true {\n",
+      "rule": "A ledger whose directory has no Go tests (an example's, editing .ergo files) brings no suite of its own, which would not build; its named killers judge it.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "xpkg-stale-killer-accepted",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/runner.go",
+      "from": "\t\t\tif len(missing) > 0 {\n",
+      "to": "\t\t\tif false {\n",
+      "rule": "A Go suite that lacks a test a ledger names is refused before the mutant pass.",
+      "gap": "No runner test builds a suite missing a named test; internal/residue:TestLedgerEditsApplyOnce refuses such a row in the checkout's ledgers before any run (ledger-killer-alias)."
+    },
+    {
+      "name": "xpkg-command-named-dropped",
+      "origin": "wf10 fu-mutants-xpkg",
+      "file": "scripts/mutants/runner.go",
+      "from": "\t\t\tfor _, n := range s.Named {\n\t\t\t\tif !slices.Contains(names, n) {",
+      "to": "\t\t\tfor _, n := range []string{} {\n\t\t\t\tif !slices.Contains(names, n) {",
+      "rule": "A command suite (the examples) runs a named example that is not a default one.",
+      "gap": "The fake module of TestRunnerMatchesModel has Go suites only; the affected run of scripts/examples' ledger (examples:router) exercises it."
     }
   ]
 }
