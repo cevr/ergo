@@ -1890,6 +1890,141 @@ func lawQueryRoundTrips(seed int, a string, b string, tags []string) bool {
 	back == v && u.Path == "/list" && u.Fragment == "top" && nested == "inner" && scalar == "none"
 }
 
+func replyWork(gate queue.Queue[int], last int) func(s int) Option[func(send func(e int))] {
+	func(s int) Option[func(send func(e int))] {
+		if s >= last {
+			return None
+		}
+		Some{Value: func(send func(e int)) {
+			let _ = gate.Pop() catch {
+			case queue.Closed:
+				return
+			}
+			send(s + 1)
+		}}
+	}
+}
+
+func replyStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func replyTimer(s int) Option[Timeout[int]] { None }
+
+func replyMachine(gate queue.Queue[int], last int) Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: replyStep, After: replyTimer, Work: replyWork(gate, last)}
+}
+
+func replyView(f *ui.Frame[int], s int) { ui.Text(f, "at \(s)") }
+
+func lawWorkReplyIsShown(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		replyShown(n, m)
+	}
+}
+
+func replyShown(n int, m time.Manual) bool needs Scheduler {
+	let last = (n%3+3)%3 + 1
+	let gate = queue.New[int](last)
+	let a = actor.StartMachine(replyMachine(gate, last), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, replyView, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	if !ui.SameShapes(ui.Screen(&h), []ui.Shape[int]{leaf(ui.TextNode{Value: "at 0", Style: ui.Plain()})}) {
+		return false
+	}
+	for i in 0..last {
+		gate.Push(i) catch {
+		case queue.Closed:
+			return false
+		}
+		let _ = actor.WaitFor(a, func(s int) bool { s == i+1 }) catch {
+		case actor.Stopped:
+			return false
+		}
+		ui.Settle(&h) catch {
+		case _:
+			return false
+		}
+		if !ui.SameShapes(ui.Screen(&h), []ui.Shape[int]{leaf(ui.TextNode{Value: "at \(i + 1)", Style: ui.Plain()})}) {
+			return false
+		}
+	}
+	true
+}
+
+func lawWatcherShowsWorkReplies(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		watchReplies(n)
+	}
+}
+
+func watchReplies(n int) bool needs Scheduler {
+	let last = (n%3+3)%3 + 1
+	let gate = queue.New[int](last)
+	let posted = queue.New[ui.Event[int]](8)
+	let a = actor.StartMachine(replyMachine(gate, last), 1, func(o int) {})
+	let (s, first) = ui.Start(a, replyView, func(ev ui.Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	if !writesText(first, "at 0") {
+		return false
+	}
+	for i in 1..last+1 {
+		gate.Push(i) catch {
+		case queue.Closed:
+			return false
+		}
+		let mut shown = false
+		for !shown {
+			let ev = posted.Pop() catch {
+			case queue.Closed:
+				return false
+			}
+			match ev {
+			case ui.Committed:
+			case _:
+				return false
+			}
+			let ops = ui.Step(&session, ev) catch {
+			case actor.Stopped:
+				return false
+			}
+			shown = writesText(ops, "at \(i)")
+		}
+	}
+	true
+}
+
+func writesText(ops []ui.Op[int], v string) bool {
+	for op in ops {
+		let mut node Option[ui.Node[int]] = None
+		match op {
+		case ui.Insert[int] as x:
+			node = Some{Value: x.Node}
+		case ui.Set[int] as x:
+			node = Some{Value: x.Node}
+		case _:
+		}
+		match node {
+		case Some[ui.Node[int]] as x:
+			match x.Value {
+			case ui.TextNode as t:
+				if t.Value == v {
+					return true
+				}
+			case _:
+			}
+		case None:
+		}
+	}
+	false
+}
+
 test UiScriptShowsTheView(seed int, steps int) {
 	assert lawScriptShowsTheView(seed, steps)
 }
@@ -1942,6 +2077,14 @@ test UiQueryRoundTrips(seed int, a string, b string, tags []string) {
 	assert lawQueryRoundTrips(seed, a, b, tags)
 }
 
+test UiWorkReplyIsShown(n int) {
+	assert lawWorkReplyIsShown(n)
+}
+
+test UiWatcherShowsWorkReplies(n int) {
+	assert lawWatcherShowsWorkReplies(n)
+}
+
 
 test UiLocationPushThenBackRestores(path string) {
 	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
@@ -1992,6 +2135,8 @@ var stdUIHostStatements = map[string]string{
 	"ui EscapeRoundTrips":              `EscapeRoundTrips(s string, t string) { let e = Escape(s) let mut lower = "" for i in 0..len(s) { lower = lower + "%" + hex.Encode(s[i:i+1]) } let plain = strings.ReplaceAll(t, "%", "") escapedForm(e) && Unescape(e) == s && Unescape(lower) == s && Unescape(plain) == plain && Unescape(s+"%4g"+plain) == Unescape(s)+"%4g"+plain }`,
 	"ui SegmentsReadPathOf":            `SegmentsReadPathOf(xs []string) { let path = PathOf(xs) let mut want = []string{} for x in xs { if x != "" { want = want.Append(x) } } let got = Segments(URL{Path: path, Query: "", Fragment: ""}) if len(got) != len(want) || ParseURL(path).Path != path { return false } for i, x in want { if got[i] != x { return false } } true }`,
 	"ui QueryRoundTrips":               `QueryRoundTrips(seed int, a string, b string, tags []string) { let mut r = seeded(seed) let mut note json.Optional[string] = json.Absent if draw(&r, 2) == 0 { note = json.Present{Value: b + a} } let mut ts = tags if len(ts) == 0 { ts = []string{a} } let v = queryRecord{Name: a, Sort: b, Page: draw(&r, 2001) - 1000, Big: uint64(draw(&r, 1000000)) * 18446744073709, Ratio: float64(draw(&r, 2001)-1000) / 8.0, On: draw(&r, 2) == 0, Note: note, Tags: ts} let u = WithQuery(URL{Path: "/list", Query: "", Fragment: "top"}, v) catch { case QueryShape: return false } let back = QueryOf[queryRecord](ParseURL(Href(u))) catch { case _: return false } let nested = EncodeQuery(queryNested{Name: a, Inner: v}) catch { case QueryShape as q: q.Key } let scalar = EncodeQuery(draw(&r, 9)) catch { case QueryShape as q: "none" + q.Key } back == v && u.Path == "/list" && u.Fragment == "top" && nested == "inner" && scalar == "none" }`,
+	"ui WorkReplyIsShown":              `WorkReplyIsShown(n int) { let m = time.NewManual(0) with context { Scheduler: m } { replyShown(n, m) } }`,
+	"ui WatcherShowsWorkReplies":       `WatcherShowsWorkReplies(n int) { let m = time.NewManual(0) with context { Scheduler: m } { watchReplies(n) } }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,

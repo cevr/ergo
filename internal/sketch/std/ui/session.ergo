@@ -1,4 +1,5 @@
 import actor
+import sync
 import task
 
 // Session is the loop of one view over one actor, whatever the host: the
@@ -11,11 +12,17 @@ type Session[S, E, D, F] {
 	view     func(f *Frame[E], s S),
 	post     func(ev Event[E]),
 	inflight Map[int, Task[bool]],
+	stale    sync.Ref[bool],
+	watch    Task[bool],
 }
 
 // Start renders the first pass of view over a's state and starts its
 // fetches; post gets each fetch's result as an Arrived event, on the
-// fetch's task. The result is the first patch. The view may need
+// fetch's task, and a Committed when the actor commits a state by its own
+// work or timer (DOMAIN PX3a: a work's reply is shown), on the session's
+// watcher task, which reads a.Changes(): every state change redraws, as
+// every Msg does in Elm, and a commit the loop's own signal made already
+// redraws through Step. The result is the first patch. The view may need
 // capabilities (H8b, Q16): Start's caller has them in force, and every
 // pass of the session runs the view with those providers, held with
 // InForce, so a Step needs none of its own.
@@ -26,7 +33,20 @@ func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view escaping fu
 			view(f, st)
 		}
 	}
-	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}}
+	// The watcher marks the session stale at each state the actor commits
+	// and posts one Committed while it is not; a pass clears it. The first
+	// state Changes gives is the state when its loop began, which may be
+	// after the first pass, so it posts too.
+	let stale = sync.NewRef(false)
+	let watch = task.Go() {
+		for _ in a.Changes() {
+			if !sync.Modify(stale, func(b bool) (bool, bool) { (b, true) }) {
+				post(Committed)
+			}
+		}
+		true
+	}
+	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}, stale: stale, watch: watch}
 	let ops = runPass(&s)
 	(s, ops)
 }
@@ -34,6 +54,7 @@ func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view escaping fu
 // runPass renders the actor's state, then starts each Fetch of the commit as
 // a task and stops the task of each Cancel.
 func runPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
+	s.stale.Set(false)
 	let ops = Render(&s.frame, s.view, s.actor.State())
 	for j in Jobs(&s.frame) {
 		match j {
@@ -71,11 +92,18 @@ func finish[S, E, D, F](s *Session[S, E, D, F], epoch int) {
 // the actor; after a signal or a changed cell the view renders again and
 // the result is that pass's patch, else no op. A Tick sends the signal of
 // each Animate of the last pass, in pass order, and renders once after
-// them; a Tick while the last pass made no Animate does nothing.
+// them; a Tick while the last pass made no Animate does nothing. A
+// Committed renders again when the actor committed a state since the last
+// pass began, and does nothing when that pass showed it already.
 func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
 	match ev {
 	case Arrived[E] as x:
 		finish(s, x.Epoch)
+	case Committed:
+		if sync.Modify(s.stale, func(b bool) (bool, bool) { (b, false) }) {
+			return runPass(s)
+		}
+		return []Op[E]{}
 	case Tick as t:
 		let signals = ticked(&s.frame, t.At)
 		if len(signals) == 0 {

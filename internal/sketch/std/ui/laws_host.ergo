@@ -1263,3 +1263,153 @@ law QueryRoundTrips(seed int, a string, b string, tags []string) {
 	}
 	back == v && u.Path == "/list" && u.Fragment == "top" && nested == "inner" && scalar == "none"
 }
+
+// replyWork is the work of the reply app's state s: while s is under
+// last, it waits for the law to release one reply on gate and sends the
+// next state, as a request's reply arrives through a machine's work.
+func replyWork(gate queue.Queue[int], last int) func(s int) Option[func(send func(e int))] {
+	func(s int) Option[func(send func(e int))] {
+		if s >= last {
+			return None
+		}
+		Some{Value: func(send func(e int)) {
+			let _ = gate.Pop() catch {
+			case queue.Closed:
+				return
+			}
+			send(s + 1)
+		}}
+	}
+}
+
+func replyStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func replyTimer(s int) Option[Timeout[int]] { None }
+
+func replyMachine(gate queue.Queue[int], last int) Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: replyStep, After: replyTimer, Work: replyWork(gate, last)}
+}
+
+// replyView shows the reply app's state.
+func replyView(f *Frame[int], s int) { Text(f, "at \(s)") }
+
+// WorkReplyIsShown (DOMAIN PX3a): a reply that reaches the actor through
+// its machine's work, not through an event of the loop, is on the test
+// host's screen after a Settle, one reply at a time; before the first,
+// the screen shows the first state.
+law WorkReplyIsShown(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		replyShown(n, m)
+	}
+}
+
+func replyShown(n int, m time.Manual) bool needs Scheduler {
+	let last = (n%3+3)%3 + 1
+	let gate = queue.New[int](last)
+	let a = actor.StartMachine(replyMachine(gate, last), 1, func(o int) {})
+	let mut h = NewTestHost(a, replyView, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	if !SameShapes(Screen(&h), []Shape[int]{leaf(TextNode{Value: "at 0", Style: Plain()})}) {
+		return false
+	}
+	for i in 0..last {
+		gate.Push(i) catch {
+		case queue.Closed:
+			return false
+		}
+		let _ = actor.WaitFor(a, func(s int) bool { s == i+1 }) catch {
+		case actor.Stopped:
+			return false
+		}
+		Settle(&h) catch {
+		case _:
+			return false
+		}
+		if !SameShapes(Screen(&h), []Shape[int]{leaf(TextNode{Value: "at \(i + 1)", Style: Plain()})}) {
+			return false
+		}
+	}
+	true
+}
+
+// WatcherShowsWorkReplies (DOMAIN PX3a): a Session, as Run drives it,
+// shows each reply its actor's work commits with no event of the host's:
+// the session's watcher posts Committed, and the Step of it writes the
+// reply's text (a Committed of a state a pass showed already writes
+// nothing, and the law takes the next). The law waits for each post; a session that never posts hangs the law, which
+// the test's deadline names.
+law WatcherShowsWorkReplies(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		watchReplies(n)
+	}
+}
+
+func watchReplies(n int) bool needs Scheduler {
+	let last = (n%3+3)%3 + 1
+	let gate = queue.New[int](last)
+	let posted = queue.New[Event[int]](8)
+	let a = actor.StartMachine(replyMachine(gate, last), 1, func(o int) {})
+	let (s, first) = Start(a, replyView, func(ev Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	if !writesText(first, "at 0") {
+		return false
+	}
+	for i in 1..last+1 {
+		gate.Push(i) catch {
+		case queue.Closed:
+			return false
+		}
+		let mut shown = false
+		for !shown {
+			let ev = posted.Pop() catch {
+			case queue.Closed:
+				return false
+			}
+			match ev {
+			case Committed:
+			case _:
+				return false
+			}
+			let ops = Step(&session, ev) catch {
+			case actor.Stopped:
+				return false
+			}
+			shown = writesText(ops, "at \(i)")
+		}
+	}
+	true
+}
+
+// writesText is whether ops write a text node of value v.
+func writesText(ops []Op[int], v string) bool {
+	for op in ops {
+		let mut node Option[Node[int]] = None
+		match op {
+		case Insert[int] as x:
+			node = Some{Value: x.Node}
+		case Set[int] as x:
+			node = Some{Value: x.Node}
+		case _:
+		}
+		match node {
+		case Some[Node[int]] as x:
+			match x.Value {
+			case TextNode as t:
+				if t.Value == v {
+					return true
+				}
+			case _:
+			}
+		case None:
+		}
+	}
+	false
+}

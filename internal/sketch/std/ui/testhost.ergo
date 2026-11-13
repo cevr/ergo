@@ -74,19 +74,30 @@ func Pump[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | 
 }
 
 // Settle waits until no fetch is in flight and every posted result is
-// taken: the screen then shows the actor's latest state with each live
+// taken, then runs a pass: the screen then shows the actor's latest state,
+// also one its work or timer committed, with each live
 // load's result (models/uiloop SettledShowsLatest). A fetch that waits on
 // the clock waits until an Advance; Settle does not move the clock, so a
 // script advances first.
 func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
-	for InFlight(&h.session) > 0 {
-		let ev = h.posted.Pop() catch {
-		case queue.Closed:
+	for {
+		for InFlight(&h.session) > 0 {
+			let ev = h.posted.Pop() catch {
+			case queue.Closed:
+				return
+			}
+			try apply(h, ev)
+		}
+		try Pump(h)
+		// A state the actor committed by its own work or timer reaches the
+		// loop as Committed, on the watcher's task, at no time a test can
+		// wait for; so Settle ends with a pass, which shows nothing new when
+		// nothing changed, and settles the loads that pass started.
+		try Apply(&h.mirror, runPass(&h.session))
+		if InFlight(&h.session) == 0 {
 			return
 		}
-		try apply(h, ev)
 	}
-	try Pump(h)
 }
 
 // Advance moves the clock by d. While the view animates, it moves it a
