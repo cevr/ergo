@@ -632,6 +632,18 @@ func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
 			return nil, ab
 		}
 		return in.convert(fr, x, v, fr.rtypeOf(x.Args[0]), fr.rt(c.Type))
+	case check.CallPattern:
+		// A refinement's pattern (types.md, Refinements 11).
+		v, ab := in.expr(fr, x.Args[0])
+		if ab != nil {
+			return nil, ab
+		}
+		s, ok := v.(string)
+		if !ok {
+			ice("a pattern of %T", v)
+		}
+		mustCharge(in, fr, int64(len(s)))
+		return c.Pattern.Match(s), nil
 	case check.CallLen:
 		v, ab := in.expr(fr, x.Args[0])
 		if ab != nil {

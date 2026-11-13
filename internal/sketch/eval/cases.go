@@ -395,6 +395,17 @@ func (in *interp) genVariant(fr *frame, r *testgen.Stream, vs []check.Type, d in
 	return in.generate(fr, r, vs[k], d-1, nil)
 }
 func (in *interp) genRefined(fr *frame, r *testgen.Stream, t check.Type, d int, ref *check.Refinement) Value {
+	if ref.Pattern != nil {
+		// A pattern (types.md, Refinements 11): a length it reaches, then a
+		// walk of its automaton (check.Matcher.Generate).
+		n := r.In(ref.GenLengths(32))
+		mustCharge(in, fr, n)
+		s, ok := ref.Pattern.Generate(int(n), r.Intn)
+		if !ok {
+			ice("no value of %d bytes matches the pattern of %s", n, t)
+		}
+		return s
+	}
 	var spans [][2]int64
 	for _, s := range ref.Spans {
 		hi := new(big.Int).Set(s.Hi)
