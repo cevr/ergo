@@ -34,7 +34,9 @@ import (
 // The guard is a ratio of counts, never of time: with d1 = I(2n) - I(n)
 // and d2 = I(4n) - I(2n) the user-space instructions of the whole process,
 // linear work gives d2/d1 near 2 and quadratic work near 4; the bound is
-// 2.6, on the medians of 3 rounds. It builds Go because the claim is about
+// 3.0, on the medians of 3 rounds. The collector's marking of a larger
+// heap moved router's linear ratio between 1.7 and 2.4 across runs, and
+// the copying reference's lowest ratio is 3.41. It builds Go because the claim is about
 // the machine work of the built program, which no in-process check of the
 // lowered Go shows. Each program runs bounded by proclimit, and the test
 // waits for its exit. A host with no counter of user-space instructions
@@ -121,8 +123,8 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		d1, d2 := brcMedian(d1s), brcMedian(d2s)
 		ratio := d2 / d1
 		t.Logf("%s at %d, %d, %d: d1 %.0f, d2 %.0f instructions; d2/d1 %.2f", p.name, p.base, 2*p.base, 4*p.base, d1, d2, ratio)
-		if d1 <= 0 || ratio > 2.6 {
-			t.Errorf("%s grows faster than linearly: d2/d1 = %.2f (d1 %.0f, d2 %.0f), want at most 2.6", p.name, ratio, d1, d2)
+		if d1 <= 0 || ratio > 3.0 {
+			t.Errorf("%s grows faster than linearly: d2/d1 = %.2f (d1 %.0f, d2 %.0f), want at most 3.0", p.name, ratio, d1, d2)
 		}
 	}
 }
