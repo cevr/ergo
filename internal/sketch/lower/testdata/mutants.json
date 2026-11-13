@@ -4082,6 +4082,40 @@
         "lower:TestJSONFieldsAgree",
         "lower:TestNestedEncodeKeepsTheFastText"
       ]
+    },
+    {
+      "name": "floatlit-always-exact",
+      "origin": "wf10 fu-floatlit (PA2 gaps.md tomlparse item 6)",
+      "file": "internal/sketch/lower/types.go",
+      "from": "\t\tconstant.BitLen(num) <= goConstBits && constant.BitLen(den) <= goConstBits {",
+      "to": "\t\ttrue {",
+      "rule": "A float constant whose fraction has parts past Go's 512-bit limit (2.5e-300) is written as its correctly rounded shortest decimal, not as num.0/den, which Go refuses as \"constant overflow\".",
+      "killers": [
+        "lower:TestFloatLiteralTinyLowers",
+        "lower:TestFloatLiteralsLowerExactly"
+      ]
+    },
+    {
+      "name": "floatlit-short-decimal",
+      "origin": "wf10 fu-floatlit",
+      "file": "internal/sketch/lower/types.go",
+      "from": "return \"(\" + strconv.FormatFloat(f, 'g', -1, 64) + \")\"",
+      "to": "return \"(\" + strconv.FormatFloat(f, 'g', 15, 64) + \")\"",
+      "rule": "The decimal fallback for a float64 is the shortest that reads back as the same float64, so the literal's value is kept to the last bit.",
+      "killers": [
+        "lower:TestFloatLiteralsLowerExactly"
+      ]
+    },
+    {
+      "name": "floatlit-float32-rounds-twice",
+      "origin": "wf10 fu-floatlit",
+      "file": "internal/sketch/lower/types.go",
+      "from": "\tif k == check.Float32 {\n\t\tf, _ := constant.Float32Val(v)",
+      "to": "\tif k == check.Float32 && false {\n\t\tf, _ := constant.Float32Val(v)",
+      "rule": "A float32 constant's decimal fallback is rounded to float32 from the exact value, not first to float64 and then again (double rounding).",
+      "killers": [
+        "lower:TestFloatLiteralsLowerExactly"
+      ]
     }
   ]
 }
