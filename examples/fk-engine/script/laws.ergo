@@ -1,0 +1,84 @@
+// The live screen's laws over generated scripts of starts, stops,
+// computes, boot faults and clock moves.
+
+import fkengine/engine
+import time
+
+// lines is a generated script: gaps of 0 to 2999 ms, or (for an even
+// number) whole tenths of a second up to 9.9 s, which land presses on the
+// instants boots end (a boot takes 500 ms), and presses of every kind.
+func lines(gaps []int, kinds []int) []Line {
+	let mut out = []Line{}
+	let mut t = 0s
+	for i, g in gaps {
+		t = t + if pick(g, 2) == 0 { time.Times(100ms, pick(g/2, 100)) } else { time.Times(1ms, pick(g, 3000)) }
+		let press = match pick(if i < len(kinds) { kinds[i] } else { 0 }, 4) {
+		case 0:
+			Start
+		case 1:
+			Stop
+		case 2:
+			Compute
+		case _:
+			Fault
+		}
+		out = out.Append(Line{At: t, Press: press})
+	}
+	out
+}
+
+// live is Play over ls until end, on a fresh time.Manual.
+func live(ls []Line, end duration) []Seen {
+	let c = time.NewManual(0)
+	with context { Scheduler: c } { Play(ls, end, c) }
+}
+
+// ReleasesEqualAcquires: after every press, one engine is out while the
+// screen is ready and none otherwise; once the screen stops, every engine
+// booted is back.
+law ReleasesEqualAcquires(gaps []int, kinds []int, tail int) {
+	let ls = lines(gaps, kinds)
+	let end = (if len(ls) > 0 { ls[len(ls)-1].At } else { 0s }) + time.Times(1ms, pick(tail, 2000))
+	let seen = live(ls, end)
+	for i, s in seen {
+		if i < len(ls) && s.Held != (if isReady(s.Mode) { 1 } else { 0 }) {
+			return false
+		}
+	}
+	seen[len(seen)-1].Held == 0
+}
+
+// OneBootPerStart: no more engines boot than the starts pressed while the
+// screen was off or failed; a start while booting or ready boots nothing,
+// and a stop while booting ends the boot before it gives an engine.
+law OneBootPerStart(gaps []int, kinds []int) {
+	let ls = lines(gaps, kinds)
+	let seen = live(ls, if len(ls) > 0 { ls[len(ls)-1].At } else { 0s })
+	let mut starts = 0
+	for i, l in ls {
+		if l.Press == Start && canStart(seen[i].Before) {
+			starts = starts + 1
+		}
+	}
+	seen[len(seen)-1].Booted <= starts
+}
+
+func canStart(m engine.Mode) bool {
+	match m {
+	case engine.Off, engine.Failed:
+		true
+	case engine.Ready, engine.Booting:
+		false
+	}
+}
+
+func isReady(m engine.Mode) bool {
+	match m {
+	case engine.Ready:
+		true
+	case engine.Off, engine.Booting, engine.Failed:
+		false
+	}
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }

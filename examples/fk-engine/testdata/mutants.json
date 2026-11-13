@@ -1,0 +1,77 @@
+{
+  "about": "fk-engine's application mutants; each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk6-stop-stays", "origin": "wf10/fk6a",
+      "file": "examples/fk-engine/engine/panel.ergo",
+      "from": "\tcase (Booting, Stop), (Ready, Stop):\n\t\tEnter[Mode]{Next: Off}\n",
+      "to": "\tcase (Booting, Stop), (Ready, Stop):\n\t\tStay[Mode]{Next: Off}\n",
+      "rule": "A stop ends the entry that holds the lease, so the engine is released (law ReleasesEqualAcquires).",
+      "anchor": {"tests": ["examples:fk-engine"]}, "killers": ["examples:fk-engine"]
+    },
+    {
+      "name": "fk6-started-enters", "origin": "wf10/fk6a",
+      "file": "examples/fk-engine/engine/panel.ergo",
+      "from": "\t\tStay[Mode]{Next: Ready{Engine: st.Engine, Computed: 0, Last: None}}\n",
+      "to": "\t\tEnter[Mode]{Next: Ready{Engine: st.Engine, Computed: 0, Last: None}}\n",
+      "rule": "Ready keeps the boot's entry, and with it the lease (law ReleasesEqualAcquires).",
+      "anchor": {"tests": ["examples:fk-engine"]}, "killers": ["examples:fk-engine"]
+    },
+    {
+      "name": "fk6-ready-reboots", "origin": "wf10/fk6a",
+      "file": "examples/fk-engine/engine/panel.ergo",
+      "from": "\tcase (Off, Start), (Failed, Start):\n",
+      "to": "\tcase (Ready, Start):\n\t\tEnter[Mode]{Next: Booting}\n\tcase (Off, Start), (Failed, Start):\n",
+      "rule": "A start while ready boots nothing (law OneBootPerStart).",
+      "anchor": {"tests": ["examples:fk-engine"]}, "killers": ["examples:fk-engine"]
+    },
+    {
+      "name": "fk6-square-of-the-old-count", "origin": "wf10/fk6a",
+      "file": "examples/fk-engine/engine/panel.ergo",
+      "from": "Last: Some{Square(r.Engine, n)}",
+      "to": "Last: Some{Square(r.Engine, r.Computed)}",
+      "rule": "A compute squares the next count (law ComputeNeedsAnEngine).",
+      "anchor": {"tests": ["examples:fk-engine"]}, "killers": ["examples:fk-engine"]
+    },
+    {
+      "name": "fk6-lease-not-held", "origin": "wf10/fk6a",
+      "file": "examples/fk-engine/engine/panel.ergo",
+      "from": "\t\t\tlet _ = until.Pop() catch {\n",
+      "to": "\t\t\tuntil.End()\n\t\t\tlet _ = until.Pop() catch {\n",
+      "rule": "The boot's work holds the lease until its entry ends (law ReleasesEqualAcquires).",
+      "anchor": {"tests": ["examples:fk-engine"]}, "killers": ["examples:fk-engine"]
+    },
+    {
+      "name": "fk6-failed-stays-failed", "origin": "wf10/fk6a",
+      "file": "examples/fk-engine/engine/panel.ergo",
+      "from": "\tcase (Off, Start), (Failed, Start):\n",
+      "to": "\tcase (Off, Start):\n",
+      "rule": "A start after a failed boot boots again (case engine).",
+      "anchor": {"tests": ["examples:fk-engine"]}, "killers": ["examples:fk-engine"]
+    },
+    {
+      "name": "fk6-pool-one-id", "origin": "wf10/fk6a",
+      "file": "examples/fk-engine/memory/pool.ergo",
+      "from": "engine.Engine{ID: \"engine-\\(n)\"}",
+      "to": "engine.Engine{ID: \"engine-1\"}",
+      "rule": "Engines held at once are distinct engines (law EveryLeaseComesBack).",
+      "anchor": {"tests": ["examples:fk-engine"]}, "killers": ["examples:fk-engine"]
+    },
+    {
+      "name": "fk6-release-uncounted", "origin": "wf10/fk6a",
+      "file": "examples/fk-engine/memory/pool.ergo",
+      "from": "let _ = p.released.Add(1)",
+      "to": "let _ = p.released.Add(0)",
+      "rule": "Every lease's end gives its engine back (laws EveryLeaseComesBack, ReleasesEqualAcquires).",
+      "anchor": {"tests": ["examples:fk-engine"]}, "killers": ["examples:fk-engine"]
+    },
+    {
+      "name": "fk6-fault-ignored", "origin": "wf10/fk6a",
+      "file": "examples/fk-engine/memory/pool.ergo",
+      "from": "if p.faults.Load() > 0 {",
+      "to": "if p.faults.Load() > 1 {",
+      "rule": "A fault fails the next boot (case engine).",
+      "anchor": {"tests": ["examples:fk-engine"]}, "killers": ["examples:fk-engine"]
+    }
+  ]
+}

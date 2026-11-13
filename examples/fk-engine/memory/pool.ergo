@@ -1,0 +1,50 @@
+// Package memory holds the in-memory engines.
+
+import atomic
+import fkengine/engine
+import time
+
+// Pool is an engine.Engines whose boots last a given time on a manual clock. It
+// names its engines engine-1, engine-2, … in the order they boot, and
+// counts the engines it booted and the ones given back, so every copy of
+// a Pool is one pool: NewPool makes one. Fault makes the next boot fail.
+type Pool {
+	clock    time.Manual,
+	lasts    duration,
+	booted   atomic.Int64,
+	released atomic.Int64,
+	faults   atomic.Int64,
+}
+
+// NewPool is a pool on clock whose boots take lasts, with no engine out.
+func NewPool(clock time.Manual, lasts duration) Pool {
+	Pool{clock: clock, lasts: lasts, booted: atomic.NewInt64(0), released: atomic.NewInt64(0), faults: atomic.NewInt64(0)}
+}
+
+// Boot waits the boot's time and leases the next engine, or fails when a
+// fault is pending.
+func Boot(p Pool) engine.Lease fails engine.BootFailed {
+	time.Sleep(p.clock, p.lasts)
+	if p.faults.Load() > 0 {
+		let _ = p.faults.Add(-1)
+		return engine.BootFailed{Why: "crypto unavailable"}
+	}
+	let n = p.booted.Add(1)
+	engine.NewLease(engine.Engine{ID: "engine-\(n)"}, func() {
+		let _ = p.released.Add(1)
+	})
+}
+
+// Fault makes the next boot fail.
+func Fault(p Pool) {
+	let _ = p.faults.Add(1)
+}
+
+// Booted is the number of engines p booted.
+func Booted(p Pool) int { int(p.booted.Load()) }
+
+// Released is the number of engines given back to p.
+func Released(p Pool) int { int(p.released.Load()) }
+
+// Held is the number of engines out now.
+func Held(p Pool) int { Booted(p) - Released(p) }

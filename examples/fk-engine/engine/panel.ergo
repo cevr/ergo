@@ -1,0 +1,119 @@
+// The screen as a machine.
+
+import machines
+import queue
+
+// Mode is the screen's state. Only Ready has an engine, so only Ready has
+// a count of computes and a last result: a result without an engine
+// cannot be written.
+type Mode =
+	| Off{}
+	| Booting{}
+	| Ready{Engine Engine, Computed int, Last Option[int]}
+	| Failed{Why string}
+
+// Signal is what the screen takes: its three buttons, and the boot's two
+// answers.
+type Signal = Start{} | Stop{} | Compute{} | Started{Engine Engine} | Refused{Why string}
+
+// Never is the output of the screen: it emits nothing and never ends.
+type Never {}
+
+// Step is the transition. Start boots an engine from Off or Failed; the
+// boot's answer is Ready (a Stay: Ready keeps the entry, and with it the
+// work that holds the lease) or Failed; Stop turns a booting or ready
+// engine off, which ends the entry and releases the engine; Compute
+// squares the next count with the engine, in Ready only. Every other pair
+// is ignored, a Compute without an engine included.
+func Step(m Mode, s Signal) Decision[Mode, Never] {
+	match (m, s) {
+	case (Off, Start), (Failed, Start):
+		Enter[Mode]{Next: Booting}
+	case (Booting, Started as st):
+		Stay[Mode]{Next: Ready{Engine: st.Engine, Computed: 0, Last: None}}
+	case (Booting, Refused as r):
+		Enter[Mode]{Next: Failed{Why: r.Why}}
+	case (Booting, Stop), (Ready, Stop):
+		Enter[Mode]{Next: Off}
+	case (Ready as r, Compute):
+		let n = r.Computed + 1
+		Stay[Mode]{Next: Ready{Engine: r.Engine, Computed: n, Last: Some{Square(r.Engine, n)}}}
+	case (Off, _), (Failed, _), (Booting, Start), (Booting, Compute), (Ready, Start), (Ready, Started), (Ready, Refused):
+		Ignore
+	}
+}
+
+// hold is Booting's work: boot an engine, tell the screen, and hold the
+// lease until the entry ends. The entry's end stops the work at its wait,
+// and the lease is released then, on every path.
+func hold(m Mode) Option[machines.Work[Signal, Engines]] {
+	match m {
+	case Booting:
+		Some{machines.Work{Listen: func(send func(s Signal)) needs Engines {
+			let lease = Engines.Boot() catch {
+			case BootFailed as b:
+				send(Refused{Why: b.Why})
+				return
+			}
+			send(Started{Engine: lease.Engine})
+			let until = queue.New[int](0)
+			let _ = until.Pop() catch {
+			case queue.Closed:
+				return
+			}
+		}}}
+	case Off, Ready, Failed:
+		None
+	}
+}
+
+// Panel is the screen as a machine. It starts Off.
+type Panel machine[Mode, Signal] {
+	initial: Off,
+	step:    Step,
+	work:    hold,
+
+	// ComputeNeedsAnEngine: a Compute changes the screen only in Ready, and
+	// there it adds one to the count and shows the count squared.
+	law ComputeNeedsAnEngine(m Mode) {
+		let d = Step(m, Compute)
+		match m {
+		case Ready as r:
+			let n = r.Computed + 1
+			d == Stay[Mode]{Next: Ready{Engine: r.Engine, Computed: n, Last: Some{n * n}}}
+		case Off, Booting, Failed:
+			d == Ignore
+		}
+	},
+
+	// OnlyBootingTakesAnEngine: a Started out of turn changes nothing: an
+	// engine is taken only while booting, and it starts with no computes.
+	law OnlyBootingTakesAnEngine(m Mode, e Engine) {
+		let n = machines.Next(m, Step(m, Started{Engine: e}))
+		match m {
+		case Booting:
+			n == Ready{Engine: e, Computed: 0, Last: None}
+		case Off, Ready, Failed:
+			n == m
+		}
+	},
+}
+
+// Word is how the screen shows.
+func Word(m Mode) string {
+	match m {
+	case Off:
+		"off"
+	case Booting:
+		"booting"
+	case Ready as r:
+		match r.Last {
+		case Some[int] as v:
+			"ready \(r.Engine.ID), \(r.Computed) computed, last \(v.Value)"
+		case None:
+			"ready \(r.Engine.ID), \(r.Computed) computed"
+		}
+	case Failed as f:
+		"failed: \(f.Why)"
+	}
+}

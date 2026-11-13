@@ -1,0 +1,17 @@
+# a boot takes 500ms
+@0 compute
+@100 start
+@300 compute
+@600 compute
+@700 compute
+@800 stop
+@900 start
+@1000 stop
+@1600 fault
+@1700 start
+@2200 compute
+@2300 start
+@2800 compute
+@3000 start
+@3200 stop
+@4000 end

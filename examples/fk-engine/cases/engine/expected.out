@@ -1,0 +1,32 @@
+@0 compute
+  off; 0 out
+@100 start
+  booting; 0 out
+@300 compute
+  booting; 0 out
+@600 compute
+  ready engine-1, 1 computed, last 1; 1 out
+@700 compute
+  ready engine-1, 2 computed, last 4; 1 out
+@800 stop
+  off; 0 out
+@900 start
+  booting; 0 out
+@1000 stop
+  off; 0 out
+@1600 fault
+  off; 0 out
+@1700 start
+  booting; 0 out
+@2200 compute
+  failed: crypto unavailable; 0 out
+@2300 start
+  booting; 0 out
+@2800 compute
+  ready engine-2, 1 computed, last 1; 1 out
+@3000 start
+  ready engine-2, 1 computed, last 1; 1 out
+@3200 stop
+  off; 0 out
+@4000 end
+  off; 0 out

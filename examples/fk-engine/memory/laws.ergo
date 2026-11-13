@@ -1,0 +1,43 @@
+// The pool's laws.
+
+import fkengine/engine
+import time
+
+// EveryLeaseComesBack: n engines leased at once are n engines, with n
+// different ids, and once their leases end the pool has none out.
+law EveryLeaseComesBack(k int) {
+	let n = 1 + ((k%5)+5)%5
+	let p = NewPool(time.NewManual(0), 0s)
+	let ids = boot(p, n)
+	let mut distinct = true
+	for i, a in ids {
+		for j, b in ids {
+			if i != j && a == b {
+				distinct = false
+			}
+		}
+	}
+	distinct && len(ids) == n && Held(p) == 0 && Booted(p) == n
+}
+
+// boot leases n engines of p at once and gives their ids; the leases end
+// when it returns.
+func boot(p Pool, n int) []string {
+	if n == 0 {
+		return []string{}
+	}
+	let l = Boot(p) catch {
+	case engine.BootFailed:
+		return []string{}
+	}
+	let held = Held(p)
+	let rest = boot(p, n-1)
+	if held < 1 {
+		return []string{}
+	}
+	let mut out = []string{l.Engine.ID}
+	for id in rest {
+		out = out.Append(id)
+	}
+	out
+}

@@ -1,0 +1,33 @@
+// Package engine is a compute engine that exists only while the screen
+// says so. The contract Engines boots one and gives a Lease, a resource
+// whose release returns the engine. The machine Panel's Booting state owns
+// the work that boots it and holds the lease; that entry lasts through
+// Ready, and Stop ends it, so the engine is released exactly when the
+// screen turns it off. A compute is a step of Ready, which has the engine;
+// in any other state there is no engine to compute with, and Compute is
+// ignored.
+
+// Engine is a booted engine: its id.
+type Engine { ID string }
+
+// Square is n squared, computed by e.
+func Square(e Engine, n int) int { n * n }
+
+// BootFailed is a boot that gave no engine, and why.
+type BootFailed { Why string }
+
+// Lease is an engine held. It is a resource: its release (Close) gives the
+// engine back to the Engines that booted it.
+type Lease { Engine Engine, back func() }
+
+// NewLease is a lease of e whose release calls back.
+func NewLease(e Engine, back escaping func()) Lease { Lease{Engine: e, back: back} }
+
+// Close gives the engine back.
+func Close(l Lease) { l.back() }
+
+// Engines boots engines.
+type Engines {
+	// Boot boots an engine and leases it, or fails.
+	Boot() Lease fails BootFailed,
+}

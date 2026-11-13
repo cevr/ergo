@@ -1,0 +1,22 @@
+// fk-engine is a port of Foldkit's managed-resource-layer example (stage
+// a: the model, with no view): a compute engine that exists only while
+// the screen says so. It runs a script of timed presses on a manual clock
+// and shows the screen after each one, with the engines out.
+// Package engine is the screen, a machine whose Booting entry owns the
+// engine's lease; package memory is the pool of engines; package script
+// reads the script and plays it. This binary is the only place that
+// chooses the clock: a time.Manual, so a script of minutes takes no wall
+// time.
+
+import fkengine/script
+import io
+import os
+import time
+
+func main() fails os.Exit needs Console | Ambient {
+	let clock = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run(clock) }
+	if status != 0 {
+		return os.Exit{Code: status, Message: "fk-engine: the script did not run"}
+	}
+}
