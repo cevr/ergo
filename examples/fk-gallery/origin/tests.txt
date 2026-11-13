@@ -1,12 +1,12 @@
 # fk-gallery: the upstream tests of route-transitions at d21db423 and what restates each.
 # Upstream has no scene tests; FK9b writes new scene scripts and marks them as new here.
-src/story.test.ts: a cold load into the gallery logs the transition and loads the catalog -> `gallery` test `AColdLoadIntoTheGalleryLoadsTheCatalog`
-src/story.test.ts: a cold load into the home route loads nothing -> `gallery` test `AColdLoadHomeLoadsNothing`
-src/story.test.ts: entering the gallery loads the catalog and logs the transition -> `gallery` test `EnteringTheGalleryLoadsTheCatalog`; law `CatalogueLoadsOncePerVisit`
-src/story.test.ts: re-entering the gallery while a catalog load is in flight does not fire another -> `gallery` test `ReenteringWhileLoadingAsksNoMore`; law `CatalogueLoadsOncePerVisit`
-src/story.test.ts: entering a painting loads it with the payload from the route -> `gallery` test `EnteringAPaintingLoadsIt`
-src/story.test.ts: staying on the painting route with a new id refetches -> `gallery` test `StayingWithANewIdRefetches`; law `StayRefetchesOnlyOnIdChange`
-src/story.test.ts: staying on the painting route with the same id does not refetch -> `gallery` test `StayingWithTheSameIdDoesNotRefetch`; law `StayRefetchesOnlyOnIdChange`
-src/story.test.ts: a stale painting response for another id is ignored -> `gallery` test `AStaleAnswerForAnotherIdIsIgnored`
-src/story.test.ts: leaving the studio saves the draft -> `gallery` test `LeavingTheStudioSavesTheDraft`; law `LeavingStudioSavesDraft`
-src/story.test.ts: leaving the studio with an empty draft saves nothing -> `gallery` test `LeavingAnEmptyStudioSavesNothing`; law `LeavingStudioSavesDraft`
+src/story.test.ts: a cold load into the gallery logs the transition and loads the catalog -> law `CatalogueLoadsOncePerVisit` (a cold gallery entry loads); case `tour` (the cold entry logs from "cold")
+src/story.test.ts: a cold load into the home route loads nothing -> law `CatalogueLoadsOncePerVisit`; case `tour` (its first line)
+src/story.test.ts: entering the gallery loads the catalog and logs the transition -> law `CatalogueLoadsOncePerVisit`; law `LogKeepsTheLastTwenty`; case `tour` (the catalog loaded at 700)
+src/story.test.ts: re-entering the gallery while a catalog load is in flight does not fire another -> law `CatalogueLoadsOncePerVisit`; case `tour` (the re-entry at 400)
+src/story.test.ts: entering a painting loads it with the payload from the route -> case `tour` (painting 3 from the gallery); law `StayRefetchesOnlyOnIdChange` (the id asked is the route's)
+src/story.test.ts: staying on the painting route with a new id refetches -> law `StayRefetchesOnlyOnIdChange`; case `tour` (painting 4 after 3)
+src/story.test.ts: staying on the painting route with the same id does not refetch -> law `StayRefetchesOnlyOnIdChange`; case `tour` (painting 4 again)
+src/story.test.ts: a stale painting response for another id is ignored -> `gallery` test `AStaleAnswerForAnotherIdIsIgnored`; case `tour` (painting 3's late answer)
+src/story.test.ts: leaving the studio saves the draft -> law `LeavingStudioSavesDraft`; case `tour` (the save on the move to /gallery/9)
+src/story.test.ts: leaving the studio with an empty draft saves nothing -> law `LeavingStudioSavesDraft`; case `tour` (the empty draft at 2700)

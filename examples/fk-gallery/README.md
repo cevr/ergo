@@ -36,6 +36,16 @@ What upstream needs and the port does not:
 
 `origin/tests.txt` has a line for each of upstream's 10 story tests and what restates it. The examples runner checks the file against the vendored files. Upstream has no scene tests; FK9b writes new scene scripts.
 
+A story is an Ergo test only when the test kills a mutant that no law and no case kills. That leaves one test, `AStaleAnswerForAnotherIdIsIgnored`, which kills `fk9-stale-answer-stays`. Nine stories have no test of their own, and each is restated as follows:
+
+- Cold load into the gallery: `CatalogueLoadsOncePerVisit` draws cold entries; the tour logs `1 cold->Home`.
+- Cold load home: `CatalogueLoadsOncePerVisit`; the tour's first line.
+- Entering the gallery: `CatalogueLoadsOncePerVisit` and `LogKeepsTheLastTwenty`; the tour's catalog answer.
+- Re-entering while loading: `CatalogueLoadsOncePerVisit` models the flight; the tour re-enters at 400.
+- Entering a painting: the tour enters painting 3 from the gallery; `StayRefetchesOnlyOnIdChange` checks the id asked.
+- Staying with a new id, and with the same id: `StayRefetchesOnlyOnIdChange`; the tour visits paintings 4 and 4 again.
+- Leaving the studio, with a draft and with an empty draft: `LeavingStudioSavesDraft` draws both; the tour does both.
+
 ## Laws
 
 - `CatalogueLoadsOncePerVisit`: drawn navigations and catalog answers, step by step against a reference of a visit and a flight. The catalog is asked for exactly when the site enters the gallery, from another page or cold, with no load in flight.

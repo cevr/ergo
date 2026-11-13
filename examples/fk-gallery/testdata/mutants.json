@@ -58,6 +58,14 @@
       "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
     },
     {
+      "name": "fk9-stale-answer-stays", "origin": "wf10/fk9a",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "\t\t\tif l.ID != p.ID {\n\t\t\t\treturn Ignore\n",
+      "to": "\t\t\tif l.ID != p.ID {\n\t\t\t\treturn Stay[Site]{Next: s}\n",
+      "rule": "A stale answer is ignored, not taken as a stay on the same site; only test AStaleAnswerForAnotherIdIsIgnored tells them apart.",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
       "name": "fk9-log-unbounded", "origin": "wf10/fk9a",
       "file": "examples/fk-gallery/gallery/site.ergo",
       "from": "\t\tif len(log) < LogSize {\n",
