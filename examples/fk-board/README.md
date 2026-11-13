@@ -1,6 +1,6 @@
 # fk-board
 
-A task board for an observatory's chores. Cards move between three columns by pointer or by keyboard, a screen reader says what happens, and a form adds cards. The board is kept between runs. It is a port of Foldkit's `kanban` example (`conformance/upstream/foldkit-d21db423/examples/kanban`, MIT) and of the model of its drag-and-drop component (`packages/ui/src/dragAndDrop`). This is stage a of FK11: the model, with no view yet. The program plays a script of acts from standard input, shows what each one does, and keeps the board in `board.txt` in the working directory.
+A task board for an observatory's chores. Cards move between three columns by pointer or by keyboard, a screen reader says what happens, and a form adds cards. The board is kept between runs. It is a port of Foldkit's `kanban` example (`conformance/upstream/foldkit-d21db423/examples/kanban`, MIT) and of the model of its drag-and-drop component (`packages/ui/src/dragAndDrop`). This is stage a of FK11: the model, with no view yet. The program plays a script of acts from standard input, shows what each one does, and keeps the board in `board.json` in the working directory, in upstream's saved-board JSON.
 
 Tag: `default`.
 
@@ -25,7 +25,7 @@ The script's words are listed in `script/script.ergo`:
   - The default board.
   - The operation type `Store` (`Load`, `Save`) with the law `LoadGivesTheLastSave`. `ergo test` runs that law on both providers:
     - `memory.Shelf` keeps the board for one run.
-    - `file.Sheet` keeps it in a text file of quoted fields, over any `fs.Files` and `fs.Writes`. The binary uses the host's, and the law uses an `fstest.Memory` for each case.
+    - `file.Sheet` keeps it as JSON through std json's derived codec of the board's records (`Card.Key` has the codec key `sortKey`, as upstream names it), over any `fs.Files` and `fs.Writes`. The binary uses the host's, and the law uses an `fstest.Memory` for each case.
 - Package `drag` is the drag machine `Dragger`.
   - Its phases are `Idle | Pending | Dragging | Lifted`. `Lifted` is a keyboard drag.
   - Its output is `[]Effect`: `Reordered` and `Cancelled` are upstream's OutMessage, and `Focus` and `Resolve` are its commands.

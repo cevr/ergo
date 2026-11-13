@@ -1,7 +1,7 @@
 // fk-board is a port of Foldkit's kanban example (stage a: the model,
 // with no view): a task board whose cards move by pointer or keyboard,
 // with what a screen reader says, and a form that adds cards. It plays a
-// script of acts from standard input and keeps the board in board.txt in
+// script of acts from standard input and keeps the board in board.json in
 // the working directory. Packages: board (the columns, the cards and the
 // Store contract), sortkey, drag (the drag machine), kanban (the program),
 // file and memory (the stores), and script (the host). This binary is the

@@ -1,1 +1,1 @@
-printf 'column\t"now"\t"Tonight"\nnot a board\n' > board.txt
+printf '{"columns":[{"id":"now","name":"Tonight","cards":[]},not a board]}\n' > board.json

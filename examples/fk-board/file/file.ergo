@@ -1,24 +1,24 @@
-// Package file holds Sheet, a board.Store that keeps the board in one text
-// file, a line per column and a line per card under it:
+// Package file holds Sheet, a board.Store that keeps the board in one JSON
+// file, upstream's saved board (model.ts SavedBoard, through
+// Schema.fromJsonString(Schema.toCodecJson(SavedBoard))):
 //
-//	column	"todo"	"To Do"
-//	card	"card-1"	"V"	"Align the finder scope"	""
+//	{"columns":[{"id":"todo","name":"To Do","cards":[{"id":"card-1","title":"Align the finder scope","description":"","sortKey":"V"}]}]}
 //
-// Each text is quoted by strconv.Quote, so a line holds no raw tab and no
-// line feed. A save writes the whole file, which fs.Writes' WriteFile
-// replaces at once, so a crash leaves the old board or the new one.
+// std json derives both directions from the record types, so the file's
+// shape cannot drift from them. A save writes the whole file, which
+// fs.Writes' WriteFile replaces at once, so a crash leaves the old board
+// or the new one.
 
 import fkboard/board
 import fs
-import strconv
-import strings
+import json
 
 // Sheet is a board.Store in the file at path. It holds the file system it
 // reads and writes as values (as kvstore's Log does).
 type Sheet { path string, files fs.Files, writes fs.Writes }
 
 // Name is the file of a Sheet made by NewSheet.
-let Name = "board.txt"
+let Name = "board.json"
 
 // NewSheet is the Sheet in Name in the working directory.
 func NewSheet(files fs.Files, writes fs.Writes) Sheet { At(Name, files, writes) }
@@ -51,52 +51,34 @@ func Save(s Sheet, columns []board.Column) fails board.Broken {
 	}
 }
 
+// saved is the file's one object.
+type saved { Columns []board.Column }
+
+// codec reads a file of up to a megabyte; a board nests four deep.
+func codec() json.Codec[saved] { json.Codec[saved]{MaxBytes: 1 << 20, MaxDepth: 8} }
+
 // Encode is the file's text for columns.
-func Encode(columns []board.Column) string {
-	let mut out = ""
-	for c in columns {
-		out = out + "column\t" + strconv.Quote(c.ID) + "\t" + strconv.Quote(c.Name) + "\n"
-		for card in c.Cards {
-			out = out + "card\t" + strconv.Quote(card.ID) + "\t" + strconv.Quote(card.Key) + "\t" + strconv.Quote(card.Title) + "\t" + strconv.Quote(card.Description) + "\n"
-		}
-	}
-	out
-}
+func Encode(columns []board.Column) string { json.Encode(codec(), saved{Columns: columns}) + "\n" }
 
 // Decode is the board of a file's text; path names the file in the
-// failure.
+// failure, with the place the text breaks.
 func Decode(path string, text string) []board.Column fails board.Broken {
-	let mut columns = []board.Column{}
-	let mut n = 0
-	for raw in strings.Lines(text) {
-		n = n + 1
-		let line = strings.TrimSuffix(raw, "\n")
-		let bad = board.Broken{Why: "\(path):\(n): not a column or a card: \(line)"}
-		let f = strings.Split(line, "\t")
-		let mut texts = []string{}
-		for i in 1..len(f) {
-			texts = texts.Append(strconv.Unquote(f[i]) catch {
-			case strconv.Malformed:
-				return bad
-			})
-		}
-		match (f[0], len(f)) {
-		case ("column", 3):
-			columns = columns.Append(board.Column{ID: texts[0], Name: texts[1], Cards: []board.Card{}})
-		case ("card", 5):
-			if len(columns) == 0 {
-				return bad
-			}
-			let last = columns[len(columns)-1]
-			let card = board.Card{ID: texts[0], Key: texts[1], Title: texts[2], Description: texts[3]}
-			let mut next = []board.Column{}
-			for i in 0..len(columns)-1 {
-				next = next.Append(columns[i])
-			}
-			columns = next.Append(board.Column{..last, Cards: last.Cards.Append(card)})
-		case (_, _):
-			return bad
-		}
+	let s = json.Decode(codec(), text) catch {
+	case json.Malformed as m:
+		return board.Broken{Why: "\(path): offset \(m.Offset): \(m.Reason)"}
+	case WireMissingField as m:
+		return board.Broken{Why: "\(path): \(at(m.Path, m.Field)) is missing"}
+	case WireWrongKind as w:
+		return board.Broken{Why: "\(path): \(at(w.Path, "")) is not \(w.Want)"}
 	}
-	columns
+	s.Columns
+}
+
+// at is the place a failure names: the path from the top, and field
+// under it.
+func at(path string, field string) string {
+	if path == "" && field == "" { return "the board" }
+	if path == "" { return field }
+	if field == "" { return path }
+	path + "." + field
 }

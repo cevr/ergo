@@ -5,18 +5,16 @@ import fkboard/board
 import fstest
 import strings
 
-// AForeignLineIsNamed: a file whose board is followed by a line that is
-// neither a column nor a card loads as Broken, naming the file and that
-// line's number.
-law AForeignLineIsNamed(n int, junk int where 0 <= junk && junk <= 2) {
+// ACutFileIsNamed: a file cut short anywhere before its last byte loads
+// as Broken, naming the file.
+law ACutFileIsNamed(n int, cut int where 0 <= cut) {
 	let disk = fstest.NewMemory()
 	let text = Encode(board.Sample(n))
-	let line = []string{"garbage", "card\t\"x\"", "column\tnot quoted\t\"A\""}[junk]
-	try disk.WriteFile(Name, text+line+"\n")
-	let at = strings.Count(text, "\n") + 1
+	let at = cut % (len(text) - 1)
+	try disk.WriteFile(Name, text[:at])
 	let _ = NewSheet(disk, disk).Load() catch {
 	case board.Broken as b:
-		return strings.HasPrefix(b.Why, "board.txt:\(at): ")
+		return strings.HasPrefix(b.Why, Name+": ")
 	}
 	false
 }
