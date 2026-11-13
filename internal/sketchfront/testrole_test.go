@@ -89,14 +89,24 @@ func testRoleModule(seed uint64) (map[string]string, int) {
 	mem.WriteString("import gen/cell\n")
 	complete := 0
 	for k := range r.IntN(3) + 1 {
-		fmt.Fprintf(&mem, "\ntype Mem%d { v int }\n", k)
 		all := true
+		var fns []string
 		for i := range ops {
 			if r.IntN(4) == 0 {
 				all = false
 				continue
 			}
-			fmt.Fprintf(&mem, "\nfunc Get%d(m Mem%d) int { m.v }\n", i, k)
+			fns = append(fns, fmt.Sprintf("\nfunc Get%d(m Mem%d) int { m.v }\n", i, k))
+		}
+		// A type with every operation declares Cell (EXC1); one without
+		// all of them is no provider and declares nothing.
+		clause := ""
+		if all {
+			clause = " implements cell.Cell"
+		}
+		fmt.Fprintf(&mem, "\ntype Mem%d { v int }%s\n", k, clause)
+		for _, f := range fns {
+			mem.WriteString(f)
 		}
 		if r.IntN(3) > 0 {
 			fmt.Fprintf(&mem, "\nfunc NewMem%d() Mem%d { Mem%d{v: %d} }\n", k, k, k, k)
