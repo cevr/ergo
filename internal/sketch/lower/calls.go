@@ -292,6 +292,10 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 				// The copy for the known record (record.go): one
 				// instance, so no type arguments.
 				head = sp.name
+			} else if !known && !dropped && fd.pure {
+				if v, ok := fc.tabAt(c, vals); ok {
+					return v, true, false // the function's table (tabulate.go)
+				}
 			}
 		}
 		// A pure function takes no environment (pure.go): no Task result

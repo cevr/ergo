@@ -125,6 +125,8 @@ type knownStats struct {
 	Providers int
 	// Witnessed is the copies for known witnesses made (witspec.go).
 	Witnessed int
+	// Tabulated is the functions called through a table (tabulate.go).
+	Tabulated int
 	// Scalars is the locals in the scalar form (scalar.go), Joins those
 	// whose inlined call writes them, and Aliases the parameters of an
 	// inlined call bound to one.

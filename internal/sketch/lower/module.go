@@ -323,6 +323,10 @@ type lowerer struct {
 	// provParams memoizes each function's operation-type parameter a copy
 	// for a known provider is made for (provider.go).
 	provParams map[*check.Func]int
+	// tabs memoizes each function's table domain (tabulate.go), and
+	// tabEmitted the functions whose table is written.
+	tabs       map[*check.Func]*tabInfo
+	tabEmitted map[*check.Func]bool
 	// scalarMemo holds each body's locals in the scalar form (scalar.go).
 	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
 	// flatSet are the program's flat unions (flatunion.go), decided at the

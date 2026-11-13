@@ -42,3 +42,20 @@ func (f *Bool) Swap(_ *rt.Task, value bool) bool { return f.value.Swap(value) }
 func (f *Bool) CompareAndSwap(_ *rt.Task, old, value bool) bool {
 	return f.value.CompareAndSwap(old, value)
 }
+
+// MemoFlag is the state of one entry of a table of a pure function's
+// results (lower, tabulate.go): empty, being written, or ready. The table
+// fills each entry at its first call; one task writes it and publishes it
+// with an atomic store, so concurrent tasks read a ready entry or call the
+// function themselves. Its zero value is empty.
+type MemoFlag struct{ n atomic.Uint32 }
+
+// Ready reports whether the entry holds its value.
+func (f *MemoFlag) Ready() bool { return f.n.Load() == 2 }
+
+// Claim reports whether the caller may write the entry: it was empty, and
+// is now being written.
+func (f *MemoFlag) Claim() bool { return f.n.CompareAndSwap(0, 1) }
+
+// Done publishes the entry the caller claimed and wrote.
+func (f *MemoFlag) Done() { f.n.Store(2) }

@@ -6,6 +6,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Lowering
 
+- A call of a pure deciding function over enums, bools and bytes (a parser's `Next(state, class)`, `ClassOf(b)`) reads its result from a table filled lazily from the function, one load in place of a switch (VI1, runtime.md Tabulated calls): vt 140.1 → 135.5 instructions per byte.
 - A call that binds a generic function's operation-type parameter to a named type goes to a copy of the function for that type, with no witness, so its operation calls are static and Go inlines them (VI1, types.md Generics 5): vt 147.2 → 140.1 instructions per byte. A type parameter converted to an operation type whose operation returns no value now compiles (the adapter dropped one of its two results).
 - A union past Go's register bound (32 bytes, 4 fields) stays a flat struct, not a box, when no call carries a value of it, up to 128 bytes (R3b, the bound by use; [types](docs/spec/types.md#unions) Unions 6). vt's `Event` (a tag, a string, a slice, an int, a rune and a byte) is a slot array: 1.48 bytes and 0.024 allocations per input byte, from 3.42 and 0.075. The reference is `unionBound=register`.
 - An argument read from a `let mut` or a borrow is passed with no copy to a function that keeps nothing of it, unless the call could write it while it runs (KEEP1; [types](docs/spec/types.md#bindings) Bindings 2). vt's `Flush` hands its event list to `Apply` with no copy. The reference is `keepLowering=copy`.
