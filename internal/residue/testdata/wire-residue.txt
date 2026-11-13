@@ -434,3 +434,9 @@ internal/sketch/std/toml/toml.ergo	func Encode[T wire](v T) string fails Unrepre
 runtime/v1/config_names.go	*
 modules/infra/outputs.ergo	func WriteOutputs[O wire](
 modules/infra/outputs.ergo	func Deploy[O wire, R](
+modules/infra/cli.ergo	type Bound[O wire] {
+modules/infra/cli.ergo	type Deployment[O wire] {
+modules/infra/cli.ergo	func deploy[O wire](
+modules/infra/cli.ergo	func Exec[O wire](
+modules/infra/cli.ergo	func shown[O wire](
+modules/infra/cli.ergo	func Run[O wire](

@@ -76,8 +76,8 @@
     {
       "name": "ia4-outputs-before-the-end", "origin": "wf10/domain IA4",
       "file": "modules/infra/outputs.ergo",
-      "from": "\ttry Finish(run, lock, holder, engines)\n\tmatch run.mode {\n\tcase Applying:\n\t\ttry WriteOutputs(writes, path, o)\n\tcase Planning:\n\t}\n",
-      "to": "\tmatch run.mode {\n\tcase Applying:\n\t\ttry WriteOutputs(writes, path, o)\n\tcase Planning:\n\t}\n\ttry Finish(run, lock, holder, engines)\n",
+      "from": "\ttry Finish(pass, lock, holder, engines)\n\tmatch pass.mode {\n\tcase Applying:\n\t\ttry WriteOutputs(writes, path, o)\n\tcase Planning, Refreshing:\n\t}\n",
+      "to": "\tmatch pass.mode {\n\tcase Applying:\n\t\ttry WriteOutputs(writes, path, o)\n\tcase Planning, Refreshing:\n\t}\n\ttry Finish(pass, lock, holder, engines)\n",
       "rule": "An apply writes its outputs only once it ended (after the sweep): memory's OutputsAfterTheApply.",
       "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
     },
@@ -87,6 +87,46 @@
       "from": "Format: config.JSON}",
       "to": "Format: config.TOML}",
       "rule": "std config reads the outputs in the format WriteOutputs writes: memory's OutputsRoundTrip.",
+      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+    },
+    {
+      "name": "ia3-apply-without-yes", "origin": "wf10/domain IA3",
+      "file": "modules/infra/cli.ergo",
+      "from": "\t\tif !a.Yes {\n",
+      "to": "\t\tif false && !a.Yes {\n",
+      "rule": "apply refuses without -yes and changes nothing: memory's CommandLineSession.",
+      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+    },
+    {
+      "name": "ia3-drift-as-noop", "origin": "wf10/domain IA3",
+      "file": "modules/infra/engine.ergo",
+      "from": "\t\t\tnote(e.Pass, Step{Kind: e.Kind, ID: id, Change: Drifted})\n",
+      "to": "",
+      "rule": "plan -refresh lists a drifted object as Drifted, not as no change: memory's RefreshFindsDrift.",
+      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+    },
+    {
+      "name": "ia3-plain-plan-reads", "origin": "wf10/domain IA3",
+      "file": "modules/infra/engine.ergo",
+      "from": "\t\tcase Refreshing:\n\t\t\ttry refresh(e, id, p)\n\t\tcase Planning, Applying:\n",
+      "to": "\t\tcase Refreshing, Planning:\n\t\t\ttry refresh(e, id, p)\n\t\tcase Applying:\n",
+      "rule": "a plan without -refresh reads only the rows and reports no drift: memory's RefreshFindsDrift.",
+      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+    },
+    {
+      "name": "ia3-held-exits-1", "origin": "wf10/domain IA3",
+      "file": "modules/infra/cli.ergo",
+      "from": "\", 3)\n}",
+      "to": "\", 1)\n}",
+      "rule": "a lock another holds is exit status 3, apart from a failed run's 1: memory's CommandLineSession.",
+      "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
+    },
+    {
+      "name": "ia3-plan-text-count", "origin": "wf10/domain IA3",
+      "file": "modules/infra/cli.ergo",
+      "from": "\t\t\"\\(n) changes\"\n",
+      "to": "\t\t\"\\(n) change(s)\"\n",
+      "rule": "the plan's text ends with its count of changes: memory's CommandLineSession.",
       "anchor": {"tests": ["examples:modules/infra"]}, "killers": ["examples:modules/infra"]
     }
   ]

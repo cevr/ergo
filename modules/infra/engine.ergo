@@ -1,11 +1,11 @@
 // The engine: a run in one mode, the Engine that provides a Kind in it,
 // and the sweep. A program (or infra's CLI) runs a stack so:
 //
-//	let run = infra.NewRun(infra.Applying)
-//	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: driver, State: state, Run: run}
-//	try infra.Begin(run, lock, "runner", []infra.Sweeper{dirs})
+//	let pass = infra.NewPass(infra.Applying)
+//	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: driver, State: state, Pass: pass}
+//	try infra.Begin(pass, lock, "runner", []infra.Sweeper{dirs})
 //	try with context { infra.Kind[DirProps, Dir]: dirs } { Stack() }
-//	try infra.Finish(run, lock, "runner", []infra.Sweeper{dirs})
+//	try infra.Finish(pass, lock, "runner", []infra.Sweeper{dirs})
 //
 // A failure between Begin and Finish leaves the lock held, as a crash
 // does: the rows say what was in flight, and the next run, once an
@@ -14,35 +14,39 @@
 import sync
 
 // Mode is what a run does: Planning records the steps and calls no host
-// (a driver's Attrs gives the values); Applying runs the row's protocol.
-type Mode = Planning{} | Applying{}
+// (a driver's Attrs gives the values); Refreshing is a plan that also
+// reads each live object the stack ensures and records the drift (a
+// driver's Read: it writes nothing); Applying runs the row's protocol.
+type Mode = Planning{} | Refreshing{} | Applying{}
 
 // Change is a step's: create an object, update its props, resume a row
 // a crashed run left (creating or deleting) with these props, or delete
-// an object the stack no longer wants.
-type Change = Create{} | Update{} | Resume{} | Delete{}
+// an object the stack no longer wants. A refreshing plan adds Drifted (the
+// object is not what its row says) and Gone (it is not there): it only
+// reports them; an apply does not repair drift.
+type Change = Create{} | Update{} | Resume{} | Delete{} | Drifted{} | Gone{}
 
 // Step is one change a run made (Applying) or would make (Planning), in
 // order.
 type Step { Kind string, ID string, Change Change }
 
-// Run is one plan or apply of a stack: its mode, the steps so far, each
+// Pass is one plan or apply of a stack: its mode, the steps so far, each
 // object the stack ensured (by kind and id), and the next place in the
 // order of creation. Its values are copies of one run.
-type Run {
+type Pass {
 	mode  Mode,
 	steps sync.Ref[[]Step],
 	seen  sync.Ref[Map[string, bool]],
 	seq   sync.Ref[int],
 }
 
-// NewRun is a run in mode with no step.
-func NewRun(mode Mode) Run {
-	Run{mode: mode, steps: sync.NewRef([]Step{}), seen: sync.NewRef(Map[string, bool]{}), seq: sync.NewRef(1)}
+// NewPass is a run in mode with no step.
+func NewPass(mode Mode) Pass {
+	Pass{mode: mode, steps: sync.NewRef([]Step{}), seen: sync.NewRef(Map[string, bool]{}), seq: sync.NewRef(1)}
 }
 
 // Steps is the steps of r so far.
-func Steps(r Run) []Step { r.steps.Get() }
+func Steps(r Pass) []Step { r.steps.Get() }
 
 // Engine provides the kind Kind of objects to a stack in run's mode,
 // through its driver and its state store. It provides Kind[P, A] and
@@ -51,14 +55,14 @@ type Engine[P comparable, A comparable] {
 	Kind   string,
 	Driver Driver[P, A],
 	State  State[P],
-	Run    Run,
+	Pass   Pass,
 } implements Sweeper, Kind[P, A]
 
 // keyOf names an object across kinds.
 func keyOf(kind string, id string) string { kind + "/" + id }
 
 // note adds a step to r.
-func note(r Run, s Step) { r.steps.Update(func(steps []Step) []Step { steps.Append(s) }) }
+func note(r Pass, s Step) { r.steps.Update(func(steps []Step) []Step { steps.Append(s) }) }
 
 // ChangeOf is the change an Ensure of p makes to the object whose row is
 // prior: none (None) when the row is live with p.
@@ -84,16 +88,23 @@ func ChangeOf[P comparable](prior Option[Row[P]], p P) Option[Change] {
 // write the row live. A plan records the step and gives the driver's
 // Attrs; so does an apply of an object whose row is live with p.
 func Ensure[P comparable, A comparable](e Engine[P, A], id string, p P) A fails Failed {
-	e.Run.seen.Update(func(m Map[string, bool]) Map[string, bool] { m.Put(keyOf(e.Kind, id), true) })
+	e.Pass.seen.Update(func(m Map[string, bool]) Map[string, bool] { m.Put(keyOf(e.Kind, id), true) })
 	let prior = e.State.Get(id)
 	let change = match ChangeOf(prior, p) {
 	case None:
+		match e.Pass.mode {
+		case Refreshing:
+			try refresh(e, id, p)
+		case Planning, Applying:
+		}
 		return e.Driver.Attrs(id, p)
 	case Some[Change] as c:
 		c.Value
 	}
-	note(e.Run, Step{Kind: e.Kind, ID: id, Change: change})
-	match e.Run.mode {
+	note(e.Pass, Step{Kind: e.Kind, ID: id, Change: change})
+	match e.Pass.mode {
+	case Refreshing:
+		return e.Driver.Attrs(id, p)
 	case Planning:
 		return e.Driver.Attrs(id, p)
 	case Applying:
@@ -102,7 +113,7 @@ func Ensure[P comparable, A comparable](e Engine[P, A], id string, p P) A fails 
 	case Some[Row[P]] as r:
 		r.Value.Seq
 	case None:
-		sync.Modify(e.Run.seq, func(n int) (int, int) { (n, n + 1) })
+		sync.Modify(e.Pass.seq, func(n int) (int, int) { (n, n + 1) })
 	}
 	try e.State.Put(Row[P]{ID: id, Status: Creating, Props: p, Seq: seq})
 	let a = try e.Driver.Apply(id, p)
@@ -110,8 +121,26 @@ func Ensure[P comparable, A comparable](e Engine[P, A], id string, p P) A fails 
 	a
 }
 
+// refresh records the drift of the object id, whose row is live with p:
+// Gone when the driver reads nothing, Drifted when what it reads is not
+// what Apply gave. It writes nothing.
+func refresh[P comparable, A comparable](e Engine[P, A], id string, p P) fails Failed {
+	match try e.Driver.Read(id) {
+	case None:
+		note(e.Pass, Step{Kind: e.Kind, ID: id, Change: Gone})
+	case Some[A] as a:
+		if a.Value != e.Driver.Attrs(id, p) {
+			note(e.Pass, Step{Kind: e.Kind, ID: id, Change: Drifted})
+		}
+	}
+}
+
 // Leftover is a row the sweep deletes: its kind, its id and its place.
 type Leftover { Kind string, ID string, Seq int }
+
+// Listed is a row as infra's state command shows it, whatever its kind's
+// props.
+type Listed { Kind string, ID string, Status Status, Seq int }
 
 // Sweeper is an engine as the sweep sees it, whatever its kind's types.
 type Sweeper {
@@ -122,6 +151,8 @@ type Sweeper {
 	Sweep(id string) fails Failed,
 	// Newest is the greatest Seq of its rows, 0 for none.
 	Newest() int,
+	// Rows is every row of its kind, in the store's order.
+	Rows() []Listed,
 
 	// NewestBoundsLeftovers: no leftover row is newer than Newest.
 	law NewestBoundsLeftovers() {
@@ -136,7 +167,7 @@ type Sweeper {
 }
 
 func Leftovers[P comparable, A comparable](e Engine[P, A]) []Leftover {
-	let seen = e.Run.seen.Get()
+	let seen = e.Pass.seen.Get()
 	let mut out = []Leftover{}
 	for r in e.State.List() {
 		if seen.Get(keyOf(e.Kind, r.ID)) == None {
@@ -155,9 +186,9 @@ func Sweep[P comparable, A comparable](e Engine[P, A], id string) fails Failed {
 	case Some[Row[P]] as r:
 		r.Value
 	}
-	note(e.Run, Step{Kind: e.Kind, ID: id, Change: Delete})
-	match e.Run.mode {
-	case Planning:
+	note(e.Pass, Step{Kind: e.Kind, ID: id, Change: Delete})
+	match e.Pass.mode {
+	case Planning, Refreshing:
 		return
 	case Applying:
 	}
@@ -176,14 +207,22 @@ func Newest[P comparable, A comparable](e Engine[P, A]) int {
 	n
 }
 
+func Rows[P comparable, A comparable](e Engine[P, A]) []Listed {
+	let mut out = []Listed{}
+	for r in e.State.List() {
+		out = out.Append(Listed{Kind: e.Kind, ID: r.ID, Status: r.Status, Seq: r.Seq})
+	}
+	out
+}
+
 // Begin starts run over the engines: an apply takes the lock for holder
 // (it fails Held while another holds it), and the order of creation goes
 // on after the newest row.
-func Begin(run Run, lock Lock, holder string, engines []Sweeper) fails Held {
-	match run.mode {
+func Begin(pass Pass, lock Lock, holder string, engines []Sweeper) fails Held {
+	match pass.mode {
 	case Applying:
 		try lock.Acquire(holder)
-	case Planning:
+	case Planning, Refreshing:
 	}
 	let mut newest = 0
 	for e in engines {
@@ -191,13 +230,13 @@ func Begin(run Run, lock Lock, holder string, engines []Sweeper) fails Held {
 			newest = e.Newest()
 		}
 	}
-	run.seq.Set(newest + 1)
+	pass.seq.Set(newest + 1)
 }
 
 // Finish ends run: the sweep deletes every object of the engines that the
 // stack did not ensure, the newest first, and an apply then releases the
 // lock. A failure leaves the lock held.
-func Finish(run Run, lock Lock, holder string, engines []Sweeper) fails Failed {
+func Finish(pass Pass, lock Lock, holder string, engines []Sweeper) fails Failed {
 	let mut left = []Owned{}
 	for i, e in engines {
 		for l in e.Leftovers() {
@@ -207,18 +246,18 @@ func Finish(run Run, lock Lock, holder string, engines []Sweeper) fails Failed {
 	for o in left {
 		try engines[o.Engine].Sweep(o.Row.ID)
 	}
-	match run.mode {
+	match pass.mode {
 	case Applying:
 		lock.Release(holder)
-	case Planning:
+	case Planning, Refreshing:
 	}
 }
 
 // Destroy deletes every object of the engines, the newest first: a run
 // whose stack ensures nothing.
-func Destroy(run Run, lock Lock, holder string, engines []Sweeper) fails Held | Failed {
-	try Begin(run, lock, holder, engines)
-	try Finish(run, lock, holder, engines)
+func Destroy(pass Pass, lock Lock, holder string, engines []Sweeper) fails Held | Failed {
+	try Begin(pass, lock, holder, engines)
+	try Finish(pass, lock, holder, engines)
 }
 
 // Owned is a leftover row and the index of its engine.

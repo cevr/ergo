@@ -4,7 +4,7 @@ An Ergo module of this repository (`modules/`, MK0): infrastructure as code in d
 
 | Package | What |
 | --- | --- |
-| `infra` | `Driver[P, A]` with its four laws, `Kind[P, A]`, `State[P]` and `Lock` with their laws, `Engine` (a plan or an apply of one kind), `Step`, `Begin`, `Finish` (the sweep), `Destroy`; `Deploy`, `WriteOutputs`, `OutputsSpec` (IA4) |
+| `infra` | `Driver[P, A]` with its four laws, `Kind[P, A]`, `State[P]` and `Lock` with their laws, `Pass` (one plan, refreshing plan or apply), `Engine` (a kind in a pass), `Step`, `Begin`, `Finish` (the sweep), `Destroy`; `Deploy`, `WriteOutputs`, `OutputsSpec` (IA4); `Run`, `Exec`, `Deployment`, `Bound` (the command line, IA3) |
 | `infra/memory` | a cloud of directories and files with a driver per kind, a state store, a lock, and a `Fuse` that fails a chosen call as a crash would |
 
 ## The row's protocol
@@ -20,6 +20,20 @@ An apply of an object writes its row `Creating`, calls the driver's `Apply`, and
 ## Outputs
 
 A stack returns a record `O` of its own, one that has a codec. `Deploy` runs it: `Begin`, the stack, `Finish`, and only then, in an apply, `WriteOutputs` writes `O` as JSON at a path (the file is replaced whole). A program reads it with std `config`: `config.Load[O](infra.OutputsSpec(path))`. Laws: `memory.OutputsRoundTrip` (what infra writes, config reads back as the same record) and `memory.OutputsAfterTheApply` (after a crash at any call of a second apply, the file holds the first apply's outputs; after it ends, the second's).
+
+## The command line
+
+`cmd/<name>-infra/main.ergo` gives `infra.Run` a `Deployment`: the program's name, the default holder of the lock, the lock of a stage, `Bind` (the stack of a stage over the engines of a pass; only main chooses the drivers), and where the outputs go. `Exec` is the same, as an `Output` a test reads with no host.
+
+| Command | Does |
+| --- | --- |
+| `plan [-stage S] [-json] [-refresh]` | the changes an apply would make, a line each, then `plan: N changes`. It calls no host; `-refresh` also reads each live object and lists it `drifted` or `gone` (it writes nothing; an apply does not repair drift) |
+| `apply -yes [-stage S] [-json] [-holder H]` | the changes, then the outputs. Without `-yes` it changes nothing and exits 2 |
+| `destroy -yes [-stage S] [-json] [-holder H]` | deletes every object, newest first |
+| `state [-stage S] [-json]` | the rows and who holds the lock |
+| `unlock [-stage S] HOLDER` | breaks the lock HOLDER holds (a run that crashed) |
+
+Exit status: 0 done, 1 a run failed (an apply's lock stays held), 2 a command line it cannot read or a missing `-yes`, 3 the lock is held by another. Tests: `memory.CommandLineSession` (a scripted session) and the law `memory.RefreshFindsDrift`.
 
 The mutant ledger (`testdata/mutants.json`) plants the design model's six mutants in the code, and d02's driver whose `Read` gives `None`.
 

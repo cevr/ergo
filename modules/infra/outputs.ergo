@@ -37,14 +37,14 @@ func OutputsSpec(path string) config.Spec {
 // no longer ensures (Finish), and only then writes the outputs at path: a
 // run that fails leaves the outputs of the last apply that ended. A plan
 // writes nothing.
-func Deploy[O wire, R](run Run, lock Lock, holder string, engines []Sweeper, writes fs.Writes, path string, stack func() O fails Failed needs R) O fails Held | Failed | Unwritten needs R {
-	try Begin(run, lock, holder, engines)
+func Deploy[O wire, R](pass Pass, lock Lock, holder string, engines []Sweeper, writes fs.Writes, path string, stack func() O fails Failed needs R) O fails Held | Failed | Unwritten needs R {
+	try Begin(pass, lock, holder, engines)
 	let o = try stack()
-	try Finish(run, lock, holder, engines)
-	match run.mode {
+	try Finish(pass, lock, holder, engines)
+	match pass.mode {
 	case Applying:
 		try WriteOutputs(writes, path, o)
-	case Planning:
+	case Planning, Refreshing:
 	}
 	o
 }

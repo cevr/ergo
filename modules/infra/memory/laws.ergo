@@ -61,9 +61,9 @@ type Ran = Finished{Steps []infra.Step} | Crashed{} | Locked{Holder string}
 
 // run runs the stack of want in mode as holder over w.
 func run(w World, mode infra.Mode, holder string, want Want) Ran {
-	let r = infra.NewRun(mode)
-	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Run: r}
-	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Run: r}
+	let r = infra.NewPass(mode)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Pass: r}
+	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Pass: r}
 	let engines = []infra.Sweeper{dirs, files}
 	infra.Begin(r, w.lock, holder, engines) catch {
 	case infra.Held as h:
@@ -84,9 +84,9 @@ func run(w World, mode infra.Mode, holder string, want Want) Ran {
 
 // destroy destroys every object of w as holder.
 func destroy(w World, holder string) Ran {
-	let r = infra.NewRun(infra.Applying)
-	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Run: r}
-	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Run: r}
+	let r = infra.NewPass(infra.Applying)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Pass: r}
+	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Pass: r}
 	infra.Destroy(r, w.lock, holder, []infra.Sweeper{dirs, files}) catch {
 	case infra.Held as h:
 		return Locked{Holder: h.Holder}
@@ -313,9 +313,9 @@ law DestroyIsNewestFirst(runs []int) {
 			return false
 		}
 	}
-	let r = infra.NewRun(infra.Planning)
-	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Run: r}
-	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Run: r}
+	let r = infra.NewPass(infra.Planning)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Pass: r}
+	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Pass: r}
 	infra.Destroy(r, w.lock, "r1", []infra.Sweeper{dirs, files}) catch {
 	case infra.Held, infra.Failed:
 		return false

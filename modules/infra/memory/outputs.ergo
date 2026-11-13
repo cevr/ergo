@@ -70,9 +70,9 @@ func placed(want Want) Sample fails infra.Failed needs infra.Kind[DirProps, Dir]
 // infra.Deploy, writing the outputs at Path in disk. It is whether the run
 // ended.
 func deploys(w World, want Want, disk fstest.Memory) bool {
-	let r = infra.NewRun(infra.Applying)
-	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Run: r}
-	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Run: r}
+	let r = infra.NewPass(infra.Applying)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Pass: r}
+	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Pass: r}
 	with context { infra.Kind[DirProps, Dir]: dirs, infra.Kind[FileProps, File]: files } {
 		let _ = infra.Deploy(r, w.lock, "r1", []infra.Sweeper{dirs, files}, disk, Path, func() Sample fails infra.Failed needs infra.Kind[DirProps, Dir] | infra.Kind[FileProps, File] { try placed(want) }) catch {
 		case infra.Held, infra.Failed, infra.Unwritten:
@@ -85,9 +85,9 @@ func deploys(w World, want Want, disk fstest.Memory) bool {
 // outputsOf is the outputs the stack of want gives.
 func outputsOf(want Want) Option[Sample] {
 	let w = newWorld()
-	let r = infra.NewRun(infra.Planning)
-	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Run: r}
-	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Run: r}
+	let r = infra.NewPass(infra.Planning)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Pass: r}
+	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Pass: r}
 	with context { infra.Kind[DirProps, Dir]: dirs, infra.Kind[FileProps, File]: files } {
 		let o = placed(want) catch {
 		case infra.Failed:

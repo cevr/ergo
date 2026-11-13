@@ -1,0 +1,291 @@
+// The command line of a stack (IA3). A program's cmd/<name>-infra/main.ergo
+// binds its stack to the engines of a pass and calls infra.Run:
+//
+//	plan    [-stage S] [-json] [-refresh]   the changes an apply would make
+//	apply   [-stage S] [-json] -yes          make them, then write the outputs
+//	destroy [-stage S] [-json] -yes          delete every object, newest first
+//	state   [-stage S] [-json]               the rows and the lock
+//	unlock  [-stage S] HOLDER                break the lock HOLDER holds
+//
+// Exit status: 0 done, 1 a run failed (the lock stays held when it was an
+// apply), 2 a command line infra cannot read or an apply or destroy
+// without -yes, 3 the stage's lock is held by another.
+
+import flag
+import fs
+import json
+import os
+import strings
+
+// Bound is a stack bound to the engines of one pass: the engines (for the
+// lock's order and the sweep) and the stack, which runs with them as its
+// kinds' providers.
+type Bound[O wire] { Engines []Sweeper, Stack func() O fails Failed }
+
+// Deployment is what Run deploys: the program's name, who takes the lock
+// unless -holder says, the lock of a stage, Bind (the stack of a stage
+// over the engines of a pass, which only main chooses), where the outputs
+// of a stage are written, and through what.
+type Deployment[O wire] {
+	Name    string,
+	Holder  string,
+	Lock    func(stage string) Lock,
+	Bind    func(stage string, pass Pass) Bound[O],
+	Writes  fs.Writes,
+	Outputs func(stage string) string,
+}
+
+// Output is what Exec prints: Out to standard output, Err to standard
+// error, and the exit status.
+type Output { Out string, Err string, Code int }
+
+// Order is a command line Exec reads.
+type Order = PlanOrder{Stage string, JSON bool, Refresh bool} | ApplyOrder{Stage string, JSON bool, Yes bool, Holder string} | DestroyOrder{Stage string, JSON bool, Yes bool, Holder string} | StateOrder{Stage string, JSON bool} | UnlockOrder{Stage string, Holder string}
+
+// StepReport is a step in the JSON of plan, apply and destroy.
+type StepReport { Kind string, ID string, Change string }
+
+// Report is the JSON of plan, apply and destroy.
+type Report { Stage string, Steps []StepReport }
+
+// RowReport is a row in the JSON of state.
+type RowReport { Kind string, ID string, Status string, Seq int }
+
+// StateReport is the JSON of state: Holder is "" when the lock is free.
+type StateReport { Stage string, Holder string, Rows []RowReport }
+
+func leaf(name string, usage string, flags []flag.Flag, args []flag.ArgSpec, build escaping func(v flag.Values) Order fails flag.Failure) flag.Command[Order] {
+	flag.Command[Order]{Name: name, Usage: usage, Set: flag.Set{Name: name, Usage: usage, Flags: flags, Args: args}, Build: build, Commands: []flag.Command[Order]{}}
+}
+
+// Commands are infra's commands; holder is -holder's default.
+func Commands(holder string) []flag.Command[Order] {
+	let stage = flag.String("stage", "dev", "the stage: a name in the state's key and an argument of the stack")
+	let asJSON = flag.Bool("json", false, "print JSON")
+	let yes = flag.Bool("yes", false, "change the objects: apply and destroy refuse without it")
+	let refresh = flag.Bool("refresh", false, "also read each live object and list its drift (it reads, and writes nothing)")
+	let by = flag.String("holder", holder, "who takes the stage's lock")
+	let who = flag.Arg("holder", "the holder of the lock to break")
+	[]flag.Command[Order]{
+		leaf("plan", "plan lists the changes an apply would make", []flag.Flag{stage, asJSON, refresh}, []flag.ArgSpec{}, func(v flag.Values) Order fails flag.Failure {
+			PlanOrder{Stage: stage.Get(v), JSON: asJSON.Get(v), Refresh: refresh.Get(v)}
+		}),
+		leaf("apply", "apply makes the changes, then writes the stack's outputs", []flag.Flag{stage, asJSON, yes, by}, []flag.ArgSpec{}, func(v flag.Values) Order fails flag.Failure {
+			ApplyOrder{Stage: stage.Get(v), JSON: asJSON.Get(v), Yes: yes.Get(v), Holder: by.Get(v)}
+		}),
+		leaf("destroy", "destroy deletes every object of the stage, the newest first", []flag.Flag{stage, asJSON, yes, by}, []flag.ArgSpec{}, func(v flag.Values) Order fails flag.Failure {
+			DestroyOrder{Stage: stage.Get(v), JSON: asJSON.Get(v), Yes: yes.Get(v), Holder: by.Get(v)}
+		}),
+		leaf("state", "state lists the rows of the stage and who holds its lock", []flag.Flag{stage, asJSON}, []flag.ArgSpec{}, func(v flag.Values) Order fails flag.Failure {
+			StateOrder{Stage: stage.Get(v), JSON: asJSON.Get(v)}
+		}),
+		leaf("unlock", "unlock breaks the lock of a run that crashed, naming its holder", []flag.Flag{stage}, []flag.ArgSpec{who}, func(v flag.Values) Order fails flag.Failure {
+			let named = match who.Get(v) {
+			case Some[string] as s:
+				s.Value
+			case None:
+				""
+			}
+			UnlockOrder{Stage: stage.Get(v), Holder: named}
+		}),
+	}
+}
+
+// Word is the word of a change in the text of a plan.
+func Word(c Change) string {
+	match c {
+	case Create:
+		"create"
+	case Update:
+		"update"
+	case Resume:
+		"resume"
+	case Delete:
+		"delete"
+	case Drifted:
+		"drifted"
+	case Gone:
+		"gone"
+	}
+}
+
+// count is "no changes", "1 change" or "n changes".
+func count(n int) string {
+	if n == 0 {
+		"no changes"
+	} else if n == 1 {
+		"1 change"
+	} else {
+		"\(n) changes"
+	}
+}
+
+// told is the Output of steps: a line per step and the last line, or
+// their JSON.
+func told(asJSON bool, stage string, steps []Step, last string) Output {
+	if asJSON {
+		let mut out = []StepReport{}
+		for s in steps {
+			out = out.Append(StepReport{Kind: s.Kind, ID: s.ID, Change: Word(s.Change)})
+		}
+		return Output{Out: json.Encode(json.Codec[Report]{MaxBytes: 0, MaxDepth: 0}, Report{Stage: stage, Steps: out}) + "\n", Err: "", Code: 0}
+	}
+	let mut text = ""
+	for s in steps {
+		text = text + Word(s.Change) + " " + s.Kind + "/" + s.ID + "\n"
+	}
+	Output{Out: text + last + "\n", Err: "", Code: 0}
+}
+
+// refused is the Output of a failed run of name.
+func refused(name string, why string, code int) Output { Output{Out: "", Err: name + ": " + why + "\n", Code: code} }
+
+// held is the Output of a lock another holds.
+func held(name string, stage string, h Held) Output {
+	refused(name, "the lock of stage \(stage) is held by \(h.Holder): another run is on, or it crashed; once it is gone, run `\(name) unlock -stage \(stage) \(h.Holder)`", 3)
+}
+
+// deploy runs d's stack at stage in pass as holder: None when it ended,
+// else the Output of its failure.
+func deploy[O wire](d Deployment[O], stage string, pass Pass, holder string) Option[Output] {
+	let b = d.Bind(stage, pass)
+	let path = d.Outputs(stage)
+	let _ = Deploy(pass, d.Lock(stage), holder, b.Engines, d.Writes, path, b.Stack) catch {
+	case Held as h:
+		return Some[Output]{Value: held(d.Name, stage, h)}
+	case Failed as f:
+		let lock = match pass.mode {
+		case Applying:
+			"; the lock stays held by \(holder), and the rows say what was in flight: apply again to resume"
+		case Planning, Refreshing:
+			""
+		}
+		return Some[Output]{Value: refused(d.Name, "\(f.ID): \(f.Reason)"+lock, 1)}
+	case Unwritten as u:
+		return Some[Output]{Value: refused(d.Name, "the apply ended, and its outputs were not written at \(u.Path): \(u.Reason)", 1)}
+	}
+	None
+}
+
+// Exec reads args as a command of d's stack, runs it, and is what to
+// print.
+func Exec[O wire](d Deployment[O], args []string) Output {
+	let order = flag.ParseCommand(d.Name, "\(d.Name) plans, applies and destroys its stack", Commands(d.Holder), args) catch {
+	case flag.Help as h:
+		return Output{Out: h.Text, Err: "", Code: 0}
+	case err:
+		return Output{Out: "", Err: flag.Describe(err) + "\n", Code: 2}
+	}
+	match order {
+	case PlanOrder as p:
+		let mut mode Mode = Planning
+		if p.Refresh {
+			mode = Refreshing
+		}
+		let pass = NewPass(mode)
+		match deploy(d, p.Stage, pass, d.Holder) {
+		case Some[Output] as o:
+			return o.Value
+		case None:
+		}
+		told(p.JSON, p.Stage, Steps(pass), "plan: "+count(len(Steps(pass))))
+	case ApplyOrder as a:
+		if !a.Yes {
+			return refused(d.Name, "apply changes objects: run plan to see the changes, then apply -yes", 2)
+		}
+		let pass = NewPass(Applying)
+		match deploy(d, a.Stage, pass, a.Holder) {
+		case Some[Output] as o:
+			return o.Value
+		case None:
+		}
+		told(a.JSON, a.Stage, Steps(pass), "applied: "+count(len(Steps(pass)))+"; outputs at "+d.Outputs(a.Stage))
+	case DestroyOrder as x:
+		if !x.Yes {
+			return refused(d.Name, "destroy deletes every object of stage \(x.Stage): run it with -yes", 2)
+		}
+		let pass = NewPass(Applying)
+		let b = d.Bind(x.Stage, pass)
+		Destroy(pass, d.Lock(x.Stage), x.Holder, b.Engines) catch {
+		case Held as h:
+			return held(d.Name, x.Stage, h)
+		case Failed as f:
+			return refused(d.Name, "\(f.ID): \(f.Reason); the lock stays held by \(x.Holder): destroy again to resume", 1)
+		}
+		told(x.JSON, x.Stage, Steps(pass), "destroyed: "+count(len(Steps(pass))))
+	case StateOrder as s:
+		shown(d, s)
+	case UnlockOrder as u:
+		let lock = d.Lock(u.Stage)
+		if lock.Holder() == None {
+			return refused(d.Name, "the lock of stage \(u.Stage) is free", 1)
+		}
+		lock.Break(u.Holder) catch {
+		case Held as h:
+			return refused(d.Name, "\(u.Holder) does not hold the lock of stage \(u.Stage); \(h.Holder) does", 1)
+		}
+		Output{Out: "unlocked stage \(u.Stage), which \(u.Holder) held\n", Err: "", Code: 0}
+	}
+}
+
+// statusWord is the word of a row's status.
+func statusWord(s Status) string {
+	match s {
+	case Creating:
+		"creating"
+	case Live:
+		"live"
+	case Deleting:
+		"deleting"
+	}
+}
+
+// shown is the Output of state: the rows of every engine, then the lock.
+func shown[O wire](d Deployment[O], s StateOrder) Output {
+	let b = d.Bind(s.Stage, NewPass(Planning))
+	let holder = match d.Lock(s.Stage).Holder() {
+	case Some[string] as h:
+		h.Value
+	case None:
+		""
+	}
+	let mut rows = []RowReport{}
+	for e in b.Engines {
+		for r in e.Rows() {
+			rows = rows.Append(RowReport{Kind: r.Kind, ID: r.ID, Status: statusWord(r.Status), Seq: r.Seq})
+		}
+	}
+	if s.JSON {
+		return Output{Out: json.Encode(json.Codec[StateReport]{MaxBytes: 0, MaxDepth: 0}, StateReport{Stage: s.Stage, Holder: holder, Rows: rows}) + "\n", Err: "", Code: 0}
+	}
+	let mut text = ""
+	for r in rows {
+		text = text + r.Kind + "/" + r.ID + " " + r.Status + "\n"
+	}
+	if len(rows) == 0 {
+		text = "no objects\n"
+	}
+	if holder == "" {
+		text = text + "lock: free\n"
+	} else {
+		text = text + "lock: held by " + holder + "\n"
+	}
+	Output{Out: text, Err: "", Code: 0}
+}
+
+// Run is a stack's command line: it runs Exec on args (the arguments
+// after the program's name), prints its output, and fails os.Exit with
+// its status.
+func Run[O wire](d Deployment[O], args []string) fails os.Exit needs Console {
+	let o = Exec(d, args)
+	if o.Out != "" {
+		Console.Println(strings.TrimSuffix(o.Out, "\n"))
+	}
+	if o.Code != 0 {
+		let code = os.ParseCode(o.Code) catch {
+		case Unsatisfied:
+			Unreachable("infra's Exec gives status 0, 1, 2 or 3")
+		}
+		return os.Exit{Code: code, Message: strings.TrimSuffix(o.Err, "\n")}
+	}
+}
