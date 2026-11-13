@@ -1,0 +1,136 @@
+// The form's laws: three over one step of any form, and one over the
+// shape of an email address.
+
+import machines
+import strings
+
+// edit is the edit of kind k (name, email or note) with text.
+func edit(k int, text string) Signal {
+	match ((k % 3) + 3) % 3 {
+	case 0:
+		NameEdited{Text: text}
+	case 1:
+		EmailEdited{Text: text}
+	case _:
+		NoteEdited{Text: text}
+	}
+}
+
+// texts are drafts the laws type: an empty one, one byte, a name, a valid
+// address, and a malformed one; and the generated text.
+func textOf(n int, generated string) string {
+	let texts = []string{"", "A", "Alice", "alice@example.com", "alice@example", generated}
+	texts[((n%len(texts))+len(texts))%len(texts)]
+}
+
+// EditClearsThatFieldsError: outside a submit, an edit sets its field to
+// the field its text gives, an earlier error included, and touches no
+// other field and not the stage; during a submit it changes nothing.
+law EditClearsThatFieldsError(f Form, k int, n int, generated string) {
+	let text = textOf(n, generated)
+	let next = machines.Next(f, Step(f, edit(k, text)))
+	match f.Stage {
+	case Sending:
+		next == f
+	case Editing, Sent, Refused:
+		match edit(k, text) {
+		case NameEdited:
+			next == Form{..f, Name: NameField(text)}
+		case EmailEdited:
+			next == Form{..f, Email: EmailField(text)}
+		case _:
+			next == Form{..f, Note: text}
+		}
+	}
+}
+
+// StaleCheckIsDropped: an edit of the email opens a new entry, so the
+// entry that owns a check of an older address ends and the runner drops
+// that check's answer (runtime.md, Machines and actors 12); an edit of
+// the name or the note keeps the entry, so a check under way goes on. And
+// an answer when no check is under way changes nothing. Upstream compares
+// the answer's address with the field's; here the old answer never
+// arrives.
+law StaleCheckIsDropped(f Form, k int, text string, taken bool) {
+	let d = Step(f, edit(k, text))
+	let entry = match f.Stage {
+	case Sending:
+		d == Ignore
+	case Editing, Sent, Refused:
+		match edit(k, text) {
+		case EmailEdited:
+			d == Enter[Form]{Next: machines.Next(f, d)}
+		case _:
+			d == Stay[Form]{Next: machines.Next(f, d)}
+		}
+	}
+	let stray = match f.Email.Verdict {
+	case Checking[Email]:
+		true
+	case Unchecked, Valid[Email], Invalid[EmailWhy]:
+		Step(f, Checked{Taken: taken}) == Ignore
+	}
+	entry && stray
+}
+
+// formOf is a form the user can reach: the fields its texts give, the
+// email's check answered (taken or not) when settled, and a stage.
+func formOf(name string, email string, settled bool, taken bool, stage int) Form {
+	let mut f = Form{..Initial(), Name: NameField(name), Email: EmailField(email)}
+	if settled {
+		f = machines.Next(f, Step(f, Checked{Taken: taken}))
+	}
+	let stages = []Stage{Editing, Sending, Sent{Text: Welcome(name)}, Refused}
+	Form{..f, Stage: stages[((stage%4)+4)%4]}
+}
+
+// SubmitOnlyWhenAllValid: a submit starts only from a form that is not
+// sending, whose name is valid or empty and whose email has passed its
+// check; any other submit is ignored.
+law SubmitOnlyWhenAllValid(n int, name string, e int, email string, settled bool, taken bool, stage int) {
+	let f = formOf(textOf(n, name), textOf(e, email), settled, taken, stage)
+	let nameOK = f.Name.Text == "" || len(f.Name.Text) >= 2
+	let emailOK = settled && !taken && !malformed(f.Email.Text) && f.Email.Text != ""
+	let sending = ((stage%4)+4)%4 == 1
+	let d = Step(f, Submitted)
+	if !sending && nameOK && emailOK {
+		d == Enter[Form]{Next: Form{..f, Stage: Sending}}
+	} else {
+		d == Ignore
+	}
+}
+
+// EmailIsThePattern: local@host.top parses back as that address when no
+// part is empty or holds a space or an @; a space (any Unicode space, as
+// the pattern's \s), a second @, or no dot with text on both sides makes
+// it Malformed.
+law EmailIsThePattern(local string, host string, top string, cut int, space int) {
+	let a = clean(local, "a")
+	let h = clean(host, "b")
+	let t = clean(top, "c")
+	let text = a + "@" + h + "." + t
+	let e = ParseEmail(text) catch {
+	case Required, Malformed:
+		return false
+	}
+	let at = ((cut % len(text)) + len(text)) % len(text)
+	let spaces = []string{" ", "\t", "\u00a0", "\u2003"}
+	let sp = spaces[((space%len(spaces))+len(spaces))%len(spaces)]
+	malformed(text[:at]+sp+text[at:]) && malformed(text+"@x.y") && malformed(a+"@"+h+t) && malformed(a+"@."+h+t) && Text(e) == text
+}
+
+func malformed(text string) bool {
+	let _ = ParseEmail(text) catch {
+	case Malformed:
+		return true
+	case Required:
+		return false
+	}
+	false
+}
+
+// clean is s with no space and no @, or or when that is empty.
+func clean(s string, or string) string {
+	let c = strings.ReplaceAll(strings.Join(strings.Fields(s), ""), "@", "")
+	if c == "" || strings.Contains(c, ".") { or } else { c }
+}

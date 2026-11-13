@@ -82,8 +82,9 @@ func after(l Light, end duration) Light {
 // Step is the light's transition. A tick at or after the deadline enters
 // the next phase, which begins at the deadline. A press in green asks for
 // an early end; a press in another phase, or a second press, is ignored.
-// A fault flashes from any phase; only a repair ends it, at red.
-func Step(l Light, c Cue) Decision[Light, string] {
+// A fault flashes from any phase; only a repair ends it, at red. The
+// light gives no output and never ends: its output is Never.
+func Step(l Light, c Cue) Decision[Light, Never] {
 	match (l, c) {
 	case (Flashing, Repair as r):
 		Enter[Light]{Next: Red{Since: r.At}}

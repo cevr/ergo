@@ -141,6 +141,14 @@ func (r *patResolver) child(parent, ctor, field int, t Type) int {
 func (r *patResolver) columnOf(t Type) (column, colInfo) {
 	if u := r.c.subjectUnion(t); u != nil {
 		col := column{size: u.len()}
+		for i := range u.len() {
+			if u.mayHoldNever() && r.c.uninhabited(u.at(i)) {
+				if col.empty == nil {
+					col.empty = map[int]bool{}
+				}
+				col.empty[i] = true
+			}
+		}
 		col.label = func(w witness, j int, out *strings.Builder) {
 			ctor, ok := w[j]
 			if !ok {
@@ -451,6 +459,10 @@ func (r *patResolver) head(e syntax.Expr, t Type, col int) (int, Type, bool) {
 			return -1, t, true
 		}
 		if idx < 0 {
+			return 0, nil, false
+		}
+		if vt := ci.u.at(idx); c.uninhabited(vt) {
+			c.errorf(e, CodeType, "%s has no value: it holds a Never, so this case never runs; leave it out (types.md, Never)", vt)
 			return 0, nil, false
 		}
 		return idx, ci.u.at(idx), true

@@ -53,6 +53,19 @@ type Running[S, O] {
 // Outcome is how a run ended.
 type Outcome[S, O] = Finished[S, O] | Running[S, O]
 
+// LastState is the state a run ended in: the State of a Finished run (the
+// state its step saw last) or of a Running one (after its last signal).
+// A machine of no output, Outcome[S, Never], is only ever Running, and a
+// match on it writes that one arm; LastState reads either.
+func LastState[S, O](o Outcome[S, O]) S {
+	match o {
+	case Finished[S, O] as f:
+		f.State
+	case Running[S, O] as r:
+		r.State
+	}
+}
+
 // Rejected is the failure of a run whose step answered Reject to a signal:
 // At is the index of the rejected signal, and the state is the one before
 // it.

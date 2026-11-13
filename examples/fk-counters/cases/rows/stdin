@@ -1,0 +1,18 @@
+# three counters to start; clicks go to their own row
+inc 1
+inc 1
+dec 0
+# a new row gets the next key, 3, and starts at zero
+add
+inc 3
+# removing counter-1 keeps the others with their counts
+remove 1
+# a click for a removed row finds no row and changes nothing
+inc 1
+# keys are never reused: after removing the last row, add gives counter-4
+remove 3
+add
+remove 0
+remove 2
+remove 4
+add

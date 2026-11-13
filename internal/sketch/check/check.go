@@ -80,6 +80,9 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
+	// neverOrigins caches, per union origin, whether a variant holds a
+	// Never (switchUnion.mayHoldNever; types.md, Never).
+	neverOrigins map[*Union]bool
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	pkg      *Package

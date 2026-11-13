@@ -9,9 +9,9 @@ type Gone { Key int }
 // Square is the function the laws remember.
 func Square(k int) int { k * k }
 
-// Never is a function that always fails: a Get through it can answer
+// Unloadable is a function that always fails: a Get through it can answer
 // only from the cache.
-func Never(k int) int fails Gone { Gone{Key: k} }
+func Unloadable(k int) int fails Gone { Gone{Key: k} }
 
 // KeysOf is count keys over 0 to 5, drawn from seed.
 func KeysOf(seed int, count int) []int {
@@ -65,7 +65,7 @@ law RemembersAfterMiss(n int, seed int, k int) {
 		let _ = m.Get(key, Square)
 	}
 	let _ = m.Get(k, Square)
-	let again = m.Get(k, Never) catch {
+	let again = m.Get(k, Unloadable) catch {
 	case Gone:
 		return false
 	}
@@ -76,7 +76,7 @@ law RemembersAfterMiss(n int, seed int, k int) {
 // so the next Get runs the function again.
 law FailureIsNotRemembered(n int, k int) {
 	let mut m = Fresh(n)
-	let _ = m.Get(k, Never) catch {
+	let _ = m.Get(k, Unloadable) catch {
 	case Gone:
 		0
 	}

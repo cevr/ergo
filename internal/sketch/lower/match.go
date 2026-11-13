@@ -68,6 +68,14 @@ func (fc *funcCtx) patternMatch(s syntax.Stmt, subjects []syntax.Expr, clauses [
 	if fc.l.info.Matches[s] == nil {
 		ice(s, "a match with no Matches entry")
 	}
+	if len(clauses) == 0 {
+		// A match of no arm: the checker took it as total, so a subject
+		// has no value (a Never; types.md, Never) and the match never
+		// runs. It is the Go panic of Unreachable, a terminating
+		// statement, in every lowering; its subjects are not evaluated.
+		fc.line("panic(" + fc.atSite(s, s.Pos(), fc.l.rt()+".UnreachableAt("+strconv.Quote("a match on a value of a type with none")+", "+strconv.Quote(fc.l.siteText(s))+")") + ")")
+		return true
+	}
 	vals := fc.operands(subjects, false)
 	types := make([]check.Type, len(subjects))
 	for i, x := range subjects {

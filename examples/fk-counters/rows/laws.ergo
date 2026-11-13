@@ -1,0 +1,94 @@
+// The list's laws, over every state that generated signals reach from the
+// initial list: adds, removes and counter signals for keys that exist and
+// keys that do not.
+
+import fkcounters/counter
+import machines
+
+// signalOf is a signal from two numbers: n picks the kind and k the key,
+// which may name no row (keys run to 7, past the rows a short script has).
+func signalOf(n int, k int) Signal {
+	let key = pick(k, 8)
+	match pick(n, 4) {
+	case 0:
+		Add
+	case 1:
+		Remove{Key: key}
+	case 2:
+		At{Key: key, Sig: counter.Increment}
+	case _:
+		At{Key: key, Sig: counter.Decrement}
+	}
+}
+
+// reached is the initial list and the list after each signal.
+func reached(words []int, keys []int) []Rows {
+	let mut r = Initial()
+	let mut out = []Rows{r}
+	for i, w in words {
+		let k = if i < len(keys) { keys[i] } else { i }
+		r = machines.Next(r, Step(r, signalOf(w, k)))
+		out = out.Append(r)
+	}
+	out
+}
+
+// RowSignalTouchesOnlyItsRow: a counter's signal for a key steps that
+// row's counter, and every other row, and the order of rows, stay as they
+// were.
+law RowSignalTouchesOnlyItsRow(words []int, keys []int, key int, inc bool) {
+	let sig = if inc { counter.Increment } else { counter.Decrement }
+	let k = pick(key, 8)
+	for r in reached(words, keys) {
+		let n = machines.Next(r, Step(r, At{Key: k, Sig: sig}))
+		if len(n.Items) != len(r.Items) || n.Next != r.Next {
+			return false
+		}
+		for i, x in r.Items {
+			let want = if x.Key == k { machines.Next(x.Counter, counter.Step(x.Counter, sig)) } else { x.Counter }
+			if n.Items[i] != (Row{Key: x.Key, Counter: want}) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// RemoveKeepsTheOthers: a remove drops the rows with the key and keeps
+// every other row, in order, with its count.
+law RemoveKeepsTheOthers(words []int, keys []int, key int) {
+	let k = pick(key, 8)
+	for r in reached(words, keys) {
+		let n = machines.Next(r, Step(r, Remove{Key: k}))
+		let mut kept = []Row{}
+		for x in r.Items {
+			if x.Key != k {
+				kept = kept.Append(x)
+			}
+		}
+		if n != (Rows{Items: kept, Next: r.Next}) {
+			return false
+		}
+	}
+	true
+}
+
+// KeysAreUnique: in every reached list no two rows share a key, and every
+// key is below Next, so an add never gives a key a row had before.
+law KeysAreUnique(words []int, keys []int) {
+	for r in reached(words, keys) {
+		for i, x in r.Items {
+			if x.Key >= r.Next {
+				return false
+			}
+			for j, y in r.Items {
+				if i != j && x.Key == y.Key {
+					return false
+				}
+			}
+		}
+	}
+	true
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }

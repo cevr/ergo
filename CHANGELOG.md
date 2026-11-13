@@ -134,6 +134,8 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Language and compiler
 
+- The prelude has `Never`, the type with no value (owner, 2026-11-13). A machine with no output is a `Decision[S, Never]`: a match leaves out `Emit`, `Done` and `machines.Finished` there, an arm that names one is refused, `match n {}` on a `Never` needs no arm, `n.Absurd[T]()` converts it, and `fails Never` is refused. It lowers to Go's `struct{}`. std `machines.LastState` reads the state a run ended in. ([types.md, Never](docs/spec/types.md#never))
+
 - Examples re-themed to neutral domains (owner, 2026-11-09; RT1-B, RT2): each keeps its machines, laws, matches, rows, typed failures and the counts of its laws and cases. Older entries below name the old folders as they were.
   - Renamed: `examples/checkout` is `lookup` (a resolver with a timeout, the README's opening program), `ledger` is `quota` (disk quotas with a `NoSpace` failure), `till` is `shards` (a sharded write whose lost share erases the taken ones), `order-builder` is `stack-builder` (recursive part editors over a parts library), `sign-in` is `pairing` (a device pairing screen: a serial number and a code, or a tag tap; `DeviceUnreachable`).
   - Re-themed in place: `idle-timer` (a display, not a kiosk), `keypad` (an alarm code), `search` (a file index with pins).

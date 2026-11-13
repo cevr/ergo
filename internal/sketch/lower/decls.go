@@ -335,6 +335,12 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 	case *syntax.StructType:
 		td.kind = kindRecord
 		td.fieldName = map[string]string{}
+		if check.IsNever(named) {
+			// The prelude's Never, a union of no variants (types.md,
+			// Never): Go's struct{}, which no lowered code builds, since
+			// no Ergo expression makes a Never.
+			break
+		}
 		td.errorType = l.errorType(named)
 		// A defined error type over this record keeps its Go field names,
 		// so they avoid its Error method too.

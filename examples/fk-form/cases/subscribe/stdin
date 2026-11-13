@@ -1,0 +1,22 @@
+# a submit of the empty form is ignored
+submit
+# the name: one letter is too short, two are enough
+name A
+name Alice
+# a malformed address is refused at once, an empty one is required
+email not-an-email
+email
+# a well-formed address is checked against the list: this one is on it,
+# in another case of its letters
+email Test@Example.com
+note Hello there.
+submit
+# a new address is checked again, and the form can be sent
+email alice@example.com
+submit
+# and sent again
+submit
+# the name is optional; the .invalid domain takes no mail
+name
+email bob@mail.invalid
+submit
