@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"strconv"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -16,8 +18,13 @@ import (
 // qualifies when:
 //
 //   - its domain is a slice or a Map, whose length is the count of its
-//     iterations (a Range's count is no length of memory, and a string's
-//     or a Seq's count is not known before the loop);
+//     iterations, or a Range written in the loop whose count is backed by
+//     memory or bounded (reserveRange): lo..len(p), lo a non-negative
+//     integer literal and p a plain path, counts at most len(p); lo..hi,
+//     both integer literals, at most reserveRangeSpan. Any other Range's
+//     count is no length of memory, so a reservation could fail for a
+//     loop that would have ended first; a string's or a Seq's count is not
+//     known before the loop;
 //   - one statement at the top of its body is `x = x.Append(e)` (or
 //     `x = Append(x, e)`), x a local that the lowering names;
 //   - nothing else in the body assigns x, and the body has no break,
@@ -45,10 +52,21 @@ import (
 // builds its result in one pass.
 var reserveLowering string
 
+// reserveRangeSpan bounds the count of a Range of two literals that a loop
+// reserves for: a larger one is left to grow, as any other Range is.
+const reserveRangeSpan = 4096
+
 // reserveTarget is the Go name of the local slice that s's body appends
 // to once per iteration, or "" when s does not qualify (above).
 func (fc *funcCtx) reserveTarget(s *syntax.RangeStmt, domain check.LoopDomain) string {
-	if reserveLowering == "off" || domain != check.LoopSlice && domain != check.LoopMap {
+	switch {
+	case reserveLowering == "off":
+		return ""
+	case domain == check.LoopRange:
+		if !fc.reserveRange(s.X) {
+			return ""
+		}
+	case domain != check.LoopSlice && domain != check.LoopMap:
 		return ""
 	}
 	var target *check.Var
@@ -61,7 +79,7 @@ func (fc *funcCtx) reserveTarget(s *syntax.RangeStmt, domain check.LoopDomain) s
 			break
 		}
 	}
-	if target == nil || !fc.plainPath(s.X) || fc.mentions(s.X, target) {
+	if target == nil || domain != check.LoopRange && !fc.plainPath(s.X) || fc.mentions(s.X, target) {
 		return ""
 	}
 	name, ok := fc.locals[target]
@@ -84,6 +102,40 @@ func (fc *funcCtx) reserveTarget(s *syntax.RangeStmt, domain check.LoopDomain) s
 		return ""
 	}
 	return name
+}
+
+// reserveRange reports a Range domain whose count a loop may reserve: a
+// range expression written in the loop, lo..len(p) with lo a non-negative
+// integer literal and p a plain path, or lo..hi of two integer literals
+// at most reserveRangeSpan apart.
+func (fc *funcCtx) reserveRange(x syntax.Expr) bool {
+	b, ok := unparen(x).(*syntax.BinaryExpr)
+	if !ok || b.Op != syntax.DOTDOT {
+		return false
+	}
+	lo, ok := intLiteral(b.X)
+	if !ok || lo < 0 {
+		return false
+	}
+	if hi, ok := intLiteral(b.Y); ok {
+		return hi >= lo && hi-lo <= reserveRangeSpan
+	}
+	call, ok := unparen(b.Y).(*syntax.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return false
+	}
+	c := fc.l.info.Calls[call]
+	return c != nil && c.Kind == check.CallLen && fc.plainPath(call.Args[0])
+}
+
+// intLiteral is the value of an integer literal.
+func intLiteral(x syntax.Expr) (int64, bool) {
+	l, ok := unparen(x).(*syntax.BasicLit)
+	if !ok || l.Kind != syntax.INT {
+		return 0, false
+	}
+	v, err := strconv.ParseInt(l.Value, 0, 64)
+	return v, err == nil
 }
 
 // selfAppend is x when st is `x = x.Append(e)` or `x = Append(x, e)` of
@@ -171,8 +223,20 @@ func (fc *funcCtx) mentions(x syntax.Node, v *check.Var) bool {
 }
 
 // reserve writes the reservation of a loop, before it: room in target for
-// len(x) more elements, x the domain's Go value. The domain is a plain
-// path (plainPath), so len and the range read the same value.
-func (fc *funcCtx) reserve(target, x string) {
-	fc.line(target + " = " + fc.l.rt() + ".Reserve(" + target + ", len(" + x + "))")
+// count more elements. A slice's or a Map's count is len(x), x the
+// domain's Go value, a plain path (plainPath), so len and the range read
+// the same value.
+func (fc *funcCtx) reserve(target, count string) {
+	fc.line(target + " = " + fc.l.rt() + ".Reserve(" + target + ", " + count + ")")
+}
+
+// rangeCount is the count of the Range held in x (a spilled value read
+// once): End - Start, or zero for an empty Range.
+func (fc *funcCtx) rangeCount(rangeExpr syntax.Expr, x string) string {
+	n, ok := fc.typeOf(rangeExpr).(*check.Named)
+	if !ok {
+		ice(rangeExpr, "a Range domain typed %s", fc.typeOf(rangeExpr))
+	}
+	td := fc.l.typeDecl(n.Obj, rangeExpr)
+	return "max(int(" + x + "." + td.fieldName["End"] + "-" + x + "." + td.fieldName["Start"] + "), 0)"
 }

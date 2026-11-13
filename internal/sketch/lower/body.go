@@ -801,7 +801,11 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 		x = fc.spill(x)
 	}
 	if target := fc.reserveTarget(s, l.Domain); target != "" {
-		fc.reserve(target, x) // reserve.go
+		count := "len(" + x + ")"
+		if l.Domain == check.LoopRange {
+			count = fc.rangeCount(s.X, x)
+		}
+		fc.reserve(target, count) // reserve.go
 	}
 	loop := &loopCtx{}
 	fc.loops = append(fc.loops, loop)

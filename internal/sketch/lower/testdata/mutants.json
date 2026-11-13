@@ -4087,8 +4087,8 @@
       "name": "gx2-reserve-never",
       "origin": "wf10 GX2",
       "file": "internal/sketch/lower/reserve.go",
-      "from": "\tif reserveLowering == \"off\" || domain != check.LoopSlice",
-      "to": "\tif true || domain != check.LoopSlice",
+      "from": "\tcase reserveLowering == \"off\":\n\t\treturn \"\"\n",
+      "to": "\tcase true:\n\t\treturn \"\"\n",
       "rule": "types.md, Loops and len 8 (GX2): a qualifying append loop reserves its room before it starts.",
       "killers": [
         "lower:TestReserveAgrees"
@@ -4098,8 +4098,8 @@
       "name": "gx2-reserve-any-domain",
       "origin": "wf10 GX2",
       "file": "internal/sketch/lower/reserve.go",
-      "from": "reserveLowering == \"off\" || domain != check.LoopSlice && domain != check.LoopMap {",
-      "to": "reserveLowering == \"off\" {",
+      "from": "\tcase domain != check.LoopSlice && domain != check.LoopMap:\n\t\treturn \"\"\n",
+      "to": "",
       "rule": "types.md, Loops and len 8 (GX2): only a slice or a Map domain is reserved: a Range's count is no length of memory, a string's and a Seq's are unknown.",
       "killers": [
         "lower:TestReserveAgrees"
@@ -4142,7 +4142,7 @@
       "name": "gx2-reserve-call-domain",
       "origin": "wf10 GX2",
       "file": "internal/sketch/lower/reserve.go",
-      "from": "if target == nil || !fc.plainPath(s.X) || ",
+      "from": "if target == nil || domain != check.LoopRange && !fc.plainPath(s.X) || ",
       "to": "if target == nil || ",
       "rule": "types.md, Loops and len 8 (GX2): a domain reached through a call could return the target's array, so it is not reserved.",
       "killers": [
@@ -4158,6 +4158,39 @@
       "rule": "types.md, Loops and len 8 (GX2): a domain reached through a pointer could reach the target's array, so it is not reserved.",
       "killers": [
         "lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx6-range-any-bound",
+      "origin": "wf10 GX6",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "\tif !ok || len(call.Args) != 1 {\n\t\treturn false\n\t}\n",
+      "to": "\tif !ok || len(call.Args) != 1 {\n\t\treturn true\n\t}\n",
+      "rule": "types.md Loops and len 8 (GX6): a Range up to a count with no memory behind it (0..n) reserves nothing.",
+      "killers": [
+        "internal/sketch/lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx6-range-wide",
+      "origin": "wf10 GX6",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "\t\treturn hi >= lo && hi-lo <= reserveRangeSpan\n",
+      "to": "\t\treturn hi >= lo\n",
+      "rule": "types.md Loops and len 8 (GX6): a Range of two literals reserves only up to reserveRangeSpan.",
+      "killers": [
+        "internal/sketch/lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx6-range-no-floor",
+      "origin": "wf10 GX6",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "\treturn \"max(int(\" + x + \".\" + td.fieldName[\"End\"] + \"-\" + x + \".\" + td.fieldName[\"Start\"] + \"), 0)\"\n",
+      "to": "\treturn \"int(\" + x + \".\" + td.fieldName[\"End\"] + \"-\" + x + \".\" + td.fieldName[\"Start\"] + \")\"\n",
+      "rule": "types.md Loops and len 8 (GX6): an empty Range (2..len(xs) of a short xs) reserves zero, never a negative count.",
+      "killers": [
+        "internal/sketch/lower:TestReserveAgrees"
       ]
     }
   ]
