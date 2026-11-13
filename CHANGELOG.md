@@ -139,6 +139,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Language and compiler
 
+- `examples/stars-gui` widening filter (corpus wave GP1x): a backspace or a cancel in a filter filters the whole catalogue in the key's order, which the grid keeps until a sort or an edit (`Grid.Whole`, law `WholeIsOrder`), instead of sorting 100,000 rows again.
 - `examples/stars-gui` view stage (corpus wave GP1b): `stars-gui scene CATALOG` runs the star table's window on `ui.TestHost`, the table machine under an actor whose refused edits are its output, sort and edit buttons a column, keys that move and page, one text field whose whole text becomes letters and backspaces (laws `RetextIsTyping`, `RetextIsBackspace`), and the view's rows as a `ui.Rows` virtual list keyed by star id; the scene's text is held to the same reference model as `run`.
 - `examples/draw-gui` view stage (corpus wave GP3b): `draw-gui scene FILE` runs the drawing tool's window on `ui.TestHost`, the tool machine under an actor, a toolbar of buttons, the picture as a `ui.Area` taking pointer events and a `ui.Canvas` painting the shapes; the scene's text and saved file are held to the same reference model as `play`.
 - `examples/dash-gui` view stage (corpus wave GP4b): `dash-gui scene` runs the dashboard's view on `ui.TestHost`, an app machine under an actor whose frames come from the view's `ui.Animate`, twelve keyed panels with pause and policy buttons and a `ui.Canvas` each; the scene's text is held to the same reference model as `play`.

@@ -12,10 +12,13 @@ import utf8
 // Grid is what every mode shows: the catalogue, the view over it, and
 // the window. View holds ids (indexes of Rows), filtered and sorted;
 // Cursor and Top are positions in View; Anchor and Selected are ids, so a
-// sort or a filter keeps them.
+// sort or a filter keeps them. Whole, when kept, is every id in the key's
+// order, so a filter that widens filters it instead of sorting again
+// (law WholeIsOrder); a sort or an edit drops it.
 type Grid {
 	Rows     []Star,
 	View     []int,
+	Whole    Option[[]int],
 	Key      SortKey,
 	Filter   string,
 	Top      int,
@@ -57,7 +60,8 @@ let MaxHeight = 1000
 func Open(rows []Star, height int) State {
 	let key = SortKey{Column: Name, Descending: false}
 	let h = clamp(height, 1, MaxHeight)
-	Browsing{G: Grid{Rows: rows, View: Order(rows, "", key), Key: key, Filter: "", Top: 0, Cursor: 0, Height: h, Anchor: None, Selected: []int{}}}
+	let all = Order(rows, "", key)
+	Browsing{G: Grid{Rows: rows, View: all, Whole: Some{Value: all}, Key: key, Filter: "", Top: 0, Cursor: 0, Height: h, Anchor: None, Selected: []int{}}}
 }
 
 // GridOf is the grid of any mode.
@@ -100,7 +104,7 @@ func browse(g Grid, sig Signal) Decision[State, Refused] {
 		let key = if k.Column == g.Key.Column { SortKey{Column: k.Column, Descending: !g.Key.Descending} } else { SortKey{Column: k.Column, Descending: false} }
 		let at = idAt(g)
 		let view = Sorted(g.Rows, g.View, key)
-		Stay[State]{Next: Browsing{G: Settle(Grid{..g, View: view, Key: key, Cursor: follow(view, at, g.Cursor)})}}
+		Stay[State]{Next: Browsing{G: Settle(Grid{..g, View: view, Whole: kept(g.Filter, view), Key: key, Cursor: follow(view, at, g.Cursor)})}}
 	case StartFilter:
 		Enter[State]{Next: Filtering{G: g, Before: g.Filter}}
 	case Mark:
@@ -146,18 +150,19 @@ func filtering(f Filtering, sig Signal) Decision[State, Refused] {
 	match sig {
 	case Type as t:
 		let next = g.Filter + t.Text
-		let view = if Narrows(g.Filter, next) { Narrow(g.Rows, g.View, next) } else { Order(g.Rows, next, g.Key) }
-		Stay[State]{Next: Filtering{G: Settle(Grid{..g, Filter: next, View: view, Cursor: 0, Top: 0}), Before: f.Before}}
+		if Narrows(g.Filter, next) {
+			return Stay[State]{Next: Filtering{G: Settle(Grid{..g, Filter: next, View: Narrow(g.Rows, g.View, next), Cursor: 0, Top: 0}), Before: f.Before}}
+		}
+		Stay[State]{Next: Filtering{G: refilter(g, next), Before: f.Before}}
 	case Backspace:
 		if g.Filter == "" {
 			return Reject
 		}
-		let next = dropLast(g.Filter)
-		Stay[State]{Next: Filtering{G: Settle(Grid{..g, Filter: next, View: Order(g.Rows, next, g.Key), Cursor: 0, Top: 0}), Before: f.Before}}
+		Stay[State]{Next: Filtering{G: refilter(g, dropLast(g.Filter)), Before: f.Before}}
 	case Commit:
 		Enter[State]{Next: Browsing{G: g}}
 	case Cancel:
-		Enter[State]{Next: Browsing{G: Settle(Grid{..g, Filter: f.Before, View: Order(g.Rows, f.Before, g.Key), Cursor: 0, Top: 0})}}
+		Enter[State]{Next: Browsing{G: refilter(g, f.Before)}}
 	case Move, Page, Home, End, SortBy, StartFilter, Mark, Extend, Edit:
 		Reject
 	}
@@ -178,12 +183,32 @@ func editing(e Editing, sig Signal) Decision[State, Refused] fails Refused {
 		let mut rows = g.Rows
 		rows[e.Row] = Set(rows[e.Row], e.Column, cell)
 		let view = Order(rows, g.Filter, g.Key)
-		Enter[State]{Next: Browsing{G: Settle(Grid{..g, Rows: rows, View: view, Cursor: follow(view, Some[int]{Value: e.Row}, g.Cursor)})}}
+		Enter[State]{Next: Browsing{G: Settle(Grid{..g, Rows: rows, View: view, Whole: kept(g.Filter, view), Cursor: follow(view, Some[int]{Value: e.Row}, g.Cursor)})}}
 	case Cancel:
 		Enter[State]{Next: Browsing{G: g}}
 	case Move, Page, Home, End, SortBy, StartFilter, Mark, Extend, Edit:
 		Reject
 	}
+}
+
+// refilter is g showing filter from the top: the whole catalogue in the
+// key's order (Whole, or a fresh Order kept for the next time) filtered,
+// which is Order(rows, filter, key) by FilterThenSortCommutes. A filter
+// that widens costs a filter of the catalogue, not a sort.
+func refilter(g Grid, filter string) Grid {
+	let all = match g.Whole {
+	case Some[[]int] as w:
+		w.Value
+	case None:
+		Order(g.Rows, "", g.Key)
+	}
+	Settle(Grid{..g, Filter: filter, View: Narrow(g.Rows, all, filter), Whole: Some{Value: all}, Cursor: 0, Top: 0})
+}
+
+// kept is the Whole of a view made under filter: the view itself when
+// the filter keeps every star, else none.
+func kept(filter string, view []int) Option[[]int] {
+	if filter == "" { Some{Value: view} } else { None }
 }
 
 // Settle keeps the cursor on a row of the view and the window over the
@@ -313,6 +338,27 @@ type Table machine[State, Signal] {
 			}
 		}
 		true
+	},
+
+	// WholeIsOrder: whatever the script, a kept Whole is every star in the
+	// key's order, so a widening filter that reads it shows a fresh
+	// Order. The script ends with a filter taken back to empty, so the
+	// widening path runs on every case.
+	law WholeIsOrder(rows []Star, signals []Signal, more string) {
+		let mut s = Open(rows, 4)
+		for sig in signals {
+			s = After(s, sig)
+			let g = GridOf(s)
+			match g.Whole {
+			case Some[[]int] as w:
+				if w.Value != Order(g.Rows, "", g.Key) {
+					return false
+				}
+			case None:
+			}
+		}
+		let g = GridOf(After(After(After(After(s, Cancel), StartFilter), Type{Text: more + "a"}), Cancel))
+		g.View == Order(g.Rows, g.Filter, g.Key)
 	},
 }
 
