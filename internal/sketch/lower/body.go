@@ -175,8 +175,11 @@ type funcCtx struct {
 	// just inlined.
 	inl      int
 	inlDepth int
-	lits     map[*check.Var]*litSub
-	inlined  *operand
+	// pendingKnown is the fold of the match whose subject is being
+	// lowered, until its inlined call takes it (knownmatch.go).
+	pendingKnown *knownMatch
+	lits         map[*check.Var]*litSub
+	inlined      *operand
 	// hot marks an inlined body whose site is on a loop path (inline.go,
 	// onLoopPath): its own sites run once per iteration too.
 	hot bool
@@ -691,6 +694,10 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		}
 		return
 	}
+	if f.inline != nil && f.inline.known != nil && fc.acquiring == nil && !f.law {
+		fc.knownReturn(f.inline.known, x) // knownmatch.go
+		return
+	}
 	if f.inline != nil && f.inline.join != nil && fc.acquiring == nil && !f.law {
 		fc.joinReturn(f.inline.join, x) // scalar.go
 		return
@@ -1159,18 +1166,6 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 		}
 		return fc.patternMatch(s, subjects, s.Clauses, d)
 	}
-	var subject string
-	if sl := fc.scalarIdent(s.Subjects[0].X); sl != nil {
-		// A scalar local: the switch reads its tag, each case its slot
-		// (scalar.go); a case binds its slot before its body writes.
-		subject = sl.name
-	} else {
-		subject = fc.headerValue(s.Subjects[0].X)
-	}
-	if len(fc.l.info.Releases[s.Subjects[0]]) > 0 {
-		subject = fc.spill(subject)
-		fc.releaseAt(s.Subjects[0])
-	}
 	type arm struct {
 		key   syntax.Node
 		types []string
@@ -1218,9 +1213,75 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 	for _, a := range arms {
 		all = append(all, a.types...)
 	}
+	subjectType := fc.typeOf(s.Subjects[0].X)
+	var subject string
+	var km *knownMatch
+	if sl := fc.scalarIdent(s.Subjects[0].X); sl != nil {
+		// A scalar local: the switch reads its tag, each case its slot
+		// (scalar.go); a case binds its slot before its body writes.
+		subject = sl.name
+	} else {
+		if len(fc.l.info.Releases[s.Subjects[0]]) == 0 {
+			var types [][]string
+			var defs, binds []bool
+			for _, a := range arms {
+				types, defs, binds = append(types, a.types), append(defs, a.def), append(binds, a.as != nil && len(a.types) == 1)
+			}
+			km = fc.knownMatchFor(s.Subjects[0].X, subjectType, types, defs, binds)
+		}
+		saved := fc.pendingKnown
+		fc.pendingKnown = km
+		subject = fc.headerValue(s.Subjects[0].X)
+		fc.pendingKnown = saved
+	}
+	if km != nil && km.taken {
+		// Case of the known constructor (knownmatch.go): the returns
+		// jumped to the arms; the arms follow as blocks.
+		fc.l.stats.Folded++
+		if km.general {
+			fc.knownGeneral(km, subject, subjectType, all, s)
+		} else {
+			fc.line("_ = " + subject)
+			fc.noCase(s)
+		}
+		terminates := true
+		end := fc.temp("kn")
+		ended := false
+		for i, a := range arms {
+			if !km.used[i] {
+				continue
+			}
+			fc.line(km.labels[i] + ":")
+			fc.line("{")
+			fc.depth++
+			if a.as != nil {
+				name := fc.declare(a.as)
+				fc.line(name + " := " + km.payload[slices.Index(km.variantGo, a.types[0])])
+				if !fc.l.reads[a.as] {
+					fc.line("_ = " + name)
+				}
+			}
+			t := fc.scoped(a.key, func() bool { return fc.yieldList(a.body, d) })
+			fc.depth--
+			fc.line("}")
+			if !t {
+				fc.line("goto " + end)
+				ended = true
+			}
+			terminates = terminates && t
+		}
+		if ended {
+			// The empty statement: the label may end a case clause.
+			fc.line(end + ": ;")
+		}
+		return terminates
+	}
+	if len(fc.l.info.Releases[s.Subjects[0]]) > 0 {
+		subject = fc.spill(subject)
+		fc.releaseAt(s.Subjects[0])
+	}
 	// A match on a flat union switches on its tag too (flatunion.go): the
 	// subject is read once, into a local the cases read again.
-	subjectType := fc.typeOf(s.Subjects[0].X)
 	if fc.l.flatUnionOf(subjectType) != nil {
 		t := fc.temp("s")
 		fc.line(t + " := " + subject)
