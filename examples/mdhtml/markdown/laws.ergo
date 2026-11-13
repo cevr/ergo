@@ -1,107 +1,166 @@
-// The rules of the reader as laws over its machine and its inline text.
-// The laws over documents build them from a pool of lines that reach
-// every kind of line: generated strings are rarely markdown.
+// The rules of the reader as laws over whole documents. Generated
+// strings are rarely Markdown, so each law builds its document from the
+// letters of a generated string or from a pool of blocks.
 
-import machines
 import mdhtml/html
-import slices
 import strings
+import utf8
 
-// pool is lines of every kind.
-let pool = []string{"", "text", "more *em* text", "# head", "### sub", "- a", "* b", "1. one", "2. two", "```", "```go", "---", "  indented", "\\*x\\*", "[l](u)"}
+let noColor = context { Highlighter: NoColor }
 
-// Doc is the lines that ns pick from pool.
-func Doc(ns []int) []string {
+// md is the HTML of the trusted document src, with no highlighting.
+func md(src string) string { with noColor { Render(src, Unsafe) } }
+
+// letters is the ASCII letters and digits of s.
+func letters(s string) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		if asciiAlnum(s[i]) {
+			b.WriteByte(s[i])
+		}
+	}
+	b.String()
+}
+
+// EscapedPunctuationIsText: each ASCII punctuation character after a
+// backslash is itself, so a line of letters and escaped punctuation is a
+// paragraph of its text, and no marker starts anything.
+law EscapedPunctuationIsText(s string) {
+	let mut src = strings.NewBuilder()
+	let mut want = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		// ASCII punctuation is every printable byte that is not a
+		// letter, a digit or a space.
+		if c > ' ' && c < 0x7f && !asciiAlnum(c) {
+			src.WriteByte('\\')
+			src.WriteByte(c)
+			want.WriteByte(c)
+		} else if asciiAlnum(c) {
+			src.WriteByte(c)
+			want.WriteByte(c)
+		}
+	}
+	let t = want.String()
+	md(src.String()) == if t == "" { "" } else { "<p>" + html.Escape(t) + "</p>\n" }
+}
+
+// blocks is a pool of blocks that a blank line closes, so none of them
+// joins the block after it.
+let pool = []string{"# head *x*", "para with `code`", "***", "```\nfence\n\n```", "> quote\nlazy", "two\nlines", "**strong** _em_", "[x](/u \"t\")", "<div>\nhtml\n</div>", "Setext\n---", "a  \nhard", "<span>inline</span> &amp; &copy;"}
+
+// BlankLineSeparates: a blank line between blocks of the pool reads as
+// the blocks read apart.
+law BlankLineSeparates(picks []int) {
+	let mut parts = []string{}
+	let mut want = strings.NewBuilder()
+	for p in picks {
+		let b = pool[index(p, len(pool))]
+		parts = parts.Append(b)
+		want.WriteString(md(b))
+	}
+	md(strings.Join(parts, "\n\n")) == want.String()
+}
+
+// DefinitionsAnywhere: a reference definition defines its label before
+// or after the link, in any case: [x] and [X]: /u make one link.
+law DefinitionsAnywhere(s string, d string) {
+	let label = letters(s)
+	let dest = "/" + letters(d)
+	if label == "" {
+		return true
+	}
+	let want = "<p><a href=\"" + dest + "\">" + label + "</a></p>\n"
+	let def = "[" + strings.ToUpper(label) + "]: " + dest
+	md("["+label+"]\n\n"+def) == want && md(def+"\n\n["+label+"]") == want
+}
+
+// EmphasisNests: one delimiter is em, two strong, three both; _ inside a
+// word is text.
+law EmphasisNests(s string) {
+	let w = letters(s)
+	if w == "" {
+		return true
+	}
+	md("*"+w+"*") == "<p><em>"+w+"</em></p>\n" && md("__"+w+"__") == "<p><strong>"+w+"</strong></p>\n" && md("***"+w+"***") == "<p><em><strong>"+w+"</strong></em></p>\n" && md("a_"+w+"_b") == "<p>a_"+w+"_b</p>\n"
+}
+
+// CodeSpanKeepsText: text between backticks is code as it is, escaped.
+law CodeSpanKeepsText(s string) {
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		if c != '`' && c != '\n' && c != '\r' && c != 0 {
+			b.WriteByte(c)
+		}
+	}
+	let t = trimSpace(b.String())
+	if t == "" {
+		return true
+	}
+	let code = "<p><code>" + html.Escape(t) + "</code></p>\n"
+	// One space at each end goes; a space at one end only stays.
+	md("`"+t+"`") == code && md("` "+t+" `") == code && md("` "+t+"`") == "<p><code> "+html.Escape(t)+"</code></p>\n"
+}
+
+// TightListsHaveNoParagraphs: items on lines one after the other hold
+// their text; a blank line between them puts each in a paragraph.
+law TightListsHaveNoParagraphs(words []string) {
+	let mut items = []string{}
+	let mut tight = strings.NewBuilder()
+	let mut loose = strings.NewBuilder()
+	for w in words {
+		let l = letters(w)
+		if l != "" {
+			items = items.Append("- " + l)
+			tight.WriteString("<li>" + l + "</li>\n")
+			loose.WriteString("<li>\n<p>" + l + "</p>\n</li>\n")
+		}
+	}
+	if len(items) == 0 {
+		return true
+	}
+	let one = len(items) == 1
+	md(strings.Join(items, "\n")) == "<ul>\n"+tight.String()+"</ul>\n" && md(strings.Join(items, "\n\n")) == "<ul>\n"+(if one { tight.String() } else { loose.String() })+"</ul>\n"
+}
+
+// entityNames is the names of the entity table, in its order.
+let entityNames = namesOf(entityTable)
+
+func namesOf(table string) []string {
 	let mut out = []string{}
-	for n in ns {
-		let k = if n < 0 { -(n + 1) } else { n }
-		out = out.Append(pool[k%len(pool)])
+	for entry in strings.Split(table, ",") {
+		match strings.Cut(entry, ":") {
+		case Some as h:
+			out = out.Append(h.Value.Before)
+		case None:
+		}
 	}
 	out
 }
 
-// After is the mode of the machine after lines.
-func After(lines []string) Mode {
-	let mut m = machines.Initial(Blocks{})
-	for line in lines {
-		m = machines.Next(m, Step(m, Got{Raw: line}))
+// EntitiesAreTheirText: &name; is its text, escaped; &#n; is the
+// character n, or U+FFFD for 0, a surrogate or past U+10FFFF.
+law EntitiesAreTheirText(pick int, n int) {
+	let name = entityNames[index(pick, len(entityNames))]
+	let text = match entities.Get(name) {
+	case Some as t:
+		t.Value
+	case None:
+		""
 	}
-	m
+	let v = index(n, 0x110010)
+	let r = if v == 0 || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF) { '\uFFFD' } else { rune(v) }
+	let numeric = "<p>" + html.Escape(utf8.RuneText(r)) + "</p>\n"
+	md("&"+name+";") == "<p>"+html.Escape(text)+"</p>\n" && md("&#\(v);") == numeric
 }
 
-// IsCode reports whether m is inside a fence.
-func IsCode(m Mode) bool {
-	match m {
-	case InCode:
-		true
-	case Idle, InPara, InList:
-		false
-	}
-}
-
-// EndIsDone: the end of the source is Done with the open block, in every
-// mode.
-law EndIsDone(ns []int) {
-	let m = After(Doc(ns))
-	match Step(m, End) {
-	case Done[[]Block] as d:
-		d.Output == Open(m)
-	case Enter[Mode], Stay[Mode], Emit[Mode, []Block], Ignore, Reject:
-		false
-	}
-}
-
-// BlankSeparates: outside a fence, a blank line between two texts makes
-// the blocks of the first and then the blocks of the second.
-law BlankSeparates(xs []int, ys []int) {
-	let a = Doc(xs)
-	let b = Doc(ys)
-	if IsCode(After(a)) {
-		return true
-	}
-	Read(slices.Concat(a.Append(""), b)) == slices.Concat(Read(a), Read(b))
-}
-
-// FenceKeepsLines: the lines inside a fence are the code, as they are,
-// when none of them is a bare fence.
-law FenceKeepsLines(ns []int, extra string) {
-	let lines = Doc(ns).Append(extra)
-	let mut src = []string{"```"}
-	for l in lines {
-		if strings.TrimSpace(l) == "```" {
-			return true
-		}
-		src = src.Append(l)
-	}
-	Read(src.Append("```")) == []Block{Code{Info: "", Text: strings.Join(lines, "\n")}}
-}
-
-// PlainTextStaysText: s with its markers taken out is one text node of
-// itself.
-law PlainTextStaysText(s string) {
-	let mut kept = []string{}
-	for i in 0..len(s) {
-		if !isMarker(s[i]) {
-			kept = kept.Append(strings.Slice(s, i, i+1))
-		}
-	}
-	let t = strings.Join(kept, "")
-	let ns = Inline(t)
-	if t == "" {
-		return len(ns) == 0
-	}
-	len(ns) == 1 && html.RenderAll(ns) == html.Escape(t)
-}
-
-// EscapedMarkersAreText: a backslash before each marker keeps it as
-// text, so no span starts.
-law EscapedMarkersAreText(s string, ns []int) {
-	let text = s + strings.Join(Doc(ns), "")
-	let mut parts = []string{}
-	for i in 0..len(text) {
-		let c = strings.Slice(text, i, i+1)
-		parts = parts.Append(if isMarker(text[i]) { "\\" + c } else { c })
-	}
-	let out = Inline(strings.Join(parts, ""))
-	TextOfAll(out) == text && !strings.Contains(html.RenderAll(out), "<")
+// KeywordsMarkEachKeyword: a Go keyword alone in a go block is one span,
+// and the spans of a go block of words and keywords keep its text (the
+// drawn Keywords of Highlighter.KeepsTheText is rarely of go).
+law KeywordsMarkEachKeyword(pick int, words []string) {
+	let k = GoKeywords[index(pick, len(GoKeywords))]
+	let h = Keywords{Lang: "go", Words: GoKeywords}
+	let code = strings.Join(words, " "+k+" ")
+	html.RenderAll(h.Highlight("go", k)) == "<span class=\"kw\">"+k+"</span>" && html.RenderAll(h.Highlight("sh", k)) == k && TextOfAll(h.Highlight("go", code)) == code
 }

@@ -1,25 +1,27 @@
+// The output: the blocks and their inlines as a tree of HTML nodes.
+
 import mdhtml/html
 import strings
 
 // Highlighter writes the text of a code block. Whatever it marks up, a
 // reader sees the code as it was written.
 type Highlighter {
-	Highlight(info string, code string) []html.Node,
+	Highlight(lang string, code string) []html.Node,
 
-	law KeepsTheText(info string, code string) { TextOfAll(Highlight(info, code)) == code },
+	law KeepsTheText(lang string, code string) { TextOfAll(Highlight(lang, code)) == code },
 }
 
 // NoColor is the Highlighter that writes the code as text.
 type NoColor {}
 
-func Highlight(_ NoColor, info string, code string) []html.Node { []html.Node{html.Text{S: code}} }
+func Highlight(_ NoColor, lang string, code string) []html.Node { []html.Node{html.Text{S: code}} }
 
 // Keywords is the Highlighter that marks each of Words in a block of
 // language Lang as <span class="kw">, and writes other blocks as text.
 type Keywords { Lang string, Words []string }
 
-func Highlight(k Keywords, info string, code string) []html.Node {
-	if info != k.Lang {
+func Highlight(k Keywords, lang string, code string) []html.Node {
+	if lang != k.Lang {
 		return []html.Node{html.Text{S: code}}
 	}
 	let mut out = []html.Node{}
@@ -31,7 +33,7 @@ func Highlight(k Keywords, info string, code string) []html.Node {
 			i += 1
 		}
 		let piece = strings.Slice(code, start, i)
-		if word && has(k.Words, piece) {
+		if word && oneOf(piece, k.Words) {
 			out = out.Append(html.ElAttrs("span", []html.Attr{html.Attr{Name: "class", Value: "kw"}}, []html.Node{html.Text{S: piece}}))
 		} else {
 			out = out.Append(html.Text{S: piece})
@@ -40,66 +42,182 @@ func Highlight(k Keywords, info string, code string) []html.Node {
 	out
 }
 
-func isWordByte(c byte) bool {
-	(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
-}
-
-func has(xs []string, x string) bool {
-	for s in xs {
-		if s == x {
-			return true
-		}
-	}
-	false
-}
+func isWordByte(c byte) bool { asciiAlnum(c) || c == '_' }
 
 // GoKeywords are Go's keywords, for a Keywords of language go.
 let GoKeywords = []string{"break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"}
 
 // TextOfAll is the text of ns, one after the other.
 func TextOfAll(ns []html.Node) string {
-	let mut parts = []string{}
+	let mut b = strings.NewBuilder()
 	for n in ns {
-		parts = parts.Append(html.TextOf(n))
+		b.WriteString(html.TextOf(n))
 	}
-	strings.Join(parts, "")
+	b.String()
 }
 
-// Node is the HTML of b.
-func Node(b Block) html.Node needs Highlighter {
-	match b {
-	case Head as h:
-		html.El("h\(h.Level)", Inline(h.Text))
-	case Para as p:
-		html.El("p", Inline(p.Text))
-	case List as l:
-		let mut items = []html.Node{}
-		for it in l.Items {
-			items = items.Append(html.El("li", Inline(it)))
+// Trust is how far the document's author is trusted: Safe leaves raw
+// HTML out and sends a script or data link nowhere, as cmark does by
+// default; Unsafe keeps both, as the specification's examples expect.
+type Trust = Safe | Unsafe
+
+type Safe {}
+type Unsafe {}
+
+// omitted stands for raw HTML a Safe document leaves out.
+let omitted = "<!-- raw HTML omitted -->"
+
+// Doc is a read document: its blocks and the inlines of its paragraphs
+// and headings.
+type Doc { blocks []block, nodes []inline }
+
+// Parse reads the Markdown text src.
+func Parse(src string) Doc {
+	let mut p = parseBlocks(src)
+	let mut q = newInlines(p.refs)
+	for id in 0..len(p.blocks) {
+		let k = p.blocks[id].kind
+		if k == Para || k == Heading {
+			p.blocks[id].inlines = parseInlines(&q, p.blocks[id].content)
 		}
-		if !l.Ordered {
+	}
+	Doc{blocks: p.blocks, nodes: q.nodes}
+}
+
+// Blocks is how many blocks d holds, the document's own included.
+func Blocks(d Doc) int { len(d.blocks) }
+
+// Nodes is the HTML of d.
+func Nodes(d Doc, trust Trust) []html.Node needs Highlighter { children(d, trust, 0, false) }
+
+// Render is the HTML of the Markdown text src.
+func Render(src string, trust Trust) string needs Highlighter { html.RenderAll(Nodes(Parse(src), trust)) }
+
+func children(d Doc, trust Trust, id int, tight bool) []html.Node needs Highlighter {
+	let mut out = []html.Node{}
+	let mut k = d.blocks[id].first
+	for k >= 0 {
+		let b = d.blocks[k]
+		if b.kind == Para && tight {
+			out = appendInlines(d, trust, out, b.inlines)
+		} else {
+			out = out.Append(blockNode(d, trust, k))
+		}
+		k = b.next
+	}
+	out
+}
+
+func url(trust Trust, raw string) html.Url {
+	match trust {
+	case Safe:
+		html.Href(raw)
+	case Unsafe:
+		html.Trusted(raw)
+	}
+}
+
+func raw(trust Trust, s string, block bool) html.Node {
+	let text = match trust {
+	case Safe:
+		omitted
+	case Unsafe:
+		s
+	}
+	if block { html.RawBlock{S: text} } else { html.Raw{S: text} }
+}
+
+func blockNode(d Doc, trust Trust, id int) html.Node needs Highlighter {
+	let b = d.blocks[id]
+	match b.kind {
+	case Quote:
+		html.El("blockquote", children(d, trust, id, false))
+	case ListBlock:
+		let mut items = []html.Node{}
+		let mut k = b.first
+		for k >= 0 {
+			items = items.Append(html.El("li", children(d, trust, k, b.list.tight)))
+			k = d.blocks[k].next
+		}
+		if !b.list.ordered {
 			return html.El("ul", items)
 		}
-		if l.Start == 1 {
+		if b.list.start == 1 {
 			return html.El("ol", items)
 		}
-		html.ElAttrs("ol", []html.Attr{html.Attr{Name: "start", Value: "\(l.Start)"}}, items)
-	case Code as c:
-		let attrs = if c.Info == "" { []html.Attr{} } else { []html.Attr{html.Attr{Name: "class", Value: "language-" + c.Info}} }
-		html.El("pre", []html.Node{html.ElAttrs("code", attrs, Highlighter.Highlight(c.Info, c.Text))})
-	case HRule:
+		html.ElAttrs("ol", []html.Attr{html.Attr{Name: "start", Value: "\(b.list.start)"}}, items)
+	case Para:
+		html.El("p", appendInlines(d, trust, []html.Node{}, b.inlines))
+	case Heading:
+		html.El("h\(b.level)", appendInlines(d, trust, []html.Node{}, b.inlines))
+	case Rule:
 		html.El("hr", []html.Node{})
+	case Code:
+		let mut end = 0
+		for end < len(b.info) && !isSpace(b.info[end]) {
+			end += 1
+		}
+		let lang = strings.Slice(b.info, 0, end)
+		let attrs = if lang == "" { []html.Attr{} } else { []html.Attr{html.Attr{Name: "class", Value: "language-" + lang}} }
+		html.El("pre", []html.Node{html.ElAttrs("code", attrs, Highlighter.Highlight(lang, b.literal))})
+	case RawHtml:
+		raw(trust, b.literal, true)
+	case Document, Item:
+		html.El("div", children(d, trust, id, false))
 	}
 }
 
-// Render is the HTML of the Markdown text, one block per line.
-func Render(text string) string needs Highlighter {
-	let mut parts = []string{}
-	for b in Read(Lines(text)) {
-		parts = parts.Append(html.Render(Node(b)))
+func appendInlines(d Doc, trust Trust, out []html.Node, id int) []html.Node {
+	let mut all = out
+	let mut k = d.nodes[id].first
+	for k >= 0 {
+		all = all.Append(inlineNode(d, trust, k))
+		k = d.nodes[k].next
 	}
-	if len(parts) == 0 {
-		return ""
+	all
+}
+
+func inlineNode(d Doc, trust Trust, id int) html.Node {
+	let n = d.nodes[id]
+	match n.kind {
+	case Str:
+		html.Text{S: n.text}
+	case SoftBreak:
+		html.Text{S: "\n"}
+	case HardBreak:
+		html.El("br", []html.Node{})
+	case CodeSpan:
+		html.El("code", []html.Node{html.Text{S: n.text}})
+	case Emph:
+		html.El("em", appendInlines(d, trust, []html.Node{}, id))
+	case Strong:
+		html.El("strong", appendInlines(d, trust, []html.Node{}, id))
+	case Link:
+		html.A(url(trust, n.dest), n.title, appendInlines(d, trust, []html.Node{}, id))
+	case Image:
+		let mut alt = strings.NewBuilder()
+		plain(d, &alt, id)
+		html.Img(url(trust, n.dest), alt.String(), n.title)
+	case InlineHtml:
+		raw(trust, n.text, false)
+	case Root:
+		html.El("span", appendInlines(d, trust, []html.Node{}, id))
 	}
-	strings.Join(parts, "\n") + "\n"
+}
+
+// plain writes the text of the inlines below id, for an image's alt.
+func plain(d Doc, b *strings.Builder, id int) {
+	let mut k = d.nodes[id].first
+	for k >= 0 {
+		let n = d.nodes[k]
+		match n.kind {
+		case Str, CodeSpan, InlineHtml:
+			b.WriteString(n.text)
+		case SoftBreak, HardBreak:
+			b.WriteString("\n")
+		case Root, Emph, Strong, Link, Image:
+			plain(d, b, k)
+		}
+		k = n.next
+	}
 }

@@ -1,6 +1,8 @@
-// mdhtml converts a subset of Markdown to HTML: it reads a file, or
-// standard input, and writes the HTML on standard output. -title wraps
-// it in a whole page; -highlight marks Go's keywords in go code blocks.
+// mdhtml converts CommonMark to HTML: it reads a file, or standard
+// input, and writes the HTML on standard output. Raw HTML is left out
+// and a script link goes nowhere unless -unsafe trusts the author;
+// -title wraps the HTML in a whole page; -highlight marks Go's keywords
+// in go code blocks.
 // Package markdown is the reader and package html the tree it writes.
 // This binary is the only place that chooses the providers: the host's
 // streams, files and arguments, and the Highlighter.
@@ -15,12 +17,13 @@ import os
 
 let titleFlag = flag.String("title", "", "wrap the HTML in a page with this `title`")
 let highlightFlag = flag.Bool("highlight", false, "mark Go's keywords in code blocks of language go")
+let unsafeFlag = flag.Bool("unsafe", false, "keep raw HTML and every link: the author is trusted")
 let fileArg = flag.OptionalArg("file", "the Markdown file to read; none reads standard input")
 
 let set = flag.Set{
 	Name:  "mdhtml",
-	Usage: "mdhtml converts Markdown to HTML.",
-	Flags: []flag.Flag{titleFlag, highlightFlag},
+	Usage: "mdhtml converts CommonMark to HTML.",
+	Flags: []flag.Flag{titleFlag, highlightFlag, unsafeFlag},
 	Args:  []flag.ArgSpec{fileArg},
 }
 
@@ -62,7 +65,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | fs.Files {
 	}
 	let text = try source(fileArg.Get(v))
 	let body = with context { markdown.Highlighter: highlighter(highlightFlag.Get(v)) } {
-		markdown.Render(text)
+		markdown.Render(text, if unsafeFlag.Get(v) { markdown.Unsafe } else { markdown.Safe })
 	}
 	let title = titleFlag.Get(v)
 	io.Stdout.Print(if title == "" { body } else { page(title, body) })
@@ -98,7 +101,7 @@ test ReadsStandardInput {
 }
 
 test ReadsTheFile {
-	assert ran([]string{"notes.md"}, "not read") == "<h1>Notes</h1>\n<ul><li><em>a</em></li></ul>\n"
+	assert ran([]string{"notes.md"}, "not read") == "<h1>Notes</h1>\n<ul>\n<li><em>a</em></li>\n</ul>\n"
 	assert ran([]string{"gone.md"}, "") == "exit 1: mdhtml: no file gone.md\n"
 }
 
@@ -107,5 +110,10 @@ test TitleMakesAPage {
 }
 
 test HighlightChoosesKeywords {
-	assert ran([]string{"-highlight"}, "```go\nif x\n```\n") == "<pre><code class=\"language-go\"><span class=\"kw\">if</span> x</code></pre>\n"
+	assert ran([]string{"-highlight"}, "```go\nif x\n```\n") == "<pre><code class=\"language-go\"><span class=\"kw\">if</span> x\n</code></pre>\n"
+}
+
+test UnsafeTrustsTheAuthor {
+	assert ran([]string{}, "<b>[x](javascript:go)</b>\n") == "<p><!-- raw HTML omitted --><a href=\"\">x</a><!-- raw HTML omitted --></p>\n"
+	assert ran([]string{"-unsafe"}, "<b>[x](javascript:go)</b>\n") == "<p><b><a href=\"javascript:go\">x</a></b></p>\n"
 }

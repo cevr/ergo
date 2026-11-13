@@ -151,8 +151,14 @@ func jsonAgree(t *testing.T, bins []string, ref jsonRef, path, what string, args
 // and returns the binary and the emitted module's directory.
 func buildCorpusExample(t *testing.T, name string) (bin, work string) {
 	t.Helper()
-	program := filepath.Join(smokeWorkspace(t, "examples/"+name), "examples", name, "cmd", name)
-	bin = filepath.Join(t.TempDir(), name)
+	return buildCorpusCommand(t, name, name)
+}
+
+// buildCorpusCommand links examples/<name>/cmd/<cmd>.
+func buildCorpusCommand(t *testing.T, name, cmd string) (bin, work string) {
+	t.Helper()
+	program := filepath.Join(smokeWorkspace(t, "examples/"+name), "examples", name, "cmd", cmd)
+	bin = filepath.Join(t.TempDir(), cmd)
 	command := exec.Command(buildTestCLI(t), "build", "-work", "-o", bin, program)
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
@@ -164,7 +170,7 @@ func buildCorpusExample(t *testing.T, name string) (bin, work string) {
 
 // buildHandControl links testdata/<name>/control in a module with the go
 // line of the example's emitted module in work, so one toolchain compiles
-// both.
+// both. Every .go file of the folder is the control's.
 func buildHandControl(t *testing.T, name, work string) string {
 	t.Helper()
 	mod, err := os.ReadFile(filepath.Join(work, "go.mod"))
@@ -175,13 +181,19 @@ func buildHandControl(t *testing.T, name, work string) string {
 	if goLine == nil {
 		t.Fatalf("the emitted go.mod has no go line:\n%s", mod)
 	}
-	src, err := os.ReadFile(filepath.Join("testdata", name, "control", "main.go"))
-	if err != nil {
-		t.Fatal(err)
+	files, err := filepath.Glob(filepath.Join("testdata", name, "control", "*.go"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no control in testdata/%s/control: %v", name, err)
 	}
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "go.mod"), "module control\n\n"+string(goLine)+"\n")
-	writeFile(t, filepath.Join(dir, "main.go"), string(src))
+	for _, f := range files {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(dir, filepath.Base(f)), string(src))
+	}
 	bin := filepath.Join(dir, "control")
 	command := exec.Command("go", "build", "-o", bin, ".")
 	command.Dir = dir

@@ -1,0 +1,56 @@
+// mdgen writes the Markdown workload of mdhtml's receipts, or counts the
+// blocks a file reads as.
+//
+//	mdgen -seed S -n N     the workload of N sections for seed S
+//	mdgen -blocks FILE     how many blocks FILE reads as, the document's own included
+//
+// This binary is the only place that chooses the providers: the host's
+// files and standard output.
+
+import fs
+import io
+import mdhtml/markdown
+import mdhtml/workload
+import os
+import strconv
+
+// Usage is the text of a usage failure.
+let Usage = "usage: mdgen -seed S -n N | -blocks FILE"
+
+func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
+
+// amount is the count that text spells.
+func amount(text string) int fails os.Exit {
+	let n = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return usage()
+	}
+	if n < 0 {
+		return usage()
+	}
+	n
+}
+
+func run(args []string) fails os.Exit needs io.Stdout | fs.Files {
+	if len(args) == 4 && args[0] == "-seed" && args[2] == "-n" {
+		let seed = try amount(args[1])
+		io.Stdout.Print(workload.Document(seed, try amount(args[3])))
+		return
+	}
+	if len(args) == 2 && args[0] == "-blocks" {
+		let text = fs.Files.ReadFile(args[1]) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return os.Exit{Code: 1, Message: "mdgen: cannot read \(args[1])"}
+		}
+		io.Stdout.Println("\(markdown.Blocks(markdown.Parse(text)))")
+		return
+	}
+	return usage()
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = os.NewHost()
+	with context { io.Stdout: io.NewHost(), fs.Files: fs.NewHost() } {
+		try run(host.Args())
+	}
+}

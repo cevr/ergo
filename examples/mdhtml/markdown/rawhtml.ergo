@@ -1,0 +1,350 @@
+// Raw HTML: the seven kinds of HTML block, what ends each as a machine,
+// and the tags a line may hold, read by hand.
+
+import strings
+
+// HtmlEnd is the kind of an open HTML block, which is what ends it
+// (CommonMark's kinds 1 to 7, in order).
+type HtmlEnd = RawText | Comment | Instruction | Declaration | CData | TagBlock | LoneTag
+
+// RawText: <script>, <pre>, <textarea> or <style>, up to a line that
+// holds its end tag, blank lines and all.
+type RawText {}
+
+// Comment: <!--, up to a line that holds -->.
+type Comment {}
+
+// Instruction: <?, up to a line that holds ?>.
+type Instruction {}
+
+// Declaration: <! and a letter, up to a line that holds >.
+type Declaration {}
+
+// CData: <![CDATA[, up to a line that holds ]]>.
+type CData {}
+
+// TagBlock: a block-level tag such as <div>, up to a blank line.
+type TagBlock {}
+
+// LoneTag: any other whole tag alone on its line, up to a blank line; it
+// cannot interrupt a paragraph.
+type LoneTag {}
+
+// Seen is a line as an open HTML block sees it: a blank line, or a line
+// of text from the block's indent.
+type Seen = Line{Text string} | Blank
+
+type Blank {}
+
+// Ending is where a line ends the block: Before the line, which is not
+// the block's, or With it.
+type Ending = Before | With
+
+type Before {}
+type With {}
+
+// HtmlStep is CommonMark's end condition of each kind: a blank line ends
+// a TagBlock or a LoneTag before it; a line that holds the kind's end
+// marker ends the others with it.
+func HtmlStep(e HtmlEnd, s Seen) Decision[HtmlEnd, Ending] {
+	match s {
+	case Blank:
+		match e {
+		case TagBlock, LoneTag:
+			Done[Ending]{Output: Before}
+		case RawText, Comment, Instruction, Declaration, CData:
+			Stay[HtmlEnd]{Next: e}
+		}
+	case Line as l:
+		let ends = match e {
+		case RawText:
+			let low = strings.ToLower(l.Text)
+			strings.Contains(low, "</script>") || strings.Contains(low, "</pre>") || strings.Contains(low, "</textarea>") || strings.Contains(low, "</style>")
+		case Comment:
+			strings.Contains(l.Text, "-->")
+		case Instruction:
+			strings.Contains(l.Text, "?>")
+		case Declaration:
+			strings.Contains(l.Text, ">")
+		case CData:
+			strings.Contains(l.Text, "]]>")
+		case TagBlock, LoneTag:
+			false
+		}
+		if ends { Done[Ending]{Output: With} } else { Stay[HtmlEnd]{Next: e} }
+	}
+}
+
+// HtmlBlock is an open HTML block as a machine: it stays its kind until
+// a line ends it. A block starts in the kind its first line names
+// (HtmlStart); initial is the kind of most blocks.
+type HtmlBlock machine[HtmlEnd, Seen] {
+	initial: TagBlock,
+	step:    HtmlStep,
+
+	// TagsEndAtABlankLine: a blank line ends a TagBlock or a LoneTag
+	// before it, and no other kind.
+	law TagsEndAtABlankLine(pick int) {
+		let e = kinds[index(pick, len(kinds))]
+		let tags = e == TagBlock || e == LoneTag
+		match HtmlStep(e, Blank) {
+		case Done[Ending] as d:
+			tags && d.Output == Before
+		case Stay[HtmlEnd] as s:
+			!tags && s.Next == e
+		case Enter[HtmlEnd], Emit[HtmlEnd, Ending], Ignore, Reject:
+			false
+		}
+	},
+
+	// MarkersEndWithTheLine: a line that holds its kind's end marker,
+	// in any case for an end tag, ends the block with it.
+	law MarkersEndWithTheLine(pick int, before string, after string) {
+		let markers = []string{"</SCRIPT>", "</pre>", "</TextArea>", "</style>", "-->", "?>", ">", "]]>"}
+		let ofKind = []HtmlEnd{RawText, RawText, RawText, RawText, Comment, Instruction, Declaration, CData}
+		let i = index(pick, len(markers))
+		match HtmlStep(ofKind[i], Line{Text: before + markers[i] + after}) {
+		case Done[Ending] as d:
+			d.Output == With
+		case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Ignore, Reject:
+			false
+		}
+	},
+
+	// NoMarkerStays: every end marker holds a >, so a line with none
+	// ends no block.
+	law NoMarkerStays(pick int, s string) {
+		let e = kinds[index(pick, len(kinds))]
+		match HtmlStep(e, Line{Text: strings.ReplaceAll(s, ">", "")}) {
+		case Stay[HtmlEnd] as st:
+			st.Next == e
+		case Enter[HtmlEnd], Done[Ending], Emit[HtmlEnd, Ending], Ignore, Reject:
+			false
+		}
+	},
+}
+
+let kinds = []HtmlEnd{RawText, Comment, Instruction, Declaration, CData, TagBlock, LoneTag}
+
+// index is pick as an index below n.
+func index(pick int, n int) int {
+	let k = pick % n
+	if k < 0 { k + n } else { k }
+}
+
+// EndsBefore says whether a blank line ends a block of kind e.
+func EndsBefore(e HtmlEnd) bool {
+	match HtmlStep(e, Blank) {
+	case Done[Ending]:
+		true
+	case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Ignore, Reject:
+		false
+	}
+}
+
+// EndsWith says whether the line text ends a block of kind e with it.
+func EndsWith(e HtmlEnd, text string) bool {
+	match HtmlStep(e, Line{Text: text}) {
+	case Done[Ending] as d:
+		d.Output == With
+	case Enter[HtmlEnd], Stay[HtmlEnd], Emit[HtmlEnd, Ending], Ignore, Reject:
+		false
+	}
+}
+
+// Interrupts says whether a block of kind e may start in place of a
+// paragraph's next line.
+func Interrupts(e HtmlEnd) bool { e != LoneTag }
+
+// HtmlStart is the kind of HTML block the line s (from its first
+// non-space) starts, if any.
+func HtmlStart(s string) Option[HtmlEnd] {
+	if len(s) < 2 || s[0] != '<' {
+		return None
+	}
+	let e = tagName(s, 1)
+	if oneOf(strings.ToLower(strings.Slice(s, 1, e)), rawTags) && (e == len(s) || isSpace(s[e]) || s[e] == '>') {
+		return Some[HtmlEnd]{Value: RawText}
+	}
+	if strings.HasPrefix(s, "<!--") {
+		return Some[HtmlEnd]{Value: Comment}
+	}
+	if strings.HasPrefix(s, "<?") {
+		return Some[HtmlEnd]{Value: Instruction}
+	}
+	if len(s) > 2 && s[1] == '!' && asciiLetter(s[2]) {
+		return Some[HtmlEnd]{Value: Declaration}
+	}
+	if strings.HasPrefix(s, "<![CDATA[") {
+		return Some[HtmlEnd]{Value: CData}
+	}
+	let i = if s[1] == '/' { 2 } else { 1 }
+	let f = tagName(s, i)
+	if oneOf(strings.ToLower(strings.Slice(s, i, f)), blockTags) && (f == len(s) || isSpace(s[f]) || s[f] == '>' || strings.HasPrefix(strings.Slice(s, f, len(s)), "/>")) {
+		return Some[HtmlEnd]{Value: TagBlock}
+	}
+	let mut n = openTag(s)
+	if n == 0 {
+		n = closeTag(s)
+	}
+	if n > 0 && isBlank(strings.Slice(s, n, len(s))) {
+		return Some[HtmlEnd]{Value: LoneTag}
+	}
+	None
+}
+
+let blockTags = []string{"address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hr", "html", "iframe", "legend", "li", "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p", "param", "search", "section", "summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "track", "ul"}
+
+let rawTags = []string{"script", "pre", "textarea", "style"}
+
+func oneOf(name string, names []string) bool {
+	for n in names {
+		if n == name {
+			return true
+		}
+	}
+	false
+}
+
+func asciiLetter(c byte) bool { (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
+
+func asciiDigit(c byte) bool { c >= '0' && c <= '9' }
+
+func asciiAlnum(c byte) bool { asciiLetter(c) || asciiDigit(c) }
+
+func skipSpace(s string, from int) int {
+	let mut i = from
+	for i < len(s) && isSpace(s[i]) {
+		i += 1
+	}
+	i
+}
+
+// tagName is the end of a tag name at i (a letter, then letters, digits
+// and hyphens), or i.
+func tagName(s string, i int) int {
+	if i >= len(s) || !asciiLetter(s[i]) {
+		return i
+	}
+	let mut j = i + 1
+	for j < len(s) && (asciiAlnum(s[j]) || s[j] == '-') {
+		j += 1
+	}
+	j
+}
+
+func attrNameStart(c byte) bool { asciiLetter(c) || c == '_' || c == ':' }
+
+func attrNameByte(c byte) bool { asciiAlnum(c) || c == '_' || c == ':' || c == '.' || c == '-' }
+
+// attrValue is the end of an attribute value at i, or -1.
+func attrValue(s string, i int) int {
+	if i >= len(s) {
+		return -1
+	}
+	let q = s[i]
+	if q == '"' || q == '\'' {
+		let mut j = i + 1
+		for j < len(s) && s[j] != q {
+			j += 1
+		}
+		return if j < len(s) { j + 1 } else { -1 }
+	}
+	let mut j = i
+	for j < len(s) && s[j] > ' ' && s[j] != '"' && s[j] != '\'' && s[j] != '=' && s[j] != '<' && s[j] != '>' && s[j] != '`' {
+		j += 1
+	}
+	if j == i { -1 } else { j }
+}
+
+// openTag is the length of the open tag that s starts with, or 0.
+func openTag(s string) int {
+	if len(s) < 2 || s[0] != '<' {
+		return 0
+	}
+	let mut i = tagName(s, 1)
+	if i == 1 {
+		return 0
+	}
+	for {
+		let j = skipSpace(s, i)
+		if j == i || j >= len(s) || !attrNameStart(s[j]) {
+			break
+		}
+		let mut k = j + 1
+		for k < len(s) && attrNameByte(s[k]) {
+			k += 1
+		}
+		let m = skipSpace(s, k)
+		if m < len(s) && s[m] == '=' {
+			let v = attrValue(s, skipSpace(s, m+1))
+			if v < 0 {
+				return 0
+			}
+			i = v
+		} else {
+			i = k
+		}
+	}
+	i = skipSpace(s, i)
+	if i < len(s) && s[i] == '/' {
+		i += 1
+	}
+	if i < len(s) && s[i] == '>' { i + 1 } else { 0 }
+}
+
+// closeTag is the length of the closing tag that s starts with, or 0.
+func closeTag(s string) int {
+	if len(s) < 3 || s[0] != '<' || s[1] != '/' {
+		return 0
+	}
+	let i = tagName(s, 2)
+	if i == 2 {
+		return 0
+	}
+	let j = skipSpace(s, i)
+	if j < len(s) && s[j] == '>' { j + 1 } else { 0 }
+}
+
+// until is the end of the first sep in s at or after i, or 0.
+func until(s string, i int, sep string) int {
+	if i > len(s) {
+		return 0
+	}
+	let j = strings.Index(strings.Slice(s, i, len(s)), sep)
+	if j < 0 { 0 } else { i + j + len(sep) }
+}
+
+// HtmlTag is the length of the inline raw HTML that s starts with, or 0:
+// a tag, a comment, an instruction, a declaration or a CDATA section.
+func HtmlTag(s string) int {
+	if len(s) < 2 || s[0] != '<' {
+		return 0
+	}
+	let c = s[1]
+	if c == '/' {
+		return closeTag(s)
+	}
+	if c == '?' {
+		return until(s, 2, "?>")
+	}
+	if c == '!' {
+		if strings.HasPrefix(s, "<!-->") {
+			return 5
+		}
+		if strings.HasPrefix(s, "<!--->") {
+			return 6
+		}
+		if strings.HasPrefix(s, "<!--") {
+			return until(s, 4, "-->")
+		}
+		if strings.HasPrefix(s, "<![CDATA[") {
+			return until(s, 9, "]]>")
+		}
+		if len(s) > 2 && asciiLetter(s[2]) {
+			return until(s, 3, ">")
+		}
+		return 0
+	}
+	openTag(s)
+}
