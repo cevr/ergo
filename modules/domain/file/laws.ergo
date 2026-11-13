@@ -1,0 +1,98 @@
+// The laws of the file log, on a file system in memory (fstest).
+
+import fs
+import fstest
+import github.com/cevr/ergo/modules/domain
+import journal
+import strconv
+import strings
+
+// Decimal is the codec of an int as its decimal text.
+type Decimal {}
+
+func Encode(_ Decimal, v int) string { strconv.Itoa(v) }
+
+func Decode(_ Decimal, text string) int fails journal.Failed {
+	strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return journal.Failed{Reason: "\(strconv.Quote(text)) is not an int"}
+	}
+}
+
+// Ints is the file log of int events in a new file system: the instance
+// at which ergo test runs domain.Log's laws in this package (a generic
+// provider fixes no instance). NewInts builds a new one for each case.
+type Ints { log Log[int] }
+
+// NewInts is an empty file log of int events.
+func NewInts() Ints {
+	let disk = fstest.NewMemory()
+	let l = Open[int](disk, disk, "log", Decimal) catch {
+	case domain.Unkept:
+		Unreachable("an empty file system holds no log to misread")
+	}
+	Ints{log: l}
+}
+
+func Append(l Ints, stream string, expected int, id domain.CommandID, events []int) domain.Receipt fails domain.Conflict | domain.Reused | domain.Unkept {
+	try l.log.Append(stream, expected, id, events)
+}
+
+func Read(l Ints, stream string, from int) []domain.Recorded[int] { l.log.Read(stream, from) }
+
+func Seen(l Ints, id domain.CommandID) Option[domain.Receipt] { l.log.Seen(id) }
+
+// streamOf is one of three streams, by k.
+func streamOf(k int) string { "s\(((k % 3) + 3) % 3)" }
+
+// ReopenedLogReads: a log opened again on its file reads every record
+// written, in every stream, with each receipt; a record torn in its write
+// (cut at any byte before its end) is dropped, and the next Append follows
+// the last whole record.
+law ReopenedLogReads(batches [][]int, torn int) {
+	let disk = fstest.NewMemory()
+	let l = Open[int](disk, disk, "log", Decimal) catch {
+	case domain.Unkept:
+		return false
+	}
+	for i, events in batches {
+		let stream = streamOf(i)
+		l.Append(stream, len(l.Read(stream, 0)), domain.CommandID("c\(i)"), events) catch {
+		case domain.Conflict, domain.Reused, domain.Unkept:
+			return false
+		}
+	}
+	// A torn record: a prefix of a whole one, cut before its end mark.
+	let whole = recordText("s0", len(l.Read("s0", 0))+1, domain.CommandID("torn"), []int{torn}, Decimal)
+	let cut = ((torn % len(whole)) + len(whole)) % len(whole)
+	disk.AppendFile("log", strings.Slice(whole, 0, cut)) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let back = Open[int](disk, disk, "log", Decimal) catch {
+	case domain.Unkept:
+		return false
+	}
+	for k in 0..3 {
+		if back.Read(streamOf(k), 0) != l.Read(streamOf(k), 0) {
+			return false
+		}
+	}
+	for i, _ in batches {
+		if back.Seen(domain.CommandID("c\(i)")) != l.Seen(domain.CommandID("c\(i)")) {
+			return false
+		}
+	}
+	if back.Seen(domain.CommandID("torn")) != None {
+		return false
+	}
+	let r = back.Append("s0", len(back.Read("s0", 0)), domain.CommandID("after"), []int{1}) catch {
+	case domain.Conflict, domain.Reused, domain.Unkept:
+		return false
+	}
+	let again = Open[int](disk, disk, "log", Decimal) catch {
+	case domain.Unkept:
+		return false
+	}
+	again.Seen(domain.CommandID("after")) == (Some[domain.Receipt]{Value: r}) && again.Read("s0", 0) == back.Read("s0", 0)
+}

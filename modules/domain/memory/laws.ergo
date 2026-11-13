@@ -1,0 +1,235 @@
+// The laws of the memory log and the model-based test of the host
+// (domain.Sourced) over it. They run on a time.Manual that no one moves
+// (a law cannot hold Ambient).
+
+import actor
+import github.com/cevr/ergo/modules/domain
+import sync
+import time
+
+// Ints is the memory log of int events: the instance at which ergo test
+// runs domain.Log's laws in this package, since a generic provider fixes
+// no instance (types.md, Laws 10). NewInts builds a new one for each
+// case.
+type Ints { log Log[int] }
+
+// NewInts is an empty log of int events.
+func NewInts() Ints { Ints{log: New[int]()} }
+
+func Append(l Ints, stream string, expected int, id domain.CommandID, events []int) domain.Receipt fails domain.Conflict | domain.Reused | domain.Unkept {
+	try l.log.Append(stream, expected, id, events)
+}
+
+func Read(l Ints, stream string, from int) []domain.Recorded[int] { l.log.Read(stream, from) }
+
+func Seen(l Ints, id domain.CommandID) Option[domain.Receipt] { l.log.Seen(id) }
+
+// Tally is the aggregate of the model test: a total, and the number of
+// decisions its stream kept, which Decided events count.
+type Tally { Total int, Decides int }
+
+// Command is what a sender asks of a tally.
+type Command = Add{N int} | Withdraw{N int} | Note{}
+
+// Event is what a tally's decide gives: each decision begins with
+// Decided, so the state counts how often decide ran for a kept command.
+type Event = Decided{} | Added{N int} | Withdrawn{N int}
+
+// Low refuses a withdrawal of more than the total.
+type Low { Have int, Want int }
+
+// Decide is the tally's decide.
+func Decide(s Tally, c Command) []Event fails Low {
+	match c {
+	case Add as a:
+		[]Event{Decided, Added{N: a.N}}
+	case Withdraw as w:
+		if w.N > s.Total {
+			return Low{Have: s.Total, Want: w.N}
+		}
+		[]Event{Decided, Withdrawn{N: w.N}}
+	case Note:
+		[]Event{Decided}
+	}
+}
+
+// Evolve is the tally's evolve.
+func Evolve(s Tally, e Event) Tally {
+	match e {
+	case Decided:
+		Tally{..s, Decides: s.Decides + 1}
+	case Added as a:
+		Tally{..s, Total: s.Total + a.N}
+	case Withdrawn as w:
+		Tally{..s, Total: s.Total - w.N}
+	}
+}
+
+// Fold is s after events.
+func Fold(s Tally, events []Event) Tally {
+	let mut at = s
+	for e in events {
+		at = Evolve(at, e)
+	}
+	at
+}
+
+// Fresh is the tally of an empty stream.
+let Fresh = Tally{Total: 0, Decides: 0}
+
+func step(l domain.Ledger[Tally, Event], env domain.Envelope[Command]) Decision[domain.Ledger[Tally, Event], domain.Receipt] fails Low {
+	if domain.Taken(l, env.ID) {
+		return Ignore
+	}
+	let events = try Decide(l.State, env.Command)
+	domain.Commit(l, env.ID, Fold(l.State, events), events)
+}
+
+// Tallies is the host's machine for the stream "tally".
+type Tallies machine[domain.Ledger[Tally, Event], domain.Envelope[Command]] {
+	initial: domain.Begin[Tally, Event]("tally", Fresh),
+	step:    step,
+}
+
+// Crashing is a memory log whose next Append fails when armed: mode 1
+// before it keeps the record, mode 2 after.
+type Crashing { inner Log[Event], armed sync.Ref[int] }
+
+func Append(c Crashing, stream string, expected int, id domain.CommandID, events []Event) domain.Receipt fails domain.Conflict | domain.Reused | domain.Unkept {
+	let mode = c.armed.Get()
+	c.armed.Set(0)
+	if mode == 1 {
+		return domain.Unkept{Reason: "crash before the write"}
+	}
+	let r = try c.inner.Append(stream, expected, id, events)
+	if mode == 2 {
+		return domain.Unkept{Reason: "crash after the write"}
+	}
+	r
+}
+
+func Read(c Crashing, stream string, from int) []domain.Recorded[Event] { c.inner.Read(stream, from) }
+
+func Seen(c Crashing, id domain.CommandID) Option[domain.Receipt] { c.inner.Seen(id) }
+
+type host = actor.Actor[domain.Ledger[Tally, Event], domain.Envelope[Command], Decision[domain.Ledger[Tally, Event], domain.Receipt], Low]
+
+// open starts the host of "tally" over log: it recovers from the log.
+func open(store domain.Store[Tally, Command, Event]) Option[host] needs Scheduler {
+	let a = actor.StartDurable(Tallies{}, 4, func(r domain.Receipt) {}, store.Recover, store.Save) catch {
+	case _:
+		return None
+	}
+	Some[host]{Value: a}
+}
+
+// Agrees is whether the host's ledger l is the fold of records, they are
+// dense and each command is kept once, every answered receipt is in the
+// log, and the tally counts one decision per kept command.
+func Agrees(l domain.Ledger[Tally, Event], records []domain.Recorded[Event], answered Map[domain.CommandID, domain.Receipt], seen func(id domain.CommandID) Option[domain.Receipt]) bool {
+	let mut s = Fresh
+	let mut ids = Map[domain.CommandID, bool]{}
+	for i, r in records {
+		if r.Position != i+1 || ids.Get(r.ID) != None {
+			return false
+		}
+		ids = ids.Put(r.ID, true)
+		s = Fold(s, r.Events)
+	}
+	for id, r in answered {
+		if seen(id) != (Some[domain.Receipt]{Value: r}) {
+			return false
+		}
+	}
+	l.State == s && l.Position == len(records) && s.Decides == len(records)
+}
+
+// Survives plays ops on the host of a crashing log: an op k mod 10 of 9
+// stops the actor between steps; 8 and 7 arm a crash of the next save
+// (before and after the write); any other op sends a command whose id is
+// one of six, so ids repeat. A send answered Stopped crashed the actor.
+// After each crash a new actor recovers from the log; after each op the
+// host agrees with the log (Agrees), and a resend's receipt is the first.
+func Survives(ops []int) bool needs Scheduler {
+	let c = Crashing{inner: New[Event](), armed: sync.NewRef(0)}
+	let store = domain.Sourced[Tally, Command, Event](c, "tally", Fresh, Evolve)
+	let mut a = match open(store) {
+	case Some[host] as h:
+		h.Value
+	case None:
+		return false
+	}
+	let mut answered = Map[domain.CommandID, domain.Receipt]{}
+	for x in ops {
+		let k = ((x % 10) + 10) % 10
+		let mut crashed = false
+		if k == 9 {
+			a.Stop() catch {
+			case _:
+			}
+			crashed = true
+		} else if k >= 7 {
+			c.armed.Set(k - 6)
+		} else {
+			let id = domain.CommandID("c\(((x/10)%6 + 6) % 6)")
+			let command = match k % 3 {
+			case 0:
+				Add{N: k + 1}
+			case 1:
+				Withdraw{N: k}
+			case _:
+				Note
+			}
+			let env = domain.Envelope[Command]{ID: id, By: "model", At: time.Unix(0, 0), Command: command}
+			let r = domain.Send(a, env) catch {
+			case Low:
+				domain.Receipt{ID: id, Stream: "", Position: 0}
+			case actor.Stopped:
+				// Only a save fails, and a resend saves nothing: the
+				// host answers it from its ledger.
+				if answered.Get(id) != None {
+					return false
+				}
+				crashed = true
+				domain.Receipt{ID: id, Stream: "", Position: 0}
+			}
+			if r.Position > 0 {
+				match answered.Get(id) {
+				case Some[domain.Receipt] as first:
+					if first.Value != r {
+						return false
+					}
+				case None:
+					answered = answered.Put(id, r)
+				}
+			}
+		}
+		if crashed {
+			// A save that failed ended the actor with a defect; a Stop of
+			// it would raise the defect again (actor.StartDurable).
+			a = match open(store) {
+			case Some[host] as h:
+				h.Value
+			case None:
+				return false
+			}
+		}
+		if !Agrees(a.State(), c.Read("tally", 0), answered, func(id domain.CommandID) Option[domain.Receipt] { c.Seen(id) }) {
+			return false
+		}
+	}
+	a.Stop() catch {
+	case _:
+	}
+	true
+}
+
+// SourcedSurvivesCrashes: whatever commands, resends and crashes, the
+// host's state is the fold of its stream, no answered command is lost or
+// kept twice, and decide ran once for each kept command (sync-spike L1,
+// L3; DK2's counted check).
+law SourcedSurvivesCrashes(ops []int) {
+	with context { Scheduler: time.NewManual(0) } {
+		Survives(ops)
+	}
+}

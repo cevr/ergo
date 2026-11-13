@@ -1,0 +1,182 @@
+// Package file is a domain.Log kept in a file (DK2), so the host of a
+// stream recovers after the process ends. The file is text, a record at a
+// time, each line a tag and a value:
+//
+//	r "stream"
+//	p 3
+//	i "command id"
+//	e "event"        (one line per event, the codec's text, Go-quoted)
+//	.
+//
+// Each Append writes its record with one AppendFile, after the log
+// decided to keep it (domain/memory's Admit), and keeps it in memory only
+// once the write returned. A crash in a write leaves a record with no
+// closing line: Open drops it, and writes the file again without it, so
+// the next record follows the last whole one.
+//
+// Go control: an append-only file of length-free records with an end
+// mark, read back at start (a write-ahead log).
+
+import fs
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
+import journal
+import strconv
+import strings
+import sync
+
+// Log is the file log of events E. Its values are copies of one log; one
+// process writes the file at a time.
+type Log[E comparable] {
+	writes fs.Writes,
+	path   string,
+	events journal.Codec[E],
+	book   sync.Ref[memory.Book[E]],
+}
+
+// Open is the log of the file at path, read with files and written with
+// writes: an empty one when there is no file there yet. events turns an
+// event into text and back. It fails when the file cannot be read, holds
+// a line that is not part of a record, or an event the codec cannot
+// decode.
+func Open[E comparable](files fs.Files, writes fs.Writes, path string, events journal.Codec[E]) Log[E] fails domain.Unkept {
+	let text = files.ReadFile(path) catch {
+	case fs.NotFound:
+		""
+	case fs.Denied:
+		return domain.Unkept{Reason: "\(path): permission denied"}
+	case fs.Failed as f:
+		return domain.Unkept{Reason: "\(path): \(f.Reason)"}
+	}
+	let (book, whole) = try parse(text, events)
+	if whole != len(text) {
+		try write(writes, path, strings.Slice(text, 0, whole))
+	}
+	Log[E]{writes: writes, path: path, events: events, book: sync.NewRef(book)}
+}
+
+// Append writes the record of id at the next position of stream when
+// expected is its last (domain.Log). It fails Unkept when the file cannot
+// be written; the log then keeps nothing.
+func Append[E comparable](l Log[E], stream string, expected int, id domain.CommandID, events []E) domain.Receipt fails domain.Conflict | domain.Reused | domain.Unkept {
+	let (o, next) = memory.Admit(l.book.Get(), stream, expected, id, events)
+	match o {
+	case memory.Kept as k:
+		try appendText(l.writes, l.path, recordText(stream, k.Receipt.Position, id, events, l.events))
+		l.book.Set(next)
+		k.Receipt
+	case memory.Resent as r:
+		r.Receipt
+	case memory.Stale as s:
+		domain.Conflict{Stream: stream, Expected: expected, Actual: s.Actual}
+	case memory.Taken:
+		domain.Reused{ID: id}
+	}
+}
+
+// Read is the records of stream after from, as written.
+func Read[E comparable](l Log[E], stream string, from int) []domain.Recorded[E] { memory.After(l.book.Get(), stream, from) }
+
+// Seen is the receipt of id, if the file holds its record.
+func Seen[E comparable](l Log[E], id domain.CommandID) Option[domain.Receipt] { l.book.Get().Receipts.Get(id) }
+
+// recordText is the text of one record.
+func recordText[E](stream string, position int, id domain.CommandID, events []E, codec journal.Codec[E]) string {
+	let mut text = "r " + strconv.Quote(stream) + "\np \(position)\ni " + strconv.Quote(string(id)) + "\n"
+	for e in events {
+		text = text + "e " + strconv.Quote(codec.Encode(e)) + "\n"
+	}
+	text + ".\n"
+}
+
+// pending is a record parse has begun and not closed.
+type pending[E] { Stream string, Position int, ID domain.CommandID, Events []E }
+
+// parse reads the records of a log file: the book they make, and the
+// length of the text that whole records take (a torn last record is not
+// in either).
+func parse[E comparable](text string, codec journal.Codec[E]) (memory.Book[E], int) fails domain.Unkept {
+	let mut book = memory.Book[E]{Streams: Map[string, []domain.Recorded[E]]{}, Receipts: Map[domain.CommandID, domain.Receipt]{}}
+	let mut open Option[pending[E]] = None
+	let mut whole = 0
+	let mut at = 0
+	let mut n = 0
+	for raw in strings.Lines(text) {
+		n = n + 1
+		at = at + len(raw)
+		if !strings.HasSuffix(raw, "\n") {
+			// The last line was torn in its write.
+			break
+		}
+		let line = strings.TrimSuffix(raw, "\n")
+		match open {
+		case None:
+			if !strings.HasPrefix(line, "r ") {
+				return domain.Unkept{Reason: "line \(n) does not begin a record"}
+			}
+			open = Some[pending[E]]{Value: pending[E]{Stream: try unquote(line, n), Position: 0, ID: domain.CommandID(""), Events: []E{}}}
+		case Some[pending[E]] as p:
+			let r = p.Value
+			if line == "." {
+				let (o, next) = memory.Admit(book, r.Stream, r.Position-1, r.ID, r.Events)
+				match o {
+				case memory.Kept:
+				case memory.Resent, memory.Stale, memory.Taken:
+					return domain.Unkept{Reason: "line \(n) closes a record the log cannot keep at \(r.Position)"}
+				}
+				book = next
+				open = None
+				whole = at
+			} else if strings.HasPrefix(line, "p ") {
+				let position = strconv.Atoi(strings.Slice(line, 2, len(line))) catch {
+				case strconv.Malformed, strconv.OutOfRange:
+					return domain.Unkept{Reason: "line \(n) is not a position"}
+				}
+				open = Some[pending[E]]{Value: pending[E]{..r, Position: position}}
+			} else if strings.HasPrefix(line, "i ") {
+				open = Some[pending[E]]{Value: pending[E]{..r, ID: domain.CommandID(try unquote(line, n))}}
+			} else if strings.HasPrefix(line, "e ") {
+				let e = codec.Decode(try unquote(line, n)) catch {
+				case journal.Failed as f:
+					return domain.Unkept{Reason: "line \(n): \(f.Reason)"}
+				}
+				open = Some[pending[E]]{Value: pending[E]{..r, Events: r.Events.Append(e)}}
+			} else {
+				return domain.Unkept{Reason: "line \(n) is not part of a record"}
+			}
+		}
+	}
+	(book, whole)
+}
+
+// unquote is the Go-quoted value after a line's two-byte tag.
+func unquote(line string, n int) string fails domain.Unkept {
+	strconv.Unquote(strings.Slice(line, 2, len(line))) catch {
+	case strconv.Malformed:
+		return domain.Unkept{Reason: "line \(n) is not a quoted value"}
+	}
+}
+
+// appendText adds text at the end of the file at path.
+func appendText(writes fs.Writes, path string, text string) fails domain.Unkept {
+	writes.AppendFile(path, text) catch {
+	case fs.NotFound:
+		return domain.Unkept{Reason: "\(path): no such directory"}
+	case fs.Denied:
+		return domain.Unkept{Reason: "\(path): permission denied"}
+	case fs.Failed as f:
+		return domain.Unkept{Reason: "\(path): \(f.Reason)"}
+	}
+}
+
+// write makes the file at path hold text.
+func write(writes fs.Writes, path string, text string) fails domain.Unkept {
+	writes.WriteFile(path, text) catch {
+	case fs.NotFound:
+		return domain.Unkept{Reason: "\(path): no such directory"}
+	case fs.Denied:
+		return domain.Unkept{Reason: "\(path): permission denied"}
+	case fs.Failed as f:
+		return domain.Unkept{Reason: "\(path): \(f.Reason)"}
+	}
+}

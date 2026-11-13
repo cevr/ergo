@@ -1,0 +1,77 @@
+{
+  "about": "module domain's mutants; each is judged by the module's tests and laws (scripts/examples -modules domain), not by a compiler test. The law that kills each is named in its rule.",
+  "mutants": [
+    {
+      "name": "dk2-memory-appends-resend", "origin": "wf10/domain DK2",
+      "file": "modules/domain/memory/log.ergo",
+      "from": "\t\tif r.Stream == stream && RecordsOf(b, r.Stream)[r.Position-1].Events == events {\n\t\t\treturn (Resent{Receipt: r}, b)\n\t\t}\n\t\treturn (Taken, b)\n",
+      "to": "\t\tif r.Stream != stream || RecordsOf(b, r.Stream)[r.Position-1].Events != events {\n\t\t\treturn (Taken, b)\n\t\t}\n",
+      "rule": "A resend is answered with the first receipt and keeps nothing (sync-spike L1): Log.ResendGivesFirstReceipt for memory's and file's Ints.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk2-memory-leaves-gap", "origin": "wf10/domain DK2",
+      "file": "modules/domain/memory/log.ergo",
+      "from": "\tlet r = domain.Receipt{ID: id, Stream: stream, Position: at + 1}\n",
+      "to": "\tlet r = domain.Receipt{ID: id, Stream: stream, Position: at + 1 + len(events)%2}\n",
+      "rule": "A stream's positions are 1, 2, … with no gap: Log.PositionsAreDense and Log.AppendThenRead.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk2-memory-reuse-taken", "origin": "wf10/domain DK2",
+      "file": "modules/domain/memory/log.ergo",
+      "from": "\t\treturn (Taken, b)\n",
+      "to": "\t\treturn (Resent{Receipt: r}, b)\n",
+      "rule": "An id kept with another stream or other events is refused (sync-spike L2): Log.SameIdOtherPayloadIsRefused.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk2-memory-stale-kept", "origin": "wf10/domain DK2",
+      "file": "modules/domain/memory/log.ergo",
+      "from": "\tif expected != at {\n",
+      "to": "\tif expected > at {\n",
+      "rule": "An Append with a stale expected position fails Conflict and keeps nothing: Log.ConflictOnStaleExpected.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk2-recover-skips-last", "origin": "wf10/domain DK2",
+      "file": "modules/domain/sourced.ergo",
+      "from": "\t\t\tfor r in log.Read(stream, 0) {\n",
+      "to": "\t\t\tlet all = log.Read(stream, 0)\n\t\t\tfor i, r in all {\n\t\t\t\tif i == len(all)-1 {\n\t\t\t\t\tbreak\n\t\t\t\t}\n",
+      "rule": "A restart folds every record of the stream (sync-spike L3): memory's SourcedSurvivesCrashes.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk2-save-skips-commit", "origin": "wf10/domain DK2",
+      "file": "modules/domain/sourced.ergo",
+      "from": "\t\t\tif next.Position == prev.Position {\n",
+      "to": "\t\t\tif next.Position == prev.Position || len(next.Last.Events) == 1 {\n",
+      "rule": "The save appends every committed step's record before the actor commits it, so no answered command is lost: SourcedSurvivesCrashes.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk2-resend-decided-again", "origin": "wf10/domain DK2",
+      "file": "modules/domain/sourced.ergo",
+      "from": "\tmatch l.Receipts.Get(id) {\n\tcase Some[Receipt]:\n\t\ttrue\n",
+      "to": "\tmatch l.Receipts.Get(id) {\n\tcase Some[Receipt]:\n\t\tfalse\n",
+      "rule": "A command the stream kept is not decided again: its resend gets the first receipt, and the decider counts one decision per kept command (SourcedSurvivesCrashes).",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk2-file-keeps-torn", "origin": "wf10/domain DK2",
+      "file": "modules/domain/file/log.ergo",
+      "from": "\tif whole != len(text) {\n",
+      "to": "\tif false && whole != len(text) {\n",
+      "rule": "Open drops a torn last record from the file, so the next record follows the last whole one: file's ReopenedLogReads.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    },
+    {
+      "name": "dk2-file-unwritten", "origin": "wf10/domain DK2",
+      "file": "modules/domain/file/log.ergo",
+      "from": "\t\ttry appendText(l.writes, l.path, recordText(stream, k.Receipt.Position, id, events, l.events))\n",
+      "to": "",
+      "rule": "Every record the file log answers is in its file: ReopenedLogReads.",
+      "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
+    }
+  ]
+}

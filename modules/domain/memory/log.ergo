@@ -1,0 +1,95 @@
+// Package memory is a domain.Log kept in the process's memory (DK2). It
+// outlives an actor, not the process: a test crashes the host of a stream
+// and starts a new one over the same Log. A program that must survive a
+// restart of the process uses domain/file.
+
+import github.com/cevr/ergo/modules/domain
+import sync
+
+// Log is the memory log of events E. Its values are copies of one log:
+// each sees what any of them kept.
+type Log[E comparable] { book sync.Ref[Book[E]] }
+
+// Book is what a log holds: each stream's records, in order, and the
+// receipt of each command id it kept.
+type Book[E] {
+	Streams  Map[string, []domain.Recorded[E]],
+	Receipts Map[domain.CommandID, domain.Receipt],
+}
+
+// New is an empty log.
+func New[E comparable]() Log[E] {
+	Log[E]{book: sync.NewRef(Book[E]{Streams: Map[string, []domain.Recorded[E]]{}, Receipts: Map[domain.CommandID, domain.Receipt]{}})}
+}
+
+// Append keeps the record of id at the next position of stream when
+// expected is its last (domain.Log). It never fails Unkept: memory keeps
+// every record.
+func Append[E comparable](l Log[E], stream string, expected int, id domain.CommandID, events []E) domain.Receipt fails domain.Conflict | domain.Reused | domain.Unkept {
+	let o = sync.Modify(l.book, func(b Book[E]) (Outcome, Book[E]) { Admit(b, stream, expected, id, events) })
+	match o {
+	case Kept as k:
+		k.Receipt
+	case Resent as r:
+		r.Receipt
+	case Stale as s:
+		domain.Conflict{Stream: stream, Expected: expected, Actual: s.Actual}
+	case Taken:
+		domain.Reused{ID: id}
+	}
+}
+
+// Outcome is what an Append did to a book: kept the record, answered a
+// resend, or refused it.
+type Outcome = Kept{Receipt domain.Receipt} | Resent{Receipt domain.Receipt} | Stale{Actual int} | Taken{}
+
+// Admit is the outcome of an Append on b and the book after it. A
+// provider that keeps its book elsewhere (domain/file) decides the same
+// way, then writes the record.
+func Admit[E comparable](b Book[E], stream string, expected int, id domain.CommandID, events []E) (Outcome, Book[E]) {
+	let records = RecordsOf(b, stream)
+	match b.Receipts.Get(id) {
+	case Some[domain.Receipt] as seen:
+		let r = seen.Value
+		if r.Stream == stream && RecordsOf(b, r.Stream)[r.Position-1].Events == events {
+			return (Resent{Receipt: r}, b)
+		}
+		return (Taken, b)
+	case None:
+	}
+	let at = len(records)
+	if expected != at {
+		return (Stale{Actual: at}, b)
+	}
+	let r = domain.Receipt{ID: id, Stream: stream, Position: at + 1}
+	let kept = records.Append(domain.Recorded[E]{Position: r.Position, ID: id, Events: events})
+	(Kept{Receipt: r}, Book[E]{Streams: b.Streams.Put(stream, kept), Receipts: b.Receipts.Put(id, r)})
+}
+
+// RecordsOf is the records of stream in b, none for a stream it does not
+// hold.
+func RecordsOf[E](b Book[E], stream string) []domain.Recorded[E] {
+	match b.Streams.Get(stream) {
+	case Some[[]domain.Recorded[E]] as s:
+		s.Value
+	case None:
+		[]domain.Recorded[E]{}
+	}
+}
+
+// Read is the records of stream after from.
+func Read[E comparable](l Log[E], stream string, from int) []domain.Recorded[E] { After(l.book.Get(), stream, from) }
+
+// After is the records of stream in b after the position from.
+func After[E](b Book[E], stream string, from int) []domain.Recorded[E] {
+	let mut out = []domain.Recorded[E]{}
+	for r in RecordsOf(b, stream) {
+		if r.Position > from {
+			out = out.Append(r)
+		}
+	}
+	out
+}
+
+// Seen is the receipt of id, if the log kept it.
+func Seen[E comparable](l Log[E], id domain.CommandID) Option[domain.Receipt] { l.book.Get().Receipts.Get(id) }

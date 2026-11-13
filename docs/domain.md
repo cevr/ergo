@@ -14,7 +14,7 @@ What Ergo adds to the source library's model: `Decide` has no `needs` row, so it
 | Decide | A pure function `Decide(s S, c C) []E fails R`. It has no `needs` row; the checker proves that | exists |
 | Evolve | A total function `Evolve(s S, e E) S` with no rows and an exhaustive `match (s, e)` | exists |
 | The aggregate | A machine whose step is `Decide`, then the fold of `Evolve`, then `Emit{Next, Output: events}` | exists |
-| Durability | `journal.Start(m, j, every, capacity, sink)` keeps the committed signals and snapshots, and replays them. An event log is module `domain` (DK2) | exists; event log planned |
+| Durability | `journal.Start(m, j, every, capacity, sink)` keeps the committed signals and snapshots, and replays them. An event log of commands, with positions and receipts, is module `domain` (`modules/domain`, DK2): `Log[E]`, and `Sourced`, whose save appends the step's events and whose recover folds the stream | exists |
 | Laws | Inside the machine (`law ClosedIsFinal`), at top level, and on the Api's operation type. Each is seeded, shrunk and replayable | exists |
 | View (read model) | A fold over events, with a law that the view equals the fold of the log | exists |
 | Policy (an event causes a command or a notice) | A pure function `React(e E) []C`; the follower of a log that sends each command with an id derived from the event's position is planned (DK3) | the function exists |
@@ -158,7 +158,7 @@ There is no `aggregate` keyword and no std `domain` package: the aggregate is a 
 
 ## 3. Contexts are data
 
-**Rule 3. The command's context (its id, and the actor, tenant and time when the domain needs them) travels in an envelope record, and `Decide` takes what it needs as arguments.** An ambient context would put a `needs` row on `Decide`, and S108 would refuse the durable actor. The provider of the Api stamps the envelope (a time from `Clock`, an id from the caller) before it sends it. Module `domain` (DK2) will hold the shared `Envelope[C]`; the worked example declares its own:
+**Rule 3. The command's context (its id, and the actor, tenant and time when the domain needs them) travels in an envelope record, and `Decide` takes what it needs as arguments.** An ambient context would put a `needs` row on `Decide`, and S108 would refuse the durable actor. The provider of the Api stamps the envelope (a time from `Clock`, an id from the caller) before it sends it. Module `domain` (`modules/domain`, DK2) holds the shared `Envelope[C] { ID, By, At, Command }`, `Receipt` and the log port `Log[E]`, whose laws hold the rule below for every provider (`ResendGivesFirstReceipt`, `SameIdOtherPayloadIsRefused`); the worked example declares its own envelope until it moves onto the log:
 
 <!-- quote examples/pipeline/pipeline/desk.ergo Envelope -->
 ```go
