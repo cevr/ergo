@@ -1266,6 +1266,15 @@
       "killers": ["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]
     },
     {
+      "name": "oracle-o24-seeded-file-empty",
+      "origin": "wf10 ORACLE O24",
+      "file": "internal/sketch/eval/process.go",
+      "from": "\t\th.files[p] = &hostFile{dir: f.Dir, data: f.Data, perm: f.Perm}",
+      "to": "\t\th.files[p] = &hostFile{dir: f.Dir, perm: f.Perm}",
+      "rule": "A case's setup.sh tree seeds the simulated file system with its files' bytes.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
       "name": "oracle-o20-go-float-is-exp",
       "origin": "wf10 ORACLE O20",
       "file": "internal/sketch/eval/nativesgo.go",

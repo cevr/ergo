@@ -33,6 +33,19 @@ type Process struct {
 	// Dir is the working directory and $HOME's default, an empty
 	// directory of the simulated file system; "" is /work.
 	Dir string
+	// Files seed the simulated file system before main runs: each path
+	// is relative to Dir (a case's setup.sh output), its parents are
+	// directories.
+	Files []File
+}
+
+// File is one seeded entry of Process.Files: a directory, or a file of
+// Data, with Perm's permission bits.
+type File struct {
+	Path string
+	Dir  bool
+	Data string
+	Perm int
 }
 
 // Exit is the outcome of a RunMain run: the streams it wrote and its exit
@@ -207,6 +220,13 @@ func newHost(p Process) *host {
 		if d == "/" {
 			break
 		}
+	}
+	for _, f := range p.Files {
+		p := path.Join(h.cwd, f.Path)
+		for d := path.Dir(p); h.files[d] == nil; d = path.Dir(d) {
+			h.files[d] = &hostFile{dir: true, perm: 0o755}
+		}
+		h.files[p] = &hostFile{dir: f.Dir, data: f.Data, perm: f.Perm}
 	}
 	// The host clock reads a fixed instant and moves only when every task
 	// waits, as a virtual clock does: no output may depend on when it ran.

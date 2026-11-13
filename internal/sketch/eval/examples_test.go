@@ -1,8 +1,11 @@
 package eval_test
 
 import (
+	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -10,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketchfront"
 )
@@ -19,14 +23,18 @@ import (
 // standard input and environment, in an empty working directory, and
 // holds its standard output, standard error and exit status to the case's
 // recorded files, which the built program matches (scripts/examples). A
-// case with a setup.sh (it writes files the simulated process does not
-// see), a ts program's case (Bun runs it, and drives the built program),
-// and a run that reaches a form the evaluator does not run are listed
-// and counted, never passed; any other difference fails. The log's last
-// lines are the census: how many cases agreed, were skipped and why.
+// case's setup.sh runs as the examples runner runs it, with sh in an empty
+// directory that is also $HOME, and the tree it leaves seeds the
+// simulated file system (setupFiles). A ts program's case (Bun runs it,
+// and drives the built program), a setup that leaves what the simulated
+// file system does not hold, and a run that reaches a form the evaluator
+// does not run are listed and counted, never passed; any other difference
+// fails. The log's last lines are the census: how many cases agreed, were
+// skipped and why.
 //
 // It is the full tier's (it checks every example program): -short skips it.
 // It builds and runs no Go: the recorded files are the built program's.
+// The setup scripts run under the kernel's memory bound (proclimit).
 func TestEvalAgreesOnExamples(t *testing.T) {
 	if testing.Short() {
 		t.Skip("full tier: runs every example program")
@@ -76,12 +84,17 @@ func TestEvalAgreesOnExamples(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: %v", label, err)
 			}
+			var files []eval.File
 			if g.setup {
-				skips["a setup.sh"] = append(skips["a setup.sh"], label)
-				continue
+				var why string
+				files, why = setupFiles(t, filepath.Join(dir, "cases", c.Name()))
+				if why != "" {
+					skips[why] = append(skips[why], label)
+					continue
+				}
 			}
 			ran++
-			got, err := eval.RunMain(pkgs[len(pkgs)-1], eval.DefaultBudget(), eval.Process{Args: g.args, Env: g.env, Stdin: g.stdin})
+			got, err := eval.RunMain(pkgs[len(pkgs)-1], eval.DefaultBudget(), eval.Process{Args: g.args, Env: g.env, Stdin: g.stdin, Files: files})
 			if err != nil {
 				t.Fatalf("%s: %v", label, err)
 			}
@@ -200,6 +213,64 @@ func disagreement(g golden, got eval.Exit) string {
 		what = append(what, fmt.Sprintf("status %d, recorded %d", got.Status, g.status))
 	}
 	return strings.Join(what, "; ")
+}
+
+// setupFiles runs the case's setup.sh as the examples runner does (sh
+// with the case directory as $1, in an empty directory that is $HOME) and
+// returns the tree it leaves, relative to that directory. why names what
+// the simulated file system cannot hold (a symbolic link, a special file),
+// or the setup's failure; files is then nil.
+func setupFiles(t *testing.T, caseDir string) (files []eval.File, why string) {
+	t.Helper()
+	work := t.TempDir()
+	cmd := exec.Command("sh", filepath.Join(caseDir, "setup.sh"), caseDir)
+	cmd.Dir = work
+	cmd.Env = []string{"HOME=" + work}
+	if p, ok := os.LookupEnv("PATH"); ok {
+		cmd.Env = append(cmd.Env, "PATH="+p)
+	}
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := proclimit.Run(cmd, proclimit.DefaultLimit); err != nil {
+		t.Fatalf("%s: setup.sh: %v\n%s", caseDir, err, out.String())
+	}
+	err := filepath.WalkDir(work, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || p == work {
+			return err
+		}
+		rel, err := filepath.Rel(work, p)
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		switch {
+		case d.Type()&fs.ModeSymlink != 0:
+			why = "a setup.sh that makes a symbolic link"
+			return fs.SkipAll
+		case d.IsDir():
+			files = append(files, eval.File{Path: filepath.ToSlash(rel), Dir: true, Perm: int(info.Mode().Perm())})
+		case d.Type().IsRegular():
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			files = append(files, eval.File{Path: filepath.ToSlash(rel), Data: string(data), Perm: int(info.Mode().Perm())})
+		default:
+			why = "a setup.sh that makes a special file"
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("%s: read the setup's tree: %v", caseDir, err)
+	}
+	if why != "" {
+		return nil, why
+	}
+	return files, ""
 }
 
 func clip(s string) string {
