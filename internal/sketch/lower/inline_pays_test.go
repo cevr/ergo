@@ -9,8 +9,9 @@ import (
 )
 
 // paysSource calls each function once off a loop and once on a loop path.
-// classify is a Go leaf with a boxed result (Tok has five fields, so it
-// is an interface) larger than goSizeBudget; tiny is one within it;
+// classify is a Go leaf with a boxed result (Tok is past the register
+// bound in both flat forms, and held carries it, so it is an interface:
+// flatunion.go, U1, and carry.go, R3b) larger than goSizeBudget; tiny is one within it;
 // widest is generic (no Go leaf) and larger; first is generic and within
 // it; outer is small and calls widest, so widest's site in outer's
 // inlined body is on the loop path of outer's site; apply1 substitutes
@@ -27,12 +28,12 @@ const paysSource = `import machines
 type Num { v int }
 type Word { s string }
 type Op { c string }
-type Sep { at int }
+type Sep { at int, line int }
 type Tok = Num | Word | Op | Sep
 
 func classify(x int) Tok {
 	if x < 0 {
-		return Sep{at: x}
+		return Sep{at: x, line: 1}
 	}
 	if x % 3 == 0 {
 		return Num{v: x * 2 + 1}
@@ -44,6 +45,10 @@ func classify(x int) Tok {
 }
 
 func tiny(x int) Tok { Num{v: x} }
+
+func held(t Tok) Tok { t }
+
+func viaHeld() int { weight(held(tiny(0))) }
 
 func first[T](xs []T, d T) T {
 	if len(xs) == 0 {

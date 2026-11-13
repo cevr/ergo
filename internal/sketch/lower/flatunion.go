@@ -134,8 +134,11 @@ type flatUnion struct {
 	// declared in its union's package (the checker's Unions 1; an alias
 	// names its record), so its Go literal rebuilds it from its fields.
 	shared, canShare bool
-	slots            []check.Type
-	fieldSlot        [][]int
+	// byUse reports a union past the register bound that is flat because
+	// no call carries a value of it (carry.go, R3b).
+	byUse     bool
+	slots     []check.Type
+	fieldSlot [][]int
 }
 
 // Shared typed payload slots (U1, speed-2). The form above gives each
@@ -370,24 +373,38 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 			// holds: flat unions hold each other without a cycle, so
 			// the forms settle once the set does.
 			fu := l.flatSet[tn]
-			was := fu.shared
-			fu.shared = fu.canShare
+			was, wasUsed := fu.shared, fu.byUse
+			fu.shared, fu.byUse = fu.canShare, false
 			lay, cycle, known := l.layoutOf(tn.Type, map[*check.TypeName]bool{}, 0)
 			if cycle == nil && known && !lay.ssa && fu.shared {
 				fu.shared = false
 				lay, cycle, known = l.layoutOf(tn.Type, map[*check.TypeName]bool{}, 0)
+				if cycle == nil && known && !lay.ssa && l.flatByUse(tn) {
+					// Past the register bound in both forms: the smaller,
+					// shared form, if no call carries a value (R3b).
+					fu.shared = true
+					lay, cycle, known = l.layoutOf(tn.Type, map[*check.TypeName]bool{}, 0)
+				}
 			}
-			if fu.shared != was {
+			if cycle == nil && known && !lay.ssa && l.flatByUse(tn) && lay.size <= useBytes {
+				fu.byUse = true // carry.go
+			}
+			if fu.shared != was || fu.byUse != wasUsed {
 				changed = true
 			}
 			switch {
 			case cycle != nil:
 				delete(l.flatSet, cycle)
 				changed = true
-			case !known || !lay.ssa:
+			case !known || !lay.ssa && !fu.byUse:
 				delete(l.flatSet, tn)
 				changed = true
 			}
+		}
+	}
+	for _, fu := range l.flatSet {
+		if fu.byUse {
+			l.stats.UsedFlat++
 		}
 	}
 	if opt != nil && l.flatSet[opt.Obj] != nil && !l.flatOff[nicheOff] {
