@@ -282,6 +282,9 @@ func runBound(cmd *exec.Cmd) (string, error) {
 // denseBuildAndRun writes the user module (std dense's copy as package
 // local, and one program that runs each case on dense and on local),
 // builds it with the ergo CLI and runs it.
+//
+// It builds Go because the stores' writes borrow, and the check-time
+// evaluator does not run a borrow: only the built program runs them.
 func denseBuildAndRun(t *testing.T) {
 	root := denseRoot(t)
 	only := -1
