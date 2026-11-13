@@ -96,6 +96,7 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 | `call:LawOp` | a call of kind `LawOp` | Checked; runs |  |
 | `call:Len` | a call of kind `Len` | Checked; runs |  |
 | `call:Op` | a call of kind `Op` | Checked; runs |  |
+| `call:Pattern` | a call of kind `Pattern` | Checked; runs |  |
 | `call:ProviderOp` | a call of kind `ProviderOp` | Checked; runs |  |
 | `call:With` | a call of kind `With` | Checked; runs |  |
 | `conv:Machine` | an implicit `Machine` conversion | Checked; runs |  |

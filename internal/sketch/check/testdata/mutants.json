@@ -1125,8 +1125,8 @@
       "name": "l6-2 a constant outside the where is admitted",
       "origin": "wf10 v1-lang-B L6",
       "file": "internal/sketch/check/refine.go",
-      "from": "\tif r.Holds(v) {\n\t\treturn true\n\t}",
-      "to": "\tif r.Holds(v) || true {\n\t\treturn true\n\t}",
+      "from": "if r.Holds(v) && (r.Pattern",
+      "to": "if true || r.Holds(v) && (r.Pattern",
       "rule": "types.md, Refinements 6: a constant enters N only when its value lies in the set.",
       "killers": [
         "check:TestFixtures"
@@ -1202,8 +1202,8 @@
       "name": "l6-9 a refined type whose zero fails its where is defaultable",
       "origin": "wf10 v1-lang-B L6",
       "file": "internal/sketch/check/typeops.go",
-      "from": "if r := RefinementOf(t); r != nil && !r.Holds(big.NewInt(0)) {",
-      "to": "if r := RefinementOf(t); r != nil && r.Holds(big.NewInt(0)) && false {",
+      "from": "r != nil && (!r.Holds(big.NewInt(0)) ||",
+      "to": "r != nil && (false && !r.Holds(big.NewInt(0)) ||",
       "rule": "types.md, Refinements 8: let p Port is S108 when 0 fails the where.",
       "killers": [
         "check:TestFixtures"
