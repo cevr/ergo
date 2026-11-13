@@ -240,6 +240,56 @@
       "to": "g.Reason = in.Reason",
       "rule": "ergo inspect shows each derived type with its parse engine, the reason and the counts (patterns.md, Derivation 7).",
       "killers": ["cmd/ergo:TestInspectAPIRoute"]
+    },
+    {
+      "name": "md2-get-unverified",
+      "origin": "wf10 MD2",
+      "file": "cmd/ergo/get.go",
+      "from": "\t\tcase r.Why != \"\":\n",
+      "to": "\t\tcase false:\n",
+      "rule": "ergo get reads each fetched module as an import does and refuses one that cannot be imported.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"],
+      "anchor": {"tests": ["cmd/ergo:TestErgoModuleRequirement"]}
+    },
+    {
+      "name": "md2-get-kept",
+      "origin": "wf10 MD2",
+      "file": "cmd/ergo/get.go",
+      "from": "\t\tif err := kept.restore(); err != nil {",
+      "to": "\t\tif err := error(nil); err != nil {",
+      "rule": "A refused ergo get leaves go.mod and go.sum as they were.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"],
+      "anchor": {"tests": ["cmd/ergo:TestErgoModuleRequirement"]}
+    },
+    {
+      "name": "md3-deps-go-dropped",
+      "origin": "wf10 MD3",
+      "file": "cmd/ergo/deps.go",
+      "from": "for _, use := range p.Go {",
+      "to": "for _, use := range p.Go[:0] {",
+      "rule": "ergo inspect deps lists each dependency package's uses of Go, also when the program does not check.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"],
+      "anchor": {"tests": ["cmd/ergo:TestErgoModuleRequirement"]}
+    },
+    {
+      "name": "md3-deps-trust-hidden",
+      "origin": "wf10 MD3",
+      "file": "cmd/ergo/deps.go",
+      "from": "\t\tif r.Trusted {\n",
+      "to": "\t\tif false {\n",
+      "rule": "ergo inspect deps shows whether the root trusts each module's Go.",
+      "killers": ["cmd/ergo:TestErgoModuleRequirement"],
+      "anchor": {"tests": ["cmd/ergo:TestErgoModuleRequirement"]}
+    },
+    {
+      "name": "b18-home-telemetry-on",
+      "origin": "wf10 batch-18 fix-base",
+      "file": "cmd/ergo/build_test.go",
+      "from": "os.WriteFile(mode, []byte(\"off\"), 0o644)",
+      "to": "os.WriteFile(mode, []byte(\"local\"), 0o644)",
+      "rule": "The HOME witness measures Ergo's writes: with Go's telemetry left on, the compile and link the direct build path runs write their counters under the witnessed HOME, which is Go's write, not Ergo's.",
+      "anchor": {"tests": ["cmd/ergo:TestPackageNeverWritesUnderHome"]},
+      "killers": ["cmd/ergo:TestPackageNeverWritesUnderHome"]
     }
   ]
 }

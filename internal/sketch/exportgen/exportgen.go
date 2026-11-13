@@ -56,6 +56,9 @@ var skipFields = map[string]string{
 	"check.checker.withLimit":    "test hook",
 	"check.checker.nodeCheck":    "test hook",
 	"check.checker.elidedAs":     "set only while an elided literal is checked",
+	// A module package's importer serves its check alone (check/export.go,
+	// ModuleImporter); the decoded wrapper imports nothing.
+	"check.moduleImporter.next": "the loader of the process that checked the package",
 	// The derive record (internal/sketch/derive). Std declares no plan
 	// function or derive, so its record is empty and nil means the same;
 	// check.ExportStd refuses a std package whose record is not empty.
@@ -475,10 +478,15 @@ func (e *emitter) emitPointer(name, ts string, p *types.Pointer) {
 	fmt.Fprintf(&e.dec, "func (d *decoder) dec%s() %s {\n\tx, fresh := d.ref()\n\tif !fresh {\n\t\tif x == nil {\n\t\t\treturn nil\n\t\t}\n\t\treturn x.(%s)\n\t}\n\tv := new(%s)\n\td.add(v)\n\t*v = d.dec%s()\n\treturn v\n}\n\n", name, ts, ts, e.typeString(elem), inner)
 }
 
-// isLock reports a sync type held by value: a decoded object's lock is zero.
+// isLock reports a sync or sync/atomic type held by value: a decoded
+// object's lock or atomic counter is zero.
 func isLock(t types.Type) bool {
 	n, ok := types.Unalias(t).(*types.Named)
-	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "sync"
+	if !ok || n.Obj().Pkg() == nil {
+		return false
+	}
+	path := n.Obj().Pkg().Path()
+	return path == "sync" || path == "sync/atomic"
 }
 
 // hasLock reports a struct that holds a lock by value, at any depth.

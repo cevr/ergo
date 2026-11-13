@@ -823,21 +823,33 @@ func (s *stdImporter) available(path string) {
 // calls it under the snapshot's lock, for each segment in import order.
 func (s *stdImporter) decoded(path string) {
 	s.mu.Lock()
-	s.work.StdPackagesDecoded++
+	module := strings.Contains(path, "\x00") // ModuleSegment
+	if module {
+		s.work.ModulePackagesDecoded++
+	} else {
+		s.work.StdPackagesDecoded++
+	}
 	s.mu.Unlock()
-	s.available(path)
+	if !module {
+		s.available(path)
+	}
 }
 
 // Work counts the std work an importer did (CHK1, CHK1b): the std package
 // files it parsed and the std packages it checked from source, and the std
-// packages it decoded from an installed snapshot. The prelude is not
-// counted. A check's work must grow with the std packages it imports, not
-// with the std (the counted check budget, TestCheckWorkGrowsWithImports);
-// it counts work, never time.
+// packages it decoded from an installed snapshot, and the bytes it read
+// from that snapshot (CHK1c). The prelude is not counted. A check's work
+// must grow with the std packages it imports, not with the std (the
+// counted check budget, TestCheckWorkGrowsWithImports and
+// TestStdDecodeGrowsWithImports); it counts work, never time.
+// ModulePackagesDecoded counts the packages of required modules decoded
+// from the snapshot (InstalledPackage, NP5).
 type Work struct {
-	StdFilesParsed     int64
-	StdPackagesChecked int64
-	StdPackagesDecoded int64
+	StdFilesParsed        int64
+	StdPackagesChecked    int64
+	StdPackagesDecoded    int64
+	StdSnapshotBytesRead  int64
+	ModulePackagesDecoded int64
 }
 
 // WorkDone returns the Work of the Std importer in this process so far.
@@ -846,7 +858,11 @@ func WorkDone() Work { return Std.(*stdImporter).done() }
 func (s *stdImporter) done() Work {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.work
+	w := s.work
+	if s.snap != nil {
+		w.StdSnapshotBytesRead = s.snap.read.Load()
+	}
+	return w
 }
 
 // count adds files parsed and packages checked to s's Work.

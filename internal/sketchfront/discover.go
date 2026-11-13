@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"ergo.local/prototype/internal/gobind"
 )
 
 // PackageTarget is one selected package of a recursive module command.
@@ -31,7 +33,8 @@ func DiscoverPackages(dir string) ([]PackageTarget, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := &loader{fsys: hostFS{}, root: abs, pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}}
+	l := newLoader(hostFS{}, gobind.Platform{}, abs, "")
+	l.localOnly = true
 	found, err := l.findModule(abs)
 	if err != nil {
 		return nil, err
@@ -72,7 +75,7 @@ func DiscoverPackages(dir string) ([]PackageTarget, error) {
 		if rel != "." {
 			name += "/" + filepath.ToSlash(rel)
 		}
-		p, err := l.read(name, path)
+		p, err := l.read(name, path, nil)
 		if err != nil {
 			return err
 		}

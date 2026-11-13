@@ -14,7 +14,7 @@ seam	internal/sketch/check/check.go:stdImporter.load	loads an embedded std packa
 seam	internal/sketch/check/check.go:stdImporter.testOf	finds the std package a std test package tests	-
 seam	internal/sketch/check/decl.go:checker.importSpec	a std path always names std (no shadowing)	-
 seam	internal/sketch/check/decl.go:checker.run	the second check of a package keeps its std mark	-
-seam	internal/sketch/check/export.go:ExportStd	writes the checked std snapshot	-
+seam	internal/sketch/check/export.go:ExportSnapshot	writes the checked snapshot of std and of required modules' packages; a module segment is never a std package	-
 seam	internal/sketch/check/export_gen.go:decoder.decFieldsPackage	reads a package's std mark from the snapshot	-
 seam	internal/sketch/check/export_gen.go:encoder.encFieldsPackage	writes a package's std mark into the snapshot	-
 seam	internal/sketch/check/info.go:Package.Std	the accessor of the std mark	-
@@ -25,6 +25,7 @@ seam	internal/sketch/lower/sources.go:lowerer.missingImport	a reached user packa
 seam	internal/sketch/lower/sources.go:lowerer.stdLetPkgs	the std packages whose lets the program initializes	-
 seam	internal/sketch/lower/sources.go:shippedLedger	std's law ledger ships with its sources: the ledger of the module the compiler ships	-
 seam	internal/sketchfront/load.go:shippedImport	std paths resolve to the embedded std first	-
+seam	internal/sketchfront/load.go:isStdPath	a std path names std: the loader reads no module package for it (no shadowing, C30)	-
 seam	internal/sketchfront/load.go:modulePathProblem	a module path may not take a std package's name	-
 seam	internal/sketchfront/sketchfront.go:stdDependencies	the digest of std's sources in the build key	-
 language	internal/rpcgen/rpcgen.go:gen.importOf	a prelude name is written unqualified	-
