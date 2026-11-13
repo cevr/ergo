@@ -104,6 +104,30 @@
       "to": "\tfor i, id in slices.Reverse(b.Queue) {\n",
       "rule": "Runs start in the order they were submitted: SceneAgreesWithStory.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px2-server-maps-rejection", "origin": "wf10/domain PX2",
+      "file": "examples/pipeline/pipeline/pipelinerpc/server.ergo",
+      "from": "\t\tlet v = pipeline.Pipeline.Submit(r.C) catch {\n\t\tcase run.WrongState as e:\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"WrongState\", rpc.Encode(e))}\n",
+      "to": "\t\tlet v = pipeline.Pipeline.Submit(r.C) catch {\n\t\tcase run.WrongState as e:\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"Closed\", rpc.Encode(run.Closed{Status: e.Status}))}\n",
+      "rule": "The wire answers each rejection as itself: SurfacesAgree (the wire against the model).",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px2-cli-drops-flag", "origin": "wf10/domain PX2",
+      "file": "examples/pipeline/pipeline/pipelinecli/cli.ergo",
+      "from": "\t\tout = out.Append(\"-stage=\\(x.C.Stage)\")\n",
+      "to": "",
+      "rule": "The command line carries every field of a request: SurfacesAgree (the command line against the model) and ArgsRoundTrip.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "px2-client-reorders", "origin": "wf10/domain PX2",
+      "file": "examples/pipeline/surfaces/laws.ergo",
+      "from": "\t\t\tlet r = rs[i]\n",
+      "to": "\t\t\tlet r = rs[if i%2 == 0 && i+1 < len(rs) { i + 1 } else if i%2 == 1 { i - 1 } else { i }]\n",
+      "rule": "The wire sends the requests in their order: SurfacesAgree (the wire against the model).",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     }
   ]
 }

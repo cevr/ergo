@@ -1,0 +1,157 @@
+// The laws of the surfaces. Each surface runs on a context of its own: a
+// durable actor of Dispatch over a memory journal, a runner whose first
+// stage fails its first tries, and a manual clock that no one moves, so a
+// failed stage waits for a retry. After each request the surface settles
+// its context, so the runner's tries are part of what the next request
+// sees.
+
+import flag
+import journal
+import journal/memory
+import runners pipeline/memory
+import rpc
+import pipeline/pipeline
+import pipeline/pipeline/pipelinecli
+import pipeline/pipeline/pipelinerpc
+import time
+
+// Names are the runs the requests name.
+let Names = []string{"build", "docs", "lint"}
+
+// RequestOf is the request of the act k at place i: a submit (of -1 to 9
+// stages, so some are refused), a cancel, a retry of stage 0 to 2, a
+// resend of the first command, the board, or a run's state.
+func RequestOf(i int, k int) Request {
+	let name = Names[((k/8)%3+3)%3]
+	let small = ((k/24)%3 + 3) % 3
+	match ((k % 8) + 8) % 8 {
+	case 0, 1:
+		pipelinerpc.SubmitRequest{C: pipeline.SubmitRun{ID: "c\(i)", Run: name, Stages: ((k/24)%11+11)%11 - 1}}
+	case 2:
+		pipelinerpc.CancelRequest{C: pipeline.CancelRun{ID: "c\(i)", Run: name, Why: "stop"}}
+	case 3, 4:
+		pipelinerpc.RetryRequest{C: pipeline.RetryRun{ID: "c\(i)", Run: name, Stage: small}}
+	case 5:
+		pipelinerpc.SubmitRequest{C: pipeline.SubmitRun{ID: "c0", Run: name, Stages: 2}}
+	case 6:
+		pipelinerpc.BoardRequest
+	case _:
+		pipelinerpc.RunOfRequest{Id: name}
+	}
+}
+
+// requests are the requests of the acts.
+func requests(acts []int) []Request {
+	let mut out = []Request{}
+	for i, k in acts {
+		out = out.Append(RequestOf(i, k))
+	}
+	out
+}
+
+// settled is out with a line when m has stopped.
+func settled(out []string, m pipeline.Model) []string {
+	let _ = pipeline.Settle(m) catch {
+	case pipeline.Unavailable:
+		return out.Append("the context stopped")
+	}
+	out
+}
+
+// onModel is the model's answers: each request on m.
+func onModel(rs []Request, m pipeline.Model) []string {
+	let mut out = []string{}
+	with context { pipeline.Pipeline: m } {
+		for r in rs {
+			out = settled(out.Append(Call(r)), m)
+		}
+		out.Append(rpc.Encode(pipeline.Pipeline.Board()))
+	}
+}
+
+// overWire is the wire's answers: each request through the client of m.
+func overWire(rs []Request, m pipeline.Model) []string {
+	let mut out = []string{}
+	with context { pipeline.Pipeline: Loopback(m) } {
+		for i in 0..len(rs) {
+			let r = rs[i]
+			out = settled(out.Append(Call(r)), m)
+		}
+		out.Append(rpc.Encode(pipeline.Pipeline.Board()))
+	}
+}
+
+// asLines is the command line's answers: each request asLines as a
+// command line, parsed back, and sent to m.
+func asLines(rs []Request, m pipeline.Model) []string {
+	let mut out = []string{}
+	with context { pipeline.Pipeline: m } {
+		for r in rs {
+			let back = pipelinecli.Parse(pipelinecli.Print(r)) catch {
+			case flag.Failure as f:
+				out = out.Append("unparsed: \(flag.Describe(f))")
+				continue
+			}
+			out = settled(out.Append(Call(back)), m)
+		}
+		out.Append(rpc.Encode(pipeline.Pipeline.Board()))
+	}
+}
+
+// Surface is a road from a list of requests to the answers.
+type Surface = ThroughModel{} | ThroughWire{} | ThroughLine{}
+
+// answers plays rs on the surface s, on a context of its own whose first
+// stage fails its first failing tries.
+func answers(s Surface, rs []Request, failing int) []string fails journal.Failed | journal.Diverged {
+	let mut table = Map[int, int]{}
+	table[0] = ((failing % 3) + 3) % 3
+	with context { Scheduler: time.NewManual(0), pipeline.Runner: runners.New(table) } {
+		let m = try pipeline.Open(memory.New[pipeline.Desk, pipeline.Signal]())
+		let out = match s {
+		case ThroughModel:
+			onModel(rs, m)
+		case ThroughWire:
+			overWire(rs, m)
+		case ThroughLine:
+			asLines(rs, m)
+		}
+		pipeline.Stop(m)
+		out
+	}
+}
+
+// SurfacesAgree: one list of requests gets the same answers, rejections
+// included, and leaves the same board, through the model, through the
+// generated RPC client over the wire, and as command lines that the
+// generated CLI prints and parses.
+law SurfacesAgree(acts []int, failing int) {
+	let rs = requests(acts)
+	let byModel = answers(ThroughModel, rs, failing) catch {
+	case journal.Failed, journal.Diverged:
+		return false
+	}
+	let byWire = answers(ThroughWire, rs, failing) catch {
+	case journal.Failed, journal.Diverged:
+		return false
+	}
+	let byLine = answers(ThroughLine, rs, failing) catch {
+	case journal.Failed, journal.Diverged:
+		return false
+	}
+	byWire == byModel && byLine == byModel
+}
+
+// LoopbackTakesEachCommandOnce: Pipeline.DuplicateIsNoop holds for the
+// generated client over the wire.
+law LoopbackTakesEachCommandOnce(c pipeline.SubmitRun) {
+	with context { Scheduler: time.NewManual(0), pipeline.Runner: runners.NewFlaky() } {
+		let m = pipeline.Open(memory.New[pipeline.Desk, pipeline.Signal]()) catch {
+		case journal.Failed, journal.Diverged:
+			return false
+		}
+		let ok = with context { pipeline.Pipeline: Loopback(m) } { pipeline.DuplicateIsNoop(c) }
+		pipeline.Stop(m)
+		ok
+	}
+}

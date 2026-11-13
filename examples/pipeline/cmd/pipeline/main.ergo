@@ -15,7 +15,10 @@ import os
 import runners pipeline/memory
 import pipeline/notify
 import pipeline/pipeline
+import pipeline/pipeline/pipelinecli
+import pipeline/pipeline/pipelinerpc
 import pipeline/run
+import rpc
 import strconv
 import strings
 import time
@@ -242,8 +245,55 @@ func Play(lines []string, orders Map[int, Order], m pipeline.Model, clock time.M
 	out
 }
 
+// Remote is a command line that names a server: `--server URL` then a
+// command of the generated CLI (pipeline/pipelinecli), such as
+// `submit -id=c1 -run=build -stages=3`, `board` or `run-of -- build`.
+type Remote { URL string, Command []string }
+
+// remoteOf is the remote command line of args, or None for a script.
+// The URL comes first, as --server URL or --server=URL (one dash too).
+func remoteOf(args []string) Option[Remote] {
+	if len(args) == 0 {
+		return None
+	}
+	for prefix in []string{"--server=", "-server="} {
+		if strings.HasPrefix(args[0], prefix) {
+			return Some[Remote]{Value: Remote{URL: strings.TrimPrefix(args[0], prefix), Command: args[1:]}}
+		}
+	}
+	if len(args) >= 2 && (args[0] == "--server" || args[0] == "-server") {
+		return Some[Remote]{Value: Remote{URL: args[1], Command: args[2:]}}
+	}
+	None
+}
+
+// call sends the command of r to the server through the generated
+// client and prints what the generated CLI's Run gives. A server that
+// does not answer is a line and status 1, not a defect: the board is
+// asked first through the checked call.
+func call(r Remote) fails os.Exit needs Ambient | Console {
+	let client = pipelinerpc.NewClient(rpc.Dial(r.URL))
+	let _ = pipelinerpc.BoardChecked(client) catch {
+	case rpc.Transport as t:
+		return os.Exit{Code: 1, Message: "pipeline: no pipeline answers at \(r.URL): \(t.Reason)"}
+	}
+	let o = with context { pipeline.Pipeline: client } { pipelinecli.Run(r.Command) }
+	if o.Out != "" {
+		Console.Println(strings.TrimSuffix(o.Out, "\n"))
+	}
+	if o.Code != 0 {
+		return os.Exit{Code: o.Code, Message: strings.TrimSuffix(o.Err, "\n")}
+	}
+}
+
 func main() fails os.Exit needs Ambient | Console {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	match remoteOf(args) {
+	case Some[Remote] as r:
+		try call(r.Value)
+		return
+	case None:
+	}
 	let v = with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
 		flag.Parse(set, args) catch {
 		case err:

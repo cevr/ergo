@@ -26,6 +26,16 @@ board               the board
 
 `-fail STAGE:TRIES` (repeated) makes stage STAGE of every run fail its first TRIES tries; a negative TRIES makes the runner offline for them.
 
+## Over HTTP
+
+`pipeline-server` serves the same Api over HTTP: Effect RPC at `/rpc` (the generated server) and `ok` at `/health`, on one listener whose address it prints first. `pipeline --server URL COMMAND...` sends one command of the generated command line to it through the generated client and prints the answer: a receipt, the board or a run as JSON, or a rejection as its type and JSON with status 1. A server that does not answer is a line and status 1.
+
+```sh
+pipeline --server http://127.0.0.1:PORT/rpc submit -id=c1 -run=build -stages=2
+pipeline --server http://127.0.0.1:PORT/rpc board
+pipeline --server http://127.0.0.1:PORT/rpc run-of -- build
+```
+
 ## Layout
 
 The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go layout:
@@ -37,8 +47,11 @@ The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go l
 | `retry/` | The saga: `Policy`, `Attempt` (`Trying` or `Backoff`), the machine `Saga` with a timer on `Backoff`; laws `GivesUpAfterAttempts`, `WaitsItsBackoff` under `machines.RunTimed` on a virtual clock. |
 | `notify/` | The policy: `React(id, event) []Notice`, pure; the law `OneNoticePerEnd`. |
 | `pipeline/` | The contracts and the context. `api.ergo`: the Api `Pipeline` (`Submit`, `Cancel`, `Retry`, `Board`, `RunOf`) with the law `DuplicateIsNoop`. `runner.ergo`: the external system `Runner` with the law `Repeatable`. `desk.ergo`: the context's machine `Dispatch` (`Idle`, `Busy`, `Waiting`): it calls each run's `Handle`, runs the saga's step as a pure child, and owns the runner's try as the work of `Busy`. `model.ergo`: `Model`, the provider of `Pipeline` over a durable actor of `Dispatch` (std `journal`). `scene.ergo`: the reference `Story` and the law `SceneAgreesWithStory`. `laws.ergo`: `ModelTakesEachCommandOnce`. |
+| `pipeline/pipelinerpc/`, `pipeline/pipelinecli/` | Generated from the Api by `ergo gen rpc pipeline.Pipeline` and `ergo gen cli pipeline.Pipeline`: the wire's `Request`, the server's `Handle`, the `Client` (a provider of `Pipeline` over a connection), and the command line (`Parse`, `Print`, `Run`, the law `ArgsRoundTrip`). The examples runner's `gen --check` leg fails on a stale file. |
+| `surfaces/` | What every surface shares: `Call` (one request answered as text) and `Loopback` (the client of a context served in this process); the laws `SurfacesAgree` and `LoopbackTakesEachCommandOnce`. |
 | `memory/` | `Flaky`, a `pipeline.Runner` whose stages fail their first tries. |
-| `cmd/pipeline/` | The binary: the flags, the script reader, the text, and the context that binds `pipeline.Runner` to a `memory.Flaky`, the journal to std's memory journal and `Scheduler` to a manual clock that only `wait` moves. It is the only place that chooses them. |
+| `cmd/pipeline/` | The binary: the flags, the script reader, the text, and the context that binds `pipeline.Runner` to a `memory.Flaky`, the journal to std's memory journal and `Scheduler` to a manual clock that only `wait` moves. With `--server URL` it binds `pipeline.Pipeline` to the generated client instead. It is the only place that chooses them. |
+| `cmd/pipeline-server/` | The server: the context of a memory runner whose stages pass, std's memory journal and the live clock, served by `rpc.Answer` beside a `/health` route. |
 
 ## What it shows
 
@@ -63,6 +76,9 @@ The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go l
 | `Runner.Repeatable` | contract (against `memory.Flaky`) | the same try asked twice gets the same answer | `Flaky` answers by the count of calls, not by the try |
 | `Pipeline.DuplicateIsNoop` / `ModelTakesEachCommandOnce` | contract / pipeline | a resend gets the first receipt | the desk does not look up the command's ID |
 | `SceneAgreesWithStory` | pipeline | the program ends in the story's desk | `Handle` emits the events but keeps the old state; the work counts an offline runner as a pass; the desk starts the last queued run first |
+| `SurfacesAgree` | surfaces | one generated list of requests gets the same answers, rejections included, and the same board, through the model, the generated client over the wire, and command lines that the generated CLI prints and parses | the server answers `WrongState` as `Closed`; `Print` drops `-stage`; the wire sends two requests in the other order |
+| `LoopbackTakesEachCommandOnce` | surfaces | `Pipeline.DuplicateIsNoop` holds for the generated client over the wire | (the member law's body, on a provider `ergo test` cannot build) |
+| `ArgsRoundTrip` | pipeline/pipelinecli (generated) | `Parse` reads what `Print` writes as the same request | `Print` drops `-stage` |
 
 The mutants are in `testdata/mutants.json`.
 
@@ -71,7 +87,8 @@ The mutants are in `testdata/mutants.json`.
 - **One actor per context.** An actor per run would need children that outlive the parent's other transitions (corpus L3), so one actor holds every run, and one stage runs at a time.
 - **An output from a `Stay` has no form (L1).** A command taken while a try runs must `Stay`, or the try would stop; so the log lives in the state, and the CLI reads new entries from it, not from the actor's sink.
 - **A provider cannot need another capability (#37).** `Model` holds its actor; the runner and the clock are bound where `Open` runs.
-- **`Model` has no generator.** `ergo test` skips the member law of `Pipeline` for it (`expected-skips`); `ModelTakesEachCommandOnce` opens one and runs the same body.
+- **`Model` has no generator.** `ergo test` skips the member law of `Pipeline` for it (`expected-skips`); `ModelTakesEachCommandOnce` opens one and runs the same body. The generated `Client` has none either (an `rpc.Conn` comes only from `rpc.Dial` or `rpc.Loopback`); `LoopbackTakesEachCommandOnce` runs the body against it.
+- **The server's providers.** `pipeline-server` has no `-fail` flag: its runner passes every stage. A case of `--server` would need a server running beside it; `SurfacesAgree` holds the client to the model over `rpc.Loopback` instead.
 
 ## Run it
 

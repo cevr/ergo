@@ -1,0 +1,72 @@
+// pipeline-server serves the pipeline's Api over HTTP: Effect RPC at
+// /rpc (the generated server, pipeline/pipelinerpc) and a health answer
+// at /health, on one listener. It prints the address it listens on
+// first, so a client (`pipeline --server URL`) can find it. This binary
+// is the only place that chooses the providers of the served context: a
+// memory runner whose every stage passes, std's memory journal and the
+// live clock.
+
+import flag
+import http
+import io
+import journal
+import journal/memory
+import os
+import runners pipeline/memory
+import rpc
+import pipeline/pipeline
+import pipeline/pipeline/pipelinerpc
+
+let addrFlag = flag.String("addr", "127.0.0.1:0", "the address to listen on (port 0 picks a free one)")
+
+let set = flag.Set{
+	Name:  "pipeline-server",
+	Usage: "pipeline-server serves the pipeline's Api: Effect RPC at /rpc, a health answer at /health.",
+	Flags: []flag.Flag{addrFlag},
+	Args:  []flag.ArgSpec{},
+}
+
+// limits are the server's budgets: a command is a few hundred bytes.
+let limits = http.Limits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384, IdleTimeout: 1m, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}
+
+// Route answers r: /health with 200 "ok", and every other path as the
+// Effect RPC server mounted at /rpc (which answers 404 for a path that
+// is not its own).
+func Route(r http.Request) http.Response needs pipeline.Pipeline | http.Streaming {
+	if r.Path == "/health" {
+		return http.Response{Status: 200, Header: []http.Field{http.Field{Name: "Content-Type", Value: "text/plain; charset=utf-8"}}, Body: "ok\n"}
+	}
+	rpc.Answer(r, "/rpc", pipelinerpc.Handle)
+}
+
+func main() fails os.Exit needs Ambient {
+	let v = with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
+		flag.Parse(set, os.Process.Args()) catch {
+		case err:
+			try flag.Exit(err, flag.Usage(set))
+			return
+		}
+	}
+	let l = http.Listen(addrFlag.Get(v)) catch {
+	case http.ListenFailed as f:
+		return os.Exit{Code: 1, Message: "pipeline-server: cannot listen on \(f.Addr): \(f.Reason)"}
+	}
+	with context { io.Stdout: io.NewHost() } {
+		io.Stdout.Println("listening \(l.Addr())")
+	}
+	with context { Scheduler: NewLiveScheduler(), pipeline.Runner: runners.New(Map[int, int]{}) } {
+		let m = pipeline.Open(memory.New[pipeline.Desk, pipeline.Signal]()) catch {
+		case journal.Failed as f:
+			return os.Exit{Code: 1, Message: "pipeline-server: the journal failed: \(f.Reason)"}
+		case journal.Diverged as d:
+			return os.Exit{Code: 1, Message: "pipeline-server: the journal diverged at signal \(d.At)"}
+		}
+		with context { pipeline.Pipeline: m } {
+			http.Serve(l, limits, Route) catch {
+			case http.InvalidLimits:
+				return os.Exit{Code: 2, Message: "pipeline-server: the server's limits are not positive"}
+			}
+		}
+		pipeline.Stop(m)
+	}
+}

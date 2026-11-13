@@ -8,6 +8,7 @@
 #                        on SELFDESTRUCT moves itself away after the build,
 #                        so the next call cannot start;
 #   fmt --check FILE...  fails on a file holding UNFORMATTED;
+#   gen KIND --check DIR.OPTYPE  fails when a file under DIR holds GENSTALE;
 #   test FILE            prints the reply of a compiler without ergo test on
 #                        TESTPENDING, fails on TESTFAIL; on TESTTICK starts a
 #                        ticker into ticks-test beside itself, then fails; on
@@ -70,6 +71,10 @@ build)
   if grep -q BUILDTICK "$2"; then tick "$tools/ticks-build"; echo "fake ergo: build failed" >&2; exit 1; fi
   cp "$2" "$4" && chmod +x "$4" || exit 1
   if grep -q SELFDESTRUCT "$2"; then mv "$0" "$0.gone"; fi
+  ;;
+gen)
+  [ $# -eq 4 ] && [ "$3" = "--check" ] || { echo "fake ergo: want gen KIND --check DIR.OPTYPE, got $*" >&2; exit 64; }
+  if grep -rqs GENSTALE "${4%.*}"; then echo "fake ergo: $4 is stale" >&2; exit 1; fi
   ;;
 fmt)
   [ "$2" = "--check" ] || { echo "fake ergo: want fmt --check FILE..., got $*" >&2; exit 64; }

@@ -1,0 +1,60 @@
+// Package surfaces holds what every surface of the Api shares: Call, one
+// request answered by the bound pipeline.Pipeline as text, and Loopback,
+// the generated RPC client of a context served in this process. The law
+// SurfacesAgree plays one list of requests through the model, the wire
+// and the command line, and each must answer as the others do.
+
+import rpc
+import pipeline/pipeline
+import pipeline/pipeline/pipelinerpc
+import pipeline/run
+
+// Request is one call of the Api, on every surface: the generated
+// rpc package's Request.
+type Request = pipelinerpc.Request
+
+// Loopback is the generated client of m, which the generated server
+// serves in this process (rpc.Loopback): every call crosses Effect RPC's
+// HTTP wire and the contract's codecs both ways.
+func Loopback(m pipeline.Model) pipelinerpc.Client {
+	pipelinerpc.NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+		with context { pipeline.Pipeline: m } {
+			try pipelinerpc.Handle(tag, payload)
+		}
+	}))
+}
+
+// Call is the answer of the bound pipeline.Pipeline to r as text: the
+// value's JSON, or the rejection's type and JSON.
+func Call(r Request) string needs pipeline.Pipeline {
+	let receipt = match r {
+	case pipelinerpc.SubmitRequest as x:
+		pipeline.Pipeline.Submit(x.C)
+	case pipelinerpc.CancelRequest as x:
+		pipeline.Pipeline.Cancel(x.C)
+	case pipelinerpc.RetryRequest as x:
+		pipeline.Pipeline.Retry(x.C)
+	case pipelinerpc.BoardRequest:
+		return rpc.Encode(pipeline.Pipeline.Board())
+	case pipelinerpc.RunOfRequest as x:
+		let found = pipeline.Pipeline.RunOf(x.Id) catch {
+		case pipeline.NoSuchRun as e:
+			return rpc.Tagged("NoSuchRun", rpc.Encode(e))
+		}
+		return rpc.Encode(found)
+	} catch {
+	case run.WrongState as e:
+		return rpc.Tagged("WrongState", rpc.Encode(e))
+	case run.WrongStage as e:
+		return rpc.Tagged("WrongStage", rpc.Encode(e))
+	case run.Closed as e:
+		return rpc.Tagged("Closed", rpc.Encode(e))
+	case run.BadLength as e:
+		return rpc.Tagged("BadLength", rpc.Encode(e))
+	case pipeline.NoSuchRun as e:
+		return rpc.Tagged("NoSuchRun", rpc.Encode(e))
+	case pipeline.Unavailable as e:
+		return rpc.Tagged("Unavailable", rpc.Encode(e))
+	}
+	rpc.Encode(receipt)
+}

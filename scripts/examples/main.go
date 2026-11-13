@@ -341,20 +341,29 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 	return finishProgram(p, present, problems, record)
 }
 
-// checkCommands checks that cmd holds the one binary of the program,
-// cmd/NAME with its main.ergo.
+// checkCommands checks that cmd holds the program's binary, cmd/NAME
+// with its main.ergo, whose cases run, and that every other folder of
+// cmd is a binary too, cmd/OTHER/main.ergo (a server beside its CLI, as
+// Go's cmd/ holds several), which the test leg checks and builds.
 func checkCommands(p *program, dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return []string{err.Error()}
 	}
-	if len(entries) != 1 || entries[0].Name() != p.name || !entries[0].IsDir() {
-		return []string{fmt.Sprintf("cmd holds one folder, cmd/%s, the program's binary", p.name)}
+	var problems []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			problems = append(problems, fmt.Sprintf("cmd holds only folders, one per binary; cmd/%s is not one", entry.Name()))
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(dir, entry.Name(), "main.ergo")); err != nil || !info.Mode().IsRegular() {
+			problems = append(problems, fmt.Sprintf("no cmd/%s/main.ergo", entry.Name()))
+		}
 	}
-	if info, err := os.Stat(filepath.Join(dir, p.name, "main.ergo")); err != nil || !info.Mode().IsRegular() {
-		return []string{fmt.Sprintf("no cmd/%s/main.ergo", p.name)}
+	if _, err := os.Stat(filepath.Join(dir, p.name)); err != nil {
+		problems = append(problems, fmt.Sprintf("no cmd/%s/main.ergo, the program's binary", p.name))
 	}
-	return nil
+	return problems
 }
 
 // packageSources adds the .ergo files of the package folder dir, and of
@@ -670,6 +679,9 @@ func (r *runner) toolFailed(p *program, leg string, o outcome, err error) {
 func (r *runner) runProgram(p *program) {
 	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.passed() {
 		r.toolFailed(p, "fmt", o, err)
+		return
+	}
+	if !r.genProgram(p) {
 		return
 	}
 	dir, err := os.MkdirTemp(r.scratch, "build-")
