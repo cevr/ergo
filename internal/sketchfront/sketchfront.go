@@ -350,10 +350,9 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 			lowered = files
 		}
 	}
-	// The package split (CS4) lowers Go source bodies; an IR build and a
-	// build whose rewrite ledger lowered it stay one package until the IR
-	// splits too.
-	split := splitLowering() && !req.IR && lowered == nil
+	// The package split (CS4, and CS10 for IR bodies); a build whose
+	// rewrite ledger lowered it stays one package.
+	split := splitLowering() && lowered == nil
 	if !split {
 		input.Emitter += "+single"
 	}
@@ -361,6 +360,9 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		files, err := lowered, error(nil)
 		switch {
 		case files != nil:
+		case split && req.IR:
+			files, _, _, err = lower.LowerIRSplit(unit, req.Mode == build.ModeTest)
+			countLowered(files)
 		case split:
 			files, _, err = lower.LowerSplit(unit, req.Mode == build.ModeTest)
 			countLowered(files)

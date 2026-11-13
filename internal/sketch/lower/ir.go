@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -113,27 +114,85 @@ func (st *irState) reachAll(l *lowerer) {
 }
 
 func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
-	if err := u.Validate(); err != nil {
+	files, _, report, _, err := lowerIRModule(u, tests)
+	if err != nil {
 		return nil, IRReport{}, err
+	}
+	data, err := json.Marshal(report.out)
+	if err != nil {
+		return nil, IRReport{}, err
+	}
+	sum := sha256.Sum256(data)
+	report.Hash = hex.EncodeToString(sum[:])
+	files = append(files, File{Path: IRFileName, Data: data})
+	return files, report.IRReport, nil
+}
+
+// LowerIRSplit is LowerIR (LowerIRTests when tests is set) with the
+// package split (LowerSplit): one Go package per Ergo package and std
+// package, each with the IR file of its own bodies (pkgsplit_ir.go). A
+// program the split does not split keeps LowerIR's one package and its
+// one IR file, with the reason in the report.
+func LowerIRSplit(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
+	return lowerIRSplit(u, tests, programModule)
+}
+
+func lowerIRSplit(u Unit, tests bool, base string) ([]File, IRReport, SplitReport, error) {
+	var tl *testLowering
+	if tests {
+		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+	}
+	files, origins, report, l, err := lowerIRModule(u, tl)
+	if err != nil {
+		return nil, IRReport{}, SplitReport{}, err
+	}
+	i := slices.IndexFunc(files, func(f File) bool { return isMainGo(f.Path) })
+	var out []File
+	rep := SplitReport{Reason: "no main.go"}
+	if i >= 0 {
+		out, rep = splitMain(u, files[i].Data, base, origins, &l.ir.out)
+	}
+	res := files
+	if out == nil {
+		if rep.Packages == 0 {
+			rep.Packages = 1
+		}
+		data, err := json.Marshal(report.out)
+		if err != nil {
+			return nil, IRReport{}, SplitReport{}, err
+		}
+		res = append(slices.Clone(files), File{Path: IRFileName, Data: data})
+	} else {
+		res = append(slices.Clone(files[:i]), out...)
+		res = append(res, files[i+1:]...)
+	}
+	report.Hash = irHash(res)
+	return res, report.IRReport, rep, nil
+}
+
+// irModule is what lowerIRModule made: the report and the IR file.
+type irModule struct {
+	IRReport
+	out *irFile
+}
+
+// lowerIRModule lowers u with IR bodies: the module's files without an IR
+// file, the std origins of its names (the split's), and the IR.
+func lowerIRModule(u Unit, tests *testLowering) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
+	if err := u.Validate(); err != nil {
+		return nil, nil, irModule{}, nil, err
 	}
 	l := newBuildLowerer(u, tests)
 	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}}
 	code, err := l.program()
 	if err != nil {
-		return nil, IRReport{}, err
+		return nil, nil, irModule{}, nil, err
 	}
 	sort.Slice(l.ir.out.Funcs, func(i, j int) bool { return l.ir.out.Funcs[i].Name < l.ir.out.Funcs[j].Name })
 	l.ir.out.V = 1
-	data, err := json.Marshal(&l.ir.out)
-	if err != nil {
-		return nil, IRReport{}, err
-	}
-	sum := sha256.Sum256(data)
-	l.ir.report.Hash = hex.EncodeToString(sum[:])
 	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
-	files = append(files, File{Path: IRFileName, Data: data})
 	sort.Strings(l.ir.report.IR)
-	return files, l.ir.report, nil
+	return files, l.stdOrigins(), irModule{IRReport: l.ir.report, out: &l.ir.out}, l, nil
 }
 
 // irState is the IR a LowerIR run collects.

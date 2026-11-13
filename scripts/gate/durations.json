@@ -1803,6 +1803,7 @@
     "TestBuildReleasesItsPrivateRoot": 0.3,
     "TestColdBuildCompilesNoPinPackage": 20.55,
     "TestFormat": 0,
+    "TestIRFilePerPackage": 2.33,
     "TestImportOfAnElementThatIsNotAName": 0,
     "TestLoaderBrokenDependency": 0,
     "TestLoaderImportReasons": 0,

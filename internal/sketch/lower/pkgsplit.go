@@ -88,6 +88,10 @@ type SplitReport struct {
 	// placed in a std package: 0, since a std package holds only std
 	// declarations (lower).
 	Foreign int
+	// IRPackages counts the Go packages with IR bodies, and IRForeign the
+	// names IR bodies use that another package declares, which their own
+	// package declares again (pkgsplit_ir.go).
+	IRPackages, IRForeign int
 }
 
 // splitDir is the folder of the Go packages of the program's Ergo
@@ -161,7 +165,7 @@ func splitFiles(u Unit, files []File, origins map[string]*check.Package, base st
 	if i < 0 {
 		return files, SplitReport{Packages: 1, Reason: "no main.go"}
 	}
-	out, rep := splitMain(u, files[i].Data, base, origins)
+	out, rep := splitMain(u, files[i].Data, base, origins, nil)
 	if out == nil {
 		if rep.Packages == 0 {
 			rep.Packages = 1
@@ -286,8 +290,10 @@ func (p *splitPlan) place(groups []splitGroup) string {
 
 // splitMain splits main.go, the root package at the import path base;
 // nil files when it does not split. File paths are relative to the root
-// package.
-func splitMain(u Unit, src []byte, base string, origins map[string]*check.Package) ([]File, SplitReport) {
+// package. With ir, the IR of main.go's bodiless functions (LowerIRSplit),
+// each IR body counts as its function's references, and each package
+// gets the IR file of its functions (pkgsplit_ir.go).
+func splitMain(u Unit, src []byte, base string, origins map[string]*check.Package, ir *irFile) ([]File, SplitReport) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
 	if err != nil {
@@ -303,6 +309,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	// receiver's group.
 	var groups []splitGroup
 	groupOf := map[string]int{} // package-scope name to group
+	defOf := splitDefs{node: map[string]ast.Node{}, decl: map[string]int{}}
 	declGroup := make([]int, len(f.Decls))
 	firstDecl := -1
 	for i, d := range f.Decls {
@@ -325,6 +332,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			}
 			if !isGoInit(d.Name.Name) {
 				groupOf[d.Name.Name] = len(groups)
+				defOf.add(d.Name.Name, d, i)
 			}
 		case *ast.GenDecl:
 			if d.Doc != nil && hasEmbed(d.Doc) {
@@ -334,10 +342,12 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 				switch s := s.(type) {
 				case *ast.TypeSpec:
 					groupOf[s.Name.Name] = len(groups)
+					defOf.add(s.Name.Name, s, i)
 				case *ast.ValueSpec:
 					for _, n := range s.Names {
 						if n.Name != "_" {
 							groupOf[n.Name] = len(groups)
+							defOf.add(n.Name, s, i)
 						}
 					}
 				}
@@ -552,6 +562,23 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		})
 	}
 
+	var irs *irSplit
+	if ir != nil {
+		var reason string
+		if irs, reason = newIRSplit(ir, groupOf); reason != "" {
+			return nil, SplitReport{Reason: reason}
+		}
+		for i := range ir.Funcs {
+			g := irs.owner[i]
+			for _, name := range irs.names[i] {
+				if v := groupOf[name]; v != g && !refSeen[[2]int{g, v}] {
+					refSeen[[2]int{g, v}] = true
+					groups[g].refs = append(groups[g].refs, v)
+				}
+			}
+		}
+	}
+
 	plan.start(groups)
 	if reason := plan.place(groups); reason != "" {
 		return nil, SplitReport{Reason: reason}
@@ -598,6 +625,26 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			cross[o.id.Name] = true
 		}
 	}
+	if irs != nil {
+		// An IR body's members count where its function is placed; a
+		// package-scope name of another package crosses, and its package
+		// declares it under its own name (irSplit.foreignDecls).
+		for i := range ir.Funcs {
+			p := groups[irs.owner[i]].pkg
+			for _, m := range irs.members[i] {
+				if memberPkgs[m] == nil {
+					memberPkgs[m] = map[int]bool{}
+				}
+				memberPkgs[m][p] = true
+			}
+			for _, name := range irs.names[i] {
+				if groups[groupOf[name]].pkg != p {
+					cross[name] = true
+					irs.foreign(p, name)
+				}
+			}
+		}
+	}
 	for name, ps := range memberPkgs {
 		if len(ps) > 1 {
 			cross[name] = true
@@ -638,20 +685,74 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	for k := range needs {
 		needs[k] = map[int]bool{}
 	}
-	for _, o := range occs {
+	// spell is an occurrence's text in package from.
+	spell := func(o occ, from int) string {
 		name := o.id.Name
 		if r, ok := rename[name]; ok {
 			name = r
 		}
-		from := groups[declGroup[o.decl]].pkg
 		if o.ref >= 0 && groups[o.ref].pkg != from {
 			to := groups[o.ref].pkg
 			needs[from][to] = true
 			name = plan.pkgs[to].alias + "." + name
 		}
-		if name != o.id.Name {
+		return name
+	}
+	for _, o := range occs {
+		if name := spell(o, groups[declGroup[o.decl]].pkg); name != o.id.Name {
 			at := off(o.id.Pos())
 			splices[o.decl] = append(splices[o.decl], splice{at, at + len(o.id.Name), name})
+		}
+	}
+
+	// The IR's foreign declarations and files (pkgsplit_ir.go).
+	extra := make([]bytes.Buffer, len(plan.pkgs))
+	extraImports := make([]map[string]bool, len(plan.pkgs))
+	if irs != nil {
+		// text is a range of a declaration as package k spells it.
+		text := func(k, decl int, n ast.Node) string {
+			lo, hi := off(n.Pos()), off(n.End())
+			var b strings.Builder
+			at := lo
+			var seg []occ
+			for _, o := range occs {
+				if p := off(o.id.Pos()); o.decl == decl && p >= lo && p < hi {
+					seg = append(seg, o)
+				}
+			}
+			sort.Slice(seg, func(a, b int) bool { return seg[a].id.Pos() < seg[b].id.Pos() })
+			for _, o := range seg {
+				p := off(o.id.Pos())
+				b.Write(src[at:p])
+				b.WriteString(spell(o, k))
+				at = p + len(o.id.Name)
+			}
+			b.Write(src[at:hi])
+			ast.Inspect(n, func(n ast.Node) bool {
+				if s, ok := n.(*ast.SelectorExpr); ok {
+					if x, ok := s.X.(*ast.Ident); ok && x.Obj == nil && scope.Lookup(x.Name) == nil {
+						if _, ok := imports[x.Name]; ok {
+							if extraImports[k] == nil {
+								extraImports[k] = map[string]bool{}
+							}
+							extraImports[k][x.Name] = true
+						}
+					}
+				}
+				return true
+			})
+			return b.String()
+		}
+		qualified := func(k int, name string) string {
+			to := groups[groupOf[name]].pkg
+			needs[k][to] = true
+			if r, ok := rename[name]; ok {
+				name = r
+			}
+			return plan.pkgs[to].alias + "." + name
+		}
+		if reason := irs.foreignDecls(defOf, taken, text, qualified, extra); reason != "" {
+			return nil, SplitReport{Reason: reason}
 		}
 	}
 
@@ -662,7 +763,10 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			continue
 		}
 		var body bytes.Buffer
-		importsUsed := map[string]bool{}
+		importsUsed := maps.Clone(extraImports[k])
+		if importsUsed == nil {
+			importsUsed = map[string]bool{}
+		}
 		for i := range f.Decls {
 			g := declGroup[i]
 			if g < 0 || groups[g].pkg != k {
@@ -681,6 +785,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			}
 			body.Write(src[at:segEnd[i]])
 		}
+		body.Write(extra[k].Bytes())
 		if k == 1 {
 			// The root keeps what follows the last declaration.
 			body.Write(src[segEnd[len(f.Decls)-1]:])
@@ -710,7 +815,19 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		}
 		outFiles = append(outFiles, File{Path: file, Data: b.Bytes()})
 	}
-	return outFiles, SplitReport{Packages: len(used), Pulled: pulled, Renamed: len(rename), Std: stdPkgs, Foreign: foreign}
+	rep := SplitReport{Packages: len(used), Pulled: pulled, Renamed: len(rename), Std: stdPkgs, Foreign: foreign}
+	if irs != nil {
+		files, withIR, err := irs.files(func(i int) int { return groups[irs.owner[i]].pkg }, rename, plan)
+		if err != nil {
+			return nil, SplitReport{Reason: err.Error()}
+		}
+		outFiles = append(outFiles, files...)
+		rep.IRPackages = withIR
+		for _, names := range irs.uses {
+			rep.IRForeign += len(names)
+		}
+	}
+	return outFiles, rep
 }
 
 // splitPackages is the plan's packages for u and the std packages of
