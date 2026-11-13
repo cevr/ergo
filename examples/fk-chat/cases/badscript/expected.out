@@ -1,0 +1,5 @@
+> connect
+  chat: online
+  lines held: 1
+> whisper hello
+? line 2: unknown word whisper

@@ -1,0 +1,33 @@
+# Offline: a send is ignored and keeps the field.
+type Hello
+submit
+# The dial is refused; Try again connects.
+refuse Connection timeout
+connect
+connect
+# Blank and whitespace-only sends are ignored.
+type
+submit
+type    
+submit
+# A send: the field clears, the text and then its echo.
+type   Hello there  
+submit
+# The server speaks unasked, twice, in order.
+push Welcome to the observatory
+push Clear skies tonight
+type And the moon?
+submit
+# The server closes the line: the conversation goes with it.
+hangup
+connect
+type One more
+submit
+# The line fails: the reason shows, the line is released.
+break Connection error
+connect
+# The server drops the line; the next send fails.
+vanish
+type Anyone?
+submit
+connect

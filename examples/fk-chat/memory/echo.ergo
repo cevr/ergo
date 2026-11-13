@@ -1,0 +1,134 @@
+// Package memory holds Echo, a talk.Channel to an echo server in
+// process: each frame sent on the open line comes back on it, as
+// upstream's postman echo server does. The server's side is open to the
+// host too: it can push a frame, close the line, break it, or refuse the
+// next dial, and it counts the lines dialed and the lines still held.
+
+import fkchat/talk
+import queue
+import sync
+
+// Frame is what the server puts on a line: a text, its close, or a
+// failure.
+type Frame = Text{Value string} | Bye{} | Fault{Why string}
+
+// Wire is the open line: its id and the frames on their way to it.
+type Wire { ID int, Frames queue.Queue[Frame] }
+
+// Echo is the server and its one open line. Its fields are shared
+// handles, so every copy of an Echo is the same server: NewEcho makes
+// one.
+type Echo { open sync.Ref[Option[Wire]], dialed sync.Ref[int], out sync.Ref[int], refuse sync.Ref[Option[string]], hold sync.Ref[bool], pending sync.Ref[[]Frame] }
+
+// NewEcho is a server with no line, which takes the next dial.
+func NewEcho() Echo {
+	Echo{open: sync.NewRef[Option[Wire]](None), dialed: sync.NewRef[int](0), out: sync.NewRef[int](0), refuse: sync.NewRef[Option[string]](None), hold: sync.NewRef[bool](false), pending: sync.NewRef[[]Frame]([]Frame{})}
+}
+
+// Dial opens a line, the server's only one, unless a refusal is pending.
+// The line's release closes it and frees it.
+func Dial(e Echo) talk.Line fails talk.Refused {
+	match e.refuse.Get() {
+	case Some[string] as r:
+		e.refuse.Set(None)
+		return talk.Refused{Why: r.Value}
+	case None:
+	}
+	let id = e.dialed.Get() + 1
+	e.dialed.Set(id)
+	let frames = queue.New[Frame](64)
+	e.open.Set(Some[Wire]{Value: Wire{ID: id, Frames: frames}})
+	e.out.Set(e.out.Get() + 1)
+	talk.NewLine(id, func() string fails talk.Hangup | talk.Broke {
+		let f = frames.Pop() catch {
+		case queue.Closed:
+			return talk.Hangup
+		}
+		match f {
+		case Text as t:
+			t.Value
+		case Bye:
+			talk.Hangup
+		case Fault as x:
+			talk.Broke{Why: x.Why}
+		}
+	}, func() {
+		e.out.Set(e.out.Get() - 1)
+		match e.open.Get() {
+		case Some[Wire] as w:
+			if w.Value.ID == id {
+				e.open.Set(None)
+			}
+		case None:
+		}
+		frames.End()
+	})
+}
+
+// Send echoes text on the open line. While the server holds its echoes
+// (Hold), the echo waits for Flush; a send with no line open fails
+// Unavailable either way.
+func Send(e Echo, text string) fails talk.Unavailable {
+	if e.hold.Get() {
+		match e.open.Get() {
+		case Some[Wire]:
+			e.pending.Set(e.pending.Get().Append(Text{Value: text}))
+			return
+		case None:
+			return talk.Unavailable
+		}
+	}
+	try put(e, Text{Value: text})
+}
+
+// Hold makes the server keep its echoes until Flush, so a host can see a
+// send done before its echo arrives, on every run.
+func Hold(e Echo) { e.hold.Set(true) }
+
+// Flush puts the echoes held back on the open line, in order; with no
+// line open they are lost.
+func Flush(e Echo) {
+	let frames = e.pending.Get()
+	e.pending.Set([]Frame{})
+	for f in frames {
+		put(e, f) catch {
+		case talk.Unavailable:
+			return
+		}
+	}
+}
+
+// Vanish drops the open line on the server's side without a word: the
+// line waits on, and a send on it fails Unavailable.
+func Vanish(e Echo) { e.open.Set(None) }
+
+// put puts f on the open line.
+func put(e Echo, f Frame) fails talk.Unavailable {
+	match e.open.Get() {
+	case Some[Wire] as w:
+		w.Value.Frames.Push(f) catch {
+		case queue.Closed:
+			return talk.Unavailable
+		}
+	case None:
+		talk.Unavailable
+	}
+}
+
+// Push sends text to the open line unasked.
+func Push(e Echo, text string) fails talk.Unavailable { try put(e, Text{Value: text}) }
+
+// Hangup closes the open line from the server's side.
+func Hangup(e Echo) fails talk.Unavailable { try put(e, Bye) }
+
+// Break fails the open line with why.
+func Break(e Echo, why string) fails talk.Unavailable { try put(e, Fault{Why: why}) }
+
+// Refuse makes the next dial fail with why.
+func Refuse(e Echo, why string) { e.refuse.Set(Some[string]{Value: why}) }
+
+// Held is how many lines are open and not yet released.
+func Held(e Echo) int { e.out.Get() }
+
+// Dialed is how many lines the server opened.
+func Dialed(e Echo) int { e.dialed.Get() }

@@ -1,0 +1,105 @@
+// The chat's laws (plan §18.3 FK14), over drawn states and signals.
+
+import machines
+import strings
+
+func pick(n int, size int) int { ((n % size) + size) % size }
+
+let inputs = []string{"", "   ", "hi", "  Hello there  "}
+
+// linkOf is a link of each kind, drawn by k.
+func linkOf(k int) Link {
+	let links = []Link{Offline, Connecting, Online{Log: []Said{Said{Text: "old", Mine: true}}, Out: []string{"mine"}}, Broken{Why: "Connection error"}}
+	links[pick(k, len(links))]
+}
+
+// signalOf is each signal but Typed, drawn by k.
+func signalOf(k int) Signal {
+	let sigs = []Signal{Connect, Submit, Opened, Denied{Why: "Timeout"}, Received{Text: "echo"}, Closed, Failed{Why: "Connection error"}, Sent{Text: "mine"}, Unsent{Why: "Socket unavailable"}}
+	sigs[pick(k, len(sigs))]
+}
+
+// SendOnlyWhenOnline: a text joins the outbox only on Submit, only
+// Online, only for an input that is not blank: the trimmed input, at the
+// end, and the field clears. No other step adds to it, and every step
+// in Online is a Stay, so the line's entry lasts.
+law SendOnlyWhenOnline(k int, i int, g int) {
+	let s = Session{Link: linkOf(k), Input: inputs[pick(i, len(inputs))]}
+	let sig = signalOf(g)
+	let d = Step(s, sig)
+	let text = strings.TrimSpace(s.Input)
+	let asks = match s.Link {
+	case Online:
+		sig == Submit && text != ""
+	case Offline, Connecting, Broken:
+		false
+	}
+	let next = machines.Next(s, d)
+	if asks {
+		return d == Stay[Session]{Next: next} && Outbox(next) == Outbox(s).Append(text) && next.Input == ""
+	}
+	len(Outbox(next)) <= len(Outbox(s))
+}
+
+// ReconnectIsAFreshEntry: with no line (Offline or Broken), Connect
+// enters Connecting, a new entry whose work dials a new line; and any
+// news of a line there, a late one of the line that ended included,
+// changes nothing.
+law ReconnectIsAFreshEntry(k int where 0 <= k && k <= 1, g int) {
+	let s = Session{Link: if k == 0 { Offline } else { Broken{Why: "Connection error"} }, Input: "x"}
+	let sig = signalOf(g)
+	let d = Step(s, sig)
+	match sig {
+	case Connect:
+		d == Enter[Session]{Next: Session{..s, Link: Connecting}}
+	case Submit, Opened, Denied, Received, Closed, Failed, Sent, Unsent:
+		d == Ignore
+	case Typed:
+		false
+	}
+}
+
+// DisconnectReleasesTheConnection: every end of a line is an Enter, so
+// the entry that holds the line ends and the line is released: a refused
+// dial and a failure leave Broken with the reason, and the server's close
+// leaves Offline with the conversation gone.
+law DisconnectReleasesTheConnection(g int) {
+	let online = Session{Link: Online{Log: []Said{Said{Text: "old", Mine: false}}, Out: []string{}}, Input: "draft"}
+	let connecting = Session{..online, Link: Connecting}
+	let sig = signalOf(g)
+	match sig {
+	case Denied as d:
+		Step(connecting, sig) == Enter[Session]{Next: Session{..connecting, Link: Broken{Why: d.Why}}}
+	case Failed as f:
+		Step(online, sig) == Enter[Session]{Next: Session{..online, Link: Broken{Why: f.Why}}}
+	case Unsent as u:
+		Step(online, sig) == Enter[Session]{Next: Session{..online, Link: Broken{Why: u.Why}}}
+	case Closed:
+		Step(online, sig) == Enter[Session]{Next: Session{..online, Link: Offline}}
+	case Connect, Submit, Opened, Received, Sent, Typed:
+		true
+	}
+}
+
+// ConversationKeepsOrder: once the line opens, frames received and texts
+// sent (typed, submitted, then sent) are the conversation, in the order
+// they came, each marked as the
+// server's or this side's.
+law ConversationKeepsOrder(ops []int) {
+	let mut s = Session{Link: Connecting, Input: ""}
+	s = machines.Next(s, Step(s, Opened))
+	let mut want = []Said{}
+	for o in ops {
+		let mine = pick(o, 2) == 0
+		let text = "t\(pick(o/2, 50))"
+		if mine {
+			s = machines.Next(s, Step(s, Typed{Text: text}))
+			s = machines.Next(s, Step(s, Submit))
+			s = machines.Next(s, Step(s, Sent{Text: text}))
+		} else {
+			s = machines.Next(s, Step(s, Received{Text: text}))
+		}
+		want = want.Append(Said{Text: text, Mine: mine})
+	}
+	s.Link == Online{Log: want, Out: []string{}}
+}

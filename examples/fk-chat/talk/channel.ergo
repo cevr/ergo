@@ -1,0 +1,91 @@
+// Package talk is a chat over one connection to an echo server: the
+// contract Channel, which dials the server and sends on the open line,
+// and the machine Session, whose Connecting entry owns the line from the
+// dial to the entry's end. Package memory provides Channel in process.
+
+// Refused is a dial that gave no line, and why.
+type Refused { Why string }
+
+// Unavailable is a send with no line open.
+type Unavailable {}
+
+// Hangup is a line the server closed.
+type Hangup {}
+
+// Broke is a line that failed, and why.
+type Broke { Why string }
+
+// Line is an open connection. It is a resource: its release (Close) hangs
+// up and frees the line. Read waits for the next frame.
+type Line { ID int, read escaping func() string fails Hangup | Broke, hang func() }
+
+// NewLine is the line id whose frames read gives and whose release calls
+// hang.
+func NewLine(id int, read escaping func() string fails Hangup | Broke, hang escaping func()) Line {
+	Line{ID: id, read: read, hang: hang}
+}
+
+// Read is the line's next frame, waiting for one. It fails Hangup when
+// the server closed the line and Broke when the line failed.
+func Read(l Line) string fails Hangup | Broke { try l.read() }
+
+// Close hangs up.
+func Close(l Line) { l.hang() }
+
+// dialed dials a line and releases it at once; it is false when the dial
+// is refused.
+func dialed() bool needs Channel {
+	let line = Channel.Dial() catch {
+	case Refused:
+		return false
+	}
+	let _ = line.ID
+	true
+}
+
+// Channel dials the echo server and sends on the open line. The server
+// answers each frame with the same frame, in order.
+type Channel {
+	// Dial opens a line, or fails.
+	Dial() Line fails Refused,
+	// Send sends text on the open line, or fails when none is open.
+	Send(text string) fails Unavailable,
+
+	// FramesKeepArrivalOrder: the frames sent on a line come back on it,
+	// each once, in the order they were sent.
+	law FramesKeepArrivalOrder(texts []string) {
+		let line = Dial() catch {
+		case Refused:
+			return true
+		}
+		for t in texts {
+			Send(t) catch {
+			case Unavailable:
+				return false
+			}
+		}
+		for t in texts {
+			let got = line.Read() catch {
+			case Hangup, Broke:
+				return false
+			}
+			if got != t {
+				return false
+			}
+		}
+		true
+	},
+
+	// ClosedLineTakesNoSend: once its line is released, a send fails
+	// Unavailable.
+	law ClosedLineTakesNoSend(text string) {
+		if !dialed() {
+			return true
+		}
+		Send(text) catch {
+		case Unavailable:
+			return true
+		}
+		false
+	},
+}

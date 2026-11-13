@@ -1,0 +1,79 @@
+> type Hello
+  field: "Hello"
+  lines held: 0
+> submit
+  lines held: 0
+> refuse Connection timeout
+  lines held: 0
+> connect
+  chat: broken: Connection timeout
+  lines held: 0
+> connect
+  chat: online
+  lines held: 1
+> type
+  field: ""
+  lines held: 1
+> submit
+  lines held: 1
+> type
+  field: "   "
+  lines held: 1
+> submit
+  lines held: 1
+> type   Hello there
+  field: "  Hello there  "
+  lines held: 1
+> submit
+  field: ""
+  > Hello there
+  < Hello there
+  lines held: 1
+> push Welcome to the observatory
+  < Welcome to the observatory
+  lines held: 1
+> push Clear skies tonight
+  < Clear skies tonight
+  lines held: 1
+> type And the moon?
+  field: "And the moon?"
+  lines held: 1
+> submit
+  field: ""
+  > And the moon?
+  < And the moon?
+  lines held: 1
+> hangup
+  chat: offline
+  lines held: 0
+> connect
+  chat: online
+  lines held: 1
+> type One more
+  field: "One more"
+  lines held: 1
+> submit
+  field: ""
+  > One more
+  < One more
+  lines held: 1
+> break Connection error
+  chat: broken: Connection error
+  lines held: 0
+> connect
+  chat: online
+  lines held: 1
+> vanish
+  lines held: 1
+> type Anyone?
+  field: "Anyone?"
+  lines held: 1
+> submit
+  chat: broken: Socket unavailable
+  field: ""
+  lines held: 0
+> connect
+  chat: online
+  lines held: 1
+> stop
+  lines held: 0; dialed: 4

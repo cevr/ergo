@@ -1,0 +1,93 @@
+{
+  "about": "fk-chat's application mutants; each is judged by the example's laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk14-broken-takes-a-late-open", "origin": "wf10/fk14a",
+      "file": "examples/fk-chat/talk/session.ergo",
+      "from": "\tcase (Connecting, Opened):\n",
+      "to": "\tcase (Connecting, Opened), (Broken, Opened):\n",
+      "rule": "The news of a line that ended changes nothing (law ReconnectIsAFreshEntry).",
+      "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
+    },
+    {
+      "name": "fk14-open-ends-the-entry", "origin": "wf10/fk14a",
+      "file": "examples/fk-chat/talk/session.ergo",
+      "from": "\t\tStay[Session]{Next: Session{..s, Link: Online{Log: []Said{}, Out: []string{}}}}\n",
+      "to": "\t\tEnter[Session]{Next: Session{..s, Link: Online{Log: []Said{}, Out: []string{}}}}\n",
+      "rule": "Opening is a Stay, so the entry that holds the line lasts through Online (case tour: the line is held, and a send gets its echo).",
+      "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
+    },
+    {
+      "name": "fk14-blank-sent", "origin": "wf10/fk14a",
+      "file": "examples/fk-chat/talk/session.ergo",
+      "from": "\t\tif text == \"\" {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A blank or whitespace-only input is not sent (law SendOnlyWhenOnline).",
+      "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
+    },
+    {
+      "name": "fk14-untrimmed-send", "origin": "wf10/fk14a",
+      "file": "examples/fk-chat/talk/session.ergo",
+      "from": "Out: o.Out.Append(text)",
+      "to": "Out: o.Out.Append(s.Input + text[0:0])",
+      "rule": "The trimmed input is sent (law SendOnlyWhenOnline).",
+      "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
+    },
+    {
+      "name": "fk14-close-is-a-failure", "origin": "wf10/fk14a",
+      "file": "examples/fk-chat/talk/session.ergo",
+      "from": "\tcase (Online, Closed):\n\t\tEnter[Session]{Next: Session{..s, Link: Offline}}\n",
+      "to": "\tcase (Online, Closed):\n\t\tEnter[Session]{Next: Session{..s, Link: Broken{Why: \"closed\"}}}\n",
+      "rule": "The server's close leaves Offline (law DisconnectReleasesTheConnection).",
+      "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
+    },
+    {
+      "name": "fk14-failure-reason-changed", "origin": "wf10/fk14a",
+      "file": "examples/fk-chat/talk/session.ergo",
+      "from": "Link: Broken{Why: f.Why}",
+      "to": "Link: Broken{Why: f.Why + \"!\"}",
+      "rule": "A failure shows its reason (law DisconnectReleasesTheConnection).",
+      "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
+    },
+    {
+      "name": "fk14-received-as-mine", "origin": "wf10/fk14a",
+      "file": "examples/fk-chat/talk/session.ergo",
+      "from": "Said{Text: r.Text, Mine: false}",
+      "to": "Said{Text: r.Text, Mine: true}",
+      "rule": "A frame received is the server's line (law ConversationKeepsOrder).",
+      "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
+    },
+    {
+      "name": "fk14-hangup-read-as-failure", "origin": "wf10/fk14a",
+      "file": "examples/fk-chat/talk/session.ergo",
+      "from": "\t\t\t\tcase Hangup:\n\t\t\t\t\tsend(Closed)\n",
+      "to": "\t\t\t\tcase Hangup:\n\t\t\t\t\tsend(Failed{Why: \"closed\"})\n",
+      "rule": "The work tells a server's close from a failure (case tour: hangup leaves offline).",
+      "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
+    },
+    {
+      "name": "fk14-echo-release-keeps-the-line", "origin": "wf10/fk14a",
+      "file": "examples/fk-chat/memory/echo.ergo",
+      "from": "\t\t\t\te.open.Set(None)\n",
+      "to": "\t\t\t\te.open.Set(e.open.Get())\n",
+      "rule": "A released line takes no send (law talk.Channel.ClosedLineTakesNoSend for Echo).",
+      "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
+    },
+    {
+      "name": "fk14-echo-release-uncounted", "origin": "wf10/fk14a",
+      "file": "examples/fk-chat/memory/echo.ergo",
+      "from": "\t\te.out.Set(e.out.Get() - 1)\n",
+      "to": "\t\te.out.Set(e.out.Get())\n",
+      "rule": "The end of a line's entry releases the line (case tour: lines held).",
+      "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
+    },
+    {
+      "name": "fk14-refusal-never-ends", "origin": "wf10/fk14a",
+      "file": "examples/fk-chat/memory/echo.ergo",
+      "from": "\t\te.refuse.Set(None)\n",
+      "to": "\t\te.refuse.Set(e.refuse.Get())\n",
+      "rule": "A refusal refuses one dial (case tour: Try again connects).",
+      "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
+    }
+  ]
+}

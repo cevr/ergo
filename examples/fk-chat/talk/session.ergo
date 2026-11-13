@@ -1,0 +1,117 @@
+// The chat as a machine.
+
+import machines
+import strings
+
+// Said is a line of the conversation: its text, and whether this side
+// sent it or the server did.
+type Said { Text string, Mine bool }
+
+// Link is the connection's state. Only Online has a conversation and an
+// outbox, the texts submitted and not yet sent, so a send without a line
+// cannot be written.
+type Link = Offline{} | Connecting{} | Online{Log []Said, Out []string} | Broken{Why string}
+
+// Session is the machine's state: the link and the text being typed.
+type Session { Link Link, Input string }
+
+// Signal is what the chat reads: Connect (and Try again) clicked, the
+// field typed in, Send clicked; the line's news from the entry's work
+// (open, refused, a frame, closed by the server, failed); and the host's
+// answer to the outbox's first text: sent, or not, for no line was open.
+type Signal = Connect{} | Typed{Text string} | Submit{} | Opened{} | Denied{Why string} | Received{Text string} | Closed{} | Failed{Why string} | Sent{Text string} | Unsent{Why string}
+
+// Blank is a chat with no line.
+let Blank = Session{Link: Offline, Input: ""}
+
+// Step is the chat's transition. Connect from Offline or Broken enters
+// Connecting, a new entry, whose work dials; its answer Opened is a Stay
+// into Online, so the entry, and the line its work holds, lasts through
+// Online. Every step in Online is a Stay for the same reason: a frame or
+// a sent text adds to the conversation, and Submit puts the trimmed text
+// in the outbox, which the host sends (an Emit would end the entry, and
+// the line with it). A server's close enters Offline, and a failure
+// Broken: both end the entry, which releases the line. Every other pair
+// is ignored: the news of a line whose entry has ended among them.
+func Step(s Session, sig Signal) Decision[Session, Never] {
+	match (s.Link, sig) {
+	case (Offline, Connect), (Broken, Connect):
+		Enter[Session]{Next: Session{..s, Link: Connecting}}
+	case (Connecting, Opened):
+		Stay[Session]{Next: Session{..s, Link: Online{Log: []Said{}, Out: []string{}}}}
+	case (Connecting, Denied as d):
+		Enter[Session]{Next: Session{..s, Link: Broken{Why: d.Why}}}
+	case (Online as o, Received as r):
+		Stay[Session]{Next: Session{..s, Link: Online{..o, Log: o.Log.Append(Said{Text: r.Text, Mine: false})}}}
+	case (Online as o, Sent as t):
+		if len(o.Out) == 0 || o.Out[0] != t.Text {
+			return Ignore
+		}
+		Stay[Session]{Next: Session{..s, Link: Online{Log: o.Log.Append(Said{Text: t.Text, Mine: true}), Out: o.Out[1:]}}}
+	case (Online, Closed):
+		Enter[Session]{Next: Session{..s, Link: Offline}}
+	case (Online, Failed as f):
+		Enter[Session]{Next: Session{..s, Link: Broken{Why: f.Why}}}
+	case (Online, Unsent as u):
+		Enter[Session]{Next: Session{..s, Link: Broken{Why: u.Why}}}
+	case (Online as o, Submit):
+		let text = strings.TrimSpace(s.Input)
+		if text == "" {
+			return Ignore
+		}
+		Stay[Session]{Next: Session{Link: Online{..o, Out: o.Out.Append(text)}, Input: ""}}
+	case (_, Typed as t):
+		Stay[Session]{Next: Session{..s, Input: t.Text}}
+	case (Offline, _), (Connecting, _), (Online, _), (Broken, _):
+		Ignore
+	}
+}
+
+// Outbox is the texts waiting to be sent: Online's outbox, and none in
+// any other state.
+func Outbox(s Session) []string {
+	match s.Link {
+	case Online as o:
+		o.Out
+	case Offline, Connecting, Broken:
+		[]string{}
+	}
+}
+
+// listen is the work of Connecting's entry, which lasts through Online:
+// dial, say whether the line opened, then pass each frame on until the
+// server closes the line or it fails. The entry's end stops the work at
+// its wait, and the line is released then, on every path.
+func listen(s Session) Option[machines.Work[Signal, Channel]] {
+	match s.Link {
+	case Connecting:
+		Some{machines.Work{Listen: func(send func(sig Signal)) needs Channel {
+			let line = Channel.Dial() catch {
+			case Refused as r:
+				send(Denied{Why: r.Why})
+				return
+			}
+			send(Opened)
+			for {
+				let text = line.Read() catch {
+				case Hangup:
+					send(Closed)
+					return
+				case Broke as b:
+					send(Failed{Why: b.Why})
+					return
+				}
+				send(Received{Text: text})
+			}
+		}}}
+	case Offline, Online, Broken:
+		None
+	}
+}
+
+// Chat is the chat as a machine. It starts Offline.
+type Chat machine[Session, Signal] {
+	initial: Blank,
+	step:    Step,
+	work:    listen,
+}

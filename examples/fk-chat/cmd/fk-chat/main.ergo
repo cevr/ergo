@@ -1,0 +1,21 @@
+// fk-chat is a port of Foldkit's websocket-chat example (stage a: the
+// model, with no view): a chat with an echo server over one connection,
+// which the chat's state owns from the dial to its end. It plays a script
+// of the user's acts and the server's on an in-process server and shows
+// the chat after each. Package talk is the chat and its contract
+// Channel; package memory is the server; package script plays the
+// script. This binary is the only place that chooses the scheduler: a
+// time.Manual, since the chat sets no timers.
+
+import fkchat/script
+import io
+import os
+import time
+
+func main() fails os.Exit needs Console | Ambient {
+	let clock = time.NewManual(0)
+	let status = with context { io.Stdin: io.NewStdin(), Scheduler: clock } { script.Run() }
+	if status != 0 {
+		return os.Exit{Code: status, Message: "fk-chat: the script did not run"}
+	}
+}
