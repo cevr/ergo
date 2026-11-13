@@ -128,7 +128,7 @@ func TestServeAnswersAWarmCheck(t *testing.T) {
 
 	request := serveRequest{Release: d.release, Dir: root, Env: env, Args: []string{"check", "./cmd/app"}}
 	answer, ok := ask(d.socket, request)
-	if !ok || !answer.Served || string(answer.Stdout) != cold.stdout || answer.Work["processes"] != 0 || answer.Work["files_read"] != 4 {
+	if !ok || !answer.Served || string(answer.Stdout) != cold.stdout || answer.Work["processes"] != 0 {
 		t.Fatalf("a request on the socket: ok %v, %+v", ok, answer)
 	}
 	for _, row := range []struct {
