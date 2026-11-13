@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -81,6 +83,23 @@ func TestFastTierHoldsNoHeavyStep(t *testing.T) {
 	}
 	if len(light) < 5 {
 		t.Errorf("%d classFast steps in the full tier (%v); want the checks and the examples step", len(light), light)
+	}
+	// The fast tier runs the example programs a ledger names (gate-speed
+	// GS3; residue checks the list): the full tier's command and some
+	// programs, each a program folder under examples/ (it holds tags).
+	fullAt := slices.IndexFunc(full, func(s *Step) bool { return s.Name == examplesStepName })
+	fastAt := slices.IndexFunc(fast, func(s *Step) bool { return s.Name == examplesStepName })
+	if fullAt < 0 || fastAt < 0 {
+		t.Fatalf("the examples step is missing: full %d, fast %d", fullAt, fastAt)
+	}
+	whole, narrowed := full[fullAt].Argv, fast[fastAt].Argv
+	if len(narrowed) <= len(whole) || !slices.Equal(narrowed[:len(whole)], whole) {
+		t.Fatalf("fast examples argv %q; want the full tier's %q and the listed programs", narrowed, whole)
+	}
+	for _, program := range narrowed[len(whole):] {
+		if _, err := os.Stat(filepath.Join(root, "examples", program, "tags")); err != nil {
+			t.Errorf("the fast tier names example %q: %v", program, err)
+		}
 	}
 }
 

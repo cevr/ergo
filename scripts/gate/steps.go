@@ -549,7 +549,7 @@ func examplesStep(root string) (*Step, error) {
 		env = []string{examplesCacheVariable + "=" + filepath.Join(dir, "examples")}
 	}
 	return &Step{
-		Name:  "examples (default)",
+		Name:  examplesStepName,
 		Class: classFast,
 		Needs: []string{"build bin/ergo"},
 		Argv:  []string{"go", "run", examplesRunner},
@@ -571,6 +571,10 @@ func examplesStep(root string) (*Step, error) {
 // building and testing again (gate-speed GS1). In the merge tier's sandbox
 // the gate cache is an empty scratch directory, so every program runs.
 const examplesCacheVariable = "ERGO_EXAMPLES_CACHE"
+
+// examplesStepName names the examples step in both tiers; the fast tier
+// narrows its programs (fastExamples).
+const examplesStepName = "examples (default)"
 
 // examplesRunner is the package the examples step runs.
 const examplesRunner = "./scripts/examples"

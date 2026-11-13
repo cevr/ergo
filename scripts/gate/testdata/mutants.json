@@ -81,6 +81,15 @@
       "to": "case !sub && top == s.running && action != \"=== PAUSE\":",
       "rule": "A paused test's wait is not its CPU.",
       "killers": ["scripts/gate:TestCPUSpansAttributeToTopLevelTests"]
+    },
+    {
+      "name": "gs3-fast-runs-all",
+      "origin": "wf10 GS3",
+      "file": "scripts/gate/tier.go",
+      "from": "step.Argv = append(slices.Clone(step.Argv), programs...)",
+      "to": "step.Argv = slices.Clone(step.Argv)",
+      "rule": "The fast tier's examples step runs only the programs of scripts/examples/fast-tier.txt; the full tier runs every default program.",
+      "killers": ["scripts/gate:TestFastTierHoldsNoHeavyStep"]
     }
   ]
 }

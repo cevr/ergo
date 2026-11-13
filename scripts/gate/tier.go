@@ -283,6 +283,40 @@ func classFastSteps(full []*Step) ([]*Step, error) {
 	return steps, nil
 }
 
+// fastExamplesFile lists the example programs the fast tier runs
+// (gate-speed GS3): those a mutant ledger names as a killer. The full tier
+// runs every default program. internal/residue checks the list against
+// the ledgers (TestFastTierExamplesAreLedgerKillers).
+const fastExamplesFile = "scripts/examples/fast-tier.txt"
+
+// fastExamples narrows the fast tier's examples step to the programs of
+// fastExamplesFile. 35 of the 51 default programs were named by no ledger
+// row: 147 of the step's 208 ergo test runs, 261 s (gate-speed.md).
+// A missing or empty list is an error, never a silent full or empty run.
+func fastExamples(root string, steps []*Step) error {
+	i := slices.IndexFunc(steps, func(s *Step) bool { return s.Name == examplesStepName })
+	if i < 0 {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(fastExamplesFile)))
+	if err != nil {
+		return fmt.Errorf("the fast tier's example programs: %w", err)
+	}
+	var programs []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+			programs = append(programs, line)
+		}
+	}
+	if len(programs) == 0 {
+		return fmt.Errorf("%s lists no program", fastExamplesFile)
+	}
+	step := *steps[i]
+	step.Argv = append(slices.Clone(step.Argv), programs...)
+	steps[i] = &step
+	return nil
+}
+
 // fastSteps declares the fast tier: the full tier's classFast steps
 // (classFastSteps), and one keyed -short step per test package or shard
 // but the host packages'.
@@ -306,6 +340,9 @@ func fastSteps(root string) ([]*Step, error) {
 	module := modulePath(root)
 	steps, err := classFastSteps(full)
 	if err != nil {
+		return nil, err
+	}
+	if err := fastExamples(root, steps); err != nil {
 		return nil, err
 	}
 	var tests []*Step
