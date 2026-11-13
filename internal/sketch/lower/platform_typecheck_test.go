@@ -204,7 +204,9 @@ func (f importerFunc) Import(path string) (*types.Package, error) { return f(pat
 
 // stdExports are the gc export data files of the standard-library
 // packages paths and their dependencies, compiled for goos/goarch with cgo
-// off: one go list -export -deps outside any module.
+// off: one go list -export -deps outside any module. It builds Go because
+// only the go command writes export data, and go/types needs the foreign
+// platform's.
 func stdExports(t *testing.T, goos, goarch string, paths []string) map[string]string {
 	t.Helper()
 	sort.Strings(paths)
