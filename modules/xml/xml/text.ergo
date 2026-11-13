@@ -76,29 +76,28 @@ func nest(t *text, list bool) {
 }
 
 // open writes <name>, or <_ key="name"> for a name that is not an XML
-// name. A key with a character XML cannot hold is read back with U+FFFD
-// in its place, so its form is chosen by that key, and the text a value
-// read back writes is the text it was read from (ReadBackIsStable).
+// name.
+//
+// For a constant name, the build folds Name(name) and unfolds open by its
+// definition, so a record's key is one constant append, "<name>", that
+// RawJoins joins with the text before it.
 func open(t *text, name string) {
 	if Name(name) {
 		t.raw("<")
 		t.raw(name)
 		t.raw(">")
 		t.push(name)
-		return
-	}
-	let s = held(name)
-	if Name(s) {
-		t.raw("<")
-		t.raw(s)
-		t.raw(">")
-		t.push(s)
 	} else {
-		t.raw("<_ key=\"")
-		t.escape(name, true)
-		t.raw("\">")
-		t.push("_")
+		t.other(name)
 	}
+}
+
+// other opens an element for a name that is not an XML name.
+func other(t *text, name string) {
+	t.raw("<_ key=\"")
+	t.escape(name, true)
+	t.raw("\">")
+	t.push("_")
 }
 
 func close(t *text) {

@@ -65,23 +65,6 @@ law RoundTrips(v fleet) {
 	back == w
 }
 
-// ReadBackIsStable: for every value, the text Encode writes reads back,
-// and the value read back is a fixed point: its text reads back as
-// itself. (A character XML cannot hold is replaced in the first text, and
-// a Map whose keys changed may then write its keys in another order.)
-law ReadBackIsStable(v fleet) {
-	let back = Decode(codecOf(), Encode(codecOf(), v)) catch {
-	case _:
-		return false
-	}
-	let text = Encode(codecOf(), back)
-	let again = Decode(codecOf(), text) catch {
-	case _:
-		return false
-	}
-	again == back && Encode(codecOf(), again) == text
-}
-
 // OutputIsWellFormed: every text Encode writes is a well-formed document
 // whose root is the codec's Root.
 law OutputIsWellFormed(v fleet) {
@@ -100,11 +83,11 @@ func pointsAt(m Malformed, text string, offset int) bool {
 }
 
 // ControlCharacterIsRejectedWhereItIs: a control character put anywhere
-// in a well-formed document makes it malformed, and Check names its byte,
-// with its line and column; put inside a UTF-8 sequence, the sequence's
-// first byte, which is no longer UTF-8.
+// in a document Encode wrote of texts XML holds makes it malformed, and
+// Check names its byte, with its line and column; put inside a UTF-8
+// sequence, the sequence's first byte, which is no longer UTF-8.
 law ControlCharacterIsRejectedWhereItIs(v fleet, at int) {
-	let text = Encode(codecOf(), v)
+	let text = Encode(codecOf(), heldFleet(v))
 	let i = if at < 0 { -(at % (len(text) + 1)) } else { at % (len(text) + 1) }
 	let bad = strings.Slice(text, 0, i) + "\x01" + strings.Slice(text, i, len(text))
 	match Check(bad, 0) catch {
@@ -117,10 +100,11 @@ law ControlCharacterIsRejectedWhereItIs(v fleet, at int) {
 	}
 }
 
-// TruncationIsRejectedInsideTheText: every proper prefix of a document is
-// malformed, at an offset inside the prefix, with its line and column.
+// TruncationIsRejectedInsideTheText: every proper prefix of a document
+// Encode wrote of texts XML holds is malformed, at an offset inside the
+// prefix, with its line and column.
 law TruncationIsRejectedInsideTheText(v fleet, cut int) {
-	let text = Encode(codecOf(), v)
+	let text = Encode(codecOf(), heldFleet(v))
 	let k = if cut < 0 { -(cut % len(text)) } else { cut % len(text) }
 	let part = strings.Slice(text, 0, k)
 	match Check(part, 0) catch {

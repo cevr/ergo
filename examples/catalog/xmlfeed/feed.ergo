@@ -1,0 +1,31 @@
+// Package xmlfeed is the XML provider of catalog.Feed, on the XML codec
+// module (package xml): a feed is the document <catalog>…</catalog> its
+// derived codec writes.
+
+import catalog/catalog
+import catalog/xml
+
+// Feed publishes and reads a catalog as XML.
+type Feed {}
+
+// NewFeed is the XML feed.
+func NewFeed() Feed { Feed }
+
+// codec is the catalog's XML form; a feed of more than 64 MiB or nested
+// deeper than 64 elements is not read.
+func codec() xml.Codec[catalog.Catalog] { xml.Codec[catalog.Catalog]{Root: "catalog", MaxBytes: 64 << 20, MaxDepth: 64} }
+
+func Publish(_ Feed, c catalog.Catalog) string { xml.Encode(codec(), c) }
+
+func Read(_ Feed, text string) catalog.Catalog fails catalog.Unreadable {
+	xml.Decode(codec(), text) catch {
+	case xml.Malformed as m:
+		return catalog.Unreadable{Line: m.Line, Column: m.Column, Path: "", Reason: m.Reason}
+	case WireWrongKind as w:
+		return catalog.Unreadable{Line: 0, Column: 0, Path: w.Path, Reason: "expected " + w.Want}
+	case WireMissingField as f:
+		return catalog.Unreadable{Line: 0, Column: 0, Path: f.Path, Reason: "no field " + f.Field}
+	case WireUnknownTag as u:
+		return catalog.Unreadable{Line: 0, Column: 0, Path: u.Path, Reason: "no variant " + u.Tag}
+	}
+}

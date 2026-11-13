@@ -1,0 +1,125 @@
+// catalog publishes a shop's catalog as an XML feed and reads feeds back,
+// on the XML codec module (package xml, a copy of modules/xml/xml).
+//
+//	catalog feed N      the feed of a sample catalog of N products
+//	catalog check       read a feed from standard input: its counts, or
+//	                    where it breaks (line and column) and why
+//	catalog receipt N   the sizes of the XML and the JSON of N products,
+//	                    and the heap allocations of one encode and one
+//	                    decode of each, done again
+//
+// The binary is the only place that chooses the feed's format: it binds
+// catalog.Feed to xmlfeed's provider.
+
+import catalog/catalog
+import catalog/xml
+import catalog/xmlfeed
+import go testing
+import io
+import json
+import os
+import strconv
+
+// Usage is the text of a usage failure.
+let Usage = "usage: catalog feed N | catalog check | catalog receipt N"
+
+// Command is what the arguments ask for.
+type Command = Feed{N int} | Check{} | Receipt{N int}
+
+// Parse is the command of args.
+func Parse(args []string) Command fails os.Exit {
+	if len(args) == 1 && args[0] == "check" {
+		return Check
+	}
+	if len(args) != 2 {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	let n = strconv.Atoi(args[1]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "catalog: N must be a count\n\(Usage)"}
+	}
+	match args[0] {
+	case "feed":
+		Feed{N: n}
+	case "receipt":
+		Receipt{N: n}
+	case _:
+		os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+// check reads a feed from standard input and prints its counts.
+func check() fails os.Exit needs catalog.Feed | io.Stdin | io.Stdout {
+	let text = io.Stdin.ReadAll() catch {
+	case io.ReadFailed:
+		return os.Exit{Code: 1, Message: "catalog: cannot read standard input"}
+	}
+	let c = catalog.Feed.Read(text) catch {
+	case catalog.Unreadable as u:
+		if u.Line > 0 {
+			return os.Exit{Code: 1, Message: "catalog: line \(u.Line), column \(u.Column): \(u.Reason)"}
+		}
+		return os.Exit{Code: 1, Message: "catalog: at \(u.Path): \(u.Reason)"}
+	}
+	let n = catalog.Count(c)
+	io.Stdout.Println("\(c.Shop): \(len(c.Products)) products")
+	io.Stdout.Println("  \(n.Listed) listed (\(n.Units) units), \(n.SoldOut) sold out, \(n.Draft) draft, \(n.Retired) retired")
+}
+
+func xmlCodec() xml.Codec[catalog.Catalog] { xml.Codec[catalog.Catalog]{Root: "catalog", MaxBytes: 0, MaxDepth: 0} }
+
+func jsonCodec() json.Codec[catalog.Catalog] { json.Codec[catalog.Catalog]{MaxBytes: 0, MaxDepth: 0} }
+
+func xmlText(c catalog.Catalog) string { xml.Encode(xmlCodec(), c) }
+
+func jsonText(c catalog.Catalog) string { json.Encode(jsonCodec(), c) }
+
+func xmlRead(text string) int {
+	let c = xml.Decode(xmlCodec(), text) catch {
+	case _:
+		return -1
+	}
+	len(c.Products)
+}
+
+func jsonRead(text string) int {
+	let c = json.Decode(jsonCodec(), text) catch {
+	case _:
+		return -1
+	}
+	len(c.Products)
+}
+
+// allocs is the heap allocations of one call of f, after a first call.
+func allocs(f escaping func()) int needs go.Foreign {
+	f()
+	int(testing.AllocsPerRun(20, f))
+}
+
+// receipt prints what encoding and decoding n products costs in each
+// format.
+func receipt(n int) needs io.Stdout | go.Foreign {
+	let c = catalog.Sample(n)
+	let x = xmlText(c)
+	let j = jsonText(c)
+	let xe = allocs(func() { let _ = xmlText(c) })
+	let je = allocs(func() { let _ = jsonText(c) })
+	let xd = allocs(func() { let _ = xmlRead(x) })
+	let jd = allocs(func() { let _ = jsonRead(j) })
+	io.Stdout.Println("xml  \(len(x)) bytes, \(xe) allocations per encode, \(xd) per decode (\(xmlRead(x)) products)")
+	io.Stdout.Println("json \(len(j)) bytes, \(je) allocations per encode, \(jd) per decode (\(jsonRead(j)) products)")
+}
+
+func main() fails os.Exit needs Ambient | go.Foreign {
+	let command = try Parse(os.NewHost().Args())
+	with context { catalog.Feed: xmlfeed.NewFeed(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
+		match command {
+		case Feed as f:
+			io.Stdout.Println(catalog.Feed.Publish(catalog.Sample(f.N)))
+		case Check:
+			try check()
+		case Receipt as r:
+			receipt(r.N)
+		}
+	}
+}

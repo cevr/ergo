@@ -90,6 +90,16 @@
       "rule": "The rule reads every compiler package: a package left out of the scan would hide its reads.",
       "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
       "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "vendored-copy-drifts",
+      "origin": "wf10 REF XML",
+      "file": "examples/catalog/xml/names.ergo",
+      "from": "// Name reports whether s is an XML name",
+      "to": "// Name reports whether s is an XML Name",
+      "rule": "An example's copy of a module's package is the module's, byte for byte: a copy edited alone (here a comment, which no test of the example reads) runs code the module does not ship.",
+      "killers": ["internal/residue:TestVendoredCopiesMatch"],
+      "anchor": {"tests": ["internal/residue:TestVendoredCopiesMatch"]}
     }
   ]
 }

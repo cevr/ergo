@@ -43,7 +43,8 @@ func nameRune(r rune) bool { nameStartRune(r) || r == 0xB7 || r >= 0x300 && r <=
 // charRune is a Char XML may hold (2.2), of U+0080 or above.
 func charRune(r rune) bool { r <= 0xD7FF || r >= 0xE000 && r <= 0xFFFD || r >= 0x10000 && r <= 0x10FFFF }
 
-// held is s as XML holds it: each character XML cannot hold as U+FFFD.
+// held is s as XML holds it: each character XML cannot hold as U+FFFD,
+// as Encode writes it (the laws' model of Encode).
 func held(s string) string { strings.FromBytes(escapeHeld([]byte{}, s)) }
 
 // escapeHeld appends s with each character XML cannot hold as U+FFFD,

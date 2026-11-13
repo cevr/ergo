@@ -1,0 +1,13 @@
+<catalog>
+  <shop>Corner Shop</shop>
+  <products>
+    <item>
+      <sku>SKU-1</sku>
+      <title>Mug</title>
+      <cents>1250</cents>
+      <status><_tag>Listed</_tag></status>
+      <stock>many</stock>
+      <tags/>
+    </item>
+  </products>
+</catalog>
