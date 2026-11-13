@@ -7,6 +7,7 @@ Tag: `default`.
 ```sh
 fk-domains search foldkit 0 4     # one listing a line
 fk-domains serve 127.0.0.1:8787   # POST /rpc, SearchDomains
+fk-domains bench 1000             # the P11 workload (below)
 ```
 
 ## The shape
@@ -36,6 +37,10 @@ fk-domains serve 127.0.0.1:8787   # POST /rpc, SearchDomains
 `server/recorded/` holds 20 cases that FD0 recorded from the original's worker with `wire.mjs`, with `index.json` (status, content type, `Cache-Control`). The `server` test `WireAgreesWithOrigin` reads them through `embedded`. For each case, `server.Answer` must give the original's status, `Content-Type` and `Cache-Control`. For a 200 it must also give the same frames: a success has the same listings, field for field, and a failure or a defect must be the same kind.
 
 The case's body reaches `Answer` as `http.Serve` hands it over under `server.Limits()`: a body over `MaxBodyBytes` is `http.BodyTooLarge`. So the 1,024-byte and 1,025-byte cases check the limit that the binary serves with.
+
+## The server's cost (target P11)
+
+`fk-domains bench N` answers the first N requests of a fixed script (`server/script.ergo`: six labels, offsets in steps of 61, limits 4, 56, 60 and 556) through `server.Answer`, in process. It prints the bytes answered and a CRC-32 of each answer's status, headers and body. `testdata/control` is the same handler written by hand in Go with `encoding/json`. It answers the same script and prints the same line, so the two give the same bytes. `scripts/opcount -control` compares the two. On 2026-11-13, with 3 rounds at 1,000 and 6,000 requests, the Ergo handler took 0.46 times the control's instructions per request and 0.77 times its allocations, but 2.5 times its bytes allocated (the run's `receipts/fk-domains.json`).
 
 ## Upstream tests
 
