@@ -11,6 +11,7 @@
 //	go run ./scripts/buildcost start [-work DIR] [-ergo PATH]
 //	go run ./scripts/buildcost count CMD [ARG...]
 //	go run ./scripts/buildcost reuse [-work DIR] [-sizes 10,50] [-examples deps]
+//	go run ./scripts/buildcost pins -sets DIR [-work DIR] [-sizes 10] [-examples deps]
 //
 // The scenarios, for each generated program gN (internal/testinputs/
 // genprogram) and each named example: first build (Go's std archives are
@@ -23,7 +24,8 @@
 // `start` counts the process start (start.go), and `count` counts any
 // command: the least user-mode instructions of five runs. `reuse` counts
 // in process what the incremental check would reuse after each edit
-// (reuse.go).
+// (reuse.go). `pins` counts a cold build with and without the pin archive
+// sets of DIR (pins.go).
 //
 // Each run has its own Ergo cache under -work (XDG_CACHE_HOME), so a
 // scenario's predecessor is the one listed before it. -work defaults to a
@@ -55,7 +57,7 @@ func main() {
 		runner{}.leastOf(strings.Join(os.Args[2:], " "), os.Args[2:])
 		return
 	}
-	if len(os.Args) > 1 && (os.Args[1] == "empty" || os.Args[1] == "start" || os.Args[1] == "reuse") {
+	if len(os.Args) > 1 && (os.Args[1] == "empty" || os.Args[1] == "start" || os.Args[1] == "reuse" || os.Args[1] == "pins") {
 		os.Exit(run(os.Args[2:], os.Args[1]))
 	}
 	os.Exit(run(os.Args[1:], ""))
@@ -113,7 +115,7 @@ func mapKeys[V any](m map[string]V) []string {
 var shown = []string{
 	"files_read", "bytes_read", "files_parsed", "std_files_parsed", "packages_checked",
 	"std_packages_decoded", "modules_lowered", "go_bytes_lowered", "modules_reused", "bytes_hashed",
-	"go_compiles", "go_compiles_reused", "links", "links_reused", "go_commands", "processes", "bytes_written",
+	"go_compiles", "go_compiles_reused", "links", "links_reused", "go_commands", "processes", "bytes_written", "std_exports",
 }
 
 type runner struct {
@@ -130,6 +132,7 @@ func run(args []string, mode string) int {
 	groups := fs.Int("groups", 24, "function groups per generated package (the seed draws 1 to GROUPS)")
 	seed := fs.Uint64("seed", 1, "generator seed")
 	examples := fs.String("examples", "deps", "example programs under examples/ to measure (comma separated; empty for none)")
+	sets := fs.String("sets", "", "pins: the directory of pin archive sets (go run ./scripts/pinsets -o DIR)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -182,6 +185,10 @@ func run(args []string, mode string) int {
 			r.reuse(fmt.Sprintf("g%d", n), dir, "cmd/app", genprogram.Name(0)+"/"+genprogram.Name(0)+".ergo")
 			continue
 		}
+		if mode == "pins" {
+			r.pins(fmt.Sprintf("g%d", n), dir, "cmd/app", *sets)
+			continue
+		}
 		r.scenarios(fmt.Sprintf("g%d", n), dir, "cmd/app", genprogram.Name(0)+"/"+genprogram.Name(0)+".ergo", genprogram.Name(0))
 	}
 	for _, name := range strings.Split(*examples, ",") {
@@ -201,6 +208,10 @@ func run(args []string, mode string) int {
 		}
 		if mode == "reuse" {
 			r.reuse(name, dir, main, leaf)
+			continue
+		}
+		if mode == "pins" {
+			r.pins(name, dir, main, *sets)
 			continue
 		}
 		r.scenarios(name, dir, main, leaf, filepath.Dir(leaf))
@@ -269,11 +280,14 @@ func (r runner) scenarios(label, dir, main, leaf, leafPkg string) {
 }
 
 // counted runs ergo with args and prints its line.
-func (r runner) counted(label, xdg string, args ...string) {
+func (r runner) counted(label, xdg string, args ...string) { r.countedEnv(label, xdg, nil, args...) }
+
+// countedEnv is counted with env added to the environment.
+func (r runner) countedEnv(label, xdg string, env []string, args ...string) {
 	report := filepath.Join(r.work, "stage.json")
 	os.Remove(report)
 	cmd := exec.Command(r.ergo, args...)
-	cmd.Env = append(os.Environ(), "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report)
+	cmd.Env = append(append(os.Environ(), "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report), env...)
 	var stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = nil, &stderr
 	res := measure(cmd)

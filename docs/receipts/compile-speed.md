@@ -158,6 +158,31 @@ generic body is part of the interface, so the tool makes no body edit.
 
 The raw log is the wf10 run's `compile-speed/receipts/reuse-cs5a.log`.
 
+## Pin archives (CS3)
+
+`go run ./scripts/buildcost pins -sets DIR -sizes 10 -examples deps`,
+2026-11-13, at the CS3 head, linux/amd64, load 28, with the sets of
+`go run ./scripts/pinsets -o DIR` served from a file URL. Cold is
+post-download: the Go release, the patched compile and the sets on disk;
+the Ergo cache's store and GOCACHE empty
+([build](../spec/build.md#pin-archives)).
+
+| g10 | M instr | std_exports | go_compiles | processes |
+| --- | ---: | ---: | ---: | ---: |
+| Cold, no sets | 169,266 | 203 | 4 | 7 |
+| Cold, sets installed | 9,575 | 0 | 1 (main) | 4 |
+| First build with a URL (fetch, verify, install, then the cold build) | 19,112 | 0 | 1 | 4 |
+
+- **The sets remove 160 G instr of a cold build**: the 203 standard
+  archives (`go list -export`, every std package the program links) and
+  the 3 runtime packages compile no more; what is left is the front end,
+  the program's own compile and the link.
+- The deps rows (`compile-speed/cs3/receipt-pins.log`) agree on the
+  counters (std_exports 203 → 0, compiles 4 → 1) but their no-sets run
+  found g10's std in a reused GOCACHE, so its 22,098 M is not cold.
+- The sets are 48 MB (std, gzip), 2 MB (runtime) and 18 MB (tools) per
+  target.
+
 ## R
 
 R, the private reference server of 11 packages (42,771 lowered Go lines),
@@ -172,6 +197,8 @@ go build -o /tmp/ergo ./cmd/ergo
 go run ./scripts/buildcost -ergo /tmp/ergo -sizes 10,50 -examples deps
 go run ./scripts/buildcost empty -ergo /tmp/ergo
 go run ./scripts/buildcost start -ergo /tmp/ergo
+go run ./scripts/pinsets -o /tmp/pins
+go run ./scripts/buildcost pins -ergo /tmp/ergo -sets /tmp/pins -sizes 10
 ```
 
 The raw log is the wf10 run's `compile-speed/receipts/cs0-buildcost-bd0862c14.log`
