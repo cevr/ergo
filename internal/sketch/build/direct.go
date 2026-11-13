@@ -3,7 +3,6 @@ package build
 import (
 	"bytes"
 	"cmp"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -54,7 +53,7 @@ import (
 // build tool and call the host compiler per module.
 
 // directSchema versions every key and plan this file writes.
-const directSchema = "ergo-go-direct-2"
+const directSchema = "ergo-go-direct-3"
 
 // GoBuildVariable set to "go" in the environment selects go build, the
 // reference path, for every build of the process.
@@ -74,6 +73,9 @@ type Report struct {
 	// reused.
 	Compiled, Reused int
 	Linked           bool
+	// Executable is the digest of the executable's blob in the store, which
+	// the output links to; empty when go build built it.
+	Executable string
 }
 
 // String is the report as `ergo build -work` prints it: "direct" with the
@@ -101,6 +103,7 @@ func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer
 		}
 		report = d.report
 		report.Refused = err.Error()
+		report.Executable = ""
 	}
 	child := t.Command(module, output)
 	child.Stdout, child.Stderr = stderr, stderr
@@ -725,7 +728,7 @@ func (d *direct) link(tg *target) error {
 			return fmt.Errorf("link: %v: %s", err, firstLine(output))
 		}
 		var err error
-		if digest, err = d.store(out); err != nil {
+		if digest, err = d.storeMode(out, 0o555); err != nil {
 			return err
 		}
 		if err := d.record(key, digest); err != nil {
@@ -733,42 +736,8 @@ func (d *direct) link(tg *target) error {
 		}
 		d.report.Linked = true
 	}
-	return d.place(digest)
-}
-
-// place copies the executable blob to the output by a rename, so the
-// output is never a partial file.
-func (d *direct) place(digest string) error {
-	absolute, err := filepath.Abs(d.output)
-	if err != nil {
-		return err
-	}
-	src, err := os.Open(d.blob(digest))
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	var nonce [8]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return err
-	}
-	// Mode 0777 less the umask, the mode go build gives an executable.
-	name := filepath.Join(filepath.Dir(absolute), "."+filepath.Base(absolute)+".tmp-"+hex.EncodeToString(nonce[:]))
-	tmp, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(name)
-	n, err := io.Copy(tmp, src)
-	stage.Add(stage.BytesWritten, n)
-	if err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, absolute)
+	d.report.Executable = digest
+	return d.c.PlaceExecutable(digest, d.output)
 }
 
 func (d *direct) blob(digest string) string {
@@ -803,7 +772,11 @@ func (d *direct) cached(key string) ([]string, bool) {
 }
 
 // store moves the file at path into the blob store and returns its digest.
-func (d *direct) store(path string) (string, error) {
+func (d *direct) store(path string) (string, error) { return d.storeMode(path, 0o644) }
+
+// storeMode is store with the blob's mode: 0o555 for an executable, which
+// outputs link to (PlaceExecutable).
+func (d *direct) storeMode(path string, mode os.FileMode) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -815,7 +788,7 @@ func (d *direct) store(path string) (string, error) {
 		return "", err
 	}
 	digest := hex.EncodeToString(h.Sum(nil))
-	if err := os.Chmod(path, 0o644); err != nil {
+	if err := os.Chmod(path, mode); err != nil {
 		return "", err
 	}
 	return digest, os.Rename(path, d.blob(digest))

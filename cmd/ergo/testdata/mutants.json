@@ -47,7 +47,7 @@
       "name": "dist1h-build-ignores-target",
       "origin": "wf10 DIST1-h",
       "file": "cmd/ergo/build.go",
-      "from": "l, err := loadForPlatform(opts.file, opts.target, opts.platform)",
+      "from": "l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)",
       "to": "l, err := load(opts.file, opts.target)",
       "rule": "Build validates a binding against --platform before placing its artifact.",
       "killers": ["cmd/ergo:TestGoBindingPlatforms"]
@@ -228,8 +228,8 @@
       "name": "check-host-fallback",
       "origin": "wf10/l7-eval/EV5",
       "file": "cmd/ergo/main.go",
-      "from": "\treturn evaluationExit(evaluation)\n",
-      "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\treturn evaluationExit(evaluation)\n",
+      "from": "\texit := evaluationExit(evaluation)\n",
+      "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\texit := evaluationExit(evaluation)\n",
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
     },
@@ -358,6 +358,7 @@
       "rule": "A cached test result is found before the link: a warm hit invokes no go command.",
       "killers": ["cmd/ergo:TestTestResultCache"],
       "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
-    }
+    },
+    {"name":"cs-warm-key-omits-flag","origin":"wf10 CS2","file":"cmd/ergo/warm.go","from":"\t\topts.seed, opts.evalSteps, opts.evalBytes})","to":"\t\topts.evalSteps, opts.evalBytes})","rule":"The request key holds every option that changes the answer: check with another --seed is another request.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}}
   ]
 }

@@ -58,6 +58,8 @@ type FS interface {
 	ReadFile(name string) ([]byte, error)
 	// Stat describes a file, following links.
 	Stat(name string) (fs.FileInfo, error)
+	// Lstat describes a file, not following a link.
+	Lstat(name string) (fs.FileInfo, error)
 }
 
 // hostFS is the host file system. A source is read only when it is a
@@ -73,7 +75,8 @@ func (hostFS) ReadFile(name string) ([]byte, error) {
 	}
 	return data, err
 }
-func (hostFS) Stat(name string) (fs.FileInfo, error) { return os.Stat(name) }
+func (hostFS) Stat(name string) (fs.FileInfo, error)  { return os.Stat(name) }
+func (hostFS) Lstat(name string) (fs.FileInfo, error) { return os.Lstat(name) }
 
 // loadedFile is one source file of a loaded package.
 type loadedFile struct {
@@ -213,6 +216,12 @@ func CheckDir(dir string) (Analysis, error) {
 // the check reads committed source only and runs no Go tool.
 func CheckDirForPlatform(dir string, platform gobind.Platform) (Analysis, error) {
 	return checkDirForPlatform(hostFS{}, dir, platform)
+}
+
+// CheckDirFS is CheckDirForPlatform reading through fsys, such as a warm
+// request's Recorder.
+func CheckDirFS(fsys FS, dir string, platform gobind.Platform) (Analysis, error) {
+	return checkDirForPlatform(fsys, dir, platform)
 }
 
 func checkDir(fsys FS, dir string) (Analysis, error) {

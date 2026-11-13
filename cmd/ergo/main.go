@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -382,8 +383,14 @@ func load(path, target string) (loaded, error) {
 }
 
 func loadForPlatform(path, target string, platform gobind.Platform) (loaded, error) {
+	return loadThrough(nil, path, target, platform)
+}
+
+// loadThrough is loadForPlatform reading a package folder through fsys (a
+// warm request's Recorder); nil reads the host.
+func loadThrough(fsys sketchfront.FS, path, target string, platform gobind.Platform) (loaded, error) {
 	if isPackageFolder(path) {
-		return loadFolder(path, target, platform)
+		return loadFolder(fsys, path, target, platform)
 	}
 	if err := requireSourceExtension(path); err != nil {
 		return loaded{}, err
@@ -419,7 +426,7 @@ func loadForPlatform(path, target string, platform gobind.Platform) (loaded, err
 
 // loadFolder admits a package folder once and checks its program. The
 // executable is named after the folder, as go build names it.
-func loadFolder(path, target string, platform gobind.Platform) (loaded, error) {
+func loadFolder(fsys sketchfront.FS, path, target string, platform gobind.Platform) (loaded, error) {
 	source, err := receipt.LocateSource(path)
 	if err != nil {
 		return loaded{}, err
@@ -428,7 +435,12 @@ func loadFolder(path, target string, platform gobind.Platform) (loaded, error) {
 	if err != nil {
 		return loaded{}, err
 	}
-	analysis, err := sketchfront.CheckDirForPlatform(source.Admitted(), platform)
+	var analysis sketchfront.Analysis
+	if fsys == nil {
+		analysis, err = sketchfront.CheckDirForPlatform(source.Admitted(), platform)
+	} else {
+		analysis, err = sketchfront.CheckDirFS(fsys, source.Admitted(), platform)
+	}
 	if err != nil {
 		return loaded{}, err
 	}
@@ -475,7 +487,12 @@ func checkCommand(args []string) error {
 }
 
 func checkPackage(opts fileOptions) error {
-	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	w := startWarm(opts, nil)
+	if w != nil && w.hit {
+		_, err := os.Stdout.Write(w.answer.Stdout)
+		return err
+	}
+	l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}
@@ -495,10 +512,18 @@ func checkPackage(opts fileOptions) error {
 		return err
 	}
 	l.result.SetEvaluation(evaluation)
-	if err := printProjectionJSON(l.result.CheckEnvelope()); err != nil {
+	var out bytes.Buffer
+	if err := json.NewEncoder(&out).Encode(l.result.CheckEnvelope()); err != nil {
 		return err
 	}
-	return evaluationExit(evaluation)
+	if _, err := os.Stdout.Write(out.Bytes()); err != nil {
+		return err
+	}
+	exit := evaluationExit(evaluation)
+	if exit == nil {
+		w.record(sketchfront.WarmAnswer{Stdout: out.Bytes()})
+	}
+	return exit
 }
 
 // evalBudget is check's evaluation budget: the editor default

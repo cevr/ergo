@@ -49,6 +49,9 @@ const (
 	// BytesWritten counts the bytes of executables and emitted files
 	// written.
 	BytesWritten
+	// OutputsPlaced counts the executables placed at an output path (a hard
+	// link or a copy of the store's blob).
+	OutputsPlaced
 	numCounters
 )
 
@@ -59,7 +62,7 @@ var names = [numCounters]string{
 	"modules_lowered", "go_bytes_lowered", "modules_reused",
 	"bytes_hashed",
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
-	"go_commands", "processes", "bytes_written",
+	"go_commands", "processes", "bytes_written", "outputs_placed",
 }
 
 var counts [numCounters]atomic.Int64

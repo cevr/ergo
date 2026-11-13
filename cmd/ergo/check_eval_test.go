@@ -28,7 +28,8 @@ import (
 // source that checks, with the model's records in ergo test's order and
 // a replay command for each record that did not pass; the evaluation's
 // revision equal to the envelope's, which is the SHA-256 of the file's
-// current bytes for one file; and nothing written to either root. No
+// current bytes for one file; and nothing written to either root but the
+// warm answer's manifest. No
 // process-level run is needed: with Go absent from PATH any fallback to a
 // Go build fails in process too, and the empty roots show none started.
 // Mutants: check-eval-bypassed (check prints the envelope without
@@ -86,10 +87,11 @@ func TestCheckEvaluatesWithoutBuild(t *testing.T) {
 		if err := json.Unmarshal(stdout, &env); err != nil {
 			fail("the output is not one check envelope: %v", err)
 		}
-		for _, root := range []string{xdg, tmp} {
-			if entries, _ := os.ReadDir(root); len(entries) != 0 {
-				fail("check wrote into %s: %v", root, entries)
-			}
+		if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
+			fail("check wrote into %s: %v", tmp, entries)
+		}
+		if written := besideWarmManifests(xdg); len(written) != 0 {
+			fail("check wrote into %s more than its warm manifest: %v", xdg, written)
 		}
 		if p.staticBad {
 			if code != 1 || env.Checked || env.Evaluation != nil {
@@ -125,6 +127,20 @@ func TestCheckEvaluatesWithoutBuild(t *testing.T) {
 			fail("the evaluation names revision %s, the envelope %s", e.Revision, env.Revision)
 		}
 	}
+}
+
+// besideWarmManifests lists the files under root that are not a warm
+// manifest (a file in a folder named warm, docs/spec/build.md): the only
+// thing `ergo check` writes is the manifest of its own answer.
+func besideWarmManifests(root string) []string {
+	var written []string
+	_ = filepath.WalkDir(root, func(path string, e os.DirEntry, err error) error {
+		if err == nil && !e.IsDir() && filepath.Base(filepath.Dir(path)) != "warm" {
+			written = append(written, path)
+		}
+		return nil
+	})
+	return written
 }
 
 // checkInProcess runs checkCommand on target and returns what it printed

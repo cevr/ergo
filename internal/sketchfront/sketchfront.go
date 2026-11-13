@@ -256,6 +256,9 @@ type BuildRequest struct {
 	// Locked refuses a run build that needs a stale or missing ledger
 	// entry (ergo build --locked; owner q122).
 	Locked bool
+	// Inputs, when set, is the file system the build reads the ledger
+	// through (a warm request's Recorder); nil reads the host.
+	Inputs FS
 	// Report, when set, receives how the toolchain built the executable
 	// (build.Report: the direct path, or go build and why).
 	Report *build.Report
@@ -440,7 +443,7 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 // provider's run checks reads no ledger: ev and files are nil, and the
 // caller lowers it as before.
 func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.LedgerEvidence, []lower.File, error) {
-	text, err := ledgerText(req.Ledger)
+	text, err := ledgerText(req.Inputs, req.Ledger)
 	if err != nil {
 		return nil, nil, err
 	}

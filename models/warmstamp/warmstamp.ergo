@@ -1,0 +1,256 @@
+// The package warmstamp is the design model of the warm build answer
+// (compile-speed plan, unit CS2): when may `ergo build -o OUT` answer "up
+// to date" without parsing, checking, compiling or linking? Checked by
+// `ergo test <this folder>`: a breadth-first search of every state in the
+// scope below, not random traces.
+//
+// The world: one source text with two contents (0 and 1; the editor may
+// change it at any time, and may change it back), one output path, a
+// store of linked binaries keyed by the content of the sources (the
+// action key), and two builders that run at the same time. A file is an
+// inode; a freed inode number is used again by the next new file (ext4
+// does this at once). Each builder step is one atomic file-system act:
+//
+//	0 read:   read the sources once and hash them (Read).
+//	1 decide: the warm check. A hit answers "up to date" and ends.
+//	2 build:  make the store entry of the key (written under a temporary
+//	          name and renamed in; one step here).
+//	3 place:  put the entry at the output path (a link under a temporary
+//	          name, renamed over the path; one step here).
+//	4 record: only the PathStamp and LatestOnly mutants have this step.
+//
+// The design (Link): the output path is a hard link of the store entry.
+// The warm check is "the store has an entry for the key I hashed, and the
+// output path is that same inode" (two statx calls, no timestamps). Trim
+// may remove any store entry at any time.
+//
+// The invariant, checked at every hit:
+//
+//   - AnswerIsFresh: a builder that answers "up to date" for the sources
+//     it read finds, at the output path, the build of exactly those
+//     sources.
+//
+// Mutants, each a machine whose law Breaks must hold:
+//   - PathStamp: the output is a copy; the builder records, under the
+//     key, the inode number of the file it placed (taken from its own
+//     temporary file, the best case), and the warm check compares the
+//     output path's inode number with the record. A freed inode number
+//     that another build's copy takes makes a stale record match.
+//   - LatestOnly: the warm check is "the last key built here is mine and
+//     the output exists" (one record for the folder, not one per key,
+//     written in a step of its own after the output is placed).
+//   - CompileRereads: on a miss the builder compiles what is on disk at
+//     build time, not the bytes it hashed, and stores it under the hash.
+//
+// Witnesses, each a machine whose law Exists must hold, so the invariant
+// is not vacuous: a hit happens; a hit happens after the editor changed
+// the source and changed it back after a first build (the entry of the
+// first content is used again); a hit happens after a trim removed the entry and a build made
+// it again.
+//
+// Scope: 2 contents, 2 builders, 4 inode numbers, any number of edits,
+// trims and builds. "Proved" means proved in this scope.
+
+type Who = B0{} | B1{}
+
+type Key = K0{} | K1{}
+
+type Signal = Edit{} | Step{Who Who} | Trim{Key Key}
+
+// World: Content is the content of each inode, -1 when the number is
+// free. Store is the inode of each key's entry, -1 for none. Rec and Last
+// are the mutants' records.
+type World {
+	Src     int,
+	Edits   int,
+	Trimmed bool,
+	Out     int,
+	Content []int,
+	Store   []int,
+	Rec     []int,
+	Last    int,
+	Pc      []int,
+	Read    []int,
+	Temp    []int,
+}
+
+type State = Live{W World} | Broken{Why string} | Hit{} | HitAfterAba{} | HitAfterTrim{}
+
+func initial() State {
+	return Live{W: World{Src: 0, Edits: 0, Trimmed: false, Out: -1,
+		Content: []int{-1, -1, -1, -1}, Store: []int{-1, -1}, Rec: []int{-1, -1}, Last: -1,
+		Pc:      []int{0, 0}, Read: []int{0, 0}, Temp: []int{-1, -1}}}
+}
+
+func who(b Who) int {
+	match b {
+	case B0:
+		return 0
+	case B1:
+		return 1
+	}
+}
+
+func key(k Key) int {
+	match k {
+	case K0:
+		return 0
+	case K1:
+		return 1
+	}
+}
+
+// free is the lowest free inode number, -1 when all four are in use.
+func free(w World) int {
+	for i, c in w.Content {
+		if c == -1 {
+			return i
+		}
+	}
+	return -1
+}
+
+// held reports whether a builder holds inode i open as its temporary file
+// (only the copying mutant keeps one).
+func held(w World, i int, copies bool) bool {
+	if !copies {
+		return false
+	}
+	for b, pc in w.Pc {
+		if (pc == 3 || pc == 4) && w.Temp[b] == i {
+			return true
+		}
+	}
+	return false
+}
+
+// collected is w with every inode that no name and no builder holds freed.
+func collected(w World, copies bool) World {
+	let mut out = w
+	for i, c in w.Content {
+		if c != -1 && w.Out != i && w.Store[0] != i && w.Store[1] != i && !held(w, i, copies) {
+			out.Content[i] = -1
+		}
+	}
+	return out
+}
+
+// mutant: 0 the design, 1 PathStamp, 2 LatestOnly, 3 CompileRereads.
+// witness: 0 none, 1 Hit, 2 HitAfterAba, 3 HitAfterTrim.
+func step(s State, event Signal, mutant int, witness int) Decision[State, string] {
+	let copies = mutant == 1
+	match s {
+	case Live as live:
+		let mut w = live.W
+		match event {
+		case Edit:
+			w.Src = 1 - w.Src
+			if w.Out != -1 && w.Edits < 2 {
+				w.Edits = w.Edits + 1
+			}
+		case Trim as t:
+			let k = key(t.Key)
+			if w.Store[k] == -1 {
+				return Ignore
+			}
+			w.Store[k] = -1
+			w.Trimmed = true
+		case Step as st:
+			let b = who(st.Who)
+			let k = w.Read[b]
+			if w.Pc[b] == 0 {
+				w.Read[b] = w.Src
+				w.Pc[b] = 1
+			} else if w.Pc[b] == 1 {
+				let mut hit = w.Store[k] != -1 && w.Out == w.Store[k]
+				if mutant == 1 {
+					hit = w.Rec[k] != -1 && w.Out == w.Rec[k]
+				}
+				if mutant == 2 {
+					hit = w.Last == k && w.Out != -1
+				}
+				if hit {
+					if w.Content[w.Out] != k {
+						return Enter{Broken{Why: "AnswerIsFresh"}}
+					}
+					if witness == 1 {
+						return Enter{Hit}
+					}
+					if witness == 2 && w.Edits == 2 {
+						return Enter{HitAfterAba}
+					}
+					if witness == 3 && w.Trimmed {
+						return Enter{HitAfterTrim}
+					}
+					w.Pc[b] = 0
+				} else {
+					w.Pc[b] = 2
+				}
+			} else if w.Pc[b] == 2 {
+				let mut made = k
+				if mutant == 3 {
+					made = w.Src
+				}
+				if copies {
+					let i = free(w)
+					if i == -1 {
+						return Ignore
+					}
+					w.Content[i] = made
+					w.Temp[b] = i
+				} else {
+					if w.Store[k] == -1 {
+						let i = free(w)
+						if i == -1 {
+							return Ignore
+						}
+						w.Content[i] = made
+						w.Store[k] = i
+					}
+					w.Temp[b] = w.Store[k]
+				}
+				w.Pc[b] = 3
+			} else if w.Pc[b] == 3 {
+				if copies {
+					w.Out = w.Temp[b]
+					w.Pc[b] = 4
+				} else if w.Store[k] != w.Temp[b] {
+					// The entry was trimmed before the link: build again.
+					w.Pc[b] = 2
+				} else if mutant == 2 {
+					w.Out = w.Store[k]
+					w.Pc[b] = 4
+				} else {
+					w.Out = w.Store[k]
+					w.Pc[b] = 0
+				}
+			} else if mutant == 2 {
+				w.Last = k
+				w.Pc[b] = 0
+			} else {
+				w.Rec[k] = w.Temp[b]
+				w.Temp[b] = -1
+				w.Pc[b] = 0
+			}
+		}
+		return Enter{Live{W: collected(w, copies)}}
+	case _:
+		return Ignore
+	}
+}
+
+func design(s State, sig Signal) Decision[State, string]         { return step(s, sig, 0, 0) }
+func pathStamp(s State, sig Signal) Decision[State, string]      { return step(s, sig, 1, 0) }
+func latestOnly(s State, sig Signal) Decision[State, string]     { return step(s, sig, 2, 0) }
+func compileRereads(s State, sig Signal) Decision[State, string] { return step(s, sig, 3, 0) }
+func hit(s State, sig Signal) Decision[State, string]            { return step(s, sig, 0, 1) }
+func hitAfterAba(s State, sig Signal) Decision[State, string]    { return step(s, sig, 0, 2) }
+func hitAfterTrim(s State, sig Signal) Decision[State, string]   { return step(s, sig, 0, 3) }
+
+type Design machine[State, Signal] { initial: initial(), step: design, law AnswerIsFresh never reaches Broken }
+type PathStamp machine[State, Signal] { initial: initial(), step: pathStamp, law Breaks reaches Broken }
+type LatestOnly machine[State, Signal] { initial: initial(), step: latestOnly, law Breaks reaches Broken }
+type CompileRereads machine[State, Signal] { initial: initial(), step: compileRereads, law Breaks reaches Broken }
+type HitWitness machine[State, Signal] { initial: initial(), step: hit, law Exists reaches Hit }
+type AbaWitness machine[State, Signal] { initial: initial(), step: hitAfterAba, law Exists reaches HitAfterAba }
+type TrimWitness machine[State, Signal] { initial: initial(), step: hitAfterTrim, law Exists reaches HitAfterTrim }

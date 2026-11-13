@@ -89,7 +89,11 @@ func runCommand(args []string) error {
 // first needs the key. A process-scoped identity builds the module
 // privately and never publishes it.
 func buildSource(opts fileOptions, place func(name, output string) string) (receipt.Location, error) {
-	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	w := startWarm(opts, warmToolchain(opts))
+	if w != nil && w.hit {
+		return placeWarm(w, opts, place)
+	}
+	l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)
 	if err != nil {
 		return receipt.Location{}, err
 	}
@@ -109,16 +113,18 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	if err != nil {
 		return receipt.Location{}, err
 	}
+	stderr := &quiet{w: os.Stderr}
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),
 		Output:    output.Path(),
 		Cache:     build.Cache{Root: root},
 		Toolchain: tc,
-		Stderr:    os.Stderr,
+		Stderr:    stderr,
 		Ledger:    ledgerPath(opts.file),
 		Locked:    opts.locked,
 		Report:    &report,
+		Inputs:    w.fsys(),
 	})
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
@@ -127,7 +133,27 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	if err != nil {
 		return receipt.Location{}, err
 	}
+	if report.Direct && report.Executable != "" && !stderr.written {
+		w.record(sketchfront.WarmAnswer{Executable: report.Executable})
+	}
 	return output, nil
+}
+
+// placeWarm answers a build from the store: the output is a hard link of
+// the executable's blob, placed again only when it is not that file.
+func placeWarm(w *warm, opts fileOptions, place func(name, output string) string) (receipt.Location, error) {
+	source, err := receipt.LocateSource(opts.file)
+	if err != nil {
+		return receipt.Location{}, err
+	}
+	output, err := locateArtifact(place(filepath.Base(source.Admitted()), opts.output))
+	if err != nil {
+		return receipt.Location{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(output.Path()), 0o755); err != nil {
+		return receipt.Location{}, err
+	}
+	return output, w.cache.PlaceExecutable(w.answer.Executable, output.Path())
 }
 
 // buildAction is the Go build action of opts' command: the go command

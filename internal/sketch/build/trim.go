@@ -191,9 +191,9 @@ type pass struct {
 
 // trim is one bounded pass from cursor over Root/modules, Root/staging,
 // Root/private and the direct path's Root/go/plans, Root/go/actions and
-// Root/go/blobs, and Root/results (results.go), in that order, as one
-// sequence of names. It passes over the
-// first cursor names, which earlier passes of this trim examined, then
+// Root/go/blobs, Root/results (results.go) and Root/warm (warm.go), in
+// that order, as one sequence of names. It passes over the first cursor
+// names, which earlier passes of this trim examined, then
 // examines at most sweepEntries names and removes at most sweepRemovals
 // directories. The next cursor counts the names it passed over and
 // examined, less those it removed. Passing over a name costs only its read,
@@ -215,6 +215,7 @@ func (c Cache) trim(now time.Time, cursor int) pass {
 		{filepath.Join(c.Root, "go", "actions"), trimFile},
 		{filepath.Join(c.Root, "go", "blobs"), trimFile},
 		{filepath.Join(c.Root, "results"), c.trimEntry},
+		{filepath.Join(c.Root, "warm"), trimFile},
 	}
 	var p pass
 	passed := 0

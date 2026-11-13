@@ -41,11 +41,14 @@ func (e *LedgerError) Error() string {
 }
 
 // ledgerText reads the ledger at path; a missing file is an empty ledger.
-func ledgerText(path string) (string, error) {
+func ledgerText(fsys FS, path string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
-	data, err := os.ReadFile(path)
+	if fsys == nil {
+		fsys = hostFS{}
+	}
+	data, err := fsys.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
@@ -121,7 +124,7 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		}
 		fresh = lower.LedgerEntries(unit, names, ev)
 	}
-	text, err := ledgerText(req.Ledger)
+	text, err := ledgerText(req.Inputs, req.Ledger)
 	if err != nil {
 		return 0, err
 	}
