@@ -301,28 +301,33 @@ func TestStdTypesBindRuntimeTypes(t *testing.T) {
 				t.Errorf("%s.%s is neither a record nor an operations type: it needs a binding rule", path, tn.Name)
 				continue
 			}
-			if _, row := v1.StdRecord(path, tn.Name); !row && hasUnexportedField(st) {
-				// A record with construction authority and no row of the
-				// binding table (slices.Ascending, SS5) is the program's
+			if _, named := check.GoTypeOf(n); !named && hasUnexportedField(st) {
+				// A record with construction authority whose declaration
+				// names no Go type (slices.Ascending, SS5) is the program's
 				// declaration (lower runtimeType): only its package builds
 				// it, so it is never an error value of the runtime.
 				if _, err := v1.StructFields(tn.Name); err == nil {
-					t.Errorf("%s.%s has no row in the binding table, and v1 declares a struct of its name", path, tn.Name)
+					t.Errorf("%s.%s names no Go type, and v1 declares a struct of its name", path, tn.Name)
 				}
 				continue
 			}
 			seen++
+			goName, named := check.GoTypeOf(n)
+			if !named || goName != tn.Name {
+				t.Errorf("%s.%s names the Go type %q (%v); a v1 package's record names v1.%s", path, tn.Name, goName, named, tn.Name)
+				continue
+			}
 			var want []string
 			for _, f := range st.Fields {
 				want = append(want, f.Name)
 			}
-			got, err := v1.StructFields(tn.Name)
+			got, err := v1.StructFields(goName)
 			if err != nil {
 				t.Errorf("%s.%s: %v", path, tn.Name, err)
 				continue
 			}
 			if !slices.Equal(got, want) {
-				t.Errorf("%s.%s has fields %v, its Go type v1.%s has %v", path, tn.Name, want, tn.Name, got)
+				t.Errorf("%s.%s has fields %v, its Go type v1.%s has %v", path, tn.Name, want, goName, got)
 			}
 			name := path + "." + tn.Name
 			v, ok := errorValues[name]
@@ -1153,7 +1158,7 @@ func NewHost() Host { Host{} }
 		// Only std binds runtime/v1 (S108); the fixture is checked as a
 		// program package, so its extern has that one diagnostic.
 		for _, d := range ds {
-			if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+			if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 				t.Fatalf("%s: %v", row.kind, ds)
 			}
 		}
@@ -1385,7 +1390,7 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 				}
 				fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
 				for _, d := range ds {
-					if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+					if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 						t.Fatalf("%s/%s: %v\n%s", s.name, m.name, ds, src)
 					}
 				}
@@ -1565,7 +1570,7 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 			}
 			fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
 			for _, d := range ds {
-				if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+				if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 					t.Fatalf("%v\n%s", ds, src)
 				}
 			}
@@ -1626,7 +1631,7 @@ extern go os.Getenv func getenv(k string) string
 func Read(_ Disk) string { hostRead("x") }
 
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string
-`, "only std binds the Ergo runtime"},
+`, "which a package binds only when the root module trusts its Go"},
 		{"record holding a std host provider", `import fs
 
 type Disk { H fs.Host }

@@ -11,6 +11,8 @@ func exploreMain(body func(*rt.Task) error) error { return nil }
 // ExploreReplay is explore.Replay (stdlib.md, Testing). The live build has
 // no controlled scheduler, so the schedule is not followed and the test
 // runs under Go's: it does nothing.
+//
+//ergo:wait none
 func ExploreReplay(schedule []string) {}
 
 // nameHandle names a handle in an explored run's report (explore_on.go);

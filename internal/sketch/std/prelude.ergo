@@ -320,7 +320,7 @@ type Closer {
 
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
-type Task[T, E] {
+extern go ergo.local/prototype/runtime/v1.Task type Task[T, E] {
 	runtimeOnly(),
 	// Wait takes the task: its one result moves out once (#197 q54).
 	// Stop lends it, so a law can say what holds after it.

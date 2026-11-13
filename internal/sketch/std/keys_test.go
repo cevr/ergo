@@ -10,99 +10,67 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/std"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
-// TestStdRecordTable holds the binding table of std records (v1.StdRecord;
-// docs/spec/stdlib.md, Types 4; std-align S3b). Each row names a record of
-// its std package (a private storage record too) and an exported struct of
-// runtime/v1 with the record's fields in order; no two rows name one struct; and every struct
-// of runtime/v1 with an Error method, a failure a body can return, is the
-// struct of a row, so a catch arm can name it.
+// TestStdRecordTable holds the Go types std declarations name (docs/spec/stdlib.md,
+// The body contract; STD-NOPRIV NP4c), read through check.GoTypeOf. Each
+// record that names one is an exported struct of runtime/v1 with the
+// record's fields in order; no two declarations name one Go type; and
+// every struct of runtime/v1 with an Error method, a failure a body can
+// return, is named by a record, so a catch arm can name it.
 func TestStdRecordTable(t *testing.T) {
-	rows := v1.StdRecords()
-	if len(rows) == 0 {
-		t.Fatal("the binding table is empty")
-	}
 	owner := map[string]string{}
-	for key, goName := range rows {
-		path, name, ok := strings.Cut(key, ".")
-		if !ok || path == "" || name == "" || strings.Contains(name, ".") {
-			t.Errorf("row %q is not pkg.Name", key)
-			continue
-		}
-		if got, ok := v1.StdRecord(path, name); !ok || got != goName {
-			t.Errorf("StdRecord(%q, %q) = %q, %v; the table says %q", path, name, got, ok, goName)
-		}
-		if other, dup := owner[goName]; dup {
-			t.Errorf("v1.%s is the struct of %s and of %s; a Go type is one record", goName, other, key)
-		}
-		owner[goName] = key
+	for _, path := range std.Packages() {
 		pkg, err := check.Std.Import(path)
 		if err != nil {
-			t.Errorf("row %s: %v", key, err)
-			continue
+			t.Fatalf("check.Std.Import(%q): %v", path, err)
 		}
-		var want []string
-		arity := 0
-		found := false
 		for _, tn := range pkg.Types {
-			if tn.Name != name {
+			n, ok := tn.Type.(*check.Named)
+			if !ok {
 				continue
 			}
-			var st *check.Struct
-			if n, ok := tn.Type.(*check.Named); ok {
-				st, _ = n.Underlying().(*check.Struct)
-				arity = len(n.TParams)
+			goName, ok := check.GoTypeOf(n)
+			if !ok {
+				continue
 			}
-			if st == nil {
-				t.Errorf("row %s: %s.%s is not a record", key, path, name)
-				break
+			key := path + "." + tn.Name
+			if other, dup := owner[goName]; dup {
+				t.Errorf("v1.%s is the Go type of %s and of %s; a Go type is one declaration's", goName, other, key)
 			}
-			found = true
+			owner[goName] = key
+			st, isRecord := n.Underlying().(*check.Struct)
+			if !isRecord {
+				if !check.Sealed(n) {
+					t.Errorf("%s names v1.%s and is neither a record nor a sealed operation type", key, goName)
+				}
+				continue
+			}
+			var want []string
 			for _, f := range st.Fields {
 				want = append(want, f.Name)
 			}
+			got, err := v1.StructFieldsOf(goName, len(n.TParams))
+			if err != nil {
+				t.Errorf("%s: %v", key, err)
+				continue
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("%s: the record has fields %v, v1.%s has %v", key, want, goName, got)
+			}
 		}
-		if !found {
-			t.Errorf("row %s names no record of std %s", key, path)
-			continue
-		}
-		got, err := v1.StructFieldsOf(goName, arity)
-		if err != nil {
-			t.Errorf("row %s: %v", key, err)
-			continue
-		}
-		if !slices.Equal(got, want) {
-			t.Errorf("row %s: the record has fields %v, v1.%s has %v", key, want, goName, got)
-		}
+	}
+	if len(owner) == 0 {
+		t.Fatal("no std declaration names a Go type")
 	}
 	for _, name := range errorStructs(t) {
 		// GoError is the predeclared go.Error (G4), which no std package
 		// declares; the lowering binds it by name (lower, goErrorDecl).
 		if _, ok := owner[name]; !ok && name != "GoError" {
-			t.Errorf("v1.%s has an Error method, so a body can fail with it, but no row of the binding table names it", name)
+			t.Errorf("v1.%s has an Error method, so a body can fail with it, but no std declaration names it", name)
 		}
-	}
-}
-
-// TestStdRecordBindsByRow: the table is asked with the record's package
-// and name. A name that is a runtime struct's binds nothing in a package
-// with no row for it.
-func TestStdRecordBindsByRow(t *testing.T) {
-	if got, ok := v1.StdRecord("fs", "NotFound"); !ok || got != "NotFound" {
-		t.Errorf("StdRecord(fs, NotFound) = %q, %v", got, ok)
-	}
-	for _, key := range [][2]string{{"fixturea", "NotFound"}, {"strings", "Halves"}, {"filepath", "NotFound"}, {"exec", "Info"}, {"queue", "NotFound"}, {"fs", "Closed"}, {"fs.NotFound", ""}, {"", "fs.NotFound"}} {
-		if got, ok := v1.StdRecord(key[0], key[1]); ok {
-			t.Errorf("StdRecord(%q, %q) = %q; want no row", key[0], key[1], got)
-		}
-	}
-	// The copy is a copy.
-	rows := v1.StdRecords()
-	rows["fs.NotFound"] = "Closed"
-	if got, _ := v1.StdRecord("fs", "NotFound"); got != "NotFound" {
-		t.Error("StdRecords returned the table itself")
 	}
 }
 

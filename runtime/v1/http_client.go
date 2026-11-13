@@ -48,6 +48,8 @@ func httpFailed(kind int, reason string) HTTPSendFailed {
 // HTTPCheckOrigin accepts scheme://authority with the scheme http or
 // https and nothing after the authority (a lone "/" is allowed). It is
 // pure: http.NewClient holds the authority to choose the host.
+//
+//ergo:wait none
 func HTTPCheckOrigin(origin string, limits HTTPLimits) error {
 	if !limits.valid() {
 		return HTTPInvalidLimits(limits)
@@ -129,6 +131,7 @@ type httpDone struct {
 // timeout, retry or redirect of its own.
 //
 //ergo:host
+//ergo:wait caller
 func HTTPDo(t *rt.Task, origin string, limits HTTPLimits, method, path string, query, header []HTTPField, body string) (HTTPResponse, error) {
 	u, err := httpRequestURL(t, origin, method, path, query, header)
 	if err != nil {
@@ -263,6 +266,7 @@ const httpPrefixBytes = 1024
 // status meets accepts like any other.
 //
 //ergo:host
+//ergo:wait caller
 func HTTPDoInto(t *rt.Task, origin string, limits HTTPLimits, method, path string, query, header []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
 	u, err := httpRequestURL(t, origin, method, path, query, header)
 	if err != nil {

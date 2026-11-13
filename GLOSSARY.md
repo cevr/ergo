@@ -221,7 +221,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Predeclared name**: A name the language gives a meaning to with no import: a prelude declaration the compiler knows, or an operation name of a language protocol (`Close`, `Wire`). The readers of each are listed in [stdlib.md, Std is ordinary](docs/spec/stdlib.md#std-is-ordinary).
 
-**Body contract**: The written facts and the calling convention of a Go body that an `extern go` declaration binds: whether it is pure, moves or keeps its arguments, waits, releases, or reads the context, and which hidden arguments it takes. Any module's extern reads the same contract.
+**Body contract**: The written facts and the calling convention of a Go body that an `extern go` declaration binds: whether it is pure, moves or keeps its arguments, waits, releases, or reads the context, and which hidden arguments it takes. Any module's extern reads the same contract. Each fact and its home are listed in [stdlib.md, The body contract](docs/spec/stdlib.md#the-body-contract).
 
 **Library intrinsic**: A target implementation the compiler substitutes for an ordinary declared library signature. The signature, together with any declared contract written only in the inferred contract vocabulary, is the only source of diagnostics, checked types, rows and ownership, provided that the declared contract is consumed by the same path as an inferred one and no checker, emitter or reachability branch is keyed on the item's identity beyond backend selection (amended for [#130](https://github.com/cevr/ergo/issues/130)). The intrinsic may add backend facts such as retained runtime modules. The implementation of a syntax construct is part of that construct, not a library intrinsic.
 

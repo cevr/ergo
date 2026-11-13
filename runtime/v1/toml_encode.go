@@ -34,6 +34,8 @@ func (e TOMLUnrepresentable) Error() string {
 // fails here: TOML text is UTF-8. It is the inverse path of TOMLParse,
 // which writes JSON for the Reader; the encoder of the derived codec
 // stays std json's, so TOML adds no second encoder per type.
+//
+//ergo:wait none
 func TOMLFromJSON(text string) (string, error) {
 	c, err := JSONOpen(text, 0, 0)
 	if err != nil {

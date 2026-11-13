@@ -25,7 +25,7 @@
 // is its one provider, so no program value implements it.
 //
 // law-exempt: its one operation gives back the value NewRedacted was given; the top-level law RevealIsTheValue states it over NewRedacted, the only provider, and needs a comparable T.
-type Redacted[T] {
+extern go ergo.local/prototype/runtime/v1.Redacted type Redacted[T] {
 	runtimeOnly(),
 	// Reveal is the value the secret holds.
 	Reveal() T,

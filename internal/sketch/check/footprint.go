@@ -7,7 +7,6 @@ import (
 
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Footprints (rows.md, Footprints; #199 stage 1). A frame's footprint is
@@ -627,9 +626,11 @@ func (fp *footprinter) runs(n *fpNode, f *Func, taskResult bool) {
 // (fu-pure-task). It only widens pureStd over std externs.
 var pureStdAlso func(*Func) bool
 
-// pureStd reports a std extern whose runtime/v1 Go body carries the
-// reviewed purity fact (v1.Body.Pure; docs/spec/stdlib.md, Pure bodies). A
-// user extern is never pure: its Go body is outside the reviewed set.
+// pureStd reports an extern whose bound runtime/v1 Go body carries the
+// reviewed purity fact (Body.Pure; docs/spec/stdlib.md, Pure bodies), a
+// Go builtin, or a Go function of the reviewed pure tier (pureGo). The
+// fact is the body's, for an extern of any package (NP4b); any other Go
+// body is outside the reviewed set and is never pure.
 func pureStd(f *Func) bool {
 	if pureGo(f) {
 		return true
@@ -638,7 +639,7 @@ func pureStd(f *Func) bool {
 		// A Go builtin calls no Ergo code and no capability (builtin.go).
 		return !(pureCollections == "off" && preludeCollection(f))
 	}
-	if f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil || !f.Pkg.std {
+	if f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil {
 		return false
 	}
 	if pureStdAlso != nil && pureStdAlso(f) {
@@ -647,12 +648,7 @@ func pureStd(f *Func) bool {
 	if pureCollections == "off" && preludeCollection(f) {
 		return false
 	}
-	path, name := f.Decl.Extern.Split()
-	if path != runtimeModule+"/v1" {
-		return false
-	}
-	body, err := v1.BodyOf(name)
-	return err == nil && body.Pure
+	return BodyOf(f).Pure
 }
 
 // pureGo reports a Go function or method of import go in the reviewed pure

@@ -603,6 +603,7 @@ func (e *encoder) encPtrIndexExpr(v *IndexExpr) {
 
 func (e *encoder) encFieldsInterfaceType(v *InterfaceType) {
 	e.encPos(v.Lbrace)
+	e.encT9(v.Includes)
 	e.encT9(v.Methods)
 	e.encT14(v.Laws)
 	e.encT2(v.Union)
@@ -994,6 +995,8 @@ func (e *encoder) encFieldsTypeDecl(v *TypeDecl) {
 	e.encPos(v.DerivePos)
 	e.encExpr(v.Derive)
 	e.encPtrTypeDecl(v.Origin)
+	e.encPos(v.ImplementsPos)
+	e.encT2(v.Implements)
 }
 
 func (e *encoder) encTypeDecl(v TypeDecl) { e.encFieldsTypeDecl(&v) }
@@ -2324,6 +2327,7 @@ func (d *decoder) decPtrIndexExpr() *IndexExpr {
 
 func (d *decoder) decFieldsInterfaceType(v *InterfaceType) {
 	v.Lbrace = d.decPos()
+	v.Includes = d.decT9()
 	v.Methods = d.decT9()
 	v.Laws = d.decT14()
 	v.Union = d.decT2()
@@ -2781,6 +2785,8 @@ func (d *decoder) decFieldsTypeDecl(v *TypeDecl) {
 	v.DerivePos = d.decPos()
 	v.Derive = d.decExpr()
 	v.Origin = d.decPtrTypeDecl()
+	v.ImplementsPos = d.decPos()
+	v.Implements = d.decT2()
 }
 
 func (d *decoder) decTypeDecl() (v TypeDecl) {

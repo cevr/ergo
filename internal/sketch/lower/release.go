@@ -16,7 +16,7 @@ import (
 // next checkpoint. runtime/v1 holds the one mask and cause boundary
 // (release in task.go). Each lowered release reaches it through one
 // binding of runtimeBindings whose release route is not notRelease: those
-// bindings are the release catalog, and runtimeCall is their one emitter.
+// bindings are the release catalog (derived from the bodies' //ergo:release marks, bodycontract.go), and runtimeCall is their one emitter.
 // TestRuntime199MaskProperty derives its release axis from the catalog;
 // the owner scan fails a route that masks or releases on its own.
 type releaseRoute uint8
@@ -331,7 +331,7 @@ func (fc *funcCtx) closeBody(f *check.Func, recv string, site syntax.Node, emit 
 	if runtimeBindings[name].release != callerRelease {
 		ice(site, "the binding %s is not the caller release route", name)
 	}
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil {
 		ice(site, "the release route %s has no runtime/v1 body: %v", name, err)
 	}
@@ -375,7 +375,7 @@ func (fc *funcCtx) closeBody(f *check.Func, recv string, site syntax.Node, emit 
 
 // ownBinding is the v1 body of an ownership binding.
 func (fc *funcCtx) ownBinding(name string, site syntax.Node) v1.Body {
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil {
 		ice(site, "the ownership binding %s has no runtime/v1 body: %v", name, err)
 	}
@@ -900,14 +900,15 @@ func (fc *funcCtx) holdTaken(x *syntax.CallExpr, c *check.Call) []string {
 	return held
 }
 
-// stdOp reports a call of a std operation type's operation, whose body is
-// runtime/v1's.
+// stdOp reports a call of an operation whose body is a runtime/v1 method
+// (check.OpBodyOf: the type's package binds the runtime, and the runtime
+// has the method), for a type of any package.
 func (fc *funcCtx) stdOp(c *check.Call) bool {
-	if c.Recv == nil {
+	if c.Recv == nil || c.Op == nil {
 		return false
 	}
 	n, ok := fc.typeOf(c.Recv).(*check.Named)
-	return ok && n.Obj != nil && n.Obj.Pkg.Std()
+	return ok && n.Obj != nil && check.OpBodyOf(n, c.Op.Name).Runtime != ""
 }
 
 // settleTaken writes the call text and settles the held entries: on

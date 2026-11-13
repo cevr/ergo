@@ -2,7 +2,6 @@ package check
 
 import (
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // TaskCapture is the transport at a callback's creation. Vars are owning
@@ -15,15 +14,14 @@ type TaskCapture struct {
 	Repeated bool
 }
 
+// movingBody is the moving callback of the call's bound body (Body.Moves),
+// for an extern of any package.
 func movingBody(call *Call) (int, bool, bool) {
-	if call == nil || call.Kind != CallFunc || call.Func == nil || call.Func.Decl == nil || call.Func.Decl.Extern == nil || call.Func.Pkg == nil || !call.Func.Pkg.Std() {
+	if call == nil || call.Kind != CallFunc {
 		return 0, false, false
 	}
-	path, name := call.Func.Decl.Extern.Split()
-	if path != runtimeModule+"/v1" {
-		return 0, false, false
-	}
-	return v1.MovingBody(name)
+	b := BodyOf(call.Func)
+	return b.MovingParam, b.Repeated, b.Moves
 }
 
 // taskFrame checks a literal executed by a moving body. A resource lends

@@ -35,7 +35,7 @@
 // Malformed is the failure of a text that is not one JSON value, or is
 // longer than MaxBytes, or nests deeper than MaxDepth: Offset is the byte
 // offset where the text breaks the rule, Reason the rule.
-type Malformed { Offset int, Reason string }
+extern go ergo.local/prototype/runtime/v1.JSONMalformed type Malformed { Offset int, Reason string }
 
 // Text is JSON text being written: the prelude's Writer events, and the
 // text they wrote so far. Its one provider is text. The private
@@ -272,7 +272,7 @@ func NewHTMLText() Text { text{comma: false, html: true, out: []byte{}} }
 // of the innermost open list or object; Wrong says when it was not of the
 // kind asked for.
 // law-exempt: only open makes a Cursor, from a text, so a law cannot draw one; the package law RoundTrips holds its reads through Reader and decode.
-type Cursor {
+extern go ergo.local/prototype/runtime/v1.Cursor type Cursor {
 	runtimeOnly(),
 	TakeNull() bool,
 	// Kind is the next value's kind in WireKind's order (0 null to 6 end).

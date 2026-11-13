@@ -6,7 +6,7 @@
 
 import fs
 
-type FS {
+extern go ergo.local/prototype/runtime/v1.FS type FS {
 	runtimeOnly(),
 	..fs.Files,
 

@@ -28,6 +28,7 @@ import (
 // ConfigFlagName is the flag name of key.
 //
 //ergo:pure
+//ergo:wait none
 func ConfigFlagName(key string) string {
 	parts := strings.Split(key, ".")
 	for i, p := range parts {
@@ -47,6 +48,7 @@ func ConfigFlagName(key string) string {
 // ConfigEnvName is the environment variable of key under prefix.
 //
 //ergo:pure
+//ergo:wait none
 func ConfigEnvName(prefix, key string) string {
 	parts := strings.Split(key, ".")
 	for i, p := range parts {
@@ -68,6 +70,7 @@ func ConfigEnvName(prefix, key string) string {
 // upper case.
 //
 //ergo:pure
+//ergo:wait none
 func ConfigFlagKey(name string) string {
 	parts := strings.Split(name, ".")
 	for i, p := range parts {
@@ -89,6 +92,7 @@ func ConfigFlagKey(name string) string {
 // each "__"-part's "_"-words in lower case, joined as ConfigFlagKey joins.
 //
 //ergo:pure
+//ergo:wait none
 func ConfigEnvKey(rest string) string {
 	parts := strings.Split(rest, "__")
 	for i, p := range parts {

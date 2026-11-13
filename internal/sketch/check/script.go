@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Scripts (stdlib.md, Testing 7 to 12; #237 stage 5, unit L5b). The std
@@ -56,8 +55,8 @@ func ScriptOf(t Type) *Named {
 }
 
 // returnsRunning reports an operation whose one result is a running task,
-// a Task or a tasks.Set: a std type whose Close stops running code
-// (v1.StopsRunning, the table running.go reads).
+// a Task or a tasks.Set: a type whose Close is a runtime body that stops running code
+// (OpBody.StopsRunning, the fact running.go reads).
 func returnsRunning(sig *Signature) bool {
 	if len(sig.Results) != 1 {
 		return false
@@ -66,8 +65,7 @@ func returnsRunning(sig *Signature) bool {
 	if !ok {
 		return false
 	}
-	o := n.origin().Obj
-	return o != nil && o.Pkg != nil && o.Pkg.Std() && v1.StopsRunning(o.Name+".Close")
+	return OpBodyOf(n, "Close").StopsRunning
 }
 
 // scriptWhy is why the type argument s makes no Script, or "" when it

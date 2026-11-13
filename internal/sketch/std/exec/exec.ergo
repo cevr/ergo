@@ -15,21 +15,21 @@ import strings
 
 // NotFound is the failure of a program Name that is not on the PATH, or of
 // a path Name with no file at it.
-type NotFound { Name string }
+extern go ergo.local/prototype/runtime/v1.ExecNotFound type NotFound { Name string }
 
 // Denied is the failure of a file Name that the process may not run.
-type Denied { Name string }
+extern go ergo.local/prototype/runtime/v1.ExecDenied type Denied { Name string }
 
 // Failed is any other failure to start the program Name, such as a
 // working directory that does not exist. Reason is the host's text for it.
-type Failed { Name string, Reason string }
+extern go ergo.local/prototype/runtime/v1.ExecFailed type Failed { Name string, Reason string }
 
 // Result is what a program that ran gives back: its exit status and all
 // it wrote to standard output and standard error. A status that is not 0
 // is a Result, not a failure, so a caller matches on it. A program that a
 // signal ended has the status 128 plus the signal's number, as a shell
 // reports it.
-type Result { Status int, Stdout string, Stderr string }
+extern go ergo.local/prototype/runtime/v1.ExecResult type Result { Status int, Stdout string, Stderr string }
 
 // Command is one program to run: the program Name (a name looked up on
 // the PATH, or a path), its arguments after the name, the environment
@@ -139,14 +139,14 @@ type Streams { Stdout Sink, Stderr Sink }
 
 // Line is one line of a stream whose sink is ToCaller, without its line
 // feed, and whether it came from standard error.
-type Line { Text string, Stderr bool }
+extern go ergo.local/prototype/runtime/v1.ExecLine type Line { Text string, Stderr bool }
 
 // Chunk is what one read of a stream whose sink is ToCaller gave: its
 // bytes as the program wrote them (any bytes, line feeds included), and
 // whether it came from standard error. A Chunk with no bytes is the end of
 // its stream. Where a stream is cut into chunks is not a promise: only the
 // bytes of each stream, in their order, are.
-type Chunk { Text string, Stderr bool }
+extern go ergo.local/prototype/runtime/v1.ExecChunk type Chunk { Text string, Stderr bool }
 
 // Running is a started program. It is a resource: the scope that owns it
 // ends the program when it ends (SIGTERM to the program's process group,
@@ -156,7 +156,7 @@ type Chunk { Text string, Stderr bool }
 // law-exempt: the lifecycle is a property against a model over a fake
 // process (runtime/v1 TestRunningMatchesModel); a real program's streams
 // are TestExecStreams.
-type Running {
+extern go ergo.local/prototype/runtime/v1.Running type Running {
 	runtimeOnly(),
 	..Closer,
 	// Lines gives the lines of the streams whose sink is ToCaller, each

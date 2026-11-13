@@ -1682,6 +1682,8 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		op.mode = modeInvalid
 		return false
 	}
+	captured := false
+	c.capture = &captured
 	a, why := c.assignability(op.typ, t)
 	if !a.ok() {
 		repair := ""
@@ -1721,8 +1723,20 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 	c.implicit(op.expr, a)
 	if a.clause == assignOperations {
 		c.recordConversion(op.expr, op.typ, t)
+		c.captureForeign(op.expr, captured, op.typ, t)
 	}
 	return true
+}
+
+// captureForeign charges go.Foreign where a provider whose operations call
+// Go becomes a value of an operation type (README Gap 17): the build site
+// holds it for every later call through the operation type, whose own row
+// does not name it. The provider value is the capture; go.Foreign has no
+// provider of its own (rows.md, Entry 4), so nothing is stored.
+func (c *checker) captureForeign(at syntax.Node, captured bool, v, t Type) {
+	if captured {
+		c.chargeAs(at, goForeign(), fmt.Sprintf("building %s as %s, whose operations call Go,", v, t))
+	}
 }
 
 // A tuple call cannot convert its parts as a whole. Destructuring and

@@ -19,12 +19,12 @@ import tasks
 // requested, and the answer of an Ask that was queued or in a step when
 // the actor ended. An ended actor is a normal end of the protocol, not a
 // stop of the caller.
-type Stopped {}
+extern go ergo.local/prototype/runtime/v1.ActorStopped type Stopped {}
 
 // Actor is a running machine with state S, signal E, step decision D and
 // step error row F (StartMachine gives D = Decision[S, O]). Its values are
 // copies of one handle: any task may Send, Ask, read State and Stop.
-type Actor[S, E, D, F] {
+extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 	runtimeOnly(),
 	// Send admits e into the inbox, waiting while it is full, and returns
 	// once e is queued, before it is stepped. A sender's signals are
@@ -332,7 +332,7 @@ func Child[S, E, O, F, R, W, P](send entry func(e P), m Machine[S, E, O, F, R, W
 // waited, or ended, so a reader that sees the entry finds each host filled
 // unless the work waited first.
 // law-exempt: a host's answers depend on its owner entry, which only an actor's runner opens, fills and ends, and a law has no running entry; the runner's property TestActorHostAgreesWithModel holds its rules against the model models/host.
-type Host[A] {
+extern go ergo.local/prototype/runtime/v1.Host type Host[A] {
 	runtimeOnly(),
 	// Get is the child once the entry's work filled the host, waiting
 	// while it is empty; it fails Stopped once the entry ended, also after

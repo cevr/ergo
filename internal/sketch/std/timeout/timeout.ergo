@@ -1,7 +1,7 @@
 import time
 
 // Expired is the failure of a body that did not finish before its deadline.
-type Expired {}
+extern go ergo.local/prototype/runtime/v1.Expired type Expired {}
 
 // After runs f as a child task and fails with Expired when d passes first
 // (docs/spec/runtime.md, Timeouts). It is an ordinary library function: a

@@ -8,6 +8,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The Info contract (check-v1 spec, "Interface to lower-v1"). The lowering
@@ -114,6 +115,18 @@ type Package struct {
 	// check-v1 stage E4). Only prelude and stdImporter.Import set it, before
 	// the package is checked; Std reads it.
 	std bool
+	// module is the module the package belongs to, as its loader names it
+	// ("" when it has none), and trusted reports that the root module
+	// vouches for the Go it binds (ergo.mod `trust`; docs/spec/interop.md,
+	// Trusted Go): its externs may bind the Ergo runtime under the body
+	// contract. The loader sets both through GoTrust before the check; the
+	// toolchain vouches for the packages it ships.
+	module  string
+	trusted bool
+	// goBodies are the bodies its externs bind in its module's own Go
+	// packages, by extern target (moduleDoor; docs/spec/interop.md,
+	// Trusted Go 3). Only the package's own check writes it.
+	goBodies map[string]v1.Body
 	// host is the binding a Go package is read from (gobinding.go); nil
 	// for an Ergo package.
 	host *hostPkg
@@ -140,6 +153,10 @@ type Package struct {
 // check-v1 stage E4). A program package never has it, whatever its path,
 // so the lowering keys std's namespaces on it, not on a path string.
 func (p *Package) Std() bool { return p != nil && p.std }
+
+// Trusted reports whether the root module vouches for the Go that p binds
+// (GoTrust): its externs may bind the Ergo runtime under the body contract.
+func (p *Package) Trusted() bool { return p != nil && p.trusted }
 
 // Host reports whether p is a Go package read from its binding (import go;
 // docs/spec/interop.md).

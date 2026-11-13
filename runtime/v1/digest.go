@@ -42,6 +42,7 @@ func (m Base64Malformed) Error() string {
 // HexEncode is hex.EncodeToString of the bytes of s.
 //
 //ergo:pure
+//ergo:wait none
 func HexEncode(s string) string { return hex.EncodeToString([]byte(s)) }
 
 // HexDecode is the bytes hex.DecodeString reads from s, or HexMalformed at
@@ -51,6 +52,7 @@ func HexEncode(s string) string { return hex.EncodeToString([]byte(s)) }
 // the byte it reports.
 //
 //ergo:pure
+//ergo:wait none
 func HexDecode(s string) (string, error) {
 	b, err := hex.DecodeString(s)
 	if err == nil {
@@ -68,17 +70,20 @@ func HexDecode(s string) (string, error) {
 // Base64StdEncode is base64.StdEncoding.EncodeToString of the bytes of s.
 //
 //ergo:pure
+//ergo:wait none
 func Base64StdEncode(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 
 // Base64URLEncode is base64.URLEncoding.EncodeToString of the bytes of s.
 //
 //ergo:pure
+//ergo:wait none
 func Base64URLEncode(s string) string { return base64.URLEncoding.EncodeToString([]byte(s)) }
 
 // Base64StdDecode is the bytes base64.StdEncoding.DecodeString reads from
 // s, or Base64Malformed at Go's CorruptInputError offset.
 //
 //ergo:pure
+//ergo:wait none
 func Base64StdDecode(s string) (string, error) {
 	b, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
@@ -92,6 +97,7 @@ func Base64StdDecode(s string) (string, error) {
 // s, or Base64Malformed at Go's CorruptInputError offset.
 //
 //ergo:pure
+//ergo:wait none
 func Base64URLDecode(s string) (string, error) {
 	b, err := base64.URLEncoding.DecodeString(s)
 	if err != nil {
@@ -104,6 +110,7 @@ func Base64URLDecode(s string) (string, error) {
 // Sha256Sum is the 32 bytes of sha256.Sum256 of the bytes of s.
 //
 //ergo:pure
+//ergo:wait none
 func Sha256Sum(s string) string {
 	d := sha256.Sum256([]byte(s))
 	return string(d[:])
@@ -112,11 +119,13 @@ func Sha256Sum(s string) string {
 // Crc32Checksum is crc32.ChecksumIEEE of the bytes of s.
 //
 //ergo:pure
+//ergo:wait none
 func Crc32Checksum(s string) uint32 { return crc32.ChecksumIEEE([]byte(s)) }
 
 // Crc32Update is crc32.Update(crc, crc32.IEEETable, the bytes of s).
 //
 //ergo:pure
+//ergo:wait none
 func Crc32Update(crc uint32, s string) uint32 {
 	return crc32.Update(crc, crc32.IEEETable, []byte(s))
 }

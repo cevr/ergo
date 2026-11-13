@@ -4302,6 +4302,8 @@
       "rule": "A provider's laws take the evidence of the ledger of the module that declares it: the root module's ledger never answers for a provider another module declares.",
       "anchor": {"tests": ["lower:TestCellEvidenceFollowsTheDeclaringModule"]},
       "killers": ["lower:TestCellEvidenceFollowsTheDeclaringModule"]
-    }
+    },
+    {"name":"adapter-ice-on-foreign","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/lower/calls.go","from":"if len(rowElems(f.Sig.Uses)) > 0 && !check.GoForeign(f.Sig) {","to":"if len(rowElems(f.Sig.Uses)) > 0 {","rule":"README Gap 17: an operation adapter calls a table function whose capability row is go.Foreign alone, which no environment holds.","killers":["lower:TestOperationAdapterCallsGo"]},
+    {"name":"stdbody-std-only","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketch/lower/std.go","from":"\tif fd.extern == \"\" || l.intrinsic(fd.fn) != nil {","to":"\tif fd.extern == \"\" || !fd.library && !fd.fn.Pkg.Std() || l.intrinsic(fd.fn) != nil {","rule":"interop.md Trusted Go: a trusted extern of any package calls its runtime body with hidden arguments.","killers":["lower:TestTrustedRootBindsRuntime"]}
   ]
 }

@@ -211,6 +211,8 @@ func takeReplay() *replayWindow {
 // the explored run follow schedule, whose paths are relative to the
 // calling task; a point whose task is not enabled stops the run with a
 // defect that names the step. Outside an explored run it does nothing.
+//
+//ergo:wait none
 func ExploreReplay(schedule []string) {
 	replayMu.Lock()
 	defer replayMu.Unlock()

@@ -22,27 +22,27 @@ import strings
 // Failed is a typed failure on the wire: Text is the failure's JSON, a
 // {"_tag": ...} object. A handler fails it to answer a Fail cause, and
 // Call fails it when the peer answered one.
-type Failed { Text string }
+extern go ergo.local/prototype/runtime/v1.RPCFailed type Failed { Text string }
 
 // Unrepresentable is an int at Path whose Value a JavaScript number does
 // not hold exactly: beyond +-(2^53-1).
-type Unrepresentable { Path string, Value string }
+extern go ergo.local/prototype/runtime/v1.RPCUnrepresentable type Unrepresentable { Path string, Value string }
 
 // Transport is a call the wire did not carry: a server that cannot be
 // reached or that dropped the connection, a call the server refused or
 // could not read, an answer that is not Effect RPC's or not the
 // contract's, and a call the server interrupted. Reason says which.
-type Transport { Reason string }
+extern go ergo.local/prototype/runtime/v1.RPCTransport type Transport { Reason string }
 
 // Malformed is a request body that is not Effect RPC's: not a JSON
 // envelope or an array of them (json), or a line that is not one
 // (ndjson).
-type Malformed { Reason string }
+extern go ergo.local/prototype/runtime/v1.RPCMalformed type Malformed { Reason string }
 
 // Envelope is one message of a request body: Tag is its "_tag" (only a
 // "Request" is answered), ID its id's JSON token as sent, RPC the
 // operation's tag and Payload its payload's JSON text.
-type Envelope { Tag string, ID string, RPC string, Payload string }
+extern go ergo.local/prototype/runtime/v1.RPCEnvelope type Envelope { Tag string, ID string, RPC string, Payload string }
 
 // Serve serves Effect RPC on l at the path mount until the calling task
 // is stopped: http.Serve with Answer as its handler, so one listener and

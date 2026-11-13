@@ -17,14 +17,14 @@ import slices
 // Column (bytes, from 1) are where the text breaks the format, Reason is
 // Go's reason ("wrong number of fields", "bare \" in non-quoted field")
 // and Message Go's whole text of the error.
-type ParseError { Line int, Column int, Reason string, Message string }
+extern go ergo.local/prototype/runtime/v1.CSVParseError type ParseError { Line int, Column int, Reason string, Message string }
 
 // Position is where a field starts in the text, as Go's Reader.FieldPos
 // gives it: Line and Column count from 1, and Column counts bytes, as in
 // ParseError. A quoted field starts at its opening quote, and a field may
 // start on a later line than its record when a quoted field before it
 // spans lines.
-type Position { Line int, Column int }
+extern go ergo.local/prototype/runtime/v1.CSVPosition type Position { Line int, Column int }
 
 // Parsed is one record of a text: its fields, and where each starts
 // (At[i] is the start of Fields[i]), so a program that finds a bad value

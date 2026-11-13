@@ -79,6 +79,8 @@ func (h *handoff) take() []hostCell {
 // actor that start opens, whose first entry binds the ones s holds. A host
 // that no entry binds is closed when start returns, and every host recover
 // made is closed when recover fails or raises.
+//
+//ergo:wait none
 func ActorRecovering[S, A any](t *rt.Task, fold func(*rt.Task) (S, error), start func(*rt.Task, S) A) (A, error) {
 	rec := &recovery{}
 	var hosts []hostCell
