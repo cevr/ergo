@@ -184,14 +184,87 @@ func pollIn(t *testing.T, fd int, d time.Duration) (bool, error) {
 	}
 }
 
+// TestMountVerdict: which change of the mount table between the start and
+// the end of a run leaves its inputs unknown (fu-sweep-mounts). The run
+// looked in the checkout /home/u/src/m, in /tmp/ec1/t, and up to its own
+// Rift under /workspaces/.rifts/ergo. A Rift mount another lane makes or
+// removes there mid-run is no reason, nor is a mount below a directory no
+// lookup reached; a mount over a directory a lookup passed, one above it,
+// one at a name looked up (this lane's Rift), a removed or remounted one
+// there, a change undone, and an unreadable table are. Mutant mount-verdict-any-point (lookedIn never consulted, every
+// changed mount a reason): the Rift rows are refused. Mutant
+// mount-verdict-no-point (no changed mount is a reason): the rows over the
+// checkout are accepted.
+func TestMountVerdict(t *testing.T) {
+	start := strings.Join([]string{
+		"23 1 254:0 / / ro,relatime shared:1 - ext4 /dev/root rw",
+		"40 23 0:33 / /workspaces ro,noatime - btrfs /dev/loop0 rw",
+		"41 40 0:33 /.rifts/ergo/old /workspaces/.rifts/ergo/old ro - btrfs /dev/loop0 rw",
+		"90 23 254:0 /tmp/ec1/t /tmp/ec1/t rw,relatime - ext4 /dev/root rw",
+		"95 23 0:40 / /home/u/src/m/cache ro - tmpfs tmpfs rw",
+	}, "\n")
+	w := &inotifyWatcher{}
+	for _, d := range []string{"/", "/home", "/home/u", "/home/u/src", "/home/u/src/m", "/home/u/src/m/cache", "/home/u/src/m/docs", "/tmp", "/tmp/ec1/t", "/workspaces", "/workspaces/.rifts", "/workspaces/.rifts/ergo"} {
+		w.watched.Store(d, int32(-1))
+	}
+	// The names looked up: a Rift of this lane, and two names of the
+	// checkout.
+	for _, n := range []string{"/workspaces/.rifts/ergo\x00wf10-this", "/home/u/src/m\x00new", "/home/u/src/m\x00a b"} {
+		w.visited.Store(n, struct{}{})
+	}
+	lookedIn := w.lookedIn
+	with := func(extra ...string) string { return start + "\n" + strings.Join(extra, "\n") }
+	without := func(id string) string {
+		var out []string
+		for _, l := range strings.Split(start, "\n") {
+			if !strings.HasPrefix(l, id+" ") {
+				out = append(out, l)
+			}
+		}
+		return strings.Join(out, "\n")
+	}
+	for _, c := range []struct{ name, end, want string }{
+		{"a Rift mounted elsewhere", with("97 40 0:33 /.rifts/ergo/new /workspaces/.rifts/ergo/new ro - btrfs /dev/loop0 rw"), ""},
+		{"a Rift removed elsewhere", without("41"), ""},
+		{"a mount at a name no lookup used, in a directory looked in", with("97 40 0:33 /.rifts/ergo/other /workspaces/.rifts/ergo/other ro - btrfs /dev/loop0 rw"), ""},
+		{"a mount at this lane's Rift", with("97 40 0:33 /.rifts/ergo/x /workspaces/.rifts/ergo/wf10-this ro - btrfs /dev/loop0 rw"), "the mount at /workspaces/.rifts/ergo/wf10-this changed"},
+		{"a mount below a directory no lookup reached", with("97 90 0:41 / /tmp/ec1/t/a/b ro - tmpfs tmpfs rw"), ""},
+		{"a mount over a directory looked in", with("97 23 0:41 / /home/u/src/m/docs ro - tmpfs tmpfs rw"), "the mount at /home/u/src/m/docs changed"},
+		{"a mount at a name looked up", with("97 23 0:41 / /home/u/src/m/new ro - tmpfs tmpfs rw"), "the mount at /home/u/src/m/new changed"},
+		{"a mount above the checkout", with("97 23 0:41 / /home/u ro - tmpfs tmpfs rw"), "the mount at /home/u changed"},
+		{"a mount point with a space", with(`97 23 0:41 / /home/u/src/m/a\040b ro - tmpfs tmpfs rw`), "the mount at /home/u/src/m/a b changed"},
+		{"a mount removed in the checkout", without("95"), "the mount at /home/u/src/m/cache changed"},
+		{"a mount made writable in the checkout", strings.Replace(start, "/home/u/src/m/cache ro", "/home/u/src/m/cache rw", 1), "the mount at /home/u/src/m/cache changed"},
+		{"a change undone", start, "changed back, so where is unknown"},
+		{"an unreadable table", "", "the table cannot be read"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := mountVerdict(start, c.end, lookedIn)
+			if c.want == "" && got != "" || c.want != "" && !strings.Contains(got, c.want) {
+				t.Fatalf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 // mountChildVariable runs TestMountTableChangeIsSeen's child.
 const mountChildVariable = "ERGO_TESTINPUTS_MOUNT_CHILD"
 
 // TestMountTableChangeIsSeen: a mount made in the namespace after the watch
-// opened the mount table is a priority event on it, which finish reports.
-// The child runs in a user and mount namespace of its own.
+// opened the mount table is a priority event on it, which finish reports
+// when a lookup of the run looked in the mount point's parent. A mount at a
+// directory no lookup passed is no reason (a host's mount far from the
+// run's inputs, fu-sweep-mounts). The child runs in a user and mount
+// namespace of its own. Mutant mount-change-ignored (finish skips the
+// mount table): the first watcher's mount is accepted.
 func TestMountTableChangeIsSeen(t *testing.T) {
 	if dir := os.Getenv(mountChildVariable); dir != "" {
+		read, far := filepath.Join(dir, "read"), filepath.Join(dir, "far", "away")
+		for _, d := range []string{read, far} {
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
 		w, err := newWatcher(func(string) bool { return false })
 		if err != nil {
 			t.Fatal(err)
@@ -199,11 +272,25 @@ func TestMountTableChangeIsSeen(t *testing.T) {
 		if changed, err := pollPriority(w.mounts); err != nil || changed {
 			t.Fatalf("the mount table changed before any mount: %v %v", changed, err)
 		}
-		if err := syscall.Mount("tmpfs", dir, "tmpfs", 0, ""); err != nil {
+		w.see(dir, "read")
+		w.see(read, "x")
+		if err := syscall.Mount("tmpfs", read, "tmpfs", 0, ""); err != nil {
 			t.Fatal(err)
 		}
-		if _, reason := w.finish(); reason == "" {
-			t.Fatal("a mount during the run was not seen")
+		if _, reason := w.finish(); !strings.Contains(reason, "the mount at "+read+" changed") {
+			t.Fatalf("a mount during the run over a directory a lookup passed was not seen: %q", reason)
+		}
+		w, err = newWatcher(func(string) bool { return false })
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.see(dir, "read")
+		w.see(read, "x")
+		if err := syscall.Mount("tmpfs", far, "tmpfs", 0, ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, reason := w.finish(); reason != "" {
+			t.Fatalf("a mount no lookup passed is a reason: %q", reason)
 		}
 		return
 	}

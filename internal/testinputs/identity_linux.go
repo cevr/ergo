@@ -4,6 +4,7 @@ package testinputs
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -48,7 +49,14 @@ func inode(info fs.FileInfo) (dev, ino uint64) {
 //     as a root service, can: it is not watched, a known limit);
 //   - the mount table of the namespace (/proc/self/mountinfo, which poll
 //     reports changed): the tree cannot mount, so a change of it during the
-//     run comes from outside, from a process that entered the namespace.
+//     run comes from outside, from a process that entered the namespace or
+//     from the host (an unlink of a mount point detaches the mounts on it
+//     in every namespace, a private one too). A changed mount matters when
+//     a lookup could have passed it: its mount point is a directory a lookup
+//     looked in, or lies above one, or is a name in one (mountVerdict). A
+//     mount elsewhere changes no recorded input, so it is no reason; a
+//     change the two tables do not show (made and undone) is one, since
+//     where it was is unknown.
 //
 // In a watched directory outside the checkout, only a change of a name a
 // lookup used counts: a name added, removed or replaced, a directory's
@@ -78,7 +86,10 @@ type inotifyWatcher struct {
 	fd     int
 	file   *os.File // the same descriptor, read by the poller
 	mounts int      // /proc/self/mountinfo, open since the start
-	done   chan struct{}
+	// mountsAt is the mount table read just after mounts was opened, or
+	// "" when it could not be read (then any change is a reason).
+	mountsAt string
+	done     chan struct{}
 	// holder is the write end of the holder's standard input, or -1 when
 	// no holder started (startHolder); holderPid is its process id, and
 	// holderReady the read end of the pipe on which it reports that it
@@ -124,6 +135,11 @@ func newWatcher(changeable func(string) bool) (*inotifyWatcher, error) {
 		return nil, fmt.Errorf("open the mount table: %w", err)
 	}
 	w := &inotifyWatcher{fd: fd, mounts: mounts, done: make(chan struct{}), changeable: changeable}
+	// Read after the open: a change between the two is an event whose
+	// mount the start table already shows, so it reads as made and undone.
+	if b, err := os.ReadFile("/proc/self/mountinfo"); err == nil {
+		w.mountsAt = string(b)
+	}
 	w.holder, w.holderPid, w.holderReady = startHolder(fd)
 	// The descriptor is non-blocking, so package os reads it through the
 	// poller, and a read deadline ends the reader (finish).
@@ -284,13 +300,12 @@ func changeableDir(dir string) bool {
 const stRdonly = 1
 
 func (w *inotifyWatcher) see(dir, name string) {
-	wd, ok := w.watched.Load(dir)
-	if !ok {
-		wd = w.add(dir)
+	if _, ok := w.watched.Load(dir); !ok {
+		w.add(dir)
 	}
-	if wd.(int32) >= 0 {
-		w.visited.Store(dir+"\x00"+name, struct{}{})
-	}
+	// Every lookup is kept, watched or not: a mount at the name matters
+	// (lookedIn). parse reads only those of watched directories.
+	w.visited.Store(dir+"\x00"+name, struct{}{})
 }
 
 // add decides whether a directory needs a watch and adds it. The watch is in
@@ -412,13 +427,111 @@ func (w *inotifyWatcher) finish() ([]string, string) {
 	case err != nil:
 		w.fail("poll the mount table: " + err.Error())
 	case mountsChanged:
-		w.fail("the mount table changed during the run, and the tree cannot mount: a process outside it did")
+		end, err := os.ReadFile("/proc/self/mountinfo")
+		if err != nil {
+			w.fail("the mount table changed during the run, and reading it again failed: " + err.Error())
+			break
+		}
+		if reason := mountVerdict(w.mountsAt, string(end), w.lookedIn); reason != "" {
+			w.fail(reason)
+		}
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	slices.Sort(w.changed)
 	return w.changed, w.failure
 }
+
+// lookedIn reports whether a lookup of the run could have passed the
+// mount point p: it looked in p or in a directory below it, or looked up
+// p's name in p's parent. The checkout's directories count as looked in
+// from the start (watchTree).
+func (w *inotifyWatcher) lookedIn(p string) bool {
+	if _, ok := w.visited.Load(filepath.Dir(p) + "\x00" + filepath.Base(p)); ok {
+		return true
+	}
+	found := false
+	w.watched.Range(func(k, _ any) bool {
+		d := k.(string)
+		found = d == p || strings.HasPrefix(d, p+"/") || p == "/"
+		return !found
+	})
+	return found
+}
+
+// mountVerdict is the reason a change of the mount table from start to end
+// leaves the run's inputs unknown, or "" when it does not. The tables are
+// /proc/self/mountinfo texts (proc(5)); a mount is its id's line, so a
+// mount added, removed, moved or with other options is a changed line.
+// Each changed mount's point that lookedIn reports is a reason. Two equal
+// tables after a change mean a mount made and undone, whose point is
+// unknown: that is a reason too, as is a table that does not parse.
+func mountVerdict(start, end string, lookedIn func(string) bool) string {
+	const prefix = "the mount table changed during the run, and the tree cannot mount: a process outside it did"
+	a, errA := mountLines(start)
+	b, errB := mountLines(end)
+	if errA != nil || errB != nil {
+		return prefix + ", and the table cannot be read: " + errors.Join(errA, errB).Error()
+	}
+	var points []string
+	for id, line := range a {
+		if b[id] != line {
+			points = append(points, mountPoint(line))
+		}
+	}
+	for id, line := range b {
+		if _, ok := a[id]; !ok {
+			points = append(points, mountPoint(line))
+		}
+	}
+	if len(points) == 0 {
+		return prefix + ", and changed back, so where is unknown"
+	}
+	slices.Sort(points)
+	for _, p := range slices.Compact(points) {
+		if lookedIn(p) {
+			return prefix + ": the mount at " + p + " changed, and a lookup of the run passed it"
+		}
+	}
+	return ""
+}
+
+// mountLines maps each mount id of a mountinfo text to its line.
+func mountLines(text string) (map[string]string, error) {
+	out := map[string]string{}
+	for line := range strings.SplitSeq(text, "\n") {
+		if line == "" {
+			continue
+		}
+		f := strings.Fields(line)
+		if len(f) < 5 {
+			return nil, fmt.Errorf("mountinfo line %q: too few fields", line)
+		}
+		out[f[0]] = line
+	}
+	if len(out) == 0 {
+		return nil, errors.New("no mount")
+	}
+	return out, nil
+}
+
+// mountPoint is the mount point of a mountinfo line, its fifth field with
+// the kernel's octal escapes (\040 for a space and the like) decoded.
+func mountPoint(line string) string {
+	s := strings.Fields(line)[4]
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+3 < len(s) && isOctal(s[i+1]) && isOctal(s[i+2]) && isOctal(s[i+3]) {
+			b.WriteByte((s[i+1]-'0')<<6 | (s[i+2]-'0')<<3 | (s[i+3] - '0'))
+			i += 3
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func isOctal(c byte) bool { return '0' <= c && c <= '7' }
 
 // pollPriority reports whether poll finds a priority event (POLLPRI or
 // POLLERR) on a descriptor now; for a mount table it means the table changed
