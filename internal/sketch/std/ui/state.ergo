@@ -154,7 +154,7 @@ type Job[E] = Fetch{Epoch int, Run func() E} | Cancel{Epoch int}
 // the program (Arrive). A new key cancels the fetch of the old key and
 // starts one with a new epoch; a pass without this call cancels it. The
 // program keeps the result in its machine state, as an Async. The fetch
-// may need capabilities (H8b, Q16): they are in the view's needs row, and
+// may need capabilities (H8b, Q16), which the view's row lists; and
 // the fetch runs with the providers in force where Load was called (the
 // with around the host's entry, or a with the view wrote around this
 // subtree), which Load holds with InForce, not with those of the task

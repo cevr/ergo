@@ -892,10 +892,13 @@ func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler 
 
 // capA, capB and capC are the capabilities the loads of LoadUsesTheBoundService
 // need (H8b): each gives its provider's tag.
+// law-exempt: a law's test capability, whose one operation gives its provider's tag and nothing else.
 type capA { tagA() int }
 
+// law-exempt: a law's test capability, whose one operation gives its provider's tag and nothing else.
 type capB { tagB() int }
 
+// law-exempt: a law's test capability, whose one operation gives its provider's tag and nothing else.
 type capC { tagC() int }
 
 // aIs, bIs and cIs are their providers, by tag.

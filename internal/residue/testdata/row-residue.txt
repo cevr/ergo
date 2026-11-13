@@ -38,6 +38,20 @@ internal/sketch/lower/checked_lowered_test.go	a needs row, both
 internal/sketch/format/rows_test.go	needs ROW, Put()
 internal/sketch/lower/generic_test.go	func apply[A, E, R](f func(A) A fails E needs R, x A) A fails E needs R {
 internal/sketch/std/actor/actor.ergo	sink escaping func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func
+# std ui's view, block and fetch parameters carry the view's row (H8b, stdlib.md UI 19),
+# and the lower mutant ledger quotes them
+internal/sketch/std/ui/boundary.ergo	needs R, at CallSite
+internal/sketch/std/ui/frame.ergo	needs R, at CallSite
+internal/sketch/std/ui/frame.ergo	needs R, s S
+internal/sketch/std/ui/input.ergo	needs R, at CallSite
+internal/sketch/std/ui/rows.ergo	needs R, at CallSite
+internal/sketch/std/ui/same.ergo	needs R, at CallSite
+internal/sketch/std/ui/session.ergo	needs R, post escaping
+internal/sketch/std/ui/state.ergo	needs R, at CallSite
+internal/sketch/std/ui/testhost.ergo	needs R, clock time.Manual
+internal/sketch/lower/testdata/mutants.json	needs R, s S
+internal/sketch/lower/testdata/mutants.json	needs R, clock time.Manual
+internal/sketch/lower/testdata/mutants.json	needs R, at CallSite
 internal/sketch/std/actor/actor.ergo	save func(prev S, next S, sig E) fails G needs R, prev S
 internal/sketch/std/actor/actor.ergo	fresh escaping func() S fails G needs R, limit int, step
 internal/sketch/std/actor/actor.ergo	sink escaping func(o O) needs R, policy tasks.Restart)
