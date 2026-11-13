@@ -201,7 +201,7 @@ func TestStringsCounts(t *testing.T) {
 // (Dense stores 4): the bytes and allocations of interning n and 2n words
 // in dense.Strings and in a hand-Go map[string]uint32, logged, with
 // Strings' bytes at 2n at most three times n. It kills
-// dense-strings-slots-grow-by-sixteen.
+// dense-strings-settles-every-text.
 //
 // It builds Go because it counts the allocations of the built program
 // (runtime.MemStats); no in-process check observes them.

@@ -138,7 +138,7 @@
       "origin": "wf10/dod/DT2",
       "file": "examples/vt/screen/styles.ergo",
       "from": "\t\tt.Release(held.Value)\n",
-      "to": "",
+      "to": "\t\tlet _ = held\n",
       "rule": "release gives the set its Release, so a style whose count falls to 0 leaves it (the set's own rule is dense's ReleaseThenReuse). Killed by law screen.StylesAreCounted.",
       "killers": [
         "examples:vt"
@@ -150,7 +150,7 @@
       "file": "examples/vt/screen/screen.ergo",
       "from": "\tretain(&s.styles, id)\n\trelease(&s.styles, s.penID)",
       "to": "\trelease(&s.styles, s.penID)",
-      "rule": "The pen holds a count on its style, so the style stays while the pen holds it. Killed by law screen.StylesAreCounted.",
+      "rule": "The pen holds a count on its style, so the style stays while the pen holds it. Killed by law screen.ScreenMatchesPlain: the next release of the pen's style is a dense defect (a Release with no holder).",
       "killers": [
         "examples:vt"
       ]
@@ -248,7 +248,7 @@
       "origin": "wf10/dod/DT2",
       "file": "examples/vt/screen/styles.ergo",
       "from": "\t\tdense.Member(t, held.Value)\n",
-      "to": "\t\tvt.Default\n",
+      "to": "\t\tlet _ = held\n\t\tvt.Default\n",
       "rule": "A cell shows the style its id names (a reused id's new style is dense's ReleaseThenReuse). Killed by law screen.ScreenMatchesPlain.",
       "killers": [
         "examples:vt"

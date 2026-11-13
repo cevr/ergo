@@ -113,7 +113,7 @@ func place(s *Strings, id ID[Str], text string) {
 
 // grow doubles the slots, at least 16, and places every id again.
 func grow(s *Strings) {
-	let mut n = len(s.slots) + 16
+	let mut n = len(s.slots) * 2
 	if n < 16 {
 		n = 16
 	}
