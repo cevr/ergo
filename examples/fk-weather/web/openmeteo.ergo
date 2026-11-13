@@ -42,7 +42,10 @@ func Fetch(o OpenMeteo, zip string) weather.Report fails weather.NotFound | weat
 	if found.Status != 200 {
 		return weather.NotFound{Zip: zip}
 	}
-	let ps = try read(json.Codec[places]{MaxBytes: 0, MaxDepth: 0}, found.Body)
+	let ps = json.Decode(json.Codec[places]{MaxBytes: 0, MaxDepth: 0}, found.Body) catch {
+	case _:
+		return unreadable
+	}
 	let p = match ps.Results {
 	case json.Present[[]place] as rs:
 		if len(rs.Value) == 0 {
@@ -62,7 +65,10 @@ func Fetch(o OpenMeteo, zip string) weather.Report fails weather.NotFound | weat
 	if answer.Status != 200 {
 		return weather.Unavailable{Reason: "the forecast answered \(answer.Status)"}
 	}
-	let c = try read(json.Codec[conditions]{MaxBytes: 0, MaxDepth: 0}, answer.Body)
+	let c = json.Decode(json.Codec[conditions]{MaxBytes: 0, MaxDepth: 0}, answer.Body) catch {
+	case _:
+		return unreadable
+	}
 	let region = match p.Admin1 {
 	case json.Present[string] as a:
 		a.Value
@@ -89,12 +95,8 @@ func ask(n http.Net, path string, query []http.Field) http.Response fails weathe
 	}
 }
 
-func read[T wire](c json.Codec[T], body string) T fails weather.Unavailable {
-	json.Decode(c, body) catch {
-	case _:
-		return weather.Unavailable{Reason: "the answer could not be read"}
-	}
-}
+// unreadable is an answer that does not decode.
+let unreadable = weather.Unavailable{Reason: "the answer could not be read"}
 
 func reason(c http.Cause) string {
 	match c {
