@@ -61,8 +61,8 @@ func (fc *funcCtx) uiGroup(x *syntax.CallExpr, c *check.Call) *check.Func {
 	if _, ok := unparen(x.Args[0]).(*syntax.Ident); !ok {
 		return nil
 	}
-	frame := uiFrame(fc.typeOf(x.Args[0]))
-	if frame == nil {
+	_, g := groupFrame(fc.typeOf(x.Args[0]))
+	if g == nil {
 		return nil
 	}
 	for _, a := range x.Args[1:] {
@@ -70,23 +70,64 @@ func (fc *funcCtx) uiGroup(x *syntax.CallExpr, c *check.Call) *check.Func {
 			return nil
 		}
 	}
-	for _, g := range frame.Obj.Pkg.Funcs {
-		if g.Name == "group" {
-			return g
-		}
-	}
-	return nil
+	return g
 }
 
-// uiFrame is the *ui.Frame[E] type t names, nil for any other type.
-func uiFrame(t check.Type) *check.Named {
+// groupFrame is the frame type t points to and its group function, or
+// nils. A frame is a generic type T[E] of a std package that declares a
+// group over it: a function of the shape
+//
+//	func g[E, A](f *T[E], args A, body func(), at CallSite)
+//
+// The lowering finds it by that checked shape, never by a name (the
+// identity-blind rule, OPT4a): std ui's Frame and group are the one pair
+// today.
+func groupFrame(t check.Type) (*check.Named, *check.Func) {
 	p, ok := t.(*check.Pointer)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	n, ok := p.Elem.(*check.Named)
-	if !ok || n.Obj == nil || n.Obj.Pkg == nil || n.Obj.Pkg.Path != "ui" || !n.Obj.Pkg.Std() || n.Obj.Name != "Frame" || len(n.TArgs) != 1 {
-		return nil
+	if !ok || n.Obj == nil || n.Obj.Pkg == nil || !n.Obj.Pkg.Std() || len(n.TArgs) != 1 {
+		return nil, nil
+	}
+	for _, g := range n.Obj.Pkg.Funcs {
+		if groupShape(g, origin(n)) {
+			return n, g
+		}
+	}
+	return nil, nil
+}
+
+// groupShape reports g a group over the frame type frame (groupFrame).
+func groupShape(g *check.Func, frame *check.Named) bool {
+	if g.Decl == nil || g.Decl.Extern != nil || g.Sig == nil {
+		return false
+	}
+	sig := g.Sig
+	if len(sig.TParams) != 2 || len(sig.Params) != 4 || len(sig.Results) != 0 {
+		return false
+	}
+	p, ok := sig.Params[0].Type.(*check.Pointer)
+	if !ok {
+		return false
+	}
+	f, ok := p.Elem.(*check.Named)
+	if !ok || origin(f) != frame || len(f.TArgs) != 1 || f.TArgs[0] != check.Type(sig.TParams[0]) || sig.Params[1].Type != check.Type(sig.TParams[1]) {
+		return false
+	}
+	body, ok := sig.Params[2].Type.(*check.Signature)
+	if !ok || len(body.Params) != 0 || len(body.Results) != 0 {
+		return false
+	}
+	_, ok = sig.Params[3].Type.(*check.Named)
+	return ok
+}
+
+// origin is the generic type n instantiates, or n.
+func origin(n *check.Named) *check.Named {
+	if n.Orig != nil {
+		return n.Orig
 	}
 	return n
 }
@@ -153,7 +194,7 @@ func pointerFree(t check.Type, seen map[check.Type]bool) bool {
 
 // groupCall is the Go text of the component call x of c through group g.
 func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (string, bool, bool) {
-	frame := uiFrame(fc.typeOf(x.Args[0]))
+	frame, _ := groupFrame(fc.typeOf(x.Args[0]))
 	var types, vals []string
 	for _, a := range x.Args[1:] {
 		types = append(types, fc.goType(fc.typeOf(a)))
@@ -179,7 +220,7 @@ func (fc *funcCtx) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func) (
 	text, _, fallible := fc.callText(x, c)
 	fc.inGroup = old
 	if fallible {
-		text = "_ = " + text
+		ice(x, "a component call lowered as fallible")
 	}
 	gd := fc.l.useFunc(g, x)
 	if gd.method != nil {
