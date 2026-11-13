@@ -9,7 +9,8 @@ internal/sketch/check/durable.go	f.Pkg.Path == childPath	durable actor contracts
 internal/sketch/check/durable.go	f.Pkg.Path == "journal"	durable journal contracts; follow-up
 internal/sketch/check/durable.go	k.Func.Pkg.Path != "machines"	durable machine contracts; follow-up
 internal/sketch/check/embed.go	n.Obj.Pkg.Path == "embed"	embedded assets; predeclared language operation
-internal/sketch/check/export.go	s.pkgs[i].Path != s.segs[i].path	std snapshot integrity: a decoded segment is the package its header names, not a std identity
+internal/sketch/check/export.go	s.pkgs[i].Path != segmentPackage(s.segs[i].path)	snapshot integrity: a decoded segment is the package its header names, not a std identity
+internal/sketch/check/export.go	segmentPackage(keys[i]) != pkg.Path	snapshot integrity: a module segment's key names its package, not a std identity
 internal/sketch/check/extern.go	f.Pkg.Path == std.PreludePath	predeclared function footprint
 internal/sketch/check/footprint.go	f.Pkg.Path != std.PreludePath	predeclared collection functions; follow-up declared contracts
 internal/sketch/check/laws.go	pkg.Path != std.PreludePath	prelude provider selection

@@ -42,7 +42,6 @@ import (
 	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -444,13 +443,6 @@ func (l *loader) required(path string) string {
 		}
 	}
 	return best
-}
-
-// isStdPath reports whether path names std, which every module imports
-// and no module may shadow.
-func isStdPath(path string) bool {
-	_, ok := std.Package(path)
-	return ok || path == std.PreludePath
 }
 
 // locate is the folder of an imported package and the module that holds

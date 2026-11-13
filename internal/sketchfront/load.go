@@ -833,6 +833,13 @@ func shippedImport(path string) (*check.Package, bool, error) {
 	return p, true, err
 }
 
+// isStdPath reports whether path names std, which every module imports
+// and no module may shadow.
+func isStdPath(path string) bool {
+	_, ok := std.Package(path)
+	return ok || path == std.PreludePath
+}
+
 // Import is the loader's check.Importer: std, then the checked local
 // packages; any other path is refused with its reason.
 func (l *loader) Import(path string) (*check.Package, error) {
