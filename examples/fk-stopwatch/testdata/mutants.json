@@ -13,24 +13,32 @@
       "name": "fk1-start-while-running-reenters", "origin": "wf10/fk1a",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
       "from": "\tcase (Running, Start), (Stopped, Stop), (Stopped, Ticked):\n\t\tIgnore\n",
-      "to": "\tcase (Running as r, Start):\n\t\tEnter[Watch]{Next: Running{Elapsed: r.Elapsed}}\n\tcase (Stopped, Stop), (Stopped, Ticked):\n\t\tIgnore\n",
-      "rule": "A start while running keeps the entry: re-entering Running would restart the tick and lose the time since the last one (law ElapsedCountsTicksWhileRunning).",
+      "to": "\tcase (Running as r, Start):\n\t\tEnter[Watch]{Next: Running{Before: r.Elapsed, Since: time.Clock.Now(), Elapsed: r.Elapsed}}\n\tcase (Stopped, Stop), (Stopped, Ticked):\n\t\tIgnore\n",
+      "rule": "A start while running keeps the entry: restarting the run from the shown time would lose the clock's time since the last tick (law ShownIsClockElapsed).",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
     {
       "name": "fk1-stop-zeros", "origin": "wf10/fk1a",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
-      "from": "\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Elapsed}}\n",
+      "from": "\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Before + time.Since(r.Since)}}\n",
       "to": "\t\tEnter[Watch]{Next: Stopped{Elapsed: 0s}}\n",
-      "rule": "Stop keeps the time shown.",
+      "rule": "Stop keeps the time.",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
     {
-      "name": "fk1-tick-double", "origin": "wf10/fk1a",
+      "name": "fk1-stop-keeps-last-tick", "origin": "wf10/fk1a (orchestrator: shown time equals clock elapsed)",
       "file": "examples/fk-stopwatch/watch/watch.ergo",
-      "from": "Running{Elapsed: r.Elapsed + TickEvery}",
-      "to": "Running{Elapsed: r.Elapsed + TickEvery + TickEvery}",
-      "rule": "A tick adds one interval.",
+      "from": "\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Before + time.Since(r.Since)}}\n",
+      "to": "\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Elapsed}}\n",
+      "rule": "Stop reads the clock: a stopped watch shows the time it ran, not the time of its last tick (upstream's form, which loses the time after a late tick).",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    },
+    {
+      "name": "fk1-tick-counts", "origin": "wf10/fk1a (orchestrator: shown time equals clock elapsed)",
+      "file": "examples/fk-stopwatch/watch/watch.ergo",
+      "from": "Running{Before: r.Before, Since: r.Since, Elapsed: r.Before + time.Since(r.Since)}",
+      "to": "Running{Before: r.Before, Since: r.Since, Elapsed: r.Elapsed + TickEvery}",
+      "rule": "A tick shows the clock's elapsed time, never one more interval: a late or bunched tick must not lose or add time (round 1's tick count).",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     },
     {

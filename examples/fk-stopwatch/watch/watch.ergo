@@ -1,7 +1,10 @@
 // Package watch is a stopwatch: a machine whose Running state owns a
-// timer. The timer ticks every TickEvery while the watch runs, and the
-// watch's time is the ticks it has counted; stopping ends the entry, and
-// with it the timer, so a stopped watch never ticks.
+// timer. The timer ticks every TickEvery while the watch runs, and each
+// tick shows the time the clock says has passed while the watch ran: the
+// time before the last start, and the clock's elapsed time since it. The
+// shown time is never a count of ticks, so a late tick, or ticks that come
+// bunched, show the clock's time and lose nothing. Stopping ends the
+// entry, and with it the timer, so a stopped watch never ticks.
 
 import machines
 import time
@@ -9,8 +12,10 @@ import time
 // TickEvery is how often a running watch ticks.
 let TickEvery = 10ms
 
-// Watch is the state: stopped or running, with the time counted so far.
-type Watch = Stopped{Elapsed duration} | Running{Elapsed duration}
+// Watch is the state. A stopped watch holds the time it shows. A running
+// watch holds the time before its start, the clock's reading at the start,
+// and the time it shows, which each tick sets from the clock.
+type Watch = Stopped{Elapsed duration} | Running{Before duration, Since time.Time, Elapsed duration}
 
 // Signal is what the watch takes: the three buttons, and its own tick.
 type Signal = Start{} | Stop{} | Reset{} | Ticked{}
@@ -22,19 +27,20 @@ type Never {}
 // Initial is a stopped watch at zero.
 func Initial() Watch { Stopped{Elapsed: 0s} }
 
-// Step is the transition. Start runs a stopped watch from the time it
-// shows; Stop keeps the time; Reset is the initial watch from any state;
-// a tick enters Running again with one more TickEvery, which arms the next
-// tick. A button that does not apply (Start while running, Stop while
-// stopped) is ignored.
-func Step(w Watch, s Signal) Decision[Watch, Never] {
+// Step is the transition; it reads time.Clock. Start runs a stopped watch
+// from the time it shows, from the clock's time now; a tick shows the time
+// before the start plus the clock's time since it, and enters Running
+// again, which arms the next tick; Stop keeps that time, read at the stop;
+// Reset is the initial watch from any state. A button that does not apply
+// (Start while running, Stop while stopped) is ignored and keeps the entry.
+func Step(w Watch, s Signal) Decision[Watch, Never] needs time.Clock {
 	match (w, s) {
 	case (Stopped as st, Start):
-		Enter[Watch]{Next: Running{Elapsed: st.Elapsed}}
+		Enter[Watch]{Next: Running{Before: st.Elapsed, Since: time.Clock.Now(), Elapsed: st.Elapsed}}
 	case (Running as r, Stop):
-		Enter[Watch]{Next: Stopped{Elapsed: r.Elapsed}}
+		Enter[Watch]{Next: Stopped{Elapsed: r.Before + time.Since(r.Since)}}
 	case (Running as r, Ticked):
-		Enter[Watch]{Next: Running{Elapsed: r.Elapsed + TickEvery}}
+		Enter[Watch]{Next: Running{Before: r.Before, Since: r.Since, Elapsed: r.Before + time.Since(r.Since)}}
 	case (_, Reset):
 		Enter[Watch]{Next: Initial()}
 	case (Running, Start), (Stopped, Stop), (Stopped, Ticked):
