@@ -110,9 +110,10 @@ func StringsBuilderAppendBytes(buf []byte, bs []byte) []byte { return append(buf
 // start on, as an LZ77 decoder copies a match: byte k of the n is the byte
 // at start+k of the result, so a run whose source reaches past buf's
 // length repeats the bytes this call wrote (start = len(buf)-1 repeats the
-// last byte n times). A negative n panics with WriteFrom's message, and a
-// start outside buf, or at its end with n > 0, with Go's slice or index
-// message: defects. A run that buf holds already is one compare and one
+// last byte n times). A negative n, a start outside buf, or a start at its
+// end with n > 0 panics with Go's slice or index error, a defect: a
+// negative n makes end < start, or a start past the end. The loop runs
+// only while start is inside buf, so no input loops for ever. A run that buf holds already is one compare and one
 // append, as hand Go copies it; one that
 // overlaps its own output copies whole runs, each pass all that is written
 // from start on, which doubles each time: about log2(n/d)+1 appends for a
@@ -121,14 +122,11 @@ func StringsBuilderAppendBytes(buf []byte, bs []byte) []byte { return append(buf
 //
 //ergo:pure
 func StringsBuilderAppendFrom(buf []byte, start, n int) []byte {
-	if n < 0 {
-		panic("strings.Builder.WriteFrom: negative count")
-	}
 	if end := start + n; end <= len(buf) {
 		return append(buf, buf[start:end]...)
 	}
 	_ = buf[start]
-	for n > 0 {
+	for n > 0 && start < len(buf) {
 		// buf[start:] repeats with period len0-start, and what this call
 		// wrote is a whole number of periods until the last pass, so the
 		// next byte to copy is buf[start] again (see the doc comment).

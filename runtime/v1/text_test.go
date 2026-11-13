@@ -575,29 +575,25 @@ func TestStringsSliceIsADefect(t *testing.T) {
 }
 
 // TestBuilderAppendFromIsADefect: WriteFrom out of range is a defect
-// (stdlib.md strings 11): a negative count panics with WriteFrom's message,
-// a start outside the text, or at its end with a count above 0, with Go's
-// slice or index error; a count of 0 inside the text or at its end is no
-// write. The law WriteFromRepeats covers every start and count in range.
-// Mutants: sb2-appendfrom-negative (the count check dropped) returns the
-// buffer for the first row; sb2-appendfrom-unchecked (the start check
-// before the loop dropped) loops for ever on the last row, a start at the
-// end, where a pass copies nothing, and the test binary's deadline stops
-// it.
+// (stdlib.md strings 11): a negative count, a start outside the text, or a
+// start at its end with a count above 0 panics with Go's slice or index
+// error; a count of 0 inside the text or at its end is no write. Each call
+// returns or panics at once: the law WriteFromRepeats covers every start
+// and count in range. Mutant sb2-appendfrom-unchecked (the start check
+// before the loop dropped) returns the buffer unchanged for a start at or
+// past the end, since the loop runs only while start is inside the text,
+// so the rows {4, 1} and {3, 1} fail.
 func TestBuilderAppendFromIsADefect(t *testing.T) {
 	for _, start := range []int{0, 3} {
 		if got := string(StringsBuilderAppendFrom([]byte("abc"), start, 0)); got != "abc" {
 			t.Fatalf("AppendFrom(abc, %d, 0) = %q", start, got)
 		}
 	}
-	for _, c := range []struct{ start, n int }{{0, -1}, {-1, 0}, {4, 0}, {-1, 1}, {4, 1}, {3, 1}} {
+	for _, c := range []struct{ start, n int }{{0, -1}, {2, -1}, {5, -1}, {-1, 0}, {4, 0}, {-1, 1}, {4, 1}, {3, 1}} {
 		func() {
 			defer func() {
-				r := recover()
-				msg, _ := r.(string)
-				_, bounds := r.(runtime.Error)
-				if c.n < 0 && msg != "strings.Builder.WriteFrom: negative count" || c.n >= 0 && !bounds {
-					t.Fatalf("AppendFrom(abc, %d, %d) panicked with %v, want WriteFrom's message or a slice or index error", c.start, c.n, r)
+				if _, bounds := recover().(runtime.Error); !bounds {
+					t.Fatalf("AppendFrom(abc, %d, %d) did not return its defect, a slice or index error", c.start, c.n)
 				}
 			}()
 			StringsBuilderAppendFrom([]byte("abc"), c.start, c.n)
