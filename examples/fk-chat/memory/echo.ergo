@@ -12,17 +12,17 @@ import sync
 // failure.
 type Frame = Text{Value string} | Bye{} | Fault{Why string}
 
-// Wire is the open line: its id and the frames on their way to it.
-type Wire { ID int, Frames queue.Queue[Frame] }
+// OpenLine is the open line: its id and the frames on their way to it.
+type OpenLine { ID int, Frames queue.Queue[Frame] }
 
 // Echo is the server and its one open line. Its fields are shared
 // handles, so every copy of an Echo is the same server: NewEcho makes
 // one.
-type Echo { open sync.Ref[Option[Wire]], dialed sync.Ref[int], out sync.Ref[int], refuse sync.Ref[Option[string]], hold sync.Ref[bool], pending sync.Ref[[]Frame] }
+type Echo { open sync.Ref[Option[OpenLine]], dialed sync.Ref[int], out sync.Ref[int], refuse sync.Ref[Option[string]], hold sync.Ref[bool], pending sync.Ref[[]Frame] }
 
 // NewEcho is a server with no line, which takes the next dial.
 func NewEcho() Echo {
-	Echo{open: sync.NewRef[Option[Wire]](None), dialed: sync.NewRef[int](0), out: sync.NewRef[int](0), refuse: sync.NewRef[Option[string]](None), hold: sync.NewRef[bool](false), pending: sync.NewRef[[]Frame]([]Frame{})}
+	Echo{open: sync.NewRef[Option[OpenLine]](None), dialed: sync.NewRef[int](0), out: sync.NewRef[int](0), refuse: sync.NewRef[Option[string]](None), hold: sync.NewRef[bool](false), pending: sync.NewRef[[]Frame]([]Frame{})}
 }
 
 // Dial opens a line, the server's only one, unless a refusal is pending.
@@ -37,7 +37,7 @@ func Dial(e Echo) talk.Line fails talk.Refused {
 	let id = e.dialed.Get() + 1
 	e.dialed.Set(id)
 	let frames = queue.New[Frame](64)
-	e.open.Set(Some[Wire]{Value: Wire{ID: id, Frames: frames}})
+	e.open.Set(Some[OpenLine]{Value: OpenLine{ID: id, Frames: frames}})
 	e.out.Set(e.out.Get() + 1)
 	talk.NewLine(id, func() string fails talk.Hangup | talk.Broke {
 		let f = frames.Pop() catch {
@@ -55,7 +55,7 @@ func Dial(e Echo) talk.Line fails talk.Refused {
 	}, func() {
 		e.out.Set(e.out.Get() - 1)
 		match e.open.Get() {
-		case Some[Wire] as w:
+		case Some[OpenLine] as w:
 			if w.Value.ID == id {
 				e.open.Set(None)
 			}
@@ -71,7 +71,7 @@ func Dial(e Echo) talk.Line fails talk.Refused {
 func Send(e Echo, text string) fails talk.Unavailable {
 	if e.hold.Get() {
 		match e.open.Get() {
-		case Some[Wire]:
+		case Some[OpenLine]:
 			e.pending.Set(e.pending.Get().Append(Text{Value: text}))
 			return
 		case None:
@@ -105,7 +105,7 @@ func Vanish(e Echo) { e.open.Set(None) }
 // put puts f on the open line.
 func put(e Echo, f Frame) fails talk.Unavailable {
 	match e.open.Get() {
-	case Some[Wire] as w:
+	case Some[OpenLine] as w:
 		w.Value.Frames.Push(f) catch {
 		case queue.Closed:
 			return talk.Unavailable
