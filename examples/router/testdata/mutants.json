@@ -1,0 +1,13 @@
+{
+  "about": "router's application mutants; each is judged by the example's tests and laws (scripts/examples), not by a compiler test. The law that kills each is named in its rule.",
+  "mutants": [
+    {
+      "name": "mq-router-told-emits", "origin": "wf10/domain MQ-tell r2",
+      "file": "examples/router/route/machine.ergo",
+      "from": "\t\t\tTell[Router, Output]{Next: s, Output: t.Delivered}\n",
+      "to": "\t\t\tEmit[Router, Output]{Next: s, Output: t.Delivered}\n",
+      "rule": "A courier's message is told in the idle entry, which goes on with its couriers (runtime.md, Machines and actors 2, the entry rule): HostSeesItsEntry, the restart case.",
+      "anchor": {"tests": ["examples:router"]}, "killers": ["examples:router"]
+    }
+  ]
+}

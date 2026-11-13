@@ -208,7 +208,7 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 		for more {
 			match said.Poll() {
 			case Some[route.Output] as o:
-				lines = lines.Append("  ! #\(o.Value.ID): \(o.Value.Text)")
+				lines = lines.Append(OutputText(o.Value))
 			case None:
 				more = false
 			}
@@ -221,7 +221,7 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 		use()
 	}
 	// post carries body on the courier of topic, which the client names
-	// by its lane's host, and waits until the router's log has it. A
+	// by its lane's host, and waits until the router tells it. A
 	// courier's crash ends the router's incarnation: the supervisor
 	// restarts it from the journal, and the recovered idle entry starts
 	// new couriers in the hosts the replay made.
@@ -239,7 +239,6 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 			return
 		}
 		let before = actor.Restarts(a)
-		let n = len(route.LogOf(a.State()))
 		courier.Ask(route.Message{Body: body}) catch {
 		case actor.Stopped:
 			let _ = actor.WaitFor(a, func(s route.Router) bool { actor.Restarts(a) > before }) catch {
@@ -253,13 +252,19 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 			use()
 			return
 		}
-		let s = actor.WaitFor(a, func(s route.Router) bool { len(route.LogOf(s)) > n }) catch {
-		case actor.Stopped:
-			lines = lines.Append("  ?? the router is stopped")
-			return
+		for {
+			let o = said.Pop() catch {
+			case queue.Closed:
+				lines = lines.Append("  ?? the router is stopped")
+				return
+			}
+			lines = lines.Append(OutputText(o))
+			match o {
+			case route.Delivered:
+				return
+			case route.Question:
+			}
 		}
-		let m = route.LogOf(s)[n]
-		lines = lines.Append("  \(m.Topic) -> \(m.Dest): \(m.Body)")
 	}
 	use()
 	for c in cmds {
@@ -310,6 +315,17 @@ func Play(cmds []Command, j journal.Journal[route.Router, route.Signal], drop fu
 	a.Stop()
 	said.End()
 	lines
+}
+
+// OutputText is the line of what the router tells: a question (!) or a
+// message a courier carried (->).
+func OutputText(o route.Output) string {
+	match o {
+	case route.Question as q:
+		"  ! #\(q.ID): \(q.Text)"
+	case route.Delivered as m:
+		"  \(m.Topic) -> \(m.Dest): \(m.Body)"
+	}
 }
 
 // SignalText is the words of a script's signal.
