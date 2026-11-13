@@ -104,6 +104,8 @@
       "to": "func placeOf(follower string, stream string) Place { Place{Follower: \"\", Stream: stream} }",
       "rule": "A follower's cursor is its own: Cursor.CursorsAreApart. One follower alone, as in RedeliveryAddsNothing, does not see it.",
       "anchor": {"tests": ["examples:modules/domain"]}, "killers": ["examples:modules/domain"]
-    }
+    },
+    {"name":"dk5-keep-opens-entry","origin":"wf10/domain DK5","file":"modules/domain/sourced.ergo","from":"\tStay[Ledger[S, E]]{Next: Ledger[S, E]{","to":"\tEnter[Ledger[S, E]]{Next: Ledger[S, E]{","rule":"Keep keeps the entry, so the state's timer is not started again (runtime.md 9.2): KeepKeepsTheTimer.","anchor":{"tests":["examples:modules/domain"]},"killers":["examples:modules/domain"]},
+    {"name":"dk5-stepid-constant","origin":"wf10/domain DK5","file":"modules/domain/sourced.ergo","from":"CommandID(\"#\\(kind)@\\(l.Position + 1)\")","to":"CommandID(\"#\\(kind)\")","rule":"Each record a StepID names has its own id, so the log keeps every step: StepIDsReplay.","anchor":{"tests":["examples:modules/domain"]},"killers":["examples:modules/domain"]}
   ]
 }

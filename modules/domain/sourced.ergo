@@ -1,8 +1,14 @@
-// The host of an event-sourced aggregate: a durable actor (actor.
-// StartDurable) whose state is a Ledger and whose signal is an Envelope.
-// Its step, the program's, takes a command once: a resend is Ignore; else
-// it runs decide once, folds the events with evolve, and commits with
-// Commit, which puts the events in the Ledger. Sourced's save appends
+// The host of an event-sourced stream: a durable actor (actor.
+// StartDurable) whose state is a Ledger. Its signal is the program's: an
+// Envelope, or a union of commands and the signals of its own work and
+// timers. The stream may hold many entities (a desk of many runs): the
+// stream's expected position guards the whole state, which has one
+// writer. Its step, the program's, takes a command once: a resend is
+// Ignore; else it runs decide once, folds the events with evolve, and
+// commits with Commit, which puts the events in the Ledger and opens a
+// new entry, or with Keep, which keeps the entry, so the state's work and
+// timer go on. A step that no command caused (a work's end, a timer)
+// names its record with StepID. Sourced's save appends
 // those events to the log before the actor commits the state, and its
 // recover folds the stream's events with evolve: a restart runs no decide.
 //
@@ -26,7 +32,7 @@
 //
 // and starts it with the stream's Sourced:
 //
-//	let s = domain.Sourced(log, "tally", Fresh, Evolve)
+//	let s = domain.Sourced[Tally, domain.Envelope[Command], Event](log, "tally", Fresh, Evolve)
 //	let a = try actor.StartDurable(Tallies{}, 8, func(r domain.Receipt) {}, s.Recover, s.Save)
 
 import actor
@@ -62,7 +68,8 @@ func Taken[S, E](l Ledger[S, E], id CommandID) bool {
 
 // Commit is the step's decision for the command id whose events take the
 // aggregate to next: the ledger at the next position, with the events as
-// its last record, and the command's receipt as the output.
+// its last record, and the command's receipt as the output. As Emit, it
+// opens a new entry: the state's work and timer start again.
 func Commit[S, E](l Ledger[S, E], id CommandID, next S, events []E) Decision[Ledger[S, E], Receipt] {
 	let r = Receipt{ID: id, Stream: l.Stream, Position: l.Position + 1}
 	Emit[Ledger[S, E], Receipt]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: r.Position, Receipts: l.Receipts.Put(id, r), Last: Recorded[E]{Position: r.Position, ID: id, Events: events}}, Output: r}
@@ -71,11 +78,28 @@ func Commit[S, E](l Ledger[S, E], id CommandID, next S, events []E) Decision[Led
 // ReceiptOf is the receipt of the command id in l, if l's stream kept it.
 func ReceiptOf[S, E](l Ledger[S, E], id CommandID) Option[Receipt] { l.Receipts.Get(id) }
 
+// Keep is Commit that keeps the entry: the ledger at the next position,
+// with the events as its last record, as Stay. The state's work and timer
+// go on (runtime.md, Machines and actors 9.2: Stay neither restarts nor
+// cancels them; law KeepKeepsTheTimer). Stay gives no output, so the
+// sender reads the receipt from the ledger (Send does).
+func Keep[S, E](l Ledger[S, E], id CommandID, next S, events []E) Decision[Ledger[S, E], Receipt] {
+	let p = l.Position + 1
+	Stay[Ledger[S, E]]{Next: Ledger[S, E]{Stream: l.Stream, State: next, Position: p, Receipts: l.Receipts.Put(id, Receipt{ID: id, Stream: l.Stream, Position: p}), Last: Recorded[E]{Position: p, ID: id, Events: events}}}
+}
+
+// StepID names the record of a step that no command caused (the end of
+// the state's work, its timer) by the step's kind and the position the
+// record takes: "#kind@position". A replay names it the same way, and no
+// two records of a stream share it.
+func StepID[S, E](l Ledger[S, E], kind string) CommandID { CommandID("#\(kind)@\(l.Position + 1)") }
+
 // Store is the recover and the save of the host of one stream, which
-// actor.StartDurable takes.
-type Store[S, C, E] {
+// actor.StartDurable takes. Sig is the actor's signal, which save does
+// not read.
+type Store[S, Sig, E] {
 	Recover escaping func() Option[Ledger[S, E]] fails Conflict | Reused | Unkept,
-	Save    escaping func(prev Ledger[S, E], next Ledger[S, E], sig Envelope[C]) fails Conflict | Reused | Unkept,
+	Save    escaping func(prev Ledger[S, E], next Ledger[S, E], sig Sig) fails Conflict | Reused | Unkept,
 }
 
 // Sourced is the Store of stream on log for an aggregate that starts in
@@ -86,8 +110,8 @@ type Store[S, C, E] {
 // the id was reused, the provider could not keep it) is a defect that
 // ends the actor with the state it had (actor.StartDurable), and a
 // restart recovers from the log.
-func Sourced[S, C, E comparable](log Log[E], stream string, initial S, evolve escaping func(s S, e E) S) Store[S, C, E] {
-	Store[S, C, E]{
+func Sourced[S, Sig any, E comparable](log Log[E], stream string, initial S, evolve escaping func(s S, e E) S) Store[S, Sig, E] {
+	Store[S, Sig, E]{
 		Recover: func() Option[Ledger[S, E]] fails Conflict | Reused | Unkept {
 			let mut l = Begin[S, E](stream, initial)
 			for r in log.Read(stream, 0) {
@@ -99,7 +123,7 @@ func Sourced[S, C, E comparable](log Log[E], stream string, initial S, evolve es
 			}
 			Some[Ledger[S, E]]{Value: l}
 		},
-		Save: func(prev Ledger[S, E], next Ledger[S, E], sig Envelope[C]) fails Conflict | Reused | Unkept {
+		Save: func(prev Ledger[S, E], next Ledger[S, E], sig Sig) fails Conflict | Reused | Unkept {
 			if next.Position == prev.Position {
 				return
 			}

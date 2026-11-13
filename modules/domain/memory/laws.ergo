@@ -115,7 +115,7 @@ func Seen(c Crashing, id domain.CommandID) Option[domain.Receipt] { c.inner.Seen
 type host = actor.Actor[domain.Ledger[Tally, Event], domain.Envelope[Command], Decision[domain.Ledger[Tally, Event], domain.Receipt], Low]
 
 // open starts the host of "tally" over log: it recovers from the log.
-func open(store domain.Store[Tally, Command, Event]) Option[host] needs Scheduler {
+func open(store domain.Store[Tally, domain.Envelope[Command], Event]) Option[host] needs Scheduler {
 	let a = actor.StartDurable(Tallies{}, 4, func(r domain.Receipt) {}, store.Recover, store.Save) catch {
 	case _:
 		return None
@@ -152,7 +152,7 @@ func Agrees(l domain.Ledger[Tally, Event], records []domain.Recorded[Event], ans
 // host agrees with the log (Agrees), and a resend's receipt is the first.
 func Survives(ops []int) bool needs Scheduler {
 	let c = Crashing{inner: New[Event](), armed: sync.NewRef(0)}
-	let store = domain.Sourced[Tally, Command, Event](c, "tally", Fresh, Evolve)
+	let store = domain.Sourced[Tally, domain.Envelope[Command], Event](c, "tally", Fresh, Evolve)
 	let mut a = match open(store) {
 	case Some[host] as h:
 		h.Value
@@ -231,5 +231,86 @@ func Survives(ops []int) bool needs Scheduler {
 law SourcedSurvivesCrashes(ops []int) {
 	with context { Scheduler: time.NewManual(0) } {
 		Survives(ops)
+	}
+}
+
+// Tick is the signal of StepIDsReplay's host: a step that no command
+// caused, as a work's end or a timer is.
+type Tick { N int }
+
+// tickStep commits each tick under a StepID.
+func tickStep(l domain.Ledger[int, int], t Tick) Decision[domain.Ledger[int, int], domain.Receipt] {
+	domain.Commit(l, domain.StepID(l, "tick"), l.State+t.N, []int{t.N})
+}
+
+// Ticks is the host's machine for the stream "ticks", whose signal is no
+// Envelope.
+type Ticks machine[domain.Ledger[int, int], Tick] {
+	initial: domain.Begin[int, int]("ticks", 0),
+	step:    tickStep,
+}
+
+// segment starts the host of store (it recovers from the log), steps
+// each of ticks, and stops it; false when a step or the stop failed.
+func segment(store domain.Store[int, Tick, int], ticks []int) bool needs Scheduler {
+	let a = actor.StartDurable(Ticks{}, 4, func(r domain.Receipt) {}, store.Recover, store.Save) catch {
+	case _:
+		return false
+	}
+	for n in ticks {
+		let _ = a.Ask(Tick{N: n}) catch {
+		case _:
+			return false
+		}
+	}
+	a.Stop()
+	true
+}
+
+// Replays plays ops on hosts of one log: an op that is a multiple of 5
+// restarts the host, any other is a tick of 1 to 7. Each step names its
+// record by StepID, so the log keeps every tick, across restarts, and the
+// stream recovers to their sum.
+func Replays(ops []int) bool needs Scheduler {
+	let log = New[int]()
+	let store = domain.Sourced[int, Tick, int](log, "ticks", 0, func(s int, e int) int { s + e })
+	let mut ticks = []int{}
+	let mut total = 0
+	let mut count = 0
+	for x in ops {
+		if x%5 == 0 {
+			if !segment(store, ticks) {
+				return false
+			}
+			ticks = []int{}
+			continue
+		}
+		let n = ((x%7)+7)%7 + 1
+		ticks = ticks.Append(n)
+		total = total + n
+		count = count + 1
+	}
+	if !segment(store, ticks) {
+		return false
+	}
+	let l = store.Recover() catch {
+	case _:
+		return false
+	}
+	match l {
+	case Some[domain.Ledger[int, int]] as s:
+		s.Value.State == total && s.Value.Position == count
+	case None:
+		false
+	}
+}
+
+// StepIDsReplay: a host whose steps no command caused keeps each of them
+// once, across restarts: StepID names a record by its position, so no
+// two records of the stream share an id, and a replay names them the
+// same way.
+law StepIDsReplay(ops []int) {
+	with context { Scheduler: time.NewManual(0) } {
+		Replays(ops)
 	}
 }
