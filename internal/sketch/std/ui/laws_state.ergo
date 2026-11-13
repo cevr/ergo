@@ -302,3 +302,350 @@ law LoadFollowsModel(seed int, steps int) {
 		ready == -1
 	}
 }
+
+// The law of boundaries (H8a), at int signals: a view with a boundary in
+// a Box between sibling fields, whose body reads a draft directly, writes
+// Rows with drafts, a load and keyed rows of drafts, and fails at a drawn
+// place, runs against a model written without a Frame (models/uiboundary,
+// with what that model leaves out: a load inside the body, an Each row
+// under it, an arm that writes nothing and a body that writes nothing).
+
+// bstate is what bview shows: the key of the load outside the boundary,
+// the keys of the rows, where the body fails (0 nowhere; with Pending: 1
+// before its draft, 2 after its first Row, 3 inside its second Row after
+// the rows, 4 after that Row; 5 with Missing after its first Row, whose
+// arm writes nothing; 6 the body writes nothing and completes), and
+// whether the pass writes no Box and no boundary at all. The Row group
+// after the Box stops at 1, 2 and 3 (deepStops).
+type bstate { key int, keys []int, fail int, gone bool }
+
+// innerKey is the key of the load inside the body: it never changes, so
+// a fetch of it is wanted only when no live load holds it.
+let innerKey = 100
+
+func failIf(b bool) fails Pending {
+	if b {
+		return Pending
+	}
+}
+
+func failMissing(b bool) fails Missing {
+	if b {
+		return Missing{V: 0}
+	}
+}
+
+// labelled writes a Row holding a Field over a draft named name: each
+// call writes its draft at the same call sites, so the draft keeps its
+// value only while the Row keeps its identity. The body calls it, and so
+// does the arm after a cut, at the same spec index and under the same
+// parent: their identities differ only by the boundary's site and the
+// counts the cut gives back.
+func labelled(f *Frame[int], name string) {
+	Row(f, Plain()) {
+		let d = NewDraft(f, name)
+		Field(f, d, name)
+	}
+}
+
+func labelShape(vals Map[string, string], n string) Shape[int] {
+	Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{input(vals, n, n)}}
+}
+
+func bview(f *Frame[int], s bstate) {
+	Column(f, Plain()) {
+		let side = NewDraft(f, "side")
+		Field(f, side, "side")
+		let key = s.key
+		Load(f, ByInt(key), func() int { key })
+		if !s.gone {
+			Box(f, Plain()) {
+				Boundary(f) {
+					if s.fail != 6 {
+						try failIf(s.fail == 1)
+						let loose = NewDraft(f, "loose")
+						Field(f, loose, "loose")
+						labelled(f, "mid")
+						try failIf(s.fail == 2)
+						try failMissing(s.fail == 5)
+						try Row(f, Plain()) {
+							let inner = NewDraft(f, "inner")
+							Field(f, inner, "inner")
+							Load(f, ByInt(innerKey), func() int { innerKey })
+							Each(f, s.keys, func(k int) Key { ByInt(k) }) func(k int) {
+								let d = NewDraft(f, "r\(k)")
+								Field(f, d, "r")
+							}
+							try failIf(s.fail == 3)
+						}
+						try failIf(s.fail == 4)
+					}
+				} catch {
+				case Pending:
+					Text(f, "wait")
+					labelled(f, "arm")
+				case Missing:
+				}
+			}
+		}
+		// A container whose catch is right after it, outside the boundary
+		// and with no namespace of its own: its arm writes, at the spec index
+		// the body had, the helper the body wrote, so the arm's identity holds
+		// only when the cut gives back the counts the body took.
+		Row(f, Plain()) {
+			try failIf(s.fail == 1)
+			labelled(f, "deep")
+			try failIf(s.fail == 2 || s.fail == 3)
+		} catch {
+		case Pending:
+			Row(f, Plain()) {
+				labelled(f, "deeparm")
+			}
+		}
+		Row(f, Plain()) {
+			let tail = NewDraft(f, "tail")
+			Field(f, tail, "tail")
+		}
+		let after = NewDraft(f, "after")
+		Field(f, after, "after")
+	}
+}
+
+// draft is the model value of the draft named n: its init when the model
+// holds none.
+func draft(vals Map[string, string], n string) string {
+	match vals.Get(n) {
+	case Some[string] as v:
+		v.Value
+	case None:
+		n
+	}
+}
+
+func input(vals Map[string, string], n string, placeholder string) Shape[int] {
+	leaf(InputNode{Value: draft(vals, n), Placeholder: placeholder})
+}
+
+// bshape is what bview means at s for the model drafts.
+func bshape(s bstate, vals Map[string, string]) []Shape[int] {
+	let mut kids = []Shape[int]{input(vals, "side", "side")}
+	if !s.gone {
+		let mut box = []Shape[int]{}
+		if s.fail == 0 {
+			box = box.Append(input(vals, "loose", "loose"))
+			box = box.Append(labelShape(vals, "mid"))
+			let mut row = []Shape[int]{input(vals, "inner", "inner")}
+			for k in s.keys {
+				row = row.Append(input(vals, "r\(k)", "r"))
+			}
+			box = box.Append(Shape[int]{Node: RowNode{Style: Plain()}, Kids: row})
+		} else if s.fail <= 4 {
+			box = box.Append(leaf(TextNode{Value: "wait", Style: Plain()}))
+			box = box.Append(labelShape(vals, "arm"))
+		}
+		kids = kids.Append(Shape[int]{Node: BoxNode{Style: Plain()}, Kids: box})
+	}
+	let mut deep = "deep"
+	if deepStops(s) {
+		deep = "deeparm"
+	}
+	kids = kids.Append(Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{labelShape(vals, deep)}})
+	kids = kids.Append(labelShape(vals, "tail"))
+	kids = kids.Append(input(vals, "after", "after"))
+	[]Shape[int]{Shape[int]{Node: ColumnNode{Style: Plain()}, Kids: kids}}
+}
+
+// deepStops is whether the Row group after the Box stops at s: then the
+// Column is a parent with a stopped group, and parks what it does not
+// write (the Box, when the pass writes none).
+func deepStops(s bstate) bool { s.fail >= 1 && s.fail <= 3 }
+
+// dropGroup is the model drafts after a pass that releases what the
+// boundary held: every draft under it.
+func dropGroup(vals Map[string, string]) Map[string, string] {
+	let mut out = vals.Delete("loose").Delete("inner").Delete("mid").Delete("arm")
+	for k in 0..6 {
+		out = out.Delete("r\(k)")
+	}
+	out
+}
+
+// BoundaryFollowsModel: over drawn passes (a key, rows, a place where the
+// body fails, or no boundary) and texts typed into the fields on screen,
+// the screen is what the model means. A pass whose boundary stops keeps
+// every draft the group held (the arm's too, when the arm writes nothing),
+// and the load outside it; a pass with no boundary, or whose body writes
+// nothing, drops what the group held, and a completed pass drops the rows
+// and the arm it did not write. The fields beside the boundary keep their
+// drafts throughout. The load outside gets exactly the jobs of its key;
+// the load inside, once live, stays live with the same fetch until a pass
+// drops what the group held, which cancels it. After a pass in which no
+// group stopped, the frame holds only its tree.
+law BoundaryFollowsModel(seed int, steps int) {
+	let mut r = seeded(seed)
+	let mut f = NewFrame[int]()
+	let mut vals = Map[string, string]{}
+	let mut s = bstate{key: 0, keys: []int{}, fail: 0, gone: true}
+	let mut outer = -1
+	let mut okey = -1
+	let mut rowMade = false
+	let mut inner = -1
+	let mut used = Map[int, bool]{}
+	for i in 0..(steps%24+24)%24+2 {
+		if draw(&r, 2) == 0 || i == 0 {
+			let mut next = bstate{key: draw(&r, 3), keys: pick(&r, false), fail: draw(&r, 7), gone: draw(&r, 6) == 0}
+			if draw(&r, 3) == 0 {
+				next.fail = 0
+			}
+			if s.fail == 5 && draw(&r, 2) == 0 {
+				// A stopped pass that writes nothing, then a completed one that
+				// writes nothing: the parent's children are the same, and
+				// what it parked is released.
+				next.fail = 6
+			}
+			let _ = Render(&f, bview, next)
+			s = next
+			let mut fetchOuter = []int{}
+			let mut fetchInner = []int{}
+			let mut cancels = []int{}
+			for j in Jobs(&f) {
+				match j {
+				case Fetch[int] as x:
+					if used.Get(x.Epoch) != None {
+						return false
+					}
+					used[x.Epoch] = true
+					if x.Run() == innerKey {
+						fetchInner = fetchInner.Append(x.Epoch)
+					} else if x.Run() == s.key {
+						fetchOuter = fetchOuter.Append(x.Epoch)
+					} else {
+						return false
+					}
+				case Cancel as c:
+					cancels = cancels.Append(c.Epoch)
+				}
+			}
+			for c in cancels {
+				if Arrive(&f, c) {
+					return false
+				}
+			}
+			if s.key != okey {
+				if len(fetchOuter) != 1 || (outer >= 0 && Arrive(&f, outer)) {
+					return false
+				}
+				outer = fetchOuter[0]
+				okey = s.key
+			} else if len(fetchOuter) != 0 {
+				return false
+			}
+			if !Arrive(&f, outer) {
+				return false
+			}
+			let releases = (s.gone || s.fail == 6) && !deepStops(s)
+			if releases {
+				if len(fetchInner) != 0 || (inner >= 0 && Arrive(&f, inner)) {
+					return false
+				}
+				inner = -1
+				rowMade = false
+				vals = dropGroup(vals)
+			} else if inner >= 0 && (rowMade || s.fail != 0 || s.gone) {
+				if len(fetchInner) != 0 || !Arrive(&f, inner) {
+					return false
+				}
+			} else if !s.gone && (s.fail == 0 || s.fail == 3 || s.fail == 4) {
+				// The first pass that completes the Row after a stopped one
+				// that wrote it (with no Row node to park the load in) may
+				// fetch again (a known gap: the load waited in the group's
+				// parent); the one before is then cancelled.
+				if inner >= 0 && Arrive(&f, inner) && len(fetchInner) != 0 {
+					return false
+				}
+				let mut live = 0
+				for e in fetchInner {
+					if Arrive(&f, e) {
+						inner = e
+						live = live + 1
+					}
+				}
+				if live != 1 {
+					return false
+				}
+			} else if len(fetchInner) != 0 {
+				return false
+			}
+			if !deepStops(s) {
+				vals = vals.Delete("deeparm")
+			}
+			if !s.gone && s.fail == 0 {
+				rowMade = true
+				vals = vals.Delete("arm")
+				for k in 0..6 {
+					let mut kept = false
+					for x in s.keys {
+						kept = kept || x == k
+					}
+					if !kept {
+						vals = vals.Delete("r\(k)")
+					}
+				}
+			}
+			if (releases || s.fail == 0) && Retained(&f) != Len(&f) {
+				return false
+			}
+		} else {
+			let col = Kids(&f, Root(&f))[0]
+			let mut names = []string{"side"}
+			let mut ids = []Id[int]{Kids(&f, col)[0]}
+			let mut next = 1
+			if !s.gone {
+				let box = Kids(&f, col)[1]
+				next = 2
+				if s.fail == 0 {
+					names = names.Append("loose")
+					ids = ids.Append(Kids(&f, box)[0])
+					names = names.Append("mid")
+					ids = ids.Append(Kids(&f, Kids(&f, box)[1])[0])
+					let row = Kids(&f, box)[2]
+					names = names.Append("inner")
+					ids = ids.Append(Kids(&f, row)[0])
+					for j, k in s.keys {
+						names = names.Append("r\(k)")
+						ids = ids.Append(Kids(&f, row)[j+1])
+					}
+				} else if s.fail <= 4 {
+					names = names.Append("arm")
+					ids = ids.Append(Kids(&f, Kids(&f, box)[1])[0])
+				}
+			}
+			if deepStops(s) {
+				names = names.Append("deeparm")
+			} else {
+				names = names.Append("deep")
+			}
+			ids = ids.Append(Kids(&f, Kids(&f, Kids(&f, col)[next])[0])[0])
+			names = names.Append("tail")
+			ids = ids.Append(Kids(&f, Kids(&f, col)[next+1])[0])
+			names = names.Append("after")
+			ids = ids.Append(Kids(&f, col)[next+2])
+			let at = draw(&r, len(names))
+			let old = draft(vals, names[at])
+			let now = "x\(i % 3)"
+			let done = Handle(&f, Type[int]{Id: ids[at], Text: now})
+			if done.Changed != (now != old) {
+				return false
+			}
+			vals[names[at]] = now
+			let _ = Render(&f, bview, s)
+			if len(Jobs(&f)) != 0 {
+				return false
+			}
+		}
+		if !SameShapes(FrameShape(&f), bshape(s, vals)) || !SameShapes(TreeShape(&f), bshape(s, vals)) {
+			return false
+		}
+	}
+	true
+}

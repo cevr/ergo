@@ -105,11 +105,15 @@ func Toggle[E](f *Frame[E], fl Flag, label string, at CallSite) {
 
 // Submit is a Pressable that also empties d when pressed: a press sends on
 // (made from d's value by the view) and the draft is "" at the next pass.
-func Submit[E](f *Frame[E], d Draft, label string, on E, body func(), at CallSite) {
-	let outer = f.parent
+func Submit[E, F](f *Frame[E], d Draft, label string, on E, body func() fails F, at CallSite) fails F {
+	let m = markOf(f)
 	f.parent = put(f, PressableNode{Label: label, On: on, Style: Plain()}, None, Some{Value: d.at}, at)
-	body()
-	f.parent = outer
+	body() catch {
+	case err:
+		cut(f, m)
+		return err
+	}
+	f.parent = m.parent
 }
 
 // Async is the state of a value that a load fetches: matched exhaustively.
@@ -167,6 +171,11 @@ func live[E](f *Frame[E], r arena.Ref[node[E]], epoch int) bool {
 			return true
 		}
 	}
+	for k in n.parked {
+		if live[E](f, k, epoch) {
+			return true
+		}
+	}
 	false
 }
 
@@ -214,19 +223,23 @@ func settle[E](f *Frame[E]) {
 		}
 		change(f, s.ref, func(n *node[E]) { n.binds = b })
 	}
-	keep(f, f.root, cells, loads)
+	let mut parks = Map[arena.Ref[node[E]], bool]{}
+	for p, _ in f.stopped {
+		parks[made(f, p)] = true
+	}
+	keep(f, f.root, cells, loads, parks)
 }
 
 // keep walks the tree: each node gets this pass's cells and loads, and each
 // load it held that this pass does not keep is cancelled.
 // A node that holds no cell or load and gets none keeps its empty maps:
 // only the nodes with state are written (GP frame cost, UC-2).
-func keep[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]]) {
+func keep[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], parks Map[arena.Ref[node[E]], bool]) {
 	if hasState(f, r) || has(cells, r) || has(loads, r) {
-		store(f, r, cells, loads)
+		store(f, r, cells, loads, has(parks, r))
 	}
 	for i in 0..kidCount(f, r) {
-		keep[E](f, kidAt(f, r, i), cells, loads)
+		keep[E](f, kidAt(f, r, i), cells, loads, parks)
 	}
 }
 
@@ -262,9 +275,9 @@ func loadAt[E](f *Frame[E], r arena.Ref[node[E]], id ident) Option[slot] {
 
 // store gives the node r names this pass's cells and loads, and cancels
 // each load it held that this pass does not keep.
-func store[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]]) {
+func store[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], hold bool) {
 	let n = nodeAt(f, r)
-	let now = loadsOf(loads, r)
+	let mut now = loadsOf(loads, r)
 	for id, l in n.loads {
 		match now.Get(id) {
 		case Some[slot] as s:
@@ -272,10 +285,21 @@ func store[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], M
 				f.jobs = f.jobs.Append(Cancel{Epoch: l.epoch})
 			}
 		case None:
-			f.jobs = f.jobs.Append(Cancel{Epoch: l.epoch})
+			if hold {
+				now[id] = l
+			} else {
+				f.jobs = f.jobs.Append(Cancel{Epoch: l.epoch})
+			}
 		}
 	}
-	let c = mapOf(cells, r)
+	let mut c = mapOf(cells, r)
+	if hold {
+		for id, x in n.cells {
+			if !has(c, id) {
+				c[id] = x
+			}
+		}
+	}
 	change(f, r, func(m *node[E]) {
 		m.cells = c
 		m.loads = now

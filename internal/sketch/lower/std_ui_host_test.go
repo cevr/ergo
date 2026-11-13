@@ -19,7 +19,9 @@ import scope
 import strings
 import time
 
-type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog}
+type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int}
+
+type Missing { V int }
 
 type rng { x int }
 
@@ -32,8 +34,11 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 
 let slots = 6
 
-func genProg(r *rng, depth int) prog {
-	let kind = draw(r, 8)
+func genProg(r *rng, depth int, bounded bool) prog {
+	let kind = draw(r, 10)
+	if kind == 9 && bounded {
+		return pRead{slot: draw(r, slots)}
+	}
 	if depth == 0 || kind < 4 {
 		match kind % 4 {
 		case 0:
@@ -46,9 +51,10 @@ func genProg(r *rng, depth int) prog {
 			pSwap{slot: draw(r, slots)}
 		}
 	} else {
+		let inner = bounded || kind >= 8
 		let mut kids = []prog{}
 		for _ in 0..draw(r, 4) {
-			kids = kids.Append(genProg(r, depth-1))
+			kids = kids.Append(genProg(r, depth-1, inner))
 		}
 		match kind {
 		case 4:
@@ -57,8 +63,10 @@ func genProg(r *rng, depth int) prog {
 			pRow{kids: kids}
 		case 6:
 			pPress{slot: draw(r, slots), kids: kids}
-		case _:
+		case 7:
 			pEach{slot: draw(r, slots), kids: kids}
+		case _:
+			pBound{form: draw(r, 3), slot: draw(r, slots), kids: kids.Append(pRead{slot: draw(r, slots)})}
 		}
 	}
 }
@@ -75,7 +83,7 @@ func items(v int) []int {
 	let mut out = []int{}
 	for i in 0..6 {
 		let k = (i + v) % 6
-		if (k + v/6) % 3 != 0 {
+		if (k+v/6)%3 != 0 {
 			out = out.Append(k)
 		}
 	}
@@ -96,10 +104,10 @@ func swap(f *ui.Frame[int], v int, at CallSite) {
 	}
 }
 
-func render(f *ui.Frame[int], p prog, s []int, row int) {
+func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pending {
 	match p {
 	case pText as x:
-		ui.Text(f, "t\(s[x.slot]+row)")
+		ui.Text(f, "t\(s[x.slot] + row)")
 	case pInput as x:
 		let v = s[x.slot] + row
 		ui.Input(f, "v\(v)", "type", func(t string) int { len(t) + v })
@@ -108,73 +116,218 @@ func render(f *ui.Frame[int], p prog, s []int, row int) {
 	case pSwap as x:
 		swap(f, s[x.slot]+row)
 	case pBox as x:
-		ui.Box(f, gapped(s[x.slot])) {
+		try ui.Box(f, gapped(s[x.slot])) {
 			for c in x.kids {
-				render(f, c, s, row)
+				try render(f, c, s, row)
 			}
 		}
 	case pRow as x:
-		ui.Row(f, ui.Plain()) {
+		try ui.Row(f, ui.Plain()) {
 			for c in x.kids {
-				render(f, c, s, row)
+				try render(f, c, s, row)
 			}
 		}
 		ui.Text(f, "after")
 	case pPress as x:
-		ui.Pressable(f, "press", s[x.slot]%4+row) {
+		try ui.Pressable(f, "press", s[x.slot]%4+row) {
 			for c in x.kids {
-				render(f, c, s, row)
+				try render(f, c, s, row)
 			}
 		}
 	case pEach as x:
-		ui.Each(f, items(s[x.slot]), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+		try ui.Each(f, items(s[x.slot]), func(k int) ui.Key { ui.ByInt(k) }) func(k int) fails Missing | ui.Pending {
 			for c in x.kids {
-				render(f, c, s, k)
+				try render(f, c, s, k)
 			}
 		}
 		ui.Text(f, "after")
+	case pBound as x:
+		if x.form == 0 {
+			ui.Boundary(f) {
+				for c in x.kids {
+					try render(f, c, s, row)
+				}
+			} catch {
+			case ui.Pending:
+				ui.Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					ui.Text(f, "missing \(e.V)")
+				}
+			}
+		} else if x.form == 1 {
+			ui.Box(f, ui.Plain()) {
+				for c in x.kids {
+					try render(f, c, s, row)
+				}
+			} catch {
+			case ui.Pending:
+				ui.Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					ui.Text(f, "missing \(e.V)")
+				}
+			}
+		} else {
+			ui.Each(f, items(s[x.slot]), func(k int) ui.Key { ui.ByInt(k) }) func(k int) fails Missing | ui.Pending {
+				for c in x.kids {
+					try render(f, c, s, k)
+				}
+			} catch {
+			case ui.Pending:
+				ui.Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					ui.Text(f, "missing \(e.V)")
+				}
+			}
+		}
+	case pRead as x:
+		let v = s[x.slot] + row
+		if v%3 == 1 {
+			return ui.Pending
+		}
+		if v%3 == 2 {
+			return Missing{V: v}
+		}
 	}
 }
 
-func model(p prog, s []int, row int) []ui.Shape[int] {
+type outcome { shapes []ui.Shape[int], fail int, v int }
+
+func done(shapes []ui.Shape[int]) outcome { outcome{shapes: shapes, fail: 0, v: 0} }
+
+func model(p prog, s []int, row int) outcome {
 	match p {
 	case pText as x:
-		[]ui.Shape[int]{leaf(ui.TextNode{Value: "t\(s[x.slot]+row)", Style: ui.Plain()})}
+		done([]ui.Shape[int]{leaf(ui.TextNode{Value: "t\(s[x.slot] + row)", Style: ui.Plain()})})
 	case pInput as x:
-		[]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot]+row)", Placeholder: "type"})}
+		done([]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type"})})
 	case pCheck as x:
-		[]ui.Shape[int]{leaf(ui.CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})}
+		done([]ui.Shape[int]{leaf(ui.CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})})
 	case pSwap as x:
 		let v = s[x.slot] + row
 		if v%2 == 0 {
-			return []ui.Shape[int]{leaf(ui.TextNode{Value: "even \(v)", Style: ui.Plain()})}
+			return done([]ui.Shape[int]{leaf(ui.TextNode{Value: "even \(v)", Style: ui.Plain()})})
 		}
-		[]ui.Shape[int]{leaf(ui.CheckNode{Label: "odd", Checked: v%3 == 0, On: v})}
+		done([]ui.Shape[int]{leaf(ui.CheckNode{Label: "odd", Checked: v%3 == 0, On: v})})
 	case pBox as x:
-		[]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: gapped(s[x.slot])}, Kids: models(x.kids, s, row)}}
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: gapped(s[x.slot])}, Kids: o.shapes}})
 	case pRow as x:
-		[]ui.Shape[int]{ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: models(x.kids, s, row)}, leaf(ui.TextNode{Value: "after", Style: ui.Plain()})}
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: o.shapes}, leaf(ui.TextNode{Value: "after", Style: ui.Plain()})})
 	case pPress as x:
-		[]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.Plain()}, Kids: models(x.kids, s, row)}}
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.Plain()}, Kids: o.shapes}})
 	case pEach as x:
 		let mut out = []ui.Shape[int]{}
 		for k in items(s[x.slot]) {
-			for c in models(x.kids, s, k) {
+			let o = outcomes(x.kids, s, k)
+			if o.fail != 0 {
+				return o
+			}
+			for c in o.shapes {
 				out = out.Append(c)
 			}
 		}
-		out.Append(leaf(ui.TextNode{Value: "after", Style: ui.Plain()}))
+		done(out.Append(leaf(ui.TextNode{Value: "after", Style: ui.Plain()})))
+	case pBound as x:
+		let mut out = []ui.Shape[int]{}
+		for k in boundRows(x, s, row) {
+			let o = outcomes(x.kids, s, k)
+			if o.fail == 1 {
+				return done([]ui.Shape[int]{leaf(ui.TextNode{Value: "pending", Style: ui.Plain()})})
+			}
+			if o.fail == 2 && o.v%2 == 0 {
+				return done([]ui.Shape[int]{leaf(ui.TextNode{Value: "missing \(o.v)", Style: ui.Plain()})})
+			}
+			if o.fail == 2 {
+				return done([]ui.Shape[int]{})
+			}
+			for c in o.shapes {
+				out = out.Append(c)
+			}
+		}
+		if x.form == 1 {
+			return done([]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: ui.Plain()}, Kids: out}})
+		}
+		done(out)
+	case pRead as x:
+		let v = s[x.slot] + row
+		if v%3 == 0 {
+			return done([]ui.Shape[int]{})
+		}
+		outcome{shapes: []ui.Shape[int]{}, fail: v % 3, v: v}
 	}
 }
 
-func models(ps []prog, s []int, row int) []ui.Shape[int] {
+func outcomes(ps []prog, s []int, row int) outcome {
 	let mut out = []ui.Shape[int]{}
 	for p in ps {
-		for x in model(p, s, row) {
+		let o = model(p, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		for x in o.shapes {
 			out = out.Append(x)
 		}
 	}
-	out
+	done(out)
+}
+
+func models(ps []prog, s []int, row int) []ui.Shape[int] { outcomes(ps, s, row).shapes }
+
+func stopsAt(ps []prog, s []int, row int) bool {
+	for p in ps {
+		if stopIn(p, s, row) {
+			return true
+		}
+	}
+	false
+}
+
+func stopIn(p prog, s []int, row int) bool {
+	match p {
+	case pBox as x:
+		stopsAt(x.kids, s, row)
+	case pRow as x:
+		stopsAt(x.kids, s, row)
+	case pPress as x:
+		stopsAt(x.kids, s, row)
+	case pEach as x:
+		for k in items(s[x.slot]) {
+			if stopsAt(x.kids, s, k) {
+				return true
+			}
+		}
+		false
+	case pBound as x:
+		for k in boundRows(x, s, row) {
+			if outcomes(x.kids, s, k).fail != 0 || stopsAt(x.kids, s, k) {
+				return true
+			}
+		}
+		false
+	case _:
+		false
+	}
+}
+
+func boundRows(x pBound, s []int, row int) []int {
+	if x.form == 2 {
+		return items(s[x.slot])
+	}
+	[]int{row}
 }
 
 func leaf(n ui.Node[int]) ui.Shape[int] { ui.Shape[int]{Node: n, Kids: []ui.Shape[int]{}} }
@@ -182,7 +335,12 @@ func leaf(n ui.Node[int]) ui.Shape[int] { ui.Shape[int]{Node: n, Kids: []ui.Shap
 func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 	ui.Render(f, func(g *ui.Frame[int], st []int) {
 		for p in ps {
-			render(g, p, st, 0)
+			render(g, p, st, 0) catch {
+			case Missing:
+				Unreachable("ui laws: a read is drawn only under a boundary")
+			case ui.Pending:
+				Unreachable("ui laws: a read is drawn only under a boundary")
+			}
 		}
 	}, s)
 }
@@ -190,7 +348,7 @@ func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 func genRoot(r *rng) []prog {
 	let mut ps = []prog{}
 	for _ in 0..draw(r, 4)+1 {
-		ps = ps.Append(genProg(r, 3))
+		ps = ps.Append(genProg(r, 3, false))
 	}
 	ps
 }
@@ -267,7 +425,7 @@ func signalsAgree(f *ui.Frame[int], id ui.Id[int]) bool {
 		case ui.CheckNode[int] as c:
 			ok = pressed == c.On && typed == -1
 		case ui.InputNode as i:
-			ok = i.Value == "v\(typed-3)" && pressed == -1
+			ok = i.Value == "v\(typed - 3)" && pressed == -1
 		case _:
 			ok = pressed == -1 && typed == -1
 		}

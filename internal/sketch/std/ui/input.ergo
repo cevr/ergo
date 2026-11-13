@@ -34,13 +34,17 @@ type KeyPress { Name string, Mods Mods }
 // of each, None for an event the program ignores (a move with no button
 // down). label names it to a test host and to assistive technology; body
 // is what it shows.
-func Area[E](f *Frame[E], label string, style Style, on escaping func(p PointerEvent) Option[E], body func(), at CallSite) {
-	let outer = f.parent
+func Area[E, F](f *Frame[E], label string, style Style, on escaping func(p PointerEvent) Option[E], body func() fails F, at CallSite) fails F {
+	let m = markOf(f)
 	let i = put(f, AreaNode{Label: label, Style: style}, None, None, at)
 	f.specs[i].onPoint = Some{Value: on}
 	f.parent = i
-	body()
-	f.parent = outer
+	body() catch {
+	case err:
+		cut(f, m)
+		return err
+	}
+	f.parent = m.parent
 }
 
 // OnKey takes the key presses of this pass: a press goes to the OnKey

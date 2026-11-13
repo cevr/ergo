@@ -1,0 +1,489 @@
+// The package uiboundary is the design model of typed boundaries in std ui
+// (corpus-wave plan.md section 19, unit H8), checked by
+// `ergo test models/uiboundary`: a breadth-first search of every state in
+// a small scope. It models the loop's side of one component of std ui
+// (stdlib.md, UI: a view writes into a frame; a load's result is a signal,
+// and the program keeps it in its machine state as a ui.Async):
+//
+//   func Profile(f *ui.Frame[Signal], s State) {
+//       ui.Load(f, key(s), fetch)                  // the load's owner
+//       Sibling(f)                                 // a ui.Field over a ui.NewDraft cell
+//       ui.Boundary(f) {
+//           ui.Text(f, "card")                     // written before the read
+//           let u = try ui.Await(s.User)           // the read: fails NotFound | ui.Pending
+//           Inner(f, u)                            // a ui.Field over a ui.NewDraft cell
+//       } catch {
+//       case ui.Pending: Spinner(f)
+//       case NotFound:   Missing(f)                // has a Retry button
+//       }
+//   }
+//
+// Status is s.User (Pend is ui.Loading). The actor and the host loop are
+// the loop model's (models/uiloop, unit H2m) and are one action here: Click
+// commits and publishes a state. Apply is Handle of an Arrived, which takes
+// a result only while Arrive holds. What this model adds: the boundary's
+// rollback, the cells on both sides of it, the retry, a load whose pass
+// stopped, and a defect in the body.
+//
+// Each action is a signal; an action that is not enabled is Ignore.
+//
+// Invariants (laws of Design, each `always`):
+//   - NoStale: a read gives the current epoch's result, never an older one's;
+//   - NoPartial, BodyIffOk: the body is on screen whole or not at all;
+//   - SiblingRenders, SiblingKeeps: the granularity law. The sibling renders
+//     in every frame, whatever the boundary shows, and shows its cell;
+//   - InnerKeeps: a cell under the boundary survives a pending or failed
+//     pass and a retry;
+//   - SettledShowsOutcome: a settled screen shows the body or the failed
+//     arm, never the spinner;
+//   - CrashOnlyByDefect: a declared failure is the boundary's; only a
+//     defect is a crash.
+//
+// Mutants, each a machine whose law Breaks must hold (a shortest run to a
+// state where the invariant named is false):
+//   - ByKey: a result is matched by its key, not its epoch (NoStale);
+//   - NoRollback: a stopped pass leaves the node it emitted before the read
+//     (NoPartial);
+//   - DropCells: a rollback drops the cells under the boundary (InnerKeeps);
+//   - StopLoad: a rollback stops the load the discarded pass was waiting
+//     for (SettledShowsOutcome);
+//   - WholeComponent: a pending read hides the whole component, which is
+//     React's granularity (SiblingRenders);
+//   - FailCrashes: a declared failure is treated as a defect
+//     (CrashOnlyByDefect).
+//
+// Witnesses (laws of Design, each `sometimes`), so the invariants are not
+// vacuous: the body is shown; the failed arm is shown; a retry was made; a
+// cell under the boundary was written; a crash; a cell written under the
+// boundary before a failure shows that value again after the retry; and
+// the spinner shows while the sibling holds a typed value.
+//
+// The scope: 3 clicks, 2 writes of each cell, 2 retries, so 6 epochs. It
+// is the claim: "proved" means proved in this scope. The model has one
+// boundary; nested boundaries are the generated test's (plan.md 19.5).
+
+type Epoch = E0{} | E1{} | E2{} | E3{} | E4{} | E5{}
+
+type Outcome = Value{} | Failure{}
+
+type Act = Click{} | TypeSibling{} | TypeInner{} | Frame{} | FrameDefect{} | Finish{E Epoch, O Outcome} | Apply{E Epoch} | Retry{}
+
+// The scope.
+let MaxClicks = 3
+let MaxWrites = 2
+let MaxRetries = 2
+let Epochs = 6
+
+// What a read of the slot gives, and what the boundary shows.
+let Pend = 0
+let Ok = 1
+let Fail = 2
+
+// A load task, one per epoch.
+let NotStarted = 0
+let Running = 1
+let PostedOk = 2
+let PostedFail = 3
+let Gone = 4
+
+// The design and the mutants, as the argument of next.
+let NoMutant = 0
+let ByKeyMutant = 1
+let NoRollbackMutant = 2
+let DropCellsMutant = 3
+let StopLoadMutant = 4
+let WholeComponentMutant = 5
+let FailCrashesMutant = 6
+
+// World is the model's state. Task and EpochKey have one element per epoch.
+// StatusEpoch is the epoch that gave Status, -1 while Pend. SibShown is the
+// sibling's shown value, -1 when the last frame did not render it; InShown
+// is the inner field's, -1 when the body is not on screen. Kind is what the
+// boundary shows: Pend (the spinner), Ok (the body), Fail (the failed arm).
+// Nodes is the body's nodes on screen: 0, or 2 (the card and Inner).
+// CellAtRetry is the inner cell's value at the last retry, -1 before one.
+type World {
+	Snap        int,
+	FrameWanted bool,
+	LoadKey     int,
+	LoadEpoch   int,
+	NextEpoch   int,
+	Status      int,
+	StatusEpoch int,
+	Task        []int,
+	EpochKey    []int,
+	Retries     int,
+	CellAtRetry int,
+	SibCell     int,
+	SibWrites   int,
+	InCell      int,
+	InWrites    int,
+	SibShown    int,
+	InShown     int,
+	Kind        int,
+	Nodes       int,
+	Crashed     bool,
+	DefectSeen  bool,
+}
+
+func key(v int) int { v % 2 }
+
+func epochIx(e Epoch) int {
+	match e {
+	case E0:
+		0
+	case E1:
+		1
+	case E2:
+		2
+	case E3:
+		3
+	case E4:
+		4
+	case E5:
+		5
+	}
+}
+
+func setInt(xs []int, i int, v int) []int {
+	let mut out = []int{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func world() World {
+	World{
+		Snap:        0,
+		FrameWanted: false,
+		LoadKey:     key(0),
+		LoadEpoch:   0,
+		NextEpoch:   1,
+		Status:      Pend,
+		StatusEpoch: -1,
+		Task:        []int{Running, NotStarted, NotStarted, NotStarted, NotStarted, NotStarted},
+		EpochKey:    []int{key(0), -1, -1, -1, -1, -1},
+		Retries:     0,
+		CellAtRetry: -1,
+		SibCell:     0,
+		SibWrites:   0,
+		InCell:      0,
+		InWrites:    0,
+		SibShown:    0,
+		InShown:     -1,
+		Kind:        Pend,
+		Nodes:       0,
+		Crashed:     false,
+		DefectSeen:  false,
+	}
+}
+
+// stopped is the tasks after the task of epoch e is stopped: a running
+// task is gone; a posted result stays, for Apply to drop.
+func stopped(tasks []int, e int) []int {
+	if tasks[e] == Running {
+		return setInt(tasks, e, Gone)
+	}
+	tasks
+}
+
+// frame is one frame: ui.Load keeps or renews its epoch; the sibling
+// renders; the body runs to its read, which gives a value, ui.Pending or
+// the failure; the boundary discards the body's nodes and its catch shows
+// an arm.
+func frame(m int, w World) Option[World] {
+	if !w.FrameWanted || w.Crashed {
+		return None
+	}
+	let newKey = key(w.Snap) != w.LoadKey
+	if newKey && w.NextEpoch >= Epochs {
+		return None
+	}
+	let mut epochNow = w.LoadEpoch
+	let mut statusNow = w.Status
+	let mut statusEpoch = w.StatusEpoch
+	let mut next = w.NextEpoch
+	let mut tasks = w.Task
+	let mut keys = w.EpochKey
+	if newKey {
+		epochNow = w.NextEpoch
+		statusNow = Pend
+		statusEpoch = -1
+		next = w.NextEpoch + 1
+		tasks = setInt(stopped(tasks, w.LoadEpoch), epochNow, Running)
+		keys = setInt(keys, epochNow, key(w.Snap))
+	}
+	if m == StopLoadMutant && statusNow == Pend {
+		tasks = stopped(tasks, epochNow)
+	}
+	let bodyOk = statusNow == Ok
+	let failCrash = statusNow == Fail && m == FailCrashesMutant
+	let mut inCell = w.InCell
+	if m == DropCellsMutant && !bodyOk {
+		inCell = 0
+	}
+	let mut sibShown = w.SibCell
+	if m == WholeComponentMutant && !bodyOk {
+		sibShown = -1
+	}
+	let mut inShown = -1
+	let mut nodes = 0
+	if bodyOk {
+		inShown = w.InCell
+		nodes = 2
+	} else if m == NoRollbackMutant {
+		nodes = 1
+	}
+	let mut kind = statusNow
+	if failCrash {
+		kind = w.Kind
+	}
+	Some[World]{Value: World{..w,
+		FrameWanted: false,
+		LoadKey:     key(w.Snap),
+		LoadEpoch:   epochNow,
+		NextEpoch:   next,
+		Status:      statusNow,
+		StatusEpoch: statusEpoch,
+		Task:        tasks,
+		EpochKey:    keys,
+		InCell:      inCell,
+		SibShown:    sibShown,
+		InShown:     inShown,
+		Kind:        kind,
+		Nodes:       nodes,
+		Crashed:     failCrash,
+	}}
+}
+
+// next is w after the action a under the mutant m (NoMutant is the design),
+// or None when a is not enabled.
+func next(m int, w World, a Act) Option[World] {
+	match a {
+	case Click:
+		// A signal commits a new state (the loop model's click, actor step
+		// and publish in one step).
+		if w.Crashed || w.Snap >= MaxClicks {
+			return None
+		}
+		Some[World]{Value: World{..w, Snap: w.Snap + 1, FrameWanted: true}}
+	case TypeSibling:
+		// The user types in the sibling field: a host event writes its cell.
+		if w.Crashed || w.SibShown < 0 || w.SibWrites >= MaxWrites {
+			return None
+		}
+		Some[World]{Value: World{..w, SibCell: w.SibCell + 1, SibWrites: w.SibWrites + 1, FrameWanted: true}}
+	case TypeInner:
+		// The inner field is on screen only while the body is.
+		if w.Crashed || w.InShown < 0 || w.InWrites >= MaxWrites {
+			return None
+		}
+		Some[World]{Value: World{..w, InCell: w.InCell + 1, InWrites: w.InWrites + 1, FrameWanted: true}}
+	case Frame:
+		frame(m, w)
+	case FrameDefect:
+		// A frame whose body has a defect (a panic, not a declared failure):
+		// the crash view of H6a.
+		if !w.FrameWanted || w.Crashed {
+			return None
+		}
+		Some[World]{Value: World{..w, FrameWanted: false, Crashed: true, DefectSeen: true}}
+	case Finish as f:
+		// A load task finishes with a value or with its declared failure.
+		let e = epochIx(f.E)
+		if w.Task[e] != Running {
+			return None
+		}
+		let posted = match f.O {
+		case Value:
+			PostedOk
+		case Failure:
+			PostedFail
+		}
+		Some[World]{Value: World{..w, Task: setInt(w.Task, e, posted)}}
+	case Apply as p:
+		// The main thread applies a posted result if it is the current
+		// epoch's, else drops it. ByKey: it compares keys.
+		let e = epochIx(p.E)
+		if w.Crashed || (w.Task[e] != PostedOk && w.Task[e] != PostedFail) {
+			return None
+		}
+		let mut current = e == w.LoadEpoch
+		if m == ByKeyMutant {
+			current = w.EpochKey[e] == w.LoadKey
+		}
+		let tasks = setInt(w.Task, e, Gone)
+		if !current {
+			return Some[World]{Value: World{..w, Task: tasks}}
+		}
+		let mut status = Ok
+		if w.Task[e] == PostedFail {
+			status = Fail
+		}
+		Some[World]{Value: World{..w, Task: tasks, Status: status, StatusEpoch: e, FrameWanted: true}}
+	case Retry:
+		// The failed arm's Retry: a new epoch of the same key.
+		if w.Crashed || w.Kind != Fail || w.Status != Fail || w.Retries >= MaxRetries || w.NextEpoch >= Epochs {
+			return None
+		}
+		Some[World]{Value: World{..w,
+			LoadEpoch:   w.NextEpoch,
+			NextEpoch:   w.NextEpoch + 1,
+			Status:      Pend,
+			StatusEpoch: -1,
+			Task:        setInt(w.Task, w.NextEpoch, Running),
+			EpochKey:    setInt(w.EpochKey, w.NextEpoch, w.LoadKey),
+			Retries:     w.Retries + 1,
+			CellAtRetry: w.InCell,
+			FrameWanted: true,
+		}}
+	}
+}
+
+func stepWith(m int, s World, a Act) Decision[World, string] {
+	match next(m, s, a) {
+	case None:
+		Ignore
+	case Some[World] as n:
+		Enter[World]{Next: n.Value}
+	}
+}
+
+func stepDesign(s World, a Act) Decision[World, string]         { stepWith(NoMutant, s, a) }
+func stepByKey(s World, a Act) Decision[World, string]          { stepWith(ByKeyMutant, s, a) }
+func stepNoRollback(s World, a Act) Decision[World, string]     { stepWith(NoRollbackMutant, s, a) }
+func stepDropCells(s World, a Act) Decision[World, string]      { stepWith(DropCellsMutant, s, a) }
+func stepStopLoad(s World, a Act) Decision[World, string]       { stepWith(StopLoadMutant, s, a) }
+func stepWholeComponent(s World, a Act) Decision[World, string] { stepWith(WholeComponentMutant, s, a) }
+func stepFailCrashes(s World, a Act) Decision[World, string]    { stepWith(FailCrashesMutant, s, a) }
+
+// The invariants.
+
+func noStale(w World) bool { w.StatusEpoch == -1 || w.StatusEpoch == w.LoadEpoch }
+
+func noPartial(w World) bool { w.Nodes == 0 || w.Nodes == 2 }
+
+func bodyIffOk(w World) bool { w.Crashed || ((w.Kind == Ok) == (w.Nodes == 2)) }
+
+func siblingRenders(w World) bool { w.SibShown >= 0 }
+
+func siblingKeeps(w World) bool {
+	w.SibCell == w.SibWrites && (w.FrameWanted || w.Crashed || w.SibShown == w.SibCell)
+}
+
+func innerKeeps(w World) bool {
+	w.InCell == w.InWrites && (w.FrameWanted || w.Crashed || w.InShown == -1 || w.InShown == w.InCell)
+}
+
+// settled: no frame is wanted, no load runs and no result waits.
+func settled(w World) bool {
+	if w.Crashed || w.FrameWanted {
+		return false
+	}
+	for t in w.Task {
+		if t == Running || t == PostedOk || t == PostedFail {
+			return false
+		}
+	}
+	true
+}
+
+func settledShowsOutcome(w World) bool { !settled(w) || (w.Status != Pend && w.Kind == w.Status) }
+
+func crashOnlyByDefect(w World) bool { !w.Crashed || w.DefectSeen }
+
+func stale(w World) bool          { !noStale(w) }
+func partial(w World) bool        { !noPartial(w) }
+func innerLost(w World) bool      { !innerKeeps(w) }
+func spinnerForEver(w World) bool { !settledShowsOutcome(w) }
+func siblingHidden(w World) bool  { !siblingRenders(w) }
+func failureCrashed(w World) bool { !crashOnlyByDefect(w) }
+
+// The witnesses.
+
+func bodyShown(w World) bool      { w.Kind == Ok && w.Nodes == 2 }
+func failedArmShown(w World) bool { w.Kind == Fail && !w.Crashed }
+func retried(w World) bool        { w.Retries > 0 }
+func innerWritten(w World) bool   { w.InWrites > 0 }
+func crashed(w World) bool        { w.Crashed }
+
+// A cell written under the boundary before a failure shows that value
+// again after the retry.
+func cellBackAfterRetry(w World) bool {
+	w.CellAtRetry > 0 && w.Kind == Ok && w.InShown == w.CellAtRetry && !w.FrameWanted
+}
+
+// The spinner is shown while a sibling's cell holds a written value.
+func siblingTypedWhilePending(w World) bool {
+	w.Kind == Pend && w.SibShown > 0 && !w.FrameWanted
+}
+
+// The design keeps every invariant in the scope.
+type Design machine[World, Act] {
+	initial: world(),
+	step:    stepDesign,
+
+	law NoStale always noStale,
+	law NoPartial always noPartial,
+	law BodyIffOk always bodyIffOk,
+	law SiblingRenders always siblingRenders,
+	law SiblingKeeps always siblingKeeps,
+	law InnerKeeps always innerKeeps,
+	law SettledShowsOutcome always settledShowsOutcome,
+	law CrashOnlyByDefect always crashOnlyByDefect,
+
+	law ShowsBody sometimes bodyShown,
+	law ShowsFailedArm sometimes failedArmShown,
+	law Retries sometimes retried,
+	law WritesInner sometimes innerWritten,
+	law Crashes sometimes crashed,
+	law CellBackAfterRetry sometimes cellBackAfterRetry,
+	law SiblingTypedWhilePending sometimes siblingTypedWhilePending,
+}
+
+type ByKey machine[World, Act] {
+	initial: world(),
+	step:    stepByKey,
+
+	law Breaks sometimes stale,
+}
+
+type NoRollback machine[World, Act] {
+	initial: world(),
+	step:    stepNoRollback,
+
+	law Breaks sometimes partial,
+}
+
+type DropCells machine[World, Act] {
+	initial: world(),
+	step:    stepDropCells,
+
+	law Breaks sometimes innerLost,
+}
+
+type StopLoad machine[World, Act] {
+	initial: world(),
+	step:    stepStopLoad,
+
+	law Breaks sometimes spinnerForEver,
+}
+
+type WholeComponent machine[World, Act] {
+	initial: world(),
+	step:    stepWholeComponent,
+
+	law Breaks sometimes siblingHidden,
+}
+
+type FailCrashes machine[World, Act] {
+	initial: world(),
+	step:    stepFailCrashes,
+
+	law Breaks sometimes failureCrashed,
+}

@@ -13,7 +13,9 @@ import (
 // source fails TestUILoadModel until this restatement changes with it.
 const stdUILoadProbe = `import ui
 
-type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog}
+type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int}
+
+type Missing { V int }
 
 type rng { x int }
 
@@ -26,8 +28,11 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 
 let slots = 6
 
-func genProg(r *rng, depth int) prog {
-	let kind = draw(r, 8)
+func genProg(r *rng, depth int, bounded bool) prog {
+	let kind = draw(r, 10)
+	if kind == 9 && bounded {
+		return pRead{slot: draw(r, slots)}
+	}
 	if depth == 0 || kind < 4 {
 		match kind % 4 {
 		case 0:
@@ -40,9 +45,10 @@ func genProg(r *rng, depth int) prog {
 			pSwap{slot: draw(r, slots)}
 		}
 	} else {
+		let inner = bounded || kind >= 8
 		let mut kids = []prog{}
 		for _ in 0..draw(r, 4) {
-			kids = kids.Append(genProg(r, depth-1))
+			kids = kids.Append(genProg(r, depth-1, inner))
 		}
 		match kind {
 		case 4:
@@ -51,8 +57,10 @@ func genProg(r *rng, depth int) prog {
 			pRow{kids: kids}
 		case 6:
 			pPress{slot: draw(r, slots), kids: kids}
-		case _:
+		case 7:
 			pEach{slot: draw(r, slots), kids: kids}
+		case _:
+			pBound{form: draw(r, 3), slot: draw(r, slots), kids: kids.Append(pRead{slot: draw(r, slots)})}
 		}
 	}
 }
@@ -69,7 +77,7 @@ func items(v int) []int {
 	let mut out = []int{}
 	for i in 0..6 {
 		let k = (i + v) % 6
-		if (k + v/6) % 3 != 0 {
+		if (k+v/6)%3 != 0 {
 			out = out.Append(k)
 		}
 	}
@@ -90,10 +98,10 @@ func swap(f *ui.Frame[int], v int, at CallSite) {
 	}
 }
 
-func render(f *ui.Frame[int], p prog, s []int, row int) {
+func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pending {
 	match p {
 	case pText as x:
-		ui.Text(f, "t\(s[x.slot]+row)")
+		ui.Text(f, "t\(s[x.slot] + row)")
 	case pInput as x:
 		let v = s[x.slot] + row
 		ui.Input(f, "v\(v)", "type", func(t string) int { len(t) + v })
@@ -102,73 +110,218 @@ func render(f *ui.Frame[int], p prog, s []int, row int) {
 	case pSwap as x:
 		swap(f, s[x.slot]+row)
 	case pBox as x:
-		ui.Box(f, gapped(s[x.slot])) {
+		try ui.Box(f, gapped(s[x.slot])) {
 			for c in x.kids {
-				render(f, c, s, row)
+				try render(f, c, s, row)
 			}
 		}
 	case pRow as x:
-		ui.Row(f, ui.Plain()) {
+		try ui.Row(f, ui.Plain()) {
 			for c in x.kids {
-				render(f, c, s, row)
+				try render(f, c, s, row)
 			}
 		}
 		ui.Text(f, "after")
 	case pPress as x:
-		ui.Pressable(f, "press", s[x.slot]%4+row) {
+		try ui.Pressable(f, "press", s[x.slot]%4+row) {
 			for c in x.kids {
-				render(f, c, s, row)
+				try render(f, c, s, row)
 			}
 		}
 	case pEach as x:
-		ui.Each(f, items(s[x.slot]), func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+		try ui.Each(f, items(s[x.slot]), func(k int) ui.Key { ui.ByInt(k) }) func(k int) fails Missing | ui.Pending {
 			for c in x.kids {
-				render(f, c, s, k)
+				try render(f, c, s, k)
 			}
 		}
 		ui.Text(f, "after")
+	case pBound as x:
+		if x.form == 0 {
+			ui.Boundary(f) {
+				for c in x.kids {
+					try render(f, c, s, row)
+				}
+			} catch {
+			case ui.Pending:
+				ui.Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					ui.Text(f, "missing \(e.V)")
+				}
+			}
+		} else if x.form == 1 {
+			ui.Box(f, ui.Plain()) {
+				for c in x.kids {
+					try render(f, c, s, row)
+				}
+			} catch {
+			case ui.Pending:
+				ui.Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					ui.Text(f, "missing \(e.V)")
+				}
+			}
+		} else {
+			ui.Each(f, items(s[x.slot]), func(k int) ui.Key { ui.ByInt(k) }) func(k int) fails Missing | ui.Pending {
+				for c in x.kids {
+					try render(f, c, s, k)
+				}
+			} catch {
+			case ui.Pending:
+				ui.Text(f, "pending")
+			case Missing as e:
+				if e.V%2 == 0 {
+					ui.Text(f, "missing \(e.V)")
+				}
+			}
+		}
+	case pRead as x:
+		let v = s[x.slot] + row
+		if v%3 == 1 {
+			return ui.Pending
+		}
+		if v%3 == 2 {
+			return Missing{V: v}
+		}
 	}
 }
 
-func model(p prog, s []int, row int) []ui.Shape[int] {
+type outcome { shapes []ui.Shape[int], fail int, v int }
+
+func done(shapes []ui.Shape[int]) outcome { outcome{shapes: shapes, fail: 0, v: 0} }
+
+func model(p prog, s []int, row int) outcome {
 	match p {
 	case pText as x:
-		[]ui.Shape[int]{leaf(ui.TextNode{Value: "t\(s[x.slot]+row)", Style: ui.Plain()})}
+		done([]ui.Shape[int]{leaf(ui.TextNode{Value: "t\(s[x.slot] + row)", Style: ui.Plain()})})
 	case pInput as x:
-		[]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot]+row)", Placeholder: "type"})}
+		done([]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type"})})
 	case pCheck as x:
-		[]ui.Shape[int]{leaf(ui.CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})}
+		done([]ui.Shape[int]{leaf(ui.CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})})
 	case pSwap as x:
 		let v = s[x.slot] + row
 		if v%2 == 0 {
-			return []ui.Shape[int]{leaf(ui.TextNode{Value: "even \(v)", Style: ui.Plain()})}
+			return done([]ui.Shape[int]{leaf(ui.TextNode{Value: "even \(v)", Style: ui.Plain()})})
 		}
-		[]ui.Shape[int]{leaf(ui.CheckNode{Label: "odd", Checked: v%3 == 0, On: v})}
+		done([]ui.Shape[int]{leaf(ui.CheckNode{Label: "odd", Checked: v%3 == 0, On: v})})
 	case pBox as x:
-		[]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: gapped(s[x.slot])}, Kids: models(x.kids, s, row)}}
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: gapped(s[x.slot])}, Kids: o.shapes}})
 	case pRow as x:
-		[]ui.Shape[int]{ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: models(x.kids, s, row)}, leaf(ui.TextNode{Value: "after", Style: ui.Plain()})}
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: o.shapes}, leaf(ui.TextNode{Value: "after", Style: ui.Plain()})})
 	case pPress as x:
-		[]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.Plain()}, Kids: models(x.kids, s, row)}}
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.Plain()}, Kids: o.shapes}})
 	case pEach as x:
 		let mut out = []ui.Shape[int]{}
 		for k in items(s[x.slot]) {
-			for c in models(x.kids, s, k) {
+			let o = outcomes(x.kids, s, k)
+			if o.fail != 0 {
+				return o
+			}
+			for c in o.shapes {
 				out = out.Append(c)
 			}
 		}
-		out.Append(leaf(ui.TextNode{Value: "after", Style: ui.Plain()}))
+		done(out.Append(leaf(ui.TextNode{Value: "after", Style: ui.Plain()})))
+	case pBound as x:
+		let mut out = []ui.Shape[int]{}
+		for k in boundRows(x, s, row) {
+			let o = outcomes(x.kids, s, k)
+			if o.fail == 1 {
+				return done([]ui.Shape[int]{leaf(ui.TextNode{Value: "pending", Style: ui.Plain()})})
+			}
+			if o.fail == 2 && o.v%2 == 0 {
+				return done([]ui.Shape[int]{leaf(ui.TextNode{Value: "missing \(o.v)", Style: ui.Plain()})})
+			}
+			if o.fail == 2 {
+				return done([]ui.Shape[int]{})
+			}
+			for c in o.shapes {
+				out = out.Append(c)
+			}
+		}
+		if x.form == 1 {
+			return done([]ui.Shape[int]{ui.Shape[int]{Node: ui.BoxNode{Style: ui.Plain()}, Kids: out}})
+		}
+		done(out)
+	case pRead as x:
+		let v = s[x.slot] + row
+		if v%3 == 0 {
+			return done([]ui.Shape[int]{})
+		}
+		outcome{shapes: []ui.Shape[int]{}, fail: v % 3, v: v}
 	}
 }
 
-func models(ps []prog, s []int, row int) []ui.Shape[int] {
+func outcomes(ps []prog, s []int, row int) outcome {
 	let mut out = []ui.Shape[int]{}
 	for p in ps {
-		for x in model(p, s, row) {
+		let o = model(p, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		for x in o.shapes {
 			out = out.Append(x)
 		}
 	}
-	out
+	done(out)
+}
+
+func models(ps []prog, s []int, row int) []ui.Shape[int] { outcomes(ps, s, row).shapes }
+
+func stopsAt(ps []prog, s []int, row int) bool {
+	for p in ps {
+		if stopIn(p, s, row) {
+			return true
+		}
+	}
+	false
+}
+
+func stopIn(p prog, s []int, row int) bool {
+	match p {
+	case pBox as x:
+		stopsAt(x.kids, s, row)
+	case pRow as x:
+		stopsAt(x.kids, s, row)
+	case pPress as x:
+		stopsAt(x.kids, s, row)
+	case pEach as x:
+		for k in items(s[x.slot]) {
+			if stopsAt(x.kids, s, k) {
+				return true
+			}
+		}
+		false
+	case pBound as x:
+		for k in boundRows(x, s, row) {
+			if outcomes(x.kids, s, k).fail != 0 || stopsAt(x.kids, s, k) {
+				return true
+			}
+		}
+		false
+	case _:
+		false
+	}
+}
+
+func boundRows(x pBound, s []int, row int) []int {
+	if x.form == 2 {
+		return items(s[x.slot])
+	}
+	[]int{row}
 }
 
 func leaf(n ui.Node[int]) ui.Shape[int] { ui.Shape[int]{Node: n, Kids: []ui.Shape[int]{}} }
@@ -176,7 +329,12 @@ func leaf(n ui.Node[int]) ui.Shape[int] { ui.Shape[int]{Node: n, Kids: []ui.Shap
 func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 	ui.Render(f, func(g *ui.Frame[int], st []int) {
 		for p in ps {
-			render(g, p, st, 0)
+			render(g, p, st, 0) catch {
+			case Missing:
+				Unreachable("ui laws: a read is drawn only under a boundary")
+			case ui.Pending:
+				Unreachable("ui laws: a read is drawn only under a boundary")
+			}
 		}
 	}, s)
 }
@@ -184,7 +342,7 @@ func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 func genRoot(r *rng) []prog {
 	let mut ps = []prog{}
 	for _ in 0..draw(r, 4)+1 {
-		ps = ps.Append(genProg(r, 3))
+		ps = ps.Append(genProg(r, 3, false))
 	}
 	ps
 }
@@ -261,7 +419,7 @@ func signalsAgree(f *ui.Frame[int], id ui.Id[int]) bool {
 		case ui.CheckNode[int] as c:
 			ok = pressed == c.On && typed == -1
 		case ui.InputNode as i:
-			ok = i.Value == "v\(typed-3)" && pressed == -1
+			ok = i.Value == "v\(typed - 3)" && pressed == -1
 		case _:
 			ok = pressed == -1 && typed == -1
 		}
@@ -532,6 +690,313 @@ func lawLoadFollowsModel(seed int, steps int) bool {
 	}
 }
 
+
+type bstate { key int, keys []int, fail int, gone bool }
+
+let innerKey = 100
+
+func failIf(b bool) fails ui.Pending {
+	if b {
+		return ui.Pending
+	}
+}
+
+func failMissing(b bool) fails Missing {
+	if b {
+		return Missing{V: 0}
+	}
+}
+
+func labelled(f *ui.Frame[int], name string) {
+	ui.Row(f, ui.Plain()) {
+		let d = ui.NewDraft(f, name)
+		ui.Field(f, d, name)
+	}
+}
+
+func labelShape(vals Map[string, string], n string) ui.Shape[int] {
+	ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: []ui.Shape[int]{input(vals, n, n)}}
+}
+
+func bview(f *ui.Frame[int], s bstate) {
+	ui.Column(f, ui.Plain()) {
+		let side = ui.NewDraft(f, "side")
+		ui.Field(f, side, "side")
+		let key = s.key
+		ui.Load(f, ui.ByInt(key), func() int { key })
+		if !s.gone {
+			ui.Box(f, ui.Plain()) {
+				ui.Boundary(f) {
+					if s.fail != 6 {
+						try failIf(s.fail == 1)
+						let loose = ui.NewDraft(f, "loose")
+						ui.Field(f, loose, "loose")
+						labelled(f, "mid")
+						try failIf(s.fail == 2)
+						try failMissing(s.fail == 5)
+						try ui.Row(f, ui.Plain()) {
+							let inner = ui.NewDraft(f, "inner")
+							ui.Field(f, inner, "inner")
+							ui.Load(f, ui.ByInt(innerKey), func() int { innerKey })
+							ui.Each(f, s.keys, func(k int) ui.Key { ui.ByInt(k) }) func(k int) {
+								let d = ui.NewDraft(f, "r\(k)")
+								ui.Field(f, d, "r")
+							}
+							try failIf(s.fail == 3)
+						}
+						try failIf(s.fail == 4)
+					}
+				} catch {
+				case ui.Pending:
+					ui.Text(f, "wait")
+					labelled(f, "arm")
+				case Missing:
+				}
+			}
+		}
+		// A container whose catch is right after it, outside the boundary
+		// and with no namespace of its own: its arm writes, at the spec index
+		// the body had, the helper the body wrote, so the arm's identity holds
+		// only when the cut gives back the counts the body took.
+		ui.Row(f, ui.Plain()) {
+			try failIf(s.fail == 1)
+			labelled(f, "deep")
+			try failIf(s.fail == 2 || s.fail == 3)
+		} catch {
+		case ui.Pending:
+			ui.Row(f, ui.Plain()) {
+				labelled(f, "deeparm")
+			}
+		}
+		ui.Row(f, ui.Plain()) {
+			let tail = ui.NewDraft(f, "tail")
+			ui.Field(f, tail, "tail")
+		}
+		let after = ui.NewDraft(f, "after")
+		ui.Field(f, after, "after")
+	}
+}
+
+func draft(vals Map[string, string], n string) string {
+	match vals.Get(n) {
+	case Some[string] as v:
+		v.Value
+	case None:
+		n
+	}
+}
+
+func input(vals Map[string, string], n string, placeholder string) ui.Shape[int] {
+	leaf(ui.InputNode{Value: draft(vals, n), Placeholder: placeholder})
+}
+
+func bshape(s bstate, vals Map[string, string]) []ui.Shape[int] {
+	let mut kids = []ui.Shape[int]{input(vals, "side", "side")}
+	if !s.gone {
+		let mut box = []ui.Shape[int]{}
+		if s.fail == 0 {
+			box = box.Append(input(vals, "loose", "loose"))
+			box = box.Append(labelShape(vals, "mid"))
+			let mut row = []ui.Shape[int]{input(vals, "inner", "inner")}
+			for k in s.keys {
+				row = row.Append(input(vals, "r\(k)", "r"))
+			}
+			box = box.Append(ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: row})
+		} else if s.fail <= 4 {
+			box = box.Append(leaf(ui.TextNode{Value: "wait", Style: ui.Plain()}))
+			box = box.Append(labelShape(vals, "arm"))
+		}
+		kids = kids.Append(ui.Shape[int]{Node: ui.BoxNode{Style: ui.Plain()}, Kids: box})
+	}
+	let mut deep = "deep"
+	if deepStops(s) {
+		deep = "deeparm"
+	}
+	kids = kids.Append(ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: []ui.Shape[int]{labelShape(vals, deep)}})
+	kids = kids.Append(labelShape(vals, "tail"))
+	kids = kids.Append(input(vals, "after", "after"))
+	[]ui.Shape[int]{ui.Shape[int]{Node: ui.ColumnNode{Style: ui.Plain()}, Kids: kids}}
+}
+
+func deepStops(s bstate) bool { s.fail >= 1 && s.fail <= 3 }
+
+func dropGroup(vals Map[string, string]) Map[string, string] {
+	let mut out = vals.Delete("loose").Delete("inner").Delete("mid").Delete("arm")
+	for k in 0..6 {
+		out = out.Delete("r\(k)")
+	}
+	out
+}
+
+func lawBoundaryFollowsModel(seed int, steps int) bool {
+	let mut r = seeded(seed)
+	let mut f = ui.NewFrame[int]()
+	let mut vals = Map[string, string]{}
+	let mut s = bstate{key: 0, keys: []int{}, fail: 0, gone: true}
+	let mut outer = -1
+	let mut okey = -1
+	let mut rowMade = false
+	let mut inner = -1
+	let mut used = Map[int, bool]{}
+	for i in 0..(steps%24+24)%24+2 {
+		if draw(&r, 2) == 0 || i == 0 {
+			let mut next = bstate{key: draw(&r, 3), keys: pick(&r, false), fail: draw(&r, 7), gone: draw(&r, 6) == 0}
+			if draw(&r, 3) == 0 {
+				next.fail = 0
+			}
+			if s.fail == 5 && draw(&r, 2) == 0 {
+				// A stopped pass that writes nothing, then a completed one that
+				// writes nothing: the parent's children are the same, and
+				// what it parked is released.
+				next.fail = 6
+			}
+			let _ = ui.Render(&f, bview, next)
+			s = next
+			let mut fetchOuter = []int{}
+			let mut fetchInner = []int{}
+			let mut cancels = []int{}
+			for j in ui.Jobs(&f) {
+				match j {
+				case ui.Fetch[int] as x:
+					if used.Get(x.Epoch) != None {
+						return false
+					}
+					used[x.Epoch] = true
+					if x.Run() == innerKey {
+						fetchInner = fetchInner.Append(x.Epoch)
+					} else if x.Run() == s.key {
+						fetchOuter = fetchOuter.Append(x.Epoch)
+					} else {
+						return false
+					}
+				case ui.Cancel as c:
+					cancels = cancels.Append(c.Epoch)
+				}
+			}
+			for c in cancels {
+				if ui.Arrive(&f, c) {
+					return false
+				}
+			}
+			if s.key != okey {
+				if len(fetchOuter) != 1 || (outer >= 0 && ui.Arrive(&f, outer)) {
+					return false
+				}
+				outer = fetchOuter[0]
+				okey = s.key
+			} else if len(fetchOuter) != 0 {
+				return false
+			}
+			if !ui.Arrive(&f, outer) {
+				return false
+			}
+			let releases = (s.gone || s.fail == 6) && !deepStops(s)
+			if releases {
+				if len(fetchInner) != 0 || (inner >= 0 && ui.Arrive(&f, inner)) {
+					return false
+				}
+				inner = -1
+				rowMade = false
+				vals = dropGroup(vals)
+			} else if inner >= 0 && (rowMade || s.fail != 0 || s.gone) {
+				if len(fetchInner) != 0 || !ui.Arrive(&f, inner) {
+					return false
+				}
+			} else if !s.gone && (s.fail == 0 || s.fail == 3 || s.fail == 4) {
+				// The first pass that completes the ui.Row after a stopped one
+				// that wrote it (with no ui.Row node to park the load in) may
+				// fetch again (a known gap: the load waited in the group's
+				// parent); the one before is then cancelled.
+				if inner >= 0 && ui.Arrive(&f, inner) && len(fetchInner) != 0 {
+					return false
+				}
+				let mut live = 0
+				for e in fetchInner {
+					if ui.Arrive(&f, e) {
+						inner = e
+						live = live + 1
+					}
+				}
+				if live != 1 {
+					return false
+				}
+			} else if len(fetchInner) != 0 {
+				return false
+			}
+			if !deepStops(s) {
+				vals = vals.Delete("deeparm")
+			}
+			if !s.gone && s.fail == 0 {
+				rowMade = true
+				vals = vals.Delete("arm")
+				for k in 0..6 {
+					let mut kept = false
+					for x in s.keys {
+						kept = kept || x == k
+					}
+					if !kept {
+						vals = vals.Delete("r\(k)")
+					}
+				}
+			}
+			if (releases || s.fail == 0) && ui.Retained(&f) != ui.Len(&f) {
+				return false
+			}
+		} else {
+			let col = ui.Kids(&f, ui.Root(&f))[0]
+			let mut names = []string{"side"}
+			let mut ids = []ui.Id[int]{ui.Kids(&f, col)[0]}
+			let mut next = 1
+			if !s.gone {
+				let box = ui.Kids(&f, col)[1]
+				next = 2
+				if s.fail == 0 {
+					names = names.Append("loose")
+					ids = ids.Append(ui.Kids(&f, box)[0])
+					names = names.Append("mid")
+					ids = ids.Append(ui.Kids(&f, ui.Kids(&f, box)[1])[0])
+					let row = ui.Kids(&f, box)[2]
+					names = names.Append("inner")
+					ids = ids.Append(ui.Kids(&f, row)[0])
+					for j, k in s.keys {
+						names = names.Append("r\(k)")
+						ids = ids.Append(ui.Kids(&f, row)[j+1])
+					}
+				} else if s.fail <= 4 {
+					names = names.Append("arm")
+					ids = ids.Append(ui.Kids(&f, ui.Kids(&f, box)[1])[0])
+				}
+			}
+			if deepStops(s) {
+				names = names.Append("deeparm")
+			} else {
+				names = names.Append("deep")
+			}
+			ids = ids.Append(ui.Kids(&f, ui.Kids(&f, ui.Kids(&f, col)[next])[0])[0])
+			names = names.Append("tail")
+			ids = ids.Append(ui.Kids(&f, ui.Kids(&f, col)[next+1])[0])
+			names = names.Append("after")
+			ids = ids.Append(ui.Kids(&f, col)[next+2])
+			let at = draw(&r, len(names))
+			let old = draft(vals, names[at])
+			let now = "x\(i % 3)"
+			let done = ui.Handle(&f, ui.Type[int]{Id: ids[at], Text: now})
+			if done.Changed != (now != old) {
+				return false
+			}
+			vals[names[at]] = now
+			let _ = ui.Render(&f, bview, s)
+			if len(ui.Jobs(&f)) != 0 {
+				return false
+			}
+		}
+		if !ui.SameShapes(ui.FrameShape(&f), bshape(s, vals)) || !ui.SameShapes(ui.TreeShape(&f), bshape(s, vals)) {
+			return false
+		}
+	}
+	true
+}
+
 test UiStateKeeps(seed int, steps int) {
 	assert lawStateKeeps(seed, steps)
 }
@@ -543,14 +1008,19 @@ test UiFreshMountInits(seed int, steps int) {
 test UiLoadFollowsModel(seed int, steps int) {
 	assert lawLoadFollowsModel(seed, steps)
 }
+
+test UiBoundaryFollowsModel(seed int, steps int) {
+	assert lawBoundaryFollowsModel(seed, steps)
+}
 `
 
 // stdUILoadStatements is the statement of each ui law, as the ledger writes it,
 // by ledger key.
 var stdUILoadStatements = map[string]string{
-	"ui StateKeeps":       `StateKeeps(seed int, steps int) { cellsFollowModel(seed, steps, false) }`,
-	"ui FreshMountInits":  `FreshMountInits(seed int, steps int) { cellsFollowModel(seed, steps, true) }`,
-	"ui LoadFollowsModel": `LoadFollowsModel(seed int, steps int) { let mut r = seeded(seed) let mut f = NewFrame[int]() let mut cur Option[loaded] = None let mut flight = []fetching{} let mut used = Map[int, bool]{} let mut ready = -1 for _ in 0..(steps%24+24)%24+2 { if draw(&r, 2) == 0 || len(flight) == 0 { let mut w = want{at: Nowhere, key: draw(&r, 3)} match draw(&r, 3) { case 0: case 1: w.at = Top case _: w.at = Boxed } let _ = Render(&f, loadView, w) let mut fetches = []Fetch[int]{} let mut cancels = []int{} for j in Jobs(&f) { match j { case Fetch[int] as x: fetches = fetches.Append(x) case Cancel as c: cancels = cancels.Append(c.Epoch) } } let mut wantCancel = -1 let mut wantFetch = false match cur { case Some[loaded] as c: if c.Value.at != w.at || c.Value.key != w.key { wantCancel = c.Value.epoch wantFetch = w.at != Nowhere } case None: wantFetch = w.at != Nowhere } if wantCancel >= 0 { if len(cancels) != 1 || cancels[0] != wantCancel { return false } cur = None ready = -1 } else if len(cancels) != 0 { return false } if wantFetch { if len(fetches) != 1 || used.Get(fetches[0].Epoch) != None { return false } used[fetches[0].Epoch] = true cur = Some{Value: loaded{at: w.at, key: w.key, epoch: fetches[0].Epoch}} flight = flight.Append(fetching{epoch: fetches[0].Epoch, run: fetches[0].Run}) } else if len(fetches) != 0 { return false } } else { let i = draw(&r, len(flight)) let x = flight[i] let mut rest = []fetching{} for j, y in flight { if j != i { rest = rest.Append(y) } } flight = rest let mut wanted = false match cur { case Some[loaded] as c: wanted = c.Value.epoch == x.epoch case None: } let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal) if Arrive(&f, x.epoch) != wanted || (got != -1) != wanted { return false } if wanted { ready = got } } } for x in flight { let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal) if got != -1 { ready = got } } match cur { case Some[loaded] as c: ready == c.Value.key case None: ready == -1 } }`,
+	"ui StateKeeps":           `StateKeeps(seed int, steps int) { cellsFollowModel(seed, steps, false) }`,
+	"ui FreshMountInits":      `FreshMountInits(seed int, steps int) { cellsFollowModel(seed, steps, true) }`,
+	"ui LoadFollowsModel":     `LoadFollowsModel(seed int, steps int) { let mut r = seeded(seed) let mut f = NewFrame[int]() let mut cur Option[loaded] = None let mut flight = []fetching{} let mut used = Map[int, bool]{} let mut ready = -1 for _ in 0..(steps%24+24)%24+2 { if draw(&r, 2) == 0 || len(flight) == 0 { let mut w = want{at: Nowhere, key: draw(&r, 3)} match draw(&r, 3) { case 0: case 1: w.at = Top case _: w.at = Boxed } let _ = Render(&f, loadView, w) let mut fetches = []Fetch[int]{} let mut cancels = []int{} for j in Jobs(&f) { match j { case Fetch[int] as x: fetches = fetches.Append(x) case Cancel as c: cancels = cancels.Append(c.Epoch) } } let mut wantCancel = -1 let mut wantFetch = false match cur { case Some[loaded] as c: if c.Value.at != w.at || c.Value.key != w.key { wantCancel = c.Value.epoch wantFetch = w.at != Nowhere } case None: wantFetch = w.at != Nowhere } if wantCancel >= 0 { if len(cancels) != 1 || cancels[0] != wantCancel { return false } cur = None ready = -1 } else if len(cancels) != 0 { return false } if wantFetch { if len(fetches) != 1 || used.Get(fetches[0].Epoch) != None { return false } used[fetches[0].Epoch] = true cur = Some{Value: loaded{at: w.at, key: w.key, epoch: fetches[0].Epoch}} flight = flight.Append(fetching{epoch: fetches[0].Epoch, run: fetches[0].Run}) } else if len(fetches) != 0 { return false } } else { let i = draw(&r, len(flight)) let x = flight[i] let mut rest = []fetching{} for j, y in flight { if j != i { rest = rest.Append(y) } } flight = rest let mut wanted = false match cur { case Some[loaded] as c: wanted = c.Value.epoch == x.epoch case None: } let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal) if Arrive(&f, x.epoch) != wanted || (got != -1) != wanted { return false } if wanted { ready = got } } } for x in flight { let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal) if got != -1 { ready = got } } match cur { case Some[loaded] as c: ready == c.Value.key case None: ready == -1 } }`,
+	"ui BoundaryFollowsModel": `BoundaryFollowsModel(seed int, steps int) { let mut r = seeded(seed) let mut f = NewFrame[int]() let mut vals = Map[string, string]{} let mut s = bstate{key: 0, keys: []int{}, fail: 0, gone: true} let mut outer = -1 let mut okey = -1 let mut rowMade = false let mut inner = -1 let mut used = Map[int, bool]{} for i in 0..(steps%24+24)%24+2 { if draw(&r, 2) == 0 || i == 0 { let mut next = bstate{key: draw(&r, 3), keys: pick(&r, false), fail: draw(&r, 7), gone: draw(&r, 6) == 0} if draw(&r, 3) == 0 { next.fail = 0 } if s.fail == 5 && draw(&r, 2) == 0 { // A stopped pass that writes nothing, then a completed one that // writes nothing: the parent's children are the same, and // what it parked is released. next.fail = 6 } let _ = Render(&f, bview, next) s = next let mut fetchOuter = []int{} let mut fetchInner = []int{} let mut cancels = []int{} for j in Jobs(&f) { match j { case Fetch[int] as x: if used.Get(x.Epoch) != None { return false } used[x.Epoch] = true if x.Run() == innerKey { fetchInner = fetchInner.Append(x.Epoch) } else if x.Run() == s.key { fetchOuter = fetchOuter.Append(x.Epoch) } else { return false } case Cancel as c: cancels = cancels.Append(c.Epoch) } } for c in cancels { if Arrive(&f, c) { return false } } if s.key != okey { if len(fetchOuter) != 1 || (outer >= 0 && Arrive(&f, outer)) { return false } outer = fetchOuter[0] okey = s.key } else if len(fetchOuter) != 0 { return false } if !Arrive(&f, outer) { return false } let releases = (s.gone || s.fail == 6) && !deepStops(s) if releases { if len(fetchInner) != 0 || (inner >= 0 && Arrive(&f, inner)) { return false } inner = -1 rowMade = false vals = dropGroup(vals) } else if inner >= 0 && (rowMade || s.fail != 0 || s.gone) { if len(fetchInner) != 0 || !Arrive(&f, inner) { return false } } else if !s.gone && (s.fail == 0 || s.fail == 3 || s.fail == 4) { // The first pass that completes the Row after a stopped one // that wrote it (with no Row node to park the load in) may // fetch again (a known gap: the load waited in the group's // parent); the one before is then cancelled. if inner >= 0 && Arrive(&f, inner) && len(fetchInner) != 0 { return false } let mut live = 0 for e in fetchInner { if Arrive(&f, e) { inner = e live = live + 1 } } if live != 1 { return false } } else if len(fetchInner) != 0 { return false } if !deepStops(s) { vals = vals.Delete("deeparm") } if !s.gone && s.fail == 0 { rowMade = true vals = vals.Delete("arm") for k in 0..6 { let mut kept = false for x in s.keys { kept = kept || x == k } if !kept { vals = vals.Delete("r\(k)") } } } if (releases || s.fail == 0) && Retained(&f) != Len(&f) { return false } } else { let col = Kids(&f, Root(&f))[0] let mut names = []string{"side"} let mut ids = []Id[int]{Kids(&f, col)[0]} let mut next = 1 if !s.gone { let box = Kids(&f, col)[1] next = 2 if s.fail == 0 { names = names.Append("loose") ids = ids.Append(Kids(&f, box)[0]) names = names.Append("mid") ids = ids.Append(Kids(&f, Kids(&f, box)[1])[0]) let row = Kids(&f, box)[2] names = names.Append("inner") ids = ids.Append(Kids(&f, row)[0]) for j, k in s.keys { names = names.Append("r\(k)") ids = ids.Append(Kids(&f, row)[j+1]) } } else if s.fail <= 4 { names = names.Append("arm") ids = ids.Append(Kids(&f, Kids(&f, box)[1])[0]) } } if deepStops(s) { names = names.Append("deeparm") } else { names = names.Append("deep") } ids = ids.Append(Kids(&f, Kids(&f, Kids(&f, col)[next])[0])[0]) names = names.Append("tail") ids = ids.Append(Kids(&f, Kids(&f, col)[next+1])[0]) names = names.Append("after") ids = ids.Append(Kids(&f, col)[next+2]) let at = draw(&r, len(names)) let old = draft(vals, names[at]) let now = "x\(i % 3)" let done = Handle(&f, Type[int]{Id: ids[at], Text: now}) if done.Changed != (now != old) { return false } vals[names[at]] = now let _ = Render(&f, bview, s) if len(Jobs(&f)) != 0 { return false } } if !SameShapes(FrameShape(&f), bshape(s, vals)) || !SameShapes(TreeShape(&f), bshape(s, vals)) { return false } } true }`,
 }
 
 // TestUILoadModel runs the probe's tests with --seed 1; lawledger.Run holds that
