@@ -73,7 +73,11 @@ type host struct {
 	cwd            string
 	files          map[string]*hostFile // by absolute clean path
 	clock          *timelineV
+	listeners      map[int][]*listenerV // the bound ports (nativesnet.go)
 }
+
+// now is the simulated host clock's time.
+func (h *host) now() time.Time { return h.clock.start.Add(h.clock.now) }
 
 // hostFile is a file or a directory of the simulated file system.
 type hostFile struct {

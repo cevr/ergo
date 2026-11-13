@@ -15,9 +15,10 @@ import (
 // std http's policy checks and the refusals a request meets before it
 // reaches the network (ORACLE O23; std/http/network.ergo, http.ergo): a
 // network policy's origins and limits, a URL whose origin the policy
-// refuses, a malformed request, and an address Listen cannot bind. The
-// simulated process has no network: an exchange, a bound listener and a
-// body file a fetch fills are skips.
+// refuses, a malformed request, and an address Listen cannot bind. A
+// bound listener and a Client's exchange with it run on the simulated
+// loopback (nativesnet.go); a fetch from a network policy and a body
+// file it fills are skips.
 
 // sendMalformed is std http's SendFailed kind of a malformed request
 // (client.ergo, causeOf).
@@ -61,7 +62,14 @@ func init() {
 			reason := (&net.OpError{Op: "listen", Net: "tcp", Err: err}).Error()
 			return nil, httpFail(fn, fr, at, "ListenFailed", map[string]Value{"Addr": addr, "Reason": reason})
 		}
-		return nil, fr.unsupported(at, "a bound http.Listener: the simulated process has no network")
+		l, reason, ok := h.listen(addr)
+		switch {
+		case !ok:
+			return nil, fr.unsupported(at, "a listen address the simulated network does not bind (%s)", addr)
+		case reason != "":
+			return nil, httpFail(fn, fr, at, "ListenFailed", map[string]Value{"Addr": addr, "Reason": reason})
+		}
+		return l, nil
 	})
 	fetch := func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		origins := textsOf(args[0])

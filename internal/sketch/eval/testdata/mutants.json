@@ -1275,6 +1275,33 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
     },
     {
+      "name": "oracle-o25-csv-reason-is-message",
+      "origin": "wf10 ORACLE O25",
+      "file": "internal/sketch/eval/nativescsv.go",
+      "from": "\"Reason\": pe.Err.Error(), \"Message\": pe.Error()})",
+      "to": "\"Reason\": pe.Error(), \"Message\": pe.Error()})",
+      "rule": "csv's ParseError Reason is the text of Go's Err, Message Go's whole text (runtime/v1 CSVParseError).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
+      "name": "oracle-o26-request-body-dropped",
+      "origin": "wf10 ORACLE O26",
+      "file": "internal/sketch/eval/nativesnet.go",
+      "from": "\t\t\t\tnr.body = string(data)",
+      "to": "\t\t\t\tnr.body = string(data[:0])",
+      "rule": "The handler reads the body the client sent, as Go's server read it.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
+      "name": "oracle-o26-response-header-dropped",
+      "origin": "wf10 ORACLE O26",
+      "file": "internal/sketch/eval/nativesnet.go",
+      "from": "header: fieldsOf(x.resp.fields[fieldIndex(x.resp.t, \"Header\")])",
+      "to": "header: nil",
+      "rule": "The handler's response header fields reach the client through Go's server.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
+    },
+    {
       "name": "oracle-o20-go-float-is-exp",
       "origin": "wf10 ORACLE O20",
       "file": "internal/sketch/eval/nativesgo.go",
