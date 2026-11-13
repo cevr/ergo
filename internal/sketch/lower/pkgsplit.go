@@ -90,12 +90,21 @@ const (
 	sharedDir = "shared"
 )
 
+// isMainGo reports the lowering's one Go file, main.go (a file name of
+// the lowering's output, not a std name).
+func isMainGo(path string) bool { return path == "main.go" }
+
+// isGoInit reports Go's init function name: Go runs every func init of a
+// package, and many may share the name, so none is a package-scope name
+// (a rule of Go, not a std name).
+func isGoInit(name string) bool { return name == "init" }
+
 // Split splits the module files of the lowering of u into one Go package
 // per Ergo package and the shared package. Files other than main.go stay
 // as they are. A program Split cannot split keeps its files, with the
 // reason in the report.
 func Split(u Unit, files []File) ([]File, SplitReport) {
-	i := slices.IndexFunc(files, func(f File) bool { return f.Path == "main.go" })
+	i := slices.IndexFunc(files, func(f File) bool { return isMainGo(f.Path) })
 	if i < 0 {
 		return files, SplitReport{Packages: 1, Reason: "no main.go"}
 	}
@@ -220,10 +229,10 @@ func splitMain(u Unit, src []byte, base string) ([]File, SplitReport) {
 		g := splitGroup{decls: []int{i}, natural: -1}
 		switch d := d.(type) {
 		case *ast.FuncDecl:
-			if d.Name.Name == "main" || d.Name.Name == "init" {
+			if name := d.Name.Name; name == "main" || isGoInit(name) {
 				g.pin = true
 			}
-			if d.Name.Name != "init" {
+			if !isGoInit(d.Name.Name) {
 				groupOf[d.Name.Name] = len(groups)
 			}
 		case *ast.GenDecl:
@@ -331,7 +340,7 @@ func splitMain(u Unit, src []byte, base string) ([]File, SplitReport) {
 		case *ast.FuncDecl:
 			if d.Recv != nil {
 				fieldIDs[d.Name] = true
-			} else if d.Name.Name != "init" {
+			} else if !isGoInit(d.Name.Name) {
 				defs[d.Name] = true
 			} else {
 				skip[d.Name] = true
