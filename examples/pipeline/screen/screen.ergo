@@ -1,0 +1,164 @@
+// Package screen is the pipeline's screen: a machine of its own (§2.6 of
+// the domain plan; PX3a). Its state holds what only the screen knows (the
+// form an operator types into, the run picked, the notice of the last
+// answer) and the domain's views as loads: the board, and the picked run.
+// Its signals are what the view can say. A command is a signal that
+// carries the Api's request value (Ask, with the generated rpc package's
+// Request): the step puts the screen in Asking, whose view asks the host
+// to call the Api (a load), and the answer comes back as a signal, so a
+// rejection is state that the view shows. The step is pure: the screen
+// does not know which provider of pipeline.Pipeline answers it.
+
+import pipeline/board
+import pipeline/pipeline
+import pipeline/pipeline/pipelinerpc
+import pipeline/run
+import strconv
+import strings
+import ui
+
+// Request is one call of the Api: the generated rpc package's Request.
+type Request = pipelinerpc.Request
+
+// Rejection is a typed rejection of a command, each wrapped (a union's
+// variants are records of its package).
+type Rejection = WrongState{Cause run.WrongState} | WrongStage{Cause run.WrongStage} | Closed{Cause run.Closed} | BadLength{Cause run.BadLength} | NoSuchRun{Cause pipeline.NoSuchRun} | Unavailable{Cause pipeline.Unavailable}
+
+// Reply is the answer to a command: its receipt, or its rejection.
+type Reply = Took{Receipt pipeline.Receipt} | Refused{Why Rejection}
+
+// Notice is what the screen says of the last command: nothing yet, or
+// its reply.
+type Notice = Quiet{} | Said{Reply Reply}
+
+// Field is a field of the form.
+type Field = IDField{} | RunField{} | NField{} | WhyField{}
+
+// Form is what the operator typed: the command's ID, the run, a number
+// (the stages of a submit, the stage of a retry, 0 is the first) and the
+// reason of a cancel.
+type Form { ID string, Run string, N string, Why string }
+
+// Lines is the board as the screen shows it: each column's runs, joined
+// by ", ". A signal must compare (ui's E is comparable), and a board's
+// columns are slices, so the load gives the lines.
+type Lines { Queued string, Running string, Failing string, Passed string, Stopped string }
+
+// LinesOf is the lines of the board v.
+func LinesOf(v board.View) Lines {
+	Lines{Queued: strings.Join(v.Queued, ", "), Running: strings.Join(v.Running, ", "), Failing: strings.Join(v.Failing, ", "), Passed: strings.Join(v.Passed, ", "), Stopped: strings.Join(v.Stopped, ", ")}
+}
+
+// Shown is what every state of the screen holds. Version counts the
+// answers and the refreshes: the board's load is keyed by it, so each
+// one fetches the board again. Picked is the run whose state the screen
+// shows, and Run that state as a load.
+type Shown {
+	Board   ui.Async[Lines, pipeline.Unavailable],
+	Version int,
+	Form    Form,
+	Picked  Option[string],
+	Run     ui.Async[run.Run, pipeline.NoSuchRun],
+	Notice  Notice,
+}
+
+// Screen is the screen's state:
+//
+//	Showing  the operator may act
+//	Asking   a command was sent; its answer has not come
+type Screen = Showing{Shown Shown} | Asking{Shown Shown, Req Request}
+
+// Signal is what the view says: a field typed into, a request asked,
+// the reply of the command sent, the board fetched, the picked run's
+// state fetched, or the picked run not found.
+type Signal = Typed{Field Field, Text string} | Ask{Req Request} | Replied{Reply Reply} | Loaded{Board Lines} | RunLoaded{Run run.Run} | RunMissing{Err pipeline.NoSuchRun}
+
+// Fresh is the screen before anything came: the board loading, the form
+// empty, no run picked.
+let Fresh = Showing{Shown: Shown{Board: ui.Loading, Version: 0, Form: Form{ID: "", Run: "", N: "", Why: ""}, Picked: None, Run: ui.Loading, Notice: Quiet}}
+
+// ShownOf is what s holds.
+func ShownOf(s Screen) Shown {
+	match s {
+	case Showing as x:
+		x.Shown
+	case Asking as x:
+		x.Shown
+	}
+}
+
+// holding is s holding sh, in the same mode.
+func holding(s Screen, sh Shown) Screen {
+	match s {
+	case Showing:
+		Showing{Shown: sh}
+	case Asking as x:
+		Asking{Shown: sh, Req: x.Req}
+	}
+}
+
+// typed is f with text in the field.
+func typed(f Form, field Field, text string) Form {
+	match field {
+	case IDField:
+		Form{..f, ID: text}
+	case RunField:
+		Form{..f, Run: text}
+	case NField:
+		Form{..f, N: text}
+	case WhyField:
+		Form{..f, Why: text}
+	}
+}
+
+// Number is the form's number, 0 when it is not one.
+func Number(f Form) int {
+	strconv.Atoi(f.N) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		0
+	}
+}
+
+// ask is the screen after the operator asks r while it shows sh: a
+// command is sent (Asking); the board is fetched again; the run r names
+// is picked and fetched.
+func ask(sh Shown, r Request) Screen {
+	match r {
+	case pipelinerpc.SubmitRequest, pipelinerpc.CancelRequest, pipelinerpc.RetryRequest:
+		Asking{Shown: sh, Req: r}
+	case pipelinerpc.BoardRequest:
+		Showing{Shown: Shown{..sh, Board: ui.Loading, Version: sh.Version + 1}}
+	case pipelinerpc.RunOfRequest as x:
+		Showing{Shown: Shown{..sh, Picked: Some[string]{Value: x.Id}, Run: ui.Loading, Version: sh.Version + 1}}
+	}
+}
+
+// Step is the screen's transition. One command is in flight at a time:
+// an Ask while Asking is ignored.
+func Step(s Screen, e Signal) Decision[Screen, Reply] {
+	let sh = ShownOf(s)
+	match (s, e) {
+	case (_, Typed as t):
+		Stay[Screen]{Next: holding(s, Shown{..sh, Form: typed(sh.Form, t.Field, t.Text)})}
+	case (Showing, Ask as a):
+		Enter[Screen]{Next: ask(sh, a.Req)}
+	case (Asking, Ask):
+		Ignore
+	case (Asking, Replied as r):
+		Enter[Screen]{Next: Showing{Shown: Shown{..sh, Notice: Said{Reply: r.Reply}, Version: sh.Version + 1}}}
+	case (Showing, Replied):
+		Ignore
+	case (_, Loaded as l):
+		Stay[Screen]{Next: holding(s, Shown{..sh, Board: ui.Ready[Lines]{Value: l.Board}})}
+	case (_, RunLoaded as l):
+		Stay[Screen]{Next: holding(s, Shown{..sh, Run: ui.Ready[run.Run]{Value: l.Run}})}
+	case (_, RunMissing as m):
+		Stay[Screen]{Next: holding(s, Shown{..sh, Run: ui.Failed[pipeline.NoSuchRun]{Error: m.Err}})}
+	}
+}
+
+// Life is the screen as a machine.
+type Life machine[Screen, Signal] {
+	initial: Fresh,
+	step:    Step,
+}

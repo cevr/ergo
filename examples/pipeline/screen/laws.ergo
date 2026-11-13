@@ -1,0 +1,138 @@
+// The laws of the screen: what the view shows of each reply, and two
+// scenes on ui.TestHost with a held call: the runner's try (the board
+// shows the run running, then passed) and the Api's own command (the
+// screen shows it sending, then its receipt).
+
+import actor
+import journal
+import journal/memory
+import pipeline/board
+import pipeline/pipeline
+import pipeline/run
+import strings
+import testing
+import time
+import ui
+
+// texts are the values of the text nodes of shapes, in tree order.
+func texts(shapes []ui.Shape[Signal]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case _:
+		}
+		for t in texts(s.Kids) {
+			out = out.Append(t)
+		}
+	}
+	out
+}
+
+// shows is whether the screen of h shows the line.
+func shows[D, F](h *ui.TestHost[Screen, Signal, D, F], line string) bool { ui.Find(h, line) != None }
+
+// ReplyIsShown: the view of a screen whose last command got reply shows a
+// line that says so: "took ID at POSITION" for a receipt, "refused: " and
+// the reason for a rejection.
+law ReplyIsShown(reply Reply) {
+	let api = testing.Script[pipeline.Pipeline]{}
+	let s = Showing{Shown: Shown{..ShownOf(Fresh), Notice: Said{Reply: reply}}}
+	let mut f = ui.NewFrame[Signal]()
+	let _ = ui.Render(&f, View(api), s)
+	for line in texts(ui.FrameShape(&f)) {
+		match reply {
+		case Took as t:
+			if line == "took \(t.Receipt.Command) at \(t.Receipt.Position)" {
+				return true
+			}
+		case Refused:
+			if strings.HasPrefix(line, "refused: ") && len(line) > len("refused: ") {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// stop stops the screen's actor.
+func stop[S, E, D, F](a actor.Actor[S, E, D, F]) {
+	a.Stop() catch {
+	case _:
+	}
+}
+
+// HeldTryShowsRunningThenPassed: the screen of the in-process context
+// whose runner holds its try submits a run of one stage; the board shows
+// the run running (the busy state) while the try is held. Once a Release
+// passes the try and the context settles, a refresh shows it passed.
+law HeldTryShowsRunningThenPassed(pick int) {
+	let name = pipeline.Names[((pick%3)+3)%3]
+	let runner = testing.Script[pipeline.Runner]{}
+	runner.Run.Hold()
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock, pipeline.Runner: runner } {
+		let m = pipeline.Open(memory.New[pipeline.Desk, pipeline.Signal]()) catch {
+		case journal.Failed, journal.Diverged:
+			return false
+		}
+		let a = actor.StartMachine(Life{}, 8, func(r Reply) {})
+		let mut h = ui.NewTestHost(a, View(m), clock, 8) catch {
+		case ui.BadPatch:
+			return false
+		}
+		ui.Play(&h, []ui.Act{ui.SettleAll, ui.TypeInto{Label: "id", Text: "c1"}, ui.TypeInto{Label: "run", Text: name}, ui.TypeInto{Label: "number", Text: "1"}, ui.TapOn{Label: "submit"}, ui.SettleAll}) catch {
+		case _:
+			return false
+		}
+		let busy = shows(&h, "took c1 at 1") && shows(&h, "running: "+name) && !shows(&h, "passed: "+name)
+		runner.Run.Release(func(id string, stage int, attempt int) bool fails pipeline.Offline { true })
+		let _ = pipeline.Settle(m) catch {
+		case pipeline.Unavailable:
+			return false
+		}
+		ui.Play(&h, []ui.Act{ui.TapOn{Label: "refresh"}, ui.SettleAll}) catch {
+		case _:
+			return false
+		}
+		let done = shows(&h, "passed: "+name) && !shows(&h, "running: "+name)
+		stop(a)
+		pipeline.Stop(m)
+		busy && done && testing.Unanswered() == ""
+	}
+}
+
+// HeldAskShowsSendingThenReceipt: while the Api holds the screen's submit,
+// the screen shows it sending; once a Release answers it, the screen
+// shows the receipt, and the Api got the command the form says.
+law HeldAskShowsSendingThenReceipt(id string, at int) {
+	let api = testing.Script[pipeline.Pipeline]{}
+	api.Board.Answer(func() board.View { board.Empty })
+	api.Submit.Hold()
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let a = actor.StartMachine(Life{}, 8, func(r Reply) {})
+		let mut h = ui.NewTestHost(a, View(api), clock, 8) catch {
+		case ui.BadPatch:
+			return false
+		}
+		ui.Play(&h, []ui.Act{ui.SettleAll, ui.TypeInto{Label: "id", Text: id}, ui.TypeInto{Label: "run", Text: "build"}, ui.TypeInto{Label: "number", Text: "2"}, ui.TapOn{Label: "submit"}}) catch {
+		case _:
+			return false
+		}
+		let sending = shows(&h, "sending submit \(id)")
+		api.Submit.Release(func(c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable {
+			pipeline.Receipt{Command: c.ID, Position: at}
+		})
+		ui.Play(&h, []ui.Act{ui.SettleAll}) catch {
+		case _:
+			return false
+		}
+		let took = shows(&h, "took \(id) at \(at)")
+		let sent = api.Submit.Calls() == []pipeline.SubmitRun{pipeline.SubmitRun{ID: id, Run: "build", Stages: 2}}
+		let _ = api.Board.Calls()
+		stop(a)
+		sending && took && sent && testing.Unanswered() == ""
+	}
+}

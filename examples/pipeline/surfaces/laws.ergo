@@ -5,6 +5,7 @@
 // its context, so the runner's tries are part of what the next request
 // sees.
 
+import actor
 import flag
 import journal
 import journal/memory
@@ -13,7 +14,12 @@ import rpc
 import pipeline/pipeline
 import pipeline/pipeline/pipelinecli
 import pipeline/pipeline/pipelinerpc
+import pipeline/board
+import pipeline/run
+import pipeline/screen
+import strings
 import time
+import ui
 
 // Names are the runs the requests name.
 let Names = []string{"build", "docs", "lint"}
@@ -98,15 +104,123 @@ func asLines(rs []Request, m pipeline.Model) []string {
 	}
 }
 
+// onScreen is the screen's answers: each request typed into the screen's
+// form and asked by its button, on ui.TestHost over m, read once the
+// screen settled. The reply of a command is the screen's notice, a board
+// is what a refresh loads, a run what "show" loads.
+func onScreen(rs []Request, m pipeline.Model, clock time.Manual) []string needs Scheduler {
+	let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
+	let mut h = ui.NewTestHost(a, screen.View(m), clock, 8) catch {
+	case ui.BadPatch:
+		return []string{"the screen did not start"}
+	}
+	let mut out = []string{}
+	for r in rs {
+		out = settled(out.Append(asked(&h, r)), m)
+	}
+	out = out.Append(asked(&h, pipelinerpc.BoardRequest))
+	a.Stop()
+	out
+}
+
+// typing is the acts that fill the form's fields.
+func typing(id string, name string, n string, why string) []ui.Act {
+	[]ui.Act{ui.TypeInto{Label: "id", Text: id}, ui.TypeInto{Label: "run", Text: name}, ui.TypeInto{Label: "number", Text: n}, ui.TypeInto{Label: "why", Text: why}}
+}
+
+// asked is the screen's answer to r: the form filled, its button pressed,
+// the screen settled, and what it then holds as text, in Call's form.
+func asked[D, F](h *ui.TestHost[screen.Screen, screen.Signal, D, F], r Request) string {
+	let acts = match r {
+	case pipelinerpc.SubmitRequest as x:
+		typing(x.C.ID, x.C.Run, "\(x.C.Stages)", "").Append(ui.TapOn{Label: "submit"})
+	case pipelinerpc.CancelRequest as x:
+		typing(x.C.ID, x.C.Run, "", x.C.Why).Append(ui.TapOn{Label: "cancel"})
+	case pipelinerpc.RetryRequest as x:
+		typing(x.C.ID, x.C.Run, "\(x.C.Stage)", "").Append(ui.TapOn{Label: "retry"})
+	case pipelinerpc.BoardRequest:
+		[]ui.Act{ui.TapOn{Label: "refresh"}}
+	case pipelinerpc.RunOfRequest as x:
+		typing("", x.Id, "", "").Append(ui.TapOn{Label: "show"})
+	}
+	ui.Play(h, acts.Append(ui.SettleAll)) catch {
+	case _:
+		return "the screen failed"
+	}
+	let sh = screen.ShownOf(ui.StateOf(h))
+	match r {
+	case pipelinerpc.SubmitRequest, pipelinerpc.CancelRequest, pipelinerpc.RetryRequest:
+		replyText(sh.Notice)
+	case pipelinerpc.BoardRequest:
+		match sh.Board {
+		case ui.Ready[screen.Lines] as b:
+			rpc.Encode(viewOf(b.Value))
+		case ui.Loading, ui.Failed[pipeline.Unavailable]:
+			"no board"
+		}
+	case pipelinerpc.RunOfRequest:
+		match sh.Run {
+		case ui.Ready[run.Run] as x:
+			rpc.Encode(x.Value)
+		case ui.Failed[pipeline.NoSuchRun] as e:
+			rpc.Tagged("NoSuchRun", rpc.Encode(e.Error))
+		case ui.Loading:
+			"no run"
+		}
+	}
+}
+
+// replyText is the notice n as Call writes a reply.
+func replyText(n screen.Notice) string {
+	match n {
+	case screen.Quiet:
+		"no reply"
+	case screen.Said as s:
+		match s.Reply {
+		case screen.Took as t:
+			rpc.Encode(t.Receipt)
+		case screen.Refused as x:
+			match x.Why {
+			case screen.WrongState as e:
+				rpc.Tagged("WrongState", rpc.Encode(e.Cause))
+			case screen.WrongStage as e:
+				rpc.Tagged("WrongStage", rpc.Encode(e.Cause))
+			case screen.Closed as e:
+				rpc.Tagged("Closed", rpc.Encode(e.Cause))
+			case screen.BadLength as e:
+				rpc.Tagged("BadLength", rpc.Encode(e.Cause))
+			case screen.NoSuchRun as e:
+				rpc.Tagged("NoSuchRun", rpc.Encode(e.Cause))
+			case screen.Unavailable as e:
+				rpc.Tagged("Unavailable", rpc.Encode(e.Cause))
+			}
+		}
+	}
+}
+
+// viewOf is the board whose lines are l. The runs the requests name hold
+// no ", ", so the lines split back into the columns.
+func viewOf(l screen.Lines) board.View {
+	board.View{Queued: column(l.Queued), Running: column(l.Running), Failing: column(l.Failing), Passed: column(l.Passed), Stopped: column(l.Stopped)}
+}
+
+func column(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+	strings.Split(s, ", ")
+}
+
 // Surface is a road from a list of requests to the answers.
-type Surface = ThroughModel{} | ThroughWire{} | ThroughLine{}
+type Surface = ThroughModel{} | ThroughWire{} | ThroughLine{} | ThroughScreen{}
 
 // answers plays rs on the surface s, on a context of its own whose first
 // stage fails its first failing tries.
 func answers(s Surface, rs []Request, failing int) []string fails journal.Failed | journal.Diverged {
 	let mut table = Map[int, int]{}
 	table[0] = ((failing % 3) + 3) % 3
-	with context { Scheduler: time.NewManual(0), pipeline.Runner: runners.New(table) } {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock, pipeline.Runner: runners.New(table) } {
 		let m = try pipeline.Open(memory.New[pipeline.Desk, pipeline.Signal]())
 		let out = match s {
 		case ThroughModel:
@@ -115,6 +229,8 @@ func answers(s Surface, rs []Request, failing int) []string fails journal.Failed
 			overWire(rs, m)
 		case ThroughLine:
 			asLines(rs, m)
+		case ThroughScreen:
+			onScreen(rs, m, clock)
 		}
 		pipeline.Stop(m)
 		out
@@ -139,7 +255,11 @@ law SurfacesAgree(acts []int, failing int) {
 	case journal.Failed, journal.Diverged:
 		return false
 	}
-	byWire == byModel && byLine == byModel
+	let byScreen = answers(ThroughScreen, rs, failing) catch {
+	case journal.Failed, journal.Diverged:
+		return false
+	}
+	byWire == byModel && byLine == byModel && byScreen == byModel
 }
 
 // LoopbackTakesEachCommandOnce: Pipeline.DuplicateIsNoop holds for the
