@@ -1,0 +1,109 @@
+{
+  "about": "fk-weather's application mutants; each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk3-edit-reenters", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/weather/lookup.ergo",
+      "from": "\t\tStay[Lookup]{Next: Lookup{..l, Draft: e.Text}}\n",
+      "to": "\t\tEnter[Lookup]{Next: Lookup{..l, Draft: e.Text}}\n",
+      "rule": "An edit keeps the entry, so typing during a fetch does not restart it (law EditOnlyChangesTheDraft; a fold cannot see it).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-submit-while-loading-reasks", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/weather/lookup.ergo",
+      "from": "\tcase (Loading, Submitted):\n\t\tIgnore\n\tcase (_, Submitted):\n",
+      "to": "\tcase (_, Submitted):\n",
+      "rule": "A submit while a fetch is under way is ignored (law ReadyShowsLatestAsk).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-empty-draft-fetches", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/weather/lookup.ergo",
+      "from": "\t\tif Empty(l.Draft) {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A submit of an empty draft fails with NoZip and starts no fetch.",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-ask-untrimmed", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/weather/lookup.ergo",
+      "from": "Loading{Zip: strings.TrimSpace(l.Draft)}",
+      "to": "Loading{Zip: strings.TrimPrefix(l.Draft, \"\")}",
+      "rule": "The ask is the trimmed draft.",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-failure-shows-nozip", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/weather/lookup.ergo",
+      "from": "\tcase (Loading, Unavailable as u):\n\t\tshow(l, Failed{Why: u})\n",
+      "to": "\tcase (Loading, Unavailable):\n\t\tshow(l, Failed{Why: NoZip})\n",
+      "rule": "A forecast that cannot answer shows why: Unavailable, with its reason.",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-no-work", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/weather/lookup.ergo",
+      "from": "\tcase Loading as q:\n\t\tSome{machines.Work{Run: func() Report fails NotFound | Unavailable needs Forecast { try Forecast.Fetch(q.Zip) }, OnSuccess: func(r Report) Signal { Got{Report: r} }}}\n\tcase Blank, Ready, Failed:\n",
+      "to": "\tcase Loading, Blank, Ready, Failed:\n",
+      "rule": "Loading's entry owns the fetch: with no work, no answer ever comes (the cases' script waits for it).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-memory-notfound-zip", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/memory/stations.ergo",
+      "from": "\tweather.NotFound{Zip: zip}\n",
+      "to": "\tweather.NotFound{Zip: \"\"}\n",
+      "rule": "A zip with no place is refused with that zip (law Forecast.NotFoundNamesTheZip for Stations).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-web-asks-no-name", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/web/openmeteo.ergo",
+      "from": "field(\"name\", zip)",
+      "to": "field(\"name\", \"\")",
+      "rule": "The geocoding ask names the zip (test FetchGivesTheReport: the fixture knows only name=90210).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-web-round-down", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/web/openmeteo.ergo",
+      "from": "int(math.Floor(f + 0.5))",
+      "to": "int(math.Floor(f))",
+      "rule": "Temperature and wind are rounded to the nearest integer, as upstream's Math.round: 9.8 mph shows 10 (test FetchGivesTheReport).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-web-404-unavailable", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/web/openmeteo.ergo",
+      "from": "\tif found.Status != 200 {\n\t\treturn weather.NotFound{Zip: zip}\n\t}\n",
+      "to": "\tif found.Status != 200 {\n\t\treturn weather.Unavailable{Reason: \"status\"}\n\t}\n",
+      "rule": "A geocoding answer that is not 200 is NotFound, as upstream's \"Location not found\" (test HTTPFailureFails).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-web-no-results-unavailable", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/web/openmeteo.ergo",
+      "from": "\t\tif len(rs.Value) == 0 {\n\t\t\treturn weather.NotFound{Zip: zip}\n\t\t}\n",
+      "to": "\t\tif len(rs.Value) == 0 {\n\t\t\treturn weather.Unavailable{Reason: \"empty\"}\n\t\t}\n",
+      "rule": "A geocoding answer with no place is NotFound (test NoPlaceIsNotFound).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-web-no-results-loses-zip", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/web/openmeteo.ergo",
+      "from": "\t\tif len(rs.Value) == 0 {\n\t\t\treturn weather.NotFound{Zip: zip}\n\t\t}\n",
+      "to": "\t\tif len(rs.Value) == 0 {\n\t\t\treturn weather.NotFound{Zip: \"\"}\n\t\t}\n",
+      "rule": "OpenMeteo keeps the Forecast contract: NotFound names the zip (property ContractHoldsOverTheFixture).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    },
+    {
+      "name": "fk3-busy-never", "origin": "wf10/fk3a",
+      "file": "examples/fk-weather/weather/lookup.ergo",
+      "from": "\tcase Loading:\n\t\ttrue\n",
+      "to": "\tcase Loading:\n\t\tfalse\n",
+      "rule": "A lookup in Loading waits for its fetch (test SubmitFetchesAndShowsTheReport; the cases' script then shows no answer).",
+      "anchor": {"tests": ["examples:fk-weather"]}, "killers": ["examples:fk-weather"]
+    }
+  ]
+}
