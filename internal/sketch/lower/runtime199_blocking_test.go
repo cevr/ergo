@@ -214,6 +214,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"RegisterCalls": true, "RegisterInlines": true, "TextBool": true, "TextDuration": true,
 		"TextInt": true, "TextUint": true, "TextFloat": true, "TextList": true,
 		"Main": true, "Println": true, "End": true,
+		// SB8: the entry's choice of direct standard output, before Main
+		// starts any task: one store and a flush, no wait.
+		"StdoutDirect": true,
 		// IG11: an exported function's root task, as Main is main's; Go's
 		// caller waits on it, no Ergo task does. L5b: a Script operation's
 		// record of a call (script.go): one lock for one append, no wait,

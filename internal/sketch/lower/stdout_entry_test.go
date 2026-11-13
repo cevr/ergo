@@ -10,9 +10,9 @@ import (
 
 // TestEntryKeepsStdoutDirect: standard output is buffered when it is not a
 // terminal (stdlib.md io 10), except where Go code may write the host's
-// stdout beside the buffer: the entry of a main that needs go.Foreign, and
-// the test build, whose harness reports through Go, call v1.StdoutDirect
-// before v1.Main; a main without go.Foreign does not. It reads the lowered
+// stdout beside the buffer: the entry of a main whose row holds
+// go.Foreign and the test build, whose harness reports through Go, call
+// v1.StdoutDirect before v1.Main; a main without go.Foreign does not. It reads the lowered
 // Go's main function, the one promised fact. Mutants sb8-foreign-buffered,
 // sb8-every-main-direct and sb8-test-buffered.
 func TestEntryKeepsStdoutDirect(t *testing.T) {
