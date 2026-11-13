@@ -744,6 +744,9 @@
     "TestSeparateAdjacentComments": 0,
     "TestTranslateMeaningKept": 0.14
   },
+  "ergo.local/prototype/internal/pinset": {
+    "TestPinSetNameKeysEveryInput": 0
+  },
   "ergo.local/prototype/internal/proclimit": {
     "TestStartedProgramsDieFirst": 0
   },
@@ -1798,12 +1801,15 @@
     "TestBuildModeChoosesTheRoot": 0.54,
     "TestBuildRefusesAnUnanchorableSource": 0,
     "TestBuildReleasesItsPrivateRoot": 0.3,
+    "TestColdBuildCompilesNoPinPackage": 20.55,
     "TestFormat": 0,
     "TestImportOfAnElementThatIsNotAName": 0,
     "TestLoaderBrokenDependency": 0,
     "TestLoaderImportReasons": 0,
     "TestLoaderModuleFile": 0,
     "TestLoaderOrderIsTheNames": 0.01,
+    "TestPinArchivesMatchLocalBuild": 47.49,
+    "TestRefusedArchiveFallsBack": 27.16,
     "TestSketchBuildRefusesWhatTheLoweringCannotLower": 0,
     "TestSketchBuildRunsProgram": 0.22,
     "TestSketchCheckReportsLocatedDiagnostics": 0,

@@ -43,6 +43,9 @@ type Toolchain struct {
 	// own GOFLAGS replaces it, as a later flag does in the go command.
 	// The direct path passes -s -w to the linker where go build does.
 	Strip bool
+	// Pins are the pin archive sets the direct path may take std's and
+	// the runtime's archives from (pin.go); the zero value is none.
+	Pins Pins
 }
 
 // stripFlags is the GOFLAGS word of a stripped link, quoted as the go

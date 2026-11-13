@@ -1,0 +1,22 @@
+# The pin archive sets (compile-speed plan §3.3; docs/spec/build.md, Pin
+# archives): what a pin would otherwise compile on each machine, built once
+# and shipped as a download. A set line names a set (internal/pinset,
+# Key.Name: kind, Go release, target, and a digest of the whole key: the
+# release, the IR patch, the flags and the target) and the sha256 of its
+# tar. ergo uses a fetched set only when its sha256 is this one; any other
+# set, or none, is built once on the machine instead, to the same bytes.
+# `go run ./scripts/pinsets -lock` makes the sets and rewrites this file;
+# TestPinArchivesMatchLocalBuild checks that a local build makes these
+# exact sets.
+go go1.27.4
+patch sha256:c08f1f65af38bcf71585dd5b331ce44b5bc9ff26ac9dd3997f4042c4c783b42e
+set std-go1.27.4-linux-amd64-v1-cfc903c684c74542 sha256:c8294573d686409a2e50394a56608bf2c68b7be2f4fa4c72c2808ca50d4d9dae
+set runtime-go1.27.4-linux-amd64-v1-b35a00ffb376bbea sha256:0bca9e8b87d423372c2947ea2d303d0d64a6000e7fd8a2c6c1e24a7f4fb50394
+set std-go1.27.4-linux-amd64-v1-110fb2004d4093e9 sha256:c8294573d686409a2e50394a56608bf2c68b7be2f4fa4c72c2808ca50d4d9dae
+set runtime-go1.27.4-linux-amd64-v1-0d4e8a1d7856fa32 sha256:56529da3976193314c7cd59eff3a36f7be3ba5ec6b3224d8cc789d62e96ef7be
+set tools-go1.27.4-linux-amd64-7b0fd9908ae06f32 sha256:a251b1e6ca0cd6096748aebd53a59d80cda4f0507f9c53c8bf33437e4ec1fa0c
+set std-go1.27.4-darwin-arm64-v8.0-769f24e74d45f9e2 sha256:d7baeb73bd6352b55c283d1369374517eb65f4486f9af0aab6e1b2b737bdbf6a
+set runtime-go1.27.4-darwin-arm64-v8.0-8df27e02db5ba01e sha256:26b7f7d38b0a1aa84b534dcfee83d38754d1d2917c9f572a5d90f802c074675d
+set std-go1.27.4-darwin-arm64-v8.0-79f3e937f4ec1f9b sha256:d7baeb73bd6352b55c283d1369374517eb65f4486f9af0aab6e1b2b737bdbf6a
+set runtime-go1.27.4-darwin-arm64-v8.0-6a8bd4d7e85011a2 sha256:d628c9879a927c2e03d6c93c8984a563a35bcbf19ceedad932164f3628e4d2a1
+set tools-go1.27.4-darwin-arm64-3a05178ade698d4b sha256:2e89d1f62c2e26b8510380a17e0bbc8a15d718f01c8103836dd40097adf477d3

@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 
+	"ergo.local/prototype/internal/pinset"
 	"ergo.local/prototype/toolchain/ir"
 )
 
@@ -65,6 +66,10 @@ type PatchConfig struct {
 
 	// lock is the lock and patches; nil is toolchain/ir's (tests).
 	lock fs.FS
+	// Pins, when set, are the pin sets a tools set of the patched compile
+	// is taken from (ToolsKey) instead of building it; nil builds it.
+	Pins *pinset.Source
+
 	// build builds cmd/compile; nil is buildCompile (tests).
 	build func(source, overlay, out string) error
 	// waiting runs when another build holds the lock (tests).
@@ -131,12 +136,14 @@ func Patch(c PatchConfig) (Patched, error) {
 		}
 	}
 	os.RemoveAll(out)
-	if c.Log != nil {
-		fmt.Fprintf(c.Log, "ergo: building the IR compiler for %s (once per Go release and patch)\n", release)
-	}
 	build := c.build
 	if build == nil {
 		build = buildCompile
+	}
+	if from, ok := c.toolsSet(release, port.digest); ok {
+		build = func(_, _, out string) error { return copyExecutable(from, out) }
+	} else if c.Log != nil {
+		fmt.Fprintf(c.Log, "ergo: building the IR compiler for %s (once per Go release and patch)\n", release)
 	}
 	tmp, err := os.MkdirTemp(dir, "tmp-")
 	if err != nil {
@@ -260,6 +267,22 @@ func linkRelease(source, goroot string) error {
 // go command refuses an overlay of a file under GOMODCACHE, and a release
 // that Go's toolchain switch installed lies there.
 func buildCompile(source, overlay, out string) error {
+	return buildCompileFor("", "")(source, overlay, out)
+}
+
+// buildCompileFor is buildCompile for the host goos/goarch; empty is this
+// host. A tools set for another host is cross-built (ProduceTools).
+func buildCompileFor(goos, goarch string) func(source, overlay, out string) error {
+	return func(source, overlay, out string) error {
+		var target []string
+		if goos != "" {
+			target = []string{"GOOS=" + goos, "GOARCH=" + goarch}
+		}
+		return runBuildCompile(source, overlay, out, target)
+	}
+}
+
+func runBuildCompile(source, overlay, out string, target []string) error {
 	cmd := exec.Command(filepath.Join(source, "bin", "go"+exe()), "build", "-trimpath", "-overlay="+overlay, "-o", out, "cmd/compile")
 	cmd.Dir = filepath.Join(source, "src")
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
@@ -268,6 +291,7 @@ func buildCompile(source, overlay, out string) error {
 	})
 	cmd.Env = append(env, "GOROOT="+source, "GOTOOLCHAIN=local", "GOFLAGS=", "GOWORK=off", "CGO_ENABLED=0",
 		"GOMODCACHE="+filepath.Join(filepath.Dir(overlay), "modcache"))
+	cmd.Env = append(cmd.Env, target...)
 	var stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stderr, &stderr
 	if err := cmd.Run(); err != nil {

@@ -14,6 +14,7 @@ import (
 
 	"ergo.local/prototype/internal/experimental/irspike"
 	"ergo.local/prototype/internal/gobind"
+	"ergo.local/prototype/internal/pinset"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/report"
@@ -206,23 +207,39 @@ func buildAction(opts fileOptions) (build.Toolchain, error) {
 	if err != nil {
 		return build.Toolchain{}, err
 	}
-	patched, err := patchedCompile(selected)
+	pins, err := pinSource()
+	if err != nil {
+		return build.Toolchain{}, err
+	}
+	patched, err := patchedCompile(selected, &pins)
 	if err != nil {
 		return build.Toolchain{}, err
 	}
 	tc.Go, tc.Root = patched.Go, patched.Root
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
+	tc.Pins = build.Pins{Source: pins, Patch: patched.Digest}
 	return tc, nil
 }
 
+// pinSource is the pin archive sets of ergo's cache (docs/spec/build.md,
+// Pin archives), fetched from ERGO_PIN_URL when set.
+func pinSource() (pinset.Source, error) {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return pinset.Source{}, err
+	}
+	return toolchain.PinSource(root, os.Getenv("ERGO_PIN_URL"), os.Stderr)
+}
+
 // patchedCompile is the release selected runs, with ergo's patched
-// compile, built once into ergo's cache (internal/toolchain, Patch).
-func patchedCompile(selected toolchain.Toolchain) (toolchain.Patched, error) {
+// compile, taken from the tools set of pins or built once into ergo's
+// cache (internal/toolchain, Patch).
+func patchedCompile(selected toolchain.Toolchain, pins *pinset.Source) (toolchain.Patched, error) {
 	root, err := build.DefaultRoot()
 	if err != nil {
 		return toolchain.Patched{}, err
 	}
-	return sketchfront.PatchedRelease(selected, root, os.Stderr)
+	return sketchfront.PinnedRelease(selected, root, pins, os.Stderr)
 }
 
 // goCommand is the go command every build and `ergo bind go` run

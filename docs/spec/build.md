@@ -72,6 +72,74 @@ compiler, the output deleted or replaced, a blob trimmed, two builds at once)
 against `ERGO_BUILD=full`: equal exits, check output and executable bytes
 after every step, and the least work the model allows.
 
+## Pin archives
+
+What a pin compiles the same way on every machine ships built, so a cold
+build downloads it instead of compiling it (compile-speed plan §3.3, CS3;
+`internal/pinset`, `internal/sketch/build/pin.go`,
+`internal/toolchain/pin.go`). A pin is the Go release, the IR patch digest
+(`toolchain/ir/lock`) and the flags a build compiles with.
+
+1. **The sets.** Three kinds, each a set per pin and per target:
+   - `std`: the archive and export data of every standard package the
+     target builds (`go list -export -deps std`), per **target** OS/arch
+     and level: objects do not depend on the host.
+   - `runtime`: the archive of every Ergo runtime package (`runtime/v1`,
+     `runtime/rt`, `runtime/explore`, `runtime/testgen`), keyed by its
+     compile's inputs as the direct path keys a compile, with the set's
+     name in place of the tool. Per target and host: its archives carry
+     the direct path's build IDs, which hold the host compile's digest.
+   - `tools`: ergo's patched `compile`, per **host** OS/arch. Go's `link`
+     and `asm` come with the release, which the toolchain fetch verifies
+     already ([tooling](../tooling.md#go-toolchain)).
+
+   Each tag set Ergo builds with (none, and `ergoexplore` for `ergo test
+   --explore`) is its own std and runtime set. Ergo std as Go packages
+   (after CS4) is a fourth kind with no sets yet: until then std's bodies
+   are lowered into each program.
+2. **The name.** A set's name is its kind, release, target and level, then
+   16 hex digits of a digest of the whole key (release, patch digest,
+   flags: `-trimpath`, cgo off, `-shared` where the target is position
+   independent, the tags, and the host for a runtime set). Two keys that
+   differ in any field have two names (`TestPinSetNameKeysEveryInput`), so
+   a set is never used for another pin or target.
+3. **The lock.** `toolchain/pin/lock` names the release, the patch digest
+   and every set a release ships by the SHA-256 of its tar. A set is a tar
+   of an `index` (one `NAME DIGEST EXPORT` line per entry) and the entries'
+   bytes, each named by its SHA-256, written in sorted order with fixed
+   headers, so equal entries make equal bytes. It is served compressed
+   (`NAME.tar.gz`), so the compressor is no input of the digest. `go run
+   ./scripts/pinsets -o DIR -lock` builds the sets of this tree into DIR
+   and rewrites the lock; `TestPinArchivesMatchLocalBuild` builds the
+   linux/amd64 and darwin/arm64 sets (the lock's targets; the release
+   step adds the rest of the platform list with `-target`) and checks the lock's digests, so a runtime, std or
+   patch change that leaves the lock stale fails the full tier. Publishing
+   the sets is a release step of its own.
+4. **The fetch.** Sets install under ergo's cache as
+   `toolchain/pins/NAME`. A missing set the lock names is fetched from
+   `ERGO_PIN_URL/NAME.tar.gz` (http, https or file) when `ERGO_PIN_URL` is
+   set; none is fetched otherwise. The download expands into `tmp-*` while
+   the tar is hashed and each entry is checked against its name, and it is
+   renamed into place only when the tar's SHA-256 is the lock's, so an
+   installed set is a whole verified set or nothing.
+5. **The use.** The direct path's plan (`go/plans`) takes each standard
+   archive from the std set of its pin and target, listing the packages
+   with `go list -deps`, which compiles nothing; a compile that misses the
+   action store takes the runtime package's archive from the runtime set
+   and records the action. `ergo build` takes the patched compile from the
+   tools set before it would build one. With the sets installed and every
+   other cache empty, a build compiles only the program's own packages
+   (`TestColdBuildCompilesNoPinPackage`; the stage counter `std_exports`
+   counts the standard archives the go command gave a plan).
+6. **The fallback.** No set, no URL, or a set the lock does not name: the
+   build is the build without sets, quietly. A set that fails to fetch,
+   whose SHA-256 is not the lock's, or that lacks a package the build
+   needs is refused with one line on stderr (`ergo: pin archives NAME
+   refused: …; building … once instead`, or `… NAME lack PKG; …`), and the build compiles what the
+   set would have held once on the machine, into the plan and the action
+   store, as it did before sets. The executable is the same bytes either
+   way (`TestRefusedArchiveFallsBack`).
+
 ## Interface fingerprint
 
 After an edit, a package whose check would come out as it did last time need
