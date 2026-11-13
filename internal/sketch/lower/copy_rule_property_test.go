@@ -331,7 +331,14 @@ func (g *copyGen) shape(fam copyFamily, combo int) {
 		// The rebinding hands the Map over, through a let mut or a
 		// borrow, and the literal's result is fresh (argsUnshared).
 		shape = "update"
-		body = fmt.Sprintf("\tr.m = maps.Update(r.m, k, func(_ Option[%s]) %s { %s })\n\tlen(r.m)%s\n", e.typ, e.typ, e.zero, tail)
+		lit := e.zero
+		if e.k == "S" {
+			// The old entry appended to: the Append is clipped (one
+			// copy op), and its result is fresh.
+			lit = "match o {\n\tcase Some[[]int] as v:\n\t\tv.Value.Append(9)\n\tcase None:\n\t\t[]int{}\n\t}"
+			want = 1
+		}
+		body = fmt.Sprintf("\tr.m = maps.Update(r.m, k, func(o Option[%s]) %s { %s })\n\tlen(r.m)%s\n", e.typ, e.typ, lit, tail)
 	case 10:
 		// An entry read, written and stored under another key, then read:
 		// plain, the store copies nothing (storedAsEntry); moved, it
