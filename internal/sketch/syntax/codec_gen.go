@@ -992,7 +992,6 @@ func (e *encoder) encFieldsTypeDecl(v *TypeDecl) {
 	e.encPos(v.DerivePos)
 	e.encExpr(v.Derive)
 	e.encPtrTypeDecl(v.Origin)
-	e.encPtrProviderPlan(v.Provider)
 }
 
 func (e *encoder) encTypeDecl(v TypeDecl) { e.encFieldsTypeDecl(&v) }
@@ -1313,21 +1312,6 @@ func (e *encoder) encT17(v []*CaseClause) {
 	}
 }
 
-func (e *encoder) encFieldsProviderPlan(v *ProviderPlan) {
-	e.encExpr(v.Field)
-	e.encExpr(v.None)
-}
-
-func (e *encoder) encProviderPlan(v ProviderPlan) { e.encFieldsProviderPlan(&v) }
-
-func (e *encoder) encPtrProviderPlan(v *ProviderPlan) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(e.id(v))
-}
-
 func (e *encoder) encT18(v []*TypeGuard) {
 	if v == nil {
 		e.uint(0)
@@ -1455,46 +1439,44 @@ func objTag(x any) uint64 {
 		return 45
 	case *ParenExpr:
 		return 46
-	case *ProviderPlan:
-		return 47
 	case *ProvidesClause:
-		return 48
+		return 47
 	case *RangeStmt:
-		return 49
+		return 48
 	case *ReturnStmt:
-		return 50
+		return 49
 	case *SelectorExpr:
-		return 51
+		return 50
 	case *SliceExpr:
-		return 52
+		return 51
 	case *StarExpr:
-		return 53
+		return 52
 	case *StructType:
-		return 54
+		return 53
 	case *SwitchStmt:
-		return 55
+		return 54
 	case *TakesClause:
-		return 56
+		return 55
 	case *TestDecl:
-		return 57
+		return 56
 	case *TryExpr:
-		return 58
+		return 57
 	case *TupleExpr:
-		return 59
+		return 58
 	case *TypeDecl:
-		return 60
+		return 59
 	case *TypeGuard:
-		return 61
+		return 60
 	case *TypeSwitchStmt:
-		return 62
+		return 61
 	case *UnaryExpr:
-		return 63
+		return 62
 	case *VarDecl:
-		return 64
+		return 63
 	case *VarSpec:
-		return 65
+		return 64
 	case *VariantSpec:
-		return 66
+		return 65
 	}
 	return 0
 }
@@ -1594,8 +1576,6 @@ func (e *encoder) encObj(x any) {
 		e.encFieldsNeedsClause(x)
 	case *ParenExpr:
 		e.encFieldsParenExpr(x)
-	case *ProviderPlan:
-		e.encFieldsProviderPlan(x)
 	case *ProvidesClause:
 		e.encFieldsProvidesClause(x)
 	case *RangeStmt:
@@ -2797,7 +2777,6 @@ func (d *decoder) decFieldsTypeDecl(v *TypeDecl) {
 	v.DerivePos = d.decPos()
 	v.Derive = d.decExpr()
 	v.Origin = d.decPtrTypeDecl()
-	v.Provider = d.decPtrProviderPlan()
 }
 
 func (d *decoder) decTypeDecl() (v TypeDecl) {
@@ -3157,24 +3136,6 @@ func (d *decoder) decT17() []*CaseClause {
 	return v
 }
 
-func (d *decoder) decFieldsProviderPlan(v *ProviderPlan) {
-	v.Field = d.decExpr()
-	v.None = d.decExpr()
-}
-
-func (d *decoder) decProviderPlan() (v ProviderPlan) {
-	d.decFieldsProviderPlan(&v)
-	return v
-}
-
-func (d *decoder) decPtrProviderPlan() *ProviderPlan {
-	x := d.obj(d.uint())
-	if x == nil {
-		return nil
-	}
-	return x.(*ProviderPlan)
-}
-
 func (d *decoder) decT18() []*TypeGuard {
 	n := d.uint()
 	if n == 0 {
@@ -3305,44 +3266,42 @@ func newObj(tag uint64) any {
 	case 46:
 		return new(ParenExpr)
 	case 47:
-		return new(ProviderPlan)
-	case 48:
 		return new(ProvidesClause)
-	case 49:
+	case 48:
 		return new(RangeStmt)
-	case 50:
+	case 49:
 		return new(ReturnStmt)
-	case 51:
+	case 50:
 		return new(SelectorExpr)
-	case 52:
+	case 51:
 		return new(SliceExpr)
-	case 53:
+	case 52:
 		return new(StarExpr)
-	case 54:
+	case 53:
 		return new(StructType)
-	case 55:
+	case 54:
 		return new(SwitchStmt)
-	case 56:
+	case 55:
 		return new(TakesClause)
-	case 57:
+	case 56:
 		return new(TestDecl)
-	case 58:
+	case 57:
 		return new(TryExpr)
-	case 59:
+	case 58:
 		return new(TupleExpr)
-	case 60:
+	case 59:
 		return new(TypeDecl)
-	case 61:
+	case 60:
 		return new(TypeGuard)
-	case 62:
+	case 61:
 		return new(TypeSwitchStmt)
-	case 63:
+	case 62:
 		return new(UnaryExpr)
-	case 64:
+	case 63:
 		return new(VarDecl)
-	case 65:
+	case 64:
 		return new(VarSpec)
-	case 66:
+	case 65:
 		return new(VariantSpec)
 	}
 	return nil
@@ -3443,8 +3402,6 @@ func (d *decoder) decObj(x any) {
 		d.decFieldsNeedsClause(x)
 	case *ParenExpr:
 		d.decFieldsParenExpr(x)
-	case *ProviderPlan:
-		d.decFieldsProviderPlan(x)
 	case *ProvidesClause:
 		d.decFieldsProvidesClause(x)
 	case *RangeStmt:

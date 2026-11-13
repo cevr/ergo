@@ -54,15 +54,18 @@ func scriptArg(t Type) (Type, bool) {
 // at the derive, and the type stays an empty record.
 func (c *checker) resolveProviders() {
 	for _, tn := range c.pkg.Types {
-		if tn.Decl == nil || tn.Decl.Provider == nil {
+		if tn.Decl == nil || tn.Decl.Derive == nil || !syntax.IsProviderPlan(tn.Decl.Derive) {
 			continue
 		}
+		fieldX, noneX, bad := syntax.ProviderPlanOf(tn.Decl)
+		if bad != "" {
+			continue // the parser's S001
+		}
 		c.cur = tn.file
-		plan := tn.Decl.Provider
-		c.usePlanPackage(plan.Field)
-		c.usePlanPackage(plan.None)
-		_, field := c.namedHead(plan.Field)
-		_, none := c.namedHead(plan.None)
+		c.usePlanPackage(fieldX)
+		c.usePlanPackage(noneX)
+		_, field := c.namedHead(fieldX)
+		_, none := c.namedHead(noneX)
 		why := ""
 		switch {
 		case field == nil:

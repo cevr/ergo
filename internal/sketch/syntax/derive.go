@@ -65,19 +65,28 @@ func IsProviderPlan(x Expr) bool {
 // misshapen plan is S001 at derive, and d stays an empty record.
 func (p *parser) providerPlan(d *TypeDecl) {
 	d.Spec = &StructType{Fields: &FieldList{Opening: d.DerivePos, Closing: d.DerivePos}}
-	c := d.Derive.(*CallExpr)
+	if _, _, why := ProviderPlanOf(d); why != "" {
+		p.errorAt(d.DerivePos, len("derive"), "%s", why)
+	}
+}
+
+// ProviderPlanOf is the field type F and the type of no arguments N of the
+// direct plan `Provider(Of[S](), Of[F](), Of[N]())` of d, as written, or why
+// the plan is misshapen (patterns.md, Provider plans 1): not three Of plans,
+// or not exactly one type parameter S, named by the first.
+func ProviderPlanOf(d *TypeDecl) (field, none Expr, why string) {
+	const shape = "Provider takes three Of plans: the capability, the field type and the type of no arguments"
+	c, ok := d.Derive.(*CallExpr)
+	if !ok || len(c.Args) != 3 {
+		return nil, nil, shape
+	}
 	var types []Expr
 	for _, a := range c.Args {
 		t, ok := ofPlanType(a)
 		if !ok {
-			p.errorAt(d.DerivePos, len("derive"), "Provider takes three Of plans: the capability, the field type and the type of no arguments")
-			return
+			return nil, nil, shape
 		}
 		types = append(types, t)
-	}
-	if len(types) != 3 {
-		p.errorAt(d.DerivePos, len("derive"), "Provider takes three Of plans: the capability, the field type and the type of no arguments")
-		return
 	}
 	var params []*Ident
 	if d.TypeParams != nil {
@@ -87,10 +96,9 @@ func (p *parser) providerPlan(d *TypeDecl) {
 	}
 	cap, ok := types[0].(*Ident)
 	if len(params) != 1 || !ok || cap.Name != params[0].Name {
-		p.errorAt(d.DerivePos, len("derive"), "a Provider derives %s from the operations of its one type parameter: write type %s[S] derive Provider(Of[S](), …)", d.Name.Name, d.Name.Name)
-		return
+		return nil, nil, "a Provider derives " + d.Name.Name + " from the operations of its one type parameter: write type " + d.Name.Name + "[S] derive Provider(Of[S](), …)"
 	}
-	d.Provider = &ProviderPlan{Field: types[1], None: types[2]}
+	return types[1], types[2], ""
 }
 
 // ofPlanType is X of the plan `Of[X]()`.
