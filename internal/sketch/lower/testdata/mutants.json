@@ -4328,6 +4328,39 @@
       "killers": [
         "lower:TestValueRuleElides"
       ]
+    },
+    {
+      "name": "goos-kill-unsplit",
+      "origin": "wf10/fu-runtime-goos",
+      "file": "runtime/v1/exec.go",
+      "from": "execKill(-group, 0) == nil &&",
+      "to": "syscall.Kill(-group, 0) == nil &&",
+      "rule": "No runtime file outside a Unix build constraint names a Unix-only declaration: syscall.Kill is undefined on Windows, so the group probe goes through execKill (exec_unix.go / exec_other.go).",
+      "killers": [
+        "lower:TestRuntimeTypechecksOnEveryBuildPlatform"
+      ]
+    },
+    {
+      "name": "goos-term-other-unembedded",
+      "origin": "wf10/fu-runtime-goos",
+      "file": "runtime/embed.go",
+      "from": " v1/term_darwin.go v1/term_other.go",
+      "to": " v1/term_darwin.go",
+      "rule": "The emitted module holds the runtime's files for every build platform: without term_other.go a program for windows, js or wasip1 has no termEnter, termSize or fileIsTerminal.",
+      "killers": [
+        "lower:TestRuntimeTypechecksOnEveryBuildPlatform"
+      ]
+    },
+    {
+      "name": "goos-term-other-on-linux-only",
+      "origin": "wf10/fu-runtime-goos",
+      "file": "runtime/v1/term_other.go",
+      "from": "//go:build !linux && !darwin",
+      "to": "//go:build !linux && !darwin && !windows",
+      "rule": "Windows gets the no-terminal bodies: its syscall has no Termios.",
+      "killers": [
+        "lower:TestRuntimeTypechecksOnEveryBuildPlatform"
+      ]
     }
   ]
 }
