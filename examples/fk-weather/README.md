@@ -22,8 +22,8 @@ Each title of upstream's `src/story.test.ts` and `src/scene.test.ts`, and what r
 
 | Upstream title | Restated by |
 | --- | --- |
-| submitting the weather form fetches weather and shows result | `weather` test `SubmitFetchesAndShowsTheReport` |
-| failed fetch shows failure state | `weather` test `FailedFetchShowsWhy` |
+| submitting the weather form fetches weather and shows result | covered by law `ReadyShowsLatestAsk` (a submit enters Loading, and a resolved Got shows the report) and the `ask` case |
+| failed fetch shows failure state | covered by law `ReadyShowsLatestAsk` (a resolved NotFound or Unavailable shows Failed with that reason) and the `ask` case |
 | fetchWeather returns SucceededFetchWeather with data on success | `web` test `FetchGivesTheReport` |
 | fetchWeather returns FailedFetchWeather on HTTP failure | `web` test `HTTPFailureFails` |
 | fetchWeather returns FailedFetchWeather when no results found | `web` test `NoPlaceIsNotFound` |

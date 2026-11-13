@@ -1,9 +1,13 @@
 // The lookup's laws: one over a single edit of any state, and one over
 // sequences of edits, submits and answers against a model of what the
-// panel shows.
+// panel shows. Upstream's two story tests of update (submit, then a
+// resolved success or failure) are sequences this model covers.
 
 import machines
 import strings
+
+// beverly is upstream's fixture weatherData.
+let beverly = Report{Zip: "90210", Temperature: 72, Description: "Clear sky", Humidity: 45, WindSpeed: 10, Location: "Beverly Hills", Region: "California"}
 
 // EditOnlyChangesTheDraft: an edit in any state changes the draft and
 // nothing else, and keeps the entry (Stay), so a fetch under way is not
