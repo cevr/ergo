@@ -302,7 +302,7 @@
       "name": "cache-env-unkeyed",
       "origin": "wf10 g-b2",
       "file": "cmd/ergo/testcache.go",
-      "from": "\tfor _, kv := range env {\n\t\twrite(kv)\n\t}\n",
+      "from": "\twrite(strconv.Itoa(len(env)))\n\tfor _, kv := range env {\n\t\twrite(kv)\n\t}\n",
       "to": "",
       "rule": "A test result is keyed by the GO*, CGO_* and ERGO_* variables the go command and the runtime read.",
       "killers": ["cmd/ergo:TestTestResultCache"],

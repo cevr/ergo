@@ -42,7 +42,7 @@
       "origin": "wf10 g-b2",
       "file": "internal/sketch/build/results.go",
       "from": "\t\tmark(entry, info, time.Now())\n",
-      "to": "\t\t_ = info\n",
+      "to": "\t\tmark(entry, info, time.Time{})\n",
       "rule": "A result hit marks its executable entry used, so a package whose runs only replay keeps its entry from the trim.",
       "killers": ["internal/sketch/build:TestResultHitMarksItsEntry"]
     }
