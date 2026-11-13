@@ -1,0 +1,11 @@
+import flattree/tree
+
+// DocumentIsJSON: the workload of every seed is JSON, so the receipts
+// time the parse of a document and not a failure at its first string.
+law DocumentIsJSON(seed int) {
+	let _ = tree.Parse(Document(seed, 20)) catch {
+	case tree.Malformed:
+		return false
+	}
+	true
+}

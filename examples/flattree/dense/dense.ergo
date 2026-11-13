@@ -1,0 +1,240 @@
+// Package dense is stores of rows addressed by 4-byte ids
+// (docs/spec/stdlib.md, Dense stores). A program that holds many values
+// of one kind keeps them as rows of a store and links them by ids, where
+// Go links them by pointers: an id is a uint32, so a store of rows with no
+// pointer field is pointer-free, the collector never scans it, and a
+// row that links others is half the size it would be with 8-byte ids
+// (the DOD0 receipt, decision 1).
+//
+// Rows are never removed. A Table appends rows and returns their ids; a
+// Count and its Cols are the same thing by hand, one column per field
+// (struct of arrays). A Side holds data that few ids have, and a Pool
+// holds many short lists in one slice, each a Run. For rows that are
+// removed while others keep handles, use arena, whose Refs carry a
+// generation.
+//
+// An ID[K] is made only here: every ID[K] came from a Put or a Next of
+// some store of K, so an id is never forged and never of another row
+// type. An id is meaningful only for the store that made it; an id of
+// another store of the same row type that is in range reads that store's
+// row, never memory outside it. At and Of on an id past the end are a
+// defect, as an index past the end of a slice is.
+//
+// The shape is Zig's MultiArrayList and the index arenas of rustc, Zig
+// and Go's own compiler (cmd/compile's ssa.ID); Effect has no such module.
+// The package is Ergo source with no Go body (STD-NOPRIV).
+
+// ID is the id of a row of a store of K: four bytes, no pointer. IDs
+// compare with ==, in the order the rows were put.
+type ID[K] { n uint32 }
+
+// Opt is an ID or none, in four bytes: none is the largest uint32, which
+// no store reaches. It is the "no link" of a row (a first child, a next
+// sibling) where Option[ID[K]] would take eight bytes.
+type Opt[K] { n uint32 }
+
+// none is Opt's none, and one past the last id a store can make.
+let none = uint32(0xffffffff)
+
+// full is the defect of a store that holds as many rows as ids exist.
+let full = "dense: a store holds at most 4294967295 rows"
+
+// OptOf is the Opt that holds id.
+func OptOf[K](id ID[K]) Opt[K] { Opt[K]{n: id.n} }
+
+// NoID is the Opt that holds no id.
+func NoID[K]() Opt[K] { Opt[K]{n: none} }
+
+// Or is the id o holds, or the id or when it holds none.
+func Or[K](o Opt[K], or ID[K]) ID[K] {
+	if o.n == none { or } else { ID[K]{n: o.n} }
+}
+
+// Unpack is o as an Option, for a match.
+func Unpack[K](o Opt[K]) Option[ID[K]] {
+	if o.n == none {
+		return None
+	}
+	Some[ID[K]]{Value: ID[K]{n: o.n}}
+}
+
+// Index is the position of id's row: 0 for the first row put.
+func Index[K](id ID[K]) int { int(id.n) }
+
+// next is the id of a store that holds n rows already.
+func next[K](n int) ID[K] {
+	if n >= int(none) {
+		Unreachable(full)
+	}
+	ID[K]{n: uint32(n)}
+}
+
+// Table is an append-only store of rows of T. Its field is unexported,
+// so only New and the operations make and change one; change it through
+// a *Table borrow.
+type Table[T] { rows []T }
+
+// New is an empty table.
+func New[T]() Table[T] { Table[T]{rows: []T{}} }
+
+// Len is the count of rows.
+func Len[T](t Table[T]) int { len(t.rows) }
+
+// Has reports whether id names a row of t.
+func Has[T](t Table[T], id ID[T]) bool { int(id.n) < len(t.rows) }
+
+// Put appends v and returns its id. Every id that named a row before
+// still names the same row.
+func Put[T](t *Table[T], v T) ID[T] {
+	let id = next[T](len(t.rows))
+	t.rows = t.rows.Append(v)
+	id
+}
+
+// At is the row id names. An id past the end is a defect.
+func At[T](t Table[T], id ID[T]) T { t.rows[int(id.n)] }
+
+// Get is the row id names, or None for an id past the end: for an id
+// that came from outside, such as a decoded one.
+func Get[T](t Table[T], id ID[T]) Option[T] {
+	if int(id.n) < len(t.rows) {
+		return Some[T]{Value: t.rows[int(id.n)]}
+	}
+	None
+}
+
+// Set replaces the row id names. An id past the end is a defect.
+func Set[T](t *Table[T], id ID[T], v T) { t.rows[int(id.n)] = v }
+
+// Entry is a row and its id, as Each gives them.
+type Entry[T] { ID ID[T], Row T }
+
+// Each is the rows of t with their ids, in the order they were put. It
+// reads the rows as they are when it starts; a body that changes t
+// iterates for i in 0..Len(t) with IDOf.
+func Each[T](t Table[T]) Seq[Entry[T]] {
+	let rows = t.rows
+	Seq[Entry[T]](func(yield func(e Entry[T]) bool) {
+		for i, row in rows {
+			if !yield(Entry[T]{ID: ID[T]{n: uint32(i)}, Row: row}) {
+				return
+			}
+		}
+	})
+}
+
+// IDs is the ids of t, in the order they were put.
+func IDs[T](t Table[T]) Seq[ID[T]] {
+	let n = len(t.rows)
+	Seq[ID[T]](func(yield func(id ID[T]) bool) {
+		for i in 0..n {
+			if !yield(ID[T]{n: uint32(i)}) {
+				return
+			}
+		}
+	})
+}
+
+// Rows is the rows of t in id order: for i, row in Rows(t), with
+// IDOf(t, i) the id of position i.
+func Rows[T](t Table[T]) []T { t.rows }
+
+// IDOf is the id of position i of t. A position outside 0..Len(t) is a
+// defect.
+func IDOf[T](t Table[T], i int) ID[T] {
+	if i < 0 || i >= len(t.rows) {
+		Unreachable("dense: IDOf of a position outside the table")
+	}
+	ID[T]{n: uint32(i)}
+}
+
+// Count makes the ids of hand columns: one Count per row type, and a Col
+// per field, each pushed once per Next, so the columns are as long as the
+// count and share its ids.
+type Count[K] { n uint32 }
+
+// NewCount is a count of no rows.
+func NewCount[K]() Count[K] { Count[K]{n: uint32(0)} }
+
+// Next is the id of the next row.
+func Next[K](c *Count[K]) ID[K] {
+	let id = next[K](int(c.n))
+	c.n = c.n + 1
+	id
+}
+
+// Total is the count of ids Next made.
+func Total[K](c Count[K]) int { int(c.n) }
+
+// Col is a column of V for the rows of K: one field of hand columns.
+type Col[K, V] { xs []V }
+
+// NewCol is an empty column.
+func NewCol[K, V]() Col[K, V] { Col[K, V]{xs: []V{}} }
+
+// Push appends the value of the next row.
+func Push[K, V](c *Col[K, V], v V) { c.xs = c.xs.Append(v) }
+
+// In reports whether the column holds a value for id.
+func In[K, V](c Col[K, V], id ID[K]) bool { int(id.n) < len(c.xs) }
+
+// Of is the value of id. An id past the end is a defect.
+func Of[K, V](c Col[K, V], id ID[K]) V { c.xs[int(id.n)] }
+
+// SetOf replaces the value of id. An id past the end is a defect.
+func SetOf[K, V](c *Col[K, V], id ID[K], v V) { c.xs[int(id.n)] = v }
+
+// Side holds data that few rows of K have, with a default for the rest:
+// where Go keeps a map keyed by a pointer. It is as long as the largest
+// id set, so it suits ids that come early, or data most rows have.
+type Side[K, V] { xs []V, zero V }
+
+// NewSide is a side column whose every id holds zero.
+func NewSide[K, V](zero V) Side[K, V] { Side[K, V]{xs: []V{}, zero: zero} }
+
+// SideOf is the value of id: the default for an id never set.
+func SideOf[K, V](s Side[K, V], id ID[K]) V {
+	if int(id.n) < len(s.xs) { s.xs[int(id.n)] } else { s.zero }
+}
+
+// SideSet sets the value of id.
+func SideSet[K, V](s *Side[K, V], id ID[K], v V) {
+	let i = int(id.n)
+	for len(s.xs) <= i {
+		s.xs = s.xs.Append(s.zero)
+	}
+	s.xs[i] = v
+}
+
+// Run is one list of a Pool: where it starts and how long it is.
+type Run[E] { start uint32, n uint32 }
+
+// Pool holds many short lists of E in one slice: the children of nodes,
+// the members of objects. A list is put whole and never changes.
+type Pool[E] { items []E }
+
+// NewPool is an empty pool.
+func NewPool[E]() Pool[E] { Pool[E]{items: []E{}} }
+
+// PutList appends xs as one list and returns its run. No earlier list
+// changes.
+func PutList[E](p *Pool[E], xs []E) Run[E] {
+	let start = len(p.items)
+	if start+len(xs) >= int(none) {
+		Unreachable(full)
+	}
+	for x in xs {
+		p.items = p.items.Append(x)
+	}
+	Run[E]{start: uint32(start), n: uint32(len(xs))}
+}
+
+// List is the items of r. A run of another pool that ends past this
+// pool's end is a defect.
+func List[E](p Pool[E], r Run[E]) []E { p.items[int(r.start) : int(r.start)+int(r.n)] }
+
+// RunLen is the count of items of r.
+func RunLen[E](r Run[E]) int { int(r.n) }
+
+// Items is the count of items of every list of p.
+func Items[E](p Pool[E]) int { len(p.items) }

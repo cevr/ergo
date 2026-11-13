@@ -1,0 +1,94 @@
+// Stats is what `flattree stats` prints of a document: how many values
+// of each kind it holds, how deep they nest, and how many distinct keys
+// its objects use. A key is no value.
+type Stats {
+	Values  int,
+	Depth   int,
+	Nulls   int,
+	Bools   int,
+	Numbers int,
+	Strings int,
+	Arrays  int,
+	Objects int,
+	Keys    int,
+}
+
+// Text is s as `flattree stats` prints it, one name and count a line.
+func Text(s Stats) string {
+	"values \(s.Values)\ndepth \(s.Depth)\nnull \(s.Nulls)\nbool \(s.Bools)\nnumber \(s.Numbers)\nstring \(s.Strings)\narray \(s.Arrays)\nobject \(s.Objects)\nkeys \(s.Keys)\n"
+}
+
+// StatsOf is the stats of v.
+func StatsOf(v Value) Stats {
+	let mut w = walk{s: Stats{Values: 0, Depth: Depth(v), Nulls: 0, Bools: 0, Numbers: 0, Strings: 0, Arrays: 0, Objects: 0, Keys: 0}, keys: Map[string, bool]{}}
+	tally(&w, v)
+	w.s.Keys = len(w.keys)
+	w.s
+}
+
+// walk is the stats so far and the keys seen.
+type walk { s Stats, keys Map[string, bool] }
+
+func tally(w *walk, v Value) {
+	let s = &w.s
+	s.Values += 1
+	match v {
+	case Null:
+		s.Nulls += 1
+	case Bool:
+		s.Bools += 1
+	case Number:
+		s.Numbers += 1
+	case Str:
+		s.Strings += 1
+	case Array as a:
+		s.Arrays += 1
+		for x in a.Items {
+			tally(w, x)
+		}
+	case Object as o:
+		s.Objects += 1
+		for m in o.Members {
+			w.keys = w.keys.Put(m.Key, true)
+			tally(w, m.Val)
+		}
+	}
+}
+
+// Equal reports whether a and b are the same value: the same kind, the
+// same text of a number, the same bytes of a string, and the same items
+// or members in the same order.
+func Equal(a Value, b Value) bool {
+	match (a, b) {
+	case (Null, Null):
+		true
+	case (Bool as x, Bool as y):
+		x.B == y.B
+	case (Number as x, Number as y):
+		x.Text == y.Text
+	case (Str as x, Str as y):
+		x.S == y.S
+	case (Array as x, Array as y):
+		if len(x.Items) != len(y.Items) {
+			return false
+		}
+		for i in 0..len(x.Items) {
+			if !Equal(x.Items[i], y.Items[i]) {
+				return false
+			}
+		}
+		true
+	case (Object as x, Object as y):
+		if len(x.Members) != len(y.Members) {
+			return false
+		}
+		for i in 0..len(x.Members) {
+			if x.Members[i].Key != y.Members[i].Key || !Equal(x.Members[i].Val, y.Members[i].Val) {
+				return false
+			}
+		}
+		true
+	case _:
+		false
+	}
+}

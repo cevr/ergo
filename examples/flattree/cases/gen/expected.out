@@ -1,0 +1,20 @@
+[
+  {
+    "id": 0,
+    "name": "beta",
+    "score": 6.20e-7,
+    "active": false,
+    "parent": 0,
+    "tags": ["gamma"],
+    "at": {"x": -594.400, "y": 965124, "note": "\u00e9t\u00e9 \ud83d\ude00 face"}
+  },
+  {
+    "id": 1,
+    "name": "gamma",
+    "score": 76E+2,
+    "active": false,
+    "parent": 1,
+    "tags": ["delta"],
+    "at": {"x": -157.698, "y": -117.558, "note": "\ud83d\ude00 face delta"}
+  }
+]

@@ -1,0 +1,240 @@
+// The flat tree against package tree, the plain twin, over tree's
+// generated values; and the encoding's own rules.
+
+import flattree/dense
+import flattree/tree
+import strings
+
+// FlatEqualsTree: for the samples of seed, both printed forms read flat
+// are the value tree reads, with its stats.
+law FlatEqualsTree(seed int) {
+	for v in tree.Samples(seed) {
+		for form in []string{tree.Compact(v), tree.Indent(v)} {
+			let t = Parse(form) catch {
+			case tree.Malformed:
+				return false
+			}
+			let want = tree.Parse(form) catch {
+			case tree.Malformed:
+				return false
+			}
+			if !tree.Equal(ToTree(t, Root(t)), want) || tree.Text(StatsOf(t)) != tree.Text(tree.StatsOf(want)) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// FailsWhereTheTreeFails: a sample's text with the byte at at replaced
+// by c reads flat as it reads into a tree: the same failure at the same
+// place, or the same value.
+law FailsWhereTheTreeFails(seed int, at int, c byte) {
+	for v in tree.Samples(seed) {
+		let text = tree.Compact(v)
+		let k = if at < 0 { -at % (len(text) + 1) } else { at % (len(text) + 1) }
+		let mut b = strings.NewBuilder()
+		b.WriteString(strings.Slice(text, 0, k))
+		b.WriteByte(c)
+		b.WriteString(strings.Slice(text, if k < len(text) { k + 1 } else { k }, len(text)))
+		let broken = b.String()
+		let want = tree.Parse(broken) catch {
+		case tree.Malformed as m:
+			let _ = Parse(broken) catch {
+			case tree.Malformed as f:
+				if f != m {
+					return false
+				}
+				continue
+			}
+			return false
+		}
+		let t = Parse(broken) catch {
+		case tree.Malformed:
+			return false
+		}
+		if !tree.Equal(ToTree(t, Root(t)), want) {
+			return false
+		}
+	}
+	true
+}
+
+// PrintRoundTrips: a flat tree printed in either form reads back as the
+// same tree.
+law PrintRoundTrips(seed int) {
+	for v in tree.Samples(seed) {
+		let t = Parse(tree.Compact(v)) catch {
+		case tree.Malformed:
+			return false
+		}
+		let value = ToTree(t, Root(t))
+		for form in []string{Compact(t, Root(t)), Indent(t, Root(t))} {
+			let back = Parse(form) catch {
+			case tree.Malformed:
+				return false
+			}
+			if !tree.Equal(ToTree(back, Root(back)), value) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// PointersReachTheTreesPlaces: each place of a sample, got flat by its
+// pointer, prints as the place.
+law PointersReachTheTreesPlaces(seed int) {
+	for v in tree.Samples(seed) {
+		let t = Parse(tree.Compact(v)) catch {
+		case tree.Malformed:
+			return false
+		}
+		for p in tree.Places(v) {
+			let id = Get(t, p.Pointer) catch {
+			case tree.BadPointer, tree.NoValue:
+				return false
+			}
+			if Compact(t, id) != tree.Compact(p.At) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// ChildrenStayInside: every item and member of a container is a value
+// put before it, so its id is less than the container's, and the
+// containers' runs together cover their pools once, in order.
+law ChildrenStayInside(seed int) {
+	for v in tree.Samples(seed) {
+		let t = Parse(tree.Indent(v)) catch {
+		case tree.Malformed:
+			return false
+		}
+		let mut items = 0
+		let mut members = 0
+		for i in 0..Size(t) {
+			let id = dense.IDOf(t.ids, i)
+			match ViewOf(t, id) {
+			case Array as a:
+				items += len(a.Items)
+				for x in a.Items {
+					if dense.Index(x) >= i {
+						return false
+					}
+				}
+			case Object as o:
+				members += len(o.Members)
+				for m in o.Members {
+					if dense.Index(m.Value) >= i {
+						return false
+					}
+				}
+			case Null, Bool, Number, Str:
+			}
+		}
+		if items != dense.Items(t.items) || members != dense.Items(t.members) || dense.Index(Root(t)) != Size(t)-1 {
+			return false
+		}
+	}
+	true
+}
+
+// KeysAreInterned: two members of a document have one key id exactly
+// when their keys are one text.
+law KeysAreInterned(seed int) {
+	for v in tree.Samples(seed) {
+		let t = Parse(tree.Compact(v)) catch {
+		case tree.Malformed:
+			return false
+		}
+		let mut all = []Member{}
+		for i in 0..Size(t) {
+			match ViewOf(t, dense.IDOf(t.ids, i)) {
+			case Object as o:
+				for m in o.Members {
+					all = all.Append(m)
+				}
+			case Null, Bool, Array, Number, Str:
+			}
+		}
+		for x in all {
+			for y in all {
+				if (x.Key == y.Key) != (KeyText(t, x.Key) == KeyText(t, y.Key)) {
+					return false
+				}
+			}
+		}
+	}
+	true
+}
+
+// ViewRoundTrips: the view of an encoded value is the value, for every
+// variant: the leaves of words, a number, an array of the leaves and an
+// object of the words as keys over the leaves.
+law ViewRoundTrips(words []string, digits int) {
+	let src = "\(if digits < 0 { -digits } else { digits })"
+	let mut t = Empty(src)
+	let mut leaves = []View{Null, Bool{B: true}, Bool{B: false}, Number{At: 0, Len: len(src)}}
+	for w in words {
+		leaves = leaves.Append(Str{S: w})
+	}
+	let mut ids = []dense.ID[Node]{}
+	let mut views = []View{}
+	for leaf in leaves {
+		ids = ids.Append(Encode(&t, leaf))
+		views = views.Append(leaf)
+	}
+	let mut members = []Member{}
+	for i, w in words {
+		members = members.Append(Member{Key: Intern(&t, w), Value: ids[i]})
+	}
+	let containers = []View{Array{Items: ids}, Object{Members: members}, Array{Items: []dense.ID[Node]{}}, Object{Members: []Member{}}}
+	for c in containers {
+		ids = ids.Append(Encode(&t, c))
+		views = views.Append(c)
+	}
+	for i, id in ids {
+		if !same(ViewOf(t, id), views[i]) {
+			return false
+		}
+	}
+	true
+}
+
+// same reports whether two views are one.
+func same(a View, b View) bool {
+	match (a, b) {
+	case (Null, Null):
+		true
+	case (Bool as x, Bool as y):
+		x.B == y.B
+	case (Number as x, Number as y):
+		x.At == y.At && x.Len == y.Len
+	case (Str as x, Str as y):
+		x.S == y.S
+	case (Array as x, Array as y):
+		if len(x.Items) != len(y.Items) {
+			return false
+		}
+		for i in 0..len(x.Items) {
+			if x.Items[i] != y.Items[i] {
+				return false
+			}
+		}
+		true
+	case (Object as x, Object as y):
+		if len(x.Members) != len(y.Members) {
+			return false
+		}
+		for i in 0..len(x.Members) {
+			if x.Members[i].Key != y.Members[i].Key || x.Members[i].Value != y.Members[i].Value {
+				return false
+			}
+		}
+		true
+	case _:
+		false
+	}
+}

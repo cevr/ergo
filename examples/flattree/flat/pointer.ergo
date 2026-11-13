@@ -1,0 +1,45 @@
+import flattree/dense
+import flattree/tree
+
+// Get is the id of the value at ptr (RFC 6901) in t, with tree.Get's
+// failures and its choice of the last member of a repeated key. A token
+// is looked up once among the interned keys, and members are matched by
+// key id: no text is compared in an object.
+func Get(t Tree, ptr string) dense.ID[Node] fails tree.BadPointer | tree.NoValue {
+	let tokens = try tree.Tokens(ptr)
+	let mut at = Root(t)
+	let mut prefix = ""
+	for tok in tokens {
+		prefix = prefix + "/" + tree.Escaped(tok)
+		at = try step(t, at, tok, prefix)
+	}
+	at
+}
+
+func step(t Tree, id dense.ID[Node], tok string, prefix string) dense.ID[Node] fails tree.NoValue {
+	match ViewOf(t, id) {
+	case Object as o:
+		let k = match Lookup(t, tok) {
+		case Some[dense.ID[Key]] as k:
+			k.Value
+		case None:
+			return tree.NoValue{At: prefix}
+		}
+		let mut i = len(o.Members) - 1
+		for i >= 0 {
+			if o.Members[i].Key == k {
+				return o.Members[i].Value
+			}
+			i -= 1
+		}
+		tree.NoValue{At: prefix}
+	case Array as a:
+		let i = tree.Index(tok)
+		if i < 0 || i >= len(a.Items) {
+			return tree.NoValue{At: prefix}
+		}
+		a.Items[i]
+	case Null, Bool, Number, Str:
+		tree.NoValue{At: prefix}
+	}
+}

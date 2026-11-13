@@ -1,0 +1,286 @@
+// Package flat reads JSON into a flat tree in the data-oriented form of
+// Yuku's AST and Zig's, on the dense stores (package dense):
+//
+//   - every value is named by a 4-byte dense.ID[Node] and kept in three
+//     hand columns: a kind byte and two uint32 operands, 9 bytes with no
+//     pointer, so the collector never scans them;
+//   - the items of the arrays are runs of one dense.Pool of ids, and the
+//     members of the objects are runs of a second pool of Members;
+//   - a number, and a string with no escape and only ASCII, is a span of
+//     the source; every key, and every string with an escape, is interned
+//     in Keys, so two members name one key exactly when their key ids are
+//     equal;
+//   - children are put before their parent, so a child's id is less than
+//     its parent's: the tree has no cycle by construction, and a pass in
+//     id order sees every child before its parent (StatsOf).
+//
+// A reader matches on a View, a small union, so every read is an
+// exhaustive match. Parse fails once, at its boundary, with the first row
+// of its problems table: the failure package tree gives at the same byte.
+// The laws hold the flat tree to package tree, the plain twin.
+
+import flattree/dense
+import flattree/tree
+import slices
+import strings
+
+// Key is a row of interned text: a key, or a string with an escape.
+type Key { Text string }
+
+// Node is the tag of a tree's values. Its table holds no bytes: it
+// gives the ids, and the columns kind, a and b of Tree hold the values.
+type Node {}
+
+// cell is one value's columns together: its kind, and what a and b hold
+// for it.
+//
+//	kNumber        the span of the source: offset a, b bytes long
+//	kSpan          a string, the same span form
+//	kText          a string: the interned text of index a
+//	kArray         its items: the run of index a of arrays
+//	kObject        its members: the run of index a of objects
+//	kNull, kFalse, kTrue  nothing
+type cell { kind uint8, a uint32, b uint32 }
+
+let kNull = uint8(0)
+let kFalse = uint8(1)
+let kTrue = uint8(2)
+let kNumber = uint8(3)
+let kSpan = uint8(4)
+let kText = uint8(5)
+let kArray = uint8(6)
+let kObject = uint8(7)
+
+// Member is a key and its value, in the order of the text.
+type Member { Key dense.ID[Key], Value dense.ID[Node] }
+
+// Keys interns text: one id per distinct text. Until std dense has
+// Strings (DOD DN2) it is a Map from the text to its id and a table of
+// the texts.
+type Keys { ids Map[string, dense.ID[Key]], texts dense.Table[Key] }
+
+// Tree is a document read flat. Its fields are the package's: a reader
+// goes through Root, ViewOf, KeyText and the printers.
+type Tree {
+	src     string,
+	ids     dense.Table[Node],
+	kind    dense.Col[Node, uint8],
+	a       dense.Col[Node, uint32],
+	b       dense.Col[Node, uint32],
+	items   dense.Pool[dense.ID[Node]],
+	members dense.Pool[Member],
+	arrays  dense.Table[dense.Run[dense.ID[Node]]],
+	objects dense.Table[dense.Run[Member]],
+	keys    Keys,
+	root    dense.Opt[Node],
+}
+
+// Empty is a tree over src that holds no value yet.
+func Empty(src string) Tree {
+	Tree{
+		src:     src,
+		ids:     dense.New[Node](),
+		kind:    dense.NewCol[Node, uint8](),
+		a:       dense.NewCol[Node, uint32](),
+		b:       dense.NewCol[Node, uint32](),
+		items:   dense.NewPool[dense.ID[Node]](),
+		members: dense.NewPool[Member](),
+		arrays:  dense.New[dense.Run[dense.ID[Node]]](),
+		objects: dense.New[dense.Run[Member]](),
+		keys:    Keys{ids: Map[string, dense.ID[Key]]{}, texts: dense.New[Key]()},
+		root:    dense.NoID[Node](),
+	}
+}
+
+// Root is the document's value: the last row put. A tree with no row is
+// a defect, which Parse never returns.
+func Root(t Tree) dense.ID[Node] {
+	match dense.Unpack(t.root) {
+	case Some[dense.ID[Node]] as id:
+		id.Value
+	case None:
+		Unreachable("flat: an empty tree has no root")
+	}
+}
+
+// Size is the count of the tree's values.
+func Size(t Tree) int { dense.Len(t.ids) }
+
+// Intern is the id of text in t's keys, put there when it is new.
+func Intern(t *Tree, text string) dense.ID[Key] {
+	match t.keys.ids.Get(text) {
+	case Some[dense.ID[Key]] as id:
+		id.Value
+	case None:
+		let id = dense.Put(&t.keys.texts, Key{Text: text})
+		t.keys.ids = t.keys.ids.Put(text, id)
+		id
+	}
+}
+
+// Lookup is the id of text when t has interned it.
+func Lookup(t Tree, text string) Option[dense.ID[Key]] { t.keys.ids.Get(text) }
+
+// KeyText is the text of an interned id.
+func KeyText(t Tree, id dense.ID[Key]) string { dense.At(t.keys.texts, id).Text }
+
+// put adds a value; it becomes the root, the last value put.
+func put(t *Tree, r cell) dense.ID[Node] {
+	let id = dense.Put(&t.ids, Node)
+	dense.Push(&t.kind, r.kind)
+	dense.Push(&t.a, r.a)
+	dense.Push(&t.b, r.b)
+	t.root = dense.OptOf(id)
+	id
+}
+
+func putArray(t *Tree, items []dense.ID[Node]) dense.ID[Node] {
+	let run = dense.PutList(&t.items, items)
+	let at = dense.Index(dense.Put(&t.arrays, run))
+	put(t, cell{kind: kArray, a: uint32(at), b: 0})
+}
+
+func putObject(t *Tree, members []Member) dense.ID[Node] {
+	let run = dense.PutList(&t.members, members)
+	let at = dense.Index(dense.Put(&t.objects, run))
+	put(t, cell{kind: kObject, a: uint32(at), b: 0})
+}
+
+// View is a value as a reader sees it.
+type View =
+	| Null{}
+	| Bool{B bool}
+	| Number{At int, Len int}
+	| Str{S string}
+	| Array{Items []dense.ID[Node]}
+	| Object{Members []Member}
+
+// Encode puts the value v views and is its id. Every id in an Array or
+// an Object must be a value of t, and every key a key of t: they are its
+// children, so they come first.
+func Encode(t *Tree, v View) dense.ID[Node] {
+	match v {
+	case Null:
+		put(t, cell{kind: kNull, a: 0, b: 0})
+	case Bool as x:
+		put(t, cell{kind: if x.B { kTrue } else { kFalse }, a: 0, b: 0})
+	case Number as n:
+		put(t, cell{kind: kNumber, a: uint32(n.At), b: uint32(n.Len)})
+	case Str as s:
+		let k = Intern(t, s.S)
+		put(t, cell{kind: kText, a: uint32(dense.Index(k)), b: 0})
+	case Array as a:
+		putArray(t, a.Items)
+	case Object as o:
+		putObject(t, o.Members)
+	}
+}
+
+// ViewOf is the value id names.
+func ViewOf(t Tree, id dense.ID[Node]) View {
+	let r = cellAt(t, id)
+	let k = r.kind
+	if k == kNull {
+		return Null
+	}
+	if k == kFalse || k == kTrue {
+		return Bool{B: k == kTrue}
+	}
+	if k == kNumber {
+		return Number{At: int(r.a), Len: int(r.b)}
+	}
+	if k == kSpan {
+		return Str{S: strings.Slice(t.src, int(r.a), int(r.a)+int(r.b))}
+	}
+	if k == kText {
+		return Str{S: dense.At(t.keys.texts, dense.IDOf(t.keys.texts, int(r.a))).Text}
+	}
+	if k == kArray {
+		return Array{Items: dense.List(t.items, dense.At(t.arrays, dense.IDOf(t.arrays, int(r.a))))}
+	}
+	Object{Members: dense.List(t.members, dense.At(t.objects, dense.IDOf(t.objects, int(r.a))))}
+}
+
+// cellAt is the columns of id.
+func cellAt(t Tree, id dense.ID[Node]) cell {
+	cell{kind: dense.Of(t.kind, id), a: dense.Of(t.a, id), b: dense.Of(t.b, id)}
+}
+
+// NumberText is the text of the number n views.
+func NumberText(t Tree, n Number) string { strings.Slice(t.src, n.At, n.At+n.Len) }
+
+// ToTree is the value at id as package tree's Value.
+func ToTree(t Tree, id dense.ID[Node]) tree.Value {
+	match ViewOf(t, id) {
+	case Null:
+		tree.Null
+	case Bool as b:
+		tree.Bool{B: b.B}
+	case Number as n:
+		tree.Number{Text: NumberText(t, n)}
+	case Str as s:
+		tree.Str{S: s.S}
+	case Array as a:
+		let mut items = []tree.Value{}
+		for x in a.Items {
+			items = items.Append(ToTree(t, x))
+		}
+		tree.Array{Items: items}
+	case Object as o:
+		let mut members = []tree.Member{}
+		for m in o.Members {
+			members = members.Append(tree.Member{Key: KeyText(t, m.Key), Val: ToTree(t, m.Value)})
+		}
+		tree.Object{Members: members}
+	}
+}
+
+// StatsOf is the stats of t's document in one pass over its rows in id
+// order: a child comes before its parent, so its depth is known when the
+// parent's is taken.
+func StatsOf(t Tree) tree.Stats {
+	let n = Size(t)
+	let mut s = tree.Stats{Values: n, Depth: 0, Nulls: 0, Bools: 0, Numbers: 0, Strings: 0, Arrays: 0, Objects: 0, Keys: 0}
+	let mut depth = slices.Repeat([]int{0}, n)
+	let mut seen = slices.Repeat([]bool{false}, dense.Len(t.keys.texts))
+	for i in 0..n {
+		let r = cellAt(t, dense.IDOf(t.ids, i))
+		let k = r.kind
+		if k == kNull {
+			s.Nulls += 1
+		} else if k == kFalse || k == kTrue {
+			s.Bools += 1
+		} else if k == kNumber {
+			s.Numbers += 1
+		} else if k == kSpan || k == kText {
+			s.Strings += 1
+		} else if k == kArray {
+			s.Arrays += 1
+			let mut d = 0
+			for x in dense.List(t.items, dense.At(t.arrays, dense.IDOf(t.arrays, int(r.a)))) {
+				let e = depth[dense.Index(x)]
+				if e > d {
+					d = e
+				}
+			}
+			depth[i] = d + 1
+		} else {
+			s.Objects += 1
+			let mut d = 0
+			for m in dense.List(t.members, dense.At(t.objects, dense.IDOf(t.objects, int(r.a)))) {
+				let e = depth[dense.Index(m.Value)]
+				if e > d {
+					d = e
+				}
+				let key = dense.Index(m.Key)
+				if !seen[key] {
+					seen[key] = true
+					s.Keys += 1
+				}
+			}
+			depth[i] = d + 1
+		}
+	}
+	s.Depth = depth[dense.Index(Root(t))]
+	s
+}

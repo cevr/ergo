@@ -1,0 +1,155 @@
+// A number is read by a machine: its state is the part of the number the
+// reader is in, and each byte is a signal of its class. The grammar is
+// RFC 8259's: -? (0 | [1-9][0-9]*) (. [0-9]+)? ([eE] [+-]? [0-9]+)?
+
+// Part is where the reader is in a number.
+type Part = Start | Minus | Zero | Whole | Point | Fraction | Mark | Sign | Power
+
+type Start {}
+type Minus {}
+type Zero {}
+type Whole {}
+type Point {}
+type Fraction {}
+type Mark {}
+type Sign {}
+type Power {}
+
+// Class is a byte of a number, by what it does there; Other is any other
+// byte and the end of the text.
+type Class = Nought | Digit | Dash | Plus | Dot | Exponent | Other
+
+type Nought {}
+type Digit {}
+type Dash {}
+type Plus {}
+type Dot {}
+type Exponent {}
+type Other {}
+
+// Verdict is how a number ends: before the byte that ended it, or broken,
+// with the reason.
+type Verdict = Ended | Broken{Why string}
+
+type Ended {}
+
+// ClassOf is the class of the byte c.
+func ClassOf(c byte) Class {
+	if c >= '1' && c <= '9' {
+		return Digit
+	}
+	match c {
+	case '0':
+		Nought
+	case '-':
+		Dash
+	case '+':
+		Plus
+	case '.':
+		Dot
+	case 'e', 'E':
+		Exponent
+	case _:
+		Other
+	}
+}
+
+// NumberStep is the grammar's transition. A part where the number may end
+// ends it at any byte it cannot take (Ended: the byte is not the
+// number's); a part where it may not end breaks the number.
+func NumberStep(p Part, c Class) Decision[Part, Verdict] {
+	match (p, c) {
+	case (Start, Dash):
+		Enter[Part]{Next: Minus}
+	case (Start, Nought), (Minus, Nought):
+		Enter[Part]{Next: Zero}
+	case (Start, Digit), (Minus, Digit):
+		Enter[Part]{Next: Whole}
+	case (Start, _):
+		Done[Verdict]{Output: Broken{Why: "a number needs a digit"}}
+	case (Minus, _):
+		Done[Verdict]{Output: Broken{Why: "a number needs a digit after '-'"}}
+	case (Zero, Dot), (Whole, Dot):
+		Enter[Part]{Next: Point}
+	case (Zero, Exponent), (Whole, Exponent), (Fraction, Exponent):
+		Enter[Part]{Next: Mark}
+	case (Whole, Nought), (Whole, Digit):
+		Stay[Part]{Next: Whole}
+	case (Zero, _), (Whole, _):
+		Done[Verdict]{Output: Ended}
+	case (Point, Nought), (Point, Digit):
+		Enter[Part]{Next: Fraction}
+	case (Point, _):
+		Done[Verdict]{Output: Broken{Why: "a number needs a digit after '.'"}}
+	case (Fraction, Nought), (Fraction, Digit):
+		Stay[Part]{Next: Fraction}
+	case (Fraction, _):
+		Done[Verdict]{Output: Ended}
+	case (Mark, Dash), (Mark, Plus):
+		Enter[Part]{Next: Sign}
+	case (Mark, Nought), (Mark, Digit), (Sign, Nought), (Sign, Digit):
+		Enter[Part]{Next: Power}
+	case (Mark, _), (Sign, _):
+		Done[Verdict]{Output: Broken{Why: "a number needs a digit in its exponent"}}
+	case (Power, Nought), (Power, Digit):
+		Stay[Part]{Next: Power}
+	case (Power, _):
+		Done[Verdict]{Output: Ended}
+	}
+}
+
+// Numeral is a number's grammar as a machine.
+type Numeral machine[Part, Class] {
+	initial: Start,
+	step:    NumberStep,
+
+	// ExponentTakesASign: an exponent may have a sign before its digits
+	// (1e-5).
+	law ExponentTakesASign path [Start, Whole, Mark, Sign, Power],
+
+	// FractionFollowsZero: 0.5 is a number.
+	law FractionFollowsZero path [Start, Zero, Point, Fraction],
+
+	// ZeroEndsItsInteger: no digit follows a leading 0: 01 is the number
+	// 0 and then a 1, which is not JSON.
+	law ZeroEndsItsInteger(c byte) {
+		match ClassOf(c) {
+		case Nought, Digit:
+			match NumberStep(Zero, ClassOf(c)) {
+			case Done[Verdict] as d:
+				d.Output == Ended
+			case Enter[Part], Stay[Part], Emit[Part, Verdict], Ignore, Reject:
+				false
+			}
+		case Dash, Plus, Dot, Exponent, Other:
+			true
+		}
+	},
+}
+
+// Scan is the length of the number at the start of text, or why it is
+// broken and the offset where it broke.
+func Scan(text string) (int, Option[string]) {
+	let mut p Part = Start
+	let mut i = 0
+	for {
+		let c = if i < len(text) { ClassOf(text[i]) } else { Other }
+		match NumberStep(p, c) {
+		case Enter[Part] as e:
+			p = e.Next
+			i += 1
+		case Stay[Part] as s:
+			p = s.Next
+			i += 1
+		case Done[Verdict] as d:
+			match d.Output {
+			case Ended:
+				return (i, None)
+			case Broken as b:
+				return (i, Some{Value: b.Why})
+			}
+		case Emit[Part, Verdict], Ignore, Reject:
+			return (i, Some{Value: "a number the grammar cannot read"})
+		}
+	}
+}

@@ -1,0 +1,293 @@
+import flattree/dense
+import flattree/tree
+import slices
+import strconv
+import strings
+
+// reader is the tree being read and the place in its text. Parse owns
+// it. A value it reads leaves its id on stack; a container takes its
+// items off stack (and its members off held) when it closes, so both
+// keep their storage and grow only to the deepest container's need. A
+// problem is a row of problems, and every rule stops at the first one.
+type reader {
+	t        Tree,
+	pos      int,
+	depth    int,
+	stack    []dense.ID[Node],
+	top      int,
+	held     []Member,
+	heldTop  int,
+	problems dense.Table[tree.Malformed],
+}
+
+// Parse is the flat tree of the JSON text src. It fails where tree.Parse
+// fails, with the same failure: the first row of its problems.
+func Parse(src string) Tree fails tree.Malformed {
+	let mut r = reader{t: Empty(src), pos: 0, depth: 0, stack: []dense.ID[Node]{}, top: 0, held: []Member{}, heldTop: 0, problems: dense.New[tree.Malformed]()}
+	skip(&r)
+	value(&r)
+	if ok(r) {
+		skip(&r)
+		if r.pos < len(src) {
+			problem(&r, r.pos, "expected the end, found "+found(r))
+		}
+	}
+	if !ok(r) {
+		return dense.At(r.problems, dense.IDOf(r.problems, 0))
+	}
+	r.t
+}
+
+func ok(r reader) bool { dense.Len(r.problems) == 0 }
+
+func problem(r *reader, at int, reason string) {
+	let _ = dense.Put(&r.problems, tree.Locate(r.t.src, at, reason))
+}
+
+func found(r reader) string {
+	if r.pos >= len(r.t.src) {
+		return "the end"
+	}
+	strconv.Quote(strings.Slice(r.t.src, r.pos, r.pos+1))
+}
+
+func skip(r *reader) {
+	let src = r.t.src
+	for r.pos < len(src) {
+		let c = src[r.pos]
+		if c != ' ' && c != '\n' && c != '\t' && c != '\r' {
+			return
+		}
+		r.pos += 1
+	}
+}
+
+// push leaves id on the stack.
+func push(r *reader, id dense.ID[Node]) {
+	if r.top < len(r.stack) {
+		r.stack[r.top] = id
+	} else {
+		r.stack = r.stack.Append(id)
+	}
+	r.top += 1
+}
+
+func value(r *reader) {
+	let src = r.t.src
+	if r.pos >= len(src) {
+		problem(r, r.pos, "expected a value, found the end")
+		return
+	}
+	let c = src[r.pos]
+	if c == '{' {
+		object(r)
+	} else if c == '[' {
+		array(r)
+	} else if c == '"' {
+		str(r)
+	} else if c == 't' {
+		word(r, "true", kTrue)
+	} else if c == 'f' {
+		word(r, "false", kFalse)
+	} else if c == 'n' {
+		word(r, "null", kNull)
+	} else if c == '-' || (c >= '0' && c <= '9') {
+		numeral(r)
+	} else {
+		problem(r, r.pos, "expected a value, found "+found(*r))
+	}
+}
+
+func word(r *reader, w string, kind uint8) {
+	let src = r.t.src
+	for k in 0..len(w) {
+		if r.pos >= len(src) || src[r.pos] != w[k] {
+			problem(r, r.pos, "expected \(w), found "+found(*r))
+			return
+		}
+		r.pos += 1
+	}
+	push(r, put(&r.t, cell{kind: kind, a: 0, b: 0}))
+}
+
+// numeral reads a number with tree's machine and keeps its span.
+func numeral(r *reader) {
+	let start = r.pos
+	let (n, broken) = tree.Scan(strings.Slice(r.t.src, start, len(r.t.src)))
+	match broken {
+	case Some[string] as why:
+		problem(r, start+n, why.Value)
+	case None:
+		r.pos = start + n
+		push(r, put(&r.t, cell{kind: kNumber, a: uint32(start), b: uint32(n)}))
+	}
+}
+
+// text reads a string literal: a span of the source when it has no
+// escape and only ASCII, else tree's decoding, interned. It is the row
+// the string would have and whether it read one.
+func text(r *reader) Option[cell] {
+	let src = r.t.src
+	let start = r.pos + 1
+	let mut i = start
+	for i < len(src) {
+		let c = src[i]
+		if c == '"' {
+			r.pos = i + 1
+			return Some[cell]{Value: cell{kind: kSpan, a: uint32(start), b: uint32(i - start)}}
+		}
+		if c == '\\' || c < 0x20 || c >= 0x80 {
+			break
+		}
+		i += 1
+	}
+	let d = tree.ReadString(src, r.pos) catch {
+	case tree.Malformed as m:
+		let _ = dense.Put(&r.problems, m)
+		return None
+	}
+	r.pos = d.End
+	let k = Intern(&r.t, d.Text)
+	Some[cell]{Value: cell{kind: kText, a: uint32(dense.Index(k)), b: 0}}
+}
+
+func str(r *reader) {
+	match text(r) {
+	case Some[cell] as row:
+		push(r, put(&r.t, row.Value))
+	case None:
+	}
+}
+
+// key reads a member's key and is its interned id.
+func key(r *reader) Option[dense.ID[Key]] {
+	match text(r) {
+	case Some[cell] as row:
+		if row.Value.kind == kText {
+			return Some[dense.ID[Key]]{Value: dense.IDOf(r.t.keys.texts, int(row.Value.a))}
+		}
+		let s = strings.Slice(r.t.src, int(row.Value.a), int(row.Value.a)+int(row.Value.b))
+		Some[dense.ID[Key]]{Value: Intern(&r.t, s)}
+	case None:
+		None
+	}
+}
+
+// enter opens a container: one level deeper, at most tree.MaxDepth.
+func enter(r *reader) bool {
+	r.depth += 1
+	if r.depth > tree.MaxDepth {
+		problem(r, r.pos, "nesting deeper than \(tree.MaxDepth)")
+		return false
+	}
+	r.pos += 1
+	skip(r)
+	true
+}
+
+func array(r *reader) {
+	if !enter(r) {
+		return
+	}
+	let src = r.t.src
+	let mark = r.top
+	if r.pos < len(src) && src[r.pos] == ']' {
+		r.pos += 1
+		r.depth -= 1
+		push(r, putArray(&r.t, []dense.ID[Node]{}))
+		return
+	}
+	for {
+		value(r)
+		if !ok(*r) {
+			return
+		}
+		skip(r)
+		if r.pos < len(src) {
+			let c = src[r.pos]
+			if c == ',' {
+				r.pos += 1
+				skip(r)
+				continue
+			}
+			if c == ']' {
+				r.pos += 1
+				r.depth -= 1
+				let id = putArray(&r.t, slices.Slice(r.stack, mark, r.top))
+				r.top = mark
+				push(r, id)
+				return
+			}
+		}
+		problem(r, r.pos, "expected ',' or ']', found "+found(*r))
+		return
+	}
+}
+
+// hold keeps a member until its object closes.
+func hold(r *reader, m Member) {
+	if r.heldTop < len(r.held) {
+		r.held[r.heldTop] = m
+	} else {
+		r.held = r.held.Append(m)
+	}
+	r.heldTop += 1
+}
+
+func object(r *reader) {
+	if !enter(r) {
+		return
+	}
+	let src = r.t.src
+	let mark = r.heldTop
+	if r.pos < len(src) && src[r.pos] == '}' {
+		r.pos += 1
+		r.depth -= 1
+		push(r, putObject(&r.t, []Member{}))
+		return
+	}
+	for {
+		if r.pos >= len(src) || src[r.pos] != '"' {
+			problem(r, r.pos, "expected a string key, found "+found(*r))
+			return
+		}
+		let k = match key(r) {
+		case Some[dense.ID[Key]] as k:
+			k.Value
+		case None:
+			return
+		}
+		skip(r)
+		if r.pos >= len(src) || src[r.pos] != ':' {
+			problem(r, r.pos, "expected ':', found "+found(*r))
+			return
+		}
+		r.pos += 1
+		skip(r)
+		value(r)
+		if !ok(*r) {
+			return
+		}
+		r.top -= 1
+		hold(r, Member{Key: k, Value: r.stack[r.top]})
+		skip(r)
+		if r.pos < len(src) {
+			let c = src[r.pos]
+			if c == ',' {
+				r.pos += 1
+				skip(r)
+				continue
+			}
+			if c == '}' {
+				r.pos += 1
+				r.depth -= 1
+				let id = putObject(&r.t, slices.Slice(r.held, mark, r.heldTop))
+				r.heldTop = mark
+				push(r, id)
+				return
+			}
+		}
+		problem(r, r.pos, "expected ',' or '}', found "+found(*r))
+		return
+	}
+}

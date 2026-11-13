@@ -1,0 +1,98 @@
+import flattree/dense
+import flattree/tree
+import strings
+
+// Compact is the text of the value at id on one line, as tree.Compact
+// prints the same value.
+func Compact(t Tree, id dense.ID[Node]) string {
+	let mut b = strings.NewBuilder()
+	compact(&b, t, id)
+	b.String()
+}
+
+// Indent is the text of the value at id in jq's layout, as tree.Indent
+// prints the same value.
+func Indent(t Tree, id dense.ID[Node]) string {
+	let mut b = strings.NewBuilder()
+	indent(&b, t, id, 0)
+	b.String()
+}
+
+func compact(b *strings.Builder, t Tree, id dense.ID[Node]) {
+	match ViewOf(t, id) {
+	case Null:
+		b.WriteString("null")
+	case Bool as x:
+		b.WriteString(if x.B { "true" } else { "false" })
+	case Number as n:
+		b.WriteString(NumberText(t, n))
+	case Str as s:
+		tree.WriteQuoted(b, s.S)
+	case Array as a:
+		b.WriteByte('[')
+		for k, x in a.Items {
+			if k > 0 {
+				b.WriteByte(',')
+			}
+			compact(b, t, x)
+		}
+		b.WriteByte(']')
+	case Object as o:
+		b.WriteByte('{')
+		for k, m in o.Members {
+			if k > 0 {
+				b.WriteByte(',')
+			}
+			tree.WriteQuoted(b, KeyText(t, m.Key))
+			b.WriteByte(':')
+			compact(b, t, m.Value)
+		}
+		b.WriteByte('}')
+	}
+}
+
+func newline(b *strings.Builder, depth int) {
+	b.WriteByte('\n')
+	for _ in 0..depth {
+		b.WriteString("  ")
+	}
+}
+
+func indent(b *strings.Builder, t Tree, id dense.ID[Node], depth int) {
+	match ViewOf(t, id) {
+	case Array as a:
+		if len(a.Items) == 0 {
+			b.WriteString("[]")
+			return
+		}
+		b.WriteByte('[')
+		for k, x in a.Items {
+			if k > 0 {
+				b.WriteByte(',')
+			}
+			newline(b, depth+1)
+			indent(b, t, x, depth+1)
+		}
+		newline(b, depth)
+		b.WriteByte(']')
+	case Object as o:
+		if len(o.Members) == 0 {
+			b.WriteString("{}")
+			return
+		}
+		b.WriteByte('{')
+		for k, m in o.Members {
+			if k > 0 {
+				b.WriteByte(',')
+			}
+			newline(b, depth+1)
+			tree.WriteQuoted(b, KeyText(t, m.Key))
+			b.WriteString(": ")
+			indent(b, t, m.Value, depth+1)
+		}
+		newline(b, depth)
+		b.WriteByte('}')
+	case Null, Bool, Number, Str:
+		compact(b, t, id)
+	}
+}

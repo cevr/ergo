@@ -1,0 +1,269 @@
+{
+  "about": "flattree's mutants (wf10 DOD DF1): each law's mutant, killed by `ergo test` of its package or by a case, and the edits no law or case sees, which TestFlatTreeAgreesWithControl in cmd/ergo (JSONTestSuite, generated documents and the workload, three sides against a reference on encoding/json) kills. Package tree is examples/jsonparse's package json under a new name: its law-killed mutants are kept here; the ones only TestJSONParseAgreesWithControl kills stay in examples/jsonparse's ledger, which judges the same code.",
+  "mutants": [
+    {
+      "name": "flattree-tree-pointer-escapes-slash-first",
+      "origin": "wf10 DF1 (from PA1)",
+      "file": "examples/flattree/tree/pointer.ergo",
+      "from": "strings.ReplaceAll(strings.ReplaceAll(t, \"~\", \"~0\"), \"/\", \"~1\")",
+      "to": "strings.ReplaceAll(strings.ReplaceAll(t, \"/\", \"~1\"), \"~\", \"~0\")",
+      "rule": "A pointer escapes ~ before /, so a key with a / is written ~1, not ~01 (law tree.PointersReachTheirPlaces).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-tree-pointer-tilde-one-is-tilde",
+      "origin": "wf10 DF1 (from PA1)",
+      "file": "examples/flattree/tree/pointer.ergo",
+      "from": "b.WriteByte('/')",
+      "to": "b.WriteByte('~')",
+      "rule": "In a pointer's token, ~1 stands for / (law tree.PointersReachTheirPlaces).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-tree-quote-keeps-backslash",
+      "origin": "wf10 DF1 (from PA1)",
+      "file": "examples/flattree/tree/print.ergo",
+      "from": "if c >= 0x20 && c != '\"' && c != '\\\\' && c != 0x7f {",
+      "to": "if c >= 0x20 && c != '\"' && c != 0x7f {",
+      "rule": "The printers escape a backslash, so the text reads back as the value (law tree.PrintParsesBack).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-tree-escape-b-is-form-feed",
+      "origin": "wf10 DF1 (from PA1)",
+      "file": "examples/flattree/tree/parse.ergo",
+      "from": "b.WriteByte(0x08)",
+      "to": "b.WriteByte(0x0c)",
+      "rule": "The escape \\b is the byte 0x08 (law tree.PrintParsesBack: the printer writes 0x08 as \\b).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-tree-zero-takes-digits",
+      "origin": "wf10 DF1 (from PA1)",
+      "file": "examples/flattree/tree/number.ergo",
+      "from": "case (Whole, Nought), (Whole, Digit):",
+      "to": "case (Whole, Nought), (Whole, Digit), (Zero, Nought), (Zero, Digit):",
+      "rule": "No digit follows a leading 0 (law tree.Numeral.ZeroEndsItsInteger).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-tree-exponent-takes-no-sign",
+      "origin": "wf10 DF1 (from PA1)",
+      "file": "examples/flattree/tree/number.ergo",
+      "from": "case (Mark, Dash), (Mark, Plus):",
+      "to": "case (Sign, Dash), (Sign, Plus):",
+      "rule": "An exponent may have a sign before its digits (law tree.Numeral.ExponentTakesASign).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-tree-zero-takes-no-fraction",
+      "origin": "wf10 DF1 (from PA1)",
+      "file": "examples/flattree/tree/number.ergo",
+      "from": "case (Zero, Dot), (Whole, Dot):",
+      "to": "case (Whole, Dot):",
+      "rule": "0.5 is a number (law tree.Numeral.FractionFollowsZero).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-tree-workload-raw-tab",
+      "origin": "wf10 DF1 (from PA1)",
+      "file": "examples/flattree/workload/workload.ergo",
+      "from": "\"tab\\\\there\"",
+      "to": "\"tab\\there\"",
+      "rule": "The workload is JSON: a tab in its strings is escaped (law workload.DocumentIsJSON; the bug the first receipt run found).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-span-keeps-escape",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/parse.ergo",
+      "from": "if c == '\\\\' || c < 0x20 || c >= 0x80 {",
+      "to": "if c < 0x20 || c >= 0x80 {",
+      "rule": "A string with an escape is decoded, not kept as its span (law flat.FlatEqualsTree).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-intern-forgets",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/flat.ergo",
+      "from": "t.keys.ids = t.keys.ids.Put(text, id)",
+      "to": "t.keys.ids = t.keys.ids",
+      "rule": "Interning remembers a text, so one text has one id (law flat.KeysAreInterned).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-array-depth-short",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/flat.ergo",
+      "from": "\t\t\ts.Arrays += 1\n\t\t\tlet mut d = 0",
+      "to": "\t\t\ts.Arrays += 1\n\t\t\tlet mut d = -1",
+      "rule": "An array is one deeper than its deepest item (law flat.FlatEqualsTree compares the stats).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-keys-counted-twice",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/flat.ergo",
+      "from": "if !seen[key] {",
+      "to": "if key >= 0 {",
+      "rule": "stats counts distinct keys (law flat.FlatEqualsTree).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-held-not-reset",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/parse.ergo",
+      "from": "r.heldTop = mark",
+      "to": "r.heldTop = r.heldTop",
+      "rule": "A closed object takes its members off the held stack (law flat.FlatEqualsTree).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-stack-not-reset",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/parse.ergo",
+      "from": "r.top = mark",
+      "to": "r.top = r.top",
+      "rule": "A closed array takes its items off the stack (law flat.FlatEqualsTree).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-false-is-true",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/flat.ergo",
+      "from": "return Bool{B: k == kTrue}",
+      "to": "return Bool{B: k != kNull}",
+      "rule": "The view of false is false (law flat.ViewRoundTrips).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-number-short",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/parse.ergo",
+      "from": "b: uint32(n)}",
+      "to": "b: uint32(n - 1)}",
+      "rule": "A number's span is all its bytes (law flat.FlatEqualsTree).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-view-number-len-is-offset",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/flat.ergo",
+      "from": "return Number{At: int(r.a), Len: int(r.b)}",
+      "to": "return Number{At: int(r.a), Len: int(r.a)}",
+      "rule": "A number's view is its offset and its length (law flat.ViewRoundTrips).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-pointer-first-member-only",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/pointer.ergo",
+      "from": "let mut i = len(o.Members) - 1",
+      "to": "let mut i = 0",
+      "rule": "A pointer's token is looked for among all the members, the last first (law flat.PointersReachTheTreesPlaces).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-root-is-first",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/flat.ergo",
+      "from": "t.root = dense.OptOf(id)",
+      "to": "t.root = dense.OptOf(dense.Or(t.root, id))",
+      "rule": "The root is the last value put: children come first (law flat.ChildrenStayInside).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-tree-stats-bools-twice",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/tree/stats.ergo",
+      "from": "s.Bools += 1",
+      "to": "s.Bools += 2",
+      "rule": "The plain twin's stats count each bool once (law flat.FlatEqualsTree; case stats-tree).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-app-path-on-one-line",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/app/app.ergo",
+      "from": "done(flat.Indent(t, at) + \"\\n\")",
+      "to": "done(flat.Compact(t, at) + \"\\n\")",
+      "rule": "path prints the value in jq's layout (case path-object).",
+      "killers": [
+        "examples:flattree"
+      ]
+    },
+    {
+      "name": "flattree-flat-depth-limit-one-past",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/parse.ergo",
+      "from": "if r.depth > tree.MaxDepth {",
+      "to": "if r.depth > tree.MaxDepth+1 {",
+      "rule": "Nesting fails one past tree.MaxDepth, as encoding/json's limit; no law nests 10000 deep, the agreement test's generated documents do.",
+      "killers": [
+        "cmd/ergo:TestFlatTreeAgreesWithControl"
+      ]
+    },
+    {
+      "name": "flattree-flat-return-is-no-space",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/parse.ergo",
+      "from": "c != '\\t' && c != '\\r' {",
+      "to": "c != '\\t' {",
+      "rule": "A carriage return is whitespace; the laws' samples have none, the agreement test's odd whitespace and the suite do.",
+      "killers": [
+        "cmd/ergo:TestFlatTreeAgreesWithControl"
+      ]
+    },
+    {
+      "name": "flattree-flat-index-one-past-the-end",
+      "origin": "wf10 DF1",
+      "file": "examples/flattree/flat/pointer.ergo",
+      "from": "if i < 0 || i >= len(a.Items) {",
+      "to": "if i < 0 || i > len(a.Items) {",
+      "rule": "An index equal to the length names nothing; the laws get only places that exist, the agreement test's pointers go one past.",
+      "killers": [
+        "cmd/ergo:TestFlatTreeAgreesWithControl"
+      ]
+    }
+  ]
+}
