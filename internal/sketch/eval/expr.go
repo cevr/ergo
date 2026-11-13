@@ -172,6 +172,7 @@ func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt)
 		// the slots it reads and the capabilities bound where it is made.
 		// It runs where it is written, or where a native the evaluator
 		// runs calls it (sync.Ref's Update, natives.go).
+		fr.escaped = true
 		return &closure{lit: x, key: x, params: x.Type.Params, body: x.Body, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}, nil
 	case *syntax.StarExpr:
 		return in.deref(fr, x.X)
@@ -793,6 +794,7 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, c *check.Call) (Value, *
 		if x.Trailing != nil {
 			// The block is the native's last argument: a function of its
 			// own, run where the native runs it (task.Go, scope.OnExit).
+			fr.escaped = true
 			args = append(args, &closure{key: x.Trailing, body: x.Trailing, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps})
 		}
 		v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
@@ -889,6 +891,7 @@ func (in *interp) stackArgs(fr *frame, x *syntax.CallExpr, c *check.Call) (args 
 // callLiteral runs a function literal called where it is written: its
 // body reads and writes the slots of the frame around it, in place.
 func (in *interp) callLiteral(fr *frame, at *syntax.CallExpr, lit *syntax.FuncLit, args []Value) (Value, *abrupt) {
+	fr.escaped = true
 	c := &closure{lit: lit, key: lit, params: lit.Type.Params, body: lit.Body, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}
 	return in.callClosure(fr, at, c, args)
 }

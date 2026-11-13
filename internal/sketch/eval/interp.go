@@ -22,8 +22,10 @@ type interp struct {
 	// factTables are the facts of each package's expressions (facts.go);
 	// factInfo and facts are the table in use.
 	factTables map[*check.Info]factTable
-	factInfo   *check.Info
-	facts      factTable
+	// framePool holds cleared call frames for reuse (freeFrame).
+	framePool []*frame
+	factInfo  *check.Info
+	facts     factTable
 	// params and owners are a function's parameters and a declaration's
 	// fact owner, read once (facts.go).
 	params map[*check.Func][]*check.Var
@@ -100,13 +102,44 @@ type frame struct {
 	returned *syntax.Ident
 	held     map[*syntax.Ident]bool
 	outer    *frame
+	// escaped marks a frame something may still hold once its call
+	// returns: a function literal or a trailing block made in it, or an
+	// actor it started (ORACLE O33). A call's frame that did not escape
+	// goes back to the pool (freeFrame).
+	escaped bool
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
-	fr := &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, owner: in.ownerOf(pkg, decl), tab: in.table(pkg.Info)}
+	var fr *frame
+	if n := len(in.framePool); n > 0 {
+		fr = in.framePool[n-1]
+		in.framePool = in.framePool[:n-1]
+		fr.pkg, fr.info, fr.decl, fr.key, fr.owner, fr.tab = pkg, pkg.Info, decl, decl, in.ownerOf(pkg, decl), in.table(pkg.Info)
+	} else {
+		fr = &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, owner: in.ownerOf(pkg, decl), tab: in.table(pkg.Info)}
+	}
 	fr.vars = &fr.ownVars
 	return fr
 }
+
+// freeFrame gives fr, a call's frame whose call returned, back to the
+// pool, unless it escaped (ORACLE O33). Nothing else holds a frame past
+// its call: a borrow of its slots ends with the call (the checker's
+// Borrows rules), a range ends with its loop, and its owned values were
+// released or handed to the caller when it ended. The frame is cleared,
+// so a use after it is freed reads no stale slot.
+func (in *interp) freeFrame(fr *frame) {
+	if fr.escaped || len(in.framePool) >= maxPooledFrames {
+		return
+	}
+	mk, mv := fr.ownVars.moreKeys[:0], fr.ownVars.moreVals[:0]
+	clear(mv[:cap(mv)])
+	*fr = frame{}
+	fr.ownVars.moreKeys, fr.ownVars.moreVals = mk, mv
+	in.framePool = append(in.framePool, fr)
+}
+
+const maxPooledFrames = 256
 
 // bind binds v to a new slot holding val.
 func (fr *frame) bind(v *check.Var, val Value) {
@@ -302,7 +335,9 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 	for _, p := range params {
 		in.ownVar(callee, p, fn.Decl) // a taken parameter (R8)
 	}
-	return in.runFrame(fr, at, callee, fn.Name, fn.Decl.Body.List)
+	v, ab := in.runFrame(fr, at, callee, fn.Name, fn.Decl.Body.List)
+	in.freeFrame(callee)
+	return v, ab
 }
 
 // runFrame runs the body of a called frame one call deeper, and turns its

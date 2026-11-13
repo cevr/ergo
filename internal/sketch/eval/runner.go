@@ -251,6 +251,7 @@ func (in *interp) launch(fr *frame, at syntax.Node, fn *check.Func, a *actorV, c
 	if ab := in.build(fr, at, 1, 8, 0); ab != nil {
 		return ab
 	}
+	fr.escaped = true
 	a.fn, a.at, a.home, a.sched = fn, at, fr, sched
 	if in.cur != nil && in.cur.handoff != nil {
 		// A durable start's recovered hosts, for this actor only.
