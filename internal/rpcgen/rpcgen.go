@@ -464,7 +464,13 @@ func (g *gen) walkerOf(t check.Type) *walker {
 		if k == "ExactUint" {
 			conv = "uint64"
 		}
-		fmt.Fprintf(&b, "try rpc.%s(\"\", %s(v))\n", k, conv)
+		x := "v"
+		if _, named := t.(*check.Named); named && bk.Name != conv {
+			// A defined type converts through the type it is defined
+			// over (S108): int64(int(v)).
+			x = bk.Name + "(v)"
+		}
+		fmt.Fprintf(&b, "try rpc.%s(\"\", %s(%s))\n", k, conv, x)
 	} else {
 		under := t
 		if n, ok := t.(*check.Named); ok {

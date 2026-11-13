@@ -298,14 +298,7 @@ func (p *program) basic() *ty {
 // scalarType is a basic or a type defined over one.
 func (p *program) scalarType() *ty {
 	if p.r.IntN(3) == 0 {
-		n := p.named[p.r.IntN(len(p.named))]
-		// ergo gen rpc's int walker converts a type defined over int to
-		// int64 in one step, which the checker refuses (S108); every mcp
-		// contract has an rpc package, so it draws no such type until the
-		// rpc lane fixes the walker.
-		if !p.optional || n.elem.kind != "int" {
-			return n
-		}
+		return p.named[p.r.IntN(len(p.named))]
 	}
 	return p.basic()
 }
