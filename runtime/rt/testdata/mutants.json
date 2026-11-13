@@ -146,6 +146,7 @@
       "killers": [
         "v1:TestHandlesNamedBySource"
       ]
-    }
+    },
+    {"name":"sb8-no-flush-wait","origin":"wf10 SB8","file":"runtime/rt/task.go","from":"\tif waitFlush.pending.Load() {\n\t\twaitFlush.flush()\n\t}\n","to":"","rule":"stdlib.md io 10: a task's wait of the runtime (Done) flushes held standard output.","killers":["runtime/v1:TestStdoutFlushModel"]}
   ]
 }

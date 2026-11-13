@@ -144,7 +144,7 @@ func (q *Queue[T]) Push(t *rt.Task, v T) error {
 func (q *Queue[T]) Pop(t *rt.Task) (T, error) {
 	rt.Point(t, rt.Op{Kind: rt.OpPop, On: q})
 	t.Check()
-	v, ok := q.take(t, t.Done())
+	v, ok := q.take(t)
 	if !ok {
 		return v, Closed{}
 	}
@@ -158,7 +158,7 @@ func (q *Queue[T]) Values(t *rt.Task) iter.Seq[T] {
 		for {
 			rt.Point(t, rt.Op{Kind: rt.OpPop, On: q})
 			t.Check()
-			v, ok := q.take(t, t.Done())
+			v, ok := q.take(t)
 			if !ok || !yield(v) {
 				return
 			}
@@ -232,10 +232,15 @@ func (q *Queue[T]) Drain() []T {
 }
 
 // take removes the front value, waiting while the queue is open and empty;
-// ok is false on a closed, empty queue. When stop closes while it waits,
-// it raises rt.Interrupted, having taken nothing.
-func (q *Queue[T]) take(t *rt.Task, stop <-chan struct{}) (v T, ok bool) {
+// ok is false on a closed, empty queue. When a stop of t comes while it
+// waits, it raises rt.Interrupted, having taken nothing.
+func (q *Queue[T]) take(t *rt.Task) (v T, ok bool) {
 	q.mu.Lock()
+	// t's stop channel is asked for only when take must wait: Done is a
+	// wait of the runtime, where held output is flushed (stdlib.md io 10),
+	// and a take that finds a value waits on nothing.
+	var stop <-chan struct{}
+	asked := false
 	for {
 		if v, ok = q.front(); ok {
 			q.mu.Unlock()
@@ -244,6 +249,9 @@ func (q *Queue[T]) take(t *rt.Task, stop <-chan struct{}) (v T, ok bool) {
 		if q.closed {
 			q.mu.Unlock()
 			return v, false
+		}
+		if !asked {
+			stop, asked = t.Done(), true
 		}
 		if !q.wait(t, stop) {
 			q.mu.Unlock()

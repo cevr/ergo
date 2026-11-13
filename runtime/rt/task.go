@@ -246,6 +246,9 @@ var wakers sync.Map
 // registered what it waits for (a Sleep after its timer is armed), so it is
 // also the point where WhenWaiting's hook runs.
 func (t *Task) Done() <-chan struct{} {
+	if waitFlush.pending.Load() {
+		waitFlush.flush()
+	}
 	if waitHooks.n.Load() != 0 {
 		t.fireWaitHook()
 	}
@@ -299,6 +302,30 @@ func (f *stopFlags) set() { f.v.Or(flagStopped) }
 func (f *stopFlags) made() bool { return f.v.Load()&flagMade != 0 }
 
 func (f *stopFlags) setMade() { f.v.Or(flagMade) }
+
+// waitFlush is the output the process holds back until a task waits:
+// runtime/v1's standard-output buffer (docs/spec/stdlib.md, io 10). Done
+// is where a task reaches a wait of the runtime, so a program that writes
+// to a pipe and then waits (a sleep, a queue, a join, a child, the
+// network, its input) shows what it wrote before the wait, with no timer.
+// pending is set while output is held, so Done pays one atomic load when
+// none is; flush is set once, at runtime/v1's init, before any task runs.
+var waitFlush struct {
+	pending atomic.Bool
+	flush   func()
+}
+
+// SetWaitFlush sets the function Done runs while output is held
+// (OutputHeld). Call it once, before any task starts.
+func SetWaitFlush(f func()) { waitFlush.flush = f }
+
+// OutputHeld records whether output is held for the next wait: true after
+// a write the buffer keeps, false after the flush.
+func OutputHeld(held bool) { waitFlush.pending.Store(held) }
+
+// IsOutputHeld reports OutputHeld's last record: a flush point with nothing
+// held is one atomic load.
+func IsOutputHeld() bool { return waitFlush.pending.Load() }
 
 // waitHooks holds the hooks of WhenWaiting, keyed by task, and how many
 // there are. A hook lives from WhenWaiting to the task's first wait, so the

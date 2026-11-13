@@ -5,6 +5,8 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+
+	"ergo.local/prototype/runtime/rt"
 )
 
 // Standard output is buffered when it is not a terminal (docs/spec/
@@ -15,9 +17,11 @@ import (
 // /dev/null) the writes are kept, whole, in one buffer of the process, and
 // reach the host when the buffer would pass stdoutChunk bytes and at each
 // flush point: before a write to standard error (stderrSink), before a read
-// of standard input waits on the host (lineReader.flush), before a child
-// process starts (ExecRun, ExecStart), and at the program's exit, a defect
-// or an interruption included (mainStatus). So output is in program order
+// of standard input waits on the host (lineReader.take), before a child
+// process starts (ExecRun, ExecStart), when a task reaches a wait of the
+// runtime (rt.Task.Done: a sleep, a queue, a join, an actor, a child, the
+// network), and at the program's exit, a defect or an interruption
+// included (mainStatus). So output is in program order
 // against standard error, an interactive prompt shows before the read that
 // waits for its answer, and a child's output follows what was printed
 // before it started. What is lost: the buffer of a process that a signal
@@ -46,9 +50,11 @@ type stdoutState struct {
 	writes  int // the writes that reached the host: the counted cost (SB8 receipt; TestStdoutFlushModel)
 }
 
-// stdoutPending is true while the buffer holds bytes, so a flush point
-// with nothing to write is one atomic load.
-var stdoutPending atomic.Bool
+// The buffer's held flag is rt's (rt.OutputHeld), so that a task's wait
+// (rt.Task.Done) flushes it: a program that writes to a pipe and then
+// waits, on a sleep, a queue, a join, a child, the network or its input,
+// shows its output before the wait, with no timer.
+func init() { rt.SetWaitFlush(flushStdout) }
 
 // stdoutForcedDirect makes every later decision direct (StdoutDirect).
 var stdoutForcedDirect atomic.Bool
@@ -91,7 +97,7 @@ func writeStdout(text string) {
 		}
 	}
 	stdout.buf = append(stdout.buf, text...)
-	stdoutPending.Store(true)
+	rt.OutputHeld(true)
 }
 
 // decide sets the mode for os.Stdout, once per file: direct on a
@@ -115,12 +121,12 @@ func (s *stdoutState) flushLocked() {
 		_, _ = s.w.Write(s.buf)
 		s.buf = s.buf[:0]
 	}
-	stdoutPending.Store(false)
+	rt.OutputHeld(false)
 }
 
 // flushStdout writes what the buffer holds to the host: a flush point.
 func flushStdout() {
-	if !stdoutPending.Load() {
+	if !rt.IsOutputHeld() {
 		return
 	}
 	stdout.mu.Lock()

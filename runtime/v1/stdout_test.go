@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -52,7 +53,9 @@ func (m *stdoutModel) print(s string) {
 // TestStdoutFlushModel: generated sequences of standard-output writes
 // (io.Host's Print and Console's Println, short, long and longer than the
 // buffer), standard-error writes, standard-input reads, child processes
-// (one run, one started that writes to the inherited stdout), ended by a
+// (one run, one started that writes to the inherited stdout), waits of the
+// task (a sleep, a Pop that waits) and a Push and Pop that wait on
+// nothing, and a Lines loop whose second line is already read, ended by a
 // success, a typed failure or a defect, run as main's body under
 // mainStatus, against stdoutModel: after each step the host has seen
 // exactly the model's writes, and at the end the merged stream is the
@@ -63,7 +66,9 @@ func (m *stdoutModel) print(s string) {
 // Mutants: sb8-always-direct and sb8-terminal-buffered (the mode),
 // sb8-no-flush-stderr (order against stderr), sb8-no-flush-stdin,
 // sb8-no-flush-run, sb8-no-flush-start (flush points), sb8-no-flush-exit
-// (the end of main), sb8-overflow-kept (the 4 KiB bound).
+// (the end of main), sb8-overflow-kept (the 4 KiB bound), sb8-no-flush-wait
+// (a task's wait), sb8-pop-asks-early (a Pop that finds a value flushes)
+// and sb8-lines-asks-early (a line already read flushes).
 func TestStdoutFlushModel(t *testing.T) {
 	cases := 40
 	if testing.Short() {
@@ -133,7 +138,7 @@ func stdoutCase(seed uint64) (steps []string, err error) {
 	status := mainStatus(func(task *rt.Task) error {
 		for range 1 + next(24) {
 			var step string
-			switch k := next(7); k {
+			switch k := next(11); k {
 			case 0, 1:
 				s := text()
 				step = fmt.Sprintf("Print(%d bytes)", len(s))
@@ -180,6 +185,56 @@ func stdoutCase(seed uint64) (steps []string, err error) {
 				p.Close(task)
 				m.flush()
 				m.stream.WriteString("c")
+			case 7:
+				step = "Sleep"
+				Sleep(task, time.Microsecond)
+				m.flush()
+			case 8:
+				// A Pop on an empty queue waits; the value comes only once
+				// it waits (WhenWaiting runs at its Done).
+				step = "Pop that waits"
+				q := New[int](1)
+				rt.WhenWaiting(task, func() {
+					go func() { _ = q.Push(rt.Root("feeder"), 1) }()
+				})
+				if _, err := q.Pop(task); err != nil {
+					return err
+				}
+				m.flush()
+			case 9:
+				// A Push with room and a Pop that finds the value wait on
+				// nothing: no flush.
+				step = "Push, Pop that does not wait"
+				q := New[int](1)
+				if err := q.Push(task, 1); err != nil {
+					return err
+				}
+				if _, err := q.Pop(task); err != nil {
+					return err
+				}
+			case 10:
+				// The second line is already read: its take waits on
+				// nothing, so the print between them stays held.
+				step = "Lines (two lines, a Print between)"
+				in, feed, err := os.Pipe()
+				if err != nil {
+					return err
+				}
+				opened = append(opened, in)
+				_, _ = feed.WriteString("x\ny\n")
+				_ = feed.Close()
+				os.Stdin = in
+				n := 0
+				for range IOLines(task) {
+					n++
+					if n == 1 {
+						m.flush()
+						IOPrint("p")
+						m.print("p")
+						continue
+					}
+					break
+				}
 			}
 			steps = append(steps, step)
 			if err = check(step); err != nil {

@@ -147,7 +147,6 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 	defer exit.close()
 	cmd.Stdout, cmd.Stderr = outW, errW
 	cmd.WaitDelay = execWaitDelay // bounds the copy of stdin to a process that holds it open and does not read
-	flushStdout()                 // the child starts after what was printed (stdlib.md io 10)
 	err = cmd.Start()
 	outW.Close() // the program holds its own copies
 	errW.Close()
