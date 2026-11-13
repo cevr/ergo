@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"hash/crc32"
 	"strconv"
+	"sync"
 )
 
 // HexMalformed is hex.Malformed: the failure of a text that is not
@@ -116,7 +117,21 @@ func Crc32Checksum(s string) uint32 { return crc32.ChecksumIEEE([]byte(s)) }
 
 // Crc32Update is crc32.Update(crc, crc32.IEEETable, the bytes of s).
 //
+// It reads s through a pooled buffer, so a long s is not copied to a new
+// slice first (FD1-g3: a bench that sums its answers allocated each
+// answer once more). The buffer is pooled because crc32.Update reaches
+// the arch code through a function value, so a stack buffer escapes.
+//
 //ergo:pure
 func Crc32Update(crc uint32, s string) uint32 {
-	return crc32.Update(crc, crc32.IEEETable, []byte(s))
+	buf := crcBuffers.Get().(*[4096]byte)
+	for len(s) > 0 {
+		n := copy(buf[:], s)
+		crc = crc32.Update(crc, crc32.IEEETable, buf[:n])
+		s = s[n:]
+	}
+	crcBuffers.Put(buf)
+	return crc
 }
+
+var crcBuffers = sync.Pool{New: func() any { return new([4096]byte) }}

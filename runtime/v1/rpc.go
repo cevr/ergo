@@ -170,10 +170,14 @@ type RPCEnvelope struct {
 // rpcCall is one Request on a task of its own and its Exit.
 type rpcCall struct {
 	id, tag, payload string
-	// exit is the Exit's "exit" member, set before the call's task sends
-	// the call on ended.
-	exit string
-	h    *rt.Handle[struct{}]
+	// A success keeps its value's text (ok) and any other outcome its
+	// Exit's "exit" member (exit), set before the call's task sends the
+	// call on ended. The value is written once, into the answer
+	// (rpcWriteExitLine), never wrapped into an exit text first.
+	ok    bool
+	value string
+	exit  string
+	h     *rt.Handle[struct{}]
 }
 
 // rpcRun is the calls of one request body below the request's task t.
@@ -193,7 +197,11 @@ func (s *rpcRun) start(c *rpcCall) {
 	ready := make(chan struct{})
 	c.h = rt.Go(&holder, string(s.span), func(ct *rt.Task) (struct{}, error) {
 		v, err := guarded(ct, func(ct *rt.Task) (string, error) { return s.handle(ct, c.tag, c.payload) })
-		c.exit = rpcExit(v, err)
+		if err == nil {
+			c.ok, c.value = true, v
+		} else {
+			c.exit = rpcExit(v, err)
+		}
 		<-ready // c.h is set
 		s.ended <- c
 		return struct{}{}, nil
@@ -222,7 +230,7 @@ func (s *rpcRun) stopAll() {
 // gives each Exit line to each as its call ends, on t's goroutine. A stop
 // of t, a defect or a stop raised by each, and an error of each stop the
 // calls left and wait for them before rpcCalls ends: no call outlives it.
-func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), each func(line []byte) error) error {
+func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), each func(c *rpcCall) error) error {
 	t.Check()
 	s := &rpcRun{span: span, t: t, handle: handle, ended: make(chan *rpcCall, len(envs)), live: map[*rpcCall]bool{}}
 	// A stop or a defect unwinds through here: the calls left stop and are
@@ -248,7 +256,7 @@ func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, s
 		select {
 		case c := <-s.ended:
 			s.end(c)
-			if err := each(rpcExitLine(c.id, c.exit)); err != nil {
+			if err := each(c); err != nil {
 				return err // the deferred stopAll stops the calls left
 			}
 		case <-stop:
@@ -262,24 +270,39 @@ func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, s
 // the json answer: the array of their Exits, in the order the calls end,
 // each with its request's id. A stop of t stops the calls, waits for
 // their releases and ends RPCExits with the stop.
+//
+// Each Exit is written once, into the answer: a Builder's String is its
+// bytes, so a value's text is copied only from the call's result into the
+// answer (FD1-g3).
 func RPCExits(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error)) string {
-	out := []byte{'['}
-	_ = rpcCalls(span, t, envs, handle, func(line []byte) error {
-		if len(out) > 1 {
-			out = append(out, ',')
+	var out strings.Builder
+	_ = rpcCalls(span, t, envs, handle, func(c *rpcCall) error {
+		if out.Len() == 0 {
+			out.Grow(rpcExitLineLen(c) + 2)
+			out.WriteByte('[')
+		} else {
+			out.WriteByte(',')
 		}
-		out = append(out, line...)
+		rpcWriteExitLine(&out, c)
 		return nil
 	})
-	return string(append(out, ']'))
+	if out.Len() == 0 {
+		return "[]"
+	}
+	out.WriteByte(']')
+	return out.String()
 }
 
 // RPCExitLines runs each Request of envs as RPCExits does and emits each
 // Exit as an ndjson line as soon as its call ends: emit's failure stops
 // the calls left and is RPCExitLines' failure.
 func RPCExitLines(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), emit func(*rt.Task, string) error) error {
-	return rpcCalls(span, t, envs, handle, func(line []byte) error {
-		return emit(t, string(append(line, '\n')))
+	return rpcCalls(span, t, envs, handle, func(c *rpcCall) error {
+		var line strings.Builder
+		line.Grow(rpcExitLineLen(c) + 1)
+		rpcWriteExitLine(&line, c)
+		line.WriteByte('\n')
+		return emit(t, line.String())
 	})
 }
 
@@ -398,13 +421,35 @@ const (
 	rpcNDJSON = "application/x-ndjson"
 )
 
-func rpcExitLine(id, exit string) []byte {
-	b := make([]byte, 0, len(id)+len(exit)+40)
-	b = append(b, `{"_tag":"Exit","requestId":`...)
-	b = append(b, id...)
-	b = append(b, `,"exit":`...)
-	b = append(b, exit...)
-	return append(b, '}')
+const (
+	rpcLineOpen    = `{"_tag":"Exit","requestId":`
+	rpcLineExit    = `,"exit":`
+	rpcSuccessOpen = `{"_tag":"Success","value":`
+)
+
+// rpcExitLineLen is the length of c's Exit message.
+func rpcExitLineLen(c *rpcCall) int {
+	n := len(rpcLineOpen) + len(c.id) + len(rpcLineExit) + 1
+	if c.ok {
+		return n + len(rpcSuccessOpen) + len(c.value) + 1
+	}
+	return n + len(c.exit)
+}
+
+// rpcWriteExitLine writes c's Exit message: {"_tag":"Exit","requestId",
+// "exit"}, a success's value written straight into it.
+func rpcWriteExitLine(w *strings.Builder, c *rpcCall) {
+	w.WriteString(rpcLineOpen)
+	w.WriteString(c.id)
+	w.WriteString(rpcLineExit)
+	if c.ok {
+		w.WriteString(rpcSuccessOpen)
+		w.WriteString(c.value)
+		w.WriteByte('}')
+	} else {
+		w.WriteString(c.exit)
+	}
+	w.WriteByte('}')
 }
 
 // rpcEnvelope is one message of a body as JSON writes it. ID keeps the
