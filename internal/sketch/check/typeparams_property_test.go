@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,6 +27,17 @@ var typeParamsSeed = flag.Uint64("typeparams.seed", 0, "run TestTypeParamGroups 
 // model's, and ergo fmt must keep the source as written. -typeparams.seed=N
 // runs the seed N alone; a failure prints the replay command and the
 // source.
+//
+// A declared function f is then called, with no type arguments, from a
+// generic g that declares the same names in a shuffled order, each in a
+// group of its own with f's constraint or none (the GP report: a call of
+// show[S, E comparable, …] from [E comparable, S, …]). The type
+// parameters bind by name through inference, never by position, so the
+// call checks exactly when g gives each name f's constraint. Otherwise it
+// is one S108 at f's first name in declaration order that g leaves
+// unconstrained, naming f's parameter; for a name a later name's
+// constraint covers in a group of several, the message says so and
+// writes the repair.
 func TestTypeParamGroups(t *testing.T) {
 	seeds := make([]uint64, 400)
 	for i := range seeds {
@@ -36,6 +48,7 @@ func TestTypeParamGroups(t *testing.T) {
 	}
 	words := []string{"", "any", "comparable", "ordered", "number"}
 	admitted, refused := 0, 0
+	checked, refusedCalls, hinted := 0, 0, 0
 	for _, seed := range seeds {
 		r := rand.New(rand.NewPCG(seed, 0x7b))
 		// The list as written: each entry a name, or a constraint word
@@ -43,20 +56,28 @@ func TestTypeParamGroups(t *testing.T) {
 		var seq []string
 		var names []string
 		var parts []string
+		// groupOf is a name's group as the parser reads it, when a word
+		// ends it: the names back to the previous word.
+		groupOf := map[string][]string{}
+		var group []string
 		for range 1 + r.IntN(5) {
-			var group []string
 			for range 1 + r.IntN(3) {
 				n := fmt.Sprintf("T%d", len(names))
 				names = append(names, n)
 				group = append(group, n)
 				seq = append(seq, n)
 			}
-			part := strings.Join(group, ", ")
 			if w := words[r.IntN(len(words))]; w != "" {
-				part += " " + w
 				seq = append(seq, "="+w)
+				for _, n := range group {
+					groupOf[n] = group
+				}
+				parts = append(parts, strings.Join(group, ", ")+" "+w)
+				group = nil
 			}
-			parts = append(parts, part)
+		}
+		if len(group) > 0 {
+			parts = append(parts, strings.Join(group, ", "))
 		}
 		list := strings.Join(parts, ", ")
 		// The model.
@@ -135,9 +156,84 @@ func TestTypeParamGroups(t *testing.T) {
 		if out, err := format.Source(src); err != nil || out != src {
 			fail("ergo fmt gives %q (%v)", out, err)
 		}
+		if seed%2 == 1 && len(wantDiags) == 0 {
+			g, kept := callerOf(r, names, want)
+			src += g
+			wantMsg := callerModel(names, want, kept, groupOf)
+			_, d := check.CheckSource(src)
+			var got []string
+			for _, x := range d {
+				got = append(got, x.Code+" "+x.Message)
+			}
+			if wantMsg == "" {
+				if len(got) > 0 {
+					fail("the caller is refused: %q", got)
+				}
+				checked++
+			} else {
+				if len(got) != 1 || got[0] != wantMsg {
+					fail("the caller gives %q, the model's %q", got, wantMsg)
+				}
+				refusedCalls++
+				if strings.Contains(wantMsg, "constrains") {
+					hinted++
+				}
+			}
+		}
 	}
-	t.Logf("seeds %d..%d: %d any admitted, %d refused", seeds[0], seeds[len(seeds)-1], admitted, refused)
+	t.Logf("seeds %d..%d: %d any admitted, %d refused; calls from a shuffled list: %d checked, %d refused, %d with the group hint", seeds[0], seeds[len(seeds)-1], admitted, refused, checked, refusedCalls, hinted)
 	if *typeParamsSeed == 0 && (admitted == 0 || refused == 0) {
 		t.Errorf("the generator wrote %d admitted and %d refused any: it must write both", admitted, refused)
 	}
+	if *typeParamsSeed == 0 && (checked == 0 || refusedCalls == hinted || hinted == 0) {
+		t.Errorf("the calls reach %d checked, %d refused and %d hinted: each verdict must occur", checked, refusedCalls, hinted)
+	}
+}
+
+// callerOf writes g, which declares names shuffled, each in a group of
+// its own with f's constraint (want) or, at random, none, and calls f
+// with its parameters in f's order. kept holds the names g constrains.
+func callerOf(r *rand.Rand, names []string, want map[string]string) (string, map[string]bool) {
+	order := append([]string(nil), names...)
+	r.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
+	kept := map[string]bool{}
+	for _, n := range order {
+		kept[n] = want[n] != "" && r.IntN(3) > 0
+	}
+	var list, params, args []string
+	for i, n := range order {
+		switch {
+		case kept[n]:
+			list = append(list, n+" "+want[n])
+		case i+1 < len(order) && kept[order[i+1]]:
+			list = append(list, n+" any") // ends an unconstrained group before a constrained one
+		default:
+			list = append(list, n)
+		}
+		params = append(params, fmt.Sprintf("q%d %s", i, n))
+	}
+	for _, n := range names {
+		args = append(args, fmt.Sprintf("q%d", slices.Index(order, n)))
+	}
+	return fmt.Sprintf("\nfunc g[%s](%s) {\n\tf(%s)\n}\n", strings.Join(list, ", "), strings.Join(params, ", "), strings.Join(args, ", ")), kept
+}
+
+// callerModel is the model's verdict on g's call of f: "" when it checks,
+// else the S108 message. groupOf gives the names of a name's written group in f.
+func callerModel(names []string, want map[string]string, kept map[string]bool, groupOf map[string][]string) string {
+	for _, n := range names {
+		if want[n] == "" || kept[n] {
+			continue
+		}
+		hint, cons, members := "", want[n], groupOf[n]
+		if i := slices.Index(members, n); i < len(members)-1 {
+			fix := n + " any, " + strings.Join(members[i+1:], ", ") + " " + cons
+			if i > 0 {
+				fix = strings.Join(members[:i], ", ") + " " + cons + ", " + fix
+			}
+			hint = fmt.Sprintf("; [%s %s] constrains %s as it does %s: write [%s] to leave %s unconstrained", strings.Join(members, ", "), cons, n, members[len(members)-1], fix, n)
+		}
+		return fmt.Sprintf("S108 %s does not satisfy the constraint %s of f's %s: %s is not %s%s (types.md, Generics 2)", n, cons, n, n, cons, hint)
+	}
+	return ""
 }

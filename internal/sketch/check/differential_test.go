@@ -655,7 +655,7 @@ var refusals196u = func() []*regexp.Regexp {
 		// Rule 6: a literal binds its parameter to its default before the
 		// constraint is checked (G(1, s)), so the constraint failure is the
 		// refusal; Go infers the parameter from the constraint instead.
-		`\S+ does not satisfy the constraint .+ of \w+: .+ \(types\.md, Generics 2\)`,
+		`\S+ does not satisfy the constraint .+ of (\w+'s )?\w+: .+ \(types\.md, Generics 2\)`,
 	} {
 		out = append(out, regexp.MustCompile(`^`+p+`$`))
 	}

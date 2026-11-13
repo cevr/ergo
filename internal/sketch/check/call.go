@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"go/constant"
 	"strings"
 
@@ -773,7 +774,12 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 		if tp.Kind == KindType && tp.Constraint != nil {
 			cons := c.subst(tp.Constraint, in.m)
 			if why := c.satisfies(b, cons); why != "" {
-				c.errorf(x, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", b, cons, tp.Name, why)
+				owner, group := "", ""
+				if fun.fn != nil {
+					owner = fun.fn.Name + "'s "
+					group = groupedConstraint(fun.fn, tp)
+				}
+				c.errorf(x, CodeType, "%s does not satisfy the constraint %s of %s%s: %s%s (types.md, Generics 2)", b, cons, owner, tp.Name, why, group)
 				return bad(x)
 			}
 		}
@@ -1198,6 +1204,42 @@ func isUnreachable(f *Func) bool {
 // IsUnreachable reports a call of the prelude's Unreachable, which the
 // lowering writes as a panic at its site, never as a call of its Go body.
 func IsUnreachable(c *Call) bool { return c != nil && c.Kind == CallFunc && isUnreachable(c.Func) }
+
+// groupedConstraint is the repair hint of a constraint failure at a
+// parameter that f's declaration constrains through a group: in
+// `[S, E comparable]` the constraint follows E and applies to S too
+// (types.md, Generics 2), which reads as an unconstrained S to a reader
+// used to one constraint per name. It is empty for a parameter whose
+// constraint is written right after it.
+func groupedConstraint(f *Func, tp *TypeParam) string {
+	if f.Decl == nil || f.Decl.TypeParams == nil {
+		return ""
+	}
+	for _, field := range f.Decl.TypeParams.List {
+		if field.Type == nil || len(field.Names) < 2 {
+			continue
+		}
+		for i, id := range field.Names[:len(field.Names)-1] {
+			if id.Name != tp.Name {
+				continue
+			}
+			names := make([]string, len(field.Names))
+			for j, n := range field.Names {
+				names[j] = n.Name
+			}
+			cons := exprText(field.Type)
+			// The repair keeps the order (type arguments are written by
+			// position): the names before tp keep the constraint, tp ends an
+			// unconstrained group, and the names after it keep theirs.
+			fix := tp.Name + " any, " + strings.Join(names[i+1:], ", ") + " " + cons
+			if i > 0 {
+				fix = strings.Join(names[:i], ", ") + " " + cons + ", " + fix
+			}
+			return fmt.Sprintf("; [%s %s] constrains %s as it does %s: write [%s] to leave %s unconstrained", strings.Join(names, ", "), cons, tp.Name, names[len(names)-1], fix, tp.Name)
+		}
+	}
+	return ""
+}
 
 // IsInForce reports a call of the prelude's InForce, which the lowering
 // writes in place: the providers of its row in force at the call, as a
