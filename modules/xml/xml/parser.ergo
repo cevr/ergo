@@ -25,36 +25,112 @@ type Token = StartElement | EndElement | CharData | Comment | ProcInst | EndDocu
 // reader that keeps only the names of the elements open. Each Next checks
 // what it reads, so the text is well formed when Next gives EndDocument,
 // and every token it gave before a Malformed was well formed so far.
-type Parser { text string, at int, open []string, closing bool, rootSeen bool, maxDepth int }
+//
+// open[0:depth] are the names of the elements open, and attrs[0:nattrs]
+// the attributes of the last start tag; each keeps its length past its
+// top, so reading a document allocates them only as deep or as wide as
+// it is. kind, name, data and start are the last token read (scan);
+// keep false (Check) checks text and attribute values and keeps neither,
+// so no reference is replaced into a new string.
+type Parser {
+	text     string,
+	at       int,
+	open     []string,
+	depth    int,
+	closing  bool,
+	rootSeen bool,
+	maxDepth int,
+	keep     bool,
+	attrs    []Attr,
+	nattrs   int,
+	kind     int,
+	name     string,
+	data     string,
+	start    int,
+}
+
+// The kinds of token scan reads.
+let endDocument = 0
+let startElement = 1
+let endElement = 2
+let charData = 3
+let comment = 4
+let procInst = 5
 
 // NewParser reads text from its first byte; an element nested deeper than
 // maxDepth fails (0: no limit).
 func NewParser(text string, maxDepth int) Parser {
-	Parser{text: text, at: 0, open: []string{}, closing: false, rootSeen: false, maxDepth: maxDepth}
+	Parser{text: text, at: 0, open: nameStack(), depth: 0, closing: false, rootSeen: false, maxDepth: maxDepth, keep: true, attrs: []Attr{}, nattrs: 0, kind: 0, name: "", data: "", start: 0}
 }
 
+// nameStack is a stack eight names deep, the one allocation it takes for
+// most documents.
+func nameStack() []string { []string{"", "", "", "", "", "", "", ""} }
+
+// span is text[from:to] with its references replaced (unescape), or,
+// when p keeps no text, "" once it is checked.
+func span(p *Parser, from int, to int) string fails Malformed {
+	if p.keep {
+		return try unescape(p.text, from, to)
+	}
+	try chars(p.text, from, to)
+	let mut i = find(strings.Slice(p.text, 0, to), from, "&")
+	for i >= 0 {
+		let semi = find(strings.Slice(p.text, 0, to), i, ";")
+		if semi < 0 {
+			return At(p.text, i, "& starts no reference")
+		}
+		let _ = try reference(p.text, i, semi)
+		i = find(strings.Slice(p.text, 0, to), semi, "&")
+	}
+	""
+}
 // Next is the next token. After EndDocument it gives EndDocument again.
 func Next(p *Parser) Token fails Malformed {
+	try p.scan()
+	match p.kind {
+	case 1:
+		let attrs = if p.nattrs == 0 { []Attr{} } else { p.attrs[0:p.nattrs] }
+		StartElement{Name: p.name, Attrs: attrs, Offset: p.start}
+	case 2:
+		EndElement{Name: p.name, Offset: p.start}
+	case 3:
+		CharData{Text: p.data, Offset: p.start}
+	case 4:
+		Comment{Text: p.data, Offset: p.start}
+	case 5:
+		ProcInst{Target: p.name, Inst: p.data, Offset: p.start}
+	case _:
+		EndDocument{Offset: p.start}
+	}
+}
+
+// scan reads the next token into p's kind, name, data and start, checking
+// it, and builds no token: Check reads a document with it alone.
+func scan(p *Parser) fails Malformed {
+	p.start = p.at
 	if p.closing {
 		p.closing = false
-		let last = len(p.open) - 1
-		let name = p.open[last]
-		p.open = p.open[0:last]
-		return EndElement{Name: name, Offset: p.at}
+		p.depth = p.depth - 1
+		p.kind = endElement
+		p.name = p.open[p.depth]
+		return
 	}
 	if p.at >= len(p.text) {
-		if len(p.open) > 0 {
-			return At(p.text, p.at, "the element <"+p.open[len(p.open)-1]+"> is not closed")
+		if p.depth > 0 {
+			return At(p.text, p.at, "the element <"+p.open[p.depth-1]+"> is not closed")
 		}
 		if !p.rootSeen {
 			return At(p.text, p.at, "the document has no element")
 		}
-		return EndDocument{Offset: p.at}
+		p.kind = endDocument
+		return
 	}
 	if p.text[p.at] == '<' {
-		return try p.markup()
+		try p.markup()
+	} else {
+		try p.content()
 	}
-	try p.charData()
 }
 
 // At is a Malformed at offset of text, with its line and column.
@@ -80,17 +156,16 @@ func find(text string, from int, s string) int {
 	if i < 0 { -1 } else { from + i }
 }
 
-// charData reads text up to the next '<'.
-func charData(p *Parser) Token fails Malformed {
+// content reads character data up to the next '<'.
+func content(p *Parser) fails Malformed {
 	let start = p.at
 	let mut end = find(p.text, start, "<")
 	if end < 0 {
 		end = len(p.text)
 	}
-	if len(p.open) == 0 {
+	if p.depth == 0 {
 		for i in start..end {
-			let c = p.text[i]
-			if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			if !space(p.text[i]) {
 				return At(p.text, i, "text outside the root element")
 			}
 		}
@@ -99,17 +174,18 @@ func charData(p *Parser) Token fails Malformed {
 	if close >= 0 {
 		return At(p.text, close, "]]> in text")
 	}
-	let s = try unescape(p.text, start, end)
+	p.data = try p.span(start, end)
 	p.at = end
-	CharData{Text: s, Offset: start}
+	p.kind = charData
 }
 
 // markup reads a tag, a comment, a CDATA section or a processing
 // instruction at p's '<'.
-func markup(p *Parser) Token fails Malformed {
+func markup(p *Parser) fails Malformed {
 	let start = p.at
 	if has(p, "<?") {
-		return try p.procInst()
+		try p.instruction()
+		return
 	}
 	if has(p, "<!--") {
 		let end = find(p.text, start+4, "-->")
@@ -126,10 +202,12 @@ func markup(p *Parser) Token fails Malformed {
 		}
 		try chars(p.text, start+4, end)
 		p.at = end + 3
-		return Comment{Text: body, Offset: start}
+		p.kind = comment
+		p.data = body
+		return
 	}
 	if has(p, "<![CDATA[") {
-		if len(p.open) == 0 {
+		if p.depth == 0 {
 			return At(p.text, start, "a CDATA section outside the root element")
 		}
 		let end = find(p.text, start+9, "]]>")
@@ -138,7 +216,9 @@ func markup(p *Parser) Token fails Malformed {
 		}
 		try chars(p.text, start+9, end)
 		p.at = end + 3
-		return CharData{Text: strings.Slice(p.text, start+9, end), Offset: start}
+		p.kind = charData
+		p.data = strings.Slice(p.text, start+9, end)
+		return
 	}
 	if has(p, "<!DOCTYPE") {
 		return At(p.text, start, "a document type declaration is refused: this reader expands no entity it declares")
@@ -147,13 +227,14 @@ func markup(p *Parser) Token fails Malformed {
 		return At(p.text, start, "<! starts no comment or CDATA section")
 	}
 	if has(p, "</") {
-		return try p.endTag()
+		try p.endTag()
+		return
 	}
 	try p.startTag()
 }
 
-// procInst reads <?target inst?>; the XML declaration only at offset 0.
-func procInst(p *Parser) Token fails Malformed {
+// instruction reads <?target inst?>; the XML declaration only at offset 0.
+func instruction(p *Parser) fails Malformed {
 	let start = p.at
 	let nameEnd = nameAt(p.text, start+2)
 	if nameEnd == start+2 {
@@ -172,11 +253,13 @@ func procInst(p *Parser) Token fails Malformed {
 	}
 	try chars(p.text, nameEnd, end)
 	p.at = end + 2
-	ProcInst{Target: target, Inst: strings.TrimLeft(strings.Slice(p.text, nameEnd, end), " \t\r\n"), Offset: start}
+	p.kind = procInst
+	p.name = target
+	p.data = strings.TrimLeft(strings.Slice(p.text, nameEnd, end), " \t\r\n")
 }
 
 // endTag reads </name>, which closes the innermost element.
-func endTag(p *Parser) Token fails Malformed {
+func endTag(p *Parser) fails Malformed {
 	let start = p.at
 	let nameEnd = nameAt(p.text, start+2)
 	if nameEnd == start+2 {
@@ -187,22 +270,22 @@ func endTag(p *Parser) Token fails Malformed {
 	if i >= len(p.text) || p.text[i] != '>' {
 		return At(p.text, i, "> is missing after </"+name)
 	}
-	let last = len(p.open) - 1
-	if last < 0 {
+	if p.depth == 0 {
 		return At(p.text, start, "the end tag </"+name+"> closes no element")
 	}
-	if p.open[last] != name {
-		return At(p.text, start, "the end tag </"+name+"> does not close <"+p.open[last]+">")
+	if p.open[p.depth-1] != name {
+		return At(p.text, start, "the end tag </"+name+"> does not close <"+p.open[p.depth-1]+">")
 	}
-	p.open = p.open[0:last]
+	p.depth = p.depth - 1
 	p.at = i + 1
-	EndElement{Name: name, Offset: start}
+	p.kind = endElement
+	p.name = name
 }
 
 // startTag reads <name attr="value" …> or <name …/>.
-func startTag(p *Parser) Token fails Malformed {
+func startTag(p *Parser) fails Malformed {
 	let start = p.at
-	if p.rootSeen && len(p.open) == 0 {
+	if p.rootSeen && p.depth == 0 {
 		return At(p.text, start, "a second root element")
 	}
 	let nameEnd = nameAt(p.text, start+1)
@@ -210,7 +293,7 @@ func startTag(p *Parser) Token fails Malformed {
 		return At(p.text, start+1, "< starts no name")
 	}
 	let name = strings.Slice(p.text, start+1, nameEnd)
-	let mut attrs = []Attr{}
+	p.nattrs = 0
 	let mut i = nameEnd
 	for i < len(p.text) {
 		let j = skipSpace(p.text, i)
@@ -219,12 +302,14 @@ func startTag(p *Parser) Token fails Malformed {
 		}
 		if p.text[j] == '>' {
 			p.at = j + 1
-			return p.started(name, attrs, start, false)
+			try p.started(name, start, false)
+			return
 		}
 		if p.text[j] == '/' {
 			if j+1 < len(p.text) && p.text[j+1] == '>' {
 				p.at = j + 2
-				return p.started(name, attrs, start, true)
+				try p.started(name, start, true)
+				return
 			}
 			return At(p.text, j+1, "/ is not followed by >")
 		}
@@ -232,26 +317,37 @@ func startTag(p *Parser) Token fails Malformed {
 			return At(p.text, j, "a space is missing before an attribute")
 		}
 		let a = try p.attr(j)
-		for b in attrs {
-			if b.Name == a.Name {
+		for k in 0..p.nattrs {
+			if p.attrs[k].Name == a.Name {
 				return At(p.text, j, "the attribute "+a.Name+" is repeated")
 			}
 		}
-		attrs = attrs.Append(a)
+		if p.nattrs < len(p.attrs) {
+			p.attrs[p.nattrs] = a
+		} else {
+			p.attrs = p.attrs.Append(a)
+		}
+		p.nattrs = p.nattrs + 1
 		i = p.at
 	}
 	At(p.text, len(p.text), "the start tag <"+name+" does not end")
 }
 
 // started opens the element a start tag named.
-func started(p *Parser, name string, attrs []Attr, start int, empty bool) Token fails Malformed {
-	if p.maxDepth > 0 && len(p.open) >= p.maxDepth {
+func started(p *Parser, name string, start int, empty bool) fails Malformed {
+	if p.maxDepth > 0 && p.depth >= p.maxDepth {
 		return At(p.text, start, "elements are nested deeper than the limit")
 	}
-	p.open = p.open.Append(name)
+	if p.depth < len(p.open) {
+		p.open[p.depth] = name
+	} else {
+		p.open = p.open.Append(name)
+	}
+	p.depth = p.depth + 1
 	p.rootSeen = true
 	p.closing = empty
-	StartElement{Name: name, Attrs: attrs, Offset: start}
+	p.kind = startElement
+	p.name = name
 }
 
 // attr reads name="value" at at, leaving p after the closing quote.
@@ -280,7 +376,7 @@ func attr(p *Parser, at int) Attr fails Malformed {
 	if end >= len(p.text) {
 		return At(p.text, len(p.text), "the value of "+name+" does not end")
 	}
-	let value = try unescape(p.text, i+1, end)
+	let value = try p.span(i+1, end)
 	p.at = end + 1
 	Attr{Name: name, Value: value}
 }

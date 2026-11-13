@@ -25,19 +25,20 @@ type Codec[T wire] { Root string, MaxBytes int, MaxDepth int }
 
 // Check reads the whole of text with a Parser and is the name of its root
 // element: it fails Malformed exactly when text is not a well-formed
-// document, at the first place it breaks.
+// document, at the first place it breaks. It builds no token, so a text
+// with no reference to replace is read with no allocation but the
+// parser's stacks.
 func Check(text string, maxDepth int) string fails Malformed {
 	let mut p = NewParser(text, maxDepth)
+	p.keep = false
 	let mut root = ""
 	for {
-		match try p.Next() {
-		case StartElement as s:
-			if root == "" {
-				root = s.Name
-			}
-		case EndDocument:
+		try p.scan()
+		if p.kind == endDocument {
 			return root
-		case _:
+		}
+		if p.kind == startElement && root == "" {
+			root = p.name
 		}
 	}
 }
@@ -49,14 +50,9 @@ func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] {
 	if c.MaxBytes > 0 && len(text) > c.MaxBytes {
 		return At(text, c.MaxBytes, "the text is longer than MaxBytes")
 	}
-	let toks = try Tokens(text, c.MaxDepth)
-	let r = readerOf(toks)
-	match toks[r.at.Get()-1] {
-	case StartElement as s:
-		if c.Root != "" && s.Name != c.Root {
-			return At(text, s.Offset, "the root element is <"+s.Name+">, not <"+c.Root+">")
-		}
-	case _:
+	let root = try Check(text, c.MaxDepth)
+	if c.Root != "" && root != c.Root {
+		return At(text, blank(text, 0), "the root element is <"+root+">, not <"+c.Root+">")
 	}
-	try decode[T](r)
+	try decode[T](readerOf(text))
 }

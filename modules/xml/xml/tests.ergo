@@ -15,6 +15,21 @@ test EncodeWritesTheForm {
 	assert Encode(boxCodec(), b) == "<box><label>a&lt;b&amp;c</label><items><item><name>x</name><count>2</count><note><_tag>None</_tag></note></item><item><name>y</name><count>-1</count><note><_tag>Some</_tag><value>&#xD;</value></note></item></items><kind><_tag>square</_tag><side>1.5</side></kind><tags><k>v</k><_ key=\"two words\">w</_></tags></box>"
 }
 
+type edges { Least int64, Most uint64, Zero int, Ten int, Half float32 }
+
+test NumbersAtTheirEdges {
+	let e = edges{Least: -9223372036854775807 - 1, Most: 18446744073709551615, Zero: 0, Ten: 10, Half: 0.5}
+	let c = Codec[edges]{Root: "e", MaxBytes: 0, MaxDepth: 0}
+	let text = Encode(c, e)
+	assert text == "<e><least>-9223372036854775808</least><most>18446744073709551615</most><zero>0</zero><ten>10</ten><half>0.5</half></e>"
+	let back = Decode(c, text) catch {
+	case _:
+		assert false
+		return
+	}
+	assert back == e
+}
+
 // shown is a token as a test reads it.
 func shown(t Token) string {
 	match t {
