@@ -45,7 +45,7 @@ func TestStdBindsNoForeignBody(t *testing.T) {
 			if target == "" {
 				// A Go builtin (append, len), no runtime/v1 body: each
 				// package binds it at the shape it needs (interop.md,
-				// Lowering 9).
+				// Lowering 13).
 				continue
 			}
 			bindings = append(bindings, stdBinding{pkg: p.path, name: f.Name, body: target + "." + body})
