@@ -1,6 +1,7 @@
-// Command gen writes docs/research/pattern-bench/matchers.go: the Go
-// matcher the lowering writes for each pattern the bench measures
-// (types.md, Refinements 11). Run it from the repository root:
+// Command gen writes docs/research/pattern-bench/matchers.go: for each
+// pattern the bench measures, the matcher the lowering writes in each of
+// its forms (types.md, Refinements 11): matchNAME, straight-line, and
+// matchNAMETable, a table. Run it from the repository root:
 //
 //	go run ./docs/research/pattern-bench/gen
 package main
@@ -15,12 +16,18 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
-// Patterns are the bench's patterns: fk-form's Email, fk-domains'
-// DomainLabel, and an ISO date.
+// Patterns are the bench's patterns, by the size of their automaton:
+// fk-form's Email, an ISO date, a word of 1 to 12 letters and one of 1 to 20, a UUID, a
+// 1-to-24 character identifier, a SHA-1 in hex, fk-domains' DomainLabel.
 var Patterns = []struct{ Name, Source string }{
 	{"Email", `[^\s@]+@[^\s@]+\.[^\s@]+`},
-	{"Label", `[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`},
 	{"Date", `\d{4}-\d{2}-\d{2}`},
+	{"Word", `[a-z]{1,12}`},
+	{"Word20", `[a-z]{1,20}`},
+	{"Ident", `[A-Za-z_][A-Za-z0-9_]{0,23}`},
+	{"UUID", `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`},
+	{"SHA1", `[0-9a-f]{40}`},
+	{"Label", `[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`},
 }
 
 func main() {
@@ -30,15 +37,19 @@ func main() {
 	for _, p := range Patterns {
 		fmt.Fprintf(&b, "\t%q: %q,\n", p.Name, p.Source)
 	}
-	b.WriteString("}\n\n")
+	b.WriteString("}\n\n// states is the size of each pattern's automaton.\nvar states = map[string]int{\n")
+	var text strings.Builder
 	for _, p := range Patterns {
 		m, err := check.CompilePattern(p.Source)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		b.WriteString(lower.MatcherText("match"+p.Name, m))
+		fmt.Fprintf(&b, "\t%q: %d,\n", p.Name, len(m.States))
+		text.WriteString(lower.MatcherText("match"+p.Name, m))
+		text.WriteString(lower.MatcherTableText("match"+p.Name+"Table", "table"+p.Name, m))
 	}
+	b.WriteString("}\n\n" + text.String())
 	src, err := format.Source([]byte(b.String()))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
