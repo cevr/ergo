@@ -80,6 +80,8 @@ func (e rpcDefect) Error() string { return e.Name + ": " + e.Message }
 
 // RPCDie raises the defect {name, message}: a server answers it as a Die
 // cause with that name and message.
+//
+//ergo:wait none
 func RPCDie[T any](name string, message string) T { panic(rpcDefect{Name: name, Message: message}) }
 
 // rpcWideName is the Die name of an int the wire cannot carry.
@@ -87,6 +89,8 @@ const rpcWideName = "Unrepresentable"
 
 // RPCRefuse raises the defect of u: a Die named Unrepresentable whose
 // defect also carries u's path and value.
+//
+//ergo:wait none
 func RPCRefuse[T any](u RPCUnrepresentable) T {
 	panic(rpcDefect{Name: rpcWideName, Message: "the int " + u.Value + " at " + u.Path + " is beyond +-(2^53-1), which a JavaScript number holds exactly", Wide: &u})
 }
@@ -101,6 +105,8 @@ const rpcRefused = "RpcError"
 const rpcMaxSafe = 1<<53 - 1
 
 // RPCExact fails Unrepresentable when n is outside +-(2^53-1).
+//
+//ergo:wait none
 func RPCExact(path string, n int64) error {
 	if n > rpcMaxSafe || n < -rpcMaxSafe {
 		return RPCUnrepresentable{Path: path, Value: strconv.FormatInt(n, 10)}
@@ -109,6 +115,8 @@ func RPCExact(path string, n int64) error {
 }
 
 // RPCExactUint fails Unrepresentable when n is above 2^53-1.
+//
+//ergo:wait none
 func RPCExactUint(path string, n uint64) error {
 	if n > rpcMaxSafe {
 		return RPCUnrepresentable{Path: path, Value: strconv.FormatUint(n, 10)}
@@ -118,6 +126,8 @@ func RPCExactUint(path string, n uint64) error {
 
 // RPCTagged is object, a JSON object's text, with "_tag": tag as its first
 // member: the encoded form of a Schema.TaggedError and of a union variant.
+//
+//ergo:wait none
 func RPCTagged(tag string, object string) string {
 	b := make([]byte, 0, len(object)+len(tag)+12)
 	b = append(b, `{"_tag":`...)
@@ -136,6 +146,8 @@ func RPCTagged(tag string, object string) string {
 }
 
 // RPCTagOf is the "_tag" member of the object text, "" when it has none.
+//
+//ergo:wait none
 func RPCTagOf(text string) string {
 	var m struct {
 		Tag string `json:"_tag"`
@@ -258,6 +270,8 @@ func rpcCalls(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, s
 // the json answer: the array of their Exits, in the order the calls end,
 // each with its request's id. A stop of t stops the calls, waits for
 // their releases and ends RPCExits with the stop.
+//
+//ergo:wait child
 func RPCExits(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error)) string {
 	out := []byte{'['}
 	_ = rpcCalls(span, t, envs, handle, func(line []byte) error {
@@ -273,6 +287,8 @@ func RPCExits(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, s
 // RPCExitLines runs each Request of envs as RPCExits does and emits each
 // Exit as an ndjson line as soon as its call ends: emit's failure stops
 // the calls left and is RPCExitLines' failure.
+//
+//ergo:wait child
 func RPCExitLines(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task, string, string) (string, error), emit func(*rt.Task, string) error) error {
 	return rpcCalls(span, t, envs, handle, func(line []byte) error {
 		return emit(t, string(append(line, '\n')))
@@ -281,9 +297,13 @@ func RPCExitLines(span Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Tas
 
 // RPCNextID is the id of this process's next Request, from 0, as
 // Effect's default id generator counts.
+//
+//ergo:wait none
 func RPCNextID() string { return strconv.FormatUint(rpcIDs.Add(1)-1, 10) }
 
 // RPCRequest is the body of one Request id for tag with payload.
+//
+//ergo:wait none
 func RPCRequest(id, tag, payload string) string {
 	b := make([]byte, 0, len(payload)+len(tag)+64)
 	b = append(b, `{"_tag":"Request","id":`...)
@@ -299,6 +319,8 @@ func RPCRequest(id, tag, payload string) string {
 // RPCReadExit finds the Exit of request id in an answer of status and
 // content type and returns its outcome as RPCCall does; a status other
 // than 200 is Transport.
+//
+//ergo:wait none
 func RPCReadExit(id string, status int, contentType string, body string) (string, error) {
 	if status != http.StatusOK {
 		return "", RPCTransport{Reason: fmt.Sprintf("status %d: %s", status, strings.TrimSpace(body))}
@@ -415,6 +437,8 @@ type rpcEnvelope struct {
 // RPCParse reads a body's envelopes: one JSON value per line (framed,
 // ndjson), or one envelope or an array of them (json). A body that is
 // not one fails Malformed, before any call starts.
+//
+//ergo:wait none
 func RPCParse(text string, framed bool) ([]RPCEnvelope, error) {
 	var raw []rpcEnvelope
 	var err error
@@ -461,6 +485,7 @@ var rpcClient = &http.Client{}
 // ends the call with the stop.
 //
 //ergo:host
+//ergo:wait caller
 func RPCCall(t *rt.Task, url string, tag string, payload string) (string, error) {
 	t.Check()
 	id := RPCNextID()

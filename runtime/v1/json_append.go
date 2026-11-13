@@ -25,6 +25,7 @@ import (
 // (encoding/json v2's default).
 //
 //ergo:pure
+//ergo:wait none
 func JSONAppendQuoted(b []byte, s string, html bool) []byte {
 	const hex = "0123456789abcdef"
 	// The ASCII bytes a string writes as themselves, '1' at a byte's
@@ -92,11 +93,13 @@ func JSONAppendString(b []byte, s string) []byte { return JSONAppendQuoted(b, s,
 // JSONBytesText is the bytes of b as a string (Text's Written).
 //
 //ergo:pure
+//ergo:wait none
 func JSONBytesText(b []byte) string { return string(b) }
 
 // JSONAppendBool appends true or false.
 //
 //ergo:pure
+//ergo:wait none
 func JSONAppendBool(b []byte, v bool) []byte {
 	if v {
 		return append(b, "true"...)
@@ -107,11 +110,13 @@ func JSONAppendBool(b []byte, v bool) []byte {
 // JSONAppendInt appends n's exact digits.
 //
 //ergo:pure
+//ergo:wait none
 func JSONAppendInt(b []byte, n int64) []byte { return strconv.AppendInt(b, n, 10) }
 
 // JSONAppendUint appends n's exact digits.
 //
 //ergo:pure
+//ergo:wait none
 func JSONAppendUint(b []byte, n uint64) []byte { return strconv.AppendUint(b, n, 10) }
 
 // JSONAppendFloat appends f in the form encoding/json writes (ES6
@@ -120,6 +125,7 @@ func JSONAppendUint(b []byte, n uint64) []byte { return strconv.AppendUint(b, n,
 // and "-Infinity", which JSON has no numbers for (protobuf's JSON mapping).
 //
 //ergo:pure
+//ergo:wait none
 func JSONAppendFloat(b []byte, f float64) []byte {
 	switch {
 	case math.IsNaN(f):

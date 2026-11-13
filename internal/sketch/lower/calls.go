@@ -693,7 +693,7 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 	var paths []string
 	for _, p := range pkgs {
 		for _, f := range l.canon.funcs(p) {
-			if !userExtern(f) {
+			if _, own := check.ModuleBody(f); !userExtern(f) && !own {
 				continue
 			}
 			if path, _ := f.Decl.Extern.Split(); path != "time" && !seen[path] {
@@ -1092,7 +1092,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 // scopeCall writes a call of the with scope's method name on recv through
 // the runtime binding emitter.
 func (fc *funcCtx) scopeCall(name, recv string, vals []string, site syntax.Node) string {
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil {
 		ice(site, "the with scope binding %s has no runtime/v1 body: %v", name, err)
 	}

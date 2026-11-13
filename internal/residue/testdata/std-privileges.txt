@@ -84,27 +84,14 @@ debt	internal/sketch/check/work.go:checker.workLit	the fields of machines.Work b
 debt	internal/sketch/check/work.go:checker.workLitForm	the fields of machines.Work by name	NP3b
 debt	internal/sketch/check/work.go:isWorkType	machines.Work by name	NP3b
 debt	internal/sketch/eval/machine.go:interp.machineLaw	a machine law is skipped when its state holds a std type	NP7
-debt	internal/sketch/lower/blocking.go:lowerer.hostBlockingIntrinsic	the host Sleep by name	NP4d
-debt	internal/sketch/lower/blocking.go:runtimeBindings	the wait and release policy by body name	NP4d
 debt	internal/sketch/lower/calls.go:funcCtx.buildProvider	a std provider has no line directive and its own Info	NP8
-debt	internal/sketch/lower/calls.go:funcCtx.scopeCall	a runtime body's convention by name	NP4d
 debt	internal/sketch/lower/calls.go:lowerer.hostImportNames	std time is imported by the runtime already	NP4c
 debt	internal/sketch/lower/calls.go:lowerer.stdContext	a std context's builder is a std body	NP8
 debt	internal/sketch/lower/context.go:contextNamespace	the context namespace std:path	NP8
-debt	internal/sketch/lower/embed.go:funcCtx.packageEmbed	the embedded FS body by name	NP4d
-debt	internal/sketch/lower/refown.go:funcCtx.ownedRefCall	a runtime body's convention by name	NP4d
-debt	internal/sketch/lower/refown.go:lowerer.ownedFormOf	a runtime body's owned form by name	NP4d
-debt	internal/sketch/lower/release.go:funcCtx.closeBody	a runtime body's release by name	NP4d
 debt	internal/sketch/lower/release.go:funcCtx.holdTaken	a std type keeps taken values	NP3c
-debt	internal/sketch/lower/release.go:funcCtx.ownBinding	a runtime body's convention by name	NP4d
-debt	internal/sketch/lower/release.go:funcCtx.stdOp	a std operation is a runtime body	NP4d
-debt	internal/sketch/lower/std.go:funcCtx.stdCall	a std extern calls its runtime body with hidden arguments	NP4d
 debt	internal/sketch/lower/std.go:lowerer.runtimeType	a std record or operation type is the runtime's Go type	NP4c
-debt	internal/sketch/lower/std.go:lowerer.stdBody	a runtime body's convention read from runtime/v1 by name	NP4d
-debt	internal/sketch/lower/std.go:opBody	a std operation's runtime body by name	NP4d
 debt	internal/sketch/lower/std.go:runtimeProtocols	std types that are runtime Go types, by name	NP4c
 debt	internal/sketch/lower/types.go:lowerer.foreignOwner	the std package that owns a runtime type	NP4c
-debt	internal/sketch/lower/values.go:lowerer.ownedForm	a runtime body's owned form by name	NP4d
 debt	internal/sketch/lower/wirefields.go:jsonWrapper	the wire form of json's Optional, Nullable, Value and Num by name	CF1
 debt	internal/sketchfront/inspect.go:InspectGo	inspect skips std	NP5
 debt	internal/sketchfront/inspect.go:ergoBody	inspect skips std	NP5

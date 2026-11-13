@@ -62,6 +62,9 @@ var skipFields = map[string]string{
 	"check.Package.Derive":  "an empty derive record, nil when decoded",
 	"check.checker.derive":  "the checked package's derive record (check.Package.Derive)",
 	"syntax.File.Expansion": "the file's package's derive record (check.Package.Derive)",
+	// A module's own Go bodies (check/extern.go moduleDoor): std binds no
+	// module Go package, and only a std package is exported.
+	"check.Package.goBodies": "std binds no module Go package (check.ExportStd)",
 }
 
 // Generate returns the generated sources of the syntax codec and the check

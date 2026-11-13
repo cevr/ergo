@@ -8,6 +8,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The Info contract (check-v1 spec, "Interface to lower-v1"). The lowering
@@ -122,6 +123,10 @@ type Package struct {
 	// toolchain vouches for the packages it ships.
 	module  string
 	trusted bool
+	// goBodies are the bodies its externs bind in its module's own Go
+	// packages, by extern target (moduleDoor; docs/spec/interop.md,
+	// Trusted Go 3). Only the package's own check writes it.
+	goBodies map[string]v1.Body
 	// host is the binding a Go package is read from (gobinding.go); nil
 	// for an Ergo package.
 	host *hostPkg

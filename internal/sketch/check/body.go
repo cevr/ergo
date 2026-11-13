@@ -67,6 +67,12 @@ func BodyOf(f *Func) Body {
 	}
 	path, name := f.Decl.Extern.Split()
 	if path != runtimeModule+"/v1" {
+		if body, ok := ModuleBody(f); ok {
+			// A module's own body: its shape and policy, call-only. Its
+			// purity is not read yet (a follow-up of NP4d): no call of it
+			// is pure.
+			return Body{Known: true, Host: body.Host, Hidden: body.Hidden}
+		}
 		return Body{}
 	}
 	b := Body{Runtime: name, MovesOnly: v1.MovesOnly(name), Inert: v1.Inert(name)}
@@ -78,6 +84,21 @@ func BodyOf(f *Func) Body {
 	b.MovingParam, b.Repeated, b.Moves = v1.MovingBody(name)
 	b.Keeper, b.Keeps = v1.CallbackKeeper(name)
 	return b
+}
+
+// ModuleBody is the Go body that the extern f of a trusted package binds
+// in its module's own Go package (docs/spec/interop.md, Trusted Go 3), and
+// whether f binds one. The checker read it from the package's Go source
+// when it checked f's package (moduleDoor), so the lowering calls it with
+// its hidden arguments and by its waiting policy, as it calls a runtime/v1
+// body.
+func ModuleBody(f *Func) (v1.Body, bool) {
+	if f == nil || f.Pkg == nil || f.Decl == nil || f.Decl.Extern == nil {
+		return v1.Body{}, false
+	}
+	path, name := f.Decl.Extern.Split()
+	b, ok := f.Pkg.goBodies[path+"."+name]
+	return b, ok
 }
 
 // valueBody reports a body a function value may stand for: no hidden

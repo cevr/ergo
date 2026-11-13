@@ -129,7 +129,7 @@ func stdPrivilegeHits(repo string, dirs []string) (map[string][]int, error) {
 		for name, f := range files {
 			s := stdScan{checker: dir == "internal/sketch/check", consts: consts, stdPaths: stdPaths, stdNames: stdNames, bodies: bodies, imports: fileImports(f)}
 			for fn, kinds := range s.file(f) {
-				if name == bodyContractFile {
+				if name == bodyContractFile || name == lowerContractFile {
 					kinds = slices.DeleteFunc(kinds, func(k int) bool { return k == 5 })
 					if len(kinds) == 0 {
 						continue
@@ -253,6 +253,9 @@ const (
 	// an extern of any package (check.BodyOf): its reads of runtime/v1's
 	// fact tables (kind 5) key on the declaration's target, not on std.
 	bodyContractFile = "internal/sketch/check/body.go"
+	// lowerContractFile is the lowering's read of the same facts
+	// (lower/bodycontract.go): the calling policy marked on a body.
+	lowerContractFile = "internal/sketch/lower/bodycontract.go"
 )
 
 var (

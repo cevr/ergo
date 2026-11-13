@@ -171,6 +171,8 @@ func (r *Running) send(c ExecChunk) bool {
 // caller's task t: a stop ends the wait with an interruption, and the
 // program goes on until r's release. After Wait or Close it gives none. A
 // break leaves the rest for the next Chunks, after what Unread put back.
+//
+//ergo:wait caller
 func (r *Running) Chunks(t *rt.Task) iter.Seq[ExecChunk] {
 	return func(yield func(ExecChunk) bool) {
 		if r.chunks == nil {
@@ -191,6 +193,8 @@ func (r *Running) Chunks(t *rt.Task) iter.Seq[ExecChunk] {
 // reads the chunks Chunks gives (one reader, so a caller may mix the two),
 // and on a break or a stop it puts back the bytes it read and did not
 // give, so the next Lines or Chunks starts there. It waits as Chunks does.
+//
+//ergo:wait caller
 func (r *Running) Lines(t *rt.Task) iter.Seq[ExecLine] {
 	return func(yield func(ExecLine) bool) {
 		if r.chunks == nil {
@@ -299,6 +303,8 @@ func (r *Running) unread(rest []ExecChunk) {
 // cannot hold the program. A stop of t ends the wait with an interruption;
 // the program goes on until r's release, which ends it. Inside a mask the
 // wait is uninterruptible. A second Wait gives the same status.
+//
+//ergo:wait caller
 func (r *Running) Wait(t *rt.Task) int {
 	t.Check()
 	select {
@@ -314,6 +320,9 @@ func (r *Running) Wait(t *rt.Task) int {
 // Close is the release of r (resources.md R5, R9): masked on ct, the task
 // that releases it, it ends the program when it still runs (SIGTERM, the
 // grace, SIGKILL; see the lifecycle above) and then finishes as Wait does.
+//
+//ergo:wait none
+//ergo:release caller
 func (r *Running) Close(ct *rt.Task) {
 	Release(ct, func() {
 		r.end()
@@ -324,6 +333,9 @@ func (r *Running) Close(ct *rt.Task) {
 // Stop is the consuming, status-returning form of Close. It completes the
 // same masked shutdown even when ct is already stopped; it must not call
 // Wait, whose interruption point would lose the status after cleanup.
+//
+//ergo:wait none
+//ergo:release caller
 func (r *Running) Stop(ct *rt.Task) int {
 	r.Close(ct)
 	return r.status
@@ -418,6 +430,7 @@ func (p *hostProc) reap() int {
 // path and whether it appends). It returns once the program has started.
 //
 //ergo:host
+//ergo:wait caller
 func ExecStart(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
 	t.Check()
 	if name == "" {
@@ -555,6 +568,8 @@ func (p replayProc) reap() int             { return p.status }
 // has already ended with status, and whose Chunks give chunks, which
 // exec.ergo cuts from the recorded Result (caller: a stream's sink is
 // ToCaller). It starts nothing.
+//
+//ergo:wait none
 func ExecReplay(chunks []ExecChunk, status int, caller bool) *Running {
 	chunks = slices.Clone(chunks)
 	r := &Running{proc: replayProc{status: status}, drop: make(chan struct{}), ended: make(chan struct{})}

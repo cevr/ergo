@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"io/fs"
 	"sort"
 	"strings"
 	"sync"
@@ -25,6 +26,16 @@ type Importer interface {
 // package with no module is trusted by no one.
 type GoTrust interface {
 	TrustsGo() (module string, trusted bool)
+}
+
+// GoSource is an Importer that reads the Go source of the module's own Go
+// packages: GoPackage returns the files of the package at the Go import
+// path path, and whether path is a package of the module's own (go.mod
+// beside ergo.mod). An extern of a trusted package binds a body there
+// under the hidden-argument convention (moduleDoor; docs/spec/interop.md,
+// Trusted Go 3). The checker parses the files and runs no Go tool.
+type GoSource interface {
+	GoPackage(path string) (fs.FS, bool)
 }
 
 // Diagnostic is a located checker diagnostic. Offset and Length are a UTF-8

@@ -129,12 +129,18 @@ func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
 	if fd.extern == "" || l.intrinsic(fd.fn) != nil {
 		return v1.Body{}, "", false
 	}
+	if body, ok := check.ModuleBody(fd.fn); ok {
+		// A body of the module's own Go package (check/extern.go
+		// moduleDoor): its name is the full target, which runtimeCall
+		// qualifies by its package.
+		return body, fd.extern, true
+	}
 	i := strings.LastIndex(fd.extern, ".")
 	if i < 0 || fd.extern[:i] != runtimeImport {
 		return v1.Body{}, "", false
 	}
 	name := fd.extern[i+1:]
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil {
 		ice(fd.fn.Decl, "the function %s binds %s, which has no readable runtime/v1 body: %v", fd.fn.Name, fd.extern, err)
 	}
@@ -278,7 +284,7 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 	}
 	if s := fc.refSiteOf(x); s != nil {
 		// A literal that owns the value the body hands it (refown.go).
-		owned, err := v1.BodyOf(s.form.name)
+		owned, err := runtimeBody(s.form.name)
 		if err != nil {
 			ice(x, "%s: %v", s.form.name, err)
 		}
@@ -308,7 +314,7 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 		}
 		name = "TasksGoOwned"
 		var err error
-		body, err = v1.BodyOf(name)
+		body, err = runtimeBody(name)
 		if err != nil {
 			ice(x, "%s: %v", name, err)
 		}
@@ -329,7 +335,7 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 // opBody is the runtime/v1 method of the operation name of the std type n,
 // which takes params Ergo arguments.
 func opBody(n *check.Named, name string, params int, site syntax.Node) v1.Body {
-	body, err := v1.BodyOf(n.Obj.Name + "." + name)
+	body, err := runtimeBody(n.Obj.Name + "." + name)
 	if err != nil {
 		ice(site, "the std operation %s.%s has no runtime/v1 method: %v", n.Obj.Name, name, err)
 	}

@@ -95,6 +95,9 @@ func externValue(f *Func) bool {
 		// is the one its Ergo type maps from (govalue.go; wf10 D2).
 		return f.Decl.Recv == nil && !GoVariadic(f) && GoDirectSig(f.Sig)
 	}
+	if _, ok := ModuleBody(f); ok {
+		return false // a module's own body is call-only, as a runtime body with hidden arguments is
+	}
 	if !runtimeTarget(f) {
 		// IG4: an extern outside the C26 domain (a Level 2 adapter, a
 		// host type) is call-only, as an import go function is.
@@ -124,10 +127,14 @@ func predeclaredExtern(f *Func) bool {
 	return f.Pkg.Path == std.PreludePath
 }
 
-// BindsRuntime reports an extern whose Go target is in the Ergo runtime: the
-// door of a trusted package (runtimeDoor), whose calls the lowering makes by
-// the runtime's convention, never as a user extern's plain Go call.
-func BindsRuntime(f *Func) bool { return runtimeTarget(f) }
+// BindsRuntime reports an extern whose Go target is in the Ergo runtime, or a
+// body of its module's own Go package (ModuleBody): the door of a trusted
+// package (runtimeDoor, moduleDoor), whose calls the lowering makes by the
+// runtime's convention, never as a user extern's plain Go call.
+func BindsRuntime(f *Func) bool {
+	_, own := ModuleBody(f)
+	return runtimeTarget(f) || own
+}
 
 // runtimeTarget reports an extern whose Go target is in the Ergo runtime.
 func runtimeTarget(f *Func) bool {
@@ -170,6 +177,12 @@ func (c *checker) checkExterns() {
 		c.cur = f.file
 		if runtimeTarget(f) {
 			if msg := c.runtimeDoor(f); msg != "" {
+				c.errorf(f.Decl, CodeType, "%s", msg)
+			}
+			continue
+		}
+		if msg, own := c.moduleDoor(f); own {
+			if msg != "" {
 				c.errorf(f.Decl, CodeType, "%s", msg)
 			}
 			continue
@@ -229,6 +242,90 @@ func (c *checker) runtimeDoor(f *Func) string {
 		return fmt.Sprintf("extern go %s: runtime/v1 has no body %s that its body table can read (docs/spec/interop.md, Trusted Go)", target, name)
 	}
 	return ""
+}
+
+// moduleDoor is the door of an extern f whose target is in a Go package of
+// the module's own (GoSource; docs/spec/interop.md, Trusted Go 3): own
+// reports such a target, and msg is its refusal or "". A trusted package
+// binds a body there that follows the hidden-argument convention and
+// states its waiting policy (v1.Bodies.Body), with an Ergo signature the
+// body's Go parameters and result spell (moduleShape); the checker records
+// it for the lowering (ModuleBody). The Go is the module's, so the same
+// trust line as runtimeDoor's vouches for it.
+func (c *checker) moduleDoor(f *Func) (msg string, own bool) {
+	src, ok := c.imp.(GoSource)
+	if !ok {
+		return "", false
+	}
+	path, name := f.Decl.Extern.Split()
+	fsys, ok := src.GoPackage(path)
+	if !ok {
+		return "", false
+	}
+	target := path + "." + name
+	if !c.pkg.trusted {
+		return fmt.Sprintf("extern go %s binds a body of the module's own Go package, which a package binds only when the root module trusts its Go; write the line `trust %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, c.pkg.module), true
+	}
+	bodies, err := v1.ReadBodies(fsys)
+	if err != nil {
+		return fmt.Sprintf("extern go %s: its Go package does not parse: %v", target, err), true
+	}
+	body, err := bodies.Body(name)
+	if err != nil {
+		return fmt.Sprintf("extern go %s: %v (docs/spec/interop.md, Trusted Go)", target, err), true
+	}
+	if why := moduleShape(f.Sig, body); why != "" {
+		return fmt.Sprintf("extern go %s: %s (docs/spec/interop.md, Trusted Go)", target, why), true
+	}
+	if c.pkg.goBodies == nil {
+		c.pkg.goBodies = map[string]v1.Body{}
+	}
+	c.pkg.goBodies[target] = body
+	return "", true
+}
+
+// moduleShape is why the Go body cannot stand for the extern's signature
+// sig, or "": no type parameter and no failure row, and each Ergo
+// parameter and the result at most one, a basic type whose Go spelling
+// is the body's (goBasic). A body takes no Releaser, which serves a
+// generic result.
+func moduleShape(sig *Signature, body v1.Body) string {
+	switch {
+	case len(sig.TParams) > 0:
+		return "a generic extern binds no module body"
+	case sig.Fallible || !sig.Errors.Empty():
+		return "a module body returns no failure"
+	case slices.Contains(body.Hidden, v1.ResultRelease):
+		return "a module body takes no Releaser, which serves a generic result"
+	case len(body.Params) != len(sig.Params):
+		return fmt.Sprintf("its Go body takes %d parameters after its hidden ones, and the extern %d", len(body.Params), len(sig.Params))
+	case len(body.Results) != len(sig.Results) || len(sig.Results) > 1:
+		return fmt.Sprintf("its Go body returns %d results, and the extern %d (at most one)", len(body.Results), len(sig.Results))
+	}
+	for i, p := range sig.Params {
+		if g := goBasic(p.Type); g == "" || g != body.Params[i].Type {
+			return fmt.Sprintf("parameter %d is %s in Ergo and %s in Go; a module body takes basic types, as Go spells them", i+1, typeString(p.Type), body.Params[i].Type)
+		}
+	}
+	for i, r := range sig.Results {
+		if g := goBasic(r); g == "" || g != body.Results[i] {
+			return fmt.Sprintf("the result is %s in Ergo and %s in Go; a module body returns a basic type, as Go spells it", typeString(r), body.Results[i])
+		}
+	}
+	return ""
+}
+
+// goBasic is the Go spelling of the basic type t (Go's own name; duration
+// is time.Duration), or "" for any other type.
+func goBasic(t Type) string {
+	b, ok := t.(*Basic)
+	switch {
+	case !ok || b.Kind == Invalid:
+		return ""
+	case b.Kind == Duration:
+		return "time.Duration"
+	}
+	return b.Name
 }
 
 // externTargetRefusal is the refusal of a user extern's Go target, with its

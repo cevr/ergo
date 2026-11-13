@@ -1292,6 +1292,7 @@
     "TestLoaderImportReasons": 0,
     "TestLoaderModuleFile": 0,
     "TestLoaderOrderIsTheNames": 0.01,
+    "TestModuleGoBodies": 0.05,
     "TestSketchBuildRefusesWhatTheLoweringCannotLower": 0,
     "TestSketchBuildRunsProgram": 0.22,
     "TestSketchCheckReportsLocatedDiagnostics": 0,

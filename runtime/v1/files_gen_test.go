@@ -139,5 +139,14 @@ func bodyLiteral(b Body) string {
 	if b.Owned != "" {
 		fields = append(fields, fmt.Sprintf("Owned: %q", b.Owned))
 	}
+	if b.Wait != "" {
+		fields = append(fields, fmt.Sprintf("Wait: %q", b.Wait))
+	}
+	if b.Release != "" {
+		fields = append(fields, fmt.Sprintf("Release: %q", b.Release))
+	}
+	if b.BridgeTarget != "" {
+		fields = append(fields, fmt.Sprintf("BridgeTarget: %q, BridgeProvider: %q", b.BridgeTarget, b.BridgeProvider))
+	}
 	return "Body{" + strings.Join(fields, ", ") + "}"
 }

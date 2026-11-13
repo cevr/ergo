@@ -74,6 +74,8 @@ const refPoisoned = "sync.Ref is poisoned: a defect in an earlier Update or Modi
 
 // NewRef is sync.NewRef: a new cell that holds v. v may be reached from
 // outside the cell, so it is shared.
+//
+//ergo:wait none
 func NewRef[T any](v T) *Ref[T] {
 	r := &Ref[T]{v: v, shared: true}
 	if rt.Exploring {
@@ -85,6 +87,8 @@ func NewRef[T any](v T) *Ref[T] {
 // Get is the value r holds. The caller keeps it, so the cell marks it
 // shared: the next owned Update or Modify copies it first. A copy of a T
 // cannot panic, so the unlock needs no defer.
+//
+//ergo:wait none
 func (r *Ref[T]) Get() T {
 	rt.PointRunning(rt.Op{Kind: rt.OpRead, On: r})
 	r.mu.Lock()
@@ -100,6 +104,8 @@ func (r *Ref[T]) Get() T {
 
 // Set stores v in r. v may be reached from outside the cell, so it is
 // shared. A store cannot panic, so the unlock needs no defer.
+//
+//ergo:wait none
 func (r *Ref[T]) Set(v T) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
@@ -116,6 +122,8 @@ func (r *Ref[T]) Set(v T) {
 // argument or return a value reached from elsewhere, so the stored value
 // is shared. The unlock is deferred: f is the program's code, and a defect
 // in it poisons r and must not leave r locked.
+//
+//ergo:wait none
 func (r *Ref[T]) Update(f func(v T) T) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
@@ -131,6 +139,8 @@ func (r *Ref[T]) Update(f func(v T) T) {
 // The result is the Go form of the Ergo tuple (R, T), an unnamed struct
 // with the fields F0 and F1 (the lowering's goType of a tuple). As in
 // Update, the stored value is shared.
+//
+//ergo:wait none
 func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T
@@ -151,6 +161,8 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 // value is copied first, with clone, under the lock. fresh is the
 // lowering's proof that f's result is unshared too; without it the stored
 // value is shared.
+//
+//ergo:wait none
 func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
@@ -169,6 +181,8 @@ func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bo
 // the held value over, as RefUpdateOwned is for Update. fresh is the proof
 // that both elements of f's result are unshared, so the value returned
 // reaches no part of the value stored.
+//
+//ergo:wait none
 func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T

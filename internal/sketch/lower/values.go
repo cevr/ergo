@@ -5,7 +5,6 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Value semantics for Maps and slices (value-rule; owner q26, 2026-11-08:
@@ -1288,7 +1287,7 @@ func (l *lowerer) ownedForm(f *check.Func) string {
 		return ""
 	}
 	_, name := f.Decl.Extern.Split()
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil {
 		return ""
 	}

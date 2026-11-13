@@ -22,9 +22,13 @@ type Listener struct {
 	ln net.Listener
 }
 
-func (l *Listener) bound()       {}
+func (l *Listener) bound() {}
+
+//ergo:wait none
 func (l *Listener) Addr() string { return l.ln.Addr().String() }
-func (l *Listener) Close()       { _ = l.ln.Close() }
+
+//ergo:wait none
+func (l *Listener) Close() { _ = l.ln.Close() }
 
 type HTTPListenFailed struct{ Addr, Reason string }
 
@@ -89,6 +93,8 @@ type Exchange struct {
 // Begin commits status and header and flushes them, so the client sees
 // the response start before the first part. A second Begin is a defect:
 // a response starts once.
+//
+//ergo:wait none
 func (x *Exchange) Begin(status int, header []HTTPField) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -111,6 +117,8 @@ func (x *Exchange) Begin(status int, header []HTTPField) {
 // Write sends text as the next part of the body and flushes it. A stop of
 // t ends the write with the stop; a write after End, or one the
 // connection refuses, fails WriteFailed.
+//
+//ergo:wait caller
 func (x *Exchange) Write(t *rt.Task, text string) error {
 	t.Check()
 	x.mu.Lock()
@@ -128,6 +136,8 @@ func (x *Exchange) Write(t *rt.Task, text string) error {
 }
 
 // End closes the stream: every later Write fails.
+//
+//ergo:wait none
 func (x *Exchange) End() {
 	x.mu.Lock()
 	x.ended = true
@@ -151,6 +161,7 @@ func ListenerOn(ln net.Listener) *Listener { return &Listener{ln: ln} }
 // Addr. The caller either hands the transport to Serve or closes it.
 //
 //ergo:host
+//ergo:wait none
 func HTTPListen(addr string) (*Listener, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -445,6 +456,7 @@ func connState(nc net.Conn, st http.ConnState) {
 // is the connection's last. A stop drains the timers with the requests.
 //
 //ergo:host
+//ergo:wait child
 func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
 	if !limits.valid() {
 		return HTTPInvalidLimits(limits)
@@ -696,6 +708,8 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // HTTPParseQuery is std http.ParseQuery and the Query of every request
 // Serve gives a handler: url.ParseQuery's pairs, a pair with a malformed
 // escape dropped as Request.URL.Query drops it.
+//
+//ergo:wait none
 func HTTPParseQuery(raw string) []HTTPField {
 	values, _ := url.ParseQuery(raw)
 	return httpFields(values)

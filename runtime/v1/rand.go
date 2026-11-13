@@ -25,11 +25,15 @@ type Stream struct {
 }
 
 // NewStream is the stream of rand.Seeded(seed).
+//
+//ergo:wait none
 func NewStream(seed uint64) *Stream {
 	return &Stream{r: rand.New(rand.NewPCG(seed, RandSeedHi))}
 }
 
 // Uint64 is the next 64 bits of the stream (Go's r.Uint64).
+//
+//ergo:wait none
 func (s *Stream) Uint64() uint64 {
 	s.mu.Lock()
 	v := s.r.Uint64()
@@ -40,6 +44,8 @@ func (s *Stream) Uint64() uint64 {
 // IntN is the next draw in 0..n-1 (Go's r.IntN). An n of zero or less
 // panics, as Go's does: a defect. The check comes before the lock, so the
 // panic leaves the lock free.
+//
+//ergo:wait none
 func (s *Stream) IntN(n int) int {
 	if n <= 0 {
 		panic("invalid argument to IntN")
@@ -51,6 +57,8 @@ func (s *Stream) IntN(n int) int {
 }
 
 // Float64 is the next draw in [0, 1) (Go's r.Float64).
+//
+//ergo:wait none
 func (s *Stream) Float64() float64 {
 	s.mu.Lock()
 	v := s.r.Float64()
@@ -61,15 +69,18 @@ func (s *Stream) Float64() float64 {
 // RandHostUint64 is rand.Host's Uint64: Go's global rand.Uint64.
 //
 //ergo:host
+//ergo:wait none
 func RandHostUint64() uint64 { return rand.Uint64() }
 
 // RandHostIntN is rand.Host's IntN: Go's global rand.IntN, which panics
 // for an n of zero or less.
 //
 //ergo:host
+//ergo:wait none
 func RandHostIntN(n int) int { return rand.IntN(n) }
 
 // RandHostFloat64 is rand.Host's Float64: Go's global rand.Float64.
 //
 //ergo:host
+//ergo:wait none
 func RandHostFloat64() float64 { return rand.Float64() }

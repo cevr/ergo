@@ -19,66 +19,78 @@ import (
 // StringsSplit is strings.Split.
 //
 //ergo:pure
+//ergo:wait none
 func StringsSplit(s, sep string) []string { return strings.Split(s, sep) }
 
 // StringsJoin is strings.Join.
 //
 //ergo:pure
+//ergo:wait none
 func StringsJoin(xs []string, sep string) string { return strings.Join(xs, sep) }
 
 // StringsHasPrefix is strings.HasPrefix.
 //
 //ergo:pure
+//ergo:wait none
 func StringsHasPrefix(s, prefix string) bool { return strings.HasPrefix(s, prefix) }
 
 // StringsHasSuffix is strings.HasSuffix.
 //
 //ergo:pure
+//ergo:wait none
 func StringsHasSuffix(s, suffix string) bool { return strings.HasSuffix(s, suffix) }
 
 // StringsTrimSpace is strings.TrimSpace.
 //
 //ergo:pure
+//ergo:wait none
 func StringsTrimSpace(s string) string { return strings.TrimSpace(s) }
 
 // StringsTrimPrefix is strings.TrimPrefix.
 //
 //ergo:pure
+//ergo:wait none
 func StringsTrimPrefix(s, prefix string) string { return strings.TrimPrefix(s, prefix) }
 
 // StringsTrimSuffix is strings.TrimSuffix.
 //
 //ergo:pure
+//ergo:wait none
 func StringsTrimSuffix(s, suffix string) string { return strings.TrimSuffix(s, suffix) }
 
 // StringsTrimLeft is strings.TrimLeft: s without the leading runes that
 // cutset holds.
 //
 //ergo:pure
+//ergo:wait none
 func StringsTrimLeft(s, cutset string) string { return strings.TrimLeft(s, cutset) }
 
 // StringsTrimRight is strings.TrimRight: s without the trailing runes that
 // cutset holds.
 //
 //ergo:pure
+//ergo:wait none
 func StringsTrimRight(s, cutset string) string { return strings.TrimRight(s, cutset) }
 
 // StringsBuilderAppend is buf with the bytes of s added, as Go's
 // strings.Builder.WriteString appends them to its buffer.
 //
 //ergo:pure
+//ergo:wait none
 func StringsBuilderAppend(buf []byte, s string) []byte { return append(buf, s...) }
 
 // StringsBuilderAppendByte is buf with c added, as Go's
 // strings.Builder.WriteByte appends it.
 //
 //ergo:pure
+//ergo:wait none
 func StringsBuilderAppendByte(buf []byte, c byte) []byte { return append(buf, c) }
 
 // StringsBuilderGrow is buf with room for n more bytes, as Go's
 // strings.Builder.Grow makes it: a negative n panics with Go's message.
 //
 //ergo:pure
+//ergo:wait none
 func StringsBuilderGrow(buf []byte, n int) []byte {
 	if n < 0 {
 		panic("strings.Builder.Grow: negative count")
@@ -98,62 +110,74 @@ func StringsBuilderGrow(buf []byte, n int) []byte {
 //
 //ergo:pure
 //ergo:owned StringsBuilderTextOwned
+//ergo:wait none
 func StringsBuilderText(buf []byte) string { return string(buf) }
 
 // StringsFields is strings.Fields.
 //
 //ergo:pure
+//ergo:wait none
 func StringsFields(s string) []string { return strings.Fields(s) }
 
 // StringsRepeat is strings.Repeat; a negative n panics, a defect.
 //
 //ergo:pure
+//ergo:wait none
 func StringsRepeat(s string, n int) string { return strings.Repeat(s, n) }
 
 // StringsToLower is strings.ToLower.
 //
 //ergo:pure
+//ergo:wait none
 func StringsToLower(s string) string { return strings.ToLower(s) }
 
 // StringsToUpper is strings.ToUpper.
 //
 //ergo:pure
+//ergo:wait none
 func StringsToUpper(s string) string { return strings.ToUpper(s) }
 
 // StringsIndex is strings.Index.
 //
 //ergo:pure
+//ergo:wait none
 func StringsIndex(s, sub string) int { return strings.Index(s, sub) }
 
 // StringsContains is strings.Contains.
 //
 //ergo:pure
+//ergo:wait none
 func StringsContains(s, sub string) bool { return strings.Contains(s, sub) }
 
 // StringsSlice is s[i:j]; a bound out of range panics, a defect.
 //
 //ergo:pure
+//ergo:wait none
 func StringsSlice(s string, i, j int) string { return s[i:j] }
 
 // StringsReplaceAll is strings.ReplaceAll.
 //
 //ergo:pure
+//ergo:wait none
 func StringsReplaceAll(s, old, repl string) string { return strings.ReplaceAll(s, old, repl) }
 
 // StringsLastIndex is strings.LastIndex.
 //
 //ergo:pure
+//ergo:wait none
 func StringsLastIndex(s, sub string) int { return strings.LastIndex(s, sub) }
 
 // StringsCount is strings.Count.
 //
 //ergo:pure
+//ergo:wait none
 func StringsCount(s, sub string) int { return strings.Count(s, sub) }
 
 // StringsSplitN is strings.SplitN. Go returns nil for n == 0; Ergo has no
 // nil slice, so it is an empty slice.
 //
 //ergo:pure
+//ergo:wait none
 func StringsSplitN(s, sep string, n int) []string {
 	if parts := strings.SplitN(s, sep, n); parts != nil {
 		return parts
@@ -164,16 +188,19 @@ func StringsSplitN(s, sep string, n int) []string {
 // StringsEqualFold is strings.EqualFold.
 //
 //ergo:pure
+//ergo:wait none
 func StringsEqualFold(s, t string) bool { return strings.EqualFold(s, t) }
 
 // StringsContainsRune is strings.ContainsRune.
 //
 //ergo:pure
+//ergo:wait none
 func StringsContainsRune(s string, r rune) bool { return strings.ContainsRune(s, r) }
 
 // UTF8RuneCount is utf8.RuneCountInString.
 //
 //ergo:pure
+//ergo:wait none
 func UTF8RuneCount(s string) int { return utf8.RuneCountInString(s) }
 
 // Decoded is utf8.Decoded, the result of DecodeRuneInString: the first
@@ -190,6 +217,7 @@ type Decoded struct {
 // an empty text, as in Go.
 //
 //ergo:pure
+//ergo:wait none
 func UTF8DecodeRuneInString(s string) Decoded {
 	r, n := utf8.DecodeRuneInString(s)
 	return Decoded{Rune: r, Size: n}
@@ -199,31 +227,37 @@ func UTF8DecodeRuneInString(s string) Decoded {
 // rune that is not valid.
 //
 //ergo:pure
+//ergo:wait none
 func UTF8RuneText(r rune) string { return string(r) }
 
 // UTF8AppendRune is utf8.AppendRune.
 //
 //ergo:pure
+//ergo:wait none
 func UTF8AppendRune(p []byte, r rune) []byte { return utf8.AppendRune(p, r) }
 
 // UTF8ValidString is utf8.ValidString.
 //
 //ergo:pure
+//ergo:wait none
 func UTF8ValidString(s string) bool { return utf8.ValidString(s) }
 
 // UTF8ValidRune is utf8.ValidRune.
 //
 //ergo:pure
+//ergo:wait none
 func UTF8ValidRune(r rune) bool { return utf8.ValidRune(r) }
 
 // UTF8RuneLen is utf8.RuneLen: -1 for a rune that is not valid.
 //
 //ergo:pure
+//ergo:wait none
 func UTF8RuneLen(r rune) int { return utf8.RuneLen(r) }
 
 // StringsToValidUTF8 is strings.ToValidUTF8.
 //
 //ergo:pure
+//ergo:wait none
 func StringsToValidUTF8(s string, replacement string) string {
 	return strings.ToValidUTF8(s, replacement)
 }
@@ -231,6 +265,7 @@ func StringsToValidUTF8(s string, replacement string) string {
 // StringsCompare is strings.Compare.
 //
 //ergo:pure
+//ergo:wait none
 func StringsCompare(a string, b string) int { return strings.Compare(a, b) }
 
 // StringsPadLeft is s after copies of pad, width runes in all, as
@@ -239,6 +274,7 @@ func StringsCompare(a string, b string) int { return strings.Compare(a, b) }
 // is not a valid rune is written U+FFFD, as Go's string(r).
 //
 //ergo:pure
+//ergo:wait none
 func StringsPadLeft(s string, width int, pad rune) string {
 	n := utf8.RuneCountInString(s)
 	if n >= width {
@@ -251,6 +287,7 @@ func StringsPadLeft(s string, width int, pad rune) string {
 // fmt.Sprintf("%-*s", width, s).
 //
 //ergo:pure
+//ergo:wait none
 func StringsPadRight(s string, width int, pad rune) string {
 	n := utf8.RuneCountInString(s)
 	if n >= width {
@@ -263,6 +300,7 @@ func StringsPadRight(s string, width int, pad rune) string {
 // Go's does, a defect.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvFormatInt(n int64, base int) string { return strconv.FormatInt(n, base) }
 
 // Malformed is strconv.Malformed, the failure of a text that is not in the
@@ -290,6 +328,7 @@ func (m OutOfRange) Error() string { return "strconv.OutOfRange{Text:" + m.Text 
 // StrconvItoa is strconv.Itoa.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvItoa(n int) string { return strconv.Itoa(n) }
 
 // The base-10 reads of Atoi and ParseInt are written out here, as
@@ -306,6 +345,7 @@ func StrconvItoa(n int) string { return strconv.Itoa(n) }
 // range, Malformed for any other text it refuses.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvAtoi(s string) (int, error) {
 	i, neg := 0, false
 	if s != "" && (s[0] == '+' || s[0] == '-') {
@@ -345,6 +385,7 @@ func StrconvAtoi(s string) (int, error) {
 // StrconvParseInt is strconv.ParseInt.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvParseInt(s string, base int, bits int) (int64, error) {
 	if base == 10 && 0 <= bits && bits <= 64 {
 		if bits == 0 {
@@ -406,6 +447,7 @@ func StrconvParseInt(s string, base int, bits int) (int64, error) {
 // StrconvParseFloat is strconv.ParseFloat at 64 bits.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvParseFloat(s string) (float64, error) {
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
@@ -420,6 +462,7 @@ func StrconvParseFloat(s string) (float64, error) {
 // StrconvParseBool is strconv.ParseBool.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvParseBool(s string) (bool, error) {
 	b, err := strconv.ParseBool(s)
 	if err != nil {
@@ -431,11 +474,13 @@ func StrconvParseBool(s string) (bool, error) {
 // StrconvFormatBool is strconv.FormatBool.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvFormatBool(b bool) string { return strconv.FormatBool(b) }
 
 // StrconvFormatFloat is strconv.FormatFloat at 64 bits.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvFormatFloat(f float64, fmt byte, prec int) string {
 	return strconv.FormatFloat(f, fmt, prec, 64)
 }
@@ -443,6 +488,7 @@ func StrconvFormatFloat(f float64, fmt byte, prec int) string {
 // StrconvUnquote is strconv.Unquote.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvUnquote(s string) (string, error) {
 	u, err := strconv.Unquote(s)
 	if err != nil {
@@ -454,4 +500,5 @@ func StrconvUnquote(s string) (string, error) {
 // StrconvQuote is strconv.Quote.
 //
 //ergo:pure
+//ergo:wait none
 func StrconvQuote(s string) string { return strconv.Quote(s) }

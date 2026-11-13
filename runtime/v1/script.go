@@ -34,9 +34,13 @@ type Op[A, F any] struct {
 }
 
 // NewOp is an operation of a new Script, with no answer and no calls.
+//
+//ergo:wait none
 func NewOp[A, F any]() *Op[A, F] { return &Op[A, F]{} }
 
 // Answer makes f the answer of every later call.
+//
+//ergo:wait none
 func (o *Op[A, F]) Answer(f F) {
 	o.mu.Lock()
 	o.answer, o.set = f, true
@@ -44,6 +48,8 @@ func (o *Op[A, F]) Answer(f F) {
 }
 
 // Calls is a copy of the arguments of each call so far, oldest first.
+//
+//ergo:wait none
 func (o *Op[A, F]) Calls() []A {
 	o.mu.Lock()
 	out := slices.Clone(o.calls)
