@@ -38,7 +38,9 @@ import (
 //     table keyed by std names; a table of Go's library, strings.Split
 //     beside bytes.Split, is the Go boundary);
 //  5. calls v1.BodyOf, v1.StdRecord, v1.StructFields, v1.MovesOnly,
-//     v1.StopsRunning, v1.MovingBody, v1.CallbackKeeper or v1.DrainsLends;
+//     v1.StopsRunning, v1.MovingBody, v1.CallbackKeeper, v1.DrainsLends or
+//     v1.Inert, outside bodyContractFile: the one file that reads a bound
+//     body's facts by the body the declaration names (NP4b);
 //  6. keys a map literal by the name of a runtime/v1 Go body (a table
 //     keyed by a body name).
 //
@@ -127,6 +129,12 @@ func stdPrivilegeHits(repo string, dirs []string) (map[string][]int, error) {
 		for name, f := range files {
 			s := stdScan{checker: dir == "internal/sketch/check", consts: consts, stdPaths: stdPaths, stdNames: stdNames, bodies: bodies, imports: fileImports(f)}
 			for fn, kinds := range s.file(f) {
+				if name == bodyContractFile {
+					kinds = slices.DeleteFunc(kinds, func(k int) bool { return k == 5 })
+					if len(kinds) == 0 {
+						continue
+					}
+				}
 				out[name+":"+fn] = kinds
 			}
 		}
@@ -241,11 +249,15 @@ func fileImports(f *ast.File) map[string]string {
 const (
 	stdImportPath = "ergo.local/prototype/internal/sketch/std"
 	v1ImportPath  = "ergo.local/prototype/runtime/v1"
+	// bodyContractFile reads the facts of the body an extern names, for
+	// an extern of any package (check.BodyOf): its reads of runtime/v1's
+	// fact tables (kind 5) key on the declaration's target, not on std.
+	bodyContractFile = "internal/sketch/check/body.go"
 )
 
 var (
 	stdMembers = []string{"Package", "Packages", "Prelude", "PreludePath", "Ledger", "CoveredBy"}
-	v1Facts    = []string{"BodyOf", "StdRecord", "StructFields", "MovesOnly", "StopsRunning", "MovingBody", "CallbackKeeper", "DrainsLends"}
+	v1Facts    = []string{"BodyOf", "StdRecord", "StructFields", "MovesOnly", "StopsRunning", "MovingBody", "CallbackKeeper", "DrainsLends", "Inert"}
 	stdNameRE  = regexp.MustCompile(`^([a-z][a-z0-9/]*)\.([A-Z][A-Za-z0-9_]*)(\.[A-Za-z0-9_]+)?$`)
 )
 
@@ -553,8 +565,6 @@ func sortedKeys[V any](m map[string]V) []string {
 var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/authority.go:sealedStdOps",
 	"internal/sketch/check/drop.go:dropWalk.drain",
-	"internal/sketch/check/drop.go:releasesResult",
-	"internal/sketch/check/durable.go:MakesHost",
 	"internal/sketch/check/durable.go:TakesDurableMachine",
 	"internal/sketch/check/durable.go:checker.durableStep",
 	"internal/sketch/check/durable.go:checker.recordDurable",
@@ -562,16 +572,9 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/expr.go:checker.compositeLit",
 	"internal/sketch/check/extern.go:checker.checkExterns",
 	"internal/sketch/check/extern.go:externValue",
-	"internal/sketch/check/footprint.go:pureStd",
-	"internal/sketch/check/lend.go:callbackKeeper",
-	"internal/sketch/check/lend.go:ownWalk.drainsLends",
 	"internal/sketch/check/ownership.go:isQueue",
 	"internal/sketch/check/ownership.go:ownWalk.holdsTaken",
-	"internal/sketch/check/running.go:checker.running",
-	"internal/sketch/check/script.go:returnsRunning",
 	"internal/sketch/check/script.go:scriptArg",
-	"internal/sketch/check/takes.go:copiesOf",
-	"internal/sketch/check/taskcapture.go:movingBody",
 	"internal/sketch/check/withown.go:isOnExit",
 	"internal/sketch/check/work.go:TakesWorkSend",
 	"internal/sketch/check/work.go:checker.workLit",
@@ -587,14 +590,12 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/calls.go:userExtern",
 	"internal/sketch/lower/context.go:contextNamespace",
 	"internal/sketch/lower/embed.go:funcCtx.packageEmbed",
-	"internal/sketch/lower/gobody.go:appenderExtern",
 	"internal/sketch/lower/refown.go:funcCtx.ownedRefCall",
 	"internal/sketch/lower/refown.go:lowerer.ownedFormOf",
 	"internal/sketch/lower/release.go:funcCtx.closeBody",
 	"internal/sketch/lower/release.go:funcCtx.holdTaken",
 	"internal/sketch/lower/release.go:funcCtx.ownBinding",
 	"internal/sketch/lower/release.go:funcCtx.stdOp",
-	"internal/sketch/lower/static.go:takesHeld",
 	"internal/sketch/lower/std.go:funcCtx.stdCall",
 	"internal/sketch/lower/std.go:lowerer.runtimeType",
 	"internal/sketch/lower/std.go:lowerer.stdBody",

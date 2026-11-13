@@ -72,22 +72,13 @@ language	internal/tsproj/project.go:emitter.declare	Wire, the codec's conversion
 language	internal/tsproj/project.go:emitter.schema	Option	-
 debt	internal/sketch/check/authority.go:sealedStdOps	a std operation type is the runtime's Go type	NP4c
 debt	internal/sketch/check/drop.go:dropWalk.drain	a std type's drain body by name	NP3c
-debt	internal/sketch/check/drop.go:releasesResult	a std extern's hidden result release	NP4b
-debt	internal/sketch/check/durable.go:MakesHost	actor.NewHost by name (the body fact "makes an unbound cell and acts on nothing")	NP4b
 debt	internal/sketch/check/embed.go:checker.embedCall	embed.FS by name	NP3d
 debt	internal/sketch/check/expr.go:checker.compositeLit	a Context literal only in std	NP3d
 debt	internal/sketch/check/extern.go:checker.checkExterns	std skips the user extern rule	NP4e
 debt	internal/sketch/check/extern.go:externValue	a std extern's value-ness from its runtime body	NP4e
-debt	internal/sketch/check/footprint.go:pureStd	only a std extern is pure	NP4b
-debt	internal/sketch/check/lend.go:callbackKeeper	a std body that keeps a callback, by name	NP4b
-debt	internal/sketch/check/lend.go:ownWalk.drainsLends	a std body that drains lends, by name	NP4b
 debt	internal/sketch/check/ownership.go:isQueue	queue.Queue by name	NP3c
 debt	internal/sketch/check/ownership.go:ownWalk.holdsTaken	a std type keeps taken values	NP3c
-debt	internal/sketch/check/running.go:checker.running	a std body that stops running code, by name	NP4b
-debt	internal/sketch/check/script.go:returnsRunning	a std body that stops running code, by name	NP4b
 debt	internal/sketch/check/script.go:scriptArg	testing.Script by name	NP3d
-debt	internal/sketch/check/takes.go:copiesOf	a runtime body that only moves, by name	NP4b
-debt	internal/sketch/check/taskcapture.go:movingBody	a std body that moves its argument, by name	NP4b
 debt	internal/sketch/check/withown.go:isOnExit	scope.OnExit by name	NP3d
 debt	internal/sketch/check/work.go:TakesWorkSend	actor.Child and ChildIn by name	NP3b
 debt	internal/sketch/check/work.go:checker.workLit	the fields of machines.Work by name	NP3b
@@ -103,14 +94,12 @@ debt	internal/sketch/lower/calls.go:lowerer.stdContext	a std context's builder i
 debt	internal/sketch/lower/calls.go:userExtern	a user extern is a plain Go call	NP4d
 debt	internal/sketch/lower/context.go:contextNamespace	the context namespace std:path	NP8
 debt	internal/sketch/lower/embed.go:funcCtx.packageEmbed	the embedded FS body by name	NP4d
-debt	internal/sketch/lower/gobody.go:appenderExtern	a std extern that appends	NP4b
 debt	internal/sketch/lower/refown.go:funcCtx.ownedRefCall	a runtime body's convention by name	NP4d
 debt	internal/sketch/lower/refown.go:lowerer.ownedFormOf	a runtime body's owned form by name	NP4d
 debt	internal/sketch/lower/release.go:funcCtx.closeBody	a runtime body's release by name	NP4d
 debt	internal/sketch/lower/release.go:funcCtx.holdTaken	a std type keeps taken values	NP3c
 debt	internal/sketch/lower/release.go:funcCtx.ownBinding	a runtime body's convention by name	NP4d
 debt	internal/sketch/lower/release.go:funcCtx.stdOp	a std operation is a runtime body	NP4d
-debt	internal/sketch/lower/static.go:takesHeld	a std extern that takes its argument	NP4b
 debt	internal/sketch/lower/std.go:funcCtx.stdCall	a std extern calls its runtime body with hidden arguments	NP4d
 debt	internal/sketch/lower/std.go:lowerer.runtimeType	a std record or operation type is the runtime's Go type	NP4c
 debt	internal/sketch/lower/std.go:lowerer.stdBody	only a std extern binds a runtime body	NP4d

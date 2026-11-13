@@ -208,6 +208,7 @@ var bodyTable = map[string]bodyFact{
 	"IOReadAll":                 {body: Body{Hidden: []Hidden{"task"}, Results: []string{"string", "error"}, Host: true}},
 	"IOStderrIsTerminal":        {body: Body{Results: []string{"bool"}, Host: true}},
 	"IOStdinIsTerminal":         {body: Body{Results: []string{"bool"}, Host: true}},
+	"Inert":                     {body: Body{Params: []Param{{Type: "string"}}, Results: []string{"bool"}}},
 	"Int64.Add":                 {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "int64"}}, Results: []string{"int64"}}},
 	"Int64.CompareAndSwap":      {body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "int64"}, {Type: "int64"}}, Results: []string{"bool"}}},
 	"Int64.Load":                {body: Body{Hidden: []Hidden{"task"}, Results: []string{"int64"}}},

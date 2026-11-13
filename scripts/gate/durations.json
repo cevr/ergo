@@ -328,6 +328,7 @@
     "TestAssignmentRoots": 0,
     "TestAuthorityVerifierAttacks": 0,
     "TestBinderNamesAgree": 0.34,
+    "TestBodyFactsFollowTheBody": 1.1,
     "TestBodyGraphScale": 0.44,
     "TestBranchExpressionsAreReferences": 0,
     "TestBranchTailsInInfo": 0,

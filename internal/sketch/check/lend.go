@@ -4,7 +4,6 @@ import (
 	"slices"
 
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // lendPoint is a release position, not an evaluation position. A path is
@@ -275,15 +274,14 @@ func (w *ownWalk) literalRoot(key syntax.Node, v *Var, before bool) (lendPoint, 
 	return lendPoint{}, false
 }
 
+// callbackKeeper is the owner of the moving callback of the call c's bound
+// body (Body.Keeper), for an extern of any package.
 func callbackKeeper(c *Call) (int, bool) {
-	if c == nil || c.Kind != CallFunc || c.Func == nil || c.Func.Pkg == nil || !c.Func.Pkg.Std() || c.Func.Decl == nil || c.Func.Decl.Extern == nil {
+	if c == nil || c.Kind != CallFunc {
 		return 0, false
 	}
-	path, name := c.Func.Decl.Extern.Split()
-	if path != runtimeModule+"/v1" {
-		return 0, false
-	}
-	return v1.CallbackKeeper(name)
+	b := BodyOf(c.Func)
+	return b.Keeper, b.Keeps
 }
 
 func (w *ownWalk) literalEscapes(n syntax.Node) bool {
@@ -320,8 +318,7 @@ func (w *ownWalk) drainsLends(c *Call) bool {
 	if c == nil || c.Op == nil || c.Recv == nil {
 		return false
 	}
-	n, ok := w.info.Types[c.Recv].(*Named)
-	return ok && n.origin().Obj != nil && n.origin().Obj.Pkg.Std() && v1.DrainsLends(n.origin().Obj.Name+"."+c.Op.Name)
+	return OpBodyOf(w.info.Types[c.Recv], c.Op.Name).DrainsLends
 }
 
 func (w *ownWalk) addLoans(n syntax.Node, loans []resourceLoan) {
