@@ -1,0 +1,53 @@
+// Package screen is the dense vt.Screen: Ghostty's form in Ergo. A cell
+// is 8 bytes with no pointer: a word of character and part, and the id
+// of its style. The cells of every row live in one slice, the alternate
+// buffer's rows first and then a ring of pages for the main buffer and
+// its history; a byte column holds each row's flags. Styles are interned
+// once per screen and counted, so a style leaves the set when its last
+// cell does.
+
+// Cell is one cell: bits 0 to 20 of bits are the code point (0 for a
+// blank), bits 21 and 22 its part (PartSingle, PartHead, PartTail), and
+// style is the id of its style in the screen's set (0 is the default).
+type Cell { bits uint32, style uint32 }
+
+// The parts of a cell.
+let PartSingle = 0
+let PartHead = 1
+let PartTail = 2
+
+// codeMask is the bits of the code point.
+let codeMask = uint32(0x1fffff)
+
+// partShift is where the part starts.
+let partShift = uint32(21)
+
+// Blank is the blank cell of the default style.
+let Blank = Cell{bits: uint32(0), style: uint32(0)}
+
+// NewCell is the cell of c, part and style.
+func NewCell(c rune, part int, style uint32) Cell {
+	Cell{bits: uint32(c)&codeMask | uint32(part)<<partShift, style: style}
+}
+
+// Code is the cell's code point.
+func Code(c Cell) rune { rune(c.bits & codeMask) }
+
+// PartOf is the cell's part.
+func PartOf(c Cell) int { int(c.bits >> partShift & 3) }
+
+// StyleOf is the cell's style id.
+func StyleOf(c Cell) uint32 { c.style }
+
+// CodePoint is a Unicode code point.
+type CodePoint int where 0 <= it && it <= 0x10ffff
+
+// PartBits is a cell's part.
+type PartBits int where 0 <= it && it <= 2
+
+// CellFieldsRoundTrip: each accessor reads what NewCell packed, for
+// every code point, so no field overlaps another.
+law CellFieldsRoundTrip(c CodePoint, part PartBits, style uint32) {
+	let x = NewCell(rune(int(c)), int(part), style)
+	Code(x) == rune(int(c)) && PartOf(x) == int(part) && StyleOf(x) == style
+}

@@ -1,0 +1,21 @@
+// Played is what playing a stream on a screen counted: the parser's
+// tally and the events the screen did not take.
+type Played { Tally Tally, Unhandled Unhandled }
+
+// Play parses input in pieces of chunk bytes (at least 1) and gives the
+// screen s the events of each piece as it comes, as a terminal does.
+func Play(s Screen, input string, chunk int) Played {
+	let size = if chunk < 1 { 1 } else { chunk }
+	let mut p = NewStream(true)
+	let mut u = NewUnhandled()
+	let mut at = 0
+	for at < len(input) {
+		let end = if at+size < len(input) { at + size } else { len(input) }
+		p.Feed(input[at:end])
+		Apply(s, p.Take(), &u)
+		at = end
+	}
+	p.Finish()
+	Apply(s, p.Take(), &u)
+	Played{Tally: p.Tally, Unhandled: u}
+}

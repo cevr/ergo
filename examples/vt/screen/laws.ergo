@@ -1,0 +1,104 @@
+import strings
+import vt/plain
+import vt/vt
+import vt/workload
+
+// Chunk is the size of the pieces a law feeds: 1 to 64 bytes.
+type Chunk int where 1 <= it && it <= 64
+
+// ConfigOf is a small screen for seed: 1 to 12 rows, 2 to 41 columns,
+// and one to three pages of history, so a few thousand bytes scroll
+// through all of it.
+func ConfigOf(seed int) vt.Config {
+	let k = if seed < 0 { -(seed % 100000) } else { seed % 100000 }
+	let cols = 2 + (k/12)%40
+	vt.Config{Rows: 1 + k%12, Cols: cols, Scrollback: (k % 3) * vt.PageRows * cols * vt.CellBytes}
+}
+
+// Input is the stream a law plays for seed: terminal output (Gen), then
+// edits that cut wide characters and cross the region (Edits).
+func Input(seed int) string { workload.Gen(seed, 2000) + workload.Edits(seed, 3000) }
+
+// ScreenMatchesPlain: the dense screen and the plain one, given the same
+// generated stream in the same pieces, show the same history, buffer,
+// styles, wraps, cursor, pen and title.
+law ScreenMatchesPlain(seed int, chunk Chunk) {
+	let config = ConfigOf(seed)
+	let input = Input(seed)
+	let mut d = New(config)
+	let mut p = plain.New(config)
+	let _ = vt.Play(&d, input, int(chunk))
+	let _ = vt.Play(&p, input, int(chunk))
+	vt.Dump(&d, true) == vt.Dump(&p, true)
+}
+
+// StylesAreCounted: after any stream, each style's count is the cells
+// that hold it plus one if the pen does, a style with no holder is out
+// of the set and its id free, and a row with a styled cell is flagged
+// (Ghostty's integrity check).
+law StylesAreCounted(seed int, chunk Chunk) {
+	let mut d = New(ConfigOf(seed))
+	let _ = vt.Play(&d, Input(seed), int(chunk))
+	Audit(&d)
+}
+
+// ScrollbackIsBounded: once the history is full, more output makes no
+// cell (the oldest page is cleared and used again), and the ring never
+// holds more than the history's pages, the buffer's, and one.
+law ScrollbackIsBounded(seed int) {
+	let config = ConfigOf(seed)
+	let input = workload.Gen(seed, 2000) + Fill(config)
+	let mut d = New(config)
+	let _ = vt.Play(&d, input, 512)
+	let full = d.Grown()
+	let _ = vt.Play(&d, input, 512)
+	let active = (d.Rows() + vt.PageRows - 1) / vt.PageRows
+	d.Grown() == full && d.Pages() <= vt.HistoryPages(config)+active+1
+}
+
+// Fill is output that leaves the alternate buffer and the scroll region
+// and then scrolls the main buffer past its history's limit.
+func Fill(config vt.Config) string {
+	"\x1bc" + strings.Repeat("x\n", vt.HistoryLimit(config)+config.Rows+vt.PageRows)
+}
+
+// Audit checks the style counts and the styled flags of every live row:
+// the alternate buffer and the ring's lines from base on.
+func Audit(s *Screen) bool {
+	let mut seen = []int{}
+	for _ in s.styles.list {
+		seen = seen.Append(0)
+	}
+	let mut rows = []int{}
+	for r in 0..s.rows {
+		rows = rows.Append(r)
+	}
+	for n in s.base..s.first+s.rows {
+		rows = rows.Append(s.slotRow(n))
+	}
+	for ri in rows {
+		for i in ri*s.cols..(ri+1)*s.cols {
+			let id = int(s.cells[i].style)
+			seen[id] += 1
+			if id != 0 && s.flags[ri]&flagStyled == 0 {
+				return false
+			}
+		}
+	}
+	seen[int(s.penID)] += 1
+	for id in 1..len(seen) {
+		if seen[id] != s.styles.counts[id] {
+			return false
+		}
+		let held = match s.styles.ids.Get(s.styles.list[id]) {
+		case Some[int] as v:
+			v.Value == id
+		case None:
+			false
+		}
+		if held != (seen[id] > 0) {
+			return false
+		}
+	}
+	true
+}

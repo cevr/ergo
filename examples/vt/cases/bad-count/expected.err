@@ -1,2 +1,2 @@
 vt: "x" is not a number
-usage: vt replay [-tally] | vt gen SEED N
+usage: vt replay [-plain] | vt events [-tally] | vt gen SEED N

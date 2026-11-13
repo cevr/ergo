@@ -1,5 +1,5 @@
 {
-  "about": "vt's application mutants (DOD track DT1); each is judged by the example's laws and cases (scripts/examples vt), not by a compiler test. The rule of each names the law or the case that kills it.",
+  "about": "vt's application mutants (DOD track DT1 and DT2); each is judged by the example's laws and cases (scripts/examples vt), not by a compiler test. The rule of each names the law or the case that kills it.",
   "mutants": [
     {
       "name": "dt1-csi-param-colon",
@@ -8,7 +8,9 @@
       "from": "\t\tcase Digit, Colon, Semi:\n\t\t\tto(CsiParam, ParamByte)",
       "to": "\t\tcase Digit, Semi:\n\t\t\tto(CsiParam, ParamByte)\n\t\tcase Colon:\n\t\t\tto(CsiIgnore, NoAct)",
       "rule": "In csi_param a colon is a parameter byte (Ghostty's change to vt100.net, which sends it to csi_ignore), for SGR sub-parameters. Killed by law ghostty.StepMatchesTable.",
-      "killers": ["examples:vt"]
+      "killers": [
+        "examples:vt"
+      ]
     },
     {
       "name": "dt1-class-sub-not-cancel",
@@ -17,7 +19,9 @@
       "from": "\t\tcase 0x18, 0x1a:\n\t\t\tCanSub",
       "to": "\t\tcase 0x18:\n\t\t\tCanSub",
       "rule": "SUB (0x1a) cancels a sequence from any state, as CAN does. Killed by law ghostty.StepMatchesTable.",
-      "killers": ["examples:vt"]
+      "killers": [
+        "examples:vt"
+      ]
     },
     {
       "name": "dt1-params-unbounded",
@@ -26,7 +30,9 @@
       "from": "Counts{Params: if k.Params < MaxParams { k.Params + 1 } else { k.Params }, Inter: k.Inter, Digits: false}",
       "to": "Counts{Params: k.Params + 1, Inter: k.Inter, Digits: false}",
       "rule": "A separator past MaxParams parameters completes none, so the collector's array is never overrun. Killed by law Parser.ParamsStayBounded.",
-      "killers": ["examples:vt"]
+      "killers": [
+        "examples:vt"
+      ]
     },
     {
       "name": "dt1-params-limit-low",
@@ -35,7 +41,9 @@
       "from": "let MaxParams = 24",
       "to": "let MaxParams = 23",
       "rule": "The parser keeps Ghostty's 24 parameters (Kakoune sends 17 in one SGR). Killed by law Parser.ParamsReachTheLimit, and by the cases.",
-      "killers": ["examples:vt"]
+      "killers": [
+        "examples:vt"
+      ]
     },
     {
       "name": "dt1-intermediates-limit-low",
@@ -43,8 +51,10 @@
       "file": "examples/vt/vt/machine.ergo",
       "from": "Inter: if k.Inter < MaxIntermediates { k.Inter + 1 } else { k.Inter }",
       "to": "Inter: if k.Inter < 3 { k.Inter + 1 } else { k.Inter }",
-      "rule": "The parser keeps 4 intermediates, as Ghostty does. Killed by law Parser.IntermediatesReachTheLimit, and by case vt/replay-sequences.",
-      "killers": ["examples:vt"]
+      "rule": "The parser keeps 4 intermediates, as Ghostty does. Killed by law Parser.IntermediatesReachTheLimit, and by case vt/events-sequences.",
+      "killers": [
+        "examples:vt"
+      ]
     },
     {
       "name": "dt1-fast-text-takes-backspace",
@@ -53,7 +63,9 @@
       "from": "for j < n && input[j] >= 0x20 && input[j] < 0x7f {",
       "to": "for j < n && input[j] >= 0x08 && input[j] < 0x7f {",
       "rule": "The fast path takes only printable ASCII; a control after text goes through the machine. Killed by law vt.FastPathMatchesStep.",
-      "killers": ["examples:vt"]
+      "killers": [
+        "examples:vt"
+      ]
     },
     {
       "name": "dt1-fast-osc-takes-bel",
@@ -62,7 +74,9 @@
       "from": "for j < n && input[j] >= 0x20 {",
       "to": "for j < n && input[j] >= 0x07 {",
       "rule": "The OSC fast path stops at a control, so BEL still ends the string. Killed by law vt.FastPathMatchesStep.",
-      "killers": ["examples:vt"]
+      "killers": [
+        "examples:vt"
+      ]
     },
     {
       "name": "dt1-utf8-reset-per-piece",
@@ -71,7 +85,9 @@
       "from": "\tp.Tally.Bytes += n\n",
       "to": "\tp.Tally.Bytes += n\n\tp.text = idle\n",
       "rule": "A UTF-8 character cut between two pieces is decoded whole: the decoder's state carries across Feed. Killed by law vt.SplitDoesNotMatter.",
-      "killers": ["examples:vt"]
+      "killers": [
+        "examples:vt"
+      ]
     },
     {
       "name": "dt1-osc-unbounded",
@@ -79,8 +95,10 @@
       "file": "examples/vt/vt/stream.ergo",
       "from": "\tif len(data) <= room {",
       "to": "\tif true {",
-      "rule": "An OSC string keeps at most OscLimit bytes and counts the rest. Killed by case vt/replay-tally (osc-cut 156).",
-      "killers": ["examples:vt"]
+      "rule": "An OSC string keeps at most OscLimit bytes and counts the rest. Killed by case vt/events-tally (osc-cut 156).",
+      "killers": [
+        "examples:vt"
+      ]
     },
     {
       "name": "dt1-param-not-clamped",
@@ -88,8 +106,10 @@
       "file": "examples/vt/vt/stream.ergo",
       "from": "\t\t\tp.acc = if v > MaxParam { MaxParam } else { v }",
       "to": "\t\t\tp.acc = v",
-      "rule": "A parameter saturates at 65535, as Ghostty's u16 does. Killed by case vt/replay-sequences (CSI 99999 C).",
-      "killers": ["examples:vt"]
+      "rule": "A parameter saturates at 65535, as Ghostty's u16 does. Killed by case vt/events-sequences (CSI 99999 C).",
+      "killers": [
+        "examples:vt"
+      ]
     },
     {
       "name": "dt1-utf8-surrogate-accepted",
@@ -97,8 +117,10 @@
       "file": "examples/vt/vt/stream.ergo",
       "from": "upper: if b == 0xed { 0x9f } else { 0xbf }",
       "to": "upper: 0xbf",
-      "rule": "UTF-8 has no surrogates: ED A0 80 is three bad bytes. Killed by case vt/replay-sequences.",
-      "killers": ["examples:vt"]
+      "rule": "UTF-8 has no surrogates: ED A0 80 is three bad bytes. Killed by case vt/events-sequences.",
+      "killers": [
+        "examples:vt"
+      ]
     },
     {
       "name": "dt1-colon-outside-sgr",
@@ -106,8 +128,230 @@
       "file": "examples/vt/vt/stream.ergo",
       "from": "if b != 'm' && p.colons != 0 {",
       "to": "if false && p.colons != 0 {",
-      "rule": "Only SGR takes colon sub-parameters; another CSI with one is dropped, as in Ghostty. Killed by case vt/replay-sequences (CSI 4:3 H).",
-      "killers": ["examples:vt"]
+      "rule": "Only SGR takes colon sub-parameters; another CSI with one is dropped, as in Ghostty. Killed by case vt/events-sequences (CSI 4:3 H).",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-style-never-freed",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/styles.ergo",
+      "from": "if t.counts[i] == 0 {",
+      "to": "if t.counts[i] == -1 {",
+      "rule": "A style whose count falls to 0 leaves the set and its id is free. Killed by law screen.StylesAreCounted.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-pen-not-counted",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\ts.styles.retain(id)\n\ts.styles.release(s.penID)",
+      "to": "\ts.styles.release(s.penID)",
+      "rule": "The pen holds a count on its style, so the style stays while the pen holds it. Killed by law screen.StylesAreCounted.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-styled-flag-missing",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t\tif c.style != 0 {\n\t\t\ts.flags[ri] = s.flags[ri] | flagStyled\n\t\t}\n",
+      "to": "",
+      "rule": "A row with a styled cell is flagged, so clearing it releases its styles. Killed by law screen.StylesAreCounted.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-clear-skips-release",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "if s.flags[ri]&flagStyled != 0 {",
+      "to": "if false {",
+      "rule": "Clearing a styled row releases each cell's style (a dropped page too). Killed by law screen.StylesAreCounted.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-history-limit-early",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "if s.first-s.base > s.limit {",
+      "to": "if s.first-s.base >= s.limit {",
+      "rule": "The history keeps HistoryLimit lines and drops a page only past it. Killed by law screen.ScreenMatchesPlain.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-ring-spare-pages",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "ringLines: (vt.HistoryPages(size) + active + 1) * vt.PageRows,",
+      "to": "ringLines: (vt.HistoryPages(size) + active + 3) * vt.PageRows,",
+      "rule": "The ring holds the history's pages, the buffer's and one, no more. Killed by law screen.ScrollbackIsBounded.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-grow-every-push",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "if ri >= len(s.flags) {",
+      "to": "if ri >= 0 {",
+      "rule": "Once the ring is full, a line feed makes no cell: the oldest page is used again (Ghostty's leak, as a counted growth guard). Killed by law screen.ScrollbackIsBounded.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-print-pending-always",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t\tif col+k < s.cols {\n\t\t\ts.cur.Col = col + k\n\t\t} else {\n\t\t\ts.cur.Col = s.cols - 1\n\t\t\ts.cur.Pending = s.cur.Autowrap",
+      "to": "\t\tif col+k < s.cols {\n\t\t\ts.cur.Col = col + k\n\t\t} else {\n\t\t\ts.cur.Col = s.cols - 1\n\t\t\ts.cur.Pending = true",
+      "rule": "With autowrap off, printing at the last column leaves no wrap pending. Killed by law screen.ScreenMatchesPlain.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-split-misses-head",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "if to < s.cols && PartOf(s.cells[at+to-1]) == PartHead {",
+      "to": "if to < s.cols && PartOf(s.cells[at+to-1]) == PartTail {",
+      "rule": "Overwriting the head of a wide character blanks its tail. Killed by law screen.ScreenMatchesPlain.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-shift-down-skips-top",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "for r >= from {",
+      "to": "for r > from {",
+      "rule": "A scroll down moves every row of the region, the top one too. Killed by law screen.ScreenMatchesPlain.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-free-id-stale-style",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/styles.ergo",
+      "from": "\t\t\tt.list[id] = st\n",
+      "to": "",
+      "rule": "A reused id takes its new style. Killed by law screen.ScreenMatchesPlain.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-reset-keeps-pen",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\ts.cur = home\n\ts.SetPen(vt.Default)",
+      "to": "\ts.cur = home",
+      "rule": "RIS resets the pen. Killed by law screen.ScreenMatchesPlain.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-ich-keeps-orphans",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t}\n\ts.repair(ri)\n}\n\n// DeleteChars",
+      "to": "\t}\n}\n\n// DeleteChars",
+      "rule": "An insert that cuts a wide character blanks its other half. Killed by law screen.ScreenMatchesPlain.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-cell-part-overlaps",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/cell.ergo",
+      "from": "let partShift = uint32(21)",
+      "to": "let partShift = uint32(19)",
+      "rule": "The part's bits lie above the 21 bits of the code point. Killed by law screen.CellFieldsRoundTrip.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-width-first-wide",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/width/width.ergo",
+      "from": "if cp < 0x1100 ||",
+      "to": "if cp <= 0x1100 ||",
+      "rule": "U+1100, the first Hangul Jamo, is wide. Killed by law width.WidthTableMatchesRanges.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-sgr-bright-off-by-one",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/vt/apply.ergo",
+      "from": "Color(p - 90 + 9)",
+      "to": "Color(p - 90 + 8)",
+      "rule": "SGR 90 to 97 are palette colours 8 to 15. Killed by case vt/replay-gen.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-form-feed-not-line-feed",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/vt/apply.ergo",
+      "from": "case 0x0a, 0x0b, 0x0c:",
+      "to": "case 0x0a, 0x0b:",
+      "rule": "FF is a line feed, as LF and VT are. Killed by case vt/replay-gen.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-history-two-pages",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/vt/screen.ergo",
+      "from": "if pages < 1 { 1 } else { pages }",
+      "to": "if pages < 1 { 2 } else { pages }",
+      "rule": "A history too small for a page keeps one page. Both providers read HistoryPages, so they still agree; killed by law vt.Screen.HistoryDropsOldestPage, for screen.Shared and plain.Shared.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-dch-keeps-orphans",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\t}\n\ts.repair(ri)\n}\n\n// EraseChars",
+      "to": "\t}\n}\n\n// EraseChars",
+      "rule": "A delete that cuts a wide character blanks its other half. Killed by law screen.ScreenMatchesPlain.",
+      "killers": [
+        "examples:vt"
+      ]
+    },
+    {
+      "name": "dt2-erase-no-split",
+      "origin": "wf10/dod/DT2",
+      "file": "examples/vt/screen/screen.ergo",
+      "from": "\ts.split(ri, from, to)\n\tlet at = ri * s.cols\n\tfor col in from..to {",
+      "to": "\tlet at = ri * s.cols\n\tfor col in from..to {",
+      "rule": "An erase that cuts a wide character blanks its other half. Killed by law screen.ScreenMatchesPlain.",
+      "killers": [
+        "examples:vt"
+      ]
     }
   ]
 }

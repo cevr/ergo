@@ -1,0 +1,95 @@
+import strings
+import utf8
+
+// Dump is the screen as text: a line per row of the history and of the
+// buffer shown, then the cursor and the title. A blank cell is a space;
+// a wide tail is nothing, so a wide character is one character. A row
+// that ended in an autowrap ends in "\". With styled, a change of style
+// within a row shows as its StyleText in braces. Lines are not trimmed,
+// so two screens dump equal exactly when they are equal.
+func Dump(s Screen, styled bool) []string {
+	let mut lines = []string{}
+	let rows = s.History() + s.Rows()
+	for line in 0..rows {
+		lines = lines.Append(Row(s, line, styled))
+	}
+	for line in Status(s) {
+		lines = lines.Append(line)
+	}
+	lines
+}
+
+// Status is the cursor, the pen and the title as three lines.
+func Status(s Screen) []string {
+	let c = s.Cursor()
+	[]string{
+		"cursor \(c.Row),\(c.Col) pending \(c.Pending) visible \(c.Visible) origin \(c.Origin) autowrap \(c.Autowrap) alternate \(c.Alternate)",
+		"pen \(StyleText(s.Pen()))",
+		"title \(s.Title())",
+	}
+}
+
+// Row is line as text, as Dump writes it.
+func Row(s Screen, line int, styled bool) string {
+	let mut parts = []string{}
+	let mut style = Default
+	for col in 0..s.Cols() {
+		let c = s.CellAt(line, col)
+		if styled && c.Style != style {
+			parts = parts.Append("{" + StyleText(c.Style) + "}")
+			style = c.Style
+		}
+		match c.Part {
+		case Tail:
+		case Single, Head:
+			parts = parts.Append(if c.C == 0 { " " } else { utf8.RuneText(c.C) })
+		}
+	}
+	if s.Wrapped(line) {
+		parts = parts.Append("\\")
+	}
+	strings.Join(parts, "")
+}
+
+// Screenshot is the rows as Dump writes them, styled, with the blank
+// right ends of rows trimmed and the blank rows at the end of the buffer
+// dropped: what replay prints.
+func Screenshot(s Screen) []string {
+	let mut rows = []string{}
+	for line in 0..s.History()+s.Rows() {
+		let r = Row(s, line, true)
+		let mut end = len(r)
+		for end > 0 && r[end-1] == ' ' {
+			end -= 1
+		}
+		rows = rows.Append(r[0:end])
+	}
+	let mut n = len(rows)
+	for n > 0 && rows[n-1] == "" {
+		n -= 1
+	}
+	rows[0:n]
+}
+
+// StyleText is st as text: "fg/bg/flags" with each colour as a number,
+// "-" for the default.
+func StyleText(st Style) string {
+	if st == Default {
+		return "-"
+	}
+	"\(colorText(st.Fg))/\(colorText(st.Bg))/\(st.Flags)"
+}
+
+// colorText is c as text: "-", a palette index, or "#rrggbb" in decimal
+// parts.
+func colorText(c Color) string {
+	let n = int(c)
+	if n == 0 {
+		"-"
+	} else if n <= 256 {
+		"\(n - 1)"
+	} else {
+		let v = n - int(Rgb)
+		"#\(v >> 16).\((v >> 8) & 255).\(v & 255)"
+	}
+}

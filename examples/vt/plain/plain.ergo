@@ -1,0 +1,567 @@
+// Package plain is the reference screen: the obvious form of vt.Screen.
+// The buffer shown, the other buffer and the history are slices of
+// lines, and a line is a slice of cells, each a character with its part
+// and its whole style. Nothing is interned, packed or paged, and every
+// command is written the plainest way, often by building the lines
+// again. Package screen, the dense form, is held to it by law
+// ScreenMatchesPlain.
+
+import vt/vt
+
+// Cell is one cell: a character (0 for a blank), its part, its style.
+type Cell { C rune, Part vt.Part, Style vt.Style }
+
+// Line is a row of cells and whether it ended in an autowrap.
+type Line { Cells []Cell, Wrapped bool }
+
+// Saved is what Save keeps.
+type Saved { Row int, Col int, Pen vt.Style, Origin bool, Pending bool }
+
+// Screen is the reference screen.
+type Screen {
+	config  vt.Config,
+	rows    int,
+	cols    int,
+	shown   []Line,
+	hidden  []Line,
+	history []Line,
+	cur     vt.Cursor,
+	pen     vt.Style,
+	top     int,
+	bottom  int,
+	saved   Option[Saved],
+	title   string,
+}
+
+// blank is the blank cell.
+let blank = Cell{C: rune(0), Part: vt.Single, Style: vt.Default}
+
+// New is a blank screen of config's size: at least 1 row and 2 columns.
+func New(config vt.Config) Screen {
+	let rows = if config.Rows < 1 { 1 } else { config.Rows }
+	let cols = if config.Cols < 2 { 2 } else { config.Cols }
+	let size = vt.Config{Rows: rows, Cols: cols, Scrollback: config.Scrollback}
+	Screen{
+		config:  size,
+		rows:    rows,
+		cols:    cols,
+		shown:   blankLines(rows, cols),
+		hidden:  blankLines(rows, cols),
+		history: []Line{},
+		cur:     home,
+		pen:     vt.Default,
+		top:     0,
+		bottom:  rows - 1,
+		saved:   None,
+		title:   "",
+	}
+}
+
+// home is the cursor of a new screen.
+let home = vt.Cursor{Row: 0, Col: 0, Pending: false, Visible: true, Origin: false, Autowrap: true, Alternate: false}
+
+// blankLine is a line of n blank cells.
+func blankLine(n int) Line {
+	let mut cells = []Cell{}
+	for _ in 0..n {
+		cells = cells.Append(blank)
+	}
+	Line{Cells: cells, Wrapped: false}
+}
+
+// blankLines is rows blank lines of cols cells.
+func blankLines(rows int, cols int) []Line {
+	let mut lines = []Line{}
+	for _ in 0..rows {
+		lines = lines.Append(blankLine(cols))
+	}
+	lines
+}
+
+// least is the smaller of a and b.
+func least(a int, b int) int { if a < b { a } else { b } }
+
+// most is the larger of a and b.
+func most(a int, b int) int { if a > b { a } else { b } }
+
+// Print writes each byte of run.
+func Print(s *Screen, run string) {
+	for i in 0..len(run) {
+		s.put(rune(run[i]), 1)
+	}
+}
+
+// PrintRune writes c.
+func PrintRune(s *Screen, c rune, width int) { s.put(c, width) }
+
+// put writes c of width w at the cursor, wrapping first as vt.Screen
+// says.
+func put(s *Screen, c rune, w int) {
+	let wrap = s.cur.Pending && s.cur.Autowrap
+	s.cur.Pending = false
+	if wrap {
+		s.wrapLine()
+	}
+	if w == 2 && s.cur.Col == s.cols-1 {
+		if !s.cur.Autowrap {
+			return
+		}
+		s.erase(s.cur.Row, s.cols-1, s.cols)
+		s.wrapLine()
+	}
+	let row = s.cur.Row
+	let col = s.cur.Col
+	s.split(row, col, col+w)
+	if w == 2 {
+		s.shown[row].Cells[col] = Cell{C: c, Part: vt.Head, Style: s.pen}
+		s.shown[row].Cells[col+1] = Cell{C: rune(0), Part: vt.Tail, Style: s.pen}
+	} else {
+		s.shown[row].Cells[col] = Cell{C: c, Part: vt.Single, Style: s.pen}
+	}
+	if col+w < s.cols {
+		s.cur.Col = col + w
+	} else {
+		s.cur.Col = s.cols - 1
+		s.cur.Pending = s.cur.Autowrap
+	}
+}
+
+// wrapLine marks the cursor's row as wrapped and goes to the start of
+// the next line.
+func wrapLine(s *Screen) {
+	s.shown[s.cur.Row].Wrapped = true
+	s.cur.Col = 0
+	s.LineFeed()
+}
+
+// split blanks the other half of a wide character that cells from to to
+// (not included) of row cut.
+func split(s *Screen, row int, from int, to int) {
+	match s.shown[row].Cells[from].Part {
+	case vt.Tail:
+		if from > 0 {
+			s.shown[row].Cells[from-1] = blank
+		}
+	case vt.Single, vt.Head:
+	}
+	match s.shown[row].Cells[to-1].Part {
+	case vt.Head:
+		if to < s.cols {
+			s.shown[row].Cells[to] = blank
+		}
+	case vt.Single, vt.Tail:
+	}
+}
+
+// erase blanks cells from to to (not included) of row, and the other
+// halves of the wide characters it cuts.
+func erase(s *Screen, row int, from int, to int) {
+	if from >= to {
+		return
+	}
+	s.split(row, from, to)
+	for col in from..to {
+		s.shown[row].Cells[col] = blank
+	}
+}
+
+// repair blanks every half of a wide character whose other half is not
+// beside it.
+func repair(s *Screen, row int) {
+	let mut col = 0
+	for col < s.cols {
+		match s.shown[row].Cells[col].Part {
+		case vt.Head:
+			if col+1 < s.cols && isTail(s.shown[row].Cells[col+1]) {
+				col += 2
+				continue
+			}
+			s.shown[row].Cells[col] = blank
+		case vt.Tail:
+			s.shown[row].Cells[col] = blank
+		case vt.Single:
+		}
+		col += 1
+	}
+}
+
+// isTail reports whether c is the tail of a wide character.
+func isTail(c Cell) bool {
+	match c.Part {
+	case vt.Tail:
+		true
+	case vt.Single, vt.Head:
+		false
+	}
+}
+
+// Backspace moves left one column.
+func Backspace(s *Screen) {
+	s.cur.Pending = false
+	if s.cur.Col > 0 {
+		s.cur.Col -= 1
+	}
+}
+
+// Tab moves to the next tab stop.
+func Tab(s *Screen) {
+	s.cur.Pending = false
+	s.cur.Col = least((s.cur.Col/8+1)*8, s.cols-1)
+}
+
+// LineFeed moves down a row, scrolling at the region's bottom.
+func LineFeed(s *Screen) {
+	s.cur.Pending = false
+	if s.cur.Row == s.bottom {
+		s.scrollUp(1)
+	} else if s.cur.Row < s.rows-1 {
+		s.cur.Row += 1
+	}
+}
+
+// CarriageReturn moves to column 0.
+func CarriageReturn(s *Screen) {
+	s.cur.Pending = false
+	s.cur.Col = 0
+}
+
+// ReverseIndex moves up a row, scrolling at the region's top.
+func ReverseIndex(s *Screen) {
+	s.cur.Pending = false
+	if s.cur.Row == s.top {
+		s.scrollDown(1)
+	} else if s.cur.Row > 0 {
+		s.cur.Row -= 1
+	}
+}
+
+// scrollUp scrolls the region up n rows: its top rows leave, to the
+// history when the region is the whole main buffer.
+func scrollUp(s *Screen, n int) {
+	let k = least(n, s.bottom-s.top+1)
+	let keep = s.top == 0 && s.bottom == s.rows-1 && !s.cur.Alternate
+	for _ in 0..k {
+		if keep {
+			s.history = s.history.Append(s.shown[0])
+			if len(s.history) > vt.HistoryLimit(s.config) {
+				s.history = s.history[vt.PageRows:len(s.history)]
+			}
+		}
+		let mut lines = []Line{}
+		for r in 0..s.rows {
+			if r != s.top {
+				lines = lines.Append(s.shown[r])
+			}
+			if r == s.bottom {
+				lines = lines.Append(blankLine(s.cols))
+			}
+		}
+		s.shown = lines
+	}
+}
+
+// scrollDown scrolls the region down n rows: its bottom rows leave.
+func scrollDown(s *Screen, n int) {
+	let k = least(n, s.bottom-s.top+1)
+	for _ in 0..k {
+		let mut lines = []Line{}
+		for r in 0..s.rows {
+			if r == s.top {
+				lines = lines.Append(blankLine(s.cols))
+			}
+			if r != s.bottom {
+				lines = lines.Append(s.shown[r])
+			}
+		}
+		s.shown = lines
+	}
+}
+
+// Save keeps the cursor and the pen.
+func Save(s *Screen) {
+	s.saved = Some{Value: Saved{Row: s.cur.Row, Col: s.cur.Col, Pen: s.pen, Origin: s.cur.Origin, Pending: s.cur.Pending}}
+}
+
+// Restore brings back what Save kept.
+func Restore(s *Screen) {
+	match s.saved {
+	case Some[Saved] as k:
+		s.cur.Row = k.Value.Row
+		s.cur.Col = k.Value.Col
+		s.pen = k.Value.Pen
+		s.cur.Origin = k.Value.Origin
+		s.cur.Pending = k.Value.Pending
+	case None:
+		s.cur.Row = 0
+		s.cur.Col = 0
+		s.pen = vt.Default
+		s.cur.Origin = false
+		s.cur.Pending = false
+	}
+}
+
+// Reset is RIS.
+func Reset(s *Screen) {
+	if s.cur.Alternate {
+		s.swap()
+	}
+	s.shown = blankLines(s.rows, s.cols)
+	s.cur = home
+	s.pen = vt.Default
+	s.top = 0
+	s.bottom = s.rows - 1
+	s.saved = None
+	s.title = ""
+}
+
+// swap shows the other buffer.
+func swap(s *Screen) {
+	let other = s.hidden
+	s.hidden = s.shown
+	s.shown = other
+	s.cur.Alternate = !s.cur.Alternate
+}
+
+// Up moves up n rows.
+func Up(s *Screen, n int) {
+	s.cur.Pending = false
+	let stop = if s.cur.Row >= s.top { s.top } else { 0 }
+	s.cur.Row = most(s.cur.Row-n, stop)
+}
+
+// Down moves down n rows.
+func Down(s *Screen, n int) {
+	s.cur.Pending = false
+	let stop = if s.cur.Row <= s.bottom { s.bottom } else { s.rows - 1 }
+	s.cur.Row = least(s.cur.Row+n, stop)
+}
+
+// Forward moves right n columns.
+func Forward(s *Screen, n int) {
+	s.cur.Pending = false
+	s.cur.Col = least(s.cur.Col+n, s.cols-1)
+}
+
+// Back moves left n columns.
+func Back(s *Screen, n int) {
+	s.cur.Pending = false
+	s.cur.Col = most(s.cur.Col-n, 0)
+}
+
+// MoveTo moves to row and col, 1-based.
+func MoveTo(s *Screen, row int, col int) {
+	s.Row(row)
+	s.Column(col)
+}
+
+// Column moves to col, 1-based.
+func Column(s *Screen, col int) {
+	s.cur.Pending = false
+	s.cur.Col = least(most(col, 1)-1, s.cols-1)
+}
+
+// Row moves to row, 1-based, in the region in origin mode.
+func Row(s *Screen, row int) {
+	s.cur.Pending = false
+	let r = most(row, 1) - 1
+	s.cur.Row = if s.cur.Origin { least(s.top+r, s.bottom) } else { least(r, s.rows-1) }
+}
+
+// EraseDisplay is ED.
+func EraseDisplay(s *Screen, mode int) {
+	s.cur.Pending = false
+	let row = s.cur.Row
+	match mode {
+	case 0:
+		s.erase(row, s.cur.Col, s.cols)
+		for r in row+1..s.rows {
+			s.shown[r] = blankLine(s.cols)
+		}
+	case 1:
+		for r in 0..row {
+			s.shown[r] = blankLine(s.cols)
+		}
+		s.erase(row, 0, s.cur.Col+1)
+	case _:
+		s.shown = blankLines(s.rows, s.cols)
+	}
+}
+
+// EraseLine is EL.
+func EraseLine(s *Screen, mode int) {
+	s.cur.Pending = false
+	match mode {
+	case 0:
+		s.erase(s.cur.Row, s.cur.Col, s.cols)
+	case 1:
+		s.erase(s.cur.Row, 0, s.cur.Col+1)
+	case _:
+		s.erase(s.cur.Row, 0, s.cols)
+	}
+}
+
+// InsertLines is IL.
+func InsertLines(s *Screen, n int) {
+	let row = s.cur.Row
+	if row < s.top || row > s.bottom {
+		return
+	}
+	s.cur.Pending = false
+	s.cur.Col = 0
+	let k = least(n, s.bottom-row+1)
+	let mut lines = []Line{}
+	for r in 0..s.rows {
+		if r == row {
+			for _ in 0..k {
+				lines = lines.Append(blankLine(s.cols))
+			}
+		}
+		if r < row || r > s.bottom || r <= s.bottom-k {
+			lines = lines.Append(s.shown[r])
+		}
+	}
+	s.shown = lines
+}
+
+// DeleteLines is DL.
+func DeleteLines(s *Screen, n int) {
+	let row = s.cur.Row
+	if row < s.top || row > s.bottom {
+		return
+	}
+	s.cur.Pending = false
+	s.cur.Col = 0
+	let k = least(n, s.bottom-row+1)
+	let mut lines = []Line{}
+	for r in 0..s.rows {
+		if r < row || r >= row+k {
+			lines = lines.Append(s.shown[r])
+		}
+		if r == s.bottom {
+			for _ in 0..k {
+				lines = lines.Append(blankLine(s.cols))
+			}
+		}
+	}
+	s.shown = lines
+}
+
+// InsertBlanks is ICH.
+func InsertBlanks(s *Screen, n int) {
+	s.cur.Pending = false
+	let row = s.cur.Row
+	let col = s.cur.Col
+	let k = least(n, s.cols-col)
+	let old = s.shown[row].Cells
+	let mut cells = old[0:col]
+	for _ in 0..k {
+		cells = cells.Append(blank)
+	}
+	for c in old[col : s.cols-k] {
+		cells = cells.Append(c)
+	}
+	s.shown[row].Cells = cells
+	s.repair(row)
+}
+
+// DeleteChars is DCH.
+func DeleteChars(s *Screen, n int) {
+	s.cur.Pending = false
+	let row = s.cur.Row
+	let col = s.cur.Col
+	let k = least(n, s.cols-col)
+	let old = s.shown[row].Cells
+	let mut cells = old[0:col]
+	for c in old[col+k : s.cols] {
+		cells = cells.Append(c)
+	}
+	for _ in 0..k {
+		cells = cells.Append(blank)
+	}
+	s.shown[row].Cells = cells
+	s.repair(row)
+}
+
+// EraseChars is ECH.
+func EraseChars(s *Screen, n int) {
+	s.cur.Pending = false
+	s.erase(s.cur.Row, s.cur.Col, least(s.cur.Col+n, s.cols))
+}
+
+// ScrollUp is SU.
+func ScrollUp(s *Screen, n int) { s.scrollUp(n) }
+
+// ScrollDown is SD.
+func ScrollDown(s *Screen, n int) { s.scrollDown(n) }
+
+// SetRegion is DECSTBM.
+func SetRegion(s *Screen, top int, bottom int) {
+	let t = if top == 0 { 1 } else { top }
+	let b = least(if bottom == 0 { s.rows } else { bottom }, s.rows)
+	if t >= b {
+		return
+	}
+	s.top = t - 1
+	s.bottom = b - 1
+	s.MoveTo(1, 1)
+}
+
+// SetPen sets the pen.
+func SetPen(s *Screen, pen vt.Style) { s.pen = pen }
+
+// SetMode sets a mode.
+func SetMode(s *Screen, mode int, on bool) {
+	match mode {
+	case 6:
+		s.cur.Origin = on
+		s.MoveTo(1, 1)
+	case 7:
+		s.cur.Autowrap = on
+	case 25:
+		s.cur.Visible = on
+	case _:
+		if on && !s.cur.Alternate {
+			s.Save()
+			s.swap()
+			s.shown = blankLines(s.rows, s.cols)
+		} else if !on && s.cur.Alternate {
+			s.swap()
+			s.Restore()
+		}
+	}
+}
+
+// SetTitle sets the title.
+func SetTitle(s *Screen, title string) { s.title = title }
+
+// Pen is the pen.
+func Pen(s *Screen) vt.Style { s.pen }
+
+// Rows is the screen's rows.
+func Rows(s *Screen) int { s.rows }
+
+// Cols is the screen's columns.
+func Cols(s *Screen) int { s.cols }
+
+// History is the count of history lines.
+func History(s *Screen) int { len(s.history) }
+
+// line is line l of the history and the buffer shown.
+func line(s *Screen, l int) Line {
+	if l < len(s.history) { s.history[l] } else { s.shown[l-len(s.history)] }
+}
+
+// CellAt is the cell at col of line l.
+func CellAt(s *Screen, l int, col int) vt.Shown {
+	let c = s.line(l).Cells[col]
+	vt.Shown{C: c.C, Part: c.Part, Style: c.Style}
+}
+
+// Wrapped reports whether line l ended in an autowrap.
+func Wrapped(s *Screen, l int) bool { s.line(l).Wrapped }
+
+// Cursor is the cursor.
+func Cursor(s *Screen) vt.Cursor { s.cur }
+
+// Title is the title.
+func Title(s *Screen) string { s.title }

@@ -1,37 +1,56 @@
-// vt parses terminal output and prints what a screen would be told.
+// vt is a minimal terminal emulator without a terminal: it plays recorded
+// terminal output on a screen and prints the screen.
 //
-//	vt replay            parse standard input; print each event and the tally
-//	vt replay -tally     parse standard input; print only the tally
+//	vt replay            play standard input on a 24 × 80 screen; print its
+//	                     history and buffer (each change of style in braces),
+//	                     cursor, pen and title, the parser's tally and
+//	                     the unhandled sequences
+//	vt replay -plain     the same on the reference screen
+//	vt events            parse standard input; print each event and the tally
+//	vt events -tally     parse standard input; print only the tally
 //	vt gen SEED N        print N bytes of generated terminal output
 //
-// This binary is the only place that chooses the providers: the host's
-// standard input, output and arguments.
+// This binary is the only place that chooses the providers: the screen
+// (package screen, or package plain with -plain) and the host's standard
+// input, output and arguments.
 
 import io
 import os
 import strconv
+import vt/plain
+import vt/screen
 import vt/vt
 import vt/workload
 
 // Usage is the text of a usage failure.
-let Usage = "usage: vt replay [-tally] | vt gen SEED N"
+let Usage = "usage: vt replay [-plain] | vt events [-tally] | vt gen SEED N"
 
 // Chunk is the size of the pieces replay feeds, as a terminal reads.
 let Chunk = 4096
 
+// Size is the screen replay plays on: 24 × 80, with 1 MiB of history.
+let Size = vt.Config{Rows: 24, Cols: 80, Scrollback: 1 << 20}
+
 // Command is what the arguments ask for.
-type Command = Replay{Events bool} | Gen{Seed int, Size int}
+type Command = Replay{Plain bool} | Events{Each bool} | Gen{Seed int, Size int}
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
 	match (if len(args) == 0 { "" } else { args[0] }, len(args)) {
 	case ("replay", 1):
-		Replay{Events: true}
+		Replay{Plain: false}
 	case ("replay", 2):
+		if args[1] != "-plain" {
+			return os.Exit{Code: 2, Message: Usage}
+		}
+		Replay{Plain: true}
+	case ("events", 1):
+		Events{Each: true}
+	case ("events", 2):
 		if args[1] != "-tally" {
 			return os.Exit{Code: 2, Message: Usage}
 		}
-		Replay{Events: false}
+		Events{Each: false}
 	case ("gen", 3):
 		Gen{Seed: try count(args[1]), Size: try count(args[2])}
 	case (_, _):
@@ -51,22 +70,37 @@ func count(text string) int fails os.Exit {
 	n
 }
 
-// Run parses input in pieces of Chunk bytes, and prints each event's
-// line when events is set, then the tally. The events of every piece are
+// PlayOn plays input on the screen s and prints it.
+func PlayOn(s vt.Screen, input string) needs Console {
+	let played = vt.Play(s, input, Chunk)
+	for line in vt.Screenshot(s) {
+		Console.Println(line)
+	}
+	for line in vt.Status(s) {
+		Console.Println(line)
+	}
+	Console.Println(vt.TallyText(played.Tally))
+	for line in played.Unhandled.Lines() {
+		Console.Println(line)
+	}
+}
+
+// PrintEvents parses input in pieces of Chunk bytes, and prints each event's
+// line when each is set, then the tally. The events of every piece are
 // rendered together, so a run of text cut by a piece is one line.
-func Run(input string, events bool) needs Console {
+func PrintEvents(input string, each bool) needs Console {
 	let mut p = vt.NewStream(true)
 	let mut at = 0
 	for at < len(input) {
 		let end = if at+Chunk < len(input) { at + Chunk } else { len(input) }
 		p.Feed(input[at:end])
-		if !events {
+		if !each {
 			let _ = p.Take()
 		}
 		at = end
 	}
 	p.Finish()
-	if events {
+	if each {
 		for line in vt.Render(p.Take()) {
 			Console.Println(line)
 		}
@@ -77,15 +111,29 @@ func Run(input string, events bool) needs Console {
 // main does what the arguments ask, on the host's arguments and input.
 func main() fails os.Exit needs Console | Ambient {
 	with context { os.Process: os.NewHost(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
-		match try Parse(os.Process.Args()) {
-		case Replay as r:
-			let input = io.Stdin.ReadAll() catch {
-			case io.ReadFailed as f:
-				return os.Exit{Code: 1, Message: "vt: \(f.Reason)"}
-			}
-			Run(input, r.Events)
+		let command = try Parse(os.Process.Args())
+		match command {
 		case Gen as g:
 			io.Stdout.Print(workload.Gen(g.Seed, g.Size))
+			return
+		case Replay, Events:
+		}
+		let input = io.Stdin.ReadAll() catch {
+		case io.ReadFailed as f:
+			return os.Exit{Code: 1, Message: "vt: \(f.Reason)"}
+		}
+		match command {
+		case Replay as r:
+			if r.Plain {
+				let mut s = plain.New(Size)
+				PlayOn(&s, input)
+			} else {
+				let mut s = screen.New(Size)
+				PlayOn(&s, input)
+			}
+		case Events as e:
+			PrintEvents(input, e.Each)
+		case Gen:
 		}
 	}
 }

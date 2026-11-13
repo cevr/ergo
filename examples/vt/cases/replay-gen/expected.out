@@ -1,183 +1,214 @@
-print "overok $ dog jumps 100% {"
-osc "2;quick the test -la [x] lazy"
-print "} $ test over{ the"
-csi "" [37] "B"
-exec 0c
-print "over ls { ok jumps quick FAIL"
-csi "" [33;3;38;2;178;249;147] "m"
-csi "" [30] "m"
-print "100% dog"
-csi "" [25;55] "H"
-csi "" [4] "M"
-csi "" [27] "H"
-csi "" [33] "m"
-csi "" [65535] "C"
-esc "" "D"
-print "src/main.go:12: } ok } ~/work dog"
-csi "" [48;5;191;1;0] "m"
-csi "" [18] "H"
-csi "" [32] "X"
-exec 0d
-print "│"
-csi "" [13;60] "H"
-print "the make quick lazy 100% }"
-csi "" [48;5;244;48;2;151;196;142] "m"
-csi "" [8] "G"
-exec 07
-csi "" [27] "m"
-print "ok"
-dcs "+" [] "q"
-dcs-end 4
-esc "" "\\"
-print "test #{ 100% fox"
-csi "" [13;12] "H"
-exec 09
-print "FAIL ok 100%jumps test jumps"
-csi "" [93;30;32] "m"
-csi "" [23] "X"
-csi "" [27] "m"
-print "😀"
-esc "" "D"
-print "[x] ls } lazy�make $ jumps } ok # test jumps{ } make lazy { quick fox [x]make"
-csi "" [36;38;2;121;226;191;48;2;188;26;204] "m"
-print "make ok over ls src/main.go:12: make test"
-csi "" [10] "H"
-csi "" [20] "L"
-csi "" [36] "G"
-csi "" [25] "S"
-print "-la brown quick 100% lazy { ok brown[x] dog $ the } # src/main.go:12: -la"
-csi "" [25;91] "H"
-print "quick over ls { thebrown brown ok ok ls-la FAIL the-la [x] test"
-exec 08
-print "the make src/main.go:12: the [x] } } $ -la [x] thels ok dog ~/work"
-csi "" [24;24] "m"
-print "ok over -laquick make ls ~/work src/main.go:12: lazy { ~/work"
-exec 0b
-exec 0b
-csi "" [] "m"
-print "the brown ok~/work 100% jumps [x] the jumps"
-csi "" [] "m"
-csi "?" [25] "l"
-exec 0d
-exec 0a
-print "ok test test $} FAIL ls ~/work { [x]│"
-csi "" [] "m"
-print "{ dog ok 100% fox"
-csi "" [12] "m"
-print "Ａ"
-csi "" [] "m"
-csi "" [38;5;179;90] "m"
-print "FAIL make src/main.go:12: [x] $ 100%"
-exec 0d
-print "quicksrc/main.go:12: src/main.go:12: $ dog brown ls {make $ $ over"
-esc "" "8"
-csi "" [36] "m"
-csi "" [] "m"
-print "ok brown quick -la"
-csi "" [38;2;8;229;198;30;3] "m"
-csi "" [15] "D"
-csi "" [7] "M"
-print "100% } fox lazy lazy"
-csi "" [48;2;183;42;5;93] "m"
-csi "" [9] "C"
-csi "?" [6] "h"
-print "test ~/work"
-osc "2;{ brown 100% ls"
-print "$ lazy } FAIL"
-csi "" [2] "@"
-print "{ jumps # } $ test dog世ls{ ~/work over} dog lazy brown quick lazy quick"
-csi "" [5;34] "H"
-osc "2;ls $ ls lazy lazy -la # }"
-print "$ 100%"
-csi "?" [1049] "l"
-csi "" [6] "P"
-print "dog brown jumps ~/work the -la make"
-exec 09
-csi "" [] "m"
-print "ls quick src/main.go:12: jumps fox lazy-la"
-csi "" [] "m"
-print "~/work brown ls jumpsthe fox fox jumps src/main.go:12: fox $"
-csi "" [0] "m"
-csi "" [36] "m"
-print "brownü世"
-csi "" [6] "B"
-osc "0;brown test over # $ jumps"
-csi "" [33;31;1] "m"
-print "100% { # test { testlazy [x] [x] lazy"
-csi "" [2] "A"
-print "ls test test #"
-csi "" [4] "f"
-csi "" [35] "K"
-print "brown ~/work ls fox quick test 100% ls界界over lazy FAIL"
-exec 07
-csi "" [] "m"
-csi "" [16;40] "H"
-print "foxfox the the fox dog ls"
-exec 0b
-csi "" [23] "G"
-print "世test -la the test $ dog"
-csi "" [26] "X"
-print "FAIL🚀[x] the make lazy ok src/main.go:12: FAIL FAIL"
-csi "" [23;46] "H"
-exec 0d
-esc "" "M"
-csi "" [30] "m"
-csi "" [0;23] "m"
-esc "" "c"
-print "test FAIL ok jumps quick quick} } fox [x] the [x]"
-exec 0d
-exec 0a
-esc "(" "B"
-csi "" [48;5;85;1;0] "m"
-esc "" "E"
-print "lazy ~/work src/main.go:12:"
-csi "" [92] "m"
-print "src/main.go:12: ls fox lazy { theok ok ls jumps over"
-csi "" [34;38;2;234;3;61;38;5;172] "m"
-print "jumps dog } FAIL } fox {FAIL the } ok [x]"
-csi "" [] "m"
-csi "" [38;5;221;36] "m"
-print "[x] ok -la } -la [x] make-la dog fox over"
-csi "" [38;2;110;144;14;23] "m"
-print "oktest-la ok { 100% over[x]{ src/main.go:12: ~/work�31m界FAIL [x] FAIL 100% # fox okbrown $ lazy test $fox quick [x] [x] make make"
-csi "" [24] "L"
-print "{ } -la quick [x] fox jumps src/main.go:12:} make😀"
-osc "2;# over make }"
-csi "" [36;3] "m"
-csi "" [28;94] "H"
-csi "" [33;48;5;48;32] "m"
-csi "" [14] "G"
-csi "?" [1049] "h"
-print "src/main.go:12:"
-csi "" [38;5;209] "m"
-print "src/main.go:12: FAIL ok lazy overbrown quick # 100%"
-osc "2;FAIL dog lazy ok over lazy #"
-csi "" [93] "m"
-osc "0;ok the FAIL FAIL src/main.go:12: the -la"
-print "make -la over"
-exec 0b
-print "界"
-exec 0d
-exec 0a
-print "Ａ"
-csi "" [48;5;44;38;2;111;30;34;48;2;253;210;69] "m"
-print "[x] make-la # [x] fox $ make brown #"
-csi "" [1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;24] "H"
-csi "" [48;5;232;34] "m"
-print "é[x]"
-csi "" [38;2;151;78;240;3] "m"
-print "🚀"
-csi "" [] "m"
-print "─"
-csi "" [38;2;220;231;118] "m"
-csi "" [] "m"
-print "ls ~/work ~/work src/main.go:12: ok src/main.go:12:FAIL $ make│"
-csi "" [38;2;129;80;212] "m"
-print "fox the { [x] }"
-exec 09
-exec 09
-print "brown brown test over make foxtest FAIL ok ok"
-csi "" [93;24] "m"
-csi "" [17] "T"
-print "jumps F"
-bytes 3000 dropped 2 bad-text 2 osc-cut 0
+FAIL lazy
+         {11/-/0}src/main.go:12: make世foxls brown ls the dog theover brown make $ over \
+{11/-/0}ls {{85/-/8}—FAIL { make~/work brown over quick ok ls世{-}
+{85/#4.156.94/8}lazy test brown{216/-/4}$ 100% lazy quick -la make jumps$ ~/work quick ok the fox 100%} ~\
+{216/-/4}/work ls ls over ok {界~/work { fox─{-}                               {216/-/4}FAIL dog quic\
+{216/-/4}k test fox test ok 100%test over brown ~/workquick quick } FAILlazy test dog100%
+{7/-/0}ls over -la fox brown ~/work src/main.go:12: FAIL{4/-/0}─make lazy ok 100% fox} lazy br\
+{4/-/0}own─{-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+$ 100% ls FAILthe lazy src/main.go:12: src/main.go:12:
+
+dog lazy over makefox ls ok ls the the
+
+
+
+
+
+
+
+
+brown over } src/main.go:12make dog ~/work FAIL quick jumps -ladog { quick ok ok\
+
+
+
+
+ {11/-/0}}{2/#186.27.194/2}界src/main.go:12: test # {ls dog dog{-}
+                                                            {2/#186.27.194/2}jum{-}test $ 100% { laz\
+y lazy🚀{2/#186.27.194/2}ps ~/work{6/#186.27.194/8}overfox ls $~/work ~/work quick jumps ok dog brown jumps{ ok ove\
+{6/#186.27.194/8}r $ fox the # over{-}
+
+} brown [x] overFAIL FAIL{11/-/0}rc/main.go:12: $ FAIL-la~/work -la test test makeéＡ-la\
+{10/-/0}$ -la fox jumpsquick ls dog test ok -la {ok src/main.go:12: fox lazy ok src/main\
+{10/-/0}.go:12:{-}dog $ jumps ~/work{界fox ls } -la FAIL [x] over brown# } $ test # quick{-/-/2}ui\
+{-/-/2}ck jumps $ the quick test ok FAIL{-}                                            ls \
+ok~/worksrc/main.go:12: jumps over $ jumps {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                            lazy -la
+
+dog brown # ok ok src/main.go:12: -lamake { [x] quick test ls{ } FAIL #
+
+
+
+
+
+                                                                    dog $ brown \
+brown{2/-/4}} } the ok test quick jumps ${-}
+                                                                               �\
+{ { # jumps make over okoverdog ~/workok src/main.go:12: over ok ok            {3/-/0}�
+
+
+
+
+        �test the[x] src/main.go:12: [x]ls over src/main.go:12:
+
+
+                     over FAIL ok [x] #~/work ls dog make #ok �                {3/-/0}j\
+{3/-/0}umps $-la quick brown # test ~/work src/main.go:12: over{-}~/work quick ok { FAIL {\
+$ lazy -la src/main.go:12: test testmake src/main.go:12:zy dogjumps🚀lazy the bro\
+wn ~/work $ { [x] oksrc/main.go:12: test { fox -la fox 1quickdog界{3/-/0}y } 100% } tes\
+ok test
+😀} test [x] quickmake dog quick
+界FAIL 100% fox dogls # make FAIL quick
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                               [\
+x] make -la            ok brown 100% lazy fox make ls okls } the fox 100%make te\
+st 100% test�{ quickésrc/main.go:12: quick [x] ok dog
+
+
+
+
+
+
+ls -la make 100% ok } 100%the{-/-/1}{ quick quick $ {{-}
+#ok foxbrown } dog jumps $ 100%~/workls jumps $# ~/work lazy src/main.go:12: { b\
+rown -la100% brown { -la test # src/main.go:12:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+世makedog fox make over fox the ok lazy{15/-/0}er over{-}                           ~/work \
+make quick ~/work # testls dog over tesdog ls ~/work }{ brown [x] makels jumps #\
+ $
+                                                            ok FAIL🚀�
+
+
+                     {15/-/0}jumps { [x] ${-}
+     {143/#136.95.232/0}over src/main.go:12:{-}
+
+{143/#136.95.232/0}quick src/main.go:12: } [x] src/main.go:12: src/main.go:12: $ [x]{-}
+                                                                      �31m│brown\
+ test jumps the 100% quick brown }FAIL ok $ } make over over fox{-/-/2}édog [x] { test \
+{-/-/2}make 100% over{-}
+{-/-/2}jumps $ makeFAIL lazy src/main.go:12:{-}                                          {-/-/2}$\
+{-/-/2} FAIL } test lazy quick brown fox[x] over ls{-/#187.31.189/2}} $ lazy -la $ }fox over ~/work $ fo\
+{-/#187.31.189/2}世{#82.16.9/51/2}brown ls dog ls [x] src/main.go:12: ok[x] #Ａsrc/main.go:12: dog make test the\
+{#82.16.9/51/2} over 100%src/main.go:12: lazy the make oküover世{-}make jumps ~/work ~/work
+cursor 3,69 pending false visible true origin false autowrap true alternate false
+pen -
+title brown over } test -la
+bytes 60000 dropped 20 bad-text 73 osc-cut 234
+unhandled apc 23
+unhandled control 128 1
+unhandled control 24 4
+unhandled csi !!!!p 10
+unhandled csi <M 8
+unhandled csi ?$p 7
+unhandled dcs 18
+unhandled erase display 10 1
+unhandled erase display 13 4
+unhandled erase display 14 2
+unhandled erase display 15 2
+unhandled erase display 18 2
+unhandled erase display 19 2
+unhandled erase display 20 1
+unhandled erase display 21 1
+unhandled erase display 23 1
+unhandled erase display 24 1
+unhandled erase display 25 1
+unhandled erase display 26 1
+unhandled erase display 28 1
+unhandled erase display 3 1
+unhandled erase display 30 1
+unhandled erase display 32 1
+unhandled erase display 34 2
+unhandled erase display 37 1
+unhandled erase display 7 1
+unhandled erase display 8 1
+unhandled erase line 10 1
+unhandled erase line 11 1
+unhandled erase line 12 2
+unhandled erase line 13 1
+unhandled erase line 14 2
+unhandled erase line 18 1
+unhandled erase line 19 1
+unhandled erase line 25 1
+unhandled erase line 26 1
+unhandled erase line 27 2
+unhandled erase line 29 1
+unhandled erase line 3 1
+unhandled erase line 30 2
+unhandled erase line 31 2
+unhandled erase line 33 1
+unhandled erase line 5 2
+unhandled erase line 6 1
+unhandled erase line 7 2
+unhandled esc (B 20
+unhandled esc )0 15
+unhandled sgr 12 9

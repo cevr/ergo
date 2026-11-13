@@ -1,0 +1,329 @@
+import sync
+import vt/vt
+
+// Shared is the dense screen in a sync.Ref: a vt.Screen whose every copy is the
+// same screen, so that ergo test can build one (NewShared) and run the
+// laws of vt.Screen on it. Each command copies the screen in and out, so
+// Shared is for laws on small screens; a program binds *Screen.
+type Shared { at sync.Ref[Screen] }
+
+// NewShared is a blank screen of vt.LawSize.
+func NewShared() Shared { Shared{at: sync.NewRef[Screen](New(vt.LawSize))} }
+
+// Print gives the screen Print.
+func Print(h Shared, run string) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Print(run)
+		x
+	})
+}
+
+// PrintRune gives the screen PrintRune.
+func PrintRune(h Shared, c rune, width int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.PrintRune(c, width)
+		x
+	})
+}
+
+// Backspace gives the screen Backspace.
+func Backspace(h Shared) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Backspace()
+		x
+	})
+}
+
+// Tab gives the screen Tab.
+func Tab(h Shared) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Tab()
+		x
+	})
+}
+
+// LineFeed gives the screen LineFeed.
+func LineFeed(h Shared) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.LineFeed()
+		x
+	})
+}
+
+// CarriageReturn gives the screen CarriageReturn.
+func CarriageReturn(h Shared) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.CarriageReturn()
+		x
+	})
+}
+
+// ReverseIndex gives the screen ReverseIndex.
+func ReverseIndex(h Shared) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.ReverseIndex()
+		x
+	})
+}
+
+// Save gives the screen Save.
+func Save(h Shared) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Save()
+		x
+	})
+}
+
+// Restore gives the screen Restore.
+func Restore(h Shared) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Restore()
+		x
+	})
+}
+
+// Reset gives the screen Reset.
+func Reset(h Shared) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Reset()
+		x
+	})
+}
+
+// Up gives the screen Up.
+func Up(h Shared, n int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Up(n)
+		x
+	})
+}
+
+// Down gives the screen Down.
+func Down(h Shared, n int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Down(n)
+		x
+	})
+}
+
+// Forward gives the screen Forward.
+func Forward(h Shared, n int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Forward(n)
+		x
+	})
+}
+
+// Back gives the screen Back.
+func Back(h Shared, n int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Back(n)
+		x
+	})
+}
+
+// MoveTo gives the screen MoveTo.
+func MoveTo(h Shared, row int, col int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.MoveTo(row, col)
+		x
+	})
+}
+
+// Column gives the screen Column.
+func Column(h Shared, col int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Column(col)
+		x
+	})
+}
+
+// Row gives the screen Row.
+func Row(h Shared, row int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.Row(row)
+		x
+	})
+}
+
+// EraseDisplay gives the screen EraseDisplay.
+func EraseDisplay(h Shared, mode int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.EraseDisplay(mode)
+		x
+	})
+}
+
+// EraseLine gives the screen EraseLine.
+func EraseLine(h Shared, mode int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.EraseLine(mode)
+		x
+	})
+}
+
+// InsertLines gives the screen InsertLines.
+func InsertLines(h Shared, n int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.InsertLines(n)
+		x
+	})
+}
+
+// DeleteLines gives the screen DeleteLines.
+func DeleteLines(h Shared, n int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.DeleteLines(n)
+		x
+	})
+}
+
+// InsertBlanks gives the screen InsertBlanks.
+func InsertBlanks(h Shared, n int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.InsertBlanks(n)
+		x
+	})
+}
+
+// DeleteChars gives the screen DeleteChars.
+func DeleteChars(h Shared, n int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.DeleteChars(n)
+		x
+	})
+}
+
+// EraseChars gives the screen EraseChars.
+func EraseChars(h Shared, n int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.EraseChars(n)
+		x
+	})
+}
+
+// ScrollUp gives the screen ScrollUp.
+func ScrollUp(h Shared, n int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.ScrollUp(n)
+		x
+	})
+}
+
+// ScrollDown gives the screen ScrollDown.
+func ScrollDown(h Shared, n int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.ScrollDown(n)
+		x
+	})
+}
+
+// SetRegion gives the screen SetRegion.
+func SetRegion(h Shared, top int, bottom int) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.SetRegion(top, bottom)
+		x
+	})
+}
+
+// SetPen gives the screen SetPen.
+func SetPen(h Shared, pen vt.Style) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.SetPen(pen)
+		x
+	})
+}
+
+// SetMode gives the screen SetMode.
+func SetMode(h Shared, mode int, on bool) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.SetMode(mode, on)
+		x
+	})
+}
+
+// SetTitle gives the screen SetTitle.
+func SetTitle(h Shared, title string) {
+	h.at.Update(func(v Screen) Screen {
+		let mut x = v
+		x.SetTitle(title)
+		x
+	})
+}
+
+// Pen reads the screen's Pen.
+func Pen(h Shared) vt.Style {
+	let mut x = h.at.Get()
+	x.Pen()
+}
+
+// Rows reads the screen's Rows.
+func Rows(h Shared) int {
+	let mut x = h.at.Get()
+	x.Rows()
+}
+
+// Cols reads the screen's Cols.
+func Cols(h Shared) int {
+	let mut x = h.at.Get()
+	x.Cols()
+}
+
+// History reads the screen's History.
+func History(h Shared) int {
+	let mut x = h.at.Get()
+	x.History()
+}
+
+// CellAt reads the screen's CellAt.
+func CellAt(h Shared, l int, col int) vt.Shown {
+	let mut x = h.at.Get()
+	x.CellAt(l, col)
+}
+
+// Wrapped reads the screen's Wrapped.
+func Wrapped(h Shared, l int) bool {
+	let mut x = h.at.Get()
+	x.Wrapped(l)
+}
+
+// Cursor reads the screen's Cursor.
+func Cursor(h Shared) vt.Cursor {
+	let mut x = h.at.Get()
+	x.Cursor()
+}
+
+// Title reads the screen's Title.
+func Title(h Shared) string {
+	let mut x = h.at.Get()
+	x.Title()
+}
