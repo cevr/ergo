@@ -120,6 +120,15 @@ var shortcuts = []shortcut{
 		mutant:     "own-reslice-other-place",
 		referenced: func() bool { return !valueOwned() },
 	},
+	{
+		name:       "own-fresh-call",
+		class:      valueClass,
+		admission:  "freshCall",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-fresh-call-shared-operand",
+		referenced: func() bool { return !valueOwned() },
+	},
 }
 
 // shortcutNamed is the registry's row named name.

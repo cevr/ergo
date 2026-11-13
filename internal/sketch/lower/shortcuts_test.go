@@ -110,6 +110,30 @@ test Pop {
 	assert len(s.xs) == 1
 }
 `,
+	"own-fresh-call": `type Doc { Items []int, Last []int }
+
+func step(d Doc, xs []int) Doc {
+	let mut items = d.Items
+	items = items.Append(len(xs))
+	Doc{Items: items, Last: xs}
+}
+
+func fill(n int) int {
+	let mut d = Doc{Items: []int{}, Last: []int{}}
+	for i in 0..n {
+		d = step(d, []int{i})
+	}
+	len(d.Items)
+}
+
+func main() needs Console {
+	Console.Println("\(fill(3))")
+}
+
+test Fill {
+	assert fill(3) == 3
+}
+`,
 	"own-lineage": `type Bag { Items []int, N int }
 
 func step(b Bag, x int) Bag {

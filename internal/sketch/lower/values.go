@@ -132,6 +132,7 @@ type valueFacts struct {
 	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
 	handed   map[syntax.Expr]bool       // arguments a rebinding hands over to a pure body (V7)
 	from     map[freshKey]int8          // freshFrom: 1 deciding, 2 fresh, 3 not fresh
+	fromAll  map[*check.Func]int8       // freshAll (handover.go): 1 deciding, 2 fresh, 3 not fresh
 	consumes map[*syntax.CallExpr]bool  // calls of a runtime/v1 body's owned form: their first operand is consumed
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
@@ -163,6 +164,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			consumed: map[syntax.Expr]bool{},
 			handed:   map[syntax.Expr]bool{},
 			from:     map[freshKey]int8{},
+			fromAll:  map[*check.Func]int8{},
 			consumes: map[*syntax.CallExpr]bool{},
 			owned:    map[*syntax.FuncDecl][]ownedParam{},
 			ownCall:  map[*syntax.CallExpr]bool{},
@@ -301,6 +303,7 @@ type valueWalk struct {
 	pure     []*syntax.CallExpr        // calls of other pure std bodies (V7)
 	handed   map[*syntax.CallExpr]bool // V7 calls: a fresh result (new storage, or the dead handed argument's)
 	owner    *check.Var                // freshFrom's parameter, read as an unshared local (V7)
+	owners   map[*check.Var]bool       // freshAll's parameters, each read as an unshared local (handover.go)
 	done     bool                      // decide has run
 	args     []syntax.Expr             // arguments of owned parameters (V5)
 	goArgs   []syntax.Expr             // operands of Go calls of import go that hold a Map or slice (gocall.go)
@@ -1919,8 +1922,12 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 			case preludeAppend(c.Func) || preludeMapWrite(c.Func):
 				if w.vf.lineage[x] {
 					// A one-extender site may extend its result in place
-					// later (handover.go): never fresh.
-					return false
+					// later (handover.go): never fresh, unless the analysis
+					// reads its parameters as unshared (freshFrom,
+					// freshAll) and the source is a dead field of one: the
+					// site then writes only that parameter's array, which
+					// no one else holds.
+					return (w.owner != nil || w.owners != nil) && w.deadField(x)
 				}
 				if w.vf.inPlace[x] {
 					return w.fresh(w.recvOf(x))
@@ -1928,6 +1935,10 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 				return !w.l.holdsValue(elemOf(w.typeOf(x)))
 			}
 			if w.l.freshResult(c.Func) {
+				return true
+			}
+			if x.Trailing == nil && w.freshCall(x, c) {
+				// An Ergo body fresh from unshared arguments (handover.go).
 				return true
 			}
 			if x.Trailing == nil && w.l.pureV1(c.Func) {
@@ -1972,7 +1983,7 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		return true
 	}
 	local, frame, loops, unshared := vv.local, vv.frame, vv.loops, vv.mut || vv.handed
-	if w.owner != nil && vv.v == w.owner {
+	if w.owner != nil && vv.v == w.owner || w.owners[vv.v] {
 		// freshFrom's premise: the parameter holds an unshared value, as
 		// a let mut of the body's own frame does.
 		local, frame, loops, unshared = true, w.root, nil, true
@@ -2003,7 +2014,7 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		}
 	}
 	for _, o := range vv.occs {
-		if o == use || path != nil && w.disjointRead(o.id, path) {
+		if o == use || path != nil && valueOwned() && w.disjointRead(o.id, path) {
 			continue
 		}
 		if o.frame != frame {
@@ -2016,6 +2027,13 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 				continue
 			}
 		}
+		if o.pre < use.pre && valueOwned() {
+			if end := w.endingReturn(o); end != nil && !(w.pre[end] <= use.pre && use.pre < w.post[end]) {
+				// So does one anywhere in a return statement or a last
+				// value that does not hold use (handover.go).
+				continue
+			}
+		}
 		if returning {
 			inRet := w.pre[ret] <= o.pre && o.pre < w.post[ret]
 			if !inRet && o.pre > use.pre || valueMutant == "return-blind" && inRet {
@@ -2025,7 +2043,7 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 				return false
 			}
 		} else if o.pre > use.pre {
-			if end := w.endingReturn(use); end != nil && (o.pre < w.pre[end] || o.pre >= w.post[end]) {
+			if end := w.endingReturn(use); valueOwned() && end != nil && (o.pre < w.pre[end] || o.pre >= w.post[end]) {
 				// The use's return statement ends the frame: o, outside
 				// it, never runs after the use (handover.go).
 				continue

@@ -4178,8 +4178,8 @@
       "name": "v7-owner-premise",
       "origin": "wf10 STD-sh r2",
       "file": "internal/sketch/lower/values.go",
-      "from": "\tif w.owner != nil && vv.v == w.owner {\n",
-      "to": "\tif false && w.owner != nil && vv.v == w.owner {\n",
+      "from": "\tif w.owner != nil && vv.v == w.owner || w.owners[vv.v] {\n",
+      "to": "\tif false && w.owner != nil && vv.v == w.owner || w.owners[vv.v] {\n",
       "rule": "types.md, Bindings 2 (V7): freshFrom reads the handed parameter as an unshared local, so a user function whose result is its parameter's storage hands it over (speed only).",
       "killers": [
         "lower:TestValueRuleElides"
@@ -4289,6 +4289,9 @@
     {"name":"own-read-element-write-blind","origin":"wf10 OWN1 (PA3 store read)","file":"internal/sketch/lower/storeread.go","from":"\t\t\tcase *check.Slice, *check.Map:\n\t\t\t\tset[w.l.typeKey(u)] = true\n","to":"\t\t\tcase *check.Slice, *check.Map:\n\t\t\t\t_ = u\n","rule":"A write s.bags[i].Items[0] = v writes the []int a let read of s.bags[i] holds: that read is copied.","killers":["lower:TestHandoverAgrees"]},
     {"name":"own-read-borrow-passed-blind","origin":"wf10 OWN1 (PA3 store read)","file":"internal/sketch/lower/storeread.go","from":"\tif _, ok := w.typeOf(u.path).(*check.Pointer); ok {\n","to":"\tif _, ok := w.typeOf(u.path).(*check.Pointer); ok && false {\n","rule":"A borrow passed on (poke(s, i, v), s.set(i, v)) may write anything its target reaches: a let read of the target is copied.","killers":["lower:TestHandoverAgrees"]},
     {"name":"own-reslice-other-place","origin":"wf10 OWN1 (ST G4 reslice)","file":"internal/sketch/lower/storeread.go","from":"\tif !samePlace(as.Lhs[0], base) {\n","to":"\tif !samePlace(as.Lhs[0], base) && false {\n","rule":"Only a reslice of a place into itself shares its array uncopied: m.Items = b.Items[0:k] copies b's cut.","killers":["lower:TestHandoverAgrees"]},
+    {"name":"own-fresh-call-shared-operand","origin":"wf10 OWN1 (GP2b)","file":"internal/sketch/lower/handover.go","from":"\t\tif !w.fresh(a) && !w.vf.handed[a] && !w.vf.consumed[a] {\n","to":"\t\tif false {\n","rule":"A call's result is fresh from its body only when every operand that holds a Map or slice is fresh, handed over or consumed: m = push(b, v) on a live b shares b's array.","killers":["lower:TestHandoverAgrees"]},
+    {"name":"own-ending-any-expr","origin":"wf10 OWN1 (GP2b)","file":"internal/sketch/lower/handover.go","from":"\t\tif x, ok := n.(syntax.Expr); ok && w.frameOfTail(x) == o.frame {\n","to":"\t\tif x, ok := n.(syntax.Expr); ok {\n","rule":"Only a return statement or the frame's last value ends the frame; a use in any other expression may run before a later one.","killers":["lower:TestHandoverAgrees"]},
+    {"name":"own-lineage-owner-any-source","origin":"wf10 OWN1 (GP2b)","file":"internal/sketch/lower/values.go","from":"\t\t\t\t\treturn (w.owner != nil || w.owners != nil) && w.deadField(x)\n","to":"\t\t\t\t\treturn w.owner != nil || w.owners != nil\n","rule":"Under the unshared-parameter premise a one-extender result is fresh only when its source is a dead field of such a parameter.","killers":["lower:TestHandoverAgrees"]},
     {"name":"own-lineage-result-fresh","origin":"wf10 OWN1","file":"internal/sketch/lower/values.go","from":"\t\t\t\tif w.vf.lineage[x] {\n","to":"\t\t\t\tif w.vf.lineage[x] && false {\n","rule":"A one-extender site's result is never fresh: its array's prefix is shared with older values, so a root that took it uncopied would write them.","killers":["lower:TestHandoverAgrees"]}
   ]
 }

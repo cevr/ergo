@@ -33,7 +33,11 @@ import (
 //   - testdata/ownvt, lane G's DT1 repro (examples/vt) on 3n bytes: a
 //     []Event threaded through a per-byte step, ev = p.step(b, ev), whose
 //     step owns its parameter (V5), so neither side copies the list (main
-//     e02194103 cloned it at both).
+//     e02194103 cloned it at both);
+//   - testdata/ownedit, GP2b's editor document on n edits: Make owns its
+//     Doc through its fields (fieldOwned, with `return d`), threads
+//     b = apply(b, e) through a match (V7, freshAll), and its caller takes
+//     the result with no copy (own-fresh-call).
 //
 // The guard is a ratio of counts, never of time: with d1 = I(2n) - I(n)
 // and d2 = I(4n) - I(2n) the user-space instructions of the whole process,
@@ -69,7 +73,7 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 	if cli == "" {
 		cli = buildTestCLI(t)
 	}
-	ws := smokeWorkspace(t, "examples/mdhtml", "examples/router", "cmd/ergo/testdata/ownring", "cmd/ergo/testdata/ownvt")
+	ws := smokeWorkspace(t, "examples/mdhtml", "examples/router", "cmd/ergo/testdata/ownring", "cmd/ergo/testdata/ownvt", "cmd/ergo/testdata/ownedit")
 	dir := t.TempDir()
 	type program struct {
 		name string
@@ -100,6 +104,9 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 			return exec.Command(bin, strconv.Itoa(n), strconv.Itoa(20*n)), ""
 		}},
 		{"ownvt", filepath.Join(ws, "cmd", "ergo", "testdata", "ownvt", "vt.ergo"), 20000, "", func(bin string, n int) (*exec.Cmd, string) {
+			return exec.Command(bin, strconv.Itoa(n)), ""
+		}},
+		{"ownedit", filepath.Join(ws, "cmd", "ergo", "testdata", "ownedit", "edit.ergo"), 40000, "", func(bin string, n int) (*exec.Cmd, string) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
 		}},
 	}

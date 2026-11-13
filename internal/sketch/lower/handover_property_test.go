@@ -105,7 +105,55 @@ func (g *handoverGen) stmt() {
 		b.n++
 		return b
 	}
-	switch k := g.r.IntN(21); k {
+	arm := func(b hbag, v int) hbag {
+		if v%2 == 0 {
+			return push(b, v)
+		}
+		return push(b, v+1)
+	}
+	mk := func(b hbag, v int) hbag {
+		if v%3 == 0 {
+			return b.copy()
+		}
+		return hbag{items: append(append([]int(nil), b.items...), v), n: b.n}
+	}
+	switch k := g.r.IntN(26); k {
+	case 25:
+		// A one-extender site on a parameter the hand-over does not own:
+		// m takes both's result fresh only if c's array is not extended in
+		// place (the token matches bX, both's last result).
+		g.reached["root both"] = true
+		x := hbag{items: append(append([]int(nil), src.items...), v), n: 0}
+		g.bind(fmt.Sprintf("both(b0, b%d, %d)", i, v), x)
+		n := len(g.bags) - 1
+		g.line(fmt.Sprintf("m = both(m, b%d, %d)", n, v+1))
+		g.m = hbag{items: append(append([]int(nil), x.items...), v+1), n: g.m.n}
+		g.line(fmt.Sprintf("m.Items[0] = %d", v+7))
+		g.m.items[0] = v + 7
+	case 21:
+		// A body fresh from unshared arguments (freshAll) through match
+		// arms, rebinding the root, then a write through it.
+		g.reached["root threads arms"] = true
+		g.line(fmt.Sprintf("m = arm(m, %d)", v))
+		g.m = arm(g.m, v)
+		g.line(fmt.Sprintf("m.Items[0] = %d", v+3))
+		g.m.items[0] = v + 3
+	case 22:
+		g.reached["arm on a live let"] = true
+		g.bind(fmt.Sprintf("arm(b%d, %d)", i, v), arm(src, v))
+	case 23:
+		// A parameter owned through its fields and returned whole on one
+		// path (fieldOwned).
+		g.reached["root mk"] = true
+		g.line(fmt.Sprintf("m = mk(m, %d)", v))
+		g.m = mk(g.m, v)
+		if len(g.m.items) > 0 {
+			g.line(fmt.Sprintf("m.Items[0] = %d", v+5))
+			g.m.items[0] = v + 5
+		}
+	case 24:
+		g.reached["mk on a live let"] = true
+		g.bind(fmt.Sprintf("mk(b%d, %d)", i, v), mk(src, v))
 	case 20:
 		g.reached["trim through a borrow"] = true
 		g.line("trim(&m)")
@@ -146,7 +194,8 @@ func (g *handoverGen) stmt() {
 			return
 		}
 		j := g.r.IntN(len(g.store))
-		kind := []string{"Kind", "Item", "Push", "Pass", "Method"}[g.r.IntN(5)]
+		kind := []string{"Kind", "Item", "Push", "Pass", "Method"}[g.reads%5]
+		g.reads++
 		g.reached["peek "+kind] = true
 		g.line(fmt.Sprintf("out = out + peek%s(&st, %d, %d) + \" \"", kind, j, v))
 		b := g.store[j].copy()
@@ -345,6 +394,33 @@ func peekMethod(s *Store, i int, v int) string {
 	show(b)
 }
 
+// arm pushes in one of two arms: its result is fresh when b is unshared
+// (freshAll; endingReturn's last values).
+func arm(b Bag, v int) Bag {
+	if v % 2 == 0 {
+		push(b, v)
+	} else {
+		push(b, v + 1)
+	}
+}
+
+// both extends c's field, keeping b's count: a one-extender site on a
+// parameter other than the one a rebinding m = both(m, …) hands over.
+func both(b Bag, c Bag, v int) Bag {
+	Bag{Items: c.Items.Append(v), N: b.N}
+}
+
+// mk takes its parameter over through its fields and returns it whole on
+// one path (fieldOwned).
+func mk(b Bag, v int) Bag {
+	if v % 3 == 0 {
+		return b
+	}
+	let mut items = b.Items
+	items = items.Append(v)
+	Bag{Items: items, N: b.N}
+}
+
 // trim reslices a borrowed field into itself: no copy (own-reslice).
 func trim(b *Bag) {
 	if len(b.Items) > 0 {
@@ -361,7 +437,7 @@ func run() string {
 `)
 	g.bags = []hbag{{items: []int{}}}
 	g.m = hbag{items: []int{}}
-	for range 110 {
+	for range 140 {
 		g.stmt()
 	}
 	for i, b := range g.bags {
@@ -409,7 +485,7 @@ func TestHandoverAgrees(t *testing.T) {
 	}
 	// The rule takes every shortcut somewhere: else the property proves
 	// nothing about it.
-	for _, form := range []string{"ergo.LineageAppend(", "ergo.SlicesConcatOwned[", "ringOwned(", "ergo.AppendPoison(", "ergo.LineageAppendCheck("} {
+	for _, form := range []string{"ergo.LineageAppend(", "ergo.SlicesConcatOwned[", "ringOwned(", "mkOwned(", "ergo.AppendPoison(", "ergo.LineageAppendCheck("} {
 		found := false
 		for _, p := range programs {
 			if strings.Contains(p.mainGo(), form) {
@@ -466,7 +542,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 	}
 	if *handoverSeed == 0 {
-		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow"} {
+		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both"} {
 			if !reached[s] {
 				t.Errorf("seeds %v never write %q", seeds, s)
 			}
