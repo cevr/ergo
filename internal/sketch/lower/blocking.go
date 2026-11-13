@@ -329,10 +329,18 @@ var runtimeBindings = map[string]runtimeBinding{
 	"RefUpdateOwned": {},
 	"RefModifyOwned": {},
 	// std testing Scripts (stdlib.md, Testing 7 to 12): each operation of
-	// an Op holds its mutex for one step and calls no program code.
-	"NewOp":     {},
-	"Op.Answer": {},
-	"Op.Calls":  {},
+	// an Op holds its mutex for one step and calls no program code. A
+	// Release wakes a held caller and never waits; the held call waits in
+	// Op.Call, which the derived adapter calls with the caller's task
+	// (script.go), not through this catalog. Unanswered reads the ledger.
+	"NewOp":            {},
+	"Op.Answer":        {},
+	"Op.Calls":         {},
+	"Op.Hold":          {},
+	"Op.Release":       {},
+	"Op.Held":          {},
+	"Op.Unread":        {},
+	"ScriptUnanswered": {},
 	// std filepath (std-align S3a; stdlib.md, filepath): pure bodies that
 	// neither wait nor release.
 	"FilepathJoin":  {},

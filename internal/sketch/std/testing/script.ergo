@@ -4,23 +4,48 @@
 // s.Get.Answer(f), binds it where the program binds a Store, and reads
 // what the code did with s.Get.Calls(). The checker derives the record of
 // a Script[S] from S: one field per operation, named like it, of type
-// Op[A, F]. The Go bodies are runtime/v1's Op and NewOp.
+// Op[A, F]. The Go bodies are runtime/v1's Op and NewOp. A test holds a
+// call with s.Get.Hold() and answers it later with s.Get.Release(f), as a
+// scene resolves a command; a test that ends with a call held fails.
+
+import task
 
 // Op is one operation of a Script: the answer it gives and the calls it
 // got. A is the operation's arguments: the one parameter's type, a tuple
 // of several, or NoArgs. F is the operation's signature as a function
 // type. Every copy of an Op is the same operation, and two tasks may call
 // it at once.
-// law-exempt: an Op is only a field of a Script, so the Script laws (ScriptRecordsEachCall, ScriptAnswersByTheLastAnswer) state its contract through the operations it answers.
+// law-exempt: an Op is only a field of a Script, so the Script laws (ScriptRecordsEachCall, ScriptAnswersByTheLastAnswer, HeldCallWaitsForRelease, ReleaseAnswersOldestFirst, ScriptNamesTheHeldCall) state its contract through the operations it answers.
 type Op[A, F] {
-	// Answer makes f the operation's answer from now on. A call of an
+	// Answer makes f the operation's answer from now on, and ends a Hold:
+	// a later call gets f, a call held already stays held. A call of an
 	// operation with no answer is a defect that names the Script and the
 	// operation, except an operation with no result and no failure, which
 	// a call only records.
 	Answer(f F),
-	// Calls is the arguments of each call so far, oldest first.
+	// Calls is the arguments of each call so far, oldest first. It marks
+	// them read.
 	Calls() []A,
+	// Hold makes every later call wait, held, until a Release answers it,
+	// whatever the answer.
+	Hold(),
+	// Release answers the oldest held call with f. With no call held, the
+	// next call that would be held takes f and does not wait.
+	Release(f F),
+	// Held is the arguments of each held call no Release answered, oldest
+	// first. A stop of a held caller ends its wait, not the hold: the call
+	// stays held until a Release takes it. A test that ends with a held
+	// call fails and names the Script and the operation.
+	Held() []A,
+	// Unread is the arguments of each call no Calls read, oldest first.
+	Unread() []A,
 }
+
+// Unanswered is the report a test that ends now would fail with: for each
+// Script operation with a held call no Release answered, "<Script>: <Op>
+// has a held call that no Release answered", joined by "; ", and "" when
+// there is none.
+extern go ergo.local/prototype/runtime/v1.ScriptUnanswered func Unanswered() string
 
 // NoArgs is the arguments of a call of an operation that takes none.
 type NoArgs {}
@@ -32,10 +57,10 @@ type NoArgs {}
 // arguments, whose operations return no Task and take no function.
 type Script[S] {}
 
-// newOp is the Op of one field of a new Script; the lowering calls its body,
-// v1.NewOp, for each field of a Script literal, and its result makes Op the
-// runtime's sealed type.
-extern go ergo.local/prototype/runtime/v1.NewOp func newOp[A, F]() Op[A, F]
+// newOp is the Op of one field of a new Script, named by the Script's type
+// and the operation; the lowering calls its body, v1.NewOp, for each field
+// of a Script literal, and its result makes Op the runtime's sealed type.
+extern go ergo.local/prototype/runtime/v1.NewOp func newOp[A, F](script string, op string) Op[A, F]
 
 // probe is the capability the laws below script: an operation with no
 // arguments, one with one, one with two, and one that fails.
@@ -86,5 +111,87 @@ law ScriptAnswersByTheLastAnswer(k string, a int, b int) {
 			if e.Key == k { -1 } else { -2 }
 		}
 		first == a && second == b && got == -1 && len(s.Size.Calls()) == 2 && s.Size.Calls()[0] == NoArgs && s.Get.Calls()[0] == k
+	}
+}
+
+// HeldCallWaitsForRelease: after a Hold, a call waits, held, whatever the
+// answer, until a Release answers it with the released function, not the
+// answer; a later Answer ends the hold. The call parks: a VirtualClock
+// moves past it.
+law HeldCallWaitsForRelease(k string, a int) {
+	let s = Script[probe]{}
+	s.Get.Answer(func(key string) int fails Absent { a })
+	s.Get.Hold()
+	let c = NewVirtualClock(0)
+	with context { probe: s, Scheduler: c } {
+		let t = task.Go() { probe.Get(k) }
+		Scheduler.Sleep(1s)
+		let held = s.Get.Held()
+		let waited = len(held) == 1 && held[0] == k && len(s.Get.Calls()) == 1
+		s.Get.Release(func(key string) int fails Absent { a + 1 })
+		let got = t.Wait() catch {
+		case Absent:
+			a
+		}
+		s.Get.Answer(func(key string) int fails Absent { a + 2 })
+		let later = probe.Get(k) catch {
+		case Absent:
+			a
+		}
+		waited && got == a + 1 && later == a + 2 && len(s.Get.Held()) == 0
+	}
+}
+
+// ReleaseAnswersOldestFirst: each Release answers the oldest held call,
+// and a Release with no call held answers the next call at once.
+law ReleaseAnswersOldestFirst(k string, j string, a int) {
+	let s = Script[probe]{}
+	s.Get.Hold()
+	let c = NewVirtualClock(0)
+	with context { probe: s, Scheduler: c } {
+		let first = task.Go() { probe.Get(k) }
+		Scheduler.Sleep(1s)
+		let second = task.Go() { probe.Get(j) }
+		Scheduler.Sleep(1s)
+		let held = s.Get.Held()
+		let order = len(held) == 2 && held[0] == k && held[1] == j
+		s.Get.Release(func(key string) int fails Absent { a })
+		s.Get.Release(func(key string) int fails Absent { a + 1 })
+		let one = first.Wait() catch {
+		case Absent:
+			a - 1
+		}
+		let two = second.Wait() catch {
+		case Absent:
+			a - 1
+		}
+		s.Get.Release(func(key string) int fails Absent { a + 2 })
+		let three = probe.Get(k) catch {
+		case Absent:
+			a - 1
+		}
+		order && one == a && two == a + 1 && three == a + 2 && len(s.Get.Held()) == 0
+	}
+}
+
+// ScriptNamesTheHeldCall: while a call is held, Unanswered names the
+// Script and the operation, which is the report a test that ended then
+// would fail with; once a Release answers it, Unanswered is "". Calls
+// marks the calls read: Unread is the calls since.
+law ScriptNamesTheHeldCall(k string) {
+	let s = Script[probe]{}
+	s.Get.Hold()
+	let c = NewVirtualClock(0)
+	with context { probe: s, Scheduler: c } {
+		let t = task.Go() { probe.Get(k) }
+		Scheduler.Sleep(1s)
+		let named = Unanswered() == "testing.Script[testing.probe]: Get has a held call that no Release answered"
+		let unread = len(s.Get.Unread()) == 1 && len(s.Get.Calls()) == 1 && len(s.Get.Unread()) == 0
+		s.Get.Release(func(key string) int fails Absent { 0 })
+		let _ = t.Wait() catch {
+		case Absent:
+			0
+		}
+		named && unread && Unanswered() == ""
 	}
 }

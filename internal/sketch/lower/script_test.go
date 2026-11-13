@@ -46,3 +46,61 @@ func TestScriptNoAnswer(t *testing.T) {
 		}
 	}
 }
+
+// scriptHeldProgram holds two calls of Get and never releases them: the
+// tasks that made them are stopped at the end of the scope, which ends
+// their waits, not the holds. Released releases its one held call.
+const scriptHeldProgram = `import task
+import testing
+
+type Gone { Key string }
+
+type Photos {
+	Get(k string) int fails Gone,
+}
+
+test Released() {
+	let s = testing.Script[Photos]{}
+	s.Get.Hold()
+	s.Get.Release(func(k string) int fails Gone { 1 })
+	let got = with context { Photos: s } { Photos.Get("a") } catch {
+	case Gone:
+		0
+	}
+	assert got == 1
+}
+
+test HeldTwice() {
+	let s = testing.Script[Photos]{}
+	s.Get.Hold()
+	let c = testing.NewVirtualClock(0)
+	with context { Photos: s, Scheduler: c } {
+		let a = task.Go() { Photos.Get("a") }
+		let b = task.Go() { Photos.Get("b") }
+		Scheduler.Sleep(1s)
+	}
+}
+`
+
+// TestScriptHeldCallFailsTheTest is the end-of-test check's diagnostic row
+// (stdlib.md, Testing 10, its text the spec): a test whose body returns
+// with held calls no Release answered fails, naming the Script, the
+// operation and the count, and a test that released its call passes.
+// Mutant: the check in $Try skipped (sc1-end-check-skipped), which no law
+// catches, since a law's case releases what it holds.
+//
+// It builds Go because the check runs in the built test binary's case
+// runner ($Try), after the body's scope stopped its tasks.
+func TestScriptHeldCallFailsTheTest(t *testing.T) {
+	needsBuild(t)
+	stdout, stderr, code := runExeArgs(t, tableExe(t, "scriptheld"), "--seed", "1")
+	got := verdicts(stdout)
+	want := []string{
+		"ok Released",
+		"FAIL HeldTwice: testing.Script[main.Photos]: Get has 2 held calls that no Release answered",
+		"FAIL (1 of 2 tests)",
+	}
+	if code != 1 || strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("exit %d, verdicts:\n%s\nwant:\n%s\nstderr:\n%s", code, strings.Join(got, "\n"), strings.Join(want, "\n"), firstLines(stderr, 8))
+	}
+}

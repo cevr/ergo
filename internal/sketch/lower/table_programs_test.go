@@ -6,6 +6,7 @@ package lower
 var (
 	_ = declarePrograms("TestGeneratorsReachEveryClass", testBuildProgram("generators", generatorProbes))
 	_ = declarePrograms("TestLawRunB13", testBuildProgram("lawrun_b13", lawRunB13))
+	_ = declarePrograms("TestScriptHeldCallFailsTheTest", testBuildProgram("scriptheld", scriptHeldProgram))
 	_ = declarePrograms("TestStdLawsRun", testBuildProgram("stdlaws", stdLawsProbe))
 	_ = declarePrograms("TestStdMachinesLawsRun", testBuildProgram("stdmachines", machinesLawsProbe))
 	_ = declarePrograms("TestStdCSVLawsRun", testBuildProgram("stdcsv", stdCSVLawsProbe))

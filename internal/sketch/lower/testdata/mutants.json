@@ -3951,6 +3951,10 @@
         "lower:TestJSONFieldsAgree",
         "lower:TestNestedEncodeKeepsTheFastText"
       ]
-    }
+    },
+    {"name":"sc1-release-newest","origin":"wf10 SC1","file":"runtime/v1/script.go","from":"\th := o.held[0]\n\to.held[0] = nil\n\to.held = o.held[1:]","to":"\th := o.held[len(o.held)-1]\n\to.held = o.held[:len(o.held)-1]","rule":"A Release answers the oldest held call of the operation (testing law ReleaseAnswersOldestFirst).","killers":["lower:TestStdLawsRun"]},
+    {"name":"sc1-held-old-answer","origin":"wf10 SC1","file":"runtime/v1/script.go","from":"\to.mu.Unlock()\n\treturn h.answer, true","to":"\to.mu.Unlock()\n\treturn o.answer, true","rule":"A held call returns what the released function returns, not the answer set before the Hold (testing law HeldCallWaitsForRelease).","killers":["lower:TestStdLawsRun"]},
+    {"name":"sc1-end-check-skipped","origin":"wf10 SC1","file":"internal/sketch/lower/tests.go","from":"\t\t\tif kind == 0 && held != \"\" {","to":"\t\t\tif false && kind == 0 && held != \"\" {","rule":"A test case whose body returns with a held Script call no Release answered fails, naming the Script and the operation.","killers":["lower:TestScriptHeldCallFailsTheTest"]},
+    {"name":"sc1-unanswered-empty","origin":"wf10 SC1","file":"runtime/v1/script.go","from":"func ScriptUnanswered() string { return scriptHeld.report(false) }","to":"func ScriptUnanswered() string { return \"\" }","rule":"testing.Unanswered names each Script operation with a held call while it is held (testing law ScriptNamesTheHeldCall).","killers":["lower:TestStdLawsRun"]}
   ]
 }

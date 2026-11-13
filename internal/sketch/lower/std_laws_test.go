@@ -366,6 +366,78 @@ test TestingScriptAnswersByTheLastAnswer(k string, a int, b int) {
 		assert first == a && second == b && got == -1 && len(s.Size.Calls()) == 2 && s.Size.Calls()[0] == testing.NoArgs && s.Get.Calls()[0] == k
 	}
 }
+
+test TestingHeldCallWaitsForRelease(k string, a int) {
+	let s = testing.Script[probe]{}
+	s.Get.Answer(func(key string) int fails Absent { a })
+	s.Get.Hold()
+	let c = testing.NewVirtualClock(0)
+	with context { probe: s, Scheduler: c } {
+		let t = task.Go() { probe.Get(k) }
+		Scheduler.Sleep(1s)
+		let held = s.Get.Held()
+		assert len(held) == 1 && held[0] == k && len(s.Get.Calls()) == 1
+		s.Get.Release(func(key string) int fails Absent { a + 1 })
+		let got = t.Wait() catch {
+		case Absent:
+			a
+		}
+		s.Get.Answer(func(key string) int fails Absent { a + 2 })
+		let later = probe.Get(k) catch {
+		case Absent:
+			a
+		}
+		assert got == a + 1 && later == a + 2 && len(s.Get.Held()) == 0
+	}
+}
+
+test TestingReleaseAnswersOldestFirst(k string, j string, a int) {
+	let s = testing.Script[probe]{}
+	s.Get.Hold()
+	let c = testing.NewVirtualClock(0)
+	with context { probe: s, Scheduler: c } {
+		let first = task.Go() { probe.Get(k) }
+		Scheduler.Sleep(1s)
+		let second = task.Go() { probe.Get(j) }
+		Scheduler.Sleep(1s)
+		let held = s.Get.Held()
+		assert len(held) == 2 && held[0] == k && held[1] == j
+		s.Get.Release(func(key string) int fails Absent { a })
+		s.Get.Release(func(key string) int fails Absent { a + 1 })
+		let one = first.Wait() catch {
+		case Absent:
+			a - 1
+		}
+		let two = second.Wait() catch {
+		case Absent:
+			a - 1
+		}
+		s.Get.Release(func(key string) int fails Absent { a + 2 })
+		let three = probe.Get(k) catch {
+		case Absent:
+			a - 1
+		}
+		assert one == a && two == a + 1 && three == a + 2 && len(s.Get.Held()) == 0
+	}
+}
+
+test TestingScriptNamesTheHeldCall(k string) {
+	let s = testing.Script[probe]{}
+	s.Get.Hold()
+	let c = testing.NewVirtualClock(0)
+	with context { probe: s, Scheduler: c } {
+		let t = task.Go() { probe.Get(k) }
+		Scheduler.Sleep(1s)
+		assert testing.Unanswered() == "testing.Script[main.probe]: Get has a held call that no Release answered"
+		assert len(s.Get.Unread()) == 1 && len(s.Get.Calls()) == 1 && len(s.Get.Unread()) == 0
+		s.Get.Release(func(key string) int fails Absent { 0 })
+		let _ = t.Wait() catch {
+		case Absent:
+			0
+		}
+		assert testing.Unanswered() == ""
+	}
+}
 `
 
 // stdLawsTestName is the probe test that restates the law of a ledger row.
@@ -397,6 +469,9 @@ var stdLawsStatements = map[string]string{
 	"scope ActionsRunLastFirst":            `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }`,
 	"task StopIsIdempotent":                `StopIsIdempotent() { let t = with context { Scheduler: time.NewManual(0) } { Go() { Scheduler.Sleep(1h) 0 } } t.Stop() t.Stop() true }`,
 	"task WaitReturnsTheBlock":             `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }`,
+	"testing HeldCallWaitsForRelease":      `HeldCallWaitsForRelease(k string, a int) { let s = Script[probe]{} s.Get.Answer(func(key string) int fails Absent { a }) s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let held = s.Get.Held() let waited = len(held) == 1 && held[0] == k && len(s.Get.Calls()) == 1 s.Get.Release(func(key string) int fails Absent { a + 1 }) let got = t.Wait() catch { case Absent: a } s.Get.Answer(func(key string) int fails Absent { a + 2 }) let later = probe.Get(k) catch { case Absent: a } waited && got == a + 1 && later == a + 2 && len(s.Get.Held()) == 0 } }`,
+	"testing ReleaseAnswersOldestFirst":    `ReleaseAnswersOldestFirst(k string, j string, a int) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let first = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let second = task.Go() { probe.Get(j) } Scheduler.Sleep(1s) let held = s.Get.Held() let order = len(held) == 2 && held[0] == k && held[1] == j s.Get.Release(func(key string) int fails Absent { a }) s.Get.Release(func(key string) int fails Absent { a + 1 }) let one = first.Wait() catch { case Absent: a - 1 } let two = second.Wait() catch { case Absent: a - 1 } s.Get.Release(func(key string) int fails Absent { a + 2 }) let three = probe.Get(k) catch { case Absent: a - 1 } order && one == a && two == a + 1 && three == a + 2 && len(s.Get.Held()) == 0 } }`,
+	"testing ScriptNamesTheHeldCall":       `ScriptNamesTheHeldCall(k string) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let named = Unanswered() == "testing.Script[testing.probe]: Get has a held call that no Release answered" let unread = len(s.Get.Unread()) == 1 && len(s.Get.Calls()) == 1 && len(s.Get.Unread()) == 0 s.Get.Release(func(key string) int fails Absent { 0 }) let _ = t.Wait() catch { case Absent: 0 } named && unread && Unanswered() == "" } }`,
 	"timeout DeadlineFirstExpires":         `DeadlineFirstExpires() { let m = time.NewManual(0) with context { Scheduler: m } { After(1ms) { for m.Sleepers() == 0 { } m.Advance(1ms) Scheduler.Sleep(1h) false } catch { case Expired: true } } }`,
 	"testing ScriptAnswersByTheLastAnswer": `ScriptAnswersByTheLastAnswer(k string, a int, b int) { let s = Script[probe]{} s.Size.Answer(func() int { a }) s.Get.Answer(func(key string) int fails Absent { Absent{Key: key} }) with context { probe: s } { let first = probe.Size() s.Size.Answer(func() int { b }) let second = probe.Size() let got = probe.Get(k) catch { case Absent as e: if e.Key == k { -1 } else { -2 } } first == a && second == b && got == -1 && len(s.Size.Calls()) == 2 && s.Size.Calls()[0] == NoArgs && s.Get.Calls()[0] == k } }`,
 	"testing ScriptRecordsEachCall":        `ScriptRecordsEachCall(ks []string, n int) { let s = Script[probe]{} s.Has.Answer(func(k string) bool { len(k) > 0 }) with context { probe: s } { for i, k in ks { probe.Put(k, n + i) let _ = probe.Has(k) } } let puts = s.Put.Calls() let mut same = len(puts) == len(ks) && len(s.Has.Calls()) == len(ks) && len(s.Size.Calls()) == 0 for i, k in ks { same = same && puts[i] == (k, n + i) && s.Has.Calls()[i] == k } same }`,
