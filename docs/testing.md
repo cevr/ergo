@@ -76,7 +76,11 @@ second `ergo test ./...` over an unchanged module links nothing. The cache's
 trim removes an entry that no run used for its age limit, as it does
 emitted modules.
 
-Test output names each package by its module import path. An assertion or law
+Test output names each package by its module import path. A package with no
+test and no law prints `PASS (0 tests)` and is neither built nor run, as `go
+test` reports `[no test files]`: its initializers, such as a `cmd/<name>` main
+package's lets, never run. With `--receipt` or `--run` it is built and run as
+before. An assertion or law
 failure does not hide later packages: the command exits 1 if any selected package
 failed. A defect or signal stops the run and keeps its status. `--seed`, `-work`
 and target options keep their per-package meaning. Recursive check writes one

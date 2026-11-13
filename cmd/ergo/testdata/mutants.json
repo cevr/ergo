@@ -240,6 +240,16 @@
       "rule": "ergo test links a package's test binary into the cache's executable entry, so a warm run of an unchanged module links nothing.",
       "killers": ["cmd/ergo:TestWarmModuleTestLinksNothing"],
       "anchor": {"tests": ["cmd/ergo:TestWarmModuleTestLinksNothing"]}
+    },
+    {
+      "name": "test-main-initialized",
+      "origin": "wf10 fu-test-main",
+      "file": "cmd/ergo/recursive.go",
+      "from": "if len(pkg.Tests) == 0 && len(pkg.LawRuns) == 0 && module.law == \"\"",
+      "to": "if false && len(pkg.Tests) == 0 && len(pkg.LawRuns) == 0 && module.law == \"\"",
+      "rule": "ergo test ./... builds and runs no package with nothing to test, so a main package's initializers never run.",
+      "killers": ["cmd/ergo:TestModuleCommands"],
+      "anchor": {"tests": ["cmd/ergo:TestModuleCommands"]}
     }
   ]
 }
