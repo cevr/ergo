@@ -746,26 +746,16 @@ func (w *valueWalk) decide() {
 	// p = append(append(p, a), b), is in place at each call: no binding
 	// holds an inner call's result, so the chain is the statements
 	// p = append(p, a); p = append(p, b), which the pattern takes in place.
-	isCall := map[syntax.Node]bool{}
+	// MAPCOPY x OWN1: chainOf walks both forms, p.Append(a).Append(b) and
+	// append(append(p, a), b), from the outermost call to its first source.
 	for _, call := range w.calls {
-		isCall[call] = true
-	}
-	for _, call := range w.calls {
-		chain := []*syntax.CallExpr{call}
 		parent, child := w.unparenParent(call)
-		for {
-			pc, ok := parent.(*syntax.CallExpr)
-			if !ok || !isCall[pc] || w.recvOf(pc) != child {
-				break
-			}
-			chain = append(chain, pc)
-			parent, child = w.unparenParent(pc)
-		}
 		s, ok := parent.(*syntax.AssignStmt)
 		if !ok || s.Tok != syntax.ASSIGN || len(s.Rhs) != 1 || s.Rhs[0] != child {
 			continue
 		}
-		recv := w.recvOf(call)
+		chain := w.chainOf(call)
+		recv := w.recvOf(chain[len(chain)-1])
 		id := pathRoot(s.Lhs[0])
 		if id == nil || !samePlace(s.Lhs[0], recv) {
 			continue
@@ -1010,12 +1000,12 @@ func (w *valueWalk) writeCall(x syntax.Expr) (*syntax.CallExpr, bool) {
 	return call, c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func))
 }
 
-// chainOf is call and, under the entry rule (V8), the calls of Append,
+// chainOf is call and the calls of Append,
 // Delete and Put down its source: x.Append(a).Append(b) is the outer
 // call, then x.Append(a).
 func (w *valueWalk) chainOf(call *syntax.CallExpr) []*syntax.CallExpr {
 	out := []*syntax.CallExpr{call}
-	for entryRule() {
+	for {
 		inner, ok := w.writeCall(w.recvOf(out[len(out)-1]))
 		if !ok {
 			break
