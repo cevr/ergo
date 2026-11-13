@@ -1,0 +1,41 @@
+// The stage of an actor (docs/spec/stdlib.md, Testing 14): a running
+// machine as a testing.Stage, whose act is a signal and whose show is the
+// state. Its clock is the time.Manual the actor's context binds as its
+// Scheduler; a settle is an Advance by zero, which returns once every task
+// of the clock's domain but the caller waits (the actor's runner, its
+// timers and its work included). So a scene on it is deterministic: the
+// steps, the clock and the Scripts give the world.
+
+import testing
+import time
+
+// Stage is the actor a as a stage over clock. NewStage makes one. The
+// actor must be started in clock's domain: by the task that called
+// time.NewManual, or a task below it, with clock as its Scheduler.
+type Stage[S comparable, E, D, F] { a Actor[S, E, D, F], clock time.Manual }
+
+// NewStage is the stage of a over clock.
+func NewStage[S comparable, E, D, F](a Actor[S, E, D, F], clock time.Manual) Stage[S, E, D, F] {
+	Stage[S, E, D, F]{a: a, clock: clock}
+}
+
+// Do sends e to the actor and returns once it is queued. It fails
+// testing.Refused when the actor has ended.
+func Do[S comparable, E, D, F](st Stage[S, E, D, F], e E) fails testing.Refused {
+	st.a.Send(e) catch {
+	case Stopped:
+		return testing.Refused{Why: "the actor has ended"}
+	}
+}
+
+// Advance moves the clock by d; it returns once every task the move woke
+// waits again.
+func Advance[S comparable, E, D, F](st Stage[S, E, D, F], d duration) { st.clock.Advance(d) }
+
+// Settle returns once every task of the clock's domain but the caller
+// waits: the actor has stepped each signal sent so far, and each work it
+// started has sent its signal or waits.
+func Settle[S comparable, E, D, F](st Stage[S, E, D, F]) { st.clock.Advance(0s) }
+
+// Show is the actor's state.
+func Show[S comparable, E, D, F](st Stage[S, E, D, F]) S { st.a.State() }

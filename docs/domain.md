@@ -334,7 +334,7 @@ law SceneAgreesWithStory(acts []Act, flaky []int) {
 }
 ```
 
-A **stage** (`testing.Stage`, planned in SC2) will be the one kernel that a domain scene, a UI scene and a page scene share: play an act, settle, advance the clock, show.
+A **stage** (`testing.Stage`) is the one kernel that a domain scene, a UI scene and a page scene share: play an act, settle, advance the clock, show. `testing.Play(st, steps)` plays a list of `Step`s and gives what the stage shows after each, and `actor.NewStage(a, clock)` is the stage of an actor over a `time.Manual` (stdlib.md, Testing 14); its law `ActorStageAgreesWithFold` holds each settled show to the fold.
 
 ## 8. A UI is a view of a domain
 

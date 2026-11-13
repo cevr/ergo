@@ -292,7 +292,7 @@ The building blocks of domain-driven design, as Ergo writes them. [docs/domain.m
 
 **Scene** (pattern): The same acts played on the real program, with each external system a `testing.Script`, a clock only the scene moves, and every held call released by the end. A law says the scene ends where the story does (`SceneAgreesWithStory`).
 
-**Stage** (planned, SC2): `testing.Stage`, the one kernel that domain, UI and page scenes share: play an act, settle until no work runs, advance the clock, show. Distinct from a stage of the worked example's pipeline, which is a step of a run.
+**Stage**: `testing.Stage`, the one kernel that domain, UI and page scenes share: play an act, settle until no work runs, advance the clock, show; `testing.Play` plays a list of steps on one. `actor.NewStage` is an actor's (stdlib.md, Testing 14). Distinct from a stage of the worked example's pipeline, which is a step of a run.
 
 **Stack** (designed: `models/infra`; module `infra` planned, IA1): An ordinary function that asks kinds for the objects of a deployment, passing the value of one object to the next.
 

@@ -1,0 +1,60 @@
+// Stages: one test shape for a domain, a screen and a page (docs/spec/
+// stdlib.md, Testing 14; plan wf10 domain §3). A scene plays a list of
+// steps on a Stage, the running program, and reads what it shows after
+// each: an act, a move of the clock, or a settle. Its oracle is the fold:
+// a law compares what Play shows with a pure reference over the same
+// steps. std actor's NewStage makes the stage of an actor; a ui host is a
+// stage of gestures.
+
+// Step is one step of a scene: an act (a signal, a command, a gesture), a
+// move of the stage's clock by By, or a settle.
+type Step[A] = Do{Act A} | Advance{By duration} | Settle{}
+
+// Refused: the stage cannot take the act (the program stopped, or the
+// screen offers no such gesture). Why says which.
+type Refused { Why string }
+
+// Stage is a running program a test acts on. Do gives it an act and
+// returns once the act is taken, not once its effects ran; Advance moves
+// its clock by d and returns once every task it woke waits again; Settle
+// returns once every task of the program waits; Show is what the test
+// reads (the state, the screen).
+type Stage[A, V comparable] {
+	Do(a A) fails Refused,
+	Advance(d duration),
+	Settle(),
+	Show() V,
+
+	// SettleIsIdempotent: a second Settle with no act between changes
+	// nothing the stage shows.
+	law SettleIsIdempotent() {
+		Settle()
+		let v = Show()
+		Settle()
+		Show() == v
+	},
+
+	// ShowIsStable: a settled stage shows the same thing twice.
+	law ShowIsStable() {
+		Settle()
+		Show() == Show()
+	},
+}
+
+// Play plays steps on st in order and is what st shows after each step,
+// one show per step. A refused act stops the play with Refused.
+func Play[A, V comparable](st Stage[A, V], steps []Step[A]) []V fails Refused {
+	let mut out = []V{}
+	for s in steps {
+		match s {
+		case Do as d:
+			try st.Do(d.Act)
+		case Advance as a:
+			st.Advance(a.By)
+		case Settle:
+			st.Settle()
+		}
+		out = out.Append(st.Show())
+	}
+	out
+}
