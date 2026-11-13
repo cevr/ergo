@@ -170,8 +170,10 @@ func (w *valueWalk) fieldNames(x syntax.Expr) []string {
 
 // disjointRead reports whether the use id is a read of a field path of
 // its variable that path does not overlap (the two differ at a field) and
-// whose value holds no Map or slice: r.head beside r.items. Such a read
-// keeps no storage of path's value and cannot see a write through it.
+// whose value can share no Map or slice with path's (refown.go, mayShare,
+// by type): r.head beside r.items, d.Undo []Change beside d.Buf's []int.
+// Such a use keeps no storage of path's value and cannot see a write
+// through it.
 func (w *valueWalk) disjointRead(id *syntax.Ident, path syntax.Expr) bool {
 	want := w.fieldNames(path)
 	if len(want) == 0 {
@@ -186,7 +188,7 @@ func (w *valueWalk) disjointRead(id *syntax.Ident, path syntax.Expr) bool {
 		cur = sel
 	}
 	got := w.fieldNames(cur)
-	if len(got) == 0 || w.l.holdsValue(w.typeOf(cur)) {
+	if t := w.typeOf(cur); len(got) == 0 || w.l.holdsValue(t) && w.l.mayShare(t, w.typeOf(path)) {
 		return false
 	}
 	for i := 0; i < len(got) && i < len(want); i++ {
@@ -214,6 +216,11 @@ func (w *valueWalk) fieldOwned(f *check.Func, vv *vvar) bool {
 	for _, o := range vv.occs {
 		if o.frame != w.root || len(o.loops) > 0 {
 			return false
+		}
+		if r, ok := w.returnNode(o, o.id).(*syntax.ReturnStmt); ok && len(r.Results) == 1 && unparen(r.Results[0]) == syntax.Expr(o.id) {
+			// `return d` hands the whole value back: the frame ends, so
+			// no other use runs after it (GP2b's Make).
+			continue
 		}
 		sel, ok := w.parent[o.id].(*syntax.SelectorExpr)
 		if !ok || syntax.Node(sel.X) != syntax.Node(o.id) || w.dotCall(o.id) != nil || w.fieldPath(sel) == nil {
@@ -266,14 +273,95 @@ func (w *valueWalk) takenField(x syntax.Expr) (taken, bound bool) {
 	return false, false
 }
 
-// endingReturn is the return statement of o's own frame that holds the
-// use o at any depth (an operand of a call in the returned value), or
-// nil: once it runs the frame ends, so a use outside it never runs after
-// o.
-func (w *valueWalk) endingReturn(o *vocc) *syntax.ReturnStmt {
+// freshAll reports whether every result of the Ergo body f is fresh when
+// each of its parameters holds an unshared value: the analysis of f's
+// body, read with every parameter that is no borrow as an unshared local
+// (freshIdent), proves each returned value fresh. A one-extender site on
+// a dead field of such a parameter counts as fresh there (fresh): the
+// site writes in place only the array the token says it made last, and
+// that array is the parameter's alone. So a call whose every operand is
+// fresh, handed over or consumed returns a fresh value (freshCall), and
+// `b = insert(b, at, t)` on a let mut root takes it with no copy (GP2b).
+// A function being decided is not fresh.
+func (l *lowerer) freshAll(f *check.Func) bool {
+	vf := l.valueFacts()
+	switch vf.fromAll[f] {
+	case 1, 3:
+		return false
+	case 2:
+		return true
+	}
+	vf.fromAll[f] = 3
+	if !valueOwned() || f == nil || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Pkg.Host() || f.Decl.Type == nil || f.Decl.Type.Params == nil {
+		return false
+	}
+	if l.freshResult(f) {
+		vf.fromAll[f] = 2
+		return true
+	}
+	owners := map[*check.Var]bool{}
+	for _, field := range f.Decl.Type.Params.List {
+		for _, id := range field.Names {
+			if p, ok := f.Pkg.Info.Defs[id].(*check.Var); ok {
+				if _, ptr := p.Type.(*check.Pointer); !ptr {
+					owners[p] = true
+				}
+			}
+		}
+	}
+	vf.fromAll[f] = 1
+	saved := l.info
+	l.info = f.Pkg.Info
+	w := l.analyzeValues(f.Decl, f.Pkg.Info)
+	fresh := false
+	if w.root != nil && w.done {
+		w.owners = owners
+		fresh = w.resultsFresh()
+		w.owners = nil
+	}
+	l.info = saved
+	vf.fromAll[f] = 3
+	if fresh {
+		vf.fromAll[f] = 2
+	}
+	return fresh
+}
+
+// freshCall reports a call of an Ergo body fresh from unshared arguments
+// (freshAll) whose every operand that holds a Map or slice is fresh,
+// handed over (V7) or consumed (V5).
+func (w *valueWalk) freshCall(x *syntax.CallExpr, c *check.Call) bool {
+	if !valueOwned() || c.Func == nil || c.Func.Decl == nil || c.Func.Pkg == nil || c.Func.Pkg.Host() {
+		return false
+	}
+	for _, a := range callOperands(x, c) {
+		t := w.typeOf(a)
+		if _, ptr := t.(*check.Pointer); ptr || !w.l.holdsValue(t) {
+			continue
+		}
+		if !w.fresh(a) && !w.vf.handed[a] && !w.vf.consumed[a] {
+			return false
+		}
+	}
+	if !w.l.freshAll(c.Func) || !w.l.takes("own-fresh-call") {
+		return false
+	}
+	w.l.took("own-fresh-call")
+	return true
+}
+
+// endingReturn is the return statement, or the tail value, of o's own
+// frame that holds the use o at any depth (an operand of a call in the
+// returned value, or in one arm's last value), or nil: once it runs the
+// frame ends, so a use outside it (in another arm) never runs after o.
+func (w *valueWalk) endingReturn(o *vocc) syntax.Node {
 	for n := w.parent[o.id]; n != nil; n = w.parent[n] {
 		if f := w.frameOf[n]; f != nil {
 			return nil
+		}
+		if x, ok := n.(syntax.Expr); ok && w.frameOfTail(x) == o.frame {
+			// The frame's last value (a match arm's, GP2b's apply).
+			return x
 		}
 		if r, ok := n.(*syntax.ReturnStmt); ok {
 			if w.frameOfReturn(r) == o.frame {

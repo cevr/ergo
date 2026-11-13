@@ -102,6 +102,42 @@ var shortcuts = []shortcut{
 		mutant:     "own-lineage-result-fresh",
 		referenced: func() bool { return !valueOwned() },
 	},
+	{
+		name:       "own-read",
+		class:      valueClass,
+		admission:  "keptRead",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-read-element-write-blind",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-reslice",
+		class:      valueClass,
+		admission:  "reslices",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-reslice-other-place",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-fresh-call",
+		class:      valueClass,
+		admission:  "freshCall",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-fresh-call-shared-operand",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
+		name:       "own-ref-in-place",
+		class:      valueClass,
+		admission:  "inPlaceOf",
+		reference:  "valueLowering=copy",
+		agreement:  "TestValueRuleAgrees",
+		mutant:     "own-ref-in-place-cloned-init",
+		referenced: func() bool { return !valueOwned() },
+	},
 }
 
 // shortcutNamed is the registry's row named name.

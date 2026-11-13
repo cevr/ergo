@@ -187,6 +187,42 @@ func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 	return out.F0
 }
 
+// RefUpdateInPlace is RefUpdateOwned for a literal that binds the held
+// value to one let mut and returns it (G1, refown.go, inPlace): f writes
+// the held value through p, under the lock, and the cell keeps it, so no
+// copy of T is made in or out. A shared value is copied first, as
+// RefUpdateOwned does. A defect poisons the cell, which then holds a
+// value f may have written in part.
+func RefUpdateInPlace[T any](r *Ref[T], f func(p *T), clone func(v T) T, fresh bool) {
+	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
+	r.mu.Lock()
+	done := false
+	defer r.end(&done)
+	r.check()
+	if r.shared {
+		r.v = clone(r.v)
+	}
+	f(&r.v)
+	r.shared, done = !fresh, true
+}
+
+// RefModifyInPlace is RefModifyOwned for a literal that binds the held
+// value to one let mut and returns (x, it): f writes the held value
+// through p and returns x (RefUpdateInPlace).
+func RefModifyInPlace[T, R any](r *Ref[T], f func(p *T) R, clone func(v T) T, fresh bool) R {
+	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
+	r.mu.Lock()
+	done := false
+	defer r.end(&done)
+	r.check()
+	if r.shared {
+		r.v = clone(r.v)
+	}
+	x := f(&r.v)
+	r.shared, done = !fresh, true
+	return x
+}
+
 // check raises refPoisoned when r is poisoned, with r locked; end unlocks
 // it.
 func (r *Ref[T]) check() {

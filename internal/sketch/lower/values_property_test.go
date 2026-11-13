@@ -192,7 +192,25 @@ func (g *valueGen) refStmt() {
 		g.reached["ref "+kind] = true
 		_ = name
 	}
-	switch g.r.IntN(12) {
+	switch g.r.IntN(14) {
+	case 12:
+		// The in-place form (refown.go, inPlaceLit): u is the held value
+		// from the first statement to the last.
+		g.line(fmt.Sprintf("let v%d = sync.Modify(%s, %s(int, Map[int, int]) { let mut u = m\n\t\tu[%d] = %d\n\t\t(len(u), u) })", g.n+1, ref.name, refFn, k, v))
+		ref.m[k] = v
+		fmt.Fprintf(&g.want, "%d\n", len(ref.m))
+		g.line(fmt.Sprintf("Console.Println(\"\\(v%d)\")", g.n+1))
+		g.n++
+		g.reached["ref in place"] = true
+	case 13:
+		// m read after u's write: u's binding copies, so the literal is
+		// not in place.
+		g.line(fmt.Sprintf("let v%d = sync.Modify(%s, %s(int, Map[int, int]) { let mut u = m\n\t\tu[%d] = %d\n\t\t(dm(m), u) })", g.n+1, ref.name, refFn, k, v))
+		fmt.Fprintf(&g.want, "%d\n", dmModel(ref.m))
+		g.line(fmt.Sprintf("Console.Println(\"\\(v%d)\")", g.n+1))
+		g.n++
+		ref.m[k] = v
+		g.reached["ref read after the bind"] = true
 	case 0:
 		g.line(fmt.Sprintf("%s.Update(%sMap[int, int] { let mut u = m\n\t\tu[%d] = %d\n\t\tu })", ref.name, refFn, k, v))
 		ref.m[k] = v
@@ -1059,7 +1077,7 @@ var valuePaths = []string{
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 	"update rebind", "update rebind option", "update field", "update live",
 	"ref new literal", "ref new binding", "ref own write", "ref own delete", "ref get", "ref set", "ref modify both",
-	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref plain update", "ref plain modify",
+	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref in place", "ref read after the bind", "ref plain update", "ref plain modify",
 	"ref store outside", "ref print",
 	"hand rebind", "hand field", "hand loop", "hand second", "sort live", "sort dead", "hand dot", "hand dot loop",
 }

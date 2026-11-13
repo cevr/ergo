@@ -1210,7 +1210,16 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 		if len(params) != len(sig.Params) {
 			ice(n, "a literal declares %d parameters and its signature has %d", len(params), len(sig.Params))
 		}
+		ip := fc.l.inPlace[n]
 		for i, p := range sig.Params {
+			if ip != nil {
+				// The held value's address: s is (*p), and the let that
+				// binds it is not written (refown.go, inPlaceLit).
+				name := fc.scope.alloc("p")
+				inner.locals[ip.held] = "(*" + name + ")"
+				parts = append(parts, name+" *"+fc.goType(p.Type))
+				continue
+			}
 			name := fc.scope.alloc("_p")
 			if params[i] != nil {
 				name = inner.declare(params[i])
@@ -1220,6 +1229,10 @@ func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syn
 		var result check.Type
 		if len(sig.Results) == 1 {
 			result = sig.Results[0]
+		}
+		if ip != nil {
+			result, list = ip.result, list[1:]
+			inner.inPlaceTail = ip.tail
 		}
 		inner.frame.result = result
 		inner.frame.unit = result == nil
