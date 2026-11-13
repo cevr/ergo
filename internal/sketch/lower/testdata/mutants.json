@@ -4082,6 +4082,17 @@
         "lower:TestJSONFieldsAgree",
         "lower:TestNestedEncodeKeepsTheFastText"
       ]
+    },
+    {
+      "name": "law-values-not-analyzed",
+      "origin": "wf10 fu-law-values",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "then a write through &b).\n\tl.analyzeValues(d, l.info)\n",
+      "to": "then a write through &b).\n",
+      "rule": "A law body's copies are decided by the value analysis, as a test's are: an Append to a fresh local writes in place (FD3a slow law).",
+      "killers": [
+        "lower:TestLawBodyAppendsInPlace"
+      ]
     }
   ]
 }

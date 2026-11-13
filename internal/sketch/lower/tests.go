@@ -442,6 +442,9 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		fc.openFrame(frameErr)
 	}
 	fc.entryPoll(l.info, d)
+	// A law's body keeps values as a function's does: its copies are
+	// decided as a test's are (let before = b, then a write through &b).
+	l.analyzeValues(d, l.info)
 	fc.body(d.Body.List)
 	if sourced {
 		l.user.WriteString(l.directive(d))
