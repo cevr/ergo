@@ -129,7 +129,7 @@ func takes(vs []string, v string) bool {
 
 // decisionNames are the prelude Decision's variants, in kind order.
 var decisionNames = [...]string{decideEnter: "Enter", decideStay: "Stay", decideEmit: "Emit",
-	decideIgnore: "Ignore", decideReject: "Reject", decideDone: "Done"}
+	decideIgnore: "Ignore", decideReject: "Reject", decideDone: "Done", decideTell: "Tell"}
 
 // sourceNames name an envelope's kind as a signal's source.
 var sourceNames = [...]string{sendSignal: "send", askSignal: "ask", timerSignal: "timer",
@@ -209,7 +209,7 @@ func (a *Actor[S, E, D]) traceStep(at *rt.Task, s S, d D, err error) {
 	case decideEnter, decideEmit:
 		m.Epoch++
 		m.Next = variant(g, a.next(s, d))
-	case decideStay:
+	case decideStay, decideTell:
 		m.Next = variant(g, a.next(s, d))
 	}
 	at.TraceMachine(m)

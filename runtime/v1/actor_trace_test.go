@@ -150,7 +150,7 @@ func (r *ref) decided(e tsig, d tdec) {
 	case decideEnter, decideEmit:
 		m.Epoch++
 		m.Next = stateVariant(d.next)
-	case decideStay:
+	case decideStay, decideTell:
 		m.Next = stateVariant(d.next)
 	}
 	r.events = append(r.events, m)

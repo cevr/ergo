@@ -184,7 +184,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Machine**: A declaration `type X machine[S, E] { initial v; step f }` of a state machine over the unions `S` and `E`. Its meaning is a plan any lawful provider can run. In the earlier language (specified), a machine is a checked definition of state and event types, transition policies and state-owned behavior.
 
-**Decision**: The value a machine step returns: `Enter{next}`, `Stay{next}`, `Ignore{}`, `Reject{}` or `Done{output}`. Its type is the prelude `Decision[S, O]`.
+**Decision**: The value a machine step returns: `Enter{next}`, `Stay{next}`, `Emit{next, output}`, `Ignore{}`, `Reject{}`, `Done{output}` or `Tell{next, output}`. Its type is the prelude `Decision[S, O]`. Only the first state, an `Enter` and an `Emit` open an entry; `Stay` and `Tell` keep the entry's timer and work, and `Emit` and `Tell` give an output (runtime.md, Machines and actors 2).
 
 **Actor**: A machine run by `actor.Start` as one task with a bounded mailbox, behind a resource handle with `Send`, `Ask`, `State` and `Stop`. In the earlier language (specified), an actor is an owned, addressable instance of behavior with typed messages and replies and an explicit admission and concurrency policy; an effect without a message interface remains a fiber.
 

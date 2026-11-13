@@ -173,7 +173,7 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 	for _, v := range du.Variants {
 		vn, _ := v.(*check.Named)
 		switch {
-		case isPreludeType(v, "Enter"), isPreludeType(v, "Stay"), isPreludeType(v, "Emit"):
+		case isPreludeType(v, "Enter"), isPreludeType(v, "Stay"), isPreludeType(v, "Emit"), isPreludeType(v, "Tell"):
 			next := l.typeDecl(vn.Obj, site).fieldName["Next"]
 			step.WriteString("\t\t\tcase " + tc.goType(v) + ":\n\t\t\t\treturn " + nv + "." + next + ", true\n")
 		case isPreludeType(v, "Done"):

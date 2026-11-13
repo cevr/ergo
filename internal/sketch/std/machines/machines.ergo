@@ -35,8 +35,8 @@ import time
 type Work[E, R] { Start func(send func(e E)) needs R }
 
 // Finished is a run that the step ended with Done: the state the step saw
-// last, Done's output, and the outputs of the run's Emits before it, in
-// order.
+// last, Done's output, and the outputs of the run's Emits and Tells
+// before it, in order.
 type Finished[S, O] {
 	State S,
 	Output O,
@@ -44,7 +44,8 @@ type Finished[S, O] {
 }
 
 // Running is a run that used every signal with no Done: the machine's
-// state after the last one, and the outputs of the run's Emits, in order.
+// state after the last one, and the outputs of the run's Emits and Tells,
+// in order.
 type Running[S, O] {
 	State S,
 	Emitted []O,
@@ -65,8 +66,8 @@ type Timed[E] {
 	Signal E,
 }
 
-// Next is the state after the decision d in s: Enter, Stay and Emit take
-// their Next; Ignore, Reject and Done keep s.
+// Next is the state after the decision d in s: Enter, Stay, Emit and Tell
+// take their Next; Ignore, Reject and Done keep s.
 func Next[S, O](s S, d Decision[S, O]) S {
 	match d {
 	case Enter[S] as e:
@@ -75,6 +76,8 @@ func Next[S, O](s S, d Decision[S, O]) S {
 		st.Next
 	case Emit[S, O] as em:
 		em.Next
+	case Tell[S, O] as tl:
+		tl.Next
 	case Ignore:
 		s
 	case Reject:
@@ -84,8 +87,8 @@ func Next[S, O](s S, d Decision[S, O]) S {
 	}
 }
 
-// Can is whether step takes e in s: its decision is Enter, Stay, Emit or
-// Done, not Ignore or Reject (MU10; runtime.md, Machines and actors 15).
+// Can is whether step takes e in s: its decision is Enter, Stay, Emit,
+// Tell or Done, not Ignore or Reject (MU10; runtime.md, Machines and actors 15).
 // step is pure (no failure, no capability), so asking it acts on nothing
 // and commits nothing: a screen greys a key whose signal the state cannot
 // take. A step with a row is no Can's: its answer could act.
@@ -96,6 +99,8 @@ func Can[S, E, O](step func(s S, e E) Decision[S, O], s S, e E) bool {
 	case Stay[S]:
 		true
 	case Emit[S, O]:
+		true
+	case Tell[S, O]:
 		true
 	case Done[O]:
 		true
@@ -119,8 +124,8 @@ func Initial[S, E, O, F, R, W](m Machine[S, E, O, F, R, W]) S { m.Initial }
 
 // Run steps m from its initial state over signals, in order, one at a
 // time: it ends at the first Done (Finished) or after the last signal
-// (Running), and fails Rejected at the first Reject. Each Emit's output is
-// kept, in order. A failure of the step ends the run with that failure.
+// (Running), and fails Rejected at the first Reject. Each Emit's and
+// Tell's output is kept, in order. A failure of the step ends the run with that failure.
 // Run has no clock: m's timers never fire (RunTimed runs them). Run runs no
 // work, so it needs the step's row R and not the work's W.
 func Run[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], signals []E) Outcome[S, O] fails Rejected | F needs R {
@@ -147,6 +152,9 @@ func From[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, signals []E) Outco
 			at = en.Next
 		case Stay[S] as st:
 			at = st.Next
+		case Tell[S, O] as tl:
+			out = out.Append(tl.Output)
+			at = tl.Next
 		case Ignore:
 		}
 	}
@@ -229,7 +237,8 @@ func until(start time.Time, at duration) duration needs time.Clock | Scheduler {
 // the clock does not go back). Each entry has the timer m.After of its
 // state, armed when the entry opens (the first state at 0, an Enter or an
 // Emit at the time of its signal): it gives its Signal In after that. A
-// Stay keeps the entry and its timer; an entry that ends takes its timer
+// Stay and a Tell keep the entry and its timer (a Tell gives its output,
+// as an Emit does); an entry that ends takes its timer
 // with it: a timer of an ended entry is dropped, never stepped. A timer
 // fires before a signal that comes later than it and after one that comes
 // at the same time; after the last signal, every timer due by end fires,
@@ -291,6 +300,9 @@ func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], e
 			timers = arm(timers, m, at, now, epoch)
 		case Stay[S] as st:
 			at = st.Next
+		case Tell[S, O] as tl:
+			out = out.Append(tl.Output)
+			at = tl.Next
 		case Ignore:
 		}
 	}

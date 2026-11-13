@@ -26,7 +26,7 @@ import (
 
 // tcell is one cell of a generated step table.
 type tcell struct {
-	kind   string // enter, stay, emit, ignore, reject, done, fail
+	kind   string // enter, stay, emit, tell, ignore, reject, done, fail
 	target int
 	delta  int
 }
@@ -66,7 +66,7 @@ var errBoom = errors.New("boom")
 // ignores: it holds the runner in a step while the test queues behind it.
 const gate = -1
 
-var kinds = map[string]int{"enter": decideEnter, "stay": decideStay, "emit": decideEmit, "ignore": decideIgnore, "reject": decideReject, "done": decideDone}
+var kinds = map[string]int{"enter": decideEnter, "stay": decideStay, "emit": decideEmit, "tell": decideTell, "ignore": decideIgnore, "reject": decideReject, "done": decideDone}
 
 // decide is the pure step of m: the decision, or errBoom.
 func (m tmachine) decide(s tstate, e tsig) (tdec, error) {
@@ -75,7 +75,7 @@ func (m tmachine) decide(s tstate, e tsig) (tdec, error) {
 		return tdec{}, errBoom
 	}
 	d := tdec{kind: kinds[c.kind], out: s.n + e.x}
-	if c.kind == "enter" || c.kind == "stay" || c.kind == "emit" {
+	if c.kind == "enter" || c.kind == "stay" || c.kind == "emit" || c.kind == "tell" {
 		d.next = tstate{c.target, s.n + e.x + c.delta}
 	}
 	return d, nil
@@ -139,7 +139,7 @@ func (m tmachine) start(t *rt.Task, sl Sleeper, capacity int, gateOpen chan stru
 		return step(t, s, tsig{tm.sig, tm.x})
 	}
 	next := func(s tstate, d tdec) tstate {
-		if d.kind == decideEnter || d.kind == decideStay || d.kind == decideEmit {
+		if d.kind == decideEnter || d.kind == decideStay || d.kind == decideEmit || d.kind == decideTell {
 			return d.next
 		}
 		return s
@@ -253,6 +253,14 @@ func (r *ref) step(e tsig, timer, asked bool) (tdec, bool, error) {
 		r.s = d.next
 		if r.armed {
 			r.seen["a stay keeps the timer"] = true
+		}
+	case decideTell:
+		// A Tell gives its output first (rule 17), then commits and keeps
+		// the entry and its timer, as a Stay does.
+		r.outs = append(r.outs, tout{d.out, r.s})
+		r.s = d.next
+		if r.armed {
+			r.seen["a tell keeps the timer"] = true
 		}
 	case decideReject:
 		if asked {
@@ -458,7 +466,7 @@ func genActorCase(r *rand.Rand) actorCase {
 	for i := range m.table {
 		m.table[i] = make([]tcell, ne)
 		for j := range m.table[i] {
-			kind := []string{"enter", "stay", "emit", "ignore"}[r.Intn(4)]
+			kind := []string{"enter", "stay", "emit", "tell", "ignore"}[r.Intn(5)]
 			if r.Intn(6) == 0 {
 				kind = []string{"reject", "done", "fail"}[r.Intn(3)]
 			}
@@ -621,7 +629,7 @@ func TestActorModelAgreesWithTimedFold(t *testing.T) {
 	}
 	r := rand.New(rand.NewSource(seed))
 	seen := map[string]bool{}
-	want := []string{"a timer fired", "a stay keeps the timer", "a stale timer dropped", "a timer fired after a signal at its deadline",
+	want := []string{"a timer fired", "a stay keeps the timer", "a tell keeps the timer", "a stale timer dropped", "a timer fired after a signal at its deadline",
 		"a signal at its timer's deadline", "an emit", "done", "a failure to its asker", "a failure ends the actor", "an asked reject",
 		"a stop", "refused after the end", "a timer that is not positive is a defect"}
 	missing := func() string {

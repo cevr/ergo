@@ -48,7 +48,7 @@ type Actor[S, E, D, F] {
 	// actor dropped instead of stepping them (runner rules 6 and 11).
 	Dropped() int,
 	// Changes is the actor's state when the loop begins, then each state
-	// it commits (Enter, Stay, Emit), in order, once each, whatever the
+	// it commits (Enter, Stay, Emit, Tell), in order, once each, whatever the
 	// number of loops; it ends after the actor ends and it gave every
 	// state committed before the end, also one a stop overtook. A break
 	// ends it. A loop that does not read keeps the states.
@@ -98,7 +98,8 @@ type Actor[S, E, D, F] {
 // state's timer (noTimer() for none; one that is not positive is a
 // defect), each state's work (workOf gives it, hasWork says whether it is
 // one, and work runs it with the entry's send), the decision's kind
-// (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4, Done 5), the state after
+// (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4, Done 5, Tell 6), the
+// state after
 // a decision, the output of a decision, and the inbox's capacity.
 extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh escaping func() S fails G needs R, limit int, step escaping func(s S, e E) D fails F needs R, fire escaping func(at S, s S) D fails F needs R, delay escaping func(s S) duration, workOf escaping func(s S) W, hasWork escaping func(w W) bool, work escaping func(w W, send func(e E)) needs R, kind escaping func(d D) int, next escaping func(s S, d D) S, out escaping func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
@@ -109,13 +110,13 @@ extern go ergo.local/prototype/runtime/v1.ActorNoTimer func noTimer() duration
 // StartMachine runs m as an actor with an inbox of capacity signals (0
 // makes each Send wait for the actor to take it; a negative capacity is a
 // defect) and returns at once. The actor steps one signal at a time, on
-// its own task, which a stop of the calling task stops: Enter, Stay and
-// Emit commit their Next; each entry (the first state, an Enter, an Emit)
-// arms m.After's timer on the caller's Scheduler, stopped and drained
+// its own task, which a stop of the calling task stops: Enter, Stay, Emit
+// and Tell commit their Next; each entry (the first state, an Enter, an
+// Emit; a Stay and a Tell keep the entry, its timer and its work) arms m.After's timer on the caller's Scheduler, stopped and drained
 // before the next entry arms its own; a timer of an ended entry is
 // dropped. A timer whose In is not positive is a defect that ends the
 // actor, as in machines.RunTimed: it would fire at its entry's instant,
-// and a state whose timer re-enters it would never let time pass. sink gets each Emit's output and Done's output, in order, on
+// and a state whose timer re-enters it would never let time pass. sink gets each Emit's, Tell's and Done's output, in order, on
 // the actor's task, before any observer sees the decision or its state
 // (runtime.md, Machines and actors 11.15); Done then ends the actor. A machine with an input
 // starts as machines.Start(m, input). sink is escaping: the actor's task
@@ -192,6 +193,8 @@ func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink
 			4
 		case Done[O]:
 			5
+		case Tell[S, O]:
+			6
 		}
 	}, func(s S, d Decision[S, O]) S { machines.Next(s, d) }, func(d Decision[S, O]) needs R {
 		match d {
@@ -199,6 +202,8 @@ func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink
 			sink(em.Output)
 		case Done[O] as dn:
 			sink(dn.Output)
+		case Tell[S, O] as tl:
+			sink(tl.Output)
 		case Enter[S]:
 		case Stay[S]:
 		case Ignore:
@@ -212,7 +217,7 @@ func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink
 // the start: Some state is the state the actor starts in, None starts it
 // in m's initial state; a failure of recover fails StartDurable, and no
 // actor starts. save gets the state before, the state after and the
-// signal of each step that commits (Enter, Stay, Emit; a timer's and a
+// signal of each step that commits (Enter, Stay, Emit, Tell; a timer's and a
 // work's signal too). It runs after the step decided and before the actor
 // commits the state, opens the entry, gives an output or answers the Ask,
 // so no one sees a state that save did not keep. Ignore, Reject and Done
@@ -283,6 +288,8 @@ func durable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], initial S, save e
 			keep(save, s, st.Next, e)
 		case Emit[S, O] as em:
 			keep(save, s, em.Next, e)
+		case Tell[S, O] as tl:
+			keep(save, s, tl.Next, e)
 		case Ignore:
 		case Reject:
 		case Done[O]:
@@ -304,7 +311,7 @@ extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F,
 // Child runs m as an actor that the entry of the calling work owns
 // (runtime.md, Machines and actors 14), with an inbox of capacity
 // signals, and returns it; call it in a machine's work, with that work's
-// send. The child runs as StartMachine runs it. Its Emit and Done outputs
+// send. The child runs as StartMachine runs it. Its Emit, Tell and Done outputs
 // reach the parent through toParent, as signals of the entry that started
 // the child: one that arrives after that entry ended is dropped, never
 // stepped. When the entry ends, and when the parent ends, its children
@@ -339,7 +346,7 @@ type Host[A] {
 }
 
 // NewHost is an empty host. Made in a step of an actor, it belongs to the
-// entry the step enters (an Enter or an Emit; a Stay's is the current
+// entry the step enters (an Enter or an Emit; a Stay's and a Tell's is the current
 // entry's) and closes when the step enters no state. Made in the recover
 // of StartDurable or SuperviseDurable (a replay of the step), it is
 // unbound: the recovered actor's first entry owns it when its first state
@@ -404,6 +411,8 @@ func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, Decision[S, O], F]], m M
 			4
 		case Done[O]:
 			5
+		case Tell[S, O]:
+			6
 		}
 	}, func(s S, d Decision[S, O]) S { machines.Next(s, d) }, func(d Decision[S, O], deliver func(p P)) needs R {
 		match d {
@@ -411,6 +420,8 @@ func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, Decision[S, O], F]], m M
 			deliver(toParent(em.Output))
 		case Done[O] as dn:
 			deliver(toParent(dn.Output))
+		case Tell[S, O] as tl:
+			deliver(toParent(tl.Output))
 		case Enter[S]:
 		case Stay[S]:
 		case Ignore:

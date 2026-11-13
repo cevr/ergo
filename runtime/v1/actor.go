@@ -256,6 +256,7 @@ const (
 	decideIgnore
 	decideReject
 	decideDone
+	decideTell // a Stay that gives an output
 )
 
 // The envelope kinds of the inbox.
@@ -724,17 +725,22 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 	}
 	k := a.kind(d)
 	// The step's hosts (rule 15): an Enter's and an Emit's are bound in
-	// open, a Stay's to the current entry; any other decision enters no
+	// open, a Stay's and a Tell's to the current entry; any other decision enters no
 	// state, so they close.
 	if len(a.newHosts) > 0 {
 		switch k {
-		case decideStay:
+		case decideStay, decideTell:
 			a.bindNewHosts()
 		case decideIgnore, decideReject, decideDone:
 			a.closeNewHosts()
 		}
 	}
-	if k == decideStay {
+	if k == decideStay || k == decideTell {
+		// A Tell keeps the entry, its timer and its work, as a Stay does
+		// (rule 4); its output goes first (rule 17).
+		if k == decideTell {
+			a.out(at, d)
+		}
 		// One lock for the decision and the commit (MU18).
 		s = a.next(s, d)
 		a.mu.Lock()

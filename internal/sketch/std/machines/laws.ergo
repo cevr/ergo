@@ -4,11 +4,11 @@
 import testing
 import time
 
-// tallyStep: a signal e moves the count s by its rest modulo 6: 0 enters
+// tallyStep: a signal e moves the count s by its rest modulo 7: 0 enters
 // s + e, 1 stays at s + 1, 2 is ignored, 3 is rejected, 4 emits s and
-// moves to s - 1, 5 is done with s.
+// moves to s - 1, 5 is done with s, 6 tells -s and moves to s + 2.
 func tallyStep(s int, e int) Decision[int, int] {
-	match ((e % 6) + 6) % 6 {
+	match ((e % 7) + 7) % 7 {
 	case 0:
 		Enter[int]{Next: s + e}
 	case 1:
@@ -19,6 +19,8 @@ func tallyStep(s int, e int) Decision[int, int] {
 		Reject
 	case 4:
 		Emit[int, int]{Next: s - 1, Output: s}
+	case 6:
+		Tell[int, int]{Next: s + 2, Output: -s}
 	case _:
 		Done[int]{Output: s}
 	}
@@ -92,12 +94,13 @@ law RunSplits(a []int, b []int) {
 	}
 }
 
-// NextTakesItsState: Enter, Stay and Emit give their Next; Ignore, Reject
-// and Done keep the state.
+// NextTakesItsState: Enter, Stay, Emit and Tell give their Next; Ignore,
+// Reject and Done keep the state.
 law NextTakesItsState(s int, n int) {
 	Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n &&
 		Next[int, int](s, Emit[int, int]{Next: n, Output: s}) == n && Next[int, int](s, Ignore) == s &&
-		Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s
+		Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s &&
+		Next[int, int](s, Tell[int, int]{Next: n, Output: s}) == n
 }
 
 // UntimedRunsAsRun: with no timer, a timed run is the run over its
@@ -124,4 +127,89 @@ func timedTally(trace []Timed[int], end duration) string needs time.Clock | Sche
 		return "rejected \(r.At)"
 	}
 	told(o, []int{})
+}
+
+// The entry rule (runtime.md, Machines and actors 2 and 9): only the
+// first state, an Enter and an Emit open an entry; a Stay and a Tell keep
+// it, with its timer and its work. bell is a machine whose every state
+// rings 10s after its entry opens; each poke counts and decides by the
+// state's Kind (0 Enter, 1 Stay, 2 Emit, 3 Tell), and the ring is Done
+// with the count.
+
+// Bell is bell's state: the pokes counted, and the decision of a poke.
+type Bell { Count int, Kind int }
+
+// bellStep: a signal 0 is the ring; any other is a poke.
+func bellStep(b Bell, e int) Decision[Bell, int] {
+	if e == 0 {
+		return Done[int]{Output: b.Count}
+	}
+	let n = Bell{Count: b.Count + 1, Kind: b.Kind}
+	match b.Kind {
+	case 0:
+		Enter[Bell]{Next: n}
+	case 1:
+		Stay[Bell]{Next: n}
+	case 2:
+		Emit[Bell, int]{Next: n, Output: n.Count}
+	case _:
+		Tell[Bell, int]{Next: n, Output: n.Count}
+	}
+}
+
+func bellTimer(b Bell) Option[Timeout[int]] { Some[Timeout[int]]{Value: Timeout[int]{In: 10s, Signal: 0}} }
+
+func bellWork(b Bell) Option[func(send func(e int))] { None }
+
+// rung is the count when bell, deciding each poke by kind, rang, and its
+// outputs, after pokes at 1s, 2s, … for the first pokes % 10 of them and
+// one at 10.5s; a count of -1 when it did not ring.
+func rung(kind int, pokes int) (int, []int) {
+	let mut trace = []Timed[int]{}
+	for i in 0..((pokes % 10) + 10) % 10 {
+		trace = trace.Append(Timed[int]{At: duration(int64(i+1) * int64(1s)), Signal: 1})
+	}
+	trace = trace.Append(Timed[int]{At: 10s + 500ms, Signal: 1})
+	let m = Machine[Bell, int, int]{Initial: Bell{Count: 0, Kind: kind}, Step: bellStep, After: bellTimer, Work: bellWork}
+	let c = testing.NewVirtualClock(0)
+	let o = with context { Scheduler: c, time.Clock: c } { RunTimed(m, trace, 60s) } catch {
+	case Rejected:
+		return (-1, []int{})
+	}
+	match o {
+	case Finished[Bell, int] as f:
+		(f.Output, f.Emitted)
+	case Running[Bell, int]:
+		(-1, []int{})
+	}
+}
+
+// count is 1, 2, …, n.
+func count(n int) []int {
+	let mut out = []int{}
+	for i in 1..n+1 {
+		out = out.Append(i)
+	}
+	out
+}
+
+// StayAndTellKeepTheTimer: pokes that Stay or Tell before the ring do not
+// move it: it rings 10s after the start, before the poke at 10.5s, and a
+// Tell gives each poke's output.
+law StayAndTellKeepTheTimer(pokes int) {
+	let k = ((pokes % 10) + 10) % 10
+	let (stayed, quiet) = rung(1, pokes)
+	let (told, outs) = rung(3, pokes)
+	stayed == k && len(quiet) == 0 && told == k && outs == count(k)
+}
+
+// EnterAndEmitRestartTheTimer: each poke that Enters or Emits opens a new
+// entry, so the ring comes 10s after the last poke: after the one at
+// 10.5s when an earlier poke moved it, before it when none did.
+law EnterAndEmitRestartTheTimer(pokes int) {
+	let k = ((pokes % 10) + 10) % 10
+	let want = if k > 0 { k + 1 } else { 0 }
+	let (entered, _) = rung(0, pokes)
+	let (emitted, outs) = rung(2, pokes)
+	entered == want && emitted == want && outs == count(want)
 }

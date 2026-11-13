@@ -175,6 +175,8 @@ func replay[S, E, O, F, R](step func(s S, e E) Decision[S, O] fails F needs R, s
 			at = st.Next
 		case Emit[S, O] as em:
 			at = em.Next
+		case Tell[S, O] as tl:
+			at = tl.Next
 		case Ignore:
 			return Diverged{At: i}
 		case Reject:

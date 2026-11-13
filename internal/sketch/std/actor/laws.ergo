@@ -467,3 +467,53 @@ law RestartRecovers(signals []int, n int) {
 		recoveredRun(signals, n)
 	}
 }
+
+// tellStep: a signal e decides by its rest modulo 3: 0 tells s and moves
+// to s + 1, 1 emits -s and moves to s + 1, 2 stays at s + e.
+func tellStep(s int, e int) Decision[int, int] {
+	match ((e % 3) + 3) % 3 {
+	case 0:
+		Tell[int, int]{Next: s + 1, Output: s}
+	case 1:
+		Emit[int, int]{Next: s + 1, Output: -s}
+	case _:
+		Stay[int]{Next: s + e}
+	}
+}
+
+// heard: a tellStep actor asked each signal gave its sink the outputs of
+// the pure step's Emits and Tells, in order.
+func heard(signals []int) bool needs Scheduler {
+	let got = sync.NewRef[[]int]([]int{})
+	let a = StartMachine(Machine[int, int, int]{Initial: 0, Step: tellStep, After: untimed, Work: unworked}, 1, func(o int) {
+		got.Set(got.Get().Append(o))
+	})
+	let mut s = 0
+	let mut want = []int{}
+	for e in signals {
+		let d = tellStep(s, e)
+		match d {
+		case Emit[int, int] as em:
+			want = want.Append(em.Output)
+		case Tell[int, int] as tl:
+			want = want.Append(tl.Output)
+		case _:
+		}
+		s = machines.Next(s, d)
+		let _ = a.Ask(e) catch {
+		case Stopped:
+			a.Stop()
+			return false
+		}
+	}
+	a.Stop()
+	got.Get() == want
+}
+
+// SinkGetsEachOutput: the actor gives its sink each Emit's and Tell's
+// output, in order, before it answers the Ask.
+law SinkGetsEachOutput(signals []int) {
+	with context { Scheduler: time.NewManual(0) } {
+		heard(signals)
+	}
+}

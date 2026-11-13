@@ -472,7 +472,7 @@ func (r *reader) edgesOfStmt(s syntax.Stmt, decl syntax.Node) []Edge {
 }
 
 // decisionKinds are the prelude Decision's variants.
-var decisionKinds = []string{"Enter", "Stay", "Emit", "Ignore", "Reject", "Done"}
+var decisionKinds = []string{"Enter", "Stay", "Emit", "Ignore", "Reject", "Done", "Tell"}
 
 // edgesOf is the decisions the value x can be.
 func (r *reader) edgesOf(x syntax.Expr, decl syntax.Node) []Edge {
@@ -495,7 +495,7 @@ func (r *reader) edgesOf(x syntax.Expr, decl syntax.Node) []Edge {
 	switch kind {
 	case "":
 		return []Edge{{Decision: Unknown, Site: site}}
-	case "Enter", "Stay", "Emit":
+	case "Enter", "Stay", "Emit", "Tell":
 		to := Any
 		if lit, ok := x.(*syntax.CompositeLit); ok {
 			for _, el := range lit.Elts {
@@ -731,7 +731,7 @@ func (g *Graph) Reachable() []Pair {
 			for _, a := range g.arms(s, sg) {
 				for _, e := range a.Edges {
 					switch e.Decision {
-					case "Enter", "Stay", "Emit":
+					case "Enter", "Stay", "Emit", "Tell":
 						visit(e.To)
 					case Unknown:
 						visit(Any)

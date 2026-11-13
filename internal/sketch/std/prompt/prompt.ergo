@@ -59,7 +59,7 @@ func run[S, O, F, R, W](m Machine[S, term.Key, Option[O], F, R, W], frame func(s
 	for {
 		let d = try m.Step(now, try term.Terminal.ReadKey())
 		match d {
-		case Enter[S], Stay[S], Emit[S, Option[O]]:
+		case Enter[S], Stay[S], Emit[S, Option[O]], Tell[S, Option[O]]:
 			now = machines.Next(now, d)
 			let next = frame(now)
 			io.Stderr.Eprint(Redraw(shown, next))
