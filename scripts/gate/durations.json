@@ -1180,6 +1180,7 @@
     "TestTimeoutDeadlineIsTheProgramScheduler": 0.58,
     "TestTopLevelLawNamesAbsent": 0.03,
     "TestTopLevelLawsLeaveNoGo": 4.53,
+    "TestTrustedRootBindsRuntime": 0.8,
     "TestUnitValidate": 0,
     "TestUnreachableRulesRefuse": 0.01,
     "TestUntypedLetIsRefusedBeforeLowering": 0,
