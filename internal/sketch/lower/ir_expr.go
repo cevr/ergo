@@ -5,10 +5,21 @@ package lower
 import (
 	"go/constant"
 	"strconv"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
+
+// irString is the string constant s as the IR file holds it: JSON text,
+// which carries only UTF-8 (encoding/json writes U+FFFD for any other
+// byte), so a constant that is not stays the emitter's.
+func irString(s string) string {
+	if !utf8.ValidString(s) {
+		irNo("string constant that is not UTF-8")
+	}
+	return s
+}
 
 // value is x as an IR expression, after the statements that must run
 // before it (polls, an if expression's branches). Only a whole value takes
@@ -245,7 +256,7 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	case constant.Bool:
 		return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatBool(constant.BoolVal(v))}
 	case constant.String:
-		return &irExpr{K: "const", Pos: p, T: gt, V: constant.StringVal(v)}
+		return &irExpr{K: "const", Pos: p, T: gt, V: irString(constant.StringVal(v))}
 	case constant.Int, constant.Float:
 		switch {
 		case isInteger(t) || bt.Kind == check.Duration:

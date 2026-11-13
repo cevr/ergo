@@ -192,10 +192,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"function type with several results", "G6"},
 	{"call of a function value *", "G6"},
 	{"call of a value of a named function type", "G6"},
-	{"call of a known callback", "G4"}, // known.go's plain variant
-	{"call kind 10", "G6"},             // CallEncode
-	{"call kind 11", "G6"},             // CallDecode
-	{"call kind 12", "G6"},             // CallEmbed
-	{"call kind 8", "G6"},              // CallLawOp
-	{"call kind 9", "G6"},              // CallGoError
+	{"call of a known callback", "G4"},          // known.go's plain variant
+	{"string constant that is not UTF-8", "G6"}, // the IR file is JSON (IRG6 r3)
+	{"call kind 10", "G6"},                      // CallEncode
+	{"call kind 11", "G6"},                      // CallDecode
+	{"call kind 12", "G6"},                      // CallEmbed
+	{"call kind 8", "G6"},                       // CallLawOp
+	{"call kind 9", "G6"},                       // CallGoError
 }
