@@ -17,7 +17,10 @@ import (
 // TestEmbeddedAssetsSnapshot catches missing directives, dropped payloads
 // and stale asset build identity (testdata/mutants.json). It checks both
 // build modes in process: a native compiler, not Ergo, stores the payload
-// in the binary. Go source size must not grow with that payload.
+// in the binary. Go source size must not grow with that payload. The kind
+// Tree is a trusted module's own type that names the runtime's tree type,
+// as embed.FS does, so embedded[T] builds a tree for it too (STD-NOPRIV
+// NP3d; mutant embed-tree-std-only).
 func TestEmbeddedAssetsSnapshot(t *testing.T) {
 	seed := uint64(71)
 	if s := os.Getenv("ERGO_EMBED_SEED"); s != "" {
@@ -28,24 +31,30 @@ func TestEmbeddedAssetsSnapshot(t *testing.T) {
 		}
 	}
 	rng := rand.New(rand.NewPCG(seed, seed+1))
-	for _, kind := range []string{"string", "[]byte", "embed.FS"} {
+	for _, kind := range []string{"string", "[]byte", "embed.FS", "Tree"} {
 		for _, location := range []string{"root", "imported"} {
 			t.Run(kind+"/"+location, func(t *testing.T) {
 				imports := ""
 				pattern := "data/help.txt"
-				if kind == "embed.FS" {
+				mod := "module app\n"
+				switch kind {
+				case "embed.FS":
 					imports = "import embed\n"
 					pattern = "data"
+				case "Tree":
+					imports = "extern go ergo.local/prototype/runtime/v1.FS type Tree { runtimeOnly() }\n"
+					pattern = "data"
+					mod = "module app\ntrust app\n"
 				}
 				source := imports + fmt.Sprintf("let Asset = embedded[%s](%q)\n", kind, pattern)
 				payload := make([]byte, 97+rng.IntN(4096))
 				for i := range payload {
 					payload[i] = byte(rng.UintN(256))
 				}
-				files := map[string]string{"ergo.mod": "module app\n", "main.ergo": source + "func main() {}\n", "data/help.txt": string(payload)}
+				files := map[string]string{"ergo.mod": mod, "main.ergo": source + "func main() {}\n", "data/help.txt": string(payload)}
 				assetPath := "data/help.txt"
 				if location == "imported" {
-					files = map[string]string{"ergo.mod": "module app\n", "main.ergo": "import app/lib\nfunc main() { lib.Use() }\n", "lib/lib.ergo": source + "func Use() {}\n", "lib/data/help.txt": string(payload)}
+					files = map[string]string{"ergo.mod": mod, "main.ergo": "import app/lib\nfunc main() { lib.Use() }\n", "lib/lib.ergo": source + "func Use() {}\n", "lib/data/help.txt": string(payload)}
 					assetPath = "lib/data/help.txt"
 				}
 				root := writeTree(t, files)

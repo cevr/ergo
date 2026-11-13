@@ -290,3 +290,22 @@ func GoTypeOf(n *Named) (string, bool) {
 	path, name := n.origin().Obj.Decl.Extern.Split()
 	return name, path == runtimeModule+"/v1"
 }
+
+// embedTreeBody is the runtime's embedded-tree constructor, which the
+// lowering calls for embedded[T] of a tree (lower/embed.go).
+const embedTreeBody = "EmbeddedFS"
+
+// embedTree reports a type embedded[T] builds as a tree of assets: its
+// declaration names the Go type the runtime's embedded-tree constructor
+// returns (embed.FS is `extern go …/runtime/v1.FS type FS`). It reads the
+// declaration and the constructor's body, never a std name, so a trusted
+// package's type that names the same Go type is a tree too (STD-NOPRIV
+// NP3d; docs/spec/stdlib.md, The body contract).
+func embedTree(n *Named) bool {
+	goName, ok := GoTypeOf(n)
+	if !ok {
+		return false
+	}
+	body, err := v1.BodyOf(embedTreeBody)
+	return err == nil && len(body.Results) == 1 && body.Results[0] == "*"+goName
+}

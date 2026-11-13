@@ -570,7 +570,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/durable.go:TakesDurableMachine",
 	"internal/sketch/check/durable.go:checker.durableStep",
 	"internal/sketch/check/durable.go:checker.recordDurable",
-	"internal/sketch/check/embed.go:checker.embedCall",
 	"internal/sketch/check/expr.go:checker.compositeLit",
 	"internal/sketch/check/ownership.go:isQueue",
 	"internal/sketch/check/ownership.go:ownWalk.holdsTaken",

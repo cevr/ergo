@@ -72,7 +72,6 @@ language	internal/sketch/lower/values.go:preludeMapWrite	the prelude Delete and 
 language	internal/tsproj/project.go:emitter.declare	Wire, the codec's conversion protocol	-
 language	internal/tsproj/project.go:emitter.schema	Option	-
 debt	internal/sketch/check/drop.go:dropWalk.drain	a std type's drain body by name	NP3c
-debt	internal/sketch/check/embed.go:checker.embedCall	embed.FS by name	NP3d
 debt	internal/sketch/check/expr.go:checker.compositeLit	a Context literal only in std	NP3d
 debt	internal/sketch/check/ownership.go:isQueue	queue.Queue by name	NP3c
 debt	internal/sketch/check/ownership.go:ownWalk.holdsTaken	a std type keeps taken values	NP3c
