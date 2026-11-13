@@ -21,13 +21,12 @@ import (
 // category, abi: a backend binding. A runtime type representation, a
 // prelude collection wrapper or a std extern's ABI: the lowering must know
 // which Go form stands for the declaration, so the name is the binding.
-// Apart from the pre-existing json Text path sanctioned by owner q108
-// until LR3 removes it, no optimizer selects a faster form by a std name:
-// OPT6 retired
+// No optimizer selects a faster form by a std name: OPT6 retired
 // maps.Update fusion, sync's owned handover and WithCapacity freshness,
-// and OPT6b the machines Run/From flat run, through general facts
-// (Ergo-side inlining of an ordinary body, a runtime body's form, copies
-// for a known record and scalar locals). A line of another category
+// OPT6b the machines Run/From flat run, and the law-rewrite units the
+// json-keyed encode path, through general facts (Ergo-side inlining of an
+// ordinary body, a runtime body's form, copies for a known record and
+// scalar locals, a writer's own rewrite laws). A line of another category
 // fails.
 //
 // A name-keyed decision is a function of a non-test file of the lowering
@@ -189,8 +188,9 @@ func nameSel(x ast.Expr) bool {
 
 // stdNamesBaseline is testdata/std-names.txt as OPT6 left it (the rule
 // landed with OPT4a): `category file:function`. A line may leave the
-// inventory; none may join. CF1 corrects the old literal-only scanner's
-// missed, owner-sanctioned Text site (q108); LR3 removes that site.
+// inventory; none may join. The json-keyed sites the constant-reading
+// detector found (CF1's isJSONText, JSON-fast's jsonWrapper) are gone: LR3
+// removed the Text path, and a codec form a type declares replaced jsonWrapper.
 var stdNamesBaseline = []string{
 	"abi calls.go:funcCtx.callee",
 	"abi calls.go:lowerer.hostImportNames",
@@ -206,5 +206,4 @@ var stdNamesBaseline = []string{
 	"abi types.go:lowerer.foreignOwner",
 	"abi values.go:preludeAppend",
 	"abi values.go:preludeMapWrite",
-	"abi wirejson.go:isJSONText",
 }

@@ -2,6 +2,8 @@
 // grep -E does for the syntax of package syntax: literals, ., classes,
 // *, +, ?, | and groups. -x matches whole lines, -c prints the count of
 // matching lines, and -r runs the reference engine in place of the NFA.
+// -g prints, after each matching line, every occurrence of each named
+// group (?<name>...) of the match, or that the group took no part.
 // The status is 0 when a line matches, 1 when none does, 2 on a usage or
 // pattern error. This binary is the only place that chooses the engine
 // and the host's streams.
@@ -18,18 +20,18 @@ let Fast = context { engine.Engine: nfa.Engine }
 let Reference = context { engine.Engine: backtrack.Engine }
 
 // Options is a command line of regex.
-type Options { Pattern string, Mode engine.Mode, Count bool, UseReference bool }
+type Options { Pattern string, Mode engine.Mode, Count bool, UseReference bool, Groups bool }
 
-// BadUsage is a command line that is not [-c] [-x] [-r] PATTERN.
+// BadUsage is a command line that is not [-c] [-x] [-r] [-g] PATTERN.
 type BadUsage { Reason string }
 
 // usage is the line that follows a usage error.
-let usage = "usage: regex [-c] [-x] [-r] PATTERN"
+let usage = "usage: regex [-c] [-x] [-r] [-g] PATTERN"
 
 // parseArgs reads args: flags first, then one pattern. "--" ends the
 // flags.
 func parseArgs(args []string) Options fails BadUsage {
-	let mut o = Options{Pattern: "", Mode: engine.Inside, Count: false, UseReference: false}
+	let mut o = Options{Pattern: "", Mode: engine.Inside, Count: false, UseReference: false, Groups: false}
 	let mut rest = []string{}
 	let mut flags = true
 	for a in args {
@@ -41,6 +43,8 @@ func parseArgs(args []string) Options fails BadUsage {
 			o.Mode = engine.Whole
 		} else if flags && a == "-r" {
 			o.UseReference = true
+		} else if flags && a == "-g" {
+			o.Groups = true
 		} else if flags && len(a) > 1 && a[0] == '-' {
 			return BadUsage{Reason: "unknown flag " + a}
 		} else {
@@ -49,6 +53,9 @@ func parseArgs(args []string) Options fails BadUsage {
 	}
 	if len(rest) != 1 {
 		return BadUsage{Reason: "want one pattern, have \(len(rest))"}
+	}
+	if o.Count && o.Groups {
+		return BadUsage{Reason: "-c counts lines and -g prints groups: choose one"}
 	}
 	Options{..o, Pattern: rest[0]}
 }
@@ -71,6 +78,78 @@ func grep(o Options, pattern syntax.Node) fails os.Exit needs engine.Engine | io
 	}
 }
 
+// groups runs o's checked pattern p over standard input and prints each
+// matching line and its groups. Whole parses each line; Inside finds the
+// leftmost match. It fails with status 1 when no line matches.
+func groups(o Options, p syntax.Pattern) fails os.Exit needs io.Stdin | io.Stdout {
+	let c = nfa.NewCapturing(p)
+	let names = groupNames(p)
+	let mut n = 0
+	for line in io.Stdin.Lines() {
+		match capture(o, c, p, line) {
+		case Some[syntax.Found] as f:
+			n += 1
+			io.Stdout.Println(line)
+			for name in names {
+				io.Stdout.Println("\t" + name + " " + occurrences(line, f.Value.Events, name))
+			}
+		case None:
+		}
+	}
+	if n == 0 {
+		return os.Exit{Code: 1, Message: "regex: no line matches"}
+	}
+}
+
+// capture is the match of p in line: of the whole line in Whole, the
+// leftmost in Inside, by the NFA or, with -r, the reference.
+func capture(o Options, c nfa.Capturing, p syntax.Pattern, line string) Option[syntax.Found] {
+	match o.Mode {
+	case engine.Whole:
+		let r = if o.UseReference { backtrack.ParseCaptures(p, line) } else { c.ParseCaptures(line) }
+		match r {
+		case Some[[]syntax.Event] as s:
+			Some{Value: syntax.Found{Start: 0, End: len(line), Events: s.Value}}
+		case None:
+			None
+		}
+	case engine.Inside:
+		if o.UseReference { backtrack.FindCaptures(p, line) } else { c.FindCaptures(line) }
+	}
+}
+
+// groupNames is the names of p's groups, each once, in the order they
+// open.
+func groupNames(p syntax.Pattern) []string {
+	let mut out = []string{}
+	for g in syntax.Groups(p.Tree()) {
+		let mut seen = false
+		for name in out {
+			seen = seen || name == g.Name
+		}
+		if !seen {
+			out = out.Append(g.Name)
+		}
+	}
+	out
+}
+
+// occurrences is every occurrence of the group name in events as
+// START-END=TEXT, or "none" when the group took no part.
+func occurrences(line string, events []syntax.Event, name string) string {
+	let all = syntax.Occurrences(events, name)
+	if len(all) == 0 {
+		return "none"
+	}
+	let mut out = ""
+	for i in 0..len(all) {
+		let o = all[i]
+		let sep = if i == 0 { "" } else { " " }
+		out = out + sep + "\(o.Start)-\(o.End)=" + line[o.Start:o.End]
+	}
+	out
+}
+
 // run is regex on args.
 func run(args []string) fails os.Exit needs io.Stdin | io.Stdout {
 	let o = parseArgs(args) catch {
@@ -80,6 +159,14 @@ func run(args []string) fails os.Exit needs io.Stdin | io.Stdout {
 	let pattern = syntax.Parse(o.Pattern) catch {
 	case err:
 		return os.Exit{Code: 2, Message: "regex: \(syntax.Describe(err)) in \(o.Pattern)"}
+	}
+	if o.Groups {
+		let checked = syntax.Check(pattern) catch {
+		case err:
+			return os.Exit{Code: 2, Message: "regex: \(syntax.DescribeCapture(err)) in \(o.Pattern)"}
+		}
+		try groups(o, checked)
+		return
 	}
 	if o.UseReference {
 		with Reference {
@@ -130,9 +217,11 @@ test CountsAndWholeLines {
 test FailuresExit {
 	assert ran([]string{"dog"}, poem) == "exit 1: regex: no line matches\n"
 	assert ran([]string{"a(b"}, poem) == "exit 2: regex: missing ) for the ( at 1 in a(b\n"
-	assert ran([]string{}, poem) == "exit 2: regex: want one pattern, have 0\nusage: regex [-c] [-x] [-r] PATTERN\n"
-	assert ran([]string{"-v", "a"}, poem) == "exit 2: regex: unknown flag -v\nusage: regex [-c] [-x] [-r] PATTERN\n"
+	assert ran([]string{}, poem) == "exit 2: regex: want one pattern, have 0\nusage: regex [-c] [-x] [-r] [-g] PATTERN\n"
+	assert ran([]string{"-v", "a"}, poem) == "exit 2: regex: unknown flag -v\nusage: regex [-c] [-x] [-r] [-g] PATTERN\n"
 	assert ran([]string{"--", "-v"}, "a-v\n") == "a-v\n"
+	assert ran([]string{"-g", "(a?)*"}, poem) == "exit 2: regex: repeat a?* can match the empty text in (a?)*\n"
+	assert ran([]string{"-c", "-g", "a"}, poem) == "exit 2: regex: -c counts lines and -g prints groups: choose one\nusage: regex [-c] [-x] [-r] [-g] PATTERN\n"
 }
 
 // EnginesAgree: on any pattern text and lines, both engines print the
@@ -144,4 +233,6 @@ test EnginesAgree(pattern string, lines []string) {
 	}
 	assert ran([]string{pattern}, input) == ran([]string{"-r", pattern}, input)
 	assert ran([]string{"-x", pattern}, input) == ran([]string{"-x", "-r", pattern}, input)
+	assert ran([]string{"-g", pattern}, input) == ran([]string{"-g", "-r", pattern}, input)
+	assert ran([]string{"-x", "-g", pattern}, input) == ran([]string{"-x", "-g", "-r", pattern}, input)
 }

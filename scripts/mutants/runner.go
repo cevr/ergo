@@ -71,6 +71,14 @@ type Suite struct {
 	Command []string
 	List    func(root string) ([]string, error)
 	Env     []string
+	// Tags are a Go suite's build tags (go test -tags); Only, when set,
+	// are the only tests of the suite that the runner runs. Named are the
+	// tests of the suite the ledgers name as killers: a Go suite that lacks
+	// one is refused, and a command suite runs them besides the ones List
+	// gives (a ledger's killer may be an example that is not a default).
+	Tags  string
+	Only  []string
+	Named []string
 }
 
 // Deadlines of the mutant pass, derived from the coverage pass: a child may
@@ -89,7 +97,7 @@ const MutantVariable = "ERGO_MUTANT"
 const (
 	Killed    = "killed"
 	Survived  = "survived"
-	Uncovered = "uncovered" // no test runs its lines
+	Uncovered = "uncovered" // no test runs its lines, and the ledger names none
 	Stale     = "stale"     // its edit does not apply: report it to its origin
 	Invalid   = "invalid"   // the mutated tree does not build: report it to its origin
 )
@@ -258,7 +266,7 @@ func (e *engine) load(ledgers []string) error {
 	}
 	fmt.Fprintf(h, "cover %q tools %q", e.cfg.Cover, toolNames(e.cfg.Tools))
 	for _, s := range e.cfg.Suites {
-		fmt.Fprintf(h, " suite %s %s %q %q", s.Name, s.Package, s.Command, s.Env)
+		fmt.Fprintf(h, " suite %s %s %q %q %q %q %q", s.Name, s.Package, s.Command, s.Env, s.Tags, s.Only, s.Named)
 	}
 	e.key = hex.EncodeToString(h.Sum(nil))[:16]
 	return nil
@@ -290,6 +298,37 @@ func (e *engine) copyTree(dst string) error {
 		}
 		if err := os.WriteFile(path, f.data, f.mode.Perm()|0o200); err != nil {
 			return err
+		}
+	}
+	return commitCopy(dst, e.files)
+}
+
+// commitCopy makes the copy at dst a Git repository whose one commit holds
+// the copied files. The tests that read the repository (internal/residue's
+// rules run git ls-files) then see the checkout's file list in the copy and
+// can kill a mutant; without it they fail on every tree. The commit also
+// keeps go build's VCS stamp working. The user's Git configuration is left
+// out: a signing or hook setting must not reach the copy.
+func commitCopy(dst string, files []treeFile) error {
+	var names bytes.Buffer
+	for _, f := range files {
+		names.WriteString(f.path)
+		names.WriteByte(0)
+	}
+	steps := [][]string{
+		{"init", "-q"},
+		{"add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"},
+		{"-c", "user.name=mutants", "-c", "user.email=mutants@invalid", "commit", "-q", "--no-verify", "-m", "mutants copy"},
+	}
+	for _, args := range steps {
+		cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
+		cmd.Dir = dst
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if args[0] == "add" {
+			cmd.Stdin = bytes.NewReader(names.Bytes())
+		}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git %s in the copy %s: %w\n%s", args[0], dst, err, out)
 		}
 	}
 	return nil
@@ -508,8 +547,11 @@ func (e *engine) buildTool(ctx context.Context, root, bin, name string, cover bo
 
 func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cover bool, deadline time.Duration) outcome {
 	argv := []string{"go", "test", "-c"}
-	if cover {
+	if cover && len(e.cfg.Cover) > 0 {
 		argv = append(argv, "-cover", "-covermode=set", "-coverpkg="+strings.Join(e.cfg.Cover, ","))
+	}
+	if s.Tags != "" {
+		argv = append(argv, "-tags="+s.Tags)
 	}
 	argv = append(argv, "-o", filepath.Join(bin, s.Name+".test"), s.Package)
 	return e.exec(ctx, root, argv, e.env(), deadline)
@@ -532,9 +574,26 @@ func (e *engine) argv(s *Suite, root, bin, test string) ([]string, string, []str
 	return argv, root, env
 }
 
+// splitID splits a killer id SUITE:TEST into its suite and its test. A note
+// after the test, past a space ("TestX (ERGO_CLOSURE_SWEEP=cmd/ergo)"), is
+// for the reader and is not part of the test's name.
 func splitID(id string) (string, string) {
 	suite, name, _ := strings.Cut(id, ":")
+	name, _, _ = strings.Cut(name, " ")
 	return suite, name
+}
+
+// killerIDs are a mutant's named killers and anchor tests as the runner
+// names its tests, SUITE:TEST, without their notes.
+func killerIDs(m *Mutant) []string {
+	var out []string
+	for _, id := range append(slices.Clone(m.Killers), anchorTests(m)...) {
+		suite, name := splitID(id)
+		if id := suite + ":" + name; !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // prepareCoverage reads the coverage file, the cached one of this tree, or
@@ -601,15 +660,35 @@ func (e *engine) measure(ctx context.Context) (*coverage, error) {
 			if err != nil {
 				return nil, fmt.Errorf("list the tests of %s: %w", s.Name, err)
 			}
-			for _, n := range strings.Fields(string(list)) {
-				if strings.HasPrefix(n, "Test") {
+			listed := strings.Fields(string(list))
+			for _, n := range listed {
+				if strings.HasPrefix(n, "Test") && (s.Only == nil || slices.Contains(s.Only, n)) {
 					names = append(names, n)
 				}
 			}
+			// A test a ledger names that the suite does not have would
+			// never run: a stale killer is refused, not silently dropped.
+			var missing []string
+			for _, n := range s.Named {
+				if !slices.Contains(listed, n) {
+					missing = append(missing, s.Name+":"+n)
+				}
+			}
+			if len(missing) > 0 {
+				return nil, fmt.Errorf("the ledgers name tests that %s does not have: %s", s.Name, strings.Join(missing, ", "))
+			}
 		} else {
 			var err error
-			if names, err = s.List(root); err != nil {
+			if s.Only != nil {
+				// The ledger names them: an example need not be a default one.
+				names = slices.Clone(s.Only)
+			} else if names, err = s.List(root); err != nil {
 				return nil, fmt.Errorf("list the tests of %s: %w", s.Name, err)
+			}
+			for _, n := range s.Named {
+				if !slices.Contains(names, n) {
+					names = append(names, n)
+				}
 			}
 		}
 		for _, n := range names {
@@ -768,8 +847,9 @@ type worker struct {
 	err     error
 }
 
-// judge applies one mutant, runs its covering tests (known killers first,
-// then cheapest first) until the first kill, and restores the file.
+// judge applies one mutant, runs its covering tests and the tests its ledger
+// row names (known killers first, then cheapest first) until the first
+// kill, and restores the file.
 func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 	start := time.Now()
 	r.Name = m.Name
@@ -788,9 +868,12 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 	r.Line = 1 + strings.Count(string(original[:at]), "\n")
 	file, lo, hi := m.File, r.Line, r.Line+strings.Count(m.From, "\n")
 	header := headerLine(string(original), at)
-	var extra []string
+	// The tests the ledger names, its killers and its anchor's tests, run
+	// whether or not the coverage pass saw them reach the lines: a test in
+	// another package can kill through a program it builds, which the
+	// coverage pass does not see.
+	extra := killerIDs(m)
 	if a := m.Anchor; a != nil {
-		extra = a.Tests
 		if a.Text != "" {
 			if a.File != "" {
 				file = a.File
@@ -835,7 +918,7 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 		}
 	}()
 	built := map[string]bool{}
-	for _, id := range w.e.cov.order(covering, m.Killers) {
+	for _, id := range w.e.cov.order(covering, killerIDs(m)) {
 		if ctx.Err() != nil {
 			r.Status, r.Detail = Invalid, "interrupted"
 			return r

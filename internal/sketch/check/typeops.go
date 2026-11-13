@@ -338,8 +338,22 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if it.Set != SetAll {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
 		}
+		cell := false
 		if why := c.implements(v, it, !c.hostLendArg(t)); why != "" {
-			return assignment{}, why
+			// A value provider whose functions take *v moves into a cell
+			// (cells.go): *v implements t where v does not.
+			n, named := v.(*Named)
+			if !named || ScriptOf(v) != nil || n.Obj == nil || n.Obj.Pkg.Host() || c.implements(&Pointer{Elem: v}, it, !c.hostLendArg(t)) != "" {
+				return assignment{}, why
+			}
+			if refusal := c.cellRefusal(v, t, it); refusal != "" {
+				return assignment{}, why + "; " + refusal
+			}
+			cell = true
+		}
+		if h := c.holdsCell(v); h != nil && !c.cellType(t) && !(c.encodeLend && !cell) {
+			// A cell stays where its confinement rules see it.
+			return assignment{}, fmt.Sprintf(cellHideText, v, h, t)
 		}
 		// Only a value that implements the operation type can reach
 		// the ownership guard. A missing operation is the more specific
@@ -349,12 +363,14 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			return assignment{}, resourceIntoCrossingText(v, t)
 		}
 		if asInterface(v) != nil {
-			if n := sealedStd(v); n != nil && sealedStd(t) == nil && !isHostNamed(t) {
-				// The runtime's own type stands for a sealed std protocol,
-				// with the runtime's Go shapes, not those of the target's
-				// interface: the lowering builds the operations from the
-				// std ones (lower/sealedops.go), for every pair this
-				// member match admits.
+			if sealedStdOps(v) && !sealedStdOps(t) && !isHostNamed(t) {
+				// The runtime's own type may stand for a sealed std
+				// operation type, with the runtime's Go shapes, not those
+				// of the target's interface: the lowering builds the
+				// operations from the std ones (lower/sealedops.go), for
+				// every pair this member match admits. The checker
+				// records the conversion; the lowering decides the Go
+				// representation (lower/std.go runtimeType).
 				return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t}}, ""
 			}
 			if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && sealedStd(v) == nil {
@@ -381,7 +397,14 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 				}
 			}
 		}
-		return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t, Table: table, Instances: instances}}, ""
+		conv := Conversion{Kind: ConvOperations, From: v, To: t, Table: table, Instances: instances, Cell: cell}
+		if n, ok := t.(*Named); ok && cell && len(instances) == 0 && n.Obj.Pkg == c.pkg {
+			if c.pkg.cellConvs == nil {
+				c.pkg.cellConvs = map[*Named]Conversion{}
+			}
+			c.pkg.cellConvs[n.origin()] = conv
+		}
+		return assignment{clause: assignOperations, conv: conv}, ""
 	}
 	if rt, ok := t.(*Union); ok && rt.Row != nil {
 		// Clause 7 (q47): into a row value goes a value of one of its
@@ -776,6 +799,9 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
 			return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17 stays with #37)", v, m.Name, rowText(gu.minus(c.types, m.Sig.Uses)))
 		}
+		if why := c.releaseWider(v, m); why != "" {
+			return why
+		}
 		if got.Fallible != m.Sig.Fallible {
 			return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, m.Name)
 		}
@@ -977,6 +1003,9 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 		}
 		if p := c.firstInferredParse(t); p != nil {
 			return fmt.Sprintf("%s reaches %s, whose fails row is inferred: write it (types.md, Codecs 2)", t, p.Name)
+		}
+		if r := c.wireInstanceNeeds(t); r != "" {
+			return r
 		}
 		c.recordWire(t)
 		return ""

@@ -12,17 +12,14 @@ import (
 // Jason's ordered objects retain member order and repeated keys.
 
 // numEncode writes a number spelling supplied by a NumberText form.
-func numEncode(em wireEvents, task, w, f string) string {
-	if em.dir() == "json" {
-		return w + ".B = append(" + w + ".B, " + f + "...)\n"
-	}
+func numEncode(task, w, f string) string {
 	return w + ".Number(" + task + ", " + f + ")\n"
 }
 
 func (l *lowerer) wireNumEncode(em wireEvents, tc *typeCtx, b *strings.Builder, t check.Type, env, task, w, v string) {
 	p := l.info.WirePairOf(t)
 	spelling := "string(" + l.wireCallFunc(p.Wire, env, tc.site, v) + ")"
-	b.WriteString(numEncode(em, task, w, spelling))
+	b.WriteString(numEncode(task, w, spelling))
 }
 
 func (l *lowerer) wireNumDecode(tc *typeCtx, b *strings.Builder, t check.Type, env, task, r, zero string, scope *namer) {
@@ -55,11 +52,7 @@ func (l *lowerer) wireValueEncode(em wireEvents, tc *typeCtx, b *strings.Builder
 		b.WriteString("case " + tc.goType(variant) + ":\n")
 		if check.WireVariantKind(variant) == "WireNull" {
 			b.WriteString("_ = " + x + "\n")
-			if em.dir() == "json" {
-				b.WriteString(appendConst(w, "null"))
-			} else {
-				b.WriteString(w + ".Null(" + task + ")\n")
-			}
+			b.WriteString(w + ".Null(" + task + ")\n")
 		} else if f := barePart(variant); f != nil {
 			field := l.typeDecl(variant.(*check.Named).Obj, tc.site).fieldName[f.Name]
 			b.WriteString(tc.wireEncodeWith(em, f.Type, env, w, x+"."+field) + "\n")
@@ -106,13 +99,10 @@ func (tc *typeCtx) memberParts(t check.Type) (outer *check.Field, list *check.Sl
 func (l *lowerer) wireMembersEncode(em wireEvents, tc *typeCtx, b *strings.Builder, t check.Type, env, task, w, v string, scope *namer) {
 	outer, _, entry, td := tc.memberParts(t)
 	rec := v + "." + l.typeDecl(t.(*check.Named).Obj, tc.site).fieldName[outer.Name]
-	i, m := "_", scope.alloc("member")
-	if em.indexed() {
-		i = scope.alloc("i")
-	}
+	m := scope.alloc("member")
 	b.WriteString(em.open(false, "len("+rec+")", task, w))
-	b.WriteString("for " + i + ", " + m + " := range " + rec + " {\n")
-	b.WriteString(em.mapKey(tc, "string("+m+"."+td.fieldName[entry.Fields[0].Name]+")", i, task, w))
+	b.WriteString("for _, " + m + " := range " + rec + " {\n")
+	b.WriteString(em.mapKey(m+"."+td.fieldName[entry.Fields[0].Name], task, w))
 	b.WriteString(tc.wireEncodeWith(em, entry.Fields[1].Type, env, w, m+"."+td.fieldName[entry.Fields[1].Name]) + "\n}\n")
 	b.WriteString(em.close(false, task, w))
 }

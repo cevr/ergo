@@ -161,7 +161,7 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 		// it is held in a variable first (types.md, Laws 10).
 		provide := func(p check.LawProvider, v string) string {
 			if !p.Ptr {
-				return fc.convert(p.Conv, v, law.Decl)
+				return fc.lawProvider(p, v, law.Decl)
 			}
 			a := inner.alloc("provider")
 			bind += a + " := " + v + "; "

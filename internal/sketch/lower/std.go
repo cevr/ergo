@@ -104,7 +104,7 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 // a runtime struct. Every type here declares its own private operation.
 var runtimeProtocols = map[string]bool{
 	"atomic.Int64": true, "atomic.Bool": true, "embed.FS": true,
-	"queue.Queue": true, "sync.Ref": true, "json.Text": true, "json.Cursor": true,
+	"queue.Queue": true, "sync.Ref": true, "json.Cursor": true,
 	"actor.Actor": true, "actor.Host": true, "tasks.Set": true, "testing.Op": true,
 	"time.Timeline": true, "rand.Stream": true, "config.Redacted": true,
 	"exec.Running": true, "http.Exchange": true, "http.Listener": true,
@@ -125,7 +125,7 @@ func (l *lowerer) isRuntimeType(t check.Type, site syntax.Node) bool {
 // runtime/v1 ship with the compiler, so no user program can cause it
 // (TestStdExternsHaveBodies holds every std extern to a body).
 func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
-	if fd.extern == "" || !fd.library || l.intrinsic(fd.fn) != nil {
+	if fd.extern == "" || !fd.library && !fd.fn.Pkg.Std() || l.intrinsic(fd.fn) != nil {
 		return v1.Body{}, "", false
 	}
 	i := strings.LastIndex(fd.extern, ".")
@@ -262,7 +262,7 @@ func (tc *typeCtx) namedResults(result check.Type, errName string) string {
 // returnFallible returns a fallible operand from the frame: its value and
 // error as they are.
 func (fc *funcCtx) returnFallible(x syntax.Expr, o operand) {
-	val := fc.convertAt(x, o.val)
+	val := fc.returnedTemp(check.ReturnedKey(x), fc.convertAt(x, o.val))
 	if fc.frame.law {
 		val = fc.lawResult(x, val, o.err)
 	}
@@ -350,6 +350,9 @@ func (fc *funcCtx) opCallExpr(x *syntax.CallExpr, c *check.Call, args []syntax.E
 			targs = append(targs, fc.goType(a))
 		}
 		return fc.ownedRefCall(x, c, s, append([]syntax.Expr{c.Recv}, args...), "["+strings.Join(targs, ", ")+"]", c.Op != nil && c.Op.Sig != nil && len(c.Op.Sig.Results) > 0)
+	}
+	if text, result, ok := fc.cellOpCall(x, c, args); ok {
+		return text, result, false
 	}
 	t := fc.typeOf(c.Recv)
 	vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)

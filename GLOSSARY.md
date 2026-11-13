@@ -29,6 +29,10 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Provider**: A value whose type implements a capability's methods, bound to that capability by a `context`. A provider may fail less than its capability, never more.
 
+**Value provider**: A named record whose own value is its state, with operation functions on `P` or `*P`. A law run owns a fresh record and lends it to pointer operations; a conversion of `P` to an operation-type value moves it into a provider cell. A rewrite proof compares the entire keyed state after both sides, not a separately written model or only the provider's public reads. See [types, Laws 14](docs/spec/types.md#laws).
+
+**Provider cell**: The place a value provider's value moves to when it converts to its operation type: the operations on `*P` write it, and nothing else sees it. Only an operation type sealed in the provider's package (an unexported operation) takes a cell, and only in that package. A cell is confined to the task that made it: an escaping frame never captures it, and no type argument, package `let` or other operation type holds it. See [types, Interface assignability 6](docs/spec/types.md#interface-assignability).
+
 **Constructor**: An ordinary function named as a `context` entry, such as `Orders = OpenPostgres`. Its requirements are satisfied from the same context, and its failures become startup failures of the `with` that builds it.
 
 **Captured provider**: A provider that holds the capabilities its constructor used. Its methods use them without a `needs` clause of their own.
@@ -47,9 +51,11 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Row**: An error row or a capability row. Rows are checked and then erased from the emitted Go.
 
-**Inferred row**: A row the checker computes from a body because the row is not written: the rows of an unexported function with a body and of a function literal. A written row is declared and is an upper bound. Inference runs per strongly connected component of a package's reference graph.
+**Inferred row**: A row the checker computes from a body because the row is not written: the rows of an unexported function with a body and of a function literal. A written row is declared and is an upper bound. Inference runs per strongly connected component of a package's reference graph. Under the tiebreak **Explicit local signatures** beat **inference** ([NORTH_STAR](NORTH_STAR.md#tiebreaks); [decision](docs/decisions.md#owner-direction-2026-11-12)), no row is inferred: an unwritten row is empty, as under the export guard. The checker still infers it until the explicit-signature units land.
 
-**Export guard**: The rule that a declaration other code depends on spells its rows: exported functions, operations, `main`, laws, bodiless declarations and the step of an exported machine type. An unwritten row there is empty, never inferred.
+**Export guard**: The rule that a declaration spells its rows: exported functions, operations, `main`, laws, bodiless declarations and the step of an exported machine type. An unwritten row there is empty, never inferred. By the 2026-11-12 decision it is the signature rule for every named function, operation and method, exported or not, and for every clause: `fails`, `needs`, `takes`, `given`, `gives` and `keeps`. A body that exceeds its signature is a diagnostic that names the clause to add.
+
+**Clause**: A part of a signature, written after the result type, that states a contract the checker checks the body against: an error row (`fails`), a capability row (`needs`), an ownership clause (`takes`), or a fact clause (`given`, `gives`, `keeps`). A clause is always written; an unwritten clause is the empty clause, and the checker never computes one from a body or a call graph. Code the compiler generates gets its clauses from its generator, and `ergo inspect` shows them.
 
 **Requirement binding**: The bare name of a capability a written `needs` row lists, entered in the body's frame beside the parameters. A local of that name in the same frame is an error.
 
@@ -109,6 +115,10 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Definite initialisation**: The rule that a variable of a non-defaultable type has a value before it is used.
 
+**Inserted operation**: An operation the compiler adds where the source names none, such as a release at a scope end, the adapter of a conversion to an operation type, the `Wire` call of `encode`, or the instance of a generic body. It carries every rule of its written form. See [inserted](docs/spec/inserted.md).
+
+**Written form**: The Ergo text that stands for an inserted operation, such as `x.Close()` for a release or `encode(Wire(v), w)` for `encode(v, w)`. The checker must give a program and the same program with its inserted operations written out the same verdict and rows ([inserted](docs/spec/inserted.md) 1 and 2).
+
 **Type switch**: `match u { case A as v: … }` over a union value, narrowing `v` to the case's variant. With several subjects, `match (a, b)`, a case is a tuple of variants, and `_` matches any variant.
 
 **Totality**: The property of a type switch, a `catch` or a machine step that covers every alternative. A total form needs no default for its declared alternatives. The checker decides it for a type switch by a usefulness check over its case matrix, never by enumerating the product of the subjects.
@@ -123,11 +133,11 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Non-escaping parameter**: A function-typed parameter written without `escaping`. The callee runs it only on the calling task, before the call returns, one run at a time, and no one keeps it ([types.md](docs/spec/types.md#function-values) Function values 2). Any other use needs `escaping`.
 
-**Concurrent parameter**: A function parameter that the callee runs on another task while another run or the caller may run. It is written `escaping` (ESC1, 2026-11-11); no separate clause marks it, and an argument to it may not assign captured locals.
+**Concurrent parameter**: A function parameter that the callee runs on another task while another run or the caller may run. It is written `escaping` (ESC1, 2026-11-11); no separate clause marks it, and an argument to it may not assign captured locals. The fact is always the written `escaping`; the compiler does not infer it (decision, 2026-11-12).
 
 **Replayable parameter**: A function parameter that may run more than once, such as a transaction body. It may not assign captured locals, use channels or consume a resource, and its footprint holds only `sync.Tx`.
 
-**Borrow**: A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap.
+**Borrow**: A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap. A value converted from it, to an operation type or a Go interface, keeps its lifetime ([types](docs/spec/types.md#borrows) Borrows 6), and it instantiates a type parameter only of a body that keeps no value of it (Borrows 7).
 
 **Resource**: A value whose type has a checked `Close()`, an operation type with a `Close()` operation or with an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
 
@@ -215,7 +225,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Declared contract** ([#130](https://github.com/cevr/ergo/issues/130)): A library primitive's statement of what its body does with its parameters, written only in the vocabulary that inference produces, for a primitive that has no reference body to infer from. It is consumed exactly as an inferred contract is, so it grants no meaning that inference could not.
 
-**Recipe-parameter contract** ([#130](https://github.com/cevr/ergo/issues/130)): The inferred summary of what a function's body does with each function-typed parameter: calls it, hands it to a task, stores it or replays it. A caller substitutes its actual argument. In the Go-shaped language it carries the non-escaping, concurrent and replayable facts and travels in the interface summary.
+**Recipe-parameter contract** ([#130](https://github.com/cevr/ergo/issues/130)): The inferred summary of what a function's body does with each function-typed parameter: calls it, hands it to a task, stores it or replays it. A caller substitutes its actual argument. In the Go-shaped language it carries the non-escaping, concurrent and replayable facts and travels in the interface summary. Superseded as an inferred summary (decision, 2026-11-12, [explicit local signatures](docs/decisions.md#owner-direction-2026-11-12)): when it is built, each fact is a written clause or a written parameter prefix, never inferred from the body.
 
 **Language protocol**: A nominal row label whose charging or discharge a construct's own checking rule defines, such as `go.Foreign` for calls through `import go`, or `sync.Tx` inside `sync.Atomically`. It is predeclared. An ordinary capability, whose label enters a row only through declared operations or requirements, is not a language protocol.
 
@@ -231,6 +241,18 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Provider law**: A law with a `needs` clause. It is checked against every provider bound to that capability.
 
+**Derived type**: A type declared `type T derive E`. The checker evaluates the type plan `E` at check time, and the plan's value gives `T`, the types `T` needs, and the parse function, failure and laws that `T` owns, as ordinary declarations of `T`'s package. See [patterns](docs/spec/patterns.md).
+
+**Type plan**: A value of the predeclared, closed type `TypePlan`, built only by the predeclared constructors (`Of`, `Refine`, `Record`, `Union`, `Optional`, `List`, `Pattern`, with `Field`) and by plan functions, and read only by a derive. Each node fixes the shape it derives and the input it parses. See [patterns](docs/spec/patterns.md#type-plans).
+
+**Plan function**: An ordinary rowless function whose result is a `TypePlan` or `FieldPlan`. It runs only at check time, within a budget, with no Go call or I/O, and a user package may export one for other packages to derive from. See [patterns](docs/spec/patterns.md#plan-functions).
+
+**Pattern**: The type plan `Pattern(text)`: a byte regular expression with named captures, matched against a whole `string` by the derived `ParseT`, or leftmost by `FindT`. See [patterns](docs/spec/patterns.md#pattern-grammar).
+
+**Capture shape**: The type a named capture gives its field, from how often it takes part in a match of its scope: once gives the value, at most once gives `Option`, more than once gives a slice of every occurrence. A capture with captures inside it gives a record, and an alternation of named captures gives a union. See [patterns](docs/spec/patterns.md#capture-shapes).
+
+**Construction check** (patterns): The compiler's check that a deterministic matcher follows the canonical tagged NFA of a pattern on every reachable state, every byte and the end of input, with the same ordered capture events. Only this check selects a faster matcher; a law never does. See [patterns](docs/spec/patterns.md#lowering).
+
 **Contract** ([#170](https://github.com/cevr/ergo/issues/170)): An interface used as a constraint together with the laws stated over its methods. A type satisfies the contract when it has the methods and its laws hold.
 
 **Provider protocol** ([#170](https://github.com/cevr/ergo/issues/170)): A capability together with its provider laws. A provider is admitted for the capability by passing them, whatever its implementation.
@@ -241,7 +263,13 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Evidence kind** ([#170](https://github.com/cevr/ergo/issues/170)): A nominal wrapper type, such as `SortedBy[S, compare]`, whose values carry the proof that a law-backed check has run on the carrier. Only the checking function mints it.
 
+**Law ledger** (owner q116, q122): The checked-in file `ergo.laws` beside `ergo.mod`, module-wide as `go.sum` is, one line per rewrite law, provider and site instance: the verdict of its check run (proved, tested or skipped) and a digest of every input of the verdict (the law, the provider, the functions, types and package lets they reach, whether the provider's construction is closed, the instance; by tokens, never by position or comment). `ergo test` of any binary adds or replaces its entries and removes only those the module no longer declares, so the order of the binaries' tests does not matter; `ergo build`, `run` and `inspect` only read it, so the run build is a function of checked-in files. A rewrite applies only on a current, proved entry; a stale or missing one keeps the reference lowering with one printed line, and `--locked` refuses ([runtime](docs/spec/runtime.md#tests), Tests 10). Std ships its own, embedded. Not a law receipt, which records one run for a revision and changes no code.
+
 **Law receipt**: The recorded outcome of running a law suite for one revision, seed and target: the status of each law (proved, tested, refuted or skipped), its case count and any counterexample, shrunk. `ergo test DIR --receipt FILE` writes one as JSON ([runtime](docs/spec/runtime.md#tests), Tests 8). A tested law, which held for drawn cases, is not a proved one, which held for every value. The build reads only the canonical receipt; no build reads one yet.
+
+**Rewrite law**: A member law of an operation type whose body is two blocks joined by `==`, `law L(params) [when R() == C] { lhs } == { rhs }`: an equation between two straight-line uses of the type's own operations, the left block a pattern and the right its replacement. It holds for a provider when the two sides read the same, from every state a prefix reaches and the guard admits, for every continuation. The compiler may rewrite a site by it only with evidence for the receiver's provider. A parameter the right side computes with is constant at a site; every other one passes through.
+
+**Post law**: An ordinary member law of the form `{ Op(params); R() == C }`, such as `law BeginStarts(n int) { BeginObject(n); pos() == AtStart }`: the state a read operation `R` reports after the operation. When its run passed for the provider, the lowering takes it as a fact to decide a rewrite law's guard at a site.
 
 **Proof tier**: The check-time stage that sends only decidable facts, such as index ranges, length relations, integer bounds and unreachable arms, to an SMT solver within a fixed time budget, reports "proved" only when the solver discharges the obligation and "unknown" on a timeout, and lowers a proved fact as a removed check, while everything outside it stays tested, never proved.
 
@@ -440,6 +468,8 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 **Request scope**: A fresh owning scope for one HTTP request, linked to connection and server cancellation. Completed shutdown includes its handler cleanup.
 
 ## Tooling and testing
+
+**`ergo fix`**: The command that writes the missing clauses of a signature on request. A diagnostic for a body that exceeds its signature names the exact clause to add, and `ergo fix` writes that clause into the source. It is the tool half of the tiebreak **Explicit local signatures** beat **inference**: the checker never infers a clause, and the tool writes it for the author ([decision](docs/decisions.md#owner-direction-2026-11-12)).
 
 **Lint advice**: Optional guidance about an admitted program, distinct from diagnostics that determine whether its contracts are valid.
 

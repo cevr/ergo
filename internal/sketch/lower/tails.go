@@ -89,13 +89,15 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 			fc.discard(s.X)
 			return false
 		}
+		fc.lentYield(d.name, s.X)
 		if d.err != "" && fc.fallibleExpr(s.X) {
 			o := fc.expr(s.X)
 			if d.name != "" && o.val != "" {
-				fc.line(d.name + ", " + d.err + " = " + fc.assignedTo(s.X, o.val, d.typ) + ", " + o.err)
+				fc.line(d.name + ", " + d.err + " = " + fc.returnedTemp(check.ReturnedKey(s.X), fc.assignedTo(s.X, o.val, d.typ)) + ", " + o.err)
 				if d.site != "" {
 					fc.line(d.site + " = " + fc.resultSite(s.X))
 				}
+				fc.armYield(d.name, s.X, d.err)
 				return false
 			}
 			fc.line(d.err + " = " + o.err)
@@ -109,10 +111,19 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 			fc.discard(s.X)
 			return false
 		}
-		fc.line(d.name + " = " + fc.assignedTo(s.X, fc.value(s.X), d.typ))
+		// An arm of a returned if or match: its value is kept until the
+		// frame's exit is known (R10, returnedTemp).
+		key := check.ReturnedKey(s.X)
+		if id, ok := key.(*syntax.Ident); ok && fc.l.info.ReturnedTemps[id] {
+			fc.returned = id
+		}
+		val := fc.assignedTo(s.X, fc.value(s.X), d.typ)
+		fc.returned = nil
+		fc.line(d.name + " = " + fc.returnedTemp(key, val))
 		if d.site != "" {
 			fc.line(d.site + " = " + fc.resultSite(s.X))
 		}
+		fc.armYield(d.name, s.X, "")
 		return false
 	case *syntax.IfStmt:
 		fc.at(s)
@@ -179,6 +190,8 @@ func (fc *funcCtx) branchExpr(x syntax.Expr) operand {
 	if !fc.noValue(x) {
 		res.val = fc.temp("v")
 		fc.line("var " + res.val + " " + fc.goType(fc.typeOf(x)))
+		fc.armHeldVar(x, res.val)
+		fc.armValueVar(x, res.val)
 	}
 	if fc.tailFallible(s) {
 		res.err = fc.temp("err")
@@ -190,6 +203,7 @@ func (fc *funcCtx) branchExpr(x syntax.Expr) operand {
 	}
 	site := fc.trackResultSite(x, res.val)
 	fc.yieldStmt(s, dest{kind: destAssign, name: res.val, err: res.err, site: site, typ: fc.typeOf(x)})
+	fc.armValueEnd(x, res.val)
 	return res
 }
 

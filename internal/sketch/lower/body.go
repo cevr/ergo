@@ -113,6 +113,12 @@ type funcCtx struct {
 	out    *strings.Builder
 	depth  int
 	locals map[*check.Var]string
+	// cells are the immutable locals a let binds by a provider cell
+	// conversion, with it (cells.go).
+	cells map[*check.Var]check.Conversion
+	// cellConcrete marks the cell locals declared by their adapter's Go
+	// type (noteCell).
+	cellConcrete map[*check.Var]bool
 	// held are the owned locals a bodiless taking call hands off only once
 	// it returns (release.go, holdTaken).
 	held       map[*syntax.Ident]bool
@@ -186,6 +192,17 @@ type funcCtx struct {
 	// goGeneric reports a Go function with type parameters, where Go
 	// declares no local type.
 	goGeneric bool
+	// heldOf maps the Go result variable of a lent if, match, catch or
+	// with whose statement owns its value on some paths only
+	// (Info.ArmHeld) to the Go flag that says this path made it;
+	// heldExpr maps the expression to the same flag (armHeldVar).
+	heldOf   map[string]string
+	heldExpr map[syntax.Expr]string
+	// armOf maps the Go result variable of a value form whose arms own
+	// their value until the form ends (Info.ArmValues) to the form;
+	// armDone holds the forms an arm registered in (armValueVar).
+	armOf   map[string]syntax.Expr
+	armDone map[syntax.Expr]bool
 	// path is the statement lists around the code being written, each
 	// with the inline growth its path has taken (growth.go).
 	path []*growthAcct
@@ -267,7 +284,14 @@ func (fc *funcCtx) errReturn(err string) string {
 func (fc *funcCtx) stmts(list []syntax.Stmt) bool {
 	defer fc.enterList(list)()
 	terminates := false
-	for _, s := range list {
+	for i := 0; i < len(list); i++ {
+		if n := fc.rewriteWindow(list[i:]); n > 0 {
+			// A rewritten window of provider calls (rewrite.go).
+			i += n - 1
+			terminates = false
+			continue
+		}
+		s := list[i]
 		terminates = fc.stmt(s)
 		if !terminates {
 			fc.releaseAt(s) // the statement's temporaries (R43)
@@ -368,7 +392,11 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			continue
 		} else {
 			val := fc.assigned(spec.Values[0])
-			if !fc.aliasLet(v, val) {
+			if !d.Mut.IsValid() && fc.noteCell(v, spec.Values[0], val) { // cells.go
+				// The cell's adapter, by its own Go type (cellLocal).
+				name := fc.declare(v)
+				fc.line(name + " := " + val)
+			} else if !fc.aliasLet(v, val) {
 				name := fc.declare(v)
 				fc.line("var " + name + " " + goType + " = " + val)
 			}
@@ -416,11 +444,12 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 	rhsEmits := fc.emits(s.Rhs[0])
 	target := fc.target(s.Lhs[0], rhsEmits)
 	if op == "" {
+		mark := fc.out.Len()
 		val := fc.assigned(s.Rhs[0])
 		if fc.reassignOwned(s.Lhs[0], target, val) {
 			return
 		}
-		fc.line(target + " = " + val)
+		fc.line(target + " = " + fc.joinResult(mark, val))
 		return
 	}
 	if rhsEmits {
@@ -460,7 +489,7 @@ func (fc *funcCtx) target(x syntax.Expr, later bool) string {
 	case *syntax.SelectorExpr:
 		if _, isPtr := fc.typeOf(x.X).(*check.Pointer); isPtr {
 			base := fc.value(x.X)
-			if later {
+			if later && !fc.fixedName(x.X) {
 				base = fc.spill(base)
 			}
 			return base + "." + fc.fieldName(x)
@@ -493,6 +522,41 @@ func (fc *funcCtx) target(x syntax.Expr, later bool) string {
 	}
 	unreachable(x, ruleAccepted, "an assignment target of the kind %T", x)
 	return ""
+}
+
+// joinResult is val, the Go text of an assignment's value, as the call
+// itself when the value's only statement, written since mark, binds val to
+// that call: `v := f(x)` then `p.f = v` becomes `p.f = f(x)`. Only in a
+// body with no //line directives (a std body), where the call needs no
+// line of its own; the value is the same, and the body small enough for
+// Go to inline (an appender on a provider's buffer).
+func (fc *funcCtx) joinResult(mark int, val string) string {
+	if fc.directives || !strings.HasPrefix(val, "v") {
+		return val
+	}
+	all := fc.out.String()
+	emitted := all[mark:]
+	prefix := strings.Repeat("\t", fc.depth) + val + " := "
+	call, ok := strings.CutPrefix(emitted, prefix)
+	if !ok || !strings.HasSuffix(call, "\n") || strings.Count(call, "\n") != 1 {
+		return val
+	}
+	fc.out.Reset()
+	fc.out.WriteString(all[:mark])
+	return strings.TrimSuffix(call, "\n")
+}
+
+// fixedName reports a name no assignment can change (a parameter or a
+// plain let), so a later operand cannot move a place it picks and it needs
+// no temporary: `t.out = f(t.out)` on a borrowed t stays one statement,
+// which keeps a provider's appender small enough for Go to inline.
+func (fc *funcCtx) fixedName(x syntax.Expr) bool {
+	id, ok := unparen(x).(*syntax.Ident)
+	if !ok {
+		return false
+	}
+	v, ok := fc.l.info.Uses[id].(*check.Var)
+	return ok && !v.Mut()
 }
 
 // isPlace reports whether x is a place target can lower: an addressable
@@ -629,6 +693,7 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	}
 	val := fc.assigned(x)
 	fc.returned = nil
+	val = fc.returnedTemp(check.ReturnedKey(x), val)
 	if f.law {
 		val = fc.lawResult(x, val, "nil")
 	}
@@ -676,6 +741,28 @@ func (fc *funcCtx) trackResultSite(x syntax.Expr, name string) string {
 	fc.line("_ = " + site) // a control expression may be only a subexpression
 	fc.resultSites[unparen(x)], fc.resultNames[name] = site, site
 	return site
+}
+
+// returnedTemp hands off val, the new value x a return gives, which its
+// frame owns until its exit is known (Info.ReturnedTemps, R10): kept, so
+// a defect in a later release of the frame releases it too.
+func (fc *funcCtx) returnedTemp(x syntax.Expr, val string) string {
+	if !fc.l.info.ReturnedTemps[x] {
+		return val
+	}
+	if _, ok := x.(*syntax.Ident); ok {
+		return val // a returned local: its hand-off kept it (fc.returned)
+	}
+	if st := fc.staticState(); st != nil {
+		if _, ok := st.bit[x]; ok {
+			return fc.staticHand(x, val, true, x)
+		}
+	}
+	h := fc.l.owned[x]
+	if h == "" {
+		ice(x, "a returned value the frame owns was never registered (ownTemp)")
+	}
+	return fc.runtimeCall("Returned", fc.ownBinding("Returned", x), "", "", []string{h, val}, "", nil, nil, x)
 }
 
 // fail leaves the current frame with err (rows.md, Escapes): the frame's

@@ -41,6 +41,9 @@ var Names = []string{
 	// locks, so `git status`, and the go command's VCS stamp that runs it,
 	// do not write .git/index.lock and .git/index; the gate sets it to 0.
 	"GIT_OPTIONAL_LOCKS",
+	// The go command ergo's builds run (internal/toolchain); the gate sets
+	// it to system, so no test downloads Go.
+	"ERGO_GO",
 	ToolDigest,
 }
 

@@ -120,7 +120,7 @@ func (fc *funcCtx) loopIdiomOf(s *syntax.RangeStmt, l *check.Loop) *loopIdiom {
 		return nil
 	}
 	if _, conv := fc.l.info.Implicit[as.Rhs[0]]; !conv {
-		if rx, ok := unparen(as.Rhs[0]).(*syntax.IndexExpr); ok && len(rx.Indices) == 1 && sameExpr(rx.X, ix.X) {
+		if rx, ok := unparen(as.Rhs[0]).(*syntax.IndexExpr); ok && len(rx.Indices) == 1 && sameSyntax(rx.X, ix.X) {
 			src, srcNeg, ok := fc.offsetOf(rx.Indices[0], elem, iv)
 			if !ok {
 				return nil
@@ -361,9 +361,9 @@ func holdsByValue(t, x check.Type, seen map[string]bool) bool {
 	return false
 }
 
-// sameExpr reports two expressions of the same text: names, constants,
+// sameSyntax reports two expressions of the same text: names, constants,
 // fields, operators. It is only asked of expressions invariant took.
-func sameExpr(a, b syntax.Expr) bool {
+func sameSyntax(a, b syntax.Expr) bool {
 	a, b = unparen(a), unparen(b)
 	switch a := a.(type) {
 	case *syntax.Ident:
@@ -371,7 +371,7 @@ func sameExpr(a, b syntax.Expr) bool {
 		return ok && a.Name == b.Name
 	case *syntax.SelectorExpr:
 		b, ok := b.(*syntax.SelectorExpr)
-		return ok && a.Sel.Name == b.Sel.Name && sameExpr(a.X, b.X)
+		return ok && a.Sel.Name == b.Sel.Name && sameSyntax(a.X, b.X)
 	}
 	return false
 }

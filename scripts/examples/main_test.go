@@ -712,6 +712,9 @@ func TestTestLeg(t *testing.T) {
 			tests = append(tests, call)
 		}
 	}
+	// The programs run at once (runAll), so the calls of different
+	// programs may interleave: compare the set.
+	slices.Sort(tests)
 	var want []string
 	for _, p := range []string{"failing", "other", "passing", "pending", "untested"} {
 		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo"))
@@ -749,6 +752,28 @@ func TestTestLegFailsAnUnexpectedSkip(t *testing.T) {
 	}
 }
 
+// A checked-in ergo.laws that the program's ergo test changes is stale: the
+// ledger leg fails, the file is put back as it was, and the cases still
+// run; a program whose test leaves its ledger as it is passes (batch 18
+// I1: a stale examples/counter/ergo.laws passed, and the run rewrote it).
+// Mutants ex-ledger-unchecked, ex-ledger-not-restored.
+func TestTestLegFailsAStaleLedger(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	hi := map[string]map[string]string{"basic": {"expected.out": "hi\n"}}
+	const entry = "law Counter.Joins for Box proved h1:old\n"
+	stale := f.program("stale", "#!/bin/sh\necho hi\nexit 0\n# TESTLEDGER\ntest Fixture {\n}\n", "default\n", hi, map[string]string{"ergo.laws": entry})
+	f.program("current", "#!/bin/sh\necho hi\nexit 0\ntest Fixture {\n}\n", "default\n", hi, map[string]string{"ergo.laws": entry})
+	code, out := f.run()
+	oks, fails := verdicts(out)
+	if code != 1 || !strings.Contains(fails["stale"], " ledger: ergo test changed the checked-in ergo.laws") || fails["current"] != "" || !oks["stale/basic"] || !oks["current/basic"] {
+		t.Fatalf("want exit 1, FAIL stale: ledger, no FAIL current, and both cases ok; exit %d\n%s", code, out)
+	}
+	if got, err := os.ReadFile(filepath.Join(stale, "ergo.laws")); err != nil || string(got) != entry {
+		t.Fatalf("the stale ledger was not put back: %q, %v", got, err)
+	}
+}
+
 // An ergo test that cannot start fails the test leg and the run, as any
 // other failure of the leg does; the cases still run (apps-1 G1 r2 m2).
 func TestTestLegThatCannotStartFails(t *testing.T) {
@@ -764,6 +789,29 @@ func TestTestLegThatCannotStartFails(t *testing.T) {
 	}
 	if !strings.Contains(out, "examples: FAILED: gone: check, gone: test\n") {
 		t.Fatalf("the start failure is not counted\n%s", out)
+	}
+}
+
+// Programs run at once, and their lines print in selection order whatever
+// order they end in. The case of a waits until the case of b has started
+// (b writes a file), so b always ends first, and a runner that runs one
+// program at a time never ends a: its -timeout, the test's own time left,
+// stops it. Mutants it catches, which no other test or example does:
+// runAll running the programs one at a time again (a times out), and
+// printing each program's lines when it ends (b's lines first).
+func TestProgramsRunAtOnceAndPrintInOrder(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	mark := filepath.Join(t.TempDir(), "b-started")
+	env := "MARK=" + mark + "\n"
+	f.program("a", "#!/bin/sh\nuntil [ -e \"$MARK\" ]; do sleep 0.01; done\necho a\n", "slow\n",
+		map[string]map[string]string{"basic": {"env": env, "expected.out": "a\n"}}, nil)
+	f.program("b", "#!/bin/sh\n: > \"$MARK\"\necho b\n", "slow\n",
+		map[string]map[string]string{"basic": {"env": env, "expected.out": "b\n"}}, nil)
+	code, out := f.run("-jobs", "2", "-timeout", caseTimeout(t), "a", "b")
+	a, b := strings.Index("\n"+out, "\nok a/basic ("), strings.Index("\n"+out, "\nok b/basic (")
+	if code != 0 || a < 0 || b < 0 || a > b {
+		t.Fatalf("want exit 0 and a's lines before b's; exit %d\n%s", code, out)
 	}
 }
 

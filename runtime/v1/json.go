@@ -6,16 +6,14 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
-
-	"ergo.local/prototype/runtime/rt"
 )
 
-// The bodies of std json (docs/spec/stdlib.md, json; S-json). Text is the
-// prelude Writer that writes JSON text into a byte buffer; Cursor reads a
-// text JSONOpen has validated whole (phase 1), so its reads never meet a
-// syntax error. The lowering's fast path (lower/wirejson.go) appends to a
-// Text's buffer directly with the Append functions below, so the two paths
-// write the same bytes by construction of these few functions.
+// The bodies of std json (docs/spec/stdlib.md, json; S-json). Std json's
+// Text is the Ergo record text, which writes into a byte buffer; this file
+// holds only its value appenders (a buffer in, the buffer with the value's
+// JSON text added out), its buffer pool, and Cursor, which reads a text
+// JSONOpen has validated whole (phase 1), so its reads never meet a syntax
+// error.
 
 // JSONMalformed is std json's Malformed: a text that is not one JSON value,
 // or breaks a limit. Offset is the byte offset of the first byte that
@@ -23,248 +21,6 @@ import (
 type JSONMalformed struct {
 	Offset int
 	Reason string
-}
-
-// Text is the JSON text written so far. Comma says that the next value or
-// key needs a comma before it: true after a value, false after a key and
-// after an opening bracket. One flag is the whole state, since a Key ends
-// every object member's comma question and a value every list element's.
-// The Writer's operations take the caller's task, which they do not use,
-// so *Text has the method set of the prelude Writer's Go interface.
-type Text struct {
-	B     []byte
-	Comma bool
-	// HTML escapes <, > and & in strings as \u003c, \u003e and \u0026, as
-	// Go's encoding/json does by default, so the text is safe inside HTML.
-	HTML bool
-}
-
-// NewJSONText is a Text with nothing written.
-func NewJSONText() *Text { return &Text{B: make([]byte, 0, 64)} }
-
-// NewJSONHTMLText is a Text with nothing written whose strings escape <,
-// > and &.
-func NewJSONHTMLText() *Text { return &Text{B: make([]byte, 0, 64), HTML: true} }
-
-// JSONAppendTextString appends s quoted to t as t's String does: the fast
-// path's string, so both paths honour t.HTML.
-func JSONAppendTextString(t *Text, s string) {
-	if t.HTML {
-		t.B = jsonAppendString(t.B, s, &jsonSafeHTML)
-		return
-	}
-	t.B = jsonAppendString(t.B, s, &jsonSafe)
-}
-
-// Null writes the null event, including a Nullable's empty state.
-func (t *Text) Null(task *rt.Task) {
-	t.JSONValue()
-	t.B = append(t.B, "null"...)
-	t.Comma = true
-}
-
-// Number writes a number's spelling as it is. json.Value's Number holds
-// only a spelling the reader validated or one formatted from a number.
-func (t *Text) Number(task *rt.Task, text string) {
-	t.JSONValue()
-	t.B = append(t.B, text...)
-	t.Comma = true
-}
-
-// JSONValue starts a value: a comma when one is due. Then the value is
-// written and JSONDone marks it written.
-func (t *Text) JSONValue() {
-	if t.Comma {
-		t.B = append(t.B, ',')
-	}
-}
-
-func (t *Text) Bool(task *rt.Task, b bool) {
-	t.JSONValue()
-	t.B = JSONAppendBool(t.B, b)
-	t.Comma = true
-}
-
-func (t *Text) Int(task *rt.Task, n int64) {
-	t.JSONValue()
-	t.B = JSONAppendInt(t.B, n)
-	t.Comma = true
-}
-
-func (t *Text) Uint(task *rt.Task, n uint64) {
-	t.JSONValue()
-	t.B = JSONAppendUint(t.B, n)
-	t.Comma = true
-}
-
-// JSONAppendBool appends true or false.
-func JSONAppendBool(b []byte, v bool) []byte {
-	if v {
-		return append(b, "true"...)
-	}
-	return append(b, "false"...)
-}
-
-// JSONAppendInt appends n's exact digits.
-func JSONAppendInt(b []byte, n int64) []byte { return strconv.AppendInt(b, n, 10) }
-
-// JSONAppendUint appends n's exact digits.
-func JSONAppendUint(b []byte, n uint64) []byte { return strconv.AppendUint(b, n, 10) }
-
-func (t *Text) Float(task *rt.Task, f float64) {
-	t.JSONValue()
-	t.B = JSONAppendFloat(t.B, f)
-	t.Comma = true
-}
-
-func (t *Text) String(task *rt.Task, s string) {
-	t.JSONValue()
-	JSONAppendTextString(t, s)
-	t.Comma = true
-}
-
-func (t *Text) BeginList(task *rt.Task, n int) {
-	t.JSONValue()
-	t.B = append(t.B, '[')
-	t.Comma = false
-}
-
-func (t *Text) EndList(task *rt.Task) {
-	t.B = append(t.B, ']')
-	t.Comma = true
-}
-
-func (t *Text) BeginObject(task *rt.Task, n int) {
-	t.JSONValue()
-	t.B = append(t.B, '{')
-	t.Comma = false
-}
-
-func (t *Text) EndObject(task *rt.Task) {
-	t.B = append(t.B, '}')
-	t.Comma = true
-}
-
-// Tag writes a union's tag as the member "_tag" (owner q81).
-func (t *Text) Tag(task *rt.Task, name string) {
-	t.Key(task, "_tag")
-	t.String(task, name)
-}
-
-func (t *Text) Key(task *rt.Task, k string) {
-	t.JSONValue()
-	JSONAppendTextString(t, k)
-	t.B = append(t.B, ':')
-	t.Comma = false
-}
-
-// Written is the text written so far.
-func (t *Text) Written() string { return string(t.B) }
-
-// JSONAppendFloat appends f in the form encoding/json writes (ES6
-// Number.prototype.toString: shortest digits, an exponent below 1e-6 and
-// from 1e21), and NaN and the infinities as the strings "NaN", "Infinity"
-// and "-Infinity", which JSON has no numbers for (protobuf's JSON mapping).
-func JSONAppendFloat(b []byte, f float64) []byte {
-	switch {
-	case math.IsNaN(f):
-		return append(b, `"NaN"`...)
-	case math.IsInf(f, 1):
-		return append(b, `"Infinity"`...)
-	case math.IsInf(f, -1):
-		return append(b, `"-Infinity"`...)
-	}
-	format := byte('f')
-	if abs := math.Abs(f); abs != 0 && (abs < 1e-6 || abs >= 1e21) {
-		format = 'e'
-	}
-	b = strconv.AppendFloat(b, f, format, -1, 64)
-	if format == 'e' {
-		// clean up e-09 to e-9, as encoding/json does
-		n := len(b)
-		if n >= 4 && b[n-4] == 'e' && b[n-3] == '-' && b[n-2] == '0' {
-			b[n-2] = b[n-1]
-			b = b[:n-1]
-		}
-	}
-	return b
-}
-
-// jsonSafe holds the ASCII bytes a JSON string writes as themselves.
-var jsonSafe = func() (t [utf8.RuneSelf]bool) {
-	for c := 0x20; c < utf8.RuneSelf; c++ {
-		t[c] = c != '"' && c != '\\'
-	}
-	return t
-}()
-
-// jsonSafeHTML is jsonSafe without <, > and &.
-var jsonSafeHTML = func() (t [utf8.RuneSelf]bool) {
-	t = jsonSafe
-	t['<'], t['>'], t['&'] = false, false, false
-	return t
-}()
-
-const jsonHex = "0123456789abcdef"
-
-// JSONAppendString appends s quoted: '"', '\\' and the control bytes
-// escaped (\n, \r, \t by name, the others as \u00XX), U+2028 and U+2029
-// as \u2028 and \u2029 (as encoding/json, so JavaScript reads them), and
-// each byte of invalid UTF-8 as the lone surrogate \udcXX of the byte
-// (Python's surrogateescape, PEP 383), which Cursor reads back as the
-// byte: an Ergo string holds bytes (types.md, Strings 1), so every string
-// round-trips, and a valid UTF-8 string is plain JSON text. No HTML
-// escaping (encoding/json v2's default).
-func JSONAppendString(b []byte, s string) []byte { return jsonAppendString(b, s, &jsonSafe) }
-
-// jsonAppendString is JSONAppendString with the ASCII bytes safe holds
-// written as themselves.
-func jsonAppendString(b []byte, s string, safe *[utf8.RuneSelf]bool) []byte {
-	b = append(b, '"')
-	start := 0
-	for i := 0; i < len(s); {
-		if c := s[i]; c < utf8.RuneSelf {
-			if safe[c] {
-				i++
-				continue
-			}
-			b = append(b, s[start:i]...)
-			switch c {
-			case '"', '\\':
-				b = append(b, '\\', c)
-			case '\n':
-				b = append(b, '\\', 'n')
-			case '\r':
-				b = append(b, '\\', 'r')
-			case '\t':
-				b = append(b, '\\', 't')
-			default:
-				b = append(b, '\\', 'u', '0', '0', jsonHex[c>>4], jsonHex[c&0xf])
-			}
-			i++
-			start = i
-			continue
-		}
-		r, size := utf8.DecodeRuneInString(s[i:])
-		if r == utf8.RuneError && size == 1 {
-			b = append(b, s[start:i]...)
-			c := s[i]
-			b = append(b, '\\', 'u', 'd', 'c', jsonHex[c>>4], jsonHex[c&0xf])
-			i += size
-			start = i
-			continue
-		}
-		if r == '\u2028' || r == '\u2029' {
-			b = append(b, s[start:i]...)
-			b = append(b, '\\', 'u', '2', '0', '2', jsonHex[r&0xf])
-			i += size
-			start = i
-			continue
-		}
-		i += size
-	}
-	b = append(b, s[start:]...)
-	return append(b, '"')
 }
 
 // JSONDefaultDepth is the nesting limit of a MaxDepth that is not
@@ -961,23 +717,24 @@ func (c *Cursor) Tag() string {
 	return v
 }
 
-// jsonPool keeps the buffers of the Texts Codec.Encode writes (JSONTake,
-// JSONGive), as encoding/json keeps its encodeState: a text's buffer
-// grows once and is used again.
-var jsonPool = sync.Pool{New: func() any { return &Text{B: make([]byte, 0, 1024)} }}
+// jsonPool keeps the buffers std json's Encode writes into (JSONTake,
+// JSONRecycle), as encoding/json keeps its encodeState: a buffer is used
+// again. It holds arrays of one size, as pointers, so a Put boxes no slice
+// header (no allocation). A buffer that grew out of its array is not kept.
+var jsonPool = sync.Pool{New: func() any { return new([jsonPoolSize]byte) }}
 
-// JSONTake is an empty Text from the pool, for std json's Encode only:
-// JSONGive takes it back.
-func JSONTake() *Text { return jsonPool.Get().(*Text) }
+const jsonPoolSize = 1024
 
-// JSONGive is the text t wrote, and puts t back in the pool; nothing may
-// use t after. A buffer that grew past 64 KiB is dropped, so the pool
-// holds no large buffer.
-func JSONGive(t *Text) string {
-	s := string(t.B)
-	if cap(t.B) <= 64<<10 {
-		t.B, t.Comma = t.B[:0], false
-		jsonPool.Put(t)
+// JSONTake is an empty buffer from the pool, for std json's Encode only:
+// JSONRecycle puts it back.
+func JSONTake() []byte { return jsonPool.Get().(*[jsonPoolSize]byte)[:0] }
+
+// JSONRecycle puts b's array back in the pool when b still has it, and
+// gives b. Its caller uses b no more (std json's finish, at the end of
+// Encode), so the pool holds an array only after its one use has ended.
+func JSONRecycle(b []byte) []byte {
+	if cap(b) == jsonPoolSize {
+		jsonPool.Put((*[jsonPoolSize]byte)(b[:jsonPoolSize]))
 	}
-	return s
+	return b
 }
