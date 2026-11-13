@@ -1,0 +1,60 @@
+// Package registry is a package registry's index: the records a codec
+// writes. Sample builds an index of n packages, each with strings,
+// numbers, lists of records, a Map and a union.
+
+import strconv
+
+// Person maintains a package.
+type Person { Name string, Email string }
+
+// Release is one published version.
+type Release { Version string, Size int, Yanked bool }
+
+// State says whether a package is kept.
+type State = Active{} | Retired{Reason string}
+
+// Package is one entry of the index.
+type Package {
+	Name        string,
+	Summary     string,
+	Downloads   int,
+	Score       float64,
+	Tags        []string,
+	Maintainers []Person,
+	Releases    []Release,
+	Builds      Map[string, int],
+	State       State,
+}
+
+// Index is every package.
+type Index { Packages []Package }
+
+// Sample is an index of n packages; every seventh is retired.
+func Sample(n int) Index {
+	let mut ps = []Package{}
+	for i in 0..n {
+		let id = strconv.Itoa(i)
+		ps = ps.Append(Package{
+			Name:        "pkg-" + id,
+			Summary:     "A small library number " + id + " that does one thing well",
+			Downloads:   i * 37,
+			Score:       float64(i) / 8.0,
+			Tags:        []string{"util", "text"},
+			Maintainers: []Person{Person{Name: "Dev " + id, Email: "dev" + id + "@example.org"}},
+			Releases:    []Release{Release{Version: "1.0." + id, Size: 1000 + i, Yanked: false}, Release{Version: "1.1.0", Size: 2000 + i, Yanked: i%5 == 0}},
+			Builds:      Map[string, int]{"linux": i, "darwin": i / 2},
+			State:       if i%7 == 0 { Retired{Reason: "moved"} } else { Active },
+		})
+	}
+	Index{Packages: ps}
+}
+
+// Describe names a package's state, for a listing.
+func Describe(s State) string {
+	match s {
+	case Active:
+		"active"
+	case Retired as r:
+		"retired: " + r.Reason
+	}
+}

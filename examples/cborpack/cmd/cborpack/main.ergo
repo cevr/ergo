@@ -1,0 +1,65 @@
+// cborpack writes a package registry's index as CBOR with its own codec
+// (package cbor) and as JSON with std json, and counts what an encode
+// allocates.
+//
+//	cborpack hex N       the CBOR of an index of N packages, in hex
+//	cborpack receipt N   the sizes of both encodings of N packages, and
+//	                     the heap allocations of one encode done again
+//
+// A module's codec takes the path std json takes: the same direct writer
+// and the same borrowed buffer, so the receipt counts the same allocations
+// for both: the result, and nothing else.
+
+import cborpack/cbor
+import cborpack/registry
+import go testing
+import hex
+import json
+import os
+import strconv
+
+// Usage is the text of a usage failure.
+let Usage = "usage: cborpack hex N | cborpack receipt N"
+
+// Command is what the arguments ask for.
+type Command = Hex{N int} | Receipt{N int}
+
+// Parse is the command of args.
+func Parse(args []string) Command fails os.Exit {
+	if len(args) != 2 {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	let n = strconv.Atoi(args[1]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "cborpack: N must be a count\n\(Usage)"}
+	}
+	match args[0] {
+	case "hex":
+		Hex{N: n}
+	case "receipt":
+		Receipt{N: n}
+	case _:
+		os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+func jsonText(idx registry.Index) string { json.Encode(json.Codec[registry.Index]{MaxBytes: 0, MaxDepth: 0}, idx) }
+
+// allocs is the heap allocations of one call of f, after a first call.
+func allocs(f escaping func()) int needs go.Foreign {
+	f()
+	int(testing.AllocsPerRun(50, f))
+}
+
+func main() fails os.Exit needs Console | Ambient | go.Foreign {
+	match try Parse(os.NewHost().Args()) {
+	case Hex as h:
+		Console.Println(hex.Encode(cbor.Encode(registry.Sample(h.N))))
+	case Receipt as r:
+		let idx = registry.Sample(r.N)
+		let c = allocs(func() { let _ = cbor.Encode(idx) })
+		let j = allocs(func() { let _ = jsonText(idx) })
+		Console.Println("cbor \(len(cbor.Encode(idx))) bytes, \(c) allocations per encode")
+		Console.Println("json \(len(jsonText(idx))) bytes, \(j) allocations per encode")
+	}
+}
