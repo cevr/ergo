@@ -1,0 +1,66 @@
+// Package rows is a list of counters that the user adds and removes, each
+// with its own count. The parent holds each child counter as data and
+// routes a child's signal to it by key: the parent's step calls
+// counter.Step on that row alone. A pure child needs no actor; it is
+// function composition.
+
+import fkcounters/counter
+import machines
+import slices
+
+// Row is one counter of the list, with the key the parent gave it.
+type Row { Key int, Counter counter.Count }
+
+// Rows is the state: the rows in order, and the key the next row gets.
+// Keys are never reused, so a signal for a removed row finds no row.
+type Rows { Items []Row, Next int }
+
+// Signal is what the list takes: add a row, remove one, or a counter's
+// own signal for the row with the key.
+type Signal = Add{} | Remove{Key int} | At{Key int, Sig counter.Signal}
+
+// Never is the output of the list: it never ends and emits nothing.
+type Never {}
+
+// Initial is three fresh counters, keys 0 to 2.
+func Initial() Rows {
+	Rows{Items: []Row{fresh(0), fresh(1), fresh(2)}, Next: 3}
+}
+
+func fresh(key int) Row { Row{Key: key, Counter: counter.Initial()} }
+
+// Step is the transition. Add appends a fresh counter with the next key;
+// Remove drops the row with the key; At steps that row's counter and
+// leaves every other row as it was. A Remove or an At for a key with no
+// row changes nothing.
+func Step(r Rows, s Signal) Decision[Rows, Never] {
+	match s {
+	case Add:
+		Stay[Rows]{Next: Rows{Items: r.Items.Append(fresh(r.Next)), Next: r.Next + 1}}
+	case Remove as rm:
+		if !has(r, rm.Key) {
+			return Ignore
+		}
+		Stay[Rows]{Next: Rows{Items: slices.Filter(r.Items, func(x Row) bool { x.Key != rm.Key }), Next: r.Next}}
+	case At as at:
+		if !has(r, at.Key) {
+			return Ignore
+		}
+		let step = func(x Row) Row {
+			if x.Key != at.Key {
+				return x
+			}
+			Row{Key: x.Key, Counter: machines.Next(x.Counter, counter.Step(x.Counter, at.Sig))}
+		}
+		Stay[Rows]{Next: Rows{Items: slices.Transform(r.Items, step), Next: r.Next}}
+	}
+}
+
+// has reports whether r has a row with the key.
+func has(r Rows, key int) bool { slices.IndexFunc(r.Items, func(x Row) bool { x.Key == key }) >= 0 }
+
+// Counters is the list as a machine.
+type Counters machine[Rows, Signal] { initial: Initial(), step: Step }
+
+// Name is the name upstream shows for the row with the key.
+func Name(key int) string { "counter-\(key)" }

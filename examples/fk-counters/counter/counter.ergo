@@ -1,0 +1,42 @@
+// Package counter is one counter: a pure machine that a parent holds as
+// data and steps by calling Step. It knows nothing of the list it is in.
+
+import machines
+
+// Count is the counter's state.
+type Count { N int }
+
+// Signal is what a counter takes: its two buttons.
+type Signal = Increment{} | Decrement{}
+
+// Never is the output of a counter: it never ends and emits nothing, so
+// no value of Never is made.
+type Never {}
+
+// Initial is a counter at zero.
+func Initial() Count { Count{N: 0} }
+
+// Step is the transition: one more, or one less.
+func Step(c Count, s Signal) Decision[Count, Never] {
+	match s {
+	case Increment:
+		Stay[Count]{Next: Count{N: c.N + 1}}
+	case Decrement:
+		Stay[Count]{Next: Count{N: c.N - 1}}
+	}
+}
+
+// Counter is the counter as a machine.
+type Counter machine[Count, Signal] {
+	initial: Initial(),
+	step:    Step,
+
+	// UndoesItself: a decrement after an increment, or an increment after
+	// a decrement, is the counter it started from.
+	law UndoesItself(n int) {
+		let c = Count{N: n % 1000000}
+		let up = machines.Next(c, Step(c, Increment))
+		let down = machines.Next(c, Step(c, Decrement))
+		machines.Next(up, Step(up, Decrement)) == c && machines.Next(down, Step(down, Increment)) == c
+	},
+}

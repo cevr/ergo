@@ -1,0 +1,17 @@
+// fk-counters is a port of Foldkit's counters example (stage a: the
+// model, with no view). It runs a script of clicks on a list of counters
+// and shows the list after each one. Package counter is one counter, a
+// pure machine; package rows is the list, which holds each counter as data
+// and routes a counter's signal to its row by key; package script reads
+// the script. This binary binds io to the host.
+
+import fkcounters/script
+import io
+import os
+
+func main() fails os.Exit needs Console | Ambient {
+	let status = with context { io.Stdin: io.NewStdin() } { script.Run() }
+	if status != 0 {
+		return os.Exit{Code: status, Message: "fk-counters: the script did not run"}
+	}
+}

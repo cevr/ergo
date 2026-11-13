@@ -1,0 +1,53 @@
+{
+  "about": "fk-counters' application mutants; each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk2-at-steps-every-row", "origin": "wf10/fk2a",
+      "file": "examples/fk-counters/rows/rows.ergo",
+      "from": "\t\t\tif x.Key != at.Key {\n\t\t\t\treturn x\n\t\t\t}\n",
+      "to": "",
+      "rule": "A counter's signal steps its own row only (law RowSignalTouchesOnlyItsRow).",
+      "anchor": {"tests": ["examples:fk-counters"]}, "killers": ["examples:fk-counters"]
+    },
+    {
+      "name": "fk2-at-missing-key-adds-a-row", "origin": "wf10/fk2a",
+      "file": "examples/fk-counters/rows/rows.ergo",
+      "from": "\tcase At as at:\n\t\tif !has(r, at.Key) {\n\t\t\treturn Ignore\n\t\t}\n",
+      "to": "\tcase At as at:\n\t\tif !has(r, at.Key) {\n\t\t\treturn Stay[Rows]{Next: Rows{Items: r.Items.Append(fresh(at.Key)), Next: r.Next}}\n\t\t}\n",
+      "rule": "A signal for a key with no row changes nothing: it never brings a removed row back.",
+      "anchor": {"tests": ["examples:fk-counters"]}, "killers": ["examples:fk-counters"]
+    },
+    {
+      "name": "fk2-remove-drops-the-rest", "origin": "wf10/fk2a",
+      "file": "examples/fk-counters/rows/rows.ergo",
+      "from": "func(x Row) bool { x.Key != rm.Key }",
+      "to": "func(x Row) bool { x.Key > rm.Key }",
+      "rule": "A remove keeps every other row, in order (law RemoveKeepsTheOthers).",
+      "anchor": {"tests": ["examples:fk-counters"]}, "killers": ["examples:fk-counters"]
+    },
+    {
+      "name": "fk2-key-reused", "origin": "wf10/fk2a",
+      "file": "examples/fk-counters/rows/rows.ergo",
+      "from": "r.Items.Append(fresh(r.Next))",
+      "to": "r.Items.Append(fresh(len(r.Items)))",
+      "rule": "An add gives a key no row had before (law KeysAreUnique).",
+      "anchor": {"tests": ["examples:fk-counters"]}, "killers": ["examples:fk-counters"]
+    },
+    {
+      "name": "fk2-next-not-advanced", "origin": "wf10/fk2a",
+      "file": "examples/fk-counters/rows/rows.ergo",
+      "from": "Next: r.Next + 1}}",
+      "to": "Next: r.Next}}",
+      "rule": "Next moves past every key given (law KeysAreUnique).",
+      "anchor": {"tests": ["examples:fk-counters"]}, "killers": ["examples:fk-counters"]
+    },
+    {
+      "name": "fk2-counter-decrement-adds", "origin": "wf10/fk2a",
+      "file": "examples/fk-counters/counter/counter.ergo",
+      "from": "Stay[Count]{Next: Count{N: c.N - 1}}",
+      "to": "Stay[Count]{Next: Count{N: c.N + 1}}",
+      "rule": "Decrement is one less (law Counter.UndoesItself).",
+      "anchor": {"tests": ["examples:fk-counters"]}, "killers": ["examples:fk-counters"]
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+// Package script runs the list of counters over a script of clicks read
+// from io.Stdin, and shows the list after each one.
+
+import fkcounters/counter
+import fkcounters/rows
+import io
+import machines
+import strconv
+import strings
+
+// BadLine is a line the script cannot read.
+type BadLine { Line int, Why string }
+
+// Read reads the lines of a script. Each line is `add`, `remove N`,
+// `inc N` or `dec N`, where N is the number of a row's name counter-N. A
+// blank line or a line that starts with # is skipped.
+func Read(lines []string) []rows.Signal fails BadLine {
+	let mut out = []rows.Signal{}
+	for i, line in lines {
+		let n = i + 1
+		let text = strings.TrimSpace(line)
+		let words = strings.Fields(text)
+		if len(words) == 0 || strings.HasPrefix(text, "#") {
+			continue
+		}
+		if words[0] == "add" {
+			if len(words) != 1 {
+				return BadLine{Line: n, Why: "add takes no row"}
+			}
+			out = out.Append(rows.Add)
+			continue
+		}
+		if len(words) != 2 {
+			return BadLine{Line: n, Why: "\(words[0]) takes one row number"}
+		}
+		let key = strconv.Atoi(words[1]) catch {
+		case strconv.Malformed:
+			return BadLine{Line: n, Why: "\(words[1]) is not a row number"}
+		case strconv.OutOfRange:
+			return BadLine{Line: n, Why: "\(words[1]) is out of range"}
+		}
+		let s = match words[0] {
+		case "remove":
+			rows.Remove{Key: key}
+		case "inc":
+			rows.At{Key: key, Sig: counter.Increment}
+		case "dec":
+			rows.At{Key: key, Sig: counter.Decrement}
+		case _:
+			return BadLine{Line: n, Why: "unknown word \(words[0])"}
+		}
+		out = out.Append(s)
+	}
+	out
+}
+
+// Run reads the script and shows the list first and after each click, as
+// `name=count` for each row, or `(no rows)`. It returns the exit status: 0,
+// or 1 when the script is refused.
+func Run() int needs Console | io.Stdin {
+	let mut lines = []string{}
+	for line in io.Stdin.Lines() {
+		lines = lines.Append(line)
+	}
+	let signals = Read(lines) catch {
+	case BadLine as b:
+		Console.Println("? line \(b.Line): \(b.Why)")
+		return 1
+	}
+	let mut r = rows.Initial()
+	show(r)
+	for s in signals {
+		r = machines.Next(r, rows.Step(r, s))
+		show(r)
+	}
+	0
+}
+
+func show(r rows.Rows) needs Console {
+	if len(r.Items) == 0 {
+		Console.Println("(no rows)")
+		return
+	}
+	let mut parts = []string{}
+	for x in r.Items {
+		parts = parts.Append("\(rows.Name(x.Key))=\(x.Counter.N)")
+	}
+	Console.Println(strings.Join(parts, " "))
+}
