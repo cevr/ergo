@@ -40,6 +40,12 @@
       "to": "\t\t\tlet _ = yield(m)\n",
       "rule": "The memory transport's Messages stops when its consumer breaks: Transport.StopsWhenAsked.",
       "anchor": {"tests": ["examples:modules/mcp"]}, "killers": ["examples:modules/mcp"]
-    }
+    },
+    {"name":"ap3-required-ignored","origin":"wf10/domain AP3","file":"modules/mcp/schema.ergo","from":"\t\t\t\t\tcase None:\n\t\t\t\t\t\treturn false\n","to":"\t\t\t\t\tcase None:\n","rule":"An object without a required key does not fit: RequiredKeyIsRequired.","anchor":{"tests":["examples:modules/mcp"]},"killers":["examples:modules/mcp"]},
+    {"name":"ap3-properties-ignored","origin":"wf10/domain AP3","file":"modules/mcp/schema.ergo","from":"\t\tcase Some[json.Value] as s:\n\t\t\tif !Conforms(s.Value, m.Value) {\n","to":"\t\tcase Some[json.Value] as s:\n\t\t\tif false && !Conforms(s.Value, m.Value) {\n","rule":"A member that does not fit its property makes the object not fit: PropertiesAreChecked.","anchor":{"tests":["examples:modules/mcp"]},"killers":["examples:modules/mcp"]},
+    {"name":"ap3-integer-takes-fraction","origin":"wf10/domain AP3","file":"modules/mcp/schema.ergo","from":"t == \"integer\" && !strings.Contains(s, \".\") && ","to":"t == \"integer\" && ","rule":"A number with a fraction is no integer: IntegerHasNoFraction.","anchor":{"tests":["examples:modules/mcp"]},"killers":["examples:modules/mcp"]},
+    {"name":"ap3-anyof-takes-all","origin":"wf10/domain AP3","file":"modules/mcp/schema.ergo","from":"\t\tfalse\n\tcase json.Null, json.Boolean, json.Num, json.Str, json.Object:\n\t\ttrue\n","to":"\t\ttrue\n\tcase json.Null, json.Boolean, json.Num, json.Str, json.Object:\n\t\ttrue\n","rule":"A value that fits none of anyOf's schemas does not fit: AnyOfIsOneOfItsSchemas.","anchor":{"tests":["examples:modules/mcp"]},"killers":["examples:modules/mcp"]},
+    {"name":"ap3-prefix-any-length","origin":"wf10/domain AP3","file":"modules/mcp/schema.ergo","from":"\t\t\tif len(ps.Items) != len(a.Items) {\n","to":"\t\t\tif len(ps.Items) > len(a.Items) {\n","rule":"prefixItems fixes the length: PrefixItemsFixTheLength.","anchor":{"tests":["examples:modules/mcp"]},"killers":["examples:modules/mcp"]},
+    {"name":"ap3-items-ignored","origin":"wf10/domain AP3","file":"modules/mcp/schema.ergo","from":"\t\tfor e in a.Items {\n\t\t\tif !Conforms(s.Value, e) {\n","to":"\t\tfor e in a.Items {\n\t\t\tif false && !Conforms(s.Value, e) {\n","rule":"Every item must fit items: ItemsAreEachChecked.","anchor":{"tests":["examples:modules/mcp"]},"killers":["examples:modules/mcp"]}
   ]
 }
