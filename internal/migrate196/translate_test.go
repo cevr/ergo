@@ -11,6 +11,7 @@ import (
 
 	"ergo.local/prototype/internal/migrate196/oldsyntax"
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/fix"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -65,6 +66,29 @@ func frozenInputs(t *testing.T) []frozen {
 // the one semantic authority): its sorted codes, or OK.
 func verdict(src string) string {
 	_, diags := check.CheckSource(src)
+	return codes(diags)
+}
+
+// fixed runs ergo fix (EXC1: the declared implementations) on a translated
+// program, the next migration after 196: the pinned verdicts are the
+// meaning of each program, which neither migration changes.
+func fixed(t *testing.T, src string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "main.ergo")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fix.Run(fix.Options{Paths: []string{path}, Write: true}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+func codes(diags []check.Diagnostic) string {
 	var codes []string
 	for _, d := range diags {
 		codes = append(codes, d.Code)
@@ -141,6 +165,7 @@ func TestTranslateMeaningKept(t *testing.T) {
 			t.Errorf("%s: notes %v", in.rel, notes)
 			continue
 		}
+		out = fixed(t, out)
 		got[in.rel] = verdict(out)
 		order = append(order, in.rel)
 		if pinned == nil {
