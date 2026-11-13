@@ -127,4 +127,8 @@ of 120 steps each (`-examples.seed=N` replays one).
   and `go vet` for linux, darwin, windows and js/wasm. The batch gate runs
   it after `scripts/gate.sh --merge`, on Linux and on the Mac. It needs the
   pinned modules in the module cache (the network once).
+- `TestExamplesCrossBuild` builds the window binaries for darwin/arm64,
+  windows/amd64 and js/wasm (screen's binding states those platforms), and
+  runs the js/wasm ones headless under Node (Go's `wasm_exec_node.js`) on
+  three seeded scripts, each printing what `ui.TestHost` prints.
 - `testdata/mutants.json` is the module's mutant ledger.
