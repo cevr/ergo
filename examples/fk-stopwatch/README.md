@@ -14,23 +14,7 @@ Upstream keeps `{elapsedMs, isRunning, startTime}` and reads the clock in two co
 
 ## Upstream tests
 
-Each title of upstream's `src/story.test.ts` and `src/scene.test.ts`, and what restates it. (FK0 moves this list to `origin/tests.txt`, which the examples runner checks.)
-
-| Upstream title | Restated by |
-| --- | --- |
-| ClickedStart fires DetermineStartTime with current elapsed time | `watch` test `StartEntersRunningFromTheShownTime` |
-| CompletedDetermineStartTime stores the offset start time and starts running | `watch` test `StartRunsTheWatchOnTheClock` |
-| ClickedStop pauses the stopwatch without zeroing time | `watch` test `StopKeepsTheTime` |
-| ClickedReset zeros elapsedMs, isRunning, and startTime | `watch` test `ResetZeros` |
-| ClickedReset on an idle stopwatch is a no-op | `watch` test `ResetOfAnIdleWatchKeepsIt` |
-| Ticked fires DetermineTickTime with the stored startTime | `watch` test `TickShowsTheClockTimeAndArmsTheNext` |
-| CompletedDetermineTickTime stores the new elapsed time | `watch` test `TicksStoreTheElapsedTime` |
-| initial view shows the zeroed time and Start + Reset buttons | not restated: stage a has no view (FK1b, after H4 and H4r) |
-| clicking Start fires DetermineStartTime and switches to Stop | not restated: stage a has no view (FK1b) |
-| clicking Stop while running switches back to Start | not restated: stage a has no view (FK1b) |
-| clicking Reset zeros the elapsed time | not restated: stage a has no view (FK1b) |
-| a tick from the running Subscription advances the elapsed time | not restated: stage a has no view (FK1b) |
-| elapsed time formats as MM:SS.cc | not restated: stage a has no view (FK1b); `Format` is checked by `TicksStoreTheElapsedTime` and the `laps` case |
+Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files.
 
 ## Laws
 

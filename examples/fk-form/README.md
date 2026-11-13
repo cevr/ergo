@@ -19,29 +19,7 @@ Tag: `default`.
 
 ## Upstream tests
 
-Each title of upstream's `src/story.test.ts` and `src/scene.test.ts`, and what restates it. A title is restated by a law or a case of this program; no `test` block is written for a title, because each would kill no mutant that a law or a case does not kill already (AGENTS.md, Tests). (FK0 moves this list to `origin/tests.txt`.)
-
-| Upstream title | Restated by |
-| --- | --- |
-| typing a long name produces a Valid field | law `EditClearsThatFieldsError`; case `subscribe` (`name Alice`) |
-| typing a short name produces an Invalid field with the min-length error | law `EditClearsThatFieldsError`; case `subscribe` (`name A`, with the text) |
-| typing a well-formed email transitions to Validating and fires ValidateEmail | law `EditClearsThatFieldsError` (the field is `Checking`), law `StaleCheckIsDropped` (an email edit opens the entry whose work is the check); case `subscribe` |
-| typing a malformed email produces Invalid without an async command | law `EditClearsThatFieldsError`; case `invalid` (each refused address shows no check) |
-| a validation result for a superseded email value is ignored | law `StaleCheckIsDropped`: the old check's entry has ended, and the runner drops its answer |
-| a validation result for the current email value updates the field | case `subscribe` (`Test@Example.com` is on the list; `alice@example.com` is not) |
-| UpdatedMessageText stores the value as Valid | law `EditClearsThatFieldsError` (the note is a plain text with no verdict) |
-| ClickedFormSubmit on an invalid form is ignored | law `SubmitOnlyWhenAllValid`; cases `subscribe` and `invalid` |
-| ClickedFormSubmit on a valid form fires SubmitForm and enters Submitting | law `SubmitOnlyWhenAllValid`; case `subscribe` (the welcome text names Alice) |
-| FailedSubmitForm sets SubmitError | case `subscribe` (`bob@mail.invalid`) |
-| initial view shows all fields and a disabled submit button | not restated: stage a has no view (FK5b, after H4 and H4r) |
-| typing a short name shows a validation error via accessible description | not restated: stage a has no view (FK5b) |
-| typing a malformed email surfaces a synchronous validation error | not restated: stage a has no view (FK5b) |
-| typing a well-formed email triggers async validation | not restated: stage a has no view (FK5b) |
-| async validation can flag an email as taken | not restated: stage a has no view (FK5b) |
-| submit becomes enabled once name and email are valid | not restated: stage a has no view (FK5b); `Ready` is the model half |
-| submitting a valid form shows the loading label then a success banner | not restated: stage a has no view (FK5b) |
-| a failed submission renders an error banner | not restated: stage a has no view (FK5b) |
-| submitting an invalid form (e.g. via Enter key) is rejected by update | not restated: stage a has no view (FK5b); law `SubmitOnlyWhenAllValid` is the model half |
+Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files.
 
 ## Laws
 

@@ -1,0 +1,14 @@
+# fk-engine: the upstream tests of managed-resource-layer at d21db423 and what restates each.
+src/scene.test.ts: initial view shows the engine off with a Start button -> not restated: stage a has no view (FK6b, after H4 and H4r)
+src/scene.test.ts: clicking Start engine enters the booting state and shows Stop -> not restated: stage a has no view (FK6b)
+src/scene.test.ts: a ready engine shows its id and the Stop button -> not restated: stage a has no view (FK6b)
+src/scene.test.ts: clicking Compute fires the Compute command and renders the result -> not restated: stage a has no view (FK6b)
+src/scene.test.ts: the engine lifecycle drives boot, ready, and stop through the resource steps -> not restated: stage a has no view (FK6b); case `engine` plays the same lifecycle
+src/scene.test.ts: a failed engine boot shows the failure reason -> not restated: stage a has no view (FK6b); case `engine` shows it
+src/story.test.ts: ClickedStartEngine requests the engine by entering Booting -> `engine` test `StartEntersBooting`
+src/story.test.ts: StartedEngine marks the engine ready with its id -> `engine` test `StartedIsReadyWithItsId`
+src/story.test.ts: ClickedStopEngine releases the engine by entering Off -> `engine` test `StopEntersOff`; the release is law `ReleasesEqualAcquires`
+src/story.test.ts: StoppedEngine is a no-op lifecycle ack -> no restatement: there is no StoppedEngine; the end of the entry is the release
+src/story.test.ts: FailedStartEngine records the failure reason -> `engine` test `RefusedRecordsWhy`
+src/story.test.ts: ClickedCompute increments the counter and fires Compute with the next value -> `engine` test `ComputeCountsAndSquares`
+src/story.test.ts: SkippedCompute leaves the model unchanged -> no restatement: a compute without an engine is `Ignore` in the step (law `ComputeNeedsAnEngine`)

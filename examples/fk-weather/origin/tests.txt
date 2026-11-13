@@ -1,0 +1,12 @@
+# fk-weather: the upstream tests of weather at d21db423 and what restates each.
+src/scene.test.ts: initial view shows empty form with Get Weather button -> not restated: stage a has no view (FK3b, after H4 and H4r)
+src/scene.test.ts: typing a zip code updates the input value -> not restated: stage a has no view (FK3b); the law `EditOnlyChangesTheDraft` holds the model half
+src/scene.test.ts: submitting the form shows loading state -> not restated: stage a has no view (FK3b)
+src/scene.test.ts: successful fetch renders weather card -> not restated: stage a has no view (FK3b)
+src/scene.test.ts: failed fetch renders error message -> not restated: stage a has no view (FK3b)
+src/scene.test.ts: full flow: type zip code, click get weather, see results -> not restated: stage a has no view (FK3b); the `ask` case plays the same flow on the model
+src/story.test.ts: submitting the weather form fetches weather and shows result -> covered by law `ReadyShowsLatestAsk` (a submit enters Loading, and a resolved Got shows the report) and the `ask` case
+src/story.test.ts: failed fetch shows failure state -> covered by law `ReadyShowsLatestAsk` (a resolved NotFound or Unavailable shows Failed with that reason) and the `ask` case
+src/story.test.ts: fetchWeather returns SucceededFetchWeather with data on success -> `web` test `FetchGivesTheReport`
+src/story.test.ts: fetchWeather returns FailedFetchWeather on HTTP failure -> `web` test `HTTPFailureFails`
+src/story.test.ts: fetchWeather returns FailedFetchWeather when no results found -> `web` test `NoPlaceIsNotFound`

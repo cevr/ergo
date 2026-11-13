@@ -1,0 +1,20 @@
+# fk-form: the upstream tests of form at d21db423 and what restates each.
+src/scene.test.ts: initial view shows all fields and a disabled submit button -> not restated: stage a has no view (FK5b, after H4 and H4r)
+src/scene.test.ts: typing a short name shows a validation error via accessible description -> not restated: stage a has no view (FK5b)
+src/scene.test.ts: typing a malformed email surfaces a synchronous validation error -> not restated: stage a has no view (FK5b)
+src/scene.test.ts: typing a well-formed email triggers async validation -> not restated: stage a has no view (FK5b)
+src/scene.test.ts: async validation can flag an email as taken -> not restated: stage a has no view (FK5b)
+src/scene.test.ts: submit becomes enabled once name and email are valid -> not restated: stage a has no view (FK5b); `Ready` is the model half
+src/scene.test.ts: submitting a valid form shows the loading label then a success banner -> not restated: stage a has no view (FK5b)
+src/scene.test.ts: a failed submission renders an error banner -> not restated: stage a has no view (FK5b)
+src/scene.test.ts: submitting an invalid form (e.g. via Enter key) is rejected by update -> not restated: stage a has no view (FK5b); law `SubmitOnlyWhenAllValid` is the model half
+src/story.test.ts: typing a long name produces a Valid field -> law `EditClearsThatFieldsError`; case `subscribe` (`name Alice`)
+src/story.test.ts: typing a short name produces an Invalid field with the min-length error -> law `EditClearsThatFieldsError`; case `subscribe` (`name A`, with the text)
+src/story.test.ts: typing a well-formed email transitions to Validating and fires ValidateEmail -> law `EditClearsThatFieldsError` (the field is `Checking`), law `StaleCheckIsDropped` (an email edit opens the entry whose work is the check); case `subscribe`
+src/story.test.ts: typing a malformed email produces Invalid without an async command -> law `EditClearsThatFieldsError`; case `invalid` (each refused address shows no check)
+src/story.test.ts: a validation result for a superseded email value is ignored -> law `StaleCheckIsDropped`: the old check's entry has ended, and the runner drops its answer
+src/story.test.ts: a validation result for the current email value updates the field -> case `subscribe` (`Test@Example.com` is on the list; `alice@example.com` is not)
+src/story.test.ts: UpdatedMessageText stores the value as Valid -> law `EditClearsThatFieldsError` (the note is a plain text with no verdict)
+src/story.test.ts: ClickedFormSubmit on an invalid form is ignored -> law `SubmitOnlyWhenAllValid`; cases `subscribe` and `invalid`
+src/story.test.ts: ClickedFormSubmit on a valid form fires SubmitForm and enters Submitting -> law `SubmitOnlyWhenAllValid`; case `subscribe` (the welcome text names Alice)
+src/story.test.ts: FailedSubmitForm sets SubmitError -> case `subscribe` (`bob@mail.invalid`)

@@ -1,0 +1,12 @@
+# fk-counters: the upstream tests of counters at d21db423 and what restates each.
+src/scene.test.ts: renders one Counter row per entry -> not restated: stage a has no view (FK2b, after H4 and H4r)
+src/scene.test.ts: clicking + on a Counter dispatches through h.submodel back to the right row -> not restated: stage a has no view (FK2b); the routing is the `rows` case
+src/scene.test.ts: clicking - on a Counter dispatches through h.submodel and decrements -> not restated: stage a has no view (FK2b)
+src/scene.test.ts: Add Counter creates a new row with a fresh Counter -> not restated: stage a has no view (FK2b)
+src/scene.test.ts: Remove deletes a row and routes future events to surviving rows -> not restated: stage a has no view (FK2b); the `rows` case removes a row and clicks the survivors
+src/story.test.ts: ClickedAddRow appends a fresh Counter row with the next id -> `rows` test `AddAppendsAFreshRowWithTheNextKey`
+src/story.test.ts: ClickedRemoveRow drops only the targeted row -> `rows` test `RemoveDropsOnlyThatRow`
+src/story.test.ts: GotCounterMessage routes ClickedIncrement to the matching row only -> `rows` test `IncrementGoesToItsRowOnly`
+src/story.test.ts: GotCounterMessage routes ClickedDecrement to the matching row only -> `rows` test `DecrementGoesToItsRowOnly`
+src/story.test.ts: GotCounterMessage for a missing id leaves the model unchanged -> `rows` test `SignalForAMissingKeyChangesNothing`
+src/story.test.ts: successive Messages accumulate per row independently -> `rows` test `RowsAccumulateIndependently`

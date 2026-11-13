@@ -24,21 +24,7 @@ A press at the very instant a transfer would arrive comes after the arrival. The
 
 ## Upstream tests
 
-Each title of upstream's `src/story.test.ts` and `src/scene.test.ts`, and what restates it. (FK0 moves this list to `origin/tests.txt`, which the examples runner checks.)
-
-| Upstream title | Restated by |
-| --- | --- |
-| starting an upload appends an Uploading entry and fires UploadFile | `board` test `StartAppendsASendingTransfer` |
-| cancelling an upload interrupts it and marks it Cancelled | `board` test `CancelEndsTheTransfer` |
-| a cancel that lands after completion resolves NotFound and changes nothing | `board` test `CancelAfterArrivalChangesNothing` |
-| cancelling one upload leaves the other running | `board` test `CancelOneLeavesTheOther` |
-| a new upload can start while a cancellation is still pending | `board` test `StartWhileACancelIsPending` |
-| restarting a cancelled upload reuses its id and file | `board` test `RestartKeepsItsIdAndFile` |
-| cancel all interrupts every running upload and only those | `board` test `CancelAllStopsOnlyTheSending` |
-| initial view shows the start button and an empty state | not restated: stage a has no view (FK4b, after H4 and H4r) |
-| starting an upload shows an Uploading row with a cancel button | not restated: stage a has no view (FK4b) |
-| cancelling an upload marks it Cancelled and offers a restart | not restated: stage a has no view (FK4b) |
-| the cancel all button appears only while an upload is running | not restated: stage a has no view (FK4b) |
+Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files.
 
 ## Laws
 

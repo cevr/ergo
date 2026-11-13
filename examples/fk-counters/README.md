@@ -14,23 +14,7 @@ Upstream joins the child with `Update.foldChild({update, read, write, toParentMe
 
 ## Upstream tests
 
-Each title of upstream's `src/story.test.ts` and `src/scene.test.ts`, and what restates it. (FK0 moves this list to `origin/tests.txt`, which the examples runner checks.)
-
-| Upstream title | Restated by |
-| --- | --- |
-| ClickedAddRow appends a fresh Counter row with the next id | `rows` test `AddAppendsAFreshRowWithTheNextKey` |
-| ClickedRemoveRow drops only the targeted row | `rows` test `RemoveDropsOnlyThatRow` |
-| GotCounterMessage routes ClickedIncrement to the matching row only | `rows` test `IncrementGoesToItsRowOnly` |
-| GotCounterMessage routes ClickedDecrement to the matching row only | `rows` test `DecrementGoesToItsRowOnly` |
-| GotCounterMessage for a missing id leaves the model unchanged | `rows` test `SignalForAMissingKeyChangesNothing` |
-| successive Messages accumulate per row independently | `rows` test `RowsAccumulateIndependently` |
-| renders one Counter row per entry | not restated: stage a has no view (FK2b, after H4 and H4r) |
-| clicking + on a Counter dispatches through h.submodel back to the right row | not restated: stage a has no view (FK2b); the routing is the `rows` case |
-| clicking - on a Counter dispatches through h.submodel and decrements | not restated: stage a has no view (FK2b) |
-| Add Counter creates a new row with a fresh Counter | not restated: stage a has no view (FK2b) |
-| Remove deletes a row and routes future events to surviving rows | not restated: stage a has no view (FK2b); the `rows` case removes a row and clicks the survivors |
-
-The blocks branch's init test, "creates distinct parent-owned instances" (examples/counters at fe37fb13), is the `rows` test `InitialHasDistinctFreshCounters`.
+Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files.
 
 ## Laws
 

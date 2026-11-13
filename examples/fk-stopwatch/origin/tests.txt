@@ -1,0 +1,14 @@
+# fk-stopwatch: the upstream tests of stopwatch at d21db423 and what restates each.
+src/scene.test.ts: initial view shows the zeroed time and Start + Reset buttons -> not restated: stage a has no view (FK1b, after H4 and H4r)
+src/scene.test.ts: clicking Start fires DetermineStartTime and switches to Stop -> not restated: stage a has no view (FK1b)
+src/scene.test.ts: clicking Stop while running switches back to Start -> not restated: stage a has no view (FK1b)
+src/scene.test.ts: clicking Reset zeros the elapsed time -> not restated: stage a has no view (FK1b)
+src/scene.test.ts: a tick from the running Subscription advances the elapsed time -> not restated: stage a has no view (FK1b)
+src/scene.test.ts: elapsed time formats as MM:SS.cc -> not restated: stage a has no view (FK1b); `Format` is checked by `TicksStoreTheElapsedTime` and the `laps` case
+src/story.test.ts: ClickedStart fires DetermineStartTime with current elapsed time -> `watch` test `StartEntersRunningFromTheShownTime`
+src/story.test.ts: CompletedDetermineStartTime stores the offset start time and starts running -> `watch` test `StartRunsTheWatchOnTheClock`
+src/story.test.ts: ClickedStop pauses the stopwatch without zeroing time -> `watch` test `StopKeepsTheTime`
+src/story.test.ts: ClickedReset zeros elapsedMs, isRunning, and startTime -> `watch` test `ResetZeros`
+src/story.test.ts: ClickedReset on an idle stopwatch is a no-op -> `watch` test `ResetOfAnIdleWatchKeepsIt`
+src/story.test.ts: Ticked fires DetermineTickTime with the stored startTime -> `watch` test `TickShowsTheClockTimeAndArmsTheNext`
+src/story.test.ts: CompletedDetermineTickTime stores the new elapsed time -> `watch` test `TicksStoreTheElapsedTime`

@@ -18,21 +18,7 @@ Upstream keeps the panel as `AsyncData` (`Idle | Loading | Success | Failure`) b
 
 ## Upstream tests
 
-Each title of upstream's `src/story.test.ts` and `src/scene.test.ts`, and what restates it. (FK0 moves this list to `origin/tests.txt`, which the examples runner checks.)
-
-| Upstream title | Restated by |
-| --- | --- |
-| submitting the weather form fetches weather and shows result | covered by law `ReadyShowsLatestAsk` (a submit enters Loading, and a resolved Got shows the report) and the `ask` case |
-| failed fetch shows failure state | covered by law `ReadyShowsLatestAsk` (a resolved NotFound or Unavailable shows Failed with that reason) and the `ask` case |
-| fetchWeather returns SucceededFetchWeather with data on success | `web` test `FetchGivesTheReport` |
-| fetchWeather returns FailedFetchWeather on HTTP failure | `web` test `HTTPFailureFails` |
-| fetchWeather returns FailedFetchWeather when no results found | `web` test `NoPlaceIsNotFound` |
-| initial view shows empty form with Get Weather button | not restated: stage a has no view (FK3b, after H4 and H4r) |
-| typing a zip code updates the input value | not restated: stage a has no view (FK3b); the law `EditOnlyChangesTheDraft` holds the model half |
-| submitting the form shows loading state | not restated: stage a has no view (FK3b) |
-| successful fetch renders weather card | not restated: stage a has no view (FK3b) |
-| failed fetch renders error message | not restated: stage a has no view (FK3b) |
-| full flow: type zip code, click get weather, see results | not restated: stage a has no view (FK3b); the `ask` case plays the same flow on the model |
+Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files.
 
 ## Laws
 
