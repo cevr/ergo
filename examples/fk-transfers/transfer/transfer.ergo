@@ -1,0 +1,90 @@
+// Package transfer is one file transfer as a machine whose Sending state
+// owns its time: the entry's timer is the transfer itself, and it gives
+// Arrived after PerMB for each megabyte. Cancel ends the entry, and with it
+// the timer, so a cancelled transfer can never arrive; Restart enters
+// Sending again, with a new timer for the whole file. A cancel that comes
+// after the transfer arrived finds no entry to end and changes nothing, so
+// no registry of transfers and no "not found" answer exist.
+
+import time
+
+// PerMB is how long one megabyte takes.
+let PerMB = 100ms
+
+// File is a file to send: its name and its size in megabytes.
+type File { Name string, MB int }
+
+// Files is the files a board sends, in turn: transfer n sends
+// Files[n % len(Files)].
+let Files = []File{
+	File{Name: "trail-map.png", MB: 48},
+	File{Name: "field-notes.txt", MB: 87},
+	File{Name: "harbor-sounds.ogg", MB: 12},
+	File{Name: "seed-catalog.csv", MB: 34},
+	File{Name: "star-chart.svg", MB: 61},
+}
+
+// FileFor is the file of transfer id.
+func FileFor(id int) File { Files[id%len(Files)] }
+
+// Took is how long a file of mb megabytes takes.
+func Took(mb int) duration { time.Times(PerMB, mb) }
+
+// Transfer is the state: sending, sent or cancelled, with the file's size.
+type Transfer = Sending{MB int} | Sent{MB int} | Cancelled{MB int}
+
+// Signal is what a transfer takes: the two buttons, and its own arrival.
+type Signal = Cancel{} | Restart{} | Arrived{}
+
+// Never is the output of a transfer: it emits nothing and never ends.
+type Never {}
+
+// Step is the transition. Cancel ends a sending transfer; Arrived ends it
+// sent; Restart sends a cancelled one again from the start. Every other
+// pair is ignored: a cancel of a sent or cancelled transfer, a restart of
+// one that sends or was sent, and an arrival of an ended entry, which the
+// runner drops before the step sees it.
+func Step(t Transfer, s Signal) Decision[Transfer, Never] {
+	match (t, s) {
+	case (Sending as x, Cancel):
+		Enter[Transfer]{Next: Cancelled{MB: x.MB}}
+	case (Sending as x, Arrived):
+		Enter[Transfer]{Next: Sent{MB: x.MB}}
+	case (Cancelled as x, Restart):
+		Enter[Transfer]{Next: Sending{MB: x.MB}}
+	case (Sending, Restart), (Sent, _), (Cancelled, Cancel), (Cancelled, Arrived):
+		Ignore
+	}
+}
+
+// timer is the time a sending transfer owns: Arrived after the whole file.
+func timer(t Transfer) Option[Timeout[Signal]] {
+	match t {
+	case Sending as x:
+		Some{Timeout[Signal]{In: Took(x.MB), Signal: Arrived}}
+	case Sent, Cancelled:
+		None
+	}
+}
+
+// Begin is the first state of a transfer of mb megabytes: it sends.
+func Begin(mb int) Transfer { Sending{MB: mb} }
+
+// Sender is a transfer as a machine. Its input is the file's size; it
+// starts sending, and its Sending state's timer is the transfer.
+type Sender machine[Transfer, Signal] { initial: Begin, step: Step, after: timer }
+
+// Word is how a transfer shows.
+func Word(t Transfer) string {
+	match t {
+	case Sending:
+		"sending"
+	case Sent:
+		"sent"
+	case Cancelled:
+		"cancelled"
+	}
+}
+
+// IsSending reports whether t sends.
+func IsSending(t Transfer) bool { Word(t) == "sending" }

@@ -1,0 +1,107 @@
+// Package emitted is the same board in shape B, upstream's: one machine
+// whose state holds every transfer's status, and whose steps emit
+// commands (start a transfer, interrupt one) for a sink to run. The sink
+// keeps the keyed registry of transfers in flight, as Foldkit's runtime
+// does, and answers an interrupt with Interrupted or NotFound. Registry is
+// that sink as a pure model on a clock the caller moves, so the shape runs
+// as a fold.
+
+import fktransfers/transfer
+import slices
+
+// Status is a transfer's status, a field of its entry.
+type Status = Uploading{} | Complete{} | Stopped{}
+
+// Entry is one transfer: its id, its file and its status.
+type Entry { ID int, File transfer.File, Status Status }
+
+// Uploads is the state: the entries in the order they started, and the
+// next id.
+type Uploads { Items []Entry, Next int }
+
+// Outcome is the sink's answer to an interrupt.
+type Outcome = Interrupted{} | NotFound{}
+
+// Signal is what the machine takes: the user's buttons and the sink's
+// answers.
+type Signal =
+	| Begin{}
+	| CancelOne{ID int}
+	| CancelEvery{}
+	| RestartOne{ID int}
+	| Succeeded{ID int}
+	| Answered{ID int, Outcome Outcome}
+
+// Command is what the machine asks the sink to run.
+type Command = StartUpload{ID int, MB int} | Interrupt{ID int}
+
+// Initial is a board with no transfers.
+func Initial() Uploads { Uploads{Items: []Entry{}, Next: 0} }
+
+// Step is the transition. Begin appends an uploading entry and starts it;
+// a cancel asks for an interrupt and waits for the answer, which sets the
+// status (Interrupted) or changes nothing (NotFound); cancel every asks
+// for one interrupt per uploading entry; a restart of a stopped entry
+// starts it again with its id and file; Succeeded completes the entry.
+func Step(u Uploads, s Signal) Decision[Uploads, []Command] {
+	match s {
+	case Begin:
+		let f = transfer.FileFor(u.Next)
+		let e = Entry{ID: u.Next, File: f, Status: Uploading}
+		Emit[Uploads, []Command]{Next: Uploads{Items: u.Items.Append(e), Next: u.Next + 1}, Output: []Command{StartUpload{ID: e.ID, MB: f.MB}}}
+	case CancelOne as c:
+		Emit[Uploads, []Command]{Next: u, Output: []Command{Interrupt{ID: c.ID}}}
+	case CancelEvery:
+		let mut out = []Command{}
+		for e in u.Items {
+			if e.Status == Uploading {
+				out = out.Append(Interrupt{ID: e.ID})
+			}
+		}
+		if len(out) == 0 {
+			return Ignore
+		}
+		Emit[Uploads, []Command]{Next: u, Output: out}
+	case RestartOne as r:
+		let i = slices.IndexFunc(u.Items, func(e Entry) bool { e.ID == r.ID && e.Status == Stopped })
+		if i < 0 {
+			return Ignore
+		}
+		Emit[Uploads, []Command]{Next: setStatus(u, r.ID, Uploading), Output: []Command{StartUpload{ID: r.ID, MB: u.Items[i].File.MB}}}
+	case Succeeded as d:
+		Stay[Uploads]{Next: setStatus(u, d.ID, Complete)}
+	case Answered as a:
+		match a.Outcome {
+		case Interrupted:
+			Stay[Uploads]{Next: setStatus(u, a.ID, Stopped)}
+		case NotFound:
+			Ignore
+		}
+	}
+}
+
+// setStatus is u with the status of entry id set to st.
+func setStatus(u Uploads, id int, st Status) Uploads {
+	let set = func(e Entry) Entry {
+		if e.ID != id {
+			return e
+		}
+		Entry{ID: e.ID, File: e.File, Status: st}
+	}
+	Uploads{Items: slices.Transform(u.Items, set), Next: u.Next}
+}
+
+// Uploader is the board as a machine.
+type Uploader machine[Uploads, Signal] { initial: Initial(), step: Step }
+
+// Word is how a status shows, in shape A's words.
+func Word(st Status) string {
+	match st {
+	case Uploading:
+		"sending"
+	case Complete:
+		"sent"
+	case Stopped:
+		"cancelled"
+	}
+}

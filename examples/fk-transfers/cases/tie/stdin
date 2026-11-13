@@ -1,0 +1,4 @@
+# trail-map.png takes 4.8s: a cancel at that very instant comes after the arrival
+@0 start
+@4800 cancel 0
+@5000 end

@@ -1,0 +1,80 @@
+// The board's laws over generated scripts of starts, cancels, cancel-alls,
+// restarts and clock moves: the model-based test of the two shapes, and
+// two rules of the live board.
+
+import strings
+import time
+
+// lines is a generated script: gaps of 0 to 2999 ms, and presses of every
+// kind with ids up to 5, past the transfers a short script starts.
+func lines(gaps []int, kinds []int, ids []int) []Line {
+	let mut out = []Line{}
+	let mut t = 0s
+	for i, g in gaps {
+		t = t + time.Times(1ms, pick(g, 3000))
+		let k = if i < len(kinds) { kinds[i] } else { 0 }
+		let id = pick(if i < len(ids) { ids[i] } else { i }, 6)
+		let press = match pick(k, 4) {
+		case 0:
+			Start
+		case 1:
+			Cancel{ID: id}
+		case 2:
+			CancelAll
+		case _:
+			Restart{ID: id}
+		}
+		out = out.Append(Line{At: t, Press: press})
+	}
+	out
+}
+
+// live is shape A over ls until end, on a fresh time.Manual.
+func live(ls []Line, end duration) [][]string {
+	let c = time.NewManual(0)
+	with context { Scheduler: c } { PlayA(ls, end, c) }
+}
+
+// ShapesAgree: the live board of actors (shape A) and the machine that
+// emits commands to its registry (shape B) show the same transfers in the
+// same states after every press and at the end, over generated presses and
+// clock moves.
+law ShapesAgree(gaps []int, kinds []int, ids []int, tail int) {
+	let ls = lines(gaps, kinds, ids)
+	let end = (if len(ls) > 0 { ls[len(ls)-1].At } else { 0s }) + time.Times(1ms, pick(tail, 10000))
+	live(ls, end) == PlayB(ls, end)
+}
+
+// CancelAllLeavesNoneRunning: right after a cancel all, no transfer of the
+// live board sends.
+law CancelAllLeavesNoneRunning(gaps []int, kinds []int, ids []int) {
+	let ls = lines(gaps, kinds, ids)
+	let shown = live(ls, if len(ls) > 0 { ls[len(ls)-1].At } else { 0s })
+	for i, l in ls {
+		if l.Press == CancelAll {
+			for row in shown[i] {
+				if strings.HasSuffix(row, " sending") {
+					return false
+				}
+			}
+		}
+	}
+	true
+}
+
+// IdsNeverReused: the live board's ids are 0, 1, 2, … in the order of the
+// starts, after every press: an id is never given twice, and a restart
+// keeps its id.
+law IdsNeverReused(gaps []int, kinds []int, ids []int) {
+	let ls = lines(gaps, kinds, ids)
+	for rows in live(ls, if len(ls) > 0 { ls[len(ls)-1].At } else { 0s }) {
+		for i, row in rows {
+			if !strings.HasPrefix(row, "\(i) ") {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
