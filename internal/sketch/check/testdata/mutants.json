@@ -2787,7 +2787,7 @@
       "to": "if !ok || n.Obj == nil || !Sealed(n) {",
       "rule": "Sealing is the visibility rule: a sealed operation type the program declares has no runtime Go type, so its value converts to another operation type as a plain interface; only a std sealed type takes the runtime adapter (sealedStd).",
       "killers": [
-        "lower:TestSealedStdConvertsToItsOperationTypes"
+        "check:TestImportGoUses"
       ]
     }
   ]

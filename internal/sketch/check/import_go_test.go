@@ -99,7 +99,8 @@ func TestImportGoRows(t *testing.T) {
 // (module.CheckImportPath: github.com/0xAX/x is a path); a pointer-receiver
 // method called on a copy; a borrow kept as a go.Ref; a program operation
 // type's value admitted into a Go interface, which Go then refuses
-// (16b-g-ops-into-go-interface).
+// (16b-g-ops-into-go-interface), sealed ones included
+// (fixts-sealed-user-as-std).
 func TestImportGoUses(t *testing.T) {
 	for _, tc := range []struct{ name, src, want string }{
 		{"refused-at-use", "import go math\nfunc F() int { let _ = math.Pi; 0 }\nfunc G() uint64 { math.MaxUint64 }\n",
@@ -114,6 +115,11 @@ func TestImportGoUses(t *testing.T) {
 		{"borrow-kept", "import go net/url\nfunc F(p *url.URL) go.Ref[url.URL] { p }\n",
 			"2:38:S108 cannot use *url.URL as go.Ref[url.URL] in the body's tail value: a borrow is not kept as a go.Ref"},
 		{"ops-into-go-interface", "import go fmt\ntype S { String() string }\nfunc F(s S) fmt.Stringer { s }\n",
+			"3:28:S108 cannot use S as fmt.Stringer in the body's tail value: the operations of S take Ergo's calling convention, not the Go methods of fmt.Stringer"},
+		// A sealed operation type the program declares is no std runtime
+		// type: Go refuses it as a Go interface too
+		// (fixts-sealed-user-as-std).
+		{"sealed-ops-into-go-interface", "import go fmt\ntype S { String() string, reset() }\nfunc F(s S) fmt.Stringer { s }\n",
 			"3:28:S108 cannot use S as fmt.Stringer in the body's tail value: the operations of S take Ergo's calling convention, not the Go methods of fmt.Stringer"},
 		// wf10 defects D2: a Go function is a value only when its type
 		// needs no conversion at the Go edge (check.GoDirectSig), and so
