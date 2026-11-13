@@ -318,7 +318,7 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 		fc.line("}")
 		return r
 	case fc.l.holdsValue(t) && !freshGoResults[name] && valueRule() && !fc.goShares(x):
-		return fc.cloneValue(t, r, x)
+		return fc.cloneDeep(t, r, x) // Go may still write an entry (V8)
 	}
 	return r
 }

@@ -233,7 +233,7 @@ func (l *lowerer) nameAll() {
 		generated = append(generated, entry{key, "equal " + key.obj.(string), equalBase(t)})
 	})
 	l.reserveClones(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, t check.Type) {
-		generated = append(generated, entry{key, "clone " + key.obj.(string), cloneBase(t)})
+		generated = append(generated, entry{key, key.kind + " " + key.obj.(string), cloneBase(t)})
 	})
 	l.reserveWires(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base, sort string) {
 		generated = append(generated, entry{key, sort, base})
