@@ -1,0 +1,68 @@
+// Package dino is the table's data: the dinosaurs, a constant, as
+// upstream's data.ts is.
+
+// Diet is what a dinosaur ate.
+type Diet = Carnivore{} | Herbivore{} | Omnivore{}
+
+// Period is when a dinosaur lived.
+type Period = Triassic{} | Jurassic{} | Cretaceous{}
+
+// Dinosaur is a row of the table. Its length is in tenths of a metre, so
+// 12.3 m is 123.
+type Dinosaur { Name string, Period Period, Diet Diet, Length int, Weight int }
+
+// Diets and Periods are every diet and period, in the order the filters
+// list them.
+let Diets = []Diet{Carnivore, Herbivore, Omnivore}
+
+let Periods = []Period{Triassic, Jurassic, Cretaceous}
+
+// DietName is d's name, as the URL and the table write it.
+func DietName(d Diet) string {
+	match d {
+	case Carnivore:
+		"Carnivore"
+	case Herbivore:
+		"Herbivore"
+	case Omnivore:
+		"Omnivore"
+	}
+}
+
+// PeriodName is p's name, as the URL and the table write it.
+func PeriodName(p Period) string {
+	match p {
+	case Triassic:
+		"Triassic"
+	case Jurassic:
+		"Jurassic"
+	case Cretaceous:
+		"Cretaceous"
+	}
+}
+
+// All is every dinosaur, in the table's unsorted order.
+let All = []Dinosaur{
+	Dinosaur{Name: "Tyrannosaurus Rex", Period: Cretaceous, Diet: Carnivore, Length: 123, Weight: 8400},
+	Dinosaur{Name: "Triceratops", Period: Cretaceous, Diet: Herbivore, Length: 90, Weight: 6000},
+	Dinosaur{Name: "Velociraptor", Period: Cretaceous, Diet: Carnivore, Length: 20, Weight: 15},
+	Dinosaur{Name: "Brachiosaurus", Period: Jurassic, Diet: Herbivore, Length: 260, Weight: 56000},
+	Dinosaur{Name: "Stegosaurus", Period: Jurassic, Diet: Herbivore, Length: 90, Weight: 3500},
+	Dinosaur{Name: "Ankylosaurus", Period: Cretaceous, Diet: Herbivore, Length: 65, Weight: 6000},
+	Dinosaur{Name: "Spinosaurus", Period: Cretaceous, Diet: Carnivore, Length: 150, Weight: 7000},
+	Dinosaur{Name: "Allosaurus", Period: Jurassic, Diet: Carnivore, Length: 97, Weight: 2300},
+	Dinosaur{Name: "Diplodocus", Period: Jurassic, Diet: Herbivore, Length: 250, Weight: 12000},
+	Dinosaur{Name: "Parasaurolophus", Period: Cretaceous, Diet: Herbivore, Length: 95, Weight: 2500},
+	Dinosaur{Name: "Compsognathus", Period: Jurassic, Diet: Carnivore, Length: 10, Weight: 3},
+	Dinosaur{Name: "Pachycephalosaurus", Period: Cretaceous, Diet: Herbivore, Length: 45, Weight: 450},
+	Dinosaur{Name: "Dilophosaurus", Period: Jurassic, Diet: Carnivore, Length: 70, Weight: 400},
+	Dinosaur{Name: "Iguanodon", Period: Cretaceous, Diet: Herbivore, Length: 100, Weight: 3500},
+	Dinosaur{Name: "Gallimimus", Period: Cretaceous, Diet: Omnivore, Length: 60, Weight: 440},
+	Dinosaur{Name: "Therizinosaurus", Period: Cretaceous, Diet: Herbivore, Length: 100, Weight: 5000},
+	Dinosaur{Name: "Carnotaurus", Period: Cretaceous, Diet: Carnivore, Length: 75, Weight: 1300},
+	Dinosaur{Name: "Oviraptor", Period: Cretaceous, Diet: Omnivore, Length: 16, Weight: 33},
+	Dinosaur{Name: "Baryonyx", Period: Cretaceous, Diet: Carnivore, Length: 100, Weight: 1700},
+	Dinosaur{Name: "Coelophysis", Period: Triassic, Diet: Carnivore, Length: 30, Weight: 20},
+	Dinosaur{Name: "Plateosaurus", Period: Triassic, Diet: Herbivore, Length: 80, Weight: 700},
+	Dinosaur{Name: "Herrerasaurus", Period: Triassic, Diet: Carnivore, Length: 60, Weight: 350},
+}

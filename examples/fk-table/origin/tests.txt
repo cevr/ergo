@@ -1,0 +1,14 @@
+# fk-table: the upstream tests of query-sync at d21db423 and what restates each.
+# No story is an Ergo test: a law and the tour case kill every mutant a test of it would (README.md, "Upstream tests").
+src/story.test.ts: prints sorting in the same format the parser accepts -> `query` law `EncodeDecodeRoundTrips`; case `tour` (sort)
+src/story.test.ts: parses search, sorting, diet, and period from the URL -> `query` law `EncodeDecodeRoundTrips`; case `tour` (start)
+src/story.test.ts: an unknown path falls through to NotFound -> `query` law `OnlyTheRootIsTheTable`; case `tour` (visit /somewhere/else)
+src/story.test.ts: typing search text fires a URL replacement with the new value -> `table` law `UrlIsAFunctionOfTheControls`; case `tour` (search)
+src/story.test.ts: clearing the search input fires a replacement -> `table` law `UrlIsAFunctionOfTheControls`; case `tour` (search with no text)
+src/story.test.ts: first click on an Unsorted column produces an Ascending sort -> `query` law `ClicksCycleTheSorting`; `table` law `UrlIsAFunctionOfTheControls`; case `tour` (sort)
+src/story.test.ts: selecting a diet refocuses the listbox button and replaces the URL -> `table` law `UrlIsAFunctionOfTheControls`; case `tour` (diet); the listbox's focus is the view's (FK10b)
+src/scene.test.ts: the Browse route renders the heading and search input -> not restated: stage a has no view (FK10b, after H4, H4r, H7 and SP1's list box)
+src/scene.test.ts: rendering shows the total dinosaur count -> not restated: stage a has no view (FK10b); case `tour` shows the count's line
+src/scene.test.ts: typing in the search input updates its rendered value -> not restated: stage a has no view (FK10b); case `tour` (search)
+src/scene.test.ts: a search with no matches shows the empty-state copy -> not restated: stage a has no view (FK10b); case `tour` (search zzz)
+src/scene.test.ts: NotFound shows a friendly 404 and a back link -> not restated: stage a has no view (FK10b); case `tour` (visit /somewhere/else)

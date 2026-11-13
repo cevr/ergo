@@ -1,0 +1,125 @@
+{
+  "about": "fk-table's application mutants; each is judged by the example's laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk10-descending-encoded-ascending", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/query/query.ergo",
+      "from": "Escape(ColumnName(d.Column)+\":Descending\")",
+      "to": "Escape(ColumnName(d.Column)+\":Ascending\")",
+      "rule": "Encode writes the sorting's direction (law EncodeDecodeRoundTrips).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-period-not-encoded", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/query/query.ergo",
+      "from": "\t\tparams = params.Append(\"period=\" + dino.PeriodName(p.Value))\n",
+      "to": "\t\tparams = params.Append(\"period=\" + dino.PeriodName(p.Value)[0:0])\n",
+      "rule": "Encode writes the period filter (law EncodeDecodeRoundTrips).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-bad-direction-keeps-column", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/query/query.ergo",
+      "from": "\t\t\tcase _:\n\t\t\t\treturn Unsorted\n",
+      "to": "\t\t\tcase _:\n\t\t\t\treturn Ascending{Column: c}\n",
+      "rule": "A sorting with a direction Decode cannot read is unsorted (law InvalidParamBecomesDefault).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-sorting-extra-parts", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/query/query.ergo",
+      "from": "\tif len(parts) != 2 {\n",
+      "to": "\tif len(parts) < 2 {\n",
+      "rule": "A sorting of more than column and direction is unsorted (law InvalidParamBecomesDefault, junk with a colon).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-any-path-is-the-table", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/query/query.ergo",
+      "from": "\tif at != \"/\" && at != \"\" {\n",
+      "to": "\tif false {\n",
+      "rule": "Only the root is the table (law OnlyTheRootIsTheTable).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-last-param-counts", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/query/query.ergo",
+      "from": "\t\t\tif h.Value.Before == name {\n",
+      "to": "\t\t\tif h.Value.Before == name && false {\n",
+      "rule": "Decode reads the parameters (law EncodeDecodeRoundTrips).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-plus-not-a-space", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/query/query.ergo",
+      "from": "Unescape(strings.ReplaceAll(h.Value.After, \"+\", \" \"))",
+      "to": "Unescape(h.Value.After)",
+      "rule": "A + in the query is a space (case tour: search=a+b).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-click-other-keeps-direction", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/query/query.ergo",
+      "from": "\t\tif a.Column == c {\n\t\t\treturn Descending{Column: c}\n\t\t}\n\t\tAscending{Column: c}\n",
+      "to": "\t\tif a.Column == c {\n\t\t\treturn Descending{Column: c}\n\t\t}\n\t\tDescending{Column: c}\n",
+      "rule": "A click on another column starts it ascending (law ClicksCycleTheSorting).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-descending-click-sticks", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/query/query.ergo",
+      "from": "\t\tif d.Column == c {\n\t\t\treturn Unsorted\n",
+      "to": "\t\tif d.Column == c {\n\t\t\treturn Descending{Column: c}\n",
+      "rule": "A third click on a column unsorts (law ClicksCycleTheSorting).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-search-case-sensitive", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/table/table.ergo",
+      "from": "strings.Contains(strings.ToLower(d.Name), strings.ToLower(q.Search))",
+      "to": "strings.Contains(strings.ToLower(d.Name), q.Search)",
+      "rule": "The search ignores case (case tour: SAURUS).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-diet-filter-ignored", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/table/table.ergo",
+      "from": "\t\tif d.Diet != w.Value {\n",
+      "to": "\t\tif d.Diet != w.Value && false {\n",
+      "rule": "The diet filter keeps that diet only (law RowsAreTheMatches; case tour).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-weight-by-length", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/table/table.ergo",
+      "from": "\t\ta.Weight - b.Weight\n",
+      "to": "\t\ta.Length - b.Length\n",
+      "rule": "Weight sorts by weight (case tour: sort Weight).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-descending-unstable", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/table/table.ergo",
+      "from": "slices.SortStableFunc(kept, func(x dino.Dinosaur, y dino.Dinosaur) int { Compare(d.Column, y, x) })",
+      "to": "slices.Reverse(slices.SortStableFunc(kept, func(x dino.Dinosaur, y dino.Dinosaur) int { Compare(d.Column, x, y) }))",
+      "rule": "Descending ties keep the listed order, as a flipped order does, not a reversed one (law RowsAreTheMatches).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-lost-controls-kept", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/table/table.ergo",
+      "from": "\tcase query.NotFound:\n\t\tquery.Default\n",
+      "to": "\tcase query.NotFound:\n\t\tquery.Query{..query.Default, Search: \"lost\"}\n",
+      "rule": "On a path the table is not at, a control starts from the defaults (law UrlIsAFunctionOfTheControls).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    },
+    {
+      "name": "fk10-control-moves-state", "origin": "wf10/fk10a",
+      "file": "examples/fk-table/table/table.ergo",
+      "from": "Emit[query.Route, Replace]{Next: r, Output: Replace{Path: query.Encode(query.Query{..q, Search: s.Text})}}",
+      "to": "Emit[query.Route, Replace]{Next: query.Browse{Query: query.Query{..q, Search: s.Text}}, Output: Replace{Path: query.Encode(query.Query{..q, Search: s.Text})}}",
+      "rule": "A control changes nothing itself; the address does (law UrlIsAFunctionOfTheControls).",
+      "anchor": {"tests": ["examples:fk-table"]}, "killers": ["examples:fk-table"]
+    }
+  ]
+}

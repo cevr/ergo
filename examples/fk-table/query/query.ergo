@@ -1,0 +1,188 @@
+// Package query is the table's controls as the address's query: the
+// search, the sorting and the two filters. Encode writes the address;
+// Decode reads it, and a parameter it cannot read becomes that control's
+// default, so a hand-edited address never fails.
+
+import fktable/dino
+import strings
+
+// Column is a column the table sorts by.
+type Column = Name{} | Era{} | Eats{} | Length{} | Weight{}
+
+// Sorting is the table's order: as listed, or by a column either way.
+type Sorting = Unsorted{} | Ascending{Column Column} | Descending{Column Column}
+
+// Query is the controls: the search text ("" for none), the sorting, and
+// the diet and period filters (None for all).
+type Query { Search string, Sorting Sorting, Diet Option[dino.Diet], Period Option[dino.Period] }
+
+// Route is the address: the table with its controls, or a path the table
+// is not at.
+type Route = Browse{Query Query} | NotFound{Path string}
+
+// Default is every control at its default: no search, unsorted, no
+// filter.
+let Default = Query{Search: "", Sorting: Unsorted, Diet: None, Period: None}
+
+// Columns is every column, in the table's order.
+let Columns = []Column{Name, Era, Eats, Length, Weight}
+
+// ColumnName is c's name, as the URL writes it.
+func ColumnName(c Column) string {
+	match c {
+	case Name:
+		"Name"
+	case Era:
+		"Period"
+	case Eats:
+		"Diet"
+	case Length:
+		"Length"
+	case Weight:
+		"Weight"
+	}
+}
+
+// Encode is the address of q: "/", then each control that is not at its
+// default as a parameter, in the order search, sorting, diet, period.
+func Encode(q Query) string {
+	let mut params = []string{}
+	if q.Search != "" {
+		params = params.Append("search=" + Escape(q.Search))
+	}
+	match q.Sorting {
+	case Ascending as a:
+		params = params.Append("sorting=" + Escape(ColumnName(a.Column)+":Ascending"))
+	case Descending as d:
+		params = params.Append("sorting=" + Escape(ColumnName(d.Column)+":Descending"))
+	case Unsorted:
+	}
+	match q.Diet {
+	case Some[dino.Diet] as d:
+		params = params.Append("diet=" + dino.DietName(d.Value))
+	case None:
+	}
+	match q.Period {
+	case Some[dino.Period] as p:
+		params = params.Append("period=" + dino.PeriodName(p.Value))
+	case None:
+	}
+	if len(params) == 0 {
+		return "/"
+	}
+	"/?" + strings.Join(params, "&")
+}
+
+// Decode is the route of path. The table is at "/" only. Each parameter
+// is read on its own; a missing one, or one it cannot read, is its
+// default. The first of a repeated parameter counts.
+func Decode(path string) Route {
+	let mut at = path
+	let mut query = ""
+	match strings.Cut(path, "?") {
+	case Some[strings.Halves] as h:
+		at = h.Value.Before
+		query = h.Value.After
+	case None:
+	}
+	if at != "/" && at != "" {
+		return NotFound{Path: path}
+	}
+	let search = match param(query, "search") {
+	case Some[string] as s:
+		s.Value
+	case None:
+		""
+	}
+	Browse{Query: Query{Search: search, Sorting: sortingOf(param(query, "sorting")), Diet: dietOf(param(query, "diet")), Period: periodOf(param(query, "period"))}}
+}
+
+// param is the first value of name in query, unescaped, + read as a
+// space.
+func param(query string, name string) Option[string] {
+	for pair in strings.Split(query, "&") {
+		match strings.Cut(pair, "=") {
+		case Some[strings.Halves] as h:
+			if h.Value.Before == name {
+				return Some[string]{Value: Unescape(strings.ReplaceAll(h.Value.After, "+", " "))}
+			}
+		case None:
+		}
+	}
+	None
+}
+
+func sortingOf(v Option[string]) Sorting {
+	let text = match v {
+	case Some[string] as s:
+		s.Value
+	case None:
+		return Unsorted
+	}
+	let parts = strings.Split(text, ":")
+	if len(parts) != 2 {
+		return Unsorted
+	}
+	for c in Columns {
+		if ColumnName(c) == parts[0] {
+			match parts[1] {
+			case "Ascending":
+				return Ascending{Column: c}
+			case "Descending":
+				return Descending{Column: c}
+			case _:
+				return Unsorted
+			}
+		}
+	}
+	Unsorted
+}
+
+func dietOf(v Option[string]) Option[dino.Diet] {
+	match v {
+	case Some[string] as s:
+		for d in dino.Diets {
+			if dino.DietName(d) == s.Value {
+				return Some[dino.Diet]{Value: d}
+			}
+		}
+		None
+	case None:
+		None
+	}
+}
+
+func periodOf(v Option[string]) Option[dino.Period] {
+	match v {
+	case Some[string] as s:
+		for p in dino.Periods {
+			if dino.PeriodName(p) == s.Value {
+				return Some[dino.Period]{Value: p}
+			}
+		}
+		None
+	case None:
+		None
+	}
+}
+
+// Next is the sorting after a click on column c's header: unsorted by c
+// becomes ascending, ascending becomes descending, and descending
+// becomes unsorted. A click on another column than the sorted one starts
+// it ascending.
+func Next(s Sorting, c Column) Sorting {
+	match s {
+	case Ascending as a:
+		if a.Column == c {
+			return Descending{Column: c}
+		}
+		Ascending{Column: c}
+	case Descending as d:
+		if d.Column == c {
+			return Unsorted
+		}
+		Ascending{Column: c}
+	case Unsorted:
+		Ascending{Column: c}
+	}
+}

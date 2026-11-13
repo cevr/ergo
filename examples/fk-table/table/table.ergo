@@ -1,0 +1,111 @@
+// Package table is the table as a machine whose state is the address:
+// every control asks the host to replace the address, and the table
+// follows the address it is told. Rows is the table's rows for a query.
+
+import fktable/dino
+import fktable/query
+import slices
+import strings
+
+// Signal is what the table reads: the address changed (the host replaced
+// it, or the user typed one), the search typed, a column header clicked,
+// and a filter chosen (None for all).
+type Signal = Navigated{Path string} | Searched{Text string} | Clicked{Column query.Column} | ChoseDiet{Diet Option[dino.Diet]} | ChosePeriod{Period Option[dino.Period]}
+
+// Replace is the table's request to replace the address with Path, which
+// the host does, then tells the table Navigated; the history gets no new
+// entry.
+type Replace { Path string }
+
+// Open is the table at the address path.
+func Open(path string) query.Route { query.Decode(path) }
+
+// Controls is the query the controls show: the route's, or the defaults
+// on a path the table is not at.
+func Controls(r query.Route) query.Query {
+	match r {
+	case query.Browse as b:
+		b.Query
+	case query.NotFound:
+		query.Default
+	}
+}
+
+// Step is the table's transition. A new address is the state. A control
+// asks for the address of the controls with that one changed, and leaves
+// the state to the address.
+func Step(r query.Route, sig Signal) Decision[query.Route, Replace] {
+	let q = Controls(r)
+	match sig {
+	case Navigated as n:
+		Enter[query.Route]{Next: query.Decode(n.Path)}
+	case Searched as s:
+		Emit[query.Route, Replace]{Next: r, Output: Replace{Path: query.Encode(query.Query{..q, Search: s.Text})}}
+	case Clicked as c:
+		Emit[query.Route, Replace]{Next: r, Output: Replace{Path: query.Encode(query.Query{..q, Sorting: query.Next(q.Sorting, c.Column)})}}
+	case ChoseDiet as d:
+		Emit[query.Route, Replace]{Next: r, Output: Replace{Path: query.Encode(query.Query{..q, Diet: d.Diet})}}
+	case ChosePeriod as p:
+		Emit[query.Route, Replace]{Next: r, Output: Replace{Path: query.Encode(query.Query{..q, Period: p.Period})}}
+	}
+}
+
+// Table is the table as a machine; its input is the address it opens at.
+type Table machine[query.Route, Signal] {
+	initial: Open,
+	step:    Step,
+}
+
+// Matches is whether d passes q's search (a part of its name, in any
+// case) and filters.
+func Matches(q query.Query, d dino.Dinosaur) bool {
+	if !strings.Contains(strings.ToLower(d.Name), strings.ToLower(q.Search)) {
+		return false
+	}
+	match q.Diet {
+	case Some[dino.Diet] as w:
+		if d.Diet != w.Value {
+			return false
+		}
+	case None:
+	}
+	match q.Period {
+	case Some[dino.Period] as p:
+		if d.Period != p.Value {
+			return false
+		}
+	case None:
+	}
+	true
+}
+
+// Compare orders a and b by column c: names, periods and diets by their
+// names' text, lengths and weights by number.
+func Compare(c query.Column, a dino.Dinosaur, b dino.Dinosaur) int {
+	match c {
+	case query.Name:
+		strings.Compare(a.Name, b.Name)
+	case query.Era:
+		strings.Compare(dino.PeriodName(a.Period), dino.PeriodName(b.Period))
+	case query.Eats:
+		strings.Compare(dino.DietName(a.Diet), dino.DietName(b.Diet))
+	case query.Length:
+		a.Length - b.Length
+	case query.Weight:
+		a.Weight - b.Weight
+	}
+}
+
+// Rows is the table for q: the dinosaurs that match it, sorted by its
+// sorting; rows that tie keep the listed order.
+func Rows(q query.Query) []dino.Dinosaur {
+	let kept = slices.Filter(dino.All, func(d dino.Dinosaur) bool { Matches(q, d) })
+	match q.Sorting {
+	case query.Unsorted:
+		kept
+	case query.Ascending as a:
+		slices.SortStableFunc(kept, func(x dino.Dinosaur, y dino.Dinosaur) int { Compare(a.Column, x, y) })
+	case query.Descending as d:
+		slices.SortStableFunc(kept, func(x dino.Dinosaur, y dino.Dinosaur) int { Compare(d.Column, y, x) })
+	}
+}

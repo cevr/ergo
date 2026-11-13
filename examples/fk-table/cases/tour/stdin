@@ -1,0 +1,20 @@
+start /?search=raptor&sorting=Length:Ascending&diet=Carnivore&period=Cretaceous
+# Clear the search; the other controls stay in the address.
+search
+# Header clicks: ascending, descending, unsorted; another column starts ascending.
+sort Length
+sort Length
+sort Weight
+period Triassic
+diet all
+# A search in any case, then one with no match.
+search SAURUS
+search zzz
+search
+period all
+# A hand-edited address: each parameter it cannot read becomes its default.
+visit /?sorting=Height:Upward&diet=carnivore&period=Jurassic&search=a+b
+visit /?period=Jurassic&sorting=Name:Descending
+# A path the table is not at; a control there starts from the defaults.
+visit /somewhere/else
+diet Omnivore

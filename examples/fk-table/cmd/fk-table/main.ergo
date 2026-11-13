@@ -1,0 +1,19 @@
+// fk-table is a port of Foldkit's query-sync example (stage a: the model,
+// with no view): a table of dinosaurs whose every control, the search,
+// the sorting and two filters, lives in the address's query, so the
+// address alone says what the table shows. It plays a script of the
+// user's acts and shows the address, the controls and the rows after
+// each. Package query writes and reads the address; package table is the
+// table as a machine and its rows; package dino is the data; package
+// script plays the script.
+
+import fktable/script
+import io
+import os
+
+func main() fails os.Exit needs Console | Ambient {
+	let status = with context { io.Stdin: io.NewStdin() } { script.Run() }
+	if status != 0 {
+		return os.Exit{Code: status, Message: "fk-table: the script did not run"}
+	}
+}

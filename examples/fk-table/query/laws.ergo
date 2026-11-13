@@ -1,0 +1,59 @@
+import strings
+
+// EncodeDecodeRoundTrips: Decode reads back every query Encode writes.
+law EncodeDecodeRoundTrips(q Query) {
+	Decode(Encode(q)) == Browse{Query: q}
+}
+
+// InvalidParamBecomesDefault: a parameter Decode cannot read, generated
+// junk or a near miss, becomes that control's default, and the other
+// controls keep their values.
+law InvalidParamBecomesDefault(q Query, junk string, which int, near bool) {
+	let bad = if near { "carnivore" } else { "~" + junk }
+	let k = ((which % 3) + 3) % 3
+	let name = match k {
+	case 0:
+		"sorting"
+	case 1:
+		"diet"
+	case _:
+		"period"
+	}
+	let others = Encode(match k {
+	case 0:
+		Query{..q, Sorting: Unsorted}
+	case 1:
+		Query{..q, Diet: None}
+	case _:
+		Query{..q, Period: None}
+	})
+	let sep = if strings.Contains(others, "?") { "&" } else { "?" }
+	let path = others + sep + name + "=" + Escape(bad)
+	let want = match k {
+	case 0:
+		Query{..q, Sorting: Unsorted}
+	case 1:
+		Query{..q, Diet: None}
+	case _:
+		Query{..q, Period: None}
+	}
+	Decode(path) == Browse{Query: want}
+}
+
+// OnlyTheRootIsTheTable: a path other than the root is NotFound and
+// keeps the path, query and all.
+law OnlyTheRootIsTheTable(segment string, q Query) {
+	let word = if segment == "" { "x" } else { segment }
+	let path = "/" + Escape(word) + Encode(q)
+	Decode(path) == NotFound{Path: path}
+}
+
+// ClicksCycleTheSorting: clicks on one column go unsorted, ascending,
+// descending and back; a click on another column starts it ascending.
+law ClicksCycleTheSorting(c Column, other Column) {
+	let a = Next(Unsorted, c)
+	let d = Next(a, c)
+	let u = Next(d, c)
+	let switched = c == other || (Next(a, other) == Ascending{Column: other} && Next(d, other) == Ascending{Column: other})
+	a == Ascending{Column: c} && d == Descending{Column: c} && u == Unsorted && switched
+}
