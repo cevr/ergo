@@ -3,9 +3,12 @@ import fkflow/seed
 func near(a float64, b float64) bool { a-b < 0.000001 && b-a < 0.000001 }
 
 // scene is a flow scene from generated acts: frames, bursts and pointer
-// moves.
+// moves, after 40 frames, so trails are full.
 func scene(n uint64, acts []int) Field {
 	let mut f = New(seed.Of(n))
+	for _ in 0..40 {
+		f = Advance(f, 16.0)
+	}
 	for a in acts {
 		let c = ((a % 576000) + 576000) % 576000
 		let x = float64(c % 960)

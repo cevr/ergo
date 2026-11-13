@@ -5,7 +5,7 @@
       "name": "fk12-bounce-keeps-heading", "origin": "wf10/fk12a",
       "file": "examples/fk-flow/balls/balls.ergo",
       "from": "VX: if bounceX { -b.VX } else { b.VX }",
-      "to": "VX: b.VX",
+      "to": "VX: if bounceX { b.VX } else { b.VX }",
       "rule": "A bounce turns the ball's velocity round (case tour: ball 1 off the left edge; the law only sees the size).",
       "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
     },
@@ -21,7 +21,7 @@
       "name": "fk12-drop-reuses-the-stream", "origin": "wf10/fk12a",
       "file": "examples/fk-flow/balls/balls.ergo",
       "from": "NextID: f.NextID + 1, Seed: s4}",
-      "to": "NextID: f.NextID + 1, Seed: f.Seed}",
+      "to": "NextID: f.NextID + 1, Seed: if len(Palette) > 0 { f.Seed } else { s4 }}",
       "rule": "Each drop draws the next numbers (law DropsDrawFromTheStream).",
       "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
     },
@@ -70,7 +70,7 @@
       "file": "examples/fk-flow/flow/flow.ergo",
       "from": "if age >= p.LifespanMs || Outside(next) {",
       "to": "if age >= p.LifespanMs {",
-      "rule": "A particle past the settling band dies (law AFrameKeepsTheCrowd).",
+      "rule": "A particle past the settling band dies (case tour: six seconds of frames; the law's scenes are too short to reach the band).",
       "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
     },
     {
