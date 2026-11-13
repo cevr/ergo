@@ -4341,6 +4341,17 @@
       ]
     },
     {
+      "name": "goos-mapfile-unsplit",
+      "origin": "wf10/fu-runtime-goos on cw-ly (W1)",
+      "file": "runtime/v1/host.go",
+      "from": "data, err := fsMap(f, int(size))",
+      "to": "data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)",
+      "rule": "FSMapFile maps through fsMap (mapfile_unix.go / mapfile_other.go): syscall.Mmap is undefined on windows, js and wasip1.",
+      "killers": [
+        "lower:TestRuntimeTypechecksOnEveryBuildPlatform"
+      ]
+    },
+    {
       "name": "goos-term-other-unembedded",
       "origin": "wf10/fu-runtime-goos",
       "file": "runtime/embed.go",
