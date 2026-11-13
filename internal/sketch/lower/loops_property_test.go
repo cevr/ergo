@@ -25,6 +25,8 @@ type loopGen struct {
 	// idioms is the cases the lowering should write as a call.
 	idioms  int
 	reached map[string]bool
+	// fills counts the fill cases written.
+	fills int
 }
 
 // The offsets an index takes, as written around the loop variable i and
@@ -98,15 +100,25 @@ func (g *loopGen) fill(defect bool) {
 	idx, at := loopIndex(f, "c")
 	cells := g.r.IntN(2) == 0
 	n, place, elem := g.nums, "g.nums", "int"
-	values := []string{"v", "7", "seven", "v + c", "i"}
+	values := []string{"v", "7", "seven", "v + c", "i", "v - v"}
 	if cells {
 		n, place, elem = g.cells, "g.cells", "cell"
-		values = []string{"Cell{a: v, b: c}", "blank", "alias"}
+		values = []string{"Cell{a: v, b: c}", "blank", "alias", "Cell{a: v - v, b: c - c}", "empty"}
 	}
-	value := values[g.r.IntN(len(values))]
+	// The values take turns, so the fixed seeds write each.
+	g.fills++
+	value := values[(g.fills+g.r.IntN(2))%len(values)]
+	if defect && (value == "alias" || value == "i") {
+		value = values[0] // the defect case is an idiom
+	}
 	label := value
 	local := !cells && g.r.IntN(3) == 0
 	lo, hi, c := g.bounds(n, at, defect)
+	for defect && !(lo < hi && at(hi-1, c) >= n) {
+		// The defect case runs past the end, where the idiom's guard
+		// tests the length.
+		lo, hi, c = g.bounds(n, at, defect)
+	}
 	pre, post := "", ""
 	if local {
 		pre, post, place = "\tlet mut xs = g.nums\n", "\tg.nums = xs\n", "xs"
@@ -173,6 +185,11 @@ func (g *loopGen) collect(defect bool) {
 	idx, at := loopIndex(f, "c")
 	srcs := []string{"g.more", "g.arr", "out"}
 	src := srcs[g.r.IntN(len(srcs))]
+	if defect && src == "out" {
+		// out grows as the loop appends, so an index past its first
+		// length may be in range when the loop reads it.
+		src = "g.more"
+	}
 	n := map[string]int{"g.more": g.more, "g.arr": 6, "out": 2}[src]
 	lo, hi, c := g.bounds(n, at, defect)
 	fn := fmt.Sprintf("func CASE(g *Grid, lo int, hi int, c int) {\n\tlet mut out = []int{100, 101}\n\tfor i in lo..hi {\n\t\tout = out.Append(%s[%s])\n\t}\n\tg.nums = out\n}\n", src, idx)
@@ -211,7 +228,7 @@ func loopProgram(seed uint64, reached map[string]bool) (src string, idioms int, 
 	}
 	var b strings.Builder
 	b.WriteString("type Cell { a int, b int }\n\ntype Grid { nums []int, more []int, cells []Cell, arr [6]int }\n\n")
-	b.WriteString("let seven = 7\n\nlet blank = Cell{a: -1, b: -2}\n\n")
+	b.WriteString("let seven = 7\n\nlet blank = Cell{a: -1, b: -2}\n\nlet empty = Cell{a: 0, b: 0}\n\n")
 	fmt.Fprintf(&b, "func fresh() Grid {\n\tGrid{nums: []int{%s}, more: []int{%s}, cells: []Cell{%s}, arr: [6]int{%s}}\n}\n\n", seq(g.nums, 1), seq(g.more, 20), strings.Join(cells, ", "), seq(6, 40))
 	b.WriteString("func show(g *Grid) string {\n\tlet mut s = \"\"\n\tfor x in g.nums {\n\t\ts = s + \"\\(x),\"\n\t}\n\tfor x in g.cells {\n\t\ts = s + \" \\(x.a)/\\(x.b)\"\n\t}\n\ts\n}\n\n")
 	b.WriteString(g.funcs.String())
@@ -224,7 +241,7 @@ const loopCases = 16
 
 // TestLoopIdiomsAgree is the seeded property of the loop idioms
 // (loops.go): each seed writes a program of fills, moves and collects
-// with every offset form, empty ranges, forward overlaps, a value read
+// with every offset form, empty ranges, zero values (a clear), forward overlaps, a value read
 // through a pointer into the written cells, sources that are another
 // slice, an array or the slice appended to, and on even seeds a last loop
 // that raises a defect. It lowers the program with the idioms and with
@@ -280,7 +297,7 @@ func TestLoopIdiomsAgree(t *testing.T) {
 		}
 	}
 	if *loopSeed == 0 {
-		want := []string{"fill int", "fill cell", "fill local true", "fill local false", "fill value v", "fill value 7", "fill value seven", "fill value v + c", "fill value i", "fill value Cell{a: v, b: c}", "fill value blank", "fill value alias",
+		want := []string{"fill int", "fill cell", "fill local true", "fill local false", "fill value v", "fill value 7", "fill value seven", "fill value v + c", "fill value i", "fill value Cell{a: v, b: c}", "fill value blank", "fill value alias", "fill value v - v", "fill value Cell{a: v - v, b: c - c}", "fill value empty",
 			"move memmove", "move forward overlap", "move other", "collect g.more", "collect g.arr", "collect out", "empty", "defect fill", "defect move", "defect collect"}
 		for _, f := range loopOffsets {
 			want = append(want, "offset "+f)

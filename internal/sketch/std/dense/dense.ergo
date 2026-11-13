@@ -28,34 +28,36 @@
 // compare with ==, in the order the rows were put.
 type ID[K] { n uint32 }
 
-// Opt is an ID or none, in four bytes: none is the largest uint32, which
-// no store reaches. It is the "no link" of a row (a first child, a next
-// sibling) where Option[ID[K]] would take eight bytes.
+// Opt is an ID or none, in four bytes: it holds an id's number plus one,
+// and none is 0, so a run of Opts zeroed by Go (a cleared row) holds none
+// and a fill with none is a clear. It is the "no link" of a row (a first
+// child, a next sibling) where Option[ID[K]] would take eight bytes.
 type Opt[K] { n uint32 }
 
-// none is Opt's none, and one past the last id a store can make.
-let none = uint32(0xffffffff)
+// limit is one past the last id a store can make: the largest uint32, so
+// an id plus one fits an Opt.
+let limit = uint32(0xffffffff)
 
 // full is the defect of a store that holds as many rows as ids exist.
 let full = "dense: a store holds at most 4294967295 rows"
 
 // OptOf is the Opt that holds id.
-func OptOf[K](id ID[K]) Opt[K] { Opt[K]{n: id.n} }
+func OptOf[K](id ID[K]) Opt[K] { Opt[K]{n: id.n + uint32(1)} }
 
 // NoID is the Opt that holds no id.
-func NoID[K]() Opt[K] { Opt[K]{n: none} }
+func NoID[K]() Opt[K] { Opt[K]{n: uint32(0)} }
 
 // Or is the id o holds, or the id or when it holds none.
 func Or[K](o Opt[K], or ID[K]) ID[K] {
-	if o.n == none { or } else { ID[K]{n: o.n} }
+	if o.n == uint32(0) { or } else { ID[K]{n: o.n - uint32(1)} }
 }
 
 // Unpack is o as an Option, for a match.
 func Unpack[K](o Opt[K]) Option[ID[K]] {
-	if o.n == none {
+	if o.n == uint32(0) {
 		return None
 	}
-	Some[ID[K]]{Value: ID[K]{n: o.n}}
+	Some[ID[K]]{Value: ID[K]{n: o.n - uint32(1)}}
 }
 
 // Index is the position of id's row: 0 for the first row put.
@@ -63,7 +65,7 @@ func Index[K](id ID[K]) int { int(id.n) }
 
 // next is the id of a store that holds n rows already.
 func next[K](n int) ID[K] {
-	if n >= int(none) {
+	if n >= int(limit) {
 		Unreachable(full)
 	}
 	ID[K]{n: uint32(n)}
@@ -220,7 +222,7 @@ func NewPool[E]() Pool[E] { Pool[E]{items: []E{}} }
 // changes.
 func PutList[E](p *Pool[E], xs []E) Run[E] {
 	let start = len(p.items)
-	if start+len(xs) >= int(none) {
+	if start+len(xs) >= int(limit) {
 		Unreachable(full)
 	}
 	for x in xs {
