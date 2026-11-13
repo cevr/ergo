@@ -50,6 +50,12 @@ import (
 //     literal value, a generic store, a returned Option, a range value, a
 //     Ref's Get, one value at two keys) is read after an entry move-out,
 //     and must not see it.
+//   - update, update named: m = maps.Update(m, k, f) with a literal or a
+//     top-level function by name whose results are fresh: no Map copy
+//     (argsUnshared); store read: an entry stored under another key, then
+//     read: no copy at the store unless the type is entry-written;
+//     update snapshot, update other, update shared, update named shared
+//     (agreement only): an Update whose result may share an entry.
 //
 // copyShape's model is the number of copies the lowering makes in each
 // function: TestCopyCountsMatchModel counts the copies in the lowered Go
@@ -209,7 +215,7 @@ func rmw%[1]s%[2]s(r *%[1]s%[2]s, k %[5]s) int {
 
 // copyShapes is the number of shapes copyGen.shape draws from in each
 // family.
-const copyShapes = 12
+const copyShapes = 13
 
 type copyGen struct {
 	r       *rand.Rand
@@ -340,6 +346,13 @@ func (g *copyGen) shape(fam copyFamily, combo int) {
 		}
 		g.mapOnly[name] = true
 		body = fmt.Sprintf("\tr.m = maps.Update(r.m, k, func(o Option[%s]) %s { %s })\n\tlen(r.m)%s\n", e.typ, e.typ, lit, tail)
+	case 11:
+		// The same with a top-level callback passed by name, whose
+		// result is fresh (namedFunc, freshResult).
+		shape = "update named"
+		g.fns.WriteString(fmt.Sprintf("func cb%s(_ Option[%s]) %s { %s }\n\n", name, e.typ, e.typ, e.zero))
+		g.mapOnly[name] = true
+		body = fmt.Sprintf("\tr.m = maps.Update(r.m, k, cb%s)\n\tlen(r.m)%s\n", name, tail)
 	case 10:
 		// An entry read, written and stored under another key, then read:
 		// plain, the store copies nothing (storedAsEntry); moved, it
@@ -443,7 +456,7 @@ func (g *copyGen) chain(name string, k int, shape, head, body *string, want *int
 }
 
 // copyAdversaries are the agreement-only shapes of the moved family.
-var copyAdversaries = []string{"rmw snapshot", "rmw kept get", "rmw put shared", "rmw literal shared", "rmw across call", "rmw generic", "rmw option fn", "rmw range", "rmw ref get", "rmw same value", "rmw return between", "update snapshot", "update other", "update shared"}
+var copyAdversaries = []string{"rmw snapshot", "rmw kept get", "rmw put shared", "rmw literal shared", "rmw across call", "rmw generic", "rmw option fn", "rmw range", "rmw ref get", "rmw same value", "rmw return between", "update snapshot", "update other", "update shared", "update named shared"}
 
 // adversary writes one agreement-only function of the moved family: a
 // value that may share an entry's storage, read after a move-out of it.
@@ -512,6 +525,10 @@ func (g *copyGen) adversary(e copyEntry, which string, ptr bool) {
 		ptr = true
 		head, tail = fmt.Sprintf("func %s(r *%s, k string) int {\n", name, st), ""
 		body = fmt.Sprintf("\tlet mut t = maps.Update(r.m, k + \"z\", func(_ Option[%[1]s]) %[1]s { %[2]s })\n\tlet mut s = %[2]s\n\tmatch t.Get(k) {\n\tcase Some[%[1]s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%[3]s\n\tt[k] = s\n\tdm%[4]s(t) * 3 + dm%[4]s(r.m)%[5]s\n", e.typ, e.zero, e.write, st, tail)
+	case "update named shared":
+		// A callback by name that returns a package let: not fresh.
+		g.fns.WriteString(fmt.Sprintf("let g%s = %s\n\nfunc cb%s(_ Option[%s]) %s { g%s }\n\n", name, e.sample, name, e.typ, e.typ, name))
+		body = fmt.Sprintf("\tr.m = maps.Update(r.m, k, cb%s)\n", name) + rmw + fmt.Sprintf("\t%s(g%s) * 3 + dm%s(r.m)%s\n", sz, name, st, tail)
 	case "update shared":
 		body = fmt.Sprintf("\tlet e = %s\n\tr.m = maps.Update(r.m, k, func(_ Option[%s]) %s { e })\n", e.sample, e.typ, e.typ) + rmw + fmt.Sprintf("\t%s(e) * 3 + dm%s(r.m)%s\n", sz, st, tail)
 	case "rmw same value":
@@ -591,10 +608,10 @@ func goFuncsOf(t *testing.T, mainGo, name string) string {
 func copyPaths() []string {
 	var out []string
 	for _, f := range copyFamilies {
-		shapes := []string{"get keep", "get match", "get none", "get in flight", "entry copy", "update", "store read"}
+		shapes := []string{"get keep", "get match", "get none", "get in flight", "entry copy", "update", "update named", "store read"}
 		refs := []string{"ref modify"}
 		if f.moved {
-			shapes = []string{"get keep", "get match", "get none", "get in flight", "entry rmw", "update", "store read"}
+			shapes = []string{"get keep", "get match", "get none", "get in flight", "entry rmw", "update", "update named", "store read"}
 			refs = append(refs, "ref rmw")
 		}
 		for _, e := range copyEntries {

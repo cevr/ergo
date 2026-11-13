@@ -98,6 +98,8 @@ import (
 //     of the argument, for a pure std body as for an Ergo one (alias.go),
 //     when the copy of the result covers every part a write can reach
 //     (copyCovers). The copy costs the window, not the field;
+//   - a call's result used only by a read that runs at once (len, an index
+//     read, a comparison) copies nothing (readonly.go);
 //   - Append, Delete and Put on the result of another such call
 //     (x.Append(a).Append(b)) write that result in place: it is new storage
 //     no other binding reaches, as V3's dead local is (inPlaceChain).
@@ -367,6 +369,7 @@ type valueWalk struct {
 	owns     []owning
 	calls    []*syntax.CallExpr        // prelude Append, Delete and Put calls
 	ergo     []*syntax.CallExpr        // calls of functions with an Ergo body (V5)
+	goReads  []*syntax.CallExpr        // calls of import go functions (readonly.go)
 	pure     []*syntax.CallExpr        // calls of other pure std bodies (V7)
 	handed   map[*syntax.CallExpr]bool // V7 calls: a fresh result (new storage, or the dead handed argument's)
 	owner    *check.Var                // freshFrom's parameter, read as an unshared local (V7)
@@ -463,6 +466,9 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		} else if c != nil && c.Kind == check.CallFunc && pureStdBody(c.Func) {
 			w.pure = append(w.pure, n)
 		} else if c != nil && (goImportCall(c, w.typeOf) || goExternCall(c)) {
+			if goImportCall(c, w.typeOf) {
+				w.goReads = append(w.goReads, n)
+			}
 			list := n.Args
 			if c.Recv != nil {
 				list = append([]syntax.Expr{c.Recv}, list...)
@@ -853,7 +859,7 @@ func (w *valueWalk) decide() {
 	// A generic result through a borrow (alias.go, borrowResult).
 	if valueMutant != "never-copy" && valueMutant != "borrow-blind" {
 		for _, call := range w.ergo {
-			if w.borrowResult(call) {
+			if w.borrowResult(call) && !w.readOnlyUse(call) {
 				vf.clone[call] = true
 				w.l.stats.BorrowCopies++
 			}
@@ -951,6 +957,12 @@ func (w *valueWalk) decide() {
 	// An operand of a Go call (import go) that holds a Map or slice goes
 	// where Go may write or keep it: copied unless fresh or a local dead
 	// after the call, and always under the reference lowering (gocall.go).
+	// A Go call's result read at once is not copied (readonly.go).
+	for _, call := range w.goReads {
+		if w.readOnlyUse(call) {
+			vf.goShare[call] = true
+		}
+	}
 	goOnly := w.goOnlyLets()
 	for _, a := range w.goArgs {
 		// Go's own Map or slice (a Go call's result or a Go struct's
@@ -1806,6 +1818,7 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 				o.call, o.deps = p, true
 				if w.l.resultDeps(c.Func)[j] && valueMutant != "deps-blind" {
 					o.result = true
+					w.readAtOnce(o, p)
 				} else {
 					o.kind = occRead
 				}
@@ -2279,6 +2292,12 @@ func (w *valueWalk) argsUnshared(c *check.Call, x syntax.Expr) bool {
 				return false
 			}
 			settle = append(settle, sites...)
+		case w.namedFunc(op) != nil:
+			// A top-level function passed by name, analysed as a
+			// literal is: its every result fresh.
+			if !w.l.freshResult(w.namedFunc(op)) {
+				return false
+			}
 		default:
 			if _, isFunc := underEqual(w.typeOf(op)).(*check.Signature); isFunc || !w.fresh(op) {
 				return false
@@ -2289,6 +2308,29 @@ func (w *valueWalk) argsUnshared(c *check.Call, x syntax.Expr) bool {
 		delete(w.vf.lineage, call)
 	}
 	return true
+}
+
+// namedFunc is the function op names when op is a top-level function
+// written by name (f, or pkg.f) with an Ergo body, or nil. Its results are
+// known (freshResult) as a literal's are (litFresh). A generic function
+// is written instantiated, f[T], an index expression: it is not taken, as
+// its body is decided over its type parameters, where a copy stops; nor
+// is a Go function, which has no Ergo body.
+func (w *valueWalk) namedFunc(op syntax.Expr) *check.Func {
+	var id *syntax.Ident
+	switch x := unparen(op).(type) {
+	case *syntax.Ident:
+		id = x
+	case *syntax.SelectorExpr:
+		id = x.Sel
+	default:
+		return nil
+	}
+	f, ok := w.info.Uses[id].(*check.Func)
+	if !ok || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil {
+		return nil
+	}
+	return f
 }
 
 // litFresh reports a function literal whose every result, each value its
