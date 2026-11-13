@@ -1418,7 +1418,6 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/call.go:isUnreachable` | `Unreachable` |
 | `internal/sketch/check/close.go:checker.closeFacts` | `Close`, the release operation |
 | `internal/sketch/check/close.go:closeTakes` | `Close` |
-| `internal/sketch/check/script.go:scriptArg` | `testing.Script`, the derived test provider of a capability (grammar.md, Names 2) |
 | `internal/sketch/check/contextvalues.go:contextRow` | `Context` |
 | `internal/sketch/check/decl.go:checker.collectSelfFuncs` | the prelude's ownership declarations |
 | `internal/sketch/check/entry.go:checker.checkErrorMethods` | `Error`, the method of a failure |
@@ -2074,7 +2073,7 @@ func tee(r exec.Running) string needs io.Stdout {
 | `type VirtualClock { line time.Timeline }`; `func NewVirtualClock(sec int64) VirtualClock` | A test `time.Clock` and `Scheduler` whose time is `sec` Unix seconds at the start. | `NewVirtualTimeline(t *rt.Task, sec, nsec int64) *Timeline` (time.go), over `rt.NewAuto` (rt idle.go) |
 | `Now(c VirtualClock) time.Time`, `Sleep(c VirtualClock, d duration)` | The clock's time; a sleep on it. | `Timeline.Read`, `Timeline.Wait` |
 | `law SleepAdvancesExactly(n int64)`, `law IdleOnlyAdvance(n int64, k int)` | The laws ([Std laws](#std-laws)). | `TestTestingLaws` (runtime/v1) |
-| `type Script[S] {}`, made as `testing.Script[S]{}` | A test provider of the capability `S`, derived from `S`'s operations: one field per operation, of type `Op[A, F]` (rules 7 to 12). | a generated Go struct per instance, one `*v1.Op[A, F]` field per operation, and an adapter per operation type it converts to (lower script.go) |
+| `type Script[S] derive Provider(Of[S](), Of[Op](), Of[NoArgs]())`, made as `testing.Script[S]{}` | A test provider of the capability `S`, derived from `S`'s operations: one field per operation, of type `Op[A, F]` (rules 7 to 12). | a generated Go struct per instance, one `*v1.Op[A, F]` field per operation, and an adapter per operation type it converts to (lower script.go) |
 | `type Op[A, F] { Answer(f F), Calls() []A }`; `type NoArgs {}` | One operation of a Script: the answer the test set and the arguments of each call so far. | `*v1.Op[A, F]`: `NewOp`, `Answer`, `Calls`, `Call`; the defect `NoAnswer` (script.go) |
 | `law ScriptRecordsEachCall(ks []string, n int)`, `law ScriptAnswersByTheLastAnswer(k string, a int, b int)` | The laws ([Std laws](#std-laws)). | `TestStdLawsRun` (lower) |
 

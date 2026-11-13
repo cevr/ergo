@@ -309,3 +309,29 @@ func embedTree(n *Named) bool {
 	body, err := v1.BodyOf(embedTreeBody)
 	return err == nil && len(body.Results) == 1 && body.Results[0] == "*"+goName
 }
+
+// providerFieldRefusal is why the type field cannot be a derived
+// provider's field type, or "" (patterns.md, Provider plans 3): the
+// lowering makes each field with the Go constructor NewG and answers a
+// call with G.Call, so the field type's declaration names a runtime Go
+// type G of two type parameters that has both bodies (testing.Op names
+// v1.Op). Any module may use testing.Op, or name G with trust.
+func providerFieldRefusal(field *Named) string {
+	g, ok := GoTypeOf(field)
+	if !ok {
+		return fmt.Sprintf("its field type %s names no runtime Go type, whose constructor and Call answer the operations", field)
+	}
+	if gt, ok := v1.TypeOf(g); !ok || gt.Arity != 2 {
+		return fmt.Sprintf("its field type's Go type v1.%s is not a type of two type parameters", g)
+	}
+	for _, b := range []string{ProviderFieldNew(g), g + ".Call"} {
+		if _, err := v1.BodyOf(b); err != nil {
+			return fmt.Sprintf("its field type's Go type v1.%s has no body %s", g, b)
+		}
+	}
+	return ""
+}
+
+// ProviderFieldNew is the runtime constructor of a provider field whose Go
+// type is g (v1.NewOp for v1.Op).
+func ProviderFieldNew(g string) string { return "New" + g }

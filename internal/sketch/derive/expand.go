@@ -211,6 +211,13 @@ func (p *Package) expand(f *syntax.File, d *syntax.TypeDecl, taken map[string]bo
 		return refuse(&evalError{at, d.Derive.End(), fmt.Sprintf("the derive of %s needs a TypePlan; this expression gives %s", name, describe(value))})
 	}
 	rec := &Derived{Type: name, Decl: d, Plan: planText(pl), Steps: ev.steps}
+	if pl.kind == "Provider" {
+		return p.provider(f, d, pl, rec, refuse)
+	}
+	if d.TypeParams != nil {
+		// The parser admits type parameters only on a direct Provider call.
+		return refuse(&evalError{at, d.Derive.End(), fmt.Sprintf("the derive of %s has type parameters, so its plan is a Provider", name)})
+	}
 	var text string
 	switch pl.kind {
 	case "Pattern":
@@ -506,6 +513,8 @@ func planText(pl *plan) string {
 		return pl.kind + "(" + planText(pl.base) + ")"
 	case "Field":
 		return fmt.Sprintf("Field(%q, %s)", pl.name.s, planText(pl.base))
+	case "Provider":
+		return "Provider(" + planText(pl.fields[0]) + ", " + planText(pl.fields[1]) + ", " + planText(pl.fields[2]) + ")"
 	}
 	var parts []string
 	for _, fp := range pl.fields {
@@ -551,4 +560,29 @@ func reposition(x any, at syntax.Pos) {
 		}
 	}
 	visit(reflect.ValueOf(x))
+}
+
+// provider records the Provider plan pl on d (patterns.md, Provider plans):
+// d is a record with no fields of its own, whose instances the checker
+// builds from the operations of their type argument (check/script.go). Its
+// one type parameter is the capability: the plan's first Of names it. It
+// derives no declarations.
+func (p *Package) provider(f *syntax.File, d *syntax.TypeDecl, pl *plan, rec *Derived, refuse func(*evalError) []syntax.Decl) []syntax.Decl {
+	at := origin{f, d.Derive.Pos()}
+	var params []*syntax.Ident
+	if d.TypeParams != nil {
+		for _, field := range d.TypeParams.List {
+			params = append(params, field.Names...)
+		}
+	}
+	cp, ok := pl.fields[0].typ.(*syntax.Ident)
+	if len(params) != 1 || !ok || cp.Name != params[0].Name {
+		return refuse(&evalError{at, d.Derive.End(), fmt.Sprintf("a Provider derives %s from the operations of its one type parameter: write type %s[S] derive Provider(Of[S](), …)", d.Name.Name, d.Name.Name)})
+	}
+	empty, _ := syntax.Parse("type " + d.Name.Name + " {}\n")
+	reposition(empty.Decls[0], d.DerivePos)
+	d.Spec = empty.Decls[0].(*syntax.TypeDecl).Spec
+	d.Provider = &syntax.ProviderPlan{Field: pl.fields[1].typ, None: pl.fields[2].typ}
+	p.Derived = append(p.Derived, rec)
+	return nil
 }

@@ -7,10 +7,12 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Scripts (stdlib.md, Testing 7 to 12; #237 stage 5, unit L5b). The std
-// record testing.Script[S] is a test provider of the capability S that the
-// checker derives from S's declared operations, as it derives a codec
-// (196d): no name list, no reflection.
+// Derived providers (patterns.md, Provider plans; STD-NOPRIV NP3e). A type
+// declared `type T[S] derive Provider(Of[S](), Of[F](), Of[N]())` is a test
+// provider of the capability S that the checker derives from S's declared
+// operations, as it derives a codec (196d): no name list, no reflection.
+// testing.Script[S] is one (stdlib.md, Testing 7 to 12); any package may
+// declare another, and the rules below read the plan, never a name.
 //
 //  1. S is a capability: a named operation type with operations, concrete
 //     (a generic one at written arguments, Script[Store[Job]]). A type
@@ -34,14 +36,60 @@ import (
 //     where a value of S is expected, a context entry included. The
 //     conversion's table is empty; the lowering writes the derived methods.
 
-// scriptArg is S of a testing.Script[S] instance, and false for any other
-// type.
+// scriptArg is S of an instance of a derived provider T[S], and false for
+// any other type.
 func scriptArg(t Type) (Type, bool) {
 	n, ok := t.(*Named)
-	if !ok || n.Orig == nil || n.Obj == nil || n.Obj.Name != "Script" || n.Obj.Pkg == nil || !n.Obj.Pkg.std || n.Obj.Pkg.Path != "testing" || len(n.TArgs) != 1 {
+	if !ok || n.Orig == nil || n.Obj == nil || n.Obj.Provider == nil || len(n.TArgs) != 1 {
 		return nil, false
 	}
 	return n.TArgs[0], true
+}
+
+// resolveProviders resolves the plan types of each derived provider the
+// package declares (patterns.md, Provider plans), before any instance is
+// built: the field type, a generic type of two type parameters whose
+// declaration names the runtime's recording Go type (providerFieldRefusal),
+// and the type of no arguments, a record with no fields. A refusal is S108
+// at the derive, and the type stays an empty record.
+func (c *checker) resolveProviders() {
+	for _, tn := range c.pkg.Types {
+		if tn.Decl == nil || tn.Decl.Provider == nil {
+			continue
+		}
+		c.cur = tn.file
+		plan := tn.Decl.Provider
+		c.usePlanPackage(plan.Field)
+		c.usePlanPackage(plan.None)
+		_, field := c.namedHead(plan.Field)
+		_, none := c.namedHead(plan.None)
+		why := ""
+		switch {
+		case field == nil:
+			why = "its field type is not a declared type"
+		case len(field.TParams) != 2:
+			why = fmt.Sprintf("its field type %s has %d type parameters; a field type takes the arguments and the signature, two", field, len(field.TParams))
+		case none == nil:
+			why = "its type of no arguments is not a declared type"
+		default:
+			if st, ok := none.Underlying().(*Struct); !ok || len(st.Fields) > 0 || len(none.TParams) > 0 {
+				why = fmt.Sprintf("its type of no arguments %s is not a record with no fields", none)
+			} else {
+				why = providerFieldRefusal(field)
+			}
+		}
+		if why != "" {
+			c.errorIn(tn.Decl, tn.Decl.DerivePos, tn.Decl.DerivePos+syntax.Pos(len("derive")), CodeType, "the Provider derive of %s: %s (patterns.md, Provider plans)", tn.Name, why)
+			continue
+		}
+		tn.Provider = &ProviderTypes{Field: field, None: none}
+	}
+}
+
+// providerName is how a diagnostic names the provider instance inst: its
+// package and type, testing.Script for std's.
+func providerName(inst *Named) string {
+	return inst.Obj.Pkg.Name + "." + inst.Obj.Name
 }
 
 // ScriptOf is S of a testing.Script[S] instance whose S the checker
@@ -122,11 +170,11 @@ func (c *checker) scriptWritten(inst *Named, at syntax.Node) bool {
 		return true
 	}
 	if why := scriptWhy(s); why != "" {
-		c.errorf(at, CodeType, "testing.Script[%s]: %s (stdlib.md, Testing 7)", s, why)
+		c.errorf(at, CodeType, "%s[%s]: %s (stdlib.md, Testing 7)", providerName(inst), s, why)
 		return false
 	}
 	if why := c.scriptKept(s); why != "" {
-		c.errorf(at, CodeType, "testing.Script[%s]: %s (stdlib.md, Testing 7)", s, why)
+		c.errorf(at, CodeType, "%s[%s]: %s (stdlib.md, Testing 7)", providerName(inst), s, why)
 		return false
 	}
 	return true
@@ -140,11 +188,7 @@ func (c *checker) scriptUnder(inst *Named) Type {
 	if scriptWhy(s) != "" {
 		return &Struct{obj: inst.Obj}
 	}
-	op, okOp := c.stdTestingType(inst, "Op")
-	none, okNone := c.stdTestingType(inst, "NoArgs")
-	if !okOp || !okNone {
-		return invalid
-	}
+	op, none := inst.Obj.Provider.Field, inst.Obj.Provider.None
 	n := s.(*Named)
 	var fields []*Field
 	for _, m := range asInterface(s).Methods {
@@ -168,18 +212,6 @@ func (c *checker) scriptUnder(inst *Named) Type {
 	return &Struct{Fields: fields, obj: n.origin().Obj}
 }
 
-// stdTestingType is the named type name of the std package that declares
-// the Script inst.
-func (c *checker) stdTestingType(inst *Named, name string) (*Named, bool) {
-	o, _ := inst.Obj.Pkg.Scope.lookup(name)
-	tn, ok := o.(*TypeName)
-	if !ok {
-		return nil, false
-	}
-	n, ok := tn.Type.(*Named)
-	return n, ok
-}
-
 // scriptLit checks the literal x of the Script t: it sets no field (rule 3).
 func (c *checker) scriptLit(x *syntax.CompositeLit, t Type) bool {
 	if len(x.Elts) == 0 && x.Base == nil {
@@ -187,4 +219,21 @@ func (c *checker) scriptLit(x *syntax.CompositeLit, t Type) bool {
 	}
 	c.errorf(x, CodeType, "a %s is made with no fields, %s{}: each operation starts with no answer, and s.Op.Answer(f) sets one (stdlib.md, Testing 9)", t, strings.TrimSpace(c.localTypeText(t)))
 	return false
+}
+
+// usePlanPackage marks the package that the plan type x qualifies, as
+// qualifiedType does for a written type.
+func (c *checker) usePlanPackage(x syntax.Expr) {
+	sel, ok := x.(*syntax.SelectorExpr)
+	if !ok {
+		return
+	}
+	id, ok := sel.X.(*syntax.Ident)
+	if !ok {
+		return
+	}
+	if pn, ok := c.lookupType(id.Name, nil).(*PkgName); ok {
+		pn.used = true
+		c.recordUse(id, pn)
+	}
 }

@@ -42,6 +42,16 @@ type TypeName struct {
 	provides []*Builder
 	// Refine is the refinement of a refined defined type (refine.go), or nil.
 	Refine *Refinement
+	// Provider is the resolved plan of a derived provider (script.go), or
+	// nil.
+	Provider *ProviderTypes
+}
+
+// ProviderTypes are the types a derived provider's plan names (patterns.md,
+// Provider plans): Field, the generic type of each operation's field, and
+// None, the arguments of an operation that takes none.
+type ProviderTypes struct {
+	Field, None *Named
 }
 
 // Constructor is the function a generator builds the type's values with

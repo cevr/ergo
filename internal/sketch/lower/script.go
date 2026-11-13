@@ -126,9 +126,15 @@ func (fc *funcCtx) scriptLit(n *check.Named, site syntax.Node) string {
 	for _, f := range scriptFields(n, site) {
 		op, ok := f.Type.(*check.Named)
 		if !ok || len(op.TArgs) != 2 {
-			ice(site, "the field %s of %s is not a testing.Op", f.Name, n)
+			ice(site, "the field %s of %s is not a provider field", f.Name, n)
 		}
-		parts = append(parts, memberName(f.Name)+": "+fc.l.rt()+".NewOp["+fc.goType(op.TArgs[0])+", "+fc.goType(op.TArgs[1])+"]()")
+		// The field type names its runtime Go type G, whose constructor
+		// NewG the checker requires (check/body.go providerFieldRefusal).
+		g, ok := check.GoTypeOf(op)
+		if !ok {
+			ice(site, "the field %s of %s names no runtime Go type", f.Name, n)
+		}
+		parts = append(parts, memberName(f.Name)+": "+fc.l.rt()+"."+check.ProviderFieldNew(g)+"["+fc.goType(op.TArgs[0])+", "+fc.goType(op.TArgs[1])+"]()")
 	}
 	return fc.goType(n) + "{" + strings.Join(parts, ", ") + "}"
 }

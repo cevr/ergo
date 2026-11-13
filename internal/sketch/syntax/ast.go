@@ -166,6 +166,19 @@ type TypeDecl struct {
 	DerivePos Pos
 	Derive    Expr
 	Origin    *TypeDecl
+	// Provider is the plan of a derived provider, `type T[P] derive
+	// Provider(Of[P](), Of[F](), Of[N]())` (patterns.md, Provider plans),
+	// set by the derive expansion, or nil.
+	Provider *ProviderPlan
+}
+
+// ProviderPlan is a derived provider's plan: each instance T[X] is a record
+// with a field of type Field[A, F] per operation of X, A its arguments (None
+// for none) and F its signature, and implements X (patterns.md, Provider
+// plans). Field and None are the type expressions of the plan, as written.
+type ProviderPlan struct {
+	Field Expr
+	None  Expr
 }
 
 // FuncDecl is a function, or with Extern set and Body nil, the Go binding

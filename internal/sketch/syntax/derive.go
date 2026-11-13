@@ -25,19 +25,31 @@ func (p *parser) atDerive() bool {
 }
 
 // parseDerive parses `derive E` after the name (and any type parameters)
-// of d. A derived type has no type parameters and no `where`; each is S001
-// at `derive`.
+// of d. A derived type has no `where`, and no type parameters unless E is
+// a call of the plan constructor Provider (patterns.md, Provider plans),
+// whose shape follows its type argument; each refusal is S001 at `derive`.
 func (p *parser) parseDerive(d *TypeDecl) {
 	d.DerivePos = p.tok.pos
-	if d.TypeParams != nil {
-		p.errorAt(d.DerivePos, len("derive"), "a derived type has no type parameters: the plan fixes its shape")
-	}
 	p.next()
 	d.Derive = p.parseExpr()
+	if d.TypeParams != nil && !IsProviderPlan(d.Derive) {
+		p.errorAt(d.DerivePos, len("derive"), "a derived type has no type parameters: the plan fixes its shape (a Provider plan excepted)")
+	}
 	if p.atWhere() {
 		p.errorAt(d.DerivePos, len("derive"), "derive does not combine with where: write the span in the plan, Refine(Of[B](), lo, hi)")
 	}
 	if p.tok.tok == LBRACE {
 		p.errorAt(d.DerivePos, len("derive"), "derive does not combine with a body: the plan gives the type its fields")
 	}
+}
+
+// IsProviderPlan reports a derive expression that is a direct call of the
+// plan constructor Provider.
+func IsProviderPlan(x Expr) bool {
+	c, ok := x.(*CallExpr)
+	if !ok {
+		return false
+	}
+	id, ok := c.Fun.(*Ident)
+	return ok && id.Name == "Provider"
 }
