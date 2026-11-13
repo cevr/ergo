@@ -380,6 +380,17 @@ examples/jobs-web/loopback/loopback.ergo	*
 examples/jobs-web/README.md	is the same server through the wire
 examples/jobs-web/README.md	the laws that hold for the provider hold through the wire.
 examples/jobs-web/expected-skips	runs these laws through the wire
+examples/pipeline/pipeline/pipelinerpc/client.ergo	*
+examples/pipeline/pipeline/pipelinerpc/server.ergo	*
+examples/pipeline/pipeline/pipelinerpc/wire.ergo	*
+examples/pipeline/surfaces/laws.ergo	*
+examples/pipeline/surfaces/surfaces.ergo	*
+examples/pipeline/README.md	the wire's `Request`
+examples/pipeline/README.md	the generated client over the wire, and command lines
+examples/pipeline/README.md	holds for the generated client over the wire
+examples/pipeline/README.md	the wire sends two requests in the other order
+examples/pipeline/testdata/mutants.json	*
+scripts/examples/module_test.go	walkrpc/wire.ergo
 docs/spec/stdlib.md	a contract's laws run through the wire
 docs/spec/stdlib.md	`toml.Encode[T wire](v T) string fails toml.Unrepresentable` writes v as a
 docs/spec/stdlib.md	2. **Layers.** `Load[T wire](s Spec) T fails Unreadable | Malformed |
