@@ -28,7 +28,7 @@ import (
 //     indented, quoted or made list items, so blocks meet that no example
 //     puts together: both binaries print the same in each mode, with and
 //     without -highlight.
-//   - The workload of cmd/mdgen at two sizes, and its block count.
+//   - The workload of mdhtml -gen at two sizes, and its -blocks count.
 //   - The entity table both programs hold is Go's html.UnescapeString of
 //     each name.
 //
@@ -47,7 +47,6 @@ func TestMdhtmlAgreesWithControl(t *testing.T) {
 	needsBuild(t)
 	mdTableIsHTML5(t)
 	ergoBin, work := buildCorpusExample(t, "mdhtml")
-	gen, _ := buildCorpusCommand(t, "mdhtml", "mdgen")
 	control := buildHandControl(t, "mdhtml", work)
 	bins := []string{ergoBin, control}
 	dir := t.TempDir()
@@ -94,18 +93,18 @@ func TestMdhtmlAgreesWithControl(t *testing.T) {
 	}
 
 	for _, n := range []string{"2", "200"} {
-		command := exec.Command(gen, "-seed", strconv.FormatUint(first, 10), "-n", n)
+		command := exec.Command(ergoBin, "-seed", strconv.FormatUint(first, 10), "-gen", n)
 		var out bytes.Buffer
 		command.Stdout = &out
 		if err := proclimit.Run(command, 1<<30); err != nil {
-			t.Fatalf("mdgen: %v", err)
+			t.Fatalf("mdhtml -gen: %v", err)
 		}
 		writeFile(t, path, out.String())
 		what := "the workload of " + n + " sections"
 		mdBoth(t, bins, path, what, "", "-unsafe")
 		mdBoth(t, bins, path, what, "")
-		if got := runCorpus(t, gen, "-blocks", path); !regexp.MustCompile(`^stdout:\n[1-9][0-9]*\n\nstderr:\n\nstatus 0\n$`).MatchString(got) {
-			t.Fatalf("%s: mdgen -blocks printed\n%s", what, clip(got))
+		if got := runCorpus(t, ergoBin, "-blocks", path); !regexp.MustCompile(`^stdout:\n[1-9][0-9]*\n\nstderr:\n\nstatus 0\n$`).MatchString(got) {
+			t.Fatalf("%s: mdhtml -blocks printed\n%s", what, clip(got))
 		}
 	}
 }

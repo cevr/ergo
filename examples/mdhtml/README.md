@@ -4,8 +4,8 @@ A [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) converter written in 
 
 ```sh
 mdhtml [-unsafe] [-highlight] [-title T] [FILE]
-mdgen -seed S -n N       # the receipts' workload: N sections for seed S
-mdgen -blocks FILE       # how many blocks FILE reads as
+mdhtml -gen N [-seed S]   # the receipts' workload: N sections for seed S
+mdhtml -blocks [FILE]     # how many blocks FILE reads as
 ```
 
 ```text
@@ -71,12 +71,12 @@ Tag: `default`. It is an original program, not a port. Its design is commonmark.
   - `render.ergo`: `Highlighter`, `Trust`, `Parse`, `Nodes`, `Render`.
   - `laws.ergo`.
 - `workload/`: the receipts' document and its law.
-- `cmd/mdhtml/main.ergo` and `cmd/mdgen/main.ergo`: the binaries, the only places that choose providers.
+- `cmd/mdhtml/main.ergo`: the binary, the only place that chooses providers.
 - `testdata/commonmark-spec-9103e341/`: the specification at 0.31.2, unchanged, with its CC-BY-SA 4.0 license (`SOURCE` names the pin).
 
 ## The Go control
 
-`cmd/ergo/testdata/mdhtml/control` is the same design in hand-written Go: the same block and inline stores, the same stacks, the same tree and writer, the same flags.
+`cmd/ergo/testdata/mdhtml/control` is the same design in hand-written Go: the same block and inline stores, the same stacks, the same tree and writer, and the same `-unsafe`, `-highlight` and `-title` (it has no `-gen` or `-blocks`).
 
 `TestMdhtmlAgreesWithControl` (cmd/ergo, full tier) runs both binaries on:
 - every example of the specification: with `-unsafe` each must print the example's HTML byte for byte, and in safe mode both must print the same;

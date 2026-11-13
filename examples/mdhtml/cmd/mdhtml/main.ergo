@@ -2,7 +2,9 @@
 // input, and writes the HTML on standard output. Raw HTML is left out
 // and a script link goes nowhere unless -unsafe trusts the author;
 // -title wraps the HTML in a whole page; -highlight marks Go's keywords
-// in go code blocks.
+// in go code blocks. For the receipts, -gen N writes the workload of N
+// sections for -seed and reads nothing, and -blocks prints how many
+// blocks the input reads as in place of its HTML.
 // Package markdown is the reader and package html the tree it writes.
 // This binary is the only place that chooses the providers: the host's
 // streams, files and arguments, and the Highlighter.
@@ -13,17 +15,21 @@ import fstest
 import io
 import mdhtml/html
 import mdhtml/markdown
+import mdhtml/workload
 import os
 
 let titleFlag = flag.String("title", "", "wrap the HTML in a page with this `title`")
 let highlightFlag = flag.Bool("highlight", false, "mark Go's keywords in code blocks of language go")
 let unsafeFlag = flag.Bool("unsafe", false, "keep raw HTML and every link: the author is trusted")
+let genFlag = flag.Int("gen", 0, "write the receipts' workload of this many `sections` and read nothing")
+let seedFlag = flag.Int("seed", 1, "the `seed` of the -gen workload")
+let blocksFlag = flag.Bool("blocks", false, "print how many blocks the input reads as, the document's own included")
 let fileArg = flag.OptionalArg("file", "the Markdown file to read; none reads standard input")
 
 let set = flag.Set{
 	Name:  "mdhtml",
 	Usage: "mdhtml converts CommonMark to HTML.",
-	Flags: []flag.Flag{titleFlag, highlightFlag, unsafeFlag},
+	Flags: []flag.Flag{titleFlag, highlightFlag, unsafeFlag, genFlag, seedFlag, blocksFlag},
 	Args:  []flag.ArgSpec{fileArg},
 }
 
@@ -63,7 +69,15 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | fs.Files {
 		try flag.Exit(err, flag.Usage(set))
 		return
 	}
+	if genFlag.Get(v) > 0 {
+		io.Stdout.Print(workload.Document(seedFlag.Get(v), genFlag.Get(v)))
+		return
+	}
 	let text = try source(fileArg.Get(v))
+	if blocksFlag.Get(v) {
+		io.Stdout.Println("\(markdown.Blocks(markdown.Parse(text)))")
+		return
+	}
 	let body = with context { markdown.Highlighter: highlighter(highlightFlag.Get(v)) } {
 		markdown.Render(text, if unsafeFlag.Get(v) { markdown.Unsafe } else { markdown.Safe })
 	}

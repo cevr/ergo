@@ -1,8 +1,14 @@
 unexpected argument: b.md
 Usage of mdhtml:
 mdhtml converts CommonMark to HTML.
+  -blocks
+    	print how many blocks the input reads as, the document's own included
+  -gen sections
+    	write the receipts' workload of this many sections and read nothing
   -highlight
     	mark Go's keywords in code blocks of language go
+  -seed seed
+    	the seed of the -gen workload (default 1)
   -title title
     	wrap the HTML in a page with this title
   -unsafe

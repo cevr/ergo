@@ -151,14 +151,8 @@ func jsonAgree(t *testing.T, bins []string, ref jsonRef, path, what string, args
 // and returns the binary and the emitted module's directory.
 func buildCorpusExample(t *testing.T, name string) (bin, work string) {
 	t.Helper()
-	return buildCorpusCommand(t, name, name)
-}
-
-// buildCorpusCommand links examples/<name>/cmd/<cmd>.
-func buildCorpusCommand(t *testing.T, name, cmd string) (bin, work string) {
-	t.Helper()
-	program := filepath.Join(smokeWorkspace(t, "examples/"+name), "examples", name, "cmd", cmd)
-	bin = filepath.Join(t.TempDir(), cmd)
+	program := filepath.Join(smokeWorkspace(t, "examples/"+name), "examples", name, "cmd", name)
+	bin = filepath.Join(t.TempDir(), name)
 	command := exec.Command(buildTestCLI(t), "build", "-work", "-o", bin, program)
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr

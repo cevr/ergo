@@ -137,6 +137,15 @@
       "killers": ["examples:mdhtml"]
     },
     {
+      "name": "mdhtml-unsafe-flag-ignored",
+      "origin": "wf10 PA3",
+      "file": "examples/mdhtml/cmd/mdhtml/main.ergo",
+      "from": "markdown.Render(text, if unsafeFlag.Get(v) { markdown.Unsafe } else { markdown.Safe })",
+      "to": "markdown.Render(text, markdown.Safe)",
+      "rule": "-unsafe keeps raw HTML and every link (test UnsafeTrustsTheAuthor; the full tier's spec examples see it too).",
+      "killers": ["examples:mdhtml"]
+    },
+    {
       "name": "mdhtml-sharp-s-does-not-fold",
       "origin": "wf10 PA3",
       "file": "examples/mdhtml/markdown/inline.ergo",
