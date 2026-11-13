@@ -846,7 +846,7 @@ func (g *gen) clientFile(ops []Op) fileText {
 	capName := g.importOf(g.pkg) + "." + g.op
 	var b strings.Builder
 	fmt.Fprintf(&b, "// Client is %s over the wire: each operation is one call to the\n// server its Conn names. <Op>Checked fails the wire's failures as typed\n// failures: rpc.Unrepresentable for an int the wire cannot carry (an\n// operation that carries one), rpc.Transport for a lost server, a refused\n// call or an answer that is not the contract's. <Op> provides the\n// operation type, whose row cannot name them, so there they are defects.\n", capName)
-	b.WriteString("type Client { conn rpc.Conn }\n\n")
+	fmt.Fprintf(&b, "type Client { conn rpc.Conn } implements %s\n\n", capName)
 	fmt.Fprintf(&b, "// NewClient is the %s that conn serves.\n", capName)
 	b.WriteString("func NewClient(conn rpc.Conn) Client { Client{conn: conn} }\n")
 	for _, op := range ops {
