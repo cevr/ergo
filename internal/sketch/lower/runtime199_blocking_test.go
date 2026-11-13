@@ -251,6 +251,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// BCE1: unchecked loads under a bounds fact (bounds.go,
 		// unchecked.go); each reads memory and returns, no wait.
 		"ByteAt": true, "StringAt": true, "StringN": true, "AddrAt": true,
+		// OWN1: the hand-over's Appends (handover.go, lineage.go); each
+		// appends under at most one uncontended lock, no wait.
+		"AppendPoison": true, "LineageAppend": true, "LineageAppendCheck": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

@@ -1170,6 +1170,9 @@ func (l *lowerer) ownedParams(fn *check.Func) []ownedParam {
 						out = append(out, ownedParam{index: i, bind: bind, v: v})
 					} else if use := w.consumedUse(f, w.vars[v]); use != nil && valueMutant != "consume-blind" {
 						out = append(out, ownedParam{index: i, bind: use, consumed: true, v: v})
+					} else if w.fieldOwned(f, w.vars[v]) {
+						// Taken over through its fields (handover.go).
+						out = append(out, ownedParam{index: i, consumed: true, v: v})
 					}
 				}
 			}
@@ -1875,7 +1878,7 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 	case *syntax.SelectorExpr, *syntax.IndexExpr, *syntax.SliceExpr, *syntax.StarExpr:
 		if id := pathRoot(x); id != nil && w.parentIsPath(id, x) {
 			if v, ok := w.info.Uses[id].(*check.Var); ok {
-				return w.freshIdent(w.varOf(v), id, false)
+				return w.freshPath(w.varOf(v), id, x)
 			}
 		}
 		return false
@@ -1954,6 +1957,15 @@ func (w *valueWalk) parentIsPath(id *syntax.Ident, x syntax.Expr) bool {
 // is unshared (a let mut always is; a let when its value was fresh). At a
 // return the frame ends, so later uses do not count.
 func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
+	return w.freshPath(vv, id, nil)
+}
+
+// freshPath is freshIdent for the field path path that the use id heads
+// (nil: id itself). Another use of vv that reads a field disjoint from
+// path whose value holds no Map or slice (r.head beside r.items) keeps
+// nothing and cannot see a write through path, so it does not count
+// (handover.go, disjointRead).
+func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool {
 	if valueMutant == "elide-live" && vv.local {
 		return true
 	}
@@ -1989,7 +2001,7 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 		}
 	}
 	for _, o := range vv.occs {
-		if o == use {
+		if o == use || path != nil && w.disjointRead(o.id, path) {
 			continue
 		}
 		if o.frame != frame {
@@ -2011,6 +2023,11 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 				return false
 			}
 		} else if o.pre > use.pre {
+			if end := w.endingReturn(use); end != nil && (o.pre < w.pre[end] || o.pre >= w.post[end]) {
+				// The use's return statement ends the frame: o, outside
+				// it, never runs after the use (handover.go).
+				continue
+			}
 			return false
 		}
 		if o.kind == occEscape || o.kind == occReturn {

@@ -16,18 +16,25 @@ import (
 // field or rebinds through slices.Concat is quadratic. Three shortcuts
 // take the write in place, each registered in shortcuts.go:
 //
-//   - own-consume (static): the first operand of a runtime/v1 body whose
-//     owned form has a checking form (v1.Body.Check: SlicesConcat's
-//     SlicesConcatOwned) is consumed, so the owned form takes it over: on
-//     a dead unshared local (consumes, values.go), and on the rebinding
-//     p = slices.Concat(p, q) of one place rooted at a let mut or a borrow
-//     that names the root nowhere else (rootConsumes), as V3 takes
-//     p = p.Append(x). The other operands' elements enter the root, so
-//     they are copied unless fresh, as Append's element is (V1).
+//   - own-consume (static): slices.Concat is an appender (gobody.go), so
+//     V3 already proves p = slices.Concat(p, q) on a let mut or a borrow
+//     root, and Concat on a dead unshared local, free to write its source;
+//     but its body made a new array anyway. An in-place call of an
+//     appender whose runtime/v1 body has an owned form with a checking
+//     form (v1.Body.Check) now calls the owned form, SlicesConcatOwned,
+//     which appends to the source (appenderConsumes). A spread operand
+//     whose elements hold no Map or slice is no longer copied: only its
+//     elements enter the root.
 //   - own-field (static): Append on a field path r.f… of a local that is
 //     dead after the call and unshared (fresh): V3's dead source, through
-//     record fields (deadField). The journal's Ref.Update literal
-//     l.Signals.Append(e), whose l the cell hands over (V6), is one.
+//     record fields (deadField). Three facts let more sources be fresh: a
+//     read of a disjoint field whose value holds no Map or slice (r.head
+//     beside r.items) does not count as another use (disjointRead); a use
+//     inside a return statement is the last of its frame for every use
+//     outside that statement (endingReturn); and a parameter taken over
+//     through its fields (`let mut items = r.items`, r.items.Append(v),
+//     reads of r.head) is owned (fieldOwned, V5), so callers pass it
+//     unshared and r = push(r, v) hands it over (GP's ring-copy).
 //   - own-lineage (checked at run time): Append on any other field path
 //     not rooted at a let mut or a borrow (an actor state's i.Log) lowers
 //     to v1.LineageAppend with a token of its own (runtime/v1, Lineage):
@@ -141,6 +148,141 @@ func (w *valueWalk) fieldPath(x syntax.Expr) *syntax.Ident {
 			return nil
 		}
 	}
+}
+
+// fieldNames is the field names of the field path x (r.f.g gives [f g]),
+// or nil when x is no field path of record fields.
+func (w *valueWalk) fieldNames(x syntax.Expr) []string {
+	if w.fieldPath(x) == nil {
+		return nil
+	}
+	var names []string
+	for e := unparen(x); ; {
+		sel, ok := e.(*syntax.SelectorExpr)
+		if !ok {
+			break
+		}
+		names = append([]string{sel.Sel.Name}, names...)
+		e = unparen(sel.X)
+	}
+	return names
+}
+
+// disjointRead reports whether the use id is a read of a field path of
+// its variable that path does not overlap (the two differ at a field) and
+// whose value holds no Map or slice: r.head beside r.items. Such a read
+// keeps no storage of path's value and cannot see a write through it.
+func (w *valueWalk) disjointRead(id *syntax.Ident, path syntax.Expr) bool {
+	want := w.fieldNames(path)
+	if len(want) == 0 {
+		return false
+	}
+	cur := syntax.Expr(id)
+	for {
+		sel, ok := w.parent[cur].(*syntax.SelectorExpr)
+		if !ok || syntax.Expr(sel.X) != cur || w.dotCall(cur) != nil {
+			break
+		}
+		cur = sel
+	}
+	got := w.fieldNames(cur)
+	if len(got) == 0 || w.l.holdsValue(w.typeOf(cur)) {
+		return false
+	}
+	for i := 0; i < len(got) && i < len(want); i++ {
+		if got[i] != want[i] {
+			return true
+		}
+	}
+	return false
+}
+
+// fieldOwned reports a parameter vv of f that the body takes over through
+// its fields (GP ring-copy; types.md, Bindings 2): every use is a field
+// path of vv in the body's own frame and outside any loop, one such path
+// holding a Map or slice is taken (the value of a let mut, or the source
+// of an Append), and f cannot fail after the first taking. Such a
+// parameter is owned (V5), as a consumed one: its callers pass it
+// unshared, and the body reads it as an unshared local, so
+// `let mut items = r.items` copies nothing and r.items.Append(v) appends
+// in place (own-field), each when no other use reads that field again.
+func (w *valueWalk) fieldOwned(f *check.Func, vv *vvar) bool {
+	if !valueOwned() || vv.ptr || vv.local || len(vv.occs) == 0 {
+		return false
+	}
+	first, binds := -1, false
+	for _, o := range vv.occs {
+		if o.frame != w.root || len(o.loops) > 0 {
+			return false
+		}
+		sel, ok := w.parent[o.id].(*syntax.SelectorExpr)
+		if !ok || syntax.Node(sel.X) != syntax.Node(o.id) || w.dotCall(o.id) != nil || w.fieldPath(sel) == nil {
+			return false
+		}
+		cur := syntax.Expr(sel)
+		for {
+			up, ok := w.parent[cur].(*syntax.SelectorExpr)
+			if !ok || syntax.Expr(up.X) != cur || w.dotCall(cur) != nil {
+				break
+			}
+			cur = up
+		}
+		if !w.l.holdsValue(w.typeOf(cur)) {
+			continue
+		}
+		taken, bound := w.takenField(cur)
+		if !taken {
+			continue
+		}
+		if first < 0 || o.pre < first {
+			first = o.pre
+		}
+		binds = binds || bound
+	}
+	// Only a let mut taking makes the parameter owned: the body copies
+	// there anyway, so the copy moves to a caller that shares (none, for a
+	// rebinding r = f(r, …)). An Append alone is the one-extender site's.
+	if first < 0 || !binds {
+		return false
+	}
+	return len(rowElems(f.Sig.Errors)) == 0 || !w.failsAfter(f, first)
+}
+
+// takenField reports a field path that is the source of an Append
+// (taken) or the whole value of a let mut (taken and bound).
+func (w *valueWalk) takenField(x syntax.Expr) (taken, bound bool) {
+	parent, child := w.unparenParent(x)
+	if call := w.dotCall(x); call != nil {
+		return w.appendSite(call), false
+	}
+	if call, ok := parent.(*syntax.CallExpr); ok {
+		return w.appendSite(call) && w.recvOf(call) == child, false
+	}
+	for _, o := range w.owns {
+		if o.value == child && o.root.local && o.root.mut {
+			return true, true
+		}
+	}
+	return false, false
+}
+
+// endingReturn is the return statement of o's own frame that holds the
+// use o at any depth (an operand of a call in the returned value), or
+// nil: once it runs the frame ends, so a use outside it never runs after
+// o.
+func (w *valueWalk) endingReturn(o *vocc) *syntax.ReturnStmt {
+	for n := w.parent[o.id]; n != nil; n = w.parent[n] {
+		if f := w.frameOf[n]; f != nil {
+			return nil
+		}
+		if r, ok := n.(*syntax.ReturnStmt); ok {
+			if w.frameOfReturn(r) == o.frame {
+				return r
+			}
+			return nil
+		}
+	}
+	return nil
 }
 
 // appendSite reports a call of the prelude's Append of two operands: a
