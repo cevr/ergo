@@ -1,0 +1,63 @@
+// Package server is fk-domains' HTTP server: the registry's RPC at /rpc,
+// with the original's refusals (src/server/rpc.ts and entry.ts at
+// 039c941a). No page is served yet, so every other request is 404.
+
+import http
+import rpc
+import strings
+import fk-domains/domains
+import fk-domains/domains/domainsrpc
+
+// Mount is the path of the RPC endpoint.
+func Mount() string { "/rpc" }
+
+// MaxBodyBytes is the largest request body the server reads: a body of
+// 1,024 bytes is answered and one of 1,025 is 413, as the original's
+// MAX_RPC_REQUEST_BYTES.
+func MaxBodyBytes() int { 1024 }
+
+// Limits are the listener's limits; http.Serve refuses a body over
+// MaxBodyBytes before Answer sees it (http.BodyTooLarge).
+func Limits() http.Limits {
+	http.Limits{MaxBodyBytes: MaxBodyBytes(), MaxHeaderBytes: 16384, IdleTimeout: 60s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}
+}
+
+func noStore() http.Field { http.Field{Name: "Cache-Control", Value: "no-store"} }
+
+// refused is a status with no body, not to be stored.
+func refused(status int) http.Response { http.Response{Status: status, Header: []http.Field{noStore()}, Body: ""} }
+
+// Answer answers r in the original's order. A request that is not
+// POST /rpc never reaches the endpoint: rpc.Answer answers it 404, as
+// the original's router (one POST route) does. At the endpoint, a content
+// type that is not JSON is 415 and a body over MaxBodyBytes is 413; every
+// other body is Effect RPC's answer, rpc.Answer's: a body that is not
+// JSON is a 200 whose one frame is a Defect, and a payload that does not
+// decode a Die frame. Every answer of the endpoint carries
+// Cache-Control: no-store.
+func Answer(r http.Request) http.Response needs domains.Registry | http.Streaming {
+	let handle = func(tag string, payload string) string fails rpc.Failed needs domains.Registry {
+		try domainsrpc.Handle(tag, payload)
+	}
+	if (r.Path != Mount() && r.Path != Mount()+"/") || r.Method != "POST" {
+		return rpc.Answer(r, Mount(), handle)
+	}
+	let json = match http.Header(r.Header, "Content-Type") {
+	case Some as c:
+		strings.HasPrefix(c.Value, "application/json")
+	case None:
+		false
+	}
+	if !json {
+		return refused(415)
+	}
+	match r.Body {
+	case http.BodyTooLarge:
+		return refused(413)
+	case http.BodyReadFailed:
+		return refused(400)
+	case http.Buffered:
+	}
+	let a = rpc.Answer(r, Mount(), handle)
+	http.Response{Status: a.Status, Header: a.Header.Append(noStore()), Body: a.Body}
+}

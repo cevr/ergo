@@ -1,0 +1,499 @@
+// The package domainsearch is the design model of the search loop of the
+// fk-domains port (corpus-wave plan.md section 20), checked by
+// `ergo test models/domainsearch`: a breadth-first search of every state in
+// a small scope. It models what the order of events can break:
+//
+//   - the user types: the query changes, the requests in flight are cut,
+//     and the read waits for the debounce;
+//   - the read looks in the cache: a fresh entry is shown at once; a miss
+//     or a stale entry starts one request;
+//   - the server answers a request with the data it holds then (Serve); the
+//     answer reaches the program later (Deliver), in any order, also for a
+//     request that was cut (the abort lost the race);
+//   - the server's data changes (Bump) and time passes (Tick);
+//   - the program reads the current query again (Revisit: a sort or a
+//     filter that is switched back reads the same key).
+//
+// A cache entry is per label: Empty, Pending{request} or Settled{version,
+// when}. The model has one range per label: the ranges of one label load
+// one after the other in the program (a second load is not started while
+// one is in flight), so their order is not an interleaving question. The
+// range planner, the window of the virtual list and the URL codec are pure
+// functions, and their laws are properties in the program (plan.md 20.4).
+//
+// Each action is a signal; an action that is not enabled is Ignore.
+//
+// Invariants (laws of Design, each `always`):
+//   - ShownBelongs: what is shown is a result of the current query;
+//   - ShownMonotone: for one label the shown version never goes back (an
+//     old answer never replaces a newer one);
+//   - FreshBound: a value shown from the cache is younger than Fresh;
+//   - NoWastedRequest: no request starts for a query that is replaced
+//     inside the debounce;
+//   - SettledShows: when nothing is waiting and nothing is in flight, the
+//     current query's result is shown (no spinner for ever);
+//   - OnePending: at most one request is in flight and wanted.
+//
+// Mutants, each a machine whose law Breaks must hold (a shortest run to a
+// state where the invariant named is false):
+//   - NoGen: an answer is shown whatever its query (ShownBelongs);
+//   - ByLabel: an answer is taken when its label is the current query's,
+//     whatever its request (ShownMonotone: type A, B, A; the first A's
+//     answer comes last);
+//   - NoDebounce: a key press starts the request at once (NoWastedRequest);
+//   - RenewOnHit: a cache hit renews the entry's freshness (FreshBound);
+//   - KeepPending: a cut request's entry stays Pending (SettledShows).
+//
+// Witnesses (laws of Design, each `sometimes`): a cache hit; an eviction;
+// a late answer dropped; a stale entry fetched again; the newest data
+// shown.
+//
+// The scope: 2 labels, 3 changes of the query, 2 revisits, 4 requests, a
+// clock of 4 ticks with a debounce of 1 and a freshness of 2, 3 versions
+// of the server's data, a cache of 1 settled entry. It is the claim:
+// "proved" means proved in this scope.
+
+type Label = A{} | B{}
+
+type Req = R0{} | R1{} | R2{} | R3{}
+
+type Act = Type{L Label} | Fire{} | Revisit{} | Serve{R Req} | Deliver{R Req} | Tick{} | Bump{}
+
+// The scope.
+let MaxTypes = 3
+let MaxRevisits = 2
+let Requests = 4
+let MaxClock = 4
+let Debounce = 1
+let Fresh = 2
+let MaxServer = 2
+let Capacity = 1
+
+// A request: not started; in flight; answered by the server and not yet
+// delivered; the same two after the program cut it; delivered.
+let Free = 0
+let Flying = 1
+let Served = 2
+let CutFlying = 3
+let CutServed = 4
+let Delivered = 5
+
+// A cache entry.
+let Empty = 0
+let Pending = 1
+let Settled = 2
+
+// The design, and the mutants.
+let NoMutant = 0
+let NoGenMutant = 1
+let ByLabelMutant = 2
+let NoDebounceMutant = 3
+let RenewOnHitMutant = 4
+let KeepPendingMutant = 5
+
+// World is the model's state. Req, ReqLabel, ReqGen and ReqVer have one
+// element per request; CKind, CReq, CVer, CAt, CFetched and Best have one
+// per label. Gen is the search generation: it grows with each change of
+// the query. Waiting: the read of the current query waits for the
+// debounce. CAt is the time the cache counts an entry's age from;
+// CFetched is the time its data came from the server (the design keeps
+// them equal). Shown is the version on the screen for ShownLabel, -1 while
+// loading. ShownAge is the age of the data when it was shown. Best is the
+// newest version ever shown for a label.
+type World {
+	Query      int,
+	Gen        int,
+	Types      int,
+	Revisits   int,
+	Clock      int,
+	TypedAt    int,
+	Waiting    bool,
+	Server     int,
+	Req        []int,
+	ReqLabel   []int,
+	ReqGen     []int,
+	ReqVer     []int,
+	NextReq    int,
+	CKind      []int,
+	CReq       []int,
+	CVer       []int,
+	CAt        []int,
+	CFetched   []int,
+	Shown      int,
+	ShownLabel int,
+	ShownAge   int,
+	Best       []int,
+	Wasted     bool,
+	Hit        bool,
+	Evicted    bool,
+	Dropped    bool,
+	Refetched  bool,
+}
+
+func labelIx(l Label) int {
+	match l {
+	case A:
+		0
+	case B:
+		1
+	}
+}
+
+func reqIx(r Req) int {
+	match r {
+	case R0:
+		0
+	case R1:
+		1
+	case R2:
+		2
+	case R3:
+		3
+	}
+}
+
+func setInt(xs []int, i int, v int) []int {
+	let mut out = []int{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	b
+}
+
+func world() World {
+	World{
+		Query:      0,
+		Gen:        0,
+		Types:      0,
+		Revisits:   0,
+		Clock:      0,
+		TypedAt:    0,
+		Waiting:    true,
+		Server:     0,
+		Req:        []int{Free, Free, Free, Free},
+		ReqLabel:   []int{-1, -1, -1, -1},
+		ReqGen:     []int{-1, -1, -1, -1},
+		ReqVer:     []int{-1, -1, -1, -1},
+		NextReq:    0,
+		CKind:      []int{Empty, Empty},
+		CReq:       []int{-1, -1},
+		CVer:       []int{-1, -1},
+		CAt:        []int{0, 0},
+		CFetched:   []int{0, 0},
+		Shown:      -1,
+		ShownLabel: -1,
+		ShownAge:   0,
+		Best:       []int{-1, -1},
+		Wasted:     false,
+		Hit:        false,
+		Evicted:    false,
+		Dropped:    false,
+		Refetched:  false,
+	}
+}
+
+// read is the cache read of the current query: a fresh entry is shown at
+// once (a hit); a load in flight for the key is waited for; else one
+// request starts. None when no request is left in the scope.
+func read(m int, w World) Option[World] {
+	let q = w.Query
+	if w.CKind[q] == Settled && w.Clock-w.CAt[q] < Fresh {
+		// RenewOnHit: the hit counts as a new fetch.
+		let mut at = w.CAt
+		if m == RenewOnHitMutant {
+			at = setInt(at, q, w.Clock)
+		}
+		return Some[World]{Value: World{
+			..w,
+			CAt:        at,
+			Shown:      w.CVer[q],
+			ShownLabel: q,
+			ShownAge:   w.Clock - w.CFetched[q],
+			Best:       setInt(w.Best, q, maxInt(w.Best[q], w.CVer[q])),
+			Hit:        true,
+		}}
+	}
+	if w.CKind[q] == Pending {
+		return Some[World]{Value: World{..w, Shown: -1, ShownLabel: -1, ShownAge: 0}}
+	}
+	if w.NextReq >= Requests {
+		return None
+	}
+	let r = w.NextReq
+	Some[World]{Value: World{
+		..w,
+		NextReq:    r + 1,
+		Req:        setInt(w.Req, r, Flying),
+		ReqLabel:   setInt(w.ReqLabel, r, q),
+		ReqGen:     setInt(w.ReqGen, r, w.Gen),
+		CKind:      setInt(w.CKind, q, Pending),
+		CReq:       setInt(w.CReq, q, r),
+		Shown:      -1,
+		ShownLabel: -1,
+		ShownAge:   0,
+		Refetched:  w.Refetched || w.CKind[q] == Settled,
+	}}
+}
+
+// fire is the end of the debounce: the read of the current query.
+func fire(m int, w World) Option[World] {
+	if !w.Waiting {
+		return None
+	}
+	if m != NoDebounceMutant && w.Clock-w.TypedAt < Debounce {
+		return None
+	}
+	read(m, World{..w, Waiting: false})
+}
+
+// next is w after the action a under the mutant m (NoMutant is the design),
+// or None when a is not enabled.
+func next(m int, w World, a Act) Option[World] {
+	match a {
+	case Type as t:
+		// The query changes: the requests in flight are cut, their cache
+		// entries are no longer Pending, and the read waits for the debounce.
+		let q = labelIx(t.L)
+		if w.Types >= MaxTypes || q == w.Query {
+			return None
+		}
+		let mut req = w.Req
+		let mut wasted = w.Wasted
+		for i, st in w.Req {
+			if st == Flying {
+				req = setInt(req, i, CutFlying)
+			}
+			if st == Served {
+				req = setInt(req, i, CutServed)
+			}
+			if st != Free && w.ReqGen[i] == w.Gen && w.Clock-w.TypedAt < Debounce {
+				wasted = true
+			}
+		}
+		let mut kind = w.CKind
+		if m != KeepPendingMutant {
+			for i, k in w.CKind {
+				if k == Pending {
+					kind = setInt(kind, i, Empty)
+				}
+			}
+		}
+		let typed = World{
+			..w,
+			Query:      q,
+			Gen:        w.Gen + 1,
+			Types:      w.Types + 1,
+			TypedAt:    w.Clock,
+			Waiting:    true,
+			Req:        req,
+			CKind:      kind,
+			Shown:      -1,
+			ShownLabel: -1,
+			ShownAge:   0,
+			Wasted:     wasted,
+		}
+		if m == NoDebounceMutant {
+			return fire(m, typed)
+		}
+		Some[World]{Value: typed}
+	case Fire:
+		fire(m, w)
+	case Revisit:
+		// The program reads the current query's key again.
+		if w.Waiting || w.Shown == -1 || w.Revisits >= MaxRevisits {
+			return None
+		}
+		read(m, World{..w, Revisits: w.Revisits + 1})
+	case Serve as s:
+		// The server answers with the data it holds now.
+		let i = reqIx(s.R)
+		if w.Req[i] == Flying {
+			return Some[World]{Value: World{..w, Req: setInt(w.Req, i, Served), ReqVer: setInt(w.ReqVer, i, w.Server)}}
+		}
+		if w.Req[i] == CutFlying {
+			return Some[World]{Value: World{..w, Req: setInt(w.Req, i, CutServed), ReqVer: setInt(w.ReqVer, i, w.Server)}}
+		}
+		None
+	case Deliver as d:
+		// An answer reaches the program. It is taken only when its key's
+		// entry is Pending for this very request; else it is dropped.
+		let i = reqIx(d.R)
+		if w.Req[i] != Served && w.Req[i] != CutServed {
+			return None
+		}
+		let l = w.ReqLabel[i]
+		let live = w.CKind[l] == Pending && w.CReq[l] == i
+		let mut accept = live
+		let mut show = live && w.ReqGen[i] == w.Gen
+		if m == NoGenMutant {
+			accept = true
+			show = true
+		}
+		if m == ByLabelMutant && l == w.Query {
+			accept = true
+			show = true
+		}
+		let done = setInt(w.Req, i, Delivered)
+		if !accept {
+			return Some[World]{Value: World{..w, Req: done, Dropped: true}}
+		}
+		// The entry settles; the cache holds Capacity settled entries, so
+		// the other label's settled entry goes.
+		let mut kind = setInt(w.CKind, l, Settled)
+		let mut evicted = w.Evicted
+		let other = 1 - l
+		if Capacity < 2 && kind[other] == Settled {
+			kind = setInt(kind, other, Empty)
+			evicted = true
+		}
+		let n = World{
+			..w,
+			Req:      done,
+			CKind:    kind,
+			CVer:     setInt(w.CVer, l, w.ReqVer[i]),
+			CAt:      setInt(w.CAt, l, w.Clock),
+			CFetched: setInt(w.CFetched, l, w.Clock),
+			Evicted:  evicted,
+		}
+		if !show {
+			return Some[World]{Value: n}
+		}
+		Some[World]{Value: World{
+			..n,
+			Shown:      w.ReqVer[i],
+			ShownLabel: l,
+			ShownAge:   0,
+			Best:       setInt(w.Best, l, maxInt(w.Best[l], w.ReqVer[i])),
+		}}
+	case Tick:
+		if w.Clock >= MaxClock {
+			return None
+		}
+		Some[World]{Value: World{..w, Clock: w.Clock + 1}}
+	case Bump:
+		if w.Server >= MaxServer {
+			return None
+		}
+		Some[World]{Value: World{..w, Server: w.Server + 1}}
+	}
+}
+
+func stepWith(m int, s World, a Act) Decision[World, string] {
+	match next(m, s, a) {
+	case None:
+		Ignore
+	case Some[World] as n:
+		Enter[World]{Next: n.Value}
+	}
+}
+
+func stepDesign(s World, a Act) Decision[World, string]      { stepWith(NoMutant, s, a) }
+func stepNoGen(s World, a Act) Decision[World, string]       { stepWith(NoGenMutant, s, a) }
+func stepByLabel(s World, a Act) Decision[World, string]     { stepWith(ByLabelMutant, s, a) }
+func stepNoDebounce(s World, a Act) Decision[World, string]  { stepWith(NoDebounceMutant, s, a) }
+func stepRenewOnHit(s World, a Act) Decision[World, string]  { stepWith(RenewOnHitMutant, s, a) }
+func stepKeepPending(s World, a Act) Decision[World, string] { stepWith(KeepPendingMutant, s, a) }
+
+// The invariants.
+
+func shownBelongs(w World) bool { w.Shown == -1 || w.ShownLabel == w.Query }
+
+func shownMonotone(w World) bool { w.Shown == -1 || w.ShownLabel < 0 || w.Shown >= w.Best[w.ShownLabel] }
+
+func freshBound(w World) bool { w.ShownAge < Fresh }
+
+func noWastedRequest(w World) bool { !w.Wasted }
+
+// wanted is the number of requests in flight that the program did not cut.
+func wanted(w World) int {
+	let mut n = 0
+	for st in w.Req {
+		if st == Flying || st == Served {
+			n = n + 1
+		}
+	}
+	n
+}
+
+func settledShows(w World) bool { w.Waiting || wanted(w) > 0 || w.Shown != -1 }
+
+func onePending(w World) bool { wanted(w) <= 1 }
+
+func shownForeign(w World) bool { !shownBelongs(w) }
+func regressed(w World) bool    { !shownMonotone(w) }
+func staleShown(w World) bool   { !freshBound(w) }
+func wasted(w World) bool       { w.Wasted }
+func stuck(w World) bool        { !settledShows(w) }
+
+// The witnesses.
+
+func hit(w World) bool         { w.Hit }
+func evicted(w World) bool     { w.Evicted }
+func lateDropped(w World) bool { w.Dropped }
+func refetched(w World) bool   { w.Refetched }
+func showsNewest(w World) bool { w.Shown == MaxServer }
+
+// The design keeps every invariant in the scope.
+type Design machine[World, Act] {
+	initial: world(),
+	step:    stepDesign,
+
+	law ShownBelongs always shownBelongs,
+	law ShownMonotone always shownMonotone,
+	law FreshBound always freshBound,
+	law NoWastedRequest always noWastedRequest,
+	law SettledShows always settledShows,
+	law OnePending always onePending,
+
+	law Hits sometimes hit,
+	law Evicts sometimes evicted,
+	law DropsLate sometimes lateDropped,
+	law Refetches sometimes refetched,
+	law ShowsNewest sometimes showsNewest,
+}
+
+type NoGen machine[World, Act] {
+	initial: world(),
+	step:    stepNoGen,
+
+	law Breaks sometimes shownForeign,
+}
+
+type ByLabel machine[World, Act] {
+	initial: world(),
+	step:    stepByLabel,
+
+	law Breaks sometimes regressed,
+}
+
+type NoDebounce machine[World, Act] {
+	initial: world(),
+	step:    stepNoDebounce,
+
+	law Breaks sometimes wasted,
+}
+
+type RenewOnHit machine[World, Act] {
+	initial: world(),
+	step:    stepRenewOnHit,
+
+	law Breaks sometimes staleShown,
+}
+
+type KeepPending machine[World, Act] {
+	initial: world(),
+	step:    stepKeepPending,
+
+	law Breaks sometimes stuck,
+}

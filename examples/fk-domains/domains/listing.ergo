@@ -1,0 +1,94 @@
+// Package domains is fk-domains' domain: a label, the listing of a domain
+// under one TLD, the catalog of TLDs, and the Api, the operation type
+// Registry with its laws. The original's src/shared/domain.ts and
+// domainsRpc.ts; nothing here knows the wire or a host.
+
+// Label is the name a search offers under each TLD: 1 to 63 bytes of
+// a to z, 0 to 9 and inner hyphens (the original's DomainLabel,
+// ^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$). Only ParseLabel builds one, so
+// a Label on the wire is decoded through it and an upper-case or dotted
+// label fails to decode.
+type Label { text string }
+
+// Invalid is a text that is not a Label.
+type Invalid { Text string }
+
+// ParseLabel is text as a Label, or Invalid.
+func ParseLabel(text string) Label fails Invalid {
+	if len(text) < 1 || len(text) > 63 {
+		return Invalid{Text: text}
+	}
+	for i in 0..len(text) {
+		let c = text[i]
+		let alnum = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+		let inner = i > 0 && i < len(text)-1
+		if !alnum && !(inner && c == '-') {
+			return Invalid{Text: text}
+		}
+	}
+	Label{text: text}
+}
+
+// Wire is the label's text.
+func Wire(l Label) string { l.text }
+
+// Offset is the index of a search's first listing: 0 to the catalog's
+// last index (the original's DomainCandidateRange.offset).
+type Offset int where 0 <= it && it <= 555
+
+// Limit is how many listings a search gives at most: 1 to the catalog's
+// size (the original's DomainCandidateRange.limit).
+type Limit int where 1 <= it && it <= 556
+
+// Listing is a domain, label.tld, as a search offers it: Available with
+// its quote, or Unavailable (taken).
+type Listing = Available{Name string, TLD string, Price float64, RenewalPrice float64, Years int, IsPremium bool} | Unavailable{Name string, TLD string}
+
+// Down is a search that could not be answered (the original's
+// SearchError, whose one variant it names Unavailable, a name a Listing
+// already takes here).
+type Down {}
+
+// TLDOf is the TLD a listing is under.
+func TLDOf(l Listing) string {
+	match l {
+	case Available as a:
+		a.TLD
+	case Unavailable as u:
+		u.TLD
+	}
+}
+
+// NameOf is a listing's domain name, label.tld.
+func NameOf(l Listing) string {
+	match l {
+	case Available as a:
+		a.Name
+	case Unavailable as u:
+		u.Name
+	}
+}
+
+// BoundsAreTheCatalog: an Offset reaches the catalog's last index and no
+// further, and a Limit reaches its size and no further, so a request the
+// types admit is one the catalog can answer.
+law BoundsAreTheCatalog() {
+	let n = len(Catalog)
+	isOffset(n-1) && !isOffset(n) && isLimit(n) && !isLimit(n+1)
+}
+
+func isOffset(n int) bool {
+	let _ = ParseOffset(n) catch {
+	case Unsatisfied:
+		return false
+	}
+	true
+}
+
+func isLimit(n int) bool {
+	let _ = ParseLimit(n) catch {
+	case Unsatisfied:
+		return false
+	}
+	true
+}

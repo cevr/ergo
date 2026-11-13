@@ -971,11 +971,14 @@ var jsonPool = sync.Pool{New: func() any { return &Text{B: make([]byte, 0, 1024)
 func JSONTake() *Text { return jsonPool.Get().(*Text) }
 
 // JSONGive is the text t wrote, and puts t back in the pool; nothing may
-// use t after. A buffer that grew past 64 KiB is dropped, so the pool
-// holds no large buffer.
+// use t after. A buffer that grew past 256 KiB is dropped, so the pool
+// holds no large buffer. The bound is above a page of a few hundred
+// records (fk-domains' whole catalog, 556 listings, is about 70 KiB):
+// at 64 KiB such a text dropped its buffer each time, and the next one
+// grew a new buffer from 1 KiB (FD1-g3). encoding/json bounds none.
 func JSONGive(t *Text) string {
 	s := string(t.B)
-	if cap(t.B) <= 64<<10 {
+	if cap(t.B) <= 256<<10 {
 		t.B, t.Comma = t.B[:0], false
 		jsonPool.Put(t)
 	}

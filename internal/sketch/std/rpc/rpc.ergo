@@ -36,8 +36,10 @@ type Transport { Reason string }
 
 // Malformed is a request body that is not Effect RPC's: not a JSON
 // envelope or an array of them (json), or a line that is not one
-// (ndjson).
-type Malformed { Reason string }
+// (ndjson). Name is the defect Answer answers it with: SyntaxError for a
+// text that is not JSON (the error JavaScript's JSON.parse throws in
+// Effect's server), Malformed for JSON that is not an envelope.
+type Malformed { Name string, Reason string }
 
 // Envelope is one message of a request body: Tag is its "_tag" (only a
 // "Request" is answered), ID its id's JSON token as sent, RPC the
@@ -63,16 +65,16 @@ func Serve[R](l http.Listener, limits http.Limits, mount string, handle escaping
 // with the array of Exits once every call ended; an ndjson body is
 // streamed (http.Stream), one Exit line flushed as each call ends. A
 // client that goes away stops the request's task, which stops every call
-// left, and the request ends after their releases ran. Another path is
-// 404, another method 405, a refused body 413 or 400, all before any
-// call starts.
+// left, and the request ends after their releases ran. As Effect's
+// server answers, all before any call starts: another path or another
+// method is a 404 with no body (Effect's router has one POST route); a
+// body over the limit is 413 and a failed read 400; a body that is not
+// Effect RPC's (Malformed) is a 200 whose one message is a Defect
+// {name, message}, in the body's framing.
 func Answer[R](r http.Request, mount string, handle escaping func(tag string, payload string) string fails Failed needs R) http.Response needs R | http.Streaming {
 	let base = strings.TrimSuffix(mount, "/")
-	if r.Path != base && r.Path != base+"/" {
-		return refusal(404, "rpc: no RPC at \(r.Path)")
-	}
-	if r.Method != "POST" {
-		return http.Response{Status: 405, Header: []http.Field{http.Field{Name: "Allow", Value: "POST"}, textType()}, Body: "rpc: POST only\n"}
+	if (r.Path != base && r.Path != base+"/") || r.Method != "POST" {
+		return http.Response{Status: 404, Header: []http.Field{}, Body: ""}
 	}
 	match r.Body {
 	case http.BodyTooLarge as b:
@@ -88,7 +90,7 @@ func Answer[R](r http.Request, mount string, handle escaping func(tag string, pa
 		}
 		let envelopes = parse(b.Text, framed) catch {
 		case Malformed as m:
-			return refusal(400, "rpc: \(m.Reason)")
+			return defect(m.Name, m.Reason, framed)
 		}
 		if framed {
 			return http.Stream(200, []http.Field{http.Field{Name: "Content-Type", Value: "application/x-ndjson"}}, func(w http.BodyWriter) fails http.WriteFailed needs R {
@@ -100,6 +102,17 @@ func Answer[R](r http.Request, mount string, handle escaping func(tag string, pa
 }
 
 func textType() http.Field { http.Field{Name: "Content-Type", Value: "text/plain; charset=utf-8"} }
+
+// defect is the answer to a body that is not Effect RPC's: a 200 whose one
+// message is the server-wide Defect {name, message}, an array of it
+// (json) or its line (ndjson), as Effect's server writes it.
+func defect(name string, reason string, framed bool) http.Response {
+	let message = "{\"_tag\":\"Defect\",\"defect\":{\"name\":" + Encode(name) + ",\"message\":" + Encode(reason) + "}}"
+	if framed {
+		return http.Response{Status: 200, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/x-ndjson"}}, Body: message + "\n"}
+	}
+	http.Response{Status: 200, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: "[" + message + "]"}
+}
 
 // refusal is a status with its reason as plain text.
 func refusal(status int, reason string) http.Response {

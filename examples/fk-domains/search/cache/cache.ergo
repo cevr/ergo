@@ -1,0 +1,132 @@
+// Package cache is fk-domains' keyed cache of answers (plan §20.2,
+// decision 1), a value in the search machine's state: the original's
+// Foldkit KeyedQuery (domainsQuery.ts: a freshness of one minute, at most
+// 100 settled entries) as pure functions. The time is an argument, so the
+// cache needs no clock.
+//
+// An entry is Pending (a load runs for it) or Settled (a value and the
+// time it came). Each Begin gets a generation no Begin had before, and a
+// Settle is taken only for the generation its entry is pending for, so a
+// late answer of a cut load changes nothing. A hit makes the entry the
+// most recent; it never makes it fresher. When more than Capacity entries
+// are settled, the least recent goes. A pending entry is never evicted.
+
+// Pending is an entry whose load of generation Gen runs.
+type Pending { Gen int }
+
+// Settled is an entry's value and the time it came, At.
+type Settled[V] { Value V, At int }
+
+type Entry[V] = Pending | Settled[V]
+
+// Cache maps keys to entries. recent holds the settled keys, the least
+// recently settled or hit first.
+type Cache[K comparable, V] { entries Map[K, Entry[V]], recent []K, next int, fresh int, capacity int }
+
+// New is an empty cache whose entries are fresh for fresh units of time,
+// and that keeps at most capacity settled entries.
+func New[K comparable, V](fresh int, capacity int) Cache[K, V] {
+	Cache[K, V]{entries: Map[K, Entry[V]]{}, recent: []K{}, next: 0, fresh: fresh, capacity: capacity}
+}
+
+// Look is what a read finds: nothing, a fresh value, a stale one (to show
+// while it loads again, or to load again), or a load that runs.
+type Missing {}
+type Fresh[V] { Value V }
+type Stale[V] { Value V }
+type Waiting { Gen int }
+type Look[V] = Missing | Fresh[V] | Stale[V] | Waiting
+
+// Got is a read's cache (a hit changes the recency) and what it found.
+type Got[K comparable, V] { Cache Cache[K, V], Look Look[V] }
+
+// Begun is the cache after a Begin and the generation of the load.
+type Begun[K comparable, V] { Cache Cache[K, V], Gen int }
+
+func without[K comparable](keys []K, k K) []K {
+	let mut out = []K{}
+	for x in keys {
+		if x != k {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// Get reads k at the time now. A settled entry younger than the freshness
+// is Fresh and becomes the most recent; an older one is Stale.
+func Get[K comparable, V](c Cache[K, V], k K, now int) Got[K, V] {
+	match c.entries.Get(k) {
+	case None:
+		Got[K, V]{Cache: c, Look: Missing}
+	case Some[Entry[V]] as e:
+		match e.Value {
+		case Pending as p:
+			Got[K, V]{Cache: c, Look: Waiting{Gen: p.Gen}}
+		case Settled[V] as s:
+			if now-s.At < c.fresh {
+				return Got[K, V]{Cache: Cache[K, V]{..c, recent: without(c.recent, k).Append(k)}, Look: Fresh[V]{Value: s.Value}}
+			}
+			Got[K, V]{Cache: c, Look: Stale[V]{Value: s.Value}}
+		}
+	}
+}
+
+// Begin starts a load of k: its entry is Pending with a new generation,
+// and a settled value it held is dropped.
+func Begin[K comparable, V](c Cache[K, V], k K) Begun[K, V] {
+	let mut entries = c.entries
+	entries[k] = Pending{Gen: c.next}
+	Begun[K, V]{Cache: Cache[K, V]{..c, entries: entries, recent: without(c.recent, k), next: c.next + 1}, Gen: c.next}
+}
+
+// Settle takes the answer v of the load gen of k at the time now, when
+// k's entry is pending for gen; else the cache is unchanged. The entry
+// becomes the most recent, and the least recent settled entries go while
+// more than the capacity are settled.
+func Settle[K comparable, V](c Cache[K, V], k K, gen int, v V, now int) Cache[K, V] {
+	let live = match c.entries.Get(k) {
+	case Some[Entry[V]] as e:
+		match e.Value {
+		case Pending as p:
+			p.Gen == gen
+		case Settled[V]:
+			false
+		}
+	case None:
+		false
+	}
+	if !live {
+		return c
+	}
+	let mut entries = c.entries
+	entries[k] = Settled[V]{Value: v, At: now}
+	let mut recent = c.recent.Append(k)
+	for len(recent) > c.capacity {
+		entries = entries.Delete(recent[0])
+		recent = recent[1:]
+	}
+	Cache[K, V]{..c, entries: entries, recent: recent}
+}
+
+// Cut ends the load of k: a pending entry goes, so its answer, when it
+// comes, is not taken. A settled entry stays.
+func Cut[K comparable, V](c Cache[K, V], k K) Cache[K, V] {
+	match c.entries.Get(k) {
+	case Some[Entry[V]] as e:
+		match e.Value {
+		case Pending:
+			Cache[K, V]{..c, entries: c.entries.Delete(k)}
+		case Settled[V]:
+			c
+		}
+	case None:
+		c
+	}
+}
+
+// SettledCount is how many entries are settled.
+func SettledCount[K comparable, V](c Cache[K, V]) int { len(c.recent) }
+
+// Holds is k's entry, if any.
+func Holds[K comparable, V](c Cache[K, V], k K) Option[Entry[V]] { c.entries.Get(k) }

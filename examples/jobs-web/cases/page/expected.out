@@ -2,7 +2,7 @@ GET / -> 200 text/html; charset=utf-8, loads /app.js
 GET /app.js -> 200 text/javascript; charset=utf-8, the built program
 GET /missing.js -> 404
 POST /index.html -> 405 allow GET, HEAD
-GET /rpc -> 405 allow POST
+GET /rpc -> 404
 submitted build as #1
 submitted flaky as #2
 submitted backup as #3
