@@ -275,3 +275,34 @@ CS10 splits the IR path too (`lower.LowerIRSplit`): each Go package of the split
 - g10 first is not comparable: the split run was the first of the receipt and built the IR compiler into a cold Go build cache (630,333 M); the reference run found it built (25,239 M).
 - Not done, by the plan's own conditions: IRT0a measured that JSON decoding costs more than Go parsing per unit of program (about 2.9 % of an IR package's compile), so a binary IR encoding is a follow-up, a change of the compiler patch. The declaration-file share of the DECL rule is not measured yet, so the stubs stay in the Go files. Std's export data comes from the pin archives since CS3.
 - The raw log is the wf10 run's `compile-speed/cs10/receipt-buildcost.log`.
+
+### At GOMAXPROCS=4
+
+The same scenarios at `GOMAXPROCS=4` (CS9 head `de6ab4614`, 1-minute load 84 to 91 on 16 cores):
+
+| Scenario | Split: compiles run / reused | Reference | Split instr (M) | Reference instr (M) | Split wall (s) | Reference wall (s) |
+| --- | --- | --- | --- | --- | --- | --- |
+| g10 first | 17 / 0 | 4 / 0 | 23,854 | 22,760 | 12.7 | 11.7 |
+| g10 leaf-body-edit | 4 / 13 | 1 / 3 | 3,719 | 5,404 | 2.2 | 3.6 |
+| g50 first | 44 / 0 | 4 / 0 | 31,354 | 29,925 | 15.3 | 14.8 |
+| g50 leaf-body-edit | 3 / 41 | 1 / 3 | 6,627 | 11,922 | 4.1 | 5.7 |
+| g50 main-body-edit | 1 / 43 | 1 / 3 | 6,853 | 11,931 | 4.2 | 6.8 |
+
+- The counts are the same as at `GOMAXPROCS=1`.
+- Measured: an edit build costs 31 to 44 % fewer instructions than the reference.
+- The first build costs 5 % more instructions. At this load, its wall time is not shorter than the reference's, although independent compiles are started together. The host was saturated (load above 80 on 16 cores), so these wall times show no parallel speedup either way. A wall-time claim for the parallel compile needs a quiet host.
+
+## ergo serve (CS9)
+
+`ergo serve` answers a warm `ergo check` on its socket with no process start (docs/tooling.md, "ergo serve"). It was measured on 2026-11-13 at the CS9 head `de6ab4614` (`go run ./scripts/buildcost serve -sizes 10,50 -examples ""`, at a 1-minute load of 82 to 84) as follows. A daemon was started with `--idle 2s`, sent 200 warm-check requests by the measuring process, and measured from its start to its idle exit. A daemon that was sent no request was measured the same way. The difference, divided by 200, is the daemon's work for one request.
+
+| Program | CLI warm check (M instr, one process) | Daemon, one request (M instr), GOMAXPROCS 1 / 4 | Inputs read and hashed per request | `ergo check` as the daemon's client (M instr) |
+| --- | --- | --- | --- | --- |
+| g10 | 4.1 | 1.7 / 2.4 | 22 files, 116,568 bytes | 2.9 (reads no input) |
+| g50 | 7.6 | 5.6 / 6.4 | 88 files, 528,822 bytes | 3.0 (reads no input) |
+
+- Measured: a served request starts no process and costs 42 % (g10) and 74 % (g50) of the instructions of the CLI's warm check, at GOMAXPROCS=1.
+- Measured: the daemon reads and hashes every input the warm manifest names, as the CLI's warm path does: its work grows with the program, not with the files that changed.
+- Measured: the plan's budget for a request inside `ergo serve` is 1 ms at any program size, in proportion to the files that changed (§3.1), and is not met. The median request took 3.1 ms at g10 and 8.0 ms at g50, at a load above 80. Meeting it needs the daemon to keep the inputs' hashes between requests and to re-hash only the files a file event names. The plan allows file events as a hint, not as evidence, so that is a design step of its own (a follow-up).
+- `ergo check` as the daemon's client still pays its own process start (2.9 to 3.0 M), the floor of any CLI command ("Process start"). An editor that speaks the socket pays none.
+- The raw log is the wf10 run's `compile-speed/cs9/receipt-buildcost.log`.
