@@ -506,7 +506,7 @@ func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.Assign
 		return nil, nil
 	}
 	v, ok := fr.info.Uses[id].(*check.Var)
-	if !ok || fr.vars[v] != root {
+	if s, _ := fr.vars.get(v); !ok || s != root {
 		return nil, nil
 	}
 	if _, conv := fr.info.Implicit[c.Recv]; conv {
@@ -525,7 +525,7 @@ func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrup
 		if !ok {
 			ice("an assignment to %s, which is no variable", x.Name)
 		}
-		s, local := fr.vars[v]
+		s, local := fr.vars.get(v)
 		if !local {
 			return nil, nil, "a package let", nil
 		}

@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"unsafe"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -18,7 +19,16 @@ type interp struct {
 	// obligation has the whole budget, so one that runs no longer leaves
 	// less to the obligations after it.
 	stepsAt, bytesAt int64
-	files            map[syntax.Decl]*syntax.File
+	// factTables are the facts of each package's expressions (facts.go);
+	// factInfo and facts are the table in use.
+	factTables map[*check.Info]factTable
+	factInfo   *check.Info
+	facts      factTable
+	// params and owners are a function's parameters and a declaration's
+	// fact owner, read once (facts.go).
+	params map[*check.Func][]*check.Var
+	owners map[unsafe.Pointer]check.FactOwner
+	files  map[syntax.Decl]*syntax.File
 	// task is the running task's own state: its call depth, its context
 	// values and its active slice ranges (sched.go); the scheduler swaps
 	// it when another task runs.
@@ -58,7 +68,11 @@ type frame struct {
 	pkg  *check.Package
 	info *check.Info
 	decl syntax.Decl // the declaration whose body runs, for sites
-	vars map[*check.Var]*slot
+	vars *varTable
+	// ownVars is vars for a frame newFrame makes: one allocation, not two.
+	ownVars varTable
+	// tab is the fact table of the frame's package, once it asked (facts.go).
+	tab factTable
 	// env is a generic call's substitution, nil outside one.
 	env *tenv
 	// owner is the fact owner of the body (test, law or production): an
@@ -89,13 +103,15 @@ type frame struct {
 }
 
 func (in *interp) newFrame(pkg *check.Package, decl syntax.Decl) *frame {
-	return &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, vars: map[*check.Var]*slot{}, owner: pkg.OwnerOf(decl)}
+	fr := &frame{pkg: pkg, info: pkg.Info, decl: decl, key: decl, owner: in.ownerOf(pkg, decl), tab: in.table(pkg.Info)}
+	fr.vars = &fr.ownVars
+	return fr
 }
 
 // bind binds v to a new slot holding val.
 func (fr *frame) bind(v *check.Var, val Value) {
 	if v != nil {
-		fr.vars[v] = &slot{v: val}
+		fr.vars.set(v, &slot{v: val})
 	}
 }
 
@@ -200,6 +216,11 @@ func (in *interp) build(fr *frame, at syntax.Node, steps, slots, raw int64) *abr
 
 // typeOf is x's checked type; a missing entry is an internal error.
 func (fr *frame) typeOf(x syntax.Expr) check.Type {
+	if fr.tab != nil {
+		if t := fr.tab.of(fr.info, x).typ; t != nil {
+			return t
+		}
+	}
 	t, ok := fr.info.Types[x]
 	if !ok || t == nil {
 		ice("no type for the expression at %d (%T)", x.Pos(), x)
@@ -268,16 +289,7 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 			callee.env.m[tp] = targs[i]
 		}
 	}
-	var params []*check.Var
-	for _, field := range fn.Decl.Type.Params.List {
-		if len(field.Names) == 0 {
-			params = append(params, nil)
-		}
-		for _, id := range field.Names {
-			v, _ := callee.info.Defs[id].(*check.Var)
-			params = append(params, v)
-		}
-	}
+	params := in.paramsOf(fn)
 	if len(params) != len(args) {
 		ice("%s takes %d parameters and was called with %d", fn.Name, len(params), len(args))
 	}

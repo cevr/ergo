@@ -133,10 +133,10 @@ func (in *interp) initPackage(p *check.Package) *initFailure {
 			}
 			ice("the control %d left a package initializer", ab.kind)
 		}
-		for v, s := range fr.vars {
+		fr.vars.each(func(v *check.Var, s *slot) {
 			s.lend()
 			in.globals[v] = s
-		}
+		})
 	}
 	return nil
 }

@@ -270,7 +270,7 @@ func (in *interp) launch(fr *frame, at syntax.Node, fn *check.Func, a *actorV, c
 // starter's package and capabilities.
 func (a *actorV) frame() *frame {
 	h := a.home
-	return &frame{pkg: h.pkg, info: h.info, decl: h.decl, key: h.key, vars: map[*check.Var]*slot{}, env: h.env, owner: h.owner, caps: h.caps}
+	return &frame{pkg: h.pkg, info: h.info, decl: h.decl, key: h.key, vars: newVars(), env: h.env, owner: h.owner, caps: h.caps}
 }
 
 func (a *actorV) stoppedFailure(fr *frame, at syntax.Node) *abrupt {

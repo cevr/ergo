@@ -34,14 +34,13 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	if ab := in.charge(fr, x, 1); ab != nil {
 		return nil, ab
 	}
-	if len(fr.info.ContextValues) > 0 {
-		if w := fr.info.ContextValues[x]; w != nil {
-			return in.makeContextValue(fr, x, w)
-		}
+	f := in.fx(fr, x)
+	if f.ctx != nil {
+		return in.makeContextValue(fr, x, f.ctx)
 	}
-	v, ab := in.exprOf(fr, x)
+	v, ab := in.exprFacts(fr, x, f)
 	if ab != nil {
-		if ab.kind == ctlFail && fr.info.TryCovers[x] != nil {
+		if ab.kind == ctlFail && f.covered {
 			// A right operand that a try on its left covers (q105,
 			// check.Info.TryCovers): its failure leaves the frame, as
 			// under the try itself.
@@ -51,14 +50,16 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		}
 		return nil, ab
 	}
-	in.ownTemp(fr, x, v) // a temporary its statement owns (R43)
+	if f.owned != nil {
+		in.register(fr, x, v, f.owned, x) // a temporary its statement owns (R43)
+	}
 	// A variant or a row value goes into its union unchanged: the value
 	// keeps its record type. A provider goes into an operation type as an
 	// operation value (effects.go); a machine table waits for a later unit.
-	if conv, ok := fr.info.Implicit[x]; ok && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow {
+	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow {
 		return in.toOperation(fr, x, v, conv)
 	}
-	if convs := fr.info.ImplicitElems[x]; len(convs) > 0 {
+	if convs := f.elems; len(convs) > 0 {
 		t, ok := v.(tuple)
 		if !ok || len(t.elems) != len(convs) {
 			ice("element conversions of %T", v)
@@ -85,25 +86,30 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 }
 
 func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
-	if c, ok := fr.info.Values[x]; ok {
-		t := fr.rtypeOf(x)
+	return in.exprFacts(fr, x, in.fx(fr, x))
+}
+
+// exprFacts is exprOf with x's facts.
+func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
+	if c, ok := f.val, f.hasVal; ok {
+		t := fr.rt(f.typ)
 		v, ok := fromConstant(t.t, c)
 		if !ok {
 			return nil, fr.unsupported(x, "a constant of %s yet", t.t)
 		}
 		return v, nil
 	}
-	if r, ok := in.bareRecord(fr, x); ok {
-		return r, nil
+	if f.bare != nil {
+		return in.bareValue(fr, x, f), nil
 	}
-	if fr.info.ContextValues[x] != nil {
+	if f.ctx != nil {
 		return nil, fr.unsupported(x, "a context value, which binds capabilities")
 	}
 	switch x := x.(type) {
 	case *syntax.ParenExpr:
 		return in.tailExpr(fr, x.X)
 	case *syntax.Ident:
-		return in.ident(fr, x)
+		return in.identUse(fr, x, f.use)
 	case *syntax.BasicLit:
 		ice("a literal with no Values entry")
 	case *syntax.SelectorExpr, *syntax.IndexExpr:
@@ -128,7 +134,7 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	case *syntax.CompositeLit:
 		return in.composite(fr, x)
 	case *syntax.CallExpr:
-		return in.callExpr(fr, x)
+		return in.callOf(fr, x, f.call)
 	case *syntax.TryExpr:
 		return in.try(fr, x)
 	case *syntax.CatchExpr:
@@ -176,7 +182,7 @@ type closure struct {
 	key    syntax.Node
 	params *syntax.FieldList
 	body   *syntax.BlockStmt
-	vars   map[*check.Var]*slot
+	vars   *varTable
 	env    *tenv
 	home   *frame // the frame that made it: its package, declaration and owner
 	caps   *capEnv
@@ -185,39 +191,24 @@ type closure struct {
 	outer *frame
 }
 
-// bareRecord is the value of a record with no fields named bare,
-// `Pending` or `pkg.Pending`: its Uses entry is the record's TypeName.
-func (in *interp) bareRecord(fr *frame, x syntax.Expr) (Value, bool) {
-	var tn *check.TypeName
-	switch h := x.(type) {
-	case *syntax.Ident:
-		tn, _ = fr.info.Uses[h].(*check.TypeName)
-	case *syntax.SelectorExpr:
-		id, ok := unparen(h.X).(*syntax.Ident)
-		if !ok {
-			return nil, false
-		}
-		pn, ok := fr.info.Uses[id].(*check.PkgName)
-		named, isNamed := fr.info.Types[x].(*check.Named)
-		if !ok || !isNamed || named.Obj.Pkg != pn.Pkg || named.Obj.Name != h.Sel.Name {
-			return nil, false
-		}
-		tn = named.Obj
-	}
-	if tn == nil {
-		return nil, false
-	}
-	t := fr.rtypeOf(x)
+// bareValue is the value of x, a bare record name (facts.bare).
+func (in *interp) bareValue(fr *frame, x syntax.Expr, f *facts) Value {
+	t := fr.rt(f.typ)
 	n, ok := t.t.(*check.Named)
 	if !ok || structOf(n) == nil || len(structOf(n).Fields) != 0 {
-		ice("a bare value of %s is not a record with no fields", tn.Name)
+		ice("a bare value of %s is not a record with no fields", f.bare.Name)
 	}
-	return &record{t: n, key: argsKey(n, t.env)}, true
+	return &record{t: n, key: argsKey(n, t.env)}
 }
 
 // ident reads a name. A local's slot lends: its value may now be shared.
 func (in *interp) ident(fr *frame, id *syntax.Ident) (Value, *abrupt) {
-	switch o := fr.info.Uses[id].(type) {
+	return in.identUse(fr, id, in.fx(fr, id).use)
+}
+
+// identUse is ident with the name's Uses entry.
+func (in *interp) identUse(fr *frame, id *syntax.Ident, use check.Object) (Value, *abrupt) {
+	switch o := use.(type) {
 	case *check.Var:
 		if s := in.slotOf(fr, o); s != nil {
 			s.lend()
@@ -237,7 +228,7 @@ func (in *interp) ident(fr *frame, id *syntax.Ident) (Value, *abrupt) {
 
 // slotOf is v's slot: a local of the frame, or a package let.
 func (in *interp) slotOf(fr *frame, v *check.Var) *slot {
-	if s, ok := fr.vars[v]; ok {
+	if s, ok := fr.vars.get(v); ok {
 		return s
 	}
 	return in.globals[v]
@@ -718,7 +709,11 @@ func (in *interp) catch(fr *frame, x *syntax.CatchExpr, partial bool) (Value, *a
 // it is written. Every other callee waits for a later unit or never runs
 // at check time.
 func (in *interp) callExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
-	c := fr.info.Calls[x]
+	return in.callOf(fr, x, in.fx(fr, x).call)
+}
+
+// callOf is callExpr with the call's checked facts.
+func (in *interp) callOf(fr *frame, x *syntax.CallExpr, c *check.Call) (Value, *abrupt) {
 	if c == nil {
 		ice("a call with no Calls entry")
 	}
@@ -860,7 +855,7 @@ func (in *interp) callClosure(fr *frame, at *syntax.CallExpr, c *closure, args [
 	if c.outer != nil {
 		outer = c.outer
 	}
-	callee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: c.vars, env: c.env, owner: c.home.owner, lawOwn: c.home.lawOwn, caps: c.callerCaps(fr), outer: outer}
+	callee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: c.vars, env: c.env, owner: c.home.owner, lawOwn: c.home.lawOwn, tab: c.home.tab, caps: c.callerCaps(fr), outer: outer}
 	var params []*check.Var
 	if c.params != nil {
 		for _, field := range c.params.List {

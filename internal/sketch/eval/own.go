@@ -86,7 +86,7 @@ func (in *interp) ownVar(fr *frame, v *check.Var, at syntax.Node) {
 	if d == nil {
 		return
 	}
-	s := fr.vars[v]
+	s, _ := fr.vars.get(v)
 	if s == nil {
 		ice("the owned local %s has no slot", v.Name)
 	}
