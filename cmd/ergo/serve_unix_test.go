@@ -145,6 +145,17 @@ func TestServeAnswersAWarmCheck(t *testing.T) {
 		}
 	}
 
+	// An edit of an input is not served from the hash the daemon kept;
+	// once the CLI has answered the edited source, the daemon serves it.
+	warmModule(t, root, 2, 'a')
+	if answer, ok := ask(d.socket, request); !ok || answer.Served {
+		t.Fatalf("a request after an edit: ok %v, served %+v", ok, answer)
+	}
+	edited := runWarm(t, bin, root, xdg, bound, "check", "./cmd/app")
+	if answer, ok := ask(d.socket, request); !ok || !answer.Served || string(answer.Stdout) != edited.stdout || edited.stdout == cold.stdout {
+		t.Fatalf("a request after the edit was checked: ok %v, %+v", ok, answer)
+	}
+
 	second := startServe(t, bin, env, root, "--idle", "1ms")
 	second.wait(t, "a second daemon of the release")
 	if len(second.stdout) != 1 || !strings.Contains(second.stdout[0], "already serving") || second.cmd.ProcessState.ExitCode() != 0 {
@@ -164,7 +175,7 @@ func TestServeAnswersAWarmCheck(t *testing.T) {
 		t.Fatalf("an idle daemon left its socket: %v", err)
 	}
 	after := runWarm(t, bin, root, xdg, bound, "check", "./cmd/app")
-	if after.code != 0 || after.stdout != cold.stdout || after.counts["files_read"] != 4 {
+	if after.code != 0 || after.stdout != edited.stdout || after.counts["files_read"] != 4 {
 		t.Fatalf("check with no daemon: exit %d, %v", after.code, after.counts)
 	}
 }

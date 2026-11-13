@@ -2420,5 +2420,8 @@
   },
   "ergo.local/prototype/scripts/mutants": {
     "TestRunnerMatchesModel": 10.48
+  },
+  "internal/sketchfront": {
+    "TestStatSumsReadOnlyWhatChanged": 0.01
   }
 }

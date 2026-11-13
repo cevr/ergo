@@ -177,6 +177,9 @@ type daemon struct {
 	socket, lock string
 	// mu runs one request at a time, in its client's working directory.
 	mu sync.Mutex
+	// sums keeps the inputs' hashes between requests: a file whose stat
+	// has not changed is not read again (sketchfront.StatSums).
+	sums sketchfront.StatSums
 }
 
 // serve takes the lock, listens, and answers until idle passes with no
@@ -278,8 +281,12 @@ func (d *daemon) answer(req serveRequest) serveAnswer {
 	if err != nil || recursivePattern(opts.file) {
 		return serveAnswer{Reason: "not served"}
 	}
-	w := startWarm(opts, nil)
-	if w == nil || !w.hit {
+	w, valid := prepareWarm(opts, nil)
+	if w == nil {
+		return serveAnswer{Reason: "no warm answer"}
+	}
+	answer, hit := sketchfront.WarmHit(w.cache, w.key, valid, &d.sums)
+	if !hit {
 		return serveAnswer{Reason: "no warm answer"}
 	}
 	work := map[string]int64{}
@@ -288,7 +295,7 @@ func (d *daemon) answer(req serveRequest) serveAnswer {
 			work[name] = n - before[name]
 		}
 	}
-	return serveAnswer{Served: true, Stdout: w.answer.Stdout, Work: work}
+	return serveAnswer{Served: true, Stdout: answer.Stdout, Work: work}
 }
 
 // askServe is the CLI's client: it sends args, read from the working
