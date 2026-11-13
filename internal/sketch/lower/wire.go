@@ -599,6 +599,9 @@ func (l *lowerer) wireCallFunc(f *check.Func, env string, site syntax.Node, args
 // path em: the Writer's events on the interface or on a direct writer
 // (wiredirect.go).
 func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder, t check.Type, env, task, w, v string, scope *namer) {
+	if l.wireOwnWrite(em, tc, b, t, env, w, v, scope) {
+		return // P's own write of t (wirewrite.go)
+	}
 	if jsonWrapper(t, "Nullable") {
 		l.wireNullableEncode(em, tc, b, t, env, task, w, v, scope)
 		return
@@ -707,7 +710,11 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 	parsed := func(base check.Type, parse *check.Func) {
 		raw := scope.alloc("raw")
 		b.WriteString(tc.wireDecode(base, env, r, raw, zero, scope))
-		b.WriteString("return " + l.wireCallFunc(parse, env, tc.site, raw) + "\n")
+		call := l.wireCallFunc(parse, env, tc.site, raw)
+		if !l.useFunc(parse, tc.site).fallible {
+			call += ", nil" // a ParseX that fails nothing (Codecs 7)
+		}
+		b.WriteString("return " + call + "\n")
 	}
 	if p := l.info.WirePairOf(t); p != nil {
 		parsed(p.Base, p.Parse)
