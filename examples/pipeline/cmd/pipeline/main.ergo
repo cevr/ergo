@@ -282,7 +282,11 @@ func call(r Remote) fails os.Exit needs Ambient | Console {
 		Console.Println(strings.TrimSuffix(o.Out, "\n"))
 	}
 	if o.Code != 0 {
-		return os.Exit{Code: o.Code, Message: strings.TrimSuffix(o.Err, "\n")}
+		let code = os.ParseCode(o.Code) catch {
+		case Unsatisfied:
+			Unreachable("the generated CLI's Run gives status 0, 1 or 2")
+		}
+		return os.Exit{Code: code, Message: strings.TrimSuffix(o.Err, "\n")}
 	}
 }
 
