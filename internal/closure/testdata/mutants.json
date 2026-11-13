@@ -174,6 +174,8 @@
       "to": "d := hangDeadline(0)",
       "rule": "A swept run's deadline is ten times its recorded cost, not a fixed bound.",
       "killers": ["internal/closure:TestRunDeadlineFollowsRecordedCPU"]
-    }
+    },
+    { "name": "sweep-unmeasured-floored", "origin": "wf10 CS1", "file": "internal/closure/split_test.go", "from": "\t\tif len(plan[i].unmeasured) > 0 {\n", "to": "\t\tif false && len(plan[i].unmeasured) > 0 {\n", "rule": "A swept run holding a test with no recorded time is bounded only by the test binary's deadline, not the 30 minute floor.", "killers": ["internal/closure:TestUnmeasuredRunHasTheBinaryDeadline"] },
+    { "name": "sweep-unmeasured-hang-floored", "origin": "wf10 CS1", "file": "internal/closure/sandbox_test.go", "from": "\tif math.IsInf(cost, 1) {\n\t\treturn math.MaxInt64\n", "to": "\tif math.IsInf(cost, 1) {\n\t\treturn hangFloor\n", "rule": "An unmeasured run's cost sets no bound of its own.", "killers": ["internal/closure:TestUnmeasuredRunHasTheBinaryDeadline"] }
   ]
 }
