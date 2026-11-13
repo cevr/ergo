@@ -55,7 +55,7 @@ var commands = []cliCommand{
 	{name: "test", usage: "test FILE|DIR|DIR/... [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE] [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]] [--schedule TOKEN] [-work] [--json] [--target go]", run: testCommand},
 	{name: "bind", usage: "bind go [-o DIR] PACKAGE...", help: bindHelp, run: bindCommand},
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
-	{name: "gen", usage: "gen rpc [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
+	{name: "gen", usage: "gen rpc|cli [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
 	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},
 	{name: "lint", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},

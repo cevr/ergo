@@ -230,6 +230,9 @@
       "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\treturn evaluationExit(evaluation)\n",
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
-    }
+    },
+    {"name":"ap1-cli-check-blind","origin":"wf10/domain AP1","file":"cmd/ergo/gen.go","from":"\t\t\t\tstale = append(stale, filepath.Join(target, name))\n","to":"\t\t\t\tif kind == \"rpc\" {\n\t\t\t\t\tstale = append(stale, filepath.Join(target, name))\n\t\t\t\t}\n","rule":"ergo gen cli --check fails on a cli.ergo the contract no longer generates.","killers":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"],"anchor":{"tests":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"]}},
+    {"name":"ap1-cli-stale-rpc","origin":"wf10/domain AP1","file":"cmd/ergo/gen.go","from":"if err != nil || !bytes.Equal(have, []byte(text)) {","to":"if err != nil && len(have) == 0 && text != \"\" {","rule":"ergo gen cli refuses to name the Request of a stale rpc package.","killers":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"],"anchor":{"tests":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"]}},
+    {"name":"ap1-cli-own-request","origin":"wf10/domain AP1","file":"cmd/ergo/gen.go","from":"\t\trpcPath = path + \"/\" + glue.Dir\n","to":"\t\trpcPath = \"\"\n","rule":"A cli package beside an rpc package names the rpc package's Request.","killers":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"],"anchor":{"tests":["cmd/ergo:TestGenCliCheckIsRedOnAStaleFile"]}}
   ]
 }

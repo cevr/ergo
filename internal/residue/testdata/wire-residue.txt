@@ -348,6 +348,7 @@ docs/spec/stdlib.md	| `json` | `Schema.ts` (`parseJson`, `encode`, `decode`), `J
 
 # network sense: Effect RPC's HTTP wire and the wire projection to TypeScript (R1)
 cmd/ergo/gen.go	*
+internal/cligen/cligen.go	*
 internal/rpcgen/rpcgen.go	*
 internal/rpcgen/loopback_test.go	*
 internal/rpcgen/held_test.go	*
