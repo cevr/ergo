@@ -28,8 +28,8 @@ func TestMain(m *testing.M) {
 
 var agreeSeed = flag.Uint64("agree.seed", 0, "run TestMyGoHostAgreesWithTestHost on this seed only")
 
-// agreeApps are the apps of cmd/hostagree; seed s plays app s mod 5.
-var agreeApps = []string{"counter", "shelf", "form", "load", "pad"}
+// agreeApps are the apps of cmd/hostagree; seed s plays app s mod 7.
+var agreeApps = []string{"counter", "shelf", "form", "load", "pad", "list", "sketch"}
 
 // words are texts a script types: empty, ASCII, and runes of two and
 // three bytes, so Backspace must take a rune, not a byte.
@@ -58,6 +58,12 @@ func genScript(r *rand.Rand, app string) string {
 			if r.IntN(4) == 0 {
 				step = "tap clear"
 			}
+		case "list":
+			// rows past the window's fold and past the overscan, which a
+			// tap reaches by scrolling first or finds no node for
+			step = pick(r, "tap more", "tap less", fmt.Sprintf("scroll list %d", r.IntN(3000)), fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)))
+		case "sketch":
+			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), r.IntN(200), r.IntN(150))
 		}
 		if r.IntN(5) == 0 {
 			step = fmt.Sprintf("focus %d", r.IntN(6))
@@ -81,7 +87,7 @@ var buildHostAgree = sync.OnceValues(func() (string, error) {
 
 // TestMyGoHostAgreesWithTestHost is H3g's acceptance: the desktop driver
 // (hosts/mygo/desktop), fed through a headless MyGo window, agrees with
-// ui.TestHost on seeded scene scripts of five apps. After every step both
+// ui.TestHost on seeded scene scripts of seven apps. After every step both
 // hosts hold the same tree (ui.SameShapes) and the same app state, and
 // each filled node shows its color in the window's rendered frame at the
 // place the driver laid it out. A tap is a press and a release at the

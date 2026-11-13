@@ -110,6 +110,9 @@ extern go ergo.local/prototype/hosts/mygo/screen.Window.Frames func (w *Window) 
 // ergo:go func (*Window).Hover(x float64, y float64)
 extern go ergo.local/prototype/hosts/mygo/screen.Window.Hover func (w *Window) Hover(x float64, y float64) needs go.Foreign takes w
 
+// ergo:go func (*Window).Line(x0 float64, y0 float64, x1 float64, y1 float64, width float64, color uint32)
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Line func (w *Window) Line(x0 float64, y0 float64, x1 float64, y1 float64, width float64, color uint32) needs go.Foreign takes w
+
 // ergo:go func (*Window).LineHeight(size float64) float64
 extern go ergo.local/prototype/hosts/mygo/screen.Window.LineHeight func (w *Window) LineHeight(size float64) float64 needs go.Foreign takes w
 

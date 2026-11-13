@@ -83,6 +83,20 @@ package of this Go module and the Ergo half binds it.
   `ui.Type` with the field's whole text; else each rune to `OnKey`),
   scrolling and pointer capture. `desktop.Run` runs a program in a window;
   call it from `main`, whose task runs on the main thread.
+- A virtual list (`ui.Rows`, H5b) scrolls as a Scroll does, over its
+  count of rows; each row it wrote is out of the flow at its index's place.
+  A list with no height of its own takes the window below its top. After
+  each paint the driver reports a list's viewport (its offset and its
+  height) as `ui.Scrolled` when it moved, so the next pass writes the rows
+  the window shows; `desktop.Viewport` is the last one reported.
+  `ui.ScrollOn` in a script turns the wheel on the list to its offset; the
+  height is the window's.
+- A canvas (`ui.Canvas`, H5c) replays its paint list (`desktop/canvas.ergo`):
+  paths are flattened under the transforms in effect; a fill is one
+  rectangle when its path is one on the axes, else spans one DIP high
+  under the nonzero rule; a stroke is one `Window.Line` a segment, round
+  capped; a clip is the box around its transformed rectangle. Edges are
+  not smoothed: the drawing layer has no path fill a host can reach.
 
 The driver is not a `ui.Host` provider: an operation type's method cannot
 need `go.Foreign` (README Gap 17), so `Run` drives the session itself, as
@@ -90,10 +104,13 @@ need `go.Foreign` (README Gap 17), so `Run` drives the session itself, as
 state `needs MainThread` (H1, not built).
 
 `TestMyGoHostAgreesWithTestHost` builds `cmd/hostagree` and plays seeded
-scene scripts of five apps on `ui.TestHost` and, through a headless window,
+scene scripts of seven apps on `ui.TestHost` and, through a headless window,
 on the driver: after every step both hold the same tree and app state, and
 each filled node shows its color in the rendered frame where the driver
-laid it out. Taps are a press and a release at the node's centre, so they
+laid it out (a canvas's last opaque fill at its centre). In the `list`
+app TestHost takes the viewport the window reports, and each row the
+window wrote must show at the list's top plus its index's rows, less the
+offset. Taps are a press and a release at the node's centre, so they
 pass the layout, the paint list and the hit test. `-agree.seed=N` replays
 one seed. `TestMyGoHostPrimitivesOnly` scans this module's Go with
 `go/types` and refuses any MyGo object but the drawing layer's and

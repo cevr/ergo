@@ -380,6 +380,30 @@ func (w *Window) Border(x, y, width, height, radius, line float64, color uint32)
 	w.mu.Unlock()
 }
 
+// Line paints the segment from x0, y0 to x1, y1, width wide, with round
+// caps, in color 0xRRGGBBAA: a rounded rectangle turned onto the segment,
+// as MyGo strokes an opaque polyline on a GPU. A canvas's stroke is these
+// segments, one a line of its flattened path.
+func (w *Window) Line(x0, y0, x1, y1, width float64, color uint32) {
+	if width <= 0 || math.IsNaN(width) {
+		return
+	}
+	dx, dy := x1-x0, y1-y0
+	length := math.Hypot(dx, dy)
+	if math.IsNaN(length) || math.IsInf(length, 0) {
+		return
+	}
+	m := scene.Translation(float32(x0), float32(y0))
+	if length > 0 {
+		dx, dy = dx/length, dy/length
+		m = scene.Matrix(float32(dx), float32(dy), float32(-dy), float32(dx), float32(x0), float32(y0))
+	}
+	hw := width / 2
+	w.mu.Lock()
+	w.pending = append(w.pending, scene.Op{Kind: scene.OpFill, Rect: rect(-hw, -hw, length+width, width), Transform: m, Radii: scene.Uniform(float32(hw)), Color: rgba(color)})
+	w.mu.Unlock()
+}
+
 // Clip clips what follows to a rectangle, within the clip in effect,
 // until the matching Unclip.
 func (w *Window) Clip(x, y, width, height float64) {

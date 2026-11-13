@@ -211,3 +211,89 @@ func padView(f *ui.Frame[int], s pad) {
 		}
 	}
 }
+
+// list: a virtual list (ui.Rows) of n rows, a button each; "more" adds
+// 25 rows (-1), "less" takes 25 (-2), a row's button names its row. The
+// list has no height of its own, so it takes the window below it.
+type rowsApp { n int, last int }
+
+func rowsStep(s rowsApp, e int) Decision[rowsApp, int] {
+	if e == -1 {
+		return Enter[rowsApp]{Next: rowsApp{n: s.n + 25, last: s.last}}
+	}
+	if e == -2 {
+		return Enter[rowsApp]{Next: rowsApp{n: if s.n > 25 { s.n - 25 } else { 0 }, last: s.last}}
+	}
+	Enter[rowsApp]{Next: rowsApp{n: s.n, last: e}}
+}
+
+func rowsMachine() Machine[rowsApp, int, int] {
+	Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int]}
+}
+
+func rowsView(f *ui.Frame[int], s rowsApp) {
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "\(s.n) rows, last \(s.last)")
+		ui.Row(f, ui.Plain()) {
+			ui.Pressable(f, "more", -1) {
+				ui.Text(f, "More")
+			}
+			ui.Pressable(f, "less", -2) {
+				ui.Text(f, "Less")
+			}
+		}
+		ui.Rows(f, "list", s.n, ui.Length(32.0), func(i int) ui.Key { ui.ByInt(i) }, func(i int) {
+			ui.Pressable(f, "row \(i)", i) {
+				ui.Text(f, "row \(i)")
+			}
+		})
+	}
+}
+
+// sketch: a canvas in an Area; a press puts a mark where it went down. The
+// paint is a filled background, a stroke from the corner to the mark, a
+// filled circle, and last the mark, a diamond moved there by a transform
+// (the probe's fill).
+type sketch { x int, y int, n int }
+
+func sketchStep(s sketch, e int) Decision[sketch, int] {
+	Enter[sketch]{Next: sketch{x: e % 1000, y: e / 1000, n: s.n + 1}}
+}
+
+func sketchMachine() Machine[sketch, int, int] {
+	Machine[sketch, int, int]{Initial: sketch{x: 100, y: 75, n: 0}, Step: sketchStep, After: none[sketch, int], Work: idle[sketch, int]}
+}
+
+func sketchView(f *ui.Frame[int], s sketch) {
+	ui.Text(f, "mark \(s.x),\(s.y) of \(s.n)")
+	ui.Area(f, "sketch", ui.Plain(), func(p ui.PointerEvent) Option[int] {
+		match p.Phase {
+		case ui.Down:
+			Some{Value: int(p.X) + 1000*int(p.Y)}
+		case _:
+			None
+		}
+	}) {
+		ui.Canvas(f, "ink", 200, 150) func(p *ui.Paint) {
+			ui.Fill(p, ui.RectPath(0, 0, 200, 150), ui.Color{R: 240, G: 240, B: 240, A: 255})
+			let mx = float64(s.x)
+			let my = float64(s.y)
+			ui.Stroke(p, ui.Path{Segs: []ui.Seg{ui.MoveTo{X: 0, Y: 0}, ui.LineTo{X: mx, Y: my}}}, ui.Color{R: 30, G: 90, B: 200, A: 255}, 3)
+			let r = float64(10 + s.n%3*5)
+			let k = 0.5523 * r
+			let cx = 200 - mx
+			let cy = 150 - my
+			ui.Fill(p, ui.Path{Segs: []ui.Seg{
+				ui.MoveTo{X: cx + r, Y: cy},
+				ui.CubicTo{C1X: cx + r, C1Y: cy + k, C2X: cx + k, C2Y: cy + r, X: cx, Y: cy + r},
+				ui.CubicTo{C1X: cx - k, C1Y: cy + r, C2X: cx - r, C2Y: cy + k, X: cx - r, Y: cy},
+				ui.CubicTo{C1X: cx - r, C1Y: cy - k, C2X: cx - k, C2Y: cy - r, X: cx, Y: cy - r},
+				ui.CubicTo{C1X: cx + k, C1Y: cy - r, C2X: cx + r, C2Y: cy - k, X: cx + r, Y: cy},
+				ui.ClosePath,
+			}}, ui.Color{R: 40, G: 160, B: 90, A: 255})
+			ui.Transformed(p, ui.Translate(mx, my)) {
+				ui.Fill(p, ui.Path{Segs: []ui.Seg{ui.MoveTo{X: 0, Y: -12}, ui.LineTo{X: 12, Y: 0}, ui.LineTo{X: 0, Y: 12}, ui.LineTo{X: -12, Y: 0}, ui.ClosePath}}, ui.Color{R: 200, G: 40, B: 40, A: 255})
+			}
+		}
+	}
+}
