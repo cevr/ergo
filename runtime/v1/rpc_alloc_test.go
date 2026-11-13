@@ -54,6 +54,35 @@ func TestRPCExitsWriteTheValueOnce(t *testing.T) {
 	}
 }
 
+// TestJSONPoolKeepsAPageBuffer is FD1-g3's guard on the encode pool: a
+// text of 100 KiB, the size of a page of a few hundred records, gives its
+// buffer back to the pool, so the next such text allocates only its own
+// string and does not grow a buffer again from 1 KiB (which allocates
+// about twice the text). It catches json-pool-64k (the old 64 KiB bound).
+func TestJSONPoolKeepsAPageBuffer(t *testing.T) {
+	page := strings.Repeat("y", 100<<10)
+	encode := func() string {
+		w := JSONTake()
+		w.B = append(w.B, page...)
+		return JSONGive(w)
+	}
+	// sync.Pool may hand another Text back (another P's, or one a GC
+	// moved), so the best of five encodes is judged: with the 64 KiB bound
+	// every one of them grows a new buffer.
+	limit := uint64(len(page)) + uint64(len(page))/2
+	best := ^uint64(0)
+	for range 5 {
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		_ = encode()
+		runtime.ReadMemStats(&after)
+		best = min(best, after.TotalAlloc-before.TotalAlloc)
+	}
+	if best > limit {
+		t.Errorf("a %d-byte text allocated at least %d bytes each time, want at most %d (its buffer comes from the pool)", len(page), best, limit)
+	}
+}
+
 // TestCrc32UpdateDoesNotCopy is FD1-g3's guard on the bench's checksum:
 // Crc32Update of a 1 MiB string allocates at most its 512-byte buffer,
 // never a copy of the string (it catches crc-copies: each chunk converted

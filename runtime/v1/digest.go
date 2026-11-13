@@ -120,10 +120,15 @@ func Crc32Checksum(s string) uint32 { return crc32.ChecksumIEEE([]byte(s)) }
 // a new slice first (FD1-g3: a bench that sums its answers allocated each
 // answer once more). The buffer escapes (crc32.Update reaches the arch
 // code through a function value), so it is one small allocation; a pool
-// would need sync, which a pure function's file may not import.
+// would need sync, which a pure function's file may not import. A string
+// no longer than the buffer is converted as it is: that allocates only
+// its own bytes.
 //
 //ergo:pure
 func Crc32Update(crc uint32, s string) uint32 {
+	if len(s) <= 512 {
+		return crc32.Update(crc, crc32.IEEETable, []byte(s))
+	}
 	var buf [512]byte
 	for len(s) > 0 {
 		n := copy(buf[:], s)
