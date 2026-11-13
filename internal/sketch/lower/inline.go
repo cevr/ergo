@@ -293,8 +293,10 @@ func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
 		return false
 	}
 	size := inlineSize(d.Body)
-	if size > budget || goLeaf(f) && !l.boxedResult(f) && !fold {
-		return false
+	if size > budget || goLeaf(f) && !l.boxedResult(f) {
+		if !fold || size > budget { // a fold's subject is inlined though a leaf
+			return false
+		}
 	}
 	called := map[*syntax.Ident]bool{}
 	ok = true
