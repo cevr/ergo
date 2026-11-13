@@ -32,7 +32,7 @@ type NoNode { Label string }
 // tasks sleep on (a test binds it as their Scheduler); only Advance moves
 // it. A fetch's result waits in a queue of room results until the host
 // takes it.
-func NewTestHost[E comparable, S, D, F](a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S), clock time.Manual, room int) TestHost[S, E, D, F] fails BadPatch {
+func NewTestHost[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S) needs R, clock time.Manual, room int) TestHost[S, E, D, F] fails BadPatch needs R {
 	let posted = queue.New[Event[E]](room)
 	let (s, first) = Start(a, view, func(ev Event[E]) {
 		posted.Push(ev) catch {

@@ -1353,6 +1353,33 @@ func lawBoundaryFollowsModel(seed int, steps int) bool {
 	true
 }
 
+func lawAwaitIsTheMatch(seed int) bool {
+	let mut r = seeded(seed)
+	let v = draw(&r, 64)
+	let mut a ui.Async[int, Missing] = ui.Loading
+	let pick = draw(&r, 3)
+	if pick == 1 {
+		a = ui.Ready{Value: v}
+	} else if pick == 2 {
+		a = ui.Failed{Error: Missing{V: v}}
+	}
+	let want = match a {
+	case ui.Loading:
+		-1
+	case ui.Ready[int] as x:
+		x.Value
+	case ui.Failed[Missing] as x:
+		-2 - x.Error.V
+	}
+	let got = ui.Await(a) catch {
+	case ui.Pending:
+		-1
+	case Missing as m:
+		-2 - m.V
+	}
+	got == want
+}
+
 test UiStateKeeps(seed int, steps int) {
 	assert lawStateKeeps(seed, steps)
 }
@@ -1368,6 +1395,10 @@ test UiLoadFollowsModel(seed int, steps int) {
 test UiBoundaryFollowsModel(seed int, steps int) {
 	assert lawBoundaryFollowsModel(seed, steps)
 }
+
+test UiAwaitIsTheMatch(seed int) {
+	assert lawAwaitIsTheMatch(seed)
+}
 `
 
 // stdUILoadStatements is the statement of each ui law, as the ledger writes it,
@@ -1377,6 +1408,7 @@ var stdUILoadStatements = map[string]string{
 	"ui FreshMountInits":      `FreshMountInits(seed int, steps int) { cellsFollowModel(seed, steps, true) }`,
 	"ui LoadFollowsModel":     `LoadFollowsModel(seed int, steps int) { let mut r = seeded(seed) let mut f = NewFrame[int]() let mut cur Option[loaded] = None let mut flight = []fetching{} let mut used = Map[int, bool]{} let mut ready = -1 for _ in 0..(steps%24+24)%24+2 { if draw(&r, 2) == 0 || len(flight) == 0 { let mut w = want{at: Nowhere, key: draw(&r, 3)} match draw(&r, 3) { case 0: case 1: w.at = Top case _: w.at = Boxed } let _ = Render(&f, loadView, w) let mut fetches = []Fetch[int]{} let mut cancels = []int{} for j in Jobs(&f) { match j { case Fetch[int] as x: fetches = fetches.Append(x) case Cancel as c: cancels = cancels.Append(c.Epoch) } } let mut wantCancel = -1 let mut wantFetch = false match cur { case Some[loaded] as c: if c.Value.at != w.at || c.Value.key != w.key { wantCancel = c.Value.epoch wantFetch = w.at != Nowhere } case None: wantFetch = w.at != Nowhere } if wantCancel >= 0 { if len(cancels) != 1 || cancels[0] != wantCancel { return false } cur = None ready = -1 } else if len(cancels) != 0 { return false } if wantFetch { if len(fetches) != 1 || used.Get(fetches[0].Epoch) != None { return false } used[fetches[0].Epoch] = true cur = Some{Value: loaded{at: w.at, key: w.key, epoch: fetches[0].Epoch}} flight = flight.Append(fetching{epoch: fetches[0].Epoch, run: fetches[0].Run}) } else if len(fetches) != 0 { return false } } else { let i = draw(&r, len(flight)) let x = flight[i] let mut rest = []fetching{} for j, y in flight { if j != i { rest = rest.Append(y) } } flight = rest let mut wanted = false match cur { case Some[loaded] as c: wanted = c.Value.epoch == x.epoch case None: } let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal) if Arrive(&f, x.epoch) != wanted || (got != -1) != wanted { return false } if wanted { ready = got } } } for x in flight { let got = sent(Handle(&f, Arrived[int]{Epoch: x.epoch, Signal: x.run()}).Signal) if got != -1 { ready = got } } match cur { case Some[loaded] as c: ready == c.Value.key case None: ready == -1 } }`,
 	"ui BoundaryFollowsModel": `BoundaryFollowsModel(seed int, steps int) { let mut r = seeded(seed) let mut f = NewFrame[int]() let mut vals = Map[string, string]{} let mut s = bstate{key: 0, keys: []int{}, fail: 0, gone: true} let mut outer = -1 let mut okey = -1 let mut rowMade = false let mut inner = -1 let mut used = Map[int, bool]{} for i in 0..(steps%24+24)%24+2 { if draw(&r, 2) == 0 || i == 0 { let mut next = bstate{key: draw(&r, 3), keys: pick(&r, false), fail: draw(&r, 7), gone: draw(&r, 6) == 0} if draw(&r, 3) == 0 { next.fail = 0 } if s.fail == 5 && draw(&r, 2) == 0 { // A stopped pass that writes nothing, then a completed one that // writes nothing: the parent's children are the same, and // what it parked is released. next.fail = 6 } let _ = Render(&f, bview, next) s = next let mut fetchOuter = []int{} let mut fetchInner = []int{} let mut cancels = []int{} for j in Jobs(&f) { match j { case Fetch[int] as x: if used.Get(x.Epoch) != None { return false } used[x.Epoch] = true if x.Run() == innerKey { fetchInner = fetchInner.Append(x.Epoch) } else if x.Run() == s.key { fetchOuter = fetchOuter.Append(x.Epoch) } else { return false } case Cancel as c: cancels = cancels.Append(c.Epoch) } } for c in cancels { if Arrive(&f, c) { return false } } if s.key != okey { if len(fetchOuter) != 1 || (outer >= 0 && Arrive(&f, outer)) { return false } outer = fetchOuter[0] okey = s.key } else if len(fetchOuter) != 0 { return false } if !Arrive(&f, outer) { return false } let releases = (s.gone || s.fail == 6) && !deepStops(s) if releases { if len(fetchInner) != 0 || (inner >= 0 && Arrive(&f, inner)) { return false } inner = -1 rowMade = false vals = dropGroup(vals) } else if inner >= 0 && (rowMade || s.fail != 0 || s.gone) { if len(fetchInner) != 0 || !Arrive(&f, inner) { return false } } else if !s.gone && (s.fail == 0 || s.fail == 3 || s.fail == 4) { // The first pass that completes the Row after a stopped one // that wrote it (with no Row node to park the load in) may // fetch again (a known gap: the load waited in the group's // parent); the one before is then cancelled. if inner >= 0 && Arrive(&f, inner) && len(fetchInner) != 0 { return false } let mut live = 0 for e in fetchInner { if Arrive(&f, e) { inner = e live = live + 1 } } if live != 1 { return false } } else if len(fetchInner) != 0 { return false } if !deepStops(s) { vals = vals.Delete("deeparm") } if !s.gone && s.fail == 0 { rowMade = true vals = vals.Delete("arm") for k in 0..6 { let mut kept = false for x in s.keys { kept = kept || x == k } if !kept { vals = vals.Delete("r\(k)") } } } if (releases || s.fail == 0) && Retained(&f) != Len(&f) { return false } } else { let col = Kids(&f, Root(&f))[0] let mut names = []string{"side"} let mut ids = []Id[int]{Kids(&f, col)[0]} let mut next = 1 if !s.gone { let box = Kids(&f, col)[1] next = 2 if s.fail == 0 { names = names.Append("loose") ids = ids.Append(Kids(&f, box)[0]) names = names.Append("mid") ids = ids.Append(Kids(&f, Kids(&f, box)[1])[0]) let row = Kids(&f, box)[2] names = names.Append("inner") ids = ids.Append(Kids(&f, row)[0]) for j, k in s.keys { names = names.Append("r\(k)") ids = ids.Append(Kids(&f, row)[j+1]) } } else if s.fail <= 4 { names = names.Append("arm") ids = ids.Append(Kids(&f, Kids(&f, box)[1])[0]) } } if deepStops(s) { names = names.Append("deeparm") } else { names = names.Append("deep") } ids = ids.Append(Kids(&f, Kids(&f, Kids(&f, col)[next])[0])[0]) names = names.Append("tail") ids = ids.Append(Kids(&f, Kids(&f, col)[next+1])[0]) names = names.Append("after") ids = ids.Append(Kids(&f, col)[next+2]) let at = draw(&r, len(names)) let old = draft(vals, names[at]) let now = "x\(i % 3)" let done = Handle(&f, Type[int]{Id: ids[at], Text: now}) if done.Changed != (now != old) { return false } vals[names[at]] = now let _ = Render(&f, bview, s) if len(Jobs(&f)) != 0 { return false } } if !SameShapes(FrameShape(&f), bshape(s, vals)) || !SameShapes(TreeShape(&f), bshape(s, vals)) { return false } } true }`,
+	"ui AwaitIsTheMatch":      `AwaitIsTheMatch(seed int) { let mut r = seeded(seed) let v = draw(&r, 64) let mut a Async[int, Missing] = Loading let pick = draw(&r, 3) if pick == 1 { a = Ready{Value: v} } else if pick == 2 { a = Failed{Error: Missing{V: v}} } let want = match a { case Loading: -1 case Ready[int] as x: x.Value case Failed[Missing] as x: -2 - x.Error.V } let got = Await(a) catch { case Pending: -1 case Missing as m: -2 - m.V } got == want }`,
 }
 
 // TestUILoadModel runs the probe's tests with --seed 1; lawledger.Run holds that

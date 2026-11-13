@@ -142,7 +142,7 @@ func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Opti
 
 // Render writes view(s) as one pass of f and commits it: f's tree then
 // shows what the view wrote, and the result is the changes a host applies.
-func Render[E comparable, S](f *Frame[E], view func(f *Frame[E], s S), s S) []Op[E] {
+func Render[E comparable, S, R](f *Frame[E], view func(f *Frame[E], s S) needs R, s S) []Op[E] needs R {
 	begin(f)
 	view(f, s)
 	Commit(f)
@@ -315,7 +315,7 @@ func childrenOf[E](f *Frame[E], p int) []int {
 // open writes a node and runs body with that node as the parent. It is a
 // group (H8a): a failure that leaves body cuts the node and what body
 // wrote, and passes on.
-func open[E, F](f *Frame[E], n Node[E], body func() fails F, at CallSite) fails F {
+func open[E, F, R](f *Frame[E], n Node[E], body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	f.parent = put(f, n, None, None, at)
 	body() catch {
@@ -331,7 +331,7 @@ func open[E, F](f *Frame[E], n Node[E], body func() fails F, at CallSite) fails 
 // under it does nothing (Handle), and a locator reports each control
 // under it disabled; description, when not empty, is the accessible
 // description of the nodes under it that no nearer Fieldset describes.
-func Fieldset[E, F](f *Frame[E], disabled bool, description string, body func() fails F, at CallSite) fails F {
+func Fieldset[E, F, R](f *Frame[E], disabled bool, description string, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, FieldsetNode{Disabled: disabled, Description: description}, body, at)
 }
 
@@ -346,27 +346,27 @@ func disables[E](n Node[E]) bool {
 }
 
 // Box is a container that stacks its children.
-func Box[E, F](f *Frame[E], style Style, body func() fails F, at CallSite) fails F {
+func Box[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, BoxNode{Style: style}, body, at)
 }
 
 // Row lays its children out left to right.
-func Row[E, F](f *Frame[E], style Style, body func() fails F, at CallSite) fails F {
+func Row[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, RowNode{Style: style}, body, at)
 }
 
 // Column lays its children out top to bottom.
-func Column[E, F](f *Frame[E], style Style, body func() fails F, at CallSite) fails F {
+func Column[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, ColumnNode{Style: style}, body, at)
 }
 
 // Scroll shows its children in a scrolled viewport.
-func Scroll[E, F](f *Frame[E], style Style, body func() fails F, at CallSite) fails F {
+func Scroll[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, ScrollNode{Style: style}, body, at)
 }
 
 // Pressable sends on when the host presses it; body is what it shows.
-func Pressable[E, F](f *Frame[E], label string, on E, body func() fails F, at CallSite) fails F {
+func Pressable[E, F, R](f *Frame[E], label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
 	try open(f, PressableNode{Label: label, On: on, Style: Plain()}, body, at)
 }
 
@@ -390,7 +390,7 @@ func Input[E](f *Frame[E], value string, placeholder string, onText escaping fun
 // row's key, so a row keeps its instance when xs is reordered. It is a
 // group with no node of its own (H8a): a failure that leaves a row cuts
 // every row written so far and passes on.
-func Each[E, F, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T) fails F, at CallSite) fails F {
+func Each[E, F, R, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T) fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	let outerEach = f.each
 	let outerKey = f.key

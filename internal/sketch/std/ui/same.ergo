@@ -23,7 +23,7 @@ type memoRun[E] {
 // stopped) or under a node that comes back runs. The law
 // SameEqualsRecompute checks that a skipped Same gives the patches,
 // signals and key functions that running it gives.
-func Same[E, F](f *Frame[E], key Key, body func() fails F, at CallSite) fails F {
+func Same[E, F, R](f *Frame[E], key Key, body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	let i = put(f, BoxNode{Style: Plain()}, None, None, at)
 	match skippable(f, i, key) {

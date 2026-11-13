@@ -1566,6 +1566,144 @@ func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler 
 	true
 }
 
+type capA { tagA() int }
+
+type capB { tagB() int }
+
+type capC { tagC() int }
+
+type aIs { v int }
+
+type bIs { v int }
+
+type cIs { v int }
+
+func tagA(p aIs) int { p.v }
+
+func tagB(p bIs) int { p.v }
+
+func tagC(p cIs) int { p.v }
+
+type boundLoad { set int, inner bool }
+
+func fetchNone() int { 0 }
+
+func fetchA() int needs capA { capA.tagA() }
+
+func fetchB() int needs capB { 10 * capB.tagB() }
+
+func fetchAB() int needs capA | capB { capA.tagA() + 10*capB.tagB() }
+
+func fetchC() int needs capC { 100 * capC.tagC() }
+
+func fetchAC() int needs capA | capC { capA.tagA() + 100*capC.tagC() }
+
+func fetchBC() int needs capB | capC { 10*capB.tagB() + 100*capC.tagC() }
+
+func fetchABC() int needs capA | capB | capC { capA.tagA() + 10*capB.tagB() + 100*capC.tagC() }
+
+func loadFor(f *ui.Frame[int], i int, set int) needs capA | capB | capC {
+	let base = 1000 * (i + 1)
+	match set {
+	case 1:
+		ui.Load(f, ui.ByInt(i), func() int needs capA { base + fetchA() })
+	case 2:
+		ui.Load(f, ui.ByInt(i), func() int needs capB { base + fetchB() })
+	case 3:
+		ui.Load(f, ui.ByInt(i), func() int needs capA | capB { base + fetchAB() })
+	case 4:
+		ui.Load(f, ui.ByInt(i), func() int needs capC { base + fetchC() })
+	case 5:
+		ui.Load(f, ui.ByInt(i), func() int needs capA | capC { base + fetchAC() })
+	case 6:
+		ui.Load(f, ui.ByInt(i), func() int needs capB | capC { base + fetchBC() })
+	case 7:
+		ui.Load(f, ui.ByInt(i), func() int needs capA | capB | capC { base + fetchABC() })
+	case _:
+		ui.Load(f, ui.ByInt(i), func() int { base + fetchNone() })
+	}
+}
+
+func boundView(f *ui.Frame[int], plan []boundLoad, outer []int) needs capA | capB | capC {
+	for i, l in plan {
+		ui.Box(f, ui.Plain()) {
+			if l.inner {
+				with context { capA: aIs{v: 3 - outer[0]}, capB: bIs{v: 3 - outer[1]}, capC: cIs{v: 3 - outer[2]} } {
+					loadFor(f, i, l.set)
+				}
+			} else {
+				loadFor(f, i, l.set)
+			}
+		}
+	}
+	ui.Text(f, "loads")
+}
+
+func logStep(s []int, e int) Decision[[]int, int] { Enter[[]int]{Next: s.Append(e)} }
+
+func logTimer(s []int) Option[Timeout[int]] { None }
+
+func logWork(s []int) Option[func(send func(e int))] { None }
+
+func logMachine() Machine[[]int, int, int] {
+	Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logTimer, Work: logWork}
+}
+
+func lawLoadUsesTheBoundService(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		loadsBound(seed, m)
+	}
+}
+
+func loadsBound(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let mut plan = []boundLoad{}
+	for _ in 0..draw(&r, 3)+1 {
+		plan = plan.Append(boundLoad{set: draw(&r, 8), inner: draw(&r, 2) == 0})
+	}
+	let outer = []int{draw(&r, 2) + 1, draw(&r, 2) + 1, draw(&r, 2) + 1}
+	let mut want = []int{}
+	for i, l in plan {
+		let mut code = 1000 * (i + 1)
+		for c in 0..3 {
+			if l.set/[]int{1, 2, 4}[c]%2 == 1 {
+				let mut tag = outer[c]
+				if l.inner {
+					tag = 3 - outer[c]
+				}
+				code = code + tag*[]int{1, 10, 100}[c]
+			}
+		}
+		want = want.Append(code)
+	}
+	with context { capA: aIs{v: outer[0]}, capB: bIs{v: outer[1]}, capC: cIs{v: outer[2]} } {
+		let a = actor.StartMachine(logMachine(), 4, func(o int) {})
+		let mut h = ui.NewTestHost(a, func(f *ui.Frame[int], s []int) needs capA | capB | capC { boundView(f, plan, outer) }, m, 8) catch {
+		case ui.BadPatch:
+			return false
+		}
+		ui.Play(&h, []ui.Act{ui.SettleAll}) catch {
+		case _:
+			return false
+		}
+		let got = ui.StateOf(&h)
+		if len(got) != len(plan) {
+			return false
+		}
+		for g in got {
+			let mut seen = false
+			for w in want {
+				seen = seen || w == g
+			}
+			if !seen {
+				return false
+			}
+		}
+	}
+	true
+}
+
 test UiScriptShowsTheView(seed int, steps int) {
 	assert lawScriptShowsTheView(seed, steps)
 }
@@ -1596,6 +1734,10 @@ test UiHrefParses(seed int) {
 
 test UiNavigationFollowsModel(seed int, steps int) {
 	assert lawNavigationFollowsModel(seed, steps)
+}
+
+test UiLoadUsesTheBoundService(seed int) {
+	assert lawLoadUsesTheBoundService(seed)
 }
 
 
@@ -1643,6 +1785,7 @@ var stdUIHostStatements = map[string]string{
 	"ui RowsAreTheCutEach":             `RowsAreTheCutEach(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { rowsFollow(seed, steps, m) } }`,
 	"ui HrefParses":                    `HrefParses(seed int) { let mut r = seeded(seed) let parts = []string{"", "a", "b/c", "x=1", "q=2&y", "top"} let u = URL{Path: "/" + parts[draw(&r, len(parts))], Query: parts[draw(&r, len(parts))], Fragment: parts[draw(&r, len(parts))]} ParseURL(Href(u)) == u }`,
 	"ui NavigationFollowsModel":        `NavigationFollowsModel(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { navigationFollows(seed, steps, m) } }`,
+	"ui LoadUsesTheBoundService":       `LoadUsesTheBoundService(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { loadsBound(seed, m) } }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,

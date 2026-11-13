@@ -38,7 +38,7 @@ type Host[E] {
 // load's fetch runs as a task of Run's caller and posts its result to h;
 // a fetch whose load ended is stopped. Run fails with h's Closed, or with
 // Stopped when a has ended.
-func Run[E comparable, S, D, F](h Host[E], a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S)) fails Closed | actor.Stopped {
+func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S) needs R) fails Closed | actor.Stopped needs R {
 	let (s, first) = Start(a, view, func(ev Event[E]) { h.Post(ev) })
 	let mut session = s
 	h.Show(first)

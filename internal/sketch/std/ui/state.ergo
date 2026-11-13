@@ -105,7 +105,7 @@ func Toggle[E](f *Frame[E], fl Flag, label string, at CallSite) {
 
 // Submit is a Pressable that also empties d when pressed: a press sends on
 // (made from d's value by the view) and the draft is "" at the next pass.
-func Submit[E, F](f *Frame[E], d Draft, label string, on E, body func() fails F, at CallSite) fails F {
+func Submit[E, F, R](f *Frame[E], d Draft, label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	f.parent = put(f, PressableNode{Label: label, On: on, Style: Plain()}, None, Some{Value: d.at}, at)
 	body() catch {
@@ -122,11 +122,28 @@ type Async[T, F] = Loading | Ready{Value T} | Failed{Error F}
 // Loading is a load that has not arrived.
 type Loading {}
 
+// Await reads a: its value when it is Ready, the failure Pending while it
+// is Loading, and its failure when it Failed (H8b), so a view reads a
+// load's value with try and the nearest boundary whose catch names the
+// failure shows something else. It is the exhaustive match on Async,
+// written once.
+func Await[T, F](a Async[T, F]) T fails F | Pending {
+	match a {
+	case Loading:
+		return Pending
+	case Ready[T] as r:
+		return r.Value
+	case Failed[F] as x:
+		return x.Error
+	}
+}
+
 // slot is a live load: its key and the epoch of its fetch.
 type slot { key Key, epoch int }
 
-// loadSpec is a load a pass wrote.
-type loadSpec[E] { parent int, id ident, key Key, fetch func() E }
+// loadSpec is a load a pass wrote: held is the live load of its node
+// with its key, when the node holds one (then it starts no fetch).
+type loadSpec[E] { parent int, id ident, key Key, fetch Option[func() E], held Option[slot] }
 
 // Job is work a commit gives the host loop: run a fetch, or cancel one.
 // Each fetch has an epoch no other fetch of the frame has.
@@ -136,10 +153,29 @@ type Job[E] = Fetch{Epoch int, Run func() E} | Cancel{Epoch int}
 // it after the commit, never in the pass, and its result is a signal of
 // the program (Arrive). A new key cancels the fetch of the old key and
 // starts one with a new epoch; a pass without this call cancels it. The
-// program keeps the result in its machine state, as an Async.
-func Load[E](f *Frame[E], key Key, fetch escaping func() E, at CallSite) {
+// program keeps the result in its machine state, as an Async. The fetch
+// may need capabilities (H8b, Q16): they are in the view's needs row, and
+// the fetch runs with the providers in force where Load was called (the
+// with around the host's entry, or a with the view wrote around this
+// subtree), which Load holds with InForce, not with those of the task
+// that runs it.
+func Load[E, R](f *Frame[E], key Key, fetch escaping func() E needs R, at CallSite) needs R {
 	let id = identify(f, at)
-	let ls = loadSpec[E]{parent: f.parent, id: id, key: key, fetch: fetch}
+	// A load its node already holds with key starts no fetch (settle), so
+	// only a load that may start holds its providers: a kept load costs
+	// no allocation for them (H8b's counted fact). A cut that moves a
+	// load to the group's parent moves only one its node does not hold.
+	let held = liveLoad(f, owner(f, f.parent), id, key)
+	let mut run Option[func() E] = None
+	if held == None {
+		let ctx = InForce[R]()
+		run = Some{Value: func() E {
+			with ctx {
+				fetch()
+			}
+		}}
+	}
+	let ls = loadSpec[E]{parent: f.parent, id: id, key: key, fetch: run, held: held}
 	if f.nloads < len(f.loads) {
 		f.loads[f.nloads] = ls
 	} else {
@@ -197,18 +233,27 @@ func settle[E](f *Frame[E]) {
 		let mut m = loadsOf(loads, o)
 		let mut s = slot{key: l.key, epoch: 0}
 		let mut started = true
-		match loadAt(f, o, l.id) {
-		case Some[slot] as old:
-			if old.Value.key == l.key {
+		match l.held {
+		case Some[slot] as h:
+			s = h.Value
+			started = false
+		case None:
+			match liveLoad(f, o, l.id, l.key) {
+			case Some[slot] as old:
 				s = old.Value
 				started = false
+			case None:
 			}
-		case None:
 		}
 		if started {
 			f.epoch = f.epoch + 1
 			s = slot{key: l.key, epoch: f.epoch}
-			f.jobs = f.jobs.Append(Fetch{Epoch: s.epoch, Run: l.fetch})
+			match l.fetch {
+			case Some[func() E] as run:
+				f.jobs = f.jobs.Append(Fetch{Epoch: s.epoch, Run: run.Value})
+			case None:
+				Unreachable("ui: a load its node held was fetched")
+			}
 		}
 		m[l.id] = s
 		loads[o] = m

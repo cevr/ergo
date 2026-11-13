@@ -649,3 +649,32 @@ law BoundaryFollowsModel(seed int, steps int) {
 	}
 	true
 }
+
+// AwaitIsTheMatch (H8b): for every drawn Async value, Await gives the
+// value, Pending, or the held failure, as the exhaustive match does.
+law AwaitIsTheMatch(seed int) {
+	let mut r = seeded(seed)
+	let v = draw(&r, 64)
+	let mut a Async[int, Missing] = Loading
+	let pick = draw(&r, 3)
+	if pick == 1 {
+		a = Ready{Value: v}
+	} else if pick == 2 {
+		a = Failed{Error: Missing{V: v}}
+	}
+	let want = match a {
+	case Loading:
+		-1
+	case Ready[int] as x:
+		x.Value
+	case Failed[Missing] as x:
+		-2 - x.Error.V
+	}
+	let got = Await(a) catch {
+	case Pending:
+		-1
+	case Missing as m:
+		-2 - m.V
+	}
+	got == want
+}

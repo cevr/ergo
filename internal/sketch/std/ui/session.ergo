@@ -15,9 +15,18 @@ type Session[S, E, D, F] {
 
 // Start renders the first pass of view over a's state and starts its
 // fetches; post gets each fetch's result as an Arrived event, on the
-// fetch's task. The result is the first patch.
-func Start[E comparable, S, D, F](a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S), post escaping func(ev Event[E])) (Session[S, E, D, F], []Op[E]) {
-	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: view, post: post, inflight: Map[int, Task[bool]]{}}
+// fetch's task. The result is the first patch. The view may need
+// capabilities (H8b, Q16): Start's caller has them in force, and every
+// pass of the session runs the view with those providers, held with
+// InForce, so a Step needs none of its own.
+func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S) needs R, post escaping func(ev Event[E])) (Session[S, E, D, F], []Op[E]) needs R {
+	let ctx = InForce[R]()
+	let shown = func(f *Frame[E], st S) {
+		with ctx {
+			view(f, st)
+		}
+	}
+	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}}
 	let ops = runPass(&s)
 	(s, ops)
 }

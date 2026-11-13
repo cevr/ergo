@@ -52,7 +52,7 @@ func Visible(count int, rowHeight Length, v Viewport) (int, int) {
 // of Visible at the list's viewport run row(i), under key(i); the node
 // says which row comes first, so a host places the rows at
 // First * rowHeight. The viewport is (0, 0) until a host reports one.
-func Rows[E, F](f *Frame[E], label string, count int, rowHeight Length, key func(i int) Key, row func(i int) fails F, at CallSite) fails F {
+func Rows[E, F, R](f *Frame[E], label string, count int, rowHeight Length, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	let (where, c) = remember(f, ViewCell{Offset: 0, Height: 0}, at)
 	let mut v = Viewport{Offset: 0, Height: 0}

@@ -17,7 +17,7 @@ type Pending {}
 // sibling after the boundary keeps its identity however far body got;
 // two calls of one boundary site under one parent with one row key share
 // their counts (stdlib.md, UI 15).
-func Boundary[E, F](f *Frame[E], body func() fails F, at CallSite) fails F {
+func Boundary[E, F, R](f *Frame[E], body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	f.each = at
 	body() catch {
@@ -110,14 +110,23 @@ func cut[E](f *Frame[E], m mark) {
 // heldBy is whether the node r names (Null for none) holds load id with
 // key.
 func heldBy[E](f *Frame[E], r arena.Ref[node[E]], id ident, key Key) bool {
+	liveLoad(f, r, id, key) != None
+}
+
+// liveLoad is the load id with key of the node r names (Null for none),
+// None when it holds none.
+func liveLoad[E](f *Frame[E], r arena.Ref[node[E]], id ident, key Key) Option[slot] {
 	if !arena.Has(f.nodes, r) {
-		return false
+		return None
 	}
 	match loadAt(f, r, id) {
 	case Some[slot] as s:
-		s.Value.key == key
+		if s.Value.key == key {
+			return Some{Value: s.Value}
+		}
+		None
 	case None:
-		false
+		None
 	}
 }
 

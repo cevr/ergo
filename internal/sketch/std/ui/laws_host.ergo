@@ -889,3 +889,160 @@ func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler 
 	}
 	true
 }
+
+// capA, capB and capC are the capabilities the loads of LoadUsesTheBoundService
+// need (H8b): each gives its provider's tag.
+type capA { tagA() int }
+
+type capB { tagB() int }
+
+type capC { tagC() int }
+
+// aIs, bIs and cIs are their providers, by tag.
+type aIs { v int }
+
+type bIs { v int }
+
+type cIs { v int }
+
+func tagA(p aIs) int { p.v }
+
+func tagB(p bIs) int { p.v }
+
+func tagC(p cIs) int { p.v }
+
+// boundLoad is one drawn load: the capabilities its fetch needs (bit 0 A,
+// bit 1 B, bit 2 C) and whether the view writes an inner with around it.
+type boundLoad { set int, inner bool }
+
+// The fetches, one per set of capabilities: each gives the tags of the
+// providers it ran with (A ones, B tens, C hundreds).
+func fetchNone() int { 0 }
+
+func fetchA() int needs capA { capA.tagA() }
+
+func fetchB() int needs capB { 10 * capB.tagB() }
+
+func fetchAB() int needs capA | capB { capA.tagA() + 10*capB.tagB() }
+
+func fetchC() int needs capC { 100 * capC.tagC() }
+
+func fetchAC() int needs capA | capC { capA.tagA() + 100*capC.tagC() }
+
+func fetchBC() int needs capB | capC { 10*capB.tagB() + 100*capC.tagC() }
+
+func fetchABC() int needs capA | capB | capC { capA.tagA() + 10*capB.tagB() + 100*capC.tagC() }
+
+// loadFor writes load i with the fetch of its set; its signal is
+// 1000*(i+1) plus the fetch's tags.
+func loadFor(f *Frame[int], i int, set int) needs capA | capB | capC {
+	let base = 1000 * (i + 1)
+	match set {
+	case 1:
+		Load(f, ByInt(i), func() int needs capA { base + fetchA() })
+	case 2:
+		Load(f, ByInt(i), func() int needs capB { base + fetchB() })
+	case 3:
+		Load(f, ByInt(i), func() int needs capA | capB { base + fetchAB() })
+	case 4:
+		Load(f, ByInt(i), func() int needs capC { base + fetchC() })
+	case 5:
+		Load(f, ByInt(i), func() int needs capA | capC { base + fetchAC() })
+	case 6:
+		Load(f, ByInt(i), func() int needs capB | capC { base + fetchBC() })
+	case 7:
+		Load(f, ByInt(i), func() int needs capA | capB | capC { base + fetchABC() })
+	case _:
+		Load(f, ByInt(i), func() int { base + fetchNone() })
+	}
+}
+
+// boundView writes each load under a Box of its own, in an inner with of
+// the other provider of each pair when it is drawn so.
+func boundView(f *Frame[int], plan []boundLoad, outer []int) needs capA | capB | capC {
+	for i, l in plan {
+		Box(f, Plain()) {
+			if l.inner {
+				with context { capA: aIs{v: 3 - outer[0]}, capB: bIs{v: 3 - outer[1]}, capC: cIs{v: 3 - outer[2]} } {
+					loadFor(f, i, l.set)
+				}
+			} else {
+				loadFor(f, i, l.set)
+			}
+		}
+	}
+	Text(f, "loads")
+}
+
+// logStep keeps each signal.
+func logStep(s []int, e int) Decision[[]int, int] { Enter[[]int]{Next: s.Append(e)} }
+
+func logTimer(s []int) Option[Timeout[int]] { None }
+
+func logWork(s []int) Option[func(send func(e int))] { None }
+
+func logMachine() Machine[[]int, int, int] {
+	Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logTimer, Work: logWork}
+}
+
+// LoadUsesTheBoundService (H8b): over drawn views of one to three loads,
+// each under a component of its own, each needing a drawn subset of three
+// capabilities, with a drawn pair of providers per capability, every
+// fetch's result comes from the provider in force where its Load was
+// called: the one the with around NewTestHost bound, or the one of an
+// inner with the view wrote around the load's subtree. Each fetch runs
+// once, on the host's task, after the pass.
+law LoadUsesTheBoundService(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		loadsBound(seed, m)
+	}
+}
+
+func loadsBound(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let mut plan = []boundLoad{}
+	for _ in 0..draw(&r, 3)+1 {
+		plan = plan.Append(boundLoad{set: draw(&r, 8), inner: draw(&r, 2) == 0})
+	}
+	let outer = []int{draw(&r, 2) + 1, draw(&r, 2) + 1, draw(&r, 2) + 1}
+	let mut want = []int{}
+	for i, l in plan {
+		let mut code = 1000 * (i + 1)
+		for c in 0..3 {
+			if l.set/[]int{1, 2, 4}[c]%2 == 1 {
+				let mut tag = outer[c]
+				if l.inner {
+					tag = 3 - outer[c]
+				}
+				code = code + tag*[]int{1, 10, 100}[c]
+			}
+		}
+		want = want.Append(code)
+	}
+	with context { capA: aIs{v: outer[0]}, capB: bIs{v: outer[1]}, capC: cIs{v: outer[2]} } {
+		let a = actor.StartMachine(logMachine(), 4, func(o int) {})
+		let mut h = NewTestHost(a, func(f *Frame[int], s []int) needs capA | capB | capC { boundView(f, plan, outer) }, m, 8) catch {
+		case BadPatch:
+			return false
+		}
+		Play(&h, []Act{SettleAll}) catch {
+		case _:
+			return false
+		}
+		let got = StateOf(&h)
+		if len(got) != len(plan) {
+			return false
+		}
+		for g in got {
+			let mut seen = false
+			for w in want {
+				seen = seen || w == g
+			}
+			if !seen {
+				return false
+			}
+		}
+	}
+	true
+}
