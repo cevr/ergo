@@ -320,10 +320,8 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 		if len(targs) != len(fn.Sig.TParams) {
 			ice("the generic call of %s has %d type arguments for %d parameters", fn.Name, len(targs), len(fn.Sig.TParams))
 		}
-		callee.env = &tenv{m: map[*check.TypeParam]rtype{}}
-		for i, tp := range fn.Sig.TParams {
-			callee.env.m[tp] = targs[i]
-		}
+		n := len(targs)
+		callee.env = &tenv{tps: fn.Sig.TParams[:n:n], args: targs[:n:n]} // full slices: a bind appends to neither
 	}
 	params := in.paramsOf(fn)
 	if len(params) != len(args) {

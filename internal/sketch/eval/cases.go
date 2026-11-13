@@ -149,9 +149,9 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 	}
 	fr := in.newFrame(law.Pkg, law.Decl)
 	if own := testplan.GenericOwner(law); own != nil {
-		fr.env = &tenv{m: map[*check.TypeParam]rtype{}}
+		fr.env = &tenv{}
 		for i, tp := range own.TParams {
-			fr.env.m[tp] = rtype{t: tg.binding[0].Slot.TArgs[i]}
+			fr.env.bind(tp, rtype{t: tg.binding[0].Slot.TArgs[i]})
 		}
 	}
 	return in.cases(fr, law.Decl.Body, true, law.Params, testplan.Law(law, tg.binding), res)

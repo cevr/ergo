@@ -14,7 +14,32 @@ import (
 // environment of the frame that holds it (rtype), so the evaluator needs
 // no instantiation of its own and makes no second type semantics.
 type tenv struct {
-	m map[*check.TypeParam]rtype
+	// tps are the parameters and args their arguments, by index: a
+	// generic declaration has few, so a scan finds one (ORACLE O33).
+	tps  []*check.TypeParam
+	args []rtype
+}
+
+// bind makes tp stand for r.
+func (e *tenv) bind(tp *check.TypeParam, r rtype) {
+	for i, p := range e.tps {
+		if p == tp {
+			e.args[i] = r
+			return
+		}
+	}
+	e.tps = append(e.tps, tp)
+	e.args = append(e.args, r)
+}
+
+// lookup is what tp stands for, if e binds it.
+func (e *tenv) lookup(tp *check.TypeParam) (rtype, bool) {
+	for i, p := range e.tps {
+		if p == tp {
+			return e.args[i], true
+		}
+	}
+	return rtype{}, false
 }
 
 // rtype is a checked type read in an environment: what it stands for in
@@ -32,7 +57,7 @@ func (e *tenv) resolve(t check.Type) rtype {
 		if !ok || r.env == nil {
 			return r
 		}
-		b, bound := r.env.m[tp]
+		b, bound := r.env.lookup(tp)
 		if !bound {
 			return r
 		}

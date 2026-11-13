@@ -37,9 +37,9 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		ice("a law run under %s whose owner is no capability", lc.Context.Name)
 	}
 	if own := testplan.GenericOwner(law); own != nil {
-		fr.env = &tenv{m: map[*check.TypeParam]rtype{}}
+		fr.env = &tenv{}
 		for i, tp := range own.TParams {
-			fr.env.m[tp] = rtype{t: cap.TArgs[i]}
+			fr.env.bind(tp, rtype{t: cap.TArgs[i]})
 		}
 	}
 	pre := preflight{in: in, seen: map[syntax.Node]bool{}}
