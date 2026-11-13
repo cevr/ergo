@@ -43,7 +43,7 @@ func inforceProgram(seed uint64) (string, string, map[string]bool) {
 		fmt.Fprintf(&b, "\n// law-exempt: the property's operation types.\ntype C%d {\n\tGet() int,\n}\n", i)
 	}
 	b.WriteString("\nfunc Get(b Box) int { b.n }\n")
-	b.WriteString("\ntype Held[R] { Run func() string needs R, Ctx Context[R] }\n")
+	b.WriteString("\ntype Held[R] { Ctx Context[R], Run func() string needs R }\n")
 	b.WriteString("\nfunc hold[R](f escaping func() string needs R) Held[R] needs R {\n\tHeld[R]{Run: f, Ctx: InForce[R]()}\n}\n")
 	b.WriteString("\nfunc holdVia[R](f escaping func() string needs R) Held[R] needs R { hold(f) }\n")
 	b.WriteString("\nfunc holdMore[R](f escaping func() string needs R | C0) Held[R | C0] needs R | C0 { hold(f) }\n")
@@ -233,7 +233,7 @@ func Close(c Conn) needs Console { Console.Println("closed \(c.n)") }
 
 func open(n int) Conn { Conn{n: n} }
 
-type Held[R] { Run func() string needs R, Ctx Context[R] }
+type Held[R] { Ctx Context[R], Run func() string needs R }
 
 func hold[R](f escaping func() string needs R) Held[R] needs R {
 	Held[R]{Run: f, Ctx: InForce[R]()}
