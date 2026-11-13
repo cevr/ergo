@@ -395,6 +395,8 @@ func (e *encoder) encFieldsField(v *Field) {
 	e.encPos(v.Dots)
 	e.encPos(v.WherePos)
 	e.encExpr(v.Where)
+	e.encT4(v.Pure)
+	e.encPos(v.PurePos)
 }
 
 func (e *encoder) encField(v Field) { e.encFieldsField(&v) }
@@ -2076,6 +2078,8 @@ func (d *decoder) decFieldsField(v *Field) {
 	v.Dots = d.decPos()
 	v.WherePos = d.decPos()
 	v.Where = d.decExpr()
+	v.Pure = d.decT4()
+	v.PurePos = d.decPos()
 }
 
 func (d *decoder) decField() (v Field) {

@@ -2,137 +2,410 @@ package check
 
 import (
 	"fmt"
+	"slices"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The durable rule (MU9, survey MQ5; runtime.md, Machines and actors 17):
-// a machine given to a durable runner, std actor.StartDurable,
-// actor.SuperviseDurable (MU7) or
-// journal.Start, has a pure step. A recovery steps the saved signals
-// again, so a step with an effect would act twice; a pure step replays to
-// the same state by construction. The checker must see which function is
-// the step, so the machine argument is a declaration's value `X{}`,
-// machines.Start(X{}, input), or a prelude Machine literal whose Step
-// names a package function (a generic one instantiated, step[S, E], too);
-// anything else is S108 too. The step
-// is pure for a replay when its footprint is empty (rows.md,
-// Footprints 2 and 3): no capability, no task start and no opaque call;
-// it may make hosts with actor.NewHost (MakesHost, wf10 DH1). The diagnostic names the
-// first call in the step's body that makes it impure. Work and timers stay
-// allowed: their results reach the step as signals, which the save keeps.
-// A call in std is not checked: std forwards a machine its caller gave,
-// and the caller's call is checked.
+// Pure parameters (rows.md, Footprints 6; grammar.md, Declarations 15): a
+// function declaration's parameter written `m pure T` requires of each
+// call that the checker sees the function its argument runs, and that the
+// function is pure: its footprint is empty (Footprints 2 and 3), no
+// capability, no task start and no opaque call. For a machine (a prelude
+// Machine or a machine declaration's type) that function is the step; for
+// a function type it is the function itself. The diagnostic names the
+// first call in that function's body that makes it impure.
+//
+// The checker sees the function of an argument that is:
+//   - a machine declaration's value X{}, whose step its declaration names;
+//   - a Machine literal whose Step names a package function (a generic one
+//     instantiated, step[S, E], too), or the Step of a machine it sees;
+//   - a function's name, for a function type;
+//   - a call of a function whose body is one expression it sees, with the
+//     callee's parameters bound to the call's arguments (machines.Start's
+//     body is such a literal, so machines.Start(X{}, input) is seen);
+//   - a parameter of the enclosing function that is written pure itself:
+//     its own callers' calls are checked.
+//
+// Anything else is S108 too. The rule reads the declaration only, so it
+// holds for a runner in any package alike: std's durable runners
+// (actor.StartDurable, actor.SuperviseDurable and journal.Start; runtime.md,
+// Machines and actors 17) write the clause on their machine.
 
-// TakesDurableMachine reports a std durable runner: actor.StartDurable,
-// actor.SuperviseDurable or
-// journal.Start.
-func TakesDurableMachine(f *Func) bool {
-	if f == nil || f.Pkg == nil || !f.Pkg.std {
-		return false
+// pureArg is an argument of a call to a pure parameter, kept for
+// checkPureArgs, which runs once the footprints are known.
+type pureArg struct {
+	arg    syntax.Expr
+	callee string
+	param  string
+	fn     bool  // the parameter's type is a function type, not a machine
+	encl   *Func // the function declaration whose body holds the call
+	file   *fileInfo
+}
+
+// pureParams are the indexes of the parameters of f's declaration written
+// pure, in order.
+func pureParams(f *Func) []int {
+	if f == nil || f.Decl == nil || f.Decl.Type == nil || f.Decl.Type.Params == nil {
+		return nil
 	}
-	return (f.Pkg.Path == childPath && (f.Name == "StartDurable" || f.Name == "SuperviseDurable")) || (f.Pkg.Path == "journal" && f.Name == "Start")
+	var out []int
+	i := 0
+	for _, fld := range f.Decl.Type.Params.List {
+		n := max(len(fld.Names), 1)
+		for range n {
+			if fld.Pure {
+				out = append(out, i)
+			}
+			i++
+		}
+	}
+	return out
 }
 
-// MakesHost reports std actor.NewHost, the one host function a durable
-// step may call (wf10 DH1; runtime.md, Machines and actors 17): it makes an
-// empty cell and acts on nothing outside. A host is entry data, not durable
-// data: one made in a replay is unbound until the recovered actor's first
-// entry binds it, so a replay that makes it again acts twice on nothing.
-// Every other host function stays S108.
-func MakesHost(f *Func) bool {
-	return f != nil && f.Pkg != nil && f.Pkg.std && f.Pkg.Path == childPath && f.Name == "NewHost" &&
-		f.Decl != nil && f.Decl.Extern != nil
+// pureKind reports whether t is a type a pure parameter may have, and
+// whether it is a function type.
+func pureKind(t Type) (ok, fn bool) {
+	if _, ok := under(t).(*Signature); ok {
+		return true, true
+	}
+	n, ok := t.(*Named)
+	if !ok {
+		return false, false
+	}
+	if m := preludeType("Machine"); m != nil && n.origin() == m {
+		return true, false
+	}
+	_, ok = n.under.(*MachineType)
+	return ok, false
 }
 
-// durableCall is a call of a durable runner, with the runner's name.
-type durableCall struct {
-	x    *syntax.CallExpr
-	name string
-	file *fileInfo
+// callArg is the argument a call x passes for parameter i of f: a dot
+// call x.f(…) of a function with no receiver passes x for the first one.
+func callArg(x *syntax.CallExpr, k *Call, f *Func, i int) syntax.Expr {
+	if k.Recv != nil && f.Decl.Recv == nil {
+		if i == 0 {
+			return k.Recv
+		}
+		i--
+	}
+	if i < len(x.Args) {
+		return x.Args[i]
+	}
+	return nil
 }
 
-// recordDurable keeps a call of a durable runner for checkDurableSteps,
-// which runs once the footprints are known.
-func (c *checker) recordDurable(x *syntax.CallExpr, f *Func) {
-	if c.pkg.std || len(x.Args) == 0 {
+// recordPureArgs keeps each argument the call x passes to a pure parameter
+// of its callee.
+func (c *checker) recordPureArgs(x *syntax.CallExpr) {
+	k := c.pkg.Info.Calls[x]
+	if k == nil || k.Kind != CallFunc || k.Func == nil {
 		return
 	}
-	c.durableCalls = append(c.durableCalls, durableCall{x: x, name: f.Pkg.Path + "." + f.Name, file: c.cur})
-}
-
-// checkDurableSteps reports each durable runner's machine whose step is
-// not pure, or that is no machine declaration's value.
-func (c *checker) checkDurableSteps() {
-	for _, d := range c.durableCalls {
-		c.cur = d.file
-		arg := d.x.Args[0]
-		step := c.durableStep(arg)
-		if step == nil {
-			c.errorf(arg, CodeType, "%s replays the saved signals with the machine's step, so the checker must see that the step is pure: pass a machine declaration's value X{}, machines.Start(X{}, input), or a Machine literal whose Step names a function (runtime.md, Machines and actors 17)", d.name)
+	f := k.Func
+	idx := pureParams(f)
+	if len(idx) == 0 {
+		return
+	}
+	sig := f.Sig
+	if sig == nil {
+		return
+	}
+	name := f.Name
+	if f.Pkg != nil && f.Pkg != c.pkg {
+		name = f.Pkg.Path + "." + f.Name
+	}
+	var encl *Func
+	if c.fn != nil {
+		encl = c.fn.fn
+	}
+	for _, i := range idx {
+		arg := callArg(x, k, f, i)
+		if arg == nil || i >= len(sig.Params) {
 			continue
 		}
-		info := step.Pkg.Info
+		ok, fn := pureKind(sig.Params[i].Type)
+		if !ok {
+			continue // the declaration's own S108 (checkPureClauses)
+		}
+		c.pureArgs = append(c.pureArgs, pureArg{arg: arg, callee: name, param: sig.Params[i].Name, fn: fn, encl: encl, file: c.cur})
+	}
+}
+
+// checkPureArgs reports each argument of a pure parameter whose function
+// the checker does not see, or sees impure; and each clause written where
+// it means nothing.
+func (c *checker) checkPureArgs() {
+	c.checkPureClauses()
+	for _, d := range c.pureArgs {
+		c.cur = d.file
+		s := pureSeer{encl: d.encl}
+		var f *Func
+		if d.fn {
+			f = s.function(c.pkg.Info, d.arg, nil, 0)
+		} else {
+			f = s.step(c.pkg.Info, d.arg, nil, 0)
+		}
+		what, role := "step", "step"
+		if d.fn {
+			what, role = "function", "function"
+		}
+		if s.forwarded {
+			continue
+		}
+		if f == nil {
+			c.errorf(d.arg, CodeType, "%s requires its parameter %s to be pure, so the checker must see its %s: pass %s (rows.md, Footprints 6)", d.callee, d.param, what, seenForms(d.fn))
+			continue
+		}
+		info := f.Pkg.Info
 		if info == nil {
 			continue
 		}
-		fp, ok := info.Footprints[step.Decl]
+		fp, ok := info.Footprints[f.Decl]
 		if !ok || fp.Empty() {
 			continue
 		}
-		c.errorf(arg, CodeType, "%s replays the saved signals with the machine's step, so the step must be pure: %s (runtime.md, Machines and actors 17)", d.name, impureCall("step", step, fp))
+		c.errorf(d.arg, CodeType, "%s requires its parameter %s to be pure: %s (rows.md, Footprints 6)", d.callee, d.param, impureCall(role, f, fp))
 	}
 }
 
-// durableStep is the step function of the machine declaration whose value
-// arg is (X{} or machines.Start(X{}, input)), or nil.
-func (c *checker) durableStep(arg syntax.Expr) *Func {
-	arg = unparen(arg)
-	if call, ok := arg.(*syntax.CallExpr); ok {
-		k := c.pkg.Info.Calls[call]
-		if k == nil || k.Kind != CallFunc || k.Func == nil || k.Func.Pkg == nil || !k.Func.Pkg.std ||
-			k.Func.Pkg.Path != "machines" || k.Func.Name != "Start" || len(call.Args) == 0 {
+// seenForms names the arguments whose function the checker sees.
+func seenForms(fn bool) string {
+	if fn {
+		return "a function's name, a call of a function whose body is one, or a parameter written pure"
+	}
+	return "a machine declaration's value X{}, a Machine literal whose Step names a function, a call of a function whose body is one of these, or a parameter written pure"
+}
+
+// checkPureClauses reports the clause pure written on anything but a
+// function declaration's parameter, and on a parameter whose type is no
+// function type and no machine.
+func (c *checker) checkPureClauses() {
+	for _, fi := range c.files {
+		decls := map[*syntax.FieldList]*syntax.FuncDecl{}
+		for _, d := range fi.syntax.Decls {
+			if fd, ok := d.(*syntax.FuncDecl); ok && fd.Type != nil && fd.Type.Params != nil {
+				decls[fd.Type.Params] = fd
+			}
+		}
+		// The names a call calls: a use of a function with a pure
+		// parameter anywhere else takes it as a value, and a call of
+		// the value would pass its arguments unchecked.
+		called := map[*syntax.Ident]bool{}
+		syntax.Inspect(fi.syntax, func(n syntax.Node) bool {
+			if x, ok := n.(*syntax.CallExpr); ok {
+				fun := unparen(x.Fun)
+				if ix, ok := fun.(*syntax.IndexExpr); ok {
+					fun = unparen(ix.X)
+				}
+				switch fun := fun.(type) {
+				case *syntax.Ident:
+					called[fun] = true
+				case *syntax.SelectorExpr:
+					called[fun.Sel] = true
+				}
+			}
+			return true
+		})
+		syntax.Inspect(fi.syntax, func(n syntax.Node) bool {
+			if id, ok := n.(*syntax.Ident); ok {
+				if f, ok := c.pkg.Info.Uses[id].(*Func); ok && !called[id] && len(pureParams(f)) > 0 {
+					c.cur = fi
+					c.errorf(id, CodeType, "%s has a pure parameter, so it is only called: a call checks its argument, and a call of a value could not (rows.md, Footprints 6)", f.Name)
+				}
+				return true
+			}
+			l, ok := n.(*syntax.FieldList)
+			if !ok {
+				return true
+			}
+			fd := decls[l]
+			i := 0
+			for _, fld := range l.List {
+				n := max(len(fld.Names), 1)
+				if fld.Pure {
+					c.cur = fi
+					if fd == nil {
+						c.errorIn(fld, fld.PurePos, fld.PurePos+syntax.Pos(len("pure")), CodeType, "pure is written on a parameter of a function declaration, which its callers' arguments must meet (rows.md, Footprints 6)")
+					} else if f, _ := c.pkg.Info.Defs[fd.Name].(*Func); f != nil && f.Sig != nil && i < len(f.Sig.Params) {
+						if ok, _ := pureKind(f.Sig.Params[i].Type); !ok {
+							c.errorIn(fld, fld.PurePos, fld.PurePos+syntax.Pos(len("pure")), CodeType, "pure requires a function the checker sees, so it is written before a function type or a machine, not %s (rows.md, Footprints 6)", f.Sig.Params[i].Type)
+						}
+					}
+				}
+				i += n
+			}
+			return true
+		})
+	}
+}
+
+// pureSeer finds the function an argument of a pure parameter runs. Its
+// bindings map a callee's parameter names to the arguments of the call
+// being seen through (a body of one expression has no other names).
+type pureSeer struct {
+	encl      *Func
+	forwarded bool
+}
+
+// pureBinding is the argument x a call passed for a parameter, read in
+// info under the bindings of its own body.
+type pureBinding struct {
+	info *Info
+	x    syntax.Expr
+	env  map[string]*pureBinding
+}
+
+// maxSeeThrough bounds the calls seen through: a function whose body
+// calls itself is no machine the checker sees.
+const maxSeeThrough = 8
+
+// param resolves the identifier id: a parameter bound by a call seen
+// through, or a pure parameter of the enclosing function (forwarded).
+func (s *pureSeer) param(info *Info, id *syntax.Ident, env map[string]*pureBinding) (*pureBinding, bool) {
+	v, ok := info.Uses[id].(*Var)
+	if !ok {
+		return nil, false
+	}
+	if env != nil {
+		b := env[id.Name]
+		return b, b != nil
+	}
+	if v.param && v.id != nil && s.encl != nil && s.encl.Decl != nil && s.encl.Decl.Type != nil && s.encl.Decl.Type.Params != nil {
+		for _, fld := range s.encl.Decl.Type.Params.List {
+			if fld.Pure && slices.Contains(fld.Names, v.id) {
+				s.forwarded = true
+			}
+		}
+	}
+	return nil, false
+}
+
+// through is the result expression of the function a call x runs, with
+// its parameters bound to x's arguments, when its body is one expression.
+func (s *pureSeer) through(info *Info, x *syntax.CallExpr, env map[string]*pureBinding) (*Info, syntax.Expr, map[string]*pureBinding) {
+	k := info.Calls[x]
+	if k == nil || k.Kind != CallFunc || k.Func == nil || k.Func.Decl == nil || k.Func.Decl.Body == nil || k.Func.Pkg == nil || k.Func.Pkg.Info == nil {
+		return nil, nil, nil
+	}
+	f := k.Func
+	body := f.Decl.Body.List
+	if len(body) != 1 {
+		return nil, nil, nil
+	}
+	var res syntax.Expr
+	switch st := body[0].(type) {
+	case *syntax.ExprStmt:
+		res = st.X
+	case *syntax.ReturnStmt:
+		if len(st.Results) == 1 {
+			res = st.Results[0]
+		}
+	}
+	if res == nil {
+		return nil, nil, nil
+	}
+	inner := map[string]*pureBinding{}
+	i := 0
+	for _, fld := range f.Decl.Type.Params.List {
+		for _, n := range fld.Names {
+			if a := callArg(x, k, f, i); a != nil {
+				inner[n.Name] = &pureBinding{info: info, x: a, env: env}
+			}
+			i++
+		}
+		if len(fld.Names) == 0 {
+			i++
+		}
+	}
+	return f.Pkg.Info, res, inner
+}
+
+// step is the step function of the machine x, or nil.
+func (s *pureSeer) step(info *Info, x syntax.Expr, env map[string]*pureBinding, depth int) *Func {
+	if depth > maxSeeThrough {
+		return nil
+	}
+	x = unparen(x)
+	switch x := x.(type) {
+	case *syntax.Ident:
+		if b, ok := s.param(info, x, env); ok {
+			return s.step(b.info, b.x, b.env, depth+1)
+		}
+		return nil
+	case *syntax.CallExpr:
+		in, res, inner := s.through(info, x, env)
+		if res == nil {
 			return nil
 		}
-		arg = unparen(call.Args[0])
+		return s.step(in, res, inner, depth+1)
+	case *syntax.CompositeLit:
+		n, ok := info.Types[x].(*Named)
+		if !ok {
+			return nil
+		}
+		if m := preludeType("Machine"); m != nil && n.origin() == m {
+			for _, e := range x.Elts {
+				kv, ok := e.(*syntax.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if k, ok := kv.Key.(*syntax.Ident); !ok || k.Name != "Step" {
+					continue
+				}
+				return s.stepValue(info, kv.Value, env, depth)
+			}
+			return nil
+		}
+		return declaredStep(n)
 	}
-	lit, ok := arg.(*syntax.CompositeLit)
-	if !ok {
+	return nil
+}
+
+// stepValue is the function a Machine literal's Step names: a function's
+// name, or m.Step of a machine m the checker sees.
+func (s *pureSeer) stepValue(info *Info, v syntax.Expr, env map[string]*pureBinding, depth int) *Func {
+	v = unparen(v)
+	if sel, ok := v.(*syntax.SelectorExpr); ok && sel.Sel.Name == "Step" {
+		return s.step(info, sel.X, env, depth+1)
+	}
+	return s.function(info, v, env, depth)
+}
+
+// function is the package function x names (a generic one instantiated,
+// too), or nil.
+func (s *pureSeer) function(info *Info, x syntax.Expr, env map[string]*pureBinding, depth int) *Func {
+	if depth > maxSeeThrough {
 		return nil
 	}
-	n, ok := c.pkg.Info.Types[arg].(*Named)
-	if !ok {
-		return nil
+	x = unparen(x)
+	if ix, ok := x.(*syntax.IndexExpr); ok {
+		x = unparen(ix.X)
 	}
-	if m := preludeType("Machine"); m != nil && n.origin() == m {
-		// A prelude Machine literal: its Step names a package function.
-		for _, e := range lit.Elts {
-			kv, ok := e.(*syntax.KeyValueExpr)
-			if !ok {
-				continue
-			}
-			if k, ok := kv.Key.(*syntax.Ident); !ok || k.Name != "Step" {
-				continue
-			}
-			// The step is a function's name, or a generic one's name
-			// instantiated (step[S, E, O, F, R]): either way the
-			// checker sees its body.
-			v := unparen(kv.Value)
-			if ix, ok := v.(*syntax.IndexExpr); ok {
-				v = unparen(ix.X)
-			}
-			id, ok := v.(*syntax.Ident)
-			if !ok {
-				return nil
-			}
-			f, _ := c.pkg.Info.Uses[id].(*Func)
-			if f == nil || f.Decl == nil || f.Decl.Body == nil {
+	switch x := x.(type) {
+	case *syntax.Ident:
+		if f, ok := info.Uses[x].(*Func); ok {
+			if f.Decl == nil || f.Decl.Body == nil {
 				return nil
 			}
 			return f
 		}
-		return nil
+		if b, ok := s.param(info, x, env); ok {
+			return s.function(b.info, b.x, b.env, depth+1)
+		}
+	case *syntax.CallExpr:
+		in, res, inner := s.through(info, x, env)
+		if res == nil {
+			return nil
+		}
+		return s.function(in, res, inner, depth+1)
 	}
+	return nil
+}
+
+// declaredStep is the step function a machine declaration names, for its
+// value X{}, or nil.
+func declaredStep(n *Named) *Func {
 	if n.Obj == nil || n.Obj.Decl == nil || n.Obj.Pkg == nil {
 		return nil
 	}
@@ -157,8 +430,8 @@ func (c *checker) durableStep(arg syntax.Expr) *Func {
 // impureCall names the first call in step's own frame that makes its
 // footprint fp not empty, with its position; when none of its own calls
 // does (a literal it calls in place does), it names what fp holds. role
-// names what step is to its caller: "step", or "predicate" for an
-// invariant law's (machinelaw.go).
+// names what step is to its caller: "step", "function", or "predicate"
+// for an invariant law's (machinelaw.go).
 func impureCall(role string, step *Func, fp Footprint) string {
 	info := step.Pkg.Info
 	var found syntax.Node
@@ -191,6 +464,23 @@ func impureCall(role string, step *Func, fp Footprint) string {
 	default:
 		return fmt.Sprintf("%s %s calls code whose footprint is unknown", role, step.Name)
 	}
+}
+
+// PureParams are the indexes of the parameters of f's declaration written
+// pure (Footprints 6), in order: what a call of f must pass a function
+// the checker sees.
+func PureParams(f *Func) []int { return pureParams(f) }
+
+// MakesHost reports std actor.NewHost, the one host function a pure step
+// may call (wf10 DH1; runtime.md, Machines and actors 17): it makes an
+// empty cell and acts on nothing outside. A host is entry data, not durable
+// data: one made in a replay is unbound until the recovered actor's first
+// entry binds it, so a replay that makes it again acts twice on nothing.
+// Every other host function stays S108. It reads a name until NP4b gives
+// the fact to the body's declaration (std-privileges.txt).
+func MakesHost(f *Func) bool {
+	return f != nil && f.Pkg != nil && f.Pkg.std && f.Pkg.Path == childPath && f.Name == "NewHost" &&
+		f.Decl != nil && f.Decl.Extern != nil
 }
 
 // impureWhy is the reason the call x adds to its frame's footprint, or ""

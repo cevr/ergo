@@ -26,9 +26,9 @@ fstest	differs	lower: joinResult joins a call into its assignment only in a body
 hex	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 http	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 io	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
-journal	differs	check: S108 the durable rule names actor.StartDurable and skips std	NP3a
+journal	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 journal/file	same
-journal/memory	differs	check: S108 the durable rule names journal.Start and skips std	NP3a
+journal/memory	same
 json	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 log	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
 machines	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e

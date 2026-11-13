@@ -349,6 +349,12 @@ type Field struct {
 	// Refinements), or NoPos and nil.
 	WherePos Pos
 	Where    Expr
+	// Pure marks a named parameter's clause `pure` before its type
+	// (grammar.md, Declarations 15; rows.md, Footprints 6), written at
+	// PurePos. PurePos means nothing without Pure: a Field built with
+	// neither, or repositioned (derive), has no clause.
+	Pure    bool
+	PurePos Pos
 }
 
 func (f *Field) Pos() Pos {

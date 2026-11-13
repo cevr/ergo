@@ -196,14 +196,14 @@ func useSource(c stdMatchFunc, method bool) string {
 		call = "try " + call
 	}
 	b.WriteString(" {\n\t" + call + "\n}\n")
-	if check.TakesDurableMachine(c.fn) {
+	if len(check.PureParams(c.fn)) > 0 {
 		return durableUseSource(b.String(), sig.Params[0].Type.String())
 	}
 	return b.String()
 }
 
 // durableUseSource is the use of a durable runner
-// (check.TakesDurableMachine) built from plain, its use with the machine
+// (check.PureParams: its machine is written pure) built from plain, its use with the machine
 // parameter p0 passed through. The durable rule admits only a machine whose
 // step the checker sees, so the call passes a Machine literal whose Step
 // names useStep, a pure package function; the rest of the machine is p0's.

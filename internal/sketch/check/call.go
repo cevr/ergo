@@ -55,6 +55,7 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 	}
 	if fun.mode != modeInvalid {
 		c.recordCall(x, fun)
+		c.recordPureArgs(x)
 	}
 	switch fun.mode {
 	case modeInvalid:
@@ -79,11 +80,6 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 			c.childRule(x, f.Name)
 		} else if TakesWorkSend(fun.fn) {
 			c.childRule(x, fun.fn.Name)
-		}
-		if f, _ := fun.obj.(*Func); TakesDurableMachine(f) {
-			c.recordDurable(x, f)
-		} else if TakesDurableMachine(fun.fn) {
-			c.recordDurable(x, fun.fn)
 		}
 		return c.callGeneric(x, fun.typ.(*Signature), nil, fun)
 	case modeExtern:

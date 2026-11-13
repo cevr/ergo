@@ -1328,6 +1328,10 @@ type paramEntry struct {
 	// wherePos and where are a law parameter's `where P` (refine.go).
 	wherePos Pos
 	where    Expr
+	// pure marks the clause `pure` before a named entry's type, written at
+	// purePos.
+	pure    bool
+	purePos Pos
 }
 
 // parseParameters parses a parameter list with Go's grouping: either every
@@ -1385,7 +1389,7 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 		if e.where != nil && len(pending) > 0 {
 			p.errorAt(e.wherePos, len("where"), "a where follows a parameter of one name: give %s its own type", pending[0].Name)
 		}
-		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ, WherePos: e.wherePos, Where: e.where})
+		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ, WherePos: e.wherePos, Where: e.where, Pure: e.pure, PurePos: e.purePos})
 		pending = nil
 	}
 	if len(pending) > 0 {
@@ -1463,7 +1467,32 @@ func (p *parser) parseParamEntry() paramEntry {
 		}
 		return paramEntry{typ: t}
 	}
+	if pos, ok := p.pureClause(); ok {
+		return paramEntry{name: id, typ: p.parseType(ctxList), pure: true, purePos: pos}
+	}
 	return paramEntry{name: id, typ: p.parseType(ctxList)}
+}
+
+// pureClause reads the contextual word `pure` after a parameter's name when
+// a type follows it (`m pure Machine[S, E, O]`, Declarations 15), and
+// reports its position. Elsewhere `pure` stays a name: `x pure` is a
+// parameter of the type pure.
+func (p *parser) pureClause() (Pos, bool) {
+	if p.tok.tok != IDENT || p.tok.lit != "pure" {
+		return 0, false
+	}
+	switch next := p.peek(1); next.tok {
+	case IDENT, FUNC, ESCAPING, LPAREN:
+	case GO:
+		if p.peek(2).tok != PERIOD {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	pos := p.tok.pos
+	p.next()
+	return pos, true
 }
 
 // funcLitParams reads the parameters of a function literal: all typed, or

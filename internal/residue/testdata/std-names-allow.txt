@@ -5,9 +5,7 @@ internal/sketch/check/call.go	c.pkg.Path == std.PreludePath	prelude generic coll
 internal/sketch/check/call.go	f.Pkg.Path == std.PreludePath	Unreachable; predeclared language function
 internal/sketch/check/contextvalues.go	n.Obj.Pkg.Path != std.PreludePath	Context predeclared row value
 internal/sketch/check/decl.go	c.pkg.Path == std.PreludePath	prelude ownership declarations
-internal/sketch/check/durable.go	f.Pkg.Path == childPath	durable actor contracts; follow-up
-internal/sketch/check/durable.go	f.Pkg.Path == "journal"	durable journal contracts; follow-up
-internal/sketch/check/durable.go	k.Func.Pkg.Path != "machines"	durable machine contracts; follow-up
+internal/sketch/check/durable.go	f.Pkg.Path == childPath	actor.NewHost, the host a pure step may make; NP4b gives it a body fact
 internal/sketch/check/embed.go	n.Obj.Pkg.Path == "embed"	embedded assets; predeclared language operation
 internal/sketch/check/export.go	s.pkgs[i].Path != s.segs[i].path	std snapshot integrity: a decoded segment is the package its header names, not a std identity
 internal/sketch/check/extern.go	f.Pkg.Path == std.PreludePath	predeclared function footprint

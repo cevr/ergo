@@ -176,16 +176,11 @@ func relayStep(s int, e int) Decision[int, int] {
 	}
 }
 
-// dropped runs relay so that a Ping of entry 0 is sent after Go ended
-// that entry, and so dropped: the sink of Go's Emit runs before the runner
-// acts on the decision (runner rule 17), and it holds the runner until
-// entry 0's work has sent Ping. It holds that the actor dropped one
-// signal, that the journal kept Go and Leave only, and that a recovery
-// reaches the actor's state.
-func dropped(j journal.Journal[int, int]) bool needs Scheduler {
-	let gate = queue.New[int](1)
-	let sent = queue.New[int](1)
-	let relay = Machine[int, int, int]{Initial: 0, Step: relayStep, After: func(s int) Option[Timeout[int]] { None }, Work: func(s int) Option[func(send func(e int))] {
+// relay is the machine of relayStep whose state 0's work waits for gate,
+// sends Ping and then pushes to sent. Its body is the literal, so
+// journal.Start sees its step (rows.md, Footprints 6).
+func relay(gate queue.Queue[int], sent queue.Queue[int]) Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: relayStep, After: func(s int) Option[Timeout[int]] { None }, Work: func(s int) Option[func(send func(e int))] {
 		if s != 0 {
 			return None
 		}
@@ -200,7 +195,18 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 			}
 		}}
 	}}
-	let a = journal.Start(relay, j, 0, 4, func(o int) {
+}
+
+// dropped runs relay so that a Ping of entry 0 is sent after Go ended
+// that entry, and so dropped: the sink of Go's Emit runs before the runner
+// acts on the decision (runner rule 17), and it holds the runner until
+// entry 0's work has sent Ping. It holds that the actor dropped one
+// signal, that the journal kept Go and Leave only, and that a recovery
+// reaches the actor's state.
+func dropped(j journal.Journal[int, int]) bool needs Scheduler {
+	let gate = queue.New[int](1)
+	let sent = queue.New[int](1)
+	let a = journal.Start(relay(gate, sent), j, 0, 4, func(o int) {
 		gate.Push(1) catch {
 		case queue.Closed:
 		}
@@ -230,7 +236,7 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 	case journal.Failed:
 		return false
 	}
-	let b = journal.Start(relay, j, 0, 4, func(o int) {}) catch {
+	let b = journal.Start(relay(gate, sent), j, 0, 4, func(o int) {}) catch {
 	case _:
 		return false
 	}

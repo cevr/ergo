@@ -73,10 +73,7 @@ language	internal/tsproj/project.go:emitter.schema	Option	-
 debt	internal/sketch/check/authority.go:sealedStdOps	a std operation type is the runtime's Go type	NP4c
 debt	internal/sketch/check/drop.go:dropWalk.drain	a std type's drain body by name	NP3c
 debt	internal/sketch/check/drop.go:releasesResult	a std extern's hidden result release	NP4b
-debt	internal/sketch/check/durable.go:MakesHost	actor.NewHost by name	NP3a
-debt	internal/sketch/check/durable.go:TakesDurableMachine	the durable runners by name	NP3a
-debt	internal/sketch/check/durable.go:checker.durableStep	the durable step rule skips std	NP3a
-debt	internal/sketch/check/durable.go:checker.recordDurable	machines.Start by name	NP3a
+debt	internal/sketch/check/durable.go:MakesHost	actor.NewHost by name (the body fact "makes an unbound cell and acts on nothing")	NP4b
 debt	internal/sketch/check/embed.go:checker.embedCall	embed.FS by name	NP3d
 debt	internal/sketch/check/expr.go:checker.compositeLit	a Context literal only in std	NP3d
 debt	internal/sketch/check/extern.go:checker.checkExterns	std skips the user extern rule	NP4e

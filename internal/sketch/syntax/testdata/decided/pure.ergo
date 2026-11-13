@@ -1,0 +1,15 @@
+// The clause pure before a named parameter's type (grammar.md,
+// Declarations 15): a group shares it, and it stands before a machine, a
+// function type and an escaping one. Elsewhere pure is a name: a
+// parameter named pure, and a parameter of a type named pure.
+func Keep[S, E, O](m pure Machine[S, E, O], every int) int {
+	every
+}
+
+func Apply(f, g pure func(x int) int, h pure escaping func() int, x int) int {
+	f(g(x)) + h()
+}
+
+func Named(pure int, x pure) int {
+	pure
+}

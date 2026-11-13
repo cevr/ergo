@@ -233,7 +233,7 @@ func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink
 // the actor's first entry binds each one its first state holds, and its
 // work fills them with new children. Every other host recover made is
 // closed when StartDurable returns, so a journal never keeps a live child.
-func StartDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+func StartDurable[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, recover func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
 	try recovering(func() S fails G needs R { try recovered(recover, m.Initial) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 		StartMachine(durable(m, initial, save), capacity, sink)
 	})
@@ -253,7 +253,7 @@ extern go ergo.local/prototype/runtime/v1.ActorRecovering func recovering[S, A, 
 // A failure of recover at the start fails SuperviseDurable; at a restart
 // it is a defect of the new incarnation (ActorFreshDefect), which the
 // budget counts like any other.
-func SuperviseDurable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
+func SuperviseDurable[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], capacity int, sink escaping func(o O) needs R, policy tasks.Restart, recover escaping func() Option[S] fails G needs R, save escaping func(prev S, next S, sig E) fails G needs R) Actor[S, E, Decision[S, O], F] fails G needs R | W | Scheduler {
 	let first = m.Initial
 	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 		launch(durable(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit)
