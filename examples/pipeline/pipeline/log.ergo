@@ -105,9 +105,10 @@ func without(q []string, id string) []string {
 }
 
 // Normal is d with its queue as Evolve gives it: the runs still queued.
-// The desk keeps a run it no longer runs (one cancelled while queued) in
-// its queue until it passes it; the desk does the same with either
-// queue.
+// The desk commits the desk Evolve folds, so Normal of a desk is the desk;
+// the story (scene.ergo), a second implementation for the laws, keeps a
+// run it no longer runs (one cancelled while queued) in its queue until it
+// passes it, so RestartGoesOn compares both in this form.
 func Normal(d Desk) Desk {
 	let b = BookOf(d)
 	let mut queue = []string{}

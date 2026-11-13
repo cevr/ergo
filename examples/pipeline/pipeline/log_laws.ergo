@@ -37,8 +37,9 @@ func played(acts []Act, from int, flaky []int, log domain.Log[Entry]) Option[Pla
 
 // RecoverAgrees: the stream a scene wrote folds back (domain.Sourced's
 // recover with Evolve, which a restart runs) into the desk the scene
-// ended in: its runs, its log, the runs still queued, and the job with
-// its try.
+// ended in, exactly: its runs, its log, the runs still queued, and the
+// job with its try. The step commits the desk that Evolve folds (desk.ergo
+// apply), so no normal form is needed.
 law RecoverAgrees(acts []Act, flaky []int) {
 	let log = memory.New[Entry]()
 	match played(acts, 0, flaky, log) {
@@ -49,7 +50,7 @@ law RecoverAgrees(acts []Act, flaky []int) {
 		}
 		match l {
 		case Some[Ledger] as r:
-			Normal(r.Value.State) == Normal(p.Value.Desk)
+			r.Value.State == p.Value.Desk
 		case None:
 			false
 		}

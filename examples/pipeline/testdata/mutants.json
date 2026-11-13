@@ -100,8 +100,8 @@
     {
       "name": "px1-desk-last-first", "origin": "wf10/domain PX1",
       "file": "examples/pipeline/pipeline/desk.ergo",
-      "from": "\tfor i, id in b.Queue {\n",
-      "to": "\tfor i, id in slices.Reverse(b.Queue) {\n",
+      "from": "\t\treturn Enter[Desk]{Next: try apply(d, b.Queue[0], run.Start)}\n",
+      "to": "\t\treturn Enter[Desk]{Next: try apply(d, b.Queue[len(b.Queue)-1], run.Start)}\n",
       "rule": "Runs start in the order they were submitted: SceneAgreesWithStory.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
