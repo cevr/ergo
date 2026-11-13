@@ -552,6 +552,16 @@ func main() {
 	use(Mine)
 }
 `,
+	"prelude.Keeps": `type Mine {}
+
+func drain(_ Mine) []int { []int{} }
+
+func use(_ Keeps[int]) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Console": `type Mine {} implements Console
 
 func Println(_ Mine, line string) {}
@@ -965,6 +975,7 @@ func main() {
 // text. The other runtime protocols declare runtimeOnly for the same rule.
 var unexportedStd = map[string]string{
 	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
+	"prelude.Keeps":   "drain is an unexported operation of prelude.Keeps, so only a type of package prelude implements it",
 	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
 	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
 	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
@@ -1202,7 +1213,11 @@ func main() {
 // withForgedSeal attempts to spoof the private operation by spelling it
 // in the importing package too. Its package is part of its identity.
 func withForgedSeal(src string) string {
-	src = strings.Replace(src, "type Mine {}", "type Mine {}\nfunc runtimeOnly(_ Mine) {}", 1)
+	// After the declaration's whole line: it may end in an implements clause.
+	if i := strings.Index(src, "type Mine {}"); i >= 0 {
+		end := i + strings.IndexByte(src[i:]+"\n", '\n')
+		src = src[:end] + "\nfunc runtimeOnly(_ Mine) {}" + src[end:]
+	}
 	return strings.Replace(src, "type Mine {\n", "type Mine {\n\truntimeOnly(),\n", 1)
 }
 
@@ -1253,6 +1268,27 @@ func main() needs Ambient {
 	use(FakeEnv{Argv: []string{}})
 	let p os.Process = os.NewHost()
 	use(p)
+}
+`,
+		// IA2 (STD-NOPRIV): a module's stateful fake implements
+		// exec.Runner, its Start giving exec.Ended's Running. Mutant
+		// exec-ended-unexported (std exec has no Ended) refuses it.
+		"exec-runner": `import exec
+
+type Fake { Ran Map[string, int] } implements exec.Runner
+
+func Run(f Fake, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Result{Status: 0, Stdout: c.Name, Stderr: ""}
+}
+
+func Start(f Fake, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Ended(try f.Run(c), s)
+}
+
+func run() needs exec.Runner { _ = exec.Runner.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 1, Stdout: "", Stderr: ""} } }
+
+func main() {
+	with context { exec.Runner: Fake{Ran: Map[string, int]{}} } { run() }
 }
 `,
 		"queue-param": queueMine + `

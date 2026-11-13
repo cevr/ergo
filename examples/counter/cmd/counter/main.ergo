@@ -6,7 +6,7 @@ import counter/wheel
 // A Wheel is not passed as a Counter value: a value provider moves into a
 // provider cell only for a sealed operation type, in that type's package
 // (types.md, Interface assignability 6), and this binary is not counter.
-type Wheel { inner wheel.Wheel }
+type Wheel { inner wheel.Wheel } implements counter.Counter
 
 func NewWheel() Wheel               { Wheel{inner: wheel.NewWheel()} }
 func Add(w *Wheel, n counter.Digit) { w.inner.Add(n) }

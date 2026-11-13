@@ -8,7 +8,7 @@ type Scorer {
 	Score(a int, b int) int,
 }
 
-type Linear {}
+type Linear {} implements Scorer
 
 func Score(_ Linear, a int, b int) int {
 	a*3 + b

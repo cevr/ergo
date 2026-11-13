@@ -27,7 +27,7 @@ const cellHeader = `type Bag {
 	seal(),
 }
 
-type Box { xs []int, n int }
+type Box { xs []int, n int } implements Bag
 
 func NewBox() Box { Box{xs: []int{1, 2}, n: 0} }
 func Push(b *Box, n int) { b.xs = b.xs.Append(n) }
@@ -172,16 +172,16 @@ var cellCounterSource = strings.NewReplacer(
 // not 1 (the source's state), 0 (no release) or 808 (two).
 const cellReleaseSource = `import sync
 
-type Res { id int }
+type Res { id int } implements Closer
 func Close(r Res) {}
 
 type Bag {
+	..Closer,
 	Add(n int),
-	Close(),
 	seal(),
 }
 
-type Kept { r Res, n int, log sync.Ref[int] }
+type Kept { r Res, n int, log sync.Ref[int] } implements Bag
 
 func Add(k *Kept, n int) { k.n = k.n + n }
 func Close(k Kept) { k.log.Set(k.log.Get() * 100 + k.n + 1) }

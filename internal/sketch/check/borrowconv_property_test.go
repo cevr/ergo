@@ -45,14 +45,14 @@ type Counter {
 	Bump() int,
 }
 
-type Tally { n int }
+type Tally { n int } implements Counter
 
 func Bump(t *Tally) int {
 	t.n = t.n + 1
 	t.n
 }
 
-type Fixed {}
+type Fixed {} implements Counter
 
 func Bump(f Fixed) int { 1 }
 
@@ -462,7 +462,7 @@ type Counter {
 	Bump() int,
 }
 
-type Tally { n int }
+type Tally { n int } implements Counter
 
 func Bump(t *Tally) int { t.n }
 

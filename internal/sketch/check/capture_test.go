@@ -18,7 +18,7 @@ func TestProviderBuildHoldsGoForeign(t *testing.T) {
 
 type Pid { Get() int }
 
-type Real {}
+type Real {} implements Pid
 
 func Get(r Real) int needs go.Foreign { os.Getpid() }
 

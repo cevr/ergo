@@ -10,7 +10,7 @@ import machines
 func Search(_ Engine, pattern syntax.Node) engine.Matcher { NewSearchCompiled(pattern) }
 
 // SearchCompiled owns only immutable pattern data, never scan scratch.
-type SearchCompiled { prefix syntax.Prefix, program Program }
+type SearchCompiled { prefix syntax.Prefix, program Program } implements engine.Matcher
 
 // NewSearchCompiled selects an algorithm once, not for every input line.
 func NewSearchCompiled(pattern syntax.Node) SearchCompiled {

@@ -420,7 +420,7 @@ type Counter {
 	law TwoIncsAreTwice() { Inc(); Inc() } == { Twice() },
 }
 
-type Box { s sync.Ref[int] }
+type Box { s sync.Ref[int] } implements Counter
 
 func NewBox() Box { Box{s: sync.NewRef[int](0)} }
 

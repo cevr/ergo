@@ -64,19 +64,7 @@ func tapeSource(rng *rand.Rand) string {
 	b.WriteString(`import json
 
 type Tape {
-	Null(),
-	Number(text string),
-	Bool(b bool),
-	Int(n int64),
-	Uint(n uint64),
-	Float(f float64),
-	String(s string),
-	BeginList(n int),
-	EndList(),
-	BeginObject(n int),
-	Tag(name string),
-	Key(k string),
-	EndObject(),
+	..Writer,
 	Written() string,
 	raw(text string),
 	mark(k string),
@@ -87,7 +75,7 @@ type Tape {
 	law EchoMark(a string) { mark(a); echo() } == { mark(a); raw(a + "") },
 }
 
-type tape { last string, out string }
+type tape { last string, out string } implements Tape
 
 func NewTape() Tape { tape{last: "", out: ""} }
 func raw(t *tape, s string) { t.out = t.out + s }
