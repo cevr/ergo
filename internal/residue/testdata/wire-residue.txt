@@ -296,6 +296,11 @@ docs/wayfinder/snapshot.json	to `needs`; add `provides` on wires",
 internal/sketch/check/testdata/corpus/corpus-01.txtar	*
 
 # L11b: generic codecs (wired[T], codec witnesses) and the round-trip law of a by-name pair Wire
+examples/cborpack/cbor/cbor.ergo	// The form: a record is a map of its wire keys, a union value the map of
+examples/cborpack/cbor/cbor.ergo	func Encode[T wire](v T) string {
+examples/cborpack/cbor/tests.ergo	func hexOf[T wire](v T) string { hex.Encode(Encode(v)) }
+internal/sketchfront/ledger_import_test.go	// RawJoins the build rewrites by, and Show, which encodes any wire value
+internal/sketchfront/ledger_import_test.go	func Show[T wire](v T) string {
 examples/confparse/README.md	| `config/` | The domain. `config.ergo` (`Config`, `Listen`, the union `Level` with its by-name codec pair `ParseLevel`/`Wire`, whose round-trip law `LevelRound
 examples/confparse/cmd/confparse/main.ergo	let mut lines = []string{"\(c.Name): listen \(c.Listen.Host):\(c.Listen.Port), log \(config.Wire(c.Log))"}
 examples/confparse/config/config.ergo	// ParseLevel and Wire are Level's by-name codec pair (types.md, Codecs 1):

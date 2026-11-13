@@ -421,7 +421,7 @@ func End(r Reader) { r.c.End() }
 type Codec[T wire] { MaxBytes int, MaxDepth int }
 
 // Encode is v's JSON text.
-// (Its Text's buffer is borrowed, strings.Borrow and Settle, as
+// (Its Text's buffer is borrowed, strings.Borrow and Give, as
 // encoding/json keeps its encodeState: no other code sees it.)
 func Encode[T wire](c Codec[T], v T) string {
 	let t Text = text{comma: false, html: false, out: strings.Borrow()}

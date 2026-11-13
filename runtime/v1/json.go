@@ -715,4 +715,3 @@ func (c *Cursor) Tag() string {
 	c.wrong = !ok
 	return v
 }
-

@@ -234,6 +234,7 @@ func textBenches() []textBench {
 		{"TrimSuffix", "StringsTrimSuffix", func() { textSink = StringsTrimSuffix(s, "gamma ") }, func() { textSink = strings.TrimSuffix(s, "gamma ") }},
 		{"TrimLeft", "StringsTrimLeft", func() { textSink = StringsTrimLeft(" \t"+s, " \t") }, func() { textSink = strings.TrimLeft(" \t"+s, " \t") }},
 		{"TrimRight", "StringsTrimRight", func() { textSink = StringsTrimRight(s, " ma") }, func() { textSink = strings.TrimRight(s, " ma") }},
+		{"FromBytes", "StringsFromBytes", func() { textSink = StringsFromBytes(built) }, func() { textSink = string(built) }},
 		// The builder bodies against Go's strings.Builder: a loop of
 		// writes, a Grow, and the text of a built buffer (Go's String
 		// shares its bytes; StringsBuilderText copies them).
