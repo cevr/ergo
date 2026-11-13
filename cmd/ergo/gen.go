@@ -11,13 +11,15 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/cligen"
+	"ergo.local/prototype/internal/mcpgen"
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
 const genHelp = "usage: ergo gen rpc [--check] DIR.OPTYPE\n" +
-	"       ergo gen cli [--check] DIR.OPTYPE\n\n" +
+	"       ergo gen cli [--check] DIR.OPTYPE\n" +
+	"       ergo gen mcp [--check] DIR.OPTYPE\n\n" +
 	"ergo gen rpc writes the Effect RPC server and client of the operation\n" +
 	"type OPTYPE of the package in DIR (docs/spec/rpc.md): Ergo source over\n" +
 	"std rpc in DIR/<pkg>rpc/ (wire.ergo, server.ergo, client.ergo).\n\n" +
@@ -25,6 +27,11 @@ const genHelp = "usage: ergo gen rpc [--check] DIR.OPTYPE\n" +
 	"DIR/<pkg>cli/cli.ergo, a command per operation, Parse, Print, the law\n" +
 	"ArgsRoundTrip and Run (docs/spec/rpc.md, ergo gen cli). When DIR/<pkg>rpc\n" +
 	"exists, the cli package names its Request; it must be current.\n\n" +
+	"ergo gen mcp writes its Model Context Protocol tools: Ergo source over\n" +
+	"module mcp in DIR/<pkg>mcp/mcp.ergo, a tool per operation with the JSON\n" +
+	"schema of its arguments, Call, Arguments, Answer, Tools and the laws\n" +
+	"ArgumentsRoundTrip and ArgumentsFitTheSchema (docs/spec/rpc.md, ergo gen\n" +
+	"mcp). It names DIR/<pkg>rpc's Request: run ergo gen rpc first.\n\n" +
 	"Each file carries the contract's digest. --check writes nothing and\n" +
 	"fails when a file differs from what the contract generates now (a stale\n" +
 	"file).\n\n" +
@@ -33,10 +40,10 @@ const genHelp = "usage: ergo gen rpc [--check] DIR.OPTYPE\n" +
 	"invalid invocation.\n"
 
 // genCommand is `ergo gen rpc [--check] DIR.OPTYPE` (R1) and `ergo gen cli
-// [--check] DIR.OPTYPE` (AP1).
+// [--check] DIR.OPTYPE` (AP1) and `ergo gen mcp [--check] DIR.OPTYPE` (AP3).
 func genCommand(args []string) error {
-	if len(args) == 0 || (args[0] != "rpc" && args[0] != "cli") {
-		return usageError{message: "ergo gen writes RPC or CLI glue: ergo gen rpc|cli [--check] DIR.OPTYPE"}
+	if len(args) == 0 || (args[0] != "rpc" && args[0] != "cli" && args[0] != "mcp") {
+		return usageError{message: "ergo gen writes RPC, CLI or MCP glue: ergo gen rpc|cli|mcp [--check] DIR.OPTYPE"}
 	}
 	kind := args[0]
 	name := "ergo gen " + kind
@@ -69,10 +76,13 @@ func genCommand(args []string) error {
 		return exitStatusError{code: 1, message: name + ": " + err.Error()}
 	}
 	var out rpcgen.Files
-	if kind == "rpc" {
+	switch kind {
+	case "rpc":
 		out, err = rpcgen.Generate(root.Package, path, opName)
-	} else {
+	case "cli":
 		out, err = genCLI(root.Package, dir, path, opName)
+	default:
+		out, err = genMCP(root.Package, dir, path, opName)
 	}
 	if err != nil {
 		return exitStatusError{code: 1, message: name + ": " + err.Error()}
@@ -111,22 +121,43 @@ func genCommand(args []string) error {
 // Request when DIR/<pkg>rpc exists, which must then be what ergo gen rpc
 // writes now, so the two packages name one Request.
 func genCLI(pkg *check.Package, dir, path, opName string) (rpcgen.Files, error) {
-	rpcPath := ""
-	glue, err := rpcgen.Generate(pkg, path, opName)
+	rpcPath, err := currentRPC(pkg, dir, path, opName, "cli")
 	if err != nil {
 		return rpcgen.Files{}, err
 	}
-	rpcDir := filepath.Join(dir, glue.Dir)
-	if info, err := os.Stat(rpcDir); err == nil && info.IsDir() {
-		for file, text := range glue.Files {
-			have, err := os.ReadFile(filepath.Join(rpcDir, file))
-			if err != nil || !bytes.Equal(have, []byte(text)) {
-				return rpcgen.Files{}, fmt.Errorf("%s is stale, and the cli package names its Request; run ergo gen rpc first", filepath.Join(rpcDir, file))
-			}
-		}
-		rpcPath = path + "/" + glue.Dir
-	}
 	return cligen.Generate(pkg, path, opName, rpcPath)
+}
+
+// genMCP is the mcp package of the contract, over the rpc package's
+// Request, which must exist and be current.
+func genMCP(pkg *check.Package, dir, path, opName string) (rpcgen.Files, error) {
+	rpcPath, err := currentRPC(pkg, dir, path, opName, "mcp")
+	if err != nil {
+		return rpcgen.Files{}, err
+	}
+	return mcpgen.Generate(pkg, path, opName, rpcPath)
+}
+
+// currentRPC is the import path of DIR/<pkg>rpc when it exists, "" when it
+// does not; a file of it that differs from what ergo gen rpc writes now
+// fails, since the kind package names its Request.
+func currentRPC(pkg *check.Package, dir, path, opName, kind string) (string, error) {
+	glue, err := rpcgen.Generate(pkg, path, opName)
+	if err != nil {
+		return "", err
+	}
+	rpcDir := filepath.Join(dir, glue.Dir)
+	info, err := os.Stat(rpcDir)
+	if err != nil || !info.IsDir() {
+		return "", nil
+	}
+	for file, text := range glue.Files {
+		have, err := os.ReadFile(filepath.Join(rpcDir, file))
+		if err != nil || !bytes.Equal(have, []byte(text)) {
+			return "", fmt.Errorf("%s is stale, and the %s package names its Request; run ergo gen rpc first", filepath.Join(rpcDir, file), kind)
+		}
+	}
+	return path + "/" + glue.Dir, nil
 }
 
 // importPath is the import path of the package folder dir: its module's

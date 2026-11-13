@@ -10,7 +10,7 @@ import (
 )
 
 // generated is a contract whose files `ergo gen rpc` or `ergo gen cli`
-// wrote into a program of packages: the kind (rpc or cli) and the
+// wrote into a program of packages: the kind (rpc, cli or mcp) and the
 // argument of `ergo gen KIND --check`, the contract's package folder and
 // its operation type.
 type generated struct {

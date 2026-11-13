@@ -372,6 +372,7 @@ docs/spec/stdlib.md	| `json` | `Schema.ts` (`parseJson`, `encode`, `decode`), `J
 # network sense: Effect RPC's HTTP wire and the wire projection to TypeScript (R1)
 cmd/ergo/gen.go	*
 internal/cligen/cligen.go	*
+internal/mcpgen/mcpgen.go	*
 internal/rpcgen/rpcgen.go	*
 internal/rpcgen/loopback_test.go	*
 internal/rpcgen/held_test.go	*
@@ -406,6 +407,7 @@ examples/jobs-web/expected-skips	runs these laws through the wire
 examples/pipeline/pipeline/pipelinerpc/client.ergo	*
 examples/pipeline/pipeline/pipelinerpc/server.ergo	*
 examples/pipeline/pipeline/pipelinerpc/wire.ergo	*
+examples/pipeline/pipeline/pipelinemcp/mcp.ergo	*
 examples/pipeline/surfaces/laws.ergo	*
 examples/pipeline/surfaces/surfaces.ergo	*
 examples/pipeline/README.md	the wire's `Request`
