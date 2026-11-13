@@ -145,7 +145,7 @@ func (c *checker) interfaceIncludes(spec *syntax.InterfaceType, ctx *typeCtx, it
 func (c *checker) closer() *Named { return c.preludeContract("Closer") }
 
 // preludeContract is the prelude's operation type name, a contract the
-// language gives a meaning (Closer, R1; Keeps, R13), or nil.
+// language gives a meaning (Closer, R1; Keeping, R13), or nil.
 func (c *checker) preludeContract(name string) *Named {
 	if c.pkg.Path == std.PreludePath {
 		// The prelude's own check reads its scope: prelude() is not

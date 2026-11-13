@@ -89,11 +89,11 @@ type dropWalk struct {
 }
 
 // drain is the release of the values an operation type t keeps (Q7, R13;
-// questions Q6 of STD-NOPRIV): t includes the prelude's Keeps[E]
+// questions Q6 of STD-NOPRIV): t includes the prelude's Keeping[E]
 // (keepsOf), and each value its drain gives is released. Any package's
 // operation type keeps values the same way: queue.Queue[T]'s drain ends
 // admission and gives the values left, a Task's gives the result no Wait
-// delivered. nil when t includes no Keeps.
+// delivered. nil when t includes no Keeping.
 func (w *dropWalk) drain(t Type, it *Interface) *Drop {
 	_, elem := keepsOf(it, w.c.keeps())
 	if elem == nil {
@@ -113,7 +113,7 @@ func (w *dropWalk) drain(t Type, it *Interface) *Drop {
 	return w.visit(elem)
 }
 
-// DrainOp is the drain of the prelude's Keeps that the operation type t
+// DrainOp is the drain of the prelude's Keeping that the operation type t
 // includes, or nil (STD-NOPRIV NP3c; resources R13): t keeps values, and
 // the value's generated release calls it (after its Close, if it has one)
 // and releases each value it gives, last first. The rule reads the
@@ -124,13 +124,13 @@ func DrainOp(t Type) *Method {
 	if it == nil {
 		return nil
 	}
-	m, _ := keepsOf(it, preludeType("Keeps"))
+	m, _ := keepsOf(it, preludeType("Keeping"))
 	return m
 }
 
-// keeps is the prelude's keeping contract, `type Keeps[T] { drain() []T
+// keeps is the prelude's keeping contract, `type Keeping[T] { drain() []T
 // takes }` (resources R13).
-func (c *checker) keeps() *Named { return c.preludeContract("Keeps") }
+func (c *checker) keeps() *Named { return c.preludeContract("Keeping") }
 
 // keepsOf finds the instance of keeps that it includes, directly or
 // through an include, and gives its drain and its element type; nil, nil

@@ -508,10 +508,10 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 	}
 	if d.Drain != nil {
 		// An operation type that keeps values (Q7, R13; STD-NOPRIV NP3c):
-		// the drain of the prelude's Keeps it includes (check.DrainOp)
+		// the drain of the prelude's Keeping it includes (check.DrainOp)
 		// gives the values left, oldest first; they are released last
 		// entered first. A queue's drain also ends admission. The value of
-		// an operation type that includes Keeps and is no runtime type
+		// an operation type that includes Keeping and is no runtime type
 		// holds one that is, and the drain is its operation call.
 		xs, i, e := g.fc.temp("left"), g.fc.temp("i"), g.fc.temp("e")
 		op := check.DrainOp(d.Type)

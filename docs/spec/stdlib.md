@@ -1423,7 +1423,7 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/extern.go:IsGoError` | `go.Error` |
 | `internal/sketch/check/extern.go:predeclaredExtern` | the prelude's externs, intrinsics whose bodies the lowering writes |
 | `internal/sketch/check/implements.go:checker.implementsClause` | a prelude type, hidden by a package's own type of its name |
-| `internal/sketch/check/implements.go:checker.preludeContract` | `Closer`, `Keeps` |
+| `internal/sketch/check/implements.go:checker.preludeContract` | `Closer`, `Keeping` |
 | `internal/sketch/check/implements.go:checker.recordLegacyReleases` | `Closer` |
 | `internal/sketch/check/implements.go:isGoCloser` | `io.Closer` |
 | `internal/sketch/check/footprint.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |

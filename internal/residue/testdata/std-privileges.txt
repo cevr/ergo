@@ -37,7 +37,7 @@ language	internal/sketch/check/call.go:isUnreachable	Unreachable	-
 language	internal/sketch/check/close.go:checker.closeFacts	Close, the release operation	-
 language	internal/sketch/check/close.go:checker.closeTakes	Close, the release operation	-
 language	internal/sketch/check/implements.go:checker.implementsClause	a prelude type that a package's own type of its name hides	-
-language	internal/sketch/check/implements.go:checker.preludeContract	Closer and Keeps, the prelude's contracts	-
+language	internal/sketch/check/implements.go:checker.preludeContract	Closer and Keeping, the prelude's contracts	-
 language	internal/sketch/check/implements.go:checker.recordLegacyReleases	Closer, the release contract (ergo fix)	-
 language	internal/sketch/check/implements.go:isGoCloser	io.Closer, Go's release contract in a binding	-
 language	internal/sketch/check/contextvalues.go:contextRow	Context, the predeclared row value	-

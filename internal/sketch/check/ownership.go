@@ -823,7 +823,7 @@ func (w *ownWalk) valuesSeq(x syntax.Expr) (Type, bool) {
 
 // keptSeq reports whether op, an operation of t with no parameter, gives
 // a sequence of the values t keeps (STD-NOPRIV NP3c; Q7): t includes the
-// prelude's Keeps[E] (keepsOf), and op's result is a Seq of E
+// prelude's Keeping[E] (keepsOf), and op's result is a Seq of E
 // (queue.Queue[T]'s Values). Each value such a sequence yields is one t
 // gave back, so it is the iterating code's own. It returns the element
 // type as t's instance has it.

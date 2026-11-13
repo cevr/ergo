@@ -122,12 +122,12 @@ func TestArrayOwnership(t *testing.T) {
 // owned value whose type keeps resources and has no release (#197 L8 B2,
 // B3): a user operation type whose operation takes a resource and that has
 // no Close() (resources R1, R13). The std queue includes the prelude's
-// Keeps; this one does not, so a drain of Keeps' shape is an ordinary
+// Keeping; this one does not, so a drain of Keeping's shape is an ordinary
 // operation and nothing could release what it keeps (STD-NOPRIV NP3c).
 //
 // Mutants it catches that nothing else does: such a value admitted (its
 // resources leak silently), and keeps-read-by-name (a drain operation
-// counts without the Keeps include).
+// counts without the Keeping include).
 func TestNoReleaseRefused(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
 	src := ofPrelude + `type Keeper[T] { Put(v T) takes v, drain() []T takes }

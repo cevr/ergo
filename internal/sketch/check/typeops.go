@@ -370,7 +370,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			return assignment{}, fmt.Sprintf(cellHideText, v, h, t)
 		}
 		if tn, ok := t.(*Named); ok && c.keeps() != nil && tn.origin() == c.keeps() && !c.identical(v, t) {
-			// Keeps is the release's contract (R13): a type includes it,
+			// Keeping is the release's contract (R13): a type includes it,
 			// and its one operation, sealed, is the runtime's; no value
 			// is converted to it.
 			return assignment{}, fmt.Sprintf("%s is the release's contract for a type that keeps values (resources R13): a type includes it with ..%s, and no value converts to it", t, t)

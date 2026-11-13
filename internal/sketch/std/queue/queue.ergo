@@ -36,12 +36,12 @@ extern go ergo.local/prototype/runtime/v1.Queue type Queue[T] {
 	// from 0 to the capacity. The value of a Push that still waits for
 	// room is not counted. It never waits.
 	Len() int,
-	// A queue keeps the values it takes (the prelude's Keeps; resources
-	// R13, Q7): Keeps' drain is its release when its values are
+	// A queue keeps the values it takes (the prelude's Keeping; resources
+	// R13, Q7): Keeping's drain is its release when its values are
 	// resources. It ends admission, as End does, and gives every value
 	// left, oldest first; the owner's release releases them last entered
 	// first. Only the release calls it; it never waits.
-	..Keeps[T],
+	..Keeping[T],
 
 	// EndIsIdempotent: a second End returns at once and never fails.
 	law EndIsIdempotent() {
