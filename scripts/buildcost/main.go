@@ -8,6 +8,8 @@
 //	go run ./scripts/buildcost [-work DIR] [-ergo PATH] [-sizes 10,50] [-groups 24] [-seed 1] [-examples deps]
 //	go run ./scripts/buildcost gen DIR N [SEED [GROUPS]]
 //	go run ./scripts/buildcost empty [-work DIR]
+//	go run ./scripts/buildcost start [-work DIR] [-ergo PATH]
+//	go run ./scripts/buildcost count CMD [ARG...]
 //
 // The scenarios, for each generated program gN (internal/testinputs/
 // genprogram) and each named example: first build (Go's std archives are
@@ -17,6 +19,8 @@
 // `empty` counts the thin client (the ergo process with no work, a small
 // Go program, /bin/true) and the empty-package compile (Go's compile of
 // `package p`, the fixed cost of one compile process).
+// `start` counts the process start (start.go), and `count` counts any
+// command: the least user-mode instructions of five runs.
 //
 // Each run has its own Ergo cache under -work (XDG_CACHE_HOME), so a
 // scenario's predecessor is the one listed before it. -work defaults to a
@@ -44,10 +48,14 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "gen" {
 		os.Exit(gen(os.Args[2:]))
 	}
-	if len(os.Args) > 1 && os.Args[1] == "empty" {
-		os.Exit(run(os.Args[2:], true))
+	if len(os.Args) > 2 && os.Args[1] == "count" {
+		runner{}.leastOf(strings.Join(os.Args[2:], " "), os.Args[2:])
+		return
 	}
-	os.Exit(run(os.Args[1:], false))
+	if len(os.Args) > 1 && (os.Args[1] == "empty" || os.Args[1] == "start") {
+		os.Exit(run(os.Args[2:], os.Args[1]))
+	}
+	os.Exit(run(os.Args[1:], ""))
 }
 
 // gen writes the program of N packages for SEED to DIR.
@@ -110,7 +118,7 @@ type runner struct {
 	keep       bool
 }
 
-func run(args []string, empty bool) int {
+func run(args []string, mode string) int {
 	fs := flag.NewFlagSet("buildcost", flag.ContinueOnError)
 	work := fs.String("work", "", "scratch directory (default: a fresh one under /tmp/opencode, removed at the end)")
 	keep := fs.Bool("keep", false, "keep -work")
@@ -150,8 +158,11 @@ func run(args []string, empty bool) int {
 	load, _ := os.ReadFile("/proc/loadavg")
 	fmt.Printf("# buildcost %s/%s GOMAXPROCS=%d load %s", runtime.GOOS, runtime.GOARCH, runtime.GOMAXPROCS(0), firstField(string(load)))
 	fmt.Printf("# counted: %v\n", instructionsCounted())
-	if empty {
+	switch mode {
+	case "empty":
 		return r.empty()
+	case "start":
+		return r.start()
 	}
 	for _, s := range strings.Split(*sizes, ",") {
 		n, err := strconv.Atoi(strings.TrimSpace(s))

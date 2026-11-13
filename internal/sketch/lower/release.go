@@ -328,7 +328,7 @@ func (fc *funcCtx) closeBody(f *check.Func, recv string, site syntax.Node, emit 
 		ice(site, "a checked Close with a result or a failure row")
 	}
 	const name = "Release"
-	if runtimeBindings[name].release != callerRelease {
+	if runtimeBindings()[name].release != callerRelease {
 		ice(site, "the binding %s is not the caller release route", name)
 	}
 	body, err := v1.BodyOf(name)

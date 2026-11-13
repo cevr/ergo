@@ -41,7 +41,7 @@ var taskReleaseLaws = map[string]string{
 func TestRuntime199MaskProperty(t *testing.T) {
 	needsBuild(t)
 	routes := map[releaseRoute][]string{}
-	for name, binding := range runtimeBindings {
+	for name, binding := range runtimeBindings() {
 		if binding.release == notRelease || taskReleaseLaws[name] != "" {
 			continue
 		}

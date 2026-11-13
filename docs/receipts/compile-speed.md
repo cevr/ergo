@@ -76,6 +76,50 @@ millisecond for a warm `ergo build` typed in a shell needs a thinner start
 (the binary's init work), or the request inside `ergo serve` (CS9). The
 host was at load 20; the quiet-host wall time is not measured here.
 
+## Process start
+
+`go run ./scripts/buildcost start` counts the thin client, `ergo version`,
+the warm `ergo check` and `ergo build` of a module of four inputs, and a
+probe binary per package of the module and per heavy std package. Each
+probe imports only that package and has an empty `main`. Each line is the
+least of five runs, at load 26, with the warm answer (CS2) in place.
+
+| Process | Before (M instr) | After (M instr) |
+| --- | ---: | ---: |
+| A Go program with an empty main | 0.30 | 0.30 |
+| `ergo` with no arguments (usage, the thin client) | 3.06 | 2.09 |
+| `ergo version` | 2.99 | 2.10 |
+| warm `ergo check` (4 inputs, every work counter 0) | 3.87 | 2.92 |
+| warm `ergo build` (4 inputs, every work counter 0) | 3.89 | 2.99 |
+
+The module's package inits allocated 1.13 MB in 2,517 allocations before
+the change, and 132 KB in 896 after. Three changes made the difference:
+
+- `lower`'s `goMod` was a package-level value that read and copied every
+  runtime source (700 KB through `runtime.Files`) at start. Only tests used
+  it, so it now lives in a test file.
+- `runtime/v1`'s generated `bodyTable` was a map of 490 rows, built at
+  start. It is now a slice sorted by name, which Go lays out at build time,
+  and `BodyOf` searches it.
+- `lower`'s `runtimeBindings`, a map of 490 std Go bindings, is now built
+  on first use with `sync.OnceValue`, by lowering only.
+
+The whole warm request is now under the plan's 3.3 M (1 ms) budget, start
+included.
+
+What remains is not the module's own init, by the probes:
+- `net/http` costs 0.82 M over an empty main, 0.66 M of it `crypto/x509`;
+  `internal/toolchain` and `runtime/v1` link it.
+- `go/types` costs 0.14 M.
+- The rest, about 0.5 M, is the Go runtime's start work for a 30 MB binary
+  against an 8 MB one: the probe that links every package of the module
+  with an empty `main` is 1.59 M.
+
+A probe undercounts a package's own tables: the linker drops the init of
+a package-level map that nothing reaches, and a probe reaches nothing.
+`GODEBUG=inittrace=1 ergo version` shows the inits as `ergo` runs them.
+`TestStartBuildsNoTables` bounds the module's init bytes at 128 KiB.
+
 ## R
 
 R, the private reference server of 11 packages (42,771 lowered Go lines),
@@ -89,6 +133,7 @@ are not measured in this repository.
 go build -o /tmp/ergo ./cmd/ergo
 go run ./scripts/buildcost -ergo /tmp/ergo -sizes 10,50 -examples deps
 go run ./scripts/buildcost empty -ergo /tmp/ergo
+go run ./scripts/buildcost start -ergo /tmp/ergo
 ```
 
 The raw log is the wf10 run's `compile-speed/receipts/cs0-buildcost-bd0862c14.log`

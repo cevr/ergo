@@ -141,14 +141,14 @@ func TestRuntime199NoWaitBindings(t *testing.T) {
 	checked := 0
 	for _, name := range sortedKeys(func() map[string]bool {
 		m := map[string]bool{}
-		for name, b := range runtimeBindings {
+		for name, b := range runtimeBindings() {
 			if b.wait == noWait {
 				m[name] = true
 			}
 		}
 		return m
 	}()) {
-		b := runtimeBindings[name]
+		b := runtimeBindings()[name]
 		if b.release == callerRelease && taskReleaseLaws[name] != "" {
 			// A release that stops running code waits for it, masked
 			// (resources R9): a Task's in rt, a Running's for its program.
@@ -248,7 +248,7 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}
-	for name, binding := range runtimeBindings {
+	for name, binding := range runtimeBindings() {
 		if binding.wait != noWait {
 			parts := strings.Split(name, ".")
 			methods[parts[len(parts)-1]] = true

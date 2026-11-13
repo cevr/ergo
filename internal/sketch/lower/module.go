@@ -56,9 +56,6 @@ func Runtime() []File {
 	return files
 }
 
-// goMod is the go.mod of a program with no Go requirements.
-var goMod = string(goModFile(GoModule{}))
-
 // moduleFiles are the emitted module's files: go.mod, go.sum when the
 // program has one, and main.go.
 func moduleFiles(m GoModule, code []byte) []File {

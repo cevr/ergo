@@ -183,18 +183,25 @@ type Param struct {
 // with goDecls.body and fails on when it is stale, so it parses nothing
 // (CHK1).
 func BodyOf(name string) (Body, error) {
-	f, ok := bodyTable[name]
+	i, ok := slices.BinarySearchFunc(bodyTable, name, func(r bodyRow, name string) int { return strings.Compare(r.name, name) })
 	if !ok {
 		return Body{}, fmt.Errorf("runtime/v1: no exported Go body %s", name)
 	}
+	f := bodyTable[i].fact
 	if f.refusal != "" {
 		return Body{}, errors.New(f.refusal)
 	}
 	return f.body, nil
 }
 
-// bodyFact is one row of bodyTable: a body's shape, or the text of the
-// error goDecls.body refuses it with.
+// bodyRow is one row of bodyTable: a BodyOf name and its fact.
+type bodyRow struct {
+	name string
+	fact bodyFact
+}
+
+// bodyFact is a body's shape, or the text of the error goDecls.body
+// refuses it with.
 type bodyFact struct {
 	body    Body
 	refusal string

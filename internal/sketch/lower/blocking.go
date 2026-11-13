@@ -2,6 +2,7 @@ package lower
 
 import (
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -74,512 +75,514 @@ func (b runtimeBinding) takesCaller() bool {
 	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.wait == parentTask || b.wait == settleWait || b.wait == endWait || b.release == callerRelease || b.reads || b.task
 }
 
-var runtimeBindings = map[string]runtimeBinding{
-	// Scalar atomic handles preserve the source operation ABI and never wait.
-	"NewInt64":             {},
-	"NewBool":              {},
-	"Int64.Load":           {task: true},
-	"Int64.Store":          {task: true},
-	"Int64.Add":            {task: true},
-	"Int64.Swap":           {task: true},
-	"Int64.CompareAndSwap": {task: true},
-	"Bool.Load":            {task: true},
-	"Bool.Store":           {task: true},
-	"Bool.Swap":            {task: true},
-	"Bool.CompareAndSwap":  {task: true},
-	// Build-time assets are immutable in-memory reads: no waiting task.
-	"EmbeddedFS":  {},
-	"NewEmptyFS":  {},
-	"FS.ReadFile": {task: true},
-	"FS.ReadDir":  {task: true},
-	"FS.Stat":     {task: true},
-	"Sleep":       {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
-	"Task.Wait":   {wait: handleWait},
-	"Task.Stop":   {wait: drainWait},
-	// A Task's and a Set's release (B3t): Stop, masked on the caller.
-	"Task.Close":   {release: callerRelease},
-	"Set.Close":    {release: callerRelease},
-	"Queue.Push":   {wait: callerWait},
-	"Queue.Pop":    {wait: callerWait},
-	"Queue.Values": {wait: callerWait},
-	"Queue.End":    {},
-	"Queue.Poll":   {},
-	"Queue.Len":    {},
-	// The release of a queue of resources (release.go, B3; Q7): ends
-	// admission and gives the values left; never waits.
-	"Queue.Drain": {},
-	// The rest of the release of a Task whose value holds a resource
-	// (release.go, B3t; Q5): the value no Wait delivered; never waits.
-	"Task.Drain": {},
-	"Go":         {},
-	// timeout.After joins its body and deadline children, whichever ends
-	// first, as their parent (runtime.md, Timeouts).
-	"After":   {wait: childWait},
-	"OnExit":  {release: frameRelease},
-	"Release": {release: callerRelease},
-	// The end of a Go value's release (IG9): its Close's error is a
-	// defect. It runs inside Release, never waits and masks nothing.
-	"CloseFailed":  {},
-	"New":          {},
-	"WithCapacity": {},
-	"SlicesTake":   {},
-	"MapTake":      {},
-	"ArenaTake":    {}, // private arena storage removal; never waits
-	// tasks.Transform joins its children, whichever ends first, as their
-	// parent (stdlib.md, Tasks; rt.MapSpan).
-	"TasksTransform": {wait: childWait},
-	// tasks.Race joins every block's task, the first to end deciding.
-	"TasksRace": {wait: childWait},
-	// tasks.Set (runtime.md, G4): NewSet registers on the frame, as Go
-	// does; tasks.Go starts a member below the caller; Wait joins the
-	// members as their parent, and Stop stops and joins them, uninterruptibly.
-	"TasksNewSet":  {},
-	"TasksGo":      {wait: parentTask},
-	"TasksGoOwned": {wait: parentTask},
-	"Set.Wait":     {wait: childWait},
-	"Set.Stop":     {wait: childWait},
-	"Set.Len":      {},
-	// The with lifetime owner's scope (with, withClose; resources.md, Context
-	// ownership). None waits, and none is a release route: the release a
-	// with registers is the call of a checked Close, which masks itself
-	// (callerRelease). A provider's release is registered only by
-	// WithAcquire, in the masked step that builds it (resources.md R8), so
-	// the catalog binds no bare registration (Scope.WithClose).
-	"Scope.OpenWith":    {},
-	"Scope.WithAcquire": {},
-	"Scope.EndWith":     {},
-	// Owned values (release.go, B1; resources R5-R10, R21). None waits and
-	// none is a release route: an owned value's release is the call of its
-	// checked Close, which masks itself (callerRelease). Scope.Owner makes the
-	// entry of the code's scope and Owning registers it
-	// in the step that receives the value (R8); Hand and Returned end or
-	// defer the entry at a hand-off; Owned.Release releases at a scope end
-	// inside the frame.
-	"Scope.Owner":   {},
-	"Owning":        {},
-	"Hand":          {},
-	"Returned":      {},
-	"Owned.Release": {},
-	// Generated release (release.go, B2; resources R3, R37, R39): a value
-	// whose parts hold resources registers through OwningParts, a field
-	// taken in place marks its entry (Owned.TakeField), and its release
-	// runs each part's checked Close through one Drop, which keeps every
-	// part's defect (R9). None waits: each part masks itself.
-	// The static release (static.go, P-L8): a frame's owned values in
-	// slots and bits; StaticBegin takes the task its releases run on, and
-	// each Part is a checked Close, which masks itself. None waits.
-	"OwnStatic":       {},
-	"HandStatic":      {},
-	"ReturnStatic":    {},
-	"StaticBegin":     {task: true},
-	"Static.Part":     {},
-	"Static.Failed":   {},
-	"Static.End":      {},
-	"OwningParts":     {},
-	"Owned.TakeField": {},
-	"Scope.Drop":      {},
-	// A std body's release of a result it drops (Releaser; Gap 47) runs
-	// on the releasing task, which NewDrop receives as its hidden task.
-	"NewDrop":   {task: true},
-	"Drop.Part": {},
-	"Drop.End":  {},
-	// The context owner (calls.go, contextWith; runtime.md, G1): a region
-	// opens on the scope of the code at the with and ends at its block's
-	// normal end, or when that scope closes. The reads take the running
-	// task, whose immutable values a child shares from its start.
-	"Scope.OpenContext": {},
-	"Context.End":       {},
-	"ContextBound":      {reads: true},
-	"ContextValue":      {reads: true},
-	// std strings and strconv (G5a; stdlib.md, strings and strconv): pure
-	// bodies that neither wait nor release.
-	"StringsSplit":      {},
-	"StringsJoin":       {},
-	"StringsHasPrefix":  {},
-	"StringsHasSuffix":  {},
-	"StringsTrimSpace":  {},
-	"StringsTrimPrefix": {},
-	"StringsTrimSuffix": {},
-	"StringsFields":     {},
-	"StringsRepeat":     {},
-	"StringsToLower":    {},
-	"StringsToUpper":    {},
-	"StringsIndex":      {},
-	"StringsContains":   {},
-	"StringsSlice":      {},
-	"StrconvItoa":       {},
-	"StrconvAtoi":       {},
-	"StrconvQuote":      {},
-	// std-align S1c: the rest of Go's strings and strconv that the std
-	// takes, and utf8; pure, as above.
-	"StringsReplaceAll":   {},
-	"StringsLastIndex":    {},
-	"StringsCount":        {},
-	"StringsSplitN":       {},
-	"StringsEqualFold":    {},
-	"StringsContainsRune": {},
-	"UTF8RuneCount":       {},
-	"StrconvParseInt":     {},
-	"StrconvParseFloat":   {},
-	"StrconvParseBool":    {},
-	"StrconvFormatBool":   {},
-	"StrconvFormatFloat":  {},
-	"StrconvUnquote":      {},
-	// std slices and cmp (std-align S2a; stdlib.md, Slices and Maps):
-	// bodies that compute on their arguments and neither wait nor release.
-	// SortFunc and SortStableFunc call the program's comparator, which has
-	// an empty row (lowerer.adaptFunc), so they do not wait either.
-	"SlicesSort":           {},
-	"SlicesSortOwned":      {},
-	"SlicesSortFunc":       {},
-	"SlicesSortStableFunc": {},
-	"SlicesContains":       {},
-	"SlicesIndex":          {},
-	"SlicesReverse":        {},
-	"SlicesClone":          {},
-	"SlicesConcat":         {},
-	"SlicesRepeat":         {},
-	"SlicesSlice":          {},
-	"MapsClone":            {},
-	"SlicesMax":            {},
-	"SlicesMin":            {},
-	"SlicesBinarySearch":   {},
-	"SlicesEqual":          {},
-	"CmpCompare":           {},
-	"CmpLess":              {},
-	// std time (std-align S2b; stdlib.md, time): TimeHostNow reads the
-	// host clock and the others compute, so none waits; Timeline.Wait
-	// waits on the caller's task (rt.Sleep on the manual timeline), and
-	// Advance wakes sleepers without waiting.
-	"TimeHostNow": {},
-	"TimeFormat":  {},
-	"TimeParse":   {},
-	"TimeSub":     {},
-	"TimeSubMono": {},
-	// std-csv: pure bodies over encoding/csv on a string.
-	"CSVReadAll":     {},
-	"CSVScan":        {},
-	"CSVFormat":      {},
-	"HTTPListen":     {},
-	"Listener.Addr":  {},
-	"Listener.Close": {},
-	"HTTPServe":      {wait: childWait},
-	// std http.ParseQuery (S-query): a pure parse of a string.
-	"HTTPParseQuery": {},
-	// The client (H1): Do waits on the network and on the caller's stop.
-	"HTTPCheckOrigin":  {},
-	"HTTPDo":           {wait: callerWait},
-	"HTTPDoInto":       {wait: callerWait},
-	"HTTPCheckNetwork": {},
-	"HTTPFetch":        {wait: callerWait},
-	// FetchInto and DoInto share the exchange and runs put on the caller's task;
-	// IntoFile runs its fetch on the caller's task and waits on nothing.
-	"HTTPFetchInto": {wait: callerWait},
-	"HTTPIntoFile":  {task: true},
-	"BodyFile.Put":  {task: true},
-	// A streamed response (Rm): Begin and End take the exchange's lock
-	// for one step; Write checks the caller's stop, then waits on the
-	// network write and its flush, which a hang-up or Serve's stop ends.
-	"Exchange.Begin": {},
-	"Exchange.Write": {wait: callerWait},
-	"Exchange.End":   {},
-	// std machines (fs2): the defect of a timer that is not positive.
-	"MachineTimerNotPositiveAt": {},
-	// std-duration: pure bodies of duration text and arithmetic.
-	"TimeParseDuration": {},
-	"TimeDurationText":  {},
-	"TimeTimes":         {},
-	"TimeDivide":        {},
-	"TimeCount":         {},
-	// NewTimeline makes the calling task the first member of the manual
-	// clock's domain (fua-b), as NewVirtualTimeline does for an auto one.
-	"NewTimeline":   {wait: memberTask},
-	"Timeline.Read": {},
-	"Timeline.Wait": {wait: callerWait},
-	// Advance waits until the clock's domain settles (fua-b).
-	"Timeline.Advance":  {wait: settleWait},
-	"Timeline.Sleepers": {},
-	// std testing (stdlib.md, Testing): NewVirtualTimeline makes the
-	// calling task the first member of the clock's domain and returns; its
-	// Wait is Timeline.Wait's.
-	"NewVirtualTimeline": {wait: memberTask},
-	// std explore (stdlib.md, Testing): Replay arms the schedule the
-	// next points of an explored run follow; it never waits.
-	"ExploreReplay": {},
-	// std rand (std-align S2c; stdlib.md, rand): each draw takes the
-	// source's lock for one step of the PCG, or reads Go's global
-	// generator, and none waits on a task.
-	"NewStream":       {},
-	"Stream.Uint64":   {},
-	"Stream.IntN":     {},
-	"Stream.Float64":  {},
-	"RandHostUint64":  {},
-	"RandHostIntN":    {},
-	"RandHostFloat64": {},
-	// std sync (stdlib.md, Sync and STM 1): each operation of a Ref holds
-	// its mutex for one step, and an Update's or Modify's function has an
-	// empty row, so none waits on a task and none releases.
-	"NewRef":     {},
-	"Ref.Get":    {},
-	"Ref.Set":    {},
-	"Ref.Update": {},
-	"RefModify":  {},
-	// An owned Update or Modify (V6, refown.go): the same step, with the
-	// copy of a shared value under the same lock.
-	"RefUpdateOwned": {},
-	"RefModifyOwned": {},
-	// std testing Scripts (stdlib.md, Testing 7 to 12): each operation of
-	// an Op holds its mutex for one step and calls no program code.
-	"NewOp":     {},
-	"Op.Answer": {},
-	"Op.Calls":  {},
-	// std filepath (std-align S3a; stdlib.md, filepath): pure bodies that
-	// neither wait nor release.
-	"FilepathJoin":  {},
-	"FilepathBase":  {},
-	"FilepathDir":   {},
-	"FilepathExt":   {},
-	"FilepathClean": {},
-	"FilepathIsAbs": {},
-	"FilepathSplit": {},
-	"FilepathRel":   {},
-	// std utf8, strings, strconv, math and bits (std-text-runes;
-	// stdlib.md, strings and strconv, math and bits): pure bodies that
-	// neither wait nor release.
-	"UTF8DecodeRuneInString": {},
-	"UTF8RuneText":           {},
-	"UTF8AppendRune":         {},
-	"UTF8ValidString":        {},
-	"UTF8ValidRune":          {},
-	"UTF8RuneLen":            {},
-	"StringsToValidUTF8":     {},
-	"StringsCompare":         {},
-	"StringsPadLeft":         {},
-	"StringsPadRight":        {},
-	"StrconvFormatInt":       {},
-	"MathAbs":                {},
-	"MathCeil":               {},
-	"MathFloor":              {},
-	"MathTrunc":              {},
-	"MathRound":              {},
-	"MathSqrt":               {},
-	"MathPow":                {},
-	"MathMod":                {},
-	"MathInf":                {},
-	"MathNaN":                {},
-	"MathIsNaN":              {},
-	"MathIsInf":              {},
-	"MathToInt":              {},
-	"MathToInt8":             {},
-	"MathToInt16":            {},
-	"MathToInt32":            {},
-	"MathToInt64":            {},
-	"MathToUint":             {},
-	"MathToUint8":            {},
-	"MathToUint16":           {},
-	"MathToUint32":           {},
-	"MathToUint64":           {},
-	"MathToUintptr":          {},
-	"BitsOnesCount":          {},
-	"BitsOnesCount64":        {},
-	"BitsLeadingZeros":       {},
-	"BitsLeadingZeros64":     {},
-	"BitsTrailingZeros":      {},
-	"BitsTrailingZeros64":    {},
-	"BitsLen":                {},
-	"BitsLen64":              {},
-	"BitsRotateLeft32":       {},
-	"BitsRotateLeft64":       {},
-	// std hex, base64, sha256 and crc32 (G3 std-digest; stdlib.md,
-	// encodings and digests): pure bodies that neither wait nor release.
-	"HexEncode":       {},
-	"HexDecode":       {},
-	"Base64StdEncode": {},
-	"Base64URLEncode": {},
-	"Base64StdDecode": {},
-	"Base64URLDecode": {},
-	"Sha256Sum":       {},
-	"Crc32Checksum":   {},
-	"Crc32Update":     {},
-	// std json (S-json): text's value appenders and buffer pool, and
-	// the Cursor's reads; no body waits or releases.
-	"JSONAppendQuoted":   {},
-	"JSONAppendInt":      {},
-	"JSONAppendUint":     {},
-	"JSONAppendBool":     {},
-	"JSONAppendFloat":    {},
-	"JSONBytesText":      {},
-	"JSONOpen":           {},
-	"TOMLParse":          {},
-	"TOMLFromJSON":       {},
-	"JSONTake":           {},
-	"JSONRecycle":        {},
-	"Cursor.Wrong":       {},
-	"Cursor.TakeNull":    {},
-	"Cursor.Kind":        {},
-	"Cursor.Number":      {},
-	"Cursor.Path":        {},
-	"Cursor.Bool":        {},
-	"Cursor.Int":         {},
-	"Cursor.Uint":        {},
-	"Cursor.Float":       {},
-	"Cursor.String":      {},
-	"Cursor.BeginList":   {},
-	"Cursor.BeginObject": {},
-	"Cursor.Tag":         {},
-	"Cursor.More":        {},
-	"Cursor.Key":         {},
-	"Cursor.Skip":        {},
-	"Cursor.End":         {},
-	// std rpc (R1, Rm): Exits and ExitLines start and join a task per
-	// call below the caller (the request task, or a Loopback caller) and
-	// wait on the caller's stop; Call waits on the network and on the
-	// caller's stop; the others compute.
-	"RPCExits":     {wait: childWait},
-	"RPCExitLines": {wait: childWait},
-	"RPCCall":      {wait: callerWait},
-	"RPCParse":     {},
-	"RPCNextID":    {},
-	"RPCRequest":   {},
-	"RPCReadExit":  {},
-	"RPCTagged":    {},
-	"RPCTagOf":     {},
-	"RPCDie":       {},
-	"RPCRefuse":    {},
-	"RPCExact":     {},
-	"RPCExactUint": {},
-	// std os (G2; stdlib.md, host packages): bodies that read the host
-	// process and neither wait nor release.
-	"OSArgs":    {},
-	"OSHasEnv":  {},
-	"OSGetenv":  {},
-	"OSEnviron": {},
-	"OSGetwd":   {},
-	// std config (S-config; stdlib.md, config): a secret's constructor
-	// and its one read, and the pure names of a key, none of which waits
-	// or releases.
-	"NewRedacted":     {},
-	"Redacted.Reveal": {},
-	"ConfigFlagName":  {},
-	"ConfigEnvName":   {},
-	"ConfigFlagKey":   {},
-	"ConfigEnvKey":    {},
-	// std fs (G4, G4b; stdlib.md, fs): bodies that read or write the host
-	// file system and neither wait nor release.
-	"FSReadFile":  {},
-	"FSReadDir":   {},
-	"FSStat":      {},
-	"FSWriteFile": {},
-	"FSMkdirAll":  {},
-	// fs writes with a mode, appends, renames and removes (std-fs-safe).
-	"FSWriteFileMode": {},
-	"FSMkdirAllMode":  {},
-	"FSAppendFile":    {},
-	"FSChmod":         {},
-	"FSRename":        {},
-	"FSRemove":        {},
-	// fs.Root on the host (G1f): reads below a root, which neither wait
-	// nor release.
-	"FSOpenRoot":        {},
-	"HostRoot.ReadFile": {task: true},
-	"HostRoot.ReadDir":  {task: true},
-	"HostRoot.Stat":     {task: true},
-	"HostRoot.Name":     {task: true},
-	// std io (S1b; stdlib.md, io): bodies that write or read a standard
-	// stream of the host process; none releases. A read of standard input
-	// waits on the caller's task (batch-12 C3, decision O15): a stop of that
-	// task ends the wait, and the line read after it stays for the next read.
-	"IOPrint":            {},
-	"IOEprint":           {},
-	"IOIsTerminal":       {},
-	"IOReadAll":          {wait: callerWait},
-	"IOLines":            {wait: callerWait},
-	"IOStdinIsTerminal":  {},
-	"IOStderrIsTerminal": {},
-	// std term (CU2; stdlib.md, term): a mode change and a size read are
-	// one ioctl each; ReadKey waits on the caller's task through io's
-	// shared reader, as IOLines does.
-	"TermEnterRaw":    {},
-	"TermEnterNoEcho": {},
-	"TermLeave":       {},
-	"TermGetSize":     {},
-	"TermReadKey":     {wait: callerWait},
-	// std actor (MU3; runtime.md, Machines and actors 11): MachineSupervise
-	// (MachineStart with a restart budget, MU7)
-	// starts the actor's task as a child of the caller's task (a stop of
-	// the caller cascades into it) and waits for nothing but the child's
-	// start. Send, Ask, State and a Changes loop wait on the caller's task
-	// (for room, an answer or a state); Stop drains the runner
-	// uninterruptibly on the caller's task, parked in a clock's domain;
-	// Dropped reads a counter; ActorNoTimer returns a constant.
-	"MachineSupervise": {wait: childWait},
-	"ActorRestarts":    {},
-	"Actor.Send":       {wait: callerWait},
-	"Actor.Ask":        {wait: callerWait},
-	"Actor.State":      {wait: callerWait},
-	"Actor.Changes":    {wait: callerWait},
-	"Actor.Stop":       {wait: endWait},
-	"Actor.Dropped":    {},
-	"ActorNoTimer":     {},
-	// MU12: Drain waits, as Stop does, for the runner's end, uninterruptibly;
-	// exitKind waits for it on the caller's task; the exit's and the latest
-	// decision's reads take the actor's lock only.
-	"Actor.Drain":    {wait: endWait},
-	"ActorExitKind":  {wait: callerWait},
-	"ActorFinal":     {},
-	"ActorFailure":   {},
-	"ActorHasLatest": {},
-	"ActorLatest":    {},
-	// MU5: MachineChild starts the child's task as a child of the caller's
-	// task, shielded from its stop (the owner entry stops it), and waits
-	// for nothing but the child's start, as MachineStart does.
-	"MachineChild": {wait: childWait},
-	// MU10: Feed waits, as a Send does, for room for its source's start
-	// on the caller's task; the runner starts the source. The live State
-	// read of Can waits for its answer as State does.
-	"ActorFeed":      {wait: callerWait},
-	"ActorLiveState": {wait: callerWait},
-	// mu-host: NewHost reads its task to find the step it runs in and
-	// never waits; ActorNoHost returns nil; a host's Get waits for the
-	// fill on the caller's task, as State waits for an answer.
-	"NewHost":     {task: true},
-	"ActorNoHost": {},
-	// MU9: keep runs a durable actor's save on the step's task (its
-	// function value takes the task) and never waits by itself.
-	"ActorKeep": {task: true},
-	// DH1: recovering runs a durable start's recover and then its start
-	// on the caller's task (their function values take it), with the
-	// task's host binding set; it never waits by itself.
-	"ActorRecovering": {task: true},
-	"Host.Get":        {wait: callerWait},
-	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
-	// on the caller's task. Its cancel hook is the stop of that task: the
-	// body kills the program's process group and waits for the reap
-	// before it raises the interruption.
-	"ExecRun": {wait: callerWait},
-	// Start (CU4) checks the caller's stop and returns once the program has
-	// started; Chunks and Wait wait on the caller's task; Close is the
-	// Running's release, masked on the releasing task, as Task.Close is;
-	// ExecReplay (the Script's Start) starts nothing. Lines (CU4c) reads
-	// the chunks Chunks gives and waits as it does.
-	"ExecStart":      {wait: callerWait},
-	"ExecReplay":     {},
-	"Running.Chunks": {wait: callerWait},
-	"Running.Lines":  {wait: callerWait},
-	"Running.Wait":   {wait: callerWait},
-	"Running.Close":  {release: callerRelease},
-	"Running.Stop":   {release: callerRelease},
-	// WaitFor races Wait, on a child of the caller's task, against the
-	// Scheduler's deadline, as timeout.After does (v1.After).
-	"ExecWaitFor": {wait: childWait},
-}
+var runtimeBindings = sync.OnceValue(func() map[string]runtimeBinding {
+	return map[string]runtimeBinding{
+		// Scalar atomic handles preserve the source operation ABI and never wait.
+		"NewInt64":             {},
+		"NewBool":              {},
+		"Int64.Load":           {task: true},
+		"Int64.Store":          {task: true},
+		"Int64.Add":            {task: true},
+		"Int64.Swap":           {task: true},
+		"Int64.CompareAndSwap": {task: true},
+		"Bool.Load":            {task: true},
+		"Bool.Store":           {task: true},
+		"Bool.Swap":            {task: true},
+		"Bool.CompareAndSwap":  {task: true},
+		// Build-time assets are immutable in-memory reads: no waiting task.
+		"EmbeddedFS":  {},
+		"NewEmptyFS":  {},
+		"FS.ReadFile": {task: true},
+		"FS.ReadDir":  {task: true},
+		"FS.Stat":     {task: true},
+		"Sleep":       {wait: callerWait, hostTarget: runtimeModule + "/runtime/rt.Sleep", provider: "LiveScheduler"},
+		"Task.Wait":   {wait: handleWait},
+		"Task.Stop":   {wait: drainWait},
+		// A Task's and a Set's release (B3t): Stop, masked on the caller.
+		"Task.Close":   {release: callerRelease},
+		"Set.Close":    {release: callerRelease},
+		"Queue.Push":   {wait: callerWait},
+		"Queue.Pop":    {wait: callerWait},
+		"Queue.Values": {wait: callerWait},
+		"Queue.End":    {},
+		"Queue.Poll":   {},
+		"Queue.Len":    {},
+		// The release of a queue of resources (release.go, B3; Q7): ends
+		// admission and gives the values left; never waits.
+		"Queue.Drain": {},
+		// The rest of the release of a Task whose value holds a resource
+		// (release.go, B3t; Q5): the value no Wait delivered; never waits.
+		"Task.Drain": {},
+		"Go":         {},
+		// timeout.After joins its body and deadline children, whichever ends
+		// first, as their parent (runtime.md, Timeouts).
+		"After":   {wait: childWait},
+		"OnExit":  {release: frameRelease},
+		"Release": {release: callerRelease},
+		// The end of a Go value's release (IG9): its Close's error is a
+		// defect. It runs inside Release, never waits and masks nothing.
+		"CloseFailed":  {},
+		"New":          {},
+		"WithCapacity": {},
+		"SlicesTake":   {},
+		"MapTake":      {},
+		"ArenaTake":    {}, // private arena storage removal; never waits
+		// tasks.Transform joins its children, whichever ends first, as their
+		// parent (stdlib.md, Tasks; rt.MapSpan).
+		"TasksTransform": {wait: childWait},
+		// tasks.Race joins every block's task, the first to end deciding.
+		"TasksRace": {wait: childWait},
+		// tasks.Set (runtime.md, G4): NewSet registers on the frame, as Go
+		// does; tasks.Go starts a member below the caller; Wait joins the
+		// members as their parent, and Stop stops and joins them, uninterruptibly.
+		"TasksNewSet":  {},
+		"TasksGo":      {wait: parentTask},
+		"TasksGoOwned": {wait: parentTask},
+		"Set.Wait":     {wait: childWait},
+		"Set.Stop":     {wait: childWait},
+		"Set.Len":      {},
+		// The with lifetime owner's scope (with, withClose; resources.md, Context
+		// ownership). None waits, and none is a release route: the release a
+		// with registers is the call of a checked Close, which masks itself
+		// (callerRelease). A provider's release is registered only by
+		// WithAcquire, in the masked step that builds it (resources.md R8), so
+		// the catalog binds no bare registration (Scope.WithClose).
+		"Scope.OpenWith":    {},
+		"Scope.WithAcquire": {},
+		"Scope.EndWith":     {},
+		// Owned values (release.go, B1; resources R5-R10, R21). None waits and
+		// none is a release route: an owned value's release is the call of its
+		// checked Close, which masks itself (callerRelease). Scope.Owner makes the
+		// entry of the code's scope and Owning registers it
+		// in the step that receives the value (R8); Hand and Returned end or
+		// defer the entry at a hand-off; Owned.Release releases at a scope end
+		// inside the frame.
+		"Scope.Owner":   {},
+		"Owning":        {},
+		"Hand":          {},
+		"Returned":      {},
+		"Owned.Release": {},
+		// Generated release (release.go, B2; resources R3, R37, R39): a value
+		// whose parts hold resources registers through OwningParts, a field
+		// taken in place marks its entry (Owned.TakeField), and its release
+		// runs each part's checked Close through one Drop, which keeps every
+		// part's defect (R9). None waits: each part masks itself.
+		// The static release (static.go, P-L8): a frame's owned values in
+		// slots and bits; StaticBegin takes the task its releases run on, and
+		// each Part is a checked Close, which masks itself. None waits.
+		"OwnStatic":       {},
+		"HandStatic":      {},
+		"ReturnStatic":    {},
+		"StaticBegin":     {task: true},
+		"Static.Part":     {},
+		"Static.Failed":   {},
+		"Static.End":      {},
+		"OwningParts":     {},
+		"Owned.TakeField": {},
+		"Scope.Drop":      {},
+		// A std body's release of a result it drops (Releaser; Gap 47) runs
+		// on the releasing task, which NewDrop receives as its hidden task.
+		"NewDrop":   {task: true},
+		"Drop.Part": {},
+		"Drop.End":  {},
+		// The context owner (calls.go, contextWith; runtime.md, G1): a region
+		// opens on the scope of the code at the with and ends at its block's
+		// normal end, or when that scope closes. The reads take the running
+		// task, whose immutable values a child shares from its start.
+		"Scope.OpenContext": {},
+		"Context.End":       {},
+		"ContextBound":      {reads: true},
+		"ContextValue":      {reads: true},
+		// std strings and strconv (G5a; stdlib.md, strings and strconv): pure
+		// bodies that neither wait nor release.
+		"StringsSplit":      {},
+		"StringsJoin":       {},
+		"StringsHasPrefix":  {},
+		"StringsHasSuffix":  {},
+		"StringsTrimSpace":  {},
+		"StringsTrimPrefix": {},
+		"StringsTrimSuffix": {},
+		"StringsFields":     {},
+		"StringsRepeat":     {},
+		"StringsToLower":    {},
+		"StringsToUpper":    {},
+		"StringsIndex":      {},
+		"StringsContains":   {},
+		"StringsSlice":      {},
+		"StrconvItoa":       {},
+		"StrconvAtoi":       {},
+		"StrconvQuote":      {},
+		// std-align S1c: the rest of Go's strings and strconv that the std
+		// takes, and utf8; pure, as above.
+		"StringsReplaceAll":   {},
+		"StringsLastIndex":    {},
+		"StringsCount":        {},
+		"StringsSplitN":       {},
+		"StringsEqualFold":    {},
+		"StringsContainsRune": {},
+		"UTF8RuneCount":       {},
+		"StrconvParseInt":     {},
+		"StrconvParseFloat":   {},
+		"StrconvParseBool":    {},
+		"StrconvFormatBool":   {},
+		"StrconvFormatFloat":  {},
+		"StrconvUnquote":      {},
+		// std slices and cmp (std-align S2a; stdlib.md, Slices and Maps):
+		// bodies that compute on their arguments and neither wait nor release.
+		// SortFunc and SortStableFunc call the program's comparator, which has
+		// an empty row (lowerer.adaptFunc), so they do not wait either.
+		"SlicesSort":           {},
+		"SlicesSortOwned":      {},
+		"SlicesSortFunc":       {},
+		"SlicesSortStableFunc": {},
+		"SlicesContains":       {},
+		"SlicesIndex":          {},
+		"SlicesReverse":        {},
+		"SlicesClone":          {},
+		"SlicesConcat":         {},
+		"SlicesRepeat":         {},
+		"SlicesSlice":          {},
+		"MapsClone":            {},
+		"SlicesMax":            {},
+		"SlicesMin":            {},
+		"SlicesBinarySearch":   {},
+		"SlicesEqual":          {},
+		"CmpCompare":           {},
+		"CmpLess":              {},
+		// std time (std-align S2b; stdlib.md, time): TimeHostNow reads the
+		// host clock and the others compute, so none waits; Timeline.Wait
+		// waits on the caller's task (rt.Sleep on the manual timeline), and
+		// Advance wakes sleepers without waiting.
+		"TimeHostNow": {},
+		"TimeFormat":  {},
+		"TimeParse":   {},
+		"TimeSub":     {},
+		"TimeSubMono": {},
+		// std-csv: pure bodies over encoding/csv on a string.
+		"CSVReadAll":     {},
+		"CSVScan":        {},
+		"CSVFormat":      {},
+		"HTTPListen":     {},
+		"Listener.Addr":  {},
+		"Listener.Close": {},
+		"HTTPServe":      {wait: childWait},
+		// std http.ParseQuery (S-query): a pure parse of a string.
+		"HTTPParseQuery": {},
+		// The client (H1): Do waits on the network and on the caller's stop.
+		"HTTPCheckOrigin":  {},
+		"HTTPDo":           {wait: callerWait},
+		"HTTPDoInto":       {wait: callerWait},
+		"HTTPCheckNetwork": {},
+		"HTTPFetch":        {wait: callerWait},
+		// FetchInto and DoInto share the exchange and runs put on the caller's task;
+		// IntoFile runs its fetch on the caller's task and waits on nothing.
+		"HTTPFetchInto": {wait: callerWait},
+		"HTTPIntoFile":  {task: true},
+		"BodyFile.Put":  {task: true},
+		// A streamed response (Rm): Begin and End take the exchange's lock
+		// for one step; Write checks the caller's stop, then waits on the
+		// network write and its flush, which a hang-up or Serve's stop ends.
+		"Exchange.Begin": {},
+		"Exchange.Write": {wait: callerWait},
+		"Exchange.End":   {},
+		// std machines (fs2): the defect of a timer that is not positive.
+		"MachineTimerNotPositiveAt": {},
+		// std-duration: pure bodies of duration text and arithmetic.
+		"TimeParseDuration": {},
+		"TimeDurationText":  {},
+		"TimeTimes":         {},
+		"TimeDivide":        {},
+		"TimeCount":         {},
+		// NewTimeline makes the calling task the first member of the manual
+		// clock's domain (fua-b), as NewVirtualTimeline does for an auto one.
+		"NewTimeline":   {wait: memberTask},
+		"Timeline.Read": {},
+		"Timeline.Wait": {wait: callerWait},
+		// Advance waits until the clock's domain settles (fua-b).
+		"Timeline.Advance":  {wait: settleWait},
+		"Timeline.Sleepers": {},
+		// std testing (stdlib.md, Testing): NewVirtualTimeline makes the
+		// calling task the first member of the clock's domain and returns; its
+		// Wait is Timeline.Wait's.
+		"NewVirtualTimeline": {wait: memberTask},
+		// std explore (stdlib.md, Testing): Replay arms the schedule the
+		// next points of an explored run follow; it never waits.
+		"ExploreReplay": {},
+		// std rand (std-align S2c; stdlib.md, rand): each draw takes the
+		// source's lock for one step of the PCG, or reads Go's global
+		// generator, and none waits on a task.
+		"NewStream":       {},
+		"Stream.Uint64":   {},
+		"Stream.IntN":     {},
+		"Stream.Float64":  {},
+		"RandHostUint64":  {},
+		"RandHostIntN":    {},
+		"RandHostFloat64": {},
+		// std sync (stdlib.md, Sync and STM 1): each operation of a Ref holds
+		// its mutex for one step, and an Update's or Modify's function has an
+		// empty row, so none waits on a task and none releases.
+		"NewRef":     {},
+		"Ref.Get":    {},
+		"Ref.Set":    {},
+		"Ref.Update": {},
+		"RefModify":  {},
+		// An owned Update or Modify (V6, refown.go): the same step, with the
+		// copy of a shared value under the same lock.
+		"RefUpdateOwned": {},
+		"RefModifyOwned": {},
+		// std testing Scripts (stdlib.md, Testing 7 to 12): each operation of
+		// an Op holds its mutex for one step and calls no program code.
+		"NewOp":     {},
+		"Op.Answer": {},
+		"Op.Calls":  {},
+		// std filepath (std-align S3a; stdlib.md, filepath): pure bodies that
+		// neither wait nor release.
+		"FilepathJoin":  {},
+		"FilepathBase":  {},
+		"FilepathDir":   {},
+		"FilepathExt":   {},
+		"FilepathClean": {},
+		"FilepathIsAbs": {},
+		"FilepathSplit": {},
+		"FilepathRel":   {},
+		// std utf8, strings, strconv, math and bits (std-text-runes;
+		// stdlib.md, strings and strconv, math and bits): pure bodies that
+		// neither wait nor release.
+		"UTF8DecodeRuneInString": {},
+		"UTF8RuneText":           {},
+		"UTF8AppendRune":         {},
+		"UTF8ValidString":        {},
+		"UTF8ValidRune":          {},
+		"UTF8RuneLen":            {},
+		"StringsToValidUTF8":     {},
+		"StringsCompare":         {},
+		"StringsPadLeft":         {},
+		"StringsPadRight":        {},
+		"StrconvFormatInt":       {},
+		"MathAbs":                {},
+		"MathCeil":               {},
+		"MathFloor":              {},
+		"MathTrunc":              {},
+		"MathRound":              {},
+		"MathSqrt":               {},
+		"MathPow":                {},
+		"MathMod":                {},
+		"MathInf":                {},
+		"MathNaN":                {},
+		"MathIsNaN":              {},
+		"MathIsInf":              {},
+		"MathToInt":              {},
+		"MathToInt8":             {},
+		"MathToInt16":            {},
+		"MathToInt32":            {},
+		"MathToInt64":            {},
+		"MathToUint":             {},
+		"MathToUint8":            {},
+		"MathToUint16":           {},
+		"MathToUint32":           {},
+		"MathToUint64":           {},
+		"MathToUintptr":          {},
+		"BitsOnesCount":          {},
+		"BitsOnesCount64":        {},
+		"BitsLeadingZeros":       {},
+		"BitsLeadingZeros64":     {},
+		"BitsTrailingZeros":      {},
+		"BitsTrailingZeros64":    {},
+		"BitsLen":                {},
+		"BitsLen64":              {},
+		"BitsRotateLeft32":       {},
+		"BitsRotateLeft64":       {},
+		// std hex, base64, sha256 and crc32 (G3 std-digest; stdlib.md,
+		// encodings and digests): pure bodies that neither wait nor release.
+		"HexEncode":       {},
+		"HexDecode":       {},
+		"Base64StdEncode": {},
+		"Base64URLEncode": {},
+		"Base64StdDecode": {},
+		"Base64URLDecode": {},
+		"Sha256Sum":       {},
+		"Crc32Checksum":   {},
+		"Crc32Update":     {},
+		// std json (S-json): text's value appenders and buffer pool, and
+		// the Cursor's reads; no body waits or releases.
+		"JSONAppendQuoted":   {},
+		"JSONAppendInt":      {},
+		"JSONAppendUint":     {},
+		"JSONAppendBool":     {},
+		"JSONAppendFloat":    {},
+		"JSONBytesText":      {},
+		"JSONOpen":           {},
+		"TOMLParse":          {},
+		"TOMLFromJSON":       {},
+		"JSONTake":           {},
+		"JSONRecycle":        {},
+		"Cursor.Wrong":       {},
+		"Cursor.TakeNull":    {},
+		"Cursor.Kind":        {},
+		"Cursor.Number":      {},
+		"Cursor.Path":        {},
+		"Cursor.Bool":        {},
+		"Cursor.Int":         {},
+		"Cursor.Uint":        {},
+		"Cursor.Float":       {},
+		"Cursor.String":      {},
+		"Cursor.BeginList":   {},
+		"Cursor.BeginObject": {},
+		"Cursor.Tag":         {},
+		"Cursor.More":        {},
+		"Cursor.Key":         {},
+		"Cursor.Skip":        {},
+		"Cursor.End":         {},
+		// std rpc (R1, Rm): Exits and ExitLines start and join a task per
+		// call below the caller (the request task, or a Loopback caller) and
+		// wait on the caller's stop; Call waits on the network and on the
+		// caller's stop; the others compute.
+		"RPCExits":     {wait: childWait},
+		"RPCExitLines": {wait: childWait},
+		"RPCCall":      {wait: callerWait},
+		"RPCParse":     {},
+		"RPCNextID":    {},
+		"RPCRequest":   {},
+		"RPCReadExit":  {},
+		"RPCTagged":    {},
+		"RPCTagOf":     {},
+		"RPCDie":       {},
+		"RPCRefuse":    {},
+		"RPCExact":     {},
+		"RPCExactUint": {},
+		// std os (G2; stdlib.md, host packages): bodies that read the host
+		// process and neither wait nor release.
+		"OSArgs":    {},
+		"OSHasEnv":  {},
+		"OSGetenv":  {},
+		"OSEnviron": {},
+		"OSGetwd":   {},
+		// std config (S-config; stdlib.md, config): a secret's constructor
+		// and its one read, and the pure names of a key, none of which waits
+		// or releases.
+		"NewRedacted":     {},
+		"Redacted.Reveal": {},
+		"ConfigFlagName":  {},
+		"ConfigEnvName":   {},
+		"ConfigFlagKey":   {},
+		"ConfigEnvKey":    {},
+		// std fs (G4, G4b; stdlib.md, fs): bodies that read or write the host
+		// file system and neither wait nor release.
+		"FSReadFile":  {},
+		"FSReadDir":   {},
+		"FSStat":      {},
+		"FSWriteFile": {},
+		"FSMkdirAll":  {},
+		// fs writes with a mode, appends, renames and removes (std-fs-safe).
+		"FSWriteFileMode": {},
+		"FSMkdirAllMode":  {},
+		"FSAppendFile":    {},
+		"FSChmod":         {},
+		"FSRename":        {},
+		"FSRemove":        {},
+		// fs.Root on the host (G1f): reads below a root, which neither wait
+		// nor release.
+		"FSOpenRoot":        {},
+		"HostRoot.ReadFile": {task: true},
+		"HostRoot.ReadDir":  {task: true},
+		"HostRoot.Stat":     {task: true},
+		"HostRoot.Name":     {task: true},
+		// std io (S1b; stdlib.md, io): bodies that write or read a standard
+		// stream of the host process; none releases. A read of standard input
+		// waits on the caller's task (batch-12 C3, decision O15): a stop of that
+		// task ends the wait, and the line read after it stays for the next read.
+		"IOPrint":            {},
+		"IOEprint":           {},
+		"IOIsTerminal":       {},
+		"IOReadAll":          {wait: callerWait},
+		"IOLines":            {wait: callerWait},
+		"IOStdinIsTerminal":  {},
+		"IOStderrIsTerminal": {},
+		// std term (CU2; stdlib.md, term): a mode change and a size read are
+		// one ioctl each; ReadKey waits on the caller's task through io's
+		// shared reader, as IOLines does.
+		"TermEnterRaw":    {},
+		"TermEnterNoEcho": {},
+		"TermLeave":       {},
+		"TermGetSize":     {},
+		"TermReadKey":     {wait: callerWait},
+		// std actor (MU3; runtime.md, Machines and actors 11): MachineSupervise
+		// (MachineStart with a restart budget, MU7)
+		// starts the actor's task as a child of the caller's task (a stop of
+		// the caller cascades into it) and waits for nothing but the child's
+		// start. Send, Ask, State and a Changes loop wait on the caller's task
+		// (for room, an answer or a state); Stop drains the runner
+		// uninterruptibly on the caller's task, parked in a clock's domain;
+		// Dropped reads a counter; ActorNoTimer returns a constant.
+		"MachineSupervise": {wait: childWait},
+		"ActorRestarts":    {},
+		"Actor.Send":       {wait: callerWait},
+		"Actor.Ask":        {wait: callerWait},
+		"Actor.State":      {wait: callerWait},
+		"Actor.Changes":    {wait: callerWait},
+		"Actor.Stop":       {wait: endWait},
+		"Actor.Dropped":    {},
+		"ActorNoTimer":     {},
+		// MU12: Drain waits, as Stop does, for the runner's end, uninterruptibly;
+		// exitKind waits for it on the caller's task; the exit's and the latest
+		// decision's reads take the actor's lock only.
+		"Actor.Drain":    {wait: endWait},
+		"ActorExitKind":  {wait: callerWait},
+		"ActorFinal":     {},
+		"ActorFailure":   {},
+		"ActorHasLatest": {},
+		"ActorLatest":    {},
+		// MU5: MachineChild starts the child's task as a child of the caller's
+		// task, shielded from its stop (the owner entry stops it), and waits
+		// for nothing but the child's start, as MachineStart does.
+		"MachineChild": {wait: childWait},
+		// MU10: Feed waits, as a Send does, for room for its source's start
+		// on the caller's task; the runner starts the source. The live State
+		// read of Can waits for its answer as State does.
+		"ActorFeed":      {wait: callerWait},
+		"ActorLiveState": {wait: callerWait},
+		// mu-host: NewHost reads its task to find the step it runs in and
+		// never waits; ActorNoHost returns nil; a host's Get waits for the
+		// fill on the caller's task, as State waits for an answer.
+		"NewHost":     {task: true},
+		"ActorNoHost": {},
+		// MU9: keep runs a durable actor's save on the step's task (its
+		// function value takes the task) and never waits by itself.
+		"ActorKeep": {task: true},
+		// DH1: recovering runs a durable start's recover and then its start
+		// on the caller's task (their function values take it), with the
+		// task's host binding set; it never waits by itself.
+		"ActorRecovering": {task: true},
+		"Host.Get":        {wait: callerWait},
+		// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
+		// on the caller's task. Its cancel hook is the stop of that task: the
+		// body kills the program's process group and waits for the reap
+		// before it raises the interruption.
+		"ExecRun": {wait: callerWait},
+		// Start (CU4) checks the caller's stop and returns once the program has
+		// started; Chunks and Wait wait on the caller's task; Close is the
+		// Running's release, masked on the releasing task, as Task.Close is;
+		// ExecReplay (the Script's Start) starts nothing. Lines (CU4c) reads
+		// the chunks Chunks gives and waits as it does.
+		"ExecStart":      {wait: callerWait},
+		"ExecReplay":     {},
+		"Running.Chunks": {wait: callerWait},
+		"Running.Lines":  {wait: callerWait},
+		"Running.Wait":   {wait: callerWait},
+		"Running.Close":  {release: callerRelease},
+		"Running.Stop":   {release: callerRelease},
+		// WaitFor races Wait, on a child of the caller's task, against the
+		// Scheduler's deadline, as timeout.After does (v1.After).
+		"ExecWaitFor": {wait: childWait},
+	}
+})
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.
 // stdResult calls it inside the invocation environment for a deferred Seq.
 // Wait uses the handle's owning task inside the primitive; Stop drains
 // uninterruptibly. No extra poll is needed for any of these primitives.
 func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string, vals []string, env string, x *syntax.CallExpr, c *check.Call, site syntax.Node) string {
-	binding, ok := runtimeBindings[name]
+	binding, ok := runtimeBindings()[name]
 	if !ok {
 		ice(site, "runtime binding %s has no waiting policy", name)
 	}
@@ -616,7 +619,7 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 // call (hostCall).
 func (l *lowerer) hostBlockingIntrinsic(f *check.Func) func(*funcCtx, []string) string {
 	target := strings.Trim(f.Decl.Extern.Target.Value, "\"`")
-	for name, binding := range runtimeBindings {
+	for name, binding := range runtimeBindings() {
 		if binding.hostTarget == "" || target != binding.hostTarget {
 			continue
 		}

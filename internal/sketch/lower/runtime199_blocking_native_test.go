@@ -23,7 +23,7 @@ import (
 func TestRuntime199BlockingProperty(t *testing.T) {
 	needsBuild(t)
 	var names []string
-	for name, binding := range runtimeBindings {
+	for name, binding := range runtimeBindings() {
 		body, err := v1.BodyOf(name)
 		if err != nil {
 			t.Fatal(err)
@@ -68,7 +68,7 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 		t.Fatal("the owner has no blocking bindings")
 	}
 	for _, name := range names {
-		for _, route := range blockingRoutes(name, runtimeBindings[name]) {
+		for _, route := range blockingRoutes(name, runtimeBindings()[name]) {
 			t.Run(name+"/"+route, func(t *testing.T) { blockingNative(t, name, route) })
 		}
 	}
