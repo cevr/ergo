@@ -210,20 +210,6 @@ func main() needs Console {
 	Console.Println("made")
 }
 `},
-		{"sealed-conversion", "calls.go operations", "S109", "#206", `import queue
-type Mine {}
-func Push(_ Mine, v int) fails queue.Closed {}
-func Pop(_ Mine) int fails queue.Closed { 0 }
-func End(_ Mine) {}
-func Values(_ Mine) Seq[int] { queue.New[int](0).Values() }
-func Poll(_ Mine) Option[int] { None }
-func Len(_ Mine) int { 0 }
-func use(q queue.Queue[int]) { q.End() }
-func main() needs Console {
-	use(Mine)
-	Console.Println("converted")
-}
-`},
 		// The operation, generic and pointer Close forms release since
 		// lower-v1 stage 4 (stage4_close_test.go); a generic Close that
 		// needs witnesses is still the checker's (closeWitnessed).

@@ -28,7 +28,9 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // that no longer applies, a string-literal mutant with an anchor and one
 // without, mutants of a data file that only the tests their rows name
 // judge (one/word.txt, as std's .ergo sources), and on Linux one that
-// allocates past the memory limit.
+// allocates past the memory limit. TestGreet also reads the repository with
+// git ls-files, as internal/residue's rules do: in a copy with no Git index
+// it would fail on the unmutated tree.
 //
 // It checks that the runner reports exactly the model's status for each
 // mutant, that a killer is a test that asserts the mutated function (with
@@ -138,7 +140,7 @@ func (m fakeModule) source(pkg string) string {
 
 func (m fakeModule) testSource(pkg string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "package %s_test\n\nimport (\n\t\"os\"\n\t\"testing\"\n\n\t\"fake.test/m/internal/fakelog\"\n\t\"fake.test/m/one\"\n\t\"fake.test/m/two\"\n)\n\nvar _, _, _ = one.Greet, two.Grow, os.ReadFile\n\n", pkg)
+	fmt.Fprintf(&b, "package %s_test\n\nimport (\n\t\"os\"\n\t\"os/exec\"\n\t\"testing\"\n\n\t\"fake.test/m/internal/fakelog\"\n\t\"fake.test/m/one\"\n\t\"fake.test/m/two\"\n)\n\nvar _, _, _, _ = one.Greet, two.Grow, exec.Command, os.ReadFile\n\n", pkg)
 	for _, ft := range m.tests {
 		if ft.suite != pkg {
 			continue
@@ -149,6 +151,9 @@ func (m fakeModule) testSource(pkg string) string {
 			switch fn {
 			case "one.Greet":
 				fmt.Fprintf(&b, "\tif %s != \"hellobye\" {\n\t\tt.Fatal(%q)\n\t}\n", got, fn)
+				// It reads the repository, as internal/residue's rules do:
+				// the copy must carry the checkout's file list.
+				b.WriteString("\tif out, err := exec.Command(\"git\", \"ls-files\", \"--error-unmatch\", \"f.go\").CombinedOutput(); err != nil {\n\t\tt.Fatalf(\"git ls-files: %v\\n%s\", err, out)\n\t}\n")
 				continue
 			case "two.Grow":
 				fmt.Fprintf(&b, "\tif two.Grow(1) != 1 {\n\t\tt.Fatal(%q)\n\t}\n", fn)

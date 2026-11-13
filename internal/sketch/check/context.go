@@ -69,6 +69,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 	c.fn.branches = c.fn.branches[:len(c.fn.branches)-1]
 	done()
 	t.scope = scope
+	c.chargeWithReleases(x, frames)
 	c.recordWith(x, frames)
 	// A with's Fails is the row its block passes through (rows.md, With 6).
 	c.callInfo(x).Fails = errs
@@ -552,9 +553,6 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 		// Assignability), whose conversion holds its operations' functions
 		// (196m); the lowering reads it and never re-derives it.
 		a, why := c.providerAssignability(pt, cap)
-		if c.sealedRefused(e.Value, a) {
-			continue
-		}
 		if !a.ok() {
 			if why == "" {
 				why = pt.String() + " is not assignable to " + cap.String()

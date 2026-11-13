@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -21,8 +22,8 @@ import (
 //     entry binds nothing Provider returns, and an entry nothing reaches
 //     is not visited, so neither is acquired. The order is the one the
 //     builder follows: each entry after the providers it uses, the first
-//     ready entry first in the context pass's entry order (contexts by name,
-//     then entries in source order; ContextEntry.seq).
+//     ready entry first in the context pass's entry order (packages by path,
+//     contexts by name, then entries in source order; entryBefore).
 //  2. Release identity. An acquired provider whose type resolves a
 //     checked Close (Info.Closes) is a resource; its Close is recorded.
 //  3. Release needs. A release runs when the block ends, in the
@@ -162,8 +163,8 @@ func (c *checker) withOwnership() {
 				c.errorf(at, CodeType, "this resource provider names the package let %s, which has no owner to hand it to the with; a with owns and releases the providers it builds (resources R11); make the value in the provider", name)
 			}
 			c.cur = s.file
-			for _, cap := range c.releaseNeeds(a.Close) {
-				c.chargeRelease(s, a, cap)
+			for _, need := range c.providerNeeds(a) {
+				c.chargeRelease(s, a, need)
 			}
 		}
 		if owning {
@@ -226,7 +227,7 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 	for e := range want {
 		order = append(order, e)
 	}
-	sort.Slice(order, func(i, j int) bool { return order[i].seq < order[j].seq })
+	sort.Slice(order, func(i, j int) bool { return entryBefore(order[i], order[j]) })
 	built := map[*ContextEntry]bool{}
 	done := make([]bool, len(order))
 	var list []*Acquisition
@@ -325,9 +326,32 @@ func (c *checker) releaseNeeds(cl *Close) []Type {
 	return c.types.resolve(row).Elems()
 }
 
-// chargeRelease charges cap, a need of a's release, at s against the
-// environment outside the with (rule 3).
-func (c *checker) chargeRelease(s *withSite, a *Acquisition, cap Type) {
+// providerNeeds are the capabilities the release of a requires: the Close
+// of each part of the provider's release (Drop, R3), as for any release
+// (resources R5, Release needs).
+func (c *checker) providerNeeds(a *Acquisition) []relNeed {
+	if a.Drop != nil {
+		return c.dropNeeds(a.Drop)
+	}
+	return c.dropNeeds(&Drop{Close: a.Close}) // a.Releases()
+}
+
+// chargeRelease charges need, a need of a's release, at s against the
+// environment outside the with (Context ownership 6): an outer with that
+// binds it provides it; else the row of the function that holds the with
+// must hold it, as for a call of the Close at the with. The rows are
+// typed before ownership is known, so the first check records each need
+// no outer with and no written row holds (withNeeds), and a second check
+// charges it where the with is typed (chargeWithReleases): an inferred
+// row takes it, and a written row that lacks it is S102 with the clause
+// to write. A need the second check charged is done here.
+func (c *checker) chargeRelease(s *withSite, a *Acquisition, need relNeed) {
+	cap := need.cap
+	k, keyed := keyOf(cap)
+	op := withOperand{s.x, s.operand}
+	if keyed && c.withHit[withNeedKey{op, k}] {
+		return
+	}
 	if f, unknown := s.outer.binder(c.types, cap); unknown {
 		return
 	} else if f != nil {
@@ -349,12 +373,268 @@ func (c *checker) chargeRelease(s *withSite, a *Acquisition, cap Type) {
 	case t.declUses == nil && t.uses.unknown(c.types):
 		return
 	}
-	what := a.Close.Receiver
-	if t.declUses == nil {
-		c.errorf(s.x, CodeMissingCap, "the release of %s when this with ends requires %s, which is not in the inferred capability row of %s and no outer with provides it; a release runs outside the with and widens no inferred row, so write the row of %s (resources.md, Context ownership)", what, cap, t.name, t.name)
+	what := withReleaseWhat(need, a)
+	if keyed && c.withHit == nil {
+		// The first check: the second charges it where the with is typed.
+		if c.withNeeds == nil {
+			c.withNeeds = map[withOperand][]relCap{}
+		}
+		for _, r := range c.withNeeds[op] {
+			if r.key == k {
+				return
+			}
+		}
+		c.withNeeds[op] = append(c.withNeeds[op], relCap{key: k, cap: cap, what: what})
 		return
 	}
-	c.errorf(s.x, CodeMissingCap, "the release of %s when this with ends requires %s, which is not in the capability row of %s and no outer with provides it; a release runs outside the with (resources.md, Context ownership)", what, cap, t.name)
+	// A need the second check could not charge: seedType rebuilds every
+	// form a capability's argument takes, so no written program reaches
+	// this; it keeps the need from being dropped if one ever did.
+	c.errorf(s.x, CodeMissingCap, "%s requires %s, which is not in the capability row of %s and no with provides it", what, cap, t.name)
+}
+
+// withReleaseWhat is the subject of a with release's S102.
+func withReleaseWhat(need relNeed, a *Acquisition) string {
+	var of Type
+	if a.Drop != nil {
+		of = a.Drop.Type
+	} else {
+		of = a.Close.Receiver
+	}
+	return fmt.Sprintf("%s.Close, run by the release of %s when this with ends,", need.close.Receiver, of)
+}
+
+// withOperand is one operand of a with (withSite).
+type withOperand struct {
+	x *syntax.CallExpr
+	i int
+}
+
+// withNeedKey is one capability a with operand's release needs.
+type withNeedKey struct {
+	op  withOperand
+	cap capKey
+}
+
+// relCap is a capability a with operand's release needs, as the first
+// check found it (withNeeds): its key, the type of the first check, and
+// the S102's subject.
+type relCap struct {
+	key  capKey
+	cap  Type
+	what string
+}
+
+// chargeWithReleases charges, in the second check, the release needs the
+// first check found for the operands of the with x (withSeeds), each at x
+// as a call of the Close there is charged. The scope is the one around the
+// with: a need an operand before its own provides (the scope around its
+// frame) was never found, since the first check reads that scope.
+func (c *checker) chargeWithReleases(x *syntax.CallExpr, frames []*withFrame) {
+	if len(c.withSeeds) == 0 {
+		return
+	}
+	for i := range frames {
+		op := withOperand{x, i}
+		for _, r := range c.withSeeds[op] {
+			cap := c.seedCap(r)
+			if cap == nil || !sameAcross(r.cap, cap) {
+				// Not named again as the first check found it: reported
+				// by chargeRelease, as a need never charged.
+				continue
+			}
+			c.withHit[withNeedKey{op, r.key}] = true
+			c.chargeAs(x, cap, r.what)
+		}
+	}
+}
+
+// seedCap is, in the second check, the capability the first check found
+// (seedType). nil when it cannot be named again, which chargeRelease then
+// reports in the first check's way.
+func (c *checker) seedCap(r relCap) Type {
+	if _, ok := r.cap.(*Named); !ok {
+		return nil
+	}
+	return c.seedType(r.cap)
+}
+
+// seedType is t, a type of the first check, in the second: a type that
+// names none of this package's types is the same in both checks; this
+// package's named type is looked up by name again, and an instance of a
+// generic type (Log[Job], a capability's concrete arguments, types.md
+// Capabilities 7) is instantiated again from its arguments' types. It
+// rebuilds every form typExpr resolves a capability's argument to (a
+// slice, an array, a map, a borrow, a tuple, a function type and its
+// rows, an error row argument); a record, an operation type or a union is
+// a named type there. nil for any other type.
+func (c *checker) seedType(t Type) Type {
+	if !c.namesLocal(t) {
+		return t
+	}
+	switch t := t.(type) {
+	case *Named:
+		n := t.origin()
+		if c.local(n) {
+			o, _ := c.pkg.Scope.lookup(n.Obj.Name)
+			tn, ok := o.(*TypeName)
+			if !ok {
+				return nil
+			}
+			if n, ok = tn.Type.(*Named); !ok || len(t.TArgs) == 0 {
+				return tn.Type
+			}
+		}
+		// Another package's generic type keeps its origin: its
+		// arguments name this package's types.
+		args := c.seedTypes(t.TArgs)
+		if args == nil {
+			return nil
+		}
+		return c.instantiate(n, args)
+	case *Tuple:
+		if ts := c.seedTypes(t.Types); ts != nil {
+			return &Tuple{Types: ts}
+		}
+	case *RowArg:
+		if r := c.seedRow(t.Row); r != nil {
+			return &RowArg{Row: r}
+		}
+	case *Pointer:
+		if e := c.seedType(t.Elem); e != nil {
+			return &Pointer{Elem: e}
+		}
+	case *Signature:
+		return c.seedSig(t)
+	case *Slice:
+		if e := c.seedType(t.Elem); e != nil {
+			return &Slice{Elem: e}
+		}
+	case *Array:
+		if e := c.seedType(t.Elem); e != nil {
+			return &Array{Len: t.Len, Elem: e}
+		}
+	case *Map:
+		k, e := c.seedType(t.Key), c.seedType(t.Elem)
+		if k != nil && e != nil {
+			return &Map{Key: k, Elem: e}
+		}
+	}
+	return nil
+}
+
+func (c *checker) seedTypes(ts []Type) []Type {
+	out := make([]Type, len(ts))
+	for i, t := range ts {
+		if out[i] = c.seedType(t); out[i] == nil {
+			return nil
+		}
+	}
+	return out
+}
+
+func (c *checker) seedRow(r *Row) *Row {
+	out := newRow()
+	for _, e := range r.Elems() {
+		s := c.seedType(e)
+		if s == nil {
+			return nil
+		}
+		out = out.with(c.types, s)
+	}
+	return out
+}
+
+// seedSig is a function type of the first check in the second: its
+// parameters, results and rows rebuilt, its marks kept.
+func (c *checker) seedSig(t *Signature) Type {
+	params := make([]*Var, len(t.Params))
+	for i, p := range t.Params {
+		pt := c.seedType(p.Type)
+		if pt == nil {
+			return nil
+		}
+		params[i] = &Var{Name: p.Name, Type: pt, Pos: p.Pos, param: true}
+	}
+	results := c.seedTypes(t.Results)
+	errs, uses := c.seedRow(t.Errors), c.seedRow(t.Uses)
+	if results == nil || errs == nil || uses == nil {
+		return nil
+	}
+	return &Signature{Params: params, Results: results, Fallible: t.Fallible, Errors: errs, Uses: uses,
+		NonEscaping: t.NonEscaping, Takes: slices.Clone(t.Takes), TakesSelf: t.TakesSelf}
+}
+
+// sameAcross reports that a, a type of one check, and b, of another,
+// are the same type: the same forms (shape, which reads a function type's
+// escaping mark and takes clause), named types of one declaration by
+// package and name, and rows of the same elements. Ids are each check's
+// own, so it compares the structure.
+func sameAcross(a, b Type) bool {
+	if ra, ok := a.(*RowArg); ok {
+		rb, ok := b.(*RowArg)
+		if !ok || len(ra.Row.Elems()) != len(rb.Row.Elems()) {
+			return false
+		}
+		for _, x := range ra.Row.Elems() {
+			if !slices.ContainsFunc(rb.Row.Elems(), func(y Type) bool { return sameAcross(x, y) }) {
+				return false
+			}
+		}
+		return true
+	}
+	ka, refA, na, sa, kidsA := shape(a)
+	kb, refB, nb, sb, kidsB := shape(b)
+	if ka != kb || na != nb || sa != sb || len(kidsA) != len(kidsB) {
+		return false
+	}
+	switch ka {
+	case vNamed:
+		oa, ob := refA.(*Named).Obj, refB.(*Named).Obj
+		if oa.Name != ob.Name || (oa.Pkg == nil) != (ob.Pkg == nil) || oa.Pkg != nil && oa.Pkg.Path != ob.Pkg.Path {
+			return false
+		}
+	case vBasic:
+		if refA != refB {
+			return false
+		}
+	case vSlice, vArray, vMap, vPointer, vTuple, vSig:
+	default:
+		return false // no form of a capability's argument
+	}
+	for i := range kidsA {
+		if !sameAcross(kidsA[i], kidsB[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// local reports a named type of this package.
+func (c *checker) local(n *Named) bool {
+	return n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.Path == c.pkg.Path
+}
+
+// namesLocal reports a named type of this package that t is built from,
+// through a function type's rows and a row argument's elements too.
+func (c *checker) namesLocal(t Type) bool {
+	seen := map[Type]bool{}
+	var walk func(Type) bool
+	walk = func(t Type) bool {
+		if t == nil || seen[t] {
+			return false
+		}
+		seen[t] = true
+		if n, ok := t.(*Named); ok && c.local(n) {
+			return true
+		}
+		if r, ok := t.(*RowArg); ok {
+			return slices.ContainsFunc(r.Row.Elems(), walk)
+		}
+		_, _, _, _, kids := shape(t)
+		return slices.ContainsFunc(kids, walk)
+	}
+	return walk(t)
 }
 
 // discharge adds cap, provided by e, to the with's discharged list, in its

@@ -52,7 +52,15 @@ func Main(m *testing.M) int { return MainFunc(m, m.Run) }
 // MainFunc is Main for a TestMain that prepares the test process: run does
 // the preparation, calls m.Run and returns its exit code. It runs only in
 // the process that runs the tests.
+//
+// With ERGO_GO unset, the tests build with the go command on PATH
+// (ERGO_GO=system), as in the gate: a test that runs the ergo CLI never
+// downloads its pinned Go (internal/toolchain), so no test needs the
+// network. A caller's ERGO_GO stands.
 func MainFunc(m *testing.M, run func() int) int {
+	if _, set := os.LookupEnv("ERGO_GO"); !set {
+		os.Setenv("ERGO_GO", "system")
+	}
 	raiseOOMScore()
 	log := testLog(os.Args[1:])
 	if observed || log == "" {

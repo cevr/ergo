@@ -225,6 +225,11 @@ func (l *lowerer) decl(d syntax.Decl) {
 		if !ok {
 			ice(d.Name, "the type %s has no Defs entry", d.Name.Name)
 		}
+		if n, ok := tn.Type.(*check.Named); ok && l.runtimeType(n, d.Name) != "" {
+			// A std type the runtime declares (std's own ledger build,
+			// whose root is a std package): no declaration of the program.
+			return
+		}
 		l.emitType(l.typeDecl(tn, d.Name))
 	case *syntax.FuncDecl:
 		f, ok := l.info.Defs[d.Name].(*check.Func)
@@ -955,6 +960,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	if directives {
 		l.recordDecl(fc.owner, f.Decl)
 	}
+	if n := nativeOf(f); n != nil {
+		l.emitNative(b, fd.name, n, f) // pattern.go
+		return
+	}
 	var head strings.Builder
 	var params []*check.Var
 	if f.Decl.Type != nil && f.Decl.Type.Params != nil {
@@ -1146,7 +1155,20 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	l.analyzeValues(f.Decl, f.Pkg.Info)
 	fc.goGeneric = sp == nil && len(own) > 0
 	fc.scalarSet = l.scalarVars(f)
-	fc.closeBody(f, site, func() {
+	if l.ir != nil && !known && sp == nil && !owned && !needsFrame && len(own) == 0 {
+		// LowerIR only (irspike_experimental.go): a body in the spike's
+		// subset leaves its Go declaration without a body.
+		if l.ir.body(fc, fd, params) {
+			fd.lowered, fd.readsEnv = true, fc.env != ""
+			b.WriteString(directive + head.String() + "\n\n")
+			return
+		}
+	}
+	recvName := ""
+	if len(paramNames) > 0 {
+		recvName = paramNames[0]
+	}
+	fc.closeBody(f, recvName, site, func() {
 		if needsFrame {
 			fc.site = site
 			fc.openFrame(frameErr)

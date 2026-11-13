@@ -75,7 +75,7 @@ func nonEscaping(t Type) bool {
 func (c *checker) checkEscapes() {
 	for _, f := range c.files {
 		c.cur = f
-		w := &escWalk{c: c, info: c.pkg.Info, varFrame: map[*Var]int{}, declDepth: map[*Var]int{}, writes: map[*syntax.Ident]bool{}}
+		w := &escWalk{c: c, info: c.pkg.Info, varFrame: map[*Var]int{}, declDepth: map[*Var]int{}, writes: map[*syntax.Ident]bool{}, borrowHolders: map[*Var]Type{}}
 		for _, d := range f.syntax.Decls {
 			w.borrowAliases(d)
 			w.localFrames(d)
@@ -116,6 +116,12 @@ type escWalk struct {
 	// an explicit or implicit borrow anywhere in the declaration means
 	// unknown aliases are possible, so this local keeps reference capture.
 	addressed map[*Var]bool
+	// borrowHolders maps a local that holds a value converted from a
+	// borrow to the type it holds it as (borrowconv.go).
+	borrowHolders map[*Var]Type
+	// keeps memoizes, for a generic function and a type parameter, why
+	// its body may keep a value of it (borrowtargs.go).
+	keeps map[*Func]map[*TypeParam]string
 
 	// Local frames (localFrames below): collecting is set during the
 	// first walk of a declaration, which records the uses of each local
@@ -139,6 +145,7 @@ func (w *escWalk) visit(n syntax.Node) {
 	if x, ok := n.(syntax.Expr); ok && w.c.typeNodes[x] {
 		return
 	}
+	w.checkBorrowConv(n)
 	if id, ok := n.(*syntax.Ident); ok {
 		if v, ok := w.info.Defs[id].(*Var); ok {
 			w.varFrame[v] = len(w.frames) - 1
@@ -164,6 +171,8 @@ func (w *escWalk) visit(n syntax.Node) {
 			if holdsBorrow(v.Type) {
 				w.borrowUse(id, v)
 			}
+			// A provider cell stays on its task (cells.go).
+			w.cellCapture(id, v)
 			w.aliasUse(id, v)
 		}
 		return

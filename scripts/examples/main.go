@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -64,6 +65,8 @@ type config struct {
 	check   bool
 	lawless bool
 	names   []string
+	// jobs is how many programs run at once (runAll).
+	jobs int
 	// memory is the limit of each built program a case runs: ERGO_PROGRAM_MEMORY,
 	// 2 GiB by default (internal/proclimit; docs/tooling.md, "Test memory").
 	// `ergo test` reads the same variable for the test binaries it runs.
@@ -147,15 +150,89 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	defer l.removeDir(scratch)
-	r := &runner{cfg: cfg, out: stdout, scratch: scratch, live: l}
-	for _, p := range selected {
-		if cfg.record {
-			r.recordProgram(p)
-		} else {
-			r.runProgram(p)
+	r := &runner{cfg: cfg, out: stdout, scratch: scratch, live: l, install: &tsInstall{}}
+	return r.runAll(selected)
+}
+
+// programRun is what one program's run left: its output, its counts, and
+// the value of a panic of its goroutine, if one ended it.
+type programRun struct {
+	out      bytes.Buffer
+	cases    int
+	failures []string
+	panicked any
+	ended    chan struct{}
+}
+
+// runAll runs (or records) the selected programs, at most cfg.jobs at
+// once. Each program writes into its own buffer and counts its own cases
+// and failures, so its lines stay together and each FAIL line names it.
+// The buffers are printed, and the counts summed, in selection order, as
+// soon as a program and every program before it have ended: the output is
+// the same whatever order the programs end in. A panic of a program's
+// goroutine stops the run (as a signal does: no command starts after it,
+// and every live group stops), and reaches run's caller once every
+// program's goroutine has ended.
+func (r *runner) runAll(selected []*program) int {
+	runs := make([]*programRun, len(selected))
+	for i := range runs {
+		runs[i] = &programRun{ended: make(chan struct{})}
+	}
+	next := make(chan int)
+	go func() {
+		defer close(next)
+		for i := range selected {
+			next <- i
 		}
+	}()
+	for range min(r.cfg.jobs, len(selected)) {
+		go func() {
+			for i := range next {
+				r.runOne(selected[i], runs[i])
+			}
+		}()
+	}
+	for i, pr := range runs {
+		<-pr.ended
+		if pr.panicked != nil {
+			r.live.interrupt()
+			for _, rest := range runs[i+1:] {
+				<-rest.ended
+			}
+			panic(pr.panicked)
+		}
+		_, _ = r.out.Write(pr.out.Bytes())
+		r.cases += pr.cases
+		r.failures = append(r.failures, pr.failures...)
 	}
 	return r.finish()
+}
+
+// runOne runs one program with a runner of its own over the run's shared
+// state (the configuration, the scratch, the live groups and directories,
+// the TypeScript install), and records what it left in pr.
+func (r *runner) runOne(p *program, pr *programRun) {
+	defer close(pr.ended)
+	defer func() { pr.panicked = recover() }()
+	one := &runner{cfg: r.cfg, out: &pr.out, scratch: r.scratch, live: r.live, install: r.install}
+	if r.cfg.record {
+		one.recordProgram(p)
+	} else {
+		one.runProgram(p)
+	}
+	pr.cases, pr.failures = one.cases, one.failures
+}
+
+// defaultJobs is how many programs run at once when -jobs is not given:
+// GOMAXPROCS when the environment sets it (the gate sets every step's
+// GOMAXPROCS to its CPU budget, ERGO_GATE_CPUS), else half the CPUs this
+// process may use, at least 1, as the gate's own default budget is: never
+// every CPU of the host.
+func defaultJobs() int {
+	if os.Getenv("GOMAXPROCS") != "" {
+		return runtime.GOMAXPROCS(0)
+	}
+	return max(1, runtime.GOMAXPROCS(0)/2)
 }
 
 func parseFlags(args []string, stderr io.Writer) (*config, error) {
@@ -171,6 +248,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.record, "record", false, "run each selected port's record.sh in place of the built program and write its goldens")
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
+	flags.IntVar(&cfg.jobs, "jobs", defaultJobs(), "programs run at once; the default is GOMAXPROCS when the environment sets it (the gate's CPU budget), else half the usable CPUs")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
 		flags.PrintDefaults()
@@ -183,6 +261,9 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	}
 	if cfg.timeout <= 0 {
 		return nil, usageError("-timeout must be positive")
+	}
+	if cfg.jobs <= 0 {
+		return nil, usageError("-jobs must be positive")
 	}
 	memory, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
 	if err != nil {
@@ -270,7 +351,7 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
-		case file == "main.ergo" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
+		case file == "main.ergo" || file == "ergo.laws" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -279,7 +360,7 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 				p.sources = append(p.sources, filepath.Join(dir, file))
 			}
 		default:
-			problem("unexpected %s; a program folder holds main.ergo, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored, testdata/ and other .ergo files", file)
+			problem("unexpected %s; a program folder holds main.ergo, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored, testdata/, ergo.laws and other .ergo files", file)
 		}
 	}
 	if !present["main.ergo"] {
@@ -313,7 +394,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 			}
-		case file == "ergo.mod" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
+		case file == "ergo.mod" || file == "ergo.laws" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -329,7 +410,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			}
 			problems = append(problems, packageSources(p, filepath.Join(p.dir, file), file)...)
 		default:
-			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored, testdata/, and go.mod, go.sum and ergo.bind/ for its Go packages", file, p.name)
+			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh, expected-skips, explored, testdata/, ergo.laws, and go.mod, go.sum and ergo.bind/ for its Go packages", file, p.name)
 		}
 	}
 	if !present["cmd"] {
@@ -627,10 +708,10 @@ type runner struct {
 	cases    int
 	failures []string
 	// ts is the TypeScript run of the program whose cases run now, or
-	// nil (ts.go); tsDir and tsErr are the run's one install.
-	ts    *tsRun
-	tsDir string
-	tsErr error
+	// nil (ts.go); install is the run's one install, shared by every
+	// program's runner.
+	ts      *tsRun
+	install *tsInstall
 }
 
 func (r *runner) fail(what string) { r.failures = append(r.failures, what) }
@@ -715,7 +796,16 @@ func (r *runner) runProgram(p *program) {
 // test` of its main.ergo, or of each package folder of a program of
 // packages (as go test runs one package at a time). A failure fails the
 // program; its cases still run.
+//
+// A program's checked-in law ledger (ergo.laws, runtime.md Tests 10) must
+// be the one its passing ergo test writes: a stale one keeps the reference
+// lowering at the sites it names. ergo test rewrites the file in place, so
+// the runner keeps its bytes, fails the ledger leg when the run changed
+// them, and puts them back: a run of the runner leaves the tree as it was.
 func (r *runner) testProgram(p *program) {
+	ledger := filepath.Join(p.dir, "ergo.laws")
+	kept, err := os.ReadFile(ledger)
+	tracked := err == nil
 	for _, target := range p.tests {
 		leg := "test"
 		if p.module {
@@ -724,6 +814,18 @@ func (r *runner) testProgram(p *program) {
 		}
 		r.testTarget(p, target, leg)
 	}
+	if !tracked {
+		return
+	}
+	if now, err := os.ReadFile(ledger); err == nil && bytes.Equal(now, kept) {
+		return
+	}
+	if err := os.WriteFile(ledger, kept, 0o644); err != nil {
+		fmt.Fprintf(r.out, "FAIL %s: ledger: ergo test changed ergo.laws, and the runner could not put it back: %v\n", p.name, err)
+	} else {
+		fmt.Fprintf(r.out, "FAIL %s: ledger: ergo test changed the checked-in ergo.laws (put back); run ergo test in %s and commit the file it writes\n", p.name, p.dir)
+	}
+	r.fail(p.name + ": ledger")
 }
 
 func (r *runner) testTarget(p *program, target, leg string) {

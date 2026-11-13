@@ -1,0 +1,103 @@
+// Package tree is the Go parser's tree as Ergo holds it: an arena of
+// nodes, each a family (the Go type's name) and its fields in order, with
+// the line starts of the source. Decode (decode.ergo) reads it from the encoding
+// of the Go adapter hostsyntax; Project writes it back as text, so a Go
+// test can hold it to the parser's own tree. It is pure: no function needs
+// a capability.
+
+import strings
+
+// Item is the value of one field: a number, a source position (None when
+// the parser has none), a string of any bytes, a flag, no node, a node by
+// its id, or a list.
+type Item = Number{V int} | Position{At Option[int]} | Bytes{V string} | Flag{V bool} | Missing{} | Ref{Id int} | List{Items []Item}
+
+// Field is one field of a node.
+type Field { Name string, Value Item }
+
+// Node is one node of the tree: its family and its fields, in the order
+// of the Go struct's declaration.
+type Node { Family string, Fields []Field }
+
+// Tree is a parsed source: the offsets where its lines start, its nodes
+// (each a Ref's target, by index) and its root, the file.
+type Tree { Lines []int, Nodes []Node, Root int }
+
+// Place is a position's line and column, both from 1; the column counts
+// bytes.
+type Place { Line int, Column int }
+
+// Locate is the place of offset in t: the line whose start is the last at
+// or before it.
+func Locate(t Tree, offset int) Place {
+	let mut lo = 0
+	let mut hi = len(t.Lines)
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if t.Lines[mid] > offset {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	let line = if lo > 0 { lo - 1 } else { 0 }
+	Place{Line: line + 1, Column: offset - t.Lines[line] + 1}
+}
+
+// Project is the text of t: the root, then each field on a line of its
+// own, "  " deeper per level: a number in decimal, a position as
+// "@offset line:column" or "-", a string as "length:bytes", a flag as
+// true or false, no node as "-", a node as "{family}" with its fields
+// below, a list as "[n]" with its items below.
+func Project(t Tree) string {
+	strings.Join(project(t, Ref{Id: t.Root}, 0, []string{}), "")
+}
+
+func project(t Tree, it Item, depth int, out []string) []string {
+	let mut o = out
+	match it {
+	case Number as n:
+		o = o.Append("\(n.V)\n")
+	case Position as p:
+		match p.At {
+		case Some[int] as s:
+			let at = Locate(t, s.Value)
+			o = o.Append("@\(s.Value) \(at.Line):\(at.Column)\n")
+		case None:
+			o = o.Append("-\n")
+		}
+	case Bytes as b:
+		o = o.Append("\(len(b.V)):" + b.V + "\n")
+	case Flag as f:
+		o = o.Append(if f.V { "true\n" } else { "false\n" })
+	case Missing:
+		o = o.Append("-\n")
+	case Ref as r:
+		let n = t.Nodes[r.Id]
+		o = o.Append("{" + n.Family + "}\n")
+		for f in n.Fields {
+			o = o.Append(strings.Repeat("  ", depth+1) + f.Name + " ")
+			o = project(t, f.Value, depth+1, o)
+		}
+	case List as l:
+		o = o.Append("[\(len(l.Items))]\n")
+		for x in l.Items {
+			o = o.Append(strings.Repeat("  ", depth+1))
+			o = project(t, x, depth+1, o)
+		}
+	}
+	o
+}
+
+// SyntaxFailure is the parser's located failure: its code, message, byte
+// span and 1-based line and byte column, with the source it read.
+type SyntaxFailure { Source string, Code string, Message string, Offset int, Length int, Line int, Column int }
+
+// ProjectFailure is the text of a syntax failure, in Project's forms.
+func ProjectFailure(f SyntaxFailure) string {
+	"syntax \(f.Code) \(len(f.Message)):" + f.Message + " \(f.Offset) \(f.Length) \(f.Line) \(f.Column)\nsource \(len(f.Source)):" + f.Source + "\n"
+}
+
+// Unsupported is a source whose tree holds a node type the adapter does
+// not carry: a parser newer than the encoding.
+type Unsupported { Source string, Family string }

@@ -45,6 +45,16 @@ import (
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
 var sources embed.FS
 
+// ledger is the std law ledger (runtime.md, Tests 10): the verdicts of
+// std's rewrite laws, written by `go run ./scripts/stdlaws` and read by
+// every build like a module's ergo.laws.
+//
+//go:embed ergo.laws
+var ledger string
+
+// Ledger is the std law ledger's text.
+func Ledger() string { return ledger }
+
 // PreludePath is the package path of the prelude. No import names it: its
 // exported declarations are in scope in every package.
 const PreludePath = "prelude"

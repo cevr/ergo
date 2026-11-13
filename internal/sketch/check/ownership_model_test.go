@@ -60,6 +60,7 @@ func TestOwnershipFlowModel(t *testing.T) {
 	for _, seed := range seeds {
 		ofPatternOwners(t, seed)
 		ofPatternConsumers(t, seed)
+		ofGenericRoutes(t, seed)
 		ofYieldProjections(t, seed)
 		ofYieldLifetimes(t, seed)
 		g := &ofGen{r: rand.New(rand.NewPCG(seed, 0x197a2))}
@@ -126,6 +127,25 @@ func ofYieldProjections(t *testing.T, seed uint64) {
 			if d.Code != "S108" || !strings.Contains(d.Message, "owner ends before its consumer") {
 				t.Fatalf("projection seed %d: unexpected %v\n%s", seed, ds, src)
 			}
+		}
+	}
+	// A tuple built in a lent arm from new values is the statement's
+	// temporary, as a record literal is; a tuple of enclosing names stays
+	// a view that lends them. Both are admitted (OWGEN FU3: the built one
+	// was refused as rooted in an arm's temporary).
+	for _, arm := range []string{"(open(1), open(2))", "(outer.R, other.R)"} {
+		var x string
+		switch rng.IntN(3) {
+		case 0:
+			x = "if cond(n) {\n" + arm + "\n} else { (open(3), open(4)) }"
+		case 1:
+			x = "match n {\ncase 0:\n" + arm + "\ncase _: (open(3), open(4))\n}"
+		case 2:
+			x = "with context {} {\n" + arm + "\n}"
+		}
+		src := ofPrelude + "type Pair { R Res }\nfunc lendTwo(t (Res, Res)) {}\nfunc body(n int, outer Pair, other Pair) {\n\tlendTwo(" + x + ")\n\tlend(outer.R)\n}\nfunc main() {}\n"
+		if _, ds := checkFor(src); len(ds) > 0 {
+			t.Fatalf("tuple seed %d: diagnostics %v, want none\nReplay: ERGO_SEED=%d go test -run '^TestOwnershipFlowModel$' ./internal/sketch/check\n%s", seed, ds, seed, src)
 		}
 	}
 }
@@ -568,6 +588,16 @@ func TestOwnershipMessages(t *testing.T) {
 	if want := "p is lent to Give, so it cannot hand p off (it is returned)"; len(diags) != 1 || !strings.Contains(diags[0].Message, want) {
 		t.Errorf("return p: got %v, want one S108 containing %q", diags, want)
 	}
+	// An update or a spread of a record with its own Close would split it
+	// (R39, one rule with a field taken in place; Rust E0509): its Close
+	// never ran (OWGEN r3 (b), 16a r3 On base).
+	const w = "type Core { R Res }\n\ntype W { ..Core, n int }\n\ntype V { ..Core }\n\nfunc Close(w W) {}\n\nfunc lendW(w W) {}\n\nfunc lendV(v V) {}\n\n"
+	for _, body := range []string{"lendW(W{..W{R: open(1), n: 1}, R: open(2)})", "lendV(V{..W{R: open(1), n: 1}})"} {
+		_, diags := checkFor(ofPrelude + w + "func body() {\n\t" + body + "\n}\n\nfunc main() {}\n")
+		if want := "W has its own Close, which runs on the whole value, so an update or a spread cannot take it apart (resources R3, R39); build the new value from its fields"; len(diags) != 1 || !strings.Contains(diags[0].Message, want) {
+			t.Errorf("%s: got %v, want one S108 containing %q", body, diags, want)
+		}
+	}
 }
 
 const ofPrelude = `import queue
@@ -666,7 +696,7 @@ const (
 	ofHeldNew    // let hN Held = Y
 	ofMatchHeld  // match H { case Res as vN: keep(vN) or lend(vN); case Empty: }
 	ofWithMove   // with context { Store: Y } { … }: Y moves into the with (R11)
-	ofConvert    // lendCloser(Y): a conversion to Closer moves (R23)
+	ofConvert    // lendCloser(Y): a conversion to Closer moves (R23); the statement owns the lent interface value (R43)
 	ofLitLend    // lendBox(Box{r: Y, n: 0}): a lent literal moves its parts
 	ofWithShared // with context { Store: shared } { … }: a package let has no owner (R11)
 	ofQueueNew   // let uN = newQueue()
@@ -1673,8 +1703,13 @@ func (r *rfRun) stmt(s *ofStmt) {
 	case ofBoxNew, ofListNew, ofHeldNew:
 		r.move(s.y, s.line, s.col)
 		r.acquire(s.x)
-	case ofWithMove, ofConvert, ofBoxKeep:
+	case ofWithMove, ofBoxKeep:
 		r.move(s.y, s.line, s.col)
+	case ofConvert:
+		// The parameter lends the interface value the conversion made:
+		// the statement owns it (lang-audit F2).
+		r.move(s.y, s.line, s.col)
+		r.record(fmt.Sprintf("stmt@%d", s.line), "tmp")
 	case ofWithShared:
 		r.diag(s.line, s.col) // withown.go: the package let has no owner
 	case ofLitLend:

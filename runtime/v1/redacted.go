@@ -3,7 +3,7 @@ package v1
 // Redacted is config.Redacted[T], the body of std config's secret
 // (docs/spec/stdlib.md, config): a value of T whose every text form is
 // "<redacted>", read only by an explicit Reveal. It is a sealed std
-// protocol (check.SealedStd): NewRedacted is the only way a program
+// protocol with a private operation: NewRedacted is the only way a program
 // makes one, so no program value stands in for it.
 //
 // The rule: the payload is never inline in a struct fmt can reach; it

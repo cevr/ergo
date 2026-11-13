@@ -9,6 +9,8 @@ go run ./scripts/examples PROGRAM              # one program folder, whatever it
 go run ./scripts/examples -tags slow,net       # the programs with either tag
 ```
 
+The runner runs `-jobs` programs at once. The default is `GOMAXPROCS` when the environment sets it (the gate sets each step's `GOMAXPROCS` to its CPU budget, `ERGO_GATE_CPUS`), else half the usable CPUs: never every CPU of the host. Each program's lines stay together and print in name order, whatever order the programs end in (`TestProgramsRunAtOnceAndPrintInOrder`), and each FAIL line names its program. Each built program still runs under its own memory limit (`ERGO_PROGRAM_MEMORY`, 2 GiB by default; docs/tooling.md, "Test memory"), which the kernel enforces.
+
 One folder is not a program: `editions` (edition fixtures that Go tests pin). Any other folder that is not a program is an error. Go interop is shown by `gointerop`, an `import go` program.
 
 ## Layout
@@ -24,6 +26,7 @@ A program folder holds:
 - `expected-skips`, optional: the `skip law …` lines that the program's `ergo test` may print, one per line exactly as printed, with `#` lines for the reason. The test leg fails on any other skip line (fs4).
 - `explored`, optional: the tests and laws whose schedules the explore leg searches, one per line, `PACKAGE NAME --explore dfs|pct|random [FLAG...]` (`PACKAGE` is the package folder relative to the program, `.` for a program of one folder), with `#` lines for the reason. The leg runs `ergo test PACKAGE --run NAME --explore …` ([stdlib](../docs/spec/stdlib.md#explored-schedules)); it fails when the search finds a failing schedule or when the run did not run NAME alone, and then it runs the replay command the failure printed and says whether the schedule replays to the same failure. A race an ordinary run meets only rarely is a failing schedule here.
 - `testdata/`, if the program reads fixture files.
+- `ergo.laws`, optional: the law ledger `ergo test` writes ([runtime](../docs/spec/runtime.md#tests), Tests 10), checked in so the build applies the program's proved rewrite laws. A program of packages keeps it beside `ergo.mod`.
 
 A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in place of `main.ergo`:
 
@@ -31,7 +34,7 @@ A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in p
 - `cmd/<program>/main.ergo`: the binary's package, named after the program folder. `cmd/` holds nothing else. The runner builds it with `ergo build <dir>/cmd/<program> -o <temp>/<program>`.
 - package folders: any other folder except `cases/` and `testdata/`. A package folder holds `.ergo` files and package folders only.
 - top-level `.ergo` files, if any: the module root's package.
-- `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh`, `expected-skips`, `explored` and `testdata/`, as above.
+- `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh`, `expected-skips`, `explored`, `testdata/` and `ergo.laws`, as above.
 
 `ergo fmt --check` checks every `.ergo` file of its packages, `ergo fix --check <package folder>` checks every package folder's clauses, and the test leg runs `ergo test <package folder>` for every package folder, printing `ok <program>: test <folder>`. A package's test build runs the laws of every operation type it sees against every provider it sees, wherever each is declared, in the least package that sees them all (law-xpkg): the laws `kv.Store` declares run in package `memory` against `memory.Table`, and the std `fs.Writes` laws run there against `memory.Full`. A provider is built by its `New<P>` constructor when its package declares one, else generated.
 

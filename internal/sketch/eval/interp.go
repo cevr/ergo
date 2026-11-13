@@ -23,6 +23,8 @@ type interp struct {
 	// initials are the machines' initial values, computed once after
 	// every let (machine.go initMachines).
 	initials map[*check.TypeName]Value
+	// sym is the state of a symbolic run (symbolic.go), nil otherwise.
+	sym *symRun
 }
 
 // frame is one running body: a test, a law, a function call or a call of
@@ -91,6 +93,9 @@ type abrupt struct {
 	pkg  *check.Package
 	decl syntax.Decl
 	at   syntax.Pos
+	// call is the call whose failure a ctlFail is, in the frame that
+	// sees it (runFrame): a catch takes it only at a tail of its subject.
+	call *syntax.CallExpr
 }
 
 func (fr *frame) abrupt(kind ctlKind, at syntax.Node, val Value, msg string) *abrupt {
@@ -168,10 +173,28 @@ func unparen(x syntax.Expr) syntax.Expr {
 // callee's failure.
 func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []check.Type, args []Value) (Value, *abrupt) {
 	switch {
+	case check.AppendsString(fn):
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return appendString(fn, args[0], args[1]), nil
 	case fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host():
+		if in.sym != nil {
+			v, why := externTerm(fn, args)
+			if why != "" {
+				return nil, fr.abrupt(ctlUnsupported, at, nil, why)
+			}
+			return v, nil
+		}
 		return nil, fr.unsupported(at, "a Go function (%s), even a pure one", fn.Name)
 	case fn.Pkg.Info == nil:
 		ice("the package of %s has no Info", fn.Name)
+	}
+	if in.sym != nil {
+		if !rowless(fn) {
+			return nil, fr.abrupt(ctlUnsupported, at, nil, fn.Name+" has a needs or fails row")
+		}
+		in.sym.mark(fn.Pkg.Info, fn.Decl.Body)
 	}
 	callee := in.newFrame(fn.Pkg, fn.Decl)
 	if len(fn.Sig.TParams) > 0 {
@@ -232,6 +255,7 @@ func (in *interp) runFrame(fr *frame, at *syntax.CallExpr, callee *frame, name s
 		// tail or return decides.
 		out := *ab
 		out.kind = ctlFail
+		out.call = at
 		return nil, &out
 	case ctlBreak, ctlContinue:
 		ice("a %d left the function %s", ab.kind, name)
