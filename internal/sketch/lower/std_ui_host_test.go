@@ -2328,6 +2328,233 @@ func endsQuiet(session *ui.Session[int, int, Decision[int, int], Boom], posted q
 	}
 }
 
+type statsApp { texts int, paints int, rows int, stops bool, key int, canvas bool, rev bool }
+
+type Halt {}
+
+func haltIf(b bool) fails Halt {
+	if b {
+		return Halt
+	}
+}
+
+func statsStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func statsMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: statsStep, After: replyTimer, Work: replyWork(queue.New[int](1), 0)}
+}
+
+func statsView(apps []statsApp) func(f *ui.Frame[int], s int) {
+	func(f *ui.Frame[int], s int) {
+		let st = apps[s]
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+			for i in 0..len(apps) {
+				if k.Name == "\(i)" {
+					return Some{Value: i}
+				}
+			}
+			None
+		})
+		ui.Column(f, ui.Plain()) {
+			for j in 0..st.texts {
+				ui.Text(f, "t\(j)")
+			}
+			if st.canvas {
+				ui.Canvas(f, "c", 40, 40) func(p *ui.Paint) {
+					for j in 0..st.paints {
+						ui.Fill(p, ui.RectPath(float64(j), 0.0, 1.0, 1.0), tone(j, j))
+					}
+				}
+			}
+			let order = if st.rev { []int{2, 1, 0} } else { []int{0, 1, 2} }
+			ui.Each(f, order, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
+				ui.Text(f, "e\(x)")
+			}
+			ui.Rows(f, "list", st.rows, 10, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {
+				ui.Text(f, "r\(i)")
+			}
+			ui.Boundary(f) {
+				ui.Text(f, "in")
+				try haltIf(st.stops)
+			} catch {
+			case Halt:
+				ui.Text(f, "out")
+			}
+			let key = st.key
+			ui.Load(f, ui.ByInt(key), func() int { s })
+		}
+	}
+}
+
+func opCounts(ops []ui.Op[int]) (int, int, int, int, int) {
+	let mut ins = 0
+	let mut mov = 0
+	let mut rem = 0
+	let mut set = 0
+	let mut paint = 0
+	for op in ops {
+		let mut node Option[ui.Node[int]] = None
+		match op {
+		case ui.Insert[int] as x:
+			ins = ins + 1
+			node = Some{Value: x.Node}
+		case ui.Move[int]:
+			mov = mov + 1
+		case ui.Remove[int]:
+			rem = rem + 1
+		case ui.Set[int] as x:
+			set = set + 1
+			node = Some{Value: x.Node}
+		}
+		match node {
+		case Some[ui.Node[int]] as n:
+			match n.Value {
+			case ui.CanvasNode as c:
+				paint = paint + len(c.Paint)
+			case _:
+			}
+		case None:
+		}
+	}
+	(ins, mov, rem, set, paint)
+}
+
+func lawStatsCountEveryPhase(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		statsFollow(seed, steps)
+	}
+}
+
+func statsFollow(seed int, steps int) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let mut apps = []statsApp{statsApp{texts: 0, paints: 0, rows: 0, stops: false, key: 0, canvas: false, rev: false}}
+	let n = (steps%12+12)%12 + 1
+	for _ in 0..n {
+		apps = apps.Append(statsApp{texts: draw(&r, 5), paints: draw(&r, 4), rows: draw(&r, 3) * 10, stops: draw(&r, 2) == 0, key: draw(&r, 2), canvas: draw(&r, 3) != 0, rev: draw(&r, 2) == 0})
+	}
+	let a = actor.StartMachine(statsMachine(), 1, func(o int) {})
+	let (s, _) = ui.Start(a, statsView(apps), func(ev ui.Event[int]) {})
+	let mut session = s
+	let mut prev = apps[0]
+	for i in 1..len(apps) {
+		let ops = ui.Step(&session, ui.KeyDown{Press: ui.KeyPress{Name: "\(i)", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
+		case actor.Stopped:
+			return false
+		}
+		let st = apps[i]
+		let shown = len(shownRows(st.rows, 10.0, 0.0, 0.0))
+		let stopped = if st.stops { 1 } else { 0 }
+		let changed = if st.key != prev.key { 1 } else { 0 }
+		let canvas = if st.canvas { 1 } else { 0 }
+		let (ins, mov, rem, set, paint) = opCounts(ops)
+		let want = ui.Stats{Signals: 1, Written: 6 + canvas + st.texts + shown + stopped, Rows: shown, Skipped: 0, Stopped: stopped, Committed: 6 + canvas + st.texts + shown, Inserted: ins, Moved: mov, Removed: rem, Set: set, Painted: paint, Fetches: changed, Cancels: changed}
+		let got = ui.SessionStats(&session)
+		if got != want || len(ui.StoppedAt(&session)) != stopped {
+			return false
+		}
+		// The paint ops are the canvas's when it is new or its paint
+		// changed; three rows move when the ui.Each's order flips.
+		if st.canvas && (!prev.canvas || st.paints != prev.paints) && paint != st.paints {
+			return false
+		}
+		if st.rev != prev.rev && mov == 0 {
+			return false
+		}
+		prev = st
+	}
+	true
+}
+
+type slowLog { texts int, log []ui.Slow }
+
+type slowSignal = MoreText{} | WasSlow{S ui.Slow}
+
+func slowStep(s slowLog, e slowSignal) Decision[slowLog, int] {
+	match e {
+	case MoreText:
+		Enter[slowLog]{Next: slowLog{texts: s.texts + 1, log: s.log}}
+	case WasSlow as w:
+		Enter[slowLog]{Next: slowLog{texts: s.texts, log: s.log.Append(w.S)}}
+	}
+}
+
+func slowTimer(s slowLog) Option[Timeout[slowSignal]] { None }
+
+func slowWork(s slowLog) Option[func(send func(e slowSignal))] { None }
+
+func lawSlowAboveTheBudget(seed int, bound int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		slowFollow(seed, (bound%5+5)%5+1)
+	}
+}
+
+func slowFollow(seed int, bound int) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let view = func(f *ui.Frame[slowSignal], s slowLog) {
+		// Every third pass asks for nothing: an ui.OnSlow holds for its pass.
+		if s.texts%3 != 0 {
+			ui.OnSlow(f, ui.Budget{Signals: 0, Written: bound, Committed: 0, Ops: 0, Painted: 0, Fetches: 0}, func(x ui.Slow) slowSignal { WasSlow{S: x} })
+		}
+		ui.OnKey(f, func(k ui.KeyPress) Option[slowSignal] { Some{Value: MoreText} })
+		ui.Text(f, "log \(len(s.log))")
+		for j in 0..s.texts {
+			ui.Text(f, "t\(j)")
+		}
+	}
+	let posted = queue.New[ui.Event[slowSignal]](256)
+	let a = actor.StartMachine(Machine[slowLog, slowSignal, int]{Initial: slowLog{texts: 0, log: []ui.Slow{}}, Step: slowStep, After: slowTimer, Work: slowWork}, 1, func(o int) {})
+	let (s, _) = ui.Start(a, view, func(ev ui.Event[slowSignal]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	let mut want = []ui.Slow{}
+	for _ in 0..draw(&r, 8)+3 {
+		let _ = ui.Step(&session, ui.KeyDown{Press: ui.KeyPress{Name: "k", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
+		case actor.Stopped:
+			return false
+		}
+		// The pass wrote the log's line and the texts.
+		let texts = a.State().texts
+		if texts%3 != 0 && texts+1 > bound {
+			want = want.Append(ui.Slow{Counter: "Written", Count: texts + 1, Bound: bound})
+			// The pass that shows the ui.Slow, a ui.Committed's, is not judged:
+			// the law takes the posted events until it shows it.
+			let mut shown = false
+			for !shown {
+				let ev = posted.Pop() catch {
+				case queue.Closed:
+					return false
+				}
+				let ops = ui.Step(&session, ev) catch {
+				case actor.Stopped:
+					return false
+				}
+				for op in ops {
+					match op {
+					case ui.Set[slowSignal] as x:
+						shown = shown || x.Node == ui.TextNode{Value: "log \(len(want))", Style: ui.Plain()}
+					case _:
+					}
+				}
+			}
+		}
+	}
+	let log = a.State().log
+	if len(log) != len(want) {
+		return false
+	}
+	for i, x in want {
+		if log[i] != x {
+			return false
+		}
+	}
+	true
+}
+
 test UiScriptShowsTheView(seed int, steps int) {
 	assert lawScriptShowsTheView(seed, steps)
 }
@@ -2400,6 +2627,14 @@ test UiSessionCrashFollowsTheEnd(n int) {
 	assert lawSessionCrashFollowsTheEnd(n)
 }
 
+test UiStatsCountEveryPhase(seed int, steps int) {
+	assert lawStatsCountEveryPhase(seed, steps)
+}
+
+test UiSlowAboveTheBudget(seed int, bound int) {
+	assert lawSlowAboveTheBudget(seed, bound)
+}
+
 
 test UiLocationPushThenBackRestores(path string) {
 	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
@@ -2455,6 +2690,8 @@ var stdUIHostStatements = map[string]string{
 	"ui CrashShowsTheCrashView":        `CrashShowsTheCrashView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { crashShown(seed, steps, m) } }`,
 	"ui ReloadIsInitial":               `ReloadIsInitial(seed int, defect bool) { let m = time.NewManual(0) with context { Scheduler: m } { reloadInitial(seed, defect, m) } }`,
 	"ui SessionCrashFollowsTheEnd":     `SessionCrashFollowsTheEnd(n int) { let m = time.NewManual(0) with context { Scheduler: m } { crashFollows() } }`,
+	"ui StatsCountEveryPhase":          `StatsCountEveryPhase(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { statsFollow(seed, steps) } }`,
+	"ui SlowAboveTheBudget":            `SlowAboveTheBudget(seed int, bound int) { let m = time.NewManual(0) with context { Scheduler: m } { slowFollow(seed, (bound%5+5)%5+1) } }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,
