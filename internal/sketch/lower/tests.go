@@ -216,6 +216,9 @@ func (l *lowerer) nameTests() {
 				if _, lt, rt, shown := l.assertShown(a.X); shown {
 					reserveLit(lt)
 					reserveLit(rt)
+					if l.ir != nil {
+						l.pkgName(assertShowKey(a), "ergoAssertShow") // ir_assert.go
+					}
 				}
 			}
 			return true
@@ -555,15 +558,21 @@ func (l *lowerer) testDecl(d *syntax.TestDecl) {
 	} else {
 		head += fc.resultList(nil, true)
 	}
+	fc.depth = 1
+	l.analyzeValues(d, l.info)
+	// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset
+	// leaves its Go declaration without a body (ir_assert.go).
+	if l.ir != nil && l.ir.testBody(fc, d, l.testFunc(t), t.Params, needsFrame) {
+		l.user.WriteString(l.directive(d) + head + "\n\n")
+		return
+	}
 	l.user.WriteString(l.directive(d))
 	l.user.WriteString(head + " {\n")
-	fc.depth = 1
 	if needsFrame {
 		fc.site = d
 		fc.openFrame(frameErr)
 	}
 	fc.entryPoll(l.info, d)
-	l.analyzeValues(d, l.info)
 	fc.body(d.Body.List)
 	l.user.WriteString(fc.out.String())
 	l.user.WriteString("}\n\n")

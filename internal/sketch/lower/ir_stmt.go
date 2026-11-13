@@ -268,6 +268,8 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 
 func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	switch s := s.(type) {
+	case *syntax.AssertStmt:
+		return b.assert(s) // ir_assert.go
 	case *syntax.DeclStmt:
 		var out []*irStmt
 		for _, spec := range s.Decl.Specs {

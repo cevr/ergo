@@ -336,29 +336,11 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if fd.method != nil {
 		name = fd.method.name + "." + fd.name
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			u, isNo := r.(irUnsupported)
-			if !isNo {
-				panic(r)
-			}
-			st.report.Fallback[u.reason]++
-			b.note(u.reason)
-			ok = false
-		}
-		if st.census != nil {
-			pkg := ""
-			if f.Pkg != nil {
-				pkg = f.Pkg.Path
-			}
-			file := ""
-			if _, sourced := b.l.sourceOf(f.Decl); sourced {
-				_, file, _, _ = b.l.at(f.Decl, f.Decl.Pos())
-			}
-			st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: file, Std: f.Pkg.Std(), Reasons: b.reasons})
-			ok = false
-		}
-	}()
+	pkg := ""
+	if f.Pkg != nil {
+		pkg = f.Pkg.Path
+	}
+	defer st.finish(b, pkg, name, f.Decl, f.Pkg.Std(), &ok)
 	// A library body (a std body the program reaches, written with no
 	// //line directive) takes an IR body as a sourced one does: its
 	// positions name its std file (pos), so its lines and its defects'
@@ -428,6 +410,28 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.report.IR = append(st.report.IR, name)
 	return true
+}
+
+// finish ends a body's build, deferred: a reason the builder stopped at
+// is its fallback, and a census records the body with every reason.
+func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std bool, ok *bool) {
+	if r := recover(); r != nil {
+		u, isNo := r.(irUnsupported)
+		if !isNo {
+			panic(r)
+		}
+		st.report.Fallback[u.reason]++
+		b.note(u.reason)
+		*ok = false
+	}
+	if st.census != nil {
+		file := ""
+		if _, sourced := b.l.sourceOf(decl); sourced {
+			_, file, _, _ = b.l.at(decl, decl.Pos())
+		}
+		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: file, Std: std, Reasons: b.reasons})
+		*ok = false
+	}
 }
 
 // intrinsic records f, whose body is the lowerer's own Go text (an extern
