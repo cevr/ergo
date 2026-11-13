@@ -327,6 +327,18 @@ func fastExamples(root string, steps []*Step) error {
 // (classFastSteps), and one keyed -short step per test package or shard
 // but the host packages'.
 func fastSteps(root string) ([]*Step, error) {
+	return fastStepsSelected(root, nil)
+}
+
+// selector judges which fast tests of a selectPackages package an edit
+// reaches (selectTests); env is the step's environment.
+type selector func(p testPackage, env, names []string) selection
+
+// fastStepsSelected is fastSteps, with the fast tests of each of
+// selectPackages narrowed by choose when it is not nil: a skipped test
+// joins the large ones that every shard skips, so a test the record does
+// not know still runs.
+func fastStepsSelected(root string, choose selector) ([]*Step, error) {
 	packages, problem, err := testPackages(root)
 	if err != nil {
 		return nil, err
@@ -376,6 +388,13 @@ func fastSteps(root string) ([]*Step, error) {
 		}
 		measured := durations[p.importPath]
 		fast, large := fastSelection(names, measured)
+		note := ""
+		if choose != nil && slices.Contains(selectPackages, relative) {
+			chosen := choose(p, append(stepEnvironment(), env...), fast)
+			fast = slices.DeleteFunc(fast, func(name string) bool { return slices.Contains(chosen.skip, name) })
+			large = append(large, chosen.skip...)
+			note = chosen.note
+		}
 		pkg := "./" + p.dir
 		base := []string{"go", "test", fastFlag}
 		name := "go test " + pkg + " (fast)"
@@ -390,7 +409,7 @@ func fastSteps(root string) ([]*Step, error) {
 		groups := shard(fast, measured, n)
 		selections, weights := fastShardArgs(groups, large), shardWeights(groups, measured)
 		for i, selection := range selections {
-			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast}
+			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
 			if len(selections) > 1 {
 				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
 			}
