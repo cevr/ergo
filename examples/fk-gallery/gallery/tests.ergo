@@ -1,0 +1,90 @@
+// Upstream's story tests (route-transitions/src/story.test.ts), as steps
+// of the site. Upstream's `init(url)` is the step of the first Arrived
+// from Blank; `modelOn(route)` is a site that is on route with nothing
+// loaded and an empty log; `Command.resolve` is the answer's signal.
+
+func on(r Route) Site { Site{..Blank, Route: Some[Route]{Value: r}} }
+
+func visit(s Site, url string) Decision[Site, []Command] { Step(s, Arrived{URL: url}) }
+
+test AColdLoadIntoTheGalleryLoadsTheCatalog {
+	// init: a cold load into the gallery logs the transition and loads the
+	// catalog.
+	let d = visit(Blank, "http://localhost/gallery")
+	let s = After(Blank, d)
+	assert s.Route == Some[Route]{Value: Gallery} && s.Catalog == Loading
+	assert len(s.Log) == 1 && s.Log[0].From == None
+	assert Commands(d) == []Command{LoadCatalog}
+}
+
+test AColdLoadHomeLoadsNothing {
+	// init: a cold load into the home route loads nothing.
+	let d = visit(Blank, "http://localhost/")
+	let s = After(Blank, d)
+	assert s.Route == Some[Route]{Value: Home} && s.Catalog == Idle && len(s.Log) == 1
+	assert len(Commands(d)) == 0
+}
+
+test EnteringTheGalleryLoadsTheCatalog {
+	// update: entering the gallery loads the catalog and logs the
+	// transition.
+	let d = visit(on(Home), "http://localhost/gallery")
+	let s = After(on(Home), d)
+	assert s.Route == Some[Route]{Value: Gallery} && s.Catalog == Loading && len(s.Log) == 1
+	assert has(Commands(d), LoadCatalog)
+	assert After(s, Step(s, CatalogLoaded)).Catalog == Ready
+}
+
+test ReenteringWhileLoadingAsksNoMore {
+	// update: re-entering the gallery while a catalog load is in flight does
+	// not fire another.
+	let s = Site{..on(Home), Catalog: Loading}
+	let d = visit(s, "http://localhost/gallery")
+	assert len(Commands(d)) == 0 && After(s, d).Catalog == Loading
+}
+
+test EnteringAPaintingLoadsIt {
+	// update: entering a painting loads it with the payload from the route.
+	let d = visit(on(Gallery), "http://localhost/gallery/3")
+	let s = After(on(Gallery), d)
+	assert s.Painting == LoadingPainting{ID: 3} && has(Commands(d), LoadPainting{ID: 3})
+	assert After(s, Step(s, PaintingLoaded{ID: 3})).Painting == ReadyPainting{ID: 3}
+}
+
+test StayingWithANewIdRefetches {
+	// update: staying on the painting route with a new id refetches.
+	let from = Site{..on(Painting{ID: 1}), Painting: ReadyPainting{ID: 1}}
+	let d = visit(from, "http://localhost/gallery/2")
+	let s = After(from, d)
+	assert s.Painting == LoadingPainting{ID: 2} && s.Log[0].From == Some[Route]{Value: Painting{ID: 1}}
+	assert has(Commands(d), LoadPainting{ID: 2})
+	assert After(s, Step(s, PaintingLoaded{ID: 2})).Painting == ReadyPainting{ID: 2}
+}
+
+test StayingWithTheSameIdDoesNotRefetch {
+	// update: staying on the painting route with the same id does not
+	// refetch.
+	let from = Site{..on(Painting{ID: 1}), Painting: ReadyPainting{ID: 1}}
+	let d = visit(from, "http://localhost/gallery/1")
+	assert len(Commands(d)) == 0 && After(from, d).Painting == ReadyPainting{ID: 1}
+}
+
+test AStaleAnswerForAnotherIdIsIgnored {
+	// update: a stale painting response for another id is ignored.
+	let s = Site{..on(Painting{ID: 2}), Painting: LoadingPainting{ID: 2}}
+	assert Step(s, PaintingLoaded{ID: 1}) == Ignore
+}
+
+test LeavingTheStudioSavesTheDraft {
+	// update: leaving the studio saves the draft.
+	let s = Site{..on(Studio), Draft: "half-finished thought"}
+	let d = visit(s, "http://localhost/")
+	assert has(Commands(d), SaveDraft{Draft: "half-finished thought"})
+	let after = After(s, d)
+	assert After(after, Step(after, DraftSaved{Draft: "half-finished thought"})).Saved == Some[string]{Value: "half-finished thought"}
+}
+
+test LeavingAnEmptyStudioSavesNothing {
+	// update: leaving the studio with an empty draft saves nothing.
+	assert len(Commands(visit(on(Studio), "http://localhost/"))) == 0
+}

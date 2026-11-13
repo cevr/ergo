@@ -1,0 +1,73 @@
+@0 open http://localhost/
+  Home; catalog idle; painting none; draft ""; saved none
+@100 go /gallery
+  asks: push /gallery
+  Home; catalog idle; painting none; draft ""; saved none
+@100 arrive
+  asks: load the catalog
+  Gallery; catalog loading; painting none; draft ""; saved none
+@300 go /studio
+  asks: push /studio
+  Gallery; catalog loading; painting none; draft ""; saved none
+@300 arrive
+  Studio; catalog loading; painting none; draft ""; saved none
+@400 go /gallery
+  asks: push /gallery
+  Studio; catalog loading; painting none; draft ""; saved none
+@400 arrive
+  Gallery; catalog loading; painting none; draft ""; saved none
+@700 catalog loaded
+  Gallery; catalog ready; painting none; draft ""; saved none
+@1000 go /gallery/3
+  asks: push /gallery/3
+  Gallery; catalog ready; painting none; draft ""; saved none
+@1000 arrive
+  asks: load painting 3
+  Painting 3; catalog ready; painting 3 loading; draft ""; saved none
+@1200 go /gallery/4
+  asks: push /gallery/4
+  Painting 3; catalog ready; painting 3 loading; draft ""; saved none
+@1200 arrive
+  asks: load painting 4
+  Painting 4; catalog ready; painting 4 loading; draft ""; saved none
+@1400 painting 3 loaded
+  Painting 4; catalog ready; painting 4 loading; draft ""; saved none
+@1600 painting 4 loaded
+  Painting 4; catalog ready; painting 4 "Ferric Meadow" by Tomás Reyes; draft ""; saved none
+@1700 go /gallery/4
+  asks: push /gallery/4
+  Painting 4; catalog ready; painting 4 "Ferric Meadow" by Tomás Reyes; draft ""; saved none
+@1700 arrive
+  Painting 4; catalog ready; painting 4 "Ferric Meadow" by Tomás Reyes; draft ""; saved none
+@1800 go /studio
+  asks: push /studio
+  Painting 4; catalog ready; painting 4 "Ferric Meadow" by Tomás Reyes; draft ""; saved none
+@1800 arrive
+  Studio; catalog ready; painting 4 "Ferric Meadow" by Tomás Reyes; draft ""; saved none
+@1900 type "half-finished thought"
+  Studio; catalog ready; painting 4 "Ferric Meadow" by Tomás Reyes; draft "half-finished thought"; saved none
+@2000 back /gallery/9
+  asks: load painting 9, save "half-finished thought"
+  Painting 9; catalog ready; painting 9 loading; draft "half-finished thought"; saved none
+@2300 saved "half-finished thought"
+  Painting 9; catalog ready; painting 9 loading; draft "half-finished thought"; saved "half-finished thought"
+@2400 painting 9 loaded
+  Painting 9; catalog ready; painting 9 not in the gallery; draft "half-finished thought"; saved "half-finished thought"
+@2500 go /studio
+  asks: push /studio
+  Painting 9; catalog ready; painting 9 not in the gallery; draft "half-finished thought"; saved "half-finished thought"
+@2500 arrive
+  Studio; catalog ready; painting 9 not in the gallery; draft "half-finished thought"; saved "half-finished thought"
+@2600 type ""
+  Studio; catalog ready; painting 9 not in the gallery; draft ""; saved "half-finished thought"
+@2700 go /nowhere
+  asks: push /nowhere
+  Studio; catalog ready; painting 9 not in the gallery; draft ""; saved "half-finished thought"
+@2700 arrive
+  Not found; catalog ready; painting 9 not in the gallery; draft ""; saved "half-finished thought"
+@2800 away https://example.com/
+  asks: leave for https://example.com/
+  Not found; catalog ready; painting 9 not in the gallery; draft ""; saved "half-finished thought"
+@3000 end
+  Not found; catalog ready; painting 9 not in the gallery; draft ""; saved "half-finished thought"
+  log: 1 cold->Home, 2 Home->Gallery, 3 Gallery->Studio, 4 Studio->Gallery, 5 Gallery->Painting 3, 6 Painting 3->Painting 4, 7 Painting 4->Painting 4, 8 Painting 4->Studio, 9 Studio->Painting 9, 10 Painting 9->Studio, 11 Studio->Not found

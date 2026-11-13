@@ -1,0 +1,184 @@
+// The site as a machine. Upstream reads each URL change through its
+// Transition helpers (entered, stayed, exited, coldLoad) and returns
+// commands. Here the step matches the route before and the route after:
+// entering the gallery loads the catalog, entering a painting loads it,
+// staying on a painting with another id loads the new one, and leaving the
+// studio saves its draft. The commands are the step's output (Emit), and
+// the host answers each with a signal.
+
+// Catalog is the gallery's catalog: not asked for, loading, or loaded.
+type Catalog = Idle{} | Loading{} | Ready{}
+
+// Shown is the painting the page holds: none, one loading, or one
+// loaded, by id.
+type Shown = NoPainting{} | LoadingPainting{ID int} | ReadyPainting{ID int}
+
+// Logged is one navigation in the log: its number, the route before (None
+// for the cold load) and the route after.
+type Logged { Seq int, From Option[Route], To Route }
+
+// Site is the machine's state: the route (None before the first URL),
+// the log of navigations (newest first, at most LogSize), the catalog,
+// the painting, the studio's draft, and the draft last saved.
+type Site { Route Option[Route], Log []Logged, Catalog Catalog, Painting Shown, Draft string, Saved Option[string] }
+
+// Link is a link the user follows: one of the site's own paths, or a page
+// elsewhere.
+type Link = Internal{URL string} | External{Href string}
+
+// Signal is what the site reads: a URL the page is at (the first one is
+// the cold load), a link clicked, the answers of the three loads, and a
+// key in the studio's field.
+type Signal = Arrived{URL string} | Clicked{Link Link} | CatalogLoaded{} | PaintingLoaded{ID int} | Drafted{Text string} | DraftSaved{Draft string}
+
+// Command is what the site asks the host to do: load the catalog or a
+// painting, save a draft, push a URL of the site, or leave for a page
+// elsewhere. The host answers a load or a save with its signal, and a
+// push with Arrived.
+type Command = LoadCatalog{} | LoadPainting{ID int} | SaveDraft{Draft string} | Push{URL string} | Leave{Href string}
+
+// LogSize is how many navigations the log keeps.
+let LogSize = 20
+
+// Blank is the site before its first URL.
+let Blank = Site{Route: None, Log: []Logged{}, Catalog: Idle, Painting: NoPainting, Draft: "", Saved: None}
+
+// Gallerist is the site as a machine.
+type Gallerist machine[Site, Signal] {
+	initial: Blank,
+	step:    Step,
+}
+
+// Step is the site's transition.
+func Step(s Site, sig Signal) Decision[Site, []Command] {
+	match sig {
+	case Arrived as a:
+		arrive(s, Parse(a.URL))
+	case Clicked as c:
+		match c.Link {
+		case Internal as i:
+			Emit[Site, []Command]{Next: s, Output: []Command{Push{URL: i.URL}}}
+		case External as e:
+			Emit[Site, []Command]{Next: s, Output: []Command{Leave{Href: e.Href}}}
+		}
+	case CatalogLoaded:
+		Stay[Site]{Next: Site{..s, Catalog: Ready}}
+	case PaintingLoaded as p:
+		match s.Painting {
+		case LoadingPainting as l:
+			if l.ID != p.ID {
+				return Ignore
+			}
+			Stay[Site]{Next: Site{..s, Painting: ReadyPainting{ID: p.ID}}}
+		case NoPainting, ReadyPainting:
+			Ignore
+		}
+	case Drafted as d:
+		Stay[Site]{Next: Site{..s, Draft: d.Text}}
+	case DraftSaved as d:
+		Stay[Site]{Next: Site{..s, Saved: Some[string]{Value: d.Draft}}}
+	}
+}
+
+// arrive is the navigation to next: it is logged, and what it means
+// comes from the route before and the route after.
+func arrive(s Site, next Route) Decision[Site, []Command] {
+	let seq = if len(s.Log) == 0 { 1 } else { s.Log[0].Seq + 1 }
+	let mut log = []Logged{Logged{Seq: seq, From: s.Route, To: next}}
+	for l in s.Log {
+		if len(log) < LogSize {
+			log = log.Append(l)
+		}
+	}
+	let mut at = Site{..s, Route: Some[Route]{Value: next}, Log: log}
+	let mut out = []Command{}
+	// A cold load comes from no page; as a path the site does not have, it
+	// enters every page of the site.
+	let before = match s.Route {
+	case Some[Route] as r:
+		r.Value
+	case None:
+		NotFound{Path: ""}
+	}
+	let mut painting = false
+	match (before, next) {
+	case (Gallery, Gallery):
+		// A stay on the gallery is no entry.
+	case (Home, Gallery), (Painting, Gallery), (Studio, Gallery), (NotFound, Gallery):
+		match s.Catalog {
+		case Loading:
+			// The load in flight answers this visit too.
+		case Idle, Ready:
+			at = Site{..at, Catalog: Loading}
+			out = out.Append(LoadCatalog)
+		}
+	case (Painting, Painting):
+		// A stay on a painting loads only another painting.
+		painting = paintingID(before) != paintingID(next)
+	case (Home, Painting), (Gallery, Painting), (Studio, Painting), (NotFound, Painting):
+		painting = true
+	case (Home, Home), (Home, Studio), (Home, NotFound), (Gallery, Home), (Gallery, Studio), (Gallery, NotFound), (Painting, Home), (Painting, Studio), (Painting, NotFound), (Studio, Home), (Studio, Studio), (Studio, NotFound), (NotFound, Home), (NotFound, Studio), (NotFound, NotFound):
+	}
+	if painting {
+		at = Site{..at, Painting: LoadingPainting{ID: paintingID(next)}}
+		out = out.Append(LoadPainting{ID: paintingID(next)})
+	}
+	if exitsStudio(s.Route, next) && s.Draft != "" {
+		out = out.Append(SaveDraft{Draft: s.Draft})
+	}
+	if len(out) == 0 {
+		return Enter[Site]{Next: at}
+	}
+	Emit[Site, []Command]{Next: at, Output: out}
+}
+
+// exitsStudio is whether a navigation from before to next leaves the
+// studio.
+func exitsStudio(before Option[Route], next Route) bool {
+	match before {
+	case Some[Route] as r:
+		match (r.Value, next) {
+		case (Studio, Studio):
+			false
+		case (Studio, Home), (Studio, Gallery), (Studio, Painting), (Studio, NotFound):
+			true
+		case (Home, _), (Gallery, _), (Painting, _), (NotFound, _):
+			false
+		}
+	case None:
+		false
+	}
+}
+
+func paintingID(r Route) int {
+	match r {
+	case Painting as p:
+		p.ID
+	case Home, Gallery, Studio, NotFound:
+		0
+	}
+}
+
+// Commands is what the decision d asks the host to do.
+func Commands(d Decision[Site, []Command]) []Command {
+	match d {
+	case Emit[Site, []Command] as e:
+		e.Output
+	case Enter[Site], Stay[Site], Ignore, Reject, Done[[]Command]:
+		[]Command{}
+	}
+}
+
+// After is the site after the decision d from s.
+func After(s Site, d Decision[Site, []Command]) Site {
+	match d {
+	case Emit[Site, []Command] as e:
+		e.Next
+	case Enter[Site] as e:
+		e.Next
+	case Stay[Site] as st:
+		st.Next
+	case Ignore, Reject, Done[[]Command]:
+		s
+	}
+}

@@ -1,0 +1,97 @@
+// Package gallery is the site of upstream's route-transitions example: its
+// routes, its paintings, and the machine Site, whose step reads what a
+// navigation means (an entry, a stay, an exit) from the route before and
+// the route after, with no transition helper.
+
+import strconv
+import strings
+
+// Route is a page of the site: the home page, the gallery, one painting
+// by its id, the studio, or a path the site does not have.
+type Route = Home{} | Gallery{} | Painting{ID int} | Studio{} | NotFound{Path string}
+
+// Parse is the route of a URL ("http://localhost/gallery/3") or of its
+// path ("/gallery/3"). The scheme and host, a query and a fragment are
+// ignored, as are empty segments; a painting's id is a whole number. Any
+// other path is NotFound with the path.
+func Parse(url string) Route {
+	let mut path = url
+	match strings.Cut(path, "://") {
+	case Some as h:
+		path = match strings.Cut(h.Value.After, "/") {
+		case Some as p:
+			"/" + p.Value.After
+		case None:
+			"/"
+		}
+	case None:
+	}
+	match strings.Cut(path, "#") {
+	case Some as h:
+		path = h.Value.Before
+	case None:
+	}
+	match strings.Cut(path, "?") {
+	case Some as h:
+		path = h.Value.Before
+	case None:
+	}
+	let mut parts = []string{}
+	for p in strings.Split(path, "/") {
+		if p != "" {
+			parts = parts.Append(p)
+		}
+	}
+	if len(parts) == 0 {
+		return Home
+	}
+	if len(parts) == 1 && parts[0] == "gallery" {
+		return Gallery
+	}
+	if len(parts) == 1 && parts[0] == "studio" {
+		return Studio
+	}
+	if len(parts) == 2 && parts[0] == "gallery" {
+		let id = strconv.Atoi(parts[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return NotFound{Path: path}
+		}
+		if "\(id)" == parts[1] {
+			return Painting{ID: id}
+		}
+	}
+	NotFound{Path: path}
+}
+
+// Print is the path of r: Parse(Print(r)) is r for every route but a
+// NotFound whose path is one of the site's.
+func Print(r Route) string {
+	match r {
+	case Home:
+		"/"
+	case Gallery:
+		"/gallery"
+	case Painting as p:
+		"/gallery/\(p.ID)"
+	case Studio:
+		"/studio"
+	case NotFound as n:
+		n.Path
+	}
+}
+
+// Label is how a route shows in the log.
+func Label(r Route) string {
+	match r {
+	case Home:
+		"Home"
+	case Gallery:
+		"Gallery"
+	case Painting as p:
+		"Painting \(p.ID)"
+	case Studio:
+		"Studio"
+	case NotFound:
+		"Not found"
+	}
+}

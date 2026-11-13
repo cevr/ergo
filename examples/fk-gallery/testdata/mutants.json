@@ -1,0 +1,77 @@
+{
+  "about": "fk-gallery's application mutants; each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk9-reload-while-loading", "origin": "wf10/fk9a",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "\t\tcase Loading:\n\t\t\t// The load in flight answers this visit too.\n",
+      "to": "\t\tcase Loading:\n\t\t\tout = out.Append(LoadCatalog)\n",
+      "rule": "A visit while the catalog loads asks for no second load (test ReenteringWhileLoadingAsksNoMore; law CatalogueLoadsOncePerVisit).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9-gallery-stay-loads", "origin": "wf10/fk9a",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "\tcase (Gallery, Gallery):\n\t\t// A stay on the gallery is no entry.\n",
+      "to": "\tcase (Gallery, Gallery):\n\t\tat = Site{..at, Catalog: Loading}\n\t\tout = out.Append(LoadCatalog)\n",
+      "rule": "Only an entry into the gallery loads the catalog, not a stay (law CatalogueLoadsOncePerVisit).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9-stay-always-refetches", "origin": "wf10/fk9a",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "\t\tpainting = paintingID(before) != paintingID(next)\n",
+      "to": "\t\tpainting = true\n",
+      "rule": "A stay on a painting with the same id loads nothing (test StayingWithTheSameIdDoesNotRefetch; law StayRefetchesOnlyOnIdChange).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9-stay-never-refetches", "origin": "wf10/fk9a",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "\t\tpainting = paintingID(before) != paintingID(next)\n",
+      "to": "\t\tpainting = false\n",
+      "rule": "A stay on a painting with another id loads it (test StayingWithANewIdRefetches).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9-empty-draft-saved", "origin": "wf10/fk9a",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "if exitsStudio(s.Route, next) && s.Draft != \"\" {",
+      "to": "if exitsStudio(s.Route, next) {",
+      "rule": "Leaving the studio with an empty draft saves nothing (test LeavingAnEmptyStudioSavesNothing).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9-save-on-stay", "origin": "wf10/fk9a",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "\t\tcase (Studio, Studio):\n\t\t\tfalse\n",
+      "to": "\t\tcase (Studio, Studio):\n\t\t\ttrue\n",
+      "rule": "Staying in the studio is no exit and saves nothing (law LeavingStudioSavesDraft).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9-stale-answer-taken", "origin": "wf10/fk9a",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "\t\t\tif l.ID != p.ID {\n",
+      "to": "\t\t\tif l.ID != p.ID && false {\n",
+      "rule": "An answer for another painting than the one loading is ignored (test AStaleAnswerForAnotherIdIsIgnored).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9-log-unbounded", "origin": "wf10/fk9a",
+      "file": "examples/fk-gallery/gallery/site.ergo",
+      "from": "\t\tif len(log) < LogSize {\n",
+      "to": "\t\tif true {\n",
+      "rule": "The log keeps the last 20 navigations (law LogKeepsTheLastTwenty).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "fk9-studio-parses-home", "origin": "wf10/fk9a",
+      "file": "examples/fk-gallery/gallery/route.ergo",
+      "from": "\tif len(parts) == 1 && parts[0] == \"studio\" {\n\t\treturn Studio\n",
+      "to": "\tif len(parts) == 1 && parts[0] == \"studio\" {\n\t\treturn Home\n",
+      "rule": "Every route of the site prints to a path that parses back to it (law RoutesRoundTrip).",
+      "anchor": {"tests": ["examples:fk-gallery"]}, "killers": ["examples:fk-gallery"]
+    }
+  ]
+}
