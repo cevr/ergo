@@ -13,16 +13,18 @@ import "ergo.local/prototype/internal/sketch/check"
 // record and given a known variant by none of those rules (hasSlot), which
 // keeps its Go argument in one place: the call's type arguments (goArg).
 
-// goParam reports a type parameter that is a Go type parameter: a type, or
-// a Slot row.
-func goParam(tp *check.TypeParam) bool {
-	return tp.Kind == check.KindType || tp.Slot
+// goParam reports a type parameter that is a Go type parameter: a type, a
+// Slot row, or a held row (inforce.go).
+func (l *lowerer) goParam(tp *check.TypeParam) bool {
+	return tp.Kind == check.KindType || tp.Slot || tp.Kind == check.KindUses && l.isHeld(tp)
 }
 
-// hasSlot reports a signature with a Slot row.
-func hasSlot(sig *check.Signature) bool {
+// hasGoRow reports a signature with a Slot row or a held row: a function
+// that the inlining, the copies for a known record and the known variants
+// leave alone, since they bind only its type-kinded parameters.
+func (l *lowerer) hasGoRow(sig *check.Signature) bool {
 	for _, tp := range sig.TParams {
-		if tp.Slot {
+		if tp.Slot || tp.Kind == check.KindUses && l.isHeld(tp) {
 			return true
 		}
 	}
@@ -89,6 +91,9 @@ func (fc *funcCtx) intoSlot(td *typeDecl, t check.Type, field, val string) strin
 func (tc *typeCtx) goArg(tp *check.TypeParam, a check.Type) string {
 	if tp.Kind == check.KindType {
 		return tc.goType(a)
+	}
+	if tp.Kind == check.KindUses {
+		return tc.heldArg(a) // a held row (inforce.go)
 	}
 	ra, ok := a.(*check.RowArg)
 	if !ok {

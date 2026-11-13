@@ -3956,8 +3956,8 @@
       "name": "ckra-slot-erased",
       "origin": "wf10 CK CK-rowarg",
       "file": "internal/sketch/lower/rowslot.go",
-      "from": "\treturn tp.Kind == check.KindType || tp.Slot\n",
-      "to": "\treturn tp.Kind == check.KindType\n",
+      "from": "\treturn tp.Kind == check.KindType || tp.Slot || tp.Kind == check.KindUses && l.isHeld(tp)\n",
+      "to": "\treturn tp.Kind == check.KindType || tp.Kind == check.KindUses && l.isHeld(tp)\n",
       "rule": "A Slot row is a Go type parameter constrained by error, so Go sees the member's type where Ergo does (CK-rowarg; D6: Go infers the same after row erasure).",
       "killers": [
         "lower:TestRowParamBindsFromTypeArgRuns"
@@ -3989,11 +3989,66 @@
       "name": "ckra-inline-slot",
       "origin": "wf10 CK CK-rowarg",
       "file": "internal/sketch/lower/inline.go",
-      "from": " || isClose(f) || hasSlot(f.Sig) {",
+      "from": " || isClose(f) || l.hasGoRow(f.Sig) {",
       "to": " || isClose(f) {",
       "rule": "A function with a Slot row is not inlined: an inlined body names only its type-kinded parameters, so its match would test the Go instance with error where the caller holds the member's type (CK-rowarg; a defect at run time).",
       "killers": [
         "lower:TestRowParamBindsFromTypeArgRuns"
+      ]
+    },
+    {
+      "name": "ckif-installs-call-site",
+      "origin": "wf10 CK CK-rowarg part 3 (InForce)",
+      "file": "internal/sketch/lower/inforce.go",
+      "from": "\t\tb.WriteString(ind + r + \".copyEnv(\" + e + \", \" + snap + \")\\n\")\n",
+      "to": "\t\tb.WriteString(ind + \"_ = \" + snap + \"\\n\" + ind + r + \".copyEnv(\" + e + \", *\" + e + \")\\n\")\n",
+      "rule": "A held context installs the providers in force at its hold, not those of the call site (rows.md, Context values, InForce).",
+      "killers": [
+        "lower:TestInForceContextsAgree"
+      ]
+    },
+    {
+      "name": "ckif-first-cap-only",
+      "origin": "wf10 CK CK-rowarg part 3 (InForce)",
+      "file": "internal/sketch/lower/inforce.go",
+      "from": "\t\tfor _, c := range caps {\n\t\t\tfields = append(fields, l.envField(c))\n\t\t}\n",
+      "to": "\t\tfor _, c := range caps[:1] {\n\t\t\tfields = append(fields, l.envField(c))\n\t\t}\n",
+      "rule": "A held context installs every capability of its row (InForce).",
+      "killers": [
+        "lower:TestInForceContextsAgree"
+      ]
+    },
+    {
+      "name": "ckif-copies-all",
+      "origin": "wf10 CK CK-rowarg part 3 (InForce)",
+      "file": "internal/sketch/lower/inforce.go",
+      "from": "\t\tfor _, c := range caps {\n\t\t\tfields = append(fields, l.envField(c))\n\t\t}\n",
+      "to": "\t\tfor _, c := range caps {\n\t\t\t_ = l.envField(c)\n\t\t}\n\t\tfor _, ec := range l.envOrder {\n\t\t\tfields = append(fields, ec.field)\n\t\t}\n",
+      "rule": "A held context installs its row's providers and no others: a capability outside R is the call site's (Context values, Making one).",
+      "killers": [
+        "lower:TestInForceContextsAgree"
+      ]
+    },
+    {
+      "name": "ckif-held-not-passed",
+      "origin": "wf10 CK CK-rowarg part 3 (InForce)",
+      "file": "internal/sketch/lower/inforce.go",
+      "from": "\t\t\t\t\tgrew = mark(rowArgElems(e.targs[i])) || grew\n",
+      "to": "\t\t\t\t\t_ = e\n",
+      "rule": "A row parameter that a call binds to a held parameter of its callee is held: the caller passes the copier on (inforce.go).",
+      "killers": [
+        "lower:TestInForceContextsAgree"
+      ]
+    },
+    {
+      "name": "ckif-flag-unset",
+      "origin": "wf10 CK CK-rowarg part 3 (InForce)",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\tif fc.l.holdsRows() {\n\t\t\t// The innermost owning with, for a held context (inforce.go).\n",
+      "to": "\t\tif false && fc.l.holdsRows() {\n\t\t\t// The innermost owning with, for a held context (inforce.go).\n",
+      "rule": "An owning with records its scope in the environment, so a held context installed after it ended is a defect (InForce).",
+      "killers": [
+        "lower:TestInForceAfterWithEnds"
       ]
     }
   ]

@@ -114,3 +114,35 @@ func ContextValue(t *rt.Task, pkg ContextPackage, key string) string {
 	v, _ := t.Value(contextKey{string(pkg), key}).(string)
 	return v
 }
+
+// Held contexts (docs/spec/rows.md, Context values, InForce). The prelude's
+// InForce[R]() is a Context value of the providers of R in force at the
+// call. The lowering writes each call in place (internal/sketch/lower,
+// inforce.go): the value copies the environment at the call, and that copy
+// holds the scope of the innermost owning with in force there. HeldLive
+// checks it when the value is installed.
+
+// HeldContextDefect is the defect of a Context value made by InForce and
+// installed after the innermost owning with in force where it was made has
+// ended: a provider it holds may be closed.
+type HeldContextDefect struct{}
+
+// String is the defect's text, which the entry's report writes after
+// "panic: ".
+func (*HeldContextDefect) String() string {
+	return "a held context was used after its with ended"
+}
+
+// InForce is the Go function the prelude's InForce binds. The lowering
+// never calls it: it writes each call in place, and the program's Go
+// function of InForce panics too.
+func InForce() { panic("InForce is lowered at each call") }
+
+// HeldLive raises HeldContextDefect when w, the scope of the innermost
+// owning with in force where a held context was made, has ended. A nil w
+// is no owning with: the providers are values that outlive nothing.
+func HeldLive(w *Scope) {
+	if w != nil && w.ended {
+		panic(&HeldContextDefect{})
+	}
+}

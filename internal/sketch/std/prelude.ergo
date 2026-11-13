@@ -193,6 +193,15 @@ type CallSite { File string, Line int, Column int }
 // conversion makes one: its field is the compiler's.
 type Context[R] { install func() needs R }
 
+// InForce is the providers of R in force at the call, as a Context value
+// (rows.md, Context values, InForce): a function that keeps a function
+// with needs R for later keeps InForce[R]() with it, and `with w { … }`
+// installs them where it runs. It builds nothing. The value borrows the
+// with blocks in force at the call: installed after the innermost owning
+// one has ended, it is a defect. The compiler lowers each call in place;
+// the Go function is never called.
+extern go ergo.local/prototype/runtime/v1.InForce func InForce[R]() Context[R] needs R
+
 // The functions on slices and Maps (#196, fourth round, item 2; spec
 // D-D6). Each is reached only by the dot form on a value of exactly its
 // first parameter's type, xs.Append(x), m.Get(k), m.Delete(k) (D-D8): it

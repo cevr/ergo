@@ -185,7 +185,7 @@ type inlineKey struct {
 // inlineRule is inlineWithin's decision for an undecided f.
 func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
 	d := f.Decl
-	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) || hasSlot(f.Sig) {
+	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) || l.hasGoRow(f.Sig) {
 		return false
 	}
 	info := f.Pkg.Info

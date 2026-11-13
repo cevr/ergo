@@ -238,6 +238,10 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
 		// S-json: the fast path appends a string to a json Text; no wait.
 		"JSONAppendTextString": true,
+		// CK-rowarg part 3: a held context's install checks that its
+		// owning with has not ended (a panic value, no wait), then calls
+		// the generated copier of its row, a method of the program's own.
+		"HeldLive": true, "copyEnv": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

@@ -285,7 +285,11 @@ type lowerer struct {
 
 	envName   string
 	envFields map[string]string // by typeKey
-	envOrder  []envCap
+	// heldFacts is the held analysis and heldEmitted the copier
+	// declarations written (inforce.go).
+	heldFacts   *heldInfo
+	heldEmitted map[string]bool
+	envOrder    []envCap
 
 	rtName, timeName, taskName string
 	embedName                  string

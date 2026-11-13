@@ -219,7 +219,7 @@ func TestRowParamBindsFromTypeArg(t *testing.T) {
 // each value read the three ways gives the same line, and a box put builds
 // equals the literal.
 //
-// Builds Go because the defect it guards is only seen running: a match in
+// It builds Go because the defect it guards is only seen running: a match in
 // a body whose Go instance names error where the caller's names the
 // member type-checks and finds no case (the inlined slot row).
 func TestRowParamBindsFromTypeArgRuns(t *testing.T) {
