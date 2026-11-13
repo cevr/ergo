@@ -384,6 +384,33 @@ func (c *checker) takesClause(u *syntax.TakesClause, sig *Signature, method bool
 	}
 }
 
+// ownParams reads the mode word own on a parameter field whose n
+// parameters are the last n of sig (audit CSX §4.3, q168): own on a
+// function value lets the callee keep it (escaping; writtenParamType
+// reads the word), and on any other value the callee takes it, as
+// `takes p` says. The facts are the clause's: Signature.Takes, and the
+// late S110 of a taken parameter whose type crosses.
+func (c *checker) ownParams(field *syntax.Field, sig *Signature, n int) {
+	first := !c.ownSeen[field]
+	if c.ownSeen == nil {
+		c.ownSeen = map[*syntax.Field]bool{}
+	}
+	c.ownSeen[field] = true
+	for k := len(sig.Params) - n; k < len(sig.Params); k++ {
+		p := sig.Params[k]
+		if _, fn := under(p.Type).(*Signature); fn || isInvalid(p.Type) {
+			continue
+		}
+		if slices.Contains(sig.Takes, k) {
+			continue
+		}
+		sig.Takes = append(sig.Takes, k)
+		if first {
+			c.resourceSites = append(c.resourceSites, resourceSite{file: c.cur, at: field, t: p.Type, name: p.Name})
+		}
+	}
+}
+
 // mapKeySite records a written map key type for the late R40 check.
 func (c *checker) mapKeySite(x syntax.Expr, k Type) {
 	if c.mapKeysSeen == nil {

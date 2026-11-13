@@ -204,6 +204,7 @@ type checker struct {
 	ownershipSites []ownershipSite
 	ownershipSeen  map[ownershipKey]bool
 	takesSeen      map[*syntax.TakesClause]bool
+	ownSeen        map[*syntax.Field]bool // own parameter fields whose sites are recorded
 	mapKeysSeen    map[syntax.Expr]bool
 	// typeNodes are the expressions checked as types (a conversion's
 	// callee, a composite literal's type): the Task use rule skips them.

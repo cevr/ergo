@@ -295,6 +295,13 @@ type Holder { r R }
 func keep(r R) Holder takes r { Holder{r: r} }
 func main() {}
 `, nil},
+	{"fails and needs", "the mode word own (EXM1, q168)", `
+type R {} implements Closer
+func Close(r own R) {}
+type Holder { r R }
+func keep(r own R) Holder { Holder{r: r} }
+func main() {}
+`, nil},
 	{"escaping", "an escaping function type (196e, check-v1 stage E2)", `
 func f(g escaping func(int) int) int { return g(1) }
 func main() {}

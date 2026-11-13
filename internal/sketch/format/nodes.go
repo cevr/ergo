@@ -314,8 +314,14 @@ func (p *printer) fieldList(l *syntax.FieldList, open, close string) {
 			p.space()
 			p.token(f.Any, "any")
 		}
-		if f.Type != nil {
+		if f.Own != nil {
 			if len(f.Names) > 0 {
+				p.space()
+			}
+			p.token(f.Own.At, "own")
+		}
+		if f.Type != nil {
+			if len(f.Names) > 0 || f.Own != nil {
 				p.space()
 			}
 			p.typ(f.Type)
@@ -457,6 +463,10 @@ func (p *printer) operationType(t *syntax.InterfaceType) {
 	}
 	for _, m := range t.Methods {
 		list = append(list, member{m, func(bool) {
+			if m.Own != nil {
+				p.token(m.Own.At, "own")
+				p.space()
+			}
 			p.ident(m.Names[0])
 			p.signature(m.Type.(*syntax.FuncType))
 		}})

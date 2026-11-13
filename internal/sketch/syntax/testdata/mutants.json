@@ -34,6 +34,8 @@
       "killers": [
         "internal/sketch/syntax:TestPairLawDraws"
       ]
-    }
+    },
+    {"name":"exm1-own-name-read-as-mode","origin":"wf10 EXM1","file":"internal/sketch/syntax/parser.go","from":"\t\t\te.own = nil // a parameter named own\n","to":"\t\t\te.name = nil\n","rule":"own is contextual: in a named list, own T is a parameter named own (q168).","killers":["fix:TestOwnSpellsTheOldModes"]},
+    {"name":"exm1-writes-takes-fn","origin":"wf10 EXM1","file":"internal/sketch/syntax/ast.go","from":"\t\t\tif _, fn := unparenType(f.Type).(*FuncType); f.Own != nil && !fn {\n","to":"\t\t\tif f.Own != nil {\n","rule":"own on a function-typed parameter takes nothing, so a literal that writes only it still takes its expected type's clause (q168).","killers":["fix:TestOwnSpellsTheOldModes"]}
   ]
 }

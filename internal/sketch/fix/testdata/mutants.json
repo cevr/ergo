@@ -1,6 +1,7 @@
 {
   "about": "The mutant ledger of internal/sketch/fix (ergo fix). TestFixMigratesModel writes generated modules that the old method-set rule accepts, fixes them and checks them under the declared relation. Run it with go run ./scripts/mutants internal/sketch/fix; docs/tooling.md, \"Mutant ledger\".",
   "mutants": [
-    {"name":"exc1-fix-include-keeps-members","origin":"wf10 EXC1","file":"internal/sketch/fix/edit.go","from":"if len(m.Names) > 0 && names[m.Names[0].Name] {","to":"if false {","rule":"An include replaces the operations it brings, so a second fix and the checker see one operation each (audit CSX §4.10).","killers":["fix:TestFixMigratesModel"]}
+    {"name":"exc1-fix-include-keeps-members","origin":"wf10 EXC1","file":"internal/sketch/fix/edit.go","from":"if len(m.Names) > 0 && names[m.Names[0].Name] {","to":"if false {","rule":"An include replaces the operations it brings, so a second fix and the checker see one operation each (audit CSX §4.10).","killers":["fix:TestFixMigratesModel"]},
+    {"name":"exm1-fix-split-flipped","origin":"wf10 EXM1","file":"internal/sketch/fix/modes.go","from":"\trunOwn := taken[field.Names[0].Name]\n","to":"\trunOwn := !taken[field.Names[0].Name]\n","rule":"fix writes own on exactly the names a takes clause named, splitting a group taken in part in order (q168).","killers":["fix:TestOwnSpellsTheOldModes"]}
   ]
 }

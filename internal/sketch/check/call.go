@@ -883,8 +883,8 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 			sig.Results = append([]Type(nil), expected.Results...)
 		}
 	}
-	if x.Type.Takes == nil && expected != nil && len(expected.Params) == len(sig.Params) {
-		// A literal writes no takes clause where its function type gives
+	if !syntax.WritesTakes(x.Type) && expected != nil && len(expected.Params) == len(sig.Params) {
+		// A literal writes no takes clause (and no own) where its function type gives
 		// one (L8 A3, Gap 39): its body is checked against that clause.
 		sig.Takes, sig.TakesSelf = append([]int(nil), expected.Takes...), expected.TakesSelf
 	}

@@ -39,5 +39,12 @@ func fixCommand(args []string) error {
 		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
 	}
 	fmt.Fprint(os.Stdout, rep.Text())
+	// The keep mode's old spellings (takes, escaping) become own (EXM1).
+	// Syntactic: it reads every file under the paths, bindings included.
+	modes, err := fix.RunModes(fix.Options{Paths: fs.Args(), Write: !*dry, Go: *goLits})
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+	}
+	fmt.Fprint(os.Stdout, modes.Text())
 	return nil
 }

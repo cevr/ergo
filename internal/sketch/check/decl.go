@@ -995,6 +995,9 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 			mctx.params, mctx.decl = ctx.params, ctx.decl
 		}
 		sig := c.signature(ft, mctx)
+		if m.Own != nil {
+			sig.TakesSelf = true // own Close(): the operation keeps its receiver
+		}
 		if c.pkg.Host() {
 			c.hostClauses(c.pkg.Path+"."+owner+"."+name.Name, sig, m)
 		}
@@ -1941,12 +1944,13 @@ func (c *checker) slotKinds(head syntax.Expr) []Kind {
 	return kinds
 }
 
-// writtenParamType is the type of a parameter whose type is written as x
-// and resolves to t: a parameter written as a function type without
-// `escaping` is non-escaping (196e; escaping.go), a function's and a law's
-// alike. A named function type is escaping, as a field's is.
-func writtenParamType(x syntax.Expr, t Type) Type {
-	if ft, ok := unparen(x).(*syntax.FuncType); ok && !ft.Escaping.IsValid() {
+// writtenParamType is the type of the parameter field whose type is
+// written as x and resolves to t: a parameter written as a function type
+// without `escaping` or `own` is non-escaping (196e; escaping.go), a
+// function's and a law's alike. A named function type is escaping, as a
+// field's is.
+func writtenParamType(field *syntax.Field, t Type) Type {
+	if ft, ok := unparen(field.Type).(*syntax.FuncType); ok && !ft.Escaping.IsValid() && field.Own == nil {
 		if s, ok := t.(*Signature); ok {
 			ne := *s
 			ne.NonEscaping = true
@@ -1967,7 +1971,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 		for _, field := range ft.Params.List {
 			var t Type
 			if field.Type != nil {
-				t = writtenParamType(field.Type, c.typExpr(field.Type, &pctx))
+				t = writtenParamType(field, c.typExpr(field.Type, &pctx))
 			}
 			if len(field.Names) == 0 {
 				if t == nil {
@@ -1983,6 +1987,9 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 					pt = c.untypedParam(name, len(sig.Params), ctx.lit)
 				}
 				sig.Params = append(sig.Params, &Var{Name: name.Name, Type: pt, Pos: name.Pos(), id: name, param: true})
+			}
+			if field.Own != nil {
+				c.ownParams(field, sig, max(1, len(field.Names)))
 			}
 		}
 	}
@@ -2034,6 +2041,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 		ctx.hostRecv = d.Recv.List[0].Names[0].Name
 		ctx.method = true
 	}
+	ownRecv := c.pkg.Host() && d.Recv != nil && len(d.Recv.List) > 0 && d.Recv.List[0].Own != nil
 	var tparams []*TypeParam
 	// The bracket parameters are declared before any constraint resolves,
 	// so the instantiations in the constraints and the signature are
@@ -2081,6 +2089,9 @@ func (c *checker) funcSig(f *Func) *Signature {
 	c.mono.owner = owner
 	sig := c.signature(d.Type, ctx)
 	restore()
+	if ownRecv {
+		sig.TakesSelf = true // (r own *T): the binding keeps its receiver
+	}
 	sig.NBracket = nbracket
 	sig.TParams = tparams
 	f.Sig = sig

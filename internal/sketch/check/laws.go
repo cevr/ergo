@@ -695,7 +695,7 @@ func (c *checker) checkLaw(law *Law) {
 		// A law's parameters parse as a function's (paramPlain), so each
 		// field has a type: a lone name is one (S104 when no type has it).
 		for _, field := range d.Params.List {
-			typ := writtenParamType(field.Type, c.typExpr(field.Type, &typeCtx{param: true, params: params}))
+			typ := writtenParamType(field, c.typExpr(field.Type, &typeCtx{param: true, params: params}))
 			if len(field.Names) == 0 {
 				law.Params = append(law.Params, &Var{Name: "_", Type: typ, Pos: field.Type.Pos(), param: true, used: true})
 				continue

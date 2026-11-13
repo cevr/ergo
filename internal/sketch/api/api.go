@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // Copy is a type parameter's first checked copy site. An empty Where means
@@ -66,7 +67,7 @@ func Functions(p *check.Package) []Function {
 		takes := s.Takes
 		// Close's receiver take is inserted by the checker (R1), not
 		// written in source. Do not label that fact a written clause.
-		v.TakesInferred = len(takes) > 0 && f.Decl != nil && f.Decl.Type.Takes == nil
+		v.TakesInferred = len(takes) > 0 && f.Decl != nil && !syntax.WritesTakes(f.Decl.Type)
 		if len(takes) == 0 && !s.TakesSelf {
 			takes = p.Info.Takes[f]
 			v.TakesInferred = len(takes) > 0

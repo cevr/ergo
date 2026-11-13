@@ -620,10 +620,16 @@ func (p *parser) parseMembers() *members {
 			m.laws = append(m.laws, p.parseLawDecl(doc, false))
 		case p.tok.tok == IDENT && p.peek(1).tok == LBRACK && p.bracketsThenParen():
 			p.errorAt(p.peek(1).pos, 1, "an operation has no type parameters; declare them on its type: `type Name[T] { … }`")
-		case p.tok.tok == IDENT && p.peek(1).tok == LPAREN:
+		case p.tok.tok == IDENT && p.peek(1).tok == LPAREN,
+			p.tok.tok == IDENT && p.tok.lit == "own" && p.peek(1).tok == IDENT && p.peek(2).tok == LPAREN:
 			kind = memberOperation
+			var own *Word
+			if p.peek(1).tok != LPAREN {
+				own = &Word{At: p.tok.pos} // `own Close()`: the operation keeps its receiver
+				p.next()
+			}
 			name := p.parseIdent()
-			op := &Field{Doc: doc, Names: []*Ident{name}, Type: p.parseSignature(NoPos, ctxMember)}
+			op := &Field{Doc: doc, Names: []*Ident{name}, Type: p.parseSignature(NoPos, ctxMember), Own: own}
 			m.ops = append(m.ops, op)
 			if tupleShaped(op.Type.(*FuncType)) {
 				either = append(either, eitherMember{op, len(m.fields)})
@@ -1024,7 +1030,7 @@ func (p *parser) parseExternDecl(doc *CommentGroup) Decl {
 	}
 	d := &FuncDecl{Doc: doc, Extern: x, Func: p.want(FUNC)}
 	if p.tok.tok == LPAREN {
-		d.Recv = p.parseParameters(paramPlain)
+		d.Recv = p.parseParameters(paramPlain, true)
 		if path, typ, name := x.SplitMethod(); path == "" || !isIdentifier(typ) || !isIdentifier(name) || len(d.Recv.List) != 1 || len(d.Recv.List[0].Names) != 1 {
 			p.errorf("an extern method has one named receiver and the target path.Type.Method")
 		}
@@ -1045,7 +1051,7 @@ func (p *parser) parseTestDecl(doc *CommentGroup) *TestDecl {
 	d := &TestDecl{Doc: doc, Test: p.want(TEST)}
 	d.Name = p.parseIdent()
 	if p.tok.tok == LPAREN {
-		d.Params = p.parseParameters(paramPlain)
+		d.Params = p.parseParameters(paramPlain, true)
 	}
 	if p.tok.tok != LBRACE {
 		p.errorf("expected \"{\", found %s", p.found())
@@ -1064,7 +1070,7 @@ func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
 	if top && p.tok.tok == LBRACK {
 		p.errorAt(p.tok.pos, 1, "a law has no type parameters; state it at concrete types, or as a member of the protocol's operation type")
 	}
-	d.Params = p.parseParameters(paramPlain)
+	d.Params = p.parseParameters(paramPlain, true)
 	d.Body = p.parseBlock()
 	return d
 }
@@ -1149,7 +1155,7 @@ const (
 // parseSignature parses `Params [Type] [fails …] [needs …]`.
 func (p *parser) parseSignature(funcPos Pos, ctx typeCtx) *FuncType {
 	t := &FuncType{Escaping: NoPos, Func: funcPos}
-	t.Params = p.parseParameters(paramPlain)
+	t.Params = p.parseParameters(paramPlain, ctx == ctxDecl)
 	var results []*Field
 	if p.startsType() {
 		results = append(results, &Field{Type: p.parseResultType(ctx)})
@@ -1298,6 +1304,11 @@ type paramEntry struct {
 	name  *Ident
 	typ   Expr
 	comma Pos // the comma before the entry, or NoPos for the first
+	// own is the mode word, or nil. ambiguous marks `own T` with no name
+	// before it: a parameter named own in a named list or a declaration,
+	// else the mode on an unnamed parameter.
+	own       *Word
+	ambiguous bool
 	// wherePos and where are a law parameter's `where P` (refine.go).
 	wherePos Pos
 	where    Expr
@@ -1307,7 +1318,7 @@ type paramEntry struct {
 // entry has a name (`a, b T` groups a and b) or none does (`func(int64)`).
 // A list of bare names is a list of types here; a function literal reads
 // it as untyped names (funcLitParams).
-func (p *parser) parseParameters(mode paramMode) *FieldList {
+func (p *parser) parseParameters(mode paramMode, decl bool) *FieldList {
 	l := &FieldList{Opening: p.want(LPAREN)}
 	saved := p.exprLev
 	p.exprLev = 1
@@ -1334,13 +1345,28 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 	}
 	l.Closing = p.tok.pos
 	p.next()
-	named := false
+	// An `own T` entry with no name before it is a parameter named own in
+	// a named list or a declaration's, else the mode on an unnamed one.
+	named, ambiguous := false, false
 	for _, e := range entries {
-		named = named || e.name != nil
+		named = named || e.name != nil && !e.ambiguous
+		ambiguous = ambiguous || e.ambiguous
+	}
+	named = named || decl && ambiguous
+	for i := range entries {
+		e := &entries[i]
+		if !e.ambiguous {
+			continue
+		}
+		if named {
+			e.own = nil // a parameter named own
+		} else {
+			e.name = nil
+		}
 	}
 	if !named {
 		for _, e := range entries {
-			l.List = append(l.List, &Field{Type: e.typ})
+			l.List = append(l.List, &Field{Type: e.typ, Own: e.own})
 		}
 		return l
 	}
@@ -1358,7 +1384,7 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 		if e.where != nil && len(pending) > 0 {
 			p.errorAt(e.wherePos, len("where"), "a where follows a parameter of one name: give %s its own type", pending[0].Name)
 		}
-		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ, WherePos: e.wherePos, Where: e.where})
+		l.List = append(l.List, &Field{Names: append(pending, e.name), Type: e.typ, WherePos: e.wherePos, Where: e.where, Own: e.own})
 		pending = nil
 	}
 	if len(pending) > 0 {
@@ -1410,12 +1436,39 @@ func isCapabilityName(x Expr) bool {
 	return false
 }
 
+// atOwn reports whether the current token is the mode word `own`: the
+// word own followed by a token that starts a type (audit CSX §4.3, q168).
+// own is contextual, as pure is: elsewhere it is a name.
+func (p *parser) atOwn() bool {
+	if p.tok.tok != IDENT || p.tok.lit != "own" {
+		return false
+	}
+	switch p.peek(1).tok {
+	case IDENT, LBRACK, MUL, FUNC, ESCAPING, LPAREN:
+		return true
+	case GO:
+		return p.peek(2).tok == PERIOD
+	}
+	return false
+}
+
 func (p *parser) parseParamEntry() paramEntry {
+	if p.atOwn() {
+		// `own T`: the mode before an unnamed parameter's type, or a
+		// parameter named own; parseParameters decides by the list.
+		word := p.parseIdent()
+		return paramEntry{name: word, own: &Word{At: word.NamePos}, ambiguous: true, typ: p.parseType(ctxList)}
+	}
 	if p.tok.tok != IDENT {
 		return paramEntry{typ: p.parseType(ctxList)}
 	}
 	start := p.i
 	id := p.parseIdent()
+	if p.atOwn() {
+		own := &Word{At: p.tok.pos}
+		p.next()
+		return paramEntry{name: id, own: own, typ: p.parseType(ctxList)}
+	}
 	switch p.tok.tok {
 	case COMMA, RPAREN:
 		return paramEntry{typ: id}
