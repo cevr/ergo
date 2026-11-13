@@ -35,6 +35,30 @@ type facts struct {
 	def      check.Object    // an identifier's Defs entry
 	releases []check.Release // what the node releases when it ends
 	match    *check.Match
+	// op is the expression's form; plain says its value goes out as it is
+	// made: no context value, no covered failure, no owned temporary, no
+	// conversion (ORACLE O33).
+	op    exprOp
+	plain bool
+	// kids are the facts of the operands the evaluator reads through kid,
+	// by position, filled as they are first read (ORACLE O33).
+	kids []*facts
+	// field is a selector's record field: t is the record type its
+	// operand was checked to have outside a generic body, and at is the
+	// field's index in the record type rt last read (ORACLE O33).
+	field struct {
+		t, rt *check.Named
+		at    int
+	}
+}
+
+// fieldOf is the index of the field name in t, a record type, cached for
+// the selector whose facts f are.
+func (f *facts) fieldOf(t *check.Named, name string) int {
+	if f.field.rt != t {
+		f.field.rt, f.field.at = t, fieldIndex(t, name)
+	}
+	return f.field.at
 }
 
 // factTable holds the facts of one package's expressions, by node: the
@@ -151,8 +175,104 @@ func (t factTable) of(info *check.Info, x syntax.Expr) *facts {
 		f.call = info.Calls[h]
 	}
 	f.releases, f.match = info.Releases[x], info.Matches[x]
+	f.op = opOf(x, f)
+	f.plain = f.ctx == nil && !f.covered && f.owned == nil && len(f.elems) == 0 &&
+		(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow)
 	t.put(k, f)
 	return f
+}
+
+// kid is the facts of e, the operand at position i of the expression or
+// statement whose facts are f: read through f once its first read found
+// them, with no lookup (ORACLE O33). An operand belongs to its parent's
+// package, so the parent's table holds it.
+func (in *interp) kid(fr *frame, f *facts, i int, e syntax.Expr) *facts {
+	if i < len(f.kids) {
+		if k := f.kids[i]; k != nil {
+			return k
+		}
+	} else {
+		kids := make([]*facts, i+1)
+		copy(kids, f.kids)
+		f.kids = kids
+	}
+	k := in.fx(fr, e)
+	f.kids[i] = k
+	return k
+}
+
+// An exprOp is the form of an expression, decided once from its facts and
+// its syntax (ORACLE O33): exprFacts switches on it, a jump, where a type
+// switch over the syntax compared one type after another.
+type exprOp uint8
+
+const (
+	opOther exprOp = iota
+	opConst
+	opBare
+	opCtx
+	opParen
+	opIdent
+	opBasicLit
+	opPlace // a selector or an index
+	opSlice
+	opBinary
+	opUnary
+	opComposite
+	opCall
+	opTry
+	opCatch
+	opStmt // an if, a switch or a match in a value position
+	opInterpolated
+	opTuple
+	opFuncLit
+	opStar
+)
+
+func opOf(x syntax.Expr, f *facts) exprOp {
+	switch {
+	case f.hasVal:
+		return opConst
+	case f.bare != nil:
+		return opBare
+	case f.ctx != nil:
+		return opCtx
+	}
+	switch x.(type) {
+	case *syntax.ParenExpr:
+		return opParen
+	case *syntax.Ident:
+		return opIdent
+	case *syntax.BasicLit:
+		return opBasicLit
+	case *syntax.SelectorExpr, *syntax.IndexExpr:
+		return opPlace
+	case *syntax.SliceExpr:
+		return opSlice
+	case *syntax.BinaryExpr:
+		return opBinary
+	case *syntax.UnaryExpr:
+		return opUnary
+	case *syntax.CompositeLit:
+		return opComposite
+	case *syntax.CallExpr:
+		return opCall
+	case *syntax.TryExpr:
+		return opTry
+	case *syntax.CatchExpr:
+		return opCatch
+	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		return opStmt
+	case *syntax.InterpolatedString:
+		return opInterpolated
+	case *syntax.TupleExpr:
+		return opTuple
+	case *syntax.FuncLit:
+		return opFuncLit
+	case *syntax.StarExpr:
+		return opStar
+	}
+	return opOther
 }
 
 // stmtOf is the facts of s, a statement of info's package: what it
