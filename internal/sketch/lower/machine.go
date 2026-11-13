@@ -280,8 +280,10 @@ func (fc *funcCtx) everyTimers(conv check.Conversion, after *check.Func, site sy
 	st, ok := every.Underlying().(*check.Struct)
 	var at check.Type
 	if ok {
+		// The checker admitted std machines.Every (check.IsStdEvery):
+		// its one function field is Signal.
 		for _, f := range st.Fields {
-			if fs, isSig := f.Type.(*check.Signature); f.Name == "Signal" && isSig && len(fs.Params) == 1 {
+			if fs, isSig := f.Type.(*check.Signature); isSig && len(fs.Params) == 1 {
 				at = fs.Params[0].Type
 			}
 		}
