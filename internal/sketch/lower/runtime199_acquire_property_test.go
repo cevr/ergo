@@ -186,7 +186,18 @@ func (s *acqSeq) src() string {
 	}
 	for e, en := range s.entries {
 		t := s.typ(e)
-		fmt.Fprintf(&b, "type %s {}\nfunc Name(_ %s) string { %q }\n", t, t, t)
+		var impls []string
+		for _, c := range en.caps {
+			impls = append(impls, s.cap(c))
+		}
+		if en.res {
+			impls = append(impls, "Closer")
+		}
+		clause := ""
+		if len(impls) > 0 {
+			clause = " implements " + strings.Join(impls, ", ")
+		}
+		fmt.Fprintf(&b, "type %s {}%s\nfunc Name(_ %s) string { %q }\n", t, clause, t, t)
 		if en.res {
 			fmt.Fprintf(&b, "func Close(_ %s) needs Probe { let _ = Probe.Step(\"close %s\") }\n", t, t)
 		}
@@ -314,8 +325,8 @@ func (s *acqSeq) src() string {
 	// with also meets an enclosing owner: O<k> closes after the inner with's
 	// providers on every exit, and the outer block goes on only after the
 	// inner with ended normally.
-	fmt.Fprintf(&b, "type PO%d { Name() string }\ntype O%d {}\nfunc Name(_ O%d) string { \"O%d\" }\nfunc Close(_ O%d) needs Probe { let _ = Probe.Step(\"close O%d\") }\nfunc mo%d() O%d { O%d }\nlet W%d = context { PO%d: mo%d() }\n",
-		s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k)
+	fmt.Fprintf(&b, "type PO%d { Name() string }\ntype O%d {} implements PO%d, Closer\nfunc Name(_ O%d) string { \"O%d\" }\nfunc Close(_ O%d) needs Probe { let _ = Probe.Step(\"close O%d\") }\nfunc mo%d() O%d { O%d }\nlet W%d = context { PO%d: mo%d() }\n",
+		s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k)
 	inner := fmt.Sprintf("with context { %s } {\n\t\t\tlet _ = Probe.Step(\"body \" + %s)\n\t\t}", strings.Join(inline, ", "), strings.Join(names, " + \" \" + "))
 	for _, form := range nestForms {
 		var around string

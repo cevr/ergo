@@ -190,7 +190,7 @@ func genStdGap(seed uint64) *stdGap {
 		ops = append(ops, o)
 	}
 	var f strings.Builder
-	f.WriteString("type Odd { N int }\n\ntype box { n int, tag string }\n\ntype Ops {\n")
+	f.WriteString("type Odd { N int }\n\ntype box { n int, tag string } implements Ops\n\ntype Ops {\n")
 	for _, o := range ops {
 		f.WriteString("\t" + o.decl() + ",\n")
 	}

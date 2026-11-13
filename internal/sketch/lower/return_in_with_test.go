@@ -262,8 +262,8 @@ func TestErgoRunReturnInWithModel(t *testing.T) {
 		var b strings.Builder
 		b.WriteString("import scope\n\ntype Fault {}\n\nfunc risky(n int) int fails Fault {\n\tif n == 0 {\n\t\treturn Fault\n\t}\n\tn\n}\n\n")
 		for i := range 3 {
-			fmt.Fprintf(&b, "type C%d { Use() int }\ntype R%d { N int }\nfunc Use(r R%d) int { r.N }\nfunc Close(r R%d) needs Console { Console.Println(\"close \\(r.N)\") }\n", i, i, i, i)
-			fmt.Fprintf(&b, "type D%d { Use() int }\ntype S%d { N int }\nfunc Use(s S%d) int { s.N }\nfunc Close(s S%d) needs Console { Console.Println(\"close \\(s.N)\") }\n\n", i, i, i, i)
+			fmt.Fprintf(&b, "type C%[1]d { Use() int }\ntype R%[1]d { N int } implements C%[1]d, Closer\nfunc Use(r R%[1]d) int { r.N }\nfunc Close(r R%[1]d) needs Console { Console.Println(\"close \\(r.N)\") }\n", i)
+			fmt.Fprintf(&b, "type D%[1]d { Use() int }\ntype S%[1]d { N int } implements D%[1]d, Closer\nfunc Use(s S%[1]d) int { s.N }\nfunc Close(s S%[1]d) needs Console { Console.Println(\"close \\(s.N)\") }\n\n", i)
 		}
 		var fs []*rwFunc
 		var want []string

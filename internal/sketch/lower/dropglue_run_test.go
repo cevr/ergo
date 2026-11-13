@@ -263,7 +263,11 @@ func (g *dgGen) declare(i int) {
 		t.fields = append(t.fields, f)
 		fields = append(fields, fmt.Sprintf("f%d %s", k, f.text()))
 	}
-	fmt.Fprintf(&g.decls, "type %s { %s }\n\n", t.name, strings.Join(fields, ", "))
+	clause := ""
+	if t.closes {
+		clause = " implements Closer"
+	}
+	fmt.Fprintf(&g.decls, "type %s { %s }%s\n\n", t.name, strings.Join(fields, ", "), clause)
 	if t.closes {
 		fmt.Fprintf(&g.decls, "func Close(x %s) needs Console { Console.Println(\"close \\(x.id)\") }\n\n", t.name)
 	}
