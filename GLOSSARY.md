@@ -25,7 +25,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Interface value** (checked): A value of an interface type in a type position, such as a parameter `o Orders`. It holds a provider value. Calling its method runs that provider's method with the method's declared rows and charges no capability. A type is assignable to the interface by method-row compatibility ([types](docs/spec/types.md#interface-assignability)).
 
-**Provider** (checked for provider values): A value whose type implements a capability's methods, bound to that capability by a `context`. A provider may fail less than its capability, never more.
+**Provider** (checked for provider values): A value bound to a capability by a `context`, whose type implements the capability's operation type: its `implements` clause names it, directly or through an include (EXC1). A provider may fail less than its capability, never more.
 
 **Constructor** (designed): An ordinary function named as a `context` entry, such as `Orders = OpenPostgres`. Its requirements are satisfied from the same context, and its failures become startup failures of the `with` that builds it.
 
@@ -127,7 +127,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Borrow** (designed): A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap.
 
-**Resource** (checked; release designed): A value whose type has a checked `Close()`, an operation type with a `Close()` operation or with an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
+**Resource** (checked; release designed): A value whose type implements the prelude's `Closer` (its clause names it, or an operation type that includes it), an operation type that includes `Closer` or has an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
 
 **Copy site** (checked): A place where a generic body copies a value of its type parameter `T` (uses it after a hand-off, or hands off a lent `T`). The package records it; a call that binds `T` to a resource is refused there, and plain data is admitted. See [resources](docs/spec/resources.md) R44.
 
