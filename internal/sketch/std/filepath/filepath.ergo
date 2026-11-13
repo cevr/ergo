@@ -34,7 +34,7 @@ extern go ergo.local/prototype/runtime/v1.FilepathClean func Clean(path string) 
 extern go ergo.local/prototype/runtime/v1.FilepathIsAbs func IsAbs(path string) bool
 
 // Parts is a path cut after its last separator.
-type Parts { Dir string, File string }
+extern go ergo.local/prototype/runtime/v1.Parts type Parts { Dir string, File string }
 
 // Split cuts path after its last separator: Dir ends with the separator
 // (or is "" when path has none), and Dir + File is path. It scans path
@@ -44,7 +44,7 @@ extern go ergo.local/prototype/runtime/v1.FilepathSplit func Split(path string) 
 // NotRelative is the failure of Rel: target cannot be made relative to
 // base by lexical processing, because one is rooted and the other is not,
 // or because base has a ".." element that target does not match.
-type NotRelative { Base string, Target string }
+extern go ergo.local/prototype/runtime/v1.NotRelative type NotRelative { Base string, Target string }
 
 // Rel is a path that Join([]string{base, Rel(base, target)}) makes equal
 // to target after Clean. Both are cleaned first; Rel of two equal paths is

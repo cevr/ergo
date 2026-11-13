@@ -32,7 +32,7 @@ type slot[T] { value stored[T], gen int, next int }
 // stored is the private host storage cell. takeValue clears its physical
 // storage after removing the value. No zero T is made available to callers:
 // only a live Ref permits a read, and Free invalidates it before returning.
-type stored[T] { Value T }
+extern go ergo.local/prototype/runtime/v1.ArenaValue type stored[T] { Value T }
 
 extern go ergo.local/prototype/runtime/v1.ArenaTake func takeValue[T](s *stored[T]) T
 

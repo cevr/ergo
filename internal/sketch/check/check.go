@@ -920,7 +920,7 @@ func (s *stdImporter) load(path string) (*Package, error) {
 
 // StdFixture checks files as the std package at path, as Std checks an
 // embedded one, with Std for its imports: the package is std, so its
-// externs may bind runtime/v1 and its records follow the std binding table.
+// externs may bind runtime/v1 and its types may name runtime/v1 Go types.
 // It serves tests of std bindings that need a std package the embedded
 // library does not have (lower's TestStdRecordsKeyedByPackage). The
 // compiler never calls it, and no Ergo source can reach it.

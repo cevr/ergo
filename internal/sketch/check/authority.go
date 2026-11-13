@@ -480,7 +480,11 @@ func Sealed(t Type) bool {
 // declaration (an unexported operation), never a std name.
 func sealedStdOps(t Type) bool {
 	n, ok := t.(*Named)
-	return ok && n.Obj != nil && n.Obj.Pkg.Std() && Sealed(n)
+	if !ok {
+		return false
+	}
+	_, runtime := GoTypeOf(n)
+	return runtime && Sealed(n)
 }
 
 // implementers are the types of owner that may implement it: each a

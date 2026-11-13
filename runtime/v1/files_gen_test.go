@@ -55,6 +55,13 @@ func TestBodyTableIsCurrent(t *testing.T) {
 			t.Errorf("BodyOf(%q) = %+v, %v; the sources give %+v, %v", name, got, gotErr, want, wantErr)
 		}
 	}
+	for name := range decls {
+		want, wantOK := decls.goType(name)
+		got, gotOK := TypeOf(name)
+		if wantOK != gotOK || !reflect.DeepEqual(want, got) {
+			t.Errorf("TypeOf(%q) = %+v, %v; the sources give %+v, %v", name, got, gotOK, want, wantOK)
+		}
+	}
 }
 
 // renderBodyTable is the Go source of files_gen.go: for every exported
@@ -83,6 +90,31 @@ func renderBodyTable(decls goDecls) string {
 			continue
 		}
 		fmt.Fprintf(&b, "\t%q: {body: %s},\n", name, bodyLiteral(body))
+	}
+	b.WriteString("}\n\n")
+	b.WriteString("// typeTable is goDecls.goType of every exported type of Source, by name.\n")
+	b.WriteString("// TypeOf reads it (CHK1).\n")
+	b.WriteString("var typeTable = map[string]GoType{\n")
+	var types []string
+	for name, g := range decls {
+		if g.typ != nil {
+			types = append(types, name)
+		}
+	}
+	sort.Strings(types)
+	for _, name := range types {
+		t, _ := decls.goType(name)
+		var fields []string
+		if t.Arity > 0 {
+			fields = append(fields, fmt.Sprintf("Arity: %d", t.Arity))
+		}
+		if t.Struct {
+			fields = append(fields, "Struct: true")
+		}
+		if len(t.Fields) > 0 {
+			fields = append(fields, fmt.Sprintf("Fields: %#v", t.Fields))
+		}
+		fmt.Fprintf(&b, "\t%q: {%s},\n", name, strings.Join(fields, ", "))
 	}
 	b.WriteString("}\n")
 	src, err := format.Source([]byte(b.String()))

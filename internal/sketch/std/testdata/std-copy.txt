@@ -6,8 +6,8 @@
 # join (stdCopyBaseline).
 
 actor	same
-arena	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c
-atomic	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c
+arena	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's), so a std body stays small enough for Go to inline	follow-up join-under-directive
+atomic	same
 base64	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 bits	same
 cmp	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
@@ -15,11 +15,11 @@ codec	differs	lower: joinResult joins a call into its assignment only in a body 
 config	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 copyfixture	same
 crc32	same
-csv	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
-embed	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c
+csv	same
+embed	same
 exec	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 explore	same
-filepath	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c
+filepath	same
 flag	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 fs	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
@@ -34,7 +34,7 @@ log	same
 machines	same
 maps	same
 math	same
-os	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c
+os	differs	lower: os.Code lowers to Go's int at the runtime record boundary (runtimeType names it), a copy's Code to its own type	follow-up os-code-type
 prompt	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 queue	differs	check: S108 Queue has no release: the keeping rule names queue.Queue	NP3c
 rand	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
@@ -54,4 +54,4 @@ time	differs	lower: a union of a user package lowers to the flat form, a std uni
 timeout	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 toml	same
 trace	same
-utf8	differs	lower: a std type lowers to the runtime's Go type (runtimeType, stdRecords), a copy's type to its own	NP4c
+utf8	same

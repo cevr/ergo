@@ -71,7 +71,6 @@ language	internal/sketch/lower/values.go:preludeAppend	the prelude Append	-
 language	internal/sketch/lower/values.go:preludeMapWrite	the prelude Delete and Put	-
 language	internal/tsproj/project.go:emitter.declare	Wire, the codec's conversion protocol	-
 language	internal/tsproj/project.go:emitter.schema	Option	-
-debt	internal/sketch/check/authority.go:sealedStdOps	a std operation type is the runtime's Go type	NP4c
 debt	internal/sketch/check/drop.go:dropWalk.drain	a std type's drain body by name	NP3c
 debt	internal/sketch/check/embed.go:checker.embedCall	embed.FS by name	NP3d
 debt	internal/sketch/check/expr.go:checker.compositeLit	a Context literal only in std	NP3d
@@ -90,7 +89,6 @@ debt	internal/sketch/lower/calls.go:lowerer.stdContext	a std context's builder i
 debt	internal/sketch/lower/context.go:contextNamespace	the context namespace std:path	NP8
 debt	internal/sketch/lower/release.go:funcCtx.holdTaken	a std type keeps taken values	NP3c
 debt	internal/sketch/lower/std.go:lowerer.runtimeType	a std record or operation type is the runtime's Go type	NP4c
-debt	internal/sketch/lower/std.go:runtimeProtocols	std types that are runtime Go types, by name	NP4c
 debt	internal/sketch/lower/types.go:lowerer.foreignOwner	the std package that owns a runtime type	NP4c
 debt	internal/sketch/lower/values.go:lowerer.ownedForm	reads v1.BodyOf outside the body contract files; lower/values.go is IR-G lane V's (STD-NOPRIV Do not touch), so its writer moves it to runtimeBody	IR-G V
 debt	internal/sketch/lower/wirefields.go:jsonWrapper	the wire form of json's Optional, Nullable, Value and Num by name	CF1

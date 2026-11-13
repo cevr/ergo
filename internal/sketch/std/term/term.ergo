@@ -21,7 +21,7 @@ import sync
 
 // NotTerminal is the failure of a mode change or a size read when
 // standard input or output is not a terminal.
-type NotTerminal {}
+extern go ergo.local/prototype/runtime/v1.TermNotTerminal type NotTerminal {}
 
 // Mode is a terminal mode: RawMode reads each key as it comes, with no
 // echo, no line editing and no signal keys (Ctrl-C is the key Interrupt);
@@ -29,7 +29,7 @@ type NotTerminal {}
 type Mode = RawMode{} | NoEchoMode{}
 
 // Window is the terminal's size, in columns and rows.
-type Window { Cols int, Rows int }
+extern go ergo.local/prototype/runtime/v1.TermWindow type Window { Cols int, Rows int }
 
 // Key is one key a person pressed. Char is a printable character, one
 // rune. Interrupt is Ctrl-C, which a raw mode passes as a key. EndOfInput

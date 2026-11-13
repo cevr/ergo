@@ -35,3 +35,46 @@ func TestTrustedDoorRefusals(t *testing.T) {
 		}
 	}
 }
+
+// TestRuntimeTypeDeclarations (STD-NOPRIV NP4c): a type declaration names
+// its runtime Go type (docs/spec/stdlib.md, The body contract) in any
+// package the root trusts, as std's do, and the checker holds it to the Go
+// type's shape; anything else is S108 with its reason. Std's own
+// declarations are std TestStdRecordTable. Mutants: runtime-type-std-only,
+// runtime-type-untrusted, runtime-type-arity, runtime-type-fields,
+// runtime-type-open.
+func TestRuntimeTypeDeclarations(t *testing.T) {
+	const v1 = "extern go ergo.local/prototype/runtime/v1."
+	for _, c := range []struct {
+		decl    string
+		trusted bool
+		want    string // "" for no diagnostic
+	}{
+		{v1 + "Closed type Closed {}", true, ""},
+		{v1 + "Closed type Closed {}", false, "which a package names only when the root module trusts its Go"},
+		{v1 + "Closed type Closed[T] {}", true, "Closed has 1 type parameters and v1.Closed has 0"},
+		{v1 + "Closed type Closed { Reason string }", true, "is not a struct with those fields"},
+		{v1 + "Queue type Queue[T] { Push(v T) }", true, "declares an unexported operation"},
+	} {
+		f, err := syntax.Parse(c.decl + "\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var imp Importer = Std
+		if c.trusted {
+			imp = trustingImporter{}
+		}
+		pkg, diags := CheckTest("app/x", []*syntax.File{f}, imp, nil)
+		if c.want == "" {
+			if len(diags) != 0 {
+				t.Errorf("%s: %v", c.decl, diags)
+			} else if goName, ok := GoTypeOf(pkg.Types[0].Type.(*Named)); !ok || goName != "Closed" {
+				t.Errorf("%s: GoTypeOf = %q, %v", c.decl, goName, ok)
+			}
+			continue
+		}
+		if len(diags) != 1 || diags[0].Code != CodeType || !strings.Contains(diags[0].Message, c.want) {
+			t.Errorf("%s (trusted %v): got %v, want one S108 %q", c.decl, c.trusted, diags, c.want)
+		}
+	}
+}

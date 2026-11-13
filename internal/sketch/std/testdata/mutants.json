@@ -1,6 +1,7 @@
 {
   "about": "The mutant ledger of internal/sketch/std: edits of the std sources (the .ergo declarations and the Go that reads them) that some test, law or example must kill. Run it with go run ./scripts/mutants ./internal/sketch/std; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded by ESC1 (wf10, lang audit B F1).",
   "mutants": [
+    {"name":"type-binding-read-by-name","origin":"wf10 STD-NOPRIV NP4c","file":"internal/sketch/check/body.go","from":"\treturn name, path == runtimeModule+\"/v1\"","to":"\treturn n.origin().Obj.Name + name[:0], path == runtimeModule+\"/v1\"","rule":"stdlib.md The body contract: a type's Go type is the one its declaration names, never one read from its Ergo name.","killers":["std:TestStdRecordTable"]},
     {"name":"esc1-timeout-nonescaping","origin":"wf10 ESC1 r2","file":"internal/sketch/std/timeout/timeout.ergo","from":"f escaping func() A fails E needs R","to":"f func() A fails E needs R","rule":"A joined child task is not the caller's task: a timeout callback cannot borrow a caller-owned Set.","anchor":{"tests":["lower:TestRetainedForeignArguments"]},"killers":["lower:TestRetainedForeignArguments","lower:TestStdCallbackClausesAdmit","std:TestExternArgumentClauses"]},
     {
       "name": "esc1-transform-nonescaping", "origin": "wf10 ESC1",

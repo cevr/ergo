@@ -20,95 +20,41 @@ import (
 // queue.Closed is Closed, so a lowered catch matches the runtime's failure
 // and a returned Task can Move.
 
-// stdRecord is the lowering's lookup in the binding table of std records:
-// v1.StdRecord. It is a variable only so that a test can bind fixture
-// records through rows whose Go names differ from the records' names
-// (TestStdRecordsBindTheRowsGoName); nothing else assigns it.
-var stdRecord = v1.StdRecord
-
 // runtimeType is the runtime/v1 Go type, without type arguments, that the
-// std type n lowers to, or "" when n is lowered as a declaration of the
-// program (the types of the program's own packages, the prelude's other
-// types, and a std record with no row in the binding table, such as
-// strings.Halves). A std record with a row is the runtime struct the row
-// names, keyed by the record's package and name (v1.StdRecord), never by
-// its name alone; a runtime-backed std operation type is a
-// pointer to the runtime's type of the same name, whose methods are its
-// operations, and an open one is a declaration of the program.
+// type n lowers to, or "" when n is lowered as a declaration of the
+// program. A type whose declaration names a Go type of the runtime
+// (`extern go …/runtime/v1.Closed type Closed {}`; docs/spec/stdlib.md,
+// The body contract; check.GoTypeOf) is that Go type: a record is the
+// struct, and a sealed operation type is a pointer to the type, whose
+// methods are its operations. The checker holds the declaration to the Go
+// type's shape (check/extern.go runtimeTypeRefusal), so the lowering reads
+// the declaration and never a std name. Every other type of every package
+// is a declaration of the program, apart from the prelude's Task and
+// os.Code below.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	obj := n.Obj
 	if check.IsGoError(n) {
 		// The predeclared go.Error, a user extern's failure (G4).
 		return l.rt() + ".GoError"
 	}
-	if obj.Pkg == nil || !obj.Pkg.Std() || obj.Decl == nil {
-		return "" // a user package's type is a declaration of the program
-	}
-	if obj.Pkg.Path == "prelude" {
-		if obj.Name == "Task" {
-			return "*" + l.rt() + ".Task"
-		}
+	if obj.Pkg == nil || obj.Decl == nil {
 		return ""
+	}
+	if goName, ok := check.GoTypeOf(n); ok {
+		if _, isOps := obj.Decl.Spec.(*syntax.InterfaceType); isOps {
+			return "*" + l.rt() + "." + goName
+		}
+		return l.rt() + "." + goName
+	}
+	if obj.Pkg.Path == "prelude" && obj.Pkg.Std() && obj.Name == "Task" {
+		return "*" + l.rt() + ".Task"
 	}
 	// Code is checked as an ordinary refinement. At the runtime record
 	// boundary its representation is the existing Go int field of Exit.
-	if obj.Pkg.Path == "os" && obj.Name == "Code" {
+	if obj.Pkg.Std() && obj.Pkg.Path == "os" && obj.Name == "Code" {
 		return "int"
 	}
-	switch spec := obj.Decl.Spec.(type) {
-	case *syntax.StructType:
-		goName, ok := stdRecord(obj.Pkg.Path, obj.Name)
-		if !ok {
-			return ""
-		}
-		origin := n
-		if n.Orig != nil {
-			origin = n.Orig
-		}
-		if _, err := v1.StructFieldsOf(goName, len(origin.TParams)); err != nil {
-			ice(site, "the std record %s.%s binds v1.%s: %v", obj.Pkg.Path, obj.Name, goName, err)
-		}
-		return l.rt() + "." + goName
-	case *syntax.InterfaceType:
-		if len(spec.Union) == 0 {
-			if !runtimeProtocols[obj.Pkg.Path+"."+obj.Name] {
-				return "" // an open std protocol, such as os.Process: a program value implements it
-			}
-			if !check.Sealed(n) {
-				ice(site, "the runtime-backed protocol %s must declare an unexported operation", n)
-			}
-			return "*" + l.rt() + "." + obj.Name
-		}
-		// A closed union of std records, such as flag.Failure (std-align
-		// S1d) or time.Layout (S2b): a declaration of the program, as the
-		// prelude's Option is. Its variants are std records, each the
-		// runtime's struct or a declaration of the program by the rule
-		// above.
-		return ""
-	case *syntax.MachineType:
-		// A std machine declaration, such as prompt.Picker (CU3): a
-		// declaration of the program, as a user package's machine is. Std
-		// is ordinary code (std.go), so its machines lower by the same
-		// rule.
-		return ""
-	case *syntax.Ident, *syntax.SelectorExpr, *syntax.ArrayType, *syntax.MapType:
-		return "" // an ordinary defined type, including refinements
-	}
-	// Every other std type is a record, a union or an operation type.
-	ice(site, "the std type %s.%s is neither a record nor an operation type", obj.Pkg.Path, obj.Name)
 	return ""
-}
-
-// runtimeProtocols selects Go representations, never source admission.
-// A sealed type implemented in Ergo (http.Streaming) is not necessarily
-// a runtime struct. Every type here declares its own private operation.
-var runtimeProtocols = map[string]bool{
-	"atomic.Int64": true, "atomic.Bool": true, "embed.FS": true,
-	"queue.Queue": true, "sync.Ref": true, "json.Cursor": true,
-	"actor.Actor": true, "actor.Host": true, "tasks.Set": true, "testing.Op": true,
-	"time.Timeline": true, "rand.Stream": true, "config.Redacted": true,
-	"exec.Running": true, "http.Exchange": true, "http.Listener": true,
-	"http.BodyFile": true, "fs.HostRoot": true,
 }
 
 // isRuntimeType reports a std type the runtime's Go type stands for.

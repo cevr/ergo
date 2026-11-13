@@ -6,11 +6,11 @@
 
 // Malformed is the failure of a text that is not in the form the function
 // reads (Go's ErrSyntax).
-type Malformed { Text string }
+extern go ergo.local/prototype/runtime/v1.Malformed type Malformed { Text string }
 
 // OutOfRange is the failure of a number that does not fit its type (Go's
 // ErrRange).
-type OutOfRange { Text string }
+extern go ergo.local/prototype/runtime/v1.OutOfRange type OutOfRange { Text string }
 
 // Itoa is n in decimal.
 extern go ergo.local/prototype/runtime/v1.StrconvItoa func Itoa(n int) string

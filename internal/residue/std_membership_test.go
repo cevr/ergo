@@ -37,7 +37,7 @@ import (
 //     comparison operand, or keys a map literal by such strings only (a
 //     table keyed by std names; a table of Go's library, strings.Split
 //     beside bytes.Split, is the Go boundary);
-//  5. calls v1.BodyOf, v1.StdRecord, v1.StructFields, v1.MovesOnly,
+//  5. calls v1.BodyOf, v1.TypeOf, v1.StructFields, v1.MovesOnly,
 //     v1.StopsRunning, v1.MovingBody, v1.CallbackKeeper, v1.DrainsLends or
 //     v1.Inert, outside bodyContractFile: the one file that reads a bound
 //     body's facts by the body the declaration names (NP4b);
@@ -260,7 +260,7 @@ const (
 
 var (
 	stdMembers = []string{"Package", "Packages", "Prelude", "PreludePath", "Ledger", "CoveredBy"}
-	v1Facts    = []string{"BodyOf", "StdRecord", "StructFields", "MovesOnly", "StopsRunning", "MovingBody", "CallbackKeeper", "DrainsLends", "Inert"}
+	v1Facts    = []string{"BodyOf", "TypeOf", "StructFields", "MovesOnly", "StopsRunning", "MovingBody", "CallbackKeeper", "DrainsLends", "Inert"}
 	stdNameRE  = regexp.MustCompile(`^([a-z][a-z0-9/]*)\.([A-Z][A-Za-z0-9_]*)(\.[A-Za-z0-9_]+)?$`)
 )
 
@@ -566,7 +566,6 @@ func sortedKeys[V any](m map[string]V) []string {
 // stdPrivilegesBaseline are the debt rows of testdata/std-privileges.txt
 // as the rule landed. A row may leave; none may join.
 var stdPrivilegesBaseline = []string{
-	"internal/sketch/check/authority.go:sealedStdOps",
 	"internal/sketch/check/drop.go:dropWalk.drain",
 	"internal/sketch/check/durable.go:TakesDurableMachine",
 	"internal/sketch/check/durable.go:checker.durableStep",
@@ -600,7 +599,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/std.go:lowerer.runtimeType",
 	"internal/sketch/lower/std.go:lowerer.stdBody",
 	"internal/sketch/lower/std.go:opBody",
-	"internal/sketch/lower/std.go:runtimeProtocols",
 	"internal/sketch/lower/types.go:lowerer.foreignOwner",
 	"internal/sketch/lower/values.go:lowerer.ownedForm",
 	"internal/sketch/lower/wirefields.go:jsonWrapper",

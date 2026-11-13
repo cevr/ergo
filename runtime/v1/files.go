@@ -358,83 +358,47 @@ type reachDecl struct {
 // non-test files, by name ("Go", "Queue.Push", "Closed").
 type goDecls map[string]goDecl
 
-// stdRecords is the binding table of std records (docs/spec/stdlib.md,
-// Types 4; std-align S3b): the key is a record's std package and name,
-// "fs.NotFound", and the value is the exported struct of Source that the
-// record is. The key is the package and the name, never the name alone, so
-// fs.NotFound and a later exec.NotFound bind two Go types; the values are
-// distinct, so no Go type is two records (TestStdRecordTable). A std record
-// with no row is a declaration of the program, as strings.Halves is.
-var stdRecords = map[string]string{
-	"arena.stored":         "ArenaValue",
-	"base64.Malformed":     "Base64Malformed",
-	"actor.Stopped":        "ActorStopped",
-	"exec.Chunk":           "ExecChunk",
-	"exec.Denied":          "ExecDenied",
-	"exec.Failed":          "ExecFailed",
-	"exec.Line":            "ExecLine",
-	"exec.NotFound":        "ExecNotFound",
-	"exec.Result":          "ExecResult",
-	"filepath.NotRelative": "NotRelative",
-	"filepath.Parts":       "Parts",
-	"fs.Denied":            "Denied",
-	"fs.Failed":            "Failed",
-	"fs.Escapes":           "Escapes",
-	"fs.Info":              "Info",
-	"fs.NotFound":          "NotFound",
-	"hex.Malformed":        "HexMalformed",
-	"http.ListenFailed":    "HTTPListenFailed",
-	"http.InvalidLimits":   "HTTPInvalidLimits",
-	"http.InvalidClient":   "HTTPInvalidClient",
-	"http.SendFailed":      "HTTPSendFailed",
-	"http.OriginRefused":   "HTTPOriginRefused",
-	"http.RedirectLimit":   "HTTPRedirectLimit",
-	"http.SinkFailed":      "HTTPSinkFailed",
-	"http.StatusRefused":   "HTTPStatusRefused",
-	"http.Limits":          "HTTPLimits",
-	"http.Field":           "HTTPField",
-	"http.Response":        "HTTPResponse",
-	"http.WriteFailed":     "HTTPWriteFailed",
-	"json.Malformed":       "JSONMalformed",
-	"toml.Malformed":       "TOMLMalformed",
-	"toml.Unrepresentable": "TOMLUnrepresentable",
-	"io.ReadFailed":        "ReadFailed",
-	"term.NotTerminal":     "TermNotTerminal",
-	"term.Window":          "TermWindow",
-	"math.OutOfRange":      "MathOutOfRange",
-	"os.Exit":              "Exit",
-	"os.NoWorkdir":         "NoWorkdir",
-	"queue.Closed":         "Closed",
-	"rpc.Failed":           "RPCFailed",
-	"rpc.Malformed":        "RPCMalformed",
-	"rpc.Envelope":         "RPCEnvelope",
-	"rpc.Unrepresentable":  "RPCUnrepresentable",
-	"rpc.Transport":        "RPCTransport",
-	"strconv.Malformed":    "Malformed",
-	"strconv.OutOfRange":   "OutOfRange",
-	"csv.ParseError":       "CSVParseError",
-	"csv.Position":         "CSVPosition",
-	"time.ParseError":      "ParseError",
-	"time.Reading":         "Reading",
-	"utf8.Decoded":         "Decoded",
-	"timeout.Expired":      "Expired",
-	"tasks.Closed":         "TasksClosed",
+// GoType is the shape of an exported type of Source, which an Ergo type
+// declaration names as its Go type (`extern go …/runtime/v1.Closed type
+// Closed {}`; docs/spec/stdlib.md, The body contract; STD-NOPRIV NP4c).
+// The declaration states the binding, so no table keyed by an Ergo name
+// says which std type is which Go type.
+type GoType struct {
+	// Arity is the number of its type parameters.
+	Arity int
+	// Struct reports a plain struct type (no alias, no embedded field),
+	// whose field names are Fields, in order.
+	Struct bool
+	Fields []string
 }
 
-// StdRecord returns the name of the struct of Source that the record name
-// of the std package pkg is, and whether the binding table has one.
-func StdRecord(pkg, name string) (string, bool) {
-	goName, ok := stdRecords[pkg+"."+name]
-	return goName, ok
+// TypeOf returns the shape of the exported type name of Source, and
+// whether there is one. It reads the generated table (typeTable), so no
+// check parses Source (CHK1).
+func TypeOf(name string) (GoType, bool) {
+	t, ok := typeTable[name]
+	return t, ok
 }
 
-// StdRecords returns a copy of the binding table, keyed "pkg.Name".
-func StdRecords() map[string]string { return maps.Clone(stdRecords) }
+// goType is the shape of the exported type name of the parse.
+func (d goDecls) goType(name string) (GoType, bool) {
+	g, ok := d[name]
+	if !ok || g.typ == nil {
+		return GoType{}, false
+	}
+	t := GoType{Arity: g.typ.TypeParams.NumFields()}
+	if fields, err := d.structFieldsOf(name, t.Arity); err == nil {
+		t.Struct = true
+		if len(fields) > 0 {
+			t.Fields = fields
+		}
+	}
+	return t, true
+}
 
 // StructFields returns the field names, in order, of the exported struct
-// type named name in Source. A record type declared in a std package that
-// is not an operations type, such as queue.Closed, is the Go type its row
-// of the binding table names (StdRecord), so its fields are the record's.
+// type named name in Source. A record whose declaration names a
+// Go type of Source (TypeOf) has that struct's fields.
 // It fails when there is no such struct type.
 func StructFields(name string) ([]string, error) {
 	return StructFieldsOf(name, 0)

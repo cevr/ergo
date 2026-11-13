@@ -162,6 +162,7 @@ const unsafeText = "Ergo has no unsafe; unsafe stays at the FFI edge"
 // toolchain trusts what it ships, std and the prelude, by that one rule.
 func (c *checker) checkExterns() {
 	c.checkExternParams()
+	c.checkRuntimeTypes()
 	for _, f := range c.funcs {
 		if b := GoBuiltin(f); b != "" && f.Sig != nil {
 			c.cur = f.file

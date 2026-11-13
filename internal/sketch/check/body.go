@@ -1,8 +1,11 @@
 package check
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -172,4 +175,105 @@ func bindsRuntime(pkg *Package) bool {
 		}
 	}
 	return false
+}
+
+// runtimeTypeDecl reports a type declaration that names a Go type of the
+// Ergo runtime as its representation (`extern go
+// ergo.local/prototype/runtime/v1.Closed type Closed {}`; docs/spec/stdlib.md,
+// The body contract; STD-NOPRIV NP4c). It is an Ergo declaration, checked as
+// one, and checkRuntimeTypes holds it to its Go type's shape. Any other
+// extern type is a binding's host type (#202).
+func runtimeTypeDecl(d syntax.Decl) bool {
+	td, ok := d.(*syntax.TypeDecl)
+	if !ok || td.Extern == nil || td.Extern.Target == nil {
+		return false
+	}
+	path, _ := td.Extern.Split()
+	return path == runtimeModule || strings.HasPrefix(path, runtimeModule+"/")
+}
+
+// checkRuntimeTypes refuses each type declaration of the package that names
+// a runtime Go type it may not (runtimeTypeRefusal).
+func (c *checker) checkRuntimeTypes() {
+	for _, tn := range c.pkg.Types {
+		if tn.Decl == nil || !runtimeTypeDecl(tn.Decl) {
+			continue
+		}
+		c.cur = tn.file
+		if msg := c.runtimeTypeRefusal(tn); msg != "" {
+			c.errorf(tn.Decl, CodeType, "%s", msg)
+		}
+	}
+}
+
+// runtimeTypeRefusal is why the declaration of tn may not name its Go type,
+// or "". The package's module is trusted, as for a runtime body (the Go is
+// unchecked), and the Go type is an exported type of runtime/v1 of the
+// declaration's arity: a struct with the record's fields, in order, for a
+// record; for an operation type, any type, whose methods are its operations
+// (OpBodyOf), and the operation type is sealed, so only the runtime's value
+// implements it.
+func (c *checker) runtimeTypeRefusal(tn *TypeName) string {
+	target := tn.Decl.Extern.Target.Value
+	if !c.pkg.trusted {
+		if c.pkg.module == "" {
+			return fmt.Sprintf("extern go %s names a Go type of the Ergo runtime, which a package names only when the root module trusts its Go; this package is in no module, so no ergo.mod can trust it (docs/spec/interop.md, Trusted Go)", target)
+		}
+		return fmt.Sprintf("extern go %s names a Go type of the Ergo runtime, which a package names only when the root module trusts its Go; write the line `trust %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, c.pkg.module)
+	}
+	path, name := tn.Decl.Extern.Split()
+	if path != runtimeModule+"/v1" {
+		return fmt.Sprintf("extern go %s: a type names a Go type of %s/v1 (docs/spec/stdlib.md, The body contract)", target, runtimeModule)
+	}
+	gt, ok := v1.TypeOf(name)
+	if !ok {
+		return fmt.Sprintf("extern go %s: runtime/v1 has no exported type %s (docs/spec/stdlib.md, The body contract)", target, name)
+	}
+	n, ok := tn.Type.(*Named)
+	if !ok {
+		return fmt.Sprintf("extern go %s: %s is not a declared type", target, tn.Name)
+	}
+	// A row or failure parameter has no Go form (types.go in the
+	// lowering), so only the type parameters count.
+	arity := 0
+	for _, p := range n.TParams {
+		if p.Kind == KindType {
+			arity++
+		}
+	}
+	if gt.Arity != arity {
+		return fmt.Sprintf("extern go %s: %s has %d type parameters and v1.%s has %d", target, tn.Name, arity, name, gt.Arity)
+	}
+	switch spec := tn.Decl.Spec.(type) {
+	case *syntax.StructType:
+		st, _ := n.Underlying().(*Struct)
+		var fields []string
+		if st != nil {
+			for _, f := range st.Fields {
+				fields = append(fields, f.Name)
+			}
+		}
+		if st == nil || !gt.Struct || !slices.Equal(fields, gt.Fields) {
+			return fmt.Sprintf("extern go %s: the record %s has fields %v, and v1.%s is not a struct with those fields in that order (docs/spec/stdlib.md, The body contract)", target, tn.Name, fields, name)
+		}
+	case *syntax.InterfaceType:
+		if len(spec.Union) > 0 || !Sealed(n) {
+			return fmt.Sprintf("extern go %s: an operation type that names a Go type declares an unexported operation, so no other package's value implements it (docs/spec/stdlib.md, The body contract)", target)
+		}
+	default:
+		return fmt.Sprintf("extern go %s: only a record or an operation type names a Go type (docs/spec/stdlib.md, The body contract)", target)
+	}
+	return ""
+}
+
+// GoTypeOf is the runtime/v1 Go type that the declaration of the named
+// type n (or of its origin) names, and whether it names one: the type is
+// that Go type in the lowered program (lower/std.go runtimeType). It reads
+// the declaration only (STD-NOPRIV NP4c).
+func GoTypeOf(n *Named) (string, bool) {
+	if n == nil || n.origin().Obj == nil || n.origin().Obj.Decl == nil || !runtimeTypeDecl(n.origin().Obj.Decl) {
+		return "", false
+	}
+	path, name := n.origin().Obj.Decl.Extern.Split()
+	return name, path == runtimeModule+"/v1"
 }
