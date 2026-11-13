@@ -14,7 +14,9 @@ A to-do list written once against std `ui` and shown by any ui host:
   `add` (`ui.Submit`, which empties the draft), the items the filter shows
   in a scroll (`ui.Each` keyed by id; a check box labelled with the item's
   text, a `del TEXT` button), the open count, `all`/`open`/`done` and
-  `clear`.
+  `clear`. An item is the component `item(f, it, row)`: its arguments
+  compare with `==`, so a pass skips the items that did not change
+  (stdlib.md, UI 13).
 - `script/` reads scene scripts (`tap LABEL`, `type LABEL<TAB>TEXT`,
   `settle`) into `ui.Act`s any host plays, and writes seeded ones (`Gen`:
   adds, then marks and removals of the words added).

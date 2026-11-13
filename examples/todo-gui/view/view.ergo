@@ -27,12 +27,7 @@ func View(f *ui.Frame[todo.Op], l todo.List) {
 		list.Height = ui.Fixed{Value: 360}
 		ui.Scroll(f, list) {
 			ui.Each(f, todo.Shown(l), func(it todo.Item) ui.Key { ui.ByInt(it.Id) }) func(it todo.Item) {
-				ui.Row(f, row) {
-					ui.Check(f, it.Text, it.Done, todo.Flip{Id: it.Id})
-					ui.Pressable(f, "del \(it.Text)", todo.Remove{Id: it.Id}) {
-						ui.Text(f, "×")
-					}
-				}
+				item(f, it, row)
 			}
 		}
 		ui.Row(f, row) {
@@ -49,6 +44,19 @@ func View(f *ui.Frame[todo.Op], l todo.List) {
 			ui.Pressable(f, "clear", todo.ClearDone) {
 				ui.Text(f, "Clear done")
 			}
+		}
+	}
+}
+
+// item shows one item: a check box that marks it and a button that
+// removes it. It is a component (stdlib.md, UI 13): its arguments compare
+// with ==, so a pass skips an item that did not change and writes the
+// nodes it wrote last.
+func item(f *ui.Frame[todo.Op], it todo.Item, row ui.Style) {
+	ui.Row(f, row) {
+		ui.Check(f, it.Text, it.Done, todo.Flip{Id: it.Id})
+		ui.Pressable(f, "del \(it.Text)", todo.Remove{Id: it.Id}) {
+			ui.Text(f, "×")
 		}
 	}
 }
