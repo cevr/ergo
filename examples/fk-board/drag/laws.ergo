@@ -1,0 +1,14 @@
+// The drag's law.
+
+// DragStartsPastTheThreshold: after a press, a move of (dx, dy) pixels
+// starts a drag exactly when it is at least the threshold away, and the
+// drag holds the pressed item, its spot and the move's target.
+law DragStartsPastTheThreshold(dx int where -9 <= dx && dx <= 9, dy int where -9 <= dy && dy <= 9) {
+	let pressed = Pressed{Item: "a", Container: "c", Index: 2, Screen: Point{X: 50, Y: 50}}
+	let d = After(New("t"), Step(New("t"), pressed))
+	let target Option[Target] = Some[Target]{Value: Target{Container: "e", Index: 0}}
+	let moved = After(d, Step(d, Moved{Screen: Point{X: 50 + dx, Y: 50 + dy}, Client: Point{X: 7, Y: 8}, Target: target}))
+	let far = dx*dx+dy*dy >= 25
+	let want State = if far { Dragging{Item: "a", From: "c", FromIndex: 2, Origin: Point{X: 50, Y: 50}, At: Point{X: 7, Y: 8}, Target: target} } else { d.State }
+	moved.State == want
+}

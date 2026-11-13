@@ -1,0 +1,95 @@
+// Package sortkey makes fractional sort keys: text keys that order cards
+// by plain string comparison, where a key can always be made between two
+// others, so a move rewrites the key of the card that moved and of no
+// other. Upstream uses the fractional-indexing library; this is the same
+// idea in a smaller form. A key is a string of the 62 Digits, never empty
+// and never ending in the smallest digit "0", so between any two keys
+// there is room.
+
+import strings
+
+// Digits are the digits of a key, in ascending byte order.
+let Digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+// Between is a key after lo and before hi. None for lo is the start, and
+// None for hi the end, so Between(None, None) is a first key. lo must be
+// before hi, and both must be keys (Valid).
+func Between(lo Option[string], hi Option[string]) string {
+	let a = match lo {
+	case Some[string] as l:
+		l.Value
+	case None:
+		""
+	}
+	mid(a, hi)
+}
+
+// After is a key after lo.
+func After(lo string) string { mid(lo, None) }
+
+// mid is a key after a (where "" is the start) and before b. a is padded
+// with the smallest digit; the keys share b's prefix as far as a matches
+// it, and differ in the first digit after it.
+func mid(a string, b Option[string]) string {
+	match b {
+	case Some[string] as hb:
+		let hi = hb.Value
+		let mut n = 0
+		let mut same = true
+		for same && n < len(hi) {
+			if digitAt(a, n) == digitAt(hi, n) {
+				n = n + 1
+			} else {
+				same = false
+			}
+		}
+		if n > 0 {
+			let rest = if n < len(a) { a[n:] } else { "" }
+			return hi[0:n] + mid(rest, Some[string]{Value: hi[n:]})
+		}
+	case None:
+	}
+	let da = digitAt(a, 0)
+	let db = match b {
+	case Some[string] as hb:
+		digitAt(hb.Value, 0)
+	case None:
+		len(Digits)
+	}
+	if db-da > 1 {
+		return digit((da + db) / 2)
+	}
+	match b {
+	case Some[string] as hb:
+		if len(hb.Value) > 1 {
+			return hb.Value[0:1]
+		}
+	case None:
+	}
+	let rest = if len(a) > 1 { a[1:] } else { "" }
+	digit(da) + mid(rest, None)
+}
+
+// digitAt is the digit of s at i, or 0 past its end.
+func digitAt(s string, i int) int {
+	if i >= len(s) {
+		return 0
+	}
+	strings.Index(Digits, s[i:i+1])
+}
+
+func digit(d int) string { Digits[d : d+1] }
+
+// Valid is whether k is a key: not empty, every byte a digit, and not
+// ending in "0".
+func Valid(k string) bool {
+	if k == "" || strings.HasSuffix(k, "0") {
+		return false
+	}
+	for i in 0..len(k) {
+		if strings.Index(Digits, k[i:i+1]) < 0 {
+			return false
+		}
+	}
+	true
+}

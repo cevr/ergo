@@ -1,0 +1,141 @@
+{
+  "about": "fk-board's application mutants; each is judged by the example's laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk11-key-not-between", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/sortkey/sortkey.ergo",
+      "from": "\tif db-da > 1 {\n",
+      "to": "\tif db-da > 0 {\n",
+      "rule": "A key made between two keys is strictly between them (law BetweenIsStrictlyBetween).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-insert-key-ignores-next", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/board/board.ergo",
+      "from": "\tlet hi Option[string] = if i == len(c.Cards) { None } else { Some[string]{Value: c.Cards[i].Key} }\n",
+      "to": "\tlet hi Option[string] = None\n",
+      "rule": "A card's key is below the next card's, so keys keep the column's order (law SortKeysStrictlyIncrease).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-past-the-end-lands-on-top", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/board/board.ergo",
+      "from": "} else if at > len(c.Cards) { len(c.Cards) } else",
+      "to": "} else if at > len(c.Cards) { 0 } else",
+      "rule": "A position past the end of a column is its end (law ReorderIsAPermutation).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-move-to-no-column-drops-the-card", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/board/board.ergo",
+      "from": "\tif !landed {\n",
+      "to": "\tif false {\n",
+      "rule": "A reorder to a column the board does not have changes nothing (law ReorderIsAPermutation).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-step-counts-the-lifted-card", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/board/board.ergo",
+      "from": "if card.ID != item {",
+      "to": "if card.ID != item || true {",
+      "rule": "A keyboard step down stops at the column's end, counted without the lifted card (case tour).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-next-past-the-last-column", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/board/board.ergo",
+      "from": "if here+1 > len(columns)-1 { len(columns) - 1 }",
+      "to": "if here+1 > len(columns) { len(columns) - 1 }",
+      "rule": "A move to the next column stops at the last column (case tour).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-threshold-inclusive", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/drag/drag.ergo",
+      "from": "if dx*dx+dy*dy < d.Threshold*d.Threshold {",
+      "to": "if dx*dx+dy*dy <= d.Threshold*d.Threshold {",
+      "rule": "A move of exactly the threshold starts a drag (law DragStartsPastTheThreshold).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-release-over-nothing-silent", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/drag/drag.ergo",
+      "from": "\t\t\t\tto(d, Idle, []Effect{Cancelled})\n",
+      "to": "\t\t\t\tto(d, Idle, []Effect{})\n",
+      "rule": "A release over nothing cancels the drag, and a screen reader says so (case tour).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-keyboard-cancel-keeps-focus", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/drag/drag.ergo",
+      "from": "to(d, Idle, []Effect{Focus{Item: l.Item}, Cancelled})",
+      "to": "to(d, Idle, []Effect{Cancelled})",
+      "rule": "Escape in a keyboard drag focuses the card again (case tour).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-blank-title-added", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/kanban/kanban.ergo",
+      "from": "\t\t\tif title == \"\" {\n",
+      "to": "\t\t\tif false {\n",
+      "rule": "A blank title adds no card (law NewCardFollowsTheForm).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-form-stays-open", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/kanban/kanban.ergo",
+      "from": "Adding: None, Title: \"\"}, []Command{Save",
+      "to": "Title: \"\"}, []Command{Save",
+      "rule": "Adding a card shuts the form (law NewCardFollowsTheForm).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-drop-not-saved", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/kanban/kanban.ergo",
+      "from": "\t\t\tout = out.Append(Save{Columns: columns})\n",
+      "to": "",
+      "rule": "A drop saves the board once (law KeyboardDropEqualsPointerDrop).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-cancel-forgets-the-card", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/kanban/kanban.ergo",
+      "from": "drag.Item(b.Drag.State)",
+      "to": "drag.Item(at.Drag.State)",
+      "rule": "A cancel says which card went back, read from the drag before it (case tour).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-column-move-said-as-position", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/kanban/kanban.ergo",
+      "from": "if was.To != n.To {",
+      "to": "if false {",
+      "rule": "A keyboard move to another column says the column (case tour).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-file-line-uncounted", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/file/file.ergo",
+      "from": "\t\tn = n + 1\n",
+      "to": "",
+      "rule": "A foreign line in the board file is named by its number (law AForeignLineIsNamed).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-file-drops-description", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/file/file.ergo",
+      "from": "strconv.Quote(card.Description)",
+      "to": "strconv.Quote(\"\")",
+      "rule": "The file keeps every text of a card (law board.Store.LoadGivesTheLastSave for Sheet).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    },
+    {
+      "name": "fk11-shelf-forgets", "origin": "wf10/fk11a",
+      "file": "examples/fk-board/memory/shelf.ergo",
+      "from": "\ts.saved.Set(Some[[]board.Column]{Value: columns})\n",
+      "to": "",
+      "rule": "A load gives the last save (law board.Store.LoadGivesTheLastSave for Shelf).",
+      "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
+    }
+  ]
+}

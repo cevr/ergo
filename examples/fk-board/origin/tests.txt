@@ -1,0 +1,24 @@
+# fk-board: the upstream tests of kanban at d21db423 and what restates each.
+# No story is an Ergo test: a law and a case kill every mutant a test of it would (README.md, "Upstream tests").
+src/story.test.ts: ClickedAddCard opens the add card form for the column -> `kanban` law `NewCardFollowsTheForm`; case `tour` (add done)
+src/story.test.ts: ChangedNewCardTitle updates the title -> `kanban` law `NewCardFollowsTheForm`; case `tour`
+src/story.test.ts: SubmittedNewCard adds card to the column and saves -> `kanban` law `NewCardFollowsTheForm`; cases `tour` and `persisted`
+src/story.test.ts: SubmittedNewCard ignores empty title -> `kanban` law `NewCardFollowsTheForm` (draws "" and "   "); case `tour`
+src/story.test.ts: CancelledNewCard closes the form -> `kanban` law `NewCardFollowsTheForm`; case `tour`
+src/story.test.ts: reorders a card within the same column -> `kanban` law `KeyboardDropEqualsPointerDrop`; case `tour` (card-1 to position 4)
+src/story.test.ts: moves a card to a different column -> `kanban` law `KeyboardDropEqualsPointerDrop`; case `tour` (card-2 to In Progress)
+src/story.test.ts: keyboard drag reorders within the same column -> `kanban` law `KeyboardDropEqualsPointerDrop`; case `tour` (card-5)
+src/story.test.ts: keyboard drag moves a card to a different column -> `kanban` law `KeyboardDropEqualsPointerDrop`; cases `tour` (card-7) and `persisted`
+src/story.test.ts: cancelled keyboard drag does not change columns -> `kanban` law `CancelRestoresTheBoard`; case `tour` (card-12)
+src/story.test.ts: cancelled drag does not change columns -> `kanban` law `CancelRestoresTheBoard`; case `tour` (card-3, card-4)
+src/story.test.ts: reorders within column -> `board` law `ReorderIsAPermutation`
+src/story.test.ts: moves card to a different column -> `board` law `ReorderIsAPermutation`
+src/story.test.ts: moves card to end of another column -> `board` law `ReorderIsAPermutation` (draws positions past the end)
+src/story.test.ts: assigns valid sortKeys after reorder -> `board` law `SortKeysStrictlyIncrease`; `sortkey` law `BetweenIsStrictlyBetween`
+src/scene.test.ts: board renders columns with correct names -> not restated: stage a has no view (FK11b, after H4, H4r, H5a and H5g)
+src/scene.test.ts: columns show card counts from test data -> not restated: stage a has no view (FK11b); the cases' `show` prints the counts
+src/scene.test.ts: card titles are rendered within their columns -> not restated: stage a has no view (FK11b)
+src/scene.test.ts: clicking add card shows the form within the column -> not restated: stage a has no view (FK11b)
+src/scene.test.ts: typing a card title updates the input -> not restated: stage a has no view (FK11b)
+src/scene.test.ts: submitting the form adds a card to the column -> not restated: stage a has no view (FK11b)
+src/scene.test.ts: cancelling closes the form and restores the add card button -> not restated: stage a has no view (FK11b)

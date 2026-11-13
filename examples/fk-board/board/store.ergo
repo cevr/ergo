@@ -1,0 +1,44 @@
+// The contract that keeps a board between runs (upstream: localStorage
+// under one key, read at start as the program's flags).
+
+// Broken is a store that cannot read or write the board, and why.
+type Broken { Why string }
+
+// Store keeps one board.
+type Store {
+	// Load is the board saved last, or None when none was saved.
+	Load() Option[[]Column] fails Broken,
+	// Save keeps columns as the board.
+	Save(columns []Column) fails Broken,
+
+	// LoadGivesTheLastSave: after two saves, a load gives the second board,
+	// card for card and key for key.
+	law LoadGivesTheLastSave(a int, b int) {
+		try Save(Sample(a))
+		try Save(Sample(b))
+		try Load() == Some[[]Column]{Value: Sample(b)}
+	},
+}
+
+// Sample is a board drawn from n: the default board after a few moves
+// that n chooses, with a card whose texts hold a tab, a line feed and a
+// quote, so a store's form is tried on every text.
+func Sample(n int) []Column {
+	let mut columns = Defaults
+	let mut x = if n < 0 { -(n / 2) } else { n }
+	for i in 0..(x % 5) {
+		let from = columns[x%3]
+		if len(from.Cards) > 0 {
+			let card = from.Cards[(x/3)%len(from.Cards)]
+			columns = Reorder(columns, card.ID, from.ID, columns[(x/7)%3].ID, (x/11)%4)
+		}
+		x = x/13 + i
+	}
+	let odd = Card{ID: "odd-\(x % 100)", Title: "tab\there, line\nthere", Description: "a \"quote\"", Key: ""}
+	let last = len(columns) - 1
+	let mut out = []Column{}
+	for i, c in columns {
+		out = out.Append(if i == last { Append(c, odd) } else { c })
+	}
+	out
+}

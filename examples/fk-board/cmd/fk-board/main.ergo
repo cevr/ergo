@@ -1,0 +1,23 @@
+// fk-board is a port of Foldkit's kanban example (stage a: the model,
+// with no view): a task board whose cards move by pointer or keyboard,
+// with what a screen reader says, and a form that adds cards. It plays a
+// script of acts from standard input and keeps the board in board.txt in
+// the working directory. Packages: board (the columns, the cards and the
+// Store contract), sortkey, drag (the drag machine), kanban (the program),
+// file and memory (the stores), and script (the host). This binary is the
+// only place that chooses the store.
+
+import fkboard/board
+import fkboard/file
+import fkboard/script
+import fs
+import io
+import os
+
+func main() fails os.Exit needs Console | Ambient {
+	let host = fs.NewHost()
+	let status = with context { io.Stdin: io.NewStdin(), board.Store: file.NewSheet(host, host) } { script.Run() }
+	if status != 0 {
+		return os.Exit{Code: status, Message: "fk-board: the script did not run"}
+	}
+}

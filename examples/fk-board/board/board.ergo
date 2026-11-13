@@ -1,0 +1,172 @@
+// Package board is the domain of a task board: columns of cards, each
+// card ordered in its column by a fractional sort key, so moving a card
+// rewrites one key. It declares the contract Store, which keeps a board
+// between runs; package memory and package file provide it.
+
+import fkboard/sortkey
+
+// Card is a card of the board. Key orders it in its column.
+type Card { ID string, Title string, Description string, Key string }
+
+// Column is a column of the board and its cards, in key order.
+type Column { ID string, Name string, Cards []Card }
+
+// Removed is a column without a card, and the card when the column had
+// it.
+type Removed { Column Column, Card Option[Card] }
+
+// Remove takes the card id out of c.
+func Remove(c Column, id string) Removed {
+	let mut cards = []Card{}
+	let mut found Option[Card] = None
+	for card in c.Cards {
+		if card.ID == id {
+			found = Some[Card]{Value: card}
+		} else {
+			cards = cards.Append(card)
+		}
+	}
+	Removed{Column: Column{..c, Cards: cards}, Card: found}
+}
+
+// Insert puts card into c at position at, clamped to the column, with a
+// key between its new neighbours'. (Upstream appends past the end, with a
+// key made as if the column were empty; clamping keeps the keys in
+// order.)
+func Insert(c Column, card Card, at int) Column {
+	let i = if at < 0 { 0 } else if at > len(c.Cards) { len(c.Cards) } else { at }
+	let lo Option[string] = if i == 0 { None } else { Some[string]{Value: c.Cards[i-1].Key} }
+	let hi Option[string] = if i == len(c.Cards) { None } else { Some[string]{Value: c.Cards[i].Key} }
+	let placed = Card{..card, Key: sortkey.Between(lo, hi)}
+	let mut cards = []Card{}
+	for j in 0..len(c.Cards) {
+		if j == i {
+			cards = cards.Append(placed)
+		}
+		cards = cards.Append(c.Cards[j])
+	}
+	if i == len(c.Cards) {
+		cards = cards.Append(placed)
+	}
+	Column{..c, Cards: cards}
+}
+
+// Append puts card at the end of c.
+func Append(c Column, card Card) Column { Insert(c, card, len(c.Cards)) }
+
+// Reorder moves the card item from the column from to position at of the
+// column to (a position counted without the card). A card or a column
+// the board does not have leaves it as it is.
+func Reorder(columns []Column, item string, from string, to string, at int) []Column {
+	let mut card Option[Card] = None
+	for c in columns {
+		if c.ID == from {
+			card = Remove(c, item).Card
+		}
+	}
+	let moving = match card {
+	case Some[Card] as m:
+		m.Value
+	case None:
+		return columns
+	}
+	let mut landed = false
+	for c in columns {
+		if c.ID == to {
+			landed = true
+		}
+	}
+	if !landed {
+		return columns
+	}
+	let mut out = []Column{}
+	for c in columns {
+		let without = if c.ID == from { Remove(c, item).Column } else { c }
+		out = out.Append(if c.ID == to { Insert(without, moving, at) } else { without })
+	}
+	out
+}
+
+// Way is where a keyboard move goes: a step in the column, or to the
+// next or the previous column.
+type Way = Back{} | Forward{} | NextColumn{} | PreviousColumn{}
+
+// Spot is a position on the board: a column and an index in it.
+type Spot { Column string, Index int }
+
+// Step is the spot a keyboard move from at goes to, with item lifted (a
+// step within a column counts its cards without item). A step stops at
+// the column's ends; a move to another column stops at the board's ends
+// and lands at the top. Upstream reads this from the page; here it is the
+// board's.
+func Step(columns []Column, item string, at Spot, way Way) Spot {
+	match way {
+	case Back:
+		Spot{..at, Index: if at.Index-1 < 0 { 0 } else { at.Index - 1 }}
+	case Forward:
+		let mut count = 0
+		for c in columns {
+			if c.ID == at.Column {
+				for card in c.Cards {
+					if card.ID != item {
+						count = count + 1
+					}
+				}
+			}
+		}
+		Spot{..at, Index: if at.Index+1 > count { count } else { at.Index + 1 }}
+	case NextColumn, PreviousColumn:
+		let mut here = 0
+		for i, c in columns {
+			if c.ID == at.Column {
+				here = i
+			}
+		}
+		let next = match way {
+		case NextColumn:
+			if here+1 > len(columns)-1 { len(columns) - 1 } else { here + 1 }
+		case Back, Forward, PreviousColumn:
+			if here-1 < 0 { 0 } else { here - 1 }
+		}
+		if next < 0 {
+			return Spot{Column: at.Column, Index: 0}
+		}
+		Spot{Column: columns[next].ID, Index: 0}
+	}
+}
+
+// Where is the spot of the card id, if the board has it.
+func Where(columns []Column, id string) Option[Spot] {
+	for c in columns {
+		for i, card in c.Cards {
+			if card.ID == id {
+				return Some[Spot]{Value: Spot{Column: c.ID, Index: i}}
+			}
+		}
+	}
+	None
+}
+
+// Title is the title of the card id, or the id when the board has no
+// such card.
+func Title(columns []Column, id string) string {
+	for c in columns {
+		for card in c.Cards {
+			if card.ID == id {
+				return card.Title
+			}
+		}
+	}
+	id
+}
+
+// Name is the name of the column id, or the id when the board has no
+// such column.
+func Name(columns []Column, id string) string {
+	for c in columns {
+		if c.ID == id {
+			return c.Name
+		}
+	}
+	id
+}

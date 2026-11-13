@@ -1,0 +1,55 @@
+# No board.txt: the default board.
+show
+# A press without a move is no drag.
+press card-6
+release
+# A pointer drag within To Do: card-1 to position 3, past the threshold.
+press card-1
+move 100 103 todo 3
+move 100 200 todo 3
+release
+# A pointer drag to another column.
+press card-2 300 100
+move 300 120 in-progress 0
+release
+# A pointer drag given up: over nothing, then released.
+press card-3
+move 100 200 todo 1
+move 400 200 off
+release
+# A pointer drag given up with Escape.
+press card-4
+move 100 200 done 0
+escape
+show
+# A keyboard drag within To Do: down twice, then up past the top.
+lift card-5
+down
+down
+up
+up
+up
+up
+drop
+# A keyboard drag across: next column, next again, past the last, back.
+lift card-7
+next
+next
+next
+previous
+down
+drop
+# A keyboard drag given up.
+lift card-12
+next
+escape
+show
+# The form: a card added to Done, a blank title, a cancel.
+add done
+type   Polish the lens  
+submit
+add todo
+type    
+submit
+type Count the moths
+cancel

@@ -1,0 +1,28 @@
+> show
+  Tonight (2): m1 m2
+  Later (0):
+> lift m2
+  drag: lifted m2 to now 1
+  says: Picked up Cool the camera. Use arrow keys to move within column, Tab to move between columns, Space to drop, Escape to cancel.
+> next
+  asks: where a move goes from now 1: later 0
+  drag: lifted m2 to later 0
+  says: Moved to Later, position 1.
+  asks: focus m2
+> drop
+  drag: idle
+  says: Dropped Cool the camera in position 1 of Later.
+  asks: focus m2
+  asks: save the board
+> add later
+  form: open on later, title ""
+  asks: focus the form
+> type Park the scope
+  form: open on later, title "Park the scope"
+> submit
+  asks: an id for "Park the scope" in later
+  form: shut
+  asks: save the board
+> end
+  Tonight (1): m1
+  Later (2): m2 new-1

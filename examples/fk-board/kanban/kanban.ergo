@@ -1,0 +1,176 @@
+// Package kanban is the board as a program: the machine Kanban, whose
+// state holds the columns, the drag (package drag, a child machine whose
+// output the step folds in), the form that adds a card, and the line a
+// screen reader says. Its output is the commands the host runs: make a
+// card's id, save the board, and focus the form or a card.
+
+import fkboard/board
+import fkboard/drag
+import strings
+
+// Board is the program's state.
+type Board { Columns []board.Column, Drag drag.Drag, Adding Option[string], Title string, Said string }
+
+// Signal is what the program reads: a signal of the drag; Add card
+// clicked on a column; the form's title typed, submitted, cancelled; and
+// the host's answers (an id made, a save done, the form focused).
+type Signal = Dragging{Signal drag.Signal} | AddClicked{Column string} | Typed{Text string} | Submitted{} | Cancelled{} | IDMade{ID string, Column string, Title string} | Saved{} | FormFocused{}
+
+// Command is what the program asks the host: an id for a new card, a save
+// of the board, a focus of the form or of a card, and where a keyboard
+// move goes (answered with the drag's Resolved).
+type Command = MakeID{Column string, Title string} | Save{Columns []board.Column} | FocusForm{} | FocusCard{ID string} | Locate{Item string, At board.Spot, Way board.Way}
+
+// Start is the program on columns, idle, with the form shut.
+func Start(columns []board.Column) Board {
+	Board{Columns: columns, Drag: drag.New("kanban"), Adding: None, Title: "", Said: ""}
+}
+
+// Kanban is the program as a machine.
+type Kanban machine[Board, Signal] {
+	initial: Start(board.Defaults),
+	step:    Step,
+}
+
+// Step is the program's transition.
+func Step(b Board, sig Signal) Decision[Board, []Command] {
+	match sig {
+	case Dragging as g:
+		dragged(b, g.Signal)
+	case AddClicked as a:
+		give(Board{..b, Adding: Some[string]{Value: a.Column}, Title: ""}, []Command{FocusForm})
+	case Typed as t:
+		give(Board{..b, Title: t.Text}, []Command{})
+	case Submitted:
+		match b.Adding {
+		case Some[string] as c:
+			let title = strings.TrimSpace(b.Title)
+			if title == "" {
+				return Ignore
+			}
+			give(b, []Command{MakeID{Column: c.Value, Title: title}})
+		case None:
+			Ignore
+		}
+	case IDMade as m:
+		let mut columns = []board.Column{}
+		for c in b.Columns {
+			columns = columns.Append(if c.ID == m.Column { board.Append(c, board.Card{ID: m.ID, Title: m.Title, Description: "", Key: ""}) } else { c })
+		}
+		give(Board{..b, Columns: columns, Adding: None, Title: ""}, []Command{Save{Columns: columns}})
+	case Cancelled:
+		give(Board{..b, Adding: None, Title: ""}, []Command{})
+	case Saved, FormFocused:
+		Ignore
+	}
+}
+
+// dragged steps the drag with sig and folds what it gives into the
+// board: the new phase and what a screen reader says of it, a focus or a
+// move to locate for the host, and a drop's reorder and save.
+func dragged(b Board, sig drag.Signal) Decision[Board, []Command] {
+	let dec = drag.Step(b.Drag, sig)
+	match dec {
+	case Ignore, Reject, Done[[]drag.Effect]:
+		return Ignore
+	case Emit[drag.Drag, []drag.Effect], Enter[drag.Drag], Stay[drag.Drag]:
+	}
+	let next = drag.After(b.Drag, dec)
+	let mut at = Board{..b, Drag: next, Said: announce(b, next.State)}
+	let mut out = []Command{}
+	for e in drag.Effects(dec) {
+		match e {
+		case drag.Reordered as r:
+			let columns = board.Reorder(at.Columns, r.Item, r.From, r.To, r.ToIndex)
+			at = Board{..at, Columns: columns, Said: "Dropped \(board.Title(b.Columns, r.Item)) in position \(r.ToIndex + 1) of \(board.Name(b.Columns, r.To))."}
+			out = out.Append(Save{Columns: columns})
+		case drag.Cancelled:
+			let said = match drag.Item(b.Drag.State) {
+			case Some[string] as id:
+				"Drag cancelled, \(board.Title(b.Columns, id.Value)) returned to original position."
+			case None:
+				"Drag cancelled."
+			}
+			at = Board{..at, Said: said}
+		case drag.Focus as f:
+			out = out.Append(FocusCard{ID: f.Item})
+		case drag.Resolve as r:
+			out = out.Append(Locate{Item: r.Item, At: board.Spot{Column: r.Container, Index: r.Index}, Way: way(r.Way)})
+		}
+	}
+	give(at, out)
+}
+
+// announce is what a screen reader says when the drag goes from b's phase
+// to next: the pick-up and its keys, a move to another column, or a new
+// position; otherwise what it said before.
+func announce(b Board, next drag.State) string {
+	let n = match next {
+	case drag.Lifted as l:
+		l
+	case drag.Idle, drag.Pending, drag.Dragging:
+		return b.Said
+	}
+	match b.Drag.State {
+	case drag.Idle:
+		"Picked up \(board.Title(b.Columns, n.Item)). Use arrow keys to move within column, Tab to move between columns, Space to drop, Escape to cancel."
+	case drag.Lifted as was:
+		let name = board.Name(b.Columns, n.To)
+		if was.To != n.To {
+			return "Moved to \(name), position \(n.ToIndex + 1)."
+		}
+		if was.ToIndex != n.ToIndex {
+			return "Position \(n.ToIndex + 1) in \(name)."
+		}
+		b.Said
+	case drag.Pending, drag.Dragging:
+		b.Said
+	}
+}
+
+// way is the board's step for an arrow: up and left go back, down and
+// right forward (upstream's columns are vertical lists).
+func way(d drag.Direction) board.Way {
+	match d {
+	case drag.Up, drag.Left:
+		board.Back
+	case drag.Down, drag.Right:
+		board.Forward
+	case drag.NextContainer:
+		board.NextColumn
+	case drag.PreviousContainer:
+		board.PreviousColumn
+	}
+}
+
+// give is the program at b asking out.
+func give(b Board, out []Command) Decision[Board, []Command] {
+	if len(out) == 0 {
+		return Stay[Board]{Next: b}
+	}
+	Emit[Board, []Command]{Next: b, Output: out}
+}
+
+// Commands is what the decision asks.
+func Commands(d Decision[Board, []Command]) []Command {
+	match d {
+	case Emit[Board, []Command] as e:
+		e.Output
+	case Enter[Board], Stay[Board], Ignore, Reject, Done[[]Command]:
+		[]Command{}
+	}
+}
+
+// After is the program after the decision.
+func After(b Board, d Decision[Board, []Command]) Board {
+	match d {
+	case Emit[Board, []Command] as e:
+		e.Next
+	case Enter[Board] as e:
+		e.Next
+	case Stay[Board] as s:
+		s.Next
+	case Ignore, Reject, Done[[]Command]:
+		b
+	}
+}
