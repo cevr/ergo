@@ -1,0 +1,37 @@
+// uitree N places nodes 1 to N of a tree with four children a parent
+// (node i under node (i - 1) / 4) and prints the depth and path of the
+// last node and how many children the root has.
+
+import os
+import strconv
+import uitree/layout
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: uitree N"}
+	}
+	let n = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "N is not a number"}
+	}
+	let mut p = layout.New()
+	let mut deepest = 0
+	for id in 1..n+1 {
+		match layout.Place(&p, (id-1)/4, id) {
+		case layout.At as a:
+			if a.Depth > deepest {
+				deepest = a.Depth
+			}
+		case layout.NoParent:
+			return os.Exit{Code: 1, Message: "node \(id) has no parent"}
+		}
+	}
+	Console.Println("nodes \(n) deepest \(deepest)")
+	let mut path = ""
+	for slot in layout.Path(p, n) {
+		path = path + "/\(slot)"
+	}
+	Console.Println("path of \(n): \(path)")
+	Console.Println("root children \(layout.Children(p, 0))")
+}

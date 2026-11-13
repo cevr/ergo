@@ -1,0 +1,38 @@
+// pager N draws N frames into a 4000-line scrollback: each frame redraws
+// eight lines and marks a 24-line page. It prints how many pages it kept
+// and the first line of the first and last page.
+
+import os
+import strconv
+import pager/screen
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: pager N"}
+	}
+	let n = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "N is not a number"}
+	}
+	let size = 4000
+	let mut s = screen.New(size)
+	let mut pages = 0
+	for f in 0..n {
+		let at = (f * 8) % (size - 24)
+		for i in 0..8 {
+			screen.Draw(&s, at+i, "frame \(f) line \(i)")
+		}
+		match screen.Mark(&s, at, at+24) {
+		case screen.Page:
+			pages = pages + 1
+		case screen.OutOfRange:
+			return os.Exit{Code: 1, Message: "frame \(f) marks past the buffer"}
+		}
+	}
+	Console.Println("pages \(pages)")
+	if pages > 0 {
+		Console.Println("first page \(screen.PageOf(s, 0)[0])")
+		Console.Println("last page \(screen.PageOf(s, pages-1)[0])")
+	}
+}

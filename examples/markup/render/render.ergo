@@ -1,0 +1,37 @@
+// Package render writes a document as lines of markup. Each block adds
+// its opening line, its body and its closing line to the output in one
+// chain of Appends: the chain writes the output in place, since each link
+// owns the slice the one before it made (the entry rule,
+// docs/spec/types.md, Bindings), so a render costs its lines, not the
+// square of them.
+
+// Block is one block of a document.
+type Block = Heading{Level int, Text string} | Para{Text string} | Quote{Lines []string} | Rule{}
+
+// Lines is the markup of the document, one line a slot.
+func Lines(doc []Block) []string {
+	let mut out = []string{}
+	for b in doc {
+		match b {
+		case Heading as h:
+			out = out.Append("<h\(h.Level)>").Append(h.Text).Append("</h\(h.Level)>")
+		case Para as p:
+			out = out.Append("<p>").Append(p.Text).Append("</p>")
+		case Quote as q:
+			out = out.Append("<blockquote>")
+			for l in q.Lines {
+				out = out.Append("  ").Append(l)
+			}
+			out = out.Append("</blockquote>")
+		case Rule:
+			out = out.Append("<hr>")
+		}
+	}
+	out
+}
+
+// Tagged is the lines of doc with a header and a footer around them, made
+// from a document's lines the caller keeps: those lines are not changed.
+func Tagged(lines []string, title string) []string {
+	lines.Append("<!-- \(title) -->").Append("<!-- end -->")
+}

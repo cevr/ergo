@@ -1,0 +1,26 @@
+// bucketstore N bumps N counters spread over 64 buckets of one store and
+// prints how many buckets it holds and a few counts.
+
+import os
+import strconv
+import bucketstore/store
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: bucketstore N"}
+	}
+	let n = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "N is not a number"}
+	}
+	let s = store.New()
+	let mut total = 0
+	for i in 0..n {
+		total = total + store.Bump(s, "bucket\(i % 64)", "counter\(i % 7)")
+	}
+	Console.Println("buckets \(store.Buckets(s))")
+	Console.Println("bucket0/counter0 \(store.Count(s, "bucket0", "counter0"))")
+	Console.Println("bucket5/counter5 \(store.Count(s, "bucket5", "counter5"))")
+	Console.Println("sum of counts returned \(total)")
+}

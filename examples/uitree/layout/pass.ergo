@@ -1,0 +1,62 @@
+// Package layout places the nodes of a tree in one pass, as a UI pass
+// does: each node reads its parent's sibling index out of a Map of Maps
+// and its parent's path out of a Map of slices, then writes its own. A
+// lookup reads one entry and copies nothing (the entry rule,
+// docs/spec/types.md, Bindings), so a pass costs in proportion to its
+// nodes, not to their square.
+
+// Pass is the state of one pass: the sibling index of each parent (child
+// to slot) and the path of slots from the root to each node.
+type Pass { siblings Map[int, Map[int, int]], paths Map[int, []int] }
+
+// New is a pass with only the root, node 0, placed.
+func New() Pass {
+	Pass{siblings: Map[int, Map[int, int]]{}, paths: Map[int, []int]{0: []int{}}}
+}
+
+// Placed is the outcome of placing a node.
+type Placed = At{Slot int, Depth int} | NoParent{}
+
+// Place puts node id under parent: its slot is the number of siblings
+// placed before it, and its path is its parent's path and that slot.
+func Place(p *Pass, parent int, id int) Placed {
+	let mut path = []int{}
+	match p.paths.Get(parent) {
+	case Some[[]int] as q:
+		path = q.Value
+	case None:
+		return NoParent
+	}
+	let mut sib = Map[int, int]{}
+	match p.siblings.Get(parent) {
+	case Some[Map[int, int]] as m:
+		sib = m.Value
+	case None:
+	}
+	let slot = len(sib)
+	sib[id] = slot
+	p.siblings[parent] = sib
+	path = path.Append(slot)
+	p.paths[id] = path
+	At{Slot: slot, Depth: len(path)}
+}
+
+// Path is the slots from the root to node id, empty when it is not placed.
+func Path(p Pass, id int) []int {
+	match p.paths.Get(id) {
+	case Some[[]int] as q:
+		q.Value
+	case None:
+		[]int{}
+	}
+}
+
+// Children is the number of nodes placed under parent.
+func Children(p Pass, parent int) int {
+	match p.siblings.Get(parent) {
+	case Some[Map[int, int]] as m:
+		len(m.Value)
+	case None:
+		0
+	}
+}

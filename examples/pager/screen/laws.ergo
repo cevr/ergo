@@ -1,0 +1,41 @@
+// The screen's rules as laws.
+
+func small(n int) int { (if n < 0 { -(n + 1) } else { n }) % 6 }
+
+// MarkKeepsThePast: a page shows the lines as they were when it was
+// marked, though the buffer is redrawn after.
+law MarkKeepsThePast(a int, b int) {
+	let mut s = New(8)
+	let from = small(a)
+	let to = from + 1 + small(b)%(8-from)
+	for i in 0..8 {
+		Draw(&s, i, "old\(i)")
+	}
+	let p = match Mark(&s, from, to) {
+	case Page as pg:
+		pg.Index
+	case OutOfRange:
+		return false
+	}
+	for i in 0..8 {
+		Draw(&s, i, "new\(i)")
+	}
+	let page = PageOf(s, p)
+	let mut ok = len(page) == to-from && Line(s, from) == "new\(from)"
+	for i in 0..len(page) {
+		ok = ok && page[i] == "old\(from + i)"
+	}
+	ok
+}
+
+// MarkOutOfRange: a window past the buffer is refused and no page is
+// kept.
+law MarkOutOfRange(n int) {
+	let mut s = New(4)
+	match Mark(&s, 2, 5+small(n)) {
+	case Page:
+		false
+	case OutOfRange:
+		len(PageOf(s, 0)) == 0
+	}
+}

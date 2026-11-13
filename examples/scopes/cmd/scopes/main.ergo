@@ -1,0 +1,49 @@
+// scopes N opens N scopes in chains eight deep, declares one name in
+// each and resolves every name from the innermost scope of its chain, then
+// prints how many resolved and how far out they were found in all.
+
+import os
+import strconv
+import scopes/table
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: scopes N"}
+	}
+	let n = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "N is not a number"}
+	}
+	let mut t = table.New()
+	for s in 1..n+1 {
+		let parent = if (s-1)%8 == 0 { 0 } else { s - 1 }
+		match table.OpenScope(&t, s, parent) {
+		case table.Open:
+		case table.Taken, table.NoScope:
+			return os.Exit{Code: 1, Message: "scope \(s) did not open"}
+		}
+		let _ = table.Declare(&t, s, "v\(s)", s*10)
+	}
+	let mut found = 0
+	let mut out = 0
+	let mut sum = 0
+	for s in 1..n+1 {
+		let inner = ((s-1)/8)*8 + 8
+		let from = if inner > n { n } else { inner }
+		match table.Resolve(&t, from, "v\(s)") {
+		case table.Bound as r:
+			found = found + 1
+			out = out + r.Out
+			sum = sum + r.Value
+		case table.Unbound:
+		}
+	}
+	Console.Println("scopes \(n) resolved \(found) out \(out) sum \(sum)")
+	match table.Resolve(&t, n, "nowhere") {
+	case table.Bound:
+		Console.Println("nowhere is bound")
+	case table.Unbound:
+		Console.Println("nowhere is unbound")
+	}
+}

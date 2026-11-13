@@ -1,0 +1,49 @@
+// Package screen keeps a scrollback buffer of lines and the pages a
+// reader has marked. A mark keeps a window of the buffer; the buffer is
+// written after (a line is redrawn), and the mark must still show the
+// lines as they were. The window is copied, once, at the mark: not the
+// buffer (the entry rule, docs/spec/types.md, Bindings), so a mark costs
+// its page, not the scrollback.
+
+import slices
+
+// Screen is the buffer and the marked pages.
+type Screen { lines []string, marks [][]string }
+
+// New is a screen of n blank lines.
+func New(n int) Screen {
+	let mut lines = []string{}
+	for _ in 0..n {
+		lines = lines.Append("")
+	}
+	Screen{lines: lines, marks: [][]string{}}
+}
+
+// Marked is the outcome of a mark.
+type Marked = Page{Index int} | OutOfRange{}
+
+// Draw writes line i of the buffer; a line past the end is ignored.
+func Draw(s *Screen, i int, text string) {
+	if i >= 0 && i < len(s.lines) {
+		s.lines[i] = text
+	}
+}
+
+// Mark keeps lines from to to (not included) as a page.
+func Mark(s *Screen, from int, to int) Marked {
+	if from < 0 || to > len(s.lines) || from > to {
+		return OutOfRange
+	}
+	s.marks = s.marks.Append(slices.Slice(s.lines, from, to))
+	Page{Index: len(s.marks) - 1}
+}
+
+// PageOf is marked page i, empty when there is none.
+func PageOf(s Screen, i int) []string {
+	if i < 0 || i >= len(s.marks) { []string{} } else { s.marks[i] }
+}
+
+// Line is line i of the buffer, empty past the end.
+func Line(s Screen, i int) string {
+	if i < 0 || i >= len(s.lines) { "" } else { s.lines[i] }
+}
