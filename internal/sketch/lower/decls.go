@@ -393,6 +393,17 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 				td.ops = append(td.ops, op)
 			}
 		}
+		// The operations a member `..I` includes (EXC1), as the checked
+		// operation type lists them after its own: `..Closer` gives Close,
+		// which a release of the including type's value calls.
+		if it, ok := named.Underlying().(*check.Interface); ok {
+			for _, op := range it.Methods {
+				if !taken[memberName(op.Name)] {
+					taken[memberName(op.Name)] = true
+					td.ops = append(td.ops, op)
+				}
+			}
+		}
 	case *syntax.MachineType:
 		td.kind, td.machine = kindMachine, l.machineOf(tn, named, spec, site)
 	default:
