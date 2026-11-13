@@ -334,6 +334,13 @@ internal/sketch/std/codec/laws.ergo	func many[T wire](vs []T) ([]T, Option[T]) f
 internal/sketch/std/json/json.ergo	*
 internal/sketch/std/http/query.ergo	// record follows the codec's rules: a field's key is its wire name, an
 internal/sketch/std/http/query.ergo	func DecodeQuery[T wire](fields []Field) T fails QueryRepeated | wired[T] {
+internal/sketch/std/ui/location.ergo	// rule (http.DecodeQuery, stdlib.md HTTP 3): a field's key is its wire
+internal/sketch/std/ui/location.ergo	func QueryOf[T wire](u URL) T fails http.QueryRepeated | wired[T] {
+internal/sketch/std/ui/location.ergo	func EncodeQuery[T wire](v T) string fails QueryShape {
+internal/sketch/std/ui/location.ergo	func WithQuery[T wire](u URL, v T) URL fails QueryShape {
+docs/spec/stdlib.md	`QueryOf[T wire](u) T fails http.QueryRepeated | wired[T]`
+docs/spec/stdlib.md	a field's key is its wire name, an unknown key is skipped, a missing field fails unless it is a `json.Optional`
+docs/spec/stdlib.md	goes on the wire as a string by a by-name pair (`ParseX`, `Wire`;
 runtime/v1/http_target_test.go	// this checks the bytes on the wire against it, at a raw loopback
 runtime/v1/testdata/webtarget/gen.mjs	// checks on the wire (S-target). Each row is a generated URL (or a base and
 docs/spec/stdlib.md	**Typed query** (S-query). `DecodeQuery[T wire](fields) T fails QueryRepeated | wired[T]`
