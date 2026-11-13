@@ -947,7 +947,7 @@ var unionPaths = []string{
 	"union flat", "union too large", "union too many fields", "union recursive", "union recursive through Option",
 	"union in a flat union", "union shares a slot", "union two slots of one type", "union shared too wide, slot per variant",
 	"field int", "field string", "field bool", "field slice", "field Option", "field union",
-	"union flat by use", "union carried past the bound", "union past the use bound",
+	"union flat by use", "union carried past the bound", "union carried by payload", "union past the use bound",
 	"carried by tail", "carried by return", "carried by pass", "carried by let", "carried by capture", "carried by function value", "carried by literal result",
 	"niche on", "niche off", "niche off by a record", "no match tree",
 }
@@ -1050,6 +1050,13 @@ func newUnionGen(r *rand.Rand, reached map[string]bool) *unionGen {
 			u.carried[len(u.unions)-1] = true
 			u.carriers[len(u.unions)-1] = c
 		}
+		// A big union held in place by a carried union (carried by
+		// return): the payload of a carried union is carried too.
+		u.unions = append(u.unions, big())
+		held := len(u.unions) - 1
+		u.unions = append(u.unions, [][]gField{{{kind: "union", name: "W", of: held}}, {}})
+		u.carried[len(u.unions)-1] = true
+		u.carriers[len(u.unions)-1] = "return"
 		var huge []gField
 		name := "Xs"
 		for range 6 {
@@ -1079,6 +1086,8 @@ func newUnionGen(r *rand.Rand, reached map[string]bool) *unionGen {
 				// Marked by the fixed carried union; u-generic may carry
 				// another later.
 				u.reached["union carried past the bound"] = true
+			case u.isCarried(i):
+				u.reached["union carried by payload"] = true
 			default:
 				u.reached["union flat by use"] = true
 			}
@@ -1226,7 +1235,37 @@ func (u *unionGen) layout(i int, share, register bool) (lay goLayout, shared boo
 // up to the use bound (R3b).
 func (u *unionGen) flat(i int, share, register bool) bool {
 	lay, _, why := u.layout(i, share, register)
-	return why == "" && (lay.ssa || !register && !u.carried[i] && lay.size <= useBytes)
+	return why == "" && (lay.ssa || !register && !u.isCarried(i) && lay.size <= useBytes)
+}
+
+// isCarried reports whether union i is carried: some call carries it, or
+// a carried union holds it in place, through union fields (carry.go's
+// carryPayload).
+func (u *unionGen) isCarried(i int) bool {
+	var holds func(j int, seen map[int]bool) bool
+	holds = func(j int, seen map[int]bool) bool {
+		if j == i {
+			return true
+		}
+		if seen[j] {
+			return false
+		}
+		seen[j] = true
+		for _, v := range u.unions[j] {
+			for _, f := range v {
+				if f.kind == "union" && holds(f.of, seen) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for j := range u.unions {
+		if u.carried[j] && holds(j, map[int]bool{}) {
+			return true
+		}
+	}
+	return false
 }
 
 // form is the model's form of union i: "shared", "slots" or "interface".
@@ -1251,7 +1290,7 @@ func (u *unionGen) why(i int, share, register bool) string {
 	if why != "" {
 		return why
 	}
-	return fmt.Sprintf("%d bytes, ssa %v, shared %v, carried %v", lay.size, lay.ssa, shared, u.carried[i])
+	return fmt.Sprintf("%d bytes, ssa %v, shared %v, carried %v", lay.size, lay.ssa, shared, u.isCarried(i))
 }
 
 // goForm is the form of union i in the lowered Go text: "shared",

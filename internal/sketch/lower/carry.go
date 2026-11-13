@@ -29,9 +29,10 @@ import (
 // A union is carried (carriedUnions) when some call of the program passes
 // a value whose type is the union to a carrying parameter, of an Ergo body
 // (a generic one too: a parameter of type T carries a union T stands for)
-// or of a callee the lowering cannot see; and when a function value
-// returns it (a function literal, or a declared function used other than
-// in a call), since its caller is one the lowering cannot see.
+// or of a callee the lowering cannot see; and when a function value takes
+// or returns it (a function literal, or a declared function used other
+// than in a call), since its caller is one the lowering cannot see; and
+// when a carried union holds it in place (carryPayload).
 //
 // The flat form keeps one more bound, on memory, not registers: a slice
 // of a flat union holds every element at the size of its widest form, so
@@ -50,6 +51,9 @@ import (
 // with fields; Gleam and Elixir keep a variant a tagged tuple on the
 // BEAM's heap. None of them decides the form from the uses.
 var unionBound string
+
+// paramCarry is false only under the mutant r3b-function-params-consumed.
+const paramCarry = true
 
 // useBytes is the memory bound of a union flat by use (above).
 const useBytes = 128
@@ -126,13 +130,57 @@ func (l *lowerer) carriedUnions() map[*check.TypeName]bool {
 			})
 		}
 	}
+	if payloadCarry {
+		for tn := range l.carried {
+			l.carryPayload(tn.Type, map[check.Type]bool{})
+		}
+	}
 	return l.carried
 }
 
-// carryResults marks carried every union a result of sig is: the result
-// of a function value goes to a caller the lowering cannot see.
+// payloadCarry is false only under the mutant r3b-payload-consumed.
+const payloadCarry = true
+
+// carryPayload marks carried every union a value of t holds in place (a
+// variant's or a record's field, not through a slice, a Map or a box): a
+// carried union carries its payload, and a union flat inside it would
+// widen it past the bound it keeps (backups' Signal holds an Event).
+func (l *lowerer) carryPayload(t check.Type, seen map[check.Type]bool) {
+	if t == nil || seen[t] {
+		return
+	}
+	seen[t] = true
+	under := t
+	if n, ok := t.(*check.Named); ok {
+		under = n.Underlying()
+	}
+	switch u := under.(type) {
+	case *check.Union:
+		if n, ok := t.(*check.Named); ok {
+			l.carried[n.Obj] = true
+		}
+		for _, v := range u.Variants {
+			l.carryPayload(v, seen)
+		}
+	case *check.Struct:
+		for _, f := range u.Fields {
+			l.carryPayload(f.Type, seen)
+		}
+	}
+}
+
+// carryResults marks carried every union a parameter or a result of sig
+// is: a function value is called by a caller the lowering cannot see,
+// which passes its arguments and takes its result by value (a machine's
+// step, called by std's run with the signal).
 func (l *lowerer) carryResults(sig *check.Signature) {
-	for _, t := range sig.Results {
+	types := append([]check.Type{}, sig.Results...)
+	if paramCarry {
+		for _, p := range sig.Params {
+			types = append(types, p.Type)
+		}
+	}
+	for _, t := range types {
 		if u, ok := t.(*check.Named); ok {
 			if _, union := u.Underlying().(*check.Union); union {
 				l.carried[u.Obj] = true
