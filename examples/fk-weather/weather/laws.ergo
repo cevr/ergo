@@ -1,0 +1,103 @@
+// The lookup's laws: one over a single edit of any state, and one over
+// sequences of edits, submits and answers against a model of what the
+// panel shows.
+
+import machines
+import strings
+
+// EditOnlyChangesTheDraft: an edit in any state changes the draft and
+// nothing else, and keeps the entry (Stay), so a fetch under way is not
+// restarted by typing.
+law EditOnlyChangesTheDraft(l Lookup, text string) {
+	Step(l, Edited{Text: text}) == Stay[Lookup]{Next: Lookup{..l, Draft: text}}
+}
+
+// ReadyShowsLatestAsk: over generated edits, submits and answers, the
+// lookup shows what a model with no machine says: a submit while a fetch
+// is under way changes nothing, a submit of an empty draft fails at once,
+// any other submit asks the trimmed draft, and only the answer to that
+// ask is shown; an answer when no fetch is under way changes nothing.
+// "Resolve" feeds the answer that answer gives for the asked zip, as a
+// story's Command.resolve does: a fold runs no work.
+law ReadyShowsLatestAsk(moves []int, words []int) {
+	let mut l = Initial()
+	let mut draft = ""
+	let mut loading = false
+	let mut zip = ""
+	let mut shown Panel = Blank
+	for i, m in moves {
+		let w = if i < len(words) { words[i] } else { 0 }
+		let s = match pick(m, 4) {
+		case 0:
+			let text = draftOf(w)
+			draft = text
+			Edited{Text: text}
+		case 1:
+			if !loading {
+				if Empty(draft) {
+					shown = Failed{Why: NoZip}
+				} else {
+					loading = true
+					zip = strings.TrimSpace(draft)
+					shown = Loading{Zip: zip}
+				}
+			}
+			Submitted
+		case 2:
+			if loading {
+				loading = false
+				let a = answer(zip)
+				shown = panelOf(a)
+				a
+			} else {
+				answer(draftOf(w))
+			}
+		case _:
+			// An answer that no ask is waiting for. While a fetch is under
+			// way the runner sends only that fetch's answer, so the model
+			// sends none then.
+			if loading {
+				continue
+			}
+			answer(draftOf(w))
+		}
+		l = machines.Next(l, Step(l, s))
+	}
+	l == Lookup{Draft: draft, Panel: shown}
+}
+
+// draftOf is a draft from a number: a zip the model knows, one it does
+// not, one with spaces around it, and two with no zip.
+func draftOf(n int) string {
+	let drafts = []string{"90210", "00000", " 10001 ", "", "   "}
+	drafts[pick(n, len(drafts))]
+}
+
+// answer is the model's forecast: what a fetch of zip answers. NotFound
+// and Unavailable are error types, so a value of one is a Signal only
+// through a typed let.
+func answer(zip string) Signal {
+	let v Signal = match zip {
+	case "90210":
+		Got{Report: beverly}
+	case "00000":
+		NotFound{Zip: zip}
+	case _:
+		Unavailable{Reason: "no station"}
+	}
+	v
+}
+
+// panelOf is what the panel shows for an answer.
+func panelOf(s Signal) Panel {
+	match s {
+	case Got as g:
+		Ready{Report: g.Report}
+	case NotFound as m:
+		Failed{Why: m}
+	case Unavailable as u:
+		Failed{Why: u}
+	case Edited, Submitted:
+		Blank
+	}
+}

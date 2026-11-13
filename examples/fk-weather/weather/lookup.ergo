@@ -1,0 +1,96 @@
+import machines
+import strings
+
+// Lookup is the state: the zip code typed so far, and what the panel
+// shows. The draft is not a mode, so it is a field beside the panel.
+type Lookup { Draft string, Panel Panel }
+
+// Panel is what the lookup shows: nothing yet, a fetch of Zip under way,
+// the report of the last ask, or why the last ask has no report.
+type Panel = Blank{} | Loading{Zip string} | Ready{Report Report} | Failed{Why Why}
+
+// Why is the reason a panel shows no report: the draft held no zip, the
+// forecast knows no place for it, or the forecast could not answer.
+type Why = NoZip{} | NotFound | Unavailable
+
+// Signal is what the lookup takes: an edit of the draft and a submit from
+// the form, and the answer of Loading's fetch. NotFound and Unavailable
+// are the fetch's failures and also signals, so the work needs no map of
+// its failures.
+type Signal = Edited{Text string} | Submitted{} | Got{Report Report} | NotFound | Unavailable
+
+// Never is the output of a lookup: it never ends and emits nothing, so no
+// value of Never is made.
+type Never {}
+
+// Initial is a lookup with an empty draft and nothing shown.
+func Initial() Lookup { Lookup{Draft: "", Panel: Blank} }
+
+// Step is the transition. An edit changes the draft and keeps the entry,
+// so a fetch under way goes on. A submit while a fetch is under way is
+// ignored; else a draft with no zip fails at once, with no fetch, and any
+// other draft enters Loading, whose entry fetches the trimmed draft. The
+// fetch's answer shows; an answer outside Loading is ignored (the runner
+// never sends one, and the step does not trust that).
+func Step(l Lookup, s Signal) Decision[Lookup, Never] {
+	match (l.Panel, s) {
+	case (_, Edited as e):
+		Stay[Lookup]{Next: Lookup{..l, Draft: e.Text}}
+	case (Loading, Submitted):
+		Ignore
+	case (_, Submitted):
+		if Empty(l.Draft) {
+			show(l, Failed{Why: NoZip})
+		} else {
+			show(l, Loading{Zip: strings.TrimSpace(l.Draft)})
+		}
+	case (Loading, Got as g):
+		show(l, Ready{Report: g.Report})
+	case (Loading, NotFound as m):
+		show(l, Failed{Why: m})
+	case (Loading, Unavailable as u):
+		show(l, Failed{Why: u})
+	case (_, Got), (_, NotFound), (_, Unavailable):
+		Ignore
+	}
+}
+
+func show(l Lookup, p Panel) Decision[Lookup, Never] { Enter[Lookup]{Next: Lookup{..l, Panel: p}} }
+
+// fetch is the work of each state: Loading fetches its zip from the
+// Forecast. The runner starts it when the entry opens and interrupts it
+// when the entry ends, and drops an answer of an ended entry, so an
+// answer only ever reaches the ask that started it.
+func fetch(l Lookup) Option[machines.Work[Signal, Forecast]] {
+	match l.Panel {
+	case Loading as q:
+		Some{machines.Work{Run: func() Report fails NotFound | Unavailable needs Forecast { try Forecast.Fetch(q.Zip) }, OnSuccess: func(r Report) Signal { Got{Report: r} }}}
+	case Blank, Ready, Failed:
+		None
+	}
+}
+
+// Weather is the lookup as a machine: its work is the fetch.
+type Weather machine[Lookup, Signal] { initial: Initial(), step: Step, work: fetch }
+
+// Busy reports whether l waits for a fetch.
+func Busy(l Lookup) bool {
+	match l.Panel {
+	case Loading:
+		true
+	case Blank, Ready, Failed:
+		false
+	}
+}
+
+// Said is the text of a reason, as upstream shows it.
+func Said(w Why) string {
+	match w {
+	case NoZip:
+		"Zip code required"
+	case NotFound:
+		"Location not found"
+	case Unavailable:
+		"Failed to fetch weather data"
+	}
+}
