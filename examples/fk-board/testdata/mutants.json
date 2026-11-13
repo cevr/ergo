@@ -29,7 +29,7 @@
       "name": "fk11-move-to-no-column-drops-the-card", "origin": "wf10/fk11a",
       "file": "examples/fk-board/board/board.ergo",
       "from": "\tif !landed {\n",
-      "to": "\tif false {\n",
+      "to": "\tif !landed && false {\n",
       "rule": "A reorder to a column the board does not have changes nothing (law ReorderIsAPermutation).",
       "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
     },
@@ -66,11 +66,11 @@
       "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
     },
     {
-      "name": "fk11-keyboard-cancel-keeps-focus", "origin": "wf10/fk11a",
+      "name": "fk11-keyboard-cancel-focuses-elsewhere", "origin": "wf10/fk11a",
       "file": "examples/fk-board/drag/drag.ergo",
       "from": "to(d, Idle, []Effect{Focus{Item: l.Item}, Cancelled})",
-      "to": "to(d, Idle, []Effect{Cancelled})",
-      "rule": "Escape in a keyboard drag focuses the card again (case tour).",
+      "to": "to(d, Idle, []Effect{Focus{Item: l.From}, Cancelled})",
+      "rule": "Escape in a keyboard drag focuses the card again, not its column (case tour).",
       "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
     },
     {
@@ -117,7 +117,7 @@
       "name": "fk11-file-line-uncounted", "origin": "wf10/fk11a",
       "file": "examples/fk-board/file/file.ergo",
       "from": "\t\tn = n + 1\n",
-      "to": "",
+      "to": "\t\tn = n + 0\n",
       "rule": "A foreign line in the board file is named by its number (law AForeignLineIsNamed).",
       "anchor": {"tests": ["examples:fk-board"]}, "killers": ["examples:fk-board"]
     },
