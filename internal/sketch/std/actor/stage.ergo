@@ -12,16 +12,16 @@ import time
 // Stage is the actor a as a stage over clock. NewStage makes one. The
 // actor must be started in clock's domain: by the task that called
 // time.NewManual, or a task below it, with clock as its Scheduler.
-type Stage[S comparable, E, D, F] { a Actor[S, E, D, F], clock time.Manual } implements testing.Stage[E, S]
+type Stage[S, E comparable, D, F] { a Actor[S, E, D, F], clock time.Manual } implements testing.Stage[E, S]
 
 // NewStage is the stage of a over clock.
-func NewStage[S comparable, E, D, F](a Actor[S, E, D, F], clock time.Manual) Stage[S, E, D, F] {
+func NewStage[S, E comparable, D, F](a Actor[S, E, D, F], clock time.Manual) Stage[S, E, D, F] {
 	Stage[S, E, D, F]{a: a, clock: clock}
 }
 
 // Do sends e to the actor and returns once it is queued. It fails
 // testing.Refused when the actor has ended.
-func Do[S comparable, E, D, F](st Stage[S, E, D, F], e E) fails testing.Refused {
+func Do[S, E comparable, D, F](st Stage[S, E, D, F], e E) fails testing.Refused {
 	st.a.Send(e) catch {
 	case Stopped:
 		return testing.Refused{Why: "the actor has ended"}
@@ -30,12 +30,12 @@ func Do[S comparable, E, D, F](st Stage[S, E, D, F], e E) fails testing.Refused 
 
 // Advance moves the clock by d; it returns once every task the move woke
 // waits again.
-func Advance[S comparable, E, D, F](st Stage[S, E, D, F], d duration) { st.clock.Advance(d) }
+func Advance[S, E comparable, D, F](st Stage[S, E, D, F], d duration) { st.clock.Advance(d) }
 
 // Settle returns once every task of the clock's domain but the caller
 // waits: the actor has stepped each signal sent so far, and each work it
 // started has sent its signal or waits.
-func Settle[S comparable, E, D, F](st Stage[S, E, D, F]) { st.clock.Advance(0s) }
+func Settle[S, E comparable, D, F](st Stage[S, E, D, F]) { st.clock.Advance(0s) }
 
 // Show is the actor's state.
-func Show[S comparable, E, D, F](st Stage[S, E, D, F]) S { st.a.State() }
+func Show[S, E comparable, D, F](st Stage[S, E, D, F]) S { st.a.State() }
