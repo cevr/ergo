@@ -85,15 +85,17 @@ would, and leaves a copy taken before as it was.
 
 Counted receipt: allocations of one `Forward` into a thread of an inbox
 of n messages in seven threads: base e02194103, the entry rule (round 1),
-the move-out (round 2, 8021ffbe3), and `Update` handed over (round 3).
+the move-out (round 2, 8021ffbe3), `Update` handed over (round 3,
+7853d822a), and a result read at once (round 4).
 
-| inbox | base | entry rule | move-out | handed over |
-| --- | --- | --- | --- | --- |
-| 7000 messages | 11 allocations, 487455 B | 4 allocations, 135937 B | 18.1 allocations, 839071 B | 2 allocations, 135549 B |
-| 14000 messages | 11 allocations, 938671 B | 4 allocations, 244318 B | 18 allocations, 1633094 B | 2 allocations, 243917 B |
+| inbox | base | entry rule | move-out | handed over | read at once |
+| --- | --- | --- | --- | --- | --- |
+| 7000 messages | 11 allocations, 487455 B | 4 allocations, 135937 B | 18.1 allocations, 839071 B | 2 allocations, 135549 B | 1 allocation, 78859 B |
+| 14000 messages | 11 allocations, 938671 B | 4 allocations, 244318 B | 18 allocations, 1633094 B | 2 allocations, 243917 B | 1 allocation, 139347 B |
 
-Copy sites in `Forward`'s Go: 3, 3, 4, 2. The two left copy the one
-thread, not the inbox: the callback's `Append` copies the old thread
-(`slices.Clip`), since the `Map` holds it until `Update` stores the new
-one, and `len(Thread(*b, to))` copies the thread it reads (a pure
-call's result fed to `len`; both are known gaps).
+Copy sites in `Forward`'s Go: 3, 3, 4, 2, 1. `len(Thread(*b, to))`
+reads `Thread`'s result at once, so it is no longer copied (a read-only
+use, docs/spec/types.md, Bindings). The one copy left is of the one
+thread: the callback's `Append` copies the old thread (`slices.Clip`),
+since the `Map` holds it until `Update` stores the new one (a known
+gap).
