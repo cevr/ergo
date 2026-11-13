@@ -74,7 +74,6 @@ language	internal/tsproj/project.go:emitter.schema	Option	-
 debt	internal/sketch/check/drop.go:dropWalk.drain	a std type's drain body by name	NP3c
 debt	internal/sketch/check/ownership.go:isQueue	queue.Queue by name	NP3c
 debt	internal/sketch/check/ownership.go:ownWalk.holdsTaken	a std type keeps taken values	NP3c
-language	internal/sketch/check/script.go:scriptArg	testing.Script, the derived test provider of a capability	-
 debt	internal/sketch/check/work.go:TakesWorkSend	actor.Child and ChildIn by name	NP3b
 debt	internal/sketch/check/work.go:checker.workLit	the fields of machines.Work by name	NP3b
 debt	internal/sketch/check/work.go:checker.workLitForm	the fields of machines.Work by name	NP3b
