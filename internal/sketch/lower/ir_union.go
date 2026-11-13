@@ -49,8 +49,8 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		if !ok {
 			irNo("union without its variants")
 		}
-		if fu := b.flatOf(t); fu != nil && (fu.niche || fu.generic) {
-			irNo("generic or declared-elsewhere type")
+		if fu := b.flatOf(t); fu != nil && fu.niche {
+			irNo("Option's pointer niche")
 		}
 		if b.admitted == nil {
 			b.admitted = map[*check.TypeName]bool{}
@@ -149,7 +149,7 @@ func (b *irBuilder) variantInto(from, to check.Type, e *irExpr, site syntax.Node
 		return e
 	}
 	if fu := b.flatOf(to); fu != nil {
-		if fu.niche || fu.inst != nil || b.fc.goType(fu.tn.Type) != gt {
+		if fu.niche || b.goType(fu.own(), site) != gt { // own: ir_pkg.go
 			irNo("value of a type defined over a flat union")
 		}
 		k := fu.tagOf(from)

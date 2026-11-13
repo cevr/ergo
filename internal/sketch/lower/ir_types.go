@@ -31,9 +31,10 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		b.admit(t.Elem, depth+1)
 		return
 	case *check.Named:
-		if len(t.TArgs) > 0 || len(t.TParams) > 0 || t.Obj.Decl == nil {
+		if len(t.TParams) > 0 || t.Obj.Decl == nil {
 			irNo("generic or declared-elsewhere type")
 		}
+		b.admitArgs(t, depth) // ir_pkg.go
 		if _, ok := t.Obj.Decl.Spec.(*syntax.StructType); !ok {
 			b.admitNamed(t, depth) // ir_union.go
 			return

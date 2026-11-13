@@ -135,7 +135,14 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"result statement *syntax.BranchStmt", "G1"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
-	{"generic or task call", "G4"},
+	{"generic or task call", "G4"}, // a generic std body
+	{"task call", "G4"},
+	{"generic call kind *", "G4"},
+	{"generic call without its type arguments", "G4"},
+	{"Option's pointer niche", "G4"},
+	{"append form", "G4"},
+	{"append to a defined slice type", "G4"},
+	{"Map write", "G4"},
 	// IRG4 calls other packages' functions and std externs with a plain
 	// runtime/v1 body; these call forms remain.
 	{"call without a function", "G4"},
