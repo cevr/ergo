@@ -525,6 +525,15 @@ func finishProgram(p *program, present map[string]bool, problems []string, recor
 			p.tests = append(p.tests, target)
 		}
 	}
+	if p.module && present["go.mod"] {
+		for _, dir := range localModules(p) {
+			for _, target := range testsOfModule(dir) {
+				if !slices.Contains(p.tests, target) {
+					p.tests = append(p.tests, target)
+				}
+			}
+		}
+	}
 	slices.Sort(p.tests)
 	if present[exploredFile] {
 		lines, found := readExplored(p)

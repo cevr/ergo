@@ -52,6 +52,47 @@ func TestModuleProgram(t *testing.T) {
 	}
 }
 
+// A program that installs a module of the repository by its go.mod
+// (`replace M => ../../modules/lib`) runs the module's package tests in
+// its test leg, since ergo test of the program never runs a dependency's:
+// so the module's laws and tests are the examples suite's too. A module
+// version, a replacement with no ergo.mod and a nested module are not
+// tested. Mutant: xmd-local-modules-untested (testdata/mutants.json).
+func TestModuleProgramTestsItsLocalModule(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	dir := "examples/walker"
+	f.write(dir+"/ergo.mod", "module walker\n")
+	f.write(dir+"/go.mod", "module walker\n\ngo 1.27\n\nrequire (\n\tex.dev/lib v0.0.0\n\tex.dev/gone v0.0.0\n\tex.dev/far v1.0.0\n)\n\nreplace ex.dev/lib => ../../modules/lib // the repository's\n\nreplace (\n\tex.dev/gone => ../../modules/gone\n\tex.dev/far => ex.dev/other v1.0.0\n)\n")
+	f.write(dir+"/README.md", "# walker\n")
+	f.write(dir+"/tags", "default\n")
+	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
+	f.write(dir+"/walk/game.ergo", "func f() {}\n")
+	f.write(dir+"/cases/basic/expected.out", "hi\n")
+	f.write("modules/lib/ergo.mod", "module ex.dev/lib\n")
+	f.write("modules/lib/lib.ergo", "test Lib {\n}\n")
+	f.write("modules/lib/deep/deep.ergo", "test Deep {\n}\n")
+	f.write("modules/lib/inner/ergo.mod", "module ex.dev/inner\n")
+	f.write("modules/lib/inner/inner.ergo", "test Inner {\n}\n")
+	f.write("modules/gone/gone.ergo", "test Gone {\n}\n")
+	code, out := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	calls := readCalls(t, f)
+	lib := filepath.Join(f.root, "modules/lib")
+	for _, want := range []string{"test " + lib, "test " + filepath.Join(lib, "deep")} {
+		if !slices.Contains(calls, want) {
+			t.Errorf("no call %q in\n%q", want, calls)
+		}
+	}
+	for _, not := range []string{"test " + filepath.Join(lib, "inner"), "test " + filepath.Join(f.root, "modules/gone")} {
+		if slices.Contains(calls, not) {
+			t.Errorf("call %q in\n%q", not, calls)
+		}
+	}
+}
+
 // The layout of a program of packages: its binary is cmd/NAME/main.ergo,
 // cmd holds nothing else, and a package folder holds .ergo files and
 // package folders only.

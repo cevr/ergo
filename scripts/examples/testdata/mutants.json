@@ -90,6 +90,17 @@
       "to": "if false && !r.modLeg(p) {",
       "rule": "The mod leg runs before the build of a program tagged mod.",
       "killers": ["scripts/examples:TestModLegColdCacheFails"]
+    },
+    {
+      "name": "xmd-local-modules-untested",
+      "origin": "wf10 REF XMD",
+      "file": "scripts/examples/main.go",
+      "from": "\t\tfor _, dir := range localModules(p) {",
+      "to": "\t\tfor _, dir := range localModules(p)[:0] {",
+      "rule": "A program that installs a module of the repository by a go.mod replace runs the module's package tests in its test leg.",
+      "killers": [
+        "scripts/examples:TestModuleProgramTestsItsLocalModule"
+      ]
     }
   ]
 }
