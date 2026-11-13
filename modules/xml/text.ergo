@@ -139,37 +139,20 @@ func Bool(t *text, b bool) {
 	t.close()
 }
 
+// Int, Uint and Float append the number to t.out in place with std
+// strconv's appenders, as std json's writer does. (escape writes to t.out
+// itself too: a function of this package given t.out and returning it
+// would be given a copy, since t still holds the buffer.)
 func Int(t *text, n int64) {
 	t.enter()
-	if n < 0 {
-		t.raw("-")
-		// -n as a uint64: 0 - uint64(n) wraps to it, also for the least
-		// int64, whose negation an int64 cannot hold.
-		t.digits(0 - uint64(n))
-	} else {
-		t.digits(uint64(n))
-	}
+	t.out = strconv.AppendInt(t.out, n, 10)
 	t.close()
 }
 
 func Uint(t *text, n uint64) {
 	t.enter()
-	t.digits(n)
+	t.out = strconv.AppendUint(t.out, n, 10)
 	t.close()
-}
-
-// digits writes n's decimal digits. (It and escape write to t.out
-// themselves: a function given t.out and returning it would be given a
-// copy, since t still holds the buffer.)
-func digits(t *text, n uint64) {
-	let mut p uint64 = 1
-	for n/p >= 10 {
-		p = p * 10
-	}
-	for p > 0 {
-		t.out = appendByte(t.out, byte(n/p%10)+'0')
-		p = p / 10
-	}
 }
 
 // escape writes s as character data: &, < and > as entities, a carriage
@@ -224,12 +207,9 @@ func escape(t *text, s string, attr bool) {
 }
 
 // Float writes f's shortest spelling that reads back as f (Go's 'g', -1).
-// (It allocates the spelling: std strconv has no append form, and Go's
-// strconv.AppendFloat, called from a module, copies the buffer it is
-// given: std-nopriv inbox, 2026-11-13.)
 func Float(t *text, f float64) {
 	t.enter()
-	t.raw(strconv.FormatFloat(f, 'g', -1))
+	t.out = strconv.AppendFloat(t.out, f, 'g', -1)
 	t.close()
 }
 
