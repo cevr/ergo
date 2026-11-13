@@ -30,6 +30,7 @@ type facts struct {
 	use      check.Object    // an identifier's
 	call     *check.Call     // a call's
 	instance *check.Instance
+	pattern  *check.Pattern
 }
 
 // factTable holds the facts of one package's expressions, by node: the
@@ -75,7 +76,7 @@ func (t factTable) of(info *check.Info, x syntax.Expr) *facts {
 	if f := t[k]; f != nil {
 		return f
 	}
-	f := &facts{typ: info.Types[x], ctx: info.ContextValues[x], elems: info.ImplicitElems[x], covered: info.TryCovers[x] != nil, owned: info.OwnedTemps[x], instance: info.Instances[x]}
+	f := &facts{typ: info.Types[x], ctx: info.ContextValues[x], elems: info.ImplicitElems[x], covered: info.TryCovers[x] != nil, owned: info.OwnedTemps[x], instance: info.Instances[x], pattern: info.Patterns[x]}
 	f.val, f.hasVal = info.Values[x]
 	f.conv, f.hasConv = info.Implicit[x]
 	switch h := x.(type) {

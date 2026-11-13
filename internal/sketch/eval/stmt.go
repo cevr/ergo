@@ -683,7 +683,7 @@ func (in *interp) valueMatch(fr *frame, s *syntax.SwitchStmt, ret bool) (Value, 
 			def = cl
 		}
 		for _, item := range cl.List {
-			p := fr.info.Patterns[item]
+			p := in.fx(fr, item).pattern
 			if p == nil {
 				ice("a value case with no Patterns entry")
 			}
@@ -762,7 +762,7 @@ func (in *interp) typeArms(fr *frame, s *syntax.TypeSwitchStmt, subjects []Value
 			continue
 		}
 		for _, item := range cl.List {
-			p := fr.info.Patterns[item]
+			p := in.fx(fr, item).pattern
 			if p == nil {
 				ice("a case with no Patterns entry")
 			}

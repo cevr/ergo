@@ -248,7 +248,7 @@ func (in *interp) peek(fr *frame, x syntax.Expr) (Value, *slot, *abrupt) {
 func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot, *abrupt) {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
-		if v, ok := fr.info.Uses[x].(*check.Var); ok {
+		if v, ok := in.fx(fr, x).use.(*check.Var); ok {
 			if s := in.slotOf(fr, v); s != nil {
 				if ab := in.charge(fr, x, 1); ab != nil {
 					return nil, nil, ab
@@ -258,7 +258,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		}
 	case *syntax.SelectorExpr:
 		if id, ok := unparen(x.X).(*syntax.Ident); ok {
-			if _, isPkg := fr.info.Uses[id].(*check.PkgName); isPkg {
+			if _, isPkg := in.fx(fr, id).use.(*check.PkgName); isPkg {
 				// A package's let: its slot, which nothing writes.
 				// The checker records no Uses entry for a qualified
 				// name: the member is the imported package's own.
@@ -301,7 +301,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 	case *syntax.StarExpr:
 		return in.peekBase(fr, x.X, path)
 	case *syntax.IndexExpr:
-		if inst := fr.info.Instances[x]; inst != nil {
+		if inst := in.fx(fr, x).instance; inst != nil {
 			v, ab := in.funcValue(fr, x, inst.Func)
 			return v, nil, ab
 		}
@@ -821,7 +821,7 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, c *check.Call) (Value, *
 
 // args evaluates a call's receiver and arguments, left to right.
 func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call) ([]Value, *abrupt) {
-	var args []Value
+	args := make([]Value, 0, len(x.Args)+1)
 	if c.Recv != nil {
 		v, ab := in.receiver(fr, c.Recv, c.Func)
 		if ab != nil {
