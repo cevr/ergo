@@ -27,10 +27,9 @@ import (
 // The body contract; check.GoTypeOf) is that Go type: a record is the
 // struct, and a sealed operation type is a pointer to the type, whose
 // methods are its operations. The checker holds the declaration to the Go
-// type's shape (check/extern.go runtimeTypeRefusal), so the lowering reads
+// type's shape (check/body.go runtimeTypeRefusal), so the lowering reads
 // the declaration and never a std name. Every other type of every package
-// is a declaration of the program, apart from the prelude's Task and
-// os.Code below.
+// is a declaration of the program, apart from os.Code below.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	obj := n.Obj
 	if check.IsGoError(n) {
@@ -45,9 +44,6 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			return "*" + l.rt() + "." + goName
 		}
 		return l.rt() + "." + goName
-	}
-	if obj.Pkg.Path == "prelude" && obj.Pkg.Std() && obj.Name == "Task" {
-		return "*" + l.rt() + ".Task"
 	}
 	// Code is checked as an ordinary refinement. At the runtime record
 	// boundary its representation is the existing Go int field of Exit.
