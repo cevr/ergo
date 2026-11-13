@@ -1,0 +1,84 @@
+import fkflow/seed
+
+func near(a float64, b float64) bool { a-b < 0.000001 && b-a < 0.000001 }
+
+// scene is a flow scene from generated acts: frames, bursts and pointer
+// moves.
+func scene(n uint64, acts []int) Field {
+	let mut f = New(seed.Of(n))
+	for a in acts {
+		let c = ((a % 576000) + 576000) % 576000
+		let x = float64(c % 960)
+		let y = float64(c / 960)
+		match c % 5 {
+		case 0:
+			f = Burst(f, x, y)
+		case 1:
+			f = PointAt(f, x, y)
+		case _:
+			f = Advance(f, float64(c%70))
+		}
+	}
+	f
+}
+
+// AFrameKeepsTheCrowd: a frame keeps the particles that still live, in
+// order, each a step older with its head inside the settling band and
+// its trail at most 36 long; then, while fewer than 55 live, it adds up
+// to 3 new ones, numbered on from the last.
+law AFrameKeepsTheCrowd(n uint64, acts []int, ms int) {
+	let f = scene(n, acts)
+	let g = Advance(f, float64(((ms%120)+120)%120))
+	let mut kept = 0
+	let mut last = -1
+	for p in g.Particles {
+		if p.ID >= f.NextID {
+			continue
+		}
+		if p.ID <= last || len(p.Trail) > trailLength || Outside(p.Trail[len(p.Trail)-1]) || p.AgeMs >= p.LifespanMs {
+			return false
+		}
+		last = p.ID
+		kept = kept + 1
+	}
+	let born = len(g.Particles) - kept
+	let want = if targetCount-kept > spawnPerFrame { spawnPerFrame } else if targetCount-kept < 0 { 0 } else { targetCount - kept }
+	born == want && g.NextID == f.NextID+born && g.Particles[len(g.Particles)-1].ID == g.NextID-1
+}
+
+// ABurstFansOut: a press adds 22 particles near it, heading out evenly
+// round the circle with a boost, and leaves the rest alone.
+law ABurstFansOut(n uint64, acts []int, x int, y int) {
+	let f = scene(n, acts)
+	let at = Point{X: float64(((x % 960) + 960) % 960), Y: float64(((y % 600) + 600) % 600)}
+	let g = Burst(f, at.X, at.Y)
+	if len(g.Particles) != len(f.Particles)+burstCount || g.NextID != f.NextID+burstCount {
+		return false
+	}
+	for i in 0..burstCount {
+		let p = g.Particles[len(f.Particles)+i]
+		let head = p.Trail[0]
+		let heading = match p.InitialAngle {
+		case Some[float64] as a:
+			a.Value
+		case None:
+			-1.0
+		}
+		if !near(heading, float64(i)/float64(burstCount)*twoPi) || head.X < at.X-burstJitter || head.X > at.X+burstJitter || head.Y < at.Y-burstJitter || head.Y > at.Y+burstJitter || p.InitialSpeedScale < burstScaleMin || p.BaseHue < 0.0 || p.BaseHue >= hueMax {
+			return false
+		}
+	}
+	true
+}
+
+// SlidersKeepTheirSteps: a slider's value is in its range and on its
+// step, the nearest to the one asked.
+law SlidersKeepTheirSteps(n uint64, hundredths int) {
+	let v = float64(hundredths%400) / 100.0
+	let f = SetScale(SetStrength(New(seed.Of(n)), v), v)
+	let onStep = func(got float64, lo float64, hi float64, step float64) bool {
+		let k = (got - lo) / step
+		got >= lo && got <= hi && near(k, floor(k+0.5)) && (got-clamp(v, lo, hi) <= step/2.0+0.000001) && (clamp(v, lo, hi)-got <= step/2.0+0.000001)
+	}
+	onStep(f.Strength, StrengthMin, StrengthMax, StrengthStep) && onStep(f.Scale, ScaleMin, ScaleMax, ScaleStep)
+}

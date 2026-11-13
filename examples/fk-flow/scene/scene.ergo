@@ -1,0 +1,82 @@
+// Package scene is the program's two scenes as one machine: the balls or
+// the flow, each with its own running flag, and a stream of numbers that
+// passes from one scene to the next. A frame steps the shown scene while
+// it runs; an act the shown scene has no use for is ignored.
+
+import fkflow/balls
+import fkflow/flow
+import fkflow/seed
+
+// Scene is the scene shown. Running is whether frames step it.
+type Scene = Balls{Field balls.Field, Running bool} | Flow{Field flow.Field}
+
+// Signal is what the scene reads: a frame of Ms milliseconds, a press
+// and a pointer move on the canvas, the play and pause button, the clear
+// (balls) or reset (flow) button, the flow's two sliders, and a switch to
+// the other scene.
+type Signal = Ticked{Ms float64} | Pressed{X float64, Y float64} | Moved{X float64, Y float64} | Toggled{} | Cleared{} | SetStrength{Value float64} | SetScale{Value float64} | ShowBalls{} | ShowFlow{}
+
+// Open is the balls scene, running, drawing from the stream at n.
+func Open(n uint64) Scene { Balls{Field: balls.New(seed.Of(n)), Running: true} }
+
+func ballsStep(b Balls, sig Signal) Decision[Scene, Never] {
+	match sig {
+	case Ticked as t:
+		if !b.Running {
+			return Ignore
+		}
+		Stay[Scene]{Next: Balls{..b, Field: balls.Advance(b.Field, t.Ms)}}
+	case Pressed as p:
+		Stay[Scene]{Next: Balls{..b, Field: balls.Drop(b.Field, p.X, p.Y)}}
+	case Toggled:
+		Stay[Scene]{Next: Balls{..b, Running: !b.Running}}
+	case Cleared:
+		Stay[Scene]{Next: Balls{..b, Field: balls.Clear(b.Field)}}
+	case ShowFlow:
+		Enter[Scene]{Next: Flow{Field: flow.New(b.Field.Seed)}}
+	case Moved, SetStrength, SetScale, ShowBalls:
+		Ignore
+	}
+}
+
+func flowStep(f Flow, sig Signal) Decision[Scene, Never] {
+	match sig {
+	case Ticked as t:
+		if !f.Field.Running {
+			return Ignore
+		}
+		Stay[Scene]{Next: Flow{Field: flow.Advance(f.Field, t.Ms)}}
+	case Pressed as p:
+		Stay[Scene]{Next: Flow{Field: flow.Burst(f.Field, p.X, p.Y)}}
+	case Moved as m:
+		Stay[Scene]{Next: Flow{Field: flow.PointAt(f.Field, m.X, m.Y)}}
+	case Toggled:
+		Stay[Scene]{Next: Flow{Field: flow.Toggle(f.Field)}}
+	case Cleared:
+		Stay[Scene]{Next: Flow{Field: flow.Reset(f.Field)}}
+	case SetStrength as v:
+		Stay[Scene]{Next: Flow{Field: flow.SetStrength(f.Field, v.Value)}}
+	case SetScale as v:
+		Stay[Scene]{Next: Flow{Field: flow.SetScale(f.Field, v.Value)}}
+	case ShowBalls:
+		Enter[Scene]{Next: Balls{Field: balls.New(f.Field.Seed), Running: true}}
+	case ShowFlow:
+		Ignore
+	}
+}
+
+// Step is the scene's transition.
+func Step(s Scene, sig Signal) Decision[Scene, Never] {
+	match s {
+	case Balls as b:
+		ballsStep(b, sig)
+	case Flow as f:
+		flowStep(f, sig)
+	}
+}
+
+// Machine is the scene as a machine; its input is the stream's start.
+type Machine machine[Scene, Signal] {
+	initial: Open,
+	step:    Step,
+}

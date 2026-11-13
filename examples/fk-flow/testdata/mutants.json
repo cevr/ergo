@@ -1,0 +1,165 @@
+{
+  "about": "fk-flow's application mutants; each is judged by the example's laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk12-bounce-keeps-heading", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/balls/balls.ergo",
+      "from": "VX: if bounceX { -b.VX } else { b.VX }",
+      "to": "VX: b.VX",
+      "rule": "A bounce turns the ball's velocity round (case tour: ball 1 off the left edge; the law only sees the size).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-ball-leaves-the-canvas", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/balls/balls.ergo",
+      "from": "X: clamp(x, b.Radius, Width-b.Radius)",
+      "to": "X: x",
+      "rule": "A ball stays a radius inside the canvas (law BallsStayInBounds).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-drop-reuses-the-stream", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/balls/balls.ergo",
+      "from": "NextID: f.NextID + 1, Seed: s4}",
+      "to": "NextID: f.NextID + 1, Seed: f.Seed}",
+      "rule": "Each drop draws the next numbers (law DropsDrawFromTheStream).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-clear-renumbers", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/balls/balls.ergo",
+      "from": "Field{..f, Balls: []Ball{}}",
+      "to": "Field{..f, Balls: []Ball{}, NextID: 0}",
+      "rule": "Clear keeps the numbering (case tour: ball 3 after a clear).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-balls-frame-in-tenths", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/balls/balls.ergo",
+      "from": "Move(b, ms/1000.0)",
+      "to": "Move(b, ms/100.0)",
+      "rule": "A ball moves its velocity per second (case tour: frame 16 x10).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-unit-past-one", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/seed/seed.ergo",
+      "from": "float64(bits>>11) / 9007199254740992.0",
+      "to": "float64(bits>>11) / 4503599627370496.0",
+      "rule": "A draw is inside its range (law DropsDrawFromTheStream: radius and speed).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-trail-one-too-long", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/flow/flow.ergo",
+      "from": "if len(trail) > trailLength { trail[len(trail)-trailLength:] }",
+      "to": "if len(trail) > trailLength+1 { trail[len(trail)-trailLength-1:] }",
+      "rule": "A trail is at most 36 points (law AFrameKeepsTheCrowd).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-four-births-a-frame", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/flow/flow.ergo",
+      "from": "0.0, float64(spawnPerFrame))",
+      "to": "0.0, float64(spawnPerFrame+1))",
+      "rule": "A frame adds at most 3 particles (law AFrameKeepsTheCrowd).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-particles-never-leave", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/flow/flow.ergo",
+      "from": "if age >= p.LifespanMs || Outside(next) {",
+      "to": "if age >= p.LifespanMs {",
+      "rule": "A particle past the settling band dies (law AFrameKeepsTheCrowd).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-particles-never-age", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/flow/flow.ergo",
+      "from": "let age = p.AgeMs + seconds*1000.0",
+      "to": "let age = p.AgeMs",
+      "rule": "A particle ages and dies at the end of its life (case tour: frame 50 x120).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-long-frame-uncapped", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/flow/flow.ergo",
+      "from": "clamp(ms/1000.0, 0.0, deltaCap)",
+      "to": "clamp(ms/1000.0, 0.0, 1.0)",
+      "rule": "A frame counts at most 50 ms (case tour: frame 1000).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-burst-half-circle", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/flow/flow.ergo",
+      "from": "float64(i)/float64(burstCount)*twoPi, anchor)",
+      "to": "float64(i)/float64(burstCount)*3.141592653589793, anchor)",
+      "rule": "A burst heads out evenly round the whole circle (law ABurstFansOut).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-pointer-swirls-nothing", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/flow/flow.ergo",
+      "from": "if distance > pointerRadius {",
+      "to": "if distance >= 0.0 {",
+      "rule": "The pointer swirls the field near it (case tour: move 480 300).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-reset-keeps-pointer", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/flow/flow.ergo",
+      "from": "Field{..f, Particles: []Particle{}, Pointer: None}",
+      "to": "Field{..f, Particles: []Particle{}}",
+      "rule": "Reset forgets the pointer (case tour: clear in the flow).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-slider-rounds-down", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/flow/flow.ergo",
+      "from": "(clamp(v, lo, hi)-lo)/step+0.5)",
+      "to": "(clamp(v, lo, hi)-lo)/step)",
+      "rule": "A slider takes the nearest step (law SlidersKeepTheirSteps).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-boost-never-fades", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/flow/flow.ergo",
+      "from": "blend(a.Value, fieldWise, 1.0-b)",
+      "to": "blend(a.Value, fieldWise, b)",
+      "rule": "A burst particle turns from its heading to the field as its boost fades (case tour: press 480 300 then frames).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-noise-hash", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/flow/noise.ergo",
+      "from": "(seeded ^ (seeded >> 13)) * 1274126177",
+      "to": "(seeded ^ (seeded >> 13)) * 1274126178",
+      "rule": "The noise is upstream's hash (case tour: the heads' centre).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-paused-flow-moves", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/scene/scene.ergo",
+      "from": "\t\tif !f.Field.Running {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A paused scene ignores frames (law PausedTickIsIdentity).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-switch-to-paused-balls", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/scene/scene.ergo",
+      "from": "Balls{Field: balls.New(f.Field.Seed), Running: true}",
+      "to": "Balls{Field: balls.New(f.Field.Seed), Running: false}",
+      "rule": "A switch starts the other scene running (law ActsReachTheShownScene).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    },
+    {
+      "name": "fk12-switch-restarts-the-stream", "origin": "wf10/fk12a",
+      "file": "examples/fk-flow/scene/scene.ergo",
+      "from": "Flow{Field: flow.New(b.Field.Seed)}",
+      "to": "Flow{Field: flow.New(seed.Of(1))}",
+      "rule": "The stream passes on through a switch (law SeedReplays).",
+      "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+import fkflow/seed
+
+func inBounds(b Ball) bool {
+	b.X >= b.Radius && b.X <= Width-b.Radius && b.Y >= b.Radius && b.Y <= Height-b.Radius
+}
+
+func abs(v float64) float64 { if v < 0.0 { -v } else { v } }
+
+// BallsStayInBounds: balls dropped anywhere on the canvas are inside it,
+// a radius from each edge, after any frames, and a bounce turns a
+// ball's velocity round without changing its size.
+law BallsStayInBounds(n uint64, points []int, frames []int) {
+	let mut f = New(seed.Of(n))
+	for p in points {
+		let c = ((p % 240000) + 240000) % 240000
+		f = Drop(f, float64(c%600), float64(c/600))
+	}
+	for ms in frames {
+		let before = f.Balls
+		f = Advance(f, float64(((ms%200)+200)%200))
+		for i, b in f.Balls {
+			let was = before[i]
+			if !inBounds(b) || abs(b.VX) != abs(was.VX) || abs(b.VY) != abs(was.VY) || b.ID != was.ID {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// DropsDrawFromTheStream: a ball is dropped where the canvas is pressed,
+// with a size and speed in their ranges and a palette colour; the next
+// drop draws the next numbers, and another seed draws others.
+law DropsDrawFromTheStream(n uint64, x int, y int) {
+	let at = float64(((x % 600) + 600) % 600)
+	let f = Drop(Drop(New(seed.Of(n)), at, 5.0), at, 5.0)
+	let other = Drop(New(seed.Of(n+1)), at, 5.0)
+	let a = f.Balls[0]
+	let b = f.Balls[1]
+	let speed = a.VX*a.VX + a.VY*a.VY
+	a.X == at && a.Y == 5.0 && a.Radius >= radiusMin && a.Radius < radiusMax && speed >= speedMin*speedMin*0.999 && speed <= speedMax*speedMax*1.001 && a.ID == 0 && b.ID == 1 && f.NextID == 2 && a.VX != b.VX && a.VX != other.Balls[0].VX
+}

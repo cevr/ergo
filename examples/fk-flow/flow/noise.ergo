@@ -1,0 +1,63 @@
+// 2D Perlin noise and its fractal sum, as upstream's noise.ts. The
+// gradient hash wraps in 32 bits: upstream multiplies in doubles and
+// truncates, which loses low bits for large products, so the two fields
+// differ in their detail but not in kind.
+
+extern go math.Cos func cos(x float64) float64
+extern go math.Sin func sin(x float64) float64
+extern go math.Atan2 func atan2(y float64, x float64) float64
+extern go math.Hypot func hypot(x float64, y float64) float64
+extern go math.Floor func floor(x float64) float64
+
+let twoPi = 6.283185307179586
+
+func fade(t float64) float64 { t * t * t * (t*(t*6.0-15.0) + 10.0) }
+
+func lerp(a float64, b float64, t float64) float64 { a + (b-a)*t }
+
+func gradientAngle(ix int, iy int) float64 {
+	let seeded = uint32(int64(ix)*374761393 + int64(iy)*668265263)
+	let mixed = (seeded ^ (seeded >> 13)) * 1274126177
+	let avalanched = mixed ^ (mixed >> 16)
+	float64(avalanched) / 4294967296.0 * twoPi
+}
+
+func dotGradient(ix int, iy int, dx float64, dy float64) float64 {
+	let a = gradientAngle(ix, iy)
+	cos(a)*dx + sin(a)*dy
+}
+
+// Perlin is the noise at (x, y): smooth, in about [-0.71, 0.71], the same
+// for the same point.
+func Perlin(x float64, y float64) float64 {
+	let fx0 = floor(x)
+	let fy0 = floor(y)
+	let x0 = int(fx0)
+	let y0 = int(fy0)
+	let fx = x - fx0
+	let fy = y - fy0
+	let u = fade(fx)
+	let v = fade(fy)
+	let n00 = dotGradient(x0, y0, fx, fy)
+	let n10 = dotGradient(x0+1, y0, fx-1.0, fy)
+	let n01 = dotGradient(x0, y0+1, fx, fy-1.0)
+	let n11 = dotGradient(x0+1, y0+1, fx-1.0, fy-1.0)
+	lerp(lerp(n00, n10, u), lerp(n01, n11, u), v)
+}
+
+// Fractal is octaves of Perlin summed, each at lacunarity times the
+// frequency and persistence times the weight of the one before,
+// normalised by the weights.
+func Fractal(x float64, y float64, octaves int, persistence float64, lacunarity float64) float64 {
+	let mut total = 0.0
+	let mut weight = 0.0
+	let mut amplitude = 1.0
+	let mut frequency = 1.0
+	for _ in 0..octaves {
+		total = total + Perlin(x*frequency, y*frequency)*amplitude
+		weight = weight + amplitude
+		amplitude = amplitude * persistence
+		frequency = frequency * lacunarity
+	}
+	total / weight
+}

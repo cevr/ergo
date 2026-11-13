@@ -1,0 +1,12 @@
+# fk-flow: the upstream tests of canvas-art at d21db423 (conformance/upstream/foldkit-d21db423/examples/canvas-art) and what restates each, in tests.txt's form.
+# The layout check reads tests.txt against source's one folder only, so it does not read this file (README.md, "Two originals").
+src/story.test.ts: ClickedCanvas fires GenerateBall with the click coordinates -> `balls` law `DropsDrawFromTheStream`; case `tour` (press 300 200)
+src/story.test.ts: CompletedGenerateBall increments nextId for each ball added -> `balls` law `DropsDrawFromTheStream`; case `tour` (ball 3 after a clear)
+src/story.test.ts: advances ball positions based on velocity and delta time -> case `tour` (frame 16 x10)
+src/story.test.ts: bounces a ball off the canvas edges, flipping its velocity -> `balls` law `BallsStayInBounds`; case `tour` (ball 1 off the left edge)
+src/story.test.ts: ClickedClear empties the balls list -> case `tour` (clear over the balls)
+src/story.test.ts: ClickedTogglePlay flips the isRunning flag -> `scene` law `PausedTickIsIdentity`; case `tour` (toggle over the balls)
+src/scene.test.ts: initial view shows the heading, prompt, and Pause + Clear controls -> not restated: stage a has no view (FK12b, after H4, H4r, H5a and H5c)
+src/scene.test.ts: Pause toggles to Play when the simulation is stopped -> not restated: stage a has no view (FK12b); case `tour` shows running and paused
+src/scene.test.ts: the ball count reflects spawned balls in the Model -> not restated: stage a has no view (FK12b); case `tour` shows the count's line
+src/scene.test.ts: Clear empties the rendered ball count -> not restated: stage a has no view (FK12b); case `tour` (clear over the balls)
