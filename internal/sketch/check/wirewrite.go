@@ -60,7 +60,7 @@ func wireWriteShape(n *Named, f *Func, sig *Signature) (WireWrite, string) {
 		return WireWrite{}, "it takes the value and the writer's provider, func WireWrite(x X, w *P), and gives nothing"
 	}
 	if !sig.Errors.Empty() || !sig.Uses.Empty() {
-		return WireWrite{}, "an encode fails nothing and needs nothing, so it has no fails or needs row"
+		return WireWrite{}, "an encode fails nothing and uses no capability, so it has no fails or needs row"
 	}
 	ptr, ok := sig.Params[1].Type.(*Pointer)
 	var prov *Named

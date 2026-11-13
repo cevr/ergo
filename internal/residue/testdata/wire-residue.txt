@@ -428,3 +428,8 @@ internal/sketch/std/config/reader.ergo	*
 internal/sketch/std/config/redacted.ergo	*
 internal/sketch/std/toml/toml.ergo	func Encode[T wire](v T) string fails Unrepresentable {
 runtime/v1/config_names.go	*
+internal/sketch/check/wirewrite.go	*
+internal/sketch/lower/wirewrite.go	*
+modules/xml/attribute.ergo	*
+docs/spec/types.md	by its name and shape, as `Wire` is, so only
+internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/lower/wire.go","from":"\t\t\tcall += \", nil\"
