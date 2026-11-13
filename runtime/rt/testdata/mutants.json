@@ -186,6 +186,28 @@
       "killers": [
         "runtime/v1:TestHTTPHandlerRunsOnTheConnection"
       ]
+    },
+    {
+      "name": "gx5-exit-builds-cause",
+      "origin": "wf10 GX5",
+      "file": "runtime/rt/run.go",
+      "from": "\tif p == nil && (err == nil || err == Interrupted) {\n",
+      "to": "\tif false {\n",
+      "rule": "runtime.md, task exits (GX5): a stopped task's exit of nothing or of the interruption alone builds no Cause.",
+      "killers": [
+        "runtime/rt:TestQuietExitsAllocateNothing"
+      ]
+    },
+    {
+      "name": "gx5-live-timer-fresh",
+      "origin": "wf10 GX5",
+      "file": "runtime/rt/clock.go",
+      "from": "\tif _, ok := s.(Live); ok {\n\t\treturn sleepLive(t, d)\n\t}\n",
+      "to": "",
+      "rule": "rt Sleep (GX5): a live sleep reuses the host timer of an ended one.",
+      "killers": [
+        "runtime/rt:TestQuietExitsAllocateNothing"
+      ]
     }
   ]
 }
