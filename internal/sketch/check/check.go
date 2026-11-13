@@ -231,9 +231,10 @@ type checker struct {
 	cellTypes map[*Named]bool
 	cellHolds map[int32]*Named
 	cellSites []cellSite
-	// encodeLend is set while encode's writer operand is converted to
-	// the Writer: encode keeps no writer, so a value that holds a cell
-	// may cross to the Writer there (types.md, Interface assignability 6).
+	// encodeLend is set while encode's writer operand, or decode's reader
+	// operand, is converted to the Writer or the Reader: neither keeps
+	// it, so a value that holds a cell may cross to it there (types.md,
+	// Interface assignability 6).
 	encodeLend bool
 	// typeNamedFuncs are the functions that share a type's name: members
 	// of their first parameter's type once it is known (Methods 3).

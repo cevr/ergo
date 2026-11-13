@@ -35,6 +35,51 @@ func Total(b Box) int { b.n }
 func seal(b Box) {}
 `
 
+// cellReader seals Src, the prelude Reader's operations and seal, and
+// provides it through src, whose reads move its place on *src.
+const cellReader = `type Src {
+	TakeNull() bool,
+	Peek() WireKind,
+	Number() string fails WireWrongKind,
+	Path() string,
+	Bool() bool fails WireWrongKind,
+	Int() int64 fails WireWrongKind,
+	Uint() uint64 fails WireWrongKind,
+	Float() float64 fails WireWrongKind,
+	String() string fails WireWrongKind,
+	BeginList() fails WireWrongKind,
+	BeginObject() fails WireWrongKind,
+	Tag() string fails WireMissingField,
+	More() bool,
+	Key() string,
+	Skip(),
+	End(),
+	seal(),
+}
+
+type src { at int }
+
+func TakeNull(s src) bool { false }
+func Peek(s src) WireKind { WireNumber }
+func Number(s *src) string fails WireWrongKind { s.at = s.at + 1
+ "1" }
+func Path(s src) string { "/" }
+func Bool(s *src) bool fails WireWrongKind { WireWrongKind{Path: "/", Want: "bool"} }
+func Int(s *src) int64 fails WireWrongKind { s.at = s.at + 1
+ int64(s.at) }
+func Uint(s *src) uint64 fails WireWrongKind { 1 }
+func Float(s *src) float64 fails WireWrongKind { 1.0 }
+func String(s *src) string fails WireWrongKind { "" }
+func BeginList(s *src) fails WireWrongKind {}
+func BeginObject(s *src) fails WireWrongKind {}
+func Tag(s *src) string fails WireMissingField { "" }
+func More(s *src) bool { false }
+func Key(s src) string { "" }
+func Skip(s *src) {}
+func End(s *src) {}
+func seal(s src) {}
+`
+
 // cellLibImporter serves package lib and the standard library.
 type cellLibImporter struct{ lib *check.Package }
 
@@ -89,6 +134,10 @@ func TestProviderCellDiagnostics(t *testing.T) {
 		{name: "foreign site", lib: true, src: "import lib\nfunc main() { let c lib.Bag = lib.NewBox()\n let _ = c }\n", line: 2, want: "a cell of lib.Bag is made only in package lib, which seals it"},
 		{name: "context provider", src: cellLib + "let W = context { Bag: NewBox() }\nfunc main() { }\n", line: 18, want: "the provider of a with is shared by the tasks of its block"},
 		{name: "hidden in another operation type", src: cellLib + "func main() { let c Bag = NewBox()\n let o Open = c\n let _ = o }\n", line: 19, want: "Bag holds the provider cell Bag, and Open is no cell type"},
+		// decode keeps no reader, so a reader cell is lent to it as its
+		// Reader, as encode borrows a writer cell (mutant
+		// dread-decode-not-lent).
+		{name: "lent to decode", src: cellReader + "func main() { let r Src = src{at: 0}\n let n = decode[int](r) catch { case _: 0 }\n let _ = n }\n"},
 		{name: "package let", src: cellLib + "let shared Bag = NewBox()\nfunc main() { }\n", line: 18, want: "the package let shared holds the provider cell Bag"},
 		{name: "resource into no Close", src: resource(false) + "func main() { let c Bag = Kept{r: Res{id: 1}, n: 0}\n let _ = c }\n", line: 12, want: "Kept is a resource and Bag has no Close"},
 		{name: "use after move", src: resource(true) + "func main() { let k = Kept{r: Res{id: 1}, n: 0}\n let c Bag = k\n let n = k.n\n let _ = n\n c.Add(1) }\n", line: 14, want: "k was handed off"},
