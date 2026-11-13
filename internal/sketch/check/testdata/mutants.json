@@ -421,7 +421,6 @@
       "rule": "capInsert: capInsert returns n with (k, t) added, provided by e, and whether it was added; when over is set, an element already there whose entry is not e is copied with e (changed).",
       "killers": [
         "check:TestCapSetPut",
-        "examples:checkout",
         "lower:TestCheckIsCanonical"
       ]
     },
