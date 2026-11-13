@@ -515,8 +515,24 @@ func (p *parser) parseTypeDecl(doc *CommentGroup) *TypeDecl {
 			p.parseRefinement(d, start)
 		}
 	}
+	if p.atImplements() {
+		// `implements A, B` after the body (types.md, Interface
+		// assignability 1).
+		d.ImplementsPos = p.tok.pos
+		p.next()
+		for {
+			d.Implements = append(d.Implements, p.parseTypeName("implements"))
+			if !p.got(COMMA) {
+				break
+			}
+		}
+	}
 	return d
 }
+
+// atImplements reports the contextual word `implements`, which is no
+// keyword: a name `implements` stays a name everywhere else.
+func (p *parser) atImplements() bool { return p.tok.tok == IDENT && p.tok.lit == "implements" }
 
 // isAny reports the constraint name any.
 func isAny(x Expr) bool {
@@ -620,8 +636,9 @@ func (p *parser) parseMembers() *members {
 			m.fields = append(m.fields, f)
 		case p.tok.tok == DOTDOT:
 			// `..R` includes the fields of the record R (types.md,
-			// Structs 7).
-			kind = memberField
+			// Structs 7), or the operations of the operation type R
+			// (Interface assignability 1): the other members decide.
+			kind = -1
 			f := &Field{Doc: doc, Include: true, Dots: p.tok.pos}
 			p.next()
 			f.Type = p.parseType(ctxMember)
@@ -757,7 +774,13 @@ func (p *parser) groupsName(t Token) bool {
 func (p *parser) parseMembersType() Expr {
 	m := p.parseMembers()
 	if len(m.ops) > 0 || len(m.laws) > 0 {
-		return &InterfaceType{Lbrace: m.lbrace, Methods: m.ops, Laws: m.laws, Rbrace: m.rbrace}
+		var includes []*Field
+		for _, f := range m.fields {
+			if f.Include {
+				includes = append(includes, f)
+			}
+		}
+		return &InterfaceType{Lbrace: m.lbrace, Includes: includes, Methods: m.ops, Laws: m.laws, Rbrace: m.rbrace}
 	}
 	return &StructType{Fields: &FieldList{Opening: m.lbrace, List: m.fields, Closing: m.rbrace}}
 }

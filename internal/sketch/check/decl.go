@@ -88,12 +88,14 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.checkLaws,
 		c.planLaws,
 		c.checkTypeDecls,
+		c.checkImplementsClauses,
 		c.checkContexts,
 		c.checkContextCycles,
 		c.checkErrorMethods,
 		c.checkUnusedImports,
 		c.finishInfo,
 		c.closeFacts,
+		c.recordLegacyReleases,
 		// After closeFacts: every Close and failure row is final.
 		c.checkResourceTypes,
 		// After the resource types: what each with builds (withown.go),
@@ -891,6 +893,7 @@ func (c *checker) resolveNamed(n *Named) {
 		n.under = c.definedType(n, spec, ctx)
 	}
 	n.state = 2
+	c.implementsClause(n, d, ctx)
 }
 
 // bracketKinds returns the solved kind of each unconstrained bracket
@@ -976,6 +979,7 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner string) *Interface {
 	it := &Interface{}
 	seen := map[string]bool{}
+	c.interfaceIncludes(spec, ctx, it, seen)
 	for _, m := range spec.Methods {
 		ft, ok := m.Type.(*syntax.FuncType)
 		if !ok || len(m.Names) == 0 {

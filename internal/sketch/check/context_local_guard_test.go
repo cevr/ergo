@@ -97,6 +97,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"ProvidesClause.Names": {guardType, "func main() {\n\t$W\n\t_ = with context provides @w { Greeter: Plain } { Greeter.Greet(\"x\") }\n}\n"},
 	"StarExpr.X":           {guardType, "func f(p *@w) {}\n"},
 	"TypeDecl.Spec":        {guardType, "type T = @w\n"},
+	"TypeDecl.Implements":  {guardType, "type T {} implements @w\n"},
 	// A where reads only its subject and literals (refine.go): a context
 	// there is its one S108, as a name in a type position is.
 	"TypeDecl.Where": {guardType, "type T int where @w > 0\n"},

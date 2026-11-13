@@ -157,6 +157,11 @@ type TypeDecl struct {
 	// type's parse function and law from it (refine.go).
 	WherePos Pos
 	Where    Expr
+	// ImplementsPos and Implements are the clause `implements A, B` after
+	// the type's body (types.md, Interface assignability 1): the operation
+	// types the type declares it implements, or NoPos and nil.
+	ImplementsPos Pos
+	Implements    []Expr
 }
 
 // FuncDecl is a function, or with Extern set and Body nil, the Go binding
@@ -237,6 +242,9 @@ func (d *TypeDecl) Pos() Pos {
 	return d.Type
 }
 func (d *TypeDecl) End() Pos {
+	if len(d.Implements) > 0 {
+		return d.Implements[len(d.Implements)-1].End()
+	}
 	if d.Where != nil {
 		return d.Where.End()
 	}
@@ -614,11 +622,15 @@ type (
 	// (Methods and Laws, braces set) or a union `type T = A | B{…}` (Union,
 	// each a type name or a *VariantSpec; Lbrace and Rbrace NoPos).
 	InterfaceType struct {
-		Lbrace  Pos
-		Methods []*Field
-		Laws    []*LawDecl
-		Union   []Expr
-		Rbrace  Pos
+		Lbrace Pos
+		// Includes are the members `..I` that include the operations of
+		// the operation type I (types.md, Interface assignability 1):
+		// each a Field with Include set.
+		Includes []*Field
+		Methods  []*Field
+		Laws     []*LawDecl
+		Union    []Expr
+		Rbrace   Pos
 	}
 
 	// ErrorRow is the failure row `fails A | B` of a signature: Error is the

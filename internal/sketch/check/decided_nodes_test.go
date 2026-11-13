@@ -197,6 +197,15 @@ type Log { Write(s string) }
 func f() needs Log { Log.Write("x") }
 func main() {}
 `, nil},
+	{"operation type", "a type declares the operation types it implements, and an operation type includes another", `
+type Named { Name() string }
+type Tagged { ..Named, Tag() int }
+type P { n string } implements Tagged
+func Name(p P) string { p.n }
+func Tag(p P) int { 1 }
+func f() Named { P{n: "x"} }
+func main() {}
+`, nil},
 	{"law", "a law in an operation type", `
 type Monoid {
 	Combine(a int, b int) int,

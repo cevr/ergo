@@ -2,6 +2,7 @@
 // ergo:bind database/sql/driver go1.27 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
 import go gocontext context
+import go io
 import go reflect
 
 // ergo:go var Bool boolType
@@ -13,7 +14,7 @@ import go reflect
 // ergo:go type Conn interface
 extern go database/sql/driver.Conn type Conn {
 	Begin() Tx fails go.Error needs go.Foreign takes,
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	Prepare(query string) Stmt fails go.Error needs go.Foreign takes,
 }
 
@@ -131,7 +132,7 @@ extern go database/sql/driver.Result type Result {
 
 // ergo:go type Rows interface
 extern go database/sql/driver.Rows type Rows {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	Columns() []string needs go.Foreign takes,
 }
 
@@ -149,7 +150,7 @@ extern go database/sql/driver.RowsAffected.RowsAffected func (v RowsAffected) Ro
 
 // ergo:go type RowsColumnScanner interface
 extern go database/sql/driver.RowsColumnScanner type RowsColumnScanner {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	Columns() []string needs go.Foreign takes,
 	NextRow() fails go.Error needs go.Foreign takes,
 }
@@ -162,7 +163,7 @@ extern go database/sql/driver.RowsColumnScanner type RowsColumnScanner {
 
 // ergo:go type RowsColumnTypeDatabaseTypeName interface
 extern go database/sql/driver.RowsColumnTypeDatabaseTypeName type RowsColumnTypeDatabaseTypeName {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	ColumnTypeDatabaseTypeName(index int) string needs go.Foreign takes,
 	Columns() []string needs go.Foreign takes,
 }
@@ -172,7 +173,7 @@ extern go database/sql/driver.RowsColumnTypeDatabaseTypeName type RowsColumnType
 
 // ergo:go type RowsColumnTypeLength interface
 extern go database/sql/driver.RowsColumnTypeLength type RowsColumnTypeLength {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	ColumnTypeLength(index int) (int64, bool) needs go.Foreign takes,
 	Columns() []string needs go.Foreign takes,
 }
@@ -182,7 +183,7 @@ extern go database/sql/driver.RowsColumnTypeLength type RowsColumnTypeLength {
 
 // ergo:go type RowsColumnTypeNullable interface
 extern go database/sql/driver.RowsColumnTypeNullable type RowsColumnTypeNullable {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	ColumnTypeNullable(index int) (bool, bool) needs go.Foreign takes,
 	Columns() []string needs go.Foreign takes,
 }
@@ -192,7 +193,7 @@ extern go database/sql/driver.RowsColumnTypeNullable type RowsColumnTypeNullable
 
 // ergo:go type RowsColumnTypePrecisionScale interface
 extern go database/sql/driver.RowsColumnTypePrecisionScale type RowsColumnTypePrecisionScale {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	ColumnTypePrecisionScale(index int) (int64, int64, bool) needs go.Foreign takes,
 	Columns() []string needs go.Foreign takes,
 }
@@ -202,7 +203,7 @@ extern go database/sql/driver.RowsColumnTypePrecisionScale type RowsColumnTypePr
 
 // ergo:go type RowsColumnTypeScanType interface
 extern go database/sql/driver.RowsColumnTypeScanType type RowsColumnTypeScanType {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	ColumnTypeScanType(index int) reflect.Type needs go.Foreign takes,
 	Columns() []string needs go.Foreign takes,
 }
@@ -212,7 +213,7 @@ extern go database/sql/driver.RowsColumnTypeScanType type RowsColumnTypeScanType
 
 // ergo:go type RowsNextResultSet interface
 extern go database/sql/driver.RowsNextResultSet type RowsNextResultSet {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	Columns() []string needs go.Foreign takes,
 	HasNextResultSet() bool needs go.Foreign takes,
 	NextResultSet() fails go.Error needs go.Foreign takes,
@@ -231,7 +232,7 @@ extern go database/sql/driver.SessionResetter type SessionResetter {
 
 // ergo:go type Stmt interface
 extern go database/sql/driver.Stmt type Stmt {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	NumInput() int needs go.Foreign takes,
 }
 

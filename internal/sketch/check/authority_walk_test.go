@@ -44,6 +44,8 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"ctx":          {why: "the checker that substitutes an instance's body"},
 		"alias":        {why: "an alias's target: every use resolves to it, so no walked type holds an alias's Named"},
 		"aliasShallow": {why: "resolution state of an alias"},
+		"impls":        {why: "the implements clause: operation types the type declares, which hold no part of its values"},
+		"implExprs":    {why: "the clause's syntax, for diagnostics"},
 	},
 	"Struct": {
 		"Fields":    {sel: "Fields"},
@@ -60,11 +62,12 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"origin":  {why: "the declaring field: this field's Type is its type here, and the walk reads it"},
 	},
 	"Interface": {
-		"Methods": {sel: "Methods"},
-		"obj":     {sel: "obj"},
-		"index":   {why: "a cache of Methods"},
-		"byName":  {why: "Methods sorted"},
-		"Set":     {why: "a predeclared constraint's type set: basic types only"},
+		"Methods":  {sel: "Methods"},
+		"obj":      {sel: "obj"},
+		"index":    {why: "a cache of Methods"},
+		"byName":   {why: "Methods sorted"},
+		"Set":      {why: "a predeclared constraint's type set: basic types only"},
+		"includes": {why: "the ..I members: their operations are in Methods, which the walk reads"},
 	},
 	"Method": {
 		"Sig":  {sel: "Sig"},

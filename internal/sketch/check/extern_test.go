@@ -518,6 +518,16 @@ func main() {
 	use(Mine)
 }
 `,
+	"prelude.Closer": `type Mine {} implements Closer
+
+func Close(_ Mine) {}
+
+func use(c Closer) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Task": `type Fault {}
 type Mine {}
 
@@ -954,6 +964,7 @@ var unexportedStd = map[string]string{
 // result names them (check.SealedStd; stdlib.md, Types 3). Every other
 // std operation type is sealed.
 var openStd = map[string]bool{
+	"prelude.Closer":    true,
 	"prelude.Console":   true,
 	"prelude.Scheduler": true,
 	"time.Clock":        true,

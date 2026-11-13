@@ -158,7 +158,7 @@ extern go debug/macho.DysymtabCmd type DysymtabCmd {
 extern go debug/macho.FatArch type FatArch {
 	FatArchHeader FatArchHeader,
 	File          Option[go.Ref[File]],
-}
+} implements Closer
 
 // ergo:go func (*File).Close() error
 extern go debug/macho.FatArch.Close func (f FatArch) Close() fails go.Error needs go.Foreign takes f
@@ -191,7 +191,7 @@ extern go debug/macho.FatArchHeader type FatArchHeader {
 extern go debug/macho.FatFile type FatFile {
 	Magic  uint32,
 	Arches []FatArch,
-}
+} implements Closer
 
 // ergo:go func (*FatFile).Close() error
 extern go debug/macho.FatFile.Close func (ff *FatFile) Close() fails go.Error needs go.Foreign takes ff
@@ -203,7 +203,7 @@ extern go debug/macho.File type File {
 	Loads      []Load,
 	Symtab     Option[go.Ref[Symtab]],
 	Dysymtab   Option[go.Ref[Dysymtab]],
-}
+} implements Closer
 
 // ergo:go Sections []*macho.Section
 // ergo:refused File.Sections: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field

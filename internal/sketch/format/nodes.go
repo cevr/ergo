@@ -1,6 +1,8 @@
 package format
 
 import (
+	"sort"
+
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -47,19 +49,27 @@ func (p *printer) decl(d syntax.Decl) {
 			p.fieldList(d.TypeParams, "[", "]")
 		}
 		p.space()
-		switch t := d.Spec.(type) {
-		case *syntax.InterfaceType:
-			if t.Union != nil {
-				p.union(t)
-				return
-			}
+		if t, ok := d.Spec.(*syntax.InterfaceType); ok && t.Union != nil {
+			p.union(t)
+		} else {
+			p.expr(d.Spec)
 		}
-		p.expr(d.Spec)
 		if d.Where != nil {
 			p.space()
 			p.token(d.WherePos, "where")
 			p.space()
 			p.expr(d.Where)
+		}
+		if len(d.Implements) > 0 {
+			p.space()
+			p.token(d.ImplementsPos, "implements")
+			for i, x := range d.Implements {
+				if i > 0 {
+					p.synth(",")
+				}
+				p.space()
+				p.typ(x)
+			}
 		}
 	case *syntax.FuncDecl:
 		p.externSpec(d.Extern)
@@ -442,21 +452,20 @@ func (p *printer) structType(t *syntax.StructType) {
 // source order.
 func (p *printer) operationType(t *syntax.InterfaceType) {
 	var list []member
-	i, j := 0, 0
-	for i < len(t.Methods) || j < len(t.Laws) {
-		if j == len(t.Laws) || i < len(t.Methods) && t.Methods[i].Pos() < t.Laws[j].Pos() {
-			m := t.Methods[i]
-			list = append(list, member{m, func(bool) {
-				p.ident(m.Names[0])
-				p.signature(m.Type.(*syntax.FuncType))
-			}})
-			i++
-			continue
-		}
-		l := t.Laws[j]
-		list = append(list, member{l, func(bool) { p.memberLaw(l) }})
-		j++
+	for _, f := range t.Includes {
+		list = append(list, p.fieldMember(f))
 	}
+	for _, m := range t.Methods {
+		list = append(list, member{m, func(bool) {
+			p.ident(m.Names[0])
+			p.signature(m.Type.(*syntax.FuncType))
+		}})
+	}
+	for _, l := range t.Laws {
+		list = append(list, member{l, func(bool) { p.memberLaw(l) }})
+	}
+	// Source order: includes, operations and laws may interleave.
+	sort.SliceStable(list, func(i, j int) bool { return list[i].node.Pos() < list[j].node.Pos() })
 	p.members(t.Lbrace, t.Rbrace, list, false)
 }
 

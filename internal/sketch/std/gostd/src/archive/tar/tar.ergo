@@ -137,7 +137,7 @@ extern go archive/tar.TypeXGlobalHeader let TypeXGlobalHeader rune
 extern go archive/tar.TypeXHeader let TypeXHeader rune
 
 // ergo:go type Writer struct
-extern go archive/tar.Writer type Writer {}
+extern go archive/tar.Writer type Writer {} implements Closer
 
 // ergo:go func (*Writer).AddFS(fsys fs.FS) error
 extern go archive/tar.Writer.AddFS func (tw *Writer) AddFS(fsys fs.FS) fails go.Error needs go.Foreign takes tw, fsys

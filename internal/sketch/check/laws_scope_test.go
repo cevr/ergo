@@ -127,7 +127,7 @@ var lawNoBinder = map[string]string{
 	"InterfaceType.Union": lawType, "MapType.Key": lawType, "MapType.Value": lawType, "NeedsClause.Names": lawType,
 	"ProvidesClause.Names": lawType, "MachineType.Signal": lawType, "MachineType.State": lawType, "LawReach.Targets": lawType,
 	"TypeDecl.Where": lawWhere, "Field.Where": lawWhere,
-	"TypeDecl.Spec": lawType, "VarSpec.Type": lawType, "ContextEntry.Key": lawType, "ContextEntry.Keys": lawType,
+	"TypeDecl.Spec": lawType, "TypeDecl.Implements": lawType, "VarSpec.Type": lawType, "ContextEntry.Key": lawType, "ContextEntry.Keys": lawType,
 	"ContextDecl.Name": lawPackage, "FuncDecl.Name": lawPackage, "ImportSpec.Name": lawPackage,
 	"TypeDecl.Name": lawPackage, "TestDecl.Name": lawPackage, "VariantSpec.Name": lawPackage,
 	"MachineEntry.Value": lawPackage, "MachineType.Initial": lawPackage, "MachineType.Step": lawPackage, "MachineType.After": lawPackage, "MachineType.Work": lawPackage, "LawReach.Pred": lawPackage,

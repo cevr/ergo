@@ -74,6 +74,11 @@ type Named struct {
 	// holds this Named (resolvedType, aliasOf).
 	alias        Type
 	aliasShallow bool // the alias's target is being read shallowly (aliasOf)
+	// impls, on an origin only, are the operation types its implements
+	// clause names, at its own type parameters; implExprs are their
+	// expressions (implements.go).
+	impls     []*Named
+	implExprs []syntax.Expr
 }
 
 // Alias returns the type a declaration `type A = B` names when its one
@@ -138,6 +143,9 @@ type Interface struct {
 	// origin's), so its package owns the unexported operations; nil for a
 	// predeclared constraint and the context protocol (authority.go).
 	obj *TypeName
+	// includes are the operation types its members `..I` include, at
+	// this instance's type arguments (implements.go).
+	includes []*Named
 }
 
 // TypeSet is the type set of a predeclared constraint (types.md, Generics

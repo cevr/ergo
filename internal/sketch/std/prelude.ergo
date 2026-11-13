@@ -297,6 +297,17 @@ type InputMachine[I, S, E, O, F, R, W] {
 	Work func(s S) Option[func(send func(e E)) needs W],
 }
 
+// Closer is the release contract (resources R1): a type that implements
+// it is a resource, and its owner's scope calls Close where the value
+// dies, on every exit. Close takes the value it is called on (R19). It is
+// an ordinary operation type: a type declares it with `implements
+// Closer`, and an operation type includes it with `..Closer` (types.md,
+// Interface assignability 1).
+// law-exempt: Close takes the value and returns nothing, so no law can call an operation after it or observe it; the release rules are the checker's (resources R1 to R24).
+type Closer {
+	Close() takes,
+}
+
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
 type Task[T, E] {

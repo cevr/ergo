@@ -567,6 +567,7 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	if !a.ok() || a.conv.Kind != ConvOperations {
 		return LawProvider{}, false
 	}
+	c.recordLegacy(p, slot, "law")
 	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor

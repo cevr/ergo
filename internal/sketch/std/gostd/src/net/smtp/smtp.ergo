@@ -18,7 +18,7 @@ extern go net/smtp.CRAMMD5Auth func CRAMMD5Auth(username string, secret string) 
 // ergo:go type Client struct
 extern go net/smtp.Client type Client {
 	Text Option[go.Ref[textproto.Conn]],
-}
+} implements Closer
 
 // ergo:go func (*Client).Auth(a Auth) error
 extern go net/smtp.Client.Auth func (c *Client) Auth(a Auth) fails go.Error needs go.Foreign takes c, a
