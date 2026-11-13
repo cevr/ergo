@@ -117,7 +117,12 @@ func TestBindMappingProperty(t *testing.T) {
 // checker reads their rows in place of the deleted v1.PureErrorFuncs (G4's
 // error rule, IG2). Mutant: any edit of a
 // generated binding, or a mapping change not regenerated.
+//
+// It builds Go: go list -export compiles the whole standard library for
+// both platforms (1310 compiles, 277 CPU-s from an empty Go cache), so it
+// runs in the full tier only (needsBuild; gate-speed GS5).
 func TestGoStdBindingsMatchToolchain(t *testing.T) {
+	needsBuild(t)
 	v, err := gobind.GoVersion(os.Environ())
 	if err != nil {
 		t.Fatal(err)
@@ -146,6 +151,17 @@ func TestGoStdBindingsMatchToolchain(t *testing.T) {
 		if got, _ := gostd.Binding(p); got != files[p] {
 			t.Errorf("the embedded binding of %s differs from the toolchain's; run go generate ./internal/sketch/std/gostd", p)
 		}
+	}
+}
+
+// needsBuild marks a test that builds Go beyond its own small packages:
+// the fast tier (-short) skips it, and the full tier runs it (test-speed
+// plan T3; docs/decisions.md, Q1 of 2026-11-08). Call it first in the test.
+// internal/residue's TestGobindStdBuildIsFullTier holds the std test to it.
+func needsBuild(t testing.TB) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("full tier: builds Go")
 	}
 }
 
