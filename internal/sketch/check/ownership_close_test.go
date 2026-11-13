@@ -121,18 +121,22 @@ func TestArrayOwnership(t *testing.T) {
 // TestNoReleaseRefused is the text and position row of the refusal of an
 // owned value whose type keeps resources and has no release (#197 L8 B2,
 // B3): a user operation type whose operation takes a resource and that has
-// no Close() (resources R1, R13). The std queue has its drain; this one
-// has nothing that could release what it keeps.
+// no Close() (resources R1, R13). The std queue includes the prelude's
+// Keeps; this one does not, so a drain of Keeps' shape is an ordinary
+// operation and nothing could release what it keeps (STD-NOPRIV NP3c).
 //
-// Mutant it catches that nothing else does: such a value admitted (its
-// resources leak silently).
+// Mutants it catches that nothing else does: such a value admitted (its
+// resources leak silently), and keeps-read-by-name (a drain operation
+// counts without the Keeps include).
 func TestNoReleaseRefused(t *testing.T) {
 	base := strings.Count(ofPrelude, "\n")
-	src := ofPrelude + `type Keeper[T] { Put(v T) takes v }
+	src := ofPrelude + `type Keeper[T] { Put(v T) takes v, drain() []T takes }
 
 type Mem { n int } implements Keeper[Res]
 
 func Put(m Mem, v Res) takes v { Close(v) }
+
+func drain(m Mem) []Res { []Res{} }
 
 func main() {
 	let b Keeper[Res] = Mem{n: 1}
@@ -141,7 +145,7 @@ func main() {
 `
 	_, diags := checkFor(src)
 	want := "Keeper[Res] has no release: it holds Keeper[Res], an operation type that keeps the values it takes and has no Close() operation"
-	if len(diags) != 1 || diags[0].Code != CodeType || diags[0].Line != base+8 || diags[0].Column != 6 || !strings.Contains(diags[0].Message, want) {
-		t.Errorf("got %+v, want one S108 at %d:6 containing %q", diags, base+8, want)
+	if len(diags) != 1 || diags[0].Code != CodeType || diags[0].Line != base+10 || diags[0].Column != 6 || !strings.Contains(diags[0].Message, want) {
+		t.Errorf("got %+v, want one S108 at %d:6 containing %q", diags, base+10, want)
 	}
 }

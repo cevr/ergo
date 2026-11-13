@@ -89,17 +89,16 @@ type dropWalk struct {
 }
 
 // drain is the release of the values an operation type t keeps (Q7, R13;
-// questions Q6 of STD-NOPRIV): the type declares the operation that gives
-// back what it keeps (DrainOp), and each value it gives is released. Any
-// package's operation type keeps values the same way: queue.Queue[T]'s
-// drain ends admission and gives the values left, a Task's gives the
-// result no Wait delivered. nil when t declares none.
+// questions Q6 of STD-NOPRIV): t includes the prelude's Keeps[E]
+// (keepsOf), and each value its drain gives is released. Any package's
+// operation type keeps values the same way: queue.Queue[T]'s drain ends
+// admission and gives the values left, a Task's gives the result no Wait
+// delivered. nil when t includes no Keeps.
 func (w *dropWalk) drain(t Type, it *Interface) *Drop {
-	m := drainMethod(it)
-	if m == nil {
+	_, elem := keepsOf(it, w.c.keeps())
+	if elem == nil {
 		return nil
 	}
-	elem := m.Sig.Results[0].(*Slice).Elem
 	if n, ok := t.(*Named); ok {
 		sub := map[*TypeParam]Type{}
 		for i, tp := range n.origin().TParams {
@@ -114,31 +113,56 @@ func (w *dropWalk) drain(t Type, it *Interface) *Drop {
 	return w.visit(elem)
 }
 
-// DrainOp is the operation of the operation type t that gives back the
-// values t keeps, or nil (STD-NOPRIV NP3c; resources R13): an operation
-// that takes the value itself (a bare takes), has no parameter and no
-// failure, and gives one slice. The value's generated release calls it
-// (after its Close, if it has one) and releases each value it gives, last
-// first. Its name is free; std's spell it drain, unexported, so only the
-// type's package calls it.
+// DrainOp is the drain of the prelude's Keeps that the operation type t
+// includes, or nil (STD-NOPRIV NP3c; resources R13): t keeps values, and
+// the value's generated release calls it (after its Close, if it has one)
+// and releases each value it gives, last first. The rule reads the
+// include, as a resource's reads its Closer (R1): no name or shape of t's
+// own operations counts.
 func DrainOp(t Type) *Method {
 	it := asInterface(t)
 	if it == nil {
 		return nil
 	}
-	return drainMethod(it)
+	m, _ := keepsOf(it, preludeType("Keeps"))
+	return m
 }
 
-func drainMethod(it *Interface) *Method {
-	for _, m := range it.Methods {
-		if m.Sig == nil || !m.Sig.TakesSelf || len(m.Sig.Params) != 0 || len(m.Sig.Results) != 1 || !m.Sig.Errors.Empty() || m.Sig.Fallible {
-			continue
-		}
-		if _, ok := m.Sig.Results[0].(*Slice); ok {
-			return m
-		}
+// keeps is the prelude's keeping contract, `type Keeps[T] { drain() []T
+// takes }` (resources R13).
+func (c *checker) keeps() *Named { return c.preludeContract("Keeps") }
+
+// keepsOf finds the instance of keeps that it includes, directly or
+// through an include, and gives its drain and its element type; nil, nil
+// when it includes none.
+func keepsOf(it *Interface, keeps *Named) (*Method, Type) {
+	if keeps == nil {
+		return nil, nil
 	}
-	return nil
+	seen := map[*Interface]bool{}
+	var find func(it *Interface) (*Method, Type)
+	find = func(it *Interface) (*Method, Type) {
+		if it == nil || seen[it] {
+			return nil, nil
+		}
+		seen[it] = true
+		for _, inc := range it.includes {
+			if inc.origin() == keeps.origin() && len(inc.TArgs) == 1 {
+				if ki := asInterface(inc); ki != nil {
+					for _, m := range ki.Methods {
+						if m.Name == "drain" {
+							return m, inc.TArgs[0]
+						}
+					}
+				}
+			}
+			if m, e := find(asInterface(inc)); m != nil {
+				return m, e
+			}
+		}
+		return nil, nil
+	}
+	return find(it)
 }
 
 // visit returns t's release, nil when t crosses.

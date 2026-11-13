@@ -822,17 +822,20 @@ func (w *ownWalk) valuesSeq(x syntax.Expr) (Type, bool) {
 }
 
 // keptSeq reports whether op, an operation of t with no parameter, gives
-// a sequence of the values t keeps (STD-NOPRIV NP3c; Q7): t declares the
-// operation that gives back what it keeps (DrainOp), and op's result is a
-// Seq of that drain's element type (queue.Queue[T]'s Values). Each value
-// such a sequence yields is one t gave back, so it is the iterating code's
-// own. It returns the element type as t's instance has it.
+// a sequence of the values t keeps (STD-NOPRIV NP3c; Q7): t includes the
+// prelude's Keeps[E] (keepsOf), and op's result is a Seq of E
+// (queue.Queue[T]'s Values). Each value such a sequence yields is one t
+// gave back, so it is the iterating code's own. It returns the element
+// type as t's instance has it.
 func (c *checker) keptSeq(t Type, op *Method) (Type, bool) {
-	drain := DrainOp(t)
-	if drain == nil || op == drain {
+	it := asInterface(t)
+	if it == nil {
 		return nil, false
 	}
-	kept := drain.Sig.Results[0].(*Slice).Elem
+	_, kept := keepsOf(it, c.keeps())
+	if kept == nil {
+		return nil, false
+	}
 	seq, ok := under(op.Sig.Results[0]).(*Signature)
 	if !ok || len(seq.Params) != 1 || len(seq.Results) != 0 {
 		return nil, false
@@ -2579,16 +2582,20 @@ func (w *ownWalk) withProviders(x *syntax.CallExpr) {
 	}
 }
 
-// holdsTaken reports a call of a bodiless std operation or function that
-// takes a value: the lowering keeps a taken local's entry on its frame
-// until the call returns (lower.holdTaken, Q7, D-C).
+// holdsTaken reports a call that takes a value and whose body is a Go
+// body of the runtime: an operation of a type whose declaration names its
+// runtime Go type (OpBodyOf; STD-NOPRIV NP4c), or an extern bound to a
+// runtime/v1 body (BodyOf). The Go body does not own an Ergo frame's
+// entry, so the lowering keeps a taken local's entry on its frame until
+// the call returns (lower.holdTaken, Q7, D-C). An operation with an Ergo
+// body owns what it takes itself. It reads declarations, never the
+// package's std mark.
 func (w *ownWalk) holdsTaken(call *Call) bool {
 	switch {
 	case call.Kind == CallOp && call.Op != nil && call.Op.Sig != nil && call.Recv != nil:
-		n, ok := w.info.Types[call.Recv].(*Named)
-		return ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.std && len(call.Op.Sig.Takes) > 0
-	case call.Kind == CallFunc && call.Func != nil && call.Func.Pkg != nil && call.Func.Pkg.std && call.Func.Decl != nil && call.Func.Decl.Extern != nil:
-		return len(call.Func.Sig.Takes) > 0
+		return len(call.Op.Sig.Takes) > 0 && OpBodyOf(w.info.Types[call.Recv], call.Op.Name).Runtime != ""
+	case call.Kind == CallFunc && call.Func != nil && call.Func.Sig != nil:
+		return len(call.Func.Sig.Takes) > 0 && BodyOf(call.Func).Runtime != ""
 	}
 	return false
 }

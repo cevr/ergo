@@ -97,7 +97,7 @@ type Text {
 // bracket: one flag is the whole state, since a key ends every object
 // member's comma question and a value every list element's); html, whether
 // strings escape <, > and &; and out, the bytes written.
-type text { comma bool, html bool, out []byte }
+type text { comma bool, html bool, out []byte } implements Text
 
 // appendString appends the bytes of s to out (Go's append at its string
 // shape, interop.md, Lowering 9).

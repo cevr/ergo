@@ -508,9 +508,11 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 	}
 	if d.Drain != nil {
 		// An operation type that keeps values (Q7, R13; STD-NOPRIV NP3c):
-		// the operation it declares to give them back (check.DrainOp)
+		// the drain of the prelude's Keeps it includes (check.DrainOp)
 		// gives the values left, oldest first; they are released last
-		// entered first. A queue's drain also ends admission.
+		// entered first. A queue's drain also ends admission. The value of
+		// an operation type that includes Keeps and is no runtime type
+		// holds one that is, and the drain is its operation call.
 		xs, i, e := g.fc.temp("left"), g.fc.temp("i"), g.fc.temp("e")
 		op := check.DrainOp(d.Type)
 		if op == nil {
@@ -859,8 +861,8 @@ func (fc *funcCtx) partsFrom(list []syntax.Expr) int {
 	return len(list)
 }
 
-// holdTaken finds the owned locals that x, a call of a bodiless std
-// operation that takes them (queue Push, D-C), hands off: their entries
+// holdTaken finds the owned locals that x, a call of a runtime Go body
+// that takes them (queue Push, D-C; check's holdsTaken), hands off: their entries
 // stay on the frame until the call returns (handoff skips them), so a
 // Push that fails releases its value and a stopped one leaves it to the
 // frame's End (Q7, plan 1.4). It returns their Go entries.
@@ -870,7 +872,7 @@ func (fc *funcCtx) holdTaken(x *syntax.CallExpr, c *check.Call) []string {
 	switch {
 	case c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil && fc.stdOp(c):
 		takes = c.Op.Sig.Takes
-	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:
+	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Sig != nil && check.BodyOf(c.Func).Runtime != "":
 		takes = c.Func.Sig.Takes
 		if c.Recv != nil {
 			args = append([]syntax.Expr{c.Recv}, args...)

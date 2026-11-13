@@ -1,7 +1,7 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
-    {"name":"keeps-release-skips-user-type","origin":"STD-NOPRIV NP3c","file":"internal/sketch/lower/release.go","from":"\t\t\tdrain, _, _ = g.fc.opCall(d.Type, op, nil, []string{x}, g.env, nil, nil, g.site)","to":"\t\t\tdrain = \"[]\" + g.fc.goType(d.Drain.Type) + \"{}\"","rule":"resources.md R13 (STD-NOPRIV NP3c): the release of a user package's keeping type calls its declared drain operation and releases what it gives, last first.","killers":["lower:TestKeepingTypeReleasesWhatItKeeps"]},
+    {"name":"lower-include-ops-dropped","origin":"STD-NOPRIV NP3c r2 (EXC1 merge)","file":"internal/sketch/lower/decls.go","from":"\t\tif it, ok := named.Underlying().(*check.Interface); ok {\n\t\t\tfor _, op := range it.Methods {","to":"\t\tif it, ok := named.Underlying().(*check.Interface); ok && false {\n\t\t\tfor _, op := range it.Methods {","rule":"types.md Interface assignability 1: an operation type's Go interface holds the operations its ..I members include (a Bag with ..Closer has Close).","killers":["lower:TestProviderCellsAgree","lower:TestCellWriterAgrees"]},
     {"name":"bounds-unchecked-never","origin":"wf10 BCE1","file":"internal/sketch/lower/bounds.go","from":"\treturn factLowering != \"checked\" && fc.l.tests == nil","to":"\treturn false && factLowering != \"checked\" && fc.l.tests == nil","rule":"The run build reads a load the bounds facts prove in range with no bounds check.","killers":["cmd/ergo:TestOneBRCCountsAsHandGo","lower:TestBoundsFactsSound"]},
     {"name":"bounds-wrap-taken","origin":"wf10 BCE1","file":"internal/sketch/lower/bounds.go","from":"\tif v, k, ok := fc.oneVar(x); ok && fc.exact(x) {","to":"\tif v, k, ok := fc.oneVar(x); ok {","rule":"A guard v+k <= R gives a bound on v only when the facts before it prove that v+k does not wrap: p+128 <= len(s) proves nothing.","killers":["lower:TestBoundsFactsSound"]},
     {"name":"bounds-index-margin-widened","origin":"wf10 BCE1","file":"internal/sketch/lower/bounds.go","from":"\treturn ok && within(i, s, -1)","to":"\treturn ok && within(i, s, 0)","rule":"An index is unchecked only when it is proved at most len(S)-1.","killers":["lower:TestBoundsFactsSound"]},
@@ -67,13 +67,11 @@
     {"name":"cu6b-remote-accept-lost","origin":"wf10 CU6b","file":"internal/sketch/std/http/network.ergo","from":"func(status int) bool { Accepts(accept, status) }, put)","to":"func(status int) bool { true }, put)","rule":"Remote hands the caller's rule to the streamed exchange.","killers":["lower:TestHTTPNetworkRuns"],"anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {"name":"cu6b-client-accept-lost","origin":"wf10 CU6b","file":"internal/sketch/std/http/client.ergo","from":"func(status int) bool { Accepts(accept, status) }, put)","to":"func(status int) bool { true }, put)","rule":"Client hands the caller's rule to the streamed exchange.","killers":["lower:TestHTTPNetworkRuns"],"anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {"name":"cu6b-dofile-parts-dropped","origin":"wf10 CU6b","file":"internal/sketch/std/http/client.ergo","from":"{ try file.Put(part) }","to":"{ }","rule":"DoFile writes every part of an accepted body to its file.","killers":["lower:TestHTTPNetworkRuns"],"anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
-    {"name":"cu6b-status-row-unbound","origin":"wf10 CU6b","file":"runtime/v1/files.go","from":"\"http.StatusRefused\":   \"HTTPStatusRefused\",","to":"","rule":"The runtime's refused status is the declared std StatusRefused at the call boundary.","killers":["lower:TestHTTPNetworkRuns"],"anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {"name":"cu5-credential-owner-lost", "origin":"wf10 CU5", "file":"internal/sketch/std/http/network.ergo", "from":"owners = owners.Append(c.origin)\n\t\tfields = fields.Append(c.field)\n\t}\n\ttry fetch(", "to":"owners = owners.Append(r.URL)\n\t\tfields = fields.Append(c.field)\n\t}\n\ttry fetch(", "rule":"The std provider passes each credential's declared owner to the runtime, not the request URL.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     { "name": "gs-init-refusal", "file": "internal/sketch/lower/module.go", "from": "if len(l.refusals) == 0 && l.hasInits() && !l.entryInits", "to": "if l.hasInits() && !l.entryInits", "rule": "A refused entry does not trigger a second internal error for its uncalled package initializer; Scheduler still needs an explicit provider.", "killers": ["lower:TestSchedulerEntryNeedsExplicitProvider"] },
     { "name": "gw-encode", "file": "internal/sketch/lower/wirefields.go", "from": "key := check.WireFieldName(f)", "to": "key := check.WireFieldName(&check.Field{Name: f.Name})", "rule": "Every codec encoder uses the explicit field key.", "killers": ["examples:wire-config"] },
     { "name": "gw-decode", "file": "internal/sketch/lower/wire.go", "from": "strconv.Quote(check.WireFieldName(f)) + \":\\n\"", "to": "strconv.Quote(check.WireFieldName(&check.Field{Name: f.Name})) + \":\\n\"", "rule": "Every codec decoder uses the same explicit field key as the encoder.", "killers": ["examples:wire-config"] },
     {"name":"cu7-decode-discards-text", "origin":"wf10 CU7", "file":"internal/sketch/std/toml/toml.ergo", "from":"let r = try Open(text, c.MaxBytes, c.MaxDepth)", "to":"let r = try Open(\"\", c.MaxBytes, c.MaxDepth)", "rule":"TOML Decode passes the parsed document to the shared derived decoder.", "killers":["lower:TestTOMLDecode"], "anchor":{"tests":["lower:TestTOMLDecode"]}},
-    {"name":"cu4c-chunk-record-unbound", "origin":"wf10 CU4c", "file":"runtime/v1/files.go", "from":"\t\"exec.Chunk\":           \"ExecChunk\",\n", "to":"", "rule":"exec.Chunk is the runtime's ExecChunk, so a program's Chunks loop compiles and runs.", "killers":["lower:TestExecStartRuns"],"anchor":{"tests":["lower:TestExecStartRuns"]}},
     {"name":"cu4b-stop-loses-takes", "origin":"wf10 CU4b", "file":"internal/sketch/std/exec/exec.ergo", "from":"\tStop() int takes,", "to":"\tStop() int,", "rule":"Stop consumes the Running; no later Wait may use it.", "killers":["check:TestExecStopTakes"], "anchor":{"tests":["check:TestExecStopTakes"]}},
     {"name":"b16d-flat-release-skips-variant", "origin":"batch-16d OPT4b merge (B1 release glue meets OPT2's flat Option)", "file":"internal/sketch/lower/release.go", "from":"b.WriteString(\"case \" + strconv.Itoa(k) + \": \" + g.release(v, fu.flatNarrow(tc, x, k)))", "to":"b.WriteString(\"case \" + strconv.Itoa(k) + \": \" + g.release(v, fu.flatNarrow(tc, x, k))[:0])", "rule":"An owned flat union's release releases its active variant's resources, as the interface form does.", "killers":["lower:TestFlatUnionsAgree"]},
     {"name":"b16d-map-take-option-none", "origin":"batch-16d OPT4b merge (Map.Take meets OPT2's flat Option)", "file":"internal/sketch/lower/decls.go", "from":"\" = \" + fc.optionSome(tuple.Types[0], v, fc.site) + \" }\\n\"", "to":"\" = \" + fc.optionNone(tuple.Types[0], fc.site) + \" }\\n\"", "rule":"Map.Take's Option is Some of the taken value when the key was present, in either Go form of Option.", "killers":["lower:TestTaskOwnershipRunModel"]},
@@ -100,8 +98,6 @@
     { "name": "e3b-lookup-high", "origin": "E3b", "file": "internal/sketch/std/http/failure.ergo", "from": "entry.Status > 599", "to": "entry.Status > 999", "rule": "StatusOf refuses invalid statuses above 599.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
     { "name": "e3-success-status", "origin": "E3", "file": "internal/sketch/std/http/router.ergo", "from": "Response{Status: route.Status, Header: []Field{Field", "to": "Response{Status: 200, Header: []Field{Field", "rule": "Success takes the matched route's explicit status.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
     { "name": "e3-success-empty", "origin": "E3", "file": "internal/sketch/std/http/router.ergo", "from": "if route.Status == 204 || route.Status == 205", "to": "if route.Status == 204", "rule": "A 205 success is empty, like a 204.", "killers": ["lower:TestStdHTTPLawsRun"], "anchor": {"tests": ["lower:TestStdHTTPLawsRun"]} },
-    {"name":"cu5-origin-row-unbound", "origin":"wf10 CU5", "file":"runtime/v1/files.go", "from":"\"http.OriginRefused\":   \"HTTPOriginRefused\",", "to":"", "rule":"The refused runtime origin is the declared std OriginRefused at the call boundary.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
-    {"name":"cu5-hop-row-unbound", "origin":"wf10 CU5", "file":"runtime/v1/files.go", "from":"\"http.RedirectLimit\":   \"HTTPRedirectLimit\",", "to":"", "rule":"The runtime hop refusal is the declared std RedirectLimit at the call boundary.", "killers":["lower:TestHTTPNetworkRuns"], "anchor":{"tests":["lower:TestHTTPNetworkRuns"]}},
     {
       "name": "cu1-version-ignored",
       "origin": "wf10 CU1",
@@ -1778,8 +1774,8 @@
       "name": "t5-24-false-true-values.go:1105",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\tif use == nil || use.frame != vv.frame {\n\t\treturn false\n\t}",
-      "to": "\tif use == nil || use.frame != vv.frame {\n\t\treturn true\n\t}",
+      "from": "\tif use == nil || use.frame != frame {\n\t\treturn false\n\t}",
+      "to": "\tif use == nil || use.frame != frame {\n\t\treturn true\n\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
       "killers": [
         "lower:TestValueRuleProbes"
@@ -1789,8 +1785,8 @@
       "name": "t5-25-false-true-values.go:1111",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
-      "to": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
+      "from": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
+      "to": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
       "killers": [],
       "gap": "survives at the T5 base too (cb1f7522): no kept or deleted test kills it (T5 base.log); a gap of the suite, not a loss of the cut"
@@ -2650,15 +2646,7 @@
       "rule": "An operation type with a Close can still hold values its std body drains after it (a Task's result).",
       "killers": ["lower:TestTaskOwnershipRunModel"]
     },
-    {
-      "name": "L8-B3t-taken-result-is-drained",
-      "origin": "L8 B3t Q5",
-      "file": "internal/sketch/check/drop.go",
-      "from": "if m.Sig.TakesSelf && len(m.Sig.Results) == 1 {",
-      "to": "if false && m.Sig.TakesSelf && len(m.Sig.Results) == 1 {",
-      "rule": "A value that an operation taking it gives as its result (Task's Wait) is held until taken.",
-      "killers": ["lower:TestTaskOwnershipRunModel"]
-    },
+    {"name":"L8-B3t-taken-result-is-drained","origin":"L8 B3t Q5","file":"internal/sketch/check/drop.go","from":"\t\t\tif inc.origin() == keeps.origin() && len(inc.TArgs) == 1 {","to":"\t\t\tif false && inc.origin() == keeps.origin() && len(inc.TArgs) == 1 {","rule":"A value that an operation taking it gives as its result (Task's Wait) is held until taken.","killers":["lower:TestTaskOwnershipRunModel"]},
     {
       "name": "L8-B3t-capture-root-env-unparenthesized",
       "origin": "L8 B3t chat Set rewrite",
@@ -2697,16 +2685,7 @@
       "killers": ["lower:TestTaskOwnershipRunModel"],
       "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
     },
-    {
-      "name": "L8-B3t-take-panic-loses-input",
-      "origin": "L8 B3t R36",
-      "file": "internal/sketch/lower/release.go",
-      "from": "case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:",
-      "to": "case false && c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:",
-      "rule": "A native taking removal retains the input's owner until it succeeds, so an index panic releases the intact input.",
-      "killers": ["lower:TestTaskOwnershipRunModel"],
-      "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
-    },
+    {"name":"L8-B3t-take-panic-loses-input","origin":"L8 B3t R36","file":"internal/sketch/lower/release.go","from":"\tcase c.Kind == check.CallFunc && c.Func != nil && c.Func.Sig != nil && check.BodyOf(c.Func).Runtime != \"\":","to":"\tcase false && c.Kind == check.CallFunc && c.Func != nil && c.Func.Sig != nil && check.BodyOf(c.Func).Runtime != \"\":","rule":"A native taking removal retains the input's owner until it succeeds, so an index panic releases the intact input.","killers":["lower:TestTaskOwnershipRunModel"],"anchor":{"tests":["lower:TestTaskOwnershipRunModel"]}},
     {
       "name": "L8-B3t-take-keeps-slice-element",
       "origin": "L8 B3t R36",
@@ -3035,7 +3014,6 @@
     {"name":"cu3-no-redraw","origin":"wf10 CU3","file":"internal/sketch/std/prompt/prompt.ergo","from":"\t\t\tio.Stderr.Eprint(Redraw(shown, next))","to":"\t\t\tio.Stderr.Eprint(\"\")","rule":"Ask draws each new state's frame.","killers":["lower:TestPromptLaws"],"anchor":{"tests":["lower:TestPromptLaws"]}},
     {"name":"cu3-marked-twice","origin":"wf10 CU3","file":"internal/sketch/std/prompt/machines.ergo","from":"\t\t\t\tchosen = chosen.Append(i)","to":"\t\t\t\tchosen = chosen.Append(i).Append(i)","rule":"A multi-select answers each marked index once, in ascending order.","killers":["lower:TestPromptLaws"],"anchor":{"tests":["lower:TestPromptLaws"]}},
     {"name":"cu3-std-machine-unnamed","origin":"wf10 CU3","file":"internal/sketch/lower/naming.go","from":"\t\t\tif !l.isSourced(p) && tn.Decl != nil {","to":"\t\t\tif false && tn.Decl != nil {","rule":"A std machine declaration lowers as a user package's: the naming pass names its initial value.","killers":["lower:TestPromptLaws"],"anchor":{"tests":["lower:TestPromptLaws"]}},
-    {"name":"cu3-std-machine-ice","origin":"wf10 CU3","file":"internal/sketch/lower/std.go","from":"\tcase *syntax.MachineType:\n","to":"\tcase *syntax.TupleExpr:\n","rule":"A std machine declaration is a declaration of the program, not a runtime type.","killers":["lower:TestPromptLaws"],"anchor":{"tests":["lower:TestPromptLaws"]}},
     {"name":"s-config-redacted-has-wire","origin":"wf10 S-config","file":"internal/sketch/std/config/redacted.ergo","from":"type Redacted[T] {\n\truntimeOnly(),\n\t// Reveal is the value the secret holds.\n\tReveal() T,\n}\n\n// NewRedacted is a secret that holds v.\nextern go ergo.local/prototype/runtime/v1.NewRedacted func NewRedacted[T](v T) Redacted[T]","to":"type Redacted[T] { Value T }\n\n// Reveal is the value the secret holds.\nfunc Reveal[T](r Redacted[T]) T { r.Value }\n\n// NewRedacted is a secret that holds v.\nfunc NewRedacted[T](v T) Redacted[T] { Redacted[T]{Value: v} }","rule":"A secret has no encoded form: config.Redacted is an operation type, so encoding a value that reaches it is refused at check time.","killers":["lower:TestRedactedRefusedAtCheck"],"anchor":{"tests":["lower:TestRedactedRefusedAtCheck"]}},
     {"name":"s-config-redacted-has-text","origin":"wf10 S-config","file":"internal/sketch/std/config/redacted.ergo","from":"type Redacted[T] {\n\truntimeOnly(),\n\t// Reveal is the value the secret holds.\n\tReveal() T,\n}\n\n// NewRedacted is a secret that holds v.\nextern go ergo.local/prototype/runtime/v1.NewRedacted func NewRedacted[T](v T) Redacted[T]","to":"type Redacted[T] { value T }\n\n// Reveal is the value the secret holds.\nfunc Reveal[T](r Redacted[T]) T { r.value }\n\n// NewRedacted is a secret that holds v.\nfunc NewRedacted[T](v T) Redacted[T] { Redacted[T]{value: v} }","rule":"A secret never appears in a failure report: config.Redacted is an operation type, whose text is its type name.","killers":["lower:TestRedactedNeverPrints"],"anchor":{"tests":["lower:TestRedactedNeverPrints"]}},
     {"name":"gapfail-error-type-root-rows","origin":"wf10 gap-fail","file":"internal/sketch/lower/owners.go","from":"\tfor _, p := range l.libraries() {\n\t\tif p.Info == l.info {\n\t\t\treturn p","to":"\tfor _, p := range l.libraries()[:0] {\n\t\tif p.Info == l.info {\n\t\t\treturn p","rule":"A return in an imported package's body reads that package's rows: a type only the importer raises is a failure there.","killers":["lower:TestFailureRaisedByImporter"]},
@@ -3549,17 +3527,7 @@
         "lower:TestValueRuleAgrees"
       ]
     },
-    {
-      "name": "own-form-never",
-      "origin": "wf10 OPT6",
-      "file": "internal/sketch/lower/refown.go",
-      "from": "\to, err := v1.BodyOf(owned)\n\tif err != nil || len(o.Params) != len(b.Params)+shift+2 {",
-      "to": "\to, err := v1.BodyOf(owned)\n\tif true || err != nil || len(o.Params) != len(b.Params)+shift+2 {",
-      "rule": "stdlib.md Sync and STM 1: a literal given to a Ref's Update or to sync.Modify takes the held value over, through the runtime body's owned form.",
-      "killers": [
-        "lower:TestValueRuleElides"
-      ]
-    },
+    {"name":"own-form-never","origin":"wf10 OPT6","file":"internal/sketch/lower/refown.go","from":"\to, err := runtimeBody(owned)\n\tif err != nil || len(o.Params) != len(b.Params)+shift+2 {","to":"\to, err := runtimeBody(owned)\n\tif true || err != nil || len(o.Params) != len(b.Params)+shift+2 {","rule":"stdlib.md Sync and STM 1: a literal given to a Ref's Update or to sync.Modify takes the held value over, through the runtime body's owned form.","killers":["lower:TestValueRuleElides"]},
     {
       "name": "own-form-receiver",
       "origin": "wf10 OPT6",

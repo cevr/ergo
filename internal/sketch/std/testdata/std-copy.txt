@@ -36,7 +36,7 @@ maps	same
 math	same
 os	differs	lower: os.Code lowers to Go's int at the runtime record boundary (runtimeType names it), a copy's Code to its own type	follow-up os-code-type
 prompt	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
-queue	differs	check: S108 only std binds the Ergo runtime (the extern door)	NP4e
+queue	same
 rand	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 rpc	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
 schedule	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std

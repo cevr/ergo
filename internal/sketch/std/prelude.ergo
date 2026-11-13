@@ -318,6 +318,19 @@ type Closer {
 	Close() takes,
 }
 
+// Keeps is the contract of a type that keeps the values it takes
+// (resources R13): an operation type that includes it with `..Keeps[T]`
+// holds values of T, and the release of its value calls drain, after its
+// Close if it has one, and releases each value drain gives, last first.
+// drain is unexported, so only the release calls it, and only a type whose
+// operations are a Go body of the runtime implements it (a queue's values
+// left, a Task's result no Wait took); an Ergo record that keeps values
+// holds them in its fields, which its own release releases (R3).
+// law-exempt: drain takes the value and only the release calls it, so no law can call it or observe it; the keeping rules are the checker's (resources R13, R35).
+type Keeps[T] {
+	drain() []T takes,
+}
+
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
 extern go ergo.local/prototype/runtime/v1.Task type Task[T, E] {
@@ -331,11 +344,10 @@ extern go ergo.local/prototype/runtime/v1.Task type Task[T, E] {
 	// task. It stops the task and waits until it has ended, as Stop does,
 	// and drops its typed failure; a Task is a resource.
 	..Closer,
-	// drain gives back the result the body returned that no Wait took,
-	// for the owner's release after Close (resources R13, Q5; types.md,
-	// Operation types: a type that keeps values declares the operation that
-	// gives them back). Only the release calls it.
-	drain() []T takes,
+	// Keeps' drain gives back the result the body returned that no Wait
+	// took, for the owner's release after Close (resources R13, Q5). Only
+	// the release calls it.
+	..Keeps[T],
 
 	// StopIsIdempotent: a second Stop returns, never fails and changes
 	// nothing.
