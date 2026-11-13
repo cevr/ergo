@@ -24,7 +24,7 @@ func TestProviderDerive(t *testing.T) {
 		{"user provider", head + rec + "func f() probe {\n\tlet s = rec[probe]{}\n\ts.Len.Answer(func() int { 3 })\n\ts\n}\n", ""},
 		{"instance rule", head + rec + "func f(s rec[Box]) {}\n", "S108:6 rec[Box]: Box is not a capability"},
 		{"generic without Provider", head + "type T[S] derive Pattern(\"a\")\n", "S001:5 a derived type has no type parameters"},
-		{"capability not the parameter", head + "type rec[S] derive Provider(Of[probe](), Of[testing.Op](), Of[testing.NoArgs]())\n", "S108:5 a Provider derives rec from the operations of its one type parameter"},
+		{"capability not the parameter", head + "type rec[S] derive Provider(Of[probe](), Of[testing.Op](), Of[testing.NoArgs]())\n", "S001:5 a Provider derives rec from the operations of its one type parameter"},
 		{"field type with no Go type", head + "type MyOp[A, F] {}\ntype rec[S] derive Provider(Of[S](), Of[MyOp](), Of[testing.NoArgs]())\n", "S108:6 its field type MyOp names no runtime Go type"},
 	}
 	for _, r := range rows {

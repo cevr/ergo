@@ -168,7 +168,7 @@ type TypeDecl struct {
 	Origin    *TypeDecl
 	// Provider is the plan of a derived provider, `type T[P] derive
 	// Provider(Of[P](), Of[F](), Of[N]())` (patterns.md, Provider plans),
-	// set by the derive expansion, or nil.
+	// set by the parser (derive.go), or nil.
 	Provider *ProviderPlan
 }
 

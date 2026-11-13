@@ -32,7 +32,9 @@ func (p *parser) parseDerive(d *TypeDecl) {
 	d.DerivePos = p.tok.pos
 	p.next()
 	d.Derive = p.parseExpr()
-	if d.TypeParams != nil && !IsProviderPlan(d.Derive) {
+	if IsProviderPlan(d.Derive) {
+		p.providerPlan(d)
+	} else if d.TypeParams != nil {
 		p.errorAt(d.DerivePos, len("derive"), "a derived type has no type parameters: the plan fixes its shape (a Provider plan excepted)")
 	}
 	if p.atWhere() {
@@ -52,4 +54,58 @@ func IsProviderPlan(x Expr) bool {
 	}
 	id, ok := c.Fun.(*Ident)
 	return ok && id.Name == "Provider"
+}
+
+// providerPlan reads the direct plan `Provider(Of[S](), Of[F](), Of[N]())`
+// of d (patterns.md, Provider plans 1). Each argument is syntax, so the
+// parser, not the derive evaluation, gives d its body, a record with no
+// fields of its own, and its plan: every package that parses d, std's
+// included, has the same declaration with no expansion. The checker builds
+// each instance from its capability's operations (check/script.go). A
+// misshapen plan is S001 at derive, and d stays an empty record.
+func (p *parser) providerPlan(d *TypeDecl) {
+	d.Spec = &StructType{Fields: &FieldList{Opening: d.DerivePos, Closing: d.DerivePos}}
+	c := d.Derive.(*CallExpr)
+	var types []Expr
+	for _, a := range c.Args {
+		t, ok := ofPlanType(a)
+		if !ok {
+			p.errorAt(d.DerivePos, len("derive"), "Provider takes three Of plans: the capability, the field type and the type of no arguments")
+			return
+		}
+		types = append(types, t)
+	}
+	if len(types) != 3 {
+		p.errorAt(d.DerivePos, len("derive"), "Provider takes three Of plans: the capability, the field type and the type of no arguments")
+		return
+	}
+	var params []*Ident
+	if d.TypeParams != nil {
+		for _, f := range d.TypeParams.List {
+			params = append(params, f.Names...)
+		}
+	}
+	cap, ok := types[0].(*Ident)
+	if len(params) != 1 || !ok || cap.Name != params[0].Name {
+		p.errorAt(d.DerivePos, len("derive"), "a Provider derives %s from the operations of its one type parameter: write type %s[S] derive Provider(Of[S](), …)", d.Name.Name, d.Name.Name)
+		return
+	}
+	d.Provider = &ProviderPlan{Field: types[1], None: types[2]}
+}
+
+// ofPlanType is X of the plan `Of[X]()`.
+func ofPlanType(x Expr) (Expr, bool) {
+	c, ok := x.(*CallExpr)
+	if !ok || len(c.Args) != 0 {
+		return nil, false
+	}
+	ix, ok := c.Fun.(*IndexExpr)
+	if !ok || len(ix.Indices) != 1 {
+		return nil, false
+	}
+	id, ok := ix.X.(*Ident)
+	if !ok || id.Name != "Of" {
+		return nil, false
+	}
+	return ix.Indices[0], true
 }

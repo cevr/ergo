@@ -906,21 +906,13 @@ func (s *stdImporter) load(path string) (*Package, error) {
 		f.Name = name // the embedded name, which the lowering reports (Files)
 		files = append(files, f)
 	}
-	// A std package expands its derives as any package does (derive.go).
-	derived, derivedDiags := expandDerives(path, files, s)
 	c := newChecker(path, s, prelude().scope)
-	c.derive = derived
 	c.pkg.std = true
 	c.pkg.trusted = true // the toolchain vouches for what it ships
 	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
-	if pkg != nil {
-		pkg.Derive = derived
-	}
 	var err error
-	if len(derivedDiags) > 0 {
-		err = fmt.Errorf("std package %q has diagnostics: %s", path, derivedDiags[0].Message)
-	} else if len(c.diags) > 0 {
+	if len(c.diags) > 0 {
 		err = fmt.Errorf("std package %q has diagnostics: %s", path, c.sorted()[0])
 	}
 	return pkg, err
@@ -933,17 +925,12 @@ func (s *stdImporter) load(path string) (*Package, error) {
 // library does not have (lower's TestStdRecordsKeyedByPackage). The
 // compiler never calls it, and no Ergo source can reach it.
 func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
-	derived, derivedDiags := expandDerives(path, files, Std)
 	c := newChecker(path, Std, prelude().scope)
-	c.derive = derived
 	c.pkg.std = true
 	c.pkg.trusted = true
 	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
-	if pkg != nil {
-		pkg.Derive = derived
-	}
-	return pkg, append(c.sorted(), derivedDiags...)
+	return pkg, c.sorted()
 }
 
 // testOf is the std package whose test package is at path (fstest's fs),

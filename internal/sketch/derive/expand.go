@@ -163,7 +163,7 @@ func Expand(pkgPath string, files []*syntax.File, lookup func(path string) *Pack
 				continue
 			}
 			out = append(out, d)
-			if td, ok := d.(*syntax.TypeDecl); ok && td.Derive != nil {
+			if td, ok := d.(*syntax.TypeDecl); ok && td.Derive != nil && !syntax.IsProviderPlan(td.Derive) {
 				out = append(out, p.expand(f, td, taken)...)
 			}
 		}
@@ -562,27 +562,11 @@ func reposition(x any, at syntax.Pos) {
 	visit(reflect.ValueOf(x))
 }
 
-// provider records the Provider plan pl on d (patterns.md, Provider plans):
-// d is a record with no fields of its own, whose instances the checker
-// builds from the operations of their type argument (check/script.go). Its
-// one type parameter is the capability: the plan's first Of names it. It
-// derives no declarations.
+// provider refuses a Provider plan that is not the derive's own direct
+// call: the parser reads that one (syntax/derive.go providerPlan), and a
+// plan function has no type parameters to name the capability with
+// (patterns.md, Provider plans 1).
 func (p *Package) provider(f *syntax.File, d *syntax.TypeDecl, pl *plan, rec *Derived, refuse func(*evalError) []syntax.Decl) []syntax.Decl {
 	at := origin{f, d.Derive.Pos()}
-	var params []*syntax.Ident
-	if d.TypeParams != nil {
-		for _, field := range d.TypeParams.List {
-			params = append(params, field.Names...)
-		}
-	}
-	cp, ok := pl.fields[0].typ.(*syntax.Ident)
-	if len(params) != 1 || !ok || cp.Name != params[0].Name {
-		return refuse(&evalError{at, d.Derive.End(), fmt.Sprintf("a Provider derives %s from the operations of its one type parameter: write type %s[S] derive Provider(Of[S](), …)", d.Name.Name, d.Name.Name)})
-	}
-	empty, _ := syntax.Parse("type " + d.Name.Name + " {}\n")
-	reposition(empty.Decls[0], d.DerivePos)
-	d.Spec = empty.Decls[0].(*syntax.TypeDecl).Spec
-	d.Provider = &syntax.ProviderPlan{Field: pl.fields[1].typ, None: pl.fields[2].typ}
-	p.Derived = append(p.Derived, rec)
-	return nil
+	return refuse(&evalError{at, d.Derive.End(), fmt.Sprintf("a Provider plan is written as the derive itself: type %s[S] derive Provider(Of[S](), …)", d.Name.Name)})
 }
