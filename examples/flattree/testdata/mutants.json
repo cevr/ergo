@@ -134,23 +134,23 @@
       ]
     },
     {
-      "name": "flattree-flat-held-not-reset",
+      "name": "flattree-flat-object-keeps-last-member",
       "origin": "wf10 DF1",
       "file": "examples/flattree/flat/parse.ergo",
-      "from": "r.heldTop = mark",
-      "to": "r.heldTop = r.heldTop",
-      "rule": "A closed object takes its members off the held stack (law flat.FlatEqualsTree).",
+      "from": "members = members.Append(Member{Key: k, Value: last(*r)})",
+      "to": "members = []Member{Member{Key: k, Value: last(*r)}}",
+      "rule": "An object keeps every member, in order (law flat.FlatEqualsTree).",
       "killers": [
         "examples:flattree"
       ]
     },
     {
-      "name": "flattree-flat-stack-not-reset",
+      "name": "flattree-flat-array-keeps-last-item",
       "origin": "wf10 DF1",
       "file": "examples/flattree/flat/parse.ergo",
-      "from": "r.top = mark",
-      "to": "r.top = r.top",
-      "rule": "A closed array takes its items off the stack (law flat.FlatEqualsTree).",
+      "from": "items = items.Append(last(*r))",
+      "to": "items = []dense.ID[Node]{last(*r)}",
+      "rule": "An array keeps every item, in order (law flat.FlatEqualsTree).",
       "killers": [
         "examples:flattree"
       ]

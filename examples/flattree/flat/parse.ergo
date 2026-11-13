@@ -1,29 +1,24 @@
 import flattree/dense
 import flattree/tree
-import slices
 import strconv
 import strings
 
 // reader is the tree being read and the place in its text. Parse owns
-// it. A value it reads leaves its id on stack; a container takes its
-// items off stack (and its members off held) when it closes, so both
-// keep their storage and grow only to the deepest container's need. A
-// problem is a row of problems, and every rule stops at the first one.
+// it. A value it reads leaves its id in last; a container gathers its
+// children's ids as they come and puts them in its pool when it closes.
+// A problem is a row of problems, and every rule stops at the first one.
 type reader {
 	t        Tree,
 	pos      int,
 	depth    int,
-	stack    []dense.ID[Node],
-	top      int,
-	held     []Member,
-	heldTop  int,
+	last     dense.Opt[Node],
 	problems dense.Table[tree.Malformed],
 }
 
 // Parse is the flat tree of the JSON text src. It fails where tree.Parse
 // fails, with the same failure: the first row of its problems.
 func Parse(src string) Tree fails tree.Malformed {
-	let mut r = reader{t: Empty(src), pos: 0, depth: 0, stack: []dense.ID[Node]{}, top: 0, held: []Member{}, heldTop: 0, problems: dense.New[tree.Malformed]()}
+	let mut r = reader{t: Empty(src), pos: 0, depth: 0, last: dense.NoID[Node](), problems: dense.New[tree.Malformed]()}
 	skip(&r)
 	value(&r)
 	if ok(r) {
@@ -62,14 +57,18 @@ func skip(r *reader) {
 	}
 }
 
-// push leaves id on the stack.
-func push(r *reader, id dense.ID[Node]) {
-	if r.top < len(r.stack) {
-		r.stack[r.top] = id
-	} else {
-		r.stack = r.stack.Append(id)
+// push leaves id as the value read last.
+func push(r *reader, id dense.ID[Node]) { r.last = dense.OptOf(id) }
+
+// last is the id of the value read last; value leaves one when it reads
+// one, and a caller asks only then.
+func last(r reader) dense.ID[Node] {
+	match dense.Unpack(r.last) {
+	case Some[dense.ID[Node]] as id:
+		id.Value
+	case None:
+		Unreachable("flat: no value was read")
 	}
-	r.top += 1
 }
 
 func value(r *reader) {
@@ -190,7 +189,7 @@ func array(r *reader) {
 		return
 	}
 	let src = r.t.src
-	let mark = r.top
+	let mut items = []dense.ID[Node]{}
 	if r.pos < len(src) && src[r.pos] == ']' {
 		r.pos += 1
 		r.depth -= 1
@@ -202,6 +201,7 @@ func array(r *reader) {
 		if !ok(*r) {
 			return
 		}
+		items = items.Append(last(*r))
 		skip(r)
 		if r.pos < len(src) {
 			let c = src[r.pos]
@@ -213,9 +213,7 @@ func array(r *reader) {
 			if c == ']' {
 				r.pos += 1
 				r.depth -= 1
-				let id = putArray(&r.t, slices.Slice(r.stack, mark, r.top))
-				r.top = mark
-				push(r, id)
+				push(r, putArray(&r.t, items))
 				return
 			}
 		}
@@ -224,22 +222,12 @@ func array(r *reader) {
 	}
 }
 
-// hold keeps a member until its object closes.
-func hold(r *reader, m Member) {
-	if r.heldTop < len(r.held) {
-		r.held[r.heldTop] = m
-	} else {
-		r.held = r.held.Append(m)
-	}
-	r.heldTop += 1
-}
-
 func object(r *reader) {
 	if !enter(r) {
 		return
 	}
 	let src = r.t.src
-	let mark = r.heldTop
+	let mut members = []Member{}
 	if r.pos < len(src) && src[r.pos] == '}' {
 		r.pos += 1
 		r.depth -= 1
@@ -268,8 +256,7 @@ func object(r *reader) {
 		if !ok(*r) {
 			return
 		}
-		r.top -= 1
-		hold(r, Member{Key: k, Value: r.stack[r.top]})
+		members = members.Append(Member{Key: k, Value: last(*r)})
 		skip(r)
 		if r.pos < len(src) {
 			let c = src[r.pos]
@@ -281,9 +268,7 @@ func object(r *reader) {
 			if c == '}' {
 				r.pos += 1
 				r.depth -= 1
-				let id = putObject(&r.t, slices.Slice(r.held, mark, r.heldTop))
-				r.heldTop = mark
-				push(r, id)
+				push(r, putObject(&r.t, members))
 				return
 			}
 		}
