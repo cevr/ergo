@@ -1,0 +1,63 @@
+// A transfer's laws: two over one step of every state and signal, and one
+// over timed runs of the machine.
+
+import machines
+import testing
+import time
+
+// CancelledNeverBecomesDone: no signal takes a cancelled transfer to sent;
+// only a restart leaves cancelled, and it sends again from the start.
+law CancelledNeverBecomesDone(mb int, s Signal) {
+	let t = Cancelled{MB: mb}
+	let n = machines.Next(t, Step(t, s))
+	match n {
+	case Sent:
+		false
+	case Sending as x:
+		s == Restart && x.MB == mb
+	case Cancelled:
+		n == t
+	}
+}
+
+// RestartOnlyFromCancelled: a transfer that was not sending starts sending
+// only by a restart of a cancelled one.
+law RestartOnlyFromCancelled(t Transfer, s Signal) {
+	let n = machines.Next(t, Step(t, s))
+	if IsSending(n) && !IsSending(t) {
+		return Word(t) == "cancelled" && s == Restart
+	}
+	true
+}
+
+// ArrivesAfterTheWholeFile: a transfer that is cancelled at c arrives only
+// when c is later than its whole file's time (a cancel at that very
+// instant is stepped first); one never cancelled arrives at that time.
+law ArrivesAfterTheWholeFile(n int, c int) {
+	let mb = 1 + pick(n, 100)
+	let at = time.Times(1ms, pick(c, 12000))
+	let cancelled = last(mb, []machines.Timed[Signal]{machines.Timed[Signal]{At: at, Signal: Cancel}}, 20s)
+	let sent = last(mb, []machines.Timed[Signal]{}, Took(mb))
+	let early = last(mb, []machines.Timed[Signal]{}, Took(mb)-1ns)
+	(Word(cancelled) == "sent") == (at > Took(mb)) && Word(sent) == "sent" && Word(early) == "sending"
+}
+
+// last is the transfer of mb megabytes after trace, run until end on a
+// fresh VirtualClock.
+func last(mb int, trace []machines.Timed[Signal], end duration) Transfer {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } {
+		let o = machines.RunTimed(machines.Start(Sender{}, mb), trace, end) catch {
+		case machines.Rejected:
+			return Begin(mb)
+		}
+		match o {
+		case machines.Running[Transfer, Never] as r:
+			r.State
+		case machines.Finished[Transfer, Never] as f:
+			f.State
+		}
+	}
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }

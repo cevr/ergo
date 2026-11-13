@@ -1,0 +1,82 @@
+// Package board is the list of transfers a user starts, cancels and
+// restarts, in shape A: each transfer is a live actor of its own, a
+// transfer.Sender whose Sending state owns its time. The board holds the
+// actors by id, and a button is a signal to one of them; cancel all is a
+// cancel to each that sends. The board is not a machine, so its children
+// belong to no entry of a parent and live until Shutdown (plan §18.1, L3).
+
+import actor
+import fktransfers/transfer
+import machines
+
+// Child is one transfer's actor.
+type Child = actor.Actor[transfer.Transfer, transfer.Signal, Decision[transfer.Transfer, transfer.Never]]
+
+// Item is one transfer of the board: its id, its file and its actor.
+type Item { ID int, File transfer.File, Child Child }
+
+// Board is the transfers in the order they started, and the id the next
+// one gets. Ids are never reused.
+type Board { Items []Item, Next int }
+
+// New is a board with no transfers.
+func New() Board { Board{Items: []Item{}, Next: 0} }
+
+// Start starts the next transfer, sending at once.
+func Start(b Board) Board needs Scheduler {
+	let f = transfer.FileFor(b.Next)
+	let child = actor.StartMachine(machines.Start(transfer.Sender{}, f.MB), 4, func(n transfer.Never) {})
+	Board{Items: b.Items.Append(Item{ID: b.Next, File: f, Child: child}), Next: b.Next + 1}
+}
+
+// Cancel cancels transfer id; a transfer that does not send ignores it,
+// and an id with no transfer finds none.
+func Cancel(b Board, id int) { tell(b, id, transfer.Cancel) }
+
+// Restart sends transfer id again when it was cancelled.
+func Restart(b Board, id int) { tell(b, id, transfer.Restart) }
+
+// CancelAll cancels every transfer that sends now, and only those.
+func CancelAll(b Board) {
+	for x in b.Items {
+		if transfer.IsSending(x.Child.State()) {
+			ask(x.Child, transfer.Cancel)
+		}
+	}
+}
+
+// Lines is the board as it shows now: `ID NAME WORD` per transfer, in
+// order.
+func Lines(b Board) []string {
+	let mut out = []string{}
+	for x in b.Items {
+		out = out.Append("\(x.ID) \(x.File.Name) \(transfer.Word(x.Child.State()))")
+	}
+	out
+}
+
+// Shutdown stops every transfer's actor. It is not named Close: a Close
+// would make Board a resource (resources R1), and the release of the board
+// that Start was given would stop the actors the new board shares.
+func Shutdown(b Board) {
+	for x in b.Items {
+		x.Child.Stop()
+	}
+}
+
+func tell(b Board, id int, s transfer.Signal) {
+	for x in b.Items {
+		if x.ID == id {
+			ask(x.Child, s)
+		}
+	}
+}
+
+// ask steps s on c and waits for it: a child never ends before Shutdown, so
+// Stopped cannot come.
+func ask(c Child, s transfer.Signal) {
+	let _ = c.Ask(s) catch {
+	case actor.Stopped:
+		return
+	}
+}

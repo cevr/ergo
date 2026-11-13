@@ -1,0 +1,69 @@
+{
+  "about": "fk-transfers' application mutants; each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk4-cancel-ignored", "origin": "wf10/fk4a",
+      "file": "examples/fk-transfers/transfer/transfer.ergo",
+      "from": "\tcase (Sending as x, Cancel):\n\t\tEnter[Transfer]{Next: Cancelled{MB: x.MB}}\n",
+      "to": "\tcase (Sending as x, Cancel):\n\t\tStay[Transfer]{Next: x}\n",
+      "rule": "A cancel ends a sending transfer's entry, and with it the transfer.",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4-restart-from-sent", "origin": "wf10/fk4a",
+      "file": "examples/fk-transfers/transfer/transfer.ergo",
+      "from": "\tcase (Sending, Restart), (Sent, _), (Cancelled, Cancel), (Cancelled, Arrived):\n",
+      "to": "\tcase (Sent as x, Restart):\n\t\tEnter[Transfer]{Next: Sending{MB: x.MB}}\n\tcase (Sending, Restart), (Sent, _), (Cancelled, Cancel), (Cancelled, Arrived):\n",
+      "rule": "Only a cancelled transfer restarts (law RestartOnlyFromCancelled).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4-timer-one-mb-late", "origin": "wf10/fk4a",
+      "file": "examples/fk-transfers/transfer/transfer.ergo",
+      "from": "Some{Timeout[Signal]{In: Took(x.MB), Signal: Arrived}}",
+      "to": "Some{Timeout[Signal]{In: Took(x.MB + 1), Signal: Arrived}}",
+      "rule": "A transfer arrives after its whole file, PerMB a megabyte (law ArrivesAfterTheWholeFile).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4-cancelall-skips-first", "origin": "wf10/fk4a",
+      "file": "examples/fk-transfers/board/board.ergo",
+      "from": "\t\tif transfer.IsSending(x.Child.State()) {\n",
+      "to": "\t\tif transfer.IsSending(x.Child.State()) && x.ID > 0 {\n",
+      "rule": "Cancel all cancels every sending transfer (law CancelAllLeavesNoneRunning).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4-id-repeated", "origin": "wf10/fk4a",
+      "file": "examples/fk-transfers/board/board.ergo",
+      "from": "Child: child}), Next: b.Next + 1}",
+      "to": "Child: child}), Next: b.Next}",
+      "rule": "Each start gets a new id (law IdsNeverReused).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4b-restart-any", "origin": "wf10/fk4a",
+      "file": "examples/fk-transfers/emitted/emitted.ergo",
+      "from": "e.ID == r.ID && e.Status == Stopped",
+      "to": "e.ID == r.ID",
+      "rule": "Shape B restarts a stopped entry only, as shape A does (law ShapesAgree).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4b-notfound-stops", "origin": "wf10/fk4a",
+      "file": "examples/fk-transfers/emitted/emitted.ergo",
+      "from": "\t\tcase NotFound:\n\t\t\tIgnore\n",
+      "to": "\t\tcase NotFound:\n\t\t\tStay[Uploads]{Next: setStatus(u, a.ID, Stopped)}\n",
+      "rule": "A NotFound answer changes nothing: a cancel after completion keeps the transfer sent (law ShapesAgree).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    },
+    {
+      "name": "fk4b-registry-tie", "origin": "wf10/fk4a",
+      "file": "examples/fk-transfers/emitted/registry.ergo",
+      "from": "if j.Due <= now && (k < 0 || j.Due < jobs[k].Due) {",
+      "to": "if j.Due < now && (k < 0 || j.Due < jobs[k].Due) {",
+      "rule": "A job due at the time of a press completes before the press, as the live board's timer fires before it (law ShapesAgree).",
+      "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
+    }
+  ]
+}
