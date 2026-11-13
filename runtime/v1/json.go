@@ -4,14 +4,13 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode/utf8"
 )
 
 // The bodies of std json (docs/spec/stdlib.md, json; S-json). Std json's
 // Text is the Ergo record text, which writes into a byte buffer; this file
 // holds only its value appenders (a buffer in, the buffer with the value's
-// JSON text added out), its buffer pool, and Cursor, which reads a text
+// JSON text added out) and Cursor, which reads a text
 // JSONOpen has validated whole (phase 1), so its reads never meet a syntax
 // error.
 
@@ -717,24 +716,3 @@ func (c *Cursor) Tag() string {
 	return v
 }
 
-// jsonPool keeps the buffers std json's Encode writes into (JSONTake,
-// JSONRecycle), as encoding/json keeps its encodeState: a buffer is used
-// again. It holds arrays of one size, as pointers, so a Put boxes no slice
-// header (no allocation). A buffer that grew out of its array is not kept.
-var jsonPool = sync.Pool{New: func() any { return new([jsonPoolSize]byte) }}
-
-const jsonPoolSize = 1024
-
-// JSONTake is an empty buffer from the pool, for std json's Encode only:
-// JSONRecycle puts it back.
-func JSONTake() []byte { return jsonPool.Get().(*[jsonPoolSize]byte)[:0] }
-
-// JSONRecycle puts b's array back in the pool when b still has it, and
-// gives b. Its caller uses b no more (std json's finish, at the end of
-// Encode), so the pool holds an array only after its one use has ended.
-func JSONRecycle(b []byte) []byte {
-	if cap(b) == jsonPoolSize {
-		jsonPool.Put((*[jsonPoolSize]byte)(b[:jsonPoolSize]))
-	}
-	return b
-}

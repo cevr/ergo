@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -46,7 +47,7 @@ func (e *RefutedRewriteError) Error() string { return "rewrite law refuted: " + 
 // and run is not called.
 func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)) (RewriteEvidence, error) {
 	ev := &checkedEvidence{pkg: u.Package, ok: map[string]string{}, verdict: map[string]string{}, how: map[string]string{}, ran: map[*check.Law]bool{}, insts: map[string]bool{}}
-	if len(newRewriter(u.Package, ev).rules) == 0 {
+	if !HasRewriteLaws(u) {
 		return ev, nil
 	}
 	ev.optimistic = true
@@ -81,6 +82,7 @@ func RewriteChecks(u Unit, run func(files []File, laws []string) (string, error)
 		laws, insts = append(laws, ev.asked...), append(insts, ev.askedInsts...)
 		t := u
 		t.Rewrite, t.Instances, t.Posts = nil, insts, nil
+		t.ImportLaws = importLawRuns(u, laws)
 		for _, law := range laws {
 			if law.Rewrite == nil {
 				// A post law's fact holds after its operation from every
@@ -154,6 +156,41 @@ func probeLower(u Unit) ([]byte, error) {
 		}
 	}
 	return lowerPackage(u, true)
+}
+
+// importRules are the rewrite rules of u's imported units, by provider: a
+// provider an import declares is rewritten on the build module's evidence
+// (evidenceFor), so the root's check runs its laws. A library has no
+// sites of its own, so its laws are checked where a binary's sites ask.
+func importRules(u Unit) map[*check.Named][]rwRule {
+	out := map[*check.Named][]rwRule{}
+	for _, imp := range u.Imports {
+		for prov, rules := range newRewriter(imp.Package, nil).rules {
+			out[prov] = append(out[prov], rules...)
+		}
+	}
+	return out
+}
+
+// HasRewriteLaws reports whether u's build may rewrite: its package or
+// an import declares a rewrite or post law a provider's run checks. A
+// unit with none reads no ledger.
+func HasRewriteLaws(u Unit) bool {
+	return len(newRewriter(u.Package, nil).rules) > 0 || len(importRules(u)) > 0
+}
+
+// importLawRuns are the law runs of u's imported units whose law is one
+// of laws: the runs the root's check build adds to its own.
+func importLawRuns(u Unit, laws []*check.Law) []check.LawRun {
+	var out []check.LawRun
+	for _, imp := range u.Imports {
+		for _, r := range imp.Package.LawRuns {
+			if slices.Contains(laws, r.Law) {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
 }
 
 // checkedEvidence is the verdicts of the check runs: ok by law and

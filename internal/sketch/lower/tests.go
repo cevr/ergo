@@ -87,6 +87,9 @@ type testLowering struct {
 	// posts are the unit's post laws that run from drawn reached states
 	// (Unit.Posts, postRun).
 	posts []*check.Law
+	// importLaws are the imported packages' law runs the build runs
+	// beside the root's (Unit.ImportLaws).
+	importLaws []check.LawRun
 }
 
 // LowerTests lowers the checked unit to the Go module of its test binary:
@@ -96,7 +99,7 @@ func LowerTests(u Unit) ([]File, error) {
 	if err := u.Validate(); err != nil {
 		return nil, err
 	}
-	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts})
+	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts, importLaws: u.ImportLaws})
 	code, err := l.program()
 	if err != nil {
 		return nil, err
@@ -315,9 +318,25 @@ func (l *lowerer) testFunc(t *check.Test) string {
 // runs (check.Package.LawRuns), its own laws and the laws of its imports
 // bound to providers it is the least package to see, in canonical order,
 // as runTests are its tests (Laws). A law that does not run (Law.Unrun) is
-// reported as skipped and has no body in the build.
+// reported as skipped and has no body in the build. A rewrite check's
+// build runs the imported packages' runs it was given after them
+// (Unit.ImportLaws), each law once.
 func (l *lowerer) runLaws() []check.LawRun {
-	return l.canon.lawRuns(l.pkg)
+	runs := l.canon.lawRuns(l.pkg)
+	if l.tests == nil || len(l.tests.importLaws) == 0 {
+		return runs
+	}
+	seen := map[*check.Law]bool{}
+	for _, r := range runs {
+		seen[r.Law] = true
+	}
+	for _, r := range l.tests.importLaws {
+		if !seen[r.Law] {
+			seen[r.Law] = true
+			runs = append(runs, r)
+		}
+	}
+	return runs
 }
 
 // lawLowered reports whether the build lowers the run's law: it runs and

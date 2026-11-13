@@ -4301,6 +4301,26 @@
       "rule": "A provider's laws take the evidence of the ledger of the module that declares it: the root module's ledger never answers for a provider another module declares.",
       "anchor": {"tests": ["lower:TestCellEvidenceFollowsTheDeclaringModule"]},
       "killers": ["lower:TestCellEvidenceFollowsTheDeclaringModule"]
+    },
+    {
+      "name": "npj-unfold-computed-arg-kept",
+      "origin": "wf10 REF NOPRIV-JSON",
+      "file": "internal/sketch/lower/unfold.go",
+      "from": "\t\t\t\t\tif why != \"\" || v == nil {\n\t\t\t\t\t\treturn false\n\t\t\t\t\t}\n\t\t\t\t\tnext.args = append(next.args, rwArg{c: v})",
+      "to": "\t\t\t\t\tif true || why != \"\" || v == nil {\n\t\t\t\t\t\treturn false\n\t\t\t\t\t}\n\t\t\t\t\tnext.args = append(next.args, rwArg{c: v})",
+      "rule": "Unfold by definition passes an argument the check-time evaluator folds from the call's constants: a length-prefixed codec's constant key is one constant append.",
+      "anchor": {"tests": ["lower:TestUnfoldFoldsAComputedArgument"]},
+      "killers": ["lower:TestUnfoldFoldsAComputedArgument"]
+    },
+    {
+      "name": "npj-unfold-computed-arg-unbound",
+      "origin": "wf10 REF NOPRIV-JSON",
+      "file": "internal/sketch/lower/unfold.go",
+      "from": "\t\t\t\t\tv, why := eval.Fold(f.Pkg, f.Decl, a, consts, rewriteFoldBudget)",
+      "to": "\t\t\t\t\tv, why := eval.Fold(f.Pkg, f.Decl, a, nil, rewriteFoldBudget)",
+      "rule": "A computed argument folds from the call's constants, so it reads the parameters the call binds.",
+      "anchor": {"tests": ["lower:TestUnfoldFoldsAComputedArgument"]},
+      "killers": ["lower:TestUnfoldFoldsAComputedArgument"]
     }
   ]
 }

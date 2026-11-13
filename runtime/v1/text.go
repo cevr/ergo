@@ -100,6 +100,12 @@ func StringsBuilderGrow(buf []byte, n int) []byte {
 //ergo:owned StringsBuilderTextOwned
 func StringsBuilderText(buf []byte) string { return string(buf) }
 
+// StringsFromBytes is the text of b, a copy: a writer's buffer goes back
+// to a pool after (StringsGive), so the text never shares its bytes.
+//
+//ergo:pure
+func StringsFromBytes(b []byte) string { return string(b) }
+
 // StringsFields is strings.Fields.
 //
 //ergo:pure

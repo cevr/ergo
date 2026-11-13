@@ -124,7 +124,7 @@ func Lower(u Unit) ([]File, error) {
 		return nil, err
 	}
 	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
-	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && ev.HasRules() {
+	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && HasRewriteLaws(u) {
 		// The producer record names the ledgers and the rewrites applied
 		// (ledger.go).
 		files = append(files, File{Path: "ergo_laws.go", Data: ev.record(l, l.rewrite.applied)})

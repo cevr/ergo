@@ -34,7 +34,7 @@ func (l *lowerer) viewOf(p *check.Package) check.FactOwner {
 	if l.tests != nil {
 		if l.tests.lawPkgs == nil {
 			l.tests.lawPkgs = map[*check.Package]bool{}
-			for _, r := range l.pkg.LawRuns {
+			for _, r := range l.runLaws() {
 				if r.Law.Pkg != l.pkg && lawLowered(r) {
 					l.tests.lawPkgs[r.Law.Pkg] = true
 				}

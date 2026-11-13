@@ -192,7 +192,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"ContextBound":      {reads: true},
 	"ContextValue":      {reads: true},
 	// std strings and strconv (G5a; stdlib.md, strings and strconv): pure
-	// bodies that neither wait nor release.
+	// bodies that neither wait nor release; Borrow and Give take and
+	// give a pooled buffer, which waits for nothing.
+	"StringsBorrow":     {},
+	"StringsGive":       {},
+	"StringsFromBytes":  {},
 	"StringsSplit":      {},
 	"StringsJoin":       {},
 	"StringsHasPrefix":  {},
@@ -414,7 +418,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Sha256Sum":       {},
 	"Crc32Checksum":   {},
 	"Crc32Update":     {},
-	// std json (S-json): text's value appenders and buffer pool, and
+	// std json (S-json): text's value appenders, and
 	// the Cursor's reads; no body waits or releases.
 	"JSONAppendQuoted":   {},
 	"JSONAppendInt":      {},
@@ -425,8 +429,6 @@ var runtimeBindings = map[string]runtimeBinding{
 	"JSONOpen":           {},
 	"TOMLParse":          {},
 	"TOMLFromJSON":       {},
-	"JSONTake":           {},
-	"JSONRecycle":        {},
 	"Cursor.Wrong":       {},
 	"Cursor.TakeNull":    {},
 	"Cursor.Kind":        {},

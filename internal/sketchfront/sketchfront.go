@@ -431,7 +431,7 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.Ledg
 	if err != nil {
 		return nil, nil, err
 	}
-	if !ev.HasRules() {
+	if !lower.HasRewriteLaws(unit) {
 		return nil, nil, nil
 	}
 	unit.Rewrite = ev

@@ -107,14 +107,13 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		return 0, nil
 	}
 	names := ledgerNames(a)
-	var fresh []lower.LedgerEntry
-	if lower.NewLedgerEvidence(unit.Package, names, nil).HasRules() {
-		ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
-		if err != nil {
-			return 0, err
-		}
-		fresh = lower.LedgerEntries(unit, names, ev)
+	// RewriteChecks runs nothing when neither the root nor an import has a
+	// rewrite law: an import's provider is checked at the root's sites.
+	ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
+	if err != nil {
+		return 0, err
 	}
+	fresh := lower.LedgerEntries(unit, names, ev)
 	text, err := ledgerText(req.Ledger)
 	if err != nil {
 		return 0, err

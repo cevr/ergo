@@ -67,7 +67,7 @@ func InspectRewrites(a Analysis, source, ledger string) ([]lower.RewriteSite, er
 		return nil, err
 	}
 	ev, err := ledgerEvidence(a, unit, text)
-	if err != nil || !ev.HasRules() {
+	if err != nil || !lower.HasRewriteLaws(unit) {
 		return []lower.RewriteSite{}, err
 	}
 	unit.Rewrite = ev
