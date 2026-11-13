@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -945,7 +946,7 @@ func callR[T](f func() T) T { f() }
 // union of each outcome of the rule, and each kind of field.
 var unionPaths = []string{
 	"union flat", "union too large", "union too many fields", "union recursive", "union recursive through Option",
-	"union in a flat union", "union shares a slot", "union two slots of one type", "union shared too wide, slot per variant",
+	"union in a flat union", "union shares a slot", "union shares a slice slot", "union two slots of one type", "union shared too wide, slot per variant",
 	"field int", "field string", "field bool", "field slice", "field Option", "field union",
 	"union flat by use", "union carried past the bound", "union carried by payload", "union past the use bound",
 	"carried by tail", "carried by return", "carried by pass", "carried by let", "carried by capture", "carried by function value", "carried by literal result",
@@ -1019,6 +1020,9 @@ func newUnionGen(r *rand.Rand, reached map[string]bool) *unionGen {
 	// slots (stackvm's Instr in small).
 	u.reached["field int"] = true
 	u.unions = append(u.unions, [][]gField{{{kind: "int", name: "N"}, {kind: "int", name: "Nx"}}, {{kind: "int", name: "N"}}, {}})
+	// A union whose variants share a slice slot (vt's Csi and Hook).
+	u.reached["field slice"] = true
+	u.unions = append(u.unions, [][]gField{{{kind: "slice", name: "Xs"}}, {{kind: "slice", name: "Xs"}}, {}})
 	{
 		// A wide union: one variant of five small fields fits the size
 		// bound but not the field count bound; of four, it misses the
@@ -1097,6 +1101,9 @@ func newUnionGen(r *rand.Rand, reached map[string]bool) *unionGen {
 				u.reached["union shared too wide, slot per variant"] = true
 			} else if u.slotShared(i) {
 				u.reached["union shares a slot"] = true
+				if u.slotSharedOf(i, "slice") {
+					u.reached["union shares a slice slot"] = true
+				}
 			}
 			for _, v := range u.unions[i] {
 				kinds := map[string]bool{}
@@ -1104,7 +1111,7 @@ func newUnionGen(r *rand.Rand, reached map[string]bool) *unionGen {
 					if f.kind == "union" && u.flat(f.of, true, false) {
 						u.reached["union in a flat union"] = true
 					}
-					if shared && kinds[f.kind] && (f.kind == "int" || f.kind == "bool" || f.kind == "string") {
+					if shared && kinds[f.kind] && (f.kind == "int" || f.kind == "bool" || f.kind == "string" || f.kind == "slice") {
 						u.reached["union two slots of one type"] = true
 					}
 					kinds[f.kind] = true
@@ -1118,11 +1125,17 @@ func newUnionGen(r *rand.Rand, reached map[string]bool) *unionGen {
 // slotShared reports whether two variants of union i hold a field of one
 // basic kind, so the shared form puts both in one slot.
 func (u *unionGen) slotShared(i int) bool {
+	return u.slotSharedOf(i, "int", "bool", "string", "slice")
+}
+
+// slotSharedOf reports whether two variants of union i hold a field of
+// one of kinds.
+func (u *unionGen) slotSharedOf(i int, kinds ...string) bool {
 	seen := map[string]bool{}
 	for _, v := range u.unions[i] {
 		mine := map[string]bool{}
 		for _, f := range v {
-			if f.kind == "int" || f.kind == "bool" || f.kind == "string" {
+			if slices.Contains(kinds, f.kind) {
 				if seen[f.kind] {
 					return true
 				}
@@ -1179,8 +1192,9 @@ func (u *unionGen) layout(i int, share, register bool) (lay goLayout, shared boo
 	var sharedLay goLayout
 	if share {
 		// One slot per field of the widest variant, by Go type: a basic
-		// type by its kind, a union by its declaration; a slice and an
-		// Option[int] (a generic instance) have slots of their own.
+		// type by its kind, a union by its declaration, a slice ([]int)
+		// by its element; an Option[int] (a generic instance) has a slot
+		// of its own.
 		var keys []string
 		slots := []goLayout{tag}
 		for _, v := range u.unions[i] {
@@ -1190,7 +1204,7 @@ func (u *unionGen) layout(i int, share, register bool) (lay goLayout, shared boo
 				switch f.kind {
 				case "union":
 					key = fmt.Sprintf("U%d", f.of)
-				case "slice", "option":
+				case "option":
 					key = fmt.Sprintf("own %d %d", len(keys), n)
 				}
 				s := -1

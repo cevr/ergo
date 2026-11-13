@@ -160,7 +160,9 @@ type flatUnion struct {
 // Each of method builds a fresh struct, so a slot the tag's variant does
 // not use is zero, and Go's == on the struct is still Ergo's ==. Only
 // identical Go types share (a basic type by its kind, a non-generic named
-// type by its declaration); any other field type has a slot of its own.
+// type by its declaration, a slice, array or Map of those, VI1: vt's
+// Csi and Hook share one []int); any other field type has a slot of its
+// own.
 // No bits are reinterpreted and nothing is unsafe.
 //
 // The shared form is taken where it fits the register limits (step 4);
@@ -182,9 +184,32 @@ func slotKey(t check.Type) any {
 		if u.Orig == nil && len(u.TArgs) == 0 && len(u.TParams) == 0 {
 			return u
 		}
+	case *check.Slice:
+		if e := slotKey(u.Elem); e != nil {
+			return sliceKey{e}
+		}
+	case *check.Array:
+		if e := slotKey(u.Elem); e != nil {
+			return arrayKey{u.Len, e}
+		}
+	case *check.Map:
+		if k, e := slotKey(u.Key), slotKey(u.Elem); k != nil && e != nil {
+			return mapKey{k, e}
+		}
 	}
 	return nil
 }
+
+// sliceKey, arrayKey and mapKey are the slot keys of a slice, an array
+// and a Map whose parts have keys: one Go type each (VI1).
+type (
+	sliceKey struct{ elem any }
+	arrayKey struct {
+		n    int64
+		elem any
+	}
+	mapKey struct{ key, elem any }
+)
 
 // shareSlots assigns the shared slots of fu from its variants' fields.
 func (fu *flatUnion) shareSlots() {
