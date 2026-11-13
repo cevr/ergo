@@ -111,6 +111,10 @@ type flow struct {
 	parent map[syntax.Node]syntax.Node
 	uses   map[*check.Var][]*syntax.Ident
 	inLit  map[*syntax.Ident]bool // uses inside a function literal or trailing block
+	// keep walks for keeps (keeps.go): calls by their keeps summaries, a
+	// match into its bindings, and a store under a parameter as kept.
+	keep   bool
+	params map[*check.Var]bool
 }
 
 func newFlow(l *lowerer, info *check.Info, d *syntax.FuncDecl) *flow {
@@ -154,6 +158,9 @@ func (fl *flow) reachesResult(v *check.Var) bool {
 		for _, id := range fl.uses[u] {
 			if fl.inLit[id] {
 				return true
+			}
+			if _, def := fl.info.Defs[id]; def && fl.keep {
+				continue // the binding itself, not a use of it
 			}
 			taints, escapes := fl.climb(id)
 			if escapes {
@@ -276,6 +283,9 @@ func (fl *flow) climb(id *syntax.Ident) (taints []*check.Var, escapes bool) {
 					if _, local := fl.uses[v]; !local && !fl.declaredHere(v) {
 						return nil, true // a package let, or a variable of another frame
 					}
+					if fl.keep && fl.params[v] {
+						return nil, true // a store through a borrow outlives the call
+					}
 					taints = append(taints, v)
 				}
 				return taints, false
@@ -296,6 +306,11 @@ func (fl *flow) climb(id *syntax.Ident) (taints []*check.Var, escapes bool) {
 			return nil, true // a block's value, which may be the result
 		case *syntax.ReturnStmt:
 			return nil, true
+		case *syntax.TypeGuard:
+			if s, ok := fl.parent[p].(*syntax.TypeSwitchStmt); ok && fl.keep {
+				return fl.matchBinds(s), false
+			}
+			return nil, true
 		default:
 			return nil, true
 		}
@@ -306,6 +321,9 @@ func (fl *flow) climb(id *syntax.Ident) (taints []*check.Var, escapes bool) {
 // call, whose result carries it on; stop means the call keeps nothing of
 // it; escapes means the call may keep it where the walk cannot follow.
 func (fl *flow) callFlow(x *syntax.CallExpr, c *check.Call, cur syntax.Node) (next syntax.Node, stop, escapes bool) {
+	if fl.keep {
+		return fl.keepFlow(x, c, cur)
+	}
 	list := callOperands(x, c)
 	j := -1
 	for i, a := range list {
@@ -362,6 +380,49 @@ func (w *valueWalk) borrowResult(x *syntax.CallExpr) bool {
 		}
 		if u, ok := unparen(a).(*syntax.UnaryExpr); ok && u.Op == syntax.AND {
 			return true
+		}
+	}
+	return false
+}
+
+// hidesParts reports whether a value of type t can hold a function value
+// or an operation value, whose captures and provider no copy of the value
+// reaches.
+func hidesParts(t check.Type) bool {
+	return hides(t, map[check.Type]bool{})
+}
+
+func hides(t check.Type, seen map[check.Type]bool) bool {
+	if t == nil || seen[t] {
+		return false
+	}
+	seen[t] = true
+	switch u := underEqual(t).(type) {
+	case *check.Signature, *check.Interface, *check.MachineType:
+		return true
+	case *check.Slice:
+		return hides(u.Elem, seen)
+	case *check.Array:
+		return hides(u.Elem, seen)
+	case *check.Map:
+		return hides(u.Key, seen) || hides(u.Elem, seen)
+	case *check.Tuple:
+		for _, e := range u.Types {
+			if hides(e, seen) {
+				return true
+			}
+		}
+	case *check.Struct:
+		for _, f := range u.Fields {
+			if hides(f.Type, seen) {
+				return true
+			}
+		}
+	case *check.Union:
+		for _, v := range u.Variants {
+			if hides(v, seen) {
+				return true
+			}
 		}
 	}
 	return false

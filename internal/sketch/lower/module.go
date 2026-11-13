@@ -273,6 +273,7 @@ type lowerer struct {
 	known    map[*check.Func]knownState // known-callback variant decisions (known.go)
 	closed   map[*check.Func]knownState // closed-frame decisions (known.go)
 	deps     map[*check.Func][]bool     // result-alias summaries (alias.go)
+	kept     map[*check.Func][]bool     // kept-argument summaries (keeps.go)
 	stats    knownStats                 // what known.go and alias.go did (tests only)
 	vars     map[*check.Var]string      // package-level lets
 	contexts map[contextSet]string

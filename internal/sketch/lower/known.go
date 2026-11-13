@@ -87,6 +87,9 @@ type knownStats struct {
 	// Moves is the reads of a place the next write overwrites whole, taken
 	// with no copy (values.go V7, moves.go).
 	Moves int
+	// Unkept is the arguments read from a root that a call keeps nothing
+	// of by the callee's keeps summary, passed with no copy (keeps.go).
+	Unkept int
 	// ResultCopies is the call results copied instead of their argument.
 	ResultCopies int
 	// BorrowCopies is the generic results through a borrow copied at the

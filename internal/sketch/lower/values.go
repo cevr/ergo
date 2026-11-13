@@ -249,6 +249,7 @@ type vocc struct {
 	call   *syntax.CallExpr
 	result bool
 	deps   bool // the summary, not the types, decided it
+	unkept bool // the callee's keeps summary decided it (keeps.go)
 }
 
 type owning struct {
@@ -695,6 +696,11 @@ func (w *valueWalk) decide() {
 				switch {
 				case vf.moved[o.path]:
 					// Its place is overwritten next (V7).
+				case o.unkept && w.callWrites(vv, o):
+					// The callee could see a write to the root (keeps.go).
+					vf.clone[o.path] = true
+				case o.unkept:
+					w.l.stats.Unkept++
 				case o.kind == occRead && o.call != nil && valueMutant != "in-flight-blind" && w.inFlight(vv, o):
 					// The callee would see a write a later operand makes.
 					if w.l.holdsValue(w.typeOf(o.path)) {
@@ -1304,6 +1310,10 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			// and a result that reaches no Map or slice type the argument
 			// reaches shares none of it (V6: find(t, path) is a place).
 			o.kind, o.call = occRead, p
+		case w.unkept(p, c, child) && !w.l.isPure(c.Func):
+			// The callee keeps nothing of it (keeps.go), unless it sees a
+			// write to the root during the call (decide, callWrites).
+			o.kind, o.call, o.unkept = occRead, p, true
 		case aliasLowering != "type" && c.Kind == check.CallFunc && c.Func != nil && w.l.isPure(c.Func):
 			// The result-alias summary (alias.go): a result that does not
 			// depend on the argument keeps nothing of it; one that does
@@ -1311,7 +1321,10 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			if j := operandIndex(p, c, child); j >= 0 && !w.l.ownedAt(c.Func, j) {
 				o.call, o.deps = p, true
 				if w.l.resultDeps(c.Func)[j] && valueMutant != "deps-blind" {
-					o.result = true
+					// A function or operation value in the result hides
+					// what it captured: a copy of the result copies none of
+					// it, so the argument is copied (`let g = hold(xs)`).
+					o.result = !hidesParts(w.typeOf(p))
 				} else {
 					o.kind = occRead
 				}

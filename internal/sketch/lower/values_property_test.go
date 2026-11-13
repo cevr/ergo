@@ -153,6 +153,7 @@ type valueGen struct {
 	reached map[string]bool
 	pending []func() // prints of closures and tasks, run at the end
 	turn    int      // the moves written so far, which pick the next one's form (no draw)
+	kturn   int      // the kept-argument calls written so far (KEEP1), likewise
 	refs    []*vref
 }
 
@@ -421,6 +422,94 @@ func dropS(p *[]int) {
 		*p = (*p)[1:]
 	}
 }
+
+// note1, pick and flushS keep nothing of their slice (KEEP1), and print,
+// so none is pure: note1 passes it to pick in a literal, pick matches it
+// and prints its part's digest, and flushS hands its borrow's slice to
+// note1, then writes and clears it.
+type Pick = One{S []int} | Num{N int}
+
+func note1(s []int) needs Console {
+	// The loop keeps it a Go call (inline.go: a loop amortizes its call).
+	let mut i = 0
+	for i < 1 {
+		i += 1
+		pick(One{S: s})
+	}
+}
+
+func pick(p Pick) needs Console {
+	match p {
+	case One as o:
+		Console.Println("\(ds(o.S))")
+	case Num as t:
+		Console.Println("\(t.N)")
+	}
+}
+
+func flushS(p *[]int) needs Console {
+	note1(*p)
+	if len(*p) > 0 {
+		(*p)[0] = 0
+	}
+	*p = (*p)[0:0]
+}
+
+// note2 and note3 print the digest of s after something the call runs
+// first: k, an operand, or f, which may write s's root (KEEP1).
+func note2(s []int, k int) needs Console {
+	let mut i = 0
+	for i < 1 {
+		Console.Println("\(ds(s) + k)")
+		i += 1
+	}
+}
+
+func note3(s []int, f func()) needs Console {
+	let mut i = 0
+	for i < 1 {
+		f()
+		Console.Println("\(ds(s))")
+		i += 1
+	}
+}
+
+// viaF hands note3 its borrow's slice and f, which may write the slice's
+// root: note3 sees the slice as it was passed.
+func viaF(p *[]int, f func()) needs Console {
+	note3(*p, f)
+	if len(*p) > 0 {
+		(*p)[0] = 0
+	}
+}
+
+// holdP prints, so it is not pure, and keeps s in the function it returns.
+func holdP(s []int) func() int needs Console {
+	Console.Println("held")
+	func() int { ds(s) }
+}
+
+// peekW writes through p, which is s's own root at its call, before it
+// reads s: s is the value passed.
+func peekW(s []int, p *[]int) int needs Console {
+	Console.Println("peek")
+	if len(*p) > 0 {
+		(*p)[0] = 77
+	}
+	ds(s)
+}
+
+// stashF keeps s in a function it stores in a field through a borrow,
+// not in its result.
+type Hold { F func() int }
+
+func stashF(s []int, h *Hold) needs Console {
+	Console.Println("stash")
+	h.F = func() int { ds(s) }
+}
+
+// hold keeps s in the function it returns.
+func hold(s []int) func() int { func() int { ds(s) } }
 
 // crossS stores a slice of one place into another place and into another
 // binding: neither is a reslice (V7), so the write after reaches neither.
@@ -878,6 +967,7 @@ func (g *valueGen) write() {
 			b.val.s[i] = v
 			g.reached["write slice"] = true
 			g.moveSlice(b, v)
+			g.keepSlice(b, v)
 		case 1:
 			g.line(fmt.Sprintf("for i in 0..3 {\n\t\t%s = %s.Append(i + %d)\n\t}", b.name, b.name, v))
 			for i := range 3 {
@@ -1017,6 +1107,102 @@ func (g *valueGen) moveField(b *vbind, v int) {
 	}
 }
 
+// printInt prints the int expression x, which the model says is d.
+func (g *valueGen) printInt(x string, d int) {
+	g.line(fmt.Sprintf("Console.Println(\"\\(%s)\")", x))
+	fmt.Fprintf(&g.want, "%d\n", d)
+}
+
+// keepSlice calls functions on the slice binding b, a let mut, that keep
+// nothing of it (note1, flushS), write its root during the call (peekW),
+// or keep it (hold), two in turn; a write to b follows each. The shared
+// program only.
+func (g *valueGen) keepSlice(b *vbind, v int) {
+	if !g.shared {
+		return
+	}
+	turn := g.kturn
+	g.kturn++
+	if turn%2 == 0 {
+		if len(b.val.s) > 0 {
+			k := g.fresh()
+			g.line(fmt.Sprintf("let %s = hold(%s)", k, b.name))
+			g.line(fmt.Sprintf("%s[0] = %d", b.name, v+2))
+			d := dsModel(b.val.s)
+			g.pending = append(g.pending, func() { g.printInt(k+"()", d) })
+			b.val.s[0] = v + 2
+			g.reached["keep held"] = true
+		}
+		g.line(fmt.Sprintf("note1(%s)", b.name))
+		fmt.Fprintf(&g.want, "%d\n", dsModel(b.val.s))
+		g.reached["keep none"] = true
+		return
+	}
+	k := g.fresh()
+	g.line(fmt.Sprintf("let %s = peekW(%s, &%s)", k, b.name, b.name))
+	fmt.Fprintf(&g.want, "peek\n")
+	d := dsModel(b.val.s)
+	g.pending = append(g.pending, func() { g.printInt(k, d) })
+	if len(b.val.s) > 0 {
+		b.val.s[0] = 77
+	}
+	g.reached["keep written in call"] = true
+	// The same on a slice no other frame names, written during the call
+	// and then kept in another root's field.
+	sw := g.fresh()
+	g.line(fmt.Sprintf("let mut %s = []int{%d, 1, 2}", sw, v))
+	k2 := g.fresh()
+	g.line(fmt.Sprintf("let %s = peekW(%s, &%s)", k2, sw, sw))
+	fmt.Fprintf(&g.want, "peek\n")
+	d2 := dsModel([]int{v, 1, 2})
+	g.pending = append(g.pending, func() { g.printInt(k2, d2) })
+	h2 := g.fresh()
+	g.line(fmt.Sprintf("let mut %s = Hold{F: func() int { 0 }}", h2))
+	g.line(fmt.Sprintf("stashF(%s, &%s)", sw, h2))
+	fmt.Fprintf(&g.want, "stash\n")
+	g.line(fmt.Sprintf("%s[1] = 6", sw))
+	d3 := dsModel([]int{77, 1, 2})
+	g.pending = append(g.pending, func() { g.printInt(h2+".F()", d3) })
+	g.reached["keep alone"] = true
+	if len(b.val.s) > 0 {
+		// A function operand writes the root during the call.
+		g.line(fmt.Sprintf("viaF(&%s, func() { %s[0] = 9 })", b.name, b.name))
+		fmt.Fprintf(&g.want, "%d\n", dsModel(b.val.s))
+		b.val.s[0] = 0
+		g.reached["keep fn operand"] = true
+		// A local frame writes it after the read, before the call.
+		k := g.fresh()
+		g.line(fmt.Sprintf("let %s = func() int {\n\t\t%s[0] = 8\n\t\t0\n\t}", k, b.name))
+		g.line(fmt.Sprintf("note2(%s, %s())", b.name, k))
+		fmt.Fprintf(&g.want, "%d\n", dsModel(b.val.s))
+		b.val.s[0] = 8
+		g.reached["keep frame write"] = true
+		// An impure function keeps it in the function it returns.
+		h := g.fresh()
+		g.line(fmt.Sprintf("let %s = holdP(%s)", h, b.name))
+		fmt.Fprintf(&g.want, "held\n")
+		g.line(fmt.Sprintf("%s[0] = %d", b.name, v+3))
+		d := dsModel(b.val.s)
+		g.pending = append(g.pending, func() { g.printInt(h+"()", d) })
+		b.val.s[0] = v + 3
+		g.reached["keep held impure"] = true
+		// An impure function keeps it in a field of another root.
+		hs := g.fresh()
+		g.line(fmt.Sprintf("let mut %s = Hold{F: func() int { 0 }}", hs))
+		g.line(fmt.Sprintf("stashF(%s, &%s)", b.name, hs))
+		fmt.Fprintf(&g.want, "stash\n")
+		g.line(fmt.Sprintf("%s[0] = %d", b.name, v+4))
+		ds := dsModel(b.val.s)
+		g.pending = append(g.pending, func() { g.printInt(hs+".F()", ds) })
+		b.val.s[0] = v + 4
+		g.reached["keep stashed"] = true
+	}
+	g.line(fmt.Sprintf("flushS(&%s)", b.name))
+	fmt.Fprintf(&g.want, "%d\n", dsModel(b.val.s))
+	b.val.s = []int{}
+	g.reached["keep flush"] = true
+}
+
 // valueProgram writes the program of seed, shared or not, and the lines
 // it must print.
 func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want string) {
@@ -1106,17 +1292,17 @@ func TestValueRuleAgrees(t *testing.T) {
 	}
 	var runs []run
 	var programs []*lowered
-	var moves, copyMoves int
+	var moves, copyMoves, unkept, copyUnkept int
 	for _, seed := range seeds {
 		src, want := valueProgram(seed, true, reached)
 		name := fmt.Sprintf("vr%dshared", seed)
 		savedHook := statsHook
-		statsHook = func(s knownStats) { moves += s.Moves }
+		statsHook = func(s knownStats) { moves, unkept = moves+s.Moves, unkept+s.Unkept }
 		programs = append(programs, lowerValueMode(t, name, src, true))
 		runs = append(runs, run{seed, src, want, name})
 		// The copying lowering, the reference of owned parameters and of
 		// moves (V7): it moves nothing.
-		statsHook = func(s knownStats) { copyMoves += s.Moves }
+		statsHook = func(s knownStats) { copyMoves, copyUnkept = copyMoves+s.Moves, copyUnkept+s.Unkept }
 		programs = append(programs, lowerValueMode(t, name+"copy", src, true, "copy"))
 		statsHook = savedHook
 		runs = append(runs, run{seed, src, want, name + "copy"})
@@ -1130,6 +1316,22 @@ func TestValueRuleAgrees(t *testing.T) {
 			name := fmt.Sprintf("vr%dunshared%v", seed, rule)
 			programs = append(programs, lowerValueMode(t, name, usrc, rule))
 			runs = append(runs, run{seed, usrc, uwant, name})
+		}
+	}
+	if unkept == 0 || copyUnkept != 0 {
+		t.Errorf("unkept arguments (KEEP1): %d under the rule (want some), %d under the copying reference (want none)", unkept, copyUnkept)
+	}
+	// The promised form of an unkept argument: flushS hands its slice to
+	// note1 with no copy; the copying reference copies it.
+	for i, p := range programs[:2] {
+		line := ""
+		for _, l := range strings.Split(goFunc(t, p.mainGo(), "flushS"), "\n") {
+			if strings.Contains(l, "note1(") {
+				line = l
+			}
+		}
+		if copied := strings.Contains(line, "Clone("); line == "" || copied != (i == 1) {
+			t.Errorf("%s: flushS's call of note1 copies %v, want %v (KEEP1): %q", p.name, copied, i == 1, line)
 		}
 	}
 	if moves == 0 || copyMoves != 0 {
@@ -1184,4 +1386,5 @@ var valuePaths = []string{
 	"ref kept", "ref pure read", "ref owned helper", "ref arms", "ref plain update", "ref plain modify",
 	"ref store outside", "ref print",
 	"move take", "move kept", "move other place", "move reslice", "move take borrow", "move reslice borrow", "move reslice root",
+	"keep none", "keep written in call", "keep held", "keep flush", "keep fn operand", "keep frame write", "keep held impure", "keep stashed", "keep alone",
 }

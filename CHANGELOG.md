@@ -6,6 +6,8 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Lowering
 
+- An argument read from a `let mut` or a borrow is passed with no copy to a function that keeps nothing of it, unless the call could write it while it runs (KEEP1; [types](docs/spec/types.md#bindings) Bindings 2). vt's `Flush` hands its event list to `Apply` with no copy. The reference is `keepLowering=copy`.
+- Fix: a pure call that returns a function capturing an argument (`let g = hold(xs)`) no longer shares the argument with a later write through its root; the argument is copied, since copying the function copies none of what it captured.
 - A take (`let got = p.out` followed at once by `p.out = []Event{}`) and a reslice (`c.free = c.free[:n-1]`) through a `let mut` or a borrow move the value with no copy (VC1; [types](docs/spec/types.md#bindings) Bindings 2). A write between the read and the overwrite still copies. The reference is `valueLowering=copy`.
 - A call that converts a value to an operation-type parameter at the call goes to a copy of the callee whose parameter is the conversion's adapter, so the operation calls inside are static Go calls; copies chain through calls that pass the parameter on (DT4; [types](docs/spec/types.md#interface-assignability) Interface assignability 6). The reference is `providerLowering=dynamic`.
 - A counted loop that only fills a slice part, moves a part within one slice, or appends a part of a slice or array is one Go `copy` or `append` when its guard proves every index in bounds (DT4; [types](docs/spec/types.md#loops-and-len) Loops and len 8). Otherwise the loop runs as written. vt's replay runs 19% fewer instructions per byte. The reference is `loopLowering=plain`.
