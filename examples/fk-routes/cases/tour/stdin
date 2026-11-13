@@ -1,0 +1,40 @@
+start /people?searchText=dev
+# The search the address names answers after 300 ms.
+wait 299
+wait 1
+# The four shortcuts.
+key GH
+key GP
+wait 300
+key GF
+key GN
+# A number parameter, a person who is not there, and one that is not a number.
+visit /people/3
+visit /people/9
+visit /people/x
+# Rest segments: a directory, a file, a deep file, and nothing.
+visit /files/photos/vacation
+visit /files/notes.txt
+visit /files/documents/taxes/2025.pdf
+visit /files/nope
+visit /nowhere?searchText=dev
+# A + in the query is a space, as a browser reads it.
+visit /people?searchText=bob+smith
+wait 300
+# Typing does not search; Search does, through the address.
+visit /people
+type Data Smith
+type a b
+search
+# Another route while the search answers: the answer still comes.
+key GH
+wait 300
+key GP
+type Developer
+search
+wait 300
+# Back returns to the searches before, which search again.
+back
+wait 300
+back
+back

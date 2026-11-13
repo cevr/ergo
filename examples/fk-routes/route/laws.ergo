@@ -1,0 +1,71 @@
+import strings
+
+// ParsePrintRoundTrips: Parse reads back every route Print writes. The
+// exceptions are NotFound, whose path is whatever was typed
+// (UnknownPathIsNotFound), and a Files path that is empty or has an
+// empty segment, which no path writes.
+law ParsePrintRoundTrips(r Route) {
+	match r {
+	case NotFound:
+		return true
+	case Files as f:
+		if len(f.Path) == 0 {
+			return true
+		}
+		for s in f.Path {
+			if s == "" {
+				return true
+			}
+		}
+	case Home, Nested, People, Person, FilesIndex:
+	}
+	Parse(Print(r)) == r
+}
+
+// pieces are the segments a generated path is made of: the routes'
+// words, a number, escapes, and words no route has.
+let pieces = []string{"people", "files", "nested", "route", "is", "very", "3", "-7", "x", "", "%41", "a+b", "%zz", "docs"}
+
+func pathOf(segs []int, query int, trailing bool) string {
+	let mut parts = []string{}
+	for k in segs {
+		parts = parts.Append(pieces[((k%len(pieces))+len(pieces))%len(pieces)])
+	}
+	let tail = if trailing { "/" } else { "" }
+	let q = match ((query % 4) + 4) % 4 {
+	case 0:
+		""
+	case 1:
+		"?searchText=a%20b+c"
+	case 2:
+		"?page=2&searchText=x"
+	case _:
+		"?searchText="
+	}
+	"/" + strings.Join(parts, "/") + tail + q
+}
+
+// PrintParseRoundTrips: a parsed path printed again parses to the same
+// route, for generated paths: Print writes each route's one path.
+law PrintParseRoundTrips(segs []int, query int, trailing bool) {
+	let r = Parse(pathOf(segs, query, trailing))
+	Parse(Print(r)) == r
+}
+
+// UnknownPathIsNotFound: a path whose first segment no route has is
+// NotFound, and keeps the whole path, query included.
+law UnknownPathIsNotFound(first string, rest []int, query int) {
+	let word = if first == "" { "x" } else { first }
+	match word {
+	case "people", "files", "nested":
+		return true
+	case _:
+	}
+	let full = "/" + Escape(word) + pathOf(rest, query, false)
+	Parse(full) == NotFound{Path: full}
+}
+
+// EscapeRoundTrips: Unescape reads back what Escape writes.
+law EscapeRoundTrips(s string) {
+	Unescape(Escape(s)) == s
+}

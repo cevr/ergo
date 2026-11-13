@@ -1,0 +1,197 @@
+{
+  "about": "fk-routes' application mutants; each is judged by the example's laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk8-print-search-unescaped", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/route/route.ergo",
+      "from": "\"/people?searchText=\" + Escape(s.Value)",
+      "to": "\"/people?searchText=\" + s.Value",
+      "rule": "Print escapes the search, so Parse reads it back (law ParsePrintRoundTrips).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-empty-segments-kept", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/route/route.ergo",
+      "from": "\t\tif s != \"\" {\n\t\t\tsegs = segs.Append(Unescape(s))\n",
+      "to": "\t\tif true {\n\t\t\tsegs = segs.Append(Unescape(s))\n",
+      "rule": "A trailing slash and empty segments are skipped (law PrintParseRoundTrips).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-bad-person-id-is-people", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/route/route.ergo",
+      "from": "\t\t\tcase strconv.Malformed, strconv.OutOfRange:\n\t\t\t\treturn NotFound{Path: path}\n",
+      "to": "\t\t\tcase strconv.Malformed, strconv.OutOfRange:\n\t\t\t\treturn People{Search: None}\n",
+      "rule": "A person's address whose id is not a number is not found (case tour: /people/x).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-files-rest-drops-tail", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/route/route.ergo",
+      "from": "Files{Path: segs[1:]}",
+      "to": "Files{Path: segs[1:2]}",
+      "rule": "A Files route keeps every remaining segment (law ParsePrintRoundTrips).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-unknown-is-home", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/route/route.ergo",
+      "from": "\tcase _:\n\t\tNotFound{Path: path}\n",
+      "to": "\tcase _:\n\t\tHome\n",
+      "rule": "An unknown path is NotFound and keeps the path (law UnknownPathIsNotFound).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-plus-not-a-space", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/route/route.ergo",
+      "from": "Unescape(strings.ReplaceAll(h.Value.After, \"+\", \" \"))",
+      "to": "Unescape(h.Value.After)",
+      "rule": "A + in the query is a space (case tour: searchText=bob+smith).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-escape-keeps-slash", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/route/escape.ergo",
+      "from": "|| b == '_' || b == '~' {",
+      "to": "|| b == '_' || b == '~' || b == '/' {",
+      "rule": "A slash inside a segment is escaped, so the segment stays one (law ParsePrintRoundTrips).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-unescape-drops-byte", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/route/escape.ergo",
+      "from": "\t\t\tout = out + b\n",
+      "to": "\t\t\tout = out + b[0:0]\n",
+      "rule": "Unescape reads back what Escape writes (law EscapeRoundTrips).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-search-names-only", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/people/people.ergo",
+      "from": " || strings.Contains(strings.ToLower(p.Role), q) {",
+      "to": " {",
+      "rule": "A search finds a role too (law SearchMatchesNameOrRole).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-search-case-sensitive", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/people/people.ergo",
+      "from": "let q = strings.ToLower(text)",
+      "to": "let q = text",
+      "rule": "A search ignores case (law SearchMatchesNameOrRole).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-history-keeps-six", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/people/people.ergo",
+      "from": "len(out) < HistoryLimit {",
+      "to": "len(out) <= HistoryLimit {",
+      "rule": "The history keeps the newest five (law HistoryKeepsTheNewestDistinct; the tour makes four).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-history-keeps-repeats", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/people/people.ergo",
+      "from": "if h != text && len(out)",
+      "to": "if true && len(out)",
+      "rule": "A search made again moves to the front (law HistoryKeepsTheNewestDistinct).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-empty-search-recorded", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/people/people.ergo",
+      "from": "\tif text == \"\" {\n\t\treturn history\n",
+      "to": "\tif false {\n\t\treturn history\n",
+      "rule": "An empty search is not recorded (law HistoryKeepsTheNewestDistinct).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-find-stops-at-dir", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/files/tree.ergo",
+      "from": "\t\t\treturn Find(d.Entries, path[1:])\n",
+      "to": "\t\t\treturn Some[Entry]{Value: d}\n",
+      "rule": "A path goes into its directories (case tour: /files/photos/vacation).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-size-in-bytes", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/files/tree.ergo",
+      "from": "\tif bytes >= kb {\n",
+      "to": "\tif bytes >= mb {\n",
+      "rule": "A size from a kilobyte up shows in kilobytes (case tour: notes.txt is 1.2 KB).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-other-route-restarts", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/app/router.ergo",
+      "from": "\t\t\tStay[App]{Next: App{..a, Route: r}}\n",
+      "to": "\t\t\tEnter[App]{Next: App{..a, Route: r}}\n",
+      "rule": "A route other than People keeps the entry, so a search under way keeps its timer (law NavigationSetsTheRoute).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-people-keeps-field", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/app/router.ergo",
+      "from": "Enter[App]{Next: App{Route: r, Page: Page{Input: s,",
+      "to": "Enter[App]{Next: App{Route: r, Page: Page{Input: a.Page.Input,",
+      "rule": "A People address sets the field to its search (law NavigationSetsTheRoute).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-gn-goes-to-files", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/app/router.ergo",
+      "from": "\tcase GN:\n\t\troute.Nested\n",
+      "to": "\tcase GN:\n\t\troute.FilesIndex\n",
+      "rule": "Each shortcut goes to its own route (law ShortcutsNavigate).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-typing-records", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/app/router.ergo",
+      "from": "Stay[App]{Next: App{..a, Page: Page{..a.Page, Input: t.Text}}}",
+      "to": "Stay[App]{Next: App{..a, Page: Page{..a.Page, Input: t.Text, History: people.Remember(a.Page.History, t.Text)}}}",
+      "rule": "Typing changes only the field: no history (law TypingOnlyEdits).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-empty-search-has-a-query", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/app/router.ergo",
+      "from": "if a.Page.Input == \"\" { None }",
+      "to": "if false { None }",
+      "rule": "Search with an empty field goes to /people, with no query (law SearchGoesToItsAddress; the tour never searches an empty field).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-answer-ignores-query", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/app/router.ergo",
+      "from": "Found: people.Search(l.Query)",
+      "to": "Found: people.Search(\"\")",
+      "rule": "The answer is the search's (case tour).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-search-slower", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/app/router.ergo",
+      "from": "let SearchTakes = 300ms",
+      "to": "let SearchTakes = 301ms",
+      "rule": "A search answers after 300 ms (case tour: wait 299, then wait 1).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-push-keeps-forward", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/memory/history.ergo",
+      "from": "h.entries.Set(h.entries.Get()[0 : at+1].Append(path))",
+      "to": "h.entries.Set(h.entries.Get().Append(path))",
+      "rule": "A push drops the addresses ahead (law app.Location.BackRestoresRoute for History).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "fk8-back-past-the-start", "origin": "wf10/fk8a",
+      "file": "examples/fk-routes/memory/history.ergo",
+      "from": "\tif at == 0 {\n",
+      "to": "\tif at < 0 {\n",
+      "rule": "Back at the start fails AtStart (law app.Location.BackStopsAtTheStart for History).",
+      "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    }
+  ]
+}

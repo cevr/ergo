@@ -1,0 +1,56 @@
+import strings
+
+// SearchMatchesNameOrRole: a search finds a person by any part of their
+// name or role, in any case, and finds no one whose name and role both
+// lack the text.
+law SearchMatchesNameOrRole(who int, from int, to int, upper bool) {
+	let p = All[((who%len(All))+len(All))%len(All)]
+	let source = if from%2 == 0 { p.Name } else { p.Role }
+	let a = ((from % len(source)) + len(source)) % len(source)
+	let b = a + ((to%(len(source)-a+1))+(len(source)-a+1))%(len(source)-a+1)
+	let text = if upper { strings.ToUpper(source[a:b]) } else { source[a:b] }
+	let t = strings.ToLower(text)
+	let mut found = false
+	for q in Search(text) {
+		if !(strings.Contains(strings.ToLower(q.Name), t) || strings.Contains(strings.ToLower(q.Role), t)) {
+			return false
+		}
+		found = found || q == p
+	}
+	found
+}
+
+// HistoryKeepsTheNewestDistinct: after any searches, the history is the
+// distinct non-empty texts, newest first, at most HistoryLimit of them.
+law HistoryKeepsTheNewestDistinct(picks []int) {
+	let texts = []string{"", "a", "dev", "bob", "eva", "x", "an", "o"}
+	let mut h = []string{}
+	let mut seen = []string{}
+	for k in picks {
+		let t = texts[((k%len(texts))+len(texts))%len(texts)]
+		h = Remember(h, t)
+		if t != "" {
+			seen = front(t, without(seen, t))
+		}
+	}
+	let want = if len(seen) > HistoryLimit { seen[0:HistoryLimit] } else { seen }
+	h == want
+}
+
+func front(t string, xs []string) []string {
+	let mut out = []string{t}
+	for x in xs {
+		out = out.Append(x)
+	}
+	out
+}
+
+func without(xs []string, t string) []string {
+	let mut out = []string{}
+	for x in xs {
+		if x != t {
+			out = out.Append(x)
+		}
+	}
+	out
+}

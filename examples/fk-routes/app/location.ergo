@@ -1,0 +1,46 @@
+// AtStart is a Back with no earlier page in the history.
+type AtStart {}
+
+// Location is the browser's address and its history: the program reads
+// the address, pushes a new one when it navigates, and goes back. After
+// a push or a back, the host tells the machine the new address
+// (Navigated).
+type Location {
+	// Here is the current address.
+	Here() string,
+	// Push makes path the current address, after the current one; the
+	// addresses ahead of the current one are dropped.
+	Push(path string),
+	// Back makes the address before the current one current, and is it.
+	Back() string fails AtStart,
+
+	// BackRestoresRoute: Back after a push returns to the address before
+	// it, so the route the program shows is the one it showed then.
+	law BackRestoresRoute(picks []int) {
+		let paths = []string{"/", "/people", "/people/3", "/files/photos", "/people?searchText=dev", "/nowhere"}
+		for k in picks {
+			let before = Here()
+			Push(paths[((k%len(paths))+len(paths))%len(paths)])
+			let back = Back() catch {
+			case AtStart:
+				return false
+			}
+			if back != before || Here() != before {
+				return false
+			}
+			Push(paths[((k%len(paths))+len(paths))%len(paths)])
+		}
+		true
+	},
+
+	// BackStopsAtTheStart: with nothing pushed, Back fails AtStart and
+	// keeps the address.
+	law BackStopsAtTheStart() {
+		let here = Here()
+		let _ = Back() catch {
+		case AtStart:
+			return Here() == here
+		}
+		false
+	},
+}

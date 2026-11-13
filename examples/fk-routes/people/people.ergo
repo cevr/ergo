@@ -1,0 +1,57 @@
+// Package people is the people the People routes list and search.
+
+import strings
+
+// Person is someone on the list.
+type Person { ID int, Name string, Role string }
+
+// All is everyone, in order.
+let All = []Person{
+	Person{ID: 1, Name: "Alice Johnson", Role: "Designer"},
+	Person{ID: 2, Name: "Bob Smith", Role: "Developer"},
+	Person{ID: 3, Name: "Carol Davis", Role: "Manager"},
+	Person{ID: 4, Name: "David Wilson", Role: "Developer"},
+	Person{ID: 5, Name: "Eva Brown", Role: "Designer"},
+}
+
+// HistoryLimit is how many searches the history keeps.
+let HistoryLimit = 5
+
+// Search is everyone whose name or role contains text, in any case, in
+// order; everyone for an empty text.
+func Search(text string) []Person {
+	let q = strings.ToLower(text)
+	let mut out = []Person{}
+	for p in All {
+		if strings.Contains(strings.ToLower(p.Name), q) || strings.Contains(strings.ToLower(p.Role), q) {
+			out = out.Append(p)
+		}
+	}
+	out
+}
+
+// Find is the person numbered id.
+func Find(id int) Option[Person] {
+	for p in All {
+		if p.ID == id {
+			return Some[Person]{Value: p}
+		}
+	}
+	None
+}
+
+// Remember is history with text first: an empty text changes nothing,
+// and a text already there moves to the front. It keeps the newest
+// HistoryLimit.
+func Remember(history []string, text string) []string {
+	if text == "" {
+		return history
+	}
+	let mut out = []string{text}
+	for h in history {
+		if h != text && len(out) < HistoryLimit {
+			out = out.Append(h)
+		}
+	}
+	out
+}

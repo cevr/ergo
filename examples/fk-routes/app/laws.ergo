@@ -1,0 +1,68 @@
+import fkroutes/people
+import fkroutes/route
+
+let addresses = []string{"/", "/people", "/people?searchText=dev", "/people?searchText=", "/people/3", "/people/x", "/files", "/files/photos/vacation", "/nested/route/is/very/nested", "/nowhere?searchText=dev"}
+
+func addressOf(k int) string { addresses[((k%len(addresses))+len(addresses))%len(addresses)] }
+
+// NavigationSetsTheRoute: a new address sets the route it names. A People
+// route also sets the field to its search, records it and searches it
+// anew, a new entry; any other route keeps the page and the entry.
+law NavigationSetsTheRoute(from int, to int, typed string) {
+	let a0 = Open(addressOf(from))
+	let a = App{..a0, Page: Page{..a0.Page, Input: typed}}
+	let path = addressOf(to)
+	let r = route.Parse(path)
+	let d = Step(a, Navigated{Path: path})
+	match r {
+	case route.People as p:
+		let s = match p.Search {
+		case Some[string] as v:
+			v.Value
+		case None:
+			""
+		}
+		d == Enter[App]{Next: App{Route: r, Page: Page{Input: s, History: people.Remember(a.Page.History, s), Results: Loading{Query: s}}}}
+	case route.Home, route.Nested, route.Person, route.FilesIndex, route.Files, route.NotFound:
+		d == Stay[App]{Next: App{..a, Route: r}}
+	}
+}
+
+// ShortcutsNavigate: each shortcut asks the host to go to its route's
+// path, from any address, and changes nothing itself.
+law ShortcutsNavigate(k Key, from int) {
+	let a = Open(addressOf(from))
+	let want = match k {
+	case GH:
+		"/"
+	case GP:
+		"/people"
+	case GF:
+		"/files"
+	case GN:
+		"/nested/route/is/very/nested"
+	}
+	Step(a, Pressed{Key: k}) == Emit[App, Go]{Next: a, Output: Go{Path: want}}
+}
+
+// TypingOnlyEdits: typing in the search field changes the field and
+// nothing else: no search and no history.
+law TypingOnlyEdits(from int, text string) {
+	let a = Open(addressOf(from))
+	Step(a, Typed{Text: text}) == Stay[App]{Next: App{..a, Page: Page{..a.Page, Input: text}}}
+}
+
+// SearchGoesToItsAddress: Search asks the host for the People address of
+// the field's text, none for an empty field, and the address parses back
+// to that search.
+law SearchGoesToItsAddress(from int, text string) {
+	let a0 = Open(addressOf(from))
+	let a = App{..a0, Page: Page{..a0.Page, Input: text}}
+	let search = if text == "" { None } else { Some[string]{Value: text} }
+	match Step(a, Submit) {
+	case Emit[App, Go] as e:
+		e.Next == a && route.Parse(e.Output.Path) == route.People{Search: search}
+	case Enter[App], Stay[App], Ignore, Reject, Done[Go]:
+		false
+	}
+}

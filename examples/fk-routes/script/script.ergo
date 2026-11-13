@@ -1,0 +1,223 @@
+// Package script is the host of stage a: it runs the program as an actor
+// on an in-process history (memory.History) and a manual clock, plays a
+// script of the user's acts, and shows after each what changed: the
+// address, the screen, the search field, the searches made and the
+// results. A line is one of:
+//
+//	start PATH    open the program at PATH (the first line only)
+//	visit PATH    type PATH in the address bar
+//	key KEYS      a shortcut: GH, GP, GF or GN
+//	type TEXT     the search field's text (the rest of the line)
+//	search        click Search
+//	back          the browser's Back
+//	wait MS       let MS milliseconds pass
+//
+// A blank line or one that starts with # is skipped.
+
+import actor
+import fkroutes/app
+import fkroutes/files
+import fkroutes/memory
+import fkroutes/people
+import fkroutes/route
+import io
+import machines
+import strconv
+import strings
+import time
+
+// Program is the running program.
+type Program = actor.Actor[app.App, app.Signal, Decision[app.App, app.Go]]
+
+// Bad is a script line the host cannot read.
+type Bad { Why string }
+
+// Run plays the script on standard input, with the program's timer on
+// clock, which only Run moves. It returns the exit status: 0, or 1 for a
+// line it cannot read.
+func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
+	let mut lines = []string{}
+	for raw in io.Stdin.Lines() {
+		lines = lines.Append(raw)
+	}
+	let mut start = "/"
+	let mut first = 0
+	for i, raw in lines {
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "start ") {
+			start = strings.TrimSpace(strings.TrimPrefix(line, "start "))
+			first = i + 1
+		}
+		break
+	}
+	let history = memory.At(start)
+	let p = actor.StartMachine(machines.Start(app.Router{}, start), 16, func(g app.Go) {})
+	let mut shown = []string{}
+	Console.Println("> start \(start)")
+	shown = show(shown, view(history, p.State()))
+	for i in first..len(lines) {
+		let line = strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		Console.Println("> " + line)
+		act(p, history, clock, line) catch {
+		case Bad as b:
+			Console.Println("? line \(i + 1): \(b.Why)")
+			p.Stop()
+			return 1
+		}
+		shown = show(shown, view(history, p.State()))
+	}
+	p.Stop()
+	Console.Println("> stop")
+	0
+}
+
+// act does one line's act.
+func act(p Program, history memory.History, clock time.Manual, line string) fails Bad needs Console | Scheduler {
+	let words = strings.Fields(line)
+	let arg = if len(words) > 1 { words[1] } else { "" }
+	match words[0] {
+	case "visit":
+		navigate(p, history, arg)
+	case "key":
+		let k = match arg {
+		case "GH":
+			app.GH
+		case "GP":
+			app.GP
+		case "GF":
+			app.GF
+		case "GN":
+			app.GN
+		case _:
+			return Bad{Why: "a key is GH, GP, GF or GN"}
+		}
+		ask(p, history, app.Pressed{Key: k})
+	case "type":
+		ask(p, history, app.Typed{Text: strings.TrimSpace(strings.TrimPrefix(line, "type"))})
+	case "search":
+		ask(p, history, app.Submit)
+	case "back":
+		let path = memory.Back(history) catch {
+		case app.AtStart:
+			Console.Println("  no page behind")
+			return
+		}
+		tell(p, app.Navigated{Path: path})
+	case "wait":
+		let ms = strconv.Atoi(arg) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return Bad{Why: "wait takes a number of milliseconds"}
+		}
+		time.Advance(clock, duration(int64(ms)*1000000))
+	case "start":
+		return Bad{Why: "start is the first line only"}
+	case _:
+		return Bad{Why: "unknown word \(words[0])"}
+	}
+}
+
+// navigate pushes path on the history and tells the program.
+func navigate(p Program, history memory.History, path string) {
+	memory.Push(history, path)
+	tell(p, app.Navigated{Path: path})
+}
+
+// ask gives the program sig; when it asks to navigate, the host does.
+func ask(p Program, history memory.History, sig app.Signal) {
+	let d = p.Ask(sig) catch {
+	case actor.Stopped:
+		return
+	}
+	match d {
+	case Emit[app.App, app.Go] as e:
+		navigate(p, history, e.Output.Path)
+	case Enter[app.App], Stay[app.App], Ignore, Reject, Done[app.Go]:
+	}
+}
+
+func tell(p Program, sig app.Signal) {
+	let _ = p.Ask(sig) catch {
+	case actor.Stopped:
+		return
+	}
+}
+
+// show prints the lines of now that differ from shown, and is now.
+func show(shown []string, now []string) []string {
+	for k, l in now {
+		if k >= len(shown) || shown[k] != l {
+			Console.Println("  " + l)
+		}
+	}
+	now
+}
+
+// view is what the program shows, a line per part.
+func view(history memory.History, a app.App) []string {
+	let found = match a.Page.Results {
+	case app.Loading as l:
+		"results: loading \"\(l.Query)\""
+	case app.Loaded as l:
+		let mut names = []string{}
+		for q in l.Found {
+			names = names.Append(q.Name)
+		}
+		"results for \"\(l.Query)\": \(if len(names) == 0 { "no one" } else { strings.Join(names, ", ") })"
+	}
+	[]string{"address: \(memory.Here(history)) (\(memory.Depth(history)) behind)", "screen: \(Screen(a))", "field: \"\(a.Page.Input)\"", "history: [\(strings.Join(a.Page.History, ", "))]", found}
+}
+
+// Screen is the route's screen, in a line.
+func Screen(a app.App) string {
+	match a.Route {
+	case route.Home:
+		"Welcome Home"
+	case route.Nested:
+		"a very nested route"
+	case route.People:
+		"People"
+	case route.Person as p:
+		match people.Find(p.ID) {
+		case Some[people.Person] as q:
+			"person \(p.ID): \(q.Value.Name), \(q.Value.Role)"
+		case None:
+			"person \(p.ID): not found"
+		}
+	case route.FilesIndex:
+		"files: \(entries(files.Tree))"
+	case route.Files as f:
+		let at = "files/" + strings.Join(f.Path, "/")
+		match files.Find(files.Tree, f.Path) {
+		case Some[files.Entry] as e:
+			match e.Value {
+			case files.Dir as d:
+				"\(at): \(entries(d.Entries))"
+			case files.File as x:
+				"\(at): a file of \(files.Size(x.Size))"
+			}
+		case None:
+			"\(at): missing"
+		}
+	case route.NotFound as n:
+		"not found: \(n.Path)"
+	}
+}
+
+func entries(es []files.Entry) string {
+	let mut names = []string{}
+	for e in es {
+		match e {
+		case files.Dir as d:
+			names = names.Append(d.Name + "/")
+		case files.File as f:
+			names = names.Append(f.Name)
+		}
+	}
+	strings.Join(names, " ")
+}
