@@ -86,7 +86,7 @@
       "file": "examples/pipeline/run/run.ergo",
       "from": "\tEmit{Next: Fold(s, es), Output: es}\n",
       "to": "\tEmit{Next: s, Output: es}\n",
-      "rule": "The step's next state is the fold of its events: SceneAgreesWithStory.",
+      "rule": "The step's next state is the fold of its events: run.HandleFoldsItsEvents (since DK5b the desk folds the events itself, so no desk law sees Handle's Next).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
     {

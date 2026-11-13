@@ -74,6 +74,7 @@ The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go l
 | --- | --- | --- | --- |
 | `Life.ClosedIsFinal` | run | a run that ended refuses every command with `Closed` | `Decide` takes a submit of a run that ended |
 | `StagesPassInOrder` | run | stages pass one after the other from the first; a run finishes after its last stage | `Evolve` drops `StagePassed` |
+| `HandleFoldsItsEvents` | run | the state `Handle` moves a run to is the fold of the events it gives, so the desk and a recovery, which fold the events, see the run the step committed | `Handle` keeps the old state |
 | `BoardIsFoldOfEvents` | board | the board folded from the events is the board of the runs' states | `Apply` keeps a run that leaves `failing` in that column too (two columns); `Apply` leaves a retried run in `failing` |
 | `GivesUpAfterAttempts` | retry | a stage that always fails is tried three times, then given up | the saga gives up one failure early; its third order names the wrong try |
 | `WaitsItsBackoff` | retry | the next try is ordered exactly when its wait ends | the timer fires after half the wait |
