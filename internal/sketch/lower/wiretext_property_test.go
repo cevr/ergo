@@ -24,9 +24,10 @@ import (
 // writes it. Record types hold the drawn fields: scalars, Option, json's
 // Optional and Nullable, lists and the records before them, so a codec
 // function is entered in several states (keys) and runs end before arms.
-// A field may be of own, a type the program's tape writes itself
-// (WireWrite, types.md Codecs 9; wirewrite.go), which json writes by its
-// structure; main encodes some values on json's Text too. The program is
+// tapeProgram adds own, a type the program's tape writes itself
+// (WireWrite, types.md Codecs 9; wirewrite.go), and own0, a record of an
+// own and a list of them; main encodes it on Tape, and some values on
+// json's Text too, which writes own by its structure. The program is
 // lowered three ways: the default lowering with every law admitted (the
 // engine under test; the laws are true), the reference (rewriteLowering
 // "reference") and the Writer path (wireLowering "writer"). All three
@@ -98,11 +99,6 @@ func mark(t *tape, k string) { t.last = k }
 func echo(t *tape) { t.out = t.out + t.last }
 func Written(t *tape) string { t.out }
 func empty(s string) bool { s == "" }
-
-// own is written by tape itself, and by its structure elsewhere.
-type own { V int }
-
-func WireWrite(o own, t *tape) { t.raw("<own \(o.V)>") }
 `)
 	for _, e := range tapeEvents {
 		body := e.bodies[rng.Intn(len(e.bodies))]
@@ -123,11 +119,10 @@ type tapeField struct {
 }
 
 // tapeRecords draws record types r0, r1, ...; each field's type is a
-// scalar, a wrapper, a list of leaf0 or an earlier record. Five fixed
+// scalar, a wrapper, a list of leaf0 or an earlier record. Four fixed
 // records come first: pair0 holds one record at two keys, lead0 starts
 // with an optional field (an arm right after BeginObject's run), list0
-// holds a list of records, null0 a Nullable[uint64], own0 an own and a
-// list of them.
+// holds a list of records, null0 a Nullable[uint64].
 func tapeRecords(rng *rand.Rand) (src string, kinds []tapeField) {
 	str := func(rng *rand.Rand) string { return strconv.Quote([]string{"", "s", "q1", "key"}[rng.Intn(4)]) }
 	scalars := []tapeField{
@@ -151,14 +146,6 @@ func tapeRecords(rng *rand.Rand) (src string, kinds []tapeField) {
 				return "json.Null"
 			}
 			return "json.NonNull{Value: true}"
-		}},
-		{"own", func(rng *rand.Rand, _ int) string { return "own{V: " + strconv.Itoa(rng.Intn(9)) + "}" }},
-		{"[]own", func(rng *rand.Rand, _ int) string {
-			var xs []string
-			for range rng.Intn(3) {
-				xs = append(xs, "own{V: "+strconv.Itoa(rng.Intn(9))+"}")
-			}
-			return "[]own{" + strings.Join(xs, ", ") + "}"
 		}},
 		{"[]int", func(rng *rand.Rand, _ int) string {
 			var xs []string
@@ -205,8 +192,6 @@ func tapeRecords(rng *rand.Rand) (src string, kinds []tapeField) {
 		return "json.NonNull{Value: " + strconv.Itoa(rng.Intn(9)) + "}"
 	}}
 	kinds = append(kinds, record("pair0", []tapeField{leaf, leaf}), record("lead0", []tapeField{scalars[4], scalars[1]}), record("list0", []tapeField{leaves}), record("null0", []tapeField{nullUint}))
-	// own0 holds own alone and in a list, so every seed writes it.
-	kinds = append(kinds, record("own0", []tapeField{scalars[6], scalars[7], scalars[1]}))
 	known := append([]tapeField{leaf, leaves}, kinds...)
 	for i := range 4 {
 		var fields []tapeField
@@ -230,19 +215,27 @@ func tapeProgram(seed int64) string {
 	rng := rand.New(rand.NewSource(seed))
 	src := tapeSource(rng)
 	records, kinds := tapeRecords(rng)
+	own := func(rng *rand.Rand) string { return "own{V: " + strconv.Itoa(rng.Intn(9)) + "}" }
+	own0 := tapeField{"own0", func(rng *rand.Rand, _ int) string {
+		var xs []string
+		for range rng.Intn(3) {
+			xs = append(xs, own(rng))
+		}
+		return "own0{F0: " + own(rng) + ", F1: []own{" + strings.Join(xs, ", ") + "}, F2: " + []string{"true", "false"}[rng.Intn(2)] + "}"
+	}}
+	kinds = append(kinds, own0)
+	records += "type own { V int }\nfunc WireWrite(o own, t *tape) { t.raw(\"<own \\(o.V)>\") }\ntype own0 { F0 own, F1 []own, F2 bool }\n"
 	var b strings.Builder
 	b.WriteString(src + "\n" + records + "\nfunc main() needs Console {\n")
 	for i := range 12 {
 		k := kinds[i%len(kinds)]
 		fmt.Fprintf(&b, "\tlet t%d = NewTape()\n\tencode(%s, t%d)\n\tConsole.Println(\"%d \\(t%d.Written())\")\n", i, k.value(rng, 0), i, i, i)
 	}
-	// Another provider writes own by its structure.
-	for i := range 4 {
-		k := kinds[len(kinds)-1-i]
-		if i == 0 {
-			k = kinds[4] // own0
-		}
-		fmt.Fprintf(&b, "\tlet j%d = json.NewText()\n\tencode(%s, j%d)\n\tConsole.Println(\"j%d \\(j%d.Written())\")\n", i, k.value(rng, 0), i, i, i)
+	// own0 on its Tape, and on json's Text, which writes own by its
+	// structure.
+	fmt.Fprintf(&b, "\tlet o = NewTape()\n\tencode(%s, o)\n\tConsole.Println(\"o \\(o.Written())\")\n", own0.value(rng, 0))
+	for i := range 2 {
+		fmt.Fprintf(&b, "\tlet j%d = json.NewText()\n\tencode(%s, j%d)\n\tConsole.Println(\"j%d \\(j%d.Written())\")\n", i, own0.value(rng, 0), i, i, i)
 	}
 	b.WriteString("}\n")
 	return b.String()
