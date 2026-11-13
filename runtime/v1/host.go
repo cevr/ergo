@@ -733,17 +733,25 @@ func IOLines(t *rt.Task) iter.Seq[string] {
 // reader goroutine with a select on its channel and ctx.Done(); Effect's
 // Terminal.readInput, a stream that interruption ends.
 type lineReader struct {
-	mu      sync.Mutex
-	r       io.Reader
-	chunk   []byte        // the read goroutine's buffer, used by it alone while reading
-	buf     []byte        // the bytes read and not taken
+	mu    sync.Mutex
+	r     io.Reader
+	chunk []byte // the read goroutine's buffer, used by it alone while reading
+	buf   []byte // the bytes read and not taken
+	// sink is the text of the ReadAll that waits, if one does: a read lands
+	// there, in place of buf, so its bytes are copied once.
+	sink    *strings.Builder
 	err     error         // the read error after buf (io.EOF at the end), taken once
 	reading bool          // a read goroutine is out
 	landed  chan struct{} // closed when the read out lands
 }
 
+// readChunk is the most one read of the host takes. A terminal or a pipe
+// gives what it holds, so a line or a key does not wait for it to fill; a
+// file gives it whole, so ReadAll makes one read goroutine per 64 KiB.
+const readChunk = 64 << 10
+
 func newLineReader(r io.Reader) *lineReader {
-	return &lineReader{r: r, chunk: make([]byte, 4096)}
+	return &lineReader{r: r, chunk: make([]byte, readChunk)}
 }
 
 // take is the next item at the front of the input, as cut finds it, or
@@ -792,7 +800,11 @@ func (l *lineReader) take(stop <-chan struct{}, cut func(b []byte, end bool) int
 func (l *lineReader) read() {
 	n, err := l.r.Read(l.chunk)
 	l.mu.Lock()
-	l.buf = append(l.buf, l.chunk[:n]...)
+	if l.sink != nil {
+		growWrite(l.sink, l.chunk[:n])
+	} else {
+		l.buf = append(l.buf, l.chunk[:n]...)
+	}
 	if err != nil {
 		l.err = err
 	}
@@ -801,20 +813,21 @@ func (l *lineReader) read() {
 	l.mu.Unlock()
 }
 
+// growWrite writes p to b, growing b by doubling (append's growth is 1.25
+// for a large buffer).
+func growWrite(b *strings.Builder, p []byte) {
+	if b.Cap()-b.Len() < len(p) {
+		b.Grow(max(len(p), b.Cap()))
+	}
+	b.Write(p)
+}
+
 // lineLen is the length of the first line of b with its line feed, as
 // take's cut: the rest of b at the end of the input.
 func lineLen(b []byte, end bool) int {
 	if i := bytes.IndexByte(b, '\n'); i >= 0 {
 		return i + 1
 	}
-	if end {
-		return len(b)
-	}
-	return -1
-}
-
-// restLen is the whole of b at the end of the input, as take's cut.
-func restLen(b []byte, end bool) int {
 	if end {
 		return len(b)
 	}
@@ -840,25 +853,63 @@ func stdinReader() *lineReader {
 	return stdin
 }
 
-// readAll is the rest of the input, read on t. A stop of t leaves what it
-// read in the buffer and raises rt.Interrupted.
+// readAll is the rest of the input, read on t, and the end of the input
+// after it, so the next read starts there. A stop of t puts back what it
+// read, in front of what the buffer holds, and raises rt.Interrupted. A
+// read failure after some bytes fails the whole: the bytes are dropped.
+//
+// The text is built in a strings.Builder, whose String is its own bytes
+// with no copy: each landed read is copied into it once and the result is
+// handed over, never copied again. It grows by doubling, and once to a
+// regular file's size when the input is one, as os.ReadFile does, so a
+// file costs one allocation of its size and a pipe at most about twice
+// its size (io.ReadAll: twice, the chunks and the final copy).
 func (l *lineReader) readAll(t *rt.Task) (string, error) {
 	t.Check()
-	rest, err, ok := l.take(t.Done(), restLen)
-	switch {
-	case !ok:
-		panic(rt.Interrupted)
-	case err == io.EOF:
-		return "", nil
-	case err != nil:
-		return "", ReadFailed{Reason: fsReason(err)}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var all strings.Builder
+	if f, ok := l.r.(*os.File); ok {
+		if info, err := f.Stat(); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			// A hint: the offset may be past 0, so this may be more than
+			// the rest, never less unless the file grows.
+			all.Grow(len(l.buf) + int(info.Size()) + 1)
+		}
 	}
-	// The end of the input follows the rest: take it now, so the next
-	// read starts after it, as the old line loop did.
-	if _, err, _ := l.take(nil, restLen); err != nil && err != io.EOF {
-		return "", ReadFailed{Reason: fsReason(err)}
+	growWrite(&all, l.buf)
+	l.buf = nil
+	l.sink = &all
+	defer func() { l.sink = nil }()
+	for {
+		if l.err != nil {
+			err := l.err
+			l.err = nil
+			if err != io.EOF {
+				return "", ReadFailed{Reason: fsReason(err)}
+			}
+			return all.String(), nil
+		}
+		if !l.reading {
+			l.reading = true
+			l.landed = make(chan struct{})
+			go l.read()
+		}
+		landed := l.landed
+		l.mu.Unlock()
+		select {
+		case <-landed:
+			l.mu.Lock()
+		case <-t.Done():
+			// Every landed read went to all, so buf is empty: what this
+			// ReadAll read is the whole buffer again (the deferred
+			// funcs drop the sink, then unlock).
+			l.mu.Lock()
+			if all.Len() > 0 {
+				l.buf = []byte(all.String())
+			}
+			panic(rt.Interrupted)
+		}
 	}
-	return string(rest), nil
 }
 
 // lines is the rest of the input, as IOLines gives it, read on t.

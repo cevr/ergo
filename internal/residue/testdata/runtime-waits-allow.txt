@@ -32,6 +32,7 @@ runtime/v1/gocall.go	Call	no task: the Go caller waits, after the root task's ru
 # wait on one keeps an Advance waiting until the host answers
 runtime/v1/exec.go	ExecRun	host: the program's exit and output, and a reader's end
 runtime/v1/host.go	lineReader.take	host: a line of standard input, or the reader's stop
+runtime/v1/host.go	lineReader.readAll	host: the next read of standard input, or the reader's stop
 runtime/v1/exec_start.go	Running.next	host: the next chunk of the program's output
 runtime/v1/exec_start.go	Running.Wait	host: the program's exit
 runtime/v1/exec_start.go	Running.end	host: the program's exit within its grace
