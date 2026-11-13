@@ -34,9 +34,11 @@ func main() {}
 
 // denseFlatCallees are the only callees a promised dense operation's
 // lowered body may name: conversions, len, the prelude's Append (Go's
-// append), and the defect of a full store. Any other call (a dictionary
+// append), the defect of a full store, and ergo.Let, the identity that
+// reads a let lowered as a Go constant (decls.go, letRead), which gc
+// inlines. Any other call (a dictionary
 // call, a Map read, a helper the body reaches through) breaks the promise.
-var denseFlatCallees = map[string]bool{"int": true, "uint32": true, "len": true, "Append": true, "panic": true, "ergo.UnreachableAt": true}
+var denseFlatCallees = map[string]bool{"int": true, "uint32": true, "len": true, "Append": true, "panic": true, "ergo.UnreachableAt": true, "ergo.Let": true}
 
 // TestDenseLowersFlat holds the one promised fact of Dense stores 4 on the
 // lowered Go, in process: Put, At and Rows lower to an append, a slice

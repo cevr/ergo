@@ -200,6 +200,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StringsTrimSpace":  {},
 	"StringsTrimPrefix": {},
 	"StringsTrimSuffix": {},
+	"StringsTrimLeft":   {},
+	"StringsTrimRight":  {},
 	"StringsFields":     {},
 	"StringsRepeat":     {},
 	"StringsToLower":    {},
@@ -210,6 +212,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StrconvItoa":       {},
 	"StrconvAtoi":       {},
 	"StrconvQuote":      {},
+
+	// std strings Builder (STD-sh): pure buffer bodies.
+	"StringsBuilderAppend":     {},
+	"StringsBuilderAppendByte": {},
+	"StringsBuilderGrow":       {},
+	"StringsBuilderText":       {},
+	"StringsBuilderTextOwned":  {},
 	// std-align S1c: the rest of Go's strings and strconv that the std
 	// takes, and utf8; pure, as above.
 	"StringsReplaceAll":   {},
@@ -247,6 +256,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"SlicesEqual":          {},
 	"CmpCompare":           {},
 	"CmpLess":              {},
+	"CmpMax":               {},
+	"CmpMin":               {},
 	// std time (std-align S2b; stdlib.md, time): TimeHostNow reads the
 	// host clock and the others compute, so none waits; Timeline.Wait
 	// waits on the caller's task (rt.Sleep on the manual timeline), and
@@ -365,6 +376,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"MathSqrt":               {},
 	"MathPow":                {},
 	"MathMod":                {},
+	"MathLog":                {},
+	"MathExp":                {},
 	"MathInf":                {},
 	"MathNaN":                {},
 	"MathIsNaN":              {},
@@ -467,6 +480,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	// std fs (G4, G4b; stdlib.md, fs): bodies that read or write the host
 	// file system and neither wait nor release.
 	"FSReadFile":  {},
+	"FSMapFile":   {},
 	"FSReadDir":   {},
 	"FSStat":      {},
 	"FSWriteFile": {},

@@ -461,16 +461,6 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel", "internal/sketch/lower:TestEvalAgreesWithGo"]
     },
     {
-      "name": "nondet1-argument-keys",
-      "origin": "wf10 NONDET1",
-      "file": "internal/sketch/eval/arguments.go",
-      "from": "\t\tsort.SliceStable(keys, func(i, j int) bool { return text[keys[i]] < text[keys[j]] })\n",
-      "to": "\t\t_ = text\n",
-      "rule": "An evaluation's steps are a function of the program: the charged sort of a map argument's keys starts from one order, not the map's.",
-      "killers": ["internal/sketchfront:TestExamplesOutputIsAFunctionOfInput"],
-      "anchor": {"tests": ["internal/sketchfront:TestExamplesOutputIsAFunctionOfInput"]}
-    },
-    {
       "name": "try1-eval-cover-ignored",
       "origin": "wf10 batch 17 (TRY1 x EV)",
       "file": "internal/sketch/eval/expr.go",
@@ -532,6 +522,33 @@
       "to": "\tcase *syntax.SwitchStmt:\n\t\tfor _, cl := range s.Clauses {\n\t\t\tif unparen(s.Tag) == x || last(cl.Body) {",
       "rule": "rows.md Catch 5: a caught match's failing subject is not the caught expression's own failure; under a try it leaves the frame, as the lowering propagates it.",
       "killers": ["internal/sketch/lower:TestTryCoversToTheRight"]
+    },
+    {
+      "name": "det-argument-order",
+      "origin": "wf10 FU-audit",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tkeys := keyOrder(m)\n",
+      "to": "\t\tkeys := make([]Value, 0, len(m))\n\t\tfor k := range m {\n\t\t\tkeys = append(keys, k)\n\t\t}\n",
+      "rule": "A report's step counts are a function of the program: the charged sort of a Map argument's keys starts from their fixed order, not Go's map order.",
+      "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
+    },
+    {
+      "name": "det-equal-order",
+      "origin": "wf10 FU-audit",
+      "file": "internal/sketch/eval/value.go",
+      "from": "\t\tfor _, k := range keyOrder(a.b.m) {\n",
+      "to": "\t\tfor k := range a.b.m {\n",
+      "rule": "A report's step counts are a function of the program: Map equality, which stops at the first different entry, walks the keys' fixed order.",
+      "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
+    },
+    {
+      "name": "det-key-order-unsorted",
+      "origin": "wf10 FU-audit",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tsort.Slice(keys, func(i, j int) bool { return keyLess(keys[i], keys[j]) })\n",
+      "to": "",
+      "rule": "keyOrder's order is a function of the keys alone.",
+      "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
     }
   ]
 }

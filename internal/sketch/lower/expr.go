@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -442,7 +443,7 @@ func (fc *funcCtx) ident(id *syntax.Ident) string {
 		}
 		if name, ok := fc.l.vars[o]; ok {
 			fc.l.reachStdLet(o)
-			return name
+			return fc.l.letRead(o, name)
 		}
 		ice(id, "the variable %s has no Go name", id.Name)
 	case *check.Func:
@@ -496,7 +497,7 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 						// program (sources.go).
 						if name, ok := fc.l.vars[o]; ok {
 							fc.l.reachStdLet(o)
-							return name
+							return fc.l.letRead(o, name)
 						}
 						ice(x, "the let %s.%s has no Go name", id.Name, x.Sel.Name)
 					}
@@ -934,12 +935,46 @@ func (fc *funcCtx) index(x *syntax.IndexExpr) string {
 	if len(x.Indices) != 1 {
 		ice(x, "an index with %d indices", len(x.Indices))
 	}
+	unchecked := fc.uncheckedIndex(x) // bounds.go
 	parts := fc.operands([]syntax.Expr{x.X, x.Indices[0]}, false)
+	if unchecked {
+		fc.l.took("bounds-unchecked")
+		if _, isSlice := fc.typeOf(x.X).(*check.Slice); isSlice {
+			return "(*" + fc.l.rt() + ".AddrAt(" + parts[0] + ", " + parts[1] + "))"
+		}
+		return fc.l.rt() + ".ByteAt(" + parts[0] + ", " + parts[1] + ")"
+	}
 	return parts[0] + "[" + parts[1] + "]"
 }
 
 // sliceExpr lowers xs[a:b] and xs[a:b:c].
 func (fc *funcCtx) sliceExpr(x *syntax.SliceExpr) string {
+	if fc.uncheckedSlice(x) { // bounds.go
+		fc.l.took("bounds-unchecked")
+		// The subject is a local (bounds.go, subject), so its Go text is a
+		// name, read again for a missing high bound. A cut of a constant
+		// length, s[a:a+n], passes n itself, so gc knows the result's
+		// length; the high bound is a sum of locals, with no effect to keep.
+		if n := fc.sliceLen(x); n > 0 {
+			parts := fc.operands([]syntax.Expr{x.X, x.Low}, false)
+			return fc.l.rt() + ".StringN(" + parts[0] + ", " + parts[1] + ", " + strconv.FormatInt(n, 10) + ")"
+		}
+		list := []syntax.Expr{x.X}
+		for _, e := range []syntax.Expr{x.Low, x.High} {
+			if e != nil {
+				list = append(list, e)
+			}
+		}
+		parts := fc.operands(list, false)
+		low, high, i := "0", "len("+parts[0]+")", 1
+		if x.Low != nil {
+			low, i = parts[i], i+1
+		}
+		if x.High != nil {
+			high = parts[i]
+		}
+		return fc.l.rt() + ".StringAt(" + parts[0] + ", " + low + ", " + high + ")"
+	}
 	list := []syntax.Expr{x.X}
 	for _, e := range []syntax.Expr{x.Low, x.High, x.Max} {
 		if e != nil {

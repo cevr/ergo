@@ -73,6 +73,30 @@
     {"name":"dense-sparse-size-off-by-one","origin":"wf10 DN2","file":"internal/sketch/std/dense/sparse.ergo","from":"func Size[K](s Sparse[K]) int { len(s.members) }","to":"func Size[K](s Sparse[K]) int { len(s.members) + 1 }","rule":"Size is the count of members.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
     {"name":"dense-counted-find-never-finds","origin":"wf10 DN2","file":"internal/sketch/std/dense/counted.ergo","from":"Option[ID[T]] { c.ids.Get(v) }","to":"Option[ID[T]] { None }","rule":"Find finds a live value's id.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
     {"name":"dense-counted-free-id-stale","origin":"wf10 DN2","file":"internal/sketch/std/dense/counted.ergo","from":"\t\tc.rows[int(id.n)] = v\n","to":"","rule":"A reused id takes its new value.","anchor":{"tests":["lower:TestStdDenseLawsRun"]},"killers":["lower:TestStdDenseLawsRun"]},
-    {"name":"dense-strings-settles-every-text","origin":"wf10 DN2","file":"internal/sketch/std/dense/intern.ergo","from":"\tif s.pending > 0 && s.pending >= len(s.text) {\n","to":"\tif s.pending > 0 {\n","rule":"Waiting texts are joined onto the one string only when they hold as many bytes as it, so each byte is copied a bounded number of times (Dense stores 4).","anchor":{"tests":["lower:TestDenseStringsCounts"]},"killers":["lower:TestDenseStringsCounts"]}
+    {"name":"dense-strings-settles-every-text","origin":"wf10 DN2","file":"internal/sketch/std/dense/intern.ergo","from":"\tif s.pending > 0 && s.pending >= len(s.text) {\n","to":"\tif s.pending > 0 {\n","rule":"Waiting texts are joined onto the one string only when they hold as many bytes as it, so each byte is copied a bounded number of times (Dense stores 4).","anchor":{"tests":["lower:TestDenseStringsCounts"]},"killers":["lower:TestDenseStringsCounts"]},
+    {
+      "name": "stdsh-trimleft-binding", "origin": "wf10 STD-sh",
+      "file": "internal/sketch/std/strings/strings.ergo",
+      "from": "runtime/v1.StringsTrimLeft func TrimLeft", "to": "runtime/v1.StringsTrimRight func TrimLeft",
+      "rule": "stdlib.md strings 10: TrimLeft binds Go's TrimLeft (law TrimLeftRightKeepEnds).",
+      "anchor": {"tests": ["lower:TestStdTextRuns2"]},
+      "killers": ["lower:TestStdTextRuns2"]
+    },
+    {
+      "name": "stdsh-builder-write", "origin": "wf10 STD-sh",
+      "file": "internal/sketch/std/strings/builder.ergo",
+      "from": "{ b.buf = builderAppend(b.buf, s) }", "to": "{ b.buf = builderAppend(b.buf, s+s) }",
+      "rule": "stdlib.md strings 10: a Builder's text is its writes in order (law BuilderConcatenates).",
+      "anchor": {"tests": ["lower:TestStdTextRuns2"]},
+      "killers": ["lower:TestStdTextRuns2"]
+    },
+    {
+      "name": "stdsh-max-binding", "origin": "wf10 STD-sh",
+      "file": "internal/sketch/std/cmp/cmp.ergo",
+      "from": "runtime/v1.CmpMax func Max", "to": "runtime/v1.CmpMin func Max",
+      "rule": "stdlib.md cmp: Max is the larger value (law MaxMinSplit).",
+      "anchor": {"tests": ["lower:TestStdSlicesLawsRun"]},
+      "killers": ["lower:TestStdSlicesLawsRun"]
+    }
   ]
 }

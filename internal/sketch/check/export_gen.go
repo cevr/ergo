@@ -48,6 +48,7 @@ func (e *encoder) encFieldsPackage(v *Package) {
 	e.encT13(v.files)
 	e.encT14(v.collFuncs)
 	e.encT15(v.testBuilds)
+	e.encPtrPackage(v.testOf)
 }
 
 func (e *encoder) encPackage(v Package) { e.encFieldsPackage(&v) }
@@ -5263,6 +5264,7 @@ func (e *encoder) encFieldsLawProvider(v *LawProvider) {
 	e.encT2(v.Unrun)
 	e.encPtrNamed(v.Slot)
 	e.encT19(v.Params)
+	e.encT11(v.Ptr)
 }
 
 func (e *encoder) encLawProvider(v LawProvider) { e.encFieldsLawProvider(&v) }
@@ -8678,6 +8680,7 @@ func (d *decoder) decFieldsPackage(v *Package) {
 	v.files = d.decT13()
 	v.collFuncs = d.decT14()
 	v.testBuilds = d.decT15()
+	v.testOf = d.decPtrPackage()
 }
 
 func (d *decoder) decPackage() (v Package) {
@@ -14787,6 +14790,7 @@ func (d *decoder) decFieldsLawProvider(v *LawProvider) {
 	v.Unrun = d.decT2()
 	v.Slot = d.decPtrNamed()
 	v.Params = d.decT19()
+	v.Ptr = d.decT11()
 }
 
 func (d *decoder) decLawProvider() (v LawProvider) {

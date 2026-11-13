@@ -35,6 +35,7 @@ A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in p
 - package folders: any other folder except `cases/` and `testdata/`. A package folder holds `.ergo` files and package folders only.
 - top-level `.ergo` files, if any: the module root's package.
 - `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh`, `expected-skips`, `explored`, `testdata/` and `ergo.laws`, as above.
+- `workload`, optional: how `scripts/opcount` runs the program at two sizes for its counted receipt (see "Workload"). The runner reads it and does not run it; a line that does not read is a layout error, `examples/<name>: workload: line N: …`.
 
 `ergo fmt --check` checks every `.ergo` file of its packages, and the test leg runs `ergo test <package folder>` for every package folder, printing `ok <program>: test <folder>`. A package's test build runs the laws of every operation type it sees against every provider it sees, wherever each is declared, in the least package that sees them all (law-xpkg): the laws `kv.Store` declares run in package `memory` against `memory.Table`, and the std `fs.Writes` laws run there against `memory.Full`. A provider is built by its `New<P>` constructor when its package declares one, else generated.
 
@@ -59,6 +60,20 @@ A case folder holds `expected.out` and may hold these files. Any other file is a
 Each case runs in a fresh empty directory, which is also its `HOME`. Its environment is exactly `PATH`, `HOME` and its `env` lines; nothing else of the runner's environment reaches it. The program runs in its own process group, and the runner stops that group when the program ends, after `-timeout` (default 30 s), when the program writes more than 1 MiB (1048576 bytes) to stdout or to stderr, on a panic of the runner, and on SIGINT, SIGTERM or SIGHUP to the runner, so no case leaves a process behind. Output past the cap fails the case with `FAIL <program>/<case>: stdout over 1048576 bytes`, `stderr over 1048576 bytes`, or both, stdout first and joined by `; `. The verdict names each stream that passed the cap before the runner's stop took effect, so when a program writes past the cap on both streams, the verdict can name either stream or both (`TestOutputCap`, `TestOutputCapLateStopNamesBothStreams`). This verdict replaces every other verdict and prints no diff; the runner keeps output in memory only and writes none of it to disk. On a signal the runner also removes its scratch and the case's directory, prints `examples: stopped by <signal>` and exits 128 plus the signal number (130, 143, 129). A case of a `default` program that runs longer than `-budget` (default 5 s) fails: tag the program `slow`.
 
 A case passes when stdout, stderr and the status all equal the recorded ones. A failure names each stream that differs and shows a unified diff (`--- want`, `+++ got`). The runner prints `ok <program>/<case> (<time>)` or `FAIL <program>/<case>: <what>`, and exits 0 when every case passes, 1 when a program or a case fails, and 2 on a usage or layout error.
+
+## Workload
+
+A program's `workload` file tells `scripts/opcount` (docs/tooling.md, "Counted receipts") how to run it at a small and a large size, so that the cost of one unit of work is the slope between the two runs and start-up cancels. One `KEY VALUE…` line per key; blank lines and `#` lines are skipped:
+
+- `unit NAME` (required): what one unit is, such as `op` or `row`.
+- `sizes SMALL LARGE` (required): the two sizes in units, `0 < SMALL < LARGE`.
+- `args WORD…` (required): the program's arguments; `{n}` is the size and `{input}` the input file.
+- `binary NAME`: the `cmd/NAME` to run (default: the program's one binary).
+- `procs N`: `GOMAXPROCS` of each run (default 1).
+- `input self WORD…`: the input is what the program prints with these arguments (a `gen` subcommand); `input go DIR WORD…`: what the Go main package `DIR` (from the repository root) prints. With an input and no `{input}` in `args`, the input is the program's stdin.
+- `control DIR`: the hand Go control, a Go main package `DIR` from the repository root, run with the same arguments and input; `opcount -control` measures it beside the program and requires the same output.
+
+`{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm` and `onebrc` hold one.
 
 ## TypeScript leg
 

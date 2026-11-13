@@ -47,6 +47,13 @@ func ArenaTake[T any](s *ArenaValue[T]) T {
 	return v
 }
 
+// Let is a read of a package let that the lowering declares as a Go
+// constant (lower.constLet): x itself, as a value and not a constant
+// expression, so Go evaluates an expression over it as it evaluates one
+// over a variable (an integer wraps, a division by zero panics at run
+// time). gc inlines it and still folds the constant into the code.
+func Let[T any](x T) T { return x }
+
 // Append is the prelude's xs.Append(x): xs with x added at the end. Like
 // Go's append, the result may share xs's array; the lowering passes a
 // clipped xs where xs is still seen elsewhere.

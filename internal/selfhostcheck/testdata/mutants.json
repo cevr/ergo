@@ -115,8 +115,8 @@
       "name": "sh-align-counts-bytes",
       "origin": "wf10/selfhost/SH1",
       "file": "internal/selfhostcheck/testdata/selfhost/format/align.ergo",
-      "from": "width = maxOf(width, utf8.RuneCount(lines[k].Cells[column]))",
-      "to": "width = maxOf(width, len(lines[k].Cells[column]))",
+      "from": "width = cmp.Max(width, utf8.RuneCount(lines[k].Cells[column]))",
+      "to": "width = cmp.Max(width, len(lines[k].Cells[column]))",
       "rule": "A column's width counts runes, not bytes.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
@@ -277,11 +277,22 @@
       ]
     },
     {
+      "name": "sh-separator-loses-tail",
+      "origin": "wf10/STD-sh",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/layout.ergo",
+      "from": "\tif cell != \"\" {\n\t\tl.CellsTail = cell[len(cell)-1]\n\t}\n",
+      "to": "",
+      "rule": "After a separator the line's last byte is the last byte of its last non-empty cell, so a blank keeps two tokens apart across a column (the tail the builder replaces a scan of the parts with).",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostLayoutModel"
+      ]
+    },
+    {
       "name": "sh-separator-keeps-blank",
       "origin": "wf10/selfhost/SH1",
       "file": "internal/selfhostcheck/testdata/selfhost/format/layout.ergo",
-      "from": "trimRightOf(l.cellText(), \" \")",
-      "to": "l.cellText()",
+      "from": "strings.TrimRight(l.closeCell(), \" \")",
+      "to": "l.closeCell()",
       "rule": "A cell ended by a separator drops its trailing blanks before it is padded.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostLayoutModel"

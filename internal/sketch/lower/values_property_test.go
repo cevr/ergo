@@ -27,8 +27,10 @@ import (
 //     that stays live, and a rebinding whose callback reads the binding.
 //     It also calls maps.Update with a named callback (rebinding, on a
 //     field, and on a Map that stays live): bumpOpt, and, on a rebinding,
-//     bumpVia, which passes its Option on. Lowered with the rule, with the
-//     copying lowering "copy" (the rule without owned parameters) and with
+//     bumpVia, which passes its Option on. It rebinds slices through
+//     generated user functions, some of which hand the old value over
+//     (V7, values_hand_test.go). Lowered with the rule, with the copying
+//     lowering "copy" (the rule without owned parameters and hand-over) and with
 //     every call a Go call (inlineLowering "call"), all three print the
 //     model's lines. After it, the
 //     program makes Refs of Maps (V6) from literals and bindings, and
@@ -155,6 +157,9 @@ type valueGen struct {
 	turn    int      // the moves written so far, which pick the next one's form (no draw)
 	kturn   int      // the kept-argument calls written so far (KEEP1), likewise
 	refs    []*vref
+	h       *rand.Rand // the draws of the hand-over statements (values_hand_test.go)
+	hands   []handFn
+	boxes   []boxFn
 }
 
 // vref is a sync.Ref[Map[int, int]] of main and the model of its value.
@@ -738,6 +743,8 @@ func (g *valueGen) stmt() {
 		g.print(name, k, b.val.digest(k))
 	case 3, 4:
 		g.write()
+		g.hand()
+		g.sortStmt()
 	case 5:
 		b := g.pick(func(b *vbind) bool { return true })
 		if b == nil {
@@ -1210,7 +1217,11 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 	if shared {
 		salt++
 	}
-	g := &valueGen{r: rand.New(rand.NewPCG(seed, salt)), shared: shared, reached: reached}
+	g := &valueGen{r: rand.New(rand.NewPCG(seed, salt)), shared: shared, reached: reached, h: rand.New(rand.NewPCG(seed, salt+0x68))}
+	hands := ""
+	if shared {
+		hands = g.handFuncs()
+	}
 	for range 60 {
 		g.stmt()
 	}
@@ -1233,6 +1244,9 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 			g.line(fmt.Sprintf("Console.Println(\"\\(dm(%s.Get()))\")", ref.name))
 			fmt.Fprintf(&g.want, "%d\n", dmModel(ref.m))
 		}
+		// No rebinding wrote the package let base (V7).
+		g.print("base", kSlice, dsModel(handBase))
+		g.print("bbase", kBox, handBoxBase.digest(kBox))
 	}
 	g.line("Console.Println(\"\\(len(calls))\")")
 	g.want.WriteString("0\n")
@@ -1247,7 +1261,7 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 		}
 		body = strings.ReplaceAll(body, "\x00"+b.name+"\x00", kw)
 	}
-	return valuePrelude + "func main() needs Console {\n" + body + "}\n", g.want.String()
+	return valuePrelude + hands + "func main() needs Console {\n" + body + "}\n", g.want.String()
 }
 
 // lowerValueMode lowers src with the value rule or with the reference
@@ -1387,4 +1401,5 @@ var valuePaths = []string{
 	"ref store outside", "ref print",
 	"move take", "move kept", "move other place", "move reslice", "move take borrow", "move reslice borrow", "move reslice root",
 	"keep none", "keep written in call", "keep held", "keep flush", "keep fn operand", "keep frame write", "keep held impure", "keep stashed", "keep alone",
+	"hand rebind", "hand field", "hand loop", "hand second", "sort live", "sort dead", "hand dot", "hand dot loop",
 }

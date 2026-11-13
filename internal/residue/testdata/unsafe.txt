@@ -1,0 +1,56 @@
+# The unsafe uses of the repository (owner q112, 2026-11-11: reviewed unsafe
+# bodies in runtime/v1 only; value-facts note, Inventory; audit 3 G8,
+# 2026-11-12: one inventory for every package). One line per function of a
+# non-test Go file of any package that names package unsafe:
+#
+#   <file> <function> | invariant: <what makes it safe> | review: <who>, <date>
+#
+# TestUnsafeBodiesListed fails on a use of unsafe outside this list, on a
+# line that names no such use, and on a line with no invariant or review.
+# The lowering selects an unsafe body from a fact, never from a std name.
+#
+# Only the runtime/v1 lines are std bodies an emitted program may call
+# (q112). runtime/rt is the run-time support every emitted program links;
+# its one use reads an interface value's words and never writes through
+# them. The other lines are tooling (the gate, the test observer, the
+# producer, a prototype) that no emitted program links.
+#
+# Trust flags. A site where the emitted program skips a check Go would make
+# is a row of this one inventory whatever its mechanism, a runtime/v1 body
+# or a compiler flag (audit 3 G8). The IR speed tier's bounded-index flag
+# (owner q129, 2026-11-11), which removes a Go bounds check, and its escape
+# hints are set only from proved facts (q143, 2026-11-12). They are not
+# built yet: the unit that builds the flag adds its sites here with their
+# fact, their evidence label and their counted gain, and extends
+# TestUnsafeBodiesListed to read them.
+
+# runtime/v1: reviewed std bodies (q112).
+runtime/v1/term_unix.go ioctl | invariant: arg points to a live Go value of the exact kernel type the request names, converted in the call expression (unsafe.Pointer rule 4) | review: STD-sh r2 (listed; body unchanged since the 2026-11-02 FFI rule), 2026-11-12
+runtime/v1/owned.go StringsBuilderTextOwned | invariant: the lowering calls it only on a consumed buffer (types.md, Bindings 2), so no code writes buf[0:len(buf)] after the call; Ergo writes a slice's bytes only through a binding that holds it | review: STD-sh r2 implementor, 2026-11-12; verifier to confirm
+runtime/v1/host.go FSMapFile | invariant: the string names a PROT_READ, MAP_SHARED mapping that is never unmapped, so its bytes never change and stay mapped while the program runs (a file truncated by another process faults with SIGBUS, documented in stdlib.md fs note 4); TestFSMapFileKeepsItsInvariant | review: 1BRC implementor (listed at the merge of FU-audit's inventory into BCE1), 2026-11-12; verifier to confirm
+runtime/v1/unchecked.go ByteAt | invariant: the lowering calls it only where a bounds fact proves 0 <= i < len(s) and s is not written between the proof and the load (lower/bounds.go; fact label checked, run build only; factLowering=checked keeps Go's index); TestBoundsFactsSound, TestBoundsFactsAgree | review: BCE1 implementor, 2026-11-12; verifier to confirm
+runtime/v1/unchecked.go StringAt | invariant: the lowering calls it only where a bounds fact proves 0 <= i <= j <= len(s); an empty result is "", so no string points one past s's bytes (lower/bounds.go); TestBoundsFactsSound, TestBoundsFactsAgree | review: BCE1 implementor, 2026-11-12; verifier to confirm
+runtime/v1/unchecked.go StringN | invariant: the lowering calls it only where a bounds fact proves 0 <= i and i+n <= len(s), for a constant n > 0, from s[a:a+n] of one sum of locals (lower/bounds.go, sliceLen); TestBoundsFactsSound, TestBoundsFactsAgree | review: BCE1 implementor, 2026-11-12; verifier to confirm
+runtime/v1/unchecked.go stringOf | invariant: p points inside a live string's bytes and the n > 0 bytes from p stay inside them (its callers StringAt and StringN); the header struct has a string's layout, a pointer then an int, so the conversion of *struct to *string is rule 1 of unsafe.Pointer | review: BCE1 implementor, 2026-11-12; verifier to confirm
+runtime/v1/unchecked.go AddrAt | invariant: the lowering calls it only for a read where a bounds fact proves 0 <= i < len(xs), so the address lies inside xs's array (lower/bounds.go); TestBoundsFactsSound, TestBoundsFactsAgree | review: BCE1 implementor, 2026-11-12; verifier to confirm
+
+# runtime/rt: run-time support.
+runtime/rt/trace.go - | invariant: ident mirrors the two words of a Go interface value (type word, data word), the layout the gc compiler has used since Go 1.4; ident is compared, never dereferenced, so a layout change gives wrong origins (TestTraceEqualFailuresNameTheirOwnOccurrence fails), not memory errors | review: FU-audit implementor (no unsafe-free form keeps a boxed value's identity: reflect exposes no address of a non-addressable value), 2026-11-12; verifier to confirm
+runtime/rt/trace.go identOf | invariant: reads the two words of its own parameter's interface value through a pointer to that parameter, which is live for the read; the words are copied as pointers, so the stored value stays reachable while an ident of it is held next to the failure that holds it | review: FU-audit implementor, 2026-11-12; verifier to confirm
+
+# Tooling: system calls and reads of kernel structures.
+scripts/gate/cpus_linux.go affinityCPUs | invariant: mask is a live Go array whose length in bytes is the size passed, converted in the call expression (unsafe.Pointer rule 4) | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/source/fdpath_darwin.go descriptorPath | invariant: buffer is a live 1024-byte (MAXPATHLEN) Go array, converted in the call expression (rule 4) | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/producer/image_darwin.go openImage | invariant: cdhash is a live Go array of the size passed to csops, converted in the call expression (rule 4) | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/testinputs/identity_linux.go pollPriority | invariant: pfd has struct pollfd's layout (int32, int16, int16) and timeout is a syscall.Timespec; both are live locals converted in the call expression (rule 4) | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/testinputs/observe_linux.go installFilter | invariant: prog is struct sock_fprog whose filter points to program's first element; both stay live across the call (prog converted in the call expression, runtime.KeepAlive(program) after it) | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/testinputs/observe_linux.go observer.serve | invariant: n and r are live locals of the kernel's seccomp_notif and seccomp_notif_resp layouts, passed to ioctl converted in the call expression | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/testinputs/observe_linux.go observer.handle | invariant: each read is an 8-byte native-endian load from a byte array that readMemory filled with at least 8 bytes (checked before the load); the build tag admits amd64 and arm64 only, where such loads need no alignment | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/testinputs/observe_linux.go messageAddress | invariant: raw holds a whole struct msghdr (got == len(raw) is checked); the loads at offsets 0 and 8 read msg_name and msg_namelen in native byte order on amd64 or arm64 | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/testinputs/observe_linux.go valid | invariant: id is a live uint64 local, the type SECCOMP_IOCTL_NOTIF_ID_VALID reads, converted in the call expression | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/testinputs/observe_linux.go access.path | invariant: the load at offset 16 of how reads open_how.resolve only after readMemory filled all 24 bytes (got == 24 is checked) | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/testinputs/observe_linux.go access.environment | invariant: the 8-byte load reads pointer only after readMemory filled all 8 bytes (got < 8 returns first) | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/testinputs/observe_linux.go readMemory | invariant: local and remote are live iovec locals converted in the call expression; local.Base points into into, which the caller keeps live; remote names the traced process's memory as an integer, never as a Go pointer | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/testinputs/observe_linux.go ioctl | invariant: argument is converted to uintptr in the call expression from an unsafe.Pointer its caller took of a live value (rule 4) | review: FU-audit implementor, 2026-11-12; verifier to confirm
+internal/opcount/counter_linux.go openCounter | invariant: attr is a live local perf_event_attr (the kernel's 64-byte first version) whose Size field is its own size, converted in the call expression (rule 4); the repository's one perf_event_open site | review: STROBE OPC implementor (moved from irspike's MeasureBounded and cmd/ergo's onebrc count test), 2026-11-12; verifier to confirm
+prototypes/actorlib/snapshot.go deepCopy | invariant: f is a field of out, a shallow copy that reflect made addressable; NewAt at f's own address and type only lifts the read-only flag of an unexported field so the copy's own field can be set | review: FU-audit implementor, 2026-11-12; verifier to confirm

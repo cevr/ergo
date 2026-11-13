@@ -1,6 +1,19 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "mutants": [
+    {"name":"assert-test-build-takes-shortcut","origin":"wf10 ASSERT1","file":"internal/sketch/lower/shortcuts.go","from":"\tif l.tests != nil {\n\t\treturn false\n\t}\n\treturn !s.referenced()","to":"\tif false && l.tests != nil {\n\t\treturn false\n\t}\n\treturn !s.referenced()","rule":"A test build takes no shortcut: each proved site lowers to its checking form (plan IR-G §2 item 4).","killers":["lower:TestTestBuildsTakeNoShortcut"]},
+    {"name":"assert-shortcut-unregistered","origin":"wf10 ASSERT1","file":"internal/sketch/lower/shortcuts.go","from":"\t\tname:       \"bounds-unchecked\",","to":"\t\tname:       \"bounds-unchecked-unlisted\",","rule":"Every shortcut a lowering asks takes for is a row of the registry, decided in that row's admission function.","killers":["internal/residue:TestShortcutsAreRegistered"],"anchor":{"tests":["internal/residue:TestShortcutsAreRegistered"]}},
+    {"name":"bounds-unchecked-never","origin":"wf10 BCE1","file":"internal/sketch/lower/bounds.go","from":"\treturn fc.l.takes(\"bounds-unchecked\")","to":"\treturn false && fc.l.takes(\"bounds-unchecked\")","rule":"The run build reads a load the bounds facts prove in range with no bounds check.","killers":["cmd/ergo:TestOneBRCCountsAsHandGo","lower:TestBoundsFactsSound"]},
+    {"name":"bounds-wrap-taken","origin":"wf10 BCE1","file":"internal/sketch/lower/bounds.go","from":"\tif v, k, ok := fc.oneVar(x); ok && fc.exact(x) {","to":"\tif v, k, ok := fc.oneVar(x); ok {","rule":"A guard v+k <= R gives a bound on v only when the facts before it prove that v+k does not wrap: p+128 <= len(s) proves nothing.","killers":["lower:TestBoundsFactsSound"]},
+    {"name":"bounds-index-margin-widened","origin":"wf10 BCE1","file":"internal/sketch/lower/bounds.go","from":"\treturn ok && within(i, s, -1)","to":"\treturn ok && within(i, s, 0)","rule":"An index is unchecked only when it is proved at most len(S)-1.","killers":["lower:TestBoundsFactsSound"]},
+    {"name":"bounds-slice-order-unchecked","origin":"wf10 BCE1","file":"internal/sketch/lower/bounds.go","from":"\treturn within(hi, s, 0) && ordered(lo, hi)\n}","to":"\treturn within(hi, s, 0)\n}","rule":"A cut s[a:b] is unchecked only when a <= b is proved too.","killers":["lower:TestBoundsFactsSound"]},
+    {"name":"bounds-write-keeps-fact","origin":"wf10 BCE1","file":"internal/sketch/lower/bounds.go","from":"func (fc *funcCtx) killAssigned(s *syntax.AssignStmt) {\n\tfor _, x := range s.Lhs {","to":"func (fc *funcCtx) killAssigned(s *syntax.AssignStmt) {\n\tfor _, x := range s.Lhs[:0] {","rule":"A write of a local ends every fact that names it.","killers":["lower:TestBoundsFactsSound"]},
+    {"name":"bounds-loop-keeps-fact","origin":"wf10 BCE1","file":"internal/sketch/lower/bounds.go","from":"\tif len(fc.bounds) == 0 {\n\t\treturn\n\t}\n\tsyntax.Inspect(n,","to":"\tif true || len(fc.bounds) == 0 {\n\t\treturn\n\t}\n\tsyntax.Inspect(n,","rule":"A loop ends, at its head, the facts over every local its body writes: a fact from before the loop holds on the first iteration only.","killers":["lower:TestBoundsFactsSound"]},
+    {"name":"bounds-branch-fact-leaks","origin":"wf10 BCE1","file":"internal/sketch/lower/tails.go","from":"\tthen := fc.scoped(s.Body, func() bool { return fc.yieldList(s.Body.List, d) })\n\tfc.factReset(mark)","to":"\tthen := fc.scoped(s.Body, func() bool { return fc.yieldList(s.Body.List, d) })\n\t_ = mark","rule":"An if's condition gives facts to its body only, not to the code after it.","killers":["lower:TestBoundsFactsSound"]},
+    {"name":"bounds-cut-length-off","origin":"wf10 BCE1","file":"internal/sketch/lower/bounds.go","from":"\treturn hi.k - lo.k\n}","to":"\treturn hi.k - lo.k + 1\n}","rule":"A cut s[a:a+n] of a constant length passes n itself to v1.StringN.","killers":["lower:TestBoundsFactsAgree"],"anchor":{"tests":["lower:TestBoundsFactsAgree"]}},
+    {"name":"const-let-bare-read","origin":"wf10 1BRC","file":"internal/sketch/lower/decls.go","from":"\t\treturn l.rt() + \".Let(\" + name + \")\"","to":"\t\treturn name","rule":"A read of a let lowered as a Go constant is v1.Let(name), no constant expression, so Go evaluates expressions over it as over a variable.","killers":["lower:TestConstLetsStayValues"]},
+    {"name":"const-let-never","origin":"wf10 1BRC","file":"internal/sketch/lower/decls.go","from":"\treturn ok && b.Kind >= check.Bool && b.Kind <= check.Uintptr","to":"\treturn ok && false && b.Kind >= check.Bool && b.Kind <= check.Uintptr","rule":"A package let of an integer, bool or string type with a constant initializer lowers to a Go constant.","killers":["lower:TestConstLetsStayValues","cmd/ergo:TestOneBRCCountsAsHandGo"]},
+    {"name":"const-let-float","origin":"wf10 1BRC","file":"internal/sketch/lower/decls.go","from":"\treturn ok && b.Kind >= check.Bool && b.Kind <= check.Uintptr","to":"\treturn ok && b.Kind >= check.Bool && b.Kind <= check.Float64","rule":"A float let stays a Go variable.","killers":["lower:TestConstLetsStayValues"]},
     {"name":"ps3-conversion-aliases-source","origin":"wf10 PS3","file":"internal/sketch/lower/cells.go","from":"\tw.freshen(x)\n}","to":"\t_ = x\n}","rule":"A value that moves into a cell is copied unless it is fresh or a dead local: the cell never shares storage with its source.","killers":["lower:TestProviderCellsAgree"]},
     {"name":"ps3-cell-window-off","origin":"wf10 PS3","file":"internal/sketch/lower/rewrite.go","from":"\t\tif !ok || c.Op == nil {","to":"\t\tif true || !ok || c.Op == nil {","rule":"A window on a cell local is rewritten by its provider's proved laws.","killers":["lower:TestProviderCellsAgree"]},
     {"name":"ps2-runner-ignores-symbolic","origin":"wf10 PS2","file":"internal/sketch/lower/valueproof.go","from":"\tif !listable {\n\t\treturn symbolic()\n\t}","to":"\tif !listable {\n\t\treturn skip(\"a law parameter cannot be listed\")\n\t}","rule":"A law over an unlistable parameter goes to the symbolic run, which proves it for every value.","killers":["lower:TestSymbolicProofsSound"]},
@@ -1766,8 +1779,8 @@
       "name": "t5-24-false-true-values.go:1105",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 2)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\tif use == nil || use.frame != vv.frame {\n\t\treturn false\n\t}",
-      "to": "\tif use == nil || use.frame != vv.frame {\n\t\treturn true\n\t}",
+      "from": "\tif use == nil || use.frame != frame {\n\t\treturn false\n\t}",
+      "to": "\tif use == nil || use.frame != frame {\n\t\treturn true\n\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
       "killers": [
         "lower:TestValueRuleProbes"
@@ -1777,11 +1790,12 @@
       "name": "t5-25-false-true-values.go:1111",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
-      "to": "\t\t\tif !containsNode(vv.loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
+      "from": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
+      "to": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
-      "killers": [],
-      "gap": "survives at the T5 base too (cb1f7522): no kept or deleted test kills it (T5 base.log); a gap of the suite, not a loss of the cut"
+      "killers": [
+        "lower:TestValueRuleProbes"
+      ]
     },
     {
       "name": "t5-26-negate-if-naming.go:109",
@@ -3483,6 +3497,50 @@
       ]
     },
     {
+      "name": "share-as-wrong-slot",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tfrom = append(from, vd.fieldName[f.Name]+\": u.\"+s)",
+      "to": "\t\t\tfrom = append(from, vd.fieldName[f.Name]+\": u.\"+sharedName(fu.fieldSlot[k][0]))",
+      "rule": "runtime.md Flat unions: narrowing a shared-slot union rebuilds each field of the variant from the slot its constructor wrote.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-of-field-order",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tinto = append(into, s+\": v.\"+vd.fieldName[f.Name])",
+      "to": "\t\t\tinto = append(into, s+\": v.\"+vd.fieldName[fields[len(fields)-1-i].Name])",
+      "rule": "runtime.md Flat unions: a shared-slot constructor writes each field into its own slot, in the field-to-slot map's order.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-slot-reused-in-variant",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\t\t\tif kj == key && !used[j] {",
+      "to": "\t\t\t\t\tif kj == key {",
+      "rule": "runtime.md Flat unions: two fields of one variant never share a slot; only fields of different variants do.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
+      "name": "share-past-register-limits",
+      "origin": "wf10 U1",
+      "file": "internal/sketch/lower/flatunion.go",
+      "from": "\t\t\tif cycle == nil && known && !lay.ssa && fu.shared {",
+      "to": "\t\t\tif false && cycle == nil && known && !lay.ssa && fu.shared {",
+      "rule": "runtime.md Flat unions: where the shared slots miss Go's register limits and a slot per variant fits, the union keeps a slot per variant, not a box.",
+      "killers": [
+        "lower:TestFlatUnionsAgree"
+      ]
+    },
+    {
       "name": "union-fields-unbounded",
       "origin": "wf10 OPT3",
       "file": "internal/sketch/lower/flatunion.go",
@@ -4301,6 +4359,138 @@
     {"name":"keep1-match-escapes","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/alias.go","from":"ok && fl.keep {\n\t\t\t\treturn fl.matchBinds(s), false","to":"ok && fl.keep && false {\n\t\t\t\treturn fl.matchBinds(s), false","rule":"A match passes its subject on to the values its cases bind: pick keeps nothing of its Pick (the promised form of flushS).","killers":["lower:TestValueRuleAgrees"]},
     {"name":"keep1-novalue-carries","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/keeps.go","from":"\tif typed && (t == check.NoValue || !fl.carries(t)) {","to":"\tif typed && !fl.carries(t) {","rule":"A call with no value carries nothing on: note1's last statement keeps nothing of s (the promised form of flushS).","killers":["lower:TestValueRuleAgrees"]},
     {"name":"keep1-def-is-use","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/alias.go","from":"if _, def := fl.info.Defs[id]; def && fl.keep {","to":"if _, def := fl.info.Defs[id]; def && false {","rule":"A binding's own name is not a use of it (pick's case binding; the promised form of flushS).","killers":["lower:TestValueRuleAgrees"]},
-    {"name":"keep1-closure-result-copied","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/values.go","from":"\t\t\t\t\to.result = !hidesParts(w.typeOf(p))\n","to":"\t\t\t\t\to.result = true\n","rule":"A pure call whose result is a function value that captured the argument copies the argument: a copy of the function copies no capture (let g = hold(xs); xs[0] = 2).","killers":["lower:TestValueRuleAgrees"]}
+    {"name":"keep1-closure-result-copied","origin":"wf10/dod/KEEP1","file":"internal/sketch/lower/values.go","from":"\t\t\t\t\to.result = !hidesParts(w.typeOf(p))\n","to":"\t\t\t\t\to.result = true\n","rule":"A pure call whose result is a function value that captured the argument copies the argument: a copy of the function copies no capture (let g = hold(xs); xs[0] = 2).","killers":["lower:TestValueRuleAgrees"]},
+    {
+      "name": "v7-hand-over",
+      "origin": "wf10 STD-sh",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tif arg := w.handedArg(call); arg != nil {\n",
+      "to": "\t\t\tif arg := w.handedArg(call); false && arg != nil {\n",
+      "rule": "types.md, Bindings 2 (V7): p = f(…, p, …) of a pure body hands p over with no copy, so a loop of writes appends in place (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "v7-hand-shared",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\tif ergo && valueMutant != \"hand-shared\" && !w.l.freshFrom(c.Func, at, len(ops)) {\n",
+      "to": "\tif false && ergo && valueMutant != \"hand-shared\" && !w.l.freshFrom(c.Func, at, len(ops)) {\n",
+      "rule": "types.md, Bindings 2 (V7): an Ergo body hands p over only when its results share no storage but p's (freshFrom); one that returns another argument or a package let copies.",
+      "killers": [
+        "lower:TestValueRuleAgrees"
+      ]
+    },
+    {
+      "name": "v7-owner-premise",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\tif w.owner != nil && vv.v == w.owner {\n",
+      "to": "\tif false && w.owner != nil && vv.v == w.owner {\n",
+      "rule": "types.md, Bindings 2 (V7): freshFrom reads the handed parameter as an unshared local, so a user function whose result is its parameter's storage hands it over (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "v7-pure-body-fresh",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tif x.Trailing == nil && w.l.pureV1(c.Func) {\n",
+      "to": "\t\t\tif false && x.Trailing == nil && w.l.pureV1(c.Func) {\n",
+      "rule": "types.md, Bindings 2: a pure runtime/v1 body's result is fresh when every argument is (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "v7-pure-body-operands",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\t\t\tif !w.fresh(a) {\n\t\t\t\t\t\treturn false\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn true\n",
+      "to": "\t\t\t\t\tif false && !w.fresh(a) {\n\t\t\t\t\t\treturn false\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\treturn true\n",
+      "rule": "types.md, Bindings 2: a pure runtime/v1 body's result shares its arguments' storage, so it is fresh only when every argument is.",
+      "killers": [
+        "lower:TestValueRuleAgrees"
+      ]
+    },
+    {
+      "name": "v7-handed-unshared",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tif !w.vf.clone[o.path] && !w.vf.handed[o.path] {\n",
+      "to": "\t\t\tif !w.vf.clone[o.path] {\n",
+      "rule": "types.md, Bindings 2 (V7): a handed read leaves the binding unshared, so its later value enters another binding with no copy (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "consumed-param",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\t\t\t} else if use := w.consumedUse(f, w.vars[v]); use != nil && valueMutant != \"consume-blind\" {\n",
+      "to": "\t\t\t\t\t} else if use := w.consumedUse(f, w.vars[v]); false && use != nil && valueMutant != \"consume-blind\" {\n",
+      "rule": "types.md, Bindings 2 (consumed arguments): a parameter whose one use a call consumes is owned, so a dead receiver reaches String's owned body uncopied (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "consumes-off",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\tw.vf.consumes[call] = true\n",
+      "to": "\t\t\t_ = call\n",
+      "rule": "types.md, Bindings 2 (consumed arguments): a fresh first operand of a runtime/v1 body with an owned form calls the owned form (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "owned-method-call",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/calls.go",
+      "from": "\t\t\t\t// The owned body, a method too (V5).\n\t\t\t\tname = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+\"Owned\")\n",
+      "to": "\t\t\t\t// The owned body, a method too (V5).\n",
+      "rule": "values.go, V5: a call that passes its owned receiver unshared calls the owned method, not the copying one (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "owned-method-wrapper-copy",
+      "origin": "wf10 STD-sh r2",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t\trecv = fc.cloneValue(f.Sig.Params[0].Type, recv, site)\n",
+      "to": "\t\t\t_ = site\n",
+      "rule": "values.go, V5: the method a method value or a host protocol reaches copies its owned receiver before the owned body takes it.",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    },
+    {
+      "name": "consumes-live",
+      "origin": "wf10 STD-sh r3",
+      "file": "internal/sketch/lower/values.go",
+      "from": "len(ops) > 0 && (valueMutant == \"consume-any\" || w.fresh(ops[0])) {\n",
+      "to": "len(ops) > 0 {\n",
+      "rule": "types.md, Bindings 2 (consumed arguments): an owned form takes its first operand over only when that operand is fresh; a binding read after the call is copied, so slices.Sort of a live slice leaves it unsorted.",
+      "killers": [
+        "lower:TestValueRuleAgrees"
+      ]
+    },
+    {
+      "name": "v7-dot-call",
+      "origin": "wf10 STD-sh r3",
+      "file": "internal/sketch/lower/values.go",
+      "from": "\t\t// A dot call p = p.m(…): the receiver is the first operand, unless\n",
+      "to": "\t\treturn nil\n",
+      "rule": "types.md, Bindings 2 (hand-over): a dot rebinding p = p.m(…) hands its by-value receiver over like any operand (speed only).",
+      "killers": [
+        "lower:TestValueRuleElides"
+      ]
+    }
   ]
 }

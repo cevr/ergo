@@ -574,7 +574,7 @@ func (l *loader) checkAll() {
 		if i == len(l.order)-1 {
 			path = "main" // the root package is the program's main package
 		}
-		pkg, ds := check.Check(path, files, l)
+		pkg, ds := check.CheckTest(path, files, l, l.testOf(p))
 		p.pkg = pkg
 		for _, d := range ds {
 			l.diags = append(l.diags, report.Diagnostic{
@@ -588,6 +588,20 @@ func (l *loader) checkAll() {
 			p.broken = true
 		}
 	}
+}
+
+// testOf is the checked package p tests (check.TestedPath of p's import
+// path, read the same whether p is the root or an import), or nil.
+func (l *loader) testOf(p *loadedPackage) *check.Package {
+	base, ok := check.TestedPath(p.path)
+	if !ok {
+		return nil
+	}
+	under, err := l.Import(base)
+	if err != nil {
+		return nil
+	}
+	return under
 }
 
 // Import is the loader's check.Importer: std, then the checked local
