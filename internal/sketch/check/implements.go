@@ -558,7 +558,7 @@ func (c *checker) recordLegacy(v Type, op Type, site string) {
 	}
 	n, ok := v.(*Named)
 	opn, ok2 := op.(*Named)
-	if !ok || !ok2 || c.declares(v, op) || sealedStd(op) != nil || ScriptOf(v) != nil {
+	if !ok || !ok2 || c.declares(v, op) || sealedStdOps(op) || ScriptOf(v) != nil {
 		return
 	}
 	if slices.ContainsFunc(c.declaredOps(v), func(d *Named) bool { return d.origin() == opn.origin() }) {
