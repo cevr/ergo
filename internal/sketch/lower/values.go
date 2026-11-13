@@ -1801,12 +1801,10 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 					o.kind = occRead
 				}
 			}
-		case entryRule() && aliasLowering != "type" && c.Kind == check.CallFunc && pureStdBody(c.Func) && w.l.copyCovers(w.typeOf(p)):
-			// A pure std body keeps its argument only in its result, as
-			// a pure Ergo body does: the result is copied instead (V8).
-			// Its Go body has no summary, so every argument counts.
-			o.call, o.result = p, true
 		}
+		// MAPCOPY x OWN1: a pure std body's result copy (V8) is OWN1's
+		// result-alias case above, which now summarizes runtime/v1
+		// bodies; Escapes copies the result only when copyCovers.
 	}
 }
 
