@@ -104,10 +104,13 @@ type FileStamp struct {
 }
 
 // WarmAnswer is a request's stored answer: the executable's blob digest
-// (build) or the output it printed (check).
+// (build), the output it printed (check) or the test run's result (test).
 type WarmAnswer struct {
 	Executable string `json:"executable,omitempty"`
 	Stdout     []byte `json:"stdout,omitempty"`
+	// Test is a passing `ergo test` run's stored result (cmd/ergo,
+	// testcache.go), replayed with no build and no run (compile-speed CS8).
+	Test []byte `json:"test,omitempty"`
 }
 
 type warmManifest struct {

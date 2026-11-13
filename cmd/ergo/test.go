@@ -54,18 +54,31 @@ func testCommand(args []string) error {
 	return testPackage(opts)
 }
 
+// testPackage tests one package. An unchanged package folder whose last
+// run passed is a warm answer (warm.go; compile-speed CS8): its stored
+// result is replayed with no check, no emission, no link and no process.
+// The request's key adds the law ledger a full run writes.
 func testPackage(opts fileOptions) error {
-	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	var w *warm
+	if testCacheable(opts) {
+		w = startWarm(opts, warmToolchain(opts), ledgerPart(ledgerPath(opts.file)))
+	}
+	if w != nil && w.hit {
+		return replayTestResult(w.answer.Test, os.Stdout, os.Stderr)
+	}
+	l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}
 	if !l.result.Checked {
 		return refuseUnchecked(l, opts)
 	}
-	return testLoadedPackage(opts, l)
+	return testLoadedPackage(opts, l, w)
 }
 
-func testLoadedPackage(opts fileOptions, l loaded) error {
+// testLoadedPackage tests a checked package; w, when not nil, stores a
+// passing result as the request's warm answer.
+func testLoadedPackage(opts fileOptions, l loaded, w *warm) error {
 	// A package with nothing to test is neither built nor run, so its
 	// initializers never run (empty.go); a schedule search still builds it.
 	if opts.search.mode == "" && nothingToTest(l.analysis.Root().Package) {
@@ -114,6 +127,9 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 	key := testResultKey(opts, tc, childArgs, limit, ledger)
 	var cached []byte
 	hit := false
+	// A build that printed a note is not answered warm, since the answer
+	// would not print it.
+	buildStderr := &quiet{w: os.Stderr}
 	// The direct path links nothing for an unchanged module (its action
 	// store holds the executable, build/direct.go); a cached passing
 	// result skips even that.
@@ -131,7 +147,7 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		},
 		Cache:     cache,
 		Toolchain: tc,
-		Stderr:    os.Stderr,
+		Stderr:    buildStderr,
 	})
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
@@ -140,6 +156,9 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		return err
 	}
 	if hit {
+		if !buildStderr.written {
+			w.recordAs(sketchfront.WarmAnswer{Test: cached}, ledgerPart(ledger))
+		}
 		return replayTestResult(cached, os.Stdout, os.Stderr)
 	}
 	if opts.search.mode != "" {
@@ -183,6 +202,9 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		// failure runs again next time. A result that cannot be stored
 		// costs only the next run.
 		_ = cache.PutResult(module, testResultKey(opts, tc, childArgs, limit, ledger), result.encode())
+		if !buildStderr.written {
+			w.recordAs(sketchfront.WarmAnswer{Test: result.encode()}, ledgerPart(ledger))
+		}
 	}
 	return nil
 }

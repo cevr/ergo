@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,8 +21,10 @@ import (
 // has its bytes. A program of one file, `-work`, and ERGO_BUILD=full take
 // the normal path every time.
 type warm struct {
-	cache  build.Cache
-	key    string
+	cache build.Cache
+	key   string
+	// parts are the request's key parts but the extra ones (recordAs).
+	parts  []string
 	answer sketchfront.WarmAnswer
 	hit    bool
 	// rec is the normal path's file system on a miss.
@@ -29,10 +32,13 @@ type warm struct {
 }
 
 // startWarm looks the request up; nil when the warm answer does not apply.
-// tc is the toolchain a build (build or run) links with; check passes none.
-func startWarm(opts fileOptions, tc *build.Toolchain) *warm {
-	building := opts.command != "check"
-	if !sketchfront.WarmEnabled() || opts.work || !isPackageFolder(opts.file) || building && tc == nil {
+// tc is the toolchain a build (build or run) or a test links with; check
+// passes none. extra are parts of the request read outside the front end
+// (a test's law ledger).
+func startWarm(opts fileOptions, tc *build.Toolchain, extra ...string) *warm {
+	building := opts.command == "build" || opts.command == "run"
+	linking := opts.command != "check"
+	if !sketchfront.WarmEnabled() || opts.work || !isPackageFolder(opts.file) || linking && tc == nil {
 		return nil
 	}
 	source, err := receipt.LocateSource(opts.file)
@@ -44,21 +50,24 @@ func startWarm(opts fileOptions, tc *build.Toolchain) *warm {
 		return nil
 	}
 	parts := []string{opts.command, source.Admitted(), warmOptions(opts)}
-	if building {
+	if linking {
 		stamp, ok := goStamp(tc.Go)
 		if !ok {
 			return nil
 		}
 		parts = append(parts, stamp, tc.Root, tc.GOOS+"/"+tc.GOARCH, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild)+" "+strconv.FormatBool(tc.Strip))
 	}
-	key := sketchfront.WarmKey(parts...)
+	key := sketchfront.WarmKey(append(slices.Clone(parts), extra...)...)
 	if key == "" {
 		return nil
 	}
-	w := &warm{cache: build.Cache{Root: root}, key: key}
+	w := &warm{cache: build.Cache{Root: root}, key: key, parts: parts}
 	valid := func(a sketchfront.WarmAnswer) bool {
+		if opts.command == "test" {
+			return a.Test != nil
+		}
 		if !building {
-			return a.Executable == ""
+			return a.Executable == "" && a.Test == nil
 		}
 		return a.Executable != "" && w.cache.HasExecutable(a.Executable)
 	}
@@ -80,10 +89,11 @@ func warmToolchain(opts fileOptions) *build.Toolchain {
 	return &tc
 }
 
-// warmOptions are the options that change a build's or a check's answer.
+// warmOptions are the options that change a build's, a check's or a
+// test's answer.
 func warmOptions(opts fileOptions) string {
 	return fmt.Sprintf("%q", []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json),
-		opts.seed, opts.evalSteps, opts.evalBytes})
+		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run})
 }
 
 // goStamp names the go command: its resolved path, size and modification
@@ -110,6 +120,19 @@ func (w *warm) fsys() sketchfront.FS {
 		return nil
 	}
 	return w.rec
+}
+
+// recordAs stores the answer of a request whose normal path succeeded
+// under the key of its parts and extra as they are now: a test run writes
+// the law ledger it is keyed on, so the next run finds the ledger this one
+// left.
+func (w *warm) recordAs(answer sketchfront.WarmAnswer, extra ...string) {
+	if w == nil || w.rec == nil {
+		return
+	}
+	if key := sketchfront.WarmKey(append(slices.Clone(w.parts), extra...)...); key != "" {
+		_ = w.rec.Record(w.cache, key, answer)
+	}
 }
 
 // record stores the answer of a request whose normal path succeeded.
