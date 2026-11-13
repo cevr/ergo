@@ -333,6 +333,9 @@ type lowerer struct {
 	// the copies for known records made so far (record.go).
 	recParams map[*check.Func]int
 	specs     map[specKey]*specCopy
+	// provParams memoizes each function's operation-type parameter a copy
+	// for a known provider is made for (provider.go).
+	provParams map[*check.Func]int
 	// scalarMemo holds each body's locals in the scalar form (scalar.go).
 	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
 	// flatSet are the program's flat unions (flatunion.go), decided at the

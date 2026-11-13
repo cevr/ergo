@@ -58,20 +58,25 @@ type knownRec struct {
 	fields map[string]*check.Func
 }
 
-// specKey is one copy: a function and the record it is copied for.
+// specKey is one copy: a function and the record it is copied for, or
+// the key of the provider's adapter (provider.go).
 type specKey struct {
-	f  *check.Func
-	tn *check.TypeName
+	f    *check.Func
+	tn   *check.TypeName
+	prov string
 }
 
 // specCopy is the copy of f for rec: its Go name, the index of the record
 // parameter and the Go types of f's type parameters.
 type specCopy struct {
-	f        *check.Func
-	fd       *funcDecl
-	name     string
-	param    int
-	rec      *knownRec
+	f     *check.Func
+	fd    *funcDecl
+	name  string
+	param int
+	rec   *knownRec
+	// prov is the provider a copy for a known provider is made for
+	// (provider.go); rec is nil then.
+	prov     *knownProv
 	typeArgs map[*check.TypeParam]string
 	// bound is each type parameter's type argument, when the call names
 	// one with no type parameter of its own (scalar.go reads it).
@@ -176,7 +181,7 @@ func (l *lowerer) reserveSpecs(pkgs []*check.Package, machines []*check.TypeName
 				continue
 			}
 			for _, tn := range machines {
-				l.pkgName(pkgKey{"spec", specKey{f, tn}}, f.Name+tn.Name)
+				l.pkgName(pkgKey{"spec", specKey{f: f, tn: tn}}, f.Name+tn.Name)
 			}
 		}
 	}
@@ -229,25 +234,41 @@ func (fc *funcCtx) knownRecord(x syntax.Expr) *knownRec {
 // specAt is the copy the call x of c goes to, made and queued for emission
 // at its first call; nil when x takes the function itself.
 func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
-	if recordLowering == "opaque" || c.Kind != check.CallFunc || c.Func == nil || c.Recv != nil || c.Site != nil || x.Trailing != nil || c.StartsTask {
+	if c.Kind != check.CallFunc || c.Func == nil || c.Recv != nil || c.Site != nil || x.Trailing != nil || c.StartsTask {
 		return nil
 	}
 	f := c.Func
-	k := fc.l.recordParam(f)
-	if k < 0 || k >= len(x.Args) {
-		return nil
+	var rec *knownRec
+	var prov *knownProv
+	k := -1
+	if recordLowering != "opaque" {
+		k = fc.l.recordParam(f)
 	}
-	rec := fc.knownRecord(x.Args[k])
+	if k >= 0 && k < len(x.Args) {
+		rec = fc.knownRecord(x.Args[k])
+	}
 	if rec == nil {
-		return nil
+		k = fc.l.provParam(f)
+		if k < 0 || k >= len(x.Args) {
+			return nil
+		}
+		if prov = fc.knownProvider(x.Args[k]); prov == nil {
+			return nil
+		}
 	}
 	fd := fc.l.funcDecl(f)
 	if fd.method != nil || fd.extern != "" || len(fc.l.ownedParams(f)) > 0 {
 		return nil
 	}
-	name, ok := fc.l.pkgNames[pkgKey{"spec", specKey{f, rec.tn}}]
+	var key specKey
+	if rec != nil {
+		key = specKey{f: f, tn: rec.tn}
+	} else {
+		key = specKey{f: f, prov: prov.key}
+	}
+	name, ok := fc.l.pkgNames[pkgKey{"spec", key}]
 	if !ok {
-		return nil // the naming pass names the machines of the program's own packages
+		return nil // the naming pass names the machines of the program's own packages and the providers it converts
 	}
 	// The copy is one instance: each type argument is a Go type, never a
 	// type parameter of a generic caller (a copy's are Go types).
@@ -279,16 +300,19 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	if j != len(own) {
 		return nil
 	}
-	key := specKey{f, rec.tn}
 	if sp := fc.l.specs[key]; sp != nil {
 		return sp
 	}
 	if fc.l.specs == nil {
 		fc.l.specs = map[specKey]*specCopy{}
 	}
-	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, typeArgs: args, bound: bound}
+	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, prov: prov, typeArgs: args, bound: bound}
 	fc.l.specs[key] = sp
-	fc.l.stats.Specialized++
+	if prov != nil {
+		fc.l.stats.Providers++
+	} else {
+		fc.l.stats.Specialized++
+	}
 	fc.l.pending = append(fc.l.pending, func() { fc.l.emitBody(fd, false, sp, false) })
 	return sp
 }

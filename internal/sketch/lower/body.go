@@ -174,6 +174,9 @@ type funcCtx struct {
 	// recs are the record parameters of a copy for a known record and
 	// the record each stands for (record.go).
 	recs map[*check.Var]*knownRec
+	// provs are the operation-type parameters of a copy for a known
+	// provider and the provider each stands for (provider.go).
+	provs map[*check.Var]*knownProv
 	// scalarSet are the locals of the body being written that take the
 	// scalar form, and scalars those declared so far (scalar.go).
 	scalarSet map[*check.Var]bool

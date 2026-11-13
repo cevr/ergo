@@ -1103,6 +1103,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		paramNames[i] = name(i)
 		if s, ok := p.Type.(*check.Signature); ok && known {
 			parts = append(parts, paramNames[i]+" "+fc.plainFuncType(s))
+		} else if sp != nil && sp.prov != nil && i == sp.param {
+			// A copy for a known provider (provider.go): the adapter.
+			parts = append(parts, paramNames[i]+" *"+l.pkgNames[pkgKey{"adapter", sp.prov.key}])
 		} else {
 			parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
 		}
@@ -1110,7 +1113,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
 	wrapParams = strings.Join(parts, ", ") + ")"
-	if sp != nil && params[sp.param] != nil {
+	if sp != nil && sp.prov != nil && params[sp.param] != nil {
+		fc.provs = map[*check.Var]*knownProv{params[sp.param]: sp.prov}
+	} else if sp != nil && params[sp.param] != nil {
 		fc.recs = map[*check.Var]*knownRec{params[sp.param]: sp.rec}
 		if l.copyScopes == nil {
 			l.copyScopes = map[*namer]bool{}
