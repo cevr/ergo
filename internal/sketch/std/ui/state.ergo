@@ -13,7 +13,7 @@ import arena
 // which Ergo has no type for.
 
 // Cell is one piece of view-local state.
-type Cell = TextCell{Value string} | FlagCell{On bool}
+type Cell = TextCell{Value string} | FlagCell{On bool} | ViewCell{Offset Length, Height Length}
 
 // cellAt names a cell in a pass: the identity of the call that read it,
 // under parent spec parent (-1 the root).
@@ -48,22 +48,18 @@ func remember[E](f *Frame[E], init Cell, at CallSite) (cellAt, Cell) {
 	(cellAt{parent: f.parent, id: id}, c)
 }
 
-func sameCell(a Cell, b Cell) bool {
-	match a {
+func sameCell(a Cell, b Cell) bool { cellKind(a) == cellKind(b) }
+
+// cellKind numbers the variants of Cell: a cell keeps its value only while
+// its kind stays.
+func cellKind(c Cell) int {
+	match c {
 	case TextCell:
-		match b {
-		case TextCell:
-			true
-		case FlagCell:
-			false
-		}
+		0
 	case FlagCell:
-		match b {
-		case TextCell:
-			false
-		case FlagCell:
-			true
-		}
+		1
+	case ViewCell:
+		2
 	}
 }
 
@@ -73,7 +69,7 @@ func NewDraft[E](f *Frame[E], init string, at CallSite) Draft {
 	match c {
 	case TextCell as t:
 		Draft{Value: t.Value, at: where}
-	case FlagCell:
+	case _:
 		Unreachable("ui: a draft cell holds text")
 	}
 }
@@ -84,7 +80,7 @@ func NewFlag[E](f *Frame[E], init bool, at CallSite) Flag {
 	match c {
 	case FlagCell as b:
 		Flag{On: b.On, at: where}
-	case TextCell:
+	case _:
 		Unreachable("ui: a flag cell holds a flag")
 	}
 }
@@ -266,7 +262,8 @@ type Handled[E] { Signal Option[E], Changed bool }
 // sends an Input's signal or becomes a Field's draft; a fetch's result
 // sends its signal while its load is live (Arrive); a pointer event
 // sends its Area's signal, and a key press the first OnKey's. A Tick
-// sends nothing here: a Session sends the signal of each Animate. An event
+// sends nothing here: a Session sends the signal of each Animate. A
+// list's viewport (Scrolled) becomes its cell and sends nothing. An event
 // on a node f no longer holds (it raced a commit) does nothing.
 func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	let mut out = Handled[E]{Signal: None, Changed: false}
@@ -318,6 +315,20 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	case KeyDown as k:
 		out.Signal = keyed(f, k.Press)
 	case Tick:
+	case Scrolled[E] as x:
+		let n = f.nodes.Get(x.Id.ref) catch {
+		case arena.Stale:
+			return out
+		}
+		match n.node {
+		case RowsNode:
+			match n.binds {
+			case Some[bound[E]] as d:
+				out.Changed = write(f, d.Value, ViewCell{Offset: x.Offset, Height: x.Height})
+			case None:
+			}
+		case _:
+		}
 	}
 	out
 }

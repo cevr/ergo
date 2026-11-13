@@ -134,6 +134,16 @@ func PointAt[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], p Pointer
 	try apply(h, Point[E]{Id: id, Pointer: p})
 }
 
+// ScrollTo reports the viewport of the list id: its scroll offset and
+// visible height (a host sends this as it scrolls or sizes the list).
+func ScrollTo[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], offset Length, height Length) fails actor.Stopped | BadPatch {
+	try apply(h, Scrolled[E]{Id: id, Offset: offset, Height: height})
+}
+
+// RowRuns is how many row functions of Rows the last pass ran: the work
+// a list costs, which grows with its viewport and not with its count.
+func RowRuns[S, E, D, F](h *TestHost[S, E, D, F]) int { ranRows(&h.session.frame) }
+
 // PressKey sends a key press.
 func PressKey[E comparable, S, D, F](h *TestHost[S, E, D, F], k KeyPress) fails actor.Stopped | BadPatch {
 	try apply(h, KeyDown{Press: k})
@@ -192,6 +202,10 @@ func labelOf[E](n Node[E]) Option[string] {
 		Some{Value: x.Label}
 	case AreaNode as x:
 		Some{Value: x.Label}
+	case CanvasNode as x:
+		Some{Value: x.Label}
+	case RowsNode as x:
+		Some{Value: x.Label}
 	case TextNode as x:
 		Some{Value: x.Value}
 	case InputNode as x:
@@ -202,7 +216,7 @@ func labelOf[E](n Node[E]) Option[string] {
 }
 
 // Act is one step of a scene script, by label.
-type Act = TapOn{Label string} | TypeInto{Label string, Text string} | SettleAll | AdvanceBy{By duration} | KeyIn{Press KeyPress} | PointOn{Label string, Pointer PointerEvent}
+type Act = TapOn{Label string} | TypeInto{Label string, Text string} | SettleAll | AdvanceBy{By duration} | KeyIn{Press KeyPress} | PointOn{Label string, Pointer PointerEvent} | ScrollOn{Label string, Offset Length, Height Length}
 
 // SettleAll settles the loads.
 type SettleAll {}
@@ -224,6 +238,8 @@ func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails No
 			try PressKey(h, x.Press)
 		case PointOn as x:
 			try PointAt(h, try found(h, x.Label), x.Pointer)
+		case ScrollOn as x:
+			try ScrollTo(h, try found(h, x.Label), x.Offset, x.Height)
 		}
 	}
 }
@@ -238,7 +254,7 @@ func found[S, E, D, F](h *TestHost[S, E, D, F], label string) Id[E] fails NoNode
 }
 
 // Screenshot is the screen as text, one node a line, indented by depth:
-// what an agent reads.
+// what an agent reads. A canvas's paint list follows it, one op a line.
 func Screenshot[S, E, D, F](h *TestHost[S, E, D, F]) string {
 	let mut out = ""
 	for line in shotLines(Screen(h), "") {
@@ -251,6 +267,9 @@ func shotLines[E](shapes []Shape[E], indent string) []string {
 	let mut out = []string{}
 	for s in shapes {
 		out = out.Append(indent + nodeText(s.Node))
+		for l in paintLines(PaintOf(s.Node), indent+"  ") {
+			out = out.Append(l)
+		}
 		for l in shotLines[E](s.Kids, indent+"  ") {
 			out = out.Append(l)
 		}
@@ -270,6 +289,10 @@ func nodeText[E](n Node[E]) string {
 		"scroll"
 	case AreaNode as x:
 		"area \"\(x.Label)\""
+	case CanvasNode as x:
+		"canvas \"\(x.Label)\" \(x.Width)x\(x.Height)"
+	case RowsNode as x:
+		"rows \"\(x.Label)\" \(x.Count) of \(x.RowHeight) from \(x.First)"
 	case TextNode as x:
 		"text \"\(x.Value)\""
 	case PressableNode[E] as x:
