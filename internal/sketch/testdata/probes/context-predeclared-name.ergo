@@ -1,6 +1,6 @@
 // want S109
 type Store { Get() string }
-type Holder { Value string }
+type Holder { Value string } implements Store
 func Get(h Holder) string { return h.Value }
 let string = context { Store: Holder{Value: "ok"} }
 func main() needs Console {

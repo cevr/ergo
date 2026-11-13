@@ -16,7 +16,7 @@ type Orders {
 	Find(id string) Order fails OrderNotFound,
 }
 
-type Postgres { pool sql.Pool }
+type Postgres { pool sql.Pool } implements Orders
 
 func Find(p Postgres, id string) Order fails OrderNotFound {
 	return p.pool.QueryOrder(id)

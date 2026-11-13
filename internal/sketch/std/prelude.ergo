@@ -34,7 +34,7 @@ type Scheduler {
 // sleeps on the host's clock, so it is a host provider (docs/spec/
 // stdlib.md, Host packages): its field gives the prelude the construction
 // authority, and only NewLiveScheduler makes one (std-align S2b).
-type LiveScheduler { live liveOnly }
+type LiveScheduler { live liveOnly } implements Scheduler
 
 // liveOnly is the zero-size type of LiveScheduler's field.
 type liveOnly {}
@@ -307,6 +307,17 @@ type InputMachine[I, S, E, O, F, R, W] {
 	Work func(s S) Option[func(send func(e E)) needs W],
 }
 
+// Closer is the release contract (resources R1): a type that implements
+// it is a resource, and its owner's scope calls Close where the value
+// dies, on every exit. Close takes the value it is called on (R19). It is
+// an ordinary operation type: a type declares it with `implements
+// Closer`, and an operation type includes it with `..Closer` (types.md,
+// Interface assignability 1).
+// law-exempt: Close takes the value and returns nothing, so no law can call an operation after it or observe it; the release rules are the checker's (resources R1 to R24).
+type Closer {
+	Close() takes,
+}
+
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
 type Task[T, E] {
@@ -315,11 +326,11 @@ type Task[T, E] {
 	// Stop lends it, so a law can say what holds after it.
 	Wait() T fails E takes,
 	Stop(),
-	// Close is the Task's release (#197 L8 B3t; resources R1): its owner's
-	// scope calls it at the scope's end when no Wait took the task. It
-	// stops the task and waits until it has ended, as Stop does, and drops
-	// its typed failure; a Task is a resource.
-	Close(),
+	// Closer's Close is the Task's release (#197 L8 B3t; resources R1):
+	// its owner's scope calls it at the scope's end when no Wait took the
+	// task. It stops the task and waits until it has ended, as Stop does,
+	// and drops its typed failure; a Task is a resource.
+	..Closer,
 
 	// StopIsIdempotent: a second Stop returns, never fails and changes
 	// nothing.

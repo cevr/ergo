@@ -143,7 +143,7 @@ func (c *checker) collectLaws(spec *syntax.InterfaceType, tn *TypeName, fi *file
 			ops[id.Name] = true
 		}
 	}
-	if len(spec.Methods) == 0 && len(spec.Laws) > 0 {
+	if len(spec.Methods) == 0 && len(spec.Includes) == 0 && len(spec.Laws) > 0 {
 		c.errorf(tn.Decl.Name, CodeType, "%s has laws and no operations; write it as a top-level law: law %s(…) { … }", tn.Name, spec.Laws[0].Name.Name)
 	}
 	names := map[string]bool{}
@@ -621,6 +621,7 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	if !a.ok() || a.conv.Kind != ConvOperations {
 		return LawProvider{}, false
 	}
+	c.recordLegacy(p, slot, "law")
 	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Value: value}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor

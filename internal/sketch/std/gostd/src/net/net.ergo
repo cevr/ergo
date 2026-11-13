@@ -41,7 +41,7 @@ extern go net.CIDRMask func CIDRMask(ones int, bits int) IPMask needs go.Foreign
 
 // ergo:go type Conn interface
 extern go net.Conn type Conn {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	LocalAddr() Addr needs go.Foreign takes,
 	Read(b []byte) int fails go.Error needs go.Foreign takes,
 	RemoteAddr() Addr needs go.Foreign takes,
@@ -281,7 +281,7 @@ extern go net.IPAddr.Network func (a *IPAddr) Network() string needs go.Foreign 
 extern go net.IPAddr.String func (a *IPAddr) String() string needs go.Foreign takes a
 
 // ergo:go type IPConn struct
-extern go net.IPConn type IPConn {}
+extern go net.IPConn type IPConn {} implements Closer
 
 // ergo:go func (*conn).Close() error
 extern go net.IPConn.Close func (c *IPConn) Close() fails go.Error needs go.Foreign takes c
@@ -504,7 +504,7 @@ extern go net.ListenUnixgram func ListenUnixgram(network string, laddr *UnixAddr
 extern go net.Listener type Listener {
 	Accept() Conn fails go.Error needs go.Foreign takes,
 	Addr() Addr needs go.Foreign takes,
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 }
 
 // ergo:go func LookupAddr(addr string) (names []string, err error)
@@ -568,7 +568,7 @@ extern go net.OpError.Unwrap func (e *OpError) Unwrap() fails go.Error needs go.
 
 // ergo:go type PacketConn interface
 extern go net.PacketConn type PacketConn {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	LocalAddr() Addr needs go.Foreign takes,
 	ReadFrom(p []byte) (int, Addr) fails go.Error needs go.Foreign takes,
 	SetDeadline(t time.Time) fails go.Error needs go.Foreign takes,
@@ -697,7 +697,7 @@ extern go net.TCPAddr.String func (a *TCPAddr) String() string needs go.Foreign 
 extern go net.TCPAddrFromAddrPort func TCPAddrFromAddrPort(addr netip.AddrPort) Option[go.Ref[TCPAddr]] needs go.Foreign
 
 // ergo:go type TCPConn struct
-extern go net.TCPConn type TCPConn {}
+extern go net.TCPConn type TCPConn {} implements Closer
 
 // ergo:go func (*conn).Close() error
 extern go net.TCPConn.Close func (c *TCPConn) Close() fails go.Error needs go.Foreign takes c
@@ -766,7 +766,7 @@ extern go net.TCPConn.Write func (c *TCPConn) Write(b []byte) int fails go.Error
 extern go net.TCPConn.WriteTo func (c *TCPConn) WriteTo(w io.Writer) int64 fails go.Error needs go.Foreign takes c, w
 
 // ergo:go type TCPListener struct
-extern go net.TCPListener type TCPListener {}
+extern go net.TCPListener type TCPListener {} implements Closer
 
 // ergo:go func (*TCPListener).Accept() (Conn, error)
 extern go net.TCPListener.Accept func (l *TCPListener) Accept() Conn fails go.Error needs go.Foreign takes l
@@ -809,7 +809,7 @@ extern go net.UDPAddr.String func (a *UDPAddr) String() string needs go.Foreign 
 extern go net.UDPAddrFromAddrPort func UDPAddrFromAddrPort(addr netip.AddrPort) Option[go.Ref[UDPAddr]] needs go.Foreign
 
 // ergo:go type UDPConn struct
-extern go net.UDPConn type UDPConn {}
+extern go net.UDPConn type UDPConn {} implements Closer
 
 // ergo:go func (*conn).Close() error
 extern go net.UDPConn.Close func (c *UDPConn) Close() fails go.Error needs go.Foreign takes c
@@ -890,7 +890,7 @@ extern go net.UnixAddr.Network func (a *UnixAddr) Network() string needs go.Fore
 extern go net.UnixAddr.String func (a *UnixAddr) String() string needs go.Foreign takes a
 
 // ergo:go type UnixConn struct
-extern go net.UnixConn type UnixConn {}
+extern go net.UnixConn type UnixConn {} implements Closer
 
 // ergo:go func (*conn).Close() error
 extern go net.UnixConn.Close func (c *UnixConn) Close() fails go.Error needs go.Foreign takes c
@@ -953,7 +953,7 @@ extern go net.UnixConn.WriteTo func (c *UnixConn) WriteTo(b []byte, addr Addr) i
 extern go net.UnixConn.WriteToUnix func (c *UnixConn) WriteToUnix(b []byte, addr *UnixAddr) int fails go.Error needs go.Foreign takes c, addr
 
 // ergo:go type UnixListener struct
-extern go net.UnixListener type UnixListener {}
+extern go net.UnixListener type UnixListener {} implements Closer
 
 // ergo:go func (*UnixListener).Accept() (Conn, error)
 extern go net.UnixListener.Accept func (l *UnixListener) Accept() Conn fails go.Error needs go.Foreign takes l

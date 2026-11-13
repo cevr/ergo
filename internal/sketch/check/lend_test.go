@@ -33,7 +33,7 @@ func TestStructuredLendModel(t *testing.T) {
 		set, earlier := r.Intn(2) == 0, r.Intn(2) == 0
 		event := r.Intn(5) // lend, early release, drain/release, escape keeper, move keeper locally
 		var src strings.Builder
-		src.WriteString("import task\nimport tasks\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\n")
+		src.WriteString("import task\nimport tasks\ntype Fault {}\ntype R { N int } implements Closer\nfunc Close(r R) {}\nfunc use(r R) {}\n")
 		typ, value, use := "R", "R{N: 1}", "p"
 		if container {
 			typ, value, use = "[]R", "[]R{R{N: 1}}", "p[0]"

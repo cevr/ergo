@@ -15,7 +15,7 @@ extern go net/http/httputil.BufferPool type BufferPool {
 }
 
 // ergo:go type ClientConn struct
-extern go net/http/httputil.ClientConn type ClientConn {}
+extern go net/http/httputil.ClientConn type ClientConn {} implements Closer
 
 // ergo:go func (*ClientConn).Close() error
 extern go net/http/httputil.ClientConn.Close func (cc *ClientConn) Close() fails go.Error needs go.Foreign takes cc
@@ -110,7 +110,7 @@ extern go net/http/httputil.ReverseProxy type ReverseProxy {
 extern go net/http/httputil.ReverseProxy.ServeHTTP func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) needs go.Foreign takes p, rw, req
 
 // ergo:go type ServerConn struct
-extern go net/http/httputil.ServerConn type ServerConn {}
+extern go net/http/httputil.ServerConn type ServerConn {} implements Closer
 
 // ergo:go func (*ServerConn).Close() error
 extern go net/http/httputil.ServerConn.Close func (sc *ServerConn) Close() fails go.Error needs go.Foreign takes sc

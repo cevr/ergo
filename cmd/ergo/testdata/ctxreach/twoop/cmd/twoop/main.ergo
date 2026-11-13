@@ -3,7 +3,7 @@ import q/p
 
 type T { Hi() string }
 
-type H {}
+type H {} implements T
 
 func Hi(_ H) string { "hi" }
 

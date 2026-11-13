@@ -50,7 +50,7 @@ func guard(n int) fails Short {
 	}
 }
 
-type Plain {}
+type Plain {} implements Counter
 
 func Count(_ Plain, n int) int {
 	n

@@ -5,7 +5,7 @@ import shards/shards
 
 // Targets approves every share except a disk whose number starts with 0
 // and a tape whose code starts with X. It keeps no state.
-type Targets {}
+type Targets {} implements shards.Targets
 
 func Write(_ Targets, t shards.Share) shards.Ref fails shards.Refused {
 	match t {

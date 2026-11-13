@@ -9,7 +9,7 @@ type Codec {
 	law RoundTrip(v int) { try Decode(Encode(v)) == v },
 }
 
-type Unary {}
+type Unary {} implements Codec
 
 func Encode(_ Unary, v int) string {
 	let mut s = ""

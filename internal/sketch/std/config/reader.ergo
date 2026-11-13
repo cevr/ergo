@@ -25,7 +25,7 @@ type frame { members []member, next int, cur int, path string, list bool, tag Op
 
 // reader reads the tree root. Its frames are in a Ref, so every copy of
 // it is one reader.
-type reader { stack sync.Ref[[]frame] }
+type reader { stack sync.Ref[[]frame] } implements Reader
 
 func newReader(root node) reader {
 	let top = frame{members: []member{member{Key: "", Value: root}}, next: 0, cur: -1, path: "", list: false, tag: None}

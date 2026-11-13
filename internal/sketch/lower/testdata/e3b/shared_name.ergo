@@ -7,7 +7,7 @@ type Codec {
 	law Stable(v int) { Encode(v) == Encode(v) },
 }
 
-type Plain {}
+type Plain {} implements Codec
 
 func Encode(_ Plain, v int) string {
 	"\(v)"

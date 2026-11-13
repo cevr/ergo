@@ -115,7 +115,7 @@ type Probe {
 	},
 }
 
-type Unit {}
+type Unit {} implements Probe
 func Start(_ Unit) bool { true }
 let TestWorld = context { Probe: Unit }
 

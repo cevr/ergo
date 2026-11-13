@@ -100,7 +100,7 @@ extern go log/syslog.NewLogger func NewLogger(p Priority, logFlag int) go.Ref[lo
 extern go log/syslog.Priority type Priority int
 
 // ergo:go type Writer struct
-extern go log/syslog.Writer type Writer {}
+extern go log/syslog.Writer type Writer {} implements Closer
 
 // ergo:go func (*Writer).Alert(m string) error
 extern go log/syslog.Writer.Alert func (w *Writer) Alert(m string) fails go.Error needs go.Foreign takes w

@@ -3,8 +3,8 @@
 import lookup/hosts
 
 // Two providers of hosts.Resolver: same-named functions on distinct types.
-type Static {}
-type Empty {}
+type Static {} implements hosts.Resolver
+type Empty {} implements hosts.Resolver
 
 func Resolve(_ Static, name string) hosts.Answer fails hosts.NotFound {
 	if name == "" {

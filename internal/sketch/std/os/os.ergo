@@ -71,7 +71,7 @@ type Process {
 // Host is the host's Process provider. Its field gives this package the
 // construction authority (types.md, Zero values 6): no other package
 // writes os.Host{}, its zero value or a record update of it.
-type Host { live hostOnly }
+type Host { live hostOnly } implements Process
 
 // hostOnly is the zero-size type of Host's field, so Host stays zero size.
 type hostOnly {}

@@ -112,7 +112,7 @@ func main() {}
 `, []string{"S104:2"}},
 	{"context declaration", "let W = context", `
 type Ticker { Now() int64 }
-type Fixed { t int64 }
+type Fixed { t int64 } implements Ticker
 func Now(f Fixed) int64 { return f.t }
 let W = context { Ticker: Fixed{t: 1} }
 func f() int64 { return with W { Ticker.Now() } }
@@ -121,14 +121,14 @@ func main() {}
 	{"context header", "a named context's provides and needs", `
 type Ticker { Now() int64 }
 type Log { Write(s string) }
-type Fixed { t int64 }
+type Fixed { t int64 } implements Ticker
 func Now(f Fixed) int64 { return f.t }
 let W = context provides Ticker needs Log { Ticker: Fixed{t: 1} }
 func main() {}
 `, []string{"S109:6", "S109:6"}},
 	{"context literal", "a local context (E5): checked at its let, built at its with; a literal elsewhere is S108, with no cascade", `
 type Ticker { Now() int64 }
-type Fixed { t int64 }
+type Fixed { t int64 } implements Ticker
 func Now(f Fixed) int64 { return f.t }
 func f() int64 {
 	let w = context { Ticker: Fixed{t: 1} }
@@ -140,7 +140,7 @@ func main() {}
 `, []string{"S108:9"}},
 	{"inline context header", "an inline context's provides", `
 type Ticker { Now() int64 }
-type Fixed { t int64 }
+type Fixed { t int64 } implements Ticker
 func Now(f Fixed) int64 { return f.t }
 func f() int64 { return with context provides Ticker { Ticker: Fixed{t: 1} } { Ticker.Now() } }
 func main() {}
@@ -148,7 +148,7 @@ func main() {}
 	{"context entries", "an entry of two keys, an embedding and a replace", `
 type Ticker { Now() int64 }
 type Timer { Now() int64 }
-type Fixed { t int64 }
+type Fixed { t int64 } implements Ticker, Timer
 func Now(f Fixed) int64 { return f.t }
 let Base = context { Ticker, Timer: Fixed{t: 1} }
 let W = context { replace Ticker: Fixed{t: 2}, Base }
@@ -157,7 +157,7 @@ func main() {}
 `, nil},
 	{"with", "with W { … } discharges W's capabilities", `
 type Log { Write(s string) }
-type Quiet {}
+type Quiet {} implements Log
 func Write(q Quiet, s string) {}
 let W = context { Log: Quiet }
 func f() { with W { Log.Write("x") } }
@@ -165,7 +165,7 @@ func main() {}
 `, nil},
 	{"with parentheses", "with (W)", `
 type Log { Write(s string) }
-type Quiet {}
+type Quiet {} implements Log
 func Write(q Quiet, s string) {}
 let W = context { Log: Quiet }
 func f() { with (W) { Log.Write("x") } }
@@ -173,7 +173,7 @@ func main() {}
 `, nil},
 	{"with several contexts", "with A, B is with A { with B { … } } (E5)", `
 type Log { Write(s string) }
-type Quiet {}
+type Quiet {} implements Log
 func Write(q Quiet, s string) {}
 let A = context { Log: Quiet }
 let B = context { Log: Quiet }
@@ -195,6 +195,15 @@ func main() {}
 	{"operation type", "an operation type as a capability", `
 type Log { Write(s string) }
 func f() needs Log { Log.Write("x") }
+func main() {}
+`, nil},
+	{"operation type", "a type declares the operation types it implements, and an operation type includes another", `
+type Named { Name() string }
+type Tagged { ..Named, Tag() int }
+type P { n string } implements Tagged
+func Name(p P) string { p.n }
+func Tag(p P) int { 1 }
+func f() Named { P{n: "x"} }
 func main() {}
 `, nil},
 	{"law", "a law in an operation type", `
@@ -280,7 +289,7 @@ func f() int fails Bang needs Log {
 func main() {}
 `, nil},
 	{"fails and needs", "a takes clause (#197)", `
-type R {}
+type R {} implements Closer
 func Close(r R) {}
 type Holder { r R }
 func keep(r R) Holder takes r { Holder{r: r} }
@@ -687,7 +696,7 @@ type Ticker {
 type Fixed {
 	// t is the time.
 	t int64,
-}
+} implements Ticker
 
 // Now reads f.
 func Now(f Fixed) int64 { return f.t }
@@ -734,7 +743,7 @@ func main() {}
 	{"inline context header", "an inline context's provides and needs", `
 type Ticker { Now() int64 }
 type Log { Write(s string) }
-type Fixed { t int64 }
+type Fixed { t int64 } implements Ticker
 func Now(f Fixed) int64 { return f.t }
 func f() int64 needs Log { return with context provides Ticker needs Log { Ticker: Fixed{t: 1} } { Ticker.Now() } }
 func main() {}

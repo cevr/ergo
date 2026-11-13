@@ -335,7 +335,7 @@ func TestAuthorityVerifierAttacks(t *testing.T) {
 		{"sealed-generic-forward", "func f[T lib.Ops](v T) lib.Ops { v }", ""},
 		{"sealed-local-launder", "type Local { inner() int, Outer() int }\nfunc f(v lib.Ops) int { let x Local = v\n x.inner() }", "S108"},
 		{"defined-interface-hidden-call", "type M lib.Ops\nfunc f(v M) int { v.inner() }", "S108"},
-		{"sealed-generic-launder", "type Local { inner() int, Outer() int }\ntype Mine {}\nfunc inner(_ Mine) int { 1 }\nfunc Outer(_ Mine) int { 2 }\nfunc lift[T Local](v T) lib.Ops { v }\nfunc main() { let x = lift(Mine)\n let _ = x }", "S108"},
+		{"sealed-generic-launder", "type Local { inner() int, Outer() int }\ntype Mine {} implements Local\nfunc inner(_ Mine) int { 1 }\nfunc Outer(_ Mine) int { 2 }\nfunc lift[T Local](v T) lib.Ops { v }\nfunc main() { let x = lift(Mine)\n let _ = x }", "S108"},
 		{"empty-slice", "func f() { let x []lib.Q\n let _ = x }", ""},
 		{"generic-defined-zero", "type D[T] lib.G[T]\nfunc f() { let x D[int]\n let _ = x }", "S114"},
 		{"generic-defined-value", "type D[T] lib.G[T]\nfunc f() { let x = D[int](lib.NewG(1))\n let _ = x }", ""},

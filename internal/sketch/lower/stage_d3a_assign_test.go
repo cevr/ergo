@@ -17,10 +17,10 @@ func TestErgoRunAssignability(t *testing.T) {
 	needsBuild(t)
 	wantRun(t, `type Fault {}
 type Store { Get() int }
-type Count int
+type Count int implements Store
 type Mem { N int }
-type Mem2 Mem
-type Ints []int
+type Mem2 Mem implements Store
+type Ints []int implements Sized
 type Counts Map[string, int]
 type Pair (int, string)
 type F func(n int) int

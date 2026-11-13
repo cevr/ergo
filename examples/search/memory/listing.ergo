@@ -6,7 +6,7 @@ import strings
 // Listing is a search.Index of ten fixed entries, in a fixed order. Its
 // index takes at most 12 letters: a longer query is IndexDown, so that a
 // script can show a search that fails.
-type Listing {}
+type Listing {} implements search.Index
 
 func All(_ Listing) []search.Entry {
 	[]search.Entry{

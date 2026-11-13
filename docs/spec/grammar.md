@@ -113,7 +113,8 @@ Go's operators and punctuation, plus `..`, without the removed ones.
 SourceFile     = { ImportDecl ";" } { TopLevelDecl ";" } .
 ImportDecl     = "import" [ "go" ] [ identifier ] import_path .
 TopLevelDecl   = TypeDecl | FuncDecl | ExternDecl | TestDecl | LawDecl | LetDecl .
-TypeDecl       = "type" identifier [ TypeParams ] ( Members | MachineType | "=" UnionType | Type [ "where" Expression ] ) .
+TypeDecl       = "type" identifier [ TypeParams ] ( Members | MachineType | "=" UnionType | Type [ "where" Expression ] ) [ Implements ] .
+Implements     = "implements" TypeName [ TypeArgs ] { "," TypeName [ TypeArgs ] } .
 TypeParams     = "[" TypeParam { "," TypeParam } "]" .
 TypeParam      = identifier { "," identifier } [ TypeName ] .
 Members        = "{" [ Member { "," Member } [ "," ] ] "}" .
@@ -185,6 +186,7 @@ CapName        = TypeName [ TypeArgs ] .
 
     In a Go binding, a method's named receiver is also available to its `takes` clause (`func (r *Reader) Reset(next io.Reader) needs go.Foreign takes r, next`). A bound Go interface operation may write a bare `takes` for its implicit receiver. The conservative Go default still takes that receiver when explicit parameters occupy the written clause. A binding's takes on a crossing owned value is inert, not S110; whether an interface parameter receives a resource is decided at the call. A borrow cannot be passed to a kept Go argument, even when its referent crosses ([interop.md](interop.md#resources), ESC1 r2). This exception applies to binding declarations only, not to user Ergo declarations.
 14. **Refinements.** `where` after the type of a defined type (`type Port int where 1 <= it && it <= 65535`) or of a named parameter (`law L(b int where b != 0)`) starts a predicate ([types.md, Refinements](types.md#refinements)). `where` is a contextual word, not a keyword, so a name `where` stays a name elsewhere. The parser derives the type's `ParseN` function and `NWhere` law from it and places them after the type, marked derived; the formatter does not print them. A `where` on a host type and after a parameter group (`a, b int where …`) is S001.
+15. **`implements`** (audit CSX §4.1; owner q167). `type Mem { rows Map[int, Row] } implements domain.Store, Closer` declares the operation types the type implements, after its body (a union's last variant, a defined type's base, a `where`), names separated by commas ([types.md](types.md#interface-assignability) 1). A binding writes it on a host type: `extern go os.File type File {} implements Closer`. `implements` is a contextual word, as `where` is: a name `implements` stays a name elsewhere. An operation type does not write the clause; it includes another operation type with the member `..I`, as a record includes a record's fields: `type Conn { ..Closer, Number() int }`. A body of members is a record or an operation type by its other members; `..I` stands with either. *Prior art:* Java and C# write `implements` and `:` on the type's header; Go asserts by hand (`var _ io.Closer = T{}`); Rust writes `impl Trait for T` apart from the type.
 
 ## Visibility
 

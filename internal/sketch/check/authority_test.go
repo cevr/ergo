@@ -21,7 +21,7 @@ type Open { A int }
 type Ops { inner() int, Outer() int }
 type G[T] { v T, N int }
 func NewG[T](v T) G[T] { G{v: v, N: 0} }
-type Impl {}
+type Impl {} implements Ops
 func inner(_ Impl) int { 1 }
 func Outer(_ Impl) int { 2 }
 func MakeOps() Ops { Impl }

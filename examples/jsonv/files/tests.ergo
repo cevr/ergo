@@ -11,7 +11,7 @@ import sync
 
 // drained is a standard input that gives its text to the first ReadAll
 // and nothing after, as the host's does.
-type drained { text string, reads sync.Ref[int] }
+type drained { text string, reads sync.Ref[int] } implements io.Stdin
 
 func ReadAll(d drained) string fails io.ReadFailed {
 	let n = sync.Modify(d.reads, func(n int) (int, int) { (n, n + 1) })

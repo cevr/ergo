@@ -221,7 +221,7 @@ const clauseHeader = `
 // its release, so a use after the release shows.
 type Res {
 	log sync.Ref[[]string],
-}
+} implements Closer
 
 func Use(r Res) {
 	r.log.Update(func(xs []string) []string { xs.Append("use") })

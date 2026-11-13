@@ -123,7 +123,7 @@ func Rebind(a Ambient) int {
 		// bound as before (a program cannot declare its own Ambient: S108,
 		// a prelude name; TestIsAmbientIsThePrelude's).
 		{"N5d control: a prelude capability other than Ambient", `
-type Quiet {}
+type Quiet {} implements Console
 
 func Println(_ Quiet, line string) {}
 

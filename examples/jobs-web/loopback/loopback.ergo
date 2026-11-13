@@ -10,7 +10,7 @@ import jobsweb/memory
 import rpc
 
 // Loopback is a jobs.Jobs whose every operation is an RPC call.
-type Loopback { client jobsrpc.Client }
+type Loopback { client jobsrpc.Client } implements jobs.Jobs
 
 // NewLoopback serves a fresh memory server in process and is its client.
 // The server binds the provider for each call; every call reaches the

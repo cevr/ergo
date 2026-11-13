@@ -53,7 +53,7 @@ import task
 
 type Shape { Area() int }
 
-type Sq { N int }
+type Sq { N int } implements Shape
 
 func Area(s Sq) int { s.N * s.N }
 

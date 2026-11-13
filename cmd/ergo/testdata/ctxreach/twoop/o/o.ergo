@@ -1,4 +1,6 @@
-type G2 { k int }
+import q/p
+
+type G2 { k int } implements Closer, p.S
 
 func N(g G2) string { "o \(g.k)" }
 

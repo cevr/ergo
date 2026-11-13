@@ -8,7 +8,7 @@ import sync
 
 // Log is the store: the streams and the snapshots, in one sync.Ref, so
 // every copy of a Log is the same store and a Send writes both at once.
-type Log { cells sync.Ref[store] }
+type Log { cells sync.Ref[store] } implements backup.Backups
 
 // store is what a Log holds.
 type store { streams Map[string, []backup.Event], states Map[string, backup.State] }

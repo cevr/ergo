@@ -5,7 +5,7 @@ import forge/forge
 
 // Ores is a forge.Assayer over a table from an ore's name to its value
 // in units. NewOres builds one.
-type Ores { values Map[string, int] }
+type Ores { values Map[string, int] } implements forge.Assayer
 
 // NewOres is the ores of values whose value is a grade; an ore of
 // any other value is not taken, so Ores keeps the Assayer law

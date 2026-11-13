@@ -181,7 +181,7 @@ extern go crypto/tls.Config.EncryptTicket func (c *Config) EncryptTicket(cs Conn
 extern go crypto/tls.Config.SetSessionTicketKeys func (c *Config) SetSessionTicketKeys(keys [][32]byte) needs go.Foreign takes c
 
 // ergo:go type Conn struct
-extern go crypto/tls.Conn type Conn {}
+extern go crypto/tls.Conn type Conn {} implements Closer
 
 // ergo:go func (*Conn).Close() error
 extern go crypto/tls.Conn.Close func (c *Conn) Close() fails go.Error needs go.Foreign takes c
@@ -388,7 +388,7 @@ extern go crypto/tls.QUICConfig type QUICConfig {
 }
 
 // ergo:go type QUICConn struct
-extern go crypto/tls.QUICConn type QUICConn {}
+extern go crypto/tls.QUICConn type QUICConn {} implements Closer
 
 // ergo:go func (*QUICConn).Close() error
 extern go crypto/tls.QUICConn.Close func (q *QUICConn) Close() fails go.Error needs go.Foreign takes q

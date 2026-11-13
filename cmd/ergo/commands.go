@@ -56,6 +56,7 @@ var commands = []cliCommand{
 	{name: "bind", usage: "bind go [-o DIR] PACKAGE...", help: bindHelp, run: bindCommand},
 	{name: "get", usage: "get MODULE[@VERSION]...", help: getHelp, run: getCommand},
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
+	{name: "fix", usage: "fix [--dry-run] [--std DIR] [--go] PATH...", help: fixHelp, run: fixCommand},
 	{name: "gen", usage: "gen rpc|cli [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
 	{name: "version", usage: "version [--json]", help: versionHelp, run: versionCommand},
 	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},

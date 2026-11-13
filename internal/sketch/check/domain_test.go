@@ -753,12 +753,12 @@ func Run(j Job[Svc]) {}`},
 	{"function-of-recursive", "", `type List[T, E] { Tail []List[T, E], Run func() fails E }
 func Head[T, E](l List[T, E]) fails E { return l.Run() }`},
 	{"dependent-constraint-literal", "", `type I[T] { M(T) }
-type S {}
+type S {} implements I[int]
 func M(_ S, x int) {}
 type Box[T comparable, V I[T]] { X T, Y V }
 func F() { _ = Box{1, S} }`},
 	{"dependent-constraint-explicit", "", `type I[T] { M(T) }
-type S {}
+type S {} implements I[int]
 func M(_ S, x int) {}
 type Box[T comparable, V I[T]] { X T, Y V }
 func F() { _ = Box[int, S]{1, S} }`},
@@ -768,22 +768,22 @@ func F() { _ = Box[int, S]{1, S} }`},
 	// comparable, not any, which the decided language does not spell
 	// before a constrained parameter (#196).
 	{"dependent-constraint-call", "", `type I[T] { M(T) }
-type S {}
+type S {} implements I[int]
 func M(_ S, x int) {}
 func Use[T comparable, V I[T]](x T, v V) {}
 func F() { Use(1, S) }`},
 	{"dependent-constraint-call-typed", "", `type I[T] { M(T) }
-type S {}
+type S {} implements I[int]
 func M(_ S, x int) {}
 func Use[T comparable, V I[T]](x T, v V) {}
 func F(n int) { Use(n, S) }`},
 	{"dependent-constraint-call-explicit", "", `type I[T] { M(T) }
-type S {}
+type S {} implements I[int]
 func M(_ S, x int) {}
 func Use[T comparable, V I[T]](x T, v V) {}
 func F() { Use[int](1, S) }`},
 	{"dependent-constraint-value", "", `type I[T] { M(T) }
-type S {}
+type S {} implements I[int]
 func M(_ S, x int) {}
 func Use[T comparable, V I[T]](x T, v V) {}
 func F() func(int, S) { return Use[int, S] }`},

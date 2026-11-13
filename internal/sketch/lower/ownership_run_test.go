@@ -324,7 +324,7 @@ func genOwnRun(seed int) (string, string) {
 	}
 }
 
-const orPrelude = `type Res { id int, bad bool }
+const orPrelude = `type Res { id int, bad bool } implements Closer
 
 type Bad { n int }
 

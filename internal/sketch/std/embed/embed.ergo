@@ -8,9 +8,7 @@ import fs
 
 type FS {
 	runtimeOnly(),
-	ReadFile(path string) string fails fs.NotFound | fs.Denied | fs.Failed,
-	ReadDir(path string) []string fails fs.NotFound | fs.Denied | fs.Failed,
-	Stat(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed,
+	..fs.Files,
 
 	law ReadIsRepeatable(path string) {
 		let first = ReadFile(path) catch {

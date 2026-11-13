@@ -129,7 +129,7 @@ law LenCountsUntaken(xs []int) {
 // releaseCount records a release in Seen, with no capability row: a release
 // that has no needs row can still change shared state and must run. queue
 // observes it with a queue, since sync imports task, which imports queue.
-type releaseCount { Seen Queue[int] }
+type releaseCount { Seen Queue[int] } implements Closer
 
 func Close(r releaseCount) {
 	r.Seen.Push(1) catch {

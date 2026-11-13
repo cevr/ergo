@@ -79,7 +79,7 @@ type BodyFile { Put(part string) fails SinkFailed, partOnly() }
 extern go ergo.local/prototype/runtime/v1.HTTPIntoFile func IntoFile[F, R](root fs.HostRoot, path string, fetch func(file BodyFile) Response fails F needs R) Response fails F | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs R
 
 // Remote is a provider of Network. Only NewNet delegates Ambient to it.
-type Remote { origins []string, anyOrigin bool, limits Limits, hops int }
+type Remote { origins []string, anyOrigin bool, limits Limits, hops int } implements Network
 
 func NewNet(policy OriginPolicy, limits Limits, redirects RedirectPolicy) Remote fails InvalidClient | InvalidLimits needs Ambient {
 	let hops = match redirects {

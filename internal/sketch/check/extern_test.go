@@ -299,7 +299,7 @@ func main() {
 `,
 	"embed.FS": `import embed
 import fs
-type Mine {}
+type Mine {} implements fs.Files
 func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
 func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
 func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.Info{Name: path, Size: 0, Dir: false, Perm: 292} }
@@ -420,7 +420,7 @@ func main() {
 	// std tasks (batch 13 tasks-set): newSet's extern returns the Set.
 	"tasks.Set": `import tasks
 
-type Mine {}
+type Mine {} implements Closer
 
 func Wait(_ Mine) fails tasks.Closed {}
 func Stop(_ Mine) {}
@@ -437,7 +437,7 @@ func main() {
 	// providers that programs could write too.
 	"journal.Journal": `import journal
 
-type Mine {}
+type Mine {} implements journal.Journal[int, int]
 
 func Append(_ Mine, e int) fails journal.Failed {}
 func Snapshot(_ Mine, s int) fails journal.Failed {}
@@ -455,7 +455,7 @@ func main() {
 `,
 	"journal.Codec": `import journal
 
-type Mine {}
+type Mine {} implements journal.Codec[int]
 
 func Encode(_ Mine, v int) string { "" }
 func Decode(_ Mine, text string) int fails journal.Failed { 0 }
@@ -517,7 +517,7 @@ func main() {
 	// std rand (S2c): Seeded's extern returns the Stream.
 	"rand.Stream": `import rand
 
-type Mine {}
+type Mine {} implements Random
 
 func Uint64(_ Mine) uint64 { 0 }
 func IntN(_ Mine, n int) int { 0 }
@@ -529,8 +529,18 @@ func main() {
 	use(Mine)
 }
 `,
+	"prelude.Closer": `type Mine {} implements Closer
+
+func Close(_ Mine) {}
+
+func use(c Closer) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Task": `type Fault {}
-type Mine {}
+type Mine {} implements Closer
 
 func Wait(m Mine) int fails Fault takes m { 0 }
 func Stop(_ Mine) {}
@@ -542,7 +552,7 @@ func main() {
 	use(Mine)
 }
 `,
-	"prelude.Console": `type Mine {}
+	"prelude.Console": `type Mine {} implements Console
 
 func Println(_ Mine, line string) {}
 
@@ -554,7 +564,7 @@ func main() {
 `,
 	// Sleep is a prelude name no program redeclares, so the program value
 	// is one of a program operation type.
-	"prelude.Scheduler": `type Mine { Sleep(d duration) }
+	"prelude.Scheduler": `type Mine { ..Scheduler }
 
 func use(s Scheduler) { s.Sleep(1ms) }
 
@@ -563,7 +573,7 @@ func pass(m Mine) {
 }
 `,
 	// The codec events (L11): a format or a program provides each.
-	"prelude.Writer": `type Mine {}
+	"prelude.Writer": `type Mine {} implements Writer
 
 func Null(_ Mine) {}
 func Number(_ Mine, text string) {}
@@ -585,7 +595,7 @@ func main() {
 	use(Mine)
 }
 `,
-	"prelude.Reader": `type Mine {}
+	"prelude.Reader": `type Mine {} implements Reader
 
 func TakeNull(_ Mine) bool { false }
 func Peek(_ Mine) WireKind { WireEnd }
@@ -613,7 +623,7 @@ func main() {
 	// std time (S2b): the prelude's Clock moved here, with Now() time.Time.
 	"time.Clock": `import time
 
-type Mine {}
+type Mine {} implements time.Clock
 
 func Now(_ Mine) time.Time { time.Unix(0, 0) }
 
@@ -623,7 +633,7 @@ func main() {
 	use(Mine)
 }
 `,
-	"prelude.Random": `type Mine {}
+	"prelude.Random": `type Mine {} implements Random
 
 func Uint64(_ Mine) uint64 { 0 }
 func IntN(_ Mine, n int) int { 0 }
@@ -639,7 +649,7 @@ func main() {
 	// os 5).
 	"os.Process": `import os
 
-type Mine {}
+type Mine {} implements os.Process
 
 func Args(_ Mine) []string { []string{} }
 func Getenv(_ Mine, key string) Option[string] { None }
@@ -655,7 +665,7 @@ func main() {
 	// fs 5).
 	"fs.Files": `import fs
 
-type Mine {}
+type Mine {} implements fs.Files
 
 func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
 func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
@@ -672,7 +682,7 @@ func main() {
 	// std fs writes (G4b): open, as fs.Files is.
 	"fs.Writes": `import fs
 
-type Mine {}
+type Mine {} implements fs.Writes
 
 func WriteFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
 func MkdirAll(_ Mine, path string) fails fs.Denied | fs.Failed {}
@@ -693,7 +703,7 @@ func main() {
 	// (stdlib.md, io 6).
 	"io.Stdout": `import io
 
-type Mine {}
+type Mine {} implements io.Stdout
 
 func Print(_ Mine, text string) {}
 func Println(_ Mine, line string) {}
@@ -707,7 +717,7 @@ func main() {
 `,
 	"io.Stderr": `import io
 
-type Mine {}
+type Mine {} implements io.Stderr
 
 func Eprint(_ Mine, text string) {}
 func Eprintln(_ Mine, line string) {}
@@ -721,7 +731,7 @@ func main() {
 `,
 	"io.Stdin": `import io
 
-type Mine {}
+type Mine {} implements io.Stdin
 
 func ReadAll(_ Mine) string fails io.ReadFailed { "" }
 func Lines(_ Mine) Seq[string] { io.Input{Text: ""}.Lines() }
@@ -735,7 +745,7 @@ func main() {
 `,
 	"config.Config": `import config
 
-type Mine {}
+type Mine {} implements config.Config
 
 func Lookup(_ Mine, name string) Option[string] { None }
 func Environ(_ Mine, prefix string) []config.Variable { []config.Variable{} }
@@ -762,7 +772,7 @@ func main() {
 	"term.Terminal": `import io
 import term
 
-type Mine {}
+type Mine {} implements term.Terminal
 
 func SetMode(_ Mine, m term.Mode) fails term.NotTerminal {}
 func Restore(_ Mine) {}
@@ -779,7 +789,7 @@ func main() {
 	// exec). exec.Script is the std's test provider of it.
 	"exec.Runner": `import exec
 
-type Mine {}
+type Mine {} implements exec.Runner
 
 func Run(_ Mine, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
 	exec.Result{Status: 0, Stdout: "", Stderr: ""}
@@ -799,7 +809,7 @@ func main() {
 	// return it, so it is sealed.
 	"exec.Running": `import exec
 
-type Mine {}
+type Mine {} implements Closer
 
 func Lines(_ Mine) Seq[exec.Line] { Seq[exec.Line](func(yield func(v exec.Line) bool) {}) }
 func Chunks(_ Mine) Seq[exec.Chunk] { Seq[exec.Chunk](func(yield func(v exec.Chunk) bool) {}) }
@@ -820,7 +830,7 @@ func main() {
 	// transport hands each request's Exchange to the handler adapter.
 	"http.Listener": `import http
 
-type Mine {}
+type Mine {} implements Closer
 
 func Addr(_ Mine) string { "" }
 func Close(_ Mine) {}
@@ -864,7 +874,7 @@ func main() {
 	// Net (H1) is open: a test binds its own transport (CU6b adds SendInto).
 	"http.Net": `import http
 
-type Mine {}
+type Mine {} implements http.Net
 
 func Send(_ Mine, r http.Request) http.Response fails http.RequestFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
 func SendInto(_ Mine, r http.Request, accept http.Accept, put func(part string) fails http.SinkFailed) http.Response fails http.RequestFailed | http.StatusRefused | http.SinkFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
@@ -879,7 +889,7 @@ func main() {
 	// SendURLInto).
 	"http.Network": `import http
 
-type Mine {}
+type Mine {} implements http.Network
 
 func SendURL(_ Mine, r http.URLRequest) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
 func SendURLInto(_ Mine, r http.URLRequest, accept http.Accept, put func(part string) fails http.SinkFailed) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit | http.StatusRefused | http.SinkFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
@@ -917,7 +927,7 @@ func main() {
 	// std fs Root (G1f): open; fstest.Tree is a program-side provider.
 	"fs.Root": `import fs
 
-type Mine {}
+type Mine {} implements fs.Root
 
 func ReadFile(_ Mine, path string) string fails fs.Escapes { fs.Escapes{Path: path} }
 func ReadDir(_ Mine, path string) []string fails fs.Escapes { fs.Escapes{Path: path} }
@@ -934,7 +944,7 @@ func main() {
 	// unexported hostRooted keeps every program value out.
 	"fs.HostRoot": `import fs
 
-type Mine {}
+type Mine {} implements fs.Root
 
 func ReadFile(_ Mine, path string) string fails fs.Escapes { fs.Escapes{Path: path} }
 func ReadDir(_ Mine, path string) []string fails fs.Escapes { fs.Escapes{Path: path} }
@@ -966,6 +976,7 @@ var unexportedStd = map[string]string{
 // std seal at the migration base. Some already have private operations,
 // listed in unexportedStd. Every other entry now declares its seal.
 var openStd = map[string]bool{
+	"prelude.Closer":    true,
 	"prelude.Console":   true,
 	"prelude.Scheduler": true,
 	"time.Clock":        true,
@@ -1093,7 +1104,7 @@ func pass(m Mine) {
 }
 `,
 		"task": `type Fault {}
-type Mine {}
+type Mine {} implements Closer
 
 func Wait(m Mine) int fails Fault takes m { 0 }
 func Stop(_ Mine) {}
@@ -1115,7 +1126,7 @@ func main() {
 	use(queue.New[int](1))
 }
 `,
-		"console-param": `type Mine {}
+		"console-param": `type Mine {} implements Console
 
 func Println(_ Mine, line string) {}
 
@@ -1125,7 +1136,7 @@ func main() {
 	use(Mine)
 }
 `,
-		"console-provider": `type Quiet {}
+		"console-provider": `type Quiet {} implements Console
 
 func Println(_ Quiet, line string) {}
 
@@ -1210,7 +1221,7 @@ func judgeSealSites(t *testing.T, src string) {
 func TestStdProtocolOpen(t *testing.T) {
 	const fake = `import os
 
-type FakeEnv { Argv []string }
+type FakeEnv { Argv []string } implements os.Process
 
 func Args(e FakeEnv) []string { e.Argv }
 
@@ -1276,8 +1287,8 @@ func sortedHas(xs []string, x string) bool {
 func TestCloseRefusals(t *testing.T) {
 	cases := map[string]string{
 		"operation": `type A { Use() }
-type Releaser { Use(), Close() }
-type R {}
+type Releaser { ..A, ..Closer }
+type R {} implements Releaser, Closer
 func Use(_ R) {}
 func Close(_ R) {}
 func make() Releaser { R }
@@ -1285,21 +1296,21 @@ let W = context { A: make() }
 func main() { with W { A.Use() } }
 `,
 		"generic": `type A { Use() }
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T](_ G[T]) {}
 func Close[T](_ G[T]) {}
 let W = context { A: G[int]{Value: 1} }
 func main() { with W { A.Use() } }
 `,
 		"pointer-close-value-provider": `type A { Use() }
-type P {}
+type P {} implements A, Closer
 func Use(_ P) {}
 func Close(_ *P) {}
 let W = context { A: P }
 func main() { with W { A.Use() } }
 `,
 		"value-close": `type A { Use() }
-type P {}
+type P {} implements A, Closer
 func Use(_ P) {}
 func Close(_ P) {}
 let W = context { A: P }
@@ -1307,9 +1318,9 @@ func main() { with W { A.Use() } }
 `,
 		"generic-witnessed": `type A { Use() }
 type Named { Name() string }
-type N {}
+type N {} implements Named
 func Name(_ N) string { "n" }
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T Named](_ G[T]) {}
 func Close[T Named](_ G[T]) {}
 let W = context { A: G[N]{Value: N} } // want S109
@@ -1318,9 +1329,9 @@ func main() { with W { A.Use() } }
 		// Once per provider, though two withs release it.
 		"generic-witnessed-once": `type A { Use() }
 type Named { Name() string }
-type N {}
+type N {} implements Named
 func Name(_ N) string { "n" }
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T Named](_ G[T]) {}
 func Close[T Named](_ G[T]) {}
 let W = context { A: G[N]{Value: N} } // want S109
@@ -1334,9 +1345,9 @@ func main() {
 		// mutant own-check-15: the continue after the refusal dropped).
 		"generic-witnessed-no-charge": `type A { Use() }
 type Named { Name() string }
-type N {}
+type N {} implements Named
 func Name(_ N) string { "n" }
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T Named](_ G[T]) {}
 func Close[T Named](_ G[T]) needs Console { Console.Println("closed") }
 let W = context { A: G[N]{Value: N} } // want S109
@@ -1347,7 +1358,7 @@ func main() { with W { A.Use() } }
 		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "#197") })
 	}
 	t.Run("user-extern-close", func(t *testing.T) {
-		judgeOutside(t, "type R {}\nextern go example.com/x.F func Close(r R) // want S109\n", "#202")
+		judgeOutside(t, "type R {} implements Closer\nextern go example.com/x.F func Close(r R) // want S109\n", "#202")
 	})
 	t.Run("no-std-extern-close", func(t *testing.T) {
 		prog, ds := check.CheckSource("func f(c Console) { c.Println(\"x\") }\n")

@@ -1,6 +1,6 @@
 type Bang {}
 type Cap { M() }
-type Impl {}
+type Impl {} implements Cap
 func M(_ Impl) {}
 func mark() fails Bang { return Bang }
 func a() { with (context{ Cap: Impl }) { try b() } }

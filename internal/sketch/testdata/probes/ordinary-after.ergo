@@ -1,6 +1,6 @@
 // out: helper ordinary ok
 type Timer { After(value string) string }
-type Plain {}
+type Plain {} implements Timer
 func After(_ Plain, value string) string { return "ordinary " + value }
 func Println(value string) string        { return "helper " + value }
 func main() needs Console {

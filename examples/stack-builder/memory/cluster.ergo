@@ -4,7 +4,7 @@ import stackbuilder/stack
 
 // Cluster numbers acks by the plan's total and refuses a plan over
 // 100.00. It keeps no state.
-type Cluster {}
+type Cluster {} implements stack.Cluster
 
 func Submit(_ Cluster, o stack.Plan) stack.Ack fails stack.Full {
 	if o.Total > 10000 {

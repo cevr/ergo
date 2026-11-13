@@ -14,7 +14,7 @@ type Shelf { Jobs Map[int, jobs.Job], Last int }
 // Table is a jobs.Store in memory. Its state is in a sync.Ref, so every
 // copy of a Table is the same store, and each change is one atomic
 // update: requests served at once never lose a change.
-type Table { shelf sync.Ref[Shelf] }
+type Table { shelf sync.Ref[Shelf] } implements jobs.Store
 
 // NewTable is an empty Table.
 func NewTable() Table { Table{shelf: sync.NewRef[Shelf](Shelf{Jobs: Map[int, jobs.Job]{}, Last: 0})} }

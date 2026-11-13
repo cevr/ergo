@@ -347,9 +347,9 @@ func TestContextNodeIsItsProviders(t *testing.T) {
 type B { Use() }
 type C { Use() }
 type D { Use() }
-type PX {}
-type PY {}
-type PZ {}
+type PX {} implements A, C, B, D
+type PY {} implements B, A, C
+type PZ {} implements A, B, D
 func Use(_ PX) {}
 func Use(_ PY) {}
 func Use(_ PZ) {}
