@@ -1,5 +1,5 @@
 {
-  "about": "vt's application mutants (DOD track DT1 and DT2); each is judged by the example's laws and cases (scripts/examples vt), not by a compiler test. The rule of each names the law or the case that kills it.",
+  "about": "vt's application mutants (DOD track DT1 to DT3). A mutant of the program is judged by the example's laws and cases (scripts/examples vt); a mutant of the hand-Go control (cmd/ergo/testdata/vt/control, DT3) by TestVTAgreesWithControl, which plays the program and the control on 200 seeds. The rule of each names the law, the case or the test that kills it.",
   "mutants": [
     {
       "name": "dt1-csi-param-colon",
@@ -351,6 +351,28 @@
       "rule": "An erase that cuts a wide character blanks its other half. Killed by law screen.ScreenMatchesPlain.",
       "killers": [
         "examples:vt"
+      ]
+    },
+    {
+      "name": "dt3-control-tab-four",
+      "origin": "wf10/dod/DT3",
+      "file": "cmd/ergo/testdata/vt/control/main.go",
+      "from": "s.cur.col = min((s.cur.col/8+1)*8, cols-1)",
+      "to": "s.cur.col = min((s.cur.col/4+1)*4, cols-1)",
+      "rule": "The control's tab stops are every 8 columns, as the program's. Killed by TestVTAgreesWithControl (the control is checked by nothing else).",
+      "killers": [
+        "cmd/ergo:TestVTAgreesWithControl"
+      ]
+    },
+    {
+      "name": "dt3-control-history-keeps-a-page-more",
+      "origin": "wf10/dod/DT3",
+      "file": "cmd/ergo/testdata/vt/control/main.go",
+      "from": "if s.first-s.base > s.limit {",
+      "to": "if s.first-s.base > s.limit+pageRows {",
+      "rule": "The control drops the oldest page when the history passes its limit, as the program does; only the 1.5 MB seeds reach it. Killed by TestVTAgreesWithControl.",
+      "killers": [
+        "cmd/ergo:TestVTAgreesWithControl"
       ]
     }
   ]
