@@ -107,7 +107,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
 	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
-	{"GenIn", "ergoGenIn"}, {"GenStrLen", "ergoGenStrLen"}, {"GenSliceLen", "ergoGenSliceLen"},
+	{"GenIn", "ergoGenIn"}, {"GenStrLen", "ergoGenStrLen"}, {"GenMatch", "ergoGenMatch"}, {"GenSliceLen", "ergoGenSliceLen"},
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"}, {"Only", "ergoOnly"}, {"Want", "ergoWant"},
@@ -1505,6 +1505,76 @@ func $GenStrLen(r *$Rand, n int) string {
 	return r.stream.StrLen(n)
 }
 
+// $GenMatch is a string of n bytes that a refinement's pattern matches
+// (types.md, Refinements 11): the walk of check.Matcher.Generate over the
+// automaton's edges {lo, hi, to} and accepting states. Each step takes an
+// edge and a UTF-8 width that still reach an accepting state in the bytes
+// left, each pair as likely, then a rune of that width on the edge: half
+// the time printable ASCII when the edge has some.
+func $GenMatch(r *$Rand, n int, edges [][][3]int32, accept []bool) string {
+	bands := [5][][2]int32{nil, {{0, 0x7F}}, {{0x80, 0x7FF}}, {{0x800, 0xD7FF}, {0xE000, 0xFFFF}}, {{0x10000, 0x10FFFF}}}
+	width := func(lo, hi int32, w int) [][2]int32 {
+		var out [][2]int32
+		for _, b := range bands[w] {
+			if l, h := max(lo, b[0]), min(hi, b[1]); l <= h {
+				out = append(out, [2]int32{l, h})
+			}
+		}
+		return out
+	}
+	reach := make([][]bool, n+1)
+	reach[0] = append([]bool(nil), accept...)
+	for k := 1; k <= n; k++ {
+		reach[k] = make([]bool, len(edges))
+		for q := range edges {
+			for _, e := range edges[q] {
+				for w := 1; w <= 4 && w <= k && !reach[k][q]; w++ {
+					reach[k][q] = reach[k-w][e[2]] && len(width(e[0], e[1], w)) > 0
+				}
+			}
+		}
+	}
+	var b []rune
+	q := 0
+	for left := n; left > 0; {
+		type option struct {
+			e [3]int32
+			w int
+		}
+		var ok []option
+		for _, e := range edges[q] {
+			for w := 1; w <= 4 && w <= left; w++ {
+				if reach[left-w][e[2]] && len(width(e[0], e[1], w)) > 0 {
+					ok = append(ok, option{e, w})
+				}
+			}
+		}
+		o := ok[r.intn(len(ok))]
+		spans := width(o.e[0], o.e[1], o.w)
+		var c int32
+		if lo, hi := max(spans[0][0], 0x20), min(spans[0][1], 0x7e); len(spans) == 1 && lo <= hi && r.intn(2) == 0 {
+			c = lo + int32(r.intn(int(hi-lo+1)))
+		} else {
+			total := 0
+			for _, s := range spans {
+				total += int(s[1] - s[0] + 1)
+			}
+			k := r.intn(total)
+			for _, s := range spans {
+				if size := int(s[1] - s[0] + 1); k >= size {
+					k -= size
+					continue
+				}
+				c = s[0] + int32(k)
+				break
+			}
+		}
+		b = append(b, c)
+		q, left = int(o.e[2]), left-o.w
+	}
+	return string(b)
+}
+
 // $GenSliceLen is a slice of n elements.
 func $GenSliceLen[T any](r *$Rand, d int, n int, elem func(*$Rand, int) T) []T {
 	xs := make([]T, n)
@@ -1820,6 +1890,16 @@ func (l *lowerer) genRefined(t check.Type, ref *check.Refinement, r, d string, s
 	}
 	if b, ok := under.(*check.Basic); ok {
 		unsigned = b.Kind >= check.Uint && b.Kind <= check.Uintptr
+	}
+	if ref.Pattern != nil {
+		// A pattern (Refinements 11): a length it reaches, then a walk.
+		var lens []string
+		for _, s := range ref.GenLengths(lenCap) {
+			lens = append(lens, "{"+strconv.FormatInt(s[0], 10)+", "+strconv.FormatInt(s[1], 10)+"}")
+		}
+		edges, accept := patternTable(ref.Pattern)
+		n := l.helper("GenIn") + "(" + r + ", [][2]int64{" + strings.Join(lens, ", ") + "})"
+		return tc.goType(t) + "(" + l.helper("GenMatch") + "(" + r + ", int(" + n + "), " + edges + ", " + accept + "))"
 	}
 	var spans []string
 	for _, s := range ref.Spans {

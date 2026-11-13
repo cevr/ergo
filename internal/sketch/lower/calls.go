@@ -53,6 +53,8 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.goErrorCall(x, c) // gocall.go
 	case check.CallEncode, check.CallDecode:
 		return fc.wireCall(x, c)
+	case check.CallPattern:
+		return fc.patternCall(x, c) // pattern.go
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)

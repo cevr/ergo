@@ -304,8 +304,9 @@ type lowerer struct {
 	refusals []Refusal
 	reads    map[*check.Var]bool // locals that some expression reads
 
-	readsDone   map[*check.Func]bool // std functions whose reads are in reads (readsOf)
-	builtinDone map[string]bool      // the reference's builtin helpers written (builtinHelper)
+	readsDone    map[*check.Func]bool // std functions whose reads are in reads (readsOf)
+	builtinDone  map[string]bool      // the reference's builtin helpers written (builtinHelper)
+	patternsDone map[string]bool      // the pattern matchers written (pattern.go)
 
 	calls    []callIdent // the call table (calls.go, #230)
 	callSeen map[*syntax.CallExpr]bool
