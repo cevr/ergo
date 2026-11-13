@@ -131,6 +131,7 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		},
 		Cache:     cache,
 		Toolchain: tc,
+		IR:        true,
 		Stderr:    os.Stderr,
 	})
 	if opts.work && module.Dir != "" {

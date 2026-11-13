@@ -247,6 +247,12 @@ type BuildRequest struct {
 	// Cache holds the generated modules; Toolchain links them.
 	Cache     build.Cache
 	Toolchain build.Toolchain
+	// IR lowers the bodies the IR builder expresses as typed IR
+	// (lower.LowerIR, lower.LowerIRTests), which only ergo's patched
+	// compile reads: the Toolchain must run it (internal/toolchain,
+	// Patch). Every ergo command's build sets it (plan-tier §1.1); the
+	// source lowering stays the test-time reference.
+	IR bool
 	// Stderr receives the go command's output.
 	Stderr io.Writer
 	// Ledger is the path of the law ledger, ergo.laws beside ergo.mod
@@ -303,8 +309,14 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	lowering := lower.Lower
 	switch req.Mode {
 	case build.ModeBuild:
+		if req.IR {
+			lowering = withoutReport(lower.LowerIR)
+		}
 	case build.ModeTest:
 		lowering = lower.LowerTests
+		if req.IR {
+			lowering = withoutReport(lower.LowerIRTests)
+		}
 	default:
 		return build.Module{}, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
 	}
@@ -374,6 +386,14 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	return module, err
 }
 
+// withoutReport is an IR lowering without its report.
+func withoutReport(lowering func(lower.Unit) ([]lower.File, lower.IRReport, error)) func(lower.Unit) ([]lower.File, error) {
+	return func(u lower.Unit) ([]lower.File, error) {
+		files, _, err := lowering(u)
+		return files, err
+	}
+}
+
 // buildInput is the unit of a checked analysis and its emission key's
 // input for req's mode. A program of one source text is anchored at the
 // request's Source; a program read from a folder at the admitted path of
@@ -419,10 +439,14 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 			return build.Input{}, err
 		}
 	}
+	emitter := emitterRevision
+	if req.IR {
+		emitter += "+ir"
+	}
 	input := build.Input{
 		Dependencies: dependencies,
 		Compiler:     compiler,
-		Emitter:      emitterRevision,
+		Emitter:      emitter,
 		Language:     LanguageRevision,
 		Mode:         req.Mode,
 	}
@@ -455,7 +479,11 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.Ledg
 		return nil, nil, nil
 	}
 	unit.Rewrite = ev
-	files, err := lower.Lower(unit)
+	lowering := lower.Lower
+	if req.IR {
+		lowering = withoutReport(lower.LowerIR)
+	}
+	files, err := lowering(unit)
 	if err != nil {
 		return nil, nil, err
 	}

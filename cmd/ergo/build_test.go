@@ -88,9 +88,20 @@ func TestPackageNeverWritesUnderHome(t *testing.T) {
 	case code != 0:
 		t.Logf("the package run with an empty HOME exited %d after %d passing tests; failing: %s", code, len(passed), bytes.Join(failed, []byte(", ")))
 	}
+	// The builds run the release's go command by its path, the patched
+	// GOROOT's bin/go (internal/toolchain, Patch), which the wrapper on
+	// PATH does not reach: that go command's telemetry directory, and the
+	// directories above it, are the go command's writes, not Ergo's.
+	telemetry := filepath.Join(home, ".config", "go", "telemetry")
+	if runtime.GOOS == "darwin" {
+		telemetry = filepath.Join(home, "Library", "Application Support", "go", "telemetry")
+	}
 	var written []string
 	_ = filepath.WalkDir(home, func(p string, d fs.DirEntry, err error) error {
-		if p != home && !slices.Contains(telemetryOff, p) {
+		if p == telemetry {
+			return filepath.SkipDir
+		}
+		if p != home && !slices.Contains(telemetryOff, p) && !strings.HasPrefix(telemetry, p+string(filepath.Separator)) {
 			written = append(written, p)
 		}
 		return nil

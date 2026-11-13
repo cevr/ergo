@@ -415,7 +415,8 @@ func main() {
 		command, reason := scopeProbe(budget, cpus)
 		probed = command != ""
 		if !*noCache && !*merge && !*recordDurations {
-			// The replay path starts no step, so it needs no scope.
+			// The replay path starts no step but the cached go build of
+			// bin/ergo (rebuildOutputs), so it enters no scope.
 			root, err := repositoryRoot()
 			if err != nil {
 				fatal(err)
@@ -512,11 +513,16 @@ func setUpTier(scope, scopeNote, tier string) (*gate, error) {
 	return g, nil
 }
 
+// replayBuild is the step replayWholeGate runs after its replay: buildCLI.
+// A test gives a fixture's build.
+var replayBuild = buildCLI
+
 // replayWholeGate replays the whole-gate record of the checkout's key, if
 // one replays (replay.Store.TryReplay): the identity line, then the
 // recorded run. It reports whether it replayed, and the exit code. It runs
-// before the gate enters its scope, and starts no step. It replays only a
-// record of the run's tier.
+// before the gate enters its scope, and starts no step but the build of
+// bin/ergo, so the binary matches the tree (rebuildOutputs). It replays
+// only a record of the run's tier.
 func replayWholeGate(root, mechanism, tier string, out *os.File) (int, bool) {
 	g := &gate{root: root, cacheDir: cacheDirectory(), tier: tier}
 	if g.cacheDir == "" {
@@ -548,6 +554,9 @@ func replayWholeGate(root, mechanism, tier string, out *os.File) (int, bool) {
 	if err := recorded.Print(out); err != nil {
 		fmt.Fprintf(out, "gate: print the replay: %v\n", err)
 		return 2, true
+	}
+	if !rebuildOutputs(root, []*Step{replayBuild(root)}, out) {
+		return 1, true
 	}
 	return 0, true
 }
@@ -820,6 +829,9 @@ func (g *gate) run(out io.Writer) int {
 				g.verdicts = map[string]replay.Verdict{}
 				for _, step := range recorded.Record.Steps {
 					g.verdicts[step.Name] = replay.Pass
+				}
+				if !rebuildOutputs(g.root, g.steps, out) {
+					return 1
 				}
 				return 0
 			} else {

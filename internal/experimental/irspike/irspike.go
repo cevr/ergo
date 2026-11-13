@@ -2,8 +2,10 @@
 // q128, 2026-11-11): it builds an Ergo program through the source path
 // (lower.Lower, stock go1.27.0) and through the typed-IR path
 // (lower.LowerIR, the go1.27.0 derivative's -ergoir entry) with the same
-// flags, and measures both. Nothing in the default build reads it; source
-// emission stays the reference.
+// flags, and measures both. Source emission stays the reference. ergo's
+// own build lowers through IR itself (sketchfront, internal/toolchain's
+// patched compile); it reads this package only for `ergo build -go-text
+// DIR` (GoText).
 package irspike
 
 import (
@@ -15,12 +17,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/receipt"
+	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // Path is the way a program reaches the Go compiler.
@@ -31,11 +36,17 @@ const (
 	Source Path = iota
 	// IR is typed IR bodies for the subset, the derivative compiler.
 	IR
+	// Text is the Go text the derivative printed of the IR bodies
+	// (GoText), built by the derivative without -ergoir.
+	Text
 )
 
 func (p Path) String() string {
-	if p == IR {
+	switch p {
+	case IR:
 		return "ir"
+	case Text:
+		return "text"
 	}
 	return "source"
 }
@@ -56,6 +67,38 @@ func Toolchains() (src, ir Toolchain, ok bool) {
 		return Toolchain{}, Toolchain{}, false
 	}
 	return Toolchain{GOROOT: s, GOCACHE: filepath.Join(c, "source")}, Toolchain{GOROOT: i, GOCACHE: filepath.Join(c, "ir")}, true
+}
+
+// ErgoToolchains are the two installations of ergo's own build when
+// Toolchains is not configured: the release ERGO_GO selects, the stock
+// compile of the reference, with Go's own build cache; and the same
+// release with ergo's patched compile from ergo's cache
+// (sketchfront.PatchedRelease), its build cache beside it. So the IR tests
+// need no variable, and a gate step runs them.
+func ErgoToolchains() (src, ir Toolchain, err error) {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return src, ir, err
+	}
+	selected, err := toolchain.Select(os.Getenv, root, os.Stderr)
+	if err != nil {
+		return src, ir, err
+	}
+	patched, err := sketchfront.PatchedRelease(selected, root, os.Stderr)
+	if err != nil {
+		return src, ir, err
+	}
+	source, err := filepath.EvalSymlinks(filepath.Join(patched.Root, "VERSION"))
+	if err != nil {
+		return src, ir, err
+	}
+	source = filepath.Dir(source)
+	out, err := exec.Command(filepath.Join(source, "bin", "go"), "env", "GOCACHE").Output()
+	if err != nil {
+		return src, ir, fmt.Errorf("go env GOCACHE: %w", err)
+	}
+	return Toolchain{GOROOT: source, GOCACHE: strings.TrimSpace(string(out))},
+		Toolchain{GOROOT: patched.Root, GOCACHE: filepath.Join(filepath.Dir(patched.Root), "gocache")}, nil
 }
 
 // Load checks the program at path (a .ergo file or a package folder) and
@@ -98,22 +141,28 @@ func Emit(u lower.Unit, p Path, dir string) (lower.IRReport, error) {
 	if err != nil {
 		return rep, err
 	}
+	return rep, writeModule(dir, files)
+}
+
+// writeModule writes a lowering's files and the runtime into dir, which
+// must not exist yet.
+func writeModule(dir string, files []lower.File) error {
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
-		return rep, err
+		return err
 	}
 	if err := os.Mkdir(dir, 0o755); err != nil {
-		return rep, err
+		return err
 	}
 	for _, f := range append(files, lower.Runtime()...) {
 		name := filepath.Join(dir, filepath.FromSlash(f.Path))
 		if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
-			return rep, err
+			return err
 		}
 		if err := os.WriteFile(name, f.Data, 0o644); err != nil {
-			return rep, err
+			return err
 		}
 	}
-	return rep, nil
+	return nil
 }
 
 // compileID is the derivative compiler's content hash. A release-versioned
@@ -121,7 +170,7 @@ func Emit(u lower.Unit, p Path, dir string) (lower.IRReport, error) {
 // action IDs cannot tell it from the stock compiler or from its own
 // earlier builds; its cache is therefore keyed by this hash.
 func compileID(goroot string) (string, error) {
-	f, err := os.Open(filepath.Join(goroot, "pkg", "tool", "linux_amd64", "compile"))
+	f, err := os.Open(filepath.Join(goroot, "pkg", "tool", runtime.GOOS+"_"+runtime.GOARCH, "compile"))
 	if err != nil {
 		return "", err
 	}
@@ -166,17 +215,20 @@ type BuildOptions struct {
 
 // Command is the go build of the module in dir to out by path p: the
 // flags of ergo's own build action (receipt.GoBuildFlags), and for IR the
-// -ergoir flag on the program's root package.
+// -ergoir flag on the program's root package. IR and Text build with the
+// derivative, whose cache is keyed by its content.
 func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, error) {
 	cache := tc.GOCACHE
 	args := append([]string{"build"}, receipt.GoBuildFlags...)
 	gcflags := o.GCFlags
-	if p == IR {
+	if p != Source {
 		id, err := compileID(tc.GOROOT)
 		if err != nil {
 			return nil, err
 		}
 		cache += "-" + id
+	}
+	if p == IR {
 		irFile, err := stableIR(cache, filepath.Join(dir, lower.IRFileName))
 		if err != nil {
 			return nil, err
@@ -195,6 +247,14 @@ func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, 
 	args = append(args, "-o", out, ".")
 	cmd := exec.Command(filepath.Join(tc.GOROOT, "bin", "go"), args...)
 	cmd.Dir = dir
+	cmd.Env = goEnv(tc.GOROOT, cache)
+	cmd.Stdout, cmd.Stderr = o.Stderr, o.Stderr
+	return cmd, nil
+}
+
+// goEnv is this process's environment for a go command of goroot with the
+// build cache cache, outside a workspace, for the host, without cgo.
+func goEnv(goroot, cache string) []string {
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
 		for _, k := range []string{"GOROOT=", "GOCACHE=", "GOWORK=", "CGO_ENABLED=", "GOFLAGS=", "GOTOOLCHAIN=", "GOOS=", "GOARCH="} {
 			if strings.HasPrefix(kv, k) {
@@ -203,9 +263,7 @@ func Command(tc Toolchain, p Path, dir, out string, o BuildOptions) (*exec.Cmd, 
 		}
 		return false
 	})
-	cmd.Env = append(env, "GOROOT="+tc.GOROOT, "GOCACHE="+cache, "GOWORK=off", "CGO_ENABLED=0", "GOTOOLCHAIN=local")
-	cmd.Stdout, cmd.Stderr = o.Stderr, o.Stderr
-	return cmd, nil
+	return append(env, "GOROOT="+goroot, "GOCACHE="+cache, "GOWORK=off", "CGO_ENABLED=0", "GOTOOLCHAIN=local")
 }
 
 // Build builds the module in dir to out and measures the go command's

@@ -359,6 +359,33 @@
       "killers": ["cmd/ergo:TestTestResultCache"],
       "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
     },
-    {"name":"cs-warm-key-omits-flag","origin":"wf10 CS2","file":"cmd/ergo/warm.go","from":"\t\topts.seed, opts.evalSteps, opts.evalBytes})","to":"\t\topts.evalSteps, opts.evalBytes})","rule":"The request key holds every option that changes the answer: check with another --seed is another request.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}}
+    {"name":"cs-warm-key-omits-flag","origin":"wf10 CS2","file":"cmd/ergo/warm.go","from":"\t\topts.seed, opts.evalSteps, opts.evalBytes})","to":"\t\topts.evalSteps, opts.evalBytes})","rule":"The request key holds every option that changes the answer: check with another --seed is another request.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}},
+    {
+      "name": "irt-build-source-path",
+      "origin": "wf10 IRT0b",
+      "file": "cmd/ergo/build.go",
+      "from": "\t\tIR:        true,\n\t\tStderr:    stderr,\n\t\tLedger:",
+      "to": "\t\tIR:        false,\n\t\tStderr:    stderr,\n\t\tLedger:",
+      "rule": "ergo build lowers every program through IR (plan-tier §1.1): the module holds the IR file the patched compile reads.",
+      "killers": ["cmd/ergo:TestBuildGoesThroughIR"]
+    },
+    {
+      "name": "irt-direct-no-ergoir",
+      "origin": "wf10 IRT0b",
+      "file": "internal/sketch/build/direct.go",
+      "from": "\t\targs = append(args, ergoIR(d.module)...)",
+      "to": "\t\targs = append(args)",
+      "rule": "The direct path's root compile reads the module's IR bodies (-ergoir); without them it fails and the build falls back to go build.",
+      "killers": ["cmd/ergo:TestBuildGoesThroughIR"]
+    },
+    {
+      "name": "irt-gobuild-no-ergoir",
+      "origin": "wf10 IRT0b",
+      "file": "internal/sketch/build/action.go",
+      "from": "\tif ir := ergoIR(module); ir != nil {",
+      "to": "\tif ir := ergoIR(module); false && ir != nil {",
+      "rule": "go build, the reference build path, passes the IR file to the root package's compile too.",
+      "killers": ["cmd/ergo:TestBuildGoesThroughIR"]
+    }
   ]
 }

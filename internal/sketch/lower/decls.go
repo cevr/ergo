@@ -1143,6 +1143,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
 		body := l.intrinsic(f)(fc, paramNames)
+		if l.ir != nil {
+			l.ir.intrinsic(f)
+		}
 		fd.lowered, fd.readsEnv = true, namesIdent(body, fc.env)
 		b.WriteString(head.String() + " {\n" + body + "}\n\n")
 		return
@@ -1177,10 +1180,19 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	l.analyzeValues(f.Decl, f.Pkg.Info)
 	fc.goGeneric = sp == nil && len(own) > 0
 	fc.scalarSet = l.scalarVars(f)
-	if l.ir != nil && !known && sp == nil && !owned && !needsFrame && len(own) == 0 {
-		// LowerIR only (irspike_experimental.go): a body in the spike's
+	if l.ir != nil {
+		// LowerIR and CensusIR only (ir.go): a body in the IR builder's
 		// subset leaves its Go declaration without a body.
-		if l.ir.body(fc, fd, params) {
+		var gates []string
+		for _, g := range []struct {
+			on     bool
+			reason string
+		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}, {len(own) > 0, "generic body"}} {
+			if g.on {
+				gates = append(gates, g.reason)
+			}
+		}
+		if l.ir.body(fc, fd, params, gates) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
 			b.WriteString(directive + head.String() + "\n\n")
 			return

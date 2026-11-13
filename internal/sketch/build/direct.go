@@ -452,7 +452,9 @@ func buildID(key string, parts int) string {
 }
 
 // compileKey is the action key of a package's compile: every input of the
-// object it writes.
+// object it writes. The root package's IR file (-ergoir) is one, by its
+// content; the patched compile that reads it is one through the tool's
+// digest.
 func (d *direct) compileKey(p *goPackage) (string, error) {
 	var k keyer
 	k.add("schema", directSchema+" compile")
@@ -473,6 +475,16 @@ func (d *direct) compileKey(p *goPackage) (string, error) {
 		// input.
 		k.add("file", p.Trim+"/"+filepath.Base(f))
 		k.add("content", hex.EncodeToString(sum[:]))
+	}
+	if p.ImportPath == d.mainPath() {
+		if ir := ergoIR(d.module); ir != nil {
+			data, err := os.ReadFile(ir[1])
+			if err != nil {
+				return "", err
+			}
+			sum := sha256.Sum256(data)
+			k.add("ergoir", hex.EncodeToString(sum[:]))
+		}
 	}
 	for _, imp := range p.Imports {
 		if imp == "unsafe" { // built into the compiler: the tool digest covers it
@@ -584,6 +596,11 @@ func (d *direct) compile(p *goPackage) error {
 	}
 	if d.plan.pie() {
 		args = append(args, "-shared")
+	}
+	if p.ImportPath == d.mainPath() {
+		// Where go build puts -gcflags: the IR bodies, for the patched
+		// compile (ergoIR).
+		args = append(args, ergoIR(d.module)...)
 	}
 	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
 	if p.Embed != nil {

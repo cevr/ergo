@@ -424,6 +424,11 @@ func (l *lowerer) libraryPackages() []*check.Package {
 		}
 	}
 	visit(l.pkg)
+	if l.ir != nil {
+		for _, f := range l.ir.reach { // CensusStd only (ir.go)
+			add(f.Pkg)
+		}
+	}
 	for i := 0; i < len(out); i++ {
 		visit(out[i])
 	}

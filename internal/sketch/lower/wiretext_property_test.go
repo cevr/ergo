@@ -274,6 +274,67 @@ func TestStdEvidenceAdmitsOnlyProvedCurrent(t *testing.T) {
 	}
 }
 
+// TestJSONCommaTestsCounted is the counted guard of two carries of
+// cellEvents, whose output stays the same when they are dropped, so only
+// the work shows them (batch-18 verify, "Test strength"): each case's
+// encode runs one comma test (std json's text.sep), at its first value;
+// every later comma is known where it is written. The case jobdraft holds
+// a writer-free one-line block (an optional field's count) before its
+// last key, where oneLineBlock keeps the state known; the case nest holds
+// a record at a key, which cellEntryCall calls by its entry variant. The
+// count is a counter the lowered sep writes to stderr (one line per call),
+// not a time. Measured at 0142c37cb (pcount, instructions per encode of
+// the LR3 receipts, 7 interleaved runs): without oneLineBlock JobDraft
+// costs about 9 more (803-804 against 812-813); without cellEntryCall
+// Value costs about 25 more (median 1899 against 1926), and Draft and View
+// differ by less than their noise.
+// Mutants wt-one-line-block, wt-entry-call.
+//
+// It builds Go because the count is of the lowered program's comma tests
+// at run time; the reference interpreter runs Ergo, not the lowered Go.
+func TestJSONCommaTestsCounted(t *testing.T) {
+	needsBuild(t)
+	defaultLoweringOnly(t)
+	if !wireDirect() {
+		t.Skip("the Writer path (wireLowering=writer) has no cell writer to count")
+	}
+	cases := []struct{ name, src, want string }{
+		{"jobdraft", "type JobDraft { Name string, Priority json.Optional[int] }\n\nfunc main() needs Console {\n\tConsole.Println(json.Encode(json.Codec[JobDraft]{MaxBytes: 0, MaxDepth: 4}, JobDraft{Name: \"nightly\", Priority: json.Present{Value: 4}}))\n}\n", `{"name":"nightly","priority":4}`},
+		{"nest", "type Leaf { A int }\ntype Nest { Name string, Inner Leaf }\n\nfunc main() needs Console {\n\tConsole.Println(json.Encode(json.Codec[Nest]{MaxBytes: 0, MaxDepth: 4}, Nest{Name: \"n\", Inner: Leaf{A: 1}}))\n}\n", `{"name":"n","inner":{"a":1}}`},
+	}
+	const sep = "func (t *text) sep() {\n"
+	var progs []*lowered
+	for _, c := range cases {
+		o := lowerSource(c.name, "import json\n\n"+c.src, true)
+		if o.err != nil || len(o.diags) > 0 || o.panicked != nil || len(o.refused) > 0 {
+			t.Fatalf("%s does not lower: %v %v %v %v", c.name, o.err, o.diags, o.panicked, o.refused)
+		}
+		main := o.mainGo()
+		if strings.Count(main, sep) != 1 {
+			t.Fatalf("%s: the lowered Go has no one %q to count\n%s", c.name, sep, main)
+		}
+		for i, f := range o.files {
+			if f.Path == "main.go" {
+				o.files[i].Data = []byte(strings.Replace(main, sep, sep+"\tprintln(\"comma test\")\n", 1))
+			}
+		}
+		progs = append(progs, o)
+	}
+	exes := buildAll(t, progs, true)
+	if exes == nil {
+		t.Fatal("no build")
+	}
+	for i, c := range cases {
+		out, stderr, code := runExe(t, exes[c.name])
+		if code != 0 || strings.TrimSpace(out) != c.want {
+			t.Fatalf("%s prints %q (exit %d, %s), want %q", c.name, out, code, firstLines(stderr, 8), c.want)
+		}
+		if n := strings.Count(stderr, "comma test\n"); n != 1 {
+			t.Errorf("%s: %d comma tests per encode, want 1 (the first value's); the others are known\nsource:\n%s\nGo:\n%s", c.name, n, c.src, progs[i].mainGo())
+		}
+	}
+}
+
 // TestCellWriterAgrees: a program's own cell writer encodes what the
 // reference and the Writer path encode (wiretext.go). Mutants:
 // lr3-w5 (a run's last call taken as idempotent), lr3-w7 (a codec

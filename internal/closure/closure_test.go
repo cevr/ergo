@@ -165,6 +165,16 @@ var declared = map[string][]allowance{
 		{"scripts/examples", program, "the package-folder test runs `go run ./scripts/examples` with the CLI under test (packages_test.go, tidewalk-replay)"},
 		{"examples", subtree, "the package-folder test runs scripts/examples, which loads every program folder of examples/ whatever the selection (loadExamples) and walks the selected one, so a changed example reruns it"},
 	},
+	"internal/experimental/irspike": {
+		{"examples", subtree, "TestIRCoverage and TestIRAgreesOnExamples walk every example program (ExampleTargets, filepath.WalkDir) and lower, build and run each, with its cases"},
+		{"internal/sketch/lower/testdata", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"internal/sketch/check/testdata/v1", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"internal/sketch/check/testdata/fixtures/positive", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"internal/sketch/check/testdata/fixtures/spec", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"internal/sketch/testdata/probes", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"benchmarks", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"ergo.mod", file, "loading a program folder looks up the module file in each folder above it, up to the repository root"},
+	},
 	"internal/sketchfront": {
 		{"examples/editions/sketch/main.ergo", file, "TestSketchBuildRunsProgram and the lease test build the 2026 example program"},
 		{"examples/editions/sketch/expected.out", file, "TestSketchBuildRunsProgram compares the run with the expected output"},
