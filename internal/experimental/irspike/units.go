@@ -153,6 +153,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"dot call of a std function", "G4"},
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
 	{"type *check.Map", "G4"},
+	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
 	{"type *check.TypeParam", "G4"},
 	{"type *check.Signature", "G4"},
 	{"type *check.Pointer", "G4"},
