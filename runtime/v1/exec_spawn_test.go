@@ -36,6 +36,10 @@ func TestExecSpawnStarter(t *testing.T) {
 // second Kill is no failure. Mutants (runtime/v1 ledger): spawn-no-setsid
 // (the program stays in the starter's group, so Kill's signal to its own
 // group reaches nothing), alive-ignores-start, kill-no-sigkill.
+//
+// It runs its own test binary (no build) as the starter because a program
+// outliving the process that spawned it is what it checks, and no process
+// but a second one can exit under it.
 func TestExecSpawnOutlivesItsStarter(t *testing.T) {
 	starter := exec.Command(os.Args[0], "-test.run=^TestExecSpawnStarter$", "-test.count=1")
 	starter.Env = append(os.Environ(), "ERGO_SPAWN_STARTER=1")
