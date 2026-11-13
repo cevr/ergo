@@ -4082,6 +4082,83 @@
         "lower:TestJSONFieldsAgree",
         "lower:TestNestedEncodeKeepsTheFastText"
       ]
+    },
+    {
+      "name": "gx2-reserve-never",
+      "origin": "wf10 GX2",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "\tif reserveLowering == \"off\" || domain != check.LoopSlice",
+      "to": "\tif true || domain != check.LoopSlice",
+      "rule": "types.md, Loops and len 8 (GX2): a qualifying append loop reserves its room before it starts.",
+      "killers": [
+        "lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx2-reserve-any-domain",
+      "origin": "wf10 GX2",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "reserveLowering == \"off\" || domain != check.LoopSlice && domain != check.LoopMap {",
+      "to": "reserveLowering == \"off\" {",
+      "rule": "types.md, Loops and len 8 (GX2): only a slice or a Map domain is reserved: a Range's count is no length of memory, a string's and a Seq's are unknown.",
+      "killers": [
+        "lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx2-reserve-escapes",
+      "origin": "wf10 GX2",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "\t\tcase *syntax.BranchStmt, *syntax.ReturnStmt:\n\t\t\tclean = false\n",
+      "to": "\t\tcase *syntax.BranchStmt, *syntax.ReturnStmt:\n",
+      "rule": "types.md, Loops and len 8 (GX2): a body with a break, continue or return may append fewer times, and is not reserved.",
+      "killers": [
+        "lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx2-reserve-other-assign",
+      "origin": "wf10 GX2",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "if syntax.Stmt(n) != appendStmt && fc.assignsTo(n, target) {",
+      "to": "if syntax.Stmt(n) != appendStmt && false {",
+      "rule": "types.md, Loops and len 8 (GX2): a body that assigns the target elsewhere (a second append, an element write, a reassignment) is not reserved.",
+      "killers": [
+        "lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx2-reserve-self-domain",
+      "origin": "wf10 GX2",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "!fc.plainPath(s.X) || fc.mentions(s.X, target) {",
+      "to": "!fc.plainPath(s.X) {",
+      "rule": "types.md, Loops and len 8 (GX2): a range over the target's own array sees its element writes, so it is not reserved.",
+      "killers": [
+        "lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx2-reserve-call-domain",
+      "origin": "wf10 GX2",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "if target == nil || !fc.plainPath(s.X) || ",
+      "to": "if target == nil || ",
+      "rule": "types.md, Loops and len 8 (GX2): a domain reached through a call could return the target's array, so it is not reserved.",
+      "killers": [
+        "lower:TestReserveAgrees"
+      ]
+    },
+    {
+      "name": "gx2-reserve-through-pointer",
+      "origin": "wf10 GX2",
+      "file": "internal/sketch/lower/reserve.go",
+      "from": "\tif _, ptr := fc.typeOf(x).(*check.Pointer); ptr {\n\t\treturn false\n\t}\n",
+      "to": "",
+      "rule": "types.md, Loops and len 8 (GX2): a domain reached through a pointer could reach the target's array, so it is not reserved.",
+      "killers": [
+        "lower:TestReserveAgrees"
+      ]
     }
   ]
 }

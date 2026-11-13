@@ -12,7 +12,7 @@ var reserveSeed = flag.Uint64("reserve.seed", 0, "run TestReserveAgrees on this 
 
 // The shapes TestReserveAgrees draws. A domain is what the loop ranges
 // over: the slice parameter, a field of a local record, a package let,
-// the Map parameter, a Range, a string, a call, the target itself, or a
+// the Map parameter, a Range or a string held in a local, a call, the target itself, or a
 // field reached through a pointer. An
 // init is the target's first value: empty, two elements, or the slice
 // parameter (sharing its array until the value rule copies). A body is
@@ -64,9 +64,11 @@ func (s reserveShape) fn(i int) string {
 	case "map":
 		head = "for _, v in m {"
 	case "range":
-		head = "for v in 0..n {"
+		b.WriteString("\tlet span = 0..n\n")
+		head = "for v in span {"
 	case "string":
-		head, elem = "for c in \"aé\" {", "int(c)"
+		b.WriteString("\tlet text = \"aé\"\n")
+		head, elem = "for c in text {", "int(c)"
 	case "call":
 		head = "for v in twice(xs) {"
 	case "self":
