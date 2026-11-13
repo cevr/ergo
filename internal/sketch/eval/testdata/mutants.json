@@ -617,8 +617,8 @@
       "name": "oracle-o2-covered-failure-caught",
       "origin": "wf10 ORACLE O2 (batch 17 fix-try r2 probe)",
       "file": "internal/sketch/eval/expr.go",
-      "from": "\tv, ab := in.tailExpr(fr, x)\n\tif ab != nil && ab.kind == ctlFail {",
-      "to": "\tv, ab := in.tailExpr(fr, x)\n\tif false && ab != nil && ab.kind == ctlFail {",
+      "from": "\tv, ab := in.tailK(fr, x, f)\n\tif ab != nil && ab.kind == ctlFail {",
+      "to": "\tv, ab := in.tailK(fr, x, f)\n\tif false && ab != nil && ab.kind == ctlFail {",
       "rule": "Under try X catch, a failure covered in a value position inside X passes the catch and leaves the frame (rows.md, Catch 5).",
       "killers": ["internal/sketch/eval:TestCoveredFailurePassesCatch"]
     },
