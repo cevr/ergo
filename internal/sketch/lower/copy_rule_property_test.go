@@ -215,7 +215,8 @@ type copyGen struct {
 	r       *rand.Rand
 	fns     strings.Builder
 	main    strings.Builder
-	model   map[string]int // function name -> the copies its Go makes; -1: agreement only
+	model   map[string]int  // function name -> the copies its Go makes; -1: agreement only
+	mapOnly map[string]bool // functions whose model counts Map copies only
 	order   []string
 	reached map[string]bool
 	n       int
@@ -333,11 +334,11 @@ func (g *copyGen) shape(fam copyFamily, combo int) {
 		shape = "update"
 		lit := e.zero
 		if e.k == "S" {
-			// The old entry appended to: the Append is clipped (one
-			// copy op), and its result is fresh.
+			// The old entry appended to: the Append's result is
+			// fresh, so the Map is not copied (mapOnly).
 			lit = "match o {\n\tcase Some[[]int] as v:\n\t\tv.Value.Append(9)\n\tcase None:\n\t\t[]int{}\n\t}"
-			want = 1
 		}
+		g.mapOnly[name] = true
 		body = fmt.Sprintf("\tr.m = maps.Update(r.m, k, func(o Option[%s]) %s { %s })\n\tlen(r.m)%s\n", e.typ, e.typ, lit, tail)
 	case 10:
 		// An entry read, written and stored under another key, then read:
@@ -534,7 +535,7 @@ func indent2(s string) string {
 
 // copyProgram writes the program of seed and the model of its copies.
 func copyProgram(seed uint64, reached map[string]bool) (string, *copyGen) {
-	g := &copyGen{r: rand.New(rand.NewPCG(seed, 0x636f7079)), model: map[string]int{}, reached: reached}
+	g := &copyGen{r: rand.New(rand.NewPCG(seed, 0x636f7079)), model: map[string]int{}, mapOnly: map[string]bool{}, reached: reached}
 	// Every family, shape, entry and access once, in the seed's order
 	// (copyShapes shapes, the last drawing one of the five chains), then
 	// the adversaries, each entry once, at a drawn access.
@@ -571,6 +572,9 @@ func copyProgram(seed uint64, reached map[string]bool) (string, *copyGen) {
 }
 
 var copyOps = regexp.MustCompile(`\bmaps\.Clone\(|\bslices\.Clone\(|\bslices\.Clip\(|\bergoClone\w*\(`)
+
+// mapCopyOps are the copies of a Map (copyGen.mapOnly).
+var mapCopyOps = regexp.MustCompile(`\bmaps\.Clone\(|\bergoCloneMap\w*\(`)
 
 // goFuncsOf is the Go text of the function name: its body, and the body
 // of its owned form (values.go, V5) when it has one.
@@ -642,7 +646,11 @@ func TestCopyCountsMatchModel(t *testing.T) {
 				continue // read by the agreement only
 			}
 			text := goFuncsOf(t, mainGo, name)
-			if got := len(copyOps.FindAllString(text, -1)); got != g.model[name] {
+			ops := copyOps
+			if g.mapOnly[name] {
+				ops = mapCopyOps
+			}
+			if got := len(ops.FindAllString(text, -1)); got != g.model[name] {
 				t.Errorf("seed %d, %s: the lowering makes %d copies, the model %d\nReplay: go test -run '^TestCopyCountsMatchModel$' ./internal/sketch/lower -args -copy.seed=%d\n--- Go\n%s\n--- source\n%s", seed, name, got, g.model[name], seed, text, src)
 			}
 		}
