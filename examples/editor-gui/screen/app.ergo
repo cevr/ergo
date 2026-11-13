@@ -1,0 +1,101 @@
+// Package screen is the editor's window: the app machine that holds the
+// editor and its save in flight, and the view a window shows of it,
+// written once for every ui host (ui.TestHost here; the desktop host at
+// stage c). The editor's save is its output; here it becomes a write the
+// view asks the host for (ui.Load), whose end comes back as a signal.
+
+import editor/edit
+
+// Signal is what the view sends the app: a signal of the editor (a key,
+// a button, committed text), or the end of a save the host ran.
+type Signal = Do{Signal edit.Signal} | Wrote{Bytes int} | WriteFailed{Reason string}
+
+// Window is the app's state: the editor, the document's name, the text a
+// save is writing (None when no save is in flight), and how many saves
+// were asked for, which keys the write so that a new save replaces the
+// old.
+type Window { Ed edit.State, Name string, Writing Option[string], Saves int }
+
+// Opening is what the app starts on: the document's text and name.
+type Opening { Text string, Name string }
+
+// Note is what the app tells the user: a save ended, or failed.
+type Note = SavedNote{Name string, Bytes int} | CannotSave{Name string, Reason string}
+
+// Begin is the editor on o: the machine's input.
+func Begin(o Opening) Window {
+	Window{Ed: edit.Open(o.Text), Name: o.Name, Writing: None, Saves: 0}
+}
+
+// Step is the app's transition. The editor's Write starts a save; its end
+// tells the editor Saved and notes it, a failure notes it and keeps the
+// edits unsaved, as the headless driver does.
+func Step(w Window, e Signal) Decision[Window, Note] {
+	match e {
+	case Do as d:
+		match edit.Step(w.Ed, d.Signal) {
+		case Enter[edit.State] as x:
+			Stay[Window]{Next: Window{..w, Ed: x.Next}}
+		case Stay[edit.State] as x:
+			Stay[Window]{Next: Window{..w, Ed: x.Next}}
+		case Emit[edit.State, edit.Output] as x:
+			match x.Output {
+			case edit.Write as t:
+				Stay[Window]{Next: Window{..w, Ed: x.Next, Writing: Some{Value: t.Text}, Saves: w.Saves + 1}}
+			}
+		case Ignore:
+			Ignore
+		case Reject, Done[edit.Output]:
+			Reject
+		}
+	case Wrote as x:
+		Emit[Window, Note]{Next: Window{..w, Ed: edit.After(w.Ed, edit.Saved), Writing: None}, Output: SavedNote{Name: w.Name, Bytes: x.Bytes}}
+	case WriteFailed as x:
+		Emit[Window, Note]{Next: Window{..w, Writing: None}, Output: CannotSave{Name: w.Name, Reason: x.Reason}}
+	}
+}
+
+// NoteLine is the line of a note, as the headless driver writes it.
+func NoteLine(n Note) string {
+	match n {
+	case SavedNote as s:
+		"saved " + s.Name + " (\(s.Bytes) bytes)"
+	case CannotSave as c:
+		"cannot save " + c.Name + ": " + c.Reason
+	}
+}
+
+// After is the window after e: a rejected or ignored signal leaves it as
+// it was.
+func After(w Window, e Signal) Window {
+	match Step(w, e) {
+	case Enter[Window] as x:
+		x.Next
+	case Stay[Window] as x:
+		x.Next
+	case Emit[Window, Note] as x:
+		x.Next
+	case Ignore, Reject, Done[Note]:
+		w
+	}
+}
+
+// App is the editor as a machine: an actor runs it under the view.
+type App machine[Window, Signal] {
+	initial: Begin,
+	step:    Step,
+
+	// WroteIsSaved: an edit, a save and its end leave the document saved,
+	// with no write in flight.
+	law WroteIsSaved(o Opening, typed string) {
+		let w = After(After(After(Begin(o), Do{Signal: edit.Type{Text: typed + "x"}}), Do{Signal: edit.Save}), Wrote{Bytes: 0})
+		!edit.DocOf(w.Ed).Dirty && w.Writing == None
+	},
+
+	// FailedSaveKeepsEdits: a save that fails leaves the edits unsaved,
+	// with no write in flight.
+	law FailedSaveKeepsEdits(o Opening, typed string, reason string) {
+		let w = After(After(After(Begin(o), Do{Signal: edit.Type{Text: typed + "x"}}), Do{Signal: edit.Save}), WriteFailed{Reason: reason})
+		edit.DocOf(w.Ed).Dirty && w.Writing == None
+	},
+}

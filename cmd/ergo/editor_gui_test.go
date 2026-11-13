@@ -23,8 +23,13 @@ import (
 // offset), moves past both ends and across lines of other lengths,
 // selections in both directions, searches with no match, replaces whose
 // text holds the query, long undo and redo chains, and lines that are no
-// command. A failing seed prints its replay command and the first line
-// that differs.
+// command. On every fifth seed (and on a replayed one) the Ergo program
+// also plays the script as a scene (GP2b): the window's view on
+// ui.TestHost, driven by keys, buttons, its text input and its
+// replacement field, with saves the view asks the host for; it is held
+// to the reference of the script as a window plays it
+// (editorSceneAsPlay), and so is the file it saves. A failing seed prints
+// its replay command and the first line that differs.
 //
 // It builds Go because the programs under test are the linked binaries:
 // the Ergo program reads and writes the host's file and reads its
@@ -50,8 +55,16 @@ func TestEditorGuiAgreesWithControl(t *testing.T) {
 		r := rand.New(rand.NewPCG(seed, 0xed17))
 		text, exists := editorText(r)
 		script := editorScript(r)
-		want, saved := editorReference(text, script)
-		for _, bin := range []string{ergoBin, control} {
+		type leg struct{ bin, command, script string }
+		legs := []leg{{ergoBin, "edit", script}, {control, "edit", script}}
+		if seeds == 1 || seed%5 == 0 {
+			// A scene costs a pass a key, and a move of N is N keys:
+			// every fifth seed plays one.
+			legs = append(legs, leg{ergoBin, "scene", editorSceneAsPlay(script)})
+		}
+		for _, l := range legs {
+			bin := l.bin
+			want, saved := editorReference(text, l.script)
 			dir := t.TempDir()
 			path := filepath.Join(dir, "doc.txt")
 			if exists {
@@ -59,10 +72,10 @@ func TestEditorGuiAgreesWithControl(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got := runCorpus(t, bin, dir, []string{"edit", "doc.txt"}, script)
+			got := runCorpus(t, bin, dir, []string{l.command, "doc.txt"}, script)
 			if got != want {
-				t.Fatalf("seed %d: %s printed other text than the reference\n%s\nreplay: EDITOR_SEED=%d go test -count=1 -run '^TestEditorGuiAgreesWithControl$' ./cmd/ergo",
-					seed, filepath.Base(bin), firstDiff(got, want), seed)
+				t.Fatalf("seed %d: %s %s printed other text than the reference\n%s\nreplay: EDITOR_SEED=%d go test -count=1 -run '^TestEditorGuiAgreesWithControl$' ./cmd/ergo",
+					seed, filepath.Base(bin), l.command, firstDiff(got, want), seed)
 			}
 			file, err := os.ReadFile(path)
 			if saved == nil {
@@ -81,6 +94,25 @@ var (
 	editorTyped = []string{"a", "é", "日", "𝄞", "aa", "ab", " ", "x y", "\t", "ba"}
 	editorFind  = []string{"a", "aa", "ab", "é", "日本", "𝄞", "the", "zz", "\xff", "\xce", " "}
 )
+
+// editorSceneAsPlay is script as the scene plays it, written for the
+// reference: a window moves by one rune or line a key, so a move of N is
+// N moves of 1 (for up and down that differs: each keeps the column of
+// the line it leaves, where up N keeps the column it started from). Every
+// other line, a malformed count included, stays as it is.
+func editorSceneAsPlay(script string) string {
+	var b strings.Builder
+	for _, line := range strings.SplitAfter(script, "\n") {
+		word, rest, _ := strings.Cut(strings.TrimSuffix(line, "\n"), " ")
+		n, err := strconv.Atoi(rest)
+		if (word == "left" || word == "right" || word == "up" || word == "down") && err == nil && n >= 0 && n <= 1000000 && rest == strconv.Itoa(n) {
+			b.WriteString(strings.Repeat(word+" 1\n", n))
+			continue
+		}
+		b.WriteString(line)
+	}
+	return b.String()
+}
 
 // editorText is a seed's file: absent, empty, or lines of words, now and
 // then without a final line break, with blank lines, or invalid.

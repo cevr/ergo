@@ -1,0 +1,137 @@
+editing line=1 col=0 caret=0 len=122 undo=0 redo=0 dirty=no
+>1|The river runs north
+ 2|under the cold stone bridge,
+ 3|café lights, naïve wind;
+editing line=3 col=8 caret=58 len=127 undo=1 redo=0 dirty=yes
+ 1|The river runs north
+ 2|under the cold stone bridge,
+>3|caf, andé lights, naïve wind;
+ 4|日本 and λόγος
+ 5|slowly over the light.
+column
+  row
+    button "undo"
+      text "undo"
+    button "redo"
+      text "redo"
+    button "save"
+      text "save"
+    button "select"
+      text "select"
+    button "find"
+      text "find"
+    button "next"
+      text "next"
+    input "" (with)
+    button "replace"
+      text "replace"
+  input "" (type)
+  text "selecting line=3 col=4 caret=54 len=127 undo=1 redo=0 dirty=yes anchor=58"
+  text " 1|The river runs north"
+  text " 2|under the cold stone bridge,"
+  text ">3|caf, andé lights, naïve wind;"
+  text " 4|日本 and λόγος"
+  text " 5|slowly over the light."
+  canvas "page" 640x80
+    fill rgba(180,210,255,255) M 32 32 L 64 32 L 64 48 L 32 48 Z
+    fill rgba(0,0,0,255) M 32 32 L 33 32 L 33 48 L 32 48 Z
+editing line=3 col=5 caret=55 len=124 undo=2 redo=0 dirty=yes
+ 1|The river runs north
+ 2|under the cold stone bridge,
+>3|caf,!é lights, naïve wind;
+ 4|日本 and λόγος
+ 5|slowly over the light.
+editing line=1 col=5 caret=5 len=124 undo=2 redo=0 dirty=yes
+>1|The river runs north
+ 2|under the cold stone bridge,
+ 3|caf,!é lights, naïve wind;
+searching line=3 col=7 caret=58 len=124 undo=2 redo=0 dirty=yes find="light" matches=2
+ 1|The river runs north
+ 2|under the cold stone bridge,
+>3|caf,!é lights, naïve wind;
+ 4|日本 and λόγος
+ 5|slowly over the light.
+searching line=5 col=16 caret=117 len=124 undo=2 redo=0 dirty=yes find="light" matches=2
+ 3|caf,!é lights, naïve wind;
+ 4|日本 and λόγος
+>5|slowly over the light.
+ 6|
+editing line=3 col=7 caret=58 len=122 undo=3 redo=0 dirty=yes
+ 1|The river runs north
+ 2|under the cold stone bridge,
+>3|caf,!é lamps, naïve wind;
+ 4|日本 and λόγος
+ 5|slowly over the lamp.
+editing line=3 col=7 caret=58 len=122 undo=3 redo=0 dirty=yes
+ 1|The river runs north
+ 2|under the cold stone bridge,
+>3|caf,!é lamps, naïve wind;
+ 4|日本 and λόγος
+ 5|slowly over the lamp.
+editing line=4 col=10 caret=69 len=133 undo=5 redo=0 dirty=yes
+ 2|under the cold stone bridge,
+ 3|caf,!é 
+>4|a new linelamps, naïve wind;
+ 5|日本 and λόγος
+ 6|slowly over the lamp.
+column
+  row
+    button "undo"
+      text "undo"
+    button "redo"
+      text "redo"
+    button "save"
+      text "save"
+    button "select"
+      text "select"
+    button "find"
+      text "find"
+    button "next"
+      text "next"
+    input "" (with)
+    button "replace"
+      text "replace"
+  input "" (type)
+  text "selecting line=4 col=8 caret=67 len=133 undo=5 redo=0 dirty=yes anchor=69"
+  text " 2|under the cold stone bridge,"
+  text " 3|caf,!é "
+  text ">4|a new linelamps, naïve wind;"
+  text " 5|日本 and λόγος"
+  text " 6|slowly over the lamp."
+  canvas "page" 640x80
+    fill rgba(180,210,255,255) M 64 32 L 80 32 L 80 48 L 64 48 Z
+    fill rgba(0,0,0,255) M 64 32 L 65 32 L 65 48 L 64 48 Z
+saved poem.txt (133 bytes)
+editing line=4 col=8 caret=67 len=133 undo=5 redo=0 dirty=no
+ 2|under the cold stone bridge,
+ 3|caf,!é 
+>4|a new linelamps, naïve wind;
+ 5|日本 and λόγος
+ 6|slowly over the lamp.
+column
+  row
+    button "undo"
+      text "undo"
+    button "redo"
+      text "redo"
+    button "save"
+      text "save"
+    button "select"
+      text "select"
+    button "find"
+      text "find"
+    button "next"
+      text "next"
+    input "" (with)
+    button "replace"
+      text "replace"
+  input "" (type)
+  text "editing line=4 col=8 caret=67 len=133 undo=5 redo=0 dirty=no"
+  text " 2|under the cold stone bridge,"
+  text " 3|caf,!é "
+  text ">4|a new linelamps, naïve wind;"
+  text " 5|日本 and λόγος"
+  text " 6|slowly over the lamp."
+  canvas "page" 640x80
+    fill rgba(0,0,0,255) M 64 32 L 65 32 L 65 48 L 64 48 Z
+? "fly": want a command: show enter back del home end top bottom select find next undo redo escape save type replace left right up down

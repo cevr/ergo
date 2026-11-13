@@ -1,0 +1,35 @@
+# the window: committed text, keys, buttons, the replacement field, a save
+show
+down 2
+right 3
+type , and
+show
+select
+left 4
+shot
+type !
+show
+up 2
+show
+top
+find
+type light
+show
+next
+show
+replace lamp
+show
+undo
+redo
+show
+enter
+type a new line
+show
+select
+left 2
+shot
+escape
+save
+show
+shot
+fly

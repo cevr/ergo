@@ -1,1 +1,1 @@
-usage: editor-gui gen [-seed S] [-n N] | editor-gui edit FILE
+usage: editor-gui gen [-seed S] [-n N] | editor-gui edit FILE | editor-gui scene FILE

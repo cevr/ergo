@@ -1,0 +1,174 @@
+import editor/edit
+import editor/piece
+import ui
+
+// Mono is the page's measure: a cell grid of 8 by 16 (the test host's;
+// the desktop host gives its own text engine).
+let Mono = ui.Monospace{Advance: 8.0, Line: 16.0}
+
+// Font is the page's font.
+let Font = ui.Font{Family: "mono", Size: 14.0}
+
+// PageWidth is the page's width; a longer line wraps.
+let PageWidth = ui.Length(640.0)
+
+// Viewer is the view of a window whose saves store runs: the toolbar, the
+// status line, the text input the host commits typed text to, the find's
+// replacement field, the lines around the caret, and the page: the caret
+// and the selection where the text layout puts them.
+func Viewer(store edit.Store) func(f *ui.Frame[Signal], w Window) {
+	func(f *ui.Frame[Signal], w Window) { view(f, w, store) }
+}
+
+func view(f *ui.Frame[Signal], w Window, store edit.Store) {
+	ui.OnKey(f, func(k ui.KeyPress) Option[Signal] { Keyed(k) })
+	match w.Writing {
+	case Some[string] as t:
+		let name = w.Name
+		let text = t.Value
+		ui.Load(f, ui.IntKey{Value: w.Saves}, func() Signal { written(store, name, text) })
+	case None:
+	}
+	let replacement = ui.NewDraft(f, "")
+	ui.Column(f, ui.Plain()) {
+		ui.Row(f, ui.Plain()) {
+			for b in Buttons() {
+				ui.Pressable(f, b.Label, Do{Signal: b.Signal}) {
+					ui.Text(f, b.Label)
+				}
+			}
+			ui.Field(f, replacement, "with")
+			ui.Submit(f, replacement, "replace", Do{Signal: edit.Replace{With: replacement.Value}}) {
+				ui.Text(f, "replace")
+			}
+		}
+		ui.Input(f, "", "type", func(t string) Signal { Do{Signal: edit.Type{Text: t}} })
+		for line in edit.Frame(w.Ed) {
+			ui.Text(f, line)
+		}
+		let d = edit.DocOf(w.Ed)
+		let (from, to) = Shown(d)
+		let l = ui.LayoutText(Mono, piece.Slice(d.Buf, from, to), Font, PageWidth)
+		ui.Canvas(f, "page", PageWidth, ui.Length(float64(len(l.Lines)))*l.LineHeight) func(p *ui.Paint) {
+			Page(p, l, w.Ed, from, to)
+		}
+	}
+}
+
+// Button is a toolbar button: its label and the editor's signal.
+type Button { Label string, Signal edit.Signal }
+
+// Buttons are the toolbar's buttons.
+func Buttons() []Button {
+	[]Button{
+		Button{Label: "undo", Signal: edit.UndoIt},
+		Button{Label: "redo", Signal: edit.RedoIt},
+		Button{Label: "save", Signal: edit.Save},
+		Button{Label: "select", Signal: edit.Select},
+		Button{Label: "find", Signal: edit.Find},
+		Button{Label: "next", Signal: edit.Next},
+	}
+}
+
+// written is the end of a save of text as name, which the host runs as
+// a task: the bytes written, or why not.
+func written(store edit.Store, name string, text string) Signal {
+	store.Save(name, text) catch {
+	case edit.Unwritable as u:
+		return WriteFailed{Reason: u.Reason}
+	}
+	Wrote{Bytes: len(text)}
+}
+
+// Shown is the bytes [from, to) of the lines a window shows: the caret's
+// line and two lines on each side, as edit.Frame writes them.
+func Shown(d edit.Doc) (int, int) {
+	let lines = piece.Lines(d.Buf)
+	let at = edit.LineOf(d, d.Caret)
+	let first = if at > 2 { at - 2 } else { 1 }
+	let last = if at+2 < lines { at + 2 } else { lines }
+	(piece.LineStart(d.Buf, first), piece.LineEnd(d.Buf, last))
+}
+
+// SelectionColor and CaretColor are the page's colors.
+let SelectionColor = ui.Color{R: 180, G: 210, B: 255, A: 255}
+let CaretColor = ui.Color{R: 0, G: 0, B: 0, A: 255}
+
+// Page paints the selection and the caret of s over the shown bytes
+// [from, to), laid out in l: the selection's boxes from the layout
+// (ui.SelectionRects), clipped to the shown bytes, and the caret as a bar
+// one unit wide where the layout puts it (ui.CaretAt).
+func Page(p *ui.Paint, l ui.TextLayout, s edit.State, from int, to int) {
+	let d = edit.DocOf(s)
+	match s {
+	case edit.Selecting as x:
+		let lo = clamp(if x.Anchor < d.Caret { x.Anchor } else { d.Caret }, from, to)
+		let hi = clamp(if x.Anchor < d.Caret { d.Caret } else { x.Anchor }, from, to)
+		for r in ui.SelectionRects(Mono, l, lo-from, hi-from) {
+			ui.Fill(p, ui.RectPath(float64(r.X), float64(r.Y), float64(r.W), float64(r.H)), SelectionColor)
+		}
+	case edit.Editing, edit.Searching:
+	}
+	let c = ui.CaretAt(Mono, l, d.Caret-from)
+	ui.Fill(p, ui.RectPath(float64(c.X), float64(c.Top), 1.0, float64(c.Height)), CaretColor)
+}
+
+func clamp(v int, lo int, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	v
+}
+
+// Keyed is the editor's signal of a key: the arrows move a rune or a
+// line, Home and End to the line's ends and with Ctrl to the text's;
+// Backspace and Delete erase, Enter breaks the line, Escape leaves a
+// selection or a search; Ctrl+Z undoes, Ctrl+Y redoes, Ctrl+S saves,
+// Ctrl+F finds and F3 finds the next match. Typed text is not a key: the
+// host commits it to the text input.
+func Keyed(k ui.KeyPress) Option[Signal] {
+	let ctrl = k.Mods.Ctrl
+	match k.Name {
+	case "ArrowLeft":
+		Some{Value: Do{Signal: edit.Left{N: 1}}}
+	case "ArrowRight":
+		Some{Value: Do{Signal: edit.Right{N: 1}}}
+	case "ArrowUp":
+		Some{Value: Do{Signal: edit.Up{N: 1}}}
+	case "ArrowDown":
+		Some{Value: Do{Signal: edit.Down{N: 1}}}
+	case "Home":
+		Some{Value: Do{Signal: if ctrl { edit.Top } else { edit.Home }}}
+	case "End":
+		Some{Value: Do{Signal: if ctrl { edit.Bottom } else { edit.End }}}
+	case "Backspace":
+		Some{Value: Do{Signal: edit.Back}}
+	case "Delete":
+		Some{Value: Do{Signal: edit.Del}}
+	case "Enter":
+		Some{Value: Do{Signal: edit.Type{Text: "\n"}}}
+	case "Escape":
+		Some{Value: Do{Signal: edit.Escape}}
+	case "F3":
+		Some{Value: Do{Signal: edit.Next}}
+	case _:
+		if !ctrl {
+			return None
+		}
+		match k.Name {
+		case "z":
+			Some{Value: Do{Signal: edit.UndoIt}}
+		case "y":
+			Some{Value: Do{Signal: edit.RedoIt}}
+		case "s":
+			Some{Value: Do{Signal: edit.Save}}
+		case "f":
+			Some{Value: Do{Signal: edit.Find}}
+		case _:
+			None
+		}
+	}
+}
