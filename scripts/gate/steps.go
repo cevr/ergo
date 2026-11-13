@@ -553,7 +553,7 @@ func examplesStep(root string) (*Step, error) {
 			Paths:     append([]string{"scripts/examples/", "go.mod"}, paths...),
 			Exclude:   append([]string{"scripts/examples/*_test.go", "scripts/examples/testdata/"}, exclude...),
 			Tools:     []string{"go", "sh"},
-			Installed: []string{"examples"},
+			Installed: []string{"examples", "modules"},
 			Built:     []string{"bin/ergo"},
 		},
 	}, nil

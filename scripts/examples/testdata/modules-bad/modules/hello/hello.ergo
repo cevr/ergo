@@ -1,0 +1,2 @@
+// F does nothing; the module has no go.mod and no README.md.
+func F() {}

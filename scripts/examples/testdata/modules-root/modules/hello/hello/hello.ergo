@@ -1,0 +1,12 @@
+// Counter reads a count.
+type Counter {
+	Get() int,
+
+	// GetIsOne: a counter reads one.
+	law GetIsOne() { Get() == 1 },
+}
+
+// One is the counter that reads one.
+type One {}
+
+func Get(o One) int { return 1 }

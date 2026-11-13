@@ -64,6 +64,9 @@ type config struct {
 	record  bool
 	check   bool
 	lawless bool
+	// modules runs only the modules of modules/ (MK0), the names being
+	// modules; without it a run with no names runs every module too.
+	modules bool
 	names   []string
 	// jobs is how many programs run at once (runAll).
 	jobs int
@@ -89,6 +92,9 @@ type program struct {
 	cases  []*testCase
 	// explored are the lines of its explored file (explored.go).
 	explored []explored
+	// library marks a module of modules/ (MK0, modules.go): no binary,
+	// no cases; the fmt, gen and test legs run.
+	library bool
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -123,6 +129,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return reportLawless(cfg.root, stdout)
 	}
 	programs, problems := loadExamples(cfg.root, cfg.record)
+	modules, moduleProblems := loadModules(cfg.root)
+	problems = append(problems, moduleProblems...)
 	if len(problems) > 0 {
 		for _, problem := range problems {
 			fmt.Fprintln(stderr, problem)
@@ -130,7 +138,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "examples: %d layout errors; see examples/README.md\n", len(problems))
 		return 2
 	}
-	selected, err := selectPrograms(cfg, programs)
+	var selected []*program
+	if cfg.modules {
+		selected, err = selectModules(cfg.names, modules)
+	} else if selected, err = selectPrograms(cfg, programs); err == nil && len(cfg.names) == 0 && !cfg.record {
+		// A run of the tags runs every module too: the gate's examples
+		// step checks modules/ (MK0).
+		selected = append(selected, modules...)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -215,7 +230,9 @@ func (r *runner) runOne(p *program, pr *programRun) {
 	defer close(pr.ended)
 	defer func() { pr.panicked = recover() }()
 	one := &runner{cfg: r.cfg, out: &pr.out, scratch: r.scratch, live: r.live, install: r.install}
-	if r.cfg.record {
+	if p.library {
+		one.runModule(p)
+	} else if r.cfg.record {
 		one.recordProgram(p)
 	} else {
 		one.runProgram(p)
@@ -248,6 +265,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.record, "record", false, "run each selected port's record.sh in place of the built program and write its goldens")
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
+	flags.BoolVar(&cfg.modules, "modules", false, "run only the modules of modules/: every one, or the MODULE names given")
 	flags.IntVar(&cfg.jobs, "jobs", defaultJobs(), "programs run at once; the default is GOMAXPROCS when the environment sets it (the gate's CPU budget), else half the usable CPUs")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
