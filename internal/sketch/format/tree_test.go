@@ -40,7 +40,8 @@ func shape(b *strings.Builder, v reflect.Value, depth int) {
 		b.WriteString("{")
 		for i := 0; i < t.NumField(); i++ {
 			f := t.Field(i)
-			if !f.IsExported() || f.Type == posType || f.Type == commentType {
+			// A []Pos is positions too (OrPattern.Bars).
+			if !f.IsExported() || f.Type == posType || f.Type == reflect.SliceOf(posType) || f.Type == commentType {
 				continue
 			}
 			if t == reflect.TypeOf(syntax.File{}) && (f.Name == "Src" || f.Name == "Comments") {
