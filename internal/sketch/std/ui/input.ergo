@@ -48,7 +48,12 @@ func Area[E](f *Frame[E], label string, style Style, on escaping func(p PointerE
 // takes it, so a dialog written before the page it covers takes its keys
 // first.
 func OnKey[E](f *Frame[E], on escaping func(k KeyPress) Option[E]) {
-	f.keys = f.keys.Append(on)
+	if f.nkeys < len(f.keys) {
+		f.keys[f.nkeys] = on
+	} else {
+		f.keys = f.keys.Append(on)
+	}
+	f.nkeys = f.nkeys + 1
 }
 
 // Animate asks for frames while a pass makes it: the host sends a Tick per
@@ -56,19 +61,24 @@ func OnKey[E](f *Frame[E], on escaping func(k KeyPress) Option[E]) {
 // host started). A pass that makes no Animate asks for no frame, so a
 // settled screen costs nothing.
 func Animate[E](f *Frame[E], on escaping func(at duration) E) {
-	f.anims = f.anims.Append(on)
+	if f.nanims < len(f.anims) {
+		f.anims[f.nanims] = on
+	} else {
+		f.anims = f.anims.Append(on)
+	}
+	f.nanims = f.nanims + 1
 }
 
 // Animating is whether the last pass made an Animate: whether the host
 // should send frames.
-func Animating[E](f *Frame[E]) bool { len(f.anims) > 0 }
+func Animating[E](f *Frame[E]) bool { f.nanims > 0 }
 
 // ticked is the signals of a frame at time at: one per Animate of the last
 // pass, in pass order.
 func ticked[E](f *Frame[E], at duration) []E {
 	let mut out = []E{}
-	for on in f.anims {
-		out = out.Append(on(at))
+	for i in 0..f.nanims {
+		out = out.Append(f.anims[i](at))
 	}
 	out
 }
@@ -92,8 +102,8 @@ func pointed[E](f *Frame[E], id Id[E], p PointerEvent) Option[E] {
 // keyed is the signal of a key press: the first OnKey of the last pass
 // that gives one.
 func keyed[E](f *Frame[E], k KeyPress) Option[E] {
-	for on in f.keys {
-		match on(k) {
+	for i in 0..f.nkeys {
+		match f.keys[i](k) {
 		case Some[E] as e:
 			return Some{Value: e.Value}
 		case None:

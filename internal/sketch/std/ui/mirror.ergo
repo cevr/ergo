@@ -6,15 +6,12 @@ import arena
 type Shape[E] { Node Node[E], Kids []Shape[E] }
 
 // FrameShape is what f's last pass wrote, the children of the root.
-func FrameShape[E](f *Frame[E]) []Shape[E] {
-	let kids = childLists(f)
-	frameShapes(f, kids, kids[0])
-}
+func FrameShape[E](f *Frame[E]) []Shape[E] { frameShapes(f, -1) }
 
-func frameShapes[E](f *Frame[E], kids [][]int, want []int) []Shape[E] {
+func frameShapes[E](f *Frame[E], p int) []Shape[E] {
 	let mut out = []Shape[E]{}
-	for s in want {
-		out = out.Append(Shape[E]{Node: f.specs[s].node, Kids: frameShapes[E](f, kids, kids[s+1])})
+	for s in childrenOf(f, p) {
+		out = out.Append(Shape[E]{Node: f.specs[s].node, Kids: frameShapes[E](f, s)})
 	}
 	out
 }

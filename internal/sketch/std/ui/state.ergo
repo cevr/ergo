@@ -44,7 +44,13 @@ func remember[E](f *Frame[E], init Cell, at CallSite) (cellAt, Cell) {
 		case None:
 		}
 	}
-	f.cells = f.cells.Append(cellSpec{parent: f.parent, id: id, cell: c})
+	let cs = cellSpec{parent: f.parent, id: id, cell: c}
+	if f.ncells < len(f.cells) {
+		f.cells[f.ncells] = cs
+	} else {
+		f.cells = f.cells.Append(cs)
+	}
+	f.ncells = f.ncells + 1
 	(cellAt{parent: f.parent, id: id}, c)
 }
 
@@ -129,7 +135,13 @@ type Job[E] = Fetch{Epoch int, Run func() E} | Cancel{Epoch int}
 // program keeps the result in its machine state, as an Async.
 func Load[E](f *Frame[E], key Key, fetch escaping func() E, at CallSite) {
 	let id = identify(f, at)
-	f.loads = f.loads.Append(loadSpec[E]{parent: f.parent, id: id, key: key, fetch: fetch})
+	let ls = loadSpec[E]{parent: f.parent, id: id, key: key, fetch: fetch}
+	if f.nloads < len(f.loads) {
+		f.loads[f.nloads] = ls
+	} else {
+		f.loads = f.loads.Append(ls)
+	}
+	f.nloads = f.nloads + 1
 }
 
 // Jobs are the jobs of the last commit, in order.
@@ -162,14 +174,16 @@ func live[E](f *Frame[E], r arena.Ref[node[E]], epoch int) bool {
 // after reconcile, and decides the jobs of the loads.
 func settle[E](f *Frame[E]) {
 	let mut cells = Map[arena.Ref[node[E]], Map[ident, Cell]]{}
-	for c in f.cells {
+	for i in 0..f.ncells {
+		let c = f.cells[i]
 		let o = made(f, c.parent)
 		let mut m = mapOf(cells, o)
 		m[c.id] = c.cell
 		cells[o] = m
 	}
 	let mut loads = Map[arena.Ref[node[E]], Map[ident, slot]]{}
-	for l in f.loads {
+	for i in 0..f.nloads {
+		let l = f.loads[i]
 		let o = made(f, l.parent)
 		let mut m = loadsOf(loads, o)
 		let mut s = slot{key: l.key, epoch: 0}
@@ -190,7 +204,8 @@ func settle[E](f *Frame[E]) {
 		m[l.id] = s
 		loads[o] = m
 	}
-	for s in f.specs {
+	for i in 0..f.nspecs {
+		let s = f.specs[i]
 		let mut b Option[bound[E]] = None
 		match s.binds {
 		case Some[cellAt] as c:

@@ -4,12 +4,24 @@ import arena
 // and the pass a view is writing. A view writes nodes into it; Render
 // runs a view and commits the pass. The nodes live in one arena, so the
 // tree holds Refs, not pointers.
+//
+// A pass reuses the storage of the last one (GP frame cost, UC-3): the
+// pass's specs, cells, loads, key and frame functions are the first
+// nspecs, ncells, nloads, nkeys and nanims elements of their lists, the
+// rest is an older pass's, written over before it is read; the pass's
+// maps are emptied in place. first and last are the root's first and
+// last child spec (-1 for none).
 type Frame[E] {
 	nodes   arena.Of[node[E]],
 	root    arena.Ref[node[E]],
 	specs   []spec[E],
+	nspecs  int,
+	first   int,
+	last    int,
 	cells   []cellSpec,
+	ncells  int,
 	loads   []loadSpec[E],
+	nloads  int,
 	seen    Map[slotOf, int],
 	index   Map[kid, arena.Ref[node[E]]],
 	indexed Map[int, bool],
@@ -20,7 +32,9 @@ type Frame[E] {
 	ops     []Op[E],
 	jobs    []Job[E],
 	keys    []func(k KeyPress) Option[E],
+	nkeys   int,
 	anims   []func(at duration) E,
+	nanims  int,
 	rowRuns int,
 }
 
@@ -67,7 +81,10 @@ type bound[E] { owner arena.Ref[node[E]], id ident }
 // spec is one node a pass wrote: what it shows, its identity, the index
 // of its parent spec (-1 for a child of the root), the node of the last
 // pass with its identity (prev, Null for none) and the node of this pass
-// (ref, set by Commit).
+// (ref, set by Commit). The pass's tree is linked through the specs: first
+// and last are the spec's first and last child, next and before its next
+// and previous sibling (-1 for none), so the children of a spec are a
+// walk, not a list built each pass.
 type spec[E] {
 	node    Node[E],
 	id      ident,
@@ -77,6 +94,10 @@ type spec[E] {
 	onText  Option[func(t string) E],
 	onPoint Option[func(p PointerEvent) Option[E]],
 	binds   Option[cellAt],
+	first   int,
+	last    int,
+	next    int,
+	before  int,
 }
 
 let nowhere = CallSite{File: "", Line: 0, Column: 0}
@@ -89,7 +110,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[kid, arena.Ref[node[E]]]{}, indexed: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, index: Map[kid, arena.Ref[node[E]]]{}, indexed: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]]) node[E] {
@@ -106,17 +127,25 @@ func Render[E comparable, S](f *Frame[E], view func(f *Frame[E], s S), s S) []Op
 
 // begin starts a pass: nothing written yet.
 func begin[E](f *Frame[E]) {
-	f.specs = []spec[E]{}
-	f.cells = []cellSpec{}
-	f.loads = []loadSpec[E]{}
-	f.seen = Map[slotOf, int]{}
-	f.index = Map[kid, arena.Ref[node[E]]]{}
-	f.indexed = Map[int, bool]{}
+	f.nspecs = 0
+	f.first = -1
+	f.last = -1
+	f.ncells = 0
+	f.nloads = 0
+	for s, _ in f.seen {
+		f.seen = f.seen.Delete(s)
+	}
+	for k, _ in f.index {
+		f.index = f.index.Delete(k)
+	}
+	for p, _ in f.indexed {
+		f.indexed = f.indexed.Delete(p)
+	}
 	f.parent = -1
 	f.each = nowhere
 	f.key = NoKey
-	f.keys = []func(k KeyPress) Option[E]{}
-	f.anims = []func(at duration) E{}
+	f.nkeys = 0
+	f.nanims = 0
 	f.rowRuns = 0
 }
 
@@ -177,8 +206,58 @@ func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Optio
 	if arena.Has(f.nodes, prev) && kindAt(f, prev) != kindOf(n) {
 		prev = arena.Null[node[E]]()
 	}
-	f.specs = f.specs.Append(spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds})
-	len(f.specs) - 1
+	let i = f.nspecs
+	let p = f.parent
+	let sp = spec[E]{node: n, id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, first: -1, last: -1, next: -1, before: lastKid(f, p)}
+	if i < len(f.specs) {
+		f.specs[i] = sp
+	} else {
+		f.specs = f.specs.Append(sp)
+	}
+	f.nspecs = i + 1
+	if p < 0 {
+		if f.last < 0 {
+			f.first = i
+		} else {
+			f.specs[f.last].next = i
+		}
+		f.last = i
+	} else {
+		if f.specs[p].last < 0 {
+			f.specs[p].first = i
+		} else {
+			f.specs[f.specs[p].last].next = i
+		}
+		f.specs[p].last = i
+	}
+	i
+}
+
+// firstKid is the first child spec of spec p (-1 the root), -1 for none.
+func firstKid[E](f *Frame[E], p int) int {
+	if p < 0 {
+		return f.first
+	}
+	f.specs[p].first
+}
+
+// lastKid is the last child spec of spec p (-1 the root), -1 for none.
+func lastKid[E](f *Frame[E], p int) int {
+	if p < 0 {
+		return f.last
+	}
+	f.specs[p].last
+}
+
+// childrenOf is the child specs of spec p (-1 the root), in order.
+func childrenOf[E](f *Frame[E], p int) []int {
+	let mut out = []int{}
+	let mut s = firstKid(f, p)
+	for s >= 0 {
+		out = out.Append(s)
+		s = f.specs[s].next
+	}
+	out
 }
 
 // open writes a node and runs body with that node as the parent.
@@ -252,23 +331,9 @@ func Each[E, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T), at CallSi
 func Commit[E comparable](f *Frame[E]) []Op[E] {
 	f.ops = []Op[E]{}
 	f.jobs = []Job[E]{}
-	let kids = childLists(f)
-	reconcile(f, kids, -1, f.root, kids[0])
+	reconcile(f, -1, f.root)
 	settle(f)
 	f.ops
-}
-
-// childLists gives the spec indices of each node's children: [0] for the
-// root, [i+1] for spec i.
-func childLists[E](f *Frame[E]) [][]int {
-	let mut out = [][]int{[]int{}}
-	for _ in f.specs {
-		out = out.Append([]int{})
-	}
-	for i, s in f.specs {
-		out[s.parent+1] = out[s.parent+1].Append(i)
-	}
-	out
 }
 
 // at is the node r names; every Ref the tree holds is live.
@@ -337,9 +402,22 @@ func change[E](f *Frame[E], r arena.Ref[node[E]], edit func(n *node[E])) {
 func emit[E](f *Frame[E], op Op[E]) { f.ops = f.ops.Append(op) }
 
 // reconcile makes the children of parent (spec index p, node pr) the nodes
-// of want (spec indices), keeping each old child that put matched (prev),
-// and then does the same below each child.
-func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node[E]], want []int) {
+// of the child specs of p, keeping each old child that put matched (prev),
+// and then does the same below each child. When every child is the old
+// child at its place, nothing moves, and the pass builds no list (UC-3).
+func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
+	if inPlace(f, p, pr) {
+		let mut s = lastKid(f, p)
+		for s >= 0 {
+			let r = f.specs[s].prev
+			f.specs[s].ref = r
+			update(f, s, r)
+			reconcile[E](f, s, r)
+			s = f.specs[s].before
+		}
+		return
+	}
+	let want = childrenOf(f, p)
 	let old = kidsOf(f, pr)
 	let mut oldAt = Map[arena.Ref[node[E]], int]{}
 	let mut used = []bool{}
@@ -390,20 +468,43 @@ func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node
 		if src[j] < 0 {
 			emit(f, Insert{Id: id, Parent: parent, Before: before, Node: sp.node})
 		} else {
-			if !shows(f, refs[j], sp.node) {
-				emit(f, Set{Id: id, Node: sp.node})
-			}
-			change(f, refs[j], func(n *node[E]) {
-				n.node = sp.node
-				n.onText = sp.onText
-				n.onPoint = sp.onPoint
-			})
+			update(f, want[j], refs[j])
 			if !keep[j] {
 				emit(f, Move{Id: id, Parent: parent, Before: before})
 			}
 		}
-		reconcile[E](f, kids, want[j], refs[j], kids[want[j]+1])
+		reconcile[E](f, want[j], refs[j])
 	}
+}
+
+// inPlace is whether the child specs of p are the children of pr, each
+// the old child at its own place.
+func inPlace[E](f *Frame[E], p int, pr arena.Ref[node[E]]) bool {
+	let n = kidCount(f, pr)
+	let mut i = 0
+	let mut s = firstKid(f, p)
+	for s >= 0 {
+		if i >= n || f.specs[s].prev != kidAt(f, pr, i) {
+			return false
+		}
+		i = i + 1
+		s = f.specs[s].next
+	}
+	i == n
+}
+
+// update makes the kept node r show spec s: a Set when what it shows
+// changed, and the spec's functions.
+func update[E comparable](f *Frame[E], s int, r arena.Ref[node[E]]) {
+	let sp = f.specs[s]
+	if !shows(f, r, sp.node) {
+		emit(f, Set{Id: Id[E]{ref: r}, Node: sp.node})
+	}
+	change(f, r, func(n *node[E]) {
+		n.node = sp.node
+		n.onText = sp.onText
+		n.onPoint = sp.onPoint
+	})
 }
 
 // drop frees the node r names and every node below it; each load they
