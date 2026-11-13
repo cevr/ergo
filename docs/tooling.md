@@ -147,6 +147,8 @@ When to run it: a change that deletes or folds tests of check or lower runs the 
 
 A mutant a test's comment names is a ledger row: `internal/residue` `TestTestCommentsNameLedgerRows` reads each sentence of a test comment that says mutant (its lines joined) and fails on a name of the mutant shape that no `testdata/mutants.json` holds, unless `testdata/mutant-names-allow.txt` lists it; that list holds the stale names found when the rule started, and only shrinks.
 
+A test never leaves a file in the system temporary directory: `internal/residue` `TestTestsRemoveTheirTemporaryFiles` fails on a function of a `_test.go` file that calls `os.MkdirTemp` or `os.CreateTemp` with `""` or `os.TempDir()` and removes neither the variable or field holding the result (`os.Remove`, `os.RemoveAll`, a deferred closure too) nor calls a `Cleanup`; use `t.TempDir()`. `testdata/tempdir-allow.txt` names the helpers that leave the removal to their caller, and only shrinks. `cmd/ergo`'s tests made `/tmp/ergo-cmd-test-cache-*` in an `init` and never removed it: 7,404 directories, 68 GB, on 2026-11-13 (GS18).
+
 Spec references move with a renumbering: `go run ./scripts/specrefs DOC SECTION` lists every reference to the section's numbered items (`interop.md, Lowering 9`), reading a reference wrapped across comment lines or a Markdown paragraph whole, and `-move 9=13,13=9` rewrites the numbers.
 
 ## Merge gate

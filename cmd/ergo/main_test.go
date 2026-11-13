@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,17 +28,38 @@ var testCLI struct {
 	output      []byte
 }
 
+// TestMain runs the tests under observation: process tests run the CLI and
+// the programs it builds, which Go's test cache sees only through
+// observation. The preparation runs in the test process alone
+// (testinputs.MainFunc), so the observing process, which can replace
+// itself, makes no directory it would leave behind.
+//
+// Every CLI the tests start gets a private emission cache, so no test
+// writes the developer's $XDG_CACHE_HOME or $HOME/.cache; it is removed
+// when the tests end. As an init that never removed it, it left one
+// directory per test process in /tmp (7,404 of them, 68 GB, on 2026-11-13;
+// a go command without GOCACHE puts its build cache there; GS18).
 func TestMain(m *testing.M) {
-	// The CLI builds in the process's own environment, before any test
-	// overrides Go variables with t.Setenv.
-	testCLI.environment = os.Environ()
-	// Process tests run the CLI and the programs it builds, which Go's test
-	// cache sees only through observation.
-	code := testinputs.Main(m)
-	if testCLI.dir != "" {
-		_ = os.RemoveAll(testCLI.dir)
-	}
-	os.Exit(code)
+	os.Exit(testinputs.MainFunc(m, func() int {
+		cache, err := os.MkdirTemp("", "ergo-cmd-test-cache-")
+		if err == nil {
+			err = os.Setenv("XDG_CACHE_HOME", cache)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cmd/ergo tests: private cache directory:", err)
+			return 2
+		}
+		defer os.RemoveAll(cache)
+		// The CLI builds in the process's own environment, before any test
+		// overrides Go variables with t.Setenv.
+		testCLI.environment = os.Environ()
+		defer func() {
+			if testCLI.dir != "" {
+				_ = os.RemoveAll(testCLI.dir)
+			}
+		}()
+		return m.Run()
+	}))
 }
 
 // testCLIVariable names a CLI the gate's coverage record built from this
