@@ -8,9 +8,11 @@
 // PACKAGE is check, lower, a package directory, or a ledger file. The
 // runner works on copies of the checkout under -work and never writes the
 // checkout, except the ledgers with -write. It first measures per-test
-// coverage (once per tree: the result is kept under -work): every
+// coverage (once per tree and scope: the result is kept under -work): every
 // top-level test of the check, lower and std packages and every default
-// example program, each in its own process, with coverage of check and
+// example program whose binary, or the tool it runs, compiles a package of
+// a selected mutant (scope.go), each in its own process, logging each test
+// as it ends and a receipt of the work, with coverage of check and
 // lower (the ergo CLI and the examples runner built with coverage, their
 // main packages included). Then, for each mutant, it applies the edit,
 // builds what the covering tests need, and runs only the tests that cover

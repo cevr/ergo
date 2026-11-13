@@ -152,7 +152,7 @@ func Run(ctx context.Context, cfg Config, jobs []Job) ([]Result, *coverage, erro
 	if err := e.load(ledgers); err != nil {
 		return nil, nil, err
 	}
-	if err := e.prepareCoverage(ctx); err != nil {
+	if err := e.prepareCoverage(ctx, jobs); err != nil {
 		return nil, nil, err
 	}
 	results, err := e.judgeAll(ctx, jobs)
@@ -558,21 +558,30 @@ func splitID(id string) (string, string) {
 	return suite, name
 }
 
-// prepareCoverage reads the coverage file, the cached one of this tree, or
-// measures it.
-func (e *engine) prepareCoverage(ctx context.Context) error {
+// prepareCoverage reads the coverage file, the cached one of this tree and
+// of the scope the selected mutants of jobs need (coverScope), or measures
+// it. It logs a receipt of the coverage work either way.
+func (e *engine) prepareCoverage(ctx context.Context, jobs []Job) error {
 	path := e.cfg.Coverage
-	if path == "" {
-		path = filepath.Join(e.cfg.Work, "coverage-"+e.key+".json.gz")
+	if path != "" {
+		e.logf("coverage receipt: read %s, no test run", path)
+	} else {
+		scope, err := e.scope(jobs)
+		if err != nil {
+			return err
+		}
+		path = filepath.Join(e.cfg.Work, "coverage-"+e.key+"-"+scope.key()+".json.gz")
 		if _, err := os.Stat(path); err != nil {
 			e.logf("coverage: measuring (tree %s) into %s", e.key, path)
-			c, err := e.measure(ctx)
+			c, err := e.measure(ctx, scope)
 			if err != nil {
 				return err
 			}
 			if err := saveCoverage(path, c); err != nil {
 				return err
 			}
+		} else {
+			e.logf("coverage receipt: reused %s, no test run", path)
 		}
 	}
 	c, err := loadCoverage(path)
@@ -587,9 +596,12 @@ func (e *engine) prepareCoverage(ctx context.Context) error {
 	return nil
 }
 
-// measure runs every test of every suite once, each in its own process
-// with its own coverage directory, in a fresh copy of the checkout.
-func (e *engine) measure(ctx context.Context) (*coverage, error) {
+// measure runs every test the scope measures once, each in its own process
+// with its own coverage directory, in a fresh copy of the checkout. It
+// builds only the suites and tools those tests run, logs each test as it
+// ends (a stall shows as the missing next line), and ends with a receipt
+// of the work: tests and suites measured of all, builds, child seconds.
+func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, error) {
 	root := filepath.Join(e.cfg.Work, "cover", "src")
 	bin := filepath.Join(e.cfg.Work, "cover", "bin")
 	if err := e.copyTree(root); err != nil {
@@ -599,7 +611,27 @@ func (e *engine) measure(ctx context.Context) (*coverage, error) {
 		return nil, err
 	}
 	c := &coverage{Key: e.key, Builds: map[string]float64{}}
+	// The anchor tests of a suite the scope does not measure whole.
+	alone := map[string][]string{}
+	for id := range scope.anchors {
+		suite, name := splitID(id)
+		if !scope.suites[suite] {
+			alone[suite] = append(alone[suite], name)
+		}
+	}
+	measured := func(s *Suite) bool { return scope.suites[s.Name] || len(alone[s.Name]) > 0 }
+	var needed []string
+	for i := range e.cfg.Suites {
+		if measured(&e.cfg.Suites[i]) {
+			needed = append(needed, toolsOf(&e.cfg.Suites[i])...)
+		}
+	}
+	builds := 0
 	for _, t := range e.cfg.Tools {
+		if !slices.Contains(needed, t.Name) {
+			continue
+		}
+		builds++
 		o, err := e.buildTool(ctx, root, bin, t.Name, true, e.cfg.CoverDeadline)
 		if err == nil && o.reason != "" {
 			err = fmt.Errorf("build %s with coverage: %s\n%s", t.Name, o.reason, o.tail)
@@ -609,10 +641,15 @@ func (e *engine) measure(ctx context.Context) (*coverage, error) {
 		}
 		c.Builds[t.Name] = o.seconds
 	}
+	all := 0
 	for i := range e.cfg.Suites {
 		s := &e.cfg.Suites[i]
+		if !measured(s) {
+			continue
+		}
 		var names []string
 		if s.Package != "" {
+			builds++
 			o := e.buildSuite(ctx, root, bin, s, true, e.cfg.CoverDeadline)
 			if o.reason != "" {
 				return nil, fmt.Errorf("build suite %s with coverage: %s\n%s", s.Name, o.reason, o.tail)
@@ -633,13 +670,18 @@ func (e *engine) measure(ctx context.Context) (*coverage, error) {
 				return nil, fmt.Errorf("list the tests of %s: %w", s.Name, err)
 			}
 		}
+		all += len(names)
 		for _, n := range names {
-			c.Tests = append(c.Tests, &covTest{ID: s.Name + ":" + n})
+			if scope.suites[s.Name] || slices.Contains(alone[s.Name], n) {
+				c.Tests = append(c.Tests, &covTest{ID: s.Name + ":" + n})
+			}
 		}
 	}
+	e.logf("coverage: %d tests to measure; not measured: the suites %v, whose binaries compile no package of the selected mutants", len(c.Tests), scope.skipped)
 	k := &collector{module: e.module, blocks: map[blockKey][]int{}}
 	var mu sync.Mutex
 	var firstErr error
+	done, seconds := 0, 0.0
 	next := make(chan int)
 	var wg sync.WaitGroup
 	for w := 0; w < e.cfg.Workers; w++ {
@@ -648,13 +690,14 @@ func (e *engine) measure(ctx context.Context) (*coverage, error) {
 			defer wg.Done()
 			for i := range next {
 				err := e.measureOne(ctx, root, bin, c.Tests[i], i, k, &mu)
-				if err != nil {
-					mu.Lock()
-					if firstErr == nil {
-						firstErr = err
-					}
-					mu.Unlock()
+				mu.Lock()
+				if err != nil && firstErr == nil {
+					firstErr = err
 				}
+				done++
+				seconds += c.Tests[i].Seconds
+				e.logf("coverage: %d/%d %s %.1fs", done, len(c.Tests), c.Tests[i].ID, c.Tests[i].Seconds)
+				mu.Unlock()
 			}
 		}()
 	}
@@ -666,6 +709,7 @@ func (e *engine) measure(ctx context.Context) (*coverage, error) {
 	}
 	close(next)
 	wg.Wait()
+	e.logf("coverage receipt: %d tests measured, of %d in the suites it listed; %d of %d suites; %d builds; %.0f s of tests", done, all, len(e.cfg.Suites)-len(scope.skipped), len(e.cfg.Suites), builds, seconds)
 	if firstErr == nil {
 		firstErr = ctx.Err()
 	}
