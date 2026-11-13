@@ -114,6 +114,9 @@ func renderBodyTable(decls goDecls) string {
 		if len(t.Fields) > 0 {
 			fields = append(fields, fmt.Sprintf("Fields: %#v", t.Fields))
 		}
+		if t.Basic != "" {
+			fields = append(fields, fmt.Sprintf("Basic: %q", t.Basic))
+		}
 		fmt.Fprintf(&b, "\t%q: {%s},\n", name, strings.Join(fields, ", "))
 	}
 	b.WriteString("}\n")

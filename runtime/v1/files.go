@@ -370,6 +370,9 @@ type GoType struct {
 	// whose field names are Fields, in order.
 	Struct bool
 	Fields []string
+	// Basic is the predeclared Go type a defined type is over
+	// (`type Code int`), or "".
+	Basic string
 }
 
 // TypeOf returns the shape of the exported type name of Source, and
@@ -391,6 +394,11 @@ func (d goDecls) goType(name string) (GoType, bool) {
 		t.Struct = true
 		if len(fields) > 0 {
 			t.Fields = fields
+		}
+	}
+	if id, ok := g.typ.Type.(*ast.Ident); ok && !g.typ.Assign.IsValid() && types.Universe.Lookup(id.Name) != nil {
+		if _, basic := types.Universe.Lookup(id.Name).Type().(*types.Basic); basic {
+			t.Basic = id.Name
 		}
 	}
 	return t, true

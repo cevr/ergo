@@ -596,7 +596,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/release.go:funcCtx.ownBinding",
 	"internal/sketch/lower/release.go:funcCtx.stdOp",
 	"internal/sketch/lower/std.go:funcCtx.stdCall",
-	"internal/sketch/lower/std.go:lowerer.runtimeType",
 	"internal/sketch/lower/std.go:lowerer.stdBody",
 	"internal/sketch/lower/std.go:opBody",
 	"internal/sketch/lower/types.go:lowerer.foreignOwner",

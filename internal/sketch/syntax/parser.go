@@ -990,7 +990,7 @@ func (p *parser) parseExternDecl(doc *CommentGroup) Decl {
 	switch p.tok.tok {
 	case TYPE:
 		d := p.parseTypeDecl(doc)
-		if d.Where != nil {
+		if d.Where != nil && !IsRuntimeTarget(path) {
 			p.errorAt(d.WherePos, len("where"), "a host type takes no where: Go checks nothing on it; declare a refined type over it in Ergo")
 		}
 		d.Extern = x

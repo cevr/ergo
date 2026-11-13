@@ -42,7 +42,7 @@ func TestTrustedDoorRefusals(t *testing.T) {
 // type's shape; anything else is S108 with its reason. Std's own
 // declarations are std TestStdRecordTable. Mutants: runtime-type-std-only,
 // runtime-type-untrusted, runtime-type-arity, runtime-type-fields,
-// runtime-type-open.
+// runtime-type-open, runtime-type-basic.
 func TestRuntimeTypeDeclarations(t *testing.T) {
 	const v1 = "extern go ergo.local/prototype/runtime/v1."
 	for _, c := range []struct {
@@ -51,6 +51,8 @@ func TestRuntimeTypeDeclarations(t *testing.T) {
 		want    string // "" for no diagnostic
 	}{
 		{v1 + "Closed type Closed {}", true, ""},
+		{v1 + "Code type Code int where 1 <= it && it <= 125", true, ""},
+		{v1 + "Code type Code string", true, "v1.Code is not a defined type over the Go type string"},
 		{v1 + "Closed type Closed {}", false, "which a package names only when the root module trusts its Go"},
 		{v1 + "Closed type Closed[T] {}", true, "Closed has 1 type parameters and v1.Closed has 0"},
 		{v1 + "Closed type Closed { Reason string }", true, "is not a struct with those fields"},
@@ -68,7 +70,7 @@ func TestRuntimeTypeDeclarations(t *testing.T) {
 		if c.want == "" {
 			if len(diags) != 0 {
 				t.Errorf("%s: %v", c.decl, diags)
-			} else if goName, ok := GoTypeOf(pkg.Types[0].Type.(*Named)); !ok || goName != "Closed" {
+			} else if goName, ok := GoTypeOf(pkg.Types[0].Type.(*Named)); !ok || goName != pkg.Types[0].Name {
 				t.Errorf("%s: GoTypeOf = %q, %v", c.decl, goName, ok)
 			}
 			continue

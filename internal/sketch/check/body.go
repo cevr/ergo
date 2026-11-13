@@ -189,7 +189,7 @@ func runtimeTypeDecl(d syntax.Decl) bool {
 		return false
 	}
 	path, _ := td.Extern.Split()
-	return path == runtimeModule || strings.HasPrefix(path, runtimeModule+"/")
+	return syntax.IsRuntimeTarget(path)
 }
 
 // checkRuntimeTypes refuses each type declaration of the package that names
@@ -260,8 +260,17 @@ func (c *checker) runtimeTypeRefusal(tn *TypeName) string {
 		if len(spec.Union) > 0 || !Sealed(n) {
 			return fmt.Sprintf("extern go %s: an operation type that names a Go type declares an unexported operation, so no other package's value implements it (docs/spec/stdlib.md, The body contract)", target)
 		}
+	case *syntax.Ident:
+		// A defined type over a basic type, a refinement too (os.Code):
+		// the Go type is a defined type over the same Go basic type. The
+		// refinement's predicate stays the checker's, as for any
+		// refinement.
+		b, _ := n.Underlying().(*Basic)
+		if b == nil || b.Kind == Duration || gt.Basic != b.Name {
+			return fmt.Sprintf("extern go %s: %s is over %s, and v1.%s is not a defined type over the Go type %s (docs/spec/stdlib.md, The body contract)", target, tn.Name, n.Underlying(), name, n.Underlying())
+		}
 	default:
-		return fmt.Sprintf("extern go %s: only a record or an operation type names a Go type (docs/spec/stdlib.md, The body contract)", target)
+		return fmt.Sprintf("extern go %s: only a record, an operation type or a defined basic type names a Go type (docs/spec/stdlib.md, The body contract)", target)
 	}
 	return ""
 }

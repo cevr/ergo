@@ -30,14 +30,19 @@ import (
 // Exit causes). It is a record of a v1 package, so the lowering binds
 // os.Exit to this Go type (docs/spec/stdlib.md, Types 4).
 type Exit struct {
-	Code    int
+	Code    Code
 	Message string
 }
+
+// Code is os.Code, an exit status, which os.ergo's declaration names as
+// its Go type (docs/spec/stdlib.md, The body contract). The refinement
+// (1..125) is the checker's; reportExit holds a Code outside it to 1.
+type Code int
 
 // Error is the failure's text: its Ergo name and fields, as the lowering
 // writes a record's. report writes it when Exit is not main's only reason.
 func (e Exit) Error() string {
-	return "os.Exit{Code:" + strconv.Itoa(e.Code) + " Message:" + e.Message + "}"
+	return "os.Exit{Code:" + strconv.Itoa(int(e.Code)) + " Message:" + e.Message + "}"
 }
 
 // OSArgs is the body of os.Host's Args: the arguments after the program

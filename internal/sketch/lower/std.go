@@ -26,10 +26,11 @@ import (
 // (`extern go …/runtime/v1.Closed type Closed {}`; docs/spec/stdlib.md,
 // The body contract; check.GoTypeOf) is that Go type: a record is the
 // struct, and a sealed operation type is a pointer to the type, whose
-// methods are its operations. The checker holds the declaration to the Go
-// type's shape (check/body.go runtimeTypeRefusal), so the lowering reads
-// the declaration and never a std name. Every other type of every package
-// is a declaration of the program, apart from os.Code below.
+// methods are its operations. A defined basic type (os.Code) is the Go
+// defined type. The checker holds the declaration to the Go type's shape
+// (check/body.go runtimeTypeRefusal), so the lowering reads the
+// declaration and never a std name. Every other type of every package is
+// a declaration of the program.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	obj := n.Obj
 	if check.IsGoError(n) {
@@ -44,11 +45,6 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			return "*" + l.rt() + "." + goName
 		}
 		return l.rt() + "." + goName
-	}
-	// Code is checked as an ordinary refinement. At the runtime record
-	// boundary its representation is the existing Go int field of Exit.
-	if obj.Pkg.Std() && obj.Pkg.Path == "os" && obj.Name == "Code" {
-		return "int"
 	}
 	return ""
 }

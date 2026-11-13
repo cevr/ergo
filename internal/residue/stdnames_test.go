@@ -232,7 +232,6 @@ var stdNamesBaseline = []string{
 	"abi gocall.go:isOptionType",
 	"abi library.go:hostProvides",
 	"abi module.go:lowerer.hostFields",
-	"abi std.go:lowerer.runtimeType",
 	"abi types.go:lowerer.foreignOwner",
 	"abi values.go:preludeAppend",
 	"abi values.go:preludeMapWrite",

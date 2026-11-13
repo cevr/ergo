@@ -34,7 +34,7 @@ log	same
 machines	same
 maps	same
 math	same
-os	differs	lower: os.Code lowers to Go's int at the runtime record boundary (runtimeType names it), a copy's Code to its own type	follow-up os-code-type
+os	same
 prompt	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 queue	differs	check: S108 Queue has no release: the keeping rule names queue.Queue	NP3c
 rand	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
