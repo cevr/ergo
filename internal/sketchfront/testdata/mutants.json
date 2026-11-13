@@ -9,6 +9,8 @@
     {"name":"embed-local-initializer","file":"internal/sketch/check/embed.go","from":"if spec == nil {","to":"if spec == nil && false {","killers":["sketchfront:TestEmbeddedDiagnostics"]},
     {"name":"embed-multiple-string-files","file":"internal/sketchfront/embed.go","from":"if !tree && len(selected) != 1 {","to":"if false {","killers":["sketchfront:TestEmbeddedDiagnostics"]},
     {"name":"embed-tree-prefix-retained","file":"runtime/v1/embed.go","from":"fs.Sub(files, prefix)","to":"fs.Sub(files, \".\")","killers":["example:router"]},
-    {"name":"embed-invalid-element","file":"internal/sketchfront/embed.go","from":"if !embedNameAllowed(name) {","to":"if false {","killers":["sketchfront:TestEmbeddedDiagnostics"]}
+    {"name":"embed-invalid-element","file":"internal/sketchfront/embed.go","from":"if !embedNameAllowed(name) {","to":"if false {","killers":["sketchfront:TestEmbeddedDiagnostics"]},
+    {"name":"gs8-digest-no-runtime","origin":"wf10 GS8","file":"internal/sketchfront/sketchfront.go","from":"all := append(slices.Clone(lower.Runtime()), files...)","to":"all := files","rule":"The emitted digest covers the runtime files the module holds: a runtime edit reruns every example.","killers":["sketchfront:TestEmittedDigestIsThePublishedModule"]},
+    {"name":"gs8-digest-build-lowering","origin":"wf10 GS8","file":"internal/sketchfront/sketchfront.go","from":"\tfiles, err := lowered(a, unit, lowering)\n\tif err != nil {\n\t\treturn \"\", err","to":"\tfiles, err := lowered(a, unit, lower.Lower)\n\t_ = lowering\n\tif err != nil {\n\t\treturn \"\", err","rule":"The emitted digest of a test build is the test module's: ergo test --emitted keys the test leg.","killers":["sketchfront:TestEmittedDigestIsThePublishedModule"]}
   ]
 }

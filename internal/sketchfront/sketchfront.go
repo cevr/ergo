@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -273,29 +274,15 @@ func Library(a Analysis, source, module, name string) ([]lower.File, error) {
 // cannot be anchored, or one the lowering refuses is refused before
 // anything is published; a refusal is a *BuildError.
 func Build(a Analysis, req BuildRequest) (build.Module, error) {
-	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
-		return build.Module{}, &BuildError{Diagnostics: a.Diagnostics}
+	unit, lowering, err := emission(a, req)
+	if err != nil {
+		return build.Module{}, err
 	}
-	lowering := lower.Lower
-	switch req.Mode {
-	case build.ModeBuild:
-	case build.ModeTest:
-		lowering = lower.LowerTests
-	default:
-		return build.Module{}, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
-	}
-	// A program of one source text is anchored at the request's Source; a
-	// program read from a folder at the admitted path of each file it read.
-	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: req.Source, Text: a.source}}}
 	dependencies := stdDependencies()
 	if a.program != nil {
-		unit = a.program.unit()
 		// The key holds every local package the program reaches: an edit
 		// of an imported package builds again.
 		dependencies = append(dependencies, a.program.dependencies()...)
-	}
-	if err := unit.Validate(); err != nil {
-		return build.Module{}, err
 	}
 	compiler, err := compilerIdentity()
 	if err != nil {
@@ -315,11 +302,7 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		input.Sources = append(input.Sources, build.Source{Path: s.Path, Text: []byte(s.Text)})
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
-		files, err := lowering(unit)
-		var refused *lower.Refused
-		if errors.As(err, &refused) {
-			return nil, &BuildError{Diagnostics: a.refusals(refused)}
-		}
+		files, err := lowered(a, unit, lowering)
 		if err != nil {
 			return nil, err
 		}
@@ -348,6 +331,68 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		return module, fmt.Errorf("Go build failed: %w", err)
 	}
 	return module, nil
+}
+
+// emission is the unit a build of req's mode lowers and the lowering it
+// uses: Build's and EmittedDigest's one reading of a request.
+func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]lower.File, error), error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return lower.Unit{}, nil, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	lowering := lower.Lower
+	switch req.Mode {
+	case build.ModeBuild:
+	case build.ModeTest:
+		lowering = lower.LowerTests
+	default:
+		return lower.Unit{}, nil, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
+	}
+	// A program of one source text is anchored at the request's Source; a
+	// program read from a folder at the admitted path of each file it read.
+	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: req.Source, Text: a.source}}}
+	if a.program != nil {
+		unit = a.program.unit()
+	}
+	if err := unit.Validate(); err != nil {
+		return lower.Unit{}, nil, err
+	}
+	return unit, lowering, nil
+}
+
+// lowered lowers unit, a refusal as the analysis's diagnostics.
+func lowered(a Analysis, unit lower.Unit, lowering func(lower.Unit) ([]lower.File, error)) ([]lower.File, error) {
+	files, err := lowering(unit)
+	var refused *lower.Refused
+	if errors.As(err, &refused) {
+		return nil, &BuildError{Diagnostics: a.refusals(refused)}
+	}
+	return files, err
+}
+
+// EmittedDigest is the SHA-256 of the Go module a Build of req would link:
+// the runtime and the lowered files, by path and bytes, and the mode. Two
+// compilers that emit the same module for a program give the same digest,
+// so a cache keyed on it replays across a compiler edit that does not
+// change that program's Go (the examples runner, gate-speed GS8). It writes
+// nothing and runs no Go tool.
+func EmittedDigest(a Analysis, req BuildRequest) (string, error) {
+	unit, lowering, err := emission(a, req)
+	if err != nil {
+		return "", err
+	}
+	files, err := lowered(a, unit, lowering)
+	if err != nil {
+		return "", err
+	}
+	all := append(slices.Clone(lower.Runtime()), files...)
+	slices.SortFunc(all, func(x, y lower.File) int { return strings.Compare(x.Path, y.Path) })
+	hash := sha256.New()
+	fmt.Fprintf(hash, "mode %s\n", req.Mode)
+	for _, f := range all {
+		fmt.Fprintf(hash, "%d:%s%d:", len(f.Path), f.Path, len(f.Data))
+		hash.Write(f.Data)
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // stdDependencies summarises the bundled standard library: the prelude and

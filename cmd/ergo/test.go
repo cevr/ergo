@@ -44,7 +44,13 @@ func testCommand(args []string) error {
 		return invalidInvocation(err)
 	}
 	if recursivePattern(opts.file) {
+		if opts.emitted {
+			return invalidInvocation(fmt.Errorf("--emitted takes one package, not a pattern"))
+		}
 		return recursiveTestCommand(opts)
+	}
+	if opts.emitted {
+		return printEmitted(opts, build.ModeTest)
 	}
 	return testPackage(opts)
 }

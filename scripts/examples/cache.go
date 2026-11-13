@@ -34,6 +34,23 @@ import (
 // Programs whose result depends on what the key cannot name are never
 // cached: a ts program reads the Bun cache, a net program the network and
 // a cc program the C toolchain (uncachedTags).
+//
+// Early cutoff (gate-speed GS8). Most compiler edits change bin/ergo's
+// bytes but not the Go it emits for a given program. So in a checkout the
+// key does not hold the compiler's bytes; it holds what the compiler's
+// edit reaches in a program's legs:
+//   - for the build, test and explore legs and the cases, the Go module the
+//     compiler emits for each of the program's targets (`ergo build
+//     --emitted`, `ergo test --emitted`), and the Go sources of the driver:
+//     the packages of cmd/ergo and of this runner, less those reached only
+//     through the checker and the lowering (driverPackages), whose effect
+//     on these legs is the emitted Go;
+//   - for the fmt and check legs, their whole result: the runner runs them
+//     to make the key, and their output and status are in it.
+// The driver's sources stand for bin/ergo's driver: the runner trusts that
+// -ergo was built from -root, as the gate's `build bin/ergo` step builds it.
+// Where -root has no cmd/ergo to list (a test's fixture), the key holds the
+// bytes of bin/ergo and of the runner instead, as before.
 
 // cacheVariable names the cache directory when -cache is not given; the
 // gate sets it for its examples step (scripts/gate, examplesStep).
@@ -41,7 +58,19 @@ const cacheVariable = "ERGO_EXAMPLES_CACHE"
 
 // cacheVersion changes when what an entry holds or what the key covers
 // changes, so an older entry is never read as a newer one.
-const cacheVersion = "ergo-examples-cache v1"
+const cacheVersion = "ergo-examples-cache v2"
+
+// driverRoots are the packages whose code drives the program legs: the
+// compiler's command and this runner. emissionRoots are the packages whose
+// effect on those legs is the Go the compiler emits (or the check and fmt
+// results, which the key holds): a package reached only through them is
+// no driver. std and its gostd bindings are among them: the driver reads
+// std only to resolve imports and to key its emission cache, and the Go
+// the lowering emits from std's bodies is in the emitted digest.
+var (
+	driverRoots   = []string{"./cmd/ergo", "./scripts/examples"}
+	emissionRoots = []string{"internal/sketch/check", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/std/gostd"}
+)
 
 // cacheKeep is how many entries of one program the cache keeps: the newest.
 const cacheKeep = 8
@@ -80,6 +109,38 @@ type verdictCache struct {
 	// programs that run at once (runAll) count under mu.
 	mu           sync.Mutex
 	hits, misses int
+	// early says the common part holds the driver's sources, and each
+	// program's key its emitted Go and its fmt and check results (early
+	// cutoff), not the compiler's bytes.
+	early bool
+}
+
+// legKey writes into h what the compiler gives each leg of p, as the
+// runner's legs ask it (early cutoff): the fmt leg's and each check leg's
+// status and output, and the digest of the Go module each build, test and
+// explore leg would link (--emitted). "" or why there is no key.
+func (r *runner) legKey(h io.Writer, p *program) string {
+	targets := slices.Clone(p.tests)
+	for _, e := range p.explored {
+		if !slices.Contains(targets, e.target) {
+			targets = append(targets, e.target)
+		}
+	}
+	calls := [][]string{append([]string{"fmt", "--check"}, p.sources...), {"build", "--emitted", p.main}}
+	for _, target := range targets {
+		calls = append(calls, []string{"check", target}, []string{"test", "--emitted", target})
+	}
+	for _, args := range calls {
+		o, err := r.tool(r.cfg.timeout, args...)
+		if err != nil {
+			return fmt.Sprintf("ergo %s could not start: %v", strings.Join(args, " "), err)
+		}
+		if over := o.overCap(); over != "" || o.timedOut {
+			return fmt.Sprintf("ergo %s: no result to key", strings.Join(args, " "))
+		}
+		fmt.Fprintf(h, "leg %q status %d %s\nstdout %q\nstderr %q\n", args, o.status, o.signal, o.stdout, o.stderr)
+	}
+	return ""
 }
 
 // count adds one program to the hits or the misses.
@@ -101,35 +162,44 @@ func openCache(dir string, cfg *config) *verdictCache {
 		return nil
 	}
 	c := &verdictCache{dir: dir}
-	common, err := commonKey(cfg)
+	common, early, err := commonKey(cfg)
 	if err != nil {
 		c.reason = err.Error()
 	} else {
-		c.common = common
+		c.common, c.early = common, early
 	}
 	return c
 }
 
-// commonKey hashes what every program's verdict reads beside its folder.
-func commonKey(cfg *config) (string, error) {
+// commonKey hashes what every program's verdict reads beside its folder,
+// and says whether it holds the driver's sources (early cutoff) rather
+// than the compiler's and the runner's bytes.
+func commonKey(cfg *config) (string, bool, error) {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\n", cacheVersion)
-	self, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("the runner's own binary: %w", err)
-	}
-	for _, f := range []struct{ what, path string }{{"runner", self}, {"ergo", cfg.ergo}} {
-		sum, err := fileDigest(f.path)
+	driver, err := driverDigest(cfg.root)
+	early := err == nil
+	if early {
+		fmt.Fprintf(h, "driver %s\n", driver)
+	} else {
+		fmt.Fprintf(h, "no driver: %v\n", err)
+		self, err := os.Executable()
 		if err != nil {
-			return "", fmt.Errorf("digest of the %s %s: %w", f.what, f.path, err)
+			return "", false, fmt.Errorf("the runner's own binary: %w", err)
 		}
-		fmt.Fprintf(h, "%s %s\n", f.what, sum)
+		for _, f := range []struct{ what, path string }{{"runner", self}, {"ergo", cfg.ergo}} {
+			sum, err := fileDigest(f.path)
+			if err != nil {
+				return "", false, fmt.Errorf("digest of the %s %s: %w", f.what, f.path, err)
+			}
+			fmt.Fprintf(h, "%s %s\n", f.what, sum)
+		}
 	}
 	query := exec.Command("go", append([]string{"env", "-json"}, goSettings...)...)
 	query.Dir = cfg.root
 	out, err := query.Output()
 	if err != nil {
-		return "", fmt.Errorf("go env: %w", err)
+		return "", false, fmt.Errorf("go env: %w", err)
 	}
 	fmt.Fprintf(h, "go %s\n", out)
 	env := slices.Clone(os.Environ())
@@ -141,7 +211,7 @@ func commonKey(cfg *config) (string, error) {
 		fmt.Fprintf(h, "env %q\n", kv)
 	}
 	fmt.Fprintf(h, "settings timeout=%s budget=%s memory=%d root=%s\n", cfg.timeout, cfg.budget, cfg.memory, cfg.root)
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return hex.EncodeToString(h.Sum(nil)), early, nil
 }
 
 // fileDigest is the SHA-256 of a file's bytes, through links.
@@ -161,7 +231,7 @@ func fileDigest(path string) (string, error) {
 // programKey is the key of one program: the common part and every entry of
 // its folder (name, kind, mode and bytes; a link by its target), so an
 // untracked file there counts too. "" and the reason when there is none.
-func (c *verdictCache) programKey(p *program) (string, string) {
+func (c *verdictCache) programKey(r *runner, p *program) (string, string) {
 	if c.reason != "" {
 		return "", c.reason
 	}
@@ -206,6 +276,11 @@ func (c *verdictCache) programKey(p *program) (string, string) {
 	})
 	if err != nil {
 		return "", err.Error()
+	}
+	if c.early {
+		if why := r.legKey(h, p); why != "" {
+			return "", why
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), ""
 }
@@ -286,7 +361,7 @@ func (r *runner) runCached(p *program) {
 		r.runProgram(p)
 		return
 	}
-	key, why := c.programKey(p)
+	key, why := c.programKey(r, p)
 	if key == "" {
 		fmt.Fprintf(r.out, "examples: %s: not cached: %s\n", p.name, why)
 		c.count(false)

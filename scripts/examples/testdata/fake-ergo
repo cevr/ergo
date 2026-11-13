@@ -27,14 +27,30 @@
 # that execs this file sets it to its own folder); FAKE_ERGO_TESTFAIL, when
 # set, fails every test (a compiler or an environment that changes the
 # verdict: the verdict cache's law, cache_test.go).
+#   test --emitted SRC, build --emitted SRC
+#                        print "emitted MODE <digest of SRC>-SALT fake/fake",
+#                        SALT being FAKE_ERGO_EMIT_TEST or _BUILD: a compiler
+#                        wrapper that sets one emits other Go (early cutoff,
+#                        cutoff_test.go); FAKE_ERGO_CHECKFAIL fails every
+#                        check, FAKE_ERGO_FMTFAIL every fmt --check and
+#                        FAKE_ERGO_BUILDFAIL every build.
 tools=${FAKE_ERGO_TOOLS:-$(dirname "$0")}
 printf '%s\n' "$*" >> "$tools/calls.log"
 tick() {
   ( end=$(( $(date +%s) + 60 )); while [ "$(date +%s)" -lt "$end" ]; do echo tick >> "$1"; sleep 0.05; done ) &
   end=$(( $(date +%s) + 10 )); until [ -s "$1" ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done
 }
+if [ "$2" = --emitted ]; then
+  case "$1" in test|build) ;; *) echo "fake ergo: --emitted is only supported by build and test" >&2; exit 64;; esac
+  [ $# -eq 3 ] || { echo "fake ergo: want $1 --emitted SRC, got $*" >&2; exit 64; }
+  if [ -d "$3" ]; then sum=$(cat "$3"/*.ergo | cksum); else sum=$(cksum < "$3"); fi
+  if [ "$1" = test ]; then salt=$FAKE_ERGO_EMIT_TEST; else salt=$FAKE_ERGO_EMIT_BUILD; fi
+  echo "emitted $1 ${sum% *}-$salt fake/fake"
+  exit 0
+fi
 case "$1" in
 check)
+  if [ -n "$FAKE_ERGO_CHECKFAIL" ]; then echo "fake ergo: check refused" >&2; exit 1; fi
   [ $# -eq 2 ] || { echo "fake ergo: want check FILE" >&2; exit 64; }
   if [ -d "$2" ]; then
     cat "$2"/*.ergo > "$tools/check-package.ergo" || exit 1
@@ -83,6 +99,7 @@ test)
 build)
   [ $# -eq 4 ] && [ "$3" = "-o" ] || { echo "fake ergo: want build SRC -o OUT, got $*" >&2; exit 64; }
   if [ -d "$2" ]; then set -- "$1" "$2/main.ergo" "$3" "$4"; fi
+  if [ -n "$FAKE_ERGO_BUILDFAIL" ]; then echo "fake ergo: build failed" >&2; exit 1; fi
   if grep -q BUILDFAIL "$2"; then echo "fake ergo: build failed" >&2; exit 1; fi
   if grep -q BUILDTICK "$2"; then tick "$tools/ticks-build"; echo "fake ergo: build failed" >&2; exit 1; fi
   cp "$2" "$4" && chmod +x "$4" || exit 1
@@ -90,6 +107,7 @@ build)
   ;;
 fmt)
   [ "$2" = "--check" ] || { echo "fake ergo: want fmt --check FILE..., got $*" >&2; exit 64; }
+  if [ -n "$FAKE_ERGO_FMTFAIL" ]; then echo "fake ergo: fmt refused" >&2; exit 1; fi
   shift 2
   [ $# -gt 0 ] || { echo "fake ergo: fmt --check with no files" >&2; exit 64; }
   for f in "$@"; do
