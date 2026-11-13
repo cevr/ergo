@@ -1,0 +1,1964 @@
+{
+ "variant": "native",
+ "base": "http://127.0.0.1:5391",
+ "viewport": {
+  "width": 1280,
+  "height": 720
+ },
+ "startedAt": "2026-11-13T01:05:31.822Z",
+ "loadavgStart": "50.97 49.53 48.32 25/2478 2403231",
+ "phases": {
+  "loadLanding": {
+   "path": "/",
+   "throttle": 1,
+   "median": {
+    "firstPaint": 244,
+    "firstContentfulPaint": 244,
+    "hydratedAt": 1083.8999999761581,
+    "scriptToHydrationMs": 337.094,
+    "taskToHydrationMs": 379.553,
+    "heapSettledAfterGc": 9740268,
+    "nodesSettled": 1123,
+    "elements": 375
+   },
+   "bytes": {
+    "html": {
+     "transfer": 5084,
+     "encoded": 4784,
+     "decoded": 30422
+    },
+    "js": {
+     "files": 1,
+     "transfer": 240911,
+     "encoded": 240611,
+     "decoded": 821314
+    },
+    "css": {
+     "files": 1,
+     "transfer": 8105,
+     "encoded": 7805,
+     "decoded": 37860
+    },
+    "all": {
+     "files": 3,
+     "transfer": 278716,
+     "decoded": 888574
+    }
+   },
+   "runs": [
+    {
+     "responseEnd": 23.80000001192093,
+     "domContentLoaded": 1054.300000011921,
+     "load": 1137.300000011921,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 316,
+     "firstContentfulPaint": 316,
+     "hydratedAt": 1150,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 280.262,
+      "TaskDuration": 325.437,
+      "LayoutDuration": 5.517,
+      "RecalcStyleDuration": 5.004,
+      "LayoutCount": 2,
+      "RecalcStyleCount": 6
+     },
+     "heapAtHydration": 14490244,
+     "heapSettledAfterGc": 9742300,
+     "nodesSettled": 1123,
+     "listenersSettled": 52,
+     "dom": {
+      "elements": 375,
+      "rows": 0,
+      "items": 0,
+      "cards": 4,
+      "height": 720,
+      "scrollY": 0
+     },
+     "rpc": [],
+     "errors": []
+    },
+    {
+     "responseEnd": 13.800000011920929,
+     "domContentLoaded": 1005.0999999642372,
+     "load": 1083.3999999761581,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 312,
+     "firstContentfulPaint": 312,
+     "hydratedAt": 1083.8999999761581,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 367.232,
+      "TaskDuration": 422.341,
+      "LayoutDuration": 9.333,
+      "RecalcStyleDuration": 6.165,
+      "LayoutCount": 3,
+      "RecalcStyleCount": 6
+     },
+     "heapAtHydration": 14509748,
+     "heapSettledAfterGc": 9730980,
+     "nodesSettled": 1123,
+     "listenersSettled": 51,
+     "dom": {
+      "elements": 375,
+      "rows": 0,
+      "items": 0,
+      "cards": 4,
+      "height": 720,
+      "scrollY": 0
+     },
+     "rpc": [],
+     "errors": []
+    },
+    {
+     "responseEnd": 34.89999997615814,
+     "domContentLoaded": 1122.5999999642372,
+     "load": 1188.699999988079,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 192,
+     "firstContentfulPaint": 192,
+     "hydratedAt": 1188.5999999642372,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 337.094,
+      "TaskDuration": 379.553,
+      "LayoutDuration": 3.46,
+      "RecalcStyleDuration": 4.678,
+      "LayoutCount": 2,
+      "RecalcStyleCount": 6
+     },
+     "heapAtHydration": 14479948,
+     "heapSettledAfterGc": 9740268,
+     "nodesSettled": 1123,
+     "listenersSettled": 51,
+     "dom": {
+      "elements": 375,
+      "rows": 0,
+      "items": 0,
+      "cards": 4,
+      "height": 720,
+      "scrollY": 0
+     },
+     "rpc": [],
+     "errors": []
+    },
+    {
+     "responseEnd": 23.399999976158142,
+     "domContentLoaded": 662.1999999880791,
+     "load": 953.8999999761581,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 180,
+     "firstContentfulPaint": 180,
+     "hydratedAt": 954.5,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 355.487,
+      "TaskDuration": 407.626,
+      "LayoutDuration": 6.327,
+      "RecalcStyleDuration": 5.506,
+      "LayoutCount": 2,
+      "RecalcStyleCount": 6
+     },
+     "heapAtHydration": 14433224,
+     "heapSettledAfterGc": 9737912,
+     "nodesSettled": 1123,
+     "listenersSettled": 51,
+     "dom": {
+      "elements": 375,
+      "rows": 0,
+      "items": 0,
+      "cards": 4,
+      "height": 720,
+      "scrollY": 0
+     },
+     "rpc": [],
+     "errors": []
+    },
+    {
+     "responseEnd": 31.19999998807907,
+     "domContentLoaded": 852.1000000238419,
+     "load": 985.8000000119209,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 244,
+     "firstContentfulPaint": 244,
+     "hydratedAt": 985.8000000119209,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 290.525,
+      "TaskDuration": 333.168,
+      "LayoutDuration": 5.055,
+      "RecalcStyleDuration": 5.424,
+      "LayoutCount": 2,
+      "RecalcStyleCount": 6
+     },
+     "heapAtHydration": 14191148,
+     "heapSettledAfterGc": 9741852,
+     "nodesSettled": 1123,
+     "listenersSettled": 52,
+     "dom": {
+      "elements": 375,
+      "rows": 0,
+      "items": 0,
+      "cards": 4,
+      "height": 720,
+      "scrollY": 0
+     },
+     "rpc": [],
+     "errors": []
+    }
+   ]
+  },
+  "loadSearch": {
+   "path": "/?q=foldkit",
+   "throttle": 1,
+   "median": {
+    "firstPaint": 356,
+    "firstContentfulPaint": 356,
+    "hydratedAt": 1275.300000011921,
+    "scriptToHydrationMs": 392.271,
+    "taskToHydrationMs": 483.544,
+    "heapSettledAfterGc": 11206184,
+    "nodesSettled": 1956,
+    "elements": 780
+   },
+   "bytes": {
+    "html": {
+     "transfer": 5084,
+     "encoded": 4784,
+     "decoded": 30422
+    },
+    "js": {
+     "files": 1,
+     "transfer": 240911,
+     "encoded": 240611,
+     "decoded": 821314
+    },
+    "css": {
+     "files": 1,
+     "transfer": 8105,
+     "encoded": 7805,
+     "decoded": 37860
+    },
+    "all": {
+     "files": 5,
+     "transfer": 280172,
+     "decoded": 895760
+    }
+   },
+   "runs": [
+    {
+     "responseEnd": 20.80000001192093,
+     "domContentLoaded": 1284.5999999642372,
+     "load": 1390.5,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 464,
+     "firstContentfulPaint": 464,
+     "hydratedAt": 1389.800000011921,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 493,
+       "encoded": 193,
+       "decoded": 409
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 963,
+       "encoded": 663,
+       "decoded": 6777
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 371.213,
+      "TaskDuration": 452.079,
+      "LayoutDuration": 14.036,
+      "RecalcStyleDuration": 22.164,
+      "LayoutCount": 4,
+      "RecalcStyleCount": 13
+     },
+     "heapAtHydration": 20069540,
+     "heapSettledAfterGc": 11185048,
+     "nodesSettled": 1956,
+     "listenersSettled": 93,
+     "dom": {
+      "elements": 780,
+      "rows": 36,
+      "items": 6,
+      "cards": 4,
+      "height": 11099,
+      "scrollY": 0
+     },
+     "rpc": [
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"0b9db74a77019fa6c1eb5b10f79c34d6\",\"spanId\":\"bdf7ca02df57289d\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 209
+      },
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"20d47bc8aeff971869f1841b46d85554\",\"spanId\":\"e9b1961c3cad6987\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 680
+      }
+     ],
+     "errors": []
+    },
+    {
+     "responseEnd": 15.300000011920929,
+     "domContentLoaded": 1080.0999999642372,
+     "load": 1111.800000011921,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 212,
+     "firstContentfulPaint": 212,
+     "hydratedAt": 1140.800000011921,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 493,
+       "encoded": 193,
+       "decoded": 409
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 963,
+       "encoded": 663,
+       "decoded": 6777
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 382.424,
+      "TaskDuration": 479.152,
+      "LayoutDuration": 17.893,
+      "RecalcStyleDuration": 24.032,
+      "LayoutCount": 5,
+      "RecalcStyleCount": 16
+     },
+     "heapAtHydration": 16320708,
+     "heapSettledAfterGc": 11211228,
+     "nodesSettled": 1991,
+     "listenersSettled": 92,
+     "dom": {
+      "elements": 780,
+      "rows": 36,
+      "items": 6,
+      "cards": 4,
+      "height": 11099,
+      "scrollY": 0
+     },
+     "rpc": [
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"6893d3aa738ba5d450d97ac4738b2f8a\",\"spanId\":\"c5510bdf973dc5de\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 209
+      },
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"a159b2acdd32070d95bfe6304f4d5c7a\",\"spanId\":\"60fc4870ce387e26\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 680
+      }
+     ],
+     "errors": []
+    },
+    {
+     "responseEnd": 17.299999952316284,
+     "domContentLoaded": 1080.5,
+     "load": 1089,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 356,
+     "firstContentfulPaint": 356,
+     "hydratedAt": 1101.0999999642372,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 493,
+       "encoded": 193,
+       "decoded": 409
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 963,
+       "encoded": 663,
+       "decoded": 6777
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 394.066,
+      "TaskDuration": 483.544,
+      "LayoutDuration": 13.96,
+      "RecalcStyleDuration": 26.623,
+      "LayoutCount": 4,
+      "RecalcStyleCount": 18
+     },
+     "heapAtHydration": 20598188,
+     "heapSettledAfterGc": 11206184,
+     "nodesSettled": 1956,
+     "listenersSettled": 93,
+     "dom": {
+      "elements": 780,
+      "rows": 36,
+      "items": 6,
+      "cards": 4,
+      "height": 11099,
+      "scrollY": 0
+     },
+     "rpc": [
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"40f629ac3a69dbad8fffe8673f0f08ef\",\"spanId\":\"7d5ecdf8c3b16013\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 209
+      },
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"4289515907fa774e687768038767acf6\",\"spanId\":\"ace60998a047d6c6\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 680
+      }
+     ],
+     "errors": []
+    },
+    {
+     "responseEnd": 33.10000002384186,
+     "domContentLoaded": 1134.1000000238419,
+     "load": 1266.3999999761581,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 200,
+     "firstContentfulPaint": 200,
+     "hydratedAt": 1275.300000011921,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 493,
+       "encoded": 193,
+       "decoded": 409
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 963,
+       "encoded": 663,
+       "decoded": 6777
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 392.271,
+      "TaskDuration": 514.147,
+      "LayoutDuration": 14.57,
+      "RecalcStyleDuration": 25.826,
+      "LayoutCount": 5,
+      "RecalcStyleCount": 19
+     },
+     "heapAtHydration": 18251140,
+     "heapSettledAfterGc": 11211100,
+     "nodesSettled": 1421,
+     "listenersSettled": 86,
+     "dom": {
+      "elements": 780,
+      "rows": 36,
+      "items": 6,
+      "cards": 4,
+      "height": 11099,
+      "scrollY": 0
+     },
+     "rpc": [
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"db04e6bf8a0455744f718eca8eac3f5b\",\"spanId\":\"f4542ff8176be4e8\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 209
+      },
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"5714f0906b0ff4a4eb6319654ea2bd53\",\"spanId\":\"d4b898a0fbc80abf\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 680
+      }
+     ],
+     "errors": []
+    },
+    {
+     "responseEnd": 28.400000035762787,
+     "domContentLoaded": 1172.5,
+     "load": 1282.300000011921,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 376,
+     "firstContentfulPaint": 376,
+     "hydratedAt": 1282.1000000238419,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 493,
+       "encoded": 193,
+       "decoded": 409
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 963,
+       "encoded": 663,
+       "decoded": 6777
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 420.902,
+      "TaskDuration": 517.712,
+      "LayoutDuration": 14.664,
+      "RecalcStyleDuration": 26.176,
+      "LayoutCount": 4,
+      "RecalcStyleCount": 15
+     },
+     "heapAtHydration": 15161880,
+     "heapSettledAfterGc": 11139032,
+     "nodesSettled": 1956,
+     "listenersSettled": 92,
+     "dom": {
+      "elements": 780,
+      "rows": 36,
+      "items": 6,
+      "cards": 4,
+      "height": 11099,
+      "scrollY": 0
+     },
+     "rpc": [
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"2db2fe63051b9275a12b3e1b76d67477\",\"spanId\":\"d7645f04d46e013b\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 209
+      },
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"7f3eb1950c98fd5f6827e6856b78bbd6\",\"spanId\":\"bd73d9a570f7f5f4\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 680
+      }
+     ],
+     "errors": []
+    }
+   ]
+  },
+  "loadSearchCpu4x": {
+   "path": "/?q=foldkit",
+   "throttle": 4,
+   "median": {
+    "firstPaint": 572,
+    "firstContentfulPaint": 572,
+    "hydratedAt": 3047.199999988079,
+    "scriptToHydrationMs": 1718.796,
+    "taskToHydrationMs": 2153.844,
+    "heapSettledAfterGc": 11106908,
+    "nodesSettled": 1956,
+    "elements": 780
+   },
+   "bytes": {
+    "html": {
+     "transfer": 5084,
+     "encoded": 4784,
+     "decoded": 30422
+    },
+    "js": {
+     "files": 1,
+     "transfer": 240911,
+     "encoded": 240611,
+     "decoded": 821314
+    },
+    "css": {
+     "files": 1,
+     "transfer": 8105,
+     "encoded": 7805,
+     "decoded": 37860
+    },
+    "all": {
+     "files": 5,
+     "transfer": 280172,
+     "decoded": 895760
+    }
+   },
+   "runs": [
+    {
+     "responseEnd": 18.30000001192093,
+     "domContentLoaded": 3352.2000000476837,
+     "load": 3388.400000035763,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 688,
+     "firstContentfulPaint": 688,
+     "hydratedAt": 3386.2000000476837,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 493,
+       "encoded": 193,
+       "decoded": 409
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 963,
+       "encoded": 663,
+       "decoded": 6777
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 1759.277,
+      "TaskDuration": 2294.342,
+      "LayoutDuration": 141.493,
+      "RecalcStyleDuration": 169.538,
+      "LayoutCount": 5,
+      "RecalcStyleCount": 17
+     },
+     "heapAtHydration": 15173636,
+     "heapSettledAfterGc": 11354528,
+     "nodesSettled": 1955,
+     "listenersSettled": 93,
+     "dom": {
+      "elements": 780,
+      "rows": 36,
+      "items": 6,
+      "cards": 4,
+      "height": 11099,
+      "scrollY": 0
+     },
+     "rpc": [
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"b1388c2115e4070c67861135dbc1b441\",\"spanId\":\"2149dfc865ab7b71\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 209
+      },
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"18760a73f910cc2ca6857ee4d43b6cf7\",\"spanId\":\"a2f7b5aa5abf7b08\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 680
+      }
+     ],
+     "errors": []
+    },
+    {
+     "responseEnd": 9.5,
+     "domContentLoaded": 2780.899999976158,
+     "load": 3591,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 436,
+     "firstContentfulPaint": 436,
+     "hydratedAt": 3587.399999976158,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 493,
+       "encoded": 193,
+       "decoded": 409
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 963,
+       "encoded": 663,
+       "decoded": 6777
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 1718.796,
+      "TaskDuration": 2336.064,
+      "LayoutDuration": 120.791,
+      "RecalcStyleDuration": 140.235,
+      "LayoutCount": 4,
+      "RecalcStyleCount": 18
+     },
+     "heapAtHydration": 19962264,
+     "heapSettledAfterGc": 11101440,
+     "nodesSettled": 1956,
+     "listenersSettled": 93,
+     "dom": {
+      "elements": 780,
+      "rows": 36,
+      "items": 6,
+      "cards": 4,
+      "height": 11099,
+      "scrollY": 0
+     },
+     "rpc": [
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"3433712035d2fa61d17cc54ccccac526\",\"spanId\":\"92c4d8ab38a5b423\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 209
+      },
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"ca5da3f29f3d06a0da06919a4b130544\",\"spanId\":\"3bf39030ceb4ca40\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 680
+      }
+     ],
+     "errors": []
+    },
+    {
+     "responseEnd": 37.30000001192093,
+     "domContentLoaded": 2580.699999988079,
+     "load": 3049.300000011921,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 572,
+     "firstContentfulPaint": 572,
+     "hydratedAt": 3047.199999988079,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 493,
+       "encoded": 193,
+       "decoded": 409
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 963,
+       "encoded": 663,
+       "decoded": 6777
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 1748.979,
+      "TaskDuration": 2153.844,
+      "LayoutDuration": 81.732,
+      "RecalcStyleDuration": 69.213,
+      "LayoutCount": 5,
+      "RecalcStyleCount": 18
+     },
+     "heapAtHydration": 19432412,
+     "heapSettledAfterGc": 11104176,
+     "nodesSettled": 1956,
+     "listenersSettled": 92,
+     "dom": {
+      "elements": 780,
+      "rows": 36,
+      "items": 6,
+      "cards": 4,
+      "height": 11099,
+      "scrollY": 0
+     },
+     "rpc": [
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"5b1157f618a71c9dcfa84bb7c8794ad5\",\"spanId\":\"9c5a570c409269e7\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 209
+      },
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"1d198bc0b0b8fd7bb3e22e8abd37b61b\",\"spanId\":\"467c76eddc8e79b5\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 680
+      }
+     ],
+     "errors": []
+    },
+    {
+     "responseEnd": 49.39999997615814,
+     "domContentLoaded": 2430,
+     "load": 2670.199999988079,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 648,
+     "firstContentfulPaint": 648,
+     "hydratedAt": 2667.399999976158,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 493,
+       "encoded": 193,
+       "decoded": 409
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 963,
+       "encoded": 663,
+       "decoded": 6777
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 1496.856,
+      "TaskDuration": 1877.617,
+      "LayoutDuration": 72.457,
+      "RecalcStyleDuration": 77.22,
+      "LayoutCount": 5,
+      "RecalcStyleCount": 17
+     },
+     "heapAtHydration": 19995124,
+     "heapSettledAfterGc": 11114372,
+     "nodesSettled": 1956,
+     "listenersSettled": 92,
+     "dom": {
+      "elements": 780,
+      "rows": 36,
+      "items": 6,
+      "cards": 4,
+      "height": 11099,
+      "scrollY": 0
+     },
+     "rpc": [
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"eceefb596eb34df2b3a29f8a3a38a104\",\"spanId\":\"3d20f700810d4cbe\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 209
+      },
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"c3e9f54b6350980c418b9dace4468b90\",\"spanId\":\"54975e2c486e3525\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 680
+      }
+     ],
+     "errors": []
+    },
+    {
+     "responseEnd": 14,
+     "domContentLoaded": 2408.7999999523163,
+     "load": 2926,
+     "html": {
+      "transfer": 5084,
+      "encoded": 4784,
+      "decoded": 30422
+     },
+     "firstPaint": 388,
+     "firstContentfulPaint": 388,
+     "hydratedAt": 2925.899999976158,
+     "res": [
+      {
+       "name": "/assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+       "type": "link",
+       "transfer": 29700,
+       "encoded": 29400,
+       "decoded": 29400
+      },
+      {
+       "name": "/assets/app-CaohUYMH.css",
+       "type": "link",
+       "transfer": 8105,
+       "encoded": 7805,
+       "decoded": 37860
+      },
+      {
+       "name": "/assets/app-BjYvbdEy.js",
+       "type": "script",
+       "transfer": 240911,
+       "encoded": 240611,
+       "decoded": 821314
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 493,
+       "encoded": 193,
+       "decoded": 409
+      },
+      {
+       "name": "/rpc/",
+       "type": "fetch",
+       "transfer": 963,
+       "encoded": 663,
+       "decoded": 6777
+      }
+     ],
+     "cpuToHydrationMs": {
+      "ScriptDuration": 1580.663,
+      "TaskDuration": 2148.236,
+      "LayoutDuration": 91.287,
+      "RecalcStyleDuration": 131.661,
+      "LayoutCount": 4,
+      "RecalcStyleCount": 17
+     },
+     "heapAtHydration": 21150976,
+     "heapSettledAfterGc": 11106908,
+     "nodesSettled": 1956,
+     "listenersSettled": 93,
+     "dom": {
+      "elements": 780,
+      "rows": 36,
+      "items": 6,
+      "cards": 4,
+      "height": 11099,
+      "scrollY": 0
+     },
+     "rpc": [
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"0cae176399c2a4f4dee42078cb1890df\",\"spanId\":\"18169075dd354e09\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 209
+      },
+      {
+       "body": "{\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"809eb4669e2fca40f2ac771374c7bf5b\",\"spanId\":\"0fedd1f10cd4daa8\",\"sampled\":true,\"headers\":[]}",
+       "state": "done",
+       "bytes": 680
+      }
+     ],
+     "errors": []
+    }
+   ]
+  },
+  "typeFast": {
+   "text": "foldkit",
+   "gapMs": 40,
+   "keys": [
+    {
+     "key": "f",
+     "cpuMs": {
+      "ScriptDuration": 66.652,
+      "TaskDuration": 81.793,
+      "LayoutDuration": 4.17,
+      "RecalcStyleDuration": 7.835,
+      "LayoutCount": 3,
+      "RecalcStyleCount": 5
+     },
+     "mutations": {
+      "records": 93,
+      "added": 470,
+      "removed": 241,
+      "attrs": 5,
+      "text": 0
+     },
+     "requestsStarted": 0
+    },
+    {
+     "key": "o",
+     "cpuMs": {
+      "ScriptDuration": 92.842,
+      "TaskDuration": 106.7,
+      "LayoutDuration": 0.201,
+      "RecalcStyleDuration": 4.009,
+      "LayoutCount": 1,
+      "RecalcStyleCount": 6
+     },
+     "mutations": {
+      "records": 96,
+      "added": 469,
+      "removed": 469,
+      "attrs": 3,
+      "text": 0
+     },
+     "requestsStarted": 0
+    },
+    {
+     "key": "l",
+     "cpuMs": {
+      "ScriptDuration": 77.018,
+      "TaskDuration": 89.249,
+      "LayoutDuration": 2.415,
+      "RecalcStyleDuration": 4.18,
+      "LayoutCount": 2,
+      "RecalcStyleCount": 5
+     },
+     "mutations": {
+      "records": 96,
+      "added": 469,
+      "removed": 469,
+      "attrs": 3,
+      "text": 0
+     },
+     "requestsStarted": 0
+    },
+    {
+     "key": "d",
+     "cpuMs": {
+      "ScriptDuration": 81.142,
+      "TaskDuration": 109.69,
+      "LayoutDuration": 3.65,
+      "RecalcStyleDuration": 13.078,
+      "LayoutCount": 2,
+      "RecalcStyleCount": 7
+     },
+     "mutations": {
+      "records": 96,
+      "added": 469,
+      "removed": 469,
+      "attrs": 3,
+      "text": 0
+     },
+     "requestsStarted": 1
+    },
+    {
+     "key": "k",
+     "cpuMs": {
+      "ScriptDuration": 47.087,
+      "TaskDuration": 75.221,
+      "LayoutDuration": 0.209,
+      "RecalcStyleDuration": 5.779,
+      "LayoutCount": 1,
+      "RecalcStyleCount": 4
+     },
+     "mutations": {
+      "records": 96,
+      "added": 469,
+      "removed": 469,
+      "attrs": 3,
+      "text": 0
+     },
+     "requestsStarted": 1
+    },
+    {
+     "key": "i",
+     "cpuMs": {
+      "ScriptDuration": 80.92,
+      "TaskDuration": 99.357,
+      "LayoutDuration": 2.347,
+      "RecalcStyleDuration": 5.982,
+      "LayoutCount": 2,
+      "RecalcStyleCount": 4
+     },
+     "mutations": {
+      "records": 96,
+      "added": 469,
+      "removed": 469,
+      "attrs": 3,
+      "text": 0
+     },
+     "requestsStarted": 2
+    },
+    {
+     "key": "t",
+     "cpuMs": {
+      "ScriptDuration": 42.458,
+      "TaskDuration": 50.736,
+      "LayoutDuration": 0.134,
+      "RecalcStyleDuration": 2.175,
+      "LayoutCount": 1,
+      "RecalcStyleCount": 4
+     },
+     "mutations": {
+      "records": 96,
+      "added": 469,
+      "removed": 469,
+      "attrs": 3,
+      "text": 0
+     },
+     "requestsStarted": 0
+    }
+   ],
+   "perKeyMedian": {
+    "scriptMs": 77.018,
+    "taskMs": 89.249,
+    "layoutMs": 2.347,
+    "mutationRecords": 96,
+    "nodesAdded": 469,
+    "nodesRemoved": 469,
+    "textChanges": 0,
+    "attrChanges": 3
+   },
+   "requests": {
+    "total": 8,
+    "done": 4,
+    "failedOrAborted": 4,
+    "bodies": [
+     "done 207B {\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"f\",\"offset\":0,\"limit\":4},\"traceId\":\"e1d61ab32c7b60ec98ce42b5c678427b\",\"spanId\":\"c6ab54104217746f\",\"sampled\":true,\"headers\":[]}",
+     "failed: net::ERR_ABORTED 0B {\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"fol\",\"offset\":0,\"limit\":4},\"traceId\":\"8384ba8b195f8fdd5ef3948d7497fb4c\",\"spanId\":\"714ff5cfb663abb3\",\"sampled\":true,\"headers\":[]}",
+     "done 209B {\"_tag\":\"Request\",\"id\":2,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"fold\",\"offset\":0,\"limit\":4},\"traceId\":\"ae468af5638448853f567fdf1ecac511\",\"spanId\":\"cfa10b05c94a09c3\",\"sampled\":true,\"headers\":[]}",
+     "failed: net::ERR_ABORTED 0B {\"_tag\":\"Request\",\"id\":3,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"fold\",\"offset\":4,\"limit\":56},\"traceId\":\"7cacace0d14e9209c4edd183e946f1fc\",\"spanId\":\"62a9d92077499d6c\",\"sampled\":true,\"headers\":[]}",
+     "failed: net::ERR_ABORTED 0B {\"_tag\":\"Request\",\"id\":4,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldk\",\"offset\":0,\"limit\":4},\"traceId\":\"8556e21b54aa098ccac481063c1653de\",\"spanId\":\"f612df7ba7066187\",\"sampled\":true,\"headers\":[]}",
+     "failed: net::ERR_ABORTED 0B {\"_tag\":\"Request\",\"id\":5,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldki\",\"offset\":0,\"limit\":4},\"traceId\":\"7560709810293329eecf0b534557ec12\",\"spanId\":\"24f75367ce60c90b\",\"sampled\":true,\"headers\":[]}",
+     "done 209B {\"_tag\":\"Request\",\"id\":6,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"6da73ff0f5225f6c7f7f8922d501f8cd\",\"spanId\":\"3a5f10b1cd8d6352\",\"sampled\":true,\"headers\":[]}",
+     "done 682B {\"_tag\":\"Request\",\"id\":7,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"3eeea6164a01b1b4f0009a1b0bf6fc9a\",\"spanId\":\"362592f1ef8ff455\",\"sampled\":true,\"headers\":[]}"
+    ]
+   },
+   "cacheScript": {
+    "keys": 6,
+    "requests": 7,
+    "bodies": [
+     "done {\"_tag\":\"Request\",\"id\":8,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldki\",\"offset\":0,\"limit\":4},\"traceId\":\"3f8a5f04a44ddf11e799349ac9d9f5b6\",\"spanId\":\"24eae80d95adefc3\",\"sampled\":true,\"headers\":[]}",
+     "failed: net::ERR_ABORTED {\"_tag\":\"Request\",\"id\":9,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldki\",\"offset\":4,\"limit\":56},\"traceId\":\"756257fd013549158c7728b8d581a654\",\"spanId\":\"2f6328d24e58fdbf\",\"sampled\":true,\"headers\":[]}",
+     "done {\"_tag\":\"Request\",\"id\":10,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldk\",\"offset\":0,\"limit\":4},\"traceId\":\"280282d4ba205b4d2ba8070fa2d2f98e\",\"spanId\":\"1f0b5125f32dc261\",\"sampled\":true,\"headers\":[]}",
+     "failed: net::ERR_ABORTED {\"_tag\":\"Request\",\"id\":11,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldk\",\"offset\":4,\"limit\":56},\"traceId\":\"77406dc6b48c76ed9a28f5716b564223\",\"spanId\":\"1ab96e24b8e58f00\",\"sampled\":true,\"headers\":[]}",
+     "done {\"_tag\":\"Request\",\"id\":12,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"fold\",\"offset\":4,\"limit\":56},\"traceId\":\"6c596db833b96339e29ffba74a795205\",\"spanId\":\"2b1ca357d5d17d20\",\"sampled\":true,\"headers\":[]}",
+     "done {\"_tag\":\"Request\",\"id\":13,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldk\",\"offset\":4,\"limit\":56},\"traceId\":\"f6d428cc92bb177834623fc65dabf2bb\",\"spanId\":\"0a942022f69d093a\",\"sampled\":true,\"headers\":[]}",
+     "done {\"_tag\":\"Request\",\"id\":14,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldki\",\"offset\":4,\"limit\":56},\"traceId\":\"d953ff04804208ce25171e5a074d0d1e\",\"spanId\":\"c6dad8202eb02efc\",\"sampled\":true,\"headers\":[]}"
+    ]
+   },
+   "dom": {
+    "elements": 780,
+    "rows": 36,
+    "items": 6,
+    "cards": 4,
+    "height": 11099,
+    "scrollY": 0
+   },
+   "errors": []
+  },
+  "typeSlow": {
+   "text": "foldkit",
+   "gapMs": 400,
+   "keys": [
+    {
+     "key": "f",
+     "cpuMs": {
+      "ScriptDuration": 204.177,
+      "TaskDuration": 254.619,
+      "LayoutDuration": 7.374,
+      "RecalcStyleDuration": 13.261,
+      "LayoutCount": 5,
+      "RecalcStyleCount": 10
+     },
+     "mutations": {
+      "records": 119,
+      "added": 534,
+      "removed": 265,
+      "attrs": 14,
+      "text": 1
+     },
+     "requestsStarted": 2
+    },
+    {
+     "key": "o",
+     "cpuMs": {
+      "ScriptDuration": 119.218,
+      "TaskDuration": 157.557,
+      "LayoutDuration": 2.849,
+      "RecalcStyleDuration": 7.343,
+      "LayoutCount": 3,
+      "RecalcStyleCount": 11
+     },
+     "mutations": {
+      "records": 124,
+      "added": 533,
+      "removed": 533,
+      "attrs": 13,
+      "text": 2
+     },
+     "requestsStarted": 2
+    },
+    {
+     "key": "l",
+     "cpuMs": {
+      "ScriptDuration": 163.539,
+      "TaskDuration": 220.048,
+      "LayoutDuration": 2.69,
+      "RecalcStyleDuration": 9.955,
+      "LayoutCount": 3,
+      "RecalcStyleCount": 11
+     },
+     "mutations": {
+      "records": 198,
+      "added": 789,
+      "removed": 629,
+      "attrs": 22,
+      "text": 3
+     },
+     "requestsStarted": 2
+    },
+    {
+     "key": "d",
+     "cpuMs": {
+      "ScriptDuration": 101.336,
+      "TaskDuration": 130.049,
+      "LayoutDuration": 2.093,
+      "RecalcStyleDuration": 7.537,
+      "LayoutCount": 2,
+      "RecalcStyleCount": 6
+     },
+     "mutations": {
+      "records": 125,
+      "added": 533,
+      "removed": 693,
+      "attrs": 14,
+      "text": 2
+     },
+     "requestsStarted": 2
+    },
+    {
+     "key": "k",
+     "cpuMs": {
+      "ScriptDuration": 171.583,
+      "TaskDuration": 221.693,
+      "LayoutDuration": 4.113,
+      "RecalcStyleDuration": 10.986,
+      "LayoutCount": 4,
+      "RecalcStyleCount": 13
+     },
+     "mutations": {
+      "records": 198,
+      "added": 789,
+      "removed": 629,
+      "attrs": 22,
+      "text": 3
+     },
+     "requestsStarted": 2
+    },
+    {
+     "key": "i",
+     "cpuMs": {
+      "ScriptDuration": 127.983,
+      "TaskDuration": 174.632,
+      "LayoutDuration": 4.301,
+      "RecalcStyleDuration": 6.672,
+      "LayoutCount": 4,
+      "RecalcStyleCount": 9
+     },
+     "mutations": {
+      "records": 199,
+      "added": 789,
+      "removed": 789,
+      "attrs": 23,
+      "text": 3
+     },
+     "requestsStarted": 2
+    },
+    {
+     "key": "t",
+     "cpuMs": {
+      "ScriptDuration": 109.279,
+      "TaskDuration": 142.573,
+      "LayoutDuration": 2.31,
+      "RecalcStyleDuration": 6.838,
+      "LayoutCount": 2,
+      "RecalcStyleCount": 6
+     },
+     "mutations": {
+      "records": 129,
+      "added": 509,
+      "removed": 693,
+      "attrs": 18,
+      "text": 2
+     },
+     "requestsStarted": 2
+    }
+   ],
+   "perKeyMedian": {
+    "scriptMs": 127.983,
+    "taskMs": 174.632,
+    "layoutMs": 2.849,
+    "mutationRecords": 129,
+    "nodesAdded": 534,
+    "nodesRemoved": 629,
+    "textChanges": 2,
+    "attrChanges": 18
+   },
+   "requests": {
+    "total": 14,
+    "done": 14,
+    "failedOrAborted": 0,
+    "bodies": [
+     "done 207B {\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"f\",\"offset\":0,\"limit\":4},\"traceId\":\"9d944e64ed86149da6794febaa533afc\",\"spanId\":\"01b18d5dde3ddd07\",\"sampled\":true,\"headers\":[]}",
+     "done 669B {\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"f\",\"offset\":4,\"limit\":56},\"traceId\":\"8a0c0d892c0ee238e6f7d94ace942869\",\"spanId\":\"c2648e17472c3395\",\"sampled\":true,\"headers\":[]}",
+     "done 207B {\"_tag\":\"Request\",\"id\":2,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"fo\",\"offset\":0,\"limit\":4},\"traceId\":\"89376ba985025a4930bd24f8c923fd7c\",\"spanId\":\"cca85b42c2c5d422\",\"sampled\":true,\"headers\":[]}",
+     "done 671B {\"_tag\":\"Request\",\"id\":3,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"fo\",\"offset\":4,\"limit\":56},\"traceId\":\"bb1749ffdcd5d2dd216ac4189a1c6821\",\"spanId\":\"7c2bc8c2d2e0c975\",\"sampled\":true,\"headers\":[]}",
+     "done 208B {\"_tag\":\"Request\",\"id\":4,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"fol\",\"offset\":0,\"limit\":4},\"traceId\":\"775dd7a856e721edad51157648f2f1ae\",\"spanId\":\"923a3d2090e7d952\",\"sampled\":true,\"headers\":[]}",
+     "done 676B {\"_tag\":\"Request\",\"id\":5,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"fol\",\"offset\":4,\"limit\":56},\"traceId\":\"8dc348a5771fafaf3628afe116c7a229\",\"spanId\":\"116c5f62077914c3\",\"sampled\":true,\"headers\":[]}",
+     "done 209B {\"_tag\":\"Request\",\"id\":6,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"fold\",\"offset\":0,\"limit\":4},\"traceId\":\"6766378a41ce7dbd98e070652e7fb559\",\"spanId\":\"c617893bc2b0e592\",\"sampled\":true,\"headers\":[]}",
+     "done 679B {\"_tag\":\"Request\",\"id\":7,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"fold\",\"offset\":4,\"limit\":56},\"traceId\":\"1a1dee940ea61826a6bf0eaca54c0a1c\",\"spanId\":\"d0b4d8711d4a4d66\",\"sampled\":true,\"headers\":[]}",
+     "done 210B {\"_tag\":\"Request\",\"id\":8,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldk\",\"offset\":0,\"limit\":4},\"traceId\":\"9787c89656af5e63c93bbf0dc5e87225\",\"spanId\":\"8241fc5aadb521b2\",\"sampled\":true,\"headers\":[]}",
+     "done 682B {\"_tag\":\"Request\",\"id\":9,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldk\",\"offset\":4,\"limit\":56},\"traceId\":\"9a6ad01cc690596c7aea5d5f026e2324\",\"spanId\":\"d77c2719b3b6c8eb\",\"sampled\":true,\"headers\":[]}",
+     "done 211B {\"_tag\":\"Request\",\"id\":10,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldki\",\"offset\":0,\"limit\":4},\"traceId\":\"6738f3572d088c0079a92a8c4c6be458\",\"spanId\":\"148760a604726a04\",\"sampled\":true,\"headers\":[]}",
+     "done 682B {\"_tag\":\"Request\",\"id\":11,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldki\",\"offset\":4,\"limit\":56},\"traceId\":\"a5850aeb9f05176987997cff23df223b\",\"spanId\":\"1c127cc51a2bf4a4\",\"sampled\":true,\"headers\":[]}",
+     "done 210B {\"_tag\":\"Request\",\"id\":12,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"8af569270c50b791d55221b8307cd484\",\"spanId\":\"f80e676d852fdce3\",\"sampled\":true,\"headers\":[]}",
+     "done 682B {\"_tag\":\"Request\",\"id\":13,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"d4085f41c51cb27ad0bd7c1450e51195\",\"spanId\":\"9a50a85692f21904\",\"sampled\":true,\"headers\":[]}"
+    ]
+   },
+   "cacheScript": {
+    "keys": 6,
+    "requests": 1,
+    "bodies": [
+     "done {\"_tag\":\"Request\",\"id\":14,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"fold\",\"offset\":4,\"limit\":56},\"traceId\":\"ab8b50f29f1e44fe3bed1bd4a5953b36\",\"spanId\":\"13a4db3b0965bd75\",\"sampled\":true,\"headers\":[]}"
+    ]
+   },
+   "dom": {
+    "elements": 780,
+    "rows": 36,
+    "items": 6,
+    "cards": 4,
+    "height": 11099,
+    "scrollY": 0
+   },
+   "errors": []
+  },
+  "burst30": {
+   "text": "foldkit",
+   "delayMs": 30,
+   "typedInMs": 964,
+   "cpuMs": {
+    "ScriptDuration": 519.787,
+    "TaskDuration": 676.273,
+    "LayoutDuration": 11.45,
+    "RecalcStyleDuration": 35.034,
+    "LayoutCount": 13,
+    "RecalcStyleCount": 37
+   },
+   "mutations": {
+    "records": 293,
+    "added": 1235,
+    "removed": 830,
+    "attrs": 30,
+    "text": 2
+   },
+   "requests": 2,
+   "done": 2,
+   "aborted": 0,
+   "labels": [
+    "done {\"label\":\"foldkit\",\"offset\":0,\"limit\":4}",
+    "done {\"label\":\"foldkit\",\"offset\":4,\"limit\":56}"
+   ],
+   "errors": []
+  },
+  "burst80": {
+   "text": "foldkit",
+   "delayMs": 80,
+   "typedInMs": 2059,
+   "cpuMs": {
+    "ScriptDuration": 528.47,
+    "TaskDuration": 677.614,
+    "LayoutDuration": 15.606,
+    "RecalcStyleDuration": 39.109,
+    "LayoutCount": 14,
+    "RecalcStyleCount": 38
+   },
+   "mutations": {
+    "records": 472,
+    "added": 1945,
+    "removed": 1540,
+    "attrs": 35,
+    "text": 2
+   },
+   "requests": 2,
+   "done": 2,
+   "aborted": 0,
+   "labels": [
+    "done {\"label\":\"foldkit\",\"offset\":0,\"limit\":4}",
+    "done {\"label\":\"foldkit\",\"offset\":4,\"limit\":56}"
+   ],
+   "errors": []
+  },
+  "burst250": {
+   "text": "foldkit",
+   "delayMs": 250,
+   "typedInMs": 3125,
+   "cpuMs": {
+    "ScriptDuration": 827.541,
+    "TaskDuration": 1059.859,
+    "LayoutDuration": 28.78,
+    "RecalcStyleDuration": 74.252,
+    "LayoutCount": 18,
+    "RecalcStyleCount": 43
+   },
+   "mutations": {
+    "records": 773,
+    "added": 3580,
+    "removed": 3175,
+    "attrs": 45,
+    "text": 2
+   },
+   "requests": 2,
+   "done": 2,
+   "aborted": 0,
+   "labels": [
+    "done {\"label\":\"foldkit\",\"offset\":0,\"limit\":4}",
+    "done {\"label\":\"foldkit\",\"offset\":4,\"limit\":56}"
+   ],
+   "errors": []
+  },
+  "scroll": {
+   "sortFirst": false,
+   "start": {
+    "dom": {
+     "elements": 780,
+     "rows": 36,
+     "items": 6,
+     "cards": 4,
+     "height": 11099,
+     "scrollY": 0
+    },
+    "rpc": 2
+   },
+   "sort": null,
+   "stepPx": 576,
+   "steps": 20,
+   "reachedBottom": true,
+   "end": {
+    "dom": {
+     "elements": 838,
+     "rows": 40,
+     "items": 7,
+     "cards": 4,
+     "height": 11099,
+     "scrollY": 10379
+    },
+    "rpc": 11
+   },
+   "requestsDuringScroll": 9,
+   "responseBytes": 6016,
+   "maxRows": 72,
+   "maxItems": 12,
+   "maxElements": 1200,
+   "perStep": {
+    "scriptMs": {
+     "median": 69.155,
+     "p95": 143.526,
+     "max": 143.526
+    },
+    "taskMs": {
+     "median": 78.115,
+     "p95": 185.223,
+     "max": 185.223
+    },
+    "layoutMs": {
+     "median": 1.744,
+     "p95": 9.237
+    },
+    "nodesAdded": {
+     "median": 310,
+     "p95": 348
+    },
+    "nodesRemoved": {
+     "median": 340,
+     "p95": 408
+    },
+    "mutationRecords": {
+     "median": 14,
+     "p95": 45
+    }
+   },
+   "rpcBodies": [
+    "done 209B {\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"d9f73404c08b1c80e50dea89e430a562\",\"spanId\":\"c2a03d59aff7a386\",\"sampled\":true,\"headers\":[]}",
+    "done 680B {\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"20b27716ac1fd3e918064caf6747bb9a\",\"spanId\":\"a752b0c101264a32\",\"sampled\":true,\"headers\":[]}",
+    "done 579B {\"_tag\":\"Request\",\"id\":2,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":60,\"limit\":60},\"traceId\":\"f8bccff8dfb268f2ea15f1ba7b6cbd89\",\"spanId\":\"b444f7a5037c43fd\",\"sampled\":true,\"headers\":[]}",
+    "done 620B {\"_tag\":\"Request\",\"id\":3,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":120,\"limit\":60},\"traceId\":\"7a8c038e7804faca264c24b00bdaff7d\",\"spanId\":\"ad69dd23608f710d\",\"sampled\":true,\"headers\":[]}",
+    "done 600B {\"_tag\":\"Request\",\"id\":4,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":180,\"limit\":60},\"traceId\":\"e1058f2cf83091b7909d895cdcaacb59\",\"spanId\":\"e61c1b00b0aba181\",\"sampled\":true,\"headers\":[]}",
+    "done 608B {\"_tag\":\"Request\",\"id\":5,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":240,\"limit\":60},\"traceId\":\"4ae42161595f57b4bec4bc800b40f9e6\",\"spanId\":\"0c6969302e018c77\",\"sampled\":true,\"headers\":[]}",
+    "done 579B {\"_tag\":\"Request\",\"id\":6,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":300,\"limit\":60},\"traceId\":\"a946f615a8ba974d0249025bb242c3b7\",\"spanId\":\"2785f4265160f5bd\",\"sampled\":true,\"headers\":[]}",
+    "done 598B {\"_tag\":\"Request\",\"id\":7,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":360,\"limit\":60},\"traceId\":\"76263f64465360dc7cfef9aed08885ee\",\"spanId\":\"5e7562ec95b0ddb9\",\"sampled\":true,\"headers\":[]}",
+    "done 595B {\"_tag\":\"Request\",\"id\":8,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":420,\"limit\":60},\"traceId\":\"afaffc053d03349f905abf35e33816fa\",\"spanId\":\"f9590acb9394158c\",\"sampled\":true,\"headers\":[]}",
+    "done 614B {\"_tag\":\"Request\",\"id\":9,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":480,\"limit\":60},\"traceId\":\"fc020057a9c26581d9d8d5a36f86b6d4\",\"spanId\":\"e4f4f1a7bf0fa729\",\"sampled\":true,\"headers\":[]}",
+    "done 334B {\"_tag\":\"Request\",\"id\":10,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":540,\"limit\":16},\"traceId\":\"84b10c8c5242bf7773aeb3a35d6b5185\",\"spanId\":\"d7b1856c37cdbe16\",\"sampled\":true,\"headers\":[]}"
+   ],
+   "errors": [],
+   "heapAfterScrollGc": 13494752
+  },
+  "sortThenScroll": {
+   "sortFirst": true,
+   "start": {
+    "dom": {
+     "elements": 780,
+     "rows": 36,
+     "items": 6,
+     "cards": 4,
+     "height": 11099,
+     "scrollY": 0
+    },
+    "rpc": 2
+   },
+   "sort": {
+    "cpuMs": {
+     "ScriptDuration": 265.955,
+     "TaskDuration": 368.324,
+     "LayoutDuration": 3.183,
+     "RecalcStyleDuration": 6.79,
+     "LayoutCount": 6,
+     "RecalcStyleCount": 24
+    },
+    "mutations": {
+     "records": 109,
+     "added": 587,
+     "removed": 574,
+     "attrs": 39,
+     "text": 2
+    },
+    "requests": [
+     "done 4213B {\"_tag\":\"Request\",\"id\":2,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":556},\"traceId\":\"95adb3f923999437dac29db2b2fbf3ce\",\"spanId\":\"a13f292fc78f5aa7\",\"sampled\":true,\"headers\":[]}"
+    ],
+    "heapBefore": 11203924,
+    "heapAfterGc": 13088916,
+    "dom": {
+     "elements": 792,
+     "rows": 36,
+     "items": 6,
+     "cards": 4,
+     "height": 11099,
+     "scrollY": 0
+    }
+   },
+   "stepPx": 576,
+   "steps": 20,
+   "reachedBottom": true,
+   "end": {
+    "dom": {
+     "elements": 826,
+     "rows": 40,
+     "items": 7,
+     "cards": 4,
+     "height": 11099,
+     "scrollY": 10379
+    },
+    "rpc": 3
+   },
+   "requestsDuringScroll": 0,
+   "responseBytes": 5102,
+   "maxRows": 72,
+   "maxItems": 12,
+   "maxElements": 1200,
+   "perStep": {
+    "scriptMs": {
+     "median": 54.961,
+     "p95": 82.764,
+     "max": 82.764
+    },
+    "taskMs": {
+     "median": 64.407,
+     "p95": 105.765,
+     "max": 105.765
+    },
+    "layoutMs": {
+     "median": 1.786,
+     "p95": 3.703
+    },
+    "nodesAdded": {
+     "median": 340,
+     "p95": 408
+    },
+    "nodesRemoved": {
+     "median": 340,
+     "p95": 408
+    },
+    "mutationRecords": {
+     "median": 10,
+     "p95": 11
+    }
+   },
+   "rpcBodies": [
+    "done 209B {\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"4b8121fc6fea69ed2679cb572efa25c9\",\"spanId\":\"b48cf7f1ea87c364\",\"sampled\":true,\"headers\":[]}",
+    "done 680B {\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"3e30255a1ddb84daae9c6e89fdce510a\",\"spanId\":\"0a34de21912a0641\",\"sampled\":true,\"headers\":[]}",
+    "done 4213B {\"_tag\":\"Request\",\"id\":2,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":556},\"traceId\":\"95adb3f923999437dac29db2b2fbf3ce\",\"spanId\":\"a13f292fc78f5aa7\",\"sampled\":true,\"headers\":[]}"
+   ],
+   "errors": [],
+   "heapAfterScrollGc": 13778148
+  },
+  "heap": {
+   "queries": 300,
+   "points": [
+    {
+     "queries": 0,
+     "heap": 9698976,
+     "heapTotal": 10555392,
+     "nodes": 1086,
+     "listeners": 44,
+     "rpc": 0,
+     "elements": 375
+    },
+    {
+     "queries": 50,
+     "heap": 15437580,
+     "heapTotal": 16392192,
+     "nodes": 1351,
+     "listeners": 103,
+     "rpc": 67,
+     "elements": 804
+    },
+    {
+     "queries": 100,
+     "heap": 16471628,
+     "heapTotal": 17702912,
+     "nodes": 1111,
+     "listeners": 63,
+     "rpc": 133,
+     "elements": 644
+    },
+    {
+     "queries": 150,
+     "heap": 18638720,
+     "heapTotal": 19537920,
+     "nodes": 1111,
+     "listeners": 63,
+     "rpc": 205,
+     "elements": 604
+    },
+    {
+     "queries": 200,
+     "heap": 19243388,
+     "heapTotal": 22421504,
+     "nodes": 1183,
+     "listeners": 71,
+     "rpc": 273,
+     "elements": 644
+    },
+    {
+     "queries": 250,
+     "heap": 19664660,
+     "heapTotal": 21110784,
+     "nodes": 1111,
+     "listeners": 63,
+     "rpc": 345,
+     "elements": 644
+    },
+    {
+     "queries": 300,
+     "heap": 20898288,
+     "heapTotal": 22159360,
+     "nodes": 1111,
+     "listeners": 63,
+     "rpc": 416,
+     "elements": 604
+    }
+   ],
+   "cpuMsPerQuery": {
+    "ScriptDuration": 92.075,
+    "TaskDuration": 132.557,
+    "LayoutDuration": 2.48,
+    "RecalcStyleDuration": 8.117,
+    "LayoutCount": 2.4,
+    "RecalcStyleCount": 8.463
+   },
+   "requestsPerQuery": 1.39,
+   "errors": []
+  }
+ },
+ "browser": "156.0.8078.4",
+ "loadavgEnd": "44.62 48.23 48.09 39/2678 2483148",
+ "endedAt": "2026-11-13T01:09:37.980Z"
+}
