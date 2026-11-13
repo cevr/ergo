@@ -769,7 +769,7 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 		if len(now) > 0 {
 			first = now[0]
 		}
-		let want = Shape[int]{Node: RowsNode{Label: "list", Count: len(model.items), RowHeight: Length(rh), First: first}, Kids: rows}
+		let want = Shape[int]{Node: RowsNode{Label: "list", Count: len(model.items), RowHeight: Length(rh), First: first, Offset: Length(off)}, Kids: rows}
 		let screen = Screen(&h)
 		if StateOf(&h) != model || len(screen) != 3 || !SameShapes(screen[2:], []Shape[int]{want}) {
 			return false
@@ -1045,6 +1045,110 @@ func loadsBound(seed int, m time.Manual) bool needs Scheduler {
 			if !seen {
 				return false
 			}
+		}
+	}
+	true
+}
+
+// cursorStep: the signal is the cursor's row.
+func cursorStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func cursorTimer(s int) Option[Timeout[int]] { None }
+
+func cursorWork(s int) Option[func(send func(e int))] { None }
+
+func cursorMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: cursorStep, After: cursorTimer, Work: cursorWork}
+}
+
+// keptOffset is the model of the offset that shows row k whole, by its
+// two candidates: the offset stays when the row is inside the viewport;
+// else the viewport's top or its bottom meets the row's, whichever is
+// nearer, and its top when the viewport is shorter than a row.
+func keptOffset(k int, rh float64, off float64, height float64) float64 {
+	let top = float64(k) * rh
+	let bottom = top + rh
+	if height >= rh && top >= off && bottom <= off+height {
+		return off
+	}
+	if height < rh {
+		return top
+	}
+	let up = top
+	let down = bottom - height
+	if (off-up)*(off-up) <= (down-off)*(down-off) {
+		return up
+	}
+	down
+}
+
+// RowsKeepTheCursor (GP1b): a long list that keeps its cursor's row in
+// view (RowsKeeping), under drawn host scrolls and resizes and drawn
+// moves of the cursor, some past the list's end: after each step the
+// node's offset is the model's, where a move brings the row whole into
+// view by the least move and a scroll of the host's stays until the
+// cursor moves again, and the list shows the rows that offset shows.
+law RowsKeepTheCursor(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		cursorKept(seed, steps, m)
+	}
+}
+
+func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let sizes = []int{0, 3, 50, 1000}
+	let n = sizes[draw(&r, len(sizes))]
+	let rh = float64(draw(&r, 40) + 10)
+	let view = func(f *Frame[int], s int) {
+		OnKey(f, func(k KeyPress) Option[int] {
+			for i in 0..n+1 {
+				if k.Name == "\(i)" {
+					return Some{Value: i}
+				}
+			}
+			None
+		})
+		RowsKeeping(f, "list", n, Length(rh), s, func(i int) Key { ByInt(i) }) func(i int) {
+			Text(f, "row \(i)")
+		}
+	}
+	let a = actor.StartMachine(cursorMachine(), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut off = 0.0
+	let mut height = 0.0
+	for _ in 0..(steps%24+24)%24+1 {
+		let mut act Act = SettleAll
+		if draw(&r, 2) == 0 {
+			off = float64(draw(&r, n*int(rh)+1))
+			height = float64(draw(&r, 300))
+			act = ScrollOn{Label: "list", Offset: Length(off), Height: Length(height)}
+		} else {
+			let k = draw(&r, n+1)
+			act = KeyIn{Press: KeyPress{Name: "\(k)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+			if k != StateOf(&h) && k < n {
+				off = keptOffset(k, rh, off, height)
+			}
+		}
+		Play(&h, []Act{act}) catch {
+		case _:
+			return false
+		}
+		let now = shownRows(n, rh, off, height)
+		let mut rows = []Shape[int]{}
+		for i in now {
+			rows = rows.Append(leaf(TextNode{Value: "row \(i)", Style: Plain()}))
+		}
+		let mut first = n
+		if len(now) > 0 {
+			first = now[0]
+		}
+		let want = Shape[int]{Node: RowsNode{Label: "list", Count: n, RowHeight: Length(rh), First: first, Offset: Length(off)}, Kids: rows}
+		if !SameShapes(Screen(&h), []Shape[int]{want}) {
+			return false
 		}
 	}
 	true

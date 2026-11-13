@@ -728,7 +728,7 @@ func extras(f *ui.Frame[int], v int) {
 }
 
 func extraShapes(v int) []ui.Shape[int] {
-	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0})}
+	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
 	[]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
 }
 
@@ -1462,7 +1462,7 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 		if len(now) > 0 {
 			first = now[0]
 		}
-		let want = ui.Shape[int]{Node: ui.RowsNode{Label: "list", Count: len(model.items), RowHeight: ui.Length(rh), First: first}, Kids: rows}
+		let want = ui.Shape[int]{Node: ui.RowsNode{Label: "list", Count: len(model.items), RowHeight: ui.Length(rh), First: first, Offset: ui.Length(off)}, Kids: rows}
 		let screen = ui.Screen(&h)
 		if ui.StateOf(&h) != model || len(screen) != 3 || !ui.SameShapes(screen[2:], []ui.Shape[int]{want}) {
 			return false
@@ -1704,6 +1704,99 @@ func loadsBound(seed int, m time.Manual) bool needs Scheduler {
 	true
 }
 
+func cursorStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
+
+func cursorTimer(s int) Option[Timeout[int]] { None }
+
+func cursorWork(s int) Option[func(send func(e int))] { None }
+
+func cursorMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: cursorStep, After: cursorTimer, Work: cursorWork}
+}
+
+func keptOffset(k int, rh float64, off float64, height float64) float64 {
+	let top = float64(k) * rh
+	let bottom = top + rh
+	if height >= rh && top >= off && bottom <= off+height {
+		return off
+	}
+	if height < rh {
+		return top
+	}
+	let up = top
+	let down = bottom - height
+	if (off-up)*(off-up) <= (down-off)*(down-off) {
+		return up
+	}
+	down
+}
+
+func lawRowsKeepTheCursor(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		cursorKept(seed, steps, m)
+	}
+}
+
+func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let sizes = []int{0, 3, 50, 1000}
+	let n = sizes[draw(&r, len(sizes))]
+	let rh = float64(draw(&r, 40) + 10)
+	let view = func(f *ui.Frame[int], s int) {
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+			for i in 0..n+1 {
+				if k.Name == "\(i)" {
+					return Some{Value: i}
+				}
+			}
+			None
+		})
+		ui.RowsKeeping(f, "list", n, ui.Length(rh), s, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {
+			ui.Text(f, "row \(i)")
+		}
+	}
+	let a = actor.StartMachine(cursorMachine(), 1, func(o int) {})
+	let mut h = ui.NewTestHost(a, view, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut off = 0.0
+	let mut height = 0.0
+	for _ in 0..(steps%24+24)%24+1 {
+		let mut act ui.Act = ui.SettleAll
+		if draw(&r, 2) == 0 {
+			off = float64(draw(&r, n*int(rh)+1))
+			height = float64(draw(&r, 300))
+			act = ui.ScrollOn{Label: "list", Offset: ui.Length(off), Height: ui.Length(height)}
+		} else {
+			let k = draw(&r, n+1)
+			act = ui.KeyIn{Press: ui.KeyPress{Name: "\(k)", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+			if k != ui.StateOf(&h) && k < n {
+				off = keptOffset(k, rh, off, height)
+			}
+		}
+		ui.Play(&h, []ui.Act{act}) catch {
+		case _:
+			return false
+		}
+		let now = shownRows(n, rh, off, height)
+		let mut rows = []ui.Shape[int]{}
+		for i in now {
+			rows = rows.Append(leaf(ui.TextNode{Value: "row \(i)", Style: ui.Plain()}))
+		}
+		let mut first = n
+		if len(now) > 0 {
+			first = now[0]
+		}
+		let want = ui.Shape[int]{Node: ui.RowsNode{Label: "list", Count: n, RowHeight: ui.Length(rh), First: first, Offset: ui.Length(off)}, Kids: rows}
+		if !ui.SameShapes(ui.Screen(&h), []ui.Shape[int]{want}) {
+			return false
+		}
+	}
+	true
+}
+
 test UiScriptShowsTheView(seed int, steps int) {
 	assert lawScriptShowsTheView(seed, steps)
 }
@@ -1738,6 +1831,10 @@ test UiNavigationFollowsModel(seed int, steps int) {
 
 test UiLoadUsesTheBoundService(seed int) {
 	assert lawLoadUsesTheBoundService(seed)
+}
+
+test UiRowsKeepTheCursor(seed int, steps int) {
+	assert lawRowsKeepTheCursor(seed, steps)
 }
 
 
@@ -1786,6 +1883,7 @@ var stdUIHostStatements = map[string]string{
 	"ui HrefParses":                    `HrefParses(seed int) { let mut r = seeded(seed) let parts = []string{"", "a", "b/c", "x=1", "q=2&y", "top"} let u = URL{Path: "/" + parts[draw(&r, len(parts))], Query: parts[draw(&r, len(parts))], Fragment: parts[draw(&r, len(parts))]} ParseURL(Href(u)) == u }`,
 	"ui NavigationFollowsModel":        `NavigationFollowsModel(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { navigationFollows(seed, steps, m) } }`,
 	"ui LoadUsesTheBoundService":       `LoadUsesTheBoundService(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { loadsBound(seed, m) } }`,
+	"ui RowsKeepTheCursor":             `RowsKeepTheCursor(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cursorKept(seed, steps, m) } }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,

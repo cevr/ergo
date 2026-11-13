@@ -13,7 +13,7 @@ import arena
 // which Ergo has no type for.
 
 // Cell is one piece of view-local state.
-type Cell = TextCell{Value string} | FlagCell{On bool} | ViewCell{Offset Length, Height Length}
+type Cell = TextCell{Value string} | FlagCell{On bool} | ViewCell{Offset Length, Height Length, Follow int}
 
 // cellAt names a cell in a pass: the identity of the call that read it,
 // under parent spec parent (-1 the root).
@@ -502,7 +502,19 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		case RowsNode:
 			match n.binds {
 			case Some[bound[E]] as d:
-				out.Changed = write(f, d.Value, ViewCell{Offset: x.Offset, Height: x.Height})
+				// A scroll keeps the row the list last brought into view
+				// (RowsKeeping), so the list does not bring it back.
+				let mut follow = -1
+				match cellOf(f, d.Value.owner, d.Value.id) {
+				case Some[Cell] as old:
+					match old.Value {
+					case ViewCell as v:
+						follow = v.Follow
+					case _:
+					}
+				case None:
+				}
+				out.Changed = write(f, d.Value, ViewCell{Offset: x.Offset, Height: x.Height, Follow: follow})
 			case None:
 			}
 		case _:

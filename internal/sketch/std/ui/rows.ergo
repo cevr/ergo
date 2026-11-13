@@ -51,19 +51,65 @@ func Visible(count int, rowHeight Length, v Viewport) (int, int) {
 // scroll container whose content is count * rowHeight high. Only the rows
 // of Visible at the list's viewport run row(i), under key(i); the node
 // says which row comes first, so a host places the rows at
-// First * rowHeight. The viewport is (0, 0) until a host reports one.
+// First * rowHeight, and the offset the pass used (Offset), which a host
+// scrolls to when it is not its own. The viewport is (0, 0) until a host
+// reports one.
 func Rows[E, F, R](f *Frame[E], label string, count int, rowHeight Length, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
+	try rowsKeeping(f, label, count, rowHeight, -1, key, row, at)
+}
+
+// RowsKeeping is Rows that brings row keep into view when keep changed
+// since the last pass (GP1b: a list that follows its cursor): the offset
+// moves the least that shows the whole row, up to its top or down to its
+// bottom, and the node's Offset tells the host to scroll there. A scroll
+// of the host's after it stays, as long as keep stays, so a user can
+// scroll away from the cursor; a keep outside [0, count) brings nothing.
+// While the host has reported no height, the row's top is the offset.
+func RowsKeeping[E, F, R](f *Frame[E], label string, count int, rowHeight Length, keep int, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
+	try rowsKeeping(f, label, count, rowHeight, keep, key, row, at)
+}
+
+// Keep is the offset of a list of rows of rowHeight at viewport v that
+// shows the whole of row keep, moving the least from v's offset: the
+// row's top when it starts above the viewport or the viewport is shorter
+// than a row or not reported, its bottom less the height when it ends
+// below, and v's offset otherwise. A height under 1 counts as 1.
+func Keep(keep int, rowHeight Length, v Viewport) Length {
+	let mut h = rowHeight
+	if h < 1.0 {
+		h = 1.0
+	}
+	let top = Length(float64(keep)) * h
+	let bottom = top + h
+	if top < v.Offset || v.Height < h {
+		return top
+	}
+	if bottom > v.Offset+v.Height {
+		return bottom - v.Height
+	}
+	v.Offset
+}
+
+func rowsKeeping[E, F, R](f *Frame[E], label string, count int, rowHeight Length, keep int, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
-	let (where, c) = remember(f, ViewCell{Offset: 0, Height: 0}, at)
+	let (where, c) = remember(f, ViewCell{Offset: 0, Height: 0, Follow: -1}, at)
 	let mut v = Viewport{Offset: 0, Height: 0}
+	let mut follow = -1
 	match c {
 	case ViewCell as x:
 		v = Viewport{Offset: x.Offset, Height: x.Height}
+		follow = x.Follow
 	case _:
 		Unreachable("ui: a list's cell holds its viewport")
 	}
+	if keep != follow {
+		if keep >= 0 && keep < count {
+			v.Offset = Keep(keep, rowHeight, v)
+		}
+		f.cells[f.ncells-1].cell = ViewCell{Offset: v.Offset, Height: v.Height, Follow: keep}
+	}
 	let (first, last) = Visible(count, rowHeight, v)
-	f.parent = put(f, RowsNode{Label: label, Count: count, RowHeight: rowHeight, First: first}, None, Some{Value: where}, at)
+	f.parent = put(f, RowsNode{Label: label, Count: count, RowHeight: rowHeight, First: first, Offset: v.Offset}, None, Some{Value: where}, at)
 	let outerEach = f.each
 	let outerKey = f.key
 	for i in first..last {

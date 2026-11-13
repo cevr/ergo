@@ -874,7 +874,7 @@ func extras(f *Frame[int], v int) {
 }
 
 func extraShapes(v int) []Shape[int] {
-	let kids = []Shape[int]{leaf(ToggleNode{Label: "tg\(v % 3)", On: true}), Shape[int]{Node: AreaNode{Label: "area\(v % 2)", Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in area", Style: Plain()})}}, leaf(CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []PaintOp{}}), leaf(RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0})}
+	let kids = []Shape[int]{leaf(ToggleNode{Label: "tg\(v % 3)", On: true}), Shape[int]{Node: AreaNode{Label: "area\(v % 2)", Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in area", Style: Plain()})}}, leaf(CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []PaintOp{}}), leaf(RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
 	[]Shape[int]{Shape[int]{Node: FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
 }
 
