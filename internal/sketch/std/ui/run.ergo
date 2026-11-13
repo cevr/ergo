@@ -10,7 +10,7 @@ import actor
 // back, or to an address), or a state the actor committed that no event
 // of the loop's sent (Committed: a reply its work sent, a timer), which the
 // session's watcher posts, at most one at a time before the next pass.
-type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{}
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int}
 
 // Closed is the failure of Next when the host has closed (its window, its
 // terminal, its script ended).

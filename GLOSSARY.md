@@ -299,6 +299,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Await (ui)**: `ui.Await(a)`, which reads an `Async[T, F]` as `T fails F | ui.Pending`: the value, `Pending` while loading, or the held failure. A view reads a load's value with `try ui.Await(…)` under a boundary. See [stdlib](docs/spec/stdlib.md#ui), UI 19.
 
+**Crash (ui)**: An app's actor that ended with a defect or its step's typed failure (`ui.Crash[F]`). The app's session reports it once and shows the app's crash view instead of a view of the dead state; a signal of the crash view is a reload, a fresh actor from the machine's initial state. A Done or a stop is an end, not a crash. See [stdlib](docs/spec/stdlib.md#ui), UI 20.
+
 **Same (ui)**: `ui.Same(f, key) { … }`, a Box whose body runs only when its `Key` changed since the last pass: otherwise the pass keeps the subtree the body wrote then, and nothing under it runs or is compared. A cell write under it or a change of the disabled state around it runs it again. See [stdlib](docs/spec/stdlib.md#ui), UI 18.
 
 **Location (ui)**: The `ui.Location` operation type: a program's history of places (`URL`s), with `Current`, `Push`, `Replace` and `Back`, bound in `cmd/<name>/main.ergo` (a `MemoryHistory` on the desktop and in a test). A change the program did not make reaches the view as `URLChanged`, through `OnURL`. See [stdlib](docs/spec/stdlib.md#ui), UI 17.

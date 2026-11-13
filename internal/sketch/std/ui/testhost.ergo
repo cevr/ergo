@@ -39,6 +39,11 @@ func NewTestHost[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view escap
 		case queue.Closed:
 		}
 	})
+	try hostOf(s, first, posted, clock)
+}
+
+// hostOf is the test host of session s, its first patch shown.
+func hostOf[E comparable, S, D, F](s Session[S, E, D, F], first []Op[E], posted queue.Queue[Event[E]], clock time.Manual) TestHost[S, E, D, F] fails BadPatch {
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)

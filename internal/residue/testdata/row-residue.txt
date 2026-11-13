@@ -42,6 +42,7 @@ internal/sketch/std/actor/actor.ergo	sink escaping func(o O) needs R, recover fu
 # and the lower mutant ledger quotes them
 internal/sketch/std/ui/boundary.ergo	needs R, at CallSite
 internal/sketch/std/ui/frame.ergo	needs R, at CallSite
+internal/sketch/std/ui/crash.ergo	needs Q, crashes Crashes[E, F]
 internal/sketch/std/ui/frame.ergo	needs R, s S
 internal/sketch/std/ui/input.ergo	needs R, at CallSite
 internal/sketch/std/ui/rows.ergo	needs R, at CallSite

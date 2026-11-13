@@ -19,6 +19,7 @@ import machines
 import queue
 import scope
 import strings
+import sync
 import time
 
 type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog} | pSame{kids []prog, memo bool}
@@ -2025,6 +2026,308 @@ func writesText(ops []ui.Op[int], v string) bool {
 	false
 }
 
+type Boom { N int }
+
+func crashStep(s int, e int) Decision[int, int] fails Boom {
+	if e == 1 {
+		Unreachable("crash app: a defect, on purpose")
+	}
+	if e == 2 {
+		return Boom{N: s}
+	}
+	if e == 0 {
+		return Enter[int]{Next: s + 1}
+	}
+	Enter[int]{Next: s}
+}
+
+func crashTimer(s int) Option[Timeout[int]] { None }
+
+func crashWork(s int) Option[func(send func(e int))] { None }
+
+func crashMachine() Machine[int, int, int, Boom] {
+	Machine[int, int, int, Boom]{Initial: 0, Step: crashStep, After: crashTimer, Work: crashWork}
+}
+
+func crashAppView(f *ui.Frame[int], s int) {
+	ui.Text(f, "count \(s)")
+	ui.Pressable(f, "add", 0) {
+		ui.Text(f, "+")
+	}
+	ui.Pressable(f, "defect", 1) {
+		ui.Text(f, "!")
+	}
+	ui.Pressable(f, "fail", 2) {
+		ui.Text(f, "x")
+	}
+	let fl = ui.NewFlag(f, false)
+	ui.Toggle(f, fl, "keep")
+}
+
+func crashText(c ui.Crash[Boom]) string {
+	match c {
+	case ui.DefectCrash:
+		"crashed: defect"
+	case ui.FailureCrash[Boom] as x:
+		match x.Failure {
+		case Boom as b:
+			"crashed: failure \(b.N)"
+		}
+	}
+}
+
+func crashOwnView(f *ui.Frame[int], c ui.Crash[Boom]) {
+	ui.Text(f, crashText(c))
+	ui.Pressable(f, "reload", 3) {
+		ui.Text(f, "reload")
+	}
+}
+
+func pressShape(label string, on int, text string) ui.Shape[int] {
+	ui.Shape[int]{Node: ui.PressableNode{Label: label, On: on, Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: text, Style: ui.Plain()})}}
+}
+
+func crashAppShapes(n int, on bool) []ui.Shape[int] {
+	[]ui.Shape[int]{leaf(ui.TextNode{Value: "count \(n)", Style: ui.Plain()}), pressShape("add", 0, "+"), pressShape("defect", 1, "!"), pressShape("fail", 2, "x"), leaf(ui.ToggleNode{Label: "keep", On: on})}
+}
+
+func lawCrashShowsTheCrashView(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		crashShown(seed, steps, m)
+	}
+}
+
+func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let reports = sync.NewRef(0)
+	let crashes = ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {
+		reports.Update(func(n int) int { n + 1 })
+	}}
+	let mut h = ui.NewAppTestHost(crashMachine(), 1, crashAppView, crashes, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut count = 0
+	let mut on = false
+	let mut crash Option[ui.Crash[Boom]] = None
+	let mut crashed = 0
+	for _ in 0..(steps%24+24)%24+1 {
+		let pick = draw(&r, 4)
+		let mut label = "reload"
+		match crash {
+		case Some[ui.Crash[Boom]]:
+			crash = None
+			count = 0
+			on = false
+		case None:
+			if pick == 0 {
+				label = "add"
+				count = count + 1
+			} else if pick == 1 {
+				label = "defect"
+				crash = Some{Value: ui.DefectCrash}
+				crashed = crashed + 1
+			} else if pick == 2 {
+				label = "fail"
+				crash = Some{Value: ui.FailureCrash[Boom]{Failure: Boom{N: count}}}
+				crashed = crashed + 1
+			} else {
+				label = "keep"
+				on = !on
+			}
+		}
+		ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
+		case _:
+			return false
+		}
+		let want = match crash {
+		case Some[ui.Crash[Boom]] as c:
+			[]ui.Shape[int]{leaf(ui.TextNode{Value: crashText(c.Value), Style: ui.Plain()}), pressShape("reload", 3, "reload")}
+		case None:
+			crashAppShapes(count, on)
+		}
+		if !ui.SameShapes(ui.Screen(&h), want) || reports.Get() != crashed || ui.CrashOf(&h) != crash {
+			return false
+		}
+	}
+	true
+}
+
+func lawReloadIsInitial(seed int, defect bool) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		reloadInitial(seed, defect, m)
+	}
+}
+
+func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let mut h = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {}}, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let mut script = []ui.Act{}
+	for _ in 0..draw(&r, 6) {
+		script = script.Append(ui.TapOn{Label: if draw(&r, 2) == 0 { "add" } else { "keep" }})
+	}
+	script = script.Append(ui.TapOn{Label: if defect { "defect" } else { "fail" }})
+	script = script.Append(ui.TapOn{Label: "reload"})
+	ui.Play(&h, script) catch {
+	case _:
+		return false
+	}
+	let mut fresh = ui.NewAppTestHost(crashMachine(), 1, crashAppView, ui.Crashes[int, Boom]{View: crashOwnView, Report: func(c ui.Crash[Boom]) {}}, m, 4) catch {
+	case ui.BadPatch:
+		return false
+	}
+	ui.SameShapes(ui.Screen(&h), ui.Screen(&fresh)) && ui.CrashOf(&h) == None
+}
+
+func workCrashStep(s int, e int) Decision[int, int] fails Boom {
+	if e == 1 {
+		Unreachable("crash app: a defect, on purpose")
+	}
+	if e == 5 {
+		return Enter[int]{Next: -1}
+	}
+	Enter[int]{Next: s}
+}
+
+func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send func(e int))] {
+	func(s int) Option[func(send func(e int))] {
+		if s != -1 {
+			return None
+		}
+		Some{Value: func(send func(e int)) {
+			let _ = gate.Pop() catch {
+			case queue.Closed:
+				return
+			}
+			Unreachable("crash app: a defect of the work, on purpose")
+		}}
+	}
+}
+
+func keyView(f *ui.Frame[int], s int) {
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+		if k.Name == "1" {
+			return Some{Value: 1}
+		}
+		if k.Name == "5" {
+			return Some{Value: 5}
+		}
+		None
+	})
+	ui.Text(f, "at \(s)")
+}
+
+func keyCrashView(f *ui.Frame[int], c ui.Crash[Boom]) {
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: 0} })
+	ui.Text(f, "crashed")
+}
+
+func key(name string) ui.Event[int] {
+	ui.KeyDown{Press: ui.KeyPress{Name: name, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+}
+
+func endedOf(session *ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) Option[[]ui.Op[int]] {
+	for {
+		let ev = posted.Pop() catch {
+		case queue.Closed:
+			return None
+		}
+		let ops = ui.Step(session, ev) catch {
+		case actor.Stopped:
+			return None
+		}
+		match ev {
+		case ui.Ended as x:
+			if x.Run == run {
+				return Some{Value: ops}
+			}
+		case _:
+		}
+	}
+}
+
+func lawSessionCrashFollowsTheEnd(n int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		crashFollows()
+	}
+}
+
+func crashFollows() bool needs Scheduler {
+	let gate = queue.New[int](1)
+	let posted = queue.New[ui.Event[int]](64)
+	let reports = sync.NewRef(0)
+	let mach = Machine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate)}
+	let crashes = ui.Crashes[int, Boom]{View: keyCrashView, Report: func(c ui.Crash[Boom]) {
+		reports.Update(func(k int) int { k + 1 })
+	}}
+	let (s, first) = ui.StartApp(mach, 1, keyView, crashes, func(ev ui.Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	if !writesText(first, "at 0") {
+		return false
+	}
+	// A defect of a step; its actor's ui.Ended comes before the reload.
+	let a = ui.Step(&session, key("1")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(a, "crashed") || reports.Get() != 1 || !endsQuiet(&session, posted, 0) || reports.Get() != 1 {
+		return false
+	}
+	let b = ui.Step(&session, key("r")) catch {
+	case actor.Stopped:
+		return false
+	}
+	// A defect of the second actor; its ui.Ended comes after the reload.
+	let c = ui.Step(&session, key("1")) catch {
+	case actor.Stopped:
+		return false
+	}
+	let d = ui.Step(&session, key("r")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(b, "at 0") || !writesText(c, "crashed") || !writesText(d, "at 0") || !endsQuiet(&session, posted, 1) || reports.Get() != 2 {
+		return false
+	}
+	// A defect of the third actor's work.
+	let e = ui.Step(&session, key("5")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(e, "at -1") {
+		return false
+	}
+	gate.Push(0) catch {
+	case queue.Closed:
+		return false
+	}
+	match endedOf(&session, posted, 2) {
+	case Some[[]ui.Op[int]] as ops:
+		writesText(ops.Value, "crashed") && reports.Get() == 3
+	case None:
+		false
+	}
+}
+
+func endsQuiet(session *ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) bool {
+	match endedOf(session, posted, run) {
+	case Some[[]ui.Op[int]] as ops:
+		len(ops.Value) == 0
+	case None:
+		false
+	}
+}
+
 test UiScriptShowsTheView(seed int, steps int) {
 	assert lawScriptShowsTheView(seed, steps)
 }
@@ -2085,6 +2388,18 @@ test UiWatcherShowsWorkReplies(n int) {
 	assert lawWatcherShowsWorkReplies(n)
 }
 
+test UiCrashShowsTheCrashView(seed int, steps int) {
+	assert lawCrashShowsTheCrashView(seed, steps)
+}
+
+test UiReloadIsInitial(seed int, defect bool) {
+	assert lawReloadIsInitial(seed, defect)
+}
+
+test UiSessionCrashFollowsTheEnd(n int) {
+	assert lawSessionCrashFollowsTheEnd(n)
+}
+
 
 test UiLocationPushThenBackRestores(path string) {
 	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
@@ -2137,6 +2452,9 @@ var stdUIHostStatements = map[string]string{
 	"ui QueryRoundTrips":               `QueryRoundTrips(seed int, a string, b string, tags []string) { let mut r = seeded(seed) let mut note json.Optional[string] = json.Absent if draw(&r, 2) == 0 { note = json.Present{Value: b + a} } let mut ts = tags if len(ts) == 0 { ts = []string{a} } let v = queryRecord{Name: a, Sort: b, Page: draw(&r, 2001) - 1000, Big: uint64(draw(&r, 1000000)) * 18446744073709, Ratio: float64(draw(&r, 2001)-1000) / 8.0, On: draw(&r, 2) == 0, Note: note, Tags: ts} let u = WithQuery(URL{Path: "/list", Query: "", Fragment: "top"}, v) catch { case QueryShape: return false } let back = QueryOf[queryRecord](ParseURL(Href(u))) catch { case _: return false } let nested = EncodeQuery(queryNested{Name: a, Inner: v}) catch { case QueryShape as q: q.Key } let scalar = EncodeQuery(draw(&r, 9)) catch { case QueryShape as q: "none" + q.Key } back == v && u.Path == "/list" && u.Fragment == "top" && nested == "inner" && scalar == "none" }`,
 	"ui WorkReplyIsShown":              `WorkReplyIsShown(n int) { let m = time.NewManual(0) with context { Scheduler: m } { replyShown(n, m) } }`,
 	"ui WatcherShowsWorkReplies":       `WatcherShowsWorkReplies(n int) { let m = time.NewManual(0) with context { Scheduler: m } { watchReplies(n) } }`,
+	"ui CrashShowsTheCrashView":        `CrashShowsTheCrashView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { crashShown(seed, steps, m) } }`,
+	"ui ReloadIsInitial":               `ReloadIsInitial(seed int, defect bool) { let m = time.NewManual(0) with context { Scheduler: m } { reloadInitial(seed, defect, m) } }`,
+	"ui SessionCrashFollowsTheEnd":     `SessionCrashFollowsTheEnd(n int) { let m = time.NewManual(0) with context { Scheduler: m } { crashFollows() } }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,

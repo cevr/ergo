@@ -11,6 +11,7 @@ import machines
 import queue
 import scope
 import strings
+import sync
 import time
 
 // shelf is the state of the list app: its rows, by key, and the next key.
@@ -1412,4 +1413,341 @@ func writesText(ops []Op[int], v string) bool {
 		}
 	}
 	false
+}
+
+// Boom is the crash app's typed failure: the count when its step failed.
+type Boom { N int }
+
+// crashStep: 0 adds one; 1 is a defect of the step; 2 fails the step with
+// Boom; any other signal changes nothing.
+func crashStep(s int, e int) Decision[int, int] fails Boom {
+	if e == 1 {
+		Unreachable("crash app: a defect, on purpose")
+	}
+	if e == 2 {
+		return Boom{N: s}
+	}
+	if e == 0 {
+		return Enter[int]{Next: s + 1}
+	}
+	Enter[int]{Next: s}
+}
+
+func crashTimer(s int) Option[Timeout[int]] { None }
+
+func crashWork(s int) Option[func(send func(e int))] { None }
+
+func crashMachine() Machine[int, int, int, Boom] {
+	Machine[int, int, int, Boom]{Initial: 0, Step: crashStep, After: crashTimer, Work: crashWork}
+}
+
+// crashAppView shows the count, a button per signal, and a check box whose
+// flag is view-local state.
+func crashAppView(f *Frame[int], s int) {
+	Text(f, "count \(s)")
+	Pressable(f, "add", 0) {
+		Text(f, "+")
+	}
+	Pressable(f, "defect", 1) {
+		Text(f, "!")
+	}
+	Pressable(f, "fail", 2) {
+		Text(f, "x")
+	}
+	let fl = NewFlag(f, false)
+	Toggle(f, fl, "keep")
+}
+
+// crashText is the crash view's line for c.
+func crashText(c Crash[Boom]) string {
+	match c {
+	case DefectCrash:
+		"crashed: defect"
+	case FailureCrash[Boom] as x:
+		match x.Failure {
+		case Boom as b:
+			"crashed: failure \(b.N)"
+		}
+	}
+}
+
+// crashOwnView is the crash app's crash view: what crashed, and a reload.
+func crashOwnView(f *Frame[int], c Crash[Boom]) {
+	Text(f, crashText(c))
+	Pressable(f, "reload", 3) {
+		Text(f, "reload")
+	}
+}
+
+func pressShape(label string, on int, text string) Shape[int] {
+	Shape[int]{Node: PressableNode{Label: label, On: on, Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: text, Style: Plain()})}}
+}
+
+// crashAppShapes is the model of the app's screen at count n with the
+// check box at on.
+func crashAppShapes(n int, on bool) []Shape[int] {
+	[]Shape[int]{leaf(TextNode{Value: "count \(n)", Style: Plain()}), pressShape("add", 0, "+"), pressShape("defect", 1, "!"), pressShape("fail", 2, "x"), leaf(ToggleNode{Label: "keep", On: on})}
+}
+
+// CrashShowsTheCrashView (H6a): under drawn taps of an app whose step can
+// add, defect or fail with a typed failure, and of the check box, the
+// screen is the app's view of the model's count while the actor runs; once
+// it crashed, the crash view of the model's crash, which only a reload
+// leaves; the report ran once per crash, before the crash view showed; and
+// the test host's crash is the model's.
+law CrashShowsTheCrashView(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		crashShown(seed, steps, m)
+	}
+}
+
+func crashShown(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let reports = sync.NewRef(0)
+	let crashes = Crashes[int, Boom]{View: crashOwnView, Report: func(c Crash[Boom]) {
+		reports.Update(func(n int) int { n + 1 })
+	}}
+	let mut h = NewAppTestHost(crashMachine(), 1, crashAppView, crashes, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut count = 0
+	let mut on = false
+	let mut crash Option[Crash[Boom]] = None
+	let mut crashed = 0
+	for _ in 0..(steps%24+24)%24+1 {
+		let pick = draw(&r, 4)
+		let mut label = "reload"
+		match crash {
+		case Some[Crash[Boom]]:
+			crash = None
+			count = 0
+			on = false
+		case None:
+			if pick == 0 {
+				label = "add"
+				count = count + 1
+			} else if pick == 1 {
+				label = "defect"
+				crash = Some{Value: DefectCrash}
+				crashed = crashed + 1
+			} else if pick == 2 {
+				label = "fail"
+				crash = Some{Value: FailureCrash[Boom]{Failure: Boom{N: count}}}
+				crashed = crashed + 1
+			} else {
+				label = "keep"
+				on = !on
+			}
+		}
+		Play(&h, []Act{TapOn{Label: label}}) catch {
+		case _:
+			return false
+		}
+		let want = match crash {
+		case Some[Crash[Boom]] as c:
+			[]Shape[int]{leaf(TextNode{Value: crashText(c.Value), Style: Plain()}), pressShape("reload", 3, "reload")}
+		case None:
+			crashAppShapes(count, on)
+		}
+		if !SameShapes(Screen(&h), want) || reports.Get() != crashed || CrashOf(&h) != crash {
+			return false
+		}
+	}
+	true
+}
+
+// ReloadIsInitial (H6a): after drawn adds and presses of the check box, a
+// crash and a reload, the app's screen is a fresh test host's first
+// screen: the actor starts from the machine's initial state and the view's
+// own state from its initial values.
+law ReloadIsInitial(seed int, defect bool) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		reloadInitial(seed, defect, m)
+	}
+}
+
+func reloadInitial(seed int, defect bool, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let mut h = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, Boom]{View: crashOwnView, Report: func(c Crash[Boom]) {}}, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut script = []Act{}
+	for _ in 0..draw(&r, 6) {
+		script = script.Append(TapOn{Label: if draw(&r, 2) == 0 { "add" } else { "keep" }})
+	}
+	script = script.Append(TapOn{Label: if defect { "defect" } else { "fail" }})
+	script = script.Append(TapOn{Label: "reload"})
+	Play(&h, script) catch {
+	case _:
+		return false
+	}
+	let mut fresh = NewAppTestHost(crashMachine(), 1, crashAppView, Crashes[int, Boom]{View: crashOwnView, Report: func(c Crash[Boom]) {}}, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	SameShapes(Screen(&h), Screen(&fresh)) && CrashOf(&h) == None
+}
+
+// workCrashStep: 1 is a defect of the step; 5 enters the state -1, whose
+// work defects once the law releases it.
+func workCrashStep(s int, e int) Decision[int, int] fails Boom {
+	if e == 1 {
+		Unreachable("crash app: a defect, on purpose")
+	}
+	if e == 5 {
+		return Enter[int]{Next: -1}
+	}
+	Enter[int]{Next: s}
+}
+
+func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send func(e int))] {
+	func(s int) Option[func(send func(e int))] {
+		if s != -1 {
+			return None
+		}
+		Some{Value: func(send func(e int)) {
+			let _ = gate.Pop() catch {
+			case queue.Closed:
+				return
+			}
+			Unreachable("crash app: a defect of the work, on purpose")
+		}}
+	}
+}
+
+// keyView is the session law's view: its key presses are its signals, by
+// the key's name ("1", "5"), and it shows the state.
+func keyView(f *Frame[int], s int) {
+	OnKey(f, func(k KeyPress) Option[int] {
+		if k.Name == "1" {
+			return Some{Value: 1}
+		}
+		if k.Name == "5" {
+			return Some{Value: 5}
+		}
+		None
+	})
+	Text(f, "at \(s)")
+}
+
+// keyCrashView is its crash view: any key reloads.
+func keyCrashView(f *Frame[int], c Crash[Boom]) {
+	OnKey(f, func(k KeyPress) Option[int] { Some{Value: 0} })
+	Text(f, "crashed")
+}
+
+func key(name string) Event[int] {
+	KeyDown{Press: KeyPress{Name: name, Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+}
+
+// endedOf takes the posted events up to the Ended of run, stepping the
+// others, and is that Ended's patch.
+func endedOf(session *Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) Option[[]Op[int]] {
+	for {
+		let ev = posted.Pop() catch {
+		case queue.Closed:
+			return None
+		}
+		let ops = Step(session, ev) catch {
+		case actor.Stopped:
+			return None
+		}
+		match ev {
+		case Ended as x:
+			if x.Run == run {
+				return Some{Value: ops}
+			}
+		case _:
+		}
+	}
+}
+
+// SessionCrashFollowsTheEnd (H6a): an app's session, as RunApp drives it,
+// shows the crash view after a signal whose step defects and reports it
+// once, also when the crashed actor's Ended comes after (it changes
+// nothing); a reload's patch shows the fresh actor, and the Ended of an
+// actor a reload replaced changes nothing either; a defect of the fresh
+// actor's work, which no signal of the loop caused, reaches the loop as
+// Ended and shows the crash view. Each crash is reported once.
+law SessionCrashFollowsTheEnd(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		crashFollows()
+	}
+}
+
+func crashFollows() bool needs Scheduler {
+	let gate = queue.New[int](1)
+	let posted = queue.New[Event[int]](64)
+	let reports = sync.NewRef(0)
+	let mach = Machine[int, int, int, Boom]{Initial: 0, Step: workCrashStep, After: replyTimer, Work: workCrashWork(gate)}
+	let crashes = Crashes[int, Boom]{View: keyCrashView, Report: func(c Crash[Boom]) {
+		reports.Update(func(k int) int { k + 1 })
+	}}
+	let (s, first) = StartApp(mach, 1, keyView, crashes, func(ev Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	if !writesText(first, "at 0") {
+		return false
+	}
+	// A defect of a step; its actor's Ended comes before the reload.
+	let a = Step(&session, key("1")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(a, "crashed") || reports.Get() != 1 || !endsQuiet(&session, posted, 0) || reports.Get() != 1 {
+		return false
+	}
+	let b = Step(&session, key("r")) catch {
+	case actor.Stopped:
+		return false
+	}
+	// A defect of the second actor; its Ended comes after the reload.
+	let c = Step(&session, key("1")) catch {
+	case actor.Stopped:
+		return false
+	}
+	let d = Step(&session, key("r")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(b, "at 0") || !writesText(c, "crashed") || !writesText(d, "at 0") || !endsQuiet(&session, posted, 1) || reports.Get() != 2 {
+		return false
+	}
+	// A defect of the third actor's work.
+	let e = Step(&session, key("5")) catch {
+	case actor.Stopped:
+		return false
+	}
+	if !writesText(e, "at -1") {
+		return false
+	}
+	gate.Push(0) catch {
+	case queue.Closed:
+		return false
+	}
+	match endedOf(&session, posted, 2) {
+	case Some[[]Op[int]] as ops:
+		writesText(ops.Value, "crashed") && reports.Get() == 3
+	case None:
+		false
+	}
+}
+
+// endsQuiet is whether the Ended of run, when the loop takes it, changes
+// nothing on the screen.
+func endsQuiet(session *Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) bool {
+	match endedOf(session, posted, run) {
+	case Some[[]Op[int]] as ops:
+		len(ops.Value) == 0
+	case None:
+		false
+	}
 }

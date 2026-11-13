@@ -30,18 +30,29 @@
 //     than the actor's;
 //   - SettledShowsLatest: settled (no signal queued, the latest state
 //     published, no frame wanted, no fetch running, no result posted), the
-//     latest state is on the screen and its load is ready. This is what
-//     ui.TestHost's Settle waits for.
+//     latest state is on the screen and its load is ready (the crash
+//     view, once the actor crashed). This is what ui.TestHost's Settle
+//     waits for;
+//   - NoFrameOfADeadActor (H6a): no frame renders the view of a state
+//     after the actor crashed (Crash: a defect or a typed failure of a
+//     step, its timer or its work); its frames are the crash view;
+//   - CrashShownOnce (H6a): the crash is reported once, at the first
+//     frame of the crash view. A declared failure of a view is never a
+//     crash: a host entry's view has an empty row (H8a).
 //
 // Mutant, a machine whose law Breaks must hold (a shortest run to a state
 // where the invariant is false):
 //   - ByKey: apply matches a result by its key, not its epoch
-//     (NoStaleReady), the Quint model's CHECK_EPOCH = false.
+//     (NoStaleReady), the Quint model's CHECK_EPOCH = false;
+//   - DeadFrame: a frame after the crash renders the dead state's view
+//     (NoFrameOfADeadActor);
+//   - ReportEach: each frame of the crash view reports it (CrashShownOnce).
 //
 // Witnesses (laws of Design, each `sometimes`), one per action, so the
 // invariants are not vacuous: a click queued a signal; the actor
 // committed; a publish skipped a version; a frame changed the key; a fetch
-// finished; a result was applied; and a stale result was dropped.
+// finished; a result was applied; a stale result was dropped; and a
+// crash was shown.
 //
 // The scope is 5 versions (MaxV), so at most 6 epochs. It is the claim:
 // "proved" means proved in this scope.
@@ -55,7 +66,7 @@ type Ver = V1{} | V2{} | V3{} | V4{} | V5{}
 
 type Epoch = E0{} | E1{} | E2{} | E3{} | E4{} | E5{}
 
-type Act = Click{} | ActorStep{} | Publish{V Ver} | Frame{} | Finish{E Epoch} | Apply{E Epoch}
+type Act = Click{} | ActorStep{} | Publish{V Ver} | Frame{} | Finish{E Epoch} | Apply{E Epoch} | Crash{}
 
 // The scope.
 let MaxV = 5
@@ -64,6 +75,8 @@ let Epochs = 6
 // The design and the mutant, as the argument of next.
 let NoMutant = 0
 let ByKeyMutant = 1
+let DeadFrameMutant = 2
+let ReportEachMutant = 3
 
 func key(v int) int { v % 2 }
 
@@ -118,6 +131,10 @@ type World {
 	Dropped     bool,
 	KeyChanged  bool,
 	Skipped     bool,
+	Ended       bool,
+	CrashShown  bool,
+	Reports     int,
+	DeadView    bool,
 }
 
 func setInt(xs []int, i int, v int) []int {
@@ -161,6 +178,10 @@ func world() World {
 		Dropped:     false,
 		KeyChanged:  false,
 		Skipped:     false,
+		Ended:       false,
+		CrashShown:  false,
+		Reports:     0,
+		DeadView:    false,
 	}
 }
 
@@ -170,7 +191,8 @@ func next(m int, w World, a Act) Option[World] {
 	match a {
 	case Click:
 		// A click queues a signal; the queue never blocks the main thread.
-		if w.Committed+w.Inbox >= MaxV {
+		// An ended actor takes none.
+		if w.Ended || w.Committed+w.Inbox >= MaxV {
 			return None
 		}
 		let mut n = w
@@ -178,7 +200,7 @@ func next(m int, w World, a Act) Option[World] {
 		Some{Value: n}
 	case ActorStep:
 		// One step commits one state.
-		if w.Inbox == 0 {
+		if w.Ended || w.Inbox == 0 {
 			return None
 		}
 		let mut n = w
@@ -204,8 +226,21 @@ func next(m int, w World, a Act) Option[World] {
 			return None
 		}
 		let mut n = w
-		n.Shown = w.Snap
 		n.FrameWanted = false
+		if w.Ended && m != DeadFrameMutant {
+			// The actor crashed: the frame is the crash view, which
+			// has no load, and the first one reports the crash (the
+			// mutant: each one does).
+			if !w.CrashShown || m == ReportEachMutant {
+				n.Reports = w.Reports + 1
+			}
+			n.CrashShown = true
+			n.Running = []bool{false, false, false, false, false, false}
+			return Some{Value: n}
+		}
+		// The mutant renders the view of the dead actor's state.
+		n.DeadView = w.Ended
+		n.Shown = w.Snap
 		if key(w.Snap) != w.LoadKey {
 			if w.NextEpoch >= Epochs {
 				return None
@@ -239,6 +274,11 @@ func next(m int, w World, a Act) Option[World] {
 		}
 		let mut n = w
 		n.Posted = setBool(w.Posted, e, false)
+		if w.CrashShown {
+			// The crash view has no load: every result is dropped.
+			n.Dropped = true
+			return Some{Value: n}
+		}
 		let mut current = e == w.LoadEpoch
 		if m == ByKeyMutant {
 			current = w.EpochKey[e] == w.LoadKey
@@ -249,6 +289,18 @@ func next(m int, w World, a Act) Option[World] {
 		} else {
 			n.Dropped = true
 		}
+		Some{Value: n}
+	case Crash:
+		// The actor ends with a defect or a typed failure (of a step, its
+		// timer or its work): its queued signals are dropped, and the
+		// watcher's Ended asks for a frame.
+		if w.Ended {
+			return None
+		}
+		let mut n = w
+		n.Ended = true
+		n.Inbox = 0
+		n.FrameWanted = true
 		Some{Value: n}
 	}
 }
@@ -265,6 +317,10 @@ func step(m int, w World, a Act) Decision[World, string] {
 func stepDesign(w World, a Act) Decision[World, string] { step(NoMutant, w, a) }
 
 func stepByKey(w World, a Act) Decision[World, string] { step(ByKeyMutant, w, a) }
+
+func stepDeadFrame(w World, a Act) Decision[World, string] { step(DeadFrameMutant, w, a) }
+
+func stepReportEach(w World, a Act) Decision[World, string] { step(ReportEachMutant, w, a) }
 
 func noStaleReady(w World) bool { w.ReadyEpoch == -1 || w.ReadyEpoch == w.LoadEpoch }
 
@@ -284,8 +340,22 @@ func settled(w World) bool {
 }
 
 func settledShowsLatest(w World) bool {
-	!settled(w) || (w.Shown == w.Committed && w.ReadyEpoch == w.LoadEpoch)
+	if !settled(w) {
+		return true
+	}
+	if w.Ended {
+		return w.CrashShown
+	}
+	w.Shown == w.Committed && w.ReadyEpoch == w.LoadEpoch
 }
+
+func noFrameOfADeadActor(w World) bool { !w.DeadView }
+
+func crashShownOnce(w World) bool { w.Reports <= 1 }
+
+func deadView(w World) bool { w.DeadView }
+
+func reportedTwice(w World) bool { w.Reports > 1 }
 
 func stale(w World) bool { !noStaleReady(w) }
 
@@ -298,6 +368,7 @@ func rekeyed(w World) bool   { w.KeyChanged }
 func posted(w World) bool    { !none(w.Posted) }
 func ready(w World) bool     { w.ReadyEpoch >= 0 }
 func dropped(w World) bool   { w.Dropped }
+func crashed(w World) bool   { w.CrashShown }
 
 // The design keeps every invariant in the scope.
 type Design machine[World, Act] {
@@ -307,6 +378,8 @@ type Design machine[World, Act] {
 	law NoStaleReady always noStaleReady,
 	law ShownCommitted always shownCommitted,
 	law SettledShowsLatest always settledShowsLatest,
+	law NoFrameOfADeadActor always noFrameOfADeadActor,
+	law CrashShownOnce always crashShownOnce,
 
 	law Queues sometimes queued,
 	law Commits sometimes committed,
@@ -315,6 +388,7 @@ type Design machine[World, Act] {
 	law Finishes sometimes posted,
 	law Applies sometimes ready,
 	law DropsStale sometimes dropped,
+	law ShowsACrash sometimes crashed,
 }
 
 type ByKey machine[World, Act] {
@@ -322,4 +396,18 @@ type ByKey machine[World, Act] {
 	step:    stepByKey,
 
 	law Breaks sometimes stale,
+}
+
+type DeadFrame machine[World, Act] {
+	initial: world(),
+	step:    stepDeadFrame,
+
+	law Breaks sometimes deadView,
+}
+
+type ReportEach machine[World, Act] {
+	initial: world(),
+	step:    stepReportEach,
+
+	law Breaks sometimes reportedTwice,
 }

@@ -493,6 +493,7 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	case URLChanged as u:
 		out.Signal = routed(f, u.URL)
 	case Committed:
+	case Ended:
 	case Tick:
 	case Scrolled[E] as x:
 		let n = f.nodes.Get(x.Id.ref) catch {
