@@ -95,37 +95,11 @@ type ExecResult struct {
 //ergo:wait caller
 func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration) (ExecResult, error) {
 	t.Check()
-	if name == "" {
-		return ExecResult{}, ExecNotFound{Name: name} // no program has the empty name
+	cmd, err := execCommand(name, args, env, dir, stdin)
+	if err != nil {
+		return ExecResult{}, err
 	}
-	if dir != "" {
-		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-			reason := "not a directory"
-			if err != nil {
-				reason = fsReason(err)
-			}
-			return ExecResult{}, ExecFailed{Name: name, Reason: "dir " + dir + ": " + reason}
-		}
-	}
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if len(env) > 0 {
-		keys := make([]string, 0, len(env))
-		for k := range env {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		cmd.Env = os.Environ()
-		for _, k := range keys {
-			cmd.Env = append(cmd.Env, k+"="+env[k]) // a later entry wins (os/exec)
-		}
-	}
-	if stdin != "" {
-		// An empty input is the null device, which reads end of file at
-		// once: os/exec then needs no pipe and no copying goroutine.
-		cmd.Stdin = strings.NewReader(stdin)
-	}
 	// Run owns the output pipes, and not os/exec, so that it can read the
 	// output to its end while the program is still unreaped (below).
 	outR, outW, err := os.Pipe()
@@ -277,6 +251,46 @@ func execStatus(ps *os.ProcessState) int {
 		return 128 + int(ws.Signal())
 	}
 	return ps.ExitCode()
+}
+
+// execCommand is the command of name with args for Run, Start and Spawn:
+// in dir ("" is the caller's working directory), with the host process's
+// environment and env's entries over it (a later entry wins, as in
+// os/exec; the keys go in order), and stdin as its standard input. It
+// fails NotFound for the empty name, which no program has, and Failed for
+// a dir that is not a directory. The caller sets SysProcAttr.
+func execCommand(name string, args []string, env map[string]string, dir string, stdin string) (*exec.Cmd, error) {
+	if name == "" {
+		return nil, ExecNotFound{Name: name}
+	}
+	if dir != "" {
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+			reason := "not a directory"
+			if err != nil {
+				reason = fsReason(err)
+			}
+			return nil, ExecFailed{Name: name, Reason: "dir " + dir + ": " + reason}
+		}
+	}
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	if len(env) > 0 {
+		keys := make([]string, 0, len(env))
+		for k := range env {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		cmd.Env = os.Environ()
+		for _, k := range keys {
+			cmd.Env = append(cmd.Env, k+"="+env[k])
+		}
+	}
+	if stdin != "" {
+		// An empty input is the null device, which reads end of file at
+		// once: os/exec then needs no pipe and no copying goroutine.
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	return cmd, nil
 }
 
 // execErr is the std exec failure of a program name that did not start:
