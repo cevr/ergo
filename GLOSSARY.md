@@ -296,6 +296,18 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Host-driven program** (direction; owner direction 2026-11-02, [#202](https://github.com/cevr/ergo/issues/202) and [#240](https://github.com/cevr/ergo/issues/240)): A program whose control loop a host owns, such as a game engine, a GUI window or a TUI screen that calls it each frame or event on the host's thread through a declared entry signature, while its capabilities stay separate services provided by a context rather than one platform owning them all.
 
+**Frame (ui)**: std `ui.Frame[E]`, the composer a view writes into: a view is `func(f *ui.Frame[E], s S)`, an explicit borrow and not a capability. The frame holds the retained tree, its view-local cells and its loads; `ui.Render` runs one pass and reconciles what it wrote into a patch (`[]ui.Op[E]`). `E` is the program's signal type.
+
+**Load epoch (ui)**: The number of one fetch a `ui.Load` asked for, unique within its frame. A new key, a new place or a removal ends the epoch, and a result is taken only while its epoch is live (`ui.Arrive`), so a result never shows for a key it was not fetched for. See [stdlib](docs/spec/stdlib.md#ui).
+
+**Paint list (ui)**: The content of a `ui.Canvas`: a list of `ui.PaintOp` values (fills and strokes of paths, and transforms and clips each closed by a pop) that the canvas's draw function wrote through a borrowed `*ui.Paint`. It is a field of the canvas node, so an unchanged list is no change, and a host replays it. See [stdlib](docs/spec/stdlib.md#ui).
+
+**Virtual rows (ui)**: A `ui.Rows` list, whose row function the composer runs only for the rows its viewport shows, plus `ui.Overscan` rows on each side. Its viewport is view-local state the host reports (`ui.Scrolled`), and its rows are keyed as `Each` rows are. See [stdlib](docs/spec/stdlib.md#ui).
+
+**Text measure (ui)**: std `ui.Measure`, the operation type through which text layout asks the host how wide text is and how high its lines are (`Width`, `LineHeight`). `ui.LayoutText` breaks text into lines with it, and `ui.CaretAt`, `ui.OffsetAt` and `ui.SelectionRects` give the caret and selection geometry. `ui.Monospace` is the measure of cell grids and tests. See [stdlib](docs/spec/stdlib.md#ui).
+
+**UI host**: std `ui.Host[E]`, the operation type of a screen that shows patches and reports events (`Show`, `Next`, `Post`, through which a fetch's task hands its result to the loop, and `Frames`, through which `Run` asks for a `Tick` per frame only while the view animates); a value `ui.Run` drives. `ui.TestHost` is the in-process host of tests and agents: it steps the same `ui.Session` as `Run`. Not a host package's `Host` and not an **Actor host**. See [stdlib](docs/spec/stdlib.md#ui).
+
 **Uninterruptible host wait**: A foreign Go call whose Go declaration takes no `context.Context`, so an interruption reaches the task only after Go returns. `ergo inspect` lists it for each function that reaches it (IG8; [tooling](docs/tooling.md#inspect)).
 
 **Exit accumulator**: The runtime record that combines a body's outcome with release defects and interruption into one exit cause, so a release never hides a failure.

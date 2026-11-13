@@ -1,0 +1,474 @@
+import arena
+
+// Frame is the composer: the retained tree of the passes committed so far
+// and the pass a view is writing. A view writes nodes into it; Render
+// runs a view and commits the pass. The nodes live in one arena, so the
+// tree holds Refs, not pointers.
+type Frame[E] {
+	nodes  arena.Of[node[E]],
+	root   arena.Ref[node[E]],
+	specs  []spec[E],
+	cells  []cellSpec,
+	loads  []loadSpec[E],
+	seen   Map[slotOf, int],
+	index  Map[int, Map[ident, arena.Ref[node[E]]]],
+	parent int,
+	each   CallSite,
+	key    Key,
+	epoch  int,
+	ops    []Op[E],
+	jobs   []Job[E],
+	keys   []func(k KeyPress) Option[E],
+	anims  []func(at duration) E,
+	rowRuns int,
+}
+
+// Id names one node of a Frame's tree, from the pass that made it until
+// the pass that removes it. A host keeps its own copy of the tree by Id.
+type Id[E] { ref arena.Ref[node[E]] }
+
+// ident is a node's identity among its siblings: the call that wrote it,
+// its Each row, and n, how many siblings before it have the same call and
+// row. A node is kept across passes exactly when its identity returns
+// under the same parent and its kind stays.
+type ident { site CallSite, each CallSite, key Key, n int }
+
+// base is ident without n.
+type base { site CallSite, each CallSite, key Key }
+
+// slotOf is a base under one parent spec (-1 the root), for counting n.
+type slotOf { parent int, b base }
+
+// node is one retained node: what it shows, its identity, its children in
+// order, the signal of a text (an Input), the cell an event on it writes
+// (a Field, a Toggle, a Submit), and the cells and loads read directly
+// under it.
+type node[E] {
+	node   Node[E],
+	id     ident,
+	kids   []arena.Ref[node[E]],
+	onText Option[func(t string) E],
+	onPoint Option[func(p PointerEvent) Option[E]],
+	binds  Option[bound[E]],
+	cells  Map[ident, Cell],
+	loads  Map[ident, slot],
+}
+
+// bound is the cell an event on a node writes: the cell id of node owner.
+type bound[E] { owner arena.Ref[node[E]], id ident }
+
+// spec is one node a pass wrote: what it shows, its identity, the index
+// of its parent spec (-1 for a child of the root), the node of the last
+// pass with its identity (prev, Null for none) and the node of this pass
+// (ref, set by Commit).
+type spec[E] {
+	node   Node[E],
+	id     ident,
+	parent int,
+	prev   arena.Ref[node[E]],
+	ref    arena.Ref[node[E]],
+	onText Option[func(t string) E],
+	onPoint Option[func(p PointerEvent) Option[E]],
+	binds  Option[cellAt],
+}
+
+let nowhere = CallSite{File: "", Line: 0, Column: 0}
+
+// Op is one change a host applies, in order. Before names the sibling the
+// node goes in front of; None puts it last.
+type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} | Move{Id Id[E], Parent Id[E], Before Option[Id[E]]} | Remove{Id Id[E]} | Set{Id Id[E], Node Node[E]}
+
+// NewFrame is a composer whose tree has only its root.
+func NewFrame[E]() Frame[E] {
+	let mut nodes = arena.New[node[E]]()
+	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None))
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[int, Map[ident, arena.Ref[node[E]]]]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0}
+}
+
+func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]]) node[E] {
+	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, onText: onText, onPoint: onPoint, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}}
+}
+
+// Render writes view(s) as one pass of f and commits it: f's tree then
+// shows what the view wrote, and the result is the changes a host applies.
+func Render[E comparable, S](f *Frame[E], view func(f *Frame[E], s S), s S) []Op[E] {
+	begin(f)
+	view(f, s)
+	Commit(f)
+}
+
+// begin starts a pass: nothing written yet.
+func begin[E](f *Frame[E]) {
+	f.specs = []spec[E]{}
+	f.cells = []cellSpec{}
+	f.loads = []loadSpec[E]{}
+	f.seen = Map[slotOf, int]{}
+	f.index = Map[int, Map[ident, arena.Ref[node[E]]]]{}
+	f.parent = -1
+	f.each = nowhere
+	f.key = NoKey
+	f.keys = []func(k KeyPress) Option[E]{}
+	f.anims = []func(at duration) E{}
+	f.rowRuns = 0
+}
+
+// identify is the identity of the next entry at site under the current
+// parent and row.
+func identify[E](f *Frame[E], at CallSite) ident {
+	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
+	let n = count(f.seen, s)
+	f.seen[s] = n + 1
+	ident{site: at, each: f.each, key: f.key, n: n}
+}
+
+func count(seen Map[slotOf, int], s slotOf) int {
+	match seen.Get(s) {
+	case Some[int] as c:
+		c.Value
+	case None:
+		0
+	}
+}
+
+// owner is the node of the last pass that the current parent spec was:
+// the root for the top, Null when the parent is new in this pass.
+func owner[E](f *Frame[E], parent int) arena.Ref[node[E]] {
+	if parent < 0 {
+		return f.root
+	}
+	f.specs[parent].prev
+}
+
+// prior is the node of the last pass with identity id under the current
+// parent, Null for none.
+func prior[E](f *Frame[E], id ident) arena.Ref[node[E]] {
+	let o = owner(f, f.parent)
+	if !arena.Has(f.nodes, o) {
+		return arena.Null[node[E]]()
+	}
+	let k = f.parent + 1
+	let mut kids = Map[ident, arena.Ref[node[E]]]{}
+	match f.index.Get(k) {
+	case Some[Map[ident, arena.Ref[node[E]]]] as m:
+		kids = m.Value
+	case None:
+		for r in nodeAt(f, o).kids {
+			kids[nodeAt(f, r).id] = r
+		}
+		f.index[k] = kids
+	}
+	match kids.Get(id) {
+	case Some[arena.Ref[node[E]]] as r:
+		r.Value
+	case None:
+		arena.Null[node[E]]()
+	}
+}
+
+// put writes one node under the current parent and returns its index.
+func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Option[cellAt], at CallSite) int {
+	let id = identify(f, at)
+	let mut prev = prior(f, id)
+	if arena.Has(f.nodes, prev) && kindOf(nodeAt(f, prev).node) != kindOf(n) {
+		prev = arena.Null[node[E]]()
+	}
+	f.specs = f.specs.Append(spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds})
+	len(f.specs) - 1
+}
+
+// open writes a node and runs body with that node as the parent.
+func open[E](f *Frame[E], n Node[E], body func(), at CallSite) {
+	let outer = f.parent
+	f.parent = put(f, n, None, None, at)
+	body()
+	f.parent = outer
+}
+
+// Box is a container that stacks its children.
+func Box[E](f *Frame[E], style Style, body func(), at CallSite) {
+	open(f, BoxNode{Style: style}, body, at)
+}
+
+// Row lays its children out left to right.
+func Row[E](f *Frame[E], style Style, body func(), at CallSite) {
+	open(f, RowNode{Style: style}, body, at)
+}
+
+// Column lays its children out top to bottom.
+func Column[E](f *Frame[E], style Style, body func(), at CallSite) {
+	open(f, ColumnNode{Style: style}, body, at)
+}
+
+// Scroll shows its children in a scrolled viewport.
+func Scroll[E](f *Frame[E], style Style, body func(), at CallSite) {
+	open(f, ScrollNode{Style: style}, body, at)
+}
+
+// Pressable sends on when the host presses it; body is what it shows.
+func Pressable[E](f *Frame[E], label string, on E, body func(), at CallSite) {
+	open(f, PressableNode{Label: label, On: on, Style: Plain()}, body, at)
+}
+
+// Text shows a string.
+func Text[E](f *Frame[E], value string, at CallSite) {
+	let _ = put(f, TextNode{Value: value, Style: Plain()}, None, None, at)
+}
+
+// Check shows a check box; a press sends on.
+func Check[E](f *Frame[E], label string, checked bool, on E, at CallSite) {
+	let _ = put(f, CheckNode{Label: label, Checked: checked, On: on}, None, None, at)
+}
+
+// Input shows a text field with value; a text the host takes in it sends
+// onText(text). The program owns the value (in its machine state).
+func Input[E](f *Frame[E], value string, placeholder string, onText escaping func(t string) E, at CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder}, Some{Value: onText}, None, at)
+}
+
+// Each writes row(x) for each x of xs. The nodes a row writes take the
+// row's key, so a row keeps its instance when xs is reordered.
+func Each[E, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T), at CallSite) {
+	let outerEach = f.each
+	let outerKey = f.key
+	for x in xs {
+		f.each = at
+		f.key = key(x)
+		row(x)
+	}
+	f.each = outerEach
+	f.key = outerKey
+}
+
+// Commit makes f's tree show what the pass wrote and returns the changes,
+// in the order a host applies them. A node whose identity returns under
+// the same parent keeps its Id; a keyed row that moved is one Move. It
+// also decides the pass's jobs (Jobs): a load that is new or has a new
+// key is fetched, and a load that ended or changed key is cancelled.
+func Commit[E comparable](f *Frame[E]) []Op[E] {
+	f.ops = []Op[E]{}
+	f.jobs = []Job[E]{}
+	let kids = childLists(f)
+	reconcile(f, kids, -1, f.root, kids[0])
+	settle(f)
+	f.ops
+}
+
+// childLists gives the spec indices of each node's children: [0] for the
+// root, [i+1] for spec i.
+func childLists[E](f *Frame[E]) [][]int {
+	let mut out = [][]int{[]int{}}
+	for _ in f.specs {
+		out = out.Append([]int{})
+	}
+	for i, s in f.specs {
+		out[s.parent+1] = out[s.parent+1].Append(i)
+	}
+	out
+}
+
+// at is the node r names; every Ref the tree holds is live.
+func nodeAt[E](f *Frame[E], r arena.Ref[node[E]]) node[E] {
+	f.nodes.Get(r) catch {
+	case arena.Stale:
+		Unreachable("ui: the tree holds a freed node")
+	}
+}
+
+// change runs edit on the node r names.
+func change[E](f *Frame[E], r arena.Ref[node[E]], edit func(n *node[E])) {
+	f.nodes.Update(r, edit) catch {
+	case arena.Stale:
+		Unreachable("ui: the tree holds a freed node")
+	}
+}
+
+func emit[E](f *Frame[E], op Op[E]) { f.ops = f.ops.Append(op) }
+
+// reconcile makes the children of parent (spec index p, node pr) the nodes
+// of want (spec indices), keeping each old child that put matched (prev),
+// and then does the same below each child.
+func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node[E]], want []int) {
+	let old = nodeAt(f, pr).kids
+	let mut oldAt = Map[arena.Ref[node[E]], int]{}
+	let mut used = []bool{}
+	for i, r in old {
+		oldAt[r] = i
+		used = used.Append(false)
+	}
+	let mut src = []int{}
+	for s in want {
+		let mut from = -1
+		match oldAt.Get(f.specs[s].prev) {
+		case Some[int] as o:
+			if !used[o.Value] {
+				from = o.Value
+				used[o.Value] = true
+			}
+		case None:
+		}
+		src = src.Append(from)
+	}
+	for i, r in old {
+		if !used[i] {
+			emit(f, Remove{Id: Id[E]{ref: r}})
+			drop(f, r)
+		}
+	}
+	let keep = increasing(src)
+	let mut refs = []arena.Ref[node[E]]{}
+	for j, s in want {
+		let sp = f.specs[s]
+		if src[j] >= 0 {
+			refs = refs.Append(old[src[j]])
+		} else {
+			refs = refs.Append(f.nodes.Put(fresh(sp.node, sp.id, sp.onText, sp.onPoint)))
+		}
+		f.specs[s].ref = refs[j]
+	}
+	change(f, pr, func(n *node[E]) { n.kids = refs })
+	let parent = Id[E]{ref: pr}
+	for k in 0..len(want) {
+		let j = len(want) - 1 - k
+		let mut before Option[Id[E]] = None
+		if j+1 < len(refs) {
+			before = Some{Value: Id[E]{ref: refs[j+1]}}
+		}
+		let sp = f.specs[want[j]]
+		let id = Id[E]{ref: refs[j]}
+		if src[j] < 0 {
+			emit(f, Insert{Id: id, Parent: parent, Before: before, Node: sp.node})
+		} else {
+			if nodeAt(f, refs[j]).node != sp.node {
+				emit(f, Set{Id: id, Node: sp.node})
+			}
+			change(f, refs[j], func(n *node[E]) {
+				n.node = sp.node
+				n.onText = sp.onText
+				n.onPoint = sp.onPoint
+			})
+			if !keep[j] {
+				emit(f, Move{Id: id, Parent: parent, Before: before})
+			}
+		}
+		reconcile[E](f, kids, want[j], refs[j], kids[want[j]+1])
+	}
+}
+
+// drop frees the node r names and every node below it; each load they
+// own is cancelled.
+func drop[E](f *Frame[E], r arena.Ref[node[E]]) {
+	let n = nodeAt(f, r)
+	for k in n.kids {
+		drop[E](f, k)
+	}
+	for _, l in n.loads {
+		f.jobs = f.jobs.Append(Cancel{Epoch: l.epoch})
+	}
+	let _ = f.nodes.Free(r) catch {
+	case arena.Stale:
+		Unreachable("ui: the tree holds a freed node")
+	}
+}
+
+// increasing marks the kept children: the longest run of reused children
+// whose old positions increase in their new order (src[j] is the old
+// position of new child j, or -1 for a new one). A kept child stays where
+// it is; every other reused child is one Move. Patience sorting, O(n log n).
+func increasing(src []int) []bool {
+	let mut keep = []bool{}
+	let mut prev = []int{}
+	for _ in src {
+		keep = keep.Append(false)
+		prev = prev.Append(-1)
+	}
+	let mut tails = []int{}
+	for j, v in src {
+		if v >= 0 {
+			let mut lo = 0
+			let mut hi = len(tails)
+			for lo < hi {
+				let mid = (lo + hi) / 2
+				if src[tails[mid]] < v {
+					lo = mid + 1
+				} else {
+					hi = mid
+				}
+			}
+			if lo > 0 {
+				prev[j] = tails[lo-1]
+			}
+			if lo == len(tails) {
+				tails = tails.Append(j)
+			} else {
+				tails[lo] = j
+			}
+		}
+	}
+	if len(tails) > 0 {
+		let mut j = tails[len(tails)-1]
+		for j >= 0 {
+			keep[j] = true
+			j = prev[j]
+		}
+	}
+	keep
+}
+
+// kindOf numbers the variants of Node: a node keeps its Id only while its
+// kind stays.
+func kindOf[E](n Node[E]) int {
+	match n {
+	case BoxNode:
+		0
+	case RowNode:
+		1
+	case ColumnNode:
+		2
+	case ScrollNode:
+		3
+	case TextNode:
+		4
+	case PressableNode[E]:
+		5
+	case CheckNode[E]:
+		6
+	case InputNode:
+		7
+	case ToggleNode:
+		8
+	case AreaNode:
+		9
+	case CanvasNode:
+		10
+	case RowsNode:
+		11
+	}
+}
+
+// Root is the Id of the root, the parent of what a view writes at its top.
+func Root[E](f *Frame[E]) Id[E] { Id[E]{ref: f.root} }
+
+// Len is the number of nodes in f's tree, the root included.
+func Len[E](f *Frame[E]) int { arena.Len(f.nodes) }
+
+// Kids are the children of id, in order; none for an Id f does not hold.
+func Kids[E](f *Frame[E], id Id[E]) []Id[E] {
+	let n = f.nodes.Get(id.ref) catch {
+	case arena.Stale:
+		return []Id[E]{}
+	}
+	let mut out = []Id[E]{}
+	for r in n.kids {
+		out = out.Append(Id[E]{ref: r})
+	}
+	out
+}
+
+// NodeOf is what id shows; None for an Id f does not hold.
+func NodeOf[E](f *Frame[E], id Id[E]) Option[Node[E]] {
+	let n = f.nodes.Get(id.ref) catch {
+	case arena.Stale:
+		return None
+	}
+	Some{Value: n.node}
+}
