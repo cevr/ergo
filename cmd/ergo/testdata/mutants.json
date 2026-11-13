@@ -344,7 +344,7 @@
       "origin": "wf10 g-b2",
       "file": "cmd/ergo/test.go",
       "from": "\tif err := runEntryProcess(child, limit, proclimit.Watch(child)); err != nil {\n\t\treturn err\n\t}\n",
-      "to": "\terr = runEntryProcess(child, limit, proclimit.Watch(child))\n\t_ = cache.PutResult(module, tc, key, result.encode())\n\tif err != nil {\n\t\treturn err\n\t}\n",
+      "to": "\terr = runEntryProcess(child, limit, proclimit.Watch(child))\n\t_ = cache.PutResult(module, key, result.encode())\n\tif err != nil {\n\t\treturn err\n\t}\n",
       "rule": "Only a passing run is cached: a cached verdict is the verdict of a rerun.",
       "killers": ["cmd/ergo:TestTestResultCache"],
       "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}

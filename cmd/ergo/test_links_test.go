@@ -55,9 +55,9 @@ func TestTestResultCache(t *testing.T) {
 	}
 	smokeWrite(t, root, "q/q.ergo", "test Fails { assert 1 == 2 }\n")
 	type outcome struct {
-		stdout                     string
-		code, notes                int
-		links, compiles, processes int64
+		stdout                             string
+		code, notes                        int
+		links, reused, compiles, processes int64
 	}
 	run := func(env []string, args ...string) outcome {
 		t.Helper()
@@ -72,7 +72,7 @@ func TestTestResultCache(t *testing.T) {
 		return outcome{
 			stdout: string(out), code: code,
 			notes: strings.Count(string(stderr), cachedNote),
-			links: counts["links"], compiles: counts["go_compiles"], processes: counts["processes"],
+			links: counts["links"], reused: counts["links_reused"], compiles: counts["go_compiles"], processes: counts["processes"],
 		}
 	}
 	cold := run(nil, "./...")
@@ -80,8 +80,8 @@ func TestTestResultCache(t *testing.T) {
 		t.Fatalf("cold run: %+v", cold)
 	}
 	warm := run(nil, "./...")
-	if warm.links != 0 || warm.compiles != 0 || warm.processes != 1 || warm.notes != passing {
-		t.Fatalf("warm run: %+v; want no link, no compile, 1 process (the failing package), %d replays", warm, passing)
+	if warm.links != 0 || warm.reused != 1 || warm.compiles != 0 || warm.processes != 1 || warm.notes != passing {
+		t.Fatalf("warm run: %+v; want no link, 1 reused link and 1 process (the failing package: a result is found before the link), no compile, %d replays", warm, passing)
 	}
 	again := run(nil, "./...", "--count", "1")
 	if again.notes != 0 || again.links != 0 || again.compiles != 0 || again.processes != passing+1 {
