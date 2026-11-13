@@ -56,6 +56,182 @@
       "to": "type Limit int where 0 <= it && it <= 556",
       "rule": "A limit of 0 does not decode (WireAgreesWithOrigin, 14-zero-limit).",
       "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-cache-cut-drops-settled", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/cache/cache.ergo",
+      "from": "\t\tcase Settled[V]:\n\t\t\tc\n",
+      "to": "\t\tcase Settled[V]:\n\t\t\tCache[K, V]{..c, entries: c.entries.Delete(k), recent: without(c.recent, k)}\n",
+      "rule": "A cut ends a load only; a settled entry stays (law CacheFollowsModel).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-cache-cap-plus-one", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/cache/cache.ergo",
+      "from": "\tfor len(recent) > c.capacity {\n",
+      "to": "\tfor len(recent) > c.capacity+1 {\n",
+      "rule": "At most the capacity's entries are settled (law AtMostCapSettled).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-cache-fresh-at-the-edge", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/cache/cache.ergo",
+      "from": "\t\t\tif now-s.At < c.fresh {\n",
+      "to": "\t\t\tif now-s.At <= c.fresh {\n",
+      "rule": "A value is fresh only while its age is below the freshness (law FreshInsideTheWindow).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-cache-hit-renews-freshness", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/cache/cache.ergo",
+      "from": "\t\t\t\treturn Got[K, V]{Cache: Cache[K, V]{..c, recent: without(c.recent, k).Append(k)}, Look: Fresh[V]{Value: s.Value}}\n",
+      "to": "\t\t\t\tlet mut renewed = c.entries\n\t\t\t\trenewed[k] = Settled[V]{Value: s.Value, At: now}\n\t\t\t\treturn Got[K, V]{Cache: Cache[K, V]{..c, entries: renewed, recent: without(c.recent, k).Append(k)}, Look: Fresh[V]{Value: s.Value}}\n",
+      "rule": "A hit changes the recency, never the freshness (law HitKeepsFreshness; the model's RenewOnHit).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-cache-pending-evicted", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/cache/cache.ergo",
+      "from": "entries: entries, recent: without(c.recent, k), next: c.next + 1}",
+      "to": "entries: entries, recent: without(c.recent, k).Append(k), next: c.next + 1}",
+      "rule": "A pending entry is never evicted (law PendingNeverEvicted).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-cache-hit-keeps-recency", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/cache/cache.ergo",
+      "from": "Cache: Cache[K, V]{..c, recent: without(c.recent, k).Append(k)}, Look: Fresh",
+      "to": "Cache: c, Look: Fresh",
+      "rule": "A hit makes the entry the most recent; the least recent goes (law EvictsLeastRecent).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-cache-late-settle-taken", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/cache/cache.ergo",
+      "from": "\t\t\tp.Gen == gen\n",
+      "to": "\t\t\tp.Gen >= gen\n",
+      "rule": "The answer of a replaced load changes nothing (law LateSettleRejected; the model's NoGen).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-cache-cut-reuses-gen", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/cache/cache.ergo",
+      "from": "\t\t\tCache[K, V]{..c, entries: c.entries.Delete(k)}\n",
+      "to": "\t\t\tCache[K, V]{..c, entries: c.entries.Delete(k), next: c.next - 1}\n",
+      "rule": "A load after a cut has a new generation (law CutThenBeginIsNewGeneration; the model's KeepPending).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-route-length-not-printed", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/route/route.ergo",
+      "from": "\t\tcase Relevance:\n\t\tcase _:\n",
+      "to": "\t\tcase Relevance, Length:\n\t\tcase _:\n",
+      "rule": "A route survives its URL (law ParsePrintRoundTrips).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-route-available-dropped", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/route/route.ergo",
+      "from": "\t\t\turl = url + \"&available=1\"\n",
+      "to": "\t\t\turl = url\n",
+      "rule": "A parsed URL prints to a URL that parses the same (law PrintParseIsCanonical).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-route-invalid-tld-kept", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/route/route.ergo",
+      "from": "if inCatalog(tld) { tld } else { \"\" },",
+      "to": "tld,",
+      "rule": "An invalid parameter is its default (law InvalidParamIsDefault).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-route-unknown-path-lands", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/route/route.ergo",
+      "from": "\t\treturn NotFound{Path: path}\n",
+      "to": "\t\treturn Landing\n",
+      "rule": "Every path but the root is NotFound (law UnknownPathIsNotFound).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-window-short-of-viewport", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/window/window.ergo",
+      "from": "\tlet lastSeen = (top + view - 1) / h\n",
+      "to": "\tlet lastSeen = (top + view - 1 - h) / h\n",
+      "rule": "Every row the viewport cuts is in the window (law WindowCoversViewport).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-window-grows-with-count", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/window/window.ergo",
+      "from": "\tlet end = clamp(lastSeen+1+over, first, count)\n",
+      "to": "\tlet end = clamp(lastSeen+1+over+count/1000, first, count)\n",
+      "rule": "The window is bounded for every count, and its work is flat (laws WindowIsBounded, StepWorkIsFlat).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-window-spacer-short", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/window/window.ergo",
+      "from": "After: (count - end) * h}",
+      "to": "After: (count - end - 1) * h}",
+      "rule": "The spacers and the rows are the list's height (law SpacersSumToTotal).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-window-overscan-wobbles", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/window/window.ergo",
+      "from": "\tlet over = if s.Overscan < 0 { 0 } else { s.Overscan }\n",
+      "to": "\tlet over = if s.Overscan < 0 { 0 } else { s.Overscan + 1 - top%2 }\n",
+      "rule": "Scrolling down never moves an edge of the window up (law WindowIsMonotone).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-plan-ranges-overlap", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/plan/plan.ergo",
+      "from": "\t\treturn Range{Offset: TopCount(), Limit: end - TopCount()}\n",
+      "to": "\t\treturn Range{Offset: TopCount() - 1, Limit: end - TopCount() + 1}\n",
+      "rule": "A range never overlaps the one before (law RangesNeverOverlap).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-plan-stops-at-half", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/plan/plan.ergo",
+      "from": "\tif st.InFlight || st.Checked >= st.Size {\n",
+      "to": "\tif st.InFlight || st.Checked >= st.Size/2 {\n",
+      "rule": "The plan loads every listing the window shows (law PlanCoversWindow).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-plan-top-five", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/plan/plan.ergo",
+      "from": "func TopCount() int { 4 }",
+      "to": "func TopCount() int { 5 }",
+      "rule": "A cold search asks for {0,4} then {4,56} (law FirstIsFourThenFiftySix).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-plan-price-pages", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/plan/plan.ergo",
+      "from": "\tcase route.PriceAscending, route.PriceDescending:\n\t\ttrue\n",
+      "to": "\tcase route.PriceAscending, route.PriceDescending:\n\t\tavailableOnly\n",
+      "rule": "A price order loads the whole catalog in one range (law PriceOrderLoadsWhole).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-plan-asks-loaded-again", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/plan/plan.ergo",
+      "from": "\t\tcase Loaded:\n\t\tcase NotLoaded:\n",
+      "to": "\t\tcase Loaded, NotLoaded:\n",
+      "rule": "The plan asks for no range twice and ends (law PlanEnds).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd2-plan-steps-grow", "origin": "wf10/fd2a",
+      "file": "examples/fk-domains/search/plan/plan.ergo",
+      "from": "\tlet mut steps = 1\n",
+      "to": "\tlet mut steps = 1 + st.Size/1000\n",
+      "rule": "The planner's work does not grow with the catalog (law StepWorkIsFlat).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
     }
   ]
 }
