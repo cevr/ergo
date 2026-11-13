@@ -18,9 +18,11 @@ import (
 
 var patternSeed = flag.Uint64("pattern.seed", 0, "run TestPatternMatchersAgree on this seed alone")
 
-// TestPatternMatchersAgree is the seeded property (see above). It kills
-// the mutants of pattern.go in testdata/mutants.json (a span's test, the
-// accepting states' return, the straight-line switch's targets).
+// TestPatternMatchersAgree is the seeded property (see above), under each
+// form of the matcher: every one straight-line, then every one a table
+// (pattern_table.go). It kills the mutants of pattern.go and
+// pattern_table.go in testdata/mutants.json (a span's test, the accepting
+// states' return, the class map, the binary search, the table's cells).
 //
 // It builds Go because the question is the run of the lowered matcher:
 // the check package's property covers the automaton, and only a run of
@@ -56,20 +58,34 @@ func TestPatternMatchersAgree(t *testing.T) {
 		src := "import io\nimport strconv\nimport strings\n\n" + decls.String() +
 			"\nfunc parsed(i int, s string) string {\n\t" + cases.String() + "{ \"?\" }\n}\n" +
 			"\nfunc main() needs Ambient {\n\twith context { io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {\n\t\tfor line in io.Stdin.Lines() {\n\t\t\tlet fields = strings.Split(line, \"\\x1f\")\n\t\t\tlet i = strconv.Atoi(fields[0]) catch { case _: Unreachable(\"test input index\") }\n\t\t\tio.Stdout.Println(parsed(i, fields[1]))\n\t\t}\n\t}\n}\n"
-		name := fmt.Sprintf("pat%d", seed)
-		exes := buildAll(t, []*lowered{mustLower(t, name, src)}, true)
+		// Each form, the other's reference: every matcher a table, then
+		// every matcher straight-line.
+		saved := PatternTableStates
+		var programs []*lowered
+		for _, form := range []string{"table", "switch"} {
+			PatternTableStates = map[string]int{"table": 0, "switch": 1 << 30}[form]
+			programs = append(programs, mustLower(t, fmt.Sprintf("pat%d%s", seed, form), src))
+		}
+		PatternTableStates = saved
+		exes := buildAll(t, programs, true)
 		if exes == nil {
 			t.Fatalf("seed %d: the program does not build\n%s", seed, src)
 		}
-		out, stderr, code := runExeInput(t, exes[name], strings.Join(input, "\n")+"\n")
-		got := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
-		if code != 0 || len(got) != len(want) {
-			t.Fatalf("seed %d: exit %d, %d answers for %d lines\n%s\n%s", seed, code, len(got), len(want), stderr, src)
-		}
-		for k := range want {
-			if got[k] != want[k] {
-				t.Errorf("seed %d (replay: go test -run '^TestPatternMatchersAgree$' ./internal/sketch/lower -args -pattern.seed=%d): line %q: the matcher says %s, Go's regexp %s\n%s", seed, seed, input[k], got[k], want[k], src)
-				break
+		for i, form := range []string{"table", "switch"} {
+			if strings.Contains(programs[i].mainGo(), "ergoMatchTable") != (form == "table") {
+				t.Fatalf("seed %d: the %s form was not written", seed, form)
+			}
+			name := fmt.Sprintf("pat%d%s", seed, form)
+			out, stderr, code := runExeInput(t, exes[name], strings.Join(input, "\n")+"\n")
+			got := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+			if code != 0 || len(got) != len(want) {
+				t.Fatalf("seed %d, %s form: exit %d, %d answers for %d lines\n%s\n%s", seed, form, code, len(got), len(want), stderr, src)
+			}
+			for k := range want {
+				if got[k] != want[k] {
+					t.Errorf("seed %d, %s form (replay: go test -run '^TestPatternMatchersAgree$' ./internal/sketch/lower -args -pattern.seed=%d): line %q: the matcher says %s, Go's regexp %s\n%s", seed, form, seed, input[k], got[k], want[k], src)
+					break
+				}
 			}
 		}
 	}

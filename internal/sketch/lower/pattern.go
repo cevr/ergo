@@ -45,6 +45,9 @@ func reservePatterns(pkgs []*check.Package, reserve func(key pkgKey, base string
 		for _, c := range p.Info.Calls {
 			if c.Kind == check.CallPattern {
 				reserve(patternKey(c.Pattern), "ergoMatch")
+				if len(c.Pattern.States) > PatternTableStates {
+					reserve(patternTableKey(c.Pattern), "ergoMatchTable")
+				}
 			}
 		}
 	}
@@ -74,7 +77,11 @@ func (l *lowerer) patternMatcher(m *check.Matcher) string {
 	}
 	if !l.patternsDone[name] {
 		l.patternsDone[name] = true
-		l.user.WriteString(MatcherText(name, m))
+		if len(m.States) > PatternTableStates {
+			l.user.WriteString(MatcherTableText(name, l.pkgName(patternTableKey(m), "ergoMatchTable"), m))
+		} else {
+			l.user.WriteString(MatcherText(name, m))
+		}
 	}
 	return name
 }

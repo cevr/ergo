@@ -4006,6 +4006,28 @@
       "killers": [
         "examples:fk-form"
       ]
+    },
+    {
+      "name": "fkre2-table-search-past-span-start",
+      "origin": "wf10 FKre-2",
+      "file": "internal/sketch/lower/pattern_table.go",
+      "from": "if t.hiLo[mid] <= r {",
+      "to": "if t.hiLo[mid] < r {",
+      "rule": "types.md, Refinements 11: the table form's search finds the span past ASCII that holds the rune, its first rune included.",
+      "killers": [
+        "lower:TestPatternMatchersAgree"
+      ]
+    },
+    {
+      "name": "fkre2-table-class-misses-span-start",
+      "origin": "wf10 FKre-2",
+      "file": "internal/sketch/lower/pattern_table.go",
+      "from": "if r >= e.Lo && r <= e.Hi {",
+      "to": "if r > e.Lo && r <= e.Hi {",
+      "rule": "types.md, Refinements 11: a class of the table form is the runes every state takes to the same state.",
+      "killers": [
+        "lower:TestPatternMatchersAgree"
+      ]
     }
   ]
 }
