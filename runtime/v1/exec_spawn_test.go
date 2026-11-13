@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package v1
 
@@ -92,5 +92,32 @@ func TestExecSpawnRefusesToCaller(t *testing.T) {
 	want := ExecFailed{Name: "true", Reason: "stdout: a detached program has no caller to read it (ToCaller)"}
 	if err != want {
 		t.Fatalf("ExecSpawn with a ToCaller sink failed %#v, want %#v", err, want)
+	}
+}
+
+// TestExecStartTimeReadsTheHost: the host gives this process a start time
+// that is not 0, a program started later one no earlier, and the reads of
+// one process agree. A start time that is always 0 (a layout read at the
+// wrong offset) would let Alive and Kill act on a reused pid. Mutant
+// darwin-start-zero (the Darwin read gives 0; run on the Mac, see
+// mac-bulk-pending.txt) and linux-start-zero.
+func TestExecStartTimeReadsTheHost(t *testing.T) {
+	self := execStartTime(os.Getpid())
+	if self == 0 {
+		t.Fatalf("this process %d has no start time", os.Getpid())
+	}
+	if again := execStartTime(os.Getpid()); again != self {
+		t.Errorf("two reads of this process's start time differ: %d, %d", self, again)
+	}
+	if !execRunning(os.Getpid(), self) {
+		t.Errorf("this process is not running at its own start time %d", self)
+	}
+	child := exec.Command("sleep", "60")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = child.Process.Kill(); _ = child.Wait() }()
+	if c := execStartTime(child.Process.Pid); c < self {
+		t.Errorf("a program started after this process has the start time %d, before this process's %d", c, self)
 	}
 }

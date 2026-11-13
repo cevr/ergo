@@ -11,7 +11,8 @@ import (
 // ExecDetached is exec.Detached: a program started to outlive the code
 // that started it. Pid is its process id and the id of its session and
 // process group; Start is its start time as the host reports it (Linux:
-// the clock ticks after boot, /proc/<pid>/stat field 22; 0 where the host
+// the clock ticks after boot, /proc/<pid>/stat field 22; Darwin: the
+// microseconds after the epoch, kinfo_proc p_starttime; 0 where the host
 // gives none), so Alive and Kill never act on another process that reused
 // the pid. Name is the program's name, for messages.
 type ExecDetached struct {
