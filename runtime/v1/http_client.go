@@ -103,6 +103,12 @@ func httpToken(s string) bool {
 	return true
 }
 
+// HTTPEncodeQuery is std http.EncodeQuery: httpQuery, the raw query
+// HTTPDo sends for a Request's Query.
+//
+//ergo:wait none
+func HTTPEncodeQuery(fields []HTTPField) string { return httpQuery(fields) }
+
 // httpQuery is fields in their order, each name=value escaped.
 func httpQuery(fields []HTTPField) string {
 	var b strings.Builder

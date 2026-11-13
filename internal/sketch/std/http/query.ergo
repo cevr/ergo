@@ -15,6 +15,12 @@ type QueryRepeated { Key string }
 // Go's Request.URL.Query drops it.
 extern go ergo.local/prototype/runtime/v1.HTTPParseQuery func ParseQuery(raw string) []Field
 
+// EncodeQuery is the raw query of fields ("a=1&b=+x"), in their order,
+// each name and value escaped as Go's url.QueryEscape does: the query a
+// Client sends for a Request's Query, for a URLRequest's URL. ParseQuery
+// reads it back as the same fields, in key order.
+extern go ergo.local/prototype/runtime/v1.HTTPEncodeQuery func EncodeQuery(fields []Field) string
+
 // DecodeQuery reads a T from query fields through the derived codec
 // (types.md, Codecs), as json.Decode reads one from a text, so a query
 // record follows the codec's rules: a field's key is its wire name, an

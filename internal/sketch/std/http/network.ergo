@@ -25,7 +25,7 @@ func ForOrigin(origin string, field Field) Credential fails InvalidClient {
 // public Header: the transport adds it only at its own origin, at every hop.
 type URLRequest { URL string, Method string, Header []Field, Credentials []Credential, Body string }
 
-// law-exempt: policy, credential confinement and hop limits are checked by the two-peer model TestHTTPNetworkMatchesModel; interruption by TestHTTPNetworkStops; SendURLInto's parts and statuses by TestHTTPFetchIntoMatchesModel.
+// law-exempt: policy, credential confinement and hop limits are checked by the two-peer model TestHTTPNetworkMatchesModel; interruption by TestHTTPNetworkStops; SendURLInto's parts and statuses by TestHTTPFetchIntoMatchesModel; the in-memory Local against a loopback Serve by TestHTTPLocalMatchesLoopback.
 type Network {
 	SendURL(r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit,
 	// SendURLInto is SendURL, but when accept takes the final response's
@@ -82,6 +82,14 @@ extern go ergo.local/prototype/runtime/v1.HTTPIntoFile func IntoFile[F, R](root 
 type Remote { origins []string, anyOrigin bool, limits Limits, hops int }
 
 func NewNet(policy OriginPolicy, limits Limits, redirects RedirectPolicy) Remote fails InvalidClient | InvalidLimits needs Ambient {
+	let p = try policyOf(policy, limits, redirects)
+	Remote{origins: p.origins, anyOrigin: p.anyOrigin, limits: p.limits, hops: p.hops}
+}
+
+// netPolicy is the checked policy of NewNet and InMemoryNetwork.
+type netPolicy { origins []string, anyOrigin bool, limits Limits, hops int }
+
+func policyOf(policy OriginPolicy, limits Limits, redirects RedirectPolicy) netPolicy fails InvalidClient | InvalidLimits {
 	let hops = match redirects {
 	case NoRedirects:
 		-1
@@ -102,7 +110,7 @@ func NewNet(policy OriginPolicy, limits Limits, redirects RedirectPolicy) Remote
 		false
 	}
 	let checked = try checkNetwork(origins, limits)
-	Remote{origins: checked, anyOrigin: anyOrigin, limits: limits, hops: hops}
+	netPolicy{origins: checked, anyOrigin: anyOrigin, limits: limits, hops: hops}
 }
 
 extern go ergo.local/prototype/runtime/v1.HTTPCheckNetwork func checkNetwork(origins []string, limits Limits) []string fails InvalidClient | InvalidLimits
@@ -134,5 +142,77 @@ func SendURLInto(n Remote, r URLRequest, accept Accept, put func(part string) fa
 }
 
 extern go ergo.local/prototype/runtime/v1.HTTPFetchInto func fetchInto(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed) Response fails SendFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed
+
+// Local is a Network with no socket: a test binds it so a client of many
+// origins is checked against its servers in memory. Only InMemoryNetwork
+// makes one.
+type Local { net netPolicy, handle escaping func(origin string, r Request) Response needs Streaming }
+
+// InMemoryNetwork is a Network that answers each exchange with handle,
+// given the URL's origin (scheme://host[:port], as the policy reads it)
+// and the request as Serve gives a handler: the decoded path, the parsed
+// query, the header and a Buffered body. handle routes by the origin and
+// the path; it runs on the caller's task, under a Recorder, as
+// InMemory's does. Everything else is NewNet's: the origin policy, a
+// credential only at its own origin, redirects and their hop limit, and
+// the body budget. What a caller sees is what the same exchange gives
+// through Serve on a loopback socket (runtime/v1
+// TestHTTPLocalMatchesLoopback): no body for HEAD, 204 or 304, a 1xx
+// status read as the 200 after it, and no header field that Go's
+// transport adds (Date, Content-Length, Content-Type, User-Agent,
+// Accept-Encoding). A status outside 100-999 fails Transport. It needs no
+// Ambient: it reaches no host.
+func InMemoryNetwork(policy OriginPolicy, limits Limits, redirects RedirectPolicy, handle escaping func(origin string, r Request) Response needs Streaming) Local fails InvalidClient | InvalidLimits {
+	Local{net: try policyOf(policy, limits, redirects), handle: handle}
+}
+
+func SendURL(n Local, r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit {
+	let m = n.net
+	try fetchLocal(m.origins, m.anyOrigin, m.limits, m.hops, r.Method, r.URL, r.Header, owners(r), credentials(r), r.Body, n.answerer()) catch {
+	case SendFailed as f:
+		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
+	}
+}
+
+func SendURLInto(n Local, r URLRequest, accept Accept, put func(part string) fails SinkFailed) Response fails RequestFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed {
+	let m = n.net
+	try fetchLocalInto(m.origins, m.anyOrigin, m.limits, m.hops, r.Method, r.URL, r.Header, owners(r), credentials(r), r.Body, func(status int) bool { Accepts(accept, status) }, put, n.answerer()) catch {
+	case SendFailed as f:
+		return RequestFailed{Cause: causeOf(f.Kind, f.Reason, f.Limit)}
+	}
+}
+
+// answerer is n's handle as the runtime calls it: the request's parts made a
+// Request, answered under a Recorder.
+func answerer(n Local) func(origin string, method string, path string, query []Field, header []Field, body string) Response {
+	let handle = n.handle
+	func(origin string, method string, path string, query []Field, header []Field, body string) Response {
+		with context { Streaming: NewRecorder() } {
+			handle(origin, Request{Method: method, Path: path, Query: query, Header: header, Body: Buffered{Text: body}})
+		}
+	}
+}
+
+// owners and credentials are r's marked credentials, as two lists in one
+// order: each credential's origin, and its field.
+func owners(r URLRequest) []string {
+	let mut out = []string{}
+	for c in r.Credentials {
+		out = out.Append(c.origin)
+	}
+	out
+}
+
+func credentials(r URLRequest) []Field {
+	let mut out = []Field{}
+	for c in r.Credentials {
+		out = out.Append(c.field)
+	}
+	out
+}
+
+extern go ergo.local/prototype/runtime/v1.HTTPFetchLocal func fetchLocal[R](origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, handle func(origin string, method string, path string, query []Field, header []Field, body string) Response needs R) Response fails SendFailed | OriginRefused | RedirectLimit needs R
+
+extern go ergo.local/prototype/runtime/v1.HTTPFetchLocalInto func fetchLocalInto[R](origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed, handle func(origin string, method string, path string, query []Field, header []Field, body string) Response needs R) Response fails SendFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed needs R
 
 extern go ergo.local/prototype/runtime/v1.HTTPFetch func fetch(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string) Response fails SendFailed | OriginRefused | RedirectLimit

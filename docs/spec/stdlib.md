@@ -657,6 +657,37 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     is; finite properties are tested, not proved. `examples/download`
     captures the delegated provider outside main and accepts runtime URLs.
 
+    **In memory (FK3-g3).** `InMemoryNetwork(policy, limits, redirects,
+    handle) Local fails InvalidClient | InvalidLimits` is a `Network` with
+    no socket, for a test of a client of many origins: `handle escaping
+    func(origin string, r Request) Response needs Streaming` routes by the
+    origin (as the policy reads it: `https://B.test:443` is
+    `https://b.test`) and the path, and gets the request as Serve gives a
+    handler. Everything else is NewNet's, through the same runtime policy
+    loop: the origin policy, credentials at their own origin, redirects
+    and hops, and the body budget. It needs no Ambient, since it reaches no
+    host, and `Local` is an ordinary provider: a record of this package
+    with Ergo functions over two runtime bodies (`HTTPFetchLocal`,
+    `HTTPFetchLocalInto`), nothing a module could not write. Its law is
+    `TestHTTPLocalMatchesLoopback`: a seeded property that sends each
+    generated fetch (methods, statuses with 1xx, 204 and 304, bodies
+    around the budget and Go's 2048-byte declared-length bound, escaped
+    paths and queries, headers, redirects and hop limits, the streamed
+    form with its accepted statuses and a failing sink) once through
+    Serve on a loopback listener and once in memory, with one handler,
+    and compares what the caller sees and what the handler was given; a
+    failing seed prints the case, both outcomes and the replay variable.
+    The fields Go's transports add (Date, Content-Length, Content-Type,
+    User-Agent, Accept-Encoding, Transfer-Encoding) are left out of both
+    sides. Known differences: no header budget is measured, and a status
+    outside 100-999 fails Transport (a server closes the connection, and
+    Go's client retries an idempotent request once). `EncodeQuery(fields)`
+    is the raw query of fields, as a Client sends a Request's Query, so a
+    caller builds a URL whose query `ParseQuery` reads back. Effect's
+    `HttpClient` test layer and Gleam's and Elixir's `Req.Test` plug
+    stubs answer in memory the same way; Req routes by a plug, which here
+    is `handle`.
+
     Effect `HttpClient.followRedirects` supplies the intent: a bounded
     traversal without leaking credentials. An ordinary operation type,
     explicit policy unions, typed refusals and captured provider replace
