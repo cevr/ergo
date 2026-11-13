@@ -800,6 +800,9 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 	if l.Domain == check.LoopRange || l.Domain == check.LoopSeq {
 		x = fc.spill(x)
 	}
+	if target := fc.reserveTarget(s, l.Domain); target != "" {
+		fc.reserve(target, x) // reserve.go
+	}
 	loop := &loopCtx{}
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out

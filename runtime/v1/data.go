@@ -54,6 +54,15 @@ func ArenaTake[T any](s *ArenaValue[T]) T {
 //ergo:pure
 func Append[T any](xs []T, x T) []T { return append(xs, x) }
 
+// Reserve is xs with room for n more elements: xs itself when it has the
+// room, else a copy in a new array with at least that room (slices.Grow).
+// The lowering calls it before a for-in over a slice or a Map whose body
+// appends to xs once per iteration, with n the domain's length (lower
+// reserve.go), so the loop grows xs once.
+//
+//ergo:pure
+func Reserve[T any](xs []T, n int) []T { return slices.Grow(xs, n) }
+
 // Get is the read behind the prelude's m.Get(k): the value of k in m and
 // whether m has the key, Go's comma-ok form. The lowering writes the
 // prelude's Get in each program as this read, Some of the value or None
