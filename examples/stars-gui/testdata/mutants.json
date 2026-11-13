@@ -1,6 +1,38 @@
 {
-  "about": "stars-gui's application mutants (wf10 corpus wave GP1a, GP1b): edits of the example, each with the law or the test that kills it. A killer examples/stars-gui/PKG:law L is `ergo test examples/stars-gui/PKG --law L`; scripts/examples:stars-gui is the program's cases (`go run ./scripts/examples stars-gui`), killed when a case's output differs; cmd/ergo:TestStarsGuiAgreesWithControl is the seeded agreement property against the reference model and the hand Go control, which kills the mutants no law sees.",
+  "about": "stars-gui's application mutants (wf10 corpus wave GP1a, GP1b, GP1x): edits of the example, each with the law or the test that kills it. A killer examples/stars-gui/PKG:law L is `ergo test examples/stars-gui/PKG --law L`; scripts/examples:stars-gui is the program's cases (`go run ./scripts/examples stars-gui`), killed when a case's output differs; cmd/ergo:TestStarsGuiAgreesWithControl is the seeded agreement property against the reference model and the hand Go control, which kills the mutants no law sees.",
   "mutants": [
+    {
+      "name": "stars-sort-keeps-the-whole", "origin": "wf10 GP1x",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "Whole: kept(g.Filter, view), Key: key",
+      "to": "Whole: g.Whole, Key: key",
+      "rule": "A sort changes the key, so the kept order of the whole catalogue goes.",
+      "killers": ["examples/stars-gui/catalog:law Table.WholeIsOrder"]
+    },
+    {
+      "name": "stars-edit-keeps-the-whole", "origin": "wf10 GP1x",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "Rows: rows, View: view, Whole: kept(g.Filter, view)",
+      "to": "Rows: rows, View: view, Whole: g.Whole",
+      "rule": "An edit may move its star, so the kept order of the whole catalogue goes.",
+      "killers": ["examples/stars-gui/catalog:law Table.WholeIsOrder"]
+    },
+    {
+      "name": "stars-widen-narrows-the-view", "origin": "wf10 GP1x",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "View: Narrow(g.Rows, all, filter)",
+      "to": "View: Narrow(g.Rows, g.View, filter)",
+      "rule": "A widening filter filters the whole catalogue, not the narrower view.",
+      "killers": ["examples/stars-gui/catalog:law Table.WholeIsOrder", "examples/stars-gui/catalog:law Table.ViewIsOrder"]
+    },
+    {
+      "name": "stars-whole-kept-under-a-filter", "origin": "wf10 GP1x",
+      "file": "examples/stars-gui/catalog/table.ergo",
+      "from": "if filter == \"\" { Some{Value: view} } else { None }",
+      "to": "Some{Value: view}",
+      "rule": "A filtered view is not the whole catalogue.",
+      "killers": ["examples/stars-gui/catalog:law Table.WholeIsOrder"]
+    },
     {
       "name": "stars-retext-types-the-whole-field", "origin": "wf10 GP1b",
       "file": "examples/stars-gui/screen/app.ergo",
@@ -60,8 +92,8 @@
     {
       "name": "stars-sort-clears-selection", "origin": "wf10 GP1a",
       "file": "examples/stars-gui/catalog/table.ergo",
-      "from": "Stay[State]{Next: Browsing{G: Settle(Grid{..g, View: view, Key: key, Cursor: follow(view, at, g.Cursor)})}}",
-      "to": "Stay[State]{Next: Browsing{G: Settle(Grid{..g, View: view, Key: key, Cursor: follow(view, at, g.Cursor), Selected: []int{}})}}",
+      "from": "Key: key, Cursor: follow(view, at, g.Cursor)})}}",
+      "to": "Key: key, Cursor: follow(view, at, g.Cursor), Selected: []int{}})}}",
       "rule": "A sort keeps the selected stars.",
       "killers": ["examples/stars-gui/catalog:law Table.SelectionSurvivesSort"]
     },
@@ -154,10 +186,10 @@
       "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
     },
     {
-      "name": "stars-cancel-clears-the-filter", "origin": "wf10 GP1a",
+      "name": "stars-cancel-clears-the-filter", "origin": "wf10 GP1a; GP1x moved Cancel to refilter",
       "file": "examples/stars-gui/catalog/table.ergo",
-      "from": "Filter: f.Before, View: Order(g.Rows, f.Before, g.Key)",
-      "to": "Filter: \"\", View: Order(g.Rows, \"\", g.Key)",
+      "from": "Enter[State]{Next: Browsing{G: refilter(g, f.Before)}}",
+      "to": "Enter[State]{Next: Browsing{G: refilter(g, \"\")}}",
       "rule": "Cancel of a filter restores the filter it started from.",
       "killers": ["cmd/ergo:TestStarsGuiAgreesWithControl"]
     },
