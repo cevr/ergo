@@ -386,6 +386,9 @@ type checker struct {
 	// (refine.go).
 	refining      bool
 	refusedWheres map[*fileInfo][][2]syntax.Pos
+	// patternCalls are the matches calls of the derived ParseN and NWhere
+	// of each refined type with a pattern (refine_pattern.go).
+	patternCalls map[*syntax.CallExpr]*Matcher
 
 	fn *funcCtx // the body being checked
 }

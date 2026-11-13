@@ -1030,7 +1030,7 @@ func (c *checker) letZero(name *syntax.Ident, declared Type) {
 // owner q44). A union, an interface, a function type, a pointer and a tuple
 // that holds a record with fields have none either.
 func defaultable(t Type) bool {
-	if r := RefinementOf(t); r != nil && !r.Holds(big.NewInt(0)) {
+	if r := RefinementOf(t); r != nil && (!r.Holds(big.NewInt(0)) || r.Pattern != nil && !r.Pattern.Match("")) {
 		// The base's zero (0, or length 0) fails the where (Refinements 8).
 		return false
 	}

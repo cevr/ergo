@@ -30,6 +30,16 @@ type Refinement struct {
 	Spans []Span
 	// Text is the predicate's source on one line.
 	Text string
+	// Pattern is the where's pattern, the conjunct matches(it, "…"),
+	// compiled (Refinements 11); nil without one. A value satisfies the
+	// where when its length is in Spans and Pattern matches it.
+	Pattern *Matcher
+}
+
+// HoldsString reports whether the string s satisfies a refinement of a
+// string: its length and its pattern.
+func (r *Refinement) HoldsString(s string) bool {
+	return r.Holds(big.NewInt(int64(len(s)))) && (r.Pattern == nil || r.Pattern.Match(s))
 }
 
 // Span is the closed interval Lo..Hi.
@@ -161,15 +171,19 @@ func (c *checker) refinement(subject string, t Type, where syntax.Expr, what str
 		shown = "len(" + subject + ")"
 	}
 	r := &refiner{c: c, subject: subject, isLen: isLen, dom: dom, shown: shown}
+	pat, ok := r.pattern(where, t)
+	if !ok {
+		return nil
+	}
 	set, ok := r.set(where)
 	if !ok {
 		return nil
 	}
-	if len(set) == 0 {
+	if len(set) == 0 || pat != nil && !patternFeasible(pat, set) {
 		c.errorf(where, CodeType, "no value of %s satisfies this where (types.md, Refinements 2)", t)
 		return nil
 	}
-	return &Refinement{Len: isLen, Spans: set, Text: syntax.WhereText(c.cur.syntax.Src, where)}
+	return &Refinement{Len: isLen, Spans: set, Text: syntax.WhereText(c.cur.syntax.Src, where), Pattern: pat}
 }
 
 type refiner struct {
@@ -178,6 +192,8 @@ type refiner struct {
 	isLen   bool
 	dom     Span
 	shown   string
+	// allowed is the where's one pattern call, a top-level conjunct.
+	allowed *syntax.CallExpr
 }
 
 func (r *refiner) refuse(x syntax.Expr) (spanSet, bool) {
@@ -196,6 +212,14 @@ func (r *refiner) set(x syntax.Expr) (spanSet, bool) {
 			return spanSet{r.dom}, true
 		case "false":
 			return nil, true
+		}
+	case *syntax.CallExpr:
+		if isMatchesCall(x) {
+			if x == r.allowed {
+				return spanSet{r.dom}, true
+			}
+			r.c.errorf(x, CodeType, "a pattern stands as a conjunct of the where, P && matches(it, `…`), not under ! or || (types.md, Refinements 11)")
+			return nil, false
 		}
 	case *syntax.UnaryExpr:
 		if x.Op == syntax.NOT {
@@ -353,7 +377,7 @@ func (c *checker) refinedConst(x syntax.Node, val constant.Value, t Type) bool {
 	default:
 		return true
 	}
-	if r.Holds(v) {
+	if r.Holds(v) && (r.Pattern == nil || r.Pattern.Match(constant.StringVal(val))) {
 		return true
 	}
 	c.errorf(x, CodeType, "%s is not a %s: its where is %s (types.md, Refinements 6)", shown, t, r.Text)
@@ -398,6 +422,9 @@ func (c *checker) checkRefinements() {
 			c.errorf(d.Where, CodeType, "a where refines a defined type, type N T where … (types.md, Refinements 1)")
 		case !containsInvalid(n.Defined()):
 			tn.Refine = c.refinement("it", n.Defined(), d.Where, tn.Name)
+			if tn.Refine != nil && tn.Refine.Pattern != nil {
+				c.notePatternCalls(tn.file, d, tn.Refine.Pattern)
+			}
 		}
 		if tn.Refine == nil {
 			if c.refusedWheres == nil {
