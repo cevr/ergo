@@ -174,6 +174,21 @@ func goRange(d check.LoopDomain) bool {
 	return d == check.LoopSlice || d == check.LoopMap || d == check.LoopString
 }
 
+// mapLit is the elements of the Map literal x, each entry's key then its
+// value, in source order: Go's map literal evaluates them in that order,
+// as the emitter's literal does.
+func (b *irBuilder) mapLit(x *syntax.CompositeLit) []*irExpr {
+	var out []*irExpr
+	for _, e := range x.Elts {
+		kv, ok := e.(*syntax.KeyValueExpr)
+		if !ok {
+			irNo("Map literal element without a key")
+		}
+		out = append(out, b.expr(kv.Key), b.expr(kv.Value))
+	}
+	return out
+}
+
 // own is the type whose Go type fu's helpers spell: the instance, for a
 // generic union's copy.
 func (fu *flatUnion) own() check.Type {
