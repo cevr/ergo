@@ -234,6 +234,11 @@ type BuildRequest struct {
 	Source string
 	// Output is the executable to write.
 	Output string
+	// Reuse, when set, is asked with the module before its link; when it
+	// reports true (the caller has what the link would serve, such as a
+	// cached test result), Build returns the module unlinked, and runs no
+	// go command.
+	Reuse func(build.Module) bool
 	// Cache holds the generated modules; Toolchain links them.
 	Cache     build.Cache
 	Toolchain build.Toolchain
@@ -340,6 +345,9 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	// The build holds a private module's root until its link ends, on every
 	// path; then a long-lived host holds nothing between builds.
 	defer module.Release()
+	if req.Reuse != nil && req.Reuse(module) {
+		return module, nil
+	}
 	absolute, err := filepath.Abs(req.Output)
 	if err != nil {
 		return module, err

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,7 +38,10 @@ import (
 // malformed --seed included, is a usage error (exit 2) that runs nothing
 // and prints no report line; a check, lowering or Go build failure prints
 // its diagnostics and exits 1 with no PASS line. -work prints WORK=DIR on
-// stderr, DIR being the test module in the emission cache.
+// stderr, DIR being the test module in the emission cache. A passing run
+// is cached by everything it reads, and replayed with no link and no run
+// (testcache.go); --count 1 always runs. A package with nothing to test is
+// never built (empty.go).
 func testCommand(args []string) error {
 	opts, err := parseFileOptions("test", args)
 	if err != nil {
@@ -61,6 +65,11 @@ func testPackage(opts fileOptions) error {
 }
 
 func testLoadedPackage(opts fileOptions, l loaded) error {
+	// A package with nothing to test is neither built nor run, so its
+	// initializers never run (empty.go); a schedule search still builds it.
+	if opts.search.mode == "" && nothingToTest(l.analysis.Root().Package) {
+		return emptyTestRun(opts, l.result.Revision, os.Stdout, os.Stderr)
+	}
 	dir, err := os.MkdirTemp("", "ergo-test-")
 	if err != nil {
 		return err
@@ -81,11 +90,45 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		// (runtime.md, Explored schedules).
 		tc.Tags = []string{"ergoexplore"}
 	}
+	childArgs, err := testChildArgs(opts, l.result.Revision)
+	if err != nil {
+		return err
+	}
+	// The test binary runs under a memory limit, 2 GiB unless
+	// ERGO_PROGRAM_MEMORY sets another, and its stderr passes through a
+	// watcher, so a test that grows without bound stops early and `ergo`
+	// says which limit stopped it (docs/tooling.md, "Test memory").
+	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
+	if err != nil {
+		return err
+	}
+	// A passing run's output is cached under the key of everything it
+	// read (testcache.go); a warm run that finds it neither links nor runs
+	// the binary and replays the output.
+	cache := build.Cache{Root: root}
+	// A full run writes the law ledger (below), so the ledger's bytes are
+	// in the key: a hit finds the ledger the stored run left.
+	writesLedger := opts.law == "" && opts.skipLaw == "" && opts.run == "" && !opts.explore
+	ledger := ledgerPath(opts.file)
+	key := testResultKey(opts, tc, childArgs, limit, ledger)
+	var cached []byte
+	hit := false
+	// The direct path links nothing for an unchanged module (its action
+	// store holds the executable, build/direct.go); a cached passing
+	// result skips even that.
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
-		Mode:      build.ModeTest,
-		Source:    l.source.Admitted(),
-		Output:    binary,
-		Cache:     build.Cache{Root: root},
+		Mode:   build.ModeTest,
+		Source: l.source.Admitted(),
+		Output: binary,
+		Reuse: func(m build.Module) bool {
+			if key == "" {
+				return false
+			}
+			data, ok := cache.Result(m, key)
+			cached, hit = data, ok
+			return ok
+		},
+		Cache:     cache,
 		Toolchain: tc,
 		Stderr:    os.Stderr,
 	})
@@ -95,10 +138,60 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 	if err != nil {
 		return err
 	}
-	// The binary names the source, as it was given here (a file or a
-	// package's folder), in a refuted case's or law's replay line (X1b),
-	// and a receipt names the source and its revision (L10).
-	childArgs := []string{"--source", opts.file, "--revision", l.result.Revision}
+	if hit {
+		return replayTestResult(cached, os.Stdout, os.Stderr)
+	}
+	if opts.search.mode != "" {
+		// A search runs each schedule in a worker of the binary, each
+		// under the same limit (explore.go).
+		seed := uint64(1)
+		if opts.seed != "" {
+			seed, _ = strconv.ParseUint(opts.seed, 10, 64)
+		}
+		return exploreSearch(os.Stdout, l, binary, childArgs, opts.search, opts.run, seed, limit)
+	}
+	child := testProgramCommand(binary, childArgs, limit)
+	var result testResult
+	if key != "" {
+		child.Stdout = io.MultiWriter(os.Stdout, &result.stdout)
+		child.Stderr = io.MultiWriter(os.Stderr, &result.stderr)
+	}
+	if err := runEntryProcess(child, limit, proclimit.Watch(child)); err != nil {
+		return err
+	}
+	if writesLedger {
+		// The passing run writes the law ledger (runtime.md, Tests 10):
+		// the laws and site instances the run build uses, checked alone.
+		changed, err := sketchfront.UpdateLedger(l.analysis, sketchfront.BuildRequest{
+			Mode:      build.ModeBuild,
+			Source:    l.source.Admitted(),
+			Cache:     cache,
+			Toolchain: tc, // no explore tag: an explored run is no full run
+			Stderr:    os.Stderr,
+			Ledger:    ledger,
+		})
+		if err != nil {
+			return err
+		}
+		if changed > 0 {
+			fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
+		}
+	}
+	if key != "" {
+		// Only a pass is kept, under the key of the ledger it left; a
+		// failure runs again next time. A result that cannot be stored
+		// costs only the next run.
+		_ = cache.PutResult(module, testResultKey(opts, tc, childArgs, limit, ledger), result.encode())
+	}
+	return nil
+}
+
+// testChildArgs are the test binary's arguments for opts. The binary names
+// the source, as it was given here (a file or a package's folder), in a
+// refuted case's or law's replay line (X1b), and a receipt names the
+// source and its revision (L10).
+func testChildArgs(opts fileOptions, revision string) ([]string, error) {
+	childArgs := []string{"--source", opts.file, "--revision", revision}
 	if opts.seed != "" {
 		childArgs = append(childArgs, "--seed", opts.seed)
 	}
@@ -108,7 +201,7 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 	if opts.receipt != "" {
 		path, err := filepath.Abs(opts.receipt)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		childArgs = append(childArgs, "--receipt", path)
 	}
@@ -123,48 +216,7 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		// $Want), plain or explored: one name, one reading of it.
 		childArgs = append(childArgs, "--run", opts.run)
 	}
-	// The test binary runs under a memory limit, 2 GiB unless
-	// ERGO_PROGRAM_MEMORY sets another, and its stderr passes through a
-	// watcher, so a test that grows without bound stops early and `ergo`
-	// says which limit stopped it (docs/tooling.md, "Test memory").
-	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
-	if err != nil {
-		return err
-	}
-	if opts.search.mode != "" {
-		// A search runs each schedule in a worker of the binary, each
-		// under the same limit (explore.go).
-		seed := uint64(1)
-		if opts.seed != "" {
-			seed, _ = strconv.ParseUint(opts.seed, 10, 64)
-		}
-		return exploreSearch(os.Stdout, l, binary, childArgs, opts.search, opts.run, seed, limit)
-	}
-	child := testProgramCommand(binary, childArgs, limit)
-	if err := runEntryProcess(child, limit, proclimit.Watch(child)); err != nil {
-		return err
-	}
-	if opts.law != "" || opts.skipLaw != "" || opts.run != "" || opts.explore {
-		// A partial run checks only some laws: it leaves the ledger.
-		return nil
-	}
-	// The passing run writes the law ledger (runtime.md, Tests 10): the
-	// laws and site instances the run build uses, checked alone.
-	changed, err := sketchfront.UpdateLedger(l.analysis, sketchfront.BuildRequest{
-		Mode:      build.ModeBuild,
-		Source:    l.source.Admitted(),
-		Cache:     build.Cache{Root: root},
-		Toolchain: tc, // no explore tag: an explored run returned above
-		Stderr:    os.Stderr,
-		Ledger:    ledgerPath(opts.file),
-	})
-	if err != nil {
-		return err
-	}
-	if changed > 0 {
-		fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
-	}
-	return nil
+	return childArgs, nil
 }
 
 // testProgramCommand keeps the test program's collector inside its hard

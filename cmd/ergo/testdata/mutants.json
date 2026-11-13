@@ -251,6 +251,113 @@
       "rule": "The HOME witness measures Ergo's writes: with Go's telemetry left on, the compile and link the direct build path runs write their counters under the witnessed HOME, which is Go's write, not Ergo's.",
       "anchor": {"tests": ["cmd/ergo:TestPackageNeverWritesUnderHome"]},
       "killers": ["cmd/ergo:TestPackageNeverWritesUnderHome"]
+    },
+    {
+      "name": "test-main-initialized",
+      "origin": "wf10 fu-test-main, g-b2",
+      "file": "cmd/ergo/test.go",
+      "from": "if opts.search.mode == \"\" && nothingToTest(",
+      "to": "if false && opts.search.mode == \"\" && nothingToTest(",
+      "rule": "ergo test builds and runs no package with nothing to test, so a main package's initializers never run.",
+      "killers": ["cmd/ergo:TestModuleCommands"],
+      "anchor": {"tests": ["cmd/ergo:TestModuleCommands"]}
+    },
+    {
+      "name": "empty-receipt-builds",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/test.go",
+      "from": "if opts.search.mode == \"\" && nothingToTest(",
+      "to": "if opts.search.mode == \"\" && opts.receipt == \"\" && nothingToTest(",
+      "rule": "A package with nothing to test is not built for a receipt either (the fu-test-main gap).",
+      "killers": ["cmd/ergo:TestModuleCommands"],
+      "anchor": {"tests": ["cmd/ergo:TestModuleCommands"]}
+    },
+    {
+      "name": "empty-run-names",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/empty.go",
+      "from": "\"; the names: \"",
+      "to": "\"; names: \"",
+      "rule": "The empty run refuses a --run name with the test binary's own usage line.",
+      "killers": ["cmd/ergo:TestEmptyRunMatchesTheRunner"]
+    },
+    {
+      "name": "empty-seed-default",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/empty.go",
+      "from": "\t\t\tseed = \"1\"\n",
+      "to": "\t\t\tseed = \"0\"\n",
+      "rule": "The empty run's receipt names the seed the test binary would use, 1 when none is given.",
+      "killers": ["cmd/ergo:TestEmptyRunMatchesTheRunner"]
+    },
+    {
+      "name": "empty-law-status",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/empty.go",
+      "from": "\"error: no law \"+opts.law)\n\t\treturn exitStatusError{code: 1, handled: true}",
+      "to": "\"error: no law \"+opts.law)\n\t\treturn exitStatusError{code: 2, handled: true}",
+      "rule": "A --law name in a package with nothing to test fails with the test binary's status, 1.",
+      "killers": ["cmd/ergo:TestEmptyRunMatchesTheRunner"]
+    },
+    {
+      "name": "cache-args-unkeyed",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/testcache.go",
+      "from": "\tfor _, a := range args {\n\t\twrite(a)\n\t}\n",
+      "to": "",
+      "rule": "A test result is keyed by the binary's arguments: a --run name replays no run of every test.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+    },
+    {
+      "name": "cache-env-unkeyed",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/testcache.go",
+      "from": "\twrite(strconv.Itoa(len(env)))\n\tfor _, kv := range env {\n\t\twrite(kv)\n\t}\n",
+      "to": "",
+      "rule": "A test result is keyed by the GO*, CGO_* and ERGO_* variables the go command and the runtime read.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+    },
+    {
+      "name": "cache-go-unkeyed",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/testcache.go",
+      "from": "\twrite(goPath)\n\twrite(strconv.FormatInt(info.Size(), 10))\n\twrite(strconv.FormatInt(info.ModTime().UnixNano(), 10))\n",
+      "to": "\t_ = info\n",
+      "rule": "A test result is keyed by the go command that links the binary, so another or a reinstalled Go misses.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+    },
+    {
+      "name": "cache-count-ignored",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/testcache.go",
+      "from": "opts.uncached || ",
+      "to": "",
+      "rule": "--count 1 always runs, as go test -count=1.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+    },
+    {
+      "name": "cache-fail-kept",
+      "origin": "wf10 g-b2",
+      "file": "cmd/ergo/test.go",
+      "from": "\tif err := runEntryProcess(child, limit, proclimit.Watch(child)); err != nil {\n\t\treturn err\n\t}\n",
+      "to": "\terr = runEntryProcess(child, limit, proclimit.Watch(child))\n\t_ = cache.PutResult(module, tc, key, result.encode())\n\tif err != nil {\n\t\treturn err\n\t}\n",
+      "rule": "Only a passing run is cached: a cached verdict is the verdict of a rerun.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
+    },
+    {
+      "name": "cache-hit-links",
+      "origin": "wf10 g-b2",
+      "file": "internal/sketchfront/sketchfront.go",
+      "from": "if req.Reuse != nil && req.Reuse(module) {",
+      "to": "if req.Reuse != nil && req.Reuse(module) && false {",
+      "rule": "A cached test result is found before the link: a warm hit invokes no go command.",
+      "killers": ["cmd/ergo:TestTestResultCache"],
+      "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
     }
   ]
 }
