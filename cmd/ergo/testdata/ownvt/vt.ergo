@@ -1,0 +1,48 @@
+// ownvt (TestHandoverGrowsLinearly): lane G's DT1 repro (examples/vt, wf10
+// OWN1 inbox g-vt-threaded). A []Event threaded through a per-byte step,
+// ev = p.step(b, ev), copied the whole list on every byte at main
+// e02194103: quadratic in the stream. Run: ownvt N feeds 3N bytes.
+
+import os
+import strconv
+import strings
+
+type Event = Text{C byte} | Control{C byte}
+
+type Stream { count int }
+
+func step(p *Stream, b byte, out []Event) []Event {
+	let mut ev = out
+	p.count += 1
+	if b < 0x20 {
+		ev = ev.Append(Control{C: b})
+	} else {
+		ev = ev.Append(Text{C: b})
+	}
+	ev
+}
+
+func Feed(p *Stream, input string, out []Event) []Event {
+	let mut ev = out
+	for i in 0..len(input) {
+		ev = p.step(input[i], ev)
+	}
+	ev
+}
+
+func main() fails os.Exit needs Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: ownvt N"}
+	}
+	let n = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "N"}
+	}
+	let text = strings.Repeat("aa\n", n)
+	let mut p = Stream{count: 0}
+	let ev = p.Feed(text, []Event{})
+	if len(ev) != 3 * n {
+		return os.Exit{Code: 1, Message: "lost events"}
+	}
+}
