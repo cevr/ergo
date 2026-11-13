@@ -296,13 +296,17 @@ func React(id string, e run.Event) []Notice {
 
 **The log is the source; a view and a policy are its followers.** `examples/pipeline`'s desk keeps each step's entries in the stream `pipeline` of a `domain.Log` before it commits the step, and a restart folds the stream back into the desk (`Rebuild`). The board and the notices are not part of the desk: each is a `domain.Follow` follower of the stream with its own cursor, so a follower added later reads the whole history, and one that falls behind catches up from its cursor. The laws hold the parts together: the stream folds back into the desk the scene ended in, a restart part-way goes on to the story's end, and the followed board is the fold of the entries.
 
-<!-- quote examples/pipeline/pipeline/log_laws.ergo RestartGoesOn -->
+<!-- quote examples/pipeline/pipeline/log_laws.ergo RestartGoesOn restarted -->
 ```go
 // RestartGoesOn: a context stopped after the acts before cut and opened
 // again over the same log (a restart: it recovers by Rebuild, then
 // appends after the last record) plays the rest of the acts to the desk
 // that the story of all of them gives.
-law RestartGoesOn(acts []Act, flaky []int, cut int) {
+law RestartGoesOn(acts []Act, flaky []int, cut int) { restarted(acts, flaky, cut) }
+
+// restarted is whether the acts, played on a log, stopped after the acts
+// before cut and played on again, end in the story's desk.
+func restarted(acts []Act, flaky []int, cut int) bool {
 	let k = len(acts) + 1
 	let at = ((cut % k) + k) % k
 	let log = memory.New[Entry]()
