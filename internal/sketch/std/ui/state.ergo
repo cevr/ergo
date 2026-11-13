@@ -36,7 +36,7 @@ func remember[E](f *Frame[E], init Cell, at CallSite) (cellAt, Cell) {
 	let o = owner(f, f.parent)
 	let mut c = init
 	if arena.Has(f.nodes, o) {
-		match nodeAt(f, o).cells.Get(id) {
+		match cellOf(f, o, id) {
 		case Some[Cell] as old:
 			if sameCell(old.Value, init) {
 				c = old.Value
@@ -174,7 +174,7 @@ func settle[E](f *Frame[E]) {
 		let mut m = loadsOf(loads, o)
 		let mut s = slot{key: l.key, epoch: 0}
 		let mut started = true
-		match nodeAt(f, o).loads.Get(l.id) {
+		match loadAt(f, o, l.id) {
 		case Some[slot] as old:
 			if old.Value.key == l.key {
 				s = old.Value
@@ -204,7 +204,50 @@ func settle[E](f *Frame[E]) {
 
 // keep walks the tree: each node gets this pass's cells and loads, and each
 // load it held that this pass does not keep is cancelled.
+// A node that holds no cell or load and gets none keeps its empty maps:
+// only the nodes with state are written (GP frame cost, UC-2).
 func keep[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]]) {
+	if hasState(f, r) || has(cells, r) || has(loads, r) {
+		store(f, r, cells, loads)
+	}
+	for i in 0..kidCount(f, r) {
+		keep[E](f, kidAt(f, r, i), cells, loads)
+	}
+}
+
+// hasState is whether the node r names holds a cell or a load.
+func hasState[E](f *Frame[E], r arena.Ref[node[E]]) bool {
+	let mut any = false
+	change(f, r, func(n *node[E]) { any = len(n.cells) > 0 || len(n.loads) > 0 })
+	any
+}
+
+func has[K comparable, V](m Map[K, V], k K) bool {
+	match m.Get(k) {
+	case Some[V]:
+		true
+	case None:
+		false
+	}
+}
+
+// cellOf is the cell id of the node r names, None for none.
+func cellOf[E](f *Frame[E], r arena.Ref[node[E]], id ident) Option[Cell] {
+	let mut c Option[Cell] = None
+	change(f, r, func(n *node[E]) { c = n.cells.Get(id) })
+	c
+}
+
+// loadAt is the load id of the node r names, None for none.
+func loadAt[E](f *Frame[E], r arena.Ref[node[E]], id ident) Option[slot] {
+	let mut s Option[slot] = None
+	change(f, r, func(n *node[E]) { s = n.loads.Get(id) })
+	s
+}
+
+// store gives the node r names this pass's cells and loads, and cancels
+// each load it held that this pass does not keep.
+func store[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]]) {
 	let n = nodeAt(f, r)
 	let now = loadsOf(loads, r)
 	for id, l in n.loads {
@@ -222,9 +265,6 @@ func keep[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Ma
 		m.cells = c
 		m.loads = now
 	})
-	for k in n.kids {
-		keep[E](f, k, cells, loads)
-	}
 }
 
 // made is the node of this pass that spec index p (-1 the root) became.

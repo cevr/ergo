@@ -330,6 +330,9 @@ func part(f *ui.Frame[int], at int, i int) ui.Id[int] {
 
 func pick(r *rng, keepAll bool) []int {
 	let mut keys = []int{}
+	if !keepAll && draw(r, 4) == 0 {
+		return keys
+	}
 	for k in 0..6 {
 		if keepAll || draw(r, 3) != 0 {
 			keys = keys.Append(k)

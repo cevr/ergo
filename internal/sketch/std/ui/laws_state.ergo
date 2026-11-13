@@ -69,9 +69,13 @@ func part(f *Frame[int], at int, i int) Id[int] {
 }
 
 // pick is a subset of the keys 0 to 5 in a drawn order; all of them when
-// keepAll.
+// keepAll. A quarter of the other picks are empty, so a pass leaves every
+// row out and the column that held their cells holds none.
 func pick(r *rng, keepAll bool) []int {
 	let mut keys = []int{}
+	if !keepAll && draw(r, 4) == 0 {
+		return keys
+	}
 	for k in 0..6 {
 		if keepAll || draw(r, 3) != 0 {
 			keys = keys.Append(k)

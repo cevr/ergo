@@ -156,8 +156,9 @@ func prior[E](f *Frame[E], id ident) arena.Ref[node[E]] {
 	}
 	let k = f.parent + 1
 	if f.indexed.Get(k) == None {
-		for r in nodeAt(f, o).kids {
-			f.index[kid{parent: k, id: nodeAt(f, r).id}] = r
+		for i in 0..kidCount(f, o) {
+			let r = kidAt(f, o, i)
+			f.index[kid{parent: k, id: idOf(f, r)}] = r
 		}
 		f.indexed[k] = true
 	}
@@ -173,7 +174,7 @@ func prior[E](f *Frame[E], id ident) arena.Ref[node[E]] {
 func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Option[cellAt], at CallSite) int {
 	let id = identify(f, at)
 	let mut prev = prior(f, id)
-	if arena.Has(f.nodes, prev) && kindOf(nodeAt(f, prev).node) != kindOf(n) {
+	if arena.Has(f.nodes, prev) && kindAt(f, prev) != kindOf(n) {
 		prev = arena.Null[node[E]]()
 	}
 	f.specs = f.specs.Append(spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds})
@@ -278,6 +279,53 @@ func nodeAt[E](f *Frame[E], r arena.Ref[node[E]]) node[E] {
 	}
 }
 
+// The readers of one field of a retained node read it in place, through
+// the arena's borrow, and copy only what they return: nodeAt copies the
+// whole node, its children and its cell and load maps, to read one field
+// (GP frame cost, UC-2).
+
+// idOf is the identity of the node r names.
+func idOf[E](f *Frame[E], r arena.Ref[node[E]]) ident {
+	let mut id = ident{site: nowhere, each: nowhere, key: NoKey, n: 0}
+	change(f, r, func(n *node[E]) { id = n.id })
+	id
+}
+
+// kindAt is the kind of what the node r names shows.
+func kindAt[E](f *Frame[E], r arena.Ref[node[E]]) int {
+	let mut k = -1
+	change(f, r, func(n *node[E]) { k = kindOf(n.node) })
+	k
+}
+
+// shows is whether the node r names shows x.
+func shows[E comparable](f *Frame[E], r arena.Ref[node[E]], x Node[E]) bool {
+	let mut same = false
+	change(f, r, func(n *node[E]) { same = n.node == x })
+	same
+}
+
+// kidCount is the number of children of the node r names.
+func kidCount[E](f *Frame[E], r arena.Ref[node[E]]) int {
+	let mut c = 0
+	change(f, r, func(n *node[E]) { c = len(n.kids) })
+	c
+}
+
+// kidAt is child i of the node r names.
+func kidAt[E](f *Frame[E], r arena.Ref[node[E]], i int) arena.Ref[node[E]] {
+	let mut k = arena.Null[node[E]]()
+	change(f, r, func(n *node[E]) { k = n.kids[i] })
+	k
+}
+
+// kidsOf is the children of the node r names.
+func kidsOf[E](f *Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
+	let mut kids = []arena.Ref[node[E]]{}
+	change(f, r, func(n *node[E]) { kids = n.kids })
+	kids
+}
+
 // change runs edit on the node r names.
 func change[E](f *Frame[E], r arena.Ref[node[E]], edit func(n *node[E])) {
 	f.nodes.Update(r, edit) catch {
@@ -292,7 +340,7 @@ func emit[E](f *Frame[E], op Op[E]) { f.ops = f.ops.Append(op) }
 // of want (spec indices), keeping each old child that put matched (prev),
 // and then does the same below each child.
 func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node[E]], want []int) {
-	let old = nodeAt(f, pr).kids
+	let old = kidsOf(f, pr)
 	let mut oldAt = Map[arena.Ref[node[E]], int]{}
 	let mut used = []bool{}
 	for i, r in old {
@@ -342,7 +390,7 @@ func reconcile[E comparable](f *Frame[E], kids [][]int, p int, pr arena.Ref[node
 		if src[j] < 0 {
 			emit(f, Insert{Id: id, Parent: parent, Before: before, Node: sp.node})
 		} else {
-			if nodeAt(f, refs[j]).node != sp.node {
+			if !shows(f, refs[j], sp.node) {
 				emit(f, Set{Id: id, Node: sp.node})
 			}
 			change(f, refs[j], func(n *node[E]) {
