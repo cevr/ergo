@@ -1444,6 +1444,24 @@
       "to": "\t\tcase k:\n\t\t\treturn t.vals[i&^1]",
       "rule": "A node's facts are its own: the table finds the node it was given.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o33-literal-frame-pooled",
+      "origin": "wf10 ORACLE O33",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\tfr.escaped = true\n\t\treturn &closure{lit: x,",
+      "to": "\t\treturn &closure{lit: x,",
+      "rule": "A function literal reads and writes the slots of the frame it was made in for as long as it lives, after that frame's call returned too.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o33-plain-skips-conversion",
+      "origin": "wf10 ORACLE O33",
+      "file": "internal/sketch/eval/facts.go",
+      "from": "\t\t(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow)",
+      "to": "\t\ttrue",
+      "rule": "A value the checker converts where it is used (a provider into an operation type) is converted however its expression is dispatched.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     }
   ]
 }
