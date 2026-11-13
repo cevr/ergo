@@ -1,0 +1,50 @@
+// Package view is the counter's screen: the count, its buttons, the steps
+// to pick and the keys. It only reads the count and names signals; any ui
+// host shows it (ui.TestHost here, the MyGo window in hosts/mygo).
+
+import ergo.local/prototype/examples/countergui/counter
+import ui
+
+// Steps are the steps the screen offers.
+let Steps = []int{1, 5, 10}
+
+// View shows c.
+func View(f *ui.Frame[counter.Op], c counter.Count) {
+	let mut page = ui.Plain()
+	page.Gap = 12
+	page.Padding = ui.All(16)
+	ui.Column(f, page) {
+		ui.Text(f, "count \(c.Value)")
+		let mut row = ui.Plain()
+		row.Gap = 8
+		ui.Row(f, row) {
+			ui.Pressable(f, "dec", counter.Dec) {
+				ui.Text(f, "−")
+			}
+			ui.Pressable(f, "inc", counter.Inc) {
+				ui.Text(f, "+")
+			}
+			ui.Pressable(f, "reset", counter.Reset) {
+				ui.Text(f, "Reset")
+			}
+		}
+		ui.Row(f, row) {
+			ui.Text(f, "step")
+			ui.Each(f, Steps, func(by int) ui.Key { ui.ByInt(by) }) func(by int) {
+				ui.Check(f, "by \(by)", c.By == by, counter.StepBy{By: by})
+			}
+		}
+		ui.OnKey(f, func(k ui.KeyPress) Option[counter.Op] {
+			match k.Name {
+			case "+":
+				Some{Value: counter.Inc}
+			case "-":
+				Some{Value: counter.Dec}
+			case "0":
+				Some{Value: counter.Reset}
+			case _:
+				None
+			}
+		})
+	}
+}

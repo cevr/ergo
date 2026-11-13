@@ -1,0 +1,77 @@
+// Package counter is the counter's model: a count that a step moves up
+// and down, never below zero, and a step the user picks. It is a machine
+// with its laws; the view and the hosts only send it signals.
+
+import machines
+
+// Count is the counter's state: its value and the step Inc and Dec move it
+// by.
+type Count { Value int, By int }
+
+// Op is a signal: move up or down by the step, go back to zero, or pick
+// another step (1 to 100).
+type Op = Inc{} | Dec{} | Reset{} | StepBy{By int}
+
+// Zero is the counter before any signal: 0, stepping by 1.
+let Zero = Count{Value: 0, By: 1}
+
+// Step is the counter's transition. Dec stops at zero: a count is never
+// negative. A step outside 1 to 100 is refused and changes nothing.
+func Step(c Count, op Op) Decision[Count, Count] {
+	match op {
+	case Inc:
+		Enter[Count]{Next: Count{Value: c.Value + c.By, By: c.By}}
+	case Dec:
+		Enter[Count]{Next: Count{Value: if c.Value > c.By { c.Value - c.By } else { 0 }, By: c.By}}
+	case Reset:
+		Enter[Count]{Next: Count{Value: 0, By: c.By}}
+	case StepBy as s:
+		if s.By < 1 || s.By > 100 {
+			return Ignore
+		}
+		Enter[Count]{Next: Count{Value: c.Value, By: s.By}}
+	}
+}
+
+// Counter is the model as a machine.
+type Counter machine[Count, Op] {
+	initial: Zero,
+	step:    Step,
+
+	// IncThenDecRestores: a Dec takes back the Inc before it, from any
+	// count and step.
+	law IncThenDecRestores(v int, by int) {
+		let c = some(v, by)
+		after(after(c, Inc), Dec) == c
+	},
+
+	// NeverNegative: no Dec takes the count below zero.
+	law NeverNegative(v int, by int) {
+		after(some(v, by), Dec).Value >= 0
+	},
+
+	// ResetKeepsTheStep: Reset goes to zero and keeps the step.
+	law ResetKeepsTheStep(v int, by int) {
+		let c = some(v, by)
+		after(c, Reset) == Count{Value: 0, By: c.By}
+	},
+
+	// BadStepIgnored: a step outside 1 to 100 changes nothing.
+	law BadStepIgnored(v int, by int) {
+		let c = some(v, by)
+		let bad = if by%2 == 0 { 0 - below(by, 50) } else { 101 + below(by, 50) }
+		after(c, StepBy{By: bad}) == c
+	},
+}
+
+// some is a count a law starts from: 0 to 999, stepping by 1 to 100.
+func some(v int, by int) Count { Count{Value: below(v, 1000), By: below(by, 100) + 1} }
+
+// below is n folded into 0 to m-1.
+func below(n int, m int) int { (n%m + m) % m }
+
+func after(c Count, op Op) Count { machines.Next(c, Step(c, op)) }
+
+// Summary is the count as one line, what a headless run prints after each
+// step on any host.
+func Summary(c Count) string { "count \(c.Value) by \(c.By)" }

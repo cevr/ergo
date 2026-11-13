@@ -1,0 +1,18 @@
+# add three, mark two, filter, clear the done ones
+type new item	milk
+tap add
+type new item	eggs
+tap add
+type new item	   
+tap add
+type new item	tea
+tap add
+tap milk
+tap tea
+tap open
+tap done
+tap milk
+tap all
+tap clear
+tap del eggs
+tap del eggs
