@@ -1,13 +1,23 @@
-# fk-flow: the upstream tests of generative-art at d21db423 and what restates each.
-# canvas-art's tests are in canvas-art-tests.txt: source names one folder (README.md, "Two originals").
+# fk-flow: the upstream tests of canvas-art and generative-art at d21db423 and what restates each.
+# source names both folders, so each FILE starts with its folder's name.
 # No story is an Ergo test: a law and the tour case kill every mutant a test of it would (README.md, "Upstream tests").
-src/story.test.ts: ClickedTogglePlay flips isRunning -> `scene` law `PausedTickIsIdentity`; case `tour` (toggle in the flow)
-src/story.test.ts: ClickedReset clears particles and the mouse position -> case `tour` (clear in the flow: 0 particles, pointer none)
-src/story.test.ts: MovedPointer sets maybeMousePosition to the new coordinates -> case `tour` (move 480 300); `scene` law `ActsReachTheShownScene` (ignored over the balls)
-src/story.test.ts: CompletedGenerateAmbientParticle appends a particle and increments nextId -> `flow` law `AFrameKeepsTheCrowd` (births numbered on); case `tour` (show flow: 45, numbered to 45)
-src/story.test.ts: TickedFrame advances existing particles, ages them, and dispatches ambient spawn Commands that append new particles -> `flow` law `AFrameKeepsTheCrowd`; case `tour` (frame 16 x30: 45 to 55)
-src/story.test.ts: CompletedGenerateBurstParticle appends a particle with its initial angle preserved -> `flow` law `ABurstFansOut`; case `tour` (press 480 300: 22 from bursts)
-src/scene.test.ts: initial view shows Pause and Reset buttons and a zero particle counter -> not restated: stage a has no view (FK12b, after H4, H4r, H5a and H5c)
-src/scene.test.ts: clicking Pause swaps the toggle to Play -> not restated: stage a has no view (FK12b); case `tour` shows running and paused
-src/scene.test.ts: clicking Reset empties the particles list -> not restated: stage a has no view (FK12b); case `tour` (clear in the flow)
-src/scene.test.ts: Turbulence and Noise scale sliders are present and labeled -> not restated: stage a has no view (FK12b); `flow` law `SlidersKeepTheirSteps` for their values
+canvas-art/src/story.test.ts: ClickedCanvas fires GenerateBall with the click coordinates -> `balls` law `DropsDrawFromTheStream`; case `tour` (press 300 200)
+canvas-art/src/story.test.ts: CompletedGenerateBall increments nextId for each ball added -> `balls` law `DropsDrawFromTheStream`; case `tour` (ball 3 after a clear)
+canvas-art/src/story.test.ts: advances ball positions based on velocity and delta time -> case `tour` (frame 16 x10)
+canvas-art/src/story.test.ts: bounces a ball off the canvas edges, flipping its velocity -> `balls` law `BallsStayInBounds`; case `tour` (ball 1 off the left edge)
+canvas-art/src/story.test.ts: ClickedClear empties the balls list -> case `tour` (clear over the balls)
+canvas-art/src/story.test.ts: ClickedTogglePlay flips the isRunning flag -> `scene` law `PausedTickIsIdentity`; case `tour` (toggle over the balls)
+canvas-art/src/scene.test.ts: initial view shows the heading, prompt, and Pause + Clear controls -> not restated: stage a has no view (FK12b, after H4, H4r, H5a and H5c)
+canvas-art/src/scene.test.ts: Pause toggles to Play when the simulation is stopped -> not restated: stage a has no view (FK12b); case `tour` shows running and paused
+canvas-art/src/scene.test.ts: the ball count reflects spawned balls in the Model -> not restated: stage a has no view (FK12b); case `tour` shows the count's line
+canvas-art/src/scene.test.ts: Clear empties the rendered ball count -> not restated: stage a has no view (FK12b); case `tour` (clear over the balls)
+generative-art/src/story.test.ts: ClickedTogglePlay flips isRunning -> `scene` law `PausedTickIsIdentity`; case `tour` (toggle in the flow)
+generative-art/src/story.test.ts: ClickedReset clears particles and the mouse position -> case `tour` (clear in the flow: 0 particles, pointer none)
+generative-art/src/story.test.ts: MovedPointer sets maybeMousePosition to the new coordinates -> case `tour` (move 480 300); `scene` law `ActsReachTheShownScene` (ignored over the balls)
+generative-art/src/story.test.ts: CompletedGenerateAmbientParticle appends a particle and increments nextId -> `flow` law `AFrameKeepsTheCrowd` (births numbered on); case `tour` (show flow: 45, numbered to 45)
+generative-art/src/story.test.ts: TickedFrame advances existing particles, ages them, and dispatches ambient spawn Commands that append new particles -> `flow` law `AFrameKeepsTheCrowd`; case `tour` (frame 16 x30: 45 to 55)
+generative-art/src/story.test.ts: CompletedGenerateBurstParticle appends a particle with its initial angle preserved -> `flow` law `ABurstFansOut`; case `tour` (press 480 300: 22 from bursts)
+generative-art/src/scene.test.ts: initial view shows Pause and Reset buttons and a zero particle counter -> not restated: stage a has no view (FK12b, after H4, H4r, H5a and H5c)
+generative-art/src/scene.test.ts: clicking Pause swaps the toggle to Play -> not restated: stage a has no view (FK12b); case `tour` shows running and paused
+generative-art/src/scene.test.ts: clicking Reset empties the particles list -> not restated: stage a has no view (FK12b); case `tour` (clear in the flow)
+generative-art/src/scene.test.ts: Turbulence and Noise scale sliders are present and labeled -> not restated: stage a has no view (FK12b); `flow` law `SlidersKeepTheirSteps` for their values

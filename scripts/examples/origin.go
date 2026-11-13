@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,10 +15,12 @@ import (
 // §18.3), where a CLI port holds an origin file beside record.sh. The
 // folder holds:
 //
-//   - source: one line, the path from the repository root of the vendored
-//     upstream folder whose story and scene tests the port restates;
+//   - source: a line per vendored upstream folder whose story and scene
+//     tests the port restates, its path from the repository root (a port
+//     of two Foldkit examples names both);
 //   - tests.txt: one line per upstream test, "FILE: TITLE -> RESTATEMENT",
-//     FILE being the test file's path under source, TITLE the test's
+//     FILE being the test file's path under its folder (with more than
+//     one folder, after the folder's last element and a slash), TITLE the test's
 //     title as written (an .each table is one test), and RESTATEMENT the
 //     Ergo test, law or script that restates it, or "not restated: …"
 //     with the reason; lines that start with # are comments;
@@ -193,46 +196,74 @@ func checkOrigin(dir, root string) []string {
 	if err != nil {
 		return []string{err.Error()}
 	}
-	rel := strings.TrimSpace(string(raw))
-	if rel == "" || strings.Contains(rel, "\n") || filepath.IsAbs(rel) || !filepath.IsLocal(rel) {
-		problem("source: one line, a path inside the repository to the vendored upstream folder")
+	var rels []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			rels = append(rels, line)
+		}
+	}
+	if len(rels) == 0 {
+		problem("source: a line per upstream folder, a path inside the repository to the vendored folder")
 		return problems
 	}
-	upstream := filepath.Join(root, rel)
+	// With one folder, FILE is the path under it; with more, FILE starts
+	// with the folder's last element, so the folders' last elements differ.
+	prefixes := map[string]string{}
+	for _, rel := range rels {
+		if filepath.IsAbs(rel) || !filepath.IsLocal(rel) {
+			problem("source: %s is not a path inside the repository", rel)
+			return problems
+		}
+		prefix := ""
+		if len(rels) > 1 {
+			prefix = filepath.Base(rel) + "/"
+		}
+		if other, ok := prefixes[prefix]; ok {
+			problem("source: %s and %s end in the same folder name, which FILE starts with", other, rel)
+			return problems
+		}
+		prefixes[prefix] = rel
+	}
 	want := map[string]int{}
-	err = filepath.WalkDir(upstream, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() && d.Name() == "node_modules" {
-			return filepath.SkipDir
-		}
-		if d.IsDir() || !isUpstreamTestFile(d.Name()) {
+	for _, prefix := range slices.Sorted(maps.Keys(prefixes)) {
+		rel := prefixes[prefix]
+		upstream := filepath.Join(root, rel)
+		before := len(want)
+		err = filepath.WalkDir(upstream, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() && d.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			if d.IsDir() || !isUpstreamTestFile(d.Name()) {
+				return nil
+			}
+			src, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			file, _ := filepath.Rel(upstream, path)
+			file = prefix + filepath.ToSlash(file)
+			titles, found := upstreamTitles(string(src))
+			for _, f := range found {
+				problem("source: %s %s", file, f)
+			}
+			for _, t := range titles {
+				want[file+": "+t]++
+			}
 			return nil
-		}
-		src, err := os.ReadFile(path)
+		})
 		if err != nil {
-			return err
+			problem("source: %v", err)
+			return problems
 		}
-		file, _ := filepath.Rel(upstream, path)
-		file = filepath.ToSlash(file)
-		titles, found := upstreamTitles(string(src))
-		for _, f := range found {
-			problem("source: %s %s", file, f)
+		if len(want) == before {
+			problem("source: %s holds no story or scene test", rel)
+			return problems
 		}
-		for _, t := range titles {
-			want[file+": "+t]++
-		}
-		return nil
-	})
-	if err != nil {
-		problem("source: %v", err)
-		return problems
 	}
-	if len(want) == 0 {
-		problem("source: %s holds no story or scene test", rel)
-		return problems
-	}
+	rel := strings.Join(rels, " or ")
 	text, err := os.ReadFile(filepath.Join(dir, "tests.txt"))
 	if err != nil {
 		return []string{err.Error()}

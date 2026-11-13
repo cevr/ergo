@@ -38,11 +38,11 @@ How the port differs from upstream:
 
 ## Two originals
 
-`origin/source` names one folder, `generative-art`, because the layout check reads one. `origin/tests.txt` covers generative-art's tests, and `origin/canvas-art-tests.txt` covers canvas-art's in the same form. The layout check does not read the second file.
+`origin/source` names both upstream folders, one a line. `origin/tests.txt` has a line for each test of both, and each FILE starts with its folder's name (`canvas-art/src/story.test.ts`).
 
 ## Upstream tests
 
-Upstream has 12 story tests and 8 scene tests. Each has a line in `origin/tests.txt` or `origin/canvas-art-tests.txt`. No story is an Ergo test, because a law or the `tour` case already kills every mutant that a test of it would. The scene tests need a view and are stage b.
+Upstream has 12 story tests and 8 scene tests. Each has a line in `origin/tests.txt`. No story is an Ergo test, because a law or the `tour` case already kills every mutant that a test of it would. The scene tests need a view and are stage b.
 
 ## Laws
 

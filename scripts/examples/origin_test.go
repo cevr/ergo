@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -23,24 +25,45 @@ import (
 // in the FK0 request): an .each table read as the title; it.effect not a
 // test; init( read as a test; a title across lines not collapsed; a file
 // that is not a story or scene read; an extra line accepted; a doubled
-// line accepted; a line with no restatement accepted.
+// line accepted; a line with no restatement accepted. An odd seed draws
+// two upstream folders (FKsrc), killing: only source's first line read;
+// FILE not prefixed with its folder's name; two folders of one name
+// accepted.
 func TestOriginFollowsUpstream(t *testing.T) {
 	t.Parallel()
 	for seed := uint64(1); seed <= 60; seed++ {
 		r := rand.New(rand.NewPCG(seed, 7))
 		root := t.TempDir()
-		files, lines := drawUpstream(r)
+		// An even seed has one upstream folder; an odd seed has two, whose
+		// FILEs start with the folder's last element.
+		folders := map[string]string{"up": ""}
+		if seed%2 == 1 {
+			folders = map[string]string{"up/a": "a/", "vendor/b": "b/"}
+		}
+		files := map[string]string{}
+		var lines []string
+		var source []string
+		for _, folder := range slices.Sorted(maps.Keys(folders)) {
+			drawn, ls := drawUpstream(r)
+			for name, src := range drawn {
+				files[folder+"/"+name] = src
+			}
+			for _, l := range ls {
+				lines = append(lines, folders[folder]+l)
+			}
+			source = append(source, folder)
+		}
 		for name, src := range files {
-			writeFile(t, filepath.Join(root, "up", name), src)
+			writeFile(t, filepath.Join(root, name), src)
 		}
 		origin := filepath.Join(root, "examples", "p", "origin")
 		writeFile(t, filepath.Join(origin, "README.md"), "# origin\n")
-		writeFile(t, filepath.Join(origin, "source"), "up\n")
+		writeFile(t, filepath.Join(origin, "source"), strings.Join(source, "\n")+"\n")
 		fail := func(what string, problems []string) {
 			t.Helper()
 			var b strings.Builder
 			for name, src := range files {
-				fmt.Fprintf(&b, "--- up/%s\n%s\n", name, src)
+				fmt.Fprintf(&b, "--- %s\n%s\n", name, src)
 			}
 			t.Fatalf("seed %d: %s: %q\n%s\nreplay: go test ./scripts/examples -run TestOriginFollowsUpstream", seed, what, problems, b.String())
 		}
@@ -50,6 +73,16 @@ func TestOriginFollowsUpstream(t *testing.T) {
 		}
 		if problems := check(lines); len(problems) != 0 {
 			fail("the drawn tests.txt is refused", problems)
+		}
+		if len(source) > 1 {
+			// Two folders whose last elements match would give FILEs that
+			// cannot be told apart.
+			writeFile(t, filepath.Join(origin, "source"), "up/a\nvendor/b\nvendor/a\n")
+			problems := checkOrigin(origin, root)
+			if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, "same folder name") }) {
+				fail("two folders of one name are not named", problems)
+			}
+			writeFile(t, filepath.Join(origin, "source"), strings.Join(source, "\n")+"\n")
 		}
 		k := r.IntN(len(lines))
 		key := lines[k][:strings.LastIndex(lines[k], " -> ")]

@@ -97,6 +97,24 @@
       "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(dir, file), filepath.Dir(filepath.Dir(dir)))...)\n", "to": "",
       "rule": "A program of one folder with an origin folder has its tests.txt checked.",
       "killers": ["scripts/examples:TestOriginFolderIsChecked"]
+    },
+    {
+      "name": "fksrc-first-source-only", "origin": "wf10 FKsrc", "file": "scripts/examples/origin.go",
+      "from": "\t\t\trels = append(rels, line)\n", "to": "\t\t\trels = append(rels[:0], line)\n",
+      "rule": "Every line of source is an upstream folder whose tests tests.txt restates.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fksrc-file-not-prefixed", "origin": "wf10 FKsrc", "file": "scripts/examples/origin.go",
+      "from": "\t\t\tprefix = filepath.Base(rel) + \"/\"\n", "to": "\t\t\tprefix = rel[:0]\n",
+      "rule": "With more than one folder, FILE starts with its folder's last element.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fksrc-same-name-accepted", "origin": "wf10 FKsrc", "file": "scripts/examples/origin.go",
+      "from": "\t\tif other, ok := prefixes[prefix]; ok {\n", "to": "\t\tif other, ok := prefixes[prefix]; ok && other == \"\" {\n",
+      "rule": "Two folders whose last elements match are refused, since their FILEs cannot be told apart.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
     }
   ]
 }
