@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -16,7 +17,7 @@ import (
 // check read, and the assets the package embeds: an edit of any of them
 // changes the package's source fingerprint. A program of one source text
 // has none.
-func (a Analysis) Fingerprints() []check.Fingerprint {
+func (a Analysis) Fingerprints() []fingerprint.Package {
 	p := a.program
 	if p == nil || p.root == nil {
 		return nil
@@ -32,14 +33,14 @@ func (a Analysis) Fingerprints() []check.Fingerprint {
 	for _, path := range bindings {
 		fmt.Fprintf(&env, "binding %q %q\n", path, p.bindings[path])
 	}
-	byPath := map[string]check.Fingerprint{}
-	var out []check.Fingerprint
+	byPath := map[string]fingerprint.Package{}
+	var out []fingerprint.Package
 	for _, q := range append(slices.Clone(p.imports), p.root) {
 		files := make([]*syntax.File, len(q.files))
 		for i, f := range q.files {
 			files[i] = f.syntax
 		}
-		var imports []check.Fingerprint
+		var imports []fingerprint.Package
 		for _, imp := range q.imports {
 			imports = append(imports, byPath[imp.path])
 		}

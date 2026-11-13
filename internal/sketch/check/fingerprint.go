@@ -1,13 +1,12 @@
 package check
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -26,7 +25,7 @@ import (
 //   - Implementation: the source and the implementation of each import.
 //     Only evaluation (tests, laws) reads it.
 //
-// Reusable decides, from the fingerprints of the last check and this one,
+// fingerprint.Reusable decides, from the fingerprints of the last check and this one,
 // the packages whose check this one could take as it was: a package whose
 // source is the same and whose imports' interfaces are the same. Nothing
 // skips work on it yet; the snapshot of a package that names its imports'
@@ -40,34 +39,12 @@ import (
 // fingerprintSchema versions every fingerprint.
 const fingerprintSchema = "ergo-fingerprint-1"
 
-// Fingerprint is one package's fingerprints. Source is "" when a file does
-// not parse, Interface "" when the package was not checked or has
-// diagnostics, and Implementation "" when Source is.
-type Fingerprint struct {
-	Path           string
-	Imports        []string // the local import paths, sorted
-	Source         string
-	Interface      string
-	Implementation string
-}
-
-// Clean reports a package that was checked with no diagnostic.
-func (f Fingerprint) Clean() bool { return f.Interface != "" }
-
-func fingerprintOf(parts ...string) string {
-	h := sha256.New()
-	for _, p := range parts {
-		fmt.Fprintf(h, "%d:%s\x00", len(p), p)
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
 // FingerprintOf is the fingerprints of the package at path, checked as
 // checkPath from files (a nil file did not parse) to pkg, with the
 // fingerprints of its local imports. clean is a check with no diagnostic;
 // env is the program's environment, which the caller encodes.
-func FingerprintOf(path, checkPath string, files []*syntax.File, pkg *Package, clean bool, env string, imports []Fingerprint) Fingerprint {
-	fp := Fingerprint{Path: path}
+func FingerprintOf(path, checkPath string, files []*syntax.File, pkg *Package, clean bool, env string, imports []fingerprint.Package) fingerprint.Package {
+	fp := fingerprint.Package{Path: path}
 	imports = slices.Clone(imports)
 	sort.Slice(imports, func(i, j int) bool { return imports[i].Path < imports[j].Path })
 	for _, q := range imports {
@@ -79,7 +56,7 @@ func FingerprintOf(path, checkPath string, files []*syntax.File, pkg *Package, c
 		for _, q := range imports {
 			parts = append(parts, q.Path, q.Implementation)
 		}
-		fp.Implementation = fingerprintOf(parts...)
+		fp.Implementation = fingerprint.Of(parts...)
 	}
 	if pkg == nil || !clean || fp.Source == "" {
 		return fp
@@ -91,7 +68,7 @@ func FingerprintOf(path, checkPath string, files []*syntax.File, pkg *Package, c
 		}
 		parts = append(parts, q.Path, q.Interface)
 	}
-	fp.Interface = fingerprintOf(parts...)
+	fp.Interface = fingerprint.Of(parts...)
 	return fp
 }
 
@@ -107,7 +84,7 @@ func SourceFingerprint(path string, files []*syntax.File, env string) string {
 		}
 		parts = append(parts, f.Name, syntax.TokenText(f.Src))
 	}
-	return fingerprintOf(parts...)
+	return fingerprint.Of(parts...)
 }
 
 // InterfaceText is the text the interface fingerprint hashes: each file's
@@ -194,37 +171,6 @@ func interfaceCuts(f *syntax.File) [][2]int {
 			continue
 		}
 		out = append(out, c)
-	}
-	return out
-}
-
-// Reusable is the paths of cur, in its order, whose check is the check of
-// prev: the package was clean in prev, its source is the same, and each
-// of its imports has a clean, unchanged interface. Each such package's
-// own interface is then unchanged too, so the decision runs bottom up.
-func Reusable(prev, cur []Fingerprint) []string {
-	before := map[string]Fingerprint{}
-	for _, p := range prev {
-		before[p.Path] = p
-	}
-	now := map[string]Fingerprint{}
-	for _, c := range cur {
-		now[c.Path] = c
-	}
-	var out []string
-next:
-	for _, c := range cur {
-		p, ok := before[c.Path]
-		if !ok || !p.Clean() || c.Source == "" || c.Source != p.Source {
-			continue
-		}
-		for _, imp := range c.Imports {
-			q, pq := now[imp], before[imp]
-			if !q.Clean() || q.Interface != pq.Interface {
-				continue next
-			}
-		}
-		out = append(out, c.Path)
 	}
 	return out
 }

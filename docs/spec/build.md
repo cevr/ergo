@@ -77,7 +77,7 @@ after every step, and the least work the model allows.
 After an edit, a package whose check would come out as it did last time need
 not be checked again: its source is the same and so is everything it sees of
 its imports. Three fingerprints per package decide it (compile-speed plan
-§5.3, CS5a; `internal/sketch/check/fingerprint.go`). Today they decide only.
+§5.3, CS5a; `internal/sketch/check/fingerprint.go` computes them, `internal/sketch/fingerprint` compares them). Today they decide only.
 The check still runs every package: a package's snapshot names its imports'
 objects by global id, so it cannot outlive a new check of an import, and
 reuse waits on references by name (CS5b).
@@ -90,11 +90,11 @@ reuse waits on references by name (CS5b).
    read and the assets the package embeds. A comment or layout edit changes
    no fingerprint. A file that does not parse leaves the source fingerprint
    empty, and an empty fingerprint equals none.
-2. **Interface fingerprint.** A hash of what an importer can see. It covers
+2. **Export fingerprint** (`Fingerprint.Interface`). A hash of what an importer can see. It covers
    each file's token text with two kinds of span cut out: the body of each
    function that is not generic, and the body of each test. It also covers
    the rows the checker inferred from those bodies, the package lets a body
-   assigns, the cell conversions the package makes, and the interface
+   assigns, the cell conversions the package makes, and the export
    fingerprint of each import. What stays covers every declaration's
    signature with its written rows, every type definition with its `where`,
    every operation type with the text of its laws, every top-level law,
@@ -104,23 +104,23 @@ reuse waits on references by name (CS5b).
    operation type it imports on its own providers. The facts a function
    `gives` and `keeps` and record invariants are not built yet
    ([facts](facts.md)); when they are, they stand in the declarations' text.
-   A package that was not checked, or that has a diagnostic, has no interface
+   A package that was not checked, or that has a diagnostic, has no export
    fingerprint.
 3. **Why it includes the imports'.** A type an import declares reaches an
    importer's importer through a let, a result or a field, with no token of
    it in the middle package (`let Sig = a.Sig`). A law of an import runs in
    the least package that sees it and a provider, at any depth (types.md,
-   Laws). So a change in an import's interface changes the interface of
+   Laws). So a change in an import's export fingerprint changes that of
    every package above it. An exported signature edit therefore makes every
    package above it check again. A rule that stops at a middle package whose
    own view did not change needs the references by name of CS5b.
 4. **Implementation fingerprint.** A hash of the source fingerprint and the
    implementation fingerprint of each import. Evaluation (tests, laws) runs
-   imported bodies, so its results are keyed by it, never by an interface.
-5. **The decision** (`check.Reusable`). A package can be taken as it was when
+   imported bodies, so its results are keyed by it, never by an export fingerprint.
+5. **The decision** (`fingerprint.Reusable`). A package can be taken as it was when
    it was clean last time, its source fingerprint is the same, and each of
-   its imports has the same interface fingerprint, which is not empty. Its
-   own interface is then the same too, so the decision runs bottom up from
+   its imports has the same export fingerprint, which is not empty. Its
+   own export fingerprint is then the same too, so the decision runs bottom up from
    the leaves, as OCaml's and ReScript's stop at an unchanged `.cmi` and Go's
    at unchanged export data.
 

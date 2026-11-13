@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -161,7 +162,7 @@ func (m fpImporter) Import(path string) (*Package, error) {
 // fingerprints and view (fpView), in import order. A package whose import
 // has diagnostics is not checked, as the loader does.
 type fpCheck struct {
-	fps   []Fingerprint
+	fps   []fingerprint.Package
 	views map[string]string
 	// sources is the source fingerprint of each package's import closure,
 	// the reference for Implementation.
@@ -172,7 +173,7 @@ func fpRun(t *testing.T, s map[string]int) fpCheck {
 	t.Helper()
 	srcs := fpSources(s)
 	imp := fpImporter{}
-	byPath := map[string]Fingerprint{}
+	byPath := map[string]fingerprint.Package{}
 	out := fpCheck{views: map[string]string{}, closure: map[string]string{}}
 	for _, p := range fpPackages {
 		var files []*syntax.File
@@ -189,7 +190,7 @@ func fpRun(t *testing.T, s map[string]int) fpCheck {
 			f.Name = name
 			files = append(files, f)
 		}
-		var imports []Fingerprint
+		var imports []fingerprint.Package
 		broken := false
 		closure := []string{SourceFingerprint(p.path, files, "")}
 		for _, q := range p.imports(s) {
@@ -314,7 +315,7 @@ func TestIncrementalCheckDecides(t *testing.T) {
 				t.Helper()
 				t.Fatalf("seed %d, edits %s: %s", seed, strings.Join(edits, " "), fmt.Sprintf(format, args...))
 			}
-			reused := Reusable(prev.fps, cur.fps)
+			reused := fingerprint.Reusable(prev.fps, cur.fps)
 			for i, fp := range cur.fps {
 				was := prev.fps[i]
 				if slices.Contains(reused, fp.Path) {

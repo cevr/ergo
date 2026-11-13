@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketchfront"
 )
@@ -18,7 +18,7 @@ import (
 // edited and checked again for each edit in turn (a comment in the lowest
 // package, a body there, an export added there, a declaration added to
 // main), and each line says how many packages the cutoff would check
-// again (check.Reusable) out of the packages a check from scratch checks.
+// again (fingerprint.Reusable) out of the packages a check from scratch checks.
 // Counts only: the same program and edits give the same lines on any host.
 func (r runner) reuse(label, dir, main, leaf string) {
 	pkg := filepath.Join(dir, main)
@@ -61,7 +61,7 @@ func (r runner) reuse(label, dir, main, leaf string) {
 
 // reuseCheck checks the program at pkg and prints its counted line
 // against the fingerprints of the check before, prev.
-func reuseCheck(label, step, pkg string, prev []check.Fingerprint) ([]check.Fingerprint, bool) {
+func reuseCheck(label, step, pkg string, prev []fingerprint.Package) ([]fingerprint.Package, bool) {
 	a, err := sketchfront.CheckDir(pkg)
 	if err != nil {
 		fmt.Printf("%s %s: %v\n", label, step, err)
@@ -76,7 +76,7 @@ func reuseCheck(label, step, pkg string, prev []check.Fingerprint) ([]check.Fing
 		fmt.Printf("%s %s: packages %d, checked %d\n", label, step, len(fps), len(fps))
 		return fps, true
 	}
-	reused := check.Reusable(prev, fps)
+	reused := fingerprint.Reusable(prev, fps)
 	var again []string
 	for _, fp := range fps {
 		if !slices.Contains(reused, fp.Path) {
