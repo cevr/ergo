@@ -147,7 +147,11 @@ func RPCTagOf(text string) string {
 }
 
 // RPCMalformed is rpc.Malformed: a request body that is not Effect RPC's.
+// Name is the defect's name: SyntaxError for a text that is not JSON (the
+// name of the error JavaScript's JSON.parse throws, which Effect's server
+// answers), Malformed for JSON that is not an envelope.
 type RPCMalformed struct {
+	Name   string
 	Reason string
 }
 
@@ -437,7 +441,11 @@ func RPCParse(text string, framed bool) ([]RPCEnvelope, error) {
 		raw = append(raw, e)
 	}
 	if err != nil {
-		return nil, RPCMalformed{Reason: err.Error()}
+		name := "Malformed"
+		if _, ok := err.(*json.SyntaxError); ok {
+			name = "SyntaxError"
+		}
+		return nil, RPCMalformed{Name: name, Reason: err.Error()}
 	}
 	envs := make([]RPCEnvelope, len(raw))
 	for i, e := range raw {

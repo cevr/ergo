@@ -26,8 +26,8 @@
       "anchor": {"tests": ["internal/rpcgen:TestRpcLoopbackAgrees"]},
       "origin": "wf10 Rm (R1 rpc-m4, moved into Answer)",
       "file": "internal/sketch/std/rpc/rpc.ergo",
-      "from": "if r.Path != base && r.Path != base+\"/\" {",
-      "to": "if r.Path != base {",
+      "from": "if (r.Path != base && r.Path != base+\"/\") || r.Method != \"POST\" {",
+      "to": "if r.Path != base || r.Method != \"POST\" {",
       "rule": "Answer answers the mount with a trailing slash, where Effect's RpcClient (and Call) posts.",
       "killers": ["internal/rpcgen:TestRpcLoopbackAgrees"]
     },
@@ -106,6 +106,46 @@
       "to": "\t\t\tx = \"v\"\n",
       "rule": "The int walker of a defined or refined int converts through its base, int64(int(v)): a refined value converts in one step only to its base.",
       "killers": ["internal/rpcgen:TestRefinedIntConvertsThroughItsBase"]
+    },
+    {
+      "name": "rpc-method-405",
+      "anchor": {"tests": ["internal/rpcgen:TestRpcLoopbackAgrees"]},
+      "origin": "wf10 FD1-g2",
+      "file": "internal/sketch/std/rpc/rpc.ergo",
+      "from": "\tif (r.Path != base && r.Path != base+\"/\") || r.Method != \"POST\" {\n",
+      "to": "\tif r.Method != \"POST\" {\n\t\treturn http.Response{Status: 405, Header: []http.Field{http.Field{Name: \"Allow\", Value: \"POST\"}}, Body: \"\"}\n\t}\n\tif r.Path != base && r.Path != base+\"/\" {\n",
+      "rule": "Another method at the mount is a 404 with no body, as Effect's router (one POST route) answers it.",
+      "killers": ["internal/rpcgen:TestRpcLoopbackAgrees"]
+    },
+    {
+      "name": "rpc-malformed-400",
+      "anchor": {"tests": ["internal/rpcgen:TestRpcLoopbackAgrees"]},
+      "origin": "wf10 FD1-g2",
+      "file": "internal/sketch/std/rpc/rpc.ergo",
+      "from": "\t\t\treturn defect(m.Name, m.Reason, framed)\n",
+      "to": "\t\t\treturn refusal(400, \"rpc: \\(m.Reason)\")\n",
+      "rule": "A body that is not Effect RPC's is a 200 whose one message is a Defect, as Effect's server answers it.",
+      "killers": ["internal/rpcgen:TestRpcLoopbackAgrees"]
+    },
+    {
+      "name": "rpc-defect-unframed",
+      "anchor": {"tests": ["internal/rpcgen:TestRpcLoopbackAgrees"]},
+      "origin": "wf10 FD1-g2",
+      "file": "internal/sketch/std/rpc/rpc.ergo",
+      "from": "Body: message + \"\\n\"}",
+      "to": "Body: \"[\" + message + \"]\"}",
+      "rule": "The Defect of an ndjson body is an ndjson line, in the body's framing.",
+      "killers": ["internal/rpcgen:TestRpcLoopbackAgrees"]
+    },
+    {
+      "name": "rpc-syntax-unnamed",
+      "anchor": {"tests": ["internal/rpcgen:TestRpcLoopbackAgrees"]},
+      "origin": "wf10 FD1-g2",
+      "file": "runtime/v1/rpc.go",
+      "from": "\t\t\tname = \"SyntaxError\"\n",
+      "to": "\t\t\tname = \"Malformed\"\n",
+      "rule": "A body that is not JSON is the Defect named SyntaxError, the error JSON.parse throws in Effect's server.",
+      "killers": ["internal/rpcgen:TestRpcLoopbackAgrees"]
     }
   ]
 }
