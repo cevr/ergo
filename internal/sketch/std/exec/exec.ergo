@@ -252,25 +252,33 @@ func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
 	}
 }
 
-// Start is a Running that replays the Result recorded for c: Chunks gives
-// its Stdout, then its Stderr, each when its sink is ToCaller (so Lines
-// gives the lines of each), and Wait its Status. It writes nothing to a
-// file or a stream of this process. It fails NotFound when Results holds
-// no Result for c.
+// Start is the Running of the Result recorded for c (Ended). It fails
+// NotFound when Results holds no Result for c.
 func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Failed {
 	match s.Results.Get(Key(c)) {
 	case Some[Result] as hit:
-		let mut cs = []Chunk{}
-		if toCaller(st.Stdout) {
-			cs = whole(cs, hit.Value.Stdout, false)
-		}
-		if toCaller(st.Stderr) {
-			cs = whole(cs, hit.Value.Stderr, true)
-		}
-		return replay(cs, hit.Value.Status, toCaller(st.Stdout) || toCaller(st.Stderr))
+		return Ended(hit.Value, st)
 	case None:
 		return NotFound{Name: c.Name}
 	}
+}
+
+// Ended is the Running of a program that has already ended with r: Chunks
+// gives r's Stdout, then its Stderr, each when its sink in s is ToCaller
+// (so Lines gives the lines of each), and Wait gives r's Status. It starts
+// nothing and writes nothing to a file or a stream of this process. It is
+// how any Runner that runs no program, Script or a module's own fake, gives
+// the Running its Start returns: a Running is the runtime's value, so no
+// other package's type implements it.
+func Ended(r Result, s Streams) Running {
+	let mut cs = []Chunk{}
+	if toCaller(s.Stdout) {
+		cs = whole(cs, r.Stdout, false)
+	}
+	if toCaller(s.Stderr) {
+		cs = whole(cs, r.Stderr, true)
+	}
+	replay(cs, r.Status, toCaller(s.Stdout) || toCaller(s.Stderr))
 }
 
 // whole is cs with the stream text as one Chunk, when it is not empty, and
