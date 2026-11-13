@@ -24,14 +24,14 @@ func Search(f Fixed, query string) []string fails Unavailable | Down {
 func find(s Phase) Option[machines.Work[Signal, Catalog]] {
 	match s {
 	case Searching as q:
-		Some{machines.Work{Run: func() []string fails Unavailable | Down needs Catalog { try Catalog.Search(q.Query) }, OnSuccess: func(items []string) Signal { Found{Items: items} }, OnFailure: func(f) {
+		Some{machines.Attempt(func() []string fails Unavailable | Down needs Catalog { try Catalog.Search(q.Query) }, func(items []string) Signal { Found{Items: items} }, func(f) {
 			match f {
 			case Unavailable:
 				Typed{Text: "none"}
 			case Down:
 				Typed{Text: "down"}
 			}
-		}}}
+		})}
 	case Results:
 		None
 	case Failed:

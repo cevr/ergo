@@ -1518,6 +1518,15 @@ func (p *parser) funcLitParams(l *FieldList) {
 func (p *parser) parseType(ctx typeCtx) Expr {
 	p.enter()
 	defer p.leave()
+	if p.tok.tok == IDENT && p.tok.lit == "entry" && p.peek(1).tok == FUNC {
+		// `entry func(…)`: the contextual word marks the type of an
+		// entry's send (Types); elsewhere entry stays a name.
+		pos := p.tok.pos
+		p.next()
+		t := p.parseFuncType(ctx)
+		t.Entry, t.EntryPos = true, pos
+		return t
+	}
 	switch p.tok.tok {
 	case IDENT, GO:
 		if p.tok.tok == GO && p.peek(1).tok != PERIOD {

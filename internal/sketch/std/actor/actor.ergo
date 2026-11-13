@@ -314,9 +314,11 @@ extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F,
 // identity: two children of one machine are two children. A child's
 // failure ends only the child (ExitOf reads it); a child's defect ends the
 // parent. send names the entry's signal type, so toParent gives the
-// parent's signals; the checker accepts a Child only with the send of the
-// Listen work that encloses the call (S108 elsewhere).
-func Child[S, E, O, F, R, W, P](send func(e P), m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+// parent's signals. It is an entry func: the send the runner gave the
+// entry's work (machines.Work's Start), or one a caller passed on to a
+// parameter written entry; no other value is one (types.md, Function
+// values).
+func Child[S, E, O, F, R, W, P](send entry func(e P), m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	childOf(noHost[Actor[S, E, Decision[S, O], F]](), m, capacity, toParent)
 }
 
@@ -357,7 +359,7 @@ extern go ergo.local/prototype/runtime/v1.ActorNoHost func noHost[A]() Host[A]
 // work owns and that is empty. Any other host is a defect, with no child
 // started: a host of an ended entry (a state that carried it into a new
 // entry), a filled host, or one that no entry owns.
-func ChildIn[S, E, O, F, R, W, P](send func(e P), host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
+func ChildIn[S, E, O, F, R, W, P](send entry func(e P), host Host[Actor[S, E, Decision[S, O], F]], m Machine[S, E, O, F, R, W], capacity int, toParent escaping func(o O) P) Actor[S, E, Decision[S, O], F] needs R | W | Scheduler {
 	childOf(host, m, capacity, toParent)
 }
 

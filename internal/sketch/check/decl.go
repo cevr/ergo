@@ -1312,6 +1312,11 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		if ctx != nil {
 			inner = *ctx
 		}
+		if x.Entry && (ctx == nil || !ctx.param) {
+			// An entry's send is a parameter's type (Signature.Entry): a
+			// field or a result of it would keep the send past the entry.
+			c.errorIn(x, x.EntryPos, x.EntryPos+syntax.Pos(len("entry")), CodeType, "entry func(…) is written only as a parameter's type: the send a work is given lives no longer than the call that got it (runtime.md, Machines and actors 14)")
+		}
 		inner.field, inner.param = false, false
 		sig := c.signature(x, &inner)
 		// A written function type's parameter names declare its
@@ -1983,6 +1988,9 @@ func writtenParamType(x syntax.Expr, t Type) Type {
 		if s, ok := t.(*Signature); ok {
 			ne := *s
 			ne.NonEscaping = true
+			// `entry func(…)` is an entry's send (Signature.Entry); it is
+			// written only on a parameter, so only here.
+			ne.Entry = ft.Entry
 			return &ne
 		}
 	}

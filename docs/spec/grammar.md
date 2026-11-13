@@ -130,7 +130,7 @@ TypeArgs       = "[" Type { "|" TypeName [ TypeArgs ] } { "," Type { "|" TypeNam
 SliceType      = "[" "]" Type .
 ArrayType      = "[" int_lit "]" Type .
 PointerType    = "*" Type .
-FuncType       = [ "escaping" ] "func" Signature .
+FuncType       = [ "escaping" | "entry" ] "func" Signature .
 FuncDecl       = "func" identifier [ TypeParams ] Signature Block .
 ExternDecl     = "extern" "go" import_path "." identifier ( "func" [ "(" identifier Type ")" ] identifier [ TypeParams ] Signature | TypeDecl | LetDecl ) .
 TestDecl       = "test" identifier [ Params ] Block .
@@ -184,6 +184,7 @@ CapName        = TypeName [ TypeArgs ] .
     In a Go binding, a method's named receiver is also available to its `takes` clause (`func (r *Reader) Reset(next io.Reader) needs go.Foreign takes r, next`). A bound Go interface operation may write a bare `takes` for its implicit receiver. The conservative Go default still takes that receiver when explicit parameters occupy the written clause. A binding's takes on a crossing owned value is inert, not S110; whether an interface parameter receives a resource is decided at the call. A borrow cannot be passed to a kept Go argument, even when its referent crosses ([interop.md](interop.md#resources), ESC1 r2). This exception applies to binding declarations only, not to user Ergo declarations.
 14. **Refinements.** `where` after the type of a defined type (`type Port int where 1 <= it && it <= 65535`) or of a named parameter (`law L(b int where b != 0)`) starts a predicate ([types.md, Refinements](types.md#refinements)). `where` is a contextual word, not a keyword, so a name `where` stays a name elsewhere. The parser derives the type's `ParseN` function and `NWhere` law from it and places them after the type, marked derived; the formatter does not print them. A `where` on a host type and after a parameter group (`a, b int where …`) is S001.
 15. **`pure`** (STD-NOPRIV NP3a, decision Q6 of its plan). `pure` between a named parameter and its type (`func StartDurable[S, E, O, F, R, W, G](m pure Machine[S, E, O, F, R, W], …)`) requires each call to pass a function the checker sees and whose footprint is empty: the machine's step, or the function itself for a function type ([rows.md, Footprints](rows.md#footprints) 6). It belongs to the family of parameter clauses `escaping` and `takes`, and states a requirement at a boundary: footprints stay inferred. `pure` is a contextual word, not a keyword. It is the clause only after a parameter's name and before a token that starts a type (a name, `go.`, `func`, `escaping` or `(`), so `func f(pure int)` and `func f(x pure)` keep `pure` as a name. A group shares it (`f, g pure func(x int) int`). The checker admits it only on a parameter of a function declaration whose type is a function type or a machine (S108 elsewhere).
+16. **`entry`** (STD-NOPRIV NP3b). `entry func(…)` is the type of an entry's send ([types.md, Function values](types.md#function-values) 6): `func Child[S, E, O, F, R, W, P](send entry func(e P), …)`. `entry` is a contextual word, not a keyword: it is the prefix only when `func` follows it, so `func f(entry int)` and `func f(x entry)` keep `entry` as a name. The checker admits it only as a parameter's type, of a declaration, a function type or a function literal (S108 elsewhere).
 
 ## Visibility
 

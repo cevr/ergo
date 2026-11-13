@@ -120,7 +120,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 	case *Pointer:
 		return &Pointer{Elem: c.subst(t.Elem, m)}
 	case *Signature:
-		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Takes: t.Takes, TakesSelf: t.TakesSelf}
+		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Entry: t.Entry, Takes: t.Takes, TakesSelf: t.TakesSelf}
 		for _, p := range t.Params {
 			s.Params = append(s.Params, &Var{Name: p.Name, Type: c.subst(p.Type, m), Pos: p.Pos, id: p.id, param: true})
 		}
@@ -211,7 +211,7 @@ func (c *checker) mayBeIdentical(a, b Type) bool {
 	}
 	as, ok := a.(*Signature)
 	bs, ok2 := b.(*Signature)
-	if !ok || !ok2 || len(as.TParams) > 0 || len(bs.TParams) > 0 || as.NonEscaping != bs.NonEscaping {
+	if !ok || !ok2 || len(as.TParams) > 0 || len(bs.TParams) > 0 || as.NonEscaping != bs.NonEscaping || as.Entry != bs.Entry {
 		return false
 	}
 	return c.sameShape(as, bs) && c.takesEffect(as, nil) == c.takesEffect(bs, nil) && c.mayBeEqualRow(as.Errors, bs.Errors) && c.mayBeEqualRow(as.Uses, bs.Uses)
@@ -443,6 +443,10 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if hasName(v) && hasName(t) {
 		// Two named function types cross only by conversion (D-B7).
 		return assignment{}, ""
+	}
+	if ts.Entry && !vs.Entry {
+		// Only the runner makes an entry's send (Signature.Entry).
+		return assignment{}, "only an entry's send is one: a parameter written entry func(…) that the runner or a caller gave (runtime.md, Machines and actors 14)"
 	}
 	if !c.sameShape(vs, ts) {
 		return assignment{}, "the parameters or results differ"

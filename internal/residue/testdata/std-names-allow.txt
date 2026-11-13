@@ -5,7 +5,7 @@ internal/sketch/check/call.go	c.pkg.Path == std.PreludePath	prelude generic coll
 internal/sketch/check/call.go	f.Pkg.Path == std.PreludePath	Unreachable; predeclared language function
 internal/sketch/check/contextvalues.go	n.Obj.Pkg.Path != std.PreludePath	Context predeclared row value
 internal/sketch/check/decl.go	c.pkg.Path == std.PreludePath	prelude ownership declarations
-internal/sketch/check/durable.go	f.Pkg.Path == childPath	actor.NewHost, the host a pure step may make; NP4b gives it a body fact
+internal/sketch/check/durable.go	f.Pkg.Path == actorPath	actor.NewHost, the host a pure step may make; NP4b gives it a body fact
 internal/sketch/check/embed.go	n.Obj.Pkg.Path == "embed"	embedded assets; predeclared language operation
 internal/sketch/check/export.go	s.pkgs[i].Path != s.segs[i].path	std snapshot integrity: a decoded segment is the package its header names, not a std identity
 internal/sketch/check/extern.go	f.Pkg.Path == std.PreludePath	predeclared function footprint
@@ -16,5 +16,3 @@ internal/sketch/check/match.go	o.Pkg.Path != std.PreludePath	Decision predeclare
 internal/sketch/check/ownership.go	o.Pkg.Path == "queue"	owned queue elements; follow-up declared contracts
 internal/sketch/check/script.go	n.Obj.Pkg.Path != "testing"	derived Script; follow-up declared contracts
 internal/sketch/check/withown.go	call.Func.Pkg.Path == "scope"	OnExit ownership; follow-up declared contracts
-internal/sketch/check/work.go	tn.Pkg.Path == workPath	work literal shape; STD1b removes this
-internal/sketch/check/work.go	f.Pkg.Path == childPath	child work scope; STD1b or follow-up declared contracts

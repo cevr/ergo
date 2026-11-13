@@ -145,7 +145,7 @@ func toHub(o EditOut) HubSignal {
 func hubWork(h Hub) Option[machines.Work[HubSignal, Scheduler]] {
 	match h.Screen {
 	case Editing as ed:
-		Some{machines.Work{Listen: func(send func(e HubSignal)) needs Scheduler {
+		Some{machines.Work{Start: func(send entry func(e HubSignal)) needs Scheduler {
 			let _ = actor.ChildIn(send, ed.Editor, machines.Start(Editor{}, ed.Part), 4, toHub)
 		}}}
 	case Browsing:

@@ -137,16 +137,16 @@ func outcome(o Outcome) Signal {
 func work(s Job) Option[machines.Work[Signal, Targets | Scheduler]] {
 	match s {
 	case Writing as p:
-		Some{machines.Work{Listen: func(send func(e Signal)) needs Targets | Scheduler {
+		Some{machines.Work{Start: func(send entry func(e Signal)) needs Targets | Scheduler {
 			actor.Child(send, machines.Start(Runner{}, p.Shares), 1, outcome)
 		}}}
 	case RollingBack as v:
-		Some{machines.Work{Run: func() Signal needs Targets {
+		Some{machines.Do(func() Signal needs Targets | Scheduler {
 			for r in v.Refs {
 				Targets.Erase(r)
 			}
 			Erased
-		}}}
+		})}
 	case Staging:
 		None
 	case Summary:

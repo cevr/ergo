@@ -1106,6 +1106,10 @@ func (p *printer) funcType(t *syntax.FuncType) {
 		p.token(t.Escaping, "escaping")
 		p.space()
 	}
+	if t.Entry {
+		p.token(t.EntryPos, "entry")
+		p.space()
+	}
 	if t.Func.IsValid() {
 		p.token(t.Func, "func")
 	}

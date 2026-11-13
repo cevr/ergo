@@ -243,6 +243,12 @@ type Signature struct {
 	// at the top level and escaping.go refuses the use instead. Added in
 	// check-v1 stage E2 (additive).
 	NonEscaping bool
+	// Entry marks the type of an entry's send, a parameter written
+	// `entry func(…)` (runtime.md, Machines and actors 14): the runner
+	// gives a value of it to a machine's work, and no Ergo code makes one,
+	// since a value of another function type is not assignable to it
+	// (assignability). It is part of the type's identity.
+	Entry bool
 	// Takes lists the parameters a written `takes` clause names, by index
 	// into Params, in the clause's order; TakesSelf is a bare `takes` of an
 	// operation: the value the operation is called on (#197 A1; resources
@@ -453,6 +459,9 @@ func (t *Signature) String() string {
 		}
 		if s, ok := p.Type.(*Signature); ok && !s.NonEscaping {
 			b.WriteString("escaping ")
+		}
+		if s, ok := p.Type.(*Signature); ok && s.Entry {
+			b.WriteString("entry ")
 		}
 		b.WriteString(p.Type.String())
 	}

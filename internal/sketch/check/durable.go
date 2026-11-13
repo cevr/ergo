@@ -478,8 +478,11 @@ func PureParams(f *Func) []int { return pureParams(f) }
 // entry binds it, so a replay that makes it again acts twice on nothing.
 // Every other host function stays S108. It reads a name until NP4b gives
 // the fact to the body's declaration (std-privileges.txt).
+// actorPath names std actor, which declares NewHost.
+const actorPath = "actor"
+
 func MakesHost(f *Func) bool {
-	return f != nil && f.Pkg != nil && f.Pkg.std && f.Pkg.Path == childPath && f.Name == "NewHost" &&
+	return f != nil && f.Pkg != nil && f.Pkg.std && f.Pkg.Path == actorPath && f.Name == "NewHost" &&
 		f.Decl != nil && f.Decl.Extern != nil
 }
 

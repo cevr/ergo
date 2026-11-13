@@ -295,6 +295,10 @@ func apply(g pure func(int) int) int { g(1) }
 func twice(x int) int { x * 2 }
 func main() { let _ = apply(twice) }
 `, nil},
+	{"escaping", "an entry's send type (STD-NOPRIV NP3b; runtime.md, Machines and actors 14)", `
+func pass(send entry func(n int)) { send(1) }
+func main() {}
+`, nil},
 	{"tuple type", "a tuple result type", `
 func pair() (int, string) { return pair() }
 func main() {}
@@ -894,7 +898,7 @@ func step(s State, sig Signal) Decision[State, string] {
 func probe(s State) Option[machines.Work[Signal]] {
 	match s {
 	case Closed:
-		return Some{machines.Work{Run: func() Trip { Trip }}}
+		return Some{machines.Do(func() Trip { Trip })}
 	case Open:
 		return None
 	}

@@ -43,6 +43,9 @@ func writeTimer(s Storing) Option[Timeout[WriteSignal]] {
 func writeWork(s Storing) Option[machines.Work[WriteSignal, Targets]] {
 	match s {
 	case Sending as a:
-		Some{machines.Work{Run: func() Ref fails Refused needs Targets { try Targets.Write(a.Share) }, OnSuccess: func(r Ref) WriteSignal { Acked{R: r} }}}
+		Some{machines.Attempt(func() Ref fails Refused needs Targets { try Targets.Write(a.Share) }, func(r Ref) WriteSignal { Acked{R: r} }, func(failure) {
+			let refused WriteSignal = failure
+			refused
+		})}
 	}
 }

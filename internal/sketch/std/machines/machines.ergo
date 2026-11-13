@@ -19,20 +19,47 @@
 import time
 // Work is the work a state's entry owns (docs/spec/runtime.md, Machines
 // and actors 12): a machine's `work: w` entry names w(s S)
-// Option[machines.Work[E, R]]. The runner starts it after the commit that
-// opens the entry, before observers see the state, and interrupts it when
-// the entry ends; Start gets send, which gives the machine a signal of
-// this entry (one of an ended entry is dropped), and the work's capability
-// row R is charged to the machine. A Work literal of the forms
-// machines.Work{Run: f, OnSuccess: g, OnFailure: h} and
-// machines.Work{Listen: f, OnFailure: h} builds Start: Run's result
-// becomes a signal through OnSuccess, which may be left out when the
-// result is a signal; a typed failure of Run or Listen becomes a signal
-// through OnFailure, which may be left out when every failure is a
-// signal; an interruption sends nothing, and a defect ends the actor.
-// Work lives here, not in the prelude, so a program may still declare a
-// Work of its own (a prelude name cannot be declared).
-type Work[E, R] { Start func(send func(e E)) needs R }
+// Option[machines.Work[E, R]]. The runner calls Start after the commit
+// that opens the entry, before observers see the state, and interrupts it
+// when the entry ends. Start gets send, the entry's send: it gives the
+// machine a signal of this entry (one of an ended entry is dropped), and
+// it is the one value that starts a child of the entry (actor.Child). The
+// work's capability row R is charged to the machine. Do and Attempt build a
+// Work from a function that runs once; a work that sends as it goes, a
+// listener, writes Start. An interruption sends nothing, and a defect ends
+// the actor. Work is an ordinary record: the machine's work entry takes
+// any record of its shape, one field func(send entry func(e E)) needs R.
+// It lives here, not in the prelude, so a program may still declare a
+// function or a let named Work.
+type Work[E, R] { Start func(send entry func(e E)) needs R }
+
+// Do is the work that runs run once and sends its result, a signal of the
+// entry (effect-machine's .task with the result as the event).
+func Do[E, R](run escaping func() E needs R) Work[E, R] {
+	Work[E, R]{Start: func(send entry func(e E)) needs R {
+		send(run())
+	}}
+}
+
+// Attempt is the work that runs run once and sends a signal of its outcome:
+// onSuccess of its result, or onFailure of its typed failure
+// (effect-machine's .task(state, run, {onSuccess, onFailure})). An
+// interruption is not a failure (rows.md, Catch 6): the entry's end sends
+// nothing, and a defect ends the actor.
+func Attempt[T, E, F, R](run escaping func() T fails F needs R, onSuccess escaping func(t T) E needs R, onFailure escaping func(f F) E needs R) Work[E, R] {
+	Work[E, R]{Start: func(send entry func(e E)) needs R {
+		let e = outcome(run, onSuccess) catch {
+		case err:
+			onFailure(err)
+		}
+		send(e)
+	}}
+}
+
+// outcome is onSuccess of run's result; a failure of run is its own.
+func outcome[T, E, F, R](run func() T fails F needs R, onSuccess func(t T) E needs R) E fails F needs R {
+	onSuccess(try run())
+}
 
 // Finished is a run that the step ended with Done: the state the step saw
 // last, Done's output, and the outputs of the run's Emits before it, in

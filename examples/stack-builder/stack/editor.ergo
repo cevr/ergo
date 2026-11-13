@@ -122,7 +122,7 @@ func toSub(o EditOut) EditSignal {
 func editWork(s Edit) Option[machines.Work[EditSignal, Scheduler]] {
 	match s {
 	case Nested as n:
-		Some{machines.Work{Listen: func(send func(e EditSignal)) needs Scheduler {
+		Some{machines.Work{Start: func(send entry func(e EditSignal)) needs Scheduler {
 			let _ = actor.ChildIn(send, n.Sub, machines.Start(Editor{}, n.Choice), 4, toSub)
 		}}}
 	case Choosing:

@@ -36,7 +36,7 @@ func runStep(s Run, e RunSignal) Decision[Run, Outcome] {
 func runWork(s Run) Option[machines.Work[RunSignal, Targets | Scheduler]] {
 	match s {
 	case Running as r:
-		Some{machines.Work{Listen: func(send func(e RunSignal)) needs Targets | Scheduler {
+		Some{machines.Work{Start: func(send entry func(e RunSignal)) needs Targets | Scheduler {
 			for i in 0..len(r.Shares) {
 				actor.Child(send, machines.Start(Writer{}, (i, r.Shares[i])), 1, func(a Answer) RunSignal { Answered{A: a} })
 			}

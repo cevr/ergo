@@ -27,7 +27,7 @@ type Nav = Saved{N int} | Close{}
 func routerWork(s Phase) Option[machines.Work[Nav, Scheduler]] {
 	match s {
 	case Open:
-		Some{machines.Work{Listen: func(send func(e Nav)) needs Scheduler {
+		Some{machines.Work{Start: func(send entry func(e Nav)) needs Scheduler {
 			let a = actor.Child(send, machines.Start(Editor{}, "a"), 1, func(n int) Nav { Saved{N: n} })
 			let b = actor.Child(send, machines.Start(Editor{}, "b"), 1, func(n int) Nav { Saved{N: n} })
 			a.Send(Type) catch {

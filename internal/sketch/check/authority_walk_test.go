@@ -97,6 +97,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"NonEscaping": {why: "a lifetime mark of a parameter's function type"},
 		"Takes":       {why: "parameter indexes of a takes clause (#197)"},
 		"TakesSelf":   {why: "a bare takes of an operation (#197)"},
+		"Entry":       {why: "a mark that the function is a machine's entry send"},
 	},
 	"Var": {
 		"Type":        {sel: "Type"},

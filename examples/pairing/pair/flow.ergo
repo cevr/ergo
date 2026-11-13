@@ -214,21 +214,27 @@ func timer(s Flow) Option[Timeout[Signal]] {
 func work(s Flow) Option[machines.Work[Signal, Devices]] {
 	match s {
 	case SendingCode as w:
-		Some{machines.Work{Run: func() Signal fails DeviceUnreachable needs Devices {
+		Some{machines.Attempt(func() Signal fails DeviceUnreachable needs Devices {
 			try Devices.Send(w.Serial)
 			CodeSent
-		}, OnFailure: func(f) {
+		}, func(sent Signal) Signal { sent }, func(f) {
 			match f {
 			case DeviceUnreachable as u:
 				SendFailed{Why: "cannot send a code to \(u.Serial)"}
 			}
-		}}}
+		})}
 	case Verifying as v:
 		match v.Via {
 		case ByCode as b:
-			Some{machines.Work{Run: func() Device fails WrongCode needs Devices { try Devices.Check(b.Serial, b.Code) }, OnSuccess: func(m Device) Signal { Accepted{Who: m} }}}
+			Some{machines.Attempt(func() Device fails WrongCode needs Devices { try Devices.Check(b.Serial, b.Code) }, func(m Device) Signal { Accepted{Who: m} }, func(failure) {
+				let wrong Signal = failure
+				wrong
+			})}
 		case ByTag as c:
-			Some{machines.Work{Run: func() Device fails UnknownTag needs Devices { try Devices.Tag(c.Tag) }, OnSuccess: func(m Device) Signal { Accepted{Who: m} }}}
+			Some{machines.Attempt(func() Device fails UnknownTag needs Devices { try Devices.Tag(c.Tag) }, func(m Device) Signal { Accepted{Who: m} }, func(failure) {
+				let unknown Signal = failure
+				unknown
+			})}
 		}
 	case Options:
 		None

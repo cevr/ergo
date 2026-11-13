@@ -225,8 +225,8 @@ func durableUseSource(plain, machine string) string {
 }
 
 // workUseSource is the use of a function that needs the work capability
-// (check.TakesWorkSend): the call sits in a Listen work's function, the
-// only place the child rule admits it, and the work's send is its first
+// (check.TakesWorkSend): the call sits in a listening work's Start,
+// whose entry send the child rule admits, and the work's send is its first
 // argument, so use takes the other parameters and returns the work.
 //
 // A written row argument has one element (Work[E, R]), so the work's row
@@ -276,7 +276,7 @@ func workUseSource(c stdMatchFunc, params, args []string) string {
 	work := "machines.Work[" + send.Params[0].Type.String() + ", " + concrete + "]"
 	args[0] = "send"
 	return head + "(" + bind(strings.Join(params[1:], ", ")) + ") " + work + " {\n\t" +
-		work + "{Listen: func(send " + sig.Params[0].Type.String() + ") needs " + concrete + " {\n\t\tlet _ = " +
+		work + "{Start: func(send entry " + sig.Params[0].Type.String() + ") needs " + concrete + " {\n\t\tlet _ = " +
 		c.pkg.Name + "." + c.fn.Name + "(" + strings.Join(args, ", ") + ")\n\t}}\n}\n"
 }
 
