@@ -5,13 +5,15 @@
 import strings
 import time
 
-// lines is a generated script: gaps of 0 to 2999 ms, and presses of every
-// kind with ids up to 5, past the transfers a short script starts.
+// lines is a generated script: gaps of 0 to 2999 ms, or (for an even
+// number) whole tenths of a second up to 9.9 s, which land presses on the
+// instants transfers arrive (every file is whole tenths), and presses of
+// every kind with ids up to 5, past the transfers a short script starts.
 func lines(gaps []int, kinds []int, ids []int) []Line {
 	let mut out = []Line{}
 	let mut t = 0s
 	for i, g in gaps {
-		t = t + time.Times(1ms, pick(g, 3000))
+		t = t + if pick(g, 2) == 0 { time.Times(100ms, pick(g/2, 100)) } else { time.Times(1ms, pick(g, 3000)) }
 		let k = if i < len(kinds) { kinds[i] } else { 0 }
 		let id = pick(if i < len(ids) { ids[i] } else { i }, 6)
 		let press = match pick(k, 4) {
