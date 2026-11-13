@@ -1302,6 +1302,33 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
     },
     {
+      "name": "oracle-o27-toml-dotted-reopens-header",
+      "origin": "wf10 ORACLE O27",
+      "file": "internal/sketch/eval/nativestoml.go",
+      "from": "\t\tif dotted && (next.header || next.headers) {",
+      "to": "\t\tif false && dotted && (next.header || next.headers) {",
+      "rule": "A dotted key may not extend a table a [header] defined (TOML 1.0, Table).",
+      "killers": ["internal/sketch/eval:TestTOMLAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o27-toml-multiline-quotes-lost",
+      "origin": "wf10 ORACLE O27",
+      "file": "internal/sketch/eval/nativestoml.go",
+      "from": "\t\t\t\tb.WriteString(strings.Repeat(string(q), n-3))",
+      "to": "\t\t\t\tb.WriteString(strings.Repeat(string(q), 0*n))",
+      "rule": "Up to two quotes before a multi-line string's closing three belong to the string.",
+      "killers": ["internal/sketch/eval:TestTOMLAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o27-toml-offset-unchecked",
+      "origin": "wf10 ORACLE O27",
+      "file": "internal/sketch/eval/nativestoml.go",
+      "from": "h > \"23\" || m > \"59\"",
+      "to": "h > \"99\" || m > \"99\"",
+      "rule": "A UTC offset's hours are at most 23 and its minutes at most 59.",
+      "killers": ["internal/sketch/eval:TestTOMLAgreesWithRuntime"]
+    },
+    {
       "name": "oracle-o20-go-float-is-exp",
       "origin": "wf10 ORACLE O20",
       "file": "internal/sketch/eval/nativesgo.go",
