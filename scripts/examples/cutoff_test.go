@@ -16,7 +16,8 @@ import (
 // root is a Go module with a cmd/ergo and a scripts/examples package (the
 // driver), and the compiler is a wrapper of the fake one. In turn it:
 //   - records a pass with compiler a;
-//   - swaps in a2, other bytes with a's behaviour: every program replays;
+//   - swaps in a2, other bytes with a's behaviour (its check envelope
+//     names another producer): every program replays;
 //   - swaps in b, which fails every test, with an edit of cmd/ergo (b is
 //     built from other driver sources): the verdict is a failure;
 //   - restores a and the driver: every program replays;
@@ -28,8 +29,8 @@ import (
 // Mutants it catches, which TestCachedVerdictEqualsRerun does not (its
 // fixture has no driver, so it keys the compiler's bytes):
 // gs8-driver-unkeyed, gs8-test-emission-unkeyed,
-// gs8-build-emission-unkeyed, gs8-check-unkeyed, gs8-fmt-unkeyed and
-// gs8-bytes-keyed (scripts/examples' ledger).
+// gs8-build-emission-unkeyed, gs8-check-unkeyed, gs8-fmt-unkeyed,
+// gs8-bytes-keyed and gs8-producer-keyed (scripts/examples' ledger).
 //
 // It runs go list in the fixture module, the driver's listing.
 func TestEarlyCutoffKeysWhatTheCompilerChanges(t *testing.T) {
@@ -59,7 +60,9 @@ func TestEarlyCutoffKeysWhatTheCompilerChanges(t *testing.T) {
 		"e":  "FAKE_ERGO_FMTFAIL=1",
 	}
 	for name, env := range compilers {
-		installExecutable(t, filepath.Join(tools, "ergo-"+name), fmt.Sprintf("#!/bin/sh\nFAKE_ERGO_TOOLS=%s %s exec %s \"$@\"\n", tools, env, fake))
+		// Each compiler's check envelope names its own bytes, as ergo
+		// check's producer does.
+		installExecutable(t, filepath.Join(tools, "ergo-"+name), fmt.Sprintf("#!/bin/sh\nFAKE_ERGO_TOOLS=%s FAKE_ERGO_PRODUCER=%s %s exec %s \"$@\"\n", tools, name, env, fake))
 	}
 	names := []string{"alpha", "beta"}
 	for _, n := range names {

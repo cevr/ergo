@@ -33,7 +33,9 @@
 #                        wrapper that sets one emits other Go (early cutoff,
 #                        cutoff_test.go); FAKE_ERGO_CHECKFAIL fails every
 #                        check, FAKE_ERGO_FMTFAIL every fmt --check and
-#                        FAKE_ERGO_BUILDFAIL every build.
+#                        FAKE_ERGO_BUILDFAIL every build. A passing check's
+#                        envelope names FAKE_ERGO_PRODUCER as its producer,
+#                        the digest of the compiler's bytes.
 tools=${FAKE_ERGO_TOOLS:-$(dirname "$0")}
 printf '%s\n' "$*" >> "$tools/calls.log"
 tick() {
@@ -63,7 +65,7 @@ check)
   elif grep -q TESTSKIP "$2"; then
     printf '%s\n' '{"checked":true,"evaluation":{"schemaVersion":1,"status":"skipped","obligations":[{"name":"law Store.Keeps for Box","status":"skipped","reason":"fixture"}]}}'
   else
-    printf '%s\n' '{"checked":true,"evaluation":{"schemaVersion":1,"status":"passed","obligations":[{"name":"Fixture","status":"passed","evidence":"evaluated","cases":1}]}}'
+    printf '%s\n' '{"checked":true,"producer":{"digest":"'"${FAKE_ERGO_PRODUCER:-}"'"},"evaluation":{"schemaVersion":1,"status":"passed","obligations":[{"name":"Fixture","status":"passed","evidence":"evaluated","cases":1}]}}'
   fi
   ;;
 test)

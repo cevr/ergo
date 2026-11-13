@@ -138,9 +138,30 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 		if over := o.overCap(); over != "" || o.timedOut {
 			return fmt.Sprintf("ergo %s: no result to key", strings.Join(args, " "))
 		}
-		fmt.Fprintf(h, "leg %q status %d %s\nstdout %q\nstderr %q\n", args, o.status, o.signal, o.stdout, o.stderr)
+		stdout := o.stdout
+		if args[0] == "check" {
+			stdout = withoutProducer(stdout)
+		}
+		fmt.Fprintf(h, "leg %q status %d %s\nstdout %q\nstderr %q\n", args, o.status, o.signal, stdout, o.stderr)
 	}
 	return ""
+}
+
+// withoutProducer is a check envelope less its producer, the digest of the
+// compiler's own bytes, which every compiler edit changes and no leg reads
+// (checkTarget reads checked and evaluation). Output that is not a JSON
+// object is kept whole.
+func withoutProducer(stdout []byte) []byte {
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(stdout, &envelope) != nil {
+		return stdout
+	}
+	delete(envelope, "producer")
+	out, err := json.Marshal(envelope)
+	if err != nil {
+		return stdout
+	}
+	return out
 }
 
 // count adds one program to the hits or the misses.

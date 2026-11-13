@@ -52,14 +52,14 @@ func buildCommand(args []string) error {
 // the platform it links for. It builds and writes nothing. A source that
 // does not check is refused as the command refuses it.
 func printEmitted(opts fileOptions, mode build.Mode) error {
-	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	checked, err := loadForPlatform(opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}
-	if !l.result.Checked {
-		return refuseUnchecked(l, opts)
+	if !checked.result.Checked {
+		return refuseUnchecked(checked, opts)
 	}
-	digest, err := sketchfront.EmittedDigest(l.analysis, sketchfront.BuildRequest{Mode: mode, Source: l.source.Admitted()})
+	digest, err := sketchfront.EmittedDigest(checked.analysis, sketchfront.BuildRequest{Mode: mode, Source: checked.source.Admitted()})
 	if err != nil {
 		return err
 	}
