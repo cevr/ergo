@@ -69,6 +69,13 @@ selected. The nearest `ergo.mod` sets the module boundary. Nested modules,
 `testdata`, hidden/underscore directories and directory symlinks are not walked.
 An empty selection is an error.
 
+A package's test binary is linked into Ergo's build cache, in an entry of the
+package's emitted module and the Go target, flags and tags, and runs from
+there. The go command relinks it only when one of its inputs changed, so a
+second `ergo test ./...` over an unchanged module links nothing. The cache's
+trim removes an entry that no run used for its age limit, as it does
+emitted modules.
+
 Test output names each package by its module import path. An assertion or law
 failure does not hide later packages: the command exits 1 if any selected package
 failed. A defect or signal stops the run and keeps its status. `--seed`, `-work`
