@@ -977,6 +977,17 @@ func main() {
 	use(Mine)
 }
 `,
+	"ui.Location": `import ui
+type Mine {}
+func Current(_ Mine) ui.URL { ui.ParseURL("/") }
+func Push(_ Mine, u ui.URL) {}
+func Replace(_ Mine, u ui.URL) {}
+func Back(_ Mine) bool { false }
+func use(l ui.Location) { l.Push(ui.ParseURL("/a")) }
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -1021,6 +1032,7 @@ var openStd = map[string]bool{
 	"ui.Host":      true,
 	"ui.Measure":   true,
 	"ui.Clipboard": true,
+	"ui.Location":  true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
