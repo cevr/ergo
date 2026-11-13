@@ -226,6 +226,8 @@ var bodyTable = map[string]bodyFact{
 	"JSONRecycle":               {body: Body{Params: []Param{{Type: "[]byte"}}, Results: []string{"[]byte"}}},
 	"JSONTake":                  {body: Body{Results: []string{"[]byte"}}},
 	"Let":                       {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "T"}}, Results: []string{"T"}}},
+	"LineageAppend":             {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Lineage"}, {Type: "[]T"}, {Type: "T"}}, Results: []string{"[]T"}}},
+	"LineageAppendCheck":        {body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Lineage"}, {Type: "[]T"}, {Type: "T"}}, Results: []string{"[]T"}}},
 	"Listener.Addr":             {body: Body{Results: []string{"string"}}},
 	"Listener.Close":            {body: Body{}},
 	"ListenerOn":                {refusal: "runtime/v1: ListenerOn reaches host state (net.Listener) but is not marked //ergo:host"},
