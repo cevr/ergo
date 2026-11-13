@@ -168,9 +168,13 @@ func answer(method, path, contentType string, body []byte) (int, []header, []byt
 }
 
 func malformed(err error) (int, []header, []byte) {
+	name := "Malformed"
+	if _, ok := err.(*json.SyntaxError); ok {
+		name = "SyntaxError"
+	}
 	msg, _ := json.Marshal(err.Error())
 	return 200, []header{{"Content-Type", "application/json"}, {"Cache-Control", "no-store"}},
-		[]byte(`[{"_tag":"Defect","defect":{"name":"Malformed","message":` + string(msg) + `}}]`)
+		[]byte(`[{"_tag":"Defect","defect":{"name":"` + name + `","message":` + string(msg) + `}}]`)
 }
 
 var scriptLabels = []string{"foldkit", "acme", "google", "f", "domains", "x9"}

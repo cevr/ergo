@@ -39,8 +39,8 @@ fk-domains bench 1000             # the P11 workload (below)
 - **One operation, named for the wire.** The operation is `SearchDomains`, the original's RPC tag, so its wire name is the original's. Its payload is `{label, offset?, limit?}`: the range parameters are `json.Optional`. A search with no range lists the whole catalog, as the original's defaults do.
 - **The failure is `Down`.** The original's `SearchError` has one variant, `Unavailable`. Here `Listing` already has a variant of that name, so the failure is `Down`. No recorded case fails this way.
 - **The bounds are types.** A label, an offset or a limit out of range does not decode. As in the original, it is a 200 whose frame is a `Die`. The original's defect text is Effect's schema message, and the port's is `rpc.Decode`'s, so the texts differ.
-- **A body that is not JSON.** Std `rpc.Answer` refuses it with 400. The original's Effect server answers 200 with a `Defect` frame, and `server.Answer` does the same. The defect's name is `Malformed`, where the original's is `SyntaxError`.
-- **A GET of `/rpc` is 404**, as the original's router has one `POST` route. Std `rpc.Answer` would answer it 405, so `server.Answer` refuses it first.
+- **A body that is not JSON** is a 200 whose one frame is a `Defect` named `SyntaxError`, as the original's Effect server answers it; std `rpc.Answer` gives it. Its message is Go's JSON error, not JavaScript's.
+- **A GET of `/rpc` is 404** with no body, as the original's router has one `POST` route; std `rpc.Answer` answers it so, before the endpoint's own refusals.
 
 ## The wire, checked against the original
 

@@ -27,16 +27,20 @@ func noStore() http.Field { http.Field{Name: "Cache-Control", Value: "no-store"}
 // refused is a status with no body, not to be stored.
 func refused(status int) http.Response { http.Response{Status: status, Header: []http.Field{noStore()}, Body: ""} }
 
-// Answer answers r. The original's order holds: a path or method that is
-// not POST /rpc is 404 (its router has that one route); a content type
-// that is not JSON is 415; a body over MaxBodyBytes is 413; a body that
-// is not JSON is a 200 whose one frame is a Defect, as Effect's server
-// answers a body its parser refused; every other body is Effect RPC's
-// answer, whose payload that does not decode is a Die frame. Every answer
-// of the endpoint carries Cache-Control: no-store.
+// Answer answers r in the original's order. A request that is not
+// POST /rpc never reaches the endpoint: rpc.Answer answers it 404, as
+// the original's router (one POST route) does. At the endpoint, a content
+// type that is not JSON is 415 and a body over MaxBodyBytes is 413; every
+// other body is Effect RPC's answer, rpc.Answer's: a body that is not
+// JSON is a 200 whose one frame is a Defect, and a payload that does not
+// decode a Die frame. Every answer of the endpoint carries
+// Cache-Control: no-store.
 func Answer(r http.Request) http.Response needs domains.Registry | http.Streaming {
+	let handle = func(tag string, payload string) string fails rpc.Failed needs domains.Registry {
+		try domainsrpc.Handle(tag, payload)
+	}
 	if (r.Path != Mount() && r.Path != Mount()+"/") || r.Method != "POST" {
-		return http.Response{Status: 404, Header: []http.Field{}, Body: ""}
+		return rpc.Answer(r, Mount(), handle)
 	}
 	let json = match http.Header(r.Header, "Content-Type") {
 	case Some as c:
@@ -54,12 +58,6 @@ func Answer(r http.Request) http.Response needs domains.Registry | http.Streamin
 		return refused(400)
 	case http.Buffered:
 	}
-	let a = rpc.Answer(r, Mount(), func(tag string, payload string) string fails rpc.Failed needs domains.Registry {
-		try domainsrpc.Handle(tag, payload)
-	})
-	if a.Status == 400 {
-		let defect = "[{\"_tag\":\"Defect\",\"defect\":{\"name\":\"Malformed\",\"message\":" + rpc.Encode(strings.TrimSpace(a.Body)) + "}}]"
-		return http.Response{Status: 200, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}, noStore()}, Body: defect}
-	}
+	let a = rpc.Answer(r, Mount(), handle)
 	http.Response{Status: a.Status, Header: a.Header.Append(noStore()), Body: a.Body}
 }
