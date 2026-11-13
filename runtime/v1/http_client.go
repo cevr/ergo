@@ -103,26 +103,6 @@ func httpToken(s string) bool {
 	return true
 }
 
-// HTTPEncodeQuery is std http.EncodeQuery: httpQuery, the raw query
-// HTTPDo sends for a Request's Query.
-//
-//ergo:wait none
-func HTTPEncodeQuery(fields []HTTPField) string { return httpQuery(fields) }
-
-// httpQuery is fields in their order, each name=value escaped.
-func httpQuery(fields []HTTPField) string {
-	var b strings.Builder
-	for i, f := range fields {
-		if i > 0 {
-			b.WriteByte('&')
-		}
-		b.WriteString(url.QueryEscape(f.Name))
-		b.WriteByte('=')
-		b.WriteString(url.QueryEscape(f.Value))
-	}
-	return b.String()
-}
-
 type httpDone struct {
 	res HTTPResponse
 	err error
@@ -165,7 +145,7 @@ func httpRequestURL(t *rt.Task, origin, method, path string, query, header []HTT
 	if err != nil {
 		return nil, httpFailed(httpMalformed, err.Error())
 	}
-	u.Path, u.RawQuery = path, httpQuery(query)
+	u.Path, u.RawQuery = path, HTTPEncodeQuery(query)
 	return u, nil
 }
 

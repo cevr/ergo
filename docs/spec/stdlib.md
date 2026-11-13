@@ -683,7 +683,10 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     outside 100-999 fails Transport (a server closes the connection, and
     Go's client retries an idempotent request once). `EncodeQuery(fields)`
     is the raw query of fields, as a Client sends a Request's Query, so a
-    caller builds a URL whose query `ParseQuery` reads back. Effect's
+    caller builds a URL whose query `ParseQuery` reads back. Its body is
+    marked `//ergo:pure`, the mark any module's Go body takes (The body
+    contract), in a file of pure bodies (`runtime/v1/http_query.go`);
+    `TestHTTPEncodeQueryIsGos` holds it to Go's `url.QueryEscape`. Effect's
     `HttpClient` test layer and Gleam's and Elixir's `Req.Test` plug
     stubs answer in memory the same way; Req routes by a plug, which here
     is `handle`.
