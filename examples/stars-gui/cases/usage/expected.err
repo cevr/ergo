@@ -1,1 +1,1 @@
-usage: stars-gui gen [-seed S] [-n N] | stars-gui run [-rows H] CATALOG
+usage: stars-gui gen [-seed S] [-n N] | stars-gui run [-rows H] CATALOG | stars-gui scene [-rows H] CATALOG
