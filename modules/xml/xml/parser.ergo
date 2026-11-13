@@ -1,0 +1,433 @@
+import strings
+import utf8
+
+// Malformed is a text that is not well-formed XML 1.0, or that this
+// package refuses (a document type declaration): Offset is the byte where
+// the reading stopped, Line and Column its place from 1 (Column in bytes).
+type Malformed { Offset int, Line int, Column int, Reason string }
+
+// An attribute of a start tag, its value with references replaced.
+type Attr { Name string, Value string }
+
+// The tokens of a document, in order. Offset is where each starts. A
+// self-closing tag <a/> is a StartElement and its EndElement. CharData is
+// text with its references replaced and each line end a line feed; a
+// CDATA section is one CharData as written.
+type StartElement { Name string, Attrs []Attr, Offset int }
+type EndElement { Name string, Offset int }
+type CharData { Text string, Offset int }
+type Comment { Text string, Offset int }
+type ProcInst { Target string, Inst string, Offset int }
+type EndDocument { Offset int }
+type Token = StartElement | EndElement | CharData | Comment | ProcInst | EndDocument
+
+// Parser reads a document's tokens one at a time, from the first: a pull
+// reader that keeps only the names of the elements open. Each Next checks
+// what it reads, so the text is well formed when Next gives EndDocument,
+// and every token it gave before a Malformed was well formed so far.
+type Parser { text string, at int, open []string, closing bool, rootSeen bool, maxDepth int }
+
+// NewParser reads text from its first byte; an element nested deeper than
+// maxDepth fails (0: no limit).
+func NewParser(text string, maxDepth int) Parser {
+	Parser{text: text, at: 0, open: []string{}, closing: false, rootSeen: false, maxDepth: maxDepth}
+}
+
+// Next is the next token. After EndDocument it gives EndDocument again.
+func Next(p *Parser) Token fails Malformed {
+	if p.closing {
+		p.closing = false
+		let last = len(p.open) - 1
+		let name = p.open[last]
+		p.open = p.open[0:last]
+		return EndElement{Name: name, Offset: p.at}
+	}
+	if p.at >= len(p.text) {
+		if len(p.open) > 0 {
+			return At(p.text, p.at, "the element <"+p.open[len(p.open)-1]+"> is not closed")
+		}
+		if !p.rootSeen {
+			return At(p.text, p.at, "the document has no element")
+		}
+		return EndDocument{Offset: p.at}
+	}
+	if p.text[p.at] == '<' {
+		return try p.markup()
+	}
+	try p.charData()
+}
+
+// At is a Malformed at offset of text, with its line and column.
+func At(text string, offset int, reason string) Malformed {
+	let mut line = 1
+	let mut start = 0
+	let end = if offset < len(text) { offset } else { len(text) }
+	for i in 0..end {
+		if text[i] == '\n' {
+			line = line + 1
+			start = i + 1
+		}
+	}
+	Malformed{Offset: offset, Line: line, Column: offset - start + 1, Reason: reason}
+}
+
+// has reports whether the text at p's offset starts with s.
+func has(p *Parser, s string) bool { strings.HasPrefix(strings.Slice(p.text, p.at, len(p.text)), s) }
+
+// find is the offset of the first s at or after from, or -1.
+func find(text string, from int, s string) int {
+	let i = strings.Index(strings.Slice(text, from, len(text)), s)
+	if i < 0 { -1 } else { from + i }
+}
+
+// charData reads text up to the next '<'.
+func charData(p *Parser) Token fails Malformed {
+	let start = p.at
+	let mut end = find(p.text, start, "<")
+	if end < 0 {
+		end = len(p.text)
+	}
+	if len(p.open) == 0 {
+		for i in start..end {
+			let c = p.text[i]
+			if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+				return At(p.text, i, "text outside the root element")
+			}
+		}
+	}
+	let close = find(strings.Slice(p.text, 0, end), start, "]]>")
+	if close >= 0 {
+		return At(p.text, close, "]]> in text")
+	}
+	let s = try unescape(p.text, start, end)
+	p.at = end
+	CharData{Text: s, Offset: start}
+}
+
+// markup reads a tag, a comment, a CDATA section or a processing
+// instruction at p's '<'.
+func markup(p *Parser) Token fails Malformed {
+	let start = p.at
+	if has(p, "<?") {
+		return try p.procInst()
+	}
+	if has(p, "<!--") {
+		let end = find(p.text, start+4, "-->")
+		if end < 0 {
+			return At(p.text, len(p.text), "the comment does not end")
+		}
+		let body = strings.Slice(p.text, start+4, end)
+		let dash = strings.Index(body, "--")
+		if dash >= 0 {
+			return At(p.text, start+4+dash, "-- in a comment")
+		}
+		if strings.HasSuffix(body, "-") {
+			return At(p.text, end-1, "a comment ends in ---")
+		}
+		try chars(p.text, start+4, end)
+		p.at = end + 3
+		return Comment{Text: body, Offset: start}
+	}
+	if has(p, "<![CDATA[") {
+		if len(p.open) == 0 {
+			return At(p.text, start, "a CDATA section outside the root element")
+		}
+		let end = find(p.text, start+9, "]]>")
+		if end < 0 {
+			return At(p.text, len(p.text), "the CDATA section does not end")
+		}
+		try chars(p.text, start+9, end)
+		p.at = end + 3
+		return CharData{Text: strings.Slice(p.text, start+9, end), Offset: start}
+	}
+	if has(p, "<!DOCTYPE") {
+		return At(p.text, start, "a document type declaration is refused: this reader expands no entity it declares")
+	}
+	if has(p, "<!") {
+		return At(p.text, start, "<! starts no comment or CDATA section")
+	}
+	if has(p, "</") {
+		return try p.endTag()
+	}
+	try p.startTag()
+}
+
+// procInst reads <?target inst?>; the XML declaration only at offset 0.
+func procInst(p *Parser) Token fails Malformed {
+	let start = p.at
+	let nameEnd = nameAt(p.text, start+2)
+	if nameEnd == start+2 {
+		return At(p.text, start+2, "a processing instruction has no target")
+	}
+	let target = strings.Slice(p.text, start+2, nameEnd)
+	if strings.ToLower(target) == "xml" && start != 0 {
+		return At(p.text, start, "an XML declaration is allowed only at the start")
+	}
+	let end = find(p.text, nameEnd, "?>")
+	if end < 0 {
+		return At(p.text, len(p.text), "the processing instruction does not end")
+	}
+	if end > nameEnd && !space(p.text[nameEnd]) {
+		return At(p.text, nameEnd, "a space is missing after the target")
+	}
+	try chars(p.text, nameEnd, end)
+	p.at = end + 2
+	ProcInst{Target: target, Inst: strings.TrimLeft(strings.Slice(p.text, nameEnd, end), " \t\r\n"), Offset: start}
+}
+
+// endTag reads </name>, which closes the innermost element.
+func endTag(p *Parser) Token fails Malformed {
+	let start = p.at
+	let nameEnd = nameAt(p.text, start+2)
+	if nameEnd == start+2 {
+		return At(p.text, start+2, "an end tag has no name")
+	}
+	let name = strings.Slice(p.text, start+2, nameEnd)
+	let i = skipSpace(p.text, nameEnd)
+	if i >= len(p.text) || p.text[i] != '>' {
+		return At(p.text, i, "> is missing after </"+name)
+	}
+	let last = len(p.open) - 1
+	if last < 0 {
+		return At(p.text, start, "the end tag </"+name+"> closes no element")
+	}
+	if p.open[last] != name {
+		return At(p.text, start, "the end tag </"+name+"> does not close <"+p.open[last]+">")
+	}
+	p.open = p.open[0:last]
+	p.at = i + 1
+	EndElement{Name: name, Offset: start}
+}
+
+// startTag reads <name attr="value" …> or <name …/>.
+func startTag(p *Parser) Token fails Malformed {
+	let start = p.at
+	if p.rootSeen && len(p.open) == 0 {
+		return At(p.text, start, "a second root element")
+	}
+	let nameEnd = nameAt(p.text, start+1)
+	if nameEnd == start+1 {
+		return At(p.text, start+1, "< starts no name")
+	}
+	let name = strings.Slice(p.text, start+1, nameEnd)
+	let mut attrs = []Attr{}
+	let mut i = nameEnd
+	for i < len(p.text) {
+		let j = skipSpace(p.text, i)
+		if j >= len(p.text) {
+			break
+		}
+		if p.text[j] == '>' {
+			p.at = j + 1
+			return p.started(name, attrs, start, false)
+		}
+		if p.text[j] == '/' {
+			if j+1 < len(p.text) && p.text[j+1] == '>' {
+				p.at = j + 2
+				return p.started(name, attrs, start, true)
+			}
+			return At(p.text, j+1, "/ is not followed by >")
+		}
+		if j == i {
+			return At(p.text, j, "a space is missing before an attribute")
+		}
+		let a = try p.attr(j)
+		for b in attrs {
+			if b.Name == a.Name {
+				return At(p.text, j, "the attribute "+a.Name+" is repeated")
+			}
+		}
+		attrs = attrs.Append(a)
+		i = p.at
+	}
+	At(p.text, len(p.text), "the start tag <"+name+" does not end")
+}
+
+// started opens the element a start tag named.
+func started(p *Parser, name string, attrs []Attr, start int, empty bool) Token fails Malformed {
+	if p.maxDepth > 0 && len(p.open) >= p.maxDepth {
+		return At(p.text, start, "elements are nested deeper than the limit")
+	}
+	p.open = p.open.Append(name)
+	p.rootSeen = true
+	p.closing = empty
+	StartElement{Name: name, Attrs: attrs, Offset: start}
+}
+
+// attr reads name="value" at at, leaving p after the closing quote.
+func attr(p *Parser, at int) Attr fails Malformed {
+	let nameEnd = nameAt(p.text, at)
+	if nameEnd == at {
+		return At(p.text, at, "an attribute has no name")
+	}
+	let name = strings.Slice(p.text, at, nameEnd)
+	let mut i = skipSpace(p.text, nameEnd)
+	if i >= len(p.text) || p.text[i] != '=' {
+		return At(p.text, i, "= is missing after the attribute "+name)
+	}
+	i = skipSpace(p.text, i+1)
+	if i >= len(p.text) || p.text[i] != '"' && p.text[i] != '\'' {
+		return At(p.text, i, "the value of "+name+" is not quoted")
+	}
+	let quote = p.text[i]
+	let mut end = i + 1
+	for end < len(p.text) && p.text[end] != quote {
+		if p.text[end] == '<' {
+			return At(p.text, end, "< in an attribute value")
+		}
+		end = end + 1
+	}
+	if end >= len(p.text) {
+		return At(p.text, len(p.text), "the value of "+name+" does not end")
+	}
+	let value = try unescape(p.text, i+1, end)
+	p.at = end + 1
+	Attr{Name: name, Value: value}
+}
+
+// nameAt is the end of the XML name at at, or at when none starts there.
+func nameAt(text string, at int) int {
+	let mut i = at
+	for i < len(text) {
+		let c = text[i]
+		if c < 0x80 {
+			if !(nameStartByte(c) || i > at && nameByte(c)) {
+				return i
+			}
+			i = i + 1
+		} else {
+			let d = utf8.DecodeRuneInString(strings.Slice(text, i, len(text)))
+			if d.Size <= 1 || !(nameStartRune(d.Rune) || i > at && nameRune(d.Rune)) {
+				return i
+			}
+			i = i + d.Size
+		}
+	}
+	i
+}
+
+func space(c byte) bool { c == ' ' || c == '\t' || c == '\n' || c == '\r' }
+
+// skipSpace is the first offset at or after at that is not white space.
+func skipSpace(text string, at int) int {
+	let mut i = at
+	for i < len(text) && space(text[i]) {
+		i = i + 1
+	}
+	i
+}
+
+// chars checks that text[from:to] holds only characters XML may hold.
+func chars(text string, from int, to int) fails Malformed {
+	let mut i = from
+	for i < to {
+		let c = text[i]
+		if c < 0x80 {
+			if c < 0x20 && c != '\t' && c != '\n' && c != '\r' {
+				return At(text, i, "a control character")
+			}
+			i = i + 1
+		} else {
+			let d = utf8.DecodeRuneInString(strings.Slice(text, i, to))
+			if d.Size <= 1 {
+				return At(text, i, "a byte that is not UTF-8")
+			}
+			if !charRune(d.Rune) {
+				return At(text, i, "a character XML does not allow")
+			}
+			i = i + d.Size
+		}
+	}
+}
+
+// unescape is text[from:to] with its references replaced and each line end
+// (\r\n or \r) a line feed, after checking its characters. A text with
+// neither is a slice of the text and allocates nothing.
+func unescape(text string, from int, to int) string fails Malformed {
+	try chars(text, from, to)
+	let span = strings.Slice(text, from, to)
+	if strings.Index(span, "&") < 0 && strings.Index(span, "\r") < 0 {
+		return span
+	}
+	let mut out = []byte{}
+	let mut i = from
+	for i < to {
+		let c = text[i]
+		if c == '\r' {
+			out = appendByte(out, '\n')
+			if i+1 < to && text[i+1] == '\n' {
+				i = i + 1
+			}
+			i = i + 1
+		} else if c == '&' {
+			let semi = find(strings.Slice(text, 0, to), i, ";")
+			if semi < 0 {
+				return At(text, i, "& starts no reference")
+			}
+			out = appendString(out, try reference(text, i, semi))
+			i = semi + 1
+		} else {
+			out = appendByte(out, c)
+			i = i + 1
+		}
+	}
+	strings.FromBytes(out)
+}
+
+// reference is the character the reference text[at:semi+1] names: one of
+// the five predefined entities, or a character reference.
+func reference(text string, at int, semi int) string fails Malformed {
+	let name = strings.Slice(text, at+1, semi)
+	match name {
+	case "lt":
+		"<"
+	case "gt":
+		">"
+	case "amp":
+		"&"
+	case "apos":
+		"'"
+	case "quot":
+		"\""
+	case _:
+		if !strings.HasPrefix(name, "#") {
+			return At(text, at, "the entity &"+name+"; is not defined")
+		}
+		let mut n int64 = 0
+		let mut base int64 = 10
+		let mut digits = strings.Slice(name, 1, len(name))
+		if strings.HasPrefix(digits, "x") {
+			base = 16
+			digits = strings.Slice(digits, 1, len(digits))
+		}
+		if digits == "" || len(digits) > 8 {
+			return At(text, at, "the character reference &"+name+"; is not a number")
+		}
+		for i in 0..len(digits) {
+			let d = digitValue(digits[i])
+			if d < 0 || d >= base {
+				return At(text, at, "the character reference &"+name+"; is not a number")
+			}
+			n = n*base + d
+		}
+		let r = rune(n)
+		if !(r == 0x9 || r == 0xA || r == 0xD || r >= 0x20 && r < 0x80 || r >= 0x80 && charRune(r)) {
+			return At(text, at, "the character reference &"+name+"; names a character XML does not allow")
+		}
+		utf8.RuneText(r)
+	}
+}
+
+// digitValue is the value of a hex digit, or -1.
+func digitValue(c byte) int64 {
+	if c >= '0' && c <= '9' {
+		return int64(c - '0')
+	}
+	if c >= 'a' && c <= 'f' {
+		return int64(c-'a') + 10
+	}
+	if c >= 'A' && c <= 'F' {
+		return int64(c-'A') + 10
+	}
+	-1
+}

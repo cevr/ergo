@@ -1,0 +1,300 @@
+import go strconv
+import strings
+import sync
+
+// reader gives a checked document's values back in the order decode[T]
+// asks for them: a provider of the prelude's Reader over the document's
+// tokens. at is the next token; a value's start tag is taken before its
+// reading starts (the root's by Decode, a field's or an item's by More),
+// and each read takes the value through its end tag. Comments and
+// processing instructions are not in toks.
+//
+// It holds its place in a sync.Ref, as std codec's Replay does: a cell
+// cannot be passed as the prelude's Reader, so decode[T] cannot read
+// from a provider a let binds by a cell (std-nopriv inbox, 2026-11-13).
+type reader { toks []Token, at sync.Ref[int] }
+
+// Tokens is every token of text but its comments and processing
+// instructions, ending in EndDocument: Check's reading, kept.
+func Tokens(text string, maxDepth int) []Token fails Malformed {
+	let mut p = NewParser(text, maxDepth)
+	let mut toks = []Token{}
+	for {
+		let t = try p.Next()
+		match t {
+		case Comment, ProcInst:
+		case EndDocument:
+			return toks.Append(t)
+		case _:
+			toks = toks.Append(t)
+		}
+	}
+}
+
+// tok is the token at i; EndDocument past the end.
+func tok(r reader, i int) Token {
+	if i < len(r.toks) { r.toks[i] } else { EndDocument{Offset: 0} }
+}
+
+// blankAt reports white space at i, which holds no value between
+// elements.
+func blankAt(r reader, i int) bool {
+	match tok(r, i) {
+	case CharData as c:
+		strings.TrimLeft(c.Text, " \t\r\n") == ""
+	case _:
+		false
+	}
+}
+
+// past is the first token at or after i that is not white space.
+func past(r reader, i int) int {
+	let mut j = i
+	for blankAt(r, j) {
+		j = j + 1
+	}
+	j
+}
+
+// textAt is the text of the value whose content starts at i, and the
+// token after its end tag; false when an element starts in it.
+func textAt(r reader, i int) (string, int, bool) {
+	let mut s = ""
+	let mut parts = 0
+	let mut j = i
+	for {
+		match tok(r, j) {
+		case CharData as c:
+			if parts == 0 {
+				s = c.Text
+			} else {
+				s = s + c.Text
+			}
+			parts = parts + 1
+			j = j + 1
+		case EndElement:
+			return (s, j + 1, true)
+		case EndDocument:
+			return (s, j, true)
+		case _:
+			return (s, j, false)
+		}
+	}
+}
+
+// read is the text of the value whose content starts at i, the reader's
+// place, which it takes, or the failure of a value of the kind want that
+// holds an element.
+func read(r reader, i int, want string) string fails WireWrongKind {
+	let s, next, ok = textAt(r, i)
+	if !ok {
+		return WireWrongKind{Path: Path(r), Want: want}
+	}
+	r.at.Set(next)
+	s
+}
+
+// wrong is the failure of a value of the kind want at i, the reader's
+// place before it read the value's text.
+func wrong(r reader, i int, want string) WireWrongKind {
+	r.at.Set(i)
+	WireWrongKind{Path: Path(r), Want: want}
+}
+
+// Path is where the reader is: the names of the open elements from the
+// root, a list item's with its index, "/root/items/item[2]". It reads the
+// tokens before the reader's place, only for a failure's text.
+func Path(r reader) string {
+	let at = r.at.Get()
+	let mut names = []string{}
+	let mut counts = []int{0}
+	for i in 0..at {
+		match tok(r, i) {
+		case StartElement as s:
+			let last = len(counts) - 1
+			counts[last] = counts[last] + 1
+			names = names.Append(s.Name + "[" + strconv.Itoa(counts[last]-1) + "]")
+			counts = counts.Append(0)
+		case EndElement:
+			names = names[0 : len(names)-1]
+			counts = counts[0 : len(counts)-1]
+		case _:
+		}
+	}
+	"/" + strings.Join(names, "/")
+}
+
+func TakeNull(r reader) bool {
+	let k = past(r, r.at.Get())
+	match tok(r, k) {
+	case StartElement as s:
+		if s.Name != "null" {
+			return false
+		}
+		match tok(r, k+1) {
+		case EndElement:
+		case _:
+			return false
+		}
+		let end = past(r, k+2)
+		match tok(r, end) {
+		case EndElement:
+			r.at.Set(end + 1)
+			true
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+func Peek(r reader) WireKind {
+	match tok(r, past(r, r.at.Get())) {
+	case StartElement as s:
+		if s.Name == "null" { WireNull } else { WireObject }
+	case EndDocument:
+		WireEnd
+	case _:
+		WireString
+	}
+}
+
+func String(r reader) string fails WireWrongKind { try read(r, r.at.Get(), "string") }
+
+func Number(r reader) string fails WireWrongKind { strings.TrimSpace(try read(r, r.at.Get(), "number")) }
+
+func Bool(r reader) bool fails WireWrongKind {
+	let i = r.at.Get()
+	match strings.TrimSpace(try read(r, i, "bool")) {
+	case "true":
+		true
+	case "false":
+		false
+	case _:
+		return wrong(r, i, "bool")
+	}
+}
+
+func Int(r reader) int64 fails WireWrongKind {
+	let i = r.at.Get()
+	let s = try read(r, i, "int")
+	strconv.ParseInt(strings.TrimSpace(s), 10, 64) catch {
+	case _:
+		return wrong(r, i, "int")
+	}
+}
+
+func Uint(r reader) uint64 fails WireWrongKind {
+	let i = r.at.Get()
+	let s = try read(r, i, "uint")
+	strconv.ParseUint(strings.TrimSpace(s), 10, 64) catch {
+	case _:
+		return wrong(r, i, "uint")
+	}
+}
+
+func Float(r reader) float64 fails WireWrongKind {
+	let i = r.at.Get()
+	let s = try read(r, i, "float")
+	strconv.ParseFloat(strings.TrimSpace(s), 64) catch {
+	case _:
+		return wrong(r, i, "float")
+	}
+}
+
+// begin opens an object or a list: its content is elements, not text.
+func begin(r reader, want string) fails WireWrongKind {
+	match tok(r, past(r, r.at.Get())) {
+	case CharData:
+		return WireWrongKind{Path: Path(r), Want: want}
+	case _:
+	}
+}
+
+func BeginList(r reader) fails WireWrongKind { try begin(r, "list") }
+
+func BeginObject(r reader) fails WireWrongKind { try begin(r, "object") }
+
+func Tag(r reader) string fails WireMissingField {
+	let k = past(r, r.at.Get())
+	match tok(r, k) {
+	case StartElement as s:
+		if s.Name == "_tag" {
+			let name, next, _ = textAt(r, k+1)
+			r.at.Set(next)
+			return strings.TrimSpace(name)
+		}
+	case _:
+	}
+	WireMissingField{Path: Path(r), Field: "_tag"}
+}
+
+// More takes the next value's start tag, when there is one before the
+// end of the object or list.
+func More(r reader) bool {
+	let k = past(r, r.at.Get())
+	match tok(r, k) {
+	case StartElement:
+		r.at.Set(k + 1)
+		true
+	case _:
+		r.at.Set(k)
+		false
+	}
+}
+
+// Key is the name of the element More took: a field's key, or the key
+// attribute of a <_> element.
+func Key(r reader) string {
+	match tok(r, r.at.Get()-1) {
+	case StartElement as s:
+		if s.Name == "_" {
+			for a in s.Attrs {
+				if a.Name == "key" {
+					return a.Value
+				}
+			}
+		}
+		s.Name
+	case _:
+		""
+	}
+}
+
+// Skip takes the rest of the value whose start tag was taken.
+func Skip(r reader) {
+	let mut i = r.at.Get()
+	let mut depth = 1
+	for depth > 0 {
+		match tok(r, i) {
+		case StartElement:
+			depth = depth + 1
+		case EndElement:
+			depth = depth - 1
+		case EndDocument:
+			depth = 0
+			i = i - 1
+		case _:
+		}
+		i = i + 1
+	}
+	r.at.Set(i)
+}
+
+// End takes the rest of the object or list, through its end tag.
+func End(r reader) { Skip(r) }
+
+// readerOf is a reader of toks at the root element's content.
+func readerOf(toks []Token) reader {
+	let mut i = 0
+	for i < len(toks) {
+		match toks[i] {
+		case StartElement:
+			return reader{toks: toks, at: sync.NewRef[int](i + 1)}
+		case _:
+			i = i + 1
+		}
+	}
+	reader{toks: toks, at: sync.NewRef[int](i)}
+}

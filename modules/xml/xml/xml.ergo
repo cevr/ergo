@@ -1,0 +1,62 @@
+// Package xml reads and writes XML 1.0 for the derived codec, as std json
+// does JSON, and is a module of its own, not std: everything it uses any
+// module may use. Encode writes a value with Text, a cell writer whose
+// constant bytes the build joins by its law RawJoins, into a buffer
+// borrowed from std strings with the type's size hint. Decode checks the
+// whole text first (phase 1, Check), so no value is built from a text that
+// is not well formed, then reads the value with Reader, a provider of the
+// prelude's Reader over Parser. Parser is the pull reader: it gives a
+// document's tokens one at a time and keeps only the names of the elements
+// open.
+//
+// The form: a value is the content of an element (the root, a field's, a
+// list item's). A record's fields are child elements named by their keys;
+// a list's values are <item> elements; a union value is its variant's
+// record with <_tag>Name</_tag> first (Option too); a null is <null/>; a Map
+// key that is not an XML name is <_ key="…">. Text is escaped, and a
+// number is its decimal spelling (a float the shortest that reads back).
+// A document type declaration is refused, so no entity can be declared
+// and expanded.
+
+// Codec is the XML form of a T: Root names the document's element (root
+// when it is empty; Decode then takes any name), MaxBytes limits the text
+// Decode reads and MaxDepth the nesting (0: no limit).
+type Codec[T wire] { Root string, MaxBytes int, MaxDepth int }
+
+// Check reads the whole of text with a Parser and is the name of its root
+// element: it fails Malformed exactly when text is not a well-formed
+// document, at the first place it breaks.
+func Check(text string, maxDepth int) string fails Malformed {
+	let mut p = NewParser(text, maxDepth)
+	let mut root = ""
+	for {
+		match try p.Next() {
+		case StartElement as s:
+			if root == "" {
+				root = s.Name
+			}
+		case EndDocument:
+			return root
+		case _:
+		}
+	}
+}
+
+// Decode is the T that text holds: Malformed when the text is not well
+// formed or longer than c.MaxBytes, or when its root element is not
+// c.Root; else the failures of decode[T] on its shape.
+func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] {
+	if c.MaxBytes > 0 && len(text) > c.MaxBytes {
+		return At(text, c.MaxBytes, "the text is longer than MaxBytes")
+	}
+	let toks = try Tokens(text, c.MaxDepth)
+	let r = readerOf(toks)
+	match toks[r.at.Get()-1] {
+	case StartElement as s:
+		if c.Root != "" && s.Name != c.Root {
+			return At(text, s.Offset, "the root element is <"+s.Name+">, not <"+c.Root+">")
+		}
+	case _:
+	}
+	try decode[T](r)
+}

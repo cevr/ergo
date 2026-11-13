@@ -1,0 +1,192 @@
+import go strconv
+import strings
+
+// Text is XML being written: the prelude's Writer events, so encode(v, t)
+// writes any value, and the private parts the events are made of. Its one
+// provider is text, so an encode on a Text a let binds by a cell of text
+// calls text's functions directly, and the build joins constant bytes by
+// the law RawJoins, which ergo test proves.
+type Text {
+	Null(),
+	// Number writes a number's spelling as it is.
+	Number(text string),
+	Bool(b bool),
+	Int(n int64),
+	Uint(n uint64),
+	Float(f float64),
+	String(s string),
+	BeginList(n int),
+	EndList(),
+	BeginObject(n int),
+	Tag(name string),
+	Key(k string),
+	EndObject(),
+	// Written is the text written so far.
+	Written() string,
+
+	// raw appends text as it is.
+	raw(s string),
+	// open writes the start tag of a value's element, and close the end
+	// tag of the innermost element still open.
+	open(name string),
+	close(),
+	// enter starts a value: in a list, its item element.
+	enter(),
+	// finish is the text written, and gives the buffer back (Encode
+	// only: nothing may use the Text after).
+	finish(hint int) string,
+
+	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
+}
+
+// text is Text's provider. names are the elements open, innermost last;
+// lists says, for each object or list being written, whether it is a
+// list, whose values each take an item element.
+type text { out []byte, names []string, lists []bool }
+
+extern go append func appendString(out []byte, s string) []byte
+
+extern go append func appendByte[T](out []T, b T) []T
+
+func raw(t *text, s string) { t.out = appendString(t.out, s) }
+
+// open writes <name>, or <_ key="name"> for a name that is not an XML
+// name. A key with a character XML cannot hold is read back with U+FFFD
+// in its place, so its form is chosen by that key, and the text a value
+// read back writes is the text it was read from (EncodeIsStable).
+func open(t *text, name string) {
+	if Name(name) {
+		t.raw("<")
+		t.raw(name)
+		t.raw(">")
+		t.names = t.names.Append(name)
+	} else if Name(held(name)) {
+		let s = held(name)
+		t.raw("<")
+		t.raw(s)
+		t.raw(">")
+		t.names = t.names.Append(s)
+	} else {
+		t.raw("<_ key=\"")
+		t.out = escapeAttr(t.out, name)
+		t.raw("\">")
+		t.names = t.names.Append("_")
+	}
+}
+
+func close(t *text) {
+	let last = len(t.names) - 1
+	if last < 0 {
+		return
+	}
+	t.raw("</")
+	t.raw(t.names[last])
+	t.raw(">")
+	t.names = t.names[0:last]
+}
+
+func enter(t *text) {
+	let last = len(t.lists) - 1
+	if last >= 0 && t.lists[last] {
+		t.raw("<item>")
+		t.names = t.names.Append("item")
+	}
+}
+
+func Null(t *text) {
+	t.enter()
+	t.raw("<null/>")
+	t.close()
+}
+
+func Number(t *text, text string) {
+	t.enter()
+	t.out = escapeText(t.out, text)
+	t.close()
+}
+
+func Bool(t *text, b bool) {
+	t.enter()
+	if b {
+		t.raw("true")
+	} else {
+		t.raw("false")
+	}
+	t.close()
+}
+
+func Int(t *text, n int64) {
+	t.enter()
+	t.out = strconv.AppendInt(t.out, n, 10)
+	t.close()
+}
+
+func Uint(t *text, n uint64) {
+	t.enter()
+	t.out = strconv.AppendUint(t.out, n, 10)
+	t.close()
+}
+
+func Float(t *text, f float64) {
+	t.enter()
+	t.out = strconv.AppendFloat(t.out, f, 'g', -1, 64)
+	t.close()
+}
+
+func String(t *text, s string) {
+	t.enter()
+	t.out = escapeText(t.out, s)
+	t.close()
+}
+
+func BeginList(t *text, n int) {
+	t.enter()
+	t.lists = t.lists.Append(true)
+}
+
+func EndList(t *text) {
+	t.lists = t.lists[0 : len(t.lists)-1]
+	t.close()
+}
+
+func BeginObject(t *text, n int) {
+	t.enter()
+	t.lists = t.lists.Append(false)
+}
+
+func EndObject(t *text) {
+	t.lists = t.lists[0 : len(t.lists)-1]
+	t.close()
+}
+
+// Tag writes a union's variant as the first child, <_tag>Name</_tag>.
+func Tag(t *text, name string) {
+	t.raw("<_tag>")
+	t.out = escapeText(t.out, name)
+	t.raw("</_tag>")
+}
+
+func Key(t *text, k string) { t.open(k) }
+
+func Written(t *text) string { strings.FromBytes(t.out) }
+
+func finish(t *text, hint int) string {
+	let s = strings.FromBytes(t.out)
+	t.out = strings.Give(t.out, hint)
+	s
+}
+
+// Encode is v's XML: the element c.Root (root when it is empty) holding
+// v's form. It is well formed for every v (OutputIsWellFormed): a
+// character XML cannot hold is written as U+FFFD, as encoding/xml writes
+// it. (Its Text's buffer is borrowed from std strings with T's size hint,
+// as std json's Encode borrows its own.)
+func Encode[T wire](c Codec[T], v T) string {
+	let hint = strings.Hint[text, T]()
+	let t Text = text{out: strings.Borrow(hint), names: []string{}, lists: []bool{}}
+	t.open(rootOf(c.Root))
+	encode(v, t)
+	t.finish(hint)
+}
+
+func rootOf(name string) string { if name == "" { "root" } else { name } }

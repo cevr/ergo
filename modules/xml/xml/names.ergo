@@ -1,0 +1,129 @@
+import strings
+import utf8
+
+// Name reports whether s is an XML name (XML 1.0, fifth edition, 2.3): a
+// NameStartChar, then NameChars.
+func Name(s string) bool {
+	if s == "" {
+		return false
+	}
+	let mut i = 0
+	for i < len(s) {
+		let c = s[i]
+		if c < 0x80 {
+			if !(nameStartByte(c) || i > 0 && nameByte(c)) {
+				return false
+			}
+			i = i + 1
+		} else {
+			let d = utf8.DecodeRuneInString(strings.Slice(s, i, len(s)))
+			if d.Size <= 1 || !(nameStartRune(d.Rune) || i > 0 && nameRune(d.Rune)) {
+				return false
+			}
+			i = i + d.Size
+		}
+	}
+	true
+}
+
+// nameStartByte is an ASCII NameStartChar.
+func nameStartByte(c byte) bool { c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' || c == ':' }
+
+// nameByte is an ASCII NameChar.
+func nameByte(c byte) bool { nameStartByte(c) || c >= '0' && c <= '9' || c == '-' || c == '.' }
+
+// nameStartRune is a NameStartChar of U+0080 or above.
+func nameStartRune(r rune) bool {
+	r >= 0xC0 && r <= 0xD6 || r >= 0xD8 && r <= 0xF6 || r >= 0xF8 && r <= 0x2FF || r >= 0x370 && r <= 0x37D || r >= 0x37F && r <= 0x1FFF || r >= 0x200C && r <= 0x200D || r >= 0x2070 && r <= 0x218F || r >= 0x2C00 && r <= 0x2FEF || r >= 0x3001 && r <= 0xD7FF || r >= 0xF900 && r <= 0xFDCF || r >= 0xFDF0 && r <= 0xFFFD || r >= 0x10000 && r <= 0xEFFFF
+}
+
+// nameRune is a NameChar of U+0080 or above.
+func nameRune(r rune) bool { nameStartRune(r) || r == 0xB7 || r >= 0x300 && r <= 0x36F || r >= 0x203F && r <= 0x2040 }
+
+// charRune is a Char XML may hold (2.2), of U+0080 or above.
+func charRune(r rune) bool { r <= 0xD7FF || r >= 0xE000 && r <= 0xFFFD || r >= 0x10000 && r <= 0x10FFFF }
+
+// held is s as XML holds it: each character XML cannot hold as U+FFFD.
+func held(s string) string { strings.FromBytes(escapeHeld([]byte{}, s)) }
+
+// escapeHeld appends s with each character XML cannot hold as U+FFFD,
+// and nothing else changed.
+func escapeHeld(out []byte, s string) []byte {
+	let mut o = out
+	let mut i = 0
+	for i < len(s) {
+		let c = s[i]
+		if c < 0x80 {
+			if c < 0x20 && c != '\t' && c != '\n' && c != '\r' {
+				o = appendString(o, "\uFFFD")
+			} else {
+				o = appendByte(o, c)
+			}
+			i = i + 1
+		} else {
+			let d = utf8.DecodeRuneInString(strings.Slice(s, i, len(s)))
+			if d.Size <= 1 {
+				o = appendString(o, "\uFFFD")
+				i = i + 1
+			} else if !charRune(d.Rune) {
+				o = appendString(o, "\uFFFD")
+				i = i + d.Size
+			} else {
+				o = appendString(o, strings.Slice(s, i, i+d.Size))
+				i = i + d.Size
+			}
+		}
+	}
+	o
+}
+
+// escapeText appends s as character data: &, < and > as entities, a
+// carriage return as &#xD; (a reader turns a line end into a line feed),
+// and a character XML cannot hold as U+FFFD.
+func escapeText(out []byte, s string) []byte { escape(out, s, false) }
+
+// escapeAttr appends s as a quoted attribute value: as escapeText, and ",
+// a tab and a line feed as character references, which a reader keeps.
+func escapeAttr(out []byte, s string) []byte { escape(out, s, true) }
+
+func escape(out []byte, s string, attr bool) []byte {
+	let mut o = out
+	let mut from = 0
+	let mut i = 0
+	for i < len(s) {
+		let c = s[i]
+		let mut size = 1
+		let mut rep = ""
+		if c < 0x80 {
+			if c == '&' {
+				rep = "&amp;"
+			} else if c == '<' {
+				rep = "&lt;"
+			} else if c == '>' {
+				rep = "&gt;"
+			} else if c == '\r' {
+				rep = "&#xD;"
+			} else if attr && c == '"' {
+				rep = "&quot;"
+			} else if attr && c == '\t' {
+				rep = "&#x9;"
+			} else if attr && c == '\n' {
+				rep = "&#xA;"
+			} else if c < 0x20 && c != '\t' && c != '\n' {
+				rep = "\uFFFD"
+			}
+		} else {
+			let d = utf8.DecodeRuneInString(strings.Slice(s, i, len(s)))
+			size = d.Size
+			if d.Size <= 1 || !charRune(d.Rune) {
+				rep = "\uFFFD"
+			}
+		}
+		if rep != "" {
+			o = appendString(appendString(o, strings.Slice(s, from, i)), rep)
+			from = i + size
+		}
+		i = i + size
+	}
+	appendString(o, strings.Slice(s, from, len(s)))
+}
