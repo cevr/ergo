@@ -164,8 +164,8 @@
     {
       "name": "editor-scene-reports-no-save", "origin": "wf10 GP2b",
       "file": "examples/editor-gui/script/scene.ergo",
-      "from": "ui.Play(&h, Acts(m.Signal).Append(ui.SettleAll))",
-      "to": "ui.Play(&h, Acts(m.Signal))",
+      "from": "ui.Play(&h, acts.Append(ui.SettleAll))",
+      "to": "ui.Play(&h, acts)",
       "rule": "After each line the host settles, so a save the view asked for runs and its end shows.",
       "killers": ["scripts/examples:editor-gui", "cmd/ergo:TestEditorGuiAgreesWithControl"]
     },
@@ -268,8 +268,8 @@
     {
       "name": "editor-undo-puts-the-caret-after", "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/doc.ergo",
-      "from": "Doc{Buf: b, Caret: c.Before,",
-      "to": "Doc{Buf: b, Caret: c.After,",
+      "from": "Doc{Buf: backward(d.Buf, c.Edits, len(c.Edits)-1), Caret: c.Before,",
+      "to": "Doc{Buf: backward(d.Buf, c.Edits, len(c.Edits)-1), Caret: c.After,",
       "rule": "Undo puts the caret where it was before the change.",
       "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
     },

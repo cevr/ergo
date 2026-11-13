@@ -28,6 +28,6 @@ saved doc.txt (23 bytes)
 editing line=1 col=4 caret=4 len=23 undo=4 redo=1 dirty=no
 >1|hello wöLD
  2|second line
-? "bogus": want a command: show enter back del home end top bottom select find next undo redo escape save type replace left right up down
+? "bogus": want a command: show enter back del home end top bottom select find next undo redo escape save copy cut paste type replace left right up down click
 ? "left x": want a count
 ? "home extra": want no argument

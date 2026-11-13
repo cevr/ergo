@@ -187,8 +187,16 @@ func step(s edit.State, name string, sig edit.Signal) edit.State needs edit.Stor
 	}
 }
 
-// LineParsesBack: a command's line reads back as the command.
-law LineParsesBack(c Command) {
+// LineParsesBack: a command's line reads back as the command. It is
+// drawn as any command and as the command of any signal, so each signal's
+// line is drawn as often as the other commands'.
+law LineParsesBack(c Command, s edit.Signal) {
+	parsesBack(c) && parsesBack(Send{Signal: s})
+}
+
+// parsesBack is whether c's line reads back as c, for a c that has a
+// line: one with no line break, and counts the parser takes.
+func parsesBack(c Command) bool {
 	let line = Line(c)
 	if strings.Contains(line, "\n") {
 		return true
@@ -222,7 +230,11 @@ law LineParsesBack(c Command) {
 		}
 	case Show, Paste:
 	}
-	(try Parse(line)) == c
+	let back = Parse(line) catch {
+	case BadLine:
+		return false
+	}
+	back == c
 }
 
 // Line is the script line of c.
