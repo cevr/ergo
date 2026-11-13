@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -159,47 +160,22 @@ func HTTPListen(addr string) (*Listener, error) {
 	return &Listener{ln: ln}, nil
 }
 
-// httpCall crosses the net/http goroutine and the serving task. The task
-// owns h; done publishes its completed exit, including all frame releases.
-type httpCall struct {
-	in        httpIncoming
-	x         *Exchange
-	response  HTTPResponse
-	err       error
-	done      chan struct{}
-	h         *rt.Handle[struct{}]
-	mu        sync.Mutex
-	task      *rt.Task
-	cancelled bool
-}
-
-func (c *httpCall) cancel() {
-	c.mu.Lock()
-	c.cancelled = true
-	t := c.task
-	c.mu.Unlock()
-	if t != nil {
-		t.Interrupt()
-	}
-}
-
-func (c *httpCall) start(t *rt.Task) {
-	c.mu.Lock()
-	c.task = t
-	cancelled := c.cancelled
-	c.mu.Unlock()
-	if cancelled {
-		t.Interrupt()
-	}
-}
-
 type httpServer struct {
-	limits  HTTPLimits
-	calls   chan *httpCall
-	quit    chan struct{}
-	mu      sync.Mutex
-	closing bool
-	workers sync.WaitGroup
+	limits HTTPLimits
+	site   string
+	handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
+	// requests is the parent of every request task (rt.Group): each runs
+	// on the net/http goroutine that read its request.
+	requests *rt.Group
+	mu       sync.Mutex
+	closing  bool
+	workers  sync.WaitGroup
+
+	// failed wakes the serving goroutine when a request ended in a defect;
+	// fmu guards defects, every such exit, which the serving task raises.
+	failed  chan struct{}
+	fmu     sync.Mutex
+	defects rt.Cause
 
 	// wake tells the serving goroutine that dirty holds connections whose
 	// phase changed. dmu guards dirty; a connection is in it at most once.
@@ -424,10 +400,13 @@ func connState(nc net.Conn, st http.ConnState) {
 	}
 }
 
-// HTTPServe is the transport body of std http.Serve. Only its calling
-// goroutine creates and consumes task handles. net/http workers hand it
-// requests, so handlers run on the same child-task tree as task.Go and
-// RPC. A disconnect stops that request alone. End means completed child
+// HTTPServe is the transport body of std http.Serve. Each request runs
+// as a task on the net/http goroutine that read it, a member of one
+// rt.Group under the serving task t, so handlers run on the same task
+// tree as task.Go and RPC with no dispatcher goroutine between the
+// connection and its handler (Cowboy, Bandit and mist run a request in
+// its connection's own process the same way). A disconnect stops that
+// request alone; a stop of t, or a defect of any request, stops them all. End means completed child
 // cleanup, closed connections and joined transport workers, not merely a
 // cancellation signal. Defects remain defects and reach the serving task.
 // Each handler call gets its request's Exchange, through which std http's
@@ -451,7 +430,7 @@ func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPL
 	}
 	defer l.Close()
 	t.Check()
-	s := &httpServer{limits: limits, calls: make(chan *httpCall), quit: make(chan struct{}), wake: make(chan struct{}, 1)}
+	s := &httpServer{limits: limits, site: string(site), handle: handle, requests: rt.NewGroup(t, string(site)+" (requests)"), failed: make(chan struct{}, 1), wake: make(chan struct{}, 1)}
 	srv := &http.Server{
 		Handler:        s,
 		MaxHeaderBytes: limits.MaxHeaderBytes,
@@ -460,8 +439,6 @@ func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPL
 	}
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(httpListener{l.ln, s}) }()
-	ended := make(chan *httpCall)
-	live := map[*httpCall]bool{}
 	fired := make(chan *phaseTimer)
 	timers := map[*phaseTimer]bool{}
 	timerSite := string(site) + " (timeout)"
@@ -524,59 +501,33 @@ func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPL
 			}
 		}
 	}
-	finish := func(c *httpCall, stop bool) error {
-		var err error
-		if stop {
-			err = c.h.Stop()
-			c.err = rt.Interrupted
-		} else {
-			_, err = c.h.Wait()
-			c.err = err
-		}
-		delete(live, c)
-		close(c.done)
-		return err
-	}
+	// shutdown stops the requests and the timers and joins them: every
+	// request task has returned once its transport worker has (workers).
+	// It returns the defects of the requests and of the timers.
 	shutdown := func() error {
 		s.mu.Lock()
 		s.closing = true
-		close(s.quit)
 		s.mu.Unlock()
 		_ = srv.Close() // unblock even a partial header or body read
-		for c := range live {
-			c.cancel()
-		}
+		s.requests.Interrupt()
 		for pt := range timers {
 			cancel(pt)
 		}
 		var causes rt.Cause
-		for len(live) > 0 || len(timers) > 0 {
-			select {
-			case c := <-ended:
-				causes.Add(finish(c, true))
-			case pt := <-fired:
-				pt.cancelled = true
-				causes.Add(settle(pt))
-			}
+		for len(timers) > 0 {
+			pt := <-fired
+			pt.cancelled = true
+			causes.Add(settle(pt))
 		}
 		s.workers.Wait()
+		s.requests.End()
+		s.fmu.Lock()
+		causes.Add(s.defects.Err())
+		s.fmu.Unlock()
 		return causes.Err()
 	}
 	for {
 		select {
-		case c := <-s.calls:
-			holder := rt.NewScope(t)
-			c.h = rt.Go(&holder, string(site), func(ct *rt.Task) (struct{}, error) {
-				defer func() { ended <- c }()
-				return guarded(ct, func(ct *rt.Task) (struct{}, error) {
-					c.start(ct)
-					ct.Check()
-					v := c.in
-					c.response = handle(ct, c.x, v.Method, v.Path, v.Query, v.Header, v.Body, v.TooLarge, v.ReadError)
-					return struct{}{}, nil
-				})
-			})
-			live[c] = true
 		case <-s.wake:
 			rearm()
 		case pt := <-fired:
@@ -587,15 +538,10 @@ func HTTPServe(site Site, t *rt.Task, sleeper Sleeper, l *Listener, limits HTTPL
 				<-served
 				raise(causes.Err())
 			}
-		case c := <-ended:
-			err := finish(c, false)
-			if err != nil && !rt.OnlyInterruption(err) {
-				var causes rt.Cause
-				causes.Add(err)
-				causes.Add(shutdown())
-				<-served
-				raise(causes.Err())
-			}
+		case <-s.failed:
+			err := shutdown()
+			<-served
+			raise(err)
 		case <-t.Done():
 			var causes rt.Cause
 			causes.AddInterruption()
@@ -622,74 +568,92 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.workers.Add(1)
 	s.mu.Unlock()
 	defer s.workers.Done()
-	in := httpIncoming{Method: r.Method, Path: r.URL.Path, Header: httpFields(r.Header), Query: HTTPParseQuery(r.URL.RawQuery)}
-	// The body phase is bounded only while there is a body to read.
-	conn, _ := r.Context().Value(connKey{}).(*httpConn)
-	if r.Body == http.NoBody {
-		conn = nil
+	in := httpIncoming{Method: r.Method, Path: r.URL.Path, Header: httpFields(r.Header)}
+	if r.URL.RawQuery != "" {
+		in.Query = HTTPParseQuery(r.URL.RawQuery)
 	}
-	if conn != nil {
-		conn.enter(phaseBody)
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(s.limits.MaxBodyBytes)))
-	if conn != nil {
-		conn.enter(phaseFree)
-	}
-	if err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			in.TooLarge = true
-		} else {
-			in.ReadError = err.Error()
+	// A request with no body reads none. The body phase is bounded only
+	// while there is a body to read.
+	if r.Body != http.NoBody {
+		conn, _ := r.Context().Value(connKey{}).(*httpConn)
+		if conn != nil {
+			conn.enter(phaseBody)
 		}
-	} else {
-		in.Body = string(body)
+		var body strings.Builder
+		_, err := io.Copy(&body, http.MaxBytesReader(w, r.Body, int64(s.limits.MaxBodyBytes)))
+		if conn != nil {
+			conn.enter(phaseFree)
+		}
+		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				in.TooLarge = true
+			} else {
+				in.ReadError = err.Error()
+			}
+		} else {
+			in.Body = body.String()
+		}
 	}
-	c := &httpCall{in: in, x: &Exchange{w: w}, done: make(chan struct{})}
-	gone := r.Context().Done()
-	if in.ReadError != "" {
-		// net/http cancels the request context on an input EOF, even
-		// when the peer only closed its write half and can still read
-		// our response. Deliver the typed read refusal to the program;
-		// its child remains owned and stoppable by the serving task.
-		gone = nil
-	}
-	select {
-	case s.calls <- c:
-	case <-s.quit:
+	// net/http cancels the request context on an input EOF, even when the
+	// peer only closed its write half and can still read our response:
+	// after a read refusal the program gets the typed refusal, and only a
+	// stop of the server stops the request.
+	ctx := r.Context()
+	watch := in.ReadError == ""
+	if watch && ctx.Err() != nil {
+		// The client left before its handler started.
 		panic(http.ErrAbortHandler)
-	case <-gone:
-		panic(http.ErrAbortHandler)
 	}
-	select {
-	case <-c.done:
-	case <-gone:
-		c.cancel()
-		<-c.done
-	}
+	x := &Exchange{w: w}
+	response, err := rt.RunIn(s.requests, s.site, func(ct *rt.Task) (HTTPResponse, error) {
+		if watch {
+			// A disconnect stops this request alone.
+			defer context.AfterFunc(ctx, ct.Interrupt)()
+		}
+		return guarded(ct, func(ct *rt.Task) (HTTPResponse, error) {
+			ct.Check()
+			return s.handle(ct, x, in.Method, in.Path, in.Query, in.Header, in.Body, in.TooLarge, in.ReadError), nil
+		})
+	})
 	// The request task has ended: a writer it kept now fails, and a
 	// streamed response is complete (or, after a stop or a defect,
 	// aborted with the connection, so the client sees a cut body).
-	streamed := c.x.finish()
-	if c.err != nil {
+	streamed := x.finish()
+	if err != nil {
+		if !rt.OnlyInterruption(err) {
+			s.fail(err)
+		}
 		panic(http.ErrAbortHandler)
 	}
 	if streamed {
 		return
 	}
-	for _, f := range c.response.Header {
+	for _, f := range response.Header {
 		w.Header().Add(f.Name, f.Value)
 	}
-	if c.response.Body == "" {
+	if response.Body == "" {
 		// A nil value suppresses net/http's content sniffing without
 		// writing an empty Content-Type header in the HTTP output.
 		w.Header()["Content-Type"] = nil
 	}
-	w.WriteHeader(c.response.Status)
+	w.WriteHeader(response.Status)
 	// net/http suppresses HEAD's body and still computes the GET
 	// content length and content type from this buffered representation.
-	if c.response.Body != "" {
-		_, _ = io.WriteString(w, c.response.Body)
+	if response.Body != "" {
+		_, _ = io.WriteString(w, response.Body)
+	}
+}
+
+// fail keeps a request's defect for the serving task, and wakes it to
+// stop the server and raise every defect.
+func (s *httpServer) fail(err error) {
+	s.fmu.Lock()
+	s.defects.Add(err)
+	s.fmu.Unlock()
+	select {
+	case s.failed <- struct{}{}:
+	default:
 	}
 }
 
@@ -709,7 +673,11 @@ func httpFields(values map[string][]string) []HTTPField {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	var fields []HTTPField
+	n := 0
+	for _, vs := range values {
+		n += len(vs)
+	}
+	fields := make([]HTTPField, 0, n)
 	for _, k := range keys {
 		for _, v := range values[k] {
 			fields = append(fields, HTTPField{k, v})

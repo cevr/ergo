@@ -146,6 +146,35 @@
       "killers": [
         "v1:TestHandlesNamedBySource"
       ]
+    },
+    {
+      "name": "gx4-member-stays-in-domain",
+      "origin": "wf10 GX4",
+      "file": "runtime/rt/group.go",
+      "from": "\tt.detach()\n\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err",
+      "to": "\tt.detach()\n\treturn v, err",
+      "rule": "rt Group (GX4): a member that returned leaves its auto clock's domain.",
+      "killers": ["runtime/rt:TestGroupMembersLeave"]
+    },
+    {
+      "name": "gx4-member-stays-linked",
+      "origin": "wf10 GX4",
+      "file": "runtime/rt/group.go",
+      "from": "\tt.detach()\n\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err",
+      "to": "\tif own := t.member.Load(); own != nil {\n\t\town.leave()\n\t}\n\treturn v, err",
+      "rule": "rt Group (GX4): a member that returned leaves the task tree.",
+      "killers": ["runtime/rt:TestGroupMembersLeave"]
+    },
+    {
+      "name": "gx4-group-counted-live",
+      "origin": "wf10 GX4",
+      "file": "runtime/rt/group.go",
+      "from": "\t\tm.v.live--\n",
+      "to": "",
+      "rule": "rt Group (GX4): a group runs nothing, so it is no live member of its clock's domain.",
+      "killers": [
+        "runtime/rt:TestGroupMembersLeave"
+      ]
     }
   ]
 }

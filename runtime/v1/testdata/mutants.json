@@ -656,6 +656,46 @@
     {"name":"stz-waitfor-arms-ended","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\tselect {\n\tcase <-r.proc.exited():\n\t\treturn r.Wait(t), nil\n\tdefault:\n\t}\n\treturn After(span","to":"\treturn After(span","rule":"stdlib.md exec, WaitFor: a program that has ended gives its status at once and arms no deadline.","killers":["runtime/v1:TestRunningMatchesModel"]},
     {"name":"stz-waitfor-ended-status","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\tcase <-r.proc.exited():\n\t\treturn r.Wait(t), nil","to":"\tcase <-r.proc.exited():\n\t\treturn 0, nil","rule":"stdlib.md exec, WaitFor: an ended program gives Wait's status.","killers":["runtime/v1:TestRunningMatchesModel"]},
     {"name":"stz-waitfor-ends-the-program","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\t\treturn r.Wait(ct), nil\n\t})","to":"\t\tr.Close(ct)\n\t\treturn r.status, nil\n\t})","rule":"stdlib.md exec, WaitFor: the deadline first fails Expired and leaves the program running, unsignalled, with its unread bytes.","killers":["runtime/v1:TestRunningMatchesModel"]},
-    {"name":"stz-waitfor-ignores-stop","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\treturn After(span, t, s, nil, d,","to":"\treturn After(span, rt.Root(\"detached\"), s, nil, d,","rule":"stdlib.md exec, WaitFor: a stop of the caller ends the wait, as Wait's.","killers":["runtime/v1:TestRunningMatchesModel"]}
+    {"name":"stz-waitfor-ignores-stop","origin":"wf10 S-tz","file":"runtime/v1/exec_start.go","from":"\treturn After(span, t, s, nil, d,","to":"\treturn After(span, rt.Root(\"detached\"), s, nil, d,","rule":"stdlib.md exec, WaitFor: a stop of the caller ends the wait, as Wait's.","killers":["runtime/v1:TestRunningMatchesModel"]},
+    {
+      "name": "gx4-shutdown-leaves-requests",
+      "origin": "wf10 GX4",
+      "file": "runtime/v1/http.go",
+      "from": "\t\ts.requests.Interrupt()\n",
+      "to": "",
+      "rule": "stdlib.md, std http Serve (GX4): a stop of the server stops every request task that runs.",
+      "killers": ["runtime/v1:TestHTTPDisconnectAndDefects"]
+    },
+    {
+      "name": "gx4-disconnect-unwatched",
+      "origin": "wf10 GX4",
+      "file": "runtime/v1/http.go",
+      "from": "\t\t\tdefer context.AfterFunc(ctx, ct.Interrupt)()\n",
+      "to": "",
+      "rule": "stdlib.md, std http Serve (GX4): a disconnect stops that request alone.",
+      "killers": [
+        "runtime/v1:TestHTTPDisconnectAndDefects"
+      ]
+    },
+    {
+      "name": "gx4-defect-dropped",
+      "origin": "wf10 GX4",
+      "file": "runtime/v1/http.go",
+      "from": "\t\tif !rt.OnlyInterruption(err) {\n\t\t\ts.fail(err)\n\t\t}\n",
+      "to": "",
+      "rule": "stdlib.md, std http Serve (GX4): a request's defect reaches the serving task, which stops the server and raises it.",
+      "killers": [
+        "runtime/v1:TestHTTPDisconnectAndDefects"
+      ]
+    },
+    {
+      "name": "gx4-read-refusal-watched",
+      "origin": "wf10 GX4",
+      "file": "runtime/v1/http.go",
+      "from": "\twatch := in.ReadError == \"\"\n",
+      "to": "\twatch := true\n",
+      "rule": "stdlib.md, std http Serve (GX4): after a read refusal (a half-closed peer) the handler still runs and answers.",
+      "killers": ["runtime/v1:TestHTTPServerMatchesModel"]
+    }
   ]
 }
