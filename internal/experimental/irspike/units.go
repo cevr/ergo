@@ -148,6 +148,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call without a function", "G4"},
 	{"call of a Go builtin", "G4"},
 	{"call of a user extern", "G4"},
+	{"call of a Go package function", "G4"}, // import go (gostd); IRG6 r2 gates it, the census crashed on it
 	{"call of a std intrinsic", "G4"},
 	{"dot call of a std function", "G4"},
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands

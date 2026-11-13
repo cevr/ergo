@@ -238,6 +238,11 @@ type irExpr struct {
 	Args  []*irExpr `json:"args,omitempty"`
 	Elems []*irExpr `json:"elems,omitempty"`
 	Keys  []string  `json:"keys,omitempty"`
+	// Params, Body and End are a function literal's ("func",
+	// ir_closure.go): its parameters' locals, its statements, its brace.
+	Params []int     `json:"params,omitempty"`
+	Body   []*irStmt `json:"body,omitempty"`
+	End    *irPos    `json:"end,omitempty"`
 }
 
 // irUnsupported stops an IR body: the function keeps its source body.

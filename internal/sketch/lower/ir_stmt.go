@@ -246,6 +246,9 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := b.l.info.Calls[call]; c != nil && c.Kind != check.CallConversion && c.Kind != check.CallLen {
 			pre, e := b.call(call, true)
+			if e == nil {
+				return pre // a function value's call, bound and dropped (ir_closure.go)
+			}
 			return append(pre, &irStmt{K: "expr", Pos: p, X: e})
 		}
 	}
