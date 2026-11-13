@@ -241,6 +241,7 @@ var bodyTable = map[string]bodyFact{
 	"MathAbs":                   {body: Body{Params: []Param{{Type: "float64"}}, Results: []string{"float64"}, Pure: true}},
 	"MathCeil":                  {body: Body{Params: []Param{{Type: "float64"}}, Results: []string{"float64"}, Pure: true}},
 	"MathExp":                   {body: Body{Params: []Param{{Type: "float64"}}, Results: []string{"float64"}, Pure: true}},
+	"MathFMA":                   {body: Body{Params: []Param{{Type: "float64"}, {Type: "float64"}, {Type: "float64"}}, Results: []string{"float64"}, Pure: true}},
 	"MathFloor":                 {body: Body{Params: []Param{{Type: "float64"}}, Results: []string{"float64"}, Pure: true}},
 	"MathInf":                   {body: Body{Params: []Param{{Type: "int"}}, Results: []string{"float64"}, Pure: true}},
 	"MathIsInf":                 {body: Body{Params: []Param{{Type: "float64"}, {Type: "int"}}, Results: []string{"bool"}, Pure: true}},

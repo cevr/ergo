@@ -51,6 +51,13 @@ func MathSqrt(f float64) float64 { return math.Sqrt(f) }
 //ergo:pure
 func MathPow(x float64, y float64) float64 { return math.Pow(x, y) }
 
+// MathFMA is math.FMA(x, y, z): x*y + z rounded once, on every host (Go
+// uses the host's fused instruction where it has one and an exact software
+// form where not).
+//
+//ergo:pure
+func MathFMA(x float64, y float64, z float64) float64 { return math.FMA(x, y, z) }
+
 // MathMod is math.Mod(x, y).
 //
 //ergo:pure

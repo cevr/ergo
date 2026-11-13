@@ -375,6 +375,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"MathRound":              {},
 	"MathSqrt":               {},
 	"MathPow":                {},
+	"MathFMA":                {},
 	"MathMod":                {},
 	"MathLog":                {},
 	"MathExp":                {},
