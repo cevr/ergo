@@ -9,37 +9,55 @@ import (
 	"testing"
 )
 
-// The entry rule's seeded properties (V8, values.go). Each seed writes a
-// program of functions over a store {m Map[int, E], s []int, out [][]int},
-// whose entry E is int, []int, Map[int, int] or a Box of a Map and a
-// slice, read through a borrow (r *st) or through a let mut local. Each
-// function is one shape of the copy rules:
+// The seeded properties of the entry rule (V8) and the entry move-out
+// (V9), values.go and moveout.go. Each seed writes a program of functions
+// over stores {m Map[K, E], s []int, out [][]int}, whose entry E is int,
+// []int, Map[int, int] or a Box of a Map and a slice, read through a
+// borrow (r *st) or through a let mut local. The stores come in two
+// families: plain ones (K int), which no function moves an entry out of,
+// and moved ones (K string), which the entry rmw shapes move out of, so
+// their Map types are entry-written (V9). Each function is one shape:
 //
 //   - get keep, get match, get none: Get reads an entry, and a write
-//     through the root follows. No copy: no write reaches an entry;
+//     through the root follows. Plain: no copy, no write reaches an
+//     entry. Moved: a kept Option copies the receiver, a matched Get the
+//     entry it gives, a compared one nothing;
 //   - get in flight: the key's evaluation writes the root (bump), so the
-//     receiver is copied once, as a table (maps.Clone);
+//     receiver is copied once;
 //   - window: slices.Slice of a field that is written after it is kept
 //     in another field: one copy, of the window;
 //   - chain param, chain loop, chain put, chain delete: Append, Put and
 //     Delete on the result of another: one copy of a shared source, none
 //     of a let mut root's; chain root, a chain on a shared []Map into a
-//     let mut whose Maps are then written, which only the agreement
-//     reads: the shared Maps must not see the writes;
+//     let mut whose Maps are then written (agreement only);
 //   - copy root: a let mut copy of the Map, written, while the root is
-//     read after: one copy, of the table;
-//   - entry rmw: an entry moved into a let mut, written and stored back:
-//     one copy of the entry (uniqueness is not known: values.go, V8);
-//   - ref modify: the X1 shape, one key of a Map in a Ref changed in the
-//     owned callback: no copy but the cell's copy-if-shared function.
+//     read after: one copy, of the table (plain) or of the entries too
+//     (moved);
+//   - entry copy (plain): an entry read into a let mut, written and stored
+//     under another key: one copy of the entry;
+//   - entry rmw (moved): an entry read into a let mut, written and stored
+//     back: no copy (V9); rmw root between, rmw kept after: the same with
+//     the root named between, or X read after the store, so the entry is
+//     copied once;
+//   - ref modify: one key of a Map in a Ref changed in the owned callback:
+//     the cell's copy-if-shared function, and in the moved family the
+//     entry the kept match gives; ref rmw (moved): the X1 shape, an entry
+//     moved out in the callback: the cell's function only;
+//   - rmw snapshot, rmw kept get, rmw put shared, rmw literal shared, rmw
+//     across call, rmw generic, rmw option fn, rmw range, rmw ref get, rmw
+//     same value (moved, agreement only): a value that shares an entry's
+//     storage under V8 alone (a table copy, a kept Option, a Put or
+//     literal value, a generic store, a returned Option, a range value, a
+//     Ref's Get, one value at two keys) is read after an entry move-out,
+//     and must not see it.
 //
-// copyShape's model is the number of copies the semantics need in each
-// function: TestCopyCountsMatchModel counts the copies the lowered Go of
-// each function makes (maps.Clone, slices.Clone, slices.Clip, a generated
-// copy function) and holds them equal, and holds that no Map is copied
-// deep (no generated copy function for a Map type: values.go, V8).
-// TestCopyRuleAgrees builds the same programs under the rule and under
-// the reference (copyLowering "whole") and holds their outputs equal.
+// copyShape's model is the number of copies the lowering makes in each
+// function: TestCopyCountsMatchModel counts the copies in the lowered Go
+// of each function (maps.Clone, slices.Clone, slices.Clip, a generated copy
+// function) and holds them equal, and holds that no plain Map is copied
+// entry by entry (V8). TestCopyRuleAgrees builds the same programs under
+// the rules and under the reference (copyLowering "whole": no V8, no V9,
+// whose Maps are never written in place) and holds their outputs equal.
 //
 // A failure prints the seed, the Ergo source and the Go of the function.
 // Replay: go test -run '^TestCopyCountsMatchModel$' ./internal/sketch/lower -args -copy.seed=N
@@ -54,23 +72,40 @@ func copySeeds() []uint64 {
 }
 
 // copyEntry is an entry kind: its suffix, its Ergo type, a zero literal,
-// a sample literal and whether it holds a Map or slice.
+// a sample literal, whether it holds a Map or slice, and a write through
+// a let mut s of it.
 type copyEntry struct {
-	k, typ, zero, sample string
-	holds                bool
+	k, typ, zero, sample, write string
+	holds                       bool
 }
 
 var copyEntries = []copyEntry{
-	{"I", "int", "0", "5", false},
-	{"S", "[]int", "[]int{}", "[]int{1, 2}", true},
-	{"M", "Map[int, int]", "Map[int, int]{}", "Map[int, int]{1: 2}", true},
-	{"B", "Box", "Box{M: Map[int, int]{}, S: []int{}}", "Box{M: Map[int, int]{3: 4}, S: []int{5}}", true},
+	{"I", "int", "0", "5", "s = s + 1", false},
+	{"S", "[]int", "[]int{}", "[]int{1, 2}", "s = s.Append(9)", true},
+	{"M", "Map[int, int]", "Map[int, int]{}", "Map[int, int]{1: 2}", "s[8] = 9", true},
+	{"B", "Box", "Box{M: Map[int, int]{}, S: []int{}}", "Box{M: Map[int, int]{3: 4}, S: []int{5}}", "s.M[8] = 9", true},
+}
+
+// copyFamily is a family of stores: its prefix, key type, and the Ergo
+// text of key n, of the key after the expression k, and of a key's digest.
+type copyFamily struct {
+	name, pre, kt string
+	lit           func(n int) string
+	next, digest  string
+	moved         bool
+}
+
+var copyFamilies = []copyFamily{
+	{"plain", "st", "int", func(n int) string { return fmt.Sprint(n) }, "k + 1", "k", false},
+	{"moved", "sf", "string", func(n int) string { return fmt.Sprintf("%q", fmt.Sprint(n)) }, `k + "1"`, "len(k)", true},
 }
 
 const copyPrelude = `import slices
 import sync
 
 type Box { M Map[int, int], S []int }
+
+type key { s string }
 
 func szI(v int) int { v }
 
@@ -105,20 +140,29 @@ func head(s []int) []int { slices.Slice(s, 0, 1) }
 
 func cell(m Map[int, int]) sync.Ref[Map[int, int]] { sync.NewRef[Map[int, int]](m) }
 
+// put2 stores v in a copy of m through a type parameter, where a copy
+// stops (rmw generic).
+func put2[K comparable, V](m Map[K, V], k K, v V) Map[K, V] {
+	let mut c = m
+	c[k] = v
+	c
+}
+
 `
 
-// copyStore is the store type of entry e, its constructor, its digest and
-// its bump, which writes the root through a borrow.
-func copyStore(e copyEntry) string {
-	k := e.k
-	return fmt.Sprintf(`type st%[1]s { m Map[int, %[2]s], s []int, out [][]int }
+// copyStore is the store type of entry e in family f, its constructor,
+// its digests, its bump, which writes the root through a borrow, and, in
+// the moved family, its find (an Option of an entry) and rmw (a move-out
+// through a borrow).
+func copyStore(f copyFamily, e copyEntry) string {
+	s := fmt.Sprintf(`type %[1]s%[2]s { m Map[%[6]s, %[3]s], s []int, out [][]int }
 
-func new%[1]s() st%[1]s { st%[1]s{m: Map[int, %[2]s]{1: %[3]s, 2: %[4]s}, s: []int{1, 2, 3, 4}, out: [][]int{}} }
+func new%[1]s%[2]s() %[1]s%[2]s { %[1]s%[2]s{m: Map[%[6]s, %[3]s]{%[7]s: %[4]s, %[8]s: %[5]s}, s: []int{1, 2, 3, 4}, out: [][]int{}} }
 
-func d%[1]s(r st%[1]s) int {
+func d%[1]s%[2]s(r %[1]s%[2]s) int {
 	let mut t = len(r.m) * 1000 + szS(r.s) + len(r.out) * 7
 	for k, v in r.m {
-		t = t + k + sz%[1]s(v)
+		t = t + %[9]s + sz%[2]s(v)
 	}
 	for o in r.out {
 		t = t + szS(o)
@@ -126,37 +170,62 @@ func d%[1]s(r st%[1]s) int {
 	t
 }
 
-func dm%[1]s(m Map[int, %[2]s]) int {
+func dm%[1]s%[2]s(m Map[%[6]s, %[3]s]) int {
 	let mut t = len(m) * 1000
 	for k, v in m {
-		t = t + k + sz%[1]s(v)
+		t = t + %[9]s * 3 + sz%[2]s(v)
 	}
 	t
 }
 
-func bump%[1]s(r *st%[1]s, k int) int {
-	r.m[k] = %[3]s
+func bump%[1]s%[2]s(r *%[1]s%[2]s, k %[6]s) %[6]s {
+	r.m[k] = %[4]s
 	k
 }
 
-`, k, e.typ, e.zero, e.sample)
+`, f.pre, e.k, e.typ, e.zero, e.sample, f.kt, f.lit(1), f.lit(2), f.digest)
+	if f.moved {
+		s += fmt.Sprintf(`func find%[1]s%[2]s(m Map[%[5]s, %[3]s], k %[5]s) Option[%[3]s] { m.Get(k) }
+
+func rmw%[1]s%[2]s(r *%[1]s%[2]s, k %[5]s) int {
+	let mut s = %[4]s
+	match r.m.Get(k) {
+	case Some[%[3]s] as v:
+		s = v.Value
+	case None:
+	}
+	%[6]s
+	r.m[k] = s
+	len(r.m)
 }
 
-// copyShapes is the number of shapes copyGen.shape draws from.
-const copyShapes = 9
+`, f.pre, e.k, e.typ, e.zero, f.kt, e.write)
+	}
+	return s
+}
+
+// copyShapes is the number of shapes copyGen.shape draws from in each
+// family.
+const copyShapes = 10
 
 type copyGen struct {
 	r       *rand.Rand
 	fns     strings.Builder
 	main    strings.Builder
-	model   map[string]int // function name -> the copies its Go makes
+	model   map[string]int // function name -> the copies its Go makes; -1: agreement only
 	order   []string
 	reached map[string]bool
 	n       int
 }
 
+// rmwBody is a move-out of the entry at key, from root r, with the write w
+// and the Ergo text between the read and the store.
+func rmwBody(e copyEntry, key, between string) string {
+	return fmt.Sprintf("\tlet mut s = %s\n\tmatch r.m.Get(%s) {\n\tcase Some[%s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n%s\t%s\n\tr.m[%s] = s\n", e.zero, key, e.typ, between, e.write, key)
+}
+
 // shape writes one function, its call in main and its model count.
-func (g *copyGen) shape(combo int) {
+func (g *copyGen) shape(fam copyFamily, combo int) {
 	e := copyEntries[combo%len(copyEntries)]
 	ptr := combo/len(copyEntries)%2 == 0
 	pick := combo / (2 * len(copyEntries))
@@ -164,22 +233,31 @@ func (g *copyGen) shape(combo int) {
 	name := fmt.Sprintf("f%d", g.n)
 	k := 1 + g.r.IntN(3)
 	sz := "sz" + e.k
-	// head opens the function over the store; root is how the body
-	// names it; call is main's call of it, with the store digest after.
-	head := fmt.Sprintf("func %s(r *st%s, k int) int {\n", name, e.k)
+	st := fam.pre + e.k
+	holds := 0
+	if e.holds {
+		holds = 1
+	}
+	moved := 0
+	if fam.moved {
+		moved = holds
+	}
+	// head opens the function over the store; call is main's call of it,
+	// with the store digest after.
+	head := fmt.Sprintf("func %s(r *%s, k %s) int {\n", name, st, fam.kt)
 	if !ptr {
-		head = fmt.Sprintf("func %s(k int) int {\n\tlet mut r = new%s()\n", name, e.k)
+		head = fmt.Sprintf("func %s(k %s) int {\n\tlet mut r = new%s()\n", name, fam.kt, st)
 	}
 	call := func() {
 		if ptr {
-			g.main.WriteString(fmt.Sprintf("\tlet mut r%d = new%s()\n\tConsole.Println(\"\\(%s(&r%d, %d)) \\(d%s(r%d))\")\n", g.n, e.k, name, g.n, k, e.k, g.n))
+			g.main.WriteString(fmt.Sprintf("\tlet mut r%d = new%s()\n\tConsole.Println(\"\\(%s(&r%d, %s)) \\(d%s(r%d))\")\n", g.n, st, name, g.n, fam.lit(k), st, g.n))
 		} else {
-			g.main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s(%d))\")\n", name, k))
+			g.main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s(%s))\")\n", name, fam.lit(k)))
 		}
 	}
 	tail := ""
 	if !ptr {
-		tail = fmt.Sprintf(" + d%s(r)", e.k)
+		tail = fmt.Sprintf(" + d%s(r)", st)
 	}
 	match := func(x string) string {
 		return fmt.Sprintf("match %s {\n\tcase Some[%s] as v:\n\t\t%s(v.Value)\n\tcase None:\n\t\t0\n\t}", x, e.typ, sz)
@@ -192,17 +270,19 @@ func (g *copyGen) shape(combo int) {
 	case 0:
 		shape = "get keep"
 		body = fmt.Sprintf("\tlet o = r.m.Get(k)\n\tr.m[k] = %s\n\tlet n = %s\n\tn%s\n", e.zero, match("o"), tail)
+		want = moved // the Option is kept whole: the receiver
 	case 1:
 		shape = "get match"
-		body = fmt.Sprintf("\tlet n = %s\n\tr.m[k + 1] = %s\n\tn%s\n", match("r.m.Get(k)"), e.zero, tail)
+		body = fmt.Sprintf("\tlet n = %s\n\tr.m[%s] = %s\n\tn%s\n", match("r.m.Get(k)"), fam.next, e.zero, tail)
+		want = moved // the entry the match binds
 	case 2:
 		shape = "get none"
 		body = fmt.Sprintf("\tlet b = r.m.Get(k) == None\n\tr.m[k] = %s\n\tlet n = if b { 1 } else { 2 }\n\tn%s\n", e.zero, tail)
 	case 3:
 		shape = "get in flight"
-		bump := "bump" + e.k + "(r, k)"
+		bump := "bump" + st + "(r, k)"
 		if !ptr {
-			bump = "bump" + e.k + "(&r, k)"
+			bump = "bump" + st + "(&r, k)"
 		}
 		body = fmt.Sprintf("\tlet o = r.m.Get(%s)\n\tlet n = %s\n\tn%s\n", bump, match("o"), tail)
 		want = 1 // the receiver, before bump writes the root
@@ -212,82 +292,60 @@ func (g *copyGen) shape(combo int) {
 		want = 1 // the window
 	case 5:
 		shape = "copy root"
-		body = fmt.Sprintf("\tlet mut c = r.m\n\tc[k] = %s\n\tr.s[0] = 9\n\tdm%s(c) + len(r.m)%s\n", e.zero, e.k, tail)
-		want = 1 // the table
+		body = fmt.Sprintf("\tlet mut c = r.m\n\tc[k] = %s\n\tr.s[0] = 9\n\tdm%s(c) + len(r.m)%s\n", e.zero, st, tail)
+		want = 1 // the table, or a copy function of the entries
 	case 6:
-		if !e.holds {
-			shape = "entry rmw"
-			body = fmt.Sprintf("\tlet mut s = 0\n\tmatch r.m.Get(k) {\n\tcase Some[int] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\ts = s + 1\n\tr.m[k] = s\n\ts%s\n", tail)
+		if !fam.moved {
+			shape = "entry copy"
+			body = fmt.Sprintf("\tlet mut s = %s\n\tmatch r.m.Get(k) {\n\tcase Some[%s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%s\n\tr.m[%s] = s\n\tlen(r.m)%s\n", e.zero, e.typ, e.write, fam.next, tail)
+			want = holds // the entry, which r.m[k] still holds
 			break
 		}
 		shape = "entry rmw"
-		write := map[string]string{"S": "s = s.Append(9)", "M": "s[8] = 9", "B": "s.M[8] = 9"}[e.k]
-		body = fmt.Sprintf("\tlet mut s = %s\n\tmatch r.m.Get(k) {\n\tcase Some[%s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%s\n\tr.m[k] = s\n\tlen(r.m)%s\n", e.zero, e.typ, write, tail)
-		want = 1 // the entry: it may be shared
+		body = rmwBody(e, "k", "") + "\tlen(r.m)" + tail + "\n"
+		if !ptr {
+			// The key a path of fields from an immutable binding.
+			body = "\tlet q = key{s: k}\n" + rmwBody(e, "q.s", "") + "\tlen(r.m)" + tail + "\n"
+		}
 	case 7:
-		shape = "ref modify"
-		head = fmt.Sprintf("func %s(c sync.Ref[Map[int, %s]], k int) int {\n", name, e.typ)
-		body = fmt.Sprintf("\tsync.Modify(c, func(all Map[int, %[1]s]) (int, Map[int, %[1]s]) {\n\t\tlet mut m = all\n\t\tlet n = %[2]s\n\t\tm[k] = %[3]s\n\t\t(n, m)\n\t})\n", e.typ, strings.ReplaceAll(match("m.Get(k)"), "\n", "\n\t"), e.sample)
-		want = 1 // the cell's copy, made only when its value is shared
-		call = func() {
-			g.main.WriteString(fmt.Sprintf("\tlet c%d = sync.NewRef[Map[int, %s]](Map[int, %s]{1: %s})\n\tConsole.Println(\"\\(%s(c%d, %d)) \\(%s(c%d, %d)) \\(dm%s(c%d.Get()))\")\n", g.n, e.typ, e.typ, e.sample, name, g.n, k, name, g.n, k+1, e.k, g.n))
+		if !fam.moved {
+			shape = "ref modify"
+			break
 		}
-	default:
-		// The chains, over a slice or a Map of int.
-		switch g.r.IntN(5) {
-		case 4:
-			// A chain on a shared source into a root, whose Maps are
-			// then written: the shared Maps must not see it. Only the
-			// agreement reads it (want -1).
-			shape = "chain root"
-			head = fmt.Sprintf("func %s(x []Map[int, int], a Map[int, int]) int {\n", name)
-			body = "\tlet mut y = x.Append(a).Append(a)\n\ty[0][9] = 9\n\ty[1][9] = 9\n\ty[2][8] = 8\n\tszMs(x) * 3 + szM(a) * 5 + szMs(y)\n"
-			want = -1
-			call = func() {
-				g.main.WriteString(fmt.Sprintf("\tlet x%d = []Map[int, int]{Map[int, int]{1: 1}}\n\tlet a%d = Map[int, int]{2: 2}\n\tConsole.Println(\"\\(%s(x%d, a%d)) \\(szMs(x%d)) \\(szM(a%d))\")\n", g.n, g.n, name, g.n, g.n, g.n, g.n))
-			}
-		case 0:
-			shape = "chain param"
-			head = fmt.Sprintf("func %s(x []int, a int) int {\n", name)
-			body = "\tszS(x.Append(a).Append(a + 1).Append(a + 2))\n"
-			want = 1 // x is shared: the first Append copies it
-			call = func() {
-				g.main.WriteString(fmt.Sprintf("\tlet x%d = []int{1, 2}\n\tConsole.Println(\"\\(%s(x%d, %d)) \\(szS(x%d))\")\n", g.n, name, g.n, k, g.n))
-			}
-		case 1:
-			shape = "chain loop"
-			head = fmt.Sprintf("func %s(n int) int {\n", name)
-			body = "\tlet mut x = []int{}\n\tfor i in 0..n {\n\t\tx = x.Append(i).Append(i * 2)\n\t}\n\tszS(x)\n"
-			call = func() { g.main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s(%d))\")\n", name, k+3)) }
-		case 2:
-			shape = "chain put"
-			head = fmt.Sprintf("func %s(m Map[int, int], a int) int {\n", name)
-			body = "\tszM(m.Put(a, 1).Put(a + 1, 2).Put(a + 2, 3))\n"
-			want = 1
-			call = func() {
-				g.main.WriteString(fmt.Sprintf("\tlet m%d = Map[int, int]{1: 1}\n\tConsole.Println(\"\\(%s(m%d, %d)) \\(szM(m%d))\")\n", g.n, name, g.n, k, g.n))
-			}
+		switch {
+		case ptr:
+			shape = "rmw root between"
+			body = rmwBody(e, "k", "\tlet z = len(r.m)\n") + "\tz" + tail + "\n"
+			want = holds // the entry, at its read
 		default:
-			shape = "chain delete"
-			head = fmt.Sprintf("func %s(m Map[int, int], a int) int {\n", name)
-			body = "\tszM(m.Delete(a).Delete(a + 1))\n"
-			want = 1
-			call = func() {
-				g.main.WriteString(fmt.Sprintf("\tlet m%d = Map[int, int]{1: 1, 2: 2, 3: 3}\n\tConsole.Println(\"\\(%s(m%d, %d)) \\(szM(m%d))\")\n", g.n, name, g.n, k, g.n))
-			}
+			shape = "rmw kept after"
+			body = rmwBody(e, "k", "") + "\tlen(r.m) + " + sz + "(s)" + tail + "\n"
+			want = 2 * holds // the entry at its read, and s at the store: s lives on (V1)
 		}
+	case 8:
+		shape = "ref modify"
+	default:
+		g.chain(name, k, &shape, &head, &body, &want, &call)
 		access = "value"
+	}
+	if shape == "ref modify" {
+		// A Ref site has no store: the moved family's two draws of it
+		// are one of each.
+		rmw := pick == 8 && fam.moved && ptr
+		head, body, want, call = g.refShape(fam, e, name, k, rmw)
+		if rmw {
+			shape = "ref rmw"
+		}
 	}
 	switch {
 	case shape == "window" || shape == "copy root":
-		// Entries take no part: one kind is enough for the path.
-		g.reached[shape+" "+access] = true
+		g.reached[fam.name+" "+shape+" "+access] = true
 	case strings.HasPrefix(shape, "chain"):
 		g.reached[shape] = true
-	case shape == "ref modify":
-		g.reached[shape+" "+e.k] = true // a Ref site has no store
+	case strings.HasPrefix(shape, "ref"):
+		g.reached[fam.name+" "+shape+" "+e.k] = true // a Ref site has no store
 	default:
-		g.reached[shape+" "+access+" "+e.k] = true
+		g.reached[fam.name+" "+shape+" "+access+" "+e.k] = true
 	}
 	g.fns.WriteString(head + body + "}\n\n")
 	call()
@@ -295,18 +353,184 @@ func (g *copyGen) shape(combo int) {
 	g.order = append(g.order, name)
 }
 
+// refShape is a function over a Ref of a Map of e, changing one key in
+// sync.Modify's owned callback: by a kept match then a write (rmw false),
+// or by a move-out (rmw true, the moved family only).
+func (g *copyGen) refShape(fam copyFamily, e copyEntry, name string, k int, rmw bool) (head, body string, want int, call func()) {
+	mt := fmt.Sprintf("Map[%s, %s]", fam.kt, e.typ)
+	head = fmt.Sprintf("func %s(c sync.Ref[%s], k %s) int {\n", name, mt, fam.kt)
+	inner := fmt.Sprintf("\t\tlet n = %s\n\t\tm[k] = %s\n", strings.ReplaceAll(fmt.Sprintf("match m.Get(k) {\n\tcase Some[%s] as v:\n\t\tsz%s(v.Value)\n\tcase None:\n\t\t0\n\t}", e.typ, e.k), "\n", "\n\t\t"), e.sample)
+	want = 1 // the cell's copy, made only when its value is shared
+	if fam.moved && e.holds {
+		want = 2 // and the entry the kept match gives (V9)
+	}
+	if rmw {
+		inner = fmt.Sprintf("\t\tlet mut s = %s\n\t\tmatch m.Get(k) {\n\t\tcase Some[%s] as v:\n\t\t\ts = v.Value\n\t\tcase None:\n\t\t}\n\t\t%s\n\t\tm[k] = s\n\t\tlet n = len(m)\n", e.zero, e.typ, e.write)
+		want = 1
+	}
+	body = fmt.Sprintf("\tsync.Modify(c, func(all %[1]s) (int, %[1]s) {\n\t\tlet mut m = all\n%[2]s\t\t(n, m)\n\t})\n", mt, inner)
+	call = func() {
+		g.main.WriteString(fmt.Sprintf("\tlet c%d = sync.NewRef[%s](%s{%s: %s})\n\tConsole.Println(\"\\(%s(c%d, %s)) \\(%s(c%d, %s)) \\(dm%s%s(c%d.Get()))\")\n", g.n, mt, mt, fam.lit(1), e.sample, name, g.n, fam.lit(k), name, g.n, fam.lit(k+1), fam.pre, e.k, g.n))
+	}
+	return
+}
+
+// chain writes one of the chains, over a slice or a Map of int.
+func (g *copyGen) chain(name string, k int, shape, head, body *string, want *int, call *func()) {
+	switch g.r.IntN(5) {
+	case 4:
+		*shape = "chain root"
+		*head = fmt.Sprintf("func %s(x []Map[int, int], a Map[int, int]) int {\n", name)
+		*body = "\tlet mut y = x.Append(a).Append(a)\n\ty[0][9] = 9\n\ty[1][9] = 9\n\ty[2][8] = 8\n\tszMs(x) * 3 + szM(a) * 5 + szMs(y)\n"
+		*want = -1
+		*call = func() {
+			g.main.WriteString(fmt.Sprintf("\tlet x%d = []Map[int, int]{Map[int, int]{1: 1}}\n\tlet a%d = Map[int, int]{2: 2}\n\tConsole.Println(\"\\(%s(x%d, a%d)) \\(szMs(x%d)) \\(szM(a%d))\")\n", g.n, g.n, name, g.n, g.n, g.n, g.n))
+		}
+	case 0:
+		*shape = "chain param"
+		*head = fmt.Sprintf("func %s(x []int, a int) int {\n", name)
+		*body = "\tszS(x.Append(a).Append(a + 1).Append(a + 2))\n"
+		*want = 1 // x is shared: the first Append copies it
+		*call = func() {
+			g.main.WriteString(fmt.Sprintf("\tlet x%d = []int{1, 2}\n\tConsole.Println(\"\\(%s(x%d, %d)) \\(szS(x%d))\")\n", g.n, name, g.n, k, g.n))
+		}
+	case 1:
+		*shape = "chain loop"
+		*head = fmt.Sprintf("func %s(n int) int {\n", name)
+		*body = "\tlet mut x = []int{}\n\tfor i in 0..n {\n\t\tx = x.Append(i).Append(i * 2)\n\t}\n\tszS(x)\n"
+		*want = 0
+		*call = func() { g.main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s(%d))\")\n", name, k+3)) }
+	case 2:
+		*shape = "chain put"
+		*head = fmt.Sprintf("func %s(m Map[int, int], a int) int {\n", name)
+		*body = "\tszM(m.Put(a, 1).Put(a + 1, 2).Put(a + 2, 3))\n"
+		*want = 1
+		*call = func() {
+			g.main.WriteString(fmt.Sprintf("\tlet m%d = Map[int, int]{1: 1}\n\tConsole.Println(\"\\(%s(m%d, %d)) \\(szM(m%d))\")\n", g.n, name, g.n, k, g.n))
+		}
+	default:
+		*shape = "chain delete"
+		*head = fmt.Sprintf("func %s(m Map[int, int], a int) int {\n", name)
+		*body = "\tszM(m.Delete(a).Delete(a + 1))\n"
+		*want = 1
+		*call = func() {
+			g.main.WriteString(fmt.Sprintf("\tlet m%d = Map[int, int]{1: 1, 2: 2, 3: 3}\n\tConsole.Println(\"\\(%s(m%d, %d)) \\(szM(m%d))\")\n", g.n, name, g.n, k, g.n))
+		}
+	}
+}
+
+// copyAdversaries are the agreement-only shapes of the moved family.
+var copyAdversaries = []string{"rmw snapshot", "rmw kept get", "rmw put shared", "rmw literal shared", "rmw across call", "rmw generic", "rmw option fn", "rmw range", "rmw ref get", "rmw same value", "rmw return between"}
+
+// adversary writes one agreement-only function of the moved family: a
+// value that may share an entry's storage, read after a move-out of it.
+func (g *copyGen) adversary(e copyEntry, which string, ptr bool) {
+	fam := copyFamilies[1]
+	g.n++
+	name := fmt.Sprintf("f%d", g.n)
+	st := fam.pre + e.k
+	sz := "sz" + e.k
+	mt := fmt.Sprintf("Map[string, %s]", e.typ)
+	head := fmt.Sprintf("func %s(r *%s, k string) int {\n", name, st)
+	if !ptr {
+		head = fmt.Sprintf("func %s(k string) int {\n\tlet mut r = new%s()\n", name, st)
+	}
+	tail := ""
+	if !ptr {
+		tail = fmt.Sprintf(" + d%s(r)", st)
+	}
+	rmw := rmwBody(e, "k", "")
+	var body string
+	switch which {
+	case "rmw snapshot":
+		body = "\tlet snap = r.m\n" + rmw + fmt.Sprintf("\tdm%s(snap) * 3 + dm%s(r.m)%s\n", st, st, tail)
+	case "rmw kept get":
+		body = "\tlet o = r.m.Get(k)\n" + rmw + fmt.Sprintf("\tlet n = match o {\n\tcase Some[%s] as v:\n\t\t%s(v.Value)\n\tcase None:\n\t\t0\n\t}\n\tn * 3 + dm%s(r.m)%s\n", e.typ, sz, st, tail)
+	case "rmw put shared":
+		body = fmt.Sprintf("\tlet e = %s\n\tr.m = r.m.Put(k, e)\n", e.sample) + rmw + fmt.Sprintf("\t%s(e) * 3 + dm%s(r.m)%s\n", sz, st, tail)
+	case "rmw literal shared":
+		if !ptr {
+			head, tail = fmt.Sprintf("func %s(k string) int {\n", name), "" // the local q is the root
+		}
+		body = fmt.Sprintf("\tlet e = %s\n\tlet mut q = %s{k: e}\n\tlet mut s = %s\n\tmatch q.Get(k) {\n\tcase Some[%s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%s\n\tq[k] = s\n\t%s(e) * 3 + dm%s(q)%s\n", e.sample, mt, e.zero, e.typ, e.write, sz, st, tail)
+	case "rmw across call":
+		p := "r"
+		if !ptr {
+			p = "&r"
+		}
+		body = fmt.Sprintf("\tlet o = r.m.Get(k)\n\tlet z = rmw%s(%s, k)\n\tlet n = match o {\n\tcase Some[%s] as v:\n\t\t%s(v.Value)\n\tcase None:\n\t\t0\n\t}\n\tn * 3 + z%s\n", st, p, e.typ, sz, tail)
+	case "rmw generic":
+		body = fmt.Sprintf("\tlet e = %s\n\tr.m = put2(r.m, k, e)\n", e.sample) + rmw + fmt.Sprintf("\t%s(e) * 3 + dm%s(r.m)%s\n", sz, st, tail)
+	case "rmw option fn":
+		body = fmt.Sprintf("\tlet o = find%s(r.m, k)\n", st) + rmw + fmt.Sprintf("\tlet n = match o {\n\tcase Some[%s] as v:\n\t\t%s(v.Value)\n\tcase None:\n\t\t0\n\t}\n\tn * 3 + dm%s(r.m)%s\n", e.typ, sz, st, tail)
+	case "rmw range":
+		body = fmt.Sprintf("\tlet mut t = 0\n\tfor kk, w in r.m {\n\t\tif kk == k {\n%s\t\t}\n\t\tt = t + %s(w)\n\t}\n\tt + dm%s(r.m)%s\n", indent2(rmw), sz, st, tail)
+	case "rmw ref get":
+		head = fmt.Sprintf("func %s(c sync.Ref[%s], k string) int {\n", name, mt)
+		body = fmt.Sprintf("\tlet snap = c.Get()\n\tlet z = sync.Modify(c, func(all %[1]s) (int, %[1]s) {\n\t\tlet mut m = all\n\t\tlet mut s = %[2]s\n\t\tmatch m.Get(k) {\n\t\tcase Some[%[3]s] as v:\n\t\t\ts = v.Value\n\t\tcase None:\n\t\t}\n\t\t%[4]s\n\t\tm[k] = s\n\t\t(len(m), m)\n\t})\n\tdm%[5]s(snap) * 3 + z + dm%[5]s(c.Get())\n", mt, e.zero, e.typ, e.write, st)
+		g.fns.WriteString(head + body + "}\n\n")
+		g.main.WriteString(fmt.Sprintf("\tlet c%d = sync.NewRef[%s](%s{\"1\": %s, \"2\": %s})\n\tConsole.Println(\"\\(%s(c%d, \"1\"))\")\n", g.n, mt, mt, e.sample, e.sample, name, g.n))
+		g.model[name] = -1
+		g.order = append(g.order, name)
+		g.reached[which+" "+e.k] = true
+		return
+	case "rmw return between":
+		// Through a borrow, so the caller reads the store after the
+		// return, which names nothing but X.
+		ptr = true
+		head, tail = fmt.Sprintf("func %s(r *%s, k string) int {\n", name, st), ""
+		body = fmt.Sprintf("\tlet mut s = %s\n\tmatch r.m.Get(k) {\n\tcase Some[%s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%s\n\tif len(k) == 1 {\n\t\treturn %s(s)\n\t}\n\tr.m[k] = s\n\tdm%s(r.m) * 3\n", e.zero, e.typ, e.write, sz, st)
+	case "rmw same value":
+		body = fmt.Sprintf("\tlet e = %s\n\tr.m[k] = e\n\tr.m[k + \"x\"] = e\n", e.sample) + rmw + fmt.Sprintf("\t%s(e) * 3 + dm%s(r.m)%s\n", sz, st, tail)
+	}
+	g.fns.WriteString(head + body + "}\n\n")
+	if ptr {
+		g.main.WriteString(fmt.Sprintf("\tlet mut r%d = new%s()\n\tConsole.Println(\"\\(%s(&r%d, \"1\")) \\(d%s(r%d))\")\n", g.n, st, name, g.n, st, g.n))
+	} else {
+		g.main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s(\"2\"))\")\n", name))
+	}
+	g.model[name] = -1
+	g.order = append(g.order, name)
+	g.reached[which+" "+e.k] = true
+}
+
+// indent2 puts each line of s two tabs deeper.
+func indent2(s string) string {
+	return strings.ReplaceAll("\t\t"+strings.TrimSuffix(s, "\n"), "\n", "\n\t\t") + "\n"
+}
+
 // copyProgram writes the program of seed and the model of its copies.
 func copyProgram(seed uint64, reached map[string]bool) (string, *copyGen) {
 	g := &copyGen{r: rand.New(rand.NewPCG(seed, 0x636f7079)), model: map[string]int{}, reached: reached}
-	// Every shape, entry and access once, in the seed's order (copyShapes
-	// shapes, the last drawing one of the four chains).
-	for _, combo := range g.r.Perm(copyShapes * 2 * len(copyEntries)) {
-		g.shape(combo)
+	// Every family, shape, entry and access once, in the seed's order
+	// (copyShapes shapes, the last drawing one of the five chains), then
+	// the adversaries, each entry once, at a drawn access.
+	type item struct {
+		fam   int
+		combo int
+	}
+	var items []item
+	for f := range copyFamilies {
+		for c := range copyShapes * 2 * len(copyEntries) {
+			items = append(items, item{f, c})
+		}
+	}
+	for _, i := range g.r.Perm(len(items)) {
+		g.shape(copyFamilies[items[i].fam], items[i].combo)
+	}
+	for _, which := range copyAdversaries {
+		for _, e := range copyEntries {
+			if e.holds {
+				g.adversary(e, which, g.r.IntN(2) == 0)
+			}
+		}
 	}
 	var src strings.Builder
 	src.WriteString(copyPrelude)
-	for _, e := range copyEntries {
-		src.WriteString(copyStore(e))
+	for _, f := range copyFamilies {
+		for _, e := range copyEntries {
+			src.WriteString(copyStore(f, e))
+		}
 	}
 	src.WriteString(g.fns.String())
 	src.WriteString("func main() needs Console {\n" + g.main.String() + "}\n")
@@ -329,17 +553,48 @@ func goFuncsOf(t *testing.T, mainGo, name string) string {
 // copyPaths are the paths the fixed seeds must reach.
 func copyPaths() []string {
 	var out []string
-	for _, e := range copyEntries {
-		for _, s := range []string{"get keep", "get match", "get none", "get in flight", "entry rmw"} {
-			for _, a := range []string{"borrow", "local"} {
-				out = append(out, s+" "+a+" "+e.k)
+	for _, f := range copyFamilies {
+		shapes := []string{"get keep", "get match", "get none", "get in flight", "entry copy"}
+		refs := []string{"ref modify"}
+		if f.moved {
+			shapes = []string{"get keep", "get match", "get none", "get in flight", "entry rmw"}
+			refs = append(refs, "ref rmw")
+		}
+		for _, e := range copyEntries {
+			for _, s := range shapes {
+				for _, a := range []string{"borrow", "local"} {
+					out = append(out, f.name+" "+s+" "+a+" "+e.k)
+				}
+			}
+			for _, s := range refs {
+				out = append(out, f.name+" "+s+" "+e.k)
 			}
 		}
-		out = append(out, "ref modify "+e.k)
+		if f.moved {
+			for _, e := range copyEntries {
+				out = append(out, f.name+" rmw root between borrow "+e.k, f.name+" rmw kept after local "+e.k)
+			}
+		}
+		for _, s := range []string{"window", "copy root"} {
+			for _, a := range []string{"borrow", "local"} {
+				out = append(out, f.name+" "+s+" "+a)
+			}
+		}
 	}
-	out = append(out, "window borrow", "window local", "copy root borrow", "copy root local", "chain param", "chain loop", "chain put", "chain delete", "chain root")
+	for _, e := range copyEntries {
+		if e.holds {
+			for _, w := range copyAdversaries {
+				out = append(out, w+" "+e.k)
+			}
+		}
+	}
+	out = append(out, "chain param", "chain loop", "chain put", "chain delete", "chain root")
 	return out
 }
+
+// plainMapCopy matches a generated copy function of a plain family's Map
+// (int keys): under V8 a plain Map is copied as a table.
+var plainMapCopy = regexp.MustCompile(`(?m)^func ergoClone\w*\(v map\[int\]`)
 
 // TestCopyCountsMatchModel is the copy-count property (above), in process
 // on the lowered Go.
@@ -358,10 +613,8 @@ func TestCopyCountsMatchModel(t *testing.T) {
 				t.Errorf("seed %d, %s: the lowering makes %d copies, the model %d\nReplay: go test -run '^TestCopyCountsMatchModel$' ./internal/sketch/lower -args -copy.seed=%d\n--- Go\n%s\n--- source\n%s", seed, name, got, g.model[name], seed, text, src)
 			}
 		}
-		// A Map is copied as a table, never entry by entry (V8): no
-		// generated copy function of a Map type.
-		if m := regexp.MustCompile(`(?m)^func ergoCloneMap\w*\(`).FindString(mainGo); m != "" {
-			t.Errorf("seed %d: a Map is copied entry by entry (%s)\nReplay: go test -run '^TestCopyCountsMatchModel$' ./internal/sketch/lower -args -copy.seed=%d\n%s", seed, m, seed, src)
+		if m := plainMapCopy.FindString(mainGo); m != "" {
+			t.Errorf("seed %d: a plain Map is copied entry by entry (%s)\nReplay: go test -run '^TestCopyCountsMatchModel$' ./internal/sketch/lower -args -copy.seed=%d\n%s", seed, m, seed, src)
 		}
 	}
 	if *copySeed == 0 {
@@ -391,9 +644,9 @@ func TestGoGetsEntryCopies(t *testing.T) {
 	}
 }
 
-// TestCopyRuleAgrees runs the copy-count programs under the entry rule and
-// under its reference (copyLowering "whole", the rule before V8): both
-// print the same lines.
+// TestCopyRuleAgrees runs the copy-count programs under the rules and
+// under their reference (copyLowering "whole", the rule before V8 and V9):
+// both print the same lines.
 //
 // It builds Go because the question is what the programs print at run
 // time, which only a run of both lowerings shows.

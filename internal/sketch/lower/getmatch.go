@@ -88,6 +88,10 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	fc.line(v + ", " + okName + " := " + vals[0] + "[" + vals[1] + "]")
 	if some.as == nil && some.value == nil {
 		fc.line("_ = " + v)
+	} else if fc.l.valueFacts().clone[call] && entryRule() {
+		// The entry of a Map whose entries are written in place, kept
+		// past a write that may reach it: a copy (V9, moveout.go).
+		fc.line(v + " = " + fc.cloneValue(elemOf(fc.typeOf(list[0])), v, call))
 	}
 	return true, fc.getArmsLower(some, none, v, okName, d)
 }

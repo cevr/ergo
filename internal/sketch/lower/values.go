@@ -102,9 +102,15 @@ import (
 //     (x.Append(a).Append(b)) write that result in place: it is new storage
 //     no other binding reaches, as V3's dead local is (inPlaceChain).
 //
+// A read-modify-write of an entry moves it out and back in place (V9,
+// entry move-out, moveout.go): every Map type the program moves out of is
+// entry-written, so its copies copy the entries, Put's values are
+// unshared and a kept Get copies what it gives, and the entry has no
+// other holder at the site.
+//
 // The reference is copyLowering "whole", set by a test or by a build with
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.copyLowering=whole:
-// the rule before V8, which copies the root a Get reads, copies a Map's
+// the rule before V8 and V9, which copies the root a Get reads, copies a Map's
 // entries, copies the argument of a pure std body, and clips each Append of
 // a chain. TestCopyCountsMatchModel holds the copies the lowering emits
 // to a model of the copies the semantics need; TestCopyRuleAgrees runs the
@@ -185,6 +191,13 @@ type valueFacts struct {
 	lineage  map[*syntax.CallExpr]bool     // one-extender Append sites (handover.go, own-lineage)
 	field    map[*syntax.CallExpr]bool     // Appends in place on a dead field path (handover.go, own-field)
 	deep     map[syntax.Expr]bool          // copies that go to Go, which may write a Map's entries (V8, cloneDeep)
+	// The entry move-out (V9, moveout.go): the Map types the program
+	// moves an entry out of (by their type strings), the binds that take
+	// an entry with no copy and the Gets they read.
+	entryWrites map[string]bool
+	moved       map[syntax.Expr]bool
+	moveRead    map[*syntax.CallExpr]bool
+	copied      map[*check.Var]bool // the bindings of a matched Get whose entry is copied
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -217,6 +230,9 @@ func (l *lowerer) valueFacts() *valueFacts {
 			lineage:  map[*syntax.CallExpr]bool{},
 			field:    map[*syntax.CallExpr]bool{},
 			deep:     map[syntax.Expr]bool{},
+			moved:    map[syntax.Expr]bool{},
+			moveRead: map[*syntax.CallExpr]bool{},
+			copied:   map[*check.Var]bool{},
 		}
 	}
 	return l.vals
@@ -321,6 +337,10 @@ type vocc struct {
 	call   *syntax.CallExpr
 	result bool
 	deps   bool // the summary, not the types, decided it
+	// entry marks the receiver of a Get of an entry-written Map (V9)
+	// that a match takes apart (getMatch): when the use must copy, the
+	// entry the Get gives is copied, not the receiver.
+	entry bool
 }
 
 type owning struct {
@@ -745,10 +765,7 @@ func (w *valueWalk) decide() {
 		if !ok || s.Tok != syntax.ASSIGN || len(s.Rhs) != 1 || s.Rhs[0] != child {
 			continue
 		}
-		// p = p.Append(a).Append(b): the chain's first source is p
-		// (inPlaceChain).
-		chain := w.chainOf(call)
-		recv := w.recvOf(chain[len(chain)-1])
+		recv := w.recvOf(call)
 		id := pathRoot(s.Lhs[0])
 		if id == nil || !samePlace(s.Lhs[0], recv) {
 			continue
@@ -795,6 +812,8 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
+	// The entry move-outs that hold (V9, moveout.go).
+	w.decideMoveOuts()
 	// Escapes (V2).
 	if valueMutant != "never-copy" {
 		for _, vv := range w.order {
@@ -816,7 +835,16 @@ func (w *valueWalk) decide() {
 					if vf.handed[o.path] || !w.needsCopy(vv, o) {
 						break
 					}
-					if o.result && !w.inFlight(vv, o) {
+					if o.entry && !w.inFlight(vv, o) {
+						// The entry the matched Get gives (V9), which
+						// its arm's bindings then hold unshared.
+						vf.clone[o.call] = true
+						for _, v := range w.matchBinds(o.call) {
+							vf.copied[v] = true
+						}
+						break
+					}
+					if o.result && !w.inFlight(vv, o) && w.l.copyCovers(w.typeOf(o.call)) {
 						// A pure call's result, not its argument, is
 						// copied (alias.go).
 						vf.clone[o.call] = true
@@ -876,7 +904,7 @@ func (w *valueWalk) decide() {
 			}
 		}
 		for _, o := range w.owns {
-			if !o.root.root() || takes[o.value] {
+			if !o.root.root() || takes[o.value] || vf.moved[o.value] {
 				continue
 			}
 			if call, ok := unparen(o.value).(*syntax.CallExpr); ok && vf.inPlace[call] {
@@ -910,6 +938,14 @@ func (w *valueWalk) decide() {
 				continue
 			}
 			w.freshen(o.value)
+		}
+		// A value Put stores in a Map whose entries are written in place
+		// is unshared, as Append's element is (V9).
+		for _, call := range w.calls {
+			c := w.info.Calls[call]
+			if ops := callOperands(call, c); preludeMapWrite(c.Func) && c.Func.Name == "Put" && len(ops) == 3 && w.l.entryWritten(w.typeOf(ops[0])) {
+				w.freshen(ops[2])
+			}
 		}
 		// An argument of an owned parameter enters the callee's root: it
 		// is copied unless fresh, or handed over by a rebinding (V5).
@@ -1736,11 +1772,21 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			// The entry rule (V8): no write through the root reaches the
 			// entry Get keeps, so the receiver is a read, copied only
 			// when a later operand writes the root (inFlight).
-			if w.recvOf(p) == child && (!w.l.holdsValue(elemOf(t)) || entryRule()) {
-				o.kind = occRead
-				if entryRule() {
-					o.call = p
-				}
+			// A Map whose entries the program writes in place (V9) gives
+			// an entry a later write can reach: a Get whose result is
+			// kept copies it, when a match takes the result apart, or
+			// else its receiver (moveout.go).
+			if w.recvOf(p) != child {
+				break
+			}
+			switch {
+			case !w.l.holdsValue(elemOf(t)) || entryRule() && (!w.l.entryWritten(t) || w.keepsNothing(p)):
+				// The receiver is still copied when a later operand
+				// writes the root, under the reference too: Go reads
+				// r.m after bump(&r, k) in Get(r.m, bump(&r, k)).
+				o.kind, o.call = occRead, p
+			case entryRule() && w.matchedGet(p):
+				o.call, o.entry = p, true
 			}
 		case c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func)):
 			if w.recvOf(p) == child && !w.l.holdsValue(elemOf(t)) {
@@ -1932,8 +1978,9 @@ func (w *valueWalk) inFlight(vv *vvar, o *vocc) bool {
 	}
 	// A borrow passed on whole to a call (bump(r, k), r.bump(k)) may be
 	// written through by that call (V8: a Get's receiver is read, not
-	// copied, so this case must copy it).
-	if vv.ptr && entryRule() {
+	// copied, so this case must copy it; a scalar entry's Get and a pure
+	// call's operand under the reference too).
+	if vv.ptr {
 		for _, oc := range vv.occs {
 			if oc != o && oc.pre > o.pre && oc.pre < end && oc.path == syntax.Expr(oc.id) {
 				if _, isCall := w.parent[oc.id].(*syntax.CallExpr); isCall || w.dotCall(oc.id) != nil {
@@ -2089,13 +2136,13 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 		return w.fresh(x.X)
 	case *syntax.Ident:
 		if v, ok := w.info.Uses[x].(*check.Var); ok {
-			return w.freshIdent(w.varOf(v), x, false)
+			return w.copiedOnce(v) || w.freshIdent(w.varOf(v), x, false)
 		}
 		return false
 	case *syntax.SelectorExpr, *syntax.IndexExpr, *syntax.SliceExpr, *syntax.StarExpr:
 		if id := pathRoot(x); id != nil && w.parentIsPath(id, x) {
 			if v, ok := w.info.Uses[id].(*check.Var); ok {
-				return w.freshPath(w.varOf(v), id, x)
+				return w.copiedOnce(v) || w.freshPath(w.varOf(v), id, x)
 			}
 		}
 		return false
@@ -2142,6 +2189,9 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 				}
 				return !w.l.holdsValue(elemOf(w.typeOf(x)))
 			}
+			if w.typeArgShared(c, x) {
+				return false
+			}
 			if w.l.freshResult(c.Func) {
 				return true
 			}
@@ -2161,6 +2211,27 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 		}
 	}
 	return false
+}
+
+// typeArgShared reports a call x of a generic function whose result may
+// share a value of a type argument below its top level: some type
+// argument holds a Map or slice, and the result's copy reaches below its
+// top level (a generated copy function). The function's body was decided
+// over its type parameters, where a copy stops (types.md, Bindings 2), so
+// its fresh result may hold an argument's value of a type parameter:
+// set[T](xs []T, x T) stores x in its fresh copy of xs. A Go call's
+// result is copied at the call (goResult), so it stays fresh.
+func (w *valueWalk) typeArgShared(c *check.Call, x syntax.Expr) bool {
+	if c.Func == nil || c.Func.Pkg == nil || c.Func.Pkg.Host() {
+		return false
+	}
+	held := false
+	for _, t := range c.TypeArgs {
+		if w.l.holdsValue(t) {
+			held = true
+		}
+	}
+	return held && w.l.needsCloneFunc(w.typeOf(x), !entryRule())
 }
 
 // parentIsPath reports whether x is the path its root id heads.
@@ -2426,7 +2497,7 @@ func (tc *typeCtx) cloneOf(t check.Type, val string, site syntax.Node, deep bool
 	}
 	switch u := underEqual(t).(type) {
 	case *check.Map:
-		if !deep || !tc.l.holdsValue(u.Elem) || valueMutant == "shallow" {
+		if !deep && !tc.l.entryWritten(t) || !tc.l.holdsValue(u.Elem) || valueMutant == "shallow" {
 			return tc.l.goPkg("maps") + ".Clone(" + val + ")"
 		}
 	case *check.Slice:
@@ -2492,7 +2563,7 @@ func (l *lowerer) needsCloneFunc(t check.Type, deep bool) bool {
 	}
 	switch u := underEqual(t).(type) {
 	case *check.Map:
-		return deep && l.holdsValue(u.Elem)
+		return (deep || l.entryWritten(t)) && l.holdsValue(u.Elem)
 	case *check.Slice:
 		return l.holdsValue(u.Elem)
 	}
