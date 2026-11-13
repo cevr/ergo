@@ -131,7 +131,7 @@ type valueFacts struct {
 	fresh    map[*check.Func]int8       // 1 deciding, 2 fresh, 3 not fresh
 	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
 	handed   map[syntax.Expr]bool       // arguments a rebinding hands over to a pure body (V7)
-	from     map[fromKey]int8          // freshFrom: 1 deciding, 2 fresh, 3 not fresh
+	from     map[fromKey]int8           // freshFrom: 1 deciding, 2 fresh, 3 not fresh
 	consumes map[*syntax.CallExpr]bool  // calls of a runtime/v1 body's owned form: their first operand is consumed
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
