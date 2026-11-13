@@ -227,6 +227,15 @@ const LanguageRevision = "ergo-v1-2026-10-28"
 // from Info (lower-v1 stage 2).
 const emitterRevision = "lower/2"
 
+// LowerSingleEnv selects the reference lowering, one Go package for the
+// whole program, when it is "single" (compile-speed CS4): the default
+// splits the program into one Go package per Ergo package and per std package (lower.LowerSplit).
+// The choice is part of the emission key.
+const LowerSingleEnv = "ERGO_LOWER"
+
+// splitLowering reports whether builds split the lowered program.
+func splitLowering() bool { return os.Getenv(LowerSingleEnv) != "single" }
+
 // BuildRequest is one build of a checked analysis.
 type BuildRequest struct {
 	// Mode is the root the module runs: build.ModeBuild, main (ergo build
@@ -341,9 +350,21 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 			lowered = files
 		}
 	}
+	// The package split (CS4) lowers Go source bodies; an IR build and a
+	// build whose rewrite ledger lowered it stay one package until the IR
+	// splits too.
+	split := splitLowering() && !req.IR && lowered == nil
+	if !split {
+		input.Emitter += "+single"
+	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
 		files, err := lowered, error(nil)
-		if files == nil {
+		switch {
+		case files != nil:
+		case split:
+			files, _, err = lower.LowerSplit(unit, req.Mode == build.ModeTest)
+			countLowered(files)
+		default:
 			files, err = lowering(unit)
 			countLowered(files)
 		}
