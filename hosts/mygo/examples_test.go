@@ -1,9 +1,11 @@
 package mygo
 
 import (
+	"debug/pe"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -73,25 +75,77 @@ func firstDiff(a, b string) string {
 	return ""
 }
 
-// TestExamplesCrossBuild builds the window binaries for the Mac from this
-// host with CGO_ENABLED=0 (ergo build --platform darwin/arm64); the Linux
-// build is TestExamplesAgreeOnTheDesktop's. Windows is not an ergo build
-// platform (interop.md, Platforms: runtime/v1 starts processes with
-// Setpgid and Kill), so no Windows binary is claimed.
+// TestExamplesCrossBuild builds the window binaries for the Mac, Windows
+// and the browser from this host with CGO_ENABLED=0 (ergo build
+// --platform darwin/arm64, windows/amd64, js/wasm); the Linux build is
+// TestExamplesAgreeOnTheDesktop's. The Windows file is a PE amd64
+// executable. The browser binary also runs, headless, under Node with
+// Go's wasm_exec_node.js: for seeds 1 to 3 of its example's script it
+// prints what ui.TestHost prints (W1's smoke; the window binary's MyGo
+// binding states js/wasm, interop.md, Platforms). With no node on PATH
+// that run is skipped, by name.
 //
 // It builds Go binaries because the claim is that the Go toolchain links
-// them for another platform; no in-process check links.
+// them for another platform, and runs the browser one because its
+// runtime (runtime/v1's files for js) is what is claimed; no in-process
+// check links or runs. Node runs under bounded's memory limit.
 func TestExamplesCrossBuild(t *testing.T) {
 	ergo, err := builtErgo()
 	if err != nil {
 		t.Fatal(err)
 	}
+	dir := filepath.Dir(ergo)
 	for _, name := range guiExamples {
-		bin := filepath.Join(filepath.Dir(ergo), name+"-darwin-arm64")
-		if o, err := bounded(ergo, "build", "./cmd/"+name, "--platform", "darwin/arm64", "-o", bin).CombinedOutput(); err != nil {
-			t.Errorf("ergo build cmd/%s --platform darwin/arm64: %v\n%s", name, err, o)
+		for _, platform := range []string{"darwin/arm64", "windows/amd64", "js/wasm"} {
+			bin := filepath.Join(dir, name+"-"+strings.ReplaceAll(platform, "/", "-"))
+			if o, err := bounded(ergo, "build", "./cmd/"+name, "--platform", platform, "-o", bin).CombinedOutput(); err != nil {
+				t.Errorf("ergo build cmd/%s --platform %s: %v\n%s", name, platform, err, o)
+			}
+		}
+		if f, err := pe.Open(filepath.Join(dir, name+"-windows-amd64")); err != nil {
+			t.Errorf("%s for windows/amd64: %v", name, err)
+		} else {
+			if f.Machine != pe.IMAGE_FILE_MACHINE_AMD64 {
+				t.Errorf("%s for windows/amd64: machine %#x", name, f.Machine)
+			}
+			f.Close()
 		}
 	}
+	if t.Failed() {
+		return
+	}
+	t.Run("browser-run", func(t *testing.T) {
+		node, err := exec.LookPath("node")
+		if err != nil {
+			t.Skip("no node on PATH: the js/wasm binaries are built, not run")
+		}
+		goroot, err := exec.Command("go", "env", "GOROOT").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		runner := filepath.Join(strings.TrimSpace(string(goroot)), "lib", "wasm", "wasm_exec_node.js")
+		bins, err := buildExamples()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range guiExamples {
+			wasm := filepath.Join(dir, name+"-js-wasm")
+			for seed := 1; seed <= 3; seed++ {
+				script, err := play(bins[name].testHost, "", "gen", "-seed", fmt.Sprint(seed), "-n", "120")
+				if err != nil {
+					t.Fatalf("%s gen -seed %d: %v\n%s", name, seed, err, script)
+				}
+				want, err := play(bins[name].testHost, script)
+				if err != nil {
+					t.Fatalf("%s on ui.TestHost, seed %d: %v\n%s", name, seed, err, want)
+				}
+				got, err := play(node, script, runner, wasm, "-headless")
+				if err != nil || got != want {
+					t.Errorf("%s on js/wasm, seed %d (err %v): %s\nreplay: go test -run TestExamplesCrossBuild ./hosts/mygo; node %s %s -headless < (%s gen -seed %d -n 120)", name, seed, err, firstDiff(want, got), runner, wasm, bins[name].testHost, seed)
+				}
+			}
+		}
+	})
 }
 
 // TestExamplesAgreeOnTheDesktop is X-gui's agreement: the examples'

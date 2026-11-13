@@ -153,6 +153,15 @@
       "to": "counter.Summary(counter.Zero)",
       "rule": "the window binary prints the state the window's driver holds after each step",
       "killers": ["mygo:TestExamplesAgreeOnTheDesktop"]
+    },
+    {
+      "name": "W1-binding-off-the-browser",
+      "origin": "LY W1",
+      "file": "hosts/mygo/ergo.bind/ergo.local/prototype/hosts/mygo/screen/screen.ergo",
+      "from": " linux/arm64 windows/amd64 js/wasm wasip1/wasm\n",
+      "to": " linux/arm64\n",
+      "rule": "the window binaries build for Windows and the browser: screen's binding states windows/amd64 and js/wasm, where it holds (ergo bind go)",
+      "killers": ["mygo:TestExamplesCrossBuild"]
     }
   ]
 }
