@@ -373,19 +373,21 @@
       "name": "irt-direct-no-ergoir",
       "origin": "wf10 IRT0b",
       "file": "internal/sketch/build/direct.go",
-      "from": "\t\targs = append(args, ergoIR(d.module)...)",
-      "to": "\t\targs = append(args)",
-      "rule": "The direct path's root compile reads the module's IR bodies (-ergoir); without them it fails and the build falls back to go build.",
+      "from": "\targs = append(args, ergoIR(p.Dir)...)",
+      "to": "\targs = append(args)",
+      "rule": "The direct path's compile of a package reads its IR bodies (-ergoir); without them it fails and the build falls back to go build.",
       "killers": ["cmd/ergo:TestBuildGoesThroughIR"]
     },
     {
       "name": "irt-gobuild-no-ergoir",
       "origin": "wf10 IRT0b",
       "file": "internal/sketch/build/action.go",
-      "from": "\tif ir := ergoIR(module); ir != nil {",
-      "to": "\tif ir := ergoIR(module); false && ir != nil {",
-      "rule": "go build, the reference build path, passes the IR file to the root package's compile too.",
+      "from": "\tfor _, rel := range irDirs(module) {",
+      "to": "\tfor _, rel := range irDirs(module)[:0] {",
+      "rule": "go build, the reference build path, passes each package's IR file to its compile too.",
       "killers": ["cmd/ergo:TestBuildGoesThroughIR"]
-    }
+    },
+    {"name":"cs-ir-goroot-probe-each-build","origin":"wf10 compile-speed CS10","file":"internal/toolchain/patched.go","from":"if data, err := os.ReadFile(known); key != \"\" && err == nil {","to":"if data, err := os.ReadFile(known); false && key != \"\" && err == nil {","rule":"The IR path asks the go command for the release's GOROOT once per go command identity; a build after the first starts no go command.","killers":["cmd/ergo:TestDirectBuildStartsNoGoCommand"]},
+    {"name":"cs-direct-go-list-on-hit","origin":"wf10 compile-speed CS10","file":"internal/sketch/build/direct_plan.go","from":"\t\t\td.plan = p\n\t\t\td.plan.mainPath = tg.main.Module\n\t\t\treturn nil","to":"\t\t\td.plan = p\n\t\t\td.plan.mainPath = tg.main.Module\n\t\t\td.goCommand(env, \"list\", \"-export\", \"runtime\")\n\t\t\treturn nil","rule":"A build whose toolchain plan is known runs no go command: no go list on a plan hit.","killers":["cmd/ergo:TestDirectBuildStartsNoGoCommand","internal/sketchfront:TestStageReportCountsAgree"]}
   ]
 }
