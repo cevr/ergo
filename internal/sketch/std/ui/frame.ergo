@@ -20,6 +20,7 @@ type Frame[E] {
 	jobs   []Job[E],
 	keys   []func(k KeyPress) Option[E],
 	anims  []func(at duration) E,
+	rowRuns int,
 }
 
 // Id names one node of a Frame's tree, from the pass that made it until
@@ -81,7 +82,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[int, Map[ident, arena.Ref[node[E]]]]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, cells: []cellSpec{}, loads: []loadSpec[E]{}, seen: Map[slotOf, int]{}, index: Map[int, Map[ident, arena.Ref[node[E]]]]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, anims: []func(at duration) E{}, rowRuns: 0}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]]) node[E] {
@@ -108,6 +109,7 @@ func begin[E](f *Frame[E]) {
 	f.key = NoKey
 	f.keys = []func(k KeyPress) Option[E]{}
 	f.anims = []func(at duration) E{}
+	f.rowRuns = 0
 }
 
 // identify is the identity of the next entry at site under the current
@@ -438,6 +440,8 @@ func kindOf[E](n Node[E]) int {
 		9
 	case CanvasNode:
 		10
+	case RowsNode:
+		11
 	}
 }
 

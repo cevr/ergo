@@ -624,3 +624,141 @@ func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	}
 	true
 }
+
+// roster is the state of the long-list app: its rows' keys, in order, and
+// the next key.
+type roster { items []int, next int }
+
+// rosterStep: 0 adds a row with the next key at the end; 1 drops the first
+// row, so every other row moves up one.
+func rosterStep(s roster, e int) Decision[roster, int] {
+	if e == 0 {
+		return Enter[roster]{Next: roster{items: s.items.Append(s.next), next: s.next + 1}}
+	}
+	if len(s.items) == 0 {
+		return Enter[roster]{Next: s}
+	}
+	Enter[roster]{Next: roster{items: s.items[1:], next: s.next}}
+}
+
+func rosterTimer(s roster) Option[Timeout[int]] { None }
+
+func rosterWork(s roster) Option[func(send func(e int))] { None }
+
+func rosterMachine(n int) Machine[roster, int, int] {
+	let mut items = []int{}
+	for k in 0..n {
+		items = items.Append(k)
+	}
+	Machine[roster, int, int]{Initial: roster{items: items, next: n}, Step: rosterStep, After: rosterTimer, Work: rosterWork}
+}
+
+// shownRows is the model of the rows a list writes, by brute force over
+// every row: row i is written when its box, grown by Overscan rows on each
+// side, overlaps the viewport [off, off+height) (an empty viewport at off
+// overlaps the boxes whose inside holds off).
+func shownRows(count int, rh float64, off float64, height float64) []int {
+	let mut out = []int{}
+	for i in 0..count {
+		let top = float64(i-Overscan) * rh
+		let bottom = float64(i+1+Overscan) * rh
+		if bottom > off && top < off+height {
+			out = out.Append(i)
+		}
+	}
+	out
+}
+
+// RowsAreTheCutEach: a long keyed list of rows with a toggle each, under
+// drawn scrolls and resizes, adds at the end, drops of the first row and
+// toggles of rows on the screen: after each step the list on the test host
+// is the full list cut to the rows its viewport shows (shownRows), each
+// with its toggle as the model keeps it by key (a row that leaves the
+// rows written starts off when it returns), and the pass ran one row
+// function per row written: the work grows with the viewport, not with the
+// count (a list of 1,000 runs as few rows as one of 50).
+law RowsAreTheCutEach(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		rowsFollow(seed, steps, m)
+	}
+}
+
+func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let sizes = []int{0, 3, 50, 1000}
+	let n = sizes[draw(&r, len(sizes))]
+	let rh = float64(draw(&r, 40) + 10)
+	let view = func(f *Frame[int], s roster) {
+		Pressable(f, "add", 0) {
+			Text(f, "+")
+		}
+		Pressable(f, "drop", 1) {
+			Text(f, "-")
+		}
+		Rows(f, "list", len(s.items), Length(rh), func(i int) Key { ByInt(s.items[i]) }) func(i int) {
+			let fl = NewFlag(f, false)
+			Toggle(f, fl, "row \(s.items[i])")
+		}
+	}
+	let a = actor.StartMachine(rosterMachine(n), 1, func(o int) {})
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	let mut model = StateOf(&h)
+	let mut off = 0.0
+	let mut height = 0.0
+	let mut on = Map[int, bool]{}
+	for _ in 0..(steps%24+24)%24+1 {
+		let shown = shownRows(len(model.items), rh, off, height)
+		let mut act Act = SettleAll
+		match draw(&r, 4) {
+		case 0:
+			off = float64(draw(&r, len(model.items)*int(rh)+1))
+			height = float64(draw(&r, 300))
+			act = ScrollOn{Label: "list", Offset: Length(off), Height: Length(height)}
+		case 1:
+			act = TapOn{Label: "add"}
+			model = machines.Next(model, rosterStep(model, 0))
+		case 2:
+			act = TapOn{Label: "drop"}
+			model = machines.Next(model, rosterStep(model, 1))
+		case _:
+			if len(shown) > 0 {
+				let k = model.items[shown[draw(&r, len(shown))]]
+				act = TapOn{Label: "row \(k)"}
+				on[k] = !(on.Get(k) == (Some{Value: true}))
+			}
+		}
+		Play(&h, []Act{act}) catch {
+		case _:
+			return false
+		}
+		let now = shownRows(len(model.items), rh, off, height)
+		let mut kept = Map[int, bool]{}
+		let mut rows = []Shape[int]{}
+		for i in now {
+			let k = model.items[i]
+			let lit = on.Get(k) == (Some{Value: true})
+			if lit {
+				kept[k] = true
+			}
+			rows = rows.Append(Shape[int]{Node: ToggleNode{Label: "row \(k)", On: lit}, Kids: []Shape[int]{}})
+		}
+		on = kept
+		let mut first = len(model.items)
+		if len(now) > 0 {
+			first = now[0]
+		}
+		let want = Shape[int]{Node: RowsNode{Label: "list", Count: len(model.items), RowHeight: Length(rh), First: first}, Kids: rows}
+		let screen = Screen(&h)
+		if StateOf(&h) != model || len(screen) != 3 || !SameShapes(screen[2:], []Shape[int]{want}) {
+			return false
+		}
+		if RowRuns(&h) != len(now) || RowRuns(&h) > int(height/rh)+2+2*Overscan {
+			return false
+		}
+	}
+	true
+}

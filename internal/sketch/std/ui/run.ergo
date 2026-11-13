@@ -3,9 +3,10 @@ import actor
 // Event is what reaches the loop: a press of a node, a text typed into an
 // Input node, the result of a load's fetch (Arrived), which a fetch's task
 // posts with the epoch it was started for, a pointer event on an Area
-// (Point), a key press (KeyDown), or a frame at a time since the host
-// started (Tick), which a host sends only while the view animates.
-type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent} | KeyDown{Press KeyPress} | Tick{At duration}
+// (Point), a key press (KeyDown), a frame at a time since the host
+// started (Tick), which a host sends only while the view animates, or a
+// list's viewport as the host scrolled or sized it (Scrolled).
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length}
 
 // Closed is the failure of Next when the host has closed (its window, its
 // terminal, its script ended).
