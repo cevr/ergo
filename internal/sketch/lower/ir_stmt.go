@@ -264,6 +264,12 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				out = append(out, b.discard(spec.Values[0])...)
 				continue
 			}
+			if w, ok := b.l.info.Defs[id].(*check.Context); ok && w.Local {
+				// A local context is a recipe: its let lowers to nothing,
+				// and each with that names it publishes its providers
+				// (ir_with.go, as body.go's letStmt).
+				continue
+			}
 			v, ok := b.l.info.Defs[id].(*check.Var)
 			if !ok {
 				irNo("let without a variable")
