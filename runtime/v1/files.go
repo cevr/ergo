@@ -211,8 +211,21 @@ const HostMark = "//ergo:host"
 const OwnedMark = "//ergo:owned "
 
 // HostImports are the Go packages each of whose members reaches host
-// state. hostReach refuses an unmarked body that names one.
+// state, but those HostImportsExcept names. hostReach refuses an unmarked
+// body that names one.
 var HostImports = []string{"os", "os/exec", "os/signal", "syscall", "net"}
+
+// HostImportsExcept names, for a package of HostImports, the members that
+// reach no host state: net.Pipe joins two in-memory ends, and net.Conn and
+// net.Addr are interface types, whose methods a body calls through a value
+// (hostReach follows no call through an interface value: the value's
+// maker is the claim). syscall.ECONNREFUSED is an errno constant a body
+// compares a failure with (httpDoErr). The local Network (http_local.go)
+// reaches them and nothing else of those packages.
+var HostImportsExcept = map[string][]string{
+	"net":     {"Pipe", "Conn", "Addr"},
+	"syscall": {"ECONNREFUSED"},
+}
 
 // HostMembers names, for a Go package outside HostImports, its members
 // that reach host state: time's are PureImportHostMembers' (the clock, its
@@ -228,7 +241,7 @@ var HostMembers = map[string][]string{
 // hostMember reports whether member of the Go package path reaches host
 // state.
 func hostMember(path, member string) bool {
-	return slices.Contains(HostImports, path) || slices.Contains(HostMembers[path], member)
+	return slices.Contains(HostImports, path) && !slices.Contains(HostImportsExcept[path], member) || slices.Contains(HostMembers[path], member)
 }
 
 // PureImports are the Go packages a file may import when one of its bodies

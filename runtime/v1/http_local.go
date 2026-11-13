@@ -1,122 +1,209 @@
 package v1
 
 import (
+	"context"
+	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
+	"sync/atomic"
 
 	"ergo.local/prototype/runtime/rt"
 )
 
-// httpLocalHandle is a local Network's server: it answers one exchange
-// with the request's origin and the request as HTTPServe gives a handler
-// (method, decoded path, parsed query, header, body).
-type httpLocalHandle = func(t *rt.Task, origin, method, path string, query, header []HTTPField, body string) HTTPResponse
+// A local Network (std http.InMemoryNetwork) has no socket, but it is not
+// a model of HTTP: each exchange is Go's own client and Go's own server,
+// joined by an in-memory net.Pipe. The client is HTTPFetch's (the same
+// policy loop, a transport per header budget as httpTransportFor keeps,
+// the same reads); the server is net/http's, answering as Serve does
+// (httpWriteAnswer). So what a caller sees is what a loopback Serve gives,
+// by construction: no body for HEAD, 204 or 304, an informational status
+// before the final one, the declared length, the header budget, and a
+// handler status net/http refuses, which ends the connection, with the
+// client's retry of an idempotent request on a kept-alive one.
+// TestHTTPLocalMatchesLoopback holds it to that.
+//
+// The handler runs on the caller's task: the server hands each request it
+// reads to the exchange's caller over a channel (httpLocal.calls), and the
+// caller answers it while it waits for the response (httpDoVia,
+// httpStreamVia). The request carries its exchange's key in a header the
+// server takes off before the handler sees the request.
 
-// HTTPFetchLocal is HTTPFetch with handle in place of the host: the same
-// policy loop (origins, credentials at their own origin, redirects and
-// their hop limit), and each exchange is httpLocalExchange, a call of
-// handle on the caller's task. No socket is opened.
+// httpLocalKey is the header that names a request's exchange.
+const httpLocalKey = "Ergo-Local-Exchange"
+
+// httpLocal is one exchange of a local Network: the handler and the
+// target's origin, and the requests the server hands to the caller.
+type httpLocal struct {
+	key    string
+	origin string
+	handle func(*rt.Task, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse
+	in     chan *httpLocalCall
+	done   chan struct{}
+}
+
+// httpLocalCall is one request the server read, and its answer.
+type httpLocalCall struct {
+	method, path  string
+	query, header []HTTPField
+	body          string
+	out           chan HTTPResponse // buffered: the caller never waits on it
+}
+
+var (
+	httpLocals    sync.Map // key -> *httpLocal
+	httpLocalNext atomic.Uint64
+)
+
+// calls is the channel of requests to answer; nil, which never delivers,
+// for an exchange with a host peer.
+func (l *httpLocal) calls() <-chan *httpLocalCall {
+	if l == nil {
+		return nil
+	}
+	return l.in
+}
+
+// answer runs the handler on the caller's task t.
+func (l *httpLocal) answer(t *rt.Task, c *httpLocalCall) {
+	c.out <- l.handle(t, l.origin, c.method, c.path, c.query, c.header, c.body)
+}
+
+// httpOpenLocal registers the exchange of target; close forgets it and
+// releases a server request still waiting on it.
+func httpOpenLocal(target *url.URL, handle func(*rt.Task, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse) (*httpLocal, error) {
+	origin, err := networkOrigin(&url.URL{Scheme: target.Scheme, Host: target.Host})
+	if err != nil {
+		return nil, err
+	}
+	l := &httpLocal{key: strconv.FormatUint(httpLocalNext.Add(1), 10), origin: origin, handle: handle, in: make(chan *httpLocalCall), done: make(chan struct{})}
+	httpLocals.Store(l.key, l)
+	return l, nil
+}
+
+func (l *httpLocal) close() {
+	httpLocals.Delete(l.key)
+	close(l.done)
+}
+
+// httpLocalServe is the local server's handler: Serve's reading of a
+// request (path, query, header, the whole body), handed to the exchange's
+// caller, and its answer written as Serve writes one.
+func httpLocalServe(w http.ResponseWriter, r *http.Request) {
+	key := r.Header.Get(httpLocalKey)
+	r.Header.Del(httpLocalKey)
+	v, ok := httpLocals.Load(key)
+	if !ok {
+		// The exchange ended (a stop) before its request was read.
+		panic(http.ErrAbortHandler)
+	}
+	l := v.(*httpLocal)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		panic(http.ErrAbortHandler)
+	}
+	c := &httpLocalCall{method: r.Method, path: r.URL.Path, query: HTTPParseQuery(r.URL.RawQuery), header: httpFields(r.Header), body: string(body), out: make(chan HTTPResponse, 1)}
+	select {
+	case l.in <- c:
+	case <-l.done:
+		panic(http.ErrAbortHandler)
+	case <-r.Context().Done():
+		panic(http.ErrAbortHandler)
+	}
+	select {
+	case answer := <-c.out:
+		httpWriteAnswer(w, answer)
+	case <-l.done:
+		panic(http.ErrAbortHandler)
+	}
+}
+
+// httpPipeListener is the local server's listener: each dial of a local
+// transport hands it the server end of a new pipe.
+type httpPipeListener struct{ conns chan net.Conn }
+
+func (p httpPipeListener) Accept() (net.Conn, error) { return <-p.conns, nil }
+func (httpPipeListener) Close() error                { return nil }
+func (httpPipeListener) Addr() net.Addr              { return httpPipeAddr{} }
+
+type httpPipeAddr struct{}
+
+func (httpPipeAddr) Network() string { return "pipe" }
+func (httpPipeAddr) String() string  { return "ergo-local" }
+
+// httpLocalServer is the one local server of the process, started at the
+// first local exchange. It is net/http's server with Serve's settings
+// that touch an answer, and no log of its own: a refused handler status
+// is the client's failure.
+var httpLocalServer = sync.OnceValue(func() httpPipeListener {
+	l := httpPipeListener{conns: make(chan net.Conn)}
+	srv := &http.Server{Handler: http.HandlerFunc(httpLocalServe), ErrorLog: log.New(io.Discard, "", 0)}
+	go func() { _ = srv.Serve(l) }()
+	return l
+})
+
+var httpLocalTransports sync.Map // header budget -> *http.Transport
+
+// httpLocalTransportFor is httpTransportFor's transport with a pipe to the
+// local server for every origin, http and https alike (the pipe is past
+// any TLS handshake, as DialTLSContext's conn is).
+func httpLocalTransportFor(maxHeader int) *http.Transport {
+	if tr, ok := httpLocalTransports.Load(maxHeader); ok {
+		return tr.(*http.Transport)
+	}
+	server := httpLocalServer()
+	dial := func(ctx context.Context, _, _ string) (net.Conn, error) {
+		client, peer := net.Pipe()
+		select {
+		case server.conns <- peer:
+			return client, nil
+		case <-ctx.Done():
+			client.Close()
+			peer.Close()
+			return nil, ctx.Err()
+		}
+	}
+	tr := httpTransportFor(maxHeader).Clone()
+	tr.Proxy = nil
+	tr.DialContext = dial
+	tr.DialTLSContext = dial
+	tr.ForceAttemptHTTP2 = false
+	got, _ := httpLocalTransports.LoadOrStore(maxHeader, tr)
+	return got.(*http.Transport)
+}
+
+// HTTPFetchLocal is HTTPFetch with each exchange served in memory by
+// handle (std http.InMemoryNetwork): the same policy loop, Go's client and
+// server over a pipe, and handle called on the caller's task with the
+// target's origin and the request as Serve gives a handler.
 //
 //ergo:wait caller
 func HTTPFetchLocal(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string, handle func(*rt.Task, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse) (HTTPResponse, error) {
 	return httpFetch(t, origins, anyOrigin, hops, method, rawURL, header, owners, credentials, body, func(u *url.URL, method string, fields []HTTPField, body string) (HTTPResponse, error) {
-		r, _, err := httpLocalExchange(t, u, method, fields, body, handle)
-		if err == nil && len(r.Body) > limits.MaxBodyBytes {
-			return HTTPResponse{}, httpBodyTooLarge(limits)
+		l, err := httpOpenLocal(u, handle)
+		if err != nil {
+			return HTTPResponse{}, err
 		}
-		return r, err
+		defer l.close()
+		return httpDoVia(t, httpLocalTransportFor(limits.MaxHeaderBytes), l, u, limits, method, append(fields, HTTPField{httpLocalKey, l.key}), body)
 	})
 }
 
-// HTTPFetchLocalInto is HTTPFetchInto over handle: a redirect it follows
-// is returned whole; a final status accepts refuses fails StatusRefused
-// with the body's first httpPrefixBytes; a body over limits.MaxBodyBytes
-// fails TooLarge before any part, as a declared length does on the host;
-// otherwise put gets the body in one part (none when it is empty) and the
-// response has an empty Body.
+// HTTPFetchLocalInto is HTTPFetchInto served in memory, as HTTPFetchLocal
+// is HTTPFetch.
 //
 //ergo:wait caller
 func HTTPFetchLocalInto(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error, handle func(*rt.Task, string, string, string, []HTTPField, []HTTPField, string) HTTPResponse) (HTTPResponse, error) {
+	follow := func(r HTTPResponse) bool { return hops != -1 && httpLocation(r) != "" }
 	return httpFetch(t, origins, anyOrigin, hops, method, rawURL, header, owners, credentials, body, func(u *url.URL, method string, fields []HTTPField, body string) (HTTPResponse, error) {
-		r, declared, err := httpLocalExchange(t, u, method, fields, body, handle)
-		if err != nil || hops != -1 && httpLocation(r) != "" {
-			return r, err
+		l, err := httpOpenLocal(u, handle)
+		if err != nil {
+			return HTTPResponse{}, err
 		}
-		if !accepts(r.Status) {
-			// The prefix is read from the parts within the budget, as
-			// httpRefusedStatus reads it: the one part of a body over the
-			// budget gives none.
-			prefix := r.Body[:min(len(r.Body), httpPrefixBytes)]
-			if len(r.Body) > limits.MaxBodyBytes {
-				prefix = ""
-			}
-			return HTTPResponse{}, HTTPStatusRefused{Status: r.Status, Prefix: prefix}
-		}
-		if len(r.Body) > limits.MaxBodyBytes || declared > limits.MaxBodyBytes {
-			return HTTPResponse{}, httpBodyTooLarge(limits)
-		}
-		if r.Body != "" {
-			if err := put(t, r.Body); err != nil {
-				return HTTPResponse{}, err
-			}
-		}
-		r.Body = ""
-		return r, nil
+		defer l.close()
+		return httpStreamVia(t, httpLocalTransportFor(limits.MaxHeaderBytes), l, u, limits, method, append(fields, HTTPField{httpLocalKey, l.key}), body, follow, accepts, put)
 	})
-}
-
-// httpLocalExchange is one exchange of a local Network: what Go's client
-// would send to target, read as HTTPServe's ServeHTTP reads it, given to
-// handle, and its answer as the client would read it back. The request
-// target is parsed from target.RequestURI() as Go's server parses a
-// request line; header names take their canonical form and order
-// (httpFields of an http.Header). The answer keeps HTTPServe's rules:
-// no body for HEAD, 1xx, 204 and 304, and a status outside 100-999 ends
-// the exchange (Transport), as a server whose handler writes one closes
-// the connection. The headers Go's transports add (User-Agent,
-// Accept-Encoding, Content-Length, Content-Type, Date) are not added.
-// declared is the body length HTTPServe's net/http declares, -1 for none:
-// a body it may send, written whole before the handler ends, declares its
-// length when it fits the server's first buffer (bufferBeforeChunkingSize,
-// 2048 bytes), HEAD's too, where the client reads no body.
-func httpLocalExchange(t *rt.Task, target *url.URL, method string, fields []HTTPField, body string, handle httpLocalHandle) (out HTTPResponse, declared int, err error) {
-	t.Check()
-	origin, err := networkOrigin(&url.URL{Scheme: target.Scheme, Host: target.Host})
-	if err != nil {
-		return HTTPResponse{}, -1, err
-	}
-	in, err := url.ParseRequestURI(target.RequestURI())
-	if err != nil {
-		return HTTPResponse{}, -1, httpFailed(httpMalformed, err.Error())
-	}
-	sent := http.Header{}
-	for _, f := range fields {
-		sent.Add(f.Name, f.Value)
-	}
-	r := handle(t, origin, method, in.Path, HTTPParseQuery(in.RawQuery), httpFields(sent), body)
-	if r.Status < 100 || r.Status > 999 {
-		return HTTPResponse{}, -1, httpFailed(httpTransport, "the handler answered the invalid status "+strconv.Itoa(r.Status))
-	}
-	got := http.Header{}
-	for _, f := range r.Header {
-		got.Add(f.Name, f.Value)
-	}
-	out = HTTPResponse{Status: r.Status, Header: httpFields(got), Body: r.Body}
-	if r.Status < 200 && r.Status != 101 {
-		// net/http sends an informational status as an interim answer;
-		// the answer the client reads is the 200 that follows, with the
-		// body.
-		out.Status = 200
-	}
-	declared = -1
-	if out.Status < 200 || out.Status == 204 || out.Status == 304 {
-		out.Body = ""
-	} else if r.Body != "" && len(r.Body) <= 2048 {
-		declared = len(r.Body)
-	}
-	if method == "HEAD" {
-		out.Body = ""
-	}
-	return out, declared, nil
 }

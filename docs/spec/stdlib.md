@@ -668,20 +668,33 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     and hops, and the body budget. It needs no Ambient, since it reaches no
     host, and `Local` is an ordinary provider: a record of this package
     with Ergo functions over two runtime bodies (`HTTPFetchLocal`,
-    `HTTPFetchLocalInto`), nothing a module could not write. Its law is
+    `HTTPFetchLocalInto`), nothing a module could not write. It is not a
+    model of HTTP: each exchange is Go's own client (HTTPFetch's
+    transport settings, with this budget's MaxResponseHeaderBytes) and
+    Go's own server, writing the answer as Serve writes it, joined by an
+    in-memory `net.Pipe`; the server hands each request to the caller's
+    task, which runs `handle` while it waits. Its bodies name of package
+    `net` only `Pipe`, `Conn` and `Addr`, and of `syscall` only the errno
+    `ECONNREFUSED`, which the host rule's `HostImportsExcept` lists as
+    reaching no host state, so they carry no `//ergo:host` and `Local`
+    needs no Ambient. So a caller sees what a
+    loopback Serve gives by construction: no body for HEAD, 204 or 304, a
+    1xx before the final status, the declared length, the header budget
+    (TooLarge), and a status outside 100-999, which the server refuses by
+    closing the connection, with Go's retry of an idempotent request on a
+    kept-alive connection (the handler runs twice). Its law is
     `TestHTTPLocalMatchesLoopback`: a seeded property that sends each
-    generated fetch (methods, statuses with 1xx, 204 and 304, bodies
-    around the budget and Go's 2048-byte declared-length bound, escaped
-    paths and queries, headers, redirects and hop limits, the streamed
-    form with its accepted statuses and a failing sink) once through
-    Serve on a loopback listener and once in memory, with one handler,
-    and compares what the caller sees and what the handler was given; a
+    generated fetch (methods, statuses with 1xx, 204, 304 and refused
+    ones, bodies around the body budget, headers around the header
+    budget, escaped paths and queries, redirects and hop limits, a fresh
+    or a kept-alive connection, the streamed form with its accepted
+    statuses and a failing sink) once through Serve on a loopback
+    listener and once in memory, with one handler, and compares what the
+    caller sees, what the handler was given and the origin it was given;
+    it fails if its cases never reach a header over budget or a retry. A
     failing seed prints the case, both outcomes and the replay variable.
-    The fields Go's transports add (Date, Content-Length, Content-Type,
-    User-Agent, Accept-Encoding, Transfer-Encoding) are left out of both
-    sides. Known differences: no header budget is measured, and a status
-    outside 100-999 fails Transport (a server closes the connection, and
-    Go's client retries an idempotent request once). `EncodeQuery(fields)`
+    Only the Date header is left out of the comparison.
+    `EncodeQuery(fields)`
     is the raw query of fields, as a Client sends a Request's Query, so a
     caller builds a URL whose query `ParseQuery` reads back. Its body is
     marked `//ergo:pure`, the mark any module's Go body takes (The body

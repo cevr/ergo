@@ -30,6 +30,7 @@ type localCase struct {
 	into                         bool
 	accepted                     []int // nil: the 2xx rule
 	failPut                      bool
+	warm                         bool // the transport keeps a connection from an exchange before, so a closed one is retried
 }
 
 // localArrival is what a handler was given, without the fields Go's
@@ -51,7 +52,7 @@ type localOutcome struct {
 	Arrivals []localArrival
 }
 
-var localTransportFields = map[string]bool{"User-Agent": true, "Accept-Encoding": true, "Content-Length": true, "Content-Type": true, "Date": true, "Transfer-Encoding": true}
+var localTransportFields = map[string]bool{"Date": true}
 
 func localWithout(fields []HTTPField) []HTTPField {
 	var out []HTTPField
@@ -92,16 +93,16 @@ var errLocalSink = errors.New("sink refused")
 // TestHTTPLocalMatchesLoopback is the law of the local Network
 // (http.InMemoryNetwork): a fetch answered in memory gives the caller what
 // the same fetch gives through HTTPServe on a loopback socket, and the
-// handler is given the same request. Seeded over methods, statuses,
-// bodies, paths, queries, headers, redirects and their hop limits, body
-// budgets, and the streamed form with its accepted statuses and a failing
-// sink. Header fields Go's transports add are left out of both sides
-// (httpLocalExchange). A failing seed prints the case and both outcomes;
-// ERGO_HTTP_LOCAL_SEED=n replays it. An encoded query (HTTPEncodeQuery)
-// arrives as its fields. Mutants (runtime/v1 ledger): local-head-body,
-// local-no-content-body, local-informational, local-path-escaped,
-// local-header-raw, local-prefix-whole, local-budget-unchecked,
-// local-declared-length, encode-query-unescaped.
+// handler is given the same request, and the target's origin. Seeded over
+// methods, statuses (refused ones too), bodies, paths, queries, headers
+// around the header budget, redirects and their hop limits, body budgets,
+// a fresh or a kept-alive connection (a closed kept-alive one is retried),
+// and the streamed form with its accepted statuses and a failing sink.
+// Only Date is left out. A failing seed prints the case and both
+// outcomes; ERGO_HTTP_LOCAL_SEED=n replays it. An encoded query
+// (HTTPEncodeQuery) arrives as its fields. Mutants (runtime/v1 ledger):
+// local-key-kept, local-answer-unlike-serve, local-header-budget-lost,
+// local-no-keepalive, local-origin-raw, encode-query-unescaped.
 func TestHTTPLocalMatchesLoopback(t *testing.T) {
 	var (
 		mu      sync.Mutex
@@ -112,6 +113,9 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		c := current
+		if path == "/warm" {
+			return HTTPResponse{Status: 200, Body: "warm"}
+		}
 		arrived = append(arrived, localArrival{method, path, query, localWithout(header), body})
 		if c.redirect && path != "/final" {
 			return HTTPResponse{Status: 307, Header: []HTTPField{{"Location", "/final"}}, Body: "moved"}
@@ -122,9 +126,18 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 		return answer(method, path, query, header, body)
 	})
 	origin := "http://" + l.Addr()
-	local := func(_ *rt.Task, _ string, method, path string, query, header []HTTPField, body string) HTTPResponse {
+	// The local handler is given the target's origin, which the loopback
+	// handler reads from its listener.
+	local := func(_ *rt.Task, at string, method, path string, query, header []HTTPField, body string) HTTPResponse {
+		if at != origin {
+			t.Errorf("the local handler was given the origin %q for %q", at, origin)
+		}
 		return answer(method, path, query, header, body)
 	}
+	// The generator reaches the two answers net/http decides that a model
+	// would most easily miss: a header over its budget, and a status the
+	// server refuses on a kept-alive connection, which the client retries.
+	sawHeaderBudget, sawRetry := false, false
 	seeds := make([]uint64, 1000)
 	for i := range seeds {
 		seeds[i] = uint64(i + 1)
@@ -143,6 +156,22 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 			mu.Lock()
 			current, arrived = c, nil
 			mu.Unlock()
+			// Which connection an exchange takes decides whether Go retries
+			// one the server closed: each case starts with none kept, or
+			// with one a warm exchange left.
+			tr, fetch := httpTransportFor(c.limits.MaxHeaderBytes), HTTPFetch
+			if !remote {
+				tr = httpLocalTransportFor(c.limits.MaxHeaderBytes)
+				fetch = func(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string) (HTTPResponse, error) {
+					return HTTPFetchLocal(t, origins, anyOrigin, limits, hops, method, rawURL, header, owners, credentials, body, local)
+				}
+			}
+			tr.CloseIdleConnections()
+			if c.warm {
+				if _, err := fetch(task, nil, true, serveLimits(1<<16, c.limits.MaxHeaderBytes), -1, "GET", origin+"/warm", nil, nil, nil, ""); err != nil {
+					t.Fatalf("seed %d: warm exchange: %v", seed, err)
+				}
+			}
 			var parts strings.Builder
 			put := func(_ *rt.Task, part string) error {
 				if c.failPut {
@@ -201,6 +230,11 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 		if !reflect.DeepEqual(want, got) {
 			t.Fatalf("seed %d (replay ERGO_HTTP_LOCAL_SEED=%d go test -run TestHTTPLocalMatchesLoopback ./runtime/v1):\ncase     %+v\nloopback %+v\nlocal    %+v", seed, seed, c, want, got)
 		}
+		sawHeaderBudget = sawHeaderBudget || c.limits.MaxHeaderBytes != c.limits.MaxBodyBytes && want.Failure == fmt.Sprintf("TooLarge %d", c.limits.MaxHeaderBytes)
+		sawRetry = sawRetry || !c.redirect && len(want.Arrivals) == 2
+	}
+	if len(seeds) > 1 && (!sawHeaderBudget || !sawRetry) {
+		t.Fatalf("the cases never reached a header over its budget (%v) or a retried request (%v)", sawHeaderBudget, sawRetry)
 	}
 }
 
@@ -228,7 +262,7 @@ func localCaseOf(r *rand.Rand) localCase {
 	}
 	c := localCase{
 		method: []string{"GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"}[r.IntN(7)],
-		status: []int{200, 201, 202, 204, 206, 299, 301, 302, 303, 304, 307, 308, 400, 401, 404, 418, 500, 503, 599, 103, 100, 101}[r.IntN(22)],
+		status: []int{200, 201, 202, 204, 206, 299, 301, 302, 303, 304, 307, 308, 400, 401, 404, 418, 500, 503, 599, 103, 100, 101, 0, 42, 1000}[r.IntN(25)],
 		hops:   r.IntN(4) - 1,
 		into:   r.IntN(2) == 0,
 	}
@@ -257,7 +291,7 @@ func localCaseOf(r *rand.Rand) localCase {
 	}
 	for i := range r.IntN(3) {
 		c.header = append(c.header, HTTPField{[]string{"X-Case", "x-other", "X-CASE"}[i%3], escape(text(r.IntN(8)))})
-		c.answerHeader = append(c.answerHeader, HTTPField{[]string{"X-Answer", "x-answer", "X-More"}[r.IntN(3)], escape(text(r.IntN(8)))})
+		c.answerHeader = append(c.answerHeader, HTTPField{[]string{"X-Answer", "x-answer", "X-More"}[r.IntN(3)], escape(text(r.IntN(60)))})
 	}
 	size := []int{0, 1, 17, 1023, 1024, 1025, 3000}[r.IntN(7)]
 	c.answer = strings.Repeat("ab", size/2+1)[:size]
@@ -266,7 +300,7 @@ func localCaseOf(r *rand.Rand) localCase {
 	if r.IntN(3) == 0 {
 		budget = 1 << 16
 	}
-	c.limits = serveLimits(budget, 1<<16)
+	c.limits = serveLimits(budget, []int{1 << 16, 1 << 16, 160, 220, 300, 450}[r.IntN(6)])
 	if r.IntN(2) == 0 {
 		c.accepted = []int{c.status, 418, 503}[:1+r.IntN(3)]
 		if r.IntN(3) == 0 {
@@ -274,5 +308,6 @@ func localCaseOf(r *rand.Rand) localCase {
 		}
 	}
 	c.failPut = c.into && r.IntN(6) == 0
+	c.warm = r.IntN(2) == 0
 	return c
 }

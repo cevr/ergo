@@ -157,11 +157,11 @@ type Local { net netPolicy, handle escaping func(origin string, r Request) Respo
 // credential only at its own origin, redirects and their hop limit, and
 // the body budget. What a caller sees is what the same exchange gives
 // through Serve on a loopback socket (runtime/v1
-// TestHTTPLocalMatchesLoopback): no body for HEAD, 204 or 304, a 1xx
-// status read as the 200 after it, and no header field that Go's
-// transport adds (Date, Content-Length, Content-Type, User-Agent,
-// Accept-Encoding). A status outside 100-999 fails Transport. It needs no
-// Ambient: it reaches no host.
+// TestHTTPLocalMatchesLoopback), since each exchange is Go's own client
+// and server over an in-memory pipe: the header budget, a status the
+// server refuses (Transport, after Go's retry of an idempotent request on
+// a kept-alive connection, so handle runs twice) and every rule of Serve's
+// answers. It needs no Ambient: it reaches no host.
 func InMemoryNetwork(policy OriginPolicy, limits Limits, redirects RedirectPolicy, handle escaping func(origin string, r Request) Response needs Streaming) Local fails InvalidClient | InvalidLimits {
 	Local{net: try policyOf(policy, limits, redirects), handle: handle}
 }
