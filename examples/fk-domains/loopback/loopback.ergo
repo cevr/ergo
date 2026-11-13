@@ -1,0 +1,31 @@
+// Package loopback is the registry through the wire: the generated RPC
+// client of a sample registry that its generated server serves in this
+// process (rpc.Loopback). Each search crosses Effect RPC's HTTP wire and
+// the contract's codecs both ways, so `ergo test` runs the
+// domains.Registry laws against it as against sample: the laws hold
+// through the wire.
+
+import json
+import rpc
+import fk-domains/domains
+import fk-domains/domains/domainsrpc
+import fk-domains/sample
+
+// Loopback is a domains.Registry whose every search is an RPC call.
+type Loopback { client domainsrpc.Client }
+
+// NewLoopback serves a sample registry in process and is its client.
+func NewLoopback() Loopback {
+	let s = sample.NewSample()
+	let conn = rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+		with context { domains.Registry: s } {
+			try domainsrpc.Handle(tag, payload)
+		}
+	})
+	Loopback{client: domainsrpc.NewClient(conn)}
+}
+
+// SearchDomains is domains.Registry's SearchDomains, over the wire.
+func SearchDomains(l Loopback, label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down {
+	try domainsrpc.SearchDomains(l.client, label, offset, limit)
+}

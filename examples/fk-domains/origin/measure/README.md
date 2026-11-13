@@ -89,9 +89,9 @@ What the table shows:
 - 2.00 requests per query (800 in all); script CPU 167 ms per query.
 - **The DOM is flat. The heap is not**: after the first 50 queries it grows by about 24.7 kB per query and has not levelled at 400 (8.65 MB over the last 350). The query cache is bounded (100 settled entries), so the cache does not explain growth past query 100 (inferred: the DevTools history, which is part of the production bundle, or the router's history state; not separated here).
 
-## 6. The server's wire (recorded; `../wire/`, by `wire.mjs`)
+## 6. The server's wire (recorded; `../../server/recorded/`, by `wire.mjs`)
 
-20 cases, each with its request body and its response text; `wire/index.json` has the status, the content type, `Cache-Control` and the sizes.
+20 cases, each with its request body and its response text; `index.json` there has the status, the content type, `Cache-Control` and the sizes.
 
 - A success is `[{"_tag":"Exit","requestId":n,"exit":{"_tag":"Success","value":[…listings…]}}]`; a listing is `{"_tag":"Unavailable","name","tld"}` or `{"_tag":"Available","name","tld","price","renewalPrice","years","isPremium"}`. Sizes: 4 listings 409 B, 56 listings 6,777 B, the whole catalog 67,639 B (raw).
 - With no offset and no limit the answer is the whole catalog (66,081 B for `acme`).

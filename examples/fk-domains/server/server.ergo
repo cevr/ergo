@@ -1,0 +1,65 @@
+// Package server is fk-domains' HTTP server: the registry's RPC at /rpc,
+// with the original's refusals (src/server/rpc.ts and entry.ts at
+// 039c941a). No page is served yet, so every other request is 404.
+
+import http
+import rpc
+import strings
+import fk-domains/domains
+import fk-domains/domains/domainsrpc
+
+// Mount is the path of the RPC endpoint.
+func Mount() string { "/rpc" }
+
+// MaxBodyBytes is the largest request body the server reads: a body of
+// 1,024 bytes is answered and one of 1,025 is 413, as the original's
+// MAX_RPC_REQUEST_BYTES.
+func MaxBodyBytes() int { 1024 }
+
+// Limits are the listener's limits; http.Serve refuses a body over
+// MaxBodyBytes before Answer sees it (http.BodyTooLarge).
+func Limits() http.Limits {
+	http.Limits{MaxBodyBytes: MaxBodyBytes(), MaxHeaderBytes: 16384, IdleTimeout: 60s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}
+}
+
+func noStore() http.Field { http.Field{Name: "Cache-Control", Value: "no-store"} }
+
+// refused is a status with no body, not to be stored.
+func refused(status int) http.Response { http.Response{Status: status, Header: []http.Field{noStore()}, Body: ""} }
+
+// Answer answers r. The original's order holds: a path or method that is
+// not POST /rpc is 404 (its router has that one route); a content type
+// that is not JSON is 415; a body over MaxBodyBytes is 413; a body that
+// is not JSON is a 200 whose one frame is a Defect, as Effect's server
+// answers a body its parser refused; every other body is Effect RPC's
+// answer, whose payload that does not decode is a Die frame. Every answer
+// of the endpoint carries Cache-Control: no-store.
+func Answer(r http.Request) http.Response needs domains.Registry | http.Streaming {
+	if (r.Path != Mount() && r.Path != Mount()+"/") || r.Method != "POST" {
+		return http.Response{Status: 404, Header: []http.Field{}, Body: ""}
+	}
+	let json = match http.Header(r.Header, "Content-Type") {
+	case Some as c:
+		strings.HasPrefix(c.Value, "application/json")
+	case None:
+		false
+	}
+	if !json {
+		return refused(415)
+	}
+	match r.Body {
+	case http.BodyTooLarge:
+		return refused(413)
+	case http.BodyReadFailed:
+		return refused(400)
+	case http.Buffered:
+	}
+	let a = rpc.Answer(r, Mount(), func(tag string, payload string) string fails rpc.Failed needs domains.Registry {
+		try domainsrpc.Handle(tag, payload)
+	})
+	if a.Status == 400 {
+		let defect = "[{\"_tag\":\"Defect\",\"defect\":{\"name\":\"Malformed\",\"message\":" + rpc.Encode(strings.TrimSpace(a.Body)) + "}}]"
+		return http.Response{Status: 200, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}, noStore()}, Body: defect}
+	}
+	http.Response{Status: a.Status, Header: a.Header.Append(noStore()), Body: a.Body}
+}

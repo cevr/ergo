@@ -1,0 +1,61 @@
+{
+  "about": "fk-domains' application mutants (plan §20.6); each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fd1-offset-twice", "origin": "wf10/fd1a",
+      "file": "examples/fk-domains/sample/sample.ergo",
+      "from": "\tfor t in domains.Catalog[from:to] {\n",
+      "to": "\tlet skip = if from+from < to { from + from } else { to }\n\tfor t in domains.Catalog[skip:to] {\n",
+      "rule": "A page is the items offset to offset+limit of the whole answer (law PageIsSliceOfWhole).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd1-featured-out-of-order", "origin": "wf10/fd1a",
+      "file": "examples/fk-domains/domains/catalog.ergo",
+      "from": "\t\"com\", \"dev\", \"app\",",
+      "to": "\t\"dev\", \"com\", \"app\",",
+      "rule": "The featured TLDs come first in the original's order (WireAgreesWithOrigin, case search-top).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd1-1025-accepted", "origin": "wf10/fd1a",
+      "file": "examples/fk-domains/server/server.ergo",
+      "from": "func MaxBodyBytes() int { 1024 }",
+      "to": "func MaxBodyBytes() int { 1025 }",
+      "rule": "A body of 1,025 bytes is 413 (WireAgreesWithOrigin, 20-exactly-1025).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd1-1024-refused", "origin": "wf10/fd1a",
+      "file": "examples/fk-domains/server/server.ergo",
+      "from": "func MaxBodyBytes() int { 1024 }",
+      "to": "func MaxBodyBytes() int { 1023 }",
+      "rule": "A body of 1,024 bytes is answered (WireAgreesWithOrigin, 19-exactly-1024).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd1-no-store-missing", "origin": "wf10/fd1a",
+      "file": "examples/fk-domains/server/server.ergo",
+      "from": "Header: a.Header.Append(noStore())",
+      "to": "Header: a.Header",
+      "rule": "Every answer of the endpoint carries Cache-Control: no-store (WireAgreesWithOrigin).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd1-upper-label", "origin": "wf10/fd1a",
+      "file": "examples/fk-domains/domains/listing.ergo",
+      "from": "let alnum = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')",
+      "to": "let alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')",
+      "rule": "An upper-case label does not decode (WireAgreesWithOrigin, 11-upper; case not-a-label).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    },
+    {
+      "name": "fd1-zero-limit", "origin": "wf10/fd1a",
+      "file": "examples/fk-domains/domains/listing.ergo",
+      "from": "type Limit int where 1 <= it && it <= 556",
+      "to": "type Limit int where 0 <= it && it <= 556",
+      "rule": "A limit of 0 does not decode (WireAgreesWithOrigin, 14-zero-limit).",
+      "anchor": {"tests": ["examples:fk-domains"]}, "killers": ["examples:fk-domains"]
+    }
+  ]
+}
