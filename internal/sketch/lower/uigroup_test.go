@@ -134,6 +134,30 @@ func listed(n int, changed int) []Item {
 	xs
 }
 
+type Counter { N int }
+
+func counted(f *ui.Frame[int], c *Counter) {
+	ui.Text(f, "n \(c.N)")
+}
+
+func counterView(f *ui.Frame[int], c *Counter) {
+	counted(f, c)
+}
+
+// pointers renders the counter at each of ns, through one pointer: a
+// component whose argument is a pointer is no group, since an equal
+// pointer may reach a changed value.
+func pointers(ns []int) needs Console {
+	let mut f = ui.NewFrame[int]()
+	let mut c = Counter{N: 0}
+	for n in ns {
+		c.N = n
+		let ops = ui.Render(&f, counterView, &c)
+		Console.Println("pointer ops \(show(ops))")
+		Console.Println(shot(ui.FrameShape(&f), ""))
+	}
+}
+
 // growth renders n cards, then the same n with one changed, then one:
 // the runs of each pass and the groups kept after the last.
 func growth(n int) needs Console {
@@ -302,7 +326,9 @@ func (g *uiSkipGen) states(n int) []string {
 // with every call run (SetUISkipForTest(false), the reference). The
 // components nest, repeat at one site in loops and Each rows, change
 // their node counts with their arguments, and some read a flag, so are
-// never kept; a press may flip one. A failing seed is replayed with
+// never kept; a press may flip one. A component that takes a pointer
+// renders a counter the program changes through it, at drawn values: an
+// equal pointer must not skip it. A failing seed is replayed with
 // -uiskip.seed=N, and the program's text is in the failure.
 //
 // It also holds that skipping happens, as counted work: a pass that
@@ -315,7 +341,7 @@ func (g *uiSkipGen) states(n int) []string {
 //
 // Mutants (testdata/mutants.json): ui-group-args-ignored,
 // ui-group-impure-kept, ui-group-count-unchecked, ui-group-parent-unmapped,
-// ui-group-slots-leak, ui-skip-never.
+// ui-group-slots-leak, ui-skip-never, ui-skip-pointer-arg.
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4, 5, 6}
@@ -334,6 +360,11 @@ func TestUISkipAgrees(t *testing.T) {
 		for _, s := range g.states(10) {
 			fmt.Fprintf(&main, "\tstep(&f%d, s%dview, %s)\n", seed, seed, s)
 		}
+		var ns []string
+		for range 4 {
+			ns = append(ns, fmt.Sprint(g.r.IntN(3)))
+		}
+		fmt.Fprintf(&main, "\tpointers([]int{%s})\n", strings.Join(ns, ", "))
 	}
 	main.WriteString("\tgrowth(8)\n\tgrowth(64)\n}\n")
 	src.WriteString(main.String())
