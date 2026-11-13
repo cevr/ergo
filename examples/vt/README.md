@@ -51,8 +51,10 @@ The events goldens agree byte for byte with a Go transliteration of Ghostty's `P
 
 `cmd/ergo/testdata/vt/control/main.go` is `vt replay` as a person would write it in Go, in the dense form. It has Ghostty's transition table with the decoder in front of it, and it calls the screen directly, with no event list. The screen is Ghostty's: 8-byte cells, a ring of pages, and a counted style set. `TestVTAgreesWithControl` (in `cmd/ergo`, full tier) plays 200 seeds of `vt gen` on the dense screen, the plain screen and the control, and requires the same bytes from all three. Every 25th seed is 1.5 MB, so the history drops pages; `ERGO_VT_SEED=n` replays one seed. The receipt counts per input byte at 2 and 16 MB:
 
-- Dense Ergo is 2.0× the control's instructions and 6.1× its bytes (2.5× the instructions at DT3).
-- Plain Ergo is 8.7× dense Ergo's instructions and 105× its bytes.
+- Dense Ergo is 1.9× the control's instructions and 2.6× its bytes (6.1× the bytes at DT4).
+- Plain Ergo is 7.1× dense Ergo's instructions and 176× its bytes.
+
+Since IO1, the runtime reads standard input into the text it hands over, with no 4 KiB pieces and no copy at the end. Since VC1, `Stream.Take` (`let got = p.out` then `p.out = []Event{}`) and std `dense.Counted.Add`'s `c.free = c.free[0:len(c.free) - 1]` move their slice with no copy (types.md, Bindings 2).
 
 Since DT4, `clearRow`, `dropRow` and `moveRow`'s loops lower to Go's `copy` (types.md, Loops and len 8), and `PlayOn` reaches the screen through copies of `Play` and `Apply` whose screen parameter is the provider's adapter, so each screen call is static (types.md, Interface assignability 6). Neither touches the source. Most of the rest is the event list: each `Event` is a boxed value, because the union is over Go's register bound for a flat struct (union-repr.md §5).
 
