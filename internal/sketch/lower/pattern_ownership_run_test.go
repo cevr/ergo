@@ -56,7 +56,7 @@ Console.Println("body")`
 	case 5:
 		fail := r.IntN(2) == 0
 		extra = fmt.Sprintf(`type Bad {}
-func acquire() Pair fails Bad {
+func acquire() Pair fails Bad needs Console {
 let r = Res{id: %d, bad: false}
 if %t { return Bad }
 Pair{R: r, S: Res{id: %d, bad: false}, N: true}

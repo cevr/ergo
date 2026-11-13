@@ -271,11 +271,11 @@ func keepTwo(a Res, b Res) takes a, b {}
 // ogFilePrelude declares the Go file consumers and fdCount, the number
 // of the process's open files (Linux's /proc; 0 where it has none), for
 // a program that opens Go files (goFile).
-const ogFilePrelude = `func lendFile(f go.Ref[os.File]) {
+const ogFilePrelude = `func lendFile(f go.Ref[os.File]) needs go.Foreign {
 	_ = f.Name()
 }
 
-func keepFile(f go.Ref[os.File]) takes f {}
+func keepFile(f go.Ref[os.File]) needs go.Foreign takes f {}
 
 func fdCount() int needs go.Foreign {
 	let mut n = 0
