@@ -34,10 +34,7 @@ const (
 // (root nil for a Map no binding holds).
 func (in *interp) rangeMap(fr *frame, s *syntax.RangeStmt, dom mapV, root *slot, path []step) *abrupt {
 	in.mapRanged = true
-	keys := make([]Value, 0, len(dom.b.m))
-	for k := range dom.b.m {
-		keys = append(keys, k)
-	}
+	keys := dom.b.keys()
 	if ab := in.charge(fr, s, int64(len(keys))); ab != nil {
 		return ab
 	}
@@ -62,7 +59,7 @@ func (in *interp) rangeMap(fr *frame, s *syntax.RangeStmt, dom mapV, root *slot,
 		if len(cur.b.m) > n {
 			return fr.unsupported(s, "a for over a Map that the loop adds to, whose new entries the Go target may or may not visit")
 		}
-		v, present := cur.b.m[k]
+		v, present := cur.b.get(k)
 		if !present {
 			n-- // deleted before it was reached: not visited
 			continue

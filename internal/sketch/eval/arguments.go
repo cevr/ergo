@@ -89,12 +89,9 @@ func (in *interp) argument(fr *frame, t check.Type, v Value) (out string) {
 		}
 		return in.argumentType(t) + "{" + strings.Join(parts, ", ") + "}"
 	case *check.Map:
-		m := v.(mapV).b.m
+		m := v.(mapV).b.plain()
 		mustCharge(in, fr, int64(len(m)))
-		keys := make([]Value, 0, len(m))
-		for k := range m {
-			keys = append(keys, k)
-		}
+		keys := v.(mapV).b.keys()
 		b, basic := t.Key.(*check.Basic)
 		sort.Slice(keys, func(i, j int) bool {
 			mustCharge(in, fr, 1)

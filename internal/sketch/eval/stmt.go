@@ -557,9 +557,6 @@ func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrup
 		if ab != nil {
 			return nil, nil, "", ab
 		}
-		if !basicValue(iv) {
-			return nil, nil, "an entry of a Map whose key holds parts", nil
-		}
 		return root, append(steps, step{at: x, index: iv}), "", nil
 	case *syntax.StarExpr:
 		root, steps, ab := in.placeThrough(fr, x.X)

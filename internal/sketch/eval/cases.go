@@ -382,7 +382,7 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 		for n := r.Intn(r.Limit(d) + 1); n > 0; n-- {
 			k := in.generate(fr, r, u.Key, d-1, nil)
 			v := in.generate(fr, r, u.Elem, d-1, nil)
-			m.b.m[k] = v
+			m.b.put(k, v)
 		}
 		return m
 	case *check.Tuple:

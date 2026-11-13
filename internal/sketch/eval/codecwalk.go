@@ -511,7 +511,7 @@ func (w wireWalk) decode(r rtype, rd Value) (Value, *abrupt) {
 			if ab != nil {
 				return nil, ab
 			}
-			out.b.m[key] = x
+			out.b.put(key, x)
 		}
 		if _, ab := w.event(rd, "End"); ab != nil {
 			return nil, ab

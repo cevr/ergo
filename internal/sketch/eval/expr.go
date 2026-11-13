@@ -513,14 +513,11 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 			if ab != nil {
 				return nil, ab
 			}
-			if !basicValue(k) {
-				return nil, fr.unsupported(kv.Key, "a Map key of %s yet", fr.rtypeOf(kv.Key).t)
-			}
 			v, ab := in.expr(fr, kv.Value)
 			if ab != nil {
 				return nil, ab
 			}
-			m.b.m[k] = v
+			m.b.put(k, v)
 		}
 		in.handParts(fr, x.Elts...)
 		return m, nil
@@ -949,23 +946,14 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 	case "Append":
 		return in.appendTo(fr, x, recv.(sliceV), args[0], tok)
 	case "Get":
-		if !basicValue(args[0]) {
-			return nil, fr.unsupported(x.Args[0], "a Map key of %s yet", fr.rtypeOf(x.Args[0]).t)
-		}
 		if ab := in.charge(fr, x, 1); ab != nil {
 			return nil, ab
 		}
-		v, found := recv.(mapV).b.m[args[0]]
+		v, found := recv.(mapV).b.get(args[0])
 		return in.option(fr, x, v, found)
 	case "Delete":
-		if !basicValue(args[0]) {
-			return nil, fr.unsupported(x.Args[0], "a Map key of %s yet", fr.rtypeOf(x.Args[0]).t)
-		}
 		return in.deleteIn(fr, x, recv.(mapV), args[0], tok)
 	case "Put":
-		if !basicValue(args[0]) {
-			return nil, fr.unsupported(x.Args[0], "a Map key of %s yet", fr.rtypeOf(x.Args[0]).t)
-		}
 		return in.putIn(fr, x, recv.(mapV), args[0], args[1], tok)
 	}
 	ice("the prelude function %s", c.Func.Name)

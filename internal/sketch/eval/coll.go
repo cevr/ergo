@@ -83,7 +83,7 @@ func samePath(a, b []step) bool {
 		return false
 	}
 	for i := range a {
-		if a[i].field != b[i].field || a[i].index != b[i].index {
+		if a[i].field != b[i].field || canonKey(a[i].index) != canonKey(b[i].index) {
 			return false
 		}
 	}
@@ -96,13 +96,15 @@ func newSlice(elems []Value) sliceV {
 
 func (s sliceV) elems() []Value { return s.b.data[s.off : s.off+s.n] }
 
-// mapV is a Map value. A key is a basic value, held as its Go value, so
-// Go's own == and hashing decide it: -0 and +0 are one key and each NaN
-// is a key of its own, as in the Go target.
+// mapV is a Map value. A basic key is held as its Go value, so Go's own
+// == and hashing decide it: -0 and +0 are one key and each NaN is a key
+// of its own, as in the Go target; a key with parts is held by its
+// canonical text (mapkeys.go).
 type mapV struct{ b *mapBacking }
 
 type mapBacking struct {
-	m     map[Value]Value
+	m     map[Value]Value // by canonKey
+	orig  map[compKey]Value
 	owner *token
 }
 
@@ -142,7 +144,14 @@ func (in *interp) ownMap(fr *frame, at syntax.Node, m mapV, tok *token) (mapV, *
 	for k, v := range m.b.m {
 		out[k] = v
 	}
-	return mapV{b: &mapBacking{m: out, owner: tok}}, nil
+	var orig map[compKey]Value
+	if len(m.b.orig) > 0 {
+		orig = make(map[compKey]Value, len(m.b.orig))
+		for k, v := range m.b.orig {
+			orig[k] = v
+		}
+	}
+	return mapV{b: &mapBacking{m: out, orig: orig, owner: tok}}, nil
 }
 
 // appendTo is xs with x at its end. own is the token of the slot that
@@ -186,20 +195,20 @@ func (in *interp) putIn(fr *frame, at syntax.Node, m mapV, k, v Value, own *toke
 	if ab != nil {
 		return nil, ab
 	}
-	m.b.m[k] = v
+	m.b.put(k, v)
 	return m, nil
 }
 
 // deleteIn is m without k.
 func (in *interp) deleteIn(fr *frame, at syntax.Node, m mapV, k Value, own *token) (Value, *abrupt) {
-	if _, ok := m.b.m[k]; !ok {
+	if !m.b.has(k) {
 		return m, nil
 	}
 	m, ab := in.ownMap(fr, at, m, own)
 	if ab != nil {
 		return nil, ab
 	}
-	delete(m.b.m, k)
+	m.b.del(k)
 	return m, nil
 }
 
@@ -214,9 +223,9 @@ func describeColl(v Value) (string, bool) {
 		return "[" + strings.Join(parts, ", ") + "]", true
 	case mapV:
 		parts := make([]string, 0, len(v.b.m))
-		for k, e := range v.b.m {
+		v.b.each(func(k, e Value) {
 			parts = append(parts, describe(k)+": "+describe(e))
-		}
+		})
 		sort.Strings(parts)
 		return "{" + strings.Join(parts, ", ") + "}", true
 	case *closure:

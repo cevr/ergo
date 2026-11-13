@@ -1372,6 +1372,33 @@
       "to": "\t\treturn math.Exp(args[0].(float64)), nil",
       "rule": "A float extern runs its own Go function (std math's, a program's extern go math.Log).",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
+    },
+    {
+      "name": "oracle-o30-record-key-by-identity",
+      "origin": "wf10 ORACLE O30",
+      "file": "internal/sketch/eval/mapkeys.go",
+      "from": "\tif basicValue(k) {\n\t\treturn k\n\t}\n\tvar b strings.Builder",
+      "to": "\tif true {\n\t\treturn k\n\t}\n\tvar b strings.Builder",
+      "rule": "types.md Maps: two keys are one key when Go's == holds on them; a record key is equal to an equal record built anew.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o30-negative-zero-key",
+      "origin": "wf10 ORACLE O30",
+      "file": "internal/sketch/eval/mapkeys.go",
+      "from": "\tcase f == 0:\n\t\tb.WriteString(kind + \"0\")",
+      "to": "\tcase false:\n\t\tb.WriteString(kind + \"0\")",
+      "rule": "Go's == has -0 equal to 0, so a key whose float field is -0 is the key whose field is 0.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o30-ranged-key-is-text",
+      "origin": "wf10 ORACLE O30",
+      "file": "internal/sketch/eval/mapkeys.go",
+      "from": "\t\tks = append(ks, m.key(c))",
+      "to": "\t\tks = append(ks, c)",
+      "rule": "A for over a Map binds each key itself, the record, not the text the evaluator holds it by.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     }
   ]
 }

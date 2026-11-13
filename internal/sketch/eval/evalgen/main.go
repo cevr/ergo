@@ -161,6 +161,32 @@ func both(a *Acc, v int) {
 	}
 }
 
+// Id, Tab and FK are the keyed half of the maps scenario: a record key, as
+// dense's ID[K] is, written through borrows, and a float field whose -0
+// is the key 0.
+type Id { n uint32 }
+
+type FK { x float64 }
+
+type Tab { rows []int }
+
+func tput(t *Tab, v int) Id {
+	let id = Id{n: uint32(len(t.rows))}
+	t.rows = t.rows.Append(v)
+	id
+}
+
+func tset(t *Tab, id Id, v int) { t.rows[int(id.n)] = v }
+
+func count(c *Map[Id, int], id Id, by int) {
+	match (*c).Get(id) {
+	case Some[int] as s:
+		(*c)[id] = s.Value + by
+	case None:
+		(*c)[id] = by
+	}
+}
+
 type Ctr { n int, limit int }
 
 type Sig = Add{k int} | Tick{}
@@ -979,15 +1005,49 @@ func (g *mainGen) maps(k int) {
 	g.line("\t\t\t}")
 	g.line("\t\t}")
 	g.line("\t}")
-	g.line("\tConsole.Println(\"s%d \\(n) \\(sum) \\(seen) \\(len(d)) \\(live)\")", k)
+	// Record keys: each entry's row id counted twice, once by the id
+	// tput returned and once by an equal record built anew, so the two
+	// are one key; the -0 of a float field is the key 0.
+	g.line("\tlet mut t = Tab{rows: []int{}}")
+	g.line("\tlet mut c = Map[Id, int]{}")
+	g.line("\tfor key, v in m {")
+	g.line("\t\tlet id = t.tput(v)")
+	g.line("\t\tcount(&c, id, key)")
+	g.line("\t\tcount(&c, Id{n: id.n}, 1)")
+	g.line("\t\tt.tset(id, v * 2)")
+	g.line("\t}")
+	g.line("\tlet mut total = 0")
+	g.line("\tlet mut ids = 0")
+	g.line("\tfor id, by in c {")
+	g.line("\t\ttotal = total + by")
+	g.line("\t\tids = ids + int(id.n)")
+	g.line("\t}")
+	g.line("\tlet mut rows = 0")
+	g.line("\tfor r in t.rows {")
+	g.line("\t\trows = rows + r")
+	g.line("\t}")
+	g.line("\tlet zero = 0.0")
+	g.line("\tlet mut f = Map[FK, int]{FK{x: zero}: 1}")
+	g.line("\tf[FK{x: -zero}] = 2")
+	g.line("\tlet mut fv = 0")
+	g.line("\tmatch f.Get(FK{x: zero}) {")
+	g.line("\tcase Some[int] as s:")
+	g.line("\t\tfv = s.Value")
+	g.line("\tcase None:")
+	g.line("\t\tfv = -1")
+	g.line("\t}")
+	g.line("\tf = f.Delete(FK{x: -zero})")
+	g.line("\tConsole.Println(\"s%d \\(n) \\(sum) \\(seen) \\(len(d)) \\(live) \\(len(c)) \\(total) \\(ids) \\(rows) \\(fv) \\(len(f))\")", k)
 	g.line("}")
 	g.calls = append(g.calls, fmt.Sprintf("s%d()", k))
-	sum := 0
+	sum, total, rows := 0, 0, 0
 	for key, v := range m {
 		sum += key * v
+		total += key + 1
+		rows += 2 * v
 	}
 	one := min(len(m), 1)
-	fmt.Fprintf(&g.out, "s%d %d %d %d %d %d\n", k, len(m), sum, one, one, one)
+	fmt.Fprintf(&g.out, "s%d %d %d %d %d %d %d %d %d %d 2 0\n", k, len(m), sum, one, one, one, len(m), total, len(m)*(len(m)-1)/2, rows)
 }
 
 // bits: std bits of a seeded uint, slices.Repeat of a seeded list.
