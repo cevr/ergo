@@ -1,0 +1,11 @@
+[] -
+> type  60601
+[ 60601] -
+> submit
+[ 60601] Fetching weather for 60601...
+[ 60601] 60601 Chicago, Illinois: -3°F, Snow; humidity 76%, wind 22 mph
+> type 98101
+[98101] 60601 Chicago, Illinois: -3°F, Snow; humidity 76%, wind 22 mph
+> submit
+[98101] Fetching weather for 98101...
+[98101] 98101 Seattle, Washington: 55°F, Partly cloudy; humidity 70%, wind 6 mph
