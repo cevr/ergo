@@ -56,6 +56,9 @@ var skipFields = map[string]string{
 	"check.checker.withLimit":    "test hook",
 	"check.checker.nodeCheck":    "test hook",
 	"check.checker.elidedAs":     "set only while an elided literal is checked",
+	// A module package's importer serves its check alone (check/export.go,
+	// ModuleImporter); the decoded wrapper imports nothing.
+	"check.moduleImporter.next": "the loader of the process that checked the package",
 	// The derive record (internal/sketch/derive). Std declares no plan
 	// function or derive, so its record is empty and nil means the same;
 	// check.ExportStd refuses a std package whose record is not empty.
