@@ -1332,8 +1332,8 @@
       "name": "oracle-o28-literal-needs-captured",
       "origin": "wf10 ORACLE O28",
       "file": "internal/sketch/eval/expr.go",
-      "from": "lawOwn: c.home.lawOwn, caps: c.callerCaps(fr), outer: outer}",
-      "to": "lawOwn: c.home.lawOwn, caps: c.caps, outer: outer}",
+      "from": "caps: c.callerCaps(fr), outer: outer}",
+      "to": "caps: c.caps, outer: outer}",
       "rule": "A capability a function literal's type names is its caller's, as a declared function's needs are.",
       "killers": ["internal/sketch/eval:TestLiteralNeedsAreTheCallers"]
     },
