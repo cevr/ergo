@@ -374,6 +374,28 @@
       "killers": [
         "cmd/ergo:TestVTAgreesWithControl"
       ]
+    },
+    {
+      "name": "dt4-control-bright-bg",
+      "origin": "wf10/dod/DT4",
+      "file": "cmd/ergo/testdata/vt/control/main.go",
+      "from": "st.bg = int32(v - 100 + 9)",
+      "to": "st.bg = int32(v - 100 + 1)",
+      "rule": "SGR 100 to 107 are the bright backgrounds, palette 8 to 15, in the control as in the program; vt gen emits them since DT4. Killed by TestVTAgreesWithControl.",
+      "killers": [
+        "cmd/ergo:TestVTAgreesWithControl"
+      ]
+    },
+    {
+      "name": "dt4-control-dcs-drop-after-complete",
+      "origin": "wf10/dod/DT4",
+      "file": "cmd/ergo/testdata/vt/control/main.go",
+      "from": "\t\t\tp.length = 0\n\t\t\tif p.nparams >= maxParams {",
+      "to": "\t\t\tp.length = 0\n\t\t\tif p.digits && p.nparams < maxParams {\n\t\t\t\tp.nparams++\n\t\t\t}\n\t\t\tif p.nparams >= maxParams {",
+      "rule": "A DCS hook is dropped when its complete parameters reach the limit before its final byte, not after completing the one being read (Ergo's enter reads the counts before the byte): a hook of 24 parameters is kept. vt gen emits one since DT4. Killed by TestVTAgreesWithControl.",
+      "killers": [
+        "cmd/ergo:TestVTAgreesWithControl"
+      ]
     }
   ]
 }
