@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -66,6 +67,9 @@ type config struct {
 	names   []string
 	// cache is the verdict cache's directory (cache.go), or "" for none.
 	cache string
+	// jobs is how many programs run at once (runAll); -record runs one at
+	// a time.
+	jobs int
 	// memory is the limit of each built program a case runs: ERGO_PROGRAM_MEMORY,
 	// 2 GiB by default (internal/proclimit; docs/tooling.md, "Test memory").
 	// `ergo test` reads the same variable for the test binaries it runs.
@@ -149,16 +153,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	defer l.removeDir(scratch)
-	r := &runner{cfg: cfg, out: stdout, scratch: scratch, live: l}
-	if !cfg.record {
-		r.cache = openCache(cfg.cache, cfg)
-	}
-	for _, p := range selected {
-		if cfg.record {
+	r := &runner{cfg: cfg, out: stdout, scratch: scratch, live: l, install: &tsInstall{}}
+	if cfg.record {
+		for _, p := range selected {
 			r.recordProgram(p)
-		} else {
-			r.runCached(p)
 		}
+	} else {
+		r.cache = openCache(cfg.cache, cfg)
+		r.runAll(selected)
 	}
 	if r.cache != nil {
 		fmt.Fprintf(stdout, "examples: cache %s: %d programs replayed, %d run\n", r.cache.dir, r.cache.hits, r.cache.misses)
@@ -180,6 +182,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
 	flags.StringVar(&cfg.cache, "cache", os.Getenv(cacheVariable), "replay a program's recorded pass when every input it reads is unchanged, keyed and kept in `DIR` (default $"+cacheVariable+"; empty: no cache)")
+	flags.IntVar(&cfg.jobs, "jobs", runtime.GOMAXPROCS(0), "run `N` programs at once (default GOMAXPROCS, which the gate sets to its CPU budget); the output is the one-at-a-time run's")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
 		flags.PrintDefaults()
@@ -192,6 +195,9 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	}
 	if cfg.timeout <= 0 {
 		return nil, usageError("-timeout must be positive")
+	}
+	if cfg.jobs < 1 {
+		return nil, usageError("-jobs must be at least 1")
 	}
 	memory, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
 	if err != nil {
@@ -636,15 +642,66 @@ type runner struct {
 	cases    int
 	failures []string
 	// ts is the TypeScript run of the program whose cases run now, or
-	// nil (ts.go); tsDir and tsErr are the run's one install.
-	ts    *tsRun
-	tsDir string
-	tsErr error
+	// nil (ts.go); install is the run's one install, which every
+	// program's runner shares.
+	ts      *tsRun
+	install *tsInstall
 	// cache is the run's verdict cache, or nil (cache.go).
 	cache *verdictCache
 }
 
 func (r *runner) fail(what string) { r.failures = append(r.failures, what) }
+
+// runAll runs the programs cfg.jobs at a time, started in their order. Each
+// program has its own runner, which writes to its own buffer; a program's
+// lines are printed once it and every program before it ended, so the
+// output, the case count and the failures are the one-at-a-time run's,
+// whatever the timing (gate-speed GS7). A panic in a program's goroutine
+// stops the run (live.interrupt), as the signal handler does, and reaches
+// run's caller from this goroutine.
+func (r *runner) runAll(programs []*program) {
+	type ended struct {
+		out      bytes.Buffer
+		cases    int
+		failures []string
+	}
+	results := make([]ended, len(programs))
+	done := make([]chan struct{}, len(programs))
+	for i := range done {
+		done[i] = make(chan struct{})
+	}
+	panics := make(chan any, len(programs))
+	slots := make(chan struct{}, r.cfg.jobs)
+	go func() {
+		for i, p := range programs {
+			slots <- struct{}{}
+			go func() {
+				defer func() {
+					if v := recover(); v != nil {
+						panics <- v
+						return
+					}
+					<-slots
+					close(done[i])
+				}()
+				w := &runner{cfg: r.cfg, out: &results[i].out, scratch: r.scratch, live: r.live, install: r.install, cache: r.cache}
+				w.runCached(p)
+				results[i].cases, results[i].failures = w.cases, w.failures
+			}()
+		}
+	}()
+	for i := range programs {
+		select {
+		case <-done[i]:
+		case v := <-panics:
+			r.live.interrupt()
+			panic(v)
+		}
+		r.out.Write(results[i].out.Bytes())
+		r.cases += results[i].cases
+		r.failures = append(r.failures, results[i].failures...)
+	}
+}
 
 func (r *runner) finish() int {
 	if len(r.failures) > 0 {

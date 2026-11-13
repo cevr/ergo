@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // The verdict cache (gate-speed GS1). A program's legs (fmt, build, test,
@@ -75,8 +76,21 @@ type verdictCache struct {
 	dir    string
 	common string
 	reason string
-	// hits and misses count the run's programs replayed and run.
+	// hits and misses count the run's programs replayed and run; the
+	// programs that run at once (runAll) count under mu.
+	mu           sync.Mutex
 	hits, misses int
+}
+
+// count adds one program to the hits or the misses.
+func (c *verdictCache) count(hit bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if hit {
+		c.hits++
+	} else {
+		c.misses++
+	}
 }
 
 // openCache prepares the cache of a run, or returns nil without a
@@ -275,18 +289,18 @@ func (r *runner) runCached(p *program) {
 	key, why := c.programKey(p)
 	if key == "" {
 		fmt.Fprintf(r.out, "examples: %s: not cached: %s\n", p.name, why)
-		c.misses++
+		c.count(false)
 		r.runProgram(p)
 		return
 	}
 	if e, ok := c.lookup(p, key); ok {
 		io.WriteString(r.out, e.Output)
 		r.cases += e.Cases
-		c.hits++
+		c.count(true)
 		fmt.Fprintf(r.out, "ok %s: cached (inputs %s)\n", p.name, key[:12])
 		return
 	}
-	c.misses++
+	c.count(false)
 	var captured bytes.Buffer
 	out, failures, cases := r.out, len(r.failures), r.cases
 	r.out = io.MultiWriter(out, &captured)

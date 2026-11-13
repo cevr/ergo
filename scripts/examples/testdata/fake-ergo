@@ -13,8 +13,11 @@
 #                        ticker into ticks-test beside itself, then fails; on
 #                        TESTSKIP prints one law's skip line and passes; on
 #                        a line "# TESTSIZE OUT ERR" writes OUT bytes to
-#                        stdout and ERR bytes to stderr and passes; passes
-#                        otherwise.
+#                        stdout and ERR bytes to stderr and passes; on a
+#                        line "# TESTSIGNAL NAME" makes signal-NAME beside
+#                        calls.log; on "# TESTAWAIT NAME" waits for it
+#                        (and fails 60 s after it started without it);
+#                        passes otherwise.
 # A SRC or FILE that is a folder is a package (196b): build reads its
 # main.ergo, and test reads every .ergo file in it.
 # A ticker is a background loop in the caller's process group that appends a
@@ -57,6 +60,15 @@ test)
   if grep -q TESTPENDING "$2"; then echo "ergo test: not available yet; lowering adds it (#196)" >&2; exit 1; fi
   if grep -q TESTFAIL "$2"; then echo "FAIL Fixture: assert failed at main.ergo:1:1: false"; echo "FAIL (1 of 1 tests)"; exit 1; fi
   if grep -q TESTTICK "$2"; then tick "$tools/ticks-test"; echo "FAIL Fixture"; exit 1; fi
+  if grep -q '^# TESTSIGNAL ' "$2"; then : > "$tools/signal-$(sed -n 's/^# TESTSIGNAL //p' "$2")"; fi
+  if grep -q '^# TESTAWAIT ' "$2"; then
+    name=$(sed -n 's/^# TESTAWAIT //p' "$2")
+    end=$(( $(date +%s) + 60 ))
+    until [ -e "$tools/signal-$name" ]; do
+      [ "$(date +%s)" -lt "$end" ] || { echo "FAIL Fixture: no TESTSIGNAL $name came"; echo "FAIL (1 of 1 tests)"; exit 1; }
+      sleep 0.01
+    done
+  fi
   if grep -q TESTSKIP "$2"; then echo "skip law Store.Keeps for Box: its values have no generator: why"; echo "PASS (0 tests, 1 skipped)"; exit 0; fi
   if grep -q '^# TESTSIZE ' "$2"; then
     set -- $(sed -n 's/^# TESTSIZE //p' "$2")
