@@ -19,6 +19,10 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 	var e *irExpr
 	switch y := unparen(x).(type) {
 	case *syntax.CallExpr:
+		if w, ok := b.isWith(y); ok {
+			pre, e = b.withValue(w) // ir_with.go
+			break
+		}
 		pre, e = b.call(y, false)
 	case *syntax.IfStmt:
 		b.plain(y)

@@ -221,6 +221,8 @@ type irStmt struct {
 	// Label is a loop's or a block's label, or the one a break, continue
 	// or goto names (ir_tree.go).
 	Label string `json:"label,omitempty"`
+	// Y is a store's value: X = Y, X a field (ir_with.go).
+	Y *irExpr `json:"y,omitempty"`
 }
 
 type irExpr struct {

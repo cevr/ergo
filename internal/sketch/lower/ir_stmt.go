@@ -121,6 +121,9 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 				return b.matchStmt(m, true, to) // ir_match.go: each arm yields
 			}
 		}
+		if w, ok := b.isWith(s.X); ok && !conv {
+			return b.withStmt(w, true, to) // ir_with.go: the block's tail yields
+		}
 		if to != nil {
 			pre, x := b.value(s.X)
 			x = b.assignedTo(s.X, x, to.t) // ir_union.go
@@ -223,6 +226,9 @@ func (b *irBuilder) ifValue(s *syntax.IfStmt) ([]*irStmt, *irExpr) {
 func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 	x = unparen(x)
 	p := b.pos(x, x.Pos())
+	if w, ok := b.isWith(x); ok {
+		return b.withStmt(w, false, nil) // ir_with.go
+	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := b.l.info.Calls[call]; c != nil && c.Kind != check.CallConversion && c.Kind != check.CallLen {
 			pre, e := b.call(call, true)

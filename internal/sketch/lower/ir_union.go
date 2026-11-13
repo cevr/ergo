@@ -70,7 +70,14 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		b.admit(td.defined, depth+1)
 		return
 	case kindOps:
-		irNo("operation-type value")
+		// An operation type is its Go interface, which the emitter
+		// declares (IRG6: a with's capability fields, an adapter's
+		// conversion); Go's checker checks every use of its values. A
+		// generic one stays the emitter's.
+		if len(t.TArgs) > 0 {
+			irNo("generic or declared-elsewhere type")
+		}
+		return
 	case kindMachine:
 		irNo("machine value")
 	}
@@ -124,7 +131,7 @@ func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
 		// convert, D-C3).
 		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
-		irNo("operations conversion")
+		return b.opsConv(conv, e, x) // ir_with.go
 	}
 	irNo("implicit conversion")
 	return nil
