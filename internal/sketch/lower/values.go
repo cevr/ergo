@@ -2265,6 +2265,7 @@ func (w *valueWalk) argsUnshared(c *check.Call, x syntax.Expr) bool {
 	if len(ops) != len(sig.Params) {
 		return false
 	}
+	var settle []*syntax.CallExpr
 	for i, op := range ops {
 		carries := false
 		for _, tp := range freeTypeParams(sig.Params[i].Type) {
@@ -2273,28 +2274,50 @@ func (w *valueWalk) argsUnshared(c *check.Call, x syntax.Expr) bool {
 		switch lit, isLit := unparen(op).(*syntax.FuncLit); {
 		case !carries || w.vf.consumed[op]:
 		case isLit:
-			if !w.litFresh(lit) {
+			ok, sites := w.litFresh(lit)
+			if !ok {
 				return false
 			}
+			settle = append(settle, sites...)
 		default:
 			if _, isFunc := underEqual(w.typeOf(op)).(*check.Signature); isFunc || !w.fresh(op) {
 				return false
 			}
 		}
 	}
+	for _, call := range settle {
+		delete(w.vf.lineage, call)
+	}
 	return true
 }
 
 // litFresh reports a function literal whose every result, each value its
-// body ends in and each a return statement gives, is fresh.
-func (w *valueWalk) litFresh(lit *syntax.FuncLit) bool {
+// body ends in and each a return statement gives, is fresh, and the
+// one-extender Append sites (handover.go, own-lineage) among them: such a
+// result is fresh once the site takes the clipped Append, whose new array
+// no one else holds when its elements hold no Map or slice (as
+// settleLineage does). argsUnshared settles them when the call's result
+// is unshared.
+func (w *valueWalk) litFresh(lit *syntax.FuncLit) (bool, []*syntax.CallExpr) {
 	f := w.frameOf[lit]
 	if f == nil || len(f.tails) == 0 {
-		return false
+		return false, nil
+	}
+	var sites []*syntax.CallExpr
+	result := func(r syntax.Expr) bool {
+		if w.fresh(r) {
+			return true
+		}
+		call, ok := unparen(r).(*syntax.CallExpr)
+		if !ok || !w.vf.lineage[call] || w.l.holdsValue(elemOf(w.typeOf(call))) {
+			return false
+		}
+		sites = append(sites, call)
+		return true
 	}
 	for t := range f.tails {
-		if !w.fresh(t) {
-			return false
+		if !result(t) {
+			return false, nil
 		}
 	}
 	ok := true
@@ -2304,12 +2327,15 @@ func (w *valueWalk) litFresh(lit *syntax.FuncLit) bool {
 			return false
 		case *syntax.ReturnStmt:
 			for _, r := range n.Results {
-				ok = ok && w.fresh(r)
+				ok = ok && result(r)
 			}
 		}
 		return ok
 	})
-	return ok
+	if !ok {
+		return false, nil
+	}
+	return true, sites
 }
 
 // parentIsPath reports whether x is the path its root id heads.
