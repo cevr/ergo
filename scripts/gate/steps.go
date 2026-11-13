@@ -544,11 +544,16 @@ func examplesStep(root string) (*Step, error) {
 	if err != nil {
 		return nil, err
 	}
+	var env []string
+	if dir := cacheDirectory(); dir != "" {
+		env = []string{examplesCacheVariable + "=" + filepath.Join(dir, "examples")}
+	}
 	return &Step{
 		Name:  "examples (default)",
 		Class: classFast,
 		Needs: []string{"build bin/ergo"},
 		Argv:  []string{"go", "run", examplesRunner},
+		Env:   env,
 		Inputs: &Inputs{
 			Paths:     append([]string{"scripts/examples/", "go.mod"}, paths...),
 			Exclude:   append([]string{"scripts/examples/*_test.go", "scripts/examples/testdata/"}, exclude...),
@@ -558,6 +563,14 @@ func examplesStep(root string) (*Step, error) {
 		},
 	}, nil
 }
+
+// examplesCacheVariable names the examples runner's verdict cache
+// (scripts/examples, cache.go). The step keeps it in the gate's cache
+// directory: a program whose inputs (its folder, bin/ergo, the runner, Go,
+// the environment) are unchanged replays its recorded pass instead of
+// building and testing again (gate-speed GS1). In the merge tier's sandbox
+// the gate cache is an empty scratch directory, so every program runs.
+const examplesCacheVariable = "ERGO_EXAMPLES_CACHE"
 
 // examplesRunner is the package the examples step runs.
 const examplesRunner = "./scripts/examples"

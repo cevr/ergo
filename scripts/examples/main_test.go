@@ -26,6 +26,9 @@ import (
 const asRunner = "EXAMPLES_TEST_AS_RUNNER"
 
 func TestMain(m *testing.M) {
+	// A runner under test keeps no verdict cache unless a test asks for
+	// one (cache_test.go): the caller's cache is not the fixtures'.
+	os.Unsetenv(cacheVariable)
 	if os.Getenv(asRunner) == "1" {
 		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}

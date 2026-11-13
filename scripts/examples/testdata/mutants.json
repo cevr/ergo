@@ -36,6 +36,12 @@
       "to": "if false && evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
       "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
       "killers": ["examples:TestCheckVerdictsMatchNative"]
-    }
+    },
+    { "name": "gs1-key-ergo", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "{{\"runner\", self}, {\"ergo\", cfg.ergo}}", "to": "{{\"runner\", self}}", "rule": "A program's cache key holds the compiler's bytes: another bin/ergo at the same path reruns it.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
+    { "name": "gs1-key-env", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "\tfor _, kv := range env {\n", "to": "\tfor _, kv := range env[:0] {\n", "rule": "A program's cache key holds the environment the compiler and the programs read.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
+    { "name": "gs1-key-file-bytes", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "\t\t\tfmt.Fprintf(h, \"file %q %o %s\\n\", filepath.ToSlash(rel), info.Mode().Perm(), sum)\n", "to": "\t\t\tfmt.Fprintf(h, \"file %q %o\\n\", filepath.ToSlash(rel), info.Mode().Perm())\n\t\t\t_ = sum\n", "rule": "A program's cache key holds the bytes of every file of its folder.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
+    { "name": "gs1-record-failure", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "\tif len(r.failures) == failures {\n", "to": "\tif len(r.failures) >= failures {\n", "rule": "Only a pass is recorded: a failed program always runs again.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
+    { "name": "gs1-unreadable-silent", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "\t\tfmt.Fprintf(r.out, \"examples: %s: not cached: %s\\n\", p.name, why)\n", "to": "\t\t_ = why\n", "rule": "A program with no key runs, and the run says why it was not cached (fail closed, never silent).", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
+    { "name": "gs1-ts-cached", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "var uncachedTags = []string{\"ts\", \"net\", \"cc\", \"tty\", \"gui\"}", "to": "var uncachedTags = []string{\"net\", \"cc\", \"tty\", \"gui\"}", "rule": "A ts program is never cached: it reads the Bun cache, which the key cannot name.", "gap": "The law's fixture has no ts program (the ts leg needs Bun and a warm Bun cache); the rule is a list read by programKey." }
   ]
 }

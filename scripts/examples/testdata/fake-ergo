@@ -20,7 +20,11 @@
 # A ticker is a background loop in the caller's process group that appends a
 # line every 50 ms and ends by itself 60 s after it started, so a runner that
 # failed to stop the group cannot leak it for long.
-tools=$(dirname "$0")
+# FAKE_ERGO_TOOLS, when set, is the folder of calls.log (a wrapper script
+# that execs this file sets it to its own folder); FAKE_ERGO_TESTFAIL, when
+# set, fails every test (a compiler or an environment that changes the
+# verdict: the verdict cache's law, cache_test.go).
+tools=${FAKE_ERGO_TOOLS:-$(dirname "$0")}
 printf '%s\n' "$*" >> "$tools/calls.log"
 tick() {
   ( end=$(( $(date +%s) + 60 )); while [ "$(date +%s)" -lt "$end" ]; do echo tick >> "$1"; sleep 0.05; done ) &
@@ -49,6 +53,7 @@ test)
     cat "$2"/*.ergo > "$tools/package.ergo" || exit 1
     set -- "$1" "$tools/package.ergo"
   fi
+  if [ -n "$FAKE_ERGO_TESTFAIL" ]; then echo "FAIL Fixture: forced"; echo "FAIL (1 of 1 tests)"; exit 1; fi
   if grep -q TESTPENDING "$2"; then echo "ergo test: not available yet; lowering adds it (#196)" >&2; exit 1; fi
   if grep -q TESTFAIL "$2"; then echo "FAIL Fixture: assert failed at main.ergo:1:1: false"; echo "FAIL (1 of 1 tests)"; exit 1; fi
   if grep -q TESTTICK "$2"; then tick "$tools/ticks-test"; echo "FAIL Fixture"; exit 1; fi

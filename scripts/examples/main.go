@@ -64,6 +64,8 @@ type config struct {
 	check   bool
 	lawless bool
 	names   []string
+	// cache is the verdict cache's directory (cache.go), or "" for none.
+	cache string
 	// memory is the limit of each built program a case runs: ERGO_PROGRAM_MEMORY,
 	// 2 GiB by default (internal/proclimit; docs/tooling.md, "Test memory").
 	// `ergo test` reads the same variable for the test binaries it runs.
@@ -148,12 +150,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	defer l.removeDir(scratch)
 	r := &runner{cfg: cfg, out: stdout, scratch: scratch, live: l}
+	if !cfg.record {
+		r.cache = openCache(cfg.cache, cfg)
+	}
 	for _, p := range selected {
 		if cfg.record {
 			r.recordProgram(p)
 		} else {
-			r.runProgram(p)
+			r.runCached(p)
 		}
+	}
+	if r.cache != nil {
+		fmt.Fprintf(stdout, "examples: cache %s: %d programs replayed, %d run\n", r.cache.dir, r.cache.hits, r.cache.misses)
 	}
 	return r.finish()
 }
@@ -171,6 +179,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.record, "record", false, "run each selected port's record.sh in place of the built program and write its goldens")
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
+	flags.StringVar(&cfg.cache, "cache", os.Getenv(cacheVariable), "replay a program's recorded pass when every input it reads is unchanged, keyed and kept in `DIR` (default $"+cacheVariable+"; empty: no cache)")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
 		flags.PrintDefaults()
@@ -631,6 +640,8 @@ type runner struct {
 	ts    *tsRun
 	tsDir string
 	tsErr error
+	// cache is the run's verdict cache, or nil (cache.go).
+	cache *verdictCache
 }
 
 func (r *runner) fail(what string) { r.failures = append(r.failures, what) }
