@@ -26,6 +26,8 @@ import (
 //     `(r own *T)`.
 //   - A bare `takes` on an operation becomes `own` before the operation.
 //   - `escaping func(…)` as a parameter's type becomes `own func(…)`.
+//   - `escaping` anywhere else (a field's or a result's function type,
+//     already escaping) is deleted.
 //
 // A name in a takes clause that names no parameter is dropped and counted
 // in dropped: the clause gave it no fact. Modes is idempotent: its output
@@ -37,19 +39,32 @@ func Modes(src string) (out string, n, dropped int, err error) {
 	}
 	var eds []edit
 	seen := map[*syntax.FuncType]bool{}
+	asParam := map[*syntax.FuncType]bool{} // a parameter's escaping, rewritten to own
+	// params rewrites a parameter list's escaping: a function's, a
+	// function type's, a law's or a test's.
+	params := func(l *syntax.FieldList) {
+		if l != nil {
+			for _, field := range l.List {
+				x, ok := unparen(field.Type).(*syntax.FuncType)
+				if !ok || !x.Escaping.IsValid() {
+					continue
+				}
+				asParam[x] = true
+				if field.Own == nil {
+					eds = append(eds, edit{from: int(x.Escaping), to: int(x.Escaping) + len("escaping"), text: "own"})
+				} else {
+					eds = append(eds, edit{from: int(x.Escaping), to: int(x.Func), text: ""})
+				}
+				n++
+			}
+		}
+	}
 	sig := func(ft *syntax.FuncType, recv *syntax.FieldList, member *syntax.Field) {
 		if seen[ft] {
 			return
 		}
 		seen[ft] = true
-		if ft.Params != nil {
-			for _, field := range ft.Params.List {
-				if x, ok := field.Type.(*syntax.FuncType); ok && x.Escaping.IsValid() && field.Own == nil {
-					eds = append(eds, edit{from: int(x.Escaping), to: int(x.Escaping) + len("escaping"), text: "own"})
-					n++
-				}
-			}
-		}
+		params(ft.Params)
 		u := ft.Takes
 		if u == nil {
 			return
@@ -96,6 +111,17 @@ func Modes(src string) (out string, n, dropped int, err error) {
 			}
 		case *syntax.FuncType:
 			sig(x, nil, nil)
+		case *syntax.LawDecl:
+			params(x.Params)
+		case *syntax.TestDecl:
+			params(x.Params)
+		}
+		return true
+	})
+	syntax.Inspect(f, func(node syntax.Node) bool {
+		if x, ok := node.(*syntax.FuncType); ok && x.Escaping.IsValid() && !asParam[x] {
+			eds = append(eds, edit{from: int(x.Escaping), to: int(x.Func), text: ""})
+			n++
 		}
 		return true
 	})
@@ -315,4 +341,14 @@ func modesGo(file string) (string, int, int, []string, error) {
 		out = out[:r.from] + r.text + out[r.to:]
 	}
 	return out, n, dropped, errs, nil
+}
+
+func unparen(x syntax.Expr) syntax.Expr {
+	for {
+		p, ok := x.(*syntax.ParenExpr)
+		if !ok {
+			return x
+		}
+		x = p.X
+	}
 }

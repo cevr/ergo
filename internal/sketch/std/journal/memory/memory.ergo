@@ -10,9 +10,9 @@ import sync
 // Journal is the memory journal of states S and signals E. Its values are
 // copies of one journal: each sees what any of them kept.
 type Journal[S, E] {
-	append   escaping func(e E) fails journal.Failed,
-	snapshot escaping func(s S),
-	load     escaping func() journal.Log[S, E],
+	append   func(e E) fails journal.Failed,
+	snapshot func(s S),
+	load     func() journal.Log[S, E],
 } implements journal.Journal[S, E]
 
 // New is an empty journal: no snapshot and no signals. Its closures share

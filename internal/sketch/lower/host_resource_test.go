@@ -263,7 +263,7 @@ func hrSource(body []hrStmt, inject func(s *hrStmt) string) string {
 	}
 	w("import go " + hresPath)
 	w("")
-	w("func keep(h go.Ref[hostres.Handle]) needs go.Foreign takes h {")
+	w("func keep(h own go.Ref[hostres.Handle]) needs go.Foreign {")
 	w("\th.Use()")
 	w("}")
 	w("")

@@ -61,8 +61,8 @@ import (
 
 // escapeText and captureText are the two S108 messages.
 const (
-	escapeText  = "%s is a non-escaping function value: it may be called or passed to a non-escaping parameter, never stored, returned or passed where it may be kept; write `escaping` on its parameter's type to keep it (types.md, Function values 2)"
-	captureText = "%s is a non-escaping function value, and this function literal or block may outlive the call that received it or run on another task; capture it only in a block or literal passed to a non-escaping parameter, or write `escaping` on its parameter's type (types.md, Function values 2)"
+	escapeText  = "%s is a non-escaping function value: it may be called or passed to a non-escaping parameter, never stored, returned or passed where it may be kept; write own before its parameter's type to keep it (types.md, Function values 2)"
+	captureText = "%s is a non-escaping function value, and this function literal or block may outlive the call that received it or run on another task; capture it only in a block or literal passed to a non-escaping parameter, or write own before its parameter's type (types.md, Function values 2)"
 )
 
 // nonEscaping reports whether t is a non-escaping function type.

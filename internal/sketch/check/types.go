@@ -456,7 +456,7 @@ func (t *Signature) String() string {
 			b.WriteString(", ")
 		}
 		if s, ok := p.Type.(*Signature); ok && !s.NonEscaping {
-			b.WriteString("escaping ")
+			b.WriteString("own ")
 		}
 		b.WriteString(p.Type.String())
 	}

@@ -1178,7 +1178,7 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 		}
 		// A lent T handed off is a copy of it (the caller keeps its own):
 		// a mode, not a mark, so a call with a resource is refused (q56).
-		w.refuse(i, x, fmt.Sprintf("%s is lent and handed off (%s); write takes %s to take it", x.Name, h.how, x.Name), "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write takes %s in the signature", x.Name, fn, x.Name, h.how, x.Name)
+		w.refuse(i, x, fmt.Sprintf("%s is lent and handed off (%s); write own before its type to take it", x.Name, h.how), "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write own before its type in the signature: %s own T", x.Name, fn, x.Name, h.how, x.Name)
 		return
 	}
 	w.loanConflict(i, h)
@@ -1663,7 +1663,7 @@ func (w *ownWalk) fieldTake(x syntax.Expr, h hand) bool {
 	case l.lent && w.infer && l.param > 0 && w.c.infersTakes(w.fn):
 		w.promote[l.param-1] = true
 	case l.lent:
-		w.refuse(i, sel, fmt.Sprintf("%s is lent and its field is taken", id.Name), "%s is lent to %s, so its field %s cannot be taken (%s) (resources R10, R17, R39); write takes %s in the signature", id.Name, w.name, sel.Sel.Name, h.how, id.Name)
+		w.refuse(i, sel, fmt.Sprintf("%s is lent and its field is taken", id.Name), "%s is lent to %s, so its field %s cannot be taken (%s) (resources R10, R17, R39); write own before its type in the signature: %s own T", id.Name, w.name, sel.Sel.Name, h.how, id.Name)
 	default:
 		w.st.slots[i].fields |= 1 << k
 		w.info.FieldTakes[sel] = FieldTake{Var: l.v, Index: k}

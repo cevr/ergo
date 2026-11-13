@@ -168,19 +168,15 @@ func (m *tkModel) print() string {
 		line++
 	}
 	for i, f := range m.funcs {
-		clause := ""
+		mode := [2]string{"", ""}
 		if f.exported {
-			var names []string
 			for x := range 2 {
 				if f.written[x] {
-					names = append(names, tkParam(x))
+					mode[x] = "own "
 				}
 			}
-			if len(names) > 0 {
-				clause = " takes " + strings.Join(names, ", ")
-			}
 		}
-		emit(fmt.Sprintf("func %s(n int, a Res, b Res, g func(r Res) takes r)%s {", m.name(i), clause))
+		emit(fmt.Sprintf("func %s(n int, a %sRes, b %sRes, g func(r own Res)) {", m.name(i), mode[0], mode[1]))
 		for k, s := range f.body {
 			s.line = line
 			x := tkParam(s.x)

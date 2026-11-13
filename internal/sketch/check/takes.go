@@ -108,6 +108,22 @@ func takesText(sig *Signature) string {
 	return "takes " + strings.Join(names, ", ")
 }
 
+// ownAdvice spells what a signature keeps as the mode words that write
+// it (q168): own before each kept parameter's type, and before an
+// operation that keeps its receiver.
+func ownAdvice(sig *Signature) string {
+	var parts []string
+	for _, i := range sig.Takes {
+		if i < len(sig.Params) {
+			parts = append(parts, sig.Params[i].Name+" own "+sig.Params[i].Type.String())
+		}
+	}
+	if sig.TakesSelf {
+		parts = append(parts, "own before the operation")
+	}
+	return strings.Join(parts, ", ")
+}
+
 // writesTakes reports whether f's signature has a written takes clause.
 func writesTakes(f *Func) bool {
 	return f.Sig != nil && (len(f.Sig.Takes) > 0 || f.Sig.TakesSelf)
@@ -411,5 +427,5 @@ func (w *ownWalk) funcValue(x *syntax.Ident, inst Type) {
 	if !held {
 		return
 	}
-	w.reportCode(x, CodeType, "%s is used as a value, so its takes clause is part of its type, and its body %s (resources R19, Gap 39); write %s in its signature", f.Name, takesText(&sig), takesText(&sig))
+	w.reportCode(x, CodeType, "%s is used as a value, so what it keeps is part of its type, and its body %s (resources R19, Gap 39); write %s in its signature", f.Name, takesText(&sig), ownAdvice(&sig))
 }

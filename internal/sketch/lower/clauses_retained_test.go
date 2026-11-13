@@ -30,17 +30,17 @@ func TestRetainedForeignArguments(t *testing.T) {
 			allowed, module                  bool
 		}{
 			{"bufio-lent", "import go bufio\nimport go os", "f go.Ref[os.File]", "needs go.Foreign", fmt.Sprintf("let _ = bufio.NewReaderSize(f, %d)", size), false, false},
-			{"bufio-owned", "import go bufio\nimport go os", "f go.Ref[os.File]", "needs go.Foreign takes f", "let _ = bufio.NewReader(f)", true, false},
-			{"bufio-after-take", "import go bufio\nimport go os", "f go.Ref[os.File]", "needs go.Foreign takes f", "let _ = bufio.NewReader(f)\nlet _ = f.Name()", false, false},
+			{"bufio-owned", "import go bufio\nimport go os", "f own go.Ref[os.File]", "needs go.Foreign", "let _ = bufio.NewReader(f)", true, false},
+			{"bufio-after-take", "import go bufio\nimport go os", "f own go.Ref[os.File]", "needs go.Foreign", "let _ = bufio.NewReader(f)\nlet _ = f.Name()", false, false},
 			{"reviewed-lend", "import go io\nimport go os", "f go.Ref[os.File]", "fails go.Error needs go.Foreign", "let _ = try io.ReadAll(f)\nlet _ = f.Name()", true, false},
 			{"unknown-lent", "import go hostres", "f go.Ref[hostres.Handle]", "needs go.Foreign", "hostres.Unknown(f)", false, true},
 			{"empty-reason-lent", "import go hostres", "f go.Ref[hostres.Handle]", "needs go.Foreign", "hostres.Unreasoned(f)", false, true},
-			{"unknown-owned", "import go hostres", "f go.Ref[hostres.Handle]", "needs go.Foreign takes f", "hostres.Unknown(f)", true, true},
-			{"unknown-after-take", "import go hostres", "f go.Ref[hostres.Handle]", "needs go.Foreign takes f", "hostres.Unknown(f)\nf.Use()", false, true},
+			{"unknown-owned", "import go hostres", "f own go.Ref[hostres.Handle]", "needs go.Foreign", "hostres.Unknown(f)", true, true},
+			{"unknown-after-take", "import go hostres", "f own go.Ref[hostres.Handle]", "needs go.Foreign", "hostres.Unknown(f)\nf.Use()", false, true},
 			{"receiver-lent", "import go hostres", "f go.Ref[hostres.Handle]", "needs go.Foreign", "f.Hold()", false, true},
-			{"receiver-after-take", "import go hostres", "f go.Ref[hostres.Handle]", "needs go.Foreign takes f", "f.Hold()\nf.Use()", false, true},
+			{"receiver-after-take", "import go hostres", "f own go.Ref[hostres.Handle]", "needs go.Foreign", "f.Hold()\nf.Use()", false, true},
 			{"interface-receiver-lent", "import go hostres", "f hostres.Retainer", "needs go.Foreign", "f.Hold()", false, true},
-			{"recursive-interface-lent", "import go hostres", "f hostres.Recursive, g hostres.Recursive", "needs go.Foreign takes f", "f.Chain(g)", false, true},
+			{"recursive-interface-lent", "import go hostres", "f own hostres.Recursive, g hostres.Recursive", "needs go.Foreign", "f.Chain(g)", false, true},
 			{"unknown-callback-clause", "import go hostres", "", "needs go.Foreign", "hostres.Callback(func() {})", false, true},
 			{"unknown-pointer-borrow", "import go hostres", "f *hostres.Handle", "needs go.Foreign", "hostres.Pointer(f)", false, true},
 			{"unknown-receiver-borrow", "import go hostres", "f *hostres.Handle", "needs go.Foreign", "f.Hold()", false, true},
@@ -52,7 +52,7 @@ func TestRetainedForeignArguments(t *testing.T) {
 				body := tc.body
 				// A borrowed incoming resource must stay borrowed through local
 				// frames too. Owned hand-offs stay in the owning frame.
-				if !strings.Contains(tc.row, "takes") {
+				if !strings.Contains(tc.params, " own ") {
 					for range r.IntN(4) {
 						body = "func() {\n" + body + "\n}()"
 					}

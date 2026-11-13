@@ -155,7 +155,7 @@ func useSource(c stdMatchFunc, method bool) string {
 		// An escaping parameter (actor.StartDurable's save) takes an
 		// escaping argument, so use's parameter is escaping too.
 		if s, ok := p.Type.(*check.Signature); ok && !s.NonEscaping {
-			params[i] = args[i] + " escaping " + p.Type.String()
+			params[i] = args[i] + " own " + p.Type.String()
 		}
 	}
 	if check.TakesWorkSend(c.fn) {
@@ -269,7 +269,7 @@ func workUseSource(c stdMatchFunc, params, args []string) string {
 	// one is escaping (types.md, Function values 2).
 	for i, p := range sig.Params {
 		if s, ok := p.Type.(*check.Signature); ok && s.NonEscaping && i > 0 {
-			params[i] = args[i] + " escaping " + p.Type.String()
+			params[i] = args[i] + " own " + p.Type.String()
 		}
 	}
 	send := sig.Params[0].Type.(*check.Signature)

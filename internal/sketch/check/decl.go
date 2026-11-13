@@ -1275,14 +1275,23 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		elem := c.typExpr(x.X, &inner)
 		return &Pointer{Elem: elem}
 	case *syntax.FuncType:
-		// `escaping` marks a function type that may outlive the call it
-		// is passed to or run on another task (196e; ESC1). Only a parameter's type is non-escaping
-		// without it (signature); elsewhere it repeats the default.
+		// A parameter written own may outlive the call it is passed to or
+		// run on another task (196e; ESC1; q168); only a parameter's type is
+		// non-escaping without it (writtenParamType). The retired word
+		// escaping is S108 naming own; it keeps its fact so that one
+		// diagnostic says it.
 		inner := typeCtx{}
 		if ctx != nil {
 			inner = *ctx
 		}
 		inner.field, inner.param = false, false
+		if x.Escaping.IsValid() && !c.escapingSeen[x] {
+			if c.escapingSeen == nil {
+				c.escapingSeen = map[*syntax.FuncType]bool{}
+			}
+			c.escapingSeen[x] = true
+			c.errorf(x, CodeType, "escaping is gone: write own before the parameter's function type, as in f own func() int; ergo fix rewrites it")
+		}
 		sig := c.signature(x, &inner)
 		// A written function type's parameter names declare its
 		// parameters (Info.Defs), as an operation's do (defParams); a

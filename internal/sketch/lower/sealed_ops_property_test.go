@@ -155,11 +155,11 @@ type sealedCase struct {
 // sealedSource is the Go-free program of one conversion: target is the
 // operation type's text, decl its declaration when the program declares it.
 func sealedSource(s stdOpType, imports []string, decl, target string) string {
-	takes := ""
+	mode := ""
 	if s.resource {
-		takes = " takes s"
+		mode = "own "
 	}
-	body := "\n" + decl + "\nfunc Conv" + s.tparams + "(s " + s.ref(s.tpnames) + ") " + target + takes + " { s }\n"
+	body := "\n" + decl + "\nfunc Conv" + s.tparams + "(s " + mode + s.ref(s.tpnames) + ") " + target + " { s }\n"
 	var b strings.Builder
 	seen := map[string]bool{}
 	for _, list := range [][]string{s.imports, imports} {

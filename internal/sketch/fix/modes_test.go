@@ -24,17 +24,20 @@ import (
 // literal, a function type written as a parameter's type, and an
 // operation, each with groups of one to three parameters of a resource
 // type, int (own on it is S110 either way) and function types, each
-// parameter kept or not at random. Then: ergo fix(old) is byte-equal to
-// the new spelling; both check with the same diagnostics (code and line)
-// and the same checked facts (each signature's takes, its receiver take,
-// and each function parameter's escaping); format leaves the new
-// spelling as written; and a second fix writes nothing. ERGO_SEED=<n>
+// parameter kept or not at random, a law's parameter, and a field's and a
+// result's function type, where escaping repeats the default. Then: ergo fix(old) is
+// byte-equal to the new spelling; the old spelling has one diagnostic
+// naming own per site fix rewrites, and beside them both check with the
+// same diagnostics (code and line) and the same checked facts (each
+// signature's takes, its receiver take, and each function parameter's
+// escaping); format leaves the new spelling as written; and a second fix
+// writes nothing. ERGO_SEED=<n>
 // replays one seed; a failure prints both programs.
 //
 // Mutants it kills that no other test does (ledgers: syntax, check,
 // fix): own on a receiver is dropped; own on a group marks only its first
 // name; fix moves a takes name to the wrong parameter; own on a function
-// value is read as a take.
+// value is read as a take; a retired takes or escaping checks clean.
 func TestOwnSpellsTheOldModes(t *testing.T) {
 	var seeds []uint64
 	if s := os.Getenv("ERGO_SEED"); s != "" {
@@ -58,7 +61,7 @@ func TestOwnSpellsTheOldModes(t *testing.T) {
 			t.Helper()
 			t.Fatalf("seed %d: %s\nReplay: ERGO_SEED=%d go test -run '^TestOwnSpellsTheOldModes$' ./internal/sketch/fix\nold:\n%s\nnew:\n%s", seed, fmt.Sprintf(format, args...), seed, oldSrc, newSrc)
 		}
-		fixed, _, _, err := fix.Modes(oldSrc)
+		fixed, sites, _, err := fix.Modes(oldSrc)
 		if err != nil {
 			fail("fix: %v", err)
 		}
@@ -71,8 +74,11 @@ func TestOwnSpellsTheOldModes(t *testing.T) {
 		if out, err := format.Source(newSrc); err != nil || out != newSrc {
 			fail("format gives (%v):\n%s", err, out)
 		}
-		oldFacts, oldDiags := modeFacts(oldSrc)
-		newFacts, newDiags := modeFacts(newSrc)
+		oldFacts, oldDiags, retired := modeFacts(oldSrc)
+		newFacts, newDiags, again := modeFacts(newSrc)
+		if retired != sites || again != 0 {
+			fail("%d diagnostics name own in the old spelling and %d in the new; fix rewrote %d sites", retired, again, sites)
+		}
 		if oldDiags != newDiags {
 			fail("diagnostics differ:\nold %s\nnew %s", oldDiags, newDiags)
 		}
@@ -82,7 +88,7 @@ func TestOwnSpellsTheOldModes(t *testing.T) {
 	}
 	t.Logf("%d seeds reach: %v", len(seeds), kinds)
 	if len(seeds) > 1 {
-		for _, k := range []string{"decl", "lit", "functype", "op", "self", "group-split", "group-all", "unnamed", "scalar", "escaping", "arg", "named-own"} {
+		for _, k := range []string{"decl", "lit", "functype", "op", "self", "group-split", "group-all", "unnamed", "scalar", "escaping", "arg", "named-own", "field", "result", "law"} {
 			if kinds[k] == 0 {
 				t.Errorf("no seed reaches %s", k)
 			}
@@ -107,6 +113,24 @@ func modesProgram(r *rand.Rand) (string, string, map[string]bool) {
 	both("type R { n int } implements Closer\n\n")
 	o.WriteString("func Close(r R) takes r {}\n\n")
 	n.WriteString("func Close(r own R) {}\n\n")
+	// A field's and a result's function type is escaping already: fix
+	// deletes the word there.
+	if r.IntN(2) == 0 {
+		reached["field"] = true
+		o.WriteString("type Hold { run escaping func() int }\n\n")
+		n.WriteString("type Hold { run func() int }\n\n")
+	}
+	// A law's parameter is a parameter: escaping there becomes own.
+	if r.IntN(2) == 0 {
+		reached["law"] = true
+		o.WriteString("law Kept(g escaping func() int, h func() int) { g() == h() }\n\n")
+		n.WriteString("law Kept(g own func() int, h func() int) { g() == h() }\n\n")
+	}
+	if r.IntN(2) == 0 {
+		reached["result"] = true
+		o.WriteString("func give() escaping func() {\n\tfunc() {}\n}\n\n")
+		n.WriteString("func give() func() {\n\tfunc() {}\n}\n\n")
+	}
 	// draw writes a parameter list's shape, named or (only for function
 	// types and operations) not. A named list of two groups or more may
 	// hold a parameter named own, which stays a name.
@@ -285,17 +309,23 @@ func modesProgram(r *rand.Rand) (string, string, map[string]bool) {
 	return o.String(), n.String(), reached
 }
 
-// modeFacts are a program's checked facts of the modes, and its
-// diagnostics as code and line.
-func modeFacts(src string) (string, string) {
+// modeFacts are a program's checked facts of the modes, its diagnostics
+// as code and line, and apart from them the number of diagnostics that
+// name own for a retired spelling.
+func modeFacts(src string) (string, string, int) {
 	pkg, diags := check.CheckSource(src)
 	var ds []string
+	retired := 0
 	for _, d := range diags {
+		if d.Code == "S108" && strings.Contains(d.Message, " is gone: write own ") {
+			retired++
+			continue
+		}
 		ds = append(ds, fmt.Sprintf("%s:%d", d.Code, d.Line))
 	}
 	sort.Strings(ds)
 	if pkg == nil {
-		return "", strings.Join(ds, " ")
+		return "", strings.Join(ds, " "), retired
 	}
 	var facts []string
 	for id, obj := range pkg.Info.Defs {
@@ -322,7 +352,7 @@ func modeFacts(src string) (string, string) {
 			facts[i] = rest
 		}
 	}
-	return strings.Join(facts, "\n"), strings.Join(ds, " ")
+	return strings.Join(facts, "\n"), strings.Join(ds, " "), retired
 }
 
 // factKey orders facts by position, then by text.

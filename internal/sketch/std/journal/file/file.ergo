@@ -20,9 +20,9 @@ import sync
 // Journal is the file journal of states S and signals E. Its values are
 // copies of one journal; one process writes the file at a time.
 type Journal[S, E] {
-	append   escaping func(e E) fails journal.Failed,
-	snapshot escaping func(s S) fails journal.Failed,
-	load     escaping func() journal.Log[S, E],
+	append   func(e E) fails journal.Failed,
+	snapshot func(s S) fails journal.Failed,
+	load     func() journal.Log[S, E],
 } implements journal.Journal[S, E]
 
 // Open is the journal of the file at path, read with host: an empty one

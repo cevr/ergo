@@ -339,11 +339,16 @@ func (c *checker) takesClause(u *syntax.TakesClause, sig *Signature, method bool
 	}
 	first := !c.takesSeen[u]
 	c.takesSeen[u] = true
+	if first {
+		// The clause is retired (q168): its facts still hold so that one
+		// diagnostic says it, and ergo fix rewrites it.
+		c.errorf(u, CodeType, "takes is gone: write own before the type of each parameter the callee keeps, as in r own Res, and before an operation that keeps its receiver, as in own Close(); ergo fix rewrites it")
+	}
+	sites := first
+	first = false // the clause's own errors are the one above
 	if len(u.Names) == 0 {
 		if method {
 			sig.TakesSelf = true
-		} else if first {
-			c.errorf(u, CodeType, "a bare takes names the value an operation is called on; name the parameter: takes p")
 		}
 		return
 	}
@@ -378,7 +383,7 @@ func (c *checker) takesClause(u *syntax.TakesClause, sig *Signature, method bool
 		}
 		seen[id.Name] = true
 		sig.Takes = append(sig.Takes, at)
-		if first {
+		if sites {
 			c.resourceSites = append(c.resourceSites, resourceSite{file: c.cur, at: made(c, id, syntax.Node(u)), t: sig.Params[at].Type, name: id.Name})
 		}
 	}

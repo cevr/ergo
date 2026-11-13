@@ -21,7 +21,7 @@ import (
 
 const escHead = `import task
 
-type Holder { Run escaping func(int) int }
+type Holder { Run func(int) int }
 type Box[T] { V T }
 type F func(int) int
 type Runner {
@@ -63,7 +63,7 @@ var escPositions = map[string][]escCase{
 		{src: "func u(f func(int) int) int {\n\t$take(f)\n}\n"},
 		{src: "func u(f func(int) int) int {\n\t$gen(f)\n}\n"},
 		{src: "func u(f func(int) int, r Runner) int {\n\t$r.Keep(f)\n}\n"},
-		{src: "func u(f func(int) int, k func(g escaping func(int) int) int) int {\n\t$k(f)\n}\n"},
+		{src: "func u(f func(int) int, k func(g own func(int) int) int) int {\n\t$k(f)\n}\n"},
 		{src: "func u(f func(int) int) F {\n\t$F(f)\n}\n"},
 		{src: "func u(f func(int) int) int {\n\t$len(f)\n}\n", want: "S108"},
 	},

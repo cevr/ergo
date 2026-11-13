@@ -106,7 +106,7 @@ func TestStructuredLendModel(t *testing.T) {
 		if nested {
 			src.WriteString("}\n")
 		}
-		src.WriteString("}\nfunc drop(p " + typ + ") takes p {}\n")
+		src.WriteString("}\nfunc drop(p own " + typ + ") {}\n")
 		text := src.String()
 		if set {
 			text = strings.ReplaceAll(text, "import task\n", "")
@@ -167,7 +167,7 @@ func checkKeptFunctions(t *testing.T, seed int, r *rand.Rand) {
 	if escape {
 		result, end = " func()", "return keep() { use(p) }"
 	}
-	src = "type R { N int } implements Closer\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc each(f func()) { f() }\nfunc keep(f escaping func()) func() { f }\nfunc Probe(p R)" + result + " { " + end + " }\n"
+	src = "type R { N int } implements Closer\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc each(f func()) { f() }\nfunc keep(f own func()) func() { f }\nfunc Probe(p R)" + result + " { " + end + " }\n"
 	_, ds = checkFor(src)
 	if (len(ds) != 0) != escape {
 		t.Fatalf("trailing callback seed %d; replay ERGO_SEED=%d go test -p 2 -run '^TestStructuredLendModel$' ./internal/sketch/check\n%s\nchecker: %v\nmodel refusal: %t", seed, seed, src, ds, escape)
@@ -180,7 +180,7 @@ func checkLendRoots(t *testing.T, seed int, r *rand.Rand) {
 	if nestedClosure {
 		use = "each(func() { use(item) })"
 	}
-	src := "import task\ntype Fault {}\ntype R { N int } implements Closer\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc each(f func()) { f() }\nfunc drop(xs []R) takes xs {}\nfunc Probe() { let xs = []R{R{N: 1}}\nfor item in xs {\nlet t = task.Go(func() int fails Fault { " + use + "; 1 })\n"
+	src := "import task\ntype Fault {}\ntype R { N int } implements Closer\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc each(f func()) { f() }\nfunc drop(xs own []R) {}\nfunc Probe() { let xs = []R{R{N: 1}}\nfor item in xs {\nlet t = task.Go(func() int fails Fault { " + use + "; 1 })\n"
 	if drain {
 		src += "t.Stop()\n"
 	}

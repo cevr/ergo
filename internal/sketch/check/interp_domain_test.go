@@ -138,7 +138,7 @@ func textTypes() []textType {
 		textType{name: "a type over a record", typ: "DRec", class: textData, mk: "let v = DRec{N: 1}"},
 		textType{name: "a type over a slice", typ: "DSlice", class: textData, mk: "let v DSlice"},
 		textType{name: "a type over a tuple", typ: "DTuple", class: textData, mk: "let v DTuple"},
-		textType{name: "a function type", typ: "escaping func(n int) int", class: textNone, mk: "let v = func(n int) int { n }"},
+		textType{name: "a function type", typ: "own func(n int) int", class: textNone, mk: "let v = func(n int) int { n }"},
 		// A non-escaping parameter: the text-form S108 alone, with no
 		// second, non-escaping S108 for the same part (escaping.go).
 		textType{name: "a non-escaping function type", typ: "func(n int) int", class: textNone},
