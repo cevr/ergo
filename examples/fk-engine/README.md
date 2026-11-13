@@ -42,7 +42,7 @@ Each title of upstream's `src/story.test.ts` and `src/scene.test.ts`, and what r
 ## Laws
 
 - `engine.Panel`: `ComputeNeedsAnEngine` (a compute changes the screen only in `Ready`, adding one to the count and showing it squared; anywhere else it is ignored) and `OnlyBootingTakesAnEngine` (a `Started` out of turn changes nothing).
-- `memory`: `EveryLeaseComesBack` (engines leased at once have different ids, and none is out once their leases end).
+- `engine.Engines`: `HeldEnginesAreDistinct` (two engines leased at once are two engines), run for `memory.Pool`.
 - `script`, over generated starts, stops, computes, faults and clock moves, with presses landed on boot ends: `ReleasesEqualAcquires` (after every press, one engine is out while ready and none otherwise; once the screen stops, every engine is back) and `OneBootPerStart` (no more engines boot than the starts pressed while off or failed).
 
 The mutants these kill are in `testdata/mutants.json`.

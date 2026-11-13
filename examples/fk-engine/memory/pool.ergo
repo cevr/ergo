@@ -7,7 +7,8 @@ import time
 // Pool is an engine.Engines whose boots last a given time on a manual clock. It
 // names its engines engine-1, engine-2, … in the order they boot, and
 // counts the engines it booted and the ones given back, so every copy of
-// a Pool is one pool: NewPool makes one. Fault makes the next boot fail.
+// a Pool is one pool: NewPool and OnClock make one. Fault makes the next
+// boot fail.
 type Pool {
 	clock    time.Manual,
 	lasts    duration,
@@ -16,8 +17,11 @@ type Pool {
 	faults   atomic.Int64,
 }
 
-// NewPool is a pool on clock whose boots take lasts, with no engine out.
-func NewPool(clock time.Manual, lasts duration) Pool {
+// NewPool is a pool whose boots take no time, with no engine out.
+func NewPool() Pool { OnClock(time.NewManual(0), 0s) }
+
+// OnClock is a pool on clock whose boots take lasts, with no engine out.
+func OnClock(clock time.Manual, lasts duration) Pool {
 	Pool{clock: clock, lasts: lasts, booted: atomic.NewInt64(0), released: atomic.NewInt64(0), faults: atomic.NewInt64(0)}
 }
 

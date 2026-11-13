@@ -89,7 +89,7 @@ type Seen { Before engine.Mode, Mode engine.Mode, Held int, Booted int }
 // gives what is seen after each press, then after end once the screen has
 // stopped: every engine is back by then.
 func Play(lines []Line, end duration, clock time.Manual) []Seen needs Scheduler {
-	let pool = memory.NewPool(clock, BootTakes())
+	let pool = memory.OnClock(clock, BootTakes())
 	with context { engine.Engines: pool } {
 		let screen = actor.StartMachine(engine.Panel{}, 4, func(n engine.Never) {})
 		let mut out = []Seen{}

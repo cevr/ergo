@@ -54,7 +54,7 @@
       "file": "examples/fk-engine/memory/pool.ergo",
       "from": "engine.Engine{ID: \"engine-\\(n)\"}",
       "to": "engine.Engine{ID: \"engine-1\"}",
-      "rule": "Engines held at once are distinct engines (law EveryLeaseComesBack).",
+      "rule": "Engines held at once are distinct engines (law Engines.HeldEnginesAreDistinct).",
       "anchor": {"tests": ["examples:fk-engine"]}, "killers": ["examples:fk-engine"]
     },
     {
@@ -62,7 +62,7 @@
       "file": "examples/fk-engine/memory/pool.ergo",
       "from": "let _ = p.released.Add(1)",
       "to": "let _ = p.released.Add(0)",
-      "rule": "Every lease's end gives its engine back (laws EveryLeaseComesBack, ReleasesEqualAcquires).",
+      "rule": "Every lease's end gives its engine back (law ReleasesEqualAcquires).",
       "anchor": {"tests": ["examples:fk-engine"]}, "killers": ["examples:fk-engine"]
     },
     {

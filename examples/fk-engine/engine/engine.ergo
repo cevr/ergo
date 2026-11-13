@@ -30,4 +30,17 @@ func Close(l Lease) { l.back() }
 type Engines {
 	// Boot boots an engine and leases it, or fails.
 	Boot() Lease fails BootFailed,
+
+	// HeldEnginesAreDistinct: two engines leased at once are two engines.
+	law HeldEnginesAreDistinct() {
+		let a = Boot() catch {
+		case BootFailed:
+			return true
+		}
+		let b = Boot() catch {
+		case BootFailed:
+			return true
+		}
+		a.Engine.ID != b.Engine.ID
+	},
 }
