@@ -406,6 +406,16 @@ func (p *parser) parseFile() *File {
 			d = p.parseFuncDecl(doc)
 		case EXTERN:
 			d = p.parseExternDecl(doc)
+			if td, ok := d.(*TypeDecl); ok && td.Where != nil {
+				// A refined type that names its runtime Go type
+				// (os.Code) derives its parse function and law as any
+				// refinement does.
+				f.Decls = append(f.Decls, td)
+				p.endDecl()
+				f.Decls = append(f.Decls, p.derived...)
+				p.derived = nil
+				continue
+			}
 		case TEST:
 			d = p.parseTestDecl(doc)
 		case LAW:

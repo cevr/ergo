@@ -41,10 +41,18 @@ func TestStdRecordTable(t *testing.T) {
 				t.Errorf("v1.%s is the Go type of %s and of %s; a Go type is one declaration's", goName, other, key)
 			}
 			owner[goName] = key
+			if b, isBasic := n.Underlying().(*check.Basic); isBasic {
+				// A defined basic type, a refinement too (os.Code): the Go
+				// type is defined over the same Go basic type.
+				if gt, ok := v1.TypeOf(goName); !ok || gt.Basic != b.Name {
+					t.Errorf("%s names v1.%s, which is not a defined type over %s", key, goName, b.Name)
+				}
+				continue
+			}
 			st, isRecord := n.Underlying().(*check.Struct)
 			if !isRecord {
 				if !check.Sealed(n) {
-					t.Errorf("%s names v1.%s and is neither a record nor a sealed operation type", key, goName)
+					t.Errorf("%s names v1.%s and is neither a record, a defined basic type nor a sealed operation type", key, goName)
 				}
 				continue
 			}
