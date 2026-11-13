@@ -129,6 +129,15 @@ var shortcuts = []shortcut{
 		mutant:     "own-fresh-call-shared-operand",
 		referenced: func() bool { return !valueOwned() },
 	},
+	{
+		name:       "own-ref-in-place",
+		class:      valueClass,
+		admission:  "inPlaceOf",
+		reference:  "valueLowering=copy",
+		agreement:  "TestValueRuleAgrees",
+		mutant:     "own-ref-in-place-cloned-init",
+		referenced: func() bool { return !valueOwned() },
+	},
 }
 
 // shortcutNamed is the registry's row named name.

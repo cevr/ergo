@@ -110,6 +110,29 @@ test Pop {
 	assert len(s.xs) == 1
 }
 `,
+	"own-ref-in-place": `import sync
+
+type Tally { Seen []int, N int }
+
+func bump(r sync.Ref[Tally], x int) int {
+	sync.Modify(r, func(v Tally) (int, Tally) {
+		let mut s = v
+		s.Seen = s.Seen.Append(x)
+		s.N = s.N + 1
+		(s.N, s)
+	})
+}
+
+func main() needs Console {
+	let r = sync.NewRef[Tally](Tally{Seen: []int{}, N: 0})
+	Console.Println("\(bump(r, 3))")
+}
+
+test Bump {
+	let r = sync.NewRef[Tally](Tally{Seen: []int{}, N: 0})
+	assert bump(r, 3) == 1
+}
+`,
 	"own-fresh-call": `type Doc { Items []int, Last []int }
 
 func step(d Doc, xs []int) Doc {

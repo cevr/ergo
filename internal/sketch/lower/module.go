@@ -199,6 +199,9 @@ type lowerer struct {
 	owned map[any]string
 	// handed is each part a value being built took over (handParts).
 	handed map[syntax.Expr]bool
+	// inPlace is the in-place form of the owned literal being lowered
+	// (refown.go, inPlaceLit).
+	inPlace map[syntax.Node]*inPlaceLit
 	// Root registration callbacks for repeated moving task bodies (R12).
 	captureRoots map[syntax.Node]string
 	libs         []*check.Package // the libraries the program reaches (libraries)

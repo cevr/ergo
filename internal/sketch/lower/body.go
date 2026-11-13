@@ -154,6 +154,9 @@ type funcCtx struct {
 	// hand-off keeps its entry until the frame's exit is known
 	// (release.go, v1.Returned).
 	returned *syntax.Ident
+	// inPlaceTail is the last value of an in-place literal, s or (x, s)
+	// (refown.go, inPlaceLit): it returns x, or nothing.
+	inPlaceTail syntax.Expr
 	// Result positions of control expressions in a law frame. The selected
 	// branch writes its position alongside its value; ordinary subexpressions
 	// do not become the primary site of an enclosing comparison.
@@ -632,6 +635,14 @@ func (fc *funcCtx) returnsErrorType(x syntax.Expr) bool {
 // The source expression is retained so calls and directives keep their site.
 func (fc *funcCtx) retExpr(x syntax.Expr) {
 	f := fc.frame
+	if fc.inPlaceTail != nil && x == fc.inPlaceTail {
+		// The cell keeps what s holds (refown.go, inPlaceLit).
+		if f.result == nil {
+			fc.sourceReturn("nil")
+			return
+		}
+		x = unparen(x).(*syntax.TupleExpr).Elts[0]
+	}
 	// Whether the value is a failure is decided by the returning body's
 	// own view (owners.go): a type only a test's row names is a value in
 	// a production body, in the test build too.

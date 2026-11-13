@@ -341,6 +341,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	// copy of a shared value under the same lock.
 	"RefUpdateOwned": {},
 	"RefModifyOwned": {},
+	// In place (G1, refown.go): the same step, f given the held value's
+	// address.
+	"RefUpdateInPlace": {},
+	"RefModifyInPlace": {},
 	// std testing Scripts (stdlib.md, Testing 7 to 12): each operation of
 	// an Op holds its mutex for one step and calls no program code.
 	"NewOp":     {},
