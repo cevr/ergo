@@ -64,6 +64,13 @@ var skipFields = map[string]string{
 	"syntax.File.Expansion": "the file's package's derive record (check.Package.Derive)",
 }
 
+// skipTypes are check's struct types an empty interface never holds in
+// the checked model, so its codec has no case for them. Each names why.
+var skipTypes = map[string]string{
+	"UserExport": "the measure of user segments (export_user.go), never in the model",
+	"CrossRef":   "a reference UserExport records, never in the model",
+}
+
 // Generate returns the generated sources of the syntax codec and the check
 // codec, reading the packages under root (the module's root directory).
 func Generate(root string) (syntaxSrc, checkSrc []byte, err error) {
@@ -564,6 +571,9 @@ func (e *emitter) emitInterface(name, ts string, n *types.Named) {
 func (e *emitter) emitAny(name, ts string) {
 	var impls []types.Type
 	for _, n := range e.g.named[e.pkg] {
+		if _, skip := skipTypes[n.Obj().Name()]; skip && e.pkg == e.g.check {
+			continue
+		}
 		if isStructType(n) {
 			impls = append(impls, types.NewPointer(n))
 		}
@@ -586,9 +596,11 @@ func (e *emitter) emitSwitch(name, ts string, impls []types.Type) {
 		tag++
 	}
 	if e.pkg != e.g.syntax {
-		// Any syntax object rides in the syntax codec's table.
-		fmt.Fprintf(&enc, "\tdefault:\n\t\tif id, ok := e.nodes.Lookup(x); ok {\n\t\t\te.uint(%d)\n\t\t\te.uint(id)\n\t\t\treturn\n\t\t}\n\t\te.failf(\"no codec for a %%T in %s\", x)\n\t}\n", tag, ts)
-		fmt.Fprintf(&dec, "\tcase %d:\n\t\treturn d.node().(%s)\n\t}\n\td.failf(\"bad tag in %s\")\n\treturn nil\n", tag, ts, ts)
+		// Any syntax object rides in the syntax codec's table; any value the
+		// encoder names as an external (export.go: Std, and the importers
+		// of UserSegmentRefs) by its index.
+		fmt.Fprintf(&enc, "\tdefault:\n\t\tif id, ok := e.nodes.Lookup(x); ok {\n\t\t\te.uint(%d)\n\t\t\te.uint(id)\n\t\t\treturn\n\t\t}\n\t\tif i, ok := e.external(x); ok {\n\t\t\te.uint(%d)\n\t\t\te.uint(i)\n\t\t\treturn\n\t\t}\n\t\te.failf(\"no codec for a %%T in %s\", x)\n\t}\n", tag, tag+1, ts)
+		fmt.Fprintf(&dec, "\tcase %d:\n\t\treturn d.node().(%s)\n\tcase %d:\n\t\treturn d.external().(%s)\n\t}\n\td.failf(\"bad tag in %s\")\n\treturn nil\n", tag, ts, tag+1, ts, ts)
 	} else {
 		fmt.Fprintf(&enc, "\tdefault:\n\t\te.failf(\"no codec for a %%T in %s\", x)\n\t}\n", ts)
 		fmt.Fprintf(&dec, "\t}\n\td.failf(\"bad tag in %s\")\n\treturn nil\n", ts)

@@ -8,6 +8,7 @@ import (
 	"go/constant"
 	"math"
 	"math/big"
+	"reflect"
 	"slices"
 	"sync"
 
@@ -56,12 +57,21 @@ type stdSnapshot struct {
 // codec does not carry (a function or an error value).
 func ExportStd() ([]byte, error) {
 	prelude()
-	imp := Std.(*stdImporter)
 	for _, path := range std.Packages() {
 		if _, err := Std.Import(path); err != nil {
 			return nil, err
 		}
 	}
+	s, err := stdSnapshotNow()
+	if err != nil {
+		return nil, err
+	}
+	return encodeSnapshot(s)
+}
+
+// stdSnapshotNow is the export of std as this process holds it, checked.
+func stdSnapshotNow() (*stdSnapshot, error) {
+	imp := Std.(*stdImporter)
 	s := &stdSnapshot{base: &stdBase{
 		universe:  universeOnce.scope,
 		errorName: universeOnce.errorName,
@@ -91,7 +101,7 @@ func ExportStd() ([]byte, error) {
 	nextID.Lock()
 	s.base.nextID = nextID.n
 	nextID.Unlock()
-	return encodeSnapshot(s)
+	return s, nil
 }
 
 // snapshotMagic opens a snapshot, so a file of another format is refused.
@@ -110,6 +120,28 @@ type segment struct {
 	sum  [sha256.Size]byte
 }
 
+// segment writes one segment: its starts, the objects body encodes and
+// the syntax nodes they name, and the earlier segments it names.
+func (e *encoder) segment(path string, body func()) segment {
+	seg := segment{path: path, objStart: e.next, nodeStart: e.nodes.Next()}
+	e.objStarts = append(e.objStarts, seg.objStart)
+	e.nodeStarts = append(e.nodeStarts, seg.nodeStart)
+	e.deps = map[int]bool{}
+	e.buf = nil
+	body()
+	objects := e.buf
+	nodes := e.nodes.Bytes()
+	for dep := range e.deps {
+		seg.deps = append(seg.deps, dep)
+	}
+	slices.Sort(seg.deps)
+	seg.data = binary.AppendUvarint(nil, uint64(len(nodes)))
+	seg.data = append(seg.data, nodes...)
+	seg.data = append(seg.data, objects...)
+	seg.sum = sha256.Sum256(seg.data)
+	return seg
+}
+
 func encodeSnapshot(s *stdSnapshot) (out []byte, err error) {
 	e := newEncoder()
 	defer func() {
@@ -123,23 +155,7 @@ func encodeSnapshot(s *stdSnapshot) (out []byte, err error) {
 	}()
 	var segs []segment
 	write := func(path string, body func()) {
-		seg := segment{path: path, objStart: e.next, nodeStart: e.nodes.Next()}
-		e.objStarts = append(e.objStarts, seg.objStart)
-		e.nodeStarts = append(e.nodeStarts, seg.nodeStart)
-		e.deps = map[int]bool{}
-		e.buf = nil
-		body()
-		objects := e.buf
-		nodes := e.nodes.Bytes()
-		for dep := range e.deps {
-			seg.deps = append(seg.deps, dep)
-		}
-		slices.Sort(seg.deps)
-		seg.data = binary.AppendUvarint(nil, uint64(len(nodes)))
-		seg.data = append(seg.data, nodes...)
-		seg.data = append(seg.data, objects...)
-		seg.sum = sha256.Sum256(seg.data)
-		segs = append(segs, seg)
+		segs = append(segs, e.segment(path, body))
 	}
 	write("", func() { e.encPtrstdBase(s.base) })
 	for i, pkg := range s.packages {
@@ -496,6 +512,9 @@ type encoder struct {
 	// current one names.
 	objStarts, nodeStarts []uint64
 	deps                  map[int]bool
+	// crossRef, when set (UserSegmentRefs), sees each reference to an
+	// object of an earlier segment, with that segment's index.
+	crossRef func(seg int, v any)
 }
 
 func newEncoder() *encoder {
@@ -518,6 +537,16 @@ func (e *encoder) failf(format string, args ...any) {
 	panic(exportError{fmt.Errorf("check: export: "+format, args...)})
 }
 
+// external is x's index among the encoder's externals, for an interface
+// value of a type the codec has no case for.
+func (e *encoder) external(x any) (uint64, bool) {
+	if !reflect.TypeOf(x).Comparable() {
+		return 0, false
+	}
+	i, ok := e.ext[x]
+	return i, ok
+}
+
 // ref writes a pointer's reference and reports whether it is complete: nil
 // (0), an external (1, index), an object written before (2, id). Otherwise
 // it writes 3, gives the object the next id, and the caller writes its
@@ -535,6 +564,9 @@ func (e *encoder) ref(v any, isNil bool) bool {
 	if id, ok := e.ids[v]; ok {
 		if cur := e.objStarts[len(e.objStarts)-1]; id < cur {
 			e.deps[segmentOf(e.objStarts, id)] = true
+			if e.crossRef != nil {
+				e.crossRef(segmentOf(e.objStarts, id), v)
+			}
 		}
 		e.uint(2)
 		e.uint(id)
@@ -687,6 +719,15 @@ func (d *decoder) afterDecode() {
 			c.types.substRow = c.substRow
 		}
 	}
+}
+
+// external reads an external's index (encoder.external).
+func (d *decoder) external() any {
+	i := d.uint()
+	if i >= uint64(len(d.ext)) {
+		d.failf("external %d", i)
+	}
+	return d.ext[i]
 }
 
 func (d *decoder) node() any {
