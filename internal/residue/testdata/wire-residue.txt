@@ -17,6 +17,7 @@
 # network sense: wire formats, wire keys and forms of a codec, codec functions named Wire, bytes on the wire (decision 4)
 internal/sketch/std/toml/toml.ergo	func Decode[T wire](c json.Codec[T], text string) T fails Malformed | wired[T] {
 cmd/ergo/tsmap.go	*
+internal/residue/testdata/std-privileges.txt	*
 internal/tsproj/accept_test.go	*
 internal/tsproj/project.go	*
 internal/tsproj/project_test.go	*
@@ -408,6 +409,9 @@ docs/spec/stdlib.md	3. **Names.** A key is the field's wire name; a nested key j
 docs/spec/stdlib.md	an operation type has no wire form, [types.md, Codecs](types.md#codecs)
 docs/spec/stdlib.md	module-level `WeakMap` (W19: the type has no text and no wire form, so the
 docs/spec/stdlib.md	which has no text and no wire form, so the checker refuses it ([config](#config))
+docs/spec/stdlib.md	| `internal/rpcgen/rpcgen.go:pairOf` | `Wire`, the codec's conversion protocol |
+docs/spec/stdlib.md	| `internal/tsproj/project.go:emitter.declare` | `Wire` |
+GLOSSARY.md	or an operation name of a language protocol (`Close`, `Wire`)
 internal/sketch/lower/std_config_redacted_test.go	(the record has a wire form, so json.Encode of it is accepted).
 internal/sketch/lower/std_config_redacted_test.go	by an Ergo NewRedacted: it has no wire form and no text form, so
 internal/sketch/lower/testdata/mutants.json	{"name":"s-config-redacted-has-wire","origin":"wf10 S-config"

@@ -4282,6 +4282,26 @@
       "killers": [
         "lower:TestValueRuleElides"
       ]
+    },
+    {
+      "name": "copy-evidence-std-only",
+      "origin": "wf10 STD-NOPRIV NP2",
+      "file": "internal/sketch/lower/wiretext.go",
+      "from": "\tif l.cellRewrites == nil {\n\t\tl.cellRewrites = map[*check.Package]*rewriter{}\n\t}\n\trw, ok := l.cellRewrites[prov.Obj.Pkg]\n",
+      "to": "\tif !prov.Obj.Pkg.Std() {\n\t\treturn nil\n\t}\n\tif l.cellRewrites == nil {\n\t\tl.cellRewrites = map[*check.Package]*rewriter{}\n\t}\n\trw, ok := l.cellRewrites[prov.Obj.Pkg]\n",
+      "rule": "The standard library gets no special treatment (owner, 2026-11-12): a cell provider of an imported package of the module takes its module's evidence as a std provider takes std's (cellRewriter before NP2).",
+      "anchor": {"tests": ["lower:TestCellEvidenceFollowsTheDeclaringModule"]},
+      "killers": ["lower:TestCellEvidenceFollowsTheDeclaringModule"]
+    },
+    {
+      "name": "evidence-from-wrong-module",
+      "origin": "wf10 STD-NOPRIV NP2",
+      "file": "internal/sketch/lower/ledger.go",
+      "from": "\tif l.isSourced(pkg) {\n\t\tif l.rewrite == nil {\n",
+      "to": "\tif true {\n\t\tif l.rewrite == nil {\n",
+      "rule": "A provider's laws take the evidence of the ledger of the module that declares it: the root module's ledger never answers for a provider another module declares.",
+      "anchor": {"tests": ["lower:TestCellEvidenceFollowsTheDeclaringModule"]},
+      "killers": ["lower:TestCellEvidenceFollowsTheDeclaringModule"]
     }
   ]
 }

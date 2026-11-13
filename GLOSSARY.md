@@ -217,7 +217,13 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Predeclared language identifier**: A name the language specification defines in every package without an import or library declaration, following Go's predeclared `len` and `error`, such as `with`, `duration` and the prelude types. Capability services are not predeclared language identifiers, even when the compiler declares them.
 
-**Special-cased library item** (rejected pattern): A bundled, prelude or library declaration that the compiler recognises by identity or name to produce a semantic fact about it (a diagnostic, checked type, row or ownership fact), also called a lang item. An item stops being one only by losing every such branch or by becoming syntax. Backend retention or emission keyed on the item does not by itself make it one.
+**Special-cased library item** (rejected pattern): A bundled, prelude or library declaration that the compiler recognises by identity or name to produce a semantic fact about it (a diagnostic, checked type, row or ownership fact), also called a lang item. An item stops being one only by losing every such branch or by becoming syntax. Backend emission, optimization or tooling keyed on the item makes it one too, unless the item is a predeclared name (owner, 2026-11-12).
+
+**Seam**: The files of the compiler that may know that the standard library exists, to find, ship, cache and name it; they change no meaning. The list is in [stdlib.md, Std is ordinary](docs/spec/stdlib.md#std-is-ordinary); every other read of std membership is a special-cased library item.
+
+**Predeclared name**: A name the language gives a meaning to with no import: a prelude declaration the compiler knows, or an operation name of a language protocol (`Close`, `Wire`). The readers of each are listed in [stdlib.md, Std is ordinary](docs/spec/stdlib.md#std-is-ordinary).
+
+**Body contract**: The written facts and the calling convention of a Go body that an `extern go` declaration binds: whether it is pure, moves or keeps its arguments, waits, releases, or reads the context, and which hidden arguments it takes. Any module's extern reads the same contract.
 
 **Library intrinsic**: A target implementation the compiler substitutes for an ordinary declared library signature. The signature, together with any declared contract written only in the inferred contract vocabulary, is the only source of diagnostics, checked types, rows and ownership, provided that the declared contract is consumed by the same path as an inferred one and no checker, emitter or reachability branch is keyed on the item's identity beyond backend selection (amended for [#130](https://github.com/cevr/ergo/issues/130)). The intrinsic may add backend facts such as retained runtime modules. The implementation of a syntax construct is part of that construct, not a library intrinsic.
 
