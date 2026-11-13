@@ -45,6 +45,9 @@ var implementedFamilies = []string{
 	// machine.go; TestMachinePlanValues), and the value converts to the
 	// prelude's Machine (ConvMachine).
 	"MachineType", "MachineEntry", "conv:Machine",
+	// A refinement's pattern lowers to a Go matcher (types.md, Refinements
+	// 11; pattern.go): fk-form's and fk-domains' wheres are its witnesses.
+	"call:Pattern",
 }
 
 // refusedFamilies are the families whose lowering waits for a later stage,

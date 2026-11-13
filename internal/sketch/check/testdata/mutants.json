@@ -2623,6 +2623,138 @@
       "killers": [
         "check:TestNeverTotality"
       ]
+    },
+    {
+      "name": "fkre-1 \\s holds \\v",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/pattern.go",
+      "from": "{Lo: '\\t', Hi: '\\n'}, {Lo: '\\f'",
+      "to": "{Lo: '\\t', Hi: '\\v'}, {Lo: '\\f'",
+      "rule": "types.md, Refinements 11: \\s is Go's ASCII class, without \\v.",
+      "killers": [
+        "check:TestPatternMatchesGoRegexp"
+      ]
+    },
+    {
+      "name": "fkre-2 a negated class is not negated",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/pattern.go",
+      "from": "\tif negate {\n\t\trs = complementRanges(rs)",
+      "to": "\tif negate && false {\n\t\trs = complementRanges(rs)",
+      "rule": "types.md, Refinements 11: [^…] is every rune the class does not hold.",
+      "killers": [
+        "check:TestPatternMatchesGoRegexp"
+      ]
+    },
+    {
+      "name": "fkre-3 a bounded repeat takes one more",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/pattern.go",
+      "from": "\tfor i := n.min; i < n.max; i++ {",
+      "to": "\tfor i := n.min; i <= n.max; i++ {",
+      "rule": "types.md, Refinements 11: {n,m} and ? repeat at most m times.",
+      "killers": [
+        "check:TestPatternMatchesGoRegexp"
+      ]
+    },
+    {
+      "name": "fkre-4 minimisation merges accepting and rejecting states",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/pattern.go",
+      "from": "\t\t} else if s.Accept {\n\t\t\tclass[q] = 1\n",
+      "to": "\t\t} else if s.Accept {\n\t\t\tclass[q] = 0\n",
+      "rule": "types.md, Refinements 11: the minimal automaton accepts exactly the values the pattern matches.",
+      "killers": [
+        "check:TestPatternMatchesGoRegexp"
+      ]
+    },
+    {
+      "name": "fkre-5 Reach counts runes, not bytes",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/pattern.go",
+      "from": "\t\t\t\tfor w := 1; w <= 4 && w <= k && !out[k][q]; w++ {",
+      "to": "\t\t\t\tfor w := 1; w <= 1 && w <= k && !out[k][q]; w++ {",
+      "rule": "types.md, Refinements 9 and 11: a length is in bytes, and a rune past ASCII takes 2 to 4 of them.",
+      "killers": [
+        "check:TestPatternMatchesGoRegexp"
+      ]
+    },
+    {
+      "name": "fkre-6 a constant skips the pattern",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine.go",
+      "from": "(r.Pattern == nil || r.Pattern.Match(constant.StringVal(val)))",
+      "to": "(r.Pattern == nil || true)",
+      "rule": "types.md, Refinements 6 and 11: a string constant enters N only when the pattern matches it.",
+      "killers": [
+        "check:TestRefinementPatternConstants"
+      ]
+    },
+    {
+      "name": "fkre-7 the zero value skips the pattern",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/typeops.go",
+      "from": "|| r.Pattern != nil && !r.Pattern.Match(\"\")) {",
+      "to": "|| false) {",
+      "rule": "types.md, Refinements 8 and 11: N is defaultable only when the pattern matches \"\".",
+      "killers": [
+        "check:TestRefinementPatternConstants"
+      ]
+    },
+    {
+      "name": "fkre-8 every where with a pattern is empty",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine_pattern.go",
+      "from": "&& reach[k][0] {",
+      "to": "&& reach[k][0] && false {",
+      "rule": "types.md, Refinements 2 and 11: a where is S108 empty only when no value of its lengths matches the pattern.",
+      "killers": [
+        "check:TestRefinementPatternConstants"
+      ]
+    },
+    {
+      "name": "fkre-9 a raw literal's offset misses its quote",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine_pattern.go",
+      "from": "return lit.Pos() + 1 + syntax.Pos(off)",
+      "to": "return lit.Pos() + syntax.Pos(off)",
+      "rule": "types.md, Refinements 11: a refused pattern is S108 at its byte in the literal.",
+      "killers": [
+        "check:TestPatternRefusedAtItsOffset"
+      ]
+    },
+    {
+      "name": "fkre-10 an interpreted literal's offset misses its quote",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine_pattern.go",
+      "from": "at, decoded := 1, 0",
+      "to": "at, decoded := 0, 0",
+      "rule": "types.md, Refinements 11: a refused pattern is S108 at its byte in the literal.",
+      "killers": [
+        "check:TestPatternRefusedAtItsOffset"
+      ]
+    },
+    {
+      "name": "fkre-11 an interpreted literal counts a wide rune as one byte",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine_pattern.go",
+      "from": "\t\t\tdecoded += len(string(r))",
+      "to": "\t\t\tdecoded++",
+      "rule": "types.md, Refinements 11: a refused pattern is S108 at its byte in the literal, past a rune of two bytes.",
+      "killers": [
+        "check:TestPatternRefusedAtItsOffset"
+      ]
+    },
+    {
+      "name": "fkre-12 a pattern under || is admitted",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/check/refine.go",
+      "from": "\t\t\tif x == r.allowed {",
+      "to": "\t\t\tif true {",
+      "rule": "types.md, Refinements 11: a pattern stands only as a top-level conjunct of the where.",
+      "killers": [
+        "check:TestPatternRefusedAtItsOffset"
+      ]
     }
   ]
 }

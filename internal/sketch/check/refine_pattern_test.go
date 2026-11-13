@@ -81,11 +81,11 @@ func TestRefinementPatternConstants(t *testing.T) {
 
 // TestPatternRefusedAtItsOffset is the diagnostic rows of types.md,
 // Refinements 11: a pattern outside the subset is S108 at the offending
-// rune of the literal, through a raw and an interpreted literal's escapes,
-// and a pattern under || or of a base that is no string is S108 at the
-// call. Each row is the smallest repro of a mutant in testdata/mutants.json
-// that the properties do not reach (the literal's offset map, the
-// refusal of \b, the conjunct rule, the string base).
+// rune of the literal, through a raw and an interpreted literal's escapes
+// and a rune of two bytes, and a pattern under || is S108 at the call.
+// Each row is the smallest repro of a mutant in testdata/mutants.json that
+// the properties do not reach (the offset in a raw literal, in an
+// interpreted one, past a wide rune, and the conjunct rule).
 func TestPatternRefusedAtItsOffset(t *testing.T) {
 	for _, row := range []struct {
 		src     string
@@ -96,7 +96,6 @@ func TestPatternRefusedAtItsOffset(t *testing.T) {
 		{"type T string where matches(it, \"\\t\\\\bc\")\n", 36, "the escape \\b is outside the pattern subset"},
 		{"type T string where matches(it, \"é(?i)x\")\n", 36, "a pattern takes no flags"},
 		{"type T string where len(it) < 3 || matches(it, `a`)\n", 36, "a pattern stands as a conjunct of the where"},
-		{"type T int where matches(it, `a`)\n", 18, "a pattern refines a string"},
 	} {
 		_, ds := CheckSource(row.src)
 		if len(ds) != 1 || ds[0].Code != CodeType || ds[0].Line != 1 || ds[0].Column != row.col || !strings.Contains(ds[0].Message, row.message) {

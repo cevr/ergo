@@ -3973,6 +3973,39 @@
       "killers": [
         "lower:TestNeverLowers"
       ]
+    },
+    {
+      "name": "fkre-span-open-high",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/lower/pattern.go",
+      "from": "\treturn \"r >= \" + runeLit(lo) + \" && r <= \" + runeLit(hi)",
+      "to": "\treturn \"r >= \" + runeLit(lo) + \" && r < \" + runeLit(hi)",
+      "rule": "types.md, Refinements 11: the lowered matcher takes every rune of a span, its ends included.",
+      "killers": [
+        "lower:TestPatternMatchersAgree"
+      ]
+    },
+    {
+      "name": "fkre-accept-flipped",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/lower/pattern.go",
+      "from": "\t\tfinal = \"q == \" + accepting[0]",
+      "to": "\t\tfinal = \"q != \" + accepting[0]",
+      "rule": "types.md, Refinements 11: the lowered matcher is true exactly when the value ends in an accepting state.",
+      "killers": [
+        "lower:TestPatternMatchersAgree"
+      ]
+    },
+    {
+      "name": "fkre-genmatch-no-accept",
+      "origin": "wf10 FKre",
+      "file": "internal/sketch/lower/tests.go",
+      "from": "\treach[0] = append([]bool(nil), accept...)",
+      "to": "\treach[0] = make([]bool, len(accept))",
+      "rule": "types.md, Refinements 9 and 11: a generated value of a pattern is a walk of its automaton that ends in an accepting state (fk-form's laws over Email).",
+      "killers": [
+        "examples:fk-form"
+      ]
     }
   ]
 }
