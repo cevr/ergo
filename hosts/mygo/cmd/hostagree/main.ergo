@@ -5,7 +5,7 @@
 // WithTestHost writes the scripts.
 //
 // Standard input: the app's name on the first line (counter, shelf, form,
-// load or pad), then one step a line:
+// load, pad, list or sketch), then one step a line:
 //
 //	tap LABEL         press and release the node labelled LABEL
 //	type LABEL TEXT   set the field's text (TAB between LABEL and TEXT)
@@ -14,6 +14,8 @@
 //	point LABEL PHASE X Y  a pointer (down, up, move, wheel) on an Area
 //	focus K           Tab K times, then press the focused node with Enter
 //	                  (a field gets "z" typed); TestHost presses the same node
+//	scroll LABEL N    scroll the list LABEL to offset N (the window turns
+//	                  its wheel; TestHost takes the viewport it reports)
 //	settle            settle the loads
 //
 // Output: "ok N" or "differ N: …" per step, then "end".
@@ -43,6 +45,10 @@ func main() needs Console | Ambient | go.Foreign {
 			agree(loadMachine(), loadView, func(a chosen, b chosen) bool { a == b }, steps)
 		case "pad":
 			agree(padMachine(), padView, func(a pad, b pad) bool { a == b }, steps)
+		case "list":
+			agree(rowsMachine(), rowsView, func(a rowsApp, b rowsApp) bool { a == b }, steps)
+		case "sketch":
+			agree(sketchMachine(), sketchView, func(a sketch, b sketch) bool { a == b }, steps)
 		case _:
 			Console.Println("differ 0: no app \(lines[0])")
 		}

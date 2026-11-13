@@ -162,6 +162,78 @@
       "to": " linux/arm64\n",
       "rule": "the window binaries build for Windows and the browser: screen's binding states windows/amd64 and js/wasm, where it holds (ergo bind go)",
       "killers": ["mygo:TestExamplesCrossBuild"]
+    },
+    {
+      "name": "GPh-row-at-the-written-index",
+      "origin": "GP1c host",
+      "file": "hosts/mygo/desktop/paint.ergo",
+      "from": "Top: float32(l.Value.First+i) * rh}",
+      "to": "Top: float32(i) * rh}",
+      "rule": "a list's row shows at its index's place, counted from the list's First, not from the first row written",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPh-viewport-not-reported",
+      "origin": "GP1c host",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "\t\t\t\td.viewports[s.id] = v\n\t\t\t\ttry step(d, ui.Scrolled[E]{Id: s.id, Offset: v.Offset, Height: v.Height})\n\t\t\t\treturn",
+      "to": "\t\t\t\td.viewports[s.id] = v",
+      "rule": "the window reports a list's viewport, so the next pass writes the rows it shows",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPh-list-gets-no-room",
+      "origin": "GP1c host",
+      "file": "hosts/mygo/desktop/paint.ergo",
+      "from": "\t\t\t\t\tchanged = true",
+      "to": "\t\t\t\t\tchanged = false",
+      "rule": "a list with no height of its own takes the window below its top",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPh-list-not-stretched",
+      "origin": "GP1c host",
+      "file": "hosts/mygo/desktop/paint.ergo",
+      "from": "\t\ts.Self = Some{Value: layout.Stretch}\n",
+      "to": "",
+      "rule": "a list is as wide as its parent, and its rows as wide as the list",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPh-scroll-on-does-nothing",
+      "origin": "GP1c host",
+      "file": "hosts/mygo/desktop/play.ergo",
+      "from": "let dy = dips(x.Offset) - scrolledBy(d, id)",
+      "to": "let dy = float32(0) * dips(x.Offset)",
+      "rule": "ScrollOn scrolls the list to its offset, or as far as its content goes",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPh-wheel-misses-lists",
+      "origin": "GP1c host",
+      "file": "hosts/mygo/desktop/desktop.ergo",
+      "from": "case ui.ScrollNode, ui.RowsNode:\n\t\t\t\ttarget = Some{Value: s}",
+      "to": "case ui.ScrollNode:\n\t\t\t\ttarget = Some{Value: s}",
+      "rule": "the wheel scrolls the list under the pointer",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPh-canvas-transform-dropped",
+      "origin": "GP1c host",
+      "file": "hosts/mygo/desktop/canvas.ergo",
+      "from": "\t\t\tstack = stack.Append(pushed{was: m, clip: false})\n\t\t\tm = compose(m, x.M)",
+      "to": "\t\t\tstack = stack.Append(pushed{was: m, clip: false})\n\t\t\tm = compose(m, ui.Scale(x.M.A, x.M.D))",
+      "rule": "a canvas paints under the transforms its list pushes",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+    },
+    {
+      "name": "GPh-fill-spans-outside",
+      "origin": "GP1c host",
+      "file": "hosts/mygo/desktop/canvas.ergo",
+      "from": "if wind != 0 && i+1 < len(xs)",
+      "to": "if wind == 0 && i+1 < len(xs)",
+      "rule": "a path's fill covers where its winding number is not zero",
+      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
     }
   ]
 }

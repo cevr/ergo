@@ -96,7 +96,7 @@ func at[E comparable, S, D, F](d *Driver[S, E, D, F], label string) layout.Box f
 func reveal[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	for sc in d.spots {
 		match sc.node {
-		case ui.ScrollNode:
+		case ui.ScrollNode, ui.RowsNode:
 			if sc.id != id && holds[S, E, D, F](d, sc.id, id) {
 				match d.boxes.Get(id) {
 				case Some[layout.Box] as b:
@@ -135,7 +135,9 @@ func holds[S, E, D, F](d *Driver[S, E, D, F], top ui.Id[E], id ui.Id[E]) bool {
 // step makes before the next. TapOn presses and releases at the centre of
 // the node's box; TypeInto taps the field, deletes its text with
 // Backspace and types the text; KeyIn presses the key; PointOn sends the
-// pointer's phase at its place in the box; SettleAll settles. AdvanceBy
+// pointer's phase at its place in the box; ScrollOn turns the wheel on
+// the list until its offset is the step's (the window decides its
+// height); SettleAll settles. AdvanceBy
 // does nothing: the window's frames come from its display, not a clock.
 func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	for act in script {
@@ -196,6 +198,26 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 				d.w.Wheel(px, py, wh.DX, wh.DY)
 			}
 			try Drain(d)
+		case ui.ScrollOn as x:
+			// The wheel, at the list's centre, by what takes it to Offset;
+			// the height is the window's, which the list reports.
+			let id = match Find(d, x.Label) {
+			case Some[ui.Id[E]] as i:
+				i.Value
+			case None:
+				return ui.NoNode{Label: x.Label}
+			}
+			match spotOf(d, id) {
+			case Some[spot[E]] as s:
+				let dy = dips(x.Offset) - scrolledBy(d, id)
+				if dy != 0 {
+					let b = s.Value.box
+					d.w.Wheel(float64(b.X+b.W/2), float64(b.Y+b.H/2), 0, float64(dy))
+					try Drain(d)
+				}
+			case None:
+				return ui.NoNode{Label: x.Label}
+			}
 		case ui.SettleAll:
 			try Settle(d)
 		case ui.AdvanceBy:

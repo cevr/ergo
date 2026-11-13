@@ -25,26 +25,28 @@ import ui/layout
 
 // Driver is one view over one actor in one window.
 type Driver[S, E, D, F] {
-	w        go.Ref[screen.Window],
-	actor    actor.Actor[S, E, D, F],
-	session  ui.Session[S, E, D, F],
-	mirror   ui.Mirror[E],
-	nodes    Map[ui.Id[E], held[E]],
-	root     ui.Id[E],
-	posted   queue.Queue[ui.Event[E]],
-	metrics  Metrics,
-	spots    []spot[E],
-	focus    Option[ui.Id[E]],
-	pressed  Option[ui.Id[E]],
-	scrolled Map[ui.Id[E], float32],
-	names    Map[ui.Id[E], int],
-	named    int,
-	extents  Map[ui.Id[E], float32],
-	boxes    Map[ui.Id[E], layout.Box],
-	width    float32,
-	height   float32,
-	frames   bool,
-	painted  int,
+	w         go.Ref[screen.Window],
+	actor     actor.Actor[S, E, D, F],
+	session   ui.Session[S, E, D, F],
+	mirror    ui.Mirror[E],
+	nodes     Map[ui.Id[E], held[E]],
+	root      ui.Id[E],
+	posted    queue.Queue[ui.Event[E]],
+	metrics   Metrics,
+	spots     []spot[E],
+	canvases  []spot[E],
+	viewports Map[ui.Id[E], ui.Viewport],
+	focus     Option[ui.Id[E]],
+	pressed   Option[ui.Id[E]],
+	scrolled  Map[ui.Id[E], float32],
+	names     Map[ui.Id[E], int],
+	named     int,
+	extents   Map[ui.Id[E], float32],
+	boxes     Map[ui.Id[E], layout.Box],
+	width     float32,
+	height    float32,
+	frames    bool,
+	painted   int,
 }
 
 // held is a node of the window's tree and its children, in order.
@@ -73,26 +75,28 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 	let root = ui.SessionRoot(&session)
 	let (width, height) = w.Size()
 	let mut d = Driver[S, E, D, F]{
-		w:        w,
-		actor:    a,
-		session:  session,
-		mirror:   ui.NewMirror[E](root),
-		nodes:    Map[ui.Id[E], held[E]]{},
-		root:     root,
-		posted:   posted,
-		metrics:  NewMetrics(),
-		spots:    []spot[E]{},
-		focus:    None,
-		pressed:  None,
-		scrolled: Map[ui.Id[E], float32]{},
-		names:    Map[ui.Id[E], int]{},
-		named:    0,
-		extents:  Map[ui.Id[E], float32]{},
-		boxes:    Map[ui.Id[E], layout.Box]{},
-		width:    float32(width),
-		height:   float32(height),
-		frames:   false,
-		painted:  0,
+		w:         w,
+		actor:     a,
+		session:   session,
+		mirror:    ui.NewMirror[E](root),
+		nodes:     Map[ui.Id[E], held[E]]{},
+		root:      root,
+		posted:    posted,
+		metrics:   NewMetrics(),
+		spots:     []spot[E]{},
+		canvases:  []spot[E]{},
+		viewports: Map[ui.Id[E], ui.Viewport]{},
+		focus:     None,
+		pressed:   None,
+		scrolled:  Map[ui.Id[E], float32]{},
+		names:     Map[ui.Id[E], int]{},
+		named:     0,
+		extents:   Map[ui.Id[E], float32]{},
+		boxes:     Map[ui.Id[E], layout.Box]{},
+		width:     float32(width),
+		height:    float32(height),
+		frames:    false,
+		painted:   0,
 	}
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
 	try show(&d, first)
@@ -100,7 +104,7 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 }
 
 // show applies one pass's ops, then lays out and paints the window.
-func show[S, E, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch needs go.Foreign {
+func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch needs go.Foreign {
 	try ui.Apply(&d.mirror, ops)
 	for op in ops {
 		match op {
@@ -126,6 +130,43 @@ func show[S, E, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui.BadPatch n
 		d.w.Frames(animates)
 	}
 	paint(d)
+	// A stopped actor takes no viewport; the next step it is sent fails
+	// actor.Stopped where the caller handles it.
+	report(d) catch {
+	case actor.Stopped:
+	case ui.BadPatch as b:
+		return b
+	}
+}
+
+// report tells the session the viewport of each list the window shows
+// (its scroll offset and its height) when it changed: the next pass
+// writes the rows it shows, and that pass's show reports again until no
+// list's viewport moves.
+func report[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	for s in d.spots {
+		match s.node {
+		case ui.RowsNode:
+			let v = ui.Viewport{Offset: ui.Length(float64(scrolledBy(d, s.id))), Height: ui.Length(float64(s.box.H))}
+			if d.viewports.Get(s.id) != (Some{Value: v}) {
+				d.viewports[s.id] = v
+				try step(d, ui.Scrolled[E]{Id: s.id, Offset: v.Offset, Height: v.Height})
+				return
+			}
+		case _:
+		}
+	}
+}
+
+// Viewport is the viewport the window last reported for the list
+// labelled label, None before it showed one.
+func Viewport[S, E, D, F](d *Driver[S, E, D, F], label string) Option[ui.Viewport] {
+	match Find(d, label) {
+	case Some[ui.Id[E]] as id:
+		d.viewports.Get(id.Value)
+	case None:
+		None
+	}
 }
 
 // place puts id among parent's children, in front of before or last.
@@ -188,6 +229,7 @@ func forget[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 	}
 	d.nodes = d.nodes.Delete(id)
 	d.scrolled = d.scrolled.Delete(id)
+	d.viewports = d.viewports.Delete(id)
 	d.names = d.names.Delete(id)
 	if d.focus == (Some{Value: id}) {
 		d.focus = None
@@ -271,6 +313,7 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 		d.width = float32(input.Width)
 		d.height = float32(input.Height)
 		paint(d)
+		try report(d)
 	} else if input.Kind == screen.Frame {
 		try step(d, ui.Tick{At: duration(input.At)})
 	}
@@ -301,7 +344,7 @@ func scroll[E comparable, S, D, F](d *Driver[S, E, D, F], x float32, y float32, 
 	for s in d.spots {
 		if inside(s, x, y) {
 			match s.node {
-			case ui.ScrollNode:
+			case ui.ScrollNode, ui.RowsNode:
 				target = Some{Value: s}
 			case ui.AreaNode:
 				area = Some{Value: s}
@@ -322,6 +365,7 @@ func scroll[E comparable, S, D, F](d *Driver[S, E, D, F], x float32, y float32, 
 		if next != at {
 			d.scrolled[s.Value.id] = next
 			paint(d)
+			try report(d)
 		}
 	case None:
 	}
@@ -430,7 +474,7 @@ func hitAt[S, E, D, F](d *Driver[S, E, D, F], x float32, y float32) Option[spot[
 	let mut hit Option[spot[E]] = None
 	for s in d.spots {
 		match s.node {
-		case ui.ScrollNode:
+		case ui.ScrollNode, ui.RowsNode:
 		case _:
 			if inside(s, x, y) {
 				hit = Some{Value: s}
@@ -525,7 +569,7 @@ func FocusNode[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Node[E]] {
 
 // Probe is a place where a node's fill shows, and the fill's color
 // (0xRRGGBBAA): a Pressable's background below its top edge, a checked
-// Check's box, a Toggle's track.
+// Check's box, a Toggle's track, a canvas's last opaque fill (canvasProbe).
 type Probe { Label string, X int, Y int, Color uint32 }
 
 // Probes are the probes of the nodes on screen whose probe point no clip
@@ -562,6 +606,24 @@ func Probes[S, E, D, F](d *Driver[S, E, D, F]) []Probe {
 		let c = s.clip
 		if cx >= c.X && cy >= c.Y && cx < c.X+c.W && cy < c.Y+c.H {
 			out = out.Append(Probe{Label: label, X: int(x), Y: int(y), Color: color})
+		}
+	}
+	for s in d.canvases {
+		match s.node {
+		case ui.CanvasNode as cv:
+			match canvasProbe(cv.Paint, s.box) {
+			case Some[shown] as p:
+				let px = int(p.Value.at.X)
+				let py = int(p.Value.at.Y)
+				let cx = float32(px)
+				let cy = float32(py)
+				let c = cut(s.clip, s.box)
+				if cx >= c.X && cy >= c.Y && cx < c.X+c.W && cy < c.Y+c.H {
+					out = out.Append(Probe{Label: cv.Label, X: px, Y: py, Color: p.Value.color})
+				}
+			case None:
+			}
+		case _:
 		}
 	}
 	out

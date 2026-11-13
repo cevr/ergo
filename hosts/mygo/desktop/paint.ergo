@@ -112,6 +112,21 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 		boxStyle(x.Style, layout.Column)
 	case ui.AreaNode as x:
 		boxStyle(x.Style, layout.Column)
+	case ui.RowsNode:
+		// A list fills the room it is given, and its parent's width; its
+		// rows are out of the flow (build places each), so it asks for no
+		// room of its own. paint gives a
+		// list no taller than 0 the window's room below its top.
+		let mut s = plainStyle()
+		s.Grow = 1
+		s.Self = Some{Value: layout.Stretch}
+		s
+	case ui.CanvasNode as x:
+		let mut s = plainStyle()
+		s.Width = layout.Px{Value: dips(x.Width)}
+		s.Height = layout.Px{Value: dips(x.Height)}
+		s.Shrink = 0
+		s
 	case ui.TextNode as x:
 		let mut s = boxStyle(x.Style, layout.Column)
 		s.Content = layout.Text{Value: x.Value, Size: textSize}
@@ -160,11 +175,15 @@ func textOf[E](n ui.Node[E]) string {
 }
 
 // labelOf is the label a script names a node by, as ui.Find matches it:
-// a Pressable's, a Check's, a Toggle's or an Area's label, a Text's
-// value, an Input's placeholder.
+// a Pressable's, a Check's, a Toggle's, an Area's, a Canvas's or a
+// list's label, a Text's value, an Input's placeholder.
 func labelOf[E](n ui.Node[E]) Option[string] {
 	match n {
 	case ui.PressableNode[E] as x:
+		Some{Value: x.Label}
+	case ui.CanvasNode as x:
+		Some{Value: x.Label}
+	case ui.RowsNode as x:
 		Some{Value: x.Label}
 	case ui.CheckNode[E] as x:
 		Some{Value: x.Label}
@@ -200,9 +219,15 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 		layout.Layout(&t, top, d.width, d.height) catch {
 		case arena.Stale:
 		}
+		if roomForLists(d, &t, ids) {
+			layout.Layout(&t, top, d.width, d.height) catch {
+			case arena.Stale:
+			}
+		}
 	}
 	d.w.Begin()
 	d.spots = []spot[E]{}
+	d.canvases = []spot[E]{}
 	d.boxes = Map[ui.Id[E], layout.Box]{}
 	let full = layout.Box{X: 0, Y: 0, W: d.width, H: d.height}
 	for k in kidsOf(d, d.root) {
@@ -212,13 +237,63 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	d.painted = d.painted + 1
 }
 
-// build adds id's children under into, in order, and their subtrees.
+// roomForLists gives each list that laid out no taller than 0 the
+// window's room below its top, at least one row, as a list with no height
+// of its own fills the window under it. It is whether it gave one any.
+func roomForLists[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], layout.Id]) bool {
+	let mut changed = false
+	for k, h in d.nodes {
+		match h.node {
+		case ui.RowsNode as x:
+			match ids.Get(k) {
+			case Some[layout.Id] as l:
+				let b = boxOf(t, l.Value)
+				if b.H <= 0 {
+					let mut s = styleOf(h.node, 0)
+					s.Height = layout.Px{Value: fmax(d.height-b.Y, dips(x.RowHeight))}
+					s.Shrink = 0
+					layout.SetStyle(t, l.Value, s) catch {
+					case arena.Stale:
+					}
+					changed = true
+				}
+			case None:
+			}
+		case _:
+		}
+	}
+	changed
+}
+
+// build adds id's children under into, in order, and their subtrees. A
+// list's row is out of the flow, at its index's place below the list's
+// top (from the list's First), as wide as the list and one row high.
 func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, ids Map[ui.Id[E], layout.Id], line float32) Map[ui.Id[E], layout.Id] {
 	let mut out = ids
-	for k in kidsOf(d, id) {
+	let list = match d.nodes.Get(id) {
+	case Some[held[E]] as p:
+		match p.Value.node {
+		case ui.RowsNode as x:
+			Some{Value: x}
+		case _:
+			None
+		}
+	case None:
+		None
+	}
+	for i, k in kidsOf(d, id) {
 		match d.nodes.Get(k) {
 		case Some[held[E]] as h:
-			let n = layout.Add(t, styleOf(h.Value.node, line))
+			let mut st = styleOf(h.Value.node, line)
+			match list {
+			case Some[ui.RowsNode] as l:
+				let rh = dips(l.Value.RowHeight)
+				st.Position = layout.Absolute{Left: 0, Top: float32(l.Value.First+i) * rh}
+				st.Width = layout.Percent{Value: 100}
+				st.Height = layout.Px{Value: rh}
+			case None:
+			}
+			let n = layout.Add(t, st)
 			layout.Append(t, into, n) catch {
 			case arena.Stale:
 			}
@@ -267,6 +342,24 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
 		drawKids(d, t, ids, id, dy+scrolledBy(d, id), inner, line)
 		d.w.Unclip()
+	case ui.RowsNode as x:
+		// A list scrolls its rows as a Scroll does, over Count rows of
+		// content; a scroll past the end (the list grew shorter) comes back.
+		d.spots = d.spots.Append(s)
+		let content = float32(x.Count) * dips(x.RowHeight)
+		d.extents[id] = content
+		let most = fmax(content-b.H, 0)
+		if scrolledBy(d, id) > most {
+			d.scrolled[id] = most
+		}
+		access(d, id, screen.RoleGroup, x.Label, "", b, false, false)
+		let inner = cut(clip, b)
+		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
+		drawKids(d, t, ids, id, dy+scrolledBy(d, id), inner, line)
+		d.w.Unclip()
+	case ui.CanvasNode as x:
+		d.canvases = d.canvases.Append(s)
+		paintCanvas(d, x.Paint, b, clip)
 	case ui.AreaNode as x:
 		d.spots = d.spots.Append(s)
 		access(d, id, screen.RoleGroup, x.Label, "", b, false, false)

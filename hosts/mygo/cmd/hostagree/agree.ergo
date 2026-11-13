@@ -5,6 +5,7 @@ import strconv
 import strings
 import time
 import ui
+import ui/layout
 import utf8
 
 // result is how a step ended on one host: done, or the label it found no
@@ -66,13 +67,20 @@ func said(r result) string {
 }
 
 // compare is why the hosts differ now, None when they agree: the tree,
-// the app state, and each probe's pixel in the window's frame.
+// the app state, and each probe's pixel in the window's frame. First
+// TestHost takes the viewport the window reported for each list (follow).
 func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], w go.Ref[screen.Window], same func(a S, b S) bool) Option[string] needs go.Foreign {
+	follow(h, d, desktop.Screen(d))
 	if !ui.SameShapes(ui.Screen(h), desktop.Screen(d)) {
-		return Some{Value: "trees differ:\n\(ui.Screenshot(h))"}
+		return Some{Value: "trees differ:\n\(ui.Screenshot(h))desktop:\n\(shot(desktop.Screen(d), ""))"}
 	}
 	if !same(ui.StateOf(h), desktop.StateOf(d)) {
 		return Some{Value: "states differ"}
+	}
+	match placed(d, desktop.Screen(d)) {
+	case Some[string] as why:
+		return why
+	case None:
 	}
 	let _ = w.Render()
 	for p in desktop.Probes(d) {
@@ -82,6 +90,124 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Drive
 		}
 	}
 	None
+}
+
+// maxOffset is how far the list labelled label scrolls in a viewport
+// height high: its content less the height, at least 0.
+func maxOffset[E](shapes []ui.Shape[E], label string, height float64) float64 {
+	for s in shapes {
+		match s.Node {
+		case ui.RowsNode as x:
+			if x.Label == label {
+				let most = float64(x.Count)*float64(x.RowHeight) - height
+				return if most > 0 { most } else { 0 }
+			}
+		case _:
+		}
+		let m = maxOffset[E](s.Kids, label, height)
+		if m >= 0 {
+			return m
+		}
+	}
+	-1
+}
+
+func bx(o Option[layout.Box]) string {
+	match o {
+	case Some[layout.Box] as b:
+		"\(b.Value.X),\(b.Value.Y) \(b.Value.W)x\(b.Value.H)"
+	case None:
+		"none"
+	}
+}
+
+// shot is the desktop's tree as text, one node a line by its kind and
+// label: what a differing step prints beside TestHost's screenshot.
+func shot[E](shapes []ui.Shape[E], indent string) string {
+	let mut out = ""
+	for s in shapes {
+		let what = match s.Node {
+		case ui.RowsNode as x:
+			"rows \"\(x.Label)\" \(x.Count) from \(x.First)"
+		case ui.PressableNode[E] as x:
+			"button \"\(x.Label)\""
+		case ui.TextNode as x:
+			"text \"\(x.Value)\""
+		case ui.CanvasNode as x:
+			"canvas \"\(x.Label)\" \(len(x.Paint)) ops"
+		case _:
+			"node"
+		}
+		out = out + indent + what + "\n" + shot[E](s.Kids, indent+"  ")
+	}
+	out
+}
+
+// placed is why a list is not where it shows, None when each is: the
+// viewport the window reported is the list's box height and an offset
+// inside its content, and each row it wrote (a button, by label) shows at
+// the list's top plus its index's rows, less the offset.
+func placed[E comparable, S, D, F](d *desktop.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
+	for s in shapes {
+		match s.Node {
+		case ui.RowsNode as x:
+			let (v, lb) = match (desktop.Viewport(d, x.Label), desktop.BoxOf(d, x.Label)) {
+			case (Some[ui.Viewport] as v, Some[layout.Box] as b):
+				(v.Value, b.Value)
+			case _:
+				return Some{Value: "list \(x.Label) has no viewport or box"}
+			}
+			let rh = float64(x.RowHeight)
+			let off = float64(v.Offset)
+			let most = float64(x.Count)*rh - float64(lb.H)
+			if float64(v.Height) != float64(lb.H) || off < 0 || (off > 0 && off > most) {
+				return Some{Value: "list \(x.Label): viewport \(off)+\(float64(v.Height)) in a box \(lb.H) high over \(x.Count) rows"}
+			}
+			for i, k in s.Kids {
+				match k.Node {
+				case ui.PressableNode[E] as p:
+					match desktop.BoxOf(d, p.Label) {
+					case Some[layout.Box] as b:
+						let want = float64(lb.Y) + float64(x.First+i)*rh - off
+						if float64(b.Value.Y) != want || float64(b.Value.H) != rh || b.Value.X != lb.X || b.Value.W != lb.W {
+							return Some{Value: "\(p.Label) shows at \(bx(Some{Value: b.Value})); want y \(want), \(rh) high, as wide as the list at \(bx(Some{Value: lb}))"}
+						}
+					case None:
+						return Some{Value: "\(p.Label) has no box"}
+					}
+				case _:
+				}
+			}
+		case _:
+			match placed[E, S, D, F](d, s.Kids) {
+			case Some[string] as why:
+				return why
+			case None:
+			}
+		}
+	}
+	None
+}
+
+// follow scrolls each list of TestHost to the viewport the window
+// reported for it: a window decides a list's height and where a person
+// scrolled it, and TestHost, which has no window, takes it as a host's
+// report (ui.ScrollTo). Then both write the same rows.
+func follow[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], shapes []ui.Shape[E]) needs go.Foreign {
+	for s in shapes {
+		match s.Node {
+		case ui.RowsNode as x:
+			match (desktop.Viewport(d, x.Label), ui.Find(h, x.Label)) {
+			case (Some[ui.Viewport] as v, Some[ui.Id[E]] as id):
+				ui.ScrollTo(h, id.Value, v.Value.Offset, v.Value.Height) catch {
+				case actor.Stopped, ui.BadPatch:
+				}
+			case _:
+			}
+		case _:
+			follow[E, S, D, F](h, d, s.Kids)
+		}
+	}
 }
 
 // run does one step on each host.
@@ -142,6 +268,33 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S,
 			ui.Wheel{DX: 0, DY: y}
 		}
 		both(h, d, ui.PointOn{Label: f[0], Pointer: ui.PointerEvent{Phase: phase, X: x, Y: y}})
+	case "scroll":
+		let f = strings.Fields(rest)
+		if len(f) != 2 {
+			return (Broke{Why: "scroll LABEL N"}, Broke{Why: "scroll LABEL N"})
+		}
+		let to = float64(atoi(f[1]))
+		let mut b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+			try desktop.Play(d, []ui.Act{ui.ScrollOn{Label: f[0], Offset: ui.Length(to), Height: 0}})
+		})
+		// The list is where the step scrolled it: at the offset, or as far
+		// as its content goes.
+		match (b, desktop.Viewport(d, f[0])) {
+		case (Done, Some[ui.Viewport] as v):
+			let most = maxOffset(desktop.Screen(d), f[0], float64(v.Value.Height))
+			let want = if to < most { to } else { most }
+			if float64(v.Value.Offset) != want {
+				b = Broke{Why: "scrolled to \(float64(v.Value.Offset)), want \(want)"}
+			}
+		case _:
+		}
+		let a = match ui.Find(h, f[0]) {
+		case Some[ui.Id[E]]:
+			Done
+		case None:
+			Missing{Label: f[0]}
+		}
+		(a, b)
 	case "settle":
 		both(h, d, ui.SettleAll)
 	case "focus":
