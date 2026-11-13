@@ -257,7 +257,7 @@ func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
 func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Failed {
 	match s.Results.Get(Key(c)) {
 	case Some[Result] as hit:
-		return Ended(hit.Value, st)
+		return Ended(st, hit.Value)
 	case None:
 		return NotFound{Name: c.Name}
 	}
@@ -270,7 +270,11 @@ func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Fa
 // how any Runner that runs no program, Script or a module's own fake, gives
 // the Running its Start returns: a Running is the runtime's value, so no
 // other package's type implements it.
-func Ended(r Result, s Streams) Running {
+//
+// Its first parameter is the Streams, not the Result: a function of this
+// package on Result, a runtime type, would lower as a Go method that
+// v1.ExecResult does not have.
+func Ended(s Streams, r Result) Running {
 	let mut cs = []Chunk{}
 	if toCaller(s.Stdout) {
 		cs = whole(cs, r.Stdout, false)
