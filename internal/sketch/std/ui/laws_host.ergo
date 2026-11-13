@@ -67,7 +67,8 @@ func freshShape[S](view func(f *Frame[int], s S), s S) []Shape[int] {
 // ScriptShowsTheView: after each step of a drawn script of presses by
 // label ("add", or "del", the first row's), the test host's screen is the
 // view of the actor's state, and that state is the model's: a press of
-// "del" removes the first row on the screen. The clock never moves.
+// "del" removes the first row on the screen. The clock never moves. Half
+// the presses are by locator, and the expectations of a scene hold.
 law ScriptShowsTheView(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -92,8 +93,25 @@ func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		} else {
 			model = machines.Next(model, shelfStep(model, 0))
 		}
-		Play(&h, []Act{TapOn{Label: label}}) catch {
+		// Half the presses go by locator, and each step expects the count
+		// the model shows and the number of delete buttons (H4r).
+		let mut tap Act = TapOn{Label: label}
+		if draw(&r, 2) == 0 {
+			tap = ClickOn{At: WithRole{Role: Button, Name: label}}
+		}
+		let expect = []Act{ExpectOn{At: WithText{Text: "\(len(model.rows)) rows"}, Is: ToExist}, ExpectOn{At: WithLabel{Label: "del"}, Is: ToHaveCount{Count: len(model.rows)}}}
+		Play(&h, []Act{tap, expect[0], expect[1]}) catch {
 		case _:
+			return false
+		}
+		let mut refused = false
+		Play(&h, []Act{ExpectOn{At: WithLabel{Label: "del"}, Is: ToHaveCount{Count: len(model.rows) + 1}}}) catch {
+		case Mismatch:
+			refused = true
+		case _:
+			return false
+		}
+		if !refused {
 			return false
 		}
 		let s = StateOf(&h)

@@ -19,7 +19,7 @@ import scope
 import strings
 import time
 
-type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int}
+type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog}
 
 type Missing { V int }
 
@@ -35,7 +35,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 let slots = 6
 
 func genProg(r *rng, depth int, bounded bool) prog {
-	let kind = draw(r, 10)
+	let kind = draw(r, 11)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
 	}
@@ -51,7 +51,7 @@ func genProg(r *rng, depth int, bounded bool) prog {
 			pSwap{slot: draw(r, slots)}
 		}
 	} else {
-		let inner = bounded || kind >= 8
+		let inner = bounded || kind == 8 || kind == 9
 		let mut kids = []prog{}
 		for _ in 0..draw(r, 4) {
 			kids = kids.Append(genProg(r, depth-1, inner))
@@ -65,6 +65,8 @@ func genProg(r *rng, depth int, bounded bool) prog {
 			pPress{slot: draw(r, slots), kids: kids}
 		case 7:
 			pEach{slot: draw(r, slots), kids: kids}
+		case 10:
+			pFieldset{slot: draw(r, slots), kids: kids}
 		case _:
 			pBound{form: draw(r, 3), slot: draw(r, slots), kids: kids.Append(pRead{slot: draw(r, slots)})}
 		}
@@ -94,6 +96,13 @@ func gapped(v int) ui.Style {
 	let mut st = ui.Plain()
 	st.Gap = ui.Length(float64(v % 3))
 	st
+}
+
+func described(v int) string {
+	if v%2 == 0 {
+		return "d\(v)"
+	}
+	""
 }
 
 func swap(f *ui.Frame[int], v int, at CallSite) {
@@ -130,6 +139,12 @@ func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pendi
 		ui.Text(f, "after")
 	case pPress as x:
 		try ui.Pressable(f, "press", s[x.slot]%4+row) {
+			for c in x.kids {
+				try render(f, c, s, row)
+			}
+		}
+	case pFieldset as x:
+		try ui.Fieldset(f, s[x.slot]%3 == 0, described(s[x.slot])) {
 			for c in x.kids {
 				try render(f, c, s, row)
 			}
@@ -229,6 +244,12 @@ func model(p prog, s []int, row int) outcome {
 			return o
 		}
 		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.Plain()}, Kids: o.shapes}})
+	case pFieldset as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: s[x.slot]%3 == 0, Description: described(s[x.slot])}, Kids: o.shapes}})
 	case pEach as x:
 		let mut out = []ui.Shape[int]{}
 		for k in items(s[x.slot]) {
@@ -303,6 +324,8 @@ func stopIn(p prog, s []int, row int) bool {
 	case pRow as x:
 		stopsAt(x.kids, s, row)
 	case pPress as x:
+		stopsAt(x.kids, s, row)
+	case pFieldset as x:
 		stopsAt(x.kids, s, row)
 	case pEach as x:
 		for k in items(s[x.slot]) {
@@ -413,13 +436,17 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f *ui.Frame[int], id ui.Id[int]) bool {
+func signalsAgree(f *ui.Frame[int], id ui.Id[int], off bool) bool {
 	let mut ok = true
+	let mut under = off
 	let pressed = sent(ui.Handle(f, ui.Press[int]{Id: id}).Signal)
 	let typed = sent(ui.Handle(f, ui.Type[int]{Id: id, Text: "abc"}).Signal)
 	match ui.NodeOf(f, id) {
 	case Some[ui.Node[int]] as n:
 		match n.Value {
+		case ui.FieldsetNode as d:
+			under = off || d.Disabled
+			ok = pressed == -1 && typed == -1
 		case ui.PressableNode[int] as p:
 			ok = pressed == p.On && typed == -1
 		case ui.CheckNode[int] as c:
@@ -429,13 +456,118 @@ func signalsAgree(f *ui.Frame[int], id ui.Id[int]) bool {
 		case _:
 			ok = pressed == -1 && typed == -1
 		}
+		if off {
+			ok = pressed == -1 && typed == -1
+		}
 	case None:
 		return false
 	}
 	for k in ui.Kids(f, id) {
-		ok = ok && signalsAgree(f, k)
+		ok = ok && signalsAgree(f, k, under)
 	}
 	ok
+}
+
+
+type seen { node ui.Node[int], a ui.Access, text string }
+
+func accessModel(shapes []ui.Shape[int], off bool, desc string) []seen {
+	let mut out = []seen{}
+	for sh in shapes {
+		let mut o = off
+		let mut d = desc
+		match sh.Node {
+		case ui.FieldsetNode as x:
+			o = off || x.Disabled
+			if x.Description != "" {
+				d = x.Description
+			}
+		case _:
+		}
+		out = out.Append(seen{node: sh.Node, a: readAs(sh.Node, o, d), text: textOf(sh)})
+		for x in accessModel(sh.Kids, o, d) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func readAs(n ui.Node[int], off bool, desc string) ui.Access {
+	let base = ui.Access{Role: ui.Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None}
+	match n {
+	case ui.PressableNode[int] as x:
+		ui.Access{Role: ui.Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None}
+	case ui.CheckNode[int] as x:
+		ui.Access{Role: ui.Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None}
+	case ui.ToggleNode as x:
+		ui.Access{Role: ui.Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None}
+	case ui.InputNode as x:
+		ui.Access{Role: ui.TextBox, Name: x.Placeholder, Disabled: off, Description: desc, Checked: None, Value: Some{Value: x.Value}}
+	case ui.TextNode as x:
+		ui.Access{Role: ui.Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None}
+	case ui.FieldsetNode:
+		ui.Access{Role: ui.Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None}
+	case ui.AreaNode as x:
+		ui.Access{Role: ui.Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+	case ui.CanvasNode as x:
+		ui.Access{Role: ui.Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+	case ui.RowsNode as x:
+		ui.Access{Role: ui.List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+	case _:
+		base
+	}
+}
+
+func textOf(sh ui.Shape[int]) string {
+	let mut out = ""
+	match sh.Node {
+	case ui.TextNode as t:
+		out = t.Value
+	case _:
+	}
+	for k in sh.Kids {
+		out = out + textOf(k)
+	}
+	out
+}
+
+func wants(loc ui.Locator, x seen) bool {
+	match loc {
+	case ui.WithRole as l:
+		x.a.Role == l.Role && (l.Name == "" || x.a.Name == l.Name)
+	case ui.WithLabel as l:
+		let labelled = x.a.Role == ui.Button || x.a.Role == ui.Checkbox || x.a.Role == ui.Switch || x.a.Role == ui.Region || x.a.Role == ui.Image || x.a.Role == ui.List
+		labelled && x.a.Name == l.Label
+	case ui.WithPlaceholder as l:
+		x.a.Role == ui.TextBox && x.a.Name == l.Text
+	case ui.WithText as l:
+		x.a.Role == ui.Static && x.a.Name == l.Text
+	}
+}
+
+func matches(m *ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
+	ui.ExpectIn(m, loc, is) catch {
+	case ui.Mismatch:
+		return false
+	}
+	true
+}
+
+func extras(f *ui.Frame[int], v int) {
+	ui.Fieldset(f, v%2 == 1, "x\(v)") {
+		let on = ui.NewFlag(f, true)
+		ui.Toggle(f, on, "tg\(v % 3)")
+		ui.Area(f, "area\(v % 2)", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
+			ui.Text(f, "in area")
+		}
+		ui.Canvas(f, "c\(v % 4)", 4, 4) func(p *ui.Paint) {}
+		ui.Rows(f, "rows", 0, 10, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {}
+	}
+}
+
+func extraShapes(v int) []ui.Shape[int] {
+	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0})}
+	[]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
 }
 
 
@@ -511,8 +643,25 @@ func scriptShows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		} else {
 			model = machines.Next(model, shelfStep(model, 0))
 		}
-		ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
+		// Half the presses go by locator, and each step expects the count
+		// the model shows and the number of delete buttons (H4r).
+		let mut tap ui.Act = ui.TapOn{Label: label}
+		if draw(&r, 2) == 0 {
+			tap = ui.ClickOn{At: ui.WithRole{Role: ui.Button, Name: label}}
+		}
+		let expect = []ui.Act{ui.ExpectOn{At: ui.WithText{Text: "\(len(model.rows)) rows"}, Is: ui.ToExist}, ui.ExpectOn{At: ui.WithLabel{Label: "del"}, Is: ui.ToHaveCount{Count: len(model.rows)}}}
+		ui.Play(&h, []ui.Act{tap, expect[0], expect[1]}) catch {
 		case _:
+			return false
+		}
+		let mut refused = false
+		ui.Play(&h, []ui.Act{ui.ExpectOn{At: ui.WithLabel{Label: "del"}, Is: ui.ToHaveCount{Count: len(model.rows) + 1}}}) catch {
+		case ui.Mismatch:
+			refused = true
+		case _:
+			return false
+		}
+		if !refused {
 			return false
 		}
 		let s = ui.StateOf(&h)

@@ -342,7 +342,8 @@ type Handled[E] { Signal Option[E], Changed bool }
 // sends its signal while its load is live (Arrive); a pointer event
 // sends its Area's signal, and a key press the first OnKey's. A Tick
 // sends nothing here: a Session sends the signal of each Animate. A
-// list's viewport (Scrolled) becomes its cell and sends nothing. An event
+// list's viewport (Scrolled) becomes its cell and sends nothing. A press
+// or a text on a node under a disabled Fieldset does nothing. An event
 // on a node f no longer holds (it raced a commit) does nothing.
 func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	let mut out = Handled[E]{Signal: None, Changed: false}
@@ -350,6 +351,9 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	case Press[E] as p:
 		let n = f.nodes.Get(p.Id.ref) catch {
 		case arena.Stale:
+			return out
+		}
+		if n.off {
 			return out
 		}
 		match n.node {
@@ -373,6 +377,9 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	case Type[E] as x:
 		let n = f.nodes.Get(x.Id.ref) catch {
 		case arena.Stale:
+			return out
+		}
+		if n.off {
 			return out
 		}
 		match n.onText {

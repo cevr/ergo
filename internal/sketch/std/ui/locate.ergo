@@ -1,0 +1,382 @@
+import strings
+
+// Role is what a node is to an assistive technology and to a locator
+// (H4r): it comes from the node's kind alone, as an accessibility tree
+// gives it. A Pressable is a Button, a Check a Checkbox, a Toggle a
+// Switch, an Input a TextBox, a Text Static, a Fieldset a Group, an Area
+// a Region, a Canvas an Image, a list of Rows a List, and a Box, Row,
+// Column or Scroll Generic.
+type Role = Button | Checkbox | Switch | TextBox | Static | Group | Region | Image | List | Generic
+
+// Button is the role of a Pressable (and a Submit).
+type Button {}
+
+// Checkbox is the role of a Check.
+type Checkbox {}
+
+// Switch is the role of a Toggle.
+type Switch {}
+
+// TextBox is the role of an Input (and a Field).
+type TextBox {}
+
+// Static is the role of a Text.
+type Static {}
+
+// Group is the role of a Fieldset.
+type Group {}
+
+// Region is the role of an Area.
+type Region {}
+
+// Image is the role of a Canvas.
+type Image {}
+
+// List is the role of a list of Rows.
+type List {}
+
+// Generic is the role of a layout container: Box, Row, Column, Scroll.
+type Generic {}
+
+// Access is a node as a locator and an assistive technology read it: its
+// role; its accessible name (the label its primitive was given, a Text's
+// value, an Input's placeholder; empty for a container); whether it is a
+// control (Button, Checkbox, Switch, TextBox) under a disabled Fieldset;
+// the description of the nearest Fieldset above it, or its own, that has
+// one; a Checkbox's or Switch's state; and a TextBox's value.
+type Access { Role Role, Name string, Disabled bool, Description string, Checked Option[bool], Value Option[string] }
+
+// Locator finds nodes on a screen, as Testing Library's queries do: by
+// role and name (an empty Name matches any), by the label a primitive
+// was given (a Pressable's, Check's, Toggle's, Area's, Canvas's or
+// list's), by an Input's placeholder, or by a Text's value. Names match
+// exactly.
+type Locator = WithRole{Role Role, Name string} | WithLabel{Label string} | WithPlaceholder{Text string} | WithText{Text string}
+
+// Matcher is what a scene expects of a locator's nodes, after
+// Playwright's and Testing Library's matchers: that some node matches,
+// that none does, how many do, and of the first match: enabled or
+// disabled, checked or not, its value, the text it contains (the values
+// of the Texts in its subtree, in order) and its description.
+type Matcher = ToExist | ToBeAbsent | ToHaveCount{Count int} | ToBeEnabled | ToBeDisabled | ToBeChecked | ToBeUnchecked | ToHaveValue{Value string} | ToContainText{Text string} | ToHaveDescription{Text string}
+
+// ToExist expects a match.
+type ToExist {}
+
+// ToBeAbsent expects no match.
+type ToBeAbsent {}
+
+// ToBeEnabled expects the first match not to be disabled.
+type ToBeEnabled {}
+
+// ToBeDisabled expects the first match to be a disabled control.
+type ToBeDisabled {}
+
+// ToBeChecked expects the first match to be a checked Checkbox or an on
+// Switch.
+type ToBeChecked {}
+
+// ToBeUnchecked expects the first match to be an unchecked Checkbox or an
+// off Switch.
+type ToBeUnchecked {}
+
+// Mismatch is the failure of a scene's expectation: what the locator and
+// the matcher said, and what the screen held.
+type Mismatch { Want string, Got string }
+
+// LocateIn is the nodes of m that loc finds, in tree order. The root is
+// the host's, not the view's, and is never found.
+func LocateIn[E](m *Mirror[E], loc Locator) []Id[E] {
+	locateUnder(m, m.root, loc, false, "", []Id[E]{})
+}
+
+func locateUnder[E](m *Mirror[E], id Id[E], loc Locator, off bool, desc string, acc []Id[E]) []Id[E] {
+	let mut out = acc
+	match m.nodes.Get(id) {
+	case Some[mirrored[E]] as n:
+		for k in n.Value.kids {
+			match m.nodes.Get(k) {
+			case Some[mirrored[E]] as c:
+				let (o, d) = within(c.Value.node, off, desc)
+				if finds(loc, c.Value.node, access(c.Value.node, o, d)) {
+					out = out.Append(k)
+				}
+				out = locateUnder[E](m, k, loc, o, d, out)
+			case None:
+			}
+		}
+	case None:
+	}
+	out
+}
+
+// within is the disabled state and description a node passes to the
+// nodes under it, and has itself.
+func within[E](n Node[E], off bool, desc string) (bool, string) {
+	match n {
+	case FieldsetNode as x:
+		let mut d = desc
+		if x.Description != "" {
+			d = x.Description
+		}
+		(off || x.Disabled, d)
+	case _:
+		(off, desc)
+	}
+}
+
+// AccessOf is the node id names on m as a locator reads it; a Generic
+// with no name for an Id m does not hold.
+func AccessOf[E](m *Mirror[E], id Id[E]) Access {
+	let mut off = false
+	let mut desc = ""
+	let mut path = []Node[E]{}
+	let mut at = id
+	for at != m.root {
+		match m.nodes.Get(at) {
+		case Some[mirrored[E]] as n:
+			path = path.Append(n.Value.node)
+			at = n.Value.parent
+		case None:
+			return access[E](BoxNode{Style: Plain()}, false, "")
+		}
+	}
+	if len(path) == 0 {
+		return access[E](BoxNode{Style: Plain()}, false, "")
+	}
+	for i in 0..len(path) {
+		let (o, d) = within(path[len(path)-1-i], off, desc)
+		off = o
+		desc = d
+	}
+	access(path[0], off, desc)
+}
+
+// access is n as a locator reads it, under a disabled Fieldset when off,
+// with the description desc.
+func access[E](n Node[E], off bool, desc string) Access {
+	let mut a = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None}
+	match n {
+	case PressableNode[E] as x:
+		a.Role = Button
+		a.Name = x.Label
+		a.Disabled = off
+	case CheckNode[E] as x:
+		a.Role = Checkbox
+		a.Name = x.Label
+		a.Disabled = off
+		a.Checked = Some{Value: x.Checked}
+	case ToggleNode as x:
+		a.Role = Switch
+		a.Name = x.Label
+		a.Disabled = off
+		a.Checked = Some{Value: x.On}
+	case InputNode as x:
+		a.Role = TextBox
+		a.Name = x.Placeholder
+		a.Disabled = off
+		a.Value = Some{Value: x.Value}
+	case TextNode as x:
+		a.Role = Static
+		a.Name = x.Value
+	case FieldsetNode:
+		a.Role = Group
+	case AreaNode as x:
+		a.Role = Region
+		a.Name = x.Label
+	case CanvasNode as x:
+		a.Role = Image
+		a.Name = x.Label
+	case RowsNode as x:
+		a.Role = List
+		a.Name = x.Label
+	case _:
+	}
+	a
+}
+
+// finds is whether loc finds a node n, read as a.
+func finds[E](loc Locator, n Node[E], a Access) bool {
+	match loc {
+	case WithRole as x:
+		a.Role == x.Role && (x.Name == "" || a.Name == x.Name)
+	case WithLabel as x:
+		match n {
+		case PressableNode[E] as p:
+			p.Label == x.Label
+		case CheckNode[E] as c:
+			c.Label == x.Label
+		case ToggleNode as t:
+			t.Label == x.Label
+		case AreaNode as r:
+			r.Label == x.Label
+		case CanvasNode as c:
+			c.Label == x.Label
+		case RowsNode as l:
+			l.Label == x.Label
+		case _:
+			false
+		}
+	case WithPlaceholder as x:
+		match n {
+		case InputNode as i:
+			i.Placeholder == x.Text
+		case _:
+			false
+		}
+	case WithText as x:
+		match n {
+		case TextNode as t:
+			t.Value == x.Text
+		case _:
+			false
+		}
+	}
+}
+
+// TextIn is the values of the Texts in the subtree of id on m (id's own
+// included), in tree order, run together: a node's text content.
+func TextIn[E](m *Mirror[E], id Id[E]) string {
+	match m.nodes.Get(id) {
+	case Some[mirrored[E]] as n:
+		let mut out = ""
+		match n.Value.node {
+		case TextNode as t:
+			out = t.Value
+		case _:
+		}
+		for k in n.Value.kids {
+			out = out + TextIn[E](m, k)
+		}
+		out
+	case None:
+		""
+	}
+}
+
+// ExpectIn checks is against what loc finds on m, failing Mismatch with
+// both sides.
+func ExpectIn[E](m *Mirror[E], loc Locator, is Matcher) fails Mismatch {
+	let ids = LocateIn(m, loc)
+	let want = locatorText(loc) + " " + matcherText(is)
+	match is {
+	case ToExist:
+		if len(ids) == 0 {
+			return Mismatch{Want: want, Got: "no node"}
+		}
+		return
+	case ToBeAbsent:
+		if len(ids) != 0 {
+			return Mismatch{Want: want, Got: "\(len(ids)) nodes"}
+		}
+		return
+	case ToHaveCount as c:
+		if len(ids) != c.Count {
+			return Mismatch{Want: want, Got: "\(len(ids)) nodes"}
+		}
+		return
+	case _:
+	}
+	if len(ids) == 0 {
+		return Mismatch{Want: want, Got: "no node"}
+	}
+	let a = AccessOf(m, ids[0])
+	let mut ok = true
+	let mut got = ""
+	match is {
+	case ToBeEnabled:
+		ok = !a.Disabled
+		got = "disabled"
+	case ToBeDisabled:
+		ok = a.Disabled
+		got = "enabled"
+	case ToBeChecked:
+		ok = a.Checked == (Some{Value: true})
+		got = "not checked"
+	case ToBeUnchecked:
+		ok = a.Checked == (Some{Value: false})
+		got = "not unchecked"
+	case ToHaveValue as v:
+		ok = a.Value == (Some{Value: v.Value})
+		match a.Value {
+		case Some[string] as x:
+			got = "value \"\(x.Value)\""
+		case None:
+			got = "no value"
+		}
+	case ToContainText as t:
+		let text = TextIn(m, ids[0])
+		ok = strings.Contains(text, t.Text)
+		got = "text \"\(text)\""
+	case ToHaveDescription as d:
+		ok = a.Description == d.Text
+		got = "description \"\(a.Description)\""
+	case _:
+	}
+	if !ok {
+		return Mismatch{Want: want, Got: got}
+	}
+}
+
+func locatorText(loc Locator) string {
+	match loc {
+	case WithRole as x:
+		"role \(roleText(x.Role)) \"\(x.Name)\""
+	case WithLabel as x:
+		"label \"\(x.Label)\""
+	case WithPlaceholder as x:
+		"placeholder \"\(x.Text)\""
+	case WithText as x:
+		"text \"\(x.Text)\""
+	}
+}
+
+func roleText(r Role) string {
+	match r {
+	case Button:
+		"button"
+	case Checkbox:
+		"checkbox"
+	case Switch:
+		"switch"
+	case TextBox:
+		"textbox"
+	case Static:
+		"static"
+	case Group:
+		"group"
+	case Region:
+		"region"
+	case Image:
+		"image"
+	case List:
+		"list"
+	case Generic:
+		"generic"
+	}
+}
+
+func matcherText(is Matcher) string {
+	match is {
+	case ToExist:
+		"to exist"
+	case ToBeAbsent:
+		"to be absent"
+	case ToHaveCount as c:
+		"to have count \(c.Count)"
+	case ToBeEnabled:
+		"to be enabled"
+	case ToBeDisabled:
+		"to be disabled"
+	case ToBeChecked:
+		"to be checked"
+	case ToBeUnchecked:
+		"to be unchecked"
+	case ToHaveValue as v:
+		"to have value \"\(v.Value)\""
+	case ToContainText as t:
+		"to contain text \"\(t.Text)\""
+	case ToHaveDescription as d:
+		"to have description \"\(d.Text)\""
+	}
+}

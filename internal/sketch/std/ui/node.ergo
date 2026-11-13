@@ -81,7 +81,7 @@ func Plain() Style {
 
 // Node is what one node shows, as a host receives it in a Patch. It holds
 // no function, so two Nodes compare with == (a canvas's paint list\n// structurally).
-type Node[E] = BoxNode{Style Style} | RowNode{Style Style} | ColumnNode{Style Style} | ScrollNode{Style Style} | TextNode{Value string, Style Style} | PressableNode{Label string, On E, Style Style} | CheckNode{Label string, Checked bool, On E} | InputNode{Value string, Placeholder string} | ToggleNode{Label string, On bool} | AreaNode{Label string, Style Style} | CanvasNode{Label string, Width Length, Height Length, Paint []PaintOp} | RowsNode{Label string, Count int, RowHeight Length, First int}
+type Node[E] = BoxNode{Style Style} | RowNode{Style Style} | ColumnNode{Style Style} | ScrollNode{Style Style} | TextNode{Value string, Style Style} | PressableNode{Label string, On E, Style Style} | CheckNode{Label string, Checked bool, On E} | InputNode{Value string, Placeholder string} | ToggleNode{Label string, On bool} | AreaNode{Label string, Style Style} | CanvasNode{Label string, Width Length, Height Length, Paint []PaintOp} | RowsNode{Label string, Count int, RowHeight Length, First int} | FieldsetNode{Disabled bool, Description string}
 
 // Key names a row of an Each. Two rows of one Each with one Key are one
 // instance across frames, wherever they move.

@@ -215,15 +215,29 @@ func labelOf[E](n Node[E]) Option[string] {
 	}
 }
 
-// Act is one step of a scene script, by label.
-type Act = TapOn{Label string} | TypeInto{Label string, Text string} | SettleAll | AdvanceBy{By duration} | KeyIn{Press KeyPress} | PointOn{Label string, Pointer PointerEvent} | ScrollOn{Label string, Offset Length, Height Length}
+// Locate is the nodes on the screen that loc finds, in tree order (H4r).
+func Locate[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) []Id[E] { LocateIn(&h.mirror, loc) }
+
+// AccessAt is the node id names on the screen as a locator reads it.
+func AccessAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) Access { AccessOf(&h.mirror, id) }
+
+// Expect checks is against what loc finds on the screen.
+func Expect[S, E, D, F](h *TestHost[S, E, D, F], loc Locator, is Matcher) fails Mismatch {
+	try ExpectIn(&h.mirror, loc, is)
+}
+
+// Act is one step of a scene script: by label (TapOn, TypeInto, PointOn,
+// ScrollOn), or by locator (ClickOn and FillIn act on the first node it
+// finds; ExpectOn checks a matcher), or on the host.
+type Act = TapOn{Label string} | TypeInto{Label string, Text string} | SettleAll | AdvanceBy{By duration} | KeyIn{Press KeyPress} | PointOn{Label string, Pointer PointerEvent} | ScrollOn{Label string, Offset Length, Height Length} | ClickOn{At Locator} | FillIn{At Locator, Text string} | ExpectOn{At Locator, Is Matcher}
 
 // SettleAll settles the loads.
 type SettleAll {}
 
-// Play runs a script in order. A step whose label names no node fails
-// NoNode with that label.
-func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails NoNode | actor.Stopped | BadPatch {
+// Play runs a script in order. A step whose label or locator names no
+// node fails NoNode with that label or locator, and an ExpectOn that does
+// not hold fails Mismatch.
+func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails NoNode | Mismatch | actor.Stopped | BadPatch {
 	for act in script {
 		match act {
 		case TapOn as x:
@@ -240,8 +254,22 @@ func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails No
 			try PointAt(h, try found(h, x.Label), x.Pointer)
 		case ScrollOn as x:
 			try ScrollTo(h, try found(h, x.Label), x.Offset, x.Height)
+		case ClickOn as x:
+			try Tap(h, try first(h, x.At))
+		case FillIn as x:
+			try TypeText(h, try first(h, x.At), x.Text)
+		case ExpectOn as x:
+			try Expect(h, x.At, x.Is)
 		}
 	}
+}
+
+func first[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) Id[E] fails NoNode {
+	let ids = Locate(h, loc)
+	if len(ids) == 0 {
+		return NoNode{Label: locatorText(loc)}
+	}
+	ids[0]
 }
 
 func found[S, E, D, F](h *TestHost[S, E, D, F], label string) Id[E] fails NoNode {
@@ -309,5 +337,14 @@ func nodeText[E](n Node[E]) string {
 		"(off) \"\(x.Label)\""
 	case InputNode as x:
 		"input \"\(x.Value)\" (\(x.Placeholder))"
+	case FieldsetNode as x:
+		let mut out = "fieldset"
+		if x.Disabled {
+			out = out + " disabled"
+		}
+		if x.Description != "" {
+			out = out + " \"\(x.Description)\""
+		}
+		out
 	}
 }

@@ -297,6 +297,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Parked (ui)**: Said of a node, cell or load that a pass under a stopped group did not write or read: out of the tree and the host's copy, kept with its `Id`, cells, loads and subtree until a pass writes it again (it comes back with the same `Id`) or a pass in which no group under its parent stops (it is released). See [stdlib](docs/spec/stdlib.md#ui), UI 15.
 
+**Locator (ui)**: A `ui.Locator` value that finds nodes on a screen by role and accessible name, by label, by placeholder or by text, in tree order; a scene checks what it finds with a `ui.Matcher`. Roles and names come from the node kinds and labels. See [stdlib](docs/spec/stdlib.md#ui), UI 16.
+
 **Paint list (ui)**: The content of a `ui.Canvas`: a list of `ui.PaintOp` values (fills and strokes of paths, and transforms and clips each closed by a pop) that the canvas's draw function wrote through a borrowed `*ui.Paint`. It is a field of the canvas node, so an unchanged list is no change, and a host replays it. See [stdlib](docs/spec/stdlib.md#ui).
 
 **Virtual rows (ui)**: A `ui.Rows` list, whose row function the composer runs only for the rows its viewport shows, plus `ui.Overscan` rows on each side. Its viewport is view-local state the host reports (`ui.Scrolled`), and its rows are keyed as `Each` rows are. See [stdlib](docs/spec/stdlib.md#ui).

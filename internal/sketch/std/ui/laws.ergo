@@ -13,7 +13,7 @@
 // drawn only under a pBound, is a read that fails with Pending or Missing by
 // the state (H8a), so a failure leaves nested containers, Each rows and
 // inner boundaries.
-type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int}
+type prog = pText{slot int} | pInput{slot int} | pCheck{slot int} | pSwap{slot int} | pBox{slot int, kids []prog} | pRow{kids []prog} | pPress{slot int, kids []prog} | pEach{slot int, kids []prog} | pBound{form int, slot int, kids []prog} | pRead{slot int} | pFieldset{slot int, kids []prog}
 
 // Missing is the drawn read's failure that is not Pending.
 type Missing { V int }
@@ -31,7 +31,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 let slots = 6
 
 func genProg(r *rng, depth int, bounded bool) prog {
-	let kind = draw(r, 10)
+	let kind = draw(r, 11)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
 	}
@@ -47,7 +47,7 @@ func genProg(r *rng, depth int, bounded bool) prog {
 			pSwap{slot: draw(r, slots)}
 		}
 	} else {
-		let inner = bounded || kind >= 8
+		let inner = bounded || kind == 8 || kind == 9
 		let mut kids = []prog{}
 		for _ in 0..draw(r, 4) {
 			kids = kids.Append(genProg(r, depth-1, inner))
@@ -61,6 +61,8 @@ func genProg(r *rng, depth int, bounded bool) prog {
 			pPress{slot: draw(r, slots), kids: kids}
 		case 7:
 			pEach{slot: draw(r, slots), kids: kids}
+		case 10:
+			pFieldset{slot: draw(r, slots), kids: kids}
 		case _:
 			pBound{form: draw(r, 3), slot: draw(r, slots), kids: kids.Append(pRead{slot: draw(r, slots)})}
 		}
@@ -92,6 +94,15 @@ func gapped(v int) Style {
 	let mut st = Plain()
 	st.Gap = Length(float64(v % 3))
 	st
+}
+
+// described is the description of a pFieldset at state value v: a text
+// for an even v, none for an odd one.
+func described(v int) string {
+	if v%2 == 0 {
+		return "d\(v)"
+	}
+	""
 }
 
 // swap writes a Text or a Check at its caller's site.
@@ -129,6 +140,12 @@ func render(f *Frame[int], p prog, s []int, row int) fails Missing | Pending {
 		Text(f, "after")
 	case pPress as x:
 		try Pressable(f, "press", s[x.slot]%4+row) {
+			for c in x.kids {
+				try render(f, c, s, row)
+			}
+		}
+	case pFieldset as x:
+		try Fieldset(f, s[x.slot]%3 == 0, described(s[x.slot])) {
 			for c in x.kids {
 				try render(f, c, s, row)
 			}
@@ -233,6 +250,12 @@ func model(p prog, s []int, row int) outcome {
 			return o
 		}
 		done([]Shape[int]{Shape[int]{Node: PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: Plain()}, Kids: o.shapes}})
+	case pFieldset as x:
+		let o = outcomes(x.kids, s, row)
+		if o.fail != 0 {
+			return o
+		}
+		done([]Shape[int]{Shape[int]{Node: FieldsetNode{Disabled: s[x.slot]%3 == 0, Description: described(s[x.slot])}, Kids: o.shapes}})
 	case pEach as x:
 		let mut out = []Shape[int]{}
 		for k in items(s[x.slot]) {
@@ -311,6 +334,8 @@ func stopIn(p prog, s []int, row int) bool {
 	case pRow as x:
 		stopsAt(x.kids, s, row)
 	case pPress as x:
+		stopsAt(x.kids, s, row)
+	case pFieldset as x:
 		stopsAt(x.kids, s, row)
 	case pEach as x:
 		for k in items(s[x.slot]) {
@@ -515,13 +540,17 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f *Frame[int], id Id[int]) bool {
+func signalsAgree(f *Frame[int], id Id[int], off bool) bool {
 	let mut ok = true
+	let mut under = off
 	let pressed = sent(Handle(f, Press[int]{Id: id}).Signal)
 	let typed = sent(Handle(f, Type[int]{Id: id, Text: "abc"}).Signal)
 	match NodeOf(f, id) {
 	case Some[Node[int]] as n:
 		match n.Value {
+		case FieldsetNode as d:
+			under = off || d.Disabled
+			ok = pressed == -1 && typed == -1
 		case PressableNode[int] as p:
 			ok = pressed == p.On && typed == -1
 		case CheckNode[int] as c:
@@ -531,18 +560,22 @@ func signalsAgree(f *Frame[int], id Id[int]) bool {
 		case _:
 			ok = pressed == -1 && typed == -1
 		}
+		if off {
+			ok = pressed == -1 && typed == -1
+		}
 	case None:
 		return false
 	}
 	for k in Kids(f, id) {
-		ok = ok && signalsAgree(f, k)
+		ok = ok && signalsAgree(f, k, under)
 	}
 	ok
 }
 
 // PressGivesSignal: a press of a Pressable or a Check sends its On, a
 // text into an Input sends the Input's signal, and any other node sends
-// nothing, after every commit of a run.
+// nothing, after every commit of a run; under a disabled Fieldset no
+// node sends anything (H4r).
 law PressGivesSignal(seed int) {
 	let mut r = seeded(seed)
 	let ps = genRoot(&r)
@@ -551,8 +584,213 @@ law PressGivesSignal(seed int) {
 	for _ in 0..3 {
 		let _ = pass(&f, ps, genState(&r))
 		for k in Kids(&f, Root(&f)) {
-			ok = ok && signalsAgree(&f, k)
+			ok = ok && signalsAgree(&f, k, false)
 		}
 	}
 	ok
+}
+
+// seen is one node of a model screen as a locator reads it: its node,
+// its access and its text content.
+type seen { node Node[int], a Access, text string }
+
+// accessModel is shapes in tree order as an accessibility tree reads
+// them, written from the shapes alone: a node's role and name from its
+// kind and label, disabled for a control under a disabled Fieldset, the
+// description of the nearest Fieldset (itself included) that has one.
+func accessModel(shapes []Shape[int], off bool, desc string) []seen {
+	let mut out = []seen{}
+	for sh in shapes {
+		let mut o = off
+		let mut d = desc
+		match sh.Node {
+		case FieldsetNode as x:
+			o = off || x.Disabled
+			if x.Description != "" {
+				d = x.Description
+			}
+		case _:
+		}
+		out = out.Append(seen{node: sh.Node, a: readAs(sh.Node, o, d), text: textOf(sh)})
+		for x in accessModel(sh.Kids, o, d) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func readAs(n Node[int], off bool, desc string) Access {
+	let base = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None}
+	match n {
+	case PressableNode[int] as x:
+		Access{Role: Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None}
+	case CheckNode[int] as x:
+		Access{Role: Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None}
+	case ToggleNode as x:
+		Access{Role: Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None}
+	case InputNode as x:
+		Access{Role: TextBox, Name: x.Placeholder, Disabled: off, Description: desc, Checked: None, Value: Some{Value: x.Value}}
+	case TextNode as x:
+		Access{Role: Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None}
+	case FieldsetNode:
+		Access{Role: Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None}
+	case AreaNode as x:
+		Access{Role: Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+	case CanvasNode as x:
+		Access{Role: Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+	case RowsNode as x:
+		Access{Role: List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None}
+	case _:
+		base
+	}
+}
+
+func textOf(sh Shape[int]) string {
+	let mut out = ""
+	match sh.Node {
+	case TextNode as t:
+		out = t.Value
+	case _:
+	}
+	for k in sh.Kids {
+		out = out + textOf(k)
+	}
+	out
+}
+
+// wants is whether the model says loc finds x: a role and a name (any
+// name for an empty one); a label, the name of a node whose primitive
+// takes one; a placeholder, a TextBox's name; a text, a Static's name.
+func wants(loc Locator, x seen) bool {
+	match loc {
+	case WithRole as l:
+		x.a.Role == l.Role && (l.Name == "" || x.a.Name == l.Name)
+	case WithLabel as l:
+		let labelled = x.a.Role == Button || x.a.Role == Checkbox || x.a.Role == Switch || x.a.Role == Region || x.a.Role == Image || x.a.Role == List
+		labelled && x.a.Name == l.Label
+	case WithPlaceholder as l:
+		x.a.Role == TextBox && x.a.Name == l.Text
+	case WithText as l:
+		x.a.Role == Static && x.a.Name == l.Text
+	}
+}
+
+func matches(m *Mirror[int], loc Locator, is Matcher) bool {
+	ExpectIn(m, loc, is) catch {
+	case Mismatch:
+		return false
+	}
+	true
+}
+
+// extras writes, after a generated program, one node of each kind the
+// generator does not draw: a Toggle, an Area, a Canvas and a list, with
+// labels read from the state, inside a disabled Fieldset for an odd
+// state value.
+func extras(f *Frame[int], v int) {
+	Fieldset(f, v%2 == 1, "x\(v)") {
+		let on = NewFlag(f, true)
+		Toggle(f, on, "tg\(v % 3)")
+		Area(f, "area\(v % 2)", Plain(), func(p PointerEvent) Option[int] { None }) {
+			Text(f, "in area")
+		}
+		Canvas(f, "c\(v % 4)", 4, 4) func(p *Paint) {}
+		Rows(f, "rows", 0, 10, func(i int) Key { ByInt(i) }) func(i int) {}
+	}
+}
+
+func extraShapes(v int) []Shape[int] {
+	let kids = []Shape[int]{leaf(ToggleNode{Label: "tg\(v % 3)", On: true}), Shape[int]{Node: AreaNode{Label: "area\(v % 2)", Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in area", Style: Plain()})}}, leaf(CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []PaintOp{}}), leaf(RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0})}
+	[]Shape[int]{Shape[int]{Node: FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
+}
+
+// LocatorAgreesWithAccessTree (H4r): on the mirror a host builds from the
+// patches of generated programs (with Fieldsets that disable and
+// describe what is under them) and one node of each other kind, each
+// role finds exactly the nodes of the model's accessibility tree with
+// that role, in tree order, each read as the model reads it; a drawn
+// node's role and name, label, placeholder and text find what the model
+// says; and the matchers agree with the model on the first match.
+law LocatorAgreesWithAccessTree(seed int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r)
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	for _ in 0..3 {
+		let s = genState(&r)
+		let ops = Render(&f, func(g *Frame[int], st []int) {
+			for p in ps {
+				render(g, p, st, 0) catch {
+				case Missing:
+					Unreachable("ui laws: a read is drawn only under a boundary")
+				case Pending:
+					Unreachable("ui laws: a read is drawn only under a boundary")
+				}
+			}
+			extras(g, st[0])
+		}, s)
+		Apply(&m, ops) catch {
+		case BadPatch:
+			return false
+		}
+		let mut shapes = models(ps, s, 0)
+		for x in extraShapes(s[0]) {
+			shapes = shapes.Append(x)
+		}
+		let want = accessModel(shapes, false, "")
+		let mut locs = []Locator{}
+		for role in []Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Generic} {
+			locs = locs.Append(WithRole{Role: role, Name: ""})
+		}
+		let w = want[draw(&r, len(want))]
+		locs = locs.Append(WithRole{Role: w.a.Role, Name: w.a.Name})
+		locs = locs.Append(WithLabel{Label: w.a.Name})
+		locs = locs.Append(WithPlaceholder{Text: w.a.Name})
+		locs = locs.Append(WithText{Text: w.a.Name})
+		for loc in locs {
+			let mut model = []seen{}
+			for x in want {
+				if wants(loc, x) {
+					model = model.Append(x)
+				}
+			}
+			let got = LocateIn(&m, loc)
+			if len(got) != len(model) {
+				return false
+			}
+			for i, id in got {
+				if AccessOf(&m, id) != model[i].a {
+					return false
+				}
+			}
+			if matches(&m, loc, ToHaveCount{Count: len(model)}) != true || matches(&m, loc, ToHaveCount{Count: len(model) + 1}) || matches(&m, loc, ToHaveCount{Count: len(model) - 1}) || matches(&m, loc, ToExist) != (len(model) > 0) || matches(&m, loc, ToBeAbsent) != (len(model) == 0) {
+				return false
+			}
+			if len(model) > 0 {
+				let x = model[0]
+				let checked = x.a.Checked == (Some{Value: true})
+				let unchecked = x.a.Checked == (Some{Value: false})
+				if matches(&m, loc, ToBeDisabled) != x.a.Disabled || matches(&m, loc, ToBeEnabled) == x.a.Disabled || matches(&m, loc, ToBeChecked) != checked || matches(&m, loc, ToBeUnchecked) != unchecked {
+					return false
+				}
+				if !matches(&m, loc, ToHaveDescription{Text: x.a.Description}) || matches(&m, loc, ToHaveDescription{Text: x.a.Description + "!"}) {
+					return false
+				}
+				if !matches(&m, loc, ToContainText{Text: x.text}) || !matches(&m, loc, ToContainText{Text: ""}) || matches(&m, loc, ToContainText{Text: x.text + "!"}) {
+					return false
+				}
+				match x.a.Value {
+				case Some[string] as v:
+					if !matches(&m, loc, ToHaveValue{Value: v.Value}) || matches(&m, loc, ToHaveValue{Value: v.Value + "!"}) {
+						return false
+					}
+				case None:
+					if matches(&m, loc, ToHaveValue{Value: ""}) {
+						return false
+					}
+				}
+			}
+		}
+	}
+	true
 }

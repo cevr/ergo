@@ -77,6 +77,7 @@ type node[E] {
 	id      ident,
 	kids    []arena.Ref[node[E]],
 	parked  []arena.Ref[node[E]],
+	off     bool,
 	onText  Option[func(t string) E],
 	onPoint Option[func(p PointerEvent) Option[E]],
 	binds   Option[bound[E]],
@@ -103,6 +104,7 @@ type spec[E] {
 	onText  Option[func(t string) E],
 	onPoint Option[func(p PointerEvent) Option[E]],
 	binds   Option[cellAt],
+	off     bool,
 	first   int,
 	last    int,
 	next    int,
@@ -118,12 +120,12 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 // NewFrame is a composer whose tree has only its root.
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
-	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None))
+	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, false))
 	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0}
 }
 
-func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]]) node[E] {
-	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, onText: onText, onPoint: onPoint, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}}
+func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], off bool) node[E] {
+	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}}
 }
 
 // Render writes view(s) as one pass of f and commits it: f's tree then
@@ -232,7 +234,7 @@ func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Optio
 	}
 	let i = f.nspecs
 	let p = f.parent
-	let sp = spec[E]{node: n, id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, first: -1, last: -1, next: -1, before: lastKid(f, p)}
+	let sp = spec[E]{node: n, id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), first: -1, last: -1, next: -1, before: lastKid(f, p)}
 	if i < len(f.specs) {
 		f.specs[i] = sp
 	} else {
@@ -296,6 +298,25 @@ func open[E, F](f *Frame[E], n Node[E], body func() fails F, at CallSite) fails 
 		return err
 	}
 	f.parent = m.parent
+}
+
+// Fieldset is a container that says what its controls are (H4r), as
+// HTML's fieldset does: while disabled, a press or a text on any node
+// under it does nothing (Handle), and a locator reports each control
+// under it disabled; description, when not empty, is the accessible
+// description of the nodes under it that no nearer Fieldset describes.
+func Fieldset[E, F](f *Frame[E], disabled bool, description string, body func() fails F, at CallSite) fails F {
+	try open(f, FieldsetNode{Disabled: disabled, Description: description}, body, at)
+}
+
+// disables is whether n is a disabled Fieldset.
+func disables[E](n Node[E]) bool {
+	match n {
+	case FieldsetNode as x:
+		x.Disabled
+	case _:
+		false
+	}
 }
 
 // Box is a container that stacks its children.
@@ -532,7 +553,7 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 			refs = refs.Append(sp.prev)
 			unpark(f, sp.prev)
 		} else {
-			refs = refs.Append(f.nodes.Put(fresh(sp.node, sp.id, sp.onText, sp.onPoint)))
+			refs = refs.Append(f.nodes.Put(fresh(sp.node, sp.id, sp.onText, sp.onPoint, sp.off)))
 		}
 		f.specs[s].ref = refs[j]
 	}
@@ -556,6 +577,7 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 					n.node = sp.node
 					n.onText = sp.onText
 					n.onPoint = sp.onPoint
+					n.off = sp.off
 				})
 			}
 		} else {
@@ -612,6 +634,7 @@ func update[E comparable](f *Frame[E], s int, r arena.Ref[node[E]]) {
 		n.node = sp.node
 		n.onText = sp.onText
 		n.onPoint = sp.onPoint
+		n.off = sp.off
 	})
 }
 
@@ -706,6 +729,8 @@ func kindOf[E](n Node[E]) int {
 		10
 	case RowsNode:
 		11
+	case FieldsetNode:
+		12
 	}
 }
 
