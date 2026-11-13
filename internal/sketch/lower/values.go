@@ -459,6 +459,9 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		w.handParams(n, frame)
 	case *syntax.CallExpr:
 		w.refCall(n)
+		if c := w.info.Calls[n]; c != nil && goImportCall(c, w.typeOf) {
+			w.goReads = append(w.goReads, n)
+		}
 		if c := w.info.Calls[n]; c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func)) {
 			w.calls = append(w.calls, n)
 		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
@@ -466,9 +469,6 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		} else if c != nil && c.Kind == check.CallFunc && pureStdBody(c.Func) {
 			w.pure = append(w.pure, n)
 		} else if c != nil && (goImportCall(c, w.typeOf) || goExternCall(c)) {
-			if goImportCall(c, w.typeOf) {
-				w.goReads = append(w.goReads, n)
-			}
 			list := n.Args
 			if c.Recv != nil {
 				list = append([]syntax.Expr{c.Recv}, list...)
@@ -1823,10 +1823,13 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 					o.kind = occRead
 				}
 			}
+		case entryRule() && aliasLowering != "type" && c.Kind == check.CallFunc && pureStdBody(c.Func) && w.l.copyCovers(w.typeOf(p)):
+			// A pure std body keeps its argument only in its result, as
+			// a pure Ergo body does: the result is copied instead (V8).
+			// Its Go body has no summary, so every argument counts.
+			o.call, o.result = p, true
+			w.readAtOnce(o, p)
 		}
-		// MAPCOPY x OWN1: a pure std body's result copy (V8) is OWN1's
-		// result-alias case above, which now summarizes runtime/v1
-		// bodies; Escapes copies the result only when copyCovers.
 	}
 }
 
