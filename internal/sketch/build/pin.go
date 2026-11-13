@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/pinset"
@@ -190,6 +191,7 @@ func (d *direct) producedSets() []ProducedSet {
 		std.Paths[path] = d.blob(a.Digest)
 	}
 	rt := ProducedSet{Kind: "runtime", Name: d.pinKey("runtime", d.plan).Name(), Paths: map[string]string{}}
+	slices.SortFunc(d.runtimeEntries, func(a, b pinset.Entry) int { return strings.Compare(a.Name, b.Name) })
 	for _, e := range d.runtimeEntries {
 		rt.Entries = append(rt.Entries, e)
 		rt.Paths[e.Name] = d.blob(e.Digest)

@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ergo.local/prototype/internal/pinset"
@@ -135,6 +136,10 @@ type direct struct {
 	output string
 	report Report
 
+	// mu guards the build's state while compiles run at once
+	// (compileAll).
+	mu sync.Mutex
+
 	plan    planFile
 	stage   string             // this build's temporary directory
 	digests map[string]archive // the module's compiled packages
@@ -227,13 +232,8 @@ func (d *direct) build() error {
 			return err
 		}
 	}
-	for _, p := range tg.packages {
-		if err := d.compile(p); err != nil {
-			return err
-		}
-		if err := d.produced(p); err != nil {
-			return err
-		}
+	if err := d.compileAll(tg.packages); err != nil {
+		return err
 	}
 	if d.t.Pins.Produce {
 		d.report.Sets = d.producedSets()
@@ -467,9 +467,9 @@ func buildID(key string, parts int) string {
 }
 
 // compileKey is the action key of a package's compile: every input of the
-// object it writes. The root package's IR file (-ergoir) is one, by its
-// content; the patched compile that reads it is one through the tool's
-// digest.
+// object it writes. The package's IR file (-ergoir, in its folder) is
+// one, by its content; the patched compile that reads it is one through
+// the tool's digest.
 func (d *direct) compileKey(p *goPackage) (string, error) {
 	return d.packageKey(p, "compile", func(k *keyer) { d.toolchainKey(k, d.plan.Compile) })
 }
@@ -497,15 +497,13 @@ func (d *direct) packageKey(p *goPackage, kind string, tool func(*keyer)) (strin
 		k.add("file", p.Trim+"/"+filepath.Base(f))
 		k.add("content", hex.EncodeToString(sum[:]))
 	}
-	if p.ImportPath == d.mainPath() {
-		if ir := ergoIR(d.module); ir != nil {
-			data, err := os.ReadFile(ir[1])
-			if err != nil {
-				return "", err
-			}
-			sum := sha256.Sum256(data)
-			k.add("ergoir", hex.EncodeToString(sum[:]))
+	if ir := ergoIR(p.Dir); ir != nil {
+		data, err := os.ReadFile(ir[1])
+		if err != nil {
+			return "", err
 		}
+		sum := sha256.Sum256(data)
+		k.add("ergoir", hex.EncodeToString(sum[:]))
 	}
 	for _, imp := range p.Imports {
 		if imp == "unsafe" { // built into the compiler: the tool digest covers it
@@ -576,7 +574,68 @@ func (d *direct) toolEnv(goroot string) []string {
 	return env
 }
 
-// compile runs, or reuses, the compile action of p.
+// compileAll runs, or reuses, the compile of each package, in dependency
+// order (the root last), starting each as soon as the module's packages
+// it imports are compiled: the compiles of packages that do not import
+// each other run at the same time, at most GOMAXPROCS at once, as cmd/go
+// runs its actions (-p). A package whose import failed is not compiled,
+// and the first failure in dependency order is the build's.
+func (d *direct) compileAll(pkgs []*goPackage) error {
+	done := map[string]chan struct{}{}
+	for _, p := range pkgs {
+		done[p.ImportPath] = make(chan struct{})
+	}
+	errs := make([]error, len(pkgs))
+	failed := map[string]bool{}
+	slots := make(chan struct{}, max(1, runtime.GOMAXPROCS(0)))
+	var wg sync.WaitGroup
+	for i, p := range pkgs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer close(done[p.ImportPath])
+			for _, imp := range p.Imports {
+				if ch, ok := done[imp]; ok {
+					<-ch
+				}
+			}
+			d.mu.Lock()
+			skip := slices.ContainsFunc(p.Imports, func(imp string) bool { return failed[imp] })
+			if skip {
+				failed[p.ImportPath] = true
+			}
+			d.mu.Unlock()
+			if skip {
+				return
+			}
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			err := d.compile(p)
+			if err == nil {
+				err = d.produced(p)
+			}
+			if err != nil {
+				errs[i], failed[p.ImportPath] = err, true
+			}
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// runCompile runs a compile process of the package at importPath and
+// returns its output (a test holds compiles with it).
+var runCompile = func(cmd *exec.Cmd, importPath string) ([]byte, error) { return cmd.CombinedOutput() }
+
+// compile runs, or reuses, the compile action of p. It runs under d.mu,
+// which it releases only while the compiler runs.
 func (d *direct) compile(p *goPackage) error {
 	key, err := d.compileKey(p)
 	if err != nil {
@@ -625,11 +684,9 @@ func (d *direct) compile(p *goPackage) error {
 	if d.plan.pie() {
 		args = append(args, "-shared")
 	}
-	if p.ImportPath == d.mainPath() {
-		// Where go build puts -gcflags: the IR bodies, for the patched
-		// compile (ergoIR).
-		args = append(args, ergoIR(d.module)...)
-	}
+	// Where go build puts -gcflags: the package's IR bodies, for the
+	// patched compile (ergoIR).
+	args = append(args, ergoIR(p.Dir)...)
 	args = append(args, "-nolocalimports", "-importcfg", filepath.Join(objdir, "importcfg"))
 	if p.Embed != nil {
 		cfg, err := embedConfig(p)
@@ -648,7 +705,10 @@ func (d *direct) compile(p *goPackage) error {
 	cmd.Env = d.toolEnv(d.plan.GOROOT)
 	stage.Add(stage.GoCompiles, 1)
 	stage.Add(stage.Processes, 1)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	d.mu.Unlock()
+	output, err := runCompile(cmd, p.ImportPath)
+	d.mu.Lock()
+	if err != nil {
 		return fmt.Errorf("compile %s: %v: %s", p.ImportPath, err, firstLine(output))
 	}
 	a, err := d.storeArchive(out)

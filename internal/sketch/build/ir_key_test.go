@@ -6,21 +6,30 @@ import (
 	"testing"
 )
 
-// TestDirectCompileKeysOnTheIR: the root package's compile on the direct
-// path is keyed by the IR file's content, the patched compile's -ergoir
-// input, since main.go carries no digest of it: the same main.go with
-// other IR bodies is another compile, and a package that is not the root
-// does not read the IR. Mutant: the key leaves the IR out
-// (irt-direct-key-without-ir).
+// TestDirectCompileKeysOnTheIR: a package's compile on the direct path is
+// keyed by the content of the IR file in its folder, the patched compile's
+// -ergoir input, since its Go file carries no digest of it: the same
+// main.go with other IR bodies is another compile, and another package
+// does not read that IR (CS10: one IR file per package). Mutants: the key
+// leaves the IR out (irt-direct-key-without-ir); every package's key
+// holds the root's IR (irt-ir-key-every-package).
 func TestDirectCompileKeysOnTheIR(t *testing.T) {
 	dir := t.TempDir()
 	main := filepath.Join(dir, "main.go")
 	if err := os.WriteFile(main, []byte("package main\n\nfunc f() int\n\nfunc main() { _ = f() }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	sub := filepath.Join(dir, "x")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	x := filepath.Join(sub, "x.go")
+	if err := os.WriteFile(x, []byte("package x\n\nfunc G() int { return 1 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	d := &direct{module: Module{Dir: dir}, plan: planFile{mainPath: "ergo.local/program"}}
 	root := &goPackage{ImportPath: "ergo.local/program", Dir: dir, Files: []string{main}, Trim: "ergo.local/program"}
-	other := &goPackage{ImportPath: "ergo.local/program/x", Dir: dir, Files: []string{main}, Trim: "ergo.local/program/x"}
+	other := &goPackage{ImportPath: "ergo.local/program/x", Dir: sub, Files: []string{x}, Trim: "ergo.local/program/x"}
 	keys := func() (string, string) {
 		t.Helper()
 		a, err := d.compileKey(root)
