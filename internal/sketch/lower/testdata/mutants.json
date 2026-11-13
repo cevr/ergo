@@ -3973,6 +3973,30 @@
       "killers": [
         "lower:TestNeverLowers"
       ]
+    },
+    {
+      "name": "fkg1-every-zero-reading",
+      "origin": "wf10 FKG1",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "ind + \"\\tif \" + fc.l.rt() + \".MachineFiringNow(\"",
+      "to": "ind + \"\\tif false && \" + fc.l.rt() + \".MachineFiringNow(\"",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): a firing Every timer's signal carries time.Clock's reading, never the zero time.",
+      "killers": [
+        "lower:TestStdMachinesLawsRun",
+        "lower:TestStdActorLawsRun"
+      ]
+    },
+    {
+      "name": "fkg1-every-as-timeout",
+      "origin": "wf10 FKG1",
+      "file": "internal/sketch/lower/machine.go",
+      "from": "if r := after.Sig.Results; len(r) == 1 && everyOption(r[0]) {",
+      "to": "if false {",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): an Every after converts through its own wrapper.",
+      "killers": [
+        "lower:TestStdMachinesLawsRun",
+        "lower:TestStdActorLawsRun"
+      ]
     }
   ]
 }

@@ -2623,6 +2623,50 @@
       "killers": [
         "check:TestNeverTotality"
       ]
+    },
+    {
+      "name": "fkg1-every-runner-no-clock",
+      "origin": "wf10 FKG1",
+      "file": "internal/sketch/check/entry.go",
+      "from": "\t\t\tworks = works.with(c.types, clock)\n",
+      "to": "\t\t\t_ = clock\n",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): an Every timer's runner reads time.Clock, so the machine's runner row W carries it.",
+      "killers": [
+        "check:TestEveryRow"
+      ]
+    },
+    {
+      "name": "fkg1-every-clock-in-step",
+      "origin": "wf10 FKG1",
+      "file": "internal/sketch/check/entry.go",
+      "from": "\t\t\tworks = works.with(c.types, clock)\n",
+      "to": "\t\t\tuses = uses.with(c.types, clock)\n",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): a fold fires no timer, so an Every machine's step row R needs no clock.",
+      "killers": [
+        "check:TestEveryRow"
+      ]
+    },
+    {
+      "name": "fkg1-every-after-row-admitted",
+      "origin": "wf10 FKG1",
+      "file": "internal/sketch/check/entry.go",
+      "from": "\t\tok = c.assign(&op, wantSig, \"machine \"+tn.Name+\"'s after\")\n",
+      "to": "\t\t_ = op\n",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): an Every after has no error or capability row.",
+      "killers": [
+        "check:TestEveryRow"
+      ]
+    },
+    {
+      "name": "fkg1-after-every-refused",
+      "origin": "wf10 FKG1",
+      "file": "internal/sketch/check/entry.go",
+      "from": "return c.identical(sig.Results[0], want) || c.machineAfterEvery(sig, signal)",
+      "to": "return c.identical(sig.Results[0], want)",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): an after may give Option[machines.Every[E]].",
+      "killers": [
+        "check:TestEveryRow"
+      ]
     }
   ]
 }

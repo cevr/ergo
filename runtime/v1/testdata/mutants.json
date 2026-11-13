@@ -651,6 +651,17 @@
     {"name": "sconv-touint64-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint64(f float64) (uint64, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUint64(f float64) (uint64, error) {\n\tif f > -2 && f < 0x1p64 {", "rule": "stdlib.md math 5: ToUint64 of -1.5 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
     {"name": "sconv-touint64-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUint64(f float64) (uint64, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUint64(f float64) (uint64, error) {\n\tif f > -1 && f <= 0x1p64 {", "rule": "stdlib.md math 5: ToUint64 of 2^64 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
     {"name": "sconv-touintptr-lower", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -2 && f < 0x1p64 {", "rule": "stdlib.md math 5: ToUintptr of -1.5 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
-    {"name": "sconv-touintptr-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f <= 0x1p64 {", "rule": "stdlib.md math 5: ToUintptr of 2^64 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]}
+    {"name": "sconv-touintptr-upper", "origin": "wf10/S-conv", "file": "runtime/v1/numbers.go", "from": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f < 0x1p64 {", "to": "func MathToUintptr(f float64) (uintptr, error) {\n\tif f > -1 && f <= 0x1p64 {", "rule": "stdlib.md math 5: ToUintptr of 2^64 fails OutOfRange.", "killers": ["runtime/v1:TestStdRunesLaws"]},
+    {
+      "name": "fkg1-firing-unmarked",
+      "origin": "wf10 FKG1",
+      "file": "runtime/v1/runtime.go",
+      "from": "c := t.WithValue(machineFiring{}, true)",
+      "to": "c := t.WithValue(machineFiring{}, nil)",
+      "rule": "runtime.md, Machines and actors 9 (FKG1): MachineFiring marks the task while the After runs.",
+      "killers": [
+        "lower:TestStdMachinesLawsRun"
+      ]
+    }
   ]
 }
