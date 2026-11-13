@@ -156,10 +156,21 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 		fc := newFuncCtx(l, inner, false)
 		fc.site = law.Decl
 		bind := ""
+		// provide converts the listed value v to its slot's operation
+		// type; a borrow provider's value is bound by its address, so
+		// it is held in a variable first (types.md, Laws 10).
+		provide := func(p check.LawProvider, v string) string {
+			if !p.Ptr {
+				return fc.convert(p.Conv, v, law.Decl)
+			}
+			a := inner.alloc("provider")
+			bind += a + " := " + v + "; "
+			return fc.convert(p.Conv, "&"+a, law.Decl)
+		}
 		args := []string{"&" + e}
 		callee := l.lawFunc(law)
 		if owner >= 0 {
-			pv := fc.convert(bd[owner].Conv, vs[0], law.Decl)
+			pv := provide(bd[owner], vs[0])
 			if generic {
 				args = append(args, pv)
 				tc := &typeCtx{l: l, site: law.Decl}
@@ -169,13 +180,13 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 				}
 				callee += "[" + strings.Join(targs, ", ") + "]"
 			} else {
-				bind = e + "." + l.envField(law.Slots[owner].Type) + " = " + pv + "; "
+				bind += e + "." + l.envField(law.Slots[owner].Type) + " = " + pv + "; "
 			}
 			vs = vs[1:]
 		}
 		for i := range law.Params {
 			if k, ok := bound[i]; ok {
-				args = append(args, fc.convert(bd[k].Conv, vs[i], law.Decl))
+				args = append(args, provide(bd[k], vs[i]))
 				continue
 			}
 			args = append(args, vs[i])

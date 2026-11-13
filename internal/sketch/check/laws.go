@@ -564,10 +564,23 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		slot = c.instantiate(own, targs)
 	}
 	a, _ := c.providerAssignability(p, slot)
+	ptr := false
 	if !a.ok() || a.conv.Kind != ConvOperations {
-		return LawProvider{}, false
+		// A borrow provider (rule 10): its operations take *P, as a
+		// mutable store's do, so only *P provides the slot. The case's P
+		// is built as any provider's is, and the run binds &P. A generic
+		// operation type's instance is fixed by P's method set, so it
+		// has none.
+		if len(own.TParams) > 0 {
+			return LawProvider{}, false
+		}
+		a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)
+		if !a.ok() || a.conv.Kind != ConvOperations {
+			return LawProvider{}, false
+		}
+		ptr = true
 	}
-	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot}
+	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {

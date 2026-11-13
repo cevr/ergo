@@ -992,6 +992,11 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 				shown = append(shown, strconv.Quote(sep+name+" = "), l.litExpr(p.Type, pv, law.Decl))
 			}
 			sep = ", "
+			if p.Ptr {
+				// A borrow provider: its operations take *P, so the run
+				// binds the address of the case's P (types.md, Laws 10).
+				return fc.convert(p.Conv, "&"+pv, law.Decl)
+			}
 			return fc.convert(p.Conv, pv, law.Decl)
 		}
 		args := []string{"&" + e}
