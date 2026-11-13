@@ -24,9 +24,9 @@ type Store {
 	Get() string,
 }
 
-type Loud {}
+type Loud {} implements Greeter
 type Plain {}
-type Holder { v string }
+type Holder { v string } implements Store
 
 func Greet(_ Loud, name string) string {
 	"\(name)!"
@@ -181,7 +181,7 @@ func main() needs Console {
 `, "ada!\nbo!\nada!\n"},
 	// A provider with a Close: each with acquires and releases it.
 	{"close-twice", e5Prelude + `
-type Conn {}
+type Conn {} implements Closer
 
 func Get(_ Conn) string {
 	"conn"
@@ -206,7 +206,7 @@ func main() needs Console {
 	// Store is built and released only when the with acquires it, as in
 	// the nesting: here when b's Greeter provider reads Store.
 	{"shadowed-unbuilt", e5Prelude + `
-type Conn { n string }
+type Conn { n string } implements Closer
 
 func Get(c Conn) string {
 	c.n

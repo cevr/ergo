@@ -72,11 +72,11 @@ type Big { ..Core, S (Res, Res), T Res, k int }
 type Small { ..Core, k int }
 
 type Sink {
+	..Closer,
 	Put(r Res) takes,
-	Close(),
 }
 
-type Snk { id int, bad bool }
+type Snk { id int, bad bool } implements Sink, Closer
 
 func Close(s Snk) {
 	if s.bad {

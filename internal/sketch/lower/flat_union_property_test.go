@@ -238,7 +238,7 @@ type Missing { At int }
 
 type Lost { Hint Option[string], Code int }
 
-type File { name string }
+type File { name string } implements Closer
 
 type Holder { Name string, O Option[int], Xs []Option[int], W Option[Option[int]] }
 

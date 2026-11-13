@@ -1,3 +1,5 @@
-type Pl {}
+import q/p
+
+type Pl {} implements p.S
 
 func N(_ Pl) string { "pl" }

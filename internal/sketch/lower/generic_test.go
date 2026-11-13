@@ -108,8 +108,8 @@ func main() needs Console {
 		name: "samename",
 		src: `type Shape { Area() int }
 
-type Circle { R int }
-type Square { S int }
+type Circle { R int } implements Shape
+type Square { S int } implements Shape
 
 func Area(c Circle) int { return 3 * c.R * c.R }
 func Area(s Square) int { return s.S * s.S }
@@ -137,7 +137,7 @@ func time(n int) int { return n + 2 }
 func buildW(n int) int { return n + 3 }
 
 type Num { Get() int }
-type Fixed {}
+type Fixed {} implements Num
 
 func Get(_ Fixed) int { return 5 }
 

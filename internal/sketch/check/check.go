@@ -187,7 +187,9 @@ type checker struct {
 	// includesExpanded is set once expandIncludes ran: a record resolved
 	// later splices its includes in as it resolves (include.go).
 	includesExpanded bool
-	inferSubjects    map[any]*switchUnion
+	// declOps memoizes declaredOps of a resolved named type (implements.go).
+	declOps       map[*Named][]*Named
+	inferSubjects map[any]*switchUnion
 	// settled marks the functions of a component that converged, whose
 	// reporting pass reads the published solutions; widened records a
 	// reporting pass that computed a wider row (an invariant the tests

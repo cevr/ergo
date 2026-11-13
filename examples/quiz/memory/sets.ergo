@@ -3,7 +3,7 @@
 import quiz/quiz
 
 // Shelf is a quiz.Sets of two fixed question sets: plants and teas.
-type Shelf {}
+type Shelf {} implements quiz.Sets
 
 func Names(_ Shelf) []string { []string{"plants", "teas"} }
 

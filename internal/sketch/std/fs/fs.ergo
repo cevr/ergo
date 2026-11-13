@@ -286,10 +286,7 @@ type Root {
 // until local resource ownership (#197) tracks that move.
 // law-exempt: the host's Root; Root's law runs on it in the host agreement property.
 type HostRoot {
-	ReadFile(path string) string fails NotFound | Denied | Failed | Escapes,
-	ReadDir(path string) []string fails NotFound | Denied | Failed | Escapes,
-	Stat(path string) Info fails NotFound | Denied | Failed | Escapes,
-	Name() string,
+	..Root,
 	hostRooted(),
 }
 
@@ -301,7 +298,7 @@ extern go ergo.local/prototype/runtime/v1.FSOpenRoot func OpenRoot(dir string) H
 // Host is the host's Files and Writes provider. Its field gives this
 // package the construction authority (types.md, Zero values 6): no other
 // package writes fs.Host{}, its zero value or a record update of it.
-type Host { live hostOnly }
+type Host { live hostOnly } implements Files, Writes
 
 // hostOnly is the zero-size type of Host's field, so Host stays zero size.
 type hostOnly {}

@@ -7,7 +7,7 @@ import fstest
 
 // locked is an fs.Files where "locked.csv" is denied; any other path is
 // its Memory's. A Memory never fails Denied, so this wrapper stays.
-type locked { disk fstest.Memory }
+type locked { disk fstest.Memory } implements fs.Files
 
 func ReadFile(l locked, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
 	if path == "locked.csv" {

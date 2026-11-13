@@ -169,7 +169,7 @@ func main() fails os.Exit needs Ambient {
 
 // proc is a Process with the variables of env, no arguments and the
 // working directory /work.
-type proc { env Map[string, string] }
+type proc { env Map[string, string] } implements os.Process
 
 func Args(_ proc) []string { []string{} }
 

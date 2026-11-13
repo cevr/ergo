@@ -10,13 +10,13 @@ type Highlighter {
 }
 
 // NoColor is the Highlighter that writes the code as text.
-type NoColor {}
+type NoColor {} implements Highlighter
 
 func Highlight(_ NoColor, info string, code string) []html.Node { []html.Node{html.Text{S: code}} }
 
 // Keywords is the Highlighter that marks each of Words in a block of
 // language Lang as <span class="kw">, and writes other blocks as text.
-type Keywords { Lang string, Words []string }
+type Keywords { Lang string, Words []string } implements Highlighter
 
 func Highlight(k Keywords, info string, code string) []html.Node {
 	if info != k.Lang {

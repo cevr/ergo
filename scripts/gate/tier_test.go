@@ -278,11 +278,8 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 		}
 		return dirs, cpu
 	}
-	// scripts/mutants walks every ledger and each mutant's source
-	// (TestLedgerEditsApplyOnce: a declared subtree, 22a8d683d), as the
-	// residue checks and the guard read every tracked file.
 	docs, _ := reach("docs/tooling.md")
-	if want := []string{"internal/residue", "internal/testinputs/guard", "scripts/mutants"}; !slices.Equal(docs, want) {
+	if want := []string{"internal/residue", "internal/testinputs/guard"}; !slices.Equal(docs, want) {
 		t.Errorf("a docs edit reaches %v; want %v", docs, want)
 	}
 	// The steps that are no package's and that the budget counts

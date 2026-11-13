@@ -8,7 +8,7 @@ import (
 )
 
 func TestTupleReturnRepairChecks(t *testing.T) {
-	const prefix = "type Mem { N int }\ntype Store { Get() int }\nfunc Get(m Mem) int { m.N }\nfunc pair() (Mem, int) { (Mem{N: 1}, 2) }\n" +
+	const prefix = "type Mem { N int } implements Store\ntype Store { Get() int }\nfunc Get(m Mem) int { m.N }\nfunc pair() (Mem, int) { (Mem{N: 1}, 2) }\n" +
 		"func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }\nfunc pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }\n" +
 		"func id[T](x T) T { x }\nfunc gen[T](x T) (Mem, int) { (Mem{N: 1}, 2) }\nfunc Pair(m Mem, a int) (Mem, int) { (m, a) }\n"
 	// A call on one line is repaired with its source text copied byte for

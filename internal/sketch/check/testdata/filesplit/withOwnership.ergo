@@ -2,8 +2,8 @@
 // value (S109), and a release need that no row holds (S102, chargeRelease).
 type A { Use() }
 type Log { Say(s string) }
-type First {}
-type Res {}
+type First {} implements A, Closer
+type Res {} implements A, Closer
 type Quiet {}
 func Use(_ First) {}
 func Close(_ First) {}

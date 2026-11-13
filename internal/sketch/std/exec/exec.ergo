@@ -158,6 +158,7 @@ type Chunk { Text string, Stderr bool }
 // are TestExecStreams.
 type Running {
 	runtimeOnly(),
+	..Closer,
 	// Lines gives the lines of the streams whose sink is ToCaller, each
 	// without its line feed, in the order their line feeds come, until both
 	// end; a last line with no line feed comes at its stream's end. It
@@ -186,7 +187,6 @@ type Running {
 	// timeout, Wait inside it, and Stop in its Expired catch to observe
 	// the status after termination. Close is the scope-release form.
 	Stop() int takes,
-	Close(),
 }
 
 // Runner runs a program to its end, or starts it. A stop of the calling
@@ -240,7 +240,7 @@ type Runner {
 // Results holds at the command's Key, and fails NotFound when it holds
 // none. The environment, the directory and the standard input are not in
 // the Key.
-type Script { Results Map[string, Result] }
+type Script { Results Map[string, Result] } implements Runner
 
 // Run is the Result recorded for c, or NotFound.
 func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
@@ -318,7 +318,7 @@ law ScriptReplaysRecorded(name string, arg string, status int, out string) {
 // Host is the host's Runner. Its field gives this package the construction
 // authority (types.md, Zero values 6): no other package writes exec.Host{},
 // its zero value or a record update of it.
-type Host { live hostOnly }
+type Host { live hostOnly } implements Runner
 
 // hostOnly is the zero-size type of Host's field, so Host stays zero size.
 type hostOnly {}

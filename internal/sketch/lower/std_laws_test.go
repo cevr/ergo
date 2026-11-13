@@ -43,7 +43,7 @@ test OsCodeWhere(v os.Code) {
 	assert try os.ParseCode(it) == v
 }
 
-type releaseCount { Seen queue.Queue[int] }
+type releaseCount { Seen queue.Queue[int] } implements Closer
 
 func Close(r releaseCount) {
 	r.Seen.Push(1) catch {

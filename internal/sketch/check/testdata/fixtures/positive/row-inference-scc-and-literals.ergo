@@ -1,6 +1,6 @@
 type Fault {}
 type Store { Get() string }
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string { return "m" }
 

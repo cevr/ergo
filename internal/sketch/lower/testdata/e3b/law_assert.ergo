@@ -10,7 +10,7 @@ type Codec {
 	},
 }
 
-type Plain {}
+type Plain {} implements Codec
 
 func Encode(_ Plain, v int) string {
 	"\(v)"

@@ -51,21 +51,7 @@ type Malformed { Offset int, Reason string }
 // text's code (internal/sketch/std/ergo.laws). SetCommaSets is the plain
 // law SepAfterSet rests on.
 type Text {
-	Bool(b bool),
-	Int(n int64),
-	Uint(n uint64),
-	Float(f float64),
-	String(s string),
-	BeginList(n int),
-	EndList(),
-	BeginObject(n int),
-	Tag(name string),
-	Key(k string),
-	EndObject(),
-	// Null writes the null event, including a Nullable's empty state.
-	Null(),
-	// Number writes a number's spelling as it is (json.Value's numbers).
-	Number(text string),
+	..Writer,
 	// Written is the text written so far.
 	Written() string,
 
@@ -314,7 +300,7 @@ type Cursor {
 extern go ergo.local/prototype/runtime/v1.JSONOpen func open(text string, maxBytes int, maxDepth int) Cursor fails Malformed
 
 // Reader reads a JSON text for decode[T](r).
-type Reader { c Cursor }
+type Reader { c Cursor } implements Reader
 
 // Open validates text whole, as one JSON value, no longer than maxBytes
 // bytes (no limit when maxBytes <= 0) and nested no deeper than maxDepth

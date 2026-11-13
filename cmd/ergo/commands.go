@@ -55,6 +55,7 @@ var commands = []cliCommand{
 	{name: "test", usage: "test FILE|DIR|DIR/... [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE] [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]] [--schedule TOKEN] [-work] [--json] [--target go]", run: testCommand},
 	{name: "bind", usage: "bind go [-o DIR] PACKAGE...", help: bindHelp, run: bindCommand},
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
+	{name: "fix", usage: "fix [--dry-run] [--std DIR] [--go] PATH...", help: fixHelp, run: fixCommand},
 	{name: "gen", usage: "gen rpc [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
 	{name: "version", usage: "version [--json]", help: versionHelp, run: versionCommand},
 	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},

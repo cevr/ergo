@@ -69,7 +69,7 @@ func M(_ S) fails B { return B }
 type Box[T I] { X T }
 func F() { _ = Box{S} }`},
 	{"M5", "generic-constraint-inferred-ok", "", `type I { M() }
-type S {}
+type S {} implements I
 func M(_ S) {}
 type Box[T I] { X T }
 func F() { _ = Box{S} }`},
@@ -129,20 +129,20 @@ func F() { _ = Await[int] }`},
 	{"M12", "float-rounding-arithmetic", "S108", `func F() int { return 1 / int(float32(16777216) + 1 - float32(16777216)) }`},
 	{"M12", "float64-exact-enough", "", `func F() int { return 1 / int(float64(16777217) - float64(16777216)) }`},
 	{"M13", "embedded-collision-replaced", "", `type I { M() }
-type S {}
+type S {} implements I
 func M(_ S) {}
 let A = context { I: S }
 let B = context { I: S }
 let W = context { replace I: S, A, B }
 func F() { with W { I.M() } }`},
 	{"M13", "embedded-collision-inline-replaced", "", `type I { M() }
-type S {}
+type S {} implements I
 func M(_ S) {}
 let A = context { I: S }
 let B = context { I: S }
 func F() { with context { replace I: S, A, B } { I.M() } }`},
 	{"M13", "embedded-collision-unresolved", "S111", `type I { M() }
-type S {}
+type S {} implements I
 func M(_ S) {}
 let A = context { I: S }
 let B = context { I: S }
@@ -151,14 +151,14 @@ func F() { with W { I.M() } }`},
 	// Two replaces of one capability in one context are S111 since check-v1
 	// (round-3 review M2): a with binds each capability to one provider.
 	{"M13", "context-double-replace", "S111", `type I { M() }
-type S {}
+type S {} implements I
 func M(_ S) {}
 let Base = context { I: S }
 let W = context { replace I: S, replace I: S, Base }
 func F() { with W { I.M() } }`},
 	{"M14", "named-context-internal-capability", "", `type A { M() }
 type B { N() }
-type S {}
+type S {} implements B, A
 func M(_ S) {}
 func N(_ S) {}
 func Make() B needs A {
@@ -169,7 +169,7 @@ let W = context { A: S, B: Make() }
 func F() { with W { B.N() } }`},
 	{"M14", "named-context-internal-cycle", "S108", `type A { M() }
 type B { N() }
-type S {}
+type S {} implements A, B
 func M(_ S) {}
 func N(_ S) {}
 func MakeA() A needs B {
@@ -184,7 +184,7 @@ let W = context { A: MakeA(), B: MakeB() }
 func F() { with W { B.N() } }`},
 	{"M14", "named-context-caller-capability", "S102", `type A { M() }
 type B { N() }
-type S {}
+type S {} implements B
 func N(_ S) {}
 func Make() B needs A {
 	A.M()
@@ -193,7 +193,7 @@ func Make() B needs A {
 let W = context { B: Make() }
 func F() needs A { with W { B.N() } }`},
 	{"M14", "named-context-self-cycle", "S108", `type A { M() }
-type S {}
+type S {} implements A
 func M(_ S) {}
 func MakeA() A needs A {
 	A.M()
@@ -204,7 +204,7 @@ func F() { with W { A.M() } }`},
 	{"M14", "named-context-three-cycle", "S108", `type A { M() }
 type B { N() }
 type C { O() }
-type S {}
+type S {} implements A, B, C
 func M(_ S) {}
 func N(_ S) {}
 func O(_ S) {}
@@ -224,7 +224,7 @@ let W = context { A: MakeA(), B: MakeB(), C: MakeC() }
 func F() { with W { B.N() } }`},
 	{"M14", "named-context-needs-embedded", "", `type A { M() }
 type B { N() }
-type S {}
+type S {} implements B, A
 func M(_ S) {}
 func N(_ S) {}
 func Make() B needs A {
@@ -236,7 +236,7 @@ let W = context { B: Make(), Base }
 func F() { with W { B.N() } }`},
 	{"M14", "inline-context-stays-open", "S102", `type A { M() }
 type B { N() }
-type S {}
+type S {} implements B, A
 func M(_ S) {}
 func N(_ S) {}
 func Make() B needs A {

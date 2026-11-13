@@ -42,7 +42,7 @@ func TestRefusedFamiliesHaveWitnesses(t *testing.T) {
 	// Generated/import-dependent programs are not all literal candidates.
 	sources = append(sources,
 		`type A { Use() }
-type Conn[T] { V T }
+type Conn[T] { V T } implements A, Closer
 func Use[T](c Conn[T]) {}
 func Close[T](c Conn[T]) {}
 func Get() Conn[int] { Conn[int]{V: 1} }

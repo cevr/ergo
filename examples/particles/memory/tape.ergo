@@ -3,7 +3,7 @@ import sync
 
 // Tape is a sim.Screen that keeps every frame it is shown, in order. Its
 // frames are in a sync.Ref, so every copy of a Tape is the same tape.
-type Tape { frames sync.Ref[[]sim.Frame] }
+type Tape { frames sync.Ref[[]sim.Frame] } implements sim.Screen
 
 // NewTape is an empty Tape.
 func NewTape() Tape { Tape{frames: sync.NewRef[[]sim.Frame]([]sim.Frame{})} }

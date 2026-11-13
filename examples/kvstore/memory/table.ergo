@@ -12,7 +12,7 @@ import sync
 // copy of a Table is the same store: a Table bound in a context keeps its
 // entries from one call to the next. Its field is unexported: NewTable
 // makes one.
-type Table { entries sync.Ref[Map[string, string]] }
+type Table { entries sync.Ref[Map[string, string]] } implements kv.Store
 
 // NewTable is an empty Table.
 func NewTable() Table { Table{entries: sync.NewRef[Map[string, string]](Map[string, string]{})} }

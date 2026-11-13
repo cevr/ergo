@@ -84,7 +84,7 @@ extern go os.Expand func Expand[CR](s string, mapping func(string) string needs 
 extern go os.ExpandEnv func ExpandEnv(s string) string needs go.Foreign
 
 // ergo:go type File struct
-extern go os.File type File {}
+extern go os.File type File {} implements Closer
 
 // ergo:go func (*File).Chdir() error
 extern go os.File.Chdir func (f *File) Chdir() fails go.Error needs go.Foreign takes f
@@ -436,7 +436,7 @@ extern go os.RemoveAll func RemoveAll(path string) fails go.Error needs go.Forei
 extern go os.Rename func Rename(oldpath string, newpath string) fails go.Error needs go.Foreign
 
 // ergo:go type Root struct
-extern go os.Root type Root {}
+extern go os.Root type Root {} implements Closer
 
 // ergo:go func (*Root).Chmod(name string, mode FileMode) error
 extern go os.Root.Chmod func (r *Root) Chmod(name string, mode fs.FileMode) fails go.Error needs go.Foreign takes r

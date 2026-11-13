@@ -1327,7 +1327,7 @@ extern go debug/elf.ErrNoSymbols let ErrNoSymbols go.Error
 // ergo:go type File struct
 extern go debug/elf.File type File {
 	FileHeader FileHeader,
-}
+} implements Closer
 
 // ergo:go Sections []*elf.Section
 // ergo:refused File.Sections: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field

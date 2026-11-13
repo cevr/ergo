@@ -12,7 +12,7 @@ import "testing"
 func TestErgoRunOperationsConversionDomain(t *testing.T) {
 	needsBuild(t)
 	t.Run("reviewer-generic-source", func(t *testing.T) {
-		wantRun(t, `type G[T] { V T }
+		wantRun(t, `type G[T] { V T } implements A[T]
 type A[T] { M() T }
 func M[T](g G[T]) T { g.V }
 func use(a A[int]) int { a.M() }
@@ -22,7 +22,7 @@ func main() needs Console {
 `, "generic source\n")
 	})
 	t.Run("reviewer-generic-pointer-source", func(t *testing.T) {
-		wantRun(t, `type G[T] { V T }
+		wantRun(t, `type G[T] { V T } implements A[T]
 type A[T] { M() T }
 func M[T](g G[T]) T { g.V }
 func main() needs Console {
@@ -40,10 +40,10 @@ type B[T, U] {
 	K(u U) U,
 }
 
-type S {}
-type P {}
-type G[T] { V T }
-type H[T, U] { V T, W U }
+type S {} implements J, A[int], B[int, string]
+type P {} implements J, A[int], B[int, string]
+type G[T] { V T } implements J, A[T], B[T, string]
+type H[T, U] { V T, W U } implements J, A[T], B[T, U]
 
 func M(_ S) int { 1 }
 func K(_ S, u string) string { u }

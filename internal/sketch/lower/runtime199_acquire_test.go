@@ -13,8 +13,8 @@ func TestRuntime199AcquireFlow(t *testing.T) {
 	needsBuild(t)
 	const prelude = `type A { Use() }
 type B { Use() }
-type First {}
-type Second {}
+type First {} implements Closer
+type Second {} implements Closer
 type Fault {}
 func Use(_ First) {}
 func Use(_ Second) {}

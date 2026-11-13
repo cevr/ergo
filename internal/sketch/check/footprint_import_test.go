@@ -34,7 +34,7 @@ func footprintDecls() string {
 	var b strings.Builder
 	b.WriteString("import task\n\n")
 	for i := range footprintCaps {
-		fmt.Fprintf(&b, "type C%d { Get%d() int }\n\ntype M%d {}\n\nfunc Get%d(_ M%d) int { %d }\n\n", i, i, i, i, i, i)
+		fmt.Fprintf(&b, "type C%d { Get%d() int }\n\ntype M%d {} implements C%d\n\nfunc Get%d(_ M%d) int { %d }\n\n", i, i, i, i, i, i, i)
 		if i > 0 {
 			fmt.Fprintf(&b, "func Use%d() M%d needs C0 {\n\tlet _ = C0.Get0()\n\tM%d\n}\n\n", i, i, i)
 		}

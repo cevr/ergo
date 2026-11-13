@@ -143,7 +143,7 @@ func (c *checker) collectLaws(spec *syntax.InterfaceType, tn *TypeName, fi *file
 			ops[id.Name] = true
 		}
 	}
-	if len(spec.Methods) == 0 && len(spec.Laws) > 0 {
+	if len(spec.Methods) == 0 && len(spec.Includes) == 0 && len(spec.Laws) > 0 {
 		c.errorf(tn.Decl.Name, CodeType, "%s has laws and no operations; write it as a top-level law: law %s(…) { … }", tn.Name, spec.Laws[0].Name.Name)
 	}
 	names := map[string]bool{}
@@ -590,10 +590,19 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	}
 	slot := own
 	var targs []Type
-	if len(own.TParams) > 0 {
-		// A generic operation type: the provider's operations fix its
-		// type arguments, by unifying their signatures with the type's
-		// (Generics 6, interfaces through method sets).
+	declared := slices.IndexFunc(c.declaredOps(p), func(o *Named) bool { return o.origin() == own.origin() })
+	switch {
+	case declared >= 0:
+		// The written instance is the slot (implements Codec[int]
+		// against a law of Codec[T]).
+		slot = c.declaredOps(p)[declared]
+	case legacyRecord == nil:
+		// Only a type that declares the operation type provides it
+		// (Laws 10; Interface assignability 1).
+		return LawProvider{}, false
+	case len(own.TParams) > 0:
+		// ergo fix: the old rule's provider, by unifying its functions'
+		// signatures with the type's (Generics 6).
 		in := &inferer{c: c, m: map[*TypeParam]Type{}, set: map[*TypeParam]bool{}}
 		for _, tp := range own.TParams {
 			in.set[tp] = true
@@ -621,6 +630,7 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	if !a.ok() || a.conv.Kind != ConvOperations {
 		return LawProvider{}, false
 	}
+	c.recordLegacy(p, slot, "law")
 	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Value: value}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor

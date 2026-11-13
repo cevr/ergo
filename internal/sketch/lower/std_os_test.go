@@ -55,7 +55,7 @@ func main() fails os.Exit needs Console | Ambient {
 const fakeProgram = `import os
 import strings
 
-type FakeEnv { Vars Map[string, string], Argv []string, Dir string }
+type FakeEnv { Vars Map[string, string], Argv []string, Dir string } implements os.Process
 
 func Args(e FakeEnv) []string { e.Argv }
 
@@ -95,7 +95,7 @@ func main() needs Console {
 // os.Process, and calls the operations on the parameter.
 const paramProgram = `import os
 
-type FakeEnv { Argv []string }
+type FakeEnv { Argv []string } implements os.Process
 
 func Args(e FakeEnv) []string { e.Argv }
 

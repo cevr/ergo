@@ -48,7 +48,7 @@ extern go compress/zlib.Resetter type Resetter {
 }
 
 // ergo:go type Writer struct
-extern go compress/zlib.Writer type Writer {}
+extern go compress/zlib.Writer type Writer {} implements Closer
 
 // ergo:go func (*Writer).Close() error
 extern go compress/zlib.Writer.Close func (z *Writer) Close() fails go.Error needs go.Foreign takes z

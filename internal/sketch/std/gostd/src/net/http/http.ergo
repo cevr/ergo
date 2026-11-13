@@ -49,7 +49,7 @@ extern go net/http.Client.Post func (c *Client) Post(url string, contentType str
 extern go net/http.Client.PostForm func (c *Client) PostForm(url string, data url.Values) go.Ref[Response] fails go.Error needs go.Foreign takes c
 
 // ergo:go type ClientConn struct
-extern go net/http.ClientConn type ClientConn {}
+extern go net/http.ClientConn type ClientConn {} implements Closer
 
 // ergo:go func (*ClientConn).Available() int
 extern go net/http.ClientConn.Available func (cc *ClientConn) Available() int needs go.Foreign takes cc
@@ -230,7 +230,7 @@ extern go net/http.FS func FS(fsys fs.FS) FileSystem needs go.Foreign takes fsys
 
 // ergo:go type File interface
 extern go net/http.File type File {
-	Close() fails go.Error needs go.Foreign takes,
+	..io.Closer,
 	Read(p []byte) int fails go.Error needs go.Foreign takes,
 	Readdir(count int) []fs.FileInfo fails go.Error needs go.Foreign takes,
 	Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign takes,
@@ -705,7 +705,7 @@ extern go net/http.Server type Server {
 	HTTP2                        Option[go.Ref[HTTP2Config]],
 	Protocols                    Option[go.Ref[Protocols]],
 	DisableClientPriority        bool,
-}
+} implements Closer
 
 // ergo:go TLSNextProto map[string]func(*http.Server, *tls.Conn, http.Handler)
 // ergo:refused Server.TLSNextProto: a Go function as a result, a field or an element

@@ -23,7 +23,7 @@ func checkPatternLends(t *testing.T, seed int, r *rand.Rand) {
 	body += "use(p)\n"
 	src := `import task
 type Fault {}
-type R { N int }
+type R { N int } implements Closer
 func Close(r R) {}
 func use(r R) {}
 type Pack { Root R, Job Task[int, Fault] }
@@ -45,7 +45,7 @@ func Probe() {
 	body += "try tasks.Go(s) { use(a) }\n}\n"
 	src = `import tasks
 type Fault {}
-type R { N int }
+type R { N int } implements Closer
 func Close(r R) {}
 func use(r R) {}
 type Box { Root R }
@@ -61,7 +61,7 @@ func Probe() fails tasks.Closed {
 	if escape {
 		result, last = " func()", "return f"
 	}
-	src = `type R { N int }
+	src = `type R { N int } implements Closer
 func Close(r R) {}
 type Box { Root R, Fn func() }
 func Probe(b Box)` + result + ` { match b { case Box{Fn: f}: ` + last + " } }\n"

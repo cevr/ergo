@@ -90,11 +90,11 @@ func frameGaps(file *syntax.File, info *Info) []string {
 
 const frameHead = `type Fault {}
 type A { Use() int }
-type Conn { V int }
+type Conn { V int } implements A, Closer
 type S { Start() Task[int, Fault] }
-type Starter { V int }
+type Starter { V int } implements S
 type B { Get() int }
-type BConn { V int }
+type BConn { V int } implements B
 
 func Use(c Conn) int { c.V }
 func Close(c Conn) {}

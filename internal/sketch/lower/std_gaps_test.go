@@ -28,7 +28,7 @@ import (
 // gapStd is the std fixture of the repros.
 const gapStd = `type GapReader { GapGet() int }
 
-type gapBox { n int }
+type gapBox { n int } implements GapReader
 
 func GapGet(b gapBox) int { b.n }
 

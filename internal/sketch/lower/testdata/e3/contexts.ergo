@@ -5,13 +5,13 @@ type Store {
 	Get() string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string {
 	"mem"
 }
 
-type Fixed { Text string }
+type Fixed { Text string } implements Store
 
 func Get(f Fixed) string {
 	f.Text

@@ -7,7 +7,7 @@ import fstest
 // there already is no failure, and Chmod, Rename and Remove, which need no
 // room, change the memory. A test binds it with the memory's reads to show
 // that a failed write leaves the old text.
-type Full { disk fstest.Memory }
+type Full { disk fstest.Memory } implements fs.Writes
 
 // FullOf is the Full disk over m: m's reads, and no room to write.
 func FullOf(m fstest.Memory) Full { Full{disk: m} }

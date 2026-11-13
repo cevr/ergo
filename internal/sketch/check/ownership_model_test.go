@@ -541,7 +541,7 @@ func TestOwnershipFlowWorkIsLinear(t *testing.T) {
 	// A whole pattern binds a shared type DAG once. It does not expand
 	// the tree of all fields when no pattern splits those fields (PO1).
 	patternWork := func(depth int) int {
-		src := "type T0 {}\nfunc Close(x T0) {}\n"
+		src := "type T0 {} implements Closer\nfunc Close(x T0) {}\n"
 		for i := 1; i <= depth; i++ {
 			src += fmt.Sprintf("type T%d { A T%d, B T%d }\n", i, i-1, i-1)
 		}
@@ -602,7 +602,7 @@ func TestOwnershipMessages(t *testing.T) {
 
 const ofPrelude = `import queue
 
-type Res { id int }
+type Res { id int } implements Closer, Closes, Store
 
 type Bad {}
 
@@ -639,7 +639,7 @@ type Empty {}
 
 type Held = Res | Empty
 
-type Closer { Close() }
+type Closes { ..Closer }
 
 type Store { Get() int }
 
@@ -649,7 +649,7 @@ func lendBox(b Box) {}
 
 func keepBox(b Box) takes b {}
 
-func lendCloser(c Closer) {}
+func lendCloser(c Closes) {}
 
 let shared = Res{id: 0}
 

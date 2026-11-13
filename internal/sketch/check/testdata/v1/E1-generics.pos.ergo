@@ -6,7 +6,7 @@ type Valid {
 	Check() bool,
 }
 
-type Card { Number string }
+type Card { Number string } implements Valid
 
 type Pair[A, B] { First A, Second B }
 

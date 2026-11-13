@@ -11,7 +11,7 @@ import limiter/memory
 import rpc
 
 // Loopback is a limits.Limiter whose every operation is an RPC call.
-type Loopback { client limitsrpc.Client }
+type Loopback { client limitsrpc.Client } implements limits.Limiter
 
 // NewLoopback serves a fresh memory limiter (memory.NewMemory) in process
 // and is its client. The server binds the limiter for each call; every

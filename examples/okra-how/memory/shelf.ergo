@@ -7,7 +7,7 @@ type Entry { Name string, Text string }
 
 // Shelf is a how.Library of guides held in memory, in the order of its
 // entries. Package files reads one from a directory; a test writes one.
-type Shelf { Entries []Entry }
+type Shelf { Entries []Entry } implements how.Library
 
 // Names is the name of each entry, in order.
 func Names(s Shelf) []string {

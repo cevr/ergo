@@ -23,7 +23,12 @@ func withShape(shape string, n int) string {
 		for i := range n {
 			fmt.Fprintf(&b, "type C%d { Get() string }\n", i)
 		}
-		b.WriteString("type Store { Get() string }\ntype Mem { V string }\n\nfunc Get(m Mem) string { return m.V }\n\n")
+		// Mem provides every capability, so it declares each one.
+		b.WriteString("type Store { Get() string }\ntype Mem { V string } implements Store")
+		for i := range n {
+			fmt.Fprintf(&b, ", C%d", i)
+		}
+		b.WriteString("\n\nfunc Get(m Mem) string { return m.V }\n\n")
 	}
 	// all needs every capability C0 to Cn-1.
 	all := func() {
@@ -132,7 +137,11 @@ func withShape(shape string, n int) string {
 		for i := range n {
 			fmt.Fprintf(&b, "type K%da { Get() string }\ntype K%db { Get() string }\n", i, i)
 		}
-		b.WriteString("type Mem { V string }\n\nfunc Get(m Mem) string { return m.V }\n\n")
+		b.WriteString("type Mem { V string } implements K0a, K0b")
+		for i := 1; i < n; i++ {
+			fmt.Fprintf(&b, ", K%da, K%db", i, i)
+		}
+		b.WriteString("\n\nfunc Get(m Mem) string { return m.V }\n\n")
 		// one declares context name, binding K0s to Kn-1s.
 		one := func(name, s string) {
 			fmt.Fprintf(&b, "let %s = context { K0%s: Mem{V: \"c\"}", name, s)
@@ -347,9 +356,9 @@ func TestContextNodeIsItsProviders(t *testing.T) {
 type B { Use() }
 type C { Use() }
 type D { Use() }
-type PX {}
-type PY {}
-type PZ {}
+type PX {} implements A, C, B, D
+type PY {} implements B, A, C
+type PZ {} implements A, B, D
 func Use(_ PX) {}
 func Use(_ PY) {}
 func Use(_ PZ) {}

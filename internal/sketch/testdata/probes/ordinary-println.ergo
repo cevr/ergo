@@ -1,5 +1,5 @@
 // out: ordinary ok
 type Logger { Println(value string) string }
-type Plain {}
+type Plain {} implements Logger
 func Println(_ Plain, value string) string { return "ordinary " + value }
 func main() needs Console                  { with context { Logger: Plain } { Console.Println("\(Logger.Println("ok"))") } }

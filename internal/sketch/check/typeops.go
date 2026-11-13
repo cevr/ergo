@@ -97,6 +97,11 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		for _, mt := range t.byName {
 			it.byName = append(it.byName, newOf[mt])
 		}
+		for _, inc := range t.includes {
+			if n, ok := c.subst(inc, m).(*Named); ok {
+				it.includes = append(it.includes, n)
+			}
+		}
 		return it
 	case *Union:
 		if t.Row != nil {
@@ -339,7 +344,14 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
 		}
 		cell := false
+		if why := c.undeclared(v, t, "conversion"); why != "" {
+			return assignment{}, why
+		}
 		if why := c.implements(v, it, !c.hostLendArg(t)); why != "" {
+			if _, named := t.(*Named); named && !isHostNamed(t) && c.clauseUnmet(v, it) {
+				// The clause failed at the type (S106 there).
+				return assignment{clause: assignIdentical}, ""
+			}
 			// A value provider whose functions take *v moves into a cell
 			// (cells.go): *v implements t where v does not.
 			n, named := v.(*Named)
@@ -372,6 +384,13 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 				// records the conversion; the lowering decides the Go
 				// representation (lower/std.go runtimeType).
 				return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t}}, ""
+			}
+			if isHostNamed(t) && len(it.Methods) > 0 && !isHostNamed(v) && !sealedStdOps(v) {
+				// An Ergo operation type's operations take Ergo's calling
+				// convention (the task they run on), not the Go method
+				// shapes of a Go interface, so Go would refuse the
+				// assignment (batch-16b r3): check and build agree.
+				return assignment{}, fmt.Sprintf("the operations of %s take Ergo's calling convention, not the Go methods of %s", v, t)
 			}
 			// An operation type's value is already an interface value.
 			return assignment{clause: assignOperations}, ""
@@ -1013,7 +1032,16 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 		}
 		return ""
 	}
-	return c.implements(t, it, true)
+	if why := c.undeclared(t, constraint, "constraint"); why != "" {
+		return why
+	}
+	if why := c.implements(t, it, true); why != "" {
+		if c.clauseUnmet(t, it) {
+			return "" // the clause failed at the type (S106 there)
+		}
+		return why
+	}
+	return ""
 }
 
 // letZero checks `let name T` with no value (types.md, Zero values 3): T

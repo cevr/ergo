@@ -84,7 +84,7 @@ type Shape = Dot | Line
 type Store {
 	Get() string,
 }
-type Mem {}
+type Mem {} implements Store
 type Box[T] { V T }
 type DRec Rec
 type DSlice []int

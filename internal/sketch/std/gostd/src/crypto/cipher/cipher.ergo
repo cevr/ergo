@@ -73,7 +73,7 @@ extern go crypto/cipher.StreamWriter type StreamWriter {
 	S   Stream,
 	W   io.Writer,
 	Err go.Error,
-}
+} implements Closer
 
 // ergo:go func (StreamWriter).Close() error
 extern go crypto/cipher.StreamWriter.Close func (w StreamWriter) Close() fails go.Error needs go.Foreign takes w

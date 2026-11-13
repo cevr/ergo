@@ -6,9 +6,9 @@ type Offline { ID int }
 type ReadFailed { Reason string }
 
 type Conn {
+	..Closer,
 	Number() int,
 	Read() string fails ReadFailed,
-	Close(),
 
 	law ReadIsRepeatable() {
 		let first = Read() catch {
@@ -39,9 +39,9 @@ type Fetcher {
 // A limiter is a resource shared by structured lends, not a global
 // registry. Its owner outlives all the workers that borrow it.
 type Limiter {
+	..Closer,
 	Admit() bool,
 	Remaining() int,
-	Close(),
 
 	law AdmissionSpendsOne() {
 		let before = Remaining()

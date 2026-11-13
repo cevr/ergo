@@ -8,7 +8,7 @@ import sync
 // chunk; late.bin always times out; gone.zip is not found. It counts the
 // calls for slow.iso, so every copy of a Server is one server: NewServer
 // makes one.
-type Server { calls sync.Ref[int] }
+type Server { calls sync.Ref[int] } implements fetch.Source
 
 // NewServer is a server no one has called.
 func NewServer() Server { Server{calls: sync.NewRef[int](0)} }

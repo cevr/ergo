@@ -128,7 +128,7 @@ var lawNoBinder = map[string]string{
 	"ProvidesClause.Names": lawType, "MachineType.Signal": lawType, "MachineType.State": lawType, "LawReach.Targets": lawType,
 	"TypeDecl.Where": lawWhere, "Field.Where": lawWhere,
 	"TypeDecl.Derive": "a derive's plan is evaluated at check time from constants and plan functions (patterns.md); no law body holds it",
-	"TypeDecl.Spec":   lawType, "VarSpec.Type": lawType, "ContextEntry.Key": lawType, "ContextEntry.Keys": lawType,
+	"TypeDecl.Spec": lawType, "TypeDecl.Implements": lawType, "VarSpec.Type": lawType, "ContextEntry.Key": lawType, "ContextEntry.Keys": lawType,
 	"ContextDecl.Name": lawPackage, "FuncDecl.Name": lawPackage, "ImportSpec.Name": lawPackage,
 	"TypeDecl.Name": lawPackage, "TestDecl.Name": lawPackage, "VariantSpec.Name": lawPackage,
 	"MachineEntry.Value": lawPackage, "MachineType.Initial": lawPackage, "MachineType.Step": lawPackage, "MachineType.After": lawPackage, "MachineType.Work": lawPackage, "LawReach.Pred": lawPackage,

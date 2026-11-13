@@ -47,12 +47,12 @@ type Optimizer {
 }
 
 // Folder is the Optimizer that folds constants.
-type Folder {}
+type Folder {} implements Optimizer
 
 func Optimize(_ Folder, e ast.Expr) ast.Expr { Fold(e) }
 
 // Keep is the Optimizer that changes nothing.
-type Keep {}
+type Keep {} implements Optimizer
 
 func Optimize(_ Keep, e ast.Expr) ast.Expr { e }
 

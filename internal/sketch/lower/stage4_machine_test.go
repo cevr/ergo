@@ -221,7 +221,7 @@ func (m planMachine) driver() string {
 }
 
 // greeterSource declares a context value a step's with block binds.
-const greeterSource = "type Greeter {\n\tGreet(name string) string,\n}\n\ntype Plain {}\n\nfunc Greet(_ Plain, name string) string {\n\tname\n}\n\n"
+const greeterSource = "type Greeter {\n\tGreet(name string) string,\n}\n\ntype Plain {} implements Greeter\n\nfunc Greet(_ Plain, name string) string {\n\tname\n}\n\n"
 
 // TestMachinePlanValues generates 24 machines (state unions of 1 to 4
 // variants, signal unions of 1 to 3, total step tables over Enter, Stay,

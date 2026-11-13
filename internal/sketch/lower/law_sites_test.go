@@ -35,7 +35,7 @@ type Probe {
 		Read() == 1
 	},
 }
-type Zero {}
+type Zero {} implements Probe
 func Read(z Zero) int { 0 }
 law Choice(b bool) {
 	return match b {

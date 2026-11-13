@@ -3,7 +3,7 @@
 import keypad/keypad
 
 // Fixed is a keypad.Forms of three fixed forms.
-type Fixed {}
+type Fixed {} implements keypad.Forms
 
 func Names(_ Fixed) []string { []string{"alarm", "address", "code"} }
 

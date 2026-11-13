@@ -34,7 +34,7 @@ type Store {
 	Get() string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string {
 	"ok"
@@ -50,7 +50,7 @@ func read() string {
 // a capability A, and a context of a capability R with a Close.
 const lawTopSiteDecls = `type A { Use() int }
 
-type Conn { V int }
+type Conn { V int } implements A, Closer
 
 func Use(c Conn) int { c.V }
 
@@ -60,9 +60,9 @@ func get() Conn { Conn{V: 1} }
 
 let Owned = context { A: get() }
 
-type R { Close() }
+type R { ..Closer }
 
-type First {}
+type First {} implements R, Closer
 
 func Close(_ First) {}
 
@@ -368,7 +368,7 @@ type Store {
 	Get() string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string {
 	"ok"

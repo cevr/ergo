@@ -1,7 +1,7 @@
 // want S109
 type Other { Need() string }
 type Store { Get() string needs Other }
-type Holder {}
+type Holder {} implements Store
 func Get(_ Holder) string { return "ok" }
 func main() needs Console {
 	with context { Store: Holder{} } { Console.Println("\(Store.Get())") }
