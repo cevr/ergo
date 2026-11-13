@@ -13,6 +13,8 @@ import (
 // source fails TestUIHostModel until this restatement changes with it.
 const stdUIHostProbe = `import ui
 import actor
+import hex
+import json
 import machines
 import queue
 import scope
@@ -1797,6 +1799,97 @@ func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
 	true
 }
 
+func escapedForm(e string) bool {
+	let mut i = 0
+	for i < len(e) {
+		let c = e[i]
+		if c == '%' {
+			if i+2 >= len(e) || !strings.Contains("0123456789ABCDEF", e[i+1:i+2]) || !strings.Contains("0123456789ABCDEF", e[i+2:i+3]) {
+				return false
+			}
+			i = i + 3
+		} else if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~' {
+			i = i + 1
+		} else {
+			return false
+		}
+	}
+	true
+}
+
+func lawEscapeRoundTrips(s string, t string) bool {
+	let e = ui.Escape(s)
+	let mut lower = ""
+	for i in 0..len(s) {
+		lower = lower + "%" + hex.Encode(s[i:i+1])
+	}
+	let plain = strings.ReplaceAll(t, "%", "")
+	escapedForm(e) && ui.Unescape(e) == s && ui.Unescape(lower) == s && ui.Unescape(plain) == plain && ui.Unescape(s+"%4g"+plain) == ui.Unescape(s)+"%4g"+plain
+}
+
+func lawSegmentsReadPathOf(xs []string) bool {
+	let path = ui.PathOf(xs)
+	let mut want = []string{}
+	for x in xs {
+		if x != "" {
+			want = want.Append(x)
+		}
+	}
+	let got = ui.Segments(ui.URL{Path: path, Query: "", Fragment: ""})
+	if len(got) != len(want) || ui.ParseURL(path).Path != path {
+		return false
+	}
+	for i, x in want {
+		if got[i] != x {
+			return false
+		}
+	}
+	true
+}
+
+type queryRecord {
+	Name  string,
+	Sort  string "sort by&",
+	Page  int,
+	Big   uint64,
+	ui.Scale float64,
+	On    bool,
+	Note  json.Optional[string],
+	Tags  []string,
+}
+
+type queryNested { Name string, Inner queryRecord }
+
+func lawQueryRoundTrips(seed int, a string, b string, tags []string) bool {
+	let mut r = seeded(seed)
+	let mut note json.Optional[string] = json.Absent
+	if draw(&r, 2) == 0 {
+		note = json.Present{Value: b + a}
+	}
+	let mut ts = tags
+	if len(ts) == 0 {
+		ts = []string{a}
+	}
+	let v = queryRecord{Name: a, Sort: b, Page: draw(&r, 2001) - 1000, Big: uint64(draw(&r, 1000000)) * 18446744073709, Scale: float64(draw(&r, 2001)-1000) / 8.0, On: draw(&r, 2) == 0, Note: note, Tags: ts}
+	let u = ui.WithQuery(ui.URL{Path: "/list", Query: "", Fragment: "top"}, v) catch {
+	case ui.QueryShape:
+		return false
+	}
+	let back = ui.QueryOf[queryRecord](ui.ParseURL(ui.Href(u))) catch {
+	case _:
+		return false
+	}
+	let nested = ui.EncodeQuery(queryNested{Name: a, Inner: v}) catch {
+	case ui.QueryShape as q:
+		q.Key
+	}
+	let scalar = ui.EncodeQuery(draw(&r, 9)) catch {
+	case ui.QueryShape as q:
+		"none" + q.Key
+	}
+	back == v && u.Path == "/list" && u.Fragment == "top" && nested == "inner" && scalar == "none"
+}
+
 test UiScriptShowsTheView(seed int, steps int) {
 	assert lawScriptShowsTheView(seed, steps)
 }
@@ -1835,6 +1928,18 @@ test UiLoadUsesTheBoundService(seed int) {
 
 test UiRowsKeepTheCursor(seed int, steps int) {
 	assert lawRowsKeepTheCursor(seed, steps)
+}
+
+test UiEscapeRoundTrips(s string, t string) {
+	assert lawEscapeRoundTrips(s, t)
+}
+
+test UiSegmentsReadPathOf(xs []string) {
+	assert lawSegmentsReadPathOf(xs)
+}
+
+test UiQueryRoundTrips(seed int, a string, b string, tags []string) {
+	assert lawQueryRoundTrips(seed, a, b, tags)
 }
 
 
@@ -1884,6 +1989,9 @@ var stdUIHostStatements = map[string]string{
 	"ui NavigationFollowsModel":        `NavigationFollowsModel(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { navigationFollows(seed, steps, m) } }`,
 	"ui LoadUsesTheBoundService":       `LoadUsesTheBoundService(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { loadsBound(seed, m) } }`,
 	"ui RowsKeepTheCursor":             `RowsKeepTheCursor(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cursorKept(seed, steps, m) } }`,
+	"ui EscapeRoundTrips":              `EscapeRoundTrips(s string, t string) { let e = Escape(s) let mut lower = "" for i in 0..len(s) { lower = lower + "%" + hex.Encode(s[i:i+1]) } let plain = strings.ReplaceAll(t, "%", "") escapedForm(e) && Unescape(e) == s && Unescape(lower) == s && Unescape(plain) == plain && Unescape(s+"%4g"+plain) == Unescape(s)+"%4g"+plain }`,
+	"ui SegmentsReadPathOf":            `SegmentsReadPathOf(xs []string) { let path = PathOf(xs) let mut want = []string{} for x in xs { if x != "" { want = want.Append(x) } } let got = Segments(URL{Path: path, Query: "", Fragment: ""}) if len(got) != len(want) || ParseURL(path).Path != path { return false } for i, x in want { if got[i] != x { return false } } true }`,
+	"ui QueryRoundTrips":               `QueryRoundTrips(seed int, a string, b string, tags []string) { let mut r = seeded(seed) let mut note json.Optional[string] = json.Absent if draw(&r, 2) == 0 { note = json.Present{Value: b + a} } let mut ts = tags if len(ts) == 0 { ts = []string{a} } let v = queryRecord{Name: a, Sort: b, Page: draw(&r, 2001) - 1000, Big: uint64(draw(&r, 1000000)) * 18446744073709, Scale: float64(draw(&r, 2001)-1000) / 8.0, On: draw(&r, 2) == 0, Note: note, Tags: ts} let u = WithQuery(URL{Path: "/list", Query: "", Fragment: "top"}, v) catch { case QueryShape: return false } let back = QueryOf[queryRecord](ParseURL(Href(u))) catch { case _: return false } let nested = EncodeQuery(queryNested{Name: a, Inner: v}) catch { case QueryShape as q: q.Key } let scalar = EncodeQuery(draw(&r, 9)) catch { case QueryShape as q: "none" + q.Key } back == v && u.Path == "/list" && u.Fragment == "top" && nested == "inner" && scalar == "none" }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,

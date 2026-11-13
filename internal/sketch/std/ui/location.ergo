@@ -1,3 +1,6 @@
+import codec
+import http
+import strconv
 import strings
 import sync
 
@@ -164,4 +167,242 @@ func routed[E](f *Frame[E], u URL) Option[E] {
 		}
 	}
 	None
+}
+
+// hexDigits are the digits of an escape, upper-case as RFC 3986 2.1 asks.
+let hexDigits = "0123456789ABCDEF"
+
+// unreserved is whether b stands for itself in a URL component: a
+// letter, a digit, or one of - . _ ~ (RFC 3986 2.3).
+func unreserved(b byte) bool {
+	(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' || b == '.' || b == '_' || b == '~'
+}
+
+// Escape writes s as one URL component, a path segment or a query key or
+// value: an unreserved byte (a letter, a digit, - . _ ~) stands for
+// itself, and every other byte is %XX, its hex digits upper-case, so a
+// '/', '?', '#', '&', '=', '+', '%' or space in s cannot end the
+// component. Unescape reads it back.
+func Escape(s string) string {
+	let mut plain = true
+	for i in 0..len(s) {
+		if !unreserved(s[i]) {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return s
+	}
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		if unreserved(c) {
+			b.WriteString(s[i : i+1])
+		} else {
+			let hi = int(c) / 16
+			let lo = int(c) % 16
+			b.WriteString("%" + hexDigits[hi:hi+1] + hexDigits[lo:lo+1])
+		}
+	}
+	b.String()
+}
+
+// hexValue is the value of a hex digit in either case, -1 for any other
+// byte.
+func hexValue(b byte) int {
+	if b >= '0' && b <= '9' {
+		return int(b - '0')
+	}
+	if b >= 'a' && b <= 'f' {
+		return int(b-'a') + 10
+	}
+	if b >= 'A' && b <= 'F' {
+		return int(b-'A') + 10
+	}
+	-1
+}
+
+// Unescape reads a URL component Escape wrote, or a browser or a user
+// did: each %XX is its byte, in either case; a '%' not followed by two
+// hex digits stands for itself, so a hand-written address never fails.
+// A '+' stays a '+': a query's "+ is a space" is the query's rule, which
+// QueryOf applies.
+func Unescape(s string) string {
+	if !strings.Contains(s, "%") {
+		return s
+	}
+	let mut out = strings.NewBuilder()
+	let mut i = 0
+	for i < len(s) {
+		if s[i] == '%' && i+2 < len(s) {
+			let hi = hexValue(s[i+1])
+			let lo = hexValue(s[i+2])
+			if hi >= 0 && lo >= 0 {
+				out.WriteByte(byte(hi*16 + lo))
+				i = i + 3
+				continue
+			}
+		}
+		out.WriteByte(s[i])
+		i = i + 1
+	}
+	out.String()
+}
+
+// Segments is u's path as its segments, each unescaped: "/dino/T%20rex/"
+// is ["dino", "T rex"]. An empty segment (a leading, doubled or trailing
+// '/') is skipped, so a route matches with or without a trailing slash.
+func Segments(u URL) []string {
+	let mut out = []string{}
+	for part in strings.Split(u.Path, "/") {
+		if part != "" {
+			out = out.Append(Unescape(part))
+		}
+	}
+	out
+}
+
+// PathOf is the path of segments, each escaped, so a '/' or '?' inside a
+// segment stays inside it: Segments reads it back, but for an empty
+// segment, which it skips. No segments is "/".
+func PathOf(segments []string) string {
+	if len(segments) == 0 {
+		return "/"
+	}
+	let mut b = strings.NewBuilder()
+	for s in segments {
+		b.WriteString("/")
+		b.WriteString(Escape(s))
+	}
+	b.String()
+}
+
+// QueryShape is a field EncodeQuery cannot write: its value has no query
+// form (a record, a union value, a null, or a list of them), as
+// DecodeQuery reads none. Key is the field's key; "" when the value is
+// not a record.
+type QueryShape { Key string }
+
+// QueryOf reads a T from u's query by T's derived codec, by std http's
+// rule (http.DecodeQuery, stdlib.md HTTP 3): a field's key is its wire
+// name, '+' is a space and %XX a byte, an unknown key is skipped, a
+// missing field fails unless it is a json.Optional, and a scalar field
+// given twice fails QueryRepeated. A program that wants a default for a
+// field it cannot read declares the field json.Optional, or catches the
+// failure and starts from its default query.
+func QueryOf[T wire](u URL) T fails http.QueryRepeated | wired[T] {
+	try http.DecodeQuery[T](http.ParseQuery(u.Query))
+}
+
+// EncodeQuery is v's query by T's derived codec, which QueryOf reads
+// back: key=value for each field in declaration order, keys and values
+// escaped (Escape); a list field writes its key once per element, an
+// absent json.Optional writes nothing, a bool is true or false and a
+// number its shortest decimal (a float as Go's strconv 'g', -1). A field
+// whose value has no query form fails QueryShape naming it.
+func EncodeQuery[T wire](v T) string fails QueryShape {
+	let e = codec.NewEvents()
+	encode(v, e)
+	try queryText(codec.Recorded(e))
+}
+
+// WithQuery is u with its query EncodeQuery(v).
+func WithQuery[T wire](u URL, v T) URL fails QueryShape {
+	URL{Path: u.Path, Query: try EncodeQuery(v), Fragment: u.Fragment}
+}
+
+// queryText writes a record's events as a query: one object of keys,
+// each followed by a scalar or a list of scalars.
+func queryText(events []codec.Event) string fails QueryShape {
+	if len(events) == 0 {
+		return QueryShape{Key: ""}
+	}
+	match events[0] {
+	case codec.BeginObjectEvent:
+	case _:
+		return QueryShape{Key: ""}
+	}
+	let mut b = strings.NewBuilder()
+	let mut first = true
+	let mut i = 1
+	for i < len(events) {
+		let mut key = ""
+		match events[i] {
+		case codec.KeyEvent as k:
+			key = k.K
+		case codec.EndObjectEvent:
+			return b.String()
+		case _:
+			return QueryShape{Key: ""}
+		}
+		i = i + 1
+		let mut values = []string{}
+		match events[i] {
+		case codec.BeginListEvent:
+			i = i + 1
+			let mut open = true
+			for open {
+				match events[i] {
+				case codec.EndListEvent:
+					open = false
+				case _:
+					values = values.Append(try scalarText(events[i], key))
+				}
+				i = i + 1
+			}
+		case _:
+			values = values.Append(try scalarText(events[i], key))
+			i = i + 1
+		}
+		for x in values {
+			if !first {
+				b.WriteString("&")
+			}
+			first = false
+			b.WriteString(Escape(key))
+			b.WriteString("=")
+			b.WriteString(Escape(x))
+		}
+	}
+	b.String()
+}
+
+// scalarText is the query text of a scalar event; any other has no query
+// form at key.
+func scalarText(e codec.Event, key string) string fails QueryShape {
+	match e {
+	case codec.StringEvent as s:
+		s.V
+	case codec.BoolEvent as x:
+		if x.V { "true" } else { "false" }
+	case codec.IntEvent as n:
+		strconv.FormatInt(n.V, 10)
+	case codec.UintEvent as n:
+		uintText(n.V)
+	case codec.FloatEvent as x:
+		strconv.FormatFloat(x.V, 'g', -1)
+	case codec.NumberEvent as x:
+		x.Text
+	case _:
+		QueryShape{Key: key}
+	}
+}
+
+// uintText is n in decimal.
+func uintText(n uint64) string {
+	if n == 0 {
+		return "0"
+	}
+	let mut digits = []byte{}
+	let mut m = n
+	for m > 0 {
+		digits = digits.Append(byte(m%10) + '0')
+		m = m / 10
+	}
+	let mut out = strings.NewBuilder()
+	for i in 0..len(digits) {
+		out.WriteByte(digits[len(digits)-1-i])
+	}
+	out.String()
 }
