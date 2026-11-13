@@ -191,6 +191,19 @@ func (w *ownWalk) handleMove(x syntax.Expr, h hand) bool {
 	return true
 }
 
+// handleFrom names what a binding of x is lent from: the place x, or what
+// the binding x is lent from.
+func (w *ownWalk) handleFrom(x syntax.Expr) string {
+	if id, ok := unparen(x).(*syntax.Ident); ok {
+		if v, _ := w.info.Uses[id].(*Var); v != nil {
+			if i, ok := w.slot[v]; ok && w.vars[i].handle {
+				return w.vars[i].from
+			}
+		}
+	}
+	return exprText(x)
+}
+
 // handleSource reports a match subject whose handles are a declared
 // root's: a handle place of one, or a binding lent from one.
 func (w *ownWalk) handleSource(x syntax.Expr) bool {

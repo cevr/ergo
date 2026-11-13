@@ -920,12 +920,19 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	}
 	var bound []*Var
 	loans := map[*Var][]resourceLoan{}
+	// handles are the names bound to a declared root's handle: a let of
+	// one lends it, as a for-in does (P3, handle.go).
+	handles := map[*Var]string{}
 	w.region(spec, func() {
 		pair := len(spec.Values) == len(spec.Names) && spec.Pattern == nil
 		for i, x := range spec.Values {
 			mode := mMove
 			if pair && spec.Names[i].Name == "_" {
 				mode = mDiscard
+			}
+			if v, _ := w.info.Defs[spec.Names[i]].(*Var); pair && v != nil && mode == mMove && w.handleSource(x) {
+				handles[v] = w.handleFrom(x)
+				mode = mLend
 			}
 			w.expr(x, mode, hand{at: x, how: "let moves it"})
 			if pair {
@@ -946,6 +953,10 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	_ = s
 	for _, id := range spec.Names {
 		if v, ok := w.info.Defs[id].(*Var); ok {
+			if from, ok := handles[v]; ok {
+				w.acquire(ownLocal{v: v, lent: true, from: from, handle: true})
+				continue
+			}
 			_, callable := under(v.Type).(*Signature)
 			if w.tracked(v.Type) || callable || len(loans[v]) > 0 {
 				bound = append(bound, v)
