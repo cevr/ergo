@@ -154,12 +154,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
 	{"type *check.Map", "G4"},
 	{"type *check.TypeParam", "G4"},
-	{"type *check.Signature", "G4"},
 	{"type *check.Pointer", "G4"},
 	{"pointer receiver", "G4"},
 	{"for-in over a non-slice", "G4"},
 	{"call kind 1", "G4"}, // CallOp: an operation-type value's operation
-	{"call kind 3", "G4"}, // CallFuncValue
 	{"call kind 4", "G4"}, // CallConversion
 	{"Go type spelling *", "G4"},
 	{"witness parameter", "G4"},
@@ -178,7 +176,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"intrinsic body", "Go"},
 	{"std body not reachable alone", "G5"},
 	// G6: the rest (closures, codecs, test and law bodies).
-	{"expression *syntax.FuncLit", "G6"},
 	{"trailing block", "G6"}, // a call's trailing block that is not a with's
 	{"context value", "G6"},
 	// IRG6 lowers a with of named, inline and local contexts, and the
@@ -188,9 +185,17 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"context entry *", "G6"},
 	{"operations conversion *", "G6"},
 	{"generic operations conversion", "G6"},
-	{"call kind 10", "G6"}, // CallEncode
-	{"call kind 11", "G6"}, // CallDecode
-	{"call kind 12", "G6"}, // CallEmbed
-	{"call kind 8", "G6"},  // CallLawOp
-	{"call kind 9", "G6"},  // CallGoError
+	// IRG6 r2 lowers function values (literals, trailing blocks of program
+	// calls, function types, calls of function values; the last two were
+	// G4's). These stay the emitter's.
+	{"function literal *", "G6"},
+	{"function type with several results", "G6"},
+	{"call of a function value *", "G6"},
+	{"call of a value of a named function type", "G6"},
+	{"call of a known callback", "G4"}, // known.go's plain variant
+	{"call kind 10", "G6"},             // CallEncode
+	{"call kind 11", "G6"},             // CallDecode
+	{"call kind 12", "G6"},             // CallEmbed
+	{"call kind 8", "G6"},              // CallLawOp
+	{"call kind 9", "G6"},              // CallGoError
 }
