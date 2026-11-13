@@ -53,6 +53,13 @@ var uncachedTags = []string{"ts", "net", "cc", "tty", "gui"}
 // builds produce.
 var goSettings = []string{"GOVERSION", "GOROOT", "GOOS", "GOARCH", "GOFLAGS", "GOEXPERIMENT", "GOAMD64", "GOARM64", "CGO_ENABLED", "CC", "CGO_CFLAGS", "CGO_LDFLAGS", "GOTOOLCHAIN"}
 
+// volatileEnv are variables that differ on every invocation and that no
+// compiler, Go build or program reads: the service manager's identifiers of
+// the unit the runner runs in (systemd-run --scope sets a new INVOCATION_ID
+// each time, so with it every program missed: GS1's receipt, 51 of 51 run
+// again) and the shell's last command. Every other variable is keyed.
+var volatileEnv = []string{"INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "MANAGERPID", "_"}
+
 // cacheEntry is one recorded pass.
 type cacheEntry struct {
 	Version string `json:"version"`
@@ -114,6 +121,9 @@ func commonKey(cfg *config) (string, error) {
 	env := slices.Clone(os.Environ())
 	sort.Strings(env)
 	for _, kv := range env {
+		if name, _, _ := strings.Cut(kv, "="); slices.Contains(volatileEnv, name) {
+			continue
+		}
 		fmt.Fprintf(h, "env %q\n", kv)
 	}
 	fmt.Fprintf(h, "settings timeout=%s budget=%s memory=%d root=%s\n", cfg.timeout, cfg.budget, cfg.memory, cfg.root)

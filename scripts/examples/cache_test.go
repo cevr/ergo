@@ -185,6 +185,9 @@ func checkCacheLaw(t *testing.T, seed uint64) {
 			edit = fmt.Sprintf("%s: README.md mode %o", n, mode)
 		}
 		edits = append(edits, edit)
+		// Every run has a new unit identifier, as each systemd-run does;
+		// no verdict reads it, so it must not cost a replay (volatileEnv).
+		t.Setenv("INVOCATION_ID", fmt.Sprint("step", step))
 		// The settings are part of the key, so every run takes the same
 		// ones: no case of these fixtures waits, and the year only stops a
 		// hang (caseTimeout's own fallback).
