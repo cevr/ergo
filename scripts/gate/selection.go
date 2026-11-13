@@ -47,8 +47,8 @@ import (
 var selectPackages = []string{"internal/sketch/check", "internal/sketch/lower", "cmd/ergo"}
 
 // coverageVersion is the record format; a record of another version is
-// no record.
-const coverageVersion = 1
+// no record. Version 2 observes the embedded std files (observedEmbeds).
+const coverageVersion = 2
 
 // coverageSubdir is where the records live in the gate's cache directory:
 // one file per package, and the base sources the hunks are read against.
@@ -98,7 +98,19 @@ type recordedRead struct {
 
 // performanceVariables change how fast a test runs, not what it does; a
 // difference in them selects no test. GOFLAGS is compared without its -p.
-var performanceVariables = []string{"GOCACHE", "GOMAXPROCS", "GOGC", "GOMEMLIMIT", "TMPDIR", "GOTMPDIR", "GOCOVERDIR", testenvToolDigest}
+var performanceVariables = []string{"GOCACHE", "GOMAXPROCS", "GOGC", "GOMEMLIMIT", "TMPDIR", "GOTMPDIR", "GOCOVERDIR", testenvToolDigest, embedObserveVariable}
+
+// embedObserveVariable is internal/sketch/std's ObserveVariable: the record
+// sets it to the checkout root, and a package that observes its embedded
+// files then opens each one it reads at its checkout path, which the test
+// log names (gate-speed GS9). Only the record sets it; it changes no verdict.
+const embedObserveVariable = "ERGO_EMBED_OBSERVE"
+
+// observedEmbeds are the directories whose embedded files are observed
+// (embedObserveVariable): an edit of one is a read the record placed, which
+// reruns its readers, not every test. An embedded file added or removed
+// still runs every test.
+var observedEmbeds = []string{"internal/sketch/std/"}
 
 // testenvToolDigest is the variable through which the gate passes the
 // tools' digest; the tools themselves are reads (a program run is an open).
@@ -302,6 +314,8 @@ func selectTests(root, cacheDir string, p testPackage, env []string, names []str
 		dir, base := path.Dir(rel), path.Base(rel)
 		built := strings.HasSuffix(base, ".go") || slices.Contains(buildExtensions, path.Ext(base))
 		switch {
+		case deps[dir] && slices.Contains(p.closure.Embeds, rel) && before != "" && after != "" && slices.ContainsFunc(observedEmbeds, func(d string) bool { return strings.HasPrefix(rel, d) }):
+			// An observed embedded file: its readers (below).
 		case !deps[dir] || slices.Contains(p.closure.Embeds, rel) || slices.Contains(moduleFiles, rel):
 			// An embedded file, a module file, or a file of a directory
 			// that is no longer, or not yet, compiled in.
@@ -563,6 +577,7 @@ func recordCoverage(root, cacheDir string, limit limiter, p testPackage, env, de
 		// builds Go, changed between any two runs and selected those tests
 		// after every edit, a docs edit included.
 		command.Env = setEnvironmentVariable(setEnvironmentVariable(setEnvironmentVariable(env, "TMPDIR", temporary), "GOTMPDIR", temporary), "GOCOVERDIR", counters)
+		command.Env = setEnvironmentVariable(command.Env, embedObserveVariable, root)
 		command.Dir = packageDir
 		var output bytes.Buffer
 		command.Stdout, command.Stderr = &output, &output

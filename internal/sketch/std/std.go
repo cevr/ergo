@@ -13,7 +13,9 @@ package std
 import (
 	"embed"
 	"io/fs"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -49,8 +51,32 @@ var sources embed.FS
 // exported declarations are in scope in every package.
 const PreludePath = "prelude"
 
+// ObserveVariable names, when set, the checkout root of a coverage record
+// (scripts/gate, gate-speed GS9): each embedded file a caller reads is then
+// also opened at its checkout path, so the test log of the test that read it,
+// or of the test whose child process read it, names it as a read. The gate's
+// test-impact selection then reruns only the readers of an edited std file,
+// not every test. Unset, nothing is opened.
+const ObserveVariable = "ERGO_EMBED_OBSERVE"
+
+// sourceDir is this package's directory in the module.
+const sourceDir = "internal/sketch/std"
+
+// observe opens the checkout copy of the embedded file name under a coverage
+// record (ObserveVariable).
+var observe = func(name string) {
+	root := os.Getenv(ObserveVariable)
+	if root == "" {
+		return
+	}
+	if f, err := os.Open(filepath.Join(root, filepath.FromSlash(sourceDir), filepath.FromSlash(name))); err == nil {
+		f.Close()
+	}
+}
+
 // Prelude returns the prelude's source files, by file name.
 func Prelude() map[string]string {
+	observe("prelude.ergo")
 	data, err := sources.ReadFile("prelude.ergo")
 	if err != nil {
 		panic("std: the prelude is not embedded: " + err.Error())
@@ -74,6 +100,7 @@ func Package(importPath string) (map[string]string, bool) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".ergo") {
 			continue
 		}
+		observe(path.Join(importPath, entry.Name()))
 		data, err := sources.ReadFile(path.Join(importPath, entry.Name()))
 		if err != nil {
 			return nil, false

@@ -17,6 +17,27 @@
       "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
       "anchor": {"tests": ["std:TestExternArgumentClauses"]},
       "killers": ["std:TestExternArgumentClauses"]
+    },
+    {
+      "name": "gs9-observe-never", "origin": "wf10 GS9",
+      "file": "internal/sketch/std/std.go",
+      "from": "\tif root == \"\" {\n\t\treturn\n\t}\n", "to": "\tif root == \"\" || true {\n\t\treturn\n\t}\n",
+      "rule": "Under a coverage record each embedded std file read is opened at its checkout path, so the gate's selection knows its readers.",
+      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
+    },
+    {
+      "name": "gs9-package-unobserved", "origin": "wf10 GS9",
+      "file": "internal/sketch/std/std.go",
+      "from": "\t\tobserve(path.Join(importPath, entry.Name()))\n", "to": "",
+      "rule": "Package observes every file it reads.",
+      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
+    },
+    {
+      "name": "gs9-prelude-unobserved", "origin": "wf10 GS9",
+      "file": "internal/sketch/std/std.go",
+      "from": "\tobserve(\"prelude.ergo\")\n", "to": "",
+      "rule": "Prelude observes the prelude it reads.",
+      "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
     }
   ]
 }

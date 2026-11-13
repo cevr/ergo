@@ -109,9 +109,43 @@ func TestScratch(t *testing.T) {
 }
 `,
 	"p/testdata/x.txt": "x\n",
+	// An embedded file the package observes as internal/sketch/std does
+	// (embedObserveVariable; gate-speed GS9).
+	"p/e.go": `package p
+
+import (
+	_ "embed"
+	"os"
+	"path/filepath"
+)
+
+//go:embed e.txt
+var e string
+
+// E returns the embedded text, opened at its checkout path under a record.
+func E() string {
+	if root := os.Getenv("ERGO_EMBED_OBSERVE"); root != "" {
+		if f, err := os.Open(filepath.Join(root, "p", "e.txt")); err == nil {
+			f.Close()
+		}
+	}
+	return e
+}
+`,
+	"p/e.txt": "e\n",
+	"p/e_test.go": `package p
+
+import "testing"
+
+func TestE(t *testing.T) {
+	if E() != "e\n" {
+		t.Fatal("E")
+	}
+}
+`,
 }
 
-var selectionNames = []string{"TestA", "TestB", "TestC", "TestK", "TestData", "TestList", "TestEnv", "TestScratch"}
+var selectionNames = []string{"TestA", "TestB", "TestC", "TestK", "TestData", "TestList", "TestEnv", "TestScratch", "TestE"}
 
 // selectionEdit is one edit of the fixture: a replacement in a file (a new
 // file when from is empty) or a variable; reaches is the selection it
@@ -131,6 +165,7 @@ var selectionEdits = []selectionEdit{
 	{name: "a file added to the listed directory", file: "p/testdata/y.txt", to: "y\n", reaches: []string{"TestList"}},
 	{name: "a variable", env: "SEL_X=1", reaches: []string{"TestEnv"}},
 	{name: "a test's body", file: "p/p_test.go", from: "B() != 2", to: "B() != 3"},
+	{name: "an observed embedded file", file: "p/e.txt", from: "e\n", to: "f\n", reaches: []string{"TestE"}},
 }
 
 // TestSelectionRunsEveryTestAnEditReaches is the law of the fast tier's
@@ -142,7 +177,10 @@ var selectionEdits = []selectionEdit{
 // tests on the edited tree and holds the selection to their verdicts. An
 // edit alone also gets exactly the selection its row names: the tests whose
 // blocks or reads it touches, or every test when it is outside a function
-// body or in a test file.
+// body or in a test file. An edit of an embedded file the package observes
+// (observedEmbeds, as internal/sketch/std does; gate-speed GS9) reaches its
+// readers only, and a shared GOTMPDIR that the tests change reaches no test
+// (GS10).
 //
 // It builds Go because the law is about what go test runs: the record is
 // a cover build run test by test, and each verdict is a go test run of the
@@ -151,6 +189,10 @@ func TestSelectionRunsEveryTestAnEditReaches(t *testing.T) {
 	if realTools["go"] == "" {
 		t.Skip("no go")
 	}
+	// The fixture's p/ observes its embedded file as std does.
+	observed := observedEmbeds
+	observedEmbeds = append(slices.Clone(observedEmbeds), "p/")
+	defer func() { observedEmbeds = observed }()
 	root := t.TempDir()
 	for name, content := range selectionBase {
 		write(t, root, name, content)
