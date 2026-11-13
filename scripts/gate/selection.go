@@ -43,8 +43,12 @@ import (
 
 // selectPackages are the packages whose fast-tier tests the gate selects:
 // the compiler's (check, lower) and the CLI's, the ones every compiler
-// edit runs (about 170 CPU-s of the fast tier, fast-cpu.json).
-var selectPackages = []string{"internal/sketch/check", "internal/sketch/lower", "cmd/ergo"}
+// edit runs (about 170 CPU-s of the fast tier, fast-cpu.json), and the
+// packages that a compiler or std edit reruns whole next (gate-speed GS12:
+// on a lower edit scripts/examples, sketchfront and tsproj took 42 CPU-s;
+// on a std edit bindc, scripts/examples, sketchfront, std, syntax and
+// gobind took 89).
+var selectPackages = []string{"internal/sketch/check", "internal/sketch/lower", "cmd/ergo", "scripts/examples", "internal/sketchfront", "internal/tsproj", "internal/bindc", "internal/sketch/std", "internal/sketch/syntax", "internal/gobind"}
 
 // coverageVersion is the record format; a record of another version is
 // no record. Version 2 observes the embedded std files (observedEmbeds).
