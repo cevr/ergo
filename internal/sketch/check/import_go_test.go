@@ -97,7 +97,9 @@ func TestImportGoRows(t *testing.T) {
 // place. Mutants they alone catch: a refused declaration diagnosed at the
 // import instead of the use; Ergo's path rule instead of Go's
 // (module.CheckImportPath: github.com/0xAX/x is a path); a pointer-receiver
-// method called on a copy; a borrow kept as a go.Ref.
+// method called on a copy; a borrow kept as a go.Ref; a program operation
+// type's value admitted into a Go interface, which Go then refuses
+// (16b-g-ops-into-go-interface).
 func TestImportGoUses(t *testing.T) {
 	for _, tc := range []struct{ name, src, want string }{
 		{"refused-at-use", "import go math\nfunc F() int { let _ = math.Pi; 0 }\nfunc G() uint64 { math.MaxUint64 }\n",
@@ -111,6 +113,8 @@ func TestImportGoUses(t *testing.T) {
 			"2:50:S109 the Go method strings.Builder.Len has a pointer receiver; call it on a go.Ref[strings.Builder] or a borrow, not on a copy (docs/spec/interop.md)"},
 		{"borrow-kept", "import go net/url\nfunc F(p *url.URL) go.Ref[url.URL] { p }\n",
 			"2:38:S108 cannot use *url.URL as go.Ref[url.URL] in the body's tail value: a borrow is not kept as a go.Ref"},
+		{"ops-into-go-interface", "import go fmt\ntype S { String() string }\nfunc F(s S) fmt.Stringer { s }\n",
+			"3:28:S108 cannot use S as fmt.Stringer in the body's tail value: the operations of S take Ergo's calling convention, not the Go methods of fmt.Stringer"},
 		// wf10 defects D2: a Go function is a value only when its type
 		// needs no conversion at the Go edge (check.GoDirectSig), and so
 		// is a Go function parameter an Ergo function is passed to.

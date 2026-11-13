@@ -57,6 +57,9 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
 	}
+	if check.IsInForce(c) {
+		return fc.inForce(x, c) // inforce.go
+	}
 	if goImportCall(c, fc.typeOf) {
 		return fc.goCall(x, c) // gocall.go
 	}
@@ -803,13 +806,13 @@ func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
 func (fc *funcCtx) typeArgs(sig *check.Signature, args []check.Type, site syntax.Node) string {
 	var out []string
 	for i, tp := range sig.TParams {
-		if tp.Kind != check.KindType {
+		if !fc.l.goParam(tp) {
 			continue
 		}
 		if i >= len(args) {
 			ice(site, "a generic call with %d type arguments for %d parameters", len(args), len(sig.TParams))
 		}
-		out = append(out, fc.goType(args[i]))
+		out = append(out, fc.goArg(tp, args[i]))
 	}
 	if len(out) == 0 {
 		return ""
@@ -862,7 +865,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 	}
 	if inst == nil {
 		for _, tp := range f.Sig.TParams {
-			if tp.Kind == check.KindType && !paramsMention(f.Sig, tp) {
+			if fc.l.goParam(tp) && !paramsMention(f.Sig, tp) {
 				unreachable(site, ruleGenericValue, "the generic function %s used as a value with no instance, and its type parameter %s in no parameter", f.Name, tp.Name)
 			}
 		}
@@ -1062,6 +1065,10 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	if owning {
 		ws = fc.temp("ws")
 		fc.line(ws + " := " + fc.scopeCall("Scope.OpenWith", fc.frameScope(arg), nil, arg))
+		if fc.l.holdsRows() {
+			// The innermost owning with, for a held context (inforce.go).
+			fc.line(env + "." + envWith + " = " + ws)
+		}
 		savedWith, fc.frame.with = fc.frame.with, ws
 	}
 	if lit {

@@ -3,6 +3,7 @@ internal/sketch/check/authority.go	n.origin().Obj.Pkg.Path == std.PreludePath	Am
 internal/sketch/check/authority.go	obj.Pkg.Path == std.PreludePath	Task ownership; predeclared language type
 internal/sketch/check/call.go	c.pkg.Path == std.PreludePath	prelude generic collection functions; follow-up declared contracts
 internal/sketch/check/call.go	f.Pkg.Path == std.PreludePath	Unreachable; predeclared language function
+internal/sketch/check/call.go	c.Func.Pkg.Path == std.PreludePath	InForce; predeclared language function, lowered in place (rows.md, Context values)
 internal/sketch/check/contextvalues.go	n.Obj.Pkg.Path != std.PreludePath	Context predeclared row value
 internal/sketch/check/decl.go	c.pkg.Path == std.PreludePath	prelude ownership declarations
 internal/sketch/check/durable.go	f.Pkg.Path == childPath	durable actor contracts; follow-up
