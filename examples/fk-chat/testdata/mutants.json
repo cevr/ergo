@@ -68,9 +68,9 @@
     {
       "name": "fk14-echo-release-keeps-the-line", "origin": "wf10/fk14a",
       "file": "examples/fk-chat/memory/echo.ergo",
-      "from": "\t\t\t\te.open.Set(None)\n",
-      "to": "\t\t\t\te.open.Set(e.open.Get())\n",
-      "rule": "A released line takes no send (law talk.Channel.ClosedLineTakesNoSend for Echo).",
+      "from": "\t\t\t\te.open.Set(None)\n\t\t\t}\n\t\tcase None:\n\t\t}\n\t\tframes.End()\n",
+      "to": "\t\t\t\te.open.Set(e.open.Get())\n\t\t\t}\n\t\tcase None:\n\t\t}\n",
+      "rule": "A released line takes no send: the release forgets the line and ends its frames (law talk.Channel.ClosedLineTakesNoSend for Echo).",
       "anchor": {"tests": ["examples:fk-chat"]}, "killers": ["examples:fk-chat"]
     },
     {
