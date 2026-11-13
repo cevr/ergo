@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"math"
 	"os"
@@ -283,9 +286,74 @@ func classFastSteps(full []*Step) ([]*Step, error) {
 	return steps, nil
 }
 
+// fullTierOnly says whether every test of the package in dir belongs to
+// the full tier: it has a test, every Test function's first statement
+// calls needsBuild (the -short skip of a test that builds or runs Go, as
+// in internal/sketch/lower), and it has no Fuzz or Example function, which
+// -short would still run. Such a package's -short run skips every test,
+// yet it still compiles, links and starts its test binary: after a
+// checker edit that was most of the cost of internal/selfhostcheck and
+// internal/experimental/irspike (batch-18 verify B1). So the fast tier
+// gives it no step, and the full tier runs it as it runs every package.
+func fullTierOnly(dir string) (bool, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
+	if err != nil {
+		return false, err
+	}
+	fset := token.NewFileSet()
+	tests := 0
+	for _, file := range files {
+		f, err := parser.ParseFile(fset, file, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return false, err
+		}
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil || fn.Name.Name == "TestMain" {
+				continue
+			}
+			name := fn.Name.Name
+			switch {
+			case strings.HasPrefix(name, "Fuzz"), strings.HasPrefix(name, "Example"):
+				return false, nil
+			case !strings.HasPrefix(name, "Test"):
+				continue
+			}
+			tests++
+			if fn.Body == nil || len(fn.Body.List) == 0 || !callsNeedsBuild(fn.Body.List[0]) {
+				return false, nil
+			}
+		}
+	}
+	return tests > 0, nil
+}
+
+// callsNeedsBuild says whether the statement is a call of needsBuild, its
+// results dropped or assigned.
+func callsNeedsBuild(s ast.Stmt) bool {
+	var e ast.Expr
+	switch s := s.(type) {
+	case *ast.ExprStmt:
+		e = s.X
+	case *ast.AssignStmt:
+		if len(s.Rhs) != 1 {
+			return false
+		}
+		e = s.Rhs[0]
+	default:
+		return false
+	}
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	id, ok := call.Fun.(*ast.Ident)
+	return ok && id.Name == "needsBuild"
+}
+
 // fastSteps declares the fast tier: the full tier's classFast steps
 // (classFastSteps), and one keyed -short step per test package or shard
-// but the host packages'.
+// but the host packages' and the full-tier-only packages' (fullTierOnly).
 func fastSteps(root string) ([]*Step, error) {
 	packages, problem, err := testPackages(root)
 	if err != nil {
@@ -316,6 +384,11 @@ func fastSteps(root string) ([]*Step, error) {
 		// wall, 392 CPU-s under -short at 2b089097, gate-minute
 		// measure.md). The full tier runs them on every batch head.
 		if slices.Contains(hostTestPackages, relative) {
+			continue
+		}
+		if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(p.dir))); err != nil {
+			return nil, err
+		} else if only {
 			continue
 		}
 		// A hermetic package builds as its full-tier step builds it.
@@ -366,6 +439,14 @@ func fastSteps(root string) ([]*Step, error) {
 // at a CPU budget of n a set of steps cannot finish in less than its CPU
 // over n, so this sum predicts the wall where serial test times do not.
 const fastCPUFile = "scripts/gate/fast-cpu.json"
+
+// fastCPUSteps are the fast-tier steps that are no package's and that the
+// CPU budget counts beside the package steps: their rows in fastCPUFile
+// are keyed by the step's name (`-record-durations -fast 'examples
+// (default)'`). The examples step runs every default example program,
+// and it runs again after every edit of the compiler (its bin/ergo) or of
+// the runner's closure.
+var fastCPUSteps = []string{examplesStepName}
 
 func readFastCPU(root string) (map[string]float64, error) {
 	content, err := os.ReadFile(filepath.Join(root, fastCPUFile))
@@ -432,36 +513,59 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 		}
 		return nil
 	}
+	// measure runs one step after what it needs and returns its CPU.
+	measure := func(step *Step) (float64, error) {
+		for _, need := range step.Needs {
+			if err := prepare(need); err != nil {
+				return 0, err
+			}
+		}
+		// Every package step is a go test (fastSteps), and every budgeted
+		// step a go command (fastCPUSteps).
+		if step.Argv[0] != "go" {
+			return 0, fmt.Errorf("%s: not a go command: %q", step.Name, step.Argv)
+		}
+		command := exec.Command("go", step.Argv[1:]...)
+		command.Env = append(stepEnvironment(), step.Env...)
+		command.Dir = root
+		command.Stdout = io.Discard
+		command.Stderr = os.Stderr
+		used, err := runBudgeted(limit, step.Name, command)
+		if used.verdict != "" {
+			return 0, fmt.Errorf("%s: %s", step.Name, used.verdict)
+		}
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", step.Name, err)
+		}
+		state := command.ProcessState
+		return (state.UserTime() + state.SystemTime()).Seconds(), nil
+	}
 	for _, pkg := range packages {
+		// A budgeted step that is no package's (fastCPUSteps) is named
+		// by its step name, and its row is that name.
+		if slices.Contains(fastCPUSteps, pkg) {
+			i := slices.IndexFunc(steps, func(s *Step) bool { return s.Name == pkg })
+			if i < 0 {
+				return fmt.Errorf("no fast-tier step %q", pkg)
+			}
+			cpu, err := measure(steps[i])
+			if err != nil {
+				return err
+			}
+			table[pkg] = math.Round(cpu*10) / 10
+			continue
+		}
 		dir := strings.TrimPrefix(path.Clean(pkg), "./")
 		cpu, ran := 0.0, 0
 		for _, step := range steps {
 			if step.Package == nil || step.Package.Dir != dir {
 				continue
 			}
-			for _, need := range step.Needs {
-				if err := prepare(need); err != nil {
-					return err
-				}
-			}
-			// Every package step is a go test (fastSteps).
-			if step.Argv[0] != "go" {
-				return fmt.Errorf("%s: not a go command: %q", step.Name, step.Argv)
-			}
-			command := exec.Command("go", step.Argv[1:]...)
-			command.Env = append(stepEnvironment(), step.Env...)
-			command.Dir = root
-			command.Stdout = io.Discard
-			command.Stderr = os.Stderr
-			used, err := runBudgeted(limit, step.Name, command)
-			if used.verdict != "" {
-				return fmt.Errorf("%s: %s", step.Name, used.verdict)
-			}
+			used, err := measure(step)
 			if err != nil {
-				return fmt.Errorf("%s: %w", step.Name, err)
+				return err
 			}
-			state := command.ProcessState
-			cpu += (state.UserTime() + state.SystemTime()).Seconds()
+			cpu += used
 			ran++
 		}
 		if ran == 0 {

@@ -200,6 +200,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StringsTrimSpace":  {},
 	"StringsTrimPrefix": {},
 	"StringsTrimSuffix": {},
+	"StringsTrimLeft":   {},
+	"StringsTrimRight":  {},
 	"StringsFields":     {},
 	"StringsRepeat":     {},
 	"StringsToLower":    {},
@@ -210,6 +212,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StrconvItoa":       {},
 	"StrconvAtoi":       {},
 	"StrconvQuote":      {},
+
+	// std strings Builder (STD-sh): pure buffer bodies.
+	"StringsBuilderAppend":     {},
+	"StringsBuilderAppendByte": {},
+	"StringsBuilderGrow":       {},
+	"StringsBuilderText":       {},
+	"StringsBuilderTextOwned":  {},
 	// std-align S1c: the rest of Go's strings and strconv that the std
 	// takes, and utf8; pure, as above.
 	"StringsReplaceAll":   {},
@@ -247,6 +256,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"SlicesEqual":          {},
 	"CmpCompare":           {},
 	"CmpLess":              {},
+	"CmpMax":               {},
+	"CmpMin":               {},
 	// std time (std-align S2b; stdlib.md, time): TimeHostNow reads the
 	// host clock and the others compute, so none waits; Timeline.Wait
 	// waits on the caller's task (rt.Sleep on the manual timeline), and
@@ -373,6 +384,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"MathSqrt":               {},
 	"MathPow":                {},
 	"MathMod":                {},
+	"MathLog":                {},
+	"MathExp":                {},
 	"MathInf":                {},
 	"MathNaN":                {},
 	"MathIsNaN":              {},
@@ -409,34 +422,23 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Sha256Sum":       {},
 	"Crc32Checksum":   {},
 	"Crc32Update":     {},
-	// std json (S-json): a Text's Writer events take the caller's task
-	// only so that *v1.Text has the prelude Writer's Go method set; no
-	// body waits or releases.
-	"NewJSONText":        {},
+	// std json (S-json): text's value appenders and buffer pool, and
+	// the Cursor's reads; no body waits or releases.
+	"JSONAppendQuoted":   {},
+	"JSONAppendInt":      {},
+	"JSONAppendUint":     {},
+	"JSONAppendBool":     {},
+	"JSONAppendFloat":    {},
+	"JSONBytesText":      {},
 	"JSONOpen":           {},
 	"TOMLParse":          {},
 	"TOMLFromJSON":       {},
 	"JSONTake":           {},
-	"NewJSONHTMLText":    {},
-	"Text.Null":          {task: true},
-	"JSONGive":           {},
+	"JSONRecycle":        {},
 	"Cursor.Wrong":       {},
 	"Cursor.TakeNull":    {},
 	"Cursor.Kind":        {},
 	"Cursor.Number":      {},
-	"Text.Number":        {task: true},
-	"Text.Bool":          {task: true},
-	"Text.Int":           {task: true},
-	"Text.Uint":          {task: true},
-	"Text.Float":         {task: true},
-	"Text.String":        {task: true},
-	"Text.BeginList":     {task: true},
-	"Text.EndList":       {task: true},
-	"Text.BeginObject":   {task: true},
-	"Text.Tag":           {task: true},
-	"Text.Key":           {task: true},
-	"Text.EndObject":     {task: true},
-	"Text.Written":       {},
 	"Cursor.Path":        {},
 	"Cursor.Bool":        {},
 	"Cursor.Int":         {},
@@ -486,6 +488,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	// std fs (G4, G4b; stdlib.md, fs): bodies that read or write the host
 	// file system and neither wait nor release.
 	"FSReadFile":  {},
+	"FSMapFile":   {},
 	"FSReadDir":   {},
 	"FSStat":      {},
 	"FSWriteFile": {},

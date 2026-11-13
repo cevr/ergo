@@ -90,6 +90,16 @@ type Unsatisfied { Type string, Where string }
 // Error method wherever a refined type is declared.
 func unsatisfied(u Unsatisfied) fails Unsatisfied { u }
 
+// NoMatch is the failure of a derived pattern's parse function, ParseDate
+// for `type Date derive Pattern(…)`: Type is the derived type's name and
+// At the length of the longest prefix of the text that is a prefix of a
+// word of the pattern (patterns.md, The pattern bundle 2).
+type NoMatch { Type string, At int }
+
+// noMatch fails m; its row makes NoMatch an error type of the prelude, as
+// unsatisfied does for Unsatisfied.
+func noMatch(m NoMatch) fails NoMatch { m }
+
 // Writer takes the events of a value's wire form (types.md, Codecs):
 // the predeclared encode(v, w) calls it, and a format (std json) is a
 // provider of it that writes text. A record is BeginObject(n), then Key
@@ -300,6 +310,7 @@ type InputMachine[I, S, E, O, F, R, W] {
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
 type Task[T, E] {
+	runtimeOnly(),
 	// Wait takes the task: its one result moves out once (#197 q54).
 	// Stop lends it, so a law can say what holds after it.
 	Wait() T fails E takes,

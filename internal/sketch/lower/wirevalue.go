@@ -47,10 +47,7 @@ func valueFieldType(t check.Type, name, field string) check.Type {
 }
 
 // numEncode writes a json.Num's spelling, f, as the number itself.
-func numEncode(em wireEvents, task, w, f string) string {
-	if em.dir() == "json" {
-		return w + ".B = append(" + w + ".B, " + f + "...)\n"
-	}
+func numEncode(task, w, f string) string {
 	return w + ".Number(" + task + ", " + f + ")\n"
 }
 
@@ -64,7 +61,7 @@ func numDecode(tc *typeCtx, t check.Type, field, task, r, zero string, scope *na
 // it as a wire type and keeps its spelling valid, and the codec writes the
 // number, not Wire's string.
 func (l *lowerer) wireNumEncode(em wireEvents, tc *typeCtx, b *strings.Builder, t check.Type, task, w, v string) {
-	b.WriteString(numEncode(em, task, w, v+"."+l.typeDecl(t.(*check.Named).Obj, tc.site).fieldName["text"]))
+	b.WriteString(numEncode(task, w, v+"."+l.typeDecl(t.(*check.Named).Obj, tc.site).fieldName["text"]))
 }
 
 func (l *lowerer) wireNumDecode(tc *typeCtx, b *strings.Builder, t check.Type, task, r, zero string, scope *namer) {
@@ -82,23 +79,16 @@ func (l *lowerer) wireValueEncode(em wireEvents, tc *typeCtx, b *strings.Builder
 	member := wireUnder(valueFieldType(t, "Object", "Members")).(*check.Slice).Elem
 	mtd := l.typeDecl(member.(*check.Named).Obj, tc.site)
 	b.WriteString("switch " + x + " := " + v + ".(type) {\ncase " + tc.goType(null) + ":\n_ = " + x + "\n")
-	if em.dir() == "json" {
-		b.WriteString(appendConst(w, "null"))
-	} else {
-		b.WriteString(w + ".Null(" + task + ")\n")
-	}
+	b.WriteString(w + ".Null(" + task + ")\n")
 	b.WriteString("case " + tc.goType(boolean) + ":\n" + tc.wireEncodeWith(em, valueFieldType(t, "Boolean", "Value"), env, w, x+"."+bf) + "\n")
-	b.WriteString("case " + tc.goType(number) + ":\n" + numEncode(em, task, w, x+"."+nf))
+	b.WriteString("case " + tc.goType(number) + ":\n" + numEncode(task, w, x+"."+nf))
 	b.WriteString("case " + tc.goType(str) + ":\n" + tc.wireEncodeWith(em, valueFieldType(t, "Str", "Value"), env, w, x+"."+sf) + "\n")
 	b.WriteString("case " + tc.goType(array) + ":\n" + tc.wireEncodeWith(em, valueFieldType(t, "Array", "Items"), env, w, x+"."+af) + "\n")
 	b.WriteString("case " + tc.goType(object) + ":\n")
-	i, m := "_", scope.alloc("m")
-	if em.indexed() {
-		i = scope.alloc("i")
-	}
+	m := scope.alloc("m")
 	b.WriteString(em.open(false, "len("+x+"."+of+")", task, w))
-	b.WriteString("for " + i + ", " + m + " := range " + x + "." + of + " {\n")
-	b.WriteString(em.mapKey(tc, m+"."+mtd.fieldName["Key"], i, task, w) + tc.wireEncodeWith(em, t, env, w, m+"."+mtd.fieldName["Value"]) + "\n}\n")
+	b.WriteString("for _, " + m + " := range " + x + "." + of + " {\n")
+	b.WriteString(em.mapKey(m+"."+mtd.fieldName["Key"], task, w) + tc.wireEncodeWith(em, t, env, w, m+"."+mtd.fieldName["Value"]) + "\n}\n")
 	b.WriteString(em.close(false, task, w))
 	b.WriteString("}\n")
 }

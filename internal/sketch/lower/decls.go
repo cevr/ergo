@@ -149,6 +149,10 @@ func (l *lowerer) declareName(d syntax.Decl) {
 				for _, id := range spec.Names {
 					if v, ok := l.info.Defs[id].(*check.Var); ok {
 						l.vars[v] = l.pkgName(pkgKey{"let", v}, v.Name)
+						if l.constLet(spec, v) {
+							l.consts[v] = true
+							l.constVals[v] = l.info.Values[spec.Values[0]]
+						}
 					}
 				}
 				if spec.Pattern != nil {
@@ -224,6 +228,11 @@ func (l *lowerer) decl(d syntax.Decl) {
 		tn, ok := l.info.Defs[d.Name].(*check.TypeName)
 		if !ok {
 			ice(d.Name, "the type %s has no Defs entry", d.Name.Name)
+		}
+		if n, ok := tn.Type.(*check.Named); ok && l.runtimeType(n, d.Name) != "" {
+			// A std type the runtime declares (std's own ledger build,
+			// whose root is a std package): no declaration of the program.
+			return
 		}
 		l.emitType(l.typeDecl(tn, d.Name))
 	case *syntax.FuncDecl:
@@ -955,6 +964,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	if directives {
 		l.recordDecl(fc.owner, f.Decl)
 	}
+	if n := nativeOf(f); n != nil {
+		l.emitNative(b, fd.name, n, f) // pattern.go
+		return
+	}
 	var head strings.Builder
 	var params []*check.Var
 	if f.Decl.Type != nil && f.Decl.Type.Params != nil {
@@ -1001,11 +1014,16 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	// own and keeps f's name for a wrapper that copies them (values.go, V5).
 	bodyName, wrapHead, wrapParams := fd.name, "", ""
 	var typeArgs, args []string
-	owned := !known && sp == nil && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
+	owned := !known && sp == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
 	if owned {
 		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
 	}
 	methodName := fd.name
+	if owned && fd.method != nil {
+		// A method's owned body is a method of its own (calls.go).
+		methodName = bodyName
+	}
+	recvName := ""
 	if known {
 		if fd.extern != "" {
 			ice(site, "the known variant of %s is not a plain body", f.Name)
@@ -1035,6 +1053,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 		}
 		paramNames[0] = name(0)
 		head.WriteString("func (" + paramNames[0] + " " + recv + ") " + methodName + "(")
+		wrapHead = "func (" + paramNames[0] + " " + recv + ") " + fd.name + "("
+		recvName = paramNames[0]
+		typeArgs = nil // the receiver binds them
 	} else if sp != nil {
 		// A copy for a known record (record.go): one instance, its type
 		// parameters the call's Go types.
@@ -1146,7 +1167,20 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	l.analyzeValues(f.Decl, f.Pkg.Info)
 	fc.goGeneric = sp == nil && len(own) > 0
 	fc.scalarSet = l.scalarVars(f)
-	fc.closeBody(f, site, func() {
+	if l.ir != nil && !known && sp == nil && !owned && !needsFrame && len(own) == 0 {
+		// LowerIR only (irspike_experimental.go): a body in the spike's
+		// subset leaves its Go declaration without a body.
+		if l.ir.body(fc, fd, params) {
+			fd.lowered, fd.readsEnv = true, fc.env != ""
+			b.WriteString(directive + head.String() + "\n\n")
+			return
+		}
+	}
+	closeRecv := ""
+	if len(paramNames) > 0 {
+		closeRecv = paramNames[0]
+	}
+	fc.closeBody(f, closeRecv, site, func() {
 		if needsFrame {
 			fc.site = site
 			fc.openFrame(frameErr)
@@ -1178,7 +1212,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	if owned {
 		// The wrapper stands in the generated part, before the first
 		// //line directive: a defect names no Ergo frame for it.
-		l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, site))
+		l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))
 	}
 }
 
@@ -1363,13 +1397,54 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
+		if ok && l.consts[v] {
+			l.letDecl(id, "const "+name+" "+goType+" = "+val+"\n\n")
+			return
+		}
 		l.letDecl(id, "var "+name+" "+goType+" = "+val+"\n\n")
 		return
+	}
+	if ok && l.consts[v] {
+		ice(id, "the constant let %s needs statements", id.Name)
 	}
 	if name != "_" {
 		l.letDecl(id, "var "+name+" "+goType+"\n\n")
 	}
 	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
+}
+
+// constLet reports whether the package let v, of spec, lowers to a Go
+// constant (wf10 1BRC): a single name whose initializer the checker
+// evaluated to a constant, of type bool, string or an integer type. A Go
+// package variable is a load at every read, and Go folds no expression
+// over it: `h & (Slots - 1)` loads Slots and subtracts on every probe of
+// examples/onebrc's table, and a constant is an immediate. Every read is
+// then v1.Let(name) (letRead), a call of an identity that gc inlines and
+// whose result is no Go constant expression, so Go evaluates every
+// expression over it as it evaluates one over the variable: an integer
+// wraps, a division by zero is a defect at run time, and a conversion
+// out of range wraps, where a constant expression would be a Go compile
+// error. A float stays a variable, since Go evaluates a float constant
+// expression exactly, not rounded at each step. A package let is
+// immutable and never borrowed (grammar.md, let), so no read needs its
+// address.
+func (l *lowerer) constLet(spec *syntax.VarSpec, v *check.Var) bool {
+	if spec.Pattern != nil || len(spec.Names) != 1 || len(spec.Values) != 1 {
+		return false
+	}
+	if _, constant := l.info.Values[spec.Values[0]]; !constant {
+		return false
+	}
+	b, ok := v.Type.(*check.Basic)
+	return ok && b.Kind >= check.Bool && b.Kind <= check.Uintptr
+}
+
+// letRead is the Go text of a read of the package let v, Go-named name.
+func (l *lowerer) letRead(v *check.Var, name string) string {
+	if l.consts[v] {
+		return l.rt() + ".Let(" + name + ")"
+	}
+	return name
 }
 
 // letDecl writes the Go declaration text of a package let: a program

@@ -166,7 +166,7 @@ func sealedSource(s stdOpType, imports []string, decl, target string) string {
 }
 
 // TestSealedStdConvertsToItsOperationTypes is the generated property of
-// the conversion of a sealed std protocol's value (check.SealedStd), whose
+// the conversion of a sealed std operation type's value (check.Sealed, on a std type), whose
 // Go form is the runtime's own type, into an operation type: every pair
 // the checker's member match admits lowers to Go that type-checks
 // (lower/sealedops.go). The pairs are every sealed std protocol of the
@@ -265,8 +265,12 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 			programs = append(programs, o)
 		}
 	}
-	if only == "" && !admitted["json.Text->prelude.Writer"] {
-		t.Errorf("json.Text into the prelude's Writer is not among the admitted pairs (%d): the property lost its known pair", len(admitted))
+	// The known pair: a std runtime type into a prelude operation type.
+	// json.Text into the Writer was it until LR3, where Text became a
+	// provider cell, which converts to the Writer only as encode's operand
+	// (types.md, Interface assignability 6).
+	if only == "" && !admitted["rand.Stream->prelude.Random"] {
+		t.Errorf("rand.Stream into the prelude's Random is not among the admitted pairs (%d): the property lost its known pair", len(admitted))
 	}
 	t.Logf("%d sealed std protocols, %d cases, %d admitted", sealedSeen, len(cases), len(admitted))
 	typecheckGo(t, programs)
@@ -280,7 +284,15 @@ func sealedParam(p *check.Package) bool {
 	for _, o := range p.Exported() {
 		if f, ok := o.(*check.Func); ok && f.Name == "Conv" && len(f.Sig.Params) == 1 {
 			n, ok := f.Sig.Params[0].Type.(*check.Named)
-			return ok && check.SealedStd(n)
+			if !ok || n.Obj == nil || !n.Obj.Pkg.Std() || !check.Sealed(n) {
+				return false
+			}
+			// A provider cell (json.Text since LR3) is sealed by its
+			// declaration too, but its Go form is a cell, not a runtime
+			// type, and it converts to no operation type but as encode's
+			// writer operand (types.md, Interface assignability 6).
+			_, cell := check.CellProvider(n)
+			return !cell
 		}
 	}
 	return false

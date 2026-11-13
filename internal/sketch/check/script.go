@@ -80,8 +80,8 @@ func scriptWhy(s Type) string {
 	if !ok || n.foreign || !isCapability(s) {
 		return fmt.Sprintf("%s is not a capability; a Script is derived from the operations of an operation type with written type arguments", s)
 	}
-	if SealedStd(n.origin()) {
-		return fmt.Sprintf("%s is a sealed std type, which only the runtime provides", s)
+	if Sealed(n) {
+		return fmt.Sprintf("%s has an unexported operation, so a Script cannot implement it outside its package", s)
 	}
 	for _, m := range asInterface(s).Methods {
 		if returnsRunning(m.Sig) {

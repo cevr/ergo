@@ -1,0 +1,50 @@
+import strings
+
+// hasAt reports whether s holds text at byte offset i.
+func hasAt(s string, i int, text string) bool {
+	i >= 0 && i <= len(s) && len(text) <= len(s)-i && strings.Slice(s, i, i+len(text)) == text
+}
+
+// indexNewline is the offset of the first line break in s, or -1.
+func indexNewline(s string) int {
+	for i in 0..len(s) {
+		if s[i] == '\n' {
+			return i
+		}
+	}
+	-1
+}
+
+// isWordByte reports a byte that may continue a name or a number.
+func isWordByte(c byte) bool {
+	c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80
+}
+
+// merges reports the byte pairs that would lex as one token, or start a
+// comment, if written without a blank between them.
+func merges(a byte, b byte) bool {
+	match a {
+	case '-':
+		b == '-' || b == '='
+	case '+':
+		b == '+' || b == '='
+	case '&':
+		b == '&' || b == '^' || b == '='
+	case '|':
+		b == '|' || b == '='
+	case '<':
+		b == '-' || b == '<' || b == '='
+	case '>':
+		b == '>' || b == '='
+	case '=', '!', ':', '%', '^':
+		b == '='
+	case '.':
+		b == '.'
+	case '/':
+		b == '/' || b == '*' || b == '='
+	case '*':
+		b == '=' || b == '/'
+	case _:
+		false
+	}
+}

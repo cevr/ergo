@@ -9,6 +9,8 @@ go run ./scripts/examples PROGRAM              # one program folder, whatever it
 go run ./scripts/examples -tags slow,net       # the programs with either tag
 ```
 
+The runner runs `-jobs` programs at once. The default is `GOMAXPROCS` when the environment sets it (the gate sets each step's `GOMAXPROCS` to its CPU budget, `ERGO_GATE_CPUS`), else half the usable CPUs: never every CPU of the host. Each program's lines stay together and print in name order, whatever order the programs end in (`TestProgramsRunAtOnceAndPrintInOrder`), and each FAIL line names its program. Each built program still runs under its own memory limit (`ERGO_PROGRAM_MEMORY`, 2 GiB by default; docs/tooling.md, "Test memory"), which the kernel enforces.
+
 One folder is not a program: `editions` (edition fixtures that Go tests pin). Any other folder that is not a program is an error. Go interop is shown by `gointerop`, an `import go` program.
 
 ## Layout
@@ -18,12 +20,13 @@ A program folder holds:
 - `main.ergo`: the program. The runner builds it with `ergo build <dir>/main.ergo -o <temp>/<name>`, outside the checkout.
 - other `.ergo` files, if any. `ergo fmt --check` checks every top-level `.ergo` file before the build.
 - `README.md`: what the program shows and how it works.
-- `tags`: one line of words from `default slow net cc tty gui ts`. `default` stands alone. The other tags keep a program out of the default gate: `slow` (a case runs longer than the budget), `net` (it uses the network), `cc` (it needs a C compiler), `tty` (it needs a terminal), `gui` (it opens a window) and `ts` (it has a TypeScript side; see "TypeScript leg"). The `tty` and `gui` legs are not built yet, so selecting such a program is an error.
+- `tags`: one line of words from `default slow net cc tty gui ts mod`. `default` stands alone. The other tags keep a program out of the default gate: `slow` (a case runs longer than the budget), `net` (it uses the network), `cc` (it needs a C compiler), `tty` (it needs a terminal), `gui` (it opens a window), `ts` (it has a TypeScript side; see "TypeScript leg") and `mod` (it imports packages of other Ergo modules; see "Module leg"). The `tty` and `gui` legs are not built yet, so selecting such a program is an error.
 - `cases/`: one folder per case, at least one.
 - `origin` and `record.sh`, both or neither: a port names its original program in `origin`, and `record.sh` runs that original (see "Record leg").
 - `expected-skips`, optional: the `skip law …` lines that the program's `ergo test` may print, one per line exactly as printed, with `#` lines for the reason. The test leg fails on any other skip line (fs4).
 - `explored`, optional: the tests and laws whose schedules the explore leg searches, one per line, `PACKAGE NAME --explore dfs|pct|random [FLAG...]` (`PACKAGE` is the package folder relative to the program, `.` for a program of one folder), with `#` lines for the reason. The leg runs `ergo test PACKAGE --run NAME --explore …` ([stdlib](../docs/spec/stdlib.md#explored-schedules)); it fails when the search finds a failing schedule or when the run did not run NAME alone, and then it runs the replay command the failure printed and says whether the schedule replays to the same failure. A race an ordinary run meets only rarely is a failing schedule here.
 - `testdata/`, if the program reads fixture files.
+- `ergo.laws`, optional: the law ledger `ergo test` writes ([runtime](../docs/spec/runtime.md#tests), Tests 10), checked in so the build applies the program's proved rewrite laws. A program of packages keeps it beside `ergo.mod`.
 
 A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in place of `main.ergo`:
 
@@ -31,7 +34,7 @@ A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in p
 - `cmd/<program>/main.ergo`: the binary's package, named after the program folder. The runner builds it with `ergo build <dir>/cmd/<program> -o <temp>/<program>`, and its cases run it. Every other folder of `cmd/` is another binary, `cmd/<other>/main.ergo` (a server beside its CLI, as a Go module's `cmd/` holds several); the test leg checks and builds it as a package.
 - package folders: any other folder except `cases/` and `testdata/`. A package folder holds `.ergo` files and package folders only.
 - top-level `.ergo` files, if any: the module root's package.
-- `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh`, `expected-skips`, `explored` and `testdata/`, as above.
+- `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh`, `expected-skips`, `explored`, `testdata/` and `ergo.laws`, as above.
 
 `ergo fmt --check` checks every `.ergo` file of its packages. A file that `ergo gen rpc` or `ergo gen cli` wrote (its first line says so, its second names the contract) is checked by `ergo gen KIND --check <package folder>.<OpType>`, once per contract, before the build: a stale file fails the program (`FAIL <program>: gen rpc <folder>.<OpType>`). The test leg runs `ergo test <package folder>` for every package folder, printing `ok <program>: test <folder>`. A package's test build runs the laws of every operation type it sees against every provider it sees, wherever each is declared, in the least package that sees them all (law-xpkg): the laws `kv.Store` declares run in package `memory` against `memory.Table`, and the std `fs.Writes` laws run there against `memory.Full`. A provider is built by its `New<P>` constructor when its package declares one, else generated.
 
@@ -62,6 +65,10 @@ A case passes when stdout, stderr and the status all equal the recorded ones. A 
 A program of packages tagged `ts` holds a `ts/` folder, its TypeScript side, which imports the program's `.ergo` contracts through `tools/ts` (the content mapper for `tsc`, the Bun loader at run time; [tools/ts](../tools/ts/README.md)). The tag and the folder go together, and `ts/` holds no `.ergo` file. `go run ./scripts/examples -tags ts` runs these programs; the default gate does not.
 
 The leg needs Bun on `PATH` and a Bun cache warmed from `tools/ts/bun.lock`. Once per run, it installs `tools/ts`'s dependencies in the runner's scratch, outside the checkout, with `bun install --frozen-lockfile --offline --ignore-scripts`, and puts `ergo-ts` beside them. A host without Bun, or a cache without the locked packages, fails the program (`FAIL <program>: ts: …`); its cases are never skipped as passed.
+
+### Module leg
+
+A program of packages tagged `mod` has a `go.mod` beside its `ergo.mod` that requires other Ergo modules (MD2; [grammar](../docs/spec/grammar.md#source-files) rule 1, Required modules). `go run ./scripts/examples -tags mod` runs these programs; the default gate does not. Before its other legs, the runner runs `go mod verify` in the program's folder with `GOPROXY=off`: every module of the build list must be in Go's module cache, as downloaded. The run reads no network, so a cold cache fails the program (`FAIL <program>: mod: …`) and it is never skipped; warm the cache with `ergo get MODULE@VERSION` in the program's folder. The build leg's loader then checks each copy against `go.sum`.
 
 A case of a ts program runs `bun` with the case's `args` (so `--preload ergo-ts/bun ts/main.ts` runs a TypeScript file, and `../node_modules/typescript/bin/tsc …` runs tsc), in a fresh copy of the program folder under that install, which `setup.sh` may edit (it runs in the copy too). `HOME` is still the case's empty directory. The environment adds the checkout's `ergo` first on `PATH` and as `ERGO`, and the built program as `ERGO_BIN`: the case's TypeScript starts the Ergo server itself, in its own process group, so the runner's stop of the group stops both. Servers bind `127.0.0.1:0` and print `listening ADDR` first.
 

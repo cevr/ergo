@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -44,16 +45,38 @@ func (d Diagnostic) String() string {
 // change. A diagnostic's File is the index of its file in files. Two
 // files with the same non-empty Name are an internal compiler error.
 func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnostic) {
+	return CheckTest(path, files, imp, nil)
+}
+
+// CheckTest is Check for a package whose loader gives it the role of under's
+// test package (builders.go, rule 2; nil for none): its New<X> functions
+// may build under's operation types. The role comes from the loader, which
+// knows the package's import path whether it is the program's root
+// (checked as main) or an import (TestedPath), so a package checks the
+// same either way.
+func CheckTest(path string, files []*syntax.File, imp Importer, under *Package) (*Package, []Diagnostic) {
 	if imp == nil {
 		imp = Std
 	}
+	derived, derivedDiags := expandDerives(path, files, imp) // derive.go
 	order := canonicalFiles(files)
 	met := make([]*syntax.File, len(order))
+	rank := make([]int, len(order))
 	for i, k := range order {
 		met[i] = files[k]
+		rank[k] = i
 	}
 	c := newChecker(path, imp, prelude().scope)
+	c.derive = derived
+	c.pkg.testOf = under
 	pkg := c.run(met)
+	for _, d := range derivedDiags {
+		d.File = rank[d.File]
+		c.diags = append(c.diags, d)
+	}
+	if pkg != nil {
+		pkg.Derive = derived
+	}
 	// Every report has a current file (owner.go), so File is the index of
 	// a file as met, its rank in the canonical order. Sort by it, so the
 	// order of the list is a function of the sources (canon.go), and only
@@ -80,6 +103,7 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
+	derive *derive.Package // the package's derive record (derive.go)
 	// caught is the call a catch being checked catches (handlers.go).
 	caught   *caughtCall
 	pkg      *Package
@@ -92,6 +116,19 @@ type checker struct {
 	silent   int
 	shallow  int       // an alias's target is read with the Named types it names, bodies unread (aliasOf)
 	tests    testState // tests and assert (tests.go)
+	// relSeeds are the nodes whose owned value's release needs a
+	// capability, found by a first check of the package; the second check
+	// charges each where its frame is typed (releaseneeds.go). relHit
+	// records the charged ones.
+	relSeeds map[syntax.Node]relSeed
+	relHit   map[syntax.Node]bool
+	// wireNeeds are the codec functions reached whose needs row is
+	// inferred, checked once the rows are final (wirecall.go).
+	wireNeeds []wireNeed
+	// lateEdges are, per function, the ParseX of this package with an
+	// inferred needs row that its decodes reach; a second check orders
+	// the bodies by them (wireEdges; wirecall.go).
+	lateEdges, wireEdges map[*syntax.FuncDecl][]*syntax.FuncDecl
 	// refusedBinders holds the binders the reporting pass has already
 	// refused by name (a pattern name that names a package object, a
 	// prelude name), so the binder rules add no second diagnostic (D3).
@@ -188,6 +225,19 @@ type checker struct {
 	// providing is set while a provider is checked against its capability
 	// (providerAssignability): R22 does not apply there.
 	providing bool
+	// cellTypes memoizes cellType by origin; cellHolds memoizes holdsCell's
+	// final answers; cellSites are the type arguments checkCells decides
+	// (cells.go).
+	cellTypes map[*Named]bool
+	cellHolds map[int32]*Named
+	cellSites []cellSite
+	// encodeLend is set while encode's writer operand is converted to
+	// the Writer: encode keeps no writer, so a value that holds a cell
+	// may cross to the Writer there (types.md, Interface assignability 6).
+	encodeLend bool
+	// typeNamedFuncs are the functions that share a type's name: members
+	// of their first parameter's type once it is known (Methods 3).
+	typeNamedFuncs []*Func
 	// hostCall is set while the arguments of a call of a Go function are
 	// checked: R22 does not apply to a direct Go interface argument;
 	// hostClauses supplies the independent takes/lent ownership policy.
@@ -566,13 +616,16 @@ func isExported(name string) bool {
 
 // ---------------------------------------------------------------- universe
 
-var universeOnce struct {
+// universeState is the universe a process builds once (universe).
+type universeState struct {
 	sync.Once
 	scope     *Scope
 	errorName *TypeName
 	goPkg     *Package
 	ref       *Named // go.Ref
 }
+
+var universeOnce universeState
 
 // universe is the predeclared block: the basic types, the constraints
 // comparable, ordered and number, true,
@@ -644,10 +697,13 @@ type preludeResult struct {
 	diags []Diagnostic
 }
 
-var preludeOnce struct {
+// preludeState is the prelude a process checks once (prelude).
+type preludeState struct {
 	sync.Once
 	r preludeResult
 }
+
+var preludeOnce preludeState
 
 // prelude checks the embedded prelude once per process. Its exported
 // declarations form the scope above the universe for every other package.
@@ -703,9 +759,18 @@ func PreludeDiagnostics() []Diagnostic { return prelude().diags }
 // so the lock guards only the table: each package is checked inside its own
 // sync.Once, which a nested import of another path does not hold. The std
 // has no import cycle (a cycle would wait on its own Once; TestStdImportsAreAcyclic).
+//
+// With an installed snapshot (InstallStd), a package's first import decodes
+// it from the snapshot instead (export.go).
 type stdImporter struct {
 	mu      sync.Mutex
 	entries map[string]*stdEntry
+	work    Work // guarded by mu
+	snap    *snapshot
+	// order lists the std packages in the order they became available
+	// (checked or decoded), so each follows its imports (ExportStd).
+	order []string
+	ready map[string]bool
 }
 
 // stdEntry is one std package, checked once.
@@ -716,7 +781,11 @@ type stdEntry struct {
 }
 
 // Std is the importer of the embedded standard library (internal/sketch/std).
-var Std Importer = &stdImporter{entries: map[string]*stdEntry{}}
+var Std Importer = newStdImporter()
+
+func newStdImporter() *stdImporter {
+	return &stdImporter{entries: map[string]*stdEntry{}, ready: map[string]bool{}}
+}
 
 func (s *stdImporter) Import(path string) (*Package, error) {
 	s.mu.Lock()
@@ -725,9 +794,83 @@ func (s *stdImporter) Import(path string) (*Package, error) {
 		e = &stdEntry{}
 		s.entries[path] = e
 	}
+	snap := s.snap
 	s.mu.Unlock()
-	e.once.Do(func() { e.pkg, e.err = s.load(path) })
+	e.once.Do(func() {
+		if snap != nil {
+			if pkg, ok := snap.load(path, s.decoded); ok {
+				e.pkg = pkg
+				return
+			}
+		}
+		e.pkg, e.err = s.load(path)
+		s.available(path)
+	})
 	return e.pkg, e.err
+}
+
+// available records that the package at path is checked or decoded.
+func (s *stdImporter) available(path string) {
+	s.mu.Lock()
+	if !s.ready[path] {
+		s.ready[path] = true
+		s.order = append(s.order, path)
+	}
+	s.mu.Unlock()
+}
+
+// decoded counts a package segment decoded from the snapshot; snapshot.load
+// calls it under the snapshot's lock, for each segment in import order.
+func (s *stdImporter) decoded(path string) {
+	s.mu.Lock()
+	module := strings.Contains(path, "\x00") // ModuleSegment
+	if module {
+		s.work.ModulePackagesDecoded++
+	} else {
+		s.work.StdPackagesDecoded++
+	}
+	s.mu.Unlock()
+	if !module {
+		s.available(path)
+	}
+}
+
+// Work counts the std work an importer did (CHK1, CHK1b): the std package
+// files it parsed and the std packages it checked from source, and the std
+// packages it decoded from an installed snapshot, and the bytes it read
+// from that snapshot (CHK1c). The prelude is not counted. A check's work
+// must grow with the std packages it imports, not with the std (the
+// counted check budget, TestCheckWorkGrowsWithImports and
+// TestStdDecodeGrowsWithImports); it counts work, never time.
+// ModulePackagesDecoded counts the packages of required modules decoded
+// from the snapshot (InstalledPackage, NP5).
+type Work struct {
+	StdFilesParsed        int64
+	StdPackagesChecked    int64
+	StdPackagesDecoded    int64
+	StdSnapshotBytesRead  int64
+	ModulePackagesDecoded int64
+}
+
+// WorkDone returns the Work of the Std importer in this process so far.
+func WorkDone() Work { return Std.(*stdImporter).done() }
+
+func (s *stdImporter) done() Work {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w := s.work
+	if s.snap != nil {
+		w.StdSnapshotBytesRead = s.snap.read.Load()
+	}
+	return w
+}
+
+// count adds files parsed and packages checked to s's Work.
+func (s *stdImporter) count(files, packages int64) {
+	s.mu.Lock()
+	s.work.StdFilesParsed += files
+	s.work.StdPackagesChecked += packages
+	s.mu.Unlock()
 }
 
 // load checks the std package at path.
@@ -736,6 +879,7 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	if !ok {
 		return nil, fmt.Errorf("no package %q", path)
 	}
+	s.count(int64(len(sources)), 1)
 	var files []*syntax.File
 	for _, name := range sortedKeys(sources) {
 		f, err := syntax.Parse(sources[name])
@@ -747,6 +891,7 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	}
 	c := newChecker(path, s, prelude().scope)
 	c.pkg.std = true
+	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
 	var err error
 	if len(c.diags) > 0 {
@@ -764,8 +909,26 @@ func (s *stdImporter) load(path string) (*Package, error) {
 func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
 	c := newChecker(path, Std, prelude().scope)
 	c.pkg.std = true
+	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
 	return pkg, c.sorted()
+}
+
+// testOf is the std package whose test package is at path (fstest's fs),
+// or nil (TestedPath).
+func (s *stdImporter) testOf(path string) *Package {
+	base, ok := TestedPath(path)
+	if !ok {
+		return nil
+	}
+	if _, isStd := std.Package(base); !isStd {
+		return nil
+	}
+	under, err := s.Import(base)
+	if err != nil {
+		return nil
+	}
+	return under
 }
 
 func sortedKeys[V any](m map[string]V) []string {

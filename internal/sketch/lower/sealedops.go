@@ -9,7 +9,7 @@ import (
 )
 
 // sealedOperations lowers the operations conversion of a sealed std
-// protocol's value (check.SealedStd) into another operation type of the
+// protocol's value (std.go runtimeType) into another operation type of the
 // prelude, std or the program. The source is the runtime's own Go type
 // (std.go runtimeType), whose methods have the runtime's Go shapes and
 // hidden arguments, not those of the target's Go interface (a Seq result

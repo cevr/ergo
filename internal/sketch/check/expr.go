@@ -65,6 +65,10 @@ func bad(x syntax.Expr) operand { return operand{mode: modeInvalid, typ: invalid
 // its one type when it is checked (196u rule 7), so Info records each
 // expression once, with no update pass.
 func (c *checker) record(x syntax.Expr, op operand) {
+	if s, ok := c.relSeeds[x]; ok && op.mode != modeInvalid {
+		c.relHit[x] = true
+		c.chargeOwned(x, op.typ, s)
+	}
 	if c.silent == 0 && !isInvalid(op.typ) && op.mode != modeInvalid {
 		c.pkg.Info.Types[x] = op.typ
 		if op.mode == modeType {
@@ -936,7 +940,6 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 				f := s.Fields[i]
 				op := c.fieldValue(e, f.Type)
 				c.assign(&op, f.Type, "field "+f.Name)
-				c.exitCodeRange(t, f.Name, op, e)
 			}
 			return !denied
 		}
@@ -977,7 +980,6 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 		set[id.Name] = true
 		op := c.fieldValue(kv.Value, f.Type)
 		c.assign(&op, f.Type, "field "+f.Name)
-		c.exitCodeRange(t, f.Name, op, kv.Value)
 	}
 	if !ok || denied {
 		return false
@@ -1685,10 +1687,6 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		return false
 	}
 	a, why := c.assignability(op.typ, t)
-	if c.sealedRefused(op.expr, a) {
-		op.mode = modeInvalid
-		return false
-	}
 	if !a.ok() {
 		repair := ""
 		if what == "return" || what == "the body's tail value" {

@@ -136,8 +136,7 @@ test JsonValueField(d doc, id int) {
 	assert e.ID == id
 	assert json.Encode(c[envelope](), e) == text
 	let t = json.NewText()
-	let w Writer = t
-	encode(e, w)
+	encode(e, t)
 	assert t.Written() == text
 	assert kinds(e.Meta) > 0
 	assert viaEvents(d)

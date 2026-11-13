@@ -32,6 +32,8 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.sealedMethod":     "a sealed std adapter's Env literal for the caller's task (sealedops.go)",
 			"lowerer.rootTask":         "the root Env literal of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
 			"funcCtx.scriptOperations": "a Script adapter's Env literal for the caller's task, as an operation table's (script.go)",
+			"irBuilder.poll":           "the experimental IR's interruption point (Check), as funcCtx.poll's, as an IR node instead of taskOf's text (wf10 IR1)",
+			"irBuilder.call":           "the experimental IR's capability operation call, the caller's task first, as funcCtx.callText's, as an IR node (wf10 IR1)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
@@ -41,14 +43,17 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.taskCaptureRoot": "a Set member's synthetic root owner, on the child's task (NewOwnerScope; R12)",
 			"funcCtx.poll":            "the interruption point (Check)",
 			"funcCtx.envClosure":      "a task callback's Env copy",
+			"funcCtx.operations":      "an operation adapter's copy of the converting frame's Env, on the caller's task (OWGEN round 3)",
 			"funcCtx.goContext":       "rt.GoContext, the task as the hidden context.Context of a Go call; it neither waits nor releases (IG10)",
 			"lowerer.testRun":         "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 			"lowerer.lawRuns":         "a law case's task, which the case's Capture classifies its unwinding against (#162)",
 			"lowerer.listedRun":       "a listed law or property case's task, which the case's Capture classifies its unwinding against (MU6b, mu6c)",
 			"lowerer.reachRuns":       "a reachability law's task, which its case's Capture classifies its unwinding against (MU6)",
+			"lowerer.rewriteRuns":     "a rewrite law case's task, which its Capture classifies its unwinding against and its drawn operation calls take (Laws 14)",
 			"lowerer.wireFunc":        "a codec function's Writer or Reader calls, through the prelude operation type's Go interface (L11)",
-			"typeCtx.wireEncodeWith":  "an inline codec event on the Writer interface (L11) or a JSON append (S-json)",
+			"typeCtx.wireEncodeWith":  "an inline codec event on the Writer interface (L11) or on a direct writer's methods (wiredirect.go)",
 			"typeCtx.wireDecode":      "an inline codec read on the Reader interface (L11)",
+			"lowerer.cellEventsFrom":  "a cell writer's events, whose Writer calls on the task it rewrites into the provider's functions (LR3, wiretext.go)",
 			"typeCtx.wireKind":        "the Reader's Path for a WireWrongKind (L11)",
 		}},
 		{"memberName", map[string]string{
@@ -78,6 +83,8 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.scriptLit":         "a Script literal's fields (script.go)",
 			"funcCtx.scriptOperations":  "a Script adapter's methods and the fields they call (script.go)",
 			"lowerer.scriptType":        "a Script's struct fields (script.go)",
+			"lowerer.rewriteObserve":    "a rewrite law case's drawn operation call on the provider (Laws 14)",
+			"irBuilder.call":            "the experimental IR's capability operation method, as funcCtx.callText's (wf10 IR1)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)
@@ -238,6 +245,12 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
 		// S-json: the fast path appends a string to a json Text; no wait.
 		"JSONAppendTextString": true,
+		// 1BRC: a read of a let lowered as a Go constant (constLet), an
+		// identity; no wait.
+		"Let": true,
+		// BCE1: unchecked loads under a bounds fact (bounds.go,
+		// unchecked.go); each reads memory and returns, no wait.
+		"ByteAt": true, "StringAt": true, "StringN": true, "AddrAt": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

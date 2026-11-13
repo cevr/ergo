@@ -5,6 +5,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Value semantics for Maps and slices (value-rule; owner q26, 2026-11-08:
@@ -57,6 +58,11 @@ import (
 //     p, …) whose old value nothing else reads hands it over with no copy
 //     (consumable): m = maps.Update(m, k, f) writes m in place, as hand Go
 //     writes m[k] = f(m[k]);
+//   - hand-over (V7, handedArg): a rebinding p = f(…, p, …) of a pure f
+//     with no failure row whose result shares no storage but p's (a pure
+//     runtime/v1 body, or an Ergo body freshFrom proves so), on one place
+//     rooted at a let mut or a borrow, passes p with no copy and takes
+//     the result with none;
 //   - a Ref owns its value (V6, refown.go): the parameter of a function
 //     literal written at Ref.Update or sync.Modify takes the held value
 //     over, as an unshared local; the cell copies a value that may be
@@ -107,8 +113,11 @@ var valueLowering string
 // and for owned Refs (V6) "hand-nonliteral" (a function value takes the
 // held value over), "store-unfresh" (every site is proved fresh),
 // "share-blind" (every pure call keeps nothing) and "return-blind" (two
-// parts of one returned value count as two returns). Empty in every
-// build.
+// parts of one returned value count as two returns), and for hand-over
+// (V7) "hand-shared" (an Ergo body's result is taken as sharing only the
+// handed parameter), and for consumed arguments "consume-blind" (no
+// parameter is consumed) and "consume-any" (every first operand of an
+// owned form is consumed, live or not). Empty in every build.
 var valueMutant string
 
 // valueRule reports whether the value rule lowers this build.
@@ -121,6 +130,9 @@ type valueFacts struct {
 	roots    map[syntax.Node]*valueWalk // analyzed bodies
 	fresh    map[*check.Func]int8       // 1 deciding, 2 fresh, 3 not fresh
 	consumed map[syntax.Expr]bool       // arguments an owned parameter takes in place (V5)
+	handed   map[syntax.Expr]bool       // arguments a rebinding hands over to a pure body (V7)
+	from     map[freshKey]int8          // freshFrom: 1 deciding, 2 fresh, 3 not fresh
+	consumes map[*syntax.CallExpr]bool  // calls of a runtime/v1 body's owned form: their first operand is consumed
 	owned    map[*syntax.FuncDecl][]ownedParam
 	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
 	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
@@ -132,6 +144,11 @@ type valueFacts struct {
 type ownedParam struct {
 	index int
 	bind  syntax.Expr
+	// consumed reports a parameter that a call consumes (consumedUse)
+	// rather than one a let mut takes: bind is that call's operand, and
+	// the body's analysis reads v as an unshared local.
+	consumed bool
+	v        *check.Var
 }
 
 func (l *lowerer) valueFacts() *valueFacts {
@@ -142,6 +159,9 @@ func (l *lowerer) valueFacts() *valueFacts {
 			roots:    map[syntax.Node]*valueWalk{},
 			fresh:    map[*check.Func]int8{},
 			consumed: map[syntax.Expr]bool{},
+			handed:   map[syntax.Expr]bool{},
+			from:     map[freshKey]int8{},
+			consumes: map[*syntax.CallExpr]bool{},
 			owned:    map[*syntax.FuncDecl][]ownedParam{},
 			ownCall:  map[*syntax.CallExpr]bool{},
 			refSites: map[*syntax.CallExpr]*refSite{},
@@ -160,6 +180,7 @@ func (l *lowerer) analyzeValues(root syntax.Node, info *check.Info) *valueWalk {
 		return w
 	}
 	w := &valueWalk{l: l, info: info, vf: vf, vars: map[*check.Var]*vvar{}, pre: map[syntax.Node]int{}, post: map[syntax.Node]int{}, parent: map[syntax.Node]syntax.Node{}, frameOf: map[syntax.Node]*vframe{}}
+	w.handed = map[*syntax.CallExpr]bool{}
 	vf.roots[root] = w
 	if !valueRule() || isNilNode(root) {
 		return w
@@ -169,7 +190,9 @@ func (l *lowerer) analyzeValues(root syntax.Node, info *check.Info) *valueWalk {
 		tailsOf(d.Body.List, w.root.tails)
 	}
 	w.walk(root, nil)
+	w.consumedParams(root)
 	w.decide()
+	w.done = true
 	return w
 }
 
@@ -269,12 +292,17 @@ type valueWalk struct {
 	frameOf  map[syntax.Node]*vframe
 	frames   []*vframe
 	owns     []owning
-	calls    []*syntax.CallExpr       // prelude Append, Delete and Put calls
-	ergo     []*syntax.CallExpr       // calls of functions with an Ergo body (V5)
-	args     []syntax.Expr            // arguments of owned parameters (V5)
-	goArgs   []syntax.Expr            // operands of Go calls of import go that hold a Map or slice (gocall.go)
-	sites    []*refSite               // owned Ref sites (V6, refown.go)
-	handOver map[*syntax.FuncLit]bool // their literals
+	calls    []*syntax.CallExpr        // prelude Append, Delete and Put calls
+	ergo     []*syntax.CallExpr        // calls of functions with an Ergo body (V5)
+	pure     []*syntax.CallExpr        // calls of other pure std bodies (V7)
+	handed   map[*syntax.CallExpr]bool // V7 calls: a fresh result (new storage, or the dead handed argument's)
+	owner    *check.Var                // freshFrom's parameter, read as an unshared local (V7)
+	done     bool                      // decide has run
+	args     []syntax.Expr             // arguments of owned parameters (V5)
+	goArgs   []syntax.Expr             // operands of Go calls of import go that hold a Map or slice (gocall.go)
+	sites    []*refSite                // owned Ref sites (V6, refown.go)
+	handOver map[*syntax.FuncLit]bool  // their literals
+	cells    []syntax.Expr             // values that move into a provider cell (cells.go)
 }
 
 // children are n's direct children, in Inspect's order.
@@ -316,6 +344,9 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		frame = f
 		defer func() { w.frames = w.frames[:len(w.frames)-1] }()
 	}
+	if x, ok := n.(syntax.Expr); ok && cellSite(w.info, x) {
+		w.cells = append(w.cells, x)
+	}
 	switch n := n.(type) {
 	case *syntax.Ident:
 		if v, ok := w.info.Uses[n].(*check.Var); ok {
@@ -355,6 +386,8 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 			w.calls = append(w.calls, n)
 		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
 			w.ergo = append(w.ergo, n)
+		} else if c != nil && c.Kind == check.CallFunc && pureStdBody(c.Func) {
+			w.pure = append(w.pure, n)
 		} else if c != nil && (goImportCall(c, w.typeOf) || goExternCall(c)) {
 			list := n.Args
 			if c.Recv != nil {
@@ -554,7 +587,7 @@ func pathRoot(x syntax.Expr) *syntax.Ident {
 // append (check/builtin.go): a call that may write past its source's length,
 // so its source is clipped where it is not new or dead (V3).
 func preludeAppend(f *check.Func) bool {
-	return check.GoBuiltin(f) == "append" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append"
+	return check.GoBuiltin(f) == "append" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append" || appenderExtern(f)
 }
 
 // preludeMapWrite reports the prelude's Delete or Put: a call that writes
@@ -638,9 +671,25 @@ func (w *valueWalk) recvOf(call *syntax.CallExpr) syntax.Expr {
 func (w *valueWalk) decide() {
 	vf := w.vf
 	// In-place pattern: p = p.Append(x), p = p.Delete(k) or p = p.Put(k, v), one place
-	// rooted at a let mut or a borrow.
+	// rooted at a let mut or a borrow. A chain whose source is such a call,
+	// p = append(append(p, a), b), is in place at each call: no binding
+	// holds an inner call's result, so the chain is the statements
+	// p = append(p, a); p = append(p, b), which the pattern takes in place.
+	isCall := map[syntax.Node]bool{}
 	for _, call := range w.calls {
+		isCall[call] = true
+	}
+	for _, call := range w.calls {
+		chain := []*syntax.CallExpr{call}
 		parent, child := w.unparenParent(call)
+		for {
+			pc, ok := parent.(*syntax.CallExpr)
+			if !ok || !isCall[pc] || w.recvOf(pc) != child {
+				break
+			}
+			chain = append(chain, pc)
+			parent, child = w.unparenParent(pc)
+		}
 		s, ok := parent.(*syntax.AssignStmt)
 		if !ok || s.Tok != syntax.ASSIGN || len(s.Rhs) != 1 || s.Rhs[0] != child {
 			continue
@@ -651,7 +700,9 @@ func (w *valueWalk) decide() {
 			continue
 		}
 		if v, ok := w.info.Uses[id].(*check.Var); ok && w.varOf(v).root() {
-			vf.inPlace[call] = true
+			for _, c := range chain {
+				vf.inPlace[c] = true
+			}
 		}
 	}
 	// Owned parameters (V5): each argument of one, and the arguments a
@@ -668,6 +719,15 @@ func (w *valueWalk) decide() {
 				if w.consumable(call, arg) {
 					vf.consumed[arg] = true
 				}
+			}
+		}
+	}
+	// Hand-over (V7): p = f(…, p, …) with f a pure body, Ergo or Go.
+	for _, calls := range [][]*syntax.CallExpr{w.pure, w.ergo} {
+		for _, call := range calls {
+			if arg := w.handedArg(call); arg != nil {
+				vf.handed[arg] = true
+				w.handed[call] = true
 			}
 		}
 	}
@@ -697,7 +757,7 @@ func (w *valueWalk) decide() {
 						w.l.stats.ArgsShared++
 					}
 				case o.kind == occEscape || o.kind == occReturn:
-					if !w.needsCopy(vv, o) {
+					if vf.handed[o.path] || !w.needsCopy(vv, o) {
 						break
 					}
 					if o.result && !w.inFlight(vv, o) {
@@ -801,8 +861,14 @@ func (w *valueWalk) decide() {
 			w.freshen(a)
 		}
 	}
+	// A value that moves into a provider cell (cells.go).
+	for _, x := range w.cells {
+		w.cellCopy(x)
+	}
 	// Owned Ref sites (V6), once every copy is decided.
 	w.decideSites()
+	// Consumed operands of owned runtime/v1 forms, likewise.
+	w.consumes()
 }
 
 // goHeld reports x, unparenthesized, as Go's own Map or slice: the result
@@ -925,6 +991,111 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 	return true
 }
 
+// handedArg is the argument that the rebinding p = f(…, p, …) hands over
+// to f with no copy (V7), or nil. The fact is general; it names no
+// function and no package:
+//
+//   - the call is the whole right side of a plain assignment to one place
+//     p, rooted at a let mut local or a borrow, and one operand is that
+//     same place: an argument, or a dot call's receiver that f takes by
+//     value (p = p.m(…));
+//   - the statement names p's root nowhere else, nor does a frame other
+//     than the statement's, so p's old value is dead from the call to the
+//     store-back: nothing reads it but f;
+//   - f is pure and has no failure row, so nothing f runs can observe p's
+//     old value, and the store-back always follows the call;
+//   - f writes no storage of its argument that p's length covers, and its
+//     result shares no storage but p's: for an Ergo body, f is pure
+//     (isPure), owns no parameter (V5 hands those over itself), and its
+//     results are fresh when that parameter holds an unshared value
+//     (freshFrom), so a parameter it binds to a let mut is copied in its
+//     body and no other argument, package let or capture reaches its
+//     result; for an extern bound to a pure Go body, the body keeps
+//     nothing of its arguments but its result and writes no element of
+//     them that their length covers (stdlib.md, Pure bodies), and every
+//     other argument holds no slice or Map.
+//
+// So nothing reads the storage f received but f's result, which is the
+// new value of p: p = f(p, s) through a borrow appends in place, as
+// p = p.Append(x) does (V3), where a copy of p at each call would make a
+// loop of them quadratic. The copying lowering ("copy") hands nothing
+// over, and is the reference of TestValueRuleAgrees.
+func (w *valueWalk) handedArg(call *syntax.CallExpr) syntax.Expr {
+	if !valueOwned() {
+		return nil
+	}
+	c := w.info.Calls[call]
+	if c == nil || c.Func == nil || c.Func.Sig == nil || len(rowElems(c.Func.Sig.Errors)) > 0 || call.Trailing != nil {
+		return nil
+	}
+	if c.Recv != nil {
+		// A dot call p = p.m(…): the receiver is the first operand, unless
+		// m takes it by borrow.
+		if len(c.Func.Sig.Params) == 0 {
+			return nil
+		}
+		if _, ptr := c.Func.Sig.Params[0].Type.(*check.Pointer); ptr {
+			return nil
+		}
+	}
+	ergo := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
+	if ergo && (w.vf.ownCall[call] || !w.l.isPure(c.Func)) {
+		return nil
+	}
+	parent, child := w.unparenParent(call)
+	s, ok := parent.(*syntax.AssignStmt)
+	if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || s.Rhs[0] != child {
+		return nil
+	}
+	lid := pathRoot(s.Lhs[0])
+	if lid == nil {
+		return nil
+	}
+	v, ok := w.info.Uses[lid].(*check.Var)
+	if !ok {
+		return nil
+	}
+	vv := w.varOf(v)
+	if !vv.root() {
+		return nil
+	}
+	var arg syntax.Expr
+	at := -1
+	ops := callOperands(call, c)
+	for i, a := range ops {
+		if aid := pathRoot(a); aid != nil && w.info.Uses[aid] == check.Object(v) {
+			if arg != nil || !samePlace(s.Lhs[0], a) {
+				return nil
+			}
+			arg, at = a, i
+		} else if !ergo && w.l.holdsValue(w.typeOf(a)) {
+			return nil // the result could share another argument's storage
+		}
+	}
+	if arg == nil {
+		return nil
+	}
+	if ergo && valueMutant != "hand-shared" && !w.l.freshFrom(c.Func, at, len(ops)) {
+		return nil
+	}
+	aid := pathRoot(arg)
+	var frame *vframe
+	for _, o := range vv.occs {
+		if o.id == lid {
+			frame = o.frame
+		}
+	}
+	for _, o := range vv.occs {
+		if o.frame != frame {
+			return nil
+		}
+		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] {
+			return nil
+		}
+	}
+	return arg
+}
+
 // ownedParams are the owned parameters of f (V5), in order: a parameter
 // whose value holds a slice or Map and that f's body takes into a let mut
 // local once, at a bind in the body's own frame and outside any loop, and
@@ -978,18 +1149,150 @@ func (l *lowerer) ownedParams(fn *check.Func) []ownedParam {
 			if id != nil {
 				if v, ok := info.Defs[id].(*check.Var); ok && w.vars[v] != nil && l.holdsValue(v.Type) {
 					if bind := w.ownedBind(f, w.vars[v]); bind != nil {
-						out = append(out, ownedParam{index: i, bind: bind})
+						out = append(out, ownedParam{index: i, bind: bind, v: v})
+					} else if use := w.consumedUse(f, w.vars[v]); use != nil && valueMutant != "consume-blind" {
+						out = append(out, ownedParam{index: i, bind: use, consumed: true, v: v})
 					}
 				}
 			}
 			i++
 		}
 	}
-	if len(out) > 0 && l.funcDecl(fn).method != nil {
-		out = nil
-	}
 	vf.owned[d] = out
 	return out
+}
+
+// consumedParams makes each consumed owned parameter (consumedUse) of the
+// function root a local of the root frame that holds an unshared value:
+// its callers pass it unshared (V5), and its body reads it once.
+func (w *valueWalk) consumedParams(root syntax.Node) {
+	d, ok := root.(*syntax.FuncDecl)
+	if !ok || d.Name == nil {
+		return
+	}
+	f, ok := w.info.Defs[d.Name].(*check.Func)
+	if !ok {
+		return
+	}
+	for _, p := range w.l.ownedParams(f) {
+		if vv := w.vars[p.v]; p.consumed && vv != nil {
+			vv.local, vv.handed, vv.frame, vv.loops = true, true, w.root, nil
+		}
+	}
+}
+
+// consumes decides the calls of a runtime/v1 body's owned form: the first
+// operand is consumed when it is fresh, so no binding reads its storage
+// after the call (a local dead after it and never shared, a consumed
+// parameter, a literal, a fresh result or a copy).
+func (w *valueWalk) consumes() {
+	if !valueOwned() {
+		return
+	}
+	for _, call := range w.pure {
+		c := w.info.Calls[call]
+		if c == nil || call.Trailing != nil || w.l.ownedForm(c.Func) == "" {
+			continue
+		}
+		if ops := callOperands(call, c); len(ops) > 0 && (valueMutant == "consume-any" || w.fresh(ops[0])) {
+			w.vf.consumes[call] = true
+		}
+	}
+}
+
+// consumedUse is the one use of the parameter vv of f that a call
+// consumes (types.md, Bindings 2, consumed arguments), or nil: vv is read
+// once, in the body's own frame and outside any loop, as an operand of a
+// call, itself or a field path of it, at a position the call consumes
+// (consumedAt); and f cannot fail after that read. Such a parameter is
+// owned (V5): its callers pass it unshared, so the call it reaches takes
+// it over.
+func (w *valueWalk) consumedUse(f *check.Func, vv *vvar) syntax.Expr {
+	if vv.ptr || vv.local || len(vv.occs) != 1 {
+		return nil
+	}
+	o := vv.occs[0]
+	if o.frame != w.root || len(o.loops) > 0 {
+		return nil
+	}
+	x := syntax.Expr(o.id)
+	var use syntax.Expr
+	for use == nil {
+		switch p := w.parent[x].(type) {
+		case *syntax.ParenExpr:
+			x = p
+		case *syntax.SelectorExpr:
+			if p.X != x {
+				return nil
+			}
+			if call, ok := w.parent[p].(*syntax.CallExpr); ok && call.Fun == syntax.Expr(p) {
+				// A dot call: x is its receiver.
+				use = w.consumedAt(call, x)
+				if use == nil {
+					return nil
+				}
+				continue
+			}
+			if _, field := w.typeOf(p.X).(*check.Named); !field {
+				return nil
+			}
+			x = p
+		case *syntax.CallExpr:
+			if use = w.consumedAt(p, x); use == nil {
+				return nil
+			}
+		default:
+			return nil
+		}
+	}
+	if len(rowElems(f.Sig.Errors)) > 0 && w.failsAfter(f, o.pre) {
+		return nil
+	}
+	return use
+}
+
+// consumedAt is x when it is the operand of call at a position the call
+// consumes, or nil: the first operand of a std function whose runtime/v1
+// body has an owned form (v1.Body.Owned), or an owned parameter (V5) of a
+// function with an Ergo body.
+func (w *valueWalk) consumedAt(call *syntax.CallExpr, x syntax.Expr) syntax.Expr {
+	c := w.info.Calls[call]
+	if c == nil || c.Kind != check.CallFunc || c.Func == nil || call.Trailing != nil {
+		return nil
+	}
+	ops := callOperands(call, c)
+	at := -1
+	for i, op := range ops {
+		if op == x {
+			at = i
+		}
+	}
+	switch {
+	case at < 0:
+		return nil
+	case at == 0 && w.l.ownedForm(c.Func) != "":
+		return x
+	}
+	for _, p := range w.l.ownedParams(c.Func) {
+		if p.index == at {
+			return x
+		}
+	}
+	return nil
+}
+
+// ownedForm is the owned form of the runtime/v1 body that the std
+// function f binds (v1.Body.Owned), or "".
+func (l *lowerer) ownedForm(f *check.Func) string {
+	if !l.pureV1(f) {
+		return ""
+	}
+	_, name := f.Decl.Extern.Split()
+	body, err := v1.BodyOf(name)
+	if err != nil {
+		return ""
+	}
+	return body.Owned
 }
 
 // ownedBind is the value of the one bind that takes the parameter vv of f
@@ -1102,22 +1405,34 @@ func (l *lowerer) reserveOwned(pkgs []*check.Package) {
 // parameter list, results its result list, typeArgs the names of its type
 // parameters, and args its Go operands in order (the environment, the
 // destination and the witnesses first, then one per parameter; the wrapper
-// copies each owned one). It calls body, the owned body.
-func (fc *funcCtx) ownedWrapper(f *check.Func, head, params, results, body string, typeArgs []string, args []string, site syntax.Node) string {
+// copies each owned one). It calls body, the owned body. For a method,
+// recv names the receiver, the first parameter, which args leaves out,
+// and body is a method of it.
+func (fc *funcCtx) ownedWrapper(f *check.Func, head, params, results, body string, typeArgs []string, args []string, recv string, site syntax.Node) string {
 	owned := map[int]bool{}
 	for _, p := range fc.l.ownedParams(f) {
 		owned[p.index] = true
 	}
-	lead := len(args) - len(f.Sig.Params)
+	first := 0
+	if recv != "" {
+		first = 1
+		if owned[0] {
+			recv = fc.cloneValue(f.Sig.Params[0].Type, recv, site)
+		}
+	}
+	lead := len(args) - (len(f.Sig.Params) - first)
 	var ops []string
 	for i, a := range args {
-		if j := i - lead; j >= 0 && owned[j] {
+		if j := i - lead + first; i >= lead && owned[j] {
 			a = fc.cloneValue(f.Sig.Params[j].Type, a, site)
 		}
 		ops = append(ops, a)
 	}
 	if len(typeArgs) > 0 {
 		body += "[" + strings.Join(typeArgs, ", ") + "]"
+	}
+	if recv != "" {
+		body = "(" + recv + ")." + body
 	}
 	call := body + "(" + strings.Join(ops, ", ") + ")"
 	if strings.TrimSpace(results) != "" {
@@ -1528,6 +1843,9 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 	if !w.l.holdsValue(w.typeOf(e)) || w.vf.clone[e] {
 		return true
 	}
+	if call, ok := e.(*syntax.CallExpr); ok && w.handed[call] {
+		return true
+	}
 	switch x := e.(type) {
 	case *syntax.ParenExpr:
 		return w.fresh(x.X)
@@ -1581,7 +1899,22 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 				}
 				return !w.l.holdsValue(elemOf(w.typeOf(x)))
 			}
-			return w.l.freshResult(c.Func)
+			if w.l.freshResult(c.Func) {
+				return true
+			}
+			if x.Trailing == nil && w.l.pureV1(c.Func) {
+				// A pure runtime/v1 body keeps nothing of its arguments
+				// but its result, and reaches no other storage (stdlib.md,
+				// Pure bodies): its result is fresh when every argument
+				// is.
+				for _, a := range callOperands(x, c) {
+					if !w.fresh(a) {
+						return false
+					}
+				}
+				return true
+			}
+			return false
 		}
 	}
 	return false
@@ -1601,7 +1934,13 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 	if valueMutant == "elide-live" && vv.local {
 		return true
 	}
-	if !vv.local || vv.ptr {
+	local, frame, loops, unshared := vv.local, vv.frame, vv.loops, vv.mut || vv.handed
+	if w.owner != nil && vv.v == w.owner {
+		// freshFrom's premise: the parameter holds an unshared value, as
+		// a let mut of the body's own frame does.
+		local, frame, loops, unshared = true, w.root, nil, true
+	}
+	if !local || vv.ptr {
 		return false
 	}
 	var use *vocc
@@ -1610,7 +1949,7 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 			use = o
 		}
 	}
-	if use == nil || use.frame != vv.frame {
+	if use == nil || use.frame != frame {
 		return false
 	}
 	// A use that is the value, or a part of the value, its frame returns
@@ -1621,7 +1960,7 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 	returning := ret != nil
 	if !returning {
 		for _, l := range use.loops {
-			if !containsNode(vv.loops, l) {
+			if !containsNode(loops, l) {
 				return false
 			}
 		}
@@ -1630,7 +1969,7 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 		if o == use {
 			continue
 		}
-		if o.frame != vv.frame {
+		if o.frame != frame {
 			return false
 		}
 		// An earlier use in a returned value that does not hold use ends
@@ -1652,15 +1991,78 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 			return false
 		}
 		if o.kind == occEscape || o.kind == occReturn {
-			if !w.vf.clone[o.path] {
+			// A copied read shares nothing; nor does a handed one (V7),
+			// whose storage only the binding's new value holds.
+			if !w.vf.clone[o.path] && !w.vf.handed[o.path] {
 				return false
 			}
 		}
 	}
-	if vv.mut || vv.handed {
+	if unshared {
 		return true
 	}
 	return vv.init != nil && w.fresh(vv.init)
+}
+
+// freshKey names a parameter of a function: freshFrom's question.
+type freshKey struct {
+	f *check.Func
+	i int
+}
+
+// freshFrom reports whether every result of the Ergo body f, called with
+// n arguments, is fresh when its parameter i holds an unshared value
+// (V7): the analysis of f's body, read with that parameter as a let mut
+// of the body's frame (freshIdent), proves each returned value fresh. So
+// a result shares no storage but that parameter's: not another
+// parameter's, a package let's or a capture's. A function being decided
+// is not fresh, as in freshResult.
+func (l *lowerer) freshFrom(f *check.Func, i, n int) bool {
+	vf := l.valueFacts()
+	k := freshKey{f, i}
+	switch vf.from[k] {
+	case 1, 3:
+		return false
+	case 2:
+		return true
+	}
+	vf.from[k] = 3
+	if f == nil || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Decl.Type == nil || f.Decl.Type.Params == nil {
+		return false
+	}
+	var params []*syntax.Ident
+	for _, field := range f.Decl.Type.Params.List {
+		params = append(params, field.Names...)
+	}
+	if len(params) != n || i < 0 || i >= n {
+		return false
+	}
+	p, ok := f.Pkg.Info.Defs[params[i]].(*check.Var)
+	if !ok {
+		return false
+	}
+	// Decide f's own freshness first: a call of f inside its body then
+	// reads that answer, never one made under this premise.
+	if l.freshResult(f) {
+		vf.from[k] = 2
+		return true
+	}
+	vf.from[k] = 1
+	saved := l.info
+	l.info = f.Pkg.Info
+	w := l.analyzeValues(f.Decl, f.Pkg.Info)
+	fresh := false
+	if w.root != nil && w.done {
+		w.owner = p
+		fresh = w.resultsFresh()
+		w.owner = nil
+	}
+	l.info = saved
+	vf.from[k] = 3
+	if fresh {
+		vf.from[k] = 2
+	}
+	return fresh
 }
 
 // freshResult reports whether every result of f is fresh: an Ergo body

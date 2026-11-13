@@ -1,0 +1,66 @@
+// kernel is the IR1 spike's fact-heavy kernel: a walk over a table of
+// records by checked index, a string-bearing table allocation and one
+// operation-type (interface) call. Its hot loop is in the spike's subset.
+
+type Cell { Name string, Weight int, Next int }
+
+type Scorer {
+	Score(a int, b int) int,
+}
+
+type Linear {}
+
+func Score(_ Linear, a int, b int) int {
+	a*3 + b
+}
+
+// table allocates the cells: a slice of records that hold strings.
+func table(seed int) []Cell {
+	[]Cell{
+		Cell{Name: "a", Weight: seed + 3, Next: 5},
+		Cell{Name: "b", Weight: 5, Next: 0},
+		Cell{Name: "c", Weight: seed * 7, Next: 3},
+		Cell{Name: "d", Weight: 11, Next: 6},
+		Cell{Name: "e", Weight: 2, Next: 1},
+		Cell{Name: "f", Weight: seed + 13, Next: 7},
+		Cell{Name: "g", Weight: 17, Next: 2},
+		Cell{Name: "h", Weight: 19, Next: 4},
+	}
+}
+
+// walk follows the table for steps steps; every read is a checked index.
+func walk(cs []Cell, steps int) int {
+	let mut pos = 0
+	let mut acc = 0
+	let mut i = 0
+	for i < steps {
+		let c = cs[pos]
+		acc = (acc*31 + c.Weight) % 1000003
+		pos = (c.Next + acc) % len(cs)
+		i = i + 1
+	}
+	acc
+}
+
+// names sums the name lengths that a heavy cell has.
+func names(cs []Cell, limit int) int {
+	let mut n = 0
+	for c in cs {
+		if c.Weight > limit {
+			n = n + len(c.Name)
+		}
+	}
+	n
+}
+
+func score(a int, b int) int needs Scorer {
+	Scorer.Score(a, b)
+}
+
+func main() needs Console {
+	let cs = table(4)
+	let r = walk(cs, 30000000)
+	with context { Scorer: Linear } {
+		Console.Println("\(score(r, names(cs, 10)))")
+	}
+}

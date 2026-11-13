@@ -3,6 +3,7 @@ package lower
 import (
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"io/fs"
 	"strings"
@@ -100,8 +101,120 @@ func madeValue(x ast.Expr) bool {
 	case *ast.CallExpr:
 		id, ok := x.Fun.(*ast.Ident)
 		return ok && id.Name == "make"
+	case *ast.SliceExpr:
+		// A pooled array, empty: p.Get().(*[N]T)[:0], a package
+		// variable's method with no argument handing over an array by
+		// pointer. The pool holds an array only after the one use it was
+		// taken for has ended (the body that puts it back says so), so no
+		// binding reaches it. The form is read, not the method's name: in
+		// runtime/v1 (reviewed code) only a sync.Pool's Get takes it
+		// (JSONTake).
+		lit, ok := x.High.(*ast.BasicLit)
+		if x.Low != nil || x.Max != nil || !ok || lit.Value != "0" {
+			return false
+		}
+		ta, ok := x.X.(*ast.TypeAssertExpr)
+		if !ok {
+			return false
+		}
+		if star, ok := ta.Type.(*ast.StarExpr); !ok {
+			return false
+		} else if _, ok := star.X.(*ast.ArrayType); !ok {
+			return false
+		}
+		call, ok := ta.X.(*ast.CallExpr)
+		if !ok || len(call.Args) != 0 {
+			return false
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		_, ok = sel.X.(*ast.Ident)
+		return ok
 	}
 	return false
+}
+
+// goBodyAppends reports whether the runtime/v1 function name is an
+// appender: its first parameter is a slice, its one result is that
+// slice's type, and every return gives the first parameter or a call whose
+// first argument is it (append(b, …), strconv.AppendInt(b, …)), so the
+// result is the operand with elements added at its end, as Go's append
+// gives. The value rule treats a call of one as the prelude's Append
+// (values.go, preludeAppend): in place on `x = f(x, …)`, else on its
+// operand clipped. The body may write only past its operand's length.
+func goBodyAppends(name string) bool {
+	fd := goBodies()[name]
+	if fd == nil || fd.Type.Params == nil || len(fd.Type.Params.List) == 0 || len(fd.Type.Params.List[0].Names) == 0 {
+		return false
+	}
+	first := fd.Type.Params.List[0]
+	if _, ok := first.Type.(*ast.ArrayType); !ok || fd.Type.Results == nil || len(fd.Type.Results.List) != 1 || len(fd.Type.Results.List[0].Names) > 0 {
+		return false
+	}
+	if types := fd.Type.Results.List[0].Type; !sameExpr(types, first.Type) {
+		return false
+	}
+	b := first.Names[0].Name
+	isB := func(x ast.Expr) bool {
+		id, ok := x.(*ast.Ident)
+		return ok && id.Name == b
+	}
+	appends := func(x ast.Expr) bool {
+		if isB(x) {
+			return true
+		}
+		call, ok := x.(*ast.CallExpr)
+		return ok && len(call.Args) > 0 && isB(call.Args[0])
+	}
+	returns := 0
+	ok := true
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.FuncLit:
+			ok = false
+		case *ast.ReturnStmt:
+			returns++
+			if len(x.Results) != 1 || !appends(x.Results[0]) {
+				ok = false
+			}
+		}
+		return ok
+	})
+	return ok && returns > 0
+}
+
+// sameExpr reports two Go type expressions of one spelling.
+func sameExpr(a, b ast.Expr) bool {
+	var sa, sb strings.Builder
+	if err := printer.Fprint(&sa, token.NewFileSet(), a); err != nil {
+		return false
+	}
+	if err := printer.Fprint(&sb, token.NewFileSet(), b); err != nil {
+		return false
+	}
+	return sa.String() == sb.String()
+}
+
+// appenderExtern reports a std extern bound to a runtime/v1 appender
+// (goBodyAppends).
+func appenderExtern(f *check.Func) bool {
+	if f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil || !f.Pkg.Std() {
+		return false
+	}
+	path, name := f.Decl.Extern.Split()
+	return path == runtimeImport && goBodyAppends(name)
+}
+
+// pureV1 reports a std extern bound to a pure runtime/v1 body (stdlib.md,
+// Pure bodies), not a Go builtin or a host function.
+func (l *lowerer) pureV1(f *check.Func) bool {
+	if !pureStdBody(f) || f.Decl.Extern == nil {
+		return false
+	}
+	path, _ := f.Decl.Extern.Split()
+	return path == runtimeImport
 }
 
 // madeResult reports a std extern whose runtime/v1 body makes its result

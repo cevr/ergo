@@ -82,6 +82,11 @@ type testLowering struct {
 	// lawPkgs are the imported packages whose laws the build lowers
 	// (owners.go, viewOf), set on first use.
 	lawPkgs map[*check.Package]bool
+	// instances are the unit's site instances of rewrite laws.
+	instances []RewriteInstance
+	// posts are the unit's post laws that run from drawn reached states
+	// (Unit.Posts, postRun).
+	posts []*check.Law
 }
 
 // LowerTests lowers the checked unit to the Go module of its test binary:
@@ -91,7 +96,7 @@ func LowerTests(u Unit) ([]File, error) {
 	if err := u.Validate(); err != nil {
 		return nil, err
 	}
-	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
+	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}, instances: u.Instances, posts: u.Posts})
 	code, err := l.program()
 	if err != nil {
 		return nil, err
@@ -153,10 +158,43 @@ func (l *lowerer) nameTests() {
 	}
 	for _, r := range l.runLaws() {
 		l.lawFunc(r.Law)
+		if r.Law.Rewrite != nil {
+			l.rewriteSide(r.Law, false)
+			l.rewriteSide(r.Law, true)
+			for _, side := range [][]check.RewriteCall{r.Law.Rewrite.Lhs, r.Law.Rewrite.Rhs} {
+				for _, call := range side {
+					for _, t := range call.Op.Sig.Results {
+						if l.keyWhy(t) == "" {
+							l.keyTypes(t, map[string]bool{}, func(t check.Type) {
+								key, base, _ := l.keyName(t)
+								l.pkgName(key, base)
+							})
+						} else {
+							reserveLit(t)
+						}
+					}
+				}
+			}
+			if r.Law.Rewrite.Guard != nil {
+				l.rewriteGuard(r.Law)
+			}
+		}
 	}
 	// The key functions of the states of the machines whose reachability
 	// laws run (machinelaws.go, State keys).
 	for _, r := range l.runLaws() {
+		if r.Law.Rewrite != nil {
+			for _, bd := range r.Bindings {
+				if len(bd) == 1 && bd[0].Value && l.keyWhy(bd[0].Type) == "" {
+					reserveLit(bd[0].Type)
+					l.keyTypes(bd[0].Type, map[string]bool{}, func(t check.Type) {
+						reserveLit(t)
+						key, base, _ := l.keyName(t)
+						l.pkgName(key, base)
+					})
+				}
+			}
+		}
 		if law := r.Law; lawLowered(r) && law.Machine != nil && law.Decl.Reach != nil {
 			state := law.Machine.Type.(*check.Named).Underlying().(*check.MachineType).State
 			if l.keyWhy(state) == "" {
@@ -200,6 +238,14 @@ func (l *lowerer) genRoots(f func(check.Type)) {
 		for i, v := range law.Params {
 			if !lawSlotParam(law, i) && !generic {
 				f(v.Type)
+			}
+		}
+		if law.Rewrite != nil {
+			// A rewrite law (rewritelaw.go) draws its steps' arguments.
+			for _, m := range law.Rewrite.Steps {
+				for _, p := range m.Sig.Params {
+					f(p.Type)
+				}
 			}
 		}
 		if law.Decl.Reach != nil {
@@ -371,12 +417,24 @@ func (l *lowerer) lawFunc(law *check.Law) string {
 	return l.pkgName(pkgKey{"law", law}, base)
 }
 
+// lawFrame is the frame of a law's Go function, a member law's or a
+// rewrite law's side (rewritelaw.go): fallible, polling as the checker
+// placed the law's polls.
+func lawFrame(info *check.Info, d *syntax.LawDecl, result check.Type) *frame {
+	return newFrame(result, true, framePolls(info, d))
+}
+
 // lawDecl lowers a law that runs to a Go function of its body in the test
 // build (Laws): `func ergoLawName(env *Env, params...) (bool, error)`. Its
 // result is the law's tail, or a returned value; what escapes it is its
 // error. A member law's bare operation calls read the capability of its
 // operation type from env, which the run binds to the provider under test.
+// A rewrite law lowers to its sides instead (rewriteDecl).
 func (l *lowerer) lawDecl(law *check.Law) {
+	if law.Rewrite != nil {
+		l.rewriteDecl(law)
+		return
+	}
 	d := law.Decl
 	l.tests.law = law
 	defer func() { l.tests.law = nil }()
@@ -416,7 +474,7 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		defer func() { l.tests.lawOwn = "" }()
 	}
 	result := check.Type(check.Typ[check.Bool])
-	fc.frame = newFrame(result, true, framePolls(l.info, d))
+	fc.frame = lawFrame(l.info, d, result)
 	fc.frame.law = true
 	for _, v := range law.Params {
 		if v.Name == "_" {
@@ -930,6 +988,10 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
 	for _, tg := range targets {
+		if law.Rewrite != nil {
+			l.rewriteRuns(b, law, tg.label, tg.b[0], scope, env, seed, failed, at)
+			continue
+		}
 		plan := testplan.Law(law, tg.b)
 		// One rule for every law (Listed laws): a run whose values can
 		// all be listed takes each once and is proved; else it draws.
@@ -939,14 +1001,18 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		inner := newNamer(scope)
 		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
 		name := strconv.Quote(tg.label) + ", " + at
+		cases := testCases
+		if l.postRun(law, tg.b) {
+			cases = rewriteCases // from deep reached states (rewritePrefix)
+		}
 		b.WriteString("\t{\n")
 		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(tg.label) + ")\n")
 		b.WriteString("\t\t" + r + ".env = " + env + "\n")
 		b.WriteString("\t\t" + ok + " := true\n")
-		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
+		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(cases) + "; " + i + "++ {\n")
 		b.WriteString("\t\t\t" + r + ".start(" + i + ")\n")
 		b.WriteString("\t\t\t" + ok + " = " + l.helper("Prop") + "(" + taskOf(env) + ", " + name + ", " + r + ", func() (func() string, func() error) {\n")
-		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
+		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(cases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 		sep := ": "
 		var bind []string
 		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
@@ -979,7 +1045,7 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 				shown = append(shown, strconv.Quote(sep+name+" = "), l.litExpr(p.Type, pv, law.Decl))
 			}
 			sep = ", "
-			return fc.convert(p.Conv, pv, law.Decl)
+			return fc.lawProvider(p, pv, law.Decl)
 		}
 		args := []string{"&" + e}
 		callee := l.lawFunc(law)
@@ -1028,11 +1094,23 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
 			sep = ", "
 		}
-		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") +
+		prefix := ""
+		if l.postRun(law, tg.b) {
+			// A post law of the check build runs from a reached state
+			// (Unit.Posts): a drawn prefix on the case's provider first.
+			list := l.drawPrefix(b, law, tg.b[0], r, taskOf(env), inner, &shown)
+			s := inner.alloc("s")
+			prefix = "for _, " + s + " := range " + list + " { " + s + "(" + e + "." + l.envField(tg.b[0].Slot) + ") }; "
+		}
+		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") + prefix +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
 		b.WriteString("\t\t}\n")
-		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, testCases)) + ")\n")
+		okLine := strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, cases))
+		if l.postRun(law, tg.b) {
+			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, prefixes up to ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".deepest) + " + strconv.Quote(" operations)")
+		}
+		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + okLine + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
 		b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n")
 		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(tg.label) + ", " + r + ", \"\")\n\t}\n")
@@ -1320,6 +1398,13 @@ func $Record(label string, r *$Rand, why string) {
 	default:
 		rec += ", \"status\": \"tested\", \"cases\": " + $strconv.Itoa(r.cases)
 	}
+	if r != nil && r.rewrite {
+		insts := make([]string, len(r.instances))
+		for i, s := range r.instances {
+			insts[i] = $JSON(s)
+		}
+		rec += ", \"rewrite\": true, \"admitted\": " + $strconv.Itoa(r.admitted) + ", \"deepest\": " + $strconv.Itoa(r.deepest) + ", \"instances\": [" + $strings.Join(insts, ", ") + "]"
+	}
 	$Receipt.laws = append($Receipt.laws, rec+"}")
 }
 
@@ -1439,6 +1524,15 @@ type $Rand struct {
 	cases   int
 	failure string
 	proved  bool
+	// A rewrite law's run (rewritelaw.go): the cases its guard admitted,
+	// and the site instances among its cases, which its receipt entry
+	// lists.
+	rewrite   bool
+	admitted  int
+	instances []string
+	// deepest is the longest drawn prefix of a rewrite or post law's
+	// run: the depth of the states its cases reached.
+	deepest int
 }
 
 // start begins case i of a run: its size is i/4, and its world is empty,

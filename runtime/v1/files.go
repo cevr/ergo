@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	runtimefiles "ergo.local/prototype/runtime"
 )
@@ -92,6 +94,14 @@ type Body struct {
 	// authority (docs/spec/stdlib.md, Host packages 7). An exported body
 	// that reaches a host member (hostReach) and is not marked is refused.
 	Host bool
+	// Owned names the body's owned form, from a directive line
+	// "//ergo:owned Name" in its doc comment: a body of the same shape
+	// that takes its first argument over, so it may keep that argument's
+	// storage in its result with no copy (an unsafe one is listed in
+	// internal/residue/testdata/unsafe.txt). The lowering calls it only where the
+	// first argument is consumed: no binding reads that storage after the
+	// call (docs/spec/types.md, Bindings 2, consumed arguments).
+	Owned string
 }
 
 // PureMark is the directive line that marks a body pure, in the doc
@@ -101,6 +111,10 @@ const PureMark = "//ergo:pure"
 // HostMark is the directive line that marks a body that reaches host
 // state, in the doc comment of an exported function or method.
 const HostMark = "//ergo:host"
+
+// OwnedMark starts the directive line that names a body's owned form
+// (Body.Owned): "//ergo:owned Name".
+const OwnedMark = "//ergo:owned "
 
 // HostImports are the Go packages each of whose members reaches host
 // state. hostReach refuses an unmarked body that names one.
@@ -177,16 +191,46 @@ type Param struct {
 // the function Go, "Queue.Push" for the method Push of Queue. It fails when
 // there is no such exported declaration, or when its parameters break the
 // convention: a hidden type after an Ergo parameter, out of order or twice.
+// It reads bodyTable, which TestBodyTableIsCurrent generates from Source
+// with goDecls.body and fails on when it is stale, so it parses nothing
+// (CHK1).
 func BodyOf(name string) (Body, error) {
-	decls, err := sourceDecls()
-	if err != nil {
-		return Body{}, err
+	f, ok := bodyTable[name]
+	if !ok {
+		return Body{}, fmt.Errorf("runtime/v1: no exported Go body %s", name)
 	}
-	return decls.body(name)
+	if f.refusal != "" {
+		return Body{}, errors.New(f.refusal)
+	}
+	return f.body, nil
 }
 
-// sourceDecls parses Source once per process.
-var sourceDecls = sync.OnceValues(func() (goDecls, error) { return parseDecls(Source) })
+// bodyFact is one row of bodyTable: a body's shape, or the text of the
+// error goDecls.body refuses it with.
+type bodyFact struct {
+	body    Body
+	refusal string
+}
+
+// sourceDecls returns Source parsed, once per process, and counts the
+// read (SourceReads).
+func sourceDecls() (goDecls, error) {
+	sourceReads.Add(1)
+	return parsedSource()
+}
+
+// parsedSource parses Source once per process.
+var parsedSource = sync.OnceValues(func() (goDecls, error) { return parseDecls(Source) })
+
+// sourceReads counts the reads of the parsed Source in this process.
+var sourceReads atomic.Int64
+
+// SourceReads returns how many times this process read Source's parsed
+// declarations, the first of which parses every runtime/v1 Go file (CHK1).
+// A check reads none: the body facts it needs are a generated table
+// (bodyTable), so TestCheckWorkGrowsWithImports holds the count still
+// across a check. It counts work, never time.
+func SourceReads() int64 { return sourceReads.Load() }
 
 // goDecl is one exported function, method or type of a parsed package,
 // with the local name its file gives runtime/rt, the import paths of its
@@ -474,7 +518,53 @@ func (d goDecls) body(name string) (Body, error) {
 			return Body{}, fmt.Errorf("runtime/v1: %s reaches host state (%s) but is not marked %s", name, via, HostMark)
 		}
 	}
+	if owned := ownedForm(g.fn); owned != "" {
+		o, ok := d[owned]
+		if !ok || o.fn == nil || o.fn.Recv != nil || g.fn.Recv != nil {
+			return Body{}, fmt.Errorf("runtime/v1: %s names the owned form %s, which is no exported function", name, owned)
+		}
+		ob, err := goShape(o.fn.Type, o.rt)
+		if err != nil {
+			return Body{}, fmt.Errorf("runtime/v1: %s: %w", owned, err)
+		}
+		if ob.TypeParams, err = d.typeParams(o.fn); err != nil {
+			return Body{}, fmt.Errorf("runtime/v1: %s: %w", owned, err)
+		}
+		if len(b.Params) == 0 || !sameShape(b, ob) {
+			return Body{}, fmt.Errorf("runtime/v1: the owned form %s of %s has another shape", owned, name)
+		}
+		b.Owned = owned
+	}
 	return b, nil
+}
+
+// sameShape reports whether a and b have one Go shape, with no function
+// parameter.
+func sameShape(a, b Body) bool {
+	if !slices.Equal(a.TypeParams, b.TypeParams) || !slices.Equal(a.Hidden, b.Hidden) || !slices.Equal(a.Results, b.Results) || len(a.Params) != len(b.Params) {
+		return false
+	}
+	for i, p := range a.Params {
+		q := b.Params[i]
+		if p.Type != q.Type || p.Func != nil || p.Funcs != nil || q.Func != nil || q.Funcs != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// ownedForm is the name an //ergo:owned directive of fn's doc comment
+// gives, or "".
+func ownedForm(fn *ast.FuncDecl) string {
+	if fn.Doc == nil {
+		return ""
+	}
+	for _, c := range fn.Doc.List {
+		if name, ok := strings.CutPrefix(c.Text, OwnedMark); ok {
+			return strings.TrimSpace(name)
+		}
+	}
+	return ""
 }
 
 // marked reports a function whose doc comment holds the directive line.

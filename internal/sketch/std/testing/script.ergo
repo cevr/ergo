@@ -18,6 +18,7 @@ import task
 // it at once.
 // law-exempt: an Op is only a field of a Script, so the Script laws (ScriptRecordsEachCall, ScriptAnswersByTheLastAnswer, HeldCallWaitsForRelease, ReleaseAnswersOldestFirst, ScriptNamesTheHeldCall) state its contract through the operations it answers.
 type Op[A, F] {
+	runtimeOnly(),
 	// Answer makes f the operation's answer from now on, and ends a Hold:
 	// a later call gets f, a call held already stays held. A call of an
 	// operation with no answer is a defect that names the Script and the

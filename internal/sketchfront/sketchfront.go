@@ -62,6 +62,7 @@ func Check(source string) Analysis {
 		return Analysis{Diagnostics: []report.Diagnostic{syntaxDiagnostic(err)}, source: source}
 	}
 	analysis := Analysis{source: source, file: file}
+	prepareStd(nil)
 	pkg, diagnostics := check.Check("main", []*syntax.File{file}, nil)
 	analysis.pkg = pkg
 	for _, d := range diagnostics {
@@ -238,6 +239,16 @@ type BuildRequest struct {
 	Toolchain build.Toolchain
 	// Stderr receives the go command's output.
 	Stderr io.Writer
+	// Ledger is the path of the law ledger, ergo.laws beside ergo.mod
+	// (lower/ledger.go); "" or a missing file is an empty ledger. The run
+	// build reads it; UpdateLedger writes it.
+	Ledger string
+	// Locked refuses a run build that needs a stale or missing ledger
+	// entry (ergo build --locked; owner q122).
+	Locked bool
+	// Report, when set, receives how the toolchain built the executable
+	// (build.Report: the direct path, or go build and why).
+	Report *build.Report
 }
 
 // compilerIdentity is the compiler's producer identity for the emission
@@ -284,38 +295,32 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	default:
 		return build.Module{}, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
 	}
-	// A program of one source text is anchored at the request's Source; a
-	// program read from a folder at the admitted path of each file it read.
-	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: req.Source, Text: a.source}}}
-	dependencies := stdDependencies()
-	if a.program != nil {
-		unit = a.program.unit()
-		// The key holds every local package the program reaches: an edit
-		// of an imported package builds again.
-		dependencies = append(dependencies, a.program.dependencies()...)
-	}
-	if err := unit.Validate(); err != nil {
-		return build.Module{}, err
-	}
-	compiler, err := compilerIdentity()
+	unit, input, err := buildInput(a, req)
 	if err != nil {
 		return build.Module{}, err
 	}
-	input := build.Input{
-		Dependencies: dependencies,
-		Compiler:     compiler,
-		Emitter:      emitterRevision,
-		Language:     LanguageRevision,
-		Mode:         req.Mode,
-	}
-	for _, f := range lower.Runtime() {
-		input.Runtime = append(input.Runtime, build.File{Path: f.Path, Data: f.Data})
-	}
-	for _, s := range unit.Sources {
-		input.Sources = append(input.Sources, build.Source{Path: s.Path, Text: []byte(s.Text)})
+	var lowered []lower.File
+	if req.Mode == build.ModeBuild {
+		ev, files, err := lowerWithLedger(a, unit, req)
+		var refused *lower.Refused
+		if errors.As(err, &refused) {
+			return build.Module{}, &BuildError{Diagnostics: a.refusals(refused)}
+		}
+		if err != nil {
+			return build.Module{}, err
+		}
+		if ev != nil {
+			// The entries the lowering read are an input of it: the key
+			// holds them, and no other entry of the module's ledger.
+			input.Dependencies = append(input.Dependencies, sourceDependency(lower.LedgerFile, map[string]string{"read": ev.Read()}))
+			lowered = files
+		}
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
-		files, err := lowering(unit)
+		files, err := lowered, error(nil)
+		if files == nil {
+			files, err = lowering(unit)
+		}
 		var refused *lower.Refused
 		if errors.As(err, &refused) {
 			return nil, &BuildError{Diagnostics: a.refusals(refused)}
@@ -342,12 +347,108 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
 		return module, err
 	}
-	child := req.Toolchain.Command(module, absolute)
-	child.Stdout, child.Stderr = req.Stderr, req.Stderr
-	if err := child.Run(); err != nil {
-		return module, fmt.Errorf("Go build failed: %w", err)
+	report, err := req.Toolchain.Build(req.Cache, module, absolute, req.Stderr)
+	if req.Report != nil {
+		*req.Report = report
 	}
-	return module, nil
+	return module, err
+}
+
+// buildInput is the unit of a checked analysis and its emission key's
+// input for req's mode. A program of one source text is anchored at the
+// request's Source; a program read from a folder at the admitted path of
+// each file it read.
+func buildInput(a Analysis, req BuildRequest) (lower.Unit, build.Input, error) {
+	unit, err := analysisUnit(a, req.Source)
+	if err != nil {
+		return lower.Unit{}, build.Input{}, err
+	}
+	input, err := unitInput(unit, analysisDependencies(a), req)
+	return unit, input, err
+}
+
+// analysisUnit is the validated unit of a checked analysis; source
+// anchors a program of one source text.
+func analysisUnit(a Analysis, source string) (lower.Unit, error) {
+	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: source, Text: a.source}}}
+	if a.program != nil {
+		unit = a.program.unit()
+	}
+	return unit, unit.Validate()
+}
+
+// analysisDependencies are the dependency summaries of the analysis's
+// emission key: std, and every local package the program reaches, so an
+// edit of an imported package builds again.
+func analysisDependencies(a Analysis) []build.Dependency {
+	dependencies := stdDependencies()
+	if a.program != nil {
+		dependencies = append(dependencies, a.program.dependencies()...)
+	}
+	return dependencies
+}
+
+// unitInput is the emission key's input of unit with its dependency
+// summaries, for req's mode.
+func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildRequest) (build.Input, error) {
+	compiler := preparedCompilerIdentity()
+	if compiler == "" {
+		var err error
+		compiler, err = compilerIdentity()
+		if err != nil {
+			return build.Input{}, err
+		}
+	}
+	input := build.Input{
+		Dependencies: dependencies,
+		Compiler:     compiler,
+		Emitter:      emitterRevision,
+		Language:     LanguageRevision,
+		Mode:         req.Mode,
+	}
+	for _, f := range lower.Runtime() {
+		input.Runtime = append(input.Runtime, build.File{Path: f.Path, Data: f.Data})
+	}
+	for _, s := range unit.Sources {
+		input.Sources = append(input.Sources, build.Source{Path: s.Path, Text: []byte(s.Text)})
+	}
+	return input, nil
+}
+
+// lowerWithLedger lowers the run build of unit, a's, with the evidence of the
+// ledger at req.Ledger and the std ledger (rewrite.go), and prints one
+// line on req.Stderr for each entry a site needs that is stale or
+// missing; such a site keeps the reference lowering. A locked request
+// refuses instead (*LedgerError). A package with no rewrite law that a
+// provider's run checks reads no ledger: ev and files are nil, and the
+// caller lowers it as before.
+func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest) (*lower.LedgerEvidence, []lower.File, error) {
+	text, err := ledgerText(req.Ledger)
+	if err != nil {
+		return nil, nil, err
+	}
+	ev, err := ledgerEvidence(a, unit, text)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ev.HasRules() {
+		return nil, nil, nil
+	}
+	unit.Rewrite = ev
+	files, err := lower.Lower(unit)
+	if err != nil {
+		return nil, nil, err
+	}
+	notes := ev.Notes()
+	if req.Locked && len(notes) > 0 {
+		return nil, nil, &LedgerError{Lines: notes}
+	}
+	if req.Stderr != nil {
+		for _, n := range notes {
+			fmt.Fprintln(req.Stderr, n)
+		}
+	}
+	return ev, files, nil
 }
 
 // stdDependencies summarises the bundled standard library: the prelude and

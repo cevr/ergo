@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -123,6 +124,26 @@ func (fc *funcCtx) emits(x syntax.Expr) bool {
 	return found
 }
 
+// handsOff reports whether x moves an owned local outside a function
+// literal: its Go text is then a hand-off call (Info.Handoffs), and Go
+// runs the calls of an expression before its other operations, so an
+// earlier operand that may panic (a division) must be spilled first, or
+// the local is no one's when that operand's defect leaves (OWGEN round 3,
+// seed 1450).
+func (fc *funcCtx) handsOff(x syntax.Expr) bool {
+	found := false
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.FuncLit:
+			return false
+		case *syntax.Ident:
+			found = found || fc.l.info.Handoffs[n] != nil
+		}
+		return !found
+	})
+	return found
+}
+
 // spill binds a value to a temporary, unless it is a constant.
 func (fc *funcCtx) spill(val string) string {
 	if val == "" || isLiteralText(val) {
@@ -143,7 +164,7 @@ func isLiteralText(s string) bool {
 func (fc *funcCtx) operands(list []syntax.Expr, convert bool) []string {
 	later := make([]bool, len(list)+1)
 	for i := len(list) - 1; i >= 0; i-- {
-		later[i] = later[i+1] || fc.emits(list[i])
+		later[i] = later[i+1] || fc.emits(list[i]) || fc.handsOff(list[i])
 	}
 	parts := fc.partsFrom(list)
 	out := make([]string, len(list))
@@ -387,7 +408,7 @@ func (fc *funcCtx) ident(id *syntax.Ident) string {
 		}
 		if name, ok := fc.l.vars[o]; ok {
 			fc.l.reachStdLet(o)
-			return name
+			return fc.l.letRead(o, name)
 		}
 		ice(id, "the variable %s has no Go name", id.Name)
 	case *check.Func:
@@ -441,7 +462,7 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 						// program (sources.go).
 						if name, ok := fc.l.vars[o]; ok {
 							fc.l.reachStdLet(o)
-							return name
+							return fc.l.letRead(o, name)
 						}
 						ice(x, "the let %s.%s has no Go name", id.Name, x.Sel.Name)
 					}
@@ -842,7 +863,7 @@ func isGoPath(s string) bool {
 func (fc *funcCtx) elements(list []syntax.Expr, _ check.Type) []string {
 	later := make([]bool, len(list)+1)
 	for i := len(list) - 1; i >= 0; i-- {
-		later[i] = later[i+1] || fc.emits(list[i])
+		later[i] = later[i+1] || fc.emits(list[i]) || fc.handsOff(list[i])
 	}
 	parts := fc.partsFrom(list)
 	out := make([]string, len(list))
@@ -879,12 +900,44 @@ func (fc *funcCtx) index(x *syntax.IndexExpr) string {
 	if len(x.Indices) != 1 {
 		ice(x, "an index with %d indices", len(x.Indices))
 	}
+	unchecked := fc.uncheckedIndex(x) // bounds.go
 	parts := fc.operands([]syntax.Expr{x.X, x.Indices[0]}, false)
+	if unchecked {
+		if _, isSlice := fc.typeOf(x.X).(*check.Slice); isSlice {
+			return "(*" + fc.l.rt() + ".AddrAt(" + parts[0] + ", " + parts[1] + "))"
+		}
+		return fc.l.rt() + ".ByteAt(" + parts[0] + ", " + parts[1] + ")"
+	}
 	return parts[0] + "[" + parts[1] + "]"
 }
 
 // sliceExpr lowers xs[a:b] and xs[a:b:c].
 func (fc *funcCtx) sliceExpr(x *syntax.SliceExpr) string {
+	if fc.uncheckedSlice(x) { // bounds.go
+		// The subject is a local (bounds.go, subject), so its Go text is a
+		// name, read again for a missing high bound. A cut of a constant
+		// length, s[a:a+n], passes n itself, so gc knows the result's
+		// length; the high bound is a sum of locals, with no effect to keep.
+		if n := fc.sliceLen(x); n > 0 {
+			parts := fc.operands([]syntax.Expr{x.X, x.Low}, false)
+			return fc.l.rt() + ".StringN(" + parts[0] + ", " + parts[1] + ", " + strconv.FormatInt(n, 10) + ")"
+		}
+		list := []syntax.Expr{x.X}
+		for _, e := range []syntax.Expr{x.Low, x.High} {
+			if e != nil {
+				list = append(list, e)
+			}
+		}
+		parts := fc.operands(list, false)
+		low, high, i := "0", "len("+parts[0]+")", 1
+		if x.Low != nil {
+			low, i = parts[i], i+1
+		}
+		if x.High != nil {
+			high = parts[i]
+		}
+		return fc.l.rt() + ".StringAt(" + parts[0] + ", " + low + ", " + high + ")"
+	}
 	list := []syntax.Expr{x.X}
 	for _, e := range []syntax.Expr{x.Low, x.High, x.Max} {
 		if e != nil {
@@ -972,6 +1025,8 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if m.Result != nil {
 		result = fc.temp("v")
 		fc.line("var " + result + " " + fc.goType(m.Result))
+		fc.armHeldVar(x, result)
+		fc.armValueVar(x, result)
 	} else if o.val != "" {
 		// The catch's value is discarded (D-C1), so the caught value is
 		// too; its failure is not (stage C round 3 review M1).
@@ -980,6 +1035,7 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if !fc.simpleCatch(x) {
 		fc.trackResultSite(x, result)
 		fc.patternCatch(x, m, o, result, partial)
+		fc.armValueEnd(x, result)
 		return operand{val: result}
 	}
 	fc.trackResultSite(x, result)
@@ -1062,12 +1118,13 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	fc.depth--
 	if result != "" && o.val != "" {
 		fc.line("} else {")
-		fc.line("\t" + result + " = " + fc.caughtValue(x, m, o.val))
+		fc.line("\t" + result + " = " + fc.returnedTemp(check.ReturnedKey(x.X), fc.caughtValue(x, m, o.val)))
 		if site := fc.resultNames[result]; site != "" {
 			fc.line("\t" + site + " = " + fc.resultSite(x.X))
 		}
 	}
 	fc.line("}")
+	fc.armValueEnd(x, result)
 	return operand{val: result}
 }
 
@@ -1213,7 +1270,12 @@ func (fc *funcCtx) retTail(x syntax.Expr) {
 		fc.line(fc.errReturn("nil"))
 		return
 	}
-	fc.line("return " + fc.assigned(x) + ", nil")
+	if id, ok := unparen(x).(*syntax.Ident); ok {
+		fc.returned = id // a returned local is kept until the exit (R10)
+	}
+	val := fc.assigned(x)
+	fc.returned = nil
+	fc.line("return " + fc.returnedTemp(check.ReturnedKey(x), val) + ", nil")
 }
 
 // simpleCatch reports a catch a Go type switch on the error lowers: arms of
@@ -1285,7 +1347,7 @@ func (fc *funcCtx) patternCatch(x *syntax.CatchExpr, m *check.Match, o operand, 
 	fc.depth--
 	if result != "" && o.val != "" {
 		fc.line("} else {")
-		fc.line("\t" + result + " = " + fc.caughtValue(x, m, o.val))
+		fc.line("\t" + result + " = " + fc.returnedTemp(check.ReturnedKey(x.X), fc.caughtValue(x, m, o.val)))
 		if site := fc.resultNames[result]; site != "" {
 			fc.line("\t" + site + " = " + fc.resultSite(x.X))
 		}

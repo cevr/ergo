@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"go/constant"
 	"go/format"
 	"go/scanner"
 	"go/token"
@@ -54,53 +55,6 @@ func Runtime() []File {
 		files = append(files, File{Path: path.Join(runtimeDir, f.Path), Data: f.Data})
 	}
 	return files
-}
-
-// GoModule is what the emitted module needs from the go.mod and go.sum
-// beside ergo.mod (IG7, owner q37; docs/spec/interop.md, Go modules): the
-// Go modules a program's import go packages come from.
-type GoModule struct {
-	// Require are go.mod's require lines, "path version", in its order.
-	Require []string
-	// Replace are its replace lines, "old [version] => new [version]",
-	// a local directory made absolute, since the emitted module lives
-	// elsewhere.
-	Replace []string
-	// Sum is go.sum's text, copied as it is.
-	Sum string
-	// Modules are the module paths a Go import of the program may name
-	// outside Go's standard library: each required module, and the module
-	// of go.mod itself, which Require and Replace then hold.
-	Modules []string
-}
-
-// covers reports whether a Go import path is a package of one of m's
-// modules.
-func (m GoModule) covers(path string) bool {
-	for _, mod := range m.Modules {
-		if path == mod || strings.HasPrefix(path, mod+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-// goModFile is the emitted module's go.mod: the runtime's requirement and
-// replacement (the ergo directory), then the program's Go requirements.
-func goModFile(m GoModule) []byte { return goModFileAt(programModule, m) }
-
-// goModFileAt is goModFile for the module path module.
-func goModFileAt(module string, m GoModule) []byte {
-	var b strings.Builder
-	b.WriteString("module " + module + "\n\ngo " + goVersion + "\n\nrequire " + runtimeModule + " v0.0.0\n")
-	for _, r := range m.Require {
-		b.WriteString("\nrequire " + r + "\n")
-	}
-	b.WriteString("\nreplace " + runtimeModule + " => ./" + runtimeDir + "\n")
-	for _, r := range m.Replace {
-		b.WriteString("\nreplace " + r + "\n")
-	}
-	return []byte(b.String())
 }
 
 // goMod is the go.mod of a program with no Go requirements.
@@ -169,7 +123,13 @@ func Lower(u Unit) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(moduleFiles(u.Go, code), l.assetFiles()...), nil
+	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
+	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && ev.HasRules() {
+		// The producer record names the ledgers and the rewrites applied
+		// (ledger.go).
+		files = append(files, File{Path: "ergo_laws.go", Data: ev.record(l, l.rewrite.applied)})
+	}
+	return files, nil
 }
 
 // lowerPackage lowers the unit's package once: program runs the naming
@@ -214,6 +174,12 @@ type lowerer struct {
 	// canon is the checked unit in canonical form (canon.go): the only
 	// place the lowering reads the unit's and the checker's lists from.
 	canon *canonical
+	// rewrite applies evidenced rewrite laws in the run build (rewrite.go);
+	// nil applies none.
+	rewrite *rewriter
+	// ir collects the experimental IR bodies of LowerIR
+	// (irspike_experimental.go); nil in every other lowering.
+	ir *irState
 	// goModule is the root unit's Go requirements (hostPkg).
 	goModule GoModule
 	pkg      *check.Package
@@ -259,14 +225,21 @@ type lowerer struct {
 	inlineSites []inlineSite
 	lastDir     string
 
-	types    map[*check.TypeName]*typeDecl
-	funcs    map[*check.Func]*funcDecl
-	pure     map[*check.Func]bool       // the program's pure functions (pure.go), once computed
-	known    map[*check.Func]knownState // known-callback variant decisions (known.go)
-	closed   map[*check.Func]knownState // closed-frame decisions (known.go)
-	deps     map[*check.Func][]bool     // result-alias summaries (alias.go)
-	stats    knownStats                 // what known.go and alias.go did (tests only)
-	vars     map[*check.Var]string      // package-level lets
+	types  map[*check.TypeName]*typeDecl
+	funcs  map[*check.Func]*funcDecl
+	pure   map[*check.Func]bool       // the program's pure functions (pure.go), once computed
+	known  map[*check.Func]knownState // known-callback variant decisions (known.go)
+	closed map[*check.Func]knownState // closed-frame decisions (known.go)
+	deps   map[*check.Func][]bool     // result-alias summaries (alias.go)
+	stats  knownStats                 // what known.go and alias.go did (tests only)
+	vars   map[*check.Var]string      // package-level lets
+	consts map[*check.Var]bool        // the lets lowered as Go constants (constLet)
+	// constVals are those lets' values, which the bounds facts read
+	// (bounds.go).
+	constVals map[*check.Var]constant.Value
+	// unstable are, per package, the let mut locals a bounds fact never
+	// names (bounds.go, unstableVars).
+	unstable map[*check.Info]map[*check.Var]bool
 	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types
 	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
@@ -279,6 +252,15 @@ type lowerer struct {
 	sets     map[check.TypeSet]string // generated constraint interfaces emitted (decls.go, constraint)
 	holds    map[*check.Named]holdState
 	typeKeys map[check.Type]string
+	// directWriters are the sealed std types whose values encode writes
+	// on directly (wiredirect.go), in typeKey order.
+	directWriters []check.Type
+	// cellRewrites are the rewriters of std cell writers' laws, by
+	// package (wiretext.go).
+	cellRewrites map[*check.Package]*rewriter
+	// cellFuncs are the cell writers' codec functions, by Go name, with
+	// their entry-state variants (wiretext.go, cellVariant).
+	cellFuncs map[string]*cellFunc
 	// holdsVisits counts holdsMap calls (TestDefaultWorkIsLinear).
 	holdsVisits int
 	methods     map[*check.Package]map[*check.TypeName][]*check.Func
@@ -400,7 +382,11 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // newBuildLowerer is the lowerer of u for the run build (tests nil) or the
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
-	return lowererOf(canonicalize(u), u.Package, u.Go, tests)
+	l := lowererOf(canonicalize(u), u.Package, u.Go, tests)
+	if tests == nil && u.Rewrite != nil {
+		l.rewrite = newRewriter(u.Package, u.Rewrite)
+	}
+	return l
 }
 
 // lowererOf is the lowerer of the canonical unit c of the package pkg, whose
@@ -420,6 +406,8 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		types:     map[*check.TypeName]*typeDecl{},
 		funcs:     map[*check.Func]*funcDecl{},
 		vars:      map[*check.Var]string{},
+		consts:    map[*check.Var]bool{},
+		constVals: map[*check.Var]constant.Value{},
 		contexts:  map[contextSet]string{},
 		adapters:  map[string]string{},
 		scripts:   map[string]bool{},

@@ -1,6 +1,96 @@
 {
-  "about": "Residue rules read from the checked-out source; mutants.md holds the run-artifact mutant, which is not a text edit.",
+  "about": "The rules that hold the specification's text (SPEC1a): no history in a rule paragraph, one name per form, statuses generated from docs/spec/status.json. Each mutant breaks one rule and a residue test kills it.",
   "mutants": [
+    {
+      "name": "spec1a-history-skips-a-file",
+      "origin": "wf10 lang-2 SPEC1a",
+      "file": "internal/residue/spec_text_test.go",
+      "from": "\tfor _, name := range names {\n\t\tfound[name] = hits(files[name])",
+      "to": "\tfor _, name := range names[:len(names)-1] {\n\t\tfound[name] = hits(files[name])",
+      "rule": "A text rule reads every spec file: an allowlisted file it skipped would pass silently.",
+      "killers": ["internal/residue:TestSpecTextRules"],
+      "anchor": {"tests": ["internal/residue:TestSpecTextRules"]}
+    },
+    {
+      "name": "spec1a-status-by-hand-passes",
+      "origin": "wf10 lang-2 SPEC1a",
+      "file": "internal/residue/spec_status_test.go",
+      "from": "\t\t\tout = append(out, p.render())",
+      "to": "\t\t\tout = append(out, lines[i:end+1]...)\n\t\t\t_ = p",
+      "rule": "A Status paragraph is the ledger's text: one edited by hand is rewritten, never kept.",
+      "killers": ["internal/residue:TestSpecStatusRules"],
+      "anchor": {"tests": ["internal/residue:TestSpecStatusRules"]}
+    },
+    {
+      "name": "spec1a-designed-with-witness",
+      "origin": "wf10 lang-2 SPEC1a",
+      "file": "internal/residue/spec_status_test.go",
+      "from": "if status == \"designed\" && len(witnesses) > 0 {",
+      "to": "if false && status == \"designed\" && len(witnesses) > 0 {",
+      "rule": "A part that names a witness test is built: it cannot stay designed.",
+      "killers": ["internal/residue:TestSpecStatusRules"],
+      "anchor": {"tests": ["internal/residue:TestSpecStatusRules"]}
+    },
+    {
+      "name": "spec1a-fenced-word-flagged",
+      "origin": "wf10 lang-2 SPEC1a",
+      "file": "internal/residue/spec_text_test.go",
+      "from": "\t\tif fence {\n\t\t\tcontinue\n\t\t}\n\t\tif strings.HasPrefix(trimmed, \"#\") {",
+      "to": "\t\tif strings.HasPrefix(trimmed, \"#\") {",
+      "rule": "Code in a fenced block is not prose: Go's words in a habit message stay.",
+      "killers": ["internal/residue:TestSpecTextRules"],
+      "anchor": {"tests": ["internal/residue:TestSpecTextRules"]}
+    },
+    {
+      "name": "residue-std-read-unlisted",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "func (fc *funcCtx) typeOf(x syntax.Expr) check.Type {\n",
+      "to": "func (fc *funcCtx) typeOf(x syntax.Expr) check.Type {\n\t_ = fc.l.pkg.Std()\n",
+      "rule": "The standard library gets no special treatment: a new read of std membership in the compiler has no row of std-privileges.txt.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-name-through-constant",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "// typeOf is x's checked type.\n",
+      "to": "const mutantQueue = \"queue\"\n\nfunc mutantIsQueue(p *check.Package) bool { return p.Path == mutantQueue }\n\n// typeOf is x's checked type.\n",
+      "rule": "A comparison with a std package path through a package-level constant is a comparison with the path.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-table-key",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/sketch/lower/expr.go",
+      "from": "// typeOf is x's checked type.\n",
+      "to": "var mutantTable = map[string]bool{\"queue.Queue\": true}\n\n// typeOf is x's checked type.\n",
+      "rule": "A table keyed by a std name is a decision by name.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-debt-grows",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/residue/testdata/std-privileges.txt",
+      "from": "language\tinternal/sketch/lower/values.go:preludeAppend\tthe prelude Append\t-\n",
+      "to": "debt\tinternal/sketch/lower/values.go:preludeAppend\tthe prelude Append\tNP6\n",
+      "rule": "The debt list only shrinks: a row may not join it.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
+    {
+      "name": "residue-scan-skips-package",
+      "origin": "wf10 STD-NOPRIV NP1",
+      "file": "internal/residue/std_membership_test.go",
+      "from": "\"internal/sketch/format\", \"internal/sketchfront\", \"internal/tsproj\",\n",
+      "to": "\"internal/sketch/format\", \"internal/sketchfront\",\n",
+      "rule": "The rule reads every compiler package: a package left out of the scan would hide its reads.",
+      "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
+      "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}
+    },
     {"name":"embed-duplicate-ledger-anchor","origin":"wf10 batch-16b fix-r1","file":"internal/sketchfront/testdata/mutants.json","from":"l.user.WriteString(\\\"//go:embed \\\" + strings.Join","to":"//go:embed ","rule":"Every ledger edit applies exactly once at HEAD, including literal template edits.","killers":["internal/residue:TestLedgerEditsApplyOnce"],"anchor":{"tests":["internal/residue:TestLedgerEditsApplyOnce"]}},
     {"name":"g16fix2-store-platform-dropped","origin":"wf10 batch-16 16b gate-fix-2 r4","file":"internal/closure/stdcache_test.go","from":"\"linux/amd64\", \"linux/arm64\"}","to":"\"linux/amd64\"}","rule":"The closure sweep's std store builds for gobind.Platforms: its copy storePlatforms equals gobind's list, as sets. The edited file is a test file of another package, which this suite's coverage does not instrument.","killers":["internal/residue:TestStorePlatformsAreGobinds"],"anchor":{"tests":["internal/residue:TestStorePlatformsAreGobinds"]}},
     {"name":"g16fix2-gobind-platform-dropped","origin":"wf10 batch-16 16b gate-fix-2 r4","file":"internal/gobind/load.go","from":"{\"linux\", \"amd64\"}, {\"linux\", \"arm64\"}}","to":"{\"linux\", \"amd64\"}}","rule":"A platform dropped from gobind.Platforms is dropped from the closure's storePlatforms too.","killers":["internal/residue:TestStorePlatformsAreGobinds"],"anchor":{"tests":["internal/residue:TestStorePlatformsAreGobinds"]}}

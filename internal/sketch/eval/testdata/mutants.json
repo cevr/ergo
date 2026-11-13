@@ -2,6 +2,61 @@
   "about": "The mutant ledger of internal/sketch/eval, the check-time evaluator (L7). Run it with go run ./scripts/mutants ./internal/sketch/eval; docs/tooling.md, \"Mutant ledger\", says when a change must run it. Seeded by unit EV1 (wf10 l7-eval, 2026-11-10).",
   "mutants": [
     {
+      "name": "ps2-branch-on-term-continues",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tif in.sym != nil && !in.sym.ok[x] && symbolic(v) {",
+      "to": "\tif false && in.sym != nil && !in.sym.ok[x] && symbolic(v) {",
+      "rule": "A symbolic run stops at a term in any position but a binding, an argument, a result, a part or a concatenation: a branch on a symbol proves nothing.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-concat-commutes",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/symbolic.go",
+      "from": "\t\t\tif n := len(parts); n > 0 {\n\t\t\t\tif prev, ok := parts[n-1].(string); ok {\n\t\t\t\t\tparts[n-1] = prev + s\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}",
+      "to": "\t\t\tfor j := range parts {\n\t\t\t\tif prev, ok := parts[j].(string); ok {\n\t\t\t\t\tparts[j] = prev + s\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}",
+      "rule": "The concatenation normal form joins adjacent constants only: concatenation is associative, not commutative.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-extern-args-ignored",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/symbolic.go",
+      "from": "\t\treturn ok && a.fn == bv.fn && symEqualAll(a.args, bv.args)",
+      "to": "\t\treturn ok && a.fn == bv.fn",
+      "rule": "Two uninterpreted calls are one term only when their arguments are.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-read-of-written-field-stale",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/stmt.go",
+      "from": "\t\t\treturn c.s, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
+      "to": "\t\t\treturn &slot{v: c.s.v}, []step{{at: x, field: x.Sel.Name}}, \"\", nil",
+      "rule": "A write through a provider's cell is what every later read and the end state see.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
+      "name": "ps2-stop-proved",
+      "origin": "wf10 PS2",
+      "file": "internal/sketch/eval/symbolic.go",
+      "from": "\t\tlres, lend, why := in.symSide(fr, p, state, law.Rewrite.Lhs, params)\n\t\tif why != \"\" {\n\t\t\treturn no(\"%s\", why)\n\t\t}",
+      "to": "\t\tlres, lend, why := in.symSide(fr, p, state, law.Rewrite.Lhs, params)\n\t\tif why != \"\" {\n\t\t\tcontinue\n\t\t}",
+      "rule": "A case whose run stops is not a case that holds: anything the run cannot decide is not proved.",
+      "killers": [
+        "lower:TestSymbolicProofsSound"
+      ]
+    },
+    {
       "name": "short-circuit-rhs",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/expr.go",
@@ -404,6 +459,52 @@
       "to": "\t\treturn int8(int64(f)), true\n",
       "rule": "Check time converts a float to an integer by the lowering's one rule (S-conv: truncate, saturate, NaN to 0), so its verdict agrees with the Go build's.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel", "internal/sketch/lower:TestEvalAgreesWithGo"]
+    },
+    {
+      "name": "try-eval-catch-takes-covered",
+      "origin": "wf10 TRY-eval",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tif !tailCall(fr.info, x.X, failed.call) {",
+      "to": "\tif false {",
+      "rule": "rows.md Catch 5: try covers the caught expression too, so in try h(g()) catch {...} a failure of g() propagates past the catch, which handles only the failures its subject yields through (h's row), as the lowering's hoisted check does.",
+      "killers": ["internal/sketch/eval:TestCatchPassesCoveredFailure", "internal/sketch/lower:TestTryCatchEvalAgrees"]
+    },
+    {
+      "name": "try-eval-branch-not-tail",
+      "origin": "wf10 TRY-eval",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\t\treturn tailList(info, s.Body.List, c) || s.Else != nil && tailStmt(info, s.Else, c)",
+      "to": "\t\treturn false",
+      "rule": "rows.md Error rows 2: a value if's branch tail passes its failure to the if, so a catch on the if takes it like a failure of its subject; only a failure an enclosing try covers passes the catch.",
+      "killers": ["internal/sketch/lower:TestTryCatchEvalAgrees"],
+      "anchor": {"tests": ["internal/sketch/lower:TestTryCatchEvalAgrees"]}
+    },
+    {
+      "name": "det-argument-order",
+      "origin": "wf10 FU-audit",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tkeys := keyOrder(m)\n",
+      "to": "\t\tkeys := make([]Value, 0, len(m))\n\t\tfor k := range m {\n\t\t\tkeys = append(keys, k)\n\t\t}\n",
+      "rule": "A report's step counts are a function of the program: the charged sort of a Map argument's keys starts from their fixed order, not Go's map order.",
+      "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
+    },
+    {
+      "name": "det-equal-order",
+      "origin": "wf10 FU-audit",
+      "file": "internal/sketch/eval/value.go",
+      "from": "\t\tfor _, k := range keyOrder(a.b.m) {\n",
+      "to": "\t\tfor k := range a.b.m {\n",
+      "rule": "A report's step counts are a function of the program: Map equality, which stops at the first different entry, walks the keys' fixed order.",
+      "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
+    },
+    {
+      "name": "det-key-order-unsorted",
+      "origin": "wf10 FU-audit",
+      "file": "internal/sketch/eval/coll.go",
+      "from": "\tsort.Slice(keys, func(i, j int) bool { return keyLess(keys[i], keys[j]) })\n",
+      "to": "",
+      "rule": "keyOrder's order is a function of the keys alone.",
+      "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
     }
   ]
 }

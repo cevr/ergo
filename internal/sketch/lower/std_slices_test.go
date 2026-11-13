@@ -227,6 +227,14 @@ test SlicesMaxIsLastSorted(xs []int) {
 	assert slices.Max(xs) == Some[int]{Value: s[len(s) - 1]} && slices.Min(xs) == Some[int]{Value: s[0]}
 }
 
+test SlicesLastIsFinalElement(xs []int) {
+	if len(xs) == 0 {
+		assert slices.Last(xs) == None
+		return
+	}
+	assert slices.Last(xs) == Some[int]{Value: xs[len(xs) - 1]}
+}
+
 test SlicesAscendOrders(xs []int) { assert isSorted(slices.Items(slices.Ascend(xs))) }
 
 test SlicesAscendPermutes(xs []int) {
@@ -400,6 +408,11 @@ test CmpCompareIsTransitive(a int, b int, c int) {
 	}
 }
 
+test CmpMaxMinSplit(a int, b int) {
+	assert cmp.Max(a, b) == cmp.Max(b, a) && cmp.Min(a, b) == cmp.Min(b, a)
+	assert cmp.Max(a, b)+cmp.Min(a, b) == a+b && cmp.Min(a, b) <= cmp.Max(a, b)
+}
+
 test CmpLessIsCompareBelowZero(a string, b string) {
 	assert cmp.Less(a, b) == (cmp.Compare(a, b) < 0)
 	assert !cmp.Less(a, a)
@@ -510,6 +523,7 @@ var stdSlicesLawStatements = map[string]string{
 	"cmp CompareIsAntisymmetric":       `CompareIsAntisymmetric(a int, b int) { Compare(a, b) == -Compare(b, a) }`,
 	"cmp CompareIsTransitive":          `CompareIsTransitive(a int, b int, c int) { if Compare(a, b) <= 0 && Compare(b, c) <= 0 { return Compare(a, c) <= 0 } true }`,
 	"cmp LessIsCompareBelowZero":       `LessIsCompareBelowZero(a string, b string) { Less(a, b) == (Compare(a, b) < 0) }`,
+	"cmp MaxMinSplit":                  `MaxMinSplit(a int, b int) { Max(a, b) == Max(b, a) && Min(a, b) == Min(b, a) && Max(a, b)+Min(a, b) == a+b && Min(a, b) <= Max(a, b) }`,
 	"maps KeysVisitEachKeyOnce":        `KeysVisitEachKeyOnce(m Map[string, int]) { let mut seen = Map[string, bool]{} for k in Keys(m) { if seen.Get(k) != None || m.Get(k) == None { return false } seen[k] = true } len(seen) == len(m) }`,
 	"maps KeysStops":                   `KeysStops(m Map[string, int]) { let s = Keys(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(key string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 	"maps ValuesStops":                 `ValuesStops(m Map[string, int]) { let s = Values(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(v int) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
@@ -526,6 +540,7 @@ var stdSlicesLawStatements = map[string]string{
 	"slices FilterKeepsTheAccepted":    `FilterKeepsTheAccepted(xs []int) { let even = func(x int) bool { x%2 == 0 } let kept = Filter(xs, even) let mut i = 0 for x in xs { if even(x) { if i >= len(kept) || kept[i] != x { return false } i = i + 1 } } i == len(kept) }`,
 	"slices FoldSumMatchesLoop":        `FoldSumMatchesLoop(xs []int) { let mut sum = 0 for x in xs { sum = sum + x } Fold(xs, 0, func(acc int, x int) int { acc + x }) == sum }`,
 	"slices MaxIsLastSorted":           `MaxIsLastSorted(xs []int) { let s = Sort(xs) if len(s) == 0 { return Max(xs) == None && Min(xs) == None } Max(xs) == Some[int]{Value: s[len(s)-1]} && Min(xs) == Some[int]{Value: s[0]} }`,
+	"slices LastIsFinalElement":        `LastIsFinalElement(xs []int) { if len(xs) == 0 { return Last(xs) == None } Last(xs) == Some[int]{Value: xs[len(xs)-1]} }`,
 	"slices ReverseTwiceIsSame":        `ReverseTwiceIsSame(xs []int) { Equal(Reverse(Reverse(xs)), xs) }`,
 	"slices SortIsIdempotent":          `SortIsIdempotent(xs []int) { Equal(Sort(Sort(xs)), Sort(xs)) }`,
 	"slices SortLeavesItsArgument":     `SortLeavesItsArgument(xs []int) { let before = Transform(xs, func(x int) int { x }) let sorted = Sort(xs) len(sorted) == len(xs) && Equal(xs, before) }`,

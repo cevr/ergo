@@ -49,6 +49,7 @@ type Manual { line Timeline }
 // Timeline is the state a Manual shares between its copies. Only NewManual
 // makes one.
 type Timeline {
+	runtimeOnly(),
 	// Read is the time now.
 	Read() Reading,
 	// Wait suspends the calling task until the time is d past the time it
