@@ -27,7 +27,7 @@ import (
 // directory that is also $HOME, and the tree it leaves seeds the
 // simulated file system (setupFiles). A ts program's case (Bun runs it,
 // and drives the built program), a setup that leaves what the simulated
-// file system does not hold, and a run that reaches a form the evaluator
+// file system does not hold (a special file), and a run that reaches a form the evaluator
 // does not run are listed and counted, never passed; any other difference
 // fails. The log's last lines are the census: how many cases agreed, were
 // skipped and why.
@@ -218,7 +218,7 @@ func disagreement(g golden, got eval.Exit) string {
 // setupFiles runs the case's setup.sh as the examples runner does (sh
 // with the case directory as $1, in an empty directory that is $HOME) and
 // returns the tree it leaves, relative to that directory. why names what
-// the simulated file system cannot hold (a symbolic link, a special file),
+// the simulated file system cannot hold (a special file),
 // or the setup's failure; files is then nil.
 func setupFiles(t *testing.T, caseDir string) (files []eval.File, why string) {
 	t.Helper()
@@ -248,8 +248,11 @@ func setupFiles(t *testing.T, caseDir string) (files []eval.File, why string) {
 		}
 		switch {
 		case d.Type()&fs.ModeSymlink != 0:
-			why = "a setup.sh that makes a symbolic link"
-			return fs.SkipAll
+			target, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			files = append(files, eval.File{Path: filepath.ToSlash(rel), Link: target})
 		case d.IsDir():
 			files = append(files, eval.File{Path: filepath.ToSlash(rel), Dir: true, Perm: int(info.Mode().Perm())})
 		case d.Type().IsRegular():

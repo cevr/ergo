@@ -46,6 +46,8 @@ type File struct {
 	Dir  bool
 	Data string
 	Perm int
+	// Link, when it is not "", makes the entry a symbolic link to it.
+	Link string
 }
 
 // Exit is the outcome of a RunMain run: the streams it wrote and its exit
@@ -84,6 +86,7 @@ type hostFile struct {
 	dir  bool
 	data string
 	perm int
+	link string // a symbolic link's target (links.go)
 }
 
 // RunMain runs pkg's main against p. An error is an internal error, or a
@@ -230,7 +233,7 @@ func newHost(p Process) *host {
 		for d := path.Dir(p); h.files[d] == nil; d = path.Dir(d) {
 			h.files[d] = &hostFile{dir: true, perm: 0o755}
 		}
-		h.files[p] = &hostFile{dir: f.Dir, data: f.Data, perm: f.Perm}
+		h.files[p] = &hostFile{dir: f.Dir, data: f.Data, perm: f.Perm, link: f.Link}
 	}
 	// The host clock reads a fixed instant and moves only when every task
 	// waits, as a virtual clock does: no output may depend on when it ran.
@@ -398,10 +401,10 @@ func init() {
 	}
 	hostNative("fs.hostReadFile", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
-		f := h.files[h.abs(given)]
+		_, f, kind, reason := h.resolve(given)
 		switch {
-		case f == nil:
-			return nil, fail(fn, fr, at, "NotFound", given, "")
+		case kind != "":
+			return nil, fail(fn, fr, at, kind, given, reason)
 		case f.dir:
 			return nil, fail(fn, fr, at, "Failed", given, "is a directory")
 		}
@@ -412,11 +415,10 @@ func init() {
 	})
 	hostNative("fs.hostReadDir", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
-		p := h.abs(given)
-		f := h.files[p]
+		p, f, kind, reason := h.resolve(given)
 		switch {
-		case f == nil:
-			return nil, fail(fn, fr, at, "NotFound", given, "")
+		case kind != "":
+			return nil, fail(fn, fr, at, kind, given, reason)
 		case !f.dir:
 			return nil, fail(fn, fr, at, "Failed", given, "not a directory")
 		}
@@ -424,15 +426,14 @@ func init() {
 	})
 	hostNative("fs.hostStat", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
-		p := h.abs(given)
-		f := h.files[p]
-		if f == nil {
-			return nil, fail(fn, fr, at, "NotFound", given, "")
+		_, f, kind, reason := h.resolve(given)
+		if kind != "" {
+			return nil, fail(fn, fr, at, kind, given, reason)
 		}
 		if f.dir {
 			return nil, fr.unsupported(at, "the size of a directory, which the host's file system decides")
 		}
-		return stdRecord(fn, "Info", map[string]Value{"Name": path.Base(p), "Size": int64(len(f.data)), "Dir": false, "Perm": int64(f.perm)}), nil
+		return stdRecord(fn, "Info", map[string]Value{"Name": path.Base(h.abs(given)), "Size": int64(len(f.data)), "Dir": false, "Perm": int64(f.perm)}), nil
 	})
 	write := func(appendTo bool, exact bool) func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -537,19 +538,41 @@ func init() {
 	// are not run yet.
 	hostNative("fs.OpenRoot", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		given := args[0].(string)
-		f := h.files[h.abs(given)]
+		p, f, kind, reason := h.resolve(given)
 		switch {
-		case f == nil:
-			return nil, fail(fn, fr, at, "NotFound", given, "")
+		case kind != "":
+			return nil, fail(fn, fr, at, kind, given, reason)
 		case !f.dir:
 			return nil, fail(fn, fr, at, "Failed", given, "not a directory")
 		}
-		return &hostRootV{name: given}, nil
+		return &hostRootV{name: given, dir: p, fn: fn}, nil
 	})
+	// A change whose path reaches a symbolic link is not run (links.go).
+	for _, name := range []string{"fs.hostWriteFile", "fs.hostWriteFileMode", "fs.hostAppendFile", "fs.hostMkdirAll", "fs.hostMkdirAllMode", "fs.hostChmod", "fs.hostRemove", "fs.hostRename"} {
+		run := natives[name]
+		natives[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+			if h := in.host; h != nil {
+				paths := args[:1] // a rename's two paths
+				if name == "fs.hostRename" {
+					paths = args[:2]
+				}
+				for _, p := range paths {
+					if h.linked(h.abs(p.(string))) {
+						return nil, fr.unsupported(at, "a change through a symbolic link (%s)", fn.Name)
+					}
+				}
+			}
+			return run(in, fr, at, fn, args)
+		}
+	}
 }
 
 // hostRootV is an opened fs.HostRoot of the simulated file system.
-type hostRootV struct{ name string }
+type hostRootV struct {
+	name string      // as OpenRoot was given it
+	dir  string      // the directory it holds
+	fn   *check.Func // OpenRoot: its package makes the failures
+}
 
 func (r *hostRootV) describe() string { return "an fs.HostRoot" }
 
@@ -557,7 +580,10 @@ func (r *hostRootV) opCall(in *interp, fr *frame, at syntax.Node, name string, a
 	if name == "Name" {
 		return r.name, in.charge(fr, at, 1)
 	}
-	return nil, fr.unsupported(at, "a read through an opened fs.HostRoot (%s) yet", name)
+	if ab := in.charge(fr, at, 1); ab != nil {
+		return nil, ab
+	}
+	return r.read(in, fr, at, name, args[0].(string))
 }
 
 // children are the names of the entries of the directory p, sorted.

@@ -860,7 +860,7 @@ func (in *interp) callClosure(fr *frame, at *syntax.CallExpr, c *closure, args [
 	if c.outer != nil {
 		outer = c.outer
 	}
-	callee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: c.vars, env: c.env, owner: c.home.owner, lawOwn: c.home.lawOwn, caps: c.caps, outer: outer}
+	callee := &frame{pkg: c.home.pkg, info: c.home.info, decl: c.home.decl, key: c.key, vars: c.vars, env: c.env, owner: c.home.owner, lawOwn: c.home.lawOwn, caps: c.callerCaps(fr), outer: outer}
 	var params []*check.Var
 	if c.params != nil {
 		for _, field := range c.params.List {
@@ -883,6 +883,31 @@ func (in *interp) callClosure(fr *frame, at *syntax.CallExpr, c *closure, args [
 		in.ownVar(callee, p, c.key) // a taken parameter (R8)
 	}
 	return in.runFrame(fr, at, callee, "literal", c.body.List)
+}
+
+// callerCaps is the capabilities a call of c from fr runs with: a
+// capability the literal's own type names (`func(...) needs C`) is the
+// caller's, as for a declared function's needs; any other the body uses
+// is the one bound where the literal was made.
+func (c *closure) callerCaps(fr *frame) *capEnv {
+	caps := c.caps
+	if c.lit == nil || c.lit.Type == nil || c.lit.Type.Needs == nil {
+		return caps
+	}
+	sig, ok := c.home.info.Types[c.lit].(*check.Signature)
+	if !ok {
+		return caps
+	}
+	for _, t := range sig.Uses.Elems() {
+		if _, named := t.(*check.Named); !named {
+			continue // a row variable: the capabilities it stands for were bound where the literal was made
+		}
+		key := typeKey(c.home.rt(t))
+		if op, ok := fr.caps.lookup(key); ok {
+			caps = &capEnv{key: key, op: op, next: caps}
+		}
+	}
+	return caps
 }
 
 // preludeCollection reports the prelude's Append, Get, Delete or Put,

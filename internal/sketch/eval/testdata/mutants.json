@@ -1269,8 +1269,8 @@
       "name": "oracle-o24-seeded-file-empty",
       "origin": "wf10 ORACLE O24",
       "file": "internal/sketch/eval/process.go",
-      "from": "\t\th.files[p] = &hostFile{dir: f.Dir, data: f.Data, perm: f.Perm}",
-      "to": "\t\th.files[p] = &hostFile{dir: f.Dir, perm: f.Perm}",
+      "from": "\t\th.files[p] = &hostFile{dir: f.Dir, data: f.Data, perm: f.Perm, link: f.Link}",
+      "to": "\t\th.files[p] = &hostFile{dir: f.Dir, perm: f.Perm, link: f.Link}",
       "rule": "A case's setup.sh tree seeds the simulated file system with its files' bytes.",
       "killers": ["internal/sketch/eval:TestEvalAgreesOnExamples"]
     },
@@ -1327,6 +1327,42 @@
       "to": "h > \"99\" || m > \"99\"",
       "rule": "A UTC offset's hours are at most 23 and its minutes at most 59.",
       "killers": ["internal/sketch/eval:TestTOMLAgreesWithRuntime"]
+    },
+    {
+      "name": "oracle-o28-literal-needs-captured",
+      "origin": "wf10 ORACLE O28",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "lawOwn: c.home.lawOwn, caps: c.callerCaps(fr), outer: outer}",
+      "to": "lawOwn: c.home.lawOwn, caps: c.caps, outer: outer}",
+      "rule": "A capability a function literal's type names is its caller's, as a declared function's needs are.",
+      "killers": ["internal/sketch/eval:TestLiteralNeedsAreTheCallers"]
+    },
+    {
+      "name": "oracle-o28-root-link-not-spliced",
+      "origin": "wf10 ORACLE O28",
+      "file": "internal/sketch/eval/links.go",
+      "from": "\t\t\tnext, nextSlash, kind := rootSplit(f.link, parts[:i], parts[i+1:])",
+      "to": "\t\t\tnext, nextSlash, kind := rootSplit(f.link, nil, parts[i+1:])",
+      "rule": "A link's target below an os.Root is spliced in where the link was, relative to the link's directory.",
+      "killers": ["internal/sketch/eval:TestRootResolvesAsGo"]
+    },
+    {
+      "name": "oracle-o28-root-link-limit",
+      "origin": "wf10 ORACLE O28",
+      "file": "internal/sketch/eval/links.go",
+      "from": "\t\t\tif links > 8 {",
+      "to": "\t\t\tif links > 40 {",
+      "rule": "os.Root follows at most 8 links (rootMaxSymlinks).",
+      "killers": ["internal/sketch/eval:TestRootResolvesAsGo"]
+    },
+    {
+      "name": "oracle-o28-host-dotdot-lexical",
+      "origin": "wf10 ORACLE O28",
+      "file": "internal/sketch/eval/links.go",
+      "from": "\t\t\tat = path.Dir(at)\n",
+      "to": "\t\t\ttodo = todo[:len(todo):len(todo)]\n",
+      "rule": "The host's \"..\" goes to the parent of the directory reached, after links (Linux path resolution).",
+      "killers": ["internal/sketch/eval:TestRootResolvesAsGo"]
     },
     {
       "name": "oracle-o20-go-float-is-exp",
