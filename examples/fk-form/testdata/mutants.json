@@ -26,6 +26,14 @@
       "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
     },
     {
+      "name": "fk5-note-edit-resets-stage", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/subscribe/form.ergo",
+      "from": "\t\tStay[Form]{Next: Form{..f, Note: e.Text}}\n",
+      "to": "\t\tStay[Form]{Next: Form{..f, Note: e.Text, Stage: Editing}}\n",
+      "rule": "An edit touches no other field and not the stage: a note edit after a sent or refused submit keeps the stage (law EditClearsThatFieldsError alone; no case edits the note after a submit).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
       "name": "fk5-edit-while-sending", "origin": "wf10/fk5a",
       "file": "examples/fk-form/subscribe/form.ergo",
       "from": "\tcase (Sending, NameEdited), (Sending, EmailEdited), (Sending, NoteEdited), (Sending, Submitted):\n",
