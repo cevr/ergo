@@ -62,8 +62,8 @@ func (c *checker) closeFacts() {
 			continue
 		}
 		if !c.types.resolve(f.Sig.Errors).Empty() {
-			c.cur = f.file
-			c.errorf(f.Decl.Name, CodeType, "Close must have an empty failure row (resources R2); handle cleanup failures inside Close")
+			// Not the release: the clause that names Closer is S106
+			// at the type, which says it cannot fail (R2).
 			continue
 		}
 		facts[f.Decl] = &Close{Receiver: f.Sig.Params[0].Type, Func: f}

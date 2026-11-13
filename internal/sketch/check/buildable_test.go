@@ -93,7 +93,7 @@ func buildShapes(depth int) []buildShape {
 					typ: func(q string) string { return q + w }, model: true, union: true,
 					wit: func(q string) string { return q + w + "B" }},
 				// A sealed operation type whose one implementer holds X.
-				buildShape{name: "O" + in.name, decls: in.decls + "type " + w + " { inner() int }\ntype " + w + "I { X " + x("") + " }\nfunc inner(_ " + w + "I) int { 1 }\n",
+				buildShape{name: "O" + in.name, decls: in.decls + "type " + w + " { inner() int }\ntype " + w + "I { X " + x("") + " } implements " + w + "\nfunc inner(_ " + w + "I) int { 1 }\n",
 					typ: func(q string) string { return q + w }, model: in.model, union: true,
 					wit: func(q string) string { return q + w + "I{X: " + in.wit(q) + "}" }},
 			)
@@ -103,7 +103,7 @@ func buildShapes(depth int) []buildShape {
 			typ: func(q string) string { return q + w }, model: true, union: true,
 			wit: func(q string) string { return "Mine" + w },
 			witDecls: func(q string) string {
-				return in.witDecls(q) + "type Mine" + w + " {}\nfunc Outer(_ Mine" + w + ") " + x(q) + " { never" + w + "() }\nfunc never" + w + "() " + x(q) + " { never" + w + "() }\n"
+				return in.witDecls(q) + "type Mine" + w + " {} implements " + q + w + "\nfunc Outer(_ Mine" + w + ") " + x(q) + " { never" + w + "() }\nfunc never" + w + "() " + x(q) + " { never" + w + "() }\n"
 			}})
 		if !in.union {
 			words = append(words, buildShape{name: "D" + in.name, decls: in.decls + "type " + w + " " + x("") + "\n", typ: func(q string) string { return q + w }, model: in.model,

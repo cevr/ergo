@@ -26,7 +26,7 @@ type Store {
 
 type Loud {} implements Greeter
 type Plain {}
-type Holder { v string }
+type Holder { v string } implements Store
 
 func Greet(_ Loud, name string) string {
 	"\(name)!"

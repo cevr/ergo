@@ -142,12 +142,14 @@ func stdOpTypes(t *testing.T) []stdOpType {
 }
 
 // sealedCase is one conversion of a sealed std protocol's value into an
-// operation type: its name, its source, and whether the checker must admit
-// it (a generated operation type with the source's members) or may refuse
-// it (an operation type the std declares, which the member match decides).
+// operation type: its name, its source, and whether the target is the
+// program's own (a generated operation type with the source's members),
+// which the checker must refuse: std declares none of a program's
+// operation types (EXC1, q170). A target std declares is admitted exactly
+// when the source includes it.
 type sealedCase struct {
 	name, src string
-	must      bool
+	program   bool
 }
 
 // sealedSource is the Go-free program of one conversion: target is the
@@ -177,8 +179,9 @@ func sealedSource(s stdOpType, imports []string, decl, target string) string {
 // TestSealedStdConvertsToItsOperationTypes is the generated property of
 // the conversion of a sealed std protocol's value (check.SealedStd), whose
 // Go form is the runtime's own type, into an operation type: every pair
-// the checker's member match admits lowers to Go that type-checks
-// (lower/sealedops.go). The pairs are every sealed std protocol of the
+// the checker admits (the source includes the target, EXC1) lowers to Go
+// that type-checks (lower/sealedops.go), and every program operation type
+// is refused, since std declares none of them. The pairs are every sealed std protocol of the
 // prelude and the std packages crossed with (1) a generated operation type
 // of the program with all its exported members, (2) one with each member
 // alone, and (3) every other operation type the prelude and std declare,
@@ -213,7 +216,7 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 			opRef += "[" + strings.Join(s.tpnames, ", ") + "]"
 		}
 		if len(s.members) > 0 {
-			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/all", src: sealedSource(s, nil, gen(s.members), opRef), must: true})
+			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/all", src: sealedSource(s, nil, gen(s.members), opRef), program: true})
 		}
 		// A resource (R1: it has Close) converts only to an operation type
 		// with a release (R22, releasable): each member goes with Close.
@@ -231,7 +234,7 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 			if i := strings.IndexAny(m, "(["); i >= 0 {
 				name = m[:i]
 			}
-			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/" + name, src: sealedSource(s, nil, gen(append([]string{m}, release...)), opRef), must: true})
+			cases = append(cases, sealedCase{name: s.pkg + "." + s.name + "/" + name, src: sealedSource(s, nil, gen(append([]string{m}, release...)), opRef), program: true})
 		}
 		for _, o := range all {
 			if o.path == s.path && o.name == s.name {
@@ -265,9 +268,11 @@ func TestSealedStdConvertsToItsOperationTypes(t *testing.T) {
 		case o.err != nil:
 			t.Errorf("%s: %v\n%s", c.name, o.err, c.src)
 		case len(o.diags) > 0:
-			if c.must {
-				t.Errorf("%s: the checker refuses a conversion into an operation type with the source's own members: %v\n%s\nreplay: ERGO_SEALED_CASE=%q go test ./internal/sketch/lower -run TestSealedStdConvertsToItsOperationTypes", c.name, o.diags, c.src, c.name)
+			if c.program && (len(o.diags) != 1 || !strings.Contains(o.diags[0].Message, "does not include")) {
+				t.Errorf("%s: want the one refusal of the declared relation, got %v\n%s\nreplay: ERGO_SEALED_CASE=%q go test ./internal/sketch/lower -run TestSealedStdConvertsToItsOperationTypes", c.name, o.diags, c.src, c.name)
 			}
+		case c.program:
+			t.Errorf("%s: a sealed std value converts into the program's own operation type, which std cannot declare\n%s", c.name, c.src)
 		case o.panicked != nil:
 			t.Errorf("%s: lowering panicked: %v\n%s\nreplay: ERGO_SEALED_CASE=%q", c.name, o.panicked, c.src, c.name)
 		case len(o.refused) > 0:

@@ -54,7 +54,7 @@ func TestQualifiedContextEmbed(t *testing.T) {
 type Box { Peek() int }
 type Lid {} implements Box
 func Peek(_ Lid) int { 1 }
-type Mine {}
+type Mine {} implements lib.Store
 func Get(_ Mine) string { "mine" }
 
 func inline() string {

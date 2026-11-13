@@ -22,7 +22,7 @@ func contextText(t Tag) string { t.Text }
 // valueContextHeader is seven lines; the two declarations under test follow
 // on lines 8 and 9, and a with of W on line 10.
 const valueContextHeader = `type A { Use() }
-type Quiet {}
+type Quiet {} implements A
 func Use(_ Quiet) {}
 type Tag { Text string }
 func contextKey(_ Tag) string { "k" }

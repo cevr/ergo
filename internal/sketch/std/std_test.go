@@ -744,7 +744,11 @@ func NewHost() Host needs Ambient { Host{root: "/"} }
 	// readerBase is the batch-10 r5 B1 probes' package: Host implements
 	// the open operation type Reader (Get), so a Host can leave as a
 	// Reader, which no signature walk sees.
-	const readerBase = hostLit + `type Reader { Get() string fails Gone }
+	const readerBase = `type Host { root string } implements Reader
+
+func NewHost() Host needs Ambient { Host{root: "/"} }
+
+type Reader { Get() string fails Gone }
 
 func Get(h Host) string fails Gone { try Read(h) }
 
@@ -1278,10 +1282,10 @@ var handModes = []struct {
 	// gives an R, and a named context needs no authority (rows.md,
 	// Context 4). The same through an embedded unexported context.
 	{"context", func(r string) string {
-		return "type GiveSrc { Get() " + r + " }\n\ntype GiveImpl { n int }\n\nfunc Get(_ GiveImpl) " + r + " { Get(GiveImpl{n: 1}) }\n\nlet Given = context { GiveSrc: GiveImpl{n: 1} }\n"
+		return "type GiveSrc { Get() " + r + " }\n\ntype GiveImpl { n int } implements GiveSrc\n\nfunc Get(_ GiveImpl) " + r + " { Get(GiveImpl{n: 1}) }\n\nlet Given = context { GiveSrc: GiveImpl{n: 1} }\n"
 	}, false, "fixture.Given is an exported context that mentions", "fixture.Get mentions"},
 	{"context-embedded", func(r string) string {
-		return "type GiveSrc { Get() " + r + " }\n\ntype GiveImpl { n int }\n\nfunc Get(_ GiveImpl) " + r + " { Get(GiveImpl{n: 1}) }\n\nlet given = context { GiveSrc: GiveImpl{n: 1} }\n\nlet Given = context { given }\n"
+		return "type GiveSrc { Get() " + r + " }\n\ntype GiveImpl { n int } implements GiveSrc\n\nfunc Get(_ GiveImpl) " + r + " { Get(GiveImpl{n: 1}) }\n\nlet given = context { GiveSrc: GiveImpl{n: 1} }\n\nlet Given = context { given }\n"
 	}, false, "fixture.Given is an exported context that mentions", "fixture.Get mentions"},
 	// fu-ambient-ctor r4 (batch-10 r3 verifier M1): the caller binds the
 	// capability of Give's needs row: its Put receives the R.

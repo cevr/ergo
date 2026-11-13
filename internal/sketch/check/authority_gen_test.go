@@ -282,7 +282,7 @@ var sealSites = []struct {
 // sealDecls declares main's own operation type and a concrete type of main
 // with both operations; made uses lib in every program. (A defined type over an operation type is refused,
 // S108 types.md Defined types, so it is no source.)
-const sealDecls = "type Local { inner() int, Outer() int }\ntype Mine {}\nfunc inner(_ Mine) int { 1 }\nfunc Outer(_ Mine) int { 2 }\nfunc made() lib.Ops { lib.MakeOps() }\n"
+const sealDecls = "type Local { inner() int, Outer() int }\ntype Mine {} implements Local\nfunc inner(_ Mine) int { 1 }\nfunc Outer(_ Mine) int { 2 }\nfunc made() lib.Ops { lib.MakeOps() }\n"
 
 // TestSealedOperationIdentity (grammar.md, Visibility 2; 196b Q6): an
 // unexported operation's identity is its name and its package, as in Go.
@@ -310,8 +310,15 @@ func TestSealedOperationIdentity(t *testing.T) {
 							t.Errorf("foreign origin: got %v, want one S108 saying %q\n%s", ds, text, src)
 						}
 					}
-					if ds := inside(t, src); len(ds) != 0 {
-						t.Errorf("inside lib: got %v, want none\n%s", ds, src)
+					// Inside lib no operation is sealed from the source. Local
+					// and Ops are two operation types there, related only by
+					// what is declared, so a refusal that is not the seal's
+					// is the declared relation's (types.md, Interface
+					// assignability 1).
+					for _, d := range inside(t, src) {
+						if strings.Contains(d.Message, "so only a type of package") {
+							t.Errorf("inside lib: got %v, want no sealed refusal\n%s", d, src)
+						}
 					}
 				})
 			}

@@ -46,11 +46,11 @@ func Apply[T any](f func(T) T, x T) T { return f(x) }
 
 func Rev[T any](x T, f func(T) T) T { return f(x) }
 `
-	const ergoDecls = `type S {}
+	const ergoDecls = `type S {} implements IM[int8], I[int8]
 
 func M(S, int8) {}
 
-type R {}
+type R {} implements IM[int], I[int]
 
 func M(R, int) {}
 
@@ -62,7 +62,7 @@ func G[T comparable, P IM[T]](v T, p P) {}
 
 func GN[T comparable, P I[T]](v T, p P) {}
 
-type Q {}
+type Q {} implements IG[int8]
 
 func Get(_ Q) int8 { return 0 }
 

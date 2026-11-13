@@ -179,10 +179,25 @@ func (c *checker) declaredOps(t Type) []*Named {
 	if e := refElem(t); e != nil {
 		t = e
 	}
+	if n, ok := t.(*Named); ok && n.origin().state == 2 {
+		if ops, ok := c.declOps[n]; ok {
+			return ops
+		}
+		ops := c.declaredOpsOf(n)
+		if c.declOps == nil {
+			c.declOps = map[*Named][]*Named{}
+		}
+		c.declOps[n] = ops
+		return ops
+	}
+	return c.declaredOpsOf(t)
+}
+
+func (c *checker) declaredOpsOf(t Type) []*Named {
 	var out []*Named
 	var add func(n *Named)
 	add = func(n *Named) {
-		if slices.ContainsFunc(out, func(o *Named) bool { return c.identical(o, n) }) {
+		if slices.ContainsFunc(out, func(o *Named) bool { return o == n || o.origin() == n.origin() && c.identical(o, n) }) {
 			return
 		}
 		out = append(out, n)
@@ -203,7 +218,13 @@ func (c *checker) declaredOps(t Type) []*Named {
 		if o.state == 0 {
 			c.resolveNamed(o)
 		}
-		if it := asInterface(t); it != nil {
+		if asInterface(o) == nil && len(o.impls) == 0 {
+			// Read on the origin: an instance is not expanded to learn
+			// that it declares nothing (D16, round-6 M5).
+			return out
+		}
+		if asInterface(o) != nil {
+			it := asInterface(t)
 			if isGoCloser(t) {
 				if cl := c.closer(); cl != nil {
 					add(cl)
@@ -299,6 +320,21 @@ func (c *checker) undeclared(v, op Type, site string) string {
 	if isHostNamed(e) && isHostNamed(op) {
 		return ""
 	}
+	if asInterface(e) != nil && isHostNamed(op) {
+		// An Ergo operation type's value into a Go interface: Go's
+		// conversion decides it, and assignability refuses a program's
+		// operation type there for its calling convention (interop.md).
+		return ""
+	}
+	for _, m := range it.Methods {
+		// A sealed operation names why no clause of v's package can
+		// declare it (grammar.md, Visibility 2).
+		if got, fn := c.methodOf(v, m.Name); got != nil {
+			if why := sealedBy(v, it, m, fn); why != "" {
+				return why
+			}
+		}
+	}
 	n, ok := e.(*Named)
 	if !ok {
 		return fmt.Sprintf("%s does not declare that it implements %s", v, op)
@@ -309,6 +345,10 @@ func (c *checker) undeclared(v, op Type, site string) string {
 		return fmt.Sprintf("%s does not declare that it implements %s", v, op)
 	case o.Obj.Pkg.Host():
 		return fmt.Sprintf("%s is a Go type and does not implement %s: wrap it in a record that implements %s (interop.md, Checking)", v, op, op)
+	case asInterface(n) != nil && o.Obj.Pkg != c.pkg:
+		// Another package's operation type, std's included: its package
+		// would have to include op, so the value is wrapped here.
+		return fmt.Sprintf("%s does not include %s: wrap the value in a record that implements %s, or write ..%s in %s in package %s (types.md, Interface assignability 1)", v, op, op, op, o.Obj.Name, o.Obj.Pkg.Name)
 	case asInterface(n) != nil:
 		return fmt.Sprintf("%s does not include %s: write ..%s in %s (types.md, Interface assignability 1)", v, op, op, o.Obj.Name)
 	case o.Obj.Pkg != c.pkg:
@@ -379,7 +419,7 @@ func (c *checker) checkImplementsClauses() {
 				// the scope that releases it provides; a call through a
 				// Closer value is checked at the conversion.
 				if c.closeFunc(n) == nil {
-					c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: it needs a function Close(x %s) that returns nothing and cannot fail (resources R1)", n.Obj.Name, op, n.Obj.Name)
+					c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: it needs a function Close(x %s) that returns nothing and cannot fail (resources R1, R2)", n.Obj.Name, op, n.Obj.Name)
 				}
 				continue
 			}

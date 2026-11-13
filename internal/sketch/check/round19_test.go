@@ -30,7 +30,6 @@ func meterOf(t *testing.T, src string) ([]Diagnostic, *contextMeter) {
 // entries before its embedded contexts, as the decided syntax writes them.
 func contextFamily(shape string, n int) string {
 	var b strings.Builder
-	b.WriteString("type P {}\nfunc M(_ P) {}\n")
 	caps := n
 	if shape == "disjoint" || shape == "large-base chain" {
 		caps = 2 * n
@@ -38,6 +37,15 @@ func contextFamily(shape string, n int) string {
 	if shape == "empty independent" || shape == "inline embeddings" {
 		caps = 1
 	}
+	// P provides every capability, so it declares each one.
+	b.WriteString("type P {} implements ")
+	for i := range caps {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "C%d", i)
+	}
+	b.WriteString("\nfunc M(_ P) {}\n")
 	for i := range caps {
 		fmt.Fprintf(&b, "type C%d { M() }\n", i)
 	}

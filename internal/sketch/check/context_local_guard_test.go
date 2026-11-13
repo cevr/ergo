@@ -30,7 +30,7 @@ const (
 
 // contextGuardPrelude is what every guard program names.
 const contextGuardPrelude = `type Greeter { Greet(name string) string }
-type Plain {}
+type Plain {} implements Greeter
 func Greet(_ Plain, name string) string { name }
 type Bang {}
 type Box { F int }

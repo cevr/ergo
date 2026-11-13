@@ -272,7 +272,7 @@ func main() needs Console | Ambient {
 }
 `, nil},
 		{"P3 memory providers need no Ambient", `
-type Mem { Docs Map[string, string] }
+type Mem { Docs Map[string, string] } implements fs.Files
 
 func ReadFile(m Mem, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
 	match m.Docs.Get(path) {

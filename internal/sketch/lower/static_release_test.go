@@ -94,7 +94,7 @@ func TestStaticReleaseAgrees(t *testing.T) {
 	for seed := first; seed < first+n; seed++ {
 		r := rand.New(rand.NewPCG(uint64(seed), 198))
 		var src, want strings.Builder
-		src.WriteString("type R { ID int, Bad bool }\nfunc Close(r R) needs Console { Console.Println(\"close \\(r.ID)\"); if r.Bad { Unreachable(\"close failed\") } }\nfunc give() R needs Console {\nlet result = R{ID: 0, Bad: false}\n")
+		src.WriteString("type R { ID int, Bad bool } implements Closer\nfunc Close(r R) needs Console { Console.Println(\"close \\(r.ID)\"); if r.Bad { Unreachable(\"close failed\") } }\nfunc give() R needs Console {\nlet result = R{ID: 0, Bad: false}\n")
 		count := 1 + r.IntN(5)
 		failed := false
 		for id := 1; id <= count; id++ {

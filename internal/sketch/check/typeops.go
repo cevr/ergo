@@ -350,6 +350,11 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if it.Set != SetAll {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
 		}
+		if s := sealedStd(t); s != nil && sealedStd(v) == nil && c.implements(v, it, !c.hostLendArg(t)) == "" {
+			// No clause declares a sealed std protocol, so its refusal is
+			// the more specific one (C28; only the runtime implements it).
+			return assignment{sealed: s, from: v}, sealedText(v, s)
+		}
 		if why := c.undeclared(v, t, "conversion"); why != "" {
 			return assignment{}, why
 		}

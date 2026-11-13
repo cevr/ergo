@@ -15,7 +15,7 @@ import (
 // ledger L8-B3t); the control, a with whose value is the Task's waited
 // result, checks.
 func TestWithValueHoldsNoRunningTask(t *testing.T) {
-	const decls = "import task\n\ntype Fault {}\ntype A { Use() }\ntype First {} implements Closer\nfunc Use(_ First) {}\nfunc Close(_ First) {}\ntype Holder { t Task[int, Fault] }\n\n"
+	const decls = "import task\n\ntype Fault {}\ntype A { Use() }\ntype First {} implements A, Closer\nfunc Use(_ First) {}\nfunc Close(_ First) {}\ntype Holder { t Task[int, Fault] }\n\n"
 	for _, c := range []struct{ name, body, want string }{
 		{"task", "let t = with context { A: First } { task.Go() { A.Use()\n1 } }\nt.Stop()", "holds Task[int,"},
 		{"field", "let h = with context { A: First } { Holder{t: task.Go() { A.Use()\n1 } } }\nh.t.Stop()", "holds Task[int,"},

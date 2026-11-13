@@ -61,7 +61,7 @@ func TestOwnershipAPIModel(t *testing.T) {
 			if plain {
 				result = "int64"
 			}
-			return fmt.Sprintf("type Res {}\nfunc Close(r Res) {}\nfunc Read[T](x T) int { 1 }\nfunc Inspect[T](x T) int { %s }\nfunc Hand(r Res) int%s { 1 }\nfunc %s() int { 1 }\nfunc Plain() %s { 1 }\n", body, clause, name, result)
+			return fmt.Sprintf("type Res {} implements Closer\nfunc Close(r Res) {}\nfunc Read[T](x T) int { 1 }\nfunc Inspect[T](x T) int { %s }\nfunc Hand(r Res) int%s { 1 }\nfunc %s() int { 1 }\nfunc Plain() %s { 1 }\n", body, clause, name, result)
 		}
 		a, b := source(oldCopy, oldTake, oldExport, false), source(newCopy, newTake, newExport, plainEdit)
 		read := func(src string) []Function {

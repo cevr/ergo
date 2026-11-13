@@ -122,7 +122,7 @@ func TestStructuredLendModel(t *testing.T) {
 func checkContainerKeeper(t *testing.T, seed int, r *rand.Rand) {
 	earlier := r.Intn(2) == 0
 	decl := "let mut running = Map[int, Task[int, Fault]]{}\n"
-	src := "import task\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc Probe() {\n"
+	src := "import task\ntype Fault {}\ntype R { N int } implements Closer\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc Probe() {\n"
 	if earlier {
 		src += decl
 	}
@@ -147,7 +147,7 @@ func checkKeptFunctions(t *testing.T, seed int, r *rand.Rand) {
 	if escape {
 		result, end = " tasks.Set[Fault]", "return s"
 	}
-	src := "import tasks\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc Probe(p R)" + result + " fails tasks.Closed { let s = tasks.NewSet[Fault](tasks.FailFast)\nlet f = func() fails Fault { use(p) }\ntry " + call + "\n" + end + "\n}\n"
+	src := "import tasks\ntype Fault {}\ntype R { N int } implements Closer\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc Probe(p R)" + result + " fails tasks.Closed { let s = tasks.NewSet[Fault](tasks.FailFast)\nlet f = func() fails Fault { use(p) }\ntry " + call + "\n" + end + "\n}\n"
 	_, ds := checkFor(src)
 	if (len(ds) != 0) != escape {
 		t.Fatalf("kept function seed %d; replay ERGO_SEED=%d go test -p 2 -run '^TestStructuredLendModel$' ./internal/sketch/check\n%s\nchecker: %v\nmodel refusal: %t", seed, seed, src, ds, escape)
@@ -158,7 +158,7 @@ func checkKeptFunctions(t *testing.T, seed int, r *rand.Rand) {
 	if escape {
 		result, end = " func()", "return b.Fn"
 	}
-	src = "type R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\ntype Box { Root R, Fn func() }\nfunc Make() Box { let p = R{N: 1}; return Box{Root: p, Fn: func() { use(p) }} }\nfunc Probe()" + result + " { let b = Make(); " + end + " }\n"
+	src = "type R { N int } implements Closer\nfunc Close(r R) {}\nfunc use(r R) {}\ntype Box { Root R, Fn func() }\nfunc Make() Box { let p = R{N: 1}; return Box{Root: p, Fn: func() { use(p) }} }\nfunc Probe()" + result + " { let b = Make(); " + end + " }\n"
 	_, ds = checkFor(src)
 	if (len(ds) != 0) != escape {
 		t.Fatalf("callable field seed %d; replay ERGO_SEED=%d go test -p 2 -run '^TestStructuredLendModel$' ./internal/sketch/check\n%s\nchecker: %v\nmodel refusal: %t", seed, seed, src, ds, escape)
@@ -167,7 +167,7 @@ func checkKeptFunctions(t *testing.T, seed int, r *rand.Rand) {
 	if escape {
 		result, end = " func()", "return keep() { use(p) }"
 	}
-	src = "type R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc each(f func()) { f() }\nfunc keep(f escaping func()) func() { f }\nfunc Probe(p R)" + result + " { " + end + " }\n"
+	src = "type R { N int } implements Closer\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc each(f func()) { f() }\nfunc keep(f escaping func()) func() { f }\nfunc Probe(p R)" + result + " { " + end + " }\n"
 	_, ds = checkFor(src)
 	if (len(ds) != 0) != escape {
 		t.Fatalf("trailing callback seed %d; replay ERGO_SEED=%d go test -p 2 -run '^TestStructuredLendModel$' ./internal/sketch/check\n%s\nchecker: %v\nmodel refusal: %t", seed, seed, src, ds, escape)
@@ -180,7 +180,7 @@ func checkLendRoots(t *testing.T, seed int, r *rand.Rand) {
 	if nestedClosure {
 		use = "each(func() { use(item) })"
 	}
-	src := "import task\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc each(f func()) { f() }\nfunc drop(xs []R) takes xs {}\nfunc Probe() { let xs = []R{R{N: 1}}\nfor item in xs {\nlet t = task.Go(func() int fails Fault { " + use + "; 1 })\n"
+	src := "import task\ntype Fault {}\ntype R { N int } implements Closer\nfunc Close(r R) {}\nfunc use(r R) {}\nfunc each(f func()) { f() }\nfunc drop(xs []R) takes xs {}\nfunc Probe() { let xs = []R{R{N: 1}}\nfor item in xs {\nlet t = task.Go(func() int fails Fault { " + use + "; 1 })\n"
 	if drain {
 		src += "t.Stop()\n"
 	}
@@ -216,7 +216,7 @@ func checkLendFields(t *testing.T, seed int, r *rand.Rand) {
 	if !evalFirst {
 		elts = "Worker: " + task + ", Pool: p"
 	}
-	src := "import task\ntype Fault {}\ntype R { N int }\nfunc Close(r R) {}\nfunc use(r R) {}\ntype Pair { " + fields + " }\nfunc Make() Pair { let p = R{N: 1}\n" + prefix + "return Pair{" + elts + "}\n}\n"
+	src := "import task\ntype Fault {}\ntype R { N int } implements Closer\nfunc Close(r R) {}\nfunc use(r R) {}\ntype Pair { " + fields + " }\nfunc Make() Pair { let p = R{N: 1}\n" + prefix + "return Pair{" + elts + "}\n}\n"
 	if consume {
 		src += "func Probe() { let pair = Make()\n"
 		if drain {

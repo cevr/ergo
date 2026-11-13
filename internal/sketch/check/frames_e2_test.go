@@ -94,7 +94,7 @@ type Conn { V int } implements A, Closer
 type S { Start() Task[int, Fault] }
 type Starter { V int } implements S
 type B { Get() int }
-type BConn { V int }
+type BConn { V int } implements B
 
 func Use(c Conn) int { c.V }
 func Close(c Conn) {}
