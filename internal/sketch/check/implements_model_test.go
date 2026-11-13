@@ -115,8 +115,8 @@ const (
 
 type relModel struct {
 	r     *rand.Rand
-	ops   int     // Op0 … Op(ops-1)
-	inc   []int   // inc[k]: the operation type Opk includes, or -1
+	ops   int   // Op0 … Op(ops-1)
+	inc   []int // inc[k]: the operation type Opk includes, or -1
 	lines []string
 	want  []string // "line code"
 	runs  []string // "type law"
