@@ -6,7 +6,7 @@
       "file": "examples/fk-routes/route/route.ergo",
       "from": "\"/people?searchText=\" + Escape(s.Value)",
       "to": "\"/people?searchText=\" + s.Value",
-      "rule": "Print escapes the search, so Parse reads it back (law ParsePrintRoundTrips).",
+      "rule": "Print escapes the search, so Parse reads it back (case tour: a search with a space; law ParsePrintRoundTrips samples it).",
       "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
     },
     {
@@ -14,7 +14,7 @@
       "file": "examples/fk-routes/route/route.ergo",
       "from": "\t\tif s != \"\" {\n\t\t\tsegs = segs.Append(Unescape(s))\n",
       "to": "\t\tif true {\n\t\t\tsegs = segs.Append(Unescape(s))\n",
-      "rule": "A trailing slash and empty segments are skipped (law PrintParseRoundTrips).",
+      "rule": "A trailing slash and empty segments are skipped (law SearchGoesToItsAddress, whose /people? address has one; law PrintParseRoundTrips).",
       "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
     },
     {
@@ -62,7 +62,7 @@
       "file": "examples/fk-routes/route/escape.ergo",
       "from": "\t\t\tout = out + b\n",
       "to": "\t\t\tout = out + b[0:0]\n",
-      "rule": "Unescape reads back what Escape writes (law EscapeRoundTrips).",
+      "rule": "Unescape reads back what Escape writes (laws SearchGoesToItsAddress and EscapeRoundTrips).",
       "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
     },
     {
