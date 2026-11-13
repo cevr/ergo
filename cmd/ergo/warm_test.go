@@ -28,7 +28,9 @@ func warmModule(t *testing.T, root string, value int, banner byte) {
 }
 
 // warmRun is one `ergo` run of the warm tests: its exit status, stdout and
-// stage counters.
+// stage counters. Every run clears GOFLAGS: a build's warm answer is the
+// direct path's, which a GOFLAGS of the caller's (the mutant runner's -p)
+// would turn away.
 type warmRun struct {
 	code   int
 	stdout string
@@ -40,7 +42,7 @@ func runWarm(t *testing.T, bin, root, xdg string, env []string, args ...string) 
 	report := filepath.Join(t.TempDir(), "stage.json")
 	command := exec.Command(bin, args...)
 	command.Dir = root
-	command.Env = append(append(os.Environ(), "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report), env...)
+	command.Env = append(append(os.Environ(), "GOFLAGS=", "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report), env...)
 	out, stderr, code := runSmokeCommand(t, command)
 	if code > 1 {
 		t.Fatalf("ergo %v: exit %d: %s", args, code, stderr)
@@ -346,7 +348,7 @@ func concurrentBuilds(t *testing.T, bin, root, xdg string, env []string, out str
 		reports[i] = report
 		command := exec.Command(bin, "build", "./cmd/app", "-o", out)
 		command.Dir = root
-		command.Env = append(append(os.Environ(), "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report), env...)
+		command.Env = append(append(os.Environ(), "GOFLAGS=", "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report), env...)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
