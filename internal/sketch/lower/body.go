@@ -800,6 +800,17 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 	if l.Domain == check.LoopRange || l.Domain == check.LoopSeq {
 		x = fc.spill(x)
 	}
+	// A fill, a move or a collect is a call when its guard holds, and the
+	// loop below otherwise (loops.go).
+	if idiom := fc.loopIdiomOf(s, l); idiom != nil {
+		n, _ := fc.typeOf(s.X).(*check.Named)
+		td := fc.l.typeDecl(n.Obj, s.X)
+		fc.loopIdiomHead(s, idiom, x+"."+td.fieldName["Start"], x+"."+td.fieldName["End"])
+		defer func() {
+			fc.depth--
+			fc.line("}")
+		}()
+	}
 	loop := &loopCtx{}
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out

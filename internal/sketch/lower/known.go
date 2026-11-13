@@ -132,6 +132,9 @@ type knownStats struct {
 	// Dropped is the calls whose discarded result goes to the variant
 	// with no result (forms.go).
 	Dropped int
+	// Loops is the loops written as a fill, a move or a collect
+	// (loops.go).
+	Loops int
 }
 
 // statsHook is a test seam, nil outside tests: it receives the counts of
