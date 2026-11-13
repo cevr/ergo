@@ -617,10 +617,11 @@ func recordCoverage(root, cacheDir string, limit limiter, p testPackage, env, de
 		command.Env = setEnvironmentVariable(setEnvironmentVariable(setEnvironmentVariable(env, "TMPDIR", temporary), "GOTMPDIR", temporary), "GOCOVERDIR", counters)
 		command.Env = setEnvironmentVariable(command.Env, embedObserveVariable, root)
 		if hasCLI {
-			// The wrapper names the test's counters whatever environment
-			// the test gives the CLI.
+			// The wrapper names the test's counters, and has the CLI
+			// observe its embedded files (embedObserveVariable), whatever
+			// environment the test gives the CLI.
 			wrapper := filepath.Join(work, "cli")
-			script := fmt.Sprintf("#!/bin/sh\nGOCOVERDIR='%s' exec '%s' \"$@\"\n", counters, cli)
+			script := fmt.Sprintf("#!/bin/sh\nGOCOVERDIR='%s' %s='%s' exec '%s' \"$@\"\n", counters, embedObserveVariable, root, cli)
 			if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
 				return nil, err
 			}
