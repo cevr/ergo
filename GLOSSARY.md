@@ -6,6 +6,7 @@ The sections are:
 - **Language**: the Go-shaped language of `docs/spec/`.
 - **Constructs, contracts and laws**: how constructs are admitted, and the vocabulary of laws and evidence.
 - **Runtime and providers**: tasks, interruption, exits and lawful providers.
+- **Domain modeling**: aggregates, deciders, views, policies, sagas, stories and scenes, and the terms of infrastructure as code.
 - **Earlier `.ef` language**: terms of the retired language that [#205](https://github.com/cevr/ergo/issues/205) removed with its compiler. They stay as design reference.
 - **Tooling and testing**.
 
@@ -268,6 +269,36 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 **Point event** (designed): A trace event that emitted code raises at its own source site: a capability `call` and its `call-exit` with the outcome (ok, a failure, a defect or interrupted), an `interrupt` at an interruption point, a context `construct` or a catch `handler`. The runtime raises the other kinds for a task, keyed by the task's definition ID.
 
 **Trace evidence** (designed): The answer of a trace query (`sketchc trace`, later `ergo trace` and MCP `code.trace`): the `trace-evidence-1` envelope with the fields of the review evidence schema (#156), then the tasks, the capability calls with their spans, the resolved events and the cause trace. The query validates the trace before it answers and refuses a malformed one with the reason.
+
+## Domain modeling
+
+The building blocks of domain-driven design, as Ergo writes them. [docs/domain.md](docs/domain.md) states each as a rule and quotes it from `examples/pipeline`. *Pattern* means a shape of ordinary Ergo code, with no construct or std package of its own.
+
+**Aggregate** (pattern): A consistency boundary whose state is a union of modes, changed only by its commands: a `Decide` that gives the events of a command or its rejection, an `Evolve` that folds one event into the state, and a machine whose step is `Decide` then the fold. One actor runs the aggregates of a bounded context, by id (docs/domain.md, rule 4).
+
+**Decider** (pattern): The pair of an aggregate's pure functions, `Decide(s S, c C) []E fails R` and `Evolve(s S, e E) S`, with its initial state. `Decide` has no `needs` row and `Evolve` no row at all, so a replay of the same commands gives the same events and state. A rejection is a record in `Decide`'s error row.
+
+**Envelope** (pattern; module `domain`'s record planned, DK2): The record a command travels in, with its id and the context the domain needs (actor, tenant, time), so `Decide` takes the context as data and never as an ambient value.
+
+**Receipt** (pattern): The answer to a command the context took: the command's id and the position of its events in the context's log. A resend of the same id gets the first receipt and changes nothing.
+
+**View** (pattern): A read model: a fold over the events of a log, with a law that the fold equals the view computed from the states (`BoardIsFoldOfEvents`). Distinct from a UI view, which is a function that draws a screen.
+
+**Policy** (pattern; its log follower planned, DK3): A pure function from an event to the commands or notices it causes, `React(e E) []C`, so a replayed log causes the same things. Distinct from a retry policy, which is data a saga reads.
+
+**Saga** (pattern): A process over time as a machine of its own, run durably, whose signals are the events it reacts to and its timers (`after`), and whose `work` calls the world.
+
+**Story** (pattern): The pure reference of what a program should do for a list of acts: the domain's rules written again over its `Decide` and fold, with the world's answers read from a table.
+
+**Scene** (pattern): The same acts played on the real program, with each external system a `testing.Script`, a clock only the scene moves, and every held call released by the end. A law says the scene ends where the story does (`SceneAgreesWithStory`).
+
+**Stage** (planned, SC2): `testing.Stage`, the one kernel that domain, UI and page scenes share: play an act, settle until no work runs, advance the clock, show. Distinct from a stage of the worked example's pipeline, which is a step of a run.
+
+**Stack** (designed: `models/infra`; module `infra` planned, IA1): An ordinary function that asks kinds for the objects of a deployment, passing the value of one object to the next.
+
+**Kind** (designed: `models/infra`; IA1): An operation type a stack calls for one kind of cloud object, `Ensure(id, props) A`. Plan and apply are two providers of it.
+
+**Driver** (designed: `models/infra`; IA1): What a provider module implements for one kind: `Attrs`, `Apply`, `Read` and `Delete`, keyed by id, with the laws `AttrsIsApply`, `RetrySafe`, `ReadAfterApply` and `DeleteIsIdempotent`. Distinct from **Resource**, a value with a checked `Close`.
 
 ## Earlier `.ef` language
 

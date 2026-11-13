@@ -189,6 +189,7 @@ var declared = map[string][]allowance{
 	},
 	"scripts/examples": {
 		{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
+		{"docs/domain.md", file, "TestDomainDocQuotesResolve holds each code block of the domain modeling page to the examples/ declarations it quotes (DK1)"},
 	},
 	"scripts/gate": {
 		{".", subtree, "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},

@@ -15,8 +15,8 @@ The [contender roadmap](contender-roadmap.md) turns those patterns into concrete
 | Records, closed ADTs, exhaustive matching and payload errors | Runnable on Go; external decoding remains explicit |
 | Decoded event types and codecs | Proposed; runtime validation remains essential |
 | Owned replay/live streams | Proposed library and stream support |
-| Durable command processing | Proposed application services, not an automatic language guarantee |
-| Infrastructure outputs and provider graphs | Design exploration; no Ergo deployment framework exists |
+| Durable command processing | Runnable on Go in the current language: aggregates, durable actors, views, policies and sagas in [domain modeling](domain.md), shown by `examples/pipeline` |
+| Infrastructure outputs and provider graphs | The apply protocol is a checked design model (`models/infra`); kinds, drivers and stacks are in [domain modeling](domain.md#9-infrastructure); module `infra` is planned |
 
 Code below labeled **proposed** remains design notation; the records, enums and match examples in the data section use accepted prototype syntax. Proposed service names describe application ports, not an existing standard library.
 

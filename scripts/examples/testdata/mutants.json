@@ -36,6 +36,7 @@
       "to": "if false && evaluation != nil && err == nil && o.overCap() == \"\" && !o.timedOut {",
       "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
       "killers": ["examples:TestCheckVerdictsMatchNative"]
-    }
+    },
+    {"name":"dk1-doc-drift","origin":"wf10 DK1","file":"docs/domain.md","from":"\t\t[]Event{Retried{Stage: k.Stage}}","to":"\t\t[]Event{Retried{Stage: f.Stage}}","rule":"Every code block of docs/domain.md is the current text of the examples/ declarations its marker names.","killers":["scripts/examples:TestDomainDocQuotesResolve"]}
   ]
 }
