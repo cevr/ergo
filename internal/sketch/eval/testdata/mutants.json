@@ -924,8 +924,8 @@
       "name": "oracle-o14-value-at-start",
       "origin": "wf10 ORACLE O14",
       "file": "internal/sketch/eval/maporder.go",
-      "from": "\t\tv, present := cur.b.m[k]\n",
-      "to": "\t\t_, present := cur.b.m[k]\n\t\tv := dom.b.m[k]\n",
+      "from": "\t\tv, present := cur.b.get(k)\n",
+      "to": "\t\t_, present := cur.b.get(k)\n\t\tv, _ := dom.b.get(k)\n",
       "rule": "A for over a Map takes no snapshot: an entry's value is read when the loop reaches it (types.md, Loops and len 1).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
