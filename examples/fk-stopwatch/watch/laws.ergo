@@ -1,0 +1,110 @@
+// The watch's laws: three over one step of every state and signal, and one
+// over timed runs against a model that counts the ticks by arithmetic.
+
+import machines
+import testing
+import time
+
+// ElapsedGrowsOnlyWhileRunning: one step never takes time away, except a
+// Reset; and only a tick of a running watch adds time, one TickEvery.
+law ElapsedGrowsOnlyWhileRunning(w Watch, s Signal) {
+	let n = machines.Next(w, Step(w, s))
+	match s {
+	case Reset:
+		ElapsedOf(n) == 0s
+	case Ticked:
+		if IsRunning(w) {
+			ElapsedOf(n) == ElapsedOf(w)+TickEvery
+		} else {
+			ElapsedOf(n) == ElapsedOf(w)
+		}
+	case Start, Stop:
+		ElapsedOf(n) == ElapsedOf(w)
+	}
+}
+
+// ResetIsInitial: Reset from any state is the initial watch.
+law ResetIsInitial(w Watch) { machines.Next(w, Step(w, Reset)) == Initial() }
+
+// StopThenStartKeepsElapsed: stopping a running watch and starting it again
+// runs it from the same time.
+law StopThenStartKeepsElapsed(e int) {
+	let w = Running{Elapsed: ms(e)}
+	let stopped = machines.Next(w, Step(w, Stop))
+	machines.Next(stopped, Step(stopped, Start)) == w
+}
+
+// ElapsedCountsTicksWhileRunning: over presses at generated times, the
+// watch shows TickEvery times the ticks that fell while it ran: a run that
+// starts at t0 ticks at t0 + k·TickEvery, and a press at the time of a
+// tick is stepped first, so the tick at t0 + k·TickEvery counts only when
+// no press comes at or before it. The model is that arithmetic, with no
+// machine.
+law ElapsedCountsTicksWhileRunning(gaps []int, words []int) {
+	let mut trace = []machines.Timed[Signal]{}
+	let mut t = 0s
+	let mut running = false
+	let mut since = 0s
+	let mut shown = 0s
+	for i, g in gaps {
+		t = t + ms(pick(g, 60))
+		let s = signalOf(if i < len(words) { words[i] } else { 0 })
+		trace = trace.Append(machines.Timed[Signal]{At: t, Signal: s})
+		match s {
+		case Start:
+			if !running {
+				running = true
+				since = t
+			}
+		case Stop:
+			if running {
+				shown = shown + ticksBefore(since, t)
+			}
+			running = false
+		case Reset:
+			running = false
+			shown = 0s
+		case Ticked:
+		}
+	}
+	let end = t + 25ms
+	if running {
+		shown = shown + ticksBefore(since, end+1ns)
+	}
+	ElapsedOf(run(trace, end)) == shown
+}
+
+// ticksBefore is the time of the ticks of a run that started at since and
+// fall before t: TickEvery for each k ≥ 1 with since + k·TickEvery < t.
+// A Start while running is ignored and keeps the entry, so it moves no
+// tick; a Stop or a Reset at a tick's time is stepped before the tick.
+func ticksBefore(since duration, t duration) duration {
+	if t <= since {
+		return 0s
+	}
+	time.Times(TickEvery, time.Count(t-since-1ns, TickEvery))
+}
+
+// run is the watch over trace until end on a fresh VirtualClock: its last
+// state.
+func run(trace []machines.Timed[Signal], end duration) Watch {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } { Replay(trace, end) }
+}
+
+// signalOf is a button from a number.
+func signalOf(n int) Signal {
+	match pick(n, 3) {
+	case 0:
+		Start
+	case 1:
+		Stop
+	case _:
+		Reset
+	}
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// ms is n milliseconds.
+func ms(n int) duration { time.Times(1ms, n) }

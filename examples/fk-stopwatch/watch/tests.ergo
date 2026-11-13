@@ -1,0 +1,58 @@
+// Upstream's seven story tests (stopwatch/src/story.test.ts), restated.
+// Upstream reads the clock in two commands, DetermineStartTime and
+// DetermineTickTime, and stores a start time; here the Running state owns
+// its timer and the time is the ticks it counted, so "fires the command"
+// becomes "enters the state whose entry arms the tick", and "resolve the
+// command" becomes a timed run on a virtual clock.
+
+import machines
+
+func at(t duration, s Signal) machines.Timed[Signal] { machines.Timed[Signal]{At: t, Signal: s} }
+
+// armed reports whether the entry of w arms the tick.
+func armed(w Watch) bool { tick(w) == Some{Timeout[Signal]{In: TickEvery, Signal: Ticked}} }
+
+test StartEntersRunningFromTheShownTime {
+	// ClickedStart fires DetermineStartTime with current elapsed time.
+	let n = Running{Elapsed: 2s}
+	assert Step(Stopped{Elapsed: 2s}, Start) == Enter[Watch]{Next: n} && armed(n)
+}
+
+test StartRunsTheWatchOnTheClock {
+	// CompletedDetermineStartTime stores the offset start time and starts
+	// running: started at 500ms, the watch runs from then, and 50ms later
+	// shows 50ms. (Upstream starts from 2s shown; a timed run starts from
+	// the initial state, and the test above covers a shown time.)
+	let w = run([]machines.Timed[Signal]{at(ms(500), Start)}, ms(550))
+	assert w == Running{Elapsed: ms(50)}
+}
+
+test StopKeepsTheTime {
+	// ClickedStop pauses the stopwatch without zeroing time.
+	let w = Running{Elapsed: 5s}
+	assert machines.Next(w, Step(w, Stop)) == Stopped{Elapsed: 5s} && !armed(Stopped{Elapsed: 5s})
+}
+
+test ResetZeros {
+	// ClickedReset zeros elapsedMs, isRunning, and startTime.
+	let w = Running{Elapsed: 5s}
+	assert machines.Next(w, Step(w, Reset)) == Stopped{Elapsed: 0s}
+}
+
+test ResetOfAnIdleWatchKeepsIt {
+	// ClickedReset on an idle stopwatch is a no-op.
+	assert machines.Next(Initial(), Step(Initial(), Reset)) == Initial()
+}
+
+test TickAddsOneIntervalAndArmsTheNext {
+	// Ticked fires DetermineTickTime with the stored startTime.
+	let n = Running{Elapsed: 5s + TickEvery}
+	assert Step(Running{Elapsed: 5s}, Ticked) == Enter[Watch]{Next: n} && armed(n)
+}
+
+test TicksStoreTheElapsedTime {
+	// CompletedDetermineTickTime stores the new elapsed time: started at 0
+	// and stopped at 1234ms, the watch shows the 123 ticks before the stop.
+	let w = run([]machines.Timed[Signal]{at(0s, Start), at(ms(1234), Stop)}, 2s)
+	assert w == Stopped{Elapsed: ms(1230)} && Format(ElapsedOf(w)) == "00:01.23"
+}

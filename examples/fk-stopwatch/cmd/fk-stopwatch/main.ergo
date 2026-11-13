@@ -1,0 +1,22 @@
+// fk-stopwatch is a port of Foldkit's stopwatch example (stage a: the
+// model, with no view). It runs a script of timed button presses on a
+// virtual clock and shows the watch after each press. Package watch is the
+// machine, whose Running state owns the tick; package script reads the
+// script. This binary is the only place that chooses the clock: a
+// testing.VirtualClock, so a script of an hour takes no wall time.
+
+import fkstopwatch/script
+import io
+import os
+import testing
+import time
+
+func main() fails os.Exit needs Console | Ambient {
+	let c = testing.NewVirtualClock(0)
+	let status = with context { io.Stdin: io.NewStdin(), time.Clock: c, Scheduler: c } {
+		script.Run()
+	}
+	if status != 0 {
+		return os.Exit{Code: status, Message: "fk-stopwatch: the script did not run"}
+	}
+}

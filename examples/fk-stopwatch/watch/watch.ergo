@@ -1,0 +1,91 @@
+// Package watch is a stopwatch: a machine whose Running state owns a
+// timer. The timer ticks every TickEvery while the watch runs, and the
+// watch's time is the ticks it has counted; stopping ends the entry, and
+// with it the timer, so a stopped watch never ticks.
+
+import machines
+import time
+
+// TickEvery is how often a running watch ticks.
+let TickEvery = 10ms
+
+// Watch is the state: stopped or running, with the time counted so far.
+type Watch = Stopped{Elapsed duration} | Running{Elapsed duration}
+
+// Signal is what the watch takes: the three buttons, and its own tick.
+type Signal = Start{} | Stop{} | Reset{} | Ticked{}
+
+// Never is the output of a watch: a stopwatch never ends and emits
+// nothing, so no value of Never is made.
+type Never {}
+
+// Initial is a stopped watch at zero.
+func Initial() Watch { Stopped{Elapsed: 0s} }
+
+// Step is the transition. Start runs a stopped watch from the time it
+// shows; Stop keeps the time; Reset is the initial watch from any state;
+// a tick enters Running again with one more TickEvery, which arms the next
+// tick. A button that does not apply (Start while running, Stop while
+// stopped) is ignored.
+func Step(w Watch, s Signal) Decision[Watch, Never] {
+	match (w, s) {
+	case (Stopped as st, Start):
+		Enter[Watch]{Next: Running{Elapsed: st.Elapsed}}
+	case (Running as r, Stop):
+		Enter[Watch]{Next: Stopped{Elapsed: r.Elapsed}}
+	case (Running as r, Ticked):
+		Enter[Watch]{Next: Running{Elapsed: r.Elapsed + TickEvery}}
+	case (_, Reset):
+		Enter[Watch]{Next: Initial()}
+	case (Running, Start), (Stopped, Stop), (Stopped, Ticked):
+		Ignore
+	}
+}
+
+// tick is the timer of a running watch's entry: Ticked after TickEvery.
+func tick(w Watch) Option[Timeout[Signal]] {
+	match w {
+	case Running:
+		Some{Timeout[Signal]{In: TickEvery, Signal: Ticked}}
+	case Stopped:
+		None
+	}
+}
+
+// Stopwatch is the watch as a machine.
+type Stopwatch machine[Watch, Signal] { initial: Initial(), step: Step, after: tick }
+
+// Replay is the watch's last state after trace, run until end on the
+// clock of the context. A watch never rejects, so the run never fails.
+func Replay(trace []machines.Timed[Signal], end duration) Watch needs time.Clock | Scheduler {
+	let o = machines.RunTimed(Stopwatch{}, trace, end) catch {
+	case machines.Rejected:
+		return Initial()
+	}
+	match o {
+	case machines.Running[Watch, Never] as r:
+		r.State
+	case machines.Finished[Watch, Never] as f:
+		f.State
+	}
+}
+
+// ElapsedOf is the time w shows.
+func ElapsedOf(w Watch) duration {
+	match w {
+	case Stopped as st:
+		st.Elapsed
+	case Running as r:
+		r.Elapsed
+	}
+}
+
+// IsRunning reports whether w runs.
+func IsRunning(w Watch) bool {
+	match w {
+	case Stopped:
+		false
+	case Running:
+		true
+	}
+}

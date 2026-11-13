@@ -1,0 +1,61 @@
+{
+  "about": "fk-stopwatch's application mutants; each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk1-tick-never-armed", "origin": "wf10/fk1a",
+      "file": "examples/fk-stopwatch/watch/watch.ergo",
+      "from": "\tcase Running:\n\t\tSome{Timeout[Signal]{In: TickEvery, Signal: Ticked}}\n",
+      "to": "\tcase Running:\n\t\tNone\n",
+      "rule": "The Running state owns the tick: its entry arms Ticked after TickEvery.",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    },
+    {
+      "name": "fk1-start-while-running-reenters", "origin": "wf10/fk1a",
+      "file": "examples/fk-stopwatch/watch/watch.ergo",
+      "from": "\tcase (Running, Start), (Stopped, Stop), (Stopped, Ticked):\n\t\tIgnore\n",
+      "to": "\tcase (Running as r, Start):\n\t\tEnter[Watch]{Next: Running{Elapsed: r.Elapsed}}\n\tcase (Stopped, Stop), (Stopped, Ticked):\n\t\tIgnore\n",
+      "rule": "A start while running keeps the entry: re-entering Running would restart the tick and lose the time since the last one (law ElapsedCountsTicksWhileRunning).",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    },
+    {
+      "name": "fk1-stop-zeros", "origin": "wf10/fk1a",
+      "file": "examples/fk-stopwatch/watch/watch.ergo",
+      "from": "\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Elapsed}}\n",
+      "to": "\t\tEnter[Watch]{Next: Stopped{Elapsed: 0s}}\n",
+      "rule": "Stop keeps the time shown.",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    },
+    {
+      "name": "fk1-tick-double", "origin": "wf10/fk1a",
+      "file": "examples/fk-stopwatch/watch/watch.ergo",
+      "from": "Running{Elapsed: r.Elapsed + TickEvery}",
+      "to": "Running{Elapsed: r.Elapsed + TickEvery + TickEvery}",
+      "rule": "A tick adds one interval.",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    },
+    {
+      "name": "fk1-reset-keeps-time", "origin": "wf10/fk1a",
+      "file": "examples/fk-stopwatch/watch/watch.ergo",
+      "from": "\tcase (_, Reset):\n\t\tEnter[Watch]{Next: Initial()}\n",
+      "to": "\tcase (_, Reset):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: ElapsedOf(w)}}\n",
+      "rule": "Reset is the initial watch from any state.",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    },
+    {
+      "name": "fk1-format-cents", "origin": "wf10/fk1a",
+      "file": "examples/fk-stopwatch/watch/format.ergo",
+      "from": "let cents = ms % 1000 / 10",
+      "to": "let cents = ms % 100",
+      "rule": "The shown hundredths are the milliseconds of the second over ten, rounded down.",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    },
+    {
+      "name": "fk1-format-minutes-wrap", "origin": "wf10/fk1a",
+      "file": "examples/fk-stopwatch/watch/format.ergo",
+      "from": "let minutes = ms / 60000",
+      "to": "let minutes = ms / 60000 % 60",
+      "rule": "Minutes are whole minutes, not wrapped at an hour, as upstream's formatTime.",
+      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
+    }
+  ]
+}
