@@ -64,7 +64,9 @@ func TestTestResultCache(t *testing.T) {
 		report := filepath.Join(t.TempDir(), "stage.json")
 		command := exec.Command(bin, append([]string{"test"}, args...)...)
 		command.Dir = root
-		command.Env = append(append(os.Environ(), "ERGO_STAGE_REPORT="+report), env...)
+		// The counts are the direct path's, which a GOFLAGS of the
+		// caller's (the mutant runner's -p) would turn away.
+		command.Env = append(append(os.Environ(), "GOFLAGS=", "ERGO_STAGE_REPORT="+report), env...)
 		out, stderr, code := runSmokeCommand(t, command)
 		counts := readStageReport(t, report)
 		return outcome{
