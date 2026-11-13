@@ -16,8 +16,8 @@
       "anchor": {"tests": ["internal/rpcgen:TestRpcFramedExitFlowsWhileHeld"]},
       "origin": "wf10 Rm",
       "file": "runtime/v1/rpc.go",
-      "from": "\treturn rpcCalls(span, t, envs, handle, func(line []byte) error {\n\t\treturn emit(t, string(append(line, '\\n')))\n\t})",
-      "to": "\tvar all string\n\tif err := rpcCalls(span, t, envs, handle, func(line []byte) error {\n\t\tall += string(append(line, '\\n'))\n\t\treturn nil\n\t}); err != nil {\n\t\treturn err\n\t}\n\treturn emit(t, all)",
+      "from": "\treturn rpcCalls(span, t, envs, handle, func(c *rpcCall) error {\n\t\tvar line strings.Builder\n\t\tline.Grow(rpcExitLineLen(c) + 1)\n\t\trpcWriteExitLine(&line, c)\n\t\tline.WriteByte('\\n')\n\t\treturn emit(t, line.String())\n\t})",
+      "to": "\tvar all string\n\tif err := rpcCalls(span, t, envs, handle, func(c *rpcCall) error {\n\t\tvar line strings.Builder\n\t\tline.Grow(rpcExitLineLen(c) + 1)\n\t\trpcWriteExitLine(&line, c)\n\t\tline.WriteByte('\\n')\n\t\tall += line.String()\n\t\treturn nil\n\t}); err != nil {\n\t\treturn err\n\t}\n\treturn emit(t, all)",
       "rule": "Each Exit line of an ndjson batch is emitted as its call ends, while other calls of the batch are still held.",
       "killers": ["internal/rpcgen:TestRpcFramedExitFlowsWhileHeld"]
     },
