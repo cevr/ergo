@@ -297,8 +297,10 @@ func F() { with W { Console.Println("x") } }`},
 	{"N1", "pointer-receiver-parameter", "", `type I { M() }
 type S {} implements I
 func M(s *S) {}
-func Take(x I) {}
-func F(s *S) { Take(s) }`},
+func F(s *S) {
+	let x I = s
+	x.M()
+}`},
 	{"N1", "pointer-receiver-value", "S108", `type I { M() }
 type S {}
 func M(s *S) {}

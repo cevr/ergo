@@ -1446,6 +1446,10 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/extern.go:IsGoError` | `go.Error` |
 | `internal/sketch/check/footprint.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/check/hostres.go:checker.hostCloseFunc` | `Close` |
+| `internal/sketch/check/implements.go:checker.closer` | `Closer`, the release contract |
+| `internal/sketch/check/implements.go:checker.implementsClause` | a prelude type that a type of its name hides |
+| `internal/sketch/check/implements.go:checker.recordLegacyReleases` | `Closer` |
+| `internal/sketch/check/implements.go:isGoCloser` | `Closer`, bound from Go's `io.Closer` |
 | `internal/sketch/check/laws.go:lawClosures` | the prelude's providers in a law |
 | `internal/sketch/check/loops.go:checker.preludeOrigin` | `Range`, `Seq` |
 | `internal/sketch/check/match.go:reusableBinderName` | `Decision` |

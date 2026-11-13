@@ -21,3 +21,6 @@ internal/sketch/check/script.go	n.Obj.Pkg.Path != "testing"	derived Script; foll
 internal/sketch/check/withown.go	call.Func.Pkg.Path == "scope"	OnExit ownership; follow-up declared contracts
 internal/sketch/check/work.go	tn.Pkg.Path == workPath	work literal shape; STD1b removes this
 internal/sketch/check/work.go	f.Pkg.Path == childPath	child work scope; STD1b or follow-up declared contracts
+internal/sketch/check/implements.go	c.pkg.Path != std.PreludePath	Closer and prelude-named types; predeclared language contract
+internal/sketch/check/implements.go	c.pkg.Path == std.PreludePath	Closer and prelude-named types; predeclared language contract
+internal/sketch/check/implements.go	o.Obj.Pkg.Path == "io"	Go's io.Closer binds the predeclared Closer (interop.md, Resources 1)

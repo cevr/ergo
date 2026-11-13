@@ -498,6 +498,22 @@ func main() {
 	use(Mine)
 }
 `,
+	// std testing (SC2): a stage is any running program a test acts on.
+	"testing.Stage": `import testing
+
+type Mine {} implements testing.Stage[int, int]
+
+func Do(_ Mine, a int) fails testing.Refused {}
+func Advance(_ Mine, d duration) {}
+func Settle(_ Mine) {}
+func Show(_ Mine) int { 0 }
+
+func use(s testing.Stage[int, int]) { _ = s.Show() }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std time (S2b): NewManual's extern returns the Timeline.
 	"time.Timeline": `import time
 
@@ -980,6 +996,7 @@ var openStd = map[string]bool{
 	"prelude.Console":   true,
 	"prelude.Scheduler": true,
 	"time.Clock":        true,
+	"testing.Stage":     true,
 	"prelude.Random":    true,
 	"prelude.Writer":    true,
 	"prelude.Reader":    true,
@@ -1202,7 +1219,11 @@ func main() {
 // withForgedSeal attempts to spoof the private operation by spelling it
 // in the importing package too. Its package is part of its identity.
 func withForgedSeal(src string) string {
-	src = strings.Replace(src, "type Mine {}", "type Mine {}\nfunc runtimeOnly(_ Mine) {}", 1)
+	// After the whole line: an `implements` clause (EXC1) follows the body.
+	if i := strings.Index(src, "type Mine {}"); i >= 0 {
+		end := i + strings.IndexByte(src[i:]+"\n", '\n')
+		src = src[:end] + "\nfunc runtimeOnly(_ Mine) {}" + src[end:]
+	}
 	return strings.Replace(src, "type Mine {\n", "type Mine {\n\truntimeOnly(),\n", 1)
 }
 

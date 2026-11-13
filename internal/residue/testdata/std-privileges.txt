@@ -71,6 +71,10 @@ language	internal/sketch/lower/values.go:preludeAppend	the prelude Append	-
 language	internal/sketch/lower/values.go:preludeMapWrite	the prelude Delete and Put	-
 language	internal/tsproj/project.go:emitter.declare	Wire, the codec's conversion protocol	-
 language	internal/tsproj/project.go:emitter.schema	Option	-
+language	internal/sketch/check/implements.go:checker.closer	Closer, the predeclared release contract (the prelude's own check reads its scope)	-
+language	internal/sketch/check/implements.go:checker.implementsClause	a type named like a prelude type hides it, and its clause names the prelude's (types.md, Scope 2)	-
+language	internal/sketch/check/implements.go:checker.recordLegacyReleases	Closer: ergo fix's record of the old release rule skips the prelude, which declares it	-
+language	internal/sketch/check/implements.go:isGoCloser	Go's io.Closer is the binding of the predeclared Closer (interop.md, Resources 1)	-
 debt	internal/sketch/check/authority.go:sealedStdOps	a std operation type is the runtime's Go type	NP4c
 debt	internal/sketch/check/drop.go:dropWalk.drain	a std type's drain body by name	NP3c
 debt	internal/sketch/check/drop.go:releasesResult	a std extern's hidden result release	NP4b
