@@ -34,7 +34,8 @@ type Bells machine[Ledger[int, int], Bell] {
 }
 
 // rung is the position the ledger had when the bell rang, over trace,
-// or -1 when it did not ring by end.
+// or -1 when it did not ring by end, or -3 when the run's outputs are not
+// the receipts of positions 1, 2, ….
 func rung(trace []machines.Timed[Bell], end duration) int needs time.Clock | Scheduler {
 	let o = machines.RunTimed(Bells{}, trace, end) catch {
 	case machines.Rejected:
@@ -42,17 +43,26 @@ func rung(trace []machines.Timed[Bell], end duration) int needs time.Clock | Sch
 	}
 	match o {
 	case machines.Finished[Ledger[int, int], Receipt] as f:
+		for i, r in f.Emitted {
+			if r.Position != i+1 {
+				return -3
+			}
+		}
+		if len(f.Emitted) != f.State.Position {
+			return -3
+		}
 		f.State.Position
 	case machines.Running[Ledger[int, int], Receipt]:
 		-1
 	}
 }
 
-// KeepKeepsTheTimer: a step that keeps its entry (Keep, a Stay) keeps
+// KeepKeepsTheTimer: a step that keeps its entry (Keep, a Tell) keeps
 // the entry's timer, whatever it records: notes at seconds 1 to 9 do not
 // move the bell, which rings 10s after the start, before a note at 10.5s.
 // It is the rule of runtime.md, Machines and actors 9.2, for the host:
-// only a step that enters (Commit, an Emit) starts the timer again.
+// only a step that enters (Commit, an Emit) starts the timer again; and
+// each note's receipt is an output of the run.
 law KeepKeepsTheTimer(notes []int) {
 	let mut trace = []machines.Timed[Bell]{}
 	for i, n in notes {
