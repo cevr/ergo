@@ -145,6 +145,10 @@ When to run it: a change that deletes or folds tests of check or lower runs the 
 
 `scripts/mutants` `TestRunnerMatchesModel` (full tier) runs the runner over a generated module whose coverage and kills are known, and checks every verdict, that only covering tests run, that the memory mutant is a `memory` kill, and that the checkout stays equal to `HEAD`.
 
+A mutant a test's comment names is a ledger row: `internal/residue` `TestTestCommentsNameLedgerRows` reads each sentence of a test comment that says mutant (its lines joined) and fails on a name of the mutant shape that no `testdata/mutants.json` holds, unless `testdata/mutant-names-allow.txt` lists it; that list holds the stale names found when the rule started, and only shrinks.
+
+Spec references move with a renumbering: `go run ./scripts/specrefs DOC SECTION` lists every reference to the section's numbered items (`interop.md, Lowering 9`), reading a reference wrapped across comment lines or a Markdown paragraph whole, and `-move 9=13,13=9` rewrites the numbers.
+
 ## Merge gate
 
 `scripts/gate.sh` builds `scripts/gate`, a small Go runner that owns the check graph ([design and measurements](research/gate-throughput.md)), and executes it in place of the script. Every check is a step with declared dependencies. Independent steps run concurrently. Each step's output is printed whole, in declaration order. A failing step fails the gate and blocks only the steps that depend on it. A plain `./scripts/gate.sh` runs the fast tier (below). `--full` runs the full tier, `--no-cache` runs the full tier without whole-gate records or step receipts (Go's test cache still applies to the hermetic step, below), `--merge` runs the merge tier (below), `--list` prints every step of the run's tier and its command, and `-record-durations [package ...]` re-measures the tests of the named Go packages, or of every test package when it names none (with `-fast`, the CPU of their fast-tier steps into `scripts/gate/fast-cpu.json`; with `-cpu`, the CPU of each test of the sharded packages into `scripts/gate/test-cpu.json`, below).
