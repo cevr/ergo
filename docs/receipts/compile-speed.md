@@ -83,6 +83,43 @@ lies between g10 and g50 in source size; its numbers are inferred by
 interpolation (warm build about 1.2 G instr, warm check about 1.4 G) and
 are not measured in this repository.
 
+## Link
+
+CS7: `ergo build`, `ergo run` and `ergo test` link with `-s -w` unless
+`--debug` is given. Measured on the go1.27.0 linker of the emitted module
+of eight examples (`ergo build -work --debug`, then the `link` line of
+`go build -work -x`, run again under pstat with and without `-s -w`),
+user-mode instructions of the whole process tree, median of 3 runs, host at
+load 90 to 113, GOMAXPROCS=2:
+
+| Example | Link M instr, full | Link M instr, `-s -w` | Bytes, full | Bytes, `-s -w` |
+| --- | ---: | ---: | ---: | ---: |
+| calc | 1,604 | 959 | 6,154,737 | 4,182,279 |
+| deps | 1,668 | 980 | 6,360,187 | 4,321,543 |
+| kvstore | 1,639 | 977 | 6,266,477 | 4,247,815 |
+| chat | 1,652 | 964 | 6,151,686 | 4,165,895 |
+| forge | 1,636 | 966 | 6,185,971 | 4,202,759 |
+| deploys | 1,638 | 956 | 6,077,906 | 4,116,743 |
+| mdhtml | 1,642 | 964 | 6,194,676 | 4,206,855 |
+| relay | 1,598 | 923 | 5,817,412 | 3,928,327 |
+
+A stripped link does about 41 % fewer instructions (0.64 to 0.69 G fewer)
+and writes about 32 % fewer bytes (about 2 MB). The pclntab stays, so
+tracebacks and defect reports are unchanged.
+
+Spike, not adopted: `-gcflags='-N -l'` (no optimization, no inlining) on
+the emitted module's own packages (std cached; a nonce `-trimpath` makes
+each run compile them again), median of 3: deps 8,904 to 6,879 M instr
+(-23 %), kvstore 6,209 to 5,133 M (-17 %), the binary 3 % larger. It trades
+the program's run-time speed for compile time, which the owner's rule
+(correctness and speed) does not allow as a default; a flag for it is a
+separate decision. `-linkshared` was not measured: it needs std installed
+with `-buildmode=shared` into GOROOT, and its executable needs that shared
+std at run time, so it cannot be the default of a self-contained build.
+
+Script: the wf10 run's `compile-speed/CS7` receipt script (`receipt.sh`,
+pstat from the v1 audit's speed tools); the run directory is not tracked.
+
 ## Reproduce
 
 ```
