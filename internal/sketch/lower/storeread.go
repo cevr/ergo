@@ -32,6 +32,67 @@ import (
 // a write of another []string than b's counts too. A test build copies, as
 // the reference does.
 
+// A reslice of a place into itself (OWN1, own-reslice; ST's G4).
+// `s.xs = s.xs[:len(s.xs)-1]` or `xs = xs[1:]` on a let mut or a borrow
+// root was copied twice over (the read as an escape, the value as it
+// enters the root), so a stack's pop lost its room and the next push
+// allocated. The old value is overwritten by the store, and the root held
+// its array alone (Bindings 1), so the new value shares storage with
+// nothing but the place it is stored in: no copy. The bounds are integers;
+// a bound that writes the root (a call given &s) refuses it.
+
+// reslices reports whether the value e is the right side of a rebinding
+// place = place[a:b] (any depth of slicing) of one place rooted at vv
+// whose bounds write no part of vv.
+func (w *valueWalk) reslices(e syntax.Expr, vv *vvar) bool {
+	if !valueOwned() || vv == nil || !vv.root() {
+		return false
+	}
+	s, ok := unparen(e).(*syntax.SliceExpr)
+	if !ok {
+		return false
+	}
+	for {
+		p, ok := w.parent[e].(*syntax.ParenExpr)
+		if !ok {
+			break
+		}
+		e = p
+	}
+	as, ok := w.parent[e].(*syntax.AssignStmt)
+	if !ok || as.Tok != syntax.ASSIGN || len(as.Lhs) != 1 || len(as.Rhs) != 1 || as.Rhs[0] != e {
+		return false
+	}
+	base := syntax.Expr(s)
+	for {
+		inner, ok := unparen(base).(*syntax.SliceExpr)
+		if !ok {
+			break
+		}
+		base = inner.X
+	}
+	if !samePlace(as.Lhs[0], base) {
+		return false
+	}
+	id := pathRoot(as.Lhs[0])
+	if id == nil {
+		return false
+	}
+	if v, ok := w.info.Uses[id].(*check.Var); !ok || w.vars[v] != vv {
+		return false
+	}
+	for _, o := range vv.occs {
+		if o.kind == occWrite && w.pre[s] <= o.pre && o.pre < w.post[s] {
+			return false
+		}
+	}
+	if !w.l.takes("own-reslice") {
+		return false
+	}
+	w.l.took("own-reslice")
+	return true
+}
+
 // keptRead reports whether the read o of the root vv may take its value
 // with no copy: o is the whole initializer of a plain let local that keeps
 // nothing, and no use of vv can write the storage that value reaches.

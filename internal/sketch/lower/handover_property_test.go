@@ -105,7 +105,36 @@ func (g *handoverGen) stmt() {
 		b.n++
 		return b
 	}
-	switch k := g.r.IntN(17); k {
+	switch k := g.r.IntN(21); k {
+	case 20:
+		g.reached["trim through a borrow"] = true
+		g.line("trim(&m)")
+		if len(g.m.items) > 0 {
+			g.m.items = g.m.items[:len(g.m.items)-1]
+		}
+	case 17:
+		// A reslice of the root into itself shares the root's own array
+		// (storeread.go, own-reslice); an Append and a write follow.
+		g.reached["root reslices"] = true
+		k := g.r.IntN(len(g.m.items) + 1)
+		g.line(fmt.Sprintf("m.Items = m.Items[0:%d]", k))
+		g.line(fmt.Sprintf("m.Items = m.Items.Append(%d)", v))
+		g.line(fmt.Sprintf("m.Items[0] = %d", v+1))
+		g.m.items = append(append([]int(nil), g.m.items[:k]...), v)
+		g.m.items[0] = v + 1
+	case 18:
+		// A cut of a let is no reslice of the root: it is copied.
+		g.reached["root takes a let's cut"] = true
+		k := g.r.IntN(len(src.items) + 1)
+		g.line(fmt.Sprintf("m.Items = b%d.Items[0:%d]", i, k))
+		g.m.items = append([]int(nil), src.items[:k]...)
+		if k > 0 {
+			g.line(fmt.Sprintf("m.Items[0] = %d", v))
+			g.m.items[0] = v
+		}
+	case 19:
+		g.reached["let keeps the root"] = true
+		g.bind("Bag{Items: m.Items, N: 0}", hbag{items: g.m.items})
 	case 14:
 		g.reached["store add"] = true
 		g.line(fmt.Sprintf("st.bags = st.bags.Append(b%d)", i))
@@ -316,6 +345,13 @@ func peekMethod(s *Store, i int, v int) string {
 	show(b)
 }
 
+// trim reslices a borrowed field into itself: no copy (own-reslice).
+func trim(b *Bag) {
+	if len(b.Items) > 0 {
+		b.Items = b.Items[:len(b.Items)-1]
+	}
+}
+
 func run() string {
 	let mut out = ""
 	let mut st = Store{bags: []Bag{}}
@@ -401,7 +437,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 		return src[i : i+end]
 	}
-	for name, copies := range map[string]bool{"peekKind": false, "peekItem": true, "peekPass": true} {
+	for name, copies := range map[string]bool{"peekKind": false, "peekItem": true, "peekPass": true, "trim": false} {
 		b := body(programs[0].mainGo(), name)
 		if b == "" || strings.Contains(b, "Clone") != copies {
 			var named []string
@@ -430,7 +466,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 	}
 	if *handoverSeed == 0 {
-		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write"} {
+		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow"} {
 			if !reached[s] {
 				t.Errorf("seeds %v never write %q", seeds, s)
 			}

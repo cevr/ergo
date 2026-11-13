@@ -90,6 +90,26 @@ test Total {
 	assert total(&s) == 1
 }
 `,
+	"own-reslice": `type Stack { xs []int }
+
+func pop(s *Stack) {
+	if len(s.xs) > 0 {
+		s.xs = s.xs[:len(s.xs)-1]
+	}
+}
+
+func main() needs Console {
+	let mut s = Stack{xs: []int{1, 2}}
+	pop(&s)
+	Console.Println("\(len(s.xs))")
+}
+
+test Pop {
+	let mut s = Stack{xs: []int{1, 2}}
+	pop(&s)
+	assert len(s.xs) == 1
+}
+`,
 	"own-lineage": `type Bag { Items []int, N int }
 
 func step(b Bag, x int) Bag {

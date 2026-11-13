@@ -763,7 +763,7 @@ func (w *valueWalk) decide() {
 						w.l.stats.ArgsShared++
 					}
 				case o.kind == occEscape || o.kind == occReturn:
-					if vf.handed[o.path] || !w.needsCopy(vv, o) {
+					if vf.handed[o.path] || w.reslices(o.path, vv) || !w.needsCopy(vv, o) {
 						break
 					}
 					if o.result && !w.inFlight(vv, o) {
@@ -837,7 +837,7 @@ func (w *valueWalk) decide() {
 				}
 				continue
 			}
-			if o.whole && w.slicesOf(o.value, o.root) {
+			if o.whole && w.slicesOf(o.value, o.root) || w.reslices(o.value, o.root) {
 				continue
 			}
 			w.freshen(o.value)

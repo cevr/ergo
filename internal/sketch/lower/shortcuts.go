@@ -111,6 +111,15 @@ var shortcuts = []shortcut{
 		mutant:     "own-read-element-write-blind",
 		referenced: func() bool { return !valueOwned() },
 	},
+	{
+		name:       "own-reslice",
+		class:      valueClass,
+		admission:  "reslices",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-reslice-other-place",
+		referenced: func() bool { return !valueOwned() },
+	},
 }
 
 // shortcutNamed is the registry's row named name.
