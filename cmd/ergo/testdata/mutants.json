@@ -230,6 +230,24 @@
       "to": "\tif evaluation.Status != \"passed\" && evaluation.Status != \"none\" {\n\t\treturn testCommand([]string{opts.file})\n\t}\n\treturn evaluationExit(evaluation)\n",
       "rule": "ergo check never falls back to a Go build or ergo test; a skip or a refutation is reported as such.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
+    },
+    {
+      "name": "goos-build-list-is-binding-list",
+      "origin": "wf10/fu-runtime-goos",
+      "file": "cmd/ergo/build.go",
+      "from": "\tif slices.Contains(gobind.BuildPlatforms, p) {",
+      "to": "\tif slices.Contains(gobind.Platforms, p) {",
+      "rule": "ergo build accepts the build platforms (windows/amd64, js/wasm, wasip1/wasm), not only the binding platforms.",
+      "killers": ["cmd/ergo:TestPlatformOfABuild"]
+    },
+    {
+      "name": "goos-windows-dropped",
+      "origin": "wf10/fu-runtime-goos",
+      "file": "internal/gobind/load.go",
+      "from": "Platform{\"windows\", \"amd64\"}, ",
+      "to": "",
+      "rule": "windows/amd64 is a build platform.",
+      "killers": ["cmd/ergo:TestPlatformOfABuild"]
     }
   ]
 }
