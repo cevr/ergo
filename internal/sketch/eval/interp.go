@@ -22,8 +22,8 @@ type interp struct {
 	// factTables are the facts of each package's expressions (facts.go);
 	// factInfo and facts are the table in use.
 	factTables map[*check.Info]factTable
-	factInfo *check.Info
-	facts    factTable
+	factInfo   *check.Info
+	facts      factTable
 	// params and owners are a function's parameters and a declaration's
 	// fact owner, read once (facts.go).
 	params map[*check.Func][]*check.Var

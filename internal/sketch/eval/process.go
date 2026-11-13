@@ -95,6 +95,7 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 	if b.Steps <= 0 || b.Depth <= 0 || b.States < 0 || b.Bytes < 0 {
 		return Exit{}, ErrBudget
 	}
+	defer raiseGC()()
 	if pkg == nil || pkg.Info == nil {
 		return Exit{}, errors.New("eval: no checked package")
 	}

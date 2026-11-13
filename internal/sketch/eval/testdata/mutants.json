@@ -1408,6 +1408,42 @@
       "to": "\t\t\tout.Case, out.Arguments = k+1, nil",
       "rule": "A refuted case reports the arguments it ran with, written when it is reported.",
       "killers": ["internal/sketch/eval:TestCasePlansRun"]
+    },
+    {
+      "name": "oracle-o32-gc-not-restored",
+      "origin": "wf10 ORACLE O32",
+      "file": "internal/sketch/eval/gc.go",
+      "from": "\t\tif gcRaise.n == 0 {\n\t\t\tdebug.SetGCPercent(gcRaise.saved)",
+      "to": "\t\tif false {\n\t\t\tdebug.SetGCPercent(gcRaise.saved)",
+      "rule": "An evaluation raises the collector's target only while it runs; the process's own target is back once it returns.",
+      "killers": ["internal/sketch/eval:TestRunRestoresGCPercent"]
+    },
+    {
+      "name": "oracle-o32-boxed-int-off-by-one",
+      "origin": "wf10 ORACLE O32",
+      "file": "internal/sketch/eval/boxint.go",
+      "from": "unsafe.Pointer(&smallInts[n-smallMin])",
+      "to": "unsafe.Pointer(&smallInts[n-smallMin+1])",
+      "rule": "A boxed small int is the int itself: the shared array holds each int at its own index.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o32-int-fast-path-sub",
+      "origin": "wf10 ORACLE O32",
+      "file": "internal/sketch/eval/ops.go",
+      "from": "\t\t\t\treturn boxInt(x - y), nil",
+      "to": "\t\t\t\treturn boxInt(y - x), nil",
+      "rule": "The int64 fast path computes the operator the generic path does (types.md, Basic types).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "oracle-o32-node-table-probe-stops",
+      "origin": "wf10 ORACLE O32",
+      "file": "internal/sketch/eval/facts.go",
+      "from": "\t\tcase k:\n\t\t\treturn t.vals[i]",
+      "to": "\t\tcase k:\n\t\t\treturn t.vals[i&^1]",
+      "rule": "A node's facts are its own: the table finds the node it was given.",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     }
   ]
 }

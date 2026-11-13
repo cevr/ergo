@@ -168,6 +168,7 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	if b.Steps <= 0 || b.Depth <= 0 {
 		return Report{}, ErrBudget
 	}
+	defer raiseGC()()
 	if pkg == nil || pkg.Info == nil {
 		return Report{}, errors.New("eval: no checked package")
 	}
