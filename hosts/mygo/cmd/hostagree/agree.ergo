@@ -1,6 +1,6 @@
 import actor
 import go ergo.local/prototype/hosts/mygo/screen
-import mygo/desktop
+import ergo.local/prototype/hosts/mygo/desktop
 import strconv
 import strings
 import time
