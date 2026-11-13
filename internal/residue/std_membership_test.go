@@ -572,7 +572,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/durable.go:checker.recordDurable",
 	"internal/sketch/check/ownership.go:isQueue",
 	"internal/sketch/check/ownership.go:ownWalk.holdsTaken",
-	"internal/sketch/check/script.go:scriptArg",
 	"internal/sketch/check/work.go:TakesWorkSend",
 	"internal/sketch/check/work.go:checker.workLit",
 	"internal/sketch/check/work.go:checker.workLitForm",

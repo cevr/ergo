@@ -1418,6 +1418,7 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/call.go:isUnreachable` | `Unreachable` |
 | `internal/sketch/check/close.go:checker.closeFacts` | `Close`, the release operation |
 | `internal/sketch/check/close.go:closeTakes` | `Close` |
+| `internal/sketch/check/script.go:scriptArg` | `testing.Script`, the derived test provider of a capability (grammar.md, Names 2) |
 | `internal/sketch/check/contextvalues.go:contextRow` | `Context` |
 | `internal/sketch/check/decl.go:checker.collectSelfFuncs` | the prelude's ownership declarations |
 | `internal/sketch/check/entry.go:checker.checkErrorMethods` | `Error`, the method of a failure |
