@@ -1,6 +1,6 @@
 # fk-domains
 
-A domain search, ported from `foldkit/foldkit-domains` at `039c941a` (MIT, (c) 2025 Devin Jameson; `origin/`). This is stage a of plan §20: the domain, its Api and the server (FD1a), and the pure parts of the search page (FD2a), with no pages yet. The binary searches the sample registry from the command line, or serves it over Effect RPC at `/rpc`, where a stock client of the original can call it.
+A domain search, ported from `foldkit/foldkit-domains` at `039c941a` (MIT, (c) 2025 Devin Jameson; `origin/`). This is stage a of plan §20: the domain, its Api and the server (FD1a), the pure parts of the search page (FD2a), and the search page as a machine (FD3a), with no pages yet. The binary searches the sample registry from the command line, or serves it over Effect RPC at `/rpc`, where a stock client of the original can call it.
 
 Tag: `default`.
 
@@ -23,7 +23,16 @@ fk-domains bench 1000             # the P11 workload (below)
 - `loopback` is the generated client of a sample registry served in process (`rpc.Loopback`). The `Registry` laws run against it as against `sample`, so they hold through the wire.
 - `server` answers HTTP with the original's refusals (`src/server/rpc.ts`).
 - `cmd/fk-domains` is the only place that binds `domains.Registry` (to `sample`).
-- `search/` holds the pure parts of the search page (unit FD2a). Each part is a set of functions on values, with no clock and no `ui`, and the search machine (FD3a) will hold them in its state.
+- `search` is the search page as one machine, `Searcher` (unit FD3a). Its phases are `Landing`, `Invalid`, `Debouncing{Label}` and `Showing{Label}`. The state beside them holds the route, the cache, the load of each range, the listings shown, the window, the derived index and the cart.
+  - The debounce is a timer, not a sleep. `Debouncing` has a timer that gives `Quiet` after 150 ms, and each key enters it again, which restarts the timer.
+  - The step reads the clock (`needs time.Clock`) and runs no request. It tells the host what to `Fetch`, what to `Cancel`, which URL to `Replace` and when to `ScrollToTop`. The host answers each fetch with `Loaded` or `Failed`, carrying the fetch's key.
+  - The design is `models/domainsearch`. An answer is taken only while the cache holds its key as pending for that generation. A new query cuts the load in flight. A value is shown from the cache only while it is fresh.
+  - The index of the rows shown is built again only by an answer, an order, a filter or a new route. A scroll or a resize never rebuilds it (law `ScrollKeepsIndex`, target P3).
+  - `laws.ergo` holds the host the laws run on, `Sim`, which uses a manual clock.
+    - `SearchFollowsModel` runs drawn scripts: keys, time, answers in any order (also answers to cut loads), changes to the server's data, scrolls, orders, filters, retries and navigations. After each step it checks the model's six invariants and that the URL follows the state.
+    - The timed laws are `BurstMakesOneSearch`, `SettledQueryMakesTwoRequests`, `WarmQueryMakesNone`, `RetryLoadsOnlyTheFailedRange` and `UrlFollowsState`.
+  - `stories.ergo` restates the original's stories. `receipts.ergo` holds the counted receipts P1, P6, P7 and P8.
+- `search/` also holds the pure parts of the search page (unit FD2a). Each part is a set of functions on values, with no clock and no `ui`, and the machine holds them in its state.
   - `search/cache` is the original's keyed query cache (`domainsQuery.ts`): an entry stays fresh for a set time, and at most a set number of entries stay settled.
     - The time is an argument.
     - Each load gets a new generation, and an answer is taken only for the generation its entry is waiting on. So a late answer of a load that was cut, or replaced by a newer one, changes nothing.
@@ -40,6 +49,10 @@ fk-domains bench 1000             # the P11 workload (below)
 - **The failure is `Down`.** The original's `SearchError` has one variant, `Unavailable`. Here `Listing` already has a variant of that name, so the failure is `Down`. No recorded case fails this way.
 - **The bounds are types.** A label, an offset or a limit out of range does not decode. As in the original, it is a 200 whose frame is a `Die`. The original's defect text is Effect's schema message, and the port's is `rpc.Decode`'s, so the texts differ.
 - **A body that is not JSON** is a 200 whose one frame is a `Defect` named `SyntaxError`, as the original's Effect server answers it; std `rpc.Answer` gives it. Its message is Go's JSON error, not JavaScript's.
+- **No stale prices.** The original shows a stale answer while it fetches the range again, and keeps it if that fetch fails. The port follows the model's `FreshBound`, so a stale entry is a miss. A failed refresh shows its failure and a retry, as the original's scene "failed searches expose a retriable alert without stale prices" asks.
+- **A navigation starts its search at once.** A link or a step back or forward is not typing, so it does not wait for the debounce. A URL the page opens at does wait, as the original's first range does.
+- **A retry reloads only what the window shows.** Every load that failed is marked not loaded, and the planner asks for the first one in the window, or for the whole catalog when the criteria need it.
+- **Typing back to fresh prefixes makes no request.** The original made 1 request for three backspaces and the same three keys, and its records do not say which read missed. The port makes 0, and that count does not depend on the host (receipt P1).
 - **A GET of `/rpc` is 404** with no body, as the original's router has one `POST` route; std `rpc.Answer` answers it so, before the endpoint's own refusals.
 
 ## The wire, checked against the original
@@ -54,7 +67,7 @@ The case's body reaches `Answer` as `http.Serve` hands it over under `server.Lim
 
 ## Upstream tests
 
-Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files in `origin/upstream/` (`origin/source`). FD3a restates the stories, and FD4b the scenes.
+Each upstream story and scene test, and what restates it, is a line of `origin/tests.txt`, which the examples runner checks against the vendored files in `origin/upstream/` (`origin/source`). FD3a restated the stories, in `search/stories.ergo`. Two of them are not restated: the links story is the view's, and the early-handoff story belongs to the server-session and wasm forms. FD4b restates the scenes.
 
 ## Cases
 

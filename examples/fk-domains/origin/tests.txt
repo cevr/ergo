@@ -5,32 +5,32 @@
 # (src/client/domainsQuery.test.ts, init.test.ts, src/server/search.test.ts)
 # and the e2e specs are not story or scene tests; their rules are laws of
 # §20.4 (search/cache, domains.Registry, the wire).
-story/application.story.test.ts: typing synchronizes the URL before the route starts its domain request -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: searches the normalized label for $query -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: rejects %j without scheduling domain lookups -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: an unchanged input keeps its active Query request -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: a canceled $name before URL delivery cannot restore old results or schedule loading -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: a planning Clock from the previous route cannot start domain lookups -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: leaving search cancels its pending Query key -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: clearing the input returns to the idle route, restores focus, and scrolls to the top -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: backspacing to an empty query scrolls to the top after the route changes -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: unrelated URL changes do not restart a settled search -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: internal and external links use their respective navigation Commands -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: cart additions are unique and removals are idempotent -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: clearing a scrolled search discards its virtual viewport before another search -> not restated yet: FD3a restates it on the search machine (stage a)
-story/application.story.test.ts: the early search handoff preserves an opened search: %s -> not restated yet: FD3a restates it on the search machine (stage a)
-story/cachedDomains.story.test.ts: a normalized fresh label restores after another label fails -> not restated yet: FD3a restates it on the search machine (stage a)
-story/cachedDomains.story.test.ts: fresh results expire one minute after completion even after reuse -> not restated yet: FD3a restates it on the search machine (stage a)
-story/cachedDomains.story.test.ts: a failed stale refresh retains checked results and retry replaces them with the new quote -> not restated yet: FD3a restates it on the search machine (stage a)
-story/cachedDomains.story.test.ts: label, offset, and limit isolate candidate ranges used by the application -> not restated yet: FD3a restates it on the search machine (stage a)
-story/cachedDomains.story.test.ts: global criteria reuse a fresh catalog and prune an active failed page -> not restated yet: FD3a restates it on the search machine (stage a)
-story/cachedDomains.story.test.ts: backspacing to a fresh query reuses Top Results and the visible candidate range without fetching -> not restated yet: FD3a restates it on the search machine (stage a)
-story/progressiveDomains.story.test.ts: %s sorts unchecked names immediately and retries only the visible candidate range -> not restated yet: FD3a restates it on the search machine (stage a)
-story/progressiveDomains.story.test.ts: shows Top Results before the rest of the first page and ignores a duplicate planning Clock while pending -> not restated yet: FD3a restates it on the search machine (stage a)
-story/progressiveDomains.story.test.ts: loads the latest viewport after the current page completes -> not restated yet: FD3a restates it on the search machine (stage a)
-story/progressiveDomains.story.test.ts: a later failure preserves checked domain results, retries only that page, and global sort loads the catalog -> not restated yet: FD3a restates it on the search machine (stage a)
-story/progressiveDomains.story.test.ts: $criteria changed $timing replaces the failed page with a complete catalog -> not restated yet: FD3a restates it on the search machine (stage a)
-story/progressiveDomains.story.test.ts: a failed complete catalog waits for explicit retry and retries that catalog -> not restated yet: FD3a restates it on the search machine (stage a)
+story/application.story.test.ts: typing synchronizes the URL before the route starts its domain request -> search/stories.ergo: test TypingSyncsTheUrlBeforeTheRequest
+story/application.story.test.ts: searches the normalized label for $query -> search/stories.ergo: test SearchesTheNormalizedLabel
+story/application.story.test.ts: rejects %j without scheduling domain lookups -> search/stories.ergo: test RejectsAnInvalidQueryWithoutLookups
+story/application.story.test.ts: an unchanged input keeps its active Query request -> search/stories.ergo: test AnUnchangedInputKeepsItsRequest
+story/application.story.test.ts: a canceled $name before URL delivery cannot restore old results or schedule loading -> search/stories.ergo: test ACanceledQueryCannotRestoreOldResults (and AnOldAnswerOfTheSameLabelIsDropped, the model's ByLabel run)
+story/application.story.test.ts: a planning Clock from the previous route cannot start domain lookups -> search/stories.ergo: test AnOldDebounceCannotStartLookups
+story/application.story.test.ts: leaving search cancels its pending Query key -> search/stories.ergo: test LeavingSearchCancelsItsLoad
+story/application.story.test.ts: clearing the input returns to the idle route, restores focus, and scrolls to the top -> search/stories.ergo: test ClearingReturnsToTheIdleRoute (the focus is the view's: FD4b)
+story/application.story.test.ts: backspacing to an empty query scrolls to the top after the route changes -> search/stories.ergo: test BackspacingToEmptyScrollsToTheTop
+story/application.story.test.ts: unrelated URL changes do not restart a settled search -> search/stories.ergo: test UnrelatedUrlChangesDoNotRestart
+story/application.story.test.ts: internal and external links use their respective navigation Commands -> not restated: the machine has no links; a link is the view's and the host's (FD4b restates it as a TestHost script)
+story/application.story.test.ts: cart additions are unique and removals are idempotent -> search/stories.ergo: test CartAdditionsAreUniqueAndRemovalsIdempotent
+story/application.story.test.ts: clearing a scrolled search discards its virtual viewport before another search -> search/stories.ergo: test ClearingDiscardsTheViewport
+story/application.story.test.ts: the early search handoff preserves an opened search: %s -> not restated: the handoff is the original's inline script before hydration; the port's forms are the server session (FD7c) and wasm (FD8c), plan §20.5 gap 5
+story/cachedDomains.story.test.ts: a normalized fresh label restores after another label fails -> search/stories.ergo: test AFreshLabelRestoresAfterAnotherFails
+story/cachedDomains.story.test.ts: fresh results expire one minute after completion even after reuse -> search/stories.ergo: test FreshResultsExpireAfterAMinuteEvenAfterReuse
+story/cachedDomains.story.test.ts: a failed stale refresh retains checked results and retry replaces them with the new quote -> search/stories.ergo: test AFailedStaleRefreshRetriesToTheNewQuote (the port shows no stale prices: FreshBound)
+story/cachedDomains.story.test.ts: label, offset, and limit isolate candidate ranges used by the application -> search/stories.ergo: test LabelOffsetAndLimitIsolateRanges
+story/cachedDomains.story.test.ts: global criteria reuse a fresh catalog and prune an active failed page -> search/stories.ergo: test GlobalCriteriaReuseAFreshCatalog
+story/cachedDomains.story.test.ts: backspacing to a fresh query reuses Top Results and the visible candidate range without fetching -> search/stories.ergo: test BackspacingToAFreshQueryFetchesNothing
+story/progressiveDomains.story.test.ts: %s sorts unchecked names immediately and retries only the visible candidate range -> search/stories.ergo: test NameOrdersSortAtOnceAndRetryTheVisibleRange
+story/progressiveDomains.story.test.ts: shows Top Results before the rest of the first page and ignores a duplicate planning Clock while pending -> search/stories.ergo: test TopResultsComeFirst
+story/progressiveDomains.story.test.ts: loads the latest viewport after the current page completes -> search/stories.ergo: test LoadsTheLatestViewportAfterTheCurrentPage
+story/progressiveDomains.story.test.ts: a later failure preserves checked domain results, retries only that page, and global sort loads the catalog -> search/stories.ergo: test ALaterFailureKeepsTheCheckedResults
+story/progressiveDomains.story.test.ts: $criteria changed $timing replaces the failed page with a complete catalog -> search/stories.ergo: test CriteriaReplaceTheFailedPageWithTheCatalog
+story/progressiveDomains.story.test.ts: a failed complete catalog waits for explicit retry and retries that catalog -> search/stories.ergo: test AFailedCatalogWaitsForRetry
 scene.test.ts: landing HTML renders skeletons without mounting virtual results -> not restated yet: FD4b restates it as a TestHost script (stage b)
 scene.test.ts: typing makes Top Results usable before the remaining domain checks complete -> not restated yet: FD4b restates it as a TestHost script (stage b)
 scene.test.ts: measuring results renders a bounded window of the catalog -> not restated yet: FD4b restates it as a TestHost script (stage b)
