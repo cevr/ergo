@@ -91,7 +91,7 @@ func PlayA(lines []Line, end duration, clock time.Manual) [][]string needs Sched
 		now = l.At
 		match l.Press {
 		case Start:
-			b = board.Start(b)
+			b.Start()
 		case Cancel as c:
 			board.Cancel(b, c.ID)
 		case CancelAll:
@@ -103,7 +103,6 @@ func PlayA(lines []Line, end duration, clock time.Manual) [][]string needs Sched
 	}
 	time.Advance(clock, end-now)
 	out = out.Append(board.Lines(b))
-	board.Shutdown(b)
 	out
 }
 

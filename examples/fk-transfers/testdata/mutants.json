@@ -36,8 +36,8 @@
     {
       "name": "fk4-id-repeated", "origin": "wf10/fk4a",
       "file": "examples/fk-transfers/board/board.ergo",
-      "from": "Child: child}), Next: b.Next + 1}",
-      "to": "Child: child}), Next: b.Next}",
+      "from": "\tb.Next = b.Next + 1\n",
+      "to": "\tb.Next = b.Next\n",
       "rule": "Each start gets a new id (law IdsNeverReused).",
       "anchor": {"tests": ["examples:fk-transfers"]}, "killers": ["examples:fk-transfers"]
     },

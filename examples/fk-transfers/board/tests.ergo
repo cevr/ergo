@@ -25,11 +25,11 @@ test StartAppendsASendingTransfer {
 	// starting an upload appends an Uploading entry and fires UploadFile.
 	let c = time.NewManual(0)
 	with context { Scheduler: c } {
-		let b = Start(New())
+		let mut b = New()
+		b.Start()
 		let shown = Lines(b) == []string{"0 trail-map.png sending"} && b.Next == 1
 		time.Advance(c, first())
 		let arrived = words(b) == []string{"sent"}
-		Shutdown(b)
 		assert shown && arrived
 	}
 }
@@ -38,12 +38,12 @@ test CancelEndsTheTransfer {
 	// cancelling an upload interrupts it and marks it Cancelled.
 	let c = time.NewManual(0)
 	with context { Scheduler: c } {
-		let b = Start(New())
+		let mut b = New()
+		b.Start()
 		Cancel(b, 0)
 		let cancelled = words(b) == []string{"cancelled"}
 		time.Advance(c, first())
 		let stays = words(b) == []string{"cancelled"}
-		Shutdown(b)
 		assert cancelled && stays
 	}
 }
@@ -53,11 +53,11 @@ test CancelAfterArrivalChangesNothing {
 	// nothing.
 	let c = time.NewManual(0)
 	with context { Scheduler: c } {
-		let b = Start(New())
+		let mut b = New()
+		b.Start()
 		time.Advance(c, first())
 		Cancel(b, 0)
 		let w = words(b)
-		Shutdown(b)
 		assert w == []string{"sent"}
 	}
 }
@@ -66,11 +66,12 @@ test CancelOneLeavesTheOther {
 	// cancelling one upload leaves the other running.
 	let c = time.NewManual(0)
 	with context { Scheduler: c } {
-		let b = Start(Start(New()))
+		let mut b = New()
+		b.Start()
+		b.Start()
 		Cancel(b, 0)
 		time.Advance(c, second())
 		let w = words(b)
-		Shutdown(b)
 		assert w == []string{"cancelled", "sent"}
 	}
 }
@@ -79,12 +80,12 @@ test StartWhileACancelIsPending {
 	// a new upload can start while a cancellation is still pending.
 	let c = time.NewManual(0)
 	with context { Scheduler: c } {
-		let one = Start(New())
-		Cancel(one, 0)
-		let b = Start(one)
+		let mut b = New()
+		b.Start()
+		Cancel(b, 0)
+		b.Start()
 		time.Advance(c, second())
 		let w = words(b)
-		Shutdown(b)
 		assert w == []string{"cancelled", "sent"}
 	}
 }
@@ -93,13 +94,13 @@ test RestartKeepsItsIdAndFile {
 	// restarting a cancelled upload reuses its id and file.
 	let c = time.NewManual(0)
 	with context { Scheduler: c } {
-		let b = Start(New())
+		let mut b = New()
+		b.Start()
 		Cancel(b, 0)
 		Restart(b, 0)
 		let again = Lines(b) == []string{"0 trail-map.png sending"}
 		time.Advance(c, first())
 		let w = words(b)
-		Shutdown(b)
 		assert again && w == []string{"sent"}
 	}
 }
@@ -110,11 +111,13 @@ test CancelAllStopsOnlyTheSending {
 	// is the shortest.
 	let c = time.NewManual(0)
 	with context { Scheduler: c } {
-		let b = Start(Start(Start(New())))
+		let mut b = New()
+		b.Start()
+		b.Start()
+		b.Start()
 		time.Advance(c, transfer.Took(transfer.Files[2].MB))
 		CancelAll(b)
 		let w = words(b)
-		Shutdown(b)
 		assert w == []string{"cancelled", "cancelled", "sent"}
 	}
 }

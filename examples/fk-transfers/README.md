@@ -13,12 +13,12 @@ The plan asks for both of upstream's ways to hold work in flight, kept side by s
 
 The law `ShapesAgree` is the model-based test of shape B against shape A. Over generated starts, cancels, cancel-alls, restarts (also for ids with no transfer) and clock moves, both show the same transfers in the same states after every press and at the end.
 
-Shape A is the idiom. Its model is 94 lines (`transfer` 48, `board` 46) against shape B's 138 (`emitted` 71, `registry` 67). Its rules are laws of one step of one transfer (`CancelledNeverBecomesDone`, `RestartOnlyFromCancelled`), so they hold for every transfer, while shape B's hold only through the registry. Cancellation is the end of an entry, not a protocol with two outcomes.
+Shape A is the idiom. Its model is 95 lines (`transfer` 48, `board` 47) against shape B's 138 (`emitted` 71, `registry` 67). Its rules are laws of one step of one transfer (`CancelledNeverBecomesDone`, `RestartOnlyFromCancelled`), so they hold for every transfer, while shape B's hold only through the registry. Cancellation is the end of an entry, not a protocol with two outcomes.
 
 Two things the port found:
 
 - **L3 has a form.** The board is not a machine. Its children are actors that belong to no parent entry, so a parent transition cannot stop them. The parent keeps no state beyond the actors, so nothing is lost.
-- **A `Close` makes a record a resource.** The board's stop is called `Shutdown`, not `Close`. A written `Close` makes `Board` a resource (resources R1). `Start(Start(New()))` then releases the board the outer `Start` was given at the end of the statement, which stops the actors the new board shares (measured: the first transfer ended `Halted`).
+- **The board is a declared root.** `Board` implements `Closer`: its `Close` stops the actors, and a board's scope releases it (resources R1). A board that builds a new board from its items, as `Start(b Board) Board` did, would make two owners of the actors, and the release of the old board would stop the actors the new one shares (measured before EXH1: the first transfer ended `Halted`). The checker refuses that copy (a handle leaves its declared root only with the whole root, resources R17, R39), so `Start(b *Board)` writes the one board in place. The first port named its release `Shutdown`, so that `Board` was no resource; EXC1 and EXH1 made the declared form safe.
 
 A press at the very instant a transfer would arrive comes after the arrival. The live board moves the clock to the press's time first, so timers due by then have fired, and shape B's registry does the same (case `tie`). In `machines.RunTimed` the order is the other way: a signal at a timer's instant is stepped first (transfer law `ArrivesAfterTheWholeFile`).
 
