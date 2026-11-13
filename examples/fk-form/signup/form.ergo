@@ -1,0 +1,127 @@
+import machines
+
+// Form is the state: the three fields and the stage of the submit.
+type Form {
+	Name  Field[Name, TooShort],
+	Email Field[Email, EmailWhy],
+	Note  string,
+	Stage Stage,
+}
+
+// Stage is the submit: not sent yet, under way, taken (with the welcome
+// text), or refused.
+type Stage = Editing{} | Sending{} | Sent{Text string} | Refused{}
+
+// Signal is what the form takes: an edit of each field and a submit from
+// the user, the subscribers' answer to the email check, and the answer to
+// the submit. JoinFailed is the submit's failure and also a signal.
+type Signal = NameEdited{Text string} | EmailEdited{Text string} | NoteEdited{Text string} | Submitted{} | Checked{Taken bool} | Joined{} | JoinFailed
+
+// Never is the output of a form: it never ends and emits nothing, so no
+// value of Never is made.
+type Never {}
+
+// Initial is the empty form.
+func Initial() Form {
+	Form{Name: NameField(""), Email: Field[Email, EmailWhy]{Text: "", Verdict: Unchecked}, Note: "", Stage: Editing}
+}
+
+// Step is the transition. While a submit is under way the form takes no
+// edit and no submit. Else an edit of the name or the note checks that
+// field and keeps the entry (Stay), so an email check under way goes on;
+// an edit of the email checks it and opens a new entry (Enter), so a check
+// of an older address ends and its answer is dropped by the runner. The
+// check's answer settles a Checking email. A submit of a ready form starts
+// the submit; of any other form it is ignored. The submit's answer
+// settles the stage. An answer that no state waits for is ignored.
+func Step(f Form, s Signal) Decision[Form, Never] {
+	match (f.Stage, s) {
+	case (Sending, NameEdited), (Sending, EmailEdited), (Sending, NoteEdited), (Sending, Submitted):
+		Ignore
+	case (_, NameEdited as e):
+		Stay[Form]{Next: Form{..f, Name: NameField(e.Text)}}
+	case (_, NoteEdited as e):
+		Stay[Form]{Next: Form{..f, Note: e.Text}}
+	case (_, EmailEdited as e):
+		Enter[Form]{Next: Form{..f, Email: EmailField(e.Text)}}
+	case (_, Checked as c):
+		match f.Email.Verdict {
+		case Checking[Email] as k:
+			let v Verdict[Email, EmailWhy] = if c.Taken { Invalid[EmailWhy]{Why: Taken} } else { Valid[Email]{Value: k.Value} }
+			Enter[Form]{Next: Form{..f, Email: Field[Email, EmailWhy]{Text: f.Email.Text, Verdict: v}}}
+		case _:
+			Ignore
+		}
+	case (_, Submitted):
+		if Ready(f) {
+			Enter[Form]{Next: Form{..f, Stage: Sending}}
+		} else {
+			Ignore
+		}
+	case (Sending, Joined):
+		Enter[Form]{Next: Form{..f, Stage: Sent{Text: Welcome(f.Name.Text)}}}
+	case (Sending, JoinFailed):
+		Enter[Form]{Next: Form{..f, Stage: Refused}}
+	case (_, Joined), (_, JoinFailed):
+		Ignore
+	}
+}
+
+// Ready reports whether f may be sent: the name is valid or left empty,
+// and the email is valid (its check has answered that it is not taken).
+func Ready(f Form) bool {
+	let name = match f.Name.Verdict {
+	case Unchecked, Valid[Name]:
+		true
+	case Checking[Name], Invalid[TooShort]:
+		false
+	}
+	let email = match f.Email.Verdict {
+	case Valid[Email]:
+		true
+	case Unchecked, Checking[Email], Invalid[EmailWhy]:
+		false
+	}
+	name && email
+}
+
+// Welcome is the text of a taken sign-up.
+func Welcome(name string) string {
+	let who = if name == "" { "" } else { ", " + name }
+	"Welcome to the release notes\(who)! The next notes arrive with the next release."
+}
+
+// work is the work of each state: a submit under way sends the sign-up;
+// else a Checking email asks the subscribers. The runner starts it when
+// the entry opens and interrupts it when the entry ends.
+func work(f Form) Option[machines.Work[Signal, Subscribers]] {
+	match (f.Stage, f.Email.Verdict) {
+	case (Sending, Valid[Email] as v):
+		let s = Signup{Name: f.Name.Text, Email: v.Value, Note: f.Note}
+		Some{machines.Work{Run: func() Signal fails JoinFailed needs Subscribers {
+			try Subscribers.Join(s)
+			Joined
+		}}}
+	case (Sending, _):
+		None
+	case (_, Checking[Email] as k):
+		Some{machines.Work{Run: func() bool needs Subscribers { Subscribers.Taken(k.Value) }, OnSuccess: func(taken bool) Signal { Checked{Taken: taken} }}}
+	case (_, _):
+		None
+	}
+}
+
+// Signups is the form as a machine: its work is the check and the submit.
+type Signups machine[Form, Signal] { initial: Initial(), step: Step, work: work }
+
+// Busy reports whether f waits for an answer: a check or a submit.
+func Busy(f Form) bool {
+	match (f.Stage, f.Email.Verdict) {
+	case (Sending, _):
+		true
+	case (_, Checking[Email]):
+		true
+	case (_, _):
+		false
+	}
+}

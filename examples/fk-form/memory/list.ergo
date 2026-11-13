@@ -1,0 +1,20 @@
+// Package memory holds the in-memory provider of the sign-up contract.
+
+import fkform/signup
+import strings
+
+// List is a signup.Subscribers whose list holds three addresses, upstream's.
+// It refuses a sign-up whose address is in the .invalid domain, which
+// takes no mail, so a script can show a refused submit.
+type List {}
+
+func Taken(_ List, e signup.Email) bool {
+	let text = strings.ToLower(signup.Text(e))
+	text == "test@example.com" || text == "demo@email.com" || text == "admin@test.com"
+}
+
+func Join(_ List, s signup.Signup) fails signup.JoinFailed {
+	if strings.HasSuffix(strings.ToLower(signup.Text(s.Email)), ".invalid") {
+		return signup.JoinFailed
+	}
+}

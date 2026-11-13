@@ -1,0 +1,117 @@
+{
+  "about": "fk-form's application mutants; each is judged by the example's tests, laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "fk5-name-edit-enters", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/form.ergo",
+      "from": "\t\tStay[Form]{Next: Form{..f, Name: NameField(e.Text)}}\n",
+      "to": "\t\tEnter[Form]{Next: Form{..f, Name: NameField(e.Text)}}\n",
+      "rule": "A name edit keeps the entry, so an email check under way goes on (law StaleCheckIsDropped; a fold cannot see it).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-email-edit-stays", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/form.ergo",
+      "from": "\t\tEnter[Form]{Next: Form{..f, Email: EmailField(e.Text)}}\n",
+      "to": "\t\tStay[Form]{Next: Form{..f, Email: EmailField(e.Text)}}\n",
+      "rule": "An email edit opens a new entry, so the check of an older address ends and its answer is dropped (law StaleCheckIsDropped).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-note-edit-clears-name", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/form.ergo",
+      "from": "\t\tStay[Form]{Next: Form{..f, Note: e.Text}}\n",
+      "to": "\t\tStay[Form]{Next: Form{..f, Note: e.Text, Name: NameField(\"\")}}\n",
+      "rule": "An edit touches only its own field (law EditClearsThatFieldsError).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-edit-while-sending", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/form.ergo",
+      "from": "\tcase (Sending, NameEdited), (Sending, EmailEdited), (Sending, NoteEdited), (Sending, Submitted):\n",
+      "to": "\tcase (Sending, Submitted):\n",
+      "rule": "During a submit the form takes no edit (law EditClearsThatFieldsError).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-submit-while-checking", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/form.ergo",
+      "from": "\tcase Valid[Email]:\n\t\ttrue\n\tcase Unchecked, Checking[Email], Invalid[EmailWhy]:\n\t\tfalse\n\t}\n\tname && email\n",
+      "to": "\tcase Valid[Email], Checking[Email]:\n\t\ttrue\n\tcase Unchecked, Invalid[EmailWhy]:\n\t\tfalse\n\t}\n\tname && email\n",
+      "rule": "A submit waits for the email's check to answer (law SubmitOnlyWhenAllValid; the script always waits, so no case sees it).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-submit-while-sending", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/form.ergo",
+      "from": "\tcase (Sending, NameEdited), (Sending, EmailEdited), (Sending, NoteEdited), (Sending, Submitted):\n",
+      "to": "\tcase (Sending, NameEdited), (Sending, EmailEdited), (Sending, NoteEdited):\n",
+      "rule": "A submit while a submit is under way is ignored (law SubmitOnlyWhenAllValid).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-taken-inverted", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/form.ergo",
+      "from": "= if c.Taken {",
+      "to": "= if !c.Taken {",
+      "rule": "An address on the list is Invalid with Taken; a new one is Valid (case signup).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-no-join", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/form.ergo",
+      "from": "\t\tSome{machines.Work{Run: func() Signal fails JoinFailed needs Subscribers {\n\t\t\ttry Subscribers.Join(s)\n\t\t\tJoined\n\t\t}}}\n",
+      "to": "\t\tlet _ = s\n\t\tNone\n",
+      "rule": "A Sending form's entry owns the submit: with no work, no answer ever comes (the cases' script waits for it).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-refused-as-sent", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/form.ergo",
+      "from": "\t\tEnter[Form]{Next: Form{..f, Stage: Refused}}\n",
+      "to": "\t\tEnter[Form]{Next: Form{..f, Stage: Sent{Text: Welcome(f.Name.Text)}}}\n",
+      "rule": "A refused sign-up shows the refusal (case signup).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-name-min-three", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/fields.ergo",
+      "from": "type Name string where len(it) >= 2",
+      "to": "type Name string where len(it) >= 3",
+      "rule": "A name of two bytes is valid (case invalid: name Ad).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-name-required", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/fields.ergo",
+      "from": "\tif text == \"\" {\n\t\treturn Field[Name, TooShort]{Text: text, Verdict: Unchecked}\n\t}\n",
+      "to": "",
+      "rule": "The name is optional: an empty name is Unchecked and the form may be sent (law SubmitOnlyWhenAllValid; case signup).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-email-tab-ok", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/fields.ergo",
+      "from": "len(strings.Fields(s)) == 1 && strings.Fields(s)[0] == s",
+      "to": "!strings.Contains(s, \" \")",
+      "rule": "An address holds no space of any kind, as the pattern's \\s (law EmailIsThePattern; the cases have only the ASCII space).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-domain-dot-at-edge", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/signup/fields.ergo",
+      "from": "!strings.Contains(domain[1:len(domain)-1], \".\")",
+      "to": "!strings.Contains(domain, \".\")",
+      "rule": "The domain's dot has text on both sides (law EmailIsThePattern; case invalid).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    },
+    {
+      "name": "fk5-memory-admin-case", "origin": "wf10/fk5a",
+      "file": "examples/fk-form/memory/list.ergo",
+      "from": "text == \"admin@test.com\"",
+      "to": "signup.Text(e) == \"admin@test.com\"",
+      "rule": "The list finds an address in any case of its letters (law Subscribers.TakenIgnoresCase; no case uses this address).",
+      "anchor": {"tests": ["examples:fk-form"]}, "killers": ["examples:fk-form"]
+    }
+  ]
+}

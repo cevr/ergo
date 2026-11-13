@@ -1,0 +1,37 @@
+import strings
+
+// Signup is what a submit sends: the name typed (possibly empty), the
+// address and the note.
+type Signup { Name string, Email Email, Note string }
+
+// JoinFailed is a sign-up the list did not take.
+type JoinFailed {}
+
+// Subscribers is the contract of the release-notes list the form asks.
+type Subscribers {
+	// Taken reports whether the address is on the list already.
+	Taken(e Email) bool,
+	// Join puts a sign-up on the list.
+	Join(s Signup) fails JoinFailed,
+
+	// An address is on the list in any case of its letters, as upstream
+	// compares the lower-cased address.
+	law TakenIgnoresCase(n int) { TakenIgnoresCase(n) },
+}
+
+// Probes are the addresses the law asks.
+let Probes = []string{"test@example.com", "Demo@Email.com", "new@example.org", "admin@test.com", "a@b.invalid"}
+
+// TakenIgnoresCase is the law TakenIgnoresCase as a function.
+func TakenIgnoresCase(n int) bool needs Subscribers {
+	let text = Probes[((n%len(Probes))+len(Probes))%len(Probes)]
+	let a = ParseEmail(text) catch {
+	case Required, Malformed:
+		return false
+	}
+	let b = ParseEmail(strings.ToUpper(text)) catch {
+	case Required, Malformed:
+		return false
+	}
+	Subscribers.Taken(a) == Subscribers.Taken(b)
+}

@@ -1,0 +1,141 @@
+// Package script runs the sign-up form as an actor over a script of form
+// events, and shows the form after each one.
+
+import actor
+import fkform/signup
+import io
+import machines
+import strings
+
+// BadLine is a line the script cannot read.
+type BadLine { Line int, Why string }
+
+// Event is a read line: its text and the signal it gives.
+type Event { Text string, Signal signup.Signal }
+
+// Read reads the lines of a script. Each line is `name TEXT`, `email
+// TEXT` or `note TEXT`, which makes TEXT (the rest of the line after one
+// space, possibly empty) that field, or `submit`. A blank line or a line
+// that starts with # is skipped.
+func Read(lines []string) []Event fails BadLine {
+	let mut events = []Event{}
+	for i, line in lines {
+		let text = strings.TrimSpace(line)
+		if text == "" || strings.HasPrefix(text, "#") {
+			continue
+		}
+		let word = strings.Fields(text)[0]
+		let rest = strings.TrimPrefix(strings.TrimPrefix(text, word), " ")
+		let s = match word {
+		case "name":
+			signup.NameEdited{Text: rest}
+		case "email":
+			signup.EmailEdited{Text: rest}
+		case "note":
+			signup.NoteEdited{Text: rest}
+		case "submit":
+			if rest != "" {
+				return BadLine{Line: i + 1, Why: "submit takes no text"}
+			}
+			signup.Submitted
+		case _:
+			return BadLine{Line: i + 1, Why: "a line is name, email or note TEXT, or submit"}
+		}
+		events = events.Append(Event{Text: text, Signal: s})
+	}
+	events
+}
+
+// Run reads the script from io.Stdin and plays it against the form on the
+// Subscribers of its context. It prints each event as `> EVENT`, then the
+// form after it, and, when the event started a check or a submit, the
+// form once it has its answer. It returns the exit status: 0, or 1 when
+// the script is refused.
+func Run() int needs Console | io.Stdin | Scheduler | signup.Subscribers {
+	let mut lines = []string{}
+	for line in io.Stdin.Lines() {
+		lines = lines.Append(line)
+	}
+	let events = Read(lines) catch {
+	case BadLine as b:
+		Console.Println("? line \(b.Line): \(b.Why)")
+		return 1
+	}
+	let a = actor.StartMachine(signup.Signups{}, 8, func(o signup.Never) {})
+	let mut f = a.State()
+	Console.Println(Show(f))
+	for e in events {
+		Console.Println("> " + e.Text)
+		// Only this loop sends, so the form before the signal is f, and
+		// the decision gives the form after it.
+		let d = a.Ask(e.Signal) catch {
+		case actor.Stopped:
+			return 1
+		}
+		let next = machines.Next(f, d)
+		if next == f {
+			Console.Println("  (ignored)")
+			continue
+		}
+		f = next
+		Console.Println(Show(f))
+		if signup.Busy(f) {
+			f = actor.WaitFor(a, func(s signup.Form) bool { !signup.Busy(s) }) catch {
+			case actor.Stopped:
+				return 1
+			}
+			Console.Println(Show(f))
+		}
+	}
+	a.Stop()
+	0
+}
+
+// Show is the form in one line: each field's text and verdict, then the
+// stage.
+func Show(f signup.Form) string {
+	let name = field(f.Name.Text, nameSaid(f.Name.Verdict))
+	let email = field(f.Email.Text, emailSaid(f.Email.Verdict))
+	"name \(name) | email \(email) | note \"\(f.Note)\" | " + stage(f.Stage)
+}
+
+func field(text string, said string) string { "\"\(text)\"" + said }
+
+func nameSaid(v signup.Verdict[signup.Name, signup.TooShort]) string {
+	match v {
+	case signup.Unchecked:
+		""
+	case signup.Checking[signup.Name]:
+		" checking..."
+	case signup.Valid[signup.Name]:
+		" ok"
+	case signup.Invalid[signup.TooShort] as i:
+		" (\(signup.NameSaid(i.Why)))"
+	}
+}
+
+func emailSaid(v signup.Verdict[signup.Email, signup.EmailWhy]) string {
+	match v {
+	case signup.Unchecked:
+		""
+	case signup.Checking[signup.Email]:
+		" checking..."
+	case signup.Valid[signup.Email]:
+		" ok"
+	case signup.Invalid[signup.EmailWhy] as i:
+		" (\(signup.EmailSaid(i.Why)))"
+	}
+}
+
+func stage(s signup.Stage) string {
+	match s {
+	case signup.Editing:
+		"not sent"
+	case signup.Sending:
+		"sending..."
+	case signup.Sent as t:
+		t.Text
+	case signup.Refused:
+		"Sorry, the list could not take the sign-up. Please try again."
+	}
+}

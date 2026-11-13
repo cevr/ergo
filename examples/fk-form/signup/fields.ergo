@@ -1,0 +1,105 @@
+// Package signup is a sign-up form for a project's release notes: a name,
+// an email address and a note, each checked as it is typed, an email
+// address checked against the subscribers as well, and a submit. The
+// machine Form holds the fields and the stage of the submit; the email
+// check and the submit are the work of the states that need them. The
+// package declares the contract it needs, Subscribers, with its laws; the
+// provider lives in memory.
+
+import strings
+
+// Name is a valid name: at least two bytes. The where derives ParseName,
+// which fails Unsatisfied for a shorter text.
+type Name string where len(it) >= 2
+
+// Email is a valid email address: a local part, an @, and a domain with a
+// dot that has text on both sides, none of them holding a space or an @
+// (upstream's pattern ^[^\s@]+@[^\s@]+\.[^\s@]+$). Only ParseEmail builds
+// one.
+type Email { text string }
+
+// Text is the address as it was typed.
+func Text(e Email) string { e.text }
+
+// The reasons a field is invalid.
+type TooShort {}
+type Required {}
+type Malformed {}
+type Taken {}
+
+// EmailWhy is why an email field is invalid.
+type EmailWhy = Required | Malformed | Taken
+
+// ParseEmail is the address text, or why it is none.
+func ParseEmail(text string) Email fails Required | Malformed {
+	if text == "" {
+		return Required
+	}
+	let halves = match strings.Cut(text, "@") {
+	case Some[strings.Halves] as h:
+		h.Value
+	case None:
+		return Malformed
+	}
+	let domain = halves.After
+	if !plain(halves.Before) || !plain(domain) {
+		return Malformed
+	}
+	// some dot of the domain has text before and after it
+	if len(domain) < 3 || !strings.Contains(domain[1:len(domain)-1], ".") {
+		return Malformed
+	}
+	Email{text: text}
+}
+
+// plain reports whether s is not empty and holds no space and no @.
+func plain(s string) bool {
+	s != "" && !strings.Contains(s, "@") && len(strings.Fields(s)) == 1 && strings.Fields(s)[0] == s
+}
+
+// Verdict is what the checks say of a field: nothing yet (an optional
+// field left empty), a check of the subscribers under way for Value,
+// valid with Value, or invalid, with why.
+type Verdict[T, W] = Unchecked{} | Checking[T]{Value T} | Valid[T]{Value T} | Invalid[W]{Why W}
+
+// Field is a field of the form: the text typed, and its verdict.
+type Field[T, W] { Text string, Verdict Verdict[T, W] }
+
+// NameField is the name field for text: the name is optional, so an empty
+// text is Unchecked; a text of one byte is TooShort.
+func NameField(text string) Field[Name, TooShort] {
+	if text == "" {
+		return Field[Name, TooShort]{Text: text, Verdict: Unchecked}
+	}
+	let n = ParseName(text) catch {
+	case Unsatisfied:
+		return Field[Name, TooShort]{Text: text, Verdict: Invalid[TooShort]{Why: TooShort}}
+	}
+	Field[Name, TooShort]{Text: text, Verdict: Valid[Name]{Value: n}}
+}
+
+// EmailField is the email field for text: a valid address is Checking,
+// until the subscribers answer; else it is invalid.
+func EmailField(text string) Field[Email, EmailWhy] {
+	let e = ParseEmail(text) catch {
+	case Required as r:
+		return Field[Email, EmailWhy]{Text: text, Verdict: Invalid[EmailWhy]{Why: r}}
+	case Malformed as m:
+		return Field[Email, EmailWhy]{Text: text, Verdict: Invalid[EmailWhy]{Why: m}}
+	}
+	Field[Email, EmailWhy]{Text: text, Verdict: Checking[Email]{Value: e}}
+}
+
+// NameSaid and EmailSaid are upstream's texts of the reasons.
+func NameSaid(_ TooShort) string { "Name must be at least 2 characters" }
+
+func EmailSaid(w EmailWhy) string {
+	match w {
+	case Required:
+		"Email is required"
+	case Malformed:
+		"Please enter a valid email address"
+	case Taken:
+		"This email is already on the list"
+	}
+}

@@ -1,0 +1,30 @@
+name "" | email "" | note "" | not sent
+> email ada@example.org
+name "" | email "ada@example.org" checking... | note "" | not sent
+name "" | email "ada@example.org" ok | note "" | not sent
+> name A
+name "A" (Name must be at least 2 characters) | email "ada@example.org" ok | note "" | not sent
+> submit
+  (ignored)
+> email ada@example
+name "A" (Name must be at least 2 characters) | email "ada@example" (Please enter a valid email address) | note "" | not sent
+> email ada@.org
+name "A" (Name must be at least 2 characters) | email "ada@.org" (Please enter a valid email address) | note "" | not sent
+> email ada@example.
+name "A" (Name must be at least 2 characters) | email "ada@example." (Please enter a valid email address) | note "" | not sent
+> email ada lovelace@example.org
+name "A" (Name must be at least 2 characters) | email "ada lovelace@example.org" (Please enter a valid email address) | note "" | not sent
+> email ada@home@example.org
+name "A" (Name must be at least 2 characters) | email "ada@home@example.org" (Please enter a valid email address) | note "" | not sent
+> email @example.org
+name "A" (Name must be at least 2 characters) | email "@example.org" (Please enter a valid email address) | note "" | not sent
+> name Ad
+name "Ad" ok | email "@example.org" (Please enter a valid email address) | note "" | not sent
+> submit
+  (ignored)
+> email ada@example.org
+name "Ad" ok | email "ada@example.org" checking... | note "" | not sent
+name "Ad" ok | email "ada@example.org" ok | note "" | not sent
+> submit
+name "Ad" ok | email "ada@example.org" ok | note "" | sending...
+name "Ad" ok | email "ada@example.org" ok | note "" | Welcome to the release notes, Ad! The next notes arrive with the next release.
